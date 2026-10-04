@@ -1,0 +1,204 @@
+import assert from 'node:assert/strict';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { readFileSync, writeFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import test from 'node:test';
+import { jobIdentity as android, workflowSteps as androidSteps } from './android.mjs';
+import { jobIdentity as androidCheck, workflowSteps as androidCheckSteps } from './android-check.mjs';
+import { jobIdentity as ios, workflowSteps as iosSteps } from './ios.mjs';
+import { jobIdentity as iosCheck, workflowSteps as iosCheckSteps } from './ios-check.mjs';
+import { runWorkflow } from '../workflow.mjs';
+
+const jobs = [
+  [android, androidSteps], [androidCheck, androidCheckSteps],
+  [ios, iosSteps], [iosCheck, iosCheckSteps],
+];
+
+test('CitizenApp四个CI Job保留准确独立身份且共用唯一执行器', async () => {
+  assert.deepEqual(jobs.map(([identity]) => `${identity.pipeline}:${identity.job}`).sort(), [
+    'citizenapp.android.ci:android', 'citizenapp.android.ci:check',
+    'citizenapp.ios.ci:check', 'citizenapp.ios.ci:ios',
+  ]);
+  for (const [, steps] of jobs) {
+    for (const step of Object.values(steps)) {
+      const result = spawnSync('/bin/bash', ['-n'], { input: step.source, encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+    }
+  }
+  await assert.rejects(runWorkflow(ios, iosSteps, {}, {
+    argumentsList: ['workflow-step', '999'], environment: { GITHUB_REPOSITORY: 'crcfrcn/citizenapp' },
+  }), /阶段无效/u);
+  await assert.rejects(runWorkflow(ios, iosSteps, {}, {
+    argumentsList: ['workflow-step', '0'], environment: { GITHUB_REPOSITORY: 'crcfrcn/citizenchain' },
+  }), /仓库身份/u);
+});
+
+test('CitizenApp CI Workflow只引用六层内的唯一扁平文件', () => {
+  for (const [platform, names] of [['android', ['android.mjs', 'android-check.mjs']], ['ios', ['ios.mjs', 'ios-check.mjs']]]) {
+    const workflow = readFileSync(new URL(`../../.github/workflows/citizenapp-${platform}-ci.yml`, import.meta.url), 'utf8');
+    for (const name of names) assert.match(workflow, new RegExp(`scripts/ci/${name.replace('.', '[.]')}`, 'u'));
+    assert.doesNotMatch(workflow, /scripts\/ci\/(?:android|ios)\//u);
+  }
+  for (const source of ['./android.mjs', './android-check.mjs', './ios.mjs', './ios-check.mjs']
+    .map(path => readFileSync(new URL(path, import.meta.url), 'utf8'))) {
+    assert.doesNotMatch(source, /function cacheIdentity|function runExactWorkflowStep/u);
+  }
+});
+
+
+test('CitizenApp消费视图实际绑定SDK标准入口且CI重用不丢失Pub状态', () => {
+  const source = fileURLToPath(new URL('../../', import.meta.url)).replace(/\/$/u, '');
+  const work = realpathSync(mkdtempSync(join(tmpdir(), 'citizenapp-view-')));
+  const sdk = join(work, 'git-sources/citizen_sdk');
+  const script = join(source, 'scripts/citizenapp-view.mjs');
+  const flutter = join(work, 'flutter');
+  for (const name of ['gradlew', 'gradlew.bat', 'gradle/wrapper/gradle-wrapper.jar']) {
+    const path = join(flutter, 'bin/cache/artifacts/gradle_wrapper', name);
+    mkdirSync(join(path, '..'), { recursive: true });
+    writeFileSync(path, 'synthetic wrapper ' + name);
+  }
+  const run = command => spawnSync(process.execPath, [script, command,
+    '--source-root', source, '--work-root', work], { encoding: 'utf8',
+      env: { ...process.env, FLUTTER_ROOT: flutter } });
+  try {
+    const created = run('create-android');
+    assert.equal(created.status, 0, created.stderr);
+    const project = created.stdout.trim();
+    const sdkView = join(work, 'source-view', sdk.replace(/^\/+/, ''));
+    const entry = join(sdkView, 'android/src/main/kotlin/org/citizen/sdk/CitizenSdkPlugin.kt');
+    assert.equal(realpathSync(entry), join(sdk, 'android/src/main/kotlin/CitizenSdkPlugin.kt'));
+    assert.equal(existsSync(join(sdkView, 'android/src/main/kotlin/CitizenSdkPlugin.kt')), false);
+    for (const name of ['gradlew', 'gradlew.bat', 'gradle/wrapper/gradle-wrapper.jar']) {
+      const output = join(project, 'android', name);
+      assert.equal(lstatSync(output).isSymbolicLink(), false);
+      assert.deepEqual(readFileSync(output), readFileSync(join(flutter, 'bin/cache/artifacts/gradle_wrapper', name)));
+    }
+    const settings = join(project, 'android/settings.gradle.kts');
+    assert.equal(lstatSync(settings).isSymbolicLink(), false);
+    assert.deepEqual(readFileSync(settings), readFileSync(join(source, 'android/settings.gradle.kts')));
+    mkdirSync(join(project, '.dart_tool'));
+    const config = join(project, '.dart_tool/package_config.json');
+    const chatSource = join(work, 'git-sources/tatachat_sdk');
+    assert.equal(existsSync(chatSource), true, '声明的聊天SDK必须实际按Git锁取得');
+    const chatView = join(work, 'source-view', realpathSync(chatSource).replace(/^\/+/, ''));
+    if (chatView) {
+      const plugin = join(chatView, 'android/src/main/java/chat/tata/sdk/TataChatSdkPlugin.java');
+      assert.equal(realpathSync(plugin), join(realpathSync(chatSource), 'android/TataChatSdkPlugin.java'));
+      assert.equal(existsSync(join(chatView, 'android/TataChatSdkPlugin.java')), false);
+    }
+    const contents = JSON.stringify({ configVersion: 2, packages: [
+      { name: 'citizen_sdk', rootUri: pathToFileURL(sdkView + '/').href },
+      ...(chatView ? [{ name: 'tatachat_sdk', rootUri: pathToFileURL(chatView + '/').href }] : []),
+    ] });
+    writeFileSync(config, contents);
+    assert.equal(run('verify').status, 0);
+    assert.equal(readFileSync(config, 'utf8'), contents);
+    writeFileSync(config, JSON.stringify({ packages: [
+      { name: 'citizen_sdk', rootUri: pathToFileURL(sdk + '/').href },
+    ] }));
+    const rejected = run('verify');
+    assert.notEqual(rejected.status, 0);
+    assert.match(rejected.stderr, /实际SDK依赖未绑定/u);
+  } finally { rmSync(work, { recursive: true }); }
+});
+
+test('CitizenApp各CI的Pub及构建使用同轮视图', () => {
+  for (const steps of [androidCheckSteps, iosCheckSteps]) {
+    assert.match(steps['8'].source, /citizenapp-view\.mjs.*create/u);
+    assert.match(steps['8'].source, /CITIZENAPP_TEST_PROJECT_ROOT/u);
+    assert.match(steps['9'].source, /citizenapp-test\.sh/u);
+  }
+  assert.match(androidSteps['8'].source, /create-android/u);
+  assert.match(androidSteps['9'].source, /project="\$CITIZENAPP_PROJECT_ROOT"/u);
+  assert.match(androidSteps['10'].source, /cd "\$CITIZENAPP_PROJECT_ROOT"/u);
+  const runner = readFileSync(new URL('../citizenapp-test.sh', import.meta.url), 'utf8');
+  assert.match(runner, /"\$VIEW_SCRIPT" verify/u);
+});
+
+// 路径边界夹具独立持有临时Git对象；此最小接口只支撑布局拒绝用例。
+// 上方真实消费用例仍按产品Git锁取得完整SDK，核对公开标准入口与Pub实际解析。
+function seedFixtureDependency(source, work) {
+  const sdk = join(work, 'git-sources/citizen_sdk');
+  mkdirSync(join(sdk, 'scripts'), { recursive: true });
+  writeFileSync(join(sdk, 'pubspec.yaml'), 'name: citizen_sdk\nversion: 1.0.0\n');
+  writeFileSync(join(sdk, 'pubspec.lock'), 'packages: {}\n');
+  writeFileSync(join(sdk, 'scripts/release.mjs'),
+    "import {mkdirSync,copyFileSync} from 'node:fs';import {join} from 'node:path';\n" +
+    "export function createFlutterSourceView(source,output) {mkdirSync(output,{recursive:true});" +
+    "for(const name of ['pubspec.yaml','pubspec.lock'])copyFileSync(join(source,name),join(output,name));return output;}\n");
+  const git = args => execFileSync('/usr/bin/git', ['-c','user.name=Fixture',
+    '-c','user.email=fixture@example.invalid','-c','commit.gpgsign=false',
+    '-c','core.hooksPath=/dev/null','-C',sdk,...args], {encoding:'utf8',
+      env:{...process.env,GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null'}}).trim();
+  git(['init','--quiet']);git(['remote','add','origin','https://github.com/crcfrcn/citizensdk.git']);
+  git(['add','.']);git(['commit','--quiet','-m','fixture']);
+  const sha=git(['rev-parse','HEAD']);git(['checkout','--quiet','--detach',sha]);
+  writeFileSync(join(source,'pubspec.yaml'), 'name: fixture\ndependencies:\n  citizen_sdk:\n    git:\n' +
+    '      url: https://github.com/crcfrcn/citizensdk.git\n      ref: '+sha+'\n      path: .\n');
+  writeFileSync(join(source,'pubspec.lock'), 'packages:\n  citizen_sdk:\n    dependency: "direct main"\n    description:\n' +
+    '      url: "https://github.com/crcfrcn/citizensdk.git"\n      ref: "'+sha+'"\n      resolved-ref: "'+sha+
+    '"\n      path: "."\n    source: git\n    version: "1.0.0"\n');
+}
+
+// 直接执行视图装配，覆盖缺少输入、旧平台入口冲突和源目录回写三个失败边界。
+test('CitizenApp扁平平台输入缺失或重复时拒绝生成工程', () => {
+  const fixture = realpathSync(mkdtempSync(join(tmpdir(), 'citizenapp-platform-')));
+  const source = join(fixture, 'source'), work = join(fixture, 'work');
+  const script = fileURLToPath(new URL('../citizenapp-view.mjs', import.meta.url));
+  mkdirSync(join(source, 'ios'), { recursive: true });
+  mkdirSync(join(source, 'android'));
+  seedFixtureDependency(source, work);
+  const run = output => spawnSync(process.execPath, [script, 'create', '--source-root', source,
+    '--work-root', output], { encoding: 'utf8' });
+  try {
+    assert.match(run(work).stderr, /平台输入缺少/u);
+    for (const name of ['Runner', 'RunnerUITests']) writeFileSync(join(source, `ios/${name}.xcscheme`), '<Scheme/>');
+    for (const name of ['gradle-wrapper.properties']) writeFileSync(join(source, 'android', name), 'fixture');
+    assert.equal(run(work).status, 0);
+    const projected = join(work, 'source-view', source.replace(/^\/+/, ''));
+    assert.equal(existsSync(join(projected, 'android/gradlew')), false);
+    const missingTools = spawnSync(process.execPath, [script, 'create-android',
+      '--source-root', source, '--work-root', work], { encoding: 'utf8',
+        env: { ...process.env, FLUTTER_ROOT: join(fixture, 'absent-flutter') } });
+    assert.notEqual(missingTools.status, 0);
+    assert.match(run(join(source, 'output')).stderr, /必须分离/u);
+    const legacy = join(source, 'ios/Runner.xcodeproj/xcshareddata/xcschemes');
+    mkdirSync(legacy, { recursive: true });
+    writeFileSync(join(legacy, 'Runner.xcscheme'), '<Scheme/>');
+    assert.match(run(work).stderr, /平台入口重复/u);
+  } finally { rmSync(fixture, { recursive: true }); }
+});
+
+
+// 金标入口实际验真链快照；夹具只提供合成Git提交和无业务含义JSON，不读取正式仓或网络。
+test('公民链金标输入拒绝主分支、脏输入和错误来源', async () => {
+  const { mkdtempSync, realpathSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+  const { join } = await import('node:path'); const { tmpdir } = await import('node:os');
+  const { spawnSync } = await import('node:child_process');
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'app-chain-input-')));
+  const chain = join(base, 'chain'), work = join(base, 'work'); mkdirSync(chain); mkdirSync(work);
+  const git = args => {
+    const result = spawnSync('git', ['-c', 'core.hooksPath=/dev/null', '-C', chain, ...args], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr); return result.stdout.trim();
+  };
+  const run = value => spawnSync(process.execPath, [new URL('../citizenapp-test-inputs.mjs', import.meta.url).pathname, value], {
+    encoding: 'utf8', env: { ...process.env, CITIZENCHAIN_ROOT: chain },
+  });
+  try {
+    for (const dir of ['runtime/primitives/tests/fixtures', 'runtime/tests/fixtures']) mkdirSync(join(chain, dir), { recursive: true });
+    for (const rel of ['runtime/primitives/tests/fixtures/scale_codec_vectors.json', 'runtime/tests/fixtures/role_permission.json']) writeFileSync(join(chain, rel), '{}\n');
+    git(['init', '--quiet', '-b', 'main']); git(['remote', 'add', 'origin', 'https://github.com/crcfrcn/citizenchain.git']);
+    git(['add', '.']); git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', 'fixture']);
+    assert.notEqual(run(work).status, 0); // 正式main没有被当成只读detached测试输入。
+    git(['checkout', '--quiet', '--detach']);
+    assert.equal(run(work).status, 0);
+    assert.notEqual(run('relative').status, 0);
+    git(['remote', 'set-url', 'origin', 'https://github.com/crcfrcn/citizenapp.git']);
+    assert.notEqual(run(work).status, 0);
+    git(['remote', 'set-url', 'origin', 'https://github.com/crcfrcn/citizenchain.git']);
+    writeFileSync(join(chain, 'runtime/tests/fixtures/role_permission.json'), 'changed');
+    assert.notEqual(run(work).status, 0);
+  } finally { rmSync(base, { recursive: true, force: true }); }
+});

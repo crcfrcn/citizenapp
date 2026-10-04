@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "repository": "citizenapp",
+  "workflows": [
+    "citizenapp.android.ci",
+    "citizenapp.android.release",
+    "citizenapp.ios.ci",
+    "citizenapp.ios.release"
+  ],
+  "node_tests": [
+    "scripts/ci/cache.test.mjs",
+    "scripts/ci/jobs.test.mjs",
+    "scripts/release/jobs.test.mjs",
+    "scripts/release/version.test.mjs",
+    "test/release_manifest.test.mjs"
+  ],
+  "checks": [
+    "repository-contracts",
+    "cross-platform-contracts"
+  ],
+  "tools": {
+    "node": "25.2.1",
+    "actionlint": "1.7.12",
+    "rust": null
+  },
+  "platform_forbidden_values": [
+    "macOS ARM64",
+    "macos-arm64",
+    "macos_arm64"
+  ]
+}

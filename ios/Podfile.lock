@@ -1,0 +1,280 @@
+PODS:
+  - audio_session (0.0.1):
+    - Flutter
+  - camera_avfoundation (0.0.1):
+    - Flutter
+  - citizen_sdk (1.0.0):
+    - Flutter
+    - FlutterMacOS
+  - emoji_picker_flutter (0.0.1):
+    - Flutter
+  - Firebase/CoreOnly (12.15.0):
+    - FirebaseCore (~> 12.15.0)
+  - Firebase/Messaging (12.15.0):
+    - Firebase/CoreOnly
+    - FirebaseMessaging (~> 12.15.0)
+  - firebase_core (4.11.0):
+    - Firebase/CoreOnly (= 12.15.0)
+    - Flutter
+  - firebase_messaging (16.4.1):
+    - Firebase/Messaging (= 12.15.0)
+    - firebase_core
+    - Flutter
+  - FirebaseCore (12.15.0):
+    - FirebaseCoreInternal (~> 12.15.0)
+    - GoogleUtilities/Environment (~> 8.1)
+    - GoogleUtilities/Logger (~> 8.1)
+  - FirebaseCoreInternal (12.15.0):
+    - "GoogleUtilities/NSData+zlib (~> 8.1)"
+  - FirebaseInstallations (12.15.0):
+    - FirebaseCore (~> 12.15.0)
+    - GoogleUtilities/Environment (~> 8.1)
+    - GoogleUtilities/UserDefaults (~> 8.1)
+    - PromisesObjC (~> 2.4)
+  - FirebaseMessaging (12.15.0):
+    - FirebaseCore (~> 12.15.0)
+    - FirebaseInstallations (~> 12.15.0)
+    - GoogleDataTransport (~> 10.1)
+    - GoogleUtilities/AppDelegateSwizzler (~> 8.1)
+    - GoogleUtilities/Environment (~> 8.1)
+    - GoogleUtilities/Reachability (~> 8.1)
+    - GoogleUtilities/UserDefaults (~> 8.1)
+    - nanopb (~> 3.30910.0)
+  - Flutter (1.0.0)
+  - flutter_image_compress_common (1.0.0):
+    - Flutter
+    - SDWebImage
+    - SDWebImageWebPCoder
+  - flutter_keyboard_visibility_temp_fork (0.0.1):
+    - Flutter
+  - flutter_secure_storage_darwin (10.0.0):
+    - Flutter
+    - FlutterMacOS
+  - flutter_webrtc (1.4.0):
+    - Flutter
+    - WebRTC-SDK (= 144.7559.09)
+  - GoogleDataTransport (10.1.0):
+    - nanopb (~> 3.30910.0)
+    - PromisesObjC (~> 2.4)
+  - GoogleUtilities/AppDelegateSwizzler (8.1.2):
+    - GoogleUtilities/Environment
+    - GoogleUtilities/Logger
+    - GoogleUtilities/Network
+    - GoogleUtilities/Privacy
+  - GoogleUtilities/Environment (8.1.2):
+    - GoogleUtilities/Privacy
+  - GoogleUtilities/Logger (8.1.2):
+    - GoogleUtilities/Environment
+    - GoogleUtilities/Privacy
+  - GoogleUtilities/Network (8.1.2):
+    - GoogleUtilities/Logger
+    - "GoogleUtilities/NSData+zlib"
+    - GoogleUtilities/Privacy
+    - GoogleUtilities/Reachability
+  - "GoogleUtilities/NSData+zlib (8.1.2)":
+    - GoogleUtilities/Privacy
+  - GoogleUtilities/Privacy (8.1.2)
+  - GoogleUtilities/Reachability (8.1.2):
+    - GoogleUtilities/Logger
+    - GoogleUtilities/Privacy
+  - GoogleUtilities/UserDefaults (8.1.2):
+    - GoogleUtilities/Logger
+    - GoogleUtilities/Privacy
+  - image_picker_ios (0.0.1):
+    - Flutter
+  - is_ios_simulator (0.0.1):
+    - Flutter
+  - isar_community_flutter_libs (1.0.0):
+    - Flutter
+  - just_audio (0.0.1):
+    - Flutter
+    - FlutterMacOS
+  - libwebp (1.5.0):
+    - libwebp/demux (= 1.5.0)
+    - libwebp/mux (= 1.5.0)
+    - libwebp/sharpyuv (= 1.5.0)
+    - libwebp/webp (= 1.5.0)
+  - libwebp/demux (1.5.0):
+    - libwebp/webp
+  - libwebp/mux (1.5.0):
+    - libwebp/demux
+  - libwebp/sharpyuv (1.5.0)
+  - libwebp/webp (1.5.0):
+    - libwebp/sharpyuv
+  - local_auth_darwin (0.0.1):
+    - Flutter
+    - FlutterMacOS
+  - nanopb (3.30910.0):
+    - nanopb/decode (= 3.30910.0)
+    - nanopb/encode (= 3.30910.0)
+  - nanopb/decode (3.30910.0)
+  - nanopb/encode (3.30910.0)
+  - photo_manager (3.12.0):
+    - Flutter
+    - FlutterMacOS
+  - PromisesObjC (2.4.1)
+  - quill_native_bridge_ios (0.0.1):
+    - Flutter
+  - record_ios (2.0.0):
+    - Flutter
+  - saver_gallery (0.0.1):
+    - Flutter
+  - SDWebImage (5.21.7):
+    - SDWebImage/Core (= 5.21.7)
+  - SDWebImage/Core (5.21.7)
+  - SDWebImageWebPCoder (0.15.0):
+    - libwebp (~> 1.0)
+    - SDWebImage/Core (~> 5.17)
+  - shared_preferences_foundation (0.0.1):
+    - Flutter
+    - FlutterMacOS
+  - tatachat_sdk (1.0.0):
+    - Flutter
+  - url_launcher_ios (0.0.1):
+    - Flutter
+  - video_player_avfoundation (0.0.1):
+    - Flutter
+    - FlutterMacOS
+  - WebRTC-SDK (144.7559.09)
+  - webview_flutter_wkwebview (0.0.1):
+    - Flutter
+    - FlutterMacOS
+
+DEPENDENCIES:
+  - audio_session (from `.symlinks/plugins/audio_session/ios`)
+  - camera_avfoundation (from `.symlinks/plugins/camera_avfoundation/ios`)
+  - citizen_sdk (from `.symlinks/plugins/citizen_sdk/darwin`)
+  - emoji_picker_flutter (from `.symlinks/plugins/emoji_picker_flutter/ios`)
+  - firebase_core (from `.symlinks/plugins/firebase_core/ios`)
+  - firebase_messaging (from `.symlinks/plugins/firebase_messaging/ios`)
+  - Flutter (from `Flutter`)
+  - flutter_image_compress_common (from `.symlinks/plugins/flutter_image_compress_common/ios`)
+  - flutter_keyboard_visibility_temp_fork (from `.symlinks/plugins/flutter_keyboard_visibility_temp_fork/ios`)
+  - flutter_secure_storage_darwin (from `.symlinks/plugins/flutter_secure_storage_darwin/darwin`)
+  - flutter_webrtc (from `.symlinks/plugins/flutter_webrtc/ios`)
+  - image_picker_ios (from `.symlinks/plugins/image_picker_ios/ios`)
+  - is_ios_simulator (from `.symlinks/plugins/is_ios_simulator/ios`)
+  - isar_community_flutter_libs (from `.symlinks/plugins/isar_community_flutter_libs/ios`)
+  - just_audio (from `.symlinks/plugins/just_audio/darwin`)
+  - local_auth_darwin (from `.symlinks/plugins/local_auth_darwin/darwin`)
+  - photo_manager (from `.symlinks/plugins/photo_manager/darwin`)
+  - quill_native_bridge_ios (from `.symlinks/plugins/quill_native_bridge_ios/ios`)
+  - record_ios (from `.symlinks/plugins/record_ios/ios`)
+  - saver_gallery (from `.symlinks/plugins/saver_gallery/ios`)
+  - shared_preferences_foundation (from `.symlinks/plugins/shared_preferences_foundation/darwin`)
+  - tatachat_sdk (from `.symlinks/plugins/tatachat_sdk/ios`)
+  - url_launcher_ios (from `.symlinks/plugins/url_launcher_ios/ios`)
+  - video_player_avfoundation (from `.symlinks/plugins/video_player_avfoundation/darwin`)
+  - webview_flutter_wkwebview (from `.symlinks/plugins/webview_flutter_wkwebview/darwin`)
+
+SPEC REPOS:
+  trunk:
+    - Firebase
+    - FirebaseCore
+    - FirebaseCoreInternal
+    - FirebaseInstallations
+    - FirebaseMessaging
+    - GoogleDataTransport
+    - GoogleUtilities
+    - libwebp
+    - nanopb
+    - PromisesObjC
+    - SDWebImage
+    - SDWebImageWebPCoder
+    - WebRTC-SDK
+
+EXTERNAL SOURCES:
+  audio_session:
+    :path: ".symlinks/plugins/audio_session/ios"
+  camera_avfoundation:
+    :path: ".symlinks/plugins/camera_avfoundation/ios"
+  citizen_sdk:
+    :path: ".symlinks/plugins/citizen_sdk/darwin"
+  emoji_picker_flutter:
+    :path: ".symlinks/plugins/emoji_picker_flutter/ios"
+  firebase_core:
+    :path: ".symlinks/plugins/firebase_core/ios"
+  firebase_messaging:
+    :path: ".symlinks/plugins/firebase_messaging/ios"
+  Flutter:
+    :path: Flutter
+  flutter_image_compress_common:
+    :path: ".symlinks/plugins/flutter_image_compress_common/ios"
+  flutter_keyboard_visibility_temp_fork:
+    :path: ".symlinks/plugins/flutter_keyboard_visibility_temp_fork/ios"
+  flutter_secure_storage_darwin:
+    :path: ".symlinks/plugins/flutter_secure_storage_darwin/darwin"
+  flutter_webrtc:
+    :path: ".symlinks/plugins/flutter_webrtc/ios"
+  image_picker_ios:
+    :path: ".symlinks/plugins/image_picker_ios/ios"
+  is_ios_simulator:
+    :path: ".symlinks/plugins/is_ios_simulator/ios"
+  isar_community_flutter_libs:
+    :path: ".symlinks/plugins/isar_community_flutter_libs/ios"
+  just_audio:
+    :path: ".symlinks/plugins/just_audio/darwin"
+  local_auth_darwin:
+    :path: ".symlinks/plugins/local_auth_darwin/darwin"
+  photo_manager:
+    :path: ".symlinks/plugins/photo_manager/darwin"
+  quill_native_bridge_ios:
+    :path: ".symlinks/plugins/quill_native_bridge_ios/ios"
+  record_ios:
+    :path: ".symlinks/plugins/record_ios/ios"
+  saver_gallery:
+    :path: ".symlinks/plugins/saver_gallery/ios"
+  shared_preferences_foundation:
+    :path: ".symlinks/plugins/shared_preferences_foundation/darwin"
+  tatachat_sdk:
+    :path: ".symlinks/plugins/tatachat_sdk/ios"
+  url_launcher_ios:
+    :path: ".symlinks/plugins/url_launcher_ios/ios"
+  video_player_avfoundation:
+    :path: ".symlinks/plugins/video_player_avfoundation/darwin"
+  webview_flutter_wkwebview:
+    :path: ".symlinks/plugins/webview_flutter_wkwebview/darwin"
+
+SPEC CHECKSUMS:
+  audio_session: 9bb7f6c970f21241b19f5a3658097ae459681ba0
+  camera_avfoundation: 968a9a5323c79a99c166ad9d7866bfd2047b5a9b
+  citizen_sdk: 6e7938d0cbb7010983a65b0d49d9d5212f6440f9
+  emoji_picker_flutter: ece213fc274bdddefb77d502d33080dc54e616cc
+  Firebase: a8539b633d474fbeb654c7043f9c1649e274045b
+  firebase_core: fc23178af8ea070194d09031ae4198a9608a3d22
+  firebase_messaging: 870b2939a7f7cc52bc38ca0250127c45b42f4bad
+  FirebaseCore: 2e86a4ea1684d4381707069e4a6d89ac808e901e
+  FirebaseCoreInternal: 6ab6a02c94446c026d2cf35cf5383842ebaa4992
+  FirebaseInstallations: eb29ccbf64eaedf86fd5b2ccc7fabde567660b52
+  FirebaseMessaging: 40017d7bc8457ee295b0f41d480a80fdabc9994e
+  Flutter: 71a624a5bc0c04062bf19101d501e466baf2fb47
+  flutter_image_compress_common: 11d5dcfb36f4ded92320bfa896261813a073240e
+  flutter_keyboard_visibility_temp_fork: 95b2d534bacf6ac62e7fcbe5c2a9e2c2a17ce06f
+  flutter_secure_storage_darwin: acdb3f316ed05a3e68f856e0353b133eec373a23
+  flutter_webrtc: 3ee86aa10e0313c38c93fdb215dd86e77014f96a
+  GoogleDataTransport: aae35b7ea0c09004c3797d53c8c41f66f219d6a7
+  GoogleUtilities: 766ace00c6b10d8148408f329d10c4f051931850
+  image_picker_ios: e0ece4aa2a75771a7de3fa735d26d90817041326
+  is_ios_simulator: 1125d89fceb232f353d3ec3602c9a67da6e6aada
+  isar_community_flutter_libs: bede843185a61a05ff364a05c9b23209523f7e0d
+  just_audio: 4e391f57b79cad2b0674030a00453ca5ce817eed
+  libwebp: 02b23773aedb6ff1fd38cec7a77b81414c6842a8
+  local_auth_darwin: c3ee6cce0a8d56be34c8ccb66ba31f7f180aaebb
+  nanopb: fad817b59e0457d11a5dfbde799381cd727c1275
+  photo_manager: c303e4476f6c220274119f0212a7753e45edd4a2
+  PromisesObjC: 752c3227f599e3467650e47ea36f433eeb10c273
+  quill_native_bridge_ios: f47af4b14e7757968486641656c5d23250cee521
+  record_ios: 390a30c7caaf8b5d0fb1cb1d2fd5064b48b4520c
+  saver_gallery: 44507a28b0ace1a0446473fb8cbd36179402f5af
+  SDWebImage: e9fc87c1aab89a8ab1bbd74eba378c6f53be8abf
+  SDWebImageWebPCoder: 0e06e365080397465cc73a7a9b472d8a3bd0f377
+  shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
+  tatachat_sdk: b06f76cf8d2811a351e3e21822a4202cffeec93a
+  url_launcher_ios: 7a95fa5b60cc718a708b8f2966718e93db0cef1b
+  video_player_avfoundation: 3453f792138786248960ca029747fcd9f318ef52
+  WebRTC-SDK: e6006119cd730d6315d875e4a421b6cc8bb88833
+  webview_flutter_wkwebview: 8ebf4fded22593026f7dbff1fbff31ea98573c8d
+
+PODFILE CHECKSUM: 5a1c665332c2c890cb49939c3869b79dff171be8
+
+COCOAPODS: 1.17.0

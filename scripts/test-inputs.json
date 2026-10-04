@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "citizenchain": {
+    "url": "https://github.com/crcfrcn/citizenchain.git",
+    "ref": "main",
+    "paths": [
+      "runtime/primitives/tests/fixtures/scale_codec_vectors.json",
+      "runtime/tests/fixtures/role_permission.json"
+    ]
+  }
+}

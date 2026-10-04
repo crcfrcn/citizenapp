@@ -1,0 +1,63 @@
+#!/usr/bin/env node
+import { startWorkflow } from '../workflow.mjs';
+import { cacheCommands } from './cache.mjs';
+
+// 本文件只保存一个准确CitizenApp远端Job身份及其平台步骤；缓存与执行器均使用唯一公共实现。
+export const jobIdentity = Object.freeze({"pipeline":"citizenapp.android.ci","job":"check"});
+export const workflowSteps = Object.freeze({
+  "1": {
+    "shell": "bash",
+    "source": "node \"$GITHUB_WORKSPACE/scripts/ci/android-check.mjs\" prepare"
+  },
+  "2": {
+    "shell": "bash",
+    "source": "node \"$GITHUB_WORKSPACE/scripts/ci/android-check.mjs\" wire"
+  },
+  "3": {
+    "shell": "bash",
+    "source": "node \"$GITHUB_WORKSPACE/scripts/ci/android-check.mjs\" sanitize"
+  },
+  "4": {
+    "shell": "bash",
+    "source": "node scripts/check-logo-assets.mjs"
+  },
+  "5": {
+    "shell": "bash",
+    "source": "test \"$(git rev-parse HEAD)\" = \"$GMB_SOURCE_SHA\"\n"
+  },
+  "6": {
+    "shell": "bash",
+    "source": "# 版本只读受控工具登记，不读取产品依赖合同中的副本。\nprintf 'version=3.47.2\n' >> \"$GITHUB_OUTPUT\"\n"
+  },
+  "7": {
+    "shell": "bash",
+    "source": "# 安装后先验真，再统一准备目标平台缓存与受控修订。\nflutter --version --machine >/dev/null\nplatform=\"android\"\nflutter --version >/dev/null\n"
+  },
+  "8": {
+    "shell": "bash",
+    "source": "set -euo pipefail\nwork=\"$RUNNER_TEMP/citizenapp-check-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT\"\nmkdir -p \"$work\"\nwork=\"$(cd \"$work\" && pwd -P)\"\nproject=\"$(node \"$GITHUB_WORKSPACE/scripts/citizenapp-view.mjs\" create --source-root \"$GITHUB_WORKSPACE\" --work-root \"$work\")\"\n(cd \"$project\" && flutter pub get --enforce-lockfile)\n{\n  printf 'CITIZENAPP_TEST_WORK_DIR=%s\\n' \"$work\"\n  printf 'CITIZENAPP_TEST_PROJECT_ROOT=%s\\n' \"$project\"\n} >> \"$GITHUB_ENV\"\n"
+  },
+  "9": {
+    "shell": "bash",
+    "source": "./scripts/citizenapp-test.sh"
+  },
+  "10": {
+    "shell": "bash",
+    "source": "node \"$GITHUB_WORKSPACE/scripts/ci/android-check.mjs\" sanitize\nnode \"$GITHUB_WORKSPACE/scripts/ci/android-check.mjs\" record\n"
+  },
+  "11": {
+    "shell": "bash",
+    "source": "node \"$GITHUB_WORKSPACE/scripts/ci/android-check.mjs\" prune"
+  },
+  "12": {
+    "shell": "bash",
+    "source": "node \"$GITHUB_WORKSPACE/scripts/ci/android-check.mjs\" sanitize\nnode \"$GITHUB_WORKSPACE/scripts/ci/android-check.mjs\" record\n"
+  },
+  "13": {
+    "shell": "bash",
+    "source": "node \"$GITHUB_WORKSPACE/scripts/ci/android-check.mjs\" prune"
+  }
+});
+
+startWorkflow(import.meta.url, jobIdentity, workflowSteps, cacheCommands);
+
