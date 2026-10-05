@@ -608,6 +608,15 @@ abstract interface class LocalKeyBlobStore {
   });
 }
 
+/// 设备登记证明只含公开绑定和签名；按身份版本隔离，删除账户时一并擦除。
+String deviceRegistrationProofKey(
+  String cidNumber,
+  int bindingRevision,
+  String accountId,
+) =>
+    'citizenapp_device_registration_proof:'
+    '${Uri.encodeComponent(cidNumber)}:$bindingRevision:$accountId';
+
 /// CitizenApp 公开绑定与设备密文的唯一安全存储适配。
 ///
 /// compare-and-set 用于换绑意图与首次准备记录；跨实例序列门确保读、比较、写不交错。

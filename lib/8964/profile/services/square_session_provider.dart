@@ -20,17 +20,19 @@ enum SquareSessionStatus {
   serviceUnavailable,
   networkUnavailable,
   deviceUnavailable,
+  identityChanged,
 }
 
 extension SquareSessionStatusText on SquareSessionStatus {
   String get message => switch (this) {
     SquareSessionStatus.ready => '',
     SquareSessionStatus.noWallet => '请先添加钱包账户',
-    SquareSessionStatus.identityUnavailable => '当前钱包身份尚未同步或绑定，请稍后重试',
+    SquareSessionStatus.identityUnavailable => '身份同步中，请稍后重试',
     SquareSessionStatus.identityUnbound => '当前默认钱包账户尚未绑定 CID',
     SquareSessionStatus.serviceUnavailable => '公民服务暂时不可用，请稍后重试',
     SquareSessionStatus.networkUnavailable => '网络连接失败，请检查网络后重试',
     SquareSessionStatus.deviceUnavailable => '钱包设备认证暂时不可用，请稍后重试',
+    SquareSessionStatus.identityChanged => '当前用户已变化，请重试',
   };
 }
 
@@ -86,7 +88,13 @@ class SquareSessionProvider {
     required bool registerMissingDevice,
   }) async {
     final current = await _currentUser.resolve();
-    if (current == null || current.accountId.isEmpty) return null;
+    if (current == null) return null;
+    if (current.accountId.isEmpty) {
+      throw const AccountSecurityException(
+        '默认账户信息不可用',
+        code: 'identityChanged',
+      );
+    }
     final session = await _client.ensureSession(
       accountId: current.accountId,
       signLoginPayload: (context, loginMessage) async {
@@ -112,15 +120,13 @@ class SquareSessionProvider {
         }
       },
     );
+    if ((await _currentUser.resolve())?.accountId != current.accountId) {
+      throw const AccountSecurityException(
+        '当前用户已变化，请重试',
+        code: 'identityChanged',
+      );
+    }
     await _activateSessionBinding(session);
-    final binding = await _bindingForContext(
-      SquareLoginContext(
-        cidNumber: session.cidNumber,
-        bindingRevision: session.bindingRevision,
-        accountId: session.accountId,
-      ),
-    );
-    await _accountSecurity.prepareFirstDeviceForBinding(binding);
     return session;
   }
 
@@ -185,9 +191,11 @@ class SquareSessionProvider {
       return const SquareSessionResolution(
         SquareSessionStatus.networkUnavailable,
       );
-    } on AccountSecurityException {
-      return const SquareSessionResolution(
-        SquareSessionStatus.deviceUnavailable,
+    } on AccountSecurityException catch (error) {
+      return SquareSessionResolution(
+        error.code == 'identityChanged'
+            ? SquareSessionStatus.identityChanged
+            : SquareSessionStatus.deviceUnavailable,
       );
     } on Exception {
       return const SquareSessionResolution(
@@ -202,7 +210,13 @@ class SquareSessionProvider {
   /// in-flight 去重，避免把每次页面进入都放大成新的登录挑战。
   Future<SquareSession?> refreshSession() async {
     final current = await _currentUser.resolve();
-    if (current == null || current.accountId.isEmpty) return null;
+    if (current == null) return null;
+    if (current.accountId.isEmpty) {
+      throw const AccountSecurityException(
+        '默认账户信息不可用',
+        code: 'identityChanged',
+      );
+    }
     _client.clearSession(current.accountId);
     return ensureSession();
   }

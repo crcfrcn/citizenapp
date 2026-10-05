@@ -23,7 +23,7 @@ test('CitizenApp四个CI Job保留准确独立身份且共用唯一执行器', a
   ]);
   for (const [, steps] of jobs) {
     for (const step of Object.values(steps)) {
-      const result = spawnSync('/bin/bash', ['-n'], { input: step.source, encoding: 'utf8' });
+      const result = spawnSync('bash', ['-n'], { input: step.source, encoding: 'utf8' });
       assert.equal(result.status, 0, result.stderr);
     }
   }
@@ -128,7 +128,7 @@ function seedFixtureDependency(source, work) {
     "import {mkdirSync,copyFileSync} from 'node:fs';import {join} from 'node:path';\n" +
     "export function createFlutterSourceView(source,output) {mkdirSync(output,{recursive:true});" +
     "for(const name of ['pubspec.yaml','pubspec.lock'])copyFileSync(join(source,name),join(output,name));return output;}\n");
-  const git = args => execFileSync('/usr/bin/git', ['-c','user.name=Fixture',
+  const git = args => execFileSync('git', ['-c','user.name=Fixture',
     '-c','user.email=fixture@example.invalid','-c','commit.gpgsign=false',
     '-c','core.hooksPath=/dev/null','-C',sdk,...args], {encoding:'utf8',
       env:{...process.env,GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null'}}).trim();
@@ -157,6 +157,11 @@ test('CitizenApp扁平平台输入缺失或重复时拒绝生成工程', () => {
     for (const name of ['Runner', 'RunnerUITests']) writeFileSync(join(source, `ios/${name}.xcscheme`), '<Scheme/>');
     for (const name of ['gradle-wrapper.properties']) writeFileSync(join(source, 'android', name), 'fixture');
     assert.equal(run(work).status, 0);
+    const unavailableGit = spawnSync(process.execPath, [script, 'dependencies',
+      '--source-root', source, '--work-root', work], { encoding: 'utf8',
+      env: { ...process.env, PATH: '' } });
+    assert.notEqual(unavailableGit.status, 0);
+    assert.match(unavailableGit.stderr, /git ENOENT/u);
     const projected = join(work, 'source-view', source.replace(/^\/+/, ''));
     assert.equal(existsSync(join(projected, 'android/gradlew')), false);
     const missingTools = spawnSync(process.execPath, [script, 'create-android',

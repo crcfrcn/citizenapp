@@ -6,7 +6,8 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
-import 'package:citizenapp/security/chain_bootstrap_api.dart' show HttpsOnlyClient;
+import 'package:citizenapp/security/chain_bootstrap_api.dart'
+    show HttpsOnlyClient;
 
 import 'package:citizenapp/8964/square_models.dart';
 import 'package:citizenapp/8964/profile/models/citizen_profile.dart';
@@ -584,9 +585,7 @@ class SquareApiConfig {
       throw UnsupportedError('$baseUrlDefineName 必须是完整的 Worker API URL');
     }
     if (uri.scheme != 'https' || uri.userInfo.isNotEmpty || uri.hasFragment) {
-      throw UnsupportedError(
-        '$baseUrlDefineName 只允许无用户信息及片段的 HTTPS',
-      );
+      throw UnsupportedError('$baseUrlDefineName 只允许无用户信息及片段的 HTTPS');
     }
     return trimmed;
   }
@@ -849,6 +848,8 @@ class SquareApiClient
     required int issuedAt,
     required String bindingSignatureHex,
     String? turnstileToken,
+    String? recoveryChallengeId,
+    String? recoverySignatureHex,
   }) async {
     await _postJson('/square/auth/device/register', {
       'account_id': accountId,
@@ -856,7 +857,44 @@ class SquareApiClient
       'issued_at': issuedAt,
       'binding_signature': bindingSignatureHex,
       'turnstile_token': ?turnstileToken,
+      'recovery_challenge_id': ?recoveryChallengeId,
+      'recovery_signature': ?recoverySignatureHex,
     });
+  }
+
+  /// 登记恢复使用独立挑战；硬件P-256静默签名，不重新打开钱包金库。
+  Future<({String challengeId, Uint8List message})>
+  deviceRegistrationChallenge({
+    required String accountId,
+    required String cidNumber,
+    required int bindingRevision,
+  }) async {
+    final challenge = await _postJson('/square/auth/challenge', {
+      'account_id': accountId,
+      'device_registration': true,
+    });
+    final id = challenge['challenge_id'];
+    final payload = challenge['signing_payload_hex'];
+    if (id is! String ||
+        !id.startsWith('sqdr_') ||
+        payload is! String ||
+        challenge['account_id'] != accountId ||
+        challenge['cid_number'] != cidNumber ||
+        challenge['binding_revision'] != bindingRevision) {
+      throw const SquareApiException(
+        '设备恢复挑战与当前绑定不一致',
+        errorCode: 'invalid_device_recovery',
+      );
+    }
+    return (
+      challengeId: id,
+      message: await CitizenSigning.encodePayload(
+        CitizenSigningPayload.message(
+          opTag: kOpSignSquareLogin,
+          scalePayload: hexToBytes(payload),
+        ),
+      ),
+    );
   }
 
   /// 读取 CitizenServe 的平台会员快照。该方法只解析响应，不修改页面或聊天全局状态；

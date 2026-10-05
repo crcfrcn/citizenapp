@@ -253,7 +253,10 @@ class _UserProfilePageState extends State<UserProfilePage> {
   }
 
   /// 本人普通进入和数据通知只读数据库；远端请求集中在主动刷新。
-  Future<void> _load({bool localOnly = false}) async {
+  Future<void> _load({
+    bool localOnly = false,
+    bool propagateFailure = false,
+  }) async {
     final generation = ++_profileLoadGeneration;
     try {
       final local = await _cache.read(widget.cidNumber);
@@ -274,6 +277,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
       await _loadProfileMedia(fresh);
       unawaited(_resolveOwnAccount(fresh.accountId));
     } catch (_) {
+      if (propagateFailure) rethrow;
       if (mounted && _profile == null) _snack('内容加载失败，请下拉刷新');
     }
   }
@@ -288,7 +292,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
     });
     try {
       // 服务不可用也必须先重读本地；本人普通进入依旧只读本地，不隐式同步。
-      await _load(localOnly: true);
+      await _load(localOnly: true, propagateFailure: true);
       final session = await _ensureSession(refresh: true);
       if (session == null) throw StateError('当前无法建立服务会话');
       if (widget.isSelf && session.cidNumber != widget.cidNumber) {
@@ -316,7 +320,9 @@ class _UserProfilePageState extends State<UserProfilePage> {
           ),
       ]);
       if (!current()) return;
-      await _load(localOnly: true);
+      await _load(localOnly: true, propagateFailure: true);
+      if (widget.isSelf) await _api.fetchLocalPublishedPosts(widget.cidNumber);
+      if (!current()) return;
       if (mounted) {
         setState(() => _postsRevision++);
         _snack('刷新完成');
@@ -381,8 +387,9 @@ class _UserProfilePageState extends State<UserProfilePage> {
     final current = _profile;
     if (current == null) return;
     final session = _session ?? await _ensureSession();
+    if (!mounted) return;
     if (session == null) {
-      _snack('请先在「我的 → 我的钱包」创建热钱包');
+      _snack(_sessionStatus?.message ?? '公民服务暂时不可用，请稍后重试');
       return;
     }
     final wasFollowing = current.isFollowing;
@@ -434,8 +441,9 @@ class _UserProfilePageState extends State<UserProfilePage> {
       return;
     }
     final session = _session ?? await _ensureSession();
+    if (!mounted) return;
     if (session == null) {
-      _snack('请先在「我的 → 我的钱包」创建热钱包');
+      _snack(_sessionStatus?.message ?? '公民服务暂时不可用，请稍后重试');
       return;
     }
     final wasNotifying = current.isNotifying;

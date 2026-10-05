@@ -1,7 +1,9 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:citizenapp/8964/services/square_api_client.dart';
 import 'package:citizenapp/security/device_subkey.dart';
+import 'package:citizenapp/security/local_data_key.dart';
 
 /// 对设备绑定证明消息（`signing_message` 的 32 字节摘要）做 sr25519 主钥签名，
 /// 返回 `0x` hex 签名。
@@ -67,15 +69,44 @@ class DeviceSubkeyRegistrar {
     DeviceSubkey? deviceSubkey,
     SquareApiClient? apiClient,
     TurnstileTokenProvider? turnstileToken,
-  })  : _subkey = deviceSubkey ?? DeviceSubkey(),
-        _api = apiClient ?? SquareApiClient(),
-        _turnstileToken = turnstileToken;
+    LocalKeyBlobStore? proofStore,
+  }) : _subkey = deviceSubkey ?? DeviceSubkey(),
+       _api = apiClient ?? SquareApiClient(),
+       _turnstileToken = turnstileToken,
+       _proofStore = proofStore ?? SecureStorageLocalKeyBlobStore();
 
   final DeviceSubkey _subkey;
   final SquareApiClient _api;
   final TurnstileTokenProvider? _turnstileToken;
+  final LocalKeyBlobStore _proofStore;
+  final Map<String, Future<void>> _flights = {};
 
   Future<void> register({
+    required String cidNumber,
+    required int bindingRevision,
+    required String accountId,
+    required DeviceBindingSigner signBinding,
+    int? issuedAtMillis,
+  }) {
+    final key = deviceRegistrationProofKey(
+      cidNumber,
+      bindingRevision,
+      accountId,
+    );
+    return _flights.putIfAbsent(key, () {
+      return _register(
+        cidNumber: cidNumber,
+        bindingRevision: bindingRevision,
+        accountId: accountId,
+        signBinding: signBinding,
+        issuedAtMillis: issuedAtMillis,
+      ).whenComplete(() {
+        _flights.remove(key);
+      });
+    });
+  }
+
+  Future<void> _register({
     required String cidNumber,
     required int bindingRevision,
     required String accountId,
@@ -85,42 +116,116 @@ class DeviceSubkeyRegistrar {
     // publicKeyHex 返回裸未压缩点：签名消息 SCALE preimage 用裸（保持逐字节与后端一致），
     // 跨端 wire 文本统一带 `0x`（ADR-041），后端入口一次 require 0x + strip。
     final publicKey = await _subkey.publicKeyHex(cidNumber);
-    final issuedAt = issuedAtMillis ?? DateTime.now().millisecondsSinceEpoch;
-    final payload = await encodeDeviceBindingPayload(
-      cidNumber: cidNumber,
-      bindingRevision: bindingRevision,
-      accountId: accountId,
-      p256PublicKeyHex: publicKey,
-      issuedAtMillis: issuedAt,
-    );
-    final message = await buildDeviceBindingSigningMessage(
+    final proofKey = deviceRegistrationProofKey(
       cidNumber,
       bindingRevision,
       accountId,
-      publicKey,
-      issuedAt,
     );
-    final signatureHex = await signBinding(
-      payload: payload,
-      signingMessage: message,
-      devicePublicKey: publicKey,
-      issuedAtMillis: issuedAt,
-    );
-    final tokenProvider = _turnstileToken;
-    if (tokenProvider == null) {
-      throw const SquareApiException(
-        '设备安全验证未配置',
-        errorCode: 'turnstile_ui_unavailable',
+    final rawProof = await _proofStore.read(proofKey);
+    int issuedAt;
+    String signatureHex;
+    if (rawProof != null) {
+      // 损坏、换身份或硬件公钥变化时失败关闭；不得以重签掩盖丢失材料。
+      try {
+        final proof = jsonDecode(rawProof);
+        if (proof is! Map<String, dynamic> ||
+            proof['cid_number'] != cidNumber ||
+            proof['binding_revision'] != bindingRevision ||
+            proof['account_id'] != accountId ||
+            proof['public_key'] != publicKey ||
+            proof['issued_at'] is! int ||
+            (proof['issued_at'] as int) <= 0 ||
+            proof['signature'] is! String ||
+            !RegExp(r'^0x[0-9a-fA-F]{128}$')
+                .hasMatch(proof['signature'] as String)) {
+          throw const FormatException();
+        }
+        issuedAt = proof['issued_at'] as int;
+        signatureHex = proof['signature'] as String;
+      } on FormatException {
+        throw const SquareApiException(
+          '本机设备登记证明不可用',
+          errorCode: 'device_proof_invalid',
+        );
+      }
+    } else {
+      issuedAt = issuedAtMillis ?? DateTime.now().millisecondsSinceEpoch;
+      final payload = await encodeDeviceBindingPayload(
+        cidNumber: cidNumber,
+        bindingRevision: bindingRevision,
+        accountId: accountId,
+        p256PublicKeyHex: publicKey,
+        issuedAtMillis: issuedAt,
       );
+      final message = await buildDeviceBindingSigningMessage(
+        cidNumber,
+        bindingRevision,
+        accountId,
+        publicKey,
+        issuedAt,
+      );
+      signatureHex = await signBinding(
+        payload: payload,
+        signingMessage: message,
+        devicePublicKey: publicKey,
+        issuedAtMillis: issuedAt,
+      );
+      if (!RegExp(r'^0x[0-9a-fA-F]{128}$').hasMatch(signatureHex)) {
+        throw const SquareApiException(
+          '设备登记签名无效',
+          errorCode: 'device_proof_invalid',
+        );
+      }
+      final proof = jsonEncode({
+        'cid_number': cidNumber,
+        'binding_revision': bindingRevision,
+        'account_id': accountId,
+        'public_key': publicKey,
+        'issued_at': issuedAt,
+        'signature': signatureHex,
+      });
+      // 在任何网络提交/验证页之前落盘；重启只复用这份证明，不读取钱包根材料。
+      if (!await _proofStore.compareAndSet(
+            proofKey,
+            expected: null,
+            next: proof,
+          ) ||
+          await _proofStore.read(proofKey) != proof) {
+        throw const SquareApiException(
+          '设备登记证明保存失败',
+          errorCode: 'device_proof_storage',
+        );
+      }
     }
-    final turnstileToken = await tokenProvider();
-    if (turnstileToken == null ||
-        turnstileToken.length < _turnstileTokenMinLength ||
-        turnstileToken.length > _turnstileTokenMaxLength) {
-      throw const SquareApiException(
-        '设备安全验证未完成',
-        errorCode: 'turnstile_token_invalid',
+    String? recoveryChallengeId;
+    String? recoverySignature;
+    String? turnstileToken;
+    if (rawProof != null) {
+      final challenge = await _api.deviceRegistrationChallenge(
+        accountId: accountId,
+        cidNumber: cidNumber,
+        bindingRevision: bindingRevision,
       );
+      recoveryChallengeId = challenge.challengeId;
+      recoverySignature =
+          '0x${await _subkey.signRawHex(cidNumber, challenge.message)}';
+    } else {
+      final tokenProvider = _turnstileToken;
+      if (tokenProvider == null) {
+        throw const SquareApiException(
+          '设备安全验证未配置',
+          errorCode: 'turnstile_ui_unavailable',
+        );
+      }
+      turnstileToken = await tokenProvider();
+      if (turnstileToken == null ||
+          turnstileToken.length < _turnstileTokenMinLength ||
+          turnstileToken.length > _turnstileTokenMaxLength) {
+        throw const SquareApiException(
+          '设备安全验证未完成',
+          errorCode: 'turnstile_token_invalid',
+        );
+      }
     }
     await _api.registerDeviceSubkey(
       accountId: accountId,
@@ -128,6 +233,9 @@ class DeviceSubkeyRegistrar {
       issuedAt: issuedAt,
       bindingSignatureHex: signatureHex,
       turnstileToken: turnstileToken,
+      recoveryChallengeId: recoveryChallengeId,
+      recoverySignatureHex: recoverySignature,
     );
+    // 保留原证明以恢复丢失回执；过期原证明必须同时通过新鲜P-256持钥挑战。
   }
 }

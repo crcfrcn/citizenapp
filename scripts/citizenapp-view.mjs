@@ -27,8 +27,9 @@ function dependencyField(block, key) {
   return value.startsWith('"') && value.endsWith('"') ? JSON.parse(value)
     : value.startsWith("'") && value.endsWith("'") ? value.slice(1, -1) : value;
 }
+// Git只由调用方受控PATH交付；缺失直接失败，不回退系统目录。
 function sourceGit(root, args) {
-  return execFileSync(process.platform === 'win32' ? 'git' : '/usr/bin/git', ['-c', 'credential.helper=', '-c', 'core.hooksPath=/dev/null',
+  return execFileSync('git', ['-c', 'credential.helper=', '-c', 'core.hooksPath=/dev/null',
     '-c', 'protocol.file.allow=never', '-c', 'gc.auto=0', '-C', root, ...args], {
     encoding: 'utf8', timeout: 180000, maxBuffer: 1024 * 1024,
     stdio: ['ignore', 'pipe', 'pipe'],

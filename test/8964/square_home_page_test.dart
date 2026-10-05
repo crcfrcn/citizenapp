@@ -632,12 +632,13 @@ void main() {
       arcCenter.dx - centers[1].dx,
       closeTo(arcCenter.dy - centers[1].dy, 0.5),
     );
-    // 完整“公文”入口的下边距等于“视频”圆形入口的右边距。
+    // 完整入口在设备安全区内比较等距；保留实际安全区和原有一像素容差。
     final pageSize = tester.getSize(find.byType(SquareHomePage));
     final documentBottom = tester.getBottomRight(find.text('公文')).dy;
     final videoRight = tester.getTopRight(itemFinders[2]).dx;
     expect(
-      pageSize.height - documentBottom,
+      pageSize.height - documentBottom -
+          MediaQuery.paddingOf(tester.element(find.byType(SquareHomePage))).bottom,
       closeTo(pageSize.width - videoRight, 1),
     );
 
@@ -786,7 +787,8 @@ void main() {
       tester
           .getSize(find.byKey(const ValueKey('compose-fixed-identity-bar')))
           .height,
-      closeTo(45, 0.5),
+      // 原布局固定基准50，按当前设备宽度缩放，不能固定为桌面夹具的45。
+      closeTo(AppLayout.scaled(tester.element(addSectionFinder), 50), 0.5),
     );
     expect(
       tester.getCenter(inlineFinder).dx,

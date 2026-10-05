@@ -77,12 +77,16 @@ class _SessionApi extends SquareApiClient {
 
 class _SessionWalletManager implements AccountSecurityService {
   int registrationCalls = 0;
+  bool rejectPrivatePreparation = false;
   bool prepared = false;
   @override
   Future<void> prepareFirstDeviceForBinding(
     AccountDataBinding binding, {
     bool registerDevice = false,
   }) async {
+    if (!registerDevice && rejectPrivatePreparation) {
+      throw const AccountSecurityException('private keys unavailable');
+    }
     if (!prepared && registerDevice) registrationCalls++;
     prepared = true;
   }
@@ -139,6 +143,36 @@ class _SessionIdentityCache implements CurrentUserContext {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class _ProofStore implements LocalKeyBlobStore {
+  final entries = <String, String>{};
+  @override
+  Future<String?> read(String key) async => entries[key];
+  @override
+  Future<void> write(String key, String value) async {
+    entries[key] = value;
+  }
+
+  @override
+  Future<void> delete(String key) async {
+    entries.remove(key);
+  }
+
+  @override
+  Future<bool> compareAndSet(
+    String key, {
+    required String? expected,
+    String? next,
+  }) async {
+    if (entries[key] != expected) return false;
+    if (next == null) {
+      entries.remove(key);
+    } else {
+      entries[key] = next;
+    }
+    return true;
+  }
+}
+
 void main() {
   TestCitizenSdkHarness();
   test('注册 wire 的 p256_public_key 带 0x 前缀（ADR-041），公钥本身裸', () async {
@@ -160,6 +194,7 @@ void main() {
     );
 
     final registrar = DeviceSubkeyRegistrar(
+      proofStore: _ProofStore(),
       deviceSubkey: _FakeDeviceSubkey(barePub),
       apiClient: api,
       turnstileToken: () async => 'turnstile-device-bind-token',
@@ -174,7 +209,7 @@ void main() {
         required signingMessage,
         required devicePublicKey,
         required issuedAtMillis,
-      }) async => '0xBINDINGSIG',
+      }) async => '0x${'bb' * 64}',
       issuedAtMillis: 1700000000000,
     );
 
@@ -182,8 +217,96 @@ void main() {
     expect(registerBody, isNotNull);
     expect(registerBody!['p256_public_key'], '0x$barePub');
     expect(registerBody!['account_id'], accountId);
-    expect(registerBody!['binding_signature'], '0xBINDINGSIG');
+    expect(registerBody!['binding_signature'], '0x${'bb' * 64}');
     expect(registerBody!['turnstile_token'], 'turnstile-device-bind-token');
+  });
+
+  test('网络失败后新实例复用首次签名，并用硬件挑战恢复而不重复验证', () async {
+    final store = _ProofStore();
+    var failNetwork = true;
+    var signatures = 0;
+    var verifications = 0;
+    final bodies = <Map<String, dynamic>>[];
+    final api = SquareApiClient(
+      baseUrl: 'https://square.test',
+      httpClient: MockClient((request) async {
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        if (request.url.path == '/square/auth/challenge') {
+          expect(body['device_registration'], true);
+          return http.Response(
+            jsonEncode({
+              'challenge_id': 'sqdr_recovery',
+              'account_id': _accountId,
+              'cid_number': _binding.cidNumber,
+              'binding_revision': 1,
+              'signing_payload_hex': '0x00',
+            }),
+            200,
+          );
+        }
+        bodies.add(body);
+        if (failNetwork) throw StateError('network');
+        return http.Response('{"ok":true}', 200);
+      }),
+    );
+    DeviceSubkeyRegistrar registrar({String? publicKey}) =>
+        DeviceSubkeyRegistrar(
+          proofStore: store,
+          deviceSubkey: _FakeDeviceSubkey(publicKey ?? '04${'aa' * 64}'),
+          apiClient: api,
+          turnstileToken: () async {
+            verifications++;
+            return 'turnstile-device-bind-token';
+          },
+        );
+    Future<void> register(DeviceSubkeyRegistrar value) => value.register(
+      cidNumber: _binding.cidNumber,
+      bindingRevision: 1,
+      accountId: _accountId,
+      issuedAtMillis: 1700000000000,
+      signBinding:
+          ({
+            required payload,
+            required signingMessage,
+            required devicePublicKey,
+            required issuedAtMillis,
+          }) async {
+            signatures++;
+            return '0x${'bb' * 64}';
+          },
+    );
+    await expectLater(register(registrar()), throwsStateError);
+    failNetwork = false;
+    await register(registrar());
+    expect(signatures, 1);
+    expect(verifications, 1);
+    expect(bodies.last['issued_at'], bodies.first['issued_at']);
+    expect(bodies.last['binding_signature'], bodies.first['binding_signature']);
+    expect(bodies.last['recovery_challenge_id'], 'sqdr_recovery');
+    expect(bodies.last['recovery_signature'], '0x${'aa' * 64}');
+    expect(bodies.last.containsKey('turnstile_token'), false);
+    await expectLater(
+      register(registrar(publicKey: '04${'cc' * 64}')),
+      throwsA(
+        isA<SquareApiException>().having(
+          (error) => error.errorCode,
+          'code',
+          'device_proof_invalid',
+        ),
+      ),
+    );
+    expect(signatures, 1);
+    store.entries[deviceRegistrationProofKey(
+          _binding.cidNumber,
+          1,
+          _accountId,
+        )] =
+        '[]';
+    await expectLater(
+      register(registrar()),
+      throwsA(isA<SquareApiException>()),
+    );
+    expect(signatures, 1);
   });
 
   test('冷启动等待根导航器就绪后只展示一次设备验证', () async {
@@ -237,7 +360,8 @@ void main() {
   });
 
   test('广场既有会话静默，缺设备协调一次首次准备', () async {
-    final existingWallet = _SessionWalletManager();
+    final existingWallet = _SessionWalletManager()
+      ..rejectPrivatePreparation = true;
     final existing = SquareSessionProvider(
       client: _SessionApi(deviceMissing: false),
       accountSecurity: existingWallet,

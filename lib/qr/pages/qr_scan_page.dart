@@ -13,6 +13,8 @@ import 'package:citizenapp/my/user/contact_service.dart';
 import 'package:citizenapp/my/myid/current_user_context.dart';
 import 'package:citizenapp/8964/profile/services/square_session_provider.dart';
 import 'package:citizenapp/security/account_security_service.dart';
+import 'package:citizenapp/security/device_data_key_vault.dart';
+import 'package:citizenapp/8964/services/square_api_client.dart';
 import 'package:citizenapp/ui/app_layout.dart';
 
 /// 扫码结果：收款码预填数据。
@@ -56,6 +58,7 @@ Future<ContactImportResult> addUserQrContact({
 enum QrScanMode {
   /// 冷导入专用；SDK限定账户码，不回退业务码解析器。
   coldAccountImport,
+
   /// 扫码支付：按当前入口只识别 QR_V1 收款码、用户码与账户码。
   transfer,
 
@@ -117,8 +120,10 @@ class QrScanPage extends StatefulWidget {
 class _QrScanPageState extends State<QrScanPage> {
   CitizenQrCapture? _capture;
   CitizenQr get _qr => widget.qr ?? context.read<CitizenSdk>().qr;
-  CitizenQrScanPurpose get _capturePurpose => widget.mode == QrScanMode.coldAccountImport
-      ? CitizenQrScanPurpose.coldAccountImport : CitizenQrScanPurpose.generalScan;
+  CitizenQrScanPurpose get _capturePurpose =>
+      widget.mode == QrScanMode.coldAccountImport
+      ? CitizenQrScanPurpose.coldAccountImport
+      : CitizenQrScanPurpose.generalScan;
   final QrRouter _router = QrRouter();
   UserContactService? _contactService;
   CidByAccountIdResolver? _cidResolver;
@@ -144,16 +149,24 @@ class _QrScanPageState extends State<QrScanPage> {
     final image = await picker.pickImage(source: ImageSource.gallery);
     if (image == null || !mounted || _closing) return;
     try {
-      final results = await _qr.decodeImage(await image.readAsBytes(), _capturePurpose);
+      final results = await _qr.decodeImage(
+        await image.readAsBytes(),
+        _capturePurpose,
+      );
       if (results.isEmpty) {
-        throw const ScannerFailure(kind: ScannerFailureKind.noQrCode, message: '图片中未识别到二维码');
+        throw const ScannerFailure(
+          kind: ScannerFailureKind.noQrCode,
+          message: '图片中未识别到二维码',
+        );
       }
       if (!mounted || _closing) return;
       await _handleCode(results.first.canonicalText);
     } on ScannerFailure catch (failure) {
       _showScannerFailure(failure);
     } on CitizenSdkException catch (error) {
-      _showScannerFailure(ScannerFailure.fromDeviceError(error, operation: '扫码'));
+      _showScannerFailure(
+        ScannerFailure.fromDeviceError(error, operation: '扫码'),
+      );
     }
   }
 
@@ -168,7 +181,9 @@ class _QrScanPageState extends State<QrScanPage> {
     } on ScannerFailure catch (failure) {
       _showScannerFailure(failure);
     } on CitizenSdkException catch (error) {
-      _showScannerFailure(ScannerFailure.fromDeviceError(error, operation: '扫码'));
+      _showScannerFailure(
+        ScannerFailure.fromDeviceError(error, operation: '扫码'),
+      );
     }
   }
 
@@ -271,7 +286,9 @@ class _QrScanPageState extends State<QrScanPage> {
         try {
           await _capture?.resume();
         } on CitizenSdkException catch (error) {
-          _showScannerFailure(ScannerFailure.fromDeviceError(error, operation: '继续扫码'));
+          _showScannerFailure(
+            ScannerFailure.fromDeviceError(error, operation: '继续扫码'),
+          );
         }
       }
     }
@@ -341,9 +358,8 @@ class _QrScanPageState extends State<QrScanPage> {
     final message = failure.kind == ScannerFailureKind.noQrCode
         ? '未识别到二维码'
         : failure.message;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   /// 页级返回：先置 _closing，让 _handleCode 的 finally 不再重启相机
@@ -420,8 +436,17 @@ class _QrScanPageState extends State<QrScanPage> {
       await showDialog<void>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('无法识别二维码'),
-          content: Text('$e'),
+          title: Text(e is FormatException ? '无法识别二维码' : '添加联系人失败'),
+          content: Text(
+            e is FormatException
+                ? '用户码或其身份绑定无效，请使用对方最新的用户码'
+                : e is DeviceDataKeyVaultException ||
+                      e is AccountSecurityException
+                ? '本机私有数据暂不可用，请检查设备准备状态后重试'
+                : e is SquareApiException
+                ? '公民服务暂不可用，请稍后重试'
+                : '联系人身份验证或保存失败，请稍后重试',
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
@@ -584,8 +609,9 @@ class _QrScanPageState extends State<QrScanPage> {
               child: Text(
                 _hintText,
                 style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: AppLayout.scaled(context, 14)),
+                  color: Colors.white70,
+                  fontSize: AppLayout.scaled(context, 14),
+                ),
               ),
             ),
           ),
@@ -595,9 +621,10 @@ class _QrScanPageState extends State<QrScanPage> {
             alignment: Alignment.bottomCenter,
             child: Padding(
               padding: EdgeInsets.only(
-                  bottom: AppLayout.scaled(context, 60),
-                  left: AppLayout.scaled(context, 48),
-                  right: AppLayout.scaled(context, 48)),
+                bottom: AppLayout.scaled(context, 60),
+                left: AppLayout.scaled(context, 48),
+                right: AppLayout.scaled(context, 48),
+              ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -614,8 +641,9 @@ class _QrScanPageState extends State<QrScanPage> {
                       Text(
                         '相册',
                         style: TextStyle(
-                            color: Colors.white,
-                            fontSize: AppLayout.scaled(context, 12)),
+                          color: Colors.white,
+                          fontSize: AppLayout.scaled(context, 12),
+                        ),
                       ),
                     ],
                   ),

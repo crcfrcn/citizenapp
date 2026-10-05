@@ -5,6 +5,12 @@ import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:crypto/crypto.dart' hide Hmac;
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:citizenapp/8964/services/device_subkey_registrar.dart';
+import 'package:citizenapp/8964/services/square_api_client.dart';
+import 'package:citizenapp/security/device_subkey.dart';
+import 'package:citizenapp/my/myid/current_user_context.dart';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -20,6 +26,7 @@ class _MemoryStore implements LocalKeyBlobStore {
   int deviceWrites = 0;
   int? failDeviceWriteAt;
   bool retainRecoveryMarker = false;
+  bool dropAuthorizationClaim = false;
 
   @override
   Future<String?> read(String key) async => entries[key];
@@ -40,8 +47,9 @@ class _MemoryStore implements LocalKeyBlobStore {
   @override
   Future<void> delete(String key) async {
     if (retainRecoveryMarker &&
-        key.startsWith('device_data_key_recovery_pending_'))
+        key.startsWith('device_data_key_recovery_pending_')) {
       return;
+    }
     entries.remove(key);
   }
 
@@ -52,6 +60,10 @@ class _MemoryStore implements LocalKeyBlobStore {
     String? next,
   }) async {
     if (entries[key] != expected) return false;
+    if (dropAuthorizationClaim &&
+        next != null &&
+        next.contains('"state":"authorizing"'))
+      return true;
     if (next == null) {
       entries.remove(key);
     } else {
@@ -123,6 +135,20 @@ final class _DerivingWallet implements CitizenSdkWallet, CitizenSdkWalletBatch {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+final class _RegistrationSubkey extends DeviceSubkey {
+  _RegistrationSubkey({this.failPublicKey = false});
+  final bool failPublicKey;
+  @override
+  Future<String> publicKeyHex(String cidNumber) async {
+    if (failPublicKey) throw StateError('测试硬件暂不可用');
+    return '04${'aa' * 64}';
+  }
+
+  @override
+  Future<String> signRawHex(String cidNumber, Uint8List message) async =>
+      'aa' * 64;
 }
 
 final class _MemoryDeviceVault extends DeviceDataKeyVault {
@@ -527,40 +553,50 @@ void main() {
     late _MemoryStore store;
     late _MemoryDeviceVault vault;
     late AccountSecurityService service;
-    AccountSecurityService makeService({bool registrationFails = false}) =>
-        AccountSecurityService(
-          wallet: wallet,
-          signing: _CleanupSigning(),
-          blobStore: store,
-          deviceDataKeyVault: vault,
-          subkeyRegistrar:
-              ({
-                required cidNumber,
-                required bindingRevision,
-                required accountId,
-                required signBinding,
-              }) async {
-                final signature = await signBinding(
-                  payload: Uint8List(32),
-                  signingMessage: Uint8List(32),
-                  devicePublicKey: 'synthetic',
-                  issuedAtMillis: 1,
-                );
-                expect(signature, hasLength(130));
-                if (registrationFails) throw StateError('测试网络失败');
-              },
-          coldDeviceBindingSigner: ({
-            required binding,
-            required payload,
-            required signingMessage,
-            required devicePublicKey,
-            required issuedAtMillis,
-          }) async => throw StateError('不应冷签'),
-          coldAccountDataKeyProvider: ({
-            required binding,
-            required requests,
-          }) async => throw StateError('不应冷派生'),
-        );
+    AccountSecurityService makeService({
+      bool registrationFails = false,
+      bool publicKeyFails = false,
+    }) => AccountSecurityService(
+      wallet: wallet,
+      signing: _CleanupSigning(),
+      blobStore: store,
+      deviceDataKeyVault: vault,
+      subkeyRegistrar: DeviceSubkeyRegistrar(
+        proofStore: store,
+        deviceSubkey: _RegistrationSubkey(failPublicKey: publicKeyFails),
+        turnstileToken: () async => 'turnstile-device-bind-token',
+        apiClient: SquareApiClient(
+          baseUrl: 'https://square.test',
+          httpClient: MockClient((request) async {
+            if (request.url.path == '/square/auth/challenge') {
+              return http.Response(
+                jsonEncode({
+                  'challenge_id': 'sqdr_test',
+                  'account_id': firstAccountId,
+                  'cid_number': cidNumber,
+                  'binding_revision': 1,
+                  'signing_payload_hex': '0x00',
+                }),
+                200,
+              );
+            }
+            if (registrationFails) throw StateError('测试网络失败');
+            return http.Response('{"ok":true}', 200);
+          }),
+        ),
+      ).register,
+      coldDeviceBindingSigner: ({
+        required binding,
+        required payload,
+        required signingMessage,
+        required devicePublicKey,
+        required issuedAtMillis,
+      }) async => throw StateError('不应冷签'),
+      coldAccountDataKeyProvider: ({
+        required binding,
+        required requests,
+      }) async => throw StateError('不应冷派生'),
+    );
     const chatRequest = <DataKeyRequest>[
       (purpose: LocalKeyPurpose.chat, context: null),
     ];
@@ -633,6 +669,45 @@ void main() {
         restarted.dispose();
       }
     });
+    test('授权状态未读回时禁止打开钱包，恢复存储后只认证一次', () async {
+      store.dropAuthorizationClaim = true;
+      await expectLater(
+        service.prepareFirstDeviceForBinding(firstBinding),
+        throwsA(
+          isA<AccountSecurityException>().having(
+            (e) => e.code,
+            'code',
+            'secureStoreUnavailable',
+          ),
+        ),
+      );
+      expect(wallet.batchCalls, 0);
+      store.dropAuthorizationClaim = false;
+      await service.prepareFirstDeviceForBinding(firstBinding);
+      expect(wallet.batchCalls, 1);
+    });
+    test('认证前硬件失败可重试，钱包仍只授权一次', () async {
+      final failing = makeService(publicKeyFails: true);
+      final restarted = makeService();
+      try {
+        await expectLater(
+          failing.prepareFirstDeviceForBinding(
+            firstBinding,
+            registerDevice: true,
+          ),
+          throwsA(isA<StateError>()),
+        );
+        expect(wallet.batchCalls, 0);
+        await restarted.prepareFirstDeviceForBinding(
+          firstBinding,
+          registerDevice: true,
+        );
+        expect(wallet.batchCalls, 1);
+      } finally {
+        failing.dispose();
+        restarted.dispose();
+      }
+    });
     test('登记与七用途派生一次授权，网络失败保留本地钥，重启不重新派生', () async {
       final registering = makeService(registrationFails: true);
       try {
@@ -652,18 +727,9 @@ void main() {
         keys.single.fillRange(0, 32, 0);
         final restarted = makeService();
         try {
-          await expectLater(
-            restarted.prepareFirstDeviceForBinding(
-              firstBinding,
-              registerDevice: true,
-            ),
-            throwsA(
-              isA<AccountSecurityException>().having(
-                (e) => e.code,
-                'code',
-                'authenticationRequired',
-              ),
-            ),
+          await restarted.prepareFirstDeviceForBinding(
+            firstBinding,
+            registerDevice: true,
           );
           expect(wallet.batchCalls, 1);
         } finally {
@@ -702,17 +768,18 @@ void main() {
       }
     });
     for (final stage in ['seal', 'write', 'readback', 'unseal']) {
-      test('准备失败回滚持久值并保留未完成，不自动再认证：' + stage, () async {
+      test('准备失败回滚持久值并保留未完成，不自动再认证：$stage', () async {
         if (stage == 'seal') vault.failSealAt = 2;
         if (stage == 'write') store.failDeviceWriteAt = 2;
         if (stage == 'readback') store.corruptNextDeviceWrite = true;
-        if (stage == 'unseal')
+        if (stage == 'unseal') {
           wallet.duringBatch = () async {
             vault.openError = const DeviceDataKeyVaultException(
               '测试完整性',
               code: 'integrity',
             );
           };
+        }
         await expectLater(
           service.prepareFirstDeviceForBinding(firstBinding),
           throwsA(
@@ -777,12 +844,8 @@ void main() {
     test('完整中断材料静默提交，锁定与完整性错误不触发重建', () async {
       await service.prepareFirstDeviceForBinding(firstBinding);
       final marker =
-          'device_data_key_recovery_pending_' +
-          Uri.encodeComponent(genesisHash) +
-          '_' +
-          Uri.encodeComponent(cidNumber) +
-          '_1_' +
-          firstAccountId;
+          'device_data_key_recovery_pending_${Uri.encodeComponent(genesisHash)}_'
+          '${Uri.encodeComponent(cidNumber)}_1_$firstAccountId';
       store.entries[marker] = 'true';
       final restarted = makeService();
       try {
@@ -826,6 +889,41 @@ void main() {
       } finally {
         restarted.dispose();
       }
+    });
+    test('首次用途钥提交广播绑定变化，清除此前缓存的空身份', () async {
+      store.entries.clear();
+      final currentUser = CurrentUserContext(
+        wallet: wallet,
+        accountSecurity: service,
+      );
+      expect((await currentUser.resolve())!.isRegistered, false);
+      final before = service.revision.value;
+      await service.prepareFirstDeviceForBinding(firstBinding);
+      expect(service.revision.value, before + 1);
+      expect((await currentUser.resolve())!.cidNumber, cidNumber);
+      expect(wallet.batchCalls, 1);
+    });
+    test('硬件alias仍存在但永久失效时不重新派生或替换密文', () async {
+      await service.prepareFirstDeviceForBinding(firstBinding);
+      final before = Map<String, String>.from(store.entries);
+      final seals = vault.sealCalls;
+      vault.openError = const DeviceDataKeyVaultException(
+        'invalidated',
+        code: 'keyPermanentlyInvalidated',
+      );
+      await expectLater(
+        service.ensureDeviceDataKeysForBinding(firstBinding, rebuildAll: true),
+        throwsA(
+          isA<DeviceDataKeyVaultException>().having(
+            (error) => error.code,
+            'code',
+            'keyPermanentlyInvalidated',
+          ),
+        ),
+      );
+      expect(wallet.batchCalls, 1);
+      expect(vault.sealCalls, seals);
+      expect(store.entries, before);
     });
     test('一次批量请求返回逐项相同的用途钥', () async {
       final wallet = _DerivingWallet(firstSecret);

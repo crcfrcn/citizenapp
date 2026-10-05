@@ -126,7 +126,6 @@ interface class AccountSecurityService {
 
   final ValueNotifier<int> revision = ValueNotifier<int>(0);
   final Map<String, Future<void>> _dataKeyFlights = <String, Future<void>>{};
-  final Map<String, Future<void>> _subkeyFlights = <String, Future<void>>{};
   final Map<String, Future<void>> _preparationFlights =
       <String, Future<void>>{};
 
@@ -276,7 +275,7 @@ interface class AccountSecurityService {
     return _deriveOrProvide(account, binding, requests);
   }
 
-  /// 首次缺钥在授权前持久登记；失败、取消、切页和重启不能再触发根钥认证。
+  /// 准备状态持久登记，真实授权前CAS占用一次机会；认证前失败可重试，已尝试后不得重复。
   Future<void> prepareFirstDeviceForBinding(
     AccountDataBinding binding, {
     bool registerDevice = false,
@@ -290,9 +289,10 @@ interface class AccountSecurityService {
         _prepareFirstDeviceForBinding(
           binding,
           registerDevice: registerDevice,
-        ).then((_) {
-          if (identical(_preparationFlights[key], created))
+        ).whenComplete(() {
+          if (identical(_preparationFlights[key], created)) {
             _preparationFlights.remove(key);
+          }
         });
     _preparationFlights[key] = created;
     return created;
@@ -325,22 +325,142 @@ interface class AccountSecurityService {
       );
     }
     await _recordDeviceKeyMaterialIndex(account.walletIndex, binding);
-    if (!await _blobStore.compareAndSet(
+    final firstAttempt = await _blobStore.compareAndSet(
       _devicePreparationAttemptedName(binding),
       expected: null,
-      next: 'true',
-    )) {
+      next: jsonEncode({
+        'state': 'preparing',
+        'authenticationAttempted': false,
+      }),
+    );
+    final allowAuthentication =
+        firstAttempt ||
+        !_authenticationWasAttempted(
+          await _blobStore.read(_devicePreparationAttemptedName(binding)),
+        );
+    if (registerDevice) {
+      // 重试只能提交已持久保存的证明；签名回调不得再次打开钱包金库。
+      try {
+        await _registerDeviceSubkeyForBinding(
+          binding,
+          allowAuthentication: allowAuthentication,
+        );
+        await _writePreparationState(binding, 'registered');
+      } catch (error) {
+        await _recordPreparationFailure(binding, error);
+        rethrow;
+      }
+      return;
+    }
+    if (!allowAuthentication) {
       throw const AccountSecurityException(
         '本机授权准备尚未完成',
         code: 'authenticationRequired',
         stage: 'authorize',
       );
     }
-    if (registerDevice) {
-      await registerDeviceSubkeyForBinding(binding);
-    } else {
-      await ensureDeviceDataKeysForBinding(binding);
+    try {
+      await _ensureDeviceDataKeysForBinding(
+        binding,
+        rebuildAll: false,
+        claimFirstAuthentication: true,
+      );
+      await _writePreparationState(binding, 'materialsReady');
+    } catch (error) {
+      await _recordPreparationFailure(binding, error);
+      rethrow;
     }
+  }
+
+  bool _authenticationWasAttempted(String? value) {
+    if (value == null) return false;
+    try {
+      final decoded = jsonDecode(value);
+      return decoded is! Map || decoded['authenticationAttempted'] != false;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  Future<void> _claimFirstDeviceAuthentication(
+    AccountDataBinding binding,
+  ) async {
+    final name = _devicePreparationAttemptedName(binding);
+    final current = await _blobStore.read(name);
+    final next = jsonEncode({
+      'state': 'authorizing',
+      'authenticationAttempted': true,
+    });
+    if (_authenticationWasAttempted(current) ||
+        !await _blobStore.compareAndSet(name, expected: current, next: next)) {
+      throw const AccountSecurityException(
+        '本机授权已尝试',
+        code: 'authenticationRequired',
+        stage: 'authorize',
+      );
+    }
+    // 必须确认授权事实已持久化，才能打开钱包；写入成功回执不能替代读回。
+    if (await _blobStore.read(name) != next) {
+      throw const AccountSecurityException(
+        '本机授权状态保存失败',
+        code: 'secureStoreUnavailable',
+        stage: 'authorize',
+      );
+    }
+  }
+
+  Future<void> _writePreparationState(
+    AccountDataBinding binding,
+    String state, {
+    String? code,
+    String? stage,
+  }) async {
+    final name = _devicePreparationAttemptedName(binding);
+    final attempted = _authenticationWasAttempted(await _blobStore.read(name));
+    final value = jsonEncode({
+      'state': state,
+      'authenticationAttempted': attempted,
+      'code': ?code,
+      'stage': ?stage,
+    });
+    await _blobStore.write(name, value);
+    if (await _blobStore.read(name) != value) {
+      throw const AccountSecurityException(
+        '设备准备状态保存失败',
+        code: 'secureStoreUnavailable',
+        stage: 'commit',
+      );
+    }
+  }
+
+  Future<void> _recordPreparationFailure(
+    AccountDataBinding binding,
+    Object error,
+  ) async {
+    final code = error is AccountSecurityException
+        ? error.code
+        : error is DeviceDataKeyVaultException
+        ? error.code
+        : null;
+    final proof = await _blobStore.read(
+      deviceRegistrationProofKey(
+        binding.cidNumber,
+        binding.bindingRevision,
+        binding.accountId,
+      ),
+    );
+    await _writePreparationState(
+      binding,
+      proof != null
+          ? 'registrationPending'
+          : code == 'authenticationCancelled'
+          ? 'cancelled'
+          : code == 'keyPermanentlyInvalidated'
+          ? 'hardwareUnavailable'
+          : 'preparationFailed',
+      code: code,
+      stage: error is AccountSecurityException ? error.stage : null,
+    );
   }
 
   Future<void> ensureDeviceDataKeysForBinding(
@@ -368,6 +488,7 @@ interface class AccountSecurityService {
     AccountDataBinding binding, {
     required bool rebuildAll,
     Uint8List? signingMessage,
+    bool claimFirstAuthentication = false,
   }) async {
     final generation = revision.value;
     final walletRevision = (await _wallet.getState().result).revision;
@@ -393,8 +514,9 @@ interface class AccountSecurityService {
           for (final value in key) {
             value.fillRange(0, value.length, 0);
           }
-        } on DeviceDataKeyVaultException catch (failure) {
-          if (failure.code != 'keyPermanentlyInvalidated') rethrow;
+        } on DeviceDataKeyVaultException {
+          // alias存在不代表钥有效；禁止继续派生或删除同钱包的共享硬件钥。
+          rethrow;
         }
       }
     }
@@ -409,6 +531,9 @@ interface class AccountSecurityService {
     CitizenApplicationKeyPreparation? prepared;
     String? signature;
     final List<Uint8List> keys;
+    if (claimFirstAuthentication) {
+      await _claimFirstDeviceAuthentication(binding);
+    }
     if (account.signMode == CitizenWalletSignMode.hot) {
       try {
         prepared = await AccountDataKeyDeriver.prepareBatch(
@@ -509,7 +634,12 @@ interface class AccountSecurityService {
           stage: 'commit',
         );
       }
-      await _bindingStore.activate(binding);
+      await activateAccountDataBinding(
+        genesisHash: binding.genesisHash,
+        cidNumber: binding.cidNumber,
+        bindingRevision: binding.bindingRevision,
+        accountId: binding.accountId,
+      );
       await _recordDeviceKeyMaterialIndex(account.walletIndex, binding);
       await _blobStore.delete(recoveryName);
       if (await _blobStore.read(recoveryName) != null) {
@@ -656,21 +786,13 @@ interface class AccountSecurityService {
   }
 
   Future<void> registerDeviceSubkeyForBinding(AccountDataBinding binding) {
-    binding.validate();
-    final key = _flightKey(binding);
-    final existing = _subkeyFlights[key];
-    if (existing != null) return existing;
-    late final Future<void> created;
-    created = _registerDeviceSubkeyForBinding(binding).then((_) {
-      if (identical(_subkeyFlights[key], created)) _subkeyFlights.remove(key);
-    });
-    _subkeyFlights[key] = created;
-    return created;
+    return prepareFirstDeviceForBinding(binding, registerDevice: true);
   }
 
   Future<void> _registerDeviceSubkeyForBinding(
-    AccountDataBinding binding,
-  ) async {
+    AccountDataBinding binding, {
+    required bool allowAuthentication,
+  }) async {
     await _rejectSameAccountRevisionChange(binding);
     final account = await _account(binding.accountId);
     if (account == null) {
@@ -687,12 +809,20 @@ interface class AccountSecurityService {
             required devicePublicKey,
             required issuedAtMillis,
           }) async {
+            if (!allowAuthentication) {
+              throw const AccountSecurityException(
+                '本机设备登记证明尚未准备完成',
+                code: 'authenticationRequired',
+                stage: 'authorize',
+              );
+            }
             if (account.signMode == CitizenWalletSignMode.hot) {
               // 七用途派生与登记证明共用一次SDK金库打开。
               final signature = await _ensureDeviceDataKeysForBinding(
                 binding,
                 rebuildAll: false,
                 signingMessage: signingMessage,
+                claimFirstAuthentication: true,
               );
               if (signature == null) {
                 throw const AccountSecurityException(
@@ -703,6 +833,7 @@ interface class AccountSecurityService {
               }
               return signature;
             }
+            await _claimFirstDeviceAuthentication(binding);
             return _coldDeviceBindingSigner(
               binding: binding,
               payload: payload,
@@ -712,7 +843,12 @@ interface class AccountSecurityService {
             );
           },
     );
-    await _bindingStore.activate(binding);
+    await activateAccountDataBinding(
+      genesisHash: binding.genesisHash,
+      cidNumber: binding.cidNumber,
+      bindingRevision: binding.bindingRevision,
+      accountId: binding.accountId,
+    );
     await _recordDeviceKeyMaterialIndex(account.walletIndex, binding);
   }
 
@@ -999,6 +1135,15 @@ interface class AccountSecurityService {
   }
 
   Future<void> _deleteDeviceKeyMaterial(AccountDataBinding binding) async {
+    final proofKey = deviceRegistrationProofKey(
+      binding.cidNumber,
+      binding.bindingRevision,
+      binding.accountId,
+    );
+    await _blobStore.delete(proofKey);
+    if (await _blobStore.read(proofKey) != null) {
+      throw const AccountSecurityException('设备登记证明仍存在');
+    }
     final recoveryName = _deviceDataKeyRecoveryName(binding);
     await _blobStore.delete(recoveryName);
     if (await _blobStore.read(recoveryName) != null) {

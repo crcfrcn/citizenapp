@@ -446,6 +446,7 @@ class _ChatTabState extends State<ChatTab> {
   UserContactService? _contactService;
   CitizenSdkWallet? _wallet;
   AccountSecurityService? _accountSecurity;
+  CurrentUserContext? _currentUserContext;
   bool _dependenciesReady = false;
   final Map<String, CitizenProfile> _peerProfiles = <String, CitizenProfile>{};
   final Map<String, CitizenProfileMediaSnapshot> _peerProfileMedia =
@@ -496,6 +497,7 @@ class _ChatTabState extends State<ChatTab> {
     final sdk = context.read<CitizenSdk>();
     final accountSecurity = context.read<AccountSecurityService>();
     final currentUserContext = context.read<CurrentUserContext>();
+    _currentUserContext = currentUserContext;
     final identityResolver = context.read<FinalizedIdentityResolver>();
     _wallet = widget.wallet ?? sdk.wallet;
     _sessionProvider =
@@ -883,16 +885,12 @@ class _ChatTabState extends State<ChatTab> {
     if (widget.cidNumber != null && widget.accountId != null) {
       return (cidNumber: widget.cidNumber!, accountId: widget.accountId!);
     }
-    final current = await widget.runtime.readCurrentUser();
-    if (current.accountId.isNotEmpty) {
-      return (cidNumber: current.userId, accountId: current.accountId);
+    final currentUserContext = _currentUserContext;
+    if (currentUserContext != null) {
+      return _resolveChatIdentity(currentUserContext, _sessionProvider);
     }
-    if (!mounted) return (cidNumber: '', accountId: '');
-    final identity = await context.read<CurrentUserContext>().resolve();
-    return (
-      cidNumber: identity?.cidNumber ?? '',
-      accountId: identity?.accountId ?? '',
-    );
+    final current = await widget.runtime.readCurrentUser();
+    return (cidNumber: current.userId, accountId: current.accountId);
   }
 
   Future<void> _deleteLocalConversation(String conversationId) {
@@ -1228,7 +1226,9 @@ class _ChatTabState extends State<ChatTab> {
       menuColor: Color(0xFF66727D),
       scaler: AppLayout.scaled,
     );
-    final Widget? unavailable = _accountId.isEmpty
+    final Widget? unavailable = _cidNumber.isEmpty && _error != null
+        ? ChatConversationPlaceholder(message: _error!, style: style)
+        : _accountId.isEmpty
         ? const ChatConversationPlaceholder(
             message: '请先在「我的 → 我的钱包」添加钱包账户',
             style: style,
@@ -1982,6 +1982,54 @@ UserContactService? _contactServiceFromContextOrNull(BuildContext context) {
   );
 }
 
+/// 本地绑定缺失时由当前账户会话恢复身份，服务故障不能降级成未注册。
+Future<({String cidNumber, String accountId})> _resolveChatIdentity(
+  CurrentUserContext currentUser,
+  SquareSessionProvider? sessionProvider,
+) async {
+  final identity = await currentUser.resolve();
+  if (identity == null) return (cidNumber: '', accountId: '');
+  if (identity.isRegistered) {
+    return (cidNumber: identity.cidNumber, accountId: identity.accountId);
+  }
+  if (sessionProvider == null) {
+    throw const AccountSecurityException('身份暂时无法验证，请稍后重试');
+  }
+  final resolution = await sessionProvider.resolveSession();
+  final session = resolution.session;
+  if (session != null && session.accountId == identity.accountId) {
+    return (cidNumber: session.cidNumber, accountId: session.accountId);
+  }
+  if (resolution.status == SquareSessionStatus.identityUnbound) {
+    return (cidNumber: '', accountId: identity.accountId);
+  }
+  throw AccountSecurityException(resolution.message);
+}
+
+Future<({String cidNumber, String accountId})?> _readChatEntryIdentity(
+  BuildContext context,
+) async {
+  try {
+    return await _resolveChatIdentity(
+      context.read<CurrentUserContext>(),
+      context.read<SquareSessionProvider?>(),
+    );
+  } on Exception catch (error) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            error is AccountSecurityException
+                ? error.message
+                : chatUserErrorMessage(error),
+          ),
+        ),
+      );
+    }
+    return null;
+  }
+}
+
 /// 打开群聊详情；产品身份解析留在 CitizenApp，完整页面链路由 SDK 路由组装。
 Future<void> openGroupChat(
   BuildContext context, {
@@ -1989,14 +2037,20 @@ Future<void> openGroupChat(
   required String title,
   ChatDeleteConversationCallback? onDeleteConversation,
 }) async {
-  final identity = await context.read<CurrentUserContext>().resolve();
-  final accountId = identity?.accountId ?? '';
-  final currentUserId = identity?.cidNumber ?? '';
+  final identity = await _readChatEntryIdentity(context);
+  if (identity == null) return;
+  final accountId = identity.accountId;
+  final currentUserId = identity.cidNumber;
   if (!context.mounted) return;
   if (accountId.isEmpty || currentUserId.isEmpty) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('请先在「我的 → 我的钱包」添加钱包账户')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            accountId.isEmpty ? '请先在「我的 → 我的钱包」添加钱包账户' : '当前默认账户尚未注册 CID',
+          ),
+        ),
+      );
     }
     return;
   }
@@ -2028,14 +2082,18 @@ Future<void> openDirectChat(
   required String peerUserId,
   required String title,
 }) async {
-  final identity = await context.read<CurrentUserContext>().resolve();
-  final accountId = identity?.accountId ?? '';
-  final currentUserId = identity?.cidNumber ?? '';
+  final identity = await _readChatEntryIdentity(context);
+  if (identity == null) return;
+  final accountId = identity.accountId;
+  final currentUserId = identity.cidNumber;
   if (!context.mounted) return;
   if (accountId.isEmpty || currentUserId.isEmpty) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('请先添加钱包账户并注册 CID')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(accountId.isEmpty ? '请先添加钱包账户' : '当前默认账户尚未注册 CID'),
+        ),
+      );
     }
     return;
   }

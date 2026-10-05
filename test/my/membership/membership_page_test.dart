@@ -593,7 +593,7 @@ void main() {
       currentUserContext: _CachedCurrentUser(),
     );
     expect(find.text('当前会员'), findsOneWidget);
-    expect(find.text('当前钱包身份尚未同步或绑定，请稍后重试'), findsOneWidget);
+    expect(find.text('身份同步中，请稍后重试'), findsOneWidget);
     expect(service.authorizationCount, 0);
     expect(find.text('注册用户'), findsNothing);
   });
@@ -1070,7 +1070,7 @@ void main() {
       sessionProvider: sessionProvider,
     );
 
-    expect(find.text('当前钱包身份尚未同步或绑定，请稍后重试'), findsWidgets);
+    expect(find.text('身份同步中，请稍后重试'), findsWidgets);
     expect(find.text('请先添加钱包账户'), findsNothing);
     expect(find.text('注册用户'), findsNothing);
     expect(sessionProvider.calls, 1);
@@ -1084,11 +1084,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('会员详情'), findsOneWidget);
     await tester.scrollUntilVisible(
-      find.text('当前钱包身份尚未同步或绑定，请稍后重试'),
+      find.text('身份同步中，请稍后重试'),
       300,
       scrollable: find.byType(Scrollable).last,
     );
-    expect(find.text('当前钱包身份尚未同步或绑定，请稍后重试'), findsWidgets);
+    expect(find.text('身份同步中，请稍后重试'), findsWidgets);
     expect(find.text('请先添加钱包账户'), findsNothing);
   });
 

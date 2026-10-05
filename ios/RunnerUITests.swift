@@ -291,9 +291,9 @@ final class RunnerUITests: XCTestCase {
     }
   }
 
-  /// 空钱包正式App必须直接启动CitizenSDK的创建/导入安全窗口；测试只检查公开初始态并取消。
-  /// 已存在钱包时门禁本就不可达，只确认主导航存在，不清空真实钱包制造测试条件。
-  func testWalletGateLaunchesCitizenSdkCreateAndImportWithoutSecretInput() throws {
+  /// 空钱包使用App自己的创建页；模拟器缺少硬件保护时必须禁用热钱包操作。
+  /// 只检查公开选项、冷导入空输入失败及返回，不填写密码或助记词。
+  func testWalletGateShowsOnboardingAndColdImportWithoutSecretInput() throws {
     let app = XCUIApplication(bundleIdentifier: targetBundleIdentifier)
     app.launch()
     XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20))
@@ -301,30 +301,210 @@ final class RunnerUITests: XCTestCase {
 
     let create = walletGateCreate(in: app)
     guard create.waitForExistence(timeout: 10) else {
-      XCTAssertTrue(chatTab(in: app).waitForExistence(timeout: 20))
-      return
+      throw XCTSkip("已有账户不能重新制造空钱包条件；空钱包回归应在冷账户导入前执行")
     }
     let importing = app.buttons["已有钱包？导入助记词"]
     XCTAssertTrue(importing.exists, "空钱包门禁缺少助记词导入入口")
 
-    create.tap()
-    XCTAssertTrue(app.navigationBars["创建钱包"].waitForExistence(timeout: 10))
-    XCTAssertTrue(app.buttons["12 个助记词 · 推荐"].exists)
-    XCTAssertTrue(app.buttons["24 个助记词"].exists)
-    XCTAssertTrue(app.secureTextFields["钱包密码（选填）"].exists)
-    XCTAssertTrue(app.buttons["创建钱包"].exists)
-    XCTAssertTrue(app.buttons["取消"].firstMatch.exists)
-    app.buttons["取消"].firstMatch.tap()
+    for count in [12, 18, 24] {
+      let option = app.descendants(matching: .any).matching(
+        NSPredicate(format: "label BEGINSWITH %@", "\(count) 个助记词")).firstMatch
+      XCTAssertTrue(option.waitForExistence(timeout: 10), "缺少助记词数量选项")
+    }
+    #if targetEnvironment(simulator)
+    // 提示卡会合并标题与说明为同一个Flutter语义标签，按完整标题包含关系定位。
+    let warning = app.descendants(matching: .any).matching(
+      NSPredicate(format: "label CONTAINS %@", "未检测到系统锁屏")).firstMatch
+    XCTAssertTrue(warning.waitForExistence(timeout: 10), "模拟器必须显示硬件保护不足")
+    XCTAssertFalse(create.isEnabled, "缺少硬件保护不得创建热钱包")
+    XCTAssertFalse(importing.isEnabled, "缺少硬件保护不得导入热钱包")
+    #endif
+    let cold = app.buttons["导入冷钱包"]
+    for _ in 0..<3 where !cold.isHittable { app.swipeUp() }
+    XCTAssertTrue(cold.isHittable && cold.isEnabled)
+    cold.tap()
+    let confirm = app.buttons["确认导入"]
+    XCTAssertTrue(confirm.waitForExistence(timeout: 10))
+    confirm.tap()
+    XCTAssertTrue(confirm.waitForExistence(timeout: 5), "空地址必须保留导入页")
+    XCTAssertFalse(chatTab(in: app).exists, "空地址不得进入主导航")
+    let back = app.buttons.allElementsBoundByIndex.filter {
+      $0.isHittable && $0.frame.minX < app.frame.width * 0.15
+        && $0.frame.maxY < app.frame.height * 0.20
+    }.sorted { $0.frame.minY < $1.frame.minY }
+    try XCTUnwrap(back.first, "冷导入页缺少返回按钮").tap()
     XCTAssertTrue(create.waitForExistence(timeout: 10))
+  }
 
-    importing.tap()
-    XCTAssertTrue(app.navigationBars["输入助记词"].waitForExistence(timeout: 10))
-    XCTAssertTrue(app.textViews["助记词"].exists)
-    XCTAssertTrue(app.secureTextFields["钱包密码（选填）"].exists)
-    XCTAssertTrue(app.buttons["确认导入"].exists)
-    XCTAssertTrue(app.buttons["取消"].firstMatch.exists)
-    app.buttons["取消"].firstMatch.tap()
-    XCTAssertTrue(create.waitForExistence(timeout: 10))
+  /// 只在模拟器导入公开开发账户Bob的地址；没有私钥、密码或签名操作。
+  /// 正常入口保存冷账户后应能切换五个主导航，终止重启也不得回到钱包初始化。
+  func testSimulatorPublicColdAccountNavigationAndRelaunch() throws {
+    #if targetEnvironment(simulator)
+    let app = XCUIApplication(bundleIdentifier: targetBundleIdentifier)
+    func finishFirstWalletIntroduction() throws {
+      // 正常初始化会先引导身份页并请求通知；拒绝通知，返回原有五主导航，不做身份授权。
+      let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+      let notification = springboard.alerts.matching(NSPredicate(format:
+        "label CONTAINS %@ OR label CONTAINS %@", "通知", "Notifications")).firstMatch
+      if notification.waitForExistence(timeout: 5) {
+        let deny = notification.buttons.matching(NSPredicate(format:
+          "label IN %@", ["不允许", "Don't Allow"])).firstMatch
+        XCTAssertTrue(deny.exists, "通知提示缺少拒绝按钮")
+        deny.tap()
+      }
+      if !chatTab(in: app).exists {
+        let visitor = app.descendants(matching: .any).matching(NSPredicate(format:
+          "label CONTAINS %@", "身份·访客")).firstMatch
+        XCTAssertTrue(visitor.waitForExistence(timeout: 10), "初次冷账户引导未进入身份页")
+        let back = app.buttons.allElementsBoundByIndex.filter {
+          $0.isHittable && $0.frame.minX < app.frame.width * 0.15
+            && $0.frame.maxY < app.frame.height * 0.20
+        }.sorted { $0.frame.minY < $1.frame.minY }
+        try XCTUnwrap(back.first, "身份引导页缺少返回按钮").tap()
+      }
+    }
+    app.launch()
+    dismissPermissionGuideIfNeeded(in: app)
+    if walletGateCreate(in: app).waitForExistence(timeout: 5) {
+      let cold = app.buttons["导入冷钱包"]
+      for _ in 0..<3 where !cold.isHittable { app.swipeUp() }
+      XCTAssertTrue(cold.isHittable && cold.isEnabled)
+      cold.tap()
+      let predicate = NSPredicate(format: "label CONTAINS %@", "请输入冷钱包账户地址")
+      let multiline = app.textViews.matching(predicate).firstMatch
+      let singleline = app.textFields.matching(predicate).firstMatch
+      let field = multiline.waitForExistence(timeout: 3) ? multiline : singleline
+      XCTAssertTrue(field.waitForExistence(timeout: 10), "冷地址输入框未出现")
+      field.tap()
+      // 使用既有Keyring对Bob公开公钥编码的CitizenChain地址，固定prefix=2027。
+      field.typeText("w5EotDL8TadNBLbBaiiB1jfQnaxqvXYQFosgUgUSWRPgi2eNy")
+      app.buttons["确认导入"].tap()
+    }
+    try finishFirstWalletIntroduction()
+    for _ in 0..<2 {
+      XCTAssertTrue(chatTab(in: app).waitForExistence(timeout: 30), "公开冷账户没有进入主导航")
+      XCTAssertFalse(walletGateCreate(in: app).exists)
+      for label in ["广场", "公民", "聊天", "交易", "我的"] {
+        // 主导航含系统Tab语义，避免把“我的通讯录”等页面按钮当作“我的”标签。
+        let tab = app.buttons.matching(NSPredicate(format:
+          "label BEGINSWITH %@ AND label CONTAINS %@", label, "Tab ")).firstMatch
+        XCTAssertTrue(tab.waitForExistence(timeout: 10) && tab.isHittable, "缺少主导航：\(label)")
+        tab.tap()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        XCTAssertTrue(chatTab(in: app).exists, "切页后主导航消失")
+      }
+      app.terminate()
+      app.launch()
+      dismissPermissionGuideIfNeeded(in: app)
+      try finishFirstWalletIntroduction()
+    }
+    XCTAssertTrue(chatTab(in: app).waitForExistence(timeout: 20))
+    #else
+    throw XCTSkip("公开冷账户自动导入仅允许在模拟器执行")
+    #endif
+  }
+
+  /// 仅在模拟器以获准公开地址替换本轮唯一指定开发冷账户，不读取或导入签名材料。
+  func testSimulatorPrepareRegisteredPublicColdAccount() throws {
+    #if targetEnvironment(simulator)
+    let address = try XCTUnwrap(ProcessInfo.processInfo.environment["CITIZENAPP_PUBLIC_TEST_ADDRESS"])
+    let app = XCUIApplication(bundleIdentifier: targetBundleIdentifier)
+    app.launch()
+    dismissPermissionGuideIfNeeded(in: app)
+    if !walletGateCreate(in: app).exists {
+    try requireMainNavigation(in: app)
+    app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "我的", "Tab ")).firstMatch.tap()
+    let wallet = app.descendants(matching: .any).matching(NSPredicate(format:
+      "label CONTAINS %@ AND label CONTAINS %@", "钱包", "管理账户")).firstMatch
+    XCTAssertTrue(wallet.waitForExistence(timeout: 10))
+    wallet.tap()
+    let rows = app.descendants(matching: .any).matching(identifier: "wallet-cold-row")
+    XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 10))
+    XCTAssertEqual(rows.count, 1, "准备测试只允许处理本轮唯一开发冷账户")
+    guard rows.count == 1 else { return }
+    rows.firstMatch.tap()
+    // 地址实际按屏幕宽度分为两行；按语义显示顺序拼接公开地址后再做完整比较。
+    let labels = app.descendants(matching: .any).allElementsBoundByIndex.map {
+      $0.label.components(separatedBy: .whitespacesAndNewlines).joined()
+    }
+    if labels.contains(where: { $0.contains(address) }) { return }
+    // 替换只允许本轮明确指定的旧公开测试账户；不读取私钥，不清理未知账户。
+    let previousAddress = ProcessInfo.processInfo.environment["CITIZENAPP_PREVIOUS_PUBLIC_TEST_ADDRESS"]
+      ?? "w5EotDL8TadNBLbBaiiB1jfQnaxqvXYQFosgUgUSWRPgi2eNy"
+    guard labels.contains(where: { $0.contains(previousAddress) }) else {
+      XCTFail("不得清理非本轮指定的公开测试账户")
+      return
+    }
+    let back = app.buttons.allElementsBoundByIndex.filter {
+      $0.isHittable && $0.frame.minX < app.frame.width * 0.15 && $0.frame.maxY < app.frame.height * 0.20
+    }.sorted { $0.frame.minY < $1.frame.minY }
+    try XCTUnwrap(back.first).tap()
+    // 返回后重新定位系统菜单按钮，避免不同设备尺寸及返回动画使旧坐标失效。
+    guard rows.firstMatch.waitForExistence(timeout: 10) else {
+      XCTFail("返回后没有找到本轮唯一冷账户")
+      return
+    }
+    let menu = app.buttons["Show menu"].firstMatch
+    guard menu.waitForExistence(timeout: 10) else {
+      XCTFail("没有找到冷账户菜单")
+      return
+    }
+    menu.tap()
+    let deleteWallet = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "删除钱包")).firstMatch
+    guard deleteWallet.waitForExistence(timeout: 5) else {
+      XCTFail("冷账户菜单未打开，不执行删除")
+      return
+    }
+    deleteWallet.tap()
+    let delete = app.buttons["删除"]
+    XCTAssertTrue(delete.waitForExistence(timeout: 5))
+    delete.tap()
+    }
+    let cold = app.buttons["导入冷钱包"]
+    for _ in 0..<3 where !cold.isHittable { app.swipeUp() }
+    XCTAssertTrue(cold.waitForExistence(timeout: 10))
+    cold.tap()
+    let predicate = NSPredicate(format: "label CONTAINS %@", "请输入冷钱包账户地址")
+    let multiline = app.textViews.matching(predicate).firstMatch
+    let field = multiline.waitForExistence(timeout: 3) ? multiline : app.textFields.matching(predicate).firstMatch
+    XCTAssertTrue(field.waitForExistence(timeout: 10))
+    field.tap()
+    field.typeText(address)
+    app.buttons["确认导入"].tap()
+    // 已注册地址可能触发持钥证明；这里只验证边界并取消，不能伪造已完成身份认证。
+    let cancel = app.buttons["取消"]
+    if cancel.waitForExistence(timeout: 10) { cancel.tap() }
+    if !chatTab(in: app).exists {
+      let identity = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "身份·访客")).firstMatch
+      XCTAssertTrue(identity.waitForExistence(timeout: 10), "取消持钥验证后应保留身份页")
+      let back = app.buttons.allElementsBoundByIndex.filter {
+        $0.frame.width > 0 && $0.frame.minX < app.frame.width * 0.15
+          && $0.frame.maxY < app.frame.height * 0.20 && $0.isHittable
+      }.sorted { $0.frame.minY < $1.frame.minY }
+      try XCTUnwrap(back.first).tap()
+    }
+    XCTAssertTrue(chatTab(in: app).waitForExistence(timeout: 30), "冷账户导入后应返回主导航")
+    // 成功提示不能代替持久化验收：重启后打开唯一冷账户并核对完整公开地址。
+    app.terminate()
+    app.launch()
+    try requireMainNavigation(in: app)
+    app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "我的", "Tab ")).firstMatch.tap()
+    let restoredWallet = app.descendants(matching: .any).matching(NSPredicate(format:
+      "label CONTAINS %@ AND label CONTAINS %@", "钱包", "管理账户")).firstMatch
+    XCTAssertTrue(restoredWallet.waitForExistence(timeout: 10))
+    restoredWallet.tap()
+    let restoredRows = app.descendants(matching: .any).matching(identifier: "wallet-cold-row")
+    XCTAssertTrue(restoredRows.firstMatch.waitForExistence(timeout: 10))
+    XCTAssertEqual(restoredRows.count, 1)
+    restoredRows.firstMatch.tap()
+    let restoredLabels = app.descendants(matching: .any).allElementsBoundByIndex.map {
+      $0.label.components(separatedBy: .whitespacesAndNewlines).joined()
+    }
+    XCTAssertTrue(restoredLabels.contains(where: { $0.contains(address) }),
+      "重启后的冷账户必须与指定公开地址完整一致")
+    #else
+    throw XCTSkip("公开测试账户准备仅允许模拟器执行")
+    #endif
   }
 
   func testInstalledReleaseLaunchesAndExposesMainNavigation() throws {
@@ -342,6 +522,37 @@ final class RunnerUITests: XCTestCase {
       "CitizenApp 未进入包含五个主导航入口的已登录界面"
     )
     attachScreenshot(app, name: "CitizenApp-主界面")
+  }
+
+  /// 已注册公开冷账户可打开服务页；缺少持钥验证不得伪装成尚未注册或无钱包。
+  func testSimulatorRegisteredColdServiceFailurePresentation() throws {
+    #if targetEnvironment(simulator)
+    let app = XCUIApplication(bundleIdentifier: targetBundleIdentifier)
+    app.launch()
+    dismissPermissionGuideIfNeeded(in: app)
+    try requireMainNavigation(in: app)
+    app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "我的", "Tab ")).firstMatch.tap()
+    func element(_ text: String) -> XCUIElement {
+      app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", text)).firstMatch
+    }
+    element("通讯录").tap()
+    XCTAssertTrue(element("我的通讯录").waitForExistence(timeout: 10))
+    XCTAssertTrue(element("同步失败，点击重试").waitForExistence(timeout: 15))
+    XCTAssertFalse(element("尚未注册").exists)
+    let back = app.buttons.allElementsBoundByIndex.filter {
+      $0.frame.width > 0 && $0.frame.minX < app.frame.width * 0.15
+        && $0.frame.maxY < app.frame.height * 0.20 && $0.isHittable
+    }.sorted { $0.frame.minY < $1.frame.minY }
+    try XCTUnwrap(back.first).tap()
+    element("会员｜订阅").tap()
+    let failure = app.descendants(matching: .any).matching(NSPredicate(format:
+      "label CONTAINS %@", "钱包设备认证暂时不可用")).firstMatch
+    XCTAssertTrue(failure.waitForExistence(timeout: 15))
+    XCTAssertFalse(element("尚未注册").exists)
+    XCTAssertFalse(element("请先创建钱包").exists)
+    #else
+    throw XCTSkip("未完成持钥验证的公开冷账户故障验收仅适用模拟器")
+    #endif
   }
 
   /// 长期回归门禁：聊天页必须在 30 秒内离开首帧加载状态。
@@ -1472,7 +1683,7 @@ final class RunnerUITests: XCTestCase {
 
   private func requireMainNavigation(in app: XCUIApplication) throws {
     if walletGateCreate(in: app).waitForExistence(timeout: 2) {
-      throw XCTSkip("正式App尚无钱包；需由用户在CitizenSDK安全窗口直接导入测试钱包后验收主导航")
+      throw XCTSkip("正常App尚无账户；模拟器须先导入公开冷账户，真机账户由用户准备")
     }
     XCTAssertTrue(
       chatTab(in: app).waitForExistence(timeout: 20),
@@ -1483,6 +1694,8 @@ final class RunnerUITests: XCTestCase {
   /// 首次启动的权限说明不属于创作者流程；黑盒验收只选择稍后授权，
   /// 避免触发系统弹窗，也不更改正式 App 的会员、钱包或身份数据。
   private func dismissPermissionGuideIfNeeded(in app: XCUIApplication) {
+    // 已进入钱包页时不再等待不存在的权限说明，避免平台为超时请求整个语义树。
+    if walletGateCreate(in: app).exists { return }
     let later = app.descendants(matching: .any).matching(
       NSPredicate(format: "label == %@", "稍后再说")
     ).firstMatch
@@ -1490,7 +1703,6 @@ final class RunnerUITests: XCTestCase {
       later.tap()
       return
     }
-    if walletGateCreate(in: app).exists { return }
     // Flutter 在部分 iOS 版本的首个 semantics frame 不会立即暴露按钮；
     // 只有主导航仍不存在时，才点击权限说明页固定的「稍后再说」位置。
     if !chatTab(in: app).exists {

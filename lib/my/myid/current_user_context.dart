@@ -78,7 +78,10 @@ interface class CurrentUserContext {
       return current;
     }
     // 迟到快照不能展示或授权；这是重试异常，不能把已有钱包误判为未注册。
-    throw const AccountSecurityException('当前用户已变化，请重试');
+    throw const AccountSecurityException(
+      '当前用户已变化，请重试',
+      code: 'identityChanged',
+    );
   }
 
   void invalidate() {

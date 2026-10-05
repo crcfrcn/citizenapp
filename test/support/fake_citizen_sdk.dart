@@ -272,16 +272,23 @@ typedef _Error = int Function(ffi.Pointer<ffi.Uint8>, int, ffi.Pointer<ffi.Uint6
 
 final class _TestCitizenCore {
   _TestCitizenCore() {
-    final target = Platform.environment['CARGO_TARGET_DIR'];
-    if (target == null || !target.startsWith('/')) {
-      throw StateError('SDK金标缺少本轮CARGO_TARGET_DIR');
+    // 移动测试调用包内同一真实Core；桌面测试仍核对本轮普通库文件。
+    if (Platform.isIOS) {
+      _library = ffi.DynamicLibrary.process();
+    } else if (Platform.isAndroid) {
+      _library = ffi.DynamicLibrary.open('libcitizensdk.so');
+    } else {
+      final target = Platform.environment['CARGO_TARGET_DIR'];
+      if (target == null || !target.startsWith('/')) {
+        throw StateError('SDK金标缺少本轮CARGO_TARGET_DIR');
+      }
+      final name = Platform.isMacOS ? 'libcitizensdk.dylib' : 'libcitizensdk.so';
+      final file = File('$target/debug/$name');
+      if (FileSystemEntity.typeSync(file.path, followLinks: false) != FileSystemEntityType.file) {
+        throw StateError('SDK金标缺少调用方准备的当前Core：$target/debug/$name');
+      }
+      _library = ffi.DynamicLibrary.open(file.path);
     }
-    final name = Platform.isMacOS ? 'libcitizensdk.dylib' : 'libcitizensdk.so';
-    final file = File('$target/debug/$name');
-    if (FileSystemEntity.typeSync(file.path, followLinks: false) != FileSystemEntityType.file) {
-      throw StateError('SDK金标缺少调用方准备的当前Core：$target/debug/$name');
-    }
-    _library = ffi.DynamicLibrary.open(file.path);
     if (_library.lookupFunction<_NumberNative, _Number>('citizensdk_abi_version')() != 1 ||
         _library.lookupFunction<_NumberNative, _Number>('citizensdk_create_options_size')() != ffi.sizeOf<_CoreOptions>()) {
       throw StateError('SDK测试C ABI与真实Core不一致');

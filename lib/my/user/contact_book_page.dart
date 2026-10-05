@@ -274,10 +274,14 @@ class _ContactBookPageState extends State<ContactBookPage> {
 
   Future<void> _sync() async {
     final contacts = await _service.sync();
+    final syncState = await _service.readSyncState();
     if (!mounted) return;
     await _loadCachedProfiles(contacts);
     if (!mounted) return;
-    setState(() => _contacts = contacts);
+    setState(() {
+      _contacts = contacts;
+      _syncState = syncState;
+    });
     await _refreshProfiles(contacts);
   }
 
