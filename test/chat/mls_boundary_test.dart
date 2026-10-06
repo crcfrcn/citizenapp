@@ -286,8 +286,7 @@ void main() {
           sessionToken: 'session-a',
           cidNumber: 'CN220-CTZN2-100000001-2026',
           bindingRevision: 1,
-          accountId:
-              '0x1111111111111111111111111111111111111111111111111111111111111111',
+          accountId: '0x1111111111111111111111111111111111111111111111111111111111111111',
           expiresAt: 4102444800000,
           signRequest: (_) async => 'request-signature',
         ),
