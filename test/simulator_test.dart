@@ -1,8 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
-import 'security/local_data_key_test.dart' as data_keys;
-import '8964/device_subkey_registrar_test.dart' as registration;
+import 'security/identity_binding_test.dart' as bindings;
+import 'security/system_protected_record_store_test.dart' as records;
+import '8964/mls_device_registrar_test.dart' as registration;
 import 'my/myid/current_user_context_test.dart' as identity;
 import '8964/profile/user_profile_page_test.dart' as profile;
 import '8964/profile/profile_posts_tab_test.dart' as posts;
@@ -23,7 +24,8 @@ void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.onlyPumps;
   final suites = <String, void Function()>{
-    'data_keys': data_keys.main,
+    'bindings': bindings.main,
+    'records': records.main,
     'registration': registration.main,
     'identity': identity.main,
     'profile': profile.main,

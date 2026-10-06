@@ -7,12 +7,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   test('新应用标识使用各自登记的唯一 Firebase App ID', () {
-    final source = File(
-      'lib/notifications/app_push_service.dart',
-    ).readAsStringSync();
-    final appIds = RegExp(
-      r"'(1:124593150477:(?:android|ios):[0-9a-f]+)'",
-    ).allMatches(source).map((match) => match.group(1)!).toSet();
+    final source = File('lib/notifications/app_push_service.dart')
+        .readAsStringSync();
+    final appIds = RegExp(r"'(1:124593150477:(?:android|ios):[0-9a-f]+)'")
+        .allMatches(source)
+        .map((match) => match.group(1)!)
+        .toSet();
 
     expect(
       source,
@@ -26,12 +26,12 @@ void main() {
   });
 
   test('Firebase 客户端 Key 按平台隔离且禁止共享回退', () {
-    final source = File(
-      'lib/notifications/app_push_service.dart',
-    ).readAsStringSync();
-    final keys = RegExp(
-      r"const _firebase(?:Android|Ios)ApiKey = '(AIza[^']+)'",
-    ).allMatches(source).map((match) => match.group(1)!).toList();
+    final source = File('lib/notifications/app_push_service.dart')
+        .readAsStringSync();
+    final keys = RegExp(r"const _firebase(?:Android|Ios)ApiKey = '(AIza[^']+)'")
+        .allMatches(source)
+        .map((match) => match.group(1)!)
+        .toList();
 
     expect(keys, hasLength(2));
     expect(keys.toSet(), hasLength(2));
@@ -78,12 +78,10 @@ void main() {
   });
 
   test('CitizenApp 双端只展示并清理固定聊天通知', () {
-    final android = File(
-      'android/app/src/main/MainActivity.kt',
-    ).readAsStringSync();
-    final appPush = File(
-      'lib/notifications/app_push_service.dart',
-    ).readAsStringSync();
+    final android = File('android/app/src/main/MainActivity.kt')
+        .readAsStringSync();
+    final appPush = File('lib/notifications/app_push_service.dart')
+        .readAsStringSync();
 
     expect(android, contains('CHAT_NOTIFICATION_CHANNEL_ID = "chat_messages"'));
     expect(android, contains('.setContentText("你有一条新消息")'));
@@ -96,9 +94,8 @@ void main() {
   });
 
   test('聊天桥不拥有Firebase配置或非聊天通知', () {
-    final source = File(
-      'lib/chat/chat_product_configuration.dart',
-    ).readAsStringSync();
+    final source = File('lib/chat/chat_product_configuration.dart')
+        .readAsStringSync();
     expect(source, isNot(contains('FirebaseOptions')));
     expect(source, isNot(contains('_firebaseAndroidApiKey')));
     expect(source, isNot(contains('square_post')));
@@ -106,9 +103,8 @@ void main() {
   });
 
   test('普通应用推送由CitizenServe会话登记且不使用聊天数据面', () {
-    final client = File(
-      'lib/8964/services/square_api_client.dart',
-    ).readAsStringSync();
+    final client = File('lib/8964/services/square_api_client.dart')
+        .readAsStringSync();
     final main = File('lib/main.dart').readAsStringSync();
     expect(client, contains("'/square/push-endpoint'"));
     expect(main, contains('registerPushEndpoint'));
@@ -116,9 +112,8 @@ void main() {
   });
 
   test('iOS APNs 环境以 provisioning profile 和 App Store 收据为真源', () {
-    final entitlements = File(
-      'ios/Runner/Runner.entitlements',
-    ).readAsStringSync();
+    final entitlements = File('ios/Runner/Runner.entitlements')
+        .readAsStringSync();
     final infoPlist = File('ios/Runner/Info.plist').readAsStringSync();
     final appDelegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
 
@@ -144,9 +139,8 @@ void main() {
   });
 
   test('双端系统备份都排除设备侧聊天内容', () {
-    final androidManifest = File(
-      'android/app/src/main/AndroidManifest.xml',
-    ).readAsStringSync();
+    final androidManifest = File('android/app/src/main/AndroidManifest.xml')
+        .readAsStringSync();
     // 按当前锁定依赖定位SDK所有者实现，不读取邻仓或在App复制原生逻辑。
     final packageConfig = File('.dart_tool/package_config.json');
     final packages =
@@ -158,18 +152,24 @@ void main() {
         .where((value) => value['name'] == 'tatachat_sdk')
         .single;
     final sdkRoot = Uri.directory(
-      File.fromUri(
-        packageConfig.absolute.uri.resolve(sdk['rootUri'] as String),
-      ).path,
+      File.fromUri(packageConfig.absolute.uri.resolve(sdk['rootUri'] as String))
+          .path,
     );
     final iosPlugin = File.fromUri(
       sdkRoot.resolve('ios/TataChatSdkPlugin.swift'),
     ).readAsStringSync();
     expect(androidManifest, contains('android:allowBackup="false"'));
     expect(iosPlugin, contains('isExcludedFromBackup = true'));
-    expect(iosPlugin, contains('appendingPathComponent("chat"'));
-    expect(iosPlugin, contains('hasPrefix("tatachat_sdk_chat.isar.")'));
-    expect(iosPlugin, contains('call.method == "excludeChatDataFromBackup"'));
+    // 新目录及递归保护、备份标记回读均由当前固定SDK负责。
+    expect(iosPlugin, contains('appendingPathComponent("tatachat_sdk_data"'));
+    expect(iosPlugin, contains('call.method == "prepareDataStorage"'));
+    expect(iosPlugin, contains('try protectOwnedData(root)'));
+    expect(iosPlugin, contains('try protectOwnedData(child)'));
+    expect(
+      iosPlugin,
+      contains('FileProtectionType.completeUntilFirstUserAuthentication'),
+    );
+    expect(iosPlugin, contains('isExcludedFromBackup == true'));
   });
 
   test('推送端点缓存同时绑定服务类型、APNs 环境和 Token', () {

@@ -1,3 +1,5 @@
+import '../../8964/mls_authentication_fixture.dart';
+
 import 'dart:async';
 import 'dart:typed_data';
 
@@ -16,7 +18,7 @@ import 'package:citizenapp/my/membership/membership_revision.dart';
 import 'package:citizenapp/my/membership/subscription_service.dart';
 import 'package:citizenapp/my/myid/citizen_identity_chain_reader.dart';
 import 'package:citizenapp/my/myid/current_user_context.dart';
-import 'package:citizenapp/security/local_data_key.dart';
+import 'package:citizenapp/security/identity_binding.dart';
 import 'package:citizenapp/my/myid/finalized_identity_resolver.dart';
 import 'package:citizenapp/ui/app_theme.dart';
 import 'package:citizenapp/ui/identity_badge.dart';
@@ -40,6 +42,7 @@ final _identityAccount = CitizenWalletStateAccount(
 
 class _FakeSessionProvider implements SquareSessionProvider {
   SquareSession _session() => SquareSession(
+    deviceId: testMlsDeviceId,
     sessionToken: 'tok',
     cidNumber: "CN220-CTZN2-198805200-2026",
     bindingRevision: 1,
@@ -88,12 +91,12 @@ class _CidNotBoundSessionProvider implements SquareSessionProvider {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-/// 会话建立即失败(如设备子钥校验失败/网络故障):页面须给可见解释,不得留残缺骨架。
+/// 会话建立即失败(如MLS身份不可用/网络故障):页面须给可见解释,不得留残缺骨架。
 class _ThrowingSessionProvider implements SquareSessionProvider {
   @override
   Future<SquareSession?> ensureSession() async {
     throw const SquareApiException(
-      '设备子钥签名校验失败',
+      'MLS设备认证校验失败',
       statusCode: 401,
       errorCode: 'invalid_signature',
     );
@@ -303,7 +306,7 @@ class _CachedCurrentUser implements CurrentUserContext {
   @override
   Future<CurrentUser?> resolve() async => CurrentUser(
     account: _identityAccount,
-    binding: const AccountDataBinding(
+    binding: const IdentityBinding(
       genesisHash:
           '0x1111111111111111111111111111111111111111111111111111111111111111',
       cidNumber: 'CN220-CTZN2-198805200-2026',
@@ -376,7 +379,7 @@ void main() {
       httpClient: MockClient((request) async {
         expect(request.url.path, '/square/membership/confirm');
         expect(request.headers['authorization'], 'Bearer tok');
-        expect(request.headers, isNot(contains('x-device-signature')));
+        expect(request.headers, isNot(contains('x-mls-proof')));
         expect(request.body, contains('"tx_hash"'));
         expect(request.body, contains('"block_hash"'));
         expect(request.body, isNot(contains('signed_extrinsic_hex')));
@@ -389,15 +392,27 @@ void main() {
       }),
     );
     final session = SquareSession(
+      deviceId: testMlsDeviceId,
       sessionToken: 'tok',
       cidNumber: "CN220-CTZN2-198805200-2026",
       bindingRevision: 1,
       accountId: _owner,
       expiresAt: 9999999999999,
-      signRequest: (_) async {
-        deviceSignCount++;
-        return 'device-signature';
-      },
+      authenticateRequest:
+          ({
+            required method,
+            required uri,
+            required body,
+            required sessionToken,
+          }) async {
+            deviceSignCount++;
+            return fakeMlsRequestHeaders(
+              method: method,
+              uri: uri,
+              body: body,
+              sessionToken: sessionToken,
+            );
+          },
     );
 
     final confirmed = await api.confirmPlatformSubscription(
@@ -424,14 +439,15 @@ void main() {
         );
       }),
     );
-    final session = SquareSession(
+    final session = const SquareSession(
+      deviceId: testMlsDeviceId,
       sessionToken: 'membership-session-once',
       cidNumber: 'CN220-CTZN2-198805299-2026',
       bindingRevision: 9,
       accountId:
           '0x9999999999999999999999999999999999999999999999999999999999999999',
       expiresAt: 9999999999999,
-      signRequest: (_) async => 'test-device-signature',
+      authenticateRequest: fakeMlsRequestHeaders,
     );
     final first = _subscriptionService(api: api);
     final second = _subscriptionService(api: api);
@@ -989,7 +1005,7 @@ void main() {
       find.byKey(const ValueKey('membership-load-failure-banner')),
       findsOneWidget,
     );
-    expect(find.text('钱包设备认证暂时不可用，请稍后重试'), findsNWidgets(4));
+    expect(find.text('MLS设备认证暂时不可用，请稍后重试'), findsNWidgets(4));
     expect(find.text('请先添加钱包账户'), findsNothing);
     expect(find.text('重试'), findsOneWidget);
     expect(find.byKey(const ValueKey('membership-front-card')), findsOneWidget);

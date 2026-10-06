@@ -9,16 +9,6 @@ import 'isar_core_bootstrap.dart';
 
 part 'wallet_isar.g.dart';
 
-/// CID 账户数据换绑的顶层意图。
-///
-/// 该状态参与钱包签名与密钥归属切换，必须归 Wallet 域，不能放入通用 KV。
-@collection
-class WalletAccountDataHandoverEntity {
-  Id id = 0;
-
-  late String payloadJson;
-}
-
 /// 钱包设备证明的本机元数据；证明 token 本体仍由平台安全存储保存。
 @collection
 class WalletAttestationEntity {
@@ -731,7 +721,6 @@ class WalletIsar {
   /// Wallet 域的唯一 schema 清单；正常打开与终态擦除必须使用同一真源。
   static const List<CollectionSchema<dynamic>> _schemas =
       <CollectionSchema<dynamic>>[
-        WalletAccountDataHandoverEntitySchema,
         WalletAttestationEntitySchema,
         WalletAccountBalanceSnapshotEntitySchema,
         WalletPersonalMultisigStateEntitySchema,

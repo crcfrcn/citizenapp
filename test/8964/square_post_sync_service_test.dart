@@ -1,3 +1,4 @@
+import './mls_authentication_fixture.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -18,6 +19,7 @@ const _cid = 'R5-K3P1C1-N9-D4';
 const _account =
     '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const _session = SquareSession(
+  deviceId: testMlsDeviceId,
   sessionToken: 'sqs_sync',
   cidNumber: _cid,
   bindingRevision: 1,

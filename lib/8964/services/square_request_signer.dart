@@ -1,80 +1,30 @@
-import 'package:citizen_sdk/citizen_sdk.dart';
 import 'dart:convert';
-import 'dart:math';
 import 'dart:typed_data';
+import 'package:tatachat_sdk/tatachat_sdk.dart' as sdk;
 
-import 'package:crypto/crypto.dart';
+/// 只接受实际请求结构，不能用普通登录能力签任意消息。
+typedef MlsRequestAuthenticator = Future<Map<String, String>> Function({
+  required String method, required Uri uri, required List<int> body, required String sessionToken,
+});
 
-
-typedef SquareDeviceSigner = Future<String> Function(Uint8List message);
-
-/// 构造与 Worker 完全一致的请求证明；P-256 私钥仍由系统 Keystore/SE 持有。
 Future<Map<String, String>> squareRequestHeaders({
-  required String method,
-  required Uri uri,
-  required String body,
-  required String sessionToken,
-  required SquareDeviceSigner sign,
-  int? requestTime,
-  String? nonce,
-}) async {
-  return squareRequestHeadersForBytes(
-    method: method,
-    uri: uri,
-    body: Uint8List.fromList(utf8.encode(body)),
-    sessionToken: sessionToken,
-    sign: sign,
-    requestTime: requestTime,
-    nonce: nonce,
-  );
-}
+  required String method, required Uri uri, required String body,
+  required String sessionToken, required MlsRequestAuthenticator authenticate,
+}) => squareRequestHeadersForBytes(
+  method: method, uri: uri, body: Uint8List.fromList(utf8.encode(body)),
+  sessionToken: sessionToken, authenticate: authenticate,
+);
 
-/// 二进制上传沿用同一设备证明协议，但哈希必须覆盖原始字节，不能先转字符串。
+/// 正文不可变副本直接用于SDK摘要；查询和/api前缀原样保留。
 Future<Map<String, String>> squareRequestHeadersForBytes({
-  required String method,
-  required Uri uri,
-  required Uint8List body,
-  required String sessionToken,
-  required SquareDeviceSigner sign,
-  int? requestTime,
-  String? nonce,
-}) async {
-  final time = requestTime ?? DateTime.now().millisecondsSinceEpoch;
-  final requestNonce = nonce ?? _nonce();
-  final path = _apiPath(uri);
-  final canonical = <String>[
-    'square_request',
-    method.toUpperCase(),
-    uri.hasQuery ? '$path?${uri.query}' : path,
-    sha256.convert(body).toString(),
-    '$time',
-    requestNonce,
-    sha256.convert(utf8.encode(sessionToken)).toString(),
-  ].join('\n');
-  // 请求证明属于现有广场 BFF 会话认证域，不新增链上签名类型。
-  final message = await CitizenSigning.encodePayload(CitizenSigningPayload.message(
-    opTag: kOpSignSquareLogin,
-    scalePayload: await CitizenSigning.encodePayload(CitizenSigningPayload.scaleString(canonical)),
-  ));
-  return {
-    'x-device-time': '$time',
-    'x-device-nonce': requestNonce,
-    'x-device-signature': await sign(message),
-  };
-}
+  required String method, required Uri uri, required Uint8List body,
+  required String sessionToken, required MlsRequestAuthenticator authenticate,
+}) => authenticate(
+  method: method, uri: uri, body: List<int>.unmodifiable(body), sessionToken: sessionToken,
+);
 
-String _apiPath(Uri uri) {
-  const prefix = '/api';
-  if (uri.path == prefix) return '/';
-  if (uri.path.startsWith('$prefix/')) {
-    return uri.path.substring(prefix.length);
-  }
-  return uri.path;
-}
-
-String _nonce() {
-  final random = Random.secure();
-  return List<int>.generate(16, (_) => random.nextInt(256))
-      .map((value) => value.toRadixString(16).padLeft(2, '0'))
-      .join();
+Map<String, String> mlsProofHeaders(sdk.MlsAuthenticationProof proof) {
+  final bytes = utf8.encode(jsonEncode(proof.toJson()));
+  if (bytes.length > 16384) throw const FormatException('MLS证明超过16KiB');
+  return {'x-mls-proof': base64UrlEncode(bytes).replaceAll('=', '')};
 }

@@ -13,7 +13,6 @@ import 'package:citizenapp/my/user/contact_service.dart';
 import 'package:citizenapp/my/myid/current_user_context.dart';
 import 'package:citizenapp/8964/profile/services/square_session_provider.dart';
 import 'package:citizenapp/security/account_security_service.dart';
-import 'package:citizenapp/security/device_data_key_vault.dart';
 import 'package:citizenapp/8964/services/square_api_client.dart';
 import 'package:citizenapp/ui/app_layout.dart';
 
@@ -440,9 +439,8 @@ class _QrScanPageState extends State<QrScanPage> {
           content: Text(
             e is FormatException
                 ? '用户码或其身份绑定无效，请使用对方最新的用户码'
-                : e is DeviceDataKeyVaultException ||
-                      e is AccountSecurityException
-                ? '本机私有数据暂不可用，请检查设备准备状态后重试'
+                : e is AccountSecurityException
+                ? '本机身份状态暂不可用，请稍后重试'
                 : e is SquareApiException
                 ? '公民服务暂不可用，请稍后重试'
                 : '联系人身份验证或保存失败，请稍后重试',

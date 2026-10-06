@@ -1,16 +1,18 @@
+import 'package:citizenapp/security/public_identity_store.dart';
+
 import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:citizenapp/8964/services/square_api_client.dart';
-import 'package:citizenapp/security/device_subkey.dart';
-import 'package:citizenapp/security/local_data_key.dart';
+import 'package:citizenapp/security/mls_authentication.dart';
+import 'package:citizenapp/security/mls_device_binding.dart';
 
 /// 对设备绑定证明消息（`signing_message` 的 32 字节摘要）做 sr25519 主钥签名，
 /// 返回 `0x` hex 签名。
 typedef DeviceBindingSigner = Future<String> Function({
   required Uint8List payload,
   required Uint8List signingMessage,
-  required String devicePublicKey,
+  required String publicKey,
   required int issuedAtMillis,
 });
 typedef TurnstileTokenProvider = Future<String?> Function();
@@ -59,26 +61,22 @@ Future<String> acquireDeviceBindingTurnstileToken({
   return token;
 }
 
-/// 编排 P-256 设备子钥注册：取子钥公钥 → 构造 `signing_message(OP_SIGN_SQUARE_DEVICE_BIND)`
-/// 32B 摘要 → sr25519 主钥签摘要 → 上报后端。
-///
-/// 仅在 Worker 明确返回 `device_not_registered` 后调用：读取当前绑定账户 child 完成
-/// 一次鉴权签名。钱包创建、CID finalized、页面进入与后台预热均不得调用。
-class DeviceSubkeyRegistrar {
-  DeviceSubkeyRegistrar({
-    DeviceSubkey? deviceSubkey,
+/// 只在明确的设备未登记响应后编排登记，钱包证明先持久保存。
+class MlsDeviceRegistrar {
+  MlsDeviceRegistrar({
+    required MlsAuthenticationSource authentication,
     SquareApiClient? apiClient,
     TurnstileTokenProvider? turnstileToken,
-    LocalKeyBlobStore? proofStore,
-  }) : _subkey = deviceSubkey ?? DeviceSubkey(),
+    PublicIdentityRecordStore? proofStore,
+  }) : _authentication = authentication,
        _api = apiClient ?? SquareApiClient(),
        _turnstileToken = turnstileToken,
-       _proofStore = proofStore ?? SecureStorageLocalKeyBlobStore();
+       _proofStore = proofStore ?? SystemPublicIdentityRecordStore();
 
-  final DeviceSubkey _subkey;
+  final MlsAuthenticationSource _authentication;
   final SquareApiClient _api;
   final TurnstileTokenProvider? _turnstileToken;
-  final LocalKeyBlobStore _proofStore;
+  final PublicIdentityRecordStore _proofStore;
   final Map<String, Future<void>> _flights = {};
 
   Future<void> register({
@@ -93,17 +91,19 @@ class DeviceSubkeyRegistrar {
       bindingRevision,
       accountId,
     );
-    return _flights.putIfAbsent(key, () {
-      return _register(
-        cidNumber: cidNumber,
-        bindingRevision: bindingRevision,
-        accountId: accountId,
-        signBinding: signBinding,
-        issuedAtMillis: issuedAtMillis,
-      ).whenComplete(() {
-        _flights.remove(key);
-      });
-    });
+    return _flights.putIfAbsent(
+      key,
+      () =>
+          _register(
+            cidNumber: cidNumber,
+            bindingRevision: bindingRevision,
+            accountId: accountId,
+            signBinding: signBinding,
+            issuedAtMillis: issuedAtMillis,
+          ).whenComplete(() {
+            _flights.remove(key);
+          }),
+    );
   }
 
   Future<void> _register({
@@ -113,66 +113,84 @@ class DeviceSubkeyRegistrar {
     required DeviceBindingSigner signBinding,
     int? issuedAtMillis,
   }) async {
-    // publicKeyHex 返回裸未压缩点：签名消息 SCALE preimage 用裸（保持逐字节与后端一致），
-    // 跨端 wire 文本统一带 `0x`（ADR-041），后端入口一次 require 0x + strip。
-    final publicKey = await _subkey.publicKeyHex(cidNumber);
+    final identity = await _authentication.readIdentity();
+    if (identity.cidNumber != cidNumber ||
+        identity.bindingRevision != bindingRevision ||
+        identity.accountId != accountId) {
+      throw const MlsAuthenticationException(
+        '登记归属与当前MLS身份不一致',
+        code: 'identityChanged',
+      );
+    }
     final proofKey = deviceRegistrationProofKey(
       cidNumber,
       bindingRevision,
       accountId,
     );
     final rawProof = await _proofStore.read(proofKey);
-    int issuedAt;
-    String signatureHex;
+    await _authentication.requireCurrent(identity);
+    late final int issuedAt;
+    late final String signature;
     if (rawProof != null) {
-      // 损坏、换身份或硬件公钥变化时失败关闭；不得以重签掩盖丢失材料。
       try {
         final proof = jsonDecode(rawProof);
+        const fields = {
+          'cid_number',
+          'binding_revision',
+          'account_id',
+          'public_key',
+          'issued_at',
+          'signature',
+        };
         if (proof is! Map<String, dynamic> ||
+            proof.length != fields.length ||
+            !proof.keys.every(fields.contains) ||
             proof['cid_number'] != cidNumber ||
             proof['binding_revision'] != bindingRevision ||
             proof['account_id'] != accountId ||
-            proof['public_key'] != publicKey ||
+            proof['public_key'] != identity.publicKey ||
             proof['issued_at'] is! int ||
-            (proof['issued_at'] as int) <= 0 ||
+            proof['issued_at'] <= 0 ||
+            proof['issued_at'] > 9007199254740991 ||
             proof['signature'] is! String ||
-            !RegExp(r'^0x[0-9a-fA-F]{128}$')
-                .hasMatch(proof['signature'] as String)) {
+            !RegExp(r'^0x[0-9a-f]{128}$').hasMatch(proof['signature'])) {
           throw const FormatException();
         }
         issuedAt = proof['issued_at'] as int;
-        signatureHex = proof['signature'] as String;
+        signature = proof['signature'] as String;
       } on FormatException {
         throw const SquareApiException(
-          '本机设备登记证明不可用',
+          '本机MLS登记授权不可用',
           errorCode: 'device_proof_invalid',
         );
       }
     } else {
       issuedAt = issuedAtMillis ?? DateTime.now().millisecondsSinceEpoch;
-      final payload = await encodeDeviceBindingPayload(
+      final payload = await encodeMlsDeviceBindingPayload(
         cidNumber: cidNumber,
         bindingRevision: bindingRevision,
         accountId: accountId,
-        p256PublicKeyHex: publicKey,
+        publicKey: identity.publicKey,
         issuedAtMillis: issuedAt,
       );
-      final message = await buildDeviceBindingSigningMessage(
+      final message = await buildMlsDeviceBindingSigningMessage(
         cidNumber,
         bindingRevision,
         accountId,
-        publicKey,
+        identity.publicKey,
         issuedAt,
       );
-      signatureHex = await signBinding(
+      await _authentication.requireCurrent(identity);
+      signature = await signBinding(
         payload: payload,
         signingMessage: message,
-        devicePublicKey: publicKey,
+        publicKey: identity.publicKey,
         issuedAtMillis: issuedAt,
       );
-      if (!RegExp(r'^0x[0-9a-fA-F]{128}$').hasMatch(signatureHex)) {
+      await _authentication.requireCurrent(identity);
+      if (!RegExp(r'^0x[0-9a-f]{128}$').hasMatch(signature)) {
         throw const SquareApiException(
-          '设备登记签名无效',
+          'MLS登记钱包签名无效',
           errorCode: 'device_proof_invalid',
         );
       }
@@ -180,11 +198,10 @@ class DeviceSubkeyRegistrar {
         'cid_number': cidNumber,
         'binding_revision': bindingRevision,
         'account_id': accountId,
-        'public_key': publicKey,
+        'public_key': identity.publicKey,
         'issued_at': issuedAt,
-        'signature': signatureHex,
+        'signature': signature,
       });
-      // 在任何网络提交/验证页之前落盘；重启只复用这份证明，不读取钱包根材料。
       if (!await _proofStore.compareAndSet(
             proofKey,
             expected: null,
@@ -192,50 +209,53 @@ class DeviceSubkeyRegistrar {
           ) ||
           await _proofStore.read(proofKey) != proof) {
         throw const SquareApiException(
-          '设备登记证明保存失败',
+          'MLS登记授权保存失败',
           errorCode: 'device_proof_storage',
         );
       }
+      await _authentication.requireCurrent(identity);
     }
-    String? recoveryChallengeId;
-    String? recoverySignature;
-    String? turnstileToken;
-    if (rawProof != null) {
-      final challenge = await _api.deviceRegistrationChallenge(
-        accountId: accountId,
-        cidNumber: cidNumber,
-        bindingRevision: bindingRevision,
-      );
-      recoveryChallengeId = challenge.challengeId;
-      recoverySignature =
-          '0x${await _subkey.signRawHex(cidNumber, challenge.message)}';
-    } else {
-      final tokenProvider = _turnstileToken;
-      if (tokenProvider == null) {
+
+    Future<String> token() async {
+      final provider = _turnstileToken;
+      if (provider == null) {
         throw const SquareApiException(
           '设备安全验证未配置',
           errorCode: 'turnstile_ui_unavailable',
         );
       }
-      turnstileToken = await tokenProvider();
-      if (turnstileToken == null ||
-          turnstileToken.length < _turnstileTokenMinLength ||
-          turnstileToken.length > _turnstileTokenMaxLength) {
+      final value = await provider();
+      await _authentication.requireCurrent(identity);
+      if (value == null ||
+          value.length < _turnstileTokenMinLength ||
+          value.length > _turnstileTokenMaxLength) {
         throw const SquareApiException(
           '设备安全验证未完成',
           errorCode: 'turnstile_token_invalid',
         );
       }
+      return value;
     }
-    await _api.registerDeviceSubkey(
-      accountId: accountId,
-      p256PublicKeyHex: '0x$publicKey',
+
+    Future<void> submit(String? turnstile) => _api.registerMlsDevice(
+      identity: identity,
+      authentication: _authentication,
       issuedAt: issuedAt,
-      bindingSignatureHex: signatureHex,
-      turnstileToken: turnstileToken,
-      recoveryChallengeId: recoveryChallengeId,
-      recoverySignatureHex: recoverySignature,
+      bindingSignatureHex: signature,
+      turnstileToken: turnstile,
     );
-    // 保留原证明以恢复丢失回执；过期原证明必须同时通过新鲜P-256持钥挑战。
+
+    if (rawProof == null) {
+      await submit(await token());
+    } else {
+      // 相同已登记回执无需重复真人验证；未落库或更新必须按服务端结果取得新token。
+      try {
+        await submit(null);
+      } on SquareApiException catch (error) {
+        if (error.errorCode != 'turnstile_required') rethrow;
+        await submit(await token());
+      }
+    }
+    await _authentication.requireCurrent(identity);
   }
 }

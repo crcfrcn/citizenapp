@@ -1,4 +1,5 @@
 import 'package:citizenapp/qr/widgets/qr_display_scaffold.dart' show AppQrImage;
+
 import 'dart:async';
 import 'dart:typed_data';
 
@@ -22,7 +23,8 @@ Future<String?> showCitizenSdkQrResponse(
   final document = await qr.parse(request);
   if (!context.mounted) return null;
   if (document.kind != CitizenQrKind.signRequest ||
-      document.expiresAt == null || BigInt.from(document.expiresAt!) != expiresAt) {
+      document.expiresAt == null ||
+      BigInt.from(document.expiresAt!) != expiresAt) {
     throw const AccountSecurityException('签名请求与当前会话不一致');
   }
   return Navigator.of(context).push<String>(
@@ -30,7 +32,6 @@ Future<String?> showCitizenSdkQrResponse(
       builder: (_) => QrSignSessionPage(
         request: document,
         requestJson: document.canonicalText,
-        expectedSignerPublicKey: document.signerAccountId!,
         qr: qr,
       ),
     ),
@@ -49,20 +50,23 @@ Future<Uint8List> signCitizenPayload({
   required int action,
   CitizenSigningTransform? transform,
 }) async {
-  final signingTransform = transform ??
+  final signingTransform =
+      transform ??
       (CitizenQrActions.isChainAction(action)
           ? CitizenSigningTransform.substrateSigningPayload()
           : CitizenSigningTransform.raw());
-  final outcome = await signing.begin(
-    CitizenSigningIntent(
-      accountId: accountId,
-      payload: payload,
-      transform: signingTransform,
-      externalSignerTransport: CitizenExternalSignerTransport.qrV1,
-      opaqueAction: action,
-      ttlSeconds: 120,
-    ),
-  ).result;
+  final outcome = await signing
+      .begin(
+        CitizenSigningIntent(
+          accountId: accountId,
+          payload: payload,
+          transform: signingTransform,
+          externalSignerTransport: CitizenExternalSignerTransport.qrV1,
+          opaqueAction: action,
+          ttlSeconds: 120,
+        ),
+      )
+      .result;
   if (outcome is CitizenSigningCompleted) {
     return Uint8List.fromList(outcome.signature);
   }
@@ -78,10 +82,12 @@ Future<Uint8List> signCitizenPayload({
       expiresAt: pending.expiresAt,
     );
     if (response == null) throw const AccountSecurityException('签名已取消');
-    final completed = await signing.consumeExternalSignature(
-      sessionId: pending.sessionId,
-      response: response,
-    ).result;
+    final completed = await signing
+        .consumeExternalSignature(
+          sessionId: pending.sessionId,
+          response: response,
+        )
+        .result;
     return Uint8List.fromList(completed.signature);
   } finally {
     // 页面取消、过期或消费失败均结束原外部会话；成功后取消是幂等空操作。
@@ -95,14 +101,12 @@ Future<Uint8List> signCitizenPayload({
 /// 1. 展示签名请求二维码，等待离线设备扫描。
 /// 2. 用户点击"扫描响应"，打开相机扫描离线设备生成的签名响应二维码。
 ///
-/// 普通签名返回已预检的响应原文；用途钥返回[CitizenQrDocument]；取消返回null。
+/// 签名返回已预检的响应原文；取消返回null，页面不消费签名或提交交易。
 class QrSignSessionPage extends StatefulWidget {
   const QrSignSessionPage({
     super.key,
     required this.request,
     required this.requestJson,
-    required this.expectedSignerPublicKey,
-    this.responseKind = CitizenQrKind.signResponse,
     this.qr,
     this.scanResponse,
   });
@@ -116,10 +120,6 @@ class QrSignSessionPage extends StatefulWidget {
 
   /// 编码后的 JSON 字符串,直接用于二维码展示。
   final String requestJson;
-  final String expectedSignerPublicKey;
-
-  /// 普通冷签收 `k=2`；账户数据用途钥提供收独立 `k=6`。
-  final CitizenQrKind responseKind;
 
   @override
   State<QrSignSessionPage> createState() => _QrSignSessionPageState();
@@ -155,11 +155,9 @@ class _QrSignSessionPageState extends State<QrSignSessionPage> {
 
   Future<void> _scanResponse() async {
     final raw = widget.scanResponse != null
-        ? await widget.scanResponse!(context, widget.responseKind)
+        ? await widget.scanResponse!(context, CitizenQrKind.signResponse)
         : await Navigator.of(context).push<String>(
-            MaterialPageRoute(
-              builder: (_) => _SimpleScanner(acceptedKind: widget.responseKind),
-            ),
+            MaterialPageRoute(builder: (_) => const _SimpleScanner()),
           );
     if (raw == null || !mounted) return;
 
@@ -169,21 +167,13 @@ class _QrSignSessionPageState extends State<QrSignSessionPage> {
         throw const FormatException('当前请求已过期，请重新生成二维码');
       }
       final qr = widget.qr ?? context.read<CitizenSdk>().qr;
-      final Object response;
-      if (widget.responseKind == CitizenQrKind.accountDataKeyResponse) {
-        final document = (await qr.parseForPurpose(raw, CitizenQrScanPurpose.accountDataKey)).document;
-        if (document.requestId != widget.request.requestId ||
-            document.expiresAt != widget.request.expiresAt ||
-            document.signerAccountId != widget.expectedSignerPublicKey) {
-          throw const FormatException('用途钥响应与当前请求不一致');
-        }
-        response = document;
-      } else {
-        await qr.validateSignResponse(sessionId: widget.request.requestId!, response: raw);
-        response = raw;
-      }
+      // 只预检同一外部签名会话的响应；真正消费仍由原钱包调用方执行。
+      await qr.validateSignResponse(
+        sessionId: widget.request.requestId!,
+        response: raw,
+      );
       if (!mounted) return;
-      Navigator.of(context).pop(response);
+      Navigator.of(context).pop(raw);
     } on CitizenSdkException catch (e) {
       if (!mounted) return;
       await showDialog<void>(
@@ -204,7 +194,7 @@ class _QrSignSessionPageState extends State<QrSignSessionPage> {
       await showDialog<void>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('用途钥响应解析失败'),
+          title: const Text('签名响应解析失败'),
           content: Text(e.message),
           actions: [
             TextButton(
@@ -317,9 +307,7 @@ class _QrSignSessionPageState extends State<QrSignSessionPage> {
 
 // 签名响应扫码入口：设备层统一复用共享适配器，本页只接受 QR_V1 签名响应码。
 class _SimpleScanner extends StatefulWidget {
-  const _SimpleScanner({required this.acceptedKind});
-
-  final CitizenQrKind acceptedKind;
+  const _SimpleScanner();
 
   @override
   State<_SimpleScanner> createState() => _SimpleScannerState();
@@ -331,8 +319,7 @@ class _SimpleScannerState extends State<_SimpleScanner> {
 
   CitizenQrCapture? _capture;
   CitizenQr get _qr => context.read<CitizenSdk>().qr;
-  CitizenQrScanPurpose get _purpose => widget.acceptedKind == CitizenQrKind.accountDataKeyResponse
-      ? CitizenQrScanPurpose.accountDataKey : CitizenQrScanPurpose.externalSignature;
+  CitizenQrScanPurpose get _purpose => CitizenQrScanPurpose.externalSignature;
   bool _handled = false;
   bool _torchOn = false;
   bool _closing = false;
@@ -347,7 +334,9 @@ class _SimpleScannerState extends State<_SimpleScanner> {
     } on ScannerFailure catch (failure) {
       _showScannerFailure(failure);
     } on CitizenSdkException catch (error) {
-      _showScannerFailure(ScannerFailure.fromDeviceError(error, operation: '扫码'));
+      _showScannerFailure(
+        ScannerFailure.fromDeviceError(error, operation: '扫码'),
+      );
     }
   }
 
@@ -356,16 +345,24 @@ class _SimpleScannerState extends State<_SimpleScanner> {
     final image = await picker.pickImage(source: ImageSource.gallery);
     if (image == null || !mounted || _closing) return;
     try {
-      final results = await _qr.decodeImage(await image.readAsBytes(), _purpose);
+      final results = await _qr.decodeImage(
+        await image.readAsBytes(),
+        _purpose,
+      );
       if (results.isEmpty) {
-        throw const ScannerFailure(kind: ScannerFailureKind.noQrCode, message: '图片中未识别到二维码');
+        throw const ScannerFailure(
+          kind: ScannerFailureKind.noQrCode,
+          message: '图片中未识别到二维码',
+        );
       }
       if (!mounted || _closing) return;
       await _handleCode(results.first.canonicalText);
     } on ScannerFailure catch (failure) {
       _showScannerFailure(failure);
     } on CitizenSdkException catch (error) {
-      _showScannerFailure(ScannerFailure.fromDeviceError(error, operation: '扫码'));
+      _showScannerFailure(
+        ScannerFailure.fromDeviceError(error, operation: '扫码'),
+      );
     }
   }
 
@@ -376,17 +373,9 @@ class _SimpleScannerState extends State<_SimpleScanner> {
       await _capture?.pause();
       if (!mounted || _closing) return;
       try {
-        await context.read<CitizenSdk>().qr.parseForPurpose(
-          raw,
-          widget.acceptedKind == CitizenQrKind.accountDataKeyResponse
-              ? CitizenQrScanPurpose.accountDataKey : CitizenQrScanPurpose.externalSignature,
-        );
+        await context.read<CitizenSdk>().qr.parseForPurpose(raw, _purpose);
       } on CitizenSdkException {
-        throw FormatException(
-          widget.acceptedKind == CitizenQrKind.accountDataKeyResponse
-              ? '请扫描账户数据用途钥响应二维码'
-              : '请扫描签名响应二维码',
-        );
+        throw const FormatException('请扫描签名响应二维码');
       }
       if (!mounted) return;
       _closing = true;
@@ -409,14 +398,18 @@ class _SimpleScannerState extends State<_SimpleScanner> {
     } on ScannerFailure catch (failure) {
       _showScannerFailure(failure);
     } on CitizenSdkException catch (error) {
-      _showScannerFailure(ScannerFailure.fromDeviceError(error, operation: '扫码'));
+      _showScannerFailure(
+        ScannerFailure.fromDeviceError(error, operation: '扫码'),
+      );
     } finally {
       if (mounted && !_closing) {
         _handled = false;
         try {
           await _capture?.resume();
         } on CitizenSdkException catch (error) {
-          _showScannerFailure(ScannerFailure.fromDeviceError(error, operation: '继续扫码'));
+          _showScannerFailure(
+            ScannerFailure.fromDeviceError(error, operation: '继续扫码'),
+          );
         }
       }
     }
@@ -427,9 +420,8 @@ class _SimpleScannerState extends State<_SimpleScanner> {
     final message = failure.kind == ScannerFailureKind.noQrCode
         ? '未识别到二维码'
         : failure.message;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override

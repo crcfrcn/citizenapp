@@ -15,12 +15,11 @@ import 'package:citizenapp/citizen/public/data/area_path_formatter.dart';
 import 'package:citizenapp/citizen/public/data/isar_admin_division_store.dart';
 import 'package:citizenapp/citizen/public/data/public_provinces.dart';
 import 'package:citizenapp/citizen/cid_generator.dart';
-import 'package:citizenapp/my/user/contact_service.dart';
 import 'package:citizenapp/my/myid/citizen_identity_transaction.dart';
 import 'package:citizenapp/my/myid/citizen_identity_chain_reader.dart';
 import 'package:citizenapp/qr/pages/qr_sign_session_page.dart';
 import 'package:citizenapp/security/account_security_service.dart';
-import 'package:citizenapp/security/local_data_key.dart';
+import 'package:citizenapp/security/identity_binding.dart';
 
 import 'current_user_context.dart';
 import 'finalized_identity_resolver.dart';
@@ -48,223 +47,6 @@ enum MyIdTier {
 
 /// 身份展示状态；unknown 表示没有已保存事实，queryFailed 表示本次读取失败。
 enum MyIdStatus { normal, notYetValid, expired, revoked, unknown, queryFailed }
-
-/// CID 钱包换绑的私有数据交接编排；只调用客户端端到端加密边界。
-class CidAccountDataHandover {
-  CidAccountDataHandover({
-    required UserContactService contactService,
-    required AccountSecurityService accountSecurity,
-    required ChatSdk chatRuntime,
-  }) : _contactService = contactService,
-       _chatRuntime = chatRuntime,
-       _accountSecurity = accountSecurity;
-
-  final UserContactService _contactService;
-  final ChatSdk _chatRuntime;
-  final AccountSecurityService _accountSecurity;
-
-  Future<void> stage({
-    required AccountDataBinding source,
-    required AccountDataBinding target,
-  }) async {
-    // 顶层 intent 必须先于任何子域 stage 持久化；中途崩溃会保留 preparing，
-    // finalized 恢复不得把尚未完成的子域猜成空库。
-    await _accountSecurity.recordPendingAccountDataHandover(
-      source: source,
-      target: target,
-    );
-    try {
-      await _chatRuntime.stageAccountHandover(
-        source: _chatBinding(source),
-        target: _chatBinding(target),
-      );
-      await _contactService.stageAccountHandover(
-        source: source,
-        target: target,
-      );
-      await _accountSecurity.markPendingAccountDataHandoverReady(
-        source: source,
-        target: target,
-      );
-    } catch (stageError, stageStackTrace) {
-      // 普通异常仍在当前调用栈内，必须主动聚合丢弃两个子域，避免 preparing
-      // 长期阻断 Chat；进程崩溃不会执行此 catch，持久 intent 会留给显式恢复。
-      try {
-        await discard(source: source, target: target);
-      } catch (discardError, discardStackTrace) {
-        Error.throwWithStackTrace(
-          StateError(
-            'CID 私有数据交接 stage 失败且自动丢弃失败：'
-            'stage=$stageError；discard=$discardError',
-          ),
-          discardStackTrace,
-        );
-      }
-      Error.throwWithStackTrace(stageError, stageStackTrace);
-    }
-  }
-
-  Future<void> commit({
-    required AccountDataBinding source,
-    required AccountDataBinding target,
-  }) async {
-    final pending = await _requirePendingIntent(source: source, target: target);
-    if (pending.state != AccountDataHandoverState.ready) {
-      throw StateError('CID 私有数据交接仍处于 preparing，禁止 commit');
-    }
-    await _chatRuntime.commitAccountHandover(
-      source: _chatBinding(source),
-      target: _chatBinding(target),
-    );
-    await _contactService.commitAccountHandover(source: source, target: target);
-    await _accountSecurity.clearPendingAccountDataHandover(
-      source: source,
-      target: target,
-    );
-  }
-
-  Future<void> discard({
-    required AccountDataBinding source,
-    required AccountDataBinding target,
-  }) async {
-    final pending = await _accountSecurity.readPendingAccountDataHandover();
-    if (pending == null) return;
-    if (!_sameBinding(pending.source, source) ||
-        !_sameBinding(pending.target, target)) {
-      throw StateError('CID 私有数据交接 intent 与 discard 参数不一致');
-    }
-    final failures = <String>[];
-    try {
-      await _chatRuntime.discardAccountHandover(
-        source: _chatBinding(source),
-        target: _chatBinding(target),
-      );
-    } catch (error) {
-      failures.add('Chat：$error');
-    }
-    try {
-      await _contactService.discardAccountHandover(
-        source: source,
-        target: target,
-      );
-    } catch (error) {
-      failures.add('通讯录：$error');
-    }
-    if (failures.isNotEmpty) {
-      // 任一子域失败都保留唯一恢复 intent；下一次显式 discard 继续逐域重试。
-      throw StateError('CID 私有数据交接丢弃失败：${failures.join('；')}');
-    }
-    await _accountSecurity.clearPendingAccountDataHandover(
-      source: source,
-      target: target,
-    );
-  }
-
-  Future<void> resumeForFinalizedBinding(AccountDataBinding current) async {
-    final pending = await _accountSecurity.readPendingAccountDataHandover();
-    if (pending == null) return;
-    final target = pending.target;
-    if (target.genesisHash != current.genesisHash ||
-        target.cidNumber != current.cidNumber ||
-        target.bindingRevision != current.bindingRevision ||
-        target.accountId != current.accountId) {
-      return;
-    }
-    if (pending.state != AccountDataHandoverState.ready) {
-      throw StateError('CID 私有数据交接仍处于 preparing，禁止 finalized commit');
-    }
-    await commit(source: pending.source, target: target);
-  }
-
-  /// 只按 finalized 公开真值准备端内私有数据状态，不读取钱包账户 child。
-  ///
-  /// 精确命中交接目标时保留暂存，等待 [completeFinalizedBinding] 提交；确认交易未生效
-  /// 或链上版本已经越过目标时清掉旁路暂存。没有可提交交接且绑定确实变化时，只隔离
-  /// 此前密文和派生状态，不读取此前账户、此前设备或任何额外密钥。
-  Future<void> prepareFinalizedBinding({
-    required AccountDataBinding current,
-    AccountDataBinding? previous,
-  }) async {
-    final pending = await _accountSecurity.readPendingAccountDataHandover();
-    if (pending != null && _sameBinding(pending.target, current)) {
-      if (pending.state != AccountDataHandoverState.ready) {
-        throw StateError('CID 私有数据交接仍处于 preparing，禁止收敛 finalized binding');
-      }
-      return;
-    }
-    if (pending != null &&
-        pending.target.genesisHash == current.genesisHash &&
-        pending.target.cidNumber == current.cidNumber &&
-        (_sameBinding(pending.source, current) ||
-            current.bindingRevision >= pending.target.bindingRevision)) {
-      await discard(source: pending.source, target: pending.target);
-    }
-    if (previous == null ||
-        _sameBinding(previous, current) ||
-        previous.genesisHash != current.genesisHash ||
-        previous.cidNumber != current.cidNumber ||
-        previous.bindingRevision >= current.bindingRevision) {
-      return;
-    }
-    await _contactService.isolateInaccessibleBinding(previous);
-    await _chatRuntime.isolateInaccessibleBinding(
-      previous: _chatBinding(previous),
-      current: _chatBinding(current),
-    );
-  }
-
-  /// 当前设备子钥登记成功后收敛 Session、交接密文和 Chat 当前设备状态。
-  Future<void> completeFinalizedBinding(AccountDataBinding current) async {
-    SquareApiClient.activateFinalizedBinding(
-      cidNumber: current.cidNumber,
-      bindingRevision: current.bindingRevision,
-      accountId: current.accountId,
-    );
-    await resumeForFinalizedBinding(current);
-    try {
-      await _chatRuntime.convergeFinalizedBinding(_chatBinding(current));
-    } catch (error) {
-      // Chat 初始化依赖推送与网络；失败不能回滚已经 finalized 的 CID 控制权。
-      // 当前绑定已生效且此前凭证已由 Worker 撤销，进入 Chat 时会继续幂等补齐。
-      AppLog.d('chat finalized binding convergence deferred: $error');
-    }
-  }
-
-  static bool _sameBinding(AccountDataBinding left, AccountDataBinding right) =>
-      left.genesisHash == right.genesisHash &&
-      left.cidNumber == right.cidNumber &&
-      left.bindingRevision == right.bindingRevision &&
-      left.accountId == right.accountId;
-
-  /// 身份模块只在调用聊天交接边界时构造中性快照，不依赖公民聊天模块的适配代码。
-  static ChatDataBinding _chatBinding(AccountDataBinding binding) =>
-      ChatDataBinding(
-        keyDomain: binding.genesisHash,
-        userId: binding.cidNumber,
-        bindingRevision: binding.bindingRevision,
-        accountId: binding.accountId,
-      );
-
-  Future<
-    ({
-      AccountDataBinding source,
-      AccountDataBinding target,
-      AccountDataHandoverState state,
-    })
-  >
-  _requirePendingIntent({
-    required AccountDataBinding source,
-    required AccountDataBinding target,
-  }) async {
-    final pending = await _accountSecurity.readPendingAccountDataHandover();
-    if (pending == null ||
-        !_sameBinding(pending.source, source) ||
-        !_sameBinding(pending.target, target)) {
-      throw StateError('CID 私有数据交接 intent 缺失或已变化');
-    }
-    return pending;
-  }
-}
 
 /// 身份页展示状态；来自本地持久化或本次主动验真，不作为操作授权。
 class MyIdState {
@@ -337,13 +119,11 @@ class MyIdService {
     required FinalizedIdentityResolver identityResolver,
     required SquareSessionProvider sessionProvider,
     required ChatSdk Function() chatRuntime,
-    UserContactService? contactService,
     required CitizenChain chain,
     required CitizenTransactions transactions,
     AdminDivisionStore? divisionStore,
     IdentityBadgeSnapshotStore? badgeSnapshotStore,
     CitizenIdentityTransaction? identityTransaction,
-    CidAccountDataHandover? dataHandover,
     DateTime Function()? nowProvider,
     int Function()? cidYearProvider,
   }) : _wallet = wallet,
@@ -352,14 +132,12 @@ class MyIdService {
        _currentUserContext = currentUserContext,
        _sessionProvider = sessionProvider,
        _chatRuntime = chatRuntime,
-       _contactService = contactService,
        _divisionStore = divisionStore ?? IsarAdminDivisionStore(),
        _badgeSnapshotStore = badgeSnapshotStore ?? IdentityBadgeSnapshotStore(),
        _identityResolver = identityResolver,
        _identityTransaction =
            identityTransaction ??
            CitizenIdentityTransaction(chain: chain, transactions: transactions),
-       _dataHandoverOverride = dataHandover,
        _chain = chain,
        _nowProvider = nowProvider ?? _beijingNow,
        _cidYearProvider = cidYearProvider ?? _utcYear;
@@ -370,30 +148,10 @@ class MyIdService {
   final CurrentUserContext _currentUserContext;
   final SquareSessionProvider _sessionProvider;
   final ChatSdk Function() _chatRuntime;
-  final UserContactService? _contactService;
   final AdminDivisionStore _divisionStore;
   final IdentityBadgeSnapshotStore _badgeSnapshotStore;
   final FinalizedIdentityResolver _identityResolver;
   final CitizenIdentityTransaction _identityTransaction;
-  final CidAccountDataHandover? _dataHandoverOverride;
-
-  /// 身份只读与 Wallet 页面不得构造 Chat 运行态；只有实际 CID 换绑动作首次访问时
-  /// 才创建跨域交接编排，并复用本服务已经确定的钱包边界。
-  late final CidAccountDataHandover _dataHandover =
-      _dataHandoverOverride ??
-      CidAccountDataHandover(
-        contactService:
-            _contactService ??
-            UserContactService(
-              accountSecurity: _accountSecurity,
-              currentUserContext: _currentUserContext,
-              sessionProvider: _sessionProvider,
-              chainReader: CitizenIdentityChainReader(chain: _chain),
-              autoSync: false,
-            ),
-        accountSecurity: _accountSecurity,
-        chatRuntime: _chatRuntime(),
-      );
 
   final CitizenChain _chain;
 
@@ -586,8 +344,8 @@ class MyIdService {
       cidNumber: cid,
       accountId: resolvedBindAccountId,
     );
-    // CID 注册是正式交易；finalized 后这里只推进公开绑定与数据交接。设备数据钥和
-    // P-256 子钥分别由真实数据缺钥、Worker 明确未登记触发，禁止在此额外鉴权。
+    // CID注册finalized后只推进公开绑定及同CID数据上下文；MLS首次设备登记
+    // 由Worker明确未登记时触发，身份交易收尾不额外请求钱包授权。
     try {
       await _finishResolvedBinding(finalized);
     } on Object catch (error) {
@@ -635,13 +393,13 @@ class MyIdService {
     if (context.currentAccountId != currentAccountId) {
       throw const AccountSecurityException('CID 当前绑定账户已经变化，请刷新后重试');
     }
-    final source = AccountDataBinding(
+    final source = IdentityBinding(
       genesisHash: '0x${_bytesToHex(context.genesisHash)}',
       cidNumber: cidNumber,
       bindingRevision: context.expectedBindingRevision.toInt(),
       accountId: currentAccountId,
     );
-    final target = AccountDataBinding(
+    final target = IdentityBinding(
       genesisHash: source.genesisHash,
       cidNumber: cidNumber,
       bindingRevision: source.bindingRevision + 1,
@@ -666,34 +424,23 @@ class MyIdService {
       payload: currentAccountDigest,
       action: kOpSignCidRebind,
     );
-    await _dataHandover.stage(source: source, target: target);
-    try {
-      await _identityTransaction.selfRebindCidAccount(
-        cidNumber: cidNumber,
-        newAccountId: newAccount.accountId,
-        currentAccountId: currentAccountId,
-        context: context,
-        currentAccountSignature: currentAccountSignature,
-        externalSigning: (pending) =>
-            buildContext == null || !buildContext.mounted
-            ? Future<String?>.value()
-            : showCitizenSdkQrResponse(
-                buildContext,
-                request: pending.qrRequest,
-                expiresAt: BigInt.from(
-                  pending.expiresAt.millisecondsSinceEpoch ~/ 1000,
-                ),
+    await _identityTransaction.selfRebindCidAccount(
+      cidNumber: cidNumber,
+      newAccountId: newAccount.accountId,
+      currentAccountId: currentAccountId,
+      context: context,
+      currentAccountSignature: currentAccountSignature,
+      externalSigning: (pending) =>
+          buildContext == null || !buildContext.mounted
+          ? Future<String?>.value()
+          : showCitizenSdkQrResponse(
+              buildContext,
+              request: pending.qrRequest,
+              expiresAt: BigInt.from(
+                pending.expiresAt.millisecondsSinceEpoch ~/ 1000,
               ),
-      );
-    } catch (error, stackTrace) {
-      try {
-        await _dataHandover.discard(source: source, target: target);
-      } catch (cleanupError) {
-        // 原交易失败才是本次换绑结果；清理失败保留幂等暂存，下一次 finalized 对账再清。
-        AppLog.d('CID 换绑失败后的私有数据暂存清理待重试: $cleanupError');
-      }
-      Error.throwWithStackTrace(error, stackTrace);
-    }
+            ),
+    );
     // SDK 已核验交易执行，业务层已在同一 finalized 块核对目标绑定。
     await _finishFinalizedBinding(target);
   }
@@ -714,18 +461,18 @@ class MyIdService {
     return (requiredFen: requiredFen, balanceFen: balance.freeFen);
   }
 
-  Future<AccountDataBinding> _bindingForFinalizedIdentity(
+  Future<IdentityBinding> _bindingForFinalizedIdentity(
     FinalizedIdentity resolved,
   ) async {
     final snapshot = resolved.snapshot;
     if (snapshot == null) {
-      throw const AccountSecurityException('当前无已注册身份，无法解析设备子钥绑定');
+      throw const AccountSecurityException('当前无已注册身份，无法解析MLS设备绑定');
     }
     final genesisHash = await _chain.getGenesisHash();
     if (!RegExp(r'^0x[0-9a-f]{64}$').hasMatch(genesisHash)) {
-      throw const AccountSecurityException('创世哈希无效，禁止派生当前钱包私有数据密钥');
+      throw const AccountSecurityException('创世哈希无效，禁止激活当前身份绑定');
     }
-    return AccountDataBinding(
+    return IdentityBinding(
       genesisHash: genesisHash,
       cidNumber: snapshot.cidNumber,
       bindingRevision: snapshot.bindingRevision,
@@ -738,9 +485,8 @@ class MyIdService {
     await _finishFinalizedBinding(await _bindingForFinalizedIdentity(resolved));
   }
 
-  /// finalized 只推进公开绑定与数据交接，不生成本地数据钥，也不登记 P-256 设备子钥。
-  /// 前者仅在用户明确选择用途钥准备时生成，后者仅在 Worker 报缺登记后由用户明确授权登记。
-  Future<void> _finishFinalizedBinding(AccountDataBinding current) async {
+  /// finalized只推进公开身份和失效代次；不派生材料，不登记设备或请求钱包授权。
+  Future<void> _finishFinalizedBinding(IdentityBinding current) async {
     try {
       // 自助占号/换绑已经按交易finalized块验证匿名CID绑定；直接保存该事实，页面不再查链。
       await _badgeSnapshotStore.writeVerified(
@@ -756,20 +502,21 @@ class MyIdService {
         ),
         isCurrent: () => true,
       );
-      final previous = await _accountSecurity.readAccountDataBindingForCid(
+      final previous = await _accountSecurity.readIdentityBindingForCid(
         current.cidNumber,
       );
-      await _accountSecurity.activateAccountDataBinding(
+      await _accountSecurity.activateIdentityBinding(
         genesisHash: current.genesisHash,
         cidNumber: current.cidNumber,
         bindingRevision: current.bindingRevision,
         accountId: current.accountId,
       );
-      await _dataHandover.prepareFinalizedBinding(
-        current: current,
-        previous: previous,
-      );
-      await _dataHandover.completeFinalizedBinding(current);
+      _currentUserContext.invalidate();
+      if (previous != null) _sessionProvider.invalidateAccount(previous.accountId);
+      SquareApiClient.activateFinalizedBinding(cidNumber: current.cidNumber,
+        bindingRevision: current.bindingRevision, accountId: current.accountId);
+      await _chatRuntime().convergeFinalizedBinding(ChatBinding(bindingScope: current.genesisHash,
+        userId: current.cidNumber, bindingRevision: current.bindingRevision, accountId: current.accountId));
     } finally {
       // CID 占号与换绑不一定改变 account_id，必须先清“未注册”快照再广播；所有常驻
       // 页面收到 revision 后按 cid_number + account_id 重读，禁止依赖重启 App。

@@ -137,9 +137,13 @@ class LocalTxStore {
           ..ss58Address = ss58Address
           ..accountId = normalizedAccountId
           ..type = 'transfer'
-          ..amountDeltaFen = amountDeltaFen
+          ..amountDeltaFen = existingPending.eventIndex == null
+              ? amountDeltaFen
+              : existingPending.amountDeltaFen
           ..transferAmountFen = transferAmountFen
-          ..feeFen = feeFen
+          ..feeFen = existingPending.eventIndex == null
+              ? feeFen
+              : existingPending.feeFen
           ..counterpartySs58Address = counterpartySs58Address
           ..fromSs58Address = fromSs58Address
           ..toSs58Address = toSs58Address
@@ -182,9 +186,9 @@ class LocalTxStore {
         ..ss58Address = ss58Address
         ..accountId = normalizedAccountId
         ..type = 'transfer'
-        ..amountDeltaFen = amountDeltaFen
+        ..amountDeltaFen = existingEvent?.amountDeltaFen ?? amountDeltaFen
         ..transferAmountFen = transferAmountFen
-        ..feeFen = feeFen
+        ..feeFen = existingEvent != null ? existingEvent.feeFen : feeFen
         ..counterpartySs58Address = counterpartySs58Address
         ..fromSs58Address = fromSs58Address
         ..toSs58Address = toSs58Address
@@ -224,6 +228,7 @@ class LocalTxStore {
     int? extrinsicIndex,
     int? confirmedAtMillis,
     String? remark,
+    String? feeFen,
     String? txHash,
   }) async {
     if (status != statusFinalized) {
@@ -237,6 +242,7 @@ class LocalTxStore {
       ..type = 'transfer'
       ..amountDeltaFen = amountDeltaFen
       ..transferAmountFen = transferAmountFen
+      ..feeFen = feeFen
       ..fromSs58Address = fromSs58Address
       ..toSs58Address = toSs58Address
       ..counterpartySs58Address = counterpartySs58Address
@@ -268,6 +274,33 @@ class LocalTxStore {
               .where()
               .recordKeyEqualTo(submitRecordKey(incoming.accountId, hash))
               .findFirst();
+    // 单独收费事件只补全同一账户与准确正文哈希的 SDK 提交，不接管其终态。
+    if (incoming.type == 'fee' &&
+        submitted != null &&
+        submitted.source == 'local_submit' &&
+        submitted.executionId?.isNotEmpty == true &&
+        submitted.callDataHash?.isNotEmpty == true) {
+      if (submitted.blockHash != null &&
+          submitted.eventIndex != null &&
+          (submitted.blockHash != incoming.blockHash ||
+              submitted.eventIndex != incoming.eventIndex)) {
+        throw StateError('收费事实与本机提交已绑定的事件不一致');
+      }
+      submitted
+        ..feeFen = incoming.feeFen
+        ..blockNumber = incoming.blockNumber
+        ..blockHash = incoming.blockHash
+        ..eventIndex = incoming.eventIndex
+        ..extrinsicIndex = incoming.extrinsicIndex;
+      if (incoming.failureReason != null) {
+        submitted.amountDeltaFen = incoming.amountDeltaFen;
+      }
+      await isar.localTxEntitys.put(submitted);
+      if (existing != null && existing.id != submitted.id) {
+        await isar.localTxEntitys.delete(existing.id);
+      }
+      return;
+    }
     // 交易哈希之外还核对业务内容；同金额从来不是关联依据。
     final matchesSubmit =
         submitted != null &&
@@ -286,6 +319,8 @@ class LocalTxStore {
         ..blockHash = incoming.blockHash
         ..eventIndex = incoming.eventIndex
         ..extrinsicIndex = incoming.extrinsicIndex
+        ..feeFen = incoming.feeFen
+        ..amountDeltaFen = incoming.amountDeltaFen
         ..remark = _mergeRemark(incoming.remark, submitted.remark);
       await isar.localTxEntitys.put(submitted);
       if (existing != null && existing.id != submitted.id) {

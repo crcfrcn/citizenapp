@@ -144,8 +144,8 @@ class _CreateWalletOnboardingPageState extends State<CreateWalletOnboardingPage>
 
   Future<void> _openImport() async {
     // 复用 ImportWalletPage：其内部 importWallet 为 fail-closed（钱包本地落库成功才
-    // pop(true)，失败弹窗并保留助记词）。设备子钥同样不在导入时注册；实际业务确认
-    // 缺钥时才鉴权一次生成，页面门禁不参与。
+    // pop(true)，失败弹窗并保留助记词）。导入不发起MLS设备登记；实际业务确认
+    // 本机设备未登记时才进入获准登记，页面门禁不参与。
     // 返回 true 即钱包就绪，放行进 App。
     final imported = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (_) => const ImportWalletPage()),

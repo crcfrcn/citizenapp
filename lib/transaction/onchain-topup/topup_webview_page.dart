@@ -26,7 +26,7 @@ class TopupWebResult {
 
 /// WalletConnect 支付页(方案 A):在 WebView 内加载打包的 AppKit JS 页,连自托管钱包并发
 /// ERC-20 转账。App 只把「币+链+收款地址+应付额」交给页面,拿回 txHash;不引 reown Dart SDK
-/// (与 flutter_secure_storage 10 / flutter_chat_core 冲突),故走 webview 里的 JS SDK。
+/// 页面使用已打包的 JS SDK 完成既有流程。
 class TopupWebviewPage extends StatefulWidget {
   const TopupWebviewPage({
     super.key,

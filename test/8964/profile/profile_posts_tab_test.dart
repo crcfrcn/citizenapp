@@ -1,3 +1,4 @@
+import '../mls_authentication_fixture.dart';
 import 'package:citizenapp/isar/user_isar.dart';
 import 'package:citizenapp/isar/social_isar.dart';
 
@@ -74,6 +75,7 @@ class _RefreshingSessionProvider implements SquareSessionProvider {
   int refreshCalls = 0;
 
   SquareSession _session(String token) => SquareSession(
+    deviceId: testMlsDeviceId,
     sessionToken: token,
     cidNumber: fakeSession().cidNumber,
     bindingRevision: 1,

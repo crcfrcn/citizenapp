@@ -21,6 +21,112 @@ const _accountId =
 void main() {
   useIsolatedIsar();
 
+  test('真实费用按付款账户附一次，多笔本金与接收方分别投影', () async {
+    final chain = _HistoryChain()..height = 1;
+    chain.encodedEvents[1] = _transferEvents(
+      twice: true,
+      feeFen: BigInt.from(10),
+    );
+    final service = _service(chain, _HistoryWallet(createdAt: 1000));
+    await service.start();
+    await service.sync();
+    final records = await LocalTxStore.queryByAccountId(_accountId);
+    expect(records, hasLength(2));
+    expect(records.map((r) => r.amountDeltaFen).toSet(), {'-110', '-100'});
+    expect(records.where((r) => r.feeFen != null).single.feeFen, '10');
+    await service.sync();
+    expect(await LocalTxStore.countByAccountId(_accountId), 2);
+    await service.stop();
+  });
+
+  test('失败执行仍记录真实收费，重复与零FeePaid拒绝', () async {
+    final chain = _HistoryChain()..height = 1;
+    chain.encodedEvents[1] = _transferEvents(
+      failed: true,
+      feeFen: BigInt.from(10),
+    );
+    final service = _service(chain, _HistoryWallet(createdAt: 1000));
+    await service.start();
+    await service.sync();
+    final row = (await LocalTxStore.queryByAccountId(_accountId)).single;
+    expect(row.type, 'fee');
+    expect(row.amountDeltaFen, '-10');
+    expect(row.feeFen, '10');
+    expect(row.failureReason, '链上执行失败');
+    await service.stop();
+
+    expect(
+      () => const CitizenChainTransactionEventDecoder().decode(
+        eventsBytes: _transferEvents(
+          feeFen: BigInt.from(10),
+          duplicateFee: true,
+        ),
+        metadataBytes: _eventMetadata(),
+      ),
+      throwsFormatException,
+    );
+    expect(
+      () => const CitizenChainTransactionEventDecoder().decode(
+        eventsBytes: _transferEvents(feeFen: BigInt.zero),
+        metadataBytes: _eventMetadata(),
+      ),
+      throwsFormatException,
+    );
+  });
+
+  test('Revive日志按准确metadata保留原生序号、地址、字节和最多四个主题', () {
+    final decoded = const CitizenChainTransactionEventDecoder().decode(
+      eventsBytes: _transferEvents(contractTopics: 4),
+      metadataBytes: _eventMetadata(),
+    );
+    final log = decoded.contractLogs.single;
+    expect(log.contract, '0x${'dd' * 20}');
+    expect(log.data, [1, 2, 3]);
+    expect(log.topics, List.filled(4, '0x${'ee' * 32}'));
+    expect(log.extrinsicIndex, 0);
+    expect(() => log.data[0] = 9, throwsUnsupportedError);
+    expect(() => log.topics.add('0x'), throwsUnsupportedError);
+    for (final bytes in [
+      _transferEvents(contractTopics: 5),
+      _transferEvents(contractTopics: 1, failed: true),
+    ]) {
+      expect(
+        () => const CitizenChainTransactionEventDecoder().decode(
+          eventsBytes: bytes,
+          metadataBytes: _eventMetadata(),
+        ),
+        throwsFormatException,
+      );
+    }
+  });
+
+  test('重复费用不写入流水或推进游标，修正后从原块恢复', () async {
+    final chain = _HistoryChain()..height = 1;
+    chain.encodedEvents[1] = _transferEvents(
+      feeFen: BigInt.from(10),
+      duplicateFee: true,
+    );
+    final service = _service(chain, _HistoryWallet(createdAt: 1000));
+    await service.start();
+    await expectLater(service.sync(), throwsFormatException);
+    expect(
+      (await LocalTxStore.historyCursor(_accountId))!.cursorBlockNumber,
+      0,
+    );
+    expect(await LocalTxStore.countByAccountId(_accountId), 0);
+    chain.encodedEvents[1] = _transferEvents(feeFen: BigInt.from(10));
+    await service.sync();
+    expect(
+      (await LocalTxStore.historyCursor(_accountId))!.cursorBlockNumber,
+      1,
+    );
+    expect(
+      (await LocalTxStore.queryByAccountId(_accountId)).single.feeFen,
+      '10',
+    );
+    await service.stop();
+  });
+
   test('单层和多层透明账户包装保留账户、金额、备注和执行结果', () {
     for (final depth in [1, 3]) {
       final decoded = const CitizenChainTransactionEventDecoder().decode(
@@ -569,6 +675,7 @@ Uint8List _eventMetadata({
     ),
     metadata.TypeDefVariant(
       variants: [
+        variant('FeePaid', 7, [field('account_id', 3), field('fee', 2)]),
         variant('TransferWithRemark', 5, [
           field('from_account_id', 3, 'T::AccountId'),
           field('beneficiary_account_id', 3, 'T::AccountId'),
@@ -597,6 +704,27 @@ Uint8List _eventMetadata({
     const metadata.TypeDefSequence(type: 11),
     const metadata.TypeDefTuple([]),
   ];
+
+  definitions.addAll([
+    const metadata.TypeDefArray(length: 20, type: 0),
+    const metadata.TypeDefSequence(type: 3),
+    metadata.TypeDefVariant(
+      variants: [
+        variant('ContractEmitted', 3, [
+          field('contract', 14),
+          field('data', 4),
+          field('topics', 15),
+        ]),
+      ],
+    ),
+  ]);
+  final outer = definitions[9] as metadata.TypeDefVariant;
+  definitions[9] = metadata.TypeDefVariant(
+    variants: [
+      ...outer.variants,
+      variant('Revive', 35, [field(null, 16)]),
+    ],
+  );
 
   // 账户类型默认按 AccountId32 的透明包装形状生成，防止裸数组掩盖回归。
   for (var depth = 0; depth < accountWrapperDepth; depth++) {
@@ -691,6 +819,9 @@ Uint8List _transferEvents({
   bool remarkOnly = false,
   bool withTopics = false,
   bool recursiveEvent = false,
+  BigInt? feeFen,
+  bool duplicateFee = false,
+  int? contractTopics,
 }) {
   final from = List.filled(32, incoming ? 0xbb : 0xaa);
   final to = List.filled(32, incoming ? 0xaa : 0xbb);
@@ -709,6 +840,14 @@ Uint8List _transferEvents({
     ...scale.CompactCodec.codec.encode(topics ? 1 : 0),
     if (topics) ...List.filled(32, 0xcc),
   ];
+  if (feeFen != null) {
+    final fee = record(4, 7, [
+      ...List.filled(32, 0xaa),
+      ...scale.U128Codec.codec.encode(feeFen),
+    ]);
+    events.add(fee);
+    if (duplicateFee) events.add(fee);
+  }
   for (var i = 0; i < (twice ? 2 : 1); i++) {
     final transfer = [
       ...from,
@@ -728,6 +867,19 @@ Uint8List _transferEvents({
   if (recursiveEvent) {
     // RuntimeEvent::Tree 包含两层单元素序列及空序列，无业务信息。
     events.add([0, ...scale.U32Codec.codec.encode(0), 9, 4, 4, 0, 0]);
+  }
+  if (contractTopics != null) {
+    events.add(
+      record(35, 3, [
+        ...List.filled(20, 0xdd),
+        12,
+        1,
+        2,
+        3,
+        ...scale.CompactCodec.codec.encode(contractTopics),
+        for (var i = 0; i < contractTopics; i++) ...List.filled(32, 0xee),
+      ]),
+    );
   }
   if (!omitOutcome) events.add(record(0, failed ? 1 : 0, []));
   return Uint8List.fromList([

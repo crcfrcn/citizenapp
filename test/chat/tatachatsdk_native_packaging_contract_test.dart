@@ -13,6 +13,7 @@ void main() {
       ).resolveSymbolicLinksSync();
       final sourceRoot = File(sourceScript).parent.parent.path;
       final pubspec = File('$sourceRoot/pubspec.yaml').readAsStringSync();
+      final pubLock = File('$sourceRoot/pubspec.lock').readAsStringSync();
       final podfile = File('ios/Podfile').readAsStringSync();
       final lockfile = File('ios/Podfile.lock').readAsStringSync();
 
@@ -22,7 +23,19 @@ void main() {
       expect(runner, isNot(contains('TATACHATSDK_APPLE_FRAMEWORK_DIR')));
       expect(runner, contains(r'verify-ios-package "$IOS_APP"'));
       expect(pubspec, contains('https://github.com/tuyutata/tatachatsdk.git'));
-      expect(pubspec, contains('f666f5fdd55a0016b0b489d0c6fedb5b14cf0afa'));
+      expect(pubspec, contains('b70897a41fc810b88ffdba35a3be97152fd7047c'));
+      // App取消独立密码学与包装存储插件，钱包上游传递依赖保持原锁。
+      expect(
+        RegExp(r'^  (?:cryptography|flutter_secure_storage):', multiLine: true)
+            .hasMatch(pubspec),
+        isFalse,
+      );
+      expect(
+        RegExp(r'^  flutter_secure_storage(?:_\w+)?:', multiLine: true)
+            .hasMatch(pubLock),
+        isFalse,
+      );
+      expect(lockfile, isNot(contains('flutter_secure_storage')));
       expect(testRunner, contains('dependencies'));
       // 原始产品声明只读；所有环境从同一锁定Git SDK取得本轮视图，不增加override配置。
       expect(runner, isNot(contains('pubspec_overrides.yaml')));

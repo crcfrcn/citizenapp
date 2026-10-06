@@ -31,7 +31,7 @@ import 'package:citizenapp/my/myid/myid_page.dart';
 import 'package:citizenapp/isar/user_isar.dart';
 import 'package:citizenapp/security/app_lock_service.dart';
 import 'package:citizenapp/security/pin_input_page.dart';
-import 'package:citizenapp/security/secure_storage.dart';
+import 'package:citizenapp/security/system_protected_storage.dart';
 import 'package:citizenapp/security/account_security_service.dart';
 import 'package:citizenapp/my/user/contact_book_page.dart';
 import 'package:citizenapp/ui/app_layout.dart';
@@ -1154,7 +1154,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _loadSettings() async {
     // 四项读取先同时启动，新增首页偏好不能延长原有三项安全设置的串行等待。
     final values = await Future.wait<Object?>([
-      appSecureStorage.read(key: _deviceLockKey),
+      SystemProtectedRecordStore.lock.read( _deviceLockKey),
       AppLockService.isPinSet(),
       AppLockService.isDuressModeEnabled(),
       (widget.homeTabPreferenceReader ??
@@ -1219,7 +1219,7 @@ class _SettingsPageState extends State<SettingsPage> {
       }
     }
 
-    await appSecureStorage.write(key: _deviceLockKey, value: value.toString());
+    await SystemProtectedRecordStore.lock.write(_deviceLockKey, value.toString());
     if (!mounted) return;
     setState(() => _deviceLockEnabled = value);
   }

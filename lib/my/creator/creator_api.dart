@@ -169,6 +169,7 @@ class CreatorApiHttp implements CreatorApi {
     final response = await _http
         .get(uri, headers: await _headers('GET', uri, '', session))
         .timeout(const Duration(seconds: 20));
+    await session.validateCurrent();
     return _decode(response);
   }
 
@@ -178,6 +179,7 @@ class CreatorApiHttp implements CreatorApi {
     Map<String, Object?> body,
     SquareSession session,
   ) async {
+    await session.validateCurrent();
     final encoded = jsonEncode(body);
     final uri = Uri.parse('$baseUrl$path');
     final response = await _http
@@ -190,6 +192,7 @@ class CreatorApiHttp implements CreatorApi {
           body: encoded,
         )
         .timeout(const Duration(seconds: 20));
+    await session.validateCurrent();
     return _decode(response);
   }
 
@@ -199,9 +202,10 @@ class CreatorApiHttp implements CreatorApi {
     String body,
     SquareSession session,
   ) async {
-    final signer = session.signRequest;
+    await session.validateCurrent();
+    final signer = session.authenticateRequest;
     if (signer == null) {
-      throw const CreatorApiException('设备请求签名器缺失，请重新登录');
+      throw const CreatorApiException('MLS请求认证未接入，请重新登录');
     }
     return {
       'content-type': 'application/json; charset=utf-8',
@@ -211,7 +215,7 @@ class CreatorApiHttp implements CreatorApi {
         uri: uri,
         body: body,
         sessionToken: session.sessionToken,
-        sign: signer,
+        authenticate: signer,
       ),
     };
   }

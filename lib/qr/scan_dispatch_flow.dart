@@ -8,18 +8,14 @@ import 'package:tatachat_sdk/tatachat_sdk.dart';
 
 import 'package:citizenapp/citizen/shared/account_derivation.dart'
     show ss58FromAccountIdText;
-import 'package:citizenapp/8964/profile/services/square_session_provider.dart';
 import 'package:citizenapp/qr/pages/qr_scan_page.dart';
 import 'package:citizenapp/qr/pages/qr_sign_response_page.dart';
 import 'package:citizenapp/signer/square_action_sign_service.dart';
 import 'package:citizenapp/signer/citizen_identity_sign_service.dart';
 import 'package:citizenapp/signer/citizen_occupy_sign_service.dart';
 import 'package:citizenapp/my/myid/citizen_identity_chain_reader.dart';
-import 'package:citizenapp/my/myid/myid_service.dart';
-import 'package:citizenapp/my/myid/current_user_context.dart';
-import 'package:citizenapp/my/user/contact_service.dart';
 import 'package:citizenapp/security/account_security_service.dart';
-import 'package:citizenapp/security/local_data_key.dart';
+import 'package:citizenapp/security/identity_binding.dart';
 import 'package:citizenapp/transaction/offchain-transaction/services/offchain_scan_flow.dart';
 import 'package:citizenapp/ui/app_layout.dart';
 
@@ -85,7 +81,10 @@ Future<void> _dispatchSignRequest(
 ) async {
   final int action;
   try {
-    action = (await context.read<CitizenSdk>().qr.parseForPurpose(raw, CitizenQrScanPurpose.signingRequest)).document.action!;
+    action = (await context.read<CitizenSdk>().qr.parseForPurpose(
+      raw,
+      CitizenQrScanPurpose.signingRequest,
+    )).document.action!;
   } on CitizenSdkException catch (error) {
     if (context.mounted) _snack(context, '请扫描公民 App 业务签名请求：${error.message}');
     return;
@@ -215,7 +214,6 @@ Future<void> _handleOccupySignRequest(
 ) async {
   final sdk = context.read<CitizenSdk>();
   final accountSecurity = context.read<AccountSecurityService>();
-  final currentUserContext = context.read<CurrentUserContext>();
   final service = CitizenOccupySignService(qr: sdk.qr);
 
   final selected =
@@ -263,41 +261,20 @@ Future<void> _handleOccupySignRequest(
     final response = await service.sign(prep, sdk.signing, context);
     if (!prep.isOccupy && prep.currentAccount != null) {
       if (!context.mounted) return;
-      final sessionProvider = context.read<SquareSessionProvider>();
       final chain = context.read<CitizenSdk>().chain;
       final chatRuntime = context.read<ChatSdk>();
-      final source = AccountDataBinding(
+      final target = IdentityBinding(
         genesisHash: prep.genesisHash,
         cidNumber: prep.cidNumber,
-        bindingRevision: prep.expectedBindingRevision.toInt(),
-        accountId: prep.currentAccount!.accountId,
-      );
-      final target = AccountDataBinding(
-        genesisHash: prep.genesisHash,
-        cidNumber: prep.cidNumber,
-        bindingRevision: source.bindingRevision + 1,
+        bindingRevision: prep.expectedBindingRevision.toInt() + 1,
         accountId: prep.account.accountId,
       );
-      final handover = CidAccountDataHandover(
-        contactService: UserContactService(
-          accountSecurity: accountSecurity,
-          currentUserContext: currentUserContext,
-          sessionProvider: sessionProvider,
-          chainReader: CitizenIdentityChainReader(chain: chain),
-          autoSync: false,
-        ),
-        accountSecurity: accountSecurity,
-        chatRuntime: chatRuntime,
-      );
-      await handover.stage(source: source, target: target);
-      // 注册局后续冷签上链无需用户再次扫码；本 App 在后台只等待 finalized 目标绑定，
-      // 命中后提交同一次扫码已暂存的新账户密文。退出 App 时公开交接清单仍可在下次
-      // 身份门禁就位时续接，不依赖此前设备进程持续存活。
+      // 钱包签署响应保持；随后只等待finalized公开绑定，不暂存或重加密私有数据。
       unawaited(
-        _completeRegistryHandover(
+        _completeRegistryBinding(
           chain: chain,
           accountSecurity: accountSecurity,
-          handover: handover,
+          chatRuntime: chatRuntime,
           target: target,
           expiresAt: prep.expiresAt.toInt(),
         ),
@@ -322,11 +299,11 @@ Future<void> _handleOccupySignRequest(
   }
 }
 
-Future<void> _completeRegistryHandover({
+Future<void> _completeRegistryBinding({
   required CitizenChain chain,
   required AccountSecurityService accountSecurity,
-  required CidAccountDataHandover handover,
-  required AccountDataBinding target,
+  required ChatSdk chatRuntime,
+  required IdentityBinding target,
   required int expiresAt,
 }) async {
   final reader = CitizenIdentityChainReader(chain: chain);
@@ -335,22 +312,20 @@ Future<void> _completeRegistryHandover({
       final current = await reader.readBindingByCidNumber(target.cidNumber);
       if (current?.accountIdText == target.accountId &&
           current?.bindingRevision == target.bindingRevision) {
-        final previous = await accountSecurity.readAccountDataBindingForCid(
-          target.cidNumber,
-        );
-        await accountSecurity.activateAccountDataBinding(
+        await accountSecurity.activateIdentityBinding(
           genesisHash: target.genesisHash,
           cidNumber: target.cidNumber,
           bindingRevision: target.bindingRevision,
           accountId: target.accountId,
         );
-        await handover.prepareFinalizedBinding(
-          current: target,
-          previous: previous,
+        await chatRuntime.convergeFinalizedBinding(
+          ChatBinding(
+            bindingScope: target.genesisHash,
+            userId: target.cidNumber,
+            bindingRevision: target.bindingRevision,
+            accountId: target.accountId,
+          ),
         );
-        // finalized 只完成公开绑定与数据交接；设备数据钥及 P-256 子钥在明确授权的
-        // 后续动作中准备，禁止在此额外读取目标账户 child。
-        await handover.completeFinalizedBinding(target);
         accountSecurity.notifyIdentityBindingChanged();
         return;
       }
@@ -358,7 +333,7 @@ Future<void> _completeRegistryHandover({
         return;
       }
     } catch (_) {
-      // 链暂不可用时继续等待；交接清单仍在本地，绝不回退或清掉此前密文。
+      // 链暂不可用时继续等待；不猜测生效、不回退绑定或清除所属私有数据。
     }
     await Future<void>.delayed(const Duration(seconds: 5));
   }

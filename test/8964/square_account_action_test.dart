@@ -1,3 +1,5 @@
+import 'mls_authentication_fixture.dart';
+import 'package:citizenapp/security/mls_authentication.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -9,7 +11,7 @@ import 'package:http/testing.dart';
 import 'package:citizenapp/8964/services/square_api_client.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import '../support/fake_citizen_sdk.dart';
-import 'package:citizenapp/security/device_subkey.dart'
+import 'package:citizenapp/security/hex_codec.dart'
     show bytesToHex, hexToBytes;
 
 const _accountId =
@@ -42,27 +44,14 @@ void main() {
         if (request.url.path == '/square/auth/challenge') {
           expect(jsonDecode(request.body)['account_id'], _accountId);
           return http.Response(
-            jsonEncode({
-              'ok': true,
-              'challenge_id': 'sql_1',
-              'cid_number': _cidNumber,
-              'binding_revision': 1,
-              'account_id': _accountId,
-              'signing_payload_hex': _payloadHex,
-            }),
+            jsonEncode(fakeMlsChallenge(request, cidNumber: _cidNumber)),
             200,
           );
         }
         if (request.url.path == '/square/auth/session') {
           expect(jsonDecode(request.body)['account_id'], _accountId);
           return http.Response(
-            jsonEncode({
-              'ok': true,
-              'session_token': 'sqs_test',
-              'cid_number': _cidNumber,
-              'binding_revision': 1,
-              'expires_at': 4102444800000,
-            }),
+            jsonEncode(fakeMlsSession(cidNumber: _cidNumber, accountId: _accountId, token: 'sqs_test')),
             200,
           );
         }
@@ -91,7 +80,7 @@ void main() {
 
     await client.ensureSession(
       accountId: _accountId,
-      signLoginPayload: (_, _) async => '0xLOGIN',
+      authentication: FakeMlsAuthentication(cidNumber: _cidNumber, accountId: _accountId),
     );
     await client.deleteAccount(
       accountId: _accountId,
@@ -125,26 +114,13 @@ void main() {
         (request) async {
           if (request.url.path == '/square/auth/challenge') {
             return http.Response(
-              jsonEncode({
-                'ok': true,
-                'challenge_id': 'sql_2',
-                'cid_number': _cidNumber,
-                'binding_revision': 1,
-                'account_id': _accountId,
-                'signing_payload_hex': _payloadHex,
-              }),
+              jsonEncode(fakeMlsChallenge(request, cidNumber: _cidNumber)),
               200,
             );
           }
           if (request.url.path == '/square/auth/session') {
             return http.Response(
-              jsonEncode({
-                'ok': true,
-                'session_token': 'sqs_test',
-                'cid_number': _cidNumber,
-                'binding_revision': 1,
-                'expires_at': 4102444800000,
-              }),
+              jsonEncode(fakeMlsSession(cidNumber: _cidNumber, accountId: _accountId, token: 'sqs_test')),
               200,
             );
           }
@@ -158,7 +134,7 @@ void main() {
 
     await client.ensureSession(
       accountId: _accountId,
-      signLoginPayload: (_, _) async => '0xLOGIN',
+      authentication: FakeMlsAuthentication(cidNumber: _cidNumber, accountId: _accountId),
     );
     await expectLater(
       client.deleteAccount(
@@ -182,32 +158,19 @@ void main() {
       httpClient: MockClient((request) async {
         if (request.url.path == '/square/auth/challenge') {
           return http.Response(
-            jsonEncode({
-              'ok': true,
-              'challenge_id': 'cached',
-              'cid_number': _cidNumber,
-              'binding_revision': 1,
-              'account_id': _accountId,
-              'signing_payload_hex': _payloadHex,
-            }),
+            jsonEncode(fakeMlsChallenge(request, cidNumber: _cidNumber)),
             200,
           );
         }
         return http.Response(
-          jsonEncode({
-            'ok': true,
-            'session_token': 'cached-token',
-            'cid_number': _cidNumber,
-            'binding_revision': 1,
-            'expires_at': 4102444800000,
-          }),
+          jsonEncode(fakeMlsSession(cidNumber: _cidNumber, accountId: _accountId, token: 'cached-token')),
           200,
         );
       }),
     );
     await cachedClient.ensureSession(
       accountId: _accountId,
-      signLoginPayload: (_, _) async => '0xLOGIN',
+      authentication: FakeMlsAuthentication(cidNumber: _cidNumber, accountId: _accountId),
     );
 
     final sessionRequested = Completer<void>();
@@ -217,14 +180,7 @@ void main() {
       httpClient: MockClient((request) async {
         if (request.url.path == '/square/auth/challenge') {
           return http.Response(
-            jsonEncode({
-              'ok': true,
-              'challenge_id': 'late',
-              'cid_number': _cidNumber,
-              'binding_revision': 1,
-              'account_id': _accountId,
-              'signing_payload_hex': _payloadHex,
-            }),
+            jsonEncode(fakeMlsChallenge(request, cidNumber: _cidNumber)),
             200,
           );
         }
@@ -234,8 +190,9 @@ void main() {
     );
     final late = lateClient.ensureSession(
       accountId: _accountId,
-      signLoginPayload: (_, _) async => '0xLOGIN',
+      authentication: FakeMlsAuthentication(cidNumber: _cidNumber, accountId: _accountId),
     );
+    final rejectedLate = expectLater(late, throwsA(isA<MlsAuthenticationException>()));
     await sessionRequested.future;
 
     SquareApiClient.activateFinalizedBinding(
@@ -244,13 +201,7 @@ void main() {
       accountId: newAccountId,
     );
     sessionResponse.complete(http.Response(
-      jsonEncode({
-        'ok': true,
-        'session_token': 'late-token',
-        'cid_number': _cidNumber,
-        'binding_revision': 1,
-        'expires_at': 4102444800000,
-      }),
+      jsonEncode(fakeMlsSession(cidNumber: _cidNumber, accountId: _accountId, token: 'late-token')),
       200,
     ));
 
@@ -261,6 +212,6 @@ void main() {
       ),
       throwsA(isA<SquareApiException>()),
     );
-    await expectLater(late, throwsA(isA<SquareApiException>()));
+    await rejectedLate;
   });
 }

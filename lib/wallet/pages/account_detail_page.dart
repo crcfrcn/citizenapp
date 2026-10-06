@@ -9,6 +9,7 @@ import 'package:citizenapp/isar/wallet_isar.dart';
 import 'package:citizenapp/app_log.dart';
 import 'package:citizenapp/my/util/screenshot_guard.dart';
 import 'package:citizenapp/transaction/history/local_tx_store.dart';
+import 'package:citizenapp/transaction/contract/citizenchain_contract_page.dart';
 import 'package:citizenapp/transaction/history/presentation/tx_auto_refresh_mixin.dart';
 import 'package:citizenapp/ui/app_theme.dart';
 import 'package:citizenapp/transaction/history/presentation/transaction_history_page.dart';
@@ -37,7 +38,6 @@ class AccountDetailPage extends StatefulWidget {
 
 class _AccountDetailPageState extends State<AccountDetailPage>
     with TxAutoRefreshMixin<AccountDetailPage>, WidgetsBindingObserver {
-
   bool _screenshotGuardActive = false;
   bool _privateOpening = false;
   bool _privateRevoked = false;
@@ -129,23 +129,32 @@ class _AccountDetailPageState extends State<AccountDetailPage>
         ],
       ),
     );
-    if (confirmed != true || !mounted) { _privateOpening = false; return; }
+    if (confirmed != true || !mounted) {
+      _privateOpening = false;
+      return;
+    }
     _privateRevoked = false;
     CitizenSdkPrivateKey? resource;
     String? key;
     try {
-      resource = await context.read<CitizenSdk>().wallet.openPrivateKey(widget.account.accountId);
+      resource = await context.read<CitizenSdk>().wallet.openPrivateKey(
+        widget.account.accountId,
+      );
       final owned = resource;
       _privateKeyResource = owned;
-      _clearPrivateText = () { key = null; };
-      unawaited(owned.closed.then<void>((_) {
-        if (identical(_privateKeyResource, owned)) {
-          _privateRevoked = true;
-          _dismissPrivateDisplay();
-          unawaited(_releasePrivateGuard());
-          _privateKeyResource = null;
-        }
-      }));
+      _clearPrivateText = () {
+        key = null;
+      };
+      unawaited(
+        owned.closed.then<void>((_) {
+          if (identical(_privateKeyResource, owned)) {
+            _privateRevoked = true;
+            _dismissPrivateDisplay();
+            unawaited(_releasePrivateGuard());
+            _privateKeyResource = null;
+          }
+        }),
+      );
       if (!mounted) return;
       if (!_screenshotGuardActive) {
         _screenshotGuardActive = true;
@@ -156,7 +165,8 @@ class _AccountDetailPageState extends State<AccountDetailPage>
       final bytes = await resource.reveal();
       if (!mounted || _privateRevoked) return;
       // 这里只做原私钥文本的十六进制呈现，不派生、签名或持久化。
-      key = '0x${bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join()}';
+      key =
+          '0x${bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join()}';
       final navigator = Navigator.of(context, rootNavigator: true);
       final dialog = DialogRoute<void>(
         context: context,
@@ -211,15 +221,17 @@ class _AccountDetailPageState extends State<AccountDetailPage>
       await navigator.push(dialog);
       await dialog.completed;
     } on CitizenSdkException catch (e) {
-      if (!mounted || _privateRevoked || e.code == CitizenSdkErrorCode.cancelled) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('验证失败：${e.message}')));
+      if (!mounted ||
+          _privateRevoked ||
+          e.code == CitizenSdkErrorCode.cancelled) {
+        return;
+      }
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('验证失败：${e.message}')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('验证失败：$e')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('验证失败：$e')));
     } finally {
       _dismissPrivateDisplay();
       key = null;
@@ -231,7 +243,9 @@ class _AccountDetailPageState extends State<AccountDetailPage>
         await _releasePrivateGuard();
       } finally {
         // 控制调用失败时仍保留终态回调的归属，真实排空后才能归还隐私保护引用。
-        if (drained && identical(_privateKeyResource, resource)) _privateKeyResource = null;
+        if (drained && identical(_privateKeyResource, resource)) {
+          _privateKeyResource = null;
+        }
         _privateOpening = false;
       }
     }
@@ -274,9 +288,8 @@ class _AccountDetailPageState extends State<AccountDetailPage>
 
   /// 清算行设置尚未上线；入口保留产品位置，但不得进入未完成页面。
   void _showClearingBankUnavailable() {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('暂未上线，敬请期待')));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('暂未上线，敬请期待')));
   }
 
   /// 账户详情统一出固定账户码（`k=5`）：这里表达的是「账户」，身份由用户主页的用户码表达。
@@ -363,6 +376,21 @@ class _AccountDetailPageState extends State<AccountDetailPage>
             ),
             SizedBox(height: AppLayout.scaled(context, 12)),
             _buildTransactionHistoryCard(),
+            const SizedBox(height: 12),
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.code),
+                title: const Text('合约查询'),
+                subtitle: const Text('查询已确认存储、只读模拟与执行日志'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) =>
+                        CitizenChainContractPage(accountId: account.accountId),
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -407,8 +435,9 @@ class _AccountDetailPageState extends State<AccountDetailPage>
                     Expanded(
                       // 二维码覆盖卡片右上角，账户名只在首行避让它。
                       child: Padding(
-                        padding:
-                            EdgeInsets.only(right: AppLayout.scaledValue(36)),
+                        padding: EdgeInsets.only(
+                          right: AppLayout.scaledValue(36),
+                        ),
                         child: Text(
                           account.name,
                           style: TextStyle(
@@ -470,8 +499,9 @@ class _AccountDetailPageState extends State<AccountDetailPage>
               tooltip: '账户二维码',
               visualDensity: VisualDensity.compact,
               constraints: BoxConstraints(
-                  minWidth: AppLayout.scaledValue(44),
-                  minHeight: AppLayout.scaledValue(44)),
+                minWidth: AppLayout.scaledValue(44),
+                minHeight: AppLayout.scaledValue(44),
+              ),
               padding: EdgeInsets.zero,
               onPressed: _openWalletQr,
               icon: Icon(
@@ -515,13 +545,16 @@ class _AccountDetailPageState extends State<AccountDetailPage>
               Text(
                 '交易记录',
                 style: TextStyle(
-                    fontSize: AppLayout.scaledValue(16),
-                    fontWeight: FontWeight.w700),
+                  fontSize: AppLayout.scaledValue(16),
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               const Spacer(),
-              Icon(Icons.chevron_right,
-                  size: AppLayout.scaledValue(20),
-                  color: AppTheme.textTertiary),
+              Icon(
+                Icons.chevron_right,
+                size: AppLayout.scaledValue(20),
+                color: AppTheme.textTertiary,
+              ),
             ],
           ),
         ),
@@ -529,9 +562,7 @@ class _AccountDetailPageState extends State<AccountDetailPage>
       const Divider(height: 1),
       if (_recentRecords.isEmpty)
         Padding(
-          padding: EdgeInsets.symmetric(
-            vertical: AppLayout.scaledValue(36),
-          ),
+          padding: EdgeInsets.symmetric(vertical: AppLayout.scaledValue(36)),
           child: const Center(
             child: Text(
               '暂无交易记录',

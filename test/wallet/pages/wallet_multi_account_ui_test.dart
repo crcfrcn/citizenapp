@@ -20,7 +20,7 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_sdk/src/platform/citizen_sdk_flutter_codec.dart';
 import 'package:citizenapp/citizen/shared/account_derivation.dart';
 import 'package:citizenapp/security/account_security_service.dart';
-import 'package:citizenapp/security/local_data_key.dart';
+import 'package:citizenapp/security/identity_binding.dart';
 import 'package:citizenapp/ui/app_theme.dart';
 import 'package:citizenapp/ui/widgets/shimmer_loading.dart';
 import 'package:citizenapp/wallet/pages/wallet_page.dart';
@@ -43,7 +43,7 @@ class _Security implements AccountSecurityService {
   bool? preparedWide;
   int cleanupCalls = 0;
   Object? cleanupError;
-  AccountDataBinding? binding;
+  IdentityBinding? binding;
   bool _pending = false;
   @override Future<bool> get hasPendingAccountCleanup async => _pending || cleanupError != null;
   @override
@@ -63,7 +63,7 @@ class _Security implements AccountSecurityService {
   @override dynamic noSuchMethod(Invocation invocation) =>
       throw UnimplementedError('UI测试未配置安全业务调用');
   @override
-  Future<AccountDataBinding?> readAccountDataBindingForAccountId(String accountId) async => binding;
+  Future<IdentityBinding?> readIdentityBindingForAccountId(String accountId) async => binding;
 }
 
 // 只替身现有服务公开结果，不复制身份规则或建立聊天/广场运行态。
@@ -434,7 +434,7 @@ void main() {
       _disposeWidgetBeforeStores(tester);
     final state = _hotWalletSnapshot();
     final account = state.defaultAccount!;
-    _security.binding = AccountDataBinding(genesisHash: '0x${'11' * 32}',
+    _security.binding = IdentityBinding(genesisHash: '0x${'11' * 32}',
       cidNumber: 'GD-CTZN1-8F3A2B', bindingRevision: 1, accountId: account.accountId);
     Uint8List voting() {
       final dates = ByteData(8)

@@ -1,3 +1,4 @@
+import '../8964/mls_authentication_fixture.dart';
 import 'dart:async';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -14,7 +15,7 @@ import 'package:citizenapp/8964/profile/widgets/profile_avatar.dart';
 import 'package:citizenapp/8964/services/square_api_client.dart';
 import 'package:citizenapp/chat/chat_entry.dart';
 import 'package:citizenapp/my/myid/current_user_context.dart';
-import 'package:citizenapp/security/local_data_key.dart';
+import 'package:citizenapp/security/identity_binding.dart';
 import 'package:citizenapp/my/user/contact_book_page.dart';
 import 'package:citizenapp/my/user/contact_service.dart';
 import 'package:citizenapp/ui/app_theme.dart';
@@ -38,7 +39,7 @@ final _ownerAccount = CitizenWalletStateAccount(
   isDefault: true,
 );
 
-AccountDataBinding _ownerBinding() => AccountDataBinding(
+IdentityBinding _ownerBinding() => IdentityBinding(
   genesisHash: '0x${'11' * 32}',
   cidNumber: 'CN220-CTZN2-100000009-2026',
   accountId: _accountId,
@@ -168,6 +169,7 @@ class _PendingProfileApi extends CitizenProfileApi {
 class _FakeSessionProvider implements SquareSessionProvider {
   @override
   Future<SquareSession?> ensureSession() async => SquareSession(
+    deviceId: testMlsDeviceId,
     sessionToken: 'token',
     cidNumber: "CN220-CTZN2-198805200-2026",
     bindingRevision: 1,

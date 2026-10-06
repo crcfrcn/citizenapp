@@ -21,7 +21,7 @@ import '../isar/app_isar.dart';
 import '../isar/user_isar.dart';
 import '../isar/wallet_isar.dart';
 import 'account_security_service.dart';
-import 'secure_storage.dart';
+import 'system_protected_storage.dart';
 
 /// 全量本机数据擦除没有完整成功。
 ///
@@ -56,7 +56,7 @@ enum AppDataWipeStartupResult {
 /// 应用锁（6 位 PIN）服务。
 ///
 /// 普通 PIN 以 10 万次、`duress_mode` PIN 以 1 万次
-/// PBKDF2-HMAC-SHA256(pin + salt) 形式存储在 SecureStorage 中。
+/// PBKDF2-HMAC-SHA256(pin + salt) 形式存储在系统保护记录中。
 /// 连续 5 次验证错误锁定 24 小时，累计 3 次锁定则清空全部应用数据。
 class AppLockService {
   /// 普通应用锁与公民钱包统一使用 10 万次派生。
@@ -119,12 +119,12 @@ class AppLockService {
     _requireSixDigitPin(pin);
     final salt = _generateSalt();
     final hash = await _hash(pin, salt, iterations: appLockPinHashIterations);
-    await appSecureStorage.write(key: _keyPinSalt, value: salt);
-    await appSecureStorage.write(key: _keyPinHash, value: hash);
+    await SystemProtectedRecordStore.lock.write(_keyPinSalt, salt);
+    await SystemProtectedRecordStore.lock.write(_keyPinHash, hash);
     // 重置错误计数
-    await appSecureStorage.write(key: _keyFailCount, value: '0');
-    await appSecureStorage.delete(key: _keyLockUntil);
-    await appSecureStorage.write(key: _keyLockCount, value: '0');
+    await SystemProtectedRecordStore.lock.write(_keyFailCount, '0');
+    await SystemProtectedRecordStore.lock.delete( _keyLockUntil);
+    await SystemProtectedRecordStore.lock.write(_keyLockCount, '0');
   }
 
   /// 验证 PIN。
@@ -145,8 +145,8 @@ class AppLockService {
     // 锁定中不允许验证
     if (await isLocked()) return AppPinVerificationResult.locked;
 
-    final normalHash = await appSecureStorage.read(key: _keyPinHash);
-    final normalSalt = await appSecureStorage.read(key: _keyPinSalt);
+    final normalHash = await SystemProtectedRecordStore.lock.read( _keyPinHash);
+    final normalSalt = await SystemProtectedRecordStore.lock.read( _keyPinSalt);
     if (normalHash == null || normalSalt == null) {
       return AppPinVerificationResult.rejected;
     }
@@ -158,7 +158,7 @@ class AppLockService {
       iterations: appLockPinHashIterations,
     );
     if (inputNormalHash == normalHash) {
-      await appSecureStorage.write(key: _keyFailCount, value: '0');
+      await SystemProtectedRecordStore.lock.write(_keyFailCount, '0');
       return AppPinVerificationResult.verified;
     }
 
@@ -193,8 +193,8 @@ class AppLockService {
     required CitizenSdkWallet? wallet,
     required AccountSecurityService? accountSecurity,
   }) async {
-    final storedHash = await appSecureStorage.read(key: _keyPinHash);
-    final storedSalt = await appSecureStorage.read(key: _keyPinSalt);
+    final storedHash = await SystemProtectedRecordStore.lock.read( _keyPinHash);
+    final storedSalt = await SystemProtectedRecordStore.lock.read( _keyPinSalt);
     if (storedHash == null || storedSalt == null) {
       return AppPinVerificationResult.rejected;
     }
@@ -206,7 +206,7 @@ class AppLockService {
     );
     if (inputHash == storedHash) {
       // 验证成功，重置错误计数
-      await appSecureStorage.write(key: _keyFailCount, value: '0');
+      await SystemProtectedRecordStore.lock.write(_keyFailCount, '0');
       return AppPinVerificationResult.verified;
     }
 
@@ -219,18 +219,14 @@ class AppLockService {
   ) async {
     // 两类密码均未命中后，才累计一次普通应用锁错误。
     final failCount = await _readInt(_keyFailCount) + 1;
-    await appSecureStorage.write(
-      key: _keyFailCount,
-      value: failCount.toString(),
+    await SystemProtectedRecordStore.lock.write(_keyFailCount, failCount.toString(),
     );
 
     if (failCount >= maxFailAttempts) {
       final lockCount = await _readInt(_keyLockCount) + 1;
-      await appSecureStorage.write(
-        key: _keyLockCount,
-        value: lockCount.toString(),
+      await SystemProtectedRecordStore.lock.write(_keyLockCount, lockCount.toString(),
       );
-      await appSecureStorage.write(key: _keyFailCount, value: '0');
+      await SystemProtectedRecordStore.lock.write(_keyFailCount, '0');
 
       if (lockCount >= maxLockCount) {
         await wipeAllData(wallet: wallet, accountSecurity: accountSecurity);
@@ -239,9 +235,7 @@ class AppLockService {
 
       // 锁定 24 小时
       final lockUntil = DateTime.now().add(lockDuration).millisecondsSinceEpoch;
-      await appSecureStorage.write(
-        key: _keyLockUntil,
-        value: lockUntil.toString(),
+      await SystemProtectedRecordStore.lock.write(_keyLockUntil, lockUntil.toString(),
       );
       return AppPinVerificationResult.locked;
     }
@@ -256,19 +250,19 @@ class AppLockService {
       _requireFlutterTest();
       return debugRemove();
     }
-    await appSecureStorage.delete(key: _keyPinHash);
-    await appSecureStorage.delete(key: _keyPinSalt);
-    await appSecureStorage.delete(key: _keyFailCount);
-    await appSecureStorage.delete(key: _keyLockUntil);
-    await appSecureStorage.delete(key: _keyLockCount);
+    await SystemProtectedRecordStore.lock.delete( _keyPinHash);
+    await SystemProtectedRecordStore.lock.delete( _keyPinSalt);
+    await SystemProtectedRecordStore.lock.delete( _keyFailCount);
+    await SystemProtectedRecordStore.lock.delete( _keyLockUntil);
+    await SystemProtectedRecordStore.lock.delete( _keyLockCount);
     await removeDuressMode();
   }
 
   /// 设置独立的 6 位防共匪密码。与普通应用锁密码相同则拒绝保存。
   static Future<bool> setDuressModePin(String pin) async {
     _requireSixDigitPin(pin);
-    final normalHash = await appSecureStorage.read(key: _keyPinHash);
-    final normalSalt = await appSecureStorage.read(key: _keyPinSalt);
+    final normalHash = await SystemProtectedRecordStore.lock.read( _keyPinHash);
+    final normalSalt = await SystemProtectedRecordStore.lock.read( _keyPinSalt);
     if (normalHash == null || normalSalt == null) return false;
     if (await _hash(pin, normalSalt, iterations: appLockPinHashIterations) ==
         normalHash) {
@@ -276,21 +270,19 @@ class AppLockService {
     }
 
     final salt = _generateSalt();
-    await appSecureStorage.write(key: _keyDuressModePinSalt, value: salt);
-    await appSecureStorage.write(
-      key: _keyDuressModePinHash,
-      value: await _hash(pin, salt, iterations: duressModePinHashIterations),
+    await SystemProtectedRecordStore.lock.write(_keyDuressModePinSalt, salt);
+    await SystemProtectedRecordStore.lock.write(_keyDuressModePinHash, await _hash(pin, salt, iterations: duressModePinHashIterations),
     );
-    await appSecureStorage.write(key: _keyDuressModeEnabled, value: 'true');
+    await SystemProtectedRecordStore.lock.write(_keyDuressModeEnabled, 'true');
     return isDuressModeEnabled();
   }
 
   /// 防共匪模式只有在普通应用锁存在且三项状态完整时才视为开启。
   static Future<bool> isDuressModeEnabled() async {
     if (!await isPinSet()) return false;
-    final enabled = await appSecureStorage.read(key: _keyDuressModeEnabled);
-    final hash = await appSecureStorage.read(key: _keyDuressModePinHash);
-    final salt = await appSecureStorage.read(key: _keyDuressModePinSalt);
+    final enabled = await SystemProtectedRecordStore.lock.read( _keyDuressModeEnabled);
+    final hash = await SystemProtectedRecordStore.lock.read( _keyDuressModePinHash);
+    final salt = await SystemProtectedRecordStore.lock.read( _keyDuressModePinSalt);
     return enabled == 'true' &&
         hash != null &&
         hash.isNotEmpty &&
@@ -299,16 +291,16 @@ class AppLockService {
   }
 
   static Future<void> removeDuressMode() async {
-    await appSecureStorage.delete(key: _keyDuressModePinHash);
-    await appSecureStorage.delete(key: _keyDuressModePinSalt);
-    await appSecureStorage.delete(key: _keyDuressModeEnabled);
+    await SystemProtectedRecordStore.lock.delete( _keyDuressModePinHash);
+    await SystemProtectedRecordStore.lock.delete( _keyDuressModePinSalt);
+    await SystemProtectedRecordStore.lock.delete( _keyDuressModeEnabled);
   }
 
   static Future<bool> _matchesDuressModePin(String pin) async {
-    final enabled = await appSecureStorage.read(key: _keyDuressModeEnabled);
+    final enabled = await SystemProtectedRecordStore.lock.read( _keyDuressModeEnabled);
     if (enabled != 'true') return false;
-    final hash = await appSecureStorage.read(key: _keyDuressModePinHash);
-    final salt = await appSecureStorage.read(key: _keyDuressModePinSalt);
+    final hash = await SystemProtectedRecordStore.lock.read( _keyDuressModePinHash);
+    final salt = await SystemProtectedRecordStore.lock.read( _keyDuressModePinSalt);
     return hash != null &&
         salt != null &&
         await _hash(pin, salt, iterations: duressModePinHashIterations) == hash;
@@ -316,7 +308,7 @@ class AppLockService {
 
   /// 是否已设置 PIN。
   static Future<bool> isPinSet() async {
-    final hash = await appSecureStorage.read(key: _keyPinHash);
+    final hash = await SystemProtectedRecordStore.lock.read( _keyPinHash);
     return hash != null && hash.isNotEmpty;
   }
 
@@ -328,7 +320,7 @@ class AppLockService {
       _requireFlutterTest();
       return debugLocked();
     }
-    final lockUntilStr = await appSecureStorage.read(key: _keyLockUntil);
+    final lockUntilStr = await SystemProtectedRecordStore.lock.read( _keyLockUntil);
     if (lockUntilStr == null) return false;
     final lockUntil = int.tryParse(lockUntilStr);
     if (lockUntil == null) return false;
@@ -337,7 +329,7 @@ class AppLockService {
 
   /// 剩余锁定秒数（未锁定返回 0）。
   static Future<int> getRemainingLockSeconds() async {
-    final lockUntilStr = await appSecureStorage.read(key: _keyLockUntil);
+    final lockUntilStr = await SystemProtectedRecordStore.lock.read( _keyLockUntil);
     if (lockUntilStr == null) return 0;
     final lockUntil = int.tryParse(lockUntilStr);
     if (lockUntil == null) return 0;
@@ -359,11 +351,11 @@ class AppLockService {
     required CitizenSdkWallet? wallet,
     required AccountSecurityService? accountSecurity,
     Future<void> Function()? debugDeleteCitizenSdkWallet,
-    Future<void> Function()? debugDeleteSecureStorage,
+    Future<void> Function()? debugDeleteProtectedRecords,
     Future<void> Function()? debugClearSharedPreferences,
     Future<Directory> Function()? debugChatDocumentsDirectoryProvider,
   }) async {
-    if (debugDeleteSecureStorage != null ||
+    if (debugDeleteProtectedRecords != null ||
         debugClearSharedPreferences != null ||
         debugChatDocumentsDirectoryProvider != null) {
       _requireFlutterTest();
@@ -404,7 +396,7 @@ class AppLockService {
                   wallet: wallet,
                   accountSecurity: accountSecurity,
                   debugDeleteCitizenSdkWallet: debugDeleteCitizenSdkWallet,
-                  debugDeleteSecureStorage: debugDeleteSecureStorage,
+                  debugDeleteProtectedRecords: debugDeleteProtectedRecords,
                   debugClearSharedPreferences: debugClearSharedPreferences,
                   debugChatDocumentsDirectoryProvider:
                       debugChatDocumentsDirectoryProvider,
@@ -444,39 +436,39 @@ class AppLockService {
   }
 
   // 数据清空
-  /// 清空全部应用数据：各业务 Isar DB、Chat 文件树、SecureStorage 与偏好设置。
+  /// 清空全部应用数据：各业务 Isar DB、Chat 文件树、系统保护记录与偏好设置。
   ///
   /// 第一阶段先同步终止 ChatSdk 与各业务 Isar 生产者，并有界等待其收口；
-  /// 第二阶段才最终清理 SecureStorage 与 SharedPreferences。任一域失败
+  /// 第二阶段才最终清理系统保护记录与 SharedPreferences。任一域失败
   /// 也不会阻止后续域尝试，但绝不返回成功。Chat 文件域只允许删除
-  /// Documents 下的 `chat/` 子树，跨 isolate marker 保留到进程退出。
+  /// SDK系统保护域内的 `chat/` 子树，跨 isolate marker 保留到进程退出。
   /// 全部尝试结束后通过 [AppDataWipeException] 聚合暴露失败。
   static Future<void> wipeAllData({
     required CitizenSdkWallet? wallet,
     required AccountSecurityService? accountSecurity,
     Future<void> Function()? debugDeleteCitizenSdkWallet,
-    Future<void> Function()? debugDeleteSecureStorage,
+    Future<void> Function()? debugDeleteProtectedRecords,
     Future<void> Function()? debugClearSharedPreferences,
     Future<Directory> Function()? debugChatDocumentsDirectoryProvider,
   }) async {
     final debugWipe = _debugWipeAllDataForTest;
     if (debugWipe != null) {
       _requireFlutterTest();
-      if (debugDeleteSecureStorage != null ||
+      if (debugDeleteProtectedRecords != null ||
           debugClearSharedPreferences != null ||
           debugChatDocumentsDirectoryProvider != null) {
         throw StateError('禁止同时使用两组 AppLock 测试注入');
       }
       return debugWipe();
     }
-    if (debugDeleteSecureStorage != null ||
+    if (debugDeleteProtectedRecords != null ||
         debugClearSharedPreferences != null ||
         debugChatDocumentsDirectoryProvider != null) {
       _requireFlutterTest();
     }
     final failures = <String>[];
-    final deleteSecureStorage =
-        debugDeleteSecureStorage ?? _deleteAndVerifySecureStorage;
+    final deleteProtectedRecords =
+        debugDeleteProtectedRecords ?? _deleteAndVerifyProtectedRecords;
     final clearSharedPreferences =
         debugClearSharedPreferences ?? _clearAndVerifySharedPreferences;
 
@@ -536,12 +528,12 @@ class AppLockService {
       }
     }
     if (persistentGateReady && walletSecretsDeleted) {
-      await _attemptWipe('SecureStorage', deleteSecureStorage, failures);
+      await _attemptWipe('ProtectedRecords', deleteProtectedRecords, failures);
     } else if (!persistentGateReady) {
       failures.add('持久擦除门闩：${persistentGateError ?? '未能落盘'}');
-      failures.add('SecureStorage：持久擦除门闩未就绪，已安全跳过');
+      failures.add('ProtectedRecords：持久擦除门闩未就绪，已安全跳过');
     } else {
-      failures.add('SecureStorage：硬件密钥未全部确认删除，已安全保留重试索引');
+      failures.add('ProtectedRecords：硬件密钥未全部确认删除，已安全保留重试索引');
     }
     if (walletSecretsDeleted) {
       await _attemptWipe(
@@ -630,9 +622,11 @@ class AppLockService {
     await accountSecurity.wipeAllDeviceMaterial(walletIndexes);
   }
 
-  static Future<void> _deleteAndVerifySecureStorage() async {
-    await appSecureStorage.deleteAll();
-    if ((await appSecureStorage.readAll()).isNotEmpty) {
+  static Future<void> _deleteAndVerifyProtectedRecords() async {
+    await SystemProtectedRecordStore.identity.deleteAll();
+    await SystemProtectedRecordStore.lock.deleteAll();
+    if ((await SystemProtectedRecordStore.identity.readAll()).isNotEmpty ||
+        (await SystemProtectedRecordStore.lock.readAll()).isNotEmpty) {
       throw StateError('安全存储仍有残留');
     }
   }
@@ -697,7 +691,7 @@ class AppLockService {
   }
 
   static Future<int> _readInt(String key) async {
-    final str = await appSecureStorage.read(key: key);
+    final str = await SystemProtectedRecordStore.lock.read( key);
     if (str == null) return 0;
     return int.tryParse(str) ?? 0;
   }

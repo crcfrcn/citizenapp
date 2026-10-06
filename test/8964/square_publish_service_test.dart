@@ -1,3 +1,4 @@
+import './mls_authentication_fixture.dart';
 import 'package:citizenapp/my/myid/finalized_identity_resolver.dart';
 import 'package:citizenapp/my/myid/citizen_identity_chain_reader.dart';
 
@@ -56,7 +57,7 @@ void main() {
       postType: SquarePostType.document,
       text: '恢复',
       mediaDrafts: [],
-      signLoginPayload: (_, _) async => '0x11',
+      sessionForAccount: (accountId) async => fakeSquareSession(accountId),
       externalSigning: (_) async => 'QR_V1',
     );
     await expectLater(publish(), throwsA(isA<SquarePublishException>()));
@@ -94,7 +95,7 @@ void main() {
       postType: SquarePostType.document,
       text: '恢复',
       mediaDrafts: [],
-      signLoginPayload: (_, _) async => '0x11',
+      sessionForAccount: (accountId) async => fakeSquareSession(accountId),
       externalSigning: (_) async => 'QR_V1',
     );
     await expectLater(publish(), throwsA(isA<SquarePublishException>()));
@@ -127,7 +128,7 @@ void main() {
       postType: SquarePostType.document,
       text: '测试内容',
       mediaDrafts: [],
-      signLoginPayload: (_, _) async => '0x11',
+      sessionForAccount: (accountId) async => fakeSquareSession(accountId),
       externalSigning: (_) async => 'QR_V1',
     );
     expect(resolver.reads, 1);
@@ -154,7 +155,7 @@ void main() {
         postType: SquarePostType.document,
         text: '测试内容',
         mediaDrafts: [],
-        signLoginPayload: (_, _) async => '0x11',
+        sessionForAccount: (accountId) async => fakeSquareSession(accountId),
         externalSigning: (_) async => 'QR_V1',
       ),
       throwsStateError,
@@ -183,7 +184,7 @@ void main() {
         postType: SquarePostType.document,
         text: '测试内容',
         mediaDrafts: [],
-        signLoginPayload: (_, _) async => '0x11',
+        sessionForAccount: (accountId) async => fakeSquareSession(accountId),
         externalSigning: (_) async => 'QR_V1',
       ),
       throwsStateError,
@@ -218,7 +219,7 @@ void main() {
         postType: SquarePostType.document,
         text: '竞选说明',
         mediaDrafts: [_media()],
-        signLoginPayload: (_, _) async => '0x11',
+        sessionForAccount: (accountId) async => fakeSquareSession(accountId),
         externalSigning: (_) async => 'QR_V1',
       ),
       throwsA(isA<SquarePublishException>()),
@@ -251,7 +252,7 @@ void main() {
       postType: SquarePostType.document,
       text: '公文',
       mediaDrafts: [_media()],
-      signLoginPayload: (_, _) async => '0x11',
+      sessionForAccount: (accountId) async => fakeSquareSession(accountId),
       externalSigning: (_) async => 'QR_V1',
       onStage: stages.add,
     );
@@ -301,7 +302,7 @@ void main() {
       postType: SquarePostType.document,
       text: '修改后的公文',
       mediaDrafts: [_media()],
-      signLoginPayload: (_, _) async => '0x11',
+      sessionForAccount: (accountId) async => fakeSquareSession(accountId),
       externalSigning: (_) async => 'QR_V1',
       replacePostId: 'sqp_old',
     );
@@ -340,7 +341,7 @@ void main() {
         postType: SquarePostType.document,
         text: '余额不足的公文',
         mediaDrafts: [_media()],
-        signLoginPayload: (_, _) async => '0x11',
+        sessionForAccount: (accountId) async => fakeSquareSession(accountId),
         externalSigning: (_) async => 'QR_V1',
       ),
       throwsA(isA<SquarePublishException>()),
@@ -374,7 +375,7 @@ void main() {
         postType: SquarePostType.document,
         text: '链上未入块的公文',
         mediaDrafts: [_media()],
-        signLoginPayload: (_, _) async => '0x11',
+        sessionForAccount: (accountId) async => fakeSquareSession(accountId),
         externalSigning: (_) async => 'QR_V1',
       ),
       throwsA(isA<SquarePublishException>()),
@@ -405,7 +406,7 @@ void main() {
         postType: SquarePostType.document,
         text: '终态不确定的公文',
         mediaDrafts: [_media()],
-        signLoginPayload: (_, _) async => '0x11',
+        sessionForAccount: (accountId) async => fakeSquareSession(accountId),
         externalSigning: (_) async => 'QR_V1',
       ),
       throwsA(
@@ -440,7 +441,7 @@ void main() {
       postType: SquarePostType.document,
       text: '远端已成功的公文',
       mediaDrafts: [_media()],
-      signLoginPayload: (_, _) async => '0x11',
+      sessionForAccount: (accountId) async => fakeSquareSession(accountId),
       externalSigning: (_) async => 'QR_V1',
     );
 
@@ -459,7 +460,7 @@ void main() {
       postType: SquarePostType.document,
       text: '不能重复发布',
       mediaDrafts: [],
-      signLoginPayload: (_, _) async => throw StateError('不应请求身份验证'),
+      sessionForAccount: (_) async => throw StateError('不应请求身份验证'),
       externalSigning: (_) async => throw StateError('不应签名'),
     );
     expect(order, isEmpty);
@@ -498,7 +499,7 @@ void main() {
       postType: SquarePostType.document,
       text: '真实本地副本',
       mediaDrafts: [_media()],
-      signLoginPayload: (_, _) async => '0x11',
+      sessionForAccount: (accountId) async => fakeSquareSession(accountId),
       externalSigning: (_) async => 'QR_V1',
     );
 
@@ -545,10 +546,11 @@ class _FakeUploader implements SquareContentUploader {
   @override
   Future<SquareSession> resumeSession(
     String accountId,
-    SquareLoginSigner signer,
+    SquareSessionResolver sessionForAccount,
   ) async {
     order.add('resume');
     return SquareSession(
+      deviceId: testMlsDeviceId,
       sessionToken: 'sqs_test',
       cidNumber: 'CN001-CTZN-000000001-2026',
       bindingRevision: 1,
@@ -563,7 +565,7 @@ class _FakeUploader implements SquareContentUploader {
     required SquarePostType postType,
     required String text,
     required List<SquareLocalMediaDraft> mediaDrafts,
-    required SquareLoginSigner signLoginPayload,
+    required SquareSessionResolver sessionForAccount,
     String? title,
     List<Map<String, Object?>>? contentSections,
     void Function(SquarePublishStage stage)? onStage,
@@ -577,10 +579,12 @@ class _FakeUploader implements SquareContentUploader {
         : sha256.convert(bytes).toString();
     return SquarePreparedContent(
       session: const SquareSession(
+        deviceId: testMlsDeviceId,
         sessionToken: 'sqs_test',
         cidNumber: "CN001-CTZN-000000001-2026",
         bindingRevision: 1,
-        accountId: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        accountId:
+            '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         expiresAt: 1800000000000,
       ),
       preparedUpload: const SquarePreparedUpload(

@@ -1,0 +1,243 @@
+{
+  "schema": 1,
+  "product_id": "citizenapp",
+  "entry": "scripts/build.mjs",
+  "platforms": {
+    "ios": {
+      "tools": [
+        {
+          "id": "git",
+          "version": "2.54.0"
+        },
+        {
+          "id": "node",
+          "version": "25.2.1"
+        },
+        {
+          "id": "flutter",
+          "version": "3.47.2"
+        },
+        {
+          "id": "cocoapods",
+          "version": "1.17.0"
+        },
+        {
+          "id": "xcode",
+          "version": "27.0"
+        },
+        {
+          "id": "posix",
+          "version": "27.0"
+        },
+        {
+          "id": "rust",
+          "version": "1.97.1"
+        },
+        {
+          "id": "python",
+          "version": "3.14.3"
+        }
+      ],
+      "locks": [
+        {
+          "ecosystem": "pub",
+          "path": "pubspec.lock"
+        }
+      ],
+      "ci": {
+        "entry": ".github/workflows/citizenapp-ios-ci.yml",
+        "tools": [
+          {
+            "id": "git",
+            "version": "2.54.0"
+          },
+          {
+            "id": "node",
+            "version": "25.2.1"
+          },
+          {
+            "id": "flutter",
+            "version": "3.47.2"
+          },
+          {
+            "id": "cocoapods",
+            "version": "1.17.0"
+          },
+          {
+            "id": "xcode",
+            "version": "27.0"
+          }
+        ]
+      },
+      "release": {
+        "entry": ".github/workflows/citizenapp-ios-release.yml",
+        "tools": [
+          {
+            "id": "git",
+            "version": "2.54.0"
+          },
+          {
+            "id": "node",
+            "version": "25.2.1"
+          },
+          {
+            "id": "flutter",
+            "version": "3.47.2"
+          },
+          {
+            "id": "cocoapods",
+            "version": "1.17.0"
+          },
+          {
+            "id": "xcode",
+            "version": "27.0"
+          }
+        ]
+      }
+    },
+    "android": {
+      "tools": [
+        {
+          "id": "cmake",
+          "version": "3.31.6"
+        },
+        {
+          "id": "git",
+          "version": "2.54.0"
+        },
+        {
+          "id": "node",
+          "version": "25.2.1"
+        },
+        {
+          "id": "flutter",
+          "version": "3.47.2"
+        },
+        {
+          "id": "java",
+          "version": "17.0.20.1"
+        },
+        {
+          "id": "gradle",
+          "version": "9.1.0"
+        },
+        {
+          "id": "android",
+          "version": "37.0.1"
+        },
+        {
+          "id": "android-sdk",
+          "version": "22.0"
+        },
+        {
+          "id": "android-ndk",
+          "version": "28.2.13676358"
+        },
+        {
+          "id": "posix",
+          "version": "27.0"
+        },
+        {
+          "id": "rust",
+          "version": "1.97.1"
+        },
+        {
+          "id": "python",
+          "version": "3.14.3"
+        },
+        {
+          "id": "xcode",
+          "version": "27.0"
+        }
+      ],
+      "locks": [
+        {
+          "ecosystem": "pub",
+          "path": "pubspec.lock"
+        }
+      ],
+      "ci": {
+        "entry": ".github/workflows/citizenapp-android-ci.yml",
+        "tools": [
+          {
+            "id": "cmake",
+            "version": "3.31.6"
+          },
+          {
+            "id": "git",
+            "version": "2.54.0"
+          },
+          {
+            "id": "node",
+            "version": "25.2.1"
+          },
+          {
+            "id": "flutter",
+            "version": "3.47.2"
+          },
+          {
+            "id": "java",
+            "version": "17.0.20.1"
+          },
+          {
+            "id": "gradle",
+            "version": "9.1.0"
+          },
+          {
+            "id": "android",
+            "version": "37.0.1"
+          },
+          {
+            "id": "android-sdk",
+            "version": "22.0"
+          },
+          {
+            "id": "android-ndk",
+            "version": "28.2.13676358"
+          }
+        ]
+      },
+      "release": {
+        "entry": ".github/workflows/citizenapp-android-release.yml",
+        "tools": [
+          {
+            "id": "cmake",
+            "version": "3.31.6"
+          },
+          {
+            "id": "git",
+            "version": "2.54.0"
+          },
+          {
+            "id": "node",
+            "version": "25.2.1"
+          },
+          {
+            "id": "flutter",
+            "version": "3.47.2"
+          },
+          {
+            "id": "java",
+            "version": "17.0.20.1"
+          },
+          {
+            "id": "gradle",
+            "version": "9.1.0"
+          },
+          {
+            "id": "android",
+            "version": "37.0.1"
+          },
+          {
+            "id": "android-sdk",
+            "version": "22.0"
+          },
+          {
+            "id": "android-ndk",
+            "version": "28.2.13676358"
+          }
+        ]
+      }
+    }
+  }
+}

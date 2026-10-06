@@ -1,3 +1,4 @@
+import '../../8964/mls_authentication_fixture.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -23,6 +24,7 @@ import '../../support/fake_citizen_sdk.dart';
 void main() {
   useIsolatedIsar();
   const session = SquareSession(
+    deviceId: testMlsDeviceId,
     sessionToken: 't',
     cidNumber: "CN220-CTZN2-198805200-2026",
     bindingRevision: 1,
@@ -69,7 +71,7 @@ void main() {
         expect(body, isNot(contains('challenge_id')));
         expect(body, isNot(contains('signature')));
         expect(request.headers['authorization'], 'Bearer t');
-        expect(request.headers, isNot(contains('x-device-signature')));
+        expect(request.headers, isNot(contains('x-mls-proof')));
         return http.Response.bytes(
           utf8.encode(
             jsonEncode({
@@ -86,15 +88,16 @@ void main() {
       }),
     );
     final signedSession = SquareSession(
+      deviceId: testMlsDeviceId,
       sessionToken: 't',
       cidNumber: "CN220-CTZN2-198805200-2026",
       bindingRevision: 1,
       accountId:
           '0x7777777777777777777777777777777777777777777777777777777777777777',
       expiresAt: 9999999999999,
-      signRequest: (_) async {
+      authenticateRequest: ({required method, required uri, required body, required sessionToken}) async {
         deviceSignCount++;
-        return 'device-signature';
+        return fakeMlsRequestHeaders(method: method, uri: uri, body: body, sessionToken: sessionToken);
       },
     );
 
@@ -280,6 +283,7 @@ class _FakeSessionProvider implements SquareSessionProvider {
 
   @override
   Future<SquareSession?> ensureSession() async => SquareSession(
+    deviceId: testMlsDeviceId,
     sessionToken: 'creator-session',
     cidNumber: _creatorCidNumber,
     bindingRevision: 1,

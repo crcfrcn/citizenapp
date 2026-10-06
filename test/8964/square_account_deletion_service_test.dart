@@ -6,7 +6,6 @@ import 'package:citizenapp/8964/profile/services/citizen_profile_cache.dart';
 import 'package:citizenapp/8964/services/square_account_deletion_service.dart';
 import 'package:citizenapp/8964/services/square_api_client.dart';
 import 'package:citizenapp/8964/services/square_post_store.dart';
-import 'package:citizenapp/security/device_subkey.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart';
 
 const _owner =
@@ -55,36 +54,26 @@ class _FakeMediaCache extends CitizenProfileMediaCache {
   }
 }
 
-class _FakeSubkey extends DeviceSubkey {
-  bool deleted = false;
-  @override
-  Future<void> delete(String cidNumber) async {
-    deleted = true;
-  }
-}
-
 class _FakeChatRuntime extends ChatSdk {
   _FakeChatRuntime() : super(host: _UnusedChatHost());
 
   bool cleared = false;
+  String? erasedCid;
+  String? erasedAccount;
+  int eraseCalls = 0;
   @override
   Future<void> clearAllForUserId({
     required String userId,
     required String accountId,
   }) async {
     cleared = true;
+    erasedCid = userId;
+    erasedAccount = accountId;
+    eraseCalls++;
   }
 }
 
 class _UnusedChatHost implements ChatRuntimeHost {
-  @override
-  final ChatStorageKeyProvider keyProvider = _UnusedChatStorageKeyProvider();
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
-class _UnusedChatStorageKeyProvider implements ChatStorageKeyProvider {
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -110,14 +99,12 @@ void main() {
     final api = _FakeApi();
     final cache = _FakeCache();
     final mediaCache = _FakeMediaCache();
-    final subkey = _FakeSubkey();
     final chatRuntime = _FakeChatRuntime();
     final localPostStore = _FakeLocalPostStore();
     final service = SquareAccountDeletionService(
       apiClient: api,
       profileCache: cache,
       profileMediaCache: mediaCache,
-      deviceSubkey: subkey,
       chatRuntime: chatRuntime,
       localPostStore: localPostStore,
     );
@@ -135,7 +122,9 @@ void main() {
     expect(mediaCache.clearedCidNumber, _cidNumber);
     expect(api.sessionCleared, isTrue);
     expect(chatRuntime.cleared, isTrue);
-    expect(subkey.deleted, isTrue);
+    expect(chatRuntime.eraseCalls, 1);
+    expect(chatRuntime.erasedCid, _cidNumber);
+    expect(chatRuntime.erasedAccount, _owner);
     expect(localPostStore.cleared, isTrue);
     expect(localPostStore.deletedCidNumber, _cidNumber);
   });
@@ -144,14 +133,12 @@ void main() {
     final api = _FakeApi(fail: true);
     final cache = _FakeCache();
     final mediaCache = _FakeMediaCache();
-    final subkey = _FakeSubkey();
     final chatRuntime = _FakeChatRuntime();
     final localPostStore = _FakeLocalPostStore();
     final service = SquareAccountDeletionService(
       apiClient: api,
       profileCache: cache,
       profileMediaCache: mediaCache,
-      deviceSubkey: subkey,
       chatRuntime: chatRuntime,
       localPostStore: localPostStore,
     );
@@ -169,7 +156,6 @@ void main() {
     expect(mediaCache.clearedCidNumber, isNull);
     expect(api.sessionCleared, isFalse);
     expect(chatRuntime.cleared, isFalse);
-    expect(subkey.deleted, isFalse);
     expect(localPostStore.cleared, isFalse);
   });
 
@@ -177,14 +163,12 @@ void main() {
     final api = _FakeApi();
     final cache = _FakeCache();
     final mediaCache = _FakeMediaCache();
-    final subkey = _FakeSubkey();
     final chatRuntime = _FakeChatRuntime();
     final localPostStore = _FakeLocalPostStore(fail: true);
     final service = SquareAccountDeletionService(
       apiClient: api,
       profileCache: cache,
       profileMediaCache: mediaCache,
-      deviceSubkey: subkey,
       chatRuntime: chatRuntime,
       localPostStore: localPostStore,
     );
@@ -203,6 +187,8 @@ void main() {
     expect(mediaCache.clearedCidNumber, _cidNumber);
     expect(api.sessionCleared, isTrue);
     expect(chatRuntime.cleared, isTrue);
-    expect(subkey.deleted, isTrue);
+    expect(chatRuntime.eraseCalls, 1);
+    expect(chatRuntime.erasedCid, _cidNumber);
+    expect(chatRuntime.erasedAccount, _owner);
   });
 }

@@ -1,3 +1,5 @@
+import 'package:citizenapp/security/public_identity_store.dart';
+
 import '../../support/fake_citizen_sdk.dart';
 
 import 'dart:async';
@@ -7,9 +9,8 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:citizenapp/my/myid/current_user_context.dart';
-import 'package:citizenapp/security/account_data_key_provision.dart';
 import 'package:citizenapp/security/account_security_service.dart';
-import 'package:citizenapp/security/local_data_key.dart';
+import 'package:citizenapp/security/identity_binding.dart';
 
 const _hotId =
     '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
@@ -24,9 +25,8 @@ void main() {
       wallet: _FakeWallet(_account(_hotId, CitizenWalletSignMode.hot)),
       signing: _UnusedSigning(),
       blobStore: _MemoryStore(),
-      subkeyRegistrar: _registerNothing,
-      coldDeviceBindingSigner: _rejectColdBinding,
-      coldAccountDataKeyProvider: _rejectColdKeys,
+      mlsDeviceRegistrar: _registerNothing,
+      coldMlsDeviceBindingSigner: _rejectColdBinding,
     );
   });
   tearDown(() => security.dispose());
@@ -58,7 +58,7 @@ void main() {
 
   test('并发读取合并，显式失效后重新精确读取', () async {
     var calls = 0;
-    final completer = Completer<AccountDataBinding?>();
+    final completer = Completer<IdentityBinding?>();
     final context = CurrentUserContext(
       wallet: _FakeWallet(_account(_hotId, CitizenWalletSignMode.hot)),
       accountSecurity: security,
@@ -80,7 +80,7 @@ void main() {
   });
 
   test('账户上下文失效后拒绝迟到绑定，不返回旧账户数据', () async {
-    final completion = Completer<AccountDataBinding?>();
+    final completion = Completer<IdentityBinding?>();
     final context = CurrentUserContext(
       wallet: _FakeWallet(_account(_hotId, CitizenWalletSignMode.hot)),
       accountSecurity: security,
@@ -95,7 +95,7 @@ void main() {
 
   test('重复激活同一会话绑定不广播身份变化且保留正在读取的快照', () async {
     final binding = _binding(_hotId, 'CID-HOT');
-    Future<void> activate() => security.activateAccountDataBinding(
+    Future<void> activate() => security.activateIdentityBinding(
       genesisHash: binding.genesisHash,
       cidNumber: binding.cidNumber,
       bindingRevision: binding.bindingRevision,
@@ -103,7 +103,7 @@ void main() {
     );
     await activate();
     final revision = security.revision.value;
-    final completion = Completer<AccountDataBinding?>();
+    final completion = Completer<IdentityBinding?>();
     final context = CurrentUserContext(
       wallet: _FakeWallet(_account(_hotId, CitizenWalletSignMode.hot)),
       accountSecurity: security,
@@ -143,7 +143,7 @@ CitizenWalletStateAccount _account(
   isDefault: true,
 );
 
-AccountDataBinding _binding(String accountId, String cid) => AccountDataBinding(
+IdentityBinding _binding(String accountId, String cid) => IdentityBinding(
   genesisHash: '0x${'11' * 32}',
   cidNumber: cid,
   bindingRevision: 1,
@@ -183,26 +183,21 @@ Future<void> _registerNothing({
   required Future<String> Function({
     required Uint8List payload,
     required Uint8List signingMessage,
-    required String devicePublicKey,
+    required String publicKey,
     required int issuedAtMillis,
   })
   signBinding,
 }) async {}
 
 Future<String> _rejectColdBinding({
-  required AccountDataBinding binding,
+  required IdentityBinding binding,
   required Uint8List payload,
   required Uint8List signingMessage,
-  required String devicePublicKey,
+  required String publicKey,
   required int issuedAtMillis,
 }) => throw UnimplementedError();
 
-Future<List<Uint8List>> _rejectColdKeys({
-  required AccountDataBinding binding,
-  required List<DataKeyRequest> requests,
-}) => throw UnimplementedError();
-
-class _MemoryStore implements LocalKeyBlobStore {
+class _MemoryStore implements PublicIdentityRecordStore {
   final entries = <String, String>{};
   @override
   Future<String?> read(String key) async => entries[key];

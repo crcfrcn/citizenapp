@@ -45,20 +45,8 @@
       "scale_payload_hex": "7172737475767778"
     },
     {
-      "message_hex": "ecfabbf1ad5cf526920af3e85dd129a45f45190e88fe33431f3e4d83f7a1167f",
-      "name": "OP_SIGN_CHAT_DEVICE_BIND",
-      "op_tag": "0x1a",
-      "scale_payload_hex": "696d2d62696e6431"
-    },
-    {
-      "message_hex": "76a011b084004e797527ada19d740f6a0cf0b1c6d534fd92c08972aceddb642f",
-      "name": "OP_SIGN_SQUARE_LOGIN",
-      "op_tag": "0x1b",
-      "scale_payload_hex": "73712d6c6f67696e"
-    },
-    {
       "message_hex": "6ba60be1df51dbf63ff00a9f2ef838b44492b42933009fb2b48ec9cdd0c32ebc",
-      "name": "OP_SIGN_SQUARE_DEVICE_BIND",
+      "name": "OP_SIGN_MLS_DEVICE_BIND",
       "op_tag": "0x1c",
       "scale_payload_hex": "73712d62696e64696e67"
     },
@@ -97,12 +85,6 @@
       "name": "OP_SIGN_SWITCH_DEFAULT_ACCOUNT",
       "op_tag": "0x21",
       "scale_payload_hex": "64656661756c742d6163636f756e742d737769746368"
-    },
-    {
-      "message_hex": "20e844923e60c0fea86e3294c15ca365f96eb7d6979c96ad6b49d55856443e47",
-      "name": "OP_SIGN_ACCOUNT_DATA_KEY_PROVISION",
-      "op_tag": "0x22",
-      "scale_payload_hex": "6163636f756e742d646174612d6b65792d70726f766973696f6e"
     },
     {
       "message_hex": "a43124707701534a723c5518c2395f6f09c5e6af5d528be8c3e09af47c48d306",

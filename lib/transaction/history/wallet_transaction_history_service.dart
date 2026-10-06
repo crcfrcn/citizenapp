@@ -377,12 +377,17 @@ final class WalletTransactionHistoryService {
               addresses.containsKey(e.toAccountId),
         )
         .toList();
-    if (relevant.isEmpty) return [];
+    final relevantFees = decoded.fees.values
+        .where((fee) => addresses.containsKey(fee.accountId))
+        .toList();
+    if (relevant.isEmpty && relevantFees.isEmpty) return [];
     final body = await _chain.getBlockBody(block);
     if (body.block.hash != block.hash || body.block.number != block.number) {
       throw StateError('区块正文与事件锚点不一致');
     }
     final records = <LocalTxEntity>[];
+    // 同一账户/extrinsic 只给第一条本金流水附一份费用，其余保持各自事件身份。
+    final attachedFees = <int>{};
     for (final transfer in relevant) {
       final index = transfer.extrinsicIndex;
       if (index != null) {
@@ -402,6 +407,19 @@ final class WalletTransactionHistoryService {
         if (address == null) continue;
         final incoming = accountId == transfer.toAccountId;
         final self = transfer.fromAccountId == transfer.toAccountId;
+        final fee = index == null ? null : decoded.fees[index];
+        final feeFen =
+            fee != null &&
+                fee.accountId == accountId &&
+                attachedFees.add(index!)
+            ? fee.feeFen
+            : null;
+        final principalDelta = self
+            ? BigInt.zero
+            : incoming
+            ? BigInt.parse(transfer.amountFen)
+            : -BigInt.parse(transfer.amountFen);
+        final actualDelta = principalDelta - BigInt.parse(feeFen ?? '0');
         records.add(
           LocalTxEntity()
             ..recordKey = LocalTxStore.blockEventRecordKey(
@@ -412,11 +430,8 @@ final class WalletTransactionHistoryService {
             ..accountId = accountId
             ..ss58Address = address
             ..type = 'transfer'
-            ..amountDeltaFen = self
-                ? '0'
-                : incoming
-                ? transfer.amountFen
-                : LocalTxStore.negateFen(transfer.amountFen)
+            ..amountDeltaFen = actualDelta.toString()
+            ..feeFen = feeFen
             ..transferAmountFen = transfer.amountFen
             ..fromSs58Address = _ss58(transfer.fromAccountId)
             ..toSs58Address = _ss58(transfer.toAccountId)
@@ -435,6 +450,40 @@ final class WalletTransactionHistoryService {
             ..confirmedAtMillis = time,
         );
       }
+    }
+    for (final fee in relevantFees) {
+      final index = fee.extrinsicIndex;
+      final outcome = decoded.outcomes[index];
+      if (outcome == null || index < 0 || index >= body.extrinsics.length) {
+        throw const FormatException('FeePaid 缺少准确执行结果或正文交易');
+      }
+      if (attachedFees.contains(index)) continue;
+      // 没有本金转账的执行（包括失败合约）仍保留实际收费事实。
+      records.add(
+        LocalTxEntity()
+          ..recordKey = LocalTxStore.blockEventRecordKey(
+            fee.accountId,
+            block.hash,
+            fee.eventRecordIndex,
+          )
+          ..accountId = fee.accountId
+          ..ss58Address = addresses[fee.accountId]!
+          ..type = 'fee'
+          ..amountDeltaFen = LocalTxStore.negateFen(fee.feeFen)
+          ..feeFen = fee.feeFen
+          ..status = LocalTxStore.statusFinalized
+          ..source = 'sdk_finalized_event'
+          ..txHash = '0x${_hex(Hasher.blake2b256.hash(body.extrinsics[index]))}'
+          ..blockNumber = block.number.toInt()
+          ..blockHash = block.hash
+          ..eventIndex = fee.eventRecordIndex
+          ..extrinsicIndex = index
+          ..failureReason = outcome.succeeded
+              ? null
+              : outcome.failureDescription
+          ..createdAtMillis = time
+          ..confirmedAtMillis = time,
+      );
     }
     return records;
   }

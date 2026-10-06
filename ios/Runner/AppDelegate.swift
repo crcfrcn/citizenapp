@@ -7,8 +7,7 @@ import UserNotifications
   private var blurView: UIVisualEffectView?
   private var screenshotProtectionEnabled = false
   // 产品专用原生通道由 AppDelegate 强引用；钱包严档由共享 Flutter 插件自动注册。
-  private var deviceSubkeyChannel: DeviceSubkeyChannel?
-  private var deviceDataKeyVaultChannel: DeviceDataKeyVaultChannel?
+  private var systemProtectedDataChannel: SystemProtectedDataChannel?
   private var securityChannel: FlutterMethodChannel?
   private var permissionsChannel: FlutterMethodChannel?
   private var chatNotificationsChannel: FlutterMethodChannel?
@@ -63,8 +62,7 @@ import UserNotifications
   }
 
   private func registerApplicationChannels(binaryMessenger: FlutterBinaryMessenger) {
-    deviceSubkeyChannel = DeviceSubkeyChannel(binaryMessenger: binaryMessenger)
-    deviceDataKeyVaultChannel = DeviceDataKeyVaultChannel(binaryMessenger: binaryMessenger)
+    systemProtectedDataChannel = SystemProtectedDataChannel(binaryMessenger: binaryMessenger)
     squareMediaChannel = SquareMediaChannel(binaryMessenger: binaryMessenger)
 
     let securityChannel = FlutterMethodChannel(

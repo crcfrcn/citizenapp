@@ -14,8 +14,8 @@ import 'package:citizenapp/ui/widgets/wallet_password.dart';
 ///
 /// **fail-closed**：`importWallet` 保证钱包本地落库成功才返回，此时 `pop(true)`
 /// 交由调用方（钱包页 / 首启门禁）决定进入；失败按SDK真实终态抛出，弹窗提示后停留
-/// 本页、助记词保留在输入框（仅成功路径 clear），用户可直接重试。设备子钥不在导入时
-/// 注册；已有子钥直接使用，实际业务确认缺钥时才鉴权一次生成，不增加页面授权流程。
+/// 本页、助记词保留在输入框（仅成功路径 clear），用户可直接重试。MLS设备不在导入时
+/// 登记；普通认证复用已有MLS身份，实际业务确认未登记时才进入获准登记，不增加页面授权流程。
 class ImportWalletPage extends StatefulWidget {
   const ImportWalletPage({super.key});
 

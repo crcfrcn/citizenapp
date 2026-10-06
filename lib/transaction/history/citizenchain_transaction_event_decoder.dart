@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:polkadart_scale_codec/polkadart_scale_codec.dart' as scale;
 import 'package:substrate_metadata/substrate_metadata.dart' as metadata;
 
+import '../contract/citizenchain_runtime_codec.dart';
+
 /// 本文件按准确区块的 Runtime metadata 投影 System 执行终态和 CitizenApp 业务转账事件；
 /// 它不维护轻节点、扫描游标或 CitizenSDK 自有 execution history。
 /// 按准确区块 metadata 解码的一次业务转账。
@@ -40,15 +42,52 @@ final class CitizenChainExtrinsicOutcome {
   final String? failureDescription;
 }
 
+/// 一份准确原生费用事实；不会把 gas 或最低余额转换成手续费。
+final class CitizenChainFeePaidEvent {
+  const CitizenChainFeePaidEvent({
+    required this.accountId,
+    required this.feeFen,
+    required this.eventRecordIndex,
+    required this.extrinsicIndex,
+  });
+  final String accountId;
+  final String feeFen;
+  final int eventRecordIndex;
+  final int extrinsicIndex;
+}
+
+/// 已验证 Runtime 事件中的合约日志，主题不是应用猜测的 ABI 字段。
+final class CitizenChainContractLog {
+  CitizenChainContractLog({
+    required this.contract,
+    required Uint8List data,
+    required List<String> topics,
+    required this.eventRecordIndex,
+    required this.extrinsicIndex,
+  }) : data = Uint8List.fromList(data).asUnmodifiableView(),
+       topics = List.unmodifiable(topics);
+  final String contract;
+  final Uint8List data;
+  final List<String> topics;
+  final int eventRecordIndex;
+  final int extrinsicIndex;
+}
+
 final class CitizenChainTransactionBlockEvents {
   CitizenChainTransactionBlockEvents({
     required List<CitizenChainTransferEvent> transfers,
     required Map<int, CitizenChainExtrinsicOutcome> outcomes,
+    required Map<int, CitizenChainFeePaidEvent> fees,
+    required List<CitizenChainContractLog> contractLogs,
   }) : transfers = List<CitizenChainTransferEvent>.unmodifiable(transfers),
-       outcomes = Map<int, CitizenChainExtrinsicOutcome>.unmodifiable(outcomes);
+       outcomes = Map<int, CitizenChainExtrinsicOutcome>.unmodifiable(outcomes),
+       fees = Map<int, CitizenChainFeePaidEvent>.unmodifiable(fees),
+       contractLogs = List<CitizenChainContractLog>.unmodifiable(contractLogs);
 
   final List<CitizenChainTransferEvent> transfers;
   final Map<int, CitizenChainExtrinsicOutcome> outcomes;
+  final Map<int, CitizenChainFeePaidEvent> fees;
+  final List<CitizenChainContractLog> contractLogs;
 }
 
 /// 全块按准确 metadata 解码；任一错误必须使整块投影失败，进度不得推进。
@@ -75,7 +114,7 @@ final class CitizenChainTransactionEventDecoder {
         entry.type.hashers.isNotEmpty) {
       throw const FormatException('metadata 缺少 System.Events 普通存储');
     }
-    final codec = _EventCodecs(runtime).codec(entry.type.value);
+    final codec = CitizenChainPortableCodecs(runtime).codec(entry.type.value);
     final eventInput = scale.ByteInput(eventsBytes);
     final decoded = codec.decode(eventInput);
     eventInput.assertEndOfDataReached();
@@ -84,6 +123,8 @@ final class CitizenChainTransactionEventDecoder {
 
     final transfers = <CitizenChainTransferEvent>[];
     final outcomes = <int, CitizenChainExtrinsicOutcome>{};
+    final fees = <int, CitizenChainFeePaidEvent>{};
+    final contractLogs = <CitizenChainContractLog>[];
     for (var index = 0; index < raw.length; index++) {
       final record = raw[index] as Map;
       final extrinsicIndex = _extrinsicIndex(
@@ -115,6 +156,47 @@ final class CitizenChainTransactionEventDecoder {
       }
 
       final onchain = event['OnchainTransaction'];
+      if (onchain is Map && onchain.containsKey('FeePaid')) {
+        if (extrinsicIndex == null || fees.containsKey(extrinsicIndex)) {
+          throw const FormatException('FeePaid 缺少 extrinsic 或存在重复费用');
+        }
+        final fields = _namedFields(onchain['FeePaid'], const [
+          'account_id',
+          'fee',
+        ], 'OnchainTransaction.FeePaid');
+        fees[extrinsicIndex] = CitizenChainFeePaidEvent(
+          accountId: _accountId(fields[0], 'account_id'),
+          feeFen: _positiveAmount(fields[1]),
+          eventRecordIndex: index,
+          extrinsicIndex: extrinsicIndex,
+        );
+      }
+      final revive = event['Revive'];
+      if (revive is Map && revive.containsKey('ContractEmitted')) {
+        if (extrinsicIndex == null) {
+          throw const FormatException('合约日志缺少 extrinsic');
+        }
+        final fields = _namedFields(revive['ContractEmitted'], const [
+          'contract',
+          'data',
+          'topics',
+        ], 'Revive.ContractEmitted');
+        final topics = fields[2];
+        if (topics is! List || topics.length > 4) {
+          throw const FormatException('合约日志主题超过 4 个或格式无效');
+        }
+        contractLogs.add(
+          CitizenChainContractLog(
+            contract: '0x${_hexEncode(_eventBytes(fields[0], 20))}',
+            data: _eventBytes(fields[1]),
+            topics: topics
+                .map((topic) => '0x${_hexEncode(_eventBytes(topic, 32))}')
+                .toList(),
+            eventRecordIndex: index,
+            extrinsicIndex: extrinsicIndex,
+          ),
+        );
+      }
       if (onchain is Map && onchain.containsKey('TransferWithRemark')) {
         final fields = _namedFields(onchain['TransferWithRemark'], const [
           'from_account_id',
@@ -168,9 +250,16 @@ final class CitizenChainTransactionEventDecoder {
         );
       }
     }
+    for (final log in contractLogs) {
+      if (outcomes[log.extrinsicIndex]?.succeeded == false) {
+        throw const FormatException('失败执行不能保留合约日志');
+      }
+    }
     return CitizenChainTransactionBlockEvents(
       transfers: transfers,
       outcomes: outcomes,
+      fees: fees,
+      contractLogs: contractLogs,
     );
   }
 
@@ -228,6 +317,15 @@ final class CitizenChainTransactionEventDecoder {
     return value.toString();
   }
 
+  Uint8List _eventBytes(Object? value, [int? length]) {
+    if (value is! List ||
+        (length != null && value.length != length) ||
+        !value.every((byte) => byte is int && byte >= 0 && byte <= 255)) {
+      throw const FormatException('合约事件字节长度或内容无效');
+    }
+    return Uint8List.fromList(value.cast<int>());
+  }
+
   String? _remark(Object? raw) {
     final bytes = raw is Uint8List
         ? raw
@@ -252,113 +350,5 @@ final class CitizenChainTransactionEventDecoder {
     }
     if (value is List) return value.map(_normalize).toList();
     return value;
-  }
-}
-
-/// 只把该区块 System.Events 可达的 portable 类型接到官方 SCALE codec。
-/// 字段名、类型引用、枚举索引均来自 metadata，不使用上游便利入口的类型名别名。
-final class _EventCodecs {
-  _EventCodecs(metadata.RuntimeMetadata runtime)
-    : _types = {for (final type in runtime.types) type.id: type.type} {
-    if (_types.length != runtime.types.length) {
-      throw const FormatException('metadata 类型编号重复');
-    }
-  }
-  final Map<int, metadata.TypeMetadata> _types;
-  final _codecs = <int, scale.Codec>{};
-
-  scale.Codec codec(int id) {
-    id = _resolveType(id);
-    final cached = _codecs[id];
-    if (cached != null) return cached;
-    final type = _types[id];
-    if (type == null) throw const FormatException('metadata 类型引用不存在');
-    final proxy = scale.ProxyCodec();
-    _codecs[id] = proxy;
-    final definition = type.typeDef;
-    proxy.codec = switch (definition) {
-      metadata.TypeDefPrimitive() =>
-        scale.Registry().getCodec(definition.primitive.name.toLowerCase()) ??
-            (throw const FormatException('事件包含不支持的 primitive')),
-      metadata.TypeDefComposite() => _fields(definition.fields),
-      metadata.TypeDefVariant() => _variants(definition.variants),
-      metadata.TypeDefSequence() => scale.SequenceCodec(codec(definition.type)),
-      metadata.TypeDefArray() => scale.ArrayCodec(
-        codec(definition.type),
-        definition.length,
-      ),
-      metadata.TypeDefTuple() => scale.TupleCodec(
-        definition.fields.map(codec).toList(),
-      ),
-      metadata.TypeDefCompact() => scale.CompactBigIntCodec.codec,
-      metadata.TypeDefBitSequence() => _bits(definition),
-      _ => throw const FormatException('事件包含不支持的 portable 类型'),
-    };
-    return proxy;
-  }
-
-  /// SCALE 的单未命名字段包装不增加字节，也不增加解码值的层级。
-  /// 在创建代理前解析到承载类型，避免 ProxyCodec 套 ProxyCodec；
-  /// 只拒绝不经过真实容器的纯包装循环，容器递归仍复用已登记代理。
-  int _resolveType(int id) {
-    final visited = <int>{};
-    while (true) {
-      if (!visited.add(id)) {
-        throw const FormatException('metadata 存在纯包装循环');
-      }
-      final type = _types[id];
-      if (type == null) throw const FormatException('metadata 类型引用不存在');
-      final definition = type.typeDef;
-      if (definition is! metadata.TypeDefComposite ||
-          definition.fields.length != 1 ||
-          definition.fields.single.name != null) {
-        return id;
-      }
-      id = definition.fields.single.type;
-    }
-  }
-
-  scale.Codec _fields(List<metadata.Field> fields) {
-    if (fields.isEmpty) return scale.NullCodec.codec;
-    if (fields.every((field) => field.name == null)) {
-      if (fields.length == 1) return codec(fields.single.type);
-      return scale.TupleCodec(
-        fields.map((field) => codec(field.type)).toList(),
-      );
-    }
-    if (fields.any((field) => field.name == null) ||
-        fields.map((field) => field.name).toSet().length != fields.length) {
-      throw const FormatException('metadata 命名字段不完整或重复');
-    }
-    return scale.CompositeCodec({
-      for (final field in fields) field.name!: codec(field.type),
-    });
-  }
-
-  scale.Codec _variants(List<metadata.Variant> variants) {
-    if (variants.map((v) => v.index).toSet().length != variants.length ||
-        variants.map((v) => v.name).toSet().length != variants.length) {
-      throw const FormatException('metadata 枚举索引或名称重复');
-    }
-    return scale.ComplexEnumCodec.sparse({
-      for (final variant in variants)
-        variant.index: MapEntry(variant.name, _fields(variant.fields)),
-    });
-  }
-
-  scale.Codec _bits(metadata.TypeDefBitSequence definition) {
-    final store = _types[definition.bitStoreType]?.typeDef;
-    final order = _types[definition.bitOrderType]?.path.lastOrNull;
-    if (store is! metadata.TypeDefPrimitive ||
-        !['U8', 'U16', 'U32', 'U64'].contains(store.primitive.name) ||
-        (order != 'Lsb0' && order != 'Msb0')) {
-      throw const FormatException('metadata 位序类型无效');
-    }
-    return scale.BitSequenceCodec(
-      scale.BitStore.values.singleWhere(
-        (value) => value.name == store.primitive.name,
-      ),
-      order == 'Lsb0' ? scale.BitOrder.LSB : scale.BitOrder.MSB,
-    );
   }
 }

@@ -1,3 +1,4 @@
+import '../8964/mls_authentication_fixture.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -86,7 +87,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
   }
 
-  testWidgets('用途钥恢复失败显示可重试错误，不增加准备按钮', (tester) async {
+  testWidgets('系统保护记录读取失败显示可重试错误', (tester) async {
     const accountId =
         '0x1111111111111111111111111111111111111111111111111111111111111111';
     await tester.pumpWidget(
@@ -94,7 +95,7 @@ void main() {
         home: Scaffold(
           body: ChatTab(
             runtime: _FakeRuntime(address: accountId),
-            store: _MissingKeysChatStore(),
+            store: _UnavailableRecordsChatStore(),
             cidNumber: _ownerUserId,
             accountId: accountId,
           ),
@@ -102,8 +103,6 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 100));
-    expect(find.byKey(const ValueKey('chat-prepare-data-keys')), findsNothing);
-    expect(find.text('验证并准备聊天与通讯录密钥'), findsNothing);
     expect(find.text('聊天暂时无法使用，请稍后重试'), findsWidgets);
     await tester.pumpWidget(const SizedBox.shrink());
   });
@@ -433,7 +432,7 @@ void main() {
             ownerUserId: _ownerUserId,
             bindingRevision: 1,
             accountId: '0x1111111111111111111111111111111111111111111111111111111111111111',
-            keyDomain: '0x4242424242424242424242424242424242424242424242424242424242424242',
+            bindingScope: '0x4242424242424242424242424242424242424242424242424242424242424242',
             generation: 1,
           ),
         );
@@ -515,7 +514,7 @@ void main() {
             ownerUserId: _ownerUserId,
             bindingRevision: 1,
             accountId: '0x1111111111111111111111111111111111111111111111111111111111111111',
-            keyDomain: '0x4242424242424242424242424242424242424242424242424242424242424242',
+            bindingScope: '0x4242424242424242424242424242424242424242424242424242424242424242',
             generation: 1,
           ),
         );
@@ -972,12 +971,12 @@ class _PendingChatStore extends _FakeChatStore {
   }) => completer.future;
 }
 
-class _MissingKeysChatStore extends _FakeChatStore {
+class _UnavailableRecordsChatStore extends _FakeChatStore {
   @override
   Future<List<ChatConversationPreview>> readConversationPreviews({
     required String ownerUserId,
     required String currentAccountId,
-  }) async => throw const AccountSecurityException('设备用途钥尚未准备');
+  }) async => throw const AccountSecurityException('系统保护记录不可用');
 }
 
 class _FakeProfileApi extends CitizenProfileApi {
@@ -1037,6 +1036,7 @@ class _MemoryProfileMediaCache extends CitizenProfileMediaCache {
 class _FakeProfileSessionProvider implements SquareSessionProvider {
   @override
   Future<SquareSession?> ensureSession() async => SquareSession(
+    deviceId: testMlsDeviceId,
     sessionToken: 'profile-token',
     cidNumber: _ownerUserId,
     bindingRevision: 1,
@@ -1056,17 +1056,11 @@ class _FakeProfileSessionProvider implements SquareSessionProvider {
 }
 
 class _UnusedChatHost implements ChatRuntimeHost {
-  @override
-  final ChatStorageKeyProvider keyProvider = _UnusedChatStorageKeyProvider();
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-class _UnusedChatStorageKeyProvider implements ChatStorageKeyProvider {
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
 
 class _FakeRuntime extends ChatSdk {
   _FakeRuntime({

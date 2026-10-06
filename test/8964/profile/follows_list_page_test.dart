@@ -1,3 +1,4 @@
+import '../mls_authentication_fixture.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -29,6 +30,7 @@ class _PendingFollowsApi extends FakeProfileApi {
 
 void main() {
   const session = SquareSession(
+    deviceId: testMlsDeviceId,
     sessionToken: 'test-session',
     cidNumber: "CN220-CTZN2-198805200-2026",
     bindingRevision: 1,

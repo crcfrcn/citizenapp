@@ -1,14 +1,13 @@
 import 'package:citizenapp/8964/profile/services/citizen_profile_cache.dart';
 import 'package:citizenapp/8964/services/square_api_client.dart';
 import 'package:citizenapp/8964/services/square_post_store.dart';
-import 'package:citizenapp/security/device_subkey.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart';
 
 /// 注销用户编排：签名验删服务端全部数据 → 尽最大努力清理全部本地残留。
 ///
 /// 顺序钉死：**先服务端硬删**（op_tag 0x1D 主钥签名；失败即上抛、绝不清本地，
 /// 保证「服务端没删就别动本地」的一致性），**成功后再清本地**（资料缓存 / 会话缓存 /
-/// 本人广场副本与检查点 / Chat 私信历史 / 原生 P-256 设备子钥）。
+/// 本人广场副本与检查点 / SDK所属MLS身份与私信历史）。
 /// 钱包与链上身份不受影响。
 class SquareAccountLocalCleanupException implements Exception {
   const SquareAccountLocalCleanupException(this.failures);
@@ -25,19 +24,16 @@ class SquareAccountDeletionService {
     SquareApiClient? apiClient,
     CitizenProfileCache? profileCache,
     CitizenProfileMediaCache? profileMediaCache,
-    DeviceSubkey? deviceSubkey,
     SquareLocalPostBulkDeletionStore? localPostStore,
-  })  : _api = apiClient ?? SquareApiClient(),
-        _profileCache = profileCache ?? const CitizenProfileCache(),
-        _profileMediaCache = profileMediaCache ?? CitizenProfileMediaCache(),
-        _deviceSubkey = deviceSubkey ?? DeviceSubkey(),
-        _chatRuntime = chatRuntime,
-        _localPostStore = localPostStore ?? const SquarePostStore();
+  }) : _api = apiClient ?? SquareApiClient(),
+       _profileCache = profileCache ?? const CitizenProfileCache(),
+       _profileMediaCache = profileMediaCache ?? CitizenProfileMediaCache(),
+       _chatRuntime = chatRuntime,
+       _localPostStore = localPostStore ?? const SquarePostStore();
 
   final SquareApiClient _api;
   final CitizenProfileCache _profileCache;
   final CitizenProfileMediaCache _profileMediaCache;
-  final DeviceSubkey _deviceSubkey;
   final ChatSdk _chatRuntime;
   final SquareLocalPostBulkDeletionStore _localPostStore;
 
@@ -73,8 +69,6 @@ class SquareAccountDeletionService {
         accountId: accountId,
       ),
     );
-    // 服务端 square_device_subkeys 已 purge，删本机原生子钥迫使下次干净重注册。
-    await attempt('设备子钥', () => _deviceSubkey.delete(cidNumber));
 
     if (failures.isNotEmpty) {
       throw SquareAccountLocalCleanupException(

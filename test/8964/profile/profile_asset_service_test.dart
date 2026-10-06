@@ -1,3 +1,4 @@
+import '../mls_authentication_fixture.dart';
 import '../../support/fake_citizen_sdk.dart';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -13,13 +14,14 @@ import 'package:citizenapp/8964/services/square_api_client.dart';
 // `_headers` 对带 session 的请求强制要求设备请求签名器（发布会员体系后新增硬校验）；
 // 测试用固定假签名占位，MockClient 不校验签名头。
 SquareSession _session() => SquareSession(
+      deviceId: testMlsDeviceId,
       sessionToken: 'tok',
       cidNumber: "CN220-CTZN2-198805200-2026",
       bindingRevision: 1,
       accountId:
           '0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
       expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
-      signRequest: (_) async => 'test-device-signature',
+      authenticateRequest: fakeMlsRequestHeaders,
     );
 
 void main() {

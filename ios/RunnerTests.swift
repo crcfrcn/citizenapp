@@ -122,89 +122,68 @@ class RunnerTests: XCTestCase {
     ]
   }
 
-  func testSecureEnclaveTagsAreStableAndDomainSeparated() throws {
-    let deviceA = try SecureEnclaveKeyStore.applicationTag(
-      namespace: "device_subkey",
-      cidNumber: "CID-A"
-    )
-    let deviceB = try SecureEnclaveKeyStore.applicationTag(
-      namespace: "device_subkey",
-      cidNumber: "CID-B"
-    )
-    let deviceData = try SecureEnclaveKeyStore.applicationTag(
-      namespace: "device_data_key",
-      walletIndex: 7
-    )
-
-    XCTAssertEqual(
-      String(data: deviceA, encoding: .utf8),
-      "citizenapp.device_subkey.cid.Q0lELUE"
-    )
-    XCTAssertEqual(
-      String(data: deviceData, encoding: .utf8),
-      "citizenapp.device_data_key.7"
-    )
-    XCTAssertNotEqual(deviceA, deviceData)
-    XCTAssertNotEqual(deviceA, deviceB)
+  func testSystemProtectedFilesReadBackProtectionAndPermissions() throws {
+    let manager = FileManager.default
+    let root = manager.temporaryDirectory.resolvingSymlinksInPath()
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try manager.createDirectory(at: root, withIntermediateDirectories: false)
+    defer { try? manager.removeItem(at: root) }
+    let file = root.appendingPathComponent("record.json")
+    try Data("public-record".utf8).write(to: file)
+    try SystemProtectedDataChannel.protect(root)
+    try SystemProtectedDataChannel.protect(file)
+    XCTAssertEqual((try manager.attributesOfItem(atPath: root.path)[.posixPermissions] as? NSNumber)?.intValue, 0o700)
+    let attributes = try manager.attributesOfItem(atPath: file.path)
+    XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+    XCTAssertEqual(attributes[.protectionKey] as? FileProtectionType, .completeUntilFirstUserAuthentication)
+    XCTAssertEqual(try file.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup, true)
   }
 
-  func testSecureEnclaveTagRejectsNegativeWalletIndex() {
-    XCTAssertThrowsError(
-      try SecureEnclaveKeyStore.applicationTag(
-        namespace: "device_data_key",
-        walletIndex: -1
-      )
-    )
+  func testSystemProtectionRejectsLinksAndForeignDatabaseDirectory() throws {
+    let manager = FileManager.default
+    let root = manager.temporaryDirectory.resolvingSymlinksInPath()
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try manager.createDirectory(at: root, withIntermediateDirectories: false)
+    defer { try? manager.removeItem(at: root) }
+    let file = root.appendingPathComponent("record")
+    try Data([1]).write(to: file)
+    let link = root.appendingPathComponent("link")
+    try manager.createSymbolicLink(at: link, withDestinationURL: file)
+    XCTAssertThrowsError(try SystemProtectedDataChannel.protect(link))
+    XCTAssertThrowsError(try SystemProtectedDataChannel.protectUserDatabase(root.path))
+    XCTAssertEqual(try Data(contentsOf: file), Data([1]))
   }
 
-  func testDevicePublicKeyRequiresUncompressedP256Point() {
-    var valid = Data(repeating: 0, count: 65)
-    valid[0] = 0x04
-
-    XCTAssertNoThrow(try DeviceSubkeyChannel.validateUncompressedPublicKey(valid))
-    XCTAssertThrowsError(
-      try DeviceSubkeyChannel.validateUncompressedPublicKey(Data(repeating: 0, count: 65))
-    )
-    XCTAssertThrowsError(
-      try DeviceSubkeyChannel.validateUncompressedPublicKey(Data([0x04]))
-    )
-  }
-
-  func testLowerHexIsCanonical() {
-    XCTAssertEqual(
-      SecureEnclaveKeyStore.lowerHex(Data([0x00, 0x0a, 0xfe, 0xff])),
-      "000afeff"
-    )
-  }
-
-  func testDeviceDataEnvelopeIntegrityFailuresHaveStableCode() throws {
-    let aad = Data([1, 2])
-    let envelope = DeviceDataKeyVaultChannel.encodeEnvelope(aad: aad, plaintext: Data([3]))
-    for (blob, expected) in [(Data(), aad), (Data([255, 255, 255, 255]), aad), (envelope, Data([4]))] {
-      XCTAssertThrowsError(try DeviceDataKeyVaultChannel.decodeEnvelope(blob, expectedAad: expected)) { error in
-        XCTAssertEqual((error as? HardwareSecurityFailure)?.code, "integrity")
-      }
+  func testNativeRecordCasSerializesConcurrentWritersAndRejectsStaleSnapshots() throws {
+    let manager = FileManager.default
+    let root = manager.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try manager.createDirectory(at: root, withIntermediateDirectories: false)
+    defer { try? manager.removeItem(at: root) }
+    let results = RecordCasResults()
+    DispatchQueue.concurrentPerform(iterations: 2) { index in
+      do {
+        let success = try SystemProtectedDataChannel.compareRecordFile(root: root, name: "identity.json", expected: nil,
+          next: "{\"record\":\"" + String(index) + "\"}")
+        results.append(success: success, error: nil)
+      } catch { results.append(success: false, error: error) }
     }
+    XCTAssertEqual(results.errors.count, 0)
+    XCTAssertEqual(results.successes.filter { $0 }.count, 1)
+    let committed = try String(contentsOf: root.appendingPathComponent("identity.json"), encoding: .utf8)
+    XCTAssertFalse(try SystemProtectedDataChannel.compareRecordFile(root: root, name: "identity.json", expected: nil, next: "{}"))
+    XCTAssertEqual(try String(contentsOf: root.appendingPathComponent("identity.json"), encoding: .utf8), committed)
   }
 
-  func testDeviceDataEnvelopeRequiresExactAad() throws {
-    let aad = Data("binding-a|chat".utf8)
-    let plaintext = Data(repeating: 0x5a, count: 32)
-    let envelope = DeviceDataKeyVaultChannel.encodeEnvelope(
-      aad: aad,
-      plaintext: plaintext
-    )
 
-    XCTAssertEqual(
-      try DeviceDataKeyVaultChannel.decodeEnvelope(envelope, expectedAad: aad),
-      plaintext
-    )
-    XCTAssertThrowsError(
-      try DeviceDataKeyVaultChannel.decodeEnvelope(
-        envelope,
-        expectedAad: Data("binding-b|chat".utf8)
-      )
-    )
+}
+
+private final class RecordCasResults: @unchecked Sendable {
+  private let lock = NSLock()
+  private(set) var successes: [Bool] = []
+  private(set) var errors: [Error] = []
+  func append(success: Bool, error: Error?) {
+    lock.lock(); defer { lock.unlock() }
+    successes.append(success)
+    if let error { errors.append(error) }
   }
-
 }

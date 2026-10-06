@@ -15,7 +15,7 @@ dependencies:
     git:
       url: https://github.com/crcfrcn/citizensdk.git
       path: .
-      ref: 7f94641635c72eedbc1fee14df8aba4d1a639bf9
+      ref: 3e53f18354e1b21c75d7e4543f2102ba8163c575
   cupertino_icons: 1.0.9
   http: 1.6.0
   shared_preferences: ^2.5.5
@@ -33,7 +33,6 @@ dependencies:
   # 版本跟随 local_auth 的传递依赖,不单独升级。
   local_auth_android: 2.0.9
   local_auth_darwin: ^2.0.0
-  flutter_secure_storage: 10.3.1
   image_picker: ^1.2.3
   # 发布页统一相册：双端同一网格，支持图片数量上限及“多图或单视频”选择中互斥。
   wechat_assets_picker: ^10.1.2
@@ -61,7 +60,6 @@ dependencies:
   flutter_chat_core: ^2.9.0
   # Chat 自绘 Composer 通过现有 flutter_chat_ui Provider 同步输入栏高度。
   provider: ^6.1.5+1
-  cryptography: ^2.9.0
   url_launcher: ^6.3.1
   firebase_core: ^4.11.0
   firebase_messaging: ^16.4.1
@@ -78,7 +76,7 @@ dependencies:
     git:
       url: https://github.com/tuyutata/tatachatsdk.git
       path: .
-      ref: f666f5fdd55a0016b0b489d0c6fedb5b14cf0afa
+      ref: b70897a41fc810b88ffdba35a3be97152fd7047c
 dev_dependencies:
   integration_test:
     sdk: flutter

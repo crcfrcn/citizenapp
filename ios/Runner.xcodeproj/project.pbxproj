@@ -14,9 +14,7 @@
 		A81100010000000000000000 /* RunnerUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A81100020000000000000000 /* RunnerUITests.swift */; };
 		A81100110000000000000000 /* RunnerUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A81100020000000000000000 /* RunnerUITests.swift */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
-		6A1C27010000000000000001 /* SecureEnclaveKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1C27010000000000000011 /* SecureEnclaveKeyStore.swift */; };
-		6A1C27010000000000000003 /* DeviceSubkeyChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1C27010000000000000013 /* DeviceSubkeyChannel.swift */; };
-		6A1C27010000000000000004 /* DeviceDataKeyVaultChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1C27010000000000000014 /* DeviceDataKeyVaultChannel.swift */; };
+		6A1C27010000000000000004 /* SystemProtectedDataChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1C27010000000000000014 /* SystemProtectedDataChannel.swift */; };
 		6A1C27010000000000000005 /* SquareMediaChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1C27010000000000000015 /* SquareMediaChannel.swift */; };
 		6A1C27010000000000000006 /* SquareVideoTranscoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1C27010000000000000016 /* SquareVideoTranscoder.swift */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
@@ -69,9 +67,7 @@
 		A81100120000000000000000 /* RunnerUITestHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RunnerUITestHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = AppFrameworkInfo.plist; path = Flutter/AppFrameworkInfo.plist; sourceTree = "<group>"; };
 		5F0B32AEDBF1A00536D1EE06 /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
-		6A1C27010000000000000011 /* SecureEnclaveKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureEnclaveKeyStore.swift; sourceTree = "<group>"; };
-		6A1C27010000000000000013 /* DeviceSubkeyChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceSubkeyChannel.swift; sourceTree = "<group>"; };
-		6A1C27010000000000000014 /* DeviceDataKeyVaultChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceDataKeyVaultChannel.swift; sourceTree = "<group>"; };
+		6A1C27010000000000000014 /* SystemProtectedDataChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemProtectedDataChannel.swift; sourceTree = "<group>"; };
 		6A1C27010000000000000015 /* SquareMediaChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SquareMediaChannel.swift; sourceTree = "<group>"; };
 		6A1C27010000000000000016 /* SquareVideoTranscoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SquareVideoTranscoder.swift; sourceTree = "<group>"; };
 		74858FAC1ED2DC5600515810 /* Runner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Runner.entitlements; sourceTree = "<group>"; };
@@ -216,9 +212,7 @@
 				1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */,
 				1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */,
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
-				6A1C27010000000000000011 /* SecureEnclaveKeyStore.swift */,
-				6A1C27010000000000000013 /* DeviceSubkeyChannel.swift */,
-				6A1C27010000000000000014 /* DeviceDataKeyVaultChannel.swift */,
+				6A1C27010000000000000014 /* SystemProtectedDataChannel.swift */,
 				6A1C27010000000000000015 /* SquareMediaChannel.swift */,
 				6A1C27010000000000000016 /* SquareVideoTranscoder.swift */,
 				7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */,
@@ -534,9 +528,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
-				6A1C27010000000000000001 /* SecureEnclaveKeyStore.swift in Sources */,
-				6A1C27010000000000000003 /* DeviceSubkeyChannel.swift in Sources */,
-				6A1C27010000000000000004 /* DeviceDataKeyVaultChannel.swift in Sources */,
+				6A1C27010000000000000004 /* SystemProtectedDataChannel.swift in Sources */,
 				6A1C27010000000000000005 /* SquareMediaChannel.swift in Sources */,
 				6A1C27010000000000000006 /* SquareVideoTranscoder.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,

@@ -17,7 +17,6 @@ import 'package:citizenapp/8964/square_models.dart';
 import 'package:citizenapp/8964/profile/services/citizen_profile_cache.dart';
 import 'package:citizenapp/8964/profile/services/square_session_provider.dart';
 import 'package:citizenapp/8964/profile/widgets/profile_avatar.dart';
-import 'package:citizenapp/8964/services/square_compose_signers.dart';
 import 'package:citizenapp/8964/services/square_identity_state.dart';
 import 'package:citizenapp/8964/services/square_publish_service.dart';
 import 'package:citizenapp/8964/services/square_post_store.dart';
@@ -496,7 +495,7 @@ class _SquareComposePageState extends State<SquareComposePage>
       _publishing = true;
       _stage = SquarePublishStage.signingIn;
     });
-    final signers = SquareComposeSigners(context: context, identity: identity);
+    final sessions = context.read<SquareSessionProvider>();
     try {
       await _saveChain;
       final cid = identity.cidNumber;
@@ -516,7 +515,8 @@ class _SquareComposePageState extends State<SquareComposePage>
         title: payload.title,
         contentSections: payload.contentSections,
         mediaDrafts: payload.mediaDrafts,
-        signLoginPayload: signers.signLogin,
+        sessionForAccount: (accountId) async =>
+            await sessions.ensureSessionForAccountId(accountId) ?? (throw StateError('MLS会话不可用')),
         externalSigning: (pending) => showCitizenSdkQrResponse(
           context,
           request: pending.qrRequest,

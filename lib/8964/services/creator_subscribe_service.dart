@@ -11,7 +11,7 @@ import 'package:citizenapp/my/creator/creator_api.dart';
 import 'package:citizenapp/my/myid/finalized_identity_resolver.dart';
 import 'package:citizenapp/qr/pages/qr_sign_session_page.dart';
 import 'package:citizenapp/my/membership/subscription_chain.dart';
-import 'package:citizenapp/security/device_subkey.dart' show hexToBytes;
+import 'package:citizenapp/security/hex_codec.dart' show hexToBytes;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class CreatorSubscribeException implements Exception {

@@ -128,9 +128,9 @@ void main() {
 
   test('inBlock 和 finalized 只投影 SDK 事实，recordKey 不变', () async {
     await insert();
-    final before = (await LocalTxStore.queryByAccountId(fromAccountId))
-        .single
-        .recordKey;
+    final before = (await LocalTxStore.queryByAccountId(
+      fromAccountId,
+    )).single.recordKey;
 
     await LocalTxStore.markLocalSubmitInBlock(
       accountId: fromAccountId,
@@ -212,8 +212,9 @@ void main() {
         4,
       ),
       status: LocalTxStore.statusFinalized,
-      amountDeltaFen: '-100',
+      amountDeltaFen: '-110',
       transferAmountFen: '100',
+      feeFen: '10',
       fromSs58Address: fromSs58Address,
       toSs58Address: toSs58Address,
       counterpartySs58Address: toSs58Address,
@@ -256,8 +257,9 @@ void main() {
         ),
         status: LocalTxStore.statusFinalized,
         txHash: hash,
-        amountDeltaFen: '-100',
+        amountDeltaFen: '-110',
         transferAmountFen: '100',
+        feeFen: '10',
         fromSs58Address: fromSs58Address,
         toSs58Address: toSs58Address,
         counterpartySs58Address: toSs58Address,
@@ -276,7 +278,7 @@ void main() {
     expect(rows.map((row) => row.txHash).toSet(), {'0xabc', '0xdef'});
   });
 
-  test('事件先到再本机提交仍只保留一条并保留手续费', () async {
+  test('事件先到再本机提交保留已验证费用，预估不能覆盖真实费用', () async {
     await event();
     await insert();
     await event();
@@ -286,8 +288,8 @@ void main() {
       rows.single.recordKey,
       LocalTxStore.submitRecordKey(fromAccountId, '0xabc'),
     );
-    expect(rows.single.amountDeltaFen, '-101');
-    expect(rows.single.feeFen, '1');
+    expect(rows.single.amountDeltaFen, '-110');
+    expect(rows.single.feeFen, '10');
     expect(rows.single.status, LocalTxStore.statusPending);
   });
 
@@ -378,6 +380,56 @@ void main() {
     expect(
       (await LocalTxStore.historyCursor(fromAccountId))!.cursorBlockNumber,
       9,
+    );
+  });
+
+  test('失败交易的收费事实原子合并，但不代替 SDK 推进执行状态', () async {
+    await insert();
+    final progress = cursor();
+    await LocalTxStore.insertHistoryCursor(progress);
+    final fee = LocalTxEntity()
+      ..recordKey = '$fromAccountId:fee:block10:4'
+      ..accountId = fromAccountId
+      ..ss58Address = fromSs58Address
+      ..txHash = '0xabc'
+      ..type = 'fee'
+      ..source = 'sdk_finalized_event'
+      ..status = LocalTxStore.statusFinalized
+      ..amountDeltaFen = '-10'
+      ..feeFen = '10'
+      ..blockNumber = 10
+      ..blockHash = '0x${'33' * 32}'
+      ..eventIndex = 4
+      ..extrinsicIndex = 2
+      ..failureReason = '链上执行失败'
+      ..createdAtMillis = 1000;
+    await LocalTxStore.commitHistoryBlock(
+      blockNumber: 10,
+      cursors: [progress],
+      records: [fee],
+    );
+    final record = (await LocalTxStore.queryByAccountId(fromAccountId)).single;
+    expect(
+      record.recordKey,
+      LocalTxStore.submitRecordKey(fromAccountId, '0xabc'),
+    );
+    expect(record.amountDeltaFen, '-10');
+    expect(record.feeFen, '10');
+    expect(record.status, LocalTxStore.statusPending);
+    expect(
+      (await LocalTxStore.historyCursor(fromAccountId))!.cursorBlockNumber,
+      10,
+    );
+    await LocalTxStore.markLocalSubmitFailed(
+      accountId: fromAccountId,
+      txHash: '0xabc',
+      executionId: 'execution-1',
+      callDataHash: '0x${'11' * 32}',
+      failureReason: 'SDK确认执行失败',
+    );
+    expect(
+      (await LocalTxStore.queryByAccountId(fromAccountId)).single.status,
+      LocalTxStore.statusFailed,
     );
   });
 }

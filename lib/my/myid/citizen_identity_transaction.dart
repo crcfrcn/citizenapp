@@ -139,7 +139,7 @@ class CitizenIdentityTransaction {
       externalSigning: externalSigning,
     );
     // 交易即使 Dispatch Failed 也会进入 finalized 区块；必须按该精确区块的存储确认
-    // 新账户与 revision+1 已生效，MyIdService 才能激活新账户派生密钥与设备子钥。
+    // 新账户与revision+1已生效，MyIdService才能激活当前绑定并同步MLS认证上下文。
     await verifyFinalizedBindingState(
       cidNumber: cidNumber,
       expectedAccountId: newAccountId,

@@ -56,8 +56,9 @@ class SquareChainBalanceReader implements SquarePublishBalanceReader {
 
   @override
   Future<double> fetchFreshFinalizedBalanceYuan(String accountId) async {
-    final balance = await AccountBalanceSnapshotStore.forChain(_chain)
-        .getAccountBalance(accountId, forceRefresh: true);
+    final balance = await AccountBalanceSnapshotStore.forChain(
+      _chain,
+    ).getAccountBalance(accountId, forceRefresh: true);
     return balance.freeFen.toDouble() / 100;
   }
 
@@ -114,7 +115,7 @@ class SquarePublishService {
     required SquarePostType postType,
     required String text,
     required List<SquareLocalMediaDraft> mediaDrafts,
-    required SquareLoginSigner signLoginPayload,
+    required SquareSessionResolver sessionForAccount,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
     )
@@ -179,7 +180,7 @@ class SquarePublishService {
     if (pending != null) {
       final session = await _uploadService.resumeSession(
         identity.accountId,
-        signLoginPayload,
+        sessionForAccount,
       );
       if (session.cidNumber != pending.cidNumber ||
           session.accountId != pending.accountId) {
@@ -247,7 +248,7 @@ class SquarePublishService {
         postType: postType,
         text: trimmedText,
         mediaDrafts: mediaDrafts,
-        signLoginPayload: signLoginPayload,
+        sessionForAccount: sessionForAccount,
         title: title,
         contentSections: contentSections,
         onStage: onStage,

@@ -1,10 +1,9 @@
+import '../8964/mls_authentication_fixture.dart';
 import '../support/fake_citizen_sdk.dart';
 
 import 'package:citizenapp/chat/tatachat_sdk_adapter.dart';
 
 import 'dart:convert';
-import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -12,44 +11,12 @@ import 'package:http/testing.dart';
 import 'package:citizenapp/8964/profile/services/square_session_provider.dart';
 import 'package:citizenapp/8964/services/square_api_client.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart';
-import 'package:citizenapp/security/local_data_key.dart';
 import 'package:citizenapp/security/account_security_service.dart';
 import 'package:citizenapp/my/myid/current_user_context.dart';
 
 import '../support/isar_test_env.dart';
 
-class _TestBinding extends AccountDataBinding implements ChatDataBinding {
-  const _TestBinding({
-    required super.genesisHash,
-    required super.cidNumber,
-    required super.bindingRevision,
-    required super.accountId,
-  });
-
-  @override
-  String get keyDomain => genesisHash;
-
-  @override
-  String get userId => cidNumber;
-
-  @override
-  String get id => '$keyDomain|$userId|$bindingRevision|$accountId';
-}
-
-class _TargetHandoverKeyFailureWalletManager implements AccountSecurityService {
-  final List<Uint8List> sourceKeys = <Uint8List>[
-    Uint8List.fromList(List<int>.filled(32, 17)),
-  ];
-
-  @override
-  Future<List<Uint8List>> deriveDataKeysForBindingHandover(
-    AccountDataBinding binding,
-    List<({String? context, LocalKeyPurpose purpose})> requests,
-  ) async {
-    if (binding.bindingRevision == 1) return sourceKeys;
-    throw StateError('target-key-derivation-failed');
-  }
-
+class _UnusedSecurity implements AccountSecurityService {
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -85,82 +52,18 @@ void main() {
     });
   });
 
-  test('SDK用户标识始终映射公民CID，MLS不在宿主供钥用途中', () {
-    const binding = AccountDataBinding(
-      genesisHash:
+  test('SDK用户标识就是永久CID，绑定只保存公开事实', () {
+    const binding = ChatBinding(
+      bindingScope:
           '0x'
           '1111111111111111111111111111111111111111111111111111111111111111',
-      cidNumber: 'CN220-CTZN2-100000001-2026',
+      userId: 'CN220-CTZN2-100000001-2026',
       bindingRevision: 1,
       accountId:
-          '0x'
-          'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     );
-    expect(
-      CitizenChatStorageKeyProvider.toChatBinding(binding).userId,
-      binding.cidNumber,
-    );
-    expect(ChatStorageKeyPurpose.values.map((e) => e.name), [
-      'chat',
-      'chatIndex',
-      'attachment',
-    ]);
-  });
-
-  group('Chat换绑只处理剩余非MLS用途', () {
-    test('目标用途钥取得失败时立即清零已经取得的来源用途钥', () async {
-      const source = _TestBinding(
-        genesisHash:
-            '0x1111111111111111111111111111111111111111111111111111111111111111',
-        cidNumber: 'CN220-CTZN2-100000001-2026',
-        bindingRevision: 1,
-        accountId:
-            '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-      );
-      const target = _TestBinding(
-        genesisHash:
-            '0x1111111111111111111111111111111111111111111111111111111111111111',
-        cidNumber: 'CN220-CTZN2-100000001-2026',
-        bindingRevision: 2,
-        accountId:
-            '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-      );
-      final walletManager = _TargetHandoverKeyFailureWalletManager();
-      final store = ChatStore(
-        crypto: ChatCrypto(CitizenChatStorageKeyProvider(walletManager)),
-      );
-      await store.activateBindingFence(source);
-      // 文件域仅使用本用例临时目录，失败验收不能读写真实设备数据。
-      final deviceDirectory = await Directory.systemTemp.createTemp(
-        'citizenapp_mls_boundary_',
-      );
-      addTearDown(() => deviceDirectory.delete(recursive: true));
-      final currentUserContext = _UnusedCurrentUserContext();
-      final runtime = createCitizenChatRuntime(
-        store: store,
-        accountSecurity: walletManager,
-        currentUserContext: currentUserContext,
-        squareSessionProvider: SquareSessionProvider(
-          accountSecurity: walletManager,
-          currentUserContext: currentUserContext,
-        ),
-        documentsDirectoryProvider: () async => deviceDirectory,
-      );
-
-      await expectLater(
-        runtime.stageAccountHandover(source: source, target: target),
-        throwsA(
-          isA<StateError>().having(
-            (error) => error.message,
-            'message',
-            'target-key-derivation-failed',
-          ),
-        ),
-      );
-      for (final key in walletManager.sourceKeys) {
-        expect(key, everyElement(0));
-      }
-    });
+    binding.validate();
+    expect(binding.userId, 'CN220-CTZN2-100000001-2026');
   });
 
   group('Chat 用户错误文案', () {
@@ -185,14 +88,14 @@ void main() {
       expect(message, isNot(contains('CHAT_MLS')));
     });
 
-    test('Cloudflare 未绑定 CID 与设备子钥失败分层提示', () {
+    test('Cloudflare 未绑定 CID 与MLS设备认证失败分层提示', () {
       const unregistered = SquareApiException(
         '该钱包账户未绑定 CID',
         statusCode: 403,
         errorCode: 'cid_not_bound',
       );
       const deviceMissing = SquareApiException(
-        '设备子钥未注册',
+        'MLS设备未登记',
         statusCode: 401,
         errorCode: 'device_not_registered',
       );
@@ -232,7 +135,7 @@ void main() {
         expect(request.method, 'POST');
         expect(request.url.path, '/api/auth/chatserver/access');
         expect(jsonDecode(request.body), <String, Object?>{
-          'device_id': 'device-a',
+          'device_id': testMlsDeviceId,
         });
         expect(request.headers['authorization'], 'Bearer session-a');
         return http.Response(
@@ -247,16 +150,17 @@ void main() {
       }),
     );
     final access = await client.fetchChatServerAccess(
-      session: SquareSession(
+      session: const SquareSession(
+        deviceId: testMlsDeviceId,
         sessionToken: 'session-a',
         cidNumber: 'CN220-CTZN2-100000001-2026',
         bindingRevision: 1,
         accountId:
             '0x1111111111111111111111111111111111111111111111111111111111111111',
         expiresAt: 4102444800000,
-        signRequest: (_) async => 'request-signature',
+        authenticateRequest: fakeMlsRequestHeaders,
       ),
-      deviceId: 'device-a',
+      deviceId: testMlsDeviceId,
     );
 
     expect(access.chatServerUrl, Uri.parse('https://chat.example.test'));
@@ -282,15 +186,17 @@ void main() {
 
     await expectLater(
       client.fetchChatServerAccess(
-        session: SquareSession(
+        session: const SquareSession(
+          deviceId: testMlsDeviceId,
           sessionToken: 'session-a',
           cidNumber: 'CN220-CTZN2-100000001-2026',
           bindingRevision: 1,
-          accountId: '0x1111111111111111111111111111111111111111111111111111111111111111',
+          accountId:
+              '0x1111111111111111111111111111111111111111111111111111111111111111',
           expiresAt: 4102444800000,
-          signRequest: (_) async => 'request-signature',
+          authenticateRequest: fakeMlsRequestHeaders,
         ),
-        deviceId: 'device-a',
+        deviceId: testMlsDeviceId,
       ),
       throwsA(
         isA<SquareApiException>().having(
@@ -314,19 +220,41 @@ void main() {
 
     await expectLater(
       client.fetchChatServerAccess(
-        session: SquareSession(
+        session: const SquareSession(
+          deviceId: testMlsDeviceId,
           sessionToken: 'session-a',
           cidNumber: 'CN220-CTZN2-100000001-2026',
           bindingRevision: 1,
           accountId:
               '0x1111111111111111111111111111111111111111111111111111111111111111',
           expiresAt: 4102444800000,
-          signRequest: (_) async => 'request-signature',
+          authenticateRequest: fakeMlsRequestHeaders,
         ),
         deviceId: '   ',
       ),
       throwsA(isA<SquareApiException>()),
     );
     expect(requestCount, 0);
+  });
+  test('停止共用实例前同步关闭普通MLS认证，不构造第二实例', () async {
+    var closing = false;
+    final security = _UnusedSecurity();
+    final current = _UnusedCurrentUserContext();
+    final sessions = SquareSessionProvider(
+      accountSecurity: security,
+      currentUserContext: current,
+    );
+    final runtime = createCitizenChatRuntime(
+      accountSecurity: security,
+      currentUserContext: current,
+      squareSessionProvider: sessions,
+      onClosing: () {
+        closing = true;
+      },
+    );
+    final stopping = runtime.stop();
+    expect(closing, true);
+    await stopping;
+    await runtime.close();
   });
 }

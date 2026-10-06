@@ -12,9 +12,8 @@ import 'package:citizenapp/my/myid/current_user_context.dart';
 import 'package:citizenapp/my/myid/finalized_identity_resolver.dart';
 import 'package:citizenapp/my/myid/identity_badge_snapshot_store.dart';
 import 'package:citizenapp/my/myid/myid_service.dart';
-import 'package:citizenapp/my/user/contact_service.dart';
 import 'package:citizenapp/my/myid/citizen_identity_transaction.dart';
-import 'package:citizenapp/security/local_data_key.dart';
+import 'package:citizenapp/security/identity_binding.dart';
 import 'package:citizenapp/security/account_security_service.dart';
 import 'package:citizenapp/8964/profile/services/square_session_provider.dart';
 
@@ -83,7 +82,7 @@ void main() {
       accountSecurity: walletManager,
       currentUserContext: _InvalidationCountingIdentityCache(),
       sessionProvider: _UnusedSessionProvider(),
-      chatRuntime: () => throw StateError('测试未请求 Chat runtime'),
+      chatRuntime: () => _BindingRuntime(),
       chain: chainRpc,
       transactions: TestCitizenTransactions(),
       identityResolver: FinalizedIdentityResolver(
@@ -101,13 +100,15 @@ void main() {
     CitizenChain? chain,
     FinalizedIdentityResolver? identityResolver,
     CitizenIdentityTransaction? identityTransaction,
-    CidAccountDataHandover? dataHandover,
     CurrentUserContext? currentUserContext,
     int Function()? cidYearProvider,
     IdentityBadgeSnapshotStore? badgeSnapshotStore,
+    ChatSdk? runtime,
   }) {
     final actualWallet = wallet ?? _FakeWalletManager(_aliceWallet);
     final actualChain = chain ?? _FakeChain();
+    final actualRuntime = runtime ?? _BindingRuntime();
+    addTearDown(actualRuntime.close);
     return MyIdService(
       wallet: actualWallet,
       signing: actualWallet,
@@ -116,13 +117,12 @@ void main() {
           currentUserContext ?? _InvalidationCountingIdentityCache(),
       identityResolver: identityResolver ?? _FakeIdentityResolver(null),
       sessionProvider: _UnusedSessionProvider(),
-      chatRuntime: () => throw StateError('测试未请求 Chat runtime'),
+      chatRuntime: () => actualRuntime,
       chain: actualChain,
       transactions: TestCitizenTransactions(),
       divisionStore: _FakeDivisionStore(),
       badgeSnapshotStore: badgeSnapshotStore ?? _FakeBadgeStore(),
       identityTransaction: identityTransaction,
-      dataHandover: dataHandover,
       cidYearProvider: cidYearProvider,
     );
   }
@@ -204,7 +204,7 @@ void main() {
     final reader = _FakeIdentityResolver(null);
     final current = CurrentUser(
       account: _aliceWallet,
-      binding: const AccountDataBinding(
+      binding: const IdentityBinding(
         genesisHash: '0x0000000000000000000000000000000000000000000000000000000000000000',
         cidNumber: 'CID-LOCAL-TEST',
         bindingRevision: 1,
@@ -435,7 +435,8 @@ void main() {
     expect(cid, expected);
     expect(fakeRpc.occupiedCid, expected);
     expect(fakeRpc.occupiedAccountId, _validAccountId);
-    expect(identityCache.invalidateCalls, 1);
+    // 公开绑定激活前与finally广播前各失效一次；身份通知仍仅发送一次。
+    expect(identityCache.invalidateCalls, 2);
     expect(fakeWallet.identityNotifications, 1);
   });
 
@@ -452,12 +453,13 @@ void main() {
       _registeredIdentity(_validAccountId),
       _registeredIdentity(newAccount.accountId, bindingRevision: 2),
     ]);
+    final metadataRuntime = _BindingRuntime();
     final service = testService(
+      runtime: metadataRuntime,
       wallet: fakeWallet,
       chain: _FakeChain(),
       identityTransaction: fakeRpc,
       identityResolver: resolver,
-      dataHandover: _FakeDataHandover(),
     );
 
     await service.rebindCidTo(
@@ -472,13 +474,16 @@ void main() {
     expect(fakeRpc.reboundNew, newAccount.accountId);
     // runtime 调用参数仍包含当前绑定账户，证明自主换绑授权没有被接管阶段替代。
     expect(fakeRpc.reboundOld, _validAccountId);
-    // finalized 只激活公开绑定，不生成数据钥，也不登记 P-256 设备子钥。
-    expect(fakeWallet.dataBindings.single.accountId, newAccount.accountId);
-    expect(fakeWallet.dataBindings.single.bindingRevision, 2);
-    expect(fakeWallet.deviceSubkeyRegistrationCalls, 0);
+    // finalized 只激活公开绑定，不生成数据钥，也不登记 MLS设备。
+    expect(fakeWallet.bindings.single.accountId, newAccount.accountId);
+    expect(fakeWallet.bindings.single.bindingRevision, 2);
+    expect(fakeWallet.mlsDeviceRegistrationCalls, 0);
+    expect(metadataRuntime.observed!.userId, 'GD-CTZN1-8F3A2B');
+    expect(metadataRuntime.observed!.accountId, newAccount.accountId);
+    expect(metadataRuntime.observed!.bindingRevision, 2);
   });
 
-  test('换绑 finalized 不登记 P-256 子钥，后续仅由 Worker 缺钥响应触发', () async {
+  test('换绑 finalized 不登记 MLS设备，后续仅由 Worker 未登记响应触发', () async {
     final newAccount = _testAccount(
       accountIndex: 5,
       accountId: '0x${'11' * 32}',
@@ -495,7 +500,6 @@ void main() {
             resolver.setAccountId(newAccount.accountId, bindingRevision: 2),
       ),
       identityResolver: resolver,
-      dataHandover: _FakeDataHandover(),
     );
 
     await service.rebindCidTo(
@@ -503,8 +507,8 @@ void main() {
       cidNumber: 'GD-CTZN1-8F3A2B',
       newAccountId: newAccount.accountId,
     );
-    expect(fakeWallet.dataBindings.single.accountId, newAccount.accountId);
-    expect(fakeWallet.deviceSubkeyRegistrationCalls, 0);
+    expect(fakeWallet.bindings.single.accountId, newAccount.accountId);
+    expect(fakeWallet.mlsDeviceRegistrationCalls, 0);
   });
 
   test('换绑 extrinsic finalized 但目标状态未确认时绝不迁移本地数据', () async {
@@ -515,7 +519,6 @@ void main() {
       name: '账户5',
     );
     final fakeWallet = _FakeWalletManager(_aliceWallet, accounts: [newAccount]);
-    final handover = _FakeDataHandover();
     final service = testService(
       wallet: fakeWallet,
       chain: _FakeChain(),
@@ -525,7 +528,6 @@ void main() {
       identityResolver: _FakeIdentityResolver(
         _registeredIdentity(_validAccountId),
       ),
-      dataHandover: handover,
     );
 
     await expectLater(
@@ -537,10 +539,8 @@ void main() {
       throwsA(isA<StateError>()),
     );
 
-    expect(fakeWallet.deviceSubkeyRegistrationCalls, 0);
-    expect(fakeWallet.dataBindings, isEmpty);
-    expect(handover.stageCalls, 1);
-    expect(handover.discardCalls, 1);
+    expect(fakeWallet.mlsDeviceRegistrationCalls, 0);
+    expect(fakeWallet.bindings, isEmpty);
   });
 
   test('换绑目标 == 当前身份账户时拒', () async {
@@ -552,7 +552,6 @@ void main() {
     );
     final wallet = _FakeWalletManager(_aliceWallet, accounts: [self]);
     final identityRpc = _FakeIdentityTransaction();
-    final handover = _FakeDataHandover();
     final service = testService(
       wallet: wallet,
       chain: _FakeChain(),
@@ -560,7 +559,6 @@ void main() {
       identityResolver: _FakeIdentityResolver(
         _registeredIdentity(_validAccountId),
       ),
-      dataHandover: handover,
     );
 
     await expectLater(
@@ -573,7 +571,6 @@ void main() {
     );
     expect(wallet.signCalls, 0, reason: '相同 account_id 必须在读取私钥前拒绝');
     expect(identityRpc.fetchRebindContextCalls, 0);
-    expect(handover.stageCalls, 0);
   });
 
   test('listRebindTargets 排除当前身份账户', () async {
@@ -659,84 +656,6 @@ void main() {
     // 绑到子账户 //5,而非默认账户0。
     expect(fakeRpc.occupiedAccountId, acc5.accountId);
   });
-
-  group('CID 私有数据交接 intent', () {
-    const source = AccountDataBinding(
-      genesisHash:
-          '0x4242424242424242424242424242424242424242424242424242424242424242',
-      cidNumber: 'GD-CTZN1-8F3A2B',
-      bindingRevision: 1,
-      accountId:
-          '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-    );
-    const target = AccountDataBinding(
-      genesisHash:
-          '0x4242424242424242424242424242424242424242424242424242424242424242',
-      cidNumber: 'GD-CTZN1-8F3A2B',
-      bindingRevision: 2,
-      accountId:
-          '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-    );
-
-    test('stage 普通失败自动丢弃两子域并清除 preparing', () async {
-      final wallet = _FakeWalletManager(null);
-      final chat = _HandoverChatRuntime();
-      final contacts = _HandoverContactService()
-        ..stageError = StateError('通讯录 stage 失败');
-      final handover = CidAccountDataHandover(
-        accountSecurity: wallet,
-        chatRuntime: chat,
-        contactService: contacts,
-      );
-
-      await expectLater(
-        handover.stage(source: source, target: target),
-        throwsA(
-          isA<StateError>().having(
-            (error) => error.message,
-            'message',
-            '通讯录 stage 失败',
-          ),
-        ),
-      );
-      expect(chat.discardCalls, 1);
-      expect(contacts.discardCalls, 1);
-      expect(wallet.pendingHandover, isNull);
-    });
-
-    test('stage 补偿部分失败保留 preparing 并同时报告两个错误', () async {
-      final wallet = _FakeWalletManager(null);
-      final chat = _HandoverChatRuntime();
-      final contacts = _HandoverContactService()
-        ..stageError = StateError('通讯录 stage 失败')
-        ..discardError = StateError('通讯录 discard 失败');
-      final handover = CidAccountDataHandover(
-        accountSecurity: wallet,
-        chatRuntime: chat,
-        contactService: contacts,
-      );
-
-      await expectLater(
-        handover.stage(source: source, target: target),
-        throwsA(
-          isA<StateError>()
-              .having(
-                (error) => error.message,
-                'stage error',
-                contains('通讯录 stage 失败'),
-              )
-              .having(
-                (error) => error.message,
-                'discard error',
-                contains('通讯录 discard 失败'),
-              ),
-        ),
-      );
-      expect(chat.discardCalls, 1);
-      expect(contacts.discardCalls, 1);
-      expect(wallet.pendingHandover?.state, AccountDataHandoverState.preparing);
-    });
-  });
 }
 
 // ── SCALE 编码夹具(镜像 citizen-identity pallet 的 VotingIdentity/CandidateIdentity 布局) ──
@@ -815,21 +734,15 @@ class _FakeWalletManager
   final CitizenWalletStateAccount? _wallet;
   final List<CitizenWalletStateAccount> accounts;
 
-  int deviceSubkeyRegistrationCalls = 0;
+  int mlsDeviceRegistrationCalls = 0;
 
-  /// 当前钱包派生上下文激活记录。
+  /// finalized公开绑定激活记录。
   final List<({String cidNumber, int bindingRevision, String accountId})>
-  dataBindings = [];
+  bindings = [];
   final List<String> events = <String>[];
   int signCalls = 0;
   int identityNotifications = 0;
-  AccountDataBinding? activeDataBinding;
-  ({
-    AccountDataBinding source,
-    AccountDataBinding target,
-    AccountDataHandoverState state,
-  })?
-  pendingHandover;
+  IdentityBinding? activeBinding;
 
   @override
   CitizenSdkOperation<CitizenWalletState> getState() => testCitizenOperation(
@@ -860,7 +773,7 @@ class _FakeWalletManager
   });
 
   @override
-  Future<void> activateAccountDataBinding({
+  Future<void> activateIdentityBinding({
     required String genesisHash,
     required String cidNumber,
     required int bindingRevision,
@@ -868,12 +781,12 @@ class _FakeWalletManager
   }) async {
     expect(genesisHash, '0x${'42' * 32}');
     events.add('activate');
-    dataBindings.add((
+    bindings.add((
       cidNumber: cidNumber,
       bindingRevision: bindingRevision,
       accountId: accountId,
     ));
-    activeDataBinding = AccountDataBinding(
+    activeBinding = IdentityBinding(
       genesisHash: genesisHash,
       cidNumber: cidNumber,
       bindingRevision: bindingRevision,
@@ -882,64 +795,17 @@ class _FakeWalletManager
   }
 
   @override
-  Future<AccountDataBinding?> readAccountDataBindingForCid(
-    String cidNumber,
-  ) async =>
-      activeDataBinding?.cidNumber == cidNumber ? activeDataBinding : null;
+  Future<IdentityBinding?> readIdentityBindingForCid(String cidNumber) async =>
+      activeBinding?.cidNumber == cidNumber ? activeBinding : null;
 
   @override
-  Future<AccountDataBinding?> readAccountDataBindingForAccountId(
+  Future<IdentityBinding?> readIdentityBindingForAccountId(
     String accountId,
-  ) async =>
-      activeDataBinding?.accountId == accountId ? activeDataBinding : null;
+  ) async => activeBinding?.accountId == accountId ? activeBinding : null;
 
   @override
-  Future<
-    ({
-      AccountDataBinding source,
-      AccountDataBinding target,
-      AccountDataHandoverState state,
-    })?
-  >
-  readPendingAccountDataHandover() async => pendingHandover;
-
-  @override
-  Future<void> recordPendingAccountDataHandover({
-    required AccountDataBinding source,
-    required AccountDataBinding target,
-  }) async {
-    pendingHandover ??= (
-      source: source,
-      target: target,
-      state: AccountDataHandoverState.preparing,
-    );
-  }
-
-  @override
-  Future<void> markPendingAccountDataHandoverReady({
-    required AccountDataBinding source,
-    required AccountDataBinding target,
-  }) async {
-    pendingHandover = (
-      source: source,
-      target: target,
-      state: AccountDataHandoverState.ready,
-    );
-  }
-
-  @override
-  Future<void> clearPendingAccountDataHandover({
-    required AccountDataBinding source,
-    required AccountDataBinding target,
-  }) async {
-    pendingHandover = null;
-  }
-
-  @override
-  Future<void> registerDeviceSubkeyForBinding(
-    AccountDataBinding binding,
-  ) async {
-    deviceSubkeyRegistrationCalls++;
+  Future<void> registerMlsDeviceForBinding(IdentityBinding binding) async {
+    mlsDeviceRegistrationCalls++;
   }
 
   @override
@@ -951,68 +817,14 @@ class _FakeWalletManager
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-class _HandoverChatRuntime extends ChatSdk {
-  _HandoverChatRuntime() : super(host: _UnusedChatHost());
-
-  int discardCalls = 0;
-
-  @override
-  Future<void> stageAccountHandover({
-    required ChatDataBinding source,
-    required ChatDataBinding target,
-  }) async {}
-
-  @override
-  Future<void> discardAccountHandover({
-    required ChatDataBinding source,
-    required ChatDataBinding target,
-  }) async {
-    discardCalls++;
-  }
-}
-
 class _UnusedChatHost implements ChatRuntimeHost {
-  @override
-  final ChatStorageKeyProvider keyProvider = _UnusedChatStorageKeyProvider();
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
-class _UnusedChatStorageKeyProvider implements ChatStorageKeyProvider {
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _UnusedSessionProvider implements SquareSessionProvider {
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
-class _HandoverContactService implements UserContactService {
-  Object? stageError;
-  Object? discardError;
-  int discardCalls = 0;
-
-  @override
-  Future<void> stageAccountHandover({
-    required AccountDataBinding source,
-    required AccountDataBinding target,
-  }) async {
-    final error = stageError;
-    if (error != null) throw error;
-  }
-
-  @override
-  Future<void> discardAccountHandover({
-    required AccountDataBinding source,
-    required AccountDataBinding target,
-  }) async {
-    discardCalls++;
-    final error = discardError;
-    if (error != null) throw error;
-  }
-
+  void invalidateAccount(String accountId) {}
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -1159,48 +971,6 @@ class _FakeIdentityTransaction extends CitizenIdentityTransaction {
   }
 }
 
-class _FakeDataHandover implements CidAccountDataHandover {
-  int stageCalls = 0;
-  int discardCalls = 0;
-
-  @override
-  Future<void> stage({
-    required AccountDataBinding source,
-    required AccountDataBinding target,
-  }) async {
-    stageCalls++;
-  }
-
-  @override
-  Future<void> commit({
-    required AccountDataBinding source,
-    required AccountDataBinding target,
-  }) async {}
-
-  @override
-  Future<void> discard({
-    required AccountDataBinding source,
-    required AccountDataBinding target,
-  }) async {
-    discardCalls++;
-  }
-
-  @override
-  Future<void> resumeForFinalizedBinding(AccountDataBinding current) async {}
-
-  @override
-  Future<void> prepareFinalizedBinding({
-    required AccountDataBinding current,
-    AccountDataBinding? previous,
-  }) async {}
-
-  @override
-  Future<void> completeFinalizedBinding(AccountDataBinding current) async {}
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
 class _FakeChain extends TestCitizenChain {
   _FakeChain({
     this.voting,
@@ -1344,4 +1114,13 @@ class _LocalCurrentUser implements CurrentUserContext {
   Future<CurrentUser?> resolve() async => current;
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _BindingRuntime extends ChatSdk {
+  _BindingRuntime() : super(host: _UnusedChatHost());
+  ChatBinding? observed;
+  @override
+  Future<void> convergeFinalizedBinding(ChatBinding current) async {
+    observed = current;
+  }
 }

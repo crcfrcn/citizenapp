@@ -12,7 +12,10 @@ import 'package:citizenapp/security/chain_bootstrap_api.dart'
 import 'package:citizenapp/8964/square_models.dart';
 import 'package:citizenapp/8964/profile/models/citizen_profile.dart';
 import 'package:citizenapp/8964/services/square_post_store.dart';
-import 'package:citizenapp/security/device_subkey.dart' show hexToBytes;
+import 'package:citizenapp/security/hex_codec.dart' show hexToBytes;
+import 'package:citizenapp/security/mls_authentication.dart';
+import 'package:tatachat_sdk/tatachat_sdk.dart' as sdk;
+import 'package:crypto/crypto.dart' show sha256;
 import 'package:citizenapp/8964/services/square_request_signer.dart';
 import 'package:citizenapp/notifications/app_push_token.dart';
 
@@ -33,8 +36,10 @@ class SquareSession {
     required this.cidNumber,
     required this.bindingRevision,
     required this.accountId,
+    required this.deviceId,
     required this.expiresAt,
-    this.signRequest,
+    this.authenticateRequest,
+    this.requireCurrent,
   });
 
   final String sessionToken;
@@ -48,7 +53,14 @@ class SquareSession {
   /// 本会话当前绑定的钱包账户 account_id（签名/链上交易用；换绑后由新账户重新登录）。
   final String accountId;
   final int expiresAt;
-  final SquareDeviceSigner? signRequest;
+  final String deviceId;
+  final MlsRequestAuthenticator? authenticateRequest;
+  final Future<void> Function()? requireCurrent;
+
+  /// 当前用户变化或运行实例关闭时，任何迟到业务结果均不得消费。
+  Future<void> validateCurrent() async {
+    await requireCurrent?.call();
+  }
 
   bool get isUsable => expiresAt > DateTime.now().millisecondsSinceEpoch;
 }
@@ -452,51 +464,8 @@ class SquareBrowseState {
   final int? browseLeft;
 }
 
-/// Cloudflare 只可见的单条通讯录密文信封。联系人 CID、账户、SS58 和私人备注只存在于
-/// [ciphertext] 内；[bindingRevision] / [accountId] 只是公开密钥版本上下文，Worker
-/// 不参与密钥派生或解密。
-class SquareEncryptedContact {
-  const SquareEncryptedContact({
-    required this.bindingRevision,
-    required this.accountId,
-    required this.contactId,
-    required this.ciphertext,
-    required this.nonce,
-    required this.mac,
-    required this.updatedAt,
-  });
-
-  final int bindingRevision;
-  final String accountId;
-  final String contactId;
-  final String ciphertext;
-  final String nonce;
-  final String mac;
-  final int updatedAt;
-
-  factory SquareEncryptedContact.fromJson(Map<String, dynamic> json) {
-    return SquareEncryptedContact(
-      bindingRevision: SquareApiClient._asInt(json['binding_revision']),
-      accountId: json['account_id']?.toString() ?? '',
-      contactId: json['contact_id']?.toString() ?? '',
-      ciphertext: json['ciphertext']?.toString() ?? '',
-      nonce: json['nonce']?.toString() ?? '',
-      mac: json['mac']?.toString() ?? '',
-      updatedAt: SquareApiClient._asInt(json['updated_at']),
-    );
-  }
-
-  Map<String, Object> toJson() => <String, Object>{
-    'binding_revision': bindingRevision,
-    'account_id': accountId,
-    'contact_id': contactId,
-    'ciphertext': ciphertext,
-    'nonce': nonce,
-    'mac': mac,
-    'updated_at': updatedAt,
-  };
-}
-
+/// 公民业务 HTTPS 服务地址，拒绝明文或降级连接。
+// 保留既有业务接口；MLS改造只替换普通认证，不删除广场业务能力。
 abstract class SquareFeedSource {
   Future<List<SquarePost>> fetchFeed({
     required SquareFeedKind feedKind,
@@ -530,33 +499,7 @@ abstract class SquarePostDeletionService {
   });
 }
 
-/// Cloudflare `users` finalized 投影为本次登录挑战确认的身份上下文。
-class SquareLoginContext {
-  const SquareLoginContext({
-    required this.cidNumber,
-    required this.bindingRevision,
-    required this.accountId,
-  });
-
-  final String cidNumber;
-  final int bindingRevision;
-  final String accountId;
-}
-
-/// 广场/Chat 登录签名器：CID 由 Worker 的 finalized 用户投影随挑战下发，调用方
-/// 不得在登录前读取链。签名器只用该 CID 选择本机 P-256 设备子钥，并对客户端钉死
-/// op_tag 后得到的 32 字节摘要签名。
-typedef SquareLoginSigner = Future<String> Function(
-  SquareLoginContext context,
-  Uint8List loginMessage,
-);
-
-typedef SquareMissingDeviceHandler = Future<void> Function(
-  SquareLoginContext context,
-);
-
-/// 账户敏感动作（注销/退订）签名器：对 `signing_message(OP_SIGN_SQUARE_ACTION)`
-/// 的 32 字节摘要用 sr25519 **主钥**签名，返回 `0x` hex 签名（动钱动权，弹生物识别）。
+// 钱包敏感动作保持既有签名器合同与流程，普通请求认证不使用该入口。
 typedef SquareActionSigner = Future<String> Function(Uint8List actionMessage);
 
 class SquareApiConfig {
@@ -619,6 +562,12 @@ class SquareApiClient
     required int bindingRevision,
     required String accountId,
   }) {
+    final previous = _finalizedSessionBinding;
+    if (previous?.cidNumber == cidNumber &&
+        previous?.bindingRevision == bindingRevision &&
+        previous?.accountId == accountId) {
+      return;
+    }
     final binding = _FinalizedSessionBinding(
       cidNumber: cidNumber,
       bindingRevision: bindingRevision,
@@ -631,6 +580,17 @@ class SquareApiClient
         _liveClients.removeAt(index);
         continue;
       }
+      for (final accountId in {
+        ...client._sessions.keys,
+        ...client._sessionGenerations.keys,
+      }) {
+        final cached = client._sessions[accountId];
+        if (accountId != binding.accountId ||
+            (cached != null && !binding.matches(cached))) {
+          client._sessionGenerations[accountId] =
+              (client._sessionGenerations[accountId] ?? 0) + 1;
+        }
+      }
       client._sessions.removeWhere((_, session) => !binding.matches(session));
       client._inflightSessions.clear();
     }
@@ -640,154 +600,265 @@ class SquareApiClient
 
   final String baseUrl;
   final http.Client _http;
+  bool _closed = false;
   SquareBrowseState? lastBrowseState;
   final Map<String, SquareSession> _sessions = {};
   // 进行中的握手：同账户并发调用共享同一 Future，杜绝冷启动握手风暴。
   final Map<String, Future<SquareSession>> _inflightSessions = {};
+  final Map<String, int> _sessionGenerations = {};
 
   /// CitizenServe API 根地址；聊天模块只复用该会话请求短期服务授权。
   Uri get baseUri => Uri.parse(baseUrl);
 
+  /// 会话缓存和在途任务固定CID、账户、代次及同一MLS设备。
   Future<SquareSession> ensureSession({
     required String accountId,
-    required SquareLoginSigner signLoginPayload,
-    SquareMissingDeviceHandler? onDeviceNotRegistered,
+    required MlsAuthenticationSource authentication,
+    Future<void> Function(MlsAuthenticationIdentity identity)?
+    onDeviceNotRegistered,
   }) async {
+    if (_closed) {
+      throw const MlsAuthenticationException(
+        "服务客户端已关闭",
+        code: "identityChanged",
+      );
+    }
+    final identity = await authentication.readIdentity();
+    if (identity.accountId != accountId) {
+      throw const MlsAuthenticationException(
+        '当前账户与请求账户不一致',
+        code: 'identityChanged',
+      );
+    }
+    final generation = _sessionGenerations.putIfAbsent(accountId, () => 0);
     final cached = _sessions[accountId];
-    final finalizedBinding = _finalizedSessionBinding;
     if (cached != null &&
         cached.isUsable &&
-        (finalizedBinding == null || finalizedBinding.matches(cached))) {
+        cached.cidNumber == identity.cidNumber &&
+        cached.bindingRevision == identity.bindingRevision &&
+        cached.deviceId == identity.deviceId &&
+        (_finalizedSessionBinding == null ||
+            _finalizedSessionBinding!.matches(cached))) {
+      await authentication.requireCurrent(identity);
       return cached;
     }
-    if (cached != null) _sessions.remove(accountId);
-
-    // in-flight 去重：同账户并发调用共享一次握手（challenge+session=2 请求），
-    // 避免广场/聊天等多入口冷启动各跑一套、迅速打满 `auth:{ip}` 限流桶（429）。
-    final pending = _inflightSessions[accountId];
+    _sessions.remove(accountId);
+    final key = identity.cacheKey;
+    final pending = _inflightSessions[key];
     if (pending != null) return pending;
-
-    final future = _establishSessionWithRetry(
-      accountId,
-      signLoginPayload,
-      onDeviceNotRegistered,
-    );
-    _inflightSessions[accountId] = future;
+    late final Future<SquareSession> future;
+    future = () async {
+      try {
+        return await _establishSession(identity, authentication, generation);
+      } on SquareApiException catch (error) {
+        if (error.errorCode != 'device_not_registered' ||
+            onDeviceNotRegistered == null) {
+          rethrow;
+        }
+        await _requireAuthenticationCurrent(
+          identity,
+          authentication,
+          generation,
+        );
+        await onDeviceNotRegistered(identity);
+        await _requireAuthenticationCurrent(
+          identity,
+          authentication,
+          generation,
+        );
+        return _establishSession(identity, authentication, generation);
+      }
+    }();
+    _inflightSessions[key] = future;
     try {
       return await future;
     } finally {
-      _inflightSessions.remove(accountId);
+      if (identical(_inflightSessions[key], future)) {
+        _inflightSessions.remove(key);
+      }
     }
   }
 
-  Future<SquareSession> _establishSessionWithRetry(
-    String accountId,
-    SquareLoginSigner signLoginPayload,
-    SquareMissingDeviceHandler? onDeviceNotRegistered,
+  Future<void> _requireAuthenticationCurrent(
+    MlsAuthenticationIdentity identity,
+    MlsAuthenticationSource authentication,
+    int generation,
   ) async {
-    SquareLoginContext? attemptedContext;
-    try {
-      return await _establishSession(accountId, (context, message) {
-        attemptedContext = context;
-        return signLoginPayload(context, message);
-      });
-    } on SquareApiException catch (e) {
-      // 可自愈的两类 401,都交给前台真实业务初始化一次**本机**子钥并重试:
-      // - device_not_registered:库里没有该身份的任何设备行;
-      // - invalid_signature:库里有行但都不是本机钥(换新手机/重装/钱包重建后
-      //   walletIndex 换新,硬件 P-256 子钥随之换新)。只认前者会死锁:行存在
-      //   → 挑战能发;钥不配 → 完成必败;而登记永远不被触发。
-      // 安全性由注册端点兜底:按链上 finalized 绑定 + 钱包主钥 sr25519 签名 +
-      // Turnstile 重新自证,每设备一行(device_id = P-256 公钥哈希),多设备
-      // 并存不覆盖别机;无种子者伪造不出绑定签名。其余错误原样上抛。
-      const recoverable = {'device_not_registered', 'invalid_signature'};
-      if (!recoverable.contains(e.errorCode) ||
-          onDeviceNotRegistered == null ||
-          attemptedContext == null) {
-        rethrow;
-      }
-      await onDeviceNotRegistered(attemptedContext!);
-      return _establishSession(accountId, signLoginPayload);
+    await authentication.requireCurrent(identity);
+    if (_closed ||
+        (_sessionGenerations[identity.accountId] ?? 0) != generation) {
+      throw const MlsAuthenticationException(
+        'MLS会话已失效',
+        code: 'identityChanged',
+      );
     }
+  }
+
+  Future<Map<String, String>> _authenticationHeaders({
+    required MlsAuthenticationIdentity identity,
+    required MlsAuthenticationSource authentication,
+    required int generation,
+    required String purpose,
+    required String method,
+    required Uri uri,
+    required List<int> body,
+    String? sessionToken,
+  }) async {
+    if (uri.origin != baseUri.origin) {
+      throw const MlsAuthenticationException('MLS认证目标服务不一致');
+    }
+    final bytes = List<int>.unmodifiable(body);
+    await _requireAuthenticationCurrent(identity, authentication, generation);
+    final challenge = await _postAuthentication(
+      '/square/auth/challenge',
+      jsonEncode({
+        'account_id': identity.accountId,
+        'public_key': identity.publicKey,
+        'purpose': purpose,
+        'method': method,
+        'request_target': uri.path + (uri.hasQuery ? '?${uri.query}' : ''),
+        'body_sha256': '0x${sha256.convert(bytes)}',
+      }),
+      sessionToken: sessionToken,
+    );
+    await _requireAuthenticationCurrent(identity, authentication, generation);
+    final nonce = challenge['challenge'];
+    final expiry = challenge['expires_at_millis'];
+    if (nonce is! String || expiry is! int) {
+      throw const MlsAuthenticationException('MLS挑战响应不完整');
+    }
+    final request = sdk.MlsAuthenticationRequest(
+      serviceOrigin: uri.origin,
+      challenge: nonce,
+      expiresAtMillis: expiry,
+      method: method,
+      requestTarget: uri.path + (uri.hasQuery ? '?${uri.query}' : ''),
+      bodyBytes: bytes,
+    );
+    validateMlsChallenge(identity, request, challenge);
+    final proof = await authentication.createProof(
+      identity: identity,
+      request: request,
+      challenge: challenge,
+    );
+    await _requireAuthenticationCurrent(identity, authentication, generation);
+    validateMlsProofMatches(identity, request, challenge, proof);
+    return mlsProofHeaders(proof);
+  }
+
+  Future<Map<String, dynamic>> _postAuthentication(
+    String path,
+    String body, {
+    String? sessionToken,
+    Map<String, String> proofHeaders = const {},
+  }) async {
+    final response = await _http
+        .post(
+          _uri(path),
+          headers: {
+            'content-type': 'application/json; charset=utf-8',
+            if (sessionToken != null) 'authorization': 'Bearer $sessionToken',
+            ...proofHeaders,
+          },
+          body: body,
+        )
+        .timeout(const Duration(seconds: 20));
+    return _decodeResponse(response);
   }
 
   Future<SquareSession> _establishSession(
-    String accountId,
-    SquareLoginSigner signLoginPayload,
+    MlsAuthenticationIdentity identity,
+    MlsAuthenticationSource authentication,
+    int generation,
   ) async {
-    final challenge = await _postJson('/square/auth/challenge', {
-      'account_id': accountId,
-    });
-    final signingPayloadHex = challenge['signing_payload_hex'];
-    final challengeId = challenge['challenge_id'];
-    final challengeCidNumber = challenge['cid_number'];
-    final challengeBindingRevision = challenge['binding_revision'];
-    final challengeAccountId = challenge['account_id'];
-    if (signingPayloadHex is! String ||
-        challengeId is! String ||
-        challengeCidNumber is! String ||
-        challengeCidNumber.isEmpty ||
-        challengeBindingRevision is! int ||
-        challengeBindingRevision <= 0 ||
-        challengeAccountId != accountId) {
-      throw const SquareApiException('广场登录挑战响应不完整');
-    }
-    final loginContext = SquareLoginContext(
-      cidNumber: challengeCidNumber,
-      bindingRevision: challengeBindingRevision,
-      accountId: accountId,
+    final body = jsonEncode({'account_id': identity.accountId});
+    final headers = await _authenticationHeaders(
+      identity: identity,
+      authentication: authentication,
+      generation: generation,
+      purpose: 'session',
+      method: 'POST',
+      uri: _uri('/square/auth/session'),
+      body: utf8.encode(body),
     );
-
-    // 客户端钉死 op_tag（登录 = OP_SIGN_SQUARE_LOGIN），只对 worker 下发的 SCALE
-    // payload 重算 signing_message 摘要后签名，杜绝服务端诱导跨域签名。
-    final loginMessage = await CitizenSigning.encodePayload(
-      CitizenSigningPayload.message(
-        opTag: kOpSignSquareLogin,
-        scalePayload: hexToBytes(signingPayloadHex),
-      ),
+    final response = await _postAuthentication(
+      '/square/auth/session',
+      body,
+      proofHeaders: headers,
     );
-    final signature = await signLoginPayload(loginContext, loginMessage);
-    final session = await _postJson('/square/auth/session', {
-      'challenge_id': challengeId,
-      'account_id': accountId,
-      'signature': signature,
-    });
-    final token = session['session_token'];
-    final expiresAt = session['expires_at'];
-    // 身份主键由 Worker 按链上绑定解析后随登录响应下发；缺失即会话不完整（未绑定 CID
-    // 的账户在 Worker 侧已被拒绝建会话）。
-    final cidNumber = session['cid_number'];
-    final bindingRevision = session['binding_revision'];
-    if (token is! String ||
-        expiresAt is! int ||
-        cidNumber is! String ||
-        cidNumber.isEmpty ||
-        bindingRevision is! int ||
-        bindingRevision <= 0 ||
-        cidNumber != challengeCidNumber ||
-        bindingRevision != challengeBindingRevision) {
-      throw const SquareApiException('广场登录态响应不完整');
+    await _requireAuthenticationCurrent(identity, authentication, generation);
+    const fields = {
+      'ok',
+      'session_token',
+      'cid_number',
+      'device_id',
+      'binding_revision',
+      'account_id',
+      'expires_at',
+    };
+    final token = response['session_token'];
+    final expiry = response['expires_at'];
+    if (response.length != fields.length ||
+        !response.keys.every(fields.contains) ||
+        response['ok'] != true ||
+        token is! String ||
+        token.isEmpty ||
+        expiry is! int ||
+        expiry <= DateTime.now().millisecondsSinceEpoch ||
+        expiry > sdk.MlsAuthenticationRequest.maxJsonInteger ||
+        response['cid_number'] != identity.cidNumber ||
+        response['device_id'] != identity.deviceId ||
+        response['account_id'] != identity.accountId ||
+        response['binding_revision'] != identity.bindingRevision) {
+      throw const MlsAuthenticationException('MLS会话响应与当前身份不一致');
     }
-
     final next = SquareSession(
       sessionToken: token,
-      cidNumber: cidNumber,
-      bindingRevision: bindingRevision,
-      accountId: accountId,
-      expiresAt: expiresAt,
-      signRequest: (message) => signLoginPayload(loginContext, message),
+      cidNumber: identity.cidNumber,
+      deviceId: identity.deviceId,
+      bindingRevision: identity.bindingRevision,
+      accountId: identity.accountId,
+      expiresAt: expiry,
+      requireCurrent: () =>
+          _requireAuthenticationCurrent(identity, authentication, generation),
+      authenticateRequest:
+          ({
+            required method,
+            required uri,
+            required body,
+            required sessionToken,
+          }) {
+            if (sessionToken != token) {
+              throw const MlsAuthenticationException('请求会话与认证设备不一致');
+            }
+            return _authenticationHeaders(
+              identity: identity,
+              authentication: authentication,
+              generation: generation,
+              purpose: 'request',
+              method: method,
+              uri: uri,
+              body: body,
+              sessionToken: token,
+            );
+          },
     );
-    final finalizedBinding = _finalizedSessionBinding;
-    if (finalizedBinding != null && !finalizedBinding.matches(next)) {
-      throw const SquareApiException('CID 当前绑定已切换，请重新登录');
+    if (_finalizedSessionBinding != null &&
+        !_finalizedSessionBinding!.matches(next)) {
+      throw const MlsAuthenticationException(
+        '当前CID绑定已切换',
+        code: 'identityChanged',
+      );
     }
-    _sessions[accountId] = next;
+    _sessions[identity.accountId] = next;
     return next;
   }
 
   /// 清除某账户的本地会话缓存（注销后调用，配合 Worker 端会话失效实现零残留）。
   void clearSession(String accountId) {
     _sessions.remove(accountId);
+    _sessionGenerations[accountId] = (_sessionGenerations[accountId] ?? 0) + 1;
+    _inflightSessions.clear();
   }
 
   Future<void> deleteAccount({
@@ -839,62 +910,49 @@ class SquareApiClient
     }, session: session);
   }
 
-  /// 注册 P-256 设备子钥：绑定证明由 sr25519 主钥对
-  /// [buildDeviceBindingSigningMessage]（op_tag 摘要）签名，后端验签后落库。
-  /// 此后登录挑战改由子钥静默签名。
-  Future<void> registerDeviceSubkey({
-    required String accountId,
-    required String p256PublicKeyHex,
+  /// 钱包授权已持久保存；每次登记提交仍使用同一MLS身份的新鲜挑战。
+  Future<void> registerMlsDevice({
+    required MlsAuthenticationIdentity identity,
+    required MlsAuthenticationSource authentication,
     required int issuedAt,
     required String bindingSignatureHex,
-    String? turnstileToken,
-    String? recoveryChallengeId,
-    String? recoverySignatureHex,
+    required String? turnstileToken,
   }) async {
-    await _postJson('/square/auth/device/register', {
-      'account_id': accountId,
-      'p256_public_key': p256PublicKeyHex,
+    final generation = _sessionGenerations.putIfAbsent(
+      identity.accountId,
+      () => 0,
+    );
+    final body = jsonEncode({
+      'account_id': identity.accountId,
+      'public_key': identity.publicKey,
       'issued_at': issuedAt,
       'binding_signature': bindingSignatureHex,
-      'turnstile_token': ?turnstileToken,
-      'recovery_challenge_id': ?recoveryChallengeId,
-      'recovery_signature': ?recoverySignatureHex,
+      'turnstile_token': turnstileToken,
     });
-  }
-
-  /// 登记恢复使用独立挑战；硬件P-256静默签名，不重新打开钱包金库。
-  Future<({String challengeId, Uint8List message})>
-  deviceRegistrationChallenge({
-    required String accountId,
-    required String cidNumber,
-    required int bindingRevision,
-  }) async {
-    final challenge = await _postJson('/square/auth/challenge', {
-      'account_id': accountId,
-      'device_registration': true,
-    });
-    final id = challenge['challenge_id'];
-    final payload = challenge['signing_payload_hex'];
-    if (id is! String ||
-        !id.startsWith('sqdr_') ||
-        payload is! String ||
-        challenge['account_id'] != accountId ||
-        challenge['cid_number'] != cidNumber ||
-        challenge['binding_revision'] != bindingRevision) {
-      throw const SquareApiException(
-        '设备恢复挑战与当前绑定不一致',
-        errorCode: 'invalid_device_recovery',
-      );
-    }
-    return (
-      challengeId: id,
-      message: await CitizenSigning.encodePayload(
-        CitizenSigningPayload.message(
-          opTag: kOpSignSquareLogin,
-          scalePayload: hexToBytes(payload),
-        ),
-      ),
+    final headers = await _authenticationHeaders(
+      identity: identity,
+      authentication: authentication,
+      generation: generation,
+      purpose: 'registration',
+      method: 'POST',
+      uri: _uri('/square/auth/device/register'),
+      body: utf8.encode(body),
     );
+    final response = await _postAuthentication(
+      '/square/auth/device/register',
+      body,
+      proofHeaders: headers,
+    );
+    await _requireAuthenticationCurrent(identity, authentication, generation);
+    const fields = {'ok', 'cid_number', 'binding_revision', 'device_id'};
+    if (response.length != fields.length ||
+        !response.keys.every(fields.contains) ||
+        response['ok'] != true ||
+        response['cid_number'] != identity.cidNumber ||
+        response['device_id'] != identity.deviceId ||
+        response['binding_revision'] != identity.bindingRevision) {
+      throw const MlsAuthenticationException('MLS登记回执与当前身份不一致');
+    }
   }
 
   /// 读取 CitizenServe 的平台会员快照。该方法只解析响应，不修改页面或聊天全局状态；
@@ -911,7 +969,8 @@ class SquareApiClient
     required String deviceId,
   }) async {
     final normalizedDeviceId = deviceId.trim();
-    if (normalizedDeviceId.isEmpty ||
+    if (normalizedDeviceId != session.deviceId ||
+        normalizedDeviceId.isEmpty ||
         normalizedDeviceId.length > 256 ||
         normalizedDeviceId.contains(':') ||
         normalizedDeviceId.codeUnits.any((value) => value < 32)) {
@@ -1019,69 +1078,11 @@ class SquareApiClient
     return _parseMembershipState(data);
   }
 
-  /// 分页拉取当前 session 所属永久 CID 的通讯录密文。
-  Future<({List<SquareEncryptedContact> items, String? nextCursor})>
-  fetchEncryptedContacts({
+  /// 同 CID 的真实 MLS 传递；请求内没有属主、联系人或钱包数据密钥。
+  Future<Map<String, dynamic>> exchangeContactMls({
     required SquareSession session,
-    String? cursor,
-    int limit = 100,
-  }) async {
-    final query = <String>['limit=$limit'];
-    if (cursor != null && cursor.isNotEmpty) {
-      query.add('cursor=${Uri.encodeQueryComponent(cursor)}');
-    }
-    final data = await _getJson(
-      '/square/contacts?${query.join('&')}',
-      session: session,
-    );
-    final rawItems = data['items'];
-    if (rawItems is! List) {
-      throw const SquareApiException('通讯录响应缺少密文列表');
-    }
-    final next = data['next_cursor']?.toString().trim();
-    return (
-      items: rawItems
-          .whereType<Map<String, dynamic>>()
-          .map(SquareEncryptedContact.fromJson)
-          .toList(growable: false),
-      nextCursor: next == null || next.isEmpty ? null : next,
-    );
-  }
-
-  /// 幂等写入一条通讯录密文；属主 CID 只能由 Worker 从 session 派生。
-  Future<void> putEncryptedContact({
-    required SquareSession session,
-    required SquareEncryptedContact contact,
-  }) async {
-    await _putJson(
-      '/square/contacts/${Uri.encodeComponent(contact.contactId)}',
-      <String, Object?>{
-        'binding_revision': contact.bindingRevision,
-        'account_id': contact.accountId,
-        'ciphertext': contact.ciphertext,
-        'nonce': contact.nonce,
-        'mac': contact.mac,
-        'updated_at': contact.updatedAt,
-      },
-      session: session,
-    );
-  }
-
-  /// 删除当前 session 所属永久 CID 的一条通讯录密文。
-  Future<void> deleteEncryptedContact({
-    required SquareSession session,
-    required String contactId,
-    int? bindingRevision,
-    String? accountId,
-  }) async {
-    final revision = bindingRevision ?? session.bindingRevision;
-    final bindingAccountId = accountId ?? session.accountId;
-    await _deleteJson(
-      '/square/contacts/${Uri.encodeComponent(contactId)}'
-      '?binding_revision=$revision&account_id=${Uri.encodeQueryComponent(bindingAccountId)}',
-      session: session,
-    );
-  }
+    required Map<String, Object?> request,
+  }) => _postJson('/square/contacts/mls', request, session: session);
 
   Future<SquarePreparedUpload> prepareUpload({
     required SquareSession session,
@@ -1208,7 +1209,7 @@ class SquareApiClient
 
   /// 拉取本人已发布内容的规范 manifest 原始字节。
   ///
-  /// 请求沿用 [_getJson] 的 Bearer + P-256 设备证明；响应逐字段严格解析，任何一项
+  /// 请求沿用 [_getJson] 的 Bearer + MLS设备证明；响应逐字段严格解析，任何一项
   /// 缺失、类型漂移或 CID 越界都会拒绝整页，不把部分结果交给本地仓库。
   Future<SquareLocalPostPage> fetchSelfPublishedPostCopies({
     required SquareSession session,
@@ -1525,10 +1526,11 @@ class SquareApiClient
     if (session == null || uri.origin != baseUri.origin) {
       throw const SquareApiException('资源上传地址必须是当前 Worker 且携带钱包会话');
     }
-    final signer = session.signRequest;
+    final signer = session.authenticateRequest;
     if (signer == null) {
-      throw const SquareApiException('设备请求签名器缺失，请重新登录');
+      throw const SquareApiException('MLS请求认证未接入，请重新登录');
     }
+    await session.validateCurrent();
     final body = Uint8List.fromList(bytes);
     final headers = <String, String>{
       'content-type': contentType,
@@ -1538,12 +1540,13 @@ class SquareApiClient
         uri: uri,
         body: body,
         sessionToken: session.sessionToken,
-        sign: signer,
+        authenticate: signer,
       ),
     };
     final response = await _http
         .put(uri, headers: headers, body: body)
         .timeout(const Duration(seconds: 60));
+    await session.validateCurrent();
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw SquareApiException(
         '资源上传失败：${response.statusCode}',
@@ -1674,6 +1677,7 @@ class SquareApiClient
     final response = await _http
         .get(uri, headers: await _headers('GET', uri, '', session))
         .timeout(const Duration(seconds: 20));
+    await session?.validateCurrent();
     return _decodeResponse(response);
   }
 
@@ -1684,6 +1688,7 @@ class SquareApiClient
     bool finalizedMirror = false,
   }) async {
     final encoded = jsonEncode(body);
+    await session?.validateCurrent();
     final uri = _uri(path);
     final response = await _http
         .post(
@@ -1694,6 +1699,7 @@ class SquareApiClient
           body: encoded,
         )
         .timeout(const Duration(seconds: 20));
+    await session?.validateCurrent();
     return _decodeResponse(response);
   }
 
@@ -1722,6 +1728,7 @@ class SquareApiClient
           body: encoded,
         )
         .timeout(const Duration(seconds: 20));
+    await session?.validateCurrent();
     return _decodeResponse(response);
   }
 
@@ -1733,6 +1740,7 @@ class SquareApiClient
     final response = await _http
         .delete(uri, headers: await _headers('DELETE', uri, '', session))
         .timeout(const Duration(seconds: 20));
+    await session?.validateCurrent();
     return _decodeResponse(response);
   }
 
@@ -1748,10 +1756,11 @@ class SquareApiClient
       'content-type': 'application/json; charset=utf-8',
     };
     if (session == null) return headers;
+    await session.validateCurrent();
     headers['authorization'] = 'Bearer ${session.sessionToken}';
-    final signer = session.signRequest;
+    final signer = session.authenticateRequest;
     if (signer == null) {
-      throw const SquareApiException('设备请求签名器缺失，请重新登录');
+      throw const SquareApiException('MLS请求认证未接入，请重新登录');
     }
     headers.addAll(
       await squareRequestHeaders(
@@ -1759,7 +1768,7 @@ class SquareApiClient
         uri: uri,
         body: body,
         sessionToken: session.sessionToken,
-        sign: signer,
+        authenticate: signer,
       ),
     );
     return headers;
@@ -2126,5 +2135,10 @@ class SquareApiClient
     );
   }
 
-  void close() => _http.close();
+  void close() {
+    _closed = true;
+    _sessions.clear();
+    _inflightSessions.clear();
+    _http.close();
+  }
 }

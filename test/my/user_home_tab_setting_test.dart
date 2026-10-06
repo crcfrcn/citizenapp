@@ -1,8 +1,9 @@
+import 'dart:io';
+import 'package:citizenapp/security/system_protected_storage.dart';
 import 'package:citizenapp/isar/user_isar.dart';
 import 'package:citizenapp/my/user/user.dart';
 import 'package:citizenapp/ui/app_layout.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/isar_test_env.dart';
@@ -11,35 +12,41 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   useIsolatedIsar();
 
-  const secureStorageChannel =
-      MethodChannel('plugins.it_nomads.com/flutter_secure_storage');
-
-  setUp(() {
+  late Directory records;
+  setUp(() async {
+    final temporary = await Directory.systemTemp.createTemp(
+      'home_setting_records_',
+    );
+    records = Directory(await temporary.resolveSymbolicLinks());
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(secureStorageChannel, (call) async {
-      switch (call.method) {
-        case 'read':
+        .setMockMethodCallHandler(SystemProtectedStorage.channel, (call) async {
+          if (call.method == 'prepareRecords') return records.path;
+          if (call.method == 'compareRecords') {
+            final args = (call.arguments as Map).cast<String, dynamic>();
+            final file = File('${records.path}/${args['name'] as String}');
+            final current = await file.exists()
+                ? await file.readAsString()
+                : null;
+            if (current != args['expected']) return false;
+            await file.writeAsString(args['next'] as String, flush: true);
+            return true;
+          }
           return null;
-        case 'containsKey':
-          return false;
-        case 'readAll':
-          return <String, String>{};
-        default:
-          return null;
-      }
-    });
+        });
   });
-
-  tearDown(() {
+  tearDown(() async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(secureStorageChannel, null);
+        .setMockMethodCallHandler(SystemProtectedStorage.channel, null);
+    await records.delete(recursive: true);
   });
 
   Future<void> pumpUntilSettingVisible(WidgetTester tester) async {
-    for (var i = 0;
-        i < 40 &&
-            !tester.any(find.byKey(const ValueKey('home-tab-setting-switch')));
-        i++) {
+    for (
+      var i = 0;
+      i < 40 &&
+          !tester.any(find.byKey(const ValueKey('home-tab-setting-switch')));
+      i++
+    ) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 10)),
       );
@@ -71,15 +78,23 @@ void main() {
     final switchFinder = find.byKey(const ValueKey('home-tab-setting-switch'));
     expect(homeSetting, findsOneWidget);
     expect(
-        find.byKey(const ValueKey('home-tab-setting-value')), findsOneWidget);
+      find.byKey(const ValueKey('home-tab-setting-value')),
+      findsOneWidget,
+    );
     expect(find.text('广场'), findsOneWidget);
     expect(tester.widget<Switch>(switchFinder).value, isFalse);
-    expect(tester.getCenter(homeSetting).dy,
-        closeTo(tester.getCenter(switchFinder).dy, 1));
-    expect(tester.getTopLeft(homeSetting).dy,
-        greaterThan(tester.getTopLeft(find.text('安全')).dy));
-    expect(tester.getTopLeft(homeSetting).dy,
-        lessThan(tester.getTopLeft(find.text('关于')).dy));
+    expect(
+      tester.getCenter(homeSetting).dy,
+      closeTo(tester.getCenter(switchFinder).dy, 1),
+    );
+    expect(
+      tester.getTopLeft(homeSetting).dy,
+      greaterThan(tester.getTopLeft(find.text('安全')).dy),
+    );
+    expect(
+      tester.getTopLeft(homeSetting).dy,
+      lessThan(tester.getTopLeft(find.text('关于')).dy),
+    );
     // 首页设置与“我的”主页的“设置”入口共享唯一行高令牌，任何屏幕倍率都不得分叉。
     final tileContext = tester.element(tileFinder);
     expect(

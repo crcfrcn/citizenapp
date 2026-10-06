@@ -1,3 +1,4 @@
+import './mls_authentication_fixture.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:citizenapp/8964/services/square_api_client.dart';
@@ -13,6 +14,7 @@ const _accountId =
     '0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d';
 
 SquareSession _session() => const SquareSession(
+  deviceId: testMlsDeviceId,
   sessionToken: 'session',
   cidNumber: _cidNumber,
   bindingRevision: 1,

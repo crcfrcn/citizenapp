@@ -1,14 +1,14 @@
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'package:citizenapp/security/account_security_service.dart';
-import 'package:citizenapp/security/local_data_key.dart';
+import 'package:citizenapp/security/identity_binding.dart';
 
 /// 普通业务的当前用户快照；账户直接使用 CitizenSDK 公开模型。
 final class CurrentUser {
   const CurrentUser({required this.account, required this.binding});
 
   final CitizenWalletStateAccount account;
-  final AccountDataBinding? binding;
+  final IdentityBinding? binding;
 
   String get accountId => account.accountId;
   String get ss58Address => account.ss58Address;
@@ -17,7 +17,7 @@ final class CurrentUser {
   bool get isRegistered => binding != null;
 }
 
-typedef CurrentUserBindingReader = Future<AccountDataBinding?> Function(
+typedef CurrentUserBindingReader = Future<IdentityBinding?> Function(
   String accountId,
 );
 
@@ -60,14 +60,14 @@ interface class CurrentUserContext {
 
   Future<String?> accountId() async => (await resolve())?.accountId;
 
-  Future<AccountDataBinding?> binding() async => (await resolve())?.binding;
+  Future<IdentityBinding?> binding() async => (await resolve())?.binding;
 
   Future<CurrentUser?> _resolveFresh(int revision, int generation) async {
     final account = (await _wallet.getState().result).defaultAccount;
     if (account == null) return null;
     final binding =
         await (_bindingReader?.call(account.accountId) ??
-            _accountSecurity.readAccountDataBindingForAccountId(
+            _accountSecurity.readIdentityBindingForAccountId(
               account.accountId,
             ));
     final current = CurrentUser(account: account, binding: binding);

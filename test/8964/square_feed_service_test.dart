@@ -1,3 +1,4 @@
+import './mls_authentication_fixture.dart';
 import '../support/fake_citizen_sdk.dart';
 import 'dart:convert';
 import 'dart:io';
@@ -12,15 +13,16 @@ import 'package:citizenapp/8964/services/square_api_client.dart';
 
 // 发布会员体系后，`SquareApiClient._headers` 对带 session 的请求强制要求设备请求签名器，
 // 缺失即抛「设备请求签名器缺失」。测试用固定假签名占位；MockClient 不校验签名头。
-SquareSession _session() => SquareSession(
-      sessionToken: 'sqs_test',
-      cidNumber: "CN220-CTZN2-198805200-2026",
-      bindingRevision: 1,
-      accountId:
-          '0x8888888888888888888888888888888888888888888888888888888888888888',
-      expiresAt: 1800000000000,
-      signRequest: (_) async => 'test-device-signature',
-    );
+SquareSession _session() => const SquareSession(
+  deviceId: testMlsDeviceId,
+  sessionToken: 'sqs_test',
+  cidNumber: "CN220-CTZN2-198805200-2026",
+  bindingRevision: 1,
+  accountId:
+      '0x8888888888888888888888888888888888888888888888888888888888888888',
+  expiresAt: 1800000000000,
+  authenticateRequest: fakeMlsRequestHeaders,
+);
 
 void main() {
   TestCitizenSdkHarness();
@@ -81,14 +83,20 @@ void main() {
     expect(posts.first.author.cidNumber, 'CN001-CTZN-000000001-2026');
     // 真数据：作者展示名与头像键随 feed 回传并解析。
     expect(posts.first.author.displayName, '林正华');
-    expect(posts.first.author.avatarObjectKey,
-        'profile/1111111111111111111111111111111111111111111111111111111111111111/avatar');
+    expect(
+      posts.first.author.avatarObjectKey,
+      'profile/1111111111111111111111111111111111111111111111111111111111111111/avatar',
+    );
     expect(posts.first.chainBlock, 88);
     expect(posts.first.mediaItems.single.mediaKind, SquareMediaKind.image);
-    expect(posts.first.mediaItems.single.url,
-        'https://media.crcfrcn.com/square/cid/posts/sqp_001/media/0/source.webp');
-    expect(posts.first.mediaItems.single.coverUrl,
-        'https://media.crcfrcn.com/square/cid/posts/sqp_001/media/0/thumbnail.webp');
+    expect(
+      posts.first.mediaItems.single.url,
+      'https://media.crcfrcn.com/square/cid/posts/sqp_001/media/0/source.webp',
+    );
+    expect(
+      posts.first.mediaItems.single.coverUrl,
+      'https://media.crcfrcn.com/square/cid/posts/sqp_001/media/0/thumbnail.webp',
+    );
     expect(posts.first.mediaItems.single.byteSize, 1024);
     // 横竖屏所需宽高解析：高>宽 → 竖屏。
     expect(posts.first.mediaItems.single.isPortrait, isTrue);
@@ -128,9 +136,9 @@ void main() {
                 {
                   'text_delta': [
                     {'insert': 'R2 规范全文满足十个字'},
-                    {'insert': '\n'}
-                  ]
-                }
+                    {'insert': '\n'},
+                  ],
+                },
               ],
               'content_hash': List<String>.filled(64, '1').join(),
               'storage_receipt_id': 'sqr_detail',
@@ -143,7 +151,7 @@ void main() {
                   'url': 'https://media.test/cover.jpg',
                   'width': 1920,
                   'height': 1080,
-                }
+                },
               ],
             },
           }),
@@ -166,27 +174,29 @@ void main() {
   test('SquareApiClient 拒绝缺少必填首图的文章 Feed', () async {
     final client = SquareApiClient(
       baseUrl: 'https://square.test',
-      httpClient: MockClient((_) async => http.Response(
-            jsonEncode({
-              'ok': true,
-              'feed_kind': 'recommended',
-              'posts': [
-                {
-                  'post_id': 'article_without_cover',
-                  'account_id':
-                      '0x0101010101010101010101010101010101010101010101010101010101010101',
-                  'post_category': 'normal',
-                  'post_type': 'article',
-                  'title': '缺少首图的非法文章',
-                  'excerpt': '这条数据不得作为正常文章进入动态流',
-                  'created_at': 1800000000000,
-                  'media_items': <Object>[],
-                }
-              ],
-            }),
-            200,
-            headers: {'content-type': 'application/json'},
-          )),
+      httpClient: MockClient(
+        (_) async => http.Response(
+          jsonEncode({
+            'ok': true,
+            'feed_kind': 'recommended',
+            'posts': [
+              {
+                'post_id': 'article_without_cover',
+                'account_id':
+                    '0x0101010101010101010101010101010101010101010101010101010101010101',
+                'post_category': 'normal',
+                'post_type': 'article',
+                'title': '缺少首图的非法文章',
+                'excerpt': '这条数据不得作为正常文章进入动态流',
+                'created_at': 1800000000000,
+                'media_items': <Object>[],
+              },
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        ),
+      ),
     );
 
     await expectLater(
@@ -215,7 +225,10 @@ void main() {
       throwsUnsupportedError,
     );
     for (final scheme in ['http', 'ws']) {
-      expect(() => SquareApiConfig.normalizeBaseUrl('$scheme://localhost:8787'), throwsUnsupportedError);
+      expect(
+        () => SquareApiConfig.normalizeBaseUrl('$scheme://localhost:8787'),
+        throwsUnsupportedError,
+      );
     }
   });
 
@@ -261,7 +274,7 @@ void main() {
                   'content-type': 'image/webp',
                   'content-length': '256',
                 },
-              }
+              },
             ],
           }),
           200,
@@ -355,20 +368,19 @@ void main() {
       }),
     );
 
-    await client.deletePost(
-      session: _session(),
-      postId: 'sqp_old',
-    );
+    await client.deletePost(session: _session(), postId: 'sqp_old');
   });
 
   test('SquareApiClient 严格解析本人副本原始字节并携带设备请求证明', () async {
-    final manifestBytes = utf8.encode(jsonEncode({
-      'schema': 'citizenapp.square.post',
-      'cid_number': _session().cidNumber,
-      'post_type': 'document',
-      'text': '本人原始正文',
-      'media_items': const <Object>[],
-    }));
+    final manifestBytes = utf8.encode(
+      jsonEncode({
+        'schema': 'citizenapp.square.post',
+        'cid_number': _session().cidNumber,
+        'post_type': 'document',
+        'text': '本人原始正文',
+        'media_items': const <Object>[],
+      }),
+    );
     final contentHash = sha256.convert(manifestBytes).toString();
     final client = SquareApiClient(
       baseUrl: 'https://square.test',
@@ -377,7 +389,7 @@ void main() {
         expect(request.url.path, '/square/posts/self');
         expect(request.url.queryParameters['limit'], '5');
         expect(request.headers['authorization'], 'Bearer sqs_test');
-        expect(request.headers['x-device-signature'], isNotEmpty);
+        expect(request.headers['x-mls-proof'], isNotEmpty);
         return http.Response(
           jsonEncode({
             'ok': true,
@@ -394,7 +406,7 @@ void main() {
                 'chain_block': 88,
                 'created_at': 1800000000000,
                 'post_state': 'published',
-              }
+              },
             ],
             'next_cursor': null,
           }),
@@ -404,9 +416,7 @@ void main() {
       }),
     );
 
-    final page = await client.fetchSelfPublishedPostCopies(
-      session: _session(),
-    );
+    final page = await client.fetchSelfPublishedPostCopies(session: _session());
 
     expect(page.items.single.manifestBytes, orderedEquals(manifestBytes));
     expect(page.items.single.contentHash, contentHash);
@@ -417,29 +427,31 @@ void main() {
   test('SquareApiClient 本人副本任一条字段漂移时拒绝整页', () async {
     final client = SquareApiClient(
       baseUrl: 'https://square.test',
-      httpClient: MockClient((_) async => http.Response(
-            jsonEncode({
-              'ok': true,
-              'items': [
-                {
-                  'post_id': 'sqp_wrong',
-                  'cid_number': 'OTHER-CID',
-                  'account_id': _session().accountId,
-                  'post_category': 'normal',
-                  'post_type': 'document',
-                  'manifest_bytes_base64': 'e30=',
-                  'content_hash': '11' * 32,
-                  'storage_receipt_id': 'sqr_wrong',
-                  'chain_block': 88,
-                  'created_at': 1800000000000,
-                  'post_state': 'published',
-                }
-              ],
-              'next_cursor': null,
-            }),
-            200,
-            headers: {'content-type': 'application/json'},
-          )),
+      httpClient: MockClient(
+        (_) async => http.Response(
+          jsonEncode({
+            'ok': true,
+            'items': [
+              {
+                'post_id': 'sqp_wrong',
+                'cid_number': 'OTHER-CID',
+                'account_id': _session().accountId,
+                'post_category': 'normal',
+                'post_type': 'document',
+                'manifest_bytes_base64': 'e30=',
+                'content_hash': '11' * 32,
+                'storage_receipt_id': 'sqr_wrong',
+                'chain_block': 88,
+                'created_at': 1800000000000,
+                'post_state': 'published',
+              },
+            ],
+            'next_cursor': null,
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        ),
+      ),
     );
 
     await expectLater(

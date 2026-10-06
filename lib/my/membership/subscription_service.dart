@@ -10,7 +10,7 @@ import 'package:citizenapp/my/membership/membership_revision.dart';
 import 'package:citizenapp/my/myid/finalized_identity_resolver.dart';
 import 'package:citizenapp/qr/pages/qr_sign_session_page.dart';
 import 'package:citizenapp/my/membership/subscription_chain.dart';
-import 'package:citizenapp/security/device_subkey.dart' show hexToBytes;
+import 'package:citizenapp/security/hex_codec.dart' show hexToBytes;
 import 'package:citizenapp/isar/wallet_isar.dart';
 
 class SubscriptionException implements Exception {

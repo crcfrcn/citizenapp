@@ -24,12 +24,6 @@ class MainActivity : FlutterFragmentActivity() {
     private val securityChannelName = "citizenapp/security"
     private val updateChannelName = "citizenapp/update"
     private val permissionsChannelName = "citizenapp/permissions"
-    // P-256 设备子钥原生桥通道（后台握手静默签名）。
-    private val deviceSubkeyChannelName = "citizenapp/device_subkey"
-    private val deviceSubkey by lazy { DeviceSubkeyBridge() }
-    // Chat/MLS/附件/通讯录用途钥的静默硬件封装通道；与钱包 KEK、设备签名钥分离。
-    private val deviceDataKeyVaultChannelName = "citizenapp/device_data_key_vault"
-    private val deviceDataKeyVault by lazy { DeviceDataKeyVaultBridge() }
     private var squareMediaChannel: SquareMediaChannel? = null
     private val notificationPermissionRequestCode = 170517
     private var pendingNotificationPermissionResult: MethodChannel.Result? = null
@@ -145,121 +139,30 @@ class MainActivity : FlutterFragmentActivity() {
                 }
             }
 
-        // P-256 设备子钥原生桥。publicKey/sign/delete 全静默（无生物门禁）。
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, deviceSubkeyChannelName)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "citizenapp/system_protected_data")
             .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "publicKey" -> {
-                        val cidNumber = call.argument<String>("cidNumber")
-                        if (cidNumber == null) {
-                            result.error("badArgs", "cidNumber null", null)
-                        } else {
-                            try {
-                                result.success(deviceSubkey.publicKeyHex(cidNumber))
-                            } catch (error: Exception) {
-                                result.error("subkeyPubkeyFailed", error.message, null)
-                            }
-                        }
-                    }
-                    "sign" -> {
-                        val cidNumber = call.argument<String>("cidNumber")
-                        val payloadB64 = call.argument<String>("payload")
-                        if (cidNumber == null || payloadB64 == null) {
-                            result.error("badArgs", "cidNumber/payload null", null)
-                        } else {
-                            try {
-                                val payload = android.util.Base64.decode(
-                                    payloadB64,
-                                    android.util.Base64.NO_WRAP,
-                                )
-                                result.success(deviceSubkey.signDerHex(cidNumber, payload))
-                            } catch (error: Exception) {
-                                result.error("subkeySignFailed", error.message, null)
-                            }
-                        }
-                    }
-                    "delete" -> {
-                        val cidNumber = call.argument<String>("cidNumber")
-                        if (cidNumber == null) {
-                            result.error("badArgs", "cidNumber null", null)
-                        } else {
-                            try {
-                                deviceSubkey.delete(cidNumber)
-                                result.success(null)
-                            } catch (error: Exception) {
-                                result.error("subkeyDeleteFailed", error.message, null)
-                            }
-                        }
-                    }
-                    "contains" -> {
-                        val cidNumber = call.argument<String>("cidNumber")
-                        if (cidNumber == null) {
-                            result.error("badArgs", "cidNumber null", null)
-                        } else {
-                            try {
-                                result.success(deviceSubkey.contains(cidNumber))
-                            } catch (error: Exception) {
-                                result.error("subkeyReadbackFailed", error.message, null)
-                            }
-                        }
-                    }
-                    else -> result.notImplemented()
-                }
-            }
-
-        // 设备数据钥封装桥。seal/open/delete 全程静默，绝不触发钱包 BiometricPrompt。
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, deviceDataKeyVaultChannelName)
-            .setMethodCallHandler { call, result ->
-                val idx = call.argument<Int>("walletIndex")
-                if (idx == null) {
-                    result.error("invalidArgument", "walletIndex null", null)
-                    return@setMethodCallHandler
-                }
                 try {
-                    if (call.method == "seal" || call.method == "open") {
-                        val keyguard = getSystemService(android.app.KeyguardManager::class.java)
-                        if (keyguard.isDeviceLocked) throw DeviceDataKeyVaultFailure("deviceLocked")
-                    }
                     when (call.method) {
-                        "seal" -> {
-                            val plaintext = call.argument<String>("plaintext")
-                            val aad = call.argument<String>("aad")
-                            if (plaintext == null || aad == null) {
-                                result.error("invalidArgument", "plaintext/aad null", null)
-                            } else {
-                                val bytes = android.util.Base64.decode(plaintext, android.util.Base64.NO_WRAP)
-                                try {
-                                    result.success(deviceDataKeyVault.seal(idx, bytes,
-                                        android.util.Base64.decode(aad, android.util.Base64.NO_WRAP)))
-                                } finally { bytes.fill(0) }
+                        "prepareRecords" -> result.success(prepareProtectedRecords())
+                        "protectUserDatabase" -> {
+                            val directory = call.argument<String>("directory") ?: throw IllegalArgumentException()
+                            require(File(directory).absolutePath == filesDir.canonicalPath)
+                            protectAppDirectory(filesDir.canonicalFile)
+                            for (file in filesDir.listFiles() ?: throw IllegalStateException()) {
+                                if (file.name == "citizenapp_user.isar" || file.name.startsWith("citizenapp_user.isar.")) {
+                                    require(file.isFile && file.absolutePath == file.canonicalPath)
+                                    android.system.Os.chmod(file.path, 384)
+                                    require((android.system.Os.stat(file.path).st_mode and 511) == 384)
+                                }
                             }
-                        }
-                        "open" -> {
-                            val blob = call.argument<String>("blob")
-                            val aad = call.argument<String>("aad")
-                            if (blob == null || aad == null) {
-                                result.error("invalidArgument", "blob/aad null", null)
-                            } else {
-                                val plaintext = deviceDataKeyVault.open(
-                                    idx,
-                                    blob,
-                                    android.util.Base64.decode(aad, android.util.Base64.NO_WRAP),
-                                )
-                                try {
-                                    result.success(android.util.Base64.encodeToString(plaintext, android.util.Base64.NO_WRAP))
-                                } finally { plaintext.fill(0) }
-                            }
-                        }
-                        "delete" -> {
-                            deviceDataKeyVault.delete(idx)
                             result.success(null)
                         }
-                        "contains" -> result.success(deviceDataKeyVault.contains(idx))
+                        "compareRecords" -> { result.success(compareProtectedRecord(call)) }
+                        "eraseObsoleteDataMaterial" -> { eraseObsoleteDataMaterial(); result.success(null) }
                         else -> result.notImplemented()
                     }
-                } catch (error: Exception) {
-                    val code = DeviceDataKeyVaultBridge.failureCode(error)
-                    result.error(code, "设备用途钥操作失败", null)
+                } catch (_: Exception) {
+                    result.error("system_protection_unavailable", "系统保护存储不可用", null)
                 }
             }
 
@@ -479,4 +382,92 @@ class MainActivity : FlutterFragmentActivity() {
         if (File("/data/adb/magisk").exists()) return true
         return false
     }
+    /** 平台给出的凭据加密根是唯一允许入口；不接受外部目录或设备保护存储。 */
+    private fun protectAppDirectory(directory: File): File {
+        require(!isDeviceProtectedStorage) { "凭据加密存储不可用" }
+        if (android.os.Build.VERSION.SDK_INT >= 24) {
+            val users = getSystemService(android.os.UserManager::class.java)
+            require(users != null && users.isUserUnlocked) { "系统保护存储不可用" }
+        }
+        val support = filesDir.canonicalFile
+        require(directory.absoluteFile.path == directory.canonicalPath)
+        require(directory.canonicalPath == support.path ||
+            directory.canonicalPath.startsWith(support.path + File.separator))
+        require(directory.exists() || directory.mkdirs())
+        require(directory.isDirectory && directory.setReadable(false, false) &&
+            directory.setWritable(false, false) && directory.setExecutable(false, false))
+        require(directory.setReadable(true, true) && directory.setWritable(true, true) &&
+            directory.setExecutable(true, true))
+        require((android.system.Os.stat(directory.path).st_mode and 511) == 448)
+        return directory
+    }
+
+    private fun prepareProtectedRecords(): String {
+        val root = protectAppDirectory(File(filesDir.canonicalFile, "citizenapp_records"))
+        val names = setOf("identity.json", "lock.json", "identity.json.lock", "lock.json.lock",
+            "identity.json.part", "lock.json.part")
+        for (file in root.listFiles() ?: throw IllegalStateException("记录目录不可读")) {
+            require(file.name in names && file.isFile && file.absolutePath == file.canonicalPath)
+            require(file.setReadable(false, false) && file.setWritable(false, false) &&
+                file.setReadable(true, true) && file.setWritable(true, true))
+            require((android.system.Os.stat(file.path).st_mode and 511) == 384)
+        }
+        val descriptor = android.system.Os.open(root.path, android.system.OsConstants.O_RDONLY or android.system.OsConstants.O_DIRECTORY, 0)
+        try { android.system.Os.fsync(descriptor) } finally { android.system.Os.close(descriptor) }
+        return root.path
+    }
+
+    /** 原生比较与提交在同一文件锁内完成，拒绝其他isolate已经提交的旧快照。 */
+    private fun compareProtectedRecord(call: io.flutter.plugin.common.MethodCall): Boolean {
+        val args = call.arguments as? Map<*, *> ?: throw IllegalArgumentException("记录参数无效")
+        require(args.keys == setOf("name", "expected", "next"))
+        val name = args["name"] as? String ?: throw IllegalArgumentException("记录名称无效")
+        require(name == "identity.json" || name == "lock.json")
+        val expected = args["expected"]
+        require(expected == null || expected is String)
+        val next = args["next"] as? String ?: throw IllegalArgumentException("记录内容无效")
+        val bytes = next.toByteArray(Charsets.UTF_8)
+        require(bytes.size <= 262144)
+        val parsed = org.json.JSONObject(next)
+        for (key in parsed.keys()) require(parsed.get(key) is String)
+        val root = File(prepareProtectedRecords())
+        val target = File(root, name)
+        val part = File(root, name + ".part")
+        val lock = File(root, name + ".lock")
+        java.io.RandomAccessFile(lock, "rw").use { handle ->
+            handle.channel.lock().use {
+                require(target.absolutePath == target.canonicalPath && part.absolutePath == part.canonicalPath)
+                val current = if (target.exists()) target.readText(Charsets.UTF_8) else null
+                if (current != expected) return false
+                android.system.Os.chmod(lock.path, 384)
+                java.io.FileOutputStream(part).use { output ->
+                    android.system.Os.chmod(part.path, 384)
+                    output.write(bytes); output.fd.sync()
+                }
+                android.system.Os.rename(part.path, target.path)
+                prepareProtectedRecords()
+                check(target.readText(Charsets.UTF_8) == next)
+                return true
+            }
+        }
+    }
+
+    /** 旧材料只允许精确删除，不能生成、解封或转成新存储。 */
+    private fun eraseObsoleteDataMaterial() {
+        val keys = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        val pluginAliases = setOf(packageName + ".FlutterSecureStoragePluginKey",
+            packageName + ".FlutterSecureStoragePluginKeyOAEP")
+        for (alias in keys.aliases().toList()) {
+            if (Regex("^citizen_device_data_key_[0-9]+$").matches(alias) || alias in pluginAliases) {
+                keys.deleteEntry(alias)
+                check(!keys.containsAlias(alias)) { "旧App数据材料仍存在" }
+            }
+        }
+        for (name in listOf("FlutterSecureStorage", "FlutterSecureKeyStorage")) {
+            val preferences = getSharedPreferences(name, android.content.Context.MODE_PRIVATE)
+            check(preferences.edit().clear().commit() && preferences.all.isEmpty())
+        }
+    }
+
+
 }

@@ -24,7 +24,7 @@ import 'package:citizenapp/8964/profile/models/citizen_profile.dart';
 import 'package:citizenapp/8964/profile/services/citizen_profile_cache.dart';
 import 'package:citizenapp/8964/profile/widgets/profile_avatar.dart';
 import 'package:citizenapp/8964/services/square_api_client.dart';
-import 'package:citizenapp/security/local_data_key.dart';
+import 'package:citizenapp/security/identity_binding.dart';
 import 'package:citizenapp/ui/app_layout.dart';
 import 'package:citizenapp/ui/app_theme.dart';
 import 'package:citizenapp/ui/identity_badge.dart';
@@ -80,7 +80,7 @@ class _CachedIdentityCache implements CurrentUserContext {
       createdAtMillis: BigInt.one,
       isDefault: true,
     ),
-    binding: AccountDataBinding(
+    binding: IdentityBinding(
       genesisHash: '0x${'11' * 32}',
       cidNumber: _cidNumber,
       accountId:

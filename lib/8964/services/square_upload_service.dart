@@ -55,17 +55,20 @@ class SquarePreparedContent {
   }
 }
 
+/// 普通会话由唯一MLS会话服务提供，发布器不持有签名能力。
+typedef SquareSessionResolver = Future<SquareSession> Function(String accountId);
+
 abstract class SquareContentUploader {
   Future<SquareSession> resumeSession(
     String accountId,
-    SquareLoginSigner signer,
+    SquareSessionResolver sessionForAccount,
   );
   Future<SquarePreparedContent> preparePostContent({
     required String accountId,
     required SquarePostType postType,
     required String text,
     required List<SquareLocalMediaDraft> mediaDrafts,
-    required SquareLoginSigner signLoginPayload,
+    required SquareSessionResolver sessionForAccount,
     String? title,
     List<Map<String, Object?>>? contentSections,
     void Function(SquarePublishStage stage)? onStage,
@@ -99,8 +102,8 @@ class SquareUploadService
   @override
   Future<SquareSession> resumeSession(
     String accountId,
-    SquareLoginSigner signer,
-  ) => _api.ensureSession(accountId: accountId, signLoginPayload: signer);
+    SquareSessionResolver sessionForAccount,
+  ) => sessionForAccount(accountId);
 
   @override
   Future<void> cancelMediaProcessing() => _mediaProcessor.cancel();
@@ -111,16 +114,13 @@ class SquareUploadService
     required SquarePostType postType,
     required String text,
     required List<SquareLocalMediaDraft> mediaDrafts,
-    required SquareLoginSigner signLoginPayload,
+    required SquareSessionResolver sessionForAccount,
     String? title,
     List<Map<String, Object?>>? contentSections,
     void Function(SquarePublishStage stage)? onStage,
   }) async {
     onStage?.call(SquarePublishStage.signingIn);
-    final session = await _api.ensureSession(
-      accountId: accountId,
-      signLoginPayload: signLoginPayload,
-    );
+    final session = await sessionForAccount(accountId);
     // 发布只读取 CitizenServe 已同步的会员状态，禁止在发布路径读取链或触发状态修复。
     final membership = await _subscriptionService.authorizeMembership(
       session,

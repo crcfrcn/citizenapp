@@ -27,6 +27,30 @@ LocalTxEntity _record({String status = LocalTxStore.statusFinalized}) {
 }
 
 void main() {
+  testWidgets('u128真实费用逐分显示，最佳链与预估费用明确标注', (tester) async {
+    final pending = _record(status: LocalTxStore.statusInBlock)
+      ..source = 'local_submit'
+      ..eventIndex = null
+      ..feeFen = '10';
+    await tester.pumpWidget(
+      MaterialApp(home: LocalTxRecordDetailPage(record: pending)),
+    );
+    expect(find.text('预估手续费'), findsOneWidget);
+    expect(find.text('最佳链已打包，等待最终确认'), findsOneWidget);
+    final actual = _record()
+      ..source = 'sdk_finalized_event'
+      ..feeFen = '340282366920938463463374607431768211455';
+    await tester.pumpWidget(
+      MaterialApp(home: LocalTxRecordDetailPage(record: actual)),
+    );
+    expect(find.text('真实手续费'), findsOneWidget);
+    expect(
+      find.text('3,402,823,669,209,384,634,633,746,074,317,682,114.55 元'),
+      findsOneWidget,
+    );
+    expect(find.text('最终链已确认'), findsOneWidget);
+  });
+
   testWidgets('收到和发出记录共用条目，SDK业务事件显示中文来源', (tester) async {
     final income = _record()..source = 'sdk_finalized_event';
     final expense = _record()..amountDeltaFen = '-120';

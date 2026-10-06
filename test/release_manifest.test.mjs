@@ -25,14 +25,21 @@ const pubspec = readFileSync(new URL('../pubspec.yaml', import.meta.url), 'utf8'
 const pubLock = readFileSync(new URL('../pubspec.lock', import.meta.url), 'utf8');
 const podLock = readFileSync(new URL('../ios/Podfile.lock', import.meta.url), 'utf8');
 // 跨SDK验收读取原始声明锁定的实际Git输入，产品独立检出也能执行，不依赖邻仓布局。
-const dependencyWork = realpathSync(mkdtempSync(join(tmpdir(), 'citizenapp-release-inputs-')));
-after(() => rmSync(dependencyWork, { recursive: true, force: true }));
+// 本轮调用方可交付已验真的固定Git输入；仍由原resolver回读，不借用邻仓或改写来源。
+const suppliedDependencyWork = process.env.CITIZENAPP_TEST_WORK_DIR;
+const dependencyWork = suppliedDependencyWork
+  ? realpathSync(suppliedDependencyWork)
+  : realpathSync(mkdtempSync(join(tmpdir(), 'citizenapp-release-inputs-')));
+after(() => { if (!suppliedDependencyWork) rmSync(dependencyWork, { recursive: true, force: true }); });
 const sourceRoot = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/u, '');
 let dependencySources;
 try {
   dependencySources = JSON.parse(execFileSync(process.execPath, [viewScript, 'dependencies',
     '--source-root', sourceRoot, '--work-root', dependencyWork], { encoding: 'utf8' }));
-} catch (error) { rmSync(dependencyWork, { recursive: true, force: true }); throw error; }
+} catch (error) {
+  if (!suppliedDependencyWork) rmSync(dependencyWork, { recursive: true, force: true });
+  throw error;
+}
 const tataChatRoot = pathToFileURL(dependencySources.tatachat_sdk.root + '/');
 const tataChatPubspec = readFileSync(new URL('pubspec.yaml', tataChatRoot), 'utf8');
 const tataChatPubLock = readFileSync(new URL('pubspec.lock', tataChatRoot), 'utf8');
@@ -249,7 +256,7 @@ test('CitizenApp iOS不依赖Gradle且Android拒绝缺失或链接执行器', ()
     const linked = join(work, 'linked-gradle');
     writeFileSync(executable, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
     symlinkSync(executable, linked);
-    const run = (platform, gradle = '') => spawnSync('/bin/bash', ['-euc', code], {
+    const run = (platform, gradle = '') => spawnSync('bash', ['-euc', code], {
       env: { ...process.env, PLATFORM: platform, CITIZENAPP_GRADLE: gradle,
         CITIZENAPP_PROJECT_ROOT: work, DEPENDENCY_WORK_DIR: work },
       encoding: 'utf8',
@@ -284,7 +291,7 @@ test('CitizenApp直接开发自建源码外视图并只投影当轮Framework', a
     // 夹具保留真正固定提交、HTTPS origin及detached源码，视图/Framework仍按真实入口执行。
     for (const name of ['citizen_sdk', 'tatachat_sdk']) {
       const provider = dependencySources[name], destination = name === 'citizen_sdk' ? sdk : chat;
-      const git = args => execFileSync('/usr/bin/git', ['-c', 'core.hooksPath=/dev/null', ...args],
+      const git = args => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args],
         { encoding: 'utf8', env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } }).trim();
       git(['-c', 'protocol.file.allow=always', 'clone', '--quiet', '--shared', '--no-checkout', '--', provider.root, destination]);
       git(['-C', destination, 'remote', 'set-url', 'origin', provider.url]);
@@ -329,8 +336,8 @@ test('CitizenApp直接开发自建源码外视图并只投影当轮Framework', a
     const chatApi = await import(pathToFileURL(join(chat, 'scripts/release.mjs')).href);
     sdkApi.assertFlutterSourceView(sdk, sdkView);
     await chatApi.assertFlutterSourceView(chat, chatView);
-    assert.equal(execFileSync('/usr/bin/git', ['-C', sdk, 'status', '--porcelain'], { encoding: 'utf8' }), '');
-    assert.equal(execFileSync('/usr/bin/git', ['-C', chat, 'status', '--porcelain'], { encoding: 'utf8' }), '');
+    assert.equal(execFileSync('git', ['-C', sdk, 'status', '--porcelain'], { encoding: 'utf8' }), '');
+    assert.equal(execFileSync('git', ['-C', chat, 'status', '--porcelain'], { encoding: 'utf8' }), '');
     const formalManifest = join(work, 'source-view', formalChatSource.replace(/^\/+/, ''),
       'pubspec.yaml');
     // 只投影已登记的固定 Git 产品输入，未知 FORMAL path 不能进入本轮视图。
@@ -456,10 +463,33 @@ test('citizenapp_qr_uses_sdk_public_contract', () => {
   assert.ok(readFileSync(join(sdk, 'lib/citizen_sdk.dart'), 'utf8').includes("export 'src/api/citizen_qr.dart';"));
   const api = readFileSync(join(sdk, 'lib/src/api/citizen_qr.dart'), 'utf8');
   assert.ok(api.includes('class CitizenQrActions'));
-  assert.ok(api.includes('parseForPurpose(String text, CitizenQrScanPurpose purpose)'));
+  // 核验公开方法及准确参数类型，允许正式Dart格式化产生换行。
+  assert.match(api, /Future<CitizenQrScanResult>\s+parseForPurpose\(\s*String text,\s*CitizenQrScanPurpose purpose,?\s*\)/u);
   const caller = readFileSync(join(sourceRoot, 'lib/qr/scan_dispatch_flow.dart'), 'utf8');
   assert.ok(caller.includes("import 'package:citizen_sdk/citizen_sdk.dart';"));
   assert.ok(caller.includes('.qr.parseForPurpose('));
   assert.ok(caller.includes('CitizenQrActions.'));
   assert.equal(caller.includes('package:citizen_sdk/src/'), false);
+});
+
+// 读取正式锁定SDK原件，保证打包不会重新引入已停用的应用密码钥实现。
+test('非钱包客户端依赖只保留MLS及系统保护存储', () => {
+  for (const source of [pubspec, tataChatPubspec]) {
+    assert.doesNotMatch(source, /^  (?:cryptography|flutter_secure_storage):/mu);
+  }
+  for (const source of [pubLock, tataChatPubLock]) {
+    assert.doesNotMatch(source, /^  flutter_secure_storage(?:_\\w+)?:/mu);
+  }
+  assert.doesNotMatch(tataChatPubLock, /^  cryptography:/mu);
+  // 钱包上游仍使用锁定密码学闭包；取消App直接声明不能删除这条依赖。
+  assert.match(pubLock, /^  cryptography:\n    dependency: transitive\n/mu);
+  assert.doesNotMatch(podLock, /flutter_secure_storage/u);
+  for (const path of ['lib/src/storage/chat_crypto.dart']) {
+    assert.equal(existsSync(new URL(path, tataChatRoot)), false, path);
+  }
+  const attachment = readFileSync(new URL('lib/src/mls/mls_attachment.dart', tataChatRoot), 'utf8');
+  const media = readFileSync(new URL('lib/src/protocol/media_content.proto', tataChatRoot), 'utf8');
+  assert.match(attachment, /groupCreateMessage/u);
+  assert.match(media, /attachment_welcome/u);
+  assert.doesNotMatch(media, /cipher_key/u);
 });

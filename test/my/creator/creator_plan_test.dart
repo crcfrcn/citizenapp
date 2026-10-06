@@ -36,7 +36,7 @@ class _FailingCreatorService implements CreatorService {
   @override
   Future<CreatorPageData> load({String? expectedCidNumber}) async {
     loadCalls++;
-    throw Exception('设备子钥签名校验失败');
+    throw Exception('MLS设备认证校验失败');
   }
 
   @override
@@ -235,12 +235,12 @@ void main() {
     expect(find.text('重试'), findsNothing);
     expect(find.text('已开通'), findsOneWidget);
     expect(find.textContaining('同步'), findsNothing);
-    expect(find.textContaining('设备子钥签名校验失败'), findsNothing);
+    expect(find.textContaining('MLS设备认证校验失败'), findsNothing);
     await tester.tap(find.byTooltip('刷新'));
     await tester.pumpAndSettle();
     expect(service.loadCalls, 1);
     expect(find.text('已开通'), findsOneWidget);
-    expect(find.textContaining('设备子钥签名校验失败'), findsOneWidget);
+    expect(find.textContaining('MLS设备认证校验失败'), findsOneWidget);
   });
 
   testWidgets('过期本地快照仍显示真实档位且不自动联网', (tester) async {

@@ -7,7 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:provider/provider.dart';
-import 'package:tatachat_sdk/tatachat_sdk.dart' as sdk;
+import 'package:tatachat_sdk/tatachat_sdk.dart' as chat;
 import 'package:citizenapp/8964/square_tab_page.dart';
 import 'package:citizenapp/citizen/citizen_tab_page.dart';
 import 'package:citizenapp/chat/chat_product_configuration.dart';
@@ -16,7 +16,7 @@ import 'package:citizenapp/chat/chat_entry.dart';
 import 'package:citizenapp/security/app_lock_service.dart';
 import 'package:citizenapp/security/emergency_wipe_platform.dart';
 import 'package:citizenapp/security/pin_input_page.dart';
-import 'package:citizenapp/security/secure_storage.dart';
+import 'package:citizenapp/security/system_protected_storage.dart';
 import 'package:citizenapp/transaction/transaction_tab_page.dart';
 import 'package:citizenapp/transaction/history/wallet_transaction_history_service.dart';
 import 'package:citizenapp/my/util/screenshot_guard.dart';
@@ -28,15 +28,15 @@ import 'package:citizenapp/isar/user_isar.dart';
 import 'package:citizenapp/security/app_permission_gate.dart';
 import 'package:citizenapp/update/app_update.dart';
 import 'package:citizenapp/update/update_badge.dart';
-import 'package:citizenapp/8964/services/device_subkey_registrar.dart';
+import 'package:citizenapp/8964/services/mls_device_registrar.dart';
+import 'package:citizenapp/security/mls_authentication.dart';
 import 'package:citizenapp/8964/services/square_api_client.dart';
 import 'package:citizenapp/8964/profile/services/square_session_provider.dart';
 import 'package:citizenapp/notifications/app_push_service.dart';
 import 'package:citizenapp/notifications/app_push_token.dart';
 import 'package:citizenapp/8964/pages/square_turnstile_page.dart';
 import 'package:citizenapp/qr/pages/qr_sign_session_page.dart';
-import 'package:citizenapp/security/local_data_key.dart';
-import 'package:citizenapp/security/account_data_key_provision.dart';
+import 'package:citizenapp/security/identity_binding.dart';
 import 'package:citizenapp/security/account_security_service.dart';
 import 'package:citizenapp/wallet/wallet_gate.dart';
 
@@ -48,11 +48,36 @@ final appNavigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // 只删除App明确拥有的旧非钱包材料，删除失败终止启动。
+  await SystemProtectedStorage.eraseObsoleteDataMaterial();
 
   // CitizenApp 只打开一个完整 CitizenSDK session。钱包、签名、QR_V1、
   // 轻节点、交易与 execution history 共用同一个 Engine generation。
   final citizenSdk = await CitizenSdk.open(modules: CitizenSdkModules.full);
-  final registrar = DeviceSubkeyRegistrar(
+  late final CurrentUserContext currentUserContext;
+  late final chat.ChatSdk Function() readChatRuntime;
+  final authentication = MlsAuthentication(
+    runtime: () => readChatRuntime(),
+    currentBinding: () async {
+      final current = await currentUserContext.resolve();
+      final binding = current?.binding;
+      if (current == null ||
+          binding == null ||
+          binding.accountId != current.accountId) {
+        throw const MlsAuthenticationException(
+          '当前身份尚未验证',
+          code: 'identityUnavailable',
+        );
+      }
+      return (
+        cidNumber: binding.cidNumber,
+        accountId: binding.accountId,
+        bindingRevision: binding.bindingRevision,
+      );
+    },
+  );
+  final registrar = MlsDeviceRegistrar(
+    authentication: authentication,
     turnstileToken: () => acquireDeviceBindingTurnstileToken(
       isUiReady: () => appNavigatorKey.currentState != null,
       present: () {
@@ -67,31 +92,25 @@ Future<void> main() async {
   final accountSecurity = AccountSecurityService(
     wallet: citizenSdk.wallet,
     signing: citizenSdk.signing,
-    subkeyRegistrar: registrar.register,
-    coldDeviceBindingSigner:
+    mlsDeviceRegistrar: registrar.register,
+    coldMlsDeviceBindingSigner:
         ({
           required binding,
           required payload,
           required signingMessage,
-          required devicePublicKey,
+          required publicKey,
           required issuedAtMillis,
-        }) => _signColdDeviceBinding(
+        }) => _signColdMlsDeviceBinding(
           wallet: citizenSdk.wallet,
           signing: citizenSdk.signing,
           binding: binding,
           payload: payload,
           signingMessage: signingMessage,
-          devicePublicKey: devicePublicKey,
+          publicKey: publicKey,
           issuedAtMillis: issuedAtMillis,
         ),
-    coldAccountDataKeyProvider: ({required binding, required requests}) =>
-        _provideColdAccountDataKeys(
-          wallet: citizenSdk.wallet,
-          binding: binding,
-          requests: requests,
-        ),
   );
-  final currentUserContext = CurrentUserContext(
+  currentUserContext = CurrentUserContext(
     wallet: citizenSdk.wallet,
     accountSecurity: accountSecurity,
   );
@@ -107,6 +126,7 @@ Future<void> main() async {
     accountSecurity: accountSecurity,
     currentUserContext: currentUserContext,
     client: squareApiClient,
+    authentication: authentication,
   );
 
   // 任何 ChatSdk、钱包页或 PIN 门禁构造前先处理跨重启擦除门闩。
@@ -144,6 +164,16 @@ Future<void> main() async {
     );
     return;
   }
+
+  // 普通认证和聊天惰性共用一个运行实例；擦除门闩通过前不创建MLS状态。
+  chat.ChatSdk? sharedChatRuntime;
+  readChatRuntime = () => sharedChatRuntime ??= createCitizenChatRuntime(
+    accountSecurity: accountSecurity,
+    currentUserContext: currentUserContext,
+    squareSessionProvider: squareSessionProvider,
+    appPushService: appPushService,
+    onClosing: authentication.close,
+  );
 
   // 擦除门闩通过后才启动 SDK 唯一轻节点。启动失败保留 SDK
   // startFailed 事实并继续进入 App，交易顶栏按现有不可用状态呈现；
@@ -219,6 +249,10 @@ Future<void> main() async {
       squareApiClient: squareApiClient,
       appPushService: appPushService,
       transactionHistory: transactionHistory,
+      chatRuntimeFactory: readChatRuntime,
+      closeChatRuntime: () async {
+        await sharedChatRuntime?.close();
+      },
     ),
   );
 }
@@ -352,26 +386,26 @@ class _DataWipeRecoveryPageState extends State<_DataWipeRecoveryPage> {
   }
 }
 
-/// 当前默认账户是冷账户时，用 CitizenWallet 扫码签署既有 0x1C 设备绑定摘要。
-Future<String> _signColdDeviceBinding({
+/// 当前默认账户是冷账户时，用 CitizenWallet 扫码签署同一MLS公钥的0x1C登记摘要。
+Future<String> _signColdMlsDeviceBinding({
   required CitizenSdkWallet wallet,
   required CitizenSigning signing,
-  required AccountDataBinding binding,
+  required IdentityBinding binding,
   required Uint8List payload,
   required Uint8List signingMessage,
-  required String devicePublicKey,
+  required String publicKey,
   required int issuedAtMillis,
 }) async {
   final account = (await wallet.getState().result).defaultAccount;
   if (account == null ||
       account.signMode != CitizenWalletSignMode.cold ||
       account.accountId != binding.accountId ||
-      !RegExp(r'^04[0-9a-f]{128}$').hasMatch(devicePublicKey)) {
+      !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(publicKey)) {
     throw const AccountSecurityException('当前默认账户不是该 CID 的冷钱包账户');
   }
   final context = appNavigatorKey.currentContext;
   if (context == null) {
-    throw const AccountSecurityException('当前页面无法发起冷钱包设备绑定签名');
+    throw const AccountSecurityException('当前页面无法发起冷钱包MLS登记签名');
   }
   if (!context.mounted) {
     throw const AccountSecurityException('当前页面已经关闭');
@@ -381,9 +415,9 @@ Future<String> _signColdDeviceBinding({
     context: context,
     accountId: binding.accountId,
     payload: payload,
-    action: CitizenQrActions.squareDeviceBind,
+    action: CitizenQrActions.mlsDeviceBind,
     transform: CitizenSigningTransform.blake2Domain(
-      Uint8List.fromList(<int>[...kGmbSignDomain, kOpSignSquareDeviceBind]),
+      Uint8List.fromList(<int>[...kGmbSignDomain, kOpSignMlsDeviceBind]),
     ),
   );
   final current = (await wallet.getState().result).defaultAccount;
@@ -395,76 +429,9 @@ Future<String> _signColdDeviceBinding({
         signature: signature,
         payload: signingMessage,
       )) {
-    throw const AccountSecurityException('冷钱包设备绑定签名无效');
+    throw const AccountSecurityException('冷钱包MLS登记签名无效');
   }
   return '0x${_lowerHex(signature)}';
-}
-
-/// 冷账户真实缺少用途钥时，使用一次性 X25519 会话从 CitizenWallet 加密领取。
-Future<List<Uint8List>> _provideColdAccountDataKeys({
-  required CitizenSdkWallet wallet,
-  required AccountDataBinding binding,
-  required List<({LocalKeyPurpose purpose, String? context})> requests,
-}) async {
-  final account = (await wallet.getState().result).defaultAccount;
-  if (account == null ||
-      account.signMode != CitizenWalletSignMode.cold ||
-      account.accountId != binding.accountId) {
-    throw const AccountSecurityException('当前默认账户不是该 CID 的冷钱包账户');
-  }
-  final navigator = appNavigatorKey.currentState;
-  if (navigator == null) {
-    throw const AccountSecurityException('当前页面无法发起冷钱包用途钥请求');
-  }
-  final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-  final session = await AccountDataKeyProvisionSession.create(
-    binding: binding,
-    requests: requests,
-    expiresAt: now + 120,
-  );
-  try {
-    if (!navigator.mounted) {
-      throw const AccountSecurityException('当前页面无法发起冷钱包用途钥请求');
-    }
-    final request = await navigator.context.read<CitizenSdk>().qr.encodeDocument(
-      CitizenQrContent.signRequest(
-        requestIdPrefix: 'data-key-',
-        signerAccountId: binding.accountId,
-        reviewPayload: session.payload,
-        action: CitizenQrActions.accountDataKeyProvision,
-        expiresAt: BigInt.from(session.expiresAt),
-      ),
-    );
-    if (!navigator.mounted) {
-      throw const AccountSecurityException('当前页面无法发起冷钱包用途钥请求');
-    }
-    final response = await navigator.push<CitizenQrDocument>(
-      MaterialPageRoute(
-        builder: (_) => QrSignSessionPage(
-          request: request,
-          requestJson: request.canonicalText,
-          expectedSignerPublicKey: binding.accountId,
-          responseKind: CitizenQrKind.accountDataKeyResponse,
-        ),
-      ),
-    );
-    if (response == null) {
-      throw const AccountSecurityException('冷钱包用途钥提供已取消');
-    }
-    final current = (await wallet.getState().result).defaultAccount;
-    if (current == null ||
-        current.signMode != CitizenWalletSignMode.cold ||
-        current.accountId != binding.accountId ||
-        response.requestId != request.requestId ||
-        response.expiresAt != request.expiresAt) {
-      throw const AccountSecurityException('冷钱包用途钥响应会话已失效');
-    }
-    return await session.open(response);
-  } on AccountDataKeyException catch (error) {
-    throw AccountSecurityException(error.message);
-  } finally {
-    session.dispose();
-  }
 }
 
 String _lowerHex(List<int> bytes) =>
@@ -481,6 +448,8 @@ class CitizenApp extends StatefulWidget {
     required this.squareApiClient,
     required this.appPushService,
     required this.transactionHistory,
+    required this.chatRuntimeFactory,
+    required this.closeChatRuntime,
   });
 
   final CitizenSdk sdk;
@@ -491,6 +460,8 @@ class CitizenApp extends StatefulWidget {
   final SquareApiClient squareApiClient;
   final AppPushService appPushService;
   final WalletTransactionHistoryService transactionHistory;
+  final chat.ChatSdk Function() chatRuntimeFactory;
+  final Future<void> Function() closeChatRuntime;
 
   @override
   State<CitizenApp> createState() => _CitizenAppState();
@@ -501,6 +472,9 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    widget.squareSessionProvider.installRuntimeFactory(
+      widget.chatRuntimeFactory,
+    );
   }
 
   @override
@@ -517,6 +491,8 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    widget.squareSessionProvider.closeAuthentication();
+    unawaited(widget.closeChatRuntime());
     widget.accountSecurity.dispose();
     unawaited(_closeCitizenSdk(widget.sdk, widget.transactionHistory));
     super.dispose();
@@ -540,15 +516,7 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
         Provider<WalletTransactionHistoryService>.value(
           value: widget.transactionHistory,
         ),
-        Provider<sdk.ChatSdk>(
-          create: (_) => createCitizenChatRuntime(
-            accountSecurity: widget.accountSecurity,
-            currentUserContext: widget.currentUserContext,
-            squareSessionProvider: widget.squareSessionProvider,
-            appPushService: widget.appPushService,
-          ),
-          dispose: (_, runtime) => unawaited(runtime.close()),
-        ),
+        Provider<chat.ChatSdk>(create: (_) => widget.chatRuntimeFactory()),
       ],
       child: MaterialApp(
         navigatorKey: appNavigatorKey,
@@ -625,7 +593,7 @@ class _AppLockGateState extends State<_AppLockGate>
   /// 普通 Chat artifact 在首帧后整理，不能参与全局数据擦除启动门禁。
   Future<void> _recoverChatArtifactsAndPurge() async {
     try {
-      await sdk.ChatRuntimeCore.recoverStartupArtifacts();
+      await chat.ChatRuntimeCore.recoverStartupArtifacts();
     } catch (error) {
       debugPrint('chat_startup_artifacts:recovery_failed:${error.runtimeType}');
     }
@@ -635,7 +603,7 @@ class _AppLockGateState extends State<_AppLockGate>
   /// 清空解密出来的短命 Chat 附件。失败静默，不阻断 App 启动/切换。
   Future<void> _purgePlainAttachments() async {
     try {
-      await sdk.ChatRuntimeCore.purgePlainAttachmentsWithoutAccount();
+      await chat.ChatRuntimeCore.purgePlainAttachmentsWithoutAccount();
     } catch (_) {
       // 忽略：下次启动/切后台会再清一次。
     }
@@ -682,9 +650,9 @@ class _AppLockGateState extends State<_AppLockGate>
       return;
     }
 
-    // 2. 检查设备锁（存储在 SecureStorage，防 root 篡改）
-    final deviceLockStr = await appSecureStorage.read(
-      key: 'device_lock_enabled',
+    // 2. 检查系统保护记录中的设备锁设置
+    final deviceLockStr = await SystemProtectedRecordStore.lock.read(
+      'device_lock_enabled',
     );
     final deviceLockEnabled = deviceLockStr == 'true';
     if (deviceLockEnabled) {
@@ -946,13 +914,13 @@ class AppShell extends StatefulWidget {
   /// 只允许广场(0)或聊天(2)作为普通启动首页。
   final int initialTabIndex;
 
-  /// 测试只注入构造计数；生产固定首次进入 Chat Tab 时才创建 [sdk.ChatSdk]。
+  /// 测试只注入聊天入口计数；生产读取普通认证与聊天共用的惰性实例。
   @visibleForTesting
-  final sdk.ChatSdk Function()? chatRuntimeFactory;
+  final chat.ChatSdk Function()? chatRuntimeFactory;
 
   /// 测试只替换五个主页面，避免为了验证壳层懒加载而启动真实链、网络或数据库。
   @visibleForTesting
-  final Widget Function(int tabIndex, sdk.ChatSdk? chatRuntime)? tabBuilder;
+  final Widget Function(int tabIndex, chat.ChatSdk? chatRuntime)? tabBuilder;
 
   /// 测试只注入 App 级“点击推送打开”数据；生产直接监听 Firebase。
   @visibleForTesting
@@ -984,7 +952,7 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   final AppUpdateController _updateController = AppUpdateController.instance;
   late final ValueNotifier<int> _selectedTab;
-  sdk.ChatSdk? _chatRuntime;
+  chat.ChatSdk? _chatRuntime;
   late int _currentIndex;
   int _pendingVoteCount = 0;
   int _squareNotifyCount = 0;
@@ -992,10 +960,10 @@ class _AppShellState extends State<AppShell> {
   StreamSubscription<Map<String, dynamic>>? _pushOpenSub;
   StreamSubscription<AppPushToken>? _pushTokenSub;
 
-  /// Chat 运行态只在用户首次打开聊天 Tab 时创建。广场、用户、钱包或公民页启动
-  /// 不得因为构造 ChatSdk 而进入 Chat 的文件、密钥或网络生命周期。
-  sdk.ChatSdk get _chatRuntimeForTab => _chatRuntime ??=
-      (widget.chatRuntimeFactory ?? () => context.read<sdk.ChatSdk>())();
+  /// 首次打开聊天Tab才接入聊天生命周期；普通认证可先离线使用同一MLS身份。
+  /// 读取实例不启动聊天权益请求、邮箱、WebSocket或附件生命周期。
+  chat.ChatSdk get _chatRuntimeForTab => _chatRuntime ??=
+      (widget.chatRuntimeFactory ?? () => context.read<chat.ChatSdk>())();
 
   @override
   void initState() {

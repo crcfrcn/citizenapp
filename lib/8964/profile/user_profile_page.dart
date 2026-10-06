@@ -34,7 +34,7 @@ import 'package:citizenapp/my/membership/membership_revision.dart';
 import 'package:citizenapp/my/membership/subscription_service.dart';
 import 'package:citizenapp/qr/pages/qr_sign_session_page.dart';
 import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/security/device_subkey.dart' show bytesToHex;
+import 'package:citizenapp/security/hex_codec.dart' show bytesToHex;
 
 /// 推特式用户主页。
 ///
@@ -528,7 +528,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
         cidNumber: widget.cidNumber,
         accountId: selfAccountId,
         // 账户注销签名统一交给 CitizenSDK，冷热模式不在页面分支。
-        // 设备子钥仍按 cid_number 精确删除，不进入钱包签名模式。
+        // SDK所属MLS状态按cid_number精确清理，不进入钱包签名模式。
         signAction: (message) async =>
             '0x${bytesToHex(await signCitizenPayload(signing: sdk.signing, context: context, accountId: selfAccountId, payload: message, action: CitizenQrActions.squareAccountAction))}',
       );

@@ -1,3 +1,4 @@
+import 'package:citizenapp/security/system_protected_storage.dart';
 import 'dart:async';
 
 import 'package:isar_community/isar.dart';
@@ -74,10 +75,8 @@ class UserIdentityBadgeSnapshotEntity {
   late int updatedAtMillis;
 }
 
-/// 通讯录域的加密本地状态。
-///
-/// [stateKind] 明确区分联系人表、待同步操作、同步状态、换绑清单、换绑暂存密文和不可
-/// 访问归档；本集合不能承载其它 User 数据。密文的 AAD 继续绑定完整 [stateKey]。
+/// 通讯录系统保护记录；状态种类仅为联系人、待同步操作、同步状态和合并记录。
+/// 永久属主 CID 与状态键必须一致；本集合不能承载其他 User 数据。
 @collection
 class UserContactStateEntity {
   Id id = Isar.autoIncrement;
@@ -91,7 +90,7 @@ class UserContactStateEntity {
   @Index()
   late String stateKind;
 
-  late String sealedPayload;
+  late String payloadJson;
 }
 
 /// 通用用户设置和 App 展示状态。
@@ -229,6 +228,7 @@ class UserIsar {
   Future<T> read<T>(Future<T> Function(Isar isar) action) {
     return _enqueue(() async {
       final isar = await db();
+      if (!IsarCoreBootstrap.isFlutterTest) await SystemProtectedStorage.protectUserDatabase(await IsarCoreBootstrap.resolveDirectory());
       return action(isar);
     });
   }
@@ -236,7 +236,11 @@ class UserIsar {
   Future<T> writeTxn<T>(Future<T> Function(Isar isar) action) {
     return _enqueue(() async {
       final isar = await db();
-      return isar.writeTxn<T>(() => action(isar));
+      final directory = await IsarCoreBootstrap.resolveDirectory();
+      if (!IsarCoreBootstrap.isFlutterTest) await SystemProtectedStorage.protectUserDatabase(directory);
+      final result = await isar.writeTxn<T>(() => action(isar));
+      if (!IsarCoreBootstrap.isFlutterTest) await SystemProtectedStorage.protectUserDatabase(directory);
+      return result;
     });
   }
 
@@ -342,6 +346,8 @@ class UserIsar {
   Future<Isar> _open() async {
     await IsarCoreBootstrap.ensureTestCoreInitialized();
 
+    final directory = await IsarCoreBootstrap.resolveDirectory();
+    if (!IsarCoreBootstrap.isFlutterTest) await SystemProtectedStorage.protectUserDatabase(directory);
     final existing = Isar.getInstance('citizenapp_user');
     if (existing != null && existing.isOpen) {
       try {
@@ -355,15 +361,37 @@ class UserIsar {
       } catch (error) {
         throw StateError('已打开的 UserIsar 不是当前完整 schema：$error');
       }
+      await _eraseObsoleteContacts(existing);
       return existing;
     }
 
-    return Isar.open(
+    final opened = await Isar.open(
       _schemas,
       name: 'citizenapp_user',
       relaxedDurability: false,
-      directory: await IsarCoreBootstrap.resolveDirectory(),
+      directory: directory,
     );
+    try {
+      if (!IsarCoreBootstrap.isFlutterTest) await SystemProtectedStorage.protectUserDatabase(directory);
+      await _eraseObsoleteContacts(opened);
+      return opened;
+    } catch (_) {
+      await opened.close();
+      rethrow;
+    }
+  }
+
+  /// 初次暴露库实例前精确删除废弃通讯录行；不读取内容，也不触及其他集合。
+  Future<void> _eraseObsoleteContacts(Isar isar) async {
+    await isar.writeTxn(() async {
+      await isar.userContactStateEntitys.filter().stateKeyStartsWith('user.contact.').deleteAll();
+      if (await isar.userContactStateEntitys.filter().stateKeyStartsWith('user.contact.').count() != 0) {
+        throw StateError('废弃通讯录记录仍存在');
+      }
+    });
+    if (!IsarCoreBootstrap.isFlutterTest) {
+      await SystemProtectedStorage.protectUserDatabase(await IsarCoreBootstrap.resolveDirectory());
+    }
   }
 
   Future<void> resetForTest() async {

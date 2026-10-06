@@ -6,21 +6,33 @@ import 'package:citizenapp/ui/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-const _account = '0x1111111111111111111111111111111111111111111111111111111111111111';
+const _account =
+    '0x1111111111111111111111111111111111111111111111111111111111111111';
 const _requestId = 'synthetic-request-1';
 
 /// 页面用例只控制SDK验签事实；实际密码学校验由Core及公共ABI测试覆盖。
 class _Qr extends Fake implements CitizenQr {
-  @override Future<CitizenQrImage> encode(String text, {int scale = 4}) async =>
-      CitizenQrImage(width: 29, height: 29, luminance: Uint8List(29 * 29)..fillRange(0, 29 * 29, 255));
+  @override
+  Future<CitizenQrImage> encode(String text, {int scale = 4}) async =>
+      CitizenQrImage(
+        width: 29,
+        height: 29,
+        luminance: Uint8List(29 * 29)..fillRange(0, 29 * 29, 255),
+      );
   final List<String> responses = [];
   bool reject = true;
   @override
-  Future<void> validateSignResponse({required String sessionId, required String response}) async {
+  Future<void> validateSignResponse({
+    required String sessionId,
+    required String response,
+  }) async {
     expect(sessionId, _requestId);
     responses.add(response);
     if (reject) {
-      throw const CitizenSdkException(code: CitizenSdkErrorCode.integrity, message: '合成签名无效');
+      throw const CitizenSdkException(
+        code: CitizenSdkErrorCode.integrity,
+        message: '合成签名无效',
+      );
     }
   }
 }
@@ -37,31 +49,45 @@ CitizenQrDocument _request({int? expiresAt}) => CitizenQrDocument(
 );
 
 void main() {
-  Future<void> open(WidgetTester tester, _Qr qr, {
-    int? expiresAt, required ValueChanged<String?> completed,
+  Future<void> open(
+    WidgetTester tester,
+    _Qr qr, {
+    int? expiresAt,
+    required ValueChanged<String?> completed,
     Future<String?> Function(BuildContext, CitizenQrKind)? scan,
   }) async {
-    await tester.pumpWidget(MaterialApp(
-      theme: AppTheme.lightTheme,
-      home: Builder(builder: (context) => Scaffold(
-        body: TextButton(
-          onPressed: () async {
-            final request = _request(expiresAt: expiresAt);
-            completed(await Navigator.of(context).push<String>(MaterialPageRoute(
-              builder: (_) => QrSignSessionPage(
-                request: request, requestJson: request.canonicalText,
-                expectedSignerPublicKey: _account, qr: qr,
-                scanResponse: scan ?? (_, kind) async {
-                  expect(kind, CitizenQrKind.signResponse);
-                  return 'synthetic-response';
-                },
-              ),
-            )));
-          },
-          child: const Text('打开原冷签页'),
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () async {
+                final request = _request(expiresAt: expiresAt);
+                completed(
+                  await Navigator.of(context).push<String>(
+                    MaterialPageRoute(
+                      builder: (_) => QrSignSessionPage(
+                        request: request,
+                        requestJson: request.canonicalText,
+                        qr: qr,
+                        scanResponse:
+                            scan ??
+                            (_, kind) async {
+                              expect(kind, CitizenQrKind.signResponse);
+                              return 'synthetic-response';
+                            },
+                      ),
+                    ),
+                  ),
+                );
+              },
+              child: const Text('打开原冷签页'),
+            ),
+          ),
         ),
-      )),
-    ));
+      ),
+    );
     await tester.tap(find.text('打开原冷签页'));
     await tester.pumpAndSettle();
   }
@@ -113,7 +139,12 @@ void main() {
   testWidgets('扫码路由取消后留在原请求页', (tester) async {
     final qr = _Qr();
     var completed = false;
-    await open(tester, qr, completed: (_) => completed = true, scan: (_, _) async => null);
+    await open(
+      tester,
+      qr,
+      completed: (_) => completed = true,
+      scan: (_, _) async => null,
+    );
     await tester.tap(find.text('扫描响应'));
     await tester.pumpAndSettle();
     expect(completed, isFalse);
@@ -128,7 +159,9 @@ void main() {
     await open(tester, qr, expiresAt: 1, completed: (_) {});
     expect(find.byIcon(Icons.timer_off), findsOneWidget);
     expect(find.text('签名请求已过期，请返回重新提交'), findsOneWidget);
-    final button = tester.widget<FilledButton>(find.widgetWithText(FilledButton, '扫描响应'));
+    final button = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, '扫描响应'),
+    );
     expect(button.onPressed, isNull);
     expect(qr.responses, isEmpty);
     await tester.tap(find.text('取消'));

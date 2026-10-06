@@ -1,3 +1,4 @@
+import './mls_authentication_fixture.dart';
 import '../support/fake_citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -36,8 +37,7 @@ class _ArticleMediaPickerFake extends ImagePicker
     int? imageQuality,
     CameraDevice preferredCameraDevice = CameraDevice.rear,
     bool requestFullMetadata = true,
-  }) async =>
-      cover;
+  }) async => cover;
 
   @override
   Future<List<XFile>> pickImages(BuildContext context, int maxImages) async {
@@ -95,34 +95,31 @@ class _ArticleMediaPickerFake extends ImagePicker
 Future<SquareLocalMediaDraft> _buildDraft(
   XFile file,
   SquareMediaKind mediaKind,
-) async =>
-    SquareLocalMediaDraft(
-      mediaKind: mediaKind,
-      path: file.path,
-      fileName: file.name,
-      contentType:
-          mediaKind == SquareMediaKind.image ? 'image/jpeg' : 'video/mp4',
-      byteSize: 1,
-      durationSeconds: mediaKind == SquareMediaKind.video ? 30 : null,
-    );
+) async => SquareLocalMediaDraft(
+  mediaKind: mediaKind,
+  path: file.path,
+  fileName: file.name,
+  contentType: mediaKind == SquareMediaKind.image ? 'image/jpeg' : 'video/mp4',
+  byteSize: 1,
+  durationSeconds: mediaKind == SquareMediaKind.video ? 30 : null,
+);
 
 Widget _articleEditor({
   required GlobalKey<SquareArticleComposeBodyState> key,
   required _ArticleMediaPickerFake picker,
   String initialText = '这是满足十个字的正文内容',
-}) =>
-    MaterialApp(
-      home: Scaffold(
-        body: SquareArticleComposeBody(
-          key: key,
-          initialTitle: '这是满足十个字的标题',
-          initialText: initialText,
-          imagePicker: picker,
-          mediaPicker: picker,
-          mediaDraftBuilder: _buildDraft,
-        ),
-      ),
-    );
+}) => MaterialApp(
+  home: Scaffold(
+    body: SquareArticleComposeBody(
+      key: key,
+      initialTitle: '这是满足十个字的标题',
+      initialText: initialText,
+      imagePicker: picker,
+      mediaPicker: picker,
+      mediaDraftBuilder: _buildDraft,
+    ),
+  ),
+);
 
 String? _validate({
   String title = '标题标题标题标题标题',
@@ -178,7 +175,8 @@ void main() {
         ),
       );
       final state = await api.fetchMembership(
-        SquareSession(
+        const SquareSession(
+          deviceId: testMlsDeviceId,
           sessionToken: 'token',
           cidNumber: 'CN220-CTZN2-198805200-2026',
           bindingRevision: 1,
@@ -186,7 +184,7 @@ void main() {
               '0x1111111111111111111111111111111111111111111111111111111111111111',
           expiresAt: 9999999999999,
           // MockClient 只验证响应解析，不校验设备请求签名头。
-          signRequest: (_) async => 'test-device-signature',
+          authenticateRequest: fakeMlsRequestHeaders,
         ),
       );
       expect(state.activePlan!.article.maxVideos, 3);
@@ -260,7 +258,8 @@ void main() {
       );
       final mediaRightGap =
           tester.getTopRight(section).dx - tester.getTopRight(addMedia).dx;
-      final mediaBottomGap = tester.getBottomRight(section).dy -
+      final mediaBottomGap =
+          tester.getBottomRight(section).dy -
           tester.getBottomRight(addMedia).dy;
       // 段落 1px 边框属于框本身；按钮与右、下边框的视觉间距必须一致。
       expect(mediaRightGap, inInclusiveRange(0, 1));
@@ -276,18 +275,17 @@ void main() {
       expect(titleField.decoration?.border, InputBorder.none);
       expect(
         tester.getCenter(cover).dx,
-        greaterThan(tester
-            .getCenter(find.byKey(
-              const ValueKey('article-title-field'),
-            ))
-            .dx),
+        greaterThan(
+          tester
+              .getCenter(find.byKey(const ValueKey('article-title-field')))
+              .dx,
+        ),
       );
+      expect(tester.widget<ComposeMediaAddButton>(addMedia).iconSize, 24);
       expect(
-        tester.widget<ComposeMediaAddButton>(addMedia).iconSize,
-        24,
+        find.byKey(const ValueKey('article-title-divider')),
+        findsOneWidget,
       );
-      expect(
-          find.byKey(const ValueKey('article-title-divider')), findsOneWidget);
       final divider = find.byKey(const ValueKey('article-title-divider'));
       final bodyCounter = find.byKey(const ValueKey('article-body-counter'));
       final titleCounter = find.byKey(const ValueKey('article-title-counter'));
@@ -301,17 +299,17 @@ void main() {
       );
       expect(
         tester.getCenter(bodyCounter).dy,
-        closeTo(
-          tester.getCenter(titleCounter).dy,
-          0.5,
-        ),
+        closeTo(tester.getCenter(titleCounter).dy, 0.5),
       );
       final toolbar = find.byKey(const ValueKey('article-bottom-toolbar'));
-      final connector =
-          find.byKey(const ValueKey('article-section-connector-0'));
+      final connector = find.byKey(
+        const ValueKey('article-section-connector-0'),
+      );
       expect(toolbar, findsOneWidget);
-      expect(tester.getTopLeft(toolbar).dy,
-          greaterThan(tester.getBottomLeft(connector).dy));
+      expect(
+        tester.getTopLeft(toolbar).dy,
+        greaterThan(tester.getBottomLeft(connector).dy),
+      );
     });
 
     testWidgets('正文上滑只收起标题首图分隔线，下滑恢复且计数始终显示', (tester) async {
@@ -376,8 +374,9 @@ void main() {
           ),
         ),
       );
-      final connector =
-          find.byKey(const ValueKey('article-section-connector-0'));
+      final connector = find.byKey(
+        const ValueKey('article-section-connector-0'),
+      );
       final textOnlyHeight = tester.getSize(connector).height;
 
       await tester.tap(find.byKey(const ValueKey('article-insert-media-0')));
@@ -411,10 +410,7 @@ void main() {
         findsOneWidget,
       );
       final firstGallery = key.currentState!.snapshot().contentSections!.first;
-      expect(
-        firstGallery['gallery_media_indices'],
-        orderedEquals([1, 2, 3]),
-      );
+      expect(firstGallery['gallery_media_indices'], orderedEquals([1, 2, 3]));
 
       final removeButton = find.byWidgetPredicate(
         (widget) =>
@@ -427,8 +423,10 @@ void main() {
         find.byKey(const ValueKey('square-media-carousel-dot-2')),
         findsNothing,
       );
-      final reducedGallery =
-          key.currentState!.snapshot().contentSections!.first;
+      final reducedGallery = key.currentState!
+          .snapshot()
+          .contentSections!
+          .first;
       expect(reducedGallery['gallery_media_indices'], orderedEquals([1, 2]));
       expect(picker.imageCallCount, 0);
     });
@@ -492,16 +490,18 @@ void main() {
       await tester.pumpAndSettle();
 
       final before = key.currentState!.snapshot();
-      await tester.tap(
-        find.byKey(const ValueKey('article-replace-gallery-0')),
-      );
+      await tester.tap(find.byKey(const ValueKey('article-replace-gallery-0')));
       await tester.pumpAndSettle();
 
       expect(picker.imageCallCount, 1);
-      expect(key.currentState!.snapshot().media.single.path,
-          before.media.single.path);
       expect(
-          key.currentState!.snapshot().contentSections, before.contentSections);
+        key.currentState!.snapshot().media.single.path,
+        before.media.single.path,
+      );
+      expect(
+        key.currentState!.snapshot().contentSections,
+        before.contentSections,
+      );
     });
 
     testWidgets('图片视频混选直接拒绝，多次选择单视频保留多个视频块', (tester) async {
@@ -541,8 +541,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(
         videoKey.currentState!.snapshot().contentSections!.where(
-              (section) => section['video_media_index'] != null,
-            ),
+          (section) => section['video_media_index'] != null,
+        ),
         hasLength(2),
       );
     });
@@ -686,21 +686,21 @@ String? _validateUpload({
 }
 
 SquareLocalMediaDraft _image(int index) => SquareLocalMediaDraft(
-      mediaKind: SquareMediaKind.image,
-      path: '/tmp/$index.jpg',
-      fileName: '$index.jpg',
-      contentType: 'image/jpeg',
-      byteSize: 100,
-    );
+  mediaKind: SquareMediaKind.image,
+  path: '/tmp/$index.jpg',
+  fileName: '$index.jpg',
+  contentType: 'image/jpeg',
+  byteSize: 100,
+);
 
 SquareLocalMediaDraft _video(int index) => SquareLocalMediaDraft(
-      mediaKind: SquareMediaKind.video,
-      path: '/tmp/$index.mp4',
-      fileName: '$index.mp4',
-      contentType: 'video/mp4',
-      byteSize: 100,
-      durationSeconds: 30,
-    );
+  mediaKind: SquareMediaKind.video,
+  path: '/tmp/$index.mp4',
+  fileName: '$index.mp4',
+  contentType: 'video/mp4',
+  byteSize: 100,
+  durationSeconds: 30,
+);
 
 const _democracyPlan = SquareMembershipPlan(
   membershipLevel: 'democracy',

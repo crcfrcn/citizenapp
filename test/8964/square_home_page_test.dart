@@ -1,3 +1,4 @@
+import './mls_authentication_fixture.dart';
 import 'dart:async';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -206,6 +207,7 @@ class _DeviceMissingSessionProvider implements SquareSessionProvider {
       );
     }
     return SquareSession(
+      deviceId: testMlsDeviceId,
       sessionToken: 'registered',
       cidNumber: 'CN220-CTZN2-100000001-2026',
       bindingRevision: 1,
@@ -637,8 +639,11 @@ void main() {
     final documentBottom = tester.getBottomRight(find.text('公文')).dy;
     final videoRight = tester.getTopRight(itemFinders[2]).dx;
     expect(
-      pageSize.height - documentBottom -
-          MediaQuery.paddingOf(tester.element(find.byType(SquareHomePage))).bottom,
+      pageSize.height -
+          documentBottom -
+          MediaQuery.paddingOf(
+            tester.element(find.byType(SquareHomePage)),
+          ).bottom,
       closeTo(pageSize.width - videoRight, 1),
     );
 
@@ -821,7 +826,8 @@ void main() {
 
     identityService.completer.complete(
       const SquareIdentityState(
-        accountId: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        accountId:
+            '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         cidNumber: 'CN220-CTZN2-100000001-2026',
         signMode: CitizenWalletSignMode.hot,
       ),

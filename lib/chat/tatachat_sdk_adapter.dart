@@ -1,7 +1,5 @@
 import 'dart:io';
-import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart' as sdk;
 import 'package:citizenapp/8964/profile/services/square_session_provider.dart';
@@ -12,8 +10,6 @@ import 'package:citizenapp/my/membership/subscription_service.dart';
 import 'package:citizenapp/my/myid/current_user_context.dart';
 import 'package:citizenapp/notifications/app_push_service.dart';
 import 'package:citizenapp/security/account_security_service.dart';
-import 'package:citizenapp/security/local_data_key.dart';
-import 'package:tatachat_sdk/tatachat_sdk.dart';
 
 /// Maps CitizenServe's product error contract without leaking it into TataChatSDK.
 String chatUserErrorMessage(
@@ -25,7 +21,8 @@ String chatUserErrorMessage(
       'cid_not_bound' => '当前默认账户尚未注册公民号，无法使用聊天',
       'device_not_registered' ||
       'chat_device_not_registered' ||
-      'invalid_signature' => '聊天设备身份尚未就绪，请重试',
+      'invalid_mls_signature' ||
+      'invalid_mls_proof' => '聊天设备身份尚未就绪，请重试',
       'cid_binding_changed' => '当前登录用户已切换，请重新进入聊天',
       'missing_session' ||
       'invalid_session' ||
@@ -40,102 +37,24 @@ String chatUserErrorMessage(
             : fallback,
     };
   }
-  return chatSdkUserErrorMessage(error, fallback: fallback);
+  return sdk.chatSdkUserErrorMessage(error, fallback: fallback);
 }
 
 /// 公民群页面只把 TataChatSDK 的中性 userId 显示为 CID；不改写协议或存储字段。
-extension CitizenGroupMemberFields on GroupMember {
+extension CitizenGroupMemberFields on sdk.GroupMember {
   String get cidNumber => userId;
 }
 
-extension CitizenChatGroupFields on ChatGroup {
+extension CitizenChatGroupFields on sdk.ChatGroup {
   String get creatorCidNumber => creatorUserId;
   List<String> get memberCidNumbers => memberUserIds;
 }
 
 typedef ChatPushTokenProvider = Future<sdk.ChatPushToken> Function();
 
-/// 把安全模块提供的用途钥映射为 TataChatSDK 的中性用途钥接口。
-///
-/// 本适配器不生成、不缓存用途钥，也不拥有账户绑定事实。
-final class CitizenChatStorageKeyProvider
-    implements sdk.ChatStorageKeyProvider {
-  CitizenChatStorageKeyProvider(this.accountSecurity);
-
-  final AccountSecurityService accountSecurity;
-
-  static sdk.ChatDataBinding toChatBinding(AccountDataBinding binding) =>
-      sdk.ChatDataBinding(
-        keyDomain: binding.genesisHash,
-        userId: binding.cidNumber,
-        bindingRevision: binding.bindingRevision,
-        accountId: binding.accountId,
-      );
-
-  static AccountDataBinding toCitizenBinding(sdk.ChatDataBinding binding) =>
-      AccountDataBinding(
-        genesisHash: binding.keyDomain,
-        cidNumber: binding.userId,
-        bindingRevision: binding.bindingRevision,
-        accountId: binding.accountId,
-      );
-
-  static LocalKeyPurpose _purpose(sdk.ChatStorageKeyPurpose purpose) =>
-      switch (purpose) {
-        sdk.ChatStorageKeyPurpose.chat => LocalKeyPurpose.chat,
-        sdk.ChatStorageKeyPurpose.chatIndex => LocalKeyPurpose.chatIndex,
-        sdk.ChatStorageKeyPurpose.attachment => LocalKeyPurpose.attachment,
-      };
-
-  @override
-  Future<sdk.ChatDataBinding> resolveBinding({
-    required String ownerUserId,
-    required String currentAccountId,
-    String? expectedKeyDomain,
-  }) async {
-    final binding = await accountSecurity.accountDataBindingForAccountId(
-      currentAccountId,
-    );
-    if (binding.cidNumber != ownerUserId ||
-        (expectedKeyDomain != null &&
-            binding.genesisHash != expectedKeyDomain)) {
-      throw StateError('聊天属主公民号与当前钱包绑定不一致');
-    }
-    return toChatBinding(binding);
-  }
-
-  @override
-  Future<List<Uint8List>> readDataKeysForBinding(
-    sdk.ChatDataBinding binding,
-    List<({sdk.ChatStorageKeyPurpose purpose, String? context})> requests,
-  ) => accountSecurity.readDataKeysForBinding(
-    toCitizenBinding(binding),
-    requests
-        .map(
-          (request) =>
-              (purpose: _purpose(request.purpose), context: request.context),
-        )
-        .toList(growable: false),
-  );
-
-  @override
-  Future<List<Uint8List>> deriveDataKeysForBindingHandover(
-    sdk.ChatDataBinding binding,
-    List<({sdk.ChatStorageKeyPurpose purpose, String? context})> requests,
-  ) => accountSecurity.deriveDataKeysForBindingHandover(
-    toCitizenBinding(binding),
-    requests
-        .map(
-          (request) =>
-              (purpose: _purpose(request.purpose), context: request.context),
-        )
-        .toList(growable: false),
-  );
-}
-
 /// 公民聊天模块消费现有用户、会员、安全、会话与推送接口的协议适配。
 ///
-/// CID、当前账户、会员、用途钥和 CitizenServe 会话仍由各自业务模块拥有；
+/// CID、当前账户、会员和 CitizenServe 会话仍由各自业务模块拥有；
 /// 本类型不保存或复制这些事实，只在 TataChatSDK 调用时读取并映射。
 final class CitizenChatRuntimeHost implements sdk.ChatRuntimeHost {
   CitizenChatRuntimeHost({
@@ -143,15 +62,12 @@ final class CitizenChatRuntimeHost implements sdk.ChatRuntimeHost {
     required this.currentUserContext,
     required this.squareSessionProvider,
     required this.pushService,
-  }) : keyProvider = CitizenChatStorageKeyProvider(accountSecurity);
+  });
 
   final AccountSecurityService accountSecurity;
   final CurrentUserContext currentUserContext;
   final SquareSessionProvider squareSessionProvider;
   final ChatPushService pushService;
-
-  @override
-  final CitizenChatStorageKeyProvider keyProvider;
 
   @override
   sdk.ChatPushBridge get push => pushService;
@@ -182,7 +98,7 @@ final class CitizenChatRuntimeHost implements sdk.ChatRuntimeHost {
     }
     return sdk.ChatRuntimeAccount(
       hostIndex: defaultAccount.walletIndex,
-      keyDomain: binding.genesisHash,
+      bindingScope: binding.genesisHash,
       userId: binding.cidNumber,
       bindingRevision: binding.bindingRevision,
       accountId: binding.accountId,
@@ -193,7 +109,7 @@ final class CitizenChatRuntimeHost implements sdk.ChatRuntimeHost {
   @override
   Future<sdk.TataChatServerAccess> requestTataChatServerAccess({
     required sdk.ChatRuntimeAccount account,
-    required ChatDevice identity,
+    required sdk.ChatDevice identity,
   }) async {
     final response = await squareSessionProvider.requestChatServerAccess(
       deviceId: identity.deviceId,
@@ -216,8 +132,28 @@ final class CitizenChatRuntimeHost implements sdk.ChatRuntimeHost {
   }
 }
 
-/// 使用 CitizenApp 产品依赖创建真实的 [sdk.ChatSdk]。
-///
+/// 关闭唯一实例时同步封住普通认证，随后由SDK收口其内部生命周期。
+final class _CitizenChatRuntime extends sdk.ChatSdk {
+  _CitizenChatRuntime({
+    required super.host,
+    super.store,
+    super.preferences,
+    super.stateStoreFactory,
+    super.cryptoFactory,
+    super.documentsDirectoryProvider,
+    super.transportFactory,
+    super.receiveOnly,
+    this.onClosing,
+  });
+  final void Function()? onClosing;
+  @override
+  Future<void> stop() {
+    onClosing?.call();
+    return super.stop();
+  }
+}
+
+/// 使用CitizenApp依赖创建同一MLS运行实例，不启动聊天同步或权益请求。
 sdk.ChatSdk createCitizenChatRuntime({
   required AccountSecurityService accountSecurity,
   required CurrentUserContext currentUserContext,
@@ -225,7 +161,10 @@ sdk.ChatSdk createCitizenChatRuntime({
   sdk.ChatStore? store,
   SharedPreferences? preferences,
   sdk.MlsStateStoreFactory? stateStoreFactory,
-  MlsGroupCrypto Function(ChatDevice identity, MlsStateStore stateStore)?
+  sdk.MlsGroupCrypto Function(
+    sdk.ChatDevice identity,
+    sdk.MlsStateStore stateStore,
+  )?
   cryptoFactory,
   sdk.ChatServiceTransportFactory? transportFactory,
   ChatPushService? pushService,
@@ -233,7 +172,8 @@ sdk.ChatSdk createCitizenChatRuntime({
   ChatPushTokenProvider? pushTokenProvider,
   Future<Directory> Function()? documentsDirectoryProvider,
   bool receiveOnly = false,
-}) => sdk.ChatSdk(
+  void Function()? onClosing,
+}) => _CitizenChatRuntime(
   host: createCitizenChatRuntimeHost(
     accountSecurity: accountSecurity,
     squareSessionProvider: squareSessionProvider,
@@ -249,6 +189,7 @@ sdk.ChatSdk createCitizenChatRuntime({
   documentsDirectoryProvider: documentsDirectoryProvider,
   transportFactory: transportFactory,
   receiveOnly: receiveOnly,
+  onClosing: onClosing,
 );
 
 /// 构造 SDK 需要的 CitizenApp 产品宿主，仅供组合与测试注入。
@@ -272,6 +213,5 @@ sdk.ChatRuntimeHost createCitizenChatRuntimeHost({
     squareSessionProvider: squareSessionProvider,
     pushService: push,
   );
-  sdk.ChatCrypto.defaultKeyProvider = host.keyProvider;
   return host;
 }

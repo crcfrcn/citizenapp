@@ -14,7 +14,7 @@ import 'package:citizenapp/my/membership/subscription_service.dart';
 import 'package:citizenapp/my/myid/finalized_identity_resolver.dart';
 import 'package:citizenapp/qr/pages/qr_sign_session_page.dart';
 import 'package:citizenapp/my/membership/subscription_chain.dart';
-import 'package:citizenapp/security/device_subkey.dart' show hexToBytes;
+import 'package:citizenapp/security/hex_codec.dart' show hexToBytes;
 import 'package:citizenapp/isar/wallet_isar.dart';
 
 /// 创作者页展示态：无可用钱包账户会话 / 已开通（含计划与概览）。

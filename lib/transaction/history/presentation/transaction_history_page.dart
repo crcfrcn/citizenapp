@@ -297,7 +297,13 @@ String _shortAddress(String? address) {
 }
 
 String _formatFen(String fen, {String symbol = '元'}) {
-  return AmountFormat.format(LocalTxStore.fenToYuan(fen).abs(), symbol: symbol);
+  // u128 分不经过 double；保留原千分位布局并准确展示最后一分。
+  final value = BigInt.parse(fen).abs();
+  final whole = value ~/ BigInt.from(100);
+  final cents = (value % BigInt.from(100)).toString().padLeft(2, '0');
+  return AmountFormat.formatString(
+    '$whole.$cents${symbol.isEmpty ? '' : ' $symbol'}',
+  );
 }
 
 // ─── 交易记录列表项 ──────────────────────────────────────────
@@ -316,9 +322,9 @@ class LocalTxRecordTile extends StatelessWidget {
   /// 钱包详情页最近记录需要显式展示进入详情的箭头；完整列表保持原布局。
   final bool showChevron;
 
-  double get _amountDeltaYuan => LocalTxStore.fenToYuan(record.amountDeltaFen);
-  bool get _isExpense => _amountDeltaYuan < 0;
-  bool get _isIncome => _amountDeltaYuan > 0;
+  BigInt get _amountDeltaFen => BigInt.parse(record.amountDeltaFen);
+  bool get _isExpense => _amountDeltaFen < BigInt.zero;
+  bool get _isIncome => _amountDeltaFen > BigInt.zero;
 
   Color get _iconColor {
     if (_isExpense) return AppTheme.danger;
@@ -410,7 +416,7 @@ class LocalTxRecordTile extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            '${_isExpense ? "-" : "+"}${AmountFormat.format(_amountDeltaYuan.abs(), symbol: '')}',
+            '${_isExpense ? "-" : "+"}${_formatFen(record.amountDeltaFen, symbol: '')}',
             style: TextStyle(
               fontSize: AppLayout.scaled(context, 15),
               fontWeight: FontWeight.w700,
@@ -438,9 +444,9 @@ class LocalTxRecordDetailPage extends StatelessWidget {
 
   final LocalTxEntity record;
 
-  double get _amountDeltaYuan => LocalTxStore.fenToYuan(record.amountDeltaFen);
-  bool get _isExpense => _amountDeltaYuan < 0;
-  bool get _isIncome => _amountDeltaYuan > 0;
+  BigInt get _amountDeltaFen => BigInt.parse(record.amountDeltaFen);
+  bool get _isExpense => _amountDeltaFen < BigInt.zero;
+  bool get _isIncome => _amountDeltaFen > BigInt.zero;
 
   void _copy(BuildContext context, String text) {
     Clipboard.setData(ClipboardData(text: text));
@@ -508,7 +514,7 @@ class LocalTxRecordDetailPage extends StatelessWidget {
         children: [
           Center(
             child: Text(
-              '${_isExpense ? "-" : "+"}${AmountFormat.format(_amountDeltaYuan.abs(), symbol: '元')}',
+              '${_isExpense ? "-" : "+"}${_formatFen(record.amountDeltaFen)}',
               style: TextStyle(
                 fontSize: AppLayout.scaled(context, 28),
                 fontWeight: FontWeight.w700,
@@ -542,9 +548,20 @@ class LocalTxRecordDetailPage extends StatelessWidget {
           _buildRow(context, label: '类型', value: label),
           _buildRow(
             context,
+            label: '确认进度',
+            value: switch (record.status) {
+              LocalTxStore.statusPending => '等待打包',
+              LocalTxStore.statusInBlock => '最佳链已打包，等待最终确认',
+              LocalTxStore.statusFinalized => '最终链已确认',
+              LocalTxStore.statusFailed => '执行失败',
+              _ => '状态未知',
+            },
+          ),
+          _buildRow(
+            context,
             label: '余额变化',
             value:
-                '${_isExpense ? "-" : "+"}${AmountFormat.format(_amountDeltaYuan.abs(), symbol: '元')}',
+                '${_isExpense ? "-" : "+"}${_formatFen(record.amountDeltaFen)}',
           ),
           if (record.transferAmountFen != null)
             _buildRow(
@@ -553,7 +570,14 @@ class LocalTxRecordDetailPage extends StatelessWidget {
               value: _formatFen(record.transferAmountFen!),
             ),
           if (record.feeFen != null)
-            _buildRow(context, label: '手续费', value: _formatFen(record.feeFen!)),
+            _buildRow(
+              context,
+              label:
+                  record.eventIndex == null && record.source == 'local_submit'
+                  ? '预估手续费'
+                  : '真实手续费',
+              value: _formatFen(record.feeFen!),
+            ),
           if (record.fromSs58Address != null)
             _buildRow(
               context,

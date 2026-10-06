@@ -1,3 +1,4 @@
+import '../mls_authentication_fixture.dart';
 import 'package:citizenapp/isar/user_isar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -54,6 +55,7 @@ Widget _wrap(
           sessionProvider ??
           FakeSessionProvider(
             SquareSession(
+              deviceId: testMlsDeviceId,
               sessionToken: 'test',
               cidNumber: sampleProfile().cidNumber!,
               bindingRevision: 1,

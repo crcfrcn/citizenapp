@@ -5,45 +5,21 @@
 // setUpAll(ensureTestCoreInitialized) / setUp / tearDown(resetForTest) 样板。
 
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:citizenapp/isar/social_isar.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart';
 import 'package:citizenapp/isar/app_isar.dart';
 import 'package:citizenapp/isar/isar_core_bootstrap.dart';
 import 'package:citizenapp/isar/user_isar.dart';
-import 'package:citizenapp/security/local_data_key.dart';
 import 'package:citizenapp/isar/wallet_isar.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// 聊天本地加密的测试用途子钥（固定 32 字节）。
-///
-/// 单测没有平台通道，真实路径会走
-/// `AccountSecurityService → CitizenSDK/设备金库` 而需要真实平台；
-/// 这里注入固定用途子钥，让 `ChatStore` 在测试中走**真实加解密**（不是绕过加密），
-/// 只是密钥来源换成确定值。
-final Map<LocalKeyPurpose, Uint8List> debugChatKeys =
-    <LocalKeyPurpose, Uint8List>{
-  LocalKeyPurpose.chat:
-      Uint8List.fromList(List<int>.generate(32, (i) => i * 3 % 256)),
-  LocalKeyPurpose.chatIndex:
-      Uint8List.fromList(List<int>.generate(32, (i) => (i * 5 + 1) % 256)),
-};
-
-/// 为当前测试文件挂上隔离的 Isar 生命周期:
-/// - setUpAll:建本文件专属临时目录 + 指向它 + 初始化 IsarCore + 注入聊天测试密钥
-/// - setUp / tearDown:复位(防入 + 清出)
-/// - tearDownAll:复位并删除临时目录
+/// 每个测试文件拥有真实隔离数据库，测试环境不注入应用数据密钥。
 void useIsolatedIsar() {
   late Directory dir;
   setUpAll(() async {
     dir = Directory.systemTemp.createTempSync('citizenapp_test_');
     IsarCoreBootstrap.debugTestDirectoryOverride = dir.path;
-    ChatCrypto.debugFixedKeys = <ChatStorageKeyPurpose, Uint8List>{
-      ChatStorageKeyPurpose.chat: debugChatKeys[LocalKeyPurpose.chat]!,
-      ChatStorageKeyPurpose.chatIndex:
-          debugChatKeys[LocalKeyPurpose.chatIndex]!,
-    };
     await IsarCoreBootstrap.ensureTestCoreInitialized();
   });
   setUp(() async {
@@ -55,7 +31,6 @@ void useIsolatedIsar() {
   tearDownAll(() async {
     await _resetAllIsar();
     IsarCoreBootstrap.debugTestDirectoryOverride = null;
-    ChatCrypto.debugFixedKeys = null;
     if (dir.existsSync()) {
       dir.deleteSync(recursive: true);
     }

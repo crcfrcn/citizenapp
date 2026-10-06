@@ -2,16 +2,40 @@ import 'package:citizenapp/security/app_lock_service.dart';
 import 'package:citizenapp/security/pin_input_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'dart:io';
+import 'package:citizenapp/security/system_protected_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  setUp(() {
-    FlutterSecureStorage.setMockInitialValues(<String, String>{});
+  TestWidgetsFlutterBinding.ensureInitialized();
+  late Directory records;
+  setUp(() async {
+    final temporary = await Directory.systemTemp.createTemp("citizen_lock_");
+    records = Directory(await temporary.resolveSymbolicLinks());
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemProtectedStorage.channel, (call) async {
+          if (call.method == "prepareRecords") return records.path;
+          if (call.method == "compareRecords") {
+            final args = (call.arguments as Map).cast<String, dynamic>();
+            final file = File('${records.path}/${args['name'] as String}');
+            final current = await file.exists()
+                ? await file.readAsString()
+                : null;
+            if (current != args['expected']) return false;
+            await file.writeAsString(args['next'] as String, flush: true);
+            return true;
+          }
+          return null;
+        });
     AppLockService.debugResetForTest();
   });
 
-  tearDown(AppLockService.debugResetForTest);
+  tearDown(() async {
+    AppLockService.debugResetForTest();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemProtectedStorage.channel, null);
+    await records.delete(recursive: true);
+  });
 
   test('普通应用锁与防共匪密码使用各自固定迭代次数', () {
     expect(AppLockService.appLockPinHashIterations, 100000);
@@ -71,7 +95,8 @@ void main() {
 
     final fields = find.byType(TextField);
     expect(fields, findsNWidgets(2));
-    final gap = tester.getTopLeft(fields.at(1)).dy -
+    final gap =
+        tester.getTopLeft(fields.at(1)).dy -
         tester.getBottomLeft(fields.at(0)).dy;
     expect(gap, greaterThanOrEqualTo(16));
   });
@@ -135,18 +160,16 @@ void main() {
         return null;
       },
     );
-    addTearDown(
-      () async {
-        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-          SystemChannels.platform,
-          null,
-        );
-        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-          securityChannel,
-          null,
-        );
-      },
-    );
+    addTearDown(() async {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      );
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        securityChannel,
+        null,
+      );
+    });
 
     await tester.pumpWidget(
       const MaterialApp(home: PinInputPage(mode: PinInputMode.verify)),
@@ -205,10 +228,7 @@ void main() {
   });
 }
 
-Future<void> _enterSixDigitPin(
-  WidgetTester tester,
-  List<int> digits,
-) async {
+Future<void> _enterSixDigitPin(WidgetTester tester, List<int> digits) async {
   for (final digit in digits) {
     await tester.tap(find.text('$digit'));
     await tester.pump();

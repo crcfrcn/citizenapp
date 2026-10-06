@@ -1,3 +1,4 @@
+import '../mls_authentication_fixture.dart';
 import 'package:citizenapp/8964/square_models.dart';
 import 'package:citizenapp/8964/profile/models/citizen_profile.dart';
 import 'package:citizenapp/8964/profile/services/citizen_profile_api.dart';
@@ -10,12 +11,13 @@ const String kOwner =
     '0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d';
 
 SquareSession fakeSession() => SquareSession(
+      deviceId: testMlsDeviceId,
       sessionToken: 'tok',
       cidNumber: "CN220-CTZN2-198805200-2026",
       bindingRevision: 1,
       accountId: kOwner,
       expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
-      signRequest: (_) async => 'test-device-signature',
+      authenticateRequest: fakeMlsRequestHeaders,
     );
 
 class FakeSessionProvider implements SquareSessionProvider {
