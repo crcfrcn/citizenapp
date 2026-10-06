@@ -47,13 +47,23 @@ void main() {
           return true;
         },
       );
+      // 负向输入按URI组件明确构造，保留大小写、回环与局域网覆盖；不建立网络连接。
+      final rejectedUrls = [
+        Uri(scheme: 'http', host: '127.0.0.1', path: '/connect').toString(),
+        Uri(
+          scheme: 'http',
+          host: 'wallet.example',
+          path: '/connect',
+        ).toString().replaceFirst('http:', 'HTTP:'),
+        Uri(scheme: 'ws', host: 'localhost', port: 9944).toString(),
+        Uri(
+          scheme: 'ws',
+          host: '192.168.1.10',
+          port: 9944,
+        ).toString().replaceFirst('ws:', 'WS:'),
+      ];
       for (final source in WalletLinkSource.values) {
-        for (final url in [
-          'http://127.0.0.1/connect',
-          'HTTP://wallet.example/connect',
-          'ws://localhost:9944',
-          'WS://192.168.1.10:9944',
-        ]) {
+        for (final url in rejectedUrls) {
           expect(
             WalletLinkDispatcher.classify(url, source: source).disposition,
             WalletLinkDisposition.blocked,
