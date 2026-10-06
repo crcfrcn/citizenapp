@@ -420,11 +420,18 @@ test('iOS Release黑盒UI验收使用主动真机探测且不改变正式App', (
   assert.match(iosUITests, /最终区块 \[0-9\]\+/u);
   assert.match(iosUITests, /XCTAssertGreaterThanOrEqual\(secondHeight, firstHeight/u);
   assert.match(iosUITests, /testWalletPagePreservesPublicSurfaceAndAvailableSdkEntry/u);
-  assert.match(iosUITests, /testWalletGateLaunchesCitizenSdkCreateAndImportWithoutSecretInput/u);
-  assert.match(iosUITests, /throw XCTSkip\("正式App尚无钱包/u);
+  assert.match(iosUITests, /testWalletGateShowsOnboardingAndColdImportWithoutSecretInput/u);
+  assert.match(iosUITests, /throw XCTSkip\("正常App尚无账户/u);
   assert.match(iosUITests, /不读写助记词或密码/u);
-  const walletGateTest = iosUITests.match(/func testWalletGateLaunchesCitizenSdkCreateAndImportWithoutSecretInput\(\) throws \{[\s\S]*?\n  \}/u)?.[0];
+  const walletGateTest = iosUITests.match(/func testWalletGateShowsOnboardingAndColdImportWithoutSecretInput\(\) throws \{[\s\S]*?\n  \}/u)?.[0];
   assert.ok(walletGateTest);
+  // 对齐现有引导与冷导入用例，保留数量选项、空地址拒绝、返回及不输入秘密的合同。
+  assert.match(walletGateTest, /for count in \[12, 18, 24\]/u);
+  assert.match(walletGateTest, /let cold = app[.]buttons\["导入冷钱包"\]/u);
+  assert.match(walletGateTest, /XCTAssertTrue\(confirm[.]waitForExistence\(timeout: 5\), "空地址必须保留导入页"\)/u);
+  assert.match(walletGateTest, /XCTAssertFalse\(chatTab\(in: app\)[.]exists, "空地址不得进入主导航"\)/u);
+  assert.match(walletGateTest, /try XCTUnwrap\(back[.]first, "冷导入页缺少返回按钮"\)[.]tap\(\)/u);
+  assert.match(walletGateTest, /XCTAssertTrue\(create[.]waitForExistence\(timeout: 10\)\)/u);
   assert.doesNotMatch(walletGateTest, /typeText\(/u);
 });
 
