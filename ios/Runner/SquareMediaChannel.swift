@@ -1,5 +1,6 @@
 import Flutter
 import Foundation
+import Darwin
 
 /// 公民广场媒体原生通道；跨端字段统一使用 snake_case。
 final class SquareMediaChannel {
@@ -7,12 +8,18 @@ final class SquareMediaChannel {
 
   private let channel: FlutterMethodChannel
   private let transcoder = SquareVideoTranscoder()
+  private var playbackInitializationFailed = false
 
   init(binaryMessenger: FlutterBinaryMessenger) {
     channel = FlutterMethodChannel(
       name: Self.channelName,
       binaryMessenger: binaryMessenger
     )
+    do {
+      _ = try Self.playbackDirectory()
+    } catch {
+      playbackInitializationFailed = true
+    }
     channel.setMethodCallHandler { [weak self] call, result in
       self?.handle(call, result: result)
     }
@@ -55,12 +62,166 @@ final class SquareMediaChannel {
           )
         )
       }
+    case "prepare_playback_file", "verify_playback_file", "delete_playback_file":
+      do {
+        guard !playbackInitializationFailed else {
+          throw SquareMediaError.processing("本地播放残留清理失败")
+        }
+        guard let values = call.arguments as? [String: Any] else {
+          throw SquareMediaError.invalidRequest("本地播放参数无效")
+        }
+        if call.method == "prepare_playback_file" {
+          let size = try values.requiredInt64("byte_size")
+          guard size > 0, size <= 3_000_000_000 else {
+            throw SquareMediaError.invalidRequest("本地视频大小无效")
+          }
+          let root = try Self.playbackDirectory()
+          let disk = try FileManager.default.attributesOfFileSystem(forPath: root.path)
+          guard let free = disk[.systemFreeSize] as? NSNumber,
+                free.int64Value >= size + 1_048_576 else {
+            throw SquareMediaError.processing("本地播放空间不足")
+          }
+          let file = root.appendingPathComponent(UUID().uuidString + ".mp4")
+          let fd = Darwin.open(file.path, O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW, 0o600)
+          guard fd >= 0 else { throw SquareMediaError.processing("本地播放文件创建失败") }
+          Darwin.close(fd)
+          do {
+            try Self.protect(file)
+            try Self.checkFile(file, size: 0)
+            Self.playbackFiles.insert(file.path)
+          } catch {
+            try FileManager.default.removeItem(at: file)
+            guard try !Self.existsWithoutFollowing(file.path) else {
+              throw SquareMediaError.processing("本地播放文件清理失败")
+            }
+            throw error
+          }
+          result(file.path)
+        } else {
+          let path = try values.requiredString("output_path")
+          let file = try Self.ownedFile(path)
+          if call.method == "verify_playback_file" {
+            let size = try values.requiredInt64("byte_size")
+            guard size > 0, size <= 3_000_000_000 else {
+              throw SquareMediaError.invalidRequest("本地视频大小无效")
+            }
+            try Self.checkFile(file, size: size)
+          } else {
+            if try Self.existsWithoutFollowing(path) {
+              try Self.checkFile(file, size: nil)
+              try FileManager.default.removeItem(at: file)
+            }
+            guard try !Self.existsWithoutFollowing(path) else {
+              throw SquareMediaError.processing("本地播放文件清理失败")
+            }
+            Self.playbackFiles.remove(path)
+          }
+          result(nil)
+        }
+      } catch {
+        result(FlutterError(code: "square_media_playback_failed",
+                            message: "本地播放文件保护、空间或清理检查失败", details: nil))
+      }
     case "cancel_video":
       transcoder.cancel()
       result(nil)
     default:
       result(FlutterMethodNotImplemented)
     }
+  }
+  // 仅管理本通道专属目录；进程首次使用清理崩溃残留，不触及其他缓存或钱包。
+  private static var playbackRoot: URL?
+  private static var playbackFiles = Set<String>()
+
+  private static func existsWithoutFollowing(_ path: String) throws -> Bool {
+    var info = stat()
+    if lstat(path, &info) == 0 { return true }
+    guard errno == ENOENT else {
+      throw SquareMediaError.processing("本地播放文件回读失败")
+    }
+    return false
+  }
+
+  private static func protect(_ url: URL) throws {
+    try FileManager.default.setAttributes([
+      .protectionKey: FileProtectionType.completeUntilFirstUserAuthentication,
+      .posixPermissions: url.hasDirectoryPath ? 0o700 : 0o600
+    ], ofItemAtPath: url.path)
+    var target = url
+    var values = URLResourceValues()
+    values.isExcludedFromBackup = true
+    try target.setResourceValues(values)
+  }
+
+  private static func checkOwnedRegularFile(_ file: URL) throws -> [FileAttributeKey: Any] {
+    let attrs = try FileManager.default.attributesOfItem(atPath: file.path)
+    guard attrs[.type] as? FileAttributeType == .typeRegular,
+          (attrs[.posixPermissions] as? NSNumber)?.intValue == 0o600,
+          (attrs[.ownerAccountID] as? NSNumber)?.uint32Value == getuid(),
+          file.resolvingSymlinksInPath().path == file.path
+    else { throw SquareMediaError.processing("本地播放文件归属失败") }
+    return attrs
+  }
+
+  private static func checkFile(_ file: URL, size: Int64?) throws {
+    let attrs = try checkOwnedRegularFile(file)
+    guard
+          attrs[.protectionKey] as? FileProtectionType == .completeUntilFirstUserAuthentication,
+          try file.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup == true
+    else { throw SquareMediaError.processing("本地播放文件保护失败") }
+    if let size, (attrs[.size] as? NSNumber)?.int64Value != size {
+      throw SquareMediaError.processing("本地播放文件长度不一致")
+    }
+  }
+
+  private static func playbackDirectory() throws -> URL {
+    if let root = playbackRoot { return root }
+    let fm = FileManager.default
+    let cache = try fm.url(for: .cachesDirectory, in: .userDomainMask,
+                           appropriateFor: nil, create: true).resolvingSymlinksInPath()
+    let root = cache.appendingPathComponent("square_video_playback", isDirectory: true)
+    if !fm.fileExists(atPath: root.path) {
+      try fm.createDirectory(at: root, withIntermediateDirectories: false,
+                             attributes: [.posixPermissions: 0o700,
+                                          .protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
+    }
+    let attrs = try fm.attributesOfItem(atPath: root.path)
+    guard attrs[.type] as? FileAttributeType == .typeDirectory,
+          root.resolvingSymlinksInPath().path == root.path,
+          (attrs[.ownerAccountID] as? NSNumber)?.uint32Value == getuid()
+    else { throw SquareMediaError.processing("本地播放目录无效") }
+    try protect(root)
+    let protected = try fm.attributesOfItem(atPath: root.path)
+    guard (protected[.posixPermissions] as? NSNumber)?.intValue == 0o700,
+          protected[.protectionKey] as? FileProtectionType == .completeUntilFirstUserAuthentication,
+          try root.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup == true
+    else { throw SquareMediaError.processing("本地播放目录保护失败") }
+    for file in try fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) {
+      guard file.pathExtension == "mp4",
+            UUID(uuidString: file.deletingPathExtension().lastPathComponent) != nil else {
+        throw SquareMediaError.processing("本地播放目录存在未知文件")
+      }
+      // 崩溃可能发生在空文件的保护登记完成前；校验专属归属后仍必须清掉。
+      _ = try checkOwnedRegularFile(file)
+      try fm.removeItem(at: file)
+      guard try !existsWithoutFollowing(file.path) else {
+        throw SquareMediaError.processing("本地播放残留清理失败")
+      }
+    }
+    playbackRoot = root
+    return root
+  }
+
+  private static func ownedFile(_ path: String) throws -> URL {
+    let root = try playbackDirectory()
+    let file = URL(fileURLWithPath: path)
+    guard file.deletingLastPathComponent().path == root.path,
+          file.path == path, file.pathExtension == "mp4",
+          UUID(uuidString: file.deletingPathExtension().lastPathComponent) != nil,
+          playbackFiles.contains(path) else {
+      throw SquareMediaError.invalidRequest("本地播放文件归属无效")
+    }
+    return file
   }
 }
 

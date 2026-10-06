@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'dart:io';
+import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:citizenapp/8964/services/square_media_store.dart';
@@ -19,9 +20,6 @@ import 'package:citizenapp/8964/square_models.dart';
 import 'package:citizenapp/8964/widgets/square_article_card.dart';
 import 'package:citizenapp/8964/widgets/square_media_grid.dart';
 import 'package:citizenapp/8964/widgets/square_post_card.dart';
-
-/// 仅范围适配测试使用真实本机连接，避免Flutter测试绑定的网络占位响应。
-class _LoopbackHttp extends HttpOverrides {}
 
 SquareMediaItem _img({int? w, int? h}) => SquareMediaItem(
   mediaKind: SquareMediaKind.image,
@@ -123,73 +121,87 @@ void main() {
     );
   }
 
-  test('本机视频Range跨块读取、HEAD、后缀、非法范围与路径隔离', () async {
+  late Directory playbackRoot;
+  Completer<void>? prepareGate;
+  Completer<void>? prepared;
+  Completer<void>? deleted;
+  bool refusePrepare = false;
+  bool refuseVerify = false;
+  bool refuseDelete = false;
+  final playbackCalls = <String>[];
+  setUp(() async {
+    playbackRoot = await Directory.systemTemp.createTemp(
+      'square_playback_test_',
+    );
+    refusePrepare = refuseVerify = refuseDelete = false;
+    playbackCalls.clear();
+    prepareGate = prepared = deleted = null;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('citizenapp/square_media'),
+          (call) async {
+            playbackCalls.add(call.method);
+            if (call.method == 'capabilities') {
+              return {'can_encode_hevc': true, 'can_decode_hevc': true};
+            }
+            final args = call.arguments as Map;
+            switch (call.method) {
+              case 'prepare_playback_file':
+                if (refusePrepare) {
+                  throw PlatformException(code: 'space_or_protection');
+                }
+                final file = File('${playbackRoot.path}/video.mp4');
+                await file.create(exclusive: true);
+                prepared?.complete();
+                await prepareGate?.future;
+                return file.resolveSymbolicLinks();
+              case 'verify_playback_file':
+                if (refuseVerify) throw PlatformException(code: 'protection');
+                expect(
+                  await File(args['output_path'] as String).length(),
+                  args['byte_size'],
+                );
+                return null;
+              case 'delete_playback_file':
+                if (refuseDelete) throw PlatformException(code: 'cleanup');
+                final file = File(args['output_path'] as String);
+                expect(
+                  file.parent.path,
+                  await playbackRoot.resolveSymbolicLinks(),
+                );
+                if (await file.exists()) await file.delete();
+                deleted?.complete();
+                return null;
+              default:
+                throw MissingPluginException();
+            }
+          },
+        );
+  });
+  tearDown(() async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('citizenapp/square_media'),
+          null,
+        );
+    await playbackRoot.delete(recursive: true);
+  });
+
+  test('本地视频跨块完整校验、文件播放来源与关闭后删除回读', () async {
     final bytes = Uint8List.fromList(
       List.generate(SquareMediaStore.chunkSize + 17, (i) => i % 251),
     );
-    final item = await saveMedia(bytes);
-    await (await SocialIsar.instance.db()).close();
-    await HttpOverrides.runWithHttpOverrides(() async {
-      final source = await SquareLocalVideoSource.open(item);
-      final client = HttpClient();
-      try {
-        final request = await client.getUrl(source.uri);
-        request.headers.set(HttpHeaders.rangeHeader, 'bytes=1048570-1048580');
-        final response = await request.close();
-        expect(response.statusCode, 206);
-        expect(
-          await response.fold<List<int>>(
-            [],
-            (all, chunk) => all..addAll(chunk),
-          ),
-          bytes.sublist(1048570, 1048581),
-        );
-        final head = await (await client.openUrl('HEAD', source.uri)).close();
-        expect(head.contentLength, bytes.length);
-        await head.drain<void>();
-        final suffixRequest = await client.getUrl(source.uri);
-        suffixRequest.headers.set(HttpHeaders.rangeHeader, 'bytes=-3');
-        final suffix = await suffixRequest.close();
-        expect(
-          await suffix.fold<List<int>>([], (all, chunk) => all..addAll(chunk)),
-          bytes.sublist(bytes.length - 3),
-        );
-        for (final range in [
-          'bytes=99999999-',
-          'bytes=4-2',
-          'bytes=0-1,3-4',
-          'bytes=-0',
-        ]) {
-          final invalid = await client.getUrl(source.uri);
-          invalid.headers.set(HttpHeaders.rangeHeader, range);
-          final result = await invalid.close();
-          expect(result.statusCode, 416);
-          await result.drain<void>();
-        }
-        final other = await (await client.getUrl(
-          source.uri.replace(path: '/unknown'),
-        )).close();
-        expect(other.statusCode, 404);
-        await other.drain<void>();
-        final origin = await client.getUrl(source.uri);
-        origin.headers.set('origin', 'https://example.com');
-        final denied = await origin.close();
-        expect(denied.statusCode, 404);
-        await denied.drain<void>();
-        final uri = source.uri;
-        await source.close();
-        await expectLater(
-          () async => (await client.getUrl(uri)).close(),
-          throwsA(anyOf(isA<SocketException>(), isA<HttpException>())),
-        );
-      } finally {
-        client.close(force: true);
-        await source.close();
-      }
-    }, _LoopbackHttp());
+    final source = await SquareLocalVideoSource.open(await saveMedia(bytes));
+    expect(await source.file.readAsBytes(), bytes);
+    expect(playbackCalls, ['prepare_playback_file', 'verify_playback_file']);
+    await source.close();
+    expect(await source.file.exists(), isFalse);
+    await source.close();
+    expect(playbackCalls.last, 'delete_playback_file');
+    expect(playbackCalls.where((m) => m == 'delete_playback_file').length, 1);
   });
 
-  test('本机播放拒绝其他CID及未保存视频，不降级到远端URL', () async {
+  test('本地播放拒绝其他CID及未保存视频，不降级到远端URL', () async {
     await saveMedia(Uint8List.fromList([1, 2, 3]));
     const other = SquareMediaItem(
       mediaKind: SquareMediaKind.video,
@@ -199,9 +211,10 @@ void main() {
       mediaIndex: 0,
     );
     await expectLater(SquareLocalVideoSource.open(other), throwsStateError);
+    expect(playbackCalls, isEmpty);
   });
 
-  test('本机视频读取损坏首块中止连接，不返回成功的完整媒体', () async {
+  test('损坏媒体拒绝播放并清理已创建的受保护文件', () async {
     final bytes = Uint8List.fromList([1, 2, 3]);
     final item = await saveMedia(bytes);
     await SocialIsar.instance.writeTxn((db) async {
@@ -214,19 +227,123 @@ void main() {
       row!.chunkBytes = [9, 2, 3];
       await db.squareMediaChunkEntitys.put(row);
     });
-    await HttpOverrides.runWithHttpOverrides(() async {
-      final source = await SquareLocalVideoSource.open(item);
-      final client = HttpClient();
-      try {
-        await expectLater(
-          () async => (await client.getUrl(source.uri)).close(),
-          throwsA(anyOf(isA<HttpException>(), isA<SocketException>())),
-        );
-      } finally {
-        client.close(force: true);
-        await source.close();
-      }
-    }, _LoopbackHttp());
+    await expectLater(
+      SquareLocalVideoSource.open(item),
+      throwsA(isA<SquareMediaStoreException>()),
+    );
+    expect(await playbackRoot.list().toList(), isEmpty);
+    expect(playbackCalls, ['prepare_playback_file', 'delete_playback_file']);
+  });
+
+  test('原生空间或文件保护检查失败，不提供可播放来源', () async {
+    final item = await saveMedia(Uint8List.fromList([1, 2, 3]));
+    refusePrepare = true;
+    await expectLater(
+      SquareLocalVideoSource.open(item),
+      throwsA(isA<PlatformException>()),
+    );
+    expect(await playbackRoot.list().toList(), isEmpty);
+    refusePrepare = false;
+    refuseVerify = true;
+    await expectLater(
+      SquareLocalVideoSource.open(item),
+      throwsA(isA<PlatformException>()),
+    );
+    expect(await playbackRoot.list().toList(), isEmpty);
+  });
+
+  test('复制取消清理临时文件，删除失败必须显式失败并可重试', () async {
+    final item = await saveMedia(Uint8List.fromList([1, 2, 3]));
+    var checks = 0;
+    await expectLater(
+      SquareLocalVideoSource.open(item, isCurrent: () => ++checks < 3),
+      throwsStateError,
+    );
+    expect(await playbackRoot.list().toList(), isEmpty);
+    final source = await SquareLocalVideoSource.open(item);
+    refuseDelete = true;
+    await expectLater(source.close(), throwsA(isA<PlatformException>()));
+    expect(await source.file.exists(), isTrue);
+    refuseDelete = false;
+    await source.close();
+    expect(await source.file.exists(), isFalse);
+  });
+
+  test('复制失败后的删除失败必须阻止再次播放，清理恢复后才可重试', () async {
+    final item = await saveMedia(Uint8List.fromList([1, 2, 3]));
+    refuseVerify = refuseDelete = true;
+    await expectLater(
+      SquareLocalVideoSource.open(item),
+      throwsA(isA<PlatformException>()),
+    );
+    final prepares = playbackCalls
+        .where((m) => m == 'prepare_playback_file')
+        .length;
+    await expectLater(
+      SquareLocalVideoSource.open(item),
+      throwsA(isA<PlatformException>()),
+    );
+    expect(
+      playbackCalls.where((m) => m == 'prepare_playback_file').length,
+      prepares,
+    );
+    refuseVerify = refuseDelete = false;
+    final source = await SquareLocalVideoSource.open(item);
+    await Future.wait([source.close(), source.close()]);
+    expect(await playbackRoot.list().toList(), isEmpty);
+  });
+
+  testWidgets('创建本地文件期间退出页面，等待取消后删除且不初始化播放器', (tester) async {
+    final item = await tester.runAsync(
+      () => saveMedia(Uint8List.fromList([1, 2, 3])),
+    );
+    prepareGate = Completer<void>();
+    prepared = Completer<void>();
+    deleted = Completer<void>();
+    await _pump(tester, SquareVideo(url: '', item: item!));
+    await tester.tap(find.byType(SquareVideo));
+    for (var i = 0; i < 100 && !prepared!.isCompleted; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump();
+    }
+    expect(prepared!.isCompleted, isTrue);
+    await tester.pumpWidget(const SizedBox.shrink());
+    prepareGate!.complete();
+    for (var i = 0; i < 100 && !deleted!.isCompleted; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump();
+    }
+    expect(deleted!.isCompleted, isTrue);
+    await tester.pump();
+    expect(find.byType(VideoPlayer), findsNothing);
+    expect(await tester.runAsync(() => playbackRoot.list().toList()), isEmpty);
+    expect(playbackCalls, [
+      'capabilities',
+      'prepare_playback_file',
+      'delete_playback_file',
+    ]);
+  });
+
+  test('本地视频没有HTTP监听与系统明文例外', () {
+    final source = File(
+      'lib/8964/widgets/square_media_grid.dart',
+    ).readAsStringSync();
+    expect(source, isNot(contains('HttpServer')));
+    expect(source, contains('VideoPlayerController.file(source.file)'));
+    expect(
+      File('ios/Runner/Info.plist').readAsStringSync(),
+      isNot(contains('NSExceptionAllowsInsecureHTTPLoads')),
+    );
+    expect(
+      File(
+        'android/app/src/main/res/xml/network_security_config.xml',
+      ).readAsStringSync(),
+      isNot(contains('cleartextTrafficPermitted="true"')),
+    );
   });
 
   testWidgets('本人帖子头部从UserIsar读取公开昵称，不使用远端头像', (tester) async {

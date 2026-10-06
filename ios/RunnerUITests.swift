@@ -94,6 +94,34 @@ final class RunnerUITests: XCTestCase {
     } else { NSLog("WALLET_APPEND_UI stage=%@ form_ready=1", stage) }
   }
 
+  /// 只把当前冷账户带到既有公民注册面板，确认和外部签名由用户完成。
+  /// 停在确认前，避免测试结束产生已过期请求或保存签名二维码。
+  func testPrepareCurrentColdAccountCidRegistration() throws {
+    #if targetEnvironment(simulator)
+    let app = XCUIApplication(bundleIdentifier: targetBundleIdentifier)
+    app.launch()
+    dismissPermissionGuideIfNeeded(in: app)
+    try requireMainNavigation(in: app)
+    app.buttons.matching(NSPredicate(format:
+      "label BEGINSWITH %@ AND label CONTAINS %@", "我的", "Tab ")).firstMatch.tap()
+    let identity = app.descendants(matching: .any).matching(NSPredicate(format:
+      "label CONTAINS %@ AND label CONTAINS %@", "身份", "注册与查看")).firstMatch
+    XCTAssertTrue(identity.waitForExistence(timeout: 10))
+    identity.tap()
+    let register = app.buttons.matching(NSPredicate(format: "label == %@", "注册")).firstMatch
+    XCTAssertTrue(register.waitForExistence(timeout: 10))
+    register.tap()
+    let citizen = app.descendants(matching: .any).matching(NSPredicate(format:
+      "label CONTAINS %@ AND label CONTAINS %@", "公民", "CTZN")).firstMatch
+    XCTAssertTrue(citizen.waitForExistence(timeout: 10))
+    citizen.tap()
+    XCTAssertTrue(app.buttons["确认注册"].waitForExistence(timeout: 10))
+    NSLog("CID_REGISTRATION_UI confirmation_ready=1")
+    #else
+    throw XCTSkip("本轮注册准备仅用于获准的模拟器冷账户")
+    #endif
+  }
+
   /// 身份展示验收只比较本机内存中的公民号文本，日志仅记录固定步骤和布尔结果。
   func testIdentityLocalDisplayAndRefresh() throws {
     let app = XCUIApplication(bundleIdentifier: targetBundleIdentifier)
@@ -212,11 +240,18 @@ final class RunnerUITests: XCTestCase {
     XCTAssertTrue(wallet.waitForExistence(timeout: 10))
     wallet.tap()
     XCTAssertTrue(exact("我的钱包").waitForExistence(timeout: 10))
-    // “我的钱包”热账户卡由账户操作按钮定位；钱包选择页才有 wallet-hot-row。
+    // 热账户与冷账户使用各自实际菜单定位卡片；冷钱包验收不要求热账户存在。
+    // 菜单只作卡片几何锚点，点击卡片正文进入详情，不触发账户修改操作。
     let accountMenu = app.buttons["账户操作"].firstMatch
-    XCTAssertTrue(accountMenu.waitForExistence(timeout: 10))
+    let coldMenu = app.buttons.matching(identifier: "Show menu")
+    let rowReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+      accountMenu.exists || coldMenu.count == 1
+    }, object: nil)
+    XCTAssertEqual(XCTWaiter.wait(for: [rowReady], timeout: 10), .completed,
+      "未找到热账户或唯一冷钱包卡片")
+    let rowMenu = accountMenu.exists ? accountMenu : coldMenu.firstMatch
     app.coordinate(withNormalizedOffset: .zero).withOffset(
-      CGVector(dx: app.frame.width * 0.4, dy: accountMenu.frame.midY)).tap()
+      CGVector(dx: app.frame.width * 0.4, dy: rowMenu.frame.midY)).tap()
     let history = exact("交易记录")
     if !history.isHittable { app.swipeUp() }
     XCTAssertTrue(history.waitForExistence(timeout: 10))

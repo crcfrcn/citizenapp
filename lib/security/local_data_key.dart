@@ -19,9 +19,6 @@ enum LocalKeyPurpose {
   /// 聊天搜索的 HMAC 分词索引钥（只做 HMAC，不做加解密）。
   chatIndex(2, 'citizenapp.account-data/chat-index'),
 
-  /// OpenMLS 状态信封（含设备签名私钥与群 ratchet 秘密）。
-  mls(3, 'citizenapp.account-data/mls'),
-
   /// 聊天附件本地缓存文件。
   attachment(4, 'citizenapp.account-data/attachment'),
 

@@ -39,6 +39,34 @@ void main() {
   });
 
   group('WalletLinkDispatcher', () {
+    test('HTTP和WS全部来源均拒绝且不调用系统打开', () async {
+      final opened = <Uri>[];
+      final dispatcher = WalletLinkDispatcher(
+        launcher: (uri) async {
+          opened.add(uri);
+          return true;
+        },
+      );
+      for (final source in WalletLinkSource.values) {
+        for (final url in [
+          'http://127.0.0.1/connect',
+          'HTTP://wallet.example/connect',
+          'ws://localhost:9944',
+          'WS://192.168.1.10:9944',
+        ]) {
+          expect(
+            WalletLinkDispatcher.classify(url, source: source).disposition,
+            WalletLinkDisposition.blocked,
+          );
+          expect(
+            await dispatcher.open(url, source: source),
+            WalletLinkOpenResult.blocked,
+          );
+        }
+      }
+      expect(opened, isEmpty);
+    });
+
     test('普通 HTTPS 导航留在 WebView，Reown 钱包打开事件外部化', () {
       final navigation = WalletLinkDispatcher.classify(
         'https://wallet.example/connect',
@@ -114,10 +142,12 @@ void main() {
 
     test('钱包专属链接失效时回退标准 wc URI，不维护品牌兼容表', () async {
       final attempts = <Uri>[];
-      final dispatcher = WalletLinkDispatcher(launcher: (uri) async {
-        attempts.add(uri);
-        return uri.scheme == 'wc';
-      });
+      final dispatcher = WalletLinkDispatcher(
+        launcher: (uri) async {
+          attempts.add(uri);
+          return uri.scheme == 'wc';
+        },
+      );
 
       final result = await dispatcher.open(
         'legacy-wallet://main/wc?uri='
@@ -165,7 +195,8 @@ void main() {
   group('encodeErc20Transfer', () {
     test('按 selector + 32B 地址 + 32B 金额编码', () {
       final data = encodeErc20Transfer('0x${'ab' * 20}', BigInt.from(15000000));
-      final expected = '0xa9059cbb'
+      final expected =
+          '0xa9059cbb'
           '${'0' * 24}${'ab' * 20}'
           '${'0' * 58}e4e1c0';
       expect(data, expected);

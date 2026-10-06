@@ -29,11 +29,8 @@ class ClearingBankNodeEndpoint {
   final int registeredAt;
   final String registeredBy;
 
-  String get wssUrl {
-    final isLocal = rpcDomain == '127.0.0.1' || rpcDomain == 'localhost';
-    final scheme = isLocal ? 'ws' : 'wss';
-    return '$scheme://$rpcDomain:$rpcPort';
-  }
+  /// 所有端点统一使用WSS，不按本机或局域网主机名降级。
+  String get wssUrl => 'wss://$rpcDomain:$rpcPort';
 }
 
 /// 链上清算行声明与 finalized 机构快照的组合结果。
@@ -75,9 +72,9 @@ class ClearingBankDirectory {
   ClearingBankDirectory({
     required CitizenChain chain,
     InstitutionRepository? institutionRepository,
-  })  : _chain = chain,
-        _institutionRepository =
-            institutionRepository ?? InstitutionRepository();
+  }) : _chain = chain,
+       _institutionRepository =
+           institutionRepository ?? InstitutionRepository();
 
   final CitizenChain _chain;
   final InstitutionRepository _institutionRepository;
@@ -92,8 +89,9 @@ class ClearingBankDirectory {
     final candidates = <ClearingBankCandidate>[];
 
     for (final endpoint in endpoints) {
-      final institution =
-          await _institutionRepository.getByCid(endpoint.cidNumber);
+      final institution = await _institutionRepository.getByCid(
+        endpoint.cidNumber,
+      );
       final candidate = await _candidate(endpoint, institution);
       if (keyword.isEmpty ||
           candidate.cidNumber.toLowerCase().contains(keyword) ||
@@ -114,8 +112,9 @@ class ClearingBankDirectory {
     var areaPath = '';
     if (institution != null) {
       try {
-        areaPath =
-            await _institutionRepository.institutionAreaPath(institution);
+        areaPath = await _institutionRepository.institutionAreaPath(
+          institution,
+        );
       } on Exception {
         areaPath = '';
       }
@@ -232,11 +231,7 @@ class ClearingBankDirectory {
     return bytes.toBytes();
   }
 
-  static Uint8List _mapKey(
-    String pallet,
-    String storage,
-    Uint8List keyData,
-  ) {
+  static Uint8List _mapKey(String pallet, String storage, Uint8List keyData) {
     final bytes = BytesBuilder()
       ..add(Hasher.twoxx128.hashString(pallet))
       ..add(Hasher.twoxx128.hashString(storage))
@@ -276,10 +271,7 @@ class ClearingBankDirectory {
     offset += lenSize;
     if (offset + len > bytes.length) return (null, offset);
     try {
-      return (
-        utf8.decode(bytes.sublist(offset, offset + len)),
-        offset + len,
-      );
+      return (utf8.decode(bytes.sublist(offset, offset + len)), offset + len);
     } on FormatException {
       return (null, offset);
     }
@@ -295,7 +287,8 @@ class ClearingBankDirectory {
     }
     if (mode == 2) {
       if (offset + 4 > bytes.length) return (0, 0);
-      final raw = bytes[offset] |
+      final raw =
+          bytes[offset] |
           (bytes[offset + 1] << 8) |
           (bytes[offset + 2] << 16) |
           (bytes[offset + 3] << 24);
@@ -310,5 +303,4 @@ class ClearingBankDirectory {
         (bytes[offset + 2] << 16) |
         (bytes[offset + 3] << 24);
   }
-
 }

@@ -5,7 +5,7 @@ enum WalletLinkSource {
   /// Reown 通过受控 JS bridge 明确请求打开钱包，包括自定义 scheme 与 Universal Link。
   walletOpenBridge,
 
-  /// WebView 主框架直接导航；HTTP(S) 仍留在 WebView，只有钱包自定义 scheme 才外部打开。
+  /// WebView 主框架直接导航；HTTPS 仍留在 WebView，只有钱包自定义 scheme 才外部打开。
   webViewNavigation,
 }
 
@@ -26,12 +26,14 @@ enum WalletLinkOpenResult { opened, invalid, blocked, failed }
 /// WalletConnect 钱包链接分类与系统打开单源。
 class WalletLinkDispatcher {
   WalletLinkDispatcher({required WalletUriLauncher launcher})
-      : _launcher = launcher;
+    : _launcher = launcher;
 
   final WalletUriLauncher _launcher;
 
   /// 这些协议不属于钱包打开能力；即使页面脚本请求，也不得交给系统。
   static const Set<String> _blockedSchemes = {
+    'http',
+    'ws',
     'javascript',
     'data',
     'file',
@@ -65,7 +67,7 @@ class WalletLinkDispatcher {
       return const WalletLinkDecision(WalletLinkDisposition.blocked);
     }
 
-    if (scheme == 'http' || scheme == 'https') {
+    if (scheme == 'https') {
       // 普通网络资源继续由 WebView 加载；只有 Reown 明确发出的钱包打开事件，才把
       // Universal Link 交给系统，不能用域名白名单裁掉 WalletGuide 的其他钱包。
       return WalletLinkDecision(

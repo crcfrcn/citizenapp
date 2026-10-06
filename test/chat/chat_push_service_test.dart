@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:citizenapp/chat/chat_product_configuration.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -146,12 +147,29 @@ void main() {
     final androidManifest = File(
       'android/app/src/main/AndroidManifest.xml',
     ).readAsStringSync();
-    final iosDelegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+    // 按当前锁定依赖定位SDK所有者实现，不读取邻仓或在App复制原生逻辑。
+    final packageConfig = File('.dart_tool/package_config.json');
+    final packages =
+        (jsonDecode(packageConfig.readAsStringSync())
+                as Map<String, dynamic>)['packages']
+            as List<dynamic>;
+    final sdk = packages
+        .cast<Map<String, dynamic>>()
+        .where((value) => value['name'] == 'tatachat_sdk')
+        .single;
+    final sdkRoot = Uri.directory(
+      File.fromUri(
+        packageConfig.absolute.uri.resolve(sdk['rootUri'] as String),
+      ).path,
+    );
+    final iosPlugin = File.fromUri(
+      sdkRoot.resolve('ios/TataChatSdkPlugin.swift'),
+    ).readAsStringSync();
     expect(androidManifest, contains('android:allowBackup="false"'));
-    expect(iosDelegate, contains('isExcludedFromBackup = true'));
-    expect(iosDelegate, contains('appendingPathComponent("chat"'));
-    expect(iosDelegate, contains('hasPrefix("tatachat_sdk_chat")'));
-    expect(iosDelegate, contains('case "excludeChatDataFromBackup"'));
+    expect(iosPlugin, contains('isExcludedFromBackup = true'));
+    expect(iosPlugin, contains('appendingPathComponent("chat"'));
+    expect(iosPlugin, contains('hasPrefix("tatachat_sdk_chat.isar.")'));
+    expect(iosPlugin, contains('call.method == "excludeChatDataFromBackup"'));
   });
 
   test('推送端点缓存同时绑定服务类型、APNs 环境和 Token', () {

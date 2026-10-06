@@ -35,8 +35,8 @@ final class SquareProcessedMediaBatch {
     required List<SquareLocalMediaDraft> mediaDrafts,
     required List<SquareMediaDerivative> derivatives,
     required this.temporaryDirectory,
-  })  : mediaDrafts = List.unmodifiable(mediaDrafts),
-        derivatives = List.unmodifiable(derivatives);
+  }) : mediaDrafts = List.unmodifiable(mediaDrafts),
+       derivatives = List.unmodifiable(derivatives);
 
   final List<SquareLocalMediaDraft> mediaDrafts;
   final List<SquareMediaDerivative> derivatives;
@@ -73,24 +73,24 @@ final class SquareVideoTranscodeRequest {
   final SquareMediaPolicy policy;
 
   Map<String, Object?> toChannelArguments() => <String, Object?>{
-        'input_path': inputPath,
-        'output_path': outputPath,
-        'cover_path': coverPath,
-        'max_width': policy.videoLongSide,
-        'max_height': policy.videoShortSide,
-        'video_bitrate': policy.videoBitrate,
-        'total_peak_bitrate': policy.videoPeakBitrate,
-        'audio_bitrate': policy.audioBitrate,
-        'audio_sample_rate': SquareMediaPolicy.audioSampleRate,
-        'max_frame_rate': SquareMediaPolicy.videoMaxFrameRate,
-        'key_frame_interval_seconds':
-            SquareMediaPolicy.videoKeyFrameIntervalSeconds,
-        'max_duration_seconds': policy.maxVideoSeconds,
-        'max_bytes': policy.maxVideoBytes,
-        'cover_max_edge': SquareMediaPolicy.videoCoverMaxEdge,
-        'cover_quality': SquareMediaPolicy.videoCoverQuality,
-        'cover_max_bytes': SquareMediaPolicy.videoCoverMaxBytes,
-      };
+    'input_path': inputPath,
+    'output_path': outputPath,
+    'cover_path': coverPath,
+    'max_width': policy.videoLongSide,
+    'max_height': policy.videoShortSide,
+    'video_bitrate': policy.videoBitrate,
+    'total_peak_bitrate': policy.videoPeakBitrate,
+    'audio_bitrate': policy.audioBitrate,
+    'audio_sample_rate': SquareMediaPolicy.audioSampleRate,
+    'max_frame_rate': SquareMediaPolicy.videoMaxFrameRate,
+    'key_frame_interval_seconds':
+        SquareMediaPolicy.videoKeyFrameIntervalSeconds,
+    'max_duration_seconds': policy.maxVideoSeconds,
+    'max_bytes': policy.maxVideoBytes,
+    'cover_max_edge': SquareMediaPolicy.videoCoverMaxEdge,
+    'cover_quality': SquareMediaPolicy.videoCoverQuality,
+    'cover_max_bytes': SquareMediaPolicy.videoCoverMaxBytes,
+  };
 }
 
 final class SquareVideoTranscodeResult {
@@ -166,6 +166,48 @@ final class MethodChannelSquareVideoBridge implements SquareVideoBridge {
 
   static const _channel = MethodChannel('citizenapp/square_media');
 
+  /// 原生先建立文件保护，再允许写入媒体；没有平台实现时直接失败。
+  Future<File> preparePlaybackFile(int byteSize) async {
+    if (byteSize <= 0 || byteSize > SquareMediaPolicy.spark.maxVideoBytes) {
+      throw const FormatException('本地视频大小无效');
+    }
+    final path = await _channel.invokeMethod<String>('prepare_playback_file', {
+      'byte_size': byteSize,
+    });
+    if (path == null || !path.startsWith('/')) {
+      throw const FormatException('本地播放文件响应无效');
+    }
+    final file = File(path);
+    try {
+      if (await FileSystemEntity.type(path, followLinks: false) !=
+              FileSystemEntityType.file ||
+          await file.resolveSymbolicLinks() != path) {
+        throw const FormatException('本地播放文件响应无效');
+      }
+      return file;
+    } on Object {
+      await deletePlaybackFile(file);
+      rethrow;
+    }
+  }
+
+  Future<void> verifyPlaybackFile(File file, int byteSize) =>
+      _channel.invokeMethod<void>('verify_playback_file', {
+        'output_path': file.path,
+        'byte_size': byteSize,
+      });
+
+  /// 删除只由原生校验归属后执行，Dart再次回读，失败不得伪装成功。
+  Future<void> deletePlaybackFile(File file) async {
+    await _channel.invokeMethod<void>('delete_playback_file', {
+      'output_path': file.path,
+    });
+    if (await FileSystemEntity.type(file.path, followLinks: false) !=
+        FileSystemEntityType.notFound) {
+      throw StateError('本地播放文件清理失败');
+    }
+  }
+
   @override
   Future<SquareVideoCapability> capabilities() async {
     final raw = await _channel.invokeMapMethod<String, Object?>('capabilities');
@@ -192,13 +234,14 @@ final class MethodChannelSquareVideoBridge implements SquareVideoBridge {
 }
 
 typedef SquareTemporaryDirectoryFactory = Future<Directory> Function();
-typedef SquareImageCompressOperation = Future<XFile?> Function({
-  required String inputPath,
-  required String outputPath,
-  required int width,
-  required int height,
-  required int quality,
-});
+typedef SquareImageCompressOperation =
+    Future<XFile?> Function({
+      required String inputPath,
+      required String outputPath,
+      required int width,
+      required int height,
+      required int quality,
+    });
 
 /// 广场唯一手机端媒体处理入口；原始草稿永不原地覆盖。
 final class SquareMediaProcessor {
@@ -206,11 +249,11 @@ final class SquareMediaProcessor {
     SquareVideoBridge? videoBridge,
     SquareTemporaryDirectoryFactory? temporaryDirectoryFactory,
     SquareImageCompressOperation? imageCompressOperation,
-  })  : _videoBridge = videoBridge ?? const MethodChannelSquareVideoBridge(),
-        _temporaryDirectoryFactory =
-            temporaryDirectoryFactory ?? _defaultTemporaryDirectory,
-        _imageCompressOperation =
-            imageCompressOperation ?? _defaultImageCompress;
+  }) : _videoBridge = videoBridge ?? const MethodChannelSquareVideoBridge(),
+       _temporaryDirectoryFactory =
+           temporaryDirectoryFactory ?? _defaultTemporaryDirectory,
+       _imageCompressOperation =
+           imageCompressOperation ?? _defaultImageCompress;
 
   final SquareVideoBridge _videoBridge;
   final SquareTemporaryDirectoryFactory _temporaryDirectoryFactory;
@@ -291,8 +334,10 @@ final class SquareMediaProcessor {
       primaryOutputSize.height,
       SquareMediaPolicy.imageThumbnailMaxEdge,
     );
-    final thumbnailPath =
-        path.join(temporaryDirectory.path, '${mediaIndex}_thumbnail.webp');
+    final thumbnailPath = path.join(
+      temporaryDirectory.path,
+      '${mediaIndex}_thumbnail.webp',
+    );
     final thumbnail = await _compressImageWithinLimit(
       inputPath: primary.path,
       outputPath: thumbnailPath,
@@ -340,8 +385,10 @@ final class SquareMediaProcessor {
       throw const FormatException('当前设备不能可靠解码 HEVC，不能发布视频');
     }
     final outputPath = path.join(temporaryDirectory.path, '$mediaIndex.mp4');
-    final coverSourcePath =
-        path.join(temporaryDirectory.path, '${mediaIndex}_cover_source.png');
+    final coverSourcePath = path.join(
+      temporaryDirectory.path,
+      '${mediaIndex}_cover_source.png',
+    );
     final result = await _videoBridge.transcode(
       SquareVideoTranscodeRequest(
         inputPath: draft.path,
@@ -367,8 +414,10 @@ final class SquareMediaProcessor {
       coverSourceSize.height,
       SquareMediaPolicy.videoCoverMaxEdge,
     );
-    final coverPath =
-        path.join(temporaryDirectory.path, '${mediaIndex}_cover.webp');
+    final coverPath = path.join(
+      temporaryDirectory.path,
+      '${mediaIndex}_cover.webp',
+    );
     final cover = await _compressImageWithinLimit(
       inputPath: coverSourcePath,
       outputPath: coverPath,

@@ -34,11 +34,8 @@ class ClearingBankBindingSnapshot {
   final int boundAtMs;
   final int lastVerifiedAtMs;
 
-  String get wssUrl {
-    final isLocal = rpcDomain == '127.0.0.1' || rpcDomain == 'localhost';
-    final scheme = isLocal ? 'ws' : 'wss';
-    return '$scheme://$rpcDomain:$rpcPort';
-  }
+  /// 本机、局域网与公网端点统一使用WSS，不按主机名降级。
+  String get wssUrl => 'wss://$rpcDomain:$rpcPort';
 
   String get displayTitle {
     final cidShort = cidShortName.trim();
@@ -48,17 +45,17 @@ class ClearingBankBindingSnapshot {
   }
 
   Map<String, dynamic> toJson() => {
-        'cid_number': cidNumber,
-        'cid_full_name': cidFullName,
-        'cid_short_name': cidShortName,
-        'main_account_id': mainAccountId,
-        'fee_account_id': feeAccountId,
-        'peer_id': peerId,
-        'rpc_domain': rpcDomain,
-        'rpc_port': rpcPort,
-        'bound_at_ms': boundAtMs,
-        'last_verified_at_ms': lastVerifiedAtMs,
-      };
+    'cid_number': cidNumber,
+    'cid_full_name': cidFullName,
+    'cid_short_name': cidShortName,
+    'main_account_id': mainAccountId,
+    'fee_account_id': feeAccountId,
+    'peer_id': peerId,
+    'rpc_domain': rpcDomain,
+    'rpc_port': rpcPort,
+    'bound_at_ms': boundAtMs,
+    'last_verified_at_ms': lastVerifiedAtMs,
+  };
 
   factory ClearingBankBindingSnapshot.fromJson(Map<String, dynamic> json) {
     return ClearingBankBindingSnapshot(
@@ -91,7 +88,7 @@ class ClearingBankPrefs {
 
   @visibleForTesting
   static Future<bool> Function(SharedPreferences prefs, String key)?
-      debugRemoveForTest;
+  debugRemoveForTest;
 
   /// 写入完整绑定快照。[accountId] 为该绑定账户的链账户主键(0x+64hex)。
   static Future<void> saveSnapshot(
@@ -134,8 +131,9 @@ class ClearingBankPrefs {
     final key = '$_keyPrefix$accountId';
     if (!prefs.containsKey(key)) return;
     final remove = debugRemoveForTest;
-    final removed =
-        await (remove == null ? prefs.remove(key) : remove(prefs, key));
+    final removed = await (remove == null
+        ? prefs.remove(key)
+        : remove(prefs, key));
     if (!removed) {
       throw StateError('清算行缓存删除未提交');
     }

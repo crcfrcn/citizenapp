@@ -1,4 +1,5 @@
 import '../support/fake_citizen_sdk.dart';
+
 import 'package:citizenapp/chat/tatachat_sdk_adapter.dart';
 
 import 'dart:convert';
@@ -38,7 +39,6 @@ class _TestBinding extends AccountDataBinding implements ChatDataBinding {
 class _TargetHandoverKeyFailureWalletManager implements AccountSecurityService {
   final List<Uint8List> sourceKeys = <Uint8List>[
     Uint8List.fromList(List<int>.filled(32, 17)),
-    Uint8List.fromList(List<int>.filled(32, 29)),
   ];
 
   @override
@@ -85,144 +85,56 @@ void main() {
     });
   });
 
-  group('Chat 设备身份 CID 隔离', () {
-    test('不同 CID 使用不同 device_id 缓存键', () {
-      final aId = ChatRuntimeCore.deviceIdPreferenceKey('CID-A');
-      final bId = ChatRuntimeCore.deviceIdPreferenceKey('CID-B');
-      expect(aId, isNot(bId));
-      expect(aId, contains('chat.by_user.CID-A'));
-    });
+  test('SDK用户标识始终映射公民CID，MLS不在宿主供钥用途中', () {
+    const binding = AccountDataBinding(
+      genesisHash:
+          '0x'
+          '1111111111111111111111111111111111111111111111111111111111111111',
+      cidNumber: 'CN220-CTZN2-100000001-2026',
+      bindingRevision: 1,
+      accountId:
+          '0x'
+          'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    );
+    expect(
+      CitizenChatStorageKeyProvider.toChatBinding(binding).userId,
+      binding.cidNumber,
+    );
+    expect(ChatStorageKeyPurpose.values.map((e) => e.name), [
+      'chat',
+      'chatIndex',
+      'attachment',
+    ]);
   });
 
-  group('Chat 换绑用途钥清理', () {
-    late Directory deviceDirectory;
-
-    setUp(() async {
-      deviceDirectory = await Directory.systemTemp.createTemp(
-        'citizenapp_mls_handover_keys_',
-      );
-    });
-
-    tearDown(() async {
-      if (await deviceDirectory.exists()) {
-        await deviceDirectory.delete(recursive: true);
-      }
-    });
-
-    test('MLS native 与 Dart 预演成功后清零两份临时钥副本', () async {
-      final source = Uint8List.fromList(List<int>.filled(32, 31));
-      final target = Uint8List.fromList(List<int>.filled(32, 47));
-      late Uint8List nativeSourceCopy;
-      late Uint8List nativeTargetCopy;
-      late Uint8List storeSourceCopy;
-      late Uint8List pendingTargetCopy;
-
-      await ChatRuntimeCore.debugStageMlsDeviceHandoverForTest(
-        deviceDirectory: deviceDirectory,
-        ownerUserId: 'CN220-CTZN2-100000001-2026',
-        sourceStateKey: source,
-        targetStateKey: target,
-        runNativeRekey: (sourceCopy, targetCopy) {
-          nativeSourceCopy = sourceCopy;
-          nativeTargetCopy = targetCopy;
-          expect(sourceCopy, everyElement(31));
-          expect(targetCopy, everyElement(47));
-        },
-        stagePending: (store, targetCopy) async {
-          storeSourceCopy = store.stateKey;
-          pendingTargetCopy = targetCopy;
-          expect(store.stateKey, everyElement(31));
-          expect(targetCopy, everyElement(47));
-        },
-      );
-
-      expect(identical(nativeSourceCopy, storeSourceCopy), isTrue);
-      expect(identical(nativeTargetCopy, pendingTargetCopy), isTrue);
-      expect(nativeSourceCopy, everyElement(0));
-      expect(nativeTargetCopy, everyElement(0));
-      expect(source, everyElement(31), reason: '外层用途钥由外层 finally 单独管理');
-      expect(target, everyElement(47), reason: '设备预演只清零自己的短命副本');
-    });
-
-    test('MLS native 预演失败仍清零 source/target 副本且不进入 Dart', () async {
-      final source = Uint8List.fromList(List<int>.filled(32, 53));
-      final target = Uint8List.fromList(List<int>.filled(32, 59));
-      late Uint8List nativeSourceCopy;
-      late Uint8List nativeTargetCopy;
-      var pendingCalled = false;
-
-      await expectLater(
-        ChatRuntimeCore.debugStageMlsDeviceHandoverForTest(
-          deviceDirectory: deviceDirectory,
-          ownerUserId: 'CN220-CTZN2-100000001-2026',
-          sourceStateKey: source,
-          targetStateKey: target,
-          runNativeRekey: (sourceCopy, targetCopy) {
-            nativeSourceCopy = sourceCopy;
-            nativeTargetCopy = targetCopy;
-            throw StateError('native-rekey-failed');
-          },
-          stagePending: (MlsStateStore store, Uint8List targetCopy) async {
-            pendingCalled = true;
-          },
-        ),
-        throwsA(isA<StateError>()),
-      );
-
-      expect(pendingCalled, isFalse);
-      expect(nativeSourceCopy, everyElement(0));
-      expect(nativeTargetCopy, everyElement(0));
-    });
-
-    test('MLS Dart pending 预演失败仍 dispose Store 并清零目标副本', () async {
-      final source = Uint8List.fromList(List<int>.filled(32, 61));
-      final target = Uint8List.fromList(List<int>.filled(32, 67));
-      late Uint8List nativeSourceCopy;
-      late Uint8List nativeTargetCopy;
-      late Uint8List storeSourceCopy;
-
-      await expectLater(
-        ChatRuntimeCore.debugStageMlsDeviceHandoverForTest(
-          deviceDirectory: deviceDirectory,
-          ownerUserId: 'CN220-CTZN2-100000001-2026',
-          sourceStateKey: source,
-          targetStateKey: target,
-          runNativeRekey: (sourceCopy, targetCopy) {
-            nativeSourceCopy = sourceCopy;
-            nativeTargetCopy = targetCopy;
-          },
-          stagePending: (store, targetCopy) async {
-            storeSourceCopy = store.stateKey;
-            expect(targetCopy, same(nativeTargetCopy));
-            throw StateError('dart-pending-rekey-failed');
-          },
-        ),
-        throwsA(isA<StateError>()),
-      );
-
-      expect(storeSourceCopy, same(nativeSourceCopy));
-      expect(storeSourceCopy, everyElement(0));
-      expect(nativeTargetCopy, everyElement(0));
-    });
-
+  group('Chat换绑只处理剩余非MLS用途', () {
     test('目标用途钥取得失败时立即清零已经取得的来源用途钥', () async {
       const source = _TestBinding(
-        genesisHash: '0x1111111111111111111111111111111111111111111111111111111111111111',
+        genesisHash:
+            '0x1111111111111111111111111111111111111111111111111111111111111111',
         cidNumber: 'CN220-CTZN2-100000001-2026',
         bindingRevision: 1,
-        accountId: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        accountId:
+            '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       );
       const target = _TestBinding(
-        genesisHash: '0x1111111111111111111111111111111111111111111111111111111111111111',
+        genesisHash:
+            '0x1111111111111111111111111111111111111111111111111111111111111111',
         cidNumber: 'CN220-CTZN2-100000001-2026',
         bindingRevision: 2,
-        accountId: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        accountId:
+            '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
       );
       final walletManager = _TargetHandoverKeyFailureWalletManager();
       final store = ChatStore(
         crypto: ChatCrypto(CitizenChatStorageKeyProvider(walletManager)),
       );
       await store.activateBindingFence(source);
+      // 文件域仅使用本用例临时目录，失败验收不能读写真实设备数据。
+      final deviceDirectory = await Directory.systemTemp.createTemp(
+        'citizenapp_mls_boundary_',
+      );
+      addTearDown(() => deviceDirectory.delete(recursive: true));
       final currentUserContext = _UnusedCurrentUserContext();
       final runtime = createCitizenChatRuntime(
         store: store,
@@ -339,7 +251,8 @@ void main() {
         sessionToken: 'session-a',
         cidNumber: 'CN220-CTZN2-100000001-2026',
         bindingRevision: 1,
-        accountId: '0x1111111111111111111111111111111111111111111111111111111111111111',
+        accountId:
+            '0x1111111111111111111111111111111111111111111111111111111111111111',
         expiresAt: 4102444800000,
         signRequest: (_) async => 'request-signature',
       ),
@@ -373,7 +286,8 @@ void main() {
           sessionToken: 'session-a',
           cidNumber: 'CN220-CTZN2-100000001-2026',
           bindingRevision: 1,
-          accountId: '0x1111111111111111111111111111111111111111111111111111111111111111',
+          accountId:
+              '0x1111111111111111111111111111111111111111111111111111111111111111',
           expiresAt: 4102444800000,
           signRequest: (_) async => 'request-signature',
         ),
@@ -405,7 +319,8 @@ void main() {
           sessionToken: 'session-a',
           cidNumber: 'CN220-CTZN2-100000001-2026',
           bindingRevision: 1,
-          accountId: '0x1111111111111111111111111111111111111111111111111111111111111111',
+          accountId:
+              '0x1111111111111111111111111111111111111111111111111111111111111111',
           expiresAt: 4102444800000,
           signRequest: (_) async => 'request-signature',
         ),

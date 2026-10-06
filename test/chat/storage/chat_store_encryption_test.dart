@@ -238,6 +238,65 @@ class _FailIfEmptyChatOpensKeys extends ChatCrypto {
 /// 语义与解码后摘要的 `contains` 完全一致（含假阳性必须被复验滤掉）。
 void main() {
   useIsolatedIsar();
+  // 合成保护存储替身只验证交接收据合同；不能替代原生或平台存储验收。
+  late Directory mlsFixture;
+  setUp(() async {
+    mlsFixture = await Directory.systemTemp.createTemp(
+      'citizenapp_mls_receipts_',
+    );
+    final root = await mlsFixture.resolveSymbolicLinks();
+    final stores = <String, MlsStateStore>{};
+    MlsStateStore.debugPrepare = (user) async {
+      final existing = stores[user];
+      if (existing != null) {
+        return MlsStateStore(
+          existing.directory,
+          ownerUserId: user,
+          debugCallJson: existing.debugCallJson,
+        );
+      }
+      final directory = await Directory(
+        '$root/${Uri.encodeComponent(user)}',
+      ).create();
+      final receipts = <String, List<String>>{};
+      var initialized = false;
+      final store = MlsStateStore(
+        directory,
+        ownerUserId: user,
+        newlyCreated: true,
+        debugCallJson: (request) {
+          final action = request['action'];
+          if (action == 'initialize' || action == 'read') {
+            if (action == 'initialize') {
+              if (initialized) throw StateError('already initialized');
+              initialized = true;
+            }
+            if (!initialized) throw StateError('missing identity');
+            return {
+              'user_id': user,
+              'device_id': List.filled(64, '1').join(),
+              'public_key': '0x${List.filled(64, '1').join()}',
+            };
+          }
+          final id = request['handover_id'] as String;
+          if (action == 'write_receipt') {
+            final values = receipts.putIfAbsent(id, () => []);
+            final payload = request['payload_json'] as String;
+            if (!values.contains(payload)) values.add(payload);
+          }
+          if (action == 'read_receipt') return {'payload_json': receipts[id]};
+          if (action == 'delete_receipt') receipts.remove(id);
+          return {'ok': true};
+        },
+      );
+      stores[user] = store;
+      return store;
+    };
+  });
+  tearDown(() async {
+    MlsStateStore.debugPrepare = null;
+    if (await mlsFixture.exists()) await mlsFixture.delete(recursive: true);
+  });
 
   const accountId =
       '0x'
@@ -1736,7 +1795,7 @@ void main() {
     final stagedPayload = receiptPayload(fixture.receipt);
     expect(stagedPayload['state'], 'staged');
     expect(stagedPayload['files'], isEmpty);
-    expect(stagedPayload['mls_devices'], isEmpty);
+    expect(stagedPayload.keys.toSet(), {'state', 'source', 'target', 'files'});
 
     final fixedModified = DateTime.utc(2001, 1, 1);
     await fixture.receipt.setLastModified(fixedModified);
@@ -1833,14 +1892,17 @@ void main() {
     expect(fixture.targetDirectory.existsSync(), isFalse);
   });
 
-  test('文件域 receipt MAC 被篡改时 commit fail-closed', () async {
+  test('文件域receipt内容与受保护记录不一致时commit拒绝', () async {
     final fixture = await createRuntimeHandoverFixture();
     await fixture.runtime.stageAccountHandover(
       source: handoverSource,
       target: handoverTarget,
     );
     final message = receiptMessage(fixture.receipt);
-    message['mac'] = List<String>.filled(64, '0').join();
+    final payload =
+        jsonDecode(message['payload_json'] as String) as Map<String, dynamic>;
+    payload['state'] = 'committing';
+    message['payload_json'] = jsonEncode(payload);
     await fixture.receipt.writeAsString(jsonEncode(message), flush: true);
     fixture.manager.activeBinding = handoverTarget;
 
@@ -1894,13 +1956,15 @@ void main() {
       isTrue,
     );
     expect(
-      Directory('${fixture.targetDirectory.path}/attachments/.plain')
-          .existsSync(),
+      Directory(
+        '${fixture.targetDirectory.path}/attachments/.plain',
+      ).existsSync(),
       isFalse,
     );
     expect(
-      Directory('${fixture.targetDirectory.path}/attachments/.tmp')
-          .existsSync(),
+      Directory(
+        '${fixture.targetDirectory.path}/attachments/.tmp',
+      ).existsSync(),
       isFalse,
     );
   });
@@ -1946,8 +2010,9 @@ void main() {
           return failingStore;
         },
       );
-      await File('${fixture.sourceDirectory.path}/cipher-marker.bin')
-          .create(recursive: true);
+      await File(
+        '${fixture.sourceDirectory.path}/cipher-marker.bin',
+      ).create(recursive: true);
       await fixture.runtime.stageAccountHandover(
         source: handoverSource,
         target: handoverTarget,

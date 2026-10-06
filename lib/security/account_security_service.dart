@@ -42,43 +42,48 @@ final class ContactKeyMaterial {
   }
 }
 
-typedef AccountSubkeyRegistrar = Future<void> Function({
-  required String cidNumber,
-  required int bindingRevision,
-  required String accountId,
-  required Future<String> Function({
-    required Uint8List payload,
-    required Uint8List signingMessage,
-    required String devicePublicKey,
-    required int issuedAtMillis,
-  })
-  signBinding,
-});
+typedef AccountSubkeyRegistrar =
+    Future<void> Function({
+      required String cidNumber,
+      required int bindingRevision,
+      required String accountId,
+      required Future<String> Function({
+        required Uint8List payload,
+        required Uint8List signingMessage,
+        required String devicePublicKey,
+        required int issuedAtMillis,
+      })
+      signBinding,
+    });
 
-typedef ColdDeviceBindingSigner = Future<String> Function({
-  required AccountDataBinding binding,
-  required Uint8List payload,
-  required Uint8List signingMessage,
-  required String devicePublicKey,
-  required int issuedAtMillis,
-});
+typedef ColdDeviceBindingSigner =
+    Future<String> Function({
+      required AccountDataBinding binding,
+      required Uint8List payload,
+      required Uint8List signingMessage,
+      required String devicePublicKey,
+      required int issuedAtMillis,
+    });
 
-typedef ColdAccountDataKeyProvider = Future<List<Uint8List>> Function({
-  required AccountDataBinding binding,
-  required List<DataKeyRequest> requests,
-});
+typedef ColdAccountDataKeyProvider =
+    Future<List<Uint8List>> Function({
+      required AccountDataBinding binding,
+      required List<DataKeyRequest> requests,
+    });
 
-typedef AccountDataKeyDerive = Future<Uint8List> Function({
-  required CitizenSdkWallet wallet,
-  required AccountDataBinding binding,
-  required LocalKeyPurpose purpose,
-  String? context,
-});
-typedef AccountDataKeyDeriveBatch = Future<List<Uint8List>> Function({
-  required CitizenSdkWallet wallet,
-  required AccountDataBinding binding,
-  required List<DataKeyRequest> requests,
-});
+typedef AccountDataKeyDerive =
+    Future<Uint8List> Function({
+      required CitizenSdkWallet wallet,
+      required AccountDataBinding binding,
+      required LocalKeyPurpose purpose,
+      String? context,
+    });
+typedef AccountDataKeyDeriveBatch =
+    Future<List<Uint8List>> Function({
+      required CitizenSdkWallet wallet,
+      required AccountDataBinding binding,
+      required List<DataKeyRequest> requests,
+    });
 
 /// CitizenApp 的 CID 绑定、P-256 设备子钥与用途钥业务。
 ///
@@ -135,7 +140,6 @@ interface class AccountSecurityService {
   static const List<DataKeyRequest> _deviceDataKeyRequests = <DataKeyRequest>[
     (purpose: LocalKeyPurpose.chat, context: null),
     (purpose: LocalKeyPurpose.chatIndex, context: null),
-    (purpose: LocalKeyPurpose.mls, context: null),
     (purpose: LocalKeyPurpose.attachment, context: null),
     (purpose: LocalKeyPurpose.contactsLocal, context: null),
     (purpose: LocalKeyPurpose.contactsCloud, context: 'encryption'),
@@ -160,13 +164,11 @@ interface class AccountSecurityService {
   Future<ContactKeyMaterial> contactKeyMaterialForBinding(
     AccountDataBinding binding,
   ) async {
-    final keys = await deriveDataKeysForBindingHandover(
-      binding,
-      const <DataKeyRequest>[
-        (purpose: LocalKeyPurpose.contactsCloud, context: 'encryption'),
-        (purpose: LocalKeyPurpose.contactsCloud, context: 'index'),
-      ],
-    );
+    final keys =
+        await deriveDataKeysForBindingHandover(binding, const <DataKeyRequest>[
+          (purpose: LocalKeyPurpose.contactsCloud, context: 'encryption'),
+          (purpose: LocalKeyPurpose.contactsCloud, context: 'index'),
+        ]);
     return ContactKeyMaterial(encryptionKey: keys[0], indexKey: keys[1]);
   }
 

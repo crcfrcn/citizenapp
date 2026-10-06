@@ -62,8 +62,9 @@ class _MemoryStore implements LocalKeyBlobStore {
     if (entries[key] != expected) return false;
     if (dropAuthorizationClaim &&
         next != null &&
-        next.contains('"state":"authorizing"'))
+        next.contains('"state":"authorizing"')) {
       return true;
+    }
     if (next == null) {
       entries.remove(key);
     } else {
@@ -235,23 +236,24 @@ void main() {
       wallet: wallet,
       signing: _CleanupSigning(),
       blobStore: store,
-      subkeyRegistrar: ({
-        required cidNumber,
-        required bindingRevision,
-        required accountId,
-        required signBinding,
-      }) async => throw StateError('不应注册子钥'),
-      coldDeviceBindingSigner: ({
-        required binding,
-        required payload,
-        required signingMessage,
-        required devicePublicKey,
-        required issuedAtMillis,
-      }) async => throw StateError('不应冷签'),
-      coldAccountDataKeyProvider: ({
-        required binding,
-        required requests,
-      }) async => throw StateError('不应派生'),
+      subkeyRegistrar:
+          ({
+            required cidNumber,
+            required bindingRevision,
+            required accountId,
+            required signBinding,
+          }) async => throw StateError('不应注册子钥'),
+      coldDeviceBindingSigner:
+          ({
+            required binding,
+            required payload,
+            required signingMessage,
+            required devicePublicKey,
+            required issuedAtMillis,
+          }) async => throw StateError('不应冷签'),
+      coldAccountDataKeyProvider:
+          ({required binding, required requests}) async =>
+              throw StateError('不应派生'),
     );
     final ids = ['0x${'01' * 32}', '0x${'02' * 32}'];
     try {
@@ -383,7 +385,8 @@ void main() {
         genesisHash: genesisHash,
         cidNumber: 'CN220-CTZN2-198805201-2026',
         bindingRevision: 1,
-        accountId: '0x3333333333333333333333333333333333333333333333333333333333333333',
+        accountId:
+            '0x3333333333333333333333333333333333333333333333333333333333333333',
       );
 
       await bindingStore.activate(firstBinding);
@@ -498,7 +501,8 @@ void main() {
           accountId: secondAccountId,
         ),
         const AccountDataBinding(
-          genesisHash: '0x2222222222222222222222222222222222222222222222222222222222222222',
+          genesisHash:
+              '0x2222222222222222222222222222222222222222222222222222222222222222',
           cidNumber: cidNumber,
           bindingRevision: 2,
           accountId: secondAccountId,
@@ -533,9 +537,9 @@ void main() {
         source: firstBinding,
         target: secondBinding,
       );
-      final decoded = jsonDecode(
-        store.entries[AccountDataBindingStore.pendingHandoverKey]!,
-      ) as Map<String, dynamic>;
+      final decoded =
+          jsonDecode(store.entries[AccountDataBindingStore.pendingHandoverKey]!)
+              as Map<String, dynamic>;
       (decoded['target'] as Map<String, dynamic>)['binding_revision'] = 3;
       store.entries[AccountDataBindingStore.pendingHandoverKey] = jsonEncode(
         decoded,
@@ -585,17 +589,17 @@ void main() {
           }),
         ),
       ).register,
-      coldDeviceBindingSigner: ({
-        required binding,
-        required payload,
-        required signingMessage,
-        required devicePublicKey,
-        required issuedAtMillis,
-      }) async => throw StateError('不应冷签'),
-      coldAccountDataKeyProvider: ({
-        required binding,
-        required requests,
-      }) async => throw StateError('不应冷派生'),
+      coldDeviceBindingSigner:
+          ({
+            required binding,
+            required payload,
+            required signingMessage,
+            required devicePublicKey,
+            required issuedAtMillis,
+          }) async => throw StateError('不应冷签'),
+      coldAccountDataKeyProvider:
+          ({required binding, required requests}) async =>
+              throw StateError('不应冷派生'),
     );
     const chatRequest = <DataKeyRequest>[
       (purpose: LocalKeyPurpose.chat, context: null),
@@ -631,7 +635,7 @@ void main() {
       );
     });
     tearDown(() => service.dispose());
-    test('普通读取不授权，首次并发准备一次，重启七用途静默可读', () async {
+    test('普通读取不授权，首次并发准备一次，重启六项非MLS材料静默可读', () async {
       await expectLater(
         service.readDataKeysForBinding(firstBinding, chatRequest),
         throwsA(isA<DeviceDataKeyVaultException>()),
@@ -644,7 +648,7 @@ void main() {
         ),
       );
       expect(wallet.batchCalls, 1);
-      expect(vault.sealCalls, 7);
+      expect(vault.sealCalls, 6);
       final restarted = makeService();
       try {
         for (final purpose in LocalKeyPurpose.values) {
@@ -708,7 +712,7 @@ void main() {
         restarted.dispose();
       }
     });
-    test('登记与七用途派生一次授权，网络失败保留本地钥，重启不重新派生', () async {
+    test('登记与六项非MLS材料派生一次授权，网络失败保留本地钥，重启不重新派生', () async {
       final registering = makeService(registrationFails: true);
       try {
         await expectLater(
@@ -719,7 +723,7 @@ void main() {
           throwsA(isA<StateError>()),
         );
         expect(wallet.batchCalls, 1);
-        expect(vault.sealCalls, 7);
+        expect(vault.sealCalls, 6);
         final keys = await registering.readDataKeysForBinding(
           firstBinding,
           chatRequest,

@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -153,9 +152,9 @@ class SquareMediaTile extends StatelessWidget {
   );
 }
 
-/// 广场单版本HEVC播放器，本地来源只通过数据库Range适配读取。
+/// 广场单版本HEVC播放器，本地来源只通过受保护的临时文件读取。
 ///
-/// Feed 只渲染封面；详情页点击后才检查设备解码能力并初始化。本地来源按范围读库，
+/// Feed 只渲染封面；详情页点击后才检查设备解码能力并初始化。本地来源逐块校验后写入受保护文件，
 /// 他人公开来源使用HTTPS；两者均不生成或切换不存在的多清晰度版本。
 class SquareVideo extends StatefulWidget {
   const SquareVideo({
@@ -176,6 +175,8 @@ class SquareVideo extends StatefulWidget {
 class _SquareVideoState extends State<SquareVideo> {
   VideoPlayerController? _controller;
   SquareLocalVideoSource? _localSource;
+  Future<void>? _initializationInProgress;
+  Future<bool>? _resetInProgress;
   int _initializationGeneration = 0;
   bool _initializing = false;
   bool _isBuffering = false;
@@ -192,22 +193,50 @@ class _SquareVideoState extends State<SquareVideo> {
     }
   }
 
-  Future<void> _reset() async {
+  Future<bool> _reset() {
     _initializationGeneration++;
-    final previous = _controller;
-    final source = _localSource;
-    _localSource = null;
-    previous?.removeListener(_handleControllerValueChanged);
-    _controller = null;
-    _initializing = false;
-    _isBuffering = false;
-    _failureMessage = null;
-    if (previous != null) await previous.dispose();
-    await source?.close();
-    if (mounted) setState(() {});
+    _initializing = true;
+    return _resetInProgress ??= _resetResources();
   }
 
-  Future<void> _initializeAndPlay() async {
+  Future<bool> _resetResources() async {
+    // 初始化自己持有资源；等它响应取消并清理后，再处理已就绪的播放器。
+    await _initializationInProgress;
+    final previous = _controller;
+    final source = _localSource;
+    previous?.removeListener(_handleControllerValueChanged);
+    _controller = null;
+    _isBuffering = false;
+    _failureMessage = null;
+    var released = false;
+    try {
+      await previous?.dispose();
+      await source?.close();
+      _localSource = null;
+      released = true;
+    } on Object {
+      _controller = previous;
+      _failureMessage = '本地视频资源清理失败';
+    } finally {
+      _resetInProgress = null;
+      _initializing = false;
+    }
+    if (mounted) setState(() {});
+    return released;
+  }
+
+  Future<void> _initializeAndPlay() {
+    if (_initializing) return Future<void>.value();
+    final operation = _runInitialization();
+    _initializationInProgress = operation;
+    return operation.whenComplete(() {
+      if (identical(_initializationInProgress, operation)) {
+        _initializationInProgress = null;
+      }
+    });
+  }
+
+  Future<void> _runInitialization() async {
     if (_initializing) return;
     final generation = ++_initializationGeneration;
     final uri = Uri.tryParse(widget.url);
@@ -223,21 +252,26 @@ class _SquareVideoState extends State<SquareVideo> {
     VideoPlayerController? controller;
     SquareLocalVideoSource? source;
     try {
+      if (_localSource != null) throw StateError('上次本地视频资源尚未清理');
       final capability = await const MethodChannelSquareVideoBridge()
           .capabilities();
       if (!capability.canDecodeHevc) {
         throw const SquareApiException('当前设备不支持播放 HEVC 视频');
       }
       if (widget.item?.isLocal == true) {
-        source = await SquareLocalVideoSource.open(widget.item!);
+        source = await SquareLocalVideoSource.open(
+          widget.item!,
+          isCurrent: () => mounted && generation == _initializationGeneration,
+        );
       }
       if (!mounted || generation != _initializationGeneration) {
         await source?.close();
         return;
       }
-      // 初始化尚未完成时退出页面，也必须立即关闭本机监听。
-      _localSource = source;
-      controller = VideoPlayerController.networkUrl(source?.uri ?? uri!);
+      // 原生文件播放器不经过任何HTTP服务；初始化期间资源由本次操作持有。
+      controller = source == null
+          ? VideoPlayerController.networkUrl(uri!)
+          : VideoPlayerController.file(source.file);
       await controller.initialize();
       await controller.seekTo(Duration.zero);
       if (!mounted || generation != _initializationGeneration) {
@@ -251,13 +285,32 @@ class _SquareVideoState extends State<SquareVideo> {
       _isBuffering = controller.value.isBuffering;
       await controller.play();
     } on Object catch (error) {
-      await controller?.dispose();
-      await source?.close();
+      var cleanupFailed = false;
+      try {
+        await controller?.dispose();
+        await source?.close();
+      } on Object {
+        cleanupFailed = true;
+        _controller = controller;
+        if (source != null) _localSource = source;
+        if (!mounted) {
+          FlutterError.reportError(
+            FlutterErrorDetails(
+              exception: StateError('本地视频资源清理失败'),
+              library: '公民广场视频',
+            ),
+          );
+        }
+      }
       if (mounted && generation == _initializationGeneration) {
-        _controller = null;
-        _localSource = null;
+        if (!cleanupFailed) _controller = null;
+        if (!cleanupFailed && identical(_localSource, source)) {
+          _localSource = null;
+        }
         _isBuffering = false;
-        _failureMessage = error is SquareApiException
+        _failureMessage = cleanupFailed
+            ? '本地视频资源清理失败'
+            : error is SquareApiException
             ? error.message
             : widget.item?.isLocal == true
             ? '本地视频读取失败'
@@ -274,9 +327,27 @@ class _SquareVideoState extends State<SquareVideo> {
   void dispose() {
     _initializationGeneration++;
     _controller?.removeListener(_handleControllerValueChanged);
-    _controller?.dispose();
-    _localSource?.close();
+    _releaseOnDispose();
     super.dispose();
+  }
+
+  // 必须先完成播放器释放，再删除其正在读取的文件。
+  Future<void> _releaseOnDispose() async {
+    try {
+      await _initializationInProgress;
+      await _resetInProgress;
+      final controller = _controller;
+      final source = _localSource;
+      await controller?.dispose();
+      await source?.close();
+    } on Object {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: StateError('本地视频资源清理失败'),
+          library: '公民广场视频',
+        ),
+      );
+    }
   }
 
   void _handleControllerValueChanged() {
@@ -309,7 +380,7 @@ class _SquareVideoState extends State<SquareVideo> {
   Future<void> _handleTap() async {
     if (_initializing) return;
     if (_failureMessage != null) {
-      await _reset();
+      if (!await _reset()) return;
       await _initializeAndPlay();
       return;
     }
@@ -535,137 +606,90 @@ class _SquareMediaImageState extends State<SquareMediaImage> {
   }
 }
 
-/// 原生播放器到数据库的本机Range适配。仅监听回环、随机端口和随机单媒体路径。
-/// 不暴露CID/哈希、不创建永久文件、不转发远端请求；随播放器关闭并按块处理背压。
+/// 本地视频逐块校验后写入原生预先保护的临时文件，不开启网络监听。
 class SquareLocalVideoSource {
-  SquareLocalVideoSource._(this._server, this._media, this._path);
-  final HttpServer _server;
-  final SquareStoredMedia _media;
-  final String _path;
+  SquareLocalVideoSource._(this.file, this._bridge);
+  final File file;
+  final MethodChannelSquareVideoBridge _bridge;
   bool _closed = false;
-  Uri get uri =>
-      Uri(scheme: 'http', host: '127.0.0.1', port: _server.port, path: _path);
+  Future<void>? _closing;
+  static final _failedCleanup = <SquareLocalVideoSource>{};
 
-  static Future<SquareLocalVideoSource> open(SquareMediaItem item) async {
+  static Future<SquareLocalVideoSource> open(
+    SquareMediaItem item, {
+    bool Function()? isCurrent,
+  }) async {
     if (item.mediaKind != SquareMediaKind.video) throw ArgumentError('不是视频');
+    for (final pending in _failedCleanup.toList()) {
+      await pending.close();
+    }
     final media = await _localMedia(item, 'main');
     if (media == null) throw StateError('本地尚未保存视频');
-    final random = math.Random.secure();
-    final path =
-        '/${base64Url.encode(List<int>.generate(32, (_) => random.nextInt(256))).replaceAll('=', '')}';
-    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    server.idleTimeout = const Duration(seconds: 30);
-    final source = SquareLocalVideoSource._(server, media, path);
-    server.listen(source._serve, onError: (_) => source.close());
-    return source;
-  }
+    void checkCurrent() {
+      if (isCurrent?.call() == false) throw StateError('本地视频播放已取消');
+    }
 
-  Future<void> close() async {
-    if (_closed) return;
-    _closed = true;
-    await _server.close(force: true);
-  }
-
-  Future<void> _serve(HttpRequest request) async {
-    final response = request.response;
+    checkCurrent();
+    const bridge = MethodChannelSquareVideoBridge();
+    final file = await bridge.preparePlaybackFile(media.byteSize);
+    final source = SquareLocalVideoSource._(file, bridge);
+    RandomAccessFile? output;
     try {
-      response.headers.set(HttpHeaders.cacheControlHeader, 'no-store');
-      if (_closed ||
-          request.uri.path != _path ||
-          request.uri.hasQuery ||
-          request.headers.value(HttpHeaders.hostHeader) !=
-              '127.0.0.1:${_server.port}' ||
-          request.headers.value('origin') != null ||
-          request.connectionInfo?.remoteAddress.isLoopback != true) {
-        response.statusCode = HttpStatus.notFound;
-        await response.close();
-        return;
-      }
-      if (request.method != 'GET' && request.method != 'HEAD') {
-        response.statusCode = HttpStatus.methodNotAllowed;
-        await response.close();
-        return;
-      }
-      var start = 0, end = _media.byteSize - 1;
-      final range = request.headers.value(HttpHeaders.rangeHeader);
-      if (range != null) {
-        final match = RegExp(r'^bytes=(\d*)-(\d*)$').firstMatch(range);
-        if (match == null || (match[1]!.isEmpty && match[2]!.isEmpty)) {
-          throw const FormatException('range');
-        }
-        if (match[1]!.isEmpty) {
-          final suffix = int.parse(match[2]!);
-          if (suffix <= 0) throw const FormatException('range');
-          start = math.max(0, _media.byteSize - suffix);
-        } else {
-          start = int.parse(match[1]!);
-          if (match[2]!.isNotEmpty) end = math.min(end, int.parse(match[2]!));
-        }
-        if (start >= _media.byteSize || end < start) {
-          throw const FormatException('range');
-        }
-      }
-      // 首块先验证再发送成功响应；后续损坏断开连接，不返回伪完整视频。
-      final firstLength = math.min(SquareMediaStore.chunkSize, end - start + 1);
-      final first = request.method == 'GET'
-          ? await const SquareMediaStore().readRange(
-              cidNumber: _media.cidNumber,
-              mediaId: _media.mediaId,
-              offset: start,
-              length: firstLength,
-            )
-          : null;
-      response.statusCode = range == null
-          ? HttpStatus.ok
-          : HttpStatus.partialContent;
-      response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
-      response.headers.contentType = ContentType.parse(_media.contentType);
-      response.contentLength = end - start + 1;
-      if (range != null) {
-        response.headers.set(
-          HttpHeaders.contentRangeHeader,
-          'bytes $start-$end/${_media.byteSize}',
+      checkCurrent();
+      output = await file.open(mode: FileMode.writeOnly);
+      for (var offset = 0; offset < media.byteSize;) {
+        checkCurrent();
+        final length = math.min(
+          SquareMediaStore.chunkSize,
+          media.byteSize - offset,
         );
-      }
-      if (first != null) {
-        response.add(first);
-        await response.flush();
-        for (
-          var offset = start + first.length;
-          offset <= end;
-          offset += SquareMediaStore.chunkSize
-        ) {
-          if (_closed) throw StateError('播放已关闭');
-          response.add(
-            await const SquareMediaStore().readRange(
-              cidNumber: _media.cidNumber,
-              mediaId: _media.mediaId,
-              offset: offset,
-              length: math.min(SquareMediaStore.chunkSize, end - offset + 1),
-            ),
-          );
-          await response.flush();
-        }
-      }
-      await response.close();
-    } on FormatException {
-      try {
-        response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
-        response.headers.set(
-          HttpHeaders.contentRangeHeader,
-          'bytes */${_media.byteSize}',
+        final bytes = await const SquareMediaStore().readRange(
+          cidNumber: media.cidNumber,
+          mediaId: media.mediaId,
+          offset: offset,
+          length: length,
         );
-        await response.close();
-      } catch (_) {
-        /* 播放器取消请求时连接可能已经关闭。 */
+        try {
+          checkCurrent();
+          if (bytes.length != length) throw StateError('本地视频长度不一致');
+          await output.writeFrom(bytes);
+        } finally {
+          bytes.fillRange(0, bytes.length, 0);
+        }
+        offset += length;
       }
-    } catch (_) {
-      // 不输出播放地址或媒体数据。
+      await output.flush();
+      await output.close();
+      output = null;
+      checkCurrent();
+      await bridge.verifyPlaybackFile(file, media.byteSize);
+      checkCurrent();
+      return source;
+    } on Object {
       try {
-        (await response.detachSocket(writeHeaders: false)).destroy();
-      } catch (_) {
-        /* 已关闭 */
+        await output?.close();
+      } finally {
+        await source.close();
       }
+      rethrow;
+    }
+  }
+
+  Future<void> close() {
+    if (_closed) return Future<void>.value();
+    return _closing ??= _delete();
+  }
+
+  Future<void> _delete() async {
+    try {
+      await _bridge.deletePlaybackFile(file);
+      _closed = true;
+      _failedCleanup.remove(this);
+    } on Object {
+      _failedCleanup.add(this);
+      rethrow;
+    } finally {
+      _closing = null;
     }
   }
 }

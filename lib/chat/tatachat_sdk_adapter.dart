@@ -84,7 +84,6 @@ final class CitizenChatStorageKeyProvider
       switch (purpose) {
         sdk.ChatStorageKeyPurpose.chat => LocalKeyPurpose.chat,
         sdk.ChatStorageKeyPurpose.chatIndex => LocalKeyPurpose.chatIndex,
-        sdk.ChatStorageKeyPurpose.mls => LocalKeyPurpose.mls,
         sdk.ChatStorageKeyPurpose.attachment => LocalKeyPurpose.attachment,
       };
 

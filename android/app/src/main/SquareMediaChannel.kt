@@ -1,6 +1,13 @@
 package com.crcfrcn.citizenapp
 
 import android.content.Context
+import android.os.Process
+import android.os.StatFs
+import android.system.Os
+import android.system.OsConstants
+import android.system.ErrnoException
+import java.io.File
+import java.util.UUID
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -12,8 +19,17 @@ class SquareMediaChannel(
 ) {
     private val transcoder = SquareVideoTranscoder(context.applicationContext)
     private val channel = MethodChannel(messenger, CHANNEL_NAME)
+    private val storageContext = context.applicationContext
+    private var playbackInitializationFailed = false
 
     init {
+        synchronized(playbackFiles) {
+            try {
+                playbackDirectory()
+            } catch (_: Exception) {
+                playbackInitializationFailed = true
+            }
+        }
         channel.setMethodCallHandler(::handle)
     }
 
@@ -32,6 +48,48 @@ class SquareMediaChannel(
                     result.error("square_media_invalid", error.message, null)
                 }
             }
+            "prepare_playback_file", "verify_playback_file", "delete_playback_file" -> {
+                try {
+                    synchronized(playbackFiles) {
+                        require(!playbackInitializationFailed)
+                        if (call.method == "prepare_playback_file") {
+                            val size = call.requiredLong("byte_size")
+                            require(size in 1..3_000_000_000L)
+                            val root = playbackDirectory()
+                            require(StatFs(root.path).availableBytes >= size + 1_048_576)
+                            val file = File(root, "${UUID.randomUUID()}.mp4")
+                            val fd = Os.open(file.path, OsConstants.O_CREAT or OsConstants.O_EXCL or
+                                OsConstants.O_WRONLY or OsConstants.O_NOFOLLOW, 0x180)
+                            Os.close(fd)
+                            try {
+                                checkFile(file, 0)
+                                playbackFiles.add(file.path)
+                            } catch (error: Exception) {
+                                require(file.delete() && stat(file) == null)
+                                throw error
+                            }
+                            result.success(file.path)
+                        } else {
+                            val file = ownedFile(call.requiredString("output_path"))
+                            if (call.method == "verify_playback_file") {
+                                val size = call.requiredLong("byte_size")
+                                require(size in 1..3_000_000_000L)
+                                checkFile(file, size)
+                            } else {
+                                if (stat(file) != null) {
+                                    checkFile(file, null)
+                                    require(file.delete())
+                                }
+                                require(stat(file) == null)
+                                playbackFiles.remove(file.path)
+                            }
+                            result.success(null)
+                        }
+                    }
+                } catch (_: Exception) {
+                    result.error("square_media_playback_failed", "本地播放文件保护、空间或清理检查失败", null)
+                }
+            }
             "cancel_video" -> {
                 transcoder.cancel()
                 result.success(null)
@@ -42,6 +100,52 @@ class SquareMediaChannel(
 
     companion object {
         const val CHANNEL_NAME = "citizenapp/square_media"
+        private var playbackRoot: File? = null
+        private val playbackFiles = mutableSetOf<String>()
+
+        private fun stat(file: File): android.system.StructStat? = try {
+            Os.lstat(file.path)
+        } catch (error: ErrnoException) {
+            if (error.errno == OsConstants.ENOENT) null else throw error
+        }
+
+        private fun checkFile(file: File, size: Long?) {
+            val info = requireNotNull(stat(file))
+            require(OsConstants.S_ISREG(info.st_mode) && info.st_uid == Process.myUid())
+            require(info.st_mode and 0x1ff == 0x180 && file.canonicalPath == file.path)
+            if (size != null) require(info.st_size == size)
+        }
+    }
+
+    // 只使用凭据保护的私有缓存，不创建任何用途密钥或读取钱包存储。
+    private fun playbackDirectory(): File {
+        require(!storageContext.isDeviceProtectedStorage)
+        playbackRoot?.let { return it }
+        val root = File(storageContext.cacheDir.canonicalFile, "square_video_playback")
+        if (stat(root) == null) Os.mkdir(root.path, 0x1c0)
+        val info = requireNotNull(stat(root))
+        require(OsConstants.S_ISDIR(info.st_mode) && info.st_uid == Process.myUid())
+        require(root.canonicalPath == root.path)
+        Os.chmod(root.path, 0x1c0)
+        require(requireNotNull(stat(root)).st_mode and 0x1ff == 0x1c0)
+        // 首次使用只删除此命名空间中的崩溃残留；未知文件或链接使播放失败。
+        for (file in requireNotNull(root.listFiles())) {
+            require(file.extension == "mp4")
+            UUID.fromString(file.nameWithoutExtension)
+            checkFile(file, null)
+            require(file.delete() && stat(file) == null)
+        }
+        playbackRoot = root
+        return root
+    }
+
+    private fun ownedFile(path: String): File {
+        val root = playbackDirectory()
+        val file = File(path)
+        require(file.isAbsolute && file.parentFile == root && file.path == path)
+        require(file.extension == "mp4" && playbackFiles.contains(path))
+        UUID.fromString(file.nameWithoutExtension)
+        return file
     }
 }
 

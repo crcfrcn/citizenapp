@@ -177,6 +177,10 @@ void main() {
     chatDocumentsRoot = await Directory.systemTemp.createTemp(
       'tatachat_sdk_chat_documents_',
     );
+    MlsStateStore.debugErase = (_) async {
+      final owned = Directory('${chatDocumentsRoot.path}/mls-fixture');
+      if (await owned.exists()) await owned.delete(recursive: true);
+    };
     await ChatRuntimeCore.debugResetProcessWipeForTest(
       documentsDirectoryProvider: () async => chatDocumentsRoot,
     );
@@ -188,6 +192,7 @@ void main() {
     await ChatRuntimeCore.debugResetProcessWipeForTest(
       documentsDirectoryProvider: () async => chatDocumentsRoot,
     );
+    MlsStateStore.debugErase = null;
     if (await chatDocumentsRoot.exists()) {
       await chatDocumentsRoot.delete(recursive: true);
     }
@@ -638,10 +643,14 @@ void main() {
     expect(appMarker, isNull);
   });
 
-  test('全量擦除只删除 Documents/chat 并让当前进程 ChatSdk 永久终止', () async {
+  test('SDK全量擦除覆盖聊天和MLS自有目录并保留其他存储', () async {
     final chatRoot = Directory('${chatDocumentsRoot.path}/chat');
-    final plainFile = File('${chatRoot.path}/by_cid/cid/attachments/.plain/a');
-    final mlsFile = File('${chatRoot.path}/by_cid/cid/mls/device/state.bin');
+    final plainFile = File(
+      '${chatRoot.path}/by_user/user/attachments/.plain/a',
+    );
+    final mlsFile = File(
+      '${chatDocumentsRoot.path}/mls-fixture/user/state.bin',
+    );
     final sibling = File('${chatDocumentsRoot.path}/must-remain.txt');
     await plainFile.parent.create(recursive: true);
     await plainFile.writeAsString('plain-chat-test-data');
@@ -671,6 +680,7 @@ void main() {
     ).timeout(_wipeTimeout);
 
     expect(await chatRoot.exists(), isFalse);
+    expect(await mlsFile.exists(), isFalse);
     expect(await sibling.readAsString(), 'outside-chat-root');
     await expectLater(
       runtime.purgePlainAttachments(),
