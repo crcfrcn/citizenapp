@@ -151,6 +151,24 @@ test('可选原件索引夹具仅按完整执行正文识别，伪装、漂移�
   assert.ok(!protocolAssertionLines(path, source + '\n' + foreign).includes(foreign));
 });
 
+// 合成JavaScript先校验语法，字符串/正则/模板正文不冒充注释，模板表达式中的真注释仍拒绝。
+test('真实注释与字符串、正则和模板正文正确分离', async () => {
+  const [{ Script }, { hasFirstPartyTemporaryComments }] = await Promise.all([import('node:vm'), import('./index.mjs')]);
+  const marker = ['HA', 'CK'].join('');
+  const cases = [
+    ["const url = 'https://example.invalid/" + marker + "';", false],
+    ['const embedded = ' + JSON.stringify('// ' + marker + ': embedded source') + ';', false],
+    ['const pattern = /\\/\\/' + marker + '/;', false],
+    ['const template = `// ' + marker + ': template text`;', false],
+    ['// ' + marker + ': unfinished implementation\nconst value = 1;', true],
+    ['const template = `value ${(() => { // ' + marker + ': real expression comment\nreturn 1; })()}`;', true],
+  ];
+  for (const [source, rejected] of cases) {
+    assert.doesNotThrow(() => new Script(source));
+    assert.equal(hasFirstPartyTemporaryComments('source.mjs', source), rejected);
+  }
+});
+
 // 执行本仓真实Shell增量防护，检查CLI/浏览器边界、拒绝断言、真实残留和大输入通道。
 test('增量防护执行真实归属判断并支持超过argv单项限制的输入', async () => {
   const [{ mkdtempSync, mkdirSync, writeFileSync, rmSync }, { join, dirname }, { testRoot: tmpdir }, { execFileSync, spawnSync }, { checkGuardrails }] = await Promise.all([
