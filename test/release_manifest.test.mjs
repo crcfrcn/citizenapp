@@ -4,7 +4,7 @@ import {
   existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { testRoot as tmpdir } from '../scripts/build.mjs';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -277,11 +277,12 @@ test('CitizenApp直接开发自建源码外视图并只投影当轮Framework', a
   try {
     const workspace = join(fixture, 'workspace');
     const app = join(workspace, 'citizenapp');
-    const sdk = join(fixture, 'work/git-sources/citizen_sdk');
-    const chat = join(fixture, 'work/git-sources/tatachat_sdk');
+    // 合成产品的消费工作根同归自身target，保持正式越界拒绝。
+    const work = join(app, 'target/ios/test/work');
+    const sdk = join(work, 'git-sources/citizen_sdk');
+    const chat = join(work, 'git-sources/tatachat_sdk');
     const formalChatSource = join(workspace, 'packages', 'tatachatsdk');
     const formalChat = join(workspace, 'FORMAL', 'tatachatsdk');
-    const work = join(fixture, 'work');
     for (const directory of [join(app, 'lib'), join(app, '.dart_tool'), join(app, 'android'),
       formalChatSource, join(workspace, 'FORMAL'), join(work, 'git-sources')]) {
       mkdirSync(directory, { recursive: true });
@@ -318,17 +319,21 @@ test('CitizenApp直接开发自建源码外视图并只投影当轮Framework', a
     const project = execFileSync(process.execPath, [viewScript, 'create',
       '--source-root', app, '--work-root', work], { encoding: 'utf8' }).trim();
     assert.equal(project, join(work, 'source-view', app.replace(/^\/+/, '')));
-    assert.equal(lstatSync(join(project, 'lib/main.dart')).isSymbolicLink(), true);
+    assert.equal(lstatSync(join(project, 'lib/main.dart')).isSymbolicLink(), false);
+    assert.deepEqual(readFileSync(join(project, 'lib/main.dart')), readFileSync(join(app, 'lib/main.dart')));
     for (const scheme of ['Runner', 'RunnerUITests']) {
-      assert.equal(realpathSync(join(project, `ios/Runner.xcodeproj/xcshareddata/xcschemes/${scheme}.xcscheme`)),
-        join(app, `ios/${scheme}.xcscheme`));
+      const copy = join(project, `ios/Runner.xcodeproj/xcshareddata/xcschemes/${scheme}.xcscheme`);
+      assert.equal(lstatSync(copy).isSymbolicLink(), false);
+      assert.equal(lstatSync(copy).nlink, 1);
+      assert.deepEqual(readFileSync(copy), readFileSync(join(app, `ios/${scheme}.xcscheme`)));
     }
     // 普通本机工程不消费 Wrapper；只有 create-android 从 Flutter 工具原件装配。
     for (const name of ['gradlew', 'gradlew.bat', 'gradle/wrapper/gradle-wrapper.jar']) {
       assert.equal(existsSync(join(project, 'android', name)), false);
     }
-    assert.equal(realpathSync(join(project, 'android/gradle/wrapper/gradle-wrapper.properties')),
-      join(app, 'android/gradle-wrapper.properties'));
+    const wrapperCopy = join(project, 'android/gradle/wrapper/gradle-wrapper.properties');
+    assert.equal(lstatSync(wrapperCopy).isSymbolicLink(), false);
+    assert.deepEqual(readFileSync(wrapperCopy), readFileSync(join(app, 'android/gradle-wrapper.properties')));
 
     const sdkView = join(work, 'source-view', sdk.replace(/^\/+/, ''));
     const chatView = join(work, 'source-view', chat.replace(/^\/+/, ''));
@@ -376,6 +381,15 @@ test('CitizenApp直接开发自建源码外视图并只投影当轮Framework', a
       '--framework', outside], { encoding: 'utf8' });
     assert.notEqual(rejected.status, 0);
     assert.match(rejected.stderr, /必须归属同一产品工作根/u);
+    // 消费副本可被工具改写，正式输入字节保持；target外工作根在创建目录前拒绝。
+    writeFileSync(join(project, 'lib/main.dart'), 'void changedInWork() {}\n');
+    assert.equal(readFileSync(join(app, 'lib/main.dart'), 'utf8'), 'void main() {}\n');
+    const foreignWork = join(fixture, 'foreign-work');
+    const outsideRoot = spawnSync(process.execPath, [viewScript, 'create',
+      '--source-root', app, '--work-root', foreignWork], { encoding: 'utf8' });
+    assert.notEqual(outsideRoot.status, 0);
+    assert.match(outsideRoot.stderr, /工作根必须在本仓target内/u);
+    assert.equal(existsSync(foreignWork), false);
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }
