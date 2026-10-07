@@ -59,3 +59,26 @@ test('CitizenApp四个CI缓存命令从真实执行器进入且拒绝错流程�
     ])await assert.rejects(execute({...environment,...change}),/身份/u);
   }
 });
+
+// Apple正式目录名保留大小写；真实删除只作用于准确候选，越界路径继续拒绝。
+test('CitizenApp最终候选支持Runner.app且保持路径边界和大小写',async()=>{
+  const {mkdtempSync,mkdirSync,writeFileSync,existsSync,readlinkSync,rmSync}=await import('node:fs');
+  const {tmpdir}=await import('node:os'),{join}=await import('node:path');
+  const {sanitizeCacheFinals,wireCacheLinks}=await import('./cache.mjs');
+  const temp=mkdtempSync(join(tmpdir(),'citizenapp-cache-finals-'));
+  try {
+    const plan=cachePathPlan(identity,temp,'cargo-home\nflutter-build');
+    const upper=join(plan.root,'flutter-build/ios/iphoneos/Runner.app');
+    const lower=join(plan.root,'flutter-build/ios/iphoneos/Neighbor.app');
+    mkdirSync(upper,{recursive:true});mkdirSync(lower,{recursive:true});
+    writeFileSync(join(upper,'Info.plist'),'candidate');writeFileSync(join(lower,'marker'),'retain');
+    wireCacheLinks(identity,temp,'cargo-home\nflutter-build',join(temp,'workspace'),'ios-link=flutter-build/ios/iphoneos/Runner.app');
+    assert.equal(readlinkSync(join(temp,'workspace/ios-link')),upper);
+    sanitizeCacheFinals(identity,temp,'cargo-home\nflutter-build','flutter-build/ios/iphoneos/Runner.app');
+    assert.equal(existsSync(upper),false);assert.equal(existsSync(lower),true);
+    for(const value of ['../outside','/outside','flutter-build/../outside','flutter-build//Runner.app','flutter-build/./Runner.app','C:\\outside','flutter-build/Runner app']){
+      assert.throws(()=>sanitizeCacheFinals(identity,temp,'flutter-build',value),/路径/u);
+      assert.equal(existsSync(join(lower,'marker')),true);
+    }
+  }finally{rmSync(temp,{recursive:true,force:true});}
+});

@@ -193,7 +193,7 @@ export function cachePathPlan(identity, runnerTemp, entries) {
 function relativeEntries(value, label) {
   const entries = String(value ?? '').split(/[\n,]/).map((entry) => entry.trim()).filter(Boolean);
   for (const entry of entries) {
-    if (!/^[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*)*$/.test(entry)) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*(\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/.test(entry)) {
       throw new Error(`${label}相对路径无效：${entry}`);
     }
   }
