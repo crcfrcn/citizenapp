@@ -1,11 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { gateContract, validateWorkflowSource, validateVectorGroup, validatePalletRegistry, readPublicChain } from './index.mjs';
+import { toolEnvironment, exactExecutable, validateToolSources, packageClosure, fetchOriginal, validateTar, prepareRunnerTools } from './tools.mjs';
+import { fileURLToPath } from 'node:url';
+import { gateContract, validateWorkflow, validateWorkflowSource, validateVectorGroup, validatePalletRegistry, readPublicChain } from './index.mjs';
 
 // 本仓登记必须准确闭合；路径、重复和未知工具版本不得被默默接受。
 test('本仓门禁登记拒绝漂移和重复', () => {
   const contract = structuredClone(gateContract());
   assert.equal(gateContract(contract), contract);
+  // 实际工作流和门禁校验器必须同轮一致，避免Node入口被旧Shell命令登记误拒绝。
+  assert.deepEqual(validateWorkflow(fileURLToPath(new URL('../../', import.meta.url))).sort(),
+    ['.github/workflows/tatagate.yml', ...contract.workflows.map(id => '.github/workflows/' + id.replaceAll('.', '-') + '.yml')].sort());
   for (const change of [
     value => { value.schema = 2; },
     value => { value.node_tests.push(value.node_tests[0]); },
@@ -81,11 +86,11 @@ test('保留源码不按每文件汉字数量判定，真实第一方临时注�
     import('node:fs'), import('node:path'), import('node:os'), import('node:child_process'), import('./index.mjs'),
   ]);
   const root = mkdtempSync(join(tmpdir(), 'tatagate-quality-'));
-  const env = { HOME: process.env.HOME, PATH: '/usr/bin:/bin', LANG: 'C', LC_ALL: 'C',
+  const env = { ...toolEnvironment(), HOME: process.env.HOME, LANG: 'C', LC_ALL: 'C',
     GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null',
     GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
     GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid' };
-  const git = (...args) => execFileSync('/usr/bin/git', ['-C', root, ...args], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  const git = (...args) => execFileSync(env.PRODUCT_GIT_BIN, ['-C', root, ...args], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   try {
     git('init', '--quiet', '--initial-branch=main');
     mkdirSync(join(root, 'test'));
@@ -132,11 +137,11 @@ test('增量防护执行真实归属判断并支持超过argv单项限制的输�
     import('node:fs'), import('node:path'), import('node:os'), import('node:child_process'), import('./index.mjs'),
   ]);
   const root = mkdtempSync(join(tmpdir(), 'tatagate-guard-'));
-  const env = { HOME: process.env.HOME, PATH: '/usr/bin:/bin', LANG: 'C', LC_ALL: 'C',
+  const env = { ...toolEnvironment(), HOME: process.env.HOME, LANG: 'C', LC_ALL: 'C',
     GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null',
     GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
     GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid' };
-  const git = (...args) => execFileSync('/usr/bin/git', ['-C', root, ...args], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  const git = (...args) => execFileSync(env.PRODUCT_GIT_BIN, ['-C', root, ...args], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   let output;
   const execute = (command, args, options) => {
     output = spawnSync(command, args, { ...options, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 4 * 1024 * 1024, timeout: 20_000 });
@@ -150,9 +155,17 @@ test('增量防护执行真实归属判断并支持超过argv单项限制的输�
     const statement = ['assert.doesNotMatch(source, /\\/', 'v', '1(?:\\/|\\b)/);'].join('');
     const log = ['console', '.log("result");\n'].join('');
     const unfinished = '// ' + ['TO', 'DO'].join('') + ': unfinished\n';
+    const metadataPath = ["test/transaction/citizenchain-revive-", "v", "15-metadata.hex"].join("");
+    const metadataTest = "test/transaction/citizenchain_contract_read_service_test.dart";
+    const metadataLiteral = "const metadata = " + String.fromCharCode(39) + metadataPath + String.fromCharCode(39) + ";\n";
     const protocol = 'const endpoint = "https://example.invalid/' + 'v' + '9";\n';
     for (const [path, source, rejected, message] of [
       ['scripts/fixture.mjs', log, false],
+      [metadataTest, metadataLiteral, false],
+      [metadataTest, metadataLiteral + protocol, true, "版本化标识"],
+      [metadataTest, metadataLiteral.replace("15-metadata", "16-metadata"), true, "版本化标识"],
+      [metadataTest, metadataLiteral.replace("test/transaction/", "other/"), true, "版本化标识"],
+      ["scripts/fixture.mjs", metadataLiteral, true, "版本化标识"],
       ['android/app/build.gradle.kts', 'val mapping = "drawable-' + 'v21_launch_background.xml" to "drawable-' + 'v21/launch_background.xml";\n', false],
       ['android/app/build.gradle.kts', 'val mapping = "drawable-' + 'v22/launch_background.xml";\n', true, '版本化标识'],
       ['scripts/fixture.mjs', log + 'const large = "' + 'x'.repeat(256 * 1024) + '";\n', false],
@@ -177,6 +190,34 @@ test('增量防护执行真实归属判断并支持超过argv单项限制的输�
       } else assert.doesNotThrow(run);
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+// 直接执行真实Shell正文中的Node预处理片段；本用例不依赖本机尚缺的GNU工具。
+test('上游metadata文件名只在准确测试路径移除完整字面量', async () => {
+  const { checkGuardrails } = await import('./index.mjs');
+  let shell;
+  checkGuardrails(process.cwd(), {}, (_command, _args, options) => { shell = options.input; return {status:0}; },
+    () => ({PRODUCT_BASH_BIN:process.execPath,PATH:''}));
+  const start = shell.indexOf('let lines = readFileSync(0, "utf8")');
+  const end = shell.indexOf('process.stdout.write(lines);', start);
+  assert.ok(start >= 0 && end > start);
+  const fragment = shell.slice(start, end + 'process.stdout.write(lines);'.length);
+  const apply = (path, source) => {
+    let output;
+    Function('path', 'allowed', 'readFileSync', 'process', fragment)(path, new Set(), () => source,
+      {stdout:{write(value){ output=value; }}});
+    return output;
+  };
+  const owner = 'test/transaction/citizenchain_contract_read_service_test.dart';
+  const filename = ['test/transaction/citizenchain-revive-', 'v', '15-metadata.hex'].join('');
+  const literal = String.fromCharCode(39) + filename + String.fromCharCode(39);
+  const protocol = 'const endpoint = "https://example.invalid/' + 'v' + '9";';
+  assert.equal(apply(owner, literal), '');
+  assert.equal(apply(owner, literal + '\n' + protocol), '\n' + protocol);
+  for (const value of [literal.replace('15-metadata','16-metadata'), literal.replace('test/transaction/','other/'), JSON.stringify(filename)]) {
+    assert.equal(apply(owner, value), value);
+  }
+  assert.equal(apply('scripts/fixture.mjs', literal), literal);
 });
 
 // 中文注释：执行实际 RPC 类校验与请求，拒绝明文、认证 URL 及重定向，保留真实负向测试。
@@ -237,4 +278,131 @@ test('历史清理仅接受唯一无父新根并完整检查全部内容', async
     { ...reset, before: 'main' }, { ...reset, headSHA: 'main' },
     { ...reset, headSHA: '0'.repeat(40) }, { ...reset, before: '0'.repeat(40) },
   ]) assert.throws(() => pushBaseSHA(invalid));
+});
+
+// 准确正文必须保留实际拒绝断言；成功正文、引用或额外地址不能借用既有测试身份。
+test('App 两段明文拒绝正文阻断伪装成功断言及额外地址', async () => {
+  const { insecureTransportLines } = await import('./index.mjs');
+  const { readFileSync } = await import('node:fs');
+  for (const [path, title, rejection, success] of [
+    ['test/8964/square_feed_service_test.dart', 'SquareApiConfig 仅允许 HTTPS，包括本机', 'throwsUnsupportedError', 'returnsNormally'],
+    ['test/chat/mls_boundary_test.dart', 'SquareApiClient 拒绝非 HTTPS 聊天服务地址', 'throwsA(', 'returnsNormally('],
+  ]) {
+    const source = readFileSync(new URL('../../' + path, import.meta.url), 'utf8');
+    const start = source.indexOf("test('" + title + "'");
+    const end = source.indexOf('\n  });', start);
+    assert.ok(start >= 0 && end > start);
+    const body = source.slice(start, end + '\n  });'.length);
+    assert.ok(body.includes(rejection));
+    assert.deepEqual(insecureTransportLines(path, body), []);
+    for (const candidate of [
+      '/*' + body + '*/',
+      JSON.stringify(body),
+      body.replace(rejection, success),
+      body + '\nfetch("ht' + 'tp://extra.example.invalid");',
+    ]) assert.ok(insecureTransportLines(path, candidate).length > 0);
+    assert.ok(insecureTransportLines('test/unregistered.dart', body).length > 0);
+  }
+});
+
+// 正式工具输入不得借用相对路径、链接、错误版本或外部预加载环境。
+test('App 门禁四工具严格验真并封闭子进程环境', async () => {
+  const {mkdtempSync,symlinkSync,rmSync}=await import('node:fs');
+  const {join}=await import('node:path');const {tmpdir}=await import('node:os');
+  const env=toolEnvironment();assert.equal(env.PRODUCT_GIT_BIN,process.env.PRODUCT_GIT_BIN);
+  assert.equal(env.NODE_OPTIONS,undefined);assert.equal(env.BASH_ENV,undefined);
+  const root=mkdtempSync(join(tmpdir(),'app-gate-tools-'));
+  try{
+    const link=join(root,'git');symlinkSync(env.PRODUCT_GIT_BIN,link);
+    for(const bad of [link,'git','./git'])assert.throws(()=>exactExecutable(bad));
+    for(const field of ['PRODUCT_GIT_BIN','PRODUCT_BASH_BIN','PRODUCT_GREP_BIN','PRODUCT_SED_BIN']){
+      assert.throws(()=>toolEnvironment({...process.env,[field]:undefined}));
+      assert.throws(()=>toolEnvironment({...process.env,[field]:process.execPath}),/版本漂移/u);
+    }
+  }finally{rmSync(root,{recursive:true,force:true});}
+});
+// 原件包与系统安装包身份分别核验，缺项、错版和不满足内部版本约束均须失败。
+test('App 官方来源与Ubuntu包闭包拒绝漂移',()=>{
+  const value=structuredClone(gateContract().tool_sources);assert.equal(validateToolSources(value),value);
+  for(const mutate of [p=>{p.sources.git.version='0.0.0';},p=>{p.sources.bash.upstream_patches.pop();},p=>{p.sources.sed.url='https://wrong.invalid/sed';},p=>{p.bootstrap.artifacts[0].sha256='0'.repeat(64);}]){
+    const p=structuredClone(value);mutate(p);assert.throws(()=>validateToolSources(p));
+  }
+  const installed=[{name:'a',version:'1',status:'install ok installed',depends:'b (= 2)'},{name:'b',version:'2',status:'install ok installed',depends:''}];
+  assert.equal(packageClosure(installed,[{name:'a',version:'1'}],(a,op,b)=>a===b).length,2);
+  for(const rows of [installed.slice(0,1),[installed[0],{...installed[1],version:'3'}],[{...installed[0],status:'deinstall ok config-files'},installed[1]]])assert.throws(()=>packageClosure(rows,[{name:'a',version:'1'}],(a,op,b)=>a===b));
+  assert.throws(()=>packageClosure(installed,[{name:'a',version:'1'}],()=>true,[{name:'b',version:'2',origin:'staged',status:'install ok installed'}]));
+});
+// 合成网络响应仍必须通过完整摘要；错误来源与错摘要不能留下目标文件。
+test('App 原件失败输入及tar边界不会获得准备身份',async()=>{
+  const {mkdtempSync,readFileSync,existsSync,rmSync}=await import('node:fs');
+  const {join}=await import('node:path');const {tmpdir}=await import('node:os');const {createHash}=await import('node:crypto');
+  const root=mkdtempSync(join(tmpdir(),'app-gate-original-'));const bytes=Buffer.from('fixed official fixture');
+  const record={...gateContract().tool_sources.sources.bash,sha256:createHash('sha256').update(bytes).digest('hex')};
+  try{
+    const file=join(root,'good');await fetchOriginal(record,file,async()=>new Response(bytes));assert.deepEqual(readFileSync(file),bytes);
+    await assert.rejects(fetchOriginal({...record,sha256:'0'.repeat(64)},join(root,'bad'),async()=>new Response(bytes)));assert.equal(existsSync(join(root,'bad')),false);
+    await assert.rejects(fetchOriginal(record,join(root,'redirect'),async()=>new Response(null,{status:302,headers:{location:'ht'+'tp://wrong.invalid'}})));assert.equal(existsSync(join(root,'redirect')),false);
+    validateTar(Buffer.alloc(1024));for(const input of [Buffer.alloc(1),Buffer.alloc(1024,1)])assert.throws(()=>validateTar(input));
+    const tar=(name,type='0',link='')=>{
+      const header=Buffer.alloc(512);
+      header.write(name,0,100,'utf8');header.write('0000000\0',124,12,'ascii');
+      header[156]=type.charCodeAt(0);header.write(link,157,100,'utf8');
+      header.fill(32,148,156);const sum=[...header].reduce((a,b)=>a+b,0);
+      header.write(sum.toString(8).padStart(6,'0')+'\0 ',148,8,'ascii');
+      return Buffer.concat([header,Buffer.alloc(1024)]);
+    };
+    validateTar(tar('usr/include/curl.h'));
+    validateTar(tar('usr/lib/libcurl.so','2','libcurl.so.4'));
+    for(const bytes of [tar('/escape'),tar('../escape'),tar('usr/lib/link','2','../../../../escape'),tar('pipe','6')])assert.throws(()=>validateTar(bytes));
+    await assert.rejects(prepareRunnerTools(root,{bootstrap:false}),/身份无效/u);
+  }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+// 两个镜像必须保持同一原件身份；只模拟响应，真实获取仍由正常入口完整验真。
+test('GNU固定镜像的连接恢复摘要失败与来源闭集', async () => {
+  const {sourceMirrors, requestGNUOriginal} = await import("./tools.mjs");
+  const {fetchOriginal:readOriginal} = await import('./tools.mjs');
+  const {mkdtempSync, readFileSync, existsSync, rmSync} = await import('node:fs');
+  const {join} = await import('node:path'); const {tmpdir} = await import('node:os');
+  const {createHash} = await import('node:crypto');
+  const bytes = Buffer.from('same locked GNU fixture'), file = 'bash/bash-5.3.tar.gz';
+  const record = {url:'https://ftp.gnu.org/gnu/' + file,
+    sha256:createHash('sha256').update(bytes).digest('hex'),
+    mirrors:['https://mirrors.ocf.berkeley.edu/gnu/','https://mirror.csclub.uwaterloo.ca/gnu/'].map(base => base + file)};
+  const addresses = sourceMirrors(record);
+  assert.equal(addresses.length, 3);
+  for (const mirrors of [undefined, [], record.mirrors.slice(0,1), [...record.mirrors].reverse(),
+    [record.mirrors[0],record.mirrors[0]], record.mirrors.map(url => url.replace('https:', 'ht'+'tp:')),
+    record.mirrors.map(url => url + '?unregistered=1'), ['https://other.invalid/' + file,record.mirrors[1]]]) {
+    assert.throws(() => sourceMirrors({...record,mirrors}));
+  }
+  const calls = [];
+  const connected = await requestGNUOriginal(record, async (url, options) => {
+    calls.push(url); assert.equal(options.redirect, 'manual');
+    if (calls.length === 1) throw Object.assign(new TypeError('fixture connection timeout'), {cause:{code:'UND_ERR_CONNECT_TIMEOUT'}});
+    return new Response(bytes);
+  });
+  assert.deepEqual(calls, addresses.slice(0,2)); assert.deepEqual(Buffer.from(await connected.response.arrayBuffer()), bytes);
+  const unavailable = [];
+  await requestGNUOriginal(record, async url => {
+    unavailable.push(url); return unavailable.length < 3 ? new Response(null,{status:503}) : new Response(bytes);
+  });
+  assert.deepEqual(unavailable, addresses);
+  let tlsCalls = 0;
+  await assert.rejects(requestGNUOriginal(record, async () => {tlsCalls++; throw Object.assign(Error('fixture invalid TLS'),{cause:{code:'CERT_HAS_EXPIRED'}});}));
+  assert.equal(tlsCalls,1);
+  let redirectCalls = 0;
+  await assert.rejects(requestGNUOriginal(record, async () => {redirectCalls++; return new Response(null,{status:302,headers:{location:'https://other.invalid/original'}});}));
+  assert.equal(redirectCalls,1);
+  const controller = new AbortController(); controller.abort();
+  await assert.rejects(requestGNUOriginal(record, () => assert.fail('取消不得联网'), {signal:controller.signal}));
+  const root = mkdtempSync(join(tmpdir(),'gnu-mirror-'));
+  try {
+    const path = join(root,'original'); let attempts = 0;
+    await readOriginal(record, path, async () => ++attempts === 1 ? new Response(null,{status:503}) : new Response(bytes));
+    assert.equal(attempts,2); assert.deepEqual(readFileSync(path),bytes);
+    let corrupted = 0; const rejected = join(root,'rejected');
+    await assert.rejects(readOriginal({...record,sha256:'0'.repeat(64)}, rejected, async () => {corrupted++; return new Response(bytes);}));
+    assert.equal(corrupted,1); assert.equal(existsSync(rejected),false);
+  } finally {rmSync(root,{recursive:true,force:true});}
 });
