@@ -365,7 +365,8 @@ class UserIsar {
       return existing;
     }
 
-    final opened = await Isar.open(
+    // Isar 3.3.2 异步开库共用 FFI 输出指针；同步取得本域句柄后继续独立读写。
+    final opened = Isar.openSync(
       _schemas,
       name: 'citizenapp_user',
       relaxedDurability: false,

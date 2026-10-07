@@ -17,24 +17,46 @@ const String _peerUserId = 'CN220-CTZN2-100000012-2026';
 void main() {
   useIsolatedIsar();
 
-  test('五个数据库使用独立文件名和独立 Isar 实例', () async {
-    await Future.wait<void>(<Future<void>>[
-      AppIsar.instance.db().then<void>((_) {}),
-      SocialIsar.instance.db().then<void>((_) {}),
-      ChatIsar.instance.db().then<void>((_) {}),
-      UserIsar.instance.db().then<void>((_) {}),
-      WalletIsar.instance.db().then<void>((_) {}),
-    ]);
-
-    final instances = <Isar?>[
-      Isar.getInstance('citizenapp_app'),
-      Isar.getInstance('citizenapp_social'),
-      Isar.getInstance('tatachat_sdk_chat'),
-      Isar.getInstance('citizenapp_user'),
-      Isar.getInstance('citizenapp_wallet'),
+  test('五个数据库四轮交错并发冷启动仍持有各自句柄与集合', () async {
+    // 重复冷启动并交替调用顺序，真实开库和集合访问必须同时覆盖五域。
+    final openers = <Future<Isar> Function()>[
+      AppIsar.instance.db,
+      SocialIsar.instance.db,
+      ChatIsar.instance.db,
+      UserIsar.instance.db,
+      WalletIsar.instance.db,
     ];
-    expect(instances, everyElement(isNotNull));
-    expect(instances.toSet(), hasLength(5));
+    for (var round = 0; round < 4; round++) {
+      if (round > 0) {
+        await WalletIsar.instance.resetForTest();
+        await ChatIsar.instance.resetForTest();
+        await SocialIsar.instance.resetForTest();
+        await UserIsar.instance.resetForTest();
+        await AppIsar.instance.resetForTest();
+      }
+      final order = round.isEven ? openers : openers.reversed;
+      final opened = await Future.wait<Isar>(order.map((open) => open()));
+      final byName = <String, Isar>{for (final isar in opened) isar.name: isar};
+      expect(byName.keys.toSet(), <String>{
+        'citizenapp_app',
+        'citizenapp_social',
+        'tatachat_sdk_chat',
+        'citizenapp_user',
+        'citizenapp_wallet',
+      });
+      expect(opened.toSet(), hasLength(5));
+      for (final isar in opened) {
+        expect(Isar.getInstance(isar.name), same(isar));
+      }
+      final counts = await Future.wait<int>(<Future<int>>[
+        byName['citizenapp_app']!.adminDivisionEntitys.count(),
+        byName['citizenapp_social']!.squarePostSyncCheckpointEntitys.count(),
+        byName['tatachat_sdk_chat']!.chatRouteCacheEntitys.count(),
+        byName['citizenapp_user']!.userPublicProfileCacheEntitys.count(),
+        byName['citizenapp_wallet']!.walletAttestationEntitys.count(),
+      ]);
+      expect(counts, everyElement(0), reason: '第 $round 轮集合必须属于各自的新库');
+    }
   });
 
   test('AppIsar 队列挂起时其余四域仍可独立读写', () async {

@@ -977,7 +977,8 @@ class WalletIsar {
   /// 因“没有内存实例”就把仍存在的上一进程数据库误报为已清空。
   Future<Isar> _openDatabaseFile() async {
     await IsarCoreBootstrap.ensureTestCoreInitialized();
-    return Isar.open(
+    // Isar 3.3.2 异步开库共用 FFI 输出指针；同步取得本域句柄后继续独立读写。
+    return Isar.openSync(
       _schemas,
       name: 'citizenapp_wallet',
       directory: await IsarCoreBootstrap.resolveDirectory(),
