@@ -32,7 +32,8 @@ export function temporaryRoot(platform=Object.keys(contract.platforms)[0],scope=
  const directory=supplied&&supplied!==endpoint&&inside(endpoint,supplied)?supplied:join(endpoint,scope);
  let at=parse(directory).root;
  for(const part of relative(at,directory).split(sep)){
-  at=join(at,part);if(!existsSync(at))mkdirSync(at,{mode:0o700});
+  // 并发创建可报告EEXIST；随后仍逐层回读，链接、文件及其它错误均不得接受。
+  at=join(at,part);if(!existsSync(at)){try{mkdirSync(at,{mode:0o700});}catch(error){if(error.code!=='EEXIST')throw error;}}
   const info=lstatSync(at);if(!info.isDirectory()||info.isSymbolicLink())fail('工作目录经过链接或非目录');
  }
  checkWork(directory);return directory;

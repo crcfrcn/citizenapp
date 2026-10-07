@@ -10,6 +10,35 @@ const identity = cacheIdentity({
   runnerOs: 'macos', runnerArch: 'arm64', toolchainFingerprint: 'a'.repeat(64),
 });
 
+// 子进程制造真实竞争目录/链接/文件，内建绑定改写只在该合成进程内，正式源码与其它测试不受影响。
+test('CI并发创建工作目录允许已存在的普通目录，链接、文件和其它错误仍拒绝', async () => {
+  const [{mkdtempSync,mkdirSync,rmSync,lstatSync}, {join}, {spawnSync}, build] = await Promise.all([
+    import('node:fs'), import('node:path'), import('node:child_process'), import('../build.mjs'),
+  ]);
+  const area = mkdtempSync(join(build.testRoot(), 'ci-directory-race-'));
+  const platform = Object.keys(build.contract.platforms).find(p => area.startsWith(build.productTarget(p) + '/'));
+  const program = `import fs from 'node:fs';import {syncBuiltinESMExports} from 'node:module';
+const [url,platform,path,kind,destination]=process.argv.slice(1),build=await import(url);
+const exists=fs.existsSync,mkdir=fs.mkdirSync;let fired=false;
+fs.existsSync=p=>{if(p!==path||fired)return exists(p);fired=true;
+if(kind==='directory')mkdir(path);else if(kind==='link')fs.symlinkSync(destination,path);else if(kind==='file')fs.writeFileSync(path,'synthetic competitor');return false;};
+fs.mkdirSync=(p,o)=>{if(p===path&&kind==='error'){const e=Error('synthetic denied');e.code='EPERM';throw e;}return mkdir(p,o);};
+syncBuiltinESMExports();let result;try{build.temporaryRoot(platform,'test',path);result={ok:true,fired};}catch(e){result={ok:false,fired,error:e.message,code:e.code};}
+process.stdout.write(JSON.stringify(result));`;
+  try {
+    const destination = join(area, 'destination');mkdirSync(destination);
+    for (const kind of ['directory','link','file','error']) {
+      const path = join(area, kind), run = spawnSync(process.execPath, ['--input-type=module','-e',program,
+        new URL('../build.mjs',import.meta.url).href,platform,path,kind,destination], {encoding:'utf8'});
+      assert.equal(run.status, 0, run.stderr);const result=JSON.parse(run.stdout);assert.equal(result.fired,true);
+      assert.equal(result.ok,kind==='directory');
+      if(kind==='directory'){assert.equal(lstatSync(path).isDirectory(),true);assert.equal(lstatSync(path).isSymbolicLink(),false);}
+      else if(kind==='error')assert.equal(result.code,'EPERM');
+      else assert.match(result.error,/经过链接或非目录/u);
+    }
+  } finally { rmSync(area,{recursive:true,force:true}); }
+});
+
 test('CitizenApp CI缓存身份、键和路径使用唯一共享实现', () => {
   const keys = cacheKeys(identity, '10', '2');
   assert.deepEqual(parseCacheKey(identity, keys.successKey), {
