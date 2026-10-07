@@ -213,8 +213,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: a16f14d2b07072d97f5708b728134bf0ac33f3d1
-      resolved-ref: a16f14d2b07072d97f5708b728134bf0ac33f3d1
+      ref: da2216b2294622fd6c72be82bbda72220de8e4bf
+      resolved-ref: da2216b2294622fd6c72be82bbda72220de8e4bf
       url: "https://github.com/crcfrcn/citizensdk.git"
     source: git
     version: "1.0.0"
