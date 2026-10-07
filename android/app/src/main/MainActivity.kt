@@ -412,8 +412,17 @@ class MainActivity : FlutterFragmentActivity() {
                 file.setReadable(true, true) && file.setWritable(true, true))
             require((android.system.Os.stat(file.path).st_mode and 511) == 384)
         }
-        val descriptor = android.system.Os.open(root.path, android.system.OsConstants.O_RDONLY or android.system.OsConstants.O_DIRECTORY, 0)
-        try { android.system.Os.fsync(descriptor) } finally { android.system.Os.close(descriptor) }
+        // 只用API 21起公开的目录操作：拒绝末端链接及FIFO阻塞，并以实际描述符核验目录。
+        val descriptor = android.system.Os.open(root.path, android.system.OsConstants.O_RDONLY or
+            android.system.OsConstants.O_NOFOLLOW or android.system.OsConstants.O_NONBLOCK, 0)
+        try {
+            val metadata = android.system.Os.fstat(descriptor)
+            require(android.system.OsConstants.S_ISDIR(metadata.st_mode) &&
+                metadata.st_uid == android.os.Process.myUid() && (metadata.st_mode and 511) == 448) {
+                "记录目录属性无效"
+            }
+            android.system.Os.fsync(descriptor)
+        } finally { android.system.Os.close(descriptor) }
         return root.path
     }
 
