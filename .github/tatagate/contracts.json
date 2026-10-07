@@ -13,7 +13,8 @@
     "scripts/release/jobs.test.mjs",
     "scripts/release/version.test.mjs",
     "test/release_manifest.test.mjs",
-    "scripts/citizenapp-test-native.test.mjs"
+    "scripts/citizenapp-test-native.test.mjs",
+    "scripts/resources.test.mjs"
   ],
   "checks": [
     "repository-contracts",

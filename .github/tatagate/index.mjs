@@ -476,12 +476,34 @@ export function protocolAssertionLines(path, source) {
   const literal = String.raw`assert.doesNotMatch(source, /\/v1(?:\/|\b)/);`;
   const opaque = [...source.matchAll(/\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`/gu)]
     .map(match => [match.index, match.index + match[0].length]);
+  // 可选原件索引是既定外部输入合同；逐段核验正文及全部执行前文，改断言或伪装仍拒绝。
+  const fixtureRanges = [];
+  if (path === 'scripts/resources.test.mjs') {
+    const fixtures = [
+      ["test('空可选供给不阻断产品取得，npm SRI原件按准确来源复用'", '8cfcb170c39914b35a184ed13be3061c81cbbfbbc911cfeb43b6e7f6afcfd7a6'],
+      ['async function dependencySupplyFixture(', 'e58e397288748fc072de4dd4ea9730c0edd7fc10ae1069d7b5aaf968f5c079a9'],
+      ["test('无可选依赖供给保持独立，旧schema与Pod整锁快照被拒绝'", 'e5235910fe752869572531da13fa578d4fe5f655e7a195d28ccd0fb5e82bb77e'],
+    ];
+    for (const [prefix, sha] of fixtures) {
+      let begin = source.indexOf(prefix);
+      while (begin >= 0) {
+        const end = prefix.startsWith('async') ? source.indexOf('\n', begin) : source.indexOf('\n});', begin) + 4;
+        if (end > begin && createHash('sha256').update(source.slice(0, end)).digest('hex') === sha) fixtureRanges.push([begin, end]);
+        begin = source.indexOf(prefix, begin + prefix.length);
+      }
+    }
+  }
+  const fixtureLines = new Set(fixtureRanges.flatMap(([begin, end]) => source.slice(begin, end).split('\n').filter(line => /\bschema_version\b/u.test(line))));
   const occurrences = new Map();
   let offset = 0;
   for (const line of source.split('\n')) {
     if (line.trim() === literal) {
       const position = offset + line.indexOf('assert');
       const executable = !opaque.some(([start, end]) => position >= start && position < end);
+      occurrences.set(line, (occurrences.get(line) ?? true) && executable);
+    }
+    if (fixtureLines.has(line)) {
+      const executable = fixtureRanges.some(([begin, end]) => offset >= begin && offset + line.length <= end);
       occurrences.set(line, (occurrences.get(line) ?? true) && executable);
     }
     offset += line.length + 1;

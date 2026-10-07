@@ -128,7 +128,8 @@ for(const route of routes.filter(row=>row.recordsFormalRelease))test(route.canon
  const {policy,release,metadata}=formalRecordFixture(route);
  assert.equal(validateFormalRecordSource(route.platform,release,sourceSHA,metadata),sourceSHA);
  assert.throws(()=>validateFormalRecordSource(route.platform,{...release,draft:true},sourceSHA,metadata));
- assert.throws(()=>validateFormalRecordSource(route.platform,{...release,tag_name:'foreign-v1.0.0'},sourceSHA,metadata));
+ // 错归属仍使用当前正式版本，只改变产品前缀并真实断言拒绝。
+ assert.throws(()=>validateFormalRecordSource(route.platform,{...release,tag_name:'foreign-'+release.tag_name},sourceSHA,metadata));
  assert.throws(()=>validateFormalRecordSource(route.platform,release,'bad',metadata));
  if(policy.kind==='manifest') {
   assert.throws(()=>validateFormalRecordSource(route.platform,release,sourceSHA,{...metadata,product_id:'foreign'}));

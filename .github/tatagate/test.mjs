@@ -131,6 +131,26 @@ test('协议拒绝断言只归属本仓登记测试中的真实代码', async ()
   assert.deepEqual(protocolAssertionLines('unregistered.test.mjs', line), []);
 });
 
+// 外部索引夹具保留实际字段与真实拒绝，完整字节或执行上下文改变均取消识别。
+test('可选原件索引夹具仅按完整执行正文识别，伪装、漂移和其它协议仍拒绝', async () => {
+  const [{ readFileSync }, { protocolAssertionLines }] = await Promise.all([import('node:fs'), import('./index.mjs')]);
+  const path = 'scripts/resources.test.mjs', source = readFileSync(new URL('../../scripts/resources.test.mjs', import.meta.url), 'utf8');
+  const field = ['schema', 'version'].join('_');
+  const lines = source.split('\n').filter(line => line.includes(field));
+  assert.equal(lines.length, 3);
+  assert.deepEqual(protocolAssertionLines(path, source).filter(line => line.includes(field)), lines);
+  for (const altered of [source.replace(/2,packages/gu, '3,packages').replace(/1,packages/gu, '2,packages'),
+    source.replace("assert.rejects(readDependencySupply(f.objects),/协议/)", "assert.doesNotReject(readDependencySupply(f.objects))"),
+    JSON.stringify(source)]) {
+    const accepted = protocolAssertionLines(path, altered);
+    assert.ok(accepted.filter(line => line.includes(field)).length < lines.length);
+  }
+  for (const line of lines) assert.ok(!protocolAssertionLines(path, source + '\n/*\n' + line + '\n*/').includes(line));
+  assert.deepEqual(protocolAssertionLines('scripts/other.test.mjs', source), []);
+  const foreign = 'const endpoint = "https://example.invalid/' + 'v' + '9";';
+  assert.ok(!protocolAssertionLines(path, source + '\n' + foreign).includes(foreign));
+});
+
 // 执行本仓真实Shell增量防护，检查CLI/浏览器边界、拒绝断言、真实残留和大输入通道。
 test('增量防护执行真实归属判断并支持超过argv单项限制的输入', async () => {
   const [{ mkdtempSync, mkdirSync, writeFileSync, rmSync }, { join, dirname }, { testRoot: tmpdir }, { execFileSync, spawnSync }, { checkGuardrails }] = await Promise.all([
