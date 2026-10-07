@@ -274,6 +274,7 @@ mkdirSync(${JSON.stringify(join(cache,'citizensdk-native/zxing-cpp-3.1.1'))},{re
       writeFileSync(join(sdk,'scripts/build-native.sh'),`#!/bin/bash
 set -euo pipefail
 test -d "$CITIZENSDK_ZXING_SOURCE_DIR"
+${platform==='android'?'test "$ANDROID_NDK_HOME" = "'+work+'/android-sdk/ndk/28.2.13676358"\ntest "$ANDROID_NM" = "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"':''}
 test "$CITIZENSDK_WORK_DIR" = "${cache}/citizensdk-work"
 test "$CITIZENSDK_NATIVE_OUTPUT_DIR" = "${cache}/citizensdk-output"
 printf 'citizen:%s\\n' "$1" >> "${log}"
@@ -286,12 +287,16 @@ printf 'chat:%s\\n' "$1" >> "${log}"
 `,{mode:0o755});
       const output=join(work,'github-env');writeFileSync(output,'');
       const result=spawnSync('/bin/bash',['-e','-o','pipefail','-c',steps[index].source],{cwd:source,encoding:'utf8',env:{...process.env,
-        PATH:bin+':'+process.env.PATH,GITHUB_WORKSPACE:source,RUNNER_TEMP:work,CI_INCREMENTAL_ROOT:cache,GITHUB_ENV:output,GITHUB_RUN_ID:'123',GITHUB_RUN_ATTEMPT:'1'}});
+        PATH:bin+':'+process.env.PATH,ANDROID_HOME:join(work,'android-sdk'),ANDROID_NDK_HOME:join(work,'wrong-inherited-ndk'),ANDROID_NM:join(work,'wrong-inherited-nm'),GITHUB_WORKSPACE:source,RUNNER_TEMP:work,CI_INCREMENTAL_ROOT:cache,GITHUB_ENV:output,GITHUB_RUN_ID:'123',GITHUB_RUN_ATTEMPT:'1'}});
       assert.equal(result.status,0,result.stderr);
       assert.equal(readFileSync(log,'utf8'),platform==='android'?'prepare\ncitizen:android\nchat:android\n':
         'prepare\ncitizen:apple\nchat:ios\nproject:darwin/CitizenSDK.xcframework\nproject:ios/TataChatSDK.xcframework\n');
       const vars=readFileSync(output,'utf8');assert.ok(vars.includes('TATACHATSDK_SOURCE_ROOT='+chat+'\n'));
-      if(platform==='android')assert.ok(vars.includes('CITIZENAPP_NATIVE_ANDROID_DIR='+join(cache,'tatachatsdk-output/android')+'\n'));
+      if(platform==='android') {
+        assert.ok(vars.includes('CITIZENAPP_NATIVE_ANDROID_DIR='+join(cache,'tatachatsdk-output/android')+'\n'));
+        assert.ok(vars.includes('ANDROID_NDK_HOME='+join(work,'android-sdk/ndk/28.2.13676358')+'\n'));
+        assert.ok(vars.includes('ANDROID_NM='+join(work,'android-sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm')+'\n'));
+      }
     }
   } finally {rmSync(root,{recursive:true,force:true});}
 });
