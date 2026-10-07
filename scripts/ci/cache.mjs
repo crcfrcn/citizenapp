@@ -328,8 +328,21 @@ function persistEnvironment(name, value, environment) {
   }
 }
 
+// 缓存命令使用调用方本次环境核验四个既有CI Job，错误身份先于网络和文件操作拒绝。
+function requireExactRemoteJobEnvironment(environment) {
+  const platform=environment.CI_CACHE_PLATFORM,job=environment.GITHUB_JOB;
+  const component='citizenapp-ci-'+platform+'--'+(job==='stage_1'?'check':platform);
+  if(environment.GITHUB_ACTIONS!=='true'||environment.GITHUB_REPOSITORY!=='crcfrcn/citizenapp'
+    ||environment.GITHUB_EVENT_NAME!=='workflow_dispatch'||!['ios','android'].includes(platform)
+    ||environment.GITHUB_WORKFLOW!=='citizenapp.'+platform+'.ci'||!['stage_1','flow'].includes(job)
+    ||environment.CI_CACHE_PRODUCT!=='citizenapp'||environment.CI_CACHE_WORKFLOW!=='citizenapp-'+platform
+    ||environment.CI_CACHE_COMPONENT!==component||environment.CI_CACHE_JOB!==component) {
+    throw new Error('CitizenApp CI缓存远端Job身份无效');
+  }
+}
+
 function commandContext(environment) {
-  requireExactRemoteJobEnvironment();
+  requireExactRemoteJobEnvironment(environment);
   const identity = identityFromEnvironment(environment);
   const keys = cacheKeys(identity, environment.GITHUB_RUN_ID, environment.GITHUB_RUN_ATTEMPT);
   const paths = cachePathPlan(identity, environment.RUNNER_TEMP, environment.CI_CACHE_PATHS);
