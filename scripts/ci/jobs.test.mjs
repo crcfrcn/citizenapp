@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { testRoot as tmpdir } from '../build.mjs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { createHash } from 'node:crypto';
@@ -182,7 +182,7 @@ test('CitizenApp扁平平台输入缺失或重复时拒绝生成工程', () => {
 // 金标入口实际验真链快照；夹具只提供合成Git提交和无业务含义JSON，不读取正式仓或网络。
 test('公民链金标输入拒绝主分支、脏输入和错误来源', async () => {
   const { mkdtempSync, realpathSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
-  const { join } = await import('node:path'); const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path'); const { testRoot: tmpdir } = await import('../build.mjs');
   const { spawnSync } = await import('node:child_process');
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'app-chain-input-')));
   const chain = join(base, 'chain'), work = join(base, 'work'); mkdirSync(chain); mkdirSync(work);

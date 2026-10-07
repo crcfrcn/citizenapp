@@ -3,7 +3,7 @@ import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,writeFileSync,rmSync,symlinkSync,realpathSync} from 'node:fs';
-import {tmpdir} from 'node:os';
+import { testRoot as tmpdir } from './build.mjs';
 import {join} from 'node:path';
 import {citizenCorePath,isarCorePath} from './citizenapp-test-native.mjs';
 

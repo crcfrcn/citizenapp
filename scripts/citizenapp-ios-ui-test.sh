@@ -12,7 +12,7 @@ SCHEME="RunnerUITests"
 TARGET_BUNDLE_ID="ios.citizenapp"
 TEST_HOST_BUNDLE_ID="ios.citizenapp.UITestHost"
 TEST_RUNNER_BUNDLE_ID="ios.citizenapp.UITests.xctrunner"
-BUILD_ROOT="${CITIZENAPP_UI_TEST_WORK_DIR:-${TMPDIR:-/tmp}/citizenapp/ios-ui-test}"
+BUILD_ROOT="${CITIZENAPP_UI_TEST_WORK_DIR:-$APP_ROOT/target/ios/test/ui}"
 PROJECT="$APP_ROOT/ios/Runner.xcodeproj"
 DERIVED_DATA="$BUILD_ROOT/DerivedData"
 TEST_ONLY="${CITIZENAPP_UI_TEST_ONLY:-}"
@@ -27,8 +27,8 @@ from pathlib import Path
 import sys
 source, raw = map(Path, sys.argv[1:])
 source, target = source.resolve(), raw.resolve()
-if not raw.is_absolute() or target == source or source in target.parents:
-    raise SystemExit('CITIZENAPP_UI_TEST_WORK_DIR必须是CitizenApp源码外绝对路径')
+if not raw.is_absolute() or source / 'target' not in target.parents:
+    raise SystemExit('CITIZENAPP_UI_TEST_WORK_DIR必须是CitizenApp本仓target内绝对路径')
 CHECK_OUTPUTS
 
 [[ -f "$PROJECT/project.pbxproj" && ! -L "$PROJECT/project.pbxproj" ]] || {

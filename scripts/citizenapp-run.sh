@@ -68,7 +68,7 @@ PLATFORM="${1:?缺少目标平台，用法：$0 <ios|android>}"
   || "$PLATFORM" == verify-ios-localization || "$PLATFORM" == verify-android-localization ]] \
   || { echo "目标平台或检查模式不合法：$PLATFORM" >&2; exit 1; }
 if [[ "$PLATFORM" == ios || "$PLATFORM" == android ]]; then
-  CITIZENAPP_WORK_DIR="${CITIZENAPP_WORK_DIR:-${TMPDIR:-/tmp}/citizenapp/$PLATFORM}"
+  CITIZENAPP_WORK_DIR="${CITIZENAPP_WORK_DIR:-$APP_ROOT/target/$PLATFORM/build}"
   # macOS 的 /tmp、/var 可能是系统链接；先创建再读取物理路径，使默认直接开发路径
   # 与工程视图的“规范绝对路径、无链接祖先”安全合同一致。
   mkdir -p "$CITIZENAPP_WORK_DIR"
@@ -100,8 +100,8 @@ source = Path(sys.argv[1]).resolve()
 for value in sys.argv[2:]:
     raw = Path(value)
     target = raw.resolve()
-    if not raw.is_absolute() or target == source or source in target.parents:
-        raise SystemExit(f'CitizenApp可写目录必须是源码外绝对路径：{value}')
+    if not raw.is_absolute() or source / 'target' not in target.parents:
+        raise SystemExit(f'CitizenApp可写目录必须是本仓target内绝对路径：{value}')
 CHECK_OUTPUTS
   export CITIZENAPP_BUILD_DIR="$BUILD_DIR"
   export CITIZENAPP_NATIVE_ANDROID_DIR="${CITIZENAPP_NATIVE_ANDROID_DIR:-$BUILD_WORK_DIR/native/android}"

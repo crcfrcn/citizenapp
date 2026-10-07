@@ -139,4 +139,4 @@ jobs:
     - name: 签署 iOS 正式资产构建来源
       uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
       with:
-        subject-path: "${{ runner.temp }}/citizenapp-citizensdk-${{ github.run_id }}-${{ github.run_attempt }}/release/*"
+        subject-path: "${{ github.workspace }}/target/ios/release/citizenapp-citizensdk-${{ github.run_id }}-${{ github.run_attempt }}/release/*"

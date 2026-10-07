@@ -27,7 +27,7 @@ try {
       || contract.citizenchain.paths.join('\n') !==
       'runtime/primitives/tests/fixtures/scale_codec_vectors.json\nruntime/tests/fixtures/role_permission.json') fail('链测试输入合同无效');
   const work = process.argv[2];
-  if (!isAbsolute(work) || resolve(work) !== work || work === source || work.startsWith(source + '/')) fail('链测试工作根必须是源码外绝对路径');
+  if (!isAbsolute(work) || resolve(work) !== work || !work.startsWith(join(source, 'target') + '/')) fail('链测试工作根必须是本产品target内绝对路径');
   directory(work);
   let root = process.env.CITIZENCHAIN_ROOT;
   let expected;

@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { remoteEnvironment as productRemoteEnvironment } from '../build.mjs';
+if(process.env.GITHUB_ACTIONS==='true'&&String(process.env.GITHUB_WORKFLOW||'').startsWith('citizenapp.'))Object.assign(process.env,productRemoteEnvironment());
 import { startWorkflow } from '../workflow.mjs';
 
 // 本文件只保存一个准确CitizenApp Release Job身份及其平台步骤；执行器与版本验证均使用唯一实现。

@@ -1,3 +1,5 @@
+import { remoteEnvironment as productRemoteEnvironment } from '../build.mjs';
+if(process.env.GITHUB_ACTIONS==='true'&&String(process.env.GITHUB_WORKFLOW||'').startsWith('citizenapp.'))Object.assign(process.env,productRemoteEnvironment());
 import { createHash } from 'node:crypto';
 import {
   appendFileSync,
@@ -342,6 +344,7 @@ function requireExactRemoteJobEnvironment(environment) {
 }
 
 function commandContext(environment) {
+  environment = productRemoteEnvironment(environment);
   requireExactRemoteJobEnvironment(environment);
   const identity = identityFromEnvironment(environment);
   const keys = cacheKeys(identity, environment.GITHUB_RUN_ID, environment.GITHUB_RUN_ATTEMPT);
@@ -352,6 +355,7 @@ function commandContext(environment) {
 }
 
 async function prepare(environment) {
+  environment = productRemoteEnvironment(environment);
   const context = commandContext(environment);
   const caches = await listRepositoryCaches(context.identity.repository, context.tokenValue);
   const latest = selectLatestCache(context.identity, caches, 'success', context.ref);
@@ -458,6 +462,7 @@ function writeTerminalRecord(environment) {
 }
 
 async function prune(environment) {
+  environment = productRemoteEnvironment(environment);
   const context = commandContext(environment);
   const state = token(environment.CI_CACHE_TERMINAL_STATE, '终态');
   if (!['success', 'failure'].includes(state)) throw new Error('终态只能是success或failure');

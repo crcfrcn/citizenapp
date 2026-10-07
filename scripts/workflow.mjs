@@ -1,3 +1,4 @@
+import { remoteEnvironment } from './build.mjs';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
@@ -41,6 +42,7 @@ export async function runWorkflow(identity, steps, commands = {}, {
   argumentsList = process.argv.slice(2), environment = process.env, run = spawnSync,
 } = {}) {
   requireIdentity(identity, environment);
+  environment=remoteEnvironment({...environment,GITHUB_WORKFLOW:identity.pipeline});
   const [command, argument, ...extra] = argumentsList;
   if (extra.length > 0) throw new Error('CitizenApp远程Job参数越界');
   if (command === 'workflow-step') return runStep(steps, argument, environment, run);

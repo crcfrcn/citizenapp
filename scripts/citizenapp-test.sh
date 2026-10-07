@@ -13,7 +13,7 @@ FLUTTER_ROOT=''
 ANALYSIS_CONFIG=''
 TEST_CONFIG=''
 TEST_CONFIGS_STAGED=false
-CITIZENAPP_TEST_WORK_DIR="${CITIZENAPP_TEST_WORK_DIR:-${TMPDIR:-/tmp}/citizenapp/test}"
+CITIZENAPP_TEST_WORK_DIR="${CITIZENAPP_TEST_WORK_DIR:-$CITIZENAPP_DIR/target/ios/test}"
 BUILD_CACHE="${CITIZENAPP_TEST_BUILD_DIR:-$CITIZENAPP_TEST_WORK_DIR/work}"
 DEPENDENCY_CACHE="${CITIZENAPP_TEST_DEPENDENCY_DIR:-$CITIZENAPP_TEST_WORK_DIR/dependencies}"
 python3 - "$CITIZENAPP_DIR" "$CITIZENAPP_TEST_WORK_DIR" "$BUILD_CACHE" "$DEPENDENCY_CACHE" <<'CHECK_OUTPUTS'
@@ -23,8 +23,8 @@ source = Path(sys.argv[1]).resolve()
 for value in sys.argv[2:]:
     raw = Path(value)
     target = raw.resolve()
-    if not raw.is_absolute() or target == source or source in target.parents:
-        raise SystemExit(f'CitizenApp测试目录必须是源码外绝对路径：{value}')
+    if not raw.is_absolute() or source / 'target' not in target.parents:
+        raise SystemExit(f'CitizenApp测试目录必须是本仓target内绝对路径：{value}')
 CHECK_OUTPUTS
 mkdir -p "$CITIZENAPP_TEST_WORK_DIR"
 CITIZENCHAIN_ROOT="$(node "$SCRIPT_DIR/citizenapp-test-inputs.mjs" "$CITIZENAPP_TEST_WORK_DIR")"
@@ -76,7 +76,7 @@ fi
 # 设备 Release 构建会先 cargo clean；测试必须从宿主库构建开始一直持锁到最后一个
 # flutter_tester 退出，禁止其它进程在测试中途删除 dylib/so。macOS 用系统 shlock
 # 自动识别死亡 PID，Linux CI 用 util-linux flock，二者都不依赖仓库内状态文件。
-NATIVE_BUILD_LOCK_PATH="${TMPDIR:-/tmp}/citizenapp-native-build.lock"
+NATIVE_BUILD_LOCK_PATH="$CITIZENAPP_TEST_WORK_DIR/citizenapp-native-build.lock"
 NATIVE_BUILD_LOCK_KIND=""
 acquire_native_build_lock() {
   case "$(uname -s)" in

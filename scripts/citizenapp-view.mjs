@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// CitizenApp 本机Build的源码外只读工程视图。只建目录骨架与源文件链接，
+// CitizenApp 本机Build的target内只读工程视图。只建目录骨架与源文件链接，
 // 平台固定布局仅在工程视图装配；Wrapper 按原字节复制，源码目录不承载生成物。
 import { execFileSync } from 'node:child_process';
 import {
@@ -206,7 +206,7 @@ async function createView(sourceInput, workInput, android = false) {
   const workRoot = absolutePath(workInput, '产品工作根');
   ordinaryDirectory(sourceRoot, '产品源码根');
   existingAncestors(workRoot, '产品工作根');
-  if (inside(sourceRoot, workRoot) || inside(workRoot, sourceRoot)) fail('产品工作根与源码根必须分离');
+  if (!inside(join(sourceRoot, 'target'), workRoot) || workRoot === join(sourceRoot, 'target')) fail('产品工作根必须在本仓target内');
   mkdirSync(workRoot, { recursive: true, mode: 0o700 });
   ordinaryDirectory(workRoot, '产品工作根');
   const viewRoot = join(workRoot, 'source-view');
@@ -281,7 +281,7 @@ async function createView(sourceInput, workInput, android = false) {
 
     visit(sourceDirectory, destinationRoot);
     if (sourceDirectory === sourceRoot) {
-      // Xcode/Gradle 固定入口只在源码外生成；每个入口绑定一个已核对的源文件。
+      // Xcode/Gradle 固定入口只在target内生成；每个入口绑定一个已核对的源文件。
       const mappings = [
         ['ios/Runner.xcscheme', 'ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme'],
         ['ios/RunnerUITests.xcscheme', 'ios/Runner.xcodeproj/xcshareddata/xcschemes/RunnerUITests.xcscheme'],
@@ -329,7 +329,7 @@ async function verifyView(sourceInput, workInput) {
   ordinaryDirectory(sourceRoot, '产品源码根');
   ordinaryDirectory(workRoot, '产品工作根');
   existingAncestors(workRoot, '产品工作根');
-  if (inside(sourceRoot, workRoot) || inside(workRoot, sourceRoot)) fail('产品工作根与源码根必须分离');
+  if (!inside(join(sourceRoot, 'target'), workRoot) || workRoot === join(sourceRoot, 'target')) fail('产品工作根必须在本仓target内');
   const viewRoot = join(workRoot, 'source-view');
   const projectRoot = join(viewRoot, sourceRoot.replace(/^\/+/, ''));
   ordinaryDirectory(projectRoot, '产品视图根');

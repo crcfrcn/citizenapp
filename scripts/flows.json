@@ -36,6 +36,18 @@
         {
           "id": "python",
           "version": "3.14.3"
+        },
+        {
+          "id": "bash",
+          "version": "5.3.20"
+        },
+        {
+          "id": "grep",
+          "version": "3.12"
+        },
+        {
+          "id": "sed",
+          "version": "4.10"
         }
       ],
       "locks": [
@@ -92,8 +104,25 @@
             "id": "xcode",
             "version": "27.0"
           }
-        ]
-      }
+        ],
+        "version_source": {
+          "kind": "pubspec",
+          "path": "pubspec.yaml"
+        },
+        "record_source": {
+          "kind": "manifest",
+          "asset_names": [],
+          "metadata_asset": "citizenapp-release-ios.json",
+          "source_field": "head_sha",
+          "version_field": "version",
+          "marker_prefix": "GMB",
+          "immutable": false
+        }
+      },
+      "completion": "device-install",
+      "files": [
+        "ios.app.zip"
+      ]
     },
     "android": {
       "tools": [
@@ -148,6 +177,18 @@
         {
           "id": "xcode",
           "version": "27.0"
+        },
+        {
+          "id": "bash",
+          "version": "5.3.20"
+        },
+        {
+          "id": "grep",
+          "version": "3.12"
+        },
+        {
+          "id": "sed",
+          "version": "4.10"
         }
       ],
       "locks": [
@@ -236,8 +277,72 @@
             "id": "android-ndk",
             "version": "28.2.13676358"
           }
-        ]
-      }
+        ],
+        "version_source": {
+          "kind": "pubspec",
+          "path": "pubspec.yaml"
+        },
+        "record_source": {
+          "kind": "manifest",
+          "asset_names": [],
+          "metadata_asset": "citizenapp-release-android.json",
+          "source_field": "head_sha",
+          "version_field": "version",
+          "marker_prefix": "GMB",
+          "immutable": false
+        }
+      },
+      "completion": "device-install",
+      "files": [
+        "android.apk"
+      ]
     }
-  }
+  },
+  "remote_routes": [
+    {
+      "canonicalID": "citizenapp.android.ci",
+      "repository": "citizenapp",
+      "productID": "citizenapp",
+      "productTitle": "公民",
+      "flow": "ci",
+      "platform": "android",
+      "expectedTitle": "公民 · CI · Android",
+      "tagPrefix": null,
+      "recordsFormalRelease": false
+    },
+    {
+      "canonicalID": "citizenapp.android.release",
+      "repository": "citizenapp",
+      "productID": "citizenapp",
+      "productTitle": "公民",
+      "flow": "release",
+      "platform": "android",
+      "expectedTitle": "公民 · Release · Android",
+      "tagPrefix": "citizenapp-android-v",
+      "recordsFormalRelease": true
+    },
+    {
+      "canonicalID": "citizenapp.ios.ci",
+      "repository": "citizenapp",
+      "productID": "citizenapp",
+      "productTitle": "公民",
+      "flow": "ci",
+      "platform": "ios",
+      "expectedTitle": "公民 · CI · iOS",
+      "tagPrefix": null,
+      "recordsFormalRelease": false
+    },
+    {
+      "canonicalID": "citizenapp.ios.release",
+      "repository": "citizenapp",
+      "productID": "citizenapp",
+      "productTitle": "公民",
+      "flow": "release",
+      "platform": "ios",
+      "expectedTitle": "公民 · Release · iOS",
+      "tagPrefix": "citizenapp-ios-v",
+      "recordsFormalRelease": true
+    }
+  ],
+  "flow_entry": "scripts/flow.mjs"
 }

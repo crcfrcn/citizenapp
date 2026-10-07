@@ -63,7 +63,7 @@ test('CitizenApp四个CI缓存命令从真实执行器进入且拒绝错流程�
 // Apple正式目录名保留大小写；真实删除只作用于准确候选，越界路径继续拒绝。
 test('CitizenApp最终候选支持Runner.app且保持路径边界和大小写',async()=>{
   const {mkdtempSync,mkdirSync,writeFileSync,existsSync,readlinkSync,rmSync}=await import('node:fs');
-  const {tmpdir}=await import('node:os'),{join}=await import('node:path');
+  const {testRoot:tmpdir}=await import('../build.mjs'),{join}=await import('node:path');
   const {sanitizeCacheFinals,wireCacheLinks}=await import('./cache.mjs');
   const temp=mkdtempSync(join(tmpdir(),'citizenapp-cache-finals-'));
   try {

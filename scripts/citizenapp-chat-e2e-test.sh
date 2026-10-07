@@ -4,8 +4,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+APP_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 IOS_TEST="$SCRIPT_DIR/citizenapp-ios-ui-test.sh"
-export CITIZENAPP_UI_TEST_WORK_DIR="${CITIZENAPP_UI_TEST_WORK_DIR:-${TMPDIR:-/tmp}/citizenapp/ios/chat-e2e}"
+export CITIZENAPP_UI_TEST_WORK_DIR="${CITIZENAPP_UI_TEST_WORK_DIR:-$APP_ROOT/target/ios/test/chat-e2e}"
 
 python3 - "$IOS_TEST" <<'PY'
 import os

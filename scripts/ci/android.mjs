@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { remoteEnvironment as productRemoteEnvironment } from '../build.mjs';
+if(process.env.GITHUB_ACTIONS==='true'&&String(process.env.GITHUB_WORKFLOW||'').startsWith('citizenapp.'))Object.assign(process.env,productRemoteEnvironment());
 import { startWorkflow } from '../workflow.mjs';
 import { cacheCommands } from './cache.mjs';
 
