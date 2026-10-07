@@ -215,10 +215,10 @@ test('无可选依赖供给保持独立，旧schema与Pod整锁快照被拒绝',
  for(const value of [null,[],{schema_version:1,packages:[],git_sources:[],snapshots:[]},{...f.index,snapshots:[]}]){await writeFile(join(dirname(f.objects),'index.json'),JSON.stringify(value));await assert.rejects(readDependencySupply(f.objects),/协议/);}
 });
 test('Maven按上游分区重建，JAR分类器及module文件名保留，共享原件不承接写入',async t=>{
- const a=Buffer.from('central-pom'),b=Buffer.from('portal-pom'),c=Buffer.from('classifier-original'),d=Buffer.from('{"formatVersion":"1.1"}');const entries=[suppliedMaven(a),suppliedMaven(b,'https://plugins.gradle.org/m2/'),suppliedMaven(c,undefined,'jar'),suppliedMaven(d,undefined,'module')];entries[2].archives[0].url=entries[2].archives[0].url.replace('.jar','-sources.jar');const f=await dependencySupplyFixture(t,entries);
+ const a=Buffer.from('central-pom'),b=Buffer.from('portal-pom'),c=Buffer.from('classifier-original'),d=Buffer.from('{"formatVersion":"1.1","variants":[{"files":[{"url":"library-1.0.0-sources.jar"}]}]}');const entries=[suppliedMaven(a),suppliedMaven(b,'https://plugins.gradle.org/m2/'),suppliedMaven(c,undefined,'jar'),suppliedMaven(d,undefined,'module')];entries[2].archives[0].url=entries[2].archives[0].url.replace('.jar','-sources.jar');const f=await dependencySupplyFixture(t,entries);
  for(const bytes of[a,b,c,d])await writeFile(join(f.objects,hash(bytes)+'.blob'),bytes);
  const repos=await materializeMavenCache(f.objects,f.work);assert.equal(repos.length,2);const central=repos.find(x=>x.source.includes('repo.maven.apache.org')),portal=repos.find(x=>x.source.includes('plugins.gradle.org'));assert.equal(await readFile(join(central.directory,'example/library/1.0.0/library-1.0.0.pom'),'utf8'),'central-pom');assert.equal(await readFile(join(portal.directory,'example/library/1.0.0/library-1.0.0.pom'),'utf8'),'portal-pom');assert.equal(await readFile(join(central.directory,'example/library/1.0.0/library-1.0.0-sources.jar'),'utf8'),'classifier-original');
- assert.deepEqual(await materializeMavenCache(f.objects,f.work),repos);const script=mavenSupplyInit(repos);assert.match(script,/beforeSettings/);assert.match(script,/beforeProject/);assert.match(script,/artifactUrls\(original.url\)/);assert.doesNotMatch(script,/modules-2|rely\/maven/);
+ assert.deepEqual(await materializeMavenCache(f.objects,f.work),repos);const script=mavenSupplyInit(repos);assert.match(script,/beforeSettings/);assert.match(script,/beforeProject/);assert.doesNotMatch(script,/artifactUrls/);assert.match(script,/includeVersion/);assert.doesNotMatch(script,/modules-2|rely\/maven/);
  await writeFile(join(central.directory,'example/library/1.0.0/library-1.0.0.pom'),'task-changed');assert.equal(await readFile(join(f.objects,hash(a)+'.blob'),'utf8'),'central-pom');await assert.rejects(materializeMavenCache(f.objects,f.work),/摘要/);
 });
 for(const change of ['sha','sri','source','version','duplicate','state','link','cancel'])test('Maven拒绝错误原件或状态并保留失败：'+change,async t=>{
@@ -424,4 +424,152 @@ test('源码工具只分离两处有效镜像运输字段，真实编译输入�
   target.upstream_patches={};
   await assert.rejects(check(value,requested),/源码补丁输入证明无效/u);
  }
+});
+
+// 复制完整实现仅在target暴露私有函数；正式资源接口不增加测试出口。
+test('Pod官方CDN严格一跳HTTPS分发，错源、错路径、再跳转、超限和取消拒绝',async t=>{
+ const area=await sandbox(t),entry=join(area,'pod-resources.mjs');
+ const {pathToFileURL}=await import('node:url');
+ const current=await readFile(new URL('./resources.mjs',import.meta.url),'utf8');
+ await writeFile(entry,current+'\nexport {podSpecBytes};\n');
+ const {podSpecBytes}=await import(pathToFileURL(entry).href);
+ const url='https://cdn.cocoapods.org/Specs/0/3/5/Firebase/12.15.0/Firebase.podspec.json',mirror='https://cdn.jsdelivr.net/cocoa/Specs/0/3/5/Firebase/12.15.0/Firebase.podspec.json';
+ let pass=0;
+assert.equal((await podSpecBytes(url,{fetcher:async(_,o)=>{assert.equal(o.redirect,'manual');return new Response('fixed-spec')}})).toString(),'fixed-spec');pass++;
+let calls=[];assert.equal((await podSpecBytes(url,{fetcher:async(u,o)=>{calls.push([u,o.redirect]);return calls.length===1?new Response(null,{status:301,headers:{location:mirror}}):new Response('fixed-spec')}})).toString(),'fixed-spec');assert.deepEqual(calls,[[url,'manual'],[mirror,'error']]);pass++;
+for(const location of ['http://cdn.jsdelivr.net/cocoa/Specs/a','https://example.invalid/spec',mirror+'?different=1',mirror+'#fragment',mirror.replace('/12.15.0/','/12.14.0/'),'https://user@cdn.jsdelivr.net/cocoa/Specs/0/3/5/Firebase/12.15.0/Firebase.podspec.json']){let n=0;await assert.rejects(podSpecBytes(url,{fetcher:async()=>{n++;return new Response(null,{status:301,headers:{location}})}}),/重定向越界/);assert.equal(n,1);pass++;}
+await assert.rejects(podSpecBytes(url,{fetcher:async u=>u===url?new Response(null,{status:301,headers:{location:mirror}}):new Response(null,{status:301,headers:{location:mirror}})}),/官方来源响应失败/);pass++;
+await assert.rejects(podSpecBytes(url,{fetcher:async()=>new Response('x'.repeat(2*1024**2+1))}),/超限/);pass++;
+const signal=AbortSignal.abort(Error('cancelled'));await assert.rejects(podSpecBytes(url,{signal,fetcher:async()=>new Response(null,{status:301,headers:{location:mirror}})}),/cancelled/);pass++;
+for(const input of [url+'?different=1',url+'#fragment',url.replace('https:','http:'),url.replace('https://','https://user@')]){let requests=0;await assert.rejects(podSpecBytes(input,{fetcher:async()=>{requests++;return new Response('unexpected')}}),/官方地址无效/);assert.equal(requests,0);pass++;}
+let cancelled=false;const body=new ReadableStream({cancel(){cancelled=true;}});await assert.rejects(podSpecBytes(url,{fetcher:async()=>new Response(body,{status:301,headers:{location:'https://example.invalid/spec'}})}),/重定向越界/);assert.equal(cancelled,true);pass++;
+assert.equal(pass,16);
+
+});
+
+
+// target中的私有测试模块保持真实产品根，边界校验仍作用于同一产品target。
+async function fixtureResourceSource(){return (await readFile(new URL('./resources.mjs',import.meta.url),'utf8')).replace("const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');","const root="+JSON.stringify(resolve(import.meta.dirname,'..'))+";");}
+// 完整源码仅在target暴露私有事务；合成设备号覆盖跨卷复制，真实两卷验收另行记录。
+test('跨卷提交复制后重新验真，失败/取消/越界保持原件并清理短锁',async t=>{
+ const area=await sandbox(t),volume=join(area,'volume'),entry=join(area,'transaction.mjs');await mkdir(volume);
+ const {pathToFileURL}=await import('node:url');let source=await fixtureResourceSource();
+ source=source.replace('import {lstat,','import {lstat as physicalStat,');
+ source+='\nconst lstat=async(path,...args)=>{const value=await physicalStat(path,...args);return String(path)==='+JSON.stringify(volume)+'||String(path).startsWith('+JSON.stringify(volume+'/')+')?Object.assign(Object.create(Object.getPrototypeOf(value)),value,{dev:value.dev+1}):value;};\nexport {commitCandidate};\n';
+ await writeFile(entry,source);const {commitCandidate}=await import(pathToFileURL(entry).href);
+ for(const mode of ['normal','existing','damaged','verification','cancel','unverified']){
+  const own=join(volume,mode),output=join(area,mode);await mkdir(own);await mkdir(output);
+  const pending=join(own,'candidate'),target=join(output,'original');await writeFile(pending,'fixed');await chmod(pending,0o444);
+  if(['existing','damaged'].includes(mode))await writeFile(target,mode==='existing'?'fixed':'damaged');
+  const identity=mode==='existing'?(await lstat(target)).ino:null,abort=new AbortController();let calls=0;
+  const verify=async path=>{assert.equal(await readFile(path,'utf8'),'fixed');calls++;if(calls===2&&mode==='verification')throw Error('bad-proof');if(calls===2&&mode==='cancel')abort.abort(Error('cancelled'));};
+  const action=()=>commitCandidate(pending,target,{verify:mode==='unverified'?undefined:verify,signal:abort.signal});
+  if(['damaged','verification','cancel','unverified'].includes(mode))await assert.rejects(action);else await action();
+  assert.equal(await readFile(pending,'utf8'),'fixed');assert.equal((await lstat(pending)).mode&0o777,0o444);
+  assert.deepEqual(await readdir(output),['normal','existing','damaged'].includes(mode)?['original']:[]);
+  assert.equal((await readdir(volume)).some(name=>name.startsWith('.resource-transfer-')),false);
+  if(mode==='normal'){assert.equal(await readFile(target,'utf8'),'fixed');assert.equal((await lstat(target)).mode&0o777,0o444);}
+  if(mode==='existing')assert.equal((await lstat(target)).ino,identity);
+  if(mode==='damaged')assert.equal(await readFile(target,'utf8'),'damaged');
+ }
+});
+
+test('Pub摘要准确64字节可离线读取，换行/错摘要/链接/取消均拒绝',async t=>{
+ const area=await sandbox(t),module=join(area,'pub-resources.mjs'),{pathToFileURL}=await import('node:url');
+ await writeFile(module,(await fixtureResourceSource())+'\nexport {materializePubArchive};\n');
+ const {materializePubArchive}=await import(pathToFileURL(module).href),data=tar([{name:'pubspec.yaml',body:'name: fixed\nversion: 1.0.0\n'}]),file=join(area,'fixed.tar.gz');await writeFile(file,data);
+ const entry={name:'fixed-1.0.0',sha256:hash(data),file};
+ for(const mode of ['normal','newline','wrong','link','cancel','archive']){
+  const cache=join(area,mode),target=join(cache,'hosted/pub.dev',entry.name),proof=join(cache,'hosted-hashes/pub.dev',entry.name+'.sha256');
+  if(mode==='cancel'){await assert.rejects(materializePubArchive(entry,cache,{signal:AbortSignal.abort(Error('cancelled'))}),/cancelled/);continue;}
+  if(mode==='archive'){await assert.rejects(materializePubArchive({...entry,sha256:'0'.repeat(64)},cache),/原件摘要/);continue;}
+  await materializePubArchive(entry,cache);const identity=(await lstat(target)).ino;
+  assert.equal((await readFile(proof)).length,64);assert.equal(await readFile(proof,'utf8'),entry.sha256);
+  if(mode==='normal'){assert.equal(await materializePubArchive(entry,cache),target);assert.equal((await lstat(target)).ino,identity);}
+  else{
+   if(mode==='newline')await writeFile(proof,entry.sha256+'\n');if(mode==='wrong')await writeFile(proof,'0'.repeat(64));
+   if(mode==='link'){const old=proof+'.old';await rename(proof,old);await symlink(old,proof);}
+   const before=await readFile(proof);await assert.rejects(materializePubArchive(entry,cache),/摘要漂移|普通/);assert.deepEqual(await readFile(proof),before);assert.equal((await lstat(target)).ino,identity);
+  }
+ }
+});
+
+test('Gradle解析前准确生成本轮SDK配置，重复稳定并拒绝漂移/链接/错版本/取消',async t=>{
+ const area=await sandbox(t),entry=join(area,'gradle-properties.mjs'),{pathToFileURL}=await import('node:url');
+ await writeFile(entry,(await fixtureResourceSource())+'\nexport {prepareAndroidResourceProperties};\n');
+ const {prepareAndroidResourceProperties}=await import(pathToFileURL(entry).href);
+ for(const mode of ['normal','drift','link','version','cancel','outside']){
+  const work=join(area,mode),project=join(work,'app/android'),flutter=join(work,'flutter'),sdk=join(work,'sdk');
+  for(const dir of [project,flutter,sdk])await mkdir(dir,{recursive:true});await writeFile(join(dirname(project),'pubspec.yaml'),mode==='version'?'version: bad\n':'version: 1.2.3+7\n');
+  const file=join(project,'local.properties'),signal=mode==='cancel'?AbortSignal.abort(Error('cancelled')):undefined;
+  if(mode==='drift')await writeFile(file,'drift');if(mode==='link'){await writeFile(join(work,'external'),'preserve');await symlink(join(work,'external'),file);}
+  const action=()=>prepareAndroidResourceProperties(project,mode==='outside'?join(work,'foreign'):work,flutter,sdk,{signal});
+  if(mode==='normal'){
+   assert.equal(await action(),file);const identity=(await lstat(file)).ino;assert.equal(await action(),file);assert.equal((await lstat(file)).ino,identity);
+   assert.equal(await readFile(file,'utf8'),'sdk.dir='+sdk+'\nflutter.sdk='+flutter+'\nflutter.buildMode=release\nflutter.versionName=1.2.3\nflutter.versionCode=7\n');
+  }else{
+   await assert.rejects(action,/漂移|普通|版本|cancelled|越出/);
+   if(mode==='drift')assert.equal(await readFile(file,'utf8'),'drift');
+   if(mode==='link')assert.equal(await readFile(join(work,'external'),'utf8'),'preserve');
+   if(['version','cancel','outside'].includes(mode))assert.equal((await readdir(project)).includes('local.properties'),false);
+  }
+ }
+});
+
+// SDK供给使用产品准确六组件摘要与全树清单，不联网或修改可选原件。
+test('可选Android SDK准确复用，错需求/文件/版本/链接回执拒绝且不联网',async t=>{
+ const area=await sandbox(t),entry=join(area,'android-resources.mjs'),{pathToFileURL}=await import('node:url');
+ await writeFile(entry,(await fixtureResourceSource())+'\nexport {installAndroidResources,installTool};\n');
+ const {installAndroidResources,installTool,inventory}=await import(pathToFileURL(entry).href),declarations=resourceDeclarations(),cmake=declarations.tools.find(x=>x.id==='cmake');
+ const packages=declarations.android.map(x=>x.tool?{path:'cmake;'+cmake.version,version:cmake.version,...cmake.archives.macos}:x),sha256=hash(JSON.stringify(packages));
+ for(const mode of ['normal','normal-cmake','request','files','version','receipt-link','missing','own-first']){
+  const work=join(area,mode),optional=join(work,'optional'),supplied=join(optional,'shared/android'),payload=join(supplied,'payload');await mkdir(payload,{recursive:true});
+  for(const item of packages){const file=join(payload,...item.path.split(';'),'source.properties');await mkdir(dirname(file),{recursive:true});await writeFile(file,'Pkg.Revision='+item.version+'\n');}
+  const command=join(payload,'cmake',cmake.version,'bin/cmake');await mkdir(dirname(command),{recursive:true});await writeFile(command,'fixed-cmake-executable');await chmod(command,0o755);
+  const proof=join(supplied,'receipt.json');await writeFile(proof,JSON.stringify({sha256,files:await inventory(payload)}));
+  const library={root:join(work,'store'),work,tools:declarations.tools,requested:[{id:'android'}],installed:new Map()},options={library,optionalTools:optional,offline:true,fetcher:()=>assert.fail('SDK供给不应联网')};
+  if(mode==='normal-cmake')library.requested=[{id:'cmake'}];
+  if(mode==='request'){const r=JSON.parse(await readFile(proof));r.sha256='0'.repeat(64);await writeFile(proof,JSON.stringify(r));}
+  if(mode==='files')await writeFile(join(payload,'extra'),'drift');
+  if(mode==='version'){await writeFile(join(payload,...packages[0].path.split(';'),'source.properties'),'Pkg.Revision=0.0\n');await writeFile(proof,JSON.stringify({sha256,files:await inventory(payload)}));}
+  if(mode==='receipt-link'){const saved=join(work,'proof.json');await rename(proof,saved);await symlink(saved,proof);}
+  if(mode==='missing')options.optionalTools=join(work,'absent');
+  if(mode==='own-first'){
+   const {cp}=await import('node:fs/promises');await mkdir(join(library.root,'shared'),{recursive:true});await cp(supplied,join(library.root,'shared/android-'+sha256),{recursive:true});await writeFile(proof,'corrupt optional');
+  }
+  const before=await readdir(supplied),operation=()=>mode==='normal-cmake'?installTool(library,cmake,options):installAndroidResources(options);
+  if(mode==='normal-cmake'){const result=await operation();assert.equal(result.path,command);assert.equal(result.version,cmake.version);assert.equal(library.installed.has('android'),false);assert.deepEqual(await readdir(supplied),before);continue;}
+  if(['normal','own-first'].includes(mode)){
+   const result=await operation();assert.equal(result.ANDROID_HOME,join(work,'dependencies/android-sdk-view'));assert.deepEqual(await inventory(result.ANDROID_HOME),JSON.parse(await readFile(join(mode==='normal'?supplied:join(library.root,'shared/android-'+sha256),'receipt.json'),'utf8')).files);
+   assert.equal(library.installed.get('android').version,declarations.tools.find(x=>x.id==='android').version);
+  }else await assert.rejects(operation,/SDK原件回执不符|SDK组件版本不符|普通|链接|离线缺少SDK/);
+  assert.deepEqual(await readdir(supplied),before);
+ }
+});
+
+test('SDK任务副本保留原件字节，只允许包元数据并拒绝漂移/越界/取消',async t=>{
+ const area=await sandbox(t),entry=join(area,'sdk-view.mjs'),{pathToFileURL}=await import('node:url');await writeFile(entry,(await fixtureResourceSource())+'\nexport {prepareAndroidSDKView};\n');const owner=await import(pathToFileURL(entry).href);
+ for(const mode of ['normal','drift','extra','link','cancel','outside']){
+  const work=join(area,mode),payload=join(work,'source/payload');await mkdir(join(payload,'platform-tools'),{recursive:true});await writeFile(join(payload,'platform-tools/adb'),'verified-tool',{mode:0o555});await writeFile(join(payload,'platform-tools/source.properties'),'Pkg.Revision=37.0.1\n',{mode:0o444});
+  const files=await owner.inventory(payload),action=()=>owner.prepareAndroidSDKView(payload,mode==='outside'?'/outside':work,{files,signal:mode==='cancel'?AbortSignal.abort(Error('cancelled')):undefined});
+  if(['cancel','outside'].includes(mode)){await assert.rejects(action);assert.deepEqual(await owner.inventory(payload),files);continue;}
+  if(mode==='link'){await mkdir(join(work,'dependencies'));await symlink(payload,join(work,'dependencies/android-sdk-view'));await assert.rejects(action,/链接/);continue;}
+  const target=await action();assert.deepEqual(await owner.inventory(target),files);assert.deepEqual(await owner.inventory(payload),files);
+  if(mode==='normal'){await writeFile(join(target,'platform-tools/package.xml'),'<sdk-package/>');await writeFile(join(target,'.knownPackages'),'metadata');assert.equal(await action(),target);}
+  else {const file=join(target,mode==='drift'?'platform-tools/adb':'unexpected');if(mode==='drift')await chmod(file,0o755);await writeFile(file,'bad');await assert.rejects(action,/漂移|非元数据/);}
+  assert.deepEqual(await owner.inventory(payload),files);assert.equal((await readdir(join(work,'dependencies'))).some(x=>x.startsWith('.android-sdk-view-')),false);
+ }
+});
+
+test('Maven只复用完整组件，缺制品由原声明仓库整体解析且不混用file与HTTPS',async t=>{
+ const area=await sandbox(t),entry=join(area,'maven-complete.mjs'),{pathToFileURL}=await import('node:url');await writeFile(entry,(await fixtureResourceSource())+'\nexport {completeMavenModules};\n');const owner=await import(pathToFileURL(entry).href),base=join(area,'repository');await mkdir(join(base,'example/library/1.0.0'),{recursive:true});
+ const module={path:'example/library/1.0.0/library-1.0.0.module'},jar={path:'example/library/1.0.0/library-1.0.0.jar'},file=join(base,module.path);await writeFile(file,JSON.stringify({variants:[{files:[{url:'library-1.0.0.jar'}]}]}));
+ assert.deepEqual(await owner.completeMavenModules(base,[module]),[]);assert.deepEqual(await owner.completeMavenModules(base,[module,jar]),[{group:'example',artifact:'library',version:'1.0.0'}]);
+ for(const url of ['../outside.jar','https://example.invalid/file.jar']){await writeFile(file,JSON.stringify({variants:[{files:[{url}]}]}));assert.deepEqual(await owner.completeMavenModules(base,[module,jar]),[]);}
+ await writeFile(file,JSON.stringify({variants:'bad'}));await assert.rejects(owner.completeMavenModules(base,[module,jar]),/变体/);
+ const script=owner.mavenSupplyInit([{source:'https://repo.maven.apache.org/maven2/',directory:base,modules:[{group:'example',artifact:'library',version:'1.0.0'}]}]);assert.match(script,/includeVersion/);assert.doesNotMatch(script,/artifactUrls/);assert.match(script,/!record.modules.isEmpty/);
+});
+
+test('Android资源准备绑定实际Release外部依赖及ARM64，拒绝旧测试配置解析',async t=>{
+ const area=await sandbox(t),entry=join(area,'gradle-actual.mjs'),{pathToFileURL}=await import('node:url');await writeFile(entry,(await fixtureResourceSource())+'\nexport {androidGradleResourceInit};\n');const owner=await import(pathToFileURL(entry).href),text=owner.androidGradleResourceInit();assert.match(text,/releaseCompileClasspath/);assert.match(text,/releaseRuntimeClasspath/);assert.match(text,/ModuleComponentIdentifier/);assert.doesNotMatch(text,/AndroidTest|debug|it.resolve\(\)/);const source=await fixtureResourceSource();assert.match(source,/-Ptarget-platform=android-arm64/);assert.match(source,/Gradle资源任务配置漂移/);
 });

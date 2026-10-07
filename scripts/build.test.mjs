@@ -3,7 +3,7 @@ import {test} from 'node:test';
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import assert from 'node:assert/strict';
-import {copyFileSync,linkSync,existsSync,lstatSync,mkdtempSync,readFileSync,readdirSync,realpathSync,rmSync,mkdirSync,symlinkSync,writeFileSync} from 'node:fs';
+import {copyFileSync,linkSync,unlinkSync,existsSync,lstatSync,mkdtempSync,readFileSync,readdirSync,realpathSync,rmSync,mkdirSync,symlinkSync,writeFileSync} from 'node:fs';
 import { testRoot as tmpdir } from './build.mjs';
 import {dirname,join,resolve} from 'node:path';
 import {iosStoreBundleID,androidStorePackageName,readStoreSource,storeIdentity,contract,requirements,resourceEnvironment,checkWork,productTarget,createView,checkArchives} from './build.mjs';
@@ -444,4 +444,42 @@ test('CLI异步资源可反向导入唯一校验，正常参数和离线失败�
   assert.equal(existsSync(join(work,'.product-build.lock')),false);
   assert.equal(existsSync(join(work,'build-result.json')),false);
  }finally{rmSync(area,{recursive:true,force:true});}
+});
+
+test('Python与Clang官方命令优先使用已验真回执，重复调用稳定且漂移拒绝',()=>{
+ const work=sandbox();try{
+  const receipt=fixture(work),developer=join(work,'xcode'),compiler=join(developer,'clang');mkdirSync(developer);copyFileSync(process.execPath,compiler);
+  const xcodePython=join(developer,'python3');writeFileSync(xcodePython,'wrong-xcode-version');
+  receipt.environment={DEVELOPER_DIR:developer,CC:compiler,CXX:compiler,PATH:developer};
+  const env=resourceEnvironment(receipt.platform,work,receipt),commands=join(work,'build-tools');
+  assert.equal(env.LC_ALL,'zh_CN.UTF-8');assert.equal(env.LANG,env.LC_ALL);assert.equal(env.PATH.split(':')[0],commands);assert.equal(realpathSync(join(commands,'python3')),process.execPath);
+  assert.equal(realpathSync(join(commands,'cc')),compiler);assert.equal(realpathSync(join(commands,'c++')),compiler);
+  const identity=lstatSync(join(commands,'python3')).ino;resourceEnvironment(receipt.platform,work,receipt);assert.equal(lstatSync(join(commands,'python3')).ino,identity);
+  unlinkSync(join(commands,'python3'));symlinkSync(compiler,join(commands,'python3'));
+  assert.throws(()=>resourceEnvironment(receipt.platform,work,receipt),/入口漂移/);
+  assert.equal(readFileSync(xcodePython,'utf8'),'wrong-xcode-version');
+ }finally{rmSync(work,{recursive:true});}
+});
+
+test('构建工具投影拒绝父目录链接、悬空入口与Xcode外编译器',()=>{
+ for(const failure of ['directory-link','dangling','external-compiler']){
+  const work=sandbox();try{
+   const receipt=fixture(work),outside=join(work,'outside');mkdirSync(outside);
+   if(failure==='directory-link')symlinkSync(outside,join(work,'build-tools'));
+   if(failure==='dangling'){mkdirSync(join(work,'build-tools'));symlinkSync(join(work,'absent'),join(work,'build-tools/python3'));}
+   if(failure==='external-compiler')receipt.environment={DEVELOPER_DIR:outside,CC:process.execPath};
+   assert.throws(()=>resourceEnvironment(receipt.platform,work,receipt),/链接|漂移|越出/);assert.deepEqual(readdirSync(outside),[]);
+  }finally{rmSync(work,{recursive:true});}
+ }
+});
+
+test('宿主消费输入普通复制隔离写入，重复输出/链接/硬链接/越界均拒绝',async()=>{
+ const work=sandbox();try{
+  const ownerPath=join(work,'view-owner.mjs'),file=join(root,'scripts/citizenapp-view.mjs');let source=readFileSync(file,'utf8');const end=source.lastIndexOf('\ntry {\n  const [command, ...values]');assert.ok(end>0);writeFileSync(ownerPath,source.slice(0,end)+'\nexport {copyHostInput};\n');const {pathToFileURL}=await import('node:url'),{copyHostInput}=await import(pathToFileURL(ownerPath).href);
+  const sourceRoot=join(work,'source'),targetRoot=join(work,'view');mkdirSync(sourceRoot);mkdirSync(targetRoot);const input=join(sourceRoot,'input'),output=join(targetRoot,'input');writeFileSync(input,'locked-bytes');copyHostInput(input,output,sourceRoot);
+  assert.equal(lstatSync(output).isSymbolicLink(),false);assert.equal(lstatSync(output).nlink,1);writeFileSync(output,'task-generator-change');assert.equal(readFileSync(input,'utf8'),'locked-bytes');assert.throws(()=>copyHostInput(input,output,sourceRoot),/EEXIST/);
+  const linked=join(sourceRoot,'linked');symlinkSync(input,linked);assert.throws(()=>copyHostInput(linked,join(targetRoot,'linked'),sourceRoot),/独占普通/);
+  const hard=join(sourceRoot,'hard');linkSync(input,hard);assert.throws(()=>copyHostInput(hard,join(targetRoot,'hard'),sourceRoot),/独占普通/);unlinkSync(hard);
+  assert.throws(()=>copyHostInput(input,join(targetRoot,'outside'),targetRoot),/独占普通/);assert.equal(readFileSync(input,'utf8'),'locked-bytes');
+ }finally{rmSync(work,{recursive:true});}
 });

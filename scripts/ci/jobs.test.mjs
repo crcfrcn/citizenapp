@@ -30,7 +30,8 @@ test('CitizenApp四个CI Job保留准确独立身份且共用唯一执行器', a
     }
   }
   await assert.rejects(runWorkflow(ios, iosSteps, {}, {
-    argumentsList: ['workflow-step', '999'], environment: { GITHUB_REPOSITORY: 'crcfrcn/citizenapp' },
+    argumentsList: ['workflow-step', '999'], environment: { GITHUB_REPOSITORY: 'crcfrcn/citizenapp',
+      GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_WORKFLOW: ios.pipeline, GITHUB_JOB: 'flow' },
   }), /阶段无效/u);
   await assert.rejects(runWorkflow(ios, iosSteps, {}, {
     argumentsList: ['workflow-step', '0'], environment: { GITHUB_REPOSITORY: 'crcfrcn/citizenchain' },
@@ -147,7 +148,7 @@ function seedFixtureDependency(source, work) {
 // 直接执行视图装配，覆盖缺少输入、旧平台入口冲突和源目录回写三个失败边界。
 test('CitizenApp扁平平台输入缺失或重复时拒绝生成工程', () => {
   const fixture = realpathSync(mkdtempSync(join(tmpdir(), 'citizenapp-platform-')));
-  const source = join(fixture, 'source'), work = join(fixture, 'work');
+  const source = join(fixture, 'source'), work = join(source, 'target/work');
   const script = fileURLToPath(new URL('../citizenapp-view.mjs', import.meta.url));
   mkdirSync(join(source, 'ios'), { recursive: true });
   mkdirSync(join(source, 'android'));
@@ -170,7 +171,7 @@ test('CitizenApp扁平平台输入缺失或重复时拒绝生成工程', () => {
       '--source-root', source, '--work-root', work], { encoding: 'utf8',
         env: { ...process.env, FLUTTER_ROOT: join(fixture, 'absent-flutter') } });
     assert.notEqual(missingTools.status, 0);
-    assert.match(run(join(source, 'output')).stderr, /必须分离/u);
+    assert.match(run(join(source, 'output')).stderr, /产品工作根必须在本仓target内/u);
     const legacy = join(source, 'ios/Runner.xcodeproj/xcshareddata/xcschemes');
     mkdirSync(legacy, { recursive: true });
     writeFileSync(join(legacy, 'Runner.xcscheme'), '<Scheme/>');
@@ -393,5 +394,33 @@ test('App双端CI所有YAML阶段可执行且缓存终态与候选上传顺序�
     assert.deepEqual(records,['failure','success']);
     assert.ok(flow.indexOf('actions/upload-artifact@')<flow.indexOf('CI_CACHE_TERMINAL_STATE: failure'));
     for(const line of yaml.split('\n').filter(x=>x.includes('failure()')))assert.match(line,/__ci_cache[.]outcome == 'success'/);
+  }
+});
+
+// 真实唯一执行器覆盖两个CI检查、两个CI编译及两个Release；拒绝路径不执行正文。
+test('六个远端Job保留实际身份且在错误环境下拒绝执行正文', async () => {
+  for (const [identity] of [...jobs, [{pipeline:'citizenapp.android.release',job:'android'}],
+    [{pipeline:'citizenapp.ios.release',job:'ios'}]]) {
+    const expectedJob=identity.job==='check'?'stage_1':'flow';
+    const environment={GITHUB_REPOSITORY:'crcfrcn/citizenapp',GITHUB_ACTIONS:'true',
+      GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_WORKFLOW:identity.pipeline,GITHUB_JOB:expectedJob};
+    let calls=0;
+    const execute=env=>runWorkflow(identity, {'0':{shell:'bash',source:'true'}}, {}, {
+      argumentsList:['workflow-step','0'],environment:env,run:(_command,_args,options)=>{
+        calls++;assert.equal(options.env.GITHUB_WORKFLOW,identity.pipeline);
+        assert.equal(options.env.GITHUB_JOB,expectedJob);return {status:0};
+      },
+    });
+    await execute(environment);assert.equal(calls,1);
+    for(const change of [{GITHUB_ACTIONS:'false'},{GITHUB_EVENT_NAME:'push'},
+      {GITHUB_WORKFLOW:'citizenapp.android.release.other'},{GITHUB_WORKFLOW:undefined},
+      {GITHUB_JOB:expectedJob==='flow'?'stage_1':'flow'},{GITHUB_JOB:undefined},
+      {GITHUB_REPOSITORY:'crcfrcn/citizenchain'}]) {
+      await assert.rejects(execute({...environment,...change}),/身份/u);
+      assert.equal(calls,1);
+    }
+    await assert.rejects(runWorkflow({...identity,job:'unknown'}, {}, {}, {
+      argumentsList:['workflow-step','0'],environment,run:()=>{calls++;return {status:0};}
+    }),/身份/u);assert.equal(calls,1);
   }
 });

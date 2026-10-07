@@ -12,7 +12,7 @@ export const workflowSteps = Object.freeze({
   },
   "2": {
     "shell": "bash",
-    "source": "test \"$(git rev-parse HEAD)\" = \"$GMB_SOURCE_SHA\"\npython3 - <<'PY'\nimport os, re\nfrom pathlib import Path\nversion, build = os.environ[\"GMB_SOFTWARE_VERSION\"], os.environ[\"GITHUB_RUN_NUMBER\"]\nif not re.fullmatch(r\"\\d+\\.\\d{1,2}\\.\\d{1,2}\", version) or not re.fullmatch(r\"[1-9]d*\", build):\n    raise SystemExit(\"CitizenApp 候选版本输入无效\")\npath = Path(\"pubspec.yaml\")\ntext, count = re.subn(r\"(?m)^version:\\s*\\d+\\.\\d+\\.\\d+\\+\\d+\\s*$\", f\"version: {version}+{build}\", path.read_text(), count=1)\nif count != 1: raise SystemExit(\"CitizenApp pubspec 版本真源无效\")\npath.write_text(text)\nPY\n"
+    "source": "test \"$(git rev-parse HEAD)\" = \"$GMB_SOURCE_SHA\"\npython3 - <<'PY'\nimport os, re\nfrom pathlib import Path\nversion, build = os.environ[\"GMB_SOFTWARE_VERSION\"], os.environ[\"GITHUB_RUN_NUMBER\"]\nif not re.fullmatch(r\"\\d+\\.\\d{1,2}\\.\\d{1,2}\", version) or not re.fullmatch(r\"[1-9]\\d*\", build):\n    raise SystemExit(\"CitizenApp 候选版本输入无效\")\npath = Path(\"pubspec.yaml\")\ntext, count = re.subn(r\"(?m)^version:\\s*\\d+\\.\\d+\\.\\d+\\+\\d+\\s*$\", f\"version: {version}+{build}\", path.read_text(), count=1)\nif count != 1: raise SystemExit(\"CitizenApp pubspec 版本真源无效\")\npath.write_text(text)\nPY\n"
   },
   "3": {
     "shell": "bash",

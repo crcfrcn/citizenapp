@@ -2,7 +2,7 @@
 // 产品资源阶段：声明、取得、验真和物化均属于本仓；可选原件目录不参与版本决策。
 import {createHash,randomUUID} from 'node:crypto';
 import {existsSync,readFileSync,constants} from 'node:fs';
-import {lstat,realpath,readdir,readlink,symlink,copyFile,readFile,writeFile,mkdir,mkdtemp,rename,rm as removeResourcePath,chmod,open} from 'node:fs/promises';
+import {lstat,realpath,readdir,readlink,symlink,copyFile,cp,readFile,writeFile,mkdir,mkdtemp,rename,rm as removeResourcePath,chmod,open} from 'node:fs/promises';
 import {dirname,join,resolve,relative,isAbsolute,sep,parse,win32,posix} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {homedir} from 'node:os';
@@ -1178,7 +1178,29 @@ async function productFoundation(library,verify,{bootstrap=false,id}={}){
  const view=join(library.work,'resource-tools');await directory(view,true);const shell=join(view,'sh');if(await stat(shell)){if(!((await lstat(shell)).isSymbolicLink())||await realpath(shell)!==tools.sh)fail('GNU sh交付漂移');}else await symlink(tools.sh,shell);for(const [name,path]of Object.entries(base.tools)){if(['sh','bash','grep','sed','egrep','fgrep'].includes(name))continue;const link=join(view,name);if(await stat(link)){if(!((await lstat(link)).isSymbolicLink())||await realpath(link)!==path)fail('基础交付漂移');}else await symlink(path,link);}return {tools,bin:view,path:[...paths,view].join(':')};
 }
 async function prepareSourceDependencies({library,tool,pending,signal,fetcher,options={}}){const result=new Map();for(const entry of tool.dependencies||[])result.set(entry.name,await acquireArchive(entry,{work:library.work,store:join(library.root,'archives'),optional:options.optionalDependencies,offline:options.offline,signal,fetcher}));return result;}
+
+// 跨卷原件先在所属target中同目标卷的临时目录复制验真；长复制不持提交锁。
+async function candidateOnTargetVolume(pending,target,{signal,verify}={}){
+ const original=await lstat(pending),destination=await lstat(dirname(target));
+ if(original.dev===destination.dev)return {pending,dispose:async()=>{}};
+ if(!verify)fail('跨卷原件提交缺少验真');
+ const boundary=join(root,'target');if(!inside(boundary,pending))fail('跨卷候选不在本产品target');
+ let parent=dirname(pending);
+ while(parent!==boundary&&(await lstat(parent)).dev!==destination.dev)parent=dirname(parent);
+ if(!inside(boundary,parent)&&parent!==boundary||(await lstat(parent)).dev!==destination.dev)fail('target内没有原件库所在卷的临时目录');
+ await directory(parent);signal?.throwIfAborted();await verify(pending);
+ const stage=await mkdtemp(join(parent,'.resource-transfer-')),copy=join(stage,'candidate');
+ const snapshot=async path=>(await lstat(path)).isDirectory()?JSON.stringify(await inventoryFiles(path,path,{entries:[],hardlinks:new Map()})):hash(await readFile(path));
+ try{
+  const before=await snapshot(pending);await cp(pending,copy,{recursive:true,force:false,errorOnExist:true,verbatimSymlinks:true});
+  signal?.throwIfAborted();if(before!==await snapshot(pending)||before!==await snapshot(copy))fail('跨卷候选复制期间字节或清单变化');
+  await verify(copy);signal?.throwIfAborted();
+  return {pending:copy,dispose:async()=>{if(await stat(stage)){await permissions(stage,true);await rm(stage,{recursive:true});}}};
+ }catch(error){await permissions(stage,true);await rm(stage,{recursive:true});throw error;}
+}
 async function commitCandidate(pending,target,{signal,verify}={}){
+ const transfer=await candidateOnTargetVolume(pending,target,{signal,verify});pending=transfer.pending;
+ try{
  // 下载与编译已完成后才取得短锁；等待可取消，已有对象永不覆盖。
  const lock=target+'.lock';let handle;for(let n=0;n<500;n++){signal?.throwIfAborted();try{handle=await open(lock,'wx',0o600);break;}catch(e){if(e.code!=='EEXIST')throw e;await new Promise(r=>setTimeout(r,20));}}if(!handle)fail('原件提交锁等待超限');
  try{signal?.throwIfAborted();if(await stat(target)){if(verify)await verify(target);}else {
@@ -1191,12 +1213,14 @@ async function commitCandidate(pending,target,{signal,verify}={}){
    try{await rename(pending,target);renamed=true;}
    finally{if(writableRoot)await chmod(renamed?target:pending,mode);}
   }}finally{await handle.close();await rm(lock);}
+ }finally{await transfer.dispose();}
 }
 async function installTool(library,tool,options,visiting=new Set()){
  if(library.installed.has(tool.id))return library.installed.get(tool.id);if(visiting.has(tool.id))fail('工具声明循环：'+tool.id);visiting=new Set([...visiting,tool.id]);const archive=toolArchive(tool);
  if(tool.id==='xcode'){const apple=await verifyAppleTools(library,{environment:cleanEnvironment(options.environment),signal:options.signal});const value={path:apple.tools.xcodebuild,version:tool.version};library.installed.set(tool.id,value);return value;}
  if(!archive)fail('工具归档未声明：'+tool.id);const shared=join(library.root,'shared');await directory(shared,true);const target=join(shared,archive.sha256+'-'+objectRecipe(tool));const verify=p=>verifyToolObject(p,tool,{produced:true});let value=await verify(target);
  if(!value&&options.optionalTools&&await stat(options.optionalTools)){await directory(options.optionalTools);value=await verifyToolObject(join(options.optionalTools,'shared',archive.sha256),tool);}
+ if(!value&&tool.id==='cmake'&&options.optionalTools&&await stat(join(options.optionalTools,'shared/android'))){await installAndroidResources({...options,library,offline:true});value=library.installed.get('cmake');}
  for(const id of tool.requires||[]){const entry=library.tools.find(x=>x.id===id);if(!entry)fail('前置工具未声明：'+id);await installTool(library,entry,options,visiting);}
  if(value){library.installed.set(tool.id,value);return value;}if(options.offline)fail('离线缺少工具：'+tool.id);
  // Node用内置解包形成最小宿主，POSIX用固定签名输入；其余工具只能使用完成GNU接管的基础工具。
@@ -1232,8 +1256,24 @@ async function parser(kind,options){const entry=parserDefinitions[kind],store=jo
 async function checkedLock(path){await regular(path);const s=await lstat(path);if(s.size>32*1024**2)fail('锁文件超限');return readFile(path,'utf8');}
 async function packageOriginal(entry,options){return acquireArchive(entry,{work:options.library.work,store:join(options.dependencyRoot||join(options.library.root,'..','rely'),'archives'),optional:options.optionalDependencies,offline:options.offline,fetcher:options.fetcher,signal:options.signal});}
 async function prepareNpm(locks,work,options){const cache=join(work,'npm');await directory(cache,true);const node=options.library.installed.get('node').path,require=createRequire(join(dirname(node),'../lib/node_modules/npm/bin/npm-cli.js')),cacache=require('cacache');for(const lock of locks){const document=JSON.parse(await checkedLock(lock));if(![2,3].includes(document.lockfileVersion)||!document.packages)fail('npm原始锁格式无效');for(const [path,entry]of Object.entries(document.packages)){if(!path||entry.link)continue;if(!entry.resolved||!entry.integrity||!entry.version)fail('npm包未锁定来源');const file=await packageOriginal({url:entry.resolved,integrity:entry.integrity},options);await cacache.put(join(cache,'_cacache'),'make-fetch-happen:request-cache:'+entry.resolved,await readFile(file),{integrity:entry.integrity,metadata:{time:Date.now(),url:entry.resolved,reqHeaders:{},resHeaders:{'content-type':'application/octet-stream'}}});}}return {npmCache:cache};}
+
+// Pub读取的内容摘要必须是准确64位十六进制文本，不能附加换行或其它字节。
+async function materializePubArchive(entry,cache,{signal}={}){
+ signal?.throwIfAborted();if(!safePath(entry.name)||entry.name.includes('/')||!/^[a-f0-9]{64}$/u.test(entry.sha256))fail('Pub归档坐标无效');
+ await regular(entry.file);if(hash(await readFile(entry.file))!==entry.sha256)fail('Pub归档原件摘要不符');
+ const target=join(cache,'hosted/pub.dev',entry.name),proof=join(cache,'hosted-hashes/pub.dev',entry.name+'.sha256');
+ await directory(dirname(target),true);await directory(dirname(proof),true);
+ if(await stat(target)){
+  await directory(target);await regular(proof);if(await readFile(proof,'utf8')!==entry.sha256)fail('Pub缓存摘要漂移');return target;
+ }
+ if(await stat(proof))fail('Pub摘要存在但包目录缺失');
+ await extractArchive(entry.file,target,{signal});
+ try{signal?.throwIfAborted();await writeFile(proof,entry.sha256,{flag:'wx'});return target;}
+ catch(error){await rm(target,{recursive:true});throw error;}
+}
+
 async function preparePub(locks,cache,options){await directory(cache,true);const parse=await parser('yaml',options),files=[];for(const lock of locks){const d=parse(await checkedLock(lock));if(!d.packages)fail('Pub锁格式无效');for(const [name,entry]of Object.entries(d.packages)){if(['sdk','path'].includes(entry.source))continue;if(entry.source==='git'){const d=entry.description;if(!d||d.ref!==d['resolved-ref']||!options.sources?.some(x=>x.name===name&&x.url===d.url&&x.ref===d.ref))fail('Pub Git来源不属于产品固定闭包：'+name);continue;}if(entry.source!=='hosted'||entry.description?.name!==name||!['https://pub.dev','https://pub.dev/'].includes(entry.description.url)||!entry.description.sha256)fail('Pub来源未锁定');const coordinate={url:'https://pub.dev/api/archives/'+name+'-'+entry.version+'.tar.gz',sha256:entry.description.sha256};files.push({name:name+'-'+entry.version,sha256:coordinate.sha256,file:await packageOriginal(coordinate,options)});}}
- for(const entry of files){const target=join(cache,'hosted/pub.dev',entry.name),proof=join(cache,'hosted-hashes/pub.dev',entry.name+'.sha256');await directory(dirname(target),true);await directory(dirname(proof),true);if(await stat(target)){if(await readFile(proof,'utf8')!==entry.sha256+'\n')fail('Pub缓存摘要漂移');}else{await extractArchive(entry.file,target,{signal:options.signal});await writeFile(proof,entry.sha256+'\n',{flag:'wx'});}}
+ for(const entry of files)await materializePubArchive(entry,cache,{signal:options.signal});
  await directory(join(cache,'_temp'),true);return {pubCache:cache};}
 function gitCoordinate(source){const u=new URL(source.replace(/^git\+/u,''));const ref=u.searchParams.get('rev');if(u.protocol!=='https:'||u.hostname!=='github.com'||u.username||u.password||!u.pathname.endsWith('.git')||!/^[a-f0-9]{40}$/u.test(ref||'')||u.hash!=='#'+ref||[...u.searchParams.keys()].length!==1)fail('Git来源不是唯一锁定提交');return {url:u.origin+u.pathname,ref};}
 async function gitCheckout(source,target,options){
@@ -1285,6 +1325,20 @@ async function responseBytes(response,limit,signal){
  if(!response.ok||!response.body)fail('官方来源响应失败');if(Number(response.headers.get('content-length'))>limit)fail('官方响应声明超限');
  const chunks=[];let size=0;try{for await(const chunk of response.body){signal?.throwIfAborted();size+=chunk.length;if(size>limit)fail('官方响应数据超限');chunks.push(chunk);}if(!size)fail('官方响应为空');return Buffer.concat(chunks);}finally{await response.body.cancel().catch(()=>{});}
 }
+async function podSpecBytes(url,options){
+ // 官方CDN只允许同一Specs路径的一跳HTTPS分发；锁摘要仍由verifyPodSpec核验。
+ const canonical=new URL(url);if(canonical.origin!=='https://cdn.cocoapods.org'||canonical.href!==url||canonical.username||canonical.password||canonical.search||canonical.hash||!canonical.pathname.startsWith('/Specs/'))fail('Pod spec官方地址无效');
+ options.signal?.throwIfAborted();
+ let response=await options.fetcher(url,{signal:options.signal,redirect:'manual'});
+ if([301,302,303,307,308].includes(response.status)){
+  const location=response.headers.get('location'),expected='https://cdn.jsdelivr.net/cocoa'+canonical.pathname;
+  await response.body?.cancel();
+  if(location!==expected)fail('Pod spec官方分发重定向越界');
+  options.signal?.throwIfAborted();
+  response=await options.fetcher(expected,{signal:options.signal,redirect:'error'});
+ }
+ return responseBytes(response,2*1024**2,options.signal);
+}
 async function verifyPodSpec(file,name,version,checksum,options){
  await regular(file);if((await lstat(file)).size>2*1024**2)fail('Pod spec超限');const spec=JSON.parse(await readFile(file,'utf8'));
  if(spec.name!==name||String(spec.version)!==version)fail('Pod spec身份不符');
@@ -1308,7 +1362,7 @@ async function preparePods(lockfile,work,options){const parse=await parser('yaml
   const store=join(options.dependencyRoot||join(options.library.root,'..','rely'),'pods');await directory(store,true);const original=join(store,hash(JSON.stringify([name,version,checksum])));
   const verify=async path=>{if(!await stat(path))return null;await directory(path);await regular(join(path,'receipt.json'));const proof=JSON.parse(await readFile(join(path,'receipt.json'),'utf8'));if(JSON.stringify(proof.files)!==JSON.stringify(await inventory(join(path,'payload'))))fail('Pod不可变原件被篡改');return path;};
   let object=await verify(original);if(!object){const candidate=await mkdtemp(join(await resourceWork(options.library.work),'.pod-'));try{const payload=join(candidate,'payload');await mkdir(payload);const specFile=join(payload,'spec.json');
-    if(await stat(specPath))await copyFile(specPath,specFile,constants.COPYFILE_EXCL);else{if(options.offline)fail('离线缺少Pod spec');const md5=createHash('md5').update(name).digest('hex'),url='https://cdn.cocoapods.org/Specs/'+md5[0]+'/'+md5[1]+'/'+md5[2]+'/'+name+'/'+version+'/'+name+'.podspec.json';await writeFile(specFile,await responseBytes(await options.fetcher(url,{signal:options.signal,redirect:'error'}),2*1024**2,options.signal),{flag:'wx'});}
+    if(await stat(specPath))await copyFile(specPath,specFile,constants.COPYFILE_EXCL);else{if(options.offline)fail('离线缺少Pod spec');const md5=createHash('md5').update(name).digest('hex'),url='https://cdn.cocoapods.org/Specs/'+md5[0]+'/'+md5[1]+'/'+md5[2]+'/'+name+'/'+version+'/'+name+'.podspec.json';await writeFile(specFile,await podSpecBytes(url,options),{flag:'wx'});}
     const spec=await verifyPodSpec(specFile,name,version,checksum,options),coordinate=podSourceCoordinate(spec),source=join(payload,'source');
     if(await stat(release)){await inventory(release);await copyPodSource(release,source);}else if(coordinate.ref){const checkout=join(candidate,'checkout');await gitCheckout(coordinate,checkout,options);await copyPodSource(checkout,source);await rm(checkout,{recursive:true});}else{const file=await packageOriginal(coordinate,options);await extractArchive(file,source,{signal:options.signal});}
     if(!await stat(release)&&spec.prepare_command){if(typeof spec.prepare_command!=='string')fail('Pod准备命令不是锁定文本');const foundation=await productFoundation(options.library,async(_,t)=>options.library.installed.get(t.id));await exec(foundation.tools.bash,['-ec',spec.prepare_command],{cwd:source,signal:options.signal,env:{...cleanEnvironment(options.environment),PATH:foundation.path,HOME:options.library.work,COCOAPODS_VERSION:options.library.tools.find(x=>x.id==='cocoapods').version}});}
@@ -1326,9 +1380,29 @@ async function acquireOfficialPlatform(item,options){
  // 固定官方发行树先有界下载，再以产品登记的整树摘要验真；候选归入同一取消清理范围。
  if(options.offline)fail('离线缺少额外Android发行件');const data=await responseBytes(await options.fetcher(checkedURL(item.source),{signal:options.signal,redirect:'error'}),512*1024**2,options.signal);const file=join(options.library.work,'.platform-'+randomUUID()+'.zip');await writeFile(file,data,{flag:'wx'});return file;
 }
+// SDK原件只供读取；Gradle可写元数据限定在本任务独占副本，工具字节不得漂移。
+async function prepareAndroidSDKView(payload,work,{signal,files}={}){
+ signal?.throwIfAborted();await directory(payload);await directory(work);
+ if(!inside(join(root,'target'),work)||!Array.isArray(files))fail('SDK任务视图边界或清单无效');
+ const parent=join(work,'dependencies'),target=join(parent,'android-sdk-view');await directory(parent,true);
+ const expected=JSON.stringify(files),originalPaths=new Set(files.map(x=>x.path)),allowed=new Set(['.knownPackages',...files.filter(x=>x.path.endsWith('/source.properties')).map(x=>x.path.slice(0,-'source.properties'.length)+'package.xml')]);
+ const check=async path=>{await directory(path);const actual=await inventory(path),base=actual.filter(x=>originalPaths.has(x.path));if(JSON.stringify(base)!==expected)fail('SDK任务视图工具字节漂移');for(const item of actual.filter(x=>!originalPaths.has(x.path))){if(item.directory||!allowed.has(item.path)||item.executable)fail('SDK任务视图混入非元数据');const file=join(path,item.path);await regular(file);if((await lstat(file)).size>2*1024**2)fail('SDK任务元数据超限');}signal?.throwIfAborted();};
+ if(await stat(target)){await check(target);return target;}
+ if(JSON.stringify(await inventory(payload))!==expected)fail('SDK原件复制前漂移');
+ const stage=await mkdtemp(join(parent,'.android-sdk-view-')),copy=join(stage,'payload');
+ try{
+  await cp(payload,copy,{recursive:true,force:false,errorOnExist:true,verbatimSymlinks:true,filter:()=>{signal?.throwIfAborted();return true;}});
+  if(JSON.stringify(await inventory(payload))!==expected||JSON.stringify(await inventory(copy))!==expected)fail('SDK原件或副本复制期间漂移');
+  const writable=async path=>{const info=await lstat(path);if(info.isDirectory()&&!info.isSymbolicLink()){await chmod(path,(info.mode&0o777)|0o200);for(const name of await readdir(path))await writable(join(path,name));}};
+  await writable(copy);await check(copy);signal?.throwIfAborted();await rename(copy,target);await check(target);return target;
+ }finally{if(await stat(stage)){await permissions(stage,true);await rm(stage,{recursive:true});}}
+}
+
 async function installAndroidResources(options){const library=options.library,cmake=library.tools.find(x=>x.id==='cmake'),packages=androidDefinitions.map(x=>x.tool?{path:'cmake;'+cmake.version,version:cmake.version,...cmake.archives.macos}:x),wanted=library.requested.flatMap(x=>x.packages||[]);for(const item of wanted){const match=library.androidPlatforms?.find(x=>x.path===item.path&&x.version===item.version);if(!match)fail('SDK平台没有产品准确登记');if(!packages.some(x=>x.path===match.path))packages.push(match);}
- const sha256=hash(JSON.stringify(packages)),store=join(library.root,'shared');await directory(store,true);const target=join(store,'android-'+sha256);const verify=async directory=>{if(!await stat(directory))return null;await directoryCheck(directory);const payload=join(directory,'payload'),receipt=JSON.parse(await readFile(join(directory,'receipt.json'),'utf8'));if(receipt.sha256!==sha256||JSON.stringify(receipt.files)!==JSON.stringify(await inventory(payload)))fail('SDK原件回执不符');for(const item of packages){const text=await readFile(join(payload,...item.path.split(';'),'source.properties'),'utf8');if([...text.matchAll(/^Pkg\.Revision\s*=\s*(\S+)\s*$/gmu)].length!==1||!text.includes('Pkg.Revision='+item.version)&&!new RegExp('^Pkg\\.Revision\\s*=\\s*'+item.version.replaceAll('.','\\.')+'\\s*$','mu').test(text))fail('SDK组件版本不符：'+item.path);}return payload;};
- let payload=await verify(target);if(!payload){if(options.offline)fail('离线缺少SDK闭包');const pending=await mkdtemp(join(await resourceWork(options.library.work),'.android-'));try{payload=join(pending,'payload');await mkdir(payload);for(const item of packages){const at=join(payload,...item.path.split(';'));await directory(dirname(at),true);if(item.source){const file=await acquireOfficialPlatform(item,options),unpacked=join(pending,'unpack');try{await extractArchive(file,unpacked,{signal:options.signal});const names=await readdir(unpacked);if(names.length!==1)fail('额外平台归档根不唯一');await rename(join(unpacked,names[0]),at);await rm(unpacked,{recursive:true});if(await platformTreeDigest(at)!==item.sha256)fail('额外平台发行件树摘要不符');}finally{await rm(file,{force:true});}}else{const file=await packageOriginal(item,options),unpacked=join(pending,'unpack');await extractArchive(file,unpacked,{signal:options.signal});await rename(item.root==='.'?unpacked:join(unpacked,item.root),at);if(await stat(unpacked))await rm(unpacked,{recursive:true});}}await permissions(payload,false);await writeFile(join(pending,'receipt.json'),JSON.stringify({sha256,files:await inventory(payload)}),{flag:'wx',mode:0o444});await commitCandidate(pending,target,{signal:options.signal,verify});payload=await verify(target);}finally{if(await stat(pending)){await permissions(pending,true);await rm(pending,{recursive:true});}}}
+ const sha256=hash(JSON.stringify(packages)),store=join(library.root,'shared');await directory(store,true);const target=join(store,'android-'+sha256);const verify=async directory=>{if(!await stat(directory))return null;await directoryCheck(directory);await regular(join(directory,'receipt.json'));if((await lstat(join(directory,'receipt.json'))).size>32*1024**2)fail('SDK原件回执超限');const payload=join(directory,'payload'),receipt=JSON.parse(await readFile(join(directory,'receipt.json'),'utf8'));if(receipt.sha256!==sha256||JSON.stringify(receipt.files)!==JSON.stringify(await inventory(payload)))fail('SDK原件回执不符');for(const item of packages){const text=await readFile(join(payload,...item.path.split(';'),'source.properties'),'utf8');if([...text.matchAll(/^Pkg\.Revision\s*=\s*(\S+)\s*$/gmu)].length!==1||!text.includes('Pkg.Revision='+item.version)&&!new RegExp('^Pkg\\.Revision\\s*=\\s*'+item.version.replaceAll('.','\\.')+'\\s*$','mu').test(text))fail('SDK组件版本不符：'+item.path);}return payload;};
+ let payload=await verify(target);if(!payload&&options.optionalTools){const supplied=join(options.optionalTools,'shared/android');if(await stat(supplied))payload=await verify(supplied);}
+ if(!payload){if(options.offline)fail('离线缺少SDK闭包');const pending=await mkdtemp(join(await resourceWork(options.library.work),'.android-'));try{payload=join(pending,'payload');await mkdir(payload);for(const item of packages){const at=join(payload,...item.path.split(';'));await directory(dirname(at),true);if(item.source){const file=await acquireOfficialPlatform(item,options),unpacked=join(pending,'unpack');try{await extractArchive(file,unpacked,{signal:options.signal});const names=await readdir(unpacked);if(names.length!==1)fail('额外平台归档根不唯一');await rename(join(unpacked,names[0]),at);await rm(unpacked,{recursive:true});if(await platformTreeDigest(at)!==item.sha256)fail('额外平台发行件树摘要不符');}finally{await rm(file,{force:true});}}else{const file=await packageOriginal(item,options),unpacked=join(pending,'unpack');await extractArchive(file,unpacked,{signal:options.signal});await rename(item.root==='.'?unpacked:join(unpacked,item.root),at);if(await stat(unpacked))await rm(unpacked,{recursive:true});}}await permissions(payload,false);await writeFile(join(pending,'receipt.json'),JSON.stringify({sha256,files:await inventory(payload)}),{flag:'wx',mode:0o444});await commitCandidate(pending,target,{signal:options.signal,verify});payload=await verify(target);}finally{if(await stat(pending)){await permissions(pending,true);await rm(pending,{recursive:true});}}}
+ if(library.requested.some(x=>['android','android-sdk','android-ndk'].includes(x.id))){const originalFiles=JSON.parse(await readFile(join(dirname(payload),'receipt.json'),'utf8')).files;payload=await prepareAndroidSDKView(payload,library.work,{signal:options.signal,files:originalFiles});}
  const versions=id=>library.tools.find(x=>x.id===id)?.version;for(const [id,file]of [['android','platform-tools/adb'],['android-sdk','cmdline-tools/'+versions('android-sdk')+'/bin/sdkmanager'],['android-ndk','ndk/'+versions('android-ndk')+'/ndk-build'],['cmake','cmake/'+versions('cmake')+'/bin/cmake']])if(library.requested.some(x=>x.id===id))library.installed.set(id,{path:join(payload,file),version:versions(id)});
  return {ANDROID_HOME:payload,ANDROID_SDK_ROOT:payload,ANDROID_NDK_HOME:join(payload,'ndk',versions('android-ndk')),ANDROID_USER_HOME:join(library.work,'android-user'),ANDROID_EMULATOR_HOME:join(library.work,'android-user')};
 }
@@ -1363,17 +1437,32 @@ function mavenOriginal(entry){
  return {archive,source:url.origin+base,path:url.pathname.slice(base.length)};
 }
 // 只复制不可变原件到本轮独占Maven仓库，按上游分区避免同坐标不同来源相互覆盖。
+// Gradle在选中元数据后只从同仓取制品；不完整的本地组件必须交由原声明仓库整体解析。
+async function completeMavenModules(directory,records){
+ const groups=new Map();for(const record of records){const key=dirname(record.path);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(record);}
+ const complete=[];
+ for(const [path,entries]of groups){
+  const parts=path.split('/'),version=parts.pop(),artifact=parts.pop(),group=parts.join('.'),base=artifact+'-'+version,names=new Set(entries.map(x=>x.path.slice(path.length+1)));
+  const module=entries.find(x=>x.path===path+'/'+base+'.module');let ready=false;
+  if(module){const file=join(directory,module.path);await regular(file);if((await lstat(file)).size>2*1024**2)fail('Maven module元数据超限');const data=JSON.parse(await readFile(file,'utf8'));if(!Array.isArray(data.variants))fail('Maven module变体无效');ready=data.variants.every(variant=>!variant.files||Array.isArray(variant.files)&&variant.files.every(item=>typeof item.url==='string'&&/^[A-Za-z0-9_.+-]+\.(?:jar|aar)$/u.test(item.url)&&names.has(item.url)));}
+  else if(names.has(base+'.pom')){const text=await readFile(join(directory,path,base+'.pom'),'utf8');ready=/<packaging>\s*pom\s*<\/packaging>/u.test(text)||names.has(base+'.jar')||names.has(base+'.aar');}
+  if(ready)complete.push({group,artifact,version});
+ }
+ return complete;
+}
+
 export async function materializeMavenCache(objects,work,{signal}={}) {
  signal?.throwIfAborted();await directory(work);const index=await readDependencySupply(objects);if(!index)return [];const records=index.packages.filter(x=>x.ecosystem==='maven').map(mavenOriginal);if(!records.length)return [];
  const destination=join(work,'dependencies/maven');await directory(dirname(destination),true);const repos=[...new Set(records.map(x=>x.source))].sort().map(source=>({source,directory:join(destination,hash(source))}));
+ const readyRepositories=async()=>{for(const repo of repos)repo.modules=await completeMavenModules(repo.directory,records.filter(x=>x.source===repo.source));return repos;};
  const verify=async root=>{const paths=new Map();for(const record of records){signal?.throwIfAborted();const path=hash(record.source)+'/'+record.path,prior=paths.get(path);if(prior&&prior!==record.archive.sha256)fail('Maven同源文件内容冲突');paths.set(path,record.archive.sha256);const file=join(root,path);await regular(file);const bytes=await readFile(file);if(hash(bytes)!==record.archive.sha256||verifyBytes(bytes,{integrity:record.archive.integrity})!==record.archive.sha256)fail('Maven任务原件摘要不符');}const tree=await inventory(root),files=tree.filter(x=>!x.directory);if(files.length!==paths.size||files.some(x=>!x.sha256||!paths.has(x.path))||tree.some(x=>x.directory&&![...paths.keys()].some(path=>path.startsWith(x.path+'/'))))fail('Maven任务仓库混入状态或未登记项');};
- if(await stat(destination)){await directory(destination);await verify(destination);return repos;}
- const candidate=await mkdtemp(join(dirname(destination),'.maven-'));try{for(const record of records){signal?.throwIfAborted();const bytes=await supplyObject(objects,record.archive.sha256,signal);verifyBytes(bytes,{integrity:record.archive.integrity});const file=join(candidate,hash(record.source),record.path);await directory(dirname(file),true);if(await stat(file)){await regular(file);if(hash(await readFile(file))!==record.archive.sha256)fail('Maven同源文件冲突');}else await writeFile(file,bytes,{flag:'wx',mode:0o644});}await verify(candidate);signal?.throwIfAborted();await rename(candidate,destination);await verify(destination);return repos;}finally{await rm(candidate,{recursive:true,force:true});}
+ if(await stat(destination)){await directory(destination);await verify(destination);return readyRepositories();}
+ const candidate=await mkdtemp(join(dirname(destination),'.maven-'));try{for(const record of records){signal?.throwIfAborted();const bytes=await supplyObject(objects,record.archive.sha256,signal);verifyBytes(bytes,{integrity:record.archive.integrity});const file=join(candidate,hash(record.source),record.path);await directory(dirname(file),true);if(await stat(file)){await regular(file);if(hash(await readFile(file))!==record.archive.sha256)fail('Maven同源文件冲突');}else await writeFile(file,bytes,{flag:'wx',mode:0o644});}await verify(candidate);signal?.throwIfAborted();await rename(candidate,destination);await verify(destination);return readyRepositories();}finally{await rm(candidate,{recursive:true,force:true});}
 }
 // 供给镜像仅插在产品已声明的同源仓库前，缺件仍按原仓库解析；顺序与版本由产品控制。
 export function mavenSupplyInit(repositories){
- const quote=value=>"'"+value.replaceAll('\\','\\\\').replaceAll("'","\\'")+"'",data='['+repositories.map(x=>'[source:'+quote(x.source)+', directory:'+quote(x.directory)+']').join(',')+']';
- return `// 本轮产品资源视图，不读取共享Gradle状态。\nimport org.gradle.api.artifacts.repositories.MavenArtifactRepository\ndef supplied = ${data}\ndef attach = { repositories ->\n def seen = [] as Set\n repositories.all { original ->\n  if (original instanceof MavenArtifactRepository && !original.name.startsWith('productOriginal_')) {\n   def source = original.url.toString().replaceAll('/+$', '') + '/'\n   def record = supplied.find { it.source == source }\n   if (record != null && seen.add(original.name)) {\n    def local = repositories.maven { name = 'productOriginal_' + original.name; url = new File(record.directory).toURI(); artifactUrls(original.url); metadataSources { gradleMetadata(); mavenPom(); artifact() } }\n    repositories.remove(local)\n    repositories.add(repositories.indexOf(original), local)\n   }\n  }\n }\n}\ngradle.beforeSettings { settings -> attach(settings.pluginManagement.repositories); attach(settings.dependencyResolutionManagement.repositories) }\ngradle.beforeProject { project -> attach(project.buildscript.repositories); attach(project.repositories) }\n`;
+ const quote=value=>"'"+value.replaceAll('\\','\\\\').replaceAll("'","\\'")+"'",data='['+repositories.map(x=>'[source:'+quote(x.source)+', directory:'+quote(x.directory)+', modules:['+(x.modules||[]).map(m=>'[group:'+quote(m.group)+', artifact:'+quote(m.artifact)+', version:'+quote(m.version)+']').join(',')+']]').join(',')+']';
+ return `// 本轮产品资源视图，不读取共享Gradle状态。\nimport org.gradle.api.artifacts.repositories.MavenArtifactRepository\ndef supplied = ${data}\ndef attach = { repositories ->\n def seen = [] as Set\n repositories.all { original ->\n  if (original instanceof MavenArtifactRepository && !original.name.startsWith('productOriginal_')) {\n   def source = original.url.toString().replaceAll('/+$', '') + '/'\n   def record = supplied.find { it.source == source }\n   if (record != null && !record.modules.isEmpty() && seen.add(original.name)) {\n    def local = repositories.maven { name = 'productOriginal_' + original.name; url = new File(record.directory).toURI(); content { record.modules.each { component -> includeVersion(component.group, component.artifact, component.version) } }; metadataSources { gradleMetadata(); mavenPom(); artifact() } }\n    repositories.remove(local)\n    repositories.add(repositories.indexOf(original), local)\n   }\n  }\n }\n}\ngradle.beforeSettings { settings -> attach(settings.pluginManagement.repositories); attach(settings.dependencyResolutionManagement.repositories) }\ngradle.beforeProject { project -> attach(project.buildscript.repositories); attach(project.repositories) }\n`;
 }
 // 远程Pod必须同时交付锁定spec与完整源码；本地路径Pod由本轮产品工程产生。
 export function checkCocoaPodsResources(lockfile,directory) {
@@ -1381,14 +1470,32 @@ export function checkCocoaPodsResources(lockfile,directory) {
  for(const match of text.matchAll(/^  - "?([A-Za-z0-9_.+-]+)(?:\/[A-Za-z0-9_.+-]+)* \(([^()\s]+)\)"?/gmu)){const [,name,version]=match;if(local.includes(name))continue;const checksum=checksums.get(name);if(!checksum)fail('远程Pod缺少锁定spec摘要');const key=version+'-'+checksum.slice(0,5),spec=join(directory,'cache/Pods/Specs/Release',name,key+'.podspec.json'),release=join(directory,'cache/Pods/Release',name,key);if(!existsSync(spec)||!existsSync(release))fail('锁定CocoaPods原件尚未完整存在：'+name);}
  return {paths:local.map(name=>({name}))};
 }
+
+// Gradle资源解析发生在编译之前，产品工作视图必须先获得当前回执的SDK配置。
+async function prepareAndroidResourceProperties(project,work,flutterRoot,sdkRoot,{signal}={}){
+ signal?.throwIfAborted();if(!inside(work,project))fail('Android资源工程越出工作根');await directory(project);
+ for(const path of [flutterRoot,sdkRoot]){if(typeof path!=='string'||/[\r\n\x00]/u.test(path))fail('Android资源SDK路径无效');await directory(path);}
+ const manifest=await readFile(join(dirname(project),'pubspec.yaml'),'utf8'),versions=[...manifest.matchAll(/^version:\s*(\d+\.\d+\.\d+)\+([1-9][0-9]*)\s*$/gmu)];
+ if(versions.length!==1)fail('Android资源产品版本不唯一或无效');
+ const escape=value=>value.split('').map(c=>c==='\\'?'\\\\':c.charCodeAt(0)>127?'\\u'+c.charCodeAt(0).toString(16).padStart(4,'0'):c).join('');
+ const text='sdk.dir='+escape(sdkRoot)+'\nflutter.sdk='+escape(flutterRoot)+'\nflutter.buildMode=release\nflutter.versionName='+versions[0][1]+'\nflutter.versionCode='+versions[0][2]+'\n',file=join(project,'local.properties');
+ signal?.throwIfAborted();if(await stat(file)){await regular(file);if(await readFile(file,'utf8')!==text)fail('Android资源SDK配置漂移');}
+ else await writeFile(file,text,{flag:'wx',mode:0o600});
+ return file;
+}
+
+// 与产品唯一Android编译入口一致，只准备Release ARM64外部制品，不解析测试或本地生成输出。
+function androidGradleResourceInit(){return '// 本任务只解析实际Release编译与运行依赖，不编译、不扩展版本。\nimport org.gradle.api.artifacts.component.ModuleComponentIdentifier\nallprojects { p -> p.tasks.register("productResolveResources") { doLast { p.configurations.findAll { it.canBeResolved && it.name in ["releaseCompileClasspath", "releaseRuntimeClasspath"] }.each { c -> c.incoming.artifactView { componentFilter { id -> id instanceof ModuleComponentIdentifier } }.files.files } } } }\n';}
+
 async function prepareGradleResources(work,options,environment){const gradle=options.library.installed.get('gradle');if(!gradle)return;const home=join(work,'dependencies/gradle');await directory(home,true);environment.GRADLE_USER_HOME=home;
  // Maven视图与初始化脚本仅属于本轮产品，缺少可选供给时按既有产品仓库独立解析。
  const mirrors=await materializeMavenCache(options.optionalDependencies,work,{signal:options.signal});if(mirrors.length){const initDirectory=join(home,'init.d'),initFile=join(initDirectory,'product-originals.gradle'),text=mavenSupplyInit(mirrors);await directory(initDirectory,true);if(await stat(initFile)){await regular(initFile);if(await readFile(initFile,'utf8')!==text)fail('Maven资源初始化漂移');}else await writeFile(initFile,text,{flag:'wx'});}
 
  const projects=[];async function find(path,depth=0){if(depth>12)return;for(const name of await readdir(path)){if(['dependencies','git-sources','.git','tmp','cache','config','apple-tools','resource-tools'].includes(name))continue;const file=join(path,name),s=await lstat(file);if(s.isDirectory())await find(file,depth+1);else if(name==='settings.gradle'||name==='settings.gradle.kts')projects.push(dirname(file));}}await find(work);
  for(const project of projects.filter(x=>x.endsWith('/android'))){const flutter=options.library.installed.get('flutter');if(flutter&&!await stat(join(dirname(project),'flutter-gradle')))await flutterRecipe.prepareFlutterTaskTools(dirname(dirname(flutter.path)),dirname(project),'android',{signal:options.signal,environment:{...environment,JAVA_HOME:dirname(dirname(options.library.installed.get('java').path)),GRADLE_HOME:dirname(dirname(gradle.path)),PRODUCT_BASH_BIN:options.library.installed.get('bash').path}});
-  const init=join(work,'gradle-resource-init.gradle');if(!await stat(init))await writeFile(init,'// 仅解析产品现有配置，不编译、不扩展版本。\nallprojects { p -> p.tasks.register("productResolveResources") { doLast { p.configurations.findAll { it.canBeResolved }.each { it.resolve() } } } }\n');
-  await exec(gradle.path,['--no-daemon','--console=plain','--init-script',init,...(options.offline?['--offline']:[]),'productResolveResources'],{cwd:project,signal:options.signal,timeout:1800000,maxBuffer:8*1024**2,env:{...cleanEnvironment(options.environment),...environment,JAVA_HOME:dirname(dirname(options.library.installed.get('java').path)),PATH:(await productFoundation(options.library,async(_,t)=>options.library.installed.get(t.id))).path}});
+  if(!flutter||!environment.ANDROID_HOME)fail('Android资源缺少已验真Flutter或SDK');await prepareAndroidResourceProperties(project,work,dirname(dirname(flutter.path)),environment.ANDROID_HOME,{signal:options.signal});
+  const init=join(work,'gradle-resource-init.gradle'),initText=androidGradleResourceInit();if(await stat(init)){await regular(init);if(await readFile(init,'utf8')!==initText)fail('Gradle资源任务配置漂移');}else await writeFile(init,initText,{flag:'wx'});
+  await exec(gradle.path,['--no-daemon','--console=plain','-Ptarget-platform=android-arm64','-Dorg.gradle.project.android.builder.sdkDownload=false','--init-script',init,...(options.offline?['--offline']:[]),'productResolveResources'],{cwd:project,signal:options.signal,timeout:1800000,maxBuffer:8*1024**2,env:{...cleanEnvironment(options.environment),...environment,JAVA_HOME:dirname(dirname(options.library.installed.get('java').path)),PATH:(await productFoundation(options.library,async(_,t)=>options.library.installed.get(t.id))).path}});
  }
 }
 export const buildSourceTool=sourceRecipe.buildSourceTool;

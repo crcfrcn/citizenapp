@@ -15,6 +15,17 @@ function requireIdentity(identity, environment) {
     || environment.GITHUB_REPOSITORY !== 'crcfrcn/citizenapp') {
     throw new Error('CitizenApp远程Job仓库身份无效');
   }
+  // 保留GitHub实际身份；错流程和错Job必须先于临时目录、正文及缓存操作拒绝。
+  const [, platform, flow] = identity.pipeline.split('.');
+  const expectedJob = identity.job === 'check' && flow === 'ci' ? 'stage_1'
+    : identity.job === platform ? 'flow' : null;
+  if (!expectedJob || environment.GITHUB_ACTIONS !== 'true'
+    || environment.GITHUB_EVENT_NAME !== 'workflow_dispatch'
+    || environment.GITHUB_WORKFLOW !== identity.pipeline
+    || environment.GITHUB_JOB !== expectedJob) {
+    throw new Error('CitizenApp远程Job流程阶段身份无效');
+  }
+
 }
 
 function runStep(steps, index, environment, run) {
@@ -42,7 +53,7 @@ export async function runWorkflow(identity, steps, commands = {}, {
   argumentsList = process.argv.slice(2), environment = process.env, run = spawnSync,
 } = {}) {
   requireIdentity(identity, environment);
-  environment=remoteEnvironment({...environment,GITHUB_WORKFLOW:identity.pipeline});
+  environment=remoteEnvironment(environment);
   const [command, argument, ...extra] = argumentsList;
   if (extra.length > 0) throw new Error('CitizenApp远程Job参数越界');
   if (command === 'workflow-step') return runStep(steps, argument, environment, run);

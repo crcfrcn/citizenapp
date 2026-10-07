@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// CitizenApp 本机Build的target内只读工程视图。只建目录骨架与源文件链接，
+// CitizenApp本机Build的target内消费工程；宿主输入复制独占文件，源码只供读取。
 // 平台固定布局仅在工程视图装配；Wrapper 按原字节复制，源码目录不承载生成物。
 import { execFileSync } from 'node:child_process';
 import {
-  chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync,
+  constants, chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync,
   symlinkSync, writeFileSync,
 } from 'node:fs';
 import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
@@ -162,6 +162,14 @@ function existingAncestors(path, label) {
   }
 }
 
+// 全部宿主输入均为独立普通文件；工具改写锁、项目或测试只能发生在本任务。
+function copyHostInput(input,output,sourceRoot){
+ const real=realpathSync(input),info=lstatSync(input);
+ if(!inside(sourceRoot,input)||!inside(sourceRoot,real)||!info.isFile()||info.isSymbolicLink()||info.nlink!==1)fail('宿主输入不是源码内独占普通文件');
+ const bytes=readFileSync(input);copyFileSync(input,output,constants.COPYFILE_EXCL);
+ const copied=lstatSync(output);if(!copied.isFile()||copied.isSymbolicLink()||copied.nlink!==1||realpathSync(output)!==output||!readFileSync(output).equals(bytes)||!readFileSync(input).equals(bytes))fail('宿主输入复制期间漂移');
+}
+
 const generatedDirectories = new Set([
   '.dart_tool', '.git', '.gradle', '.pub-cache', '.symlinks', 'Pods', 'build', 'ephemeral',
   'node_modules', 'target',
@@ -258,7 +266,7 @@ async function createView(sourceInput, workInput, android = false) {
         const output = join(destination, name);
         const info = lstatSync(input);
         // 远端Flutter直接启动Gradle：settings保留原字节的普通文件，防止Gradle把
-        // 跨根链接解析成源码工程。其它源文件仍只读链接；本机原生入口保持原方式。
+        // 跨根链接解析成源码工程。其余宿主输入同样复制独立普通文件，SDK装配继续归SDK公开入口。
         if (android && sourceDirectory === sourceRoot && input === join(sourceRoot, 'android/settings.gradle.kts')) {
           if (!info.isFile() || info.isSymbolicLink()) fail('Android settings来源必须是普通文件');
           copyFileSync(input, output);
@@ -275,7 +283,7 @@ async function createView(sourceInput, workInput, android = false) {
           mkdirSync(output, { recursive: true, mode: 0o700 });
           visit(input, output);
         } else if (info.isFile() || info.isSymbolicLink()) {
-          symlinkSync(input, output);
+          if(sourceDirectory===sourceRoot)copyHostInput(input,output,sourceRoot);else symlinkSync(input, output);
         } else fail(`源码视图遇到不支持的条目：${input}`);
       }
     }
@@ -295,7 +303,7 @@ async function createView(sourceInput, workInput, android = false) {
         existingAncestors(dirname(output), '平台输出');
         if (lstatSync(output, { throwIfNoEntry: false })) fail(`平台入口重复：${targetPath}`);
         mkdirSync(dirname(output), { recursive: true, mode: 0o700 });
-        symlinkSync(input, output);
+        copyHostInput(input,output,sourceRoot);
       }
       for (const { input, name } of wrappers) {
         const output = join(destinationRoot, 'android', name);

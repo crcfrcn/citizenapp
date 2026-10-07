@@ -110,7 +110,7 @@ export function resourceEnvironment(platform,work,receipt,base={}) {
  checkWork(work);const declared=platformContract(platform);
  if(!receipt||receipt.schema!==1||receipt.product_id!==product||receipt.platform!==platform||receipt.work!==work||receipt.offline!==true
   ||!receipt.tools||!receipt.dependencies||!receipt.archives)fail('资源回执身份无效');
- const env={HOME:base.HOME,USER:base.USER,LOGNAME:base.LOGNAME,LANG:'zh_CN.UTF-8',LC_ALL:'C',
+ const env={HOME:base.HOME,USER:base.USER,LOGNAME:base.LOGNAME,LANG:'zh_CN.UTF-8',LC_ALL:'zh_CN.UTF-8',
   ...receipt.environment,TMPDIR:join(work,'tmp')+sep,TMP:join(work,'tmp'),TEMP:join(work,'tmp'),XDG_CACHE_HOME:join(work,'cache'),XDG_CONFIG_HOME:join(work,'config'),
   CARGO_TARGET_DIR:join(work,'work/cargo-target'),CARGO_NET_OFFLINE:'true',CARGO_INCREMENTAL:'1',
   npm_config_offline:'true',npm_config_audit:'false',npm_config_fund:'false'};
@@ -127,7 +127,22 @@ export function resourceEnvironment(platform,work,receipt,base={}) {
  for(const [id,name]of Object.entries(aliases))if(receipt.tools[id])env[name]=receipt.tools[id].path;
  // POSIX旧Shell不进入正式PATH；基础工具只通过产品已验真的GNU投影交付。
  const paths=Object.entries(receipt.tools).filter(([id])=>id!=='posix').map(([,value])=>dirname(value.path));
- env.PATH=[...new Set([...paths,...(env.PATH||'').split(':')].filter(Boolean))].join(':');
+ // 官方命令名只投影到回执已验真的准确执行器，优先于Xcode随包的其它版本。
+ const commands=join(work,'build-tools'),entries=Object.entries({python3:env.PYTHON,cc:env.CC,'c++':env.CXX}).filter(([,path])=>path);
+ if(entries.length){
+  const existing=lstatSync(commands,{throwIfNoEntry:false});
+  if(existing&&(!existing.isDirectory()||existing.isSymbolicLink()||realpathSync(commands)!==commands))fail('构建工具目录经过链接或非目录');
+  if(!existing)mkdirSync(commands,{mode:0o700});
+  for(const [name,inputPath]of entries){
+   if(typeof inputPath!=='string'||!isAbsolute(inputPath)||resolve(inputPath)!==inputPath)fail('构建工具目标不是规范路径：'+name);
+   const target=realpathSync(inputPath),input=lstatSync(target);if(!input.isFile()||input.isSymbolicLink()||!(input.mode&0o111))fail('构建工具目标不是普通执行器：'+name);
+   if(name!=='python3'&&(!env.DEVELOPER_DIR||!inside(env.DEVELOPER_DIR,target)))fail('构建编译器越出已验真Xcode');
+   const path=join(commands,name),prior=lstatSync(path,{throwIfNoEntry:false});
+   if(prior){if(!prior.isSymbolicLink()||readlinkSync(path)!==target||realpathSync(path)!==target)fail('构建工具入口漂移：'+name);}
+   else symlinkSync(target,path);
+  }
+ }
+ env.PATH=[...new Set([...(entries.length?[commands]:[]),...paths,...(env.PATH||'').split(':')].filter(Boolean))].join(':');
  if(env.GIT)env.PRODUCT_GIT_BIN=env.GIT;
  if(env.RUSTC)env.CARGO=join(dirname(env.RUSTC),'cargo');
  if(env.FLUTTER){env.FLUTTER_ROOT=dirname(dirname(env.FLUTTER));env.DART_EXECUTABLE=join(env.FLUTTER_ROOT,'bin/cache/dart-sdk/bin/dart');}
