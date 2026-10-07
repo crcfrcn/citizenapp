@@ -278,14 +278,14 @@ final class _TestCitizenCore {
     } else if (Platform.isAndroid) {
       _library = ffi.DynamicLibrary.open('libcitizensdk.so');
     } else {
-      final target = Platform.environment['CARGO_TARGET_DIR'];
-      if (target == null || !target.startsWith('/')) {
-        throw StateError('SDK金标缺少本轮CARGO_TARGET_DIR');
+      final path = Platform.environment['CITIZENSDK_TEST_CORE_LIB_PATH'];
+      if (path == null || !path.startsWith('/')) {
+        throw StateError('SDK金标缺少本轮CITIZENSDK_TEST_CORE_LIB_PATH');
       }
-      final name = Platform.isMacOS ? 'libcitizensdk.dylib' : 'libcitizensdk.so';
-      final file = File('$target/debug/$name');
-      if (FileSystemEntity.typeSync(file.path, followLinks: false) != FileSystemEntityType.file) {
-        throw StateError('SDK金标缺少调用方准备的当前Core：$target/debug/$name');
+      final file = File(path);
+      if (FileSystemEntity.typeSync(file.path, followLinks: false) != FileSystemEntityType.file ||
+          file.resolveSymbolicLinksSync() != file.path) {
+        throw StateError('SDK金标缺少调用方准备的当前Core：$path');
       }
       _library = ffi.DynamicLibrary.open(file.path);
     }

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # CitizenApp 本机与 CI 唯一 Flutter 测试入口。
 #
-# CitizenApp 测试只依赖 CitizenSDK 公开 Dart 合同与可控 fake；不构建或
-# 加载 App 自有链库。TataChatSDK 的宿主库仍由其产品脚本准备。
+# CitizenApp SDK金标消费锁定CitizenSDK的真实产品Core；两份SDK宿主库
+# 由各自产品入口准备，Isar消费本轮锁定包的宿主库。
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -141,11 +141,20 @@ if [[ "${CI:-}" == true ]]; then
   acquire_native_build_lock
 fi
 # 宿主库只从产品声明与锁定Git输入取得，不编译邻仓或旧聚合仓源码。
-TATACHATSDK_ROOT="$(node "$VIEW_SCRIPT" dependencies \
-  --source-root "$CITIZENAPP_DIR" --work-root "$CITIZENAPP_TEST_WORK_DIR" \
-  | node --input-type=module -e 'let text=""; for await (const part of process.stdin) text+=part; const root=JSON.parse(text).tatachat_sdk?.root; if(typeof root!=="string") throw Error("聊天SDK源码回执缺失"); process.stdout.write(root);')"
-[[ -x "$TATACHATSDK_ROOT/scripts/build-native.sh" && ! -L "$TATACHATSDK_ROOT/scripts/build-native.sh" ]] \
-  || { echo '锁定聊天SDK原生入口无效' >&2; exit 1; }
+DEPENDENCIES="$(node "$VIEW_SCRIPT" dependencies \
+  --source-root "$CITIZENAPP_DIR" --work-root "$CITIZENAPP_TEST_WORK_DIR")"
+TATACHATSDK_ROOT="$(printf '%s' "$DEPENDENCIES" | node --input-type=module -e 'let text=""; for await (const part of process.stdin) text+=part; const root=JSON.parse(text).tatachat_sdk?.root; if(typeof root!=="string") throw Error("聊天SDK源码回执缺失"); process.stdout.write(root);')"
+CITIZENSDK_ROOT="$(printf '%s' "$DEPENDENCIES" | node --input-type=module -e 'let text=""; for await (const part of process.stdin) text+=part; const root=JSON.parse(text).citizen_sdk?.root; if(typeof root!=="string") throw Error("公民SDK源码回执缺失"); process.stdout.write(root);')"
+for sdk_root in "$TATACHATSDK_ROOT" "$CITIZENSDK_ROOT"; do
+  [[ -x "$sdk_root/scripts/build-native.sh" && ! -L "$sdk_root/scripts/build-native.sh" ]] \
+    || { echo '锁定SDK原生入口无效' >&2; exit 1; }
+done
 "$TATACHATSDK_ROOT/scripts/build-native.sh" host
+export CITIZENSDK_WORK_DIR="$BUILD_CACHE/citizensdk-host/work"
+export CITIZENSDK_NATIVE_OUTPUT_DIR="$BUILD_CACHE/citizensdk-host/output"
+"$CITIZENSDK_ROOT/scripts/build-native.sh" abi-host
+CITIZENSDK_TEST_CORE_LIB_PATH="$(node "$SCRIPT_DIR/citizenapp-test-native.mjs" core "$CITIZENSDK_NATIVE_OUTPUT_DIR")"
+ISAR_CORE_LIB_PATH="$(node "$SCRIPT_DIR/citizenapp-test-native.mjs" isar "$FLUTTER_ROOT/.dart_tool/package_config.json" "$PUB_CACHE" "$CITIZENAPP_DIR/pubspec.lock")"
+export CITIZENSDK_TEST_CORE_LIB_PATH ISAR_CORE_LIB_PATH
 "$FLUTTER_BIN" analyze --no-pub
 "$FLUTTER_BIN" test --no-pub --concurrency=1 "$@"
