@@ -437,7 +437,9 @@ test('Pod官方CDN严格一跳HTTPS分发，错源、错路径、再跳转、超
  let pass=0;
 assert.equal((await podSpecBytes(url,{fetcher:async(_,o)=>{assert.equal(o.redirect,'manual');return new Response('fixed-spec')}})).toString(),'fixed-spec');pass++;
 let calls=[];assert.equal((await podSpecBytes(url,{fetcher:async(u,o)=>{calls.push([u,o.redirect]);return calls.length===1?new Response(null,{status:301,headers:{location:mirror}}):new Response('fixed-spec')}})).toString(),'fixed-spec');assert.deepEqual(calls,[[url,'manual'],[mirror,'error']]);pass++;
-for(const location of ['http://cdn.jsdelivr.net/cocoa/Specs/a','https://example.invalid/spec',mirror+'?different=1',mirror+'#fragment',mirror.replace('/12.15.0/','/12.14.0/'),'https://user@cdn.jsdelivr.net/cocoa/Specs/0/3/5/Firebase/12.15.0/Firebase.podspec.json']){let n=0;await assert.rejects(podSpecBytes(url,{fetcher:async()=>{n++;return new Response(null,{status:301,headers:{location}})}}),/重定向越界/);assert.equal(n,1);pass++;}
+// 明文负例只改变合成URL的协议；准确官方路径保持，实际拒绝不得发出第二次请求。
+const insecureMirror=new URL(mirror);insecureMirror.protocol='http:';assert.equal(insecureMirror.protocol,'http:');
+for(const location of [insecureMirror.href,'https://example.invalid/spec',mirror+'?different=1',mirror+'#fragment',mirror.replace('/12.15.0/','/12.14.0/'),'https://user@cdn.jsdelivr.net/cocoa/Specs/0/3/5/Firebase/12.15.0/Firebase.podspec.json']){let n=0;await assert.rejects(podSpecBytes(url,{fetcher:async()=>{n++;return new Response(null,{status:301,headers:{location}})}}),/重定向越界/);assert.equal(n,1);pass++;}
 await assert.rejects(podSpecBytes(url,{fetcher:async u=>u===url?new Response(null,{status:301,headers:{location:mirror}}):new Response(null,{status:301,headers:{location:mirror}})}),/官方来源响应失败/);pass++;
 await assert.rejects(podSpecBytes(url,{fetcher:async()=>new Response('x'.repeat(2*1024**2+1))}),/超限/);pass++;
 const signal=AbortSignal.abort(Error('cancelled'));await assert.rejects(podSpecBytes(url,{signal,fetcher:async()=>new Response(null,{status:301,headers:{location:mirror}})}),/cancelled/);pass++;
