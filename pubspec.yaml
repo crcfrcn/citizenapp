@@ -15,7 +15,7 @@ dependencies:
     git:
       url: https://github.com/crcfrcn/citizensdk.git
       path: .
-      ref: 9b75d63c9d4e1d6b686f478556a7a8e7968cd146
+      ref: a16f14d2b07072d97f5708b728134bf0ac33f3d1
   cupertino_icons: 1.0.9
   http: 1.6.0
   shared_preferences: ^2.5.5
