@@ -23,7 +23,7 @@ void main() {
       expect(runner, isNot(contains('TATACHATSDK_APPLE_FRAMEWORK_DIR')));
       expect(runner, contains(r'verify-ios-package "$IOS_APP"'));
       expect(pubspec, contains('https://github.com/tuyutata/tatachatsdk.git'));
-      expect(pubspec, contains('b70897a41fc810b88ffdba35a3be97152fd7047c'));
+      expect(pubspec, contains('29b7e4377833802a0a9f833c44c3e92036bd8493'));
       // App取消独立密码学与包装存储插件，钱包上游传递依赖保持原锁。
       expect(
         RegExp(r'^  (?:cryptography|flutter_secure_storage):', multiLine: true)
