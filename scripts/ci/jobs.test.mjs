@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
+import { createHash } from 'node:crypto';
+import { gradleRecipes, revisedSource, revisionPlan } from './flutter.mjs';
 import { jobIdentity as android, workflowSteps as androidSteps } from './android.mjs';
 import { jobIdentity as androidCheck, workflowSteps as androidCheckSteps } from './android-check.mjs';
 import { jobIdentity as ios, workflowSteps as iosSteps } from './ios.mjs';
@@ -304,20 +306,27 @@ printf 'chat:%s\\n' "$1" >> "${log}"
 // 执行真实准备步骤；引擎替身模拟下载失败，不在本机编译或下载原件。
 test('双端CI在原生编译前补齐所属Flutter引擎且预加载失败立即停止', () => {
   const root=realpathSync(mkdtempSync(join(tmpdir(),'app-ci-engine-'))),log=join(root,'calls');
+  mkdirSync(join(root,'scripts/ci'),{recursive:true});
+  writeFileSync(join(root,'scripts/ci/flutter.mjs'),"import{appendFileSync}from'node:fs';\n" +
+    "appendFileSync(process.env.CALLS,JSON.stringify(['gradle-revision'])+'\\n');\n" +
+    "if(process.env.FAIL_REVISION==='true')process.exit(73);\n");
   writeFileSync(join(root,'flutter'),`#!${process.execPath}
 const fs=require('node:fs'),args=process.argv.slice(2);fs.appendFileSync(process.env.CALLS,JSON.stringify(args)+'\\n');
 if(process.env.FAIL_ENGINE==='true'&&args[0]==='precache')process.exit(74);
 `,{mode:0o755});
   try {
     for(const [steps,targets] of [[androidSteps,['--android']],[iosSteps,['--ios','--macos']]]) {
-      for(const fail of [false,true]) {
+      for(const failure of ['none','engine',...(steps===androidSteps?['revision']:[])]) {
+        const fail=failure==='engine';
         writeFileSync(log,'');
         const r=spawnSync('/bin/bash',['-e','-o','pipefail','-c',steps['6'].source],{encoding:'utf8',env:{
           ...process.env,PATH:root+':'+process.env.PATH,CALLS:log,FAIL_ENGINE:String(fail),
+          FAIL_REVISION:String(failure==='revision'),GITHUB_WORKSPACE:root,
         }});
-        assert.equal(r.status,fail?74:0,r.stderr);
+        assert.equal(r.status,fail?74:failure==='revision'?73:0,r.stderr);
         assert.deepEqual(readFileSync(log,'utf8').trim().split('\n').map(JSON.parse),[
           ['--version','--machine'],['--version'],['precache',...targets],
+          ...(!fail&&steps===androidSteps?[['gradle-revision']]:[]),
         ]);
       }
     }
@@ -325,6 +334,40 @@ if(process.env.FAIL_ENGINE==='true'&&args[0]==='precache')process.exit(74);
 });
 
 // 解析实际YAML引用并执行终态分支，拒绝越界阶段及无状态的无条件record。
+// 实际执行摘要和上下文变换，覆盖原始/已修订输入、破坏、链接、路径及整批拒绝。
+test('Flutter CI修订核验完整前后摘要且未知输入不形成写入计划', () => {
+  const root=realpathSync(mkdtempSync(join(tmpdir(),'app-ci-flutter-')));
+  const hash=value=>createHash('sha256').update(value).digest('hex');
+  const original='// upstream\nold\nlast\n',result='// upstream\nnew\nextra\nlast\n';
+  const recipe={path:'packages/flutter_tools/gradle/fixture.kt',beforeSha256:hash(original),afterSha256:hash(result),
+    hunks:[{start:1,before:['old'],after:['new','extra']}]};
+  try {
+    assert.equal(revisedSource(original,recipe),result);
+    assert.equal(revisedSource(result,recipe),result);
+    assert.throws(()=>revisedSource(original+'damage',recipe),/原始摘要/);
+    assert.throws(()=>revisedSource(original,{...recipe,hunks:[{...recipe.hunks[0],before:['unknown']}]}),/上下文/);
+    assert.throws(()=>revisedSource(original,{...recipe,afterSha256:hash('wrong')}),/结果摘要/);
+    mkdirSync(join(root,'packages/flutter_tools/gradle'),{recursive:true});
+    const file=join(root,recipe.path);writeFileSync(file,original);
+    assert.deepEqual(revisionPlan(root,[recipe]),[{path:file,content:result}]);
+    const second={...recipe,path:'packages/flutter_tools/gradle/second.kt'};
+    writeFileSync(join(root,second.path),'damaged');
+    assert.throws(()=>revisionPlan(root,[recipe,second]),/原始摘要/);
+    assert.equal(readFileSync(file,'utf8'),original,'后续失败不得写入前一个已核验文件');
+    assert.throws(()=>revisionPlan(root,[recipe,recipe]),/重复/);
+    assert.throws(()=>revisionPlan(root,[{...recipe,path:'packages/flutter_tools/gradle/../escape.kt'}]),/越界/);
+    rmSync(file);
+    execFileSync('ln',['-s',join(root,second.path),file]);
+    assert.throws(()=>revisionPlan(root,[recipe]),/普通文件/);
+    assert.equal(gradleRecipes.length,6);
+    assert.equal(new Set(gradleRecipes.map(x=>x.path)).size,6);
+    const plugin=gradleRecipes.find(x=>x.path.endsWith('/FlutterPlugin.kt'));
+    const revised=plugin.hunks.flatMap(x=>x.after).join('\n');
+    assert.match(revised,/androidComponents|components\.onVariants/);
+    assert.doesNotMatch(revised,/as AbstractAppExtension|android\.applicationVariants/);
+  } finally {rmSync(root,{recursive:true,force:true});}
+});
+
 test('App双端CI所有YAML阶段可执行且缓存终态与候选上传顺序准确', () => {
   for(const [platform,steps] of [['android',androidSteps],['ios',iosSteps]]) {
     const yaml=readFileSync(new URL('../../.github/workflows/citizenapp-'+platform+'-ci.yml',import.meta.url),'utf8');
