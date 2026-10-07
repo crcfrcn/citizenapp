@@ -2,7 +2,6 @@ import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {appendFileSync,chmodSync,lstatSync,mkdirSync,readFileSync,readdirSync,realpathSync,readlinkSync,rmSync,symlinkSync,writeFileSync} from 'node:fs';
 import {dirname,isAbsolute,join,resolve} from 'node:path';
-import {pathToFileURL} from 'node:url';
 const fields={git:'PRODUCT_GIT_BIN',bash:'PRODUCT_BASH_BIN',grep:'PRODUCT_GREP_BIN',sed:'PRODUCT_SED_BIN'};
 const fail=reason=>{throw Error('App门禁工具：'+reason);};
 const digest=bytes=>createHash('sha256').update(bytes).digest('hex');
@@ -37,17 +36,27 @@ export function packageClosure(rows,roots,compare,staged=[]){
  const map=new Map(rows.map(r=>[r.name,{...r,origin:'installed'}]));if(map.size!==rows.length||new Set(staged.map(r=>r.name)).size!==staged.length)fail('包身份重复');
  for(const r of staged){if(r.origin!=='staged'||Object.hasOwn(r,'status'))fail('原件状态伪造');map.set(r.name,r);}
  const available=r=>r&&(r.origin==='staged'||r.status==='install ok installed');
+ // 只从已交付包的官方Provides解析虚拟身份；版本依赖只比较声明的虚拟版本。
+ const providers=new Map();
+ for(const record of [...map.values()].filter(available).sort((a,b)=>a.name.localeCompare(b.name))){
+  const seen=new Set();
+  for(const item of (record.provides||'').split(',').map(value=>value.trim()).filter(Boolean)){
+   const match=/^([a-z0-9+.-]+)(?:\s*\(=\s*([^()\s]+)\))?$/u.exec(item);
+   if(!match||seen.has(match[1]))fail('Ubuntu虚拟包声明无效');seen.add(match[1]);
+   const list=providers.get(match[1])||[];list.push({record,version:match[2]});providers.set(match[1],list);
+  }
+ }
  for(const root of roots){const r=map.get(root.name);if(!available(r)||r.version!==root.version)fail('根包不符：'+root.name);}
  const queue=roots.map(r=>r.name),selected=new Map();while(queue.length){const name=queue.shift();if(selected.has(name))continue;const r=map.get(name);if(!available(r))fail('缺失依赖：'+name);selected.set(name,r);
  for(const clause of [r.depends,r.preDepends].filter(Boolean).join(',').split(',').map(s=>s.trim()).filter(Boolean)){
- let candidate;for(const item of clause.split('|')){const m=/^([a-z0-9+.-]+)(?::(?:amd64|native|any))?(?:\s*\((<<|<=|=|>=|>>)\s*([^()\s]+)\))?$/u.exec(item.trim());if(!m)fail('依赖语法无效');const v=map.get(m[1]);if(available(v)&&(!m[2]||compare(v.version,m[2],m[3]))){candidate=v.name;break;}}if(!candidate)fail('依赖闭包缺失：'+clause);queue.push(candidate);
+ let candidate;for(const item of clause.split('|')){const m=/^([a-z0-9+.-]+)(?::(?:amd64|native|any))?(?:\s*\((<<|<=|=|>=|>>)\s*([^()\s]+)\))?$/u.exec(item.trim());if(!m)fail('依赖语法无效');const v=map.get(m[1]);if(available(v)&&(!m[2]||compare(v.version,m[2],m[3]))){candidate=v.name;break;}const provider=(providers.get(m[1])||[]).find(p=>!m[2]||(p.version&&compare(p.version,m[2],m[3])));if(provider){candidate=provider.record.name;break;}}if(!candidate)fail('依赖闭包缺失：'+clause);queue.push(candidate);
  }}return [...selected.values()].sort((a,b)=>a.name.localeCompare(b.name));
 }
 function snapshot(bootstrap,staged=[]){
  const query=exactExecutable('/usr/bin/dpkg-query'),dpkg=exactExecutable('/usr/bin/dpkg'),env={PATH:'',LANG:'C',LC_ALL:'C'};
  const run=(cmd,args)=>String(execFileSync(cmd,args,{env,encoding:'utf8',timeout:20000,maxBuffer:8*1024**2})).trim();
- const format=['Package','Architecture','Status','Version','Depends','Pre-Depends'].map(field=>'$'+'{'+field+'}').join('\t')+'\n';
- const rows=run(query,['-W','-f='+format]).split('\n').map(s=>s.split('\t')).filter(r=>['all','amd64'].includes(r[1])).map(([name,architecture,status,version,depends,preDepends])=>({name,architecture,status,version,depends,preDepends}));
+ const format=['Package','Architecture','Status','Version','Depends','Pre-Depends','Provides'].map(field=>'$'+'{'+field+'}').join('\t')+'\n';
+ const rows=run(query,['-W','-f='+format]).split('\n').map(s=>s.split('\t')).filter(r=>['all','amd64'].includes(r[1])).map(([name,architecture,status,version,depends,preDepends,provides])=>({name,architecture,status,version,depends,preDepends,provides}));
  const compare=(a,op,b)=>{try{run(dpkg,['--compare-versions',a,op,b]);return true;}catch(e){if(e.status===1)return false;throw e;}};
  const packages=packageClosure(rows,[...bootstrap.packages,...staged],compare,staged);
  for(const r of packages)if(r.origin==='installed'&&run(dpkg,['--verify',r.name]))fail('包字节漂移：'+r.name);
@@ -151,7 +160,8 @@ export async function prepareRunnerTools(work,{bootstrap=false,environment=proce
  }
  const result=toolEnvironment({...environment,...delivered});rmSync(bin,{recursive:true});return {...result,TATAGATE_ACTIONLINT:delivered.TATAGATE_ACTIONLINT};
 }
-if(process.argv[1]&&pathToFileURL(resolve(process.argv[1])).href===import.meta.url){
+// 官方模块主入口只在直接执行时准备Runner；被检查器导入不得产生执行副作用。
+if(import.meta.main){
  try{
  if(process.version!=='v25.2.1'||process.argv.length!==5||process.argv[2]!=='prepare-runner'||process.argv[3]!=='--bootstrap')fail('准备参数无效');
  const output=await prepareRunnerTools(process.argv[4],{bootstrap:true}),file=process.env.GITHUB_ENV;
