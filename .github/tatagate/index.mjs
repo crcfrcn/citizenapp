@@ -848,6 +848,8 @@ export async function executeGate({ root, baseSHA, headSHA, work, actionlint, ca
     if (!info.isFile() || info.isSymbolicLink() || info.size === 0) fail('本仓真实测试文件缺失');
   }
   report(contract.repository + ' · 本机/GitHub共用塔塔门禁');
+  // 准确检出不含被忽略的空目录；门禁统一初始化固定根后才启动测试进程。
+  (await import('../../scripts/build.mjs')).prepareTargetRoot();
   run(process.execPath, ['--test', '--test-reporter=' + resolve(gateDirectory, 'index.mjs'),
     resolve(gateDirectory, 'test.mjs'), ...contract.node_tests.map(path => resolve(root, path))], '所属仓真实合同测试');
   if (contract.checks.includes('dependency-contracts')) await checkDependencies(root, { execute, report, env });

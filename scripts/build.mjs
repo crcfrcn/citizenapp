@@ -26,11 +26,24 @@ export function productTarget(platform) {
  platformContract(platform);
  return join(root,'target',...(Object.keys(contract.platforms).length===1?[]:[platform]));
 }
+// 工作区入口统一保证固定根存在；已存在的根只验真，不清空或重建。
+export function prepareTargetRoot() {
+ const directory=join(root,'target');
+ if(realpathSync(root)!==root)fail('产品根经过链接');
+ if(!lstatSync(directory,{throwIfNoEntry:false})){
+  try{mkdirSync(directory,{mode:0o700});}catch(error){if(error.code!=='EEXIST')throw error;}
+ }
+ const info=lstatSync(directory);if(!info.isDirectory()||info.isSymbolicLink())fail('固定target根经过链接或非目录');
+ return directory;
+}
 export function temporaryRoot(platform=Object.keys(contract.platforms)[0],scope='test',suppliedInput=process.env.TMPDIR) {
  if(!['test','tmp','build','ci','release','publish'].includes(scope))fail('临时目录职责无效');
  const endpoint=productTarget(platform),supplied=suppliedInput?resolve(suppliedInput):undefined;
  const directory=supplied&&supplied!==endpoint&&inside(endpoint,supplied)?supplied:join(endpoint,scope);
- let at=parse(directory).root;
+ // 测试只取得固定根，缺失即失败；创建职责只限准确任务子目录。
+ let at=join(root,'target');
+ const fixed=lstatSync(at,{throwIfNoEntry:false});
+ if(realpathSync(root)!==root||!fixed||!fixed.isDirectory()||fixed.isSymbolicLink())fail('固定target根须已由工作区入口准备');
  for(const part of relative(at,directory).split(sep)){
   // 并发创建可报告EEXIST；随后仍逐层回读，链接、文件及其它错误均不得接受。
   at=join(at,part);if(!existsSync(at)){try{mkdirSync(at,{mode:0o700});}catch(error){if(error.code!=='EEXIST')throw error;}}
@@ -50,6 +63,7 @@ export const testRoot=platform=>{
 export function remoteEnvironment(environment=process.env) {
  const [id,platform,flow,...extra]=String(environment.GITHUB_WORKFLOW||'').split('.');
  if(id!==product||extra.length||!Object.hasOwn(contract.platforms,platform)||!['ci','release'].includes(flow))fail('远端临时目录缺少准确产品平台流程身份');
+ prepareTargetRoot();
  const temporary=temporaryRoot(platform,flow,null);
  return {...environment,RUNNER_TEMP:temporary,TMPDIR:temporary,TMP:temporary,TEMP:temporary};
 }

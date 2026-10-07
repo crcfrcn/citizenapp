@@ -10,6 +10,29 @@ const identity = cacheIdentity({
   runnerOs: 'macos', runnerArch: 'arm64', toolchainFingerprint: 'a'.repeat(64),
 });
 
+// 合成检出证明测试不能创建固定根，入口初始化后根的身份及既有内容保持。
+test('固定target根只由工作区入口准备，测试仅创建子目录',async()=>{
+ const fs=await import('node:fs'),{join}=await import('node:path'),build=await import('../build.mjs');
+ const area=fs.mkdtempSync(join(build.testRoot(),'fixed-target-owner-'));
+ try{
+  const scripts=join(area,'scripts');fs.mkdirSync(scripts);
+  fs.copyFileSync(new URL('../build.mjs',import.meta.url),join(scripts,'build.mjs'));
+  fs.copyFileSync(new URL('../flows.json',import.meta.url),join(scripts,'flows.json'));
+  const fixture=await import((await import('node:url')).pathToFileURL(join(scripts,'build.mjs')));
+  const target=join(area,'target'),platform=Object.keys(fixture.contract.platforms)[0];
+  assert.throws(()=>fixture.temporaryRoot(platform,'test',null),/固定target根/u);assert.equal(fs.existsSync(target),false);
+  assert.equal(fixture.prepareTargetRoot(),target);const before=fs.lstatSync(target);
+  const marker=join(target,'existing');fs.writeFileSync(marker,'keep');
+  fixture.prepareTargetRoot();const child=fixture.temporaryRoot(platform,'test',null);
+  assert.equal(fs.lstatSync(target).ino,before.ino);assert.equal(fs.readFileSync(marker,'utf8'),'keep');
+  assert.ok(child.startsWith(target+'/'));assert.equal(fs.lstatSync(child).isDirectory(),true);
+  fs.rmSync(target,{recursive:true});fs.writeFileSync(target,'file');
+  assert.throws(()=>fixture.prepareTargetRoot(),/固定target根/u);assert.throws(()=>fixture.temporaryRoot(platform,'test',null),/固定target根/u);
+  fs.unlinkSync(target);fs.symlinkSync(scripts,target);
+  assert.throws(()=>fixture.prepareTargetRoot(),/固定target根/u);assert.throws(()=>fixture.temporaryRoot(platform,'test',null),/固定target根/u);
+ }finally{fs.rmSync(area,{recursive:true,force:true});}
+});
+
 // 子进程制造真实竞争目录/链接/文件，内建绑定改写只在该合成进程内，正式源码与其它测试不受影响。
 test('CI并发创建工作目录允许已存在的普通目录，链接、文件和其它错误仍拒绝', async () => {
   const [{mkdtempSync,mkdirSync,rmSync,lstatSync}, {join}, {spawnSync}, build] = await Promise.all([
