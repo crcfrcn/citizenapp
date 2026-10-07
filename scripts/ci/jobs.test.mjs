@@ -301,6 +301,29 @@ printf 'chat:%s\\n' "$1" >> "${log}"
   } finally {rmSync(root,{recursive:true,force:true});}
 });
 
+// 执行真实准备步骤；引擎替身模拟下载失败，不在本机编译或下载原件。
+test('双端CI在原生编译前补齐所属Flutter引擎且预加载失败立即停止', () => {
+  const root=realpathSync(mkdtempSync(join(tmpdir(),'app-ci-engine-'))),log=join(root,'calls');
+  writeFileSync(join(root,'flutter'),`#!${process.execPath}
+const fs=require('node:fs'),args=process.argv.slice(2);fs.appendFileSync(process.env.CALLS,JSON.stringify(args)+'\\n');
+if(process.env.FAIL_ENGINE==='true'&&args[0]==='precache')process.exit(74);
+`,{mode:0o755});
+  try {
+    for(const [steps,targets] of [[androidSteps,['--android']],[iosSteps,['--ios','--macos']]]) {
+      for(const fail of [false,true]) {
+        writeFileSync(log,'');
+        const r=spawnSync('/bin/bash',['-e','-o','pipefail','-c',steps['6'].source],{encoding:'utf8',env:{
+          ...process.env,PATH:root+':'+process.env.PATH,CALLS:log,FAIL_ENGINE:String(fail),
+        }});
+        assert.equal(r.status,fail?74:0,r.stderr);
+        assert.deepEqual(readFileSync(log,'utf8').trim().split('\n').map(JSON.parse),[
+          ['--version','--machine'],['--version'],['precache',...targets],
+        ]);
+      }
+    }
+  } finally {rmSync(root,{recursive:true,force:true});}
+});
+
 // 解析实际YAML引用并执行终态分支，拒绝越界阶段及无状态的无条件record。
 test('App双端CI所有YAML阶段可执行且缓存终态与候选上传顺序准确', () => {
   for(const [platform,steps] of [['android',androidSteps],['ios',iosSteps]]) {
