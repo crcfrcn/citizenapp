@@ -135,12 +135,12 @@ jobs:
     - working-directory: .
       shell: bash
       run: node "$GITHUB_WORKSPACE/scripts/ci/ios-check.mjs" workflow-step 9
-    - if: "${{ failure() && !cancelled() }}"
+    - if: "${{ failure() && !cancelled() && steps.citizenapp_ci_ios__check__ci_cache.outcome == 'success' }}"
       env:
         CI_CACHE_TERMINAL_STATE: failure
       shell: bash
       run: node "$GITHUB_WORKSPACE/scripts/ci/ios-check.mjs" workflow-step 10
-    - if: "${{ failure() && !cancelled() }}"
+    - if: "${{ failure() && !cancelled() && steps.citizenapp_ci_ios__check__ci_cache.outcome == 'success' }}"
       name: 保存本次失败的CI增量缓存
       id: citizenapp_ci_ios__check__ci_cache_save_failure
       continue-on-error: true
@@ -148,7 +148,7 @@ jobs:
       with:
         path: "${{ steps.citizenapp_ci_ios__check__ci_cache.outputs.failure_paths }}"
         key: "${{ steps.citizenapp_ci_ios__check__ci_cache.outputs.failure_key }}"
-    - if: "${{ failure() && !cancelled() && steps.citizenapp_ci_ios__check__ci_cache_save_failure.outcome == 'success' }}"
+    - if: "${{ failure() && !cancelled() && steps.citizenapp_ci_ios__check__ci_cache.outcome == 'success' && steps.citizenapp_ci_ios__check__ci_cache_save_failure.outcome == 'success' }}"
       continue-on-error: true
       env:
         GH_TOKEN: "${{ github.token }}"
@@ -224,6 +224,7 @@ jobs:
           xdg
         CI_CACHE_FINALS: |
           citizensdk-output/apple
+          tatachatsdk-output/ios
           flutter-build/ios/iphoneos/Runner.app
           flutter-build/release-candidate
       shell: bash
@@ -264,12 +265,21 @@ jobs:
       run: node "$GITHUB_WORKSPACE/scripts/ci/ios.mjs" workflow-step 12
     - shell: bash
       run: node "$GITHUB_WORKSPACE/scripts/ci/ios.mjs" workflow-step 13
-    - if: "${{ failure() && !cancelled() }}"
+    - if: "${{ success() }}"
+      name: 上传公民 ios CI 候选
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: CitizenApp-ios-CI
+        path: "${{ env.CITIZENAPP_FLUTTER_ROOT }}/build/release-candidate/ios/公民-iOS-CI.app.zip"
+        if-no-files-found: error
+        compression-level: 0
+        retention-days: 7
+    - if: "${{ failure() && !cancelled() && steps.citizenapp_ci_ios__ios__ci_cache.outcome == 'success' }}"
       env:
         CI_CACHE_TERMINAL_STATE: failure
       shell: bash
       run: node "$GITHUB_WORKSPACE/scripts/ci/ios.mjs" workflow-step 14
-    - if: "${{ failure() && !cancelled() }}"
+    - if: "${{ failure() && !cancelled() && steps.citizenapp_ci_ios__ios__ci_cache.outcome == 'success' }}"
       name: 保存本次失败的CI增量缓存
       id: citizenapp_ci_ios__ios__ci_cache_save_failure
       continue-on-error: true
@@ -277,7 +287,7 @@ jobs:
       with:
         path: "${{ steps.citizenapp_ci_ios__ios__ci_cache.outputs.failure_paths }}"
         key: "${{ steps.citizenapp_ci_ios__ios__ci_cache.outputs.failure_key }}"
-    - if: "${{ failure() && !cancelled() && steps.citizenapp_ci_ios__ios__ci_cache_save_failure.outcome == 'success' }}"
+    - if: "${{ failure() && !cancelled() && steps.citizenapp_ci_ios__ios__ci_cache.outcome == 'success' && steps.citizenapp_ci_ios__ios__ci_cache_save_failure.outcome == 'success' }}"
       continue-on-error: true
       env:
         GH_TOKEN: "${{ github.token }}"

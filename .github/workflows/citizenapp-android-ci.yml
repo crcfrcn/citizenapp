@@ -132,12 +132,12 @@ jobs:
     - working-directory: .
       shell: bash
       run: node "$GITHUB_WORKSPACE/scripts/ci/android-check.mjs" workflow-step 9
-    - if: "${{ failure() && !cancelled() }}"
+    - if: "${{ failure() && !cancelled() && steps.citizenapp_ci_android__check__ci_cache.outcome == 'success' }}"
       env:
         CI_CACHE_TERMINAL_STATE: failure
       shell: bash
       run: node "$GITHUB_WORKSPACE/scripts/ci/android-check.mjs" workflow-step 10
-    - if: "${{ failure() && !cancelled() }}"
+    - if: "${{ failure() && !cancelled() && steps.citizenapp_ci_android__check__ci_cache.outcome == 'success' }}"
       name: 保存本次失败的CI增量缓存
       id: citizenapp_ci_android__check__ci_cache_save_failure
       continue-on-error: true
@@ -145,7 +145,7 @@ jobs:
       with:
         path: "${{ steps.citizenapp_ci_android__check__ci_cache.outputs.failure_paths }}"
         key: "${{ steps.citizenapp_ci_android__check__ci_cache.outputs.failure_key }}"
-    - if: "${{ failure() && !cancelled() && steps.citizenapp_ci_android__check__ci_cache_save_failure.outcome == 'success' }}"
+    - if: "${{ failure() && !cancelled() && steps.citizenapp_ci_android__check__ci_cache.outcome == 'success' && steps.citizenapp_ci_android__check__ci_cache_save_failure.outcome == 'success' }}"
       continue-on-error: true
       env:
         GH_TOKEN: "${{ github.token }}"
@@ -206,9 +206,11 @@ jobs:
       uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
       with:
         distribution: temurin
-        java-version: 25.0.1+8
+        java-version: 25.0.1+8.0.LTS
     - name: 装载Android SDK
       uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699
+      with:
+        packages: platform-tools
     - id: citizenapp_ci_android__android__ci_cache
       env:
         GH_TOKEN: "${{ github.token }}"
@@ -231,6 +233,7 @@ jobs:
           '
         CI_CACHE_FINALS: |
           citizensdk-output/android
+          tatachatsdk-output/android
           flutter-build/app/outputs/flutter-apk
           flutter-build/app/outputs/bundle
       shell: bash
@@ -273,14 +276,21 @@ jobs:
     - working-directory: .
       shell: bash
       run: node "$GITHUB_WORKSPACE/scripts/ci/android.mjs" workflow-step 13
-    - shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/ci/android.mjs" workflow-step 14
-    - if: "${{ failure() && !cancelled() }}"
+    - if: "${{ success() }}"
+      name: 上传公民 android CI 候选
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: CitizenApp-android-CI
+        path: "${{ env.CITIZENAPP_PROJECT_ROOT }}/build/app/outputs/flutter-apk/公民-CI.apk"
+        if-no-files-found: error
+        compression-level: 0
+        retention-days: 7
+    - if: "${{ failure() && !cancelled() && steps.citizenapp_ci_android__android__ci_cache.outcome == 'success' }}"
       env:
         CI_CACHE_TERMINAL_STATE: failure
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/ci/android.mjs" workflow-step 15
-    - if: "${{ failure() && !cancelled() }}"
+      run: node "$GITHUB_WORKSPACE/scripts/ci/android.mjs" workflow-step 14
+    - if: "${{ failure() && !cancelled() && steps.citizenapp_ci_android__android__ci_cache.outcome == 'success' }}"
       name: 保存本次失败的CI增量缓存
       id: citizenapp_ci_android__android__ci_cache_save_failure
       continue-on-error: true
@@ -288,18 +298,18 @@ jobs:
       with:
         path: "${{ steps.citizenapp_ci_android__android__ci_cache.outputs.failure_paths }}"
         key: "${{ steps.citizenapp_ci_android__android__ci_cache.outputs.failure_key }}"
-    - if: "${{ failure() && !cancelled() && steps.citizenapp_ci_android__android__ci_cache_save_failure.outcome == 'success' }}"
+    - if: "${{ failure() && !cancelled() && steps.citizenapp_ci_android__android__ci_cache.outcome == 'success' && steps.citizenapp_ci_android__android__ci_cache_save_failure.outcome == 'success' }}"
       continue-on-error: true
       env:
         GH_TOKEN: "${{ github.token }}"
         CI_CACHE_TERMINAL_STATE: failure
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/ci/android.mjs" workflow-step 16
+      run: node "$GITHUB_WORKSPACE/scripts/ci/android.mjs" workflow-step 15
     - if: "${{ success() }}"
       env:
         CI_CACHE_TERMINAL_STATE: success
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/ci/android.mjs" workflow-step 17
+      run: node "$GITHUB_WORKSPACE/scripts/ci/android.mjs" workflow-step 16
     - if: "${{ success() }}"
       name: 保存本次成功的CI增量缓存
       id: citizenapp_ci_android__android__ci_cache_save_success
@@ -314,4 +324,4 @@ jobs:
         GH_TOKEN: "${{ github.token }}"
         CI_CACHE_TERMINAL_STATE: success
       shell: bash
-      run: node "$GITHUB_WORKSPACE/scripts/ci/android.mjs" workflow-step 18
+      run: node "$GITHUB_WORKSPACE/scripts/ci/android.mjs" workflow-step 17

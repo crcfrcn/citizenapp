@@ -207,3 +207,120 @@ test('公民链金标输入拒绝主分支、脏输入和错误来源', async ()
     assert.notEqual(run(work).status, 0);
   } finally { rmSync(base, { recursive: true, force: true }); }
 });
+
+// 真实执行签名 Shell；替身只记录参数，不生成密钥或原生包。
+test('Android CI签名完整传参且签名失败仍移除临时密钥', () => {
+  const root=realpathSync(mkdtempSync(join(tmpdir(),'app-ci-sign-')));
+  const bin=join(root,'bin'), sdk=join(root,'sdk'), log=join(root,'calls');
+  mkdirSync(bin); mkdirSync(join(sdk,'build-tools/36.0.0'),{recursive:true});
+  const stub=path=>writeFileSync(path,`#!${process.execPath}
+const fs=require('node:fs');fs.appendFileSync(process.env.CALLS,JSON.stringify({tool:require('node:path').basename(process.argv[1]),args:process.argv.slice(2)})+'\\n');
+if(process.argv[1].endsWith('openssl'))process.stdout.write('fixture-password');
+if(process.argv[1].endsWith('keytool'))fs.writeFileSync(process.argv[process.argv.indexOf('-keystore')+1],'fixture');
+if(process.argv[1].endsWith('apksigner')&&process.argv[2]==='sign'&&process.env.FAIL_SIGN)process.exit(72);
+`,{mode:0o755});
+  stub(join(bin,'openssl'));stub(join(bin,'keytool'));stub(join(sdk,'build-tools/36.0.0/apksigner'));
+  writeFileSync(join(bin,'rm'),`#!${process.execPath}
+require('node:fs').rmSync(process.argv.at(-1),{force:true});
+`,{mode:0o755});
+  try {
+    for(const fail of [false,true]) {
+      writeFileSync(log,'');
+      const result=spawnSync('/bin/bash',['-e','-o','pipefail','-c',androidSteps['13'].source],{
+        cwd:root,encoding:'utf8',env:{...process.env,PATH:bin+':'+process.env.PATH,
+          ANDROID_HOME:sdk,RUNNER_TEMP:root,CALLS:log,...(fail?{FAIL_SIGN:'1'}:{})}});
+      assert.equal(result.status,fail?72:0,result.stderr);
+      const calls=readFileSync(log,'utf8').trim().split('\n').map(JSON.parse);
+      assert.deepEqual(calls.map(x=>x.tool),fail?['openssl','keytool','apksigner']:['openssl','keytool','apksigner','apksigner']);
+      assert.deepEqual(calls[1].args,['-genkeypair','-storetype','PKCS12','-keystore',join(root,'citizenapp-ci.p12'),
+        '-storepass:env','GMB_CI_STORE_PASSWORD','-keypass:env','GMB_CI_KEY_PASSWORD','-alias','ci',
+        '-keyalg','RSA','-keysize','4096','-validity','2','-dname','CN=CitizenApp CI,O=GMB,C=US']);
+      assert.deepEqual(calls[2].args,['sign','--ks',join(root,'citizenapp-ci.p12'),'--ks-type','PKCS12',
+        '--ks-key-alias','ci','--ks-pass','env:GMB_CI_STORE_PASSWORD','--key-pass','env:GMB_CI_KEY_PASSWORD',
+        '--out','build/app/outputs/flutter-apk/公民-CI.apk','build/app/outputs/flutter-apk/app-release.apk']);
+      assert.equal(existsSync(join(root,'citizenapp-ci.p12')),false);
+    }
+  } finally {rmSync(root,{recursive:true,force:true});}
+});
+
+// 编译替身严格检查准备顺序与路径；覆盖准确依赖和两个独立SDK的消费装配。
+test('双端CI先准备锁定ZXing并通过SDK自有入口装配两份原生库', () => {
+  const root=realpathSync(mkdtempSync(join(tmpdir(),'app-ci-native-')));
+  try {
+    for(const [platform,steps,index] of [['android',androidSteps,'8'],['ios',iosSteps,'7']]) {
+      const work=join(root,platform), source=join(work,'source'), cache=join(work,'cache'),bin=join(work,'bin');
+      const sdk=join(work,'citizen sdk'),chat=join(work,'chat sdk'), project=join(work,'project'),log=join(work,'calls');
+      for(const dir of [source,sdk,chat])mkdirSync(join(dir,'scripts'),{recursive:true});
+      mkdirSync(cache);mkdirSync(join(project,'android'),{recursive:true});
+      mkdirSync(bin);
+      for(const command of ['mkdir','ln'])writeFileSync(join(bin,command),`#!${process.execPath}
+const fs=require('node:fs'),args=process.argv.slice(2);
+if(${JSON.stringify(command)}==='mkdir')for(const path of args.filter(x=>x!=='-p'))fs.mkdirSync(path,{recursive:true});
+else {if(args[0]!=='-s')process.exit(75);fs.symlinkSync(args[1],args[2]);}
+`,{mode:0o755});
+      writeFileSync(join(project,'android/gradlew'),'fixture');
+      writeFileSync(join(source,'scripts/citizenapp-view.mjs'),`
+import{appendFileSync}from'node:fs';const command=process.argv[2];
+if(command==='dependencies')process.stdout.write(JSON.stringify({citizen_sdk:{root:${JSON.stringify(sdk)}},tatachat_sdk:{root:${JSON.stringify(chat)}}}));
+else if(command==='create'||command==='create-android')process.stdout.write(${JSON.stringify(project)});
+else if(command==='project-framework')appendFileSync(${JSON.stringify(log)},'project:'+process.argv[process.argv.indexOf('--package-subpath')+1]+'\\n');
+else process.exit(71);
+`);
+      writeFileSync(join(sdk,'scripts/dependencies.mjs'),`
+import{mkdirSync,appendFileSync}from'node:fs';import assert from'node:assert/strict';
+assert.deepEqual(process.argv.slice(2),['prepare-environment','--scope','citizensdk','--platform',${JSON.stringify(platform==='android'?'Android':'macOS')},'--work',${JSON.stringify(join(cache,'citizensdk-native'))}]);
+mkdirSync(${JSON.stringify(join(cache,'citizensdk-native/zxing-cpp-3.1.1'))},{recursive:true});appendFileSync(${JSON.stringify(log)},'prepare\\n');
+`);
+      writeFileSync(join(sdk,'scripts/build-native.sh'),`#!/bin/bash
+set -euo pipefail
+test -d "$CITIZENSDK_ZXING_SOURCE_DIR"
+test "$CITIZENSDK_WORK_DIR" = "${cache}/citizensdk-work"
+test "$CITIZENSDK_NATIVE_OUTPUT_DIR" = "${cache}/citizensdk-output"
+printf 'citizen:%s\\n' "$1" >> "${log}"
+`,{mode:0o755});
+      writeFileSync(join(chat,'scripts/build-native.sh'),`#!/bin/bash
+set -euo pipefail
+test "$TATACHATSDK_WORK_DIR" = "${cache}/tatachatsdk-work"
+test "\${TATACHATSDK_NATIVE_ANDROID_DIR:-\${TATACHATSDK_NATIVE_IOS_DIR:-}}" = "${cache}/tatachatsdk-output/${platform}"
+printf 'chat:%s\\n' "$1" >> "${log}"
+`,{mode:0o755});
+      const output=join(work,'github-env');writeFileSync(output,'');
+      const result=spawnSync('/bin/bash',['-e','-o','pipefail','-c',steps[index].source],{cwd:source,encoding:'utf8',env:{...process.env,
+        PATH:bin+':'+process.env.PATH,GITHUB_WORKSPACE:source,RUNNER_TEMP:work,CI_INCREMENTAL_ROOT:cache,GITHUB_ENV:output,GITHUB_RUN_ID:'123',GITHUB_RUN_ATTEMPT:'1'}});
+      assert.equal(result.status,0,result.stderr);
+      assert.equal(readFileSync(log,'utf8'),platform==='android'?'prepare\ncitizen:android\nchat:android\n':
+        'prepare\ncitizen:apple\nchat:ios\nproject:darwin/CitizenSDK.xcframework\nproject:ios/TataChatSDK.xcframework\n');
+      const vars=readFileSync(output,'utf8');assert.ok(vars.includes('TATACHATSDK_SOURCE_ROOT='+chat+'\n'));
+      if(platform==='android')assert.ok(vars.includes('CITIZENAPP_NATIVE_ANDROID_DIR='+join(cache,'tatachatsdk-output/android')+'\n'));
+    }
+  } finally {rmSync(root,{recursive:true,force:true});}
+});
+
+// 解析实际YAML引用并执行终态分支，拒绝越界阶段及无状态的无条件record。
+test('App双端CI所有YAML阶段可执行且缓存终态与候选上传顺序准确', () => {
+  for(const [platform,steps] of [['android',androidSteps],['ios',iosSteps]]) {
+    const yaml=readFileSync(new URL('../../.github/workflows/citizenapp-'+platform+'-ci.yml',import.meta.url),'utf8');
+    const flow=yaml.split('\n  flow:\n')[1]; assert.ok(flow);
+    const blocks=flow.split('\n    - ').slice(1);
+    const records=[];
+    for(const block of blocks) {
+      const match=block.match(new RegExp('scripts/ci/'+platform+'[.]mjs" workflow-step ([0-9]+)'));
+      if(!match)continue;
+      const step=steps[match[1]];assert.ok(step,'unknown stage '+match[1]);
+      if(!step.source.includes('" record'))continue;
+      const terminal=block.match(/CI_CACHE_TERMINAL_STATE: (failure|success)/)?.[1];
+      assert.ok(terminal,'unconditional terminal record');
+      assert.ok(block.includes(terminal+'()'));
+      const result=spawnSync('/bin/bash',['-e','-o','pipefail','-c',
+        'node(){ printf "%s:%s\\n" "$2" "$CI_CACHE_TERMINAL_STATE"; };\n'+step.source],{encoding:'utf8',env:{...process.env,
+        BASH_ENV:'/dev/null',GITHUB_WORKSPACE:'/fixture',CI_CACHE_TERMINAL_STATE:terminal},
+        input:''});
+      assert.equal(result.status,0,result.stderr);
+      assert.equal(result.stdout,'sanitize:'+terminal+'\nrecord:'+terminal+'\n');
+      records.push(terminal);
+    }
+    assert.deepEqual(records,['failure','success']);
+    assert.ok(flow.indexOf('actions/upload-artifact@')<flow.indexOf('CI_CACHE_TERMINAL_STATE: failure'));
+    for(const line of yaml.split('\n').filter(x=>x.includes('failure()')))assert.match(line,/__ci_cache[.]outcome == 'success'/);
+  }
+});
