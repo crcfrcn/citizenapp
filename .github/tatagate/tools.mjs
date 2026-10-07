@@ -36,13 +36,15 @@ export function packageClosure(rows,roots,compare,staged=[]){
  const map=new Map(rows.map(r=>[r.name,{...r,origin:'installed'}]));if(map.size!==rows.length||new Set(staged.map(r=>r.name)).size!==staged.length)fail('包身份重复');
  for(const r of staged){if(r.origin!=='staged'||Object.hasOwn(r,'status'))fail('原件状态伪造');map.set(r.name,r);}
  const available=r=>r&&(r.origin==='staged'||r.status==='install ok installed');
- // 只从已交付包的官方Provides解析虚拟身份；版本依赖只比较声明的虚拟版本。
+ // 官方Provides的同名不同版本分别保留；仅名称与版本完全相同的声明拒绝重复。
  const providers=new Map();
  for(const record of [...map.values()].filter(available).sort((a,b)=>a.name.localeCompare(b.name))){
   const seen=new Set();
   for(const item of (record.provides||'').split(',').map(value=>value.trim()).filter(Boolean)){
    const match=/^([a-z0-9+.-]+)(?:\s*\(=\s*([^()\s]+)\))?$/u.exec(item);
-   if(!match||seen.has(match[1]))fail('Ubuntu虚拟包声明无效');seen.add(match[1]);
+   if(!match)fail('Ubuntu虚拟包声明无效');
+   const identity=JSON.stringify([match[1],match[2]??null]);
+   if(seen.has(identity))fail('Ubuntu虚拟包声明无效');seen.add(identity);
    const list=providers.get(match[1])||[];list.push({record,version:match[2]});providers.set(match[1],list);
   }
  }
