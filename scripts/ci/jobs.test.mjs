@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -356,7 +356,7 @@ test('Flutter CI修订核验完整前后摘要且未知输入不形成写入计�
     assert.throws(()=>revisionPlan(root,[recipe,recipe]),/重复/);
     assert.throws(()=>revisionPlan(root,[{...recipe,path:'packages/flutter_tools/gradle/../escape.kt'}]),/越界/);
     rmSync(file);
-    execFileSync('ln',['-s',join(root,second.path),file]);
+    symlinkSync(join(root,second.path),file);
     assert.throws(()=>revisionPlan(root,[recipe]),/普通文件/);
     assert.equal(gradleRecipes.length,6);
     assert.equal(new Set(gradleRecipes.map(x=>x.path)).size,6);
