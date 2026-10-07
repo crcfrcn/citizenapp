@@ -2,6 +2,31 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+// 宿主脚本是独占普通副本；按既定source-view映射回读正式原文，并验真副本字节。
+String _originalSourceRoot(String sourceScript) {
+  final script = File(sourceScript);
+  final project = script.parent.parent.path;
+  const marker = '/source-view/';
+  final candidates = <String>[];
+  for (var start = 0; ;) {
+    final index = project.indexOf(marker, start);
+    if (index < 0) break;
+    start = index + marker.length;
+    final candidate = project.substring(index + marker.length - 1);
+    if (!project.startsWith('$candidate/target/')) continue;
+    final original = File('$candidate/scripts/citizenapp-test.sh');
+    if (Directory(candidate).resolveSymbolicLinksSync() != candidate ||
+        FileSystemEntity.typeSync(original.path, followLinks: false) !=
+            FileSystemEntityType.file ||
+        original.readAsStringSync() != script.readAsStringSync()) {
+      throw StateError('消费脚本与正式来源不一致');
+    }
+    candidates.add(candidate);
+  }
+  if (candidates.length > 1) throw StateError('正式来源映射不唯一');
+  return candidates.isEmpty ? project : candidates.single;
+}
+
 void main() {
   test(
     'CitizenApp consumes TataChatSDK product output without source staging',
@@ -11,7 +36,7 @@ void main() {
       final sourceScript = File(
         'scripts/citizenapp-test.sh',
       ).resolveSymbolicLinksSync();
-      final sourceRoot = File(sourceScript).parent.parent.path;
+      final sourceRoot = _originalSourceRoot(sourceScript);
       final pubspec = File('$sourceRoot/pubspec.yaml').readAsStringSync();
       final pubLock = File('$sourceRoot/pubspec.lock').readAsStringSync();
       final podfile = File('ios/Podfile').readAsStringSync();
@@ -26,13 +51,17 @@ void main() {
       expect(pubspec, contains('29b7e4377833802a0a9f833c44c3e92036bd8493'));
       // App取消独立密码学与包装存储插件，钱包上游传递依赖保持原锁。
       expect(
-        RegExp(r'^  (?:cryptography|flutter_secure_storage):', multiLine: true)
-            .hasMatch(pubspec),
+        RegExp(
+          r'^  (?:cryptography|flutter_secure_storage):',
+          multiLine: true,
+        ).hasMatch(pubspec),
         isFalse,
       );
       expect(
-        RegExp(r'^  flutter_secure_storage(?:_\w+)?:', multiLine: true)
-            .hasMatch(pubLock),
+        RegExp(
+          r'^  flutter_secure_storage(?:_\w+)?:',
+          multiLine: true,
+        ).hasMatch(pubLock),
         isFalse,
       );
       expect(lockfile, isNot(contains('flutter_secure_storage')));
@@ -70,4 +99,27 @@ void main() {
       expect(lockfile, contains('- tatachat_sdk (1.0.0)'));
     },
   );
+  // 合成工程验证普通复制后的来源归属；改写消费副本必须失败且原文不变。
+  test('source-view读取正式来源，脚本副本漂移拒绝', () {
+    final area = Directory.systemTemp.createTempSync('native-contract-source-');
+    try {
+      final owner = Directory('${area.path}/owner')..createSync();
+      final original = File('${owner.path}/scripts/citizenapp-test.sh');
+      original.parent.createSync();
+      original.writeAsStringSync('locked product script');
+      expect(_originalSourceRoot(original.path), owner.path);
+      final view = Directory(
+        '${owner.path}/target/ios/test/task/source-view${owner.path}',
+      )..createSync(recursive: true);
+      final copy = File('${view.path}/scripts/citizenapp-test.sh');
+      copy.parent.createSync();
+      original.copySync(copy.path);
+      expect(_originalSourceRoot(copy.path), owner.path);
+      copy.writeAsStringSync('changed task copy');
+      expect(() => _originalSourceRoot(copy.path), throwsStateError);
+      expect(original.readAsStringSync(), 'locked product script');
+    } finally {
+      area.deleteSync(recursive: true);
+    }
+  });
 }
