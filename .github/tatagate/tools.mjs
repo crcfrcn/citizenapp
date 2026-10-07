@@ -2,6 +2,7 @@ import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {appendFileSync,chmodSync,lstatSync,mkdirSync,readFileSync,readdirSync,realpathSync,readlinkSync,rmSync,symlinkSync,writeFileSync} from 'node:fs';
 import {dirname,isAbsolute,join,resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
 const fields={git:'PRODUCT_GIT_BIN',bash:'PRODUCT_BASH_BIN',grep:'PRODUCT_GREP_BIN',sed:'PRODUCT_SED_BIN'};
 const fail=reason=>{throw Error('App门禁工具：'+reason);};
 const digest=bytes=>createHash('sha256').update(bytes).digest('hex');
@@ -120,7 +121,9 @@ function protect(root){for(const name of readdirSync(root)){const path=join(root
 export async function prepareRunnerTools(work,{bootstrap=false,environment=process.env,request=fetch}={}){
  if(!bootstrap||process.platform!=='linux'||process.arch!=='x64'||environment.GITHUB_ACTIONS!=='true'||environment.GITHUB_REPOSITORY!=='crcfrcn/citizenapp'||environment.GITHUB_EVENT_NAME!=='push'||environment.GITHUB_REF!=='refs/heads/main'||environment.GITHUB_WORKFLOW!=='tatagate'||environment.GITHUB_JOB!=='gate')fail('首次准备身份无效');
  const os=readFileSync('/etc/os-release','utf8');if(!/^ID=ubuntu$/mu.test(os)||!/^VERSION_ID="24\.04"$/mu.test(os))fail('宿主不是Ubuntu24.04');
- directory(work);directory(environment.RUNNER_TEMP);if(work!==join(environment.RUNNER_TEMP,'citizenapp-tools')||readdirSync(work).length)fail('准备根须为Runner固定独占空目录');
+ // 工具过程属于准确产品测试工作区；Runner基础设施目录不作为产品准备根。
+ const root=resolve(fileURLToPath(new URL('../../',import.meta.url)));
+ directory(work);if(environment.GITHUB_WORKSPACE!==root||work!==join(root,'target/ios/test/tatagate/citizenapp-tools')||readdirSync(work).length)fail('准备根须为本产品固定独占空目录');
  const plan=validateToolSources(JSON.parse(readFileSync(new URL('contracts.json',import.meta.url),'utf8')).tool_sources),inputs=plan.bootstrap,sources=plan.sources;
  const before=snapshot(inputs),paths=Object.fromEntries(before.commands.map(r=>[r.name,r.path]));
  mkdirSync(join(work,'objects'));const bin=join(work,'bootstrap-bin');mkdirSync(bin);
