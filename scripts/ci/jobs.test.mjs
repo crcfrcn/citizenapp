@@ -333,19 +333,18 @@ if(process.env.FAIL_ENGINE==='true'&&args[0]==='precache')process.exit(74);
   } finally {rmSync(root,{recursive:true,force:true});}
 });
 
-// 解析实际YAML引用并执行终态分支，拒绝越界阶段及无状态的无条件record。
 // 实际执行摘要和上下文变换，覆盖原始/已修订输入、破坏、链接、路径及整批拒绝。
 test('Flutter CI修订核验完整前后摘要且未知输入不形成写入计划', () => {
   const root=realpathSync(mkdtempSync(join(tmpdir(),'app-ci-flutter-')));
   const hash=value=>createHash('sha256').update(value).digest('hex');
   const original='// upstream\nold\nlast\n',result='// upstream\nnew\nextra\nlast\n';
   const recipe={path:'packages/flutter_tools/gradle/fixture.kt',beforeSha256:hash(original),afterSha256:hash(result),
-    hunks:[{start:1,before:['old'],after:['new','extra']}]};
+    hunks:[{start:1,beforeCount:1,beforeSha256:hash('old'),after:['new','extra']}]};
   try {
     assert.equal(revisedSource(original,recipe),result);
     assert.equal(revisedSource(result,recipe),result);
     assert.throws(()=>revisedSource(original+'damage',recipe),/原始摘要/);
-    assert.throws(()=>revisedSource(original,{...recipe,hunks:[{...recipe.hunks[0],before:['unknown']}]}),/上下文/);
+    assert.throws(()=>revisedSource(original,{...recipe,hunks:[{...recipe.hunks[0],beforeSha256:hash('unknown')}]}),/上下文/);
     assert.throws(()=>revisedSource(original,{...recipe,afterSha256:hash('wrong')}),/结果摘要/);
     mkdirSync(join(root,'packages/flutter_tools/gradle'),{recursive:true});
     const file=join(root,recipe.path);writeFileSync(file,original);
@@ -368,6 +367,7 @@ test('Flutter CI修订核验完整前后摘要且未知输入不形成写入计�
   } finally {rmSync(root,{recursive:true,force:true});}
 });
 
+// 解析实际YAML引用并执行终态分支，拒绝越界阶段及无状态的无条件record。
 test('App双端CI所有YAML阶段可执行且缓存终态与候选上传顺序准确', () => {
   for(const [platform,steps] of [['android',androidSteps],['ios',iosSteps]]) {
     const yaml=readFileSync(new URL('../../.github/workflows/citizenapp-'+platform+'-ci.yml',import.meta.url),'utf8');
