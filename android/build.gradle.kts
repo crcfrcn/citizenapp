@@ -23,6 +23,10 @@ allprojects {
         }
     }
     plugins.withId("com.android.library") {
+        // 固定CameraX 1.6.1的注解解析会读取此类型；仅给相机插件补齐官方编译依赖。
+        if (project.name == "camera_android_camerax") {
+            dependencies.add("implementation", "androidx.concurrent:concurrent-futures:1.2.0")
+        }
         extensions.configure<com.android.build.api.dsl.LibraryExtension> {
             compileSdk = 36
         }
