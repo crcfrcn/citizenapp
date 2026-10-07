@@ -118,11 +118,17 @@ class ContactSyncState {
     required this.phase,
     this.updatedAt = 0,
     this.message,
+    this.errorCode,
+    this.statusCode,
+    this.stage,
   });
 
   final ContactSyncPhase phase;
   final int updatedAt;
   final String? message;
+  final String? errorCode;
+  final int? statusCode;
+  final SquareApiStage? stage;
 
   String get label => switch (phase) {
     ContactSyncPhase.syncing => '正在同步',
@@ -422,11 +428,17 @@ class UserContactService {
       return await _readContacts(owner);
     } catch (error) {
       await _assertOwner(owner);
-      final pending = await _readPending(owner);
+      final failure = SquareSessionResolution.fromError(error);
       await _setSyncState(
         owner,
-        pending.isEmpty ? ContactSyncPhase.offline : ContactSyncPhase.failed,
-        message: error.toString(),
+        failure.status == SquareSessionStatus.networkUnavailable
+            ? ContactSyncPhase.offline
+            : ContactSyncPhase.failed,
+        // 同步失败保留本地联系人和待发记录，只保存固定分类，禁止持久化原始异常正文。
+        message: failure.message,
+        errorCode: failure.errorCode,
+        statusCode: failure.statusCode,
+        stage: failure.stage,
       );
       return await _readContacts(owner);
     }
@@ -561,9 +573,8 @@ class UserContactService {
         'updated_at': value['updated_at'],
         'contact': value['contact'] == null
             ? null
-            : UserContact.fromJson(
-                value['contact'] as Map<String, dynamic>,
-              ).toJson(),
+            : UserContact.fromJson(value['contact'] as Map<String, dynamic>)
+                  .toJson(),
       });
     });
   }
@@ -634,6 +645,15 @@ class UserContactService {
         phase: phase,
         updatedAt: _asInt(json['updated_at']),
         message: json['message']?.toString(),
+        errorCode: json['error_code'] is String
+            ? json['error_code'] as String
+            : null,
+        statusCode: json['status_code'] is int
+            ? json['status_code'] as int
+            : null,
+        stage: SquareApiStage.values
+            .where((item) => item.name == json['stage'])
+            .firstOrNull,
       );
     } on FormatException {
       return const ContactSyncState(phase: ContactSyncPhase.idle);
@@ -755,9 +775,8 @@ class UserContactService {
       }
       final recordsKey = _recordsPrefix + owner.cidNumber;
       final records = _recordMap(
-        (await isar.userContactStateEntitys.getByStateKey(
-          recordsKey,
-        ))?.payloadJson,
+        (await isar.userContactStateEntitys.getByStateKey(recordsKey))
+            ?.payloadJson,
       );
       for (final contact in contacts) {
         records[contact.cidNumber] = {
@@ -802,11 +821,17 @@ class UserContactService {
     _ContactOwner owner,
     ContactSyncPhase phase, {
     String? message,
+    String? errorCode,
+    int? statusCode,
+    SquareApiStage? stage,
   }) async {
     final state = ContactSyncState(
       phase: phase,
       updatedAt: DateTime.now().millisecondsSinceEpoch,
       message: message,
+      errorCode: errorCode,
+      statusCode: statusCode,
+      stage: stage,
     );
     syncState.value = state;
     await _writeKv(
@@ -816,6 +841,9 @@ class UserContactService {
         'phase': phase.name,
         'updated_at': state.updatedAt,
         'message': ?message,
+        'error_code': ?errorCode,
+        'status_code': ?statusCode,
+        'stage': ?stage?.name,
       }),
     );
   }
@@ -836,9 +864,8 @@ class UserContactService {
     await UserIsar.instance.writeTxn((isar) async {
       await _assertOwner(owner);
       if (key == _pendingPrefix + owner.cidNumber &&
-          (await isar.userContactStateEntitys.getByStateKey(
-                key,
-              ))?.payloadJson !=
+          (await isar.userContactStateEntitys.getByStateKey(key))
+                  ?.payloadJson !=
               owner.pendingSnapshot) {
         throw StateError('通讯录待同步操作已变化，请重试');
       }

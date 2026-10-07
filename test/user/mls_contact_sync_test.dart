@@ -1,4 +1,7 @@
 import 'dart:convert';
+import 'dart:async';
+import 'dart:io';
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizenapp/8964/profile/services/square_session_provider.dart';
 import 'package:citizenapp/8964/services/square_api_client.dart';
@@ -10,6 +13,7 @@ import 'package:citizenapp/security/account_security_service.dart';
 import 'package:citizenapp/security/identity_binding.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart';
+
 import '../support/fake_citizen_sdk.dart';
 import '../support/isar_test_env.dart';
 
@@ -80,23 +84,88 @@ class _Runtime extends ChatSdk {
 class _Sessions implements SquareSessionProvider {
   _Sessions(this.runtime);
   final _Runtime runtime;
+  Object? failure;
   @override
   ChatSdk get mlsRuntime => runtime;
   @override
-  Future<SquareSession?> ensureSession() async => SquareSession(
-    deviceId: '11' * 32,
-    sessionToken: 'token',
-    cidNumber: _owner,
-    bindingRevision: 1,
-    accountId: _account,
-    expiresAt: 4102444800000,
-  );
+  Future<SquareSession?> ensureSession() async {
+    if (failure != null) throw failure!;
+    return SquareSession(
+      deviceId: '11' * 32,
+      sessionToken: 'token',
+      cidNumber: _owner,
+      bindingRevision: 1,
+      accountId: _account,
+      expiresAt: 4102444800000,
+    );
+  }
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 void main() {
   useIsolatedIsar();
+  // 同样的失败在有无待发记录时都必须保持真实类别；失败不能消费待同步操作。
+  for (final withPending in [false, true]) {
+    for (final failure in <Object>[
+      const SocketException('合成断网'),
+      TimeoutException('合成超时'),
+      const SquareApiException(
+        '不应保存的合成服务正文',
+        statusCode: 404,
+        stage: SquareApiStage.challenge,
+      ),
+      const SquareApiException(
+        '合成认证拒绝',
+        statusCode: 401,
+        errorCode: 'invalid_mls_signature',
+        stage: SquareApiStage.session,
+      ),
+    ]) {
+      test('同步${failure.runtimeType}待发=$withPending分类准确并保留记录', () async {
+        final sessions = _Sessions(_Runtime());
+        sessions.failure = failure;
+        final service = UserContactService(
+          accountSecurity: _Security(),
+          currentUserContext: _Current(),
+          sessionProvider: sessions,
+          chainReader: CitizenIdentityChainReader(chain: TestCitizenChain()),
+          autoSync: false,
+        );
+        if (withPending) {
+          await service.addContact(
+            cidNumber: 'CID-B',
+            ss58Address: ss58FromAccountIdText('0x${'22' * 32}'),
+            contactRemark: '合成备注',
+          );
+        }
+        final before = await service.getContacts();
+        final after = await service.sync();
+        expect(after.length, before.length);
+        final state = await service.readSyncState();
+        final network =
+            failure is SocketException || failure is TimeoutException;
+        expect(
+          state.phase,
+          network ? ContactSyncPhase.offline : ContactSyncPhase.failed,
+        );
+        expect(state.message, isNot(contains('合成服务正文')));
+        if (failure is SquareApiException) {
+          expect(state.statusCode, failure.statusCode);
+          expect(state.stage, failure.stage);
+        }
+        sessions.failure = null;
+        await service.sync();
+        expect((await service.readSyncState()).phase, ContactSyncPhase.synced);
+        final snapshot = jsonDecode(
+          utf8.decode(sessions.runtime.sent.single),
+        ) as Map<String, dynamic>;
+        expect(snapshot['records'], hasLength(withPending ? 1 : 0));
+        await sessions.runtime.close();
+      });
+    }
+  }
   test('本地删除保存墓碑，MLS快照重放不复活联系人', () async {
     final runtime = _Runtime(), current = _Current();
     final service = UserContactService(

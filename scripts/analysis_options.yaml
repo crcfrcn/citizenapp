@@ -3,6 +3,8 @@ include: package:flutter_lints/flutter.yaml
 analyzer:
   exclude:
     - "**/*.g.dart"
+    # 工程视图内的锁定SDK与生成缓存归target，不扫描其独立测试。
+    - "target/**"
 
 linter:
   rules:

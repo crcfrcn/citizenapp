@@ -232,8 +232,9 @@ async function createView(sourceInput, workInput, android = false) {
       sourceDirectory = realpathSync(packageRoot);
     }
     ordinaryDirectory(sourceDirectory, '本地path依赖真实根');
-    if ((!inside(join(workRoot, 'git-sources'), packageRoot) && inside(packageRoot, workRoot))
-      || inside(sourceDirectory, viewRoot) || inside(viewRoot, sourceDirectory)) {
+    // 产品根已经核验target工作边界；只有path依赖需要与该工作根保持分离。
+    if (packageRoot !== sourceRoot && ((!inside(join(workRoot, 'git-sources'), packageRoot) && inside(packageRoot, workRoot))
+      || inside(sourceDirectory, viewRoot) || inside(viewRoot, sourceDirectory))) {
       fail('工程视图与path依赖必须分离');
     }
     visited.add(packageRoot);

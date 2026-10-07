@@ -559,35 +559,84 @@ final class RunnerUITests: XCTestCase {
     attachScreenshot(app, name: "CitizenApp-主界面")
   }
 
-  /// 已注册公开冷账户可打开服务页；缺少持钥验证不得伪装成尚未注册或无钱包。
-  func testSimulatorRegisteredColdServiceFailurePresentation() throws {
-    #if targetEnvironment(simulator)
+  /// 使用既有账户，只读进入我的页；不导入、删除账户或代签首次设备登记。
+  private func openExistingAccountServices() throws -> XCUIApplication {
     let app = XCUIApplication(bundleIdentifier: targetBundleIdentifier)
     app.launch()
     dismissPermissionGuideIfNeeded(in: app)
     try requireMainNavigation(in: app)
-    app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "我的", "Tab ")).firstMatch.tap()
-    func element(_ text: String) -> XCUIElement {
-      app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", text)).firstMatch
+    let my = app.buttons.matching(NSPredicate(format:
+      "label BEGINSWITH %@ AND label CONTAINS %@", "我的", "Tab ")).firstMatch
+    XCTAssertTrue(my.waitForExistence(timeout: 10))
+    my.tap()
+    return app
+  }
+
+  /// 真实通讯录验收必须收到云端同步结果；显示本地记录或失败横幅不能判为成功。
+  func testRegisteredContactsCloudSyncSucceeds() throws {
+    let app = try openExistingAccountServices()
+    let contacts = app.descendants(matching: .any).matching(
+      NSPredicate(format: "label == %@", "通讯录")).firstMatch
+    XCTAssertTrue(contacts.waitForExistence(timeout: 10))
+    contacts.tap()
+    XCTAssertTrue(app.staticTexts["我的通讯录"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.staticTexts["云端已同步"].waitForExistence(timeout: 60),
+      "通讯录没有完成真实云端同步；设备登记缺失时应保留失败结果")
+    XCTAssertFalse(app.staticTexts["同步失败，点击重试"].exists)
+    XCTAssertFalse(app.staticTexts["离线，显示本地通讯录"].exists)
+  }
+
+  /// 会员必须完成当轮刷新并出现已就绪业务动作；静态卡片不能代替动态数据成功。
+  /// 只观察按钮状态，禁止点击订阅、更换或取消等交易动作，不附加账户截图。
+  func testRegisteredMembershipRefreshSucceeds() throws {
+    let app = try openExistingAccountServices()
+    let membership = app.descendants(matching: .any).matching(
+      NSPredicate(format: "label == %@", "会员｜订阅")).firstMatch
+    XCTAssertTrue(membership.waitForExistence(timeout: 10))
+    membership.tap()
+    let refresh = app.buttons["刷新"]
+    XCTAssertTrue(refresh.waitForExistence(timeout: 10))
+    let completed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: refresh)
+    XCTAssertEqual(XCTWaiter.wait(for: [completed], timeout: 60), .completed,
+      "会员首次动态读取未结束")
+    refresh.tap()
+    let action = app.descendants(matching: .any).matching(NSPredicate(format:
+      "label IN %@ AND enabled == true", ["订阅", "更换为此档", "取消订阅"])).firstMatch
+    XCTAssertTrue(action.waitForExistence(timeout: 60), "会员动态数据或链上价格尚未就绪")
+    XCTAssertTrue(action.isHittable, "会员业务动作尚不可用")
+    let refreshed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: refresh)
+    XCTAssertEqual(XCTWaiter.wait(for: [refreshed], timeout: 60), .completed)
+    XCTAssertFalse(app.staticTexts.matching(NSPredicate(format:
+      "label CONTAINS %@ OR label CONTAINS %@ OR label CONTAINS %@",
+      "失败", "暂时不可用", "授权尚未完成")).firstMatch.exists)
+  }
+
+  /// 三类关注关系均须完成真实读取；认证提示、首帧加载和错误空态均不得算成功。
+  func testRegisteredThreeFollowListsSucceed() throws {
+    let app = try openExistingAccountServices()
+    let code = app.buttons["我的用户码"]
+    XCTAssertTrue(code.waitForExistence(timeout: 10))
+    app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0))
+      .withOffset(CGVector(dx: 0, dy: code.frame.midY + 24)).tap()
+    for (label, empty) in [("关注", "还没有关注任何人"), ("关注者", "还没有关注者"), ("互关", "还没有互关用户")] {
+      let stat = app.descendants(matching: .any).matching(NSPredicate(format:
+        "label MATCHES %@", "[0-9]+ +" + label)).firstMatch
+      XCTAssertTrue(stat.waitForExistence(timeout: 10), "本人主页缺少关注关系入口")
+      stat.tap()
+      XCTAssertTrue(app.staticTexts[label].waitForExistence(timeout: 60), "关注关系页未实际打开")
+      let loaded = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+        app.staticTexts[empty].exists || app.descendants(matching: .any).matching(
+          NSPredicate(format: "label MATCHES %@", "(?s).*CN[0-9]{3}-CTZN[0-9]-[0-9]{9}-[0-9]{4}.*")).firstMatch.isHittable
+      }, object: nil)
+      XCTAssertEqual(XCTWaiter.wait(for: [loaded], timeout: 30), .completed,
+        "关注关系没有成功空态或真实列表")
+      XCTAssertFalse(app.staticTexts["加载失败，请返回重试"].exists)
+      let back = app.buttons.allElementsBoundByIndex.filter {
+        $0.isHittable && $0.frame.width > 0 && $0.frame.minX < app.frame.width * 0.15
+          && $0.frame.maxY < app.frame.height * 0.20
+      }.sorted { $0.frame.minY < $1.frame.minY }
+      try XCTUnwrap(back.first).tap()
     }
-    element("通讯录").tap()
-    XCTAssertTrue(element("我的通讯录").waitForExistence(timeout: 10))
-    XCTAssertTrue(element("同步失败，点击重试").waitForExistence(timeout: 15))
-    XCTAssertFalse(element("尚未注册").exists)
-    let back = app.buttons.allElementsBoundByIndex.filter {
-      $0.frame.width > 0 && $0.frame.minX < app.frame.width * 0.15
-        && $0.frame.maxY < app.frame.height * 0.20 && $0.isHittable
-    }.sorted { $0.frame.minY < $1.frame.minY }
-    try XCTUnwrap(back.first).tap()
-    element("会员｜订阅").tap()
-    let failure = app.descendants(matching: .any).matching(NSPredicate(format:
-      "label CONTAINS %@", "钱包设备认证暂时不可用")).firstMatch
-    XCTAssertTrue(failure.waitForExistence(timeout: 15))
-    XCTAssertFalse(element("尚未注册").exists)
-    XCTAssertFalse(element("请先创建钱包").exists)
-    #else
-    throw XCTSkip("未完成持钥验证的公开冷账户故障验收仅适用模拟器")
-    #endif
   }
 
   /// 长期回归门禁：聊天页必须在 30 秒内离开首帧加载状态。
@@ -614,10 +663,7 @@ final class RunnerUITests: XCTestCase {
         evaluatedWith: loading
       )
       let result = XCTWaiter.wait(for: [finished], timeout: 30)
-      attachScreenshot(app, name: "CitizenApp-聊天页")
       XCTAssertEqual(result, .completed, "聊天页超过 30 秒仍停在本地会话加载状态")
-    } else {
-      attachScreenshot(app, name: "CitizenApp-聊天页")
     }
     XCTAssertFalse(app.staticTexts["聊天暂时无法使用，请稍后重试"].exists,
         "已有身份的正式包必须实际打开聊天，不能以加载消失当作成功")

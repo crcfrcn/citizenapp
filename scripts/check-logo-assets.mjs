@@ -8,7 +8,7 @@ const root=resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const manifest=JSON.parse(readFileSync(join(root,'scripts/logo-assets.json'),'utf8'));
 if(manifest.schema!==1||manifest.product!=='citizenapp'
  ||manifest.source?.repository!=='crcfrcn/citizenchain'
- ||manifest.source?.path!=='node/resources/icons/logo.png'
+ ||manifest.source?.path!=='crates/icons/logo.png'
  ||!/^[a-f0-9]{64}$/.test(manifest.source?.sha256||'')
  ||Object.keys(manifest.files||{}).length<30) throw Error('公民Logo来源清单无效');
 for(const [relative,hash] of Object.entries(manifest.files)) {

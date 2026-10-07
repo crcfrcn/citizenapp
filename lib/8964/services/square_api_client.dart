@@ -19,12 +19,28 @@ import 'package:crypto/crypto.dart' show sha256;
 import 'package:citizenapp/8964/services/square_request_signer.dart';
 import 'package:citizenapp/notifications/app_push_token.dart';
 
+/// 仅记录产品固定请求阶段，禁止将URL、账户或请求正文当成诊断字段。
+enum SquareApiStage {
+  identity,
+  challenge,
+  proof,
+  registration,
+  session,
+  request,
+}
+
 class SquareApiException implements Exception {
-  const SquareApiException(this.message, {this.statusCode, this.errorCode});
+  const SquareApiException(
+    this.message, {
+    this.statusCode,
+    this.errorCode,
+    this.stage,
+  });
 
   final String message;
   final int? statusCode;
   final String? errorCode;
+  final SquareApiStage? stage;
 
   @override
   String toString() => message;
@@ -752,18 +768,45 @@ class SquareApiClient
     String? sessionToken,
     Map<String, String> proofHeaders = const {},
   }) async {
-    final response = await _http
-        .post(
-          _uri(path),
-          headers: {
-            'content-type': 'application/json; charset=utf-8',
-            if (sessionToken != null) 'authorization': 'Bearer $sessionToken',
-            ...proofHeaders,
-          },
-          body: body,
-        )
-        .timeout(const Duration(seconds: 20));
-    return _decodeResponse(response);
+    final stage = switch (path) {
+      '/square/auth/challenge' => SquareApiStage.challenge,
+      '/square/auth/session' => SquareApiStage.session,
+      '/square/auth/device/register' => SquareApiStage.registration,
+      _ => SquareApiStage.request,
+    };
+    try {
+      final response = await _http
+          .post(
+            _uri(path),
+            headers: {
+              'content-type': 'application/json; charset=utf-8',
+              if (sessionToken != null) 'authorization': 'Bearer $sessionToken',
+              ...proofHeaders,
+            },
+            body: body,
+          )
+          .timeout(const Duration(seconds: 20));
+      return _decodeResponse(response, stage: stage);
+    } on SocketException {
+      throw SquareApiException(
+        '网络连接失败',
+        errorCode: 'network_unavailable',
+        stage: stage,
+      );
+    } on TimeoutException {
+      throw SquareApiException(
+        '网络请求超时',
+        errorCode: 'network_unavailable',
+        stage: stage,
+      );
+    } on http.ClientException {
+      // 传输失败保留固定阶段；不保存客户端异常中的URL或服务响应正文。
+      throw SquareApiException(
+        '网络传输失败',
+        errorCode: 'network_unavailable',
+        stage: stage,
+      );
+    }
   }
 
   Future<SquareSession> _establishSession(
@@ -1774,7 +1817,10 @@ class SquareApiClient
     return headers;
   }
 
-  Map<String, dynamic> _decodeResponse(http.Response response) {
+  Map<String, dynamic> _decodeResponse(
+    http.Response response, {
+    SquareApiStage stage = SquareApiStage.request,
+  }) {
     final dynamic decoded;
     try {
       decoded = jsonDecode(response.body);
@@ -1782,12 +1828,14 @@ class SquareApiClient
       throw SquareApiException(
         '广场服务响应不是 JSON：${response.statusCode}',
         statusCode: response.statusCode,
+        stage: stage,
       );
     }
     if (decoded is! Map<String, dynamic>) {
       throw SquareApiException(
         '广场服务响应结构不合法：${response.statusCode}',
         statusCode: response.statusCode,
+        stage: stage,
       );
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -1795,6 +1843,7 @@ class SquareApiClient
         decoded['message']?.toString() ?? '广场服务请求失败',
         statusCode: response.statusCode,
         errorCode: decoded['error_code']?.toString(),
+        stage: stage,
       );
     }
     return decoded;

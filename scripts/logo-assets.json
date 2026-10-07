@@ -3,7 +3,7 @@
   "product": "citizenapp",
   "source": {
     "repository": "crcfrcn/citizenchain",
-    "path": "node/resources/icons/logo.png",
+    "path": "crates/icons/logo.png",
     "sha256": "81e11c03b8b2c2702d745870424660239308c1b2d1caf91cfb1b688367fe8a53"
   },
   "files": {

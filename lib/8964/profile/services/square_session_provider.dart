@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/services.dart' show PlatformException;
+import 'package:http/http.dart' as http;
+
 import 'package:citizenapp/8964/services/square_api_client.dart';
 import 'package:citizenapp/my/myid/current_user_context.dart';
 import 'package:citizenapp/security/chain_bootstrap_api.dart';
@@ -38,12 +41,155 @@ extension SquareSessionStatusText on SquareSessionStatus {
 }
 
 class SquareSessionResolution {
-  const SquareSessionResolution(this.status, {this.session});
+  const SquareSessionResolution(
+    this.status, {
+    this.session,
+    this.errorCode,
+    this.statusCode,
+    this.stage,
+  });
 
   final SquareSessionStatus status;
   final SquareSession? session;
 
-  String get message => status.message;
+  /// 仅保留已知闭集错误码和固定阶段；原始服务消息不进入页面或持久诊断。
+  final String? errorCode;
+  final int? statusCode;
+  final SquareApiStage? stage;
+
+  String get message => switch (errorCode) {
+    'turnstile_cancelled' => '设备安全验证已取消，请重试',
+    'turnstile_ui_unavailable' => '设备安全验证界面尚未就绪，请重试',
+    'turnstile_required' || 'turnstile_token_invalid' => '设备安全验证未完成，请重试',
+    'turnstile_failed' => '设备安全验证失败或已过期，请重试',
+    'turnstile_not_configured' => '设备安全验证服务暂时不可用，请稍后重试',
+    'mls_challenge_limit_reached' || 'request_rate_exceeded' => '请求过于频繁，请稍后重试',
+    'authenticationRequired' => '首次设备登记授权尚未完成',
+    _ => status.message,
+  };
+
+  /// 页面和通讯录复用同一错误分类；无记录不等于离线，未知HTTP错误不等于设备故障。
+  static SquareSessionResolution fromError(Object error) {
+    if (error is SquareApiException) {
+      final status = switch (error.errorCode) {
+        'cid_not_bound' || 'identity_projection_pending' =>
+          SquareSessionStatus.identityUnavailable,
+        'cid_binding_changed' => SquareSessionStatus.identityChanged,
+        'network_unavailable' => SquareSessionStatus.networkUnavailable,
+        'device_not_registered' ||
+        'invalid_mls_signature' ||
+        'invalid_mls_proof' ||
+        'invalid_binding_signature' ||
+        'invalid_device_binding' ||
+        'stale_device_binding' ||
+        'device_proof_invalid' ||
+        'device_proof_storage' ||
+        'turnstile_cancelled' ||
+        'turnstile_ui_unavailable' ||
+        'turnstile_required' ||
+        'turnstile_failed' ||
+        'turnstile_token_invalid' => SquareSessionStatus.deviceUnavailable,
+        _ => SquareSessionStatus.serviceUnavailable,
+      };
+      const knownCodes = {
+        'cid_not_bound',
+        'identity_projection_pending',
+        'identity_projection_unavailable',
+        'cid_binding_changed',
+        'network_unavailable',
+        'device_not_registered',
+        'invalid_mls_signature',
+        'invalid_mls_proof',
+        'invalid_binding_signature',
+        'invalid_device_binding',
+        'stale_device_binding',
+        'device_proof_invalid',
+        'device_proof_storage',
+        'turnstile_cancelled',
+        'turnstile_ui_unavailable',
+        'turnstile_required',
+        'turnstile_failed',
+        'turnstile_not_configured',
+        'turnstile_token_invalid',
+        'mls_challenge_limit_reached',
+        'request_rate_exceeded',
+      };
+      return SquareSessionResolution(
+        status,
+        errorCode: knownCodes.contains(error.errorCode)
+            ? error.errorCode
+            : null,
+        statusCode: error.statusCode,
+        // 本地登记/真人验证错误没有HTTP响应，也仍须指出登记阶段。
+        stage:
+            error.stage ??
+            switch (error.errorCode) {
+              'device_proof_invalid' ||
+              'device_proof_storage' ||
+              'turnstile_cancelled' ||
+              'turnstile_ui_unavailable' ||
+              'turnstile_token_invalid' => SquareApiStage.registration,
+              _ => null,
+            },
+      );
+    }
+    if (error is SocketException ||
+        error is TimeoutException ||
+        error is http.ClientException) {
+      return const SquareSessionResolution(
+        SquareSessionStatus.networkUnavailable,
+        errorCode: 'network_unavailable',
+        stage: SquareApiStage.request,
+      );
+    }
+    if (error is MlsAuthenticationException) {
+      final status = switch (error.code) {
+        'identityChanged' => SquareSessionStatus.identityChanged,
+        'identityUnavailable' => SquareSessionStatus.identityUnavailable,
+        _ => SquareSessionStatus.deviceUnavailable,
+      };
+      return SquareSessionResolution(
+        status,
+        errorCode:
+            const {
+              'identityChanged',
+              'identityUnavailable',
+              'invalid_mls_proof',
+            }.contains(error.code)
+            ? error.code
+            : null,
+        stage: status == SquareSessionStatus.deviceUnavailable
+            ? SquareApiStage.proof
+            : SquareApiStage.identity,
+      );
+    }
+    if (error is AccountSecurityException) {
+      return SquareSessionResolution(
+        error.code == 'identityChanged'
+            ? SquareSessionStatus.identityChanged
+            : SquareSessionStatus.deviceUnavailable,
+        errorCode:
+            const {
+              'identityChanged',
+              'authenticationRequired',
+              'integrity',
+            }.contains(error.code)
+            ? error.code
+            : null,
+        stage: SquareApiStage.registration,
+      );
+    }
+    if (error is PlatformException && error.code == 'mls_storage_unavailable') {
+      return const SquareSessionResolution(
+        SquareSessionStatus.deviceUnavailable,
+        errorCode: 'mls_storage_unavailable',
+        stage: SquareApiStage.identity,
+      );
+    }
+    return const SquareSessionResolution(
+      SquareSessionStatus.serviceUnavailable,
+    );
+  }
 }
 
 /// 广场与聊天共用的MLS会话协调；普通认证不访问钱包或聊天权益。
@@ -183,51 +329,25 @@ class SquareSessionProvider {
         if (error.errorCode == 'cid_not_bound') {
           final current = await _currentUser.resolve();
           if (current?.binding == null) {
-            return const SquareSessionResolution(
+            return SquareSessionResolution(
               SquareSessionStatus.identityUnbound,
+              errorCode: error.errorCode,
+              statusCode: error.statusCode,
+              stage: error.stage,
             );
           }
         }
         // 本机已有 finalized 绑定时，Worker 的 cid_not_bound 只能视为投影未同步。
-        return const SquareSessionResolution(
+        return SquareSessionResolution(
           SquareSessionStatus.identityUnavailable,
+          errorCode: error.errorCode,
+          statusCode: error.statusCode,
+          stage: error.stage,
         );
       }
-      if (error.errorCode == 'identity_projection_unavailable' ||
-          (error.statusCode ?? 0) >= 500) {
-        return const SquareSessionResolution(
-          SquareSessionStatus.serviceUnavailable,
-        );
-      }
-      return const SquareSessionResolution(
-        SquareSessionStatus.deviceUnavailable,
-      );
-    } on SocketException {
-      return const SquareSessionResolution(
-        SquareSessionStatus.networkUnavailable,
-      );
-    } on TimeoutException {
-      return const SquareSessionResolution(
-        SquareSessionStatus.networkUnavailable,
-      );
-    } on MlsAuthenticationException catch (error) {
-      return SquareSessionResolution(
-        error.code == 'identityChanged'
-            ? SquareSessionStatus.identityChanged
-            : error.code == 'identityUnavailable'
-            ? SquareSessionStatus.identityUnavailable
-            : SquareSessionStatus.deviceUnavailable,
-      );
-    } on AccountSecurityException catch (error) {
-      return SquareSessionResolution(
-        error.code == 'identityChanged'
-            ? SquareSessionStatus.identityChanged
-            : SquareSessionStatus.deviceUnavailable,
-      );
-    } on Exception {
-      return const SquareSessionResolution(
-        SquareSessionStatus.serviceUnavailable,
-      );
+      return SquareSessionResolution.fromError(error);
+    } on Exception catch (error) {
+      return SquareSessionResolution.fromError(error);
     }
   }
 
