@@ -862,9 +862,9 @@ Admin = [account_id:AccountId32][family_name:Compact<Vec<u8>>][given_name:Compac
 
 CitizenApp 只依赖一个聊天客户端产品 tatachat_sdk。消息链路固定为：
 
-CitizenApp 产品页面 -> TataChatSDK ChatSdk -> TataChatSDK 内部 ChatServerConnection -> CitizenChatServer（TataChatServer 的公民 Cloudflare 实例）
 
-TataChatSDK 内部 ChatServerConnection 是 TataChatSDK 内唯一的聊天网络客户端，负责通过 HTTPS/WSS 与 CitizenChatServer 交换 KeyPackage、OpenMLS 密文、七天离线邮箱、确认、附件密文和无正文唤醒。CitizenApp 不实现或复制该传输，只经 CitizenServe 的 `POST /auth/chatserver/access` 获取 CitizenChatServer 地址和短期授权。CitizenServe 不承载新链路的聊天消息、附件、实时连接或离线邮箱。
+
+
 
 #### CitizenApp 所有权
 
@@ -877,10 +877,7 @@ TataChatSDK 内部 ChatServerConnection 是 TataChatSDK 内唯一的聊天网络
 - chat_product_configuration.dart：只把通用应用推送映射为 TataChatSDK `ChatPushBridge`，保存无内容
   聊天唤醒并清理当前会话通知；不拥有 Firebase 配置或非聊天通知。
 
-通用平台推送由 `lib/notifications/app_push_token.dart` 与 `app_push_service.dart` 唯一拥有：负责 Firebase
-初始化、Token、APNs 环境、Token 刷新和通知打开数据流。CitizenServe 普通通知端点由
-`SquareApiClient` 在合法会话下登记，只服务广场公开提醒和会员存储清理预告；聊天 Token 同时由
-`ChatPushBridge` 登记到 CitizenChatServer，两端不共享服务端表或消息数据。
+
 
 CID 与当前用户由 `lib/my/myid/` 拥有，会员与聊天附件权益事实由 `lib/my/membership/` 拥有，
 公开身份绑定与App系统保护记录由 `lib/security/` 拥有，CitizenServe 登录会话、请求签名和 HTTP 合同由
@@ -924,9 +921,9 @@ CitizenServe 会话模块授权映射、Firebase/APNs/FCM、通知与备份桥�
 
 本节只记录当前最终源码边界；不存在第二套聊天客户端、传输、存储或服务入口。
 
-客户端源码的运行实例唯一化和完整会话页接入已经完成。CitizenServe 只保留
-`POST /auth/chatserver/access` 短期授权控制面；CitizenApp 随后直接连接固定的
-`https://chat.crcfrcn.com`，不再存在原 CitizenServe 聊天数据面入口或回退路径。
+客户端源码保留唯一 TataChatSDK 运行实例及会话页。旧独立聊天授权入口已经删除；
+CitizenApp 当前授权调用直接拒绝并提示“聊天服务尚未配置”，不会发起旧服务请求。
+公民聊天须待 CitizenServe 集成 TataChatServer 模块后再启用。
 
 2026-09-11 第 2.1 步已将 CitizenApp 与 TataChatSDK 的五项共同直接 Dart 依赖统一为
 同一精确版本，TataChatSDK 与 TataChatServer 的 `serde` 同为 `1.0.228`。TataChatSDK

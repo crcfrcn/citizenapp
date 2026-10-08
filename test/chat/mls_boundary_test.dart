@@ -3,7 +3,6 @@ import '../support/fake_citizen_sdk.dart';
 
 import 'package:citizenapp/chat/tatachat_sdk_adapter.dart';
 
-import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -128,62 +127,15 @@ void main() {
     });
   });
 
-  test('CitizenServe 聊天授权 HTTP 与响应解析只属于 SquareApiClient', () async {
+  test('聊天模块未配置时拒绝旧服务授权且不发送请求', () async {
+    var requests = 0;
     final client = SquareApiClient(
       baseUrl: 'https://www.example.test/api',
       httpClient: MockClient((request) async {
-        expect(request.method, 'POST');
-        expect(request.url.path, '/api/auth/chatserver/access');
-        expect(jsonDecode(request.body), <String, Object?>{
-          'device_id': testMlsDeviceId,
-        });
-        expect(request.headers['authorization'], 'Bearer session-a');
-        return http.Response(
-          jsonEncode(<String, Object?>{
-            'ok': true,
-            'chat_server_url': 'https://chat.example.test',
-            'chat_server_token': 'header.payload.signature',
-            'expires_at_millis': 4102444800000,
-          }),
-          200,
-        );
+        requests += 1;
+        return http.Response('{}', 500);
       }),
     );
-    final access = await client.fetchChatServerAccess(
-      session: const SquareSession(
-        deviceId: testMlsDeviceId,
-        sessionToken: 'session-a',
-        cidNumber: 'CN220-CTZN2-100000001-2026',
-        bindingRevision: 1,
-        accountId:
-            '0x1111111111111111111111111111111111111111111111111111111111111111',
-        expiresAt: 4102444800000,
-        authenticateRequest: fakeMlsRequestHeaders,
-      ),
-      deviceId: testMlsDeviceId,
-    );
-
-    expect(access.chatServerUrl, Uri.parse('https://chat.example.test'));
-    expect(access.chatServerToken, 'header.payload.signature');
-    expect(access.expiresAtMillis, 4102444800000);
-  });
-
-  test('SquareApiClient 拒绝非 HTTPS 聊天服务地址', () async {
-    final client = SquareApiClient(
-      baseUrl: 'https://www.example.test/api',
-      httpClient: MockClient(
-        (_) async => http.Response(
-          jsonEncode(<String, Object?>{
-            'ok': true,
-            'chat_server_url': 'http://chat.example.test',
-            'chat_server_token': 'header.payload.signature',
-            'expires_at_millis': 4102444800000,
-          }),
-          200,
-        ),
-      ),
-    );
-
     await expectLater(
       client.fetchChatServerAccess(
         session: const SquareSession(
@@ -191,51 +143,17 @@ void main() {
           sessionToken: 'session-a',
           cidNumber: 'CN220-CTZN2-100000001-2026',
           bindingRevision: 1,
-          accountId:
-              '0x1111111111111111111111111111111111111111111111111111111111111111',
+          accountId: '0x1111111111111111111111111111111111111111111111111111111111111111',
           expiresAt: 4102444800000,
           authenticateRequest: fakeMlsRequestHeaders,
         ),
-        deviceId: testMlsDeviceId,
-      ),
-      throwsA(
-        isA<SquareApiException>().having(
-          (error) => error.message,
-          'message',
-          '聊天服务访问授权响应不合法',
-        ),
-      ),
-    );
-  });
-
-  test('SquareApiClient 在发网前拒绝空聊天设备标识', () async {
-    var requestCount = 0;
-    final client = SquareApiClient(
-      baseUrl: 'https://www.example.test/api',
-      httpClient: MockClient((_) async {
-        requestCount += 1;
-        return http.Response('{}', 200);
-      }),
-    );
-
-    await expectLater(
-      client.fetchChatServerAccess(
-        session: const SquareSession(
-          deviceId: testMlsDeviceId,
-          sessionToken: 'session-a',
-          cidNumber: 'CN220-CTZN2-100000001-2026',
-          bindingRevision: 1,
-          accountId:
-              '0x1111111111111111111111111111111111111111111111111111111111111111',
-          expiresAt: 4102444800000,
-          authenticateRequest: fakeMlsRequestHeaders,
-        ),
-        deviceId: '   ',
+        deviceId: 'device-1',
       ),
       throwsA(isA<SquareApiException>()),
     );
-    expect(requestCount, 0);
+    expect(requests, 0);
   });
+
   test('停止共用实例前同步关闭普通MLS认证，不构造第二实例', () async {
     var closing = false;
     final security = _UnusedSecurity();

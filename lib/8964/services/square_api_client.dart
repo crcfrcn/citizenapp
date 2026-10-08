@@ -1006,44 +1006,12 @@ class SquareApiClient
     return _parseMembershipState(data);
   }
 
-  /// 使用现有 CitizenServe 登录会话签发 CitizenChatServer 短期授权。
+  /// 聊天模块尚未集成；此入口拒绝发起旧独立服务授权请求。
   Future<CitizenServeChatAccess> fetchChatServerAccess({
     required SquareSession session,
     required String deviceId,
   }) async {
-    final normalizedDeviceId = deviceId.trim();
-    if (normalizedDeviceId != session.deviceId ||
-        normalizedDeviceId.isEmpty ||
-        normalizedDeviceId.length > 256 ||
-        normalizedDeviceId.contains(':') ||
-        normalizedDeviceId.codeUnits.any((value) => value < 32)) {
-      throw const SquareApiException('聊天设备标识不合法');
-    }
-    final data = await _postJson('/auth/chatserver/access', <String, Object?>{
-      'device_id': normalizedDeviceId,
-    }, session: session);
-    final urlValue = data['chat_server_url'];
-    final tokenValue = data['chat_server_token'];
-    final expiresValue = data['expires_at_millis'];
-    final url = urlValue is String ? Uri.tryParse(urlValue) : null;
-    if (data['ok'] != true ||
-        url == null ||
-        url.scheme != 'https' ||
-        url.host.isEmpty ||
-        url.userInfo.isNotEmpty ||
-        (url.path.isNotEmpty && url.path != '/') ||
-        url.hasQuery ||
-        url.hasFragment ||
-        tokenValue is! String ||
-        tokenValue.isEmpty ||
-        expiresValue is! num) {
-      throw const SquareApiException('聊天服务访问授权响应不合法');
-    }
-    return CitizenServeChatAccess(
-      chatServerUrl: url,
-      chatServerToken: tokenValue,
-      expiresAtMillis: expiresValue.toInt(),
-    );
+    throw const SquareApiException('聊天服务尚未配置');
   }
 
   /// 幂等登记CitizenServe普通应用通知端点；设备身份只由已验签Session决定。
