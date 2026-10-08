@@ -924,6 +924,7 @@ CitizenServe 会话模块授权映射、Firebase/APNs/FCM、通知与备份桥�
 客户端源码保留唯一 TataChatSDK 运行实例及会话页。旧独立聊天授权入口已经删除；
 CitizenApp 当前授权调用直接拒绝并提示“聊天服务尚未配置”，不会发起旧服务请求。
 公民聊天须待 CitizenServe 集成 TataChatServer 模块后再启用。
+旧聊天授权测试正文及门禁专属明文样本例外一并删除；门禁仍拒绝该测试文件新增明文地址。
 
 2026-09-11 第 2.1 步已将 CitizenApp 与 TataChatSDK 的五项共同直接 Dart 依赖统一为
 同一精确版本，TataChatSDK 与 TataChatServer 的 `serde` 同为 `1.0.228`。TataChatSDK

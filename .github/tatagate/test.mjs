@@ -278,13 +278,15 @@ test('App RPC 严格 HTTPS/WSS 且不跟随重定向', async () => {
 test('App 明文负向输入只属于准确拒绝测试', async () => {
   const { insecureTransportLines } = await import('./index.mjs');
   const { readFileSync } = await import('node:fs');
-  for (const path of ['test/8964/square_feed_service_test.dart', 'test/security/chain_bootstrap_api_test.dart', 'test/chat/mls_boundary_test.dart', 'test/citizen/governance_tab_test.dart', 'test/wallet/widgets/wallet_onchain_balance_card_test.dart']) {
+  for (const path of ['test/8964/square_feed_service_test.dart', 'test/security/chain_bootstrap_api_test.dart', 'test/citizen/governance_tab_test.dart', 'test/wallet/widgets/wallet_onchain_balance_card_test.dart']) {
     const source = readFileSync(new URL('../../' + path, import.meta.url), 'utf8');
     assert.deepEqual(insecureTransportLines(path, source), []);
     assert.ok(insecureTransportLines(path, '/*' + source + '*/').length > 0);
     assert.ok(insecureTransportLines('test/unregistered.dart', source).length > 0);
     assert.ok(insecureTransportLines(path, source + '\nfetch("ht' + 'tp://example.invalid");').length > 0);
   }
+  // 旧聊天授权负例已退出；该文件不再获得任何明文样本例外。
+  assert.ok(insecureTransportLines('test/chat/mls_boundary_test.dart', 'fetch("ht' + 'tp://extra.example.invalid");').length > 0);
 });
 
 // 中文注释：机构命名账户和个人多签使用各自真实派生输入，仍拒绝缺项、重复与密码学漂移。
@@ -319,12 +321,11 @@ test('历史清理仅接受唯一无父新根并完整检查全部内容', async
 });
 
 // 准确正文必须保留实际拒绝断言；成功正文、引用或额外地址不能借用既有测试身份。
-test('App 两段明文拒绝正文阻断伪装成功断言及额外地址', async () => {
+test('App 明文拒绝正文阻断伪装成功断言及额外地址', async () => {
   const { insecureTransportLines } = await import('./index.mjs');
   const { readFileSync } = await import('node:fs');
   for (const [path, title, rejection, success] of [
     ['test/8964/square_feed_service_test.dart', 'SquareApiConfig 仅允许 HTTPS，包括本机', 'throwsUnsupportedError', 'returnsNormally'],
-    ['test/chat/mls_boundary_test.dart', 'SquareApiClient 拒绝非 HTTPS 聊天服务地址', 'throwsA(', 'returnsNormally('],
   ]) {
     const source = readFileSync(new URL('../../' + path, import.meta.url), 'utf8');
     const start = source.indexOf("test('" + title + "'");
