@@ -4006,3 +4006,9 @@ App跨SDK装配回归按自身固定Git输入读取TataChatSDK当前lib/attachme
 scripts/resources.mjs 按本仓声明和上游锁准备、物化并复用工具与依赖；scripts/build.mjs 直接使用回执中的路径。gateEnvironment只投影当前任务的工具与缓存环境，不检查来源证明、运行版本、归档摘要、完整文件树或Apple资源签名。原件库存坐标、版本声明和上游锁保留；CocoaPods与Cargo等上游包管理器仍执行自身原生流程。
 
 供给缺件、离线缺件、工具非零退出、取消或后代未退出按实际结果失败。固定工作根、任务身份、隔离、互斥与清场合同继续适用。业务授权、钱包及链签名、TLS和正式应用产物的签名安装合同保持各自职责。
+
+Android资源准备直接复用本产品可选工具供给的payload路径，不依赖来源证明或全树回执。Gradle与SDK可写视图只在当前已领取的target/build或target/test中的dependencies/android-sdk-view物化；工具原件只读保留。缺件、复制/执行失败及取消由入口等待工具退出后清空固定根。固定根回归scripts/target.mjs同时登记于node_tests和functions。
+
+固定根中的工程视图按产品根的直接子项复制，排除target与既有生成目录，避免Node把整个源码根复制进自身子目录时拒绝操作。视图根仍为当前已领取工作根中的source，不成为另一个任务工作根；成功、失败和中断恢复均由本仓target入口完成清场。
+
+公民App scripts回归统一位于正式模块末尾，仅直接使用Node测试入口时注册；固定目录回归合并到scripts/target.mjs，构建夹具合并到scripts/build.mjs，删除分离测试与夹具文件。门禁node_tests、functions及真实源码清单同步使用正式模块路径。

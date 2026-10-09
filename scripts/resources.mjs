@@ -1263,28 +1263,23 @@ async function acquireOfficialPlatform(item,options){
  if(options.offline)fail('离线缺少额外Android发行件');const data=await responseBytes(await options.fetcher(checkedURL(item.source),{signal:options.signal,redirect:'error'}),512*1024**2,options.signal);const file=join(options.library.work,'.platform-'+randomUUID()+'.zip');await writeFile(file,data,{flag:'wx'});return file;
 }
 // SDK原件只供读取；Gradle可写元数据限定在本任务独占副本，工具字节不得漂移。
-async function prepareAndroidSDKView(payload,work,{signal,files}={}){
- signal?.throwIfAborted();await directory(payload);await directory(work);
- if(!inside(join(root,'target'),work)||!Array.isArray(files))fail('SDK任务视图边界或清单无效');
- const parent=join(work,'dependencies'),target=join(parent,'android-sdk-view');await directory(parent,true);
- const expected=JSON.stringify(files),originalPaths=new Set(files.map(x=>x.path)),allowed=new Set(['.knownPackages',...files.filter(x=>x.path.endsWith('/source.properties')).map(x=>x.path.slice(0,-'source.properties'.length)+'package.xml')]);
- const check=async path=>{await directory(path);const actual=await inventory(path),base=actual.filter(x=>originalPaths.has(x.path));for(const item of actual.filter(x=>!originalPaths.has(x.path))){if(item.directory||!allowed.has(item.path)||item.executable)fail('SDK任务视图混入非元数据');const file=join(path,item.path);await regular(file);if((await lstat(file)).size>2*1024**2)fail('SDK任务元数据超限');}signal?.throwIfAborted();};
- if(await stat(target)){await check(target);return target;}
- 
- const stage=await fixedScratch(join(parent,'.android-sdk-view-')),copy=join(stage,'payload');
- try{
-  await cp(payload,copy,{recursive:true,force:false,errorOnExist:true,verbatimSymlinks:true,filter:()=>{signal?.throwIfAborted();return true;}});
-  
-  const writable=async path=>{const info=await lstat(path);if(info.isDirectory()&&!info.isSymbolicLink()){await chmod(path,(info.mode&0o777)|0o200);for(const name of await readdir(path))await writable(join(path,name));}};
-  await writable(copy);await check(copy);signal?.throwIfAborted();await rename(copy,target);await check(target);return target;
- }finally{if(await stat(stage)){await permissions(stage,true);await rm(stage,{recursive:true});}}
+// Android工具路径直接复用供给；包管理器可写状态只进入本轮固定根。
+async function prepareAndroidSDKView(payload,work,{signal}={}){
+ signal?.throwIfAborted();const owner=await import('./build.mjs');owner.checkWork(work);
+ const target=join(work,'dependencies/android-sdk-view');await directory(dirname(target),true);
+ if(!await stat(target)){
+  try{await cp(payload,target,{recursive:true,force:false,errorOnExist:true,verbatimSymlinks:true,filter:()=>{signal?.throwIfAborted();return true;}});}
+  catch(error){await rm(target,{recursive:true,force:true});throw error;}
+  async function writable(path){const value=await lstat(path);if(value.isSymbolicLink())return;if(value.isDirectory()){await chmod(path,value.mode|0o700);for(const name of await readdir(path))await writable(join(path,name));}else await chmod(path,value.mode|0o600);}
+  await writable(target);
+ }
+ return target;
 }
-
 async function installAndroidResources(options){const library=options.library,cmake=library.tools.find(x=>x.id==='cmake'),packages=androidDefinitions.map(x=>x.tool?{path:'cmake;'+cmake.version,version:cmake.version,...cmake.archives.macos}:x),wanted=library.requested.flatMap(x=>x.packages||[]);for(const item of wanted){const match=library.androidPlatforms?.find(x=>x.path===item.path&&x.version===item.version);if(!match)fail('SDK平台没有产品准确登记');if(!packages.some(x=>x.path===match.path))packages.push(match);}
- const sha256=hash(JSON.stringify(packages)),store=join(library.root,'shared');await directory(store,true);const target=join(store,'android-'+sha256);const verify=async directory=>{if(!await stat(directory))return null;await directoryCheck(directory);await regular(join(directory,'receipt.json'));if((await lstat(join(directory,'receipt.json'))).size>32*1024**2)fail('SDK原件回执超限');const payload=join(directory,'payload');for(const item of packages){const text=await readFile(join(payload,...item.path.split(';'),'source.properties'),'utf8');}return payload;};
- let payload=await verify(target);if(!payload&&options.optionalTools){const supplied=join(options.optionalTools,'shared/android');if(await stat(supplied))payload=await verify(supplied);}
- if(!payload){if(options.offline)fail('离线缺少SDK闭包');const pending=await fixedScratch(join(await resourceWork(options.library.work),'.android-'));try{payload=join(pending,'payload');await mkdir(payload);for(const item of packages){const at=join(payload,...item.path.split(';'));await directory(dirname(at),true);if(item.source){const file=await acquireOfficialPlatform(item,options),unpacked=join(pending,'unpack');try{await extractArchive(file,unpacked,{signal:options.signal});const names=await readdir(unpacked);if(names.length!==1)fail('额外平台归档根不唯一');await rename(join(unpacked,names[0]),at);await rm(unpacked,{recursive:true});}finally{await rm(file,{force:true});}}else{const file=await packageOriginal(item,options),unpacked=join(pending,'unpack');await extractArchive(file,unpacked,{signal:options.signal});await rename(item.root==='.'?unpacked:join(unpacked,item.root),at);if(await stat(unpacked))await rm(unpacked,{recursive:true});}}await permissions(payload,false);await writeFile(join(pending,'receipt.json'),JSON.stringify({sha256}),{flag:'wx',mode:0o444});await commitCandidate(pending,target,{signal:options.signal});payload=await verify(target);}finally{if(await stat(pending)){await permissions(pending,true);await rm(pending,{recursive:true});}}}
- if(library.requested.some(x=>['android','android-sdk','android-ndk'].includes(x.id))){const originalFiles=JSON.parse(await readFile(join(dirname(payload),'receipt.json'),'utf8')).files;payload=await prepareAndroidSDKView(payload,library.work,{signal:options.signal,files:originalFiles});}
+ const sha256=hash(JSON.stringify(packages)),store=join(library.root,'shared');await directory(store,true);const target=join(store,'android-'+sha256);const locateSDK=async directory=>{const payload=join(directory,'payload');return await stat(payload)?payload:null;};
+ let payload=await locateSDK(target);if(!payload&&options.optionalTools){const supplied=join(options.optionalTools,'shared/android');if(await stat(supplied))payload=await locateSDK(supplied);}
+ if(!payload){if(options.offline)fail('离线缺少SDK闭包');const pending=await fixedScratch(join(await resourceWork(options.library.work),'.android-'));try{payload=join(pending,'payload');await mkdir(payload);for(const item of packages){const at=join(payload,...item.path.split(';'));await directory(dirname(at),true);if(item.source){const file=await acquireOfficialPlatform(item,options),unpacked=join(pending,'unpack');try{await extractArchive(file,unpacked,{signal:options.signal});const names=await readdir(unpacked);if(names.length!==1)fail('额外平台归档根不唯一');await rename(join(unpacked,names[0]),at);await rm(unpacked,{recursive:true});}finally{await rm(file,{force:true});}}else{const file=await packageOriginal(item,options),unpacked=join(pending,'unpack');await extractArchive(file,unpacked,{signal:options.signal});await rename(item.root==='.'?unpacked:join(unpacked,item.root),at);if(await stat(unpacked))await rm(unpacked,{recursive:true});}}await permissions(payload,false);await writeFile(join(pending,'receipt.json'),JSON.stringify({sha256}),{flag:'wx',mode:0o444});await commitCandidate(pending,target,{signal:options.signal});payload=await locateSDK(target);}finally{if(await stat(pending)){await permissions(pending,true);await rm(pending,{recursive:true});}}}
+ if(library.requested.some(x=>['android','android-sdk','android-ndk'].includes(x.id)))payload=await prepareAndroidSDKView(payload,library.work,{signal:options.signal});
  const versions=id=>library.tools.find(x=>x.id===id)?.version;for(const [id,file]of [['android','platform-tools/adb'],['android-sdk','cmdline-tools/'+versions('android-sdk')+'/bin/sdkmanager'],['android-ndk','ndk/'+versions('android-ndk')+'/ndk-build'],['cmake','cmake/'+versions('cmake')+'/bin/cmake']])if(library.requested.some(x=>x.id===id))library.installed.set(id,{path:join(payload,file),version:versions(id)});
  return {ANDROID_HOME:payload,ANDROID_SDK_ROOT:payload,ANDROID_NDK_HOME:join(payload,'ndk',versions('android-ndk')),ANDROID_USER_HOME:join(library.work,'android-user'),ANDROID_EMULATOR_HOME:join(library.work,'android-user')};
 }

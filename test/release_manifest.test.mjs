@@ -102,6 +102,7 @@ test('CitizenApp Isar 注释入口消费当前 storage 目录并拒绝旧目录'
   mkdirSync(scripts, { recursive: true });
   mkdirSync(directory, { recursive: true });
   writeFileSync(join(scripts, 'build.mjs'), readFileSync(viewScript));
+  for(const name of ['target.mjs','target-fixtures.mjs'])writeFileSync(join(scripts,name),readFileSync(new URL('../scripts/'+name,import.meta.url)));
   writeFileSync(join(scripts, 'flows.json'), readFileSync(new URL('../scripts/flows.json', import.meta.url)));
   const names = ['user_isar', 'wallet_isar'];
   const originals = names.map(name => readFileSync(new URL(`../lib/storage/${name}.g.dart`, import.meta.url), 'utf8'));

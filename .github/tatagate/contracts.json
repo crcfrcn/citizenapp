@@ -16,7 +16,7 @@
     "scripts/release/android.mjs",
     "scripts/release/ios.mjs",
     "test/release_manifest.test.mjs",
-    "scripts/target.test.mjs"
+    "scripts/target.mjs"
   ],
   "checks": [
     "repository-contracts",
@@ -1049,6 +1049,12 @@
       "path": "test/wallet/widgets/wallet_onchain_balance_card_test.dart",
       "runner": "flutter",
       "target": "flutter"
+    },
+    {
+      "function": "scripts/target",
+      "path": "scripts/target.mjs",
+      "runner": "node",
+      "target": "node"
     }
   ]
 }

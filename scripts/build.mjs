@@ -11,7 +11,6 @@ import {dirname,isAbsolute,join,parse,relative,resolve,sep} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createHash,randomBytes} from 'node:crypto';
 
-const {fixtureWork,removeFixture,writeFixture,copyFixture}=process.env.NODE_TEST_CONTEXT&&process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)?await import('./target-fixtures.mjs'):{};
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 export const contract=JSON.parse(readFileSync(join(root,'scripts/flows.json'),'utf8'));
 const product=contract.product_id, prefix=product.toUpperCase();
@@ -34,9 +33,11 @@ export function prepareTargetRoot() {
  const info=lstatSync(directory);if(!info.isDirectory()||info.isSymbolicLink())fail('固定target根经过链接或非目录');
  return directory;
 }
-export function temporaryRoot(platform=Object.keys(contract.platforms)[0],scope='test') {
+export function temporaryRoot(platform=Object.keys(contract.platforms)[0],scope='test',suppliedInput) {
  if(!['test','tmp','build','ci','release','publish'].includes(scope))fail('临时目录职责无效');
- platformContract(platform);return checkFixedWork(fixedWork(scope==='test'?'test':'build'),{create:true});
+ platformContract(platform);const expected=fixedWork(scope==='test'?'test':'build');
+ if(suppliedInput!=null&&suppliedInput!==expected)fail('临时工作根必须是本产品固定目录');
+ return checkFixedWork(expected,{create:true});
 }
 // 测试继承当前平台现场；独立执行没有任务身份时才选产品首个平台。
 export const testRoot=platform=>{
@@ -2395,6 +2396,26 @@ if(!inlineTestEntry&&directEntry){
  void runCLI().catch(error=>{console.error(error);process.exitCode=1;});
 }
 
+let fixtureWork,removeFixture,writeFixture,copyFixture;
+if(inlineTestEntry){
+ const {default:fs}=await import('node:fs');
+ const {finishFixedWork}=await import('./target.mjs');
+fixtureWork=function(){const work=checkFixedWork(fixedWork('build'),{create:true});finishFixedWork(work);return work;}
+removeFixture=function(path,options={}){if(path===fixedWork('build')||path===fixedWork('test')){if(fs.existsSync(path))clearFixedWork(path);return;}fs.rmSync(path,options);}
+
+writeFixture=function(path,data,options){
+ fs.writeFileSync(path,data,options);
+ if(String(path).endsWith('/scripts/build.mjs')&&String(data).includes("from './target.mjs'")){
+  for(const name of ['target.mjs'])fs.copyFileSync(join(import.meta.dirname,name),join(dirname(path),name));
+ }
+}
+
+copyFixture=function(source,destination,...options){
+ fs.copyFileSync(source,destination,...options);
+ if(String(destination).endsWith('/scripts/build.mjs'))for(const name of ['target.mjs'])fs.copyFileSync(join(import.meta.dirname,name),join(dirname(destination),name));
+}
+
+}
 const inlineTestOwner = {contract,checkWork,productTarget,prepareTargetRoot,temporaryRoot,testRoot,remoteEnvironment,resourceSourceRoot,clearWork,platformContract,lockedSources,requirements,resourceEnvironment,createView,prepare,build,IOS_VERIFIER_SOURCE,readStoreSource,iosStoreBundleID,androidStorePackageName,storeIdentity,androidPackageName,androidUSBSerials,androidInstalledPath,androidCertificate,parseAndroidSigning,iosDeviceCandidates,iosInstalled,iosVersion,runBuildProcess,outputDigest,execute,checkBuildResult,PLATFORM_INPUTS,materializePlatformInputs,ANALYSIS_OPTIONS_SOURCE,DART_TEST_SOURCE,LOGO_ASSETS_SOURCE,TEST_INPUTS_SOURCE,SOURCE_VIEW_SOURCE,BUILD_SHELL_SOURCES,resolveFirstPartyDependencies,copyHostInput,citizenCorePath,isarCorePath,JsonRpc};
 
 // 同文件回归：普通导入和正式命令不注册测试。
@@ -2789,7 +2810,7 @@ test('CLI异步资源可反向导入唯一校验，正常参数和离线失败�
   const work=join(source,'target','build');
   mkdirSync(scripts,{recursive:true});mkdirSync(work,{recursive:true});
   writeFixture(file,readFileSync(join(root,'scripts/build.mjs')));
-  for(const name of ['target.mjs','target-fixtures.mjs'])writeFixture(join(scripts,name),readFileSync(join(root,'scripts',name)));
+  for(const name of ['target.mjs'])writeFixture(join(scripts,name),readFileSync(join(root,'scripts',name)));
   writeFixture(join(scripts,'flows.json'),JSON.stringify(contract));
   const provider=[
    "import {writeFileSync} from 'node:fs';",

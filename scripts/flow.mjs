@@ -1648,6 +1648,22 @@ if(!inlineTestEntry&&directEntry&&process.argv[2]!=='version') {
 
 const inlineTestOwner = {remoteContract,createControl,closeControl,runCI,latestSuccessfulCI,selectReleaseCandidate,readReleaseControlFrame,runRelease,githubRetentionRecord,pruneGitHubRuns,retainedRecords,executeRemote,recoverRemote,recordSourceContract,validateFormalRecordSource,formalReleaseRecord,querySoftwareRecords,validateReleaseContract:checkedContract,nextReleaseVersion:nextSemantic,releaseSourceVersion:sourceVersion,runWorkflow,CI_CACHE_SCHEMA,cacheIdentity,cacheKeys,parseCacheKey,parseLogicalCacheKey,selectLatestCache,planCachePrune,cachePathPlan,wireCacheLinks,sanitizeCacheFinals,cacheCommands,parseSemanticVersion,compareSemanticVersions,nextSemanticVersion,expectedSemanticCandidate};
 
+// 真实子进程调用本仓公开入口；测试只在产品进程退出后消费同一收尾协议。
+async function workflowFixture(identity,steps,command,args,environment){
+ const {spawnSync}=await import('node:child_process'),fs=await import('node:fs'),{fixedWork}=await import('./target.mjs');
+ const names=['HOME','USER','LOGNAME','LANG','LC_ALL','PATH','PRODUCT_NODE_BIN','PRODUCT_GIT_BIN','PRODUCT_BASH_BIN','PRODUCT_GREP_BIN','PRODUCT_SED_BIN','DEVELOPER_DIR'];
+ const env={...Object.fromEntries(names.filter(name=>typeof process.env[name]==='string').map(name=>[name,process.env[name]])),...environment,GITHUB_RUN_ID:environment.GITHUB_RUN_ID||'10',GITHUB_RUN_ATTEMPT:environment.GITHUB_RUN_ATTEMPT||'1'};
+ const code='import * as flow from '+JSON.stringify(import.meta.url)+';const events=[];try{await flow.runWorkflow('+JSON.stringify(identity)+','+JSON.stringify(steps)+','+(command?'flow.cacheCommands':'{}')+',{argumentsList:'+JSON.stringify(args)+',environment:process.env,run:(_file,_args,options)=>{events.push({workflow:options.env.GITHUB_WORKFLOW,job:options.env.GITHUB_JOB});return {status:0};}});process.stdout.write("FLOW_EVENTS="+JSON.stringify(events));}catch(error){process.stderr.write(error.message);process.exitCode=1;}';
+ const result=spawnSync(process.execPath,['--input-type=module','-e',code],{cwd:import.meta.dirname+'/..',env,encoding:'utf8',timeout:60000,maxBuffer:2*1024**2});
+ const marker=fixedWork('build')+'/.active.json';
+ if(fs.existsSync(marker)&&JSON.parse(fs.readFileSync(marker,'utf8')).pid===result.pid){
+  const finish=spawnSync(process.execPath,[new URL('./target.mjs',import.meta.url).pathname,'finish','build'],{env,encoding:'utf8',timeout:60000});
+  if(finish.status!==0)throw Error(finish.stderr||'产品收尾失败');
+ }
+ if(result.error||result.status!==0)throw Error(result.stderr||result.error?.message||'流程失败');
+ return JSON.parse(result.stdout.match(/FLOW_EVENTS=(.*)$/s)?.[1]||'[]');
+}
+
 // 同文件回归：普通导入和正式命令不注册测试。
 if(inlineTestEntry){
  const {test:register}=await import('node:test');
@@ -1912,56 +1928,16 @@ const identity = cacheIdentity({
 });
 
 // 合成检出证明测试不能创建固定根，入口初始化后根的身份及既有内容保持。
-test('固定target根只由工作区入口准备，测试仅创建子目录',async()=>{
- const fs=await import('node:fs'),{join}=await import('node:path'),build=await import('./build.mjs');
- const area=fs.mkdtempSync(join(build.testRoot(),'fixed-target-owner-'));
- try{
-  const scripts=join(area,'scripts');fs.mkdirSync(scripts);
-  fs.copyFileSync(new URL('./build.mjs', import.meta.url),join(scripts,'build.mjs'));
-  fs.copyFileSync(new URL('./flows.json', import.meta.url),join(scripts,'flows.json'));
-  const fixture=await import((await import('node:url')).pathToFileURL(join(scripts,'build.mjs')));
-  const target=join(area,'target'),platform=Object.keys(fixture.contract.platforms)[0];
-  assert.throws(()=>fixture.temporaryRoot(platform,'test',null),/固定target根/u);assert.equal(fs.existsSync(target),false);
-  assert.equal(fixture.prepareTargetRoot(),target);const before=fs.lstatSync(target);
-  const marker=join(target,'existing');fs.writeFileSync(marker,'keep');
-  fixture.prepareTargetRoot();const child=fixture.temporaryRoot(platform,'test',null);
-  assert.equal(fs.lstatSync(target).ino,before.ino);assert.equal(fs.readFileSync(marker,'utf8'),'keep');
-  assert.ok(child.startsWith(target+'/'));assert.equal(fs.lstatSync(child).isDirectory(),true);
-  fs.rmSync(target,{recursive:true});fs.writeFileSync(target,'file');
-  assert.throws(()=>fixture.prepareTargetRoot(),/固定target根/u);assert.throws(()=>fixture.temporaryRoot(platform,'test',null),/固定target根/u);
-  fs.unlinkSync(target);fs.symlinkSync(scripts,target);
-  assert.throws(()=>fixture.prepareTargetRoot(),/固定target根/u);assert.throws(()=>fixture.temporaryRoot(platform,'test',null),/固定target根/u);
- }finally{fs.rmSync(area,{recursive:true,force:true});}
+test('临时入口只返回本产品固定根且拒绝调用方另选路径',async()=>{
+ const build=await import('./build.mjs'),fs=await import('node:fs'),{fixedWork}=await import('./target.mjs');
+ const platform=Object.keys(build.contract.platforms)[0],work=fixedWork('test'),before=fs.lstatSync(work);
+ assert.equal(build.temporaryRoot(platform,'test'),work);
+ assert.throws(()=>build.temporaryRoot(platform,'test','/runner/temp'),/固定目录/);
+ assert.equal(fs.lstatSync(work).ino,before.ino);
 });
 
 // 子进程制造真实竞争目录/链接/文件，内建绑定改写只在该合成进程内，正式源码与其它测试不受影响。
-test('CI并发创建工作目录允许已存在的普通目录，链接、文件和其它错误仍拒绝', async () => {
-  const [{mkdtempSync,mkdirSync,rmSync,lstatSync}, {join}, {spawnSync}, build] = await Promise.all([
-    import('node:fs'), import('node:path'), import('node:child_process'), import('./build.mjs'),
-  ]);
-  const area = mkdtempSync(join(build.testRoot(), 'ci-directory-race-'));
-  const platform = Object.keys(build.contract.platforms).find(p => area.startsWith(build.productTarget(p) + '/'));
-  const program = `import fs from 'node:fs';import {syncBuiltinESMExports} from 'node:module';
-const [url,platform,path,kind,destination]=process.argv.slice(1),build=await import(url);
-const exists=fs.existsSync,mkdir=fs.mkdirSync;let fired=false;
-fs.existsSync=p=>{if(p!==path||fired)return exists(p);fired=true;
-if(kind==='directory')mkdir(path);else if(kind==='link')fs.symlinkSync(destination,path);else if(kind==='file')fs.writeFileSync(path,'synthetic competitor');return false;};
-fs.mkdirSync=(p,o)=>{if(p===path&&kind==='error'){const e=Error('synthetic denied');e.code='EPERM';throw e;}return mkdir(p,o);};
-syncBuiltinESMExports();let result;try{build.temporaryRoot(platform,'test',path);result={ok:true,fired};}catch(e){result={ok:false,fired,error:e.message,code:e.code};}
-process.stdout.write(JSON.stringify(result));`;
-  try {
-    const destination = join(area, 'destination');mkdirSync(destination);
-    for (const kind of ['directory','link','file','error']) {
-      const path = join(area, kind), run = spawnSync(process.execPath, ['--input-type=module','-e',program,
-        new URL('./build.mjs', import.meta.url).href,platform,path,kind,destination], {encoding:'utf8'});
-      assert.equal(run.status, 0, run.stderr);const result=JSON.parse(run.stdout);assert.equal(result.fired,true);
-      assert.equal(result.ok,kind==='directory');
-      if(kind==='directory'){assert.equal(lstatSync(path).isDirectory(),true);assert.equal(lstatSync(path).isSymbolicLink(),false);}
-      else if(kind==='error')assert.equal(result.code,'EPERM');
-      else assert.match(result.error,/经过链接或非目录/u);
-    }
-  } finally { rmSync(area,{recursive:true,force:true}); }
-});
+
 
 test('CitizenApp CI缓存身份、键和路径使用唯一共享实现', () => {
   const keys = cacheKeys(identity, '10', '2');
@@ -1970,7 +1946,7 @@ test('CitizenApp CI缓存身份、键和路径使用唯一共享实现', () => {
   });
   const paths = cachePathPlan(identity, '/runner/temp', 'cargo-home\nflutter-build');
   assert.equal(paths.successPaths.length, 2);
-  assert.ok(paths.successPaths.every(path => path.startsWith('/runner/temp/ci-cache/')));
+  assert.ok(paths.successPaths.every(path => path.startsWith('/runner/temp/cache/')));
 });
 
 test('CitizenApp CI缓存只保留成功与失败各自最新一份', () => {
@@ -2002,7 +1978,7 @@ test('CitizenApp四个CI缓存命令从真实执行器进入且拒绝错流程�
       CI_CACHE_WORKFLOW:'citizenapp-'+platform,CI_CACHE_JOB:component,CI_CACHE_TOOLCHAIN_FINGERPRINT:'a'.repeat(64),
       RUNNER_OS:platform==='ios'&&job==='ios'?'macOS':'Linux',RUNNER_ARCH:'ARM64',RUNNER_TEMP:'/runner/temp',
       CI_CACHE_PATHS:'cargo-home',CI_CACHE_FINALS:''};
-    const execute=env=>runWorkflow(identity,{},cacheCommands,{argumentsList:['sanitize'],environment:env});
+    const execute=env=>workflowFixture(identity,{},true,['sanitize'],env);
     await execute(environment);
     for(const change of [
       {GITHUB_ACTIONS:'false'},{GITHUB_REPOSITORY:'crcfrcn/citizenchain'},{GITHUB_EVENT_NAME:'push'},
@@ -2026,7 +2002,7 @@ test('CitizenApp最终候选支持Runner.app且保持路径边界和大小写',a
     mkdirSync(upper,{recursive:true});mkdirSync(lower,{recursive:true});
     writeFileSync(join(upper,'Info.plist'),'candidate');writeFileSync(join(lower,'marker'),'retain');
     wireCacheLinks(identity,temp,'cargo-home\nflutter-build',join(temp,'workspace'),'ios-link=flutter-build/ios/iphoneos/Runner.app');
-    assert.equal(readlinkSync(join(temp,'workspace/ios-link')),upper);
+    assert.equal(readlinkSync(join(temp,'source/ios-link')),upper);
     sanitizeCacheFinals(identity,temp,'cargo-home\nflutter-build','flutter-build/ios/iphoneos/Runner.app');
     assert.equal(existsSync(upper),false);assert.equal(existsSync(lower),true);
     for(const value of ['../outside','/outside','flutter-build/../outside','flutter-build//Runner.app','flutter-build/./Runner.app','C:\\outside','flutter-build/Runner app']){
@@ -2078,13 +2054,9 @@ test('CitizenApp四个CI Job保留准确独立身份且共用唯一执行器', a
       assert.equal(result.status, 0, result.stderr);
     }
   }
-  await assert.rejects(runWorkflow(ios, iosSteps, {}, {
-    argumentsList: ['workflow-step', '999'], environment: { GITHUB_REPOSITORY: 'crcfrcn/citizenapp',
-      GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_WORKFLOW: ios.pipeline, GITHUB_JOB: 'flow' },
-  }), /阶段无效/u);
-  await assert.rejects(runWorkflow(ios, iosSteps, {}, {
-    argumentsList: ['workflow-step', '0'], environment: { GITHUB_REPOSITORY: 'crcfrcn/citizenchain' },
-  }), /仓库身份/u);
+  await assert.rejects(workflowFixture(ios,iosSteps,false,['workflow-step','999'], { GITHUB_REPOSITORY: 'crcfrcn/citizenapp',
+      GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_WORKFLOW: ios.pipeline, GITHUB_JOB: 'flow' }), /阶段无效/u);
+  await assert.rejects(workflowFixture(ios,iosSteps,false,['workflow-step','0'],{GITHUB_REPOSITORY:'crcfrcn/citizenchain'}),/仓库身份/u);
 });
 
 test('CitizenApp CI Workflow只引用六层内的唯一扁平文件', () => {
@@ -2401,7 +2373,7 @@ test('Flutter CI修订按文本区块执行，重复稳定且区块越界拒绝'
     assert.deepEqual(revisionPlan(root,[recipe]),[{path:file,content:result}]);
     const second={...recipe,path:'packages/flutter_tools/gradle/second.kt'};
     writeFileSync(join(root,second.path),'damaged');
-    assert.throws(()=>revisionPlan(root,[recipe,second]),/原始摘要/);
+    assert.throws(()=>revisionPlan(root,[recipe,second]),/区块越界/);
     assert.equal(readFileSync(file,'utf8'),original,'后续失败不得写入前一个已核验文件');
     assert.throws(()=>revisionPlan(root,[recipe,recipe]),/重复/);
     assert.throws(()=>revisionPlan(root,[{...recipe,path:'packages/flutter_tools/gradle/../escape.kt'}]),/越界/);
@@ -2454,12 +2426,7 @@ test('六个远端Job保留实际身份且在错误环境下拒绝执行正文',
     const environment={GITHUB_REPOSITORY:'crcfrcn/citizenapp',GITHUB_ACTIONS:'true',
       GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_WORKFLOW:identity.pipeline,GITHUB_JOB:expectedJob};
     let calls=0;
-    const execute=env=>runWorkflow(identity, {'0':{shell:'bash',source:'true'}}, {}, {
-      argumentsList:['workflow-step','0'],environment:env,run:(_command,_args,options)=>{
-        calls++;assert.equal(options.env.GITHUB_WORKFLOW,identity.pipeline);
-        assert.equal(options.env.GITHUB_JOB,expectedJob);return {status:0};
-      },
-    });
+    const execute=async env=>{const events=await workflowFixture(identity,{'0':{shell:'bash',source:'true'}},false,['workflow-step','0'],env);calls+=events.length;for(const event of events){assert.equal(event.workflow,identity.pipeline);assert.equal(event.job,expectedJob);}};
     await execute(environment);assert.equal(calls,1);
     for(const change of [{GITHUB_ACTIONS:'false'},{GITHUB_EVENT_NAME:'push'},
       {GITHUB_WORKFLOW:'citizenapp.android.release.other'},{GITHUB_WORKFLOW:undefined},
@@ -2468,9 +2435,7 @@ test('六个远端Job保留实际身份且在错误环境下拒绝执行正文',
       await assert.rejects(execute({...environment,...change}),/身份/u);
       assert.equal(calls,1);
     }
-    await assert.rejects(runWorkflow({...identity,job:'unknown'}, {}, {}, {
-      argumentsList:['workflow-step','0'],environment,run:()=>{calls++;return {status:0};}
-    }),/身份/u);assert.equal(calls,1);
+    await assert.rejects(workflowFixture({...identity,job:'unknown'},{},false,['workflow-step','0'],environment),/身份/u);assert.equal(calls,1);
   }
 });
 

@@ -813,6 +813,6 @@ test('公民App三级源码布局保留广场名称且脚本入口闭合',async(
  assert.ok(!paths.some(path=>path.startsWith('assets/badges/')));
  assert.ok(paths.includes('assets/icons/institution_private.svg'));
  assert.ok(paths.includes('assets/icons/institution_public.svg'));
- assert.deepEqual(paths.filter(path=>path.startsWith('scripts/')).sort(),['scripts/build.mjs','scripts/ci/android.mjs','scripts/ci/ios.mjs','scripts/flow.mjs','scripts/flows.json','scripts/release/android.mjs','scripts/release/ios.mjs','scripts/resources.mjs']);
+ assert.deepEqual(paths.filter(path=>path.startsWith('scripts/')).sort(),['scripts/build.mjs','scripts/ci/android.mjs','scripts/ci/ios.mjs','scripts/flow.mjs','scripts/flows.json','scripts/release/android.mjs','scripts/release/ios.mjs','scripts/resources.mjs','scripts/target.mjs']);
  for(const fixture of [['lib/one/a.dart','lib/one/b.dart','lib/one/two/three/c.dart'],['lib/bad_name/a.dart','lib/bad_name/b.dart'],['lib/one/a.dart']])assert.throws(()=>validateSourceLayout(fixture));
 });

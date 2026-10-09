@@ -265,7 +265,7 @@ export async function validateQuality(root, baseSHA, headSHA, repository) {
     if (hasFirstPartyTemporaryComments(path, readFileSync(absolute, 'utf8'), upstream)) temporary.push(path);
   }
   if (temporary.length > 0) fail('产品实现代码保留临时注释：' + temporary.join('、'));
-  const tests = trackedFiles(root).filter((path) => (isTestPath(path)||['scripts/build.mjs','scripts/flow.mjs','scripts/resources.mjs','scripts/ci/android.mjs','scripts/ci/ios.mjs','scripts/release/android.mjs','scripts/release/ios.mjs'].includes(path)&&contract.node_tests.includes(path))
+  const tests = trackedFiles(root).filter((path) => (isTestPath(path)||['scripts/build.mjs','scripts/flow.mjs','scripts/resources.mjs','scripts/ci/android.mjs','scripts/ci/ios.mjs','scripts/release/android.mjs','scripts/release/ios.mjs','scripts/target.mjs'].includes(path)&&contract.node_tests.includes(path))
     && !ignoredPrefixesFor(repository).some((prefix) => path.startsWith(prefix)));
   if (tests.length === 0) fail('产品没有受控测试代码');
   for (const path of tests) {
@@ -320,7 +320,7 @@ export function validateNodeInventory(paths, registered, repository = contract.r
   if (!Array.isArray(paths) || !Array.isArray(registered)) fail('本仓测试清单类型无效');
   const owned = paths.filter(path => !path.startsWith('.github/tatagate/')
     && !ignoredPrefixesFor(repository).some(prefix => path.startsWith(prefix))
-    && (/(?:^|\/)(?:test\.mjs|[^/]+[._-](?:test|spec)\.mjs)$/u.test(path)||['scripts/build.mjs','scripts/flow.mjs','scripts/resources.mjs','scripts/ci/android.mjs','scripts/ci/ios.mjs','scripts/release/android.mjs','scripts/release/ios.mjs'].includes(path))).sort();
+    && (/(?:^|\/)(?:test\.mjs|[^/]+[._-](?:test|spec)\.mjs)$/u.test(path)||['scripts/build.mjs','scripts/flow.mjs','scripts/resources.mjs','scripts/ci/android.mjs','scripts/ci/ios.mjs','scripts/release/android.mjs','scripts/release/ios.mjs','scripts/target.mjs'].includes(path))).sort();
   if (!owned.length || new Set(paths).size !== paths.length
     || new Set(registered).size !== registered.length
     || owned.join('\0') !== [...registered].sort().join('\0')) fail('本仓实际测试与门禁登记不闭合');
@@ -556,7 +556,7 @@ export async function checkCrossPlatform(root, { request = fetch, report = conso
 
 // 只识别本仓实际执行测试中的拒绝断言；字符串、模板及注释中的同文不构成豁免。
 export function protocolAssertionLines(path, source) {
-  if (!contract.node_tests.includes(path) || (!isTestPath(path)&&!['scripts/build.mjs','scripts/flow.mjs','scripts/resources.mjs','scripts/ci/android.mjs','scripts/ci/ios.mjs','scripts/release/android.mjs','scripts/release/ios.mjs'].includes(path)) || !path.endsWith('.mjs')) return [];
+  if (!contract.node_tests.includes(path) || (!isTestPath(path)&&!['scripts/build.mjs','scripts/flow.mjs','scripts/resources.mjs','scripts/ci/android.mjs','scripts/ci/ios.mjs','scripts/release/android.mjs','scripts/release/ios.mjs','scripts/target.mjs'].includes(path)) || !path.endsWith('.mjs')) return [];
   const literal = String.raw`assert.doesNotMatch(source, /\/v1(?:\/|\b)/);`;
   const opaque = [...source.matchAll(/\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`/gu)]
     .map(match => [match.index, match.index + match[0].length]);
@@ -564,15 +564,15 @@ export function protocolAssertionLines(path, source) {
   const fixtureRanges = [];
   if (path === 'scripts/resources.mjs') {
     const fixtures = [
-      ["test('空可选供给不阻断产品取得，npm SRI原件按准确来源复用'", '502ecf58a184e309da07cc7dc18edf5b083b19e0a4ca91e44c7d409e889ab505'],
-      ['async function dependencySupplyFixture(', '44f33cb464f07a65e6085aa4c3644800dd1ef0328b282cf8f48889803b38b767'],
-      ["test('无可选依赖供给保持独立，旧schema与Pod整锁快照被拒绝'", 'a4ae79530b5ed19fac97036036a7b805f7b48699662c6393b6c90a74103bf9b0'],
+      ["test('空可选供给不阻断产品取得，npm SRI原件按准确来源复用'", 'fbba09ae76a86b1be298d40d2bc2522c8ed18e096fc89218d42e563360ff5350'],
+      ['async function dependencySupplyFixture(', 'c6be1d81eb91ede46da18eb67e01dca339cc20821eadce1c95278c3eaeab0d05'],
+      ["test('无可选依赖供给保持独立，旧schema与Pod整锁快照被拒绝'", 'cdbb1aeca5aa17f36e2a60e264338a09430001dce502e499817df5061b91f3f0'],
     ];
     for (const [prefix, sha] of fixtures) {
       let begin = source.indexOf(prefix);
       while (begin >= 0) {
         const end = prefix.startsWith('async') ? source.indexOf('\n', begin) : source.indexOf('\n});', begin) + 4;
-        if (end > begin && createHash('sha256').update(source.slice(0, end)).digest('hex') === sha) fixtureRanges.push([begin, end]);
+        if (end > begin && !opaque.some(([start, finish]) => begin >= start && begin < finish) && createHash('sha256').update(source.slice(begin, end)).digest('hex') === sha) fixtureRanges.push([begin, end]);
         begin = source.indexOf(prefix, begin + prefix.length);
       }
     }
@@ -731,7 +731,7 @@ function platformContent(path,source) {
     try { const value=JSON.parse(source);value.platform_forbidden_values=[];return JSON.stringify(value); }
     catch { return source; }
   }
-  if (!['scripts/build.mjs','scripts/flow.mjs','scripts/resources.mjs','scripts/ci/android.mjs','scripts/ci/ios.mjs','scripts/release/android.mjs','scripts/release/ios.mjs'].includes(path)) return source;
+  if (!['scripts/build.mjs','scripts/flow.mjs','scripts/resources.mjs','scripts/ci/android.mjs','scripts/ci/ios.mjs','scripts/release/android.mjs','scripts/release/ios.mjs','scripts/target.mjs'].includes(path)) return source;
   // 只处理本仓资源声明的官方归档字段及核验后的原补丁上下文；其它内容完整扫描。
   const declarations=[...source.matchAll(/^const toolDefinitions=(\[.*\]);$/gmu)];
   if (declarations.length!==1) return source;
@@ -1148,7 +1148,7 @@ export function validateChangeEvidence(paths,documents,{changed=()=>true,changed
  const implementation=paths.filter(path=>isImplementationPath(path)&&!isTestPath(path)&&!path.startsWith('.github/workflows/'));
  if(!implementation.length)return true;
  if(!documents.some(path=>paths.includes(path)&&changed(path)))fail('本仓实现变化未同步所属根技术文档');
- if(!paths.some(path=>isTestPath(path)&&changed(path)||['scripts/build.mjs','scripts/flow.mjs','scripts/resources.mjs','scripts/ci/android.mjs','scripts/ci/ios.mjs','scripts/release/android.mjs','scripts/release/ios.mjs'].includes(path)&&contract.node_tests.includes(path)&&changedTests(path)))fail('本仓实现变化缺少同步真实回归');
+ if(!paths.some(path=>isTestPath(path)&&changed(path)||['scripts/build.mjs','scripts/flow.mjs','scripts/resources.mjs','scripts/ci/android.mjs','scripts/ci/ios.mjs','scripts/release/android.mjs','scripts/release/ios.mjs','scripts/target.mjs'].includes(path)&&contract.node_tests.includes(path)&&changedTests(path)))fail('本仓实现变化缺少同步真实回归');
  return true;
 }
 function checkChangeEvidence(root,baseSHA,headSHA){
@@ -1188,7 +1188,7 @@ export function validateFunctionalInventory(root,functions=contract.functions) {
   const owned=trackedFiles(root).filter(path=>!path.startsWith('.github/')&&!functionalIgnoredPrefixes.some(prefix=>path.startsWith(prefix)));
   const expected=new Set();
   for(const path of owned){
-    if(['scripts/build.mjs','scripts/flow.mjs','scripts/resources.mjs','scripts/ci/android.mjs','scripts/ci/ios.mjs','scripts/release/android.mjs','scripts/release/ios.mjs'].includes(path)){
+    if(['scripts/build.mjs','scripts/flow.mjs','scripts/resources.mjs','scripts/ci/android.mjs','scripts/ci/ios.mjs','scripts/release/android.mjs','scripts/release/ios.mjs','scripts/target.mjs'].includes(path)){
       if(!resourceTestSource(readFileSync(resolve(root,path),'utf8')))fail('本仓资源末尾缺少真实测试代码');
       expected.add(path);
     }
