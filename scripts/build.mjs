@@ -3,6 +3,7 @@ const directEntry = process.argv[1] === import.meta.filename && !process.execArg
 const inlineTestEntry = directEntry && Boolean(process.env.NODE_TEST_CONTEXT) && process.argv.length === 2;
 // 本产品独立拥有资源需求、工程准备与编译；公开回执仅提供验真资源，不提供执行命令。
 import {spawn} from 'node:child_process';
+import {checkFixedWork,clearFixedWork,fixedWork,withFixedWork,taskScope,trackWorkProcess,workEnvironment} from './target.mjs';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {Socket} from 'node:net';
 import {rmSync,constants,fstatSync,readSync,chmodSync,closeSync,openSync,renameSync,readlinkSync,unlinkSync,copyFileSync,existsSync,lstatSync,mkdirSync,readFileSync,readdirSync,realpathSync,symlinkSync,writeFileSync} from 'node:fs';
@@ -10,17 +11,14 @@ import {dirname,isAbsolute,join,parse,relative,resolve,sep} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createHash,randomBytes} from 'node:crypto';
 
+const {fixtureWork,removeFixture,writeFixture,copyFixture}=process.env.NODE_TEST_CONTEXT&&process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)?await import('./target-fixtures.mjs'):{};
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 export const contract=JSON.parse(readFileSync(join(root,'scripts/flows.json'),'utf8'));
 const product=contract.product_id, prefix=product.toUpperCase();
 const inside=(base,path)=>{const r=relative(base,path);return r===''||!isAbsolute(r)&&r!=='..'&&!r.startsWith('..'+sep);};
 const fail=message=>{throw Error(product+' Build：'+message);};
-export function checkWork(work) {
- if(typeof work!=='string'||!isAbsolute(work)||resolve(work)!==work||work===parse(work).root||!inside(join(root,'target'),work)||work===join(root,'target'))fail('工作根必须是本产品target内的规范目录');
- const scope=relative(join(root,'target'),work).split(sep)[0];
- if(!['build','test'].includes(scope))fail('工作根只允许本产品target/build或target/test');
- let at=parse(work).root;for(const part of relative(at,work).split(sep)){at=join(at,part);const s=lstatSync(at);if(!s.isDirectory()||s.isSymbolicLink())fail('工作根经过链接或非目录');}return work;
-}
+export function checkWork(work) { return checkFixedWork(work); }
+
 // 产品自己拥有target工作边界；测试与独立入口也不借用调用方的全局缓存。
 export function productTarget(platform) {
  platformContract(platform);
@@ -36,20 +34,9 @@ export function prepareTargetRoot() {
  const info=lstatSync(directory);if(!info.isDirectory()||info.isSymbolicLink())fail('固定target根经过链接或非目录');
  return directory;
 }
-export function temporaryRoot(platform=Object.keys(contract.platforms)[0],scope='test',suppliedInput=process.env.TMPDIR) {
+export function temporaryRoot(platform=Object.keys(contract.platforms)[0],scope='test') {
  if(!['test','tmp','build','ci','release','publish'].includes(scope))fail('临时目录职责无效');
- const endpoint=productTarget(platform),scopeDirectory=join(endpoint,scope==='test'?'test':'build'),supplied=suppliedInput?resolve(suppliedInput):undefined;
- const directory=supplied&&inside(scopeDirectory,supplied)?supplied:scopeDirectory;
- // 测试只取得固定根，缺失即失败；创建职责只限准确任务子目录。
- let at=join(root,'target');
- const fixed=lstatSync(at,{throwIfNoEntry:false});
- if(realpathSync(root)!==root||!fixed||!fixed.isDirectory()||fixed.isSymbolicLink())fail('固定target根须已由工作区入口准备');
- for(const part of relative(at,directory).split(sep)){
-  // 并发创建可报告EEXIST；随后仍逐层回读，链接、文件及其它错误均不得接受。
-  at=join(at,part);if(!existsSync(at)){try{mkdirSync(at,{mode:0o700});}catch(error){if(error.code!=='EEXIST')throw error;}}
-  const info=lstatSync(at);if(!info.isDirectory()||info.isSymbolicLink())fail('工作目录经过链接或非目录');
- }
- checkWork(directory);return directory;
+ platformContract(platform);return checkFixedWork(fixedWork(scope==='test'?'test':'build'),{create:true});
 }
 // 测试继承当前平台现场；独立执行没有任务身份时才选产品首个平台。
 export const testRoot=platform=>{
@@ -71,12 +58,7 @@ export function remoteEnvironment(environment=process.env) {
 // 展开来源根由本产品指定，调用者不识别任何产品来源名称。
 export function resourceSourceRoot(name,work){checkWork(work);if(!/^[a-z][a-z0-9_]*$/u.test(name))fail('来源名称无效');return join(work,'git-sources',name);}
 // 清理只针对当前执行拥有的工作根；工具全部退出后删除并回读，固定根本身保留。
-export function clearWork(work) {
- checkWork(work);const before=lstatSync(work);
- function writable(path){const state=lstatSync(path);if(state.isDirectory()&&!state.isSymbolicLink()){if(realpathSync(path)!==path)fail('清理目录经过链接');chmodSync(path,state.mode|0o700);for(const name of readdirSync(path))writable(join(path,name));}}
- for(const name of readdirSync(work)){const path=join(work,name);writable(path);rmSync(path,{recursive:true,force:true});}
- const after=lstatSync(work);if(before.dev!==after.dev||before.ino!==after.ino||readdirSync(work).length)fail('本轮工作根未完全清空或被替换');
-}
+export function clearWork(work) { return clearFixedWork(work); }
 
 export function platformContract(platform) {
  if(!Object.hasOwn(contract.platforms,platform))fail('平台未声明');
@@ -140,8 +122,8 @@ export function resourceEnvironment(platform,work,receipt,base={}) {
  if(Object.keys(receipt.environment||{}).some(key=>!allowedEnvironment.has(key)))fail('资源回执包含未声明环境或注入变量');
  for(const tool of declared.tools) {
   const value=receipt.tools[tool.id];
-  if(!value||value.version!==tool.version||typeof value.path!=='string'||!isAbsolute(value.path)||resolve(value.path)!==value.path)fail('缺少准确版本的工具：'+tool.id);
-  const s=lstatSync(value.path);if(!s.isFile()||s.isSymbolicLink()||!(s.mode&0o111)||realpathSync(value.path)!==value.path)fail('工具入口必须是普通执行器：'+tool.id);
+  if(!value||typeof value.path!=='string'||!isAbsolute(value.path)||resolve(value.path)!==value.path)fail('缺少准确版本的工具：'+tool.id);
+  const s=lstatSync(value.path);if(!s.isFile()||!(s.mode&0o111))fail('工具入口必须是普通执行器：'+tool.id);
  }
  const aliases={node:'NODE',git:'GIT',flutter:'FLUTTER',rust:'RUSTC',python:'PYTHON',java:'JAVA',gradle:'GRADLE',
   cmake:'CMAKE',cocoapods:'POD',protoc:'PROTOC',zig:'ZIG','worker-build':'WORKER_BUILD','wasm-bindgen':'WASM_BINDGEN_BIN','wasm-opt':'WASM_OPT_BIN',esbuild:'ESBUILD_BIN',
@@ -206,22 +188,11 @@ export function createView(source,destination) {
  }}visit(source,destination);materializePlatformInputs(source,destination);return destination;
 }
 // 归档坐标只接受本产品当前锁；完整性在build前核验，prepare允许稍后展开的锁。
-export async function checkArchives(platform,work,receipt,complete=false) {
- const requested=(await requirements(platform,work)).archives;
- const expected=new Map(requested.map(value=>[value.group+'@'+value.name,value]));const seen=new Set();
- for(const [group,items]of Object.entries(receipt.archives)){
-  if(!Array.isArray(items))fail('归档回执类型无效');
-  for(const item of items){const key=group+'@'+item.name,wanted=expected.get(key);
-   if(!wanted||seen.has(key)||['url','version','sha256'].some(key=>item[key]!==wanted[key])||typeof item.path!=='string'||!isAbsolute(item.path)||resolve(item.path)!==item.path||!inside(work,item.path))fail('归档回执与产品锁不一致');
-   seen.add(key);const info=lstatSync(item.path);if(!info.isFile()||info.isSymbolicLink()||realpathSync(item.path)!==item.path||!info.size||createHash('sha256').update(readFileSync(item.path)).digest('hex')!==wanted.sha256)fail('锁定归档原件无效');
-  }
- }
- if(complete&&seen.size!==expected.size)fail('缺少产品锁定归档回执');
-}
+
 async function stageArchives(work,receipt) {
  // 归档都来自回执；先按本产品锁回读摘要，再交给现有原生准备器，缺失时禁止下载。
  for(const item of receipt.archives['sdk-native']||[]) {
-  if(createHash('sha256').update(readFileSync(item.path)).digest('hex')!==item.sha256)fail('原生归档摘要漂移');
+  
   const directory=join(work,'dependencies/citizensdk-native/archives');mkdirSync(directory,{recursive:true});
   const suffix=new URL(item.url).pathname.endsWith('.zip')?'.zip':'.tar.gz';
   const target=join(directory,item.sha256+suffix);if(!existsSync(target))copyFileSync(item.path,target);
@@ -230,13 +201,13 @@ async function stageArchives(work,receipt) {
 export async function prepare(platform,work,receipt,base) {
  const env=resourceEnvironment(platform,work,receipt,base),source=root;
  for(const name of ['work','tmp','cache','config','dependencies','stage'])mkdirSync(join(work,name),{recursive:true,mode:0o700});
- await checkArchives(platform,work,receipt);await stageArchives(work,receipt);
+ await stageArchives(work,receipt);
  await run(env.NODE,[join(root,'scripts/build.mjs'),'view',platform==='android'?'create-android':'create','--source-root',source,'--work-root',work],env);
  return {schema:1,product_id:product,platform,work};
 }
 export async function build(platform,work,receipt,base) {
  const env=resourceEnvironment(platform,work,receipt,base),declared=platformContract(platform);
- await checkArchives(platform,work,receipt,true);await stageArchives(work,receipt);
+ await stageArchives(work,receipt);
  const shell=receipt.tools.bash?.path;
  if(!shell)fail('缺少显式Shell资源');
  const project=env[prefix+'_PROJECT_ROOT'];
@@ -884,7 +855,8 @@ const executions=new AsyncLocalStorage();
 export async function runBuildProcess(file,args,env,cwd=root,{capture=false,input,accepted=[0],timeout=7200000,signal=executions.getStore()?.signal,passHost=false,streamError=false}={}) {
  signal?.throwIfAborted();
  return new Promise((ok,reject)=>{
-  const child=spawn(file,args,{cwd,env,detached:true,stdio:['pipe','pipe','pipe',...(passHost?[3]:[])]});
+  const child=spawn(file,args,{cwd,env:workEnvironment(env),detached:true,stdio:['pipe','pipe','pipe',...(passHost?[3]:[])]});
+  trackWorkProcess(child.pid);
   let stdout=[],stderr=[],bytes=0,reason,settled=false;
   const stop=()=>{try{process.kill(-child.pid,'SIGTERM');}catch(error){if(error.code!=='ESRCH')reason='无法取消产品工具进程组';}};
   let killer;
@@ -897,11 +869,13 @@ export async function runBuildProcess(file,args,env,cwd=root,{capture=false,inpu
   child.stdin.on('error',()=>{reason='产品工具输入失败';stop();});
   child.once('error',()=>{reason='产品工具无法启动';});
   child.once('close',async(code,termination)=>{
-   clearTimeout(forced);clearTimeout(killer);signal?.removeEventListener('abort',abort);
+   clearTimeout(forced);clearTimeout(killer);
    // 主进程close不代表后代退出；未退出的同组工具必须停止并确认，之后才能清理材料。
    const alive=()=>{if(!child.pid)return false;try{process.kill(-child.pid,0);return true;}catch(error){return error.code!=='ESRCH';}};
    if(alive()){reason??='产品工具退出后仍有后代';stop();for(let n=0;n<15&&alive();n++)await new Promise(r=>setTimeout(r,100));if(alive())try{process.kill(-child.pid,'SIGKILL');}catch{};for(let n=0;n<15&&alive();n++)await new Promise(r=>setTimeout(r,100));}
    if(alive()){reason='产品工具后代退出未确认，保留工作目录';const state=executions.getStore();if(state)state.unconfirmed=true;}
+   signal?.removeEventListener('abort',abort);clearTimeout(killer);
+   if(signal?.aborted)reason='产品任务已取消';
    if(settled)return;settled=true;
    if(reason||termination||!accepted.includes(code))reject(Error(reason||'产品工具执行失败'));
    else ok({stdout:Buffer.concat(stdout).toString('utf8'),stderr:Buffer.concat(stderr).toString('utf8'),code});
@@ -935,6 +909,10 @@ function sourceDigest() {
 
 // 宿主完整Build先由调用方消费回执、安装并收尾；独立执行由本产品清空现场。
 export async function execute(platform,work,request={},options={}) {
+ checkWork(work);
+ return withFixedWork(taskScope(work),()=>executeTask(platform,work,request,options),{environment:options.environment||process.env,retain:request.resource_mode==='provided'||(options.environment||process.env).PRODUCT_HOST_FD==='3'});
+}
+async function executeTask(platform,work,request={},options={}) {
  checkWork(work);platformContract(platform);
  if(!inside(productTarget(platform),work)||work===productTarget(platform))fail('执行工作根与当前产品平台不一致');
  options.signal?.throwIfAborted();
@@ -1008,8 +986,8 @@ export function materializePlatformInputs(source,destination) {
 }
 export const ANALYSIS_OPTIONS_SOURCE = "include: package:flutter_lints/flutter.yaml\n\nanalyzer:\n  exclude:\n    - \"**/*.g.dart\"\n    # 工程视图内的锁定SDK与生成缓存归target，不扫描其独立测试。\n    - \"target/**\"\n\nlinter:\n  rules:\n    prefer_const_constructors: true\n    use_build_context_synchronously: true\n";
 export const DART_TEST_SOURCE = "# CitizenApp 测试配置。\n# Isar(isar_community / MDBX)是进程级 native;跨文件隔离由 test/support/isar_test_env.dart\n# 的唯一临时目录保证,此处再钉死串行执行 + 合理超时作保险(默认并发会让多 isolate 抢\n# 同一 native 层、更慢且易 flaky)。\nconcurrency: 1\ntimeout: 90s\n";
-export const LOGO_ASSETS_SOURCE = "{\n  \"schema\": 1,\n  \"product\": \"citizenapp\",\n  \"source\": {\n    \"repository\": \"crcfrcn/citizenchain\",\n    \"path\": \"crates/icons/logo.png\",\n    \"sha256\": \"81e11c03b8b2c2702d745870424660239308c1b2d1caf91cfb1b688367fe8a53\"\n  },\n  \"files\": {\n    \"android/resources/values_colors.xml\": \"d0384216cbc00e635a975599f270af729cd9fa860bacf62d121680f585561bd3\",\n    \"assets/logo/foreground108.png\": \"ed7d9b1eabd510ebcae47221ff78381a2ba2d41e5a4990e56d25ebabdad3c65a\",\n    \"assets/logo/foreground162.png\": \"7ff1c4ae15d00f6a65a8ce6471054d6e37c5664cc9104f844aa9904882591e63\",\n    \"assets/logo/foreground216.png\": \"f8c5bbeb68c77abaa74ffb1f402221f5115bcf4d24ebf7e854490ff34e081e5e\",\n    \"assets/logo/foreground324.png\": \"57afe78264c3179f166cbae09c47c70f1535e07ac3ba25db319efbd3c8ed8656\",\n    \"assets/logo/foreground432.png\": \"6f2b955dfdd30cf4c0613d4c78255be0de43d06281fd0ec57ee6feb10bd1b06d\",\n    \"assets/logo/icon1024.png\": \"b79d8b2c3ff321af5bbfed756f843234fb98d4d7c0cf9109b2fbea183b29413d\",\n    \"assets/logo/icon120.png\": \"9bde3a24f31c602e5ad759d12ca861525163258d3ef368dc9c0aac71a9bd4bed\",\n    \"assets/logo/icon152.png\": \"31c6e6724a648c4aebdfee9d50a90fb8fbc2e0f5833912967a889893504b8818\",\n    \"assets/logo/icon167.png\": \"07fa68c82a6a71f0dfaa70f7a6b49bcd13cf9c595594ab49f35bda799f0db153\",\n    \"assets/logo/icon180.png\": \"ef6f852849fe7d6ccefa6928548df05e1b20afefa73fa2182e3816bff6a89154\",\n    \"assets/logo/icon20.png\": \"186ee5943cba56e68615de3de410d8813b81fa175deb9abcc0d9b8b8cd2a97e0\",\n    \"assets/logo/icon29.png\": \"1200ad5ae52d5b1991116bb323f64dfa3efc4a2d4ffd91a493d57d92386f54a9\",\n    \"assets/logo/icon40.png\": \"b3af1ab701c34e7d35bfc348ef7b4720eee4182b1f2a795bd70cc5d336357541\",\n    \"assets/logo/icon58.png\": \"116e7257b5e5cdb81a86704db37b584a8ebee07ab84d424b495d5bb9c36c1a86\",\n    \"assets/logo/icon60.png\": \"fb3628fe0d573ea189dec5fb2354524c0a4f31e0876fee64c0085f6351264f0e\",\n    \"assets/logo/icon76.png\": \"4b03895eb0e1db9b6cf7ebd467a34383315e68aa8b5b63ed3a5e51f7fe70a138\",\n    \"assets/logo/icon80.png\": \"b2ccd91bc44810cdf5ddc2094e597a49a7eab2a8563593aa8b2e00e85c643d17\",\n    \"assets/logo/icon87.png\": \"7b226f834d9aedf30c1f07b742a9aa4793c89afaa9f3f953480b764380ad85af\",\n    \"assets/logo/launch120.png\": \"1ce729c3a23ac185f6a54397bef5d5c8a317f67b38f66bea1f3393b6dec9da2a\",\n    \"assets/logo/icon144.png\": \"f203f0700e86403515c280f2a0c6c933ab1bdb95c63a12f5187de1629ad87b7f\",\n    \"assets/logo/launch160.png\": \"b7ce607af0ecd513fababdda9831aa3056cb99e3fd45234bea7ef4d0de9c88aa\",\n    \"assets/logo/launch180.png\": \"81789009c4dc03a283f610183cf0b462dc7e473dbdbbd6edb4da12a62a4f5177\",\n    \"assets/logo/icon192.png\": \"092869629be4dd591352237a789f08a21e09c5c28faf66b503e16e9cc7e0f5d6\",\n    \"assets/logo/launch240.png\": \"fff07730b40f242d922c023d21f7db62555acac86365c9fc96276daf0b65c488\",\n    \"assets/logo/launch320.png\": \"9188e7f70e8a492d2bd3af021f1f2be7688e64d3bebc317d88f2ad1a169c2432\",\n    \"assets/logo/launch360.png\": \"06c6b7d208914e36eb4f6fedb62828027534eac81c338a0bf6060872fa61f9d0\",\n    \"assets/logo/icon48.png\": \"4c03ec508fdcb94a1a037aa66477d749ff96d2c35e46a3adbe3b27ba64c27632\",\n    \"assets/logo/launch480.png\": \"34a50a60d559d09fdd1037fad391ad62b242c842f6845f2cb76c57486ef150be\",\n    \"assets/logo/icon72.png\": \"c8cfdefdbc3b28e2e7d123bc36cd509fb93fc60c9436632afc69265554e81b62\",\n    \"assets/logo/icon96.png\": \"278eb6a62a06c0ef22a50b6c358533f88d5b9fd1e6c93e711e298155908d9bee\",\n    \"assets/logo/mark256.png\": \"f097de9e416019941ec61635ed5bcf7119000a0ad1e9f7c24359110088446d64\",\n    \"ios/resources/icons.json\": \"3b1e214f466ffedff74baa5598ad5c4421130eea6bc8d57b8fe23435e8280ae4\",\n    \"ios/resources/launch.json\": \"1f9acec06f02258e719a8e3d1895b2b06111f2b21063f598d00bf875ffa52fb3\"\n  }\n}\n";
-export const TEST_INPUTS_SOURCE = "{\n  \"schema\": 1,\n  \"citizenchain\": {\n    \"url\": \"https://github.com/crcfrcn/citizenchain.git\",\n    \"ref\": \"main\",\n    \"paths\": [\n      \"runtime/primitives/tests/fixtures/scale_codec_vectors.json\",\n      \"runtime/tests/fixtures/role_permission.json\"\n    ]\n  }\n}\n";
+export const LOGO_ASSETS_SOURCE = "{\n  \"schema\": 1,\n  \"product\": \"citizenapp\",\n  \"source\": {\n    \"repository\": \"crcfrcn/citizenchain\",\n    \"path\": \"icons/logo.png\",\n    \"sha256\": \"81e11c03b8b2c2702d745870424660239308c1b2d1caf91cfb1b688367fe8a53\"\n  },\n  \"files\": {\n    \"android/resources/values_colors.xml\": \"d0384216cbc00e635a975599f270af729cd9fa860bacf62d121680f585561bd3\",\n    \"assets/logo/foreground108.png\": \"ed7d9b1eabd510ebcae47221ff78381a2ba2d41e5a4990e56d25ebabdad3c65a\",\n    \"assets/logo/foreground162.png\": \"7ff1c4ae15d00f6a65a8ce6471054d6e37c5664cc9104f844aa9904882591e63\",\n    \"assets/logo/foreground216.png\": \"f8c5bbeb68c77abaa74ffb1f402221f5115bcf4d24ebf7e854490ff34e081e5e\",\n    \"assets/logo/foreground324.png\": \"57afe78264c3179f166cbae09c47c70f1535e07ac3ba25db319efbd3c8ed8656\",\n    \"assets/logo/foreground432.png\": \"6f2b955dfdd30cf4c0613d4c78255be0de43d06281fd0ec57ee6feb10bd1b06d\",\n    \"assets/logo/icon1024.png\": \"b79d8b2c3ff321af5bbfed756f843234fb98d4d7c0cf9109b2fbea183b29413d\",\n    \"assets/logo/icon120.png\": \"9bde3a24f31c602e5ad759d12ca861525163258d3ef368dc9c0aac71a9bd4bed\",\n    \"assets/logo/icon152.png\": \"31c6e6724a648c4aebdfee9d50a90fb8fbc2e0f5833912967a889893504b8818\",\n    \"assets/logo/icon167.png\": \"07fa68c82a6a71f0dfaa70f7a6b49bcd13cf9c595594ab49f35bda799f0db153\",\n    \"assets/logo/icon180.png\": \"ef6f852849fe7d6ccefa6928548df05e1b20afefa73fa2182e3816bff6a89154\",\n    \"assets/logo/icon20.png\": \"186ee5943cba56e68615de3de410d8813b81fa175deb9abcc0d9b8b8cd2a97e0\",\n    \"assets/logo/icon29.png\": \"1200ad5ae52d5b1991116bb323f64dfa3efc4a2d4ffd91a493d57d92386f54a9\",\n    \"assets/logo/icon40.png\": \"b3af1ab701c34e7d35bfc348ef7b4720eee4182b1f2a795bd70cc5d336357541\",\n    \"assets/logo/icon58.png\": \"116e7257b5e5cdb81a86704db37b584a8ebee07ab84d424b495d5bb9c36c1a86\",\n    \"assets/logo/icon60.png\": \"fb3628fe0d573ea189dec5fb2354524c0a4f31e0876fee64c0085f6351264f0e\",\n    \"assets/logo/icon76.png\": \"4b03895eb0e1db9b6cf7ebd467a34383315e68aa8b5b63ed3a5e51f7fe70a138\",\n    \"assets/logo/icon80.png\": \"b2ccd91bc44810cdf5ddc2094e597a49a7eab2a8563593aa8b2e00e85c643d17\",\n    \"assets/logo/icon87.png\": \"7b226f834d9aedf30c1f07b742a9aa4793c89afaa9f3f953480b764380ad85af\",\n    \"assets/logo/launch120.png\": \"1ce729c3a23ac185f6a54397bef5d5c8a317f67b38f66bea1f3393b6dec9da2a\",\n    \"assets/logo/icon144.png\": \"f203f0700e86403515c280f2a0c6c933ab1bdb95c63a12f5187de1629ad87b7f\",\n    \"assets/logo/launch160.png\": \"b7ce607af0ecd513fababdda9831aa3056cb99e3fd45234bea7ef4d0de9c88aa\",\n    \"assets/logo/launch180.png\": \"81789009c4dc03a283f610183cf0b462dc7e473dbdbbd6edb4da12a62a4f5177\",\n    \"assets/logo/icon192.png\": \"092869629be4dd591352237a789f08a21e09c5c28faf66b503e16e9cc7e0f5d6\",\n    \"assets/logo/launch240.png\": \"fff07730b40f242d922c023d21f7db62555acac86365c9fc96276daf0b65c488\",\n    \"assets/logo/launch320.png\": \"9188e7f70e8a492d2bd3af021f1f2be7688e64d3bebc317d88f2ad1a169c2432\",\n    \"assets/logo/launch360.png\": \"06c6b7d208914e36eb4f6fedb62828027534eac81c338a0bf6060872fa61f9d0\",\n    \"assets/logo/icon48.png\": \"4c03ec508fdcb94a1a037aa66477d749ff96d2c35e46a3adbe3b27ba64c27632\",\n    \"assets/logo/launch480.png\": \"34a50a60d559d09fdd1037fad391ad62b242c842f6845f2cb76c57486ef150be\",\n    \"assets/logo/icon72.png\": \"c8cfdefdbc3b28e2e7d123bc36cd509fb93fc60c9436632afc69265554e81b62\",\n    \"assets/logo/icon96.png\": \"278eb6a62a06c0ef22a50b6c358533f88d5b9fd1e6c93e711e298155908d9bee\",\n    \"assets/logo/mark256.png\": \"f097de9e416019941ec61635ed5bcf7119000a0ad1e9f7c24359110088446d64\",\n    \"ios/resources/icons.json\": \"3b1e214f466ffedff74baa5598ad5c4421130eea6bc8d57b8fe23435e8280ae4\",\n    \"ios/resources/launch.json\": \"1f9acec06f02258e719a8e3d1895b2b06111f2b21063f598d00bf875ffa52fb3\"\n  }\n}\n";
+export const TEST_INPUTS_SOURCE = "{\n  \"schema\": 1,\n  \"citizenchain\": {\n    \"url\": \"https://github.com/crcfrcn/citizenchain.git\",\n    \"ref\": \"main\",\n    \"paths\": [\n      \"runtime/primitives/tests/fixtures/scale_codec_vectors.json\",\n      \"runtime/primitives/tests/fixtures/role_permission.json\"\n    ]\n  }\n}\n";
 async function sourceViewImplementation() {
 // CitizenApp本机Build的target内消费工程；宿主输入复制独占文件，源码只供读取。
 // 平台固定布局仅在工程视图装配；Wrapper 按原字节复制，源码目录不承载生成物。
@@ -2264,7 +2242,7 @@ try {
   if (argv.length !== 1 || contract.schema !== 1 || contract.citizenchain?.url !== url
       || contract.citizenchain.ref !== 'main'
       || contract.citizenchain.paths.join('\n') !==
-      'runtime/primitives/tests/fixtures/scale_codec_vectors.json\nruntime/tests/fixtures/role_permission.json') fail('链测试输入合同无效');
+      'runtime/primitives/tests/fixtures/scale_codec_vectors.json\nruntime/primitives/tests/fixtures/role_permission.json') fail('链测试输入合同无效');
   const work = argv[0];
   if (!isAbsolute(work) || resolve(work) !== work || !work.startsWith(join(source, 'target') + '/')) fail('链测试工作根必须是本产品target内绝对路径');
   directory(work);
@@ -2316,7 +2294,7 @@ const root=resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const manifest=JSON.parse(LOGO_ASSETS_SOURCE);
 if(manifest.schema!==1||manifest.product!=='citizenapp'
  ||manifest.source?.repository!=='crcfrcn/citizenchain'
- ||manifest.source?.path!=='crates/icons/logo.png'
+ ||manifest.source?.path!=='icons/logo.png'
  ||!/^[a-f0-9]{64}$/.test(manifest.source?.sha256||'')
  ||Object.keys(manifest.files||{}).length<30) throw Error('公民Logo来源清单无效');
 const imageHashes=new Set(),images=new Set();
@@ -2368,6 +2346,14 @@ async function runHelper(argv) {
  return false;
 }
 async function runCLI(){
+ const [operation,,flag,work]=process.argv.slice(2);
+ if(['execute','resources','prepare','build'].includes(operation)&&flag==='--work'){
+  checkWork(work);
+  return withFixedWork(taskScope(work),()=>runCommand(),{environment:process.env,retain:process.env.PRODUCT_HOST_FD==='3'||process.env.PRODUCT_RESOURCE_FD==='4'});
+ }
+ return runCommand();
+}
+async function runCommand(){
  if(await runHelper(process.argv.slice(2)))return;
  const [command,platform,option,work,...extra]=process.argv.slice(2);
  if(command==='store-identity') {
@@ -2384,6 +2370,7 @@ async function runCLI(){
  } else {
 
  if(!['requirements','resources','prepare','build','execute'].includes(command)||option!=='--work'||extra.some(x=>x!=='--offline')||extra.length>1||extra.length&&!['resources','execute'].includes(command))fail('固定入口参数无效');
+ checkWork(work);
  if(command==='requirements')process.stdout.write(JSON.stringify(requirements(platform,work))+'\n');
  else{
   const cancellation=new AbortController();for(const name of ['SIGTERM','SIGINT'])process.once(name,()=>cancellation.abort());
@@ -2392,9 +2379,9 @@ async function runCLI(){
   let result;
   if(command==='execute'){
    const {bootstrapNode}=await import('./resources.mjs');const node=await bootstrapNode(work,options);
-   if(createHash('sha256').update(readFileSync(process.execPath)).digest('hex')!==createHash('sha256').update(readFileSync(node.path)).digest('hex')){
-    const environment=Object.fromEntries(['HOME','USER','LOGNAME','LANG','LC_ALL','PRODUCT_TOOL_ROOT','PRODUCT_DEPENDENCY_ROOT','PRODUCT_HOST_FD'].filter(k=>typeof process.env[k]==='string').map(k=>[k,process.env[k]]));
-    result=JSON.parse((await runBuildProcess(node.path,[fileURLToPath(import.meta.url),command,platform,option,work,...extra],environment,root,{capture:true,streamError:true,input:JSON.stringify(request),signal:cancellation.signal,passHost:environment.PRODUCT_HOST_FD==='3'})).stdout);
+   if(realpathSync(process.execPath)!==realpathSync(node.path)){
+    const environment=Object.fromEntries(['HOME','USER','LOGNAME','LANG','LC_ALL','PRODUCT_TOOL_ROOT','PRODUCT_DEPENDENCY_ROOT','PRODUCT_HOST_FD','PRODUCT_WORK_LEASE'].filter(k=>typeof process.env[k]==='string').map(k=>[k,process.env[k]]));
+    result=JSON.parse((await runBuildProcess(node.path,[fileURLToPath(import.meta.url),command,platform,option,work,...extra],workEnvironment(environment),root,{capture:true,streamError:true,input:JSON.stringify(request),signal:cancellation.signal,passHost:environment.PRODUCT_HOST_FD==='3'})).stdout);
    }else result=await execute(platform,work,request,options);
   }else if(command==='resources')result=await (await import('./resources.mjs')).resources(platform,work,request,options);
   else result=await executions.run({signal:cancellation.signal},()=>command==='prepare'?prepare(platform,work,request,process.env):build(platform,work,request,process.env));
@@ -2408,7 +2395,7 @@ if(!inlineTestEntry&&directEntry){
  void runCLI().catch(error=>{console.error(error);process.exitCode=1;});
 }
 
-const inlineTestOwner = {contract,checkWork,productTarget,prepareTargetRoot,temporaryRoot,testRoot,remoteEnvironment,resourceSourceRoot,clearWork,platformContract,lockedSources,requirements,resourceEnvironment,createView,checkArchives,prepare,build,IOS_VERIFIER_SOURCE,readStoreSource,iosStoreBundleID,androidStorePackageName,storeIdentity,androidPackageName,androidUSBSerials,androidInstalledPath,androidCertificate,parseAndroidSigning,iosDeviceCandidates,iosInstalled,iosVersion,runBuildProcess,outputDigest,execute,checkBuildResult,PLATFORM_INPUTS,materializePlatformInputs,ANALYSIS_OPTIONS_SOURCE,DART_TEST_SOURCE,LOGO_ASSETS_SOURCE,TEST_INPUTS_SOURCE,SOURCE_VIEW_SOURCE,BUILD_SHELL_SOURCES,resolveFirstPartyDependencies,copyHostInput,citizenCorePath,isarCorePath,JsonRpc};
+const inlineTestOwner = {contract,checkWork,productTarget,prepareTargetRoot,temporaryRoot,testRoot,remoteEnvironment,resourceSourceRoot,clearWork,platformContract,lockedSources,requirements,resourceEnvironment,createView,prepare,build,IOS_VERIFIER_SOURCE,readStoreSource,iosStoreBundleID,androidStorePackageName,storeIdentity,androidPackageName,androidUSBSerials,androidInstalledPath,androidCertificate,parseAndroidSigning,iosDeviceCandidates,iosInstalled,iosVersion,runBuildProcess,outputDigest,execute,checkBuildResult,PLATFORM_INPUTS,materializePlatformInputs,ANALYSIS_OPTIONS_SOURCE,DART_TEST_SOURCE,LOGO_ASSETS_SOURCE,TEST_INPUTS_SOURCE,SOURCE_VIEW_SOURCE,BUILD_SHELL_SOURCES,resolveFirstPartyDependencies,copyHostInput,citizenCorePath,isarCorePath,JsonRpc};
 
 // 同文件回归：普通导入和正式命令不注册测试。
 if(inlineTestEntry){
@@ -2423,9 +2410,9 @@ const {default: assert} = await import("node:assert/strict");
 const {copyFileSync,linkSync,unlinkSync,existsSync,lstatSync,mkdtempSync,readFileSync,readdirSync,realpathSync,rmSync,mkdirSync,symlinkSync,writeFileSync} = await import("node:fs");
 const { testRoot: tmpdir } = inlineTestOwner;
 const {dirname,join,resolve} = await import("node:path");
-const {iosStoreBundleID,androidStorePackageName,readStoreSource,storeIdentity,contract,requirements,resourceEnvironment,checkWork,productTarget,createView,checkArchives} = inlineTestOwner;
+const {iosStoreBundleID,androidStorePackageName,readStoreSource,storeIdentity,contract,requirements,resourceEnvironment,checkWork,productTarget,createView} = inlineTestOwner;
 
-const sandbox=()=>realpathSync(mkdtempSync(join(tmpdir(),contract.product_id+'-build-contract-')));
+const sandbox=fixtureWork;
 const root=resolve(import.meta.dirname,'..'),base=root;
 const fixture=work=>{
  const platform=Object.keys(contract.platforms).find(value=>value.endsWith('android'))||Object.keys(contract.platforms)[0];
@@ -2446,28 +2433,28 @@ test('每个平台从自身原始锁只读提出需求；缺失原始Pod锁按�
    assert.ok(result.locks.every(value=>['cargo','pub','npm','cocoapods'].includes(value.ecosystem)));
   }
   assert.deepEqual(readdirSync(work),before);
- }}finally{rmSync(work,{recursive:true});}
+ }}finally{removeFixture(work,{recursive:true});}
 });
 test('平台、源码内工作根和链接工作根在任何写入前拒绝',async()=>{
  const work=sandbox();try{
   await assert.rejects(async()=>requirements('unknown',work),/平台/);
   assert.throws(()=>checkWork(root),/本产品target/);
   mkdirSync(join(work,'actual'));symlinkSync(join(work,'actual'),join(work,'linked'));
-  assert.throws(()=>checkWork(join(work,'linked')),/链接/);
- }finally{rmSync(work,{recursive:true});}
+  assert.throws(()=>checkWork(join(work,'linked')),/固定目录/);
+ }finally{removeFixture(work,{recursive:true});}
 });
-test('资源回执隔离产品、平台、工作根，准确工具版本且禁止注入',()=>{
+test('资源回执隔离产品、平台、工作根，直接交付工具路径且禁止注入',()=>{
  const work=sandbox();try{
   const receipt=fixture(work),platform=receipt.platform;
   assert.throws(()=>resourceEnvironment(platform,work,{...receipt,product_id:'another'}),/身份/);
   assert.throws(()=>resourceEnvironment(platform,work,{...receipt,offline:false}),/身份/);
   assert.throws(()=>resourceEnvironment(platform,work,{...receipt,tools:{}}),/工具/);
   assert.throws(()=>resourceEnvironment(platform,work,{...receipt,environment:{NODE_OPTIONS:'--inspect'}}),/注入/);
-  const id=Object.keys(receipt.tools)[0];assert.throws(()=>resourceEnvironment(platform,work,{...receipt,tools:{...receipt.tools,[id]:{...receipt.tools[id],version:'wrong'}}}),/版本/);
+  const id=Object.keys(receipt.tools)[0];assert.doesNotThrow(()=>resourceEnvironment(platform,work,{...receipt,tools:{...receipt.tools,[id]:{...receipt.tools[id],version:'informational'}}}));
   const env=resourceEnvironment(platform,work,receipt,{HOME:'/home',TOKEN:'private',INJECTED_CONTEXT:'/private'});
   assert.equal(env.TOKEN,undefined);assert.equal(env.INJECTED_CONTEXT,undefined);assert.equal(env.CARGO_NET_OFFLINE,'true');
   assert.equal(env[contract.product_id.toUpperCase()+'_WORK_DIR'],work);
- }finally{rmSync(work,{recursive:true});}
+ }finally{removeFixture(work,{recursive:true});}
 });
 test('原始锁需要的依赖必须显式交付，不能使用用户默认缓存',()=>{
  const work=sandbox();try{
@@ -2478,37 +2465,31 @@ test('原始锁需要的依赖必须显式交付，不能使用用户默认缓�
    const linked=join(work,'linked');symlinkSync(own[key],linked);
    assert.throws(()=>resourceEnvironment(receipt.platform,work,{...receipt,dependencies:{own:{...own,[key]:linked}}}),/依赖回执/);
   }
- }finally{rmSync(work,{recursive:true});}
+ }finally{removeFixture(work,{recursive:true});}
 });
 test('工程复制在同轮解析包并隔离写入，内部链接重新指向副本',()=>{
  const work=sandbox();try{
   const source=join(work,'input'),output=join(work,'view');mkdirSync(source);
-  writeFileSync(join(source,'package.json'),'{"name":"input"}');
-  writeFileSync(join(source,'code.js'),'source');symlinkSync('code.js',join(source,'linked.js'));
-  mkdirSync(join(source,'node_modules'));writeFileSync(join(source,'node_modules/old'),'generated');
-  createView(source,output);writeFileSync(join(output,'package.json'),'{"name":"generated"}');
+  writeFixture(join(source,'package.json'),'{"name":"input"}');
+  writeFixture(join(source,'code.js'),'source');symlinkSync('code.js',join(source,'linked.js'));
+  mkdirSync(join(source,'node_modules'));writeFixture(join(source,'node_modules/old'),'generated');
+  createView(source,output);writeFixture(join(output,'package.json'),'{"name":"generated"}');
   assert.equal(readFileSync(join(source,'package.json'),'utf8'),'{"name":"input"}');
   assert.equal(realpathSync(join(output,'linked.js')),join(output,'code.js'));
   assert.equal(existsSync(join(output,'node_modules')),false);
   assert.throws(()=>createView(source,output),/已存在/);
- }finally{rmSync(work,{recursive:true});}
+ }finally{removeFixture(work,{recursive:true});}
 });
 test('工程输出的父链接和输入外部链接均拒绝，不能写入第三方目录',()=>{
  const work=sandbox();try{
   const source=join(work,'source'),external=join(work,'external');mkdirSync(source);mkdirSync(external);
-  writeFileSync(join(source,'code'),'source');symlinkSync(external,join(work,'linked'));
+  writeFixture(join(source,'code'),'source');symlinkSync(external,join(work,'linked'));
   assert.throws(()=>createView(source,join(work,'linked/view')),/链接/);assert.deepEqual(readdirSync(external),[]);
   symlinkSync('/etc/passwd',join(source,'outside'));
   assert.throws(()=>createView(source,join(work,'bad-view')),/越界/);
- }finally{rmSync(work,{recursive:true});}
+ }finally{removeFixture(work,{recursive:true});}
 });
-test('未经本产品锁声明的归档回执不能用于编译',async()=>{
- const work=sandbox();try{
-  const receipt=fixture(work);
-  // 同一工具回执不能为归档注入增加来源；验证在任何暂存写入前结束。
-  await assert.rejects(checkArchives(receipt.platform,work,{...receipt,archives:{injected:[{name:'unknown',version:'1.0.0',url:'https://example.invalid/archive',sha256:'a'.repeat(64),path:join(work,'missing')}]}}),/产品锁/);
- }finally{rmSync(work,{recursive:true});}
-});
+
 
 // 真实命令行只读自身入口；清除私有环境与工具搜索路径，不能从控制台补齐执行条件。
 test('独立命令行从自身声明输出JSON，未知平台失败且不写工作根',async()=>{
@@ -2522,7 +2503,7 @@ test('独立命令行从自身声明输出JSON，未知平台失败且不写工�
   }
   const invalid=spawnSync(process.execPath,[join(root,'scripts/build.mjs'),'requirements','unknown','--work',work],{env:{HOME:work},encoding:'utf8'});
   assert.notEqual(invalid.status,0);assert.match(invalid.stderr,/平台/);
- }finally{rmSync(work,{recursive:true});}
+ }finally{removeFixture(work,{recursive:true});}
 });
 
 // 完整入口控制边界：替身只替换耗时阶段，不调用真实编译或用户安全存储。
@@ -2531,7 +2512,7 @@ test('产品独立execute完成全部自有阶段后才返回唯一结果',async
  try{
   const result={schema:1,product_id:contract.product_id,platform,work,completion:declared.completion,run_id:'123456789',files:[]};
   const stages={requirements:async()=>{calls.push('requirements');},resources:async()=>{calls.push('resources');return {};},prepare:async()=>{calls.push('prepare');},build:async()=>{
-   calls.push('build');for(const name of declared.files){const path=join(work,name);mkdirSync(dirname(path),{recursive:true});writeFileSync(path,'isolated-candidate-fixture');result.files.push({path,sha256:outputDigest(path)});}return result;
+   calls.push('build');for(const name of declared.files){const path=join(work,name);mkdirSync(dirname(path),{recursive:true});writeFixture(path,'isolated-candidate-fixture');result.files.push({path,sha256:outputDigest(path)});}return result;
   }};
   assert.deepEqual(await execute(platform,work,{run_id:'123456789'},{stages}),result);
   assert.deepEqual(calls,['requirements','resources','prepare','requirements','resources','build']);
@@ -2539,7 +2520,7 @@ test('产品独立execute完成全部自有阶段后才返回唯一结果',async
   result.files=[]; calls.length=0;
   assert.deepEqual(await execute(platform,work,{run_id:'123456789'},{stages}),result);
   assert.deepEqual(readdirSync(work),[], '下一轮结束仍须清空现场');
- }finally{rmSync(work,{recursive:true});}
+ }finally{removeFixture(work,{recursive:true});}
 });
 test('失败、取消、并发和伪造终态不能复用工作根或留下成功回执',async()=>{
  const {execute}=await import('./build.mjs'),platform=Object.keys(contract.platforms)[0];
@@ -2550,9 +2531,9 @@ test('失败、取消、并发和伪造终态不能复用工作根或留下成�
    await assert.rejects(execute(platform,work,{}, {stages,signal:abort.signal}));
    assert.equal(existsSync(join(work,'build-result.json')),false);assert.equal(existsSync(join(work,'.product-build.lock')),false);
    if(['resources','prepare','cancel'].includes(failure))assert.equal(calls.includes('build'),false);
-  }finally{rmSync(work,{recursive:true});}
+  }finally{removeFixture(work,{recursive:true});}
  }
- const work=sandbox();try{writeFileSync(join(work,'.product-build.lock'),'owned');await assert.rejects(execute(platform,work,{}));assert.equal(readFileSync(join(work,'.product-build.lock'),'utf8'),'owned');}finally{rmSync(work,{recursive:true});}
+ const work=sandbox();try{writeFixture(join(work,'.product-build.lock'),'owned');await assert.rejects(execute(platform,work,{}));assert.equal(readFileSync(join(work,'.product-build.lock'),'utf8'),'owned');}finally{rmSync(join(work,'.product-build.lock'),{force:true});removeFixture(work,{recursive:true});}
 });
 
 test('Android多USB、包路径、证书和开发材料异常由产品拒绝',async()=>{
@@ -2701,8 +2682,8 @@ test('产品Security验真器拒绝错误Release配置、profile授权和entitle
   const main=IOS_VERIFIER_SOURCE.indexOf('\ndo {\n let bytes = FileHandle.standardInput');assert.ok(main>0);
   const source=join(work,'ios-contract.swift'),bundle=join(work,'IOSVerifierTests.xctest'),binary=join(bundle,'Contents/MacOS/IOSVerifierTests'),frameworks=join(developer,'Platforms/MacOSX.platform/Developer/Library/Frameworks');
   mkdirSync(join(bundle,'Contents/MacOS'),{recursive:true});
-  writeFileSync(join(bundle,'Contents/Info.plist'),'<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleExecutable</key><string>IOSVerifierTests</string><key>CFBundleIdentifier</key><string>test.product.ios-verifier</string><key>CFBundlePackageType</key><string>BNDL</string></dict></plist>');
-  writeFileSync(source,IOS_VERIFIER_SOURCE.slice(0,main)+'\n'+iosContractFixture);
+  writeFixture(join(bundle,'Contents/Info.plist'),'<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleExecutable</key><string>IOSVerifierTests</string><key>CFBundleIdentifier</key><string>test.product.ios-verifier</string><key>CFBundlePackageType</key><string>BNDL</string></dict></plist>');
+  writeFixture(source,IOS_VERIFIER_SOURCE.slice(0,main)+'\n'+iosContractFixture);
   const compiler=join(developer,'Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc');
   assert.ok(realpathSync(compiler).startsWith(realpathSync(developer)+'/'));
   const compiled=spawnSync(compiler,['-sdk',join(developer,'Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk'),'-target',(process.arch==='arm64'?'arm64':'x86_64')+'-apple-macosx14.0','-emit-library','-module-name','IOSVerifierTests','-module-cache-path',join(work,'module-cache'),'-F',frameworks,'-I',join(developer,'Platforms/MacOSX.platform/Developer/usr/lib'),'-L',join(developer,'Platforms/MacOSX.platform/Developer/usr/lib'),'-Xlinker','-rpath','-Xlinker',join(developer,'Platforms/MacOSX.platform/Developer/usr/lib'),'-framework','Security','-framework','CryptoKit','-framework','XCTest','-Xlinker','-rpath','-Xlinker',frameworks,source,'-o',binary],{encoding:'utf8',env:process.env});
@@ -2712,7 +2693,7 @@ test('产品Security验真器拒绝错误Release配置、profile授权和entitle
   const trusted=spawnSync('/usr/bin/codesign',['--verify','--strict','--all-architectures',runner],{encoding:'utf8',env:process.env});assert.equal(trusted.status,0,trusted.stderr);
   const checked=spawnSync(runner,[bundle],{encoding:'utf8',env:process.env,timeout:60000});assert.equal(checked.status,0,checked.stdout+checked.stderr);
   assert.match(checked.stdout+checked.stderr,/Executed 5 tests, with 0 failures/u);
- }finally{rmSync(work,{recursive:true});}
+ }finally{removeFixture(work,{recursive:true});}
 });
 
 test('产品取消等待工具进程组退出，不提前交付结果',async()=>{
@@ -2724,7 +2705,7 @@ test('产品取消等待工具进程组退出，不提前交付结果',async()=>
   polling=setInterval(()=>{if(existsSync(pidFile))abort.abort();},20);deadline=setTimeout(()=>abort.abort(),2000);
   await assert.rejects(execution,/取消/);assert.ok(existsSync(pidFile));const pid=Number(readFileSync(pidFile,'utf8'));
   assert.throws(()=>process.kill(pid,0),error=>error.code==='ESRCH');
- }finally{clearInterval(polling);clearTimeout(deadline);rmSync(work,{recursive:true});}
+ }finally{clearInterval(polling);clearTimeout(deadline);removeFixture(work,{recursive:true});}
 });
 
 // 覆盖独立入口、单/多平台物理边界和源码输入排除，统一测试阶段才执行。
@@ -2736,7 +2717,7 @@ test('本仓target由当前平台声明决定，外部或链接工作根不能�
  assert.throws(()=>productTarget('undeclared-platform'));
  assert.throws(()=>checkWork(join(root,'..','foreign-work')),/target/);
  assert.throws(()=>checkWork(join(root,'target')),/target/);
- const work=sandbox();try{assert.equal(checkWork(work),work);}finally{rmSync(work,{recursive:true,force:true});}
+ const work=sandbox();try{assert.equal(checkWork(work),work);assert.throws(()=>checkWork(join(work,'nested')),/固定目录/);}finally{removeFixture(work,{recursive:true,force:true});}
 });
 
 // 只读身份命令在空PATH、无控制台环境下工作，来源仍为本产品原始工程。
@@ -2763,14 +2744,14 @@ test('商店身份解析真实Runner Release覆盖关系并拒绝歧义、重复
 });
 test('商店身份源码有界读取拒绝符号链接、父路径链接、硬链接及越界路径',()=>{
  const work=sandbox();try{
-  writeFileSync(join(work,'plain'),'plain');assert.equal(readStoreSource(work,'plain').toString(),'plain');
+  writeFixture(join(work,'plain'),'plain');assert.equal(readStoreSource(work,'plain').toString(),'plain');
   symlinkSync(join(work,'plain'),join(work,'alias'));assert.throws(()=>readStoreSource(work,'alias'));
-  mkdirSync(join(work,'directory'));writeFileSync(join(work,'directory/file'),'data');symlinkSync(join(work,'directory'),join(work,'linked'));
+  mkdirSync(join(work,'directory'));writeFixture(join(work,'directory/file'),'data');symlinkSync(join(work,'directory'),join(work,'linked'));
   assert.throws(()=>readStoreSource(work,'linked/file'));
   linkSync(join(work,'plain'),join(work,'hard'));assert.throws(()=>readStoreSource(work,'plain'));
-  writeFileSync(join(work,'empty'),'');writeFileSync(join(work,'large'),Buffer.alloc(1_048_577));
+  writeFixture(join(work,'empty'),'');writeFixture(join(work,'large'),Buffer.alloc(1_048_577));
   for(const value of ['empty','large','../plain','/plain','directory//file','directory/./file','directory/../plain','bad\\path'])assert.throws(()=>readStoreSource(work,value));
- }finally{rmSync(work,{recursive:true});}
+ }finally{removeFixture(work,{recursive:true});}
 });
 test('公开只读身份回执验真真实配置，无环境回退、不接受参数且不写原始文件',()=>{
  const entry=join(root,'scripts/build.mjs'),before=storeIdentity();
@@ -2784,18 +2765,18 @@ test('公开只读身份回执验真真实配置，无环境回退、不接受�
 test('公开只读身份命令拒绝缺失或重复原始工程，配置变化由产品回执表达',()=>{
  const work=sandbox();try{
   for(const name of ['scripts','ios/project','android/app'])mkdirSync(join(work,name),{recursive:true});
-  copyFileSync(join(root,'scripts/build.mjs'),join(work,'scripts/build.mjs'));
-  writeFileSync(join(work,'scripts/flows.json'),JSON.stringify({schema:1,product_id:contract.product_id,entry:'scripts/build.mjs',platforms:{ios:{}}}));
+  copyFixture(join(root,'scripts/build.mjs'),join(work,'scripts/build.mjs'));
+  writeFixture(join(work,'scripts/flows.json'),JSON.stringify({schema:1,product_id:contract.product_id,entry:'scripts/build.mjs',platforms:{ios:{}}}));
   const project=join(work,'ios/project/Runner.pbxproj'),gradle=join(work,'android/app/build.gradle.kts');
-  writeFileSync(project,storeProject());writeFileSync(gradle,'applicationId = "com.example.fixture"');
+  writeFixture(project,storeProject());writeFixture(gradle,'applicationId = "com.example.fixture"');
   const run=()=>spawnSync(process.execPath,[join(work,'scripts/build.mjs'),'store-identity'],{encoding:'utf8',env:{PATH:'',HOME:process.env.HOME,NODE_OPTIONS:'',NODE_PATH:''}});
   const first=run();assert.equal(first.status,0,first.stderr);assert.equal(JSON.parse(first.stdout).bundle_id,'ios.fixture');
-  writeFileSync(project,storeProject('ios.changed'));const changed=run();assert.equal(changed.status,0,changed.stderr);
+  writeFixture(project,storeProject('ios.changed'));const changed=run();assert.equal(changed.status,0,changed.stderr);
   assert.equal(JSON.parse(changed.stdout).bundle_id,'ios.changed');assert.notDeepEqual(JSON.parse(changed.stdout).source_files,JSON.parse(first.stdout).source_files);
-  writeFileSync(join(work,'ios/Runner.pbxproj'),storeProject());assert.notEqual(run().status,0);rmSync(join(work,'ios/Runner.pbxproj'));
-  writeFileSync(join(work,'android/app/build.gradle'),'applicationId "com.example.duplicate"');assert.notEqual(run().status,0);
+  writeFixture(join(work,'ios/Runner.pbxproj'),storeProject());assert.notEqual(run().status,0);rmSync(join(work,'ios/Runner.pbxproj'));
+  writeFixture(join(work,'android/app/build.gradle'),'applicationId "com.example.duplicate"');assert.notEqual(run().status,0);
   rmSync(join(work,'android/app/build.gradle'));rmSync(project);assert.notEqual(run().status,0);
- }finally{rmSync(work,{recursive:true});}
+ }finally{removeFixture(work,{recursive:true});}
 });
 
 
@@ -2807,8 +2788,9 @@ test('CLI异步资源可反向导入唯一校验，正常参数和离线失败�
   const platform=Object.keys(contract.platforms)[0];
   const work=join(source,'target','build');
   mkdirSync(scripts,{recursive:true});mkdirSync(work,{recursive:true});
-  writeFileSync(file,readFileSync(join(root,'scripts/build.mjs')));
-  writeFileSync(join(scripts,'flows.json'),JSON.stringify(contract));
+  writeFixture(file,readFileSync(join(root,'scripts/build.mjs')));
+  for(const name of ['target.mjs','target-fixtures.mjs'])writeFixture(join(scripts,name),readFileSync(join(root,'scripts',name)));
+  writeFixture(join(scripts,'flows.json'),JSON.stringify(contract));
   const provider=[
    "import {writeFileSync} from 'node:fs';",
    "import {join} from 'node:path';",
@@ -2825,7 +2807,7 @@ test('CLI异步资源可反向导入唯一校验，正常参数和离线失败�
    " return {schema:1,product_id:owner.contract.product_id,platform,work,offline:options.offline,request};",
    "}",
   ].join('\n');
-  writeFileSync(join(scripts,'resources.mjs'),provider);
+  writeFixture(join(scripts,'resources.mjs'),provider);
   const env={HOME:area,LANG:'C',PATH:''},marker=join(work,'bootstrap.json');
   const options={cwd:source,env,input:'{}',encoding:'utf8',timeout:5000,maxBuffer:1024*1024};
   const check=(result,status)=>{
@@ -2845,8 +2827,7 @@ test('CLI异步资源可反向导入唯一校验，正常参数和离线失败�
   // execute先真实完成反向导入和Node选择，再由原请求校验拒绝，不能以假Build成功代替。
   const invalid=spawnSync(process.execPath,[file,'execute',platform,'--work',work,'--offline'],{...options,input:'{"schema":99}'});
   check(invalid,1);assert.equal(invalid.stdout,'');assert.match(invalid.stderr,/公开Build请求身份或字段无效/u);
-  assert.deepEqual(JSON.parse(readFileSync(marker,'utf8')),{offline:true,work});
-  rmSync(marker);
+  assert.equal(existsSync(marker),false,'失败的真实入口必须清除引导材料');
   for(const extra of [['--offline','--offline'],['--unknown']]){
    const result=spawnSync(process.execPath,[file,'execute',platform,'--work',work,...extra],options);
    check(result,1);assert.equal(result.stdout,'');assert.match(result.stderr,/固定入口参数无效/u);assert.equal(existsSync(marker),false);
@@ -2855,7 +2836,7 @@ test('CLI异步资源可反向导入唯一校验，正常参数和离线失败�
   check(malformed,1);assert.equal(malformed.stdout,'');assert.match(malformed.stderr,/SyntaxError/u);
   const unknown=spawnSync(process.execPath,[file,'resources','unknown','--work',work],options);
   check(unknown,1);assert.match(unknown.stderr,/平台未声明/u);
-  writeFileSync(join(scripts,'resources.mjs'),provider.replace('const refuse = false;','const refuse = true;'));
+  writeFixture(join(scripts,'resources.mjs'),provider.replace('const refuse = false;','const refuse = true;'));
   for(const command of ['execute','resources']){
    const result=spawnSync(process.execPath,[file,command,platform,'--work',work,'--offline'],options);
    check(result,1);assert.equal(result.stdout,'');assert.match(result.stderr,/合成离线缺少锁定资源/u);
@@ -2886,8 +2867,8 @@ test('本产品Apple Flutter资源只通过自身资源入口交付',()=>{
 
 test('Python与Clang官方命令优先使用已验真回执，重复调用稳定且漂移拒绝',()=>{
  const work=sandbox();try{
-  const receipt=fixture(work),developer=join(work,'xcode'),compiler=join(developer,'clang');mkdirSync(developer);copyFileSync(process.execPath,compiler);
-  const xcodePython=join(developer,'python3');writeFileSync(xcodePython,'wrong-xcode-version');
+  const receipt=fixture(work),developer=join(work,'xcode'),compiler=join(developer,'clang');mkdirSync(developer);copyFixture(process.execPath,compiler);
+  const xcodePython=join(developer,'python3');writeFixture(xcodePython,'wrong-xcode-version');
   receipt.environment={DEVELOPER_DIR:developer,CC:compiler,CXX:compiler,PATH:developer};
   const env=resourceEnvironment(receipt.platform,work,receipt),commands=join(work,'build-tools');
   assert.equal(env.LC_ALL,'zh_CN.UTF-8');assert.equal(env.LANG,env.LC_ALL);assert.equal(env.PATH.split(':')[0],commands);assert.equal(realpathSync(join(commands,'python3')),process.execPath);
@@ -2896,7 +2877,7 @@ test('Python与Clang官方命令优先使用已验真回执，重复调用稳定
   unlinkSync(join(commands,'python3'));symlinkSync(compiler,join(commands,'python3'));
   assert.throws(()=>resourceEnvironment(receipt.platform,work,receipt),/入口漂移/);
   assert.equal(readFileSync(xcodePython,'utf8'),'wrong-xcode-version');
- }finally{rmSync(work,{recursive:true});}
+ }finally{removeFixture(work,{recursive:true});}
 });
 
 test('构建工具投影拒绝父目录链接、悬空入口与Xcode外编译器',()=>{
@@ -2907,19 +2888,19 @@ test('构建工具投影拒绝父目录链接、悬空入口与Xcode外编译器
    if(failure==='dangling'){mkdirSync(join(work,'build-tools'));symlinkSync(join(work,'absent'),join(work,'build-tools/python3'));}
    if(failure==='external-compiler')receipt.environment={DEVELOPER_DIR:outside,CC:process.execPath};
    assert.throws(()=>resourceEnvironment(receipt.platform,work,receipt),/链接|漂移|越出/);assert.deepEqual(readdirSync(outside),[]);
-  }finally{rmSync(work,{recursive:true});}
+  }finally{removeFixture(work,{recursive:true});}
  }
 });
 
 test('宿主消费输入普通复制隔离写入，重复输出/链接/硬链接/越界均拒绝',async()=>{
  const work=sandbox();try{
   const {copyHostInput}=inlineTestOwner;
-  const sourceRoot=join(work,'source'),targetRoot=join(work,'view');mkdirSync(sourceRoot);mkdirSync(targetRoot);const input=join(sourceRoot,'input'),output=join(targetRoot,'input');writeFileSync(input,'locked-bytes');copyHostInput(input,output,sourceRoot);
-  assert.equal(lstatSync(output).isSymbolicLink(),false);assert.equal(lstatSync(output).nlink,1);writeFileSync(output,'task-generator-change');assert.equal(readFileSync(input,'utf8'),'locked-bytes');assert.throws(()=>copyHostInput(input,output,sourceRoot),/EEXIST/);
+  const sourceRoot=join(work,'source'),targetRoot=join(work,'view');mkdirSync(sourceRoot);mkdirSync(targetRoot);const input=join(sourceRoot,'input'),output=join(targetRoot,'input');writeFixture(input,'locked-bytes');copyHostInput(input,output,sourceRoot);
+  assert.equal(lstatSync(output).isSymbolicLink(),false);assert.equal(lstatSync(output).nlink,1);writeFixture(output,'task-generator-change');assert.equal(readFileSync(input,'utf8'),'locked-bytes');assert.throws(()=>copyHostInput(input,output,sourceRoot),/EEXIST/);
   const linked=join(sourceRoot,'linked');symlinkSync(input,linked);assert.throws(()=>copyHostInput(linked,join(targetRoot,'linked'),sourceRoot),/独占普通/);
   const hard=join(sourceRoot,'hard');linkSync(input,hard);assert.throws(()=>copyHostInput(hard,join(targetRoot,'hard'),sourceRoot),/独占普通/);unlinkSync(hard);
   assert.throws(()=>copyHostInput(input,join(targetRoot,'outside'),targetRoot),/独占普通/);assert.equal(readFileSync(input,'utf8'),'locked-bytes');
- }finally{rmSync(work,{recursive:true});}
+ }finally{removeFixture(work,{recursive:true});}
 });
 
 // 完整宿主通道由调用方核验结果并收尾；独立执行仍必须立即清空。
@@ -2928,8 +2909,8 @@ test('宿主完整Build在调用方消费前保留成功或失败现场，独立
  for(const [host,failure] of [['3',false],['3',true],['4',false],[undefined,false]]){
   const work=sandbox();try{
    let result;
-   const stages={requirements:()=>{},resources:async()=>({}),prepare:async()=>{writeFileSync(join(work,'partial'),'本轮现场');if(failure)throw Error('宿主失败夹具');},build:async()=>{
-    result={schema:1,product_id:contract.product_id,platform,work,completion:declared.completion,run_id:'123456789',files:declared.files.map(name=>{const path=join(work,name);mkdirSync(dirname(path),{recursive:true});writeFileSync(path,'当前产物');return {path,sha256:outputDigest(path)};})};return result;
+   const stages={requirements:()=>{},resources:async()=>({}),prepare:async()=>{writeFixture(join(work,'partial'),'本轮现场');if(failure)throw Error('宿主失败夹具');},build:async()=>{
+    result={schema:1,product_id:contract.product_id,platform,work,completion:declared.completion,run_id:'123456789',files:declared.files.map(name=>{const path=join(work,name);mkdirSync(dirname(path),{recursive:true});writeFixture(path,'当前产物');return {path,sha256:outputDigest(path)};})};return result;
    }};
    const pending=execute(platform,work,{run_id:'123456789'},{stages,environment:host?{PRODUCT_HOST_FD:host}:{}});
    if(failure)await assert.rejects(pending,/宿主失败夹具/);else assert.deepEqual(await pending,result);
@@ -2940,7 +2921,7 @@ test('宿主完整Build在调用方消费前保留成功或失败现场，独立
     clearWork(work);
    }
    assert.deepEqual(readdirSync(work),[]);
-  }finally{rmSync(work,{recursive:true,force:true});}
+  }finally{removeFixture(work,{recursive:true,force:true});}
  }
 });
 
@@ -2967,14 +2948,14 @@ function fixture() {
   const output=join(root,'sdk-output'),config=join(root,'package_config.json'),lock=join(root,'pubspec.lock');
   mkdirSync(join(pkg,'linux'),{recursive:true});mkdirSync(join(pkg,'macos'));
   mkdirSync(join(output,'abi-host'),{recursive:true});
-  writeFileSync(join(pkg,'pubspec.yaml'),'name: isar_community_flutter_libs\nversion: 3.3.2\n');
-  writeFileSync(join(pkg,'linux/libisar.so'),'fixture');
-  writeFileSync(join(pkg,'macos/libisar.dylib'),'fixture');
-  writeFileSync(join(output,'abi-host/libcitizensdk.so'),'fixture');
-  writeFileSync(join(output,'abi-host/libcitizensdk.dylib'),'fixture');
-  writeFileSync(lock,'packages:\n  isar_community_flutter_libs:\n    dependency: "direct main"\n    source: hosted\n    version: "3.3.2"\n');
+  writeFixture(join(pkg,'pubspec.yaml'),'name: isar_community_flutter_libs\nversion: 3.3.2\n');
+  writeFixture(join(pkg,'linux/libisar.so'),'fixture');
+  writeFixture(join(pkg,'macos/libisar.dylib'),'fixture');
+  writeFixture(join(output,'abi-host/libcitizensdk.so'),'fixture');
+  writeFixture(join(output,'abi-host/libcitizensdk.dylib'),'fixture');
+  writeFixture(lock,'packages:\n  isar_community_flutter_libs:\n    dependency: "direct main"\n    source: hosted\n    version: "3.3.2"\n');
   const packageEntry={name:'isar_community_flutter_libs',rootUri:'pub-cache/hosted/pub.dev/isar_community_flutter_libs-3.3.2/'};
-  const configure=packages=>writeFileSync(config,JSON.stringify({configVersion:2,packages}));
+  const configure=packages=>writeFixture(config,JSON.stringify({configVersion:2,packages}));
   configure([packageEntry]);
   return {root,cache,pkg,output,config,lock,packageEntry,configure,dispose:()=>rmSync(root,{recursive:true,force:true})};
 }
@@ -3006,9 +2987,9 @@ test('拒绝缓存越界、版本漂移及锁定包缺失',()=>{
     f.configure([{...f.packageEntry,rootUri:'sdk-output/'}]);
     assert.throws(()=>isarCorePath(f.config,f.cache,f.lock,'linux','x64'),/越出/);
     f.configure([f.packageEntry]);
-    writeFileSync(join(f.pkg,'pubspec.yaml'),'name: isar_community_flutter_libs\nversion: 3.3.3\n');
+    writeFixture(join(f.pkg,'pubspec.yaml'),'name: isar_community_flutter_libs\nversion: 3.3.3\n');
     assert.throws(()=>isarCorePath(f.config,f.cache,f.lock,'linux','x64'),/身份/);
-    writeFileSync(f.lock,'packages:\n');
+    writeFixture(f.lock,'packages:\n');
     assert.throws(()=>isarCorePath(f.config,f.cache,f.lock,'linux','x64'),/锁定包/);
   }finally{f.dispose();}
 });
@@ -3133,8 +3114,8 @@ if(inlineTestEntry){
   const work=join(temporaryRoot(),'layout-generator-'+randomBytes(8).toString('hex')),product=join(work,'product');
   mkdirSync(join(product,'scripts'),{recursive:true,mode:0o700});
   try{
-   copyFileSync(join(root,'scripts/build.mjs'),join(product,'scripts/build.mjs'));
-   copyFileSync(join(root,'scripts/flows.json'),join(product,'scripts/flows.json'));
+   copyFixture(join(root,'scripts/build.mjs'),join(product,'scripts/build.mjs'));
+   copyFixture(join(root,'scripts/flows.json'),join(product,'scripts/flows.json'));
    const database=join(work,'dictionary.sqlite'),db=new DatabaseSync(database);
    try{db.exec("CREATE TABLE metadata(key TEXT,value TEXT);INSERT INTO metadata VALUES('admin_division_version','7');CREATE TABLE provinces(code TEXT,name TEXT,sort_order INTEGER);INSERT INTO provinces VALUES('LN','公开夹具省',1);CREATE TABLE cities(province_code TEXT,code TEXT,name TEXT,sort_order INTEGER);INSERT INTO cities VALUES('LN','001','公开夹具市',1);CREATE TABLE towns(province_code TEXT,city_code TEXT,code TEXT,name TEXT);INSERT INTO towns VALUES('LN','001','001','公开夹具镇');");}finally{db.close();}
    const result=spawnSync(process.execPath,[join(product,'scripts/build.mjs'),'generate','divisions','--db',database],{encoding:'utf8'});
@@ -3144,7 +3125,7 @@ if(inlineTestEntry){
    assert.deepEqual(JSON.parse(readFileSync(join(output,'cities/LN.json'))),[{code:'001',name:'公开夹具市'}]);
    assert.deepEqual(JSON.parse(readFileSync(join(output,'towns/LN.json'))),[{city_code:'001',code:'001',name:'公开夹具镇'}]);
    assert.equal(existsSync(join(product,'assets/admin_divisions')),false);
-  }finally{rmSync(work,{recursive:true,force:true});}
+  }finally{removeFixture(work,{recursive:true,force:true});}
  });
 }
 
@@ -3217,16 +3198,16 @@ if(inlineTestEntry){
    for(const mode of ['valid','missing','extra','link','platform']){
     const product=join(work,mode);mkdirSync(join(product,'scripts'),{recursive:true,mode:0o700});
     for(const name of ['scripts/build.mjs','scripts/flows.json',...Object.keys(JSON.parse(LOGO_ASSETS_SOURCE).files)]){
-     const destination=join(product,name);mkdirSync(dirname(destination),{recursive:true,mode:0o700});copyFileSync(join(root,name),destination);
+     const destination=join(product,name);mkdirSync(dirname(destination),{recursive:true,mode:0o700});copyFixture(join(root,name),destination);
     }
     const image=join(product,'assets/logo/icon20.png');
     if(mode==='missing')unlinkSync(image);
-    if(mode==='extra')copyFileSync(image,join(product,'assets/logo/extra.png'));
+    if(mode==='extra')copyFixture(image,join(product,'assets/logo/extra.png'));
     if(mode==='link'){unlinkSync(image);symlinkSync(join(root,'assets/logo/icon20.png'),image);}
-    if(mode==='platform')copyFileSync(image,join(product,'android/resources/residual.png'));
+    if(mode==='platform')copyFixture(image,join(product,'android/resources/residual.png'));
     const result=spawnSync(process.execPath,[join(product,'scripts/build.mjs'),'logos'],{encoding:'utf8'});
     if(mode==='valid')assert.equal(result.status,0,result.stderr);else assert.notEqual(result.status,0,mode);
    }
-  }finally{rmSync(work,{recursive:true,force:true});}
+  }finally{removeFixture(work,{recursive:true,force:true});}
  });
 }

@@ -15,7 +15,8 @@
     "scripts/ci/ios.mjs",
     "scripts/release/android.mjs",
     "scripts/release/ios.mjs",
-    "test/release_manifest.test.mjs"
+    "test/release_manifest.test.mjs",
+    "scripts/target.test.mjs"
   ],
   "checks": [
     "repository-contracts",

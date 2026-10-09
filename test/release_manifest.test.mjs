@@ -47,11 +47,11 @@ const tataChatAndroid = readFileSync(new URL('android/build.gradle.kts', tataCha
 const tataChatAndroidPlugin = readFileSync(
   new URL('android/TataChatSdkPlugin.java', tataChatRoot), 'utf8');
 const tataChatIOSPlugin = readFileSync(new URL('ios/TataChatSdkPlugin.swift', tataChatRoot), 'utf8');
-const tataChatProbe = readFileSync(new URL('lib/src/attachment/probe.dart', tataChatRoot), 'utf8');
+const tataChatProbe = readFileSync(new URL('lib/attachment/probe.dart', tataChatRoot), 'utf8');
 const tataChatAttachmentPlatform = readFileSync(
-  new URL('lib/src/attachment/attachment_platform.dart', tataChatRoot), 'utf8');
+  new URL('lib/attachment/attachment_platform.dart', tataChatRoot), 'utf8');
 const tataChatConversation = readFileSync(
-  new URL('lib/src/ui/conversation/conversation_page.dart', tataChatRoot), 'utf8');
+  new URL('lib/ui/conversation/conversation_page.dart', tataChatRoot), 'utf8');
 
 // 执行真实脚本片段，检查注释幂等、正文保留和任一输入异常时零写入。
 test('CitizenApp Isar 注释规范化保留正文且重复执行一致', () => {
@@ -537,11 +537,13 @@ test('非钱包客户端依赖只保留MLS及系统保护存储', () => {
   // 钱包上游仍使用锁定密码学闭包；取消App直接声明不能删除这条依赖。
   assert.match(pubLock, /^  cryptography:\n    dependency: transitive\n/mu);
   assert.doesNotMatch(podLock, /flutter_secure_storage/u);
-  for (const path of ['lib/src/storage/chat_crypto.dart']) {
+  // 新固定SDK仅消费当前目录；旧src包装层必须不存在，不能靠别名掩盖失败。
+  assert.equal(existsSync(new URL('lib/src/', tataChatRoot)), false);
+  for (const path of ['lib/storage/chat_crypto.dart']) {
     assert.equal(existsSync(new URL(path, tataChatRoot)), false, path);
   }
-  const attachment = readFileSync(new URL('lib/src/mls/mls_attachment.dart', tataChatRoot), 'utf8');
-  const media = readFileSync(new URL('lib/src/protocol/media_content.proto', tataChatRoot), 'utf8');
+  const attachment = readFileSync(new URL('lib/mls/mls_attachment.dart', tataChatRoot), 'utf8');
+  const media = readFileSync(new URL('lib/protocol/media_content.proto', tataChatRoot), 'utf8');
   assert.match(attachment, /groupCreateMessage/u);
   assert.match(media, /attachment_welcome/u);
   assert.doesNotMatch(media, /cipher_key/u);

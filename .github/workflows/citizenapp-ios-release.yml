@@ -140,3 +140,7 @@ jobs:
       uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
       with:
         subject-path: "${{ github.workspace }}/target/ios/release/citizenapp-citizensdk-${{ github.run_id }}-${{ github.run_attempt }}/release/*"
+    - name: 清空本产品固定构建目录
+      if: always()
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/target.mjs" finish build

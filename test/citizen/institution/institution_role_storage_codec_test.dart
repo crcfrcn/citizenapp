@@ -25,7 +25,7 @@ void main() {
       throw StateError('岗位金标检查缺少准确 CITIZENCHAIN_ROOT');
     }
     final file = File(
-      '$root/runtime/tests/fixtures/role_permission.json',
+      '$root/runtime/primitives/tests/fixtures/role_permission.json',
     );
     return jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
   }

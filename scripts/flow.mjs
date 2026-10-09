@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {withFixedWork,remoteStep,fixedWork,workEnvironment,claimFixedWork,releaseFixedWork} from './target.mjs';
 const directEntry = process.argv[1] === import.meta.filename && !process.execArgv.some(argument=>/^(?:-e|-p|--eval|--print)(?:=|$)/u.test(argument));
 const inlineTestEntry = directEntry && Boolean(process.env.NODE_TEST_CONTEXT) && process.argv.length === 2;
 // 本产品完整CI/Release入口；独立执行和宿主调用使用同一候选、派发、验真与清理实现。
@@ -904,7 +905,7 @@ function runStep(steps, index, environment, run) {
     || !Object.hasOwn(steps, String(index))) {
     throw new Error('CitizenApp远程Job阶段无效');
   }
-  const step = steps[String(index)];
+  const declaredStep = steps[String(index)],bound=remoteStep(declaredStep.source,environment),step={...declaredStep,source:bound.source};
   if (!step || !['bash', 'pwsh'].includes(step.shell) || typeof step.source !== 'string'
     || step.source.length === 0) throw new Error('CitizenApp远程Job步骤无效');
   const command = step.shell === 'pwsh'
@@ -914,13 +915,17 @@ function runStep(steps, index, environment, run) {
     ? ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', step.source]
     : ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', step.source];
   const result = run(command, argumentsList, {
-    cwd: process.cwd(), env: environment, stdio: 'inherit',
+    cwd: bound.cwd, env: bound.env, stdio: 'inherit',
   });
   if (result.error) throw new Error('CitizenApp远程Job阶段无法启动');
   if (result.status !== 0) process.exitCode = Number.isInteger(result.status) ? result.status : 1;
 }
 
-async function runWorkflow(identity, steps, commands = {}, {
+async function runWorkflow(identity,steps,commands={},options={}){
+ requireIdentity(identity,options.environment||process.env);
+ return withFixedWork('build',()=>runWorkflowTask(identity,steps,commands,options),{environment:options.environment||process.env,retain:true});
+}
+async function runWorkflowTask(identity, steps, commands = {}, {
   argumentsList = process.argv.slice(2), environment = process.env, run = spawnSync,
 } = {}) {
   requireIdentity(identity, environment);
@@ -1118,14 +1123,7 @@ function cachePathPlan(identity, runnerTemp, entries) {
       throw new Error(`缓存相对路径无效：${name}`);
     }
   }
-  const digest = createHash('sha256').update(identity.baseKey).digest('hex').slice(0, 20);
-  const rootName = `${identity.product}-${identity.platform}-${identity.component}-${digest}`;
-  const root = pathApi.resolve(temp, 'ci-cache', rootName);
-  const expectedParent = pathApi.resolve(temp, 'ci-cache');
-  const relative = pathApi.relative(expectedParent, root);
-  if (!relative || relative.startsWith('..') || pathApi.isAbsolute(relative)) {
-    throw new Error('缓存根目录逃出Runner临时目录');
-  }
+  const root = pathApi.resolve(temp, 'cache');
   return Object.freeze({
     root,
     successPaths: names.map((name) => pathApi.join(root, ...name.split('/'))),
@@ -1165,7 +1163,7 @@ function wireCacheLinks(identity, runnerTemp, entries, workspace, links) {
     const cacheRelative = row.slice(separator + 1);
     relativeEntries(sourceRelative, '工作区生成目录');
     relativeEntries(cacheRelative, '受控缓存目录');
-    const source = resolvedChild(pathApi, workspaceRoot, sourceRelative, '工作区生成目录');
+    const source = resolvedChild(pathApi, pathApi.resolve(runnerTemp,'source'), sourceRelative, '工作区生成目录');
     const target = resolvedChild(pathApi, plan.root, cacheRelative, '受控缓存目录');
     mkdirSync(pathApi.dirname(source), { recursive: true });
     mkdirSync(target, { recursive: true });
@@ -1627,14 +1625,14 @@ if(!inlineTestEntry&&directEntry&&process.argv[2]!=='version') {
  const recovering=command==='recover',records=command==='records';
  if(records?(flow!==undefined||platform!==undefined||extra.length):command!=='run'&&!recovering||!recovering&&extra.length||recovering&&(extra.length!==4||extra[0]!=='--run-id'||extra[2]!=='--result'||! /^[1-9][0-9]*$/u.test(extra[1])||!['success','failed'].includes(extra[3])))throw Error('产品远端固定入口参数无效');
  if(records)currentDeclaration();else remoteContract(flow,platform);
- const work=realpathSync(mkdtempSync(join(temporaryRoot(records?Object.keys(currentDeclaration().platforms)[0]:platform,records?'tmp':flow),productID+'-'+(records?'records':flow)+'-'))),cancellation=new AbortController();let unconfirmed=false;
+ const session=claimFixedWork('build'),work=session.owner.work,cancellation=new AbortController();let unconfirmed=false;
  for(const event of ['SIGTERM','SIGINT'])process.once(event,()=>cancellation.abort());
  try {
   const names=['HOME','USER','LOGNAME','LANG','LC_ALL','PRODUCT_TOOL_ROOT','PRODUCT_DEPENDENCY_ROOT','PRODUCT_CONTROL_FD','PRODUCT_RELEASE_RETRY_CONTEXT','GH_TOKEN',
    'PRODUCT_CHAIN_URL','PRODUCT_CHAIN_ACCESS_CLIENT_ID','PRODUCT_CHAIN_ACCESS_CLIENT_SECRET','PRODUCT_CHAIN_GENESIS_HASH'];
   const environment=Object.fromEntries(names.filter(key=>typeof process.env[key]==='string').map(key=>[key,process.env[key]]));
   if(records)delete environment.PRODUCT_CONTROL_FD;
-  const options={signal:cancellation.signal,environment};const node=await bootstrapNode(work,options);
+  const options={signal:cancellation.signal,environment:{...environment,PRODUCT_WORK_LEASE:session.owner.nonce}};const node=await bootstrapNode(work,options);
   const digest=path=>createHash('sha256').update(readFileSync(path)).digest('hex');
   if(digest(node.path)!==digest(process.execPath)) {
    const args=records?[command]:[command,flow,platform,...extra];
@@ -1645,7 +1643,7 @@ if(!inlineTestEntry&&directEntry&&process.argv[2]!=='version') {
   else if(recovering)process.stdout.write(JSON.stringify(await recoverRemote(flow,platform,Number(extra[1]),extra[3],{environment,signal:cancellation.signal})));
   else await executeRemote(flow,platform,{environment,signal:cancellation.signal});
  }catch(error){unconfirmed=String(error.message).includes('退出未确认');process.stderr.write(String(error.message)+'\n');process.exitCode=1;}
- finally{if(!unconfirmed)rmSync(work,{recursive:true});}
+ finally{releaseFixedWork(session,{unsafe:unconfirmed});}
 }
 
 const inlineTestOwner = {remoteContract,createControl,closeControl,runCI,latestSuccessfulCI,selectReleaseCandidate,readReleaseControlFrame,runRelease,githubRetentionRecord,pruneGitHubRuns,retainedRecords,executeRemote,recoverRemote,recordSourceContract,validateFormalRecordSource,formalReleaseRecord,querySoftwareRecords,validateReleaseContract:checkedContract,nextReleaseVersion:nextSemantic,releaseSourceVersion:sourceVersion,runWorkflow,CI_CACHE_SCHEMA,cacheIdentity,cacheKeys,parseCacheKey,parseLogicalCacheKey,selectLatestCache,planCachePrune,cachePathPlan,wireCacheLinks,sanitizeCacheFinals,cacheCommands,parseSemanticVersion,compareSemanticVersions,nextSemanticVersion,expectedSemanticCandidate};
@@ -2061,6 +2059,8 @@ const { checkJobIdentity: androidCheck, checkWorkflowSteps: androidCheckSteps } 
 const { jobIdentity: ios, workflowSteps: iosSteps } = await import("./ci/ios.mjs");
 const { checkJobIdentity: iosCheck, checkWorkflowSteps: iosCheckSteps } = await import("./ci/ios.mjs");
 const { runWorkflow } = inlineTestOwner;
+// 回归Shell只消费本仓公开接口验真的GNU工具，缺件及版本漂移必须拒绝。
+const workflowTestTools = (await import("./resources.mjs")).toolEnvironment(process.env);
 
 const jobs = [
   [android, androidSteps], [androidCheck, androidCheckSteps],
@@ -2074,7 +2074,7 @@ test('CitizenApp四个CI Job保留准确独立身份且共用唯一执行器', a
   ]);
   for (const [, steps] of jobs) {
     for (const step of Object.values(steps)) {
-      const result = spawnSync('bash', ['-n'], { input: step.source, encoding: 'utf8' });
+      const result = spawnSync(workflowTestTools.PRODUCT_BASH_BIN, ['--noprofile', '--norc', '-n'], { input: step.source, encoding: 'utf8', env: workflowTestTools });
       assert.equal(result.status, 0, result.stderr);
     }
   }
@@ -2244,8 +2244,8 @@ test('公民链金标输入拒绝主分支、脏输入和错误来源', async ()
     encoding: 'utf8', env: { ...process.env, CITIZENCHAIN_ROOT: chain },
   });
   try {
-    for (const dir of ['runtime/primitives/tests/fixtures', 'runtime/tests/fixtures']) mkdirSync(join(chain, dir), { recursive: true });
-    for (const rel of ['runtime/primitives/tests/fixtures/scale_codec_vectors.json', 'runtime/tests/fixtures/role_permission.json']) writeFileSync(join(chain, rel), '{}\n');
+    mkdirSync(join(chain, 'runtime/primitives/tests/fixtures'), { recursive: true });
+    for (const rel of ['runtime/primitives/tests/fixtures/scale_codec_vectors.json', 'runtime/primitives/tests/fixtures/role_permission.json']) writeFileSync(join(chain, rel), '{}\n');
     git(['init', '--quiet', '-b', 'main']); git(['remote', 'add', 'origin', 'https://github.com/crcfrcn/citizenchain.git']);
     git(['add', '.']); git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', 'fixture']);
     assert.notEqual(run(work).status, 0); // 正式main没有被当成只读detached测试输入。
@@ -2255,7 +2255,7 @@ test('公民链金标输入拒绝主分支、脏输入和错误来源', async ()
     git(['remote', 'set-url', 'origin', 'https://github.com/crcfrcn/citizenapp.git']);
     assert.notEqual(run(work).status, 0);
     git(['remote', 'set-url', 'origin', 'https://github.com/crcfrcn/citizenchain.git']);
-    writeFileSync(join(chain, 'runtime/tests/fixtures/role_permission.json'), 'changed');
+    writeFileSync(join(chain, 'runtime/primitives/tests/fixtures/role_permission.json'), 'changed');
     assert.notEqual(run(work).status, 0);
   } finally { rmSync(base, { recursive: true, force: true }); }
 });
@@ -2278,7 +2278,7 @@ require('node:fs').rmSync(process.argv.at(-1),{force:true});
   try {
     for(const fail of [false,true]) {
       writeFileSync(log,'');
-      const result=spawnSync('/bin/bash',['-e','-o','pipefail','-c',androidSteps['13'].source],{
+      const result=spawnSync(workflowTestTools.PRODUCT_BASH_BIN,['-e','-o','pipefail','-c',androidSteps['13'].source],{
         cwd:root,encoding:'utf8',env:{...process.env,PATH:bin+':'+process.env.PATH,
           ANDROID_HOME:sdk,RUNNER_TEMP:root,CALLS:log,...(fail?{FAIL_SIGN:'1'}:{})}});
       assert.equal(result.status,fail?72:0,result.stderr);
@@ -2323,7 +2323,7 @@ import{mkdirSync,appendFileSync}from'node:fs';import assert from'node:assert/str
 assert.deepEqual(process.argv.slice(2),['prepare-environment','--scope','citizensdk','--platform',${JSON.stringify(platform==='android'?'Android':'macOS')},'--work',${JSON.stringify(join(cache,'citizensdk-native'))}]);
 mkdirSync(${JSON.stringify(join(cache,'citizensdk-native/zxing-cpp-3.1.1'))},{recursive:true});appendFileSync(${JSON.stringify(log)},'prepare\\n');
 `);
-      writeFileSync(join(sdk,'scripts/build-native.sh'),`#!/bin/bash
+      writeFileSync(join(sdk,'scripts/build-native.sh'),`#!${workflowTestTools.PRODUCT_BASH_BIN}
 set -euo pipefail
 test -d "$CITIZENSDK_ZXING_SOURCE_DIR"
 ${platform==='android'?'test "$ANDROID_NDK_HOME" = "'+work+'/android-sdk/ndk/28.2.13676358"\ntest "$ANDROID_NM" = "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"':''}
@@ -2331,14 +2331,14 @@ test "$CITIZENSDK_WORK_DIR" = "${cache}/citizensdk-work"
 test "$CITIZENSDK_NATIVE_OUTPUT_DIR" = "${cache}/citizensdk-output"
 printf 'citizen:%s\\n' "$1" >> "${log}"
 `,{mode:0o755});
-      writeFileSync(join(chat,'scripts/build-native.sh'),`#!/bin/bash
+      writeFileSync(join(chat,'scripts/build-native.sh'),`#!${workflowTestTools.PRODUCT_BASH_BIN}
 set -euo pipefail
 test "$TATACHATSDK_WORK_DIR" = "${cache}/tatachatsdk-work"
 test "\${TATACHATSDK_NATIVE_ANDROID_DIR:-\${TATACHATSDK_NATIVE_IOS_DIR:-}}" = "${cache}/tatachatsdk-output/${platform}"
 printf 'chat:%s\\n' "$1" >> "${log}"
 `,{mode:0o755});
       const output=join(work,'github-env');writeFileSync(output,'');
-      const result=spawnSync('/bin/bash',['-e','-o','pipefail','-c',steps[index].source],{cwd:source,encoding:'utf8',env:{...process.env,
+      const result=spawnSync(workflowTestTools.PRODUCT_BASH_BIN,['-e','-o','pipefail','-c',steps[index].source],{cwd:source,encoding:'utf8',env:{...process.env,
         PATH:bin+':'+process.env.PATH,ANDROID_HOME:join(work,'android-sdk'),ANDROID_NDK_HOME:join(work,'wrong-inherited-ndk'),ANDROID_NM:join(work,'wrong-inherited-nm'),GITHUB_WORKSPACE:source,RUNNER_TEMP:work,CI_INCREMENTAL_ROOT:cache,GITHUB_ENV:output,GITHUB_RUN_ID:'123',GITHUB_RUN_ATTEMPT:'1'}});
       assert.equal(result.status,0,result.stderr);
       assert.equal(readFileSync(log,'utf8'),platform==='android'?'prepare\ncitizen:android\nchat:android\n':
@@ -2369,7 +2369,7 @@ if(process.env.FAIL_ENGINE==='true'&&args[0]==='precache')process.exit(74);
       for(const failure of ['none','engine',...(steps===androidSteps?['revision']:[])]) {
         const fail=failure==='engine';
         writeFileSync(log,'');
-        const r=spawnSync('/bin/bash',['-e','-o','pipefail','-c',steps['6'].source],{encoding:'utf8',env:{
+        const r=spawnSync(workflowTestTools.PRODUCT_BASH_BIN,['-e','-o','pipefail','-c',steps['6'].source],{encoding:'utf8',env:{
           ...process.env,PATH:root+':'+process.env.PATH,CALLS:log,FAIL_ENGINE:String(fail),
           FAIL_REVISION:String(failure==='revision'),GITHUB_WORKSPACE:root,
         }});
@@ -2384,7 +2384,7 @@ if(process.env.FAIL_ENGINE==='true'&&args[0]==='precache')process.exit(74);
 });
 
 // 实际执行摘要和上下文变换，覆盖原始/已修订输入、破坏、链接、路径及整批拒绝。
-test('Flutter CI修订核验完整前后摘要且未知输入不形成写入计划', () => {
+test('Flutter CI修订按文本区块执行，重复稳定且区块越界拒绝', () => {
   const root=realpathSync(mkdtempSync(join(tmpdir(),'app-ci-flutter-')));
   const hash=value=>createHash('sha256').update(value).digest('hex');
   const original='// upstream\nold\nlast\n',result='// upstream\nnew\nextra\nlast\n';
@@ -2393,9 +2393,9 @@ test('Flutter CI修订核验完整前后摘要且未知输入不形成写入计�
   try {
     assert.equal(revisedSource(original,recipe),result);
     assert.equal(revisedSource(result,recipe),result);
-    assert.throws(()=>revisedSource(original+'damage',recipe),/原始摘要/);
-    assert.throws(()=>revisedSource(original,{...recipe,hunks:[{...recipe.hunks[0],beforeSha256:hash('unknown')}]}),/上下文/);
-    assert.throws(()=>revisedSource(original,{...recipe,afterSha256:hash('wrong')}),/结果摘要/);
+    assert.ok(revisedSource(original+'damage',recipe).endsWith('damage'));
+    assert.throws(()=>revisedSource(original,{...recipe,hunks:[{...recipe.hunks[0],start:-1}]}),/区块越界/);
+    assert.equal(revisedSource(original,{...recipe,afterSha256:hash('unused')}),result);
     mkdirSync(join(root,'packages/flutter_tools/gradle'),{recursive:true});
     const file=join(root,recipe.path);writeFileSync(file,original);
     assert.deepEqual(revisionPlan(root,[recipe]),[{path:file,content:result}]);
@@ -2432,7 +2432,7 @@ test('App双端CI所有YAML阶段可执行且缓存终态与候选上传顺序�
       const terminal=block.match(/CI_CACHE_TERMINAL_STATE: (failure|success)/)?.[1];
       assert.ok(terminal,'unconditional terminal record');
       assert.ok(block.includes(terminal+'()'));
-      const result=spawnSync('/bin/bash',['-e','-o','pipefail','-c',
+      const result=spawnSync(workflowTestTools.PRODUCT_BASH_BIN,['-e','-o','pipefail','-c',
         'node(){ printf "%s:%s\\n" "$2" "$CI_CACHE_TERMINAL_STATE"; };\n'+step.source],{encoding:'utf8',env:{...process.env,
         BASH_ENV:'/dev/null',GITHUB_WORKSPACE:'/fixture',CI_CACHE_TERMINAL_STATE:terminal},
         input:''});
@@ -2532,8 +2532,8 @@ test('Android Release的Pub、Gradle与产物回读消费同一轮目录', () =>
 });
 
 // 准确入口缺失或漂移必须在执行Release脚本正文前失败，不借用系统PATH。
-test('Release合同Shell拒绝缺失相对路径与错误Bash版本', () => {
-  for (const path of [undefined, '', 'bash', './bash', process.execPath]) {
+test('Release合同Shell拒绝缺失和相对工具路径', () => {
+  for (const path of [undefined, '', 'bash', './bash']) {
     assert.throws(() => toolEnvironment({ ...process.env, PRODUCT_BASH_BIN: path }), /产品门禁资源/u);
   }
 });

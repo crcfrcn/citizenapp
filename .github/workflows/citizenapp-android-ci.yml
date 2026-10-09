@@ -172,6 +172,10 @@ jobs:
         CI_CACHE_TERMINAL_STATE: success
       shell: bash
       run: node "$GITHUB_WORKSPACE/scripts/ci/android.mjs" check workflow-step 13
+    - name: 清空本产品固定构建目录
+      if: always()
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/target.mjs" finish build
   flow:
     name: 打包公民.apk
     runs-on: ubuntu-24.04
@@ -325,3 +329,7 @@ jobs:
         CI_CACHE_TERMINAL_STATE: success
       shell: bash
       run: node "$GITHUB_WORKSPACE/scripts/ci/android.mjs" workflow-step 17
+    - name: 清空本产品固定构建目录
+      if: always()
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/scripts/target.mjs" finish build
