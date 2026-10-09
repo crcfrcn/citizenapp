@@ -1,13 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:citizenapp/my/myid/myid_page.dart';
-import 'package:citizenapp/ui/app_theme.dart';
+import 'package:citizenapp/account/identity/myid_page.dart';
+import 'package:citizenapp/theme/app_theme.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:provider/provider.dart';
 import 'package:citizenapp/wallet/pages/create_wallet_flow.dart';
 import 'package:citizenapp/wallet/pages/create_wallet_onboarding_page.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 原门禁UI由App承载；SDK的真实目录决定empty/ready/recovering，冷热同权。
 /// 初始化页面仍等待原备份/导入交互结束，再切换页面；不弹SDK窗口。

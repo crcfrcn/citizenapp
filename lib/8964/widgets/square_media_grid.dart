@@ -11,8 +11,8 @@ import 'package:citizenapp/8964/square_models.dart';
 import 'package:citizenapp/8964/services/square_api_client.dart';
 import 'package:citizenapp/8964/services/square_media_processor.dart';
 import 'package:citizenapp/8964/widgets/square_media_carousel.dart';
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 广场卡片媒体区（单块 / 2 个及以上取前两个）。
 ///

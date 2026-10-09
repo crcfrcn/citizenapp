@@ -9,7 +9,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:citizenapp/citizen/institution/institution_role_storage_codec.dart';
-import 'package:citizenapp/citizen/proposal/admins-change/models/admin_account.dart';
+import 'package:citizenapp/citizen/administrators/admin_account.dart';
 import 'package:citizenapp/citizen/shared/institution_code_label.dart';
 
 class AdminAccountStorageDecoded {

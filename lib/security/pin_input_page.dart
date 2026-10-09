@@ -5,12 +5,12 @@ import 'package:flutter/services.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:provider/provider.dart';
 
-import '../ui/app_theme.dart';
+import '../theme/app_theme.dart';
 import 'app_lock_service.dart';
 import 'account_security_service.dart';
 import 'emergency_wipe_platform.dart';
 
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 在设置页内输入并确认独立的防共匪密码。
 Future<bool> showDuressModeSetupDialog(BuildContext context) async {

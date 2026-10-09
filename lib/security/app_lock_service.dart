@@ -11,15 +11,15 @@ import 'package:pointycastle/key_derivators/pbkdf2.dart';
 import 'package:pointycastle/macs/hmac.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../8964/compose/drafts/compose_draft_media.dart';
-import '../8964/profile/services/citizen_profile_cache.dart';
-import '../isar/social_isar.dart';
+import '../8964/compose/compose_draft_media.dart';
+import '../8964/profile/citizen_profile_cache.dart';
+import '../storage/social_isar.dart';
 
 import 'package:tatachat_sdk/tatachat_sdk.dart';
 
-import '../isar/app_isar.dart';
-import '../isar/user_isar.dart';
-import '../isar/wallet_isar.dart';
+import '../storage/app_isar.dart';
+import '../storage/user_isar.dart';
+import '../storage/wallet_isar.dart';
 import 'account_security_service.dart';
 import 'system_protected_storage.dart';
 
@@ -123,7 +123,7 @@ class AppLockService {
     await SystemProtectedRecordStore.lock.write(_keyPinHash, hash);
     // 重置错误计数
     await SystemProtectedRecordStore.lock.write(_keyFailCount, '0');
-    await SystemProtectedRecordStore.lock.delete( _keyLockUntil);
+    await SystemProtectedRecordStore.lock.delete(_keyLockUntil);
     await SystemProtectedRecordStore.lock.write(_keyLockCount, '0');
   }
 
@@ -145,8 +145,8 @@ class AppLockService {
     // 锁定中不允许验证
     if (await isLocked()) return AppPinVerificationResult.locked;
 
-    final normalHash = await SystemProtectedRecordStore.lock.read( _keyPinHash);
-    final normalSalt = await SystemProtectedRecordStore.lock.read( _keyPinSalt);
+    final normalHash = await SystemProtectedRecordStore.lock.read(_keyPinHash);
+    final normalSalt = await SystemProtectedRecordStore.lock.read(_keyPinSalt);
     if (normalHash == null || normalSalt == null) {
       return AppPinVerificationResult.rejected;
     }
@@ -193,8 +193,8 @@ class AppLockService {
     required CitizenSdkWallet? wallet,
     required AccountSecurityService? accountSecurity,
   }) async {
-    final storedHash = await SystemProtectedRecordStore.lock.read( _keyPinHash);
-    final storedSalt = await SystemProtectedRecordStore.lock.read( _keyPinSalt);
+    final storedHash = await SystemProtectedRecordStore.lock.read(_keyPinHash);
+    final storedSalt = await SystemProtectedRecordStore.lock.read(_keyPinSalt);
     if (storedHash == null || storedSalt == null) {
       return AppPinVerificationResult.rejected;
     }
@@ -219,12 +219,16 @@ class AppLockService {
   ) async {
     // 两类密码均未命中后，才累计一次普通应用锁错误。
     final failCount = await _readInt(_keyFailCount) + 1;
-    await SystemProtectedRecordStore.lock.write(_keyFailCount, failCount.toString(),
+    await SystemProtectedRecordStore.lock.write(
+      _keyFailCount,
+      failCount.toString(),
     );
 
     if (failCount >= maxFailAttempts) {
       final lockCount = await _readInt(_keyLockCount) + 1;
-      await SystemProtectedRecordStore.lock.write(_keyLockCount, lockCount.toString(),
+      await SystemProtectedRecordStore.lock.write(
+        _keyLockCount,
+        lockCount.toString(),
       );
       await SystemProtectedRecordStore.lock.write(_keyFailCount, '0');
 
@@ -235,7 +239,9 @@ class AppLockService {
 
       // 锁定 24 小时
       final lockUntil = DateTime.now().add(lockDuration).millisecondsSinceEpoch;
-      await SystemProtectedRecordStore.lock.write(_keyLockUntil, lockUntil.toString(),
+      await SystemProtectedRecordStore.lock.write(
+        _keyLockUntil,
+        lockUntil.toString(),
       );
       return AppPinVerificationResult.locked;
     }
@@ -250,19 +256,19 @@ class AppLockService {
       _requireFlutterTest();
       return debugRemove();
     }
-    await SystemProtectedRecordStore.lock.delete( _keyPinHash);
-    await SystemProtectedRecordStore.lock.delete( _keyPinSalt);
-    await SystemProtectedRecordStore.lock.delete( _keyFailCount);
-    await SystemProtectedRecordStore.lock.delete( _keyLockUntil);
-    await SystemProtectedRecordStore.lock.delete( _keyLockCount);
+    await SystemProtectedRecordStore.lock.delete(_keyPinHash);
+    await SystemProtectedRecordStore.lock.delete(_keyPinSalt);
+    await SystemProtectedRecordStore.lock.delete(_keyFailCount);
+    await SystemProtectedRecordStore.lock.delete(_keyLockUntil);
+    await SystemProtectedRecordStore.lock.delete(_keyLockCount);
     await removeDuressMode();
   }
 
   /// 设置独立的 6 位防共匪密码。与普通应用锁密码相同则拒绝保存。
   static Future<bool> setDuressModePin(String pin) async {
     _requireSixDigitPin(pin);
-    final normalHash = await SystemProtectedRecordStore.lock.read( _keyPinHash);
-    final normalSalt = await SystemProtectedRecordStore.lock.read( _keyPinSalt);
+    final normalHash = await SystemProtectedRecordStore.lock.read(_keyPinHash);
+    final normalSalt = await SystemProtectedRecordStore.lock.read(_keyPinSalt);
     if (normalHash == null || normalSalt == null) return false;
     if (await _hash(pin, normalSalt, iterations: appLockPinHashIterations) ==
         normalHash) {
@@ -271,7 +277,9 @@ class AppLockService {
 
     final salt = _generateSalt();
     await SystemProtectedRecordStore.lock.write(_keyDuressModePinSalt, salt);
-    await SystemProtectedRecordStore.lock.write(_keyDuressModePinHash, await _hash(pin, salt, iterations: duressModePinHashIterations),
+    await SystemProtectedRecordStore.lock.write(
+      _keyDuressModePinHash,
+      await _hash(pin, salt, iterations: duressModePinHashIterations),
     );
     await SystemProtectedRecordStore.lock.write(_keyDuressModeEnabled, 'true');
     return isDuressModeEnabled();
@@ -280,9 +288,15 @@ class AppLockService {
   /// 防共匪模式只有在普通应用锁存在且三项状态完整时才视为开启。
   static Future<bool> isDuressModeEnabled() async {
     if (!await isPinSet()) return false;
-    final enabled = await SystemProtectedRecordStore.lock.read( _keyDuressModeEnabled);
-    final hash = await SystemProtectedRecordStore.lock.read( _keyDuressModePinHash);
-    final salt = await SystemProtectedRecordStore.lock.read( _keyDuressModePinSalt);
+    final enabled = await SystemProtectedRecordStore.lock.read(
+      _keyDuressModeEnabled,
+    );
+    final hash = await SystemProtectedRecordStore.lock.read(
+      _keyDuressModePinHash,
+    );
+    final salt = await SystemProtectedRecordStore.lock.read(
+      _keyDuressModePinSalt,
+    );
     return enabled == 'true' &&
         hash != null &&
         hash.isNotEmpty &&
@@ -291,16 +305,22 @@ class AppLockService {
   }
 
   static Future<void> removeDuressMode() async {
-    await SystemProtectedRecordStore.lock.delete( _keyDuressModePinHash);
-    await SystemProtectedRecordStore.lock.delete( _keyDuressModePinSalt);
-    await SystemProtectedRecordStore.lock.delete( _keyDuressModeEnabled);
+    await SystemProtectedRecordStore.lock.delete(_keyDuressModePinHash);
+    await SystemProtectedRecordStore.lock.delete(_keyDuressModePinSalt);
+    await SystemProtectedRecordStore.lock.delete(_keyDuressModeEnabled);
   }
 
   static Future<bool> _matchesDuressModePin(String pin) async {
-    final enabled = await SystemProtectedRecordStore.lock.read( _keyDuressModeEnabled);
+    final enabled = await SystemProtectedRecordStore.lock.read(
+      _keyDuressModeEnabled,
+    );
     if (enabled != 'true') return false;
-    final hash = await SystemProtectedRecordStore.lock.read( _keyDuressModePinHash);
-    final salt = await SystemProtectedRecordStore.lock.read( _keyDuressModePinSalt);
+    final hash = await SystemProtectedRecordStore.lock.read(
+      _keyDuressModePinHash,
+    );
+    final salt = await SystemProtectedRecordStore.lock.read(
+      _keyDuressModePinSalt,
+    );
     return hash != null &&
         salt != null &&
         await _hash(pin, salt, iterations: duressModePinHashIterations) == hash;
@@ -308,7 +328,7 @@ class AppLockService {
 
   /// 是否已设置 PIN。
   static Future<bool> isPinSet() async {
-    final hash = await SystemProtectedRecordStore.lock.read( _keyPinHash);
+    final hash = await SystemProtectedRecordStore.lock.read(_keyPinHash);
     return hash != null && hash.isNotEmpty;
   }
 
@@ -320,7 +340,9 @@ class AppLockService {
       _requireFlutterTest();
       return debugLocked();
     }
-    final lockUntilStr = await SystemProtectedRecordStore.lock.read( _keyLockUntil);
+    final lockUntilStr = await SystemProtectedRecordStore.lock.read(
+      _keyLockUntil,
+    );
     if (lockUntilStr == null) return false;
     final lockUntil = int.tryParse(lockUntilStr);
     if (lockUntil == null) return false;
@@ -329,7 +351,9 @@ class AppLockService {
 
   /// 剩余锁定秒数（未锁定返回 0）。
   static Future<int> getRemainingLockSeconds() async {
-    final lockUntilStr = await SystemProtectedRecordStore.lock.read( _keyLockUntil);
+    final lockUntilStr = await SystemProtectedRecordStore.lock.read(
+      _keyLockUntil,
+    );
     if (lockUntilStr == null) return 0;
     final lockUntil = int.tryParse(lockUntilStr);
     if (lockUntil == null) return 0;
@@ -623,9 +647,11 @@ class AppLockService {
   }
 
   static Future<void> _deleteAndVerifyProtectedRecords() async {
+    await SystemProtectedRecordStore.registration.deleteAll();
     await SystemProtectedRecordStore.identity.deleteAll();
     await SystemProtectedRecordStore.lock.deleteAll();
-    if ((await SystemProtectedRecordStore.identity.readAll()).isNotEmpty ||
+    if ((await SystemProtectedRecordStore.registration.readAll()).isNotEmpty ||
+        (await SystemProtectedRecordStore.identity.readAll()).isNotEmpty ||
         (await SystemProtectedRecordStore.lock.readAll()).isNotEmpty) {
       throw StateError('安全存储仍有残留');
     }
@@ -691,7 +717,7 @@ class AppLockService {
   }
 
   static Future<int> _readInt(String key) async {
-    final str = await SystemProtectedRecordStore.lock.read( key);
+    final str = await SystemProtectedRecordStore.lock.read(key);
     if (str == null) return 0;
     return int.tryParse(str) ?? 0;
   }

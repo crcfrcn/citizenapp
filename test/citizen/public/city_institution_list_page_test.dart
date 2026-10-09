@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:citizenapp/citizen/public/city_institution_list_page.dart';
-import 'package:citizenapp/citizen/public/data/public_institution_repository.dart';
-import 'package:citizenapp/isar/app_isar.dart';
+import 'package:citizenapp/citizen/public/public_institution_repository.dart';
+import 'package:citizenapp/storage/app_isar.dart';
 
 import 'fake_public_institution_store.dart';
 

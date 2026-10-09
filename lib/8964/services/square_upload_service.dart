@@ -7,7 +7,7 @@ import 'package:citizenapp/8964/square_models.dart';
 import 'package:citizenapp/8964/services/square_api_client.dart';
 import 'package:citizenapp/8964/services/square_media_processor.dart';
 import 'package:citizenapp/8964/services/square_media_store.dart';
-import 'package:citizenapp/my/membership/subscription_service.dart';
+import 'package:citizenapp/account/membership/subscription_service.dart';
 
 class SquareUploadedContent {
   const SquareUploadedContent({

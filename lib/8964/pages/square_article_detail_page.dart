@@ -10,14 +10,14 @@ import 'package:provider/provider.dart';
 import 'package:citizenapp/8964/square_models.dart';
 import 'package:citizenapp/8964/compose/compose_page.dart';
 import 'package:citizenapp/8964/pages/square_post_detail_page.dart';
-import 'package:citizenapp/8964/profile/services/square_session_provider.dart';
+import 'package:citizenapp/8964/profile/square_session_provider.dart';
 import 'package:citizenapp/8964/services/square_api_client.dart';
 import 'package:citizenapp/8964/services/square_post_deletion_coordinator.dart';
 import 'package:citizenapp/8964/widgets/square_media_carousel.dart';
 import 'package:citizenapp/8964/widgets/square_media_grid.dart';
 import 'package:citizenapp/8964/widgets/article_rich_text_view.dart';
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 文章详情：首图、标题、作者及保持图集/视频块关系的完整正文。
 class SquareArticleDetailPage extends StatefulWidget {

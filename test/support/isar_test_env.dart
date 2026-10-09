@@ -6,12 +6,12 @@
 
 import 'dart:io';
 
-import 'package:citizenapp/isar/social_isar.dart';
+import 'package:citizenapp/storage/social_isar.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart';
-import 'package:citizenapp/isar/app_isar.dart';
-import 'package:citizenapp/isar/isar_core_bootstrap.dart';
-import 'package:citizenapp/isar/user_isar.dart';
-import 'package:citizenapp/isar/wallet_isar.dart';
+import 'package:citizenapp/storage/app_isar.dart';
+import 'package:citizenapp/storage/isar_core_bootstrap.dart';
+import 'package:citizenapp/storage/user_isar.dart';
+import 'package:citizenapp/storage/wallet_isar.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// 每个测试文件拥有真实隔离数据库，测试环境不注入应用数据密钥。

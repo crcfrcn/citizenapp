@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 提案占位页——某提案种类链端/客户端尚未对接时统一展示「开发中」。
 ///

@@ -9,12 +9,12 @@ import 'package:provider/provider.dart';
 
 import 'package:citizenapp/8964/square_models.dart';
 import 'package:citizenapp/8964/compose/compose_page.dart';
-import 'package:citizenapp/8964/profile/services/square_session_provider.dart';
+import 'package:citizenapp/8964/profile/square_session_provider.dart';
 import 'package:citizenapp/8964/services/square_api_client.dart';
 import 'package:citizenapp/8964/services/square_post_deletion_coordinator.dart';
 import 'package:citizenapp/8964/widgets/square_post_card.dart';
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 本页面编排广场帖子详情加载、链上索引展示以及编辑和删除入口；
 /// 正文与媒体操作仍经 Square API 协调，钱包会话和区块链底层不在页面内实现。

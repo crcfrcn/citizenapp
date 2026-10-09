@@ -1,10 +1,10 @@
 import 'dart:async';
 
-import 'package:citizenapp/isar/social_isar.dart';
+import 'package:citizenapp/storage/social_isar.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart';
-import 'package:citizenapp/isar/app_isar.dart';
-import 'package:citizenapp/isar/user_isar.dart';
-import 'package:citizenapp/isar/wallet_isar.dart';
+import 'package:citizenapp/storage/app_isar.dart';
+import 'package:citizenapp/storage/user_isar.dart';
+import 'package:citizenapp/storage/wallet_isar.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:isar_community/isar.dart';
 

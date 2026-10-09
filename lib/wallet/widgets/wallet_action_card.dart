@@ -5,12 +5,12 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'package:citizenapp/transaction/onchain-topup/onchain_topup_page.dart';
-import 'package:citizenapp/transaction/offchain-transaction/services/clearing_bank_prefs.dart';
-import 'package:citizenapp/transaction/offchain-transaction/pages/petty_wallet_page.dart';
-import 'package:citizenapp/transaction/offchain-transaction/pages/withdraw_page.dart';
-import 'package:citizenapp/ui/app_layout.dart';
-import 'package:citizenapp/ui/app_theme.dart';
+import 'package:citizenapp/transaction/topup/onchain_topup_page.dart';
+import 'package:citizenapp/transaction/offchain/clearing_bank_prefs.dart';
+import 'package:citizenapp/transaction/offchain/petty_wallet_page.dart';
+import 'package:citizenapp/transaction/offchain/withdraw_page.dart';
+import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/theme/app_theme.dart';
 
 /// 账户详情的 3 列等宽操作区（充值/提现/零钱包），一律按 `account_id` 键控。
 ///

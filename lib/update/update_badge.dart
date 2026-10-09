@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 更新提醒红点，只表达“当前仍有可安装更新”。
 ///

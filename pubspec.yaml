@@ -15,7 +15,7 @@ dependencies:
     git:
       url: https://github.com/crcfrcn/citizensdk.git
       path: .
-      ref: da2216b2294622fd6c72be82bbda72220de8e4bf
+      ref: 0c442b4065ff1577e235cba76978749827d9f575
   cupertino_icons: 1.0.9
   http: 1.6.0
   shared_preferences: ^2.5.5
@@ -89,20 +89,21 @@ dev_dependencies:
   protoc_plugin: 25.0.0
 
 flutter:
-  # 两款移动产品在 Flutter 3.44.4 下统一使用 CocoaPods，禁止本机全局配置
+  # 两款移动产品统一使用 CocoaPods，禁止本机全局配置
   # 把某一产品单独切到 Swift Package Manager 后形成双轨原生依赖状态。
   config:
     enable-swift-package-manager: false
   uses-material-design: true
   assets:
-    - assets/profile_defaults/
-    - assets/badges/
+    - assets/profiles/
+    - assets/icons/institution_private.svg
+    - assets/icons/institution_public.svg
     - assets/topup/walletconnect.html
     - assets/topup/walletconnect.bundle.js
-    - assets/public_institutions/
-    - assets/admin_divisions/
-    - assets/admin_divisions/cities/
-    - assets/admin_divisions/towns/
+    - assets/institutions/
+    - assets/divisions/
+    - assets/divisions/cities/
+    - assets/divisions/towns/
     - assets/icons/scan-line.svg
     - assets/icons/wallet.svg
     - assets/icons/copy.svg
@@ -116,7 +117,7 @@ flutter:
     - assets/icons/download.svg
     - assets/icons/government-line.svg
     - assets/icons/bank.svg
-    - assets/icons/gmb-mark.png
+    - assets/logo/mark256.png
     - assets/icons/usdc.svg
     - assets/icons/usdt.svg
     - assets/icons/icons8-96.png

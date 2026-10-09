@@ -8,13 +8,14 @@
     "citizenapp.ios.release"
   ],
   "node_tests": [
-    "scripts/ci/cache.test.mjs",
-    "scripts/ci/jobs.test.mjs",
-    "scripts/release/jobs.test.mjs",
-    "scripts/release/version.test.mjs",
-    "test/release_manifest.test.mjs",
-    "scripts/citizenapp-test-native.test.mjs",
-    "scripts/resources.test.mjs"
+    "scripts/build.mjs",
+    "scripts/flow.mjs",
+    "scripts/resources.mjs",
+    "scripts/ci/android.mjs",
+    "scripts/ci/ios.mjs",
+    "scripts/release/android.mjs",
+    "scripts/release/ios.mjs",
+    "test/release_manifest.test.mjs"
   ],
   "checks": [
     "repository-contracts",
@@ -34,655 +35,1019 @@
     "macos-arm64",
     "macos_arm64"
   ],
-  "tool_sources": {
-    "sources": {
-      "git": {
-        "version": "2.54.0",
-        "url": "https://www.kernel.org/pub/software/scm/git/git-2.54.0.tar.xz",
-        "sha256": "f689162364c10de79ef89aa8dbf48731eb057e34edbbd20aca510ce0154681a3",
-        "root": "git-2.54.0",
-        "executable": "bin/git",
-        "upstream_patches": []
-      },
-      "bash": {
-        "version": "5.3.20",
-        "url": "https://ftp.gnu.org/gnu/bash/bash-5.3.tar.gz",
-        "sha256": "0d5cd86965f869a26cf64f4b71be7b96f90a3ba8b3d74e27e8e9d9d5550f31ba",
-        "root": "bash-5.3",
-        "executable": "bin/bash",
-        "upstream_patches": [
-          {
-            "url": "https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-001",
-            "sha256": "1f608434364af86b9b45c8b0ea3fb3b165fb830d27697e6cdfc7ac17dee3287f",
-            "mirrors": [
-              "https://mirrors.ocf.berkeley.edu/gnu/bash/bash-5.3-patches/bash53-001",
-              "https://mirror.csclub.uwaterloo.ca/gnu/bash/bash-5.3-patches/bash53-001"
-            ]
-          },
-          {
-            "url": "https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-002",
-            "sha256": "e385548a00130765ec7938a56fbdca52447ab41fabc95a25f19ade527e282001",
-            "mirrors": [
-              "https://mirrors.ocf.berkeley.edu/gnu/bash/bash-5.3-patches/bash53-002",
-              "https://mirror.csclub.uwaterloo.ca/gnu/bash/bash-5.3-patches/bash53-002"
-            ]
-          },
-          {
-            "url": "https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-003",
-            "sha256": "f245d9c7dc3f5a20d84b53d249334747940936f09dc97e1dcb89fc3ab37d60ed",
-            "mirrors": [
-              "https://mirrors.ocf.berkeley.edu/gnu/bash/bash-5.3-patches/bash53-003",
-              "https://mirror.csclub.uwaterloo.ca/gnu/bash/bash-5.3-patches/bash53-003"
-            ]
-          },
-          {
-            "url": "https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-004",
-            "sha256": "9591d245045529f32f0812f94180b9d9ce9023f5a765c039b852e5dfc99747d0",
-            "mirrors": [
-              "https://mirrors.ocf.berkeley.edu/gnu/bash/bash-5.3-patches/bash53-004",
-              "https://mirror.csclub.uwaterloo.ca/gnu/bash/bash-5.3-patches/bash53-004"
-            ]
-          },
-          {
-            "url": "https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-005",
-            "sha256": "cca1ef52dbbf433bc98e33269b64b2c814028efe2538be1e2c9a377da90bc99d",
-            "mirrors": [
-              "https://mirrors.ocf.berkeley.edu/gnu/bash/bash-5.3-patches/bash53-005",
-              "https://mirror.csclub.uwaterloo.ca/gnu/bash/bash-5.3-patches/bash53-005"
-            ]
-          },
-          {
-            "url": "https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-006",
-            "sha256": "29119addefed8eff91ae37fd51822c31780ee30d4a28376e96002706c995ff10",
-            "mirrors": [
-              "https://mirrors.ocf.berkeley.edu/gnu/bash/bash-5.3-patches/bash53-006",
-              "https://mirror.csclub.uwaterloo.ca/gnu/bash/bash-5.3-patches/bash53-006"
-            ]
-          },
-          {
-            "url": "https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-007",
-            "sha256": "c0976bbfffa1453c7cfdd62058f206a318568ff2d690f5d4fa048793fa3eb299",
-            "mirrors": [
-              "https://mirrors.ocf.berkeley.edu/gnu/bash/bash-5.3-patches/bash53-007",
-              "https://mirror.csclub.uwaterloo.ca/gnu/bash/bash-5.3-patches/bash53-007"
-            ]
-          },
-          {
-            "url": "https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-008",
-            "sha256": "097cd723cbfb8907674ac32214063a3fd85282657ec5b4e544d2c0f719653fb4",
-            "mirrors": [
-              "https://mirrors.ocf.berkeley.edu/gnu/bash/bash-5.3-patches/bash53-008",
-              "https://mirror.csclub.uwaterloo.ca/gnu/bash/bash-5.3-patches/bash53-008"
-            ]
-          },
-          {
-            "url": "https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-009",
-            "sha256": "eee30fe78a4b0cb2fe20e010e00308899cfc613e0774ebb3c8557a1552f24f8c",
-            "mirrors": [
-              "https://mirrors.ocf.berkeley.edu/gnu/bash/bash-5.3-patches/bash53-009",
-              "https://mirror.csclub.uwaterloo.ca/gnu/bash/bash-5.3-patches/bash53-009"
-            ]
-          },
-          {
-            "url": "https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-010",
-            "sha256": "cf76f1cce2ea300c18bff9f002d21f280cc931acd17c28518110b93fe6e72569",
-            "mirrors": [
-              "https://mirrors.ocf.berkeley.edu/gnu/bash/bash-5.3-patches/bash53-010",
-              "https://mirror.csclub.uwaterloo.ca/gnu/bash/bash-5.3-patches/bash53-010"
-            ]
-          },
-          {
-            "url": "https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-011",
-            "sha256": "0298df8f5ea2a31d3be43ed7d269c5b3c7c342dd5b570bea7f64d66dcbbe7531",
-            "mirrors": [
-              "https://mirrors.ocf.berkeley.edu/gnu/bash/bash-5.3-patches/bash53-011",
-              "https://mirror.csclub.uwaterloo.ca/gnu/bash/bash-5.3-patches/bash53-011"
-            ]
-          },
-          {
-            "url": "https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-012",
-            "sha256": "d71379b39bebaedaf123414414e77fb458a0a43b9ad3116594c6df7ca6754573",
-            "mirrors": [
-              "https://mirrors.ocf.berkeley.edu/gnu/bash/bash-5.3-patches/bash53-012",
-              "https://mirror.csclub.uwaterloo.ca/gnu/bash/bash-5.3-patches/bash53-012"
-            ]
-          },
-          {
-            "url": "https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-013",
-            "sha256": "042f9cda967e24bf4211944697441e93d06ff42b4b998629a98a1b249279f200",
-            "mirrors": [
-              "https://mirrors.ocf.berkeley.edu/gnu/bash/bash-5.3-patches/bash53-013",
-              "https://mirror.csclub.uwaterloo.ca/gnu/bash/bash-5.3-patches/bash53-013"
-            ]
-          },
-          {
-            "url": "https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-014",
-            "sha256": "bd4360b401d38507e358783dcad8536a99c6789f0d3a5bd0cfb8c4a34144696c",
-            "mirrors": [
-              "https://mirrors.ocf.berkeley.edu/gnu/bash/bash-5.3-patches/bash53-014",
-              "https://mirror.csclub.uwaterloo.ca/gnu/bash/bash-5.3-patches/bash53-014"
-            ]
-          },
-          {
-            "url": "https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-015",
-            "sha256": "55b79ceee2fc27f6767eed697e939a7eb2fe2a28c01556bd75f18d581014f46e",
-            "mirrors": [
-              "https://mirrors.ocf.berkeley.edu/gnu/bash/bash-5.3-patches/bash53-015",
-              "https://mirror.csclub.uwaterloo.ca/gnu/bash/bash-5.3-patches/bash53-015"
-            ]
-          },
-          {
-            "url": "https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-016",
-            "sha256": "9ea29b266b7d24cb34d0ff3f1c4631e4d527bfe2d1ef15d17cdb924bf31ef767",
-            "mirrors": [
-              "https://mirrors.ocf.berkeley.edu/gnu/bash/bash-5.3-patches/bash53-016",
-              "https://mirror.csclub.uwaterloo.ca/gnu/bash/bash-5.3-patches/bash53-016"
-            ]
-          },
-          {
-            "url": "https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-017",
-            "sha256": "443b927b45c1558ca72052410f8b8f6e5152b617ed707061a2781d4375b0d1c3",
-            "mirrors": [
-              "https://mirrors.ocf.berkeley.edu/gnu/bash/bash-5.3-patches/bash53-017",
-              "https://mirror.csclub.uwaterloo.ca/gnu/bash/bash-5.3-patches/bash53-017"
-            ]
-          },
-          {
-            "url": "https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-018",
-            "sha256": "ae715d76c50341d7d7095e9a8d2eeed1ca9546152c2ac7289206f90cf30ac697",
-            "mirrors": [
-              "https://mirrors.ocf.berkeley.edu/gnu/bash/bash-5.3-patches/bash53-018",
-              "https://mirror.csclub.uwaterloo.ca/gnu/bash/bash-5.3-patches/bash53-018"
-            ]
-          },
-          {
-            "url": "https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-019",
-            "sha256": "a25c581e4d0057dea3833918438a930e2e86ee4c6dc17fe15267b7f04cbc4e3d",
-            "mirrors": [
-              "https://mirrors.ocf.berkeley.edu/gnu/bash/bash-5.3-patches/bash53-019",
-              "https://mirror.csclub.uwaterloo.ca/gnu/bash/bash-5.3-patches/bash53-019"
-            ]
-          },
-          {
-            "url": "https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-020",
-            "sha256": "df217ed3a9122aa2286d9b67bbe348661b6a9db262b580c29150dae55d532896",
-            "mirrors": [
-              "https://mirrors.ocf.berkeley.edu/gnu/bash/bash-5.3-patches/bash53-020",
-              "https://mirror.csclub.uwaterloo.ca/gnu/bash/bash-5.3-patches/bash53-020"
-            ]
-          }
-        ],
-        "mirrors": [
-          "https://mirrors.ocf.berkeley.edu/gnu/bash/bash-5.3.tar.gz",
-          "https://mirror.csclub.uwaterloo.ca/gnu/bash/bash-5.3.tar.gz"
-        ]
-      },
-      "grep": {
-        "version": "3.12",
-        "url": "https://ftp.gnu.org/gnu/grep/grep-3.12.tar.xz",
-        "sha256": "2649b27c0e90e632eadcd757be06c6e9a4f48d941de51e7c0f83ff76408a07b9",
-        "root": "grep-3.12",
-        "executable": "bin/grep",
-        "upstream_patches": [],
-        "mirrors": [
-          "https://mirrors.ocf.berkeley.edu/gnu/grep/grep-3.12.tar.xz",
-          "https://mirror.csclub.uwaterloo.ca/gnu/grep/grep-3.12.tar.xz"
-        ]
-      },
-      "sed": {
-        "version": "4.10",
-        "url": "https://ftp.gnu.org/gnu/sed/sed-4.10.tar.xz",
-        "sha256": "b8e72182b2ec96a3574e2998c47b7aaa64cc20ce000d8e9ac313cc07cecf28c7",
-        "root": "sed-4.10",
-        "executable": "bin/sed",
-        "upstream_patches": [],
-        "mirrors": [
-          "https://mirrors.ocf.berkeley.edu/gnu/sed/sed-4.10.tar.xz",
-          "https://mirror.csclub.uwaterloo.ca/gnu/sed/sed-4.10.tar.xz"
-        ]
-      },
-      "actionlint": {
-        "version": "1.7.12",
-        "url": "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz",
-        "sha256": "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8",
-        "root": ".",
-        "executable": "actionlint",
-        "upstream_patches": []
-      }
+  "github_repository": "crcfrcn/citizenapp",
+  "chain_source": {
+    "url": "https://github.com/crcfrcn/citizenchain.git",
+    "sha": "72690d8dc6e8fc1335c67a6dbc83bd40d6ef7b26"
+  },
+  "functions": [
+    {
+      "function": "scripts/build",
+      "path": "scripts/build.mjs",
+      "runner": "node",
+      "target": "node"
     },
-    "bootstrap": {
-      "platform": "linux",
-      "architecture": "x64",
-      "os": "24.04",
-      "commands": [
-        {
-          "name": "basename",
-          "path": "/usr/bin/basename",
-          "package": "coreutils"
-        },
-        {
-          "name": "cat",
-          "path": "/usr/bin/cat",
-          "package": "coreutils"
-        },
-        {
-          "name": "chmod",
-          "path": "/usr/bin/chmod",
-          "package": "coreutils"
-        },
-        {
-          "name": "cp",
-          "path": "/usr/bin/cp",
-          "package": "coreutils"
-        },
-        {
-          "name": "cut",
-          "path": "/usr/bin/cut",
-          "package": "coreutils"
-        },
-        {
-          "name": "date",
-          "path": "/usr/bin/date",
-          "package": "coreutils"
-        },
-        {
-          "name": "dd",
-          "path": "/usr/bin/dd",
-          "package": "coreutils"
-        },
-        {
-          "name": "dirname",
-          "path": "/usr/bin/dirname",
-          "package": "coreutils"
-        },
-        {
-          "name": "du",
-          "path": "/usr/bin/du",
-          "package": "coreutils"
-        },
-        {
-          "name": "echo",
-          "path": "/usr/bin/echo",
-          "package": "coreutils"
-        },
-        {
-          "name": "env",
-          "path": "/usr/bin/env",
-          "package": "coreutils"
-        },
-        {
-          "name": "expr",
-          "path": "/usr/bin/expr",
-          "package": "coreutils"
-        },
-        {
-          "name": "false",
-          "path": "/usr/bin/false",
-          "package": "coreutils"
-        },
-        {
-          "name": "head",
-          "path": "/usr/bin/head",
-          "package": "coreutils"
-        },
-        {
-          "name": "install",
-          "path": "/usr/bin/install",
-          "package": "coreutils"
-        },
-        {
-          "name": "ln",
-          "path": "/usr/bin/ln",
-          "package": "coreutils"
-        },
-        {
-          "name": "ls",
-          "path": "/usr/bin/ls",
-          "package": "coreutils"
-        },
-        {
-          "name": "mkdir",
-          "path": "/usr/bin/mkdir",
-          "package": "coreutils"
-        },
-        {
-          "name": "mv",
-          "path": "/usr/bin/mv",
-          "package": "coreutils"
-        },
-        {
-          "name": "od",
-          "path": "/usr/bin/od",
-          "package": "coreutils"
-        },
-        {
-          "name": "printf",
-          "path": "/usr/bin/printf",
-          "package": "coreutils"
-        },
-        {
-          "name": "pwd",
-          "path": "/usr/bin/pwd",
-          "package": "coreutils"
-        },
-        {
-          "name": "readlink",
-          "path": "/usr/bin/readlink",
-          "package": "coreutils"
-        },
-        {
-          "name": "realpath",
-          "path": "/usr/bin/realpath",
-          "package": "coreutils"
-        },
-        {
-          "name": "rm",
-          "path": "/usr/bin/rm",
-          "package": "coreutils"
-        },
-        {
-          "name": "rmdir",
-          "path": "/usr/bin/rmdir",
-          "package": "coreutils"
-        },
-        {
-          "name": "sleep",
-          "path": "/usr/bin/sleep",
-          "package": "coreutils"
-        },
-        {
-          "name": "sort",
-          "path": "/usr/bin/sort",
-          "package": "coreutils"
-        },
-        {
-          "name": "stat",
-          "path": "/usr/bin/stat",
-          "package": "coreutils"
-        },
-        {
-          "name": "tail",
-          "path": "/usr/bin/tail",
-          "package": "coreutils"
-        },
-        {
-          "name": "tee",
-          "path": "/usr/bin/tee",
-          "package": "coreutils"
-        },
-        {
-          "name": "test",
-          "path": "/usr/bin/test",
-          "package": "coreutils"
-        },
-        {
-          "name": "touch",
-          "path": "/usr/bin/touch",
-          "package": "coreutils"
-        },
-        {
-          "name": "tr",
-          "path": "/usr/bin/tr",
-          "package": "coreutils"
-        },
-        {
-          "name": "true",
-          "path": "/usr/bin/true",
-          "package": "coreutils"
-        },
-        {
-          "name": "uname",
-          "path": "/usr/bin/uname",
-          "package": "coreutils"
-        },
-        {
-          "name": "uniq",
-          "path": "/usr/bin/uniq",
-          "package": "coreutils"
-        },
-        {
-          "name": "wc",
-          "path": "/usr/bin/wc",
-          "package": "coreutils"
-        },
-        {
-          "name": "bash",
-          "path": "/usr/bin/bash",
-          "package": "bash"
-        },
-        {
-          "name": "grep",
-          "path": "/usr/bin/grep",
-          "package": "grep"
-        },
-        {
-          "name": "sed",
-          "path": "/usr/bin/sed",
-          "package": "sed"
-        },
-        {
-          "name": "make",
-          "path": "/usr/bin/make",
-          "package": "make"
-        },
-        {
-          "name": "patch",
-          "path": "/usr/bin/patch",
-          "package": "patch"
-        },
-        {
-          "name": "tar",
-          "path": "/usr/bin/tar",
-          "package": "tar"
-        },
-        {
-          "name": "gzip",
-          "path": "/usr/bin/gzip",
-          "package": "gzip"
-        },
-        {
-          "name": "xz",
-          "path": "/usr/bin/xz",
-          "package": "xz-utils"
-        },
-        {
-          "name": "awk",
-          "path": "/usr/bin/mawk",
-          "package": "mawk"
-        },
-        {
-          "name": "diff",
-          "path": "/usr/bin/diff",
-          "package": "diffutils"
-        },
-        {
-          "name": "cmp",
-          "path": "/usr/bin/cmp",
-          "package": "diffutils"
-        },
-        {
-          "name": "find",
-          "path": "/usr/bin/find",
-          "package": "findutils"
-        },
-        {
-          "name": "xargs",
-          "path": "/usr/bin/xargs",
-          "package": "findutils"
-        },
-        {
-          "name": "clang",
-          "path": "/usr/lib/llvm-18/bin/clang",
-          "package": "clang-18"
-        },
-        {
-          "name": "ar",
-          "path": "/usr/bin/x86_64-linux-gnu-ar",
-          "package": "binutils-x86-64-linux-gnu"
-        },
-        {
-          "name": "as",
-          "path": "/usr/bin/x86_64-linux-gnu-as",
-          "package": "binutils-x86-64-linux-gnu"
-        },
-        {
-          "name": "ld",
-          "path": "/usr/bin/x86_64-linux-gnu-ld.bfd",
-          "package": "binutils-x86-64-linux-gnu"
-        },
-        {
-          "name": "nm",
-          "path": "/usr/bin/x86_64-linux-gnu-nm",
-          "package": "binutils-x86-64-linux-gnu"
-        },
-        {
-          "name": "ranlib",
-          "path": "/usr/bin/x86_64-linux-gnu-ranlib",
-          "package": "binutils-x86-64-linux-gnu"
-        },
-        {
-          "name": "strip",
-          "path": "/usr/bin/x86_64-linux-gnu-strip",
-          "package": "binutils-x86-64-linux-gnu"
-        },
-        {
-          "name": "dpkg-deb",
-          "path": "/usr/bin/dpkg-deb",
-          "package": "dpkg"
-        }
-      ],
-      "packages": [
-        {
-          "name": "dpkg",
-          "version": "1.22.6ubuntu6.6",
-          "source": "https://packages.ubuntu.com/noble/dpkg"
-        },
-        {
-          "name": "bash",
-          "version": "5.2.21-2ubuntu4",
-          "source": "https://packages.ubuntu.com/noble/bash"
-        },
-        {
-          "name": "grep",
-          "version": "3.11-4build1",
-          "source": "https://packages.ubuntu.com/noble/grep"
-        },
-        {
-          "name": "sed",
-          "version": "4.9-2ubuntu0.24.04.1",
-          "source": "https://packages.ubuntu.com/noble/sed"
-        },
-        {
-          "name": "coreutils",
-          "version": "9.4-3ubuntu6.3",
-          "source": "https://packages.ubuntu.com/noble/coreutils"
-        },
-        {
-          "name": "make",
-          "version": "4.3-4.1build2",
-          "source": "https://packages.ubuntu.com/noble/make"
-        },
-        {
-          "name": "patch",
-          "version": "2.7.6-7build3",
-          "source": "https://packages.ubuntu.com/noble/patch"
-        },
-        {
-          "name": "mawk",
-          "version": "1.3.4.20240123-1build1",
-          "source": "https://packages.ubuntu.com/noble/mawk"
-        },
-        {
-          "name": "diffutils",
-          "version": "1:3.10-1ubuntu0.1",
-          "source": "https://packages.ubuntu.com/noble/diffutils"
-        },
-        {
-          "name": "findutils",
-          "version": "4.9.0-5build1",
-          "source": "https://packages.ubuntu.com/noble/findutils"
-        },
-        {
-          "name": "tar",
-          "version": "1.35+dfsg-3ubuntu0.4",
-          "source": "https://packages.ubuntu.com/noble/tar"
-        },
-        {
-          "name": "gzip",
-          "version": "1.12-1ubuntu3.2",
-          "source": "https://packages.ubuntu.com/noble/gzip"
-        },
-        {
-          "name": "xz-utils",
-          "version": "5.6.1+really5.4.5-1ubuntu0.3",
-          "source": "https://packages.ubuntu.com/noble/xz-utils"
-        },
-        {
-          "name": "clang-18",
-          "version": "1:18.1.3-1ubuntu1",
-          "source": "https://packages.ubuntu.com/noble/clang-18"
-        },
-        {
-          "name": "binutils-x86-64-linux-gnu",
-          "version": "2.42-4ubuntu2.10",
-          "source": "https://packages.ubuntu.com/noble/binutils-x86-64-linux-gnu"
-        },
-        {
-          "name": "libexpat1-dev",
-          "version": "2.6.1-2ubuntu0.6",
-          "source": "https://packages.ubuntu.com/noble/libexpat1-dev"
-        },
-        {
-          "name": "zlib1g-dev",
-          "version": "1:1.3.dfsg-3.1ubuntu2.2",
-          "source": "https://packages.ubuntu.com/noble/zlib1g-dev"
-        },
-        {
-          "name": "libc6",
-          "version": "2.39-0ubuntu8.9",
-          "source": "https://packages.ubuntu.com/noble/libc6"
-        },
-        {
-          "name": "libc6-dev",
-          "version": "2.39-0ubuntu8.9",
-          "source": "https://packages.ubuntu.com/noble/libc6-dev"
-        },
-        {
-          "name": "libc-dev-bin",
-          "version": "2.39-0ubuntu8.9",
-          "source": "https://packages.ubuntu.com/noble/libc-dev-bin"
-        },
-        {
-          "name": "libgcc-13-dev",
-          "version": "13.3.0-6ubuntu2~24.04.1",
-          "source": "https://packages.ubuntu.com/noble/libgcc-13-dev"
-        },
-        {
-          "name": "libstdc++-13-dev",
-          "version": "13.3.0-6ubuntu2~24.04.1",
-          "source": "https://packages.ubuntu.com/noble/libstdc++-13-dev"
-        }
-      ],
-      "artifacts": [
-        {
-          "name": "libcurl4-openssl-dev",
-          "version": "8.5.0-2ubuntu10.15",
-          "architecture": "amd64",
-          "url": "https://archive.ubuntu.com/ubuntu/pool/main/c/curl/libcurl4-openssl-dev_8.5.0-2ubuntu10.15_amd64.deb",
-          "sha256": "c63393dd39d8bc49580e3e23be3eda63ce62ae4823d95f692c7547b25ade8a31",
-          "size": 446114,
-          "depends": "libcurl4t64 (= 8.5.0-2ubuntu10.15)"
-        },
-        {
-          "name": "libcurl4t64",
-          "version": "8.5.0-2ubuntu10.15",
-          "architecture": "amd64",
-          "url": "https://archive.ubuntu.com/ubuntu/pool/main/c/curl/libcurl4t64_8.5.0-2ubuntu10.15_amd64.deb",
-          "sha256": "02f8f39727a43d5a7057cba35cda866be00d929b91ea67ed02dd9d6402fa551c",
-          "size": 343472,
-          "depends": "libbrotli1 (>= 0.6.0), libc6 (>= 2.34), libgssapi-krb5-2 (>= 1.17), libidn2-0 (>= 2.0.0), libldap2 (>= 2.6.2), libnghttp2-14 (>= 1.50.0), libpsl5t64 (>= 0.16.0), librtmp1 (>= 2.3), libssh-4 (>= 0.9.0), libssl3t64 (>= 3.0.0), libzstd1 (>= 1.5.5), zlib1g (>= 1:1.1.4)"
-        }
-      ]
+    {
+      "function": "scripts/flow",
+      "path": "scripts/flow.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "scripts/resources",
+      "path": "scripts/resources.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "scripts/ci/android",
+      "path": "scripts/ci/android.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "scripts/ci/ios",
+      "path": "scripts/ci/ios.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "scripts/release/android",
+      "path": "scripts/release/android.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "scripts/release/ios",
+      "path": "scripts/release/ios.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "test/release_manifest.test",
+      "path": "test/release_manifest.test.mjs",
+      "runner": "node",
+      "target": "node"
+    },
+    {
+      "function": "test/account/amount_format_thousands_test",
+      "path": "test/account/amount_format_thousands_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/account/creator/creator_api_test",
+      "path": "test/account/creator/creator_api_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/account/creator/creator_money_test",
+      "path": "test/account/creator/creator_money_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/account/creator/creator_plan_test",
+      "path": "test/account/creator/creator_plan_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/account/identity/citizen_identity_transaction_test",
+      "path": "test/account/identity/citizen_identity_transaction_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/account/identity/current_user_context_test",
+      "path": "test/account/identity/current_user_context_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/account/identity/finalized_identity_resolver_test",
+      "path": "test/account/identity/finalized_identity_resolver_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/account/identity/identity_badge_snapshot_store_test",
+      "path": "test/account/identity/identity_badge_snapshot_store_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/account/identity/myid_page_test",
+      "path": "test/account/identity/myid_page_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/account/identity/myid_service_test",
+      "path": "test/account/identity/myid_service_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/account/identity/rebind_account_sheet_test",
+      "path": "test/account/identity/rebind_account_sheet_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/account/identity/register_identity_flow_test",
+      "path": "test/account/identity/register_identity_flow_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/account/identity/register_identity_sheet_test",
+      "path": "test/account/identity/register_identity_sheet_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/account/identity/registration_api_test",
+      "path": "test/account/identity/registration_api_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/account/identity/registration_coordinator_test",
+      "path": "test/account/identity/registration_coordinator_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/account/identity/registration_page_test",
+      "path": "test/account/identity/registration_page_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/account/identity/registration_store_test",
+      "path": "test/account/identity/registration_store_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/account/identity/voting_identity_payload_test",
+      "path": "test/account/identity/voting_identity_payload_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/account/membership/membership_page_test",
+      "path": "test/account/membership/membership_page_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/account/membership/subscription_chain_test",
+      "path": "test/account/membership/subscription_chain_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/account/profile_page_lazy_chain_test",
+      "path": "test/account/profile_page_lazy_chain_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/account/user/contact_book_page_test",
+      "path": "test/account/user/contact_book_page_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/account/user/mls_contact_sync_test",
+      "path": "test/account/user/mls_contact_sync_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/account/user/user_service_test",
+      "path": "test/account/user/user_service_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/account/user_home_tab_setting_test",
+      "path": "test/account/user_home_tab_setting_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/account/user_wallet_social_chat_storage_isolation_test",
+      "path": "test/account/user_wallet_social_chat_storage_isolation_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/bootstrap_test",
+      "path": "test/bootstrap_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/chat/chat_media_limits_test",
+      "path": "test/chat/chat_media_limits_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/chat/chat_push_service_test",
+      "path": "test/chat/chat_push_service_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/chat/chat_search_page_test",
+      "path": "test/chat/chat_search_page_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/chat/chat_tab_test",
+      "path": "test/chat/chat_tab_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/chat/group/group_create_page_test",
+      "path": "test/chat/group/group_create_page_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/chat/group/group_manage_page_test",
+      "path": "test/chat/group/group_manage_page_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/chat/mls_boundary_test",
+      "path": "test/chat/mls_boundary_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/chat/storage/chat_store_identity_isolation_test",
+      "path": "test/chat/storage/chat_store_identity_isolation_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/chat/storage/chat_store_system_protection_test",
+      "path": "test/chat/storage/chat_store_system_protection_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/chat/tatachatsdk_native_packaging_contract_test",
+      "path": "test/chat/tatachatsdk_native_packaging_contract_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/citizen/account_derivation_ss58_test",
+      "path": "test/citizen/account_derivation_ss58_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/citizen/administrators/admins_change_codec_test",
+      "path": "test/citizen/administrators/admins_change_codec_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/citizen/administrators/institution_admin_service_test",
+      "path": "test/citizen/administrators/institution_admin_service_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/citizen/cid_generator_golden_test",
+      "path": "test/citizen/cid_generator_golden_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/citizen/governance_tab_test",
+      "path": "test/citizen/governance_tab_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/citizen/institution/institution_detail_test",
+      "path": "test/citizen/institution/institution_detail_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/citizen/institution/institution_role_storage_codec_test",
+      "path": "test/citizen/institution/institution_role_storage_codec_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/citizen/legislation/legislation_codec_test",
+      "path": "test/citizen/legislation/legislation_codec_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/citizen/legislation/legislation_first_frame_test",
+      "path": "test/citizen/legislation/legislation_first_frame_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/citizen/legislation/legislation_order_test",
+      "path": "test/citizen/legislation/legislation_order_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/citizen/public/admin_division_bundle_assets_test",
+      "path": "test/citizen/public/admin_division_bundle_assets_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/citizen/public/admin_division_test",
+      "path": "test/citizen/public/admin_division_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/citizen/public/cid_directory_lookup_test",
+      "path": "test/citizen/public/cid_directory_lookup_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/citizen/public/city_institution_list_page_test",
+      "path": "test/citizen/public/city_institution_list_page_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/citizen/public/public_institution_bundle_loader_test",
+      "path": "test/citizen/public/public_institution_bundle_loader_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/citizen/public/public_institution_dto_test",
+      "path": "test/citizen/public/public_institution_dto_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/citizen/public/public_page_test",
+      "path": "test/citizen/public/public_page_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/citizen/public/public_provinces_test",
+      "path": "test/citizen/public/public_provinces_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/citizen/runtime_upgrade_service_test",
+      "path": "test/citizen/runtime_upgrade_service_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/citizen/shared/account_derivation_golden_test",
+      "path": "test/citizen/shared/account_derivation_golden_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/citizen/shared/account_derivation_test",
+      "path": "test/citizen/shared/account_derivation_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/citizen/shared/admin_account_storage_codec_test",
+      "path": "test/citizen/shared/admin_account_storage_codec_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/citizen/shared/admin_accounts_scan_service_test",
+      "path": "test/citizen/shared/admin_accounts_scan_service_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/citizen/shared/institution_info_test",
+      "path": "test/citizen/shared/institution_info_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/citizen/shared/proposal_detail_local_store_test",
+      "path": "test/citizen/shared/proposal_detail_local_store_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/citizen/shared/proposal_local_store_test",
+      "path": "test/citizen/shared/proposal_local_store_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/scanner/address_scan_button_test",
+      "path": "test/scanner/address_scan_button_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/scanner/qr_router_test",
+      "path": "test/scanner/qr_router_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/scanner/qr_scan_page_sign_hint_test",
+      "path": "test/scanner/qr_scan_page_sign_hint_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/scanner/qr_sign_session_page_test",
+      "path": "test/scanner/qr_sign_session_page_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/scanner/scanner_controller_test",
+      "path": "test/scanner/scanner_controller_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/scanner/scanner_view_test",
+      "path": "test/scanner/scanner_view_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/security/chain_bootstrap_api_test",
+      "path": "test/security/chain_bootstrap_api_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/security/duress_mode_test",
+      "path": "test/security/duress_mode_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/security/identity_binding_test",
+      "path": "test/security/identity_binding_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/security/system_protected_record_store_test",
+      "path": "test/security/system_protected_record_store_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/security/system_protected_storage_test",
+      "path": "test/security/system_protected_storage_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/signing/app_business_qr_codec_test",
+      "path": "test/signing/app_business_qr_codec_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/signing/binary_prefix_domain_golden_test",
+      "path": "test/signing/binary_prefix_domain_golden_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/signing/citizen_identity_sign_service_test",
+      "path": "test/signing/citizen_identity_sign_service_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/signing/citizen_occupy_sign_service_test",
+      "path": "test/signing/citizen_occupy_sign_service_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/signing/device_binding_golden_test",
+      "path": "test/signing/device_binding_golden_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/signing/scale_codec_golden_test",
+      "path": "test/signing/scale_codec_golden_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/signing/signing_golden_test",
+      "path": "test/signing/signing_golden_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/signing/square_action_payload_test",
+      "path": "test/signing/square_action_payload_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/signing/square_action_sign_service_test",
+      "path": "test/signing/square_action_sign_service_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/simulator_test",
+      "path": "test/simulator_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/article_rich_text_view_test",
+      "path": "test/square/article_rich_text_view_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/compose/article_blocks_test",
+      "path": "test/square/compose/article_blocks_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/compose/article_section_editor_test",
+      "path": "test/square/compose/article_section_editor_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/compose/compose_draft_store_test",
+      "path": "test/square/compose/compose_draft_store_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/compose/compose_draft_test",
+      "path": "test/square/compose/compose_draft_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/compose/document_compose_body_test",
+      "path": "test/square/compose/document_compose_body_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/compose/drafts_page_test",
+      "path": "test/square/compose/drafts_page_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/compose/video_compose_body_test",
+      "path": "test/square/compose/video_compose_body_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/mls_device_registrar_test",
+      "path": "test/square/mls_device_registrar_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/profile/citizen_profile_test",
+      "path": "test/square/profile/citizen_profile_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/profile/creator_subscribe_button_test",
+      "path": "test/square/profile/creator_subscribe_button_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/profile/follows_list_page_test",
+      "path": "test/square/profile/follows_list_page_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/profile/profile_asset_service_test",
+      "path": "test/square/profile/profile_asset_service_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/profile/profile_edit_page_test",
+      "path": "test/square/profile/profile_edit_page_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/profile/profile_header_test",
+      "path": "test/square/profile/profile_header_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/profile/profile_kebab_menu_test",
+      "path": "test/square/profile/profile_kebab_menu_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/profile/profile_posts_tab_test",
+      "path": "test/square/profile/profile_posts_tab_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/profile/square_post_card_author_test",
+      "path": "test/square/profile/square_post_card_author_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/profile/user_profile_page_test",
+      "path": "test/square/profile/user_profile_page_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/profile/user_qr_page_test",
+      "path": "test/square/profile/user_qr_page_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/social_wallet_chat_storage_isolation_test",
+      "path": "test/square/social_wallet_chat_storage_isolation_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/square_account_action_test",
+      "path": "test/square/square_account_action_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/square_account_deletion_service_test",
+      "path": "test/square/square_account_deletion_service_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/square_api_routes_test",
+      "path": "test/square/square_api_routes_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/square_article_detail_test",
+      "path": "test/square/square_article_detail_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/square_article_test",
+      "path": "test/square/square_article_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/square_chain_service_test",
+      "path": "test/square/square_chain_service_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/square_feed_service_test",
+      "path": "test/square/square_feed_service_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/square_home_page_test",
+      "path": "test/square/square_home_page_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/square_media_processor_test",
+      "path": "test/square/square_media_processor_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/square_media_store_test",
+      "path": "test/square/square_media_store_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/square_post_deletion_coordinator_test",
+      "path": "test/square/square_post_deletion_coordinator_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/square_post_store_test",
+      "path": "test/square/square_post_store_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/square_post_sync_service_test",
+      "path": "test/square/square_post_sync_service_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/square_publish_service_test",
+      "path": "test/square/square_publish_service_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/square_request_signer_test",
+      "path": "test/square/square_request_signer_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/square_session_selfheal_test",
+      "path": "test/square/square_session_selfheal_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/widgets/square_feed_cards_test",
+      "path": "test/square/widgets/square_feed_cards_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/widgets/square_feed_tabs_test",
+      "path": "test/square/widgets/square_feed_tabs_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/square/widgets/square_media_carousel_test",
+      "path": "test/square/widgets/square_media_carousel_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/theme/app_accessibility_layout_test",
+      "path": "test/theme/app_accessibility_layout_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/theme/biometric_auth_text_test",
+      "path": "test/theme/biometric_auth_text_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/theme/chain_progress_banner_test",
+      "path": "test/theme/chain_progress_banner_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/theme/identity_badge_test",
+      "path": "test/theme/identity_badge_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/theme/transaction_tab_page_test",
+      "path": "test/theme/transaction_tab_page_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/transaction/contract/citizenchain_contract_read_service_test",
+      "path": "test/transaction/contract/citizenchain_contract_read_service_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/transaction/history/local_tx_store_status_test",
+      "path": "test/transaction/history/local_tx_store_status_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/transaction/history/transaction_history_page_test",
+      "path": "test/transaction/history/transaction_history_page_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/transaction/history/tx_auto_refresh_test",
+      "path": "test/transaction/history/tx_auto_refresh_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/transaction/history/wallet_transaction_history_service_test",
+      "path": "test/transaction/history/wallet_transaction_history_service_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/transaction/multisig_transfer_decode_test",
+      "path": "test/transaction/multisig_transfer_decode_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/transaction/offchain/clearing_bank_prefs_test",
+      "path": "test/transaction/offchain/clearing_bank_prefs_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/transaction/offchain/clearing_bank_settings_page_test",
+      "path": "test/transaction/offchain/clearing_bank_settings_page_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/transaction/offchain/payment_intent_golden_test",
+      "path": "test/transaction/offchain/payment_intent_golden_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/transaction/onchain/citizenchain_transfer_call_encoder_test",
+      "path": "test/transaction/onchain/citizenchain_transfer_call_encoder_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/transaction/onchain/onchain_fee_test",
+      "path": "test/transaction/onchain/onchain_fee_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/transaction/personal/personal_account_create_page_test",
+      "path": "test/transaction/personal/personal_account_create_page_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/transaction/personal/personal_account_entry_test",
+      "path": "test/transaction/personal/personal_account_entry_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/transaction/personal/personal_manage_service_test",
+      "path": "test/transaction/personal/personal_manage_service_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/transaction/personal/personal_manage_storage_codec_test",
+      "path": "test/transaction/personal/personal_manage_storage_codec_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/transaction/personal/personal_pending_create_lookup_test",
+      "path": "test/transaction/personal/personal_pending_create_lookup_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/transaction/personal/personal_proposal_history_service_test",
+      "path": "test/transaction/personal/personal_proposal_history_service_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/transaction/topup/onchain_topup_page_test",
+      "path": "test/transaction/topup/onchain_topup_page_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/transaction/topup/topup_core_test",
+      "path": "test/transaction/topup/topup_core_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/transaction/transaction_field_decoration_test",
+      "path": "test/transaction/transaction_field_decoration_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/update_badge_test",
+      "path": "test/update_badge_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/wallet/pages/create_wallet_onboarding_page_test",
+      "path": "test/wallet/pages/create_wallet_onboarding_page_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/wallet/pages/import_wallet_page_test",
+      "path": "test/wallet/pages/import_wallet_page_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/wallet/pages/wallet_list_tile_test",
+      "path": "test/wallet/pages/wallet_list_tile_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/wallet/pages/wallet_multi_account_ui_test",
+      "path": "test/wallet/pages/wallet_multi_account_ui_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/wallet/wallet_app_user_social_chat_storage_isolation_test",
+      "path": "test/wallet/wallet_app_user_social_chat_storage_isolation_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/wallet/wallet_gate_test",
+      "path": "test/wallet/wallet_gate_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/wallet/widgets/add_account_sheet_test",
+      "path": "test/wallet/widgets/add_account_sheet_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/wallet/widgets/wallet_action_card_test",
+      "path": "test/wallet/widgets/wallet_action_card_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/wallet/widgets/wallet_identity_card_test",
+      "path": "test/wallet/widgets/wallet_identity_card_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
+    },
+    {
+      "function": "test/wallet/widgets/wallet_onchain_balance_card_test",
+      "path": "test/wallet/widgets/wallet_onchain_balance_card_test.dart",
+      "runner": "flutter",
+      "target": "flutter"
     }
-  }
+  ]
 }

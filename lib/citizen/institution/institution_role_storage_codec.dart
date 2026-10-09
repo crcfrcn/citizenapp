@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:citizenapp/citizen/proposal/admins-change/models/admin_account.dart';
+import 'package:citizenapp/citizen/administrators/admin_account.dart';
 
 import 'institution_role_models.dart';
 

@@ -3,7 +3,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:wechat_assets_picker/wechat_assets_picker.dart';
 
 import 'package:citizenapp/8964/square_models.dart';
-import 'package:citizenapp/ui/app_theme.dart';
+import 'package:citizenapp/theme/app_theme.dart';
 
 /// 发布页相册返回值：文件与资源类型在离开相册前已经确定。
 class ComposePickedMedia {

@@ -5,17 +5,17 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:citizenapp/isar/wallet_isar.dart';
+import 'package:citizenapp/storage/wallet_isar.dart';
 import 'package:citizenapp/app_log.dart';
-import 'package:citizenapp/my/util/screenshot_guard.dart';
+import 'package:citizenapp/account/utility/screenshot_guard.dart';
 import 'package:citizenapp/transaction/history/local_tx_store.dart';
 import 'package:citizenapp/transaction/contract/citizenchain_contract_page.dart';
-import 'package:citizenapp/transaction/history/presentation/tx_auto_refresh_mixin.dart';
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/transaction/history/presentation/transaction_history_page.dart';
+import 'package:citizenapp/transaction/history/tx_auto_refresh_mixin.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/transaction/history/transaction_history_page.dart';
 import 'package:citizenapp/wallet/widgets/wallet_action_card.dart';
 import 'package:citizenapp/wallet/widgets/wallet_qr_dialog.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 账户详情（Lv3）：单个 `//index` 账户 = 单钱包多账户下「以前的钱包详情」。
 ///

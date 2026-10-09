@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizenapp/chat/chat_product_policy.dart';
-import 'package:citizenapp/my/membership/subscription_service.dart';
+import 'package:citizenapp/account/membership/subscription_service.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart';
 
 const _cidNumber = 'CN220-CTZN2-100000001-2026';

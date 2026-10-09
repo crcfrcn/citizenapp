@@ -1,17 +1,16 @@
-import '../8964/mls_authentication_fixture.dart';
+import '../square/mls_authentication_fixture.dart';
 import '../support/fake_citizen_sdk.dart';
 
 import 'package:citizenapp/chat/tatachat_sdk_adapter.dart';
 
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:citizenapp/8964/profile/services/square_session_provider.dart';
+import 'package:citizenapp/8964/profile/square_session_provider.dart';
 import 'package:citizenapp/8964/services/square_api_client.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart';
 import 'package:citizenapp/security/account_security_service.dart';
-import 'package:citizenapp/my/myid/current_user_context.dart';
+import 'package:citizenapp/account/identity/current_user_context.dart';
 
 import '../support/isar_test_env.dart';
 
@@ -25,9 +24,70 @@ class _UnusedCurrentUserContext implements CurrentUserContext {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class _ChatAccessProvider extends SquareSessionProvider {
+  _ChatAccessProvider()
+    : super(
+        accountSecurity: _UnusedSecurity(),
+        currentUserContext: _UnusedCurrentUserContext(),
+      );
+  int requests = 0;
+  @override
+  Future<CitizenServeChatAccess> requestChatAccess({
+    required String deviceId,
+    required String expectedCidNumber,
+    required int expectedBindingRevision,
+    required String expectedAccountId,
+  }) async {
+    requests++;
+    expect(deviceId, 'device-a');
+    expect(expectedCidNumber, 'user-a');
+    expect(expectedBindingRevision, 1);
+    expect(expectedAccountId, 'account-a');
+    return CitizenServeChatAccess(
+      realtimeUrl: Uri.parse('wss://service.test/api/tatachat/realtime'),
+      accessToken: 'opaque',
+      expiresAtMillis: DateTime.now().millisecondsSinceEpoch + 300000,
+    );
+  }
+}
+
 void main() {
   TestCitizenSdkHarness();
   useIsolatedIsar();
+  test('宿主直接映射完整WSS许可，跨用户设备在请求前拒绝', () async {
+    final sessions = _ChatAccessProvider();
+    final host = createCitizenChatRuntimeHost(
+      accountSecurity: _UnusedSecurity(),
+      currentUserContext: _UnusedCurrentUserContext(),
+      squareSessionProvider: sessions,
+    );
+    const account = ChatRuntimeAccount(
+      hostIndex: 0,
+      bindingScope: 'synthetic',
+      userId: 'user-a',
+      bindingRevision: 1,
+      accountId: 'account-a',
+      displayName: 'A',
+    );
+    final access = await host.requestChatAccess(
+      account: account,
+      identity: const ChatDevice(userId: 'user-a', deviceId: 'device-a'),
+    );
+    expect(
+      access.realtimeUrl.toString(),
+      'wss://service.test/api/tatachat/realtime',
+    );
+    expect(access.accessToken, 'opaque');
+    await expectLater(
+      host.requestChatAccess(
+        account: account,
+        identity: const ChatDevice(userId: 'user-b', deviceId: 'device-a'),
+      ),
+      throwsStateError,
+    );
+    expect(sessions.requests, 1);
+    await host.push.dispose();
+  });
 
   group('ChatDevice', () {
     test('accepts CID as chat identity without wallet private key', () {
@@ -116,7 +176,7 @@ void main() {
       expect(message, isNot(contains('安全组件')));
     });
 
-    test('TataChatServer 会员拒绝使用统一错误码并映射为权益提示', () {
+    test('聊天服务模块 会员拒绝使用统一错误码并映射为权益提示', () {
       const error = SquareApiException(
         'chat membership required',
         statusCode: 403,
@@ -127,7 +187,7 @@ void main() {
     });
   });
 
-  test('聊天模块未配置时拒绝旧服务授权且不发送请求', () async {
+  test('聊天许可设备与会话不一致时在HTTP前拒绝', () async {
     var requests = 0;
     final client = SquareApiClient(
       baseUrl: 'https://www.example.test/api',
@@ -137,7 +197,7 @@ void main() {
       }),
     );
     await expectLater(
-      client.fetchChatServerAccess(
+      client.fetchChatAccess(
         session: const SquareSession(
           deviceId: testMlsDeviceId,
           sessionToken: 'session-a',

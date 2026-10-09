@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 广场文章编辑与公开阅读共用的媒体轮播。
 ///

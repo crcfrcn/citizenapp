@@ -2,13 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:citizenapp/ui/widgets/wallet_password.dart';
-import 'package:citizenapp/my/util/screenshot_guard.dart';
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/ui/widgets/bip39_input.dart';
+import 'package:citizenapp/widgets/wallet_password.dart';
+import 'package:citizenapp/account/utility/screenshot_guard.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/widgets/bip39_input.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:provider/provider.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 「添加账户」两模式：下一个序号 / 指定序号。
 enum AddAccountMode { next, specify }

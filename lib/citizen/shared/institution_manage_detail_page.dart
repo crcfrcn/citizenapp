@@ -8,26 +8,26 @@ import 'package:provider/provider.dart';
 import 'package:citizenapp/app_log.dart';
 import 'package:flutter/services.dart';
 import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
-import 'package:citizenapp/citizen/proposal/admins-change/models/admin_account.dart';
-import 'package:citizenapp/citizen/proposal/admins-change/services/institution_admin_service.dart';
+import 'package:citizenapp/citizen/administrators/admin_account.dart';
+import 'package:citizenapp/citizen/administrators/institution_admin_service.dart';
 import 'package:citizenapp/citizen/shared/account_derivation.dart';
 import 'package:citizenapp/citizen/shared/institution_info.dart';
-import 'package:citizenapp/votingengine/internal-vote/internal_vote_service.dart';
-import 'package:citizenapp/citizen/shared/proposal/proposal_context.dart';
-import 'package:citizenapp/citizen/shared/proposal/proposal_detail_local_store.dart';
-import 'package:citizenapp/votingengine/internal-vote/proposal_vote_widgets.dart';
-import 'package:citizenapp/citizen/shared/proposal/proposal_query_service.dart';
-import 'package:citizenapp/citizen/shared/proposal/proposal_models.dart';
-import 'package:citizenapp/qr/pages/qr_sign_session_page.dart';
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/my/util/amount_format.dart';
-import 'package:citizenapp/transaction/personal-manage/personal_manage_models.dart'
+import 'package:citizenapp/voting/internal/internal_vote_service.dart';
+import 'package:citizenapp/citizen/shared/proposal_context.dart';
+import 'package:citizenapp/citizen/shared/proposal_detail_local_store.dart';
+import 'package:citizenapp/voting/internal/proposal_vote_widgets.dart';
+import 'package:citizenapp/citizen/shared/proposal_query_service.dart';
+import 'package:citizenapp/citizen/shared/proposal_models.dart';
+import 'package:citizenapp/scanner/qr_sign_session_page.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/account/utility/amount_format.dart';
+import 'package:citizenapp/transaction/personal/personal_manage_models.dart'
     as personal_models;
-import 'package:citizenapp/transaction/personal-manage/personal_manage_service.dart';
+import 'package:citizenapp/transaction/personal/personal_manage_service.dart';
 import 'package:citizenapp/citizen/institution/institution_models.dart'
     as institution_models;
 import 'package:citizenapp/citizen/institution/institution_chain_service.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 多签管理提案详情页：展示创建/关闭提案信息、投票进度及投票操作。
 class MultisigProposalDetailPage extends StatefulWidget {

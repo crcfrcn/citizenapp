@@ -102,7 +102,7 @@
         }
       };
 
-      window.submitTopupPayment = async () => {
+      window.submitTopupPayment = async (authorizationMessage, expiresAt) => {
         const cfg = window.__TOPUP__;
         if (!provider || !payer || paymentStarted) {
           if (!paymentStarted) fail('付款意图创建失败，请重新发起');
@@ -110,8 +110,18 @@
         }
         paymentStarted = true;
         try {
+          if (!Number.isSafeInteger(expiresAt) || Date.now() >= expiresAt || typeof authorizationMessage !== 'string' || !authorizationMessage.startsWith('CitizenServe Topup v1\n')) { throw Error('付款授权无效'); }
+          const accounts = await provider.request({ method: 'eth_accounts' });
+          if (!Array.isArray(accounts) || accounts[0]?.toLowerCase() !== payer.toLowerCase() || Number(await provider.request({ method: 'eth_chainId' })) !== cfg.chainId) { throw Error('付款钱包或链已变化'); }
+          const bytes = new TextEncoder().encode(authorizationMessage);
+          const messageHex = '0x' + Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+          const payerSignature = await provider.request({ method: 'personal_sign', params: [messageHex, payer] });
+          if (!/^0x[0-9a-fA-F]{130}$/.test(payerSignature)) { throw Error('付款授权未完成'); }
+          const current = await provider.request({ method: 'eth_accounts' });
+          if (current[0]?.toLowerCase() !== payer.toLowerCase() || Number(await provider.request({ method: 'eth_chainId' })) !== cfg.chainId) { throw Error('签名后付款钱包或链已变化'); }
           $('title').textContent = '请在钱包中确认支付';
           $('sub').textContent = '付款完成后将自动返回公民';
+          if (Date.now() >= expiresAt) { throw Error('付款意图已过期，未发起转账'); }
           const txHash = await provider.request({
             method: 'eth_sendTransaction',
             params: [{ from: payer, to: cfg.to, data: cfg.data, value: '0x0' }],
@@ -119,7 +129,7 @@
           $('spinner').style.display = 'none';
           $('title').textContent = '已提交';
           $('sub').textContent = '正在返回 App 确认到账…';
-          report({ kind: 'paid', txHash, payer });
+          report({ kind: 'paid', txHash, payer, payerSignature });
         } catch (e) {
           fail((e && e.message) ? e.message : '支付未完成或已取消');
         }

@@ -1,4 +1,4 @@
-import 'package:citizenapp/8964/profile/models/profile_presentation.dart';
+import 'package:citizenapp/8964/profile/profile_presentation.dart';
 
 /// 广场前端模型。
 ///

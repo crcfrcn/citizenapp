@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
-import 'package:citizenapp/ui/app_theme.dart';
+import 'package:citizenapp/theme/app_theme.dart';
 
 /// 公文、文章、视频共用的无外框媒体入口；禁用时保留位置并显示灰色。
 class ComposeMediaAddButton extends StatelessWidget {

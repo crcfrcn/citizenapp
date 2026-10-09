@@ -12,29 +12,29 @@ import 'package:tatachat_sdk/tatachat_sdk.dart';
 
 import 'chat_product_policy.dart';
 
-import 'package:citizenapp/8964/profile/models/citizen_profile.dart';
-import 'package:citizenapp/8964/profile/models/profile_presentation.dart';
-import 'package:citizenapp/8964/profile/services/citizen_profile_api.dart';
-import 'package:citizenapp/8964/profile/services/citizen_profile_cache.dart';
-import 'package:citizenapp/8964/profile/services/square_session_provider.dart';
+import 'package:citizenapp/8964/profile/citizen_profile.dart';
+import 'package:citizenapp/8964/profile/profile_presentation.dart';
+import 'package:citizenapp/8964/profile/citizen_profile_api.dart';
+import 'package:citizenapp/8964/profile/citizen_profile_cache.dart';
+import 'package:citizenapp/8964/profile/square_session_provider.dart';
 import 'package:citizenapp/8964/profile/user_profile_page.dart';
-import 'package:citizenapp/8964/profile/widgets/profile_avatar.dart';
+import 'package:citizenapp/8964/profile/profile_avatar.dart';
 import 'package:citizenapp/8964/services/square_api_client.dart';
 import 'package:citizenapp/chat/tatachat_sdk_adapter.dart';
 import 'package:citizenapp/citizen/shared/account_derivation.dart';
-import 'package:citizenapp/my/membership/membership_revision.dart';
-import 'package:citizenapp/my/membership/subscription_service.dart';
-import 'package:citizenapp/my/myid/citizen_identity_chain_reader.dart';
-import 'package:citizenapp/my/myid/current_user_context.dart';
-import 'package:citizenapp/my/myid/finalized_identity_resolver.dart';
-import 'package:citizenapp/my/myid/register_identity_flow.dart';
-import 'package:citizenapp/my/user/contact_book_page.dart';
-import 'package:citizenapp/my/user/contact_service.dart';
-import 'package:citizenapp/qr/scan_dispatch_flow.dart';
-import 'package:citizenapp/transaction/onchain-transaction/onchain_payment_page.dart';
-import 'package:citizenapp/ui/app_layout.dart';
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/ui/widgets/identity_register_guide.dart';
+import 'package:citizenapp/account/membership/membership_revision.dart';
+import 'package:citizenapp/account/membership/subscription_service.dart';
+import 'package:citizenapp/account/identity/citizen_identity_chain_reader.dart';
+import 'package:citizenapp/account/identity/current_user_context.dart';
+import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
+import 'package:citizenapp/account/identity/register_identity_flow.dart';
+import 'package:citizenapp/account/user/contact_book_page.dart';
+import 'package:citizenapp/account/user/contact_service.dart';
+import 'package:citizenapp/scanner/scan_dispatch_flow.dart';
+import 'package:citizenapp/transaction/onchain/onchain_payment_page.dart';
+import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/widgets/identity_register_guide.dart';
 import 'package:citizenapp/security/account_security_service.dart';
 import 'package:citizenapp/wallet/widgets/wallet_qr_dialog.dart';
 
@@ -143,7 +143,7 @@ ChatConversationHost _citizenConversationHost({
     actionIconBuilder: (context, action, color, size) {
       if (action != ChatComposerAction.transfer) return null;
       return Image.asset(
-        'assets/icons/gmb-mark.png',
+        'assets/logo/mark256.png',
         key: const ValueKey('chat-action-transfer-gmb-mark'),
         width: size,
         height: size,

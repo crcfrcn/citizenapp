@@ -4,8 +4,8 @@ import 'package:citizenapp/8964/square_models.dart';
 import 'package:citizenapp/8964/widgets/square_media_grid.dart';
 import 'package:citizenapp/8964/widgets/square_post_actions.dart';
 import 'package:citizenapp/8964/widgets/square_post_header.dart';
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 动态流与详情页的显示模式。
 enum SquarePostCardDisplayMode { feed, detail }

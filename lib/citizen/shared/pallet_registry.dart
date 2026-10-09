@@ -2,7 +2,7 @@
 ///
 /// 索引由 citizenchain 的 `construct_runtime!`(runtime/src/lib.rs)声明顺序决定。
 /// 链升级调整 pallet 顺序后，**只改本文件**，全端各 service 引用这里、不再各自写死字面量。
-/// 冷钱包 `citizenwallet/lib/signer/pallet_registry.dart` 是同一契约的另一份镜像，
+/// 冷钱包 `citizenwallet/lib/signing/pallet_registry.dart` 是同一契约的另一份镜像，
 /// 两者必须逐项一致；本文件仅收录 CitizenApp 实际构造 extrinsic 用到的 pallet/call。
 ///
 /// 约定：pallet 常量以 `Pallet` 结尾；call 常量以 `Call` 结尾。

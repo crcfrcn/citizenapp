@@ -2,11 +2,11 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'package:citizenapp/citizen/legislation/data/law_models.dart';
-import 'package:citizenapp/citizen/legislation/data/legislation_api.dart';
+import 'package:citizenapp/citizen/legislation/law_models.dart';
+import 'package:citizenapp/citizen/legislation/legislation_api.dart';
 import 'package:citizenapp/citizen/legislation/law_reader_page.dart';
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 某立法机构的法律列表(ADR-028 P3-1)——`list_laws(tier, scope)`。
 ///

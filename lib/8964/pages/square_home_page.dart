@@ -1,6 +1,6 @@
 import 'package:provider/provider.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizenapp/my/myid/identity_badge_snapshot_store.dart';
+import 'package:citizenapp/account/identity/identity_badge_snapshot_store.dart';
 
 import 'dart:async';
 import 'dart:math' as math;
@@ -14,19 +14,19 @@ import 'package:citizenapp/8964/pages/square_article_detail_page.dart';
 import 'package:citizenapp/8964/compose/compose_page.dart';
 import 'package:citizenapp/8964/pages/square_post_detail_page.dart';
 import 'package:citizenapp/8964/profile/user_profile_page.dart';
-import 'package:citizenapp/8964/profile/services/square_session_provider.dart';
+import 'package:citizenapp/8964/profile/square_session_provider.dart';
 import 'package:citizenapp/8964/services/square_api_client.dart';
 import 'package:citizenapp/8964/services/square_identity_state.dart';
 import 'package:citizenapp/8964/services/square_post_sync_service.dart';
 import 'package:citizenapp/8964/widgets/square_feed_tabs.dart';
 import 'package:citizenapp/8964/widgets/square_article_card.dart';
 import 'package:citizenapp/8964/widgets/square_post_card.dart';
-import 'package:citizenapp/my/myid/current_user_context.dart';
-import 'package:citizenapp/my/membership/membership_revision.dart';
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/ui/widgets/identity_register_guide.dart';
+import 'package:citizenapp/account/identity/current_user_context.dart';
+import 'package:citizenapp/account/membership/membership_revision.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/widgets/identity_register_guide.dart';
 import 'package:citizenapp/security/account_security_service.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 class SquareHomePage extends StatefulWidget {
   const SquareHomePage({

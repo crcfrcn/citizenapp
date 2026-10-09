@@ -7,7 +7,7 @@ import 'package:citizenapp/security/identity_binding.dart';
 import 'package:citizenapp/security/public_identity_store.dart';
 import 'package:citizenapp/security/system_protected_storage.dart';
 import 'package:citizenapp/transaction/history/local_tx_store.dart';
-import 'package:citizenapp/transaction/offchain-transaction/services/clearing_bank_prefs.dart';
+import 'package:citizenapp/transaction/offchain/clearing_bank_prefs.dart';
 
 /// 身份/登记编排失败；不吞掉SDK原始失败，也不自动重复钱包授权。
 class AccountSecurityException implements Exception {
@@ -295,6 +295,11 @@ interface class AccountSecurityService {
       await _clearPublicBinding(binding);
     }
     await _records.delete(_pendingCleanup);
+    // 全量设备擦除也撤销本机注册恢复能力；删除失败不得继续报告成功。
+    await SystemProtectedRecordStore.registration.deleteAll();
+    if ((await SystemProtectedRecordStore.registration.readAll()).isNotEmpty) {
+      throw StateError("注册恢复记录未完全擦除");
+    }
     await SystemProtectedStorage.eraseObsoleteDataMaterial();
     notifyIdentityBindingChanged();
   }

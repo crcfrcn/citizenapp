@@ -1,4 +1,5 @@
 import 'dart:io';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizenapp/security/system_protected_storage.dart';
@@ -13,6 +14,20 @@ void main() {
       null,
     ),
   );
+  test('未知记录名仍拒绝，不向原生提交', () async {
+    var calls = 0;
+    messenger.setMockMethodCallHandler(SystemProtectedStorage.channel, (
+      _,
+    ) async {
+      calls++;
+      return '/invalid';
+    });
+    await expectLater(
+      SystemProtectedRecordStore('unknown.json').read('cap'),
+      throwsArgumentError,
+    );
+    expect(calls, 0);
+  });
   test('原生保护失败向上抛出，不能获得可用目录', () async {
     messenger.setMockMethodCallHandler(
       SystemProtectedStorage.channel,

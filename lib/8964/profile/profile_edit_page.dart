@@ -6,15 +6,15 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
-import 'package:citizenapp/8964/profile/models/citizen_profile.dart';
-import 'package:citizenapp/8964/profile/models/profile_presentation.dart';
-import 'package:citizenapp/8964/profile/services/citizen_profile_api.dart';
-import 'package:citizenapp/8964/profile/services/citizen_profile_cache.dart';
-import 'package:citizenapp/8964/profile/services/profile_asset_service.dart';
-import 'package:citizenapp/8964/profile/services/square_session_provider.dart';
+import 'package:citizenapp/8964/profile/citizen_profile.dart';
+import 'package:citizenapp/8964/profile/profile_presentation.dart';
+import 'package:citizenapp/8964/profile/citizen_profile_api.dart';
+import 'package:citizenapp/8964/profile/citizen_profile_cache.dart';
+import 'package:citizenapp/8964/profile/profile_asset_service.dart';
+import 'package:citizenapp/8964/profile/square_session_provider.dart';
 import 'package:citizenapp/8964/services/square_api_client.dart';
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 编辑本人公开资料：公开昵称 + 签名 + 头像 + 背景。
 ///

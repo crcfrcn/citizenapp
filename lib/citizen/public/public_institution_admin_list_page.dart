@@ -8,8 +8,8 @@ import 'package:provider/provider.dart';
 
 import 'package:citizenapp/citizen/institution/institution_assignment_card.dart';
 import 'package:citizenapp/citizen/institution/institution_role_models.dart';
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 公权机构管理员列表页(只读)。
 ///

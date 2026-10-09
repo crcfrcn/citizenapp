@@ -8,11 +8,11 @@ import 'package:citizenapp/wallet/account_balance_snapshot_store.dart';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizenapp/citizen/institution/institution.dart';
-import 'package:citizenapp/citizen/proposal/admins-change/models/admin_account.dart';
-import 'package:citizenapp/citizen/proposal/admins-change/services/institution_admin_service.dart';
+import 'package:citizenapp/citizen/administrators/admin_account.dart';
+import 'package:citizenapp/citizen/administrators/institution_admin_service.dart';
 import 'package:citizenapp/citizen/institution/institution_role_models.dart';
-import 'package:citizenapp/transaction/multisig-transfer/multisig_transfer_proposal_adapter.dart';
-import 'package:citizenapp/transaction/multisig-transfer/multisig_transfer_service.dart';
+import 'package:citizenapp/transaction/multisig/multisig_transfer_proposal_adapter.dart';
+import 'package:citizenapp/transaction/multisig/multisig_transfer_service.dart';
 
 /// 机构提案摘要(详情页提案列表用)。
 class InstitutionProposalSummary {

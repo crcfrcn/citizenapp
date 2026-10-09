@@ -1,16 +1,112 @@
 import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
+
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-import 'package:citizenapp/transaction/onchain-topup/topup_api.dart';
-import 'package:citizenapp/transaction/onchain-topup/topup_erc20.dart';
-import 'package:citizenapp/transaction/onchain-topup/topup_models.dart';
-import 'package:citizenapp/transaction/onchain-topup/wallet_link_dispatcher.dart';
+import 'package:citizenapp/transaction/topup/topup_api.dart';
+import 'package:citizenapp/transaction/topup/topup_erc20.dart';
+import 'package:citizenapp/transaction/topup/topup_models.dart';
+import 'package:citizenapp/transaction/topup/wallet_link_dispatcher.dart';
 
 void main() {
+  test('付款意图逐字段绑定目标/付款人/报价/期限；授权文本一字变化拒绝', () {
+    const now = 1000000;
+    final account = '0x${'11' * 32}',
+        payer = '0x${'22' * 20}',
+        genesis = '0x${'55' * 32}';
+    const rail = TopupRail(
+      token: 'USDC',
+      chainId: 1,
+      tokenContract: '0x3333333333333333333333333333333333333333',
+      tokenDecimals: 6,
+      label: 'USDC',
+    );
+    const package = TopupPackage(
+      packageId: 'pkg',
+      payDisplay: '1',
+      payAmount: '1000000',
+      coinDisplay: '1',
+      coinFen: '100',
+    );
+    const recipient = '0x4444444444444444444444444444444444444444';
+    final intent = <String, dynamic>{
+      'intent_id': 'intent',
+      'cid_number': null,
+      'account_id': account,
+      'payer_address': payer,
+      'token': 'USDC',
+      'package_id': 'pkg',
+      'chain_id': 1,
+      'token_contract': rail.tokenContract,
+      'recv_address': recipient,
+      'pay_amount': '1000000',
+      'coin_fen': '100',
+      'issued_at': now,
+      'expires_at': now + 600000,
+    };
+    final token =
+        '${base64Url.encode(utf8.encode(jsonEncode(intent))).replaceAll('=', '')}.mac';
+    final message =
+        'CitizenServe Topup v1\nservice_origin=https://www.crcfrcn.com\nchain_genesis_hash=$genesis\n'
+        'intent_id=intent\nchain_id=1\npayer_address=$payer\ntoken_contract=${rail.tokenContract}\nrecv_address=$recipient\n'
+        'pay_amount=1000000\ncoin_fen=100\naccount_id=$account\npackage_id=pkg\nissued_at=$now\nexpires_at=${now + 600000}\nintent_sha256=${sha256.convert(utf8.encode(token))}\n';
+    TopupPaymentIntent value({Map<String, dynamic>? body, String? text}) =>
+        TopupPaymentIntent.fromJson({
+          'intent': body ?? intent,
+          'payment_intent': token,
+          'wallet_authorization_message': text ?? message,
+        });
+    void validate(TopupPaymentIntent v, {String? target, int time = now}) =>
+        v.validatePayment(
+          rail: rail,
+          package: package,
+          accountId: target ?? account,
+          payerAddress: payer,
+          recvAddress: recipient,
+          chainGenesisHash: genesis,
+          now: time,
+        );
+    validate(value());
+    expect(
+      () => validate(value(), target: '0x${'66' * 32}'),
+      throwsFormatException,
+    );
+    expect(() => validate(value(), time: now + 600000), throwsFormatException);
+    expect(() => validate(value(text: '$message ')), throwsFormatException);
+    expect(
+      () => validate(value(body: {...intent, 'pay_amount': '1'})),
+      throwsFormatException,
+    );
+  });
+  test('没有付款签名零HTTP；确认重试复用同一签名', () async {
+    final bodies = <String>[];
+    final api = TopupApi(
+      baseUrl: 'https://example.com/api',
+      httpClient: MockClient((r) async {
+        bodies.add(r.body);
+        return http.Response('{"ok":true,"status":"confirming"}', 200);
+      }),
+    );
+    await expectLater(
+      api.confirm(paymentIntent: 'intent', evmTxHash: 'tx'),
+      throwsA(isA<TopupApiException>()),
+    );
+    expect(bodies, isEmpty);
+    api.rememberPayerAuthorization('intent', '0x${'aa' * 65}');
+    await api.confirm(paymentIntent: 'intent', evmTxHash: 'tx');
+    await api.confirm(paymentIntent: 'intent', evmTxHash: 'tx');
+    expect(bodies, hasLength(2));
+    expect(bodies[0], bodies[1]);
+    expect(
+      () => api.rememberPayerAuthorization('intent', '0x${'bb' * 65}'),
+      throwsA(isA<TopupApiException>()),
+    );
+  });
   group('WalletConnect WebView CSP', () {
     final html = File('assets/topup/walletconnect.html').readAsStringSync();
 
@@ -172,10 +268,9 @@ void main() {
 
   group('WalletConnect 双端回跳配置', () {
     test('iOS 与 Android 都注册 citizenapp://walletconnect', () {
-      final infoPlist = File('ios/Runner/Info.plist').readAsStringSync();
-      final androidManifest = File(
-        'android/app/src/main/AndroidManifest.xml',
-      ).readAsStringSync();
+      final infoPlist = File('ios/source/Info.plist').readAsStringSync();
+      final androidManifest = File('android/app/source/AndroidManifest.xml')
+          .readAsStringSync();
       expect(infoPlist, contains('<string>citizenapp</string>'));
       expect(infoPlist, contains('citizenapp.walletconnect'));
       expect(androidManifest, contains('android:scheme="citizenapp"'));
@@ -265,10 +360,10 @@ void main() {
     TopupApi apiWith(MockClient client) =>
         TopupApi(baseUrl: 'https://x.test/api', httpClient: client);
 
-    test('fetchConfig 走 /square/topup/config', () async {
+    test('fetchConfig 走 /topup/config', () async {
       final api = apiWith(
         MockClient((request) async {
-          expect(request.url.path, '/api/square/topup/config');
+          expect(request.url.path, '/api/topup/config');
           return http.Response(
             jsonEncode({
               'ok': true,
@@ -289,7 +384,7 @@ void main() {
       final api = apiWith(
         MockClient((request) async {
           expect(request.method, 'POST');
-          expect(request.url.path, '/api/square/topup/intent');
+          expect(request.url.path, '/api/topup/intent');
           expect(request.headers.containsKey('authorization'), isFalse);
           final body = jsonDecode(request.body) as Map<String, dynamic>;
           expect(body['account_id'], accountId);
@@ -297,7 +392,8 @@ void main() {
             jsonEncode({
               'ok': true,
               'payment_intent': 'signed-intent',
-              'expires_at': 123,
+              'intent': {'expires_at': 123},
+              'wallet_authorization_message': 'fixed-message',
             }),
             200,
           );
@@ -316,12 +412,14 @@ void main() {
       final api = apiWith(
         MockClient((request) async {
           expect(request.headers.containsKey('authorization'), isFalse);
+          expect(jsonDecode(request.body)['payer_signature'], '0x${'aa' * 65}');
           return http.Response(
             jsonEncode({'ok': true, 'status': 'confirming'}),
             200,
           );
         }),
       );
+      api.rememberPayerAuthorization('signed-intent', '0x${'aa' * 65}');
       final result = await api.confirm(
         paymentIntent: 'signed-intent',
         evmTxHash: '0x${'22' * 32}',
@@ -333,7 +431,7 @@ void main() {
       final api = apiWith(
         MockClient((request) async {
           expect(request.method, 'POST');
-          expect(request.url.path, '/api/square/topup/status');
+          expect(request.url.path, '/api/topup/status');
           expect(request.headers.containsKey('authorization'), isFalse);
           final body = jsonDecode(request.body) as Map<String, dynamic>;
           expect(body['order_id'], 'top_123');
@@ -362,6 +460,7 @@ void main() {
           ),
         ),
       );
+      api.rememberPayerAuthorization('signed-intent', '0x${'aa' * 65}');
       expect(
         () => api.confirm(
           paymentIntent: 'signed-intent',

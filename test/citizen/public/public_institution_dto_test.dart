@@ -1,7 +1,7 @@
 // 公权机构 DTO 解析单测。
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:citizenapp/citizen/public/data/public_institution_dto.dart';
+import 'package:citizenapp/citizen/public/public_institution_dto.dart';
 
 void main() {
   group('PublicInstitutionDto.fromJson', () {

@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:citizenapp/citizen/shared/account_derivation.dart';
-import 'package:citizenapp/ui/app_theme.dart';
+import 'package:citizenapp/theme/app_theme.dart';
 import 'package:citizenapp/wallet/pages/wallet_page.dart';
 
 void main() {

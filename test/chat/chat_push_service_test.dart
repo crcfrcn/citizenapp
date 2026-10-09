@@ -78,7 +78,7 @@ void main() {
   });
 
   test('CitizenApp 双端只展示并清理固定聊天通知', () {
-    final android = File('android/app/src/main/MainActivity.kt')
+    final android = File('android/app/source/MainActivity.kt')
         .readAsStringSync();
     final appPush = File('lib/notifications/app_push_service.dart')
         .readAsStringSync();
@@ -88,7 +88,7 @@ void main() {
     expect(appPush, contains('setForegroundNotificationPresentationOptions'));
     expect(android, contains('clearChatNotifications(conversationId)'));
     expect(
-      File('ios/Runner/AppDelegate.swift').readAsStringSync(),
+      File('ios/source/AppDelegate.swift').readAsStringSync(),
       contains('clearDeliveredChatNotifications'),
     );
   });
@@ -106,16 +106,16 @@ void main() {
     final client = File('lib/8964/services/square_api_client.dart')
         .readAsStringSync();
     final main = File('lib/main.dart').readAsStringSync();
-    expect(client, contains("'/square/push-endpoint'"));
+    expect(client, contains("_putJson('/notifications/endpoint'"));
     expect(main, contains('registerPushEndpoint'));
     expect(main, contains("data['kind'] == 'storage_cleanup'"));
   });
 
   test('iOS APNs 环境以 provisioning profile 和 App Store 收据为真源', () {
-    final entitlements = File('ios/Runner/Runner.entitlements')
+    final entitlements = File('ios/source/Runner.entitlements')
         .readAsStringSync();
-    final infoPlist = File('ios/Runner/Info.plist').readAsStringSync();
-    final appDelegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+    final infoPlist = File('ios/source/Info.plist').readAsStringSync();
+    final appDelegate = File('ios/source/AppDelegate.swift').readAsStringSync();
 
     expect(entitlements, contains('<string>\$(APS_ENVIRONMENT)</string>'));
     expect(infoPlist, isNot(contains('\$(APS_ENVIRONMENT)')));
@@ -127,7 +127,7 @@ void main() {
   });
 
   test('iOS 正式包固定声明当前出口合规豁免结论', () {
-    final infoPlist = File('ios/Runner/Info.plist').readAsStringSync();
+    final infoPlist = File('ios/source/Info.plist').readAsStringSync();
 
     // 当前销售范围排除法国，App Store Connect 已判定标准加密无须上传文稿。
     expect(infoPlist, contains('<key>ITSAppUsesNonExemptEncryption</key>'));
@@ -139,7 +139,7 @@ void main() {
   });
 
   test('双端系统备份都排除设备侧聊天内容', () {
-    final androidManifest = File('android/app/src/main/AndroidManifest.xml')
+    final androidManifest = File('android/app/source/AndroidManifest.xml')
         .readAsStringSync();
     // 按当前锁定依赖定位SDK所有者实现，不读取邻仓或在App复制原生逻辑。
     final packageConfig = File('.dart_tool/package_config.json');

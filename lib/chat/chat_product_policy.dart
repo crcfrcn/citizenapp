@@ -1,5 +1,5 @@
 import 'package:tatachat_sdk/tatachat_sdk.dart';
-import 'package:citizenapp/my/membership/subscription_service.dart';
+import 'package:citizenapp/account/membership/subscription_service.dart';
 
 /// 公民聊天模块的无状态会员适配；会员事实与附件额度唯一来自会员模块。
 class CitizenChatMediaLimitPolicy implements ChatMediaLimitPolicy {

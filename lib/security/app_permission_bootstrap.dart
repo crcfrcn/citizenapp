@@ -1,5 +1,5 @@
 import 'package:flutter/services.dart';
-import 'package:citizenapp/isar/user_isar.dart';
+import 'package:citizenapp/storage/user_isar.dart';
 
 /// App 首次启动权限策略。
 ///

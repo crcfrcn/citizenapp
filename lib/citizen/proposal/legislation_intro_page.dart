@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 立法发起介绍页(类B 提案:只投票 / 查看,不在手机端发起)。
 ///

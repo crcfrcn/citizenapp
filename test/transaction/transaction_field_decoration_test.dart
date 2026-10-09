@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:citizenapp/qr/widgets/address_scan_button.dart';
-import 'package:citizenapp/transaction/onchain-transaction/onchain_payment_page.dart'
+import 'package:citizenapp/scanner/address_scan_button.dart';
+import 'package:citizenapp/transaction/onchain/onchain_payment_page.dart'
     show transactionFieldDecoration;
 
 /// 交易表单输入框布局约束。

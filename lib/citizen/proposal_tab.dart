@@ -9,23 +9,23 @@ import 'package:citizenapp/citizen/institution/institution_accounts.dart';
 import 'package:citizenapp/citizen/institution/institution_repository.dart';
 import 'package:citizenapp/citizen/shared/institution_manage_detail_page.dart';
 
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/ui/widgets/pressable_card.dart';
-import 'package:citizenapp/ui/widgets/shimmer_loading.dart';
-import 'package:citizenapp/citizen/proposal/admins-change/services/institution_admin_service.dart';
-import 'package:citizenapp/citizen/proposal/admins-change/services/admin_activation_service.dart';
-import 'package:citizenapp/citizen/shared/proposal/proposal_cache.dart';
-import 'package:citizenapp/citizen/shared/proposal/proposal_context.dart';
-import 'package:citizenapp/citizen/shared/proposal/proposal_local_store.dart';
-import 'package:citizenapp/citizen/proposal/runtime-upgrade/runtime_upgrade_detail_page.dart';
-import 'package:citizenapp/citizen/shared/proposal/proposal_models.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/widgets/pressable_card.dart';
+import 'package:citizenapp/widgets/shimmer_loading.dart';
+import 'package:citizenapp/citizen/administrators/institution_admin_service.dart';
+import 'package:citizenapp/citizen/administrators/admin_activation_service.dart';
+import 'package:citizenapp/citizen/shared/proposal_cache.dart';
+import 'package:citizenapp/citizen/shared/proposal_context.dart';
+import 'package:citizenapp/citizen/shared/proposal_local_store.dart';
+import 'package:citizenapp/citizen/runtime/runtime_upgrade_detail_page.dart';
+import 'package:citizenapp/citizen/shared/proposal_models.dart';
 import 'package:citizenapp/citizen/shared/institution_info.dart';
-import 'package:citizenapp/transaction/multisig-transfer/multisig_transfer_proposal_adapter.dart';
-import 'package:citizenapp/transaction/multisig-transfer/multisig_transfer_service.dart';
-import 'package:citizenapp/citizen/proposal/runtime-upgrade/runtime_upgrade_service.dart';
-import 'package:citizenapp/citizen/shared/proposal/proposal_query_service.dart';
-import 'package:citizenapp/votingengine/internal-vote/internal_vote_query_service.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/transaction/multisig/multisig_transfer_proposal_adapter.dart';
+import 'package:citizenapp/transaction/multisig/multisig_transfer_service.dart';
+import 'package:citizenapp/citizen/runtime/runtime_upgrade_service.dart';
+import 'package:citizenapp/citizen/shared/proposal_query_service.dart';
+import 'package:citizenapp/voting/internal/internal_vote_query_service.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 公民 tab「提案」统一列表:默认公共机构 + 当前钱包订阅公权机构,按 ID 倒序。
 ///

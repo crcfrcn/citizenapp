@@ -4,29 +4,29 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'package:citizenapp/8964/compose/article/article_compose_body.dart';
+import 'package:citizenapp/8964/compose/article_compose_body.dart';
 import 'package:citizenapp/8964/compose/compose_payload.dart';
 import 'package:citizenapp/8964/compose/document_compose_body.dart';
-import 'package:citizenapp/8964/compose/drafts/compose_draft.dart';
-import 'package:citizenapp/8964/compose/drafts/compose_draft_media.dart';
-import 'package:citizenapp/8964/compose/drafts/compose_draft_store.dart';
-import 'package:citizenapp/8964/compose/drafts/drafts_page.dart';
+import 'package:citizenapp/8964/compose/compose_draft.dart';
+import 'package:citizenapp/8964/compose/compose_draft_media.dart';
+import 'package:citizenapp/8964/compose/compose_draft_store.dart';
+import 'package:citizenapp/8964/compose/drafts_page.dart';
 import 'package:citizenapp/8964/compose/video_compose_body.dart';
 import 'package:citizenapp/8964/compose/compose_media_widgets.dart';
 import 'package:citizenapp/8964/square_models.dart';
-import 'package:citizenapp/8964/profile/services/citizen_profile_cache.dart';
-import 'package:citizenapp/8964/profile/services/square_session_provider.dart';
-import 'package:citizenapp/8964/profile/widgets/profile_avatar.dart';
+import 'package:citizenapp/8964/profile/citizen_profile_cache.dart';
+import 'package:citizenapp/8964/profile/square_session_provider.dart';
+import 'package:citizenapp/8964/profile/profile_avatar.dart';
 import 'package:citizenapp/8964/services/square_identity_state.dart';
 import 'package:citizenapp/8964/services/square_publish_service.dart';
 import 'package:citizenapp/8964/services/square_post_store.dart';
 import 'package:citizenapp/8964/services/square_upload_service.dart';
-import 'package:citizenapp/my/membership/subscription_service.dart';
-import 'package:citizenapp/my/myid/current_user_context.dart';
-import 'package:citizenapp/my/myid/finalized_identity_resolver.dart';
-import 'package:citizenapp/qr/pages/qr_sign_session_page.dart';
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/account/membership/subscription_service.dart';
+import 'package:citizenapp/account/identity/current_user_context.dart';
+import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
+import 'package:citizenapp/scanner/qr_sign_session_page.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 广场发布页公共外壳；[postType] 由广场圆弧入口决定，页面内不可切换。
 class SquareComposePage extends StatefulWidget {

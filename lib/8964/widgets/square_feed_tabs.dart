@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'package:citizenapp/8964/square_models.dart';
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 广场分类分段控件（推荐 / 关注 / 竞选）。
 ///

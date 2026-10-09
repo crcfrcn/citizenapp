@@ -1,22 +1,22 @@
-import '../8964/mls_authentication_fixture.dart';
+import '../square/mls_authentication_fixture.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:citizenapp/8964/profile/models/citizen_profile.dart';
-import 'package:citizenapp/8964/profile/services/citizen_profile_api.dart';
-import 'package:citizenapp/8964/profile/services/citizen_profile_cache.dart';
-import 'package:citizenapp/8964/profile/services/square_session_provider.dart';
-import 'package:citizenapp/8964/profile/widgets/profile_avatar.dart';
+import 'package:citizenapp/8964/profile/citizen_profile.dart';
+import 'package:citizenapp/8964/profile/citizen_profile_api.dart';
+import 'package:citizenapp/8964/profile/citizen_profile_cache.dart';
+import 'package:citizenapp/8964/profile/square_session_provider.dart';
+import 'package:citizenapp/8964/profile/profile_avatar.dart';
 import 'package:citizenapp/8964/services/square_api_client.dart';
 import 'package:citizenapp/chat/chat_entry.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart';
-import 'package:citizenapp/my/membership/subscription_service.dart';
-import 'package:citizenapp/my/user/contact_service.dart';
+import 'package:citizenapp/account/membership/subscription_service.dart';
+import 'package:citizenapp/account/user/contact_service.dart';
 import 'package:citizenapp/security/account_security_service.dart';
-import 'package:citizenapp/ui/app_theme.dart';
+import 'package:citizenapp/theme/app_theme.dart';
 
 const _ownerUserId = 'CN220-CTZN2-100000001-2026';
 const _peerUserId = 'CN220-CTZN2-100000002-2026';

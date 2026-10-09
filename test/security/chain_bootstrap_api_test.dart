@@ -17,26 +17,33 @@ const _stateRoot =
 void main() {
   test('共用 HTTPS Client 在发送前拒绝明文并禁止重定向', () async {
     var sent = 0;
-    final client = HttpsOnlyClient(MockClient((request) async {
-      sent++;
-      expect(request.followRedirects, isFalse);
-      return http.Response('{}', 200);
-    }));
+    final client = HttpsOnlyClient(
+      MockClient((request) async {
+        sent++;
+        expect(request.followRedirects, isFalse);
+        return http.Response('{}', 200);
+      }),
+    );
     try {
       await client.get(Uri.parse('https://example.invalid'));
       expect(sent, 1);
       for (final scheme in ['http', 'ws']) {
-        await expectLater(() => client.get(Uri.parse('$scheme://localhost')), throwsUnsupportedError);
+        await expectLater(
+          () => client.get(Uri.parse('$scheme://localhost')),
+          throwsUnsupportedError,
+        );
       }
       expect(sent, 1);
-    } finally { client.close(); }
+    } finally {
+      client.close();
+    }
   });
 
   test('ChainBootstrapApi 拉取并解析安全启动清单', () async {
     final api = ChainBootstrapApi(
-      baseUrl: 'https://127.0.0.1:8787',
+      baseUrl: 'https://127.0.0.1:8787/api',
       httpClient: MockClient((request) async {
-        expect(request.url.path, '/chain/bootstrap');
+        expect(request.url.path, '/api/chain/bootstrap');
         return http.Response(
           jsonEncode(_manifest()),
           200,
@@ -111,12 +118,12 @@ void main() {
     final enabled = _manifest();
     (enabled['services'] as Map<String, dynamic>)['signed_extrinsic_relay'] = {
       'enabled': true,
-      'path': '/chain/extrinsics/relay',
+      'path': '/chain/extrinsics',
     };
 
     final parsed = ChainBootstrapManifest.fromJson(enabled);
     expect(parsed.services.signedExtrinsicRelayEnabled, isTrue);
-    expect(parsed.services.signedExtrinsicRelayPath, '/chain/extrinsics/relay');
+    expect(parsed.services.signedExtrinsicRelayPath, '/chain/extrinsics');
 
     final badPath = _manifest();
     (badPath['services'] as Map<String, dynamic>)['signed_extrinsic_relay'] = {
@@ -144,7 +151,12 @@ void main() {
       throwsUnsupportedError,
     );
     for (final scheme in ['http', 'ws']) {
-      expect(() => ChainBootstrapApiConfig.normalizeBaseUrl('$scheme://localhost:8787'), throwsUnsupportedError);
+      expect(
+        () => ChainBootstrapApiConfig.normalizeBaseUrl(
+          '$scheme://localhost:8787',
+        ),
+        throwsUnsupportedError,
+      );
     }
   });
 }

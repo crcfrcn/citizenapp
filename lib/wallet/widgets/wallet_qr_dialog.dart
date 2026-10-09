@@ -1,12 +1,12 @@
-import 'package:citizenapp/qr/widgets/qr_display_scaffold.dart' show AppQrImage;
+import 'package:citizenapp/scanner/qr_display_scaffold.dart' show AppQrImage;
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import 'package:citizenapp/citizen/shared/account_derivation.dart';
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 构造固定账户码（`QR_V1 k=5 account_id_code`）。
 ///

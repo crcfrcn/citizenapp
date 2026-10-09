@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 公权选举 tab 未开放视图。
 ///

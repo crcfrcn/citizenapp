@@ -1,8 +1,8 @@
 // R2:治理详情按 cid 反查公权目录库拿 省/市/法定代表人(与公权详情统一)。
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:citizenapp/citizen/public/data/public_institution_dto.dart';
-import 'package:citizenapp/citizen/public/data/cid_directory_lookup.dart';
+import 'package:citizenapp/citizen/public/public_institution_dto.dart';
+import 'package:citizenapp/citizen/public/cid_directory_lookup.dart';
 
 import 'public_nav_harness.dart';
 

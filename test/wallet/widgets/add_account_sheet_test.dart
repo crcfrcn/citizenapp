@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizenapp/ui/app_theme.dart';
+import 'package:citizenapp/theme/app_theme.dart';
 import 'package:citizenapp/wallet/widgets/add_account_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';

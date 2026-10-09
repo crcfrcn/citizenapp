@@ -8,13 +8,13 @@ import 'package:citizenapp/citizen/institution/institution_classification.dart';
 import 'package:citizenapp/citizen/institution/institution_detail_page.dart';
 import 'package:citizenapp/citizen/institution/institution_repository.dart';
 import 'package:citizenapp/citizen/shared/institution_info.dart' show OrgType;
-import 'package:citizenapp/citizen/shared/proposal/proposal_context.dart';
+import 'package:citizenapp/citizen/shared/proposal_context.dart';
 import 'package:citizenapp/citizen/governance/whitepaper_page.dart';
-import 'package:citizenapp/isar/user_isar.dart';
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/ui/page_transitions.dart';
-import 'package:citizenapp/ui/widgets/pressable_card.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/storage/user_isar.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/theme/page_transitions.dart';
+import 'package:citizenapp/widgets/pressable_card.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 const String _governanceProvincialCouncilIconAsset =
     'assets/icons/government-line.svg';

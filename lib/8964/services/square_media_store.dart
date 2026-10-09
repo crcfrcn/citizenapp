@@ -7,7 +7,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:isar_community/isar.dart';
 
-import 'package:citizenapp/isar/social_isar.dart';
+import 'package:citizenapp/storage/social_isar.dart';
 
 /// 媒体描述不含字节；列表读取不会把视频载入内存。
 class SquareStoredMedia {

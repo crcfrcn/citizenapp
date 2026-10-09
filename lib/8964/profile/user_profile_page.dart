@@ -10,30 +10,30 @@ import 'package:citizenapp/8964/square_models.dart';
 import 'package:citizenapp/8964/pages/square_article_detail_page.dart';
 import 'package:citizenapp/8964/pages/square_post_detail_page.dart';
 import 'package:citizenapp/8964/profile/follows_list_page.dart';
-import 'package:citizenapp/8964/profile/models/citizen_profile.dart';
-import 'package:citizenapp/8964/profile/models/profile_presentation.dart';
+import 'package:citizenapp/8964/profile/citizen_profile.dart';
+import 'package:citizenapp/8964/profile/profile_presentation.dart';
 import 'package:citizenapp/8964/profile/profile_edit_page.dart';
-import 'package:citizenapp/8964/profile/services/citizen_profile_api.dart';
-import 'package:citizenapp/8964/profile/services/citizen_profile_cache.dart';
-import 'package:citizenapp/8964/profile/services/square_session_provider.dart';
+import 'package:citizenapp/8964/profile/citizen_profile_api.dart';
+import 'package:citizenapp/8964/profile/citizen_profile_cache.dart';
+import 'package:citizenapp/8964/profile/square_session_provider.dart';
 import 'package:citizenapp/8964/profile/user_qr_page.dart';
-import 'package:citizenapp/8964/profile/widgets/collapsible_header.dart';
-import 'package:citizenapp/8964/profile/widgets/creator_subscribe_button.dart';
-import 'package:citizenapp/8964/profile/widgets/profile_action_icons.dart';
-import 'package:citizenapp/8964/profile/widgets/profile_category_tabs.dart';
-import 'package:citizenapp/8964/profile/widgets/profile_header_card.dart';
-import 'package:citizenapp/8964/profile/widgets/profile_kebab_menu.dart';
-import 'package:citizenapp/8964/profile/widgets/profile_posts_list.dart';
+import 'package:citizenapp/8964/profile/collapsible_header.dart';
+import 'package:citizenapp/8964/profile/creator_subscribe_button.dart';
+import 'package:citizenapp/8964/profile/profile_action_icons.dart';
+import 'package:citizenapp/8964/profile/profile_category_tabs.dart';
+import 'package:citizenapp/8964/profile/profile_header_card.dart';
+import 'package:citizenapp/8964/profile/profile_kebab_menu.dart';
+import 'package:citizenapp/8964/profile/profile_posts_list.dart';
 import 'package:citizenapp/8964/services/square_account_deletion_service.dart';
 import 'package:citizenapp/8964/services/square_api_client.dart';
 import 'package:citizenapp/8964/services/square_post_sync_service.dart';
 import 'package:citizenapp/chat/chat_entry.dart';
-import 'package:citizenapp/my/myid/current_user_context.dart';
-import 'package:citizenapp/my/myid/finalized_identity_resolver.dart';
-import 'package:citizenapp/my/membership/membership_revision.dart';
-import 'package:citizenapp/my/membership/subscription_service.dart';
-import 'package:citizenapp/qr/pages/qr_sign_session_page.dart';
-import 'package:citizenapp/ui/app_theme.dart';
+import 'package:citizenapp/account/identity/current_user_context.dart';
+import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
+import 'package:citizenapp/account/membership/membership_revision.dart';
+import 'package:citizenapp/account/membership/subscription_service.dart';
+import 'package:citizenapp/scanner/qr_sign_session_page.dart';
+import 'package:citizenapp/theme/app_theme.dart';
 import 'package:citizenapp/security/hex_codec.dart' show bytesToHex;
 
 /// 推特式用户主页。
@@ -522,16 +522,35 @@ class _UserProfilePageState extends State<UserProfilePage> {
     if (confirmed != true || !mounted) return;
 
     try {
+      final users = context.read<CurrentUserContext>();
+      final binding = (await users.resolve())?.binding;
+      if (!mounted) return;
+      if (binding == null || binding.cidNumber != widget.cidNumber || binding.accountId != selfAccountId) {
+        _snack('当前身份与本人主页不一致，请刷新后重试');
+        return;
+      }
+      Future<void> requireDeletionBinding() async {
+        final current = (await users.resolve())?.binding;
+        if (current == null || current.cidNumber != binding.cidNumber ||
+            current.accountId != binding.accountId ||
+            current.bindingRevision != binding.bindingRevision ||
+            current.genesisHash != binding.genesisHash) {
+          throw const SquareApiException('当前身份已变化，请重新打开本人主页');
+        }
+      }
       await SquareAccountDeletionService(
         chatRuntime: context.read<ChatSdk>(),
       ).deleteAccount(
-        cidNumber: widget.cidNumber,
-        accountId: selfAccountId,
+        binding: binding,
+        requireCurrent: requireDeletionBinding,
         // 账户注销签名统一交给 CitizenSDK，冷热模式不在页面分支。
         // SDK所属MLS状态按cid_number精确清理，不进入钱包签名模式。
         signAction: (message) async =>
             '0x${bytesToHex(await signCitizenPayload(signing: sdk.signing, context: context, accountId: selfAccountId, payload: message, action: CitizenQrActions.squareAccountAction))}',
       );
+    } on SquareAccountDeletionPendingException catch (e) {
+      if (mounted) _snack(e.message);
+      return;
     } on SquareAccountLocalCleanupException catch (e) {
       // Worker 已经完成不可逆注销；此时不能误报“注销失败”诱导用户重复提交。
       if (mounted) _snack(e.toString());

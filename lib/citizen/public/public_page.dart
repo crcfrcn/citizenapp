@@ -7,12 +7,12 @@ import 'package:flutter/material.dart';
 import 'package:citizenapp/citizen/institution/institution_detail_page.dart';
 import 'package:citizenapp/citizen/institution/institution_repository.dart';
 import 'package:citizenapp/citizen/public/city_institution_list_page.dart';
-import 'package:citizenapp/citizen/public/data/public_institution_repository.dart';
-import 'package:citizenapp/citizen/public/data/public_provinces.dart';
-import 'package:citizenapp/isar/app_isar.dart';
-import 'package:citizenapp/my/myid/current_user_context.dart';
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/citizen/public/public_institution_repository.dart';
+import 'package:citizenapp/citizen/public/public_provinces.dart';
+import 'package:citizenapp/storage/app_isar.dart';
+import 'package:citizenapp/account/identity/current_user_context.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 公民-公权 tab:公权机构目录浏览 + 订阅(ADR-018 §九 卡B)。
 ///

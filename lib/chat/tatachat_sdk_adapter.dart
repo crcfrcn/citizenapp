@@ -2,12 +2,12 @@ import 'dart:io';
 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart' as sdk;
-import 'package:citizenapp/8964/profile/services/square_session_provider.dart';
+import 'package:citizenapp/8964/profile/square_session_provider.dart';
 import 'package:citizenapp/8964/services/square_api_client.dart';
 import 'package:citizenapp/chat/chat_product_configuration.dart';
 import 'package:citizenapp/chat/chat_product_policy.dart';
-import 'package:citizenapp/my/membership/subscription_service.dart';
-import 'package:citizenapp/my/myid/current_user_context.dart';
+import 'package:citizenapp/account/membership/subscription_service.dart';
+import 'package:citizenapp/account/identity/current_user_context.dart';
 import 'package:citizenapp/notifications/app_push_service.dart';
 import 'package:citizenapp/security/account_security_service.dart';
 
@@ -107,19 +107,22 @@ final class CitizenChatRuntimeHost implements sdk.ChatRuntimeHost {
   }
 
   @override
-  Future<sdk.TataChatServerAccess> requestTataChatServerAccess({
+  Future<sdk.ChatAccess> requestChatAccess({
     required sdk.ChatRuntimeAccount account,
     required sdk.ChatDevice identity,
   }) async {
-    final response = await squareSessionProvider.requestChatServerAccess(
+    if (identity.userId != account.userId) {
+      throw StateError('聊天设备与当前用户不一致');
+    }
+    final response = await squareSessionProvider.requestChatAccess(
       deviceId: identity.deviceId,
       expectedCidNumber: account.userId,
       expectedBindingRevision: account.bindingRevision,
       expectedAccountId: account.accountId,
     );
-    final access = sdk.TataChatServerAccess(
-      tataChatServerUrl: response.chatServerUrl,
-      tataChatServerToken: response.chatServerToken,
+    final access = sdk.ChatAccess(
+      realtimeUrl: response.realtimeUrl,
+      accessToken: response.accessToken,
       expiresAtMillis: response.expiresAtMillis,
     );
     access.validate(DateTime.now().millisecondsSinceEpoch);

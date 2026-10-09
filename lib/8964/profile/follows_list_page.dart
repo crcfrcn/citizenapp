@@ -2,15 +2,15 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import 'package:citizenapp/8964/profile/models/citizen_profile.dart';
-import 'package:citizenapp/8964/profile/models/profile_presentation.dart';
-import 'package:citizenapp/8964/profile/services/citizen_profile_api.dart';
+import 'package:citizenapp/8964/profile/citizen_profile.dart';
+import 'package:citizenapp/8964/profile/profile_presentation.dart';
+import 'package:citizenapp/8964/profile/citizen_profile_api.dart';
 import 'package:citizenapp/8964/profile/user_profile_page.dart';
-import 'package:citizenapp/8964/profile/widgets/profile_avatar.dart';
+import 'package:citizenapp/8964/profile/profile_avatar.dart';
 import 'package:citizenapp/8964/services/square_api_client.dart';
-import 'package:citizenapp/my/membership/membership_revision.dart';
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/account/membership/membership_revision.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 enum FollowsType {
   following('关注', 'following'),

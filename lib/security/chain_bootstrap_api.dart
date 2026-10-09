@@ -11,7 +11,10 @@ class HttpsOnlyClient extends http.BaseClient {
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) {
     final uri = request.url;
-    if (uri.scheme != 'https' || uri.host.isEmpty || uri.userInfo.isNotEmpty || uri.hasFragment) {
+    if (uri.scheme != 'https' ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty ||
+        uri.hasFragment) {
       throw UnsupportedError('网络请求必须使用完整 HTTPS 地址');
     }
     request.followRedirects = false;
@@ -59,9 +62,7 @@ class ChainBootstrapApiConfig {
       throw UnsupportedError('$edgeBaseUrlDefineName 必须是完整的 Worker API URL');
     }
     if (uri.scheme != 'https' || uri.userInfo.isNotEmpty || uri.hasFragment) {
-      throw UnsupportedError(
-        '$edgeBaseUrlDefineName 只允许无用户信息及片段的 HTTPS',
-      );
+      throw UnsupportedError('$edgeBaseUrlDefineName 只允许无用户信息及片段的 HTTPS');
     }
     return trimmed;
   }
@@ -291,7 +292,7 @@ class ChainBootstrapServices {
 
   bool get signedExtrinsicRelayIsSafe =>
       !signedExtrinsicRelayEnabled ||
-      signedExtrinsicRelayPath == '/chain/extrinsics/relay';
+      signedExtrinsicRelayPath == '/chain/extrinsics';
 
   factory ChainBootstrapServices.fromJson(Map<String, dynamic> json) {
     final relay = _map(json, 'signed_extrinsic_relay');
@@ -373,7 +374,9 @@ String _httpsUrl(Map<String, dynamic> json, String key) {
   if (uri != null &&
       uri.hasScheme &&
       uri.host.isNotEmpty &&
-      uri.scheme == 'https' && uri.userInfo.isEmpty && !uri.hasFragment) {
+      uri.scheme == 'https' &&
+      uri.userInfo.isEmpty &&
+      !uri.hasFragment) {
     return value;
   }
   throw ChainBootstrapApiException('链启动清单字段 $key 不是允许的 URL');
@@ -385,7 +388,7 @@ String? _relayPath(Map<String, dynamic> json) {
   if (!enabled) {
     return null;
   }
-  if (value == '/chain/extrinsics/relay') {
+  if (value == '/chain/extrinsics') {
     return value as String;
   }
   throw const ChainBootstrapApiException(

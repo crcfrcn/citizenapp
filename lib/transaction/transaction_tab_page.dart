@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:citizenapp/transaction/onchain-transaction/onchain_payment_page.dart';
-import 'package:citizenapp/transaction/personal-manage/personal_account_entry.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/transaction/onchain/onchain_payment_page.dart';
+import 'package:citizenapp/transaction/personal/personal_account_entry.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 交易 Tab 页面。
 ///

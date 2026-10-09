@@ -4,7 +4,7 @@ import {
   existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { testRoot as tmpdir } from '../scripts/build.mjs';
+import { testRoot as tmpdir, BUILD_SHELL_SOURCES, SOURCE_VIEW_SOURCE } from '../scripts/build.mjs';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -14,13 +14,13 @@ const root = readFileSync(new URL('../android/build.gradle.kts', import.meta.url
 const application = readFileSync(new URL('../android/app/build.gradle.kts', import.meta.url), 'utf8');
 const properties = readFileSync(new URL('../android/gradle.properties', import.meta.url), 'utf8');
 const wrapper = readFileSync(new URL('../android/gradle-wrapper.properties', import.meta.url), 'utf8');
-const runner = readFileSync(new URL('../scripts/citizenapp-run.sh', import.meta.url), 'utf8');
-const iosUITestRunner = readFileSync(new URL('../scripts/citizenapp-ios-ui-test.sh', import.meta.url), 'utf8');
-const iosUITests = readFileSync(new URL('../ios/RunnerUITests.swift', import.meta.url), 'utf8');
-const viewScript = fileURLToPath(new URL('../scripts/citizenapp-view.mjs', import.meta.url));
-const view = readFileSync(viewScript, 'utf8');
+const runner = BUILD_SHELL_SOURCES.run;
+const iosUITestRunner = BUILD_SHELL_SOURCES['ui-test'];
+const iosUITests = readFileSync(new URL('../ios/tests/RunnerUITests.swift', import.meta.url), 'utf8');
+const viewScript = fileURLToPath(new URL('../scripts/build.mjs', import.meta.url));
+const view = SOURCE_VIEW_SOURCE;
 const podfile = readFileSync(new URL('../ios/Podfile', import.meta.url), 'utf8');
-const testRunner = readFileSync(new URL('../scripts/citizenapp-test.sh', import.meta.url), 'utf8');
+const testRunner = BUILD_SHELL_SOURCES.test;
 const pubspec = readFileSync(new URL('../pubspec.yaml', import.meta.url), 'utf8');
 const pubLock = readFileSync(new URL('../pubspec.lock', import.meta.url), 'utf8');
 const podLock = readFileSync(new URL('../ios/Podfile.lock', import.meta.url), 'utf8');
@@ -34,7 +34,7 @@ after(() => { if (!suppliedDependencyWork) rmSync(dependencyWork, { recursive: t
 const sourceRoot = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/u, '');
 let dependencySources;
 try {
-  dependencySources = JSON.parse(execFileSync(process.execPath, [viewScript, 'dependencies',
+  dependencySources = JSON.parse(execFileSync(process.execPath, [viewScript, 'view', 'dependencies',
     '--source-root', sourceRoot, '--work-root', dependencyWork], { encoding: 'utf8' }));
 } catch (error) {
   if (!suppliedDependencyWork) rmSync(dependencyWork, { recursive: true, force: true });
@@ -58,7 +58,7 @@ test('CitizenApp Isar 注释规范化保留正文且重复执行一致', () => {
   const code = runner.match(/<<'NORMALIZE_ISAR_COMMENTS'\n([\s\S]*?)\nNORMALIZE_ISAR_COMMENTS/u)?.[1];
   assert.ok(code);
   const fixture = mkdtempSync(join(tmpdir(), 'citizenapp-isar-'));
-  const directory = join(fixture, 'lib/isar');
+  const directory = join(fixture, 'lib/storage');
   mkdirSync(directory, { recursive: true });
   const names = ['user_isar', 'wallet_isar'];
   const originals = names.map(name => `// GENERATED CODE - DO NOT MODIFY BY HAND\n\npart of '${name}.dart';\n\nconst sentinel = 1;\n`);
@@ -94,6 +94,45 @@ test('CitizenApp Isar 注释规范化保留正文且重复执行一致', () => {
   }
 });
 
+// 使用完整合并入口与真实迁移后的文件位置，避免旧目录夹具掩盖入口失效。
+test('CitizenApp Isar 注释入口消费当前 storage 目录并拒绝旧目录', () => {
+  const fixture = mkdtempSync(join(tmpdir(), 'citizenapp-storage-entry-'));
+  const scripts = join(fixture, 'scripts');
+  const directory = join(fixture, 'lib/storage');
+  mkdirSync(scripts, { recursive: true });
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join(scripts, 'build.mjs'), readFileSync(viewScript));
+  writeFileSync(join(scripts, 'flows.json'), readFileSync(new URL('../scripts/flows.json', import.meta.url)));
+  const names = ['user_isar', 'wallet_isar'];
+  const originals = names.map(name => readFileSync(new URL(`../lib/storage/${name}.g.dart`, import.meta.url), 'utf8'));
+  const run = () => spawnSync(process.execPath, [join(scripts, 'build.mjs'), 'run', 'normalize-isar-comments'], {
+    cwd: fixture, encoding: 'utf8', env: { ...process.env, NODE_TEST_CONTEXT: '' },
+  });
+  try {
+    names.forEach((name, index) => writeFileSync(join(directory, `${name}.g.dart`), originals[index]));
+    const result = run();
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stderr, /生成正文保持不变/u);
+    const normalized = names.map((name, index) => {
+      const value = readFileSync(join(directory, `${name}.g.dart`), 'utf8');
+      assert.match(value.split('\n')[1], /^\/\/ 由 .*生成/u);
+      assert.equal(value.replace(/^\/\/ 由 .*\n/mu, ''), originals[index].replace(/^\/\/ 由 .*\n/mu, ''));
+      return value;
+    });
+    assert.equal(run().status, 0);
+    names.forEach((name, index) => assert.equal(readFileSync(join(directory, `${name}.g.dart`), 'utf8'), normalized[index]));
+    // 只有旧位置时必须失败，不能悄悄跳过或恢复旧目录兼容。
+    const legacy = join(fixture, 'lib/isar');
+    mkdirSync(legacy);
+    names.forEach((name, index) => writeFileSync(join(legacy, `${name}.g.dart`), originals[index]));
+    rmSync(directory, { recursive: true });
+    assert.notEqual(run().status, 0);
+    names.forEach((name, index) => assert.equal(readFileSync(join(legacy, `${name}.g.dart`), 'utf8'), originals[index]));
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
 test('CitizenApp locks the shared Dart protocol generator exactly', () => {
   assert.match(pubspec, /^  protoc_plugin: 25[.]0[.]0$/mu);
   assert.doesNotMatch(pubspec, /^  protoc_plugin: [\^~><=]/mu);
@@ -106,17 +145,17 @@ test('CitizenApp二维码非UI能力只由SDK提供', () => {
     assert.doesNotMatch(source, /^  (?:qr|qr_flutter|mobile_scanner):/mu);
   }
   assert.doesNotMatch(podLock, /mobile_scanner/u);
-  const preview = readFileSync(new URL('../lib/qr/scanner/scanner_view.dart', import.meta.url), 'utf8');
-  const display = readFileSync(new URL('../lib/qr/widgets/qr_display_scaffold.dart', import.meta.url), 'utf8');
+  const preview = readFileSync(new URL('../lib/scanner/scanner_view.dart', import.meta.url), 'utf8');
+  const display = readFileSync(new URL('../lib/scanner/qr_display_scaffold.dart', import.meta.url), 'utf8');
   assert.match(preview, /qr[.]openCapture\(purpose\)/u);
   assert.match(preview, /Texture\(textureId: capture[.]textureId\)/u);
   assert.match(display, /qr[.]encode\(widget[.]data, scale: 1\)/u);
   for (const path of [
-    'lib/qr/envelope.dart', 'lib/qr/qr_protocols.dart',
-    'lib/qr/generated/qr_action_registry.g.dart', 'lib/qr/generated/qr_bodies.g.dart',
-    'lib/qr/scanner/scanner_controller.dart', 'lib/qr/scanner/scanner_backend.dart',
-    'lib/qr/scanner/mobile_scanner_backend.dart',
-    'lib/signer/app_business_qr_codec.dart', 'lib/signer/signing.dart',
+    'lib/scanner/envelope.dart', 'lib/scanner/qr_protocols.dart',
+    'lib/scanner/generated/qr_action_registry.g.dart', 'lib/scanner/generated/qr_bodies.g.dart',
+    'lib/scanner/scanner/scanner_controller.dart', 'lib/scanner/scanner/scanner_backend.dart',
+    'lib/scanner/scanner/mobile_scanner_backend.dart',
+    'lib/signing/app_business_qr_codec.dart', 'lib/signing/signing.dart',
   ]) {
     assert.equal(existsSync(new URL('../' + path, import.meta.url)), false, path + '必须移除');
   }
@@ -307,16 +346,16 @@ test('CitizenApp直接开发自建源码外视图并只投影当轮Framework', a
       '  formal_chat_sdk:', '    path: ../FORMAL/tatachatsdk', '',
     ].join('\n'));
     writeFileSync(join(app, 'pubspec.lock'), sdkLock.join('\n')+'\n');
-    mkdirSync(join(app, 'ios'));
+    mkdirSync(join(app, 'ios/project'), {recursive:true});
     for (const scheme of ['Runner', 'RunnerUITests']) {
-      writeFileSync(join(app, 'ios', `${scheme}.xcscheme`), `<Scheme name="${scheme}"/>`);
+      writeFileSync(join(app, 'ios/project', `${scheme}.xcscheme`), `<Scheme name="${scheme}"/>`);
     }
     writeFileSync(join(app, 'android/gradle-wrapper.properties'), 'distributionUrl=https://example.invalid/gradle.zip\n');
     writeFileSync(join(app, 'lib/main.dart'), 'void main() {}\n');
     writeFileSync(join(app, '.dart_tool/forbidden'), 'generated\n');
     writeFileSync(join(app, 'android/settings.gradle'), 'generated by caller\n');
     writeFileSync(join(formalChatSource, 'pubspec.yaml'), 'name: formal_chat_sdk\n');
-    const project = execFileSync(process.execPath, [viewScript, 'create',
+    const project = execFileSync(process.execPath, [viewScript, 'view', 'create',
       '--source-root', app, '--work-root', work], { encoding: 'utf8' }).trim();
     assert.equal(project, join(work, 'source-view', app.replace(/^\/+/, '')));
     assert.equal(lstatSync(join(project, 'lib/main.dart')).isSymbolicLink(), false);
@@ -325,7 +364,7 @@ test('CitizenApp直接开发自建源码外视图并只投影当轮Framework', a
       const copy = join(project, `ios/Runner.xcodeproj/xcshareddata/xcschemes/${scheme}.xcscheme`);
       assert.equal(lstatSync(copy).isSymbolicLink(), false);
       assert.equal(lstatSync(copy).nlink, 1);
-      assert.deepEqual(readFileSync(copy), readFileSync(join(app, `ios/${scheme}.xcscheme`)));
+      assert.deepEqual(readFileSync(copy), readFileSync(join(app, `ios/project/${scheme}.xcscheme`)));
     }
     // 普通本机工程不消费 Wrapper；只有 create-android 从 Flutter 工具原件装配。
     for (const name of ['gradlew', 'gradlew.bat', 'gradle/wrapper/gradle-wrapper.jar']) {
@@ -359,7 +398,7 @@ test('CitizenApp直接开发自建源码外视图并只投影当轮Framework', a
     mkdirSync(citizenFramework, { recursive: true });
     mkdirSync(chatFramework, { recursive: true });
     const projectFramework = (packageRoot, packageSubpath, framework) => execFileSync(
-      process.execPath, [viewScript, 'project-framework', '--source-root', app,
+      process.execPath, [viewScript, 'view', 'project-framework', '--source-root', app,
         '--project-root', project, '--work-root', work, '--package-root', packageRoot,
         '--package-subpath', packageSubpath, '--framework', framework], { encoding: 'utf8' }).trim();
     const citizenProjection = projectFramework(sdk,
@@ -375,7 +414,7 @@ test('CitizenApp直接开发自建源码外视图并只投影当轮Framework', a
 
     const outside = join(fixture, 'outside/CitizenSDK.xcframework');
     mkdirSync(outside, { recursive: true });
-    const rejected = spawnSync(process.execPath, [viewScript, 'project-framework',
+    const rejected = spawnSync(process.execPath, [viewScript, 'view', 'project-framework',
       '--source-root', app, '--project-root', project, '--work-root', work,
       '--package-root', sdk, '--package-subpath', 'darwin/Outside.xcframework',
       '--framework', outside], { encoding: 'utf8' });
@@ -385,7 +424,7 @@ test('CitizenApp直接开发自建源码外视图并只投影当轮Framework', a
     writeFileSync(join(project, 'lib/main.dart'), 'void changedInWork() {}\n');
     assert.equal(readFileSync(join(app, 'lib/main.dart'), 'utf8'), 'void main() {}\n');
     const foreignWork = join(fixture, 'foreign-work');
-    const outsideRoot = spawnSync(process.execPath, [viewScript, 'create',
+    const outsideRoot = spawnSync(process.execPath, [viewScript, 'view', 'create',
       '--source-root', app, '--work-root', foreignWork], { encoding: 'utf8' });
     assert.notEqual(outsideRoot.status, 0);
     assert.match(outsideRoot.stderr, /工作根必须在本仓target内/u);
@@ -403,7 +442,7 @@ test('CitizenApp依赖准备默认联网且离线模式必须由调用方显式�
 });
 
 test('CitizenApp测试只在源码外工程视图生成Flutter状态', () => {
-  assert.match(testRunner, /node "\$VIEW_SCRIPT" create/u);
+  assert.match(testRunner, /node "\$VIEW_SCRIPT" view create/u);
   assert.match(testRunner, /--source-root "\$CITIZENAPP_DIR" --work-root "\$CITIZENAPP_TEST_WORK_DIR"/u);
   assert.match(testRunner, /FLUTTER_ROOT="\$\(node/u);
   assert.doesNotMatch(testRunner, /FLUTTER_ROOT="\$CITIZENAPP_DIR"/u);
@@ -411,8 +450,8 @@ test('CitizenApp测试只在源码外工程视图生成Flutter状态', () => {
 });
 
 test('CitizenApp Apple Build只调用产品视图投影且不向podspec传外部路径', () => {
-  assert.match(runner, /node "\$VIEW_SCRIPT" create/u);
-  assert.equal((runner.match(/node "\$VIEW_SCRIPT" project-framework/gu) ?? []).length, 2);
+  assert.match(runner, /node "\$VIEW_SCRIPT" view create/u);
+  assert.equal((runner.match(/node "\$VIEW_SCRIPT" view project-framework/gu) ?? []).length, 2);
   assert.match(runner, /darwin\/CitizenSDK[.]xcframework/u);
   assert.match(runner, /ios\/TataChatSDK[.]xcframework/u);
   assert.doesNotMatch(runner, /CITIZENSDK_APPLE_FRAMEWORK_DIR|TATACHATSDK_APPLE_FRAMEWORK_DIR/u);
@@ -470,7 +509,7 @@ test('Android插件注册表来自本轮外部Flutter工程', () => {
 
 // 中文注释：原跨仓 Rust 宿主断言转由 App 本仓测试执行，SDK 输入仍来自固定公开 Git。
 test('citizenapp_qr_uses_sdk_public_contract', () => {
-  for (const relative of ['lib/qr/generated/qr_action_registry.g.dart', 'lib/qr/generated/qr_bodies.g.dart', 'lib/qr/qr_protocols.dart']) {
+  for (const relative of ['lib/scanner/generated/qr_action_registry.g.dart', 'lib/scanner/generated/qr_bodies.g.dart', 'lib/scanner/qr_protocols.dart']) {
     assert.equal(existsSync(join(sourceRoot, relative)), false, '公民不得恢复 QR 第二实现：' + relative);
   }
   const sdk = dependencySources.citizen_sdk.root;
@@ -479,7 +518,7 @@ test('citizenapp_qr_uses_sdk_public_contract', () => {
   assert.ok(api.includes('class CitizenQrActions'));
   // 核验公开方法及准确参数类型，允许正式Dart格式化产生换行。
   assert.match(api, /Future<CitizenQrScanResult>\s+parseForPurpose\(\s*String text,\s*CitizenQrScanPurpose purpose,?\s*\)/u);
-  const caller = readFileSync(join(sourceRoot, 'lib/qr/scan_dispatch_flow.dart'), 'utf8');
+  const caller = readFileSync(join(sourceRoot, 'lib/scanner/scan_dispatch_flow.dart'), 'utf8');
   assert.ok(caller.includes("import 'package:citizen_sdk/citizen_sdk.dart';"));
   assert.ok(caller.includes('.qr.parseForPurpose('));
   assert.ok(caller.includes('CitizenQrActions.'));

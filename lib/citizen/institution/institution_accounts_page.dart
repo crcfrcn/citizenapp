@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:citizenapp/citizen/institution/institution.dart';
 import 'package:citizenapp/citizen/institution/institution_accounts.dart';
 import 'package:citizenapp/citizen/institution/institution_chain_state.dart';
-import 'package:citizenapp/my/util/amount_format.dart';
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/account/utility/amount_format.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 统一机构「全部账户」页(ADR-028 决策 2)——替代公权/治理两套账户页。
 ///

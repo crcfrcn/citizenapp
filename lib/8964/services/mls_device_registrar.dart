@@ -1,3 +1,4 @@
+import 'package:citizenapp/account/identity/registration_models.dart';
 import 'package:citizenapp/security/public_identity_store.dart';
 
 import 'dart:convert';
@@ -15,67 +16,26 @@ typedef DeviceBindingSigner = Future<String> Function({
   required String publicKey,
   required int issuedAtMillis,
 });
-typedef TurnstileTokenProvider = Future<String?> Function();
-
-const _turnstileTokenMinLength = 20;
-const _turnstileTokenMaxLength = 2048;
-
-/// 等待根导航器进入可展示状态后，只展示一次设备绑定验证页。
-///
-/// 冷启动时会话握手可能早于 `MaterialApp` 首帧；此前直接返回空 token 会让正式
-/// Worker 必然以 `turnstile_required` 拒绝 iOS 新设备登记。这里仅等待前台 UI，
-/// 不重试验证、不在后台伪造 token，也不把取消当成功。
-Future<String> acquireDeviceBindingTurnstileToken({
-  required bool Function() isUiReady,
-  required TurnstileTokenProvider present,
-  Duration readyTimeout = const Duration(seconds: 15),
-  Duration pollInterval = const Duration(milliseconds: 50),
-  Future<void> Function(Duration duration)? delay,
-}) async {
-  final wait = delay ?? Future<void>.delayed;
-  final deadline = DateTime.now().add(readyTimeout);
-  while (!isUiReady()) {
-    if (!DateTime.now().isBefore(deadline)) {
-      throw const SquareApiException(
-        '设备安全验证界面尚未就绪，请稍后重试',
-        errorCode: 'turnstile_ui_unavailable',
-      );
-    }
-    await wait(pollInterval);
-  }
-
-  final token = await present();
-  if (token == null || token.isEmpty) {
-    throw const SquareApiException(
-      '设备安全验证已取消',
-      errorCode: 'turnstile_cancelled',
+typedef RegistrationCapabilityProvider =
+    Future<RegistrationCapabilities?> Function(
+      MlsAuthenticationIdentity identity,
     );
-  }
-  if (token.length < _turnstileTokenMinLength ||
-      token.length > _turnstileTokenMaxLength) {
-    throw const SquareApiException(
-      '设备安全验证结果不合法',
-      errorCode: 'turnstile_token_invalid',
-    );
-  }
-  return token;
-}
 
 /// 只在明确的设备未登记响应后编排登记，钱包证明先持久保存。
 class MlsDeviceRegistrar {
   MlsDeviceRegistrar({
     required MlsAuthenticationSource authentication,
     SquareApiClient? apiClient,
-    TurnstileTokenProvider? turnstileToken,
+    RegistrationCapabilityProvider? registrationCapabilities,
     PublicIdentityRecordStore? proofStore,
   }) : _authentication = authentication,
        _api = apiClient ?? SquareApiClient(),
-       _turnstileToken = turnstileToken,
+       _registrationCapabilities = registrationCapabilities,
        _proofStore = proofStore ?? SystemPublicIdentityRecordStore();
 
   final MlsAuthenticationSource _authentication;
   final SquareApiClient _api;
-  final TurnstileTokenProvider? _turnstileToken;
+  final RegistrationCapabilityProvider? _registrationCapabilities;
   final PublicIdentityRecordStore _proofStore;
   final Map<String, Future<void>> _flights = {};
 
@@ -216,46 +176,17 @@ class MlsDeviceRegistrar {
       await _authentication.requireCurrent(identity);
     }
 
-    Future<String> token() async {
-      final provider = _turnstileToken;
-      if (provider == null) {
-        throw const SquareApiException(
-          '设备安全验证未配置',
-          errorCode: 'turnstile_ui_unavailable',
-        );
-      }
-      final value = await provider();
-      await _authentication.requireCurrent(identity);
-      if (value == null ||
-          value.length < _turnstileTokenMinLength ||
-          value.length > _turnstileTokenMaxLength) {
-        throw const SquareApiException(
-          '设备安全验证未完成',
-          errorCode: 'turnstile_token_invalid',
-        );
-      }
-      return value;
-    }
-
-    Future<void> submit(String? turnstile) => _api.registerMlsDevice(
+    // 真人结果已在原CID交易之前保存；这里没有再次弹窗或Turnstile原始token。
+    final capabilities = await _registrationCapabilities?.call(identity);
+    await _authentication.requireCurrent(identity);
+    await _api.registerMlsDevice(
       identity: identity,
       authentication: _authentication,
       issuedAt: issuedAt,
       bindingSignatureHex: signature,
-      turnstileToken: turnstile,
+      enrollmentId: capabilities?.enrollmentId,
+      recoveryToken: capabilities?.recoveryToken,
     );
-
-    if (rawProof == null) {
-      await submit(await token());
-    } else {
-      // 相同已登记回执无需重复真人验证；未落库或更新必须按服务端结果取得新token。
-      try {
-        await submit(null);
-      } on SquareApiException catch (error) {
-        if (error.errorCode != 'turnstile_required') rethrow;
-        await submit(await token());
-      }
-    }
     await _authentication.requireCurrent(identity);
   }
 }

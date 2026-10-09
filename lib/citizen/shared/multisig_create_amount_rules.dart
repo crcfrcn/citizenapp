@@ -1,4 +1,4 @@
-import 'package:citizenapp/my/util/amount_format.dart';
+import 'package:citizenapp/account/utility/amount_format.dart';
 
 /// 多签创建金额规则。
 ///

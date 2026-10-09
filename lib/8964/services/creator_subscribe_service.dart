@@ -4,13 +4,13 @@ import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
-import 'package:citizenapp/8964/profile/services/square_session_provider.dart';
+import 'package:citizenapp/8964/profile/square_session_provider.dart';
 import 'package:citizenapp/8964/services/square_api_client.dart'
     show SquareSession;
-import 'package:citizenapp/my/creator/creator_api.dart';
-import 'package:citizenapp/my/myid/finalized_identity_resolver.dart';
-import 'package:citizenapp/qr/pages/qr_sign_session_page.dart';
-import 'package:citizenapp/my/membership/subscription_chain.dart';
+import 'package:citizenapp/account/creator/creator_api.dart';
+import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
+import 'package:citizenapp/scanner/qr_sign_session_page.dart';
+import 'package:citizenapp/account/membership/subscription_chain.dart';
 import 'package:citizenapp/security/hex_codec.dart' show hexToBytes;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -35,7 +35,8 @@ class CreatorSubscribeService {
     SubscriptionChain? subscriptionChain,
     CreatorApi? api,
     SharedPreferences? preferences,
-  }) : _subscriptionChain = subscriptionChain ??
+  }) : _subscriptionChain =
+           subscriptionChain ??
            SubscriptionChain(chain: chain, transactions: transactions),
        _wallet = wallet,
        _identityResolver = identityResolver,
@@ -85,6 +86,7 @@ class CreatorSubscribeService {
       );
       await _confirm(
         subscriberCidNumber: session.cidNumber,
+        creatorCidNumber: creatorCidNumber,
         txHash: result.txHash,
         blockHashHex: result.blockHashHex,
       );
@@ -109,6 +111,7 @@ class CreatorSubscribeService {
       );
       await _confirm(
         subscriberCidNumber: session.cidNumber,
+        creatorCidNumber: creatorCidNumber,
         txHash: result.txHash,
         blockHashHex: result.blockHashHex,
       );
@@ -142,6 +145,7 @@ class CreatorSubscribeService {
       );
       await _confirm(
         subscriberCidNumber: session.cidNumber,
+        creatorCidNumber: creatorCidNumber,
         txHash: result.txHash,
         blockHashHex: result.blockHashHex,
       );
@@ -168,9 +172,7 @@ class CreatorSubscribeService {
     return showCitizenSdkQrResponse(
       context,
       request: pending.qrRequest,
-      expiresAt: BigInt.from(
-        pending.expiresAt.millisecondsSinceEpoch ~/ 1000,
-      ),
+      expiresAt: BigInt.from(pending.expiresAt.millisecondsSinceEpoch ~/ 1000),
     );
   }
 
@@ -206,10 +208,12 @@ class CreatorSubscribeService {
   /// HTTP 失败只重放同一交易证明，不要求第二次签名。
   Future<void> _confirm({
     required String subscriberCidNumber,
+    required String creatorCidNumber,
     required String txHash,
     required String blockHashHex,
   }) async {
     final proof = <String, dynamic>{
+      'creator_cid_number': creatorCidNumber,
       'tx_hash': txHash,
       'block_hash': blockHashHex,
     };
@@ -223,6 +227,7 @@ class CreatorSubscribeService {
       if (session == null || session.cidNumber != subscriberCidNumber) return;
       await _api.confirmCreatorSubscription(
         session: session,
+        creatorCidNumber: creatorCidNumber,
         txHash: txHash,
         blockHashHex: blockHashHex,
       );
@@ -241,11 +246,15 @@ class CreatorSubscribeService {
       for (final proof in List<Map<String, dynamic>>.from(pending)) {
         final txHash = proof['tx_hash'];
         final blockHashHex = proof['block_hash'];
-        if (txHash is! String || blockHashHex is! String) {
+        final creatorCid = proof['creator_cid_number'];
+        if (txHash is! String ||
+            blockHashHex is! String ||
+            creatorCid is! String) {
           continue;
         }
         await _api.confirmCreatorSubscription(
           session: session,
+          creatorCidNumber: creatorCid,
           txHash: txHash,
           blockHashHex: blockHashHex,
         );

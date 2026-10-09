@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
-import 'package:citizenapp/ui/app_layout.dart';
-import 'package:citizenapp/ui/app_theme.dart';
+import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/theme/app_theme.dart';
 
 /// 公民链白皮书的公开唯一阅读地址。
 ///

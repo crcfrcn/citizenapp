@@ -1,4 +1,4 @@
-// 回归:行政区字典数据包(assets/admin_divisions)能从真实打包资源灌入,并按
+// 回归:行政区字典数据包(assets/divisions)能从真实打包资源灌入,并按
 // (city, 省code, 市code) join 出市名。守护 ADR-021 字典 join + 防 assets 数据/格式
 // 漂移——如 china 重烤后某省市名再次为空(回到 001 bug),本测试会变红。
 //
@@ -7,8 +7,8 @@
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:citizenapp/citizen/public/data/admin_division_bundle_loader.dart';
-import 'package:citizenapp/citizen/public/data/admin_division_dto.dart';
+import 'package:citizenapp/citizen/public/admin_division_bundle_loader.dart';
+import 'package:citizenapp/citizen/public/admin_division_dto.dart';
 
 import 'fake_admin_division_store.dart';
 import 'fake_data_version_kv.dart';

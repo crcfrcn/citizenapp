@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:citizenapp/citizen/shared/account_derivation.dart';
-import 'package:citizenapp/qr/widgets/qr_display_scaffold.dart';
+import 'package:citizenapp/scanner/qr_display_scaffold.dart';
 
 /// 用户码展示页(`QR_V1 k=3 user_contact`,固定码)。
 ///

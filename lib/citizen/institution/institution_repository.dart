@@ -9,12 +9,12 @@
 // - 订阅、行政区所属地 join 等读路径直接复用底层 [directory],不另造。
 
 import 'package:citizenapp/citizen/institution/institution.dart';
-import 'package:citizenapp/citizen/public/data/area_path_formatter.dart';
-import 'package:citizenapp/citizen/public/data/public_institution_repository.dart';
-import 'package:citizenapp/citizen/public/data/public_provinces.dart';
+import 'package:citizenapp/citizen/public/area_path_formatter.dart';
+import 'package:citizenapp/citizen/public/public_institution_repository.dart';
+import 'package:citizenapp/citizen/public/public_provinces.dart';
 import 'package:citizenapp/citizen/institution/governance_registry.dart';
 import 'package:citizenapp/citizen/shared/institution_info.dart';
-import 'package:citizenapp/isar/app_isar.dart';
+import 'package:citizenapp/storage/app_isar.dart';
 
 class InstitutionRepository {
   InstitutionRepository({PublicInstitutionRepository? directory})

@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:citizenapp/citizen/institution/institution.dart';
 import 'package:citizenapp/citizen/institution/institution_repository.dart';
 import 'package:citizenapp/citizen/legislation/legislation_tab.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 import '../public/public_nav_harness.dart';
 

@@ -2,10 +2,10 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'package:citizenapp/citizen/legislation/data/law_models.dart';
-import 'package:citizenapp/citizen/legislation/data/legislation_api.dart';
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/citizen/legislation/law_models.dart';
+import 'package:citizenapp/citizen/legislation/legislation_api.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 法律条款阅读器(ADR-028 P3-1)——宪法与普通法律共用。
 ///

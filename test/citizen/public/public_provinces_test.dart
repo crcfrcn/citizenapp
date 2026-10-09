@@ -8,13 +8,13 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:citizenapp/citizen/public/data/public_provinces.dart';
+import 'package:citizenapp/citizen/public/public_provinces.dart';
 
 void main() {
   test('链上省名集合 == 字典 provinces.json 省名集合(逐字对齐守卫)', () {
-    final file = File('assets/admin_divisions/provinces.json');
+    final file = File('assets/divisions/provinces.json');
     expect(file.existsSync(), isTrue,
-        reason: 'assets/admin_divisions/provinces.json 必须存在(字典数据包)');
+        reason: 'assets/divisions/provinces.json 必须存在(字典数据包)');
 
     final dictNames = (jsonDecode(file.readAsStringSync()) as List<dynamic>)
         .map((e) => (e as Map<String, dynamic>)['name'] as String)

@@ -3,11 +3,11 @@ import 'package:citizenapp/app_log.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:provider/provider.dart';
 import 'package:citizenapp/wallet/pages/wallet_page.dart' show ImportColdWalletPage;
-import 'package:citizenapp/ui/app_theme.dart';
+import 'package:citizenapp/theme/app_theme.dart';
 import 'package:citizenapp/wallet/pages/create_wallet_flow.dart';
 import 'package:citizenapp/wallet/pages/import_wallet_page.dart';
-import 'package:citizenapp/ui/app_layout.dart';
-import 'package:citizenapp/ui/widgets/wallet_password.dart';
+import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/widgets/wallet_password.dart';
 
 /// 首次没有冷热账户时承载原初始化UI；SDK负责真实状态与输入、持久化规则。
 /// 原创建/导入布局保留，只增加已批准的18词与冷账户入口；冷入口不依赖本机热金库。

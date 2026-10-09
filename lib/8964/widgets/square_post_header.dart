@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:citizenapp/8964/profile/models/citizen_profile.dart';
-import 'package:citizenapp/8964/profile/services/citizen_profile_cache.dart';
+import 'package:citizenapp/8964/profile/citizen_profile.dart';
+import 'package:citizenapp/8964/profile/citizen_profile_cache.dart';
 
 import 'package:citizenapp/8964/square_models.dart';
-import 'package:citizenapp/8964/profile/widgets/profile_avatar.dart';
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/8964/profile/profile_avatar.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 广场卡片统一作者头部：方形圆角头像 + 右下角扇贝身份勋章、昵称、
 /// 竞选药丸（仅竞选公民）、竞选岗位/时间、右上角更多按钮。

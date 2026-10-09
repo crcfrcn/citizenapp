@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizenapp/security/system_protected_storage.dart';
 
@@ -15,6 +16,19 @@ void main() {
     directory: () async => root.path,
   );
 
+  test('registration独立记录CAS和全量擦除读回', () async {
+    final registration = SystemProtectedRecordStore(
+      'registration.json',
+      directory: () async => root.path,
+    );
+    final identity = store();
+    await identity.write('public', 'binding');
+    await registration.write('capability', 'protected');
+    expect(await identity.read('capability'), isNull);
+    await registration.deleteAll();
+    expect(await registration.readAll(), isEmpty);
+    expect(await identity.read('public'), 'binding');
+  });
   test('多实例并发CAS只有一个胜者，重建读取已提交值', () async {
     final a = store(), b = store();
     final result = await Future.wait([

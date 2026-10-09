@@ -19,30 +19,30 @@ import 'package:citizenapp/security/pin_input_page.dart';
 import 'package:citizenapp/security/system_protected_storage.dart';
 import 'package:citizenapp/transaction/transaction_tab_page.dart';
 import 'package:citizenapp/transaction/history/wallet_transaction_history_service.dart';
-import 'package:citizenapp/my/util/screenshot_guard.dart';
-import 'package:citizenapp/my/user/user.dart';
-import 'package:citizenapp/my/myid/current_user_context.dart';
-import 'package:citizenapp/my/myid/finalized_identity_resolver.dart';
-import 'package:citizenapp/my/myid/identity_badge_snapshot_store.dart';
-import 'package:citizenapp/isar/user_isar.dart';
+import 'package:citizenapp/account/utility/screenshot_guard.dart';
+import 'package:citizenapp/account/user/user.dart';
+import 'package:citizenapp/account/identity/current_user_context.dart';
+import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
+import 'package:citizenapp/account/identity/identity_badge_snapshot_store.dart';
+import 'package:citizenapp/storage/user_isar.dart';
 import 'package:citizenapp/security/app_permission_gate.dart';
 import 'package:citizenapp/update/app_update.dart';
 import 'package:citizenapp/update/update_badge.dart';
 import 'package:citizenapp/8964/services/mls_device_registrar.dart';
 import 'package:citizenapp/security/mls_authentication.dart';
 import 'package:citizenapp/8964/services/square_api_client.dart';
-import 'package:citizenapp/8964/profile/services/square_session_provider.dart';
+import 'package:citizenapp/8964/profile/square_session_provider.dart';
 import 'package:citizenapp/notifications/app_push_service.dart';
 import 'package:citizenapp/notifications/app_push_token.dart';
-import 'package:citizenapp/8964/pages/square_turnstile_page.dart';
-import 'package:citizenapp/qr/pages/qr_sign_session_page.dart';
+import 'package:citizenapp/account/identity/registration_coordinator.dart';
+import 'package:citizenapp/scanner/qr_sign_session_page.dart';
 import 'package:citizenapp/security/identity_binding.dart';
 import 'package:citizenapp/security/account_security_service.dart';
 import 'package:citizenapp/wallet/wallet_gate.dart';
 
-import 'ui/app_theme.dart';
-import 'ui/app_layout.dart';
-import 'ui/biometric_auth_text.dart';
+import 'theme/app_theme.dart';
+import 'theme/app_layout.dart';
+import 'theme/biometric_auth_text.dart';
 
 final appNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -56,9 +56,19 @@ Future<void> main() async {
   final citizenSdk = await CitizenSdk.open(modules: CitizenSdkModules.full);
   late final CurrentUserContext currentUserContext;
   late final chat.ChatSdk Function() readChatRuntime;
+  final registrationCoordinator = RegistrationCoordinator();
   final authentication = MlsAuthentication(
     runtime: () => readChatRuntime(),
     currentBinding: () async {
+      final registering = registrationCoordinator.activeBinding;
+      if (registering != null) {
+        await registrationCoordinator.requireActiveCurrent();
+        return (
+          cidNumber: registering.cidNumber,
+          accountId: registering.accountId,
+          bindingRevision: registering.bindingRevision,
+        );
+      }
       final current = await currentUserContext.resolve();
       final binding = current?.binding;
       if (current == null ||
@@ -78,16 +88,11 @@ Future<void> main() async {
   );
   final registrar = MlsDeviceRegistrar(
     authentication: authentication,
-    turnstileToken: () => acquireDeviceBindingTurnstileToken(
-      isUiReady: () => appNavigatorKey.currentState != null,
-      present: () {
-        final navigator = appNavigatorKey.currentState;
-        if (navigator == null) return Future<String?>.value();
-        return navigator.push<String>(
-          MaterialPageRoute(builder: (_) => const SquareTurnstilePage()),
-        );
-      },
-    ),
+    registrationCapabilities: (identity) async =>
+        registrationCoordinator.store.forDevice(
+          identity,
+          chainScope: await citizenSdk.chain.getGenesisHash(),
+        ),
   );
   final accountSecurity = AccountSecurityService(
     wallet: citizenSdk.wallet,
@@ -242,6 +247,7 @@ Future<void> main() async {
   runApp(
     CitizenApp(
       sdk: citizenSdk,
+      registrationCoordinator: registrationCoordinator,
       accountSecurity: accountSecurity,
       currentUserContext: currentUserContext,
       finalizedIdentityResolver: finalizedIdentityResolver,
@@ -440,6 +446,7 @@ String _lowerHex(List<int> bytes) =>
 class CitizenApp extends StatefulWidget {
   const CitizenApp({
     super.key,
+    this.registrationCoordinator,
     required this.sdk,
     required this.accountSecurity,
     required this.currentUserContext,
@@ -452,6 +459,7 @@ class CitizenApp extends StatefulWidget {
     required this.closeChatRuntime,
   });
 
+  final RegistrationCoordinator? registrationCoordinator;
   final CitizenSdk sdk;
   final AccountSecurityService accountSecurity;
   final CurrentUserContext currentUserContext;
@@ -468,6 +476,8 @@ class CitizenApp extends StatefulWidget {
 }
 
 class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
+  late final _registrationCoordinator =
+      widget.registrationCoordinator ?? RegistrationCoordinator();
   @override
   void initState() {
     super.initState();
@@ -492,6 +502,7 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     widget.squareSessionProvider.closeAuthentication();
+    _registrationCoordinator.api.close();
     unawaited(widget.closeChatRuntime());
     widget.accountSecurity.dispose();
     unawaited(_closeCitizenSdk(widget.sdk, widget.transactionHistory));
@@ -502,6 +513,9 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
+        Provider<RegistrationCoordinator>.value(
+          value: _registrationCoordinator,
+        ),
         Provider<CitizenSdk>.value(value: widget.sdk),
         Provider<AccountSecurityService>.value(value: widget.accountSecurity),
         Provider<CurrentUserContext>.value(value: widget.currentUserContext),

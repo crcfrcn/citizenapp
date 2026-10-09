@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 
-import 'package:citizenapp/8964/compose/article/article_section_editor.dart';
-import 'package:citizenapp/ui/app_theme.dart';
+import 'package:citizenapp/8964/compose/article_section_editor.dart';
+import 'package:citizenapp/theme/app_theme.dart';
 
 /// 公开文章与本地发布副本共用的只读富文本渲染器。
 class ArticleRichTextView extends StatefulWidget {

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
 import 'package:citizenapp/citizen/shared/account_derivation.dart';
-import 'package:citizenapp/my/util/amount_format.dart';
+import 'package:citizenapp/account/utility/amount_format.dart';
 import 'institution_role_models.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 机构管理员人员卡；姓名与账户来自 admins，岗位任职来自 entity。
 class InstitutionAssignmentCard extends StatelessWidget {

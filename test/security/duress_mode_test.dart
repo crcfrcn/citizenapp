@@ -1,10 +1,27 @@
 import 'package:citizenapp/security/app_lock_service.dart';
+import 'package:citizenapp/security/account_security_service.dart';
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizenapp/security/pin_input_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
 import 'dart:io';
+
 import 'package:citizenapp/security/system_protected_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+// 本用例不调用钱包或签名接口；一旦发生意外调用立即失败。
+class _StorageOnlyWallet implements CitizenSdkWallet {
+  @override
+  dynamic noSuchMethod(Invocation call) =>
+      throw UnimplementedError('unexpected wallet operation');
+}
+
+class _StorageOnlySigning implements CitizenSigning {
+  @override
+  dynamic noSuchMethod(Invocation call) =>
+      throw UnimplementedError('unexpected signing operation');
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -37,6 +54,32 @@ void main() {
     await records.delete(recursive: true);
   });
 
+  test('全量设备材料擦除删除注册恢复能力并读回', () async {
+    await SystemProtectedRecordStore.registration.write(
+      'resume',
+      'protected-capability',
+    );
+    final service = AccountSecurityService(
+      wallet: _StorageOnlyWallet(),
+      signing: _StorageOnlySigning(),
+      mlsDeviceRegistrar: ({
+        required cidNumber,
+        required bindingRevision,
+        required accountId,
+        required signBinding,
+      }) async => throw StateError('unexpected device registration'),
+      coldMlsDeviceBindingSigner: ({
+        required binding,
+        required payload,
+        required signingMessage,
+        required publicKey,
+        required issuedAtMillis,
+      }) async => throw StateError('unexpected signing'),
+    );
+    await service.wipeAllDeviceMaterial(const []);
+    expect(await SystemProtectedRecordStore.registration.readAll(), isEmpty);
+    service.dispose();
+  });
   test('普通应用锁与防共匪密码使用各自固定迭代次数', () {
     expect(AppLockService.appLockPinHashIterations, 100000);
     expect(AppLockService.duressModePinHashIterations, 10000);

@@ -1,10 +1,10 @@
 import 'package:citizenapp/wallet/account_balance_snapshot_store.dart';
 
-import 'package:citizenapp/isar/social_isar.dart';
-import 'package:citizenapp/8964/compose/drafts/compose_draft_store.dart';
+import 'package:citizenapp/storage/social_isar.dart';
+import 'package:citizenapp/8964/compose/compose_draft_store.dart';
 import 'package:citizenapp/8964/services/square_local_post_presenter.dart';
 
-import 'package:citizenapp/my/myid/finalized_identity_resolver.dart';
+import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizenapp/app_log.dart';

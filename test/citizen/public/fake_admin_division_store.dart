@@ -1,8 +1,8 @@
 // 内存 fake 行政区字典 store —— 测 join/载入逻辑,不依赖 Isar 真库。
 
-import 'package:citizenapp/citizen/public/data/admin_division_dto.dart';
-import 'package:citizenapp/citizen/public/data/admin_division_store.dart';
-import 'package:citizenapp/isar/app_isar.dart';
+import 'package:citizenapp/citizen/public/admin_division_dto.dart';
+import 'package:citizenapp/citizen/public/admin_division_store.dart';
+import 'package:citizenapp/storage/app_isar.dart';
 
 class FakeAdminDivisionStore implements AdminDivisionStore {
   /// divisionKey -> entity。

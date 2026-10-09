@@ -1,6 +1,6 @@
 // 内存 fake 版本游标 store —— 测 reconcile 增量逻辑,不依赖 Isar 真库。
 
-import 'package:citizenapp/citizen/public/data/data_version_kv.dart';
+import 'package:citizenapp/citizen/public/data_version_kv.dart';
 
 class FakeDataVersionKv implements DataVersionKv {
   String? globalVersion;

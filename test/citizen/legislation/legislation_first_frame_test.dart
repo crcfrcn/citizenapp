@@ -5,12 +5,12 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:citizenapp/citizen/institution/institution.dart';
 import 'package:citizenapp/citizen/institution/institution_repository.dart';
-import 'package:citizenapp/citizen/legislation/data/law_models.dart';
-import 'package:citizenapp/citizen/legislation/data/legislation_api.dart';
+import 'package:citizenapp/citizen/legislation/law_models.dart';
+import 'package:citizenapp/citizen/legislation/legislation_api.dart';
 import 'package:citizenapp/citizen/legislation/law_list_page.dart';
 import 'package:citizenapp/citizen/legislation/law_reader_page.dart';
 import 'package:citizenapp/citizen/legislation/legislation_tab.dart';
-import 'package:citizenapp/citizen/public/data/public_institution_repository.dart';
+import 'package:citizenapp/citizen/public/public_institution_repository.dart';
 
 import '../public/public_nav_harness.dart';
 import '../../support/fake_citizen_sdk.dart';

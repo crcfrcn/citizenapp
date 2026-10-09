@@ -13,10 +13,10 @@ import 'package:citizenapp/citizen/citizen_tab_page.dart';
 import 'package:citizenapp/citizen/institution/institution.dart';
 import 'package:citizenapp/citizen/institution/institution_repository.dart';
 import 'package:citizenapp/citizen/legislation/legislation_tab.dart';
-import 'package:citizenapp/citizen/public/data/public_institution_dto.dart';
-import 'package:citizenapp/citizen/public/data/public_institution_repository.dart';
-import 'package:citizenapp/ui/app_layout.dart';
-import './public/fake_public_institution_store.dart';
+import 'package:citizenapp/citizen/public/public_institution_dto.dart';
+import 'package:citizenapp/citizen/public/public_institution_repository.dart';
+import 'package:citizenapp/theme/app_layout.dart';
+import 'public/fake_public_institution_store.dart';
 import '../support/isar_test_env.dart';
 
 /// 构造统一机构(helper 纯函数测试用)。

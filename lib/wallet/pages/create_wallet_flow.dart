@@ -4,8 +4,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizenapp/my/util/screenshot_guard.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/account/utility/screenshot_guard.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 只映射SDK事实到原提示；App不再根据数据库错误字符串猜测底层状态。
 bool isWalletLocalStoreError(Object? error) =>

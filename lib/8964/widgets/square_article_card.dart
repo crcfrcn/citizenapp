@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:citizenapp/8964/square_models.dart';
 import 'package:citizenapp/8964/widgets/square_post_actions.dart';
 import 'package:citizenapp/8964/widgets/square_post_header.dart';
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 文章卡（含竞选变体）。
 ///

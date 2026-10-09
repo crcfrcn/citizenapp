@@ -6,9 +6,9 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:citizenapp/citizen/public/data/admin_division_bundle_loader.dart';
-import 'package:citizenapp/citizen/public/data/admin_division_dto.dart';
-import 'package:citizenapp/citizen/public/data/area_path_formatter.dart';
+import 'package:citizenapp/citizen/public/admin_division_bundle_loader.dart';
+import 'package:citizenapp/citizen/public/admin_division_dto.dart';
+import 'package:citizenapp/citizen/public/area_path_formatter.dart';
 
 import 'fake_admin_division_store.dart';
 import 'fake_data_version_kv.dart';
@@ -152,19 +152,19 @@ void main() {
       required Map<String, List<Map<String, dynamic>>> towns, // pcode -> rows
     }) {
       final files = <String, String>{
-        'assets/admin_divisions/manifest.json': jsonEncode({
+        'assets/divisions/manifest.json': jsonEncode({
           'version': version,
           'provinces': provinceVers.entries
               .map((e) => {'code': e.key, 'ver': e.value})
               .toList(),
         }),
-        'assets/admin_divisions/provinces.json': jsonEncode(provinces),
+        'assets/divisions/provinces.json': jsonEncode(provinces),
       };
       cities.forEach((pcode, rows) {
-        files['assets/admin_divisions/cities/$pcode.json'] = jsonEncode(rows);
+        files['assets/divisions/cities/$pcode.json'] = jsonEncode(rows);
       });
       towns.forEach((pcode, rows) {
-        files['assets/admin_divisions/towns/$pcode.json'] = jsonEncode(rows);
+        files['assets/divisions/towns/$pcode.json'] = jsonEncode(rows);
       });
       return files;
     }
@@ -438,12 +438,12 @@ void main() {
 
     test('manifest 缺省级版本表 → 不写库、不删除本地数据', () async {
       final bundle = _MapBundle({
-        'assets/admin_divisions/manifest.json':
+        'assets/divisions/manifest.json':
             jsonEncode({'version': 'invalid'}),
-        'assets/admin_divisions/provinces.json': jsonEncode(const [
+        'assets/divisions/provinces.json': jsonEncode(const [
           {'code': 'LN', 'name': '岭南省'},
         ]),
-        'assets/admin_divisions/cities/LN.json': jsonEncode(const [
+        'assets/divisions/cities/LN.json': jsonEncode(const [
           {'code': '001', 'name': '广州市'},
         ]),
       });

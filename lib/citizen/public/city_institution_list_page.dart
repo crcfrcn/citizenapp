@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 
 import 'package:citizenapp/citizen/institution/institution_detail_page.dart';
 import 'package:citizenapp/citizen/institution/institution_repository.dart';
-import 'package:citizenapp/citizen/public/data/public_institution_repository.dart';
-import 'package:citizenapp/isar/app_isar.dart';
-import 'package:citizenapp/ui/app_theme.dart';
-import 'package:citizenapp/ui/app_layout.dart';
+import 'package:citizenapp/citizen/public/public_institution_repository.dart';
+import 'package:citizenapp/storage/app_isar.dart';
+import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/theme/app_layout.dart';
 
 /// 某市公权机构列表(ADR-018 §九 卡B)。
 ///

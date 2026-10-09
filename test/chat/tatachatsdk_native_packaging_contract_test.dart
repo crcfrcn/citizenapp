@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -14,7 +15,7 @@ String _originalSourceRoot(String sourceScript) {
     start = index + marker.length;
     final candidate = project.substring(index + marker.length - 1);
     if (!project.startsWith('$candidate/target/')) continue;
-    final original = File('$candidate/scripts/citizenapp-test.sh');
+    final original = File('$candidate/scripts/build.mjs');
     if (Directory(candidate).resolveSymbolicLinksSync() != candidate ||
         FileSystemEntity.typeSync(original.path, followLinks: false) !=
             FileSystemEntityType.file ||
@@ -31,11 +32,15 @@ void main() {
   test(
     'CitizenApp consumes TataChatSDK product output without source staging',
     () {
-      final runner = File('scripts/citizenapp-run.sh').readAsStringSync();
-      final testRunner = File('scripts/citizenapp-test.sh').readAsStringSync();
-      final sourceScript = File(
-        'scripts/citizenapp-test.sh',
-      ).resolveSymbolicLinksSync();
+      final buildSource = File('scripts/build.mjs').readAsStringSync();
+      final match = RegExp(
+        r'export const BUILD_SHELL_SOURCES=Object.freeze\((\{[^\n]+\})\);',
+      ).firstMatch(buildSource);
+      expect(match, isNotNull);
+      final shellSources = jsonDecode(match!.group(1)!) as Map<String, dynamic>;
+      final runner = shellSources['run'] as String;
+      final testRunner = shellSources['test'] as String;
+      final sourceScript = File('scripts/build.mjs').resolveSymbolicLinksSync();
       final sourceRoot = _originalSourceRoot(sourceScript);
       final pubspec = File('$sourceRoot/pubspec.yaml').readAsStringSync();
       final pubLock = File('$sourceRoot/pubspec.lock').readAsStringSync();
@@ -104,14 +109,14 @@ void main() {
     final area = Directory.systemTemp.createTempSync('native-contract-source-');
     try {
       final owner = Directory('${area.path}/owner')..createSync();
-      final original = File('${owner.path}/scripts/citizenapp-test.sh');
+      final original = File('${owner.path}/scripts/build.mjs');
       original.parent.createSync();
       original.writeAsStringSync('locked product script');
       expect(_originalSourceRoot(original.path), owner.path);
       final view = Directory(
         '${owner.path}/target/ios/test/task/source-view${owner.path}',
       )..createSync(recursive: true);
-      final copy = File('${view.path}/scripts/citizenapp-test.sh');
+      final copy = File('${view.path}/scripts/build.mjs');
       copy.parent.createSync();
       original.copySync(copy.path);
       expect(_originalSourceRoot(copy.path), owner.path);

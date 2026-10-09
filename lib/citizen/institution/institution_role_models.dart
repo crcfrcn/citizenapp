@@ -1,7 +1,7 @@
 // 业务字段必须与链上管理员任职的 `account_id` 逐字一致。
 // ignore_for_file: non_constant_identifier_names
 
-import 'package:citizenapp/citizen/proposal/admins-change/models/admin_account.dart';
+import 'package:citizenapp/citizen/administrators/admin_account.dart';
 
 /// 机构岗位状态，序号与 entity runtime 枚举一致。
 enum InstitutionRoleStatus { active, inactive }

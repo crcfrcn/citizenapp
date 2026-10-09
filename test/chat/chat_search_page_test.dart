@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:tatachat_sdk/tatachat_sdk.dart';
 import 'package:citizenapp/chat/chat_entry.dart';
-import 'package:citizenapp/my/user/contact_service.dart';
+import 'package:citizenapp/account/user/contact_service.dart';
 
 /// 聊天搜索页验证：一个输入框、三段结果（会话 / 联系人 / 聊天记录）。
 ///

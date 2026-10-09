@@ -5,9 +5,9 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:citizenapp/citizen/public/data/admin_division_bundle_loader.dart';
-import 'package:citizenapp/citizen/public/data/public_institution_bundle_loader.dart';
-import 'package:citizenapp/citizen/public/data/public_institution_dto.dart';
+import 'package:citizenapp/citizen/public/admin_division_bundle_loader.dart';
+import 'package:citizenapp/citizen/public/public_institution_bundle_loader.dart';
+import 'package:citizenapp/citizen/public/public_institution_dto.dart';
 
 import 'fake_admin_division_store.dart';
 import 'fake_data_version_kv.dart';
@@ -59,13 +59,13 @@ String _instManifest({
 void main() {
   test('首装:载入 manifest(新格式)+ 省分片 → 写库 + 省顺序 + 版本戳', () async {
     final bundle = _MapBundle({
-      'assets/public_institutions/manifest.json': _instManifest(
+      'assets/institutions/manifest.json': _instManifest(
         version: '1',
         provinces: const [
           {'province_name': '中枢省', 'manifest_version': 'cz-1'},
         ],
       ),
-      'assets/public_institutions/中枢省.json': jsonEncode({
+      'assets/institutions/中枢省.json': jsonEncode({
         'province_name': '中枢省',
         'manifest_version': 'cz-1',
         'institutions': [
@@ -119,13 +119,13 @@ void main() {
       ..globalVersion = '1'
       ..provinceVersions = {'中枢省': 'cz-old'};
     final bundle = _MapBundle({
-      'assets/public_institutions/manifest.json': _instManifest(
+      'assets/institutions/manifest.json': _instManifest(
         version: '1',
         provinces: const [
           {'province_name': '中枢省', 'manifest_version': 'cz-new'},
         ],
       ),
-      'assets/public_institutions/中枢省.json': jsonEncode({
+      'assets/institutions/中枢省.json': jsonEncode({
         'province_name': '中枢省',
         'manifest_version': 'cz-new',
         'institutions': [
@@ -187,14 +187,14 @@ void main() {
       ..globalVersion = 'before'
       ..provinceVersions = {'中枢省': 'cz-1', '岭南省': 'ln-1'};
     final bundle = _MapBundle({
-      'assets/public_institutions/manifest.json': _instManifest(
+      'assets/institutions/manifest.json': _instManifest(
         version: 'after',
         provinces: const [
           {'province_name': '中枢省', 'manifest_version': 'cz-2'}, // 变了
           {'province_name': '岭南省', 'manifest_version': 'ln-1'}, // 不变
         ],
       ),
-      'assets/public_institutions/中枢省.json': jsonEncode({
+      'assets/institutions/中枢省.json': jsonEncode({
         'province_name': '中枢省',
         'manifest_version': 'cz-2',
         'institutions': [
@@ -252,7 +252,7 @@ void main() {
       ..provinceVersions = {'岭南省': 'ln-1'};
     // 全局 version 变了(强制进入逐省比对),但岭南省 manifest_version 没变 → 不 reconcile。
     final bundle = _MapBundle({
-      'assets/public_institutions/manifest.json': _instManifest(
+      'assets/institutions/manifest.json': _instManifest(
         version: 'after',
         provinces: const [
           {'province_name': '岭南省', 'manifest_version': 'ln-1'},
@@ -274,11 +274,11 @@ void main() {
 
   test('manifest 缺省级版本表 → 不写库、不删除本地数据', () async {
     final bundle = _MapBundle({
-      'assets/public_institutions/manifest.json': jsonEncode({
+      'assets/institutions/manifest.json': jsonEncode({
         'version': '1',
         'provinces': ['中枢省'],
       }),
-      'assets/public_institutions/中枢省.json': jsonEncode({
+      'assets/institutions/中枢省.json': jsonEncode({
         'province_name': '中枢省',
         'manifest_version': 'cz-1',
         'institutions': [

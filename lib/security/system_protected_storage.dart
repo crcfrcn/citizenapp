@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:flutter/services.dart';
 
 /// 仅处理App自有私有路径；平台校验失败不得继续开库或记录写入。
@@ -32,6 +33,7 @@ final class SystemProtectedRecordStore {
     : _directory = directory;
   static final identity = SystemProtectedRecordStore('identity.json');
   static final lock = SystemProtectedRecordStore('lock.json');
+  static final registration = SystemProtectedRecordStore('registration.json');
   final String name;
   final Future<String> Function()? _directory;
   static final Map<String, Future<void>> _tails = {};
@@ -42,7 +44,9 @@ final class SystemProtectedRecordStore {
   }
 
   Future<String> _path() async {
-    if (name != 'identity.json' && name != 'lock.json') {
+    if (name != 'identity.json' &&
+        name != 'lock.json' &&
+        name != 'registration.json') {
       throw ArgumentError('记录名称无效');
     }
     if (_directory != null &&

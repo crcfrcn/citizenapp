@@ -4,11 +4,11 @@
 // 行政区字典 fake store(市名 join 用),并按 provinceCode 落库/查询。
 
 import 'package:flutter/services.dart';
-import 'package:citizenapp/citizen/public/data/admin_division_bundle_loader.dart';
-import 'package:citizenapp/citizen/public/data/admin_division_dto.dart';
-import 'package:citizenapp/citizen/public/data/public_institution_bundle_loader.dart';
-import 'package:citizenapp/citizen/public/data/public_institution_dto.dart';
-import 'package:citizenapp/citizen/public/data/public_institution_repository.dart';
+import 'package:citizenapp/citizen/public/admin_division_bundle_loader.dart';
+import 'package:citizenapp/citizen/public/admin_division_dto.dart';
+import 'package:citizenapp/citizen/public/public_institution_bundle_loader.dart';
+import 'package:citizenapp/citizen/public/public_institution_dto.dart';
+import 'package:citizenapp/citizen/public/public_institution_repository.dart';
 
 import 'fake_admin_division_store.dart';
 import 'fake_data_version_kv.dart';

@@ -1,0 +1,189 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:citizenapp/transaction/offchain/clearing_bank_prefs.dart';
+import 'package:citizenapp/transaction/offchain/clearing_bank_directory.dart';
+
+const _accountA =
+    '0x1111111111111111111111111111111111111111111111111111111111111111';
+const _accountB =
+    '0x2222222222222222222222222222222222222222222222222222222222222222';
+const _mainAccountId =
+    '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const _feeAccountId =
+    '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+
+ClearingBankBindingSnapshot _snapshot({
+  required String cidNumber,
+  String mainAccountId = _mainAccountId,
+  String feeAccountId = _feeAccountId,
+  String rpcDomain = '127.0.0.1',
+}) {
+  return ClearingBankBindingSnapshot(
+    cidNumber: cidNumber,
+    cidFullName: '测试清算行',
+    cidShortName: '测试清算行',
+    mainAccountId: mainAccountId,
+    feeAccountId: feeAccountId,
+    peerId: '12D3KooWTest',
+    rpcDomain: rpcDomain,
+    rpcPort: 9944,
+    boundAtMs: 1,
+    lastVerifiedAtMs: 2,
+  );
+}
+
+void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    ClearingBankPrefs.debugRemoveForTest = null;
+  });
+
+  tearDown(() {
+    ClearingBankPrefs.debugRemoveForTest = null;
+  });
+
+  group('ClearingBankPrefs', () {
+    test('loadSnapshot returns null when key absent', () async {
+      expect(await ClearingBankPrefs.loadSnapshot(_accountA), isNull);
+    });
+
+    test('完整快照按 account_id 隔离', () async {
+      await ClearingBankPrefs.saveSnapshot(
+        _accountA,
+        _snapshot(cidNumber: 'GD001-SCB05-000000001-2026'),
+      );
+      await ClearingBankPrefs.saveSnapshot(
+        _accountB,
+        _snapshot(cidNumber: 'BJ001-SCB0U-000000002-2026'),
+      );
+      expect(
+        (await ClearingBankPrefs.loadSnapshot(_accountA))?.cidNumber,
+        'GD001-SCB05-000000001-2026',
+      );
+      expect(
+        (await ClearingBankPrefs.loadSnapshot(_accountB))?.cidNumber,
+        'BJ001-SCB0U-000000002-2026',
+      );
+    });
+
+    test('clear removes only the specified account_id', () async {
+      await ClearingBankPrefs.saveSnapshot(
+        _accountA,
+        _snapshot(cidNumber: 'AAA'),
+      );
+      await ClearingBankPrefs.saveSnapshot(
+        _accountB,
+        _snapshot(cidNumber: 'BBB'),
+      );
+      await ClearingBankPrefs.clear(_accountA);
+      expect(await ClearingBankPrefs.loadSnapshot(_accountA), isNull);
+      expect(
+        (await ClearingBankPrefs.loadSnapshot(_accountB))?.cidNumber,
+        'BBB',
+      );
+    });
+
+    test('clear 在 remove=false 时抛错，不得伪装已删除', () async {
+      await ClearingBankPrefs.saveSnapshot(
+        _accountA,
+        _snapshot(cidNumber: 'REMOVE-FALSE'),
+      );
+      ClearingBankPrefs.debugRemoveForTest = (_, _) async => false;
+
+      await expectLater(
+        ClearingBankPrefs.clear(_accountA),
+        throwsA(isA<StateError>()),
+      );
+      expect(await ClearingBankPrefs.loadSnapshot(_accountA), isNotNull);
+    });
+
+    test('clear 回读前并发重建键时抛错，上层不得 ack', () async {
+      await ClearingBankPrefs.saveSnapshot(
+        _accountA,
+        _snapshot(cidNumber: 'BEFORE-REAPPEAR'),
+      );
+      ClearingBankPrefs.debugRemoveForTest = (prefs, key) async {
+        final removed = await prefs.remove(key);
+        await prefs.setString(key, '{"cid_number":"REAPPEARED"}');
+        return removed;
+      };
+
+      await expectLater(
+        ClearingBankPrefs.clear(_accountA),
+        throwsA(isA<StateError>()),
+      );
+      expect(
+        (await SharedPreferences.getInstance()).containsKey(
+          'clearing_bank_binding_$_accountA',
+        ),
+        isTrue,
+      );
+    });
+
+    test('saveSnapshot overwrites previous value (切换清算行)', () async {
+      await ClearingBankPrefs.saveSnapshot(
+        _accountA,
+        _snapshot(cidNumber: 'OLD'),
+      );
+      await ClearingBankPrefs.saveSnapshot(
+        _accountA,
+        _snapshot(cidNumber: 'NEW'),
+      );
+      expect(
+        (await ClearingBankPrefs.loadSnapshot(_accountA))?.cidNumber,
+        'NEW',
+      );
+    });
+
+    test('saveSnapshot stores endpoint data', () async {
+      await ClearingBankPrefs.saveSnapshot(
+        _accountA,
+        _snapshot(cidNumber: 'GD001-SCB05-000000001-2026'),
+      );
+
+      final snapshot = await ClearingBankPrefs.loadSnapshot(_accountA);
+      expect(snapshot, isNotNull);
+      expect(snapshot!.cidNumber, 'GD001-SCB05-000000001-2026');
+      expect(snapshot.wssUrl, 'wss://127.0.0.1:9944');
+      expect(snapshot.mainAccountId, _mainAccountId);
+      expect(snapshot.feeAccountId, _feeAccountId);
+    });
+
+    // 端点经过持久化再读取仍须保持WSS，本机和局域网不提供明文例外。
+    for (final domain in [
+      '127.0.0.1',
+      'localhost',
+      '192.168.1.10',
+      'clearing.test',
+    ]) {
+      test('清算行快照读回 $domain 端点仍使用WSS', () async {
+        await ClearingBankPrefs.saveSnapshot(
+          _accountA,
+          _snapshot(cidNumber: 'TEST-CLEARING', rpcDomain: domain),
+        );
+        final snapshot = await ClearingBankPrefs.loadSnapshot(_accountA);
+        expect(snapshot, isNotNull);
+        expect(snapshot!.wssUrl, 'wss://$domain:9944');
+        final endpoint = ClearingBankNodeEndpoint(
+          cidNumber: 'TEST-CLEARING',
+          peerId: '12D3KooWTest',
+          rpcDomain: domain,
+          rpcPort: 9944,
+          registeredAt: 1,
+          registeredBy: _mainAccountId,
+        );
+        expect(endpoint.wssUrl, snapshot.wssUrl);
+      });
+    }
+
+    test('缺少费用账户的旧快照必须拒绝', () async {
+      SharedPreferences.setMockInitialValues({
+        'clearing_bank_binding_$_accountA':
+            '{"cid_number":"GD001-SCB05-000000001-2026",'
+            '"main_account_id":"$_mainAccountId",'
+            '"rpc_domain":"127.0.0.1","rpc_port":9944}',
+      });
+      expect(await ClearingBankPrefs.loadSnapshot(_accountA), isNull);
+    });
+  });
+}
