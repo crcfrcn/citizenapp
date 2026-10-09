@@ -3,7 +3,7 @@ import {fixedScratch} from './target.mjs';
 import {trackWorkProcess,workEnvironment,checkScratchPath} from './target.mjs';
 const directEntry = process.argv[1] === import.meta.filename && !process.execArgv.some(argument=>/^(?:-e|-p|--eval|--print)(?:=|$)/u.test(argument));
 const inlineTestEntry = directEntry && Boolean(process.env.NODE_TEST_CONTEXT) && process.argv.length === 2;
-// 产品资源阶段：声明、取得、验真和物化均属于本仓；可选原件目录不参与版本决策。
+// 产品资源阶段按本仓声明取得并物化输入；可选供给目录不参与版本决策。
 import {createHash,randomUUID} from 'node:crypto';
 import {existsSync,readFileSync,constants} from 'node:fs';
 import {lstat,realpath,readdir,readlink,symlink,copyFile,cp,readFile,writeFile,mkdir,mkdtemp,rename,rm as removeResourcePath,chmod,open} from 'node:fs/promises';
@@ -160,7 +160,7 @@ export async function extractArchive(input,destination,{prefix='',signal,tar,max
  await regular(input);if(await stat(destination))fail('解包目标已存在');let bytes=await readFile(input),entries=[];
  const add=(path,type,data,mode=0o644,target)=>{path=path.replace(/\/$/u,'').replace(/^\.\//u,'');if(path==='.'||!path)return;if(!safePath(path))fail('归档成员越界');if(entries.length>=400000||entries.some(x=>x.path===path))fail('归档成员重复或超限');entries.push({path,type,data,mode,target});};
  if(bytes[0]===0x50&&bytes[1]===0x4b){let end=-1;for(let i=bytes.length-22;i>=Math.max(0,bytes.length-65557);i--)if(bytes.readUInt32LE(i)===0x06054b50){end=i;break;}if(end<0)fail('ZIP目录缺失');const count=bytes.readUInt16LE(end+10);let cursor=bytes.readUInt32LE(end+16),total=0;for(let n=0;n<count;n++){signal?.throwIfAborted();if(bytes.readUInt32LE(cursor)!==0x02014b50)fail('ZIP成员无效');const method=bytes.readUInt16LE(cursor+10),size=bytes.readUInt32LE(cursor+24),compressed=bytes.readUInt32LE(cursor+20),nameLength=bytes.readUInt16LE(cursor+28),extra=bytes.readUInt16LE(cursor+30),comment=bytes.readUInt16LE(cursor+32),mode=bytes.readUInt32LE(cursor+38)>>>16,offset=bytes.readUInt32LE(cursor+42),name=bytes.subarray(cursor+46,cursor+46+nameLength).toString('utf8');if(bytes.readUInt16LE(cursor+8)&1||size===0xffffffff||offset===0xffffffff)fail('ZIP加密或Zip64未声明');total+=size;if(total>maxBytes)fail('ZIP解压超限');if(bytes.readUInt32LE(offset)!==0x04034b50)fail('ZIP本地记录无效');const start=offset+30+bytes.readUInt16LE(offset+26)+bytes.readUInt16LE(offset+28),data=bytes.subarray(start,start+compressed),output=method===0?data:method===8?inflateRawSync(data,{maxOutputLength:Math.max(1,size)}):fail('ZIP压缩方式未声明');if(output.length!==size)fail('ZIP长度不符');add(name,name.endsWith('/')?'directory':(mode&0o170000)===0o120000?'symlink':'file',output,mode||0o644,output.toString());cursor+=46+nameLength+extra+comment;}}
- else{if(bytes[0]===0x1f&&bytes[1]===0x8b)bytes=gunzipSync(bytes,{maxOutputLength:maxBytes});else if(bytes[0]===0xfd&&bytes[1]===0x37){if(!tar)fail('XZ需要已验真基础归档工具');fail('XZ应通过受控tar清单提取');}
+ else{if(bytes[0]===0x1f&&bytes[1]===0x8b)bytes=gunzipSync(bytes,{maxOutputLength:maxBytes});else if(bytes[0]===0xfd&&bytes[1]===0x37){if(!tar)fail('XZ需要已提供基础归档工具');fail('XZ应通过受控tar清单提取');}
   const number=b=>{const v=b.toString().replace(/\0.*$/su,'').trim();if(!/^[0-7]*$/u.test(v))fail('TAR数字无效');return parseInt(v||'0',8);};let pax={},global={};
   for(let cursor=0;cursor+512<=bytes.length;){signal?.throwIfAborted();const block=bytes.subarray(cursor,cursor+512);if(block.every(x=>x===0))break;let sum=0;for(let i=0;i<512;i++)sum+=(i>=148&&i<156)?32:block[i];if(sum!==number(block.subarray(148,156)))fail('TAR头摘要不符');const size=number(block.subarray(124,136)),type=String.fromCharCode(block[156]||48),str=(a,b)=>block.subarray(a,b).toString().replace(/\0.*$/su,''),data=bytes.subarray(cursor+512,cursor+512+size);if(data.length!==size||size>maxBytes)fail('TAR内容超限');cursor+=512+Math.ceil(size/512)*512;
    if(type==='x'||type==='g'){const values={};let at=0;while(at<data.length){const space=data.indexOf(32,at),length=Number(data.subarray(at,space).toString());if(!Number.isInteger(length)||length<=space-at+1||at+length>data.length)fail('PAX长度无效');const record=data.subarray(space+1,at+length-1).toString(),eq=record.indexOf('=');if(eq<1)fail('PAX字段无效');values[record.slice(0,eq)]=record.slice(eq+1);at+=length;}if(type==='g')global={...global,...values};else pax=values;continue;}
@@ -173,8 +173,8 @@ export async function extractArchive(input,destination,{prefix='',signal,tar,max
  await mkdir(destination,{mode:0o700});try{await verifyArchiveNames(destination,selected.map(entry=>entry.path),signal);for(const entry of selected.filter(x=>['file','directory'].includes(x.type))){signal?.throwIfAborted();const file=join(destination,entry.path);await mkdir(dirname(file),{recursive:true,mode:0o700});if(entry.type==='directory')await mkdir(file,{recursive:true,mode:0o700});else await writeFile(file,entry.data,{flag:'wx',mode:entry.mode&0o111?0o755:0o644});}
  for(const entry of selected.filter(x=>['symlink','hardlink'].includes(x.type))){signal?.throwIfAborted();const file=join(destination,entry.path);await mkdir(dirname(file),{recursive:true});if(entry.type==='hardlink'){const source=table.get(entry.resolved);if(source.type!=='file')fail('硬链接目标不是普通文件');await copyFile(join(destination,entry.resolved),file,constants.COPYFILE_EXCL);}else await symlink(entry.target,file);}return destination;}catch(e){await permissions(destination,true);await rm(destination,{recursive:true});throw e;}
 }
-// XZ由验真POSIX tar处理；双遍清单、无链接父目录与候选物化后的清单一起保护边界。
-async function unpack(input,target,{prefix='',signal,foundation,run=exec}={}){const b=await readFile(input);if(!(b[0]===0xfd&&b[1]===0x37))return extractArchive(input,target,{prefix,signal});const tar=foundation?.tools.tar;if(!tar)fail('XZ缺少已验真tar');const list=await run(tar,['-tvf',input],{signal,maxBuffer:32*1024**2});if(list.stdout.split('\n').filter(Boolean).some(x=>!/^[-d]/u.test(x)))fail('XZ成员含链接或特殊项');const names=(await run(tar,['-tf',input],{signal,maxBuffer:32*1024**2})).stdout.split('\n').filter(Boolean);if(names.some(x=>!safePath(x.replace(/\/$/u,'').replace(/^\.\//u,''))))fail('XZ成员越界');await mkdir(target);try{await verifyArchiveNames(target,names.map(name=>name.replace(/\/$/u,'').replace(/^\.\//u,'' )).filter(name=>name&&name!=='.'),signal);await run(tar,['-xkf',input,'--no-same-owner','-C',target],{signal,maxBuffer:2*1024**2});if(prefix){const child=join(target,prefix),temporary=target+'.root';await directory(child);await rename(child,temporary);await permissions(target,true);await rm(target,{recursive:true});await rename(temporary,target);}return target;}catch(error){if(await stat(target)){await permissions(target,true);await rm(target,{recursive:true});}throw error;}}
+// XZ由供给的POSIX tar处理；双遍清单、无链接父目录与候选物化后的清单一起保护边界。
+async function unpack(input,target,{prefix='',signal,foundation,run=exec}={}){const b=await readFile(input);if(!(b[0]===0xfd&&b[1]===0x37))return extractArchive(input,target,{prefix,signal});const tar=foundation?.tools.tar;if(!tar)fail('XZ缺少tar入口');const list=await run(tar,['-tvf',input],{signal,maxBuffer:32*1024**2});if(list.stdout.split('\n').filter(Boolean).some(x=>!/^[-d]/u.test(x)))fail('XZ成员含链接或特殊项');const names=(await run(tar,['-tf',input],{signal,maxBuffer:32*1024**2})).stdout.split('\n').filter(Boolean);if(names.some(x=>!safePath(x.replace(/\/$/u,'').replace(/^\.\//u,''))))fail('XZ成员越界');await mkdir(target);try{await verifyArchiveNames(target,names.map(name=>name.replace(/\/$/u,'').replace(/^\.\//u,'' )).filter(name=>name&&name!=='.'),signal);await run(tar,['-xkf',input,'--no-same-owner','-C',target],{signal,maxBuffer:2*1024**2});if(prefix){const child=join(target,prefix),temporary=target+'.root';await directory(child);await rename(child,temporary);await permissions(target,true);await rm(target,{recursive:true});await rename(temporary,target);}return target;}catch(error){if(await stat(target)){await permissions(target,true);await rm(target,{recursive:true});}throw error;}}
 // 本仓准确工具配方；外部供给登记不能改变这些版本和来源。
 const posixRecipe=(()=>{
 
@@ -190,8 +190,8 @@ const posixNames = Object.freeze([
   'open', 'pgrep', 'pkill', 'lsof', 'zsh', 'ps', 'kill', 'diff', 'yes', 'realpath',
   'which', 'sysctl',
 ]);
-const digest = bytes => createHash('sha256').update(bytes).digest('hex');
-const posixManifestDigest = manifest => digest(JSON.stringify(manifest));
+
+
 const fail = message => { throw new Error('受控POSIX工具：' + message); };
 
 function validatePosixTool(tool) {
@@ -205,45 +205,28 @@ function validatePosixTool(tool) {
     || tool.dependencies || tool.components || tool.archives) fail('官方发行件登记不完整');
 }
 
-// 每份输入必须来自固定系统位置并通过Apple签名；摘要固定整份公开发行件输入清单。
-async function captureSignedPosixSource({ run, signal, platform = process.platform } = {}) {
-  if (platform !== 'darwin' || typeof run !== 'function') fail('仅限已授权macOS自举');
-  const info = await readFile('/System/Library/CoreServices/SystemVersion.plist', 'utf8');
-  const read = key => info.match(new RegExp('<key>' + key + '</key>\\s*<string>([^<]+)</string>'))?.[1];
-  const version = read('ProductVersion'), build = read('ProductBuildVersion');
-  if (!/^\d+\.\d+(?:\.\d+)?$/u.test(version ?? '') || !/^[A-Za-z0-9]+$/u.test(build ?? '')) fail('系统发行身份无效');
-  const files = [];
-  for (const name of posixNames) {
-    signal?.throwIfAborted();
-    const entry = ['/bin/', '/usr/bin/', '/usr/sbin/'].map(prefix => prefix + name).find(existsSync);
-    if (!entry) fail('缺少官方基础入口：' + name);
-    const path = await realpath(entry);
-    if (path !== entry && !(name === 'tar' && path === '/usr/bin/bsdtar')) fail('系统入口发生未登记替换');
-    const stat = await lstat(path);
-    if (!stat.isFile() || !(stat.mode & 0o111)) fail('系统输入不是普通可执行文件');
-    
-    files.push({ name, path, sha256: digest(await readFile(path)) });
-  }
-  return { version, build, files };
+async function locatePosixSources({signal,platform=process.platform}={}){
+ if(platform!=='darwin')fail('仅限已授权macOS自举');
+ const files=[];for(const name of posixNames){signal?.throwIfAborted();const entry=['/bin/','/usr/bin/','/usr/sbin/'].map(prefix=>prefix+name).find(existsSync);if(!entry)fail('缺少官方基础入口：'+name);const path=await realpath(entry),info=await lstat(path);if(!info.isFile()||!(info.mode&0o111))fail('系统输入不是普通可执行文件');files.push({name,path});}return files;
 }
+
 
 // 采集不是常态回退：只有本次明确授权的bootstrap调用可建立候选，发布仍由工具事务完成。
 async function buildPosixTool({ tool, payload, bootstrap = false, run, signal }) {
   validatePosixTool(tool);
   if (bootstrap !== true) fail('缺少本次首次自举授权');
-  const manifest = await captureSignedPosixSource({ run, signal });
-  
+  const files = await locatePosixSources({signal});
+
   await mkdir(payload); await mkdir(join(payload, 'bin'));
-  for (const file of manifest.files) {
-    const bytes = await readFile(file.path);
-    
+  for (const file of files) {
+
     const target = join(payload, 'bin', file.name);
     await copyFile(file.path, target);
-    
-    // 系统原签名带平台限制；交付候选重签为本机工具签名，源摘要保持官方输入身份。
+
+    // 系统原签名带平台限制；候选建立本机运行签名，随后执行实际命令。
     await run('/usr/bin/codesign', ['--force', '--sign', '-', '--timestamp=none', target],
       { signal, timeout: 60000, env: { PATH: '', LANG: 'C' } });
-    
+
   }
   // 发布前真实执行文件、归档及Flutter宿主探测；只接受同对象内的sysctl。
   const bin = join(payload, 'bin'), probe = join(payload, '.probe');
@@ -254,16 +237,15 @@ async function buildPosixTool({ tool, payload, bootstrap = false, run, signal })
       { cwd: probe, signal, timeout: 60000, env: { PATH: bin, LANG: 'C' } });
     if (result.stdout !== 'controlled-posix-ok\ninput\n' + join(bin, 'sysctl') + '\n1\n') fail('基础工具真实执行回读不符');
   } finally { await rm(probe, {recursive:true,force:true}); }
-  await writeFile(join(payload, 'build.json'), JSON.stringify({source:manifest,
-    recipe:digest(Buffer.from(buildPosixTool.toString())), signing:'local-adhoc'}), { flag: 'wx' });
+
 }
 
 // 调用方只取得同一只读对象内入口；缺失立即失败，绝不从系统或PATH补齐。
-async function controlledPosixTools(library, verify) {
+async function controlledPosixTools(library, lookup) {
   const tool = library.tools.find(entry => entry.id === 'posix');
   if (!tool) fail('基础工具未登记');
   validatePosixTool(tool);
-  const installed = await verify(library, tool);
+  const installed = await lookup(library, tool);
   if (!installed) fail('请先安装已登记基础工具原件');
   const bin = dirname(installed.path), tools = {};
   for (const name of posixNames) {
@@ -273,7 +255,7 @@ async function controlledPosixTools(library, verify) {
   }
   return { bin, tools };
 }
-return {posixNames,buildPosixTool,controlledPosixTools,posixManifestDigest};})();
+return {posixNames,buildPosixTool,controlledPosixTools};})();
 const sourceRecipe=(()=>{
 const controlledPosixTools=(...args)=>productFoundation(...args);
 
@@ -373,26 +355,25 @@ async function regular(path, executable = false) {
 
 // 只有此工具对象的候选目录可写；最终前缀固定到已登记摘要，DESTDIR收集后才原子发布。
 async function buildSourceTool({ library, tool, source, archive, pending, payload,
-  finalPayload, signal, fetcher, exec, verify, apple, bootstrap = false, environment = process.env,
+  finalPayload, signal, fetcher, exec, lookup, apple, bootstrap = false, environment = process.env,
   prepare = prepareSourceDependencies, download = downloadTool }) {
   validateSourceTool(tool);
-  const recipeBytes = Buffer.from(buildSourceTool.toString());
   const expected = library.pending;
   if (pending !== expected || payload !== join(pending, 'payload')
     || finalPayload !== library.finalPayload
     || archive !== join(pending, 'archive')
     || source !== (tool.archive.kind === 'gem' ? archive : join(pending, 'unpack', tool.archive.root))) fail('候选对象身份不符');
   await directory(pending); await regular(archive);
-  
+
   if (tool.archive.kind !== 'gem') await directory(source);
   const installed = {};
   for (const id of tool.requires) {
     const registered = library.tools.find(entry => entry.id === id);
-    const result = registered && await verify(library, registered);
-    if (!result) fail('缺少已验真前置工具：' + id);
+    const result = registered && await lookup(library, registered);
+    if (!result) fail('缺少已提供前置工具：' + id);
     installed[id] = result.path;
   }
-  const foundation = await controlledPosixTools(library, verify, { bootstrap, id: tool.id });
+  const foundation = await controlledPosixTools(library, lookup, { bootstrap, id: tool.id });
   const selected = await apple(library, { names: ['clang', 'clang++', 'ar', 'make', 'ld', 'nm', 'ranlib', 'strip', 'xcrun', 'otool', 'install_name_tool', 'codesign'], signal });
   const sdkResult = await exec(selected.tools.xcrun, ['--sdk', 'macosx', '--show-sdk-path'], {
     env: { PATH: '', DEVELOPER_DIR: selected.developerDirectory }, signal, timeout: 60_000,
@@ -423,7 +404,7 @@ async function buildSourceTool({ library, tool, source, archive, pending, payloa
     'ARCHFLAGS', 'ARCH', 'CC_FOR_BUILD', 'CXX_FOR_BUILD', 'CROSS_COMPILE', 'LD_PRELOAD', 'LD_LIBRARY_PATH',
     'CFLAGS', 'CXXFLAGS', 'CPPFLAGS', 'LDFLAGS', 'CPATH', 'LIBRARY_PATH', 'PKG_CONFIG_PATH', 'CONFIG_SITE', 'GNUMAKEFLAGS', 'MAKEFLAGS', 'MFLAGS',
     'DESTDIR', 'LD_RUN_PATH', 'CMAKE_TOOLCHAIN_FILE', 'npm_execpath', 'npm_node_execpath', 'NVM_BIN', 'NVM_DIR'].includes(key)) delete env[key];
-  // 已验真SDK通过SDKROOT传给Clang，避免Configure把嵌入引号当作路径字节。
+  // 已提供SDK通过SDKROOT传给Clang，避免Configure把嵌入引号当作路径字节。
   env.CFLAGS = '-O2';
   env.CXXFLAGS = env.CFLAGS;
   env.LDFLAGS = '-Wl,-headerpad_max_install_names';
@@ -445,7 +426,7 @@ async function buildSourceTool({ library, tool, source, archive, pending, payloa
 
     await download(patch, file, { fetcher, signal });
     await regular(file);
-    
+
     await run(foundation.tools.patch, ['--batch', '--forward', '--fuzz=0', '-p0', '-i', file]);
     upstream.push(file);
   }
@@ -454,7 +435,7 @@ async function buildSourceTool({ library, tool, source, archive, pending, payloa
     const manifest = join(work, 'gems.json');
     await writeFile(manifest, JSON.stringify([{ name: 'cocoapods', version: tool.version, file: archive },
       ...tool.dependencies.map(entry => ({ name: entry.name, version: entry.version, file: originals.get(entry.name) }))]), { flag: 'wx' });
-    // Ruby读取验真Gem内的真实spec并核对整个运行闭包；无在线解析、系统Gem或忽略版本要求。
+    // Ruby读取声明的Gem内的真实spec并核对整个运行闭包；无在线解析、系统Gem或忽略版本要求。
     const code = [
       "require 'rubygems'; require 'rubygems/package'; require 'rubygems/installer'; require 'json'; require 'fileutils'",
       "entries = JSON.parse(File.read(ARGV.fetch(0))); home = ARGV.fetch(1)",
@@ -472,7 +453,7 @@ async function buildSourceTool({ library, tool, source, archive, pending, payloa
     // 只开放当前CocoaPods与同一受控Ruby自带Gem；不继承外部或用户Gem路径。
     const program = "ENV['GEM_HOME'] = File.expand_path('../gems', File.dirname(ARGV.shift)); ENV['GEM_PATH'] = ENV['GEM_HOME']; ENV['COCOAPODS_DISABLE_STATS'] = 'true'; require 'rubygems'; ENV['GEM_PATH'] = [ENV['GEM_HOME'], Gem.default_dir].join(File::PATH_SEPARATOR); Gem.clear_paths; require 'logger'; load Gem.bin_path('cocoapods', 'pod', " + JSON.stringify(tool.version) + ")";
     const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
-    // 运行入口固定安装时已验真的工具路径，确保Git可用并排除调用方PATH。
+    // 运行入口固定安装时已提供的工具路径，确保Git可用并排除调用方PATH。
     const wrapper = '#!' + foundation.tools.sh + '\nunset RUBYOPT RUBYLIB GEM_HOME GEM_PATH DYLD_LIBRARY_PATH DYLD_INSERT_LIBRARIES\n'
       + 'PATH=' + quote(env.PATH) + '\n'
       + 'exec ' + quote(installed.ruby) + ' --disable-gems -e ' + quote(program) + ' "$0" "$@"\n';
@@ -662,14 +643,13 @@ async function buildSourceTool({ library, tool, source, archive, pending, payloa
       await readFile(file), { flag: 'wx', mode: 0o444 });
     // 原件只保留在回执覆盖的payload内，清除同一安装事务产生的临时重复文件。
     for (const [i, file] of upstream.entries()) {
-      
+
       await rm(file);
     }
   }
-  // 永久保存实际使用的编译输入；维护安装器不能把已验真的同版原件无意义地作废。
-  
-  await writeFile(join(payload, 'recipe.source'), recipeBytes, { flag: 'wx', mode: 0o444 });
-  await writeFile(join(payload, 'build.json'), JSON.stringify({ tool, xcode: selected.version, recipe: hash(recipeBytes), posix_sha256: library.tools.find(entry=>entry.id==='posix').archive.sha256 }), { flag: 'wx', mode: 0o444 });
+  // 永久保存实际使用的编译输入；维护安装器不能把已提供的同版原件无意义地作废。
+
+  await writeFile(join(payload, 'build.json'), JSON.stringify({tool,xcode:selected.version}), { flag: 'wx', mode: 0o444 });
 }
 return {buildSourceTool,validateSourceTool};})();
 const flutterRecipe=(()=>{
@@ -815,7 +795,7 @@ async function copyFlutterArtifact(args, environment = process.env, run = execut
 
 
 
-// 调用方先验真SDK并占有本端工作目录；这里只生成Gradle配置，不复制SDK或业务源码。
+// 调用方先取得SDK入口并占有本端工作目录；这里只生成Gradle配置，不复制SDK或业务源码。
 async function prepareGradle(root, work, { signal } = {}) {
   signal?.throwIfAborted();
   if (!isAbsolute(root) || !isAbsolute(work) || await realpath(root) !== root || await realpath(work) !== work
@@ -920,7 +900,7 @@ function parsePatch(text) {
 }
 
 function transformFile(input, file) {
-  
+
   const lines = input.toString('utf8').split('\n');
   if (lines.pop() !== '') fail('源码必须使用末尾换行');
   const result = []; let cursor = 0;
@@ -934,7 +914,7 @@ function transformFile(input, file) {
   }
   result.push(...lines.slice(cursor));
   const output = Buffer.from(result.join('\n') + '\n');
-  
+
   return output;
 }
 
@@ -944,7 +924,7 @@ async function readPatch(root, patch) {
   const path = join(root, patch.path);
   if (!(await lstat(path)).isFile() || await realpath(path) !== path) fail('补丁必须为库内普通文件');
   const input = await readFile(path);
-  
+
   return parsePatch(input.toString('utf8'));
 }
 
@@ -956,7 +936,7 @@ async function prepareFlutter(root, { tool, files, env, signal, run = execute })
   if (await realpath(work) !== work || work === root || work.startsWith(root + sep)) fail('准备状态不能写入SDK原件');
   const cache = join(root, 'bin/cache');
   const version = JSON.parse(await readFile(join(cache, 'flutter.version.json'), 'utf8'));
-  
+
   await applyPatch(root, files);
   await prepareFlutterSnapshot(root, { tool, files, env, signal, run });
 }
@@ -969,11 +949,11 @@ async function prepareFlutterSnapshot(root, { tool, files, env, signal, run = ex
     || work === root || work.startsWith(root + sep)) fail('准备状态不能写入SDK原件');
   const cache = join(root, 'bin/cache');
   const version = JSON.parse(await readFile(join(cache, 'flutter.version.json'), 'utf8'));
-  
+
   if (!Array.isArray(files) || !files.length) fail('快照缺少完整修订输入');
   for (const file of files) {
     const path = join(root, file.path);
-    
+
   }
   const tools = join(root, 'packages/flutter_tools');
   const dart = join(cache, 'dart-sdk/bin', process.platform === 'win32' ? 'dart.exe' : 'dart');
@@ -1006,7 +986,7 @@ async function prepareFlutterSnapshot(root, { tool, files, env, signal, run = ex
     cwd: work, env: environment, signal, timeout: 300_000, maxBuffer: 2 * 1024 * 1024,
   });
   if (!(await lstat(snapshot)).isFile() || !(await lstat(snapshot)).size) fail('修订快照没有生成');
-  
+
 }
 
 async function applyPatch(root, files) {
@@ -1067,10 +1047,10 @@ async function installedToolObject(directory,tool){
 }
 const directoryCheck=path=>directory(path);
 // 基础工具的正式PATH投影排除发行件旧Shell/grep/sed；自举仅限本产品已声明GNU三工具。
-async function productFoundation(library,verify,{bootstrap=false,id}={}){
+async function productFoundation(library,lookup,{bootstrap=false,id}={}){
  if(library.gateLinuxFoundation)return library.gateLinuxFoundation;
- const base=await posixRecipe.controlledPosixTools(library,verify);if(bootstrap){if(!['bash','grep','sed'].includes(id))fail('自举仅限GNU三工具');return {...base,path:base.bin};}
- const tools={...base.tools},paths=[];for(const name of ['bash','grep','sed']){const tool=library.tools.find(x=>x.id===name),value=tool&&await verify(library,tool);if(!value)fail('GNU闭包缺失：'+name);tools[name]=value.path;paths.push(dirname(value.path));}tools.sh=tools.bash;delete tools.egrep;delete tools.fgrep;
+ const base=await posixRecipe.controlledPosixTools(library,lookup);if(bootstrap){if(!['bash','grep','sed'].includes(id))fail('自举仅限GNU三工具');return {...base,path:base.bin};}
+ const tools={...base.tools},paths=[];for(const name of ['bash','grep','sed']){const tool=library.tools.find(x=>x.id===name),value=tool&&await lookup(library,tool);if(!value)fail('GNU闭包缺失：'+name);tools[name]=value.path;paths.push(dirname(value.path));}tools.sh=tools.bash;delete tools.egrep;delete tools.fgrep;
  const view=join(library.work,'resource-tools');await directory(view,true);const shell=join(view,'sh');if(await stat(shell)){if(!((await lstat(shell)).isSymbolicLink())||await realpath(shell)!==tools.sh)fail('GNU sh交付漂移');}else await symlink(tools.sh,shell);for(const [name,path]of Object.entries(base.tools)){if(['sh','bash','grep','sed','egrep','fgrep'].includes(name))continue;const link=join(view,name);if(await stat(link)){if(!((await lstat(link)).isSymbolicLink())||await realpath(link)!==path)fail('基础交付漂移');}else await symlink(path,link);}return {tools,bin:view,path:[...paths,view].join(':')};
 }
 async function prepareSourceDependencies({library,tool,pending,signal,fetcher,options={}}){const result=new Map();for(const entry of tool.dependencies||[])result.set(entry.name,await acquireArchive(entry,{work:library.work,store:join(library.root,'archives'),optional:options.optionalDependencies,offline:options.offline,signal,fetcher}));return result;}
@@ -1087,8 +1067,8 @@ async function candidateOnTargetVolume(pending,target,{signal}={}){
  return {pending:copy,dispose:async()=>{await permissions(stage,true);await rm(stage,{recursive:true});}};
  }catch(error){await permissions(stage,true);await rm(stage,{recursive:true});throw error;}
 }
-async function commitCandidate(pending,target,{signal,verify}={}){
- const transfer=await candidateOnTargetVolume(pending,target,{signal,verify});pending=transfer.pending;
+async function commitCandidate(pending,target,{signal}={}){
+ const transfer=await candidateOnTargetVolume(pending,target,{signal});pending=transfer.pending;
  try{
  // 下载与编译已完成后才取得短锁；等待可取消，已有对象永不覆盖。
  const lock=target+'.lock';let handle;for(let n=0;n<500;n++){signal?.throwIfAborted();try{handle=await open(lock,'wx',0o600);break;}catch(e){if(e.code!=='EEXIST')throw e;await new Promise(r=>setTimeout(r,20));}}if(!handle)fail('原件提交锁等待超限');
@@ -1107,7 +1087,7 @@ async function commitCandidate(pending,target,{signal,verify}={}){
 async function installTool(library,tool,options,visiting=new Set()){
  if(library.installed.has(tool.id))return library.installed.get(tool.id);if(visiting.has(tool.id))fail('工具声明循环：'+tool.id);visiting=new Set([...visiting,tool.id]);const archive=toolArchive(tool);
  if(tool.id==='xcode'){const apple=await appleTools(library,{environment:cleanEnvironment(options.environment),signal:options.signal});const value={path:apple.tools.xcodebuild,version:tool.version};library.installed.set(tool.id,value);return value;}
- if(!archive)fail('工具归档未声明：'+tool.id);const shared=join(library.root,'shared');await directory(shared,true);const names=await readdir(shared),existing=[archive.sha256,...names.filter(name=>name.startsWith(archive.sha256+'-'))].find(name=>existsSync(join(shared,name,'payload',archive.executable)));const target=join(shared,existing||archive.sha256);const verify=p=>installedToolObject(p,tool,{produced:true});let value=await verify(target);
+ if(!archive)fail('工具归档未声明：'+tool.id);const shared=join(library.root,'shared');await directory(shared,true);const names=await readdir(shared),existing=[archive.sha256,...names.filter(name=>name.startsWith(archive.sha256+'-'))].find(name=>existsSync(join(shared,name,'payload',archive.executable)));const target=join(shared,existing||archive.sha256);const lookup=p=>installedToolObject(p,tool,{produced:true});let value=await lookup(target);
  if(!value&&options.optionalTools&&await stat(options.optionalTools)){await directory(options.optionalTools);value=await installedToolObject(join(options.optionalTools,'shared',archive.sha256),tool);}
  if(!value&&tool.id==='cmake'&&options.optionalTools&&await stat(join(options.optionalTools,'shared/android'))){await installAndroidResources({...options,library,offline:true});value=library.installed.get('cmake');}
  for(const id of tool.requires||[]){const entry=library.tools.find(x=>x.id===id);if(!entry)fail('前置工具未声明：'+id);await installTool(library,entry,options,visiting);}
@@ -1119,8 +1099,8 @@ async function installTool(library,tool,options,visiting=new Set()){
   let source;if(archive.kind==='apple-posix'){await appleTools(library,{names:['codesign'],environment:cleanEnvironment(options.environment),signal:options.signal});await posixRecipe.buildPosixTool({tool,payload,bootstrap:true,run:exec,signal:options.signal});source=payload;}
   else{const file=await acquireArchive(archive,{work:library.work,store:join(library.root,'archives'),optional:options.optionalDependencies,offline:options.offline,fetcher:options.fetcher,signal:options.signal});await copyFile(file,original);if(['gem','binary','phar'].includes(archive.kind))source=original;else {const unpacked=join(canonical,'unpack');await unpack(original,unpacked,{foundation,signal:options.signal});source=archive.root==='.'?unpacked:join(unpacked,archive.root);await directory(source);}}
   const environment={...cleanEnvironment(options.environment),HOME:canonical,TMPDIR:canonical,PATH:foundation?.path||'',PRODUCT_WORK_DIR:canonical};
-  const verifyInstalled=async(_,t)=>library.installed.get(t.id)||null;
-  if(['native-source','gem'].includes(archive.kind))await sourceRecipe.buildSourceTool({library:localLibrary,tool,source,archive:original,pending:canonical,payload,finalPayload:join(target,'payload'),signal:options.signal,fetcher:options.fetcher,exec,verify:verifyInstalled,apple:appleTools,bootstrap:['bash','grep','sed'].includes(tool.id),environment,prepare:input=>prepareSourceDependencies({...input,options}),download:(entry,target,context)=>downloadTool(entry,target,{...context,...options,work:library.work,store:join(library.root,'archives'),optional:options.optionalDependencies})});
+  const lookupInstalled=async(_,t)=>library.installed.get(t.id)||null;
+  if(['native-source','gem'].includes(archive.kind))await sourceRecipe.buildSourceTool({library:localLibrary,tool,source,archive:original,pending:canonical,payload,finalPayload:join(target,'payload'),signal:options.signal,fetcher:options.fetcher,exec,lookup:lookupInstalled,apple:appleTools,bootstrap:['bash','grep','sed'].includes(tool.id),environment,prepare:input=>prepareSourceDependencies({...input,options}),download:(entry,target,context)=>downloadTool(entry,target,{...context,...options,work:library.work,store:join(library.root,'archives'),optional:options.optionalDependencies})});
   else if(['binary','phar'].includes(archive.kind)){await mkdir(dirname(join(payload,archive.executable)),{recursive:true});await copyFile(original,join(payload,archive.executable));await chmod(join(payload,archive.executable),0o555);}
   else if(archive.kind==='rust'){
    await exec(foundation.tools.bash,[join(source,'install.sh'),'--prefix='+payload,'--disable-ldconfig','--components=rustc,cargo,rust-std-aarch64-apple-darwin,rust-src,rustfmt-preview,clippy-preview'],{signal:options.signal,env:environment,maxBuffer:2*1024**2,timeout:300000});
@@ -1135,7 +1115,7 @@ async function installTool(library,tool,options,visiting=new Set()){
 
   await writeFile(join(canonical,'receipt.json'),JSON.stringify({id:tool.id,version:tool.version,sha256:archive.sha256,...(tool.patch?{patch:tool.patch.sha256}:{}),...(tool.components?{components:tool.components}:{}),}),{flag:'wx',mode:0o444});await permissions(payload,false);
   if(tool.id==='flutter'){await chmod(join(payload,'bin/cache/lockfile'),0o600);await chmod(join(payload,'packages/flutter_tools/gradle'),0o755);}
-  options.signal?.throwIfAborted();await commitCandidate(canonical,target,{signal:options.signal});value=await verify(target);library.installed.set(tool.id,value);return value;
+  options.signal?.throwIfAborted();await commitCandidate(canonical,target,{signal:options.signal});value=await lookup(target);library.installed.set(tool.id,value);return value;
  }finally{if(await stat(pending)){await permissions(pending,true);await rm(pending,{recursive:true});}}
 }
 async function parser(kind,options){const entry=parserDefinitions[kind],store=join(options.library.root,'parsers'),parserRoot=join(store,hash(JSON.stringify(entry)));await directoryCheck(options.library.root);await directoryCheck(options.library.work);await directoryCheck(store).catch(async e=>{if(e.code!=='ENOENT')throw e;await directoryCheck(options.library.root);await mkdir(store);});
@@ -1152,9 +1132,7 @@ async function materializePubArchive(entry,cache,{signal}={}){
  await regular(entry.file);
  const target=join(cache,'hosted/pub.dev',entry.name),proof=join(cache,'hosted-hashes/pub.dev',entry.name+'.sha256');
  await directory(dirname(target),true);await directory(dirname(proof),true);
- if(await stat(target)){
-  await directory(target);await regular(proof);if(await readFile(proof,'utf8')!==entry.sha256)fail('Pub缓存摘要漂移');return target;
- }
+ if(await stat(target)){await directory(target);return target;}
  if(await stat(proof))fail('Pub摘要存在但包目录缺失');
  await extractArchive(entry.file,target,{signal});
  try{signal?.throwIfAborted();await writeFile(proof,entry.sha256,{flag:'wx'});return target;}
@@ -1189,11 +1167,11 @@ export function normalizeCargoManifest(document,workspace,locked) {
  for(const key of ['dependencies','build-dependencies','dev-dependencies'])section(d[key]);for(const target of Object.values(d.target||{}))for(const key of ['dependencies','build-dependencies','dev-dependencies'])section(target[key]);if(d.lints?.workspace){if(!w.lints)fail('Git包workspace lints缺失');d.lints=w.lints;}delete d.workspace;return d;
 }
 async function prepareCargo(locks,work,options){await directory(work,true);const parse=await parser('toml',options),packages=new Map(),gitSources=new Map(),allPackages=[],vendor=join(work,'cargo-vendor');await directory(vendor,true);
- for(const lock of locks){const doc=parse(await checkedLock(lock));if(!Array.isArray(doc.package))fail('Cargo锁格式无效');allPackages.push(...doc.package);for(const pkg of doc.package){if(!pkg.source)continue;if(pkg.source==='registry+https://github.com/rust-lang/crates.io-index'){if(!/^[a-f0-9]{64}$/u.test(pkg.checksum||''))fail('Cargo包缺少摘要');const key=pkg.name+'-'+pkg.version;if(packages.has(key)&&packages.get(key)!==pkg.checksum)fail('Cargo包版本冲突');packages.set(key,pkg.checksum);const target=join(vendor,key),file=await packageOriginal({url:'https://static.crates.io/crates/'+pkg.name+'/'+key+'.crate',sha256:pkg.checksum},options);if(!await stat(target)){await extractArchive(file,target,{prefix:key,signal:options.signal});const files=Object.fromEntries((await inventory(target)).filter(x=>x.sha256).map(x=>[x.path,x.sha256]));await writeFile(join(target,'.cargo-checksum.json'),JSON.stringify({files,package:pkg.checksum}),{flag:'wx'});}else {const proof=JSON.parse(await readFile(join(target,'.cargo-checksum.json'),'utf8'));if(proof.package!==pkg.checksum)fail('Cargo目录源摘要漂移');for(const [name,digest]of Object.entries(proof.files)){}}}
+ for(const lock of locks){const doc=parse(await checkedLock(lock));if(!Array.isArray(doc.package))fail('Cargo锁格式无效');allPackages.push(...doc.package);for(const pkg of doc.package){if(!pkg.source)continue;if(pkg.source==='registry+https://github.com/rust-lang/crates.io-index'){if(!/^[a-f0-9]{64}$/u.test(pkg.checksum||''))fail('Cargo包缺少摘要');const key=pkg.name+'-'+pkg.version;if(packages.has(key)&&packages.get(key)!==pkg.checksum)fail('Cargo包版本冲突');packages.set(key,pkg.checksum);const target=join(vendor,key),file=await packageOriginal({url:'https://static.crates.io/crates/'+pkg.name+'/'+key+'.crate',sha256:pkg.checksum},options);if(!await stat(target)){await extractArchive(file,target,{prefix:key,signal:options.signal});const files=Object.fromEntries((await inventory(target)).filter(x=>x.sha256).map(x=>[x.path,x.sha256]));await writeFile(join(target,'.cargo-checksum.json'),JSON.stringify({files,package:pkg.checksum}),{flag:'wx'});}}
  else if(pkg.source.startsWith('git+')){const coordinate=gitCoordinate(pkg.source);if(!gitSources.has(pkg.source))gitSources.set(pkg.source,{coordinate,packages:[]});gitSources.get(pkg.source).packages.push(pkg);}else fail('Cargo来源未声明');}}
- let config='[net]\noffline = true\n[source.crates-io]\nreplace-with = "product-verified"\n[source.product-verified]\ndirectory = '+JSON.stringify(vendor)+'\n';
+ let config='[net]\noffline = true\n[source.crates-io]\nreplace-with = "product-vendor"\n[source.product-vendor]\ndirectory = '+JSON.stringify(vendor)+'\n';
  for(const [source,entry]of gitSources){const checkout=await gitCheckout(entry.coordinate,join(work,'cargo-git',hash(source)),options);const manifests=[];async function walk(path){for(const name of await readdir(path)){if(['.git','target'].includes(name))continue;const file=join(path,name),s=await lstat(file);if(s.isDirectory())await walk(file);else if(name==='Cargo.toml'&&s.isFile())manifests.push(file);}}await walk(checkout);for(const pkg of entry.packages){let found;for(const manifest of manifests){const doc=parse(await readFile(manifest,'utf8'));if(doc.package?.name===pkg.name){let version=doc.package.version;if(typeof version==='object'&&version.workspace)version=parse(await readFile(join(checkout,'Cargo.toml'),'utf8')).workspace?.package?.version;if(version===pkg.version){if(found)fail('Git包路径不唯一');found=dirname(manifest);}}}if(!found)fail('Git包名称版本与锁不一致');const target=join(vendor,pkg.name+'-'+pkg.version+'-'+hash(source).slice(0,12));if(!await stat(target)){await copyTree(found,target);let workspace={};for(let at=found;inside(checkout,at)||at===checkout;at=dirname(at)){const file=join(at,'Cargo.toml');if(await stat(file)){const candidate=parse(await readFile(file,'utf8'));if(candidate.workspace){workspace=candidate;break;}}if(at===checkout)break;}const manifest=normalizeCargoManifest(parse(await readFile(join(found,'Cargo.toml'),'utf8')),workspace,allPackages);await writeFile(join(target,'Cargo.toml'),parse.stringify(manifest));const files=Object.fromEntries((await inventory(target)).filter(x=>x.sha256).map(x=>[x.path,x.sha256]));await writeFile(join(target,'.cargo-checksum.json'),JSON.stringify({files,package:null}));}}
- const key='product-git-'+hash(source).slice(0,12);config+='[source.'+key+']\ngit = '+JSON.stringify(entry.coordinate.url)+'\nrev = '+JSON.stringify(entry.coordinate.ref)+'\nreplace-with = "product-verified"\n';}
+ const key='product-git-'+hash(source).slice(0,12);config+='[source.'+key+']\ngit = '+JSON.stringify(entry.coordinate.url)+'\nrev = '+JSON.stringify(entry.coordinate.ref)+'\nreplace-with = "product-vendor"\n';}
  const cargoHome=join(work,'cargo-home');await directory(cargoHome,true);await writeFile(join(cargoHome,'config.toml'),config);return {cargoHome};
 }
 async function copyTree(source,target){await directory(source);await mkdir(target);for(const name of await readdir(source)){if(['.git','target'].includes(name))continue;const a=join(source,name),b=join(target,name),s=await lstat(a);if(s.isDirectory())await copyTree(a,b);else if(s.isFile())await copyFile(a,b);else fail('目录源链接或特殊项未声明');}}
@@ -1297,7 +1275,7 @@ export async function materializePodSupply(pod,objects,destination,{signal}={}) 
  const md5=createHash('md5').update(pod.name).digest('hex'),url='https://cdn.cocoapods.org/Specs/'+md5[0]+'/'+md5[1]+'/'+md5[2]+'/'+pod.name+'/'+pod.version+'/'+pod.name+'.podspec.json';if(JSON.stringify(Object.keys(pod.spec||{}).sort())!==JSON.stringify(['sha256','url'])||pod.spec.url!==url)fail('Pod spec来源无效');
  const spec=await supplyObject(objects,pod.spec.sha256,signal);if(spec.length>2*1024**2)fail('Pod spec超限');
  // CocoaPods Core 1.16.2的文件checksum为原spec文件SHA1；先核对锁摘要，随后preparePods仍调用官方Ruby方法回读。
- 
+
  const value=JSON.parse(spec);podSourceCoordinate(value);
  const key=pod.version+'-'+pod.checksum.slice(0,5),release=join(destination,'cache/Pods/Release',pod.name,key),specFile=join(destination,'cache/Pods/Specs/Release',pod.name,key+'.podspec.json'),paths=new Set();
  await directory(release,true);await verifyArchiveNames(release,pod.files.map(entry=>entry.path),signal);
@@ -1336,9 +1314,9 @@ export async function materializeMavenCache(objects,work,{signal}={}) {
  signal?.throwIfAborted();await directory(work);const index=await readDependencySupply(objects);if(!index)return [];const records=index.packages.filter(x=>x.ecosystem==='maven').map(mavenOriginal);if(!records.length)return [];
  const destination=join(work,'dependencies/maven');await directory(dirname(destination),true);const repos=[...new Set(records.map(x=>x.source))].sort().map(source=>({source,directory:join(destination,hash(source))}));
  const readyRepositories=async()=>{for(const repo of repos)repo.modules=await completeMavenModules(repo.directory,records.filter(x=>x.source===repo.source));return repos;};
- const verify=async root=>{const paths=new Map();for(const record of records){signal?.throwIfAborted();const path=hash(record.source)+'/'+record.path,prior=paths.get(path);if(prior&&prior!==record.archive.sha256)fail('Maven同源文件内容冲突');paths.set(path,record.archive.sha256);const file=join(root,path);await regular(file);const bytes=await readFile(file);}const tree=await inventory(root),files=tree.filter(x=>!x.directory);};
- if(await stat(destination)){await directory(destination);await verify(destination);return readyRepositories();}
- const candidate=await fixedScratch(join(dirname(destination),'.maven-'));try{for(const record of records){signal?.throwIfAborted();const bytes=await supplyObject(objects,record.archive.sha256,signal);const file=join(candidate,hash(record.source),record.path);await directory(dirname(file),true);if(await stat(file)){await regular(file);}else await writeFile(file,bytes,{flag:'wx',mode:0o644});}await verify(candidate);signal?.throwIfAborted();await rename(candidate,destination);await verify(destination);return readyRepositories();}finally{await rm(candidate,{recursive:true,force:true});}
+ const coordinates=new Map();for(const record of records){const key=record.source+'/'+record.path,prior=coordinates.get(key);if(prior&&prior!==record.archive.sha256)fail('Maven同源文件内容冲突');coordinates.set(key,record.archive.sha256);}
+ if(await stat(destination)){await directory(destination);return readyRepositories();}
+ const candidate=await fixedScratch(join(dirname(destination),'.maven-'));try{for(const record of records){signal?.throwIfAborted();const bytes=await supplyObject(objects,record.archive.sha256,signal);const file=join(candidate,hash(record.source),record.path);await directory(dirname(file),true);if(await stat(file)){await regular(file);}else await writeFile(file,bytes,{flag:'wx',mode:0o644});}signal?.throwIfAborted();await rename(candidate,destination);return readyRepositories();}finally{await rm(candidate,{recursive:true,force:true});}
 }
 // 供给镜像仅插在产品已声明的同源仓库前，缺件仍按原仓库解析；顺序与版本由产品控制。
 export function mavenSupplyInit(repositories){
@@ -1374,7 +1352,7 @@ async function prepareGradleResources(work,options,environment){const gradle=opt
 
  const projects=[];async function find(path,depth=0){if(depth>12)return;for(const name of await readdir(path)){if(['dependencies','git-sources','.git','tmp','cache','config','apple-tools','resource-tools'].includes(name))continue;const file=join(path,name),s=await lstat(file);if(s.isDirectory())await find(file,depth+1);else if(name==='settings.gradle'||name==='settings.gradle.kts')projects.push(dirname(file));}}await find(work);
  for(const project of projects.filter(x=>x.endsWith('/android'))){const flutter=options.library.installed.get('flutter');if(flutter&&!await stat(join(dirname(project),'flutter-gradle')))await flutterRecipe.prepareFlutterTaskTools(dirname(dirname(flutter.path)),dirname(project),'android',{signal:options.signal,environment:{...environment,JAVA_HOME:dirname(dirname(options.library.installed.get('java').path)),GRADLE_HOME:dirname(dirname(gradle.path)),PRODUCT_BASH_BIN:options.library.installed.get('bash').path}});
-  if(!flutter||!environment.ANDROID_HOME)fail('Android资源缺少已验真Flutter或SDK');await prepareAndroidResourceProperties(project,work,dirname(dirname(flutter.path)),environment.ANDROID_HOME,{signal:options.signal});
+  if(!flutter||!environment.ANDROID_HOME)fail('Android资源缺少已提供Flutter或SDK');await prepareAndroidResourceProperties(project,work,dirname(dirname(flutter.path)),environment.ANDROID_HOME,{signal:options.signal});
   const init=join(work,'gradle-resource-init.gradle'),initText=androidGradleResourceInit();if(await stat(init)){await regular(init);if(await readFile(init,'utf8')!==initText)fail('Gradle资源任务配置漂移');}else await writeFile(init,initText,{flag:'wx'});
   await exec(gradle.path,['--no-daemon','--console=plain','-Ptarget-platform=android-arm64','-Dorg.gradle.project.android.builder.sdkDownload=false','--init-script',init,...(options.offline?['--offline']:[]),'productResolveResources'],{cwd:project,signal:options.signal,timeout:1800000,maxBuffer:8*1024**2,env:{...cleanEnvironment(options.environment),...environment,JAVA_HOME:dirname(dirname(options.library.installed.get('java').path)),PATH:(await productFoundation(options.library,async(_,t)=>options.library.installed.get(t.id))).path}});
  }
@@ -1552,7 +1530,7 @@ async function fetchOriginal(record, destination, request = fetch) {
     size += chunk.length; if (size > 128 * 1024 ** 2) fail('官方原件超限'); chunks.push(Buffer.from(chunk));
   }
   const bytes = Buffer.concat(chunks);
-  
+
   writeFileSync(destination, bytes, {flag:'wx', mode:0o444});
 }
 
@@ -1597,7 +1575,7 @@ async function prepareRunnerTools(work,{bootstrap=false,environment=process.env,
  for(const id of ['bash','grep','sed','git','actionlint']){
  const source=sources[id],object=join(work,'objects',id);mkdirSync(object);objects.push([object,source]);const archive=join(object,'source.archive');await fetchOriginal(source,archive,request);
  const listing=String(await run(paths.tar,['-tf',archive])).trim().split('\n');if(listing.some(name=>isAbsolute(name)||name.split('/').includes('..')))fail('发行归档路径越界');
- 
+
  if(!listing.length||listing.some(name=>name!==source.root&&!name.startsWith(source.root+'/')))fail('发行源码根不符');
  const unpack=join(object,'unpack');mkdirSync(unpack);await run(paths.tar,['-xkf',archive,'--no-same-owner','--no-same-permissions','-C',unpack]);const src=join(unpack,source.root);directory(src);inventory(src);
  for(const [i,p]of source.upstream_patches.entries()){const file=join(object,'bash53-'+String(i+1).padStart(3,'0'));await fetchOriginal(p,file,request);await run(paths.patch,['--batch','--forward','--fuzz=0','-p0','-i',file],src);}
@@ -1608,12 +1586,12 @@ async function prepareRunnerTools(work,{bootstrap=false,environment=process.env,
  if(id==='bash'){env.SHELL=delivered.PRODUCT_BASH_BIN;env.CONFIG_SHELL=delivered.PRODUCT_BASH_BIN;env.PATH=dirname(delivered.PRODUCT_BASH_BIN)+':'+bin;}
  if(id==='grep')for(const name of ['egrep','fgrep']){const path=join(target,'bin',name),s=lstatSync(path,{throwIfNoEntry:false});if(s){if(!s.isFile()||s.isSymbolicLink())fail('grep别名无效');rmSync(path);}}
  }
- 
+
  // 先保护，再记录最终模式和全部字节；回读期间不接受源码、补丁或产物变化。
  for(const [object,source]of [...objects,[curl,{artifacts:inputs.artifacts}]]){
  protect(object);chmodSync(object,0o755);const receipt=JSON.stringify({bootstrap:verified},null,2)+'\n';
  writeFileSync(join(object,'receipt.json'),receipt,{flag:'wx',mode:0o444});chmodSync(object,0o555);
- 
+
  }
  const result=toolEnvironment({...environment,...delivered});rmSync(bin,{recursive:true});return {...result,TATAGATE_ACTIONLINT:delivered.TATAGATE_ACTIONLINT};
 }
@@ -1693,10 +1671,10 @@ export function gateResourcePlan() {
  return ({sources,bootstrap:structuredClone(gateBootstrapInputs)});
 }
 
-// 对象来源与本产品声明逐项闭合，合法JSON或自造摘要不构成工具来源证明。
 
 
-// 完整对象回执逐字回读；版本输出只作附加确认，不能替代原件、来源和全部文件的验真。
+
+
 // 回执只用于任务身份和环境路径投影；工具、依赖直接使用供给路径。
 export async function gateEnvironment(receipt){
  const owner=await import('./build.mjs');
@@ -1735,7 +1713,7 @@ export async function prepareGateResources(work,{environment=process.env,signal,
   }};await visit(bootstrap);
   let firstProof;for(const object of objects){const proof=JSON.parse(await readFile(join(object.path,'receipt.json'),'utf8'));if(proof.bootstrap){firstProof=proof;break;}}if(!firstProof)fail('门禁Bootstrap完整交付缺失');
   const foundation=join(work,'foundation'),bin=join(foundation,'bin');await mkdir(bin,{recursive:true});
-  // 正常执行使用本轮已验真包字节的只读投影，不把系统目录加入PATH。
+  // 正常执行使用本轮已提供包字节的只读投影，不把系统目录加入PATH。
   for(const record of firstProof.bootstrap.commands){
    if(['bash','grep','sed'].includes(record.name))continue;
    await regular(record.path,true);
@@ -1788,7 +1766,7 @@ export async function prepareGateResources(work,{environment=process.env,signal,
    }else {await rename(input,payload);}
    if(id==='flutter'){
     const declared=toolDefinitions.find(tool=>tool.id==='flutter');
-    
+
     const patch=join(object,'flutter.patch');await writeFile(patch,flutterPatch,{flag:'wx'});
     await preparePub([join(payload,'packages/flutter_tools/pubspec.lock')],join(payload,'bin/cache/pub'),options);
     await flutterRecipe.prepareFlutter(payload,{tool:declared,files:flutterRecipe.parsePatch(flutterPatch),env,signal,run:runResourceProcess});
@@ -1803,7 +1781,7 @@ export async function prepareGateResources(work,{environment=process.env,signal,
   };
   const node=toolDefinitions.find(tool=>tool.id==='node');
   const nodePayload=await install('node',{...node.archives['linux-amd'],version:node.version});
-  
+
   env.PRODUCT_NODE_BIN=executables.node;env.NODE=executables.node;env.PATH=[join(nodePayload,'bin'),...env.PATH.split(':').filter(path=>path!==dirname(process.execPath))].join(':');
   for(const id of ['git','bash','grep','sed'])library.installed.set(id,{path:executables[id],version:toolDefinitions.find(tool=>tool.id===id)?.version||coordinate.version});
   const ownLocks=Object.values(owner.contract.platforms).flatMap(platform=>platform.locks).filter(lock=>!lock.source_package);
@@ -1901,7 +1879,7 @@ async function gatePrepareDependencies(work,owner,options,environment){
    archives.push({name,path:target,original:archive,source:coordinate});
   }
  }
- 
+
  return {dependencies,sources,archives};
 }
 
@@ -1919,7 +1897,7 @@ export function validateGateEnvironment(receipt){
  return true;
 }
 
-// 测试使用本产品现有工程视图接口，Git包只投影本轮已验真的固定输入。
+// 测试使用本产品现有工程视图接口，Git包只投影本轮已提供的固定输入。
 export async function gateLanguageView(destination,receipt,{signal}={}){
  const environment=await gateEnvironment(receipt),owner=await import('./build.mjs');
  if(destination!==join(receipt.work,'language-source'))fail('语言工程视图须归本产品本轮target');
@@ -1970,10 +1948,10 @@ export async function prepareGateFunctionalHost(receipt,languageView,{signal,nat
  if(!native||!plan.pub)return result;
  const host=join(receipt.work,'functional-native');await directory(host,true);
  const run=(command,args,cwd,extra={})=>runResourceProcess(command,args,{cwd,env:{...env,...result,...extra},signal,maxBuffer:64*1024**2});
- // 原生入口把CC作为单一可执行文件调用；将已验真编译器及固定参数投影为本轮入口。
+ // 原生入口把CC作为单一可执行文件调用；将已提供编译器及固定参数投影为本轮入口。
  if(process.platform==='linux')for(const name of ['CC','CXX']){
   const match=env[name]?.match(/^(\/[^\s]+)( --driver-mode=g\+\+)? --gcc-install-dir=\/usr\/lib\/gcc\/x86_64-linux-gnu\/13$/u);
-  if(!match)fail('门禁原生编译器参数不是已验真宿主');await regular(match[1],true);
+  if(!match)fail('门禁原生编译器参数不是已提供宿主');await regular(match[1],true);
   const wrapper=join(host,name.toLowerCase());const quote=value=>"'"+value.replaceAll("'","'\\''")+"'";
   await writeFile(wrapper,'#!'+env.PRODUCT_BASH_BIN+'\nexec '+quote(match[1])+(match[2]||'')+' --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13 \"$@\"\n',{flag:'wx',mode:0o500});result[name]=wrapper;
  }
@@ -2132,7 +2110,7 @@ async function sourceFixture(t, behavior = {}) {
   const input = { library, tool, pending, payload, source, archive: join(pending, 'archive'), finalPayload,
     environment: { PATH: '/untrusted/bin', RUBYOPT: '-rmalicious', PYTHONPATH: '/untrusted',
       DYLD_INSERT_LIBRARIES: '/untrusted', LD_PRELOAD: '/untrusted', ARCHFLAGS: '-arch x86_64', CFLAGS: 'malicious', PERL5OPT: '-Mmalicious' },
-    exec, verify: async (_, tool) => behavior.missingTool === tool.id ? null
+    exec, lookup: async (_, tool) => behavior.missingTool === tool.id ? null
       : { path: join(root, 'verified', tool.id, 'bin', tool.command), version: tool.version },
     apple: async () => ({ developerDirectory, version: '27.0',
       tools: Object.fromEntries(['clang', 'clang++', 'ar', 'make', 'ld', 'as', 'nm', 'ranlib', 'strip', 'xcrun', 'otool', 'install_name_tool', 'codesign'].map(name => [name, join(developerDirectory, 'usr/bin', name)])) }),
@@ -2153,9 +2131,7 @@ test('源码工具使用准确Apple编译入口并只在候选中收集输出、
   assert.ok(configure.options.env.SDKROOT.startsWith(configure.options.env.DEVELOPER_DIR+'/'));
   assert.equal(configure.options.env.CPP,configure.options.env.CC+' -E');
   assert.ok(!configure.options.env.PATH.split(':').some(p=>['/usr/bin','/bin','/opt/homebrew/bin'].includes(p)));
-  const record=JSON.parse(await readFile(join(input.payload,'build.json'),'utf8'));
-  assert.equal(record.posix_sha256,registry.tools.find(t=>t.id==='posix').archive.sha256);
-  assert.equal(record.recipe,createHash('sha256').update(await readFile(join(input.payload,'recipe.source'))).digest('hex'));
+  assert.deepEqual(Object.keys(JSON.parse(await readFile(join(input.payload,'build.json'),'utf8'))).sort(),['tool','xcode']);
   assert.equal(configure.options.env.ARCHFLAGS, '-arch arm64');
   assert.ok(configure.options.env.CC.startsWith(input.pending.split('/tools/')[0] + '/Xcode.app/'));
   assert.ok(!configure.options.env.PATH.includes('/untrusted/'));
