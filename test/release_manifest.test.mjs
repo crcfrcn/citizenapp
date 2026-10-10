@@ -5,7 +5,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { testRoot as tmpdir, BUILD_SHELL_SOURCES, SOURCE_VIEW_SOURCE } from '../scripts/build.mjs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -35,7 +35,9 @@ const sourceRoot = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/u,
 let dependencySources;
 try {
   dependencySources = JSON.parse(execFileSync(process.execPath, [viewScript, 'view', 'dependencies',
-    '--source-root', sourceRoot, '--work-root', dependencyWork], { encoding: 'utf8' }));
+    '--source-root', sourceRoot, '--work-root', dependencyWork], {
+      encoding: 'utf8', env: { ...process.env, PRODUCT_SDK_SOURCE_MODE: 'git' },
+    }));
 } catch (error) {
   if (!suppliedDependencyWork) rmSync(dependencyWork, { recursive: true, force: true });
   throw error;
@@ -52,6 +54,19 @@ const tataChatAttachmentPlatform = readFileSync(
   new URL('lib/attachment/attachment_platform.dart', tataChatRoot), 'utf8');
 const tataChatConversation = readFileSync(
   new URL('lib/ui/conversation/conversation_page.dart', tataChatRoot), 'utf8');
+
+test('本机编译直接读取两个同级SDK仓库，不检出固定Git', () => {
+  const work=mkdtempSync(join(tmpdir(),'citizenapp-local-sdk-'));
+  try{
+    const value=JSON.parse(execFileSync(process.execPath,[viewScript,'view','dependencies',
+      '--source-root',sourceRoot,'--work-root',work],{
+      encoding:'utf8',env:{...process.env,PRODUCT_SDK_SOURCE_MODE:'local'},
+    }));
+    assert.equal(value.citizen_sdk.root,realpathSync(join(dirname(sourceRoot),'citizensdk')));
+    assert.equal(value.tatachat_sdk.root,realpathSync(join(dirname(sourceRoot),'tatachatsdk')));
+    assert.equal(existsSync(join(work,'git-sources')),false);
+  }finally{rmSync(work,{recursive:true,force:true});}
+});
 
 // 执行真实脚本片段，检查注释幂等、正文保留和任一输入异常时零写入。
 test('CitizenApp Isar 注释规范化保留正文且重复执行一致', () => {
@@ -373,12 +388,8 @@ test('CitizenApp直接开发自建源码外视图并只投影当轮Framework', a
     assert.equal(lstatSync(wrapperCopy).isSymbolicLink(), false);
     assert.deepEqual(readFileSync(wrapperCopy), readFileSync(join(app, 'android/gradle-wrapper.properties')));
 
-    const sdkView = join(work, 'source-view', sdk.replace(/^\/+/, ''));
-    const chatView = join(work, 'source-view', chat.replace(/^\/+/, ''));
-    const sdkApi = await import(pathToFileURL(join(sdk, 'scripts/build.mjs')).href);
-    const chatApi = await import(pathToFileURL(join(chat, 'scripts/publish.mjs')).href);
-    sdkApi.assertFlutterSourceView(sdk, sdkView);
-    await chatApi.assertFlutterSourceView(chat, chatView);
+    assert.equal(execFileSync(process.execPath, [viewScript, 'view', 'verify',
+      '--source-root', app, '--work-root', work], { encoding: 'utf8' }).trim(), project);
     assert.equal(execFileSync('git', ['-C', sdk, 'status', '--porcelain'], { encoding: 'utf8' }), '');
     assert.equal(execFileSync('git', ['-C', chat, 'status', '--porcelain'], { encoding: 'utf8' }), '');
     const formalManifest = join(work, 'source-view', formalChatSource.replace(/^\/+/, ''),

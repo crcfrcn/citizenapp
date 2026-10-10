@@ -188,7 +188,15 @@ const product=buildContract.product_id;
 const sessions=new AsyncLocalStorage();
 const scopes=new Set(['build','test']);
 const fail=message=>{throw Error(product+' target：'+message);};
-function fixedWork(scope){if(!scopes.has(scope))fail('工作根用途无效');return join(root,'target',scope);}
+function fixedWork(scope){
+ if(scope==='build'||scope==='test')return join(root,'target',scope);
+ if(typeof scope==='string'&&scope.startsWith('build/')){
+  const platform=scope.slice(6);if(Object.hasOwn(contract.platforms,platform))return join(root,'target/build',platform);
+ }
+ fail('工作根用途无效');
+}
+function isBuildWork(work){return typeof work==='string'&&Object.keys(contract.platforms).some(platform=>work===fixedWork('build/'+platform));}
+function validWork(work){return work===fixedWork('test')||isBuildWork(work);}
 function directory(path,create=false){
  let at=parse(path).root;
  for(const part of relative(at,path).split(sep)){
@@ -199,11 +207,11 @@ function directory(path,create=false){
  return fs.lstatSync(path);
 }
 function checkFixedWork(work,{create=false}={}){
- if(typeof work!=='string'||![fixedWork('build'),fixedWork('test')].includes(work))fail('工作根只允许本产品target/build或target/test固定目录');
+ if(typeof work!=='string'||!validWork(work))fail('工作根只允许本产品target/build或target/test固定目录');
  directory(work,create);return work;
 }
 function checkScratchPath(path){
- if(typeof path!=='string'||resolve(path)!==path||![fixedWork('build'),fixedWork('test')].some(work=>path===work||path.startsWith(work+sep)))fail('内部物化目录越出本产品固定工作根');
+ if(typeof path!=='string'||resolve(path)!==path||![fixedWork('test'),...Object.keys(contract.platforms).map(platform=>fixedWork('build/'+platform))].some(work=>path===work||path.startsWith(work+sep)))fail('内部物化目录越出本产品固定工作根');
  directory(path);return path;
 }
 function fixedScratch(prefix){
@@ -243,7 +251,7 @@ function empty(work,keep=[]){
  for(const name of fs.readdirSync(work)){if(keep.includes(name))continue;const path=join(work,name);removeTree(path);}
  const after=directory(work);if(before.dev!==after.dev||before.ino!==after.ino||fs.readdirSync(work).some(name=>!keep.includes(name)))fail('固定工作目录未完全清空或被替换');
 }
-function short(work,action){const path=join(work,'.claim.lock');try{fs.mkdirSync(path,{mode:0o700});}catch(error){if(error.code!=='EEXIST')throw error;
+function short(work,action){const path=isBuildWork(work)?join(fixedWork('build'),'.claim-'+relative(fixedWork('build'),work)):join(work,'.claim.lock');try{fs.mkdirSync(path,{mode:0o700});}catch(error){if(error.code!=='EEXIST')throw error;
  const record=join(path,'owner.json');let holder=null;
  if(fs.existsSync(record)){regular(record);try{holder=JSON.parse(fs.readFileSync(record,'utf8'));}catch{fail('领取锁损坏');}}
  const active=readOwner(work);
@@ -257,7 +265,7 @@ function clearFixedWork(work){
  if(owner&&!(owner.state==='retained'&&owner.pid===process.pid)&&(!session||session.owner.work!==work||session.owner.nonce!==owner.nonce))fail('固定工作目录属于其他活跃任务');
  if(owner&&owner.groups.some(pid=>alive(pid,true)))fail('工具后代退出未确认，禁止清场');
  if(fs.existsSync(join(work,'.product-build.lock')))fail('产品编译进程仍持有守卫，禁止清场');
- short(work,()=>empty(work,owner&&!(owner.state==='retained'&&owner.pid===process.pid)?['.active.json','.claim.lock']:['.claim.lock']));
+ const value=short(work,()=>{empty(work,owner&&!(owner.state==='retained'&&owner.pid===process.pid)?['.active.json','.claim.lock']:['.claim.lock']);if(isBuildWork(work)&&fs.readdirSync(work).length===0)fs.rmdirSync(work);});return value;
 }
 function claimFixedWork(scope,{environment=process.env,retain=false,run_id}={}){
  const work=checkFixedWork(fixedWork(scope),{create:true}),current=sessions.getStore();
@@ -278,7 +286,7 @@ function claimFixedWork(scope,{environment=process.env,retain=false,run_id}={}){
  });
 }
 function trackFixedProcess(work,pid){
- if(!pid||![fixedWork('build'),fixedWork('test')].includes(work))return;
+ if(!pid||!validWork(work))return;
  const owner=readOwner(work);if(!owner)return;
  if(owner.pid!==process.pid&&!(alive(owner.pid)&&process.env.PRODUCT_WORK_LEASE===owner.nonce))fail('工具进程不能写入其他任务');
  if(!owner.groups.includes(pid)){owner.groups.push(pid);writeOwner(owner);}
@@ -314,14 +322,14 @@ function retainWork(){const session=sessions.getStore();if(!session)fail('缺少
 function releaseFixedWork(session,{unsafe=false}={}){
  if(session.nested)return;
  const work=session.owner.work;
- return short(work,()=>{
+ const value=short(work,()=>{
   const owner=readOwner(work);if(owner?.nonce!==session.owner.nonce)fail('任务所有权漂移');
   const groups=owner.groups.filter(pid=>alive(pid,true));
   if(unsafe||groups.length){writeOwner({...owner,groups,state:'unsafe'});fail('工具后代退出未确认，保留守卫并禁止任务完成');}
   if(session.retain){writeOwner({...owner,groups:[],state:'retained'});return;}
   if(fs.existsSync(join(work,'.product-build.lock')))fail('产品编译守卫未释放，禁止完成');
-  empty(work,['.claim.lock']);
- });
+  empty(work,['.claim.lock']);if(isBuildWork(work))fs.rmdirSync(work);
+ });return value;
 }
 function withFixedWorkSync(scope,action,options={}){
  const session=claimFixedWork(scope,options);let unsafe=false;
@@ -337,18 +345,18 @@ async function withFixedWork(scope,action,options={}){
 }
 // 调用方在消费结果且产品进程退出后，只能收尾这个产品的准确固定目录。
 function finishFixedWork(work,{run_id}={}){
- if(run_id&&[fixedWork('build'),fixedWork('test')].includes(work)&&!fs.existsSync(work))return;
+ if(run_id&&validWork(work)&&!fs.existsSync(work))return;
  checkFixedWork(work);
- return short(work,()=>{
+ const value=short(work,()=>{
   const owner=readOwner(work);if(run_id&&!owner)return;if(run_id&&owner.run_id!==run_id)fail('编译收尾任务编号不一致');if(owner){
    if((alive(owner.pid)&&!(owner.pid===process.pid&&owner.state==='retained'))||owner.groups.some(pid=>alive(pid,true)))fail('产品进程退出未确认');
   }
   if(fs.existsSync(join(work,'.product-build.lock')))fail('产品守卫尚未释放');
   if(run_id&&fs.existsSync(join(work,'build-result.json'))){regular(join(work,'build-result.json'));if(JSON.parse(fs.readFileSync(join(work,'build-result.json'),'utf8')).run_id!==run_id)fail('结果任务编号不符');}
-  empty(work,['.claim.lock']);
- });
+  empty(work,['.claim.lock']);if(isBuildWork(work))fs.rmdirSync(work);
+ });return value;
 }
-function taskScope(work){checkFixedWork(work);return work===fixedWork('test')?'test':'build';}
+function taskScope(work){checkFixedWork(work);return work===fixedWork('test')?'test':'build/'+relative(fixedWork('build'),work);}
 
 
 // 同文件回归：普通导入和正式命令不注册测试。
@@ -357,6 +365,17 @@ if(inlineTestEntry){
  const {default:assert}=await import('node:assert/strict');
  const {execFileSync}=await import('node:child_process');
 const isEmpty=()=>assert.deepEqual(fs.readdirSync(fixedWork('test')),[]);
+
+// 各平台并发领取自己的工作根，正常退出后只删除本平台目录。
+test('平台编译现场独立领取且结束删除',async()=>{
+ const platforms=Object.keys(contract.platforms).slice(0,2),joined=[];let release;const both=new Promise(resolve=>{release=resolve;});
+ await Promise.all(platforms.map(platform=>withFixedWork('build/'+platform,async work=>{
+  fs.writeFileSync(join(work,'platform'),platform);joined.push(platform);if(joined.length===platforms.length)release();
+  await both;assert.equal(fs.readFileSync(join(work,'platform'),'utf8'),platform);
+ })));
+ assert.deepEqual(joined.sort(),platforms.sort());for(const platform of platforms)assert.equal(fs.existsSync(fixedWork('build/'+platform)),false);
+});
+
 test('固定根拒绝任意任务目录、平台目录和外部临时根',()=>{
  for(const path of [join(root,'target'),join(root,'target/test/other'),join(root,'target/macos/test'),join(root,'target/build/run-123'),'/tmp/test'])assert.throws(()=>checkFixedWork(path),/固定目录/);
 });
@@ -388,7 +407,7 @@ test('真实工具超时和取消后停止进程组并清场',async()=>{
 });
 
 test('清场删除断开的链接且不跟随链接删除其它固定根',async()=>{
- await withFixedWork('test',async testWork=>{const keep=join(testWork,'keep');fs.writeFileSync(keep,'protected');await withFixedWork('build',async buildWork=>{fs.symlinkSync(keep,join(buildWork,'external'));fs.symlinkSync(join(buildWork,'missing'),join(buildWork,'broken'));});assert.equal(fs.readFileSync(keep,'utf8'),'protected');assert.deepEqual(fs.readdirSync(fixedWork('build')),[]);});isEmpty();
+ await withFixedWork('test',async testWork=>{const keep=join(testWork,'keep');fs.writeFileSync(keep,'protected');await withFixedWork('build/'+Object.keys(contract.platforms)[0],async buildWork=>{fs.symlinkSync(keep,join(buildWork,'external'));fs.symlinkSync(join(buildWork,'missing'),join(buildWork,'broken'));});assert.equal(fs.readFileSync(keep,'utf8'),'protected');assert.equal(fs.existsSync(fixedWork('build/'+Object.keys(contract.platforms)[0])),false);});isEmpty();
 });
 
 test('实际任务被强制终止后下一轮在同一固定根恢复并清场',async()=>{
@@ -455,7 +474,7 @@ export function prepareTargetRoot() {
 }
 export function temporaryRoot(platform=Object.keys(contract.platforms)[0],scope='test',suppliedInput) {
  if(!['test','tmp','build','ci','release','publish'].includes(scope))fail('临时目录职责无效');
- platformContract(platform);const expected=fixedWork(scope==='test'?'test':'build');
+ platformContract(platform);const expected=fixedWork(scope==='test'?'test':'build/'+platform);
  if(suppliedInput!=null&&suppliedInput!==expected)fail('临时工作根必须是本产品固定目录');
  return checkFixedWork(expected,{create:true});
 }
@@ -2340,7 +2359,16 @@ return {runResourceProcess,inventory,acquireArchive,extractArchive,normalizeCarg
 export const {runResourceProcess,inventory,acquireArchive,extractArchive,normalizeCargoManifest,podSourceCoordinate,readDependencySupply,materializePodSupply,materializeMavenCache,mavenSupplyInit,checkCocoaPodsResources,buildSourceTool,posixNames,resourceDeclarations,bootstrapNode,resources,prepareResourceSupply,flutterCommit,gradleRecipes,revisedSource,revisionPlan,supplyRequirements,assertWorkQuiescent,prepareToolSupply,resourceSupply,copyFlutterArtifact}=resourceRuntime;
 
 // 展开来源根由本产品指定，调用者不识别任何产品来源名称。
-export function resourceSourceRoot(name,work){checkWork(work);if(!/^[a-z][a-z0-9_]*$/u.test(name))fail('来源名称无效');return join(work,'git-sources',name);}
+const localSdkMode=()=>process.env.PRODUCT_SDK_SOURCE_MODE!=='git'&&process.env.GITHUB_ACTIONS!=='true';
+function localSdkRoot(name){
+ const directory={citizen_sdk:'citizensdk',tatachat_sdk:'tatachatsdk'}[name];if(!directory)fail('本地SDK名称无效');
+ const path=join(dirname(root),directory),manifest=join(path,'pubspec.yaml'),entry=join(path,'scripts/build.mjs');
+ if(realpathSync(path)!==path||!lstatSync(path).isDirectory()||realpathSync(manifest)!==manifest
+  ||!lstatSync(manifest).isFile()||realpathSync(entry)!==entry||!lstatSync(entry).isFile()
+  ||!new RegExp('^name: '+name+'\\r?$','m').test(readFileSync(manifest,'utf8')))fail('本地SDK仓库身份无效：'+name);
+ return path;
+}
+export function resourceSourceRoot(name,work){checkWork(work);if(!/^[a-z][a-z0-9_]*$/u.test(name))fail('来源名称无效');return localSdkMode()&&['citizen_sdk','tatachat_sdk'].includes(name)?localSdkRoot(name):join(work,'git-sources',name);}
 // 清理只针对当前执行拥有的工作根；工具全部退出后删除并回读，固定根本身保留。
 export function clearWork(work) { return clearFixedWork(work); }
 
@@ -2351,7 +2379,7 @@ export function platformContract(platform) {
 const nativePlatform=platform=>platform.endsWith('android')?'Android':platform.includes('linux-arm')?'LinuxARM':platform.includes('linux-amd')?'LinuxAMD':platform.endsWith('windows')?'Windows':'macOS';
 const osPlatform=platform=>platform.includes('linux-')?'linux':platform.replace(/^(?:host|client)-/u,'');
 
-// 第一方依赖只经固定Git来源提供的公开plan取得坐标；调用方不解析SDK私有锁结构。
+// SDK依赖只经当前选中来源的公开plan取得坐标；调用方不解析SDK私有锁结构。
 export function sdkDependencyPlan(sdkRoot,platform){
  if(!['Android','macOS','LinuxARM','LinuxAMD','Windows'].includes(platform))fail('SDK公开依赖平台无效');
  const entry=join(sdkRoot,'scripts/build.mjs');
@@ -2398,13 +2426,14 @@ export function lockedSources() {
 }
 export function requirements(platform,work) {
  checkWork(work);const declared=platformContract(platform);
- const locks=declared.locks.map(value=>({...value})),sources=lockedSources(),archives=[];
- for(const source of sources) {
-  const packageRoot=join(work,'git-sources',source.name);
+ const locks=declared.locks.map(value=>({...value})),sources=localSdkMode()?[]:lockedSources(),archives=[];
+ const packages=localSdkMode()?['citizen_sdk','tatachat_sdk'].map(name=>({name,packageRoot:localSdkRoot(name)}))
+  :sources.map(source=>({name:source.name,packageRoot:join(work,'git-sources',source.name)}));
+ for(const {name,packageRoot} of packages) {
   if(existsSync(packageRoot)) {
-   const path=source.name==='citizen_sdk'?'Cargo.lock':'native/Cargo.lock';
-   locks.push({ecosystem:'cargo',path,source_package:source.name});
-   if(source.name==='citizen_sdk') {
+   const path=name==='citizen_sdk'?'Cargo.lock':'native/Cargo.lock';
+   locks.push({ecosystem:'cargo',path,source_package:name});
+   if(name==='citizen_sdk') {
     for(const value of sdkDependencyPlan(packageRoot,nativePlatform(platform)))
      archives.push({ecosystem:'native',...value,group:'sdk-native'});
    }
@@ -2485,6 +2514,7 @@ export function resourceEnvironment(platform,work,receipt,base={}) {
  if(receipt.archives.native)env.CHATSERVER_NATIVE_ARCHIVE=receipt.archives.native[0].path;
  if(receipt.archives.protocol)env.CHATSERVER_PROTOCOL_ARCHIVE=receipt.archives.protocol[0].path;
  if(base.PRODUCT_RESOURCE_FD==='4')env["CITIZENAPP_RESOURCE_MODE"]='provided';else env["CITIZENAPP_RESOURCE_MODE"]??='independent';
+ env.PRODUCT_SDK_SOURCE_MODE=localSdkMode()?'local':'git';
  if(env["CITIZENAPP_RESOURCE_MODE"]==='provided'){env.PIP_NO_INDEX='1';env.COMPOSER_DISABLE_NETWORK='1';env.YARN_ENABLE_NETWORK='0';}
  const execution=executions.getStore();if(execution)execution.buildEnvironment=env;
  return env;
@@ -3027,8 +3057,8 @@ const {
 const { dirname, isAbsolute, join, parse, relative, resolve, sep } = await import("node:path");
 const { fileURLToPath, pathToFileURL } = await import("node:url");
 
-// 第一方依赖只来自宿主声明和锁中的准确公开Git提交；不读取邻仓、不接受override。
-// Git检出和标准Flutter消费视图均属于本次工作根，宿主源码声明和锁保持原字节。
+// 本机视图直接消费同级SDK仓库；自动化视图才按声明与锁检出准确Git提交。
+// 两种模式都只在本轮工作根改写Flutter消费视图，宿主原始声明与锁保持原字节。
 const firstPartyRepositories = Object.freeze({
   citizen_sdk: 'https://github.com/crcfrcn/citizensdk.git',
   tatachat_sdk: 'https://github.com/tuyutata/tatachatsdk.git',
@@ -3070,6 +3100,14 @@ function resolveFirstPartyDependencies(source, work) {
   const manifest = readFileSync(join(source, 'pubspec.yaml'), 'utf8');
   const lock = readFileSync(join(source, 'pubspec.lock'), 'utf8');
   const result = {};
+  if (localSdkMode() && source === root) {
+    for (const name of Object.keys(firstPartyRepositories)) {
+      if (!new RegExp('^  ' + name + ':$', 'm').test(manifest)) continue;
+      result[name] = { root: localSdkRoot(name), local: true };
+    }
+    if (!result.citizen_sdk || !result.tatachat_sdk) fail('本机编译缺少直接SDK依赖');
+    return result;
+  }
   for (const [name, url] of Object.entries(firstPartyRepositories)) {
     if (!new RegExp('^  ' + name + ':$', 'm').test(manifest)) continue;
     const declared = dependencyBlock(manifest, name), locked = dependencyBlock(lock, name);
@@ -3217,13 +3255,59 @@ function wrapperInputs() {
   });
 }
 
-// 只对已声明的本地聊天包调用其公开装配接口，宿主不复制插件包路径。
-async function chatSourceViewApi(packageRoot) {
+// 第一方依赖按锁定提交的公开视图接口装配；旧提交仍使用其公开 createView。
+async function firstPartyViewApi(packageRoot) {
   const manifest = readFileSync(join(packageRoot, 'pubspec.yaml'), 'utf8');
-  if (!/^name: tatachat_sdk\r?$/mu.test(manifest)) return null;
-  const entry = join(packageRoot, 'scripts/publish.mjs');
-  if (!lstatSync(entry).isFile() || lstatSync(entry).isSymbolicLink()) fail('聊天SDK装配入口必须是普通文件');
-  return import(pathToFileURL(entry).href);
+  if (!/^name: (?:citizen_sdk|tatachat_sdk)\r?$/mu.test(manifest)) return null;
+  const entry = join(packageRoot, 'scripts/build.mjs');
+  const info = lstatSync(entry, { throwIfNoEntry: false });
+  if (!info?.isFile() || info.isSymbolicLink()) fail('第一方SDK编译入口必须是普通文件');
+  const api=await import(pathToFileURL(entry).href);
+  if (!(typeof api.createFlutterSourceView === 'function' && typeof api.assertFlutterSourceView === 'function')
+      && typeof api.createView !== 'function') fail('第一方SDK缺少工程视图入口');
+  return api;
+}
+
+async function createFirstPartyView(source, output) {
+  const api = await firstPartyViewApi(source);
+  if (!api) fail('第一方SDK身份无效');
+  return typeof api.createFlutterSourceView === 'function' && typeof api.assertFlutterSourceView === 'function'
+    ? api.createFlutterSourceView(source, output) : api.createView(source, output);
+}
+
+async function assertFirstPartyView(source, view) {
+  const api = await firstPartyViewApi(source);
+  if (!api) fail('第一方SDK身份无效');
+  if (typeof api.createFlutterSourceView === 'function' && typeof api.assertFlutterSourceView === 'function')
+    return api.assertFlutterSourceView(source, view);
+  ordinaryDirectory(source, 'SDK源码根');
+  ordinaryDirectory(view, 'SDK视图根');
+  const generated = new Set(['.git', '.dart_tool', '.gradle', '.symlinks', 'Pods', 'build',
+    'target', 'node_modules', 'ephemeral', '.cache', '.DS_Store', 'swiftpm', 'dist', 'tsconfig.tsbuildinfo']);
+  function visit(inputRoot, outputRoot) {
+    for (const name of readdirSync(inputRoot).sort()) {
+      if (generated.has(name)) continue;
+      const input = join(inputRoot, name), output = join(outputRoot, name);
+      const original = lstatSync(input), copied = lstatSync(output, { throwIfNoEntry: false });
+      if (original.isDirectory()) {
+        if (!copied?.isDirectory() || copied.isSymbolicLink()) fail('SDK视图目录漂移：' + name);
+        visit(input, output);
+      } else if (original.isFile()) {
+        if (!copied?.isFile() || copied.isSymbolicLink() || copied.nlink !== 1
+            || !readFileSync(input).equals(readFileSync(output))) fail('SDK视图文件漂移：' + name);
+      } else if (original.isSymbolicLink()) {
+        const target = realpathSync(input);
+        if (!inside(source, target) || !copied?.isSymbolicLink()
+            || realpathSync(output) !== join(view, relative(source, target))) fail('SDK视图链接漂移：' + name);
+      } else fail('SDK源码包含不支持的条目：' + name);
+    }
+  }
+  visit(source, view);
+  if (typeof api.analysisOptionsBytes === 'function') {
+    const options = join(view, 'analysis_options.yaml');
+    if (!readFileSync(options).equals(api.analysisOptionsBytes(source))) fail('SDK分析配置漂移');
+  }
+  return view;
 }
 
 async function createView(sourceInput, workInput, android = false) {
@@ -3265,15 +3349,8 @@ async function createView(sourceInput, workInput, android = false) {
     }
     visited.add(packageRoot);
     const destinationRoot = mappedPath(packageRoot);
-    if (/^name: citizen_sdk\r?$/mu.test(readFileSync(join(sourceDirectory, "pubspec.yaml"), "utf8"))) {
-      // SDK独自拥有Flutter入口布局；宿主不复制包名/路径映射合同。
-      const api = await import(pathToFileURL(join(sourceDirectory, "scripts/build.mjs")).href);
-      api.createFlutterSourceView(sourceDirectory, destinationRoot);
-      return;
-    }
-    const chat = await chatSourceViewApi(sourceDirectory);
-    if (chat) {
-      await chat.createFlutterSourceView(sourceDirectory, destinationRoot);
+    if (await firstPartyViewApi(sourceDirectory)) {
+      await createFirstPartyView(sourceDirectory, destinationRoot);
       return;
     }
     mkdirSync(destinationRoot, { recursive: true, mode: 0o700 });
@@ -3364,8 +3441,7 @@ async function verifyView(sourceInput, workInput) {
   const dependencies = resolveFirstPartyDependencies(sourceRoot, workRoot), views = {};
   for (const [name, item] of Object.entries(dependencies)) {
     const view = join(viewRoot, item.root.replace(/^\/+/, ''));
-    const api = await import(pathToFileURL(join(item.root, name==='citizen_sdk'?'scripts/build.mjs':'scripts/publish.mjs')).href);
-    await api.assertFlutterSourceView(item.root, view);
+    await assertFirstPartyView(item.root, view);
     views[name] = view;
   }
   for (const [name, expected] of Object.entries(projectedPubMetadata(sourceRoot, dependencies, views))) {
@@ -3413,15 +3489,9 @@ async function projectFramework(values) {
   ordinaryDirectory(packageView, 'SDK视图根');
   const manifest = join(packageView, 'pubspec.yaml');
   const manifestInfo = lstatSync(manifest, { throwIfNoEntry: false });
-  if (/^name: citizen_sdk\r?$/mu.test(readFileSync(join(packageRoot, "pubspec.yaml"), "utf8"))) {
-    const api = await import(pathToFileURL(join(packageRoot, "scripts/build.mjs")).href);
-    api.assertFlutterSourceView(packageRoot, packageView);
-  } else {
-    const chat = await chatSourceViewApi(packageRoot);
-    if (chat) await chat.assertFlutterSourceView(packageRoot, packageView);
-    else if (!manifestInfo?.isSymbolicLink() || realpathSync(manifest) !== join(packageRoot, 'pubspec.yaml')) {
-      fail('SDK视图与源码根绑定无效');
-    }
+  if (await firstPartyViewApi(packageRoot)) await assertFirstPartyView(packageRoot, packageView);
+  else if (!manifestInfo?.isSymbolicLink() || realpathSync(manifest) !== join(packageRoot, 'pubspec.yaml')) {
+    fail('SDK视图与源码根绑定无效');
   }
   const destination = join(packageView, ...packageSubpath.split('/'));
   const parent = parse(destination).dir;
@@ -4376,7 +4446,7 @@ async function runHelper(argv) {
 
 // 本产品在独立编译与调度编译中均清理自己的生成物。
 export function cleanBuildPath(path,options={},environment=executions.getStore()?.buildEnvironment||process.env){
- const work=environment.PRODUCT_WORK_DIR||[join(root,'target/build'),join(root,'target/test')].find(work=>path?.startsWith(work+sep));if(typeof work!=='string'||typeof path!=='string'||resolve(path)!==path||!path.startsWith(work+sep))fail('编译清理路径越界');
+ const work=environment.PRODUCT_WORK_DIR||[...Object.keys(contract.platforms).map(platform=>fixedWork('build/'+platform)),fixedWork('test')].find(work=>path?.startsWith(work+sep));if(typeof work!=='string'||typeof path!=='string'||resolve(path)!==path||!path.startsWith(work+sep))fail('编译清理路径越界');
  checkFixedWork(work);let parent=dirname(path);while(!existsSync(parent))parent=dirname(parent);if(realpathSync(parent)!==parent)fail('编译清理父目录经过链接');
  rmSync(path,options);
 }
@@ -4386,7 +4456,8 @@ export function cleanShellPaths(args,environment=process.env){
 
 
 async function runCLI(){
- const [operation,,flag,work]=process.argv.slice(2);
+ const [operation,platform,flag,work]=process.argv.slice(2);
+ if(operation==='execute'&&process.env.PRODUCT_RESOURCE_FD!=='4'){if(flag!=='--work'||work!==fixedWork('build/'+platform))fail('平台编译现场不符');return withFixedWork('build/'+platform,()=>runCommand(),{environment:process.env,retain:process.env.PRODUCT_HOST_FD==='3'});}
  if(operation==='execute')return runCommand();
  if(['resources','prepare','build'].includes(operation)&&flag==='--work'){
   checkWork(work);
@@ -4405,8 +4476,8 @@ async function runCommand(){
   process.stdout.write(JSON.stringify(contract)+'\n');return;
  }
  if(command==='finish'){
-  if(!['build','test'].includes(platform)||option!==undefined)fail('固定收尾入口参数无效');
-  finishFixedWork(fixedWork(platform));return;
+  if(platform!=='test'&&!Object.hasOwn(contract.platforms,platform)||option!==undefined)fail('平台收尾入口参数无效');
+  finishFixedWork(fixedWork(platform==='test'?'test':'build/'+platform));return;
  }
  if(command==='rsync'){
   await copyFlutterArtifact(process.argv.slice(3));return;
@@ -4426,7 +4497,7 @@ async function runCommand(){
  } else {
 
  if(!['requirements','resources','prepare','build','execute'].includes(command)||option!=='--work'||extra.some(x=>x!=='--offline')||extra.length>1||extra.length&&!['resources','execute'].includes(command))fail('固定入口参数无效');
- checkWork(work);
+ if(command==='execute'){platformContract(platform);if(work!==fixedWork('build/'+platform))fail('平台编译现场不符');}else checkWork(work);
  if(command==='requirements')process.stdout.write(JSON.stringify(requirements(platform,work))+'\n');
  else{
   const cancellation=new AbortController();for(const name of ['SIGTERM','SIGINT'])process.once(name,()=>cancellation.abort());
@@ -4458,8 +4529,8 @@ let fixtureWork,removeFixture,writeFixture,copyFixture;
 if(inlineTestEntry){
  const {default:fs}=await import('node:fs');
  const {finishFixedWork}=targetRuntime;
-fixtureWork=function(){const work=checkFixedWork(fixedWork('build'),{create:true});finishFixedWork(work);return work;}
-removeFixture=function(path,options={}){if(path===fixedWork('build')||path===fixedWork('test')){if(fs.existsSync(path))clearFixedWork(path);return;}fs.rmSync(path,options);}
+fixtureWork=function(){const work=fixedWork('build/'+Object.keys(contract.platforms)[0]);if(fs.existsSync(work))finishFixedWork(work);return checkFixedWork(work,{create:true});}
+removeFixture=function(path,options={}){if(path===fixedWork('build/'+Object.keys(contract.platforms)[0])||path===fixedWork('test')){if(fs.existsSync(path))clearFixedWork(path);return;}fs.rmSync(path,options);}
 
 writeFixture=(path,data,options)=>fs.writeFileSync(path,data,options);
 copyFixture=(source,destination,...options)=>fs.copyFileSync(source,destination,...options);
