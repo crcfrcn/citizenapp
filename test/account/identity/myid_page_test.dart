@@ -1,6 +1,13 @@
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+import 'package:citizenapp/account/identity/registration_coordinator.dart';
+import 'package:citizenapp/account/identity/registration_models.dart';
+import 'package:citizenapp/security/identity_binding.dart';
+
+import 'registration_api_test.dart' show registrationContext;
+import 'registration_coordinator_test.dart' show Api, MemoryStore;
 
 import 'package:citizenapp/account/identity/myid_page.dart';
 import 'package:citizenapp/account/identity/myid_service.dart';
@@ -253,10 +260,38 @@ void main() {
     expect(find.text('公民身份 · 竞选'), findsOneWidget);
   });
 
+  // 余额用例从已保存的真人验证恢复，执行真实编排；云端边界仍为明确合成夹具。
+  Future<void> pumpRegistration(
+    WidgetTester tester,
+    _RegisterFlowService service,
+  ) async {
+    final api = Api([])..state = 'human_verified';
+    final store = MemoryStore([]);
+    final context = registrationContext();
+    final response = api.response(context);
+    store.value = RegistrationRecord(
+      context: context,
+      capabilities: RegistrationCapabilities(
+        response.enrollmentId,
+        'protected-recovery-capability',
+      ),
+      response: response,
+      phase: RegistrationPhase.verified,
+    );
+    service.api = api;
+    addTearDown(api.close);
+    await tester.pumpWidget(
+      Provider<RegistrationCoordinator>.value(
+        value: RegistrationCoordinator(api: api, store: store),
+        child: MaterialApp(home: MyIdPage(myIdService: service)),
+      ),
+    );
+  }
+
   testWidgets('余额不足 → 不提交注册，先引导去链上充值', (tester) async {
     // 占号是自签自付的链上交易，余额不够连入池预检都过不了；先充值再注册。
     final service = _RegisterFlowService(balanceFen: 0);
-    await tester.pumpWidget(MaterialApp(home: MyIdPage(myIdService: service)));
+    await pumpRegistration(tester, service);
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('注册'));
@@ -270,7 +305,7 @@ void main() {
 
   testWidgets('余额读取失败 → 既不提交也不跳充值，只提示重试(fail-closed)', (tester) async {
     final service = _RegisterFlowService(affordabilityThrows: true);
-    await tester.pumpWidget(MaterialApp(home: MyIdPage(myIdService: service)));
+    await pumpRegistration(tester, service);
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('注册'));
@@ -285,7 +320,7 @@ void main() {
 
   testWidgets('余额达标 → 正常提交注册', (tester) async {
     final service = _RegisterFlowService(balanceFen: 121);
-    await tester.pumpWidget(MaterialApp(home: MyIdPage(myIdService: service)));
+    await pumpRegistration(tester, service);
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('注册'));
@@ -480,13 +515,25 @@ class _RegisterFlowService implements MyIdService {
   final int balanceFen;
   final bool affordabilityThrows;
   int registerCalls = 0;
+  late Api api;
 
   @override
   Future<MyIdState> getState() async => const MyIdState(tier: MyIdTier.visitor);
 
   @override
   Future<List<CitizenWalletStateAccount>> listBindableAccounts() async =>
-      const <CitizenWalletStateAccount>[];
+      <CitizenWalletStateAccount>[
+        CitizenWalletStateAccount(
+          signMode: CitizenWalletSignMode.hot,
+          walletIndex: 0,
+          accountIndex: 0,
+          accountId: registrationContext().accountId,
+          ss58Address: 'ss58-demo',
+          name: '账户0',
+          createdAtMillis: BigInt.zero,
+          isDefault: true,
+        ),
+      ];
 
   @override
   Future<({BigInt balanceFen, BigInt requiredFen})>
@@ -505,8 +552,53 @@ class _RegisterFlowService implements MyIdService {
     String? bindAccountId,
   }) async {
     registerCalls++;
-    return 'GD-CTZN1-8F3A2B';
+    return 'CN220-CTZN2-100000001-2026';
   }
+
+  @override
+  Future<String> registrationChainScope() async =>
+      registrationContext().chainScope;
+  @override
+  Future<Future<void> Function()> registrationGuard(String accountId) async =>
+      () async {
+        expect(accountId, registrationContext().accountId);
+      };
+  @override
+  Future<FinalizedRegistration?> readRegistrationIdentity(
+    String accountId,
+  ) async => null;
+  @override
+  Future<FinalizedRegistration> registerEnrollmentCid({
+    required BuildContext? context,
+    required String institution,
+    required String accountId,
+    required Future<void> Function(Map<String, dynamic>) onCheckpoint,
+  }) async {
+    final cid = await registerAnonymousCid(
+      context: context,
+      institution: institution,
+      bindAccountId: accountId,
+    );
+    return FinalizedRegistration(
+      binding: IdentityBinding(
+        genesisHash: registrationContext().chainScope,
+        cidNumber: cid,
+        bindingRevision: 1,
+        accountId: accountId,
+      ),
+      blockHash: '0x' + ('aa' * 32),
+    );
+  }
+
+  @override
+  Future<String> activateRegistration(FinalizedRegistration result) async {
+    api.state = 'activated';
+    return '33' * 32;
+  }
+
+  @override
+  Future<bool> canRetryRegistration(Map<String, dynamic>? checkpoint) async =>
+      false;
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

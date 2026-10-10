@@ -102,8 +102,6 @@ test('CitizenApp Isar 注释入口消费当前 storage 目录并拒绝旧目录'
   mkdirSync(scripts, { recursive: true });
   mkdirSync(directory, { recursive: true });
   writeFileSync(join(scripts, 'build.mjs'), readFileSync(viewScript));
-  for(const name of ['target.mjs'])writeFileSync(join(scripts,name),readFileSync(new URL('../scripts/'+name,import.meta.url)));
-  writeFileSync(join(scripts, 'flows.json'), readFileSync(new URL('../scripts/flows.json', import.meta.url)));
   const names = ['user_isar', 'wallet_isar'];
   const originals = names.map(name => readFileSync(new URL(`../lib/storage/${name}.g.dart`, import.meta.url), 'utf8'));
   const run = () => spawnSync(process.execPath, [join(scripts, 'build.mjs'), 'run', 'normalize-isar-comments'], {
@@ -377,8 +375,8 @@ test('CitizenApp直接开发自建源码外视图并只投影当轮Framework', a
 
     const sdkView = join(work, 'source-view', sdk.replace(/^\/+/, ''));
     const chatView = join(work, 'source-view', chat.replace(/^\/+/, ''));
-    const sdkApi = await import(pathToFileURL(join(sdk, 'scripts/release.mjs')).href);
-    const chatApi = await import(pathToFileURL(join(chat, 'scripts/release.mjs')).href);
+    const sdkApi = await import(pathToFileURL(join(sdk, 'scripts/build.mjs')).href);
+    const chatApi = await import(pathToFileURL(join(chat, 'scripts/publish.mjs')).href);
     sdkApi.assertFlutterSourceView(sdk, sdkView);
     await chatApi.assertFlutterSourceView(chat, chatView);
     assert.equal(execFileSync('git', ['-C', sdk, 'status', '--porcelain'], { encoding: 'utf8' }), '');

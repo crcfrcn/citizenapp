@@ -1,18 +1,20 @@
 # CitizenApp 技术文档
 
-## 当前三级源码目录与脚本入口（2026-10-08）
+公民App自身的Build终态只接受iOS或Android设备安装完成；当前端必须交付本仓声明的唯一App归档或APK，文件须为本轮真实普通文件并与安装后保留摘要一致。本仓公开结果确认不接受源码编译或其它产品的产物集合。
+
+## 当前三级源码目录与脚本入口（2026-10-10）
 
 本轮按已确认方案完成目录整理，产品根为第0级，源码目录最多到第3级。目录采用小写单词，每个目录至少有两个直属子项；平台固定名称与`.github`保持工具约定，`lib/8964`是用户指定保留的数字目录例外，内部子目录仍压平到三级。广场回归位置按方案为`test/square/`。
 
-当前共有776个源码、资源、配置及文档文件，108个目录（不计产品根、`.git`和`target`），最深3级。旧目录、独立脚本测试、转发壳及系统目录杂项已清理。页面布局、业务功能、网络合同、SDK来源、依赖版本、应用身份和资源内容沿用整理前原件；Dart引用、资源查找、消费工程映射、流程入口及维护资料随目录同步。
+当前`scripts/`只含两件正式流程文件；`.github/`只含自动化与塔塔门禁目录。源码目录最深3级。页面布局、业务功能、网络合同、SDK来源、依赖版本、应用身份和资源内容沿用整理前原件；流程入口、调用方和维护资料随脚本归属同步。
 
 下面列出全部源码目录。除根文件和`scripts`保留文件逐件展示外，目录旁的计数代表直属文件数量；未计入该目录的下一级文件。
 
 ```text
 citizenapp/  # 第0级
 ├── .github/
-│   ├── tatagate/  # 直属3个文件
-│   └── workflows/  # 直属5个文件
+│   ├── tatagate/  # 直属2个文件：tatagate.json、tatagate.mjs
+│   └── workflows/  # 直属4个文件：两个平台各一份YAML和同名MJS
 ├── android/  # 直属5个文件
 │   ├── app/  # 直属1个文件
 │   │   ├── source/  # 直属7个文件
@@ -80,17 +82,9 @@ citizenapp/  # 第0级
 │   │   ├── pages/  # 直属5个文件
 │   │   └── widgets/  # 直属5个文件
 │   └── widgets/  # 直属6个文件
-├── scripts/  # 直属4个文件
-│   ├── ci/  # 直属2个文件
-│   │   ├── android.mjs
-│   │   └── ios.mjs
-│   ├── release/  # 直属2个文件
-│   │   ├── android.mjs
-│   │   └── ios.mjs
+├── scripts/  # 直属2个文件
 │   ├── build.mjs
-│   ├── flow.mjs
-│   ├── flows.json
-│   └── resources.mjs
+│   └── publish.mjs
 ├── test/  # 直属4个文件
 │   ├── account/  # 直属4个文件
 │   │   ├── creator/  # 直属3个文件
@@ -134,7 +128,7 @@ citizenapp/  # 第0级
 └── pubspec.yaml
 ```
 
-`scripts`只保留8个文件：Build与工具辅助归`build.mjs`，流程、缓存和版本归`flow.mjs`，声明归`flows.json`，资源与Flutter/Gradle消费调整归`resources.mjs`；CI和Release各保留Android、iOS两个文件。`.github/tatagate`名称保持，门禁工具直接调用`resources.mjs`公开接口。各MJS的测试位于正式代码之后，普通导入或正式命令不注册末尾测试，不保留独立脚本测试文件。
+`scripts`只保留两个相互独立的文件：`build.mjs`拥有本机与正式Runner编译、组包、签名算法、资源配方、固定工作根、设备安装与现有启动相关入口和完整编译声明；`publish.mjs`只消费已完成的GitHub自动化公开Run、正式Release与资产，核验唯一成功来源和完整字节并返回可分发产物定位。两者不互相导入。正式Run资产清单、Tag/Release创建、资产上传及GitHub回读由`.github/workflows/`各目标自行完成，自动化只通过`build.mjs release-step <ios|android> <步骤号>`调用正式编译步骤，不保存编译或签名正文，也不导入`publish.mjs`；塔塔门禁属于`.github/tatagate/`。各MJS的测试位于正式代码之后，普通导入或正式命令不注册末尾测试。
 
 | 命令 | 职责 |
 | --- | --- |
@@ -146,9 +140,6 @@ citizenapp/  # 第0级
 | `node scripts/build.mjs native core …` / `native isar …` | 验真本轮真实原生测试库 |
 | `node scripts/build.mjs inputs …` / `logos` | 准备原链金标输入／只读图标摘要检查 |
 | `node scripts/build.mjs generate divisions …` / `institutions …` / `registry` | 原字典、机构快照及治理登记生成器；默认输出随新路径迁移 |
-| `node scripts/flow.mjs version …` | 原版本与Release来源核验 |
-| `node scripts/resources.mjs flutter …` | 原Flutter Gradle消费调整 |
-| `node scripts/ci/ios.mjs check workflow-step N` / `node scripts/ci/android.mjs check workflow-step N` | 原CI检查步骤；编译仍使用同文件`workflow-step N` |
 
 `build.mjs`的`PLATFORM_INPUTS`将三级来源复制到本轮`target`消费工程中原有的Android/Xcode路径。Android资源限定符、Kotlin源集、Xcode项目引用、scheme、entitlement与图标目录语义保持；标准消费路径允许超过源码三级限制。原生程序、项目配置与资源字节未改，Logo图片统一归`assets/logo`，iOS资源目录只保留Storyboard与图标／启动图JSON声明，原生图标与启动图只在`target`消费工程恢复；旧`resources/icons`忽略例外已清理。独立分析／测试配置、链输入及Logo清单收进Build常量，由同一消费装配生成，不另留配置转发文件。
 
@@ -166,7 +157,7 @@ citizenapp/  # 第0级
 
 以上为当前职责规范；本次只更新文档，不代表现有资源协议与运行代码已完成接入或通过真实流程验收。历史记录中的“可选供给”或“产品负责缺件获取”仅描述当时实现，不作为当前职责依据。
 
-本仓现行入口以`scripts/flows.json`及产品公开scripts实现为准；本文按日期保留的历史验收只描述当时结果，不作为当前工具、私有调用者或已撤销Publish实现的运行条件。独立塔塔门禁候选的职责和未验收状态见文末。
+本仓现行编译声明由`scripts/build.mjs describe`提供；`scripts/publish.mjs`仅核验已完成自动化的公开产物。本文按日期保留的历史验收只描述当时结果，不作为当前工具或私有调用者的运行条件。
 
 ## 图标来源
 
@@ -373,7 +364,6 @@ App不恢复WalletManager、旧sr25519、旧金库、旧轻节点或第二区块
 
 ### 分阶段开发与验收边界
 
-第2步范围为钱包、冷热签名、二维码及对应原UI接线；第3步仅恢复钱包、轻节点原功能/UI，第4步仅复核这两部分，其他业务不动。开发在本机macOS完成适用测试，其他平台原生构建和验证由GitHub CI/Release执行、通过塔塔控制台管理；不要求本机另备对应实体平台。第6步设备UI验收另按确认执行，不能把局部Widget片段字节一致扩张为整文件或全App恢复成功。删除原创建按钮和导入链接的旧测试断言不是保留原UI的证据。验收必须覆盖原件字节、逐行代码/注释/测试/文档审查、页面布局和真实交互；完整读取或自动扫描不能冒充全部语义复核完成。
 
 以下历史资料不得扩大本次范围。仅钱包、轻节点的UI描述按历史Git原件复核，必要区块链底层接CitizenSDK；SDK窗口和将App其他业务迁入SDK的旧提议均已撤回。其他App业务保持原样，详细过程、缺口和验证结果只记录在唯一任务卡。
 
@@ -382,14 +372,9 @@ App不恢复WalletManager、旧sr25519、旧金库、旧轻节点或第二区块
 CitizenApp 已删除独立 hardware-secretvault 插件；钱包设备金库由 CitizenSDK 插件提供。App普通设备认证只复用TataChatSDK保存的同一MLS身份，不再拥有原生设备认证桥。
 非钱包用途材料封装设施尚在本轮第5步范围内；钱包秘密存储归CitizenSDK。
 
-当前仅仓库 Push 可执行 GMB 塔塔门禁；CitizenApp 的 Build、CI、Release、Publish 不经过控制台依赖或工具门禁。
-
 CitizenApp 产品流程声明并校验 Android SDK、NDK、Flutter、Java 与Gradle需求；调用方可传入同版工具执行器。外部调用方只按产品登记从唯一工具库注入Gradle9.1.0，不复制版本或下载第二份；其他开发者不安装外部调用方时仍由产品Wrapper独立取得并执行同一版本。
 
 Android工程与CitizenSDK、CitizenWallet及途遇Android产品统一使用Gradle9.1.0官方bin归档、AGP9.0.1与Kotlin2.2.20。`android.builtInKotlin=true`和`android.newDsl=true`是唯一模式，App不再应用`org.jetbrains.kotlin.android`，不存在Gradle8.13、AGP8.13.2、外部Kotlin、按产品降级或双工具链。控制台任务把工具库中已交付的Gradle9.1.0执行器同时交给CitizenSDK原生任务和最终App；产品独立入口未收到调用方执行器时才使用自己的同版Wrapper。字节码使用公开`compilerOptions`并保持Java17。应用脚本显式导入JDK类型，JNI源集通过公开`directories`集合登记。Android模块编译API继续通过公开ApplicationExtension/LibraryExtension配置；应用标识、版本、签名、ABI和业务功能不变。
-CI与Release不修改Pub缓存中的第三方源码；旧`isar_flutter_libs`查找和`sed`补丁已经从两个Android Job删除，正式依赖必须由产品清单、锁文件和上游正式包解决。
-
-### CitizenApp 推特式用户主页（lib/8964/profile）
 
 #### 定位
 - 「我的 → 点背景图或资料箭头」按当前账户的本地公民号进入本人主页；不建立远端会话。广场帖子点作者按CID判断本人或他人主页。
@@ -657,15 +642,13 @@ POST /square/auth/challenge严格提交account_id、public_key、purpose、metho
 
 #### 文章编辑器与 Flutter 3.44（2026-08-13）
 
-- 移动端Flutter工具版本、官方来源和修订由本产品 `scripts/flows.json`、资源实现及公开配方锁定；控制台工具库只提供可选原件，没有控制台也按本仓声明独立准备。文章正文使用的 `flutter_quill` 固定为
+- 移动端Flutter工具版本、官方来源和修订由本产品 `scripts/build.mjs`、资源实现及公开配方锁定；控制台工具库只提供可选原件，没有控制台也按本仓声明独立准备。文章正文使用的 `flutter_quill` 固定为
   `11.5.1`；该版本实现 Flutter 3.44 新增的 `TextInputClient.onFocusReceived`，保证编辑器
   相关页面和测试能在统一工具链中加载。
 - 禁止通过回退 Flutter、跳过编辑器测试或在 pub cache 临时补丁规避接口不一致；依赖版本与
   `pubspec.lock` 必须作为同一候选提交进入 CI。
 
 ---
-
-### CitizenApp 广场本地存储技术边界
 
 #### 1. 定位
 
@@ -1055,8 +1038,6 @@ Admin = [account_id:AccountId32][family_name:Compact<Vec<u8>>][given_name:Compac
 - 当前源码的隔离 `citizenchain-fresh` 节点启动成功，block#0 为 `0xc1dc759689aed0a8f8361dc3cb0e39c1faf19cfc55c7611b02ccc79ce04524c6`，`stateRoot=0x967155d28abe492052ef4bfd59a1ddbebce8cdaa57d9baaad446028848061a5e`，`isSyncing=false`。
 - 真实 RPC 读取首个 `PublicAdmins::AdminAccounts` 值，解出 9 个管理员，每项均含账户、“管理”、“员”，尾部剩余字节为 0。
 - Android arm64 debug APK 在 Pixel 8a 安装启动成功；真机当时未解锁，改用仓库现有 Android 模拟器完成真实页面渲染，创建钱包页正常显示且无 Flutter 异常。验收节点、模拟器和临时截图已停止/清理。
-
-### CitizenApp 接入 TataChatSDK
 
 #### 当前源码链路与模块集成目标
 
@@ -1888,8 +1869,6 @@ PersonalAdmins ProposalData 解码、`PersonalAdmins::PersonalAccounts` storage 
 - `citizenchain/runtime/src/configs/mod.rs`
 - `primitives/src/count_const.rs`
 
-### citizenapp personal-manage 技术文档
-
 #### 1. 模块定位
 
 `citizenapp/lib/transaction/personal/` 是 citizenapp 端个人多签主业务目录，对齐 runtime `citizenchain/runtime/admins/personal-admins/`。
@@ -2114,8 +2093,6 @@ CitizenApp 只打开一个 CitizenSdkModules.full session。安全擦除门禁�
 CitizenApp 只构造业务 payload、domain、challenge 和审阅内容。热签、冷签分流、sr25519 和通用 QR_V1 全部调用 CitizenSigning 与 CitizenQr。链交易禁止调用通用 payload 签名绕开 CitizenTransactions。
 
 `lib/signing/citizen_identity_sign_service.dart`、`citizen_occupy_sign_service.dart` 与 `square_action_sign_service.dart` 分别处理身份确认、注册局占号与换绑、广场账户动作；二维码封装与校验消费 CitizenSDK 的公开接口。宿主不恢复独立 QR codec，不实现链交易签名或保存钱包秘密。
-
-### CitizenApp multisig-transfer 技术说明
 
 #### 模块边界
 
@@ -2849,8 +2826,6 @@ B 必须先走完步骤 4 的链上清算行绑定。收款码中的 `bank` 必�
 - SDK 返回 finalizedSuccess、finalizedFailed 或 poolRejected 后，App 才投影展示状态。不以 txHash、超时、nonce 或页面生命周期猜测成败。
 - 业务历史保存金额、备注、对方账户和收发方向；SDK execution history 是交易状态真源。
 
-### USER 模块技术文档
-
 #### 1. 模块目标
 
 `isar_user` 是 CitizenApp `5+2` 架构中唯一的用户/身份业务库。
@@ -3177,10 +3152,6 @@ CitizenApp 不保存助记词、私钥、wallet profile、加密秘密信封或 
 
 独立 CitizenWallet 产品不属于本任务修改范围；CitizenApp 冷账户交易仍展示唯一 QR_V1 请求，由 CitizenWallet 扫码签名后回扫响应。旧钱包数据不迁移不兼容，用户重新输入助记词或公钥建立 SDK 账户。
 
-## CI 增量缓存
-
-Android 与 iOS CI 已接入统一 CI 缓存。Flutter、Dart、Rust、Gradle 与 CocoaPods 的可再生成中间状态按平台隔离；应用安装包和 Runner.app 等最终产物在保存缓存前删除。
-
 ## Release 全量构建（第 7.4 步）
 
 正式 Release 固定从干净源码执行全量构建，显式关闭 Rust 增量编译及工具链内置缓存，不读取CI作业缓存且不复用本机编译中间物。版本、签名、校验、产物和发布流程保持原有产品合同。
@@ -3210,15 +3181,6 @@ Android 与 iOS CI 已接入统一 CI 缓存。Flutter、Dart、Rust、Gradle �
   受控流程路由 2/2。首轮 297MB 与修复终验 288MB 输出都只写入同一受控工作路径，并分别整体
   移入 `/Users/rhett/.Trash/gmb-platform-naming-step2-11-20260902-162631` 与
   `/Users/rhett/.Trash/gmb-platform-naming-step2-11-final-20260902-163300`。
-
-## CitizenApp Release 负向夹具收口（GMB 第 2.12.1 步，2026-09-02）
-
-- `test/release_manifest.test.mjs` 只在负向测试运行时通过数组片段组合废弃的动作域版本字段，
-  再用计算属性注入候选 manifest；生产 writer、七顶层字段、三资产字段、公开平台、Tag 和资产
-  闭集均未改变，也没有增加兼容读取、双写或回退路径。
-- 真实受控 writer 测试 3/3 通过；额外废弃字段仍由既有 `assert.throws` 证明会被七字段闭集拒绝。
-- 本步没有修改 CitizenApp 业务源码、受控 action、发布器、Bundle ID、Android
-  package、CI、Release 或商店发布；源码树没有生成测试缓存或编译产物。
 
 ## TataChatSDK 完整页面接入（2026-09-04）
 
@@ -3253,24 +3215,6 @@ Kotlin DSL、Groovy、独立KGP classpath、直接ID和条件`apply`写法，并
 82个native名称和descriptor与C++注册表82/82一致。安装等待期间ADB未枚举真机时保留已验真签名APK，
 设备恢复后直接覆盖安装，禁止为了安装重新编译、卸载或清数据。
 
-## 聊天接入第 2.1 步：直接依赖统一与本地门禁修复（2026-09-11）
-
-- CitizenApp 与 TataChatSDK 共同直接依赖已统一并精确固定为
-  `flutter_image_compress 2.4.0`、`flutter_lints 4.0.0`、`image 4.9.1`、
-  `saver_gallery 4.1.0`、`video_player 2.11.1`。CitizenApp 原锁文件已经解析到这组版本，
-  因此只收紧 `pubspec.yaml`，没有人为改写无变化的锁文件。
-- TataChatSDK 的锁文件由 Dart Pub 真实解析生成；五项直接依赖与 CitizenApp 逐项复核一致。
-  native `serde` 同时精确固定为 `1.0.228`，与 CitizenServe.tatachat 一致，Cargo 锁文件由
-  `cargo update -p serde --precise 1.0.228` 生成。
-- TataChatSDK `sticker_panel.dart` 的固定网格代理补为 `const`。SDK 全量 analyze 为 0 issue；
-  Flutter 测试 162 项通过、6 项因本轮未构建 native 动态库按既有门禁跳过；native Rust
-  fmt、Clippy 严格警告检查和 12 项测试全部通过。
-- CitizenApp `lib/chat` 与 `test/chat` analyze 为 0 issue；聊天域测试 140 项通过，唯一失败仍是
-  `tatachatsdk_native_packaging_contract_test.dart` 对另一任务已修改
-  `citizenapp/scripts/build.mjs run` 的旧断言。本步骤按确认边界未修改该脚本，也未用依赖统一
-  掩盖该独立残留。
-- 本步骤没有构建安装包、连接设备、执行远程 CI、Release、Cloudflare 发布或生产部署。
-
 ## 公民软件包接入边界（2026-09-12）
 
 CitizenApp 最终只负责现有 UI、用户/CID、设备、聊天、联系人、广场、会员、投票、立法、提案、
@@ -3296,7 +3240,7 @@ CitizenApp本机iOS/Android Build的唯一实现是`citizenapp/scripts/build.mjs
 产品按自身锁文件和CitizenSDK依赖准备器使用开发者缓存；可选外部调用方 Build在任务显示且准确
 缓存清空后，按App `pubspec.lock`、CitizenSDK `Cargo.lock`、TataChatSDK `native/Cargo.lock`和
 CitizenSDK只读归档计划完成通用物化，再只传产品命名的缓存变量调用同一产品入口。控制台适配不调用
-`build-native.sh`、不复制XCFramework、不设置SDK双库，也不保存ZXing版本、URL或摘要。
+`scripts/build.mjs native`、不复制XCFramework、不设置SDK双库，也不保存ZXing版本、URL或摘要。
 
 Android产品Build在完成Release APK、arm64/TataChatSDK动态导出与本地化验真后，只通过同卷
 `android.apk.pending`原子提交固定无私钥候选`android.apk`；产品脚本不签名、不安装。外部调用方可选
@@ -3316,13 +3260,7 @@ iOS Podfile对自身只做`expand_path`，保留调用方源码外工程视图�
 调用方工程视图时，在自己的工作根创建递归覆盖本地`path:`依赖的只读视图；Apple原生构建完成后，
 只在该视图的两个SDK pod根分别投影`CitizenSDK.xcframework`与`TataChatSDK.xcframework`。
 两套podspec只消费各自pod根内固定相对名称，不接收外部绝对路径，也不写回SDK源码。
-CitizenApp iOS直接Build、CI与Release共用同一`build.mjs view`实现；正式Git依赖
 允许将已检出的SDK包以最终一级链接接入产品`path:`位置，视图在验证真实目标为源码外
-普通目录后展开内容。CI两端各保留一个物理文件：`scripts/ci/ios.mjs`和
-`scripts/ci/android.mjs`；检查阶段通过同文件`check`子命令执行，编译阶段沿用既有步骤参数。
-工作流执行、缓存和版本公共能力统一位于`scripts/flow.mjs`。
-Release物理Job固定为`scripts/release/ios.mjs`与`android.mjs`，共用唯一
-`scripts/flow.mjs version`。禁止平台/同名Job包装目录、`execute.mjs`、裸`test.mjs`、
 `index.mjs`、每Job公共实现副本、无调用GitHub Release客户端、源码根`build`链接和外部
 Framework环境变量。
 CitizenApp将Gradle网络选择与Pub/Cargo离线选择分开：直接调用默认继承总离线设置，
@@ -3388,20 +3326,6 @@ iOS同轮再次完成143MB Runner，但外部调用方把无常驻tunnel的有�
 同轮iOS已证明产品Runner内嵌profile、当前设备、团队、Bundle ID、有效期和严格代码签名均正确；本机安装改为
 直接验真产品已签`ios.app.zip`并安装，外部调用方不再扫描私钥、另选profile或二次重签产品包。
 
-## 聊天接入第 2.2 步：删除产品伪 SDK 类型（2026-09-11）
-
-- CitizenApp 已删除历史聊天 SDK 子类及其全部实例/静态转发 API，不保留别名、
-  兼容类或双轨路径。
-- 应用根 `Provider<ChatSdk>` 创建前台共享的唯一 `tatachat_sdk.ChatSdk`；
-  `createCitizenChatRuntime` 直接构造该真实类型，`createCitizenChatRuntimeHost` 只在调用时消费
-  用户、会员、安全、CitizenServe 会话和推送模块的现有接口，不拥有这些业务事实。
-- 启动恢复、明文附件清扫和应用数据擦除直接调用
-  `tatachat_sdk.ChatRuntimeCore`；账户删除直接调用 `ChatSdk.clearAllForUserId`。
-- 15 个改动 Dart 文件定向 analyze 为 0 issue；7 个定向测试文件共 142 项通过，
-  1 项按既有环境条件跳过。伪 SDK 名称、旧清理转发和生产子类残留均为零。
-- 测试生成的 `citizenapp/build` 已可恢复地移入废纸篓；本步未修改
-  `build.mjs run`，未执行远程 CI、Release、Cloudflare 发布、安装包构建或真机安装。
-
 ## 聊天清理第 1 步：现有聊天模块直连唯一 SDK（2026-09-13）
 
 - 物理目录继续只有现有 `lib/chat/`，没有创建 CitizenApp 子产品或第二个聊天集成目录。
@@ -3414,24 +3338,14 @@ iOS同轮再次完成143MB Runner，但外部调用方把无常驻tunnel的有�
 - 第3步已同步删除旧 CitizenServe 聊天数据面代码和测试；原服务端消息、信令、附件、推送端点不再作为当前实现。
 ### 产品流程物理归属
 
-本仓`scripts/flows.json`声明现有产品、平台与流程身份，完整调用入口由本仓scripts拥有。Build使用产品完整execute入口；CI与Release使用本仓`scripts/flow.mjs`。已接入Start由产品声明与产品实现负责，未接入动作不由文档新增；Publish等待后续逐产品重建。外部调用者读取当前声明、创建与跟踪独立任务，不维护产品流程的第二实现。
 
-## CI与Release入口归属
 
-本产品CI与Release由所属仓当前`scripts/flows.json`的remote_routes及各平台Workflow声明定位，完整执行入口为本仓`scripts/flow.mjs`。控制台读取当前声明、创建原有真实任务、获取准确仓权限并跟踪原Run；旧控制台CI/Release Shell与Swift执行文件已删除，不作为入口。
 
-## 独立 GitHub CI 与 Release 工作流
 
 本产品每个实际产品、平台、流程身份使用下列独立文件，主 Job 为 `flow`；CI 验证源码，Release 生成正式产物，本步不实现Publish，发布待后续逐产品重建。
 
-- `.github/workflows/citizenapp-android-ci.yml`
-- `.github/workflows/citizenapp-android-release.yml`
-- `.github/workflows/citizenapp-ios-ci.yml`
-- `.github/workflows/citizenapp-ios-release.yml`
-
 ### Flutter插件消费目录
 
-本机测试/Build及远端CI/Release从本轮源码外工程视图解析CitizenSDK。SDK源码保持扁平目录，标准Flutter入口布局由SDK自己的公开脚本接口提供；App工程视图不复制包名到路径映射。iOS既有Framework投影核对SDK独立Pub声明与原源码一致；其它依赖仍遵循原来源绑定。
 
 CI检查阶段的Pub解析与测试复用同一视图，复用前核对产品来源、SDK入口链接及package_config中的SDK根，禁止重建后丢失解析结果或改用另一轮状态。Android远端构建在视图中使用原字节的普通settings文件，Pub/Gradle读取同一插件目录，输出仍写既有隔离产物目录，签名、验真及上传继续读取该份产物。源码、包身份、应用数据和Flutter工具原件不由此改写。
 
@@ -3452,7 +3366,6 @@ Widget真库测试在真实setUp预开所用数据库；资料保存必须推进
 
 业务与测试单文件目录归入原所属模块；日志由 `lib/app_log.dart` 承载。Android 主源码位于 `android/app/source/`，设备测试位于 `android/app/tests/`，debug/profile Manifest 位于 `android/app/source/`；构建视图分别恢复为 `src/main/`、`src/androidTest/` 与 `src/`。四个扁平资源 XML 由 Gradle 声明的生成任务按限定目录装配，并显式绑定各 Variant。iOS 测试位于 `ios/tests/`，scheme 源位于 `ios/project/`，中英文系统文案统一为 `ios/source/InfoPlist.xcstrings`。
 
-`build.mjs view` 在本仓 `target` 的构建现场装配平台固定入口；只有 Android 远端工程从已选 Flutter 的 `bin/cache/artifacts/gradle_wrapper/` 逐字节复制三个 Wrapper 工具文件；来源必须由 `FLUTTER_ROOT` 明确提供，缺失、链接或重复来源直接失败。本机 Android 使用已登记 Gradle，执行器检查仅在 Android 分支执行；iOS 与 Dart 测试无需 Wrapper，也不要求 Android 工具存在。产品不保存 `gradlew`、`gradlew.bat`、Wrapper JAR；scheme 与配置从唯一输入按原字节复制为普通文件，消费工程的修改不回写源码。Android CI/Release 在 SDK 构建前创建该工程，随后 Pub/构建复用；XCTest 从同一装配逻辑取得测试工程。源码不恢复包装目录。
 
 AGP 9 将 Kotlin 与 Java 源集分开处理：扁平 Kotlin 目录必须通过 `sourceSets.<name>.kotlin` 显式登记。仅修改 Java 源目录会生成缺少 MainActivity 的 APK；验收必须检查入口类及真机启动，不能以 Gradle 成功或安装成功代替。
 
@@ -3491,7 +3404,10 @@ scripts/build.mjs 的 TEST_INPUTS_SOURCE声明链所有者crcfrcn/citizenchain�
 
 真实平台目标：`ios`、`android`。
 
-推送门禁唯一源码位于 `<本仓根>/.github/tatagate/`，GitHub入口 `<本仓根>/.github/workflows/tatagate.yml`。控制台先从本仓已保存提交执行这份门禁，通过后推送准确SHA；GitHub main push再执行同一提交的门禁，控制台核对所属仓、Workflow、main、SHA、Run和attempt，只有success并再次回查main一致才完成推送。失败、取消、超时或身份漂移均不得显示成功，不自动重试或派发CI/Release。
+仓库推送仅上传本仓已经保存的main提交。控制台推送的唯一实现为console/tuisong.mjs，每仓一次生物识别，授权成功后建立独立任务，任务栏记录Git进度、准确SHA、取消及成功/失败终态。只执行Git与GitHub main只读回查，不执行源码、依赖、注释、文档、测试、签名或资源门禁；不派发产品Workflow、不运行hooks、不续签或重复认证、不自动重试、合并或强推。
+
+本仓已移除GitHub main推送门禁触发器；main上传后不自动运行产品自动化。自动化由用户单独发起，产品仍拥有自己的Workflow、声明、资源、测试和产物实现；产品不导入控制台源码，不依赖控制台工具库、私有规则或其它仓库工作树。控制台只是可选Git客户端。各仓可独立使用公开Git接口完成仓库操作，公开SDK依赖不构成流程耦合。
+
 
 技术文档由所属完整产品仓根唯一持有；私有规则和任务库由控制台私仓持有，公开产品不读取它们。公开门禁不依赖私仓资料、安装包源码、其它本机产品或个人账号；必要链真源只读本仓明确固定的公开40位SHA，不在门禁中跟随main。本机开发跨产品验收仍比较三仓已保存快照与各端真实镜像。
 
@@ -3596,11 +3512,9 @@ CitizenSDK当前统一固定提交为0c442b4065ff1577e235cba76978749827d9f575；
 
 ### 产品独立资源与编译入口
 
-本产品的scripts/flows.json声明自身平台、准确工具版本、原始锁以及既有CI/Release入口；scripts/build.mjs独立实现requirements、prepare、build三个阶段，拥有工程准备、编译命令、候选验真和失败条件。产品只消费调用方交付的公开资源回执，按本仓原始锁取得依赖，所有生成状态进入规范源码外工作目录。
 
 本产品平台闭集为`ios`、`android`。调用格式为`node scripts/build.mjs <requirements|prepare|build> <platform> --work <绝对工作目录>`；requirements只读并输出唯一JSON，prepare/build从标准输入读取schema=1的资源回执。调用方交付准确工具执行器、锁定依赖目录、Git来源和归档后先prepare，再读取展开来源新增的需求，完整交付后执行build。准备、展开和编译属于同一调用工作根，各平台互不共享可写状态。独立调用方按本仓声明准备资源即可运行，无需读取其他产品工作树或私有资料。
 
-Git依赖只接受本仓声明与锁一致的HTTPS地址及40位固定提交；原生归档只接受本产品锁定坐标及完整SHA-256。工程副本排除旧生成物，内部文件链接重映射到同轮副本，外部链接与已有工程拒绝。原始依赖缓存必须显式交付，不能落入用户默认缓存；离线编译禁止隐式取得缺失资源。已有CI/Release Workflow仍各自调用本仓scripts，不受本机可视化入口是否存在影响。入口回归由本仓`scripts/build.mjs`负责，适配与资源服务的验证不替代产品编译和真实候选验收。
 
 本轮已回读当前产品Build的SDK依赖来源与归档统一位于dependencies/citizensdk-native，同属已声明依赖根，满足build.mjs run约束；该修正由当前流程来源任务写入，本线程没有重复覆盖。钱包生产流程及签署方式不改。本轮相关验证、准确消费提交与Release验收仍以真实结果记录。
 
@@ -3609,7 +3523,7 @@ Release合同核验正式锁定SDK公开QR方法的准确返回类型、参数�
 
 ## 2026-10-06 产品自主资源阶段（第2步）
 
-本仓`scripts/resources.mjs`拥有工具准确来源/版本/配方、递归锁解析、缺失获取、复用和本轮依赖准备；`node scripts/build.mjs resources <platform> --work <本仓target内绝对工作根>`调用同一实现，独立入口为`node scripts/resources.mjs <platform> --work <本仓target内绝对工作根> [--offline]`。前者从stdin读取公开身份回执；后者允许空请求。工作根预先存在、归本仓`target/build`或`target/test`且不经过链接。
+本仓`scripts/build.mjs`拥有工具准确来源、版本、配方、递归锁解析、缺失获取、复用和本轮依赖准备。独立资源入口为`node scripts/build.mjs resources <platform> --work <本仓target内绝对工作根> [--offline]`，从stdin读取可为空的公开请求。工作根预先存在、归本仓`target/build`或`target/test`且不经过链接。
 
 现存`PRODUCT_TOOL_ROOT`与`PRODUCT_DEPENDENCY_ROOT`是工具和依赖的只读路径输入，本身不能完成控制台缺件准备与交付。当前供给职责按本文“工具与依赖的声明和供给职责”执行：经控制台运行由控制台准备、保存与供给，独立运行由产品自行处理；源码外`~/.local/share/product-resources`仅描述现存独立资源存储，本轮可写状态仅在work。GNU Bash/grep/sed纳入自身需求；发行件旧Shell仅用于声明中的首次GNU构建，不进入正式PATH。下载/源码工具编译不持全局锁，最终不可变对象提交使用短锁，取消传递到工具进程组。错误摘要、损坏、未锁来源、路径越界和显式离线缺失失败并保留可疑原件。
 
@@ -3619,19 +3533,15 @@ Android固定包与修订归产品；额外平台仅消费官方固定发行来�
 
 资源原件按完整内容验真后整体提交：Git bundle与固定来源/摘要回执处于同一个不可变对象，不暴露中间状态；可选依赖供给读取`objects/<SHA256>.blob`。锁解析器、源码工具依赖与官方有序补丁也从同一产品原件存储复用。spec、准备后源码与文件清单整体提交，再复制到本轮缓存；供给索引不决定产品版本。正式PATH排除旧POSIX Shell，`sh`对应已交付的GNU Bash。
 
-当前iOS锁中的Firebase12.15.0系列、GoogleDataTransport10.1.0、GoogleUtilities8.1.2、libwebp1.5.0、nanopb3.30910.0、PromisesObjC2.4.1、SDWebImage5.21.7、SDWebImageWebPCoder0.15.0的官方tag提交，以及WebRTC-SDK144.7559.09的官方Release资产SHA256，由本仓`resources.mjs`固定。2026-10-06仅只读核对官方元数据；未下载或安装这些原件。变更Pod版本时，本产品同步自己的固定来源声明，控制台不保存该表。
+当前iOS锁中的Firebase12.15.0系列、GoogleDataTransport10.1.0、GoogleUtilities8.1.2、libwebp1.5.0、nanopb3.30910.0、PromisesObjC2.4.1、SDWebImage5.21.7、SDWebImageWebPCoder0.15.0的官方tag提交，以及WebRTC-SDK144.7559.09的官方Release资产SHA256，由本仓`build.mjs`固定。2026-10-06仅只读核对官方元数据；未下载或安装这些原件。变更Pod版本时，本产品同步自己的固定来源声明，控制台不保存该表。
 
 独立缺省资源目录内`tools`保存工具发行件及工具编译输入，`rely`保存产品依赖的归档、Git和Pod原件；工作区只承载本轮可写视图。根据用户最新要求，分步骤先完成实现与用例，整项解耦任务完成后统一测试；本步实施记录不等于真实工具首次取得、完整Build或安装验收通过。
 
 ### GNU原件固定镜像获取
 
-本节适用于本仓.github/tatagate/contracts.json及scripts/resources.mjs的正式门禁工具准备入口。
+本节适用于本仓.github/tatagate/tatagate.json及scripts/build.mjs的正式门禁工具准备入口。
 
 GNU Bash5.3.20、grep3.12、sed4.10与Bash的20份有序补丁保留当前规范官方URL、完整SHA-256和构建配方；每份原件的mirrors闭集依次为https://mirrors.ocf.berkeley.edu/gnu/与https://mirror.csclub.uwaterloo.ca/gnu/下的同一文件路径。
-
-### Release脚本合同测试工具
-
-scripts/flow.mjs复用本仓scripts/resources.mjs的toolEnvironment；一次验真Git2.54.0、GNU Bash5.3.20、grep3.12、sed4.10后，只用PRODUCT_BASH_BIN与封闭环境执行--noprofile --norc -n语法校验。缺失或相对入口、错误Bash版本、无效Shell正文及子进程错误均须失败；所有Release合同测试进入本仓完整门禁测试清单。
 
 ### 聊天公开绑定字段归属
 
@@ -3642,13 +3552,13 @@ binding_scope由CitizenApp与TataChatSDK的实际公开接口定义。公民宿�
 
 每个iOS或Android本机Build任务必须完成本平台的Release配置编译、签名验真、覆盖安装和回读；任一步失败即任务失败。
 
-本产品的正式完整入口为已锁定Node的绝对路径调用`<本仓根>/scripts/build.mjs execute <platform> --work <已存在绝对工作根>`，可选`--offline`。输入stdin可为空；调用方可传schema/product_id/platform/work及真实run_id/program_digest，禁止私有变量或执行命令。入口内部完成需求→资源→准备→再次需求/资源闭包→编译→适用签名/安装/回读；独立与控制台调用同一实现。
+本产品的正式完整入口为已锁定Node的绝对路径调用`<本仓根>/scripts/build.mjs execute <platform> --work <已存在绝对工作根>`，可选`--offline`。输入stdin可为空；调用方仅可传真实`run_id`与`program_digest`，禁止私有变量或执行命令。平台与工作根由命令行及本仓声明验真，不从stdin接受另一份身份。入口内部完成需求→资源→准备→再次需求/资源闭包→编译→适用签名/安装/回读；独立与控制台调用同一实现。
 
-标准输出只有唯一有界JSON：schema、product_id、platform、work、completion、files及可选真实run_id。completion固定为device-install；files按本产品flows.json登记路径和SHA256。编译日志使用stderr进入现有任务日志，不新增资源任务或任务状态。完整结果只在各阶段成功、源码/锁不漂移、工具进程确认退出后落入本轮build-result.json；同根并发或复用旧结果拒绝，取消/失联/错误身份/损坏候选不得成功。
+标准输出只有唯一有界JSON：schema、product_id、platform、work、completion、files及可选真实run_id。completion固定为device-install；files按本产品build.mjs登记路径和SHA256。编译日志使用stderr进入现有任务日志，不新增资源任务或任务状态。完整结果只在各阶段成功、源码/锁不漂移、工具进程确认退出后落入本轮build-result.json；同根并发或复用旧结果拒绝，取消/失联/错误身份/损坏候选不得成功。
 
-控制台每次Build直接读取本产品当前flows.json入口，调用一次execute；控制台只跟踪真实任务、核验公开结果和保存产物，不解释产品工具、依赖、编译参数或设备规则。当前控制台静态菜单、其它产品流程/安装器与程序摘要的历史耦合仍归第4步解除，本步不能当作整项解耦已完成。
+控制台每次Build直接读取本产品当前build.mjs入口，调用一次execute；控制台只跟踪真实任务、核验公开结果和保存产物，不解释产品工具、依赖、编译参数或设备规则。当前控制台静态菜单、其它产品流程/安装器与程序摘要的历史耦合仍归第4步解除，本步不能当作整项解耦已完成。
 
-Android开发材料读取和仅首次创建可由专用PRODUCT_HOST_FD=3提供，原生端仅保管既有DEV_KEY；产品自身负责材料解析、工具、临时密钥、Release包签名、证书/版本核对及USB安装回读。独立调用由产品自己的Keychain保管开发材料。材料不写入公开结果或日志，临时密钥只在工具确认退出后删除。iOS归档由产品解包并验证唯一Runner.app、原始Release配置、Apple签名profile、团队/设备授权、代码签名和entitlement，再完成主动真机探测、防降级、安装及bundleVersion回读。控制台不再包含LocalMobileTask/MobileSecurityManager执行链。
+Android开发材料读取和仅首次创建可由专用PRODUCT_HOST_FD=3提供，原生端仅保管既有DEV_KEY；产品自身负责材料解析、工具、临时密钥、Release包签名、证书/版本核对及USB安装回读。独立调用由产品自己的Keychain保管开发材料。材料不写入公开结果或日志，临时密钥只在工具确认退出后删除。iOS归档由本产品按唯一Bundle ID读取版本，并通过Apple SecStaticCode公开接口验真应用签名；随后主动探测真机、防降级、安装并回读bundleVersion。CitizenWallet自身的signing-home接口读取已有开发Profile及证书，用于选择本产品签名身份；该产品独立拥有并测试此流程，控制台不读取其私有领取记录或代替产品校验。
 
 Android Build必须直接开始编译，禁止编译前选择或等待设备。签名完成后先执行ADB USB安装，不限制品牌、机型或数量，不要求设备登记或另设设备授权门禁；仅当ADB报告多个USB目标时列出全部USB设备号并逐台安装，每台安装后回拉验真。一台失败仍须尝试其余目标，任务最终失败；其他ADB直接安装失败据实失败。禁止固定设备、模拟器和无线安装。
 
@@ -3656,51 +3566,37 @@ iOS真机交互、页面验收和交易诊断必须使用XCTest，UI测试必须
 
 本机Build以本轮开发材料签署Release配置候选，签名验真、安装及回读全部通过才可成功；该候选不作为正式发行资产。正式发行包仅由本仓对应Release Workflow完成签名及回读；两种来源均遵守本产品各平台既定应用标识、版本和数据空间合同，禁止另建开发包标识或数据空间。Publish恢复后只能消费正式Workflow包，禁止二次构建或签名。
 
-产物保持固定android.apk/ios.app.zip；控制台通用artifact能力在产品验真后、设备安装前保存候选，保存失败阻止安装，安装失败不伪造成功。iOS profile/entitlement原生用例迁入本产品Swift验真器测试；统一验收须显式交付产品锁定Xcode的PRODUCT_TEST_SWIFT及PRODUCT_TEST_DEVELOPER_DIR，缺失时测试失败，不静默跳过。
+产物保持固定android.apk/ios.app.zip；控制台只在产品验真后、设备安装前保存候选，保存失败阻止安装，安装失败不伪造成功。iOS回归使用本产品Swift安全助手与合成签名App，覆盖正常Bundle、错误Bundle及签名漂移；Profile授权由Apple设备安装判定。测试仅编译产品的macOS安全助手并检查合成签名包；编译器、SDK和Developer目录必须来自本产品锁定Xcode，分别由PRODUCT_TEST_SWIFTC、PRODUCT_TEST_SDKROOT/SDKROOT与PRODUCT_TEST_DEVELOPER_DIR提供。
 
-本步同步完整入口、失败/取消/并发、结果/路径/摘要及适用移动端用例，但未运行测试、语法检查、编译、签名、安装或工具下载/替换；全部实现步骤完成后统一验收。源码交付与用例存在不代表真实Build已经通过。
+本轮本地验证：产品Build和资源模块JavaScript语法检查通过；macOS安全助手针对本产品签名Bundle通过正常、错误Bundle和签名篡改三类合成用例。未构建或安装iOS产品应用，未进行设备验收、正式Build或Release。
 
 
 ### 第4步实施中：远端路由当前声明
 
-CI/Release的规范身份、标题、版本前缀和正式版本记录标志已迁入所属仓现有scripts/flows.json的remote_routes。调用方按固定已接入动作重读当前声明；原生授权与流程查询不再使用编译期产品路由常量。产品声明只提供数据，不授予凭据、扩大平台矩阵或新增按钮。损坏、重复、越仓、字段越界及超限拒绝。
 
 本次同步路线读取、热更新和失败边界用例，未运行测试、语法检查、编译、签名、安装或下载。第4步仍在开发中：Publish执行器、聊天安装器、Start、固定菜单声明与完整程序摘要的其余实际耦合尚未解除，不能报告该步或整项任务完成。
 
-### 门禁引导入口与Ubuntu虚拟依赖
-
 ### 产品远端完整入口
 
-本仓`scripts/flows.json`的`flow_entry`定位公开`scripts/flow.mjs`。`run ci <platform>`和`run release <platform>`分别执行同一产品流程，当前读取本仓Workflow与路由；Release的`version_source`声明准确版本文件类型和相对路径。成功CI选择、同源候选复用、版本递增、正式Release验真与旧Run/Artifact清理均由本产品入口完成。独立执行只需等价的本仓短期GitHub权限；没有宿主控制管道时入口自行跟踪Run，不依赖其它产品程序。
 
-可选`PRODUCT_CONTROL_FD=3`只接受当前Run绑定确认、候选持久化确认和二值远端终态；令牌仅进入HTTPS请求头，未知身份、越仓、无成功CI、候选错源、控制帧错误、超时或取消均失败。宿主重启后的`recover`使用同一公开入口核验原Run、原候选并清理，不重新派发。公开控制协议不携带私有调用方变量，现有授权及用户操作顺序保持。源码、声明或Workflow在本次流程期间变化将拒绝继续。
 
-相关正常、失败、身份、版本来源、独立远端跟踪、候选重试和真实控制管道边界用例位于本仓`scripts/flow.mjs`；当前只完善源码，尚未运行用例或远端操作。
 
 钱包、交易和合约组件的宿主回归必须消费固定提交的真实CitizenSDK Core、锁定Isar原生库及完整Flutter测试资源；原生code/data assets按锁定包要求启用。缺少shader或AssetManifest的界面失败属于测试输入不完整，不能据此改弱组件、签名及金额断言。数据库、服务和Widget结果分别记录；合成链适配和宿主组件不能冒充正式Release真机与真实链页面验收。
 
 
 ### 产品软件记录与正式版本恢复
 
-本仓公开`scripts/flow.mjs records`使用准确同仓短期GitHub权限，重读本仓当前路由，复用远端流程同一Run保留器并确认实际删除，再读取各平台最新正式版本。来源合同归本仓release.record_source：按实际产品选择Tag、单包正文或正式元数据资产验真，标题、版本、源码与适用不可变标志不能由调用方推测。准确元数据资产仅经官方HTTPS地址读取，跨主机不转发仓库令牌。正式资产和Tag不会在记录刷新中删除。公开结果仍是records/removed_run_ids，原记录页行为保持。
-
-`recover`不重新派发；重新核验原候选、成功CI、原Run终态、正式资产来源与Tag，输出formal_release/removed_run_ids。控制调用方仅绑定原任务身份、原候选和产品公开回执，更新现有持久发布目标；产品验真算法不再随调用方程序编译。相关正常、失败、错资产/正文/来源、重定向隔离、独立记录刷新和恢复用例源码归本仓flow.mjs 末尾回归。
-
-资源工具取消、超时、输出超限和异常收尾均等待主进程与整个后代组退出；无法确认退出时保留工作根和候选，禁止删除输入或改为可写。真实取消退出顺序用例仅写入resources.mjs末尾用例，尚未执行。
 
 
-第一方SDK包装合同测试中的固定提交必须与产品原始声明及锁一致；同步已批准的准确消费提交后，应分别保留旧断言失败和新断言通过证据，不能把合同常量不同误判为SDK运行失败。宿主真实Core/Isar及五域数据库回归只证明对应源码输入；正式移动页面验收另须可追溯的产品Workflow签名Release来源。已安装包的身份、版本与开发者标记只能用于预检，不能独立证明正式Release或当前源码覆盖。Xcode devicectl包装器须核对其实际CoreDevice工具Apple签名与要求版本，版本不匹配不得隐式执行runFirstLaunch或安装资源。
+资源工具取消、超时、输出超限和异常收尾均等待主进程与整个后代组退出；无法确认退出时保留工作根和候选，禁止删除输入或改为可写。真实取消退出顺序用例仅写入build.mjs末尾用例，尚未执行。
 
-移动消费者在调用固定CitizenSDK的apple原生构建入口前，须由该固定SDK自身依赖入口准备并验真ZXing源码，并按同一SDK锁文件传入CITIZENSDK_ZXING_SOURCE_DIR；CI与Release承担相同输入责任。缺少输入导致构建前置失败时，应保留准确Job日志，修复入口连线并完成本机验证后再按失败Run规则接续。
 
-### 发布实现范围
-
-本轮新增产品发布实现已撤销，发布功能由后续逐个产品重建。现有操作入口与界面保留，当前不提供已删除实现的执行保证；Build、CI、Release和Start继续按各自现有入口运行。
+第一方SDK包装合同测试中的固定提交必须与产品原始声明及锁一致；同步已批准的准确消费提交后，应分别保留旧断言失败和新断言通过证据，不能把合同常量不同误判为SDK运行失败。宿主真实Core/Isar及五域数据库回归只证明对应源码输入；正式移动页面验收另须可追溯的产品Workflow签名Release来源。已安装包的身份、版本与开发者标记只能用于预检，不能独立证明正式Release或当前源码覆盖。Xcode devicectl包装器使用本轮交付的CoreDevice工具入口；缺件或执行失败不得隐式运行runFirstLaunch或安装资源。
 
 
 ### 产品独立资源与唯一依赖供给
 
-本产品的scripts/resources.mjs独立拥有需求解析、准备配方、来源与摘要验证、可写视图和失败条件。独立执行时由产品获取、保存与复用缺件；经控制台执行时由控制台按产品声明准备、保存并供给，产品核验并使用。PRODUCT_DEPENDENCY_ROOT仅是现存只读路径输入，缺少路径或原件不得在控制台执行模式下触发产品自行下载；实际供给接入仍需代码改造与验收。依赖索引读取仅接受schema_version=2及packages、git_sources、pods，不恢复旧目录或整锁快照。
+本产品的scripts/build.mjs独立拥有需求解析、准备配方、来源与摘要验证、可写视图和失败条件。独立执行时由产品获取、保存与复用缺件；经控制台执行时由控制台按产品声明准备、保存并供给，产品核验并使用。PRODUCT_DEPENDENCY_ROOT仅是现存只读路径输入，缺少路径或原件不得在控制台执行模式下触发产品自行下载；实际供给接入仍需代码改造与验收。依赖索引读取仅接受schema_version=2及packages、git_sources、pods，不恢复旧目录或整锁快照。
 
 Maven的具体JAR、AAR、POM、module及分类器文件统一由packages的group:artifact、version、准确上游URL、SHA256和SRI定位objects中的原件。产品在本轮work/dependencies/maven按上游分区复制独占文件；不复制Gradle二进制元数据、锁和下载状态。产品生成本轮GRADLE_USER_HOME/init.d初始化脚本，只在自身已声明的同源仓库之前加入本轮原件视图，缺件仍按产品原仓库解析，明确离线则失败。Gradle解析、工程状态和后续编译都属于同一产品任务。
 
@@ -3717,23 +3613,22 @@ Apple验真器回归显式使用已验真的锁定Xcode及其SDK；官方swift�
 
 资源取消对同一真实进程组每轮只发送一次信号；组不存在或Windows时才发送给主进程。仍等待主进程和后代实际退出，8秒未退出才强杀，12秒仍未确认则保留现场并失败；取消不能成为成功。
 
-Apple验真器测试由同一锁定Xcode的swiftc编译实际XCTest Bundle，使用该包随附XCTest框架与Swift overlay，再由同包xctest执行；必须回读5项测试全部成功，空测试套件不得算通过。Bundle、模块缓存和临时输出仅归本产品target准确平台。
+iOS签名助手回归由同一锁定Xcode的swiftc构建，并在独立临时目录创建合成App，用Apple codesign生成可验证签名；测试检查合法签名、错误Bundle和签名后内容漂移，结束时回读临时目录已清除。测试不构建或安装产品iOS应用。
 
 
 ### 产品只读商店身份公开边界（2026-10-07）
 
-现有scripts/build.mjs增加唯一只读命令：`node scripts/build.mjs store-identity`，不接受平台、工作目录或额外参数，不启动Build/CI/Release/Start、不读取凭据、不创建工作数据、不获取工具依赖，也不执行发布。独立调用不需要控制台环境或PATH中的工具。控制台商店凭据配置调用同一命令，产品身份变更无需改控制台。
 
 本产品自己选择唯一原始iOS Runner工程与唯一Android应用Gradle配置。iOS使用PBXProject中的唯一Runner应用目标，分别取项目与目标唯一Release配置，目标覆盖项目，与本产品已有签名验真使用的配置关系一致；缺失、歧义、未解析变量或非法标识均失败。Android沿用本产品原有applicationId读取规则，不更改Build签名、安装或完成条件。
 
-回执固定为schema=1、product_id、bundle_id、package_name、source_files。每个source_files元素仅含本仓相对path与SHA-256，列出scripts/flows.json、scripts/build.mjs及本次读取的两个原始配置。父目录和文件均拒绝链接，原始文件必须是单链接、非空、至多1MiB的普通文件；同一描述符有界读取，核验inode/大小/时间及当前路径，解析后再次验真全部来源。入口或配置缺失、重复、被替换或摘要变化均失败，不回退到控制台静态产品登记，不恢复已删除的产品Publish实现。
+回执固定为schema=1、product_id、bundle_id、package_name、source_files。每个source_files元素仅含本仓相对path与SHA-256，列出`scripts/build.mjs`及本次读取的两个原始配置，共三件文件。父目录和文件均拒绝链接，原始文件必须是单链接、非空、至多1MiB的普通文件；同一描述符有界读取，核验inode/大小/时间及当前路径，解析后再次验真全部来源。入口或配置缺失、重复、被替换或摘要变化均失败，不回退到控制台静态产品登记。
 
 本轮仅维护现有build.mjs 末尾回归的身份解析、源码边界、真实只读入口及合成原始配置回归；测试现场仍在本产品target真实平台下。依赖版本、锁、资源登记、平台声明和原有流程步骤保持。
 
 
 ### 门禁官方归档字段与平台命名边界（2026-10-07）
 
-平台禁用值继续来自本仓既有门禁登记。仅scripts/resources.mjs的唯一规范toolDefinitions声明内、唯一Flutter工具的archive.url可以按对应数字版本核对官方稳定版macOS归档；source、root和executable必须匹配原有官方坐标。识别后仅从平台扫描输入移除该URL，原资源源码、工具版本、来源及依赖锁均不修改。重复声明、重复键、转义或不可解析字面量、错版本、错来源及错形字段不予豁免；其它工具、字段、源码、注释和目录中的旧平台标识继续拒绝。
+平台禁用值继续来自本仓既有门禁登记。仅scripts/build.mjs的唯一规范toolDefinitions声明内、唯一Flutter工具的archive.url可以按对应数字版本核对官方稳定版macOS归档；source、root和executable必须匹配原有官方坐标。识别后仅从平台扫描输入移除该URL，原资源源码、工具版本、来源及依赖锁均不修改。重复声明、重复键、转义或不可解析字面量、错版本、错来源及错形字段不予豁免；其它工具、字段、源码、注释和目录中的旧平台标识继续拒绝。
 
 既有门禁测试覆盖本仓真实资源声明、官方字段、伪造来源和字段、歧义字面量、额外源码、旧平台注释与目录；全部夹具只在本产品target真实平台测试目录生成，并在finally清理。工作树诊断与绑定已保存提交SHA的正式门禁分别记录，不能将缺少Git跟踪文件的工作树冒充正式通过。
 
@@ -3742,12 +3637,12 @@ Apple验真器测试由同一锁定Xcode的swiftc编译实际XCTest Bundle，使
 
 ### 补丁原上下文与测试夹具边界（2026-10-07）
 
-平台扫描只对scripts/resources.mjs中唯一规范flutterPatch JSON字面量执行原上下文识别：补丁登记字段严格为path、sha256、source；path为flutter.patch，source为Flutter官方固定40位提交，正文首行固定来源必须一致，全文SHA-256必须匹配本仓登记。仅当native_assets_host.dart准确文件、hunk及lipoDylibs邻接上下文唯一匹配时，从扫描副本移除那一行已核对的上游原注释。实际资源源码和补丁正文不修改；其它补丁行、源码、字段和目录继续完整扫描。错误来源、摘要、重复声明、非规范转义、上下文漂移和新增旧平台文字均不豁免，不跳过整段补丁。
+平台扫描只对scripts/build.mjs中唯一规范flutterPatch JSON字面量执行原上下文识别：补丁登记字段严格为path、sha256、source；path为flutter.patch，source为Flutter官方固定40位提交，正文首行固定来源必须一致，全文SHA-256必须匹配本仓登记。仅当native_assets_host.dart准确文件、hunk及lipoDylibs邻接上下文唯一匹配时，从扫描副本移除那一行已核对的上游原注释。实际资源源码和补丁正文不修改；其它补丁行、源码、字段和目录继续完整扫描。错误来源、摘要、重复声明、非规范转义、上下文漂移和新增旧平台文字均不豁免，不跳过整段补丁。
 
 既有门禁夹具以unlinkSync删除测试目录中的链接自身；测试临时目录仅调用本仓唯一testRoot，无旧API别名。机密扫描夹具生成本仓必需的合成根文档，原文档检查及拒绝断言保持。补丁正常、错源、错摘要、错形、重复、上下文外残留等边界同步在既有test.mjs，现场在本产品target内并由finally清理。补充实现后的统一门禁验收已通过，正式提交门禁及产品真实Build/启动验收仍待完成。
 
 
-本产品scripts/build.mjs的模块初始化与CLI执行分离：私有异步runCLI承载原命令主体，仅在直接执行文件时启动，拒绝时输出错误并以退出码1失败。模块求值先完成，scripts/resources.mjs可反向导入同一checkWork、requirements和平台校验，不复制实现或增加启动入口；普通import不启动CLI。离线缺件和非法输入必须真实失败，禁止以未完成顶层await退出替代完整结果。对应真实CLI回归只在自有target测试现场替换资源供给边界，验证反向导入、参数与错误传播，不据此声称实际产品编译通过。
+本产品`scripts/build.mjs`的模块初始化与CLI执行分离：私有异步runCLI承载命令主体，仅在直接执行文件时启动，拒绝时输出错误并以退出码1失败。资源、工作根和编译在同一文件内调用同一checkWork、requirements与平台校验；普通import不启动CLI。离线缺件和非法输入必须真实失败，禁止以未完成顶层await退出替代完整结果。对应CLI回归在本仓target测试现场验证普通导入、只读声明、参数与错误传播，不据此声称实际产品编译通过。
 
 ### 2026-10-07 会话与通讯录错误分类及虚拟设备验收
 
@@ -3790,18 +3685,16 @@ Maven可选本地仓库只接纳已验真且完整的具体组件版本：module
 
 Release候选版本生成必须接受已核验语义版本与正整数多位Run号；版本行更新在本轮普通消费文件中执行，缺少准确版本行时拒绝写入。Android签名执行器必须绑定本流程已安装Build Tools 36.0.0的apksigner，APK与AAB仍按既有同证书回读合同验收。资源私有测试模块位于target时显式保持真实产品根，只修正夹具的模块位置，不放宽正式资源路径边界。
 
-两端Release来源验真在所属Workflow本仓根读取pubspec.yaml版本种子，与实际成功CI源码和正式Tag的下一版本同时核对；不增加产品名目录层。版本读取失败、错来源、错候选或缺少原文均拒绝，来源验真不改写正式版本文件。
 
 远端Job执行必须先核对GitHub实际仓库、workflow_dispatch事件、Workflow与阶段身份；CI检查绑定stage_1，CI编译及Release绑定flow。禁止改写传入Workflow以掩盖错流程，身份拒绝先于工作目录及正文操作。平台布局测试必须在合成产品的target内持有工作根，正式target越界门禁保持。
 
 
 ## 独立塔塔门禁与资料回归
 
-本仓 `.github/tatagate/index.mjs` 是本机与GitHub共用的唯一门禁实现，`contracts.json`只登记本仓准确GitHub身份、已有流程与真实Node入口。GitHub在本仓main推送时自动运行 `tatagate.yml`，检出并核对该push的同一已保存SHA；其它仓库的工作树、门禁、私有规则和人工开发凭证均不是输入。
+本仓 `.github/tatagate/tatagate.mjs` 是本仓独立开发复核实现，`tatagate.json`只登记本仓准确GitHub身份、已有流程与真实Node入口。本仓main推送不再触发该开发复核；其它仓库的工作树、门禁、私有规则和人工开发凭证均不是输入。
 
 门禁检查独立Git根、准确HTTPS origin、当前受检提交及提交范围；本机只接受main，远端只接受准确仓库的main push。源码语法、真实代码注释上下文、临时残留、传输来源、所属根技术文档和受控测试登记分别检查。实现变化必须在同一范围同步所属文档与有内容的回归差异；空白调整不构成同步证据。代码与资料的语义、注释是否准确、回归是否覆盖产品功能仍须由本仓开发与最终真实验收逐项复核，非空文件或摘要不能证明业务正确。
 
-Node清单从本仓Git已跟踪的真实测试逐项核对，漏登记、重复、失效和空入口失败；执行时必须有每份登记文件与最终汇总的完整成功回执。零用例、漏文件、失败、跳过、待办、取消及重复汇总均失败。所属产品流程、声明、资源版本与Workflow权限的回归归本仓 `scripts/flow.mjs`，不让其它仓库代验本产品。
 
 固定Git输入只从本仓声明或门禁明确的40位提交取得，不消费其它产品当前main。独立执行的依赖原件归产品独立资源库，经控制台执行的依赖原件由控制台保存供给，任务缓存和编译数据归本轮target；已有多平台产品按本仓首个登记平台的test现场分配，单平台使用target/test。`gateLanguageView`使用受检Git快照与产品现有安全解包器物化本轮target工程视图，正式源码、声明和锁只读；Git包仅在任务视图元数据中投影为已准备的固定输入。
 
@@ -3811,18 +3704,18 @@ Node清单从本仓Git已跟踪的真实测试逐项核对，漏登记、重复�
 
 公民App正式Flutter测试入口消费本仓固定CitizenSDK、TataChatSDK及链金标提交；资源阶段先取得并验真同轮输入，测试入口继续负责真实宿主库、分析和Flutter套件，不把合成算法或邻仓产物当SDK验收。
 
-本轮只完善门禁实现、资料、注释和回归源码，尚未运行测试、门禁、编译、签名或安装。全部获准步骤实现完成后在最终统一验收中运行，随后按每仓准确保存SHA推送并核对该SHA的GitHub push门禁；未验收不得登记为已完成。
+本轮只完善门禁实现、资料、注释和回归源码，尚未运行测试、门禁、编译、签名或安装。全部获准步骤实现完成后在最终统一验收中运行，随后按每仓准确保存SHA推送并回查GitHub main，不运行推送门禁；未验收不得登记为已完成。
 
 
 ## 独立功能门禁
 
-本仓 `.github/tatagate/` 只检查本仓提交。本产品现有功能检查主题为：账户与安全存储、热钱包、扫码签名、治理、聊天与MLS、界面状态。已有真实入口为：test内对应Flutter真实测试；scripts/build.mjs test及原锁原生宿主输入。`contracts.json` 的 `functions` 只映射本仓已有用例路径、实际执行器、所属工程及具名用例，不复刻业务字段或算法；源码及公开接口继续是业务真源。当前登记 165 件既有测试来源（flutter 156 件、node 9 件），新增或移除用例须同步映射，遗漏、失效和重复必须拒绝。
+本仓 `.github/tatagate/` 只检查本仓提交。本产品现有功能检查主题为：账户与安全存储、热钱包、扫码签名、治理、聊天与MLS、界面状态。已有真实入口为：test内对应Flutter真实测试；scripts/build.mjs test及原锁原生宿主输入。`tatagate.json` 的 `functions` 只映射本仓已有用例路径、实际执行器、所属工程及具名用例，不复刻业务字段或算法；源码及公开接口继续是业务真源。当前登记 165 件既有测试来源（flutter 156 件、node 9 件），新增或移除用例须同步映射，遗漏、失效和重复必须拒绝。
 
 Node完整报告逐文件核对；Flutter和Vitest从实际机器结果读取本仓具名套件完成数；Rust按准确原锁工作区及所属包运行全目标和文档测试，核对具名用例；Python调用实际unittest套件，拒绝零用例、失败、跳过、预期失败和意外成功。适用的原生门禁回读真实XCTest结果。执行回执绑定本仓、本次工作根和同一HEAD SHA，历史回执、加载事件、总数非空或单独零退出码均不足以证明全部功能检查成功。门禁协议夹具只证明核验器和调用边界，不能替代实际产品功能验收。
 
-门禁资源仍由本仓 `scripts/resources.mjs` 准备和验真，实际用例需要的Cargo/npm原锁纳入本仓闭包。固定SDK只按本仓声明的同一40位提交建立本轮工程，不能读取邻仓或跟随main。Linux使用现有准确Ubuntu x64门禁宿主；本机使用原macOS ARM资源入口。Flutter需要的真实MLS、SDK ABI及适用Isar宿主在用例前准备，验证普通文件、当前工作边界及实际加载；缺库即失败，不设置跳过或替身。资源与全部测试临时数据只归本产品target内准确平台现场，不改变生产平台、生产工具版本、依赖版本或锁。
+门禁资源准备和验真归本仓`.github/tatagate/tatagate.mjs`，只调用`build.mjs`公开的通用资源能力；编译入口不持有门禁专用宿主、来源、环境或测试清单。实际用例需要的原锁纳入本仓闭包。固定SDK只按本仓声明的同一40位提交建立本轮工程，并通过该提交公开的`build.mjs plan --platform`读取原生归档需求；不读取邻仓检出或SDK私有锁文件，也不跟随main。Linux使用现有准确Ubuntu x64门禁宿主；本机使用原macOS ARM资源入口。Flutter需要的真实MLS、SDK ABI及适用Isar宿主在用例前准备，验证普通文件、当前工作边界及实际加载；缺库即失败，不设置跳过或替身。资源与全部测试临时数据只归本产品target内准确平台现场，不改变生产平台、生产工具版本、依赖版本或锁。
 
-main推送自动触发本仓同SHA `tatagate.yml`，不调度其它产品门禁或CI/Release。中文注释、真实接口、所属文档与回归同步检查继续执行。当前只准备实现、注释和用例，未运行测试、语法检查、门禁、下载或编译。浏览器交互、真机、真实API/服务/数据库环境及适用平台不能由登记清单、单元测试或编译替代，须在整项实现后的统一验收逐项核对。
+main推送不触发门禁或产品Workflow。中文注释、真实接口、所属文档与回归同步检查继续执行。当前只准备实现、注释和用例，未运行测试、语法检查、门禁、下载或编译。浏览器交互、真机、真实API/服务/数据库环境及适用平台不能由登记清单、单元测试或编译替代，须在整项实现后的统一验收逐项核对。
 
 本地调用的既有协调目录参数只用于核对请求身份；实际测试工作根和本次功能回执由门禁自行在本仓target建立，不向快照旁协调目录写入产品状态。独立入口与控制台固定调用共享同一实现与退出结论。
 
@@ -3849,7 +3742,6 @@ CitizenSDK正式消费统一固定于https://github.com/crcfrcn/citizensdk.git�
 
 其余已核实适配：上传prepare新manifest/media_uploads结构、complete路径中upload_id不再重复正文；资料上传相对能力地址及PUT回执哈希；创作者tiers/subscription与确认后重读，现有Bearer-only投影POST补普通请求MLS证明；充值意图中的付款消息/期限及confirm的payer_signature，固定付款授权失败不继续转账；引导清单relay路径由旧/chain/extrinsics/relay改为真实/api/chain/extrinsics。原冷签、充值、发布检查点与本地数据模型生命周期保留。
 
-App旧账户注销调用对应的两个HTTP入口在旧TypeScript分派也不存在，已登记为现存缺口，不发明新接口或先清本地。B继续SDK/通用聊天/Cloudflare适配，A在其交付后验收真实聊天地址和生命周期；注册、恢复及普通API方案先独立推进。准确只读摘要在 /Users/rhett/citizenserve/target/cloudflare/test/registration-review/source-audit.json；CitizenServe.github恢复证据归同一测试目录，正式Rust CI/Release仍待最终补丁与确认。
 
 
 ## 第8步统一注册接入（2026-10-08，源码已落地，整体验收未完成）
@@ -3864,7 +3756,6 @@ App旧账户注销调用对应的两个HTTP入口在旧TypeScript分派也不存
 
 付款意图核对当前链genesis、服务origin、付款人/代币/收款地址/金额/目标账户/套餐/期限及原始token摘要；WalletConnect先personal_sign固定CitizenServe Topup v1消息，成功后才发送原ERC20交易。确认复用同一payer_signature及交易哈希，不重复支付。
 
-聊天宿主HTTP许可已按/api/tatachat/access接入；实际WSS/DO/附件可用性仍待B交付。历史云端清理和正式CI/Release改造未纳入本次源码修改。App源码已落地，相关宿主检查通过；第8步整体验收未完成。
 
 
 本轮相关21件Flutter文件的178项用例全部通过，完整App源视图analyze无问题，47件批准Dart源码/测试的format检查零变化。实际充值HTML内联JavaScript另有7项Node VM检查通过：成功先签授权再发送一次交易；取消、无效签名、错链、账户变化和签名期间过期均不发送交易，重复提交不重复支付。VM中的钱包提供方是模拟端口，没有真实签名或付款。Flutter测试使用准确公开CitizenSDK提交0c442b4065ff1577e235cba76978749827d9f575、TataChatSDK提交29b7e4377833802a0a9f833c44c3e92036bd8493和既有固定链金标；SDK工作树未被修改。CitizenSDK由固定提交真实编译并通过其ABI符号及C/C++头文件检查；相关Flutter结果不等于TataChatSDK MLS原生库或完整scripts/build.mjs test通过。
@@ -3888,14 +3779,12 @@ App声明ref与锁ref/resolved-ref已统一固定TataChatSDK真实提交b0485cf0
 
 ## 本机固定执行目录
 
-本产品生成状态仅允许位于本仓根target；target直属仅允许build、test两个固定目录，不建立平台、ci、release、publish或tmp固定目录。平台只属于任务身份；build承载编译，test承载测试。工具必需的内部目录仅在本轮存在。每轮先在短锁内核验身份和活跃保护，清空准确现场并回读为空；同产品共用固定现场串行领取，不同活动任务不得共享可写现场或互清。工具全部退出、结果核验及记录完成后，成功和失败均彻底清空；未确认退出时禁止清场或登记成功。候选、缓存、临时日志及可写工程不得持久留在target根，也不得建立替代持久目录。整个target必须忽略并排除源码复制、快照、摘要、资料门禁及打包输入；源码内禁止build、.dart_tool等生成目录。CI、Release在GitHub执行，不建立本机固定流程目录。
-
 历史验收路径保留原记录；本节为当前本机目录规则。
 
 
 ## 统一联调第4步：资源验真与同文件回归
 
-资源实现与完整回归唯一位于本仓 scripts/resources.mjs，测试置于正式代码末尾；不保留单独的 resources.test.mjs、转发壳或第二测试入口文件。直接普通导入、资源准备和Build不会加载node:test或注册末尾用例。准确Node测试入口为 node --test scripts/resources.mjs；直接执行 node scripts/resources.mjs test 也只进入同一末尾用例。门禁functions与node_tests登记该实际源码路径，逐文件真实执行数、失败、跳过、取消及遗漏判定保持。
+资源实现与完整回归位于本仓`scripts/build.mjs`，测试仅在直接Node测试入口注册；不保留分离测试、转发壳或第二资源入口文件。普通导入与正式编译命令不注册末尾测试。准确Node回归入口为`node --test scripts/build.mjs`；门禁functions与node_tests登记该实际源码路径，逐文件真实执行数、失败、跳过、取消及遗漏判定保持。
 
 资源源码仍接受生产实现检查。门禁同步证据单独提取末尾实际代码，与准确Git基线比较；只有正式实现变化不能冒充测试更新，注释或字符串中的伪造测试块不成立。资源生产部分仅使用Node内置模块；末尾测试才按需读取本仓Build与门禁接口，不依赖控制台私有源码。
 
@@ -3985,7 +3874,6 @@ Android、iOS源码资源目录均不再保存PNG副本。原生构建通过同�
 
 ## 目录整理收尾复查（2026-10-08）
 
-本次重新核对当前全部776个文件、108个目录，并解码合并脚本内嵌的Shell、CI/Release步骤与配置。发现并修正Isar注释入口仍读取旧目录的问题，夹具同步为`lib/storage`；新增完整CLI回归，覆盖当前真实生成文件、正文保留、重复执行及只有旧目录时明确失败。真实入口已执行，两份生成文件只新增既定职责注释，生成正文逐字节保留，第二次执行无差异。
 
 门禁账户派生金标镜像改为当前`test/citizen/shared/account_derive_vectors.json`；新增完整跨端校验的隔离响应回归，验证当前镜像路径与密码学漂移拒绝，不把合成上游响应当作真实链验收。清理无效`app/pubspec.yaml`来源兼容、旧测试路径扫描排除、合并前Shell文件定位代码和平台入口未使用的导入，修正同平台双Job注释。资源实现变更后同步门禁的准确执行正文摘要绑定，原拒绝用例继续全部通过。
 
@@ -4003,14 +3891,64 @@ App跨SDK装配回归按自身固定Git输入读取TataChatSDK当前lib/attachme
 
 ## 当前资源供给合同（2026-10-09）
 
-scripts/resources.mjs 按本仓声明和上游锁准备、物化并复用工具与依赖；scripts/build.mjs 直接使用回执中的路径。gateEnvironment只投影当前任务的工具与缓存环境，不检查来源证明、运行版本、归档摘要、完整文件树或Apple资源签名。原件库存坐标、版本声明和上游锁保留；CocoaPods与Cargo等上游包管理器仍执行自身原生流程。
+`scripts/build.mjs`按本仓声明和上游锁准备、物化并复用工具与依赖，编译阶段直接使用回执中的路径。gateEnvironment只投影当前任务的工具与缓存环境，不检查来源证明、运行版本、归档摘要、完整文件树或Apple资源签名。原件库存坐标、版本声明和上游锁保留；CocoaPods与Cargo等上游包管理器仍执行自身原生流程。
 
 供给缺件、离线缺件、工具非零退出、取消或后代未退出按实际结果失败。固定工作根、任务身份、隔离、互斥与清场合同继续适用。业务授权、钱包及链签名、TLS和正式应用产物的签名安装合同保持各自职责。
 
-Android资源准备直接复用本产品可选工具供给的payload路径，不依赖来源证明或全树回执。Gradle与SDK可写视图只在当前已领取的target/build或target/test中的dependencies/android-sdk-view物化；工具原件只读保留。缺件、复制/执行失败及取消由入口等待工具退出后清空固定根。固定根回归scripts/target.mjs同时登记于node_tests和functions。
+Android资源准备直接复用本产品可选工具供给的payload路径，不依赖来源证明或全树回执。Gradle与SDK可写视图只在当前已领取的target/build或target/test中的dependencies/android-sdk-view物化；工具原件只读保留。缺件、复制/执行失败及取消由入口等待工具退出后清空固定根。固定根回归scripts/build.mjs同时登记于node_tests和functions。
 
 固定根中的工程视图按产品根的直接子项复制，排除target与既有生成目录，避免Node把整个源码根复制进自身子目录时拒绝操作。视图根仍为当前已领取工作根中的source，不成为另一个任务工作根；成功、失败和中断恢复均由本仓target入口完成清场。
 
-公民App scripts回归统一位于正式模块末尾，仅直接使用Node测试入口时注册；固定目录回归合并到scripts/target.mjs，构建夹具合并到scripts/build.mjs，删除分离测试与夹具文件。门禁node_tests、functions及真实源码清单同步使用正式模块路径。
+公民App编译、资源及固定目录回归统一位于`scripts/build.mjs`的正式代码之后，仅直接使用Node测试入口时注册；已完成自动化产物的选择和字节回归位于`scripts/publish.mjs`。门禁node_tests、functions及真实源码清单同步使用这两件正式文件。
 
 资源复用直接消费已提供路径；POSIX配方只定位实际命令，不读取系统发行身份、采集输入摘要或复验Apple资源签名。源码工具候选不再保存配方摘要与POSIX摘要证明。Maven任务视图不再扫描完整树；Pub/Cargo由各自原生命令消费已物化目录和原生校验元数据，准备器不重复比较目录摘要。原件声明和锁保留，结构边界、任务归属、取消、真实执行失败与清场仍必须执行。
+
+
+## 第3步真实本机业务复验（2026-10-09）
+
+用户明确二次确认允许App独立64GiB Case-sensitive APFS镜像：target/build/filesystem.sparseimage，挂载target/test。本轮由本产品公开固定根同时领取build/test，保留同一nonce/pid/work；原件按准确大小写成员物化，未改上游名称、Git固定消费或锁。
+
+通过本仓resources('ios',...)和公开view create生成独立Flutter工程，SDK插件与Pub路径投影仅进入测试视图。正式固定提交仍为citizen_sdk 0c442b4065ff1577e235cba76978749827d9f575、tatachat_sdk b0485cf0a2c0922791741a748fdec0a49003089f。分别用各自原锁Cargo闭包实际构建MLS与CitizenSDK Core，Core经固定SDK公开`scripts/build.mjs native abi-host`完成导出/头文件检查；真实MLS、Isar及Core动态库均成功加载。Pub实际执行offline与enforce-lockfile，不增加override或混用邻仓工作树。
+
+首次业务复验214项中200通过、14失败：10项缺少真实Core供给，3项余额Widget夹具仍走旧注册接线，1项包装合同写死旧SDK提交。Core现已补齐真实构建；既有myid_page_test.dart从明确保存的human_verified夹具恢复，装配真实RegistrationCoordinator并调用当前guard/链上下文/finalized/激活端口，保留三分支原断言；测试云/钱包边界仍为合成数据。tatachatsdk_native_packaging_contract_test.dart改为读取正式声明中的唯一规范40位提交并核对锁文件ref/resolved-ref，不再复制旧提交常量。均有中文职责注释，未修改业务授权与生产注册流程。
+
+最终同轮Flutter业务214项全部通过，0失败/跳过；范围包含test/account/identity与test/chat、MLS设备注册、账户注销、IdentityBinding及social/wallet/chat/user/app五域持久存储隔离。真实Core支持签名编码金标，真实MLS与Isar用于对应原生与持久化边界；RPC、真人验证服务、钱包交易与推送的合成测试不冒充真实云/链或iOS/Android验收。既有Dart用例经产品Dart格式整理通过。
+
+全部工具退出后清空本轮镜像现场，从镜像外成功卸载；本产品公开固定根收尾清空build/test并移除稀疏镜像，固定目录保留，最终回读无本轮挂载。没有Git保存/推送、正式门禁/Workflow派发、云DDL/部署、签名或安装；account_services_ready仍false，整项任务保持进行中。
+
+## 本机编译入口
+
+本产品完整本机编译、签名验真、设备安装回读、资源配方和固定现场只由`scripts/build.mjs`实现。独立执行自行准备，控制台发起时只消费其明确供给，不因缺件或失败切换到独立下载。控制台`console/build.mjs`只调用公开入口和供给资源，并在产品进程退出后请求产品收尾；产品负责自身现场与资源配方临时路径清理，供给方只收尾自己创建的候选和提交锁。
+
+编译流程的公开声明由`node scripts/build.mjs describe`输出；控制台复用同一本仓入口与回执。本机编译不生成第二份脚本。SDK原生依赖由本仓固定提交的SDK公开`plan`交付，不读取兄弟仓本机检出或SDK内部锁文件，也不调度兄弟仓任务。独立的`scripts/publish.mjs`只读取完成后的自动化公开结果，两个脚本不互相导入。控制台发布按钮继续显示；当前没有商店上传动作，按钮不得伪报发布成功。
+
+## GitHub自动化
+
+本仓自动化只在GitHub的main源码上执行；控制台只调用与展示。各目标独立拥有同名的YAML与Node实现，不调用其他仓或其他目标的Workflow。各目标负责运行身份、版本、步骤编排、已签名资产的Run清单与完整资产收集，以及Tag/Release创建、上传及回读；正式编译、组包和签名正文仅由本产品`build.mjs`的公开`release-step`闭集执行。自动化不导入`scripts/publish.mjs`，后者只消费公开的已完成成功结果；两套实现没有私有代码调用关系。门禁资源准备只消费Build交付的已登记通用资源服务，不取得其私有Flutter配方对象或补丁执行输入；门禁对本仓源码的只读检查仍保留。门禁自身测试留在门禁文件，不反向进入Build测试。
+
+正式编译入口不读取GitHub身份或Workflow路径。调用方通过`CITIZENAPP_BUILD_*`交付版本、源码提交、编号、尝试次数、临时根、工作根及环境／步骤输出文件；源码根由本产品确认。自动化在调用前验证GitHub真实身份，再投影这些产品字段，并移除GitHub环境与令牌。构建固定现场仅按本产品任务编号、进程与租约管理，不继承远端Run身份；Flutter修订只走资源服务，不另保留GitHub环境写入入口。
+
+正式签名材料仅交付对应签名步骤：Android第10步使用`APP_KEY`，iOS第9步使用`IOS_KEY`与`IOS_PROVISIONING_PROFILE`；随后的Run资产清单步骤不领取签名材料。
+
+- `.github/workflows/release-android.yml`及同名`.mjs`。
+- `.github/workflows/release-ios.yml`及同名`.mjs`。
+
+每个目标的最后任务使用always读取所有前置结果：全部成功清本仓本目标旧成功，否则清旧失败并失败退出。仅保留最新成功、最新失败各一条；保护本次Run和所有活动任务，另一类结果与其他目标不受影响。删除关联正式Release、tag、Actions产物和Run后回查；任何清理错误都按实际失败报告，不自动重试。
+
+所属回归位于各目标同名mjs，覆盖前置结果、版本边界、平台隔离、活动保护和完整分页；真实GitHub构建与发布验收依任务授权另行执行。
+
+调度方按本仓supplyRequirements和prepareToolSupply取得工具候选；调度模式的获取、提交及执行使用供给方交付的能力；产品配方自行清理自己的临时生成物。缓存复用消费实际路径，运行Node版本/字节、Apple资源签名及工具全树复验不作为本机编译门禁；上游锁与正式应用签名、安装回读继续由各自真实流程执行。
+
+本机编译现场由本产品领取和收尾。调度任务编号随本产品领取记录保存；本轮结果消费后，只允许匹配该编号的收尾请求。产品确认自身进程及资源供给后代全部退出后才清场；异常、编号不符或退出未确认时保留现场。控制台只持有调度锁、调用本产品入口并供给资源，不实现产品清理。
+
+软件版本计算使用本目标GitHub运行序号作为单调下界，并与本仓已成功版本比较；失败或历史清理不使版本返回源码初值。版本只在GitHub本次运行内产生，同一Run重试保持运行序号，Tag另绑定准确attempt。
+
+
+### 当前自动化最后处理
+
+本仓每个自动化目标仅由自身release-<平台>.yml与同名mjs执行，最后处理依赖全部前置任务。清理只接受该目标准确Workflow路径、main和手动事件，不根据已删除文件或旧入口名称猜测归属。前置失败时，本次产物撤销与旧失败清理分别尝试并汇总错误；任何一项未确认均失败。固定依赖仍由本仓声明和原锁管理，不参加自产历史结果分类。
+
+
+### 本仓 GitHub 自动化与塔塔门禁目录
+
+`.github/` 仅保留 `workflows/` 与 `tatagate/` 两个目录。`workflows/` 持有本仓自动化；`tatagate/` 仅保留 `tatagate.json` 与 `tatagate.mjs`。前者登记本仓门禁合同，后者保留正式门禁实现与测试报告器，测试代码统一位于正式代码之后。直接运行执行门禁命令，测试运行只执行末尾测试，普通导入不注册测试；本仓测试清单及逐文件成功回执使用同一个门禁文件且仅执行一次。

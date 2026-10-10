@@ -4,7 +4,7 @@
 //   - 主/费账户:citizenchain/runtime/primitives/cid/china/china_cb.rs 的
 //     main_account / fee_account 字面常量
 //   - 安全基金/两和基金:金标 fixture tests/fixtures/account_derive_vectors.json
-//     (由 Rust ACCOUNT_DERIVE_UPDATE=1 回填,重生走 citizenchain/scripts/sync-derive-vectors.sh)
+//     (链端金标由 CitizenChain 的 account_derive_golden 测试生成；本产品独立核对自身镜像)
 // 用以交叉验证本端派生与 citizenchain primitives 字节对齐:
 //   preimage = b"GMB" || op_tag || ss58.to_le_bytes() || payload
 //   OP_MAIN(0x01)/OP_FEE(0x02)/OP_SAFETY(0x04)/OP_HE(0x05): payload = cid_number
