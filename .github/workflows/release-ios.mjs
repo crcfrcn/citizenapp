@@ -6,7 +6,7 @@ import { appendFileSync, copyFileSync, createReadStream, existsSync, lstatSync, 
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-export const owner = Object.freeze({"product": "citizenapp", "platform": "ios", "repository": "crcfrcn/citizenapp", "version_source": {"kind": "pubspec", "path": "pubspec.yaml"}, "required_assets": [], "asset_locations": ["$CITIZENAPP_RELEASE_ROOT"], "asset_patterns": ["*.ipa", "*.apk", "*.aab", "*.json", "SHA256SUMS"], "required_patterns": ["*.ipa", "citizenapp-release-ios.json"]});
+export const owner = Object.freeze({"product": "citizenapp", "platform": "ios", "repository": "crcfrcn/citizenapp", "version_source": {"kind": "pubspec", "path": "pubspec.yaml"}, "required_assets": ["citizenapp-unsigned-ios.zip", "citizenapp-unsigned-ios.json"], "asset_locations": ["$CITIZENAPP_RELEASE_ROOT"], "asset_patterns": ["*.apk", "*.aab", "*.zip", "*.json"], "required_patterns": ["citizenapp-unsigned-ios.zip", "citizenapp-unsigned-ios.json"]});
 // 本目标独立读取自身正式Release版本；发布流程只消费已完成的公开产物。
 export async function citizenAppRelease(release,platform,readTag){
  if(platform!==owner.platform)fail('公民App发布平台无效');
@@ -162,17 +162,17 @@ export function job() {
   for (const [name,value] of Object.entries(variables)) { process.env[name]=value; output(name,value,process.env.GITHUB_ENV); }
 }
 
-// 自动化拥有正式Run的公开资产清单；Build只交付已签名的完整包。
+// 自动化拥有正式Run的公开资产清单；Build只交付未经正式签名的完整包。
 function createAutomationManifest(identity=runVersion(),directory=process.env.CITIZENAPP_RELEASE_ROOT){
  if(!/^\d+\.\d+\.\d+$/u.test(identity?.version||'')||!Number.isSafeInteger(identity.run_number)||identity.run_number<=0
   ||!/^[a-f0-9]{40}$/u.test(identity.source_sha||''))fail('正式资产Run身份无效');
  if(!isAbsolute(directory||'')||!lstatSync(directory,{throwIfNoEntry:false})?.isDirectory()
   ||lstatSync(directory).isSymbolicLink())fail('正式资产目录无效');
- const binaries=["citizenapp.ipa"],assets=binaries.map(name=>{
+ const binaries=["citizenapp-unsigned-ios.zip"],assets=binaries.map(name=>{
   const path=join(directory,name);regular(path);
   return {platform:'iOS',asset_name:name,asset_sha256:createHash('sha256').update(readFileSync(path)).digest('hex')};
  });
- const name='citizenapp-release-ios.json',output=join(directory,name);
+ const name='citizenapp-unsigned-ios.json',output=join(directory,name);
  if(readdirSync(directory).sort().join('\0')!==binaries.slice().sort().join('\0'))fail('本次自动化资产集合不完整');
  if(existsSync(output))fail('本次自动化清单已存在');
  const manifest={product_id:'citizenapp',version:identity.version,github_run_number:identity.run_number,
@@ -181,8 +181,8 @@ function createAutomationManifest(identity=runVersion(),directory=process.env.CI
  if(readdirSync(directory).sort().join('\0')!==[...binaries,name].sort().join('\0'))fail('本次自动化资产集合不完整');
 }
 
-const automationBuildSteps=Object.freeze({"1":{"shell":"bash","source":"test \"$(git rev-parse HEAD)\" = \"$CITIZENAPP_BUILD_SOURCE_SHA\"\npython3 - <<'PY'\nimport os, re\nfrom pathlib import Path\nversion, build = os.environ[\"CITIZENAPP_BUILD_VERSION\"], os.environ[\"CITIZENAPP_BUILD_NUMBER\"]\nif not re.fullmatch(r\"\\d+\\.\\d{1,2}\\.\\d{1,2}\", version) or not re.fullmatch(r\"[1-9]\\d*\", build):\n    raise SystemExit(\"CitizenApp 本次版本输入无效\")\npath = Path(\"pubspec.yaml\")\ntext, count = re.subn(r\"(?m)^version:\\s*\\d+\\.\\d+\\.\\d+\\+\\d+\\s*$\", f\"version: {version}+{build}\", path.read_text(), count=1)\nif count != 1: raise SystemExit(\"CitizenApp pubspec 版本真源无效\")\npath.write_text(text)\nPY"},"2":{"shell":"bash","source":"# 版本只读受控工具登记，不读取产品依赖合同中的副本。\nprintf 'version=3.47.2\n' >> \"$CITIZENAPP_BUILD_OUTPUT\""},"3":{"shell":"bash","source":"# 安装后先验真，再统一准备目标平台缓存与受控修订。\nflutter --version --machine >/dev/null\nplatform=\"ios\"\nflutter --version >/dev/null"},"4":{"shell":"bash","source":"set -euo pipefail\nnative_root=\"$CITIZENAPP_BUILD_TEMP/citizenapp-citizensdk-$CITIZENAPP_BUILD_ID-$CITIZENAPP_BUILD_ATTEMPT\"\nmkdir -p \"$native_root\"\npython3 - \"$native_root\" ios <<'PYVIEW'\nfrom pathlib import Path\nimport json,os,re,shutil,stat,subprocess,sys\nwork=Path(sys.argv[1]).resolve(strict=True); platform=sys.argv[2]\nsource=Path(os.environ['CITIZENAPP_SOURCE_ROOT']).resolve(strict=True)\nrunner=Path(os.environ['RUNNER_TEMP']).resolve(strict=True)\nif platform not in ('android','ios') or not work.is_relative_to(runner): raise SystemExit('自动化工程归属无效')\nmanifest=(source/'pubspec.yaml').read_text(); locked=(source/'pubspec.lock').read_text()\nif (source/'pubspec_overrides.yaml').exists(): raise SystemExit('源码存在Pub覆盖文件')\ndef block(text,name):\n    lines=text.splitlines(keepends=True)\n    starts=[i for i,line in enumerate(lines) if line==f'  {name}:\\n']\n    if len(starts)!=1: raise SystemExit('第一方依赖登记缺失或重复')\n    a=starts[0];b=next((i for i in range(a+1,len(lines)) if re.fullmatch(r'  [A-Za-z0-9_]+:\\n',lines[i]) or re.fullmatch(r'[A-Za-z_]+:\\n',lines[i])),len(lines))\n    return ''.join(lines[a:b])\ndef field(text,name):\n    found=re.findall(rf'^\\s+{re.escape(name)}:\\s*[\"\\']?([^\"\\'\\s]+)',text,re.M)\n    if len(found)!=1: raise SystemExit('第一方依赖字段无效：'+name)\n    return found[0]\nproject=work/'project'\nif project.exists(): raise SystemExit('自动化工程已存在')\nproject.mkdir()\nfor raw in filter(None,subprocess.check_output(['git','ls-files','-z'],cwd=source).split(b'\\0')):\n    name=raw.decode('utf8')\n    if any(part in ('.','..') for part in Path(name).parts): raise SystemExit('Git源码路径越界')\n    original=source/name;destination=project/name\n    if original.is_symlink() or not original.is_file(): raise SystemExit('Git源码文件类型无效')\n    destination.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(original,destination)\nfor old,new in (('ios/project/Runner.xcscheme','ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme'),('ios/project/RunnerUITests.xcscheme','ios/Runner.xcodeproj/xcshareddata/xcschemes/RunnerUITests.xcscheme'),('android/gradle-wrapper.properties','android/gradle/wrapper/gradle-wrapper.properties')):\n    origin=project/old;destination=project/new\n    if not origin.is_file() or destination.exists(): raise SystemExit('平台输入缺失或重复')\n    destination.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(origin,destination)\nif platform=='android':\n    flutter=os.environ.get('FLUTTER_ROOT') or str(Path(shutil.which('flutter')).resolve().parents[1])\n    wrapper=Path(flutter)/'bin/cache/artifacts/gradle_wrapper'\n    for name in ('gradlew','gradlew.bat','gradle/wrapper/gradle-wrapper.jar'):\n        origin=wrapper/name;destination=project/'android'/name\n        if not origin.is_file() or origin.is_symlink() or destination.exists(): raise SystemExit('Flutter Wrapper无效')\n        destination.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(origin,destination)\n        if name=='gradlew':destination.chmod(destination.stat().st_mode|stat.S_IXUSR)\nviews={}\nfor name,url in (('citizen_sdk','https://github.com/crcfrcn/citizensdk.git'),('tatachat_sdk','https://github.com/tuyutata/tatachatsdk.git')):\n    declared=block(manifest,name);record=block(locked,name);sha=field(declared,'ref')\n    if not re.fullmatch(r'[0-9a-f]{40}',sha) or field(declared,'url')!=url or field(declared,'path')!='.' or any(field(record,key)!=value for key,value in (('ref',sha),('resolved-ref',sha),('url',url),('source','git'))):raise SystemExit('第一方原锁不符')\n    checkout=work/'git-sources'/name;checkout.parent.mkdir(parents=True,exist_ok=True);checkout.mkdir()\n    def git(*args):return subprocess.check_output(['git','-c','credential.helper=','-c','core.hooksPath=/dev/null',*args],cwd=checkout,text=True).strip()\n    git('init','--quiet');git('remote','add','origin',url);git('fetch','--no-tags','--depth=1','origin',sha);git('checkout','--quiet','--detach',sha)\n    if git('rev-parse','HEAD')!=sha or git('remote','get-url','origin')!=url or git('status','--porcelain=v1','--untracked-files=all'):raise SystemExit('第一方检出漂移')\n    view=work/'views'/name;view.parent.mkdir(parents=True,exist_ok=True)\n    entry=checkout/'scripts/build.mjs'\n    if not entry.is_file() or entry.is_symlink():raise SystemExit('固定SDK缺少Build入口')\n    js=\"import {pathToFileURL} from 'node:url';const m=await import(pathToFileURL(process.argv[1]).href);if(typeof m.createFlutterSourceView!=='function')throw Error('固定SDK缺少编译视图接口');await m.createFlutterSourceView(process.argv[2],process.argv[3]);\"\n    subprocess.run(['node','--input-type=module','-e',js,str(entry),str(checkout),str(view)],check=True)\n    views[name]={'source':str(checkout),'view':str(view)}\n(project/'pubspec_overrides.yaml').write_text('dependency_overrides:\\n'+''.join(f'  {name}:\\n    path: {json.dumps(value[\"view\"])}\\n' for name,value in views.items()))\nshutil.copy2(project/'pubspec.lock',work/'lock-before')\n(work/'view.json').write_text(json.dumps({'project':str(project),'sdk_source':views['citizen_sdk']['source'],'sdk_view':views['citizen_sdk']['view']}))\nPYVIEW\nsdk_source=\"$(node -e 'const r=require(process.argv[1]);process.stdout.write(r.sdk_source)' \"$native_root/view.json\")\"\nCITIZENAPP_FLUTTER_ROOT=\"$(node -e 'const r=require(process.argv[1]);process.stdout.write(r.project)' \"$native_root/view.json\")\"\nsdk_view=\"$(node -e 'const r=require(process.argv[1]);process.stdout.write(r.sdk_view)' \"$native_root/view.json\")\"\nexport CITIZENSDK_WORK_DIR=\"$native_root/work\"\nexport CITIZENSDK_NATIVE_OUTPUT_DIR=\"$native_root/output\"\nnode \"$sdk_source/scripts/build.mjs\" native apple\ntest -d \"$CITIZENSDK_NATIVE_OUTPUT_DIR/apple/CitizenSDK.xcframework\"\ntest -d \"$sdk_view/darwin\"\ntest ! -e \"$sdk_view/darwin/CitizenSDK.xcframework\"\nln -s \"$CITIZENSDK_NATIVE_OUTPUT_DIR/apple/CitizenSDK.xcframework\" \"$sdk_view/darwin/CitizenSDK.xcframework\"\nmkdir -p \"$native_root/flutter-build\"\ntest ! -e \"$CITIZENAPP_FLUTTER_ROOT/build\" && test ! -L \"$CITIZENAPP_FLUTTER_ROOT/build\"\nln -s \"$native_root/flutter-build\" \"$CITIZENAPP_FLUTTER_ROOT/build\"\n{\n  printf 'CITIZENAPP_FLUTTER_ROOT=%s\\n' \"$CITIZENAPP_FLUTTER_ROOT\"\n  printf 'CITIZENAPP_RELEASE_ROOT=%s\\n' \"$native_root/release\"\n  printf 'CITIZENSDK_NATIVE_OUTPUT_DIR=%s\\n' \"$CITIZENSDK_NATIVE_OUTPUT_DIR\"\n} >> \"$CITIZENAPP_BUILD_ENVIRONMENT\""},"5":{"shell":"bash","source":"cd \"$CITIZENAPP_FLUTTER_ROOT\"\nflutter pub get\npython3 - \"$CITIZENAPP_BUILD_TEMP/citizenapp-citizensdk-$CITIZENAPP_BUILD_ID-$CITIZENAPP_BUILD_ATTEMPT/lock-before\" \"$CITIZENAPP_FLUTTER_ROOT/pubspec.lock\" <<'PYLOCK'\nfrom pathlib import Path\nimport re,sys\ndef normalized(path):\n    lines=Path(path).read_text().splitlines(keepends=True)\n    for name in ('citizen_sdk','tatachat_sdk'):\n        found=[i for i,line in enumerate(lines) if line==f'  {name}:\\n']\n        if len(found)!=1:raise SystemExit('Pub第一方依赖缺失')\n        a=found[0];b=next((i for i in range(a+1,len(lines)) if re.fullmatch(r'  [A-Za-z0-9_]+:\\n',lines[i]) or re.fullmatch(r'[A-Za-z_]+:\\n',lines[i])),len(lines))\n        lines[a:b]=[f'  {name}:\\n','    视图已验真\\n']\n    return ''.join(lines)\nif normalized(sys.argv[1])!=normalized(sys.argv[2]):raise SystemExit('Pub改变非第一方原锁')\nPYLOCK"},"6":{"shell":"bash","source":"cd \"$CITIZENAPP_FLUTTER_ROOT\"\nflutter build ios --release --no-codesign"},"7":{"shell":"bash","source":"set -euo pipefail\napp=\"$CITIZENAPP_FLUTTER_ROOT/build/ios/iphoneos/Runner.app\"\npackaged=\"$app/Frameworks/CitizenSDK.framework/CitizenSDK\"\nsource=\"$CITIZENSDK_NATIVE_OUTPUT_DIR/apple/CitizenSDK.xcframework/ios-arm64/CitizenSDK.framework/CitizenSDK\"\ntest -f \"$packaged\" && test -f \"$source\"\ncmp -s \"$packaged\" \"$source\"\ntest -z \"$(find \"$app\" -iname '*smoldot*' -print -quit)\""},"8":{"shell":"bash","source":"set -euo pipefail\npython3 - \"$CITIZENAPP_FLUTTER_ROOT/build/ios/iphoneos/Runner.app\" <<'PYVERIFY'\nfrom pathlib import Path\nimport json,subprocess,sys\napp=Path(sys.argv[1])\ninfo=app/'Info.plist';zh=app/'zh-Hans.lproj/InfoPlist.strings';en=app/'en.lproj/InfoPlist.strings'\nif not all(p.is_file() and not p.is_symlink() for p in (info,zh,en)):\n    raise SystemExit('iOS最终包缺少本地化文件')\ndef value(path,key,kind='raw'):\n    return subprocess.check_output(['plutil','-extract',key,kind,'-o','-',str(path)],text=True).strip()\nif value(info,'CFBundleDevelopmentRegion')!='zh-Hans':\n    raise SystemExit('iOS默认回落语言无效')\nif json.loads(value(info,'CFBundleLocalizations','json'))!=['zh-Hans','en']:\n    raise SystemExit('iOS支持语言无效')\nfor path,expected in ((zh,'公民'),(en,'CitizenApp')):\n    if value(path,'CFBundleDisplayName')!=expected or value(path,'CFBundleName')!=expected:\n        raise SystemExit('iOS最终包产品名无效')\nPYVERIFY"},"9":{"shell":"bash","source":"set -euo pipefail\numask 077\nwork=\"$CITIZENAPP_BUILD_TEMP/citizenapp-ios-signing\"\npublish=\"$CITIZENAPP_RELEASE_ROOT\"\nrm -rf \"$work\" \"$publish\"\nmkdir -p \"$work\" \"$publish\"\nkeychain=\"$work/release.keychain-db\"\nkeychain_password=\"$(openssl rand -hex 32)\"\ncleanup() {\n  security delete-keychain \"$keychain\" >/dev/null 2>&1 || true\n  rm -rf \"$work\"\n}\ntrap cleanup EXIT\npython3 - \"$work\" <<'PY'\nimport base64, os, pathlib, re, sys\nroot = pathlib.Path(sys.argv[1])\nfields = {}\nfor raw in os.environ.get(\"IOS_KEY\", \"\").splitlines():\n    line = raw.strip()\n    if not line or line.startswith(\"#\"):\n        continue\n    name, sep, value = line.partition(\"=\")\n    if not sep or name.strip() in fields or not value.strip():\n        raise SystemExit(\"IOS_KEY 行格式无效\")\n    fields[name.strip()] = value.strip()\nif set(fields) != {\"pkcs12\", \"password\", \"certificate_sha1\"}:\n    raise SystemExit(\"IOS_KEY 字段集合无效\")\nif not re.fullmatch(r\"[0-9A-F]{40}\", fields[\"certificate_sha1\"]):\n    raise SystemExit(\"Apple Distribution 证书摘要无效\")\ntry:\n    pkcs12 = base64.b64decode(fields[\"pkcs12\"], validate=True)\n    profile = base64.b64decode(os.environ.get(\"IOS_PROVISIONING_PROFILE\", \"\"), validate=True)\nexcept ValueError as exc:\n    raise SystemExit(\"Apple Distribution 或 provisioning profile Base64 无效\") from exc\nif not 1024 <= len(pkcs12) <= 32 * 1024 * 1024 or not 1024 <= len(profile) <= 1024 * 1024:\n    raise SystemExit(\"Apple Distribution 签名材料大小无效\")\n(root / \"distribution.p12\").write_bytes(pkcs12)\n(root / \"password\").write_text(fields[\"password\"])\n(root / \"certificate-sha1\").write_text(fields[\"certificate_sha1\"])\n(root / \"profile.mobileprovision\").write_bytes(profile)\nPY\nsecurity create-keychain -p \"$keychain_password\" \"$keychain\"\nsecurity set-keychain-settings -lut 21600 \"$keychain\"\nsecurity unlock-keychain -p \"$keychain_password\" \"$keychain\"\n# 中文注释：codesign 查找 identity 依赖用户钥匙串搜索列表；仅传 --keychain\n# 不能保证干净 runner 能从证书继续定位到同钥匙串中的私钥。\nsecurity list-keychains -d user -s \"$keychain\"\nsecurity import \"$work/distribution.p12\" -k \"$keychain\" -P \"$(cat \"$work/password\")\" -T /usr/bin/codesign\nsecurity set-key-partition-list -S apple-tool:,apple:,codesign: -s -k \"$keychain_password\" \"$keychain\" >/dev/null\ncertificate_sha1=\"$(cat \"$work/certificate-sha1\")\"\nsecurity find-certificate -a -Z \"$keychain\" | grep -F \"SHA-1 hash: $certificate_sha1\"\nsecurity find-identity -v -p codesigning \"$keychain\" | grep -Fq \"$certificate_sha1\"\n# 中文注释：干净 runner 的钥匙串不保证预装描述文件 CMS 签发链；LibreSSL\n# 直接验证 CMS 密码学签名并解出载荷，再用正式证书摘要锁定唯一配对。\n/usr/bin/openssl smime -verify -inform DER -in \"$work/profile.mobileprovision\" \\\n  -noverify -out \"$work/profile.plist\" >/dev/null\nprofile_certificate_sha1=\"$(\n  plutil -extract DeveloperCertificates.0 raw -o - \"$work/profile.plist\" \\\n    | base64 -D | shasum -a 1 | awk '{print toupper($1)}'\n)\"\ntest \"$profile_certificate_sha1\" = \"$certificate_sha1\"\ntest \"$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' \"$work/profile.plist\")\" = MHYMVRN6FC\ntest \"$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' \"$work/profile.plist\")\" = MHYMVRN6FC.ios.citizenapp\ntest \"$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:get-task-allow' \"$work/profile.plist\")\" = false\nplutil -extract Entitlements xml1 -o \"$work/entitlements.plist\" \"$work/profile.plist\"\napp=\"$CITIZENAPP_FLUTTER_ROOT/build/ios/iphoneos/Runner.app\"\ntest \"$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \"$app/Info.plist\")\" = ios.citizenapp\ncp \"$work/profile.mobileprovision\" \"$app/embedded.mobileprovision\"\nfind \"$app\" -type f -name '*.dylib' -print0 | while IFS= read -r -d '' item; do\n  codesign --force --sign \"$certificate_sha1\" --keychain \"$keychain\" --timestamp=none \"$item\"\ndone\nfind \"$app\" -type d \\( -name '*.framework' -o -name '*.appex' \\) -print0 \\\n  | while IFS= read -r -d '' item; do\n      codesign --force --sign \"$certificate_sha1\" --keychain \"$keychain\" --timestamp=none \"$item\"\n    done\ncodesign --force --sign \"$certificate_sha1\" --keychain \"$keychain\" --timestamp=none \\\n  --generate-entitlement-der --entitlements \"$work/entitlements.plist\" \"$app\"\ncodesign --verify --deep --strict \"$app\"\ncodesign -dv --verbose=4 \"$app\" 2> \"$work/codesign.txt\"\ngrep -F 'TeamIdentifier=MHYMVRN6FC' \"$work/codesign.txt\"\nmkdir -p \"$work/package/Payload\"\ncp -R \"$app\" \"$work/package/Payload/Runner.app\"\n(cd \"$work/package\" && ditto -c -k --sequesterRsrc --keepParent Payload \"$publish/citizenapp.ipa\")\nunzip -Z1 \"$publish/citizenapp.ipa\" | grep -Fx 'Payload/Runner.app/Info.plist'"}});
-// 本平台自动化独立拥有正式编译、签名与组包步骤。
+const automationBuildSteps=Object.freeze({"1":{"shell":"bash","source":"test \"$(git rev-parse HEAD)\" = \"$CITIZENAPP_BUILD_SOURCE_SHA\"\npython3 - <<'PY'\nimport os, re\nfrom pathlib import Path\nversion, build = os.environ[\"CITIZENAPP_BUILD_VERSION\"], os.environ[\"CITIZENAPP_BUILD_NUMBER\"]\nif not re.fullmatch(r\"\\d+\\.\\d{1,2}\\.\\d{1,2}\", version) or not re.fullmatch(r\"[1-9]\\d*\", build):\n    raise SystemExit(\"CitizenApp 本次版本输入无效\")\npath = Path(\"pubspec.yaml\")\ntext, count = re.subn(r\"(?m)^version:\\s*\\d+\\.\\d+\\.\\d+\\+\\d+\\s*$\", f\"version: {version}+{build}\", path.read_text(), count=1)\nif count != 1: raise SystemExit(\"CitizenApp pubspec 版本真源无效\")\npath.write_text(text)\nPY"},"2":{"shell":"bash","source":"# 版本只读受控工具登记，不读取产品依赖合同中的副本。\nprintf 'version=3.47.2\n' >> \"$CITIZENAPP_BUILD_OUTPUT\""},"3":{"shell":"bash","source":"# 安装后先验真，再统一准备目标平台缓存与受控修订。\nflutter --version --machine >/dev/null\nplatform=\"ios\"\nflutter --version >/dev/null"},"4":{"shell":"bash","source":"set -euo pipefail\nnative_root=\"$CITIZENAPP_BUILD_TEMP/citizenapp-citizensdk-$CITIZENAPP_BUILD_ID-$CITIZENAPP_BUILD_ATTEMPT\"\nmkdir -p \"$native_root\"\npython3 - \"$native_root\" ios <<'PYVIEW'\nfrom pathlib import Path\nimport json,os,re,shutil,stat,subprocess,sys\nwork=Path(sys.argv[1]).resolve(strict=True); platform=sys.argv[2]\nsource=Path(os.environ['CITIZENAPP_SOURCE_ROOT']).resolve(strict=True)\nrunner=Path(os.environ['RUNNER_TEMP']).resolve(strict=True)\nif platform not in ('android','ios') or not work.is_relative_to(runner): raise SystemExit('自动化工程归属无效')\nmanifest=(source/'pubspec.yaml').read_text(); locked=(source/'pubspec.lock').read_text()\nif (source/'pubspec_overrides.yaml').exists(): raise SystemExit('源码存在Pub覆盖文件')\ndef block(text,name):\n    lines=text.splitlines(keepends=True)\n    starts=[i for i,line in enumerate(lines) if line==f'  {name}:\\n']\n    if len(starts)!=1: raise SystemExit('第一方依赖登记缺失或重复')\n    a=starts[0];b=next((i for i in range(a+1,len(lines)) if re.fullmatch(r'  [A-Za-z0-9_]+:\\n',lines[i]) or re.fullmatch(r'[A-Za-z_]+:\\n',lines[i])),len(lines))\n    return ''.join(lines[a:b])\ndef field(text,name):\n    found=re.findall(rf'^\\s+{re.escape(name)}:\\s*[\"\\']?([^\"\\'\\s]+)',text,re.M)\n    if len(found)!=1: raise SystemExit('第一方依赖字段无效：'+name)\n    return found[0]\nproject=work/'project'\nif project.exists(): raise SystemExit('自动化工程已存在')\nproject.mkdir()\nfor raw in filter(None,subprocess.check_output(['git','ls-files','-z'],cwd=source).split(b'\\0')):\n    name=raw.decode('utf8')\n    if any(part in ('.','..') for part in Path(name).parts): raise SystemExit('Git源码路径越界')\n    original=source/name;destination=project/name\n    if original.is_symlink() or not original.is_file(): raise SystemExit('Git源码文件类型无效')\n    destination.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(original,destination)\nfor old,new in (('ios/project/Runner.xcscheme','ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme'),('ios/project/RunnerUITests.xcscheme','ios/Runner.xcodeproj/xcshareddata/xcschemes/RunnerUITests.xcscheme'),('android/gradle-wrapper.properties','android/gradle/wrapper/gradle-wrapper.properties')):\n    origin=project/old;destination=project/new\n    if not origin.is_file() or destination.exists(): raise SystemExit('平台输入缺失或重复')\n    destination.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(origin,destination)\nif platform=='android':\n    flutter=os.environ.get('FLUTTER_ROOT') or str(Path(shutil.which('flutter')).resolve().parents[1])\n    wrapper=Path(flutter)/'bin/cache/artifacts/gradle_wrapper'\n    for name in ('gradlew','gradlew.bat','gradle/wrapper/gradle-wrapper.jar'):\n        origin=wrapper/name;destination=project/'android'/name\n        if not origin.is_file() or origin.is_symlink() or destination.exists(): raise SystemExit('Flutter Wrapper无效')\n        destination.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(origin,destination)\n        if name=='gradlew':destination.chmod(destination.stat().st_mode|stat.S_IXUSR)\nviews={}\nfor name,url in (('citizen_sdk','https://github.com/crcfrcn/citizensdk.git'),('tatachat_sdk','https://github.com/tuyutata/tatachatsdk.git')):\n    declared=block(manifest,name);record=block(locked,name);sha=field(declared,'ref')\n    if not re.fullmatch(r'[0-9a-f]{40}',sha) or field(declared,'url')!=url or field(declared,'path')!='.' or any(field(record,key)!=value for key,value in (('ref',sha),('resolved-ref',sha),('url',url),('source','git'))):raise SystemExit('第一方原锁不符')\n    checkout=work/'git-sources'/name;checkout.parent.mkdir(parents=True,exist_ok=True);checkout.mkdir()\n    def git(*args):return subprocess.check_output(['git','-c','credential.helper=','-c','core.hooksPath=/dev/null',*args],cwd=checkout,text=True).strip()\n    git('init','--quiet');git('remote','add','origin',url);git('fetch','--no-tags','--depth=1','origin',sha);git('checkout','--quiet','--detach',sha)\n    if git('rev-parse','HEAD')!=sha or git('remote','get-url','origin')!=url or git('status','--porcelain=v1','--untracked-files=all'):raise SystemExit('第一方检出漂移')\n    view=work/'views'/name;view.parent.mkdir(parents=True,exist_ok=True)\n    entry=checkout/'scripts/build.mjs'\n    if not entry.is_file() or entry.is_symlink():raise SystemExit('固定SDK缺少Build入口')\n    js=\"import {pathToFileURL} from 'node:url';const m=await import(pathToFileURL(process.argv[1]).href);if(typeof m.createFlutterSourceView!=='function')throw Error('固定SDK缺少编译视图接口');await m.createFlutterSourceView(process.argv[2],process.argv[3]);\"\n    subprocess.run(['node','--input-type=module','-e',js,str(entry),str(checkout),str(view)],check=True)\n    views[name]={'source':str(checkout),'view':str(view)}\n(project/'pubspec_overrides.yaml').write_text('dependency_overrides:\\n'+''.join(f'  {name}:\\n    path: {json.dumps(value[\"view\"])}\\n' for name,value in views.items()))\nshutil.copy2(project/'pubspec.lock',work/'lock-before')\n(work/'view.json').write_text(json.dumps({'project':str(project),'sdk_source':views['citizen_sdk']['source'],'sdk_view':views['citizen_sdk']['view']}))\nPYVIEW\nsdk_source=\"$(node -e 'const r=require(process.argv[1]);process.stdout.write(r.sdk_source)' \"$native_root/view.json\")\"\nCITIZENAPP_FLUTTER_ROOT=\"$(node -e 'const r=require(process.argv[1]);process.stdout.write(r.project)' \"$native_root/view.json\")\"\nsdk_view=\"$(node -e 'const r=require(process.argv[1]);process.stdout.write(r.sdk_view)' \"$native_root/view.json\")\"\nexport CITIZENSDK_WORK_DIR=\"$native_root/work\"\nexport CITIZENSDK_NATIVE_OUTPUT_DIR=\"$native_root/output\"\nnode \"$sdk_source/scripts/build.mjs\" native apple\ntest -d \"$CITIZENSDK_NATIVE_OUTPUT_DIR/apple/CitizenSDK.xcframework\"\ntest -d \"$sdk_view/darwin\"\ntest ! -e \"$sdk_view/darwin/CitizenSDK.xcframework\"\nln -s \"$CITIZENSDK_NATIVE_OUTPUT_DIR/apple/CitizenSDK.xcframework\" \"$sdk_view/darwin/CitizenSDK.xcframework\"\nmkdir -p \"$native_root/flutter-build\"\ntest ! -e \"$CITIZENAPP_FLUTTER_ROOT/build\" && test ! -L \"$CITIZENAPP_FLUTTER_ROOT/build\"\nln -s \"$native_root/flutter-build\" \"$CITIZENAPP_FLUTTER_ROOT/build\"\n{\n  printf 'CITIZENAPP_FLUTTER_ROOT=%s\\n' \"$CITIZENAPP_FLUTTER_ROOT\"\n  printf 'CITIZENAPP_RELEASE_ROOT=%s\\n' \"$native_root/release\"\n  printf 'CITIZENSDK_NATIVE_OUTPUT_DIR=%s\\n' \"$CITIZENSDK_NATIVE_OUTPUT_DIR\"\n} >> \"$CITIZENAPP_BUILD_ENVIRONMENT\""},"5":{"shell":"bash","source":"cd \"$CITIZENAPP_FLUTTER_ROOT\"\nflutter pub get\npython3 - \"$CITIZENAPP_BUILD_TEMP/citizenapp-citizensdk-$CITIZENAPP_BUILD_ID-$CITIZENAPP_BUILD_ATTEMPT/lock-before\" \"$CITIZENAPP_FLUTTER_ROOT/pubspec.lock\" <<'PYLOCK'\nfrom pathlib import Path\nimport re,sys\ndef normalized(path):\n    lines=Path(path).read_text().splitlines(keepends=True)\n    for name in ('citizen_sdk','tatachat_sdk'):\n        found=[i for i,line in enumerate(lines) if line==f'  {name}:\\n']\n        if len(found)!=1:raise SystemExit('Pub第一方依赖缺失')\n        a=found[0];b=next((i for i in range(a+1,len(lines)) if re.fullmatch(r'  [A-Za-z0-9_]+:\\n',lines[i]) or re.fullmatch(r'[A-Za-z_]+:\\n',lines[i])),len(lines))\n        lines[a:b]=[f'  {name}:\\n','    视图已验真\\n']\n    return ''.join(lines)\nif normalized(sys.argv[1])!=normalized(sys.argv[2]):raise SystemExit('Pub改变非第一方原锁')\nPYLOCK"},"6":{"shell":"bash","source":"cd \"$CITIZENAPP_FLUTTER_ROOT\"\nflutter build ios --release --no-codesign"},"7":{"shell":"bash","source":"set -euo pipefail\napp=\"$CITIZENAPP_FLUTTER_ROOT/build/ios/iphoneos/Runner.app\"\npackaged=\"$app/Frameworks/CitizenSDK.framework/CitizenSDK\"\nsource=\"$CITIZENSDK_NATIVE_OUTPUT_DIR/apple/CitizenSDK.xcframework/ios-arm64/CitizenSDK.framework/CitizenSDK\"\ntest -f \"$packaged\" && test -f \"$source\"\ncmp -s \"$packaged\" \"$source\"\ntest -z \"$(find \"$app\" -iname '*smoldot*' -print -quit)\""},"8":{"shell":"bash","source":"set -euo pipefail\npython3 - \"$CITIZENAPP_FLUTTER_ROOT/build/ios/iphoneos/Runner.app\" <<'PYVERIFY'\nfrom pathlib import Path\nimport json,subprocess,sys\napp=Path(sys.argv[1])\ninfo=app/'Info.plist';zh=app/'zh-Hans.lproj/InfoPlist.strings';en=app/'en.lproj/InfoPlist.strings'\nif not all(p.is_file() and not p.is_symlink() for p in (info,zh,en)):\n    raise SystemExit('iOS最终包缺少本地化文件')\ndef value(path,key,kind='raw'):\n    return subprocess.check_output(['plutil','-extract',key,kind,'-o','-',str(path)],text=True).strip()\nif value(info,'CFBundleDevelopmentRegion')!='zh-Hans':\n    raise SystemExit('iOS默认回落语言无效')\nif json.loads(value(info,'CFBundleLocalizations','json'))!=['zh-Hans','en']:\n    raise SystemExit('iOS支持语言无效')\nfor path,expected in ((zh,'公民'),(en,'CitizenApp')):\n    if value(path,'CFBundleDisplayName')!=expected or value(path,'CFBundleName')!=expected:\n        raise SystemExit('iOS最终包产品名无效')\nPYVERIFY"},"9":{"shell":"bash","source":"set -euo pipefail\napp=\"$CITIZENAPP_FLUTTER_ROOT/build/ios/iphoneos/Runner.app\"\npublish=\"$CITIZENAPP_RELEASE_ROOT\"\ntest -d \"$app\" && test ! -L \"$app\"\ntest ! -e \"$publish\"\nmkdir -p \"$publish\"\nif codesign --verify --deep --strict \"$app\" >/dev/null 2>&1; then\n  echo '未签名iOS应用意外包含有效正式签名' >&2; exit 1\nfi\n(cd \"$(dirname \"$app\")\" && ditto -c -k --sequesterRsrc --keepParent Runner.app \"$publish/citizenapp-unsigned-ios.zip\")\ntest -s \"$publish/citizenapp-unsigned-ios.zip\"\nunzip -Z1 \"$publish/citizenapp-unsigned-ios.zip\" | grep -Fx 'Runner.app/Info.plist' "}});
+// 本平台自动化独立拥有正式编译和未签名组包步骤。
 export function step(key,{environment:input=process.env,execute=spawnSync}={}) {
   const identity=runVersion(input);
   if (!/^[1-9][0-9]*$/u.test(String(key))) fail('本目标构建步骤无效');
@@ -239,31 +239,6 @@ export async function collectProduced() {
 }
 
 
-
-export async function publish(directory) {
-  const identity=runVersion();const metadata=JSON.parse(readFileSync(join(directory,'automation.json'),'utf8'));
-  if(Object.entries(identity).some(([key,value])=>metadata[key]!==value)||!Array.isArray(metadata.assets)||!metadata.assets.length)fail('完整产物身份无效');
-  const files=metadata.assets;
-  if(readdirSync(directory).sort().join('\0')!==[...files.map(value=>value.name),'automation.json'].sort().join('\0'))fail('产物目录与完整资产集合不符');
-  for(const file of files){const path=join(directory,assetName(file.name));if(regular(path).size!==file.size||await digestFile(path)!==file.sha256)fail('正式产物在交付前改变');}
-  if(await request(`git/ref/tags/${encodeURIComponent(identity.tag)}`)!==null)fail('本次Tag已经存在');
-  await request('git/refs',{method:'POST',body:{ref:`refs/tags/${identity.tag}`,sha:identity.source_sha}});
-  const release=await request('releases',{method:'POST',body:{tag_name:identity.tag,target_commitish:identity.source_sha,
-    name:`${owner.product} · ${owner.platform} · ${identity.version}`,draft:false,prerelease:false,make_latest:'false',
-    body:`${owner.product} · ${owner.platform} · ${identity.version}\nSource: ${identity.source_sha}\nRun: ${identity.run_id} / ${identity.run_attempt}`}});
-  if(!Number.isSafeInteger(release?.id)||!release.upload_url)fail('正式Release创建未确认');
-  for(const file of files){const url=new URL(release.upload_url.replace(/\{.*$/u,''));url.searchParams.set('name',file.name);
-    const asset=await request(url.href,{method:'POST',body:createReadStream(join(directory,file.name)),size:file.size});
-    if(asset?.name!==file.name||asset.size!==file.size||asset.state!=='uploaded')fail('正式资产上传未确认');
-    const response=await request(asset.url,{raw:true});if(!response?.body)fail('正式资产回读失败');
-    const hash=createHash('sha256');let size=0;for await(const bytes of response.body){hash.update(bytes);size+=bytes.length;if(size>file.size)fail('正式资产回读超过声明大小');}
-    if(size!==file.size||hash.digest('hex')!==file.sha256)fail('GitHub资产逐件回读不一致');
-  }
-  const readback=await request(`releases/${release.id}`);if((await citizenAppRelease(readback,owner.platform,tag=>request('git/ref/tags/'+encodeURIComponent(tag))))?.run_id!==identity.run_id||readback.draft||readback.prerelease
-    ||readback.assets?.length!==files.length)fail('完整正式Release回查失败');
-  for(const file of files){const asset=readback.assets.find(value=>value.name===file.name);if(!asset||asset.state!=='uploaded'||asset.size!==file.size||asset.digest!==`sha256:${file.sha256}`)fail('完整正式资产证明回查失败');}
-  output('verified','true');output('release_id',release.id);output('tag',identity.tag);
-}
 
 function ownedRun(run) {
   // 每个目标只处理自身现行Workflow；文件缺失不能证明历史任务归属。
@@ -332,36 +307,16 @@ export function precedingResult(needs) {
   if(!needs||typeof needs!=='object'||Array.isArray(needs)||!Object.keys(needs).length)fail('前置任务结果缺失');
   return Object.values(needs).every(value=>value?.result==='success')?'success':'failed';
 }
-async function discardCurrent(identity,api) {
-  for(const release of await pages('releases',null,api)){
-    const metadata=(await citizenAppRelease(release,owner.platform,tag=>api('git/ref/tags/'+encodeURIComponent(tag))));
-    if(metadata?.run_id===identity.run_id&&metadata.run_attempt===identity.run_attempt)
-      await removeRunRelease({id:identity.run_id,head_sha:identity.source_sha},[release],api);
-  }
-  const tag=process.env.RELEASE_TAG;
-  if(tag&&tag.startsWith(prefix)&&tag.endsWith(`-r${identity.run_id}-a${identity.run_attempt}`)){
-    const path=`git/refs/tags/${encodeURIComponent(tag)}`;
-    if(await api(path.replace(/^git\/refs\//u,'git/ref/'))!==null)await remove(path,api);
-  }
-}
 export async function finish(needs=JSON.parse(process.env.RELEASE_NEEDS||'null'),api=request,identity=context()) {
-  const result=precedingResult(needs),errors=[];
-  const attempt=async action=>{try{return await action();}catch(error){errors.push(error);return null;}};
-  let removed;
+  const result=precedingResult(needs);
+  // 成功自动化只保留未签名资产；旧正式发布在本机新包成功上传前不得清理。
   if(result==='success') {
-    removed=await attempt(()=>cleanup('success',identity,api));
-    if(errors.length) {
-      await attempt(()=>discardCurrent(identity,api));
-      await attempt(()=>cleanup('failed',identity,api));
-    }
-  } else {
-    // 本次撤销失败也必须尝试清理同目标旧失败；各项真实错误均保留。
-    await attempt(()=>discardCurrent(identity,api));
-    removed=await attempt(()=>cleanup('failed',identity,api));
+    if(process.env.GITHUB_STEP_SUMMARY)appendFileSync(process.env.GITHUB_STEP_SUMMARY,'本目标未签名自动化成功；正式签名与发布等待本机确认。\n');
+    return;
   }
-  if(errors.length)throw new AggregateError(errors,'本目标最后处理失败：'+errors.map(error=>error.message).join('；'));
-  if(process.env.GITHUB_STEP_SUMMARY)appendFileSync(process.env.GITHUB_STEP_SUMMARY,`本目标${result==='success'?'成功':'失败'}；已清理同类旧Run：${removed.join('、')||'无'}。\n`);
-  if(result==='failed')fail('前置任务未全部成功');
+  const removed=await cleanup('failed',identity,api);
+  if(process.env.GITHUB_STEP_SUMMARY)appendFileSync(process.env.GITHUB_STEP_SUMMARY,`本目标失败；已清理同类旧失败Run：${removed.join('、')||'无'}。\n`);
+  fail('前置任务未全部成功');
 }
 
 const direct=process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url);
@@ -369,7 +324,7 @@ const testing=direct&&Boolean(process.env.NODE_TEST_CONTEXT)&&process.argv.lengt
 if(direct&&!testing){
   try{const [command,...args]=process.argv.slice(2);
     if(command==='prepare')await prepare();else if(command==='job')job();else if(command==='step')step(args[0]);
-    else if(command==='collect-produced')await collectProduced();else if(command==='publish')await publish(args[0]);else if(command==='finish')await finish();
+    else if(command==='collect-produced')await collectProduced();else if(command==='finish')await finish();
     else fail('自动化命令无效');
   }catch(error){console.error(error.message);process.exitCode=1;}
 }
@@ -382,25 +337,26 @@ if(testing){
     const directory=mkdtempSync(join(tmpdir(),'citizenapp-ios-manifest-'));
     t.after(()=>rmSync(directory,{recursive:true,force:true}));
     const identity={version:'1.2.3',run_number:17,source_sha:'a'.repeat(40)};
-    const binaries=["citizenapp.ipa"];
-    for(const name of binaries)writeFileSync(join(directory,name),'signed-'+name);
+    const binaries=["citizenapp-unsigned-ios.zip"];
+    for(const name of binaries)writeFileSync(join(directory,name),'unsigned-'+name);
     createAutomationManifest(identity,directory);
-    const value=JSON.parse(readFileSync(join(directory,'citizenapp-release-ios.json'),'utf8'));
+    const value=JSON.parse(readFileSync(join(directory,'citizenapp-unsigned-ios.json'),'utf8'));
     assert.equal(value.version,'1.2.3');assert.equal(value.github_run_number,17);
     assert.deepEqual(value.assets.map(asset=>asset.asset_name),binaries);
     assert.throws(()=>createAutomationManifest(identity,directory),/集合不完整|已存在/u);
-    rmSync(join(directory,'citizenapp-release-ios.json'));
+    rmSync(join(directory,'citizenapp-unsigned-ios.json'));
     writeFileSync(join(directory,'unexpected'),'foreign');
     assert.throws(()=>createAutomationManifest(identity,directory),/集合不完整/u);
     rmSync(join(directory,'unexpected'));
     assert.throws(()=>createAutomationManifest({...identity,source_sha:'bad'},directory),/Run身份/u);
   });
-  test('签名材料只交付本目标签名步骤，清单步骤不领取',()=>{
+  test('远端自动化只交付未签名资产，不读取签名材料',()=>{
     const yaml=readFileSync(join(root,workflowPath),'utf8'),steps=yaml.split('\n    - ');
-    const signing=steps.filter(value=>value.trimEnd().endsWith(' step 9'));
+    const unsigned=steps.filter(value=>value.trimEnd().endsWith(' step 9'));
     const manifest=steps.filter(value=>value.trimEnd().endsWith(' step 10'));
-    assert.equal(signing.length,1);assert.equal(manifest.length,1);
-    for(const field of ['IOS_KEY:', 'IOS_PROVISIONING_PROFILE:']){assert.equal(signing[0].includes(field),true);assert.equal(manifest[0].includes(field),false);}
+    assert.equal(unsigned.length,1);assert.equal(manifest.length,1);
+    assert.doesNotMatch(yaml,/secrets\.IOS_KEY|secrets\.APP_PROFILE|^  publish:/mu);
+    assert.doesNotMatch(automationBuildSteps['9'].source,/IOS_KEY|security import|codesign --force/u);
   });
   test('自动化按公开编译输入派发并隔离GitHub授权，失败不伪报成功',()=>{
     const input={GITHUB_ACTIONS:'true',GITHUB_REPOSITORY:owner.repository,GITHUB_REF:'refs/heads/main',
@@ -440,17 +396,18 @@ if(testing){
     for(const path of ['.github/workflows/release.yml',`.github/workflows/${owner.product}-${owner.platform}-ci.yml`,'.github/workflows/deleted.yml'])
       assert.deepEqual(cleanupPlan([{...old,path}],current,'success'),[]);
   });
-  test('撤销当前产物失败仍处理旧失败且最终失败',async()=>{
+  test('成功自动化保留旧正式发布，失败只清同目标旧失败',async()=>{
     const current={id:9,path:workflowPath,head_branch:'main',event:'workflow_dispatch',created_at:'2026-01-02T00:00:00Z'};
-    let releases=0,history=0;
-    const api=async path=>{
-      if(path.startsWith('releases?')){if(++releases===1)throw Error('撤销中断');return [];}
+    const paths=[];
+    const api=async path=>{paths.push(path);
       if(path==='actions/runs/9')return current;
-      if(path.startsWith('actions/runs?')){history++;return {workflow_runs:[]};}
+      if(path.startsWith('actions/runs?'))return {workflow_runs:[]};
+      if(path.startsWith('releases?'))return [];
       throw Error('未声明请求');
     };
-    await assert.rejects(finish({build:{result:'failure'}},api,{run_id:9}),/撤销中断/);
-    assert.equal(history,1);assert.equal(releases,2);
+    await finish({flow:{result:'success'}},api,{run_id:9});assert.deepEqual(paths,[]);
+    await assert.rejects(finish({flow:{result:'failure'}},api,{run_id:9}),/前置任务未全部成功/u);
+    assert.ok(paths.includes('actions/runs/9'));
   });
   test('清理旧失败Run同时回收其多个Attempt的准确孤立Tag',async()=>{
     const old={id:2,run_attempt:2,path:workflowPath,head_branch:'main',event:'workflow_dispatch',head_sha:'a'.repeat(40),status:'completed',conclusion:'failure',created_at:'2026-01-01T00:00:00Z'},current={...old,id:9,status:'in_progress',created_at:'2026-01-02T00:00:00Z'};
@@ -467,7 +424,7 @@ if(testing){
     assert.deepEqual(await cleanup('failed',{run_id:9},api),[2]);assert.equal([...deleted].filter(path=>path.startsWith('git/refs/')).length,2);
   });
   test('全部前置成功才成功，其余结论一律失败',()=>{
-    assert.equal(precedingResult({build:{result:'success'},publish:{result:'success'}}),'success');
+    assert.equal(precedingResult({prepare:{result:'success'},flow:{result:'success'}}),'success');
     for(const result of ['failure','cancelled','skipped','timed_out',undefined])assert.equal(precedingResult({build:{result}}),'failed');
     assert.throws(()=>precedingResult({}));
   });

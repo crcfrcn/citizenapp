@@ -3929,16 +3929,34 @@ Android资源准备直接复用本产品可选工具供给的payload路径，不
 
 ## GitHub自动化
 
-本仓自动化只在GitHub的main源码上执行；控制台只调用与展示。iOS、Android各有独立的同名YAML与Node实现，分别拥有运行身份、版本、Runner临时工程、原锁依赖装配、编译、签名、最终包核验、资产收集及Tag/Release回读。两端Workflow不调用本仓Build、Publish或门禁；固定SDK依赖仅通过所属SDK公开Build视图接口消费。正式自动化仍待锁定SDK提交更新和真实Run验收。只读门禁核对目录、流程、登记与静态安全约束，不准备编译资源。
+本仓自动化只在GitHub的main源码上执行；控制台只调用与展示。iOS、Android各有独立的同名YAML与Node实现，分别拥有运行身份、版本、Runner临时工程、原锁依赖装配、编译、未签名包核验及资产收集。远端只交付与准确Run/SHA绑定的未签名产物，不读取签名材料或创建正式Tag/Release；本仓 `scripts/publish.mjs` 在本机对同一产物签名、验真后才能交付正式包。固定SDK依赖仅通过所属SDK公开Build视图接口消费。正式自动化仍待锁定SDK提交更新和真实Run验收。只读门禁核对目录、流程、登记与静态安全约束，不准备编译资源。
 
 正式编译入口不读取GitHub身份或Workflow路径。调用方通过`CITIZENAPP_BUILD_*`交付版本、源码提交、编号、尝试次数、临时根、工作根及环境／步骤输出文件；源码根由本产品确认。自动化在调用前验证GitHub真实身份，再投影这些产品字段，并移除GitHub环境与令牌。构建固定现场仅按本产品任务编号、进程与租约管理，不继承远端Run身份；Flutter修订只走资源服务，不另保留GitHub环境写入入口。
 
-正式签名材料仅交付对应签名步骤：Android第10步使用`APP_KEY`，iOS第9步使用`IOS_KEY`与`IOS_PROVISIONING_PROFILE`；随后的Run资产清单步骤不领取签名材料。
+Android第10步只复制并核对未签名 APK/AAB，iOS第9步只打包未签名 Runner.app；配置值仅由塔塔控制台保管，正式本机签名阶段按所属产品 `scripts/config.mjs` 领取所需引用。实际值迁入控制台和删除旧 GitHub Secrets 属于另行授权的操作。
+
+本机 `scripts/publish.mjs` 公开准确未签名资产文件名供调度方提取，先核对成功 Run 的仓库、平台、提交、尝试次数、版本与未签名资产闭集，并逐件校验自动化清单和字节摘要。Android 使用本仓迁入的正式签名步骤生成 APK/AAB，iOS 在独占现场解包 Runner.app、使用临时钥匙串签名并生成 IPA；只把已核验正式包和新清单留在本次发布现场，签名临时材料清理。独立调用方须交付同一本仓准确产物及临时签名材料，控制台调度时只从自身安全保管处按声明交付。
+
+本仓公开签名与发布函数不依赖控制台源码；正式任务仍按全局规则只由塔塔控制台发起，不提供绕过控制台的直接发布命令。
+
+本仓 `scripts/publish.mjs` 公开本次本机签名与移动端自动化相关的三个同仓 Node 测试入口；控制台测试动作只按该清单发起产品自己的回归，不把产品用例并入控制台自身测试。
+
+本机签名接口在长驻控制台中按本仓 `scripts/config.mjs` 与 `scripts/build.mjs` 当前字节摘要重新读取需求和工具声明；保存时与使用时都消费所属最新修订，缺失或身份不符直接失败。
+
+所属测试还只做 Android/iOS 本机签名 Shell 的语法检查与合成资产、网络回执验证，不读取实际签名材料或执行签名。
+
+本机签名工具以异步子进程执行并等待退出，超时终止本轮进程组；控制台 Worker 可继续处理其它产品任务。正式材料不进入工具日志，只有退出和产物回验结果可用于状态报告。
+
+本机签名所需 Xcode 或 Java、Android SDK 版本从本仓现有 Build 声明读取；控制台只核对已登记且已安装的工具，不在发布准备中安装或替换资源。Android 证书摘要使用 macOS 已有 `shasum -a 256` 核对。
+
+iOS 本机签名前核对未签名压缩包的路径闭集并拒绝链接或特殊文件，提取后再次核对真实路径；临时钥匙串加入用户搜索列表前保存原列表，结束时恢复并删除本轮钥匙串。控制台同一时刻只允许一个移动端签名事务占用该共享用户状态。Android 本机版本核对使用所属产品交付的 build number，不继承 GitHub 运行环境。
+
+正式发布只接受本次 `signUnsigned` 返回的签名回执，上传前重新核对产物字节、成功 Run 身份及其仍为本平台最新成功自动化，创建准确 Tag/Release 后逐件上传并回读摘要。写入失败尝试撤销本次准确 Tag/Release 并报告未确认回滚；新包完整回读后才清理同平台旧成功。现有商店分发只消费已确认正式 Release。
 
 - `.github/workflows/release-android.yml`及同名`.mjs`。
 - `.github/workflows/release-ios.yml`及同名`.mjs`。
 
-每个目标的最后任务使用always读取所有前置结果：全部成功清本仓本目标旧成功，否则清旧失败并失败退出。仅保留最新成功、最新失败各一条；保护本次Run和所有活动任务，另一类结果与其他目标不受影响。删除关联正式Release、tag、Actions产物和Run后回查；任何清理错误都按实际失败报告，不自动重试。
+每个目标的最后任务使用always读取全部前置结果：未签名自动化成功时保留本次资产及既有正式发布，等待本机签名和新正式包上传后再清理同目标旧成功；失败时仅清同目标旧失败并失败退出。保护本次Run和所有活动任务，另一类结果与其他目标不受影响。清理逐项回查，任何错误如实报告，不自动重试。
 
 所属回归位于各目标同名mjs，覆盖前置结果、版本边界、平台隔离、活动保护和完整分页；真实GitHub构建与发布验收依任务授权另行执行。
 
@@ -3966,3 +3984,27 @@ Android资源准备直接复用本产品可选工具供给的payload路径，不
 本仓 GitHub 门禁接受 actions/checkout 的准确 HTTPS origin（同一仓库地址有或没有 `.git` 后缀），仓库、事件、提交和工作流身份仍逐项校验。
 
 门禁清理接口只对 URL 的路径部分拒绝越界，允许 created 查询中的时间范围分隔符；同文件回归直接执行正式 HTTP 参数校验，覆盖时间范围和越界拒绝。
+
+## 配置需求公开接口
+
+本仓 `scripts/config.mjs` 是只读配置需求接口。本机正式签名需要 `APP_KEY`、`IOS_KEY` 与本产品 `APP_PROFILE`，按 `android-signing` 和 `ios-signing` 用途声明；前两项按钱包产品文档明确共用同一签名材料。桌面更新密钥和应用商店发布凭据当前没有本仓已实现的消费者，不作为现行需求登记。配置值不得写入源码或该接口。
+
+本机发布回归的临时目录先解析为真实路径，正式资产读取继续拒绝非规范目录、越界、额外文件和字节变化；测试同时覆盖这些拒绝路径。scripts/publish.mjs公开testFiles与testTools：测试工具沿用本产品现有锁定声明，调度模式由调度方交付路径，缺件失败。自动化仅交付未签名产物，本机正式签名、回执和上传复验保持原流程。
+
+本机SDK源码模式的获取清单可为空，但本产品Pub锁的Git来源仍使用lockedSources提供的准确URL、ref和resolved-ref验证；不以获取清单替代安全闭包，不改版本、不降级或新增来源。
+
+macOS每个平台编译在本轮已领取工作根内创建.vendor.sparseimage（区分大小写APFS），只挂载到dependencies/citizen_sdk/cargo-vendor。Cargo包置于卷内packages以避开文件系统自身目录；原锁及原件完整名称均保留。映像inode/device、挂载device与任务nonce保存在既有.active.json，复用或卸载逐项核对；卷身份不明、仍有使用者或卸载失败保留现场并失败，不强制卸载、不清理他人卷。产品与资源后代退出后先卸载，再由原清场删除映像和现场；Linux无需额外卷。
+
+同一平台卷承载citizen_sdk与tatachat_sdk两份Cargo原锁，packages下按SDK名称分开目录，各自cargo-home配置只指向所属目录；不混合包或互相覆盖。本次大小写冲突包来自tatachat_sdk原锁，卷挂载位置与映像数量不变。
+
+Gradle资源解析只使用本产品resourceEnvironment给出的本轮CITIZENAPP_PROJECT_ROOT，准确核对source-view路径；首次工程尚未生成时不执行，工程生成后准备本产品Release依赖。禁止递归扫描SDK/插件示例并将其只读链接当成可写产品settings；原独占普通文件、入口唯一性、inode与字节复验保持。
+
+原生ABI头文件全量符号提取使用本仓已登记Perl 5.42.3，直接工具需求明确包含该版本；消费者公民两平台同时交付同一登记版本的入口。保留原完整头文件解析及符号集合闭合，不借用系统Perl。
+
+SDK独立原生Gradle包装输入由SDK的androidGradleProjectFiles公开接口唯一定义；本机资源阶段与正式原生编译使用同一三文件声明，重复输入只允许字节一致的普通独占文件。公民资源阶段在本轮citizensdk-work/gradle-project中预解析SDK真实buildscript依赖到同一任务Gradle缓存，正式编译保持离线；宿主Flutter解析不替代SDK独立依赖图，不另存Kotlin版本或强制版本覆盖。
+
+依赖原生编译/包验收调用SDK的native-dependency入口；独立native入口继续限制SDK固定根。依赖入口绑定调用产品当前平台根、active记录、run编号、存活进程、当前SDK进程组及PRODUCT_WORK_LEASE，原生工作、Cargo和输出都属于该任务。SDK子进程组登记回调用产品的原领取记录并在确认退出后移除，取消仍终止整组；不另存任务或自行清理调用产品现场。每轮先执行所属SDK真实任务边界回归，再使用同一原生实现编译与验收。
+
+SDK原生Gradle资源预解析同时覆盖真实Release和对应测试配置，保留原版本与模块闭包。Android官方证书组件通过SDK的androidGradleLocalRepository从本仓Gradle真实版本声明与锁定Cargo元数据唯一匹配；Maven视图绑定当前任务原件，原生与资源共用同一来源。SDK公开模块按当前源码修订重读，摘要仅用于ESM缓存索引，不作为资源版本或完整性门禁。
+
+Flutter Apple收尾的xattr通过现有Apple工具定位和本轮apple-tools PATH投影交付，唯一源为/usr/bin/xattr；与其它Apple入口共同校验和收口，不加入通用系统PATH、不修改Flutter或关闭权限检查。

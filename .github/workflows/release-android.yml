@@ -97,8 +97,6 @@ jobs:
     - shell: bash
       run: node "$GITHUB_WORKSPACE/.github/workflows/release-android.mjs" step 9
     - working-directory: "."
-      env:
-        APP_KEY: "${{ secrets.APP_KEY }}"
       shell: bash
       run: node "$GITHUB_WORKSPACE/.github/workflows/release-android.mjs" step 10
     - shell: bash
@@ -115,41 +113,11 @@ jobs:
         retention-days: 7
     needs:
     - prepare
-  publish:
-    needs:
-    - prepare
-    - flow
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    env:
-      RELEASE_VERSION: "${{ needs.prepare.outputs.version }}"
-      RELEASE_TAG: "${{ needs.prepare.outputs.tag }}"
-      GH_TOKEN: "${{ github.token }}"
-      CI: 'true'
-      CARGO_INCREMENTAL: '0'
-    steps:
-    - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-      with:
-        ref: "${{ github.sha }}"
-        fetch-depth: 0
-        persist-credentials: false
-    - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
-      with:
-        node-version: 25.2.1
-    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-      with:
-        name: release-output
-        path: "${{ runner.temp }}/release-output"
-    - id: complete
-      name: 正式Release上传并逐件回读
-      run: node .github/workflows/release-android.mjs publish "$RUNNER_TEMP/release-output"
   cleanup:
     if: "${{ always() }}"
     needs:
     - prepare
     - flow
-    - publish
     runs-on: ubuntu-24.04
     permissions:
       actions: write
