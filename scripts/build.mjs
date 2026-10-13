@@ -20,12 +20,15 @@ const inlineTestEntry = directEntry && Boolean(process.env.NODE_TEST_CONTEXT) &&
 import {spawn,spawnSync} from 'node:child_process';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {Socket} from 'node:net';
-import {rmSync,constants,fstatSync,readSync,chmodSync,closeSync,openSync,renameSync,readlinkSync,unlinkSync,copyFileSync,existsSync,lstatSync,mkdirSync,readFileSync,readdirSync,realpathSync,symlinkSync,writeFileSync} from 'node:fs';
-import {dirname,isAbsolute,join,parse,relative,resolve,sep} from 'node:path';
+import {rmSync,rmdirSync,constants,fstatSync,readSync,chmodSync,closeSync,openSync,renameSync,readlinkSync,unlinkSync,copyFileSync,existsSync,lstatSync,mkdirSync,readFileSync,readdirSync,realpathSync,symlinkSync,writeFileSync} from 'node:fs';
+import {basename,dirname,isAbsolute,join,parse,relative,resolve,sep} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
-import {createHash,randomBytes} from 'node:crypto';
+import {createHash,randomBytes,randomUUID} from 'node:crypto';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
+// 本仓测试进程领取独立会话并传给子进程，正式Build仍使用平台固定根。
+if(process.env.NODE_TEST_CONTEXT&&!process.env.CITIZENAPP_TEST_SESSION)process.env.CITIZENAPP_TEST_SESSION=randomUUID();
+const testSession=process.env.NODE_TEST_CONTEXT&&/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/u.test(process.env.CITIZENAPP_TEST_SESSION||'')?process.env.CITIZENAPP_TEST_SESSION:null;
 export const contract=Object.freeze({
   "schema": 1,
   "product_id": "citizenapp",
@@ -197,9 +200,11 @@ const sessions=new AsyncLocalStorage();
 const scopes=new Set(['build','test']);
 const fail=message=>{throw Error(product+' target：'+message);};
 function fixedWork(scope){
- if(scope==='build'||scope==='test')return join(root,'target',scope);
+ const testRoot=testSession?join(root,'target/test/sessions',testSession):null;
+ if(scope==='test')return testRoot||join(root,'target/test');
+ if(scope==='build')return join(root,'target/build');
  if(typeof scope==='string'&&scope.startsWith('build/')){
-  const platform=scope.slice(6);if(Object.hasOwn(contract.platforms,platform))return join(root,'target/build',platform);
+  const platform=scope.slice(6);if(Object.hasOwn(contract.platforms,platform))return testRoot?join(testRoot,'build',platform):join(root,'target/build',platform);
  }
  fail('工作根用途无效');
 }
@@ -308,7 +313,7 @@ function empty(work,keep=[]){
  for(const name of fs.readdirSync(work)){if(keep.includes(name))continue;const path=join(work,name);removeTree(path);}
  const after=directory(work);if(before.dev!==after.dev||before.ino!==after.ino||fs.readdirSync(work).some(name=>!keep.includes(name)))fail('固定工作目录未完全清空或被替换');
 }
-function short(work,action){const path=isBuildWork(work)?join(fixedWork('build'),'.claim-'+relative(fixedWork('build'),work)):join(work,'.claim.lock');try{fs.mkdirSync(path,{mode:0o700});}catch(error){if(error.code!=='EEXIST')throw error;
+function short(work,action){const path=isBuildWork(work)?join(dirname(work),'.claim-'+basename(work)):join(work,'.claim.lock');try{fs.mkdirSync(path,{mode:0o700});}catch(error){if(error.code!=='EEXIST')throw error;
  const record=join(path,'owner.json');let holder=null;
  if(fs.existsSync(record)){regular(record);try{holder=JSON.parse(fs.readFileSync(record,'utf8'));}catch{fail('领取锁损坏');}}
  const active=readOwner(work);
@@ -413,7 +418,7 @@ function finishFixedWork(work,{run_id}={}){
   empty(work,['.claim.lock']);if(isBuildWork(work))fs.rmdirSync(work);
  });return value;
 }
-function taskScope(work){checkFixedWork(work);return work===fixedWork('test')?'test':'build/'+relative(fixedWork('build'),work);}
+function taskScope(work){checkFixedWork(work);if(work===fixedWork('test'))return 'test';const platform=Object.keys(contract.platforms).find(name=>work===fixedWork('build/'+name));if(!platform)fail('编译平台现场无效');return 'build/'+platform;}
 
 
 // 同文件回归：普通导入和正式命令不注册测试。
@@ -3136,11 +3141,44 @@ export function outputDigest(path) {
 }
 
 // 宿主完整Build先由调用方消费回执、安装并收尾；独立执行由本产品清空现场。
-// 编译任务先执行本仓现有回归；测试清单只归所属产品Build接口。
-export function testFiles(){return ['scripts/build.mjs','scripts/publish.mjs'];}
-export async function testTools(){return [];}
+// 产品拥有编译前测试清单、工具与顺序；控制台只调用完整Build。
+function testFiles(){return ['scripts/build.mjs','scripts/publish.mjs'];}
+async function runProductTests(platform,work,receipt,base){
+ const env=resourceEnvironment(platform,work,receipt,base),node=receipt.tools.node;
+ if(!node||node.version!==contract.platforms[platform].tools.find(value=>value.id==='node')?.version
+  ||!isAbsolute(node.path)||realpathSync(node.path)!==node.path)fail('本仓测试缺少准确Node入口');
+ // Node测试运行器自行设置测试子进程身份；预设NODE_TEST_CONTEXT会让它跳过全部文件。
+ const testEnvironment={HOME:work,USER:base.USER,LOGNAME:base.LOGNAME,LANG:'C',LC_ALL:'C',PATH:env.PATH,
+  PRODUCT_GIT_BIN:env.GIT};
+ const files=testFiles().map(file=>join(root,file));
+ for(const file of files){const info=lstatSync(file);if(!info.isFile()||info.isSymbolicLink()||realpathSync(file)!==file)fail('本仓测试文件无效');}
+ const digests=files.map(file=>createHash('sha256').update(readFileSync(file)).digest('hex'));
+ await runBuildProcess(node.path,['--test','--test-concurrency=1',...files],testEnvironment,root);
+ if(files.some((file,index)=>createHash('sha256').update(readFileSync(file)).digest('hex')!==digests[index]))fail('本仓测试期间源码改变');
+}
+if(testSession&&process.argv.length===2&&testFiles().some(file=>join(root,file)===resolve(process.argv[1]||'')))process.on('exit',()=>{
+ // 按本仓守卫只清当前测试会话；活跃工具或身份不符时保留现场并失败。
+ try{
+  for(const platform of Object.keys(contract.platforms)){const work=fixedWork('build/'+platform);if(existsSync(work))finishFixedWork(work);}
+  const session=fixedWork('test');if(existsSync(session)){finishFixedWork(session);rmdirSync(session);}
+  const sessions=join(root,'target/test/sessions');if(existsSync(sessions)&&readdirSync(sessions).length===0)rmdirSync(sessions);
+ }catch(error){process.stderr.write('公民App测试会话收尾失败：'+error.message+'\n');process.exitCode=1;}
+});
+if(testSession&&process.argv.length===2&&resolve(process.argv[1]||'')===fileURLToPath(import.meta.url)){
+ const {test}=await import('node:test'),{default:assert}=await import('node:assert/strict');
+ test('本仓测试固定根归随机会话，正式平台根不变',()=>{
+  assert.equal(fixedWork('test'),join(root,'target/test/sessions',testSession));
+  for(const platform of Object.keys(contract.platforms))assert.equal(fixedWork('build/'+platform),join(fixedWork('test'),'build',platform));
+ });
+ test('正式入口在领取工作根前拒绝合成阶段',()=>{
+  const module=JSON.stringify(fileURLToPath(import.meta.url));
+  const child=spawnSync(process.execPath,['--input-type=module','-e','import {execute} from '+module+';await execute("bad","/bad",{}, {stages:{}});'],{env:{PATH:process.env.PATH,HOME:process.env.HOME},encoding:'utf8'});
+  assert.notEqual(child.status,0);assert.match(child.stderr,/合成阶段仅用于本仓测试/);
+ });
+}
 
 export async function execute(platform,work,request={},options={}) {
+ if(options.stages&&!process.env.NODE_TEST_CONTEXT)fail('合成阶段仅用于本仓测试');
  checkFixedWork(work,{create:true});
  return withFixedWork(taskScope(work),()=>executeTask(platform,work,request,options),{run_id:request.run_id,environment:options.environment||process.env,retain:(options.environment||process.env).PRODUCT_RESOURCE_FD==='4'||(options.environment||process.env).PRODUCT_HOST_FD==='3'});
 }
@@ -3167,6 +3205,8 @@ async function executeTask(platform,work,request={},options={}) {
   }
   await stages.requirements(platform,work);state.signal.throwIfAborted();
   let receipt=await stages.resources(platform,work,request,resourcesOptions);state.signal.throwIfAborted();
+  if(!options.stages)await runProductTests(platform,work,receipt,resourcesOptions.environment);
+  state.signal.throwIfAborted();
   await stages.prepare(platform,work,receipt,resourcesOptions.environment);state.signal.throwIfAborted();
   await stages.requirements(platform,work);
   receipt=await stages.resources(platform,work,receipt,resourcesOptions);state.signal.throwIfAborted();
