@@ -31,7 +31,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          xcodebuild -version | grep -q '^Xcode 27'
+          xcodebuild -version | grep '^Xcode 27'
           brew install bash
           curl --fail --location --retry 3 -o "$RUNNER_TEMP/flutter.zip" https://storage.googleapis.com/flutter_infra_release/releases/stable/macos/flutter_macos_arm64_3.47.2-stable.zip
           echo 'f456fd6733053d9301828a2e702d6cbec872923126809aa8c48eb0a696d6cc01  '"$RUNNER_TEMP/flutter.zip" | shasum -a 256 --check
