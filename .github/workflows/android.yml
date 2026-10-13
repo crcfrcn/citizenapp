@@ -52,7 +52,7 @@ jobs:
             echo 'a17ddd85a26b6a7f5ddb71ff8b05fc5104c0202c6e64782429790c933686c806  '"$RUNNER_TEMP/gradle.zip" | shasum -a 256 --check
             unzip -q "$RUNNER_TEMP/gradle.zip" -d "$RUNNER_TEMP"
             echo "CITIZENAPP_GRADLE=$RUNNER_TEMP/gradle-9.1.0/bin/gradle" >> "$GITHUB_ENV"
-            "$HOME/Library/Android/sdk/cmdline-tools/latest/bin/sdkmanager" 'build-tools;37.0.1' 'platforms;android-36' 'ndk;28.2.13676358'
+            "$HOME/Library/Android/sdk/cmdline-tools/latest/bin/sdkmanager" 'build-tools;36.0.0' 'platforms;android-36' 'ndk;28.2.13676358'
             echo "ANDROID_NDK_HOME=$HOME/Library/Android/sdk/ndk/28.2.13676358" >> "$GITHUB_ENV"
           fi
       - name: 本 Runner 编译、签名并验收
