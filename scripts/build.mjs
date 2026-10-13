@@ -2527,7 +2527,14 @@ test('锁定Git bundle只在本轮任务检出，离线缺原件失败',async t=
 });
 }
 
-return {runResourceProcess,inventory,acquireArchive,extractArchive,normalizeCargoManifest,podSourceCoordinate,readDependencySupply,materializePodSupply,materializeMavenCache,mavenSupplyInit,checkCocoaPodsResources,buildSourceTool,posixNames,resourceDeclarations,bootstrapNode,resources,prepareResourceSupply,flutterCommit,gradleRecipes,revisedSource,revisionPlan,supplyRequirements,assertWorkQuiescent,prepareToolSupply,resourceSupply,copyFlutterArtifact:flutterRecipe.copyFlutterArtifact};
+async function prepareRunnerFlutter(sdk,work,environment){
+ const tool=toolDefinitions.find(value=>value.id==='flutter');
+ if(!tool||createHash('sha256').update(flutterPatch).digest('hex')!==tool.patch?.sha256)
+  fail('Flutter 修订声明不匹配');
+ return flutterRecipe.prepareFlutter(sdk,{tool,files:flutterRecipe.parsePatch(flutterPatch),
+  env:{...environment,PRODUCT_WORK_DIR:work}});
+}
+return {runResourceProcess,inventory,acquireArchive,extractArchive,normalizeCargoManifest,podSourceCoordinate,readDependencySupply,materializePodSupply,materializeMavenCache,mavenSupplyInit,checkCocoaPodsResources,buildSourceTool,posixNames,resourceDeclarations,bootstrapNode,resources,prepareResourceSupply,flutterCommit,gradleRecipes,revisedSource,revisionPlan,supplyRequirements,assertWorkQuiescent,prepareToolSupply,resourceSupply,copyFlutterArtifact:flutterRecipe.copyFlutterArtifact,prepareRunnerFlutter};
 })(contract,testRoot);
 export const {runResourceProcess,inventory,acquireArchive,extractArchive,normalizeCargoManifest,podSourceCoordinate,readDependencySupply,materializePodSupply,materializeMavenCache,mavenSupplyInit,checkCocoaPodsResources,buildSourceTool,posixNames,resourceDeclarations,bootstrapNode,resources,prepareResourceSupply,flutterCommit,gradleRecipes,revisedSource,revisionPlan,supplyRequirements,assertWorkQuiescent,prepareToolSupply,resourceSupply,copyFlutterArtifact}=resourceRuntime;
 
@@ -4643,12 +4650,8 @@ export async function ciPrepareFlutter(platform,environment=process.env){
  const sdk=environment.FLUTTER_ROOT,temp=environment.RUNNER_TEMP;
  if(typeof sdk!=='string'||typeof temp!=='string'||!isAbsolute(sdk)||!isAbsolute(temp)
   ||!sdk.startsWith(temp+sep)||realpathSync(sdk)!==sdk)fail('GitHub Flutter 原件不属于本 Runner');
- const tool=toolDefinitions.find(value=>value.id==='flutter');
- if(!tool||createHash('sha256').update(flutterPatch).digest('hex')!==tool.patch?.sha256)
-  fail('Flutter 修订声明不匹配');
  const work=join(root,'target/build/android/flutter-preparation');mkdirSync(work,{recursive:true});
- await flutterRecipe.prepareFlutter(sdk,{tool,files:flutterRecipe.parsePatch(flutterPatch),
-  env:{...environment,PRODUCT_WORK_DIR:work}});
+ await resourceRuntime.prepareRunnerFlutter(sdk,work,environment);
  return {platform,flutter_root:sdk};
 }
 
