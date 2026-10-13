@@ -4635,6 +4635,23 @@ export function cleanShellPaths(args,environment=process.env){
 }
 
 
+// Android Runner 使用本产品锁定的 Flutter 修订；准备阶段不接收签名材料。
+export async function ciPrepareFlutter(platform,environment=process.env){
+ if(platform!=='android'||environment.GITHUB_ACTIONS!=='true'
+  ||environment.GITHUB_REPOSITORY!=='crcfrcn/'+product||environment.GITHUB_WORKFLOW!==product+'.android')
+  fail('GitHub Flutter 准备身份无效');
+ const sdk=environment.FLUTTER_ROOT,temp=environment.RUNNER_TEMP;
+ if(typeof sdk!=='string'||typeof temp!=='string'||!isAbsolute(sdk)||!isAbsolute(temp)
+  ||!sdk.startsWith(temp+sep)||realpathSync(sdk)!==sdk)fail('GitHub Flutter 原件不属于本 Runner');
+ const tool=toolDefinitions.find(value=>value.id==='flutter');
+ if(!tool||createHash('sha256').update(flutterPatch).digest('hex')!==tool.patch?.sha256)
+  fail('Flutter 修订声明不匹配');
+ const work=join(root,'target/build/android/flutter-preparation');mkdirSync(work,{recursive:true});
+ await flutterRecipe.prepareFlutter(sdk,{tool,files:flutterRecipe.parsePatch(flutterPatch),
+  env:{...environment,PRODUCT_WORK_DIR:work}});
+ return {platform,flutter_root:sdk};
+}
+
 // GitHub 在当前 Runner 内完成编译、正式签名和 Release 资产准备；本机安装入口不参与。
 export async function ciBuild(platform,environment=process.env){
  platformContract(platform);
@@ -4748,6 +4765,10 @@ export async function ciVerifyRelease(platform,phase,environment=process.env,{fe
 }
 
 async function runCLI(){
+ if(process.argv[2]==='ci-prepare-flutter'){
+  if(process.argv.length!==4)fail('GitHub Flutter 准备参数无效');
+  process.stdout.write(JSON.stringify(await ciPrepareFlutter(process.argv[3]))+'\n');return;
+ }
  if(process.argv[2]==='ci-build'){
   if(process.argv.length!==4)fail('GitHub移动编译参数无效');
   process.stdout.write(JSON.stringify(await ciBuild(process.argv[3]))+'\n');return;

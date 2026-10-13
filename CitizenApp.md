@@ -6,6 +6,8 @@
 
 > GitHub 实跑发现旧 `citizen_sdk` 锁定提交不提供产品调用的 `prepare-environment` 和 `native` 入口；当前锁更新为已在 SDK 仓库发布的 `de5563df18f7e5332406c78ec00d0c64a5e2d842`，本机与 Runner 共用这一提交。
 
+> Android Runner 在注入签名材料前，使用本仓 `scripts/build.mjs` 已登记的 Flutter 修订重建工具快照，以匹配产品的 AGP 9 工程。
+
 ## 平台编译现场
 
 本产品编译任务使用本仓 `target/build/<平台>` 独立临时目录，平台键为 `ios`、`android`。不同平台同时领取并执行；同平台已有活跃任务时立即拒绝再次领取。资源准备、工程副本、缓存和编译输出只写本平台现场；确认进程及后代退出、结果被调用方消费后，删除整个平台目录。`target/build` 仅是父目录，`target/test` 仍用于独立测试。独立执行和控制台调度调用同一本仓编译入口与清理接口。
