@@ -2,6 +2,8 @@
 
 > 当前塔塔鹿鹿：每仓 `.github/tatalulu.yml` 只登记仓库身份；控制台 `.github/tatalulu.mjs` 保存并推送后，以 GitHub `main` 回查结果收口。本文早期推送触发检查记录仅供历史追溯。
 
+> 当前移动端流程：本机 Build 在本机签名并完成设备安装；`ios.yml`、`android.yml` 在各自 GitHub Runner 内编译、正式签名、验收并创建 GitHub Release。`scripts/publish.mjs` 只读取已完成 Release，应用商店和官网渠道上传待渠道授权配置。下文关于 GitHub 未签名包下载到本机签名、`release-*.yml` 与同名 MJS 的记载属于历史方案。
+
 ## 平台编译现场
 
 本产品编译任务使用本仓 `target/build/<平台>` 独立临时目录，平台键为 `ios`、`android`。不同平台同时领取并执行；同平台已有活跃任务时立即拒绝再次领取。资源准备、工程副本、缓存和编译输出只写本平台现场；确认进程及后代退出、结果被调用方消费后，删除整个平台目录。`target/build` 仅是父目录，`target/test` 仍用于独立测试。独立执行和控制台调度调用同一本仓编译入口与清理接口。
