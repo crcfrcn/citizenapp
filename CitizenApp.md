@@ -8,6 +8,8 @@
 
 > Android Runner 在注入签名材料前，安装产品声明的 CMake 3.31.6，并使用本仓 `scripts/build.mjs` 已登记的 Flutter 修订重建工具快照，以匹配产品的 AGP 9 工程。
 
+> iOS Runner 为 CitizenSDK 同时准备 `aarch64-apple-ios` 真机和 `aarch64-apple-ios-sim` 模拟器 Rust 目标；最终 Release 仍只签名真机应用包。
+
 ## 平台编译现场
 
 本产品编译任务使用本仓 `target/build/<平台>` 独立临时目录，平台键为 `ios`、`android`。不同平台同时领取并执行；同平台已有活跃任务时立即拒绝再次领取。资源准备、工程副本、缓存和编译输出只写本平台现场；确认进程及后代退出、结果被调用方消费后，删除整个平台目录。`target/build` 仅是父目录，`target/test` 仍用于独立测试。独立执行和控制台调度调用同一本仓编译入口与清理接口。
