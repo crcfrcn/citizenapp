@@ -6,7 +6,7 @@
 
 > GitHub 实跑发现旧 `citizen_sdk` 锁定提交不提供产品调用的 `prepare-environment` 和 `native` 入口；当前锁更新为已在 SDK 仓库发布的 `de5563df18f7e5332406c78ec00d0c64a5e2d842`，本机与 Runner 共用这一提交。
 
-> Android Runner 在注入签名材料前，使用本仓 `scripts/build.mjs` 已登记的 Flutter 修订重建工具快照，以匹配产品的 AGP 9 工程。
+> Android Runner 在注入签名材料前，安装产品声明的 CMake 3.31.6，并使用本仓 `scripts/build.mjs` 已登记的 Flutter 修订重建工具快照，以匹配产品的 AGP 9 工程。
 
 ## 平台编译现场
 

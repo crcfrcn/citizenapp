@@ -52,8 +52,9 @@ jobs:
             echo 'a17ddd85a26b6a7f5ddb71ff8b05fc5104c0202c6e64782429790c933686c806  '"$RUNNER_TEMP/gradle.zip" | shasum -a 256 --check
             unzip -q "$RUNNER_TEMP/gradle.zip" -d "$RUNNER_TEMP"
             echo "CITIZENAPP_GRADLE=$RUNNER_TEMP/gradle-9.1.0/bin/gradle" >> "$GITHUB_ENV"
-            "$HOME/Library/Android/sdk/cmdline-tools/latest/bin/sdkmanager" 'build-tools;36.0.0' 'platforms;android-36' 'ndk;28.2.13676358'
+            "$HOME/Library/Android/sdk/cmdline-tools/latest/bin/sdkmanager" 'build-tools;36.0.0' 'platforms;android-36' 'ndk;28.2.13676358' 'cmake;3.31.6'
             echo "ANDROID_NDK_HOME=$HOME/Library/Android/sdk/ndk/28.2.13676358" >> "$GITHUB_ENV"
+            echo "$HOME/Library/Android/sdk/cmake/3.31.6/bin" >> "$GITHUB_PATH"
           fi
       - name: 准备产品锁定的 Flutter Android 修订
         shell: bash
