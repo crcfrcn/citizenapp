@@ -1,5 +1,13 @@
 # CitizenApp 技术文档
 
+## 2026-10-15 编译与自动化修复
+
+本机编译由塔塔控制台按产品公开需求交付工具、依赖和开发签名材料；GitHub Runner 在本仓工作流中自行取得产品声明的工具。iOS 与 Android 自动化仍只从各自 Runner 创建正式 GitHub Release。
+
+本轮将 TataChatSDK 直接 Git 提交固定为 `c1bc7b5590b74ffa3f21333280e9557522b5ea74`，该公开提交包含 App 已调用的 `native-dependency` 入口；`pubspec.yaml` 和 `pubspec.lock` 同步。产品编译前回归的子进程沿用本轮测试会话；Swift 编译调用保留经同一 Xcode 原件核对的 `swiftc` 入口名称。Android 的 Flutter `integration_test` 原件位于控制台只读工具库，产品只在本轮工作根复制其 Android 插件工程，Gradle 9 使用可写副本，原件不改动；重复准备会核对副本字节并拒绝漂移。资源预解析先在本轮工程视图按锁生成 Flutter 插件清单，对 Flutter 生成的 `local.properties` 只在身份和已知字段匹配时规范化，再取得插件构建脚本和 Release 编译、运行依赖；正式 Android Gradle 命令从本轮工程视图启动，构建输出保持在视图之外。iOS 本地产物归档不保留扩展属性与资源分叉，解包后只允许唯一 `Runner.app`。
+
+YAML 2.8.3 与 TOML 1.4.2 解析器的官方发行件已按控制台现有原件回读 SHA-256 和原锁 SHA-512；产品声明补齐对应 SHA-256，供给时复用同一官方字节，不改变 URL 或版本。AGP 9 内置 Kotlin 拒绝插件再次应用 `kotlin-android`；本轮只对锁定版本 `url_launcher_android`、`video_player_android`、`webview_flutter_android` 的 Android 任务视图移除重复入口，原始 Pub 包与本仓内置 Kotlin 设置不变。视图逐文件核对来源和字节，脚本修订只允许准确一处。Maven 任务镜像保留官方 Module 元数据原字节；API、Runtime 等非文档变体仍要求全部制品存在，缺少未用于编译的 Sources/Javadoc 不再强制回退到网络仓库。控制台供给模式在准备完成后离线解析 Gradle，缺件直接给出准确组件；独立模式仍按产品来源自行取得。资源准备日志只记录公开的 Git、锁、归档和包名阶段，不记录材料值。验收以塔塔控制台当前双端编译记录及 GitHub 两条自动化的正式 Release 回读为准。当前修复尚未完成最终双端编译和自动化验收。
+
 > 当前塔塔鹿鹿：每仓 `.github/tatalulu.yml` 只登记仓库身份；控制台 `.github/tatalulu.mjs` 保存并推送后，以 GitHub `main` 回查结果收口。本文早期推送触发检查记录仅供历史追溯。
 
 > 当前移动端流程：本机 Build 在本机签名并完成设备安装；`ios.yml`、`android.yml` 在各自 GitHub Runner 内编译、正式签名、验收并创建 GitHub Release。`scripts/publish.mjs` 只读取已完成 Release，应用商店和官网渠道上传待渠道授权配置。下文关于 GitHub 未签名包下载到本机签名、`release-*.yml` 与同名 MJS 的记载属于历史方案。
