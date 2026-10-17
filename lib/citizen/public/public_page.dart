@@ -11,8 +11,8 @@ import 'package:citizenapp/citizen/public/public_institution_repository.dart';
 import 'package:citizenapp/citizen/public/public_provinces.dart';
 import 'package:citizenapp/storage/app_isar.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 公民-公权 tab:公权机构目录浏览 + 订阅(ADR-018 §九 卡B)。
 ///

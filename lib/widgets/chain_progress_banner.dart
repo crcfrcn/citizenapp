@@ -5,8 +5,8 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:citizenapp/app_log.dart';
 import 'package:provider/provider.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 公民链状态读取与交易顶栏唯一可见状态。
 ///

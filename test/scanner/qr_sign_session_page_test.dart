@@ -2,7 +2,7 @@ import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizenapp/scanner/qr_sign_session_page.dart';
-import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

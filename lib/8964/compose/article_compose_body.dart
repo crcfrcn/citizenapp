@@ -12,11 +12,11 @@ import 'package:citizenapp/8964/compose/compose_media_picker.dart';
 import 'package:citizenapp/8964/compose/compose_payload.dart';
 import 'package:citizenapp/8964/compose/compose_draft.dart';
 import 'package:citizenapp/8964/compose/compose_media_widgets.dart';
-import 'package:citizenapp/8964/square_models.dart';
-import 'package:citizenapp/8964/services/square_media_draft.dart';
-import 'package:citizenapp/8964/widgets/square_media_carousel.dart';
-import 'package:citizenapp/theme/app_layout.dart';
-import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/media/square_media_draft.dart';
+import 'package:citizenapp/8964/media/square_media_carousel.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
 
 sealed class _EditSectionMedia {
   const _EditSectionMedia();

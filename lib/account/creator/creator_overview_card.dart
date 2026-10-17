@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 
 import 'package:citizenapp/account/creator/creator_money.dart';
 import 'package:citizenapp/account/creator/creator_overview.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 创作者概览卡：订阅人数 + 预计月收入（金色锚点）+ 预计提示。
 class CreatorOverviewCard extends StatelessWidget {

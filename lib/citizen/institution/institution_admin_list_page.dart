@@ -11,11 +11,11 @@ import 'package:citizenapp/citizen/administrators/admin_activation_service.dart'
 import 'package:citizenapp/citizen/administrators/institution_admin_service.dart';
 import 'package:citizenapp/citizen/institution/institution_assignment_card.dart';
 import 'package:citizenapp/citizen/institution/institution_role_models.dart';
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
-import 'package:citizenapp/citizen/shared/institution_info.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
+import 'package:citizenapp/citizen/institution/institution_info.dart';
 import 'package:citizenapp/scanner/qr_sign_session_page.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 管理员列表页面。
 ///

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:citizenapp/8964/widgets/square_media_carousel.dart';
+import 'package:citizenapp/8964/media/square_media_carousel.dart';
 
 void main() {
   testWidgets('图集保留每张圆点并可左右滑动', (tester) async {

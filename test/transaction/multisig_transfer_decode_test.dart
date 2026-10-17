@@ -4,9 +4,9 @@ import 'dart:typed_data';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:polkadart_keyring/polkadart_keyring.dart';
-import 'package:citizenapp/citizen/shared/institution_info.dart';
-import 'package:citizenapp/citizen/shared/proposal_models.dart';
-import 'package:citizenapp/citizen/shared/proposal_query_service.dart';
+import 'package:citizenapp/citizen/institution/institution_info.dart';
+import 'package:citizenapp/citizen/proposal/proposal_models.dart';
+import 'package:citizenapp/citizen/proposal/proposal_query_service.dart';
 import 'package:citizenapp/transaction/multisig/multisig_transfer_service.dart';
 import '../support/fake_citizen_sdk.dart';
 

@@ -4,9 +4,9 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart'
+import 'package:citizenapp/network/square_api_client.dart'
     show SquareMembershipState, SquareSession;
-import 'package:citizenapp/8964/profile/square_session_provider.dart';
+import 'package:citizenapp/account/identity/square_session_provider.dart';
 import 'package:citizenapp/account/creator/creator_api.dart';
 import 'package:citizenapp/account/creator/creator_service.dart';
 import 'package:citizenapp/account/creator/creator_overview.dart';

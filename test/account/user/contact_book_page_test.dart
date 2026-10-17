@@ -4,21 +4,23 @@ import 'dart:async';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 
-import 'package:citizenapp/8964/profile/citizen_profile.dart';
-import 'package:citizenapp/8964/profile/profile_presentation.dart';
-import 'package:citizenapp/8964/profile/citizen_profile_api.dart';
-import 'package:citizenapp/8964/profile/citizen_profile_cache.dart';
-import 'package:citizenapp/8964/profile/square_session_provider.dart';
-import 'package:citizenapp/8964/profile/user_profile_page.dart';
-import 'package:citizenapp/8964/profile/profile_avatar.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart';
+import 'package:citizenapp/account/profile/citizen_profile.dart';
+import 'package:citizenapp/account/profile/profile_presentation.dart';
+import 'package:citizenapp/account/profile/citizen_profile_api.dart';
+import 'package:citizenapp/account/profile/citizen_profile_cache.dart';
+import 'package:citizenapp/account/identity/square_session_provider.dart';
+import 'package:citizenapp/account/profile/user_profile_page.dart';
+import 'package:citizenapp/account/profile/profile_avatar.dart';
+import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/chat/chat_entry.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
-import 'package:citizenapp/security/identity_binding.dart';
-import 'package:citizenapp/account/user/contact_book_page.dart';
-import 'package:citizenapp/account/user/contact_service.dart';
-import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/account/identity/cid_business_gate.dart';
+import 'package:citizenapp/account/identity/identity_binding.dart';
+import 'package:citizenapp/account/contacts/contact_book_page.dart';
+import 'package:citizenapp/account/contacts/contact_service.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
 
 const _accountId =
     '0x2222222222222222222222222222222222222222222222222222222222222222';
@@ -239,22 +241,37 @@ Widget _page({
   transferOpener,
   CurrentUserContext? currentUserContext,
   Listenable? identityRevision,
-}) => MaterialApp(
-  theme: AppTheme.lightTheme.copyWith(platform: platform),
-  home: ContactBookPage(
-    mode: mode,
-    service: service ?? _FakeContacts(),
-    profileApi: profileApi ?? _FakeProfileApi(profile),
-    profileCache: profileCache,
-    profileMediaCache: profileMediaCache,
-    sessionProvider: _FakeSessionProvider(),
-    initialProfiles: initialProfiles ?? {_contactCidNumber: profile},
-    directChatOpener: directChatOpener,
-    transferOpener: transferOpener,
-    currentUserContext: currentUserContext ?? _RegisteredIdentityCache(),
-    identityRevision: identityRevision,
+}) => Provider<CidBusinessGate>.value(
+  value: _ReadyBusinessGate(),
+  child: MaterialApp(
+    theme: AppTheme.lightTheme.copyWith(platform: platform),
+    home: ContactBookPage(
+      mode: mode,
+      service: service ?? _FakeContacts(),
+      profileApi: profileApi ?? _FakeProfileApi(profile),
+      profileCache: profileCache,
+      profileMediaCache: profileMediaCache,
+      sessionProvider: _FakeSessionProvider(),
+      initialProfiles: initialProfiles ?? {_contactCidNumber: profile},
+      directChatOpener: directChatOpener,
+      transferOpener: transferOpener,
+      currentUserContext: currentUserContext ?? _RegisteredIdentityCache(),
+      identityRevision: identityRevision,
+    ),
   ),
 );
+
+class _ReadyBusinessGate implements CidBusinessGate {
+  @override
+  final ValueNotifier<int> revision = ValueNotifier<int>(0);
+  @override
+  Future<CidBusinessDecision> resolve() async => const CidBusinessDecision(
+    CidBusinessStatus.ready,
+    cidNumber: _contactCidNumber,
+  );
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 /// 身份账户缓存 fake:**已注册**。通讯录属主 = CID,页面对未注册身份整页显示注册
 /// 引导,因此常规用例必须注入已注册身份,否则测的全是引导态。

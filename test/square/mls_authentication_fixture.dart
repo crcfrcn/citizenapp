@@ -1,10 +1,10 @@
 import 'dart:convert';
-import 'package:citizenapp/8964/services/square_api_client.dart';
+import 'package:citizenapp/network/square_api_client.dart';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:tatachat_sdk/tatachat_sdk.dart' as sdk;
-import 'package:citizenapp/security/mls_authentication.dart';
-import 'package:citizenapp/8964/services/square_request_signer.dart';
+import 'package:citizenapp/account/identity/mls_authentication.dart';
+import 'package:citizenapp/network/square_request_signer.dart';
 
 const testMlsDeviceId =
     'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';

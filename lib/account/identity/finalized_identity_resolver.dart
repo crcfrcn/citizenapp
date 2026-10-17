@@ -7,8 +7,8 @@ import 'citizen_identity_chain_reader.dart';
 
 /// 动权/动钱路径的 finalized 身份解析结果。
 ///
-/// 普通聊天、通讯录、主页和动态不得使用本类型；它们统一使用
-/// `CurrentUserContext` 的本机绑定与 Cloudflare finalized 投影会话。
+/// 普通业务由 `CidBusinessGate` 在本机绑定缺失时用本结果区分未注册与待恢复；
+/// 页面后续仍消费 `CurrentUserContext` 的已恢复绑定与公民服务会话。
 class FinalizedIdentity {
   const FinalizedIdentity({
     required this.accountId,

@@ -1,6 +1,6 @@
-import 'package:citizenapp/security/citizen_serve_api_config.dart';
-import 'package:citizenapp/security/system_protected_storage.dart';
-import 'package:citizenapp/security/mls_authentication.dart';
+import 'package:citizenapp/network/citizen_serve_api_config.dart';
+import 'package:citizenapp/system/security/system_protected_storage.dart';
+import 'package:citizenapp/account/identity/mls_authentication.dart';
 
 import 'registration_models.dart';
 

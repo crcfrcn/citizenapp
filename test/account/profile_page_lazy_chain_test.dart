@@ -12,27 +12,40 @@ import 'package:citizenapp/account/creator/creator_service.dart';
 import 'package:citizenapp/account/creator/creator_overview.dart';
 import 'package:citizenapp/account/creator/creator_plan.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
+import 'package:citizenapp/account/identity/cid_business_gate.dart';
 import 'package:citizenapp/account/identity/citizen_identity_chain_reader.dart';
 import 'package:citizenapp/account/identity/identity_badge_snapshot_store.dart';
 import 'package:citizenapp/account/membership/membership_revision.dart';
 import 'package:citizenapp/account/membership/subscription_service.dart';
-import 'package:citizenapp/account/user/user.dart';
-import 'package:citizenapp/8964/profile/user_qr_page.dart';
-import 'package:citizenapp/8964/profile/user_profile_page.dart';
-import 'package:citizenapp/8964/profile/square_session_provider.dart';
-import 'package:citizenapp/8964/profile/citizen_profile.dart';
-import 'package:citizenapp/8964/profile/citizen_profile_cache.dart';
-import 'package:citizenapp/8964/profile/profile_avatar.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart';
-import 'package:citizenapp/security/identity_binding.dart';
-import 'package:citizenapp/theme/app_layout.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/theme/identity_badge.dart';
+import 'package:citizenapp/account/user.dart';
+import 'package:citizenapp/account/profile/user_qr_page.dart';
+import 'package:citizenapp/account/profile/user_profile_page.dart';
+import 'package:citizenapp/account/identity/square_session_provider.dart';
+import 'package:citizenapp/account/profile/citizen_profile.dart';
+import 'package:citizenapp/account/profile/citizen_profile_cache.dart';
+import 'package:citizenapp/account/profile/profile_avatar.dart';
+import 'package:citizenapp/network/square_api_client.dart';
+import 'package:citizenapp/account/identity/identity_binding.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/account/identity/identity_badge.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../square/profile/fake_profile.dart' hide sampleProfile;
 import '../square/profile/fake_profile.dart' as fixtures;
+
+class _ReadyBusinessGate implements CidBusinessGate {
+  @override
+  final ValueNotifier<int> revision = ValueNotifier<int>(0);
+  @override
+  Future<CidBusinessDecision> resolve() async => const CidBusinessDecision(
+    CidBusinessStatus.ready,
+    cidNumber: _cidNumber,
+  );
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 CitizenProfile sampleProfile({
   String displayName = '轻节点',
@@ -327,7 +340,9 @@ void main() {
       throwOnAuthorPosts: true,
     );
     await tester.pumpWidget(
-      Provider<CitizenSdk>.value(
+      Provider<CidBusinessGate>.value(
+        value: _ReadyBusinessGate(),
+        child: Provider<CitizenSdk>.value(
         value: _sdkHarness.sdk,
         child: MaterialApp(
           home: MyTab(
@@ -340,6 +355,7 @@ void main() {
             subscriptionService: _ConfirmedMembershipSnapshotService(),
           ),
         ),
+      ),
       ),
     );
     await tester.pumpAndSettle();

@@ -6,9 +6,9 @@ import 'package:isar_community/isar.dart';
 import 'package:citizenapp/8964/compose/compose_draft.dart';
 import 'package:citizenapp/8964/compose/compose_draft_media.dart';
 import 'package:citizenapp/8964/compose/compose_draft_store.dart';
-import 'package:citizenapp/8964/square_models.dart';
+import 'package:citizenapp/8964/feed/square_models.dart';
 import 'package:citizenapp/storage/social_isar.dart';
-import 'package:citizenapp/8964/services/square_media_store.dart';
+import 'package:citizenapp/8964/media/square_media_store.dart';
 
 import '../../support/isar_test_env.dart';
 

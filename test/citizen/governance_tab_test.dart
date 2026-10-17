@@ -15,7 +15,7 @@ import 'package:citizenapp/citizen/institution/institution_repository.dart';
 import 'package:citizenapp/citizen/legislation/legislation_tab.dart';
 import 'package:citizenapp/citizen/public/public_institution_dto.dart';
 import 'package:citizenapp/citizen/public/public_institution_repository.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 import 'public/fake_public_institution_store.dart';
 import '../support/isar_test_env.dart';
 

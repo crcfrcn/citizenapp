@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:citizenapp/8964/profile/profile_presentation.dart';
-import 'package:citizenapp/8964/widgets/square_post_card.dart';
+import 'package:citizenapp/account/profile/profile_presentation.dart';
+import 'package:citizenapp/8964/feed/square_post_card.dart';
 
 import 'fake_profile.dart';
 

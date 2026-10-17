@@ -13,20 +13,20 @@ import 'package:citizenapp/8964/compose/compose_draft_store.dart';
 import 'package:citizenapp/8964/compose/drafts_page.dart';
 import 'package:citizenapp/8964/compose/video_compose_body.dart';
 import 'package:citizenapp/8964/compose/compose_media_widgets.dart';
-import 'package:citizenapp/8964/square_models.dart';
-import 'package:citizenapp/8964/profile/citizen_profile_cache.dart';
-import 'package:citizenapp/8964/profile/square_session_provider.dart';
-import 'package:citizenapp/8964/profile/profile_avatar.dart';
-import 'package:citizenapp/8964/services/square_identity_state.dart';
-import 'package:citizenapp/8964/services/square_publish_service.dart';
-import 'package:citizenapp/8964/services/square_post_store.dart';
-import 'package:citizenapp/8964/services/square_upload_service.dart';
+import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/account/profile/citizen_profile_cache.dart';
+import 'package:citizenapp/account/identity/square_session_provider.dart';
+import 'package:citizenapp/account/profile/profile_avatar.dart';
+import 'package:citizenapp/account/identity/square_identity_state.dart';
+import 'package:citizenapp/8964/compose/square_publish_service.dart';
+import 'package:citizenapp/8964/feed/square_post_store.dart';
+import 'package:citizenapp/8964/media/square_upload_service.dart';
 import 'package:citizenapp/account/membership/subscription_service.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
 import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
 import 'package:citizenapp/scanner/qr_sign_session_page.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 广场发布页公共外壳；[postType] 由广场圆弧入口决定，页面内不可切换。
 class SquareComposePage extends StatefulWidget {

@@ -9,15 +9,15 @@ import 'package:provider/provider.dart';
 import 'package:flutter/services.dart';
 import 'package:isar_community/isar.dart';
 import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
 import 'package:citizenapp/storage/wallet_isar.dart';
 import 'package:citizenapp/transaction/multisig/multisig_transfer_entry.dart';
-import 'package:citizenapp/citizen/shared/institution_info.dart';
+import 'package:citizenapp/citizen/institution/institution_info.dart';
 import 'package:citizenapp/citizen/administrators/admin_account.dart';
-import 'package:citizenapp/voting/internal/internal_vote_service.dart';
+import 'package:citizenapp/citizen/proposal/internal_vote_service.dart';
 import 'package:citizenapp/scanner/qr_sign_session_page.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/account/utility/amount_format.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/transaction/amount_format.dart';
 
 import 'personal_admin_list_page.dart';
 import 'personal_account_close_page.dart';
@@ -26,7 +26,7 @@ import 'personal_proposal_list_section.dart';
 import 'personal_manage_models.dart';
 import 'personal_manage_service.dart';
 
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 个人多签账户详情页。
 ///

@@ -11,7 +11,7 @@ import 'package:citizenapp/citizen/institution/institution_accounts.dart';
 import 'package:citizenapp/citizen/institution/institution_accounts_page.dart';
 import 'package:citizenapp/citizen/institution/institution_chain_state.dart';
 import 'package:citizenapp/citizen/institution/institution_classification.dart';
-import 'package:citizenapp/account/utility/amount_format.dart';
+import 'package:citizenapp/transaction/amount_format.dart';
 import 'package:citizenapp/citizen/institution/institution_repository.dart';
 import 'package:citizenapp/citizen/public/public_institution_admin_list_page.dart';
 import 'package:citizenapp/citizen/legislation/law_models.dart';
@@ -20,19 +20,19 @@ import 'package:citizenapp/citizen/administrators/admin_account.dart';
 import 'package:citizenapp/citizen/administrators/admin_activation_service.dart';
 import 'package:citizenapp/citizen/administrators/institution_admin_service.dart';
 import 'package:citizenapp/citizen/proposal/proposal_entry_page.dart';
-import 'package:citizenapp/citizen/shared/institution_manage_detail_page.dart';
+import 'package:citizenapp/citizen/proposal/institution_manage_detail_page.dart';
 import 'package:citizenapp/citizen/institution/institution_admin_list_page.dart';
 import 'package:citizenapp/citizen/runtime/runtime_upgrade_detail_page.dart';
 import 'package:citizenapp/citizen/institution/institution_role_models.dart';
-import 'package:citizenapp/citizen/shared/institution_info.dart';
-import 'package:citizenapp/citizen/shared/proposal_context.dart';
-import 'package:citizenapp/citizen/shared/proposal_local_store.dart';
-import 'package:citizenapp/citizen/shared/proposal_models.dart';
+import 'package:citizenapp/citizen/institution/institution_info.dart';
+import 'package:citizenapp/citizen/proposal/proposal_context.dart';
+import 'package:citizenapp/citizen/proposal/proposal_local_store.dart';
+import 'package:citizenapp/citizen/proposal/proposal_models.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
 import 'package:citizenapp/transaction/multisig/multisig_transfer_proposal_adapter.dart';
 import 'package:citizenapp/transaction/multisig/multisig_transfer_service.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 统一机构详情页(ADR-028 决策 2/6)——替代公权 `PublicInstitutionDetailPage`
 /// 与治理 `InstitutionDetailPage` 两套。

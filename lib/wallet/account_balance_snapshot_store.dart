@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
 import 'package:citizenapp/storage/wallet_isar.dart';
 import 'package:citizenapp/transaction/offchain/offchain_clearing_rpc.dart';
 

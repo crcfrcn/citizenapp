@@ -5,18 +5,18 @@ import 'package:provider/provider.dart';
 import 'package:flutter/services.dart';
 import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 
-import 'package:citizenapp/citizen/shared/institution_info.dart';
+import 'package:citizenapp/citizen/institution/institution_info.dart';
 import 'package:citizenapp/scanner/qr_sign_session_page.dart';
-import 'package:citizenapp/security/account_security_service.dart';
+import 'package:citizenapp/account/identity/account_security_service.dart';
 import 'package:citizenapp/transaction/onchain/onchain_transfer_call.dart';
 import 'package:citizenapp/transaction/multisig/multisig_transfer_balance_guard.dart';
 import 'package:citizenapp/transaction/multisig/multisig_transfer_service.dart';
 import 'package:citizenapp/wallet/account_balance_snapshot_store.dart';
-import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
 import 'package:citizenapp/widgets/chain_progress_banner.dart';
-import 'package:citizenapp/account/utility/amount_format.dart';
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/transaction/amount_format.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 治理机构手续费划转提案创建页面。
 ///

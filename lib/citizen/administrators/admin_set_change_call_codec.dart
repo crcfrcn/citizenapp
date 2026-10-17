@@ -1,12 +1,12 @@
 import 'dart:convert';
 
-import 'package:citizenapp/citizen/shared/pallet_registry.dart';
+import 'package:citizenapp/citizen/pallet_registry.dart';
 import 'dart:typed_data';
 
 import 'package:polkadart/scale_codec.dart' show ByteOutput, CompactBigIntCodec;
 import 'package:citizenapp/citizen/administrators/account_id_codec.dart';
 import 'package:citizenapp/citizen/administrators/admin_account.dart';
-import 'package:citizenapp/citizen/shared/institution_code_label.dart';
+import 'package:citizenapp/citizen/institution/institution_code_label.dart';
 
 class PersonalAdminsChangeCallCodec {
   PersonalAdminsChangeCallCodec._();

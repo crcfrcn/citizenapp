@@ -14,12 +14,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-import 'package:citizenapp/8964/square_models.dart';
-import 'package:citizenapp/8964/profile/citizen_profile.dart';
-import 'package:citizenapp/8964/profile/profile_presentation.dart';
-import 'package:citizenapp/8964/profile/citizen_profile_cache.dart';
-import 'package:citizenapp/8964/profile/citizen_profile_api.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart';
+import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/account/profile/citizen_profile.dart';
+import 'package:citizenapp/account/profile/profile_presentation.dart';
+import 'package:citizenapp/account/profile/citizen_profile_cache.dart';
+import 'package:citizenapp/account/profile/citizen_profile_api.dart';
+import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/storage/user_isar.dart';
 
 import '../../support/isar_test_env.dart';

@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizenapp/citizen/proposal/proposal_registry.dart';
-import 'package:citizenapp/citizen/shared/institution_info.dart';
+import 'package:citizenapp/citizen/institution/institution_info.dart';
 import 'package:citizenapp/citizen/institution/governance_registry.dart';
 
 void main() {

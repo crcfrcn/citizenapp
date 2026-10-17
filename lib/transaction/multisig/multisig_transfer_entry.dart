@@ -3,10 +3,10 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:citizenapp/transaction/multisig/multisig_transfer_page.dart';
-import 'package:citizenapp/citizen/shared/institution_info.dart';
-import 'package:citizenapp/citizen/shared/proposal_limit_service.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/citizen/institution/institution_info.dart';
+import 'package:citizenapp/citizen/proposal/proposal_limit_service.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 多签转账入口卡片。
 ///

@@ -1,8 +1,8 @@
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
-import 'package:citizenapp/security/identity_binding.dart';
-import 'package:citizenapp/security/citizen_serve_api_config.dart';
+import 'package:citizenapp/account/identity/identity_binding.dart';
+import 'package:citizenapp/network/citizen_serve_api_config.dart';
 
 class RegistrationException implements Exception {
   const RegistrationException(

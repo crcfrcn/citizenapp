@@ -4,8 +4,8 @@ import 'dart:typed_data';
 import 'package:polkadart/polkadart.dart' show Hasher;
 import 'package:citizenapp/citizen/institution/institution_role_storage_codec.dart';
 import 'package:citizenapp/citizen/administrators/admin_account.dart';
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
-import 'package:citizenapp/citizen/shared/institution_code_label.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
+import 'package:citizenapp/citizen/institution/institution_code_label.dart';
 
 /// 个人多签账户生命周期快照。
 ///

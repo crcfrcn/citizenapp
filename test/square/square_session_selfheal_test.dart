@@ -5,11 +5,12 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart';
-import 'package:citizenapp/8964/profile/square_session_provider.dart';
+import 'package:citizenapp/network/square_api_client.dart';
+import 'package:citizenapp/account/identity/square_session_provider.dart';
+import 'package:citizenapp/account/identity/cid_business_gate.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
-import 'package:citizenapp/security/account_security_service.dart';
-import 'package:citizenapp/security/mls_authentication.dart';
+import 'package:citizenapp/account/identity/account_security_service.dart';
+import 'package:citizenapp/account/identity/mls_authentication.dart';
 
 import 'mls_authentication_fixture.dart';
 
@@ -262,6 +263,11 @@ class _ChatSessionFixture extends SquareSessionProvider {
   ) : super(
         accountSecurity: _UnusedChatSecurity(),
         currentUserContext: _UnusedChatCurrent(),
+        // 与本用例冻结的已注册会话一致，仍由原断言验证迟到许可被拒绝。
+        resolveCid: () async => CidBusinessDecision(
+          CidBusinessStatus.ready,
+          cidNumber: session.cidNumber,
+        ),
         client: client,
         authentication: source,
       );
@@ -284,26 +290,28 @@ void _chatAccessSessionTests() {
         expiresAt: 4102444800000,
         authenticateRequest: fakeMlsRequestHeaders,
         requireCurrent: () async {
-          if (revoked)
+          if (revoked) {
             throw const MlsAuthenticationException(
               'synthetic revoked session',
               code: 'identityChanged',
             );
+          }
         },
       );
       final api = SquareApiClient(
         baseUrl: 'https://worker.test/api',
         httpClient: MockClient((_) async {
-          if (change == 'binding')
-            source.identity = MlsAuthenticationIdentity(
+          if (change == 'binding') {
+            source.identity = const MlsAuthenticationIdentity(
               cidNumber: testMlsCidNumber,
               accountId: testMlsAccountId,
               bindingRevision: 2,
               deviceId: testMlsDeviceId,
               publicKey: '0x$testMlsDeviceId',
             );
-          else
+          } else {
             revoked = true;
+          }
           final now = DateTime.now().millisecondsSinceEpoch;
           return http.Response(
             jsonEncode({

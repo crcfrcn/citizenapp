@@ -3,7 +3,7 @@ import 'dart:convert';
 
 import 'package:isar_community/isar.dart';
 import 'package:citizenapp/citizen/administrators/admin_account.dart';
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
 
 import 'isar_core_bootstrap.dart';
 

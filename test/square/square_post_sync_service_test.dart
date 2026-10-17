@@ -6,12 +6,12 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
-import 'package:citizenapp/8964/services/square_media_store.dart';
+import 'package:citizenapp/8964/media/square_media_store.dart';
 import 'package:citizenapp/storage/social_isar.dart';
 
-import 'package:citizenapp/8964/services/square_api_client.dart';
-import 'package:citizenapp/8964/services/square_post_store.dart';
-import 'package:citizenapp/8964/services/square_post_sync_service.dart';
+import 'package:citizenapp/network/square_api_client.dart';
+import 'package:citizenapp/8964/feed/square_post_store.dart';
+import 'package:citizenapp/8964/feed/square_post_sync_service.dart';
 
 import '../support/isar_test_env.dart';
 

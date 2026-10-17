@@ -15,17 +15,17 @@ import 'package:citizenapp/account/creator/creator_tier_card.dart';
 import 'package:citizenapp/account/membership/membership_page.dart';
 import 'package:citizenapp/account/membership/membership_revision.dart';
 import 'package:citizenapp/account/membership/subscription_service.dart';
-import 'package:citizenapp/account/identity/current_user_context.dart';
+import 'package:citizenapp/account/identity/cid_business_gate.dart';
 import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
-import 'package:citizenapp/8964/profile/square_session_provider.dart';
-import 'package:citizenapp/security/account_security_service.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/widgets/identity_register_guide.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/account/identity/square_session_provider.dart';
+import 'package:citizenapp/account/identity/account_security_service.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/account/identity/identity_register_guide.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 「我的 → 创作者」：管理自己的创作者会员（档位 / 收入概览）。
 ///
-/// 首帧使用「我的」页会员展示态，随后只读本地持久化档位；快照过期或缺失
+/// 当前账户的公民号门禁确认后才使用「我的」页会员展示态，随后只读本地持久化档位；快照过期或缺失
 /// 不触发远端请求。主动刷新及写入动作才验真。整次保存只产生一次
 /// `set_creator_plans` 账户签名，展示快照不参与授权。
 class CreatorPage extends StatefulWidget {
@@ -39,7 +39,7 @@ class CreatorPage extends StatefulWidget {
 
   final CreatorService? _service;
 
-  /// 「我的」页已经持有的永久 CID，用于跳过页面入口的重复身份读取。
+  /// 「我的」页持有的永久 CID 仅作展示提示；不能跳过当前账户门禁。
   final String initialCidNumber;
 
   /// 仅作为首帧展示提示；只允许有效或无效二元态。
@@ -55,6 +55,8 @@ class _CreatorPageState extends State<CreatorPage> {
   AccountSecurityService? _accountSecurity;
   bool _dependenciesReady = false;
   CreatorPageData? _data;
+  bool _identityConfirmed = false;
+  bool _businessReady = false;
   bool _unregistered = false;
   String? _error;
   String _cidNumber = '';
@@ -84,7 +86,7 @@ class _CreatorPageState extends State<CreatorPage> {
     if (injected != null) {
       _service = injected;
       _dependenciesReady = true;
-      unawaited(_bootstrap(useInitialCid: true));
+      unawaited(_bootstrap());
       return;
     }
     final sdk = context.read<CitizenSdk>();
@@ -99,7 +101,7 @@ class _CreatorPageState extends State<CreatorPage> {
     _accountSecurity = accountSecurity;
     accountSecurity.revision.addListener(_onIdentityChanged);
     _dependenciesReady = true;
-    unawaited(_bootstrap(useInitialCid: true));
+    unawaited(_bootstrap());
   }
 
   @override
@@ -111,30 +113,28 @@ class _CreatorPageState extends State<CreatorPage> {
 
   /// 注册可能发生在任意常驻页；finalized 身份广播后，本页必须原地退出注册引导。
   void _onIdentityChanged() {
-    if (mounted) unawaited(_bootstrap(useInitialCid: false));
+    if (mounted) unawaited(_bootstrap());
   }
 
   /// 会员动作确认后只刷新同一永久 CID；广播本身不直接授予页面能力。
   void _onMembershipChanged() {
     final event = MembershipRevision.instance.listenable.value;
-    if (!mounted || event == null || event.cidNumber != _cidNumber) return;
+    if (!mounted || !_businessReady || event == null || event.cidNumber != _cidNumber) return;
     unawaited(_refresh(forceVisibleError: false));
   }
 
-  /// 普通进入和身份切换只读本地；快照时间不构成自动联网理由。
-  Future<void> _bootstrap({
-    required bool useInitialCid,
-  }) async {
+  /// 入口提示不具备授权效力；先核对当前账户 CID，再读取本地创作者快照。
+  Future<void> _bootstrap() async {
     final generation = ++_loadGeneration;
+    if (_identityConfirmed) setState(() => _identityConfirmed = false);
+    _businessReady = false;
     try {
-      var cidNumber = useInitialCid ? widget.initialCidNumber.trim() : '';
-      if (cidNumber.isEmpty) {
-        final currentUser = await context.read<CurrentUserContext>().resolve();
-        cidNumber = currentUser?.cidNumber.trim() ?? '';
-      }
+      final decision = await context.read<CidBusinessGate>().resolve();
       if (!mounted || generation != _loadGeneration) return;
-      if (cidNumber.isEmpty) {
+      if (decision.status == CidBusinessStatus.unregistered) {
         setState(() {
+          _identityConfirmed = true;
+          _businessReady = false;
           _unregistered = true;
           _data = null;
           _cidNumber = '';
@@ -142,16 +142,28 @@ class _CreatorPageState extends State<CreatorPage> {
         });
         return;
       }
+      final cidNumber = decision.cidNumber?.trim() ?? '';
+      if (decision.status != CidBusinessStatus.ready || cidNumber.isEmpty) {
+        setState(() {
+          _identityConfirmed = true;
+          _businessReady = false;
+          _unregistered = false;
+          _data = null;
+          _cidNumber = '';
+          _error = '暂时无法核实公民号身份，请重试';
+        });
+        return;
+      }
 
       final cidChanged = cidNumber != _cidNumber;
-      if (cidChanged || _unregistered) {
-        setState(() {
-          _cidNumber = cidNumber;
-          _unregistered = false;
-          _error = null;
-          if (cidChanged) _data = null;
-        });
-      }
+      setState(() {
+        _identityConfirmed = true;
+        _businessReady = true;
+        _cidNumber = cidNumber;
+        _unregistered = false;
+        _error = null;
+        if (cidChanged) _data = null;
+      });
 
       final snapshot = await _service.readDisplaySnapshot(cidNumber);
       if (!mounted || generation != _loadGeneration) return;
@@ -168,7 +180,17 @@ class _CreatorPageState extends State<CreatorPage> {
     } on Exception catch (e) {
       if (!mounted || generation != _loadGeneration) return;
       setState(() {
-        _error = _data == null ? '读取本地创作者状态失败：$e' : null;
+        if (!_identityConfirmed) {
+          _identityConfirmed = true;
+          _businessReady = false;
+          _unregistered = false;
+          _data = null;
+          _cidNumber = '';
+          _error = '暂时无法核实公民号身份，请重试';
+        } else {
+          // 身份已确认时只让快照失败影响本地展示，不抹去已显示的数据。
+          _error = _data == null ? '读取本地创作者状态失败：$e' : null;
+        }
       });
     }
   }
@@ -176,6 +198,7 @@ class _CreatorPageState extends State<CreatorPage> {
   Future<void> _refresh({
     required bool forceVisibleError,
   }) async {
+    if (!_businessReady) return;
     final owner = ++_loadGeneration;
     final cidNumber = _cidNumber;
     if (cidNumber.isEmpty) return;
@@ -213,7 +236,7 @@ class _CreatorPageState extends State<CreatorPage> {
         title: const Text('创作者'),
         actions: [
           // 无会员展示态也必须能由用户主动更新，不能依赖进入时自动联网。
-          if (!_unregistered)
+          if (_businessReady)
             IconButton(
               tooltip: '刷新',
               onPressed: () => _refresh(forceVisibleError: true),
@@ -221,7 +244,9 @@ class _CreatorPageState extends State<CreatorPage> {
             ),
         ],
       ),
-      body: _body(),
+      body: _identityConfirmed
+          ? _body()
+          : const Center(child: CircularProgressIndicator()),
     );
   }
 
@@ -231,7 +256,7 @@ class _CreatorPageState extends State<CreatorPage> {
     if (_unregistered) {
       content = IdentityRegisterGuide(
         description: '注册后即可开通创作者会员。',
-        onRegistered: () => _bootstrap(useInitialCid: false),
+        onRegistered: () => unawaited(_bootstrap()),
       );
     } else if (data == null && _error != null) {
       content = _loadFailed(_error!);
@@ -508,7 +533,9 @@ class _CreatorPageState extends State<CreatorPage> {
             ),
           ),
           OutlinedButton(
-            onPressed: () => _refresh(forceVisibleError: true),
+            onPressed: () => _businessReady
+                ? _refresh(forceVisibleError: true)
+                : _bootstrap(),
             child: const Text('重试'),
           ),
         ],
@@ -550,6 +577,6 @@ class _CreatorPageState extends State<CreatorPage> {
       context,
     ).push(MaterialPageRoute(builder: (_) => const MembershipPage()));
     // 仅浏览会员页再返回不代表用户请求刷新；实际会员动作已有独立广播。
-    if (mounted) await _bootstrap(useInitialCid: false);
+    if (mounted) await _bootstrap();
   }
 }

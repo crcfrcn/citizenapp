@@ -7,8 +7,8 @@ import 'dart:typed_data';
 import 'package:provider/provider.dart';
 import 'package:citizenapp/scanner/qr_display_scaffold.dart' show AppQrImage;
 
-import 'package:citizenapp/8964/profile/user_qr_page.dart';
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
+import 'package:citizenapp/account/profile/user_qr_page.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
 
 /// 用户码展示页（`k=3 user_contact`，固定码，多入口复用同一页）。
 ///

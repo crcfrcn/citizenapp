@@ -9,18 +9,18 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart' show BuildContext;
 import 'package:tatachat_sdk/tatachat_sdk.dart';
 import 'package:citizenapp/app_log.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart';
-import 'package:citizenapp/8964/profile/square_session_provider.dart';
+import 'package:citizenapp/network/square_api_client.dart';
+import 'package:citizenapp/account/identity/square_session_provider.dart';
 import 'package:citizenapp/citizen/public/admin_division_store.dart';
 import 'package:citizenapp/citizen/public/area_path_formatter.dart';
 import 'package:citizenapp/citizen/public/isar_admin_division_store.dart';
 import 'package:citizenapp/citizen/public/public_provinces.dart';
-import 'package:citizenapp/citizen/cid_generator.dart';
+import 'package:citizenapp/account/identity/cid_generator.dart';
 import 'package:citizenapp/account/identity/citizen_identity_transaction.dart';
 import 'package:citizenapp/account/identity/citizen_identity_chain_reader.dart';
 import 'package:citizenapp/scanner/qr_sign_session_page.dart';
-import 'package:citizenapp/security/account_security_service.dart';
-import 'package:citizenapp/security/identity_binding.dart';
+import 'package:citizenapp/account/identity/account_security_service.dart';
+import 'package:citizenapp/account/identity/identity_binding.dart';
 
 import 'current_user_context.dart';
 import 'finalized_identity_resolver.dart';
@@ -501,6 +501,16 @@ class MyIdService {
   /// 只供 CID 注册 finalized 调用；页面门禁与 finalized 均不得初始化任何设备密钥。
   Future<void> _finishResolvedBinding(FinalizedIdentity resolved) async {
     await _finishFinalizedBinding(await _bindingForFinalizedIdentity(resolved));
+  }
+
+  /// 仅用链上已核实的当前默认账户恢复本机公开绑定；不发起注册或设备登记。
+  /// 公民服务门禁复用注册收尾的同一实现，避免缓存缺失被误判为未注册。
+  Future<void> recoverFinalizedBinding(FinalizedIdentity resolved) async {
+    if (resolved.snapshot == null) {
+      throw const AccountSecurityException('当前账户尚未注册公民号');
+    }
+    await _identityResolver.assertCurrent(resolved);
+    await _finishResolvedBinding(resolved);
   }
 
   /// finalized只推进公开身份和失效代次；不派生材料，不登记设备或请求钱包授权。

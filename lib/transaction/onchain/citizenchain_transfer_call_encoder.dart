@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:citizenapp/citizen/shared/pallet_registry.dart';
+import 'package:citizenapp/citizen/pallet_registry.dart';
 import 'package:polkadart/scale_codec.dart' show ByteOutput, CompactBigIntCodec;
 
 /// 本编码器把目标账户、金额和备注编码为 CitizenApp 自有业务 RuntimeCall；

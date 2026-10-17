@@ -3,12 +3,12 @@
 ///
 /// - 通用类型 `InstitutionInfo` / `InstitutionAccounts` / `OrgType` + 身份编码工具
 ///   `accountIdBytes` 等在
-///   `lib/citizen/shared/institution_info.dart`。
+///   `lib/citizen/institution/institution_info.dart`。
 /// - 联合投票只使用国家储委会/省储委会/省储行三类储备治理机构。
 /// - `kFixedGovernanceInstitutions` 保存不进入治理 tab 的其它固定治理机构账户。
 library;
 
-import 'package:citizenapp/citizen/shared/institution_info.dart';
+import 'package:citizenapp/citizen/institution/institution_info.dart';
 
 part 'governance_registry.generated.dart';
 

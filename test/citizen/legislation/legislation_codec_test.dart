@@ -8,7 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:citizenapp/citizen/legislation/law_models.dart';
 import 'package:citizenapp/citizen/legislation/legislation_codec.dart';
-import 'package:citizenapp/voting/legislation/legislation_vote_query_service.dart';
+import 'package:citizenapp/citizen/legislation/legislation_vote_query_service.dart';
 
 /// 单字节 compact(仅 len<64;金标向量足够)。
 int _c(int n) => n << 2;

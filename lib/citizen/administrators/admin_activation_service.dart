@@ -5,8 +5,8 @@ import 'dart:typed_data';
 
 import 'package:citizenapp/citizen/administrators/admin_account.dart';
 import 'package:citizenapp/citizen/administrators/institution_admin_service.dart';
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
-import 'package:citizenapp/citizen/shared/institution_code_label.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
+import 'package:citizenapp/citizen/institution/institution_code_label.dart';
 import 'package:citizenapp/storage/wallet_isar.dart';
 
 /// 管理员激活记录。

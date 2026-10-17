@@ -9,19 +9,19 @@ import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 import 'package:citizenapp/storage/wallet_isar.dart';
-import 'package:citizenapp/citizen/shared/multisig_create_amount_rules.dart';
+import 'package:citizenapp/transaction/personal/multisig_create_amount_rules.dart';
 import 'package:citizenapp/scanner/qr_scan_page.dart'
     show QrScanMode, QrScanPage;
 import 'package:citizenapp/scanner/qr_sign_session_page.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/account/utility/amount_format.dart';
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/transaction/amount_format.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
 import 'package:citizenapp/citizen/administrators/admin_account.dart';
 
 import 'personal_manage_service.dart';
 import 'personal_proposal_history_service.dart';
 
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 个人多签账户创建页面（无需 CID）。
 class PersonalAccountCreatePage extends StatefulWidget {

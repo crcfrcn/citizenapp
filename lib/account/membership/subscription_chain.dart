@@ -6,7 +6,7 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:polkadart/polkadart.dart' show Hasher;
 import 'package:polkadart/scale_codec.dart' show ByteOutput;
 
-import 'package:citizenapp/citizen/shared/pallet_registry.dart';
+import 'package:citizenapp/citizen/pallet_registry.dart';
 
 /// 创作者链上付款档位中的周期价格。
 class CreatorPeriodPriceInput {

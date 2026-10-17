@@ -3,11 +3,11 @@ import 'package:citizenapp/storage/user_isar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:citizenapp/8964/profile/profile_edit_page.dart';
-import 'package:citizenapp/8964/profile/citizen_profile.dart';
-import 'package:citizenapp/8964/profile/square_session_provider.dart';
-import 'package:citizenapp/8964/profile/citizen_profile_cache.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart';
+import 'package:citizenapp/account/profile/profile_edit_page.dart';
+import 'package:citizenapp/account/profile/citizen_profile.dart';
+import 'package:citizenapp/account/identity/square_session_provider.dart';
+import 'package:citizenapp/account/profile/citizen_profile_cache.dart';
+import 'package:citizenapp/network/square_api_client.dart';
 
 import '../../support/isar_test_env.dart';
 

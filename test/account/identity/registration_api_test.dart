@@ -145,4 +145,31 @@ void main() {
     addTearDown(api.close);
     await expectLater(api.prepare(c), throwsA(isA<RegistrationException>()));
   });
+
+  test('注册服务 HTTP 故障分类明确，且不透传服务端正文', () async {
+    final c = registrationContext();
+    for (final caseValue in <(int, String)>[
+      (401, '重新进行真人验证'),
+      (409, '注册状态冲突'),
+      (429, '过于频繁'),
+      (503, '注册验证服务故障'),
+    ]) {
+      final api = RegistrationApi(
+        client: MockClient((_) async => http.Response(
+          '服务端私有登记能力不得展示',
+          caseValue.$1,
+        )),
+      );
+      try {
+        await api.prepare(c);
+        fail('HTTP ${caseValue.$1} 必须失败关闭');
+      } on RegistrationException catch (error) {
+        expect(error.code, 'registration_http_${caseValue.$1}');
+        expect(error.message, contains(caseValue.$2));
+        expect(error.message, isNot(contains('私有登记能力')));
+      } finally {
+        api.close();
+      }
+    }
+  });
 }

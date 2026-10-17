@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:citizenapp/citizen/shared/proposal_detail_local_store.dart';
+import 'package:citizenapp/citizen/proposal/proposal_detail_local_store.dart';
 
 import '../../support/isar_test_env.dart';
 

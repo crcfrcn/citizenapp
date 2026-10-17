@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import 'package:citizenapp/scanner/qr_scan_page.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 收款地址输入框内的扫码按钮，只用作 `InputDecoration.suffixIcon`。
 ///

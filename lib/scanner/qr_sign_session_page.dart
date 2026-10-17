@@ -7,9 +7,9 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:citizenapp/scanner/scanner.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/security/account_security_service.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/account/identity/account_security_service.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 import 'package:provider/provider.dart';
 

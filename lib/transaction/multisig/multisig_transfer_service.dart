@@ -2,7 +2,7 @@ import 'package:citizenapp/wallet/account_balance_snapshot_store.dart';
 
 import 'dart:convert';
 
-import 'package:citizenapp/citizen/shared/pallet_registry.dart';
+import 'package:citizenapp/citizen/pallet_registry.dart';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/foundation.dart';
@@ -16,16 +16,16 @@ import 'package:citizenapp/citizen/institution/institution_chain_service.dart';
 import 'package:citizenapp/transaction/personal/personal_manage_models.dart';
 import 'package:citizenapp/transaction/personal/personal_manage_service.dart';
 
-import 'package:citizenapp/citizen/shared/institution_code_label.dart';
-import 'package:citizenapp/citizen/shared/institution_info.dart';
-import 'package:citizenapp/citizen/shared/proposal_cache.dart';
+import 'package:citizenapp/citizen/institution/institution_code_label.dart';
+import 'package:citizenapp/citizen/institution/institution_info.dart';
+import 'package:citizenapp/citizen/proposal/proposal_cache.dart';
 import 'package:citizenapp/citizen/runtime/runtime_upgrade_service.dart';
-import 'package:citizenapp/citizen/shared/proposal_models.dart';
-import 'package:citizenapp/citizen/shared/proposal_query_service.dart';
+import 'package:citizenapp/citizen/proposal/proposal_models.dart';
+import 'package:citizenapp/citizen/proposal/proposal_query_service.dart';
 import 'package:citizenapp/transaction/multisig/multisig_transfer_cache.dart';
 import 'package:citizenapp/transaction/multisig/multisig_transfer_models.dart';
-import 'package:citizenapp/voting/internal/internal_vote_query_service.dart';
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
+import 'package:citizenapp/citizen/proposal/internal_vote_query_service.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
 
 /// 固定治理机构资金业务的默认岗位码；普通机构必须由任职人明确填写动态岗位码。
 String defaultInstitutionProposerRoleCode(InstitutionInfo institution) {

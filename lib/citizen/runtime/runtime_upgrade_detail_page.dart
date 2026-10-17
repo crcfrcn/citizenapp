@@ -4,24 +4,24 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
-import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
 import 'package:flutter/services.dart';
 import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 
 import 'package:citizenapp/citizen/administrators/admin_account.dart';
 import 'package:citizenapp/citizen/administrators/institution_admin_service.dart';
-import 'package:citizenapp/citizen/shared/institution_info.dart';
+import 'package:citizenapp/citizen/institution/institution_info.dart';
 import 'package:citizenapp/citizen/institution/governance_registry.dart';
-import 'package:citizenapp/citizen/shared/proposal_context.dart';
-import 'package:citizenapp/citizen/shared/proposal_detail_local_store.dart';
-import 'package:citizenapp/citizen/shared/proposal_query_service.dart';
+import 'package:citizenapp/citizen/proposal/proposal_context.dart';
+import 'package:citizenapp/citizen/proposal/proposal_detail_local_store.dart';
+import 'package:citizenapp/citizen/proposal/proposal_query_service.dart';
 import 'package:citizenapp/citizen/runtime/runtime_upgrade_service.dart';
-import 'package:citizenapp/citizen/shared/proposal_models.dart';
+import 'package:citizenapp/citizen/proposal/proposal_models.dart';
 import 'package:citizenapp/scanner/qr_sign_session_page.dart';
-import 'package:citizenapp/security/account_security_service.dart';
-import 'package:citizenapp/voting/internal/proposal_vote_widgets.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/account/identity/account_security_service.dart';
+import 'package:citizenapp/citizen/proposal/proposal_vote_widgets.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 协议升级提案详情页。
 ///

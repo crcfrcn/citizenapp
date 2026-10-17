@@ -6,18 +6,18 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart';
 
-import 'package:citizenapp/citizen/shared/account_derivation.dart'
+import 'package:citizenapp/citizen/account_derivation.dart'
     show ss58FromAccountIdText;
 import 'package:citizenapp/scanner/qr_scan_page.dart';
 import 'package:citizenapp/scanner/qr_sign_response_page.dart';
-import 'package:citizenapp/signing/square_action_sign_service.dart';
-import 'package:citizenapp/signing/citizen_identity_sign_service.dart';
-import 'package:citizenapp/signing/citizen_occupy_sign_service.dart';
+import 'package:citizenapp/account/profile/square_action_sign_service.dart';
+import 'package:citizenapp/account/identity/citizen_identity_sign_service.dart';
+import 'package:citizenapp/account/identity/citizen_occupy_sign_service.dart';
 import 'package:citizenapp/account/identity/citizen_identity_chain_reader.dart';
-import 'package:citizenapp/security/account_security_service.dart';
-import 'package:citizenapp/security/identity_binding.dart';
+import 'package:citizenapp/account/identity/account_security_service.dart';
+import 'package:citizenapp/account/identity/identity_binding.dart';
 import 'package:citizenapp/transaction/offchain/offchain_scan_flow.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 聊天 tab「扫一扫」统一入口：扫码 → 按协议分派。
 ///

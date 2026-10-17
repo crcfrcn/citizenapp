@@ -17,8 +17,8 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:polkadart/polkadart.dart' show Hasher;
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
-import 'package:citizenapp/citizen/shared/reserved_account_names.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
+import 'package:citizenapp/citizen/reserved_account_names.dart';
 
 void main() {
   // 国家储委会 LN001-NRC0G-944805165-2026（T3/T4 新机构码 + GMB 域，单源 china_cb.rs）

@@ -2,8 +2,8 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizenapp/citizen/institution/governance_registry.dart';
-import 'package:citizenapp/citizen/shared/proposal_local_store.dart';
-import 'package:citizenapp/citizen/shared/proposal_models.dart';
+import 'package:citizenapp/citizen/proposal/proposal_local_store.dart';
+import 'package:citizenapp/citizen/proposal/proposal_models.dart';
 
 import '../../support/isar_test_env.dart';
 

@@ -5,8 +5,8 @@ import 'package:provider/provider.dart';
 import 'package:citizenapp/transaction/offchain/clearing_bank_directory.dart';
 import 'package:citizenapp/transaction/offchain/bind_clearing_bank_page.dart';
 import 'package:citizenapp/transaction/offchain/clearing_bank_prefs.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 「设置清算行」真实入口。
 ///

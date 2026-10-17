@@ -15,14 +15,14 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'package:citizenapp/citizen/shared/institution_info.dart';
-import 'package:citizenapp/citizen/shared/proposal_context.dart';
-import 'package:citizenapp/citizen/shared/institution_manage_detail_page.dart';
+import 'package:citizenapp/citizen/institution/institution_info.dart';
+import 'package:citizenapp/citizen/proposal/proposal_context.dart';
+import 'package:citizenapp/citizen/proposal/institution_manage_detail_page.dart';
 import 'package:citizenapp/transaction/multisig/multisig_transfer_detail_page.dart';
-import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
 
 import 'personal_proposal_history_service.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 class PersonalProposalListSection extends StatefulWidget {
   const PersonalProposalListSection({

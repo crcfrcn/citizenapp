@@ -1,12 +1,12 @@
 import 'dart:convert';
 
-import 'package:citizenapp/citizen/shared/pallet_registry.dart';
+import 'package:citizenapp/citizen/pallet_registry.dart';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/foundation.dart';
 import 'package:polkadart/scale_codec.dart' show CompactBigIntCodec, ByteOutput;
 import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
 import 'package:citizenapp/citizen/institution/institution_role_storage_codec.dart';
 import 'package:citizenapp/citizen/administrators/account_id_codec.dart';
 import 'package:citizenapp/citizen/administrators/admin_account.dart';

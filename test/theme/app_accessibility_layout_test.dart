@@ -4,8 +4,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:citizenapp/theme/app_layout.dart';
-import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import '../support/platform_input.dart';
 
 Widget _wrap({required double textScale, required Widget child}) {
   return MaterialApp(
@@ -62,12 +63,12 @@ void main() {
       MapEntry(key, value['localizations'][name]['stringUnit']['value'] as String));
     final iosChinese = language('zh-Hans');
     final iosEnglish = language('en');
-    final androidChinese = File(
-      'android/resources/values_strings.xml',
-    ).readAsStringSync();
-    final androidEnglish = File(
-      'android/resources/values-en_strings.xml',
-    ).readAsStringSync();
+    final androidChinese = platformInput(
+      'android/app/src/main/res/values/strings.xml',
+    );
+    final androidEnglish = platformInput(
+      'android/app/src/main/res/values-en_strings.xml',
+    );
 
     expect(iosChinese['CFBundleDisplayName'], '公民');
     expect(iosChinese['CFBundleName'], '公民');
@@ -112,14 +113,14 @@ void main() {
 
   test('Android 系统权限弹窗应用名保留默认中文与英文限定资源', () {
     final manifest = File(
-      'android/app/source/AndroidManifest.xml',
+      'android/app/AndroidManifest.xml',
     ).readAsStringSync();
-    final androidChinese = File(
-      'android/resources/values_strings.xml',
-    ).readAsStringSync();
-    final androidEnglish = File(
-      'android/resources/values-en_strings.xml',
-    ).readAsStringSync();
+    final androidChinese = platformInput(
+      'android/app/src/main/res/values/strings.xml',
+    );
+    final androidEnglish = platformInput(
+      'android/app/src/main/res/values-en_strings.xml',
+    );
 
     expect(manifest, contains('android:label="@string/app_name"'));
     expect(androidChinese, contains('<string name="app_name">公民</string>'));
@@ -139,13 +140,13 @@ void main() {
 
   test('Android MainActivity 固定竖屏，不跟随系统自动旋转', () {
     final manifest = File(
-      'android/app/source/AndroidManifest.xml',
+      'android/app/AndroidManifest.xml',
     ).readAsStringSync();
     final androidBuild = File(
       'android/app/build.gradle.kts',
     ).readAsStringSync();
     final androidEntry = File(
-      'android/app/source/MainActivity.kt',
+      'android/app/MainActivity.kt',
     ).readAsStringSync();
 
     expect(manifest, contains('android:name=".MainActivity"'));

@@ -24,8 +24,17 @@ import {rmSync,rmdirSync,constants,fstatSync,readSync,chmodSync,closeSync,openSy
 import {basename,dirname,isAbsolute,join,parse,relative,resolve,sep} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createHash,randomBytes,randomUUID} from 'node:crypto';
+import {createRequire} from 'node:module';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
+const requirePlatform=createRequire(import.meta.url);
+function platformInputs(source){
+ const ios=join(source,'ios/platform.mjs'),android=join(source,'android/platform.mjs');
+ const found=[existsSync(ios),existsSync(android)];
+ if(found[0]!==found[1])fail('平台输入清单不完整');
+ if(!found[0])return {ios:{},android:{}};
+ return {ios:requirePlatform(ios).platformFiles,android:requirePlatform(android).platformFiles};
+}
 // 本仓测试进程领取独立会话并传给子进程，正式Build仍使用平台固定根。
 if(process.env.NODE_TEST_CONTEXT&&!process.env.CITIZENAPP_TEST_SESSION)process.env.CITIZENAPP_TEST_SESSION=randomUUID();
 const testSession=process.env.NODE_TEST_CONTEXT&&/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/u.test(process.env.CITIZENAPP_TEST_SESSION||'')?process.env.CITIZENAPP_TEST_SESSION:null;
@@ -422,6 +431,7 @@ function taskScope(work){checkFixedWork(work);if(work===fixedWork('test'))return
 
 
 // 同文件回归：普通导入和正式命令不注册测试。
+
 if(inlineTestEntry){
  const {default:test}=await import('node:test');
  const {default:assert}=await import('node:assert/strict');
@@ -2688,10 +2698,10 @@ export function requirements(platform,work) {
    }
   }
  }
- // Apple依赖方式由本产品源码决定；有Podfile就必须有原始锁，纯SwiftPM无需CocoaPods。
+ // Apple依赖方式由本产品集中输入决定；Podfile 在本轮视图生成，原始锁仍在源码根。
  const apple=platform.endsWith('ios')?'ios':platform.endsWith('macos')?'macos':null;
  if(apple){const base=root,pod=join(base,apple,'Podfile'),lock=join(base,apple,'Podfile.lock');
-  if(existsSync(pod)){if(!existsSync(lock))fail('CocoaPods原始锁缺失：'+relative(root,lock));locks.push({ecosystem:'cocoapods',path:relative(root,lock)});}
+  if((apple==='ios'&&typeof platformInputs(root).ios['ios/Podfile']==='string')||existsSync(pod)){if(!existsSync(lock))fail('CocoaPods原始锁缺失：'+relative(root,lock));locks.push({ecosystem:'cocoapods',path:relative(root,lock)});}
   else {const project=[join(base,apple,'project/Runner.pbxproj')].find(existsSync);
    if(!project||!readFileSync(project,'utf8').includes('FlutterGeneratedPluginSwiftPackage'))fail('Apple工程缺少明确依赖方式');}
  }
@@ -3169,32 +3179,77 @@ async function completeMobile(platform,work,receipt,env) {
 
 // 每次调用拥有自己的取消和进程集合，导入API并发也不能共享执行状态。
 const executions=new AsyncLocalStorage();
+// 退出诊断仅接受系统错误码；命令、参数、环境和原始错误正文不进入诊断。
+function processErrorCode(error) {
+ const code=error?.code;
+ return typeof code==='string'&&(Object.hasOwn(resourceOs.constants.errno,code)||['ERR_INVALID_ARG_TYPE','ERR_OUT_OF_RANGE','ERR_UNKNOWN_SIGNAL'].includes(code))?code:'UNKNOWN';
+}
+// ps只请求数字归属和状态；仅保留本轮进程组及可证实的后代，不读取命令行。
+function processGroupMembers(source,pid) {
+ const rows=[];
+ for(const line of source.split('\n')){
+  const match=/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+([A-Za-z+<>=-]{1,16})\s*$/u.exec(line);
+  if(!match)continue;
+  const [member,ppid,pgid,uid]=match.slice(1,5).map(Number);
+  if(![member,ppid,pgid,uid].every(Number.isSafeInteger)||member<1)continue;
+  rows.push({pid:member,ppid,pgid,uid,state:match[5][0]});
+ }
+ const descendants=new Set([pid]);let changed=true;
+ while(changed){changed=false;for(const row of rows)if(descendants.has(row.ppid)&&!descendants.has(row.pid)){descendants.add(row.pid);changed=true;}}
+ const members=rows.filter(row=>row.pgid===pid||descendants.has(row.pid));
+ return {members:members.slice(0,32),truncated:members.length>32};
+}
+function processGroupSnapshot(pid) {
+ if(!Number.isSafeInteger(pid)||pid<1)return {status:'notStarted',members:[],truncated:false};
+ if(process.platform==='win32')return {status:'unsupported',members:[],truncated:false};
+ try{
+  const result=spawnSync('/bin/ps',['-axo','pid=,ppid=,pgid=,uid=,stat='],{encoding:'utf8',timeout:1000,maxBuffer:256*1024,env:{PATH:'/usr/bin:/bin',LANG:'C',LC_ALL:'C'}});
+  if(result.error||result.status!==0)return {status:'unavailable',code:processErrorCode(result.error),members:[],truncated:false};
+  return {status:'ok',...processGroupMembers(result.stdout,pid)};
+ }catch(error){return {status:'unavailable',code:processErrorCode(error),members:[],truncated:false};}
+}
 export async function runBuildProcess(file,args,env,cwd=root,{capture=false,input,accepted=[0],timeout=7200000,signal=executions.getStore()?.signal,passHost=false,streamError=false}={}) {
  signal?.throwIfAborted();
  return new Promise((ok,reject)=>{
+  const started=performance.now(),timeline=[],snapshots=[];let omitted=0;
+  const elapsed=()=>Math.round(performance.now()-started);
+  const mark=(event,fields={})=>{if(timeline.length<48)timeline.push({ms:elapsed(),event,...fields});else omitted++;};
+  const signalName=value=>typeof value==='string'&&Object.hasOwn(resourceOs.constants.signals,value)?value:'none';
   const child=spawn(file,args,{cwd,env:workEnvironment(env),detached:true,stdio:['pipe','pipe','pipe',...(passHost?[3]:[])]});
+  mark('created');
   trackWorkProcess(child.pid);
   let stdout=[],stderr=[],bytes=0,reason,settled=false;
-  const stop=()=>{try{process.kill(-child.pid,'SIGTERM');}catch(error){if(error.code!=='ESRCH')reason='无法取消产品工具进程组';}};
+  // 最多两次只读快照；采样失败不改变原有探测、信号或退出判定。
+  const sample=stage=>{if(snapshots.length<2)snapshots.push({ms:elapsed(),stage,...processGroupSnapshot(child.pid)});};
+  const diagnostics=new Map(),record=(stage,error)=>{const code=processErrorCode(error);diagnostics.set(stage,code);mark(stage,{code});if(stage==='probe'&&snapshots.length===0)sample('probeError');};
+  const stop=()=>{try{process.kill(-child.pid,'SIGTERM');mark('SIGTERM',{code:'sent'});}catch(error){if(error.code!=='ESRCH'){record('SIGTERM',error);reason='无法取消产品工具进程组';}else mark('SIGTERM',{code:'ESRCH'});}};
   let killer;
-  const terminate=()=>{stop();clearTimeout(killer);killer=setTimeout(()=>{try{process.kill(-child.pid,'SIGKILL');}catch{}},1500);};
-  const forced=setTimeout(()=>{reason='产品工具超时';terminate();},timeout);forced.unref();
-  const abort=()=>{reason='产品任务已取消';terminate();};
+  const terminate=()=>{stop();clearTimeout(killer);killer=setTimeout(()=>{try{process.kill(-child.pid,'SIGKILL');mark('SIGKILL',{code:'sent'});}catch(error){if(error.code!=='ESRCH')record('SIGKILL',error);else mark('SIGKILL',{code:'ESRCH'});}},1500);};
+  const forced=setTimeout(()=>{mark('timeout');reason='产品工具超时';terminate();},timeout);forced.unref();
+  const abort=()=>{mark('abort');reason='产品任务已取消';terminate();};
   signal?.addEventListener('abort',abort,{once:true});
   const consume=(chunk,out)=>{bytes+=chunk.length;if(bytes>16*1024*1024){reason='产品工具输出超限';terminate();return;}out.push(chunk);if(!capture)process.stderr.write(chunk);};
   child.stdout.on('data',chunk=>consume(chunk,stdout));child.stderr.on('data',chunk=>{if(capture&&streamError)process.stderr.write(chunk);else consume(chunk,stderr);});
-  child.stdin.on('error',()=>{reason='产品工具输入失败';stop();});
-  child.once('error',()=>{reason='产品工具无法启动';});
+  child.stdin.on('error',error=>{record('stdin',error);reason='产品工具输入失败';stop();});
+  child.once('error',error=>{record('spawn',error);reason='产品工具无法启动';});
+  child.once('spawn',()=>mark('spawn'));
+  child.once('exit',(code,termination)=>mark('exit',{code:Number.isSafeInteger(code)?code:null,signal:signalName(termination)}));
   child.once('close',async(code,termination)=>{
+   mark('close',{code:Number.isSafeInteger(code)?code:null,signal:signalName(termination)});
    clearTimeout(forced);clearTimeout(killer);
    // 主进程close不代表后代退出；未退出的同组工具必须停止并确认，之后才能清理材料。
-   const alive=()=>{if(!child.pid)return false;try{process.kill(-child.pid,0);return true;}catch(error){return error.code!=='ESRCH';}};
-   if(alive()){reason??='产品工具退出后仍有后代';stop();for(let n=0;n<15&&alive();n++)await new Promise(r=>setTimeout(r,100));if(alive())try{process.kill(-child.pid,'SIGKILL');}catch{};for(let n=0;n<15&&alive();n++)await new Promise(r=>setTimeout(r,100));}
+   const alive=()=>{if(!child.pid)return false;try{process.kill(-child.pid,0);mark('probe',{code:'alive'});return true;}catch(error){if(error.code!=='ESRCH')record('probe',error);else mark('probe',{code:'ESRCH'});return error.code!=='ESRCH';}};
+   if(alive()){if(snapshots.length===0)sample('beforeStop');reason??='产品工具退出后仍有后代';stop();for(let n=0;n<15&&alive();n++)await new Promise(r=>setTimeout(r,100));if(alive())try{process.kill(-child.pid,'SIGKILL');mark('SIGKILL',{code:'sent'});}catch(error){if(error.code!=='ESRCH')record('SIGKILL',error);else mark('SIGKILL',{code:'ESRCH'});};for(let n=0;n<15&&alive();n++)await new Promise(r=>setTimeout(r,100));}
    if(alive()){reason='产品工具后代退出未确认，保留工作目录';const state=executions.getStore();if(state)state.unconfirmed=true;}
    signal?.removeEventListener('abort',abort);clearTimeout(killer);
    if(signal?.aborted)reason='产品任务已取消';
    if(settled)return;settled=true;
-   if(reason||termination||!accepted.includes(code))reject(Error(reason||'产品工具执行失败'));
+   if(reason||termination||!accepted.includes(code)){
+    const exit=Number.isSafeInteger(code)?String(code):'none';
+    sample('settled');
+    const processDetails={pid:Number.isSafeInteger(child.pid)?child.pid:null,expectedPgid:Number.isSafeInteger(child.pid)?child.pid:null,parentPid:process.pid,parentUid:process.getuid?.()??null,elapsedMs:elapsed(),timeline,omitted,snapshots};
+    reject(Error(`${reason||'产品工具执行失败'}（exit=${exit}，signal=${signalName(termination)}，errors=${[...diagnostics].map(([stage,value])=>`${stage}:${value}`).join(',')||'none'}，process=${JSON.stringify(processDetails)}）`));
+   }
    else ok({stdout:Buffer.concat(stdout).toString('utf8'),stderr:Buffer.concat(stderr).toString('utf8'),code});
   });
   child.stdin.end(input);
@@ -3328,20 +3383,26 @@ async function productHost() {
 }
 // 模块先完成初始化，资源模块才能反向导入本文件的唯一校验；异步CLI在独立Promise中执行。
 
-// 原生消费路径只在target恢复；Logo统一读取assets/logo，同内容只保留一个来源。
-export const PLATFORM_INPUTS=Object.freeze([["android/app/tests/MlsTransportSecurityInstrumentedTest.kt","android/app/src/androidTest/MlsTransportSecurityInstrumentedTest.kt"],["android/app/tests/RegistrationRecordSecurityInstrumentedTest.kt","android/app/src/androidTest/RegistrationRecordSecurityInstrumentedTest.kt"],["android/app/tests/SquareMediaChannelInstrumentedTest.kt","android/app/src/androidTest/SquareMediaChannelInstrumentedTest.kt"],["android/app/source/debug_manifest.xml","android/app/src/debug_manifest.xml"],["android/app/source/AndroidManifest.xml","android/app/src/main/AndroidManifest.xml"],["android/app/source/MainActivity.kt","android/app/src/main/MainActivity.kt"],["android/app/source/SquareMediaChannel.kt","android/app/src/main/SquareMediaChannel.kt"],["android/app/source/SquareMp4FastStart.kt","android/app/src/main/SquareMp4FastStart.kt"],["android/app/source/SquareVideoTranscoder.kt","android/app/src/main/SquareVideoTranscoder.kt"],["android/resources/drawable-v21_launch_background.xml","android/app/src/main/res/drawable-v21_launch_background.xml"],["android/resources/drawable_launch_background.xml","android/app/src/main/res/drawable_launch_background.xml"],["android/resources/mipmap_anydpi_v26_ic_launcher.xml","android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml"],["android/resources/mipmap_anydpi_v26_ic_launcher_round.xml","android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml"],["assets/logo/icon72.png","android/app/src/main/res/mipmap-hdpi/ic_launcher.png"],["assets/logo/foreground162.png","android/app/src/main/res/mipmap-hdpi/ic_launcher_foreground.png"],["assets/logo/icon72.png","android/app/src/main/res/mipmap-hdpi/ic_launcher_round.png"],["assets/logo/launch180.png","android/app/src/main/res/mipmap-hdpi/launch_image.png"],["assets/logo/icon48.png","android/app/src/main/res/mipmap-mdpi/ic_launcher.png"],["assets/logo/foreground108.png","android/app/src/main/res/mipmap-mdpi/ic_launcher_foreground.png"],["assets/logo/icon48.png","android/app/src/main/res/mipmap-mdpi/ic_launcher_round.png"],["assets/logo/launch120.png","android/app/src/main/res/mipmap-mdpi/launch_image.png"],["assets/logo/icon96.png","android/app/src/main/res/mipmap-xhdpi/ic_launcher.png"],["assets/logo/foreground216.png","android/app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.png"],["assets/logo/icon96.png","android/app/src/main/res/mipmap-xhdpi/ic_launcher_round.png"],["assets/logo/launch240.png","android/app/src/main/res/mipmap-xhdpi/launch_image.png"],["assets/logo/icon144.png","android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png"],["assets/logo/foreground324.png","android/app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png"],["assets/logo/icon144.png","android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png"],["assets/logo/launch360.png","android/app/src/main/res/mipmap-xxhdpi/launch_image.png"],["assets/logo/icon192.png","android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png"],["assets/logo/foreground432.png","android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png"],["assets/logo/icon192.png","android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png"],["assets/logo/launch480.png","android/app/src/main/res/mipmap-xxxhdpi/launch_image.png"],["android/resources/values-en_strings.xml","android/app/src/main/res/values-en_strings.xml"],["android/resources/values-night_styles.xml","android/app/src/main/res/values-night_styles.xml"],["android/resources/values_colors.xml","android/app/src/main/res/values/colors.xml"],["android/resources/values_strings.xml","android/app/src/main/res/values/strings.xml"],["android/resources/values_styles.xml","android/app/src/main/res/values/styles.xml"],["android/resources/xml_network_security_config.xml","android/app/src/main/res/xml/network_security_config.xml"],["android/resources/xml_update_file_paths.xml","android/app/src/main/res/xml/update_file_paths.xml"],["android/app/source/profile_manifest.xml","android/app/src/profile_manifest.xml"],["ios/config/AppFrameworkInfo.plist","ios/Flutter/AppFrameworkInfo.plist"],["ios/config/Debug.xcconfig","ios/Flutter/Debug.xcconfig"],["ios/config/Release.xcconfig","ios/Flutter/Release.xcconfig"],["ios/project/Runner.pbxproj","ios/Runner.xcodeproj/project.pbxproj"],["ios/project/project.xcworkspacedata","ios/Runner.xcodeproj/project.xcworkspace/contents.xcworkspacedata"],["ios/project/ProjectWorkspaceChecks.plist","ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist"],["ios/project/ProjectWorkspaceSettings.xcsettings","ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings"],["ios/project/Runner.xcscheme","ios/Runner.xcscheme"],["ios/project/Runner.xcworkspacedata","ios/Runner.xcworkspace/contents.xcworkspacedata"],["ios/project/RunnerWorkspaceChecks.plist","ios/Runner.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist"],["ios/project/RunnerWorkspaceSettings.xcsettings","ios/Runner.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings"],["ios/source/AppDelegate.swift","ios/Runner/AppDelegate.swift"],["ios/resources/icons.json","ios/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json"],["assets/logo/icon1024.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png"],["assets/logo/icon20.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-20x20@1x.png"],["assets/logo/icon40.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-20x20@2x.png"],["assets/logo/icon60.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-20x20@3x.png"],["assets/logo/icon29.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-29x29@1x.png"],["assets/logo/icon58.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-29x29@2x.png"],["assets/logo/icon87.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-29x29@3x.png"],["assets/logo/icon40.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-40x40@1x.png"],["assets/logo/icon80.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-40x40@2x.png"],["assets/logo/icon120.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-40x40@3x.png"],["assets/logo/icon120.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-60x60@2x.png"],["assets/logo/icon180.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-60x60@3x.png"],["assets/logo/icon76.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-76x76@1x.png"],["assets/logo/icon152.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-76x76@2x.png"],["assets/logo/icon167.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-83.5x83.5@2x.png"],["assets/logo/launch160.png","ios/Runner/Assets.xcassets/CitizenLaunchLogo.imageset/CitizenLaunchLogo.png"],["assets/logo/launch320.png","ios/Runner/Assets.xcassets/CitizenLaunchLogo.imageset/CitizenLaunchLogo@2x.png"],["assets/logo/launch480.png","ios/Runner/Assets.xcassets/CitizenLaunchLogo.imageset/CitizenLaunchLogo@3x.png"],["ios/resources/launch.json","ios/Runner/Assets.xcassets/CitizenLaunchLogo.imageset/Contents.json"],["ios/resources/CitizenLaunchScreen.storyboard","ios/Runner/Base.lproj/CitizenLaunchScreen.storyboard"],["ios/resources/Main.storyboard","ios/Runner/Base.lproj/Main.storyboard"],["ios/source/Info.plist","ios/Runner/Info.plist"],["ios/source/InfoPlist.xcstrings","ios/Runner/InfoPlist.xcstrings"],["ios/source/Runner-Bridging-Header.h","ios/Runner/Runner-Bridging-Header.h"],["ios/source/Runner.entitlements","ios/Runner/Runner.entitlements"],["ios/source/SceneDelegate.swift","ios/Runner/SceneDelegate.swift"],["ios/source/SquareMediaChannel.swift","ios/Runner/SquareMediaChannel.swift"],["ios/source/SquareVideoTranscoder.swift","ios/Runner/SquareVideoTranscoder.swift"],["ios/source/SystemProtectedDataChannel.swift","ios/Runner/SystemProtectedDataChannel.swift"],["ios/tests/RunnerTests.swift","ios/RunnerTests.swift"],["ios/tests/RunnerUITests.swift","ios/RunnerUITests.swift"],["ios/project/RunnerUITests.xcscheme","ios/RunnerUITests.xcscheme"]]);
+// 广场原生实现归平台一级square目录；Xcode/Gradle消费路径只在target恢复，Logo仍只读assets/logo。
+export const PLATFORM_INPUTS=Object.freeze([["android/app/InstrumentedTests.kt","android/app/src/androidTest/InstrumentedTests.kt"],["android/app/AndroidManifest.xml","android/app/src/main/AndroidManifest.xml"],["android/app/MainActivity.kt","android/app/src/main/MainActivity.kt"],["android/square/SquareMediaChannel.kt","android/app/src/main/SquareMediaChannel.kt"],["android/square/SquareMp4FastStart.kt","android/app/src/main/SquareMp4FastStart.kt"],["android/square/SquareVideoTranscoder.kt","android/app/src/main/SquareVideoTranscoder.kt"],["assets/logo/icon72.png","android/app/src/main/res/mipmap-hdpi/ic_launcher.png"],["assets/logo/foreground162.png","android/app/src/main/res/mipmap-hdpi/ic_launcher_foreground.png"],["assets/logo/icon72.png","android/app/src/main/res/mipmap-hdpi/ic_launcher_round.png"],["assets/logo/launch180.png","android/app/src/main/res/mipmap-hdpi/launch_image.png"],["assets/logo/icon48.png","android/app/src/main/res/mipmap-mdpi/ic_launcher.png"],["assets/logo/foreground108.png","android/app/src/main/res/mipmap-mdpi/ic_launcher_foreground.png"],["assets/logo/icon48.png","android/app/src/main/res/mipmap-mdpi/ic_launcher_round.png"],["assets/logo/launch120.png","android/app/src/main/res/mipmap-mdpi/launch_image.png"],["assets/logo/icon96.png","android/app/src/main/res/mipmap-xhdpi/ic_launcher.png"],["assets/logo/foreground216.png","android/app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.png"],["assets/logo/icon96.png","android/app/src/main/res/mipmap-xhdpi/ic_launcher_round.png"],["assets/logo/launch240.png","android/app/src/main/res/mipmap-xhdpi/launch_image.png"],["assets/logo/icon144.png","android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png"],["assets/logo/foreground324.png","android/app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png"],["assets/logo/icon144.png","android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png"],["assets/logo/launch360.png","android/app/src/main/res/mipmap-xxhdpi/launch_image.png"],["assets/logo/icon192.png","android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png"],["assets/logo/foreground432.png","android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png"],["assets/logo/icon192.png","android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png"],["assets/logo/launch480.png","android/app/src/main/res/mipmap-xxxhdpi/launch_image.png"],["ios/project/Runner.pbxproj","ios/Runner.xcodeproj/project.pbxproj"],["ios/project/Runner.xcscheme","ios/Runner.xcscheme"],["ios/source/AppDelegate.swift","ios/Runner/AppDelegate.swift"],["assets/logo/icon1024.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png"],["assets/logo/icon20.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-20x20@1x.png"],["assets/logo/icon40.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-20x20@2x.png"],["assets/logo/icon60.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-20x20@3x.png"],["assets/logo/icon29.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-29x29@1x.png"],["assets/logo/icon58.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-29x29@2x.png"],["assets/logo/icon87.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-29x29@3x.png"],["assets/logo/icon40.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-40x40@1x.png"],["assets/logo/icon80.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-40x40@2x.png"],["assets/logo/icon120.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-40x40@3x.png"],["assets/logo/icon120.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-60x60@2x.png"],["assets/logo/icon180.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-60x60@3x.png"],["assets/logo/icon76.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-76x76@1x.png"],["assets/logo/icon152.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-76x76@2x.png"],["assets/logo/icon167.png","ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-83.5x83.5@2x.png"],["assets/logo/launch160.png","ios/Runner/Assets.xcassets/CitizenLaunchLogo.imageset/CitizenLaunchLogo.png"],["assets/logo/launch320.png","ios/Runner/Assets.xcassets/CitizenLaunchLogo.imageset/CitizenLaunchLogo@2x.png"],["assets/logo/launch480.png","ios/Runner/Assets.xcassets/CitizenLaunchLogo.imageset/CitizenLaunchLogo@3x.png"],["ios/source/Info.plist","ios/Runner/Info.plist"],["ios/source/InfoPlist.xcstrings","ios/Runner/InfoPlist.xcstrings"],["ios/square/SquareMediaChannel.swift","ios/Runner/SquareMediaChannel.swift"],["ios/square/SquareVideoTranscoder.swift","ios/Runner/SquareVideoTranscoder.swift"],["ios/source/SystemProtectedDataChannel.swift","ios/Runner/SystemProtectedDataChannel.swift"],["ios/tests/RunnerTests.swift","ios/RunnerTests.swift"],["ios/tests/RunnerUITests.swift","ios/RunnerUITests.swift"]]);
 export function materializePlatformInputs(source,destination) {
  for(const [inputName,outputName] of PLATFORM_INPUTS) {
   const input=join(source,inputName);if(!existsSync(input))continue;
   const output=join(destination,outputName);mkdirSync(dirname(output),{recursive:true,mode:0o700});
   copyHostInput(input,output,source);
  }
+ // 平台工具所需的短输入由本仓唯一清单还原为本轮普通文件；夹具源根不投影产品配置。
+ if(source===root)for(const [outputName,contents] of Object.entries({...platformInputs(root).ios,...platformInputs(root).android})) {
+  if(!/^(?:ios|android)\/[A-Za-z0-9_./-]+$/u.test(outputName)||outputName.split('/').some(part=>!part||part==='.'||part==='..')||typeof contents!=='string')fail('平台输入清单无效');
+  const output=join(destination,outputName);if(existsSync(output))fail('平台输入重复：'+outputName);
+  mkdirSync(dirname(output),{recursive:true,mode:0o700});writeFileSync(output,contents,{flag:'wx'});
+ }
  writeFileSync(join(destination,'analysis_options.yaml'),ANALYSIS_OPTIONS_SOURCE);
  writeFileSync(join(destination,'dart_test.yaml'),DART_TEST_SOURCE);
 }
 export const ANALYSIS_OPTIONS_SOURCE = "include: package:flutter_lints/flutter.yaml\n\nanalyzer:\n  exclude:\n    - \"**/*.g.dart\"\n    # 工程视图内的锁定SDK与生成缓存归target，不扫描其独立测试。\n    - \"target/**\"\n\nlinter:\n  rules:\n    prefer_const_constructors: true\n    use_build_context_synchronously: true\n";
 export const DART_TEST_SOURCE = "# CitizenApp 测试配置。\n# Isar(isar_community / MDBX)是进程级 native;跨文件隔离由 test/support/isar_test_env.dart\n# 的唯一临时目录保证,此处再钉死串行执行 + 合理超时作保险(默认并发会让多 isolate 抢\n# 同一 native 层、更慢且易 flaky)。\nconcurrency: 1\ntimeout: 90s\n";
-export const LOGO_ASSETS_SOURCE = "{\n  \"schema\": 1,\n  \"product\": \"citizenapp\",\n  \"source\": {\n    \"repository\": \"crcfrcn/citizenchain\",\n    \"path\": \"icons/logo.png\",\n    \"sha256\": \"81e11c03b8b2c2702d745870424660239308c1b2d1caf91cfb1b688367fe8a53\"\n  },\n  \"files\": {\n    \"android/resources/values_colors.xml\": \"d0384216cbc00e635a975599f270af729cd9fa860bacf62d121680f585561bd3\",\n    \"assets/logo/foreground108.png\": \"ed7d9b1eabd510ebcae47221ff78381a2ba2d41e5a4990e56d25ebabdad3c65a\",\n    \"assets/logo/foreground162.png\": \"7ff1c4ae15d00f6a65a8ce6471054d6e37c5664cc9104f844aa9904882591e63\",\n    \"assets/logo/foreground216.png\": \"f8c5bbeb68c77abaa74ffb1f402221f5115bcf4d24ebf7e854490ff34e081e5e\",\n    \"assets/logo/foreground324.png\": \"57afe78264c3179f166cbae09c47c70f1535e07ac3ba25db319efbd3c8ed8656\",\n    \"assets/logo/foreground432.png\": \"6f2b955dfdd30cf4c0613d4c78255be0de43d06281fd0ec57ee6feb10bd1b06d\",\n    \"assets/logo/icon1024.png\": \"b79d8b2c3ff321af5bbfed756f843234fb98d4d7c0cf9109b2fbea183b29413d\",\n    \"assets/logo/icon120.png\": \"9bde3a24f31c602e5ad759d12ca861525163258d3ef368dc9c0aac71a9bd4bed\",\n    \"assets/logo/icon152.png\": \"31c6e6724a648c4aebdfee9d50a90fb8fbc2e0f5833912967a889893504b8818\",\n    \"assets/logo/icon167.png\": \"07fa68c82a6a71f0dfaa70f7a6b49bcd13cf9c595594ab49f35bda799f0db153\",\n    \"assets/logo/icon180.png\": \"ef6f852849fe7d6ccefa6928548df05e1b20afefa73fa2182e3816bff6a89154\",\n    \"assets/logo/icon20.png\": \"186ee5943cba56e68615de3de410d8813b81fa175deb9abcc0d9b8b8cd2a97e0\",\n    \"assets/logo/icon29.png\": \"1200ad5ae52d5b1991116bb323f64dfa3efc4a2d4ffd91a493d57d92386f54a9\",\n    \"assets/logo/icon40.png\": \"b3af1ab701c34e7d35bfc348ef7b4720eee4182b1f2a795bd70cc5d336357541\",\n    \"assets/logo/icon58.png\": \"116e7257b5e5cdb81a86704db37b584a8ebee07ab84d424b495d5bb9c36c1a86\",\n    \"assets/logo/icon60.png\": \"fb3628fe0d573ea189dec5fb2354524c0a4f31e0876fee64c0085f6351264f0e\",\n    \"assets/logo/icon76.png\": \"4b03895eb0e1db9b6cf7ebd467a34383315e68aa8b5b63ed3a5e51f7fe70a138\",\n    \"assets/logo/icon80.png\": \"b2ccd91bc44810cdf5ddc2094e597a49a7eab2a8563593aa8b2e00e85c643d17\",\n    \"assets/logo/icon87.png\": \"7b226f834d9aedf30c1f07b742a9aa4793c89afaa9f3f953480b764380ad85af\",\n    \"assets/logo/launch120.png\": \"1ce729c3a23ac185f6a54397bef5d5c8a317f67b38f66bea1f3393b6dec9da2a\",\n    \"assets/logo/icon144.png\": \"f203f0700e86403515c280f2a0c6c933ab1bdb95c63a12f5187de1629ad87b7f\",\n    \"assets/logo/launch160.png\": \"b7ce607af0ecd513fababdda9831aa3056cb99e3fd45234bea7ef4d0de9c88aa\",\n    \"assets/logo/launch180.png\": \"81789009c4dc03a283f610183cf0b462dc7e473dbdbbd6edb4da12a62a4f5177\",\n    \"assets/logo/icon192.png\": \"092869629be4dd591352237a789f08a21e09c5c28faf66b503e16e9cc7e0f5d6\",\n    \"assets/logo/launch240.png\": \"fff07730b40f242d922c023d21f7db62555acac86365c9fc96276daf0b65c488\",\n    \"assets/logo/launch320.png\": \"9188e7f70e8a492d2bd3af021f1f2be7688e64d3bebc317d88f2ad1a169c2432\",\n    \"assets/logo/launch360.png\": \"06c6b7d208914e36eb4f6fedb62828027534eac81c338a0bf6060872fa61f9d0\",\n    \"assets/logo/icon48.png\": \"4c03ec508fdcb94a1a037aa66477d749ff96d2c35e46a3adbe3b27ba64c27632\",\n    \"assets/logo/launch480.png\": \"34a50a60d559d09fdd1037fad391ad62b242c842f6845f2cb76c57486ef150be\",\n    \"assets/logo/icon72.png\": \"c8cfdefdbc3b28e2e7d123bc36cd509fb93fc60c9436632afc69265554e81b62\",\n    \"assets/logo/icon96.png\": \"278eb6a62a06c0ef22a50b6c358533f88d5b9fd1e6c93e711e298155908d9bee\",\n    \"assets/logo/mark256.png\": \"f097de9e416019941ec61635ed5bcf7119000a0ad1e9f7c24359110088446d64\",\n    \"ios/resources/icons.json\": \"3b1e214f466ffedff74baa5598ad5c4421130eea6bc8d57b8fe23435e8280ae4\",\n    \"ios/resources/launch.json\": \"1f9acec06f02258e719a8e3d1895b2b06111f2b21063f598d00bf875ffa52fb3\"\n  }\n}\n";
+export const LOGO_ASSETS_SOURCE = "{\n  \"schema\": 1,\n  \"product\": \"citizenapp\",\n  \"source\": {\n    \"repository\": \"crcfrcn/citizenchain\",\n    \"path\": \"icons/logo.png\",\n    \"sha256\": \"81e11c03b8b2c2702d745870424660239308c1b2d1caf91cfb1b688367fe8a53\"\n  },\n  \"files\": {\n    \"assets/logo/foreground108.png\": \"ed7d9b1eabd510ebcae47221ff78381a2ba2d41e5a4990e56d25ebabdad3c65a\",\n    \"assets/logo/foreground162.png\": \"7ff1c4ae15d00f6a65a8ce6471054d6e37c5664cc9104f844aa9904882591e63\",\n    \"assets/logo/foreground216.png\": \"f8c5bbeb68c77abaa74ffb1f402221f5115bcf4d24ebf7e854490ff34e081e5e\",\n    \"assets/logo/foreground324.png\": \"57afe78264c3179f166cbae09c47c70f1535e07ac3ba25db319efbd3c8ed8656\",\n    \"assets/logo/foreground432.png\": \"6f2b955dfdd30cf4c0613d4c78255be0de43d06281fd0ec57ee6feb10bd1b06d\",\n    \"assets/logo/icon1024.png\": \"b79d8b2c3ff321af5bbfed756f843234fb98d4d7c0cf9109b2fbea183b29413d\",\n    \"assets/logo/icon120.png\": \"9bde3a24f31c602e5ad759d12ca861525163258d3ef368dc9c0aac71a9bd4bed\",\n    \"assets/logo/icon152.png\": \"31c6e6724a648c4aebdfee9d50a90fb8fbc2e0f5833912967a889893504b8818\",\n    \"assets/logo/icon167.png\": \"07fa68c82a6a71f0dfaa70f7a6b49bcd13cf9c595594ab49f35bda799f0db153\",\n    \"assets/logo/icon180.png\": \"ef6f852849fe7d6ccefa6928548df05e1b20afefa73fa2182e3816bff6a89154\",\n    \"assets/logo/icon20.png\": \"186ee5943cba56e68615de3de410d8813b81fa175deb9abcc0d9b8b8cd2a97e0\",\n    \"assets/logo/icon29.png\": \"1200ad5ae52d5b1991116bb323f64dfa3efc4a2d4ffd91a493d57d92386f54a9\",\n    \"assets/logo/icon40.png\": \"b3af1ab701c34e7d35bfc348ef7b4720eee4182b1f2a795bd70cc5d336357541\",\n    \"assets/logo/icon58.png\": \"116e7257b5e5cdb81a86704db37b584a8ebee07ab84d424b495d5bb9c36c1a86\",\n    \"assets/logo/icon60.png\": \"fb3628fe0d573ea189dec5fb2354524c0a4f31e0876fee64c0085f6351264f0e\",\n    \"assets/logo/icon76.png\": \"4b03895eb0e1db9b6cf7ebd467a34383315e68aa8b5b63ed3a5e51f7fe70a138\",\n    \"assets/logo/icon80.png\": \"b2ccd91bc44810cdf5ddc2094e597a49a7eab2a8563593aa8b2e00e85c643d17\",\n    \"assets/logo/icon87.png\": \"7b226f834d9aedf30c1f07b742a9aa4793c89afaa9f3f953480b764380ad85af\",\n    \"assets/logo/launch120.png\": \"1ce729c3a23ac185f6a54397bef5d5c8a317f67b38f66bea1f3393b6dec9da2a\",\n    \"assets/logo/icon144.png\": \"f203f0700e86403515c280f2a0c6c933ab1bdb95c63a12f5187de1629ad87b7f\",\n    \"assets/logo/launch160.png\": \"b7ce607af0ecd513fababdda9831aa3056cb99e3fd45234bea7ef4d0de9c88aa\",\n    \"assets/logo/launch180.png\": \"81789009c4dc03a283f610183cf0b462dc7e473dbdbbd6edb4da12a62a4f5177\",\n    \"assets/logo/icon192.png\": \"092869629be4dd591352237a789f08a21e09c5c28faf66b503e16e9cc7e0f5d6\",\n    \"assets/logo/launch240.png\": \"fff07730b40f242d922c023d21f7db62555acac86365c9fc96276daf0b65c488\",\n    \"assets/logo/launch320.png\": \"9188e7f70e8a492d2bd3af021f1f2be7688e64d3bebc317d88f2ad1a169c2432\",\n    \"assets/logo/launch360.png\": \"06c6b7d208914e36eb4f6fedb62828027534eac81c338a0bf6060872fa61f9d0\",\n    \"assets/logo/icon48.png\": \"4c03ec508fdcb94a1a037aa66477d749ff96d2c35e46a3adbe3b27ba64c27632\",\n    \"assets/logo/launch480.png\": \"34a50a60d559d09fdd1037fad391ad62b242c842f6845f2cb76c57486ef150be\",\n    \"assets/logo/icon72.png\": \"c8cfdefdbc3b28e2e7d123bc36cd509fb93fc60c9436632afc69265554e81b62\",\n    \"assets/logo/icon96.png\": \"278eb6a62a06c0ef22a50b6c358533f88d5b9fd1e6c93e711e298155908d9bee\",\n    \"assets/logo/mark256.png\": \"f097de9e416019941ec61635ed5bcf7119000a0ad1e9f7c24359110088446d64\"\n  }\n}\n";
 export const TEST_INPUTS_SOURCE = "{\n  \"schema\": 1,\n  \"citizenchain\": {\n    \"url\": \"https://github.com/crcfrcn/citizenchain.git\",\n    \"ref\": \"main\",\n    \"paths\": [\n      \"runtime/primitives/tests/fixtures/scale_codec_vectors.json\",\n      \"runtime/primitives/tests/fixtures/role_permission.json\"\n    ]\n  }\n}\n";
 async function sourceViewImplementation() {
 // CitizenApp本机Build的target内消费工程；宿主输入复制独占文件，源码只供读取。
@@ -3687,8 +3748,6 @@ async function createView(sourceInput, workInput, android = false) {
       // Xcode/Gradle 固定入口只在target内生成；每个入口绑定一个已核对的源文件。
       const mappings = [
         ['ios/project/Runner.xcscheme', 'ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme'],
-        ['ios/project/RunnerUITests.xcscheme', 'ios/Runner.xcodeproj/xcshareddata/xcschemes/RunnerUITests.xcscheme'],
-        ['android/gradle-wrapper.properties', 'android/gradle/wrapper/gradle-wrapper.properties'],
       ];
       for (const [sourcePath, targetPath] of mappings) {
         const input = join(sourceRoot, sourcePath), output = join(destinationRoot, targetPath);
@@ -4695,7 +4754,7 @@ if(manifest.schema!==1||manifest.product!=='citizenapp'
  ||Object.keys(manifest.files||{}).length<30) throw Error('公民Logo来源清单无效');
 const imageHashes=new Set(),images=new Set();
 for(const [relative,hash] of Object.entries(manifest.files)) {
- if(!/^(?:assets\/logo\/(?:icon|foreground|launch|mark)[1-9][0-9]*[.]png|ios\/resources\/(?:icons|launch)[.]json|android\/resources\/values_colors[.]xml)$/.test(relative)
+ if(!/^assets\/logo\/(?:icon|foreground|launch|mark)[1-9][0-9]*[.]png$/.test(relative)
   ||relative.split('/').some(part=>!part||part==='.'||part==='..')
   ||!/^[a-f0-9]{64}$/.test(hash)) throw Error('公民Logo清单路径或摘要无效');
  let current=root;
@@ -4720,7 +4779,8 @@ function rejectPlatformCopies(directory){
   else if(name.endsWith('.png'))throw Error('原生源码目录不得重复保存Logo图片');
  }
 }
-for(const platform of ['android','ios'])rejectPlatformCopies(join(root,platform,'resources'));
+// 扁平平台源码不再有 resources 子目录；扫描整个平台输入树拒绝图标副本。
+for(const platform of ['android','ios'])rejectPlatformCopies(join(root,platform));
 process.stdout.write('公民Logo派生物清单检查通过\n');
 
 }
@@ -5002,7 +5062,7 @@ const fixture=work=>{
 test('每个平台从自身原始锁只读提出需求；缺失原始Pod锁按源码事实拒绝',async()=>{
  const work=sandbox();try{for(const platform of Object.keys(contract.platforms)){
   const before=readdirSync(work),apple=platform.endsWith('ios')?'ios':platform.endsWith('macos')?'macos':null;
-  if(apple&&existsSync(join(base,apple,'Podfile'))&&!existsSync(join(base,apple,'Podfile.lock'))){
+  if(apple&&(apple==='ios'||existsSync(join(base,apple,'Podfile')))&&!existsSync(join(base,apple,'Podfile.lock'))){
    await assert.rejects(async()=>requirements(platform,work),/CocoaPods原始锁缺失/);
   }else{
    const result=await requirements(platform,work);assert.equal(result.product_id,contract.product_id);
@@ -5093,7 +5153,7 @@ test('独立命令行从自身声明输出JSON，未知平台失败且不写工�
   for(const platform of Object.keys(contract.platforms)){
    const before=readdirSync(work),result=spawnSync(process.execPath,[join(root,'scripts/build.mjs'),'requirements',platform,'--work',work],{env:{HOME:work,LANG:'C',LC_ALL:'C',NODE_TEST_CONTEXT:'child-v8',CITIZENAPP_TEST_SESSION:testSession},encoding:'utf8'});
    const apple=platform.endsWith('ios')?'ios':platform.endsWith('macos')?'macos':null;
-   if(apple&&existsSync(join(base,apple,'Podfile'))&&!existsSync(join(base,apple,'Podfile.lock'))){assert.notEqual(result.status,0);assert.match(result.stderr,/CocoaPods原始锁缺失/);}
+   if(apple&&(apple==='ios'||existsSync(join(base,apple,'Podfile')))&&!existsSync(join(base,apple,'Podfile.lock'))){assert.notEqual(result.status,0);assert.match(result.stderr,/CocoaPods原始锁缺失/);}
    else{assert.equal(result.status,0,result.stderr);const value=JSON.parse(result.stdout);assert.equal(value.product_id,contract.product_id);assert.equal(value.platform,platform);}
    assert.deepEqual(readdirSync(work),before);
   }
@@ -5190,9 +5250,50 @@ test('产品取消等待工具进程组退出，不提前交付结果',async()=>
   const script="const fs=require('node:fs'),{spawn}=require('node:child_process');const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});fs.writeFileSync(process.argv[1],String(child.pid));setInterval(()=>{},1000);";
   const execution=runBuildProcess(process.execPath,['-e',script,pidFile],process.env,work,{capture:true,signal:abort.signal,timeout:5000});
   polling=setInterval(()=>{if(existsSync(pidFile))abort.abort();},20);deadline=setTimeout(()=>abort.abort(),2000);
-  await assert.rejects(execution,/取消/);assert.ok(existsSync(pidFile));const pid=Number(readFileSync(pidFile,'utf8'));
+  await assert.rejects(execution,/取消.*exit=none，signal=SIGTERM/u);assert.ok(existsSync(pidFile));const pid=Number(readFileSync(pidFile,'utf8'));
   assert.throws(()=>process.kill(pid,0),error=>error.code==='ESRCH');
  }finally{clearInterval(polling);clearTimeout(deadline);removeFixture(work,{recursive:true});}
+});
+
+test('工具退出诊断保留退出码、信号与启动错误码，不含调用材料',async()=>{
+ const work=sandbox();
+ try{
+  const call=(file,args,options={})=>runBuildProcess(file,args,process.env,work,{capture:true,timeout:5000,...options});
+  assert.equal((await call(process.execPath,['-e','process.exit(0)'])).code,0);
+  assert.equal((await call(process.execPath,['-e','process.exit(7)'],{accepted:[7]})).code,7);
+  await assert.rejects(call(process.execPath,['-e','process.exit(23)']),error=>{
+   assert.match(error.message,/执行失败（exit=23，signal=none，errors=none，process=/u);
+   const details=JSON.parse(error.message.split('，process=')[1].slice(0,-1));
+   assert.ok(Number.isSafeInteger(details.pid));assert.equal(details.expectedPgid,details.pid);
+   const exit=details.timeline.find(event=>event.event==='exit'),close=details.timeline.find(event=>event.event==='close');
+   assert.equal(exit.code,23);assert.equal(close.code,23);assert.ok(close.ms>=exit.ms);
+   assert.ok(details.timeline.length<=48);assert.ok(details.snapshots.length<=2);
+   assert.ok(details.snapshots.every(snapshot=>snapshot.members.length<=32));
+   return true;
+  });
+  await assert.rejects(call(process.execPath,['-e',"process.kill(process.pid,'SIGTERM')"]),/exit=none，signal=SIGTERM/u);
+  await assert.rejects(call(join(work,'absent-tool'),['synthetic-argument']),error=>{
+   assert.match(error.message,/spawn:ENOENT/u);
+   assert.doesNotMatch(error.message,/absent-tool|synthetic-argument|ENOENT:|spawn\s/u);
+   return true;
+  });
+  assert.equal(processErrorCode({code:'EPERM',message:'synthetic detail'}),'EPERM');
+  assert.equal(processErrorCode({code:'ERR_INVALID_ARG_TYPE',message:'synthetic detail'}),'ERR_INVALID_ARG_TYPE');
+  assert.equal(processErrorCode({code:'synthetic-untrusted-code',message:'synthetic detail'}),'UNKNOWN');
+  assert.equal(processErrorCode(null),'UNKNOWN');
+ }finally{removeFixture(work,{recursive:true});}
+});
+
+test('进程组诊断仅保留数字归属、可证实后代与状态，输出数量受限',()=>{
+ const result=processGroupMembers('201 100 201 501 Ss\n202 201 201 501 Z\n203 202 203 501 S\n999 1 999 0 S\ninvalid synthetic detail\n204 1 201 501 S synthetic-argument\n',201);
+ assert.deepEqual(result,{members:[
+  {pid:201,ppid:100,pgid:201,uid:501,state:'S'},
+  {pid:202,ppid:201,pgid:201,uid:501,state:'Z'},
+  {pid:203,ppid:202,pgid:203,uid:501,state:'S'},
+ ],truncated:false});
+ const many=processGroupMembers(Array.from({length:40},(_,n)=>`${n+300} 1 201 501 S`).join('\n'),201);
+ assert.equal(many.members.length,32);assert.equal(many.truncated,true);
+ assert.deepEqual(processGroupSnapshot(undefined),{status:'notStarted',members:[],truncated:false});
 });
 
 // 覆盖独立入口、单/多平台物理边界和源码输入排除，统一测试阶段才执行。
@@ -5540,7 +5641,7 @@ if(inlineTestEntry){
   }
   assert.match(BUILD_SHELL_SOURCES['chat-test'],/subprocess[.]run\(\[NODE_BIN, IOS_TEST, "ui-test"\]/u);
  });
- test('三级原生来源恢复消费路径并保留图标、配置和源码字节',()=>{
+ test('扁平原生来源恢复消费路径并保留图标、配置和源码字节',()=>{
   const source=root,destination=join(temporaryRoot(),'layout-platform-'+randomBytes(8).toString('hex'));
   mkdirSync(destination,{mode:0o700});
   try{
@@ -5548,11 +5649,16 @@ if(inlineTestEntry){
    const cases=[
     ['ios/source/AppDelegate.swift','ios/Runner/AppDelegate.swift'],
     ['ios/project/Runner.pbxproj','ios/Runner.xcodeproj/project.pbxproj'],
-    ['ios/resources/icons.json','ios/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json'],
-    ['android/app/source/MainActivity.kt','android/app/src/main/MainActivity.kt'],
+    ['android/app/MainActivity.kt','android/app/src/main/MainActivity.kt'],
+    ['android/square/SquareMediaChannel.kt','android/app/src/main/SquareMediaChannel.kt'],
+    ['android/square/SquareMp4FastStart.kt','android/app/src/main/SquareMp4FastStart.kt'],
+    ['android/square/SquareVideoTranscoder.kt','android/app/src/main/SquareVideoTranscoder.kt'],
+    ['ios/square/SquareMediaChannel.swift','ios/Runner/SquareMediaChannel.swift'],
+    ['ios/square/SquareVideoTranscoder.swift','ios/Runner/SquareVideoTranscoder.swift'],
     ['assets/logo/icon72.png','android/app/src/main/res/mipmap-hdpi/ic_launcher.png'],
    ];
    for(const [input,output] of cases)assert.deepEqual(readFileSync(join(destination,output)),readFileSync(join(source,input)));
+   for(const [output,contents] of Object.entries({...platformInputs(root).ios,...platformInputs(root).android}))assert.equal(readFileSync(join(destination,output),'utf8'),contents,output);
    assert.equal(readFileSync(join(destination,'analysis_options.yaml'),'utf8'),ANALYSIS_OPTIONS_SOURCE);
    assert.equal(readFileSync(join(destination,'dart_test.yaml'),'utf8'),DART_TEST_SOURCE);
   }finally{rmSync(destination,{recursive:true,force:true});}
@@ -5644,14 +5750,14 @@ if(inlineTestEntry){
   try{
    for(const mode of ['valid','missing','extra','link','platform']){
     const product=join(work,mode);mkdirSync(join(product,'scripts'),{recursive:true,mode:0o700});
-    for(const name of ['scripts/build.mjs',...Object.keys(JSON.parse(LOGO_ASSETS_SOURCE).files)]){
+    for(const name of ['scripts/build.mjs','ios/platform.mjs','android/platform.mjs',...Object.keys(JSON.parse(LOGO_ASSETS_SOURCE).files)]){
      const destination=join(product,name);mkdirSync(dirname(destination),{recursive:true,mode:0o700});copyFixture(join(root,name),destination);
     }
     const image=join(product,'assets/logo/icon20.png');
     if(mode==='missing')unlinkSync(image);
     if(mode==='extra')copyFixture(image,join(product,'assets/logo/extra.png'));
     if(mode==='link'){unlinkSync(image);symlinkSync(join(root,'assets/logo/icon20.png'),image);}
-    if(mode==='platform')copyFixture(image,join(product,'android/resources/residual.png'));
+    if(mode==='platform')copyFixture(image,join(product,'android/residual.png'));
     const result=spawnSync(process.execPath,[join(product,'scripts/build.mjs'),'logos'],{encoding:'utf8'});
     if(mode==='valid')assert.equal(result.status,0,result.stderr);else assert.notEqual(result.status,0,mode);
    }
@@ -5679,4 +5785,339 @@ export function createResourceSupplyClient(stream,signal){
   stream.write(JSON.stringify({...value,id,operation:'prepare'})+'\n');
  });
  request.close=()=>{signal?.removeEventListener('abort',abort);reject('资源供给已关闭');};return request;
+}
+// 塔塔自动化的远端生命周期归本产品；控制台只提供任务宿主和短期凭据。
+const automationWorkflows=Object.freeze({'ios':'ios.yml','android':'android.yml'});
+const automationRepository='crcfrcn/citizenapp';
+const automationTransport=new (await import('node:async_hooks')).AsyncLocalStorage();
+function automationRoute(route,action){
+ const workflow=automationWorkflows[route?.platform];
+ if(!workflow||route.repository!=='citizenapp'||route.product!=='citizenapp'
+  ||route.workflow!==workflow||route.canonicalId!==`citizenapp.${route.platform}.release`
+  ||action&& (action.canonicalId!==route.canonicalId||action.platform!==route.platform
+   ||action.productId!=='citizenapp'||action.flow!=='release'||action.authorizationLevel!==2))
+  throw Error('公民App自动化目标或授权动作不匹配');
+ return workflow;
+}
+async function automationAccess(route,host,actionId,task){
+ if(!host?.security)throw Error('缺少自动化短期授权宿主');
+ const payload={repository:automationRepository,purpose:'workflow',action_id:actionId,platform:route.platform};
+ if(task){payload.run_id=task.id;payload.recovery_run_id=task.id;}
+ const value=await host.security('github.repository.token',{
+  payload_base64:Buffer.from(JSON.stringify(payload)).toString('base64')});
+ const token=Buffer.from(value?.values?.['repository-main:TOKEN']||'','base64').toString('utf8');
+ const expiry=Number(Buffer.from(value?.values?.['repository-main:EXPIRES_AT']||'','base64').toString('utf8'));
+ if(value?.ok!==true||!/^ghs_[^\s\x00-\x1f\x7f]{1,2044}$/u.test(token)
+  ||!Number.isSafeInteger(expiry)||expiry<=Date.now()/1000)throw Error('公民App GitHub 短期授权无效');
+ return token;
+}
+async function automationRequest(path,token,{method='GET',body}={}){
+ if(!/^actions\/(?:workflows\/(?:ios\.yml|android\.yml)\/dispatches|runs\/[1-9]\d*(?:\/(?:jobs(?:\?per_page=100&page=[1-9]\d*)?|cancel|force-cancel))?)$/u.test(path))
+  throw Error('公民App GitHub 请求目标无效');
+ const response=await (automationTransport.getStore()?.fetchImpl??fetch)(`https://api.github.com/repos/${automationRepository}/${path}`,{
+  method,redirect:'error',credentials:'omit',headers:{Authorization:`Bearer ${token}`,
+   Accept:'application/vnd.github+json','Content-Type':'application/json','X-GitHub-Api-Version':'2026-03-10'},
+  ...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(30000)});
+ if(!response.ok)throw Error(`公民App GitHub 请求失败：HTTP ${response.status}`);
+ if(response.status===202||response.status===204)return {};
+ if(!response.body)throw Error('公民App GitHub 回执缺失');
+ let size=0;const chunks=[];
+ for await(const chunk of response.body){size+=chunk.length;if(size>8*1024*1024)throw Error('公民App GitHub 回执超限');chunks.push(chunk);}
+ return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(Buffer.concat(chunks)));
+}
+function automationCheckedRun(run,route,expected){
+ const workflow=automationRoute(route);
+ if(!Number.isSafeInteger(run?.id)||run.id!==expected||run.path!==`.github/workflows/${workflow}`
+  ||run.event!=='workflow_dispatch'||run.head_branch!=='main'
+  ||run.repository?.full_name!==automationRepository||!/^[0-9a-f]{40}$/u.test(run.head_sha||'')
+  ||run.html_url!==`https://github.com/${automationRepository}/actions/runs/${expected}`)
+  throw Error('公民App GitHub Run 身份不符');
+ return run;
+}
+// 同一产品入口可脱离控制台运行；调用方自行提供已获准的短期令牌。
+export async function dispatchAutomation(platform,token,{inputs={}}={}){
+ const route={repository:'citizenapp',product:'citizenapp',platform,workflow:automationWorkflows[platform],canonicalId:`citizenapp.${platform}.release`};
+ const workflow=automationRoute(route);
+ if(typeof token!=='string'||!token||!inputs||typeof inputs!=='object'||Array.isArray(inputs))throw Error('公民App派发参数无效');
+ const value=await automationRequest(`actions/workflows/${workflow}/dispatches`,token,{method:'POST',body:{ref:'main',inputs}});
+ if(!Number.isSafeInteger(value.workflow_run_id)||value.workflow_run_id<1
+  ||value.html_url!==`https://github.com/${automationRepository}/actions/runs/${value.workflow_run_id}`)
+  throw Error('公民App派发未返回准确 Run，禁止再次派发');
+ const run=automationCheckedRun(await automationRequest(`actions/runs/${value.workflow_run_id}`,token),route,value.workflow_run_id);
+ return run;
+}
+// 只读取当前 Run 的 Job 与终态日志，日志和下载均有限额，令牌不进入任务输出。
+function automationSafeText(value,token){
+ return String(value??'').split(token).join('[已脱敏]').replace(/gh[sopur]_[A-Za-z0-9_]+/gu,'[已脱敏]').slice(0,4000);
+}
+async function automationJobs(runId,token){
+ const jobs=[];
+ for(let page=1;page<=50;page++){
+  const value=await automationRequest(`actions/runs/${runId}/jobs?per_page=100&page=${page}`,token);
+  if(!Array.isArray(value?.jobs))throw Error('GitHub Job 分页响应无效');
+  jobs.push(...value.jobs);if(value.jobs.length<100)return jobs;
+ }
+ throw Error('GitHub Job 页数超限');
+}
+async function automationLogArchive(bytes){
+ if(!Buffer.isBuffer(bytes)||bytes.length>32*1024*1024)throw Error('GitHub 日志归档超限');
+ const {inflateRawSync}=await import('node:zlib');let end=-1;
+ for(let at=bytes.length-22;at>=Math.max(0,bytes.length-65558);at--){
+  if(bytes.readUInt32LE(at)===0x06054b50){end=at;break;}
+ }
+ if(end<0)throw Error('GitHub 日志 ZIP 结构无效');
+ const count=bytes.readUInt16LE(end+10);let offset=bytes.readUInt32LE(end+16),total=0;
+ if(count>2000)throw Error('GitHub 日志文件数超限');
+ const files=[];
+ for(let index=0;index<count;index++){
+  if(offset+46>bytes.length||bytes.readUInt32LE(offset)!==0x02014b50)throw Error('GitHub 日志目录损坏');
+  const flags=bytes.readUInt16LE(offset+8),method=bytes.readUInt16LE(offset+10),packed=bytes.readUInt32LE(offset+20),size=bytes.readUInt32LE(offset+24);
+  const nameLength=bytes.readUInt16LE(offset+28),extra=bytes.readUInt16LE(offset+30),comment=bytes.readUInt16LE(offset+32),local=bytes.readUInt32LE(offset+42);
+  const name=bytes.subarray(offset+46,offset+46+nameLength).toString('utf8');offset+=46+nameLength+extra+comment;
+  if(flags&1||![0,8].includes(method)||local+30>bytes.length||bytes.readUInt32LE(local)!==0x04034b50)throw Error('GitHub 日志压缩格式无效');
+  total+=size;if(size>32*1024*1024||total>128*1024*1024)throw Error('GitHub 解压日志超限');
+  const start=local+30+bytes.readUInt16LE(local+26)+bytes.readUInt16LE(local+28);
+  if(start+packed>bytes.length)throw Error('GitHub 日志内容越界');
+  const data=method===0?bytes.subarray(start,start+packed):inflateRawSync(bytes.subarray(start,start+packed),{maxOutputLength:size});
+  if(data.length!==size)throw Error('GitHub 日志大小不一致');
+  if(name.endsWith('.txt'))files.push({name,text:data.toString('utf8')});
+ }
+ return files;
+}
+async function automationReadLogs(runId,token){
+ const response=await (automationTransport.getStore()?.fetchImpl??fetch)(`https://api.github.com/repos/${automationRepository}/actions/runs/${runId}/logs`,{
+  redirect:'manual',credentials:'omit',headers:{Authorization:`Bearer ${token}`,Accept:'application/vnd.github+json',
+   'X-GitHub-Api-Version':'2026-03-10'},signal:AbortSignal.timeout(30000)});
+ if(response.status===404)return [];
+ let download=response;
+ if(response.status===302){
+  const location=new URL(response.headers.get('location'));
+  if(location.protocol!=='https:'||location.username||location.password)throw Error('GitHub 日志地址无效');
+  download=await (automationTransport.getStore()?.fetchImpl??fetch)(location.href,{redirect:'error',credentials:'omit',signal:AbortSignal.timeout(60000)});
+ }
+ if(!download.ok||!download.body)throw Error('GitHub 日志读取失败');
+ let size=0;const parts=[];
+ for await(const part of download.body){size+=part.length;if(size>32*1024*1024)throw Error('GitHub 日志下载超限');parts.push(part);}
+ return automationLogArchive(Buffer.concat(parts));
+}
+const automationObservers=new WeakSet();
+const automationReconnects=new WeakSet();
+function automationScheduleReconnect(task,route,host){
+ if(!task.active||automationReconnects.has(task))return;
+ automationReconnects.add(task);
+ const timer=setTimeout(async()=>{
+  automationReconnects.delete(task);
+  if(!task.active||!task.recovered)return;
+  try{
+   // 控制台回到所属产品请求上下文领取恢复授权；独立宿主显式声明模式后才直调。
+   if(typeof host.recoverTask==='function')await host.recoverTask(task);
+   else if(host.mode==='independent')await recoverAutomation(task,route,host);
+   else throw Error('自动化恢复宿主入口缺失');
+  }catch(error){
+   if(task.active){host.report(task,'原 Run 重新连接失败：'+error.message);automationScheduleReconnect(task,route,host);}
+  }
+ },120000);timer.unref?.();
+}
+async function automationObserve(task,route,host,token){
+ if(automationObservers.has(task))return;automationObservers.add(task);
+ let previous='';const jobStates=new Map();
+ try{while(task.active){
+  const run=automationCheckedRun(await automationRequest(`actions/runs/${task.githubRunId}`,token),route,task.githubRunId);
+  if(task.sourceSHA&&task.sourceSHA!==run.head_sha)throw Error('公民App Run 提交身份变化');
+  Object.assign(task,{sourceSHA:run.head_sha,githubRunNumber:run.run_number,githubRunAttempt:run.run_attempt,
+   githubRemoteStatus:run.status});host.changed(task);
+  const status=run.status==='completed'?(run.conclusion==='success'?'成功':'失败'):run.status;
+  if(status!==previous){host.report(task,'GitHub：'+status);previous=status;}
+  for(const job of await automationJobs(run.id,token)){
+   const state=job.status+':'+job.conclusion;
+   if(jobStates.get(job.id)!==state){jobStates.set(job.id,state);
+    host.report(task,automationSafeText(job.name,token)+'：'+(job.conclusion||job.status));}
+  }
+  if(run.status==='completed'){
+   try{for(const file of await automationReadLogs(run.id,token)){
+    host.report(task,'GitHub 日志：'+automationSafeText(file.name,token));
+    for(const line of file.text.split(/\r?\n/u))if(line)host.report(task,automationSafeText(line,token));
+   }}catch{host.report(task,'GitHub 终态已确认；日志下载未完成，可从 Run 链接查看');}
+   await host.finish(task,task.cancelRequested||run.conclusion!=='success'?1:0,
+    task.cancelRequested?'任务已取消；塔塔自动化终态：'+run.conclusion:
+     run.conclusion==='success'?'塔塔自动化成功':'塔塔自动化失败：'+run.conclusion);
+   await host.refresh?.(route.repository,host.security);return;
+  }
+  await (automationTransport.getStore()?.pause?.()??new Promise(resolve=>setTimeout(resolve,5000)));
+ }}catch(error){if(task.active){task.recovered=true;host.report(task,'公民App原 Run 观察中断：'+error.message);host.changed(task);automationScheduleReconnect(task,route,host);}}
+ finally{automationObservers.delete(task);}
+}
+async function automationCancel(task,route,host){
+ if(task.remoteCancelOperation)return task.remoteCancelOperation;
+ const operation=(async()=>{
+  automationRoute(route);if(!task.active||task.repository!==route.repository||task.platform!==route.platform)throw Error('公民App取消目标不匹配');
+  task.cancelRequested=true;host.changed(task);
+  if(!task.githubRunId)return {id:task.id,closed:true};
+  const token=await automationAccess(route,host,task.actionId,task);
+  let run=automationCheckedRun(await automationRequest(`actions/runs/${task.githubRunId}`,token),route,task.githubRunId);
+  if(task.sourceSHA&&run.head_sha!==task.sourceSHA)throw Error('公民App取消提交身份不符');
+  if(run.status!=='completed')await automationRequest(`actions/runs/${task.githubRunId}/cancel`,token,{method:'POST'});
+  for(let index=0;index<60&&run.status!=='completed';index++){
+   await (automationTransport.getStore()?.pause?.()??new Promise(resolve=>setTimeout(resolve,5000)));run=automationCheckedRun(await automationRequest(`actions/runs/${task.githubRunId}`,token),route,task.githubRunId);
+  }
+  if(run.status!=='completed'){
+   await automationRequest(`actions/runs/${task.githubRunId}/force-cancel`,token,{method:'POST'});
+   for(let index=0;index<60&&run.status!=='completed';index++){
+    await (automationTransport.getStore()?.pause?.()??new Promise(resolve=>setTimeout(resolve,5000)));run=automationCheckedRun(await automationRequest(`actions/runs/${task.githubRunId}`,token),route,task.githubRunId);
+   }
+  }
+  if(run.status!=='completed')throw Error('公民App远端取消未到终态');
+  if(task.active)await host.finish(task,1,'任务已取消；塔塔自动化终态：'+run.conclusion);
+  return {id:task.id,closed:true};
+ })().catch(error=>{if(task.active){task.recovered=true;host.report(task,'原 Run 取消待恢复：'+error.message);host.changed(task);automationScheduleReconnect(task,route,host);}throw error;});task.remoteCancelOperation=operation;
+ void operation.finally(()=>{if(task.remoteCancelOperation===operation)delete task.remoteCancelOperation;}).catch(()=>{});
+ return operation;
+}
+export async function startAutomation(route,action,host){
+ automationRoute(route,action);
+ const existing=host.listTasks().find(task=>task.active&&task.recovered&&task.githubRunId
+  &&task.repository===route.repository&&task.platform===route.platform);
+ if(existing)return recoverAutomation(existing,route,host);
+ const token=await automationAccess(route,host,action.id);
+ const task=host.createTask({moduleFile:'citizenapp.mjs',canonicalId:route.canonicalId,actionId:action.id,
+  title:route.title,moduleId:'citizenapp'});
+ Object.assign(task,{repository:route.repository,productId:route.product,platform:route.platform,
+  mode:'release',flow:'release',security:host.security,githubRepository:automationRepository,
+  githubWorkflow:route.workflow});
+ task.cancel=()=>automationCancel(task,route,host);task.secrets.push(token);host.created(task);
+ try{
+  // 派发回执先写入任务；回读失败时只恢复原 Run，绝不重发。
+  const value=await automationRequest(`actions/workflows/${route.workflow}/dispatches`,token,{method:'POST',body:{ref:'main',inputs:{}}});
+  if(!Number.isSafeInteger(value.workflow_run_id)||value.workflow_run_id<1
+   ||value.html_url!==`https://github.com/${automationRepository}/actions/runs/${value.workflow_run_id}`)
+   throw Error('公民App派发未返回准确 Run，禁止再次派发');
+  Object.assign(task,{githubRunId:value.workflow_run_id,githubRunUrl:value.html_url});host.changed(task);
+  const run=automationCheckedRun(await automationRequest(`actions/runs/${task.githubRunId}`,token),route,task.githubRunId);
+  Object.assign(task,{sourceSHA:run.head_sha,githubRunNumber:run.run_number,githubRunAttempt:run.run_attempt,
+   githubRemoteStatus:run.status});host.changed(task);host.report(task,'GitHub 已接收：'+run.html_url);
+  if(task.cancelRequested)void automationCancel(task,route,host);
+  else void automationObserve(task,route,host,token);
+ }catch(error){if(task.githubRunId){task.recovered=true;host.report(task,'原 Run 回读中断：'+error.message);host.changed(task);automationScheduleReconnect(task,route,host);}
+  else await host.finish(task,1,error.message);}
+ return {id:task.id};
+}
+export async function recoverAutomation(task,route,host){
+ automationRoute(route);
+ if(!task?.active||task.mode!=='release'||task.canonicalId!==route.canonicalId
+  ||task.repository!==route.repository||task.platform!==route.platform
+  ||task.githubRepository!==automationRepository||task.githubWorkflow!==route.workflow
+  ||typeof task.actionId!=='string'||!task.actionId
+  ||!Number.isSafeInteger(task.githubRunId)||task.githubRunId<1
+  ||task.sourceSHA!==undefined&&!/^[0-9a-f]{40}$/u.test(task.sourceSHA))throw Error('公民App原 Run 恢复身份无效');
+ // 先恢复原任务的取消入口；读取授权失败时仍可在用户再次取消时请求新的关闭授权。
+ task.security=host.security;task.cancel=()=>automationCancel(task,route,host);
+ task.recovered=true;host.changed(task);
+ const token=await automationAccess(route,host,task.actionId,task);
+ const run=automationCheckedRun(await automationRequest(`actions/runs/${task.githubRunId}`,token),route,task.githubRunId);
+ if(task.sourceSHA&&task.sourceSHA!==run.head_sha)throw Error('原 Run 提交身份不符');
+ Object.assign(task,{sourceSHA:run.head_sha,githubRunNumber:run.run_number,
+  githubRunAttempt:run.run_attempt,githubRemoteStatus:run.status});
+ task.secrets.push(token);task.recovered=false;host.changed(task);
+ if(task.cancelRequested)void automationCancel(task,route,host);
+ else void automationObserve(task,route,host,token);
+ return {id:task.id};
+}
+
+// 本产品自动化合成回归：所有网络与授权均由夹具替代，不触发真实流程。
+if(inlineTestEntry){
+ const {test}=await import('node:test'),{default:assert}=await import('node:assert/strict');
+ const platform=Object.keys(automationWorkflows)[0],workflow=automationWorkflows[platform];
+ const route={repository:'citizenapp',product:'citizenapp',platform,workflow,canonicalId:`citizenapp.${platform}.release`,title:'测试自动化'};
+ const action={id:route.canonicalId,canonicalId:route.canonicalId,platform,productId:'citizenapp',flow:'release',authorizationLevel:2};
+ const token='ghs_fixture',sha='a'.repeat(40),runId=123;
+ const run=(conclusion='success',status='completed')=>({id:runId,run_number:7,run_attempt:1,
+  path:`.github/workflows/${workflow}`,event:'workflow_dispatch',head_branch:'main',head_sha:sha,
+  repository:{full_name:automationRepository},status,conclusion,
+  html_url:`https://github.com/${automationRepository}/actions/runs/${runId}`});
+ const json=value=>Response.json(value),empty=status=>new Response(null,{status});
+ const security=async()=>({ok:true,values:{'repository-main:TOKEN':Buffer.from(token).toString('base64'),
+  'repository-main:EXPIRES_AT':Buffer.from(String(Math.floor(Date.now()/1000)+3600)).toString('base64')}});
+ const makeHost=()=>{let resolve;const finished=new Promise(done=>{resolve=done;}),tasks=[];
+  const host={security,mode:'test',createTask:value=>{const task={...value,id:'123456789',active:true,secrets:[]};tasks.push(task);return task;},
+   listTasks:()=>tasks,created:()=>{},changed:()=>{},report:()=>{},
+   finish:async(task,code,message)=>{task.active=false;task.exitCode=code;task.result=message;resolve({code,message});}};
+  return {host,tasks,finished};};
+ test('citizenapp 自动化派发成功与不确定回执禁止重发',async()=>{
+  let dispatches=0;
+  const accepted=async(url,init)=>{const path=new URL(url).pathname;
+   if(path.endsWith('/dispatches')){dispatches++;return json({workflow_run_id:runId,html_url:run().html_url});}
+   if(path.endsWith(`/runs/${runId}`))return json(run());
+   if(path.endsWith('/jobs'))return json({jobs:[]});
+   if(path.endsWith('/logs'))return empty(404);
+   throw Error('未登记网络请求：'+path);
+  };
+  const fixture=makeHost();
+  await automationTransport.run({fetchImpl:accepted},()=>startAutomation(route,action,fixture.host));
+  assert.deepEqual(await fixture.finished,{code:0,message:'塔塔自动化成功'});
+  assert.equal(dispatches,1);assert.equal(fixture.tasks[0].githubRunId,runId);
+  const ambiguous=makeHost();dispatches=0;
+  await automationTransport.run({fetchImpl:async()=>{dispatches++;return empty(204);}},
+   ()=>startAutomation(route,action,ambiguous.host));
+  assert.equal((await ambiguous.finished).code,1);assert.equal(dispatches,1);
+  assert.equal(ambiguous.tasks[0].githubRunId,undefined);
+ });
+ test('citizenapp 自动化拒绝错误仓库、平台和提交身份',()=>{
+  assert.throws(()=>automationRoute({...route,repository:'other'}),/目标/u);
+  assert.throws(()=>automationRoute({...route,platform:'other'}),/目标/u);
+  assert.throws(()=>automationCheckedRun({...run(),head_sha:'bad'},route,runId),/身份/u);
+  assert.throws(()=>automationCheckedRun({...run(),repository:{full_name:'other/repo'}},route,runId),/身份/u);
+ });
+ test('citizenapp 自动化观察成功和失败终态',async()=>{
+  for(const conclusion of ['success','failure']){
+   const fixture=makeHost();const task=fixture.host.createTask({});
+   Object.assign(task,{githubRunId:runId,sourceSHA:sha});
+   const fetchImpl=async(url)=>{const path=new URL(url).pathname;
+    if(path.endsWith(`/runs/${runId}`))return json(run(conclusion));
+    if(path.endsWith('/jobs'))return json({jobs:[{id:3,name:'原生编译',status:'completed',conclusion}]});
+    if(path.endsWith('/logs'))return empty(404);
+    throw Error('未登记观察请求');
+   };
+   await automationTransport.run({fetchImpl},()=>automationObserve(task,route,fixture.host,token));
+   assert.equal((await fixture.finished).code,conclusion==='success'?0:1);
+  }
+ });
+ test('citizenapp 自动化只取消原 Run 并恢复同一 Run',async()=>{
+  const fixture=makeHost();const task=fixture.host.createTask({canonicalId:route.canonicalId,actionId:action.id});
+  Object.assign(task,{repository:route.repository,productId:route.product,platform,mode:'release',flow:'release',
+   githubRepository:automationRepository,githubWorkflow:workflow,githubRunId:runId,sourceSHA:sha});
+  let reads=0,cancels=0;
+  const fetchImpl=async(url,init)=>{const path=new URL(url).pathname;
+   if(path.endsWith('/cancel')){cancels++;return empty(202);}
+   if(path.endsWith(`/runs/${runId}`))return json(run(reads++===0?null:'cancelled',reads===1?'in_progress':'completed'));
+   if(path.endsWith('/jobs'))return json({jobs:[]});
+   if(path.endsWith('/logs'))return empty(404);
+   throw Error('未登记取消请求');
+  };
+  await automationTransport.run({fetchImpl,pause:async()=>{}},()=>automationCancel(task,route,fixture.host));
+  assert.equal(cancels,1);assert.equal((await fixture.finished).code,1);
+  const recovered=makeHost();const old=recovered.host.createTask({canonicalId:route.canonicalId,actionId:action.id});
+  Object.assign(old,{repository:route.repository,productId:route.product,platform,mode:'release',flow:'release',
+   githubRepository:automationRepository,githubWorkflow:workflow,githubRunId:runId,sourceSHA:sha,recovered:true});
+  let recoveryDispatches=0;
+  const recoveryFetch=async(url,init)=>{const path=new URL(url).pathname;
+   if(path.endsWith('/dispatches')){recoveryDispatches++;throw Error('恢复不得派发');}
+   if(path.endsWith(`/runs/${runId}`))return json(run());
+   if(path.endsWith('/jobs'))return json({jobs:[]});
+   if(path.endsWith('/logs'))return empty(404);
+   throw Error('未登记恢复请求');
+  };
+  await automationTransport.run({fetchImpl:recoveryFetch},()=>recoverAutomation(old,route,recovered.host));
+  assert.equal((await recovered.finished).code,0);assert.equal(recoveryDispatches,0);
+  assert.equal(old.githubRunId,runId);
+ });
+ test('citizenapp 过期令牌保留原 Run 的取消入口',async()=>{
+  const fixture=makeHost();const task=fixture.host.createTask({canonicalId:route.canonicalId,actionId:action.id});
+  Object.assign(task,{repository:route.repository,productId:route.product,platform,mode:'release',flow:'release',
+   githubRepository:automationRepository,githubWorkflow:workflow,githubRunId:runId,sourceSHA:sha,recovered:true});
+  fixture.host.security=async()=>({ok:true,values:{'repository-main:TOKEN':Buffer.from(token).toString('base64'),
+   'repository-main:EXPIRES_AT':Buffer.from('1').toString('base64')}});
+  await assert.rejects(()=>recoverAutomation(task,route,fixture.host),/授权/u);
+  assert.equal(task.githubRunId,runId);assert.equal(task.recovered,true);
+  assert.equal(typeof task.cancel,'function');
+ });
 }

@@ -5,8 +5,8 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
-import 'package:citizenapp/8964/pages/square_post_detail_page.dart';
-import 'package:citizenapp/8964/widgets/square_post_card.dart';
+import 'package:citizenapp/8964/feed/square_post_detail_page.dart';
+import 'package:citizenapp/8964/feed/square_post_card.dart';
 
 import '../support/fake_citizen_sdk.dart';
 
@@ -17,19 +17,20 @@ import 'package:citizenapp/8964/compose/compose_draft.dart';
 import 'package:citizenapp/8964/compose/compose_draft_store.dart';
 import 'package:citizenapp/8964/compose/video_compose_body.dart';
 import 'package:citizenapp/8964/compose/compose_media_widgets.dart';
-import 'package:citizenapp/8964/square_models.dart';
-import 'package:citizenapp/8964/pages/square_home_page.dart';
-import 'package:citizenapp/8964/profile/citizen_profile.dart';
-import 'package:citizenapp/8964/profile/citizen_profile_cache.dart';
-import 'package:citizenapp/8964/profile/square_session_provider.dart';
-import 'package:citizenapp/8964/profile/profile_avatar.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart';
-import 'package:citizenapp/8964/services/square_identity_state.dart';
+import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/feed/square_home_page.dart';
+import 'package:citizenapp/account/profile/citizen_profile.dart';
+import 'package:citizenapp/account/profile/citizen_profile_cache.dart';
+import 'package:citizenapp/account/identity/square_session_provider.dart';
+import 'package:citizenapp/account/profile/profile_avatar.dart';
+import 'package:citizenapp/network/square_api_client.dart';
+import 'package:citizenapp/account/identity/square_identity_state.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
+import 'package:citizenapp/account/identity/cid_business_gate.dart';
 import 'package:citizenapp/account/membership/membership_revision.dart';
-import 'package:citizenapp/theme/app_layout.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/theme/identity_badge.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/account/identity/identity_badge.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'profile/fake_profile.dart';
@@ -354,10 +355,25 @@ SquarePost _seedPost({
   );
 }
 
+class _ReadyBusinessGate implements CidBusinessGate {
+  @override
+  final ValueNotifier<int> revision = ValueNotifier<int>(0);
+  @override
+  Future<CidBusinessDecision> resolve() async => const CidBusinessDecision(
+    CidBusinessStatus.ready,
+    cidNumber: testMlsCidNumber,
+  );
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 Widget _wrap(Widget child) {
-  return MaterialApp(
-    theme: AppTheme.lightTheme,
-    home: Scaffold(body: child),
+  return Provider<CidBusinessGate>.value(
+    value: _ReadyBusinessGate(),
+    child: MaterialApp(
+      theme: AppTheme.lightTheme,
+      home: Scaffold(body: child),
+    ),
   );
 }
 

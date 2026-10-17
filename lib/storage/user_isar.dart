@@ -1,4 +1,4 @@
-import 'package:citizenapp/security/system_protected_storage.dart';
+import 'package:citizenapp/system/security/system_protected_storage.dart';
 import 'dart:async';
 
 import 'package:isar_community/isar.dart';

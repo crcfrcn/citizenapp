@@ -5,7 +5,7 @@ import 'package:citizenapp/account/identity/registration_api.dart';
 import 'package:citizenapp/account/identity/registration_models.dart';
 import 'package:citizenapp/account/identity/registration_store.dart';
 import 'package:citizenapp/account/identity/registration_coordinator.dart';
-import 'package:citizenapp/security/identity_binding.dart';
+import 'package:citizenapp/account/identity/identity_binding.dart';
 
 import 'registration_api_test.dart'
     show registrationContext, registrationResponse;
@@ -115,9 +115,8 @@ void main() {
       events.add('page');
       return cancel ? null : 'valid-ephemeral-token';
     },
-    ensureAffordable: () async {
+    requireAffordable: () async {
       events.add('balance');
-      return true;
     },
     readFinalized: () async => chain,
     registerCid: (save) async {
@@ -208,7 +207,7 @@ void main() {
         context: registrationContext(),
         requireCurrent: () async {},
         showVerification: (_) async => 'ephemeral-token',
-        ensureAffordable: () async => true,
+        requireAffordable: () async {},
         readFinalized: () async => null,
         registerCid: (_) async =>
             throw const RegistrationBeforeBroadcastException(),
@@ -257,7 +256,7 @@ void main() {
         if (changed) throw StateError('changed');
       },
       showVerification: (_) async => null,
-      ensureAffordable: () async => true,
+      requireAffordable: () async {},
       readFinalized: () async => null,
       registerCid: (_) async {
         wallets++;

@@ -4,13 +4,37 @@ import 'package:citizenapp/account/creator/creator_page.dart';
 import 'package:citizenapp/account/creator/creator_service.dart';
 import 'package:citizenapp/account/creator/creator_overview.dart';
 import 'package:citizenapp/account/creator/creator_plan.dart';
+import 'package:citizenapp/account/identity/cid_business_gate.dart';
 import 'package:citizenapp/account/membership/subscription_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+
+class _BusinessGate implements CidBusinessGate {
+  _BusinessGate(this.result);
+  final Future<CidBusinessDecision> result;
+  @override
+  final ValueNotifier<int> revision = ValueNotifier<int>(0);
+  @override
+  Future<CidBusinessDecision> resolve() => result;
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+Widget _creatorApp({required Widget home, CidBusinessGate? gate}) =>
+    Provider<CidBusinessGate>.value(
+      value: gate ??
+          _BusinessGate(Future.value(const CidBusinessDecision(
+            CidBusinessStatus.ready,
+            cidNumber: 'CN220-CTZN2-100000001-2026',
+          ))),
+      child: MaterialApp(home: home),
+    );
 
 class _PendingCreatorService implements CreatorService {
   final Completer<CreatorPageData> completer = Completer<CreatorPageData>();
   int loadCalls = 0;
+  String? lastSnapshotCid;
 
   @override
   Future<CreatorPageData> load({String? expectedCidNumber}) {
@@ -19,8 +43,10 @@ class _PendingCreatorService implements CreatorService {
   }
 
   @override
-  Future<CreatorDisplaySnapshot?> readDisplaySnapshot(String cidNumber) async =>
-      null;
+  Future<CreatorDisplaySnapshot?> readDisplaySnapshot(String cidNumber) async {
+    lastSnapshotCid = cidNumber;
+    return null;
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -57,10 +83,71 @@ class _SnapshotCreatorService extends _PendingCreatorService {
 void main() {
   const cidNumber = 'CN220-CTZN2-100000001-2026';
 
+  testWidgets('入口旧 CID 在门禁未完成时不显示创作者业务，确认未注册后显示统一引导',
+      (tester) async {
+    final decision = Completer<CidBusinessDecision>();
+    final service = _PendingCreatorService();
+    await tester.pumpWidget(_creatorApp(
+      gate: _BusinessGate(decision.future),
+      home: CreatorPage(
+        service: service,
+        initialCidNumber: cidNumber,
+        initialMembershipDecision: MembershipDisplayDecision.activeConfirmed,
+      ),
+    ));
+    expect(find.text('已开通'), findsNothing);
+    expect(service.lastSnapshotCid, isNull);
+    decision.complete(const CidBusinessDecision(CidBusinessStatus.unregistered));
+    await tester.pumpAndSettle();
+    expect(find.text('尚未注册'), findsOneWidget);
+    expect(find.text('已开通'), findsNothing);
+    expect(service.lastSnapshotCid, isNull);
+  });
+
+  testWidgets('入口 CID 与当前绑定不同，仅按已核实 CID 读取展示快照', (tester) async {
+    final service = _PendingCreatorService();
+    const currentCid = 'CN220-CTZN2-100000002-2026';
+    await tester.pumpWidget(_creatorApp(
+      gate: _BusinessGate(Future.value(const CidBusinessDecision(
+        CidBusinessStatus.ready,
+        cidNumber: currentCid,
+      ))),
+      home: CreatorPage(
+        service: service,
+        initialCidNumber: cidNumber,
+        initialMembershipDecision: MembershipDisplayDecision.activeConfirmed,
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(service.lastSnapshotCid, currentCid);
+    expect(find.text('已开通'), findsNothing);
+  });
+
+  testWidgets('身份核对故障时旧 CID 与刷新动作都不能读取创作者业务', (tester) async {
+    final service = _PendingCreatorService();
+    await tester.pumpWidget(_creatorApp(
+      gate: _BusinessGate(Future.value(
+        const CidBusinessDecision(CidBusinessStatus.unavailable),
+      )),
+      home: CreatorPage(
+        service: service,
+        initialCidNumber: cidNumber,
+        initialMembershipDecision: MembershipDisplayDecision.activeConfirmed,
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('暂时无法核实公民号身份'), findsOneWidget);
+    expect(find.text('已开通'), findsNothing);
+    await tester.tap(find.text('重试'));
+    await tester.pumpAndSettle();
+    expect(service.lastSnapshotCid, isNull);
+    expect(service.loadCalls, 0);
+  });
+
   testWidgets('无会员缺失快照直接显示门禁且不自动联网', (tester) async {
     final service = _PendingCreatorService();
     await tester.pumpWidget(
-      MaterialApp(
+      _creatorApp(
         home: CreatorPage(
           service: service,
           initialCidNumber: cidNumber,
@@ -87,7 +174,7 @@ void main() {
   testWidgets('有会员缺失快照直接显示创作者页且不自动联网', (tester) async {
     final service = _PendingCreatorService();
     await tester.pumpWidget(
-      MaterialApp(
+      _creatorApp(
         home: CreatorPage(
           service: service,
           initialCidNumber: cidNumber,
@@ -115,7 +202,7 @@ void main() {
   testWidgets('无会员时只显示明确订阅门禁，不显示同步第三态', (tester) async {
     final service = _PendingCreatorService();
     await tester.pumpWidget(
-      MaterialApp(
+      _creatorApp(
         home: CreatorPage(
           service: service,
           initialCidNumber: cidNumber,
@@ -242,7 +329,7 @@ void main() {
   testWidgets('缺失快照不自动联网，主动刷新失败保留本地展示', (tester) async {
     final service = _FailingCreatorService();
     await tester.pumpWidget(
-      MaterialApp(
+      _creatorApp(
         home: CreatorPage(
           service: service,
           initialCidNumber: cidNumber,
@@ -292,7 +379,7 @@ void main() {
       ),
     );
     await tester.pumpWidget(
-      MaterialApp(
+      _creatorApp(
         home: CreatorPage(
           service: service,
           initialCidNumber: cidNumber,

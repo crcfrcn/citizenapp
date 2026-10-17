@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:local_auth_android/local_auth_android.dart';
 import 'package:local_auth_darwin/local_auth_darwin.dart';
 
-import 'package:citizenapp/theme/biometric_auth_text.dart';
+import 'package:citizenapp/system/security/biometric_auth_text.dart';
 
 /// 生物识别对话框文案口径:默认中文,只有英文手机显示英文,其余语言一律回落中文。
 /// 与 iOS `zh-Hans.lproj`/`en.lproj`、Android `values/` + `values-en/` 同一条规则。

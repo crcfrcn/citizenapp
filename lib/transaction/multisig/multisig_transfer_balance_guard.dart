@@ -1,7 +1,7 @@
 import 'package:citizenapp/wallet/account_balance_snapshot_store.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizenapp/account/utility/amount_format.dart';
-import 'package:citizenapp/citizen/shared/multisig_create_amount_rules.dart';
+import 'package:citizenapp/transaction/amount_format.dart';
+import 'package:citizenapp/transaction/personal/multisig_create_amount_rules.dart';
 
 /// 多签提案和实际投票的付款账户余额检查。
 class MultisigTransferBalanceGuard {

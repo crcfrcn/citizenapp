@@ -4,14 +4,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:citizenapp/account/identity/registration_coordinator.dart';
 import 'package:citizenapp/account/identity/registration_models.dart';
-import 'package:citizenapp/security/identity_binding.dart';
+import 'package:citizenapp/account/identity/identity_binding.dart';
 
 import 'registration_api_test.dart' show registrationContext;
 import 'registration_coordinator_test.dart' show Api, MemoryStore;
 
 import 'package:citizenapp/account/identity/myid_page.dart';
+import 'package:citizenapp/account/identity/register_identity_sheet.dart';
 import 'package:citizenapp/account/identity/myid_service.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 const MyIdState _votingState = MyIdState(
   tier: MyIdTier.voting,
@@ -264,6 +265,7 @@ void main() {
   Future<void> pumpRegistration(
     WidgetTester tester,
     _RegisterFlowService service,
+    {void Function(String)? onTopup,}
   ) async {
     final api = Api([])..state = 'human_verified';
     final store = MemoryStore([]);
@@ -283,7 +285,10 @@ void main() {
     await tester.pumpWidget(
       Provider<RegistrationCoordinator>.value(
         value: RegistrationCoordinator(api: api, store: store),
-        child: MaterialApp(home: MyIdPage(myIdService: service)),
+        child: MaterialApp(home: MyIdPage(
+          myIdService: service,
+          openRegistrationTopup: (_, accountId) async => onTopup?.call(accountId),
+        )),
       ),
     );
   }
@@ -291,7 +296,8 @@ void main() {
   testWidgets('余额不足 → 不提交注册，先引导去链上充值', (tester) async {
     // 占号是自签自付的链上交易，余额不够连入池预检都过不了；先充值再注册。
     final service = _RegisterFlowService(balanceFen: 0);
-    await pumpRegistration(tester, service);
+    String? topupAccount;
+    await pumpRegistration(tester, service, onTopup: (id) => topupAccount = id);
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('注册'));
@@ -300,7 +306,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(service.registerCalls, 0);
-    expect(find.textContaining('余额不足'), findsOneWidget);
+    expect(topupAccount, registrationContext().accountId);
+    expect(find.textContaining('注册失败：钱包余额不足'), findsOneWidget);
+    expect(find.byType(RegisterIdentitySheet), findsOneWidget);
   });
 
   testWidgets('余额读取失败 → 既不提交也不跳充值，只提示重试(fail-closed)', (tester) async {
@@ -315,6 +323,8 @@ void main() {
 
     expect(service.registerCalls, 0);
     expect(find.textContaining('余额读取失败'), findsOneWidget);
+    expect(find.textContaining('钱包余额不足'), findsNothing);
+    expect(find.byType(RegisterIdentitySheet), findsOneWidget);
     expect(find.text('链上充值'), findsNothing);
   });
 
@@ -586,7 +596,7 @@ class _RegisterFlowService implements MyIdService {
         bindingRevision: 1,
         accountId: accountId,
       ),
-      blockHash: '0x' + ('aa' * 32),
+      blockHash: '0x${'aa' * 32}',
     );
   }
 

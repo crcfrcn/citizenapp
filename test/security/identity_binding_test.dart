@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:citizenapp/security/identity_binding.dart';
-import 'package:citizenapp/security/public_identity_store.dart';
+import 'package:citizenapp/account/identity/identity_binding.dart';
+import 'package:citizenapp/account/identity/public_identity_store.dart';
 
 class _Records implements PublicIdentityRecordStore {
   final values = <String, String>{};

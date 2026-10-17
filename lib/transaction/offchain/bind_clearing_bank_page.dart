@@ -4,11 +4,11 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:citizenapp/scanner/qr_sign_session_page.dart';
-import 'package:citizenapp/security/account_security_service.dart';
+import 'package:citizenapp/account/identity/account_security_service.dart';
 import 'package:citizenapp/transaction/offchain/clearing_bank_directory.dart';
 import 'package:citizenapp/transaction/offchain/onchain_clearing_bank_chain.dart';
 import 'package:citizenapp/transaction/offchain/clearing_bank_prefs.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 绑定**清算行**(L2)确认页。
 ///

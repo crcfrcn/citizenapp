@@ -4,10 +4,11 @@ import 'dart:convert';
 import 'package:citizenapp/chat/chat_product_configuration.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../support/platform_input.dart';
 
 void main() {
   test('新应用标识使用各自登记的唯一 Firebase App ID', () {
-    final source = File('lib/notifications/app_push_service.dart')
+    final source = File('lib/system/notifications/app_push_service.dart')
         .readAsStringSync();
     final appIds = RegExp(r"'(1:124593150477:(?:android|ios):[0-9a-f]+)'")
         .allMatches(source)
@@ -26,7 +27,7 @@ void main() {
   });
 
   test('Firebase 客户端 Key 按平台隔离且禁止共享回退', () {
-    final source = File('lib/notifications/app_push_service.dart')
+    final source = File('lib/system/notifications/app_push_service.dart')
         .readAsStringSync();
     final keys = RegExp(r"const _firebase(?:Android|Ios)ApiKey = '(AIza[^']+)'")
         .allMatches(source)
@@ -78,9 +79,9 @@ void main() {
   });
 
   test('CitizenApp 双端只展示并清理固定聊天通知', () {
-    final android = File('android/app/source/MainActivity.kt')
+    final android = File('android/app/MainActivity.kt')
         .readAsStringSync();
-    final appPush = File('lib/notifications/app_push_service.dart')
+    final appPush = File('lib/system/notifications/app_push_service.dart')
         .readAsStringSync();
 
     expect(android, contains('CHAT_NOTIFICATION_CHANNEL_ID = "chat_messages"'));
@@ -103,7 +104,7 @@ void main() {
   });
 
   test('普通应用推送由CitizenServe会话登记且不使用聊天数据面', () {
-    final client = File('lib/8964/services/square_api_client.dart')
+    final client = File('lib/network/square_api_client.dart')
         .readAsStringSync();
     final main = File('lib/main.dart').readAsStringSync();
     expect(client, contains("_putJson('/notifications/endpoint'"));
@@ -112,8 +113,7 @@ void main() {
   });
 
   test('iOS APNs 环境以 provisioning profile 和 App Store 收据为真源', () {
-    final entitlements = File('ios/source/Runner.entitlements')
-        .readAsStringSync();
+    final entitlements = platformInput('ios/Runner/Runner.entitlements');
     final infoPlist = File('ios/source/Info.plist').readAsStringSync();
     final appDelegate = File('ios/source/AppDelegate.swift').readAsStringSync();
 
@@ -139,7 +139,7 @@ void main() {
   });
 
   test('双端系统备份都排除设备侧聊天内容', () {
-    final androidManifest = File('android/app/source/AndroidManifest.xml')
+    final androidManifest = File('android/app/AndroidManifest.xml')
         .readAsStringSync();
     // 按当前锁定依赖定位SDK所有者实现，不读取邻仓或在App复制原生逻辑。
     final packageConfig = File('.dart_tool/package_config.json');

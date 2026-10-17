@@ -10,7 +10,7 @@ import 'package:citizenapp/transaction/offchain/offchain_clearing_rpc.dart';
 import 'package:citizenapp/transaction/offchain/payment_intent.dart';
 import 'package:citizenapp/transaction/offchain/clearing_bank_directory.dart';
 import 'package:citizenapp/scanner/qr_sign_session_page.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 扫码支付清算体系付款确认页。
 ///

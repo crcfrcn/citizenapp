@@ -34,7 +34,6 @@ abstract class PrepareCitizenAppResources @Inject constructor(
     fun prepare() {
         val names = mapOf(
             "drawable_launch_background.xml" to "drawable/launch_background.xml",
-            "drawable-v21_launch_background.xml" to "drawable-v21/launch_background.xml",
             "values-en_strings.xml" to "values-en/strings.xml",
             "values-night_styles.xml" to "values-night/styles.xml",
         )
@@ -81,8 +80,6 @@ android {
         add(flutterProductRoot.resolve("android/app/src/main/java").absolutePath)
     }
     sourceSets.getByName("androidTest").java.directories.apply { clear(); add("src/androidTest") }
-    sourceSets.getByName("debug").manifest.srcFile("src/debug_manifest.xml")
-    sourceSets.getByName("profile").manifest.srcFile("src/profile_manifest.xml")
     sourceSets.getByName("main").res.directories.clear()
     namespace = "com.crcfrcn.citizenapp"
     compileSdk = 36

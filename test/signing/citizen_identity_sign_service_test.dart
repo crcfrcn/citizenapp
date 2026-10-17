@@ -2,7 +2,7 @@ import '../support/fake_citizen_sdk.dart';
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizenapp/signing/citizen_identity_sign_service.dart';
+import 'package:citizenapp/account/identity/citizen_identity_sign_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _FakeWallet implements CitizenSdkWallet {

@@ -5,12 +5,13 @@ import 'dart:async';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizenapp/main.dart';
-import 'package:citizenapp/security/account_security_service.dart';
+import 'package:citizenapp/account/identity/account_security_service.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
 import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
-import 'package:citizenapp/8964/profile/square_session_provider.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart';
-import 'package:citizenapp/notifications/app_push_service.dart';
+import 'package:citizenapp/account/identity/cid_business_gate.dart';
+import 'package:citizenapp/account/identity/square_session_provider.dart';
+import 'package:citizenapp/network/square_api_client.dart';
+import 'package:citizenapp/system/notifications/app_push_service.dart';
 import 'package:citizenapp/transaction/history/wallet_transaction_history_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -102,6 +103,12 @@ void main() {
           accountSecurity: _Security(),
           currentUserContext: _Current(),
           finalizedIdentityResolver: _Resolver(),
+          cidBusinessGate: CidBusinessGate(
+            currentUserContext: _Current(),
+            identityResolver: _Resolver(),
+            revision: ValueNotifier<int>(0),
+            restoreFinalizedBinding: (_) async {},
+          ),
           squareSessionProvider: _Sessions(),
           squareApiClient: SquareApiClient(),
           appPushService: AppPushService(),
@@ -182,9 +189,9 @@ void main() {
     }
     // 原App页面必须存在；只禁止旧钱包/金库/签名核心，不把UI恢复判成残留。
     for (final path in const [
-      'lib/wallet/pages/create_wallet_flow.dart',
-      'lib/wallet/pages/import_wallet_page.dart',
-      'lib/wallet/widgets/add_account_sheet.dart',
+      'lib/wallet/create_wallet_flow.dart',
+      'lib/wallet/import_wallet_page.dart',
+      'lib/wallet/add_account_sheet.dart',
     ]) {
       final source = File(path).readAsStringSync();
       expect(

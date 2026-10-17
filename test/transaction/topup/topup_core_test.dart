@@ -12,6 +12,7 @@ import 'package:citizenapp/transaction/topup/topup_api.dart';
 import 'package:citizenapp/transaction/topup/topup_erc20.dart';
 import 'package:citizenapp/transaction/topup/topup_models.dart';
 import 'package:citizenapp/transaction/topup/wallet_link_dispatcher.dart';
+import '../../support/platform_input.dart';
 
 void main() {
   test('付款意图逐字段绑定目标/付款人/报价/期限；授权文本一字变化拒绝', () {
@@ -269,7 +270,7 @@ void main() {
   group('WalletConnect 双端回跳配置', () {
     test('iOS 与 Android 都注册 citizenapp://walletconnect', () {
       final infoPlist = File('ios/source/Info.plist').readAsStringSync();
-      final androidManifest = File('android/app/source/AndroidManifest.xml')
+      final androidManifest = File('android/app/AndroidManifest.xml')
           .readAsStringSync();
       expect(infoPlist, contains('<string>citizenapp</string>'));
       expect(infoPlist, contains('citizenapp.walletconnect'));
@@ -280,7 +281,7 @@ void main() {
 
   group('iOS 静态 XCFramework 构建配置', () {
     test('Isar 输出清单按真实 libisar.a 建立 Xcode 依赖', () {
-      final podfile = File('ios/Podfile').readAsStringSync();
+      final podfile = platformInput('ios/Podfile');
       expect(
         podfile,
         contains(

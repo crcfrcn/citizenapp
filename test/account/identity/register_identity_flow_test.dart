@@ -1,8 +1,8 @@
 import 'package:citizenapp/account/identity/registration_coordinator.dart';
 import 'package:citizenapp/account/identity/registration_models.dart';
-import 'package:citizenapp/security/identity_binding.dart';
-import 'package:citizenapp/8964/profile/square_session_provider.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart';
+import 'package:citizenapp/account/identity/identity_binding.dart';
+import 'package:citizenapp/account/identity/square_session_provider.dart';
+import 'package:citizenapp/network/square_api_client.dart';
 
 import 'dart:typed_data';
 
@@ -15,7 +15,7 @@ import 'package:citizenapp/account/identity/citizen_identity_chain_reader.dart';
 import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
 import 'package:citizenapp/account/identity/myid_service.dart';
 import 'package:citizenapp/account/identity/register_identity_flow.dart';
-import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
 
 const _accountId =
     '0x1111111111111111111111111111111111111111111111111111111111111111';
@@ -62,6 +62,8 @@ class _ThrowingCache implements FinalizedIdentityResolver {
 
 /// 注册流程 fake:余额充足,占号直接成功。与 myid_page_test 同款口径。
 class _FlowService implements MyIdService {
+  _FlowService({this.guardFailure});
+  final Object? guardFailure;
   int registerCalls = 0;
 
   @override
@@ -97,8 +99,10 @@ class _FlowService implements MyIdService {
   @override
   Future<String> registrationChainScope() async => '0x${'22' * 32}';
   @override
-  Future<Future<void> Function()> registrationGuard(String accountId) async =>
-      () async {};
+  Future<Future<void> Function()> registrationGuard(String accountId) async {
+    if (guardFailure != null) throw guardFailure!;
+    return () async {};
+  }
   @override
   Future<FinalizedRegistration> registerEnrollmentCid({
     required BuildContext? context,
@@ -144,7 +148,7 @@ class _FlowCoordinator extends RegistrationCoordinator {
     required Future<void> Function() requireCurrent,
     required Future<String?> Function(RegistrationVerification)
     showVerification,
-    required Future<bool> Function() ensureAffordable,
+    required Future<void> Function() requireAffordable,
     required Future<FinalizedRegistration?> Function() readFinalized,
     required Future<FinalizedRegistration> Function(
       Future<void> Function(Map<String, dynamic>),
@@ -154,7 +158,7 @@ class _FlowCoordinator extends RegistrationCoordinator {
     required Future<String> Function(FinalizedRegistration) activate,
   }) async {
     await requireCurrent();
-    if (!await ensureAffordable()) throw const RegistrationException('余额不足');
+    await requireAffordable();
     final result = await registerCid((_) async {});
     await activate(result);
     return result;
@@ -185,6 +189,7 @@ Widget _harness(
   List<bool> results,
   MyIdService service,
   FinalizedIdentityResolver resolver,
+  {bool directRegistration = false,}
 ) {
   return MultiProvider(
     providers: [
@@ -199,10 +204,12 @@ Widget _harness(
           builder: (context) => TextButton(
             onPressed: () async {
               results.add(
-                await ensureCidRegisteredOrPrompt(
-                  context,
-                  myIdService: service,
-                ),
+                await (directRegistration
+                    ? startCidRegistrationFlow(context, myIdService: service)
+                    : ensureCidRegisteredOrPrompt(
+                        context,
+                        myIdService: service,
+                      )),
               );
             },
             child: const Text('触发动作'),
@@ -227,7 +234,7 @@ void main() {
     expect(find.text('确认注册'), findsNothing);
   });
 
-  testWidgets('未注册 → 就地弹统一注册面板并返回 false', (tester) async {
+  testWidgets('未注册动作不越过统一注册页面直接打开面板', (tester) async {
     final results = <bool>[];
     await tester.pumpWidget(
       _harness(results, _FlowService(), _UnregisteredCache()),
@@ -236,22 +243,15 @@ void main() {
     await tester.tap(find.text('触发动作'));
     await tester.pumpAndSettle();
 
-    // 弹的是「注册身份」统一底部面板(确认按钮为证);面板挂起期间动作被拦,
-    // future 尚未返回。
-    expect(find.text('确认注册'), findsOneWidget);
-    expect(results, isEmpty);
-
-    // 用户点遮罩取消 → 动作以 false 收尾(注册后由用户重新触发,不自动续跑)。
-    await tester.tapAt(const Offset(10, 10));
-    await tester.pumpAndSettle();
+    expect(find.text('确认注册'), findsNothing);
     expect(results, [false]);
   });
 
-  testWidgets('未注册 → 面板内确认占号:只提交一次，缓存收敛归服务层', (tester) async {
+  testWidgets('统一注册入口确认占号:只提交一次，缓存收敛归服务层', (tester) async {
     final cache = _UnregisteredCache();
     final service = _FlowService();
     final results = <bool>[];
-    await tester.pumpWidget(_harness(results, service, cache));
+    await tester.pumpWidget(_harness(results, service, cache, directRegistration: true));
 
     await tester.tap(find.text('触发动作'));
     await tester.pumpAndSettle();
@@ -263,6 +263,31 @@ void main() {
     // 统一执行，相关“一次失效 + 一次 revision”由 myid_service_test 单独钉死。
     expect(find.textContaining('身份 CID 已注册'), findsOneWidget);
   });
+
+  for (final failure in <(CitizenSdkErrorCode, String)>[
+    (CitizenSdkErrorCode.network, '链网络连接失败'),
+    (CitizenSdkErrorCode.keyInvalidated, '钱包签名密钥已失效'),
+  ]) {
+    testWidgets('SDK ${failure.$1.name} 失败显示具体原因并留在注册面板', (tester) async {
+      final service = _FlowService(
+        guardFailure: CitizenSdkException(
+          code: failure.$1,
+          message: '内部错误正文不得直接展示',
+        ),
+      );
+      await tester.pumpWidget(
+        _harness(<bool>[], service, _UnregisteredCache(), directRegistration: true),
+      );
+      await tester.tap(find.text('触发动作'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('确认注册'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining(failure.$2), findsOneWidget);
+      expect(find.textContaining('内部错误正文'), findsNothing);
+      expect(find.text('注册身份'), findsOneWidget);
+      expect(service.registerCalls, 0);
+    });
+  }
 
   testWidgets('身份链读失败 → fail-closed 提示,不弹面板不放行', (tester) async {
     final results = <bool>[];

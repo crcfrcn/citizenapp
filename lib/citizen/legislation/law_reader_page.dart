@@ -4,8 +4,8 @@ import 'package:provider/provider.dart';
 
 import 'package:citizenapp/citizen/legislation/law_models.dart';
 import 'package:citizenapp/citizen/legislation/legislation_api.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 法律条款阅读器(ADR-028 P3-1)——宪法与普通法律共用。
 ///

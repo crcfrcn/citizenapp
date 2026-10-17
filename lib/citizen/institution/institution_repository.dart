@@ -13,7 +13,7 @@ import 'package:citizenapp/citizen/public/area_path_formatter.dart';
 import 'package:citizenapp/citizen/public/public_institution_repository.dart';
 import 'package:citizenapp/citizen/public/public_provinces.dart';
 import 'package:citizenapp/citizen/institution/governance_registry.dart';
-import 'package:citizenapp/citizen/shared/institution_info.dart';
+import 'package:citizenapp/citizen/institution/institution_info.dart';
 import 'package:citizenapp/storage/app_isar.dart';
 
 class InstitutionRepository {

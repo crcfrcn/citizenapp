@@ -6,10 +6,10 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:polkadart/polkadart.dart' show Hasher;
 import 'package:polkadart/scale_codec.dart' show CompactBigIntCodec, ByteOutput;
 
-import 'package:citizenapp/citizen/shared/account_derivation.dart'
+import 'package:citizenapp/citizen/account_derivation.dart'
     show isAccountIdText;
 
-import 'package:citizenapp/citizen/shared/pallet_registry.dart';
+import 'package:citizenapp/citizen/pallet_registry.dart';
 
 /// 匿名 CID 自助换绑在同一 finalized 区块读取出的防重放上下文。
 class SelfRebindAuthorizationContext {

@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:citizenapp/citizen/shared/pallet_registry.dart';
+import 'package:citizenapp/citizen/pallet_registry.dart';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/foundation.dart';
@@ -8,9 +8,9 @@ import 'package:polkadart/polkadart.dart' show Hasher;
 import 'package:polkadart/scale_codec.dart' show ByteOutput;
 import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
-import 'package:citizenapp/citizen/shared/proposal_models.dart';
-import 'package:citizenapp/citizen/shared/proposal_query_service.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
+import 'package:citizenapp/citizen/proposal/proposal_models.dart';
+import 'package:citizenapp/citizen/proposal/proposal_query_service.dart';
 
 /// 协议升级提案链上交互服务。
 ///

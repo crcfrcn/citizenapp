@@ -5,16 +5,16 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:citizenapp/scanner/scanner.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
 import 'package:citizenapp/scanner/qr_router.dart';
 import 'package:citizenapp/account/identity/citizen_identity_chain_reader.dart';
-import 'package:citizenapp/account/user/contact_service.dart';
+import 'package:citizenapp/account/contacts/contact_service.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
-import 'package:citizenapp/8964/profile/square_session_provider.dart';
-import 'package:citizenapp/security/account_security_service.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/account/identity/square_session_provider.dart';
+import 'package:citizenapp/account/identity/account_security_service.dart';
+import 'package:citizenapp/network/square_api_client.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 扫码结果：收款码预填数据。
 class QrScanTransferResult {

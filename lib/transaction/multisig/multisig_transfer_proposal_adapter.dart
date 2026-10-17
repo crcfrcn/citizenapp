@@ -4,10 +4,10 @@ import 'package:citizenapp/transaction/multisig/multisig_transfer_cache.dart';
 import 'package:citizenapp/transaction/multisig/multisig_transfer_detail_page.dart';
 import 'package:citizenapp/transaction/multisig/multisig_transfer_models.dart';
 import 'package:citizenapp/transaction/multisig/multisig_transfer_service.dart';
-import 'package:citizenapp/citizen/shared/institution_info.dart';
-import 'package:citizenapp/citizen/shared/proposal_context.dart';
-import 'package:citizenapp/citizen/shared/proposal_models.dart';
-import 'package:citizenapp/account/utility/amount_format.dart';
+import 'package:citizenapp/citizen/institution/institution_info.dart';
+import 'package:citizenapp/citizen/proposal/proposal_context.dart';
+import 'package:citizenapp/citizen/proposal/proposal_models.dart';
+import 'package:citizenapp/transaction/amount_format.dart';
 
 /// 多签转账给外部列表页使用的只读适配器。
 ///

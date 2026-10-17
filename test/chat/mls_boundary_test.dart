@@ -1,4 +1,5 @@
 import '../square/mls_authentication_fixture.dart';
+import 'package:citizenapp/account/identity/cid_business_gate.dart';
 import '../support/fake_citizen_sdk.dart';
 
 import 'package:citizenapp/chat/tatachat_sdk_adapter.dart';
@@ -6,10 +7,10 @@ import 'package:citizenapp/chat/tatachat_sdk_adapter.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:citizenapp/8964/profile/square_session_provider.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart';
+import 'package:citizenapp/account/identity/square_session_provider.dart';
+import 'package:citizenapp/network/square_api_client.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart';
-import 'package:citizenapp/security/account_security_service.dart';
+import 'package:citizenapp/account/identity/account_security_service.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
 
 import '../support/isar_test_env.dart';
@@ -29,6 +30,11 @@ class _ChatAccessProvider extends SquareSessionProvider {
     : super(
         accountSecurity: _UnusedSecurity(),
         currentUserContext: _UnusedCurrentUserContext(),
+        // 本夹具只映射已注册用户的聊天许可，不调用真实钱包或链门禁。
+        resolveCid: () async => const CidBusinessDecision(
+          CidBusinessStatus.ready,
+          cidNumber: 'user-a',
+        ),
       );
   int requests = 0;
   @override
@@ -221,6 +227,7 @@ void main() {
     final sessions = SquareSessionProvider(
       accountSecurity: security,
       currentUserContext: current,
+      resolveCid: () async => const CidBusinessDecision(CidBusinessStatus.noWallet),
     );
     final runtime = createCitizenChatRuntime(
       accountSecurity: security,

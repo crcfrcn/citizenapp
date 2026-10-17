@@ -7,19 +7,19 @@ import 'package:provider/provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:citizenapp/8964/profile/citizen_profile_api.dart';
-import 'package:citizenapp/8964/profile/citizen_profile_cache.dart';
-import 'package:citizenapp/8964/profile/square_session_provider.dart';
-import 'package:citizenapp/8964/profile/profile_presentation.dart';
-import 'package:citizenapp/8964/profile/user_profile_page.dart';
-import 'package:citizenapp/8964/profile/user_qr_page.dart';
-import 'package:citizenapp/8964/profile/profile_action_icons.dart';
-import 'package:citizenapp/8964/profile/profile_category_tabs.dart';
-import 'package:citizenapp/8964/profile/profile_header_card.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart';
+import 'package:citizenapp/account/profile/citizen_profile_api.dart';
+import 'package:citizenapp/account/profile/citizen_profile_cache.dart';
+import 'package:citizenapp/account/identity/square_session_provider.dart';
+import 'package:citizenapp/account/profile/profile_presentation.dart';
+import 'package:citizenapp/account/profile/user_profile_page.dart';
+import 'package:citizenapp/account/profile/user_qr_page.dart';
+import 'package:citizenapp/account/profile/profile_action_icons.dart';
+import 'package:citizenapp/account/profile/profile_category_tabs.dart';
+import 'package:citizenapp/account/profile/profile_header_card.dart';
+import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/account/membership/subscription_service.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/theme/identity_badge.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/account/identity/identity_badge.dart';
 
 import 'fake_profile.dart';
 

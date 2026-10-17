@@ -1,4 +1,4 @@
-import 'package:citizenapp/security/identity_binding.dart';
+import 'package:citizenapp/account/identity/identity_binding.dart';
 
 import 'registration_api.dart';
 import 'registration_models.dart';
@@ -21,7 +21,7 @@ class RegistrationCoordinator {
     required Future<void> Function() requireCurrent,
     required Future<String?> Function(RegistrationVerification)
     showVerification,
-    required Future<bool> Function() ensureAffordable,
+    required Future<void> Function() requireAffordable,
     required Future<FinalizedRegistration?> Function() readFinalized,
     required Future<FinalizedRegistration> Function(
       Future<void> Function(Map<String, dynamic>),
@@ -42,7 +42,7 @@ class RegistrationCoordinator {
           context,
           requireCurrent,
           showVerification,
-          ensureAffordable,
+          requireAffordable,
           readFinalized,
           registerCid,
           activate,
@@ -63,7 +63,7 @@ class RegistrationCoordinator {
     RegistrationContext context,
     Future<void> Function() guard,
     Future<String?> Function(RegistrationVerification) showPage,
-    Future<bool> Function() affordable,
+    Future<void> Function() affordable,
     Future<FinalizedRegistration?> Function() readChain,
     Future<FinalizedRegistration> Function(
       Future<void> Function(Map<String, dynamic>),
@@ -176,9 +176,9 @@ class RegistrationCoordinator {
           response.state == RegistrationState.activated) {
         throw const RegistrationException('链交易结果尚未确认，请稍后恢复；不会重复签名或上链');
       }
-      if (!await affordable()) {
-        throw const RegistrationException('余额不足，充值后可继续本次登记');
-      }
+      // 费用读取失败与确认余额不足由调用方分别抛出带代码的结果，不再用 bool
+      // 把所有失败误报成钱包余额不足。
+      await affordable();
       await guard();
       final pending = record.next(phase: RegistrationPhase.chainPending);
       await store.save(record, pending);

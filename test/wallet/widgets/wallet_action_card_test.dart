@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:citizenapp/wallet/widgets/wallet_action_card.dart';
+import 'package:citizenapp/wallet/wallet_action_card.dart';
 
 /// WalletActionCard 渲染 + 行为测试(步骤 4 三按钮重排版)。
 ///

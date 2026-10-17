@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 
 import 'institution_models.dart';
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
 
 /// 机构管理提案解码服务（公权/私权共用）。
 ///

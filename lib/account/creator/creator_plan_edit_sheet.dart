@@ -6,8 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:citizenapp/account/creator/creator_money.dart';
 import 'package:citizenapp/account/creator/creator_service.dart';
 import 'package:citizenapp/account/creator/creator_plan.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 编辑/新增会员档底部弹窗。
 ///

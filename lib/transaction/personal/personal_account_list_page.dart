@@ -15,11 +15,11 @@ import 'package:citizenapp/app_log.dart';
 import 'package:isar_community/isar.dart';
 import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
-import 'package:citizenapp/citizen/shared/admin_accounts_scan_service.dart';
-import 'package:citizenapp/citizen/shared/institution_info.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
+import 'package:citizenapp/citizen/administrators/admin_accounts_scan_service.dart';
+import 'package:citizenapp/citizen/institution/institution_info.dart';
 import 'package:citizenapp/storage/wallet_isar.dart';
-import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
 
 import 'personal_account_create_page.dart';
 import 'personal_manage_account_info_page.dart';
@@ -28,7 +28,7 @@ import 'personal_manage_models.dart';
 import 'personal_manage_service.dart';
 import 'personal_proposal_history_service.dart';
 
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 class PersonalAccountListPage extends StatefulWidget {
   const PersonalAccountListPage({super.key});

@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizenapp/citizen/shared/pallet_registry.dart';
+import 'package:citizenapp/citizen/pallet_registry.dart';
 
 import 'package:polkadart/scale_codec.dart' show CompactBigIntCodec, ByteOutput;
 

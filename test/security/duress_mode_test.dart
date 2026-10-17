@@ -1,13 +1,13 @@
-import 'package:citizenapp/security/app_lock_service.dart';
-import 'package:citizenapp/security/account_security_service.dart';
+import 'package:citizenapp/system/security/app_lock_service.dart';
+import 'package:citizenapp/account/identity/account_security_service.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizenapp/security/pin_input_page.dart';
+import 'package:citizenapp/system/security/pin_input_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'dart:io';
 
-import 'package:citizenapp/security/system_protected_storage.dart';
+import 'package:citizenapp/system/security/system_protected_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // 本用例不调用钱包或签名接口；一旦发生意外调用立即失败。

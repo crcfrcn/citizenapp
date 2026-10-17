@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
-import 'package:citizenapp/security/citizen_serve_api_config.dart';
+import 'package:citizenapp/network/citizen_serve_api_config.dart';
 
 // 稳定币充值购买公民币 · 数据模型(与 Worker /topup/* 对齐)。
 

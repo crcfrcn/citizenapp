@@ -12,31 +12,30 @@ import 'package:tatachat_sdk/tatachat_sdk.dart';
 
 import 'chat_product_policy.dart';
 
-import 'package:citizenapp/8964/profile/citizen_profile.dart';
-import 'package:citizenapp/8964/profile/profile_presentation.dart';
-import 'package:citizenapp/8964/profile/citizen_profile_api.dart';
-import 'package:citizenapp/8964/profile/citizen_profile_cache.dart';
-import 'package:citizenapp/8964/profile/square_session_provider.dart';
-import 'package:citizenapp/8964/profile/user_profile_page.dart';
-import 'package:citizenapp/8964/profile/profile_avatar.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart';
+import 'package:citizenapp/account/profile/citizen_profile.dart';
+import 'package:citizenapp/account/profile/profile_presentation.dart';
+import 'package:citizenapp/account/profile/citizen_profile_api.dart';
+import 'package:citizenapp/account/profile/citizen_profile_cache.dart';
+import 'package:citizenapp/account/identity/square_session_provider.dart';
+import 'package:citizenapp/account/profile/user_profile_page.dart';
+import 'package:citizenapp/account/profile/profile_avatar.dart';
+import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/chat/tatachat_sdk_adapter.dart';
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
 import 'package:citizenapp/account/membership/membership_revision.dart';
 import 'package:citizenapp/account/membership/subscription_service.dart';
 import 'package:citizenapp/account/identity/citizen_identity_chain_reader.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
 import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
-import 'package:citizenapp/account/identity/register_identity_flow.dart';
-import 'package:citizenapp/account/user/contact_book_page.dart';
-import 'package:citizenapp/account/user/contact_service.dart';
+import 'package:citizenapp/account/contacts/contact_book_page.dart';
+import 'package:citizenapp/account/contacts/contact_service.dart';
 import 'package:citizenapp/scanner/scan_dispatch_flow.dart';
 import 'package:citizenapp/transaction/onchain/onchain_payment_page.dart';
-import 'package:citizenapp/theme/app_layout.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/widgets/identity_register_guide.dart';
-import 'package:citizenapp/security/account_security_service.dart';
-import 'package:citizenapp/wallet/widgets/wallet_qr_dialog.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/account/identity/identity_register_guide.dart';
+import 'package:citizenapp/account/identity/account_security_service.dart';
+import 'package:citizenapp/wallet/wallet_qr_dialog.dart';
 
 typedef ChatResolvePeerAddressCallback = Future<String> Function(
   String peerUserId,
@@ -267,12 +266,16 @@ class _CitizenChatHeaderState extends State<_CitizenChatHeader> {
     if (widget.isGroup || !mounted) return;
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
-        builder: (_) => UserProfilePage(
-          cidNumber: widget.peerUserId,
-          isSelf: false,
-          initialProfile: _profile,
-          initialProfileMedia: _media,
-          sessionProvider: _sessionProvider,
+        builder: (_) => CitizenServiceGate(
+          title: '用户主页',
+          description: '注册后即可查看用户主页。',
+          child: UserProfilePage(
+            cidNumber: widget.peerUserId,
+            isSelf: false,
+            initialProfile: _profile,
+            initialProfileMedia: _media,
+            sessionProvider: _sessionProvider,
+          ),
         ),
       ),
     );
@@ -977,18 +980,13 @@ class _ChatTabState extends State<ChatTab> {
     return true;
   }
 
-  /// 页面浏览直接开放；私信、群聊、加好友等动作发生时再严格要求热钱包与 CID。
+  /// 聊天业务先由公民号门禁判定；私信、群聊、加好友动作继续复核账户与 CID。
   ///
-  /// 未注册不再打错误横幅,而是就地弹全 App 统一注册面板;占号成功后
-  /// coordinator 回刷进正常聊天,原动作由用户重新触发(不自动续跑)。
+  /// 未注册时只保留页面内统一注册引导；动作不得绕过引导直接弹注册面板。
   bool _requireChatIdentity() {
     if (!_requireAccount()) return false;
     if (_cidNumber.isEmpty) {
-      unawaited(
-        startCidRegistrationFlow(context).then((registered) {
-          if (registered && mounted) _requestCoordinate();
-        }),
-      );
+      _requestCoordinate();
       return false;
     }
     return true;

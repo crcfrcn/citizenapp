@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
 
 void main() {
   test('ss58FromAccountIdText 与 ss58FromAccountId 对同一账户一致(round-trip)', () {

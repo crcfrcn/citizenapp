@@ -1,9 +1,9 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:citizenapp/security/identity_binding.dart';
-import 'package:citizenapp/security/mls_authentication.dart';
-import 'package:citizenapp/security/system_protected_storage.dart';
+import 'package:citizenapp/account/identity/identity_binding.dart';
+import 'package:citizenapp/account/identity/mls_authentication.dart';
+import 'package:citizenapp/system/security/system_protected_storage.dart';
 import 'package:citizenapp/account/identity/registration_models.dart';
 import 'package:citizenapp/account/identity/registration_store.dart';
 

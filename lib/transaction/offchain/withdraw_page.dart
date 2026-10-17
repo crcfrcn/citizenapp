@@ -9,7 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:citizenapp/scanner/qr_sign_session_page.dart';
 import 'package:citizenapp/transaction/offchain/onchain_clearing_bank_chain.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 扫码支付清算体系 Step 1 新增:**提现** 清算行主账户 → L3 自持账户。
 ///

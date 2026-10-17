@@ -5,8 +5,8 @@ import 'package:provider/provider.dart';
 import 'package:citizenapp/citizen/legislation/law_models.dart';
 import 'package:citizenapp/citizen/legislation/legislation_api.dart';
 import 'package:citizenapp/citizen/legislation/law_reader_page.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 某立法机构的法律列表(ADR-028 P3-1)——`list_laws(tier, scope)`。
 ///

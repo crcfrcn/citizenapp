@@ -1,8 +1,8 @@
 import 'dart:io';
-import 'package:citizenapp/security/system_protected_storage.dart';
+import 'package:citizenapp/system/security/system_protected_storage.dart';
 import 'package:citizenapp/storage/user_isar.dart';
-import 'package:citizenapp/account/user/user.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/account/user.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

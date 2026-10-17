@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:polkadart/polkadart.dart' show Hasher;
 import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
 import 'package:citizenapp/storage/wallet_isar.dart';
 import 'package:citizenapp/app_log.dart';
 import 'package:citizenapp/transaction/history/citizenchain_transaction_event_decoder.dart';

@@ -1,8 +1,8 @@
 // 业务字段必须与 Rust 管理员结构逐字一致。
 // ignore_for_file: non_constant_identifier_names
 
-import 'package:citizenapp/citizen/shared/institution_code_label.dart';
-import 'package:citizenapp/citizen/shared/institution_info.dart';
+import 'package:citizenapp/citizen/institution/institution_code_label.dart';
+import 'package:citizenapp/citizen/institution/institution_info.dart';
 import 'package:citizenapp/citizen/administrators/account_id_codec.dart';
 
 enum AdminAccountIdentityType { institution, personalAccount }

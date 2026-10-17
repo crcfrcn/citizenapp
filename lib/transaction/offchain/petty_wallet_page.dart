@@ -7,8 +7,8 @@ import 'package:flutter/material.dart';
 
 import 'package:citizenapp/transaction/offchain/deposit_page.dart';
 import 'package:citizenapp/transaction/offchain/withdraw_page.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 零钱包详情页(链下清算行零钱包)。
 ///

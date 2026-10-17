@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:citizenapp/8964/compose/article_blocks.dart';
-import 'package:citizenapp/8964/square_models.dart';
+import 'package:citizenapp/8964/feed/square_models.dart';
 
 SquareLocalMediaDraft _img(String name) => SquareLocalMediaDraft(
       mediaKind: SquareMediaKind.image,

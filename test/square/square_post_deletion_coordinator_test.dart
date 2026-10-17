@@ -1,9 +1,9 @@
 import 'mls_authentication_fixture.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:citizenapp/8964/services/square_api_client.dart';
-import 'package:citizenapp/8964/services/square_post_deletion_coordinator.dart';
-import 'package:citizenapp/8964/services/square_post_store.dart';
+import 'package:citizenapp/network/square_api_client.dart';
+import 'package:citizenapp/8964/feed/square_post_deletion_coordinator.dart';
+import 'package:citizenapp/8964/feed/square_post_store.dart';
 import 'package:citizenapp/storage/social_isar.dart';
 
 import '../support/isar_test_env.dart';

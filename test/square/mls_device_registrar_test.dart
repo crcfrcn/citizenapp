@@ -1,19 +1,20 @@
 import 'package:citizenapp/account/identity/registration_models.dart';
-import 'package:citizenapp/security/public_identity_store.dart';
+import 'package:citizenapp/account/identity/public_identity_store.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
-import 'package:citizenapp/security/account_security_service.dart';
-import 'package:citizenapp/8964/profile/square_session_provider.dart';
+import 'package:citizenapp/account/identity/cid_business_gate.dart';
+import 'package:citizenapp/account/identity/account_security_service.dart';
+import 'package:citizenapp/account/identity/square_session_provider.dart';
 
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:citizenapp/security/identity_binding.dart';
-import 'package:citizenapp/security/mls_authentication.dart';
-import 'package:citizenapp/8964/services/mls_device_registrar.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart';
+import 'package:citizenapp/account/identity/identity_binding.dart';
+import 'package:citizenapp/account/identity/mls_authentication.dart';
+import 'package:citizenapp/account/identity/mls_device_registrar.dart';
+import 'package:citizenapp/network/square_api_client.dart';
 
 import '../support/fake_citizen_sdk.dart';
 import 'mls_authentication_fixture.dart';
@@ -162,9 +163,38 @@ Future<void> _register(
 
 void main() {
   TestCitizenSdkHarness();
+  test('确认无公民号时会话入口不读取 MLS 或登记设备', () async {
+    final source = FakeMlsAuthentication();
+    final wallet = _SessionWalletManager();
+    final provider = SquareSessionProvider(
+      resolveCid: () async => const CidBusinessDecision(
+        CidBusinessStatus.unregistered,
+      ),
+      client: _SessionApi(deviceMissing: true),
+      accountSecurity: wallet,
+      authentication: source,
+      currentUserContext: _SessionIdentityCache(),
+    );
+    await expectLater(
+      provider.ensureSession(),
+      throwsA(isA<SquareApiException>().having(
+        (error) => error.errorCode,
+        'errorCode',
+        'cid_not_bound',
+      )),
+    );
+    expect(source.identityCalls, 0);
+    expect(source.proofCalls, 0);
+    expect(wallet.registrationCalls, 0);
+  });
+
   test("普通会话只使用 MLS，未登记只协调一次授权登记", () async {
     final existingWallet = _SessionWalletManager();
     final existing = SquareSessionProvider(
+      resolveCid: () async => const CidBusinessDecision(
+        CidBusinessStatus.ready,
+        cidNumber: testMlsCidNumber,
+      ),
       client: _SessionApi(deviceMissing: false),
       accountSecurity: existingWallet,
       authentication: FakeMlsAuthentication(),
@@ -174,6 +204,10 @@ void main() {
     expect(existingWallet.registrationCalls, 0);
     final missingWallet = _SessionWalletManager();
     final missing = SquareSessionProvider(
+      resolveCid: () async => const CidBusinessDecision(
+        CidBusinessStatus.ready,
+        cidNumber: testMlsCidNumber,
+      ),
       client: _SessionApi(deviceMissing: true),
       accountSecurity: missingWallet,
       authentication: FakeMlsAuthentication(),

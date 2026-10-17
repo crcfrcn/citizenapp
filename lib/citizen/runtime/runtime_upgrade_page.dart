@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 协议升级介绍页。
 ///

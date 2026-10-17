@@ -4,13 +4,13 @@ import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
-import 'package:citizenapp/8964/profile/square_session_provider.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart';
+import 'package:citizenapp/account/identity/square_session_provider.dart';
+import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/account/membership/membership_revision.dart';
 import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
 import 'package:citizenapp/scanner/qr_sign_session_page.dart';
 import 'package:citizenapp/account/membership/subscription_chain.dart';
-import 'package:citizenapp/security/hex_codec.dart' show hexToBytes;
+import 'package:citizenapp/network/hex_codec.dart' show hexToBytes;
 import 'package:citizenapp/storage/wallet_isar.dart';
 
 class SubscriptionException implements Exception {

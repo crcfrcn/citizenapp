@@ -3,13 +3,13 @@
 //
 //
 // - 机构码的底层分类(固定治理 / 公权法人 / 机构账户 / 个人多签)由
-//   `citizen/shared/institution_code_label.dart` 提供,本文件只在其上叠加
+//   `citizen/institution/institution_code_label.dart` 提供,本文件只在其上叠加
 //   五子 tab 的「业务分组」,绝不复制码表。
 // - 五子 tab 中:立法/治理/公权 是机构视图(本文件过滤);广场/选举 是活动视图
 //   (非机构子集,见 ADR-028 决策 5/7),不在本文件。
 // - 公权 = 全集(超集),不需过滤——任何已知机构都属于公权。
 
-import 'package:citizenapp/citizen/shared/institution_code_label.dart';
+import 'package:citizenapp/citizen/institution/institution_code_label.dart';
 
 /// 机构所属的子 tab 业务分组(仅机构视图三类;公权为全集不单列)。
 enum InstitutionTabGroup {

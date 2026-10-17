@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:citizenapp/account/utility/amount_format.dart';
+import 'package:citizenapp/transaction/amount_format.dart';
 
 /// AmountFormat.formatThousands 边界覆盖。
 void main() {

@@ -5,7 +5,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:isar_community/isar.dart';
 
-import 'package:citizenapp/8964/services/square_media_store.dart';
+import 'package:citizenapp/8964/media/square_media_store.dart';
 import 'package:citizenapp/storage/isar_core_bootstrap.dart';
 import 'package:citizenapp/storage/social_isar.dart';
 

@@ -8,13 +8,13 @@
 //   由 [builtinAccounts] 承载(china 创世常量,不可派生),其余机构主/费/自定义账户
 //   一律本地派生(account_derivation,零网络)。
 // - 机构分类(是否固定治理 / 是否机构账户)统一从机构码派生,
-//   单一源 = `citizen/shared/institution_code_label.dart`,绝不另立第二套。
+//   单一源 = `citizen/institution/institution_code_label.dart`,绝不另立第二套。
 
 import 'dart:typed_data';
 
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
-import 'package:citizenapp/citizen/shared/institution_code_label.dart';
-import 'package:citizenapp/citizen/shared/institution_info.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
+import 'package:citizenapp/citizen/institution/institution_code_label.dart';
+import 'package:citizenapp/citizen/institution/institution_info.dart';
 import 'package:citizenapp/storage/app_isar.dart';
 
 /// 单个机构的统一信息载体(不可变)。

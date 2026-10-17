@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 
 import 'package:citizenapp/account/creator/creator_money.dart';
 import 'package:citizenapp/account/creator/creator_plan.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 单个会员档卡：档名 + 月/季/年价格 pill（未开启周期灰显「未设」）+ 编辑入口。
 class CreatorTierCard extends StatelessWidget {

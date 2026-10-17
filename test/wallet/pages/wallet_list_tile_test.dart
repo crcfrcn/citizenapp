@@ -4,9 +4,9 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/wallet/pages/wallet_page.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/wallet/wallet_page.dart';
 
 void main() {
   CitizenWalletStateAccount account({
@@ -91,7 +91,7 @@ void main() {
   });
 
   test('冷钱包导入保留App原界面，只接SDK账户码解析与导入', () {
-    final source = File('lib/wallet/pages/wallet_page.dart').readAsStringSync();
+    final source = File('lib/wallet/wallet_page.dart').readAsStringSync();
     expect(source, contains('mode: QrScanMode.coldAccountImport'));
     expect(source, contains('CitizenQrScanPurpose.coldAccountImport'));
     expect(source, matches(RegExp(r'\.wallet\s*\.importColdAccount\(')));

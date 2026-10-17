@@ -3,21 +3,21 @@ import 'dart:typed_data';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:citizenapp/8964/profile/square_session_provider.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart';
+import 'package:citizenapp/account/identity/square_session_provider.dart';
+import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/account/identity/citizen_identity_chain_reader.dart';
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
 import 'package:citizenapp/citizen/public/isar_public_institution_store.dart';
 import 'package:citizenapp/citizen/public/public_institution_dto.dart';
 import 'package:citizenapp/storage/app_isar.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
 import 'package:citizenapp/storage/user_isar.dart';
 import 'package:citizenapp/storage/isar_core_bootstrap.dart';
-import 'package:citizenapp/account/user/contact_service.dart';
+import 'package:citizenapp/account/contacts/contact_service.dart';
 import 'package:citizenapp/scanner/qr_scan_page.dart';
 import 'package:isar_community/isar.dart';
-import 'package:citizenapp/security/identity_binding.dart';
-import 'package:citizenapp/security/account_security_service.dart';
+import 'package:citizenapp/account/identity/identity_binding.dart';
+import 'package:citizenapp/account/identity/account_security_service.dart';
 
 import '../../support/isar_test_env.dart';
 import '../../square/mls_authentication_fixture.dart' show testMlsDeviceId;

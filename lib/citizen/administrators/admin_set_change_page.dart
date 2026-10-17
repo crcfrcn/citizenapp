@@ -15,9 +15,9 @@ import 'package:citizenapp/citizen/administrators/admin_set_change_action_bar.da
 import 'package:citizenapp/citizen/administrators/admin_set_diff_card.dart';
 import 'package:citizenapp/citizen/administrators/admin_set_editor.dart';
 import 'package:citizenapp/citizen/administrators/admin_account_card.dart';
-import 'package:citizenapp/citizen/shared/institution_info.dart';
+import 'package:citizenapp/citizen/institution/institution_info.dart';
 import 'package:citizenapp/scanner/qr_sign_session_page.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 class AdminsChangePage extends StatefulWidget {
   const AdminsChangePage({

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:citizenapp/8964/profile/profile_kebab_menu.dart';
+import 'package:citizenapp/account/profile/profile_kebab_menu.dart';
 
 Future<void> _openMenu(WidgetTester tester, {required bool isSelf}) async {
   await tester.pumpWidget(

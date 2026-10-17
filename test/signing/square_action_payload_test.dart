@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import '../support/fake_citizen_sdk.dart';
-import 'package:citizenapp/signing/square_action_payload.dart';
+import 'package:citizenapp/account/profile/square_action_payload.dart';
 
 Future<String> _payloadHex({
   required String action,

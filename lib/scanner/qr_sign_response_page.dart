@@ -1,8 +1,8 @@
 import 'package:citizenapp/scanner/qr_display_scaffold.dart' show AppQrImage;
 import 'package:flutter/material.dart';
 
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 广场账户动作签名响应页：展示 QR_V1 signResponse 二维码，供发起方（官网）扫回完成。
 class QrSignResponsePage extends StatelessWidget {

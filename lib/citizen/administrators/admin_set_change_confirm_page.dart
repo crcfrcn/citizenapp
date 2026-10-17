@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 class AdminsChangeConfirmPage extends StatelessWidget {
   const AdminsChangeConfirmPage({super.key, required this.txHash});

@@ -8,7 +8,7 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:citizenapp/wallet/widgets/wallet_onchain_balance_card.dart';
+import 'package:citizenapp/wallet/wallet_onchain_balance_card.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

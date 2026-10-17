@@ -10,10 +10,10 @@ import 'package:citizenapp/8964/compose/article_blocks.dart';
 import 'package:citizenapp/8964/compose/article_compose_body.dart';
 import 'package:citizenapp/8964/compose/compose_media_picker.dart';
 import 'package:citizenapp/8964/compose/compose_media_widgets.dart';
-import 'package:citizenapp/8964/square_models.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart';
-import 'package:citizenapp/8964/services/square_upload_service.dart';
-import 'package:citizenapp/8964/widgets/square_media_carousel.dart';
+import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/network/square_api_client.dart';
+import 'package:citizenapp/8964/media/square_upload_service.dart';
+import 'package:citizenapp/8964/media/square_media_carousel.dart';
 
 class _ArticleMediaPickerFake extends ImagePicker
     implements ComposeMediaPicker {

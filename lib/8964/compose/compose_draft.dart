@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:citizenapp/8964/square_models.dart';
+import 'package:citizenapp/8964/feed/square_models.dart';
 
 /// 广场草稿箱的一条草稿；发布类型在创建时固定为公文、文章或视频。
 ///

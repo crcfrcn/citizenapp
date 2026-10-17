@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:polkadart/polkadart.dart' show Hasher;
 
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
 
 /// 由永久 CID 定位的链上公民身份快照。
 ///

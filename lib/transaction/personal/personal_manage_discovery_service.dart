@@ -6,9 +6,9 @@
 
 import 'package:citizenapp/app_log.dart';
 import 'package:isar_community/isar.dart';
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
-import 'package:citizenapp/citizen/shared/admin_account_storage_codec.dart';
-import 'package:citizenapp/citizen/shared/admin_accounts_scan_service.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
+import 'package:citizenapp/citizen/administrators/admin_account_storage_codec.dart';
+import 'package:citizenapp/citizen/administrators/admin_accounts_scan_service.dart';
 import 'package:citizenapp/storage/wallet_isar.dart';
 
 import 'personal_manage_service.dart';

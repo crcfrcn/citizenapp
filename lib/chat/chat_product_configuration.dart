@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:citizenapp/app_log.dart';
-import 'package:citizenapp/notifications/app_push_service.dart';
-import 'package:citizenapp/notifications/app_push_token.dart';
+import 'package:citizenapp/system/notifications/app_push_service.dart';
+import 'package:citizenapp/system/notifications/app_push_token.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';

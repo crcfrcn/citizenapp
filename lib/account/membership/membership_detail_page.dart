@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart';
+import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/account/creator/creator_money.dart'
     show fenToYuanMoneyLabel;
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 会员详情页：展开某一档（自由/民主/薪火）的**完整权益**（聊天 / 公文 / 文章 / 视频 / 用量额度）。
 ///

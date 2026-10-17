@@ -8,41 +8,43 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:provider/provider.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart' as chat;
-import 'package:citizenapp/8964/square_tab_page.dart';
+import 'package:citizenapp/8964/feed/square_tab_page.dart';
 import 'package:citizenapp/citizen/citizen_tab_page.dart';
 import 'package:citizenapp/chat/chat_product_configuration.dart';
 import 'package:citizenapp/chat/tatachat_sdk_adapter.dart';
 import 'package:citizenapp/chat/chat_entry.dart';
-import 'package:citizenapp/security/app_lock_service.dart';
-import 'package:citizenapp/security/emergency_wipe_platform.dart';
-import 'package:citizenapp/security/pin_input_page.dart';
-import 'package:citizenapp/security/system_protected_storage.dart';
+import 'package:citizenapp/system/security/app_lock_service.dart';
+import 'package:citizenapp/system/security/emergency_wipe_platform.dart';
+import 'package:citizenapp/system/security/pin_input_page.dart';
+import 'package:citizenapp/system/security/system_protected_storage.dart';
 import 'package:citizenapp/transaction/transaction_tab_page.dart';
 import 'package:citizenapp/transaction/history/wallet_transaction_history_service.dart';
-import 'package:citizenapp/account/utility/screenshot_guard.dart';
-import 'package:citizenapp/account/user/user.dart';
+import 'package:citizenapp/system/security/screenshot_guard.dart';
+import 'package:citizenapp/account/user.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
 import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
+import 'package:citizenapp/account/identity/cid_business_gate.dart';
+import 'package:citizenapp/account/identity/myid_service.dart';
 import 'package:citizenapp/account/identity/identity_badge_snapshot_store.dart';
 import 'package:citizenapp/storage/user_isar.dart';
-import 'package:citizenapp/security/app_permission_gate.dart';
-import 'package:citizenapp/update/app_update.dart';
-import 'package:citizenapp/update/update_badge.dart';
-import 'package:citizenapp/8964/services/mls_device_registrar.dart';
-import 'package:citizenapp/security/mls_authentication.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart';
-import 'package:citizenapp/8964/profile/square_session_provider.dart';
-import 'package:citizenapp/notifications/app_push_service.dart';
-import 'package:citizenapp/notifications/app_push_token.dart';
+import 'package:citizenapp/system/security/app_permission_gate.dart';
+import 'package:citizenapp/system/update/app_update.dart';
+import 'package:citizenapp/system/update/update_badge.dart';
+import 'package:citizenapp/account/identity/mls_device_registrar.dart';
+import 'package:citizenapp/account/identity/mls_authentication.dart';
+import 'package:citizenapp/network/square_api_client.dart';
+import 'package:citizenapp/account/identity/square_session_provider.dart';
+import 'package:citizenapp/system/notifications/app_push_service.dart';
+import 'package:citizenapp/system/notifications/app_push_token.dart';
 import 'package:citizenapp/account/identity/registration_coordinator.dart';
 import 'package:citizenapp/scanner/qr_sign_session_page.dart';
-import 'package:citizenapp/security/identity_binding.dart';
-import 'package:citizenapp/security/account_security_service.dart';
+import 'package:citizenapp/account/identity/identity_binding.dart';
+import 'package:citizenapp/account/identity/account_security_service.dart';
 import 'package:citizenapp/wallet/wallet_gate.dart';
 
-import 'theme/app_theme.dart';
-import 'theme/app_layout.dart';
-import 'theme/biometric_auth_text.dart';
+import 'system/theme/app_theme.dart';
+import 'system/theme/app_layout.dart';
+import 'system/security/biometric_auth_text.dart';
 
 final appNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -127,9 +129,28 @@ Future<void> main() async {
   );
   final squareApiClient = SquareApiClient();
   final appPushService = AppPushService();
-  final squareSessionProvider = SquareSessionProvider(
+  late final SquareSessionProvider squareSessionProvider;
+  final cidBusinessGate = CidBusinessGate(
+    currentUserContext: currentUserContext,
+    identityResolver: finalizedIdentityResolver,
+    revision: accountSecurity.revision,
+    restoreFinalizedBinding: (verified) => MyIdService(
+      wallet: citizenSdk.wallet,
+      signing: citizenSdk.signing,
+      chain: citizenSdk.chain,
+      transactions: citizenSdk.transactions,
+      history: citizenSdk.history,
+      accountSecurity: accountSecurity,
+      currentUserContext: currentUserContext,
+      identityResolver: finalizedIdentityResolver,
+      sessionProvider: squareSessionProvider,
+      chatRuntime: readChatRuntime,
+    ).recoverFinalizedBinding(verified),
+  );
+  squareSessionProvider = SquareSessionProvider(
     accountSecurity: accountSecurity,
     currentUserContext: currentUserContext,
+    resolveCid: cidBusinessGate.resolve,
     client: squareApiClient,
     authentication: authentication,
   );
@@ -251,6 +272,7 @@ Future<void> main() async {
       accountSecurity: accountSecurity,
       currentUserContext: currentUserContext,
       finalizedIdentityResolver: finalizedIdentityResolver,
+      cidBusinessGate: cidBusinessGate,
       squareSessionProvider: squareSessionProvider,
       squareApiClient: squareApiClient,
       appPushService: appPushService,
@@ -451,6 +473,7 @@ class CitizenApp extends StatefulWidget {
     required this.accountSecurity,
     required this.currentUserContext,
     required this.finalizedIdentityResolver,
+    required this.cidBusinessGate,
     required this.squareSessionProvider,
     required this.squareApiClient,
     required this.appPushService,
@@ -464,6 +487,7 @@ class CitizenApp extends StatefulWidget {
   final AccountSecurityService accountSecurity;
   final CurrentUserContext currentUserContext;
   final FinalizedIdentityResolver finalizedIdentityResolver;
+  final CidBusinessGate cidBusinessGate;
   final SquareSessionProvider squareSessionProvider;
   final SquareApiClient squareApiClient;
   final AppPushService appPushService;
@@ -522,6 +546,7 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
         Provider<FinalizedIdentityResolver>.value(
           value: widget.finalizedIdentityResolver,
         ),
+        Provider<CidBusinessGate>.value(value: widget.cidBusinessGate),
         Provider<SquareSessionProvider>.value(
           value: widget.squareSessionProvider,
         ),

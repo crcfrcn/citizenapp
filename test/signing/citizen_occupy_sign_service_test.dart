@@ -2,7 +2,7 @@ import '../support/fake_citizen_sdk.dart';
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizenapp/signing/citizen_occupy_sign_service.dart';
+import 'package:citizenapp/account/identity/citizen_occupy_sign_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const _cid = 'CN220-CTZN2-198805200-2026';

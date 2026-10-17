@@ -7,7 +7,7 @@ import 'package:citizenapp/citizen/administrators/admin_account.dart';
 import 'package:citizenapp/citizen/administrators/admin_account_service.dart';
 import 'package:citizenapp/citizen/administrators/admin_activation_service.dart';
 import 'package:citizenapp/citizen/administrators/institution_admin_service.dart';
-import 'package:citizenapp/citizen/shared/institution_info.dart';
+import 'package:citizenapp/citizen/institution/institution_info.dart';
 import 'package:citizenapp/citizen/institution/institution_role_models.dart';
 import 'package:citizenapp/storage/wallet_isar.dart';
 import 'package:flutter_test/flutter_test.dart';

@@ -4,11 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:citizenapp/app_log.dart';
 import 'package:flutter/services.dart';
 import 'package:citizenapp/storage/wallet_isar.dart';
-import 'package:citizenapp/account/utility/amount_format.dart';
+import 'package:citizenapp/transaction/amount_format.dart';
 import 'package:citizenapp/transaction/history/local_tx_store.dart';
 import 'package:citizenapp/transaction/history/tx_auto_refresh_mixin.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 class TransactionHistoryPage extends StatefulWidget {
   const TransactionHistoryPage({

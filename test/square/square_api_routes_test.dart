@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart';
-import 'package:citizenapp/8964/square_models.dart';
+import 'package:citizenapp/network/square_api_client.dart';
+import 'package:citizenapp/8964/feed/square_models.dart';
 
 import 'mls_authentication_fixture.dart';
 
@@ -53,6 +53,11 @@ void main() {
       }),
     );
     addTearDown(api.close);
+    await expectLater(
+      api.fetchFeed(feedKind: SquareFeedKind.recommended),
+      throwsA(isA<SquareApiException>()),
+    );
+    expect(sent, isEmpty, reason: '无公民号会话不得发出受保护的广场请求');
     await api.exchangeContactMls(
       session: session,
       request: {'operation': 'read'},
@@ -179,7 +184,7 @@ void main() {
 }
 
 void _chatAccessTests() {
-  final session = SquareSession(
+  const session = SquareSession(
     sessionToken: 'ordinary',
     cidNumber: testMlsCidNumber,
     bindingRevision: 1,

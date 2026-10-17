@@ -1,11 +1,11 @@
-import 'package:citizenapp/security/chain_bootstrap_api.dart'
+import 'package:citizenapp/network/chain_bootstrap_api.dart'
     show HttpsOnlyClient;
 
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
-import 'package:citizenapp/8964/services/square_api_client.dart'
+import 'package:citizenapp/network/square_api_client.dart'
     show SquareApiConfig;
 
 import 'topup_models.dart';

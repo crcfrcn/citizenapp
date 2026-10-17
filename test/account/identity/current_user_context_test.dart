@@ -1,4 +1,4 @@
-import 'package:citizenapp/security/public_identity_store.dart';
+import 'package:citizenapp/account/identity/public_identity_store.dart';
 
 import '../../support/fake_citizen_sdk.dart';
 
@@ -9,8 +9,8 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:citizenapp/account/identity/current_user_context.dart';
-import 'package:citizenapp/security/account_security_service.dart';
-import 'package:citizenapp/security/identity_binding.dart';
+import 'package:citizenapp/account/identity/account_security_service.dart';
+import 'package:citizenapp/account/identity/identity_binding.dart';
 
 const _hotId =
     '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';

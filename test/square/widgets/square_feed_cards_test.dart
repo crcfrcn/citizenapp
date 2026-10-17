@@ -6,9 +6,9 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
-import 'package:citizenapp/8964/services/square_media_store.dart';
+import 'package:citizenapp/8964/media/square_media_store.dart';
 import 'package:citizenapp/storage/social_isar.dart';
-import 'package:citizenapp/8964/profile/citizen_profile_cache.dart';
+import 'package:citizenapp/account/profile/citizen_profile_cache.dart';
 
 import '../profile/fake_profile.dart' as profile_fixtures;
 import '../../support/isar_test_env.dart';
@@ -16,10 +16,11 @@ import '../../support/isar_test_env.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:video_player/video_player.dart';
 
-import 'package:citizenapp/8964/square_models.dart';
-import 'package:citizenapp/8964/widgets/square_article_card.dart';
-import 'package:citizenapp/8964/widgets/square_media_grid.dart';
-import 'package:citizenapp/8964/widgets/square_post_card.dart';
+import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/feed/square_article_card.dart';
+import 'package:citizenapp/8964/media/square_media_grid.dart';
+import 'package:citizenapp/8964/feed/square_post_card.dart';
+import '../../support/platform_input.dart';
 
 SquareMediaItem _img({int? w, int? h}) => SquareMediaItem(
   mediaKind: SquareMediaKind.image,
@@ -330,7 +331,7 @@ void main() {
 
   test('本地视频没有HTTP监听与系统明文例外', () {
     final source = File(
-      'lib/8964/widgets/square_media_grid.dart',
+      'lib/8964/media/square_media_grid.dart',
     ).readAsStringSync();
     expect(source, isNot(contains('HttpServer')));
     expect(source, contains('VideoPlayerController.file(source.file)'));
@@ -339,9 +340,7 @@ void main() {
       isNot(contains('NSExceptionAllowsInsecureHTTPLoads')),
     );
     expect(
-      File(
-        'android/resources/xml_network_security_config.xml',
-      ).readAsStringSync(),
+      platformInput('android/app/src/main/res/xml/network_security_config.xml'),
       isNot(contains('cleartextTrafficPermitted="true"')),
     );
   });

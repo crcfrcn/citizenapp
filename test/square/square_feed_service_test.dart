@@ -8,8 +8,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-import 'package:citizenapp/8964/square_models.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart';
+import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/network/square_api_client.dart';
 
 // 发布会员体系后，`SquareApiClient._headers` 对带 session 的请求强制要求设备请求签名器，
 // 缺失即抛「设备请求签名器缺失」。测试用固定假签名占位；MockClient 不校验签名头。

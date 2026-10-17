@@ -1,7 +1,7 @@
 import 'package:citizen_sdk/citizen_sdk.dart';
 
-import 'package:citizenapp/security/account_security_service.dart';
-import 'package:citizenapp/security/identity_binding.dart';
+import 'package:citizenapp/account/identity/account_security_service.dart';
+import 'package:citizenapp/account/identity/identity_binding.dart';
 
 /// 普通业务的当前用户快照；账户直接使用 CitizenSDK 公开模型。
 final class CurrentUser {

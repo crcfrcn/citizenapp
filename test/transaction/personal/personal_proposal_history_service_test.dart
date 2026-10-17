@@ -9,7 +9,7 @@ import 'dart:convert';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:citizenapp/citizen/shared/proposal_query_service.dart';
+import 'package:citizenapp/citizen/proposal/proposal_query_service.dart';
 import 'package:citizenapp/transaction/personal/personal_proposal_history_service.dart';
 import '../../support/isar_test_env.dart';
 import '../../support/fake_citizen_sdk.dart';

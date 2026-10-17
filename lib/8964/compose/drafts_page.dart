@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 
 import 'package:citizenapp/8964/compose/compose_draft.dart';
 import 'package:citizenapp/8964/compose/compose_draft_store.dart';
-import 'package:citizenapp/8964/square_models.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 草稿箱：全类型缩略卡，新→旧；右滑删除；点击返回该草稿供发布页恢复。
 class DraftsPage extends StatefulWidget {

@@ -13,8 +13,8 @@ import 'package:citizenapp/citizen/institution/institution_repository.dart';
 import 'package:citizenapp/citizen/public/public_institution_dto.dart';
 import 'package:citizenapp/citizen/institution/institution_role_models.dart';
 import 'package:citizenapp/citizen/administrators/admin_account.dart';
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
-import 'package:citizenapp/citizen/shared/reserved_account_names.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
+import 'package:citizenapp/citizen/reserved_account_names.dart';
 import 'package:citizenapp/storage/app_isar.dart';
 
 import '../public/public_nav_harness.dart';

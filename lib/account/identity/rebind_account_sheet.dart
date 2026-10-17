@@ -2,9 +2,9 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'package:flutter/material.dart';
 
-import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
 import 'package:citizen_sdk/citizen_sdk.dart' show CitizenWalletStateAccount;
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 弹出“更换公民号绑定的账户”底部面板：从本地其他账户中挑选新的签名账户。
 ///

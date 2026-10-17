@@ -9,8 +9,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-import 'package:citizenapp/8964/profile/profile_asset_service.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart';
+import 'package:citizenapp/account/profile/profile_asset_service.dart';
+import 'package:citizenapp/network/square_api_client.dart';
 
 // `_headers` 对带 session 的请求强制要求设备请求签名器（发布会员体系后新增硬校验）；
 // 测试用固定假签名占位，MockClient 不校验签名头。

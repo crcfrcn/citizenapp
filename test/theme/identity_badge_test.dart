@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/theme/identity_badge.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/account/identity/identity_badge.dart';
 
 IdentityBadgeStyle _style(String? identity, String? membership,
     {bool active = true}) {

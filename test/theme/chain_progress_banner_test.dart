@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:collection';
 
-import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
 import 'package:citizenapp/widgets/chain_progress_banner.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';

@@ -6,10 +6,10 @@ import 'package:citizenapp/8964/compose/compose_media_picker.dart';
 import 'package:citizenapp/8964/compose/compose_payload.dart';
 import 'package:citizenapp/8964/compose/compose_draft.dart';
 import 'package:citizenapp/8964/compose/compose_media_widgets.dart';
-import 'package:citizenapp/8964/square_models.dart';
-import 'package:citizenapp/8964/services/square_media_draft.dart';
-import 'package:citizenapp/theme/app_layout.dart';
-import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/media/square_media_draft.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
 
 const int documentTextMax = 300;
 const int documentMaxImages = 9;

@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 
-import 'package:citizenapp/citizen/election_tab.dart';
+import 'package:citizenapp/citizen/governance/election_tab.dart';
 import 'package:citizenapp/citizen/governance/governance_tab.dart';
 import 'package:citizenapp/citizen/legislation/legislation_tab.dart';
 import 'package:citizenapp/citizen/public/public_page.dart';
-import 'package:citizenapp/citizen/proposal_tab.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/citizen/proposal/proposal_tab.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 底部“公民”Tab 的总入口。
 ///

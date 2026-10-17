@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 
 import 'package:citizenapp/citizen/administrators/account_id_codec.dart';
 import 'package:citizenapp/citizen/administrators/admin_account.dart';
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
-import 'package:citizenapp/account/utility/amount_format.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
+import 'package:citizenapp/transaction/amount_format.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 class AdminSetDiffCard extends StatelessWidget {
   const AdminSetDiffCard({

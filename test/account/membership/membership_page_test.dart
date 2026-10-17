@@ -11,18 +11,18 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-import 'package:citizenapp/8964/services/square_chain_service.dart';
-import 'package:citizenapp/8964/profile/square_session_provider.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart';
+import 'package:citizenapp/8964/compose/square_chain_service.dart';
+import 'package:citizenapp/account/identity/square_session_provider.dart';
+import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/account/membership/membership_page.dart';
 import 'package:citizenapp/account/membership/membership_revision.dart';
 import 'package:citizenapp/account/membership/subscription_service.dart';
 import 'package:citizenapp/account/identity/citizen_identity_chain_reader.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
-import 'package:citizenapp/security/identity_binding.dart';
+import 'package:citizenapp/account/identity/identity_binding.dart';
 import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/theme/identity_badge.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/account/identity/identity_badge.dart';
 
 import '../../support/isar_test_env.dart';
 import '../../support/fake_citizen_sdk.dart';
@@ -377,8 +377,8 @@ void main() {
   test('平台finalized确认使用MLS证明，核对回执后读取真实会员快照', () async {
     var deviceSignCount = 0;
     final sent = <http.Request>[];
-    final txHash = '0x' + 'a' * 64;
-    final blockHash = '0x' + 'b' * 64;
+    final txHash = '0x${'a' * 64}';
+    final blockHash = '0x${'b' * 64}';
     final api = SquareApiClient(
       baseUrl: 'https://membership.test/api',
       httpClient: MockClient((request) async {
@@ -422,9 +422,9 @@ void main() {
   for (final damagedField in ['ok', 'tx_hash', 'block_hash', 'extra']) {
     test('会员确认拒绝损坏回执字段$damagedField，不能读取快照或冒认确认成功', () async {
       var calls = 0;
-      final txHash = '0x' + 'a' * 64, blockHash = '0x' + 'b' * 64;
+      final txHash = '0x${'a' * 64}', blockHash = '0x${'b' * 64}';
       final receipt = <String, Object>{'ok': true, 'tx_hash': txHash, 'block_hash': blockHash};
-      receipt[damagedField] = damagedField == 'ok' ? false : '0x' + 'c' * 64;
+      receipt[damagedField] = damagedField == 'ok' ? false : '0x${'c' * 64}';
       final api = SquareApiClient(baseUrl: 'https://membership.test/api', httpClient: MockClient((request) async {
         calls++;
         expect(request.method, 'POST');
@@ -438,7 +438,7 @@ void main() {
 
   test('会员确认成功但快照读取失败仍传播失败，不能将回执转成未激活会员', () async {
     var confirmations = 0, reads = 0;
-    final txHash = '0x' + 'a' * 64, blockHash = '0x' + 'b' * 64;
+    final txHash = '0x${'a' * 64}', blockHash = '0x${'b' * 64}';
     final api = SquareApiClient(baseUrl: 'https://membership.test/api', httpClient: MockClient((request) async {
       if (request.method == 'POST') {
         confirmations++;
@@ -457,9 +457,9 @@ void main() {
     var calls = 0;
     final api = SquareApiClient(baseUrl: 'https://membership.test/api', httpClient: MockClient((_) async { calls++; return http.Response('{}', 200); }));
     addTearDown(api.close);
-    for (final value in ['', '0x1234', '0x' + 'A' * 64]) {
-      await expectLater(api.confirmPlatformSubscription(session: _FakeSessionProvider()._session(), txHash: value, blockHashHex: '0x' + 'b' * 64), throwsA(isA<SquareApiException>()));
-      await expectLater(api.confirmPlatformSubscription(session: _FakeSessionProvider()._session(), txHash: '0x' + 'a' * 64, blockHashHex: value), throwsA(isA<SquareApiException>()));
+    for (final value in ['', '0x1234', '0x${'A' * 64}']) {
+      await expectLater(api.confirmPlatformSubscription(session: _FakeSessionProvider()._session(), txHash: value, blockHashHex: '0x${'b' * 64}'), throwsA(isA<SquareApiException>()));
+      await expectLater(api.confirmPlatformSubscription(session: _FakeSessionProvider()._session(), txHash: '0x${'a' * 64}', blockHashHex: value), throwsA(isA<SquareApiException>()));
     }
     expect(calls, 0);
   });
@@ -1162,14 +1162,15 @@ void main() {
     );
     expect(find.textContaining('会员数据加载失败'), findsNothing);
     expect(find.text('重试'), findsNothing);
-    // 三张卡照常在,按钮引导注册,且不再显示「会员状态同步中」这类假故障文案。
-    expect(find.byKey(const ValueKey('membership-front-card')), findsOneWidget);
-    expect(find.text('注册用户'), findsWidgets);
+    // 未注册只显示与广场、聊天共用的注册页面，不保留卡片内第二注册入口。
+    expect(find.byKey(const ValueKey('membership-front-card')), findsNothing);
+    expect(find.text('尚未注册'), findsOneWidget);
+    expect(find.text('注册'), findsOneWidget);
     expect(find.text('会员状态同步中'), findsNothing);
     expect(sessionProvider.calls, 1);
   });
 
-  testWidgets('未注册 → 价格仍显示(价格是链上公开读,不依赖会话)', (tester) async {
+  testWidgets('未注册 → 统一注册页面不展示会员卡价格', (tester) async {
     await _pump(
       tester,
       _state(active: false),
@@ -1177,7 +1178,7 @@ void main() {
       sessionProvider: _CidNotBoundSessionProvider(),
     );
 
-    // 价格排在会话之后时未注册用户看不到价;前置后必须能看到真实价格。
-    expect(find.textContaining('2.99'), findsWidgets);
+    expect(find.text('尚未注册'), findsOneWidget);
+    expect(find.textContaining('2.99'), findsNothing);
   });
 }

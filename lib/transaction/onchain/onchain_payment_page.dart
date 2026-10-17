@@ -8,10 +8,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:citizenapp/app_log.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
 import 'package:citizenapp/widgets/chain_progress_banner.dart';
 import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
-import 'package:citizenapp/account/utility/amount_format.dart';
+import 'package:citizenapp/transaction/amount_format.dart';
 import 'package:citizenapp/transaction/onchain/onchain_payment_models.dart';
 import 'package:citizenapp/transaction/onchain/onchain_payment_service.dart';
 import 'package:citizenapp/transaction/onchain/onchain_transfer_call.dart';
@@ -20,13 +20,13 @@ import 'package:citizenapp/transaction/history/tx_auto_refresh_mixin.dart';
 import 'package:citizenapp/storage/wallet_isar.dart';
 import 'package:citizenapp/scanner/qr_sign_session_page.dart';
 import 'package:citizenapp/scanner/address_scan_button.dart';
-import 'package:citizenapp/account/user/contact_book_page.dart';
-import 'package:citizenapp/account/user/contact_service.dart' show UserContact;
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
-import 'package:citizenapp/security/account_security_service.dart';
-import 'package:citizenapp/wallet/pages/wallet_page.dart';
+import 'package:citizenapp/account/contacts/contact_book_page.dart';
+import 'package:citizenapp/account/contacts/contact_service.dart' show UserContact;
+import 'package:citizenapp/citizen/account_derivation.dart';
+import 'package:citizenapp/account/identity/account_security_service.dart';
+import 'package:citizenapp/wallet/wallet_page.dart';
 import 'package:citizenapp/transaction/history/transaction_history_page.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 typedef OnchainPaymentExtraEntriesBuilder = List<Widget> Function(
   BuildContext context,

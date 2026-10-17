@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'package:citizenapp/transaction/personal/personal_account_list_page.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 交易页顶部「多签账户」入口卡片。
 ///

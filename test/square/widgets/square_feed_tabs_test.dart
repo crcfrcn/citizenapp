@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:citizenapp/8964/square_models.dart';
-import 'package:citizenapp/8964/widgets/square_feed_tabs.dart';
-import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/feed/square_feed_tabs.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
 
 void main() {
   Widget wrap(Widget child) => MaterialApp(

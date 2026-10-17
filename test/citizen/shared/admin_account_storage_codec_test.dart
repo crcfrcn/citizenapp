@@ -8,7 +8,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:citizenapp/citizen/shared/admin_account_storage_codec.dart';
+import 'package:citizenapp/citizen/administrators/admin_account_storage_codec.dart';
 
 void main() {
   List<int> codeBytes(String code) {

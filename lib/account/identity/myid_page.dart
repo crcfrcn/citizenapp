@@ -5,15 +5,15 @@ import 'package:tatachat_sdk/tatachat_sdk.dart';
 
 import 'package:citizenapp/account/identity/current_user_context.dart';
 import 'package:citizenapp/account/identity/identity_badge_snapshot_store.dart';
-import 'package:citizenapp/8964/profile/square_session_provider.dart';
+import 'package:citizenapp/account/identity/square_session_provider.dart';
 import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
 import 'package:citizenapp/account/identity/myid_service.dart';
 import 'package:citizenapp/account/identity/register_identity_flow.dart';
 import 'package:citizenapp/account/identity/rebind_account_sheet.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/theme/identity_badge.dart';
-import 'package:citizenapp/security/account_security_service.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/account/identity/identity_badge.dart';
+import 'package:citizenapp/account/identity/account_security_service.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 身份页(原电子护照)。
 ///
@@ -26,9 +26,11 @@ import 'package:citizenapp/theme/app_layout.dart';
 /// 已占匿名 CID 时于卡内补显「公民号」,徽章色不变(仍访客,决策:不新增卡/色)。
 /// 顶部支持下拉刷新。
 class MyIdPage extends StatefulWidget {
-  const MyIdPage({super.key, this.myIdService});
+  const MyIdPage({super.key, this.myIdService, this.openRegistrationTopup});
 
   final MyIdService? myIdService;
+  /// 仅测试注入；正式流程始终打开所选账户的链上充值页。
+  final Future<void> Function(BuildContext, String)? openRegistrationTopup;
 
   @override
   State<MyIdPage> createState() => _MyIdPageState();
@@ -182,6 +184,7 @@ class _MyIdPageState extends State<MyIdPage> {
     final registered = await startCidRegistrationFlow(
       context,
       myIdService: _myIdService,
+      openTopup: widget.openRegistrationTopup,
       onSubmitting: (submitting) {
         if (mounted) setState(() => _submitting = submitting);
       },

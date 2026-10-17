@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import '../support/platform_input.dart';
 
 // 宿主脚本是独占普通副本；按既定source-view映射回读正式原文，并验真副本字节。
 String _originalSourceRoot(String sourceScript) {
@@ -44,7 +45,7 @@ void main() {
       final sourceRoot = _originalSourceRoot(sourceScript);
       final pubspec = File('$sourceRoot/pubspec.yaml').readAsStringSync();
       final pubLock = File('$sourceRoot/pubspec.lock').readAsStringSync();
-      final podfile = File('ios/Podfile').readAsStringSync();
+      final podfile = platformInput('ios/Podfile');
       final lockfile = File('ios/Podfile.lock').readAsStringSync();
 
       expect(runner, contains('TATACHATSDK_NATIVE_IOS_DIR='));

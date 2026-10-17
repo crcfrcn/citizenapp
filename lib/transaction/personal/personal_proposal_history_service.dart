@@ -17,7 +17,7 @@ import 'package:isar_community/isar.dart';
 import 'package:polkadart/polkadart.dart' show Hasher;
 
 import 'package:citizenapp/storage/wallet_isar.dart';
-import 'package:citizenapp/citizen/shared/proposal_query_service.dart';
+import 'package:citizenapp/citizen/proposal/proposal_query_service.dart';
 
 /// 提案动作类型常量(对齐 Isar entity action 字段)。
 class PersonalProposalAction {

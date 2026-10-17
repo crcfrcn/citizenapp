@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 import 'package:citizenapp/citizen/administrators/admin_account.dart';
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
 
 /// PersonalAdmins 创建个人多签提案详情（从链上 ProposalData 解码）。
 ///

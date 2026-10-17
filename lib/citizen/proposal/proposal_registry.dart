@@ -6,8 +6,8 @@
 //   输出可发起提案。这样个人多签、公权机构、私权机构和创世治理机构共用同一入口。
 // - runtime 仍是最终权限边界;这里仅负责端上展示和页面路由。
 
-import 'package:citizenapp/citizen/shared/institution_code_label.dart';
-import 'package:citizenapp/citizen/shared/institution_info.dart';
+import 'package:citizenapp/citizen/institution/institution_code_label.dart';
+import 'package:citizenapp/citizen/institution/institution_info.dart';
 
 /// 一种可发起的提案。
 enum ProposalKind {

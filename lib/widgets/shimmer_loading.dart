@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_theme.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import '../system/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 // ShimmerEffect - 为子组件添加从左到右的光泽扫过动画
 /// 通用 shimmer 包装器。

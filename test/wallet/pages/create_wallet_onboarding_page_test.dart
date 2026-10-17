@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/wallet/pages/create_wallet_onboarding_page.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/wallet/create_wallet_onboarding_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';

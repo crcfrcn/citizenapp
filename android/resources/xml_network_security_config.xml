@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<network-security-config>
-    <!-- 生产全部走 HTTPS / WSS（TLS）：cid、square/chain-bootstrap Worker、
-         GitHub 更新和 CitizenSDK 公民链节点。
-         默认阻断一切明文流量，防中间人（iOS 侧由默认 ATS 同等阻断）。 -->
-    <base-config cleartextTrafficPermitted="false" />
-</network-security-config>

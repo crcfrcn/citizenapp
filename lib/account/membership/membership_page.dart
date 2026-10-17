@@ -6,9 +6,9 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'package:citizenapp/8964/services/square_chain_service.dart';
-import 'package:citizenapp/8964/profile/square_session_provider.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart';
+import 'package:citizenapp/8964/compose/square_chain_service.dart';
+import 'package:citizenapp/account/identity/square_session_provider.dart';
+import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/account/creator/creator_money.dart'
     show fenToYuanMoneyLabel;
 import 'package:citizenapp/account/membership/membership_detail_page.dart';
@@ -16,10 +16,11 @@ import 'package:citizenapp/account/membership/membership_revision.dart';
 import 'package:citizenapp/account/membership/subscription_service.dart';
 import 'package:citizenapp/account/identity/register_identity_flow.dart';
 import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
-import 'package:citizenapp/theme/identity_badge.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/security/account_security_service.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/account/identity/identity_badge.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/account/identity/account_security_service.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
+import 'package:citizenapp/account/identity/identity_register_guide.dart';
 
 /// 会员三档固定顺序（与价格升序一致，ADR-037，与身份彻底解耦）：
 /// 自由 freedom < 民主 democracy < 薪火 spark。
@@ -79,8 +80,7 @@ class _MembershipPageState extends State<MembershipPage>
   /// **未注册不走这里**——它是合法状态不是故障,见 [_unregistered]。
   String? _loadFailure;
 
-  /// 当前钱包未注册 CID。三张会员卡照常完整显示(价格是链上公开数据),
-  /// 只把订阅按钮换成「注册用户」引导注册;**不显示任何失败/重试横幅**。
+  /// 当前钱包未注册 CID。主体只显示统一注册引导，不加载会员价格或业务状态。
   bool _unregistered = false;
   SquareSessionStatus? _sessionStatus;
 
@@ -204,18 +204,9 @@ class _MembershipPageState extends State<MembershipPage>
     }());
   }
 
-  /// 进入「未注册」呈现:置标志 + 独立补一次价格。
-  ///
-  /// 价格是 `PlatformPrice` 链上存储的**公开数据,与身份、会话完全无关**,而正常路径
-  /// 的价格拉取挂在会话之后(要按 CID 读展示快照),未注册用户根本走不到那里。
-  /// 未注册用户同样有权看到真实价格再决定要不要注册,所以这里单独补一次。
-  ///
-  /// **只在未注册分支调用**:正常路径的价格仍走 `_pricesCacheTtl`(30 分钟)缓存,
-  /// 无条件前置会绕过 TTL,让每次进页都打一次链。
-  /// 失败静默——价格缺失时卡片自己显示占位,不该为此弹故障横幅。
-  Future<void> _enterUnregistered({required bool forceRefresh}) async {
+  /// 未注册只显示统一注册页，不补取会员业务价格或启动 MLS。
+  void _enterUnregistered() {
     if (mounted) setState(() => _unregistered = true);
-    await _loadPublicPrices(forceRefresh: forceRefresh);
   }
 
   /// 价格是公开链状态；会话或身份投影失败不能阻止用户查看套餐价格。
@@ -229,13 +220,6 @@ class _MembershipPageState extends State<MembershipPage>
     } on Object {
       // 链暂时读不到价格不影响页面可用性;下次进入或下拉刷新继续尝试。
     }
-  }
-
-  /// 会员卡「注册用户」按钮:弹全 App 唯一注册面板([startCidRegistrationFlow]),
-  /// 占号成功后回刷本页即进正常订阅流程(订阅动作由用户重新发起,不自动续跑)。
-  Future<void> _onRegisterFromCard() async {
-    final registered = await startCidRegistrationFlow(context);
-    if (registered && mounted) await _load(forceRefresh: true);
   }
 
   Future<void> _load({bool forceRefresh = false}) async {
@@ -269,15 +253,15 @@ class _MembershipPageState extends State<MembershipPage>
           ),
         );
       }
-      // 普通会员展示直接建立 Cloudflare 会话。首次安装没有本机绑定时由登录挑战
-      // 的 finalized 用户投影恢复；不得以本机缓存未命中武断判未注册或额外启动节点。
+      // 会话入口先经公民号门禁；本机绑定缺失时核对 finalized 链事实并恢复绑定，
+      // 不能把本机缓存未命中直接当作未注册，也不能提前启动 MLS。
       final resolution = await _sessionProvider.resolveSession();
       _sessionStatus = resolution.status;
       final session = resolution.session;
       if (session == null) {
         if (resolution.status == SquareSessionStatus.identityUnbound &&
             (localCid == null || localCid.isEmpty)) {
-          await _enterUnregistered(forceRefresh: forceRefresh);
+          _enterUnregistered();
         } else {
           _unregistered = false;
           _loadFailure =
@@ -441,7 +425,7 @@ class _MembershipPageState extends State<MembershipPage>
           .showSnackBar(SnackBar(content: Text(message)));
       return;
     }
-    // 未注册 CID:就地弹全 App 统一注册面板;占号成功后订阅由用户重新发起。
+    // 动作仍复核当前 CID；未注册时返回页面内统一引导，不由动作直接弹面板。
     if (!await ensureCidRegisteredOrPrompt(
       context,
       identityResolver: _identityResolver,
@@ -513,9 +497,7 @@ class _MembershipPageState extends State<MembershipPage>
     final noWallet = _sessionStatus == SquareSessionStatus.noWallet;
     final sessionUnavailable = _data.accountId.isEmpty && !noWallet;
     final stateNotReady = !_data.subscriptionReady;
-    final label = _unregistered
-        ? '请先注册用户'
-        : noWallet
+    final label = noWallet
         ? '请先添加钱包账户'
         : sessionUnavailable
         ? _sessionStatus?.message ?? '会员状态同步中'
@@ -524,12 +506,10 @@ class _MembershipPageState extends State<MembershipPage>
         : action != _SubscribeAction.cancel && priceFen == null
         ? '链上价格未就绪'
         : _actionLabel(action);
-    final enabled =
-        _unregistered ||
-        (!noWallet &&
-            !sessionUnavailable &&
-            !stateNotReady &&
-            (action == _SubscribeAction.cancel || priceFen != null));
+    final enabled = !noWallet &&
+        !sessionUnavailable &&
+        !stateNotReady &&
+        (action == _SubscribeAction.cancel || priceFen != null);
     Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => MembershipDetailPage(
@@ -537,9 +517,7 @@ class _MembershipPageState extends State<MembershipPage>
           priceFen: priceFen,
           actionLabel: label,
           subscribeEnabled: enabled,
-          onSubscribe: _unregistered
-              ? _onRegisterFromCard
-              : () => _handleAction(plan.membershipLevel),
+          onSubscribe: () => _handleAction(plan.membershipLevel),
         ),
       ),
     );
@@ -575,8 +553,8 @@ class _MembershipPageState extends State<MembershipPage>
 
   @override
   Widget build(BuildContext context) {
-    // 三张套餐卡是本地静态界面，页面查看本身不属于动权操作，不能被身份链读门禁替换成
-    // 全屏加载。会员、价格与钱包状态由 [_load] 在卡片已经出现后后台补齐；真正订阅、
+    // 已注册时三张套餐卡先用本地静态定义显示；未注册时主体改为统一注册引导。
+    // 会员、价格与钱包状态由 [_load] 后台补齐；真正订阅、
     // 换档或取消时由 [SubscriptionService] 核验钱包、CID 与 CitizenServe 会员真源，
     // 随后的链上交易继续执行最终状态校验。
     return Scaffold(
@@ -584,12 +562,12 @@ class _MembershipPageState extends State<MembershipPage>
         title: const Text('会员｜订阅'),
         centerTitle: true,
         actions: [
-          IconButton(
-            tooltip: '刷新',
-            onPressed: _refreshing ? null : () => _load(forceRefresh: true),
-            // 自动刷新只临时禁用按钮，不用转圈替换页面或工具栏；三张卡始终保留。
-            icon: const Icon(Icons.refresh),
-          ),
+          if (!_unregistered)
+            IconButton(
+              tooltip: '刷新',
+              onPressed: _refreshing ? null : () => _load(forceRefresh: true),
+              icon: const Icon(Icons.refresh),
+            ),
         ],
       ),
       body: _buildBody(),
@@ -597,6 +575,12 @@ class _MembershipPageState extends State<MembershipPage>
   }
 
   Widget _buildBody() {
+    if (_unregistered) {
+      return IdentityRegisterGuide(
+        description: '注册后即可使用会员服务。',
+        onRegistered: () => _load(forceRefresh: true),
+      );
+    }
     final data = _data;
     final state = data.state;
     // 三档订阅卡（自由 / 民主 / 薪火）始终来自 App 内置静态定义。
@@ -616,8 +600,7 @@ class _MembershipPageState extends State<MembershipPage>
 
     return Column(
       children: [
-        // 未注册时**绝不出现**失败/重试横幅:没注册不是加载失败,重试也不会变。
-        if (!_unregistered && _loadFailure != null && !_refreshing)
+        if (_loadFailure != null && !_refreshing)
           _LoadFailureBanner(
             key: const ValueKey('membership-load-failure-banner'),
             message: _loadFailure!,
@@ -644,17 +627,13 @@ class _MembershipPageState extends State<MembershipPage>
                         plan: plans[index],
                         state: state,
                         priceFen: data.prices[plans[index].membershipLevel],
-                        // 未注册者按钮永远可点(点了弹注册面板),不受订阅态就绪影响。
                         canSubscribe:
-                            _unregistered ||
-                            (_sessionStatus == SquareSessionStatus.ready &&
-                                data.accountId.isNotEmpty &&
-                                data.subscriptionReady),
+                            _sessionStatus == SquareSessionStatus.ready &&
+                            data.accountId.isNotEmpty &&
+                            data.subscriptionReady,
                         unavailableLabel: data.accountId.isEmpty && !_refreshing
                             ? _sessionStatus?.message ?? '会员状态同步中'
                             : '会员状态同步中',
-                        // 未注册:按钮文案换成「注册用户」,点击弹全 App 同一注册面板。
-                        registerInsteadOfSubscribe: _unregistered,
                         cardWidth: cardWidth,
                         cardHeight: bandHeight,
                         peek: peek,
@@ -690,7 +669,6 @@ class _MembershipPageState extends State<MembershipPage>
     required int? priceFen,
     required bool canSubscribe,
     required String unavailableLabel,
-    required bool registerInsteadOfSubscribe,
     required double cardWidth,
     required double cardHeight,
     required double peek,
@@ -716,11 +694,8 @@ class _MembershipPageState extends State<MembershipPage>
               priceFen: priceFen,
               canSubscribe: canSubscribe,
               unavailableLabel: unavailableLabel,
-              registerInsteadOfSubscribe: registerInsteadOfSubscribe,
               busy: _busy,
-              onTapAction: registerInsteadOfSubscribe
-                  ? _onRegisterFromCard
-                  : () => _handleAction(plan.membershipLevel),
+              onTapAction: () => _handleAction(plan.membershipLevel),
               onViewDetail: () => _openDetail(plan, priceFen, state),
               elevated: isFront,
             ),
@@ -766,8 +741,7 @@ class _MembershipViewData {
   /// 至少成功读取过一次 finalized 订阅态；未就绪时只展示卡片，禁止动权入口。
   final bool subscriptionReady;
 
-  /// 只替换价格,保留其余字段。价格由不依赖会话的独立链读通道刷新
-  /// ([_MembershipPageState._enterUnregistered]),不能反过来覆盖
+  /// 只替换价格,保留其余字段。价格由已注册但会话暂不可用时的独立链读刷新，不能覆盖
   /// 会话侧已取得的订阅态。
   _MembershipViewData copyWithPrices(Map<String, int> prices) =>
       _MembershipViewData(
@@ -788,7 +762,6 @@ class _MembershipTierCard extends StatelessWidget {
     required this.priceFen,
     required this.canSubscribe,
     required this.unavailableLabel,
-    required this.registerInsteadOfSubscribe,
     required this.busy,
     required this.onTapAction,
     required this.onViewDetail,
@@ -805,10 +778,6 @@ class _MembershipTierCard extends StatelessWidget {
   final bool canSubscribe;
 
   final String unavailableLabel;
-
-  /// 当前钱包未注册 CID：按钮文案换成「注册用户」并直接引导注册。
-  /// 没注册就该引导注册,不能显示「会员状态同步中」之类的假故障文案。
-  final bool registerInsteadOfSubscribe;
 
   /// 订阅 / 取消上链进行中：禁用按钮并显示进度圈。
   final bool busy;
@@ -830,11 +799,7 @@ class _MembershipTierCard extends StatelessWidget {
     final isCurrentTier =
         state.subscriptionActive && state.membershipLevel == level;
     final action = _actionFor(state, level);
-    // 未注册优先:文案恒为「注册用户」,不受订阅态/价格就绪影响——没注册时
-    // 谈"同步中"或"价格未就绪"都是答非所问。
-    final actionLabel = registerInsteadOfSubscribe
-        ? '注册用户'
-        : !canSubscribe
+    final actionLabel = !canSubscribe
         ? unavailableLabel
         : action != _SubscribeAction.cancel && priceFen == null
         ? '链上价格未就绪'
@@ -973,12 +938,8 @@ class _MembershipTierCard extends StatelessWidget {
                       color: tierColor,
                       busy: busy,
                       action: action,
-                      // 未注册者按钮必须可点(点了弹注册面板),不受价格就绪限制。
-                      enabled:
-                          registerInsteadOfSubscribe ||
-                          (canSubscribe &&
-                              (action == _SubscribeAction.cancel ||
-                                  priceFen != null)),
+                      enabled: canSubscribe &&
+                          (action == _SubscribeAction.cancel || priceFen != null),
                       onTap: onTapAction,
                     ),
                   ),

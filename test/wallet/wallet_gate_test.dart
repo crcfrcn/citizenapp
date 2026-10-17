@@ -1,12 +1,12 @@
 import 'dart:async';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizen_sdk/src/platform/citizen_sdk_flutter_codec.dart';
+import 'package:citizen_sdk/platform/citizen_sdk_flutter_codec.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:citizenapp/wallet/wallet_gate.dart';
-import 'package:citizenapp/wallet/pages/create_wallet_onboarding_page.dart';
+import 'package:citizenapp/wallet/create_wallet_onboarding_page.dart';
 import '../support/fake_citizen_sdk.dart';
 
 void main() {

@@ -22,16 +22,16 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 
-import 'package:citizenapp/citizen/shared/account_derivation.dart';
-import 'package:citizenapp/citizen/shared/institution_info.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
+import 'package:citizenapp/citizen/institution/institution_info.dart';
 import 'package:citizenapp/citizen/administrators/admin_account.dart';
-import 'package:citizenapp/citizen/shared/proposal_query_service.dart';
-import 'package:citizenapp/citizen/shared/proposal_context.dart';
-import 'package:citizenapp/citizen/shared/institution_manage_detail_page.dart';
-import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/citizen/proposal/proposal_query_service.dart';
+import 'package:citizenapp/citizen/proposal/proposal_context.dart';
+import 'package:citizenapp/citizen/proposal/institution_manage_detail_page.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
 import 'personal_manage_models.dart';
 import 'personal_pending_create_lookup.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 管理员行的激活按钮渲染状态。
 enum _ActivateButtonState {

@@ -1,12 +1,12 @@
 import 'dart:typed_data';
-import 'package:citizenapp/security/identity_binding.dart';
+import 'package:citizenapp/account/identity/identity_binding.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:citizenapp/8964/profile/citizen_profile_cache.dart';
-import 'package:citizenapp/8964/services/square_account_deletion_service.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart';
-import 'package:citizenapp/8964/services/square_post_store.dart';
+import 'package:citizenapp/account/profile/citizen_profile_cache.dart';
+import 'package:citizenapp/account/profile/square_account_deletion_service.dart';
+import 'package:citizenapp/network/square_api_client.dart';
+import 'package:citizenapp/8964/feed/square_post_store.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart';
 
 const _owner =

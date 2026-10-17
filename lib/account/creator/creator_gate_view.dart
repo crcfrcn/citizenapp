@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 未开通门禁态：runtime 要求创作者具有当前有效的平台会员权益。
 ///

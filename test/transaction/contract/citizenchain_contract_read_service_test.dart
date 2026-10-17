@@ -27,6 +27,33 @@ Uint8List _metadata() => CitizenChainContractReadService.bytes(
   ).readAsStringSync().trim(),
 );
 
+// 只汇总 V14 夹具编码器已核实的累计字节调试；其他日志和编码异常原样交付。
+Uint8List _encodeV14Fixture(Uint8List Function() encode) {
+  final parentZone = Zone.current;
+  final debugOutput = RegExp(r'^After seq: \[[0-9, ]*\]$');
+  var count = 0;
+  var characters = 0;
+  try {
+    return runZoned(
+      encode,
+      zoneSpecification: ZoneSpecification(
+        print: (self, parent, zone, message) {
+          if (debugOutput.hasMatch(message)) {
+            count++;
+            characters += message.length;
+          } else {
+            parent.print(zone, message);
+          }
+        },
+      ),
+    );
+  } finally {
+    if (count > 0) {
+      parentZone.print('V14 夹具编码调试摘要：$count 条，$characters 字符。');
+    }
+  }
+}
+
 // 仅模拟旧版元数据传输的 V14 包装；API 类型和全部只读输出仍来自真实 V15 金标。
 Uint8List _metadataWithoutApis() {
   final current = CitizenChainRuntimeCodec(_metadata()).runtime;
@@ -51,7 +78,7 @@ Uint8List _metadataWithoutApis() {
     0x74,
     0x61,
     14,
-    ...metadata.RuntimeMetadataV14.codec.encode(older),
+    ..._encodeV14Fixture(() => metadata.RuntimeMetadataV14.codec.encode(older)),
   ]);
 }
 
@@ -203,6 +230,81 @@ Uint8List _executionEvents({bool failed = false, bool logs = true}) {
 }
 
 void main() {
+  test('V14 夹具编码只汇总字节调试，保留原字节及范围内外其他日志', () {
+    final bytes = Uint8List.fromList([1, 2, 3]);
+    final logs = <String>[];
+    const first = 'After seq: [1, 2, 3]';
+    const second = 'After seq: []';
+    late Uint8List encoded;
+    runZoned(
+      () {
+        Zone.current.print('After seq: [9]');
+        encoded = _encodeV14Fixture(() {
+          Zone.current.print(first);
+          Zone.current.print('编码中的其他日志');
+          Zone.current.print('After seq: 非字节诊断');
+          Zone.current.print(second);
+          return bytes;
+        });
+        Zone.current.print('After seq: [8]');
+      },
+      zoneSpecification: ZoneSpecification(
+        print: (self, parent, zone, message) => logs.add(message),
+      ),
+    );
+    expect(identical(encoded, bytes), isTrue);
+    expect(logs, [
+      'After seq: [9]',
+      '编码中的其他日志',
+      'After seq: 非字节诊断',
+      'V14 夹具编码调试摘要：2 条，${first.length + second.length} 字符。',
+      'After seq: [8]',
+    ]);
+  });
+
+  test('V14 夹具编码异常原样抛出，大调试输出仍只有一条有界摘要', () {
+    final logs = <String>[];
+    final failure = StateError('合成 V14 编码失败');
+    final debug = 'After seq: [${'1, ' * 100000}2]';
+    runZoned(
+      () => expect(
+        () => _encodeV14Fixture(() {
+          Zone.current.print(debug);
+          Zone.current.print('编码失败前的其他日志');
+          throw failure;
+        }),
+        throwsA(same(failure)),
+      ),
+      zoneSpecification: ZoneSpecification(
+        print: (self, parent, zone, message) => logs.add(message),
+      ),
+    );
+    expect(logs, [
+      '编码失败前的其他日志',
+      'V14 夹具编码调试摘要：1 条，${debug.length} 字符。',
+    ]);
+    expect(logs.last.length, lessThan(128));
+  });
+
+  test('V14 夹具没有调试输出时不额外输出摘要', () {
+    final logs = <String>[];
+    final bytes = Uint8List.fromList([4]);
+    late Uint8List encoded;
+    runZoned(
+      () {
+        encoded = _encodeV14Fixture(() {
+          Zone.current.print('普通编码日志');
+          return bytes;
+        });
+      },
+      zoneSpecification: ZoneSpecification(
+        print: (self, parent, zone, message) => logs.add(message),
+      ),
+    );
+    expect(identical(encoded, bytes), isTrue);
+    expect(logs, ['普通编码日志']);
+  });
+
   test('准确 Runtime V15 的 Revive 索引和只读参数来自 metadata', () {
     final codec = CitizenChainRuntimeCodec(_metadata());
     expect(codec.runtime.runtimeMetadataVersion(), 15);

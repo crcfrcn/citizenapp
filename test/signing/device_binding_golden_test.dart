@@ -2,8 +2,8 @@
 // CID、版本、账户、规范0x MLS公钥和时间按CitizenServe同一合同编码。
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:citizenapp/security/hex_codec.dart';
-import 'package:citizenapp/security/mls_device_binding.dart';
+import 'package:citizenapp/network/hex_codec.dart';
+import 'package:citizenapp/account/identity/mls_device_binding.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import '../support/fake_citizen_sdk.dart';

@@ -4,7 +4,7 @@
 // `runtime/primitives/cid/generator.rs::citizen_cid_number_golden`
 // (model B dev //0 公钥,CTZN,2026);任何生成规则漂移都会在这里红。
 
-import 'package:citizenapp/citizen/cid_generator.dart';
+import 'package:citizenapp/account/identity/cid_generator.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

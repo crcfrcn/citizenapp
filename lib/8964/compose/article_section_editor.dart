@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 
-import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
 
 /// 文章富文本协议只允许这些稳定令牌；客户端和 Cloudflare 必须保持同一集合。
 const articleFontTokens = <String>{

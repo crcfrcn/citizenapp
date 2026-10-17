@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:citizenapp/update/app_update_controller.dart';
-import 'package:citizenapp/update/app_update_manifest.dart';
-import 'package:citizenapp/update/app_update_service.dart';
-import 'package:citizenapp/update/update_badge.dart';
+import 'package:citizenapp/system/update/app_update_controller.dart';
+import 'package:citizenapp/system/update/app_update_manifest.dart';
+import 'package:citizenapp/system/update/app_update_service.dart';
+import 'package:citizenapp/system/update/update_badge.dart';
 
 class _FakeAppUpdateService extends AppUpdateService {
   _FakeAppUpdateService({this.failAndroidCheck = false});

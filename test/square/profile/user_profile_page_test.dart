@@ -1,16 +1,16 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:citizenapp/8964/profile/square_session_provider.dart';
+import 'package:citizenapp/account/identity/square_session_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:citizenapp/8964/profile/user_profile_page.dart';
-import 'package:citizenapp/8964/profile/collapsible_header.dart';
-import 'package:citizenapp/8964/profile/profile_category_tabs.dart';
+import 'package:citizenapp/account/profile/user_profile_page.dart';
+import 'package:citizenapp/account/profile/collapsible_header.dart';
+import 'package:citizenapp/account/profile/profile_category_tabs.dart';
 import 'package:citizenapp/account/membership/membership_revision.dart';
 import 'package:citizenapp/account/membership/subscription_service.dart';
-import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
 
 import 'fake_profile.dart';
 

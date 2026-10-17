@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
-import 'package:citizenapp/security/chain_bootstrap_api.dart'
+import 'package:citizenapp/network/chain_bootstrap_api.dart'
     show HttpsOnlyClient;
 
 import 'registration_models.dart';
@@ -52,7 +52,21 @@ class RegistrationApi {
         )
         .timeout(const Duration(seconds: 20));
     if (response.statusCode != 200) {
-      throw const RegistrationException('注册验证服务未完成请求，请重试');
+      // 不展示可能含登记能力的服务端正文；按 HTTP 状态区分可操作原因。
+      final reason = switch (response.statusCode) {
+        400 => '注册信息无效，请核对所选钱包账户后重试',
+        401 => '注册验证已失效，请重新进行真人验证',
+        403 => '真人验证未通过或当前账户无权注册',
+        404 => '注册验证服务入口不可用，请稍后重试',
+        409 => '当前账户的注册状态冲突，请核对公民号状态',
+        429 => '注册请求过于频繁，请稍后重试',
+        >= 500 => '注册验证服务故障，请稍后重试',
+        _ => '注册验证请求失败（HTTP ${response.statusCode}），请稍后重试',
+      };
+      throw RegistrationException(
+        reason,
+        code: 'registration_http_${response.statusCode}',
+      );
     }
     if (response.bodyBytes.length > 65536) {
       throw const FormatException('登记响应超限');

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'package:citizenapp/citizen/administrators/admin_account.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 class AdminAccountCard extends StatelessWidget {
   const AdminAccountCard({super.key, required this.account});

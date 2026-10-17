@@ -4,10 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:citizenapp/scanner/qr_display_scaffold.dart' show AppQrImage;
-import 'package:citizenapp/wallet/widgets/wallet_identity_card.dart';
-import 'package:citizenapp/wallet/widgets/wallet_qr_dialog.dart';
-import 'package:citizenapp/theme/app_layout.dart';
-import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/wallet/wallet_identity_card.dart';
+import 'package:citizenapp/wallet/wallet_qr_dialog.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
 import '../../support/fake_citizen_sdk.dart';
 
 /// 几何和交互断言取自be75a90b原件；仅账户模型与QR底层改用现有SDK。

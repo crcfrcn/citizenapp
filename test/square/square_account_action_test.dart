@@ -5,11 +5,11 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart';
-import 'package:citizenapp/security/identity_binding.dart';
-import 'package:citizenapp/security/hex_codec.dart' show bytesToHex,hexToBytes;
+import 'package:citizenapp/network/square_api_client.dart';
+import 'package:citizenapp/account/identity/identity_binding.dart';
+import 'package:citizenapp/network/hex_codec.dart' show bytesToHex,hexToBytes;
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizenapp/security/mls_authentication.dart';
+import 'package:citizenapp/account/identity/mls_authentication.dart';
 import '../support/fake_citizen_sdk.dart';
 
 const _accountId='0x625e25364c7b68e0a83065ccb40afed43f8fe933e669b24f3d69a57eddb3b715';
@@ -30,7 +30,7 @@ Map<String,dynamic> challenge(String purpose) {
  return {'ok':true,'purpose':purpose,'challenge_id':_nonce,'cid_number':_cidNumber,
  'account_id':_accountId,'binding_revision':1,'chain_scope':_binding.genesisHash,
  'service_origin':'https://square.test','expires_at_millis':expiry,
- 'signing_payload_hex':'0x'+bytesToHex(out.takeBytes())};
+ 'signing_payload_hex':'0x${bytesToHex(out.takeBytes())}'};
 }
 Map<String,Object?> receipt(String state)=>{'ok':true,'cid_number':_cidNumber,
  'account_id':_accountId,'binding_revision':1,'deletion_id':state=='absent'?null:_nonce,'state':state};
@@ -117,8 +117,8 @@ void main(){
 
  test('foreign binding, scope, purpose, expiry and opaque payload are rejected before signing',()async{
  final changes=<Map<String,Object?>>[
- {'cid_number':'OTHER-CID'},{'account_id':'0x'+List.filled(32,'22').join()},{'binding_revision':2},
- {'chain_scope':'0x'+List.filled(32,'44').join()},{'service_origin':'https://other.test'},{'purpose':'delete'},
+ {'cid_number':'OTHER-CID'},{'account_id':'0x${List.filled(32,'22').join()}'},{'binding_revision':2},
+ {'chain_scope':'0x${List.filled(32,'44').join()}'},{'service_origin':'https://other.test'},{'purpose':'delete'},
  {'expires_at_millis':1},{'signing_payload_hex':'0x00'},{'op_tag':0x99},
  {'challenge_id':'../other'},
  ];

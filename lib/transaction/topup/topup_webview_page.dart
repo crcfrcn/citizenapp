@@ -7,14 +7,14 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
-import 'package:citizenapp/theme/app_theme.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
 
 import 'topup_api.dart';
 import 'topup_erc20.dart';
 import 'topup_models.dart';
 import 'wallet_link_dispatcher.dart';
 
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// WebView WalletConnect 返回结果：付款交易哈希 + 付款前已绑定账户的短期意图。
 class TopupWebResult {

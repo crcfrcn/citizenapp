@@ -6,10 +6,10 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:citizenapp/security/mls_authentication.dart';
-import 'package:citizenapp/8964/services/square_api_client.dart';
-import 'package:citizenapp/8964/services/square_request_signer.dart';
-import 'package:citizenapp/notifications/app_push_token.dart';
+import 'package:citizenapp/account/identity/mls_authentication.dart';
+import 'package:citizenapp/network/square_api_client.dart';
+import 'package:citizenapp/network/square_request_signer.dart';
+import 'package:citizenapp/system/notifications/app_push_token.dart';
 
 import 'mls_authentication_fixture.dart';
 

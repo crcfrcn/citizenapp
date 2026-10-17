@@ -2,10 +2,10 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'package:flutter/material.dart';
 
-import 'package:citizenapp/citizen/cid_generator.dart';
-import 'package:citizenapp/theme/app_theme.dart';
-import 'package:citizen_sdk/citizen_sdk.dart' show CitizenWalletStateAccount;
-import 'package:citizenapp/theme/app_layout.dart';
+import 'package:citizenapp/account/identity/cid_generator.dart';
+import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/transaction/topup/onchain_topup_page.dart';
+import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 「注册身份」的选择结果:主体类型 + 绑定的钱包账户。
 class RegisterChoice {
@@ -21,26 +21,58 @@ class RegisterChoice {
   final String bindAccountId;
 }
 
-/// 弹出「注册身份」底部面板:自助占一个匿名 CID 前先选主体类型 + 绑定账户。
-///
-/// 返回 [RegisterChoice];取消返回 `null`。[accounts] 为当前热钱包下全部本地账户
-/// (含账户0);多于 1 个时露出绑定账户选择,否则默认绑账户0。占号与提交由调用方
-/// ([MyIdService.registerAnonymousCid])承接,本面板只负责选择与风险知情。
-Future<RegisterChoice?> showRegisterIdentitySheet(
+/// 提交结果只携带安全的页面状态；余额不足的充值目标始终取本页所选账户。
+final class RegistrationSubmitOutcome {
+  const RegistrationSubmitOutcome.success(this.message)
+    : registered = true,
+      recharge = false;
+  const RegistrationSubmitOutcome.failure(this.message, {this.recharge = false})
+    : registered = false;
+
+  final bool registered;
+  final bool recharge;
+  final String message;
+}
+
+/// 注册身份面板在真人验证、链交易和失败后保持挂载；正常流程只在成功或主动取消时关闭。
+/// 外层 WalletGate 在钱包被清空时仍可主动清栈回初始化页。
+/// [accounts] 来自 WalletGate 已放行的钱包；充值只进入本页选择的绑定账户。
+Future<bool?> showRegisterIdentitySheet(
   BuildContext context, {
   required List<CitizenWalletStateAccount> accounts,
+  required Future<RegistrationSubmitOutcome> Function(
+    BuildContext sheetContext,
+    RegisterChoice choice,
+  ) onSubmit,
+  Future<void> Function(BuildContext, String)? openTopup,
 }) {
-  return showModalBottomSheet<RegisterChoice>(
+  return showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
-    builder: (_) => RegisterIdentitySheet(accounts: accounts),
+    isDismissible: false,
+    enableDrag: false,
+    builder: (_) => RegisterIdentitySheet(
+      accounts: accounts,
+      onSubmit: onSubmit,
+      openTopup: openTopup,
+    ),
   );
 }
 
 class RegisterIdentitySheet extends StatefulWidget {
-  const RegisterIdentitySheet({super.key, required this.accounts});
+  const RegisterIdentitySheet({
+    super.key,
+    required this.accounts,
+    required this.onSubmit,
+    this.openTopup,
+  });
 
   final List<CitizenWalletStateAccount> accounts;
+  final Future<RegistrationSubmitOutcome> Function(
+    BuildContext sheetContext,
+    RegisterChoice choice,
+  ) onSubmit;
+  final Future<void> Function(BuildContext, String)? openTopup;
 
   @override
   State<RegisterIdentitySheet> createState() => _RegisterIdentitySheetState();
@@ -48,6 +80,7 @@ class RegisterIdentitySheet extends StatefulWidget {
 
 class _RegisterIdentitySheetState extends State<RegisterIdentitySheet> {
   bool _submitted = false;
+  String? _error;
   String _institution = kCidInstitutionCitizen;
   late final List<CitizenWalletStateAccount> _sortedAccounts;
   late String _bindAccountId;
@@ -67,10 +100,54 @@ class _RegisterIdentitySheetState extends State<RegisterIdentitySheet> {
         : _sortedAccounts.first.accountId;
   }
 
+  Future<void> _submit() async {
+    if (_submitted || _sortedAccounts.isEmpty) return;
+    setState(() {
+      _submitted = true;
+      _error = null;
+    });
+    final choice = RegisterChoice(
+      institution: _institution,
+      bindAccountId: _bindAccountId,
+    );
+    try {
+      final outcome = await widget.onSubmit(context, choice);
+      if (!mounted) return;
+      if (outcome.registered) {
+        Navigator.of(context).pop(true);
+        return;
+      }
+      setState(() => _error = outcome.message);
+      if (outcome.recharge) {
+        try {
+          await (widget.openTopup ?? _openTopup)(context, choice.bindAccountId);
+        } on Object {
+          if (mounted) {
+            setState(() => _error = '${outcome.message}；链上充值页面暂时无法打开');
+          }
+        }
+      }
+    } on Object {
+      if (mounted) setState(() => _error = '注册暂时无法完成，请重试');
+    } finally {
+      if (mounted) setState(() => _submitted = false);
+    }
+  }
+
+  Future<void> _openTopup(BuildContext context, String accountId) =>
+      Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => OnchainTopupPage(accountId: accountId),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
-    return SafeArea(
+    return PopScope(
+      // 验证、交易和激活期间不允许系统返回关闭面板；空闲时可主动取消。
+      canPop: !_submitted,
+      child: SafeArea(
       child: Padding(
         padding: EdgeInsets.fromLTRB(16, 8, 16, 16 + bottomInset),
         child: SingleChildScrollView(
@@ -166,26 +243,34 @@ class _RegisterIdentitySheetState extends State<RegisterIdentitySheet> {
                 ),
               ),
               SizedBox(height: AppLayout.scaled(context, 16)),
+              if (_error != null) ...[
+                Text(
+                  _error!,
+                  style: const TextStyle(color: AppTheme.danger),
+                ),
+                SizedBox(height: AppLayout.scaled(context, 12)),
+              ],
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: _submitted
+                      ? null
+                      : () => Navigator.of(context).pop(false),
+                  child: const Text('取消'),
+                ),
+              ),
               SizedBox(
                 width: double.infinity,
                 height: AppLayout.scaled(context, 46),
                 child: FilledButton(
-                  onPressed: () {
-                    if (_submitted) return;
-                    _submitted = true;
-                    Navigator.of(context).pop(
-                      RegisterChoice(
-                        institution: _institution,
-                        bindAccountId: _bindAccountId,
-                      ),
-                    );
-                  },
-                  child: const Text('确认注册'),
+                  onPressed: _submitted || _sortedAccounts.isEmpty ? null : _submit,
+                  child: Text(_submitted ? '注册中…' : '确认注册'),
                 ),
               ),
             ],
           ),
         ),
+      ),
       ),
     );
   }
