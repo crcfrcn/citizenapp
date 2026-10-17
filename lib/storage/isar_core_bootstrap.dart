@@ -51,7 +51,7 @@ class IsarCoreBootstrap {
     final localPath = _resolveLocalIsarCorePath();
     if (localPath == null) {
       throw StateError(
-        'Flutter test 模式未找到 Isar Core 动态库，请先执行 flutter pub get。',
+        'Flutter测试缺少本轮锁定的Isar Core动态库，请通过产品入口准备。',
       );
     }
     await Isar.initializeIsarCore(
@@ -59,42 +59,15 @@ class IsarCoreBootstrap {
     );
   }
 
+  /// 仅消费本轮产品入口按Pub锁解析的显式库，不扫描用户缓存或猜测版本。
   static String? _resolveLocalIsarCorePath() {
-    final fromEnv = Platform.environment['ISAR_CORE_LIB_PATH'];
-    if (fromEnv != null && fromEnv.trim().isNotEmpty) {
-      final file = File(fromEnv.trim());
-      if (file.existsSync()) return file.path;
-    }
-
-    final home = Platform.environment['HOME'];
-    if (home == null || home.isEmpty) return null;
-    final hosted = Directory('$home/.pub-cache/hosted/pub.dev');
-    if (!hosted.existsSync()) return null;
-
-    final candidates = hosted
-        .listSync(followLinks: false)
-        .whereType<Directory>()
-        .where(
-          (dir) => dir.path
-              .split(Platform.pathSeparator)
-              .last
-              .startsWith('isar_community_flutter_libs-'),
-        )
-        .toList(growable: false)
-      ..sort((a, b) => b.path.compareTo(a.path));
-
-    final relative = switch (Abi.current()) {
-      Abi.macosArm64 || Abi.macosX64 => 'macos/libisar.dylib',
-      Abi.linuxX64 => 'linux/libisar.so',
-      Abi.windowsArm64 || Abi.windowsX64 => 'windows/isar.dll',
-      _ => null,
-    };
-    if (relative == null) return null;
-
-    for (final dir in candidates) {
-      final path = '${dir.path}/$relative';
-      if (File(path).existsSync()) return path;
-    }
-    return null;
+    final path = Platform.environment['ISAR_CORE_LIB_PATH'];
+    final work = Platform.environment['CITIZENAPP_TEST_WORK_DIR'];
+    if (path == null || work == null || !File(path).isAbsolute || !Directory(work).isAbsolute) return null;
+    final file = File(path);
+    if (FileSystemEntity.typeSync(path, followLinks: false) != FileSystemEntityType.file ||
+        file.resolveSymbolicLinksSync() != path || Directory(work).resolveSymbolicLinksSync() != work ||
+        !path.startsWith('$work${Platform.pathSeparator}')) return null;
+    return path;
   }
 }

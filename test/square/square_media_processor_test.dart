@@ -1,3 +1,5 @@
+import 'package:citizenapp/network/square_api_client.dart';
+
 import 'dart:io';
 
 import 'package:flutter_image_compress/flutter_image_compress.dart';
@@ -27,9 +29,8 @@ void main() {
               if (mode == 'missing') throw MissingPluginException();
               if (call.method == 'prepare_playback_file') {
                 if (mode == 'invalid') return 'relative.mp4';
-                final file = await File(
-                  '${root.path}/protected.mp4',
-                ).create(exclusive: true);
+                final file = await File('${root.path}/protected.mp4')
+                    .create(exclusive: true);
                 return file.resolveSymbolicLinks();
               }
               final args = call.arguments as Map;
@@ -100,44 +101,44 @@ void main() {
     test('三个会员档位使用唯一确定的图片与视频规则', () {
       expect(
         (
-          SquareMediaPolicy.freedom.imageMaxEdge,
-          SquareMediaPolicy.freedom.imageQuality,
-          SquareMediaPolicy.freedom.imageMaxBytes,
-          SquareMediaPolicy.freedom.videoShortSide,
-          SquareMediaPolicy.freedom.videoTotalBitrate,
-          SquareMediaPolicy.freedom.maxVideoSeconds,
-          SquareMediaPolicy.freedom.maxVideoBytes,
+          SquareMediaPolicy.forPlan(_plan('freedom')).imageMaxEdge,
+          SquareMediaPolicy.forPlan(_plan('freedom')).imageQuality,
+          SquareMediaPolicy.forPlan(_plan('freedom')).imageMaxBytes,
+          SquareMediaPolicy.forPlan(_plan('freedom')).videoShortSide,
+          SquareMediaPolicy.forPlan(_plan('freedom')).videoTotalBitrate,
+          SquareMediaPolicy.forPlan(_plan('freedom')).maxVideoSeconds,
+          SquareMediaPolicy.forPlan(_plan('freedom')).maxVideoBytes,
         ),
         (1280, 72, 1000000, 480, 600000, 180, 16000000),
       );
       expect(
         (
-          SquareMediaPolicy.democracy.imageMaxEdge,
-          SquareMediaPolicy.democracy.imageQuality,
-          SquareMediaPolicy.democracy.imageMaxBytes,
-          SquareMediaPolicy.democracy.videoShortSide,
-          SquareMediaPolicy.democracy.videoTotalBitrate,
-          SquareMediaPolicy.democracy.maxVideoSeconds,
-          SquareMediaPolicy.democracy.maxVideoBytes,
+          SquareMediaPolicy.forPlan(_plan('democracy')).imageMaxEdge,
+          SquareMediaPolicy.forPlan(_plan('democracy')).imageQuality,
+          SquareMediaPolicy.forPlan(_plan('democracy')).imageMaxBytes,
+          SquareMediaPolicy.forPlan(_plan('democracy')).videoShortSide,
+          SquareMediaPolicy.forPlan(_plan('democracy')).videoTotalBitrate,
+          SquareMediaPolicy.forPlan(_plan('democracy')).maxVideoSeconds,
+          SquareMediaPolicy.forPlan(_plan('democracy')).maxVideoBytes,
         ),
         (1920, 80, 2000000, 720, 1200000, 1800, 300000000),
       );
       expect(
         (
-          SquareMediaPolicy.spark.imageMaxEdge,
-          SquareMediaPolicy.spark.imageQuality,
-          SquareMediaPolicy.spark.imageMaxBytes,
-          SquareMediaPolicy.spark.videoShortSide,
-          SquareMediaPolicy.spark.videoTotalBitrate,
-          SquareMediaPolicy.spark.maxVideoSeconds,
-          SquareMediaPolicy.spark.maxVideoBytes,
+          SquareMediaPolicy.forPlan(_plan('spark')).imageMaxEdge,
+          SquareMediaPolicy.forPlan(_plan('spark')).imageQuality,
+          SquareMediaPolicy.forPlan(_plan('spark')).imageMaxBytes,
+          SquareMediaPolicy.forPlan(_plan('spark')).videoShortSide,
+          SquareMediaPolicy.forPlan(_plan('spark')).videoTotalBitrate,
+          SquareMediaPolicy.forPlan(_plan('spark')).maxVideoSeconds,
+          SquareMediaPolicy.forPlan(_plan('spark')).maxVideoBytes,
         ),
         (2560, 85, 4000000, 1080, 2000000, 10800, 3000000000),
       );
       expect(SquareMediaPolicy.imageThumbnailMaxEdge, 480);
       expect(SquareMediaPolicy.videoCoverMaxBytes, 512000);
       expect(
-        () => SquareMediaPolicy.forMembershipLevel('unknown'),
+        () => SquareMediaPolicy.forPlan(_plan('unknown')),
         throwsFormatException,
       );
     });
@@ -184,7 +185,7 @@ void main() {
       );
 
       final batch = await processor.process(
-        membershipLevel: 'freedom',
+        membershipPlan: _plan('freedom'),
         mediaDrafts: [
           SquareLocalMediaDraft(
             mediaKind: SquareMediaKind.image,
@@ -238,7 +239,7 @@ void main() {
         ..writeAsBytesSync([1]);
 
       final batch = await processor.process(
-        membershipLevel: 'freedom',
+        membershipPlan: _plan('freedom'),
         mediaDrafts: [
           SquareLocalMediaDraft(
             mediaKind: SquareMediaKind.video,
@@ -251,7 +252,11 @@ void main() {
         ],
       );
 
-      expect(bridge.lastRequest?.policy, same(SquareMediaPolicy.freedom));
+      expect(bridge.lastRequest?.policy.membershipLevel, 'freedom');
+      expect(
+        bridge.lastRequest?.policy.maxVideoBytes,
+        SquareMediaPolicy.forPlan(_plan('freedom')).maxVideoBytes,
+      );
       expect(batch.mediaDrafts.single.contentType, 'video/mp4');
       expect(batch.mediaDrafts.single.fileName, 'source.mp4');
       expect(batch.mediaDrafts.single.byteSize, 4);
@@ -279,7 +284,7 @@ void main() {
         );
         await expectLater(
           processor.process(
-            membershipLevel: 'freedom',
+            membershipPlan: _plan('freedom'),
             mediaDrafts: [
               SquareLocalMediaDraft(
                 mediaKind: SquareMediaKind.video,
@@ -338,4 +343,56 @@ final class _FakeVideoBridge implements SquareVideoBridge {
       isSdr: true,
     );
   }
+}
+
+// 合成服务端Plan保留原三级数值金标；媒体处理只消费响应参数。
+SquareMembershipPlan _plan(String level) {
+  final values = switch (level) {
+    'democracy' => (1920, 2000000, 1800, 300000000),
+    'spark' => (2560, 4000000, 10800, 3000000000),
+    _ => (1280, 1000000, 180, 16000000),
+  };
+  return SquareMembershipPlan(
+    membershipLevel: level,
+    displayName: level,
+    chatFileMaxBytes: 1,
+    imageMaxEdge: values.$1,
+    imageMaxBytes: values.$2,
+    chat: const SquareChatQuota(
+      textEnabled: true,
+      emojiEnabled: true,
+      stickerEnabled: true,
+      imageEnabled: true,
+      voiceMessageMaxSeconds: 180,
+      videoMessageMaxSeconds: 180,
+      voiceCallEnabled: true,
+      videoCallEnabled: true,
+    ),
+    document: const SquareDocumentQuota(
+      textMaxChars: 300,
+      imageQuality: 'hd',
+      maxImages: 9,
+    ),
+    video: SquareVideoQuota(
+      textMaxChars: 300,
+      videoQuality: 'hd',
+      maxVideoSeconds: values.$3,
+      maxVideoBytes: values.$4,
+    ),
+    article: const SquareArticleQuota(
+      titleMinChars: 10,
+      titleMaxChars: 50,
+      bodyMaxChars: 30000,
+      coverQuality: 'hd',
+      imageQuality: 'hd',
+      maxImages: 100,
+      maxVideos: 3,
+    ),
+    usage: const SquareMembershipUsageQuota(
+      monthlyImages: 1500,
+      monthlyVideoSeconds: 60000,
+      activeUploads: 2,
+      storageBytes: 1000000000000,
+    ),
+  );
 }

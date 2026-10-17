@@ -19,6 +19,7 @@ class SquareArticleCard extends StatelessWidget {
     this.onAuthorTap,
     this.avatarUrl,
     this.avatarHeaders,
+    this.avatarImage,
   });
 
   final SquarePost post;
@@ -30,6 +31,9 @@ class SquareArticleCard extends StatelessWidget {
   /// 作者真头像地址与鉴权头（由页面据 avatarObjectKey + session 生成）。
   final String? avatarUrl;
   final Map<String, String>? avatarHeaders;
+
+  /// 完整资料媒体的签名读取器；不携带可复用的一次性证明头。
+  final ImageProvider? avatarImage;
 
   @override
   Widget build(BuildContext context) {
@@ -50,6 +54,7 @@ class SquareArticleCard extends StatelessWidget {
                 onAuthorTap: onAuthorTap,
                 avatarUrl: avatarUrl,
                 avatarHeaders: avatarHeaders,
+                avatarImage: avatarImage,
               ),
               SizedBox(height: AppLayout.scaled(context, 12)),
               if (title != null && title.isNotEmpty)
@@ -83,7 +88,11 @@ class SquareArticleCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(AppTheme.radiusMd),
                   child: AspectRatio(
                     aspectRatio: 16 / 9,
-                    child: SquareMediaImage(item: cover, preview: true, httpHeaders: avatarHeaders),
+                    child: SquareMediaImage(
+                      item: cover,
+                      preview: true,
+                      httpHeaders: avatarHeaders,
+                    ),
                   ),
                 ),
               ],

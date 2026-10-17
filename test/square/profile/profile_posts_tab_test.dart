@@ -1,4 +1,5 @@
 import '../mls_authentication_fixture.dart';
+
 import 'package:citizenapp/storage/user_isar.dart';
 import 'package:citizenapp/storage/social_isar.dart';
 
@@ -33,13 +34,30 @@ Widget _page(
     cache: FakeProfileCache(),
     sessionProvider:
         sessionProvider ??
-        FakeSessionProvider(withSession ? fakeSession() : null),
+        FakeSessionProvider(
+          withSession
+              ? fakeSession(
+                  cidNumber: isSelf ? null : sampleProfile().cidNumber,
+                )
+              : null,
+          citizenId: isSelf
+              ? fakeSession().cidNumber
+              : sampleProfile().cidNumber,
+        ),
     subscriptionService: _NullSubscriptionService(),
     viewerAccountLoader: () async => null,
   ),
 );
 
 class _NullSubscriptionService implements SubscriptionService {
+  @override
+  Future<void> requireProfileAccess(
+    SquareSession session,
+    String targetCid,
+  ) async {}
+  @override
+  Future<void> requireSquareAccess(SquareSession session) async {}
+
   @override
   Future<MembershipDisplaySnapshot?> readDisplaySnapshot(
     String cidNumber,
@@ -50,6 +68,8 @@ class _NullSubscriptionService implements SubscriptionService {
 }
 
 class _DelayedSessionProvider implements SquareSessionProvider {
+  @override
+  Future<String?> currentCitizenId() async => sampleProfile().cidNumber;
   final Completer<SquareSession?> completer = Completer<SquareSession?>();
   int calls = 0;
 
@@ -72,12 +92,14 @@ class _DelayedSessionProvider implements SquareSessionProvider {
 }
 
 class _RefreshingSessionProvider implements SquareSessionProvider {
+  @override
+  Future<String?> currentCitizenId() async => sampleProfile().cidNumber;
   int refreshCalls = 0;
 
   SquareSession _session(String token) => SquareSession(
     deviceId: testMlsDeviceId,
     sessionToken: token,
-    cidNumber: fakeSession().cidNumber,
+    cidNumber: sampleProfile().cidNumber!,
     bindingRevision: 1,
     accountId: kOwner,
     expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
@@ -103,6 +125,8 @@ class _RefreshingSessionProvider implements SquareSessionProvider {
 }
 
 class _IdentityUnavailableSessionProvider implements SquareSessionProvider {
+  @override
+  Future<String?> currentCitizenId() async => sampleProfile().cidNumber;
   @override
   Future<SquareSessionResolution> resolveSession({
     bool refresh = false,
@@ -421,7 +445,9 @@ void main() {
     expect(api.authorPostCalls, 0);
     expect(find.text('内容加载失败，请下拉刷新'), findsNothing);
 
-    provider.completer.complete(fakeSession());
+    provider.completer.complete(
+      fakeSession(cidNumber: sampleProfile().cidNumber),
+    );
     await tester.pumpAndSettle();
 
     expect(api.authorPostCalls, 1);

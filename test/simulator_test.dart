@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/widgets.dart';
 import 'package:integration_test/integration_test.dart';
 
 import 'security/identity_binding_test.dart' as bindings;
@@ -18,7 +19,10 @@ import 'chat/chat_tab_test.dart' as chat;
 void main() {
   const selected = String.fromEnvironment('SIMULATOR_SUITE');
   if (selected.isEmpty) {
-    test('设备侧测试须显式选择虚拟设备和测试组', () {}, skip: '仅由虚拟设备测试调用');
+    test('未显式选择设备组时不安装设备集成binding', () {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      expect(WidgetsBinding.instance, isNot(isA<IntegrationTestWidgetsFlutterBinding>()));
+    });
     return;
   }
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();

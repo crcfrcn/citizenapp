@@ -1,3 +1,5 @@
+import 'package:citizenapp/network/square_api_client.dart';
+
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -23,6 +25,14 @@ class _NullMembershipSnapshotService implements SubscriptionService {
   ) async => null;
 
   @override
+  Future<void> requireProfileAccess(
+    SquareSession session,
+    String targetCid,
+  ) async {}
+  @override
+  Future<void> requireSquareAccess(SquareSession session) async {}
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
@@ -32,14 +42,18 @@ Widget _wrap({required bool isSelf}) => MaterialApp(
     isSelf: isSelf,
     api: FakeProfileApi(sampleProfile()),
     cache: FakeProfileCache(sampleProfile()),
-    sessionProvider: FakeSessionProvider(fakeSession()),
+    sessionProvider: FakeSessionProvider(
+      fakeSession(),
+      citizenId: isSelf ? sampleProfile().cidNumber : null,
+    ),
     subscriptionService: _NullMembershipSnapshotService(),
     viewerAccountLoader: () async => null,
   ),
 );
 
 class _PendingRefreshSession extends FakeSessionProvider {
-  _PendingRefreshSession() : super(fakeSession());
+  _PendingRefreshSession()
+    : super(fakeSession(), citizenId: sampleProfile().cidNumber);
   final completion = Completer<SquareSessionResolution>();
   int calls = 0;
   @override
@@ -51,7 +65,8 @@ class _PendingRefreshSession extends FakeSessionProvider {
 }
 
 class _UnavailableSession extends FakeSessionProvider {
-  _UnavailableSession(this.status) : super(null);
+  _UnavailableSession(this.status)
+    : super(null, citizenId: fakeSession().cidNumber);
   final SquareSessionStatus status;
   @override
   Future<SquareSessionResolution> resolveSession({
@@ -59,7 +74,71 @@ class _UnavailableSession extends FakeSessionProvider {
   }) async => SquareSessionResolution(status);
 }
 
+class _DeniedMembership extends _NullMembershipSnapshotService {
+  int checks = 0;
+  @override
+  Future<void> requireProfileAccess(
+    SquareSession session,
+    String targetCid,
+  ) async {
+    checks++;
+    throw const SquareApiException(
+      '非会员禁止访问用户主页',
+      statusCode: 403,
+      errorCode: 'profile_membership_required',
+    );
+  }
+}
+
 void main() {
+  testWidgets('非会员他人主页在读取初始资料及缓存前拒绝，isSelf提示不能越权', (tester) async {
+    final api = FakeProfileApi(sampleProfile(displayName: '不得显示的缓存'));
+    final denied = _DeniedMembership();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: UserProfilePage(
+          cidNumber: sampleProfile().cidNumber!,
+          isSelf: true,
+          initialProfile: sampleProfile(displayName: '不得显示的缓存'),
+          api: api,
+          cache: FakeProfileCache(sampleProfile(displayName: '不得显示的缓存')),
+          sessionProvider: FakeSessionProvider(fakeSession()),
+          subscriptionService: denied,
+          viewerAccountLoader: () async => null,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('非会员禁止访问用户主页'), findsOneWidget);
+    expect(find.text('不得显示的缓存'), findsNothing);
+    expect(api.calls, 0);
+    expect(denied.checks, 1);
+  });
+  testWidgets('非会员本人离线主页不调用会员门禁并保留本地资料', (tester) async {
+    final denied = _DeniedMembership();
+    final api = FakeProfileApi(sampleProfile());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: UserProfilePage(
+          cidNumber: sampleProfile().cidNumber!,
+          isSelf: true,
+          api: api,
+          cache: FakeProfileCache(sampleProfile(displayName: '本人离线资料')),
+          sessionProvider: FakeSessionProvider(
+            null,
+            citizenId: sampleProfile().cidNumber,
+          ),
+          subscriptionService: denied,
+          viewerAccountLoader: () async => null,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('本人离线资料'), findsWidgets);
+    expect(denied.checks, 0);
+    expect(api.calls, 0);
+  });
+
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
     testWidgets('${platform.name}空内容下拉显示完整进度，服务失败仍重读本地', (tester) async {
       debugDefaultTargetPlatformOverride = platform;
@@ -226,7 +305,10 @@ void main() {
           isSelf: true,
           api: api,
           cache: FakeProfileCache(sampleProfile()),
-          sessionProvider: FakeSessionProvider(fakeSession()),
+          sessionProvider: FakeSessionProvider(
+            fakeSession(),
+            citizenId: sampleProfile().cidNumber,
+          ),
           subscriptionService: _NullMembershipSnapshotService(),
           viewerAccountLoader: () async => null,
         ),

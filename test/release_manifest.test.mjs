@@ -4,7 +4,7 @@ import {
   existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { testRoot as tmpdir, BUILD_SHELL_SOURCES, SOURCE_VIEW_SOURCE } from '../scripts/build.mjs';
+import { testRoot as tmpdir, BUILD_SHELL_SOURCES, SOURCE_VIEW_SOURCE, checkFlutterReport } from '../scripts/build.mjs';
 import { platformFiles as androidPlatformFiles } from '../android/platform.mjs';
 import { platformFiles as iosPlatformFiles } from '../ios/platform.mjs';
 import { dirname, join } from 'node:path';
@@ -38,7 +38,7 @@ let dependencySources;
 try {
   dependencySources = JSON.parse(execFileSync(process.execPath, [viewScript, 'view', 'dependencies',
     '--source-root', sourceRoot, '--work-root', dependencyWork], {
-      encoding: 'utf8', env: { ...process.env, PRODUCT_SDK_SOURCE_MODE: 'git' },
+      encoding: 'utf8', env: process.env,
     }));
 } catch (error) {
   if (!suppliedDependencyWork) rmSync(dependencyWork, { recursive: true, force: true });
@@ -57,17 +57,35 @@ const tataChatAttachmentPlatform = readFileSync(
 const tataChatConversation = readFileSync(
   new URL('lib/ui/conversation/conversation_page.dart', tataChatRoot), 'utf8');
 
-test('本机编译直接读取两个同级SDK仓库，不检出固定Git', () => {
-  const work=mkdtempSync(join(tmpdir(),'citizenapp-local-sdk-'));
+test('所有环境只消费本轮按原锁准备的SDK，无邻仓或隐式获取', () => {
+  assert.equal(dependencySources.citizen_sdk.root,join(dependencyWork,'git-sources/citizen_sdk'));
+  assert.equal(dependencySources.tatachat_sdk.root,join(dependencyWork,'git-sources/tatachat_sdk'));
+  const empty=mkdtempSync(join(tmpdir(),'citizenapp-missing-sdk-'));
   try{
-    const value=JSON.parse(execFileSync(process.execPath,[viewScript,'view','dependencies',
-      '--source-root',sourceRoot,'--work-root',work],{
-      encoding:'utf8',env:{...process.env,PRODUCT_SDK_SOURCE_MODE:'local'},
-    }));
-    assert.equal(value.citizen_sdk.root,realpathSync(join(dirname(sourceRoot),'citizensdk')));
-    assert.equal(value.tatachat_sdk.root,realpathSync(join(dirname(sourceRoot),'tatachatsdk')));
-    assert.equal(existsSync(join(work,'git-sources')),false);
-  }finally{rmSync(work,{recursive:true,force:true});}
+    const result=spawnSync(process.execPath,[viewScript,'view','dependencies','--source-root',sourceRoot,'--work-root',empty],
+      {encoding:'utf8',env:process.env});
+    assert.notEqual(result.status,0);
+    assert.match(result.stdout+result.stderr,/尚未由本产品资源入口按锁准备/);
+    assert.equal(existsSync(join(empty,'git-sources/citizen_sdk/.git')),false);
+  }finally{rmSync(empty,{recursive:true,force:true});}
+});
+
+test('Flutter报告必须完整覆盖，失败、跳过、零测试或迟到事件拒绝', () => {
+  const directory=mkdtempSync(join(tmpdir(),'citizenapp-test-report-'));
+  try{
+    const file=join(directory,'report.jsonl'),target=join(directory,'catalog_test.dart');
+    const events=[{type:'suite',suite:{id:0,path:target}},{type:'testStart',test:{id:1,suiteID:0}},
+      {type:'testDone',testID:1,result:'success',hidden:false,skipped:false},{type:'done',success:true}];
+    const write=rows=>writeFileSync(file,rows.map(row=>JSON.stringify(row)).join('\n')+'\n');
+    write(events);assert.equal(checkFlutterReport(file,[target]).passed,1);
+    for(const rows of [events.slice(0,-1),events.slice(-1),
+      events.map(row=>row.type==='testDone'?{...row,skipped:true}:row),
+      events.map(row=>row.type==='testDone'?{...row,result:'failure'}:row),
+      [...events,{type:'error'}]]){
+      write(rows);assert.throws(()=>checkFlutterReport(file,[target]));
+    }
+    write(events);assert.throws(()=>checkFlutterReport(file,[target,join(directory,'missing_test.dart')]));
+  }finally{rmSync(directory,{recursive:true,force:true});}
 });
 
 // 执行真实脚本片段，检查注释幂等、正文保留和任一输入异常时零写入。
@@ -218,7 +236,7 @@ test('CitizenApp与TataChatSDK只装配AGP9内置Kotlin兼容的移动插件闭�
   assert.doesNotMatch(`${tataChatAttachmentPlatform}\n${tataChatAndroidPlugin}\n${tataChatIOSPlugin}`, /media_probe/u);
 });
 
-test('Android从真实产品源码根启动Gradle并把可写状态放入外部工作目录', () => {
+test('Android从本轮消费工程启动Gradle并把可写状态放入外部工作目录', () => {
   assert.match(settings, /System\.getenv\("CITIZENAPP_PROJECT_ROOT"\)/u);
   assert.match(settings, /settingsDir\.parentFile/u);
   assert.match(settings, /resolve\("android\/local\.properties"\)/u);
@@ -249,7 +267,7 @@ test('Android从真实产品源码根启动Gradle并把可写状态放入外部�
   assert.match(wrapper, /distributionSha256Sum=a17ddd85a26b6a7f5ddb71ff8b05fc5104c0202c6e64782429790c933686c806/u);
   assert.doesNotMatch(wrapper, /gradle-8\./u);
   assert.match(application, /System\.getenv\("CITIZENAPP_PROJECT_ROOT"\) \?: "\.\.\/\.\."/u);
-  assert.match(runner, /cd "\$APP_ROOT\/android"/u);
+  assert.match(runner, /cd "\$CITIZENAPP_PROJECT_ROOT\/android"/u);
   assert.match(runner, /--no-problems-report/u);
   assert.match(runner, /--init-script "\$CITIZENAPP_GRADLE_INIT_SCRIPT"/u);
   assert.match(runner, /retain_android_local_artifact\(\)/u);
@@ -282,7 +300,7 @@ test('Android从真实产品源码根启动Gradle并把可写状态放入外部�
   assert.match(runner, /"\$GRADLE_EXECUTABLE"[\s\S]*--project-cache-dir "\$BUILD_WORK_DIR\/gradle-project"/u);
   assert.match(runner, /-Pkotlin[.]project[.]persistent[.]dir="\$CITIZENAPP_FLUTTER_GRADLE_BUILD_DIR\/kotlin-project"/u);
   assert.match(runner, /-Pflutter[.]sdk="\$flutter_sdk"/u);
-  assert.match(runner, /CITIZENSDK_GRADLE="\$GRADLE_EXECUTABLE"[\s\S]*build-native\.sh" android/u);
+  assert.match(runner, /CITIZENSDK_GRADLE="\$GRADLE_EXECUTABLE"[\s\S]*node "\$CITIZENSDK_ROOT\/scripts\/build\.mjs" native android/u);
   assert.match(runner, /CITIZENSDK_GRADLE="\$GRADLE_EXECUTABLE"[\s\S]*JAVA_HOME="\$ANDROID_JAVA_HOME" PATH="\$ANDROID_JAVA_HOME\/bin:\$PATH"/u);
   assert.doesNotMatch(runner, new RegExp([['TATA', '_CONSOLE'].join(''), ['tata', 'console'].join('')].join('|'), 'u'));
   assert.match(runner, /CITIZENAPP_GRADLE_OFFLINE="\$\{CITIZENAPP_GRADLE_OFFLINE:-\$\{CITIZENAPP_OFFLINE:-false\}\}"/u);
@@ -291,7 +309,7 @@ test('Android从真实产品源码根启动Gradle并把可写状态放入外部�
   assert.match(runner, /\$\{gradle_network_arg:\+"\$gradle_network_arg"\}/u);
   assert.doesNotMatch(runner, /GRADLE_NETWORK_ARGS/u);
   assert.match(runner, /CITIZENSDK_OFFLINE="\$CITIZENAPP_GRADLE_OFFLINE"/u);
-  assert.match(runner, /ANDROID_HOME="\$ANDROID_SDK_HOME" ANDROID_SDK_ROOT="\$ANDROID_SDK_HOME"[\s\S]*build-native\.sh" android/u);
+  assert.match(runner, /ANDROID_HOME="\$ANDROID_SDK_HOME" ANDROID_SDK_ROOT="\$ANDROID_SDK_HOME"[\s\S]*node "\$CITIZENSDK_ROOT\/scripts\/build\.mjs" native android/u);
 });
 
 test('iOS Pod装配保留调用方工程路径且不把生成状态写回源码', () => {
@@ -518,8 +536,8 @@ test('citizenapp_qr_uses_sdk_public_contract', () => {
     assert.equal(existsSync(join(sourceRoot, relative)), false, '公民不得恢复 QR 第二实现：' + relative);
   }
   const sdk = dependencySources.citizen_sdk.root;
-  assert.ok(readFileSync(join(sdk, 'lib/citizen_sdk.dart'), 'utf8').includes("export 'src/api/citizen_qr.dart';"));
-  const api = readFileSync(join(sdk, 'lib/src/api/citizen_qr.dart'), 'utf8');
+  assert.ok(readFileSync(join(sdk, 'lib/citizen_sdk.dart'), 'utf8').includes("export 'api/citizen_qr.dart';"));
+  const api = readFileSync(join(sdk, 'lib/api/citizen_qr.dart'), 'utf8');
   assert.ok(api.includes('class CitizenQrActions'));
   // 核验公开方法及准确参数类型，允许正式Dart格式化产生换行。
   assert.match(api, /Future<CitizenQrScanResult>\s+parseForPurpose\(\s*String text,\s*CitizenQrScanPurpose purpose,?\s*\)/u);

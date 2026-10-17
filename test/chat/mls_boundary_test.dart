@@ -1,5 +1,7 @@
 import '../square/mls_authentication_fixture.dart';
+
 import 'package:citizenapp/account/identity/cid_business_gate.dart';
+
 import '../support/fake_citizen_sdk.dart';
 
 import 'package:citizenapp/chat/tatachat_sdk_adapter.dart';
@@ -182,14 +184,14 @@ void main() {
       expect(message, isNot(contains('安全组件')));
     });
 
-    test('聊天服务模块 会员拒绝使用统一错误码并映射为权益提示', () {
+    test('聊天附件会员拒绝使用统一错误码并映射为权益提示', () {
       const error = SquareApiException(
-        'chat membership required',
+        'attachment membership required',
         statusCode: 403,
-        errorCode: 'chat_membership_required',
+        errorCode: 'attachment_membership_required',
       );
 
-      expect(chatUserErrorMessage(error), '当前账户尚未开通聊天会员权益');
+      expect(chatUserErrorMessage(error), '非会员禁止使用聊天附件');
     });
   });
 
@@ -227,7 +229,8 @@ void main() {
     final sessions = SquareSessionProvider(
       accountSecurity: security,
       currentUserContext: current,
-      resolveCid: () async => const CidBusinessDecision(CidBusinessStatus.noWallet),
+      resolveCid: () async =>
+          const CidBusinessDecision(CidBusinessStatus.noWallet),
     );
     final runtime = createCitizenChatRuntime(
       accountSecurity: security,

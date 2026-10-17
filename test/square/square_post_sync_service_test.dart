@@ -1,4 +1,5 @@
 import 'mls_authentication_fixture.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -88,7 +89,10 @@ class _MediaApi extends SquareApiClient {
   }
 
   @override
-  Future<http.StreamedResponse> openPostMedia(String url) async {
+  Future<http.StreamedResponse> openPostMedia(
+    String url, {
+    required SquareSession session,
+  }) async {
     downloads++;
     final bytes = url.endsWith('/main')
         ? (corrupt ? Uint8List.fromList(List.filled(main.length, 9)) : main)

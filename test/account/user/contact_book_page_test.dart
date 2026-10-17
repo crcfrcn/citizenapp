@@ -1,4 +1,5 @@
 import '../../square/mls_authentication_fixture.dart';
+
 import 'dart:async';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -152,20 +153,21 @@ class _FakeProfileApi extends CitizenProfileApi {
   final CitizenProfile profile;
 
   @override
-  Future<CitizenProfile> fetchProfile(
+  Future<CitizenProfileCard> fetchCard(
     String cidNumber, {
     SquareSession? session,
-  }) async => profile;
+  }) async => CitizenProfileCard(profile.toJson());
 }
 
 class _PendingProfileApi extends CitizenProfileApi {
   final Completer<CitizenProfile> completer = Completer<CitizenProfile>();
 
   @override
-  Future<CitizenProfile> fetchProfile(
+  Future<CitizenProfileCard> fetchCard(
     String cidNumber, {
     SquareSession? session,
-  }) => completer.future;
+  }) =>
+      completer.future.then((profile) => CitizenProfileCard(profile.toJson()));
 }
 
 class _FakeSessionProvider implements SquareSessionProvider {
@@ -462,9 +464,8 @@ void main() {
     await tester.pumpWidget(_page(profile: emptyProfile));
     await tester.pumpAndSettle();
 
-    final fallback = ProfilePresentation.forIdentityKey(
-      _contactCidNumber,
-    ).fallbackName;
+    final fallback = ProfilePresentation.forIdentityKey(_contactCidNumber)
+        .fallbackName;
     expect(find.text(fallback), findsOneWidget);
     expect(find.textContaining('SS58：'), findsNothing);
   });

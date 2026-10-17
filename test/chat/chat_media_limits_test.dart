@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/chat/chat_product_policy.dart';
 import 'package:citizenapp/account/membership/subscription_service.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart';
@@ -10,12 +11,19 @@ void main() {
   const mib = 1024 * 1024;
   const policy = CitizenChatMediaLimitPolicy();
 
-  setUp(
-    () => SubscriptionService.setChatAuthorizationForTesting(
-      _cidNumber,
-      100 * mib,
-    ),
-  );
+  setUp(() {
+    SubscriptionService.rememberCitizenSession(
+      SquareSession(
+        deviceId: "synthetic-device",
+        sessionToken: "synthetic-session",
+        cidNumber: _cidNumber,
+        bindingRevision: 1,
+        accountId: "synthetic-account",
+        expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
+      ),
+    );
+    SubscriptionService.setChatAuthorizationForTesting(_cidNumber, 100 * mib);
+  });
   tearDown(
     () => SubscriptionService.setChatAuthorizationForTesting(_cidNumber, null),
   );
@@ -31,18 +39,25 @@ void main() {
     expect(SubscriptionService.chatAuthorizedFor(_otherCidNumber), isFalse);
   });
 
-  test('授权失败只关闭发送授权，不抹掉已确认会员展示事实', () {
-    SubscriptionService.markChatAuthorizationUnavailable(_cidNumber);
+  test('附件授权失败不关闭基础聊天，也不抹掉已确认会员展示事实', () {
+    SubscriptionService.markAttachmentAuthorizationUnavailable(_cidNumber);
 
     expect(SubscriptionService.membershipResolvedFor(_cidNumber), isTrue);
     expect(
       SubscriptionService.chatAuthorizationResolvedFor(_cidNumber),
-      isFalse,
+      isTrue,
     );
-    expect(SubscriptionService.chatAuthorizedFor(_cidNumber), isFalse);
+    expect(SubscriptionService.chatAuthorizedFor(_cidNumber), isTrue);
     expect(SubscriptionService.chatFileMaxBytesFor(_cidNumber), 0);
   });
 
+  test('非会员保留有效公民基础聊天，附件额度为0仍禁止附件', () {
+    SubscriptionService.setChatAuthorizationForTesting(_cidNumber, 0);
+    expect(SubscriptionService.chatAuthorizedFor(_cidNumber), isTrue);
+    expect(SubscriptionService.chatFileMaxBytesFor(_cidNumber), 0);
+    expect(policy.exceedsForKind(ChatMessageKind.file, 1), isTrue);
+    expect(policy.exceedsForKind(ChatMessageKind.text, 1 << 40), isFalse);
+  });
   test('聊天模块的媒体策略无状态读取会员模块当前上限', () {
     expect(policy.limitForKind(ChatMessageKind.image), 100 * mib);
     expect(policy.limitForKind(ChatMessageKind.video), 100 * mib);

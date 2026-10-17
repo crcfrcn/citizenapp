@@ -144,7 +144,10 @@ class SquarePostSyncService {
             mediaId: descriptor.mediaId,
           );
         }
-        final response = await _api.openPostMedia(source['url'] as String);
+        final response = await _api.openPostMedia(
+          source['url'] as String,
+          session: session,
+        );
         if (response.contentLength != null &&
             response.contentLength != descriptor.byteSize) {
           await response.stream.listen(null).cancel();
@@ -165,6 +168,7 @@ class SquarePostSyncService {
       }
       final preview = await _api.openPostMedia(
         source['thumbnail_url'] as String,
+        session: session,
       );
       const limit = 4 * 1024 * 1024;
       if ((preview.contentLength ?? 0) > limit) {

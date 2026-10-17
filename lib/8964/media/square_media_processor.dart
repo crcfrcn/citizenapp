@@ -1,3 +1,5 @@
+import 'package:citizenapp/network/square_api_client.dart';
+
 import 'dart:async';
 import 'dart:io';
 
@@ -168,7 +170,7 @@ final class MethodChannelSquareVideoBridge implements SquareVideoBridge {
 
   /// 原生先建立文件保护，再允许写入媒体；没有平台实现时直接失败。
   Future<File> preparePlaybackFile(int byteSize) async {
-    if (byteSize <= 0 || byteSize > SquareMediaPolicy.spark.maxVideoBytes) {
+    if (byteSize <= 0 || byteSize > SquareMediaPolicy.maxLocalPlaybackBytes) {
       throw const FormatException('本地视频大小无效');
     }
     final path = await _channel.invokeMethod<String>('prepare_playback_file', {
@@ -234,14 +236,13 @@ final class MethodChannelSquareVideoBridge implements SquareVideoBridge {
 }
 
 typedef SquareTemporaryDirectoryFactory = Future<Directory> Function();
-typedef SquareImageCompressOperation =
-    Future<XFile?> Function({
-      required String inputPath,
-      required String outputPath,
-      required int width,
-      required int height,
-      required int quality,
-    });
+typedef SquareImageCompressOperation = Future<XFile?> Function({
+  required String inputPath,
+  required String outputPath,
+  required int width,
+  required int height,
+  required int quality,
+});
 
 /// 广场唯一手机端媒体处理入口；原始草稿永不原地覆盖。
 final class SquareMediaProcessor {
@@ -261,9 +262,9 @@ final class SquareMediaProcessor {
 
   Future<SquareProcessedMediaBatch> process({
     required List<SquareLocalMediaDraft> mediaDrafts,
-    required String membershipLevel,
+    required SquareMembershipPlan membershipPlan,
   }) async {
-    final policy = SquareMediaPolicy.forMembershipLevel(membershipLevel);
+    final policy = SquareMediaPolicy.forPlan(membershipPlan);
     final temporaryDirectory = await _temporaryDirectoryFactory();
     await temporaryDirectory.create(recursive: true);
     final processed = <SquareLocalMediaDraft>[];

@@ -199,6 +199,7 @@ class CitizenProfileCache {
   }
 
   Future<void> write(CitizenProfile profile) async {
+    if (profile is CitizenProfileCard) return; // 最小资料不能覆盖完整主页事实。
     if (profile.cidNumber == null || profile.cidNumber!.isEmpty) return;
     final cid = _cid(profile.cidNumber!);
     final epoch = CitizenProfileMediaCache._epoch(cid);
@@ -335,6 +336,9 @@ class CitizenProfileMediaCache {
   final Future<Directory> Function() _supportDirectoryProvider;
   final Future<Directory> Function() _temporaryDirectoryProvider;
   final http.Client? _client;
+
+  /// 与持久资料图片复用原大小边界，网络ImageProvider不能另建额度值。
+  static int maxBytesFor(String role) => _limit(role);
   static int _generation = 0;
   static final Map<String, int> _cidGenerations = {};
   static void _invalidate(String cid) =>

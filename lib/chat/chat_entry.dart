@@ -90,7 +90,7 @@ ChatConversationHost _citizenConversationHost({
       final resolved =
           SubscriptionService.chatAuthorizationResolvedFor(userId) &&
           SubscriptionService.membershipResolvedFor(userId);
-      return resolved ? '尚未开通会员，订阅任一会员后即可使用聊天' : '暂时无法验证会员状态，请稍后重试';
+      return resolved ? '当前公民会话不可用，请重试' : '当前公民身份尚未就绪，请稍后重试';
     },
     errorMessage: chatUserErrorMessage,
     headerBuilder: (context, header) => _CitizenChatHeader(
@@ -244,7 +244,7 @@ class _CitizenChatHeaderState extends State<_CitizenChatHeader> {
     if (sessionProvider == null) return;
     try {
       final session = await sessionProvider.ensureSession();
-      final profile = await _profileApi.fetchProfile(
+      final profile = await _profileApi.fetchCard(
         widget.peerUserId,
         session: session,
       );
@@ -300,7 +300,7 @@ class _CitizenChatHeaderState extends State<_CitizenChatHeader> {
             size: AppLayout.scaled(context, 36),
             imagePath: _media.avatarPath,
             imageUrl: _profile?.avatarObjectKey?.trim().isNotEmpty == true
-                ? _profileApi.mediaUrl(
+                ? _profileApi.cardMediaUrl(
                     _profile!.avatarObjectKey!,
                     updatedAt: _profile!.updatedAt,
                   )
@@ -708,10 +708,11 @@ class _ChatTabState extends State<ChatTab> {
       final session = _profileSession ?? await sessionProvider.ensureSession();
       if (session == null || session.cidNumber.trim() != cidNumber) return;
       _profileSession = session;
+      SubscriptionService.rememberCitizenSession(session);
       await subscriptionService.authorizeMembership(session);
     } on Exception {
       // 展示仍可复用本地快照，但发送授权必须由本次会话的 CitizenServe 结果确认。
-      SubscriptionService.markChatAuthorizationUnavailable(cidNumber);
+      SubscriptionService.markAttachmentAuthorizationUnavailable(cidNumber);
     }
     if (mounted &&
         reloadGeneration == _reloadGeneration &&
@@ -818,7 +819,7 @@ class _ChatTabState extends State<ChatTab> {
       await Future.wait(
         batch.map((cidNumber) async {
           try {
-            final profile = await _profileApi.fetchProfile(
+            final profile = await _profileApi.fetchCard(
               cidNumber,
               session: _profileSession,
             );
@@ -836,7 +837,7 @@ class _ChatTabState extends State<ChatTab> {
             }
             final media = await _profileMediaCache.refresh(
               profile: profile,
-              avatarUrl: _profileApi.mediaUrl(
+              avatarUrl: _profileApi.cardMediaUrl(
                 avatarKey,
                 updatedAt: profile.updatedAt,
               ),
@@ -944,7 +945,6 @@ class _ChatTabState extends State<ChatTab> {
 
   void _openConversation(ChatConversationPreview preview) {
     if (!_requireChatIdentity()) return;
-    if (!_requireChatMembership()) return;
     if (preview.isGroup) {
       openGroupChat(
         context,
@@ -960,7 +960,6 @@ class _ChatTabState extends State<ChatTab> {
 
   void _openCreateGroup() {
     if (!_requireChatIdentity()) return;
-    if (!_requireChatMembership()) return;
     final opener = widget.openers?.openCreateGroup;
     if (opener != null) {
       unawaited(opener(context));
@@ -990,18 +989,6 @@ class _ChatTabState extends State<ChatTab> {
       return false;
     }
     return true;
-  }
-
-  bool _requireChatMembership() {
-    if (SubscriptionService.chatAuthorizedFor(_cidNumber)) return true;
-    setState(() {
-      _error =
-          SubscriptionService.chatAuthorizationResolvedFor(_cidNumber) &&
-              SubscriptionService.membershipResolvedFor(_cidNumber)
-          ? '尚未开通会员，订阅任一会员后即可使用聊天'
-          : '暂时无法验证会员状态，请稍后重试';
-    });
-    return false;
   }
 
   /// 加号菜单动作分派。
@@ -1069,7 +1056,6 @@ class _ChatTabState extends State<ChatTab> {
   /// 发私信 = 通讯录单选，点联系人直接开私聊。
   Future<void> _openSendMessage() async {
     if (!_requireChatIdentity()) return;
-    if (!_requireChatMembership()) return;
     final opener = widget.openers?.openSendMessage;
     if (opener != null) {
       await opener(context);
@@ -1099,7 +1085,6 @@ class _ChatTabState extends State<ChatTab> {
   /// 搜索 = 进入独立搜索页；透传 store 与账户，避免搜索页重复解析依赖。
   Future<void> _openSearch() async {
     if (!_requireChatIdentity()) return;
-    if (!_requireChatMembership()) return;
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (_) => ChatSearchPage(
@@ -1113,7 +1098,7 @@ class _ChatTabState extends State<ChatTab> {
   }
 
   void _openGroupManage(ChatConversationPreview preview) {
-    if (!_requireChatMembership()) return;
+    if (!_requireChatIdentity()) return;
     Navigator.of(context)
         .push(
           MaterialPageRoute<void>(
@@ -1180,7 +1165,7 @@ class _ChatTabState extends State<ChatTab> {
             seed: preview.peerUserId,
             imagePath: media?.avatarPath,
             imageUrl: profile?.avatarObjectKey?.trim().isNotEmpty == true
-                ? _profileApi.mediaUrl(
+                ? _profileApi.cardMediaUrl(
                     profile!.avatarObjectKey!,
                     updatedAt: profile.updatedAt,
                   )

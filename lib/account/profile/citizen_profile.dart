@@ -67,9 +67,8 @@ class CitizenProfile {
   /// `display_name` 是公开昵称唯一真源；缺失时按 CID（无 CID 才按账户）
   /// 生成稳定默认昵称，绝不把钱包名、完整账户或截断账户当昵称。
   String get resolvedDisplayName {
-    return ProfilePresentation.forIdentityKey(
-      cidNumber ?? accountId,
-    ).resolveDisplayName(publicName: displayName);
+    return ProfilePresentation.forIdentityKey(cidNumber ?? accountId)
+        .resolveDisplayName(publicName: displayName);
   }
 
   factory CitizenProfile.fromJson(Map<String, dynamic> json) {
@@ -83,9 +82,7 @@ class CitizenProfile {
         !counts.containsKey('videos') ||
         !counts.containsKey('articles') ||
         json['is_followed_by'] is! bool) {
-      throw const FormatException(
-        '用户主页响应缺少关系、内容分类统计或互关状态',
-      );
+      throw const FormatException('用户主页响应缺少关系、内容分类统计或互关状态');
     }
     final countsMap = counts;
     return CitizenProfile(
@@ -114,30 +111,30 @@ class CitizenProfile {
   }
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'account_id': accountId,
-        'display_name': displayName,
-        'bio': bio,
-        'avatar_object_key': avatarObjectKey,
-        'banner_object_key': bannerObjectKey,
-        'cid_number': cidNumber,
-        'is_certified': isCertified,
-        'identity_level': identityLevel,
-        'membership_level': membershipLevel,
-        'membership_active': membershipActive,
-        'counts': <String, dynamic>{
-          'following': following,
-          'followers': followers,
-          'mutual_following': mutualFollowing,
-          'posts': posts,
-          'campaigns': campaigns,
-          'videos': videos,
-          'articles': articles,
-        },
-        'is_following': isFollowing,
-        'is_followed_by': isFollowedBy,
-        'is_notifying': isNotifying,
-        'updated_at': updatedAt,
-      };
+    'account_id': accountId,
+    'display_name': displayName,
+    'bio': bio,
+    'avatar_object_key': avatarObjectKey,
+    'banner_object_key': bannerObjectKey,
+    'cid_number': cidNumber,
+    'is_certified': isCertified,
+    'identity_level': identityLevel,
+    'membership_level': membershipLevel,
+    'membership_active': membershipActive,
+    'counts': <String, dynamic>{
+      'following': following,
+      'followers': followers,
+      'mutual_following': mutualFollowing,
+      'posts': posts,
+      'campaigns': campaigns,
+      'videos': videos,
+      'articles': articles,
+    },
+    'is_following': isFollowing,
+    'is_followed_by': isFollowedBy,
+    'is_notifying': isNotifying,
+    'updated_at': updatedAt,
+  };
 
   CitizenProfile copyWith({
     String? displayName,
@@ -183,7 +180,6 @@ class CitizenProfile {
       updatedAt: updatedAt ?? this.updatedAt,
     );
   }
-
 }
 
 /// 关注、关注者或互关列表的一行（对应 Worker follows 列表项 `entries`，项 = 身份主键
@@ -235,4 +231,32 @@ int _asInt(Object? value) {
   if (value is int) return value;
   if (value is num) return value.toInt();
   return int.tryParse(value?.toString() ?? '') ?? 0;
+}
+
+/// 聊天显示模型，不代表完整主页，也不能写入完整主页缓存。
+final class CitizenProfileCard extends CitizenProfile {
+  CitizenProfileCard(Map<String, dynamic> card)
+    : super(
+        accountId: card['account_id'] as String,
+        cidNumber: card['cid_number'] as String,
+        displayName: card['display_name'] as String,
+        avatarObjectKey: card['avatar_object_key'] as String?,
+        updatedAt: card['updated_at'] as int,
+        bio: '',
+        bannerObjectKey: null,
+        isCertified: card['is_certified'] == true,
+        identityLevel: card['identity_level'] as String? ?? 'visitor',
+        membershipLevel: card['membership_level'] as String?,
+        membershipActive: card['membership_active'] == true,
+        following: 0,
+        followers: 0,
+        mutualFollowing: 0,
+        posts: 0,
+        campaigns: 0,
+        videos: 0,
+        articles: 0,
+        isFollowing: false,
+        isFollowedBy: false,
+        isNotifying: false,
+      );
 }

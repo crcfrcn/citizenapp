@@ -27,9 +27,7 @@ String chatUserErrorMessage(
       'missing_session' ||
       'invalid_session' ||
       'session_expired' => '聊天会话已失效，请重试',
-      'chat_membership_required' ||
-      'membership_required' ||
-      'chat_disabled' => '当前账户尚未开通聊天会员权益',
+      'attachment_membership_required' => '非会员禁止使用聊天附件',
       'chat_server_not_configured' => '聊天服务尚未配置',
       _ =>
         error.statusCode == null || error.statusCode! >= 500
@@ -77,8 +75,12 @@ final class CitizenChatRuntimeHost implements sdk.ChatRuntimeHost {
       const CitizenChatMediaLimitPolicy();
 
   @override
-  Future<bool> canSend(String userId) async =>
-      SubscriptionService.chatAuthorizedFor(userId);
+  Future<bool> canSend(String userId) async {
+    final session = await squareSessionProvider.ensureSession();
+    if (session == null || session.cidNumber != userId) return false;
+    SubscriptionService.rememberCitizenSession(session);
+    return SubscriptionService.chatAuthorizedFor(userId);
+  }
 
   @override
   Future<sdk.ChatRuntimeAccount?> currentAccount({
@@ -131,6 +133,7 @@ final class CitizenChatRuntimeHost implements sdk.ChatRuntimeHost {
 
   @override
   Future<void> invalidateAccount(String accountId) async {
+    SubscriptionService.invalidateCitizenAccount(accountId);
     squareSessionProvider.invalidateAccount(accountId);
   }
 }

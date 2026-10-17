@@ -19,6 +19,7 @@ class SquarePostHeader extends StatefulWidget {
     this.onMore,
     this.avatarUrl,
     this.avatarHeaders,
+    this.avatarImage,
   });
 
   final SquarePost post;
@@ -33,8 +34,11 @@ class SquarePostHeader extends StatefulWidget {
   /// 用户已设置但缺失时保留占位，只有从未设置才显示稳定默认照片。
   final String? avatarUrl;
 
-  /// 头像 `Image.network` 的鉴权头（钱包 session Bearer）。
+  /// 基础名片头像的普通会话头；完整资料头像使用avatarImage逐请求现签。
   final Map<String, String>? avatarHeaders;
+
+  /// 完整资料媒体的签名读取器；不携带可复用的一次性证明头。
+  final ImageProvider? avatarImage;
 
   @override
   State<SquarePostHeader> createState() => _SquarePostHeaderState();
@@ -55,7 +59,8 @@ class _SquarePostHeaderState extends State<SquarePostHeader> {
   }
 
   void _changed() {
-    if (CitizenProfileCache.revision.value?.cidNumber == post.author.cidNumber) {
+    if (CitizenProfileCache.revision.value?.cidNumber ==
+        post.author.cidNumber) {
       _readLocal();
     }
   }
@@ -119,6 +124,7 @@ class _SquarePostHeaderState extends State<SquarePostHeader> {
                   imagePath: _media.avatarPath,
                   imageUrl: post.isLocal ? null : widget.avatarUrl,
                   imageHeaders: widget.avatarHeaders,
+                  imageProvider: post.isLocal ? null : widget.avatarImage,
                   userImageSet:
                       (_profile?.avatarObjectKey ?? author.avatarObjectKey)
                           ?.isNotEmpty ==

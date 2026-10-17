@@ -30,6 +30,7 @@ import 'package:citizenapp/account/identity/identity_register_guide.dart';
 import 'package:citizenapp/8964/feed/square_post_sync_service.dart';
 import 'package:citizenapp/chat/chat_entry.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
+import 'package:citizenapp/account/identity/account_security_service.dart';
 import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
 import 'package:citizenapp/account/membership/membership_revision.dart';
 import 'package:citizenapp/account/membership/subscription_service.dart';
@@ -122,6 +123,13 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
   /// 「他人视角」下看的是不是自己账户；true → 关注/私信/通知/订阅按钮置灰不可点。
   bool _isOwnAccount = false;
+  bool _accessReady = false;
+  bool _accessAllowed = false;
+  bool _verifiedSelf = false;
+  String? _accessError;
+  String? _viewerCid;
+  int _accessGeneration = 0;
+  AccountSecurityService? _profileSecurity;
   bool _dependenciesReady = false;
 
   @override
@@ -168,16 +176,84 @@ class _UserProfilePageState extends State<UserProfilePage> {
       }
     }
     _dependenciesReady = true;
-    if (_profile != null) {
-      _resolveOwnAccount(_profile!.accountId);
-      unawaited(_loadProfileMedia(_profile!));
+    _profileSecurity = context.read<AccountSecurityService?>();
+    _profileSecurity?.revision.addListener(_invalidatePageAccess);
+    unawaited(_resolvePageAccess());
+  }
+
+  void _invalidatePageAccess() {
+    _accessGeneration++;
+    _profileLoadGeneration++;
+    if (mounted) {
+      setState(() {
+        _accessReady = false;
+        _accessAllowed = false;
+        _profile = null;
+      });
     }
-    if (widget.isSelf) unawaited(_loadConfirmedMembership());
-    _load();
+    _session = null;
+    _sessionFuture = null;
+    unawaited(_resolvePageAccess());
+  }
+
+  Future<void> _resolvePageAccess() async {
+    final generation = ++_accessGeneration;
+    final accountRevision = _profileSecurity?.revision.value;
+    bool current() =>
+        mounted &&
+        generation == _accessGeneration &&
+        accountRevision == _profileSecurity?.revision.value;
+    try {
+      final citizen = await _sessionProvider.currentCitizenId();
+      if (!current()) return;
+      if (citizen == null || citizen.isEmpty) {
+        throw const SquareApiException('当前公民身份尚未就绪');
+      }
+      _viewerCid = citizen;
+      final self = citizen == widget.cidNumber;
+      if (!self) {
+        final session = await _ensureSession();
+        if (!current()) return;
+        if (session == null || session.cidNumber != citizen) {
+          throw const SquareApiException('当前公民会话不可用');
+        }
+        final service = _subscriptionService;
+        if (service == null) throw const SquareApiException('暂时无法验证会员状态');
+        await service.requireProfileAccess(session, widget.cidNumber);
+      }
+      if (!current()) return;
+      setState(() {
+        _verifiedSelf = self;
+        _accessAllowed = true;
+        _accessReady = true;
+        _accessError = null;
+      });
+      if (_profile is CitizenProfileCard) _profile = null;
+      if (_profile != null) {
+        unawaited(_resolveOwnAccount(_profile!.accountId));
+        unawaited(_loadProfileMedia(_profile!));
+      }
+      if (self) unawaited(_loadConfirmedMembership());
+      await _load();
+    } on Object catch (error) {
+      if (!current()) return;
+      setState(() {
+        _accessReady = true;
+        _accessAllowed = false;
+        _accessError =
+            error is SquareApiException &&
+                error.errorCode == 'profile_membership_required'
+            ? '非会员禁止访问用户主页'
+            : '内容加载失败，请下拉刷新';
+        _profile = null;
+      });
+    }
   }
 
   @override
   void dispose() {
+    _accessGeneration++;
+    _profileSecurity?.revision.removeListener(_invalidatePageAccess);
     _profileLoadGeneration++;
     MembershipRevision.instance.listenable.removeListener(_onMembershipChanged);
     CitizenProfileCache.revision.removeListener(_onProfileChanged);
@@ -186,6 +262,12 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
   /// 当前主页 CID 的会员镜像变化时重读资料，并重建当前内容 Tab 的作者徽章。
   void _onMembershipChanged() {
+    if (MembershipRevision.instance.listenable.value?.cidNumber == _viewerCid) {
+      SubscriptionService.invalidateBusinessMembership(_viewerCid);
+      _invalidatePageAccess();
+      return;
+    }
+
     final event = MembershipRevision.instance.listenable.value;
     if (!mounted || event == null || event.cidNumber != widget.cidNumber) {
       return;
@@ -260,6 +342,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
   }) async {
     final generation = ++_profileLoadGeneration;
     try {
+      if (!_accessAllowed) return;
       final local = await _cache.read(widget.cidNumber);
       if (!mounted || generation != _profileLoadGeneration) return;
       if (local != null && local.cidNumber == widget.cidNumber) {
@@ -267,7 +350,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
         await _loadProfileMedia(local);
         unawaited(_resolveOwnAccount(local.accountId));
       }
-      if (widget.isSelf || localOnly) return;
+      if (_verifiedSelf || localOnly) return;
       // 他人公开主页仍按用户本次访问读取远端；不将本人私有副本用于他人页面。
       final session = await _ensureSession();
       final fresh = await _api.fetchProfile(widget.cidNumber, session: session);
@@ -284,6 +367,23 @@ class _UserProfilePageState extends State<UserProfilePage> {
   }
 
   /// 主动刷新同时覆盖本地读取和远端同步；页面拥有完整操作状态，不随Tab重建消失。
+  Future<void> _syncMemberCloudPosts(
+    SquareSession session,
+    bool Function() current,
+  ) async {
+    try {
+      await _subscriptionService!.requireSquareAccess(session);
+      if (!current()) return;
+      await SquarePostSyncService().sync(
+        session,
+        userInitiated: true,
+        isCurrent: current,
+      );
+    } on SquareApiException catch (error) {
+      if (error.errorCode != 'square_membership_required') rethrow;
+    }
+  }
+
   Future<void> _refresh() async {
     if (_refreshing) return;
     setState(() {
@@ -313,12 +413,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
               isCurrent: current,
             )
             .then<void>((_) {}),
-        if (widget.isSelf)
-          SquarePostSyncService().sync(
-            session,
-            userInitiated: true,
-            isCurrent: current,
-          ),
+        if (widget.isSelf && _subscriptionService != null)
+          _syncMemberCloudPosts(session, current),
       ]);
       if (!current()) return;
       await _load(localOnly: true, propagateFailure: true);
@@ -369,7 +465,14 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
   /// 首次握手仍由本页统一持有，但失败原因必须保留给内容区，禁止把远端故障伪装成无钱包。
   Future<SquareSession?> _resolveSession(bool refresh) async {
+    final generation = _accessGeneration;
+    final revision = _profileSecurity?.revision.value;
     final resolution = await _sessionProvider.resolveSession(refresh: refresh);
+    if (!mounted ||
+        generation != _accessGeneration ||
+        revision != _profileSecurity?.revision.value) {
+      return null;
+    }
     if (mounted) {
       setState(() {
         _session = resolution.session;
@@ -526,19 +629,23 @@ class _UserProfilePageState extends State<UserProfilePage> {
       final users = context.read<CurrentUserContext>();
       final binding = (await users.resolve())?.binding;
       if (!mounted) return;
-      if (binding == null || binding.cidNumber != widget.cidNumber || binding.accountId != selfAccountId) {
+      if (binding == null ||
+          binding.cidNumber != widget.cidNumber ||
+          binding.accountId != selfAccountId) {
         _snack('当前身份与本人主页不一致，请刷新后重试');
         return;
       }
       Future<void> requireDeletionBinding() async {
         final current = (await users.resolve())?.binding;
-        if (current == null || current.cidNumber != binding.cidNumber ||
+        if (current == null ||
+            current.cidNumber != binding.cidNumber ||
             current.accountId != binding.accountId ||
             current.bindingRevision != binding.bindingRevision ||
             current.genesisHash != binding.genesisHash) {
           throw const SquareApiException('当前身份已变化，请重新打开本人主页');
         }
       }
+
       await SquareAccountDeletionService(
         chatRuntime: context.read<ChatSdk>(),
       ).deleteAccount(
@@ -648,15 +755,6 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
   String get _title => _displayName;
 
-  String? _mediaUrl(String? objectKey, {CitizenProfile? profile}) =>
-      objectKey == null
-      ? null
-      : _api.mediaUrl(objectKey, updatedAt: (profile ?? _profile)?.updatedAt);
-
-  Map<String, String>? get _mediaHeaders => _session == null
-      ? null
-      : <String, String>{'authorization': 'Bearer ${_session!.sessionToken}'};
-
   Widget _bannerWidget() {
     final fallback = Image.asset(
       ProfilePresentation.forIdentityKey(widget.cidNumber).bannerAsset,
@@ -669,11 +767,14 @@ class _UserProfilePageState extends State<UserProfilePage> {
       return Image.file(File(path), fit: BoxFit.cover);
     }
     if (widget.isSelf) return const ColoredBox(color: AppTheme.surfaceMuted);
-    final url = _mediaUrl(objectKey);
-    if (url == null) return const ColoredBox(color: AppTheme.surfaceMuted);
-    return Image.network(
-      url,
-      headers: _mediaHeaders,
+    final session = _session;
+    if (session == null) return const ColoredBox(color: AppTheme.surfaceMuted);
+    return Image(
+      image: _api.mediaImage(
+        objectKey,
+        session: session,
+        updatedAt: _profile?.updatedAt,
+      ),
       fit: BoxFit.cover,
       frameBuilder: (context, child, frame, syncLoaded) =>
           syncLoaded || frame != null
@@ -795,6 +896,15 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_accessReady) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (!_accessAllowed) {
+      return Scaffold(
+        appBar: AppBar(),
+        body: Center(child: Text(_accessError ?? '当前用户主页不可访问')),
+      );
+    }
     final expandedHeight =
         _bannerHeight +
         ProfileCategoryTabs.height +
@@ -855,10 +965,16 @@ class _UserProfilePageState extends State<UserProfilePage> {
                           cidNumber: widget.cidNumber,
                           profile: _profile,
                           avatarPath: _profileMedia.avatarPath,
-                          avatarUrl: widget.isSelf
+                          avatarImage:
+                              widget.isSelf ||
+                                  _session == null ||
+                                  _profile?.avatarObjectKey == null
                               ? null
-                              : _mediaUrl(_profile?.avatarObjectKey),
-                          avatarHeaders: _mediaHeaders,
+                              : _api.mediaImage(
+                                  _profile!.avatarObjectKey!,
+                                  session: _session!,
+                                  updatedAt: _profile?.updatedAt,
+                                ),
                           confirmedMembershipLevel:
                               _membershipState?.membershipLevel,
                           confirmedMembershipActive: _confirmedMembershipActive,

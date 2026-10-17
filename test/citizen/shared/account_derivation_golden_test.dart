@@ -6,7 +6,7 @@
 //
 // fixture 用 GMB 域生成,本测试证明 Dart 派生地址与链端逐字节一致。
 //
-// fixture 缺席时(Rust 切片尚未落地)skip,不阻塞纯 Dart 测试。
+// 金标缺席必须失败；不能把未执行的派生回归登记为完整验收。
 
 import 'dart:convert';
 import 'dart:io';
@@ -20,12 +20,7 @@ const _fixturePath =
 
 void main() {
   final file = File(_fixturePath);
-  if (!file.existsSync()) {
-    test('金标向量 fixture 尚未生成(Rust 切片落地后启用)', () {
-      markTestSkipped('缺少 $_fixturePath —— 由 Rust golden 切片导出');
-    }, skip: '缺少 $_fixturePath');
-    return;
-  }
+  if (!file.existsSync()) throw StateError('账户派生金标缺失：$_fixturePath');
 
   final root = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
   final int ss58 = root['ss58_format'] as int;

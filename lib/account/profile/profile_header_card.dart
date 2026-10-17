@@ -21,6 +21,7 @@ class ProfileHeaderCard extends StatelessWidget {
     this.avatarPath,
     this.avatarUrl,
     this.avatarHeaders,
+    this.avatarImage,
     this.confirmedMembershipLevel,
     this.confirmedMembershipActive,
     this.onFollowing,
@@ -39,6 +40,9 @@ class ProfileHeaderCard extends StatelessWidget {
   /// 头像图片 URL（object_key 解析后的公开媒体地址）；为空显示占位。
   final String? avatarUrl;
   final Map<String, String>? avatarHeaders;
+
+  /// 完整资料媒体的签名读取器；不携带可复用的一次性证明头。
+  final ImageProvider? avatarImage;
 
   /// 本人页面可传入 CitizenServe 已确认并写入统一缓存的会员展示态。
   /// null 表示尚未确认，继续使用公开资料镜像；false 表示已确认无有效会员。
@@ -131,9 +135,8 @@ class ProfileHeaderCard extends StatelessWidget {
       confirmedMembershipActive ?? profile?.membershipActive ?? false;
 
   String get _name {
-    return ProfilePresentation.forIdentityKey(
-      cidNumber,
-    ).resolveDisplayName(publicName: profile?.displayName);
+    return ProfilePresentation.forIdentityKey(cidNumber)
+        .resolveDisplayName(publicName: profile?.displayName);
   }
 
   @override
@@ -229,6 +232,7 @@ class ProfileHeaderCard extends StatelessWidget {
               imagePath: avatarPath,
               imageUrl: avatarUrl,
               imageHeaders: avatarHeaders,
+              imageProvider: avatarImage,
               userImageSet: profile?.avatarObjectKey?.trim().isNotEmpty == true,
               seed: cidNumber,
               borderColor: AppTheme.surfaceCard,

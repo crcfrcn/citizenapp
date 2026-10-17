@@ -12,8 +12,19 @@ bool isWalletLocalStoreError(Object? error) =>
     error is CitizenSdkException && error.code == CitizenSdkErrorCode.storage;
 
 String walletLocalStoreErrorMessage(Object? error) {
-  if (isWalletLocalStoreError(error)) return '本地钱包数据库繁忙，请稍后重试';
-  return '本地钱包读取失败：$error';
+  if (error is TimeoutException) return '本地钱包读取超时，请重试';
+  if (error is CitizenSdkException) {
+    return switch (error.code) {
+      CitizenSdkErrorCode.busy || CitizenSdkErrorCode.queueFull => '本地钱包正忙，请稍后重试',
+      CitizenSdkErrorCode.storage => '本地钱包存储读取失败，请重试',
+      CitizenSdkErrorCode.timeout => '本地钱包读取超时，请重试',
+      CitizenSdkErrorCode.integrity => '本地钱包记录校验失败，请查看诊断',
+      CitizenSdkErrorCode.panic || CitizenSdkErrorCode.internal => '本地钱包读取失败，请查看诊断后重试',
+      CitizenSdkErrorCode.cancelled => '本地钱包读取已取消，请重试',
+      _ => '本地钱包读取失败，请重试',
+    };
+  }
+  return '本地钱包读取失败，请重试';
 }
 
 String walletOperationErrorMessage(Object error) {

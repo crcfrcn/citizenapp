@@ -5,6 +5,7 @@ import 'package:citizenapp/8964/feed/square_post_sync_service.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:citizenapp/account/membership/subscription_service.dart';
 import 'package:provider/provider.dart';
 
 import 'package:citizenapp/8964/feed/square_models.dart';
@@ -116,6 +117,7 @@ class _SquarePostDetailPageState extends State<SquarePostDetailPage> {
       }
       final session = await _sessionProvider.ensureSession();
       if (session == null) throw const SquareApiException('请先选择默认钱包账户');
+      await SubscriptionService.requireSquareSession(session, client: _api);
       final detail = await _api.fetchPostDetail(
         session: session,
         summary: _post,
@@ -141,86 +143,91 @@ class _SquarePostDetailPageState extends State<SquarePostDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(post.postType.label),
-        actions: [
-          IconButton(
-            tooltip: '刷新',
-            icon: const Icon(Icons.refresh),
-            onPressed: _loading ? null : () => _loadDetail(refresh: true),
-          ),
-          PopupMenuButton<_PostDetailAction>(
-            enabled: !_deleting,
-            onSelected: _handleAction,
-            itemBuilder: (context) => const [
-              PopupMenuItem(
-                value: _PostDetailAction.edit,
-                child: ListTile(
-                  leading: Icon(Icons.edit_outlined),
-                  title: Text('修改'),
-                ),
-              ),
-              PopupMenuItem(
-                value: _PostDetailAction.delete,
-                child: ListTile(
-                  leading: Icon(Icons.delete_outline),
-                  title: Text('删除'),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _loadError != null
-          ? _PostDetailLoadError(
-              error: _loadError!,
-              onRetry: () => _loadDetail(refresh: true),
-            )
-          : ListView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-              children: [
-                SquarePostCard(
-                  post: post,
-                  mediaHeaders: _mediaHeaders,
-                  displayMode: SquarePostCardDisplayMode.detail,
-                ),
-                SizedBox(height: AppLayout.scaled(context, 12)),
-                Container(
-                  padding: EdgeInsets.all(AppLayout.scaled(context, 14)),
-                  decoration: BoxDecoration(
-                    color: AppTheme.surfaceCard,
-                    borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-                    border: Border.all(color: AppTheme.border),
+    return MembershipBusinessGate(
+      localContent: post.isLocal,
+      sessionProvider: _sessionProvider,
+      client: _api,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(post.postType.label),
+          actions: [
+            IconButton(
+              tooltip: '刷新',
+              icon: const Icon(Icons.refresh),
+              onPressed: _loading ? null : () => _loadDetail(refresh: true),
+            ),
+            PopupMenuButton<_PostDetailAction>(
+              enabled: !_deleting,
+              onSelected: _handleAction,
+              itemBuilder: (context) => const [
+                PopupMenuItem(
+                  value: _PostDetailAction.edit,
+                  child: ListTile(
+                    leading: Icon(Icons.edit_outlined),
+                    title: Text('修改'),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '链上索引',
-                        style: TextStyle(
-                          color: AppTheme.textPrimary,
-                          fontSize: AppLayout.scaled(context, 15),
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      SizedBox(height: AppLayout.scaled(context, 10)),
-                      _DetailRow(label: 'post_id', value: post.postId),
-                      _DetailRow(
-                        label: 'content_hash',
-                        value: post.contentHash ?? '',
-                      ),
-                      _DetailRow(
-                        label: 'storage_receipt_id',
-                        value: post.storageReceiptId ?? '',
-                      ),
-                    ],
+                ),
+                PopupMenuItem(
+                  value: _PostDetailAction.delete,
+                  child: ListTile(
+                    leading: Icon(Icons.delete_outline),
+                    title: Text('删除'),
                   ),
                 ),
               ],
             ),
+          ],
+        ),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _loadError != null
+            ? _PostDetailLoadError(
+                error: _loadError!,
+                onRetry: () => _loadDetail(refresh: true),
+              )
+            : ListView(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                children: [
+                  SquarePostCard(
+                    post: post,
+                    mediaHeaders: _mediaHeaders,
+                    displayMode: SquarePostCardDisplayMode.detail,
+                  ),
+                  SizedBox(height: AppLayout.scaled(context, 12)),
+                  Container(
+                    padding: EdgeInsets.all(AppLayout.scaled(context, 14)),
+                    decoration: BoxDecoration(
+                      color: AppTheme.surfaceCard,
+                      borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                      border: Border.all(color: AppTheme.border),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '链上索引',
+                          style: TextStyle(
+                            color: AppTheme.textPrimary,
+                            fontSize: AppLayout.scaled(context, 15),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        SizedBox(height: AppLayout.scaled(context, 10)),
+                        _DetailRow(label: 'post_id', value: post.postId),
+                        _DetailRow(
+                          label: 'content_hash',
+                          value: post.contentHash ?? '',
+                        ),
+                        _DetailRow(
+                          label: 'storage_receipt_id',
+                          value: post.storageReceiptId ?? '',
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+      ),
     );
   }
 

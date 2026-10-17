@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:citizenapp/8964/feed/square_home_page.dart';
+import 'package:citizenapp/account/membership/subscription_service.dart';
 
 /// 底部“广场”Tab 入口。
 ///
@@ -19,9 +20,11 @@ class SquareTab extends StatelessWidget {
   final int tabIndex;
 
   @override
-  Widget build(BuildContext context) => SquareHomePage(
-        onSquareUnreadChanged: onSquareUnreadChanged,
-        selectedTab: selectedTab,
-        tabIndex: tabIndex,
-      );
+  Widget build(BuildContext context) => MembershipBusinessGate(
+    child: SquareHomePage(
+      onSquareUnreadChanged: onSquareUnreadChanged,
+      selectedTab: selectedTab,
+      tabIndex: tabIndex,
+    ),
+  );
 }

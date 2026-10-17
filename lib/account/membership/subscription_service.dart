@@ -4,6 +4,8 @@ import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:citizenapp/account/identity/account_security_service.dart';
 import 'package:citizenapp/account/identity/square_session_provider.dart';
 import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/account/membership/membership_revision.dart';
@@ -97,26 +99,125 @@ class SubscriptionService {
   static final Map<String, MembershipDisplaySnapshot> _memorySnapshots =
       <String, MembershipDisplaySnapshot>{};
 
-  /// 同一 CitizenServe 登录会话只执行一次会员鉴权读取；页面之间复用同一个 Future。
+  /// 同一 CitizenServe 登录会话在60秒内复用会员鉴权读取；失败不缓存为通过。
   static final Map<String, _MembershipAuthorization> _authorizations =
       <String, _MembershipAuthorization>{};
 
-  /// 聊天等会员消费者只读本次 CitizenServe 会话已经确认的会员事实。
+  /// 附件等会员消费者只读本次 CitizenServe 会话已经确认的会员事实。
   /// 该状态属于会员模块；聊天模块不得保存 CID、会员档或附件权益副本。
   static final Map<String, int> _authorizedChatFileMaxBytes = <String, int>{};
+  static final Map<String, int> _attachmentDeadlines = {};
   static String? _currentAuthorizedCidNumber;
+  static final Map<String, SquareSession> _citizenChatSessions = {};
+  static final Map<String, _MembershipAuthorization> _businessChecks = {};
+
+  /// 深链/列表共用当前服务器会员读取；该缓存只合并请求，不替代服务端门禁。
+  static Future<void> requireSquareSession(
+    SquareSession session, {
+    SquareApiClient? client,
+  }) async {
+    rememberCitizenSession(session);
+    final key =
+        '${session.cidNumber}:${session.accountId}:${session.bindingRevision}:${session.deviceId}:${session.expiresAt}';
+    var check = _businessChecks[key];
+    if (check == null ||
+        DateTime.now().millisecondsSinceEpoch - check.checkedAt >= 60000) {
+      check = _MembershipAuthorization(
+        key,
+        (client ?? SquareApiClient()).fetchMembership(session),
+      );
+      _businessChecks[key] = check;
+    }
+    try {
+      final state = await check.state;
+      _rememberChatAuthorization(session.cidNumber, state);
+      if (!_activeBusinessMembership(state)) {
+        throw const SquareApiException(
+          '非会员禁止使用广场功能',
+          statusCode: 403,
+          errorCode: 'square_membership_required',
+        );
+      }
+    } on Object {
+      if (identical(_businessChecks[key], check)) _businessChecks.remove(key);
+      rethrow;
+    }
+  }
+
+  /// 当前公民会话只提供基础聊天资格，不以会员或附件大小替代身份。
+  static void rememberCitizenSession(SquareSession session) {
+    if (session.cidNumber.trim().isEmpty) return;
+    _citizenChatSessions[session.cidNumber.trim()] = session;
+    _currentAuthorizedCidNumber = session.cidNumber.trim();
+  }
+
+  static void invalidateCitizenAccount(String accountId) {
+    _authorizations.clear();
+    _businessChecks.clear();
+    _citizenChatSessions.removeWhere(
+      (_, value) => value.accountId == accountId,
+    );
+  }
+
+  /// 会员变化先撤销页面间复用的核验结果，随后才启动新请求。
+  static void invalidateBusinessMembership(String? cidNumber) {
+    if (cidNumber == null) return;
+    _authorizations.remove(cidNumber);
+    _businessChecks.removeWhere((key, _) => key.startsWith('$cidNumber:'));
+    _authorizedChatFileMaxBytes.remove(cidNumber);
+  }
+
+  Future<void> requireProfileAccess(
+    SquareSession session,
+    String targetCid,
+  ) async {
+    rememberCitizenSession(session);
+    if (session.cidNumber == targetCid) return;
+    final state = await authorizeMembership(session);
+    if (!_activeBusinessMembership(state)) {
+      throw const SquareApiException(
+        '非会员禁止访问用户主页',
+        statusCode: 403,
+        errorCode: 'profile_membership_required',
+      );
+    }
+  }
+
+  Future<void> requireSquareAccess(SquareSession session) async {
+    rememberCitizenSession(session);
+    final state = await authorizeMembership(session);
+    if (!_activeBusinessMembership(state)) {
+      throw const SquareApiException(
+        '非会员禁止使用广场功能',
+        statusCode: 403,
+        errorCode: 'square_membership_required',
+      );
+    }
+  }
 
   static bool membershipResolvedFor(String cidNumber) =>
       _memorySnapshots.containsKey(cidNumber.trim());
 
   static bool chatAuthorizationResolvedFor(String cidNumber) =>
-      _authorizedChatFileMaxBytes.containsKey(cidNumber.trim());
+      _citizenChatSessions.containsKey(cidNumber.trim());
 
-  static bool chatAuthorizedFor(String cidNumber) =>
-      chatFileMaxBytesFor(cidNumber) > 0;
+  static bool chatAuthorizedFor(String cidNumber) {
+    final session = _citizenChatSessions[cidNumber.trim()];
+    return session != null &&
+        session.expiresAt > DateTime.now().millisecondsSinceEpoch;
+  }
 
-  static int chatFileMaxBytesFor(String cidNumber) =>
-      _authorizedChatFileMaxBytes[cidNumber.trim()] ?? 0;
+  static bool _activeBusinessMembership(SquareMembershipState state) =>
+      state.active && state.paidUntil > DateTime.now().millisecondsSinceEpoch;
+
+  static int chatFileMaxBytesFor(String cidNumber) {
+    final cid = cidNumber.trim();
+    if ((_attachmentDeadlines[cid] ?? 0) <=
+        DateTime.now().millisecondsSinceEpoch) {
+      return 0;
+    }
+    return _authorizedChatFileMaxBytes[cid] ?? 0;
+  }
 
   static int get currentChatFileMaxBytes {
     final cidNumber = _currentAuthorizedCidNumber;
@@ -131,7 +232,7 @@ class SubscriptionService {
   static String chatFileSizeLabelFor(String cidNumber) =>
       _chatFileSizeLabel(chatFileMaxBytesFor(cidNumber));
 
-  static void markChatAuthorizationUnavailable(String cidNumber) {
+  static void markAttachmentAuthorizationUnavailable(String cidNumber) {
     final normalized = cidNumber.trim();
     _currentAuthorizedCidNumber = normalized;
     _authorizedChatFileMaxBytes.remove(normalized);
@@ -143,8 +244,13 @@ class SubscriptionService {
   ) {
     final normalized = cidNumber.trim();
     _currentAuthorizedCidNumber = normalized;
-    _authorizedChatFileMaxBytes[normalized] =
-        state.activePlan?.chatFileMaxBytes ?? 0;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    _attachmentDeadlines[normalized] = state.paidUntil < now + 60000
+        ? state.paidUntil
+        : now + 60000;
+    _authorizedChatFileMaxBytes[normalized] = _activeBusinessMembership(state)
+        ? state.activePlan?.chatFileMaxBytes ?? 0
+        : 0;
   }
 
   @visibleForTesting
@@ -169,6 +275,8 @@ class SubscriptionService {
       pricesFetchedAtMs: 1,
     );
     _authorizedChatFileMaxBytes[normalized] = chatFileMaxBytes;
+    _attachmentDeadlines[normalized] =
+        DateTime.now().millisecondsSinceEpoch + 60000;
   }
 
   static String _chatFileSizeLabel(int bytes) {
@@ -193,13 +301,18 @@ class SubscriptionService {
     SquareSession session, {
     bool forceRefresh = false,
   }) async {
+    rememberCitizenSession(session);
     final cidNumber = session.cidNumber.trim();
     if (cidNumber.isEmpty) {
       throw const SubscriptionException('当前会话缺少公民 CID');
     }
     final key = _authorizationKey(session);
     final existing = _authorizations[cidNumber];
-    if (!forceRefresh && existing?.key == key) return existing!.state;
+    if (!forceRefresh &&
+        existing?.key == key &&
+        DateTime.now().millisecondsSinceEpoch - existing!.checkedAt < 60000) {
+      return existing.state;
+    }
 
     final state = _fetchAndRememberMembership(session);
     final authorization = _MembershipAuthorization(key, state);
@@ -631,8 +744,114 @@ class SubscriptionService {
 enum MembershipDisplayDecision { activeConfirmed, inactiveConfirmed }
 
 class _MembershipAuthorization {
-  const _MembershipAuthorization(this.key, this.state);
+  _MembershipAuthorization(this.key, this.state)
+    : checkedAt = DateTime.now().millisecondsSinceEpoch;
+
+  final int checkedAt;
 
   final String key;
   final Future<SquareMembershipState> state;
+}
+
+/// 广场及云端详情的共同显示门禁；已校验的本人本地副本保持原离线呈现。
+class MembershipBusinessGate extends StatefulWidget {
+  const MembershipBusinessGate({
+    super.key,
+    required this.child,
+    this.localContent = false,
+    this.sessionProvider,
+    this.client,
+  });
+  final Widget child;
+  final bool localContent;
+  final SquareSessionProvider? sessionProvider;
+  final SquareApiClient? client;
+  @override
+  State<MembershipBusinessGate> createState() => _MembershipBusinessGateState();
+}
+
+class _MembershipBusinessGateState extends State<MembershipBusinessGate> {
+  int _generation = 0;
+  bool _ready = false;
+  String? _error;
+  AccountSecurityService? _security;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_generation != 0) return;
+    _security = context.read<AccountSecurityService?>();
+    _security?.revision.addListener(_changed);
+    MembershipRevision.instance.listenable.addListener(_changed);
+    _check();
+  }
+
+  void _changed() {
+    SubscriptionService.invalidateBusinessMembership(
+      MembershipRevision.instance.listenable.value?.cidNumber,
+    );
+    _generation++;
+    if (mounted) {
+      setState(() {
+        _ready = false;
+        _error = null;
+      });
+    }
+    _check();
+  }
+
+  Future<void> _check() async {
+    final generation = ++_generation;
+    final revision = _security?.revision.value;
+    try {
+      if (!widget.localContent) {
+        final provider =
+            widget.sessionProvider ?? context.read<SquareSessionProvider?>();
+        final session = await provider?.ensureSession();
+        if (session == null) throw const SquareApiException('当前公民会话不可用');
+        await SubscriptionService.requireSquareSession(
+          session,
+          client: widget.client,
+        );
+      }
+      if (!mounted ||
+          generation != _generation ||
+          revision != _security?.revision.value) {
+        return;
+      }
+      setState(() {
+        _ready = true;
+        _error = null;
+      });
+    } on Object catch (error) {
+      if (!mounted ||
+          generation != _generation ||
+          revision != _security?.revision.value) {
+        return;
+      }
+      setState(() {
+        _ready = false;
+        _error = error.toString();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _generation++;
+    _security?.revision.removeListener(_changed);
+    MembershipRevision.instance.listenable.removeListener(_changed);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_ready) return widget.child;
+    return Scaffold(
+      body: Center(
+        child: _error == null
+            ? const CircularProgressIndicator()
+            : Text(_error!),
+      ),
+    );
+  }
 }

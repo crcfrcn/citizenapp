@@ -50,8 +50,11 @@ class SquareApiException implements Exception {
 
 class SquareAccountDeletionPendingException extends SquareApiException {
   const SquareAccountDeletionPendingException()
-      : super('注销已受理，云端仍在清理；稍后再次确认可查询进度',
-          statusCode: 202, errorCode: 'account_deletion_pending');
+    : super(
+        '注销已受理，云端仍在清理；稍后再次确认可查询进度',
+        statusCode: 202,
+        errorCode: 'account_deletion_pending',
+      );
 }
 
 class SquareSession {
@@ -178,6 +181,8 @@ class SquareMembershipPlan {
     required this.video,
     required this.article,
     required this.usage,
+    this.imageMaxBytes = 0,
+    this.imageMaxEdge = 0,
   });
 
   final String membershipLevel;
@@ -190,6 +195,8 @@ class SquareMembershipPlan {
   final SquareVideoQuota video;
   final SquareArticleQuota article;
   final SquareMembershipUsageQuota usage;
+  final int imageMaxBytes;
+  final int imageMaxEdge;
 
   /// 提炼展示用短串（卡片与详情页共用，杜绝口径漂移）。
   String get chatFileSizeLabel => _fileSize(chatFileMaxBytes);
@@ -889,7 +896,6 @@ class SquareApiClient
     _inflightSessions.clear();
   }
 
-
   /// 钱包注销意图与只读恢复意图分域；只有真实complete回执才能清本地。
   Future<void> deleteAccount({
     required IdentityBinding binding,
@@ -897,7 +903,8 @@ class SquareApiClient
     Future<void> Function()? requireCurrent,
   }) async {
     binding.validate();
-    if (!RegExp(r'^[A-Za-z0-9][A-Za-z0-9-]{0,31}$').hasMatch(binding.cidNumber)) {
+    if (!RegExp(r'^[A-Za-z0-9][A-Za-z0-9-]{0,31}$')
+        .hasMatch(binding.cidNumber)) {
       throw const SquareApiException('注销身份绑定无效');
     }
     final generation = _sessionGenerations[binding.accountId] ?? 0;
@@ -907,41 +914,52 @@ class SquareApiClient
       if ((_sessionGenerations[binding.accountId] ?? 0) != generation ||
           (current != null &&
               (current.cidNumber != binding.cidNumber ||
-               current.accountId != binding.accountId ||
-               current.bindingRevision != binding.bindingRevision))) {
+                  current.accountId != binding.accountId ||
+                  current.bindingRevision != binding.bindingRevision))) {
         throw const SquareApiException('当前身份已变化，请重新打开本人主页');
       }
     }
+
     await check();
     final cached = _sessions[binding.accountId];
     final session = cached != null && cached.isUsable ? cached : null;
     if (session != null &&
         (session.cidNumber != binding.cidNumber ||
-         session.bindingRevision != binding.bindingRevision)) {
+            session.bindingRevision != binding.bindingRevision)) {
       throw const SquareApiException('注销会话与当前绑定不一致');
     }
     var purpose = session == null ? 'status' : 'delete';
     Map<String, dynamic> challenge;
     if (session != null) {
       try {
-        challenge = await _postJson('/user/deletion/challenges', {}, session: session, rejectRedirects: true);
+        challenge = await _postJson(
+          '/user/deletion/challenges',
+          {},
+          session: session,
+          rejectRedirects: true,
+        );
       } on SquareApiException catch (error) {
         if (error.statusCode != 401) rethrow;
         purpose = 'status';
         challenge = await _postJson('/user/deletion/status/challenges', {
-          'cid_number': binding.cidNumber, 'account_id': binding.accountId,
+          'cid_number': binding.cidNumber,
+          'account_id': binding.accountId,
         }, rejectRedirects: true);
       }
     } else {
       challenge = await _postJson('/user/deletion/status/challenges', {
-        'cid_number': binding.cidNumber, 'account_id': binding.accountId,
+        'cid_number': binding.cidNumber,
+        'account_id': binding.accountId,
       }, rejectRedirects: true);
     }
     await check();
     final payload = _accountDeletionPayload(challenge, binding, purpose);
-    final message = await CitizenSigning.encodePayload(CitizenSigningPayload.message(
-      opTag: kOpSignSquareAction, scalePayload: payload,
-    ));
+    final message = await CitizenSigning.encodePayload(
+      CitizenSigningPayload.message(
+        opTag: kOpSignSquareAction,
+        scalePayload: payload,
+      ),
+    );
     await check();
     final signature = await signAction(message);
     await check();
@@ -953,15 +971,26 @@ class SquareApiClient
       rejectRedirects: true,
     );
     await check();
-    const fields = {'ok','cid_number','account_id','binding_revision','deletion_id','state'};
+    const fields = {
+      'ok',
+      'cid_number',
+      'account_id',
+      'binding_revision',
+      'deletion_id',
+      'state',
+    };
     final state = receipt['state'];
     final id = receipt['deletion_id'];
-    if (receipt.length != fields.length || !receipt.keys.every(fields.contains) ||
-        receipt['ok'] != true || receipt['cid_number'] != binding.cidNumber ||
+    if (receipt.length != fields.length ||
+        !receipt.keys.every(fields.contains) ||
+        receipt['ok'] != true ||
+        receipt['cid_number'] != binding.cidNumber ||
         receipt['account_id'] != binding.accountId ||
         receipt['binding_revision'] != binding.bindingRevision ||
-        !const {'absent','pending','complete'}.contains(state) ||
-        (state == 'absent' ? id != null : id is! String || !RegExp(r'^[0-9a-f]{64}$').hasMatch(id))) {
+        !const {'absent', 'pending', 'complete'}.contains(state) ||
+        (state == 'absent'
+            ? id != null
+            : id is! String || !RegExp(r'^[0-9a-f]{64}$').hasMatch(id))) {
       throw const SquareApiException('注销回执与当前身份不一致');
     }
     if (state == 'absent') {
@@ -974,22 +1003,39 @@ class SquareApiClient
   }
 
   Uint8List _accountDeletionPayload(
-    Map<String, dynamic> challenge, IdentityBinding binding, String purpose,
+    Map<String, dynamic> challenge,
+    IdentityBinding binding,
+    String purpose,
   ) {
-    const fields = {'ok','purpose','challenge_id','cid_number','account_id','binding_revision',
-      'chain_scope','service_origin','expires_at_millis','signing_payload_hex'};
+    const fields = {
+      'ok',
+      'purpose',
+      'challenge_id',
+      'cid_number',
+      'account_id',
+      'binding_revision',
+      'chain_scope',
+      'service_origin',
+      'expires_at_millis',
+      'signing_payload_hex',
+    };
     final id = challenge['challenge_id'];
     final expiry = challenge['expires_at_millis'];
     final now = DateTime.now().millisecondsSinceEpoch;
-    if (challenge.length != fields.length || !challenge.keys.every(fields.contains) ||
-        challenge['ok'] != true || challenge['purpose'] != purpose ||
+    if (challenge.length != fields.length ||
+        !challenge.keys.every(fields.contains) ||
+        challenge['ok'] != true ||
+        challenge['purpose'] != purpose ||
         challenge['cid_number'] != binding.cidNumber ||
         challenge['account_id'] != binding.accountId ||
         challenge['binding_revision'] != binding.bindingRevision ||
         challenge['chain_scope'] != binding.genesisHash ||
         challenge['service_origin'] != baseUri.origin ||
-        id is! String || !RegExp(r'^[0-9a-f]{64}$').hasMatch(id) ||
-        expiry is! int || expiry <= now || expiry > now + 300000 ||
+        id is! String ||
+        !RegExp(r'^[0-9a-f]{64}$').hasMatch(id) ||
+        expiry is! int ||
+        expiry <= now ||
+        expiry > now + 300000 ||
         expiry > 9007199254740991) {
       throw const SquareApiException('注销挑战与当前身份不一致或已过期');
     }
@@ -1005,10 +1051,12 @@ class SquareApiClient
       }
       bytes.add(raw);
     }
+
     void u64(int value) {
       final data = ByteData(8)..setUint64(0, value, Endian.little);
       bytes.add(data.buffer.asUint8List());
     }
+
     string('citizenserve.account_deletion');
     string(baseUri.origin);
     bytes.add(hexToBytes(binding.genesisHash));
@@ -1217,11 +1265,10 @@ class SquareApiClient
     if (!hash.hasMatch(txHash) || !hash.hasMatch(blockHashHex)) {
       throw const SquareApiException('会员确认交易或块无效');
     }
-    final data = await _postJson(
-      '/membership/confirm',
-      {'tx_hash': txHash, 'block_hash': blockHashHex},
-      session: session,
-    );
+    final data = await _postJson('/membership/confirm', {
+      'tx_hash': txHash,
+      'block_hash': blockHashHex,
+    }, session: session);
     if (data.length != 3 ||
         data['ok'] != true ||
         data['tx_hash'] != txHash ||
@@ -1549,14 +1596,25 @@ class SquareApiClient
         .toList(growable: false);
   }
 
-  /// 公开帖子媒体流不携带会话凭据，拒绝重定向及非HTTPS地址。
-  Future<http.StreamedResponse> openPostMedia(String url) async {
+  /// 帖子媒体只向批准来源交付当前会话，服务端在CID之后核验会员，拒绝重定向。
+  Future<http.StreamedResponse> openPostMedia(
+    String url, {
+    required SquareSession session,
+  }) async {
     final uri = Uri.parse(url);
     if (uri.scheme != 'https' || uri.host.isEmpty || uri.userInfo.isNotEmpty) {
       throw const SquareApiException('媒体地址必须使用HTTPS');
     }
     final response = await _http
-        .send(http.Request('GET', uri)..followRedirects = false)
+        .send(
+          http.Request('GET', uri)
+            ..followRedirects = false
+            ..headers.addAll(
+              CitizenServeApiConfig.mediaHeaders(url, {
+                'authorization': 'Bearer ${session.sessionToken}',
+              }),
+            ),
+        )
         .timeout(const Duration(seconds: 30));
     if (response.statusCode != 200) {
       await response.stream.listen(null).cancel();
@@ -1587,7 +1645,7 @@ class SquareApiClient
   }
 
   /// 把私有头像、背景的 R2 object_key 拼成 Worker 会话门禁 URL。
-  /// 广场帖子媒体由 Worker 直接返回公开 CDN 绝对地址，不经过本方法。
+  /// 广场帖子媒体由 Worker 返回受公民号及会员门禁保护的 HTTPS 绝对地址，不经过本方法。
   String mediaUrl(String objectKey, {int? updatedAt}) {
     final parts = objectKey.split('/');
     if (parts.length != 3 ||
@@ -1601,6 +1659,29 @@ class SquareApiClient
 
   /// 拉取某身份（cid_number）的用户主页资料；钱包 Session 决定双向关注状态。
   /// 响应 profile 含 `account_id`（该身份当前绑定钱包账户，展示用，可能空串）+ `cid_number`。
+  Future<CitizenProfileCard> fetchUserCard({
+    required String cidNumber,
+    SquareSession? session,
+  }) async {
+    final data = await _getJson(
+      '/user/cards/${Uri.encodeComponent(cidNumber)}',
+      session: session,
+    );
+    final card = data['card'];
+    if (data['ok'] != true ||
+        card is! Map<String, dynamic> ||
+        card['cid_number'] != cidNumber ||
+        card['account_id'] is! String ||
+        card['display_name'] is! String ||
+        card['updated_at'] is! int) {
+      throw const SquareApiException('聊天资料卡响应无效');
+    }
+    return CitizenProfileCard(card);
+  }
+
+  String cardAvatarUrl(String cidNumber) =>
+      '$baseUrl/user/cards/${Uri.encodeComponent(cidNumber)}/avatar';
+
   Future<CitizenProfile> fetchUserProfile({
     required String cidNumber,
     SquareSession? session,
@@ -1687,6 +1768,100 @@ class SquareApiClient
       _requireString(data, 'upload_url'),
       '/user/profile/assets/${Uri.encodeComponent(id)}',
     ).toString();
+  }
+
+  /// 仅完整资料头像/背景的只读传输。读取器不持有证明头；外层每次重试都会重新send。
+  /// 底层沿用本客户端的HTTPS传输，重试包装须放在此读取器外层以逐次获取证明。
+  http.Client profileMediaClient(SquareSession session) =>
+      _ProfileMediaClient(this, session);
+
+  /// 每次GET（含Range/条件请求）现签实际方法、原始路径及空正文，不复用证明。
+  Future<http.StreamedResponse> openProfileMedia(
+    String url, {
+    required SquareSession session,
+    String? range,
+    String? ifRange,
+    String? ifNoneMatch,
+  }) async {
+    final uri = Uri.tryParse(url);
+    final prefix = '${baseUri.path}/user/profiles/';
+    final tail = uri?.path.startsWith(prefix) == true
+        ? uri!.path.substring(prefix.length)
+        : '';
+    final target = RegExp(
+      r'^([A-Za-z0-9][A-Za-z0-9-]{0,31})/assets/(avatar|banner)$',
+    ).firstMatch(tail);
+    if (uri == null ||
+        target == null ||
+        uri.scheme != 'https' ||
+        uri.origin != baseUri.origin ||
+        uri.userInfo.isNotEmpty ||
+        uri.hasQuery ||
+        uri.hasFragment ||
+        uri.toString() !=
+            _uri('/user/profiles/${target.group(1)}/assets/${target.group(2)}')
+                .toString()) {
+      throw const SquareApiException('资料媒体地址必须是当前服务的准确头像或背景路径');
+    }
+    if (!session.isUsable) {
+      throw const SquareApiException('资料媒体会话已失效', errorCode: 'session_expired');
+    }
+    final request = http.Request('GET', uri)..followRedirects = false;
+    if (range != null) request.headers['range'] = range;
+    if (ifRange != null) request.headers['if-range'] = ifRange;
+    if (ifNoneMatch != null) request.headers['if-none-match'] = ifNoneMatch;
+    request.headers.addAll(await _headers('GET', uri, '', session));
+    // 签名等待期间账户可能变化，旧结果不得带入实际HTTP发送。
+    await session.validateCurrent();
+    if (!session.isUsable) {
+      throw const SquareApiException('资料媒体会话已失效', errorCode: 'session_expired');
+    }
+    final response = await _http
+        .send(request)
+        .timeout(const Duration(seconds: 30));
+    try {
+      await session.validateCurrent();
+      if (!session.isUsable) {
+        throw const SquareApiException(
+          '资料媒体会话已失效',
+          errorCode: 'session_expired',
+        );
+      }
+      // 字节消费期间同样复核当前账户，迟到正文不能进入资料缓存或解码器。
+      Stream<List<int>> guarded() async* {
+        await for (final chunk in response.stream) {
+          await session.validateCurrent();
+          if (!session.isUsable) {
+            throw const SquareApiException(
+              '资料媒体会话已失效',
+              errorCode: 'session_expired',
+            );
+          }
+          yield chunk;
+        }
+        await session.validateCurrent();
+        if (!session.isUsable) {
+          throw const SquareApiException(
+            '资料媒体会话已失效',
+            errorCode: 'session_expired',
+          );
+        }
+      }
+
+      return http.StreamedResponse(
+        guarded(),
+        response.statusCode,
+        contentLength: response.contentLength,
+        request: response.request,
+        headers: response.headers,
+        isRedirect: response.isRedirect,
+        persistentConnection: response.persistentConnection,
+        reasonPhrase: response.reasonPhrase,
+      );
+    } on Object {
+      await response.stream.listen(null).cancel();
+      rethrow;
+    }
   }
 
   /// 用户小文件只允许 PUT 到同域 Worker，并对原始字节生成设备请求签名。
@@ -2044,6 +2219,8 @@ class SquareApiClient
       membershipLevel: level,
       displayName: name,
       chatFileMaxBytes: quota(plan, 'chat_file_max_bytes'),
+      imageMaxBytes: quota(limits, 'image_bytes'),
+      imageMaxEdge: quota(limits, 'image_dimension'),
       // 保留既有三档聊天展示能力；授权仍由实际会话和宿主聊天许可决定。
       chat: const SquareChatQuota(
         textEnabled: true,
@@ -2346,5 +2523,32 @@ class SquareApiClient
     _sessions.clear();
     _inflightSessions.clear();
     _http.close();
+  }
+}
+
+/// 同一个请求对象再次send也重建实际GET；旧authorization/证明头永不透传。
+/// close只关闭此轻量读取器，不关闭SquareApiClient持有的共享HTTPS客户端。
+final class _ProfileMediaClient extends http.BaseClient {
+  _ProfileMediaClient(this.api, this.session);
+  final SquareApiClient api;
+  final SquareSession session;
+  bool _closed = false;
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    if (_closed || request.method != 'GET' || request.contentLength != 0) {
+      throw http.ClientException('资料媒体读取器只接受无正文GET');
+    }
+    return api.openProfileMedia(
+      request.url.toString(),
+      session: session,
+      range: request.headers['range'],
+      ifRange: request.headers['if-range'],
+      ifNoneMatch: request.headers['if-none-match'],
+    );
+  }
+
+  @override
+  void close() {
+    _closed = true;
   }
 }

@@ -1,10 +1,14 @@
 import 'mls_authentication_fixture.dart';
+
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
 import 'package:citizenapp/8964/feed/square_post_detail_page.dart';
 import 'package:citizenapp/8964/feed/square_post_card.dart';
@@ -300,14 +304,28 @@ class _DeviceMissingSessionProvider implements SquareSessionProvider {
 
 /// 保持生产路径类型判断成立，但不访问真实 Worker。
 class _FakeSquareApiClient extends SquareApiClient {
+  _FakeSquareApiClient({
+    super.baseUrl,
+    super.httpClient,
+    this.posts = const <SquarePost>[],
+  });
+  final List<SquarePost> posts;
   @override
   Future<List<SquarePost>> fetchFeed({
     required SquareFeedKind feedKind,
     int limit = 20,
     SquareSession? session,
   }) async {
-    return const <SquarePost>[];
+    return posts;
   }
+}
+
+/// 只给信息流的首次握手提供会话，避免本头像回归启动无关通知网络。
+class _FeedOnlySessionProvider extends FakeSessionProvider {
+  _FeedOnlySessionProvider(super.session);
+  int calls = 0;
+  @override
+  Future<SquareSession?> ensureSession() async => ++calls == 1 ? session : null;
 }
 
 /// 未注册：当前默认账户的本地绑定为空，不回退其他账户。
@@ -448,6 +466,98 @@ Widget _wrap(Widget child) {
 }
 
 void main() {
+  for (final type in [SquarePostType.document, SquarePostType.article]) {
+    testWidgets('广场$type作者头像实际GET使用当前会话及新鲜MLS证明', (tester) async {
+      final bytes = await tester.runAsync(
+        () => File('assets/logo/mark256.png').readAsBytes(),
+      );
+      final requests = <http.Request>[];
+      var signed = 0;
+      final session = SquareSession(
+        deviceId: testMlsDeviceId,
+        sessionToken: 'synthetic-feed-token',
+        cidNumber: testMlsCidNumber,
+        bindingRevision: 1,
+        accountId: testMlsAccountId,
+        expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
+        authenticateRequest:
+            ({
+              required method,
+              required uri,
+              required body,
+              required sessionToken,
+            }) async {
+              expect(method, 'GET');
+              expect(
+                uri.path,
+                '/api/user/profiles/$testMlsCidNumber/assets/avatar',
+              );
+              expect(body, isEmpty);
+              expect(sessionToken, 'synthetic-feed-token');
+              return {'x-mls-proof': 'feed-${++signed}'};
+            },
+      );
+      final source = _FakeSquareApiClient(
+        baseUrl: 'https://example.com/api',
+        httpClient: MockClient((request) async {
+          requests.add(request);
+          return http.Response.bytes(
+            bytes!,
+            200,
+            headers: {'content-type': 'image/png'},
+          );
+        }),
+        posts: [
+          SquarePost(
+            postId: 'signed-feed-${type.name}',
+            author: const SquareAuthor(
+              accountId: testMlsAccountId,
+              cidNumber: testMlsCidNumber,
+              displayName: '合成作者',
+              avatarObjectKey: 'profile/$testMlsCidNumber/avatar',
+            ),
+            postCategory: SquarePostCategory.normal,
+            postType: type,
+            text: '合成正文',
+            createdAt: DateTime.fromMillisecondsSinceEpoch(1000),
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        _wrap(
+          SquareHomePage(
+            identityService: const _StaticComposeIdentityService(),
+            feedSource: source,
+            sessionProvider: _FeedOnlySessionProvider(session),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      for (var n = 0; n < 30 && requests.isEmpty; n++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump();
+      }
+      expect(
+        requests.single.url.toString(),
+        'https://example.com/api/user/profiles/$testMlsCidNumber/assets/avatar',
+      );
+      expect(
+        requests.single.headers['authorization'],
+        'Bearer synthetic-feed-token',
+      );
+      expect(requests.single.headers['x-mls-proof'], 'feed-1');
+      expect(requests.single.followRedirects, isFalse);
+      expect(signed, 1);
+      expect(find.text('合成作者'), findsOneWidget);
+      expect(find.text('合成正文'), findsOneWidget);
+      expect(find.text('推荐'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      source.close();
+    });
+  }
   for (final replace in [false, true]) {
     testWidgets('详情返回${replace ? '替换' : '删除'}结果就地更新，不重查公共流', (tester) async {
       final source = _RecordingFeedSource();
@@ -508,7 +618,15 @@ void main() {
           return [
             walletPresent
                 ? testCitizenWalletState()
-                : <Object?>['2', null, <Object?>[], 0, false, null, <Object?>[]],
+                : <Object?>[
+                    '2',
+                    null,
+                    <Object?>[],
+                    0,
+                    false,
+                    null,
+                    <Object?>[],
+                  ],
           ];
         },
       });
@@ -645,10 +763,14 @@ void main() {
   testWidgets('身份延迟完成后通知父页面，feed未返回也显示原发布入口', (tester) async {
     final identity = _DelayedComposeIdentityService();
     final feed = _PendingFeedSource();
-    await tester.pumpWidget(_wrap(SquareHomePage(identityService: identity, feedSource: feed)));
+    await tester.pumpWidget(
+      _wrap(SquareHomePage(identityService: identity, feedSource: feed)),
+    );
     await tester.pump();
     expect(find.byTooltip('发布'), findsNothing);
-    identity.completer.complete(await const _StaticComposeIdentityService().loadCurrent());
+    identity.completer.complete(
+      await const _StaticComposeIdentityService().loadCurrent(),
+    );
     await tester.pump();
     await tester.pump();
     expect(find.byTooltip('发布'), findsOneWidget);
@@ -660,11 +782,23 @@ void main() {
 
   for (final state in [
     const SquareIdentityState(accountId: ''),
-    SquareIdentityState(accountId: _registeredWallet.accountId, signMode: CitizenWalletSignMode.hot),
+    SquareIdentityState(
+      accountId: _registeredWallet.accountId,
+      signMode: CitizenWalletSignMode.hot,
+    ),
   ]) {
-    testWidgets('身份延迟返回${state.hasWallet ? '未注册' : '无钱包'}仍不显示发布入口', (tester) async {
+    testWidgets('身份延迟返回${state.hasWallet ? '未注册' : '无钱包'}仍不显示发布入口', (
+      tester,
+    ) async {
       final identity = _DelayedComposeIdentityService();
-      await tester.pumpWidget(_wrap(SquareHomePage(identityService: identity, feedSource: const _FakeFeedSource())));
+      await tester.pumpWidget(
+        _wrap(
+          SquareHomePage(
+            identityService: identity,
+            feedSource: const _FakeFeedSource(),
+          ),
+        ),
+      );
       await tester.pump();
       identity.completer.complete(state);
       await tester.pumpAndSettle();
@@ -677,25 +811,31 @@ void main() {
     testWidgets('较新账户${registered ? '已注册' : '无钱包'}结果不被旧身份迟到覆盖', (tester) async {
       final identity = _QueuedHomeIdentityService();
       final feed = _PendingFeedSource();
-      await tester.pumpWidget(_wrap(SquareHomePage(identityService: identity, feedSource: feed)));
+      await tester.pumpWidget(
+        _wrap(SquareHomePage(identityService: identity, feedSource: feed)),
+      );
       await tester.pump();
       expect(identity.requests, hasLength(1));
       IdentityBadgeSnapshotStore.revision.value++;
       await tester.pump();
       expect(identity.requests, hasLength(2));
-      identity.requests[1].complete(registered
-          ? const SquareIdentityState(
-              accountId: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-              cidNumber: 'CN220-CTZN2-100000002-2026',
-              signMode: CitizenWalletSignMode.hot,
-            )
-          : const SquareIdentityState(accountId: ''));
+      identity.requests[1].complete(
+        registered
+            ? const SquareIdentityState(
+                accountId: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                cidNumber: 'CN220-CTZN2-100000002-2026',
+                signMode: CitizenWalletSignMode.hot,
+              )
+            : const SquareIdentityState(accountId: ''),
+      );
       await tester.pump();
       await tester.pump();
       expect(find.byTooltip('发布'), registered ? findsOneWidget : findsNothing);
-      identity.requests[0].complete(registered
-          ? SquareIdentityState(accountId: _registeredWallet.accountId)
-          : await const _StaticComposeIdentityService().loadCurrent());
+      identity.requests[0].complete(
+        registered
+            ? SquareIdentityState(accountId: _registeredWallet.accountId)
+            : await const _StaticComposeIdentityService().loadCurrent(),
+      );
       await tester.pump();
       await tester.pump();
       expect(find.byTooltip('发布'), registered ? findsOneWidget : findsNothing);
@@ -709,10 +849,14 @@ void main() {
   testWidgets('页面卸载后身份完成不更新State', (tester) async {
     final identity = _DelayedComposeIdentityService();
     final feed = _PendingFeedSource();
-    await tester.pumpWidget(_wrap(SquareHomePage(identityService: identity, feedSource: feed)));
+    await tester.pumpWidget(
+      _wrap(SquareHomePage(identityService: identity, feedSource: feed)),
+    );
     await tester.pump();
     await tester.pumpWidget(const SizedBox.shrink());
-    identity.completer.complete(await const _StaticComposeIdentityService().loadCurrent());
+    identity.completer.complete(
+      await const _StaticComposeIdentityService().loadCurrent(),
+    );
     feed.completer.complete(const <SquarePost>[]);
     await tester.pump();
     expect(tester.takeException(), isNull);
@@ -958,9 +1102,8 @@ void main() {
     expect(
       pageSize.height -
           documentBottom -
-          MediaQuery.paddingOf(
-            tester.element(find.byType(SquareHomePage)),
-          ).bottom,
+          MediaQuery.paddingOf(tester.element(find.byType(SquareHomePage)))
+              .bottom,
       closeTo(pageSize.width - videoRight, 1),
     );
 
@@ -1143,8 +1286,7 @@ void main() {
 
     identityService.completer.complete(
       const SquareIdentityState(
-        accountId:
-            '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        accountId: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         cidNumber: 'CN220-CTZN2-100000001-2026',
         signMode: CitizenWalletSignMode.hot,
       ),

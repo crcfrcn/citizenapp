@@ -1,4 +1,5 @@
 import '../mls_authentication_fixture.dart';
+
 import 'package:citizenapp/8964/feed/square_models.dart';
 import 'package:citizenapp/account/profile/citizen_profile.dart';
 import 'package:citizenapp/account/profile/citizen_profile_api.dart';
@@ -10,20 +11,24 @@ import 'package:citizenapp/8964/feed/square_post_store.dart';
 const String kOwner =
     '0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d';
 
-SquareSession fakeSession() => SquareSession(
-      deviceId: testMlsDeviceId,
-      sessionToken: 'tok',
-      cidNumber: "CN220-CTZN2-198805200-2026",
-      bindingRevision: 1,
-      accountId: kOwner,
-      expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
-      authenticateRequest: fakeMlsRequestHeaders,
-    );
+SquareSession fakeSession({String? cidNumber}) => SquareSession(
+  deviceId: testMlsDeviceId,
+  sessionToken: 'tok',
+  cidNumber: cidNumber ?? "CN220-CTZN2-198805200-2026",
+  bindingRevision: 1,
+  accountId: kOwner,
+  expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
+  authenticateRequest: fakeMlsRequestHeaders,
+);
 
 class FakeSessionProvider implements SquareSessionProvider {
-  FakeSessionProvider(this.session);
+  FakeSessionProvider(this.session, {this.citizenId});
 
   final SquareSession? session;
+  final String? citizenId;
+
+  @override
+  Future<String?> currentCitizenId() async => citizenId ?? session?.cidNumber;
 
   @override
   Future<SquareSession?> ensureSession() async => session;
@@ -32,10 +37,11 @@ class FakeSessionProvider implements SquareSessionProvider {
   Future<SquareSession?> refreshSession() async => session;
 
   @override
-  Future<SquareSessionResolution> resolveSession({bool refresh = false}) async =>
-      session == null
-          ? const SquareSessionResolution(SquareSessionStatus.noWallet)
-          : SquareSessionResolution(SquareSessionStatus.ready, session: session);
+  Future<SquareSessionResolution> resolveSession({
+    bool refresh = false,
+  }) async => session == null
+      ? const SquareSessionResolution(SquareSessionStatus.noWallet)
+      : SquareSessionResolution(SquareSessionStatus.ready, session: session);
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -114,6 +120,7 @@ CitizenProfile sampleProfile({
 class FakeProfileApi extends CitizenProfileApi {
   FakeProfileApi(
     this.result, {
+    super.client,
     this.authorPosts = const [],
     this.localPosts = const [],
     this.follows = const [],
@@ -121,7 +128,7 @@ class FakeProfileApi extends CitizenProfileApi {
     this.throwOnProfile = false,
     this.throwOnAuthorPosts = false,
     this.unauthorizedAuthorPosts = 0,
-  }) : super();
+  });
 
   final CitizenProfile result;
   final List<SquarePost> authorPosts;
@@ -142,6 +149,16 @@ class FakeProfileApi extends CitizenProfileApi {
   bool? lastNotifyEnabled;
   String? lastFollowsType;
   Map<String, String?>? lastUpdate;
+
+  @override
+  Future<CitizenProfileCard> fetchCard(
+    String cidNumber, {
+    SquareSession? session,
+  }) async {
+    calls++;
+    if (throwOnProfile) throw const SquareApiException('profile failed');
+    return CitizenProfileCard(result.toJson());
+  }
 
   @override
   Future<CitizenProfile> fetchProfile(
@@ -179,9 +196,7 @@ class FakeProfileApi extends CitizenProfileApi {
     }
     final filtered = authorPosts
         .where((post) => category == null || post.postCategory == category)
-        .where(
-          (post) => postType == null || post.postType == postType,
-        )
+        .where((post) => postType == null || post.postType == postType)
         .toList();
     return (posts: filtered, nextCursor: null);
   }

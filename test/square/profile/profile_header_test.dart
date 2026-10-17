@@ -1,3 +1,8 @@
+import 'dart:io';
+
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+
 import 'dart:typed_data';
 
 import '../../support/fake_citizen_sdk.dart';
@@ -36,6 +41,14 @@ class _NullMembershipSnapshotService implements SubscriptionService {
   ) async => null;
 
   @override
+  Future<void> requireProfileAccess(
+    SquareSession session,
+    String targetCid,
+  ) async {}
+  @override
+  Future<void> requireSquareAccess(SquareSession session) async {}
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
@@ -70,7 +83,12 @@ Widget _wrap({
             FakeProfileCache(
               isSelf && api is FakeProfileApi ? api.result : null,
             ),
-        sessionProvider: sessionProvider ?? FakeSessionProvider(fakeSession()),
+        sessionProvider:
+            sessionProvider ??
+            FakeSessionProvider(
+              fakeSession(),
+              citizenId: isSelf ? _profileCidNumber : null,
+            ),
         initialMembershipDecision: initialMembershipDecision,
         initialMembershipState: initialMembershipState,
         subscriptionService:
@@ -475,22 +493,46 @@ void main() {
   testWidgets('renders an avatar image when the profile has an avatar key', (
     tester,
   ) async {
+    final bytes = await tester.runAsync(
+      () => File('assets/logo/mark256.png').readAsBytes(),
+    );
+    final requests = <http.Request>[];
+    final client = SquareApiClient(
+      baseUrl: 'https://example.com/api',
+      httpClient: MockClient((request) async {
+        requests.add(request);
+        return http.Response.bytes(
+          bytes!,
+          200,
+          headers: {'content-type': 'image/png'},
+        );
+      }),
+    );
     await tester.pumpWidget(
       _wrap(
         isSelf: false,
-        api: FakeProfileApi(sampleProfile(avatarKey: 'profile/acct/avatar')),
+        api: FakeProfileApi(
+          sampleProfile(avatarKey: 'profile/$_profileCidNumber/avatar'),
+          client: client,
+        ),
       ),
     );
     await tester.pumpAndSettle();
-
+    for (var n = 0; n < 30 && requests.isEmpty; n++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump();
+    }
     expect(find.byType(Image), findsWidgets);
-    final networkImage = tester
-        .widgetList<Image>(find.byType(Image))
-        .map((image) => image.image)
-        .whereType<NetworkImage>()
-        .single;
-    expect(networkImage.headers?['authorization'], 'Bearer tok');
+    expect(
+      requests.single.url.path,
+      '/api/user/profiles/$_profileCidNumber/assets/avatar',
+    );
+    expect(requests.single.headers['authorization'], 'Bearer tok');
+    expect(requests.single.headers['x-mls-proof'], isNotEmpty);
     expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 
   testWidgets('pure visitor shows an orange person badge (no membership)', (

@@ -56,7 +56,9 @@ class SquarePreparedContent {
 }
 
 /// 普通会话由唯一MLS会话服务提供，发布器不持有签名能力。
-typedef SquareSessionResolver = Future<SquareSession> Function(String accountId);
+typedef SquareSessionResolver = Future<SquareSession> Function(
+  String accountId,
+);
 
 abstract class SquareContentUploader {
   Future<SquareSession> resumeSession(
@@ -136,7 +138,7 @@ class SquareUploadService
       onStage?.call(SquarePublishStage.processingMedia);
       processedMedia = await _mediaProcessor.process(
         mediaDrafts: mediaDrafts,
-        membershipLevel: plan.membershipLevel,
+        membershipPlan: plan,
       );
       final finalMediaDrafts = processedMedia.mediaDrafts;
       final derivatives = processedMedia.derivatives;

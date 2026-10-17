@@ -22,42 +22,7 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           node-version: 25.2.1
-      - uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5
-        with:
-          toolchain: 1.97.1
-          targets: aarch64-apple-ios,aarch64-apple-ios-sim
-          components: rust-src, clippy
-      - name: 准备本平台工具
-        shell: bash
-        run: |
-          set -euo pipefail
-          xcodebuild -version | grep '^Xcode 27'
-          brew install bash
-          curl --fail --location --retry 3 -o "$RUNNER_TEMP/flutter.zip" https://storage.googleapis.com/flutter_infra_release/releases/stable/macos/flutter_macos_arm64_3.47.2-stable.zip
-          echo 'f456fd6733053d9301828a2e702d6cbec872923126809aa8c48eb0a696d6cc01  '"$RUNNER_TEMP/flutter.zip" | shasum -a 256 --check
-          ditto -x -k "$RUNNER_TEMP/flutter.zip" "$RUNNER_TEMP"
-          {
-            echo "FLUTTER_ROOT=$RUNNER_TEMP/flutter"
-            echo "JAVA_HOME=$JAVA_HOME_17_arm64"
-            echo "ANDROID_HOME=$HOME/Library/Android/sdk"
-            echo "ANDROID_SDK_ROOT=$HOME/Library/Android/sdk"
-            echo "ANDROID_JAVA_HOME=$JAVA_HOME_17_arm64"
-            echo "ANDROID_SDK_HOME=$HOME/Library/Android/sdk"
-            echo "PRODUCT_BASH_BIN=$(brew --prefix bash)/bin/bash"
-            echo "PRODUCT_GIT_BIN=$(command -v git)"
-            clang="$(realpath "$(xcrun --find clang)")"
-            test -f "$clang" && test -x "$clang" && test ! -L "$clang"
-            echo "CC=$clang"
-          } >> "$GITHUB_ENV"
-          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
-          echo "$JAVA_HOME_17_arm64/bin" >> "$GITHUB_PATH"
-          if [ "ios" = android ]; then
-            curl --fail --location --retry 3 -o "$RUNNER_TEMP/gradle.zip" https://services.gradle.org/distributions/gradle-9.1.0-bin.zip
-            echo 'a17ddd85a26b6a7f5ddb71ff8b05fc5104c0202c6e64782429790c933686c806  '"$RUNNER_TEMP/gradle.zip" | shasum -a 256 --check
-            unzip -q "$RUNNER_TEMP/gradle.zip" -d "$RUNNER_TEMP"
-            echo "CITIZENAPP_GRADLE=$RUNNER_TEMP/gradle-9.1.0/bin/gradle" >> "$GITHUB_ENV"
-            "$HOME/Library/Android/sdk/cmdline-tools/latest/bin/sdkmanager" 'build-tools;37.0.1' 'platforms;android-36' 'ndk;28.2.13676358'
-          fi
+      # 锁定工具、依赖、分析、测试及原生编译统一归本产品build.mjs。
       - name: 本 Runner 编译、签名并验收
         env:
           IOS_KEY: "${{ secrets.IOS_KEY }}"

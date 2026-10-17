@@ -1,6 +1,9 @@
 import 'mls_authentication_fixture.dart';
+
 import 'dart:convert';
+
 import '../support/fake_citizen_sdk.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -194,6 +197,7 @@ void main() {
                   },
                   'limits': {
                     'image_dimension': 1920,
+                    'image_bytes': 2000000,
                     'storage_bytes': 1000000000000,
                   },
                 },
@@ -204,7 +208,7 @@ void main() {
                 'used_video_seconds': 300,
                 'reserved_video_seconds': 45,
                 'active_uploads': 1,
-              }
+              },
             }),
             200,
             headers: {'content-type': 'application/json'},
@@ -217,8 +221,7 @@ void main() {
           sessionToken: 'token',
           cidNumber: 'CN220-CTZN2-198805200-2026',
           bindingRevision: 1,
-          accountId:
-              '0x1111111111111111111111111111111111111111111111111111111111111111',
+          accountId: '0x1111111111111111111111111111111111111111111111111111111111111111',
           expiresAt: 9999999999999,
           // MockClient 只验证响应解析，不校验设备请求签名头。
           authenticateRequest: fakeMlsRequestHeaders,

@@ -327,7 +327,7 @@ class _ContactBookPageState extends State<ContactBookPage> {
         batch.map((contact) async {
           final cidNumber = contact.cidNumber;
           try {
-            final profile = await _profileApi.fetchProfile(
+            final profile = await _profileApi.fetchCard(
               cidNumber,
               session: _session,
             );
@@ -339,7 +339,7 @@ class _ContactBookPageState extends State<ContactBookPage> {
             if (key != null && key.isNotEmpty) {
               final refreshed = await _profileMediaCache.refresh(
                 profile: profile,
-                avatarUrl: _profileApi.mediaUrl(
+                avatarUrl: _profileApi.cardMediaUrl(
                   key,
                   updatedAt: profile.updatedAt,
                 ),
@@ -657,7 +657,7 @@ class _ContactBookPageState extends State<ContactBookPage> {
     final key = profile?.avatarObjectKey;
     return key == null
         ? null
-        : _profileApi.mediaUrl(key, updatedAt: profile?.updatedAt);
+        : _profileApi.cardMediaUrl(key, updatedAt: profile?.updatedAt);
   }
 
   String _contactDisplayName(UserContact contact) {

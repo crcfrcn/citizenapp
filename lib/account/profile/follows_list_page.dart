@@ -151,7 +151,7 @@ class _FollowsListPageState extends State<FollowsListPage> {
       entries.map((entry) async {
         if (_profiles.containsKey(entry.cidNumber)) return;
         try {
-          final profile = await _api.fetchProfile(
+          final profile = await _api.fetchCard(
             entry.cidNumber,
             session: widget.session,
           );
@@ -218,13 +218,11 @@ class _FollowsListPageState extends State<FollowsListPage> {
     }
     if (_entries.isEmpty) {
       return Center(
-        child: Text(
-            switch (widget.type) {
-              FollowsType.following => '还没有关注任何人',
-              FollowsType.followers => '还没有关注者',
-              FollowsType.mutualFollowing => '还没有互关用户',
-            },
-            style: const TextStyle(color: AppTheme.textTertiary)),
+        child: Text(switch (widget.type) {
+          FollowsType.following => '还没有关注任何人',
+          FollowsType.followers => '还没有关注者',
+          FollowsType.mutualFollowing => '还没有互关用户',
+        }, style: const TextStyle(color: AppTheme.textTertiary)),
       );
     }
     return NotificationListener<ScrollNotification>(
@@ -254,7 +252,7 @@ class _FollowsListPageState extends State<FollowsListPage> {
             leading: ProfileAvatar(
               seed: entry.cidNumber,
               size: AppLayout.scaled(context, 42),
-              imageUrl: avatarKey == null ? null : _api.mediaUrl(avatarKey),
+              imageUrl: avatarKey == null ? null : _api.cardMediaUrl(avatarKey),
               imageHeaders: <String, String>{
                 'authorization': 'Bearer ${widget.session.sessionToken}',
               },

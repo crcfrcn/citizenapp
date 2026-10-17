@@ -1,3 +1,9 @@
+import 'dart:async';
+import 'dart:ui' as ui;
+import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart';
 import 'package:citizenapp/8964/feed/square_models.dart';
 import 'package:citizenapp/account/profile/citizen_profile.dart';
 import 'package:citizenapp/account/profile/citizen_profile_cache.dart';
@@ -48,22 +54,27 @@ class CitizenProfileApi {
         final profile = await fetchProfile(cidNumber, session: session);
         check();
         if (profile.cidNumber != cidNumber) throw StateError('远端资料归属不一致');
-        await CitizenProfileMediaCache().refresh(
-          profile: profile,
-          avatarUrl: profile.avatarObjectKey == null
-              ? null
-              : mediaUrl(
-                  profile.avatarObjectKey!,
-                  updatedAt: profile.updatedAt,
-                ),
-          bannerUrl: profile.bannerObjectKey == null
-              ? null
-              : mediaUrl(
-                  profile.bannerObjectKey!,
-                  updatedAt: profile.updatedAt,
-                ),
-          headers: {'authorization': 'Bearer ${session.sessionToken}'},
-        );
+        final mediaClient = _client.profileMediaClient(session);
+        try {
+          await CitizenProfileMediaCache(client: mediaClient).refresh(
+            profile: profile,
+            avatarUrl: profile.avatarObjectKey == null
+                ? null
+                : mediaUrl(
+                    profile.avatarObjectKey!,
+                    updatedAt: profile.updatedAt,
+                  ),
+            bannerUrl: profile.bannerObjectKey == null
+                ? null
+                : mediaUrl(
+                    profile.bannerObjectKey!,
+                    updatedAt: profile.updatedAt,
+                  ),
+            headers: null,
+          );
+        } finally {
+          mediaClient.close();
+        }
         check();
         await const CitizenProfileCache().write(profile);
         return profile;
@@ -81,6 +92,36 @@ class CitizenProfileApi {
   /// R2 object_key → 钱包 session 保护的资料媒体 URL。
   String mediaUrl(String objectKey, {int? updatedAt}) =>
       _client.mediaUrl(objectKey, updatedAt: updatedAt);
+
+  /// 只替换完整资料图片的数据获取；每次实际加载都经逐请求签名传输。
+  /// 缓存键按当前会话对象隔离，证明/会话令牌不进入键的诊断文本。
+  ImageProvider mediaImage(
+    String objectKey, {
+    required SquareSession session,
+    int? updatedAt,
+  }) {
+    final url = mediaUrl(objectKey, updatedAt: updatedAt);
+    return _SignedProfileMediaImage(
+      _client,
+      session,
+      url,
+      objectKey.split('/').last,
+      updatedAt,
+    );
+  }
+
+  Future<CitizenProfileCard> fetchCard(
+    String cidNumber, {
+    SquareSession? session,
+  }) => _client.fetchUserCard(cidNumber: cidNumber, session: session);
+
+  String cardMediaUrl(String objectKey, {int? updatedAt}) {
+    final parts = objectKey.split('/');
+    if (parts.length != 3 || parts[0] != 'profile' || parts[2] != 'avatar') {
+      throw const SquareApiException('聊天资料卡只能读取头像');
+    }
+    return _client.cardAvatarUrl(parts[1]);
+  }
 
   /// 拉取主页资料（按身份主键 cid_number）；[session] 存在时响应附带 is_following。
   Future<CitizenProfile> fetchProfile(
@@ -189,4 +230,93 @@ class CitizenProfileApi {
       bannerContentHash: bannerContentHash,
     );
   }
+}
+
+/// 图片缓存保存解码图片而不保存一次性证明；失败后的重新加载会重新现签。
+final class _SignedProfileMediaImage
+    extends ImageProvider<_SignedProfileMediaImage> {
+  const _SignedProfileMediaImage(
+    this.client,
+    this.session,
+    this.url,
+    this.role,
+    this.version,
+  );
+  final SquareApiClient client;
+  final SquareSession session;
+  final String url;
+  final String role;
+  final int? version;
+  @override
+  Future<_SignedProfileMediaImage> obtainKey(
+    ImageConfiguration configuration,
+  ) => SynchronousFuture(this);
+  @override
+  ImageStreamCompleter loadImage(
+    _SignedProfileMediaImage key,
+    ImageDecoderCallback decode,
+  ) => MultiFrameImageStreamCompleter(
+    codec: _load(decode),
+    scale: 1,
+    debugLabel: '公民资料图片',
+  );
+  Future<ui.Codec> _load(ImageDecoderCallback decode) async {
+    try {
+      final response = await client.openProfileMedia(url, session: session);
+      final limit = CitizenProfileMediaCache.maxBytesFor(role);
+      if (response.statusCode != 200 || (response.contentLength ?? 0) > limit) {
+        await response.stream.listen(null).cancel();
+        throw SquareApiException('资料图片读取失败', statusCode: response.statusCode);
+      }
+      final bytes = BytesBuilder(copy: false);
+      var length = 0;
+      await for (final chunk in response.stream.timeout(
+        const Duration(seconds: 30),
+      )) {
+        await session.validateCurrent();
+        length += chunk.length;
+        if (length > limit) throw const FormatException('资料图片超出大小限制');
+        bytes.add(chunk);
+      }
+      await session.validateCurrent();
+      if (length == 0) throw const FormatException('资料图片为空');
+      if (!session.isUsable) {
+        throw const SquareApiException(
+          '资料媒体会话已失效',
+          errorCode: 'session_expired',
+        );
+      }
+      final codec = await decode(
+        await ui.ImmutableBuffer.fromUint8List(bytes.takeBytes()),
+      );
+      try {
+        await session.validateCurrent();
+        if (!session.isUsable) {
+          throw const SquareApiException(
+            '资料媒体会话已失效',
+            errorCode: 'session_expired',
+          );
+        }
+        return codec;
+      } on Object {
+        codec.dispose();
+        rethrow;
+      }
+    } on Object {
+      scheduleMicrotask(() => PaintingBinding.instance.imageCache.evict(this));
+      rethrow;
+    }
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is _SignedProfileMediaImage &&
+      identical(client, other.client) &&
+      identical(session, other.session) &&
+      url == other.url &&
+      version == other.version;
+  @override
+  int get hashCode => Object.hash(client, session, url, version);
+  @override
+  String toString() => '公民资料图片';
 }

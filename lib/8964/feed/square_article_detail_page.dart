@@ -5,6 +5,7 @@ import 'package:citizenapp/8964/feed/square_post_sync_service.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:citizenapp/account/membership/subscription_service.dart';
 import 'package:provider/provider.dart';
 
 import 'package:citizenapp/8964/feed/square_models.dart';
@@ -112,6 +113,7 @@ class _SquareArticleDetailPageState extends State<SquareArticleDetailPage> {
       }
       final session = await _sessionProvider.ensureSession();
       if (session == null) throw const SquareApiException('请先选择默认钱包账户');
+      await SubscriptionService.requireSquareSession(session, client: _api);
       final detail = await _api.fetchPostDetail(
         session: session,
         summary: _post,
@@ -141,79 +143,84 @@ class _SquareArticleDetailPageState extends State<SquareArticleDetailPage> {
     final cover = media.isNotEmpty ? media.first : null;
     final title = post.title?.trim();
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('文章'),
-        centerTitle: true,
-        actions: [
-          IconButton(
-            tooltip: '刷新',
-            icon: const Icon(Icons.refresh),
-            onPressed: _loading ? null : () => _loadDetail(refresh: true),
-          ),
-          PopupMenuButton<_ArticleDetailAction>(
-            enabled: !_deleting,
-            onSelected: _handleAction,
-            itemBuilder: (context) => const [
-              PopupMenuItem(
-                value: _ArticleDetailAction.edit,
-                child: ListTile(
-                  leading: Icon(Icons.edit_outlined),
-                  title: Text('修改'),
+    return MembershipBusinessGate(
+      localContent: post.isLocal,
+      sessionProvider: _sessionProvider,
+      client: _api,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('文章'),
+          centerTitle: true,
+          actions: [
+            IconButton(
+              tooltip: '刷新',
+              icon: const Icon(Icons.refresh),
+              onPressed: _loading ? null : () => _loadDetail(refresh: true),
+            ),
+            PopupMenuButton<_ArticleDetailAction>(
+              enabled: !_deleting,
+              onSelected: _handleAction,
+              itemBuilder: (context) => const [
+                PopupMenuItem(
+                  value: _ArticleDetailAction.edit,
+                  child: ListTile(
+                    leading: Icon(Icons.edit_outlined),
+                    title: Text('修改'),
+                  ),
                 ),
-              ),
-              PopupMenuItem(
-                value: _ArticleDetailAction.delete,
-                child: ListTile(
-                  leading: Icon(Icons.delete_outline),
-                  title: Text('删除'),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _loadError != null
-          ? _DetailLoadError(
-              error: _loadError!,
-              onRetry: () => _loadDetail(refresh: true),
-            )
-          : ListView(
-              children: [
-                if (cover != null && (cover.isLocal || cover.url.isNotEmpty))
-                  SquareMediaImage(item: cover, httpHeaders: _mediaHeaders),
-                Padding(
-                  padding: EdgeInsets.all(AppLayout.scaled(context, 16)),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (title != null && title.isNotEmpty)
-                        Text(
-                          title,
-                          style: TextStyle(
-                            color: AppTheme.textPrimary,
-                            fontSize: AppLayout.scaled(context, 22),
-                            fontWeight: FontWeight.w700,
-                            height: 1.35,
-                          ),
-                        ),
-                      SizedBox(height: AppLayout.scaled(context, 8)),
-                      Text(
-                        post.author.title,
-                        style: TextStyle(
-                          color: AppTheme.textTertiary,
-                          fontSize: AppLayout.scaled(context, 13),
-                        ),
-                      ),
-                      SizedBox(height: AppLayout.scaled(context, 16)),
-                      ..._buildBody(media),
-                    ],
+                PopupMenuItem(
+                  value: _ArticleDetailAction.delete,
+                  child: ListTile(
+                    leading: Icon(Icons.delete_outline),
+                    title: Text('删除'),
                   ),
                 ),
               ],
             ),
+          ],
+        ),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _loadError != null
+            ? _DetailLoadError(
+                error: _loadError!,
+                onRetry: () => _loadDetail(refresh: true),
+              )
+            : ListView(
+                children: [
+                  if (cover != null && (cover.isLocal || cover.url.isNotEmpty))
+                    SquareMediaImage(item: cover, httpHeaders: _mediaHeaders),
+                  Padding(
+                    padding: EdgeInsets.all(AppLayout.scaled(context, 16)),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (title != null && title.isNotEmpty)
+                          Text(
+                            title,
+                            style: TextStyle(
+                              color: AppTheme.textPrimary,
+                              fontSize: AppLayout.scaled(context, 22),
+                              fontWeight: FontWeight.w700,
+                              height: 1.35,
+                            ),
+                          ),
+                        SizedBox(height: AppLayout.scaled(context, 8)),
+                        Text(
+                          post.author.title,
+                          style: TextStyle(
+                            color: AppTheme.textTertiary,
+                            fontSize: AppLayout.scaled(context, 13),
+                          ),
+                        ),
+                        SizedBox(height: AppLayout.scaled(context, 16)),
+                        ..._buildBody(media),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+      ),
     );
   }
 
@@ -251,7 +258,10 @@ class _SquareArticleDetailPageState extends State<SquareArticleDetailPage> {
     child: ClipRRect(
       borderRadius: BorderRadius.circular(AppTheme.radiusMd),
       child: SquareMediaCarousel(
-        children: [for (final item in items) SquareMediaImage(item: item, httpHeaders: _mediaHeaders)],
+        children: [
+          for (final item in items)
+            SquareMediaImage(item: item, httpHeaders: _mediaHeaders),
+        ],
       ),
     ),
   );

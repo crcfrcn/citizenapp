@@ -247,6 +247,11 @@ class SquareSessionProvider {
   Future<void> projectFinalizedIdentity(String blockHash) =>
       _client.projectFinalizedIdentity(blockHash);
 
+  Future<String?> currentCitizenId() async {
+    final current = await _currentUser.resolve();
+    return current?.binding?.cidNumber;
+  }
+
   Future<SquareSession?> ensureSession() => _ensureSession();
 
   /// 页面明确请求本机登记时仍由Worker判定登记资格，并复用唯一会话协调。

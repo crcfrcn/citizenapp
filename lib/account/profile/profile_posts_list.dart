@@ -366,10 +366,12 @@ class _ProfilePostsTabState extends State<ProfilePostsTab> {
           itemBuilder: (context, index) {
             final post = _posts[index];
             final avatarKey = post.author.avatarObjectKey;
-            final avatarUrl = avatarKey == null
-                ? null
-                : widget.api.mediaUrl(avatarKey);
             final session = widget.session;
+            final avatarImage =
+                post.isLocal || avatarKey == null || session == null
+                ? null
+                : widget.api.mediaImage(avatarKey, session: session);
+            // 广场正文媒体仍使用原普通会话头；作者完整资料头像仅从现签provider读取。
             final avatarHeaders = session == null
                 ? null
                 : <String, String>{
@@ -383,8 +385,8 @@ class _ProfilePostsTabState extends State<ProfilePostsTab> {
                     post: post,
                     onTap: () => widget.onOpenPost?.call(post),
                     onAuthorTap: () => widget.onOpenPost?.call(post),
-                    avatarUrl: avatarUrl,
                     avatarHeaders: avatarHeaders,
+                    avatarImage: avatarImage,
                   ),
                 ],
               );
@@ -396,8 +398,8 @@ class _ProfilePostsTabState extends State<ProfilePostsTab> {
                   post: post,
                   onTap: () => widget.onOpenPost?.call(post),
                   onAuthorTap: () => widget.onOpenPost?.call(post),
-                  avatarUrl: avatarUrl,
                   avatarHeaders: avatarHeaders,
+                  avatarImage: avatarImage,
                 ),
               ],
             );

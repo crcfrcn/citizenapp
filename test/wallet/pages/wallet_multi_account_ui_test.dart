@@ -132,7 +132,7 @@ List<Object?> _stateTuple(CitizenWalletState state) => [
     if (value.cleanupTargets == null) null else [value.cleanupTargets!.accountIds, value.cleanupTargets!.deleteWalletWideKey]]],
 ];
 
-Widget _walletTabHost(Future<CitizenWalletState> Function() loader, {bool selectForTrade = false}) {
+Widget _walletTabHost(Future<CitizenWalletState> Function() loader, {bool selectForTrade = false, Duration timeout = const Duration(seconds: 5)}) {
   _snapshotLoader = loader;
   return MultiProvider(providers: [
     Provider<CitizenSdk>.value(value: _sdk),
@@ -140,7 +140,7 @@ Widget _walletTabHost(Future<CitizenWalletState> Function() loader, {bool select
     Provider<CurrentUserContext>(create: (_) => _CurrentUser()),
     Provider<FinalizedIdentityResolver>(create: (_) => _Resolver()),
     Provider<SquareSessionProvider>(create: (_) => _Sessions()),
-  ], child: MaterialApp(home: WalletTab(selectForTrade: selectForTrade)));
+  ], child: MaterialApp(home: WalletTab(selectForTrade: selectForTrade, loadTimeout: timeout)));
 }
 
 void _disposeWidgetBeforeStores(WidgetTester tester) {
@@ -492,6 +492,56 @@ void main() {
     });
   }
 
+
+  testWidgets('目录超时请求取消，重试不堆积请求且迟到引用归还SDK', (tester) async {
+    _disposeWidgetBeforeStores(tester);
+    final pending = Completer<CitizenWalletState>();
+    var calls = 0;
+    _transport.handlers['cancelOperation'] = (_) => [true];
+    await tester.pumpWidget(_walletTabHost(() {
+      calls++;
+      return calls == 1 ? pending.future : Future.value(_coldWalletSnapshot());
+    }, timeout: const Duration(milliseconds: 20)));
+    await tester.pump(const Duration(milliseconds: 25));
+    expect(find.text('本地钱包读取超时，请重试'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('wallet-initial-load-retry')));
+    await tester.pump();
+    expect(calls, 1);
+    expect(find.text('本地钱包正忙，请稍后重试'), findsOneWidget);
+    pending.complete(_coldWalletSnapshot());
+    await tester.pump();await tester.pump();
+    expect(_transport.calls, contains('cancelOperation'));
+    await tester.tap(find.byKey(const ValueKey('wallet-initial-load-retry')));
+    await _settleWallet(tester);
+    expect(calls, 2);
+    expect(find.text('测试冷钱包'), findsOneWidget);
+    expect(find.text('钱包加载失败'), findsNothing);
+    expect(_transport.calls, contains('releaseWalletInspection'));
+  });
+
+  testWidgets('钱包错误页仅展示SDK安全诊断，不展示异常原文', (tester) async {
+    _disposeWidgetBeforeStores(tester);
+    _transport.handlers['readDiagnostics'] = (_) => [<Object?>[
+      ['inspectWallets', 'COMPLETE', 21, 8, 'LOCAL_READ', 2],
+    ]];
+    await tester.pumpWidget(_walletTabHost(() async => throw const CitizenSdkException(
+      code: CitizenSdkErrorCode.panic, message: 'synthetic private panic text')));
+    await _settleWallet(tester);
+    expect(find.textContaining('synthetic private panic text'), findsNothing);
+    await tester.tap(find.text('查看诊断'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('point=LOCAL_READ'), findsOneWidget);
+  });
+
+  testWidgets('链状态读取失败仍显示SDK本地钱包目录', (tester) async {
+    _disposeWidgetBeforeStores(tester);
+    _transport.handlers['getSyncStatus'] = (_) => throw const CitizenSdkException(
+      code: CitizenSdkErrorCode.panic, message: 'synthetic chain failure');
+    await tester.pumpWidget(_walletTabHost(() async => _coldWalletSnapshot()));
+    await _settleWallet(tester);
+    expect(find.text('测试冷钱包'), findsOneWidget);
+    expect(find.text('钱包加载失败'), findsNothing);
+  });
 
   testWidgets('SDK明确启动失败使用原初始化提示，不能伪称设备离线', (tester) async {
       _disposeWidgetBeforeStores(tester);
@@ -1232,7 +1282,8 @@ void main() {
       await _settleWallet(tester);
 
       expect(find.text('钱包加载失败'), findsOneWidget);
-      expect(find.textContaining('首次读取失败'), findsOneWidget);
+      expect(find.text('本地钱包读取失败，请重试'), findsOneWidget);
+      expect(find.textContaining('首次读取失败'), findsNothing);
       expect(find.byKey(const ValueKey('wallet-initial-load-retry')),
           findsOneWidget);
       expect(

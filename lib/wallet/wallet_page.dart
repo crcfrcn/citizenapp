@@ -33,7 +33,9 @@ import 'package:citizenapp/transaction/history/transaction_history_page.dart';
 import 'package:citizenapp/system/theme/app_layout.dart';
 
 class WalletTab extends StatefulWidget {
-  const WalletTab({super.key, this.selectForTrade = false});
+  const WalletTab({super.key, this.selectForTrade = false, this.loadTimeout = const Duration(seconds: 5)});
+
+  final Duration loadTimeout;
 
   final bool selectForTrade;
 
@@ -70,6 +72,8 @@ class _WalletTabState extends State<WalletTab> {
   DateTime? _lastWalletStoreSnackAt;
   bool _mutationInProgress = false;
   int _loadGeneration = 0;
+  Future<void>? _directoryFlight;
+  CitizenSdkOperation<CitizenWalletInspection>? _directoryRead;
   CitizenSdk? _observedSdk;
   StreamSubscription<CitizenSdkEvent>? _walletEvents;
 
@@ -144,6 +148,8 @@ class _WalletTabState extends State<WalletTab> {
     _security?.revision.removeListener(_onSecurityRevision);
     unawaited(_walletEvents?.cancel());
     _loadGeneration += 1;
+    final read = _directoryRead;
+    if (read != null) unawaited(read.cancel().catchError((Object _) => false));
     unawaited(_releaseInspection(_inspection));
     _inspection = null;
     super.dispose();
@@ -163,7 +169,15 @@ class _WalletTabState extends State<WalletTab> {
     if (mounted && !_mutationInProgress) unawaited(_reload());
   }
 
-  Future<void> _reload({bool forceBalance = false}) async {
+  Future<void> _reload({bool forceBalance = false}) {
+    final existing = _directoryFlight;
+    if (existing != null) return existing;
+    final operation = _loadDirectory(forceBalance: forceBalance);
+    _directoryFlight = operation;
+    return operation.whenComplete(() { if (identical(_directoryFlight, operation)) _directoryFlight = null; });
+  }
+
+  Future<void> _loadDirectory({bool forceBalance = false}) async {
     final generation = ++_loadGeneration;
     if (_state == null && mounted) {
       setState(() {
@@ -172,23 +186,28 @@ class _WalletTabState extends State<WalletTab> {
       });
     }
     try {
-      final inspection = await _wallet.inspect().result;
+      // SDK拥有钱包及取消语义；App只限制页面等待，绝不将超时当成底层已退出。
+      if (_directoryRead != null) throw const CitizenSdkException(
+        code: CitizenSdkErrorCode.busy, message: 'previous catalog read is draining');
+      final read = _wallet.inspect();
+      _directoryRead = read;
+      var expired = false;
+      unawaited(read.result.then((late) async {
+        if (expired) await _releaseInspection(late);
+      }, onError: (Object _) {}).whenComplete(() {
+        if (identical(_directoryRead, read)) _directoryRead = null;
+      }));
+      final inspection = await read.result.timeout(widget.loadTimeout, onTimeout: () {
+        expired = true;
+        unawaited(read.cancel().catchError((Object _) => false));
+        throw TimeoutException('wallet catalog display deadline');
+      });
       if (!mounted || generation != _loadGeneration) {
         await _releaseInspection(inspection);
         return;
       }
       final state = inspection.state;
-      // 卡片出现前恢复本地余额；身份查询与缺失余额联网均不能挡住已有金额。
-      try {
-        await _balanceStore.restore(state.accounts.map((account) => account.accountId));
-      } catch (_) {
-        await _releaseInspection(inspection);
-        rethrow;
-      }
-      if (!mounted || generation != _loadGeneration) {
-        await _releaseInspection(inspection);
-        return;
-      }
+      // 目录先显示；余额缓存与身份均为独立展示，不决定钱包是否存在。
       final previous = _inspection;
       setState(() {
         _inspection = inspection;
@@ -197,18 +216,10 @@ class _WalletTabState extends State<WalletTab> {
         _loadError = null;
       });
       await _releaseInspection(previous);
-      // 刷新只读取既有清理意图，不能顺便执行或撤销另一条删除。
-      final pendingCleanup = await _accountSecurity.hasPendingAccountCleanup;
+      unawaited(_refreshWalletDisplay(state, generation, forceBalance));
+    } catch (error) {
       if (!mounted || generation != _loadGeneration) return;
-      setState(() {
-        _pendingAccountCleanup = pendingCleanup;
-        if (!pendingCleanup) _cleanupError = null;
-      });
-      unawaited(_loadIdentity(generation));
-      await _refreshBalances(state, generation, forceRefresh: forceBalance);
-    } catch (error, stackTrace) {
-      if (!mounted || generation != _loadGeneration) return;
-      AppLog.d('wallet load failed: $error\n$stackTrace');
+      AppLog.d('wallet_catalog_read_failed');
       setState(() {
         _loadError = error;
         _loadState = _state == null
@@ -220,6 +231,37 @@ class _WalletTabState extends State<WalletTab> {
         _showWalletStoreErrorOnce(error, message: '钱包刷新失败，已保留上次成功加载的数据');
       }
     }
+  }
+
+  /// 展示缓存、待清理提示和联网结果的失败均不得覆盖已读到的SDK目录。
+  Future<void> _refreshWalletDisplay(CitizenWalletState state, int generation, bool forceBalance) async {
+    try { await _balanceStore.restore(state.accounts.map((account) => account.accountId)); }
+    on Object { AppLog.d('wallet_balance_cache_restore_failed'); }
+    if (!mounted || generation != _loadGeneration) return;
+    try {
+      final pending = await _accountSecurity.hasPendingAccountCleanup;
+      if (mounted && generation == _loadGeneration) setState(() {
+        _pendingAccountCleanup = pending;
+        if (!pending) _cleanupError = null;
+      });
+    } on Object { AppLog.d('wallet_cleanup_status_read_failed'); }
+    if (!mounted || generation != _loadGeneration) return;
+    unawaited(_loadIdentity(generation));
+    await _refreshBalances(state, generation, forceRefresh: forceBalance);
+  }
+
+  Future<void> _showDiagnostics() async {
+    final sdk = context.read<CitizenSdk>();
+    String text;
+    try {
+      final rows = await sdk.readDiagnostics();
+      text = rows.isEmpty ? '暂无安全诊断记录' : rows.map((row) => row.toString()).join('\n');
+    } on Object { text = '安全诊断暂不可读取'; }
+    if (!mounted) return;
+    await showModalBottomSheet<void>(context: context, builder: (context) => SafeArea(
+      child: SingleChildScrollView(padding: const EdgeInsets.all(20),
+        child: SelectableText(text)),
+    ));
   }
 
   Future<void> _loadIdentity(int generation) async {
@@ -986,6 +1028,7 @@ class _WalletTabState extends State<WalletTab> {
               icon: const Icon(Icons.refresh),
               label: const Text('重试'),
             ),
+            TextButton(onPressed: _showDiagnostics, child: const Text('查看诊断')),
           ],
         ),
       ),

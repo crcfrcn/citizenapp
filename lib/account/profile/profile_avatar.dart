@@ -16,6 +16,7 @@ class ProfileAvatar extends StatelessWidget {
     this.imagePath,
     this.imageUrl,
     this.imageHeaders,
+    this.imageProvider,
     this.userImageSet,
     this.identityLevel,
     this.membershipLevel,
@@ -33,7 +34,10 @@ class ProfileAvatar extends StatelessWidget {
   final String? imageUrl;
   final Map<String, String>? imageHeaders;
 
-  /// null 时按 imagePath/imageUrl 推导。明确为 true 表示用户已经设置图片；即使本机
+  /// 完整资料图片按请求现签；名片图片保留原普通会话来源。
+  final ImageProvider? imageProvider;
+
+  /// null 时按 imagePath/imageUrl/imageProvider 推导。明确为 true 表示用户已经设置图片；即使本机
   /// 缓存和网络暂不可用，也只能显示中性占位，不能冒充“从未设置”回退内置随机图。
   final bool? userImageSet;
   final String? identityLevel;
@@ -61,7 +65,8 @@ class ProfileAvatar extends StatelessWidget {
     final validFile = file?.existsSync() == true;
     final url = imageUrl?.trim();
     final hasUserImage =
-        userImageSet ?? validFile || (url != null && url.isNotEmpty);
+        userImageSet ??
+        validFile || imageProvider != null || (url != null && url.isNotEmpty);
     return Stack(
       clipBehavior: Clip.none,
       children: [
@@ -86,23 +91,23 @@ class ProfileAvatar extends StatelessWidget {
                     width: size,
                     height: size,
                   )
-                : url != null && url.isNotEmpty
-                    ? Image.network(
-                        url,
-                        headers: imageHeaders,
-                        fit: BoxFit.cover,
-                        width: size,
-                        height: size,
-                        frameBuilder: (context, child, frame, syncLoaded) =>
-                            syncLoaded || frame != null
-                                ? child
-                                : const _UserImagePlaceholder(),
-                        errorBuilder: (_, _, _) =>
-                            const _UserImagePlaceholder(),
-                      )
-                    : hasUserImage
-                        ? const _UserImagePlaceholder()
-                        : _StableDefaultAvatar(seed: seed, size: size),
+                : imageProvider != null || (url != null && url.isNotEmpty)
+                ? Image(
+                    image:
+                        imageProvider ??
+                        NetworkImage(url!, headers: imageHeaders),
+                    fit: BoxFit.cover,
+                    width: size,
+                    height: size,
+                    frameBuilder: (context, child, frame, syncLoaded) =>
+                        syncLoaded || frame != null
+                        ? child
+                        : const _UserImagePlaceholder(),
+                    errorBuilder: (_, _, _) => const _UserImagePlaceholder(),
+                  )
+                : hasUserImage
+                ? const _UserImagePlaceholder()
+                : _StableDefaultAvatar(seed: seed, size: size),
           ),
         ),
         if (showBadge && badge != null)

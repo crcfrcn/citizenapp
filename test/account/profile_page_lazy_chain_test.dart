@@ -39,10 +39,8 @@ class _ReadyBusinessGate implements CidBusinessGate {
   @override
   final ValueNotifier<int> revision = ValueNotifier<int>(0);
   @override
-  Future<CidBusinessDecision> resolve() async => const CidBusinessDecision(
-    CidBusinessStatus.ready,
-    cidNumber: _cidNumber,
-  );
+  Future<CidBusinessDecision> resolve() async =>
+      const CidBusinessDecision(CidBusinessStatus.ready, cidNumber: _cidNumber);
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -154,7 +152,7 @@ class _VerifiedLocalBadgeStore extends _FakeIdentityBadgeSnapshotStore {
 }
 
 class _ForbiddenSessionProvider extends FakeSessionProvider {
-  _ForbiddenSessionProvider() : super(null);
+  _ForbiddenSessionProvider() : super(null, citizenId: _cidNumber);
   int calls = 0;
   @override
   Future<SquareSession?> ensureSession() async {
@@ -343,19 +341,19 @@ void main() {
       Provider<CidBusinessGate>.value(
         value: _ReadyBusinessGate(),
         child: Provider<CitizenSdk>.value(
-        value: _sdkHarness.sdk,
-        child: MaterialApp(
-          home: MyTab(
-            wallet: _FakeWallet(_testWallet),
-            currentUserContext: _UnboundLocalUser(),
-            badgeSnapshotStore: _VerifiedLocalBadgeStore(),
-            profileCache: FakeProfileCache(sampleProfile()),
-            profileApi: api,
-            sessionProvider: session,
-            subscriptionService: _ConfirmedMembershipSnapshotService(),
+          value: _sdkHarness.sdk,
+          child: MaterialApp(
+            home: MyTab(
+              wallet: _FakeWallet(_testWallet),
+              currentUserContext: _UnboundLocalUser(),
+              badgeSnapshotStore: _VerifiedLocalBadgeStore(),
+              profileCache: FakeProfileCache(sampleProfile()),
+              profileApi: api,
+              sessionProvider: session,
+              subscriptionService: _ConfirmedMembershipSnapshotService(),
+            ),
           ),
         ),
-      ),
       ),
     );
     await tester.pumpAndSettle();
@@ -591,7 +589,9 @@ void main() {
               currentUserContext: _CachedIdentityCache(),
               badgeSnapshotStore: _FakeIdentityBadgeSnapshotStore(),
               profileApi: FakeProfileApi(sampleProfile(displayName: '公开昵称')),
-              profileCache: FakeProfileCache(sampleProfile(displayName: '缓存昵称')),
+              profileCache: FakeProfileCache(
+                sampleProfile(displayName: '缓存昵称'),
+              ),
               sessionProvider: FakeSessionProvider(fakeSession()),
               squareApi: squareApi,
               subscriptionService: membershipSnapshots,

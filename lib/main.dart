@@ -201,28 +201,14 @@ Future<void> main() async {
     onClosing: authentication.close,
   );
 
-  // 擦除门闩通过后才启动 SDK 唯一轻节点。启动失败保留 SDK
-  // startFailed 事实并继续进入 App，交易顶栏按现有不可用状态呈现；
-  // 禁止回退到 CitizenApp 旧轻节点。
-  try {
-    await citizenSdk.start();
-  } on Object catch (error, stackTrace) {
-    AppLog.d('[CitizenSDK] 唯一轻节点启动失败: $error\n$stackTrace');
-  }
+  // 钱包仍由唯一SDK拥有；轻节点启动不再成为本地页面显示的前置等待。
   final transactionHistory = WalletTransactionHistoryService(
     history: citizenSdk.history,
     chain: citizenSdk.chain,
     wallet: citizenSdk.wallet,
     events: citizenSdk.events,
   );
-  try {
-    await transactionHistory.start();
-  } on Object catch (error, stackTrace) {
-    AppLog.d('[TransactionHistory] 初始同步失败: $error\n$stackTrace');
-  }
-
-  // 只有持久擦除门闩、上一进程 CID lease 和 SDK 启动尝试完成后，
-  // 才允许注册会构造 ChatSdk 的后台入口。
+  // 擦除恢复及原安全前置已完成，聊天仍惰性创建；后台入口不负责启动钱包或节点。
   registerAppPushBackgroundHandler(chatRuntimeBackgroundHandler);
 
   // 诊断 — 把所有 framework / widget 静默吞掉的异常都打到 logcat。
@@ -268,6 +254,7 @@ Future<void> main() async {
   runApp(
     CitizenApp(
       sdk: citizenSdk,
+      startChain: () => citizenSdk.start(),
       registrationCoordinator: registrationCoordinator,
       accountSecurity: accountSecurity,
       currentUserContext: currentUserContext,
@@ -469,6 +456,7 @@ class CitizenApp extends StatefulWidget {
   const CitizenApp({
     super.key,
     this.registrationCoordinator,
+    this.startChain,
     required this.sdk,
     required this.accountSecurity,
     required this.currentUserContext,
@@ -482,6 +470,7 @@ class CitizenApp extends StatefulWidget {
     required this.closeChatRuntime,
   });
 
+  final Future<void> Function()? startChain;
   final RegistrationCoordinator? registrationCoordinator;
   final CitizenSdk sdk;
   final AccountSecurityService accountSecurity;
@@ -500,6 +489,22 @@ class CitizenApp extends StatefulWidget {
 }
 
 class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
+  Future<void> _chainStartup = Future<void>.value();
+  bool _closing = false;
+  Future<void> _startChain() async {
+    try {
+      await widget.startChain?.call();
+      if (!_closing) await widget.transactionHistory.start();
+    } on Object {
+      // 原生安全诊断归SDK；App不记录可能含业务数据的异常原文。
+      AppLog.d('[CitizenSDK] chain_start_failed');
+    }
+  }
+  Future<void> _stopSdk() async {
+    _closing = true;
+    await _chainStartup;
+    await _closeCitizenSdk(widget.sdk, widget.transactionHistory);
+  }
   late final _registrationCoordinator =
       widget.registrationCoordinator ?? RegistrationCoordinator();
   @override
@@ -509,6 +514,7 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
     widget.squareSessionProvider.installRuntimeFactory(
       widget.chatRuntimeFactory,
     );
+    _chainStartup = _startChain();
   }
 
   @override
@@ -529,7 +535,7 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
     _registrationCoordinator.api.close();
     unawaited(widget.closeChatRuntime());
     widget.accountSecurity.dispose();
-    unawaited(_closeCitizenSdk(widget.sdk, widget.transactionHistory));
+    unawaited(_stopSdk());
     super.dispose();
   }
 

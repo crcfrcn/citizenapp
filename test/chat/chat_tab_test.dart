@@ -1,4 +1,5 @@
 import '../square/mls_authentication_fixture.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -50,12 +51,23 @@ const _peerProfile = CitizenProfile(
 );
 
 void main() {
-  setUp(
-    () => SubscriptionService.setChatAuthorizationForTesting(
+  setUp(() {
+    // 公民会话与附件会员许可分别提供，普通贴纸不以会员额度证明身份。
+    SubscriptionService.rememberCitizenSession(
+      SquareSession(
+        deviceId: testMlsDeviceId,
+        sessionToken: 'synthetic-chat-session',
+        cidNumber: _ownerUserId,
+        bindingRevision: 1,
+        accountId: '0x${List.filled(32, '11').join()}',
+        expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
+      ),
+    );
+    SubscriptionService.setChatAuthorizationForTesting(
       _ownerUserId,
       10 * 1024 * 1024,
-    ),
-  );
+    );
+  });
   tearDown(
     () =>
         SubscriptionService.setChatAuthorizationForTesting(_ownerUserId, null),
@@ -985,10 +997,10 @@ class _FakeProfileApi extends CitizenProfileApi {
   final CitizenProfile profile;
 
   @override
-  Future<CitizenProfile> fetchProfile(
+  Future<CitizenProfileCard> fetchCard(
     String cidNumber, {
     SquareSession? session,
-  }) async => profile;
+  }) async => CitizenProfileCard(profile.toJson());
 }
 
 class _FakeContactService implements UserContactService {
@@ -1056,11 +1068,9 @@ class _FakeProfileSessionProvider implements SquareSessionProvider {
 }
 
 class _UnusedChatHost implements ChatRuntimeHost {
-
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
-
 
 class _FakeRuntime extends ChatSdk {
   _FakeRuntime({

@@ -1,4 +1,5 @@
 import '../mls_authentication_fixture.dart';
+
 import 'dart:async';
 
 import 'package:crypto/crypto.dart';
@@ -13,6 +14,10 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:http/retry.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'
+    show MethodChannel, MissingPluginException;
 
 import 'package:citizenapp/8964/feed/square_models.dart';
 import 'package:citizenapp/account/profile/citizen_profile.dart';
@@ -85,6 +90,7 @@ http.Response _ok(Map<String, dynamic> body) => http.Response(
   headers: {'content-type': 'application/json; charset=utf-8'},
 );
 
+// 资料普通请求与媒体GET均通过原MLS认证器；每次实际网络读取单独调用，证明不缓存。
 // `_headers` 对带 session 的请求强制要求设备请求签名器（发布会员体系后新增硬校验）；
 // 测试用固定假签名占位，MockClient 不校验签名头。
 SquareSession _session() => SquareSession(
@@ -100,6 +106,492 @@ SquareSession _session() => SquareSession(
 void main() {
   TestCitizenSdkHarness();
   useIsolatedIsar();
+  test('最小名片使用独立路径并保留昵称徽标，不覆盖完整主页缓存', () async {
+    final full = CitizenProfile.fromJson(_profileJson());
+    await const CitizenProfileCache().write(full);
+    final client = _client(
+      MockClient((request) async {
+        expect(request.url.path, '/api/user/cards/$_profileCid');
+        expect(request.headers['authorization'], 'Bearer tok');
+        final card = Map<String, dynamic>.from(_profileJson())
+          ..remove('bio')
+          ..remove('counts')
+          ..remove('banner_object_key');
+        return _ok({'ok': true, 'card': card});
+      }),
+    );
+    final card = await client.fetchUserCard(
+      cidNumber: _profileCid,
+      session: _session(),
+    );
+    expect(card, isA<CitizenProfileCard>());
+    expect(card.displayName, full.displayName);
+    expect(card.identityLevel, full.identityLevel);
+    expect(card.membershipLevel, full.membershipLevel);
+    expect(card.bio, isEmpty);
+    expect(card.posts, 0);
+    expect(card.bannerObjectKey, isNull);
+    await const CitizenProfileCache().write(card);
+    expect(
+      (await const CitizenProfileCache().read(_profileCid))?.bio,
+      full.bio,
+    );
+    expect(
+      client.cardAvatarUrl(_profileCid),
+      'https://example.com/api/user/cards/$_profileCid/avatar',
+    );
+    expect(
+      () =>
+          CitizenProfileApi(client: client)
+              .cardMediaUrl('profile/$_profileCid/banner'),
+      throwsA(isA<SquareApiException>()),
+    );
+  });
+  test('最小名片的CID错配和缺字段不能作为公开资料返回', () async {
+    for (final card in [
+      {'cid_number': 'OTHER'},
+      {'cid_number': _profileCid, 'account_id': _owner, 'display_name': 'name'},
+    ]) {
+      final client = _client(
+        MockClient((_) async => _ok({'ok': true, 'card': card})),
+      );
+      await expectLater(
+        client.fetchUserCard(cidNumber: _profileCid, session: _session()),
+        throwsA(isA<SquareApiException>()),
+      );
+    }
+  });
+
+  group('完整资料媒体逐请求MLS传输', () {
+    final url =
+        'https://example.com/api/user/profiles/$_profileCid/assets/avatar';
+    SquareSession authorized(
+      Future<Map<String, String>> Function({
+        required String method,
+        required Uri uri,
+        required List<int> body,
+        required String sessionToken,
+      })
+      sign, {
+      Future<void> Function()? current,
+      int? expiry,
+    }) => SquareSession(
+      deviceId: testMlsDeviceId,
+      sessionToken: 'tok',
+      cidNumber: _profileCid,
+      bindingRevision: 1,
+      accountId: _owner,
+      expiresAt: expiry ?? DateTime.now().millisecondsSinceEpoch + 60000,
+      authenticateRequest: sign,
+      requireCurrent: current,
+    );
+    test('相同请求对象的GET、Range与条件读取每次现签，旧证明不透传', () async {
+      var signed = 0;
+      final requests = <http.Request>[];
+      final api = _client(
+        MockClient((request) async {
+          requests.add(request);
+          return http.Response.bytes(
+            request.headers.containsKey('if-none-match') ? [] : _png,
+            request.headers.containsKey('if-none-match')
+                ? 304
+                : request.headers.containsKey('range')
+                ? 206
+                : 200,
+            headers: {
+              'content-type': 'image/png',
+              if (request.headers.containsKey('range'))
+                'content-range': 'bytes 0-1/2',
+            },
+          );
+        }),
+      );
+      final session = authorized(({
+        required method,
+        required uri,
+        required body,
+        required sessionToken,
+      }) async {
+        expect(method, 'GET');
+        expect(uri.toString(), url);
+        expect(body, isEmpty);
+        expect(sessionToken, 'tok');
+        return {'x-mls-proof': 'fresh-${++signed}'};
+      });
+      final reader = api.profileMediaClient(session);
+      final request = http.Request('GET', Uri.parse(url))
+        ..headers.addAll({
+          'x-mls-proof': 'stale',
+          'authorization': 'Bearer old',
+        });
+      await (await reader.send(request)).stream.drain<void>();
+      request.headers.addAll({'range': 'bytes=0-1', 'if-range': '"original"'});
+      final partial = await reader.send(request);
+      expect(partial.statusCode, 206);
+      await partial.stream.drain<void>();
+      await (await reader.send(request)).stream.drain<void>();
+      request.headers['if-none-match'] = '"original"';
+      final unchanged = await reader.send(request);
+      expect(unchanged.statusCode, 304);
+      await unchanged.stream.drain<void>();
+      expect(signed, 4);
+      expect(requests.map((r) => r.headers['x-mls-proof']), [
+        'fresh-1',
+        'fresh-2',
+        'fresh-3',
+        'fresh-4',
+      ]);
+      expect(
+        requests.every(
+          (r) =>
+              r.headers['authorization'] == 'Bearer tok' && r.bodyBytes.isEmpty,
+        ),
+        isTrue,
+      );
+      expect(requests[1].headers['range'], 'bytes=0-1');
+      expect(requests[1].headers['if-range'], '"original"');
+      expect(requests[3].headers['if-none-match'], '"original"');
+      reader.close();
+      await expectLater(
+        reader.get(Uri.parse(url)),
+        throwsA(isA<http.ClientException>()),
+      );
+    });
+    test('真实RetryClient每次失败重试都调用新的认证器，拒绝重定向跟随', () async {
+      var signed = 0;
+      final proofs = <String?>[];
+      var attempts = 0;
+      final api = _client(
+        MockClient((request) async {
+          expect(request.followRedirects, isFalse);
+          proofs.add(request.headers['x-mls-proof']);
+          attempts++;
+          return http.Response.bytes(_png, attempts == 1 ? 503 : 200);
+        }),
+      );
+      final session = authorized(
+        ({
+          required method,
+          required uri,
+          required body,
+          required sessionToken,
+        }) async => {'x-mls-proof': 'attempt-${++signed}'},
+      );
+      final retry = RetryClient(
+        api.profileMediaClient(session),
+        retries: 1,
+        delay: (_) => Duration.zero,
+      );
+      expect((await retry.get(Uri.parse(url))).statusCode, 200);
+      expect(proofs, ['attempt-1', 'attempt-2']);
+      expect(signed, 2);
+      retry.close();
+      final redirectApi = _client(
+        MockClient((request) async {
+          expect(request.followRedirects, isFalse);
+          return http.Response(
+            '',
+            302,
+            headers: {'location': 'https://other.test/resource'},
+          );
+        }),
+      );
+      final response = await redirectApi.openProfileMedia(
+        url,
+        session: session,
+      );
+      expect(response.statusCode, 302);
+      await response.stream.drain<void>();
+    });
+    test('错源、路径别名、能力查询、非GET或正文在签名/HTTP前拒绝', () async {
+      var signed = 0, requests = 0;
+      final api = _client(
+        MockClient((_) async {
+          requests++;
+          return http.Response('', 200);
+        }),
+      );
+      final session = authorized(({
+        required method,
+        required uri,
+        required body,
+        required sessionToken,
+      }) async {
+        signed++;
+        return {'x-mls-proof': 'unused'};
+      });
+      for (final bad in [
+        'http://example.com/api/user/profiles/$_profileCid/assets/avatar',
+        url.replaceFirst('example.com', 'other.test'),
+        '$url?token=forbidden',
+        '$url#fragment',
+        url.replaceFirst('https://', 'https://user@'),
+        url.replaceFirst('/profiles/', '/cards/'),
+        url.replaceFirst('/assets/avatar', '/assets/other'),
+        url.replaceFirst('/api/', '/api/%75ser/'),
+        url.replaceFirst('example.com', 'example.com:444'),
+      ]) {
+        await expectLater(
+          api.openProfileMedia(bad, session: session),
+          throwsA(isA<SquareApiException>()),
+        );
+      }
+      final reader = api.profileMediaClient(session);
+      await expectLater(
+        reader.post(Uri.parse(url)),
+        throwsA(isA<http.ClientException>()),
+      );
+      final withBody = http.Request('GET', Uri.parse(url))..body = 'not empty';
+      expect(() => reader.send(withBody), throwsA(isA<http.ClientException>()));
+      expect(signed, 0);
+      expect(requests, 0);
+      reader.close();
+    });
+    test('签名期间账户改变及过期会话均不发出媒体请求', () async {
+      var requests = 0;
+      var current = true;
+      final entered = Completer<void>();
+      final proof = Completer<Map<String, String>>();
+      final api = _client(
+        MockClient((_) async {
+          requests++;
+          return http.Response.bytes(_png, 200);
+        }),
+      );
+      final session = authorized(
+        ({
+          required method,
+          required uri,
+          required body,
+          required sessionToken,
+        }) {
+          entered.complete();
+          return proof.future;
+        },
+        current: () async {
+          if (!current) throw StateError('synthetic account changed');
+        },
+      );
+      final pending = api.openProfileMedia(url, session: session);
+      final rejected = expectLater(pending, throwsStateError);
+      await entered.future;
+      current = false;
+      proof.complete({'x-mls-proof': 'late'});
+      await rejected;
+      expect(requests, 0);
+      final expired = authorized(
+        ({
+          required method,
+          required uri,
+          required body,
+          required sessionToken,
+        }) async => throw StateError('不得为过期会话签名'),
+        expiry: 0,
+      );
+      await expectLater(
+        api.openProfileMedia(url, session: expired),
+        throwsA(isA<SquareApiException>()),
+      );
+      expect(requests, 0);
+      final missing = SquareSession(
+        deviceId: testMlsDeviceId,
+        sessionToken: 'tok',
+        cidNumber: _profileCid,
+        bindingRevision: 1,
+        accountId: _owner,
+        expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
+      );
+      await expectLater(
+        api.openProfileMedia(url, session: missing),
+        throwsA(isA<SquareApiException>()),
+      );
+      expect(requests, 0);
+    });
+    test('正文到达期间失效不交付后续字节，读取器不输出证明或令牌诊断', () async {
+      var current = true;
+      final stream = StreamController<List<int>>();
+      final api = SquareApiClient(
+        baseUrl: 'https://example.com/api',
+        httpClient: _ProfileStreamClient(stream.stream),
+      );
+      final session = authorized(
+        ({
+          required method,
+          required uri,
+          required body,
+          required sessionToken,
+        }) async => {'x-mls-proof': 'synthetic-proof'},
+        current: () async {
+          if (!current) throw StateError('synthetic account changed');
+        },
+      );
+      final response = await api.openProfileMedia(url, session: session);
+      final bytes = response.stream.toBytes();
+      final rejected = expectLater(bytes, throwsStateError);
+      current = false;
+      stream.add(_png);
+      await stream.close();
+      await rejected;
+      final image = CitizenProfileApi(client: api)
+          .mediaImage('profile/$_profileCid/avatar', session: session);
+      expect(image.toString(), isNot(contains('synthetic-proof')));
+      expect(image.toString(), isNot(contains('tok')));
+    });
+  });
+
+  testWidgets('图片读取器失败后重试现签，命中图片缓存不产生新GET或保存证明', (tester) async {
+    final png = await tester.runAsync(
+      () => File('assets/logo/mark256.png').readAsBytes(),
+    );
+    var signed = 0;
+    var requests = 0;
+    final proofs = <String?>[];
+    final client = _client(
+      MockClient((request) async {
+        proofs.add(request.headers['x-mls-proof']);
+        requests++;
+        return http.Response.bytes(
+          png!,
+          requests == 1 ? 503 : 200,
+          headers: {'content-type': 'image/png'},
+        );
+      }),
+    );
+    final session = SquareSession(
+      deviceId: testMlsDeviceId,
+      sessionToken: 'synthetic-image-token',
+      cidNumber: _profileCid,
+      bindingRevision: 1,
+      accountId: _owner,
+      expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
+      authenticateRequest: ({
+        required method,
+        required uri,
+        required body,
+        required sessionToken,
+      }) async => {'x-mls-proof': 'image-${++signed}'},
+    );
+    final api = CitizenProfileApi(client: client);
+    final image = api.mediaImage(
+      'profile/$_profileCid/avatar',
+      session: session,
+      updatedAt: 1,
+    );
+    expect(
+      image,
+      api.mediaImage(
+        'profile/$_profileCid/avatar',
+        session: session,
+        updatedAt: 1,
+      ),
+    );
+    expect(
+      image,
+      isNot(
+        api.mediaImage(
+          'profile/$_profileCid/avatar',
+          session: _session(),
+          updatedAt: 1,
+        ),
+      ),
+    );
+    Future<Object?> decode() async {
+      final result = Completer<ImageInfo>();
+      final stream = image.resolve(ImageConfiguration.empty);
+      final listener = ImageStreamListener(
+        (info, _) => result.complete(info),
+        onError: (Object e, StackTrace? st) => result.completeError(e, st),
+      );
+      stream.addListener(listener);
+      try {
+        final info = await result.future.timeout(const Duration(seconds: 10));
+        info.dispose();
+        return null;
+      } catch (error) {
+        return error;
+      } finally {
+        stream.removeListener(listener);
+      }
+    }
+
+    expect(await tester.runAsync(decode), isA<SquareApiException>());
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    expect(await tester.runAsync(decode), isNull);
+    expect(await tester.runAsync(decode), isNull);
+    expect(proofs, ['image-1', 'image-2']);
+    expect(requests, 2);
+    expect(signed, 2);
+    expect(image.toString(), isNot(contains('synthetic-image-token')));
+    await image.evict();
+  });
+  test('显式资料刷新逐张签名并复用原持久图片校验', () async {
+    // 使用本测试独占目录提供真实图片缓存所需的平台路径，不访问应用或用户目录。
+    final directory = Directory.systemTemp.createTempSync('signed-profile-');
+    const channel = MethodChannel('plugins.flutter.io/path_provider');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'getApplicationSupportDirectory' ||
+              call.method == 'getTemporaryDirectory') {
+            return directory.path;
+          }
+          throw MissingPluginException();
+        });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+      directory.deleteSync(recursive: true);
+    });
+    var signed = 0;
+    final paths = <String>[];
+    final proofs = <String?>[];
+    final json = _profileJson()
+      ..['banner_object_key'] = 'profile/$_profileCid/banner';
+    final client = _client(
+      MockClient((request) async {
+        paths.add(request.url.path);
+        proofs.add(request.headers['x-mls-proof']);
+        if (request.url.path == '/api/user/profiles/$_profileCid') {
+          return _ok({'profile': json});
+        }
+        return http.Response.bytes(
+          _png,
+          200,
+          headers: {'content-type': 'image/png'},
+        );
+      }),
+    );
+    final session = SquareSession(
+      deviceId: testMlsDeviceId,
+      sessionToken: 'tok',
+      cidNumber: _profileCid,
+      bindingRevision: 1,
+      accountId: _owner,
+      expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
+      authenticateRequest:
+          ({
+            required method,
+            required uri,
+            required body,
+            required sessionToken,
+          }) async {
+            expect(method, 'GET');
+            expect(body, isEmpty);
+            return {'x-mls-proof': 'refresh-${++signed}'};
+          },
+    );
+    final profile = await CitizenProfileApi(client: client)
+        .refreshProfile(_profileCid, session: session, userInitiated: true);
+    final saved = await CitizenProfileMediaCache().read(profile);
+    expect(paths, [
+      '/api/user/profiles/$_profileCid',
+      '/api/user/profiles/$_profileCid/assets/avatar',
+      '/api/user/profiles/$_profileCid/assets/banner',
+    ]);
+    expect(proofs, ['refresh-1', 'refresh-2', 'refresh-3']);
+    expect(await File(saved.avatarPath!).readAsBytes(), _png);
+    expect(await File(saved.bannerPath!).readAsBytes(), _png);
+  });
+
   test('公开资料显式刷新跨实例合并，普通读取不发请求', () async {
     final gate = Completer<http.Response>();
     var requests = 0;
@@ -708,9 +1200,9 @@ void main() {
         final client = _client(
           MockClient((request) async {
             seen = request.url;
-          expect(request.method, 'GET');
-          expect(request.headers['authorization'], 'Bearer tok');
-          expect(request.headers['x-mls-proof'], isNotEmpty);
+            expect(request.method, 'GET');
+            expect(request.headers['authorization'], 'Bearer tok');
+            expect(request.headers['x-mls-proof'], isNotEmpty);
             return _ok({
               'ok': true,
               'posts': [
@@ -772,7 +1264,10 @@ void main() {
         }),
       );
 
-      final page = await client.fetchAuthorPosts(cidNumber: _profileCid, session: _session());
+      final page = await client.fetchAuthorPosts(
+        cidNumber: _profileCid,
+        session: _session(),
+      );
       final post = page.posts.single;
 
       expect(post.postType, SquarePostType.article);
@@ -833,7 +1328,10 @@ void main() {
         'profile/../avatar',
         'profile/$_profileCid/avatar/extra',
       ]) {
-        expect(() => client.mediaUrl(objectKey), throwsA(isA<SquareApiException>()));
+        expect(
+          () => client.mediaUrl(objectKey),
+          throwsA(isA<SquareApiException>()),
+        );
       }
     });
 
@@ -861,4 +1359,13 @@ void main() {
       expect(updated.displayName, '新名字');
     });
   });
+}
+
+// 真实StreamedResponse用于观察签名完成后正文迟到，不把它退化为已聚合Response。
+final class _ProfileStreamClient extends http.BaseClient {
+  _ProfileStreamClient(this.body);
+  final Stream<List<int>> body;
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async =>
+      http.StreamedResponse(body, 200, headers: {'content-type': 'image/png'});
 }

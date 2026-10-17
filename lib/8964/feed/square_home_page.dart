@@ -14,6 +14,7 @@ import 'package:citizenapp/8964/feed/square_article_detail_page.dart';
 import 'package:citizenapp/8964/compose/compose_page.dart';
 import 'package:citizenapp/8964/feed/square_post_detail_page.dart';
 import 'package:citizenapp/account/profile/user_profile_page.dart';
+import 'package:citizenapp/account/profile/citizen_profile_api.dart';
 import 'package:citizenapp/account/identity/square_session_provider.dart';
 import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/account/identity/square_identity_state.dart';
@@ -74,10 +75,11 @@ class _SquareHomePageState extends State<SquareHomePage> {
   String? _identityCidNumber;
 
   final SquareApiClient _squareApi = SquareApiClient();
+  late final CitizenProfileApi _profileApi;
   final SquarePostSyncService _postSyncService = SquarePostSyncService();
 
-  /// 最近一次 feed 加载的 session token，供卡片头像鉴权头复用。
-  String? _feedSessionToken;
+  /// 当前分类响应所属会话：完整资料头像每次读取现签，正文媒体保留原普通会话头。
+  SquareSession? _feedSession;
   SquareSessionProvider? _sessionProvider;
   AccountSecurityService? _accountSecurity;
   bool _dependenciesReady = false;
@@ -94,6 +96,9 @@ class _SquareHomePageState extends State<SquareHomePage> {
   void initState() {
     super.initState();
     _feedSource = widget.feedSource ?? SquareApiClient();
+    _profileApi = CitizenProfileApi(
+      client: _feedSource is SquareApiClient ? _feedSource : _squareApi,
+    );
     MembershipRevision.instance.listenable.addListener(_onMembershipChanged);
     IdentityBadgeSnapshotStore.revision.addListener(_onIdentitySnapshotChanged);
   }
@@ -340,7 +345,8 @@ class _SquareHomePageState extends State<SquareHomePage> {
       floatingActionButton: _identityCidNumber?.isNotEmpty == true
           ? _SquarePublishMenu(
               expanded: _publishMenuOpen,
-              onToggle: () => setState(() => _publishMenuOpen = !_publishMenuOpen),
+              onToggle: () =>
+                  setState(() => _publishMenuOpen = !_publishMenuOpen),
               onSelected: _openCompose,
             )
           : null,
@@ -443,12 +449,17 @@ class _SquareHomePageState extends State<SquareHomePage> {
                                   errorMessage: errorMessage,
                                   onOpenPost: _openDetail,
                                   onOpenAuthor: _openAuthor,
-                                  mediaUrlOf: _squareApi.mediaUrl,
-                                  avatarHeaders: _feedSessionToken == null
+                                  avatarImageOf: (key) => _feedSession == null
+                                      ? null
+                                      : _profileApi.mediaImage(
+                                          key,
+                                          session: _feedSession!,
+                                        ),
+                                  avatarHeaders: _feedSession == null
                                       ? null
                                       : {
                                           'authorization':
-                                              'Bearer $_feedSessionToken',
+                                              'Bearer ${_feedSession!.sessionToken}',
                                         },
                                 ),
                               ),
@@ -521,10 +532,9 @@ class _SquareHomePageState extends State<SquareHomePage> {
         session: refreshed,
       );
     }
-    // 存 session token 供 feed 卡片头像 Image.network 带鉴权头（读任意作者头像同域可读）。
-    // 迟到的旧分类请求不得覆盖当前分类的媒体鉴权头。
-    if (generation == _feedLoadGeneration) {
-      _feedSessionToken = session?.sessionToken;
+    // 保存完整会话供头像逐次现签；卸载或迟到旧分类请求不能覆盖当前媒体身份。
+    if (mounted && generation == _feedLoadGeneration) {
+      _feedSession = session;
     }
     if (syncSelf && session != null) {
       await _postSyncService.sync(
@@ -620,7 +630,7 @@ class _FeedBody extends StatelessWidget {
     required this.errorMessage,
     required this.onOpenPost,
     required this.onOpenAuthor,
-    required this.mediaUrlOf,
+    required this.avatarImageOf,
     required this.avatarHeaders,
   });
 
@@ -629,15 +639,15 @@ class _FeedBody extends StatelessWidget {
   final ValueChanged<SquarePost> onOpenPost;
   final ValueChanged<String> onOpenAuthor;
 
-  /// 把 object_key 解析成可读媒体地址（作者头像等）。
-  final String Function(String objectKey) mediaUrlOf;
+  /// 完整资料头像只从逐请求签名的图片源读取，不保存一次性证明头。
+  final ImageProvider? Function(String objectKey) avatarImageOf;
 
-  /// 头像 `Image.network` 鉴权头（钱包 session Bearer）；未登录为空。
+  /// 正文媒体继续沿用原普通会话头；头像实际读取由avatarImageOf独立现签。
   final Map<String, String>? avatarHeaders;
 
-  String? _avatarUrl(SquareAuthor author) {
+  ImageProvider? _avatarImage(SquareAuthor author) {
     final key = author.avatarObjectKey;
-    return key == null ? null : mediaUrlOf(key);
+    return key == null ? null : avatarImageOf(key);
   }
 
   @override
@@ -661,14 +671,14 @@ class _FeedBody extends StatelessWidget {
         }
         final postIndex = errorMessage == null ? index : index - 1;
         final post = posts[postIndex];
-        final avatarUrl = _avatarUrl(post.author);
+        final avatarImage = post.isLocal ? null : _avatarImage(post.author);
         // 文章走标题/正文在上、强制横屏首图在下的文章卡；其余走图文卡。
         if (post.postType == SquarePostType.article) {
           return SquareArticleCard(
             post: post,
             onTap: () => onOpenPost(post),
             onAuthorTap: () => onOpenAuthor(post.author.cidNumber ?? ''),
-            avatarUrl: avatarUrl,
+            avatarImage: avatarImage,
             avatarHeaders: avatarHeaders,
           );
         }
@@ -676,7 +686,7 @@ class _FeedBody extends StatelessWidget {
           post: post,
           onTap: () => onOpenPost(post),
           onAuthorTap: () => onOpenAuthor(post.author.cidNumber ?? ''),
-          avatarUrl: avatarUrl,
+          avatarImage: avatarImage,
           avatarHeaders: avatarHeaders,
         );
       },

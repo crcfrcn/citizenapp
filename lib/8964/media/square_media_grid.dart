@@ -132,7 +132,12 @@ class SquareMediaTile extends StatelessWidget {
     return ClipRRect(
       borderRadius: radius,
       child: isVideo && enableVideoPlayback
-          ? SquareVideo(url: item.url, thumbnailUrl: item.coverUrl, item: item, httpHeaders: httpHeaders)
+          ? SquareVideo(
+              url: item.url,
+              thumbnailUrl: item.coverUrl,
+              item: item,
+              httpHeaders: httpHeaders,
+            )
           : _buildCover(context, isVideo),
     );
   }
@@ -142,7 +147,11 @@ class SquareMediaTile extends StatelessWidget {
     child: Stack(
       fit: StackFit.expand,
       children: [
-        SquareMediaImage(item: item, preview: !enableVideoPlayback, httpHeaders: httpHeaders),
+        SquareMediaImage(
+          item: item,
+          preview: !enableVideoPlayback,
+          httpHeaders: httpHeaders,
+        ),
         if (isVideo)
           Center(
             child: Icon(
@@ -283,7 +292,13 @@ class _SquareVideoState extends State<SquareVideo> {
       }
       // 原生文件播放器不经过任何HTTP服务；初始化期间资源由本次操作持有。
       controller = source == null
-          ? VideoPlayerController.networkUrl(uri!, httpHeaders: CitizenServeApiConfig.mediaHeaders(uri.toString(), widget.httpHeaders))
+          ? VideoPlayerController.networkUrl(
+              uri!,
+              httpHeaders: CitizenServeApiConfig.mediaHeaders(
+                uri.toString(),
+                widget.httpHeaders,
+              ),
+            )
           : VideoPlayerController.file(source.file);
       await controller.initialize();
       await controller.seekTo(Duration.zero);
@@ -425,11 +440,18 @@ class _SquareVideoState extends State<SquareVideo> {
               ),
             )
           else if (widget.item?.isLocal == true)
-            SquareMediaImage(item: widget.item!, preview: true, httpHeaders: widget.httpHeaders)
+            SquareMediaImage(
+              item: widget.item!,
+              preview: true,
+              httpHeaders: widget.httpHeaders,
+            )
           else if (Uri.tryParse(widget.thumbnailUrl ?? '')?.scheme == 'https')
             Image.network(
               widget.thumbnailUrl!,
-              headers: CitizenServeApiConfig.mediaHeaders(widget.thumbnailUrl!, widget.httpHeaders),
+              headers: CitizenServeApiConfig.mediaHeaders(
+                widget.thumbnailUrl!,
+                widget.httpHeaders,
+              ),
               fit: BoxFit.cover,
               errorBuilder: (_, _, _) =>
                   const ColoredBox(color: AppTheme.surfaceElevated),
@@ -557,7 +579,7 @@ class _SquareMediaImageState extends State<SquareMediaImage> {
     final media = await _localMedia(item, role);
     if (media == null) return null;
     final limit = role == 'main'
-        ? SquareMediaPolicy.spark.imageMaxBytes
+        ? SquareMediaPolicy.maxLocalImageBytes
         : 4 * 1024 * 1024; // 与显式同步的衍生图接收上限一致。
     if (media.byteSize > limit) throw StateError('图片大小无效');
     final bytes = BytesBuilder(copy: false);
