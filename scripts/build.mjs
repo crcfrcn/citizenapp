@@ -3182,7 +3182,12 @@ async function executeTask(platform,work,request={},options={}) {
   const result=await stages.build(platform,work,receipt,resourcesOptions.environment);state.signal.throwIfAborted();
   checkBuildResult(result,platform,work,request.run_id);
   writeFileSync(resultFile,JSON.stringify(result)+'\n',{flag:'wx',mode:0o600});return result;
- });}catch(error){if(String(error?.message).includes('退出未确认'))state.unconfirmed=true;throw error;}finally{state.finished=true;options.signal?.removeEventListener('abort',abort);if(!state.unconfirmed){unlinkSync(lock);clearWork(work);}}
+ });}catch(error){if(String(error?.message).includes('退出未确认'))state.unconfirmed=true;throw error;}finally{
+  state.finished=true;options.signal?.removeEventListener('abort',abort);
+  // 本层仅释放自己创建的编译守卫；嵌套执行器仍属于外层登记的活跃进程组。
+  // 平台现场由withFixedWork的真实领取者在子执行器退出后统一收尾，避免提前清场覆盖阶段原错。
+  if(!state.unconfirmed)unlinkSync(lock);
+ }
 }
 export function checkBuildResult(value,platform,work,runId) {
  const app=platformContract(platform);
@@ -4978,6 +4983,69 @@ test('失败、取消、并发和伪造终态不能复用工作根或留下成�
   }finally{removeFixture(work,{recursive:true});}
  }
  const work=sandbox();try{writeFixture(join(work,'.product-build.lock'),'owned');await assert.rejects(execute(platform,work,{}));assert.equal(readFileSync(join(work,'.product-build.lock'),'utf8'),'owned');}finally{rmSync(join(work,'.product-build.lock'),{force:true});removeFixture(work,{recursive:true});}
+});
+
+// 真实Node子执行器复用同一领取：子进程自身确已登记，只有父层确认退出后才能清平台根。
+test('真实登记子执行器由父层清场，成功和各阶段原始错误均保留',async()=>{
+ const {withFixedWork,runBuildProcess}=await import('./build.mjs'),platform=Object.keys(contract.platforms)[0];
+ const module=new URL('./build.mjs',import.meta.url).href;
+ for(const mode of ['success','resources','prepare','build']){
+  const work=sandbox();
+  try{
+   await withFixedWork('build/'+platform,async owned=>{
+    assert.equal(owned,work);
+    const code=[
+     'import {execute,outputDigest} from '+JSON.stringify(module)+';',
+     'import fs from "node:fs";import {join,dirname} from "node:path";',
+     'const platform='+JSON.stringify(platform)+',work='+JSON.stringify(work)+',mode='+JSON.stringify(mode)+';',
+     'const owner=JSON.parse(fs.readFileSync(join(work,".active.json"),"utf8"));',
+     'if(owner.pid===process.pid||!owner.groups.includes(process.pid))throw Error("fixture child not registered");',
+     'const stages={requirements:()=>{},resources:async()=>{if(mode==="resources")throw Error("fixture resources failure");return {};},prepare:async()=>{if(mode==="prepare")throw Error("fixture prepare failure");},build:async()=>{',
+     'if(mode==="build")throw Error("fixture build failure");',
+     'const declared=(await import('+JSON.stringify(module)+')).contract.platforms[platform];',
+     'const result={schema:1,product_id:"citizenapp",platform,work,completion:declared.completion,run_id:"123456789",files:[]};',
+     'for(const name of declared.files){const path=join(work,name);fs.mkdirSync(dirname(path),{recursive:true});fs.writeFileSync(path,"isolated-child-candidate");result.files.push({path,sha256:outputDigest(path)});}return result;}};',
+     'let error=null;try{await execute(platform,work,{run_id:"123456789"},{stages});}catch(value){error=value.message;process.exitCode=7;}',
+     'process.stdout.write(JSON.stringify({pid:process.pid,ownerPid:owner.pid,registered:owner.groups.includes(process.pid),error,workExists:fs.existsSync(work),guardExists:fs.existsSync(join(work,".product-build.lock")),resultExists:fs.existsSync(join(work,"build-result.json"))}));',
+    ].join('\n');
+    const result=await runBuildProcess(process.execPath,['--input-type=module','-e',code],{
+     PATH:process.env.PATH,HOME:process.env.HOME,LANG:'C',LC_ALL:'C',
+     NODE_TEST_CONTEXT:'child-v8',CITIZENAPP_TEST_SESSION:testSession,
+    },root,{capture:true,accepted:[0,7],timeout:15000});
+    const value=JSON.parse(result.stdout),owner=JSON.parse(readFileSync(join(work,'.active.json'),'utf8'));
+    assert.equal(value.ownerPid,process.pid);assert.notEqual(value.pid,process.pid);
+    assert.equal(value.registered,true);assert.ok(owner.groups.includes(value.pid));
+    assert.equal(result.code,mode==='success'?0:7);
+    assert.equal(value.error,mode==='success'?null:'fixture '+mode+' failure');
+    assert.equal(value.workExists,true,'父层仍领取现场，子执行器不能提前删除');
+    assert.equal(value.guardExists,false,'已确认本层结束必须释放自己的编译守卫');
+    assert.equal(value.resultExists,mode==='success');
+    assert.equal(existsSync(work),true);
+   },{run_id:'123456789'});
+   assert.equal(existsSync(work),false,'真实子进程退出后由父层统一清场');
+  }finally{removeFixture(work,{recursive:true});}
+ }
+});
+
+test('真实登记工具后代仍存活时拒绝清场，取消并确认退出后才收尾',async()=>{
+ const {withFixedWork,runBuildProcess,clearWork}=await import('./build.mjs'),platform=Object.keys(contract.platforms)[0],work=sandbox();
+ try{
+  await withFixedWork('build/'+platform,async owned=>{
+   assert.equal(owned,work);const keep=join(work,'keep');writeFixture(keep,'owned');
+   const cancellation=new AbortController();
+   const child=runBuildProcess(process.execPath,['-e','setInterval(()=>{},1000)'],{
+    PATH:process.env.PATH,HOME:process.env.HOME,LANG:'C',LC_ALL:'C',
+   },root,{capture:true,signal:cancellation.signal,timeout:15000});
+   const stopped=assert.rejects(child,/产品任务已取消/);
+   try{
+    const owner=JSON.parse(readFileSync(join(work,'.active.json'),'utf8'));
+    assert.equal(owner.pid,process.pid);assert.ok(owner.groups.length>0);
+    assert.throws(()=>clearWork(work),/工具后代退出未确认/);
+    assert.equal(readFileSync(keep,'utf8'),'owned','拒绝清场时原现场必须保留');
+   }finally{cancellation.abort();await stopped;}
+  });
+  assert.equal(existsSync(work),false,'真实后代停止且确认退出后才允许所有者清场');
+ }finally{removeFixture(work,{recursive:true});}
 });
 
 test('Android多USB、包路径、证书和开发材料异常由产品拒绝',async()=>{
