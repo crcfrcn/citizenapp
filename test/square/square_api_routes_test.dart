@@ -231,6 +231,46 @@ void _chatAccessTests() {
     );
     expect(access.accessToken, 'opaque-token');
   });
+  // 保留原正向与拒绝断言；补齐默认、显式及自定义安全端口的边界。
+  for (final endpoints in const [
+    ('https://square.test/api', 'wss://square.test:443/api/tatachat/realtime'),
+    ('https://square.test:443/api', 'wss://square.test/api/tatachat/realtime'),
+    ('https://square.test:8443/api', 'wss://square.test:8443/api/tatachat/realtime'),
+    ('https://square.test:8443/api', 'WSS://square.test:8443/api/tatachat/realtime'),
+  ]) {
+    test('聊天许可有效安全端口一致 ${endpoints.$1} ${endpoints.$2}', () async {
+      final api = SquareApiClient(
+        baseUrl: endpoints.$1,
+        httpClient: MockClient((_) async => http.Response(
+          jsonEncode({...receipt(), 'realtime_url': endpoints.$2}),
+          200,
+        )),
+      );
+      addTearDown(api.close);
+      final access = await api.fetchChatAccess(session: session, deviceId: testMlsDeviceId);
+      expect(access.realtimeUrl, Uri.parse(endpoints.$2));
+      expect(access.accessToken, 'opaque-token');
+    });
+  }
+  for (final realtime in [
+    'wss://square.test/api/tatachat/realtime',
+    'wss://square.test:443/api/tatachat/realtime',
+  ]) {
+    test('自定义HTTPS端口拒绝默认WSS端口 $realtime', () async {
+      final api = SquareApiClient(
+        baseUrl: 'https://square.test:8443/api',
+        httpClient: MockClient((_) async => http.Response(
+          jsonEncode({...receipt(), 'realtime_url': realtime}),
+          200,
+        )),
+      );
+      addTearDown(api.close);
+      await expectLater(
+        api.fetchChatAccess(session: session, deviceId: testMlsDeviceId),
+        throwsA(isA<SquareApiException>()),
+      );
+    });
+  }
   for (final mutation in <String, Object>{
     'realtime_url': 'wss://other.test/api/tatachat/realtime',
     'access_token': 'invalid token',
@@ -258,6 +298,7 @@ void _chatAccessTests() {
   for (final url in [
     'https://square.test/api/tatachat/realtime',
     'wss://square.test:8443/api/tatachat/realtime',
+    'wss://square.test:0/api/tatachat/realtime',
     'wss://user@square.test/api/tatachat/realtime',
     'wss://square.test/api/tatachat/realtime?token=secret',
     'wss://square.test/api/tatachat/realtime#fragment',

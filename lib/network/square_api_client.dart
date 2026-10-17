@@ -1094,7 +1094,15 @@ class SquareApiClient
       session: session,
       rejectRedirects: true,
     );
-    final realtime = Uri.tryParse(_requireString(data, 'realtime_url'));
+    final realtimeValue = _requireString(data, 'realtime_url');
+    final realtime = Uri.tryParse(realtimeValue);
+    // Dart未定义WSS默认端口，还会把显式:0规范化掉；从原文按安全443计算，
+    // 保留显式端口（包括0）的同源拒绝，不改变实际WSS许可地址。
+    final realtimePort = realtime?.scheme == 'wss'
+        ? Uri.tryParse(
+            'https${realtimeValue.substring(realtimeValue.indexOf(':'))}',
+          )?.port
+        : null;
     final token = _requireString(data, 'access_token');
     final now = DateTime.now().millisecondsSinceEpoch;
     final expiry = data['expires_at'];
@@ -1104,7 +1112,7 @@ class SquareApiClient
         realtime == null ||
         realtime.scheme != 'wss' ||
         realtime.host != baseUri.host ||
-        realtime.port != baseUri.port ||
+        realtimePort != baseUri.port ||
         realtime.userInfo.isNotEmpty ||
         realtime.path != '/api/tatachat/realtime' ||
         realtime.pathSegments.join('/') != 'api/tatachat/realtime' ||

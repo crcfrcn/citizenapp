@@ -83,7 +83,7 @@ class SquareArticleCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(AppTheme.radiusMd),
                   child: AspectRatio(
                     aspectRatio: 16 / 9,
-                    child: SquareMediaImage(item: cover, preview: true),
+                    child: SquareMediaImage(item: cover, preview: true, httpHeaders: avatarHeaders),
                   ),
                 ),
               ],

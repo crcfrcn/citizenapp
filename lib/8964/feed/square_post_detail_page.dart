@@ -55,6 +55,7 @@ class _SquarePostDetailPageState extends State<SquarePostDetailPage> {
   Object? _loadError;
   bool _deleting = false;
   bool _dependenciesReady = false;
+  Map<String, String>? _mediaHeaders;
 
   SquarePost get post => _post;
 
@@ -122,6 +123,7 @@ class _SquarePostDetailPageState extends State<SquarePostDetailPage> {
       if (!mounted) return;
       setState(() {
         _post = detail;
+        _mediaHeaders = {'authorization': 'Bearer ${session.sessionToken}'};
         _loading = false;
       });
     } catch (error) {
@@ -182,6 +184,7 @@ class _SquarePostDetailPageState extends State<SquarePostDetailPage> {
               children: [
                 SquarePostCard(
                   post: post,
+                  mediaHeaders: _mediaHeaders,
                   displayMode: SquarePostCardDisplayMode.detail,
                 ),
                 SizedBox(height: AppLayout.scaled(context, 12)),

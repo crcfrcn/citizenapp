@@ -22,6 +22,7 @@ class SquarePostCard extends StatelessWidget {
     this.onAuthorTap,
     this.avatarUrl,
     this.avatarHeaders,
+    this.mediaHeaders,
     this.displayMode = SquarePostCardDisplayMode.feed,
   });
 
@@ -34,6 +35,8 @@ class SquarePostCard extends StatelessWidget {
   /// 作者真头像地址与鉴权头（由页面据 avatarObjectKey + session 生成）。
   final String? avatarUrl;
   final Map<String, String>? avatarHeaders;
+  /// 当前会话仅用于受保护媒体请求，不影响卡片布局或头像来源。
+  final Map<String, String>? mediaHeaders;
   final SquarePostCardDisplayMode displayMode;
 
   @override
@@ -78,6 +81,7 @@ class SquarePostCard extends StatelessWidget {
 
     final mediaWidget = SquareMediaGrid(
       mediaItems: media,
+      httpHeaders: mediaHeaders ?? avatarHeaders,
       enableVideoPlayback: displayMode == SquarePostCardDisplayMode.detail,
     );
     return Column(

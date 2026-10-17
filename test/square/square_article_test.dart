@@ -1,4 +1,5 @@
 import 'mls_authentication_fixture.dart';
+import 'dart:convert';
 import '../support/fake_citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -165,10 +166,46 @@ void main() {
   group('CitizenApp 文章会员用量强校验', () {
     test('手机端解析服务端的档位与当前用量快照', () async {
       final api = SquareApiClient(
-        baseUrl: 'https://square.test',
+        baseUrl: 'https://square.test/api',
         httpClient: MockClient(
           (_) async => http.Response(
-            '''{"active":true,"subscription_active":true,"membership":{"membership_level":"democracy","paid_until":200,"last_charged_at":100},"plans":[{"membership_level":"democracy","display_name":"民主会员","chat_file_max_bytes":1,"chat":{"text_enabled":true,"emoji_enabled":true,"sticker_enabled":true,"image_enabled":true,"voice_message_max_seconds":180,"video_message_max_seconds":180,"voice_call_enabled":true,"video_call_enabled":true},"document":{"text_max_chars":300,"image_quality":"hd","max_images":9},"video":{"text_max_chars":300,"video_quality":"hd","max_video_seconds":1800,"max_video_bytes":300000000},"article":{"title_min_chars":10,"title_max_chars":50,"body_max_chars":30000,"cover_quality":"hd","image_quality":"hd","max_images":100,"max_videos":3},"usage":{"monthly_images":1500,"monthly_video_seconds":60000,"active_uploads":2,"storage_bytes":1000000000000}}],"usage_state":{"period_start":100,"period_end":200,"image_count":12,"video_seconds":345,"active_uploads":1}}''',
+            jsonEncode({
+              'ok': true,
+              'membership_active': true,
+              'membership': {
+                'membership_level': 'democracy',
+                'paid_until': 200,
+                'last_charged_at': 100,
+                'subscription_status': 'active',
+              },
+              'plans': [
+                {
+                  'membership_level': 'democracy',
+                  'plan': {
+                    'membership_level': 'democracy',
+                    'chat_file_max_bytes': 1,
+                    'video_max_seconds': 1800,
+                    'video_max_bytes': 300000000,
+                    'article_max_images': 100,
+                    'article_max_videos': 3,
+                    'monthly_images': 1500,
+                    'monthly_video_seconds': 60000,
+                    'active_uploads': 2,
+                  },
+                  'limits': {
+                    'image_dimension': 1920,
+                    'storage_bytes': 1000000000000,
+                  },
+                },
+              ],
+              'usage': {
+                'used_images': 10,
+                'reserved_images': 2,
+                'used_video_seconds': 300,
+                'reserved_video_seconds': 45,
+                'active_uploads': 1,
+              }
+            }),
             200,
             headers: {'content-type': 'application/json'},
           ),

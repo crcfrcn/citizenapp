@@ -81,7 +81,7 @@ class _FakeSessionProvider implements SquareSessionProvider {
 }
 
 class _FakeApi extends SquareApiClient {
-  _FakeApi() : super(baseUrl: 'https://contacts.test');
+  _FakeApi() : super(baseUrl: 'https://contacts.test/api');
 }
 
 class _FixedCidByAccountIdResolver extends CidByAccountIdResolver {

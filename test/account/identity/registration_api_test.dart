@@ -155,9 +155,11 @@ void main() {
       (503, '注册验证服务故障'),
     ]) {
       final api = RegistrationApi(
-        client: MockClient((_) async => http.Response(
-          '服务端私有登记能力不得展示',
+        // 显式交付UTF-8字节及响应头，保留真实HTTP错误分类与正文隔离断言。
+        client: MockClient((_) async => http.Response.bytes(
+          utf8.encode('服务端私有登记能力不得展示'),
           caseValue.$1,
+          headers: const {'content-type': 'text/plain; charset=utf-8'},
         )),
       );
       try {

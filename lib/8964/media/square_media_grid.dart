@@ -5,7 +5,9 @@ import 'dart:typed_data';
 import 'package:citizenapp/8964/media/square_media_store.dart';
 import 'package:citizenapp/8964/media/square_media_policy.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:video_player/video_player.dart';
+import 'package:citizenapp/network/citizen_serve_api_config.dart';
 
 import 'package:citizenapp/8964/feed/square_models.dart';
 import 'package:citizenapp/network/square_api_client.dart';
@@ -25,10 +27,12 @@ class SquareMediaGrid extends StatelessWidget {
     super.key,
     required this.mediaItems,
     this.enableVideoPlayback = false,
+    this.httpHeaders,
   });
 
   final List<SquareMediaItem> mediaItems;
   final bool enableVideoPlayback;
+  final Map<String, String>? httpHeaders;
 
   @override
   Widget build(BuildContext context) {
@@ -43,6 +47,7 @@ class SquareMediaGrid extends StatelessWidget {
           for (final item in mediaItems)
             SquareMediaTile(
               item: item,
+              httpHeaders: httpHeaders,
               radius: BorderRadius.circular(r),
               enableVideoPlayback: true,
             ),
@@ -58,6 +63,7 @@ class SquareMediaGrid extends StatelessWidget {
         aspectRatio: isPortraitVideo ? 3 / 4 : 16 / 9,
         child: SquareMediaTile(
           item: item,
+          httpHeaders: httpHeaders,
           radius: BorderRadius.circular(r),
           enableVideoPlayback: enableVideoPlayback,
         ),
@@ -74,6 +80,7 @@ class SquareMediaGrid extends StatelessWidget {
           Expanded(
             child: SquareMediaTile(
               item: mediaItems[0],
+              httpHeaders: httpHeaders,
               radius: const BorderRadius.only(
                 topLeft: Radius.circular(r),
                 bottomLeft: Radius.circular(r),
@@ -85,6 +92,7 @@ class SquareMediaGrid extends StatelessWidget {
           Expanded(
             child: SquareMediaTile(
               item: mediaItems[1],
+              httpHeaders: httpHeaders,
               radius: const BorderRadius.only(
                 topRight: Radius.circular(r),
                 bottomRight: Radius.circular(r),
@@ -107,10 +115,12 @@ class SquareMediaTile extends StatelessWidget {
     required this.radius,
     this.enableVideoPlayback = false,
     this.overlayCount,
+    this.httpHeaders,
   });
 
   final SquareMediaItem item;
   final BorderRadius radius;
+  final Map<String, String>? httpHeaders;
   final bool enableVideoPlayback;
 
   /// 非空时在右下角显示 `+N`，表示还有 N 张未展开。
@@ -122,7 +132,7 @@ class SquareMediaTile extends StatelessWidget {
     return ClipRRect(
       borderRadius: radius,
       child: isVideo && enableVideoPlayback
-          ? SquareVideo(url: item.url, thumbnailUrl: item.coverUrl, item: item)
+          ? SquareVideo(url: item.url, thumbnailUrl: item.coverUrl, item: item, httpHeaders: httpHeaders)
           : _buildCover(context, isVideo),
     );
   }
@@ -132,7 +142,7 @@ class SquareMediaTile extends StatelessWidget {
     child: Stack(
       fit: StackFit.expand,
       children: [
-        SquareMediaImage(item: item, preview: !enableVideoPlayback),
+        SquareMediaImage(item: item, preview: !enableVideoPlayback, httpHeaders: httpHeaders),
         if (isVideo)
           Center(
             child: Icon(
@@ -162,11 +172,13 @@ class SquareVideo extends StatefulWidget {
     required this.url,
     this.thumbnailUrl,
     this.item,
+    this.httpHeaders,
   });
 
   final String url;
   final String? thumbnailUrl;
   final SquareMediaItem? item;
+  final Map<String, String>? httpHeaders;
 
   @override
   State<SquareVideo> createState() => _SquareVideoState();
@@ -186,6 +198,7 @@ class _SquareVideoState extends State<SquareVideo> {
   void didUpdateWidget(covariant SquareVideo oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.url != widget.url ||
+        !mapEquals(oldWidget.httpHeaders, widget.httpHeaders) ||
         oldWidget.item?.cidNumber != widget.item?.cidNumber ||
         oldWidget.item?.postId != widget.item?.postId ||
         oldWidget.item?.mediaIndex != widget.item?.mediaIndex) {
@@ -270,7 +283,7 @@ class _SquareVideoState extends State<SquareVideo> {
       }
       // 原生文件播放器不经过任何HTTP服务；初始化期间资源由本次操作持有。
       controller = source == null
-          ? VideoPlayerController.networkUrl(uri!)
+          ? VideoPlayerController.networkUrl(uri!, httpHeaders: CitizenServeApiConfig.mediaHeaders(uri.toString(), widget.httpHeaders))
           : VideoPlayerController.file(source.file);
       await controller.initialize();
       await controller.seekTo(Duration.zero);
@@ -412,10 +425,11 @@ class _SquareVideoState extends State<SquareVideo> {
               ),
             )
           else if (widget.item?.isLocal == true)
-            SquareMediaImage(item: widget.item!, preview: true)
+            SquareMediaImage(item: widget.item!, preview: true, httpHeaders: widget.httpHeaders)
           else if (Uri.tryParse(widget.thumbnailUrl ?? '')?.scheme == 'https')
             Image.network(
               widget.thumbnailUrl!,
+              headers: CitizenServeApiConfig.mediaHeaders(widget.thumbnailUrl!, widget.httpHeaders),
               fit: BoxFit.cover,
               errorBuilder: (_, _, _) =>
                   const ColoredBox(color: AppTheme.surfaceElevated),
@@ -504,10 +518,12 @@ class SquareMediaImage extends StatefulWidget {
     required this.item,
     this.preview = false,
     this.fit = BoxFit.cover,
+    this.httpHeaders,
   });
   final SquareMediaItem item;
   final bool preview;
   final BoxFit fit;
+  final Map<String, String>? httpHeaders;
   @override
   State<SquareMediaImage> createState() => _SquareMediaImageState();
 }
@@ -600,6 +616,7 @@ class _SquareMediaImageState extends State<SquareMediaImage> {
     }
     return Image.network(
       url,
+      headers: CitizenServeApiConfig.mediaHeaders(url, widget.httpHeaders),
       fit: widget.fit,
       errorBuilder: (_, _, _) => _message('媒体加载失败'),
     );

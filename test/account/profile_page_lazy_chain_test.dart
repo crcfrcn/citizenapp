@@ -581,19 +581,22 @@ void main() {
     final squareApi = _PendingMembershipSquareApi();
     final creatorService = _PendingCreatorService();
     await tester.pumpWidget(
-      Provider<CitizenSdk>.value(
-        value: _sdkHarness.sdk,
-        child: MaterialApp(
-          home: MyTab(
-            wallet: _FakeWallet(wallet),
-            currentUserContext: _CachedIdentityCache(),
-            badgeSnapshotStore: _FakeIdentityBadgeSnapshotStore(),
-            profileApi: FakeProfileApi(sampleProfile(displayName: '公开昵称')),
-            profileCache: FakeProfileCache(sampleProfile(displayName: '缓存昵称')),
-            sessionProvider: FakeSessionProvider(fakeSession()),
-            squareApi: squareApi,
-            subscriptionService: membershipSnapshots,
-            creatorService: creatorService,
+      Provider<CidBusinessGate>.value(
+        value: _ReadyBusinessGate(),
+        child: Provider<CitizenSdk>.value(
+          value: _sdkHarness.sdk,
+          child: MaterialApp(
+            home: MyTab(
+              wallet: _FakeWallet(wallet),
+              currentUserContext: _CachedIdentityCache(),
+              badgeSnapshotStore: _FakeIdentityBadgeSnapshotStore(),
+              profileApi: FakeProfileApi(sampleProfile(displayName: '公开昵称')),
+              profileCache: FakeProfileCache(sampleProfile(displayName: '缓存昵称')),
+              sessionProvider: FakeSessionProvider(fakeSession()),
+              squareApi: squareApi,
+              subscriptionService: membershipSnapshots,
+              creatorService: creatorService,
+            ),
           ),
         ),
       ),

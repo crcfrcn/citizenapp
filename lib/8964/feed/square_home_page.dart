@@ -61,6 +61,7 @@ class SquareHomePage extends StatefulWidget {
 class _SquareHomePageState extends State<SquareHomePage> {
   late SquareFeedKind _selectedFeed = widget.initialFeed;
   late Future<SquareIdentityState> _identityFuture;
+  int _identityLoadGeneration = 0;
   late final SquareIdentityService _identityService;
   late final SquareFeedSource _feedSource;
   late Future<List<SquarePost>> _feedFuture;
@@ -137,6 +138,7 @@ class _SquareHomePageState extends State<SquareHomePage> {
 
   @override
   void dispose() {
+    _identityLoadGeneration++;
     _accountSecurity?.revision.removeListener(_onWalletsChanged);
     MembershipRevision.instance.listenable.removeListener(_onMembershipChanged);
     IdentityBadgeSnapshotStore.revision.removeListener(
@@ -150,7 +152,9 @@ class _SquareHomePageState extends State<SquareHomePage> {
   /// 身份验真成功只刷新本地身份展示，不因此重复加载动态或网络会话。
   void _onIdentitySnapshotChanged() {
     if (_dependenciesReady && mounted) {
-      setState(() => _identityFuture = _loadIdentity());
+      setState(() {
+        _identityFuture = _loadIdentity();
+      });
     }
   }
 
@@ -235,19 +239,30 @@ class _SquareHomePageState extends State<SquareHomePage> {
   }
 
   Future<SquareIdentityState> _loadIdentity() async {
+    final generation = ++_identityLoadGeneration;
+    final accountRevision = _accountSecurity?.revision.value;
     final identity = await _identityService.loadCurrent();
-    _identityAddress = identity.accountId;
-    _identityCidNumber = identity.cidNumber;
+    // 完成通知必须重建父Scaffold；卸载、账户版本变化及迟到旧请求均不能写回。
+    if (!mounted ||
+        generation != _identityLoadGeneration ||
+        accountRevision != _accountSecurity?.revision.value) {
+      return identity;
+    }
+    setState(() {
+      _identityAddress = identity.accountId;
+      _identityCidNumber = identity.cidNumber;
+    });
     return identity;
   }
 
   Future<void> _onWalletsChanged() async {
     // CID 占号可在 account_id 不变时把 cid_number 从空推进为有效值；收到显式身份
     // revision 后必须读取完整身份，不能沿用只比较账户的旧优化。
+    final accountRevision = _accountSecurity?.revision.value;
     final identity = await context.read<CurrentUserContext>().resolve();
     final identityAccountId = identity?.accountId ?? '';
     final identityCidNumber = identity?.cidNumber ?? '';
-    if (!mounted) return;
+    if (!mounted || accountRevision != _accountSecurity?.revision.value) return;
     if (identityAccountId == (_identityAddress ?? '') &&
         identityCidNumber == (_identityCidNumber ?? '')) {
       return;

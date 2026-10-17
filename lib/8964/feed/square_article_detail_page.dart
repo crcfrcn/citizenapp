@@ -51,6 +51,7 @@ class _SquareArticleDetailPageState extends State<SquareArticleDetailPage> {
   Object? _loadError;
   bool _deleting = false;
   bool _dependenciesReady = false;
+  Map<String, String>? _mediaHeaders;
 
   SquarePost get post => _post;
 
@@ -118,6 +119,7 @@ class _SquareArticleDetailPageState extends State<SquareArticleDetailPage> {
       if (!mounted) return;
       setState(() {
         _post = detail;
+        _mediaHeaders = {'authorization': 'Bearer ${session.sessionToken}'};
         _loading = false;
       });
     } catch (error) {
@@ -181,7 +183,7 @@ class _SquareArticleDetailPageState extends State<SquareArticleDetailPage> {
           : ListView(
               children: [
                 if (cover != null && (cover.isLocal || cover.url.isNotEmpty))
-                  SquareMediaImage(item: cover),
+                  SquareMediaImage(item: cover, httpHeaders: _mediaHeaders),
                 Padding(
                   padding: EdgeInsets.all(AppLayout.scaled(context, 16)),
                   child: Column(
@@ -249,7 +251,7 @@ class _SquareArticleDetailPageState extends State<SquareArticleDetailPage> {
     child: ClipRRect(
       borderRadius: BorderRadius.circular(AppTheme.radiusMd),
       child: SquareMediaCarousel(
-        children: [for (final item in items) SquareMediaImage(item: item)],
+        children: [for (final item in items) SquareMediaImage(item: item, httpHeaders: _mediaHeaders)],
       ),
     ),
   );
@@ -262,6 +264,7 @@ class _SquareArticleDetailPageState extends State<SquareArticleDetailPage> {
         aspectRatio: 16 / 9,
         child: SquareVideo(
           url: item.url,
+          httpHeaders: _mediaHeaders,
           thumbnailUrl: item.coverUrl,
           item: item,
         ),

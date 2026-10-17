@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -280,14 +281,19 @@ Future<void> _pump(
   if (effectiveService is _RecordingSubscriptionService) {
     effectiveService.mirror ??= effectiveService.cachedSnapshot?.state ?? state;
   }
+  // 页面与动作门禁从同一上下文取得同一已注册会话，避免构造器/Provider事实分离。
+  final effectiveSession = sessionProvider ?? _FakeSessionProvider();
   await tester.pumpWidget(
-    MaterialApp(
-      home: MembershipPage(
-        chainService: chainService ?? _FakeChainService(prices),
-        sessionProvider: sessionProvider ?? _FakeSessionProvider(),
-        subscriptionService: effectiveService,
-        identityResolver: _RegisteredFinalizedIdentity(),
-        currentUserContext: currentUserContext,
+    Provider<SquareSessionProvider>.value(
+      value: effectiveSession,
+      child: MaterialApp(
+        home: MembershipPage(
+          chainService: chainService ?? _FakeChainService(prices),
+          sessionProvider: effectiveSession,
+          subscriptionService: effectiveService,
+          identityResolver: _RegisteredFinalizedIdentity(),
+          currentUserContext: currentUserContext,
+        ),
       ),
     ),
   );
@@ -333,8 +339,9 @@ class _RegisteredFinalizedIdentity implements FinalizedIdentityResolver {
     accountId: _identityAccountId,
     ss58Address: 'ss58-demo',
     snapshot: CitizenIdentityChainSnapshot(
-      cidNumber: 'CN220-CTZN2-100000001-2026',
-      accountId: Uint8List(32),
+      // 与_FakeSessionProvider、_CachedCurrentUser使用相同CID/账户/版本。
+      cidNumber: 'CN220-CTZN2-198805200-2026',
+      accountId: Uint8List.fromList(List<int>.filled(32, 0x11)),
       bindingRevision: 1,
       votingIdentity: null,
     ),
@@ -393,7 +400,7 @@ void main() {
         expect(request.method, 'GET');
         expect(request.url.path, '/api/membership');
         return http.Response(
-          '{"ok":true,"membership_active":true,"membership":{"membership_level":"democracy","paid_until":9999999999999,"subscription_status":"active","last_charged_at":1000},"plans":[],"usage":null}',
+          '{"ok":true,"membership_active":true,"membership":{"membership_level":"democracy","paid_until":9999999999999,"subscription_status":"active","last_charged_at":1000},"plans":[],"usage":{"used_images":0,"reserved_images":0,"used_video_seconds":0,"reserved_video_seconds":0,"active_uploads":0}}',
           200,
         );
       }),
@@ -472,7 +479,7 @@ void main() {
         expect(request.url.path, '/api/membership');
         membershipCalls += 1;
         return http.Response(
-          '''{"ok":true,"membership_active":true,"membership":{"membership_level":"freedom","paid_until":9999999999999,"subscription_status":"active","last_charged_at":1000},"plans":[],"usage":null}''',
+          '''{"ok":true,"membership_active":true,"membership":{"membership_level":"freedom","paid_until":9999999999999,"subscription_status":"active","last_charged_at":1000},"plans":[],"usage":{"used_images":0,"reserved_images":0,"used_video_seconds":0,"reserved_video_seconds":0,"active_uploads":0}}''',
           200,
         );
       }),

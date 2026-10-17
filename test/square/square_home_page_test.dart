@@ -1,5 +1,6 @@
 import 'mls_authentication_fixture.dart';
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
@@ -9,8 +10,12 @@ import 'package:citizenapp/8964/feed/square_post_detail_page.dart';
 import 'package:citizenapp/8964/feed/square_post_card.dart';
 
 import '../support/fake_citizen_sdk.dart';
+import '../support/isar_test_env.dart';
 
+import 'package:citizenapp/account/identity/account_security_service.dart';
+import 'package:citizenapp/account/identity/identity_binding.dart';
 import 'package:citizenapp/account/identity/identity_badge_snapshot_store.dart';
+import 'package:citizenapp/account/identity/citizen_identity_chain_reader.dart';
 import 'package:citizenapp/8964/compose/compose_page.dart';
 import 'package:citizenapp/8964/compose/document_compose_body.dart';
 import 'package:citizenapp/8964/compose/compose_draft.dart';
@@ -32,6 +37,7 @@ import 'package:citizenapp/system/theme/app_layout.dart';
 import 'package:citizenapp/system/theme/app_theme.dart';
 import 'package:citizenapp/account/identity/identity_badge.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:citizenapp/storage/user_isar.dart';
 
 import 'profile/fake_profile.dart';
 
@@ -92,6 +98,7 @@ SquareIdentityService _walletIdentityService({_LocalSnapshots? snapshots}) =>
       wallet: _FakeWallet(_registeredWallet),
       currentUserContext: _NullIdentityCache(),
       badgeSnapshotStore: snapshots ?? _LocalSnapshots(),
+      profileCache: FakeProfileCache(),
     );
 
 SquareIdentityService _emptyIdentityService() => SquareIdentityService(
@@ -108,16 +115,27 @@ SquareIdentityService _unregisteredIdentityService() => SquareIdentityService(
 
 /// 显示服务只依赖本地事实；测试记录本地读取，不提供链服务。
 class _LocalSnapshots extends IdentityBadgeSnapshotStore {
+  _LocalSnapshots({this.registered = false});
+  final bool registered;
   int reads = 0;
   @override
   Future<IdentityBadgeSnapshot?> readForAccountId(String accountId) async {
     reads++;
     return IdentityBadgeSnapshot(
-      cidNumber: '',
+      cidNumber: registered ? testMlsCidNumber : '',
       identityLevel: 'visitor',
       updatedAtMillis: 1,
       accountId: accountId,
       verified: true,
+      // 正向发布夹具提供完整已注册事实；默认仍是明确未注册，不更改反向用例。
+      identity: registered
+          ? CitizenIdentityChainSnapshot(
+              cidNumber: testMlsCidNumber,
+              accountId: Uint8List.fromList(List<int>.filled(32, 0xaa)),
+              bindingRevision: 1,
+              votingIdentity: null,
+            )
+          : null,
     );
   }
 }
@@ -150,6 +168,58 @@ class _DelayedComposeIdentityService implements SquareIdentityService {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// 每次身份revision生成独立请求，验证旧账户迟到不会覆盖最新展示。
+class _QueuedHomeIdentityService implements SquareIdentityService {
+  final requests = <Completer<SquareIdentityState>>[];
+
+  @override
+  Future<SquareIdentityState> loadCurrent() {
+    final request = Completer<SquareIdentityState>();
+    requests.add(request);
+    return request.future;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// 保留主页自行创建身份服务的生产接线，只控制公开当前用户解析的完成顺序。
+class _QueuedHomeCurrentUser implements CurrentUserContext {
+  final requests = <Completer<CurrentUser?>>[];
+
+  @override
+  Future<CurrentUser?> resolve() {
+    final request = Completer<CurrentUser?>();
+    requests.add(request);
+    return request.future;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('主页回归未配置当前用户操作');
+}
+
+/// 身份服务依次读取隔离库中的完整身份和公开资料；有界驱动真实I/O及测试微任务，
+/// 两次队列屏障保证迟到身份已经读完，避免仅因异步结果尚未完成而得到阴性断言。
+Future<void> _drainHomeIdentityReads(WidgetTester tester) async {
+  for (var stage = 0; stage < 2; stage++) {
+    await tester.pump();
+    var reached = false;
+    final barrier = UserIsar.instance.read<void>((_) async {
+      reached = true;
+    });
+    for (var attempt = 0; attempt < 100 && !reached; attempt++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+      await tester.pump();
+    }
+    expect(reached, isTrue, reason: '隔离身份读取必须完成，不能跳过迟到结果校验');
+    await barrier;
+  }
+  await tester.pumpAndSettle();
 }
 
 class _RecordingDraftRepository implements SquareComposeDraftRepository {
@@ -417,13 +487,244 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
+  group('主页真实账户revision接线', () {
+    useIsolatedIsar();
+    late TestCitizenSdkTransport transport;
+    late CitizenSdk sdk;
+    late AccountSecurityService security;
+    late _QueuedHomeCurrentUser current;
+    late CurrentUser registered;
+    late _RecordingFeedSource feed;
+    late int badgeRevision;
+    var walletReads = 0;
+    var walletPresent = true;
+
+    setUp(() async {
+      badgeRevision = IdentityBadgeSnapshotStore.revision.value;
+      walletPresent = true;
+      transport = TestCitizenSdkTransport({
+        'getWalletState': (_) {
+          walletReads++;
+          return [
+            walletPresent
+                ? testCitizenWalletState()
+                : <Object?>['2', null, <Object?>[], 0, false, null, <Object?>[]],
+          ];
+        },
+      });
+      sdk = await transport.open();
+      final account = (await sdk.wallet.getState().result).defaultAccount!;
+      walletReads = 0;
+      current = _QueuedHomeCurrentUser();
+      feed = _RecordingFeedSource();
+      security = AccountSecurityService(
+        wallet: sdk.wallet,
+        signing: sdk.signing,
+        mlsDeviceRegistrar: ({
+          required cidNumber,
+          required bindingRevision,
+          required accountId,
+          required signBinding,
+        }) async => throw StateError('主页回归禁止登记MLS设备'),
+        coldMlsDeviceBindingSigner: ({
+          required binding,
+          required payload,
+          required signingMessage,
+          required publicKey,
+          required issuedAtMillis,
+        }) async => throw StateError('主页回归禁止钱包签名'),
+      );
+      registered = CurrentUser(
+        account: account,
+        binding: IdentityBinding(
+          genesisHash: '0x${'11' * 32}',
+          cidNumber: testMlsCidNumber,
+          accountId: account.accountId,
+          bindingRevision: 1,
+        ),
+      );
+      // 页面挂载前写合成完整快照；只使用本组独占Isar，不读取设备钱包或金库。
+      await IdentityBadgeSnapshotStore().writeVerified(
+        accountId: account.accountId,
+        identity: CitizenIdentityChainSnapshot(
+          cidNumber: testMlsCidNumber,
+          accountId: Uint8List.fromList(List<int>.filled(32, 1)),
+          bindingRevision: 1,
+          votingIdentity: null,
+        ),
+        isCurrent: () => true,
+      );
+    });
+
+    tearDown(() async {
+      security.dispose();
+      await sdk.close();
+      await transport.dispose();
+      IdentityBadgeSnapshotStore.revision.value = badgeRevision;
+    });
+
+    Widget page() => MultiProvider(
+      providers: [
+        Provider<CitizenSdk>.value(value: sdk),
+        Provider<AccountSecurityService>.value(value: security),
+        Provider<CurrentUserContext>.value(value: current),
+        Provider<SquareSessionProvider>.value(value: FakeSessionProvider(null)),
+      ],
+      // 不注入identityService，必须经过真实账户监听和SquareIdentityService创建分支。
+      child: _wrap(SquareHomePage(feedSource: feed)),
+    );
+
+    testWidgets('账户revision变化但新请求未启动时，旧身份不能提交且新结果可恢复', (tester) async {
+      addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
+      await tester.pumpWidget(page());
+      await tester.pump();
+      expect(current.requests, hasLength(1));
+      expect(walletReads, 1);
+      expect(feed.calls, 1);
+      expect(find.byTooltip('发布'), findsNothing);
+
+      security.notifyDefaultAccountChanged();
+      await tester.pump();
+      expect(security.revision.value, 1);
+      expect(current.requests, hasLength(2));
+      // 钱包回调仍在等待解析，身份请求序号尚未推进，单独验证账户版本保护。
+      current.requests[0].complete(registered);
+      await _drainHomeIdentityReads(tester);
+      expect(walletReads, 1);
+      expect(feed.calls, 1);
+      expect(find.byTooltip('发布'), findsNothing);
+      expect(tester.takeException(), isNull);
+
+      current.requests[1].complete(registered);
+      await tester.pump();
+      expect(current.requests, hasLength(3));
+      expect(walletReads, 2);
+      expect(feed.calls, 2);
+      current.requests[2].complete(registered);
+      await _drainHomeIdentityReads(tester);
+      expect(find.byTooltip('发布'), findsOneWidget);
+      expect(walletReads, 2);
+      expect(feed.calls, 2);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('钱包身份解析新结果先完成后，旧解析不能额外加载身份或feed', (tester) async {
+      addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
+      await tester.pumpWidget(page());
+      await tester.pump();
+      current.requests.single.complete(registered);
+      await _drainHomeIdentityReads(tester);
+      expect(find.byTooltip('发布'), findsOneWidget);
+      expect(walletReads, 1);
+      expect(feed.calls, 1);
+
+      security.notifyDefaultAccountChanged();
+      security.notifyDefaultAccountChanged();
+      await tester.pump();
+      expect(security.revision.value, 2);
+      expect(current.requests, hasLength(3));
+      walletPresent = false;
+      current.requests[2].complete(null);
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('发布'), findsNothing);
+      expect(walletReads, 2);
+      expect(feed.calls, 2);
+
+      current.requests[1].complete(registered);
+      await tester.pumpAndSettle();
+      expect(current.requests, hasLength(3));
+      expect(walletReads, 2);
+      expect(feed.calls, 2);
+      expect(find.byTooltip('发布'), findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
+
+  testWidgets('身份延迟完成后通知父页面，feed未返回也显示原发布入口', (tester) async {
+    final identity = _DelayedComposeIdentityService();
+    final feed = _PendingFeedSource();
+    await tester.pumpWidget(_wrap(SquareHomePage(identityService: identity, feedSource: feed)));
+    await tester.pump();
+    expect(find.byTooltip('发布'), findsNothing);
+    identity.completer.complete(await const _StaticComposeIdentityService().loadCurrent());
+    await tester.pump();
+    await tester.pump();
+    expect(find.byTooltip('发布'), findsOneWidget);
+    expect(find.byKey(const ValueKey('square-feed-progress')), findsOneWidget);
+    expect(feed.calls, 1);
+    feed.completer.complete(const <SquarePost>[]);
+    await tester.pumpAndSettle();
+  });
+
+  for (final state in [
+    const SquareIdentityState(accountId: ''),
+    SquareIdentityState(accountId: _registeredWallet.accountId, signMode: CitizenWalletSignMode.hot),
+  ]) {
+    testWidgets('身份延迟返回${state.hasWallet ? '未注册' : '无钱包'}仍不显示发布入口', (tester) async {
+      final identity = _DelayedComposeIdentityService();
+      await tester.pumpWidget(_wrap(SquareHomePage(identityService: identity, feedSource: const _FakeFeedSource())));
+      await tester.pump();
+      identity.completer.complete(state);
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('发布'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final registered in [false, true]) {
+    testWidgets('较新账户${registered ? '已注册' : '无钱包'}结果不被旧身份迟到覆盖', (tester) async {
+      final identity = _QueuedHomeIdentityService();
+      final feed = _PendingFeedSource();
+      await tester.pumpWidget(_wrap(SquareHomePage(identityService: identity, feedSource: feed)));
+      await tester.pump();
+      expect(identity.requests, hasLength(1));
+      IdentityBadgeSnapshotStore.revision.value++;
+      await tester.pump();
+      expect(identity.requests, hasLength(2));
+      identity.requests[1].complete(registered
+          ? const SquareIdentityState(
+              accountId: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+              cidNumber: 'CN220-CTZN2-100000002-2026',
+              signMode: CitizenWalletSignMode.hot,
+            )
+          : const SquareIdentityState(accountId: ''));
+      await tester.pump();
+      await tester.pump();
+      expect(find.byTooltip('发布'), registered ? findsOneWidget : findsNothing);
+      identity.requests[0].complete(registered
+          ? SquareIdentityState(accountId: _registeredWallet.accountId)
+          : await const _StaticComposeIdentityService().loadCurrent());
+      await tester.pump();
+      await tester.pump();
+      expect(find.byTooltip('发布'), registered ? findsOneWidget : findsNothing);
+      expect(feed.calls, 1);
+      expect(tester.takeException(), isNull);
+      feed.completer.complete(const <SquarePost>[]);
+      await tester.pumpAndSettle();
+    });
+  }
+
+  testWidgets('页面卸载后身份完成不更新State', (tester) async {
+    final identity = _DelayedComposeIdentityService();
+    final feed = _PendingFeedSource();
+    await tester.pumpWidget(_wrap(SquareHomePage(identityService: identity, feedSource: feed)));
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox.shrink());
+    identity.completer.complete(await const _StaticComposeIdentityService().loadCurrent());
+    feed.completer.complete(const <SquarePost>[]);
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('feed 未返回时直接显示广场页面且不使用整页转圈', (tester) async {
     final feedSource = _PendingFeedSource();
 
     await tester.pumpWidget(
       _wrap(
         SquareHomePage(
-          identityService: _emptyIdentityService(),
+          identityService: const _StaticComposeIdentityService(),
           feedSource: feedSource,
         ),
       ),
@@ -450,7 +751,7 @@ void main() {
   });
 
   testWidgets('广场只替换人物坦克背景且保留分类、发布与切换行为', (tester) async {
-    final identityService = _emptyIdentityService();
+    const identityService = _StaticComposeIdentityService();
     final feedSource = _RecordingFeedSource();
 
     await tester.pumpWidget(
@@ -594,7 +895,7 @@ void main() {
   });
 
   testWidgets('发布按钮展开公文、文章、视频，打开编辑页不读链', (tester) async {
-    final snapshots = _LocalSnapshots();
+    final snapshots = _LocalSnapshots(registered: true);
     final identityService = _walletIdentityService(snapshots: snapshots);
 
     await tester.pumpWidget(
