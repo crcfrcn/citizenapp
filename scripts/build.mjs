@@ -843,21 +843,31 @@ async function resourceWork(work){
  const base=join(root,'target');if(!inside(base,path)||!['build','test'].includes(relative(base,path).split(sep)[0]))fail('资源候选必须位于本产品target工作目录');
  await directory(path);return directory(join(path,'resource-pending'),true);
 }
-async function acquireArchive(entry,{store,work,offline=false,fetcher=fetch,signal,maxBytes=4*1024**3}={}){
+// 下载诊断只含固定阶段、声明工具名、来源主机、字节数及安全码；不输出URL路径/查询、错误正文或凭据。
+function downloadDiagnostic(record){
+ try{const receive=resourceSupplies.getStore()?.downloadDiagnostic;if(receive)receive(record);else process.stderr.write('资源下载诊断：'+JSON.stringify(record)+'\n');}catch{}
+}
+async function acquireArchive(entry,{store,work,offline=false,fetcher=fetch,signal,maxBytes=4*1024**3,toolId='dependency'}={}){
+ let bytes=0,stage='prepare',host='unknown',status;
+ const tool=[...toolDefinitions.map(value=>value.id),'dependency','parser'].includes(toolId)?toolId:'dependency';
+ try{
 
  const url=checkedURL(entry.url);await directory(store,true);const coordinate=hash(JSON.stringify([url,entry.sha256||entry.integrity]));const target=join(store,coordinate+'.blob');
  const check=async path=>{const info=await regular(path);if(!info.size||info.size>maxBytes)fail('原件大小超限');return path;};
  if(await stat(target))return check(target);
 
 
+ host=new URL(url).hostname;
  if(offline)fail('离线缺少锁定资源：'+url);signal?.throwIfAborted();let response,current=url;
- for(let i=0;i<=5;i++){response=await fetcher(current,{redirect:'manual',headers:{'accept-encoding':'identity'},signal});if([301,302,303,307,308].includes(response.status)){await response.body?.cancel();if(i===5)fail('来源重定向超限');current=checkedURL(new URL(response.headers.get('location'),current).href);continue;}break;}
+ for(let i=0;i<=5;i++){stage='request';host=new URL(current).hostname;downloadDiagnostic({stage,tool,host,received_bytes:bytes,code:'none'});response=await fetcher(current,{redirect:'manual',headers:{'accept-encoding':'identity'},signal});if([301,302,303,307,308].includes(response.status)){await response.body?.cancel();if(i===5)fail('来源重定向超限');current=checkedURL(new URL(response.headers.get('location'),current).href);continue;}break;}
+ stage='response';status=response?.status;
  if(!response?.ok||!response.body)fail('来源获取失败：'+url);const length=Number(response.headers.get('content-length'));if(length>maxBytes)fail('来源声明超限');
  // Fetch会解码压缩正文，Content-Length仍是传输长度；仅无编码或identity时与正文严格等长。
  // 每跳请求identity；来源仍返回压缩内容时，声明上限和解码后实际字节上限继续分别约束。
  const encoding=(response.headers.get('content-encoding')||'').trim().toLowerCase(),identity=!encoding||encoding==='identity';
- const temporary=join(await resourceWork(work),'.'+coordinate+'.'+randomUUID()+'.pending'),h=await open(temporary,'wx',0o600);let bytes=0;
- try{for await(const chunk of response.body){signal?.throwIfAborted();bytes+=chunk.length;if(bytes>maxBytes)fail('来源数据超限');let offset=0;while(offset<chunk.length){const n=await h.write(chunk,offset,chunk.length-offset);if(!n.bytesWritten)fail('原件写入中断');offset+=n.bytesWritten;}}if(!bytes)fail('来源数据为空');if(identity&&length&&length!==bytes)fail('来源数据不完整');await h.sync();await h.close();signal?.throwIfAborted();await chmod(temporary,0o444);await commitCandidate(temporary,target,{signal,});return await check(target);}finally{await h.close().catch(()=>{});await rm(temporary,{force:true});await response.body?.cancel().catch(()=>{});}
+ const temporary=join(await resourceWork(work),'.'+coordinate+'.'+randomUUID()+'.pending'),h=await open(temporary,'wx',0o600);
+ stage='body';try{for await(const chunk of response.body){signal?.throwIfAborted();bytes+=chunk.length;if(bytes>maxBytes)fail('来源数据超限');let offset=0;while(offset<chunk.length){const n=await h.write(chunk,offset,chunk.length-offset);if(!n.bytesWritten)fail('原件写入中断');offset+=n.bytesWritten;}}if(!bytes)fail('来源数据为空');if(identity&&length&&length!==bytes)fail('来源数据不完整');await h.sync();await h.close();signal?.throwIfAborted();stage='commit';await chmod(temporary,0o444);await commitCandidate(temporary,target,{signal,});return await check(target);}finally{await h.close().catch(()=>{});await rm(temporary,{force:true});await response.body?.cancel().catch(()=>{});}
+ }catch(error){downloadDiagnostic({stage,tool,host,received_bytes:bytes,code:safeDiagnosticCode(error,{status,aborted:signal?.aborted})});throw error;}
 }
 async function downloadTool(entry,target,options){const archive=await acquireArchive(entry,{...options,store:options.store||dirname(target)});await copyFile(archive,target,constants.COPYFILE_EXCL);}
 // 解包先解析全部成员并验证闭包，之后才写入；链接不得指向归档外部或成为文件父目录。
@@ -1979,7 +1989,7 @@ async function productFoundation(library,lookup,{bootstrap=false,id}={}){
  const tools={...base.tools},paths=[];for(const name of ['bash','grep','sed']){const tool=library.tools.find(x=>x.id===name),value=tool&&await lookup(library,tool);if(!value)fail('GNU闭包缺失：'+name);tools[name]=value.path;paths.push(dirname(value.path));}tools.sh=tools.bash;delete tools.egrep;delete tools.fgrep;
  const view=join(library.work,'resource-tools');await directory(view,true);const shell=join(view,'sh');if(await stat(shell)){if(!((await lstat(shell)).isSymbolicLink())||await realpath(shell)!==tools.sh)fail('GNU sh交付漂移');}else await symlink(tools.sh,shell);for(const [name,path]of Object.entries(base.tools)){if(['sh','bash','grep','sed','egrep','fgrep'].includes(name))continue;const link=join(view,name);if(await stat(link)){if(!((await lstat(link)).isSymbolicLink())||await realpath(link)!==path)fail('基础交付漂移');}else await symlink(path,link);}return {tools,bin:view,path:[...paths,view].join(':')};
 }
-async function prepareSourceDependencies({library,tool,pending,signal,fetcher,options={}}){const result=new Map();for(const entry of tool.dependencies||[])result.set(entry.name,await acquireArchive(entry,{work:library.work,store:join(library.root,'archives'),offline:options.offline,signal,fetcher}));return result;}
+async function prepareSourceDependencies({library,tool,pending,signal,fetcher,options={}}){const result=new Map();for(const entry of tool.dependencies||[])result.set(entry.name,await acquireArchive(entry,{toolId:tool.id,work:library.work,store:join(library.root,'archives'),offline:options.offline,signal,fetcher}));return result;}
 
 // 跨卷原件先在所属target中同目标卷的临时目录复制验真；长复制不持提交锁。
 async function candidateOnTargetVolume(pending,target,{signal}={}){
@@ -2033,7 +2043,7 @@ async function installRustTool({source,payload,tool,canonical,library,foundation
  await run(foundation.tools.bash,[join(source,'install.sh'),'--prefix='+payload,'--disable-ldconfig','--components='+components.join(',')],{signal:options.signal,env:environment,maxBuffer:2*1024**2,timeout:300000});
  // 五个目标标准库仍按既有声明逐个获取、展开和安装；失败/取消立即中止，外层负责原候选清场。
  for(const component of tool.components||[]){
-  options.signal?.throwIfAborted();const file=await acquire(component,{work:library.work,store:join(library.root,'archives'),offline:options.offline,fetcher:options.fetcher,signal:options.signal}),dir=join(canonical,component.target);
+  options.signal?.throwIfAborted();const file=await acquire(component,{toolId:tool.id,work:library.work,store:join(library.root,'archives'),offline:options.offline,fetcher:options.fetcher,signal:options.signal}),dir=join(canonical,component.target);
   await extract(file,dir,{foundation,signal:options.signal});
   await run(foundation.tools.bash,[join(dir,component.root,'install.sh'),'--prefix='+payload,'--disable-ldconfig'],{signal:options.signal,env:environment,maxBuffer:2*1024**2,timeout:300000});
  }
@@ -2054,10 +2064,10 @@ async function installTool(library,tool,options,visiting=new Set()){
  const pending=await fixedScratch(join(await resourceWork(library.work),'.'+archive.sha256+'-'));const canonical=join(pending,'library/shared',archive.sha256+'.pending'),payload=join(canonical,'payload');const localLibrary={...library,pending:canonical,finalPayload:options.finalPayload||join(target,'payload')};await directory(canonical,true);const original=join(canonical,'archive');
  try{
   let source;if(archive.kind==='apple-posix'){await appleTools(library,{names:['codesign'],environment:cleanEnvironment(options.environment),signal:options.signal});await posixRecipe.buildPosixTool({tool,payload,bootstrap:true,run:exec,signal:options.signal});source=payload;}
-  else{const file=await acquireArchive(archive,{work:library.work,store:join(library.root,'archives'),offline:options.offline,fetcher:options.fetcher,signal:options.signal});await copyFile(file,original);if(['gem','binary','phar'].includes(archive.kind))source=original;else {const unpacked=join(canonical,'unpack');await unpack(original,unpacked,{foundation,signal:options.signal});source=archive.root==='.'?unpacked:join(unpacked,archive.root);await directory(source);}}
+  else{const file=await acquireArchive(archive,{toolId:tool.id,work:library.work,store:join(library.root,'archives'),offline:options.offline,fetcher:options.fetcher,signal:options.signal});await copyFile(file,original);if(['gem','binary','phar'].includes(archive.kind))source=original;else {const unpacked=join(canonical,'unpack');await unpack(original,unpacked,{foundation,signal:options.signal});source=archive.root==='.'?unpacked:join(unpacked,archive.root);await directory(source);}}
   const environment={...cleanEnvironment(options.environment),HOME:canonical,TMPDIR:canonical,PATH:foundation?.path||'',PRODUCT_WORK_DIR:canonical};
   const lookupInstalled=async(_,t)=>library.installed.get(t.id)||null;
-  if(['native-source','gem'].includes(archive.kind))await sourceRecipe.buildSourceTool({library:localLibrary,tool,source,archive:original,pending:canonical,payload,finalPayload:localLibrary.finalPayload,signal:options.signal,fetcher:options.fetcher,exec,lookup:lookupInstalled,apple:appleTools,bootstrap:['bash','grep','sed'].includes(tool.id),environment,prepare:input=>prepareSourceDependencies({...input,options}),download:(entry,target,context)=>downloadTool(entry,target,{...context,...options,work:library.work,store:join(library.root,'archives')})});
+  if(['native-source','gem'].includes(archive.kind))await sourceRecipe.buildSourceTool({library:localLibrary,tool,source,archive:original,pending:canonical,payload,finalPayload:localLibrary.finalPayload,signal:options.signal,fetcher:options.fetcher,exec,lookup:lookupInstalled,apple:appleTools,bootstrap:['bash','grep','sed'].includes(tool.id),environment,prepare:input=>prepareSourceDependencies({...input,options}),download:(entry,target,context)=>downloadTool(entry,target,{...context,...options,toolId:tool.id,work:library.work,store:join(library.root,'archives')})});
   else if(['binary','phar'].includes(archive.kind)){await mkdir(dirname(join(payload,archive.executable)),{recursive:true});await copyFile(original,join(payload,archive.executable));await chmod(join(payload,archive.executable),0o555);}
   else if(archive.kind==='rust'){
    await installRustTool({source,payload,tool,canonical,library,foundation,environment,options});
@@ -2079,7 +2089,7 @@ async function parser(kind,options){
  await directoryCheck(options.library.root);await directoryCheck(options.library.work);
  if(!await stat(payload)){
   if(await stat(parserRoot))fail('本轮解析器现场不完整');
-  const file=await acquireArchive(entry,{work:options.library.work,store:join(options.library.root,'archives'),offline:options.offline,fetcher:options.fetcher,signal:options.signal});
+  const file=await acquireArchive(entry,{toolId:'parser',work:options.library.work,store:join(options.library.root,'archives'),offline:options.offline,fetcher:options.fetcher,signal:options.signal});
   await directory(parserRoot,true);
   try{await extractArchive(file,payload,{prefix:'package',signal:options.signal});}
   catch(error){await rm(parserRoot,{recursive:true,force:true});throw error;}
@@ -2588,6 +2598,34 @@ test('压缩响应仍拒绝声明超限、解码正文超限及空正文',async 
   assert.deepEqual(await readdir(store),[]);
  }
  assert.deepEqual(await readdir(join(root,'resource-pending')),[]);
+});
+test('下载诊断标明工具、当前来源主机及已收字节，保留超时原异常且不回显URL或错误正文',async t=>{
+ const root=await sandbox(t),store=join(root,'store'),marker='synthetic-diagnostic-marker',records=[];
+ const failure=Object.assign(Error(marker),{cause:Object.assign(Error(marker),{code:'ETIMEDOUT'})});
+ const entry=archive(Buffer.from('partial'),'https://example.invalid/archive?authorization='+marker);
+ const fetcher=async(_url,options)=>{assert.equal(options.redirect,'manual');assert.equal(options.headers['accept-encoding'],'identity');return {ok:true,status:200,headers:new Headers(),body:{async *[Symbol.asyncIterator](){yield Buffer.from('partial');throw failure;},async cancel(){}}};};
+ await assert.rejects(resourceSupplies.run({work:root,downloadDiagnostic:record=>records.push(record)},()=>acquireArchive(entry,{store,work:root,toolId:'java',fetcher})),error=>error===failure);
+ assert.deepEqual(records[0],{stage:'request',tool:'java',host:'example.invalid',received_bytes:0,code:'none'});
+ assert.deepEqual(records.at(-1),{stage:'body',tool:'java',host:'example.invalid',received_bytes:7,code:'ETIMEDOUT'});
+ assert.equal(JSON.stringify(records).includes(marker),false);assert.equal(JSON.stringify(records).includes('/archive'),false);
+ assert.deepEqual(await readdir(store),[]);assert.deepEqual(await readdir(join(root,'resource-pending')),[]);
+});
+test('下载诊断覆盖HTTP拒绝、TLS、重定向来源和取消，缓存复用不伪报下载',async t=>{
+ const root=await sandbox(t),entry=archive(Buffer.from('ok')),records=[];
+ const scope=action=>resourceSupplies.run({work:root,downloadDiagnostic:record=>records.push(record)},action);
+ await assert.rejects(scope(()=>acquireArchive(entry,{work:root,store:join(root,'http'),fetcher:async()=>new Response('',{status:503})})),/获取失败/);
+ assert.equal(records.at(-1).stage,'response');assert.equal(records.at(-1).code,'HTTP_503');
+ const tls=Object.assign(Error('synthetic TLS detail'),{cause:{code:'ERR_TLS_CERT_ALTNAME_INVALID'}});
+ await assert.rejects(scope(()=>acquireArchive(entry,{work:root,store:join(root,'tls'),toolId:'git',fetcher:async()=>{throw tls;}})),error=>error===tls);
+ assert.equal(records.at(-1).code,'ERR_TLS_CERT_ALTNAME_INVALID');assert.equal(records.at(-1).received_bytes,0);
+ let calls=0;await assert.rejects(scope(()=>acquireArchive(entry,{work:root,store:join(root,'redirect'),fetcher:async()=>++calls===1?new Response(null,{status:302,headers:{location:'https://cdn.example.invalid/file?signature=synthetic-query'}}):Promise.reject(tls)})),error=>error===tls);
+ assert.equal(calls,2);assert.equal(records.at(-1).host,'cdn.example.invalid');assert.equal(JSON.stringify(records).includes('synthetic-query'),false);
+ const abort=new AbortController();
+ await assert.rejects(scope(()=>acquireArchive(entry,{work:root,store:join(root,'cancel'),signal:abort.signal,fetcher:async()=>({ok:true,status:200,headers:new Headers(),body:{async *[Symbol.asyncIterator](){yield Buffer.from('ok');abort.abort();},async cancel(){}}})})),/abort/iu);
+ assert.equal(records.at(-1).code,'ABORT_ERR');assert.equal(records.at(-1).received_bytes,2);
+ const cache=join(root,'cache');await scope(()=>acquireArchive(entry,{work:root,store:cache,fetcher:async()=>new Response('ok')}));records.length=0;
+ await scope(()=>acquireArchive(entry,{work:root,store:cache,offline:true,fetcher:()=>assert.fail('缓存不联网')}));assert.deepEqual(records,[]);
+ assert.equal(safeDiagnosticCode({code:'synthetic-private-marker'}),'UNKNOWN');assert.equal(safeDiagnosticCode({code:'ENOTFOUND'}),'ENOTFOUND');const cycle={};cycle.cause=cycle;assert.equal(safeDiagnosticCode(cycle),'UNKNOWN');
 });
 test('压缩响应流错误保留原异常并清除半包',async t=>{
  const root=await sandbox(t),store=join(root,'store'),failure=new Error('资源流夹具中断');let reads=0;
@@ -5480,9 +5518,44 @@ execFileSync('dart', ['format', outPath], { stdio: 'inherit' });
 console.log(`generated ${path.relative(repoRoot, outPath)} (${cbItems.length + chItems.length + fixedGovernanceItems.length} institutions)`);
 
 }
+// 仅保留系统/传输错误码；递归cause有界，未知值不回显，原Error对象与失败语义不改。
+function safeDiagnosticCode(error,{status,aborted=false}={}){
+ const permitted=['ABORT_ERR','ENOTFOUND','EAI_AGAIN','UND_ERR_SOCKET','UND_ERR_CONNECT_TIMEOUT','UND_ERR_HEADERS_TIMEOUT','UND_ERR_BODY_TIMEOUT','ERR_TLS_CERT_ALTNAME_INVALID','CERT_HAS_EXPIRED','DEPTH_ZERO_SELF_SIGNED_CERT','UNABLE_TO_VERIFY_LEAF_SIGNATURE','UNABLE_TO_GET_ISSUER_CERT_LOCALLY'];
+ try{const seen=new Set();for(let depth=0;error&&depth<8&&!seen.has(error);depth++,error=error.cause){seen.add(error);const code=processErrorCode(error);if(code!=='UNKNOWN')return code;if(permitted.includes(error.code))return error.code;}}catch{}
+ if(aborted)return 'ABORT_ERR';if(Number.isInteger(status)&&status>=400&&status<=599)return 'HTTP_'+status;return 'UNKNOWN';
+}
+function testInputGitStep(args){
+ const step=args[0];if(['ls-remote','init','fetch','checkout','status'].includes(step))return step;
+ if(step==='remote')return args[1]==='add'?'configure-origin':'verify-origin';
+ if(step==='rev-parse')return ({HEAD:'verify-head','--abbrev-ref':'verify-branch','--show-toplevel':'verify-root','--absolute-git-dir':'verify-gitdir','--git-common-dir':'verify-common-dir'})[args[1]]||'verify-repository';
+ return 'unknown';
+}
+function testInputGitDiagnostic(args,result){
+ let code=safeDiagnosticCode(result.error);
+ // Git常将传输原因写入stderr；只匹配固定类别，不输出任何正文、路径、参数或远端回显。
+ if(code==='UNKNOWN'){
+  const text=typeof result.stderr==='string'?result.stderr.slice(0,8192):'';
+  if(/timed out|\btimeout\b/iu.test(text))code='ETIMEDOUT';
+  else if(/could not resolve (?:host|proxy)/iu.test(text))code='ENOTFOUND';
+  else if(/connection reset|connection was reset/iu.test(text))code='ECONNRESET';
+  else if(/SSL certificate problem|certificate verify failed|server certificate verification failed/iu.test(text))code='TLS_CERTIFICATE_ERROR';
+  else if(/authentication failed|terminal prompts disabled/iu.test(text))code='GIT_AUTH_FAILED';
+  else if(/early EOF|unexpected disconnect|RPC failed/iu.test(text))code='GIT_TRANSPORT_ERROR';
+ }
+ const signal=result.signal==null?'none':Object.hasOwn(resourceOs.constants.signals,result.signal)?result.signal:'UNKNOWN';
+ return {step:testInputGitStep(args),exit_code:Number.isSafeInteger(result.status)?result.status:null,signal,code};
+}
+function runTestInputGit(root,args,{spawnGit=spawnSync,environment=process.env,report=record=>process.stderr.write('链测试Git诊断：'+JSON.stringify(record)+'\n')}={}){
+ const emit=record=>{try{report(record);}catch{}};
+ emit({step:testInputGitStep(args),exit_code:null,signal:'none',code:'none'});
+ let result;try{result=spawnGit('git',['-c','credential.helper=','-c','core.hooksPath=/dev/null','-c','protocol.file.allow=never','-c','gc.auto=0','-C',root,...args],{
+  encoding:'utf8',env:{...environment,GIT_TERMINAL_PROMPT:'0',GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:process.platform==='win32'?'NUL':'/dev/null'}
+ });}catch(error){emit(testInputGitDiagnostic(args,{error,status:null,signal:null}));throw error;}
+ if(result.error||result.status!==0){emit(testInputGitDiagnostic(args,result));throw Error('链测试源取得或验真失败');}
+ return result.stdout.trim();
+}
 async function runTestInputs(argv) {
 // App金标读取链所有者已保存的不可变Git快照；不复制金标，不猜测邻仓。
-const { spawnSync } = await import("node:child_process");
 const { readFileSync, lstatSync, realpathSync, mkdirSync, existsSync, rmSync } = await import("node:fs");
 const { fileURLToPath } = await import("node:url");
 const { join, resolve, isAbsolute } = await import("node:path");
@@ -5494,15 +5567,7 @@ function directory(p) {
   const i = lstatSync(p);
   if (!i.isDirectory() || i.isSymbolicLink() || realpathSync(p) !== p) fail('链测试源目录无效');
 }
-function git(root, args) {
-  const result = spawnSync('git', ['-c', 'credential.helper=', '-c', 'core.hooksPath=/dev/null',
-    '-c', 'protocol.file.allow=never', '-c', 'gc.auto=0', '-C', root, ...args], {
-    encoding: 'utf8', env: { ...process.env, GIT_TERMINAL_PROMPT: '0',
-      GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null' },
-  });
-  if (result.error || result.status !== 0) fail('链测试源取得或验真失败');
-  return result.stdout.trim();
-}
+function git(root, args) { return runTestInputGit(root,args); }
 try {
   if (argv.length !== 1 || contract.schema !== 1 || contract.citizenchain?.url !== url
       || contract.citizenchain.ref !== 'main'
@@ -7050,6 +7115,25 @@ if(process.env.NODE_TEST_CONTEXT&&process.argv.length===2&&process.argv[1]===imp
   if(address.pathname.includes('/git/ref/tags/'))return Response.json({ref:'refs/tags/'+source.tag,object:{type:'commit',sha:source.ref}});
   throw Error('未声明SDK合成请求');
  };
+ test('链测试Git诊断保留原安全参数、返回值与失败，未知正文不进入日志',()=>{
+  const records=[],marker='synthetic-diagnostic-marker',root='/synthetic/input',args=['fetch','--no-tags','--depth=1','origin','a'.repeat(40)];
+  const common={environment:{PATH:'/synthetic/bin'},report:record=>records.push(record)};
+  const success=runTestInputGit(root,args,{...common,spawnGit:(command,passed,options)=>{
+   assert.equal(command,'git');assert.deepEqual(passed,['-c','credential.helper=','-c','core.hooksPath=/dev/null','-c','protocol.file.allow=never','-c','gc.auto=0','-C',root,...args]);
+   assert.equal(options.env.GIT_TERMINAL_PROMPT,'0');assert.equal(options.env.GIT_CONFIG_NOSYSTEM,'1');assert.equal(options.env.GIT_CONFIG_GLOBAL,process.platform==='win32'?'NUL':'/dev/null');
+   return {status:0,signal:null,stdout:'  original\n',stderr:marker};
+  }});assert.equal(success,'original');assert.equal(records[0].step,'fetch');
+  for(const [result,code]of [[{error:{cause:{code:'ETIMEDOUT'}},status:null,signal:null},'ETIMEDOUT'],[{status:128,signal:null,stderr:'fatal: Connection timed out '+marker},'ETIMEDOUT'],[{status:128,signal:null,stderr:'SSL certificate problem '+marker},'TLS_CERTIFICATE_ERROR'],[{status:128,signal:null,stderr:marker},'UNKNOWN'],[{status:null,signal:'SIGTERM',stderr:marker},'UNKNOWN']]){
+   records.length=0;assert.throws(()=>runTestInputGit(root,args,{...common,spawnGit:()=>result}),/链测试源取得或验真失败/);
+   assert.deepEqual(records.at(-1),{step:'fetch',exit_code:result.status,signal:result.signal||'none',code});
+   assert.equal(JSON.stringify(records).includes(marker),false);assert.equal(JSON.stringify(records).includes(root),false);
+  }
+  const failure=Object.assign(Error(marker),{code:'ENOENT'});records.length=0;
+  assert.throws(()=>runTestInputGit(root,args,{...common,spawnGit:()=>{throw failure;}}),error=>error===failure);assert.equal(records.at(-1).code,'ENOENT');
+  assert.equal(runTestInputGit(root,args,{...common,report:()=>{throw Error(marker);},spawnGit:()=>({status:0,stdout:'ok'})}),'ok');
+  assert.equal(testInputGitStep(['rev-parse','--absolute-git-dir']),'verify-gitdir');assert.equal(testInputGitStep([marker]),'unknown');
+  assert.equal(testInputGitDiagnostic(args,{status:null,signal:marker,stderr:marker}).signal,'UNKNOWN');
+ });
  test('SDK任务锁拒绝错误来源、提交、重复及本机目录，缓存绑定实际提交',()=>{
   const selection=sdkReleaseFixture();assert.deepEqual(checkedSdkSelection(selection),selection);
   for(const change of [value=>value.sources.pop(),value=>value.sources.push(value.sources[0]),value=>value.sources[0].url='http://github.com/crcfrcn/citizensdk.git',value=>value.sources[0].ref='main',value=>value.sources[0].tag='../bad',value=>value.sources[0].release_id=0,value=>value.mode='other']){
