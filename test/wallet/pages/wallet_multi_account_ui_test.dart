@@ -1448,7 +1448,8 @@ void main() {
       olderRequest.complete(_coldWalletSnapshot(name: '过期钱包'));
       await _settleWallet(tester);
       await tester.drag(find.byType(CustomScrollView), const Offset(0, 320));
-      await tester.pump();
+      // 下拉动画异步触发刷新；等实际请求发起，不能把一帧当作请求完成。
+      await _pumpUntil(tester, () => calls == 4);
       expect(calls, 4);
       newerRequest.complete(_coldWalletSnapshot(name: '最新钱包'));
       await _settleWallet(tester);
