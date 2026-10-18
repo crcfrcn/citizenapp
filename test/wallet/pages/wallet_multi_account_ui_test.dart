@@ -1399,7 +1399,7 @@ void main() {
       expect(find.text('添加指定账户'), findsNothing);
     });
 
-    testWidgets('较新的刷新成功先完成时，较旧成功不得逆序覆盖最新快照', (tester) async {
+    testWidgets('在途刷新合并，完成后下一次刷新可更新最新快照', (tester) async {
       _disposeWidgetBeforeStores(tester);
       final olderRequest = Completer<CitizenWalletState>();
       final newerRequest = Completer<CitizenWalletState>();
@@ -1439,19 +1439,20 @@ void main() {
         findsOneWidget,
       );
 
-      // 失败横幅在请求完成前保留，因此可以制造两次并发重试并按相反顺序完成。
+      // 在途请求只发起一次；完成并排空后才允许下一次读取。
       await tester.tap(find.byKey(const ValueKey('wallet-refresh-retry')));
       await tester.pump();
       await tester.tap(find.byKey(const ValueKey('wallet-refresh-retry')));
+      await tester.pump();
+      expect(calls, 3);
+      olderRequest.complete(_coldWalletSnapshot(name: '过期钱包'));
+      await _settleWallet(tester);
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, 320));
       await tester.pump();
       expect(calls, 4);
-
       newerRequest.complete(_coldWalletSnapshot(name: '最新钱包'));
       await _settleWallet(tester);
       expect(find.text('最新钱包'), findsOneWidget);
-
-      olderRequest.complete(_coldWalletSnapshot(name: '过期钱包'));
-      await _settleWallet(tester);
       expect(find.text('最新钱包'), findsOneWidget);
       expect(find.text('过期钱包'), findsNothing);
       expect(
@@ -1460,7 +1461,7 @@ void main() {
       );
     });
 
-    testWidgets('较新的刷新成功先完成时，较旧失败不得把最新快照降级', (tester) async {
+    testWidgets('在途刷新失败排空后可重试成功，不降级最新快照', (tester) async {
       _disposeWidgetBeforeStores(tester);
       final olderRequest = Completer<CitizenWalletState>();
       final newerRequest = Completer<CitizenWalletState>();
@@ -1499,11 +1500,14 @@ void main() {
       await tester.pump();
       await tester.tap(find.byKey(const ValueKey('wallet-refresh-retry')));
       await tester.pump();
-      expect(calls, 4);
-
-      newerRequest.complete(_coldWalletSnapshot(name: '最新钱包'));
-      await _settleWallet(tester);
+      expect(calls, 3);
       olderRequest.completeError(StateError('过期请求失败'));
+      await _settleWallet(tester);
+      expect(find.byKey(const ValueKey('wallet-refresh-retry')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('wallet-refresh-retry')));
+      await tester.pump();
+      expect(calls, 4);
+      newerRequest.complete(_coldWalletSnapshot(name: '最新钱包'));
       await _settleWallet(tester);
 
       expect(find.text('最新钱包'), findsOneWidget);

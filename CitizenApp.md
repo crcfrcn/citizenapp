@@ -3458,6 +3458,8 @@ CitizenApp本机测试的TataChatSDK宿主库从产品原始声明与锁定Git�
 
 本轮静态分析修正仅为Isar测试库路径校验、钱包并发读取拒绝及页面存活/请求代次校验的四处多行条件添加花括号，条件、分支正文和异步调用顺序不变；既有中文注释、测试、夹具及断言沿用。
 
+钱包目录首卡在显示前恢复已有本地余额，缓存失败仍按原SDK目录展示；恢复后复核页面存活及加载代次并归还过期inspection。目录刷新等待本地待清理状态确认后返回，身份和联网余额独立推进。目录读取仍合并在途请求；对应两组测试按在途合并、完成/失败排空后再刷新验证，保留最终最新快照、过期内容不可见及失败恢复断言。
+
 ### 独立测试源与链金标
 scripts/build.mjs 的 TEST_INPUTS_SOURCE声明链所有者crcfrcn/citizenchain的main和两个金标准确路径。build.mjs inputs只消费已明确传入、验真且干净的detached链快照，独立检出时先捕获远端main真实SHA再以`--depth=1 --filter=blob:none`取得该提交的Git快照，准确配置原HTTPS origin的promisor及blob:none；非cone稀疏检出仅物化合同的两个根锚定金标路径。真实Git回归夹具仅在测试现场的独立子目录初始化仓库，父现场所有权元数据不纳入合成提交或稀疏检出。上游不支持过滤即失败，不静默改为完整获取、不自动重试或替换来源；后续HEAD、detached、独立Git根、来源、干净状态、普通文件和非空校验全部保留。测试不复制Runtime金标、不读取已退役聚合仓父根；SCALE和岗位测试读取CITIZENCHAIN_ROOT下的原始所有者文件。公民CI原生SDK源从同轮dependencies结果的citizen_sdk.root取得。
 

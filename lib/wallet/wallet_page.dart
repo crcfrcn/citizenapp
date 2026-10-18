@@ -209,7 +209,13 @@ class _WalletTabState extends State<WalletTab> {
         return;
       }
       final state = inspection.state;
-      // 目录先显示；余额缓存与身份均为独立展示，不决定钱包是否存在。
+      // 首卡先恢复已有本地余额；缓存失败不改变SDK目录事实，也不等待身份或联网。
+      try { await _balanceStore.restore(state.accounts.map((account) => account.accountId)); }
+      on Object { AppLog.d('wallet_balance_cache_restore_failed'); }
+      if (!mounted || generation != _loadGeneration) {
+        await _releaseInspection(inspection);
+        return;
+      }
       final previous = _inspection;
       setState(() {
         _inspection = inspection;
@@ -218,7 +224,7 @@ class _WalletTabState extends State<WalletTab> {
         _loadError = null;
       });
       await _releaseInspection(previous);
-      unawaited(_refreshWalletDisplay(state, generation, forceBalance));
+      await _refreshWalletDisplay(state, generation, forceBalance);
     } catch (error) {
       if (!mounted || generation != _loadGeneration) return;
       AppLog.d('wallet_catalog_read_failed');
@@ -235,10 +241,8 @@ class _WalletTabState extends State<WalletTab> {
     }
   }
 
-  /// 展示缓存、待清理提示和联网结果的失败均不得覆盖已读到的SDK目录。
+  /// 目录刷新等本地清理状态确认；身份及联网余额独立推进，不延长目录单请求。
   Future<void> _refreshWalletDisplay(CitizenWalletState state, int generation, bool forceBalance) async {
-    try { await _balanceStore.restore(state.accounts.map((account) => account.accountId)); }
-    on Object { AppLog.d('wallet_balance_cache_restore_failed'); }
     if (!mounted || generation != _loadGeneration) return;
     try {
       final pending = await _accountSecurity.hasPendingAccountCleanup;
@@ -251,7 +255,7 @@ class _WalletTabState extends State<WalletTab> {
     } on Object { AppLog.d('wallet_cleanup_status_read_failed'); }
     if (!mounted || generation != _loadGeneration) return;
     unawaited(_loadIdentity(generation));
-    await _refreshBalances(state, generation, forceRefresh: forceBalance);
+    unawaited(_refreshBalances(state, generation, forceRefresh: forceBalance));
   }
 
   Future<void> _showDiagnostics() async {
