@@ -16,6 +16,8 @@ import * as resourceChild from 'node:child_process';
 import * as resourceModuleBuiltin from 'node:module';
 const directEntry = process.argv[1] === import.meta.filename && !process.execArgv.some(argument=>/^(?:-e|-p|--eval|--print)(?:=|$)/u.test(argument));
 const inlineTestEntry = directEntry && Boolean(process.env.NODE_TEST_CONTEXT) && process.argv.length === 2;
+// 回归保留原私有闭包与登记顺序，待模块全部初始化完成后统一登记。
+const inlineTestRegistrations=[];
 // 本产品独立拥有资源需求、工程准备与编译；公开回执仅提供验真资源，不提供执行命令。
 import {spawn,spawnSync} from 'node:child_process';
 import {AsyncLocalStorage} from 'node:async_hooks';
@@ -37,6 +39,8 @@ function platformInputs(source){
 // 本仓测试进程领取独立会话并传给子进程，正式Build仍使用平台固定根。
 if(process.env.NODE_TEST_CONTEXT&&!process.env.CITIZENAPP_TEST_SESSION)process.env.CITIZENAPP_TEST_SESSION=randomUUID();
 const testSession=process.env.NODE_TEST_CONTEXT&&/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/u.test(process.env.CITIZENAPP_TEST_SESSION||'')?process.env.CITIZENAPP_TEST_SESSION:null;
+// 独立测试父进程及其子回归分别领取会话；不占用或清理正式平台现场。
+const nodeVerificationSessions=new AsyncLocalStorage();
 export const contract=Object.freeze({"schema": 1,"product_id": "citizenapp","entry": "scripts/build.mjs","platforms": {
     "ios": {
       "tools": [
@@ -201,11 +205,12 @@ function runtimeDocument(path){
  const info=lstatSync(path);if(!info.isFile()||info.isSymbolicLink()||info.nlink!==1||info.size>65536||realpathSync(path)!==path)throw Error('公民App运行记录身份无效');
  return JSON.parse(readFileSync(path,'utf8'));
 }
-export function incrementalIdentity(platform){
+export function incrementalIdentity(platform,sources=executions.getStore()?.sdkSelection?.sources||lockedSources()){
  const item=buildPlatforms[platform];if(!item)throw Error('公民App增量平台无效');
  // 此值只作编译缓存兼容坐标，不用于资源字节或源码全树复验。
+ if(!Array.isArray(sources)||sources.length!==Object.keys(sdkRepositories).length||Object.entries(sdkRepositories).some(([name,url])=>sources.filter(source=>source?.name===name&&source.url===url&&/^[a-f0-9]{40}$/u.test(source.ref||'')).length!==1))fail('增量SDK提交身份无效');
  const locks=['pubspec.lock',...(platform==='ios'?['ios/Podfile.lock']:[])].map(name=>[name,readFileSync(join(root,name),'utf8')]);
- return createHash('sha256').update(JSON.stringify({product,platform,host:process.platform,arch:process.arch,source:root,tools:contract.platforms[platform].tools,locks,mode:'release',recipe:1})).digest('hex');
+ return createHash('sha256').update(JSON.stringify({product,platform,host:process.platform,arch:process.arch,source:root,tools:contract.platforms[platform].tools,locks,sources:sources.map(({name,url,ref})=>({name,url,ref})),mode:'release',recipe:2})).digest('hex');
 }
 function checkedRetainedEntry(work,name){
  const kind=name.replace(/\.(?:previous|pending)$/u,'');if(!['incremental','artifact'].includes(kind))throw Error('公民App保留目录类型无效');
@@ -288,7 +293,7 @@ function commitProductRetention(work){
   const intentCandidate=marker+'.pending';if(existsSync(intentCandidate)){const value=runtimeDocument(intentCandidate);if(value.product_id!==product||value.platform!==platform||value.work!==work||value.generation!==intent.generation||!['prepared','committing'].includes(value.phase))throw Error('公民App事务候选归属漂移');unlinkSync(intentCandidate);}
   const cache=checkedRetainedEntry(work,'incremental'),swapped=cache?.generation===intent.generation;
   if(intent.phase==='committing'){
-   if(!swapped||cache.source!==root||cache.work!==work||cache.identity!==incrementalIdentity(platform))throw Error('公民App提交缓存归属变化');finishArtifactRetention(work,true);clearRetentionPrevious(work);unlinkSync(marker);return;
+   if(!swapped||cache.source!==root||cache.work!==work||cache.identity!==incrementalIdentity(platform,intent.sdk_sources||lockedSources()))throw Error('公民App提交缓存归属变化');finishArtifactRetention(work,true);clearRetentionPrevious(work);unlinkSync(marker);return;
   }
   // prepared尚未形成提交点；只回滚这个generation的候选。
   const previous=join(work,'incremental.previous');
@@ -305,7 +310,7 @@ function commitProductRetention(work){
  try{
   const paths=incrementalPaths.filter(name=>existsSync(join(work,name)));
   for(const name of paths)copyIncrementalTree(join(work,name),join(pending,'data',...name.split('/')));
-  const generation=randomUUID(),record={schema:1,product_id:product,platform,identity:incrementalIdentity(platform),source:root,work,paths,generation};
+  const generation=randomUUID(),record={schema:1,product_id:product,platform,identity:incrementalIdentity(platform,intent.sdk_sources||lockedSources()),sdk_sources:intent.sdk_sources||lockedSources(),source:root,work,paths,generation};
   writeFileSync(join(pending,'receipt.json'),JSON.stringify(record)+'\n',{flag:'wx',mode:0o600});
   hadPrevious=Boolean(checkedRetainedEntry(work,'incremental'));const transaction={...intent,phase:'prepared',generation,cache_previous:hadPrevious};writeRetentionIntent(work,transaction);
   replaceRetainedDirectory(work,'incremental',pending,{retainPrevious:true});replaced=true;writeRetentionIntent(work,{...transaction,phase:'committing'});
@@ -323,7 +328,7 @@ function retainCompiledArtifacts(platform,work,version,files){
    const name=buildDisplayName(platform,version)+extension,target=join(pending,name);if(existsSync(target))throw Error('公民App产物名称重复');copyFileSync(path,target);
    return {name,size:info.size,sha256:outputDigest(target)};
   });
-  const record={schema:1,product_id:product,platform,version,files:assets,pending:true,previous:Boolean(checkedRetainedEntry(work,'artifact'))};writeFileSync(join(pending,'receipt.json'),JSON.stringify(record)+'\n',{flag:'wx',mode:0o600});replaceRetainedDirectory(work,'artifact',pending,{retainPrevious:true});
+  const record={schema:1,product_id:product,platform,version,sdk_selection:executions.getStore()?.sdkSelection,files:assets,pending:true,previous:Boolean(checkedRetainedEntry(work,'artifact'))};writeFileSync(join(pending,'receipt.json'),JSON.stringify(record)+'\n',{flag:'wx',mode:0o600});replaceRetainedDirectory(work,'artifact',pending,{retainPrevious:true});
   return assets.map(item=>({...item,path:join(work,'artifact',item.name)}));
  }catch(error){if(existsSync(pending))rmSync(pending,{recursive:true});throw error;}
 }
@@ -357,7 +362,8 @@ const sessions=new AsyncLocalStorage();
 const scopes=new Set(['build','test']);
 const fail=message=>{throw Error(product+' target：'+message);};
 function fixedWork(scope){
- const testRoot=testSession?join(root,'target/test/sessions',testSession):null;
+ const session=nodeVerificationSessions.getStore()||testSession;
+ const testRoot=session?join(root,'target/test/sessions',session):null;
  if(scope==='test')return testRoot||join(root,'target/test');
  if(scope==='build')return join(root,'target/build');
  if(typeof scope==='string'&&scope.startsWith('build/')){
@@ -596,7 +602,7 @@ function taskScope(work){checkFixedWork(work);if(work===fixedWork('test'))return
 
 // 同文件回归：普通导入和正式命令不注册测试。
 
-if(inlineTestEntry){
+if(inlineTestEntry)inlineTestRegistrations.push(async()=>{
  const {default:test}=await import('node:test');
  const {default:assert}=await import('node:assert/strict');
  const {execFileSync}=await import('node:child_process');
@@ -669,10 +675,10 @@ test('真实工程视图进入当前固定根并在入口完成后清空',async(
   assert.equal(prepareSourceView(),project);
  });isEmpty();assert.deepEqual(fs.readFileSync(join(root,'scripts/build.mjs')),before);
 });
-}
+});
 
 // 本产品收尾拒绝异任务与仍存活的资源后代。
-if(inlineTestEntry){
+if(inlineTestEntry)inlineTestRegistrations.push(async()=>{
  const {test}=await import('node:test'),{default:assert}=await import('node:assert/strict'),{spawn}=await import('node:child_process');
  test('收尾必须匹配本轮编号并等待资源后代退出',async()=>{
   const work=fixedWork('test');await withFixedWork('test',()=>withFixedWork('test',async()=>{fs.writeFileSync(join(work,'keep'),'owned');},{run_id:'owned-run'}),{retain:true});
@@ -683,7 +689,7 @@ if(inlineTestEntry){
   finally{process.kill(-child.pid,'SIGTERM');await closed;fs.writeFileSync(marker,JSON.stringify({pid:process.pid,groups:[]}));finishFixedWork(work,{run_id:'owned-run'});}
   assert.deepEqual(fs.readdirSync(work),[]);
  });
-}
+});
 
 return {ensureVendorVolume,vendorVolumeMatches,fixedWork,checkFixedWork,checkScratchPath,fixedScratch,assertTargetTopology,clearFixedWork,claimFixedWork,trackFixedProcess,trackWorkProcess,workEnvironment,prepareSourceView,retainWork,releaseFixedWork,withFixedWorkSync,withFixedWork,finishFixedWork,taskScope};
 })(contract);
@@ -902,7 +908,7 @@ function selectedArchiveEntries(entries,prefix){
   let parent=dirname(entry.path);while(parent!=='.'){if(table.has(parent)&&table.get(parent).type!=='directory')fail('归档父目录不是目录');directories.add(parent);parent=dirname(parent);}
  }
  // 只在归档成员图内逐组件解析：Current等目录链接可前向引用，不能借链逃出根。
- // 每条目标最多展开40次，活动链检测循环；所有检查完成前不创建任何成员。
+ // 每条解析链最多展开40个符号链接，计入起始链接；活动链检测循环，校验完成前不创建成员。
  function resolveTarget(base,target,active,budget){
   if(typeof target!=='string'||!target||isAbsolute(target)||/[\\\x00-\x1f]/u.test(target))fail('归档链接越界或缺失');
   let parts=base.slice();
@@ -922,7 +928,7 @@ function selectedArchiveEntries(entries,prefix){
   const path=parts.join('/');if(!safePath(path)||!table.has(path))fail('归档链接越界或缺失');return parts;
  }
  for(const entry of selected){
-  if(entry.type==='symlink')entry.resolved=resolveTarget(posix.dirname(entry.path)==='.'?[]:posix.dirname(entry.path).split('/'),entry.target,new Set([entry.path]),{hops:0}).join('/');
+  if(entry.type==='symlink')entry.resolved=resolveTarget(posix.dirname(entry.path)==='.'?[]:posix.dirname(entry.path).split('/'),entry.target,new Set([entry.path]),{hops:1}).join('/');
   else if(entry.type==='hardlink'){
    const target=prefix?entry.target.replace(new RegExp('^'+prefix+'/'),''):entry.target;
    if(!safePath(target)||!table.has(target))fail('归档链接越界或缺失');entry.resolved=target;
@@ -1899,7 +1905,7 @@ async function appleTools(library,{names=['xcodebuild'],signal,run=exec,environm
 
 
 // 针对性回归只使用本轮目录和模拟选择器，不启动Xcode或资源准备。
-if(process.env.NODE_TEST_CONTEXT&&process.argv.length===2&&process.argv[1]===import.meta.filename){
+if(process.env.NODE_TEST_CONTEXT&&process.argv.length===2&&process.argv[1]===import.meta.filename)inlineTestRegistrations.push(async()=>{
  const {test}=await import('node:test'),{default:assert}=await import('node:assert/strict');
  const {mkdir,mkdtemp,writeFile,rm}=await import('node:fs/promises');
  test('任务上下文中的Apple工具仍由产品解析，选择器原始错误保留',async t=>{
@@ -1946,7 +1952,7 @@ await resourceSupplies.run({work},async()=>{assert.deepEqual(gradleOfflineArgume
    await assert.rejects(appleTools({tools:[{id:'xcode',version:'fixture'}]},{names:['clang++'],run}),error=>mode==='broken'?error.code==='ENOENT':/Apple工具/.test(error.message),mode);
   }
  });
-}
+});
 
 const toolDefinitions=[{"id":"cmake","title":"CMake","version":"3.31.6","source":"https://cmake.org/download/","command":"cmake","archive":null,"archives":{"macos":{"url":"https://dl.google.com/android/repository/cmake-3.31.6-darwin.zip","sha256":"861a219b872cd0d9aee282b617fe3bd32f83925db3a0d28fd45d0553452e903a","root":"."},"linux-arm":{"url":"https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-linux-aarch64.tar.gz","sha256":"b4cc788d63112b2749b40627e719eb5d3b8ed8f00c36d77189f4019cfe64bc9e","root":"cmake-3.31.6-linux-aarch64"},"linux-amd":{"url":"https://dl.google.com/android/repository/cmake-3.31.6-linux.zip","sha256":"ce136bb4b02580b36e53d9ccfe5275069655e6ef7d46d6fe2fcf88cfdf8fb761","root":"."},"windows":{"url":"https://dl.google.com/android/repository/cmake-3.31.6-windows.zip","sha256":"dd54cc866afbd2cfc46189dd4864cdfb5bf8e2a34ec56e80188da0a138567b5e","root":"."}},"managed":false,"requires":[]},{"id":"git","title":"Git","version":"2.54.0","source":"https://git-scm.com/download/mac","command":"git","archive":{"url":"https://www.kernel.org/pub/software/scm/git/git-2.54.0.tar.xz","sha256":"f689162364c10de79ef89aa8dbf48731eb057e34edbbd20aca510ce0154681a3","root":"git-2.54.0","executable":"bin/git","kind":"native-source"},"managed":true,"requires":["node","xcode","perl","python","gettext"]},{"id":"node","title":"Node.js","version":"25.2.1","source":"https://nodejs.org/dist/v25.2.1/SHASUMS256.txt","command":"node","archives":{"linux-arm":{"url":"https://nodejs.org/dist/v25.2.1/node-v25.2.1-linux-arm64.tar.xz","sha256":"75f910b5234d3ee324ceebcf41e2c3c221c4c2225463a02ecd685b884155e0f6","root":"node-v25.2.1-linux-arm64"},"linux-amd":{"url":"https://nodejs.org/dist/v25.2.1/node-v25.2.1-linux-x64.tar.xz","sha256":"b9f6a97e81c89a9df45526b4f86dafdccaf12b82295f7bf35bdb2b0f5e68744f","root":"node-v25.2.1-linux-x64"},"windows":{"url":"https://nodejs.org/dist/v25.2.1/node-v25.2.1-win-x64.zip","sha256":"f97ba75ead7720652f3925d9cf8661e083a28c6b98ea77acc83903d77a9dd688","root":"node-v25.2.1-win-x64"}},"archive":{"url":"https://nodejs.org/dist/v25.2.1/node-v25.2.1-darwin-arm64.tar.gz","sha256":"be87e21bd235a451fad02c89e5bf7cb17e206e4cd89dd5664f20d19e7dfde6f9","root":"node-v25.2.1-darwin-arm64","executable":"bin/node","kind":"extract"},"managed":true,"requires":[]},{"id":"python","title":"Python","version":"3.14.3","source":"https://www.python.org/downloads/macos/","command":"python3","archive":{"url":"https://www.python.org/ftp/python/3.14.3/Python-3.14.3.tar.xz","sha256":"a97d5549e9ad81fe17159ed02c68774ad5d266c72f8d9a0b5a9c371fe85d902b","root":"Python-3.14.3","executable":"bin/python3.14","kind":"native-source"},"managed":true,"requires":["node","xcode","openssl"],"dependencies":[{"name":"xz","version":"5.8.2","url":"https://github.com/tukaani-project/xz/releases/download/v5.8.2/xz-5.8.2.tar.xz","sha256":"890966ec3f5d5cc151077879e157c0593500a522f413ac50ba26d22a9a145214","root":"xz-5.8.2"}]},{"id":"rust","title":"Rust","version":"1.97.1","source":"https://static.rust-lang.org/dist/channel-rust-1.97.1.toml","command":"rustc","archive":{"url":"https://static.rust-lang.org/dist/2026-07-16/rust-1.97.1-aarch64-apple-darwin.tar.xz","sha256":"c9748cc86107734a2a024069908a895de7caa2d37062fb641eef9f756938ace2","root":"rust-1.97.1-aarch64-apple-darwin","executable":"bin/rustc","kind":"rust"},"components":[{"target":"aarch64-linux-android","url":"https://static.rust-lang.org/dist/2026-07-16/rust-std-1.97.1-aarch64-linux-android.tar.xz","sha256":"d664a49fb80d125d68f779112aa97d2a3f5def5f807a35540aa77fce0b350c4f","root":"rust-std-1.97.1-aarch64-linux-android"},{"target":"aarch64-apple-ios","url":"https://static.rust-lang.org/dist/2026-07-16/rust-std-1.97.1-aarch64-apple-ios.tar.xz","sha256":"1d58e856a295852a419f92445fe6b3db268049eb6222a672d52c52de52f36631","root":"rust-std-1.97.1-aarch64-apple-ios"},{"target":"aarch64-apple-ios-sim","url":"https://static.rust-lang.org/dist/2026-07-16/rust-std-1.97.1-aarch64-apple-ios-sim.tar.xz","sha256":"3deb094abb0f7382aad761b8e1e89cebd68bec0591d39e313330ef709b99f6e4","root":"rust-std-1.97.1-aarch64-apple-ios-sim"},{"target":"aarch64-unknown-linux-gnu","url":"https://static.rust-lang.org/dist/2026-07-16/rust-std-1.97.1-aarch64-unknown-linux-gnu.tar.xz","sha256":"46aed8e63186350004d8ec6afca798811e6530b514352e5a8a26f3dc4939b3be","root":"rust-std-1.97.1-aarch64-unknown-linux-gnu"},{"target":"wasm32-unknown-unknown","url":"https://static.rust-lang.org/dist/2026-07-16/rust-std-1.97.1-wasm32-unknown-unknown.tar.xz","sha256":"fa0edb6e9f34faae5735554d62d50875eded839dc707d0f1c01467a918d8453b","root":"rust-std-1.97.1-wasm32-unknown-unknown"}],"managed":true,"requires":[]},{"id":"flutter","title":"Flutter","version":"3.47.2","source":"https://storage.googleapis.com/flutter_infra_release/releases/releases_macos.json","command":"flutter","archive":{"url":"https://storage.googleapis.com/flutter_infra_release/releases/stable/macos/flutter_macos_arm64_3.47.2-stable.zip","sha256":"f456fd6733053d9301828a2e702d6cbec872923126809aa8c48eb0a696d6cc01","root":"flutter","executable":"bin/flutter","kind":"extract"},"patch":{"path":"flutter.patch","sha256":"76ef76ca73b2b00423009bd7ebca62f23026e2c9d411504324d2c8ff64da4657","source":"https://github.com/flutter/flutter/commit/d3b14c876900e553bc736ca19295fc09e3853e8e"},"managed":true,"requires":[]},{"id":"java","title":"Java (Temurin)","version":"17.0.20.1","source":"https://api.adoptium.net/v3/assets/feature_releases/17/ga?architecture=aarch64&image_type=jdk&os=mac","command":"java","archive":{"url":"https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1%2B1/OpenJDK17U-jdk_aarch64_mac_hotspot_17.0.20.1_1.tar.gz","sha256":"196d13ba5f10414bef7f6a05a9b3f00edacb18ebacef2b99485db9e2ee18f0e8","root":"jdk-17.0.20.1+1","executable":"Contents/Home/bin/java","kind":"extract"},"managed":true,"requires":[]},{"id":"gradle","title":"Gradle","version":"9.1.0","source":"https://services.gradle.org/distributions/gradle-9.1.0-bin.zip.sha256","command":"gradle","archive":{"url":"https://services.gradle.org/distributions/gradle-9.1.0-bin.zip","sha256":"a17ddd85a26b6a7f5ddb71ff8b05fc5104c0202c6e64782429790c933686c806","root":"gradle-9.1.0","executable":"bin/gradle","kind":"extract"},"managed":true,"requires":["java"]},{"id":"android","title":"Android SDK","version":"37.0.1","source":"https://developer.android.com/studio","command":"adb","archive":null,"managed":false,"requires":[]},{"id":"android-sdk","title":"Android SDK Manager","version":"22.0","source":"https://developer.android.com/tools/sdkmanager","command":"sdkmanager","archive":null,"managed":false,"requires":[]},{"id":"android-ndk","title":"Android NDK","version":"28.2.13676358","source":"https://developer.android.com/ndk/downloads","command":"ndk-build","archive":null,"managed":false,"requires":[]},{"id":"cocoapods","title":"CocoaPods","version":"1.17.0","source":"https://cocoapods.org","command":"pod","archive":{"url":"https://rubygems.org/downloads/cocoapods-1.17.0.gem","sha256":"dacf6f11ac3b00d60e6dd326485b616935230aacf95f385d145db27bfdf284af","root":".","executable":"bin/pod","kind":"gem"},"managed":true,"requires":["node","xcode","ruby","git"],"dependencies":[{"name":"CFPropertyList","version":"3.0.8","url":"https://rubygems.org/downloads/CFPropertyList-3.0.8.gem","sha256":"2c99d0d980536d3d7ab252f7bd59ac8be50fbdd1ff487c98c949bb66bb114261"},{"name":"activesupport","version":"6.1.7.10","url":"https://rubygems.org/downloads/activesupport-6.1.7.10.gem","sha256":"3f8e1f787a7bfbf765959ba509ef70af8293b35cb864078919365a12bf33d470"},{"name":"addressable","version":"2.9.0","url":"https://rubygems.org/downloads/addressable-2.9.0.gem","sha256":"7fdf6ac3660f7f4e867a0838be3f6cf722ace541dd97767fa42bc6cfa980c7af"},{"name":"algoliasearch","version":"1.27.5","url":"https://rubygems.org/downloads/algoliasearch-1.27.5.gem","sha256":"26c1cddf3c2ec4bd60c148389e42702c98fdac862881dc6b07a4c0b89ffec853"},{"name":"atomos","version":"0.1.3","url":"https://rubygems.org/downloads/atomos-0.1.3.gem","sha256":"7d43b22f2454a36bace5532d30785b06de3711399cb1c6bf932573eda536789f"},{"name":"base64","version":"0.3.0","url":"https://rubygems.org/downloads/base64-0.3.0.gem","sha256":"27337aeabad6ffae05c265c450490628ef3ebd4b67be58257393227588f5a97b"},{"name":"claide","version":"1.1.0","url":"https://rubygems.org/downloads/claide-1.1.0.gem","sha256":"6d3c5c089dde904d96aa30e73306d0d4bd444b1accb9b3125ce14a3c0183f82e"},{"name":"cocoapods-core","version":"1.17.0","url":"https://rubygems.org/downloads/cocoapods-core-1.17.0.gem","sha256":"a9e3d0dd36ab1b48935236d77a15cad9171217f13c6010c8e2ae3c0f455daf5b"},{"name":"cocoapods-deintegrate","version":"1.0.5","url":"https://rubygems.org/downloads/cocoapods-deintegrate-1.0.5.gem","sha256":"517c2a448ef563afe99b6e7668704c27f5de9e02715a88ee9de6974dc1b3f6a2"},{"name":"cocoapods-downloader","version":"2.1","url":"https://rubygems.org/downloads/cocoapods-downloader-2.1.gem","sha256":"bb6ebe1b3966dc4055de54f7a28b773485ac724fdf575d9bee2212d235e7b6d1"},{"name":"cocoapods-plugins","version":"1.0.0","url":"https://rubygems.org/downloads/cocoapods-plugins-1.0.0.gem","sha256":"725d17ce90b52f862e73476623fd91441b4430b742d8a071000831efb440ca9a"},{"name":"cocoapods-search","version":"1.0.1","url":"https://rubygems.org/downloads/cocoapods-search-1.0.1.gem","sha256":"1b133b0e6719ed439bd840e84a1828cca46425ab73a11eff5e096c3b2df05589"},{"name":"cocoapods-trunk","version":"1.6.0","url":"https://rubygems.org/downloads/cocoapods-trunk-1.6.0.gem","sha256":"5f5bda8c172afead48fa2d43a718cf534b1313c367ba1194cebdeb9bfee9ed31"},{"name":"cocoapods-try","version":"1.2.0","url":"https://rubygems.org/downloads/cocoapods-try-1.2.0.gem","sha256":"145b946c6e7747ed0301d975165157951153d27469e6b2763c83e25c84b9defe"},{"name":"colored2","version":"3.1.2","url":"https://rubygems.org/downloads/colored2-3.1.2.gem","sha256":"b13c2bd7eeae2cf7356a62501d398e72fde78780bd26aec6a979578293c28b4a"},{"name":"concurrent-ruby","version":"1.3.7","url":"https://rubygems.org/downloads/concurrent-ruby-1.3.7.gem","sha256":"4412caec3a5ea2e5fdc52076724c071a81f2c0593d83b2ac8cbb8ca63b3151b0"},{"name":"ethon","version":"0.18.0","url":"https://rubygems.org/downloads/ethon-0.18.0.gem","sha256":"b598afc9f30448cb068b850714b7d6948e941476095d04f90a4ac65b8d6efcb2"},{"name":"ffi","version":"1.17.4","url":"https://rubygems.org/downloads/ffi-1.17.4.gem","sha256":"bcd1642e06f0d16fc9e09ac6d49c3a7298b9789bcb58127302f934e437d60acf"},{"name":"fourflusher","version":"2.3.1","url":"https://rubygems.org/downloads/fourflusher-2.3.1.gem","sha256":"1b3de61c7c791b6a4e64f31e3719eb25203d151746bb519a0292bff1065ccaa9"},{"name":"fuzzy_match","version":"2.0.4","url":"https://rubygems.org/downloads/fuzzy_match-2.0.4.gem","sha256":"b5de4f95816589c5b5c3ad13770c0af539b75131c158135b3f3bbba75d0cfca5"},{"name":"gh_inspector","version":"1.1.3","url":"https://rubygems.org/downloads/gh_inspector-1.1.3.gem","sha256":"04cca7171b87164e053aa43147971d3b7f500fcb58177698886b48a9fc4a1939"},{"name":"httpclient","version":"2.9.0","url":"https://rubygems.org/downloads/httpclient-2.9.0.gem","sha256":"4b645958e494b2f86c2f8a2f304c959baa273a310e77a2931ddb986d83e498c8"},{"name":"i18n","version":"1.14.8","url":"https://rubygems.org/downloads/i18n-1.14.8.gem","sha256":"285778639134865c5e0f6269e0b818256017e8cde89993fdfcbfb64d088824a5"},{"name":"json","version":"2.20.0","url":"https://rubygems.org/downloads/json-2.20.0.gem","sha256":"9362bc6e55a952b056abf9167cf053358181c904cb70cd6eee0808ea830fc32b"},{"name":"logger","version":"1.7.0","url":"https://rubygems.org/downloads/logger-1.7.0.gem","sha256":"196edec7cc44b66cfb40f9755ce11b392f21f7967696af15d274dde7edff0203"},{"name":"minitest","version":"5.26.1","url":"https://rubygems.org/downloads/minitest-5.26.1.gem","sha256":"f16a63d4278e230bba342c3bda3006a69c5216d46461b77dd57f7c7c529b5a96"},{"name":"molinillo","version":"0.8.0","url":"https://rubygems.org/downloads/molinillo-0.8.0.gem","sha256":"efbff2716324e2a30bccd3eba1ff3a735f4d5d53ffddbc6a2f32c0ca9433045d"},{"name":"mutex_m","version":"0.3.0","url":"https://rubygems.org/downloads/mutex_m-0.3.0.gem","sha256":"cfcb04ac16b69c4813777022fdceda24e9f798e48092a2b817eb4c0a782b0751"},{"name":"nanaimo","version":"0.4.0","url":"https://rubygems.org/downloads/nanaimo-0.4.0.gem","sha256":"faf069551bab17f15169c1f74a1c73c220657e71b6e900919897a10d991d0723"},{"name":"nap","version":"1.1.0","url":"https://rubygems.org/downloads/nap-1.1.0.gem","sha256":"949691660f9d041d75be611bb2a8d2fd559c467537deac241f4097d9b5eea576"},{"name":"netrc","version":"0.11.0","url":"https://rubygems.org/downloads/netrc-0.11.0.gem","sha256":"de1ce33da8c99ab1d97871726cba75151113f117146becbe45aa85cb3dabee3f"},{"name":"nkf","version":"0.3.0","url":"https://rubygems.org/downloads/nkf-0.3.0.gem","sha256":"357a8dbeba38b727b75930f665146546076a394a1c243faf634ff176e3588895"},{"name":"public_suffix","version":"4.0.7","url":"https://rubygems.org/downloads/public_suffix-4.0.7.gem","sha256":"8be161e2421f8d45b0098c042c06486789731ea93dc3a896d30554ee38b573b8"},{"name":"rexml","version":"3.4.4","url":"https://rubygems.org/downloads/rexml-3.4.4.gem","sha256":"19e0a2c3425dfbf2d4fc1189747bdb2f849b6c5e74180401b15734bc97b5d142"},{"name":"ruby-macho","version":"4.1.0","url":"https://rubygems.org/downloads/ruby-macho-4.1.0.gem","sha256":"23dab37f7de0fe1e14f3bfa73bebc423ae8cd1d4fdb3e5585abc45a841eca920"},{"name":"typhoeus","version":"1.6.0","url":"https://rubygems.org/downloads/typhoeus-1.6.0.gem","sha256":"bacc41c23e379547e29801dc235cd1699b70b955a1ba3d32b2b877aa844c331d"},{"name":"tzinfo","version":"2.0.6","url":"https://rubygems.org/downloads/tzinfo-2.0.6.gem","sha256":"8daf828cc77bcf7d63b0e3bdb6caa47e2272dcfaf4fbfe46f8c3a9df087a829b"},{"name":"xcodeproj","version":"1.28.1","url":"https://rubygems.org/downloads/xcodeproj-1.28.1.gem","sha256":"6f12670f00739d9817ca27ac89d6ef01cc86050e22a0bc08a3131487e5b5cddc"},{"name":"zeitwerk","version":"2.6.18","url":"https://rubygems.org/downloads/zeitwerk-2.6.18.gem","sha256":"bd2d213996ff7b3b364cd342a585fbee9797dbc1c0c6d868dc4150cc75739781"}]},{"id":"xcode","title":"Xcode","version":"27.0","source":"https://developer.apple.com/xcode/","command":"xcodebuild","archive":null,"managed":false,"requires":[]},{"id":"perl","title":"Perl","version":"5.42.3","source":"https://www.cpan.org/src/5.0/","command":"perl","archive":{"url":"https://www.cpan.org/src/5.0/perl-5.42.3.tar.xz","sha256":"c9387e1473a1866935cb047ece7c2e0a80767a3acdecb79d4a375f8a95970ddc","root":"perl-5.42.3","executable":"bin/perl","kind":"native-source"},"managed":true,"requires":["node","xcode"]},{"id":"openssl","title":"OpenSSL","version":"3.6.3","source":"https://github.com/openssl/openssl/releases/download/openssl-3.6.3/","command":"openssl","archive":{"url":"https://github.com/openssl/openssl/releases/download/openssl-3.6.3/openssl-3.6.3.tar.gz","sha256":"243a86649cf6f23eeb6a2ff2456e09e5d77dd9018a54d3d96b0c6bdd6ba6c7f1","root":"openssl-3.6.3","executable":"bin/openssl","kind":"native-source"},"managed":true,"requires":["node","xcode","perl"]},{"id":"ruby","title":"Ruby","version":"3.4.11","source":"https://cache.ruby-lang.org/pub/ruby/3.4/","command":"ruby","archive":{"url":"https://cache.ruby-lang.org/pub/ruby/3.4/ruby-3.4.11.tar.gz","sha256":"5c22be44524312b3d433d68739bcc530633b1da5ef8ba0afa0a37680da17d3de","root":"ruby-3.4.11","executable":"bin/ruby","kind":"native-source"},"managed":true,"requires":["node","xcode","openssl"],"dependencies":[{"name":"libyaml","version":"0.2.5","url":"https://pyyaml.org/download/libyaml/yaml-0.2.5.tar.gz","sha256":"c642ae9b75fee120b2d96c712538bd2cf283228d2337df2cf2988e3c02678ef4","root":"yaml-0.2.5"}]},{"id":"m4","title":"GNU M4","version":"1.4.21","source":"https://ftp.gnu.org/gnu/m4/","command":"m4","archive":{"url":"https://ftp.gnu.org/gnu/m4/m4-1.4.21.tar.xz","sha256":"f25c6ab51548a73a75558742fb031e0625d6485fe5f9155949d6486a2408ab66","root":"m4-1.4.21","executable":"bin/m4","kind":"native-source"},"managed":true,"requires":["node","xcode"]},{"id":"bison","title":"GNU Bison","version":"3.8.2","source":"https://ftp.gnu.org/gnu/bison/","command":"bison","archive":{"url":"https://ftp.gnu.org/gnu/bison/bison-3.8.2.tar.xz","sha256":"9bba0214ccf7f1079c5d59210045227bcf619519840ebfa80cd3849cff5a5bf2","root":"bison-3.8.2","executable":"bin/bison","kind":"native-source"},"managed":true,"requires":["node","xcode","m4"]},{"id":"flex","title":"Flex","version":"2.6.4","source":"https://github.com/westes/flex/releases/download/v2.6.4/","command":"flex","archive":{"url":"https://github.com/westes/flex/releases/download/v2.6.4/flex-2.6.4.tar.gz","sha256":"e87aae032bf07c26f85ac0ed3250998c37621d95f8bd748b31f15b33c45ee995","root":"flex-2.6.4","executable":"bin/flex","kind":"native-source"},"managed":true,"requires":["node","xcode","m4","bison"]},{"id":"gettext","title":"GNU Gettext","version":"1.0","source":"https://ftp.gnu.org/gnu/gettext/","command":"msgfmt","archive":{"url":"https://ftp.gnu.org/gnu/gettext/gettext-1.0.tar.gz","sha256":"85d99b79c981a404874c02e0342176cf75c7698e2b51fe41031cf6526d974f1a","root":"gettext-1.0","executable":"bin/msgfmt","kind":"native-source"},"managed":true,"requires":["node","xcode","perl","m4","bison","flex"]},{"id":"posix","title":"macOS POSIX 基础工具","version":"27.0","source":"https://opensource.apple.com/","command":"bash","archive":{"url":"https://opensource.apple.com/","sha256":"8ca7560842b9606bcbe9628248866cc52675775a956574199716515dadf020fe","root":"macos-posix-27.0","executable":"bin/bash","kind":"apple-posix"},"managed":true,"requires":["node","xcode"]},{"id":"bash","title":"GNU Bash","version":"5.3.20","source":"https://www.gnu.org/software/bash/","command":"bash","archive":{"url":"https://ftp.gnu.org/gnu/bash/bash-5.3.tar.gz","sha256":"0d5cd86965f869a26cf64f4b71be7b96f90a3ba8b3d74e27e8e9d9d5550f31ba","root":"bash-5.3","executable":"bin/bash","kind":"native-source"},"upstream_patches":[{"url":"https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-001","sha256":"1f608434364af86b9b45c8b0ea3fb3b165fb830d27697e6cdfc7ac17dee3287f"},{"url":"https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-002","sha256":"e385548a00130765ec7938a56fbdca52447ab41fabc95a25f19ade527e282001"},{"url":"https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-003","sha256":"f245d9c7dc3f5a20d84b53d249334747940936f09dc97e1dcb89fc3ab37d60ed"},{"url":"https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-004","sha256":"9591d245045529f32f0812f94180b9d9ce9023f5a765c039b852e5dfc99747d0"},{"url":"https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-005","sha256":"cca1ef52dbbf433bc98e33269b64b2c814028efe2538be1e2c9a377da90bc99d"},{"url":"https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-006","sha256":"29119addefed8eff91ae37fd51822c31780ee30d4a28376e96002706c995ff10"},{"url":"https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-007","sha256":"c0976bbfffa1453c7cfdd62058f206a318568ff2d690f5d4fa048793fa3eb299"},{"url":"https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-008","sha256":"097cd723cbfb8907674ac32214063a3fd85282657ec5b4e544d2c0f719653fb4"},{"url":"https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-009","sha256":"eee30fe78a4b0cb2fe20e010e00308899cfc613e0774ebb3c8557a1552f24f8c"},{"url":"https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-010","sha256":"cf76f1cce2ea300c18bff9f002d21f280cc931acd17c28518110b93fe6e72569"},{"url":"https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-011","sha256":"0298df8f5ea2a31d3be43ed7d269c5b3c7c342dd5b570bea7f64d66dcbbe7531"},{"url":"https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-012","sha256":"d71379b39bebaedaf123414414e77fb458a0a43b9ad3116594c6df7ca6754573"},{"url":"https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-013","sha256":"042f9cda967e24bf4211944697441e93d06ff42b4b998629a98a1b249279f200"},{"url":"https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-014","sha256":"bd4360b401d38507e358783dcad8536a99c6789f0d3a5bd0cfb8c4a34144696c"},{"url":"https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-015","sha256":"55b79ceee2fc27f6767eed697e939a7eb2fe2a28c01556bd75f18d581014f46e"},{"url":"https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-016","sha256":"9ea29b266b7d24cb34d0ff3f1c4631e4d527bfe2d1ef15d17cdb924bf31ef767"},{"url":"https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-017","sha256":"443b927b45c1558ca72052410f8b8f6e5152b617ed707061a2781d4375b0d1c3"},{"url":"https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-018","sha256":"ae715d76c50341d7d7095e9a8d2eeed1ca9546152c2ac7289206f90cf30ac697"},{"url":"https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-019","sha256":"a25c581e4d0057dea3833918438a930e2e86ee4c6dc17fe15267b7f04cbc4e3d"},{"url":"https://ftp.gnu.org/gnu/bash/bash-5.3-patches/bash53-020","sha256":"df217ed3a9122aa2286d9b67bbe348661b6a9db262b580c29150dae55d532896"}],"managed":true,"requires":["node","xcode","posix"]},{"id":"grep","title":"GNU grep","version":"3.12","source":"https://www.gnu.org/software/grep/","command":"grep","archive":{"url":"https://ftp.gnu.org/gnu/grep/grep-3.12.tar.xz","sha256":"2649b27c0e90e632eadcd757be06c6e9a4f48d941de51e7c0f83ff76408a07b9","root":"grep-3.12","executable":"bin/grep","kind":"native-source"},"managed":true,"requires":["node","xcode","posix"]},{"id":"sed","title":"GNU sed","version":"4.10","source":"https://www.gnu.org/software/sed/","command":"sed","archive":{"url":"https://ftp.gnu.org/gnu/sed/sed-4.10.tar.xz","sha256":"b8e72182b2ec96a3574e2998c47b7aaa64cc20ce000d8e9ac313cc07cecf28c7","root":"sed-4.10","executable":"bin/sed","kind":"native-source"},"managed":true,"requires":["node","xcode","posix"]}];
 const androidPlatformDefinitions=[{"path":"platforms;android-35","version":"2","source":"https://dl.google.com/android/repository/platform-35_r02.zip","sha256":"14c793e5c50d69bd3a5b15e42bf763b39ea90d8d3fb3a4a690b5a7b05c299d6f"}];
@@ -2092,10 +2098,12 @@ async function gitCheckout(source,target,options){
   return target;
  }
  // Git bundle只在当前任务使用，来源仍由固定提交闭合。
- const coordinate=new URL(source.url);const bundle=join(options.dependencyRoot,'git',coordinate.hostname,...coordinate.pathname.split('/').filter(Boolean),source.ref+'.bundle');await directory(dirname(bundle),true);
+ const bundle=gitBundlePath(source,options.dependencyRoot);await directory(dirname(bundle),true);
  if(!await stat(bundle)){const candidate=await fixedScratch(join(await resourceWork(options.library.work),'.git-'));try{const file=join(candidate,'source.bundle');
 
-   if(options.offline)fail('离线缺少Git提交');const checkout=join(candidate,'repository');await mkdir(checkout);await run(['init','--quiet',checkout]);await run(['-C',checkout,'fetch','--no-tags',source.url,source.ref]);await run(['-C',checkout,'update-ref','refs/heads/locked',source.ref]);await run(['-C',checkout,'bundle','create',file,'refs/heads/locked']);await rm(checkout,{recursive:true});
+   if(options.offline&&!source.local_root)fail('离线缺少Git提交');
+   let origin=source.url;if(source.local_root){const selection=checkedSdkSelection({schema:1,product_id:product,mode:'local',sources:options.sources});const selected=selection.sources.find(item=>item.name===source.name);if(!selected||selected.ref!==source.ref)fail('本机SDK选择记录不符');await directory(selected.local_root);await directory(join(selected.local_root,'.git'));if((await realpath(selected.local_root))!==selected.local_root||(await realpath(join(selected.local_root,'.git')))!==join(selected.local_root,'.git')||(await run(['-C',selected.local_root,'rev-parse','--absolute-git-dir'])).stdout.trim()!==join(selected.local_root,'.git')||resolve(selected.local_root,(await run(['-C',selected.local_root,'rev-parse','--git-common-dir'])).stdout.trim())!==join(selected.local_root,'.git')||(await run(['-C',selected.local_root,'remote','get-url','origin'])).stdout.trim()!==source.url)fail('本机SDK来源漂移');origin=selected.local_root;}
+   const checkout=join(candidate,'repository');await mkdir(checkout);await run(['init','--quiet',checkout]);await run(['-C',checkout,'fetch','--no-tags',origin,source.ref]);await run(['-C',checkout,'update-ref','refs/heads/locked',source.ref]);await run(['-C',checkout,'bundle','create',file,'refs/heads/locked']);await rm(checkout,{recursive:true});
    options.signal?.throwIfAborted();await commitCandidate(file,bundle,{signal:options.signal});
   }finally{await rm(candidate,{recursive:true,force:true});}}
  await directory(dirname(target),true);const pending=await fixedScratch(join(dirname(target),'.checkout-'));try{const checkout=join(pending,'source');await run(['clone','--quiet','--no-checkout','--',bundle,checkout]);await run(['-C',checkout,'remote','set-url','origin',source.url]);await run(['-C',checkout,'checkout','--quiet','--detach',source.ref]);options.signal?.throwIfAborted();await rename(checkout,target);}finally{await rm(pending,{recursive:true});}return gitCheckout(source,target,options);
@@ -2339,11 +2347,63 @@ async function bootstrapNode(work,options={}) {
  return installTool(library,toolDefinitions.find(x=>x.id==='node'),context);
 }
 
-async function resources(platform,work,previous={},options={}){return resourceSupplies.run({work},()=>materializeResources(platform,work,previous,options));}
+function gitBundlePath(source,dependencyRoot){
+ const coordinate=new URL(checkedURL(source.url));return join(dependencyRoot,'git',coordinate.hostname,...coordinate.pathname.split('/').filter(Boolean),source.ref+'.bundle');
+}
+// 完整Build先按自身声明准备选择SDK所需的Git；不在控制台查询或供应依赖。
+async function prepareSdkInputs(work,{environment=process.env,signal,delivery='local',ciEnvironment,offline=false}={}){return resourceSupplies.run({work},async()=>{
+ const owner=await import('./build.mjs');owner.checkWork(work);owner.lockedSources();
+ if(delivery==='automation'){
+  const locked=automationSdkInputs(ciEnvironment||environment);
+  return selectReleaseSdkInputs((ciEnvironment||environment).GH_TOKEN||(ciEnvironment||environment).GITHUB_TOKEN,{locked});
+ }
+ const store=join(homedir(),'.local/share/product-resources');
+ if(inside(root,store)||inside(store,root)||inside(work,store)||inside(store,work))fail('SDK选择资源边界交叉');
+ const library={root:join(store,'tools'),work,tools:toolDefinitions,installed:new Map()};await directory(library.root,true);
+ const options={library,environment,signal,offline,fetcher:fetch};
+ for(const id of ['node','posix','bash','grep','sed','git'])await installTool(library,toolDefinitions.find(tool=>tool.id===id),options);
+ const foundation=await productFoundation(library,async(_,tool)=>library.installed.get(tool.id));
+ return owner.selectLocalSdkInputs(library.installed.get('git').path,work,{...cleanEnvironment(environment),PATH:foundation.path});
+});}
+// Node独立验收复用既有工具，本机准确提交只读物化为本任务Git输入；不下载、安装或编译资源。
+async function nodeTestResources(work,{environment=process.env,signal}={}){return resourceSupplies.run({work},async()=>{
+ const owner=await import('./build.mjs');owner.checkWork(work);signal?.throwIfAborted();
+ if(process.platform!=='darwin'||process.arch!=='arm64')fail('独立Node验收仅支持声明的macOS ARM宿主');
+ const store=join(homedir(),'.local/share/product-resources'),library={root:join(store,'tools'),work,tools:toolDefinitions,installed:new Map()};
+ if(inside(root,store)||inside(store,root)||inside(work,store)||inside(store,work)||store===work)fail('Node验收原件库边界交叉');
+ await directory(store);await directory(library.root);const shared=join(library.root,'shared');await directory(shared);
+ const names=await readdir(shared);
+ for(const id of ['node','git','posix','bash','grep','sed']){
+  signal?.throwIfAborted();const tool=toolDefinitions.find(value=>value.id===id),archive=tool&&toolArchive(tool);
+  if(!archive)fail('Node验收工具未声明：'+id);
+  const candidates=[archive.sha256,...names.filter(name=>name.startsWith(archive.sha256+'-'))];let installed;
+  for(const name of candidates){const candidate=join(shared,name);if(!await stat(candidate))continue;await directory(candidate);const value=await installedToolObject(candidate,tool);if(!value)continue;const target=await realpath(value.path);if(!inside(join(candidate,'payload'),target))fail('Node验收工具越出原对象：'+id);await regular(target);if(!((await lstat(target)).mode&0o111))fail('Node验收工具不可执行：'+id);installed=value;break;}
+  if(!installed)fail('Node验收缺少已准备工具：'+id);library.installed.set(id,installed);
+ }
+ const foundation=await productFoundation(library,async(_,tool)=>library.installed.get(tool.id));
+ const state=executions.getStore();if(!state)fail('Node验收缺少独立任务上下文');state.sdkWork=work;
+ if(environment.GITHUB_ACTIONS==='true')fail('独立Node验收只接受本机SDK输入；自动化测试使用完整Build的已锁定输入');
+ state.sdkSelection=await owner.selectLocalSdkInputs(library.installed.get('git').path,work,{...cleanEnvironment(environment),PATH:foundation.path});
+ const sources=owner.effectiveSdkSources(work),options={library,environment,signal,offline:true,dependencyRoot:join(store,'rely'),sources};
+ for(const source of sources){const bundle=gitBundlePath(source,options.dependencyRoot);if(await stat(bundle))await regular(bundle);}
+ for(const source of sources)await gitCheckout(source,join(work,'git-sources',source.name),options);
+ const apple=await appleTools(library,{names:['swiftc','xcrun'],environment,signal});
+ const sdk=(await exec(apple.tools.xcrun,['--sdk','macosx','--show-sdk-path'],{env:{...cleanEnvironment(environment),DEVELOPER_DIR:apple.developerDirectory,PATH:''},signal,timeout:60000})).stdout.trim();
+ if(!isAbsolute(sdk)||resolve(sdk)!==sdk)fail('Node验收Apple SDK路径无效');const sdkRoot=await realpath(sdk);await directory(sdkRoot);if(!inside(apple.developerDirectory,sdkRoot))fail('Node验收Apple SDK越界');
+ return {node:library.installed.get('node'),environment:{...cleanEnvironment(environment),...sdkSelectionEnvironment(work,state.sdkSelection),PATH:[dirname(library.installed.get('git').path),foundation.path,dirname(library.installed.get('node').path)].join(':'),PRODUCT_GIT_BIN:library.installed.get('git').path,PRODUCT_TEST_SWIFTC:apple.tools.swiftc,PRODUCT_TEST_DEVELOPER_DIR:apple.developerDirectory,PRODUCT_TEST_SDKROOT:sdkRoot,CITIZENAPP_TEST_WORK_DIR:work}};
+});}
+
+async function resources(platform,work,previous={},options={}){return resourceSupplies.run({work},async()=>{
+ const current=executions.getStore();if(current?.sdkSelection)return materializeResources(platform,work,previous,options);
+ const environment=options.environment||process.env,state={signal:options.signal,sdkWork:work};
+ state.sdkSelection=previous.sdk_selection?checkedSdkSelection(previous.sdk_selection):await prepareSdkInputs(work,{...options,environment,delivery:environment.GITHUB_ACTIONS==='true'?'automation':'local',ciEnvironment:environment});
+ return executions.run(state,()=>materializeResources(platform,work,previous,options));
+});}
 
 async function materializeResources(platform,work,previous={},options={}){
  const owner=await import('./build.mjs');owner.checkWork(work);const request=()=>owner.requirements(platform,work);const requirement=request(),environment=options.environment||process.env;
  if(previous.schema!==undefined&&(previous.schema!==1||previous.product_id!==requirement.product_id||previous.platform!==platform||previous.work!==work))fail('资源请求身份无效');options={environment,fetcher:fetch,offline:false,...options};options.signal?.throwIfAborted();
+ if(previous.sdk_selection&&JSON.stringify(checkedSdkSelection(previous.sdk_selection))!==JSON.stringify(sdkSelectionForWork(work,environment)))fail('资源阶段SDK任务锁漂移');
  const store=options.storeRoot||join(homedir(),'.local/share/product-resources'),optionalTools=options.toolRoot;
  await directory(store,true);if(inside(root,store)||inside(store,root)||inside(work,store)||inside(store,work)||store===work)fail('原件库与源码或工作区交叉');
  // tools承载工具发行件/编译输入，rely承载产品依赖原件；不把可写任务缓存混入任一原件库。
@@ -2352,11 +2412,11 @@ async function materializeResources(platform,work,previous={},options={}){
  // 直接使用声明的工具入口。
  const node=toolDefinitions.find(x=>x.id==='node');await installTool(library,node,options);
  const android=requirement.tools.some(isAndroidSdkComponent);for(const request of requirement.tools){if(android&&(isAndroidSdkComponent(request)||request.id==='cmake'))continue;await installTool(library,toolDefinitions.find(x=>x.id===request.id),options);}
- const receipt={schema:1,product_id:requirement.product_id,platform,work,tools:Object.fromEntries(library.installed),dependencies:{},archives:{},environment:{},offline:true};for(const key of ['run_id','program_digest'])if(previous[key]!==undefined)receipt[key]=previous[key];
+ const receipt={schema:1,product_id:requirement.product_id,platform,work,sdk_selection:sdkSelectionForWork(work,environment),tools:Object.fromEntries(library.installed),dependencies:{},archives:{},environment:{},offline:true};for(const key of ['run_id','program_digest'])if(previous[key]!==undefined)receipt[key]=previous[key];
  for(const id of ['posix','bash','grep','sed'])await installTool(library,toolDefinitions.find(x=>x.id===id),options);receipt.tools=Object.fromEntries(library.installed);const foundation=await productFoundation(library,async(_,t)=>library.installed.get(t.id));receipt.environment=await appleEnvironment(library,options);receipt.environment.PATH=[receipt.environment.PATH,foundation.path,...[...library.installed].filter(([id])=>id!=='posix').map(([,x])=>dirname(x.path))].filter(Boolean).join(':');receipt.environment.PRODUCT_WORK_DIR=work;
  if(android)Object.assign(receipt.environment,await installAndroidResources(options));receipt.tools=Object.fromEntries(library.installed);
  for(const source of requirement.sources){process.stderr.write('资源阶段：Git '+source.name+'\n');await gitCheckout(source,join(work,'git-sources',source.name),options);}
- // 本机SDK可直接消费源码，但本产品Pub原锁仍必须逐项匹配lockedSources，不以空获取清单代替校验闭包。
+ // 宿主原锁保持完整校验；本任务SDK提交只在消费视图投影，传递依赖仍执行原锁约束。
  // 归属扩展由本产品判断：prepare产生的原生源码根也只能在同一work中消费。
  const groups=new Map();for(const lock of requirement.locks){const name=lock.source_package||'own';if(!groups.has(name))groups.set(name,[]);groups.get(name).push(lock);}for(const [name,locks]of groups){process.stderr.write('资源阶段：锁 '+name+'\n');const base=name==='own'?root:owner.resourceSourceRoot(name,work);await directory(base);const files=kind=>locks.filter(x=>x.ecosystem===kind).map(x=>{if(!safePath(x.path))fail('锁路径越界');return join(base,x.path);}),target=join(work,'dependencies',name);await directory(target,true);let result={request:JSON.stringify(locks)};
   if(files('npm').length)Object.assign(result,await prepareNpm(files('npm'),target,options));if(files('cargo').length){const sdk=['citizen_sdk','tatachat_sdk'].includes(name);if(sdk)owner.ensureVendorVolume(work);Object.assign(result,await prepareCargo(files('cargo'),target,{...options,...(sdk?{cargoVendor:join(work,'dependencies/citizen_sdk/cargo-vendor/packages',name)}:{})}));}if(files('pub').length)Object.assign(result,await preparePub(files('pub'),join(target,'pub'),{...options,sources:name==='own'?owner.lockedSources():options.sources}));for(const file of files('cocoapods'))await preparePods(file,join(work,'dependencies'),options);receipt.dependencies[name]=result;
@@ -2418,7 +2478,7 @@ function assertWorkQuiescent(work){for(const pid of supplyGroups.get(work)||[])t
 
 
 // 资源回归统一随正式实现归档；仅本文件被明确选为测试入口时加载测试工具。
-if(inlineTestEntry){
+if(inlineTestEntry)inlineTestRegistrations.push(async()=>{
  const {test}=await import('node:test');
  const {default:assert}=await import('node:assert/strict');
  const {createHash}=await import('node:crypto');
@@ -2527,7 +2587,7 @@ test('ZIP保留路径、重复、链接父目录、加密、Zip64、方式及展
  const root=await sandbox(t),cases=[
   [[{name:'../outside',body:'x'}],/越界/],
   [[{name:'a',body:'x'},{name:'a',body:'y'}],/重复/],
-  [[{name:'a',body:'../../outside',mode:0o120777}],/链接越界/],
+  [[{name:'a',body:'../x',mode:0o120777}],/链接越界/],
   [[{name:'a',body:'b',mode:0o120777},{name:'a/child',body:'x'},{name:'b',body:'x'}],/父目录/],
   [[{name:'a',body:'x',flags:1}],/加密/],
   [[{name:'a',body:'x',size:0xffffffff}],/Zip64/],
@@ -2567,6 +2627,23 @@ test('ZIP链接解析拒绝循环、自指、链式越界、缺失、绝对目�
  }
  // 硬链接仍只允许直接指向普通成员，不借目录链扩展原硬链接合同。
  assert.throws(()=>selectedArchiveEntries([{path:'a',type:'hardlink',target:'b'},{path:'b',type:'symlink',target:'c'},{path:'c',type:'file'}],''),/硬链接目标不是普通文件/);
+});
+// ZIP与TAR共用成员图规则；只检查链接正文，不依赖宿主系统对长链的跟随次数限制。
+test('ZIP与TAR符号链接计入起点，40条通过而41条在物化前拒绝',async t=>{
+ const root=await sandbox(t);
+ for(const count of [40,41]){
+  const links=Array.from({length:count},(_,i)=>({name:'link'+i,body:i===count-1?'file':'link'+(i+1),mode:0o120777}));
+  const members=[...links.map(({name,body})=>({path:name,type:'symlink',target:body})),{path:'file',type:'file'}];
+  if(count===40){const selected=selectedArchiveEntries(members,'');assert.equal(selected[0].resolved,'file');}
+  else assert.throws(()=>selectedArchiveEntries(members,''),/跳转超限/);
+  for(const format of ['zip','tgz']){
+   const input=join(root,count+'.'+format),output=join(root,'output-'+count+'-'+format);
+   if(format==='zip')await zipFixture(input,[...links,{name:'file',body:'original'}]);
+   else await writeFile(input,tar([...links.map(({name,body})=>({name,type:'2',target:body})),{name:'file',body:'original'}]));
+   if(count===40){await extractArchive(input,output);assert.equal(await readlink(join(output,'link0')),'link1');assert.equal(await readlink(join(output,'link39')),'file');assert.equal(await readFile(join(output,'file'),'utf8'),'original');}
+   else{await assert.rejects(extractArchive(input,output),/跳转超限/);assert.equal(await stat(output),null);}
+  }
+ }
 });
 test('ZIP分块流错误和取消保留失败、关闭流且候选写入失败清场',async t=>{
  const root=await sandbox(t),input=join(root,'stream.zip'),body=Buffer.alloc(256*1024,97),[entry]=await zipFixture(input,[{name:'a',body}]),handle=await open(input,'r'),size=(await handle.stat()).size;
@@ -2890,14 +2967,14 @@ test('XZ名称预检与解包失败均清理本轮目标，取消不调用提取
 
 
 
-}
+});
 
 // 同文件回归只准备夹具归档，验证候选职责和失败清理，不下载或运行产品编译。
-if(inlineTestEntry){
+if(inlineTestEntry)inlineTestRegistrations.push(async()=>{
  const {test}=await import('node:test'),{default:assert}=await import('node:assert/strict'),{execFileSync}=await import('node:child_process'),fs=await import('node:fs');
  const {withFixedWork}=targetRuntime;
 
-}
+});
 
 
 
@@ -2912,7 +2989,7 @@ async function prepareRunnerFlutter(sdk,work,environment){
  return flutterRecipe.prepareFlutter(sdk,{tool,files:flutterRecipe.parsePatch(flutterPatch),
   env:{...environment,PRODUCT_WORK_DIR:work}});
 }
-return {runResourceProcess,inventory,acquireArchive,extractArchive,normalizeCargoManifest,podSourceCoordinate,checkCocoaPodsResources,buildSourceTool,posixNames,resourceDeclarations,bootstrapNode,resources,flutterCommit,gradleRecipes,revisedSource,revisionPlan,assertWorkQuiescent,copyFlutterArtifact:flutterRecipe.copyFlutterArtifact,prepareRunnerFlutter};
+return {runResourceProcess,inventory,acquireArchive,extractArchive,normalizeCargoManifest,podSourceCoordinate,checkCocoaPodsResources,buildSourceTool,posixNames,resourceDeclarations,bootstrapNode,prepareSdkInputs,nodeTestResources,resources,flutterCommit,gradleRecipes,revisedSource,revisionPlan,assertWorkQuiescent,copyFlutterArtifact:flutterRecipe.copyFlutterArtifact,prepareRunnerFlutter};
 })(contract,testRoot);
 export const {runResourceProcess,inventory,acquireArchive,extractArchive,normalizeCargoManifest,podSourceCoordinate,checkCocoaPodsResources,buildSourceTool,posixNames,resourceDeclarations,bootstrapNode,resources,flutterCommit,gradleRecipes,revisedSource,revisionPlan,assertWorkQuiescent,copyFlutterArtifact}=resourceRuntime;
 
@@ -2958,6 +3035,92 @@ export function sdkDependencyPlan(sdkRoot,platform){
  return plan.archives;
 }
 
+// SDK选择只在任务边界执行；以下记录不改宿主原始声明，也不接受未提交工作树。
+const sdkRepositories=Object.freeze({citizen_sdk:'https://github.com/crcfrcn/citizensdk.git',tatachat_sdk:'https://github.com/tuyutata/tatachatsdk.git'});
+function checkedSdkTag(tag){
+ if(typeof tag!=='string'||!tag||tag.length>200||/[\x00-\x20\x7f~^:?*\[\\]/u.test(tag)||tag.includes('..')||tag.includes('@{')||tag.split('/').some(part=>!part||part.startsWith('.')||part.endsWith('.')||part.endsWith('.lock')))fail('SDK正式Tag名称无效');
+ return tag;
+}
+export function checkedSdkSelection(value,{mode}={}){
+ if(!value||value.schema!==1||value.product_id!==product||!['local','release'].includes(value.mode)||mode&&value.mode!==mode
+  ||Object.keys(value).some(key=>!['schema','product_id','mode','sources'].includes(key))||!Array.isArray(value.sources)||value.sources.length!==Object.keys(sdkRepositories).length)fail('SDK任务锁身份无效');
+ const sources=Object.entries(sdkRepositories).map(([name,url])=>{
+  const matches=value.sources.filter(source=>source?.name===name);if(matches.length!==1)fail('SDK任务锁来源不唯一');const source=matches[0];
+  const keys=value.mode==='local'?['name','url','ref','local_root']:['name','url','ref','release_id','tag'];
+  if(Object.keys(source).some(key=>!keys.includes(key))||source.url!==url||!/^[a-f0-9]{40}$/u.test(source.ref||''))fail('SDK任务锁来源或提交无效');
+  if(value.mode==='local'){
+   const expected=join(resourceOs.homedir(),basename(new URL(url).pathname,'.git'));
+   if(source.local_root!==expected)fail('本机SDK必须来自指定正式仓库');
+  }else {if(!Number.isSafeInteger(source.release_id)||source.release_id<1)fail('SDK正式版记录无效');checkedSdkTag(source.tag);}
+  return {...source};
+ });return {schema:1,product_id:product,mode:value.mode,sources};
+}
+function sdkSelectionForWork(work,environment=process.env){
+ const state=executions.getStore();
+ if(state?.sdkSelection){if(state.sdkWork!==work)fail('SDK任务锁工作根不符');return checkedSdkSelection(state.sdkSelection);}
+ const text=environment.CITIZENAPP_SDK_SELECTION;if(text===undefined)return null;
+ if(typeof text!=='string'||Buffer.byteLength(text)>16384)fail('SDK任务锁长度无效');
+ const record=JSON.parse(text);if(record.work!==work||Object.keys(record).some(key=>!['work','selection'].includes(key)))fail('SDK任务锁工作根不符');
+ return checkedSdkSelection(record.selection);
+}
+function sdkSelectionEnvironment(work,selection){return {CITIZENAPP_SDK_SELECTION:JSON.stringify({work,selection:checkedSdkSelection(selection)})};}
+export function effectiveSdkSources(work,environment=process.env){return sdkSelectionForWork(work,environment)?.sources||lockedSources();}
+// 本机只读取固定仓库的已提交HEAD；检出和bundle的可写数据仍全部归本任务。
+export async function selectLocalSdkInputs(git,work,environment,{readGit,inspect}={}){
+ checkWork(work);if((readGit||inspect)&&!process.env.NODE_TEST_CONTEXT)fail('合成SDK输入仅用于本仓测试');
+ const read=readGit|| (async(path,args)=>(await runBuildProcess(git,['-c','credential.helper=','-c','core.hooksPath=/dev/null','-C',path,...args],
+  {HOME:environment.HOME,PATH:environment.PATH,GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',GIT_TERMINAL_PROMPT:'0'},root,{capture:true})).stdout.trim());
+ const sources=[];
+ for(const [name,url]of Object.entries(sdkRepositories)){
+  const local_root=join(resourceOs.homedir(),basename(new URL(url).pathname,'.git'));
+  const inspectPath=inspect|| (path=>{const info=lstatSync(path);if(!info.isDirectory()||info.isSymbolicLink()||realpathSync(path)!==path)fail('本机SDK不是正式普通仓库');});
+  for(const path of [local_root,join(local_root,'.git')])inspectPath(path);
+  if(await read(local_root,['rev-parse','--show-toplevel'])!==local_root||await read(local_root,['rev-parse','--absolute-git-dir'])!==join(local_root,'.git')
+   ||resolve(local_root,await read(local_root,['rev-parse','--git-common-dir']))!==join(local_root,'.git')||await read(local_root,['remote','get-url','origin'])!==url)fail('本机SDK仓库或HTTPS来源不符');
+  const ref=await read(local_root,['rev-parse','--verify','HEAD^{commit}']);sources.push({name,url,ref,local_root});
+ }
+ return checkedSdkSelection({schema:1,product_id:product,mode:'local',sources});
+}
+// SDK接口仅允许读取所属官方仓库的正式Release及Tag，沿用产品受限传输和测试注入。
+async function sdkGitHubRead(url,path,token){
+ if(!Object.values(sdkRepositories).includes(url)||! /^(?:releases\/(?:latest|[1-9]\d*)|git\/ref\/tags\/[^/?#]+|git\/tags\/[a-f0-9]{40})$/u.test(path))fail('SDK正式版查询路径无效');
+ const repository=new URL(url).pathname.slice(1,-4),headers={Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2026-03-10'};
+ if(token)headers.Authorization='Bearer '+token;
+ const response=await (automationTransport.getStore()?.fetchImpl??fetch)('https://api.github.com/repos/'+repository+'/'+path,
+  {method:'GET',redirect:'error',credentials:'omit',headers,signal:executions.getStore()?.signal?AbortSignal.any([executions.getStore().signal,AbortSignal.timeout(30000)]):AbortSignal.timeout(30000)});
+ if(!response.ok)fail('SDK正式版查询失败：'+repository+' HTTP '+response.status);
+ if(!response.body)fail('SDK正式版回执缺失');let bytes=0;const chunks=[];
+ for await(const chunk of response.body){bytes+=chunk.length;if(bytes>1024*1024)fail('SDK正式版回执超限');chunks.push(chunk);}
+ return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(Buffer.concat(chunks)));
+}
+async function sdkReleaseSource(name,url,token,locked){
+ const release=await sdkGitHubRead(url,locked?'releases/'+locked.release_id:'releases/latest',token);
+ const repository=new URL(url).pathname.slice(1,-4);
+ if(!Number.isSafeInteger(release?.id)||release.id<1||release.draft!==false||release.prerelease!==false||typeof release.published_at!=='string'||!Number.isFinite(Date.parse(release.published_at))
+  )fail('SDK不是有效正式Release');
+ checkedSdkTag(release.tag_name);const address=new URL(release.html_url);
+ if(address.origin!=='https://github.com'||address.username||address.password||address.search||address.hash||decodeURIComponent(address.pathname)!=='/'+repository+'/releases/tag/'+release.tag_name)fail('SDK正式Release地址不符');
+ const candidate={name,url,release_id:release.id,tag:release.tag_name};
+ if(locked&&(release.id!==locked.release_id||release.tag_name!==locked.tag))fail('SDK正式Release归属漂移');
+ const reference=await sdkGitHubRead(url,'git/ref/tags/'+encodeURIComponent(release.tag_name),token);
+ if(reference.ref!=='refs/tags/'+release.tag_name)fail('SDK正式Tag归属不符');let object=reference.object;const visited=new Set();
+ for(let depth=0;object?.type==='tag';depth++){
+  if(depth>=8||!/^[a-f0-9]{40}$/u.test(object.sha||'')||visited.has(object.sha))fail('SDK正式Tag链无效');visited.add(object.sha);
+  const tag=await sdkGitHubRead(url,'git/tags/'+object.sha,token);if(tag.sha!==object.sha)fail('SDK正式Tag对象漂移');object=tag.object;
+ }
+ if(object?.type!=='commit'||!/^[a-f0-9]{40}$/u.test(object.sha||'')||locked&&object.sha!==locked.ref)fail('SDK正式Tag提交不符');
+ return {...candidate,ref:object.sha};
+}
+export async function selectReleaseSdkInputs(token,{locked}={}){
+ const previous=locked&&checkedSdkSelection(locked,{mode:'release'}),sources=[];
+ for(const [name,url]of Object.entries(sdkRepositories))sources.push(await sdkReleaseSource(name,url,token,previous?.sources.find(source=>source.name===name)));
+ return checkedSdkSelection({schema:1,product_id:product,mode:'release',sources});
+}
+function automationSdkInputs(environment){
+ const text=environment.CITIZENAPP_SDK_RELEASES;if(typeof text!=='string'||Buffer.byteLength(text)>16384)fail('自动化缺少固定SDK正式版输入');
+ return checkedSdkSelection(JSON.parse(text),{mode:'release'});
+}
+
 // 只读声明与原始锁；每个第一方Git来源必须同时匹配固定URL、40位提交和resolved-ref。
 export function lockedSources() {
  const source=root,path=join(source,'pubspec.yaml');if(!existsSync(path))return [];
@@ -2975,7 +3138,7 @@ export function lockedSources() {
 }
 export function requirements(platform,work) {
  checkWork(work);const declared=platformContract(platform);
- const locks=declared.locks.map(value=>({...value})),sources=lockedSources(),archives=[];
+ const locks=declared.locks.map(value=>({...value})),sources=effectiveSdkSources(work),archives=[];
  const packages=sources.map(source=>({name:source.name,packageRoot:join(work,'git-sources',source.name)}));
  for(const {name,packageRoot} of packages) {
   if(existsSync(packageRoot)) {
@@ -3012,6 +3175,9 @@ export function resourceEnvironment(platform,work,receipt,base={}) {
   TMPDIR:join(work,'tmp')+sep,TMP:join(work,'tmp'),TEMP:join(work,'tmp'),XDG_CACHE_HOME:join(work,'cache'),XDG_CONFIG_HOME:join(work,'config'),
   CARGO_TARGET_DIR:join(work,'work/cargo-target'),CARGO_NET_OFFLINE:'true',CARGO_INCREMENTAL:'1',
   npm_config_offline:'true',npm_config_audit:'false',npm_config_fund:'false'};
+ const expectedSelection=sdkSelectionForWork(work,base),selected=receipt.sdk_selection||expectedSelection;
+ if(expectedSelection&&JSON.stringify(checkedSdkSelection(selected))!==JSON.stringify(expectedSelection))fail('资源回执SDK任务锁漂移');
+ if(selected)Object.assign(env,sdkSelectionEnvironment(work,selected));
  const allowedEnvironment=new Set(['PRODUCT_WORK_DIR','PRODUCT_BASH_BIN','PRODUCT_RSYNC_BIN','PATH','DEVELOPER_DIR','SDKROOT','DART_EXECUTABLE','XCODEBUILD','XATTR','CODESIGN','SECURITY','XCRUN','XCODE_SELECT','CC','CXX','SWIFT','SWIFTC','OTOOL','INSTALL_NAME_TOOL','LIPO','MAKE','AR','RANLIB','NM','STRIP','LLVM_NM','LD','LDCXX','CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER','ANDROID_HOME','ANDROID_SDK_ROOT','ANDROID_NDK_HOME','ANDROID_USER_HOME','ANDROID_EMULATOR_HOME','GRADLE_INIT_SCRIPT','GRADLE_USER_HOME']);
  if(Object.keys(receipt.environment||{}).some(key=>!allowedEnvironment.has(key)))fail('资源回执包含未声明环境或注入变量');
  for(const tool of declared.tools) {
@@ -3512,7 +3678,8 @@ function processGroupSnapshot(pid) {
   return {status:'ok',...processGroupMembers(result.stdout,pid)};
  }catch(error){return {status:'unavailable',code:processErrorCode(error),members:[],truncated:false};}
 }
-export async function runBuildProcess(file,args,env,cwd=root,{capture=false,input,accepted=[0],timeout=7200000,signal=executions.getStore()?.signal,passHost=false,streamError=false}={}) {
+export async function runBuildProcess(file,args,env,cwd=root,{capture=false,input,accepted=[0],timeout=7200000,signal=executions.getStore()?.signal,passHost=false,streamError=false,outputLimit=16*1024*1024}={}) {
+ if(!Number.isSafeInteger(outputLimit)||outputLimit<1||outputLimit>16*1024*1024)fail('产品工具输出上限无效');
  signal?.throwIfAborted();
  return new Promise((ok,reject)=>{
   const started=performance.now(),timeline=[],snapshots=[];let omitted=0;
@@ -3532,7 +3699,7 @@ export async function runBuildProcess(file,args,env,cwd=root,{capture=false,inpu
   const forced=setTimeout(()=>{mark('timeout');reason='产品工具超时';terminate();},timeout);forced.unref();
   const abort=()=>{mark('abort');reason='产品任务已取消';terminate();};
   signal?.addEventListener('abort',abort,{once:true});
-  const consume=(chunk,out)=>{bytes+=chunk.length;if(bytes>16*1024*1024){reason='产品工具输出超限';terminate();return;}out.push(chunk);if(!capture)process.stderr.write(chunk);};
+  const consume=(chunk,out)=>{bytes+=chunk.length;if(bytes>outputLimit){reason='产品工具输出超限';terminate();return;}out.push(chunk);if(!capture)process.stderr.write(chunk);};
   child.stdout.on('data',chunk=>consume(chunk,stdout));child.stderr.on('data',chunk=>{if(capture&&streamError)process.stderr.write(chunk);else consume(chunk,stderr);});
   child.stdin.on('error',error=>{record('stdin',error);reason='产品工具输入失败';stop();});
   child.once('error',error=>{record('spawn',error);reason='产品工具无法启动';});
@@ -3580,6 +3747,115 @@ function testFiles(){
   if(row.isDirectory())visit(path);else if(row.isFile()&&row.name.endsWith('.test.mjs'))result.push(relative(root,path));
  }};visit(join(root,'test'));return result.sort();
 }
+// 清单与Node版本只有本产品这一处定义，独立验收和完整Build共同消费。
+export function nodeVerificationPlan(){
+ const versions=[...new Set(Object.values(contract.platforms).flatMap(value=>value.tools.filter(tool=>tool.id==='node').map(tool=>tool.version)))];
+ if(versions.length!==1)fail('本产品Node测试版本不唯一');
+ return {schema:1,product_id:product,mode:'node',node_version:versions[0],files:testFiles()};
+}
+export function parseNodeTestReport(text,exitCode){
+ if(typeof text!=='string'||Buffer.byteLength(text)>16*1024*1024||!/^TAP version 13\r?\n/u.test(text)||![0,1].includes(exitCode))fail('Node测试报告或退出码无效');
+ const plans=[...text.matchAll(/^1\.\.([0-9]+)\r?$/gm)],roots=[...text.matchAll(/^(ok|not ok) ([1-9][0-9]*)(?: - [^\r\n]*)?\r?$/gm)];
+ if(plans.length!==1||!Number.isSafeInteger(Number(plans[0][1]))||Number(plans[0][1])<1||roots.length!==Number(plans[0][1])||roots.some((row,index)=>Number(row[2])!==index+1))fail('Node测试报告计划或完成事件不完整');
+ const names={tests:'tests',pass:'passed',fail:'failed',cancelled:'cancelled',skipped:'skipped',todo:'todo'},result={};
+ for(const [name,key]of Object.entries(names)){
+  const matches=[...text.matchAll(new RegExp('^# '+name+' ([0-9]+)\\r?$','gm'))];
+  if(matches.length!==1)fail('Node测试报告计数缺失或重复：'+name);
+  const value=Number(matches[0][1]);if(!Number.isSafeInteger(value)||value<0)fail('Node测试报告计数无效');result[key]=value;
+ }
+ if(!result.tests||result.passed+result.failed+result.cancelled+result.skipped+result.todo!==result.tests)fail('Node测试报告不完整');
+ return {...result,exit_code:exitCode,signal:null,status:exitCode===0&&result.passed===result.tests&&roots.every(row=>row[1]==='ok')?'success':'failed'};
+}
+function nodeTestEnvironment(base,work,session){
+ checkWork(work);
+ const environment={...base};
+ for(const key of Object.keys(environment))if(/TOKEN|PASSWORD|SECRET|PRIVATE_KEY|CREDENTIAL|API_KEY|PASSPHRASE/iu.test(key)||['APP_KEY','IOS_KEY','IOS_PROVISIONING_PROFILE','NODE_OPTIONS','NODE_PATH','NODE_TEST_CONTEXT','NODE_V8_COVERAGE','NODE_REPL_HISTORY','NODE_EXTRA_CA_CERTS','NODE_TLS_REJECT_UNAUTHORIZED','PRODUCT_WORK_LEASE','SSH_AUTH_SOCK','SSH_AGENT_PID','GIT_SSH','GIT_SSH_COMMAND','RUBYOPT','RUBYLIB','DYLD_LIBRARY_PATH','DYLD_INSERT_LIBRARIES','LD_PRELOAD','FORCE_COLOR'].includes(key))delete environment[key];
+ return {...environment,CI:'true',NO_COLOR:'1',NODE_DISABLE_COLORS:'1',CITIZENAPP_OFFLINE:'true',CITIZENAPP_TEST_SESSION:session};
+}
+function withNodeTestSession(session,action){
+ if(typeof session!=='string'||!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/u.test(session))fail('Node测试会话无效');
+ return nodeVerificationSessions.run(session,action);
+}
+function clearNodeTestSession(session){
+ return withNodeTestSession(session,()=>{
+  for(const platform of Object.keys(contract.platforms)){const path=fixedWork('build/'+platform);if(existsSync(path))finishFixedWork(path);}
+  const work=fixedWork('test');if(existsSync(work)){finishFixedWork(work);if(readdirSync(work).length)fail('Node测试会话未清空');rmdirSync(work);}
+ });
+}
+function checkedNodeTestRuntime(node){
+ const plan=nodeVerificationPlan(),path=node?.path;
+ if(node?.version!==plan.node_version||typeof path!=='string'||!isAbsolute(path)||realpathSync(path)!==path)fail('Node测试工具与本产品声明不一致');
+ const info=lstatSync(path);if(!info.isFile()||info.isSymbolicLink()||!(info.mode&0o111))fail('Node测试工具不是普通可执行文件');
+ return plan;
+}
+function summarizeNodeTests(report){
+ report.output_bytes??=0;report.files_executed=report.results.length;report.files_total=report.files.length;
+ report.counts_complete=report.files_executed===report.files_total&&report.results.every(value=>Number.isSafeInteger(value.tests));
+ report.totals=report.results.reduce((sum,value)=>{for(const key of ['tests','passed','failed','cancelled','skipped','todo'])if(Number.isSafeInteger(value[key]))sum[key]+=value[key];return sum;},{tests:0,passed:0,failed:0,cancelled:0,skipped:0,todo:0});return report;
+}
+// 每次只运行一个清单文件，失败即停止后续文件；不以部分通过冒充完整验收。
+async function runNodeTestFiles(node,work,base,{runProcess=runBuildProcess}={}){
+ const plan=checkedNodeTestRuntime(node),files=plan.files.map(file=>join(root,file));
+ for(const file of files){const info=lstatSync(file);if(!info.isFile()||info.isSymbolicLink()||realpathSync(file)!==file)fail('本仓测试文件无效');}
+ const digests=files.map(file=>createHash('sha256').update(readFileSync(file)).digest('hex'));
+ const report={...plan,status:'failed',results:[],cleanup:{state:'completed'}},limit=16*1024*1024,started=performance.now();let bytes=0;
+ for(const [index,file]of files.entries()){
+  const session=randomUUID(),environment=nodeTestEnvironment(base,work,session);
+  if(plan.files[index]!=='test/release_manifest.test.mjs'){delete environment.CITIZENAPP_SDK_SELECTION;delete environment.CITIZENAPP_SDK_RELEASES;}
+  let result,record,failure;
+  try{
+   executions.getStore()?.signal?.throwIfAborted();if(bytes>=limit)fail('Node测试累计输出超限');
+   const remaining=7200000-(performance.now()-started);if(remaining<=0)fail('Node测试累计超时');
+   result=await runProcess(node.path,['--test','--test-concurrency=1','--test-reporter=tap',file],environment,root,{accepted:[0,1],outputLimit:limit-bytes,timeout:Math.max(1,Math.floor(remaining))});
+   bytes+=Buffer.byteLength(result.stdout)+Buffer.byteLength(result.stderr);if(bytes>limit)fail('Node测试累计输出超限');
+   record={file:plan.files[index],...parseNodeTestReport(result.stdout,result.code)};report.results.push(record);
+   if(files.some((path,i)=>createHash('sha256').update(readFileSync(path)).digest('hex')!==digests[i]))fail('本仓测试期间源码改变');
+   if(record.status!=='success')fail('Node回归失败：'+plan.files[index]);
+  }catch(error){failure=error;}
+  try{clearNodeTestSession(session);}catch(error){
+   const message='Node测试现场退出未确认：'+error.message;
+   if(failure)failure.message+='；'+message;else failure=Error(message);
+   report.cleanup={state:'pending',reason:message};const state=executions.getStore();if(state)state.unconfirmed=true;
+  }
+  if(failure){
+   if(!record){record={file:plan.files[index],status:'failed',exit_code:result?.code??null,signal:null,counts_complete:false};report.results.push(record);}
+   record.status='failed';record.reason=failure.message;record.exit_confirmed=Boolean(result);report.stopped_at=plan.files[index];report.output_bytes=bytes;report.duration_ms=Math.round(performance.now()-started);failure.nodeReport=summarizeNodeTests(report);throw failure;
+  }
+ }
+ report.status='success';report.output_bytes=bytes;report.duration_ms=Math.round(performance.now()-started);return summarizeNodeTests(report);
+}
+// 独立入口只准备已存在的测试输入；没有资源安装、App/SDK构建或远端交付阶段。
+export async function verifyNode({environment=process.env,signal}={}){
+ const plan=nodeVerificationPlan();if(process.version!=='v'+plan.node_version)fail('请使用本产品声明的Node '+plan.node_version+'运行独立验收');
+ const session=randomUUID(),state={signal,unconfirmed:false};let work,claimed=false,report,primary,failure;
+ return executions.run(state,()=>withNodeTestSession(session,async()=>{
+  try{
+   report=await withFixedWork('test',async path=>{
+    work=path;claimed=true;
+    try{const resources=await resourceRuntime.nodeTestResources(path,{environment:nodeTestEnvironment(environment,path,session),signal});
+     report=await runNodeTestFiles(resources.node,path,resources.environment);report.sdk_selection=checkedSdkSelection(state.sdkSelection);return report;
+    }catch(error){primary=error;throw error;}
+   },{environment});
+  }catch(error){
+   failure=primary||error;
+   if(primary&&primary!==error){failure.message+='；Node父会话收尾失败：'+error.message;state.unconfirmed=true;}
+  }
+  try{
+   // 只有正常收尾且已空的本次根可移除；异常守卫和其它会话保持原样。
+   if(claimed&&!state.unconfirmed&&existsSync(work)&&readdirSync(work).length===0)rmdirSync(work);
+  }catch(error){
+   if(failure)failure.message+='；Node父会话清理失败：'+error.message;else failure=error;
+   state.unconfirmed=true;
+  }
+  if(failure){
+   const value=failure.nodeReport||report||summarizeNodeTests({...plan,status:'failed',results:[],stage:'preparation',cleanup:{state:'not-started'}});
+   value.status='failed';value.reason=failure.message;if(state.sdkSelection)value.sdk_selection=checkedSdkSelection(state.sdkSelection);
+   if(state.unconfirmed||claimed&&existsSync(work))value.cleanup={state:'pending',reason:failure.message};else if(claimed)value.cleanup={state:'completed'};
+   failure.nodeReport=value;throw failure;
+  }
+  return report;
+ }));
+}
 function flutterTestFiles(project){
  const result=[];const visit=directory=>{for(const row of readdirSync(directory,{withFileTypes:true})){
   const path=join(directory,row.name);if(row.isSymbolicLink())fail('Dart测试目录禁止链接');
@@ -3617,11 +3893,7 @@ async function runProductTests(platform,work,receipt,base){
   PRODUCT_GIT_BIN:env.GIT,PRODUCT_TEST_SWIFTC:env.SWIFTC,
   PRODUCT_TEST_DEVELOPER_DIR:env.DEVELOPER_DIR,PRODUCT_TEST_SDKROOT:env.SDKROOT};
  for(const key of ['APP_KEY','IOS_KEY','IOS_PROVISIONING_PROFILE','GH_TOKEN','GITHUB_TOKEN','NODE_OPTIONS','NODE_TEST_CONTEXT'])delete testEnvironment[key];
- const files=testFiles().map(file=>join(root,file));
- for(const file of files){const info=lstatSync(file);if(!info.isFile()||info.isSymbolicLink()||realpathSync(file)!==file)fail('本仓测试文件无效');}
- const digests=files.map(file=>createHash('sha256').update(readFileSync(file)).digest('hex'));
- await runBuildProcess(node.path,['--test','--test-concurrency=1',...files],testEnvironment,root);
- if(files.some((file,index)=>createHash('sha256').update(readFileSync(file)).digest('hex')!==digests[index]))fail('本仓测试期间源码改变');
+ await runNodeTestFiles(node,work,testEnvironment);
  await runBuildProcess(flutter,['pub','get','--offline','--enforce-lockfile'],testEnvironment,project);
  const report=join(work,'flutter-tests.jsonl'),expected=flutterTestFiles(project);
  await runShell('test',['--file-reporter=json:'+report],testEnvironment,root,receipt.tools.bash.path);
@@ -3639,8 +3911,70 @@ if(testSession&&process.argv.length===2&&testFiles().some(file=>join(root,file)=
   const sessions=join(root,'target/test/sessions');if(existsSync(sessions)&&readdirSync(sessions).length===0)rmdirSync(sessions);
  }catch(error){process.stderr.write('公民App测试会话收尾失败：'+error.message+'\n');process.exitCode=1;}
 });
-if(testSession&&process.argv.length===2&&resolve(process.argv[1]||'')===fileURLToPath(import.meta.url)){
+if(testSession&&process.argv.length===2&&resolve(process.argv[1]||'')===fileURLToPath(import.meta.url))inlineTestRegistrations.push(async()=>{
  const {test}=await import('node:test'),{default:assert}=await import('node:assert/strict');
+ const nodeTap=({tests=1,passed=1,failed=0,cancelled=0,skipped=0,todo=0}={})=>'TAP version 13\n'+(failed?'not ok':'ok')+' 1 - synthetic\n1..1\n# tests '+tests+'\n# pass '+passed+'\n# fail '+failed+'\n# cancelled '+cancelled+'\n# skipped '+skipped+'\n# todo '+todo+'\n';
+ test('独立Node验收计划只有本仓唯一清单和准确工具版本',()=>{
+  const plan=nodeVerificationPlan();assert.equal(plan.product_id,product);assert.equal(plan.mode,'node');
+  assert.deepEqual(plan.files,['scripts/build.mjs','scripts/publish.mjs','test/release_manifest.test.mjs']);
+  assert.equal(plan.node_version,contract.platforms.ios.tools.find(value=>value.id==='node').version);
+  assert.throws(()=>checkedNodeTestRuntime({path:process.execPath,version:'0.0.0'}),/声明不一致/);
+  assert.throws(()=>withNodeTestSession('../foreign',()=>assert.fail('不能进入非法会话')),/会话无效/);
+ });
+ test('Node报告核验计划、全部计数与退出，零用例残缺或跳过不能冒充通过',()=>{
+  assert.equal(parseNodeTestReport(nodeTap(),0).status,'success');
+  assert.equal(parseNodeTestReport(nodeTap().replaceAll('\n','\r\n'),0).passed,1);
+  assert.equal(parseNodeTestReport(nodeTap({passed:0,failed:1}),1).status,'failed');
+  assert.equal(parseNodeTestReport(nodeTap({passed:0,skipped:1}),0).status,'failed');
+  assert.equal(parseNodeTestReport(nodeTap({passed:0,todo:1}),0).status,'failed');
+  for(const text of ['',nodeTap({tests:0,passed:0}),nodeTap().replace('# pass 1\n',''),nodeTap()+'# tests 1\n',nodeTap().replace('1..1','1..2'),nodeTap().replace('ok 1','ok 2')])assert.throws(()=>parseNodeTestReport(text,0),/报告/);
+  assert.throws(()=>parseNodeTestReport(nodeTap(),2),/退出码/);
+ });
+ test('共同Node执行器逐文件使用独立会话并去除凭据，成功报告完整计数',async()=>{
+  const plan=nodeVerificationPlan(),sessions=new Set(),calls=[];
+  const report=await runNodeTestFiles({path:process.execPath,version:plan.node_version},testRoot(),{HOME:process.env.HOME,APP_KEY:'synthetic',GITHUB_TOKEN:'synthetic',SAMPLE_API_KEY:'synthetic',NODE_OPTIONS:'--invalid',FORCE_COLOR:'1'},{
+   runProcess:async(file,args,env,cwd,options)=>{
+    assert.equal(file,process.execPath);assert.equal(cwd,root);assert.deepEqual(args.slice(0,3),['--test','--test-concurrency=1','--test-reporter=tap']);calls.push(args.at(-1));sessions.add(env.CITIZENAPP_TEST_SESSION);
+    for(const name of ['APP_KEY','GITHUB_TOKEN','SAMPLE_API_KEY','NODE_OPTIONS','NODE_TEST_CONTEXT','FORCE_COLOR'])assert.equal(Object.hasOwn(env,name),false);
+    assert.deepEqual(options.accepted,[0,1]);assert.ok(options.outputLimit>0&&options.outputLimit<=16*1024*1024);assert.ok(options.timeout>0&&options.timeout<=7200000);return {stdout:nodeTap(),stderr:'',code:0};
+   }
+  });
+  assert.equal(report.status,'success');assert.equal(report.counts_complete,true);assert.equal(report.totals.passed,plan.files.length);assert.equal(sessions.size,plan.files.length);assert.deepEqual(calls,plan.files.map(file=>join(root,file)));
+ });
+ test('共同Node执行器失败停止后续文件，异常退出及取消保留未完成事实',async()=>{
+  const node={path:process.execPath,version:nodeVerificationPlan().node_version};let calls=0;
+  await assert.rejects(runNodeTestFiles(node,testRoot(),{}, {runProcess:async()=>{calls++;return {stdout:nodeTap({passed:0,failed:1}),stderr:'',code:1};}}),error=>{
+   assert.equal(error.nodeReport.results[0].exit_code,1);assert.equal(error.nodeReport.totals.failed,1);assert.equal(error.nodeReport.counts_complete,false);assert.equal(error.nodeReport.cleanup.state,'completed');return true;
+  });assert.equal(calls,1);
+  const original=Error('synthetic process failure');await assert.rejects(runNodeTestFiles(node,testRoot(),{}, {runProcess:async()=>{throw original;}}),error=>{assert.equal(error,original);assert.equal(error.nodeReport.results[0].exit_code,null);assert.equal(error.nodeReport.counts_complete,false);return true;});
+  calls=0;await assert.rejects(executions.run({signal:AbortSignal.abort()},()=>runNodeTestFiles(node,testRoot(),{}, {runProcess:async()=>{calls++;}})),/abort/iu);assert.equal(calls,0);
+ });
+ test('Node会话清理拒绝仍活动的所属进程，不接管其它会话',async()=>{
+  const session=randomUUID();let path;
+  await withNodeTestSession(session,()=>withFixedWork('test',async work=>{
+   path=work;writeFileSync(join(work,'owned'),'synthetic');assert.throws(()=>clearNodeTestSession(session),/进程退出未确认/);assert.equal(readFileSync(join(work,'owned'),'utf8'),'synthetic');
+  }));
+  clearNodeTestSession(session);assert.equal(existsSync(path),false);
+ });
+ test('Node测试失败与活动清理同时发生仍保留首错和待清理事实',async()=>{
+  let session,release,holder;const hold=new Promise(resolve=>{release=resolve;});
+  try{
+   await assert.rejects(runNodeTestFiles({path:process.execPath,version:nodeVerificationPlan().node_version},testRoot(),{},{
+    runProcess:async(_file,_args,env)=>{
+     session=env.CITIZENAPP_TEST_SESSION;let entered;const ready=new Promise(resolve=>{entered=resolve;});
+     holder=withNodeTestSession(session,()=>withFixedWork('test',async()=>{entered();await hold;}));await ready;
+     return {stdout:nodeTap({passed:0,failed:1}),stderr:'',code:1};
+    }
+   }),error=>{assert.match(error.message,/Node回归失败/);assert.match(error.message,/退出未确认/);assert.equal(error.nodeReport.cleanup.state,'pending');assert.equal(error.nodeReport.totals.failed,1);return true;});
+  }finally{release();if(holder)await holder;if(session)clearNodeTestSession(session);}
+  for(const outputLimit of [0,-1,16*1024*1024+1])await assert.rejects(runBuildProcess('/not-executed',[],{},root,{outputLimit}),/输出上限无效/);
+ });
+ test('verify错误参数在准备工具和执行测试前拒绝',()=>{
+  for(const args of [['verify'],['verify','other'],['verify','node','extra']]){
+   const result=spawnSync(process.execPath,[fileURLToPath(import.meta.url),...args],{encoding:'utf8',env:{HOME:process.env.HOME,PATH:process.env.PATH}});
+   assert.notEqual(result.status,0);assert.match(result.stderr,/只接受verify node/);assert.equal(result.stdout,'');
+  }
+ });
  test('安装失败仅在签名身份重新验真后保留编译成功，安全失败取消和未知退出不降级',async()=>{
   const failure=installationFailure('设备安装失败');let verified=0;
   assert.deepEqual(await checkedInstallationOutcome(failure,{verifyLocalArtifact:async()=>{verified++;}}),{state:'failed',code:'PRODUCT_INSTALLATION_FAILED',message:'设备安装失败'});assert.equal(verified,1);
@@ -3735,7 +4069,7 @@ if(testSession&&process.argv.length===2&&resolve(process.argv[1]||'')===fileURLT
   const child=spawnSync(process.execPath,['--input-type=module','-e','import {execute} from '+module+';await execute("bad","/bad",{}, {stages:{}});'],{env:{PATH:process.env.PATH,HOME:process.env.HOME},encoding:'utf8'});
   assert.notEqual(child.status,0);assert.match(child.stderr,/合成阶段仅用于本仓测试/);
  });
-}
+});
 
 export async function execute(platform,work,request={},options={}) {
  if(options.stages&&!process.env.NODE_TEST_CONTEXT)fail('合成阶段仅用于本仓测试');
@@ -3762,7 +4096,7 @@ async function executeTask(platform,work,request={},options={}) {
   const stages=options.stages||{requirements,resources:(...args)=>Promise.resolve(resourceRuntime.resources(...args)),prepare,build};
   const resourcesOptions={signal:state.signal,offline:Boolean(options.offline),environment:options.environment||process.env};
 
-  if(!options.stages)restoreIncremental(platform,work);
+  if(!options.stages){state.sdkWork=work;state.sdkSelection=await resourceRuntime.prepareSdkInputs(work,{...resourcesOptions,delivery,ciEnvironment:options.ciEnvironment});restoreIncremental(platform,work);}
   await stages.requirements(platform,work);state.signal.throwIfAborted();
   let receipt=await stages.resources(platform,work,request,resourcesOptions);state.signal.throwIfAborted();
   await stages.prepare(platform,work,receipt,resourcesOptions.environment);state.signal.throwIfAborted();
@@ -3773,8 +4107,9 @@ async function executeTask(platform,work,request={},options={}) {
   const result=await stages.build(platform,work,receipt,resourcesOptions.environment);state.signal.throwIfAborted();
   if(delivery==='automation'){if(result.product_id!==product||result.platform!==platform||result.version!==version||result.tag!==buildDisplayName(platform,version))fail('自动化编译回执无效');}
   else checkBuildResult(result,platform,work,request.run_id);
+  if(state.sdkSelection)result.sdk_selection=checkedSdkSelection(state.sdkSelection);
   writeFileSync(resultFile,JSON.stringify(result)+'\n',{flag:'wx',mode:0o600});
-  if(!options.stages)writeFileSync(join(work,'.build-retain.json'),JSON.stringify({schema:1,product_id:product,platform,work,version})+'\n',{flag:'wx',mode:0o600});return result;
+  if(!options.stages)writeFileSync(join(work,'.build-retain.json'),JSON.stringify({schema:1,product_id:product,platform,work,version,sdk_sources:state.sdkSelection?.sources})+'\n',{flag:'wx',mode:0o600});return result;
  });}catch(error){if(String(error?.message).includes('退出未确认'))state.unconfirmed=true;throw error;}finally{
   state.finished=true;options.signal?.removeEventListener('abort',abort);
   // 本层仅释放自己创建的编译守卫；嵌套执行器仍属于外层登记的活跃进程组。
@@ -3855,7 +4190,7 @@ const {
 const { dirname, isAbsolute, join, parse, relative, resolve, sep } = await import("node:path");
 const { fileURLToPath, pathToFileURL } = await import("node:url");
 
-// 所有视图只消费本产品准确Git声明；资源准备及测试不读取邻仓工作树。
+// 所有视图消费本任务准确SDK锁；本机仓库只在选择阶段读取HEAD，视图仅消费隔离检出。
 // 两种模式都只在本轮工作根改写Flutter消费视图，宿主原始声明与锁保持原字节。
 const firstPartyRepositories = Object.freeze({
   citizen_sdk: 'https://github.com/crcfrcn/citizensdk.git',
@@ -3901,18 +4236,20 @@ function resolveFirstPartyDependencies(source, work) {
   for (const [name, url] of Object.entries(firstPartyRepositories)) {
     if (!new RegExp('^  ' + name + ':$', 'm').test(manifest)) continue;
     const declared = dependencyBlock(manifest, name), locked = dependencyBlock(lock, name);
-    const sha = dependencyField(declared, 'ref');
-    if (!/^    git:\s*$/m.test(declared) || !/^[0-9a-f]{40}$/.test(sha)
+    const declaredSha = dependencyField(declared, 'ref');
+    if (!/^    git:\s*$/m.test(declared) || !/^[0-9a-f]{40}$/.test(declaredSha)
       || dependencyField(declared, 'url') !== url || dependencyField(declared, 'path') !== '.'
       || dependencyField(locked, 'source') !== 'git' || dependencyField(locked, 'url') !== url
-      || dependencyField(locked, 'path') !== '.' || dependencyField(locked, 'ref') !== sha
-      || dependencyField(locked, 'resolved-ref') !== sha
+      || dependencyField(locked, 'path') !== '.' || dependencyField(locked, 'ref') !== declaredSha
+      || dependencyField(locked, 'resolved-ref') !== declaredSha
       || dependencyField(locked, 'version') !== '1.0.0') fail('第一方声明、锁和唯一Git来源不一致：' + name);
     const parent = join(work, 'git-sources'); mkdirSync(parent, { recursive: true, mode: 0o700 });
     verifyGitDirectory(parent);
     const root = join(parent, name);
     if (!existsSync(root)) fail('第一方来源尚未由本产品资源入口按锁准备：' + name);
     verifyGitDirectory(root); verifyGitDirectory(join(root, '.git'));
+    const selected=source===resolve(dirname(fileURLToPath(import.meta.url)),'..')?sdkSelectionForWork(work):null;
+    const sha=selected?.sources.find(item=>item.name===name)?.ref||declaredSha;
     if (resolve(sourceGit(root, ['rev-parse', '--show-toplevel'])) !== root
       || resolve(sourceGit(root, ['rev-parse', '--absolute-git-dir'])) !== join(root, '.git')
       || resolve(root, sourceGit(root, ['rev-parse', '--git-common-dir'])) !== join(root, '.git')
@@ -3922,7 +4259,9 @@ function resolveFirstPartyDependencies(source, work) {
       || !new RegExp('^name:\\s*' + name + '\\s*$', 'm').test(readFileSync(join(root, 'pubspec.yaml'), 'utf8'))) {
       fail('第一方Git检出身份或源码已变：' + name);
     }
-    result[name] = { root, url, sha };
+    const versions=[...readFileSync(join(root,'pubspec.yaml'),'utf8').matchAll(/^version:\s*([^\s]+)\s*$/gmu)];
+    if(versions.length!==1||!/^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/u.test(versions[0][1]))fail('SDK包版本不唯一或无效');
+    result[name] = { root, url, sha, version:versions[0][1] };
   }
   if (!result.citizen_sdk) fail('宿主缺少唯一CitizenSDK直接依赖');
   return result;
@@ -3935,7 +4274,7 @@ function projectedPubMetadata(source, dependencies, views) {
     if (typeof target !== 'string' || !isAbsolute(target) || target !== resolve(target)) fail('SDK视图路径无效');
     manifest = manifest.replace(dependencyBlock(manifest, name), '  ' + name + ':\n    path: ' + JSON.stringify(target) + '\n');
     lock = lock.replace(dependencyBlock(lock, name), '  ' + name + ':\n    dependency: "direct main"\n    description:\n      path: '
-      + JSON.stringify(target) + '\n      relative: false\n    source: path\n    version: "1.0.0"\n');
+      + JSON.stringify(target) + '\n      relative: false\n    source: path\n    version: ' + JSON.stringify(dependencies[name].version||'1.0.0') + '\n');
   }
   return { 'pubspec.yaml': manifest, 'pubspec.lock': lock };
 }
@@ -5301,7 +5640,7 @@ async function completeAutomation(platform,work,receipt,env,environment,version)
   const bundleId='ios.'+product,packageName='com.crcfrcn.'+product;
   const manifestName=buildDisplayName(platform,version)+'.json';
   const manifest={product_id:product,platform,version,github_run_id:Number(run),github_run_attempt:Number(attempt),github_run_number:Number(number),head_sha:sha,bundle_id:bundleId,
-   package_name:packageName,assets:assets.map(value=>({platform:platform==='ios'?'iOS':'Android',asset_name:value.name,asset_sha256:value.sha256}))};
+   package_name:packageName,sdk_selection:checkedSdkSelection(executions.getStore().sdkSelection),assets:assets.map(value=>({platform:platform==='ios'?'iOS':'Android',asset_name:value.name,asset_sha256:value.sha256}))};
   writeFileSync(join(assetsDir,manifestName),JSON.stringify(manifest)+'\n',{flag:'wx',mode:0o600});
   const manifestInfo=lstatSync(join(assetsDir,manifestName));
   assets.push({name:manifestName,size:manifestInfo.size,sha256:createHash('sha256').update(readFileSync(join(assetsDir,manifestName))).digest('hex')});
@@ -5375,11 +5714,22 @@ export async function ciRelease(platform,environment=process.env,{fetchImpl=fetc
  await ciVerifyRelease(platform,'published',environment,{fetchImpl});return {platform,version:plan.version,tag:plan.tag,release_id:release.id};
 }
 export function ciCachePlan(platform,environment=process.env){
- const {run,attempt}=checkedAutomationEnvironment(platform,environment),identity=incrementalIdentity(platform),prefix=product+'-'+platform+'-incremental-';
+ const {run,attempt}=checkedAutomationEnvironment(platform,environment),identity=incrementalIdentity(platform,automationSdkInputs(environment).sources),prefix=product+'-'+platform+'-incremental-';
  return {identity,path:'target/build/'+platform+'/incremental',prefix,key:prefix+identity+'-r'+run+'-a'+attempt,restore_prefix:prefix+identity+'-'};
 }
 
 async function runCLI(){
+ if(process.argv[2]==='verify'){
+  if(process.argv.length!==4||process.argv[3]!=='node')fail('独立测试只接受verify node');
+  const cancellation=new AbortController(),cancel=()=>cancellation.abort();
+  for(const name of ['SIGTERM','SIGINT'])process.once(name,cancel);
+  try{const report=await verifyNode({signal:cancellation.signal});process.stdout.write(JSON.stringify(report)+'\n');}
+  catch(error){
+   const report=error.nodeReport||{schema:1,product_id:product,mode:'node',status:'failed',results:[],counts_complete:false,cleanup:{state:'unknown'},reason:error.message};
+   process.stdout.write(JSON.stringify(report)+'\n');process.stderr.write(error.message+'\n');process.exitCode=1;
+  }finally{for(const name of ['SIGTERM','SIGINT'])process.removeListener(name,cancel);}
+  return;
+ }
  if(process.argv[2]==='run'&&Object.hasOwn(buildPlatforms,process.argv[3])&&process.argv.length===4)process.argv.splice(2,2,'execute',process.argv[3],'--work',fixedWork('build/'+process.argv[3]));
  if(process.argv[2]==='ci-cache-plan'){
   if(process.argv.length!==4)fail('GitHub增量计划参数无效');const value=ciCachePlan(process.argv[3]);
@@ -5464,13 +5814,9 @@ async function runCommand(){
 }
 }
 
-// CLI拒绝必须真实失败，不能留成未完成顶层await或输出成功回执。
-if(!inlineTestEntry&&directEntry){
- void runCLI().catch(error=>{console.error(error);process.exitCode=1;});
-}
 
 let fixtureWork,removeFixture,writeFixture,copyFixture;
-if(inlineTestEntry){
+if(inlineTestEntry)inlineTestRegistrations.push(async()=>{
  const {default:fs}=await import('node:fs');
  const {finishFixedWork}=targetRuntime;
 fixtureWork=function(){const work=fixedWork('build/'+Object.keys(contract.platforms)[0]);if(fs.existsSync(work))finishFixedWork(work);return checkFixedWork(work,{create:true});}
@@ -5479,11 +5825,11 @@ removeFixture=function(path,options={}){if(path===fixedWork('build/'+Object.keys
 writeFixture=(path,data,options)=>fs.writeFileSync(path,data,options);
 copyFixture=(source,destination,...options)=>fs.copyFileSync(source,destination,...options);
 
-}
+});
 const inlineTestOwner = {contract,checkWork,productTarget,prepareTargetRoot,temporaryRoot,testRoot,resourceSourceRoot,clearWork,platformContract,lockedSources,requirements,resourceEnvironment,createView,prepare,build,IOS_VERIFIER_SOURCE,readStoreSource,iosStoreBundleID,androidStorePackageName,storeIdentity,androidPackageName,androidUSBSerials,androidInstalledPath,androidCertificate,parseAndroidSigning,iosDeviceCandidates,iosInstalled,iosVersion,runBuildProcess,outputDigest,execute,checkBuildResult,PLATFORM_INPUTS,materializePlatformInputs,ANALYSIS_OPTIONS_SOURCE,DART_TEST_SOURCE,LOGO_ASSETS_SOURCE,TEST_INPUTS_SOURCE,SOURCE_VIEW_SOURCE,BUILD_SHELL_SOURCES,resolveFirstPartyDependencies,copyHostInput,citizenCorePath,isarCorePath,JsonRpc};
 
 // 同文件回归：普通导入和正式命令不注册测试。
-if(inlineTestEntry){
+if(inlineTestEntry)inlineTestRegistrations.push(async()=>{
  const {test:register}=await import('node:test');
  register('同文件回归组 1',async context=>{
  const pending=[];const test=(...args)=>{const item=context.test(...args);pending.push(item);return item;};
@@ -5973,10 +6319,10 @@ test('宿主消费输入普通复制隔离写入，重复输出/链接/硬链接
 
  await Promise.all(pending);
  });
-}
+});
 
 // 同文件回归：普通导入和正式命令不注册测试。
-if(inlineTestEntry){
+if(inlineTestEntry)inlineTestRegistrations.push(async()=>{
  const {test:register}=await import('node:test');
  register('同文件回归组 2',async context=>{
  const pending=[];const test=(...args)=>{const item=context.test(...args);pending.push(item);return item;};
@@ -6070,7 +6416,7 @@ test('实际CLI传递本轮库路径并拒绝多余参数',()=>{
 
  await Promise.all(pending);
  });
-}
+});
 
 // 数据生成器原有SCALE自检也放在正式代码之后。
 function runInstitutionSelfTest(){
@@ -6128,7 +6474,7 @@ function runInstitutionSelfTest(){
 }
 
 // 合并后的Shell与Python桥接必须保持语法及显式源码、执行器归属。
-if(inlineTestEntry){
+if(inlineTestEntry)inlineTestRegistrations.push(async()=>{
  const {test}=await import('node:test');const {default:assert}=await import('node:assert/strict');
  const {spawnSync}=await import('node:child_process');
  test('同文件Shell语法与聊天UI桥接入口保持',()=>{
@@ -6178,11 +6524,11 @@ if(inlineTestEntry){
    assert.equal(existsSync(join(product,'assets/admin_divisions')),false);
   }finally{removeFixture(work,{recursive:true,force:true});}
  });
-}
+});
 
 
 // 原生文件名仍由平台要求；独立旧字节摘要保证集中和去重没有改变图标或启动画面。
-if(inlineTestEntry){
+if(inlineTestEntry)inlineTestRegistrations.push(async()=>{
  const {test}=await import('node:test');const {default:assert}=await import('node:assert/strict');
  const {spawnSync}=await import('node:child_process');
  test('统一Logo来源恢复全部原生图片与目录声明的原字节',()=>{
@@ -6261,7 +6607,7 @@ if(inlineTestEntry){
    }
   }finally{removeFixture(work,{recursive:true,force:true});}
  });
-}
+});
 
 
 // 本产品公开GitHub接口只使用普通参数与返回值；平台流程及终态处理归本仓。
@@ -6433,7 +6779,8 @@ export async function dispatchAutomation(platform,token,{inputs={},accepted}={})
   const settled=await settleCompletedAutomation(platform,plan.latest_run_id,token);if(settled.mirror?.state==='pending')throw Error('公民App上轮成功镜像同步待恢复，尚未派发');
   const fresh=await automationVersionPlan(platform,token);if(fresh.version!==plan.version)throw Error('公民App收尾期间版本已变化');plan=fresh;
  }
- const value=await automationRequest(`actions/workflows/${workflow}/dispatches`,token,{method:'POST',body:{ref:'main',inputs:{version:plan.version}}});
+ const sdkSelection=await selectReleaseSdkInputs(token);
+ const value=await automationRequest(`actions/workflows/${workflow}/dispatches`,token,{method:'POST',body:{ref:'main',inputs:{version:plan.version,sdk_selection:JSON.stringify(sdkSelection)}}});
  if(!Number.isSafeInteger(value.workflow_run_id)||value.workflow_run_id<1
   ||value.html_url!==`https://github.com/${automationRepository}/actions/runs/${value.workflow_run_id}`)
   throw Error('公民App派发未返回准确 Run，禁止再次派发');
@@ -6516,7 +6863,7 @@ async function automationReadLogs(runId,token){
 
 
 // 本产品自动化合成回归：所有网络与授权均由夹具替代，不触发真实流程。
-if(inlineTestEntry){
+if(inlineTestEntry)inlineTestRegistrations.push(async()=>{
  const {test}=await import('node:test'),{default:assert}=await import('node:assert/strict');
  const platform=Object.keys(automationWorkflows)[0],workflow=automationWorkflows[platform];
  const route={repository:'citizenapp',product:'citizenapp',platform,workflow,canonicalId:`citizenapp.${platform}.release`,title:'测试自动化'};
@@ -6539,13 +6886,13 @@ if(inlineTestEntry){
 
 
 
-}
+});
 
 // 外部调用方使用普通参数和返回值；此公开接口不接收任务宿主。
 export const automationClient=Object.freeze({automationWorkflows,automationRepository,automationTransport,automationRoute,automationRequest,automationCheckedRun,dispatchAutomation,automationVersionPlan,settleCompletedAutomation,automationSafeText,automationJobs,automationLogArchive,automationReadLogs});
 
 // 合成回归只在本文件作为测试入口时注册；普通导入不要求调度器、其它仓库或外部服务。
-if(process.env.NODE_TEST_CONTEXT&&process.argv.length===2&&process.argv[1]===import.meta.filename){
+if(process.env.NODE_TEST_CONTEXT&&process.argv.length===2&&process.argv[1]===import.meta.filename)inlineTestRegistrations.push(async()=>{
  const {test}=await import('node:test'),{default:assert}=await import('node:assert/strict');
  const historyRun=(platform,id,conclusion,version)=>({id,run_number:id,run_attempt:1,path:'.github/workflows/'+platform+'.yml',event:'workflow_dispatch',head_branch:'main',head_sha:'a'.repeat(40),repository:{full_name:automationRepository},status:'completed',conclusion,display_title:buildDisplayName(platform,version),html_url:'https://github.com/'+automationRepository+'/actions/runs/'+id});
  function historyRelease(run,platform='ios'){
@@ -6646,8 +6993,67 @@ if(process.env.NODE_TEST_CONTEXT&&process.argv.length===2&&process.argv[1]===imp
    try{await automationTransport.run({fetchImpl},async()=>{if(drift)await assert.rejects(settleCompletedAutomation('ios',73,'fixture'),/缓存删除前归属/);else await settleCompletedAutomation('ios',73,'fixture');});assert.ok(f.caches.some(value=>value.id===900));if(drift)assert.ok(!f.mutations.includes('actions/caches/801'));}finally{if(existsSync(work))rmSync(work,{recursive:true});}
   }
  });
+ // SDK回归只使用合成正式版事实，不读取本机SDK，不访问网络。
+ const sdkReleaseFixture=()=>checkedSdkSelection({schema:1,product_id:product,mode:'release',sources:Object.entries(sdkRepositories).map(([name,url],index)=>({name,url,ref:String(index+1).repeat(40),release_id:index+101,tag:'v1.0.0'}))});
+ const sdkFixtureResponse=(url,options={})=>{
+  const address=new URL(url),source=sdkReleaseFixture().sources.find(item=>address.pathname.startsWith('/repos/'+new URL(item.url).pathname.slice(1,-4)+'/'));
+  if(!source)return null;assert.equal(address.protocol,'https:');assert.equal(options.redirect,'error');assert.equal(options.credentials,'omit');
+  if(/\/releases\/(?:latest|[1-9]\d*)$/u.test(address.pathname))return Response.json({id:source.release_id,tag_name:source.tag,draft:false,prerelease:false,published_at:'2026-10-17T00:00:00Z',html_url:source.url.slice(0,-4)+'/releases/tag/'+source.tag});
+  if(address.pathname.includes('/git/ref/tags/'))return Response.json({ref:'refs/tags/'+source.tag,object:{type:'commit',sha:source.ref}});
+  throw Error('未声明SDK合成请求');
+ };
+ test('SDK任务锁拒绝错误来源、提交、重复及本机目录，缓存绑定实际提交',()=>{
+  const selection=sdkReleaseFixture();assert.deepEqual(checkedSdkSelection(selection),selection);
+  for(const change of [value=>value.sources.pop(),value=>value.sources.push(value.sources[0]),value=>value.sources[0].url='http://github.com/crcfrcn/citizensdk.git',value=>value.sources[0].ref='main',value=>value.sources[0].tag='../bad',value=>value.sources[0].release_id=0,value=>value.mode='other']){
+   const bad=structuredClone(selection);change(bad);assert.throws(()=>checkedSdkSelection(bad));
+  }
+  assert.throws(()=>checkedSdkSelection(selection,{mode:'local'}));
+  const changed=structuredClone(selection);changed.sources[0].ref='a'.repeat(40);
+  assert.notEqual(incrementalIdentity('ios',selection.sources),incrementalIdentity('ios',changed.sources));
+  assert.equal(incrementalIdentity('ios',selection.sources),incrementalIdentity('ios',checkedSdkSelection(selection).sources));
+ });
+ test('本机SDK仅快照已提交HEAD，不读工作树且后续HEAD变化不改本轮锁',async()=>{
+  const work=fixedWork('test'),calls=[];let head='a'.repeat(40);
+  await withFixedWork('test',async()=>{
+   const readGit=async(path,args)=>{
+    calls.push(args.join(' '));const source=Object.entries(sdkRepositories).find(([,url])=>basename(new URL(url).pathname,'.git')===basename(path));assert.ok(source);
+    if(args[0]==='remote')return source[1];
+    if(args.includes('--show-toplevel'))return path;if(args.includes('--absolute-git-dir')||args.includes('--git-common-dir'))return join(path,'.git');
+    assert.deepEqual(args,['rev-parse','--verify','HEAD^{commit}']);return head;
+   };
+   const selected=await selectLocalSdkInputs('/synthetic/git',work,{}, {readGit,inspect:()=>{}});head='b'.repeat(40);
+   assert.ok(selected.sources.every(source=>source.ref==='a'.repeat(40)));assert.equal(calls.some(value=>/diff|status|reset|checkout|stash|update-ref/u.test(value)),false);
+   const newer=await selectLocalSdkInputs('/synthetic/git',work,{}, {readGit,inspect:()=>{}});assert.ok(newer.sources.every(source=>source.ref===head));
+   await assert.rejects(selectLocalSdkInputs('/synthetic/git',work,{}, {readGit:async()=>'/wrong',inspect:()=>{}}),/来源不符/);
+   await assert.rejects(selectLocalSdkInputs('/synthetic/git',work,{}, {readGit,inspect:()=>{throw Error('链接拒绝');}}),/链接拒绝/);
+   const wrong=structuredClone(selected);wrong.sources[0].local_root='/other';assert.throws(()=>checkedSdkSelection(wrong),/指定正式仓库/);
+  });
+ });
+ test('SDK正式版选择与重试只读固定Release，Tag漂移、预发布、缺失及循环均拒绝',async()=>{
+  let requests=[];const transport=async(url,options)=>{requests.push(new URL(url).pathname);return sdkFixtureResponse(url,options);};
+  const selected=await automationTransport.run({fetchImpl:transport},()=>selectReleaseSdkInputs('fixture'));
+  assert.deepEqual(selected,sdkReleaseFixture());assert.equal(requests.filter(path=>path.endsWith('/latest')).length,2);requests=[];
+  assert.deepEqual(await automationTransport.run({fetchImpl:transport},()=>selectReleaseSdkInputs('fixture',{locked:selected})),selected);
+  assert.equal(requests.some(path=>path.endsWith('/latest')),false);
+  const annotated=async(url,options)=>{
+   if(new URL(url).pathname.includes('/git/tags/')){const source=selected.sources.find(item=>url.includes(new URL(item.url).pathname.slice(1,-4)));return Response.json({sha:'c'.repeat(40),object:{type:'commit',sha:source.ref}});}
+   const response=sdkFixtureResponse(url,options),value=await response.json();if(value.object)value.object={type:'tag',sha:'c'.repeat(40)};return Response.json(value);
+  };
+  assert.deepEqual(await automationTransport.run({fetchImpl:annotated},()=>selectReleaseSdkInputs('fixture',{locked:selected})),selected);
+  for(const mode of ['missing','prerelease','drift','cycle','wrong-origin']){
+   const fetchImpl=async(url,options)=>{
+    if(mode==='cycle'&&new URL(url).pathname.includes('/git/tags/'))return Response.json({sha:'a'.repeat(40),object:{type:'tag',sha:'a'.repeat(40)}});
+    const response=sdkFixtureResponse(url,options);if(mode==='missing')return new Response(null,{status:404});const value=await response.json();
+    if(new URL(url).pathname.includes('/releases/')){if(mode==='prerelease')value.prerelease=true;if(mode==='wrong-origin')value.html_url='https://other.invalid/release';}
+    else if(mode==='drift')value.object.sha='f'.repeat(40);
+    else if(mode==='cycle')value.object={type:'tag',sha:'a'.repeat(40)};
+    return Response.json(value);
+   };
+   await automationTransport.run({fetchImpl},()=>assert.rejects(selectReleaseSdkInputs('fixture',{locked:selected})));
+  }
+ });
  test('CI缓存计划独立绑定平台、工具锁与本次Run，错误身份不产生计划',()=>{
-  const environment={GITHUB_ACTIONS:'true',GITHUB_REPOSITORY:automationRepository,GITHUB_REF:'refs/heads/main',GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_WORKFLOW_REF:automationRepository+'/.github/workflows/ios.yml@refs/heads/main',GITHUB_SHA:'a'.repeat(40),GITHUB_RUN_ID:'71',GITHUB_RUN_ATTEMPT:'1',GITHUB_RUN_NUMBER:'7'};
+  const environment={CITIZENAPP_SDK_RELEASES:JSON.stringify(sdkReleaseFixture()),GITHUB_ACTIONS:'true',GITHUB_REPOSITORY:automationRepository,GITHUB_REF:'refs/heads/main',GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_WORKFLOW_REF:automationRepository+'/.github/workflows/ios.yml@refs/heads/main',GITHUB_SHA:'a'.repeat(40),GITHUB_RUN_ID:'71',GITHUB_RUN_ATTEMPT:'1',GITHUB_RUN_NUMBER:'7'};
   const first=ciCachePlan('ios',environment),second=ciCachePlan('ios',{...environment,GITHUB_RUN_ID:'72'});assert.equal(first.identity,second.identity);assert.notEqual(first.key,second.key);assert.equal(first.path,'target/build/ios/incremental');
   assert.throws(()=>ciCachePlan('android',environment),/身份/);assert.throws(()=>ciCachePlan('ios',{...environment,GITHUB_SHA:'invalid'}),/身份/);
  });
@@ -6684,6 +7090,7 @@ if(process.env.NODE_TEST_CONTEXT&&process.argv.length===2&&process.argv[1]===imp
  test('再次派发前清理上次失败候选并复用版本，不先编译或重复派发',async()=>{
   const f=historyFixture(),work=fixedWork('build/ios'),failed=f.runs.at(-1),candidate=historyRelease(failed);f.releases.push(candidate);f.tags.set(candidate.tag_name,{ref:'refs/tags/'+candidate.tag_name,object:{type:'commit',sha:failed.head_sha}});let calls=0;
   const fetchImpl=async(url,options={})=>{
+   const sdk=sdkFixtureResponse(url,options);if(sdk)return sdk;
    if(new URL(url).pathname.endsWith('/dispatches')){
     calls++;assert.ok(!f.releases.some(value=>value.id===candidate.id));assert.equal(f.tags.has(candidate.tag_name),false);assert.equal(JSON.parse(options.body).inputs.version,'1.0.2');
     const run={...historyRun('ios',74,'failure','1.0.2'),status:'queued'};f.runs.push(run);return Response.json({workflow_run_id:74,html_url:run.html_url});
@@ -6700,10 +7107,12 @@ if(process.env.NODE_TEST_CONTEXT&&process.argv.length===2&&process.argv[1]===imp
    head_sha:'a'.repeat(40),repository:{full_name:repository},status:'completed',conclusion:'success',
    html_url:'https://github.com/'+repository+'/actions/runs/731',display_title:buildDisplayName(platform,'1.0.1')};
   const fetchImpl=async(url,options)=>{
+   const sdk=sdkFixtureResponse(url,options);if(sdk)return sdk;
    if(new URL(url).pathname.endsWith('/runs')&&new URL(url).pathname.includes('/workflows/'))return Response.json({workflow_runs:[]});
    if(new URL(url).pathname.endsWith('/releases'))return Response.json([]);
    if(new URL(url).pathname.endsWith('/dispatches')){
-    dispatches++;assert.equal(options.method,'POST');assert.deepEqual(JSON.parse(options.body),{ref:'main',inputs:{version:'1.0.1'}});
+    dispatches++;assert.equal(options.method,'POST');const body=JSON.parse(options.body);assert.deepEqual(JSON.parse(body.inputs.sdk_selection),sdkReleaseFixture());assert.deepEqual(Object.keys(body.inputs).sort(),['sdk_selection','version']);
+    const versionBody={...body,inputs:{version:body.inputs.version}};assert.deepEqual(versionBody,{ref:'main',inputs:{version:'1.0.1'}});
     return mode==='ambiguous'?new Response(null,{status:204}):Response.json({workflow_run_id:731,html_url:run.html_url});
    }
    assert.ok(new URL(url).pathname.endsWith('/runs/731'));
@@ -6713,4 +7122,13 @@ if(process.env.NODE_TEST_CONTEXT&&process.argv.length===2&&process.argv[1]===imp
   assert.equal((await invoke()).id,731);assert.equal(dispatches,1);
   for(const failure of ['ambiguous','wrong']){mode=failure;dispatches=0;await assert.rejects(invoke);assert.equal(dispatches,1);}
  });
+});
+
+// 此时导出别名、资源闭包和自动化常量均已就绪；普通导入的登记清单始终为空。
+for(const registerInlineTests of inlineTestRegistrations)await registerInlineTests();
+
+// 所有模块声明及异步初始化完成后才启动CLI；普通导入和同文件回归不启动命令。
+// CLI拒绝必须真实失败，不能留成未完成顶层await或输出成功回执。
+if(!inlineTestEntry&&directEntry){
+ void runCLI().catch(error=>{console.error(error);process.exitCode=1;});
 }

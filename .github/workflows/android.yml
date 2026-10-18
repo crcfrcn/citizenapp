@@ -7,6 +7,10 @@ on:
         description: 本平台编译入口计算的候选版本
         required: true
         type: string
+      sdk_selection:
+        description: 本产品编译入口锁定的SDK正式Release与提交
+        required: true
+        type: string
 concurrency:
   group: "${{ github.repository }}-android"
   cancel-in-progress: false
@@ -20,6 +24,7 @@ jobs:
     runs-on: xcode-27
     timeout-minutes: 360
     env:
+      CITIZENAPP_SDK_RELEASES: "${{ inputs.sdk_selection }}"
       CITIZENAPP_AUTOMATION_VERSION: "${{ inputs.version }}"
       GH_TOKEN: "${{ github.token }}"
     steps:

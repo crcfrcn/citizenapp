@@ -4,7 +4,7 @@ import {
   existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { testRoot as tmpdir, BUILD_SHELL_SOURCES, SOURCE_VIEW_SOURCE, CI_SIGNING_STEPS, buildDisplayName, buildTaskName, checkFlutterReport } from '../scripts/build.mjs';
+import { testRoot as tmpdir, BUILD_SHELL_SOURCES, SOURCE_VIEW_SOURCE, CI_SIGNING_STEPS, buildDisplayName, buildTaskName, checkFlutterReport, nodeVerificationPlan, parseNodeTestReport, checkedSdkSelection } from '../scripts/build.mjs';
 import { platformFiles as androidPlatformFiles } from '../android/platform.mjs';
 import { platformFiles as iosPlatformFiles } from '../ios/platform.mjs';
 import { dirname, join } from 'node:path';
@@ -26,8 +26,8 @@ const testRunner = BUILD_SHELL_SOURCES.test;
 const pubspec = readFileSync(new URL('../pubspec.yaml', import.meta.url), 'utf8');
 const pubLock = readFileSync(new URL('../pubspec.lock', import.meta.url), 'utf8');
 const podLock = readFileSync(new URL('../ios/Podfile.lock', import.meta.url), 'utf8');
-// 跨SDK验收读取原始声明锁定的实际Git输入，产品独立检出也能执行，不依赖邻仓布局。
-// 本轮调用方可交付已验真的固定Git输入；仍由原resolver回读，不借用邻仓或改写来源。
+// 跨SDK验收读取本任务锁定并物化的准确提交；SDK工作树只在本机选择阶段只读访问。
+// 本轮调用方交付工作根及SDK任务锁；resolver仍回读来源、detached提交及干净状态，不消费未提交修改。
 const suppliedDependencyWork = process.env.CITIZENAPP_TEST_WORK_DIR;
 const dependencyWork = suppliedDependencyWork
   ? realpathSync(suppliedDependencyWork)
@@ -57,7 +57,7 @@ const tataChatAttachmentPlatform = readFileSync(
 const tataChatConversation = readFileSync(
   new URL('lib/ui/conversation/conversation_page.dart', tataChatRoot), 'utf8');
 
-test('所有环境只消费本轮按原锁准备的SDK，无邻仓或隐式获取', () => {
+test('所有环境只消费本轮任务锁物化的SDK，视图无工作树或隐式获取', () => {
   assert.equal(dependencySources.citizen_sdk.root,join(dependencyWork,'git-sources/citizen_sdk'));
   assert.equal(dependencySources.tatachat_sdk.root,join(dependencyWork,'git-sources/tatachat_sdk'));
   const empty=mkdtempSync(join(tmpdir(),'citizenapp-missing-sdk-'));
@@ -580,6 +580,9 @@ test('双端Workflow消费唯一Build版本与命名合同并传输最新增量'
     assert.ok(workflow.includes('run-name: 公民·' + title + '·v${{ inputs.version }}'));
     assert.ok(workflow.includes('    name: 公民·' + title + '·v${{ inputs.version }}'));
     assert.ok(workflow.includes('node scripts/build.mjs ci-build ' + platform));
+    assert.ok(workflow.includes('      sdk_selection:\n'));
+    assert.ok(workflow.includes('CITIZENAPP_SDK_RELEASES: "${{ inputs.sdk_selection }}"'));
+    assert.doesNotMatch(workflow,/releases\/latest|git ls-remote|git fetch/u);
     assert.ok(workflow.includes('node scripts/build.mjs ci-release ' + platform));
     assert.ok(workflow.includes('node scripts/build.mjs ci-cache-plan ' + platform));
     assert.ok(workflow.indexOf('node scripts/build.mjs ci-release ' + platform) < workflow.indexOf('actions/cache/save@'));
@@ -597,4 +600,61 @@ test('双端Workflow消费唯一Build版本与命名合同并传输最新增量'
   assert.match(runner, /flutter build appbundle.*--build-name=/u);
   assert.match(CI_SIGNING_STEPS.android, /manifest version-name/u);
   assert.doesNotMatch(runner, /rm -rf "\$CITIZENSDK_PRODUCT_WORK_DIR"/u);
+});
+
+// 独立测试和编译链必须消费同一执行器，产品测试不能变成另一个编译入口。
+test('独立Node验收归唯一Build，固定清单、资源缺件失败且不进入交付',()=>{
+  const plan=nodeVerificationPlan(),source=readFileSync(viewScript,'utf8');
+  assert.deepEqual(plan.files,['scripts/build.mjs','scripts/publish.mjs','test/release_manifest.test.mjs']);
+  const cli=source.slice(source.indexOf(" if(process.argv[2]==='verify'){"),source.indexOf(" if(process.argv[2]==='run'"));
+  assert.match(cli,/process\.argv\.length!==4/u);assert.match(cli,/process\.argv\[3\]!=='node'/u);assert.match(cli,/verifyNode\(/u);
+  assert.doesNotMatch(cli,/ciBuild|completeMobile|dispatchAutomation|runProductTests|bootstrapNode/u);
+  const entry=source.slice(source.indexOf('export async function verifyNode('),source.indexOf('function flutterTestFiles('));
+  assert.match(entry,/nodeTestResources/u);assert.match(entry,/runNodeTestFiles/u);
+  assert.doesNotMatch(entry,/stages\.build|runShell|ciBuild|completeMobile|dispatchAutomation|bootstrapNode/u);
+  const complete=source.slice(source.indexOf('async function runProductTests('),source.indexOf('\nif(testSession&&process.argv.length===2&&testFiles()'));
+  assert.match(complete,/await runNodeTestFiles\(node,work,testEnvironment\)/u);
+  assert.doesNotMatch(complete,/--test-concurrency/u);
+  const resources=source.slice(source.indexOf('async function nodeTestResources('),source.indexOf('\nasync function resources('));
+  assert.match(resources,/offline:true/u);assert.match(resources,/原件库边界交叉/u);assert.match(resources,/gitBundlePath/u);assert.doesNotMatch(resources,/installTool\(|buildSourceTool\(|fetcher:|bootstrapNode\(/u);
+  assert.equal(parseNodeTestReport('TAP version 13\nok 1 - synthetic\n1..1\n# tests 1\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n',0).status,'success');
+});
+
+// SDK任务锁是选择结果；根声明与传递依赖原锁保持校验，不为环境选择修改正式源码。
+test('公民App本机HEAD与自动化正式版共用任务锁及隔离SDK视图',()=>{
+  const source=readFileSync(viewScript,'utf8'),record=JSON.parse(process.env.CITIZENAPP_SDK_SELECTION||'null');
+  assert.ok(record);assert.equal(record.work,dependencyWork);const selected=checkedSdkSelection(record.selection);
+  for(const item of selected.sources){assert.equal(dependencySources[item.name].sha,item.ref);assert.equal(dependencySources[item.name].url,item.url);}
+  assert.match(source,/state\.sdkSelection=await resourceRuntime\.prepareSdkInputs/u);
+  assert.match(source,/incrementalIdentity\(platform,automationSdkInputs\(environment\)\.sources\)/u);
+  assert.match(source,/sdk_selection:JSON\.stringify\(sdkSelection\)/u);
+  assert.match(source,/selectReleaseSdkInputs\([^\n]+\{locked\}/u);
+  assert.match(view,/const declaredSha = dependencyField\(declared, 'ref'\)/u);
+  assert.match(view,/sdkSelectionForWork\(work\)/u);
+  assert.match(view,/sourceGit\(root, \['rev-parse', 'HEAD'\]\) !== sha/u);
+  assert.match(view,/sourceGit\(root, \['status', '--porcelain=v1', '--untracked-files=all'\]\) !== ''/u);
+  assert.match(view,/JSON\.stringify\(dependencies\[name\]\.version\|\|'1\.0\.0'\)/u);
+});
+
+// 自动化常量包含异步初始化；CLI必须位于模块末尾，不能通过提前微任务替代初始化顺序。
+test('CLI在全部声明初始化之后启动，导入静默且非法自动化入口真实失败',()=>{
+  const source=readFileSync(viewScript,'utf8');
+  const startup="if(!inlineTestEntry&&directEntry){\n void runCLI().catch(error=>{console.error(error);process.exitCode=1;});\n}\n";
+  assert.equal(source.split(startup).length,2);assert.ok(source.endsWith(startup));
+  for(const declaration of ['const automationWorkflows=','const automationTransport=','export const automationClient='])assert.ok(source.indexOf(startup)>source.indexOf(declaration));
+  const registration='for(const registerInlineTests of inlineTestRegistrations)await registerInlineTests();';
+  assert.equal(source.split(registration).length,2);
+  assert.ok(source.indexOf(registration)>source.indexOf('export const automationClient='));
+  assert.ok(source.indexOf(registration)<source.indexOf(startup));
+  assert.equal((source.match(/^if[^\n]*inlineTestRegistrations\.push\(async/gmu)||[]).length,13);
+  assert.ok(source.includes('assert.deepEqual(JSON.parse(body.inputs.sdk_selection),sdkReleaseFixture())'));
+
+  const env={HOME:process.env.HOME,PATH:process.env.PATH,LANG:'C'};
+  const options={encoding:'utf8',env,timeout:30000,maxBuffer:1024*1024};
+  const imported=spawnSync(process.execPath,['--input-type=module','-e','await import('+JSON.stringify(pathToFileURL(viewScript).href)+');process.stdout.write("import-only\\n");'],options);
+  assert.equal(imported.status,0,imported.stderr);assert.equal(imported.stdout,'import-only\n');assert.equal(imported.stderr,'');
+  // 非法平台在任何网络请求或现场准备前拒绝；缺少初始化时旧入口会先抛ReferenceError。
+  const rejected=spawnSync(process.execPath,[viewScript,'automation','run','invalid-platform'],options);
+  assert.equal(rejected.status,1);assert.equal(rejected.stdout,'');assert.match(rejected.stderr,/自动化目标或授权动作不匹配/u);
+  assert.doesNotMatch(rejected.stderr,/ReferenceError|before initialization|Cannot access/u);
 });
