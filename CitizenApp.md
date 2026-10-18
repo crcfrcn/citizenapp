@@ -247,7 +247,7 @@ macOS原生测试锁由本产品现有Apple系统工具入口显式交付`/usr/b
 
 测试入口调用TataChatSDK native-dependency host时，只为该调用绑定CITIZENAPP_CHAT_CARGO_HOME；CitizenSDK native abi-host绑定CITIZENAPP_SDK_CARGO_HOME，缺少交付立即失败。两者均使用资源阶段已准备、受原工作根边界校验的闭包，不继承空的通用Cargo Home、不污染下一步、不移除offline/locked或升级依赖。既有回归补双调用实际环境、缺件拒绝及完整续传/拒绝/取消边界。
 
-资源下载诊断只增加可观测性：请求开始输出固定阶段、声明工具ID、当前来源主机、已收正文字节数及`none`；失败输出同一组字段及有界安全错误码。重定向仅记录主机，不记录URL路径、查询、凭据或原始错误正文；未知工具名归为dependency，未知错误码归为UNKNOWN，cause链有界。不可恢复或尝试耗尽时原Error对象重新抛出，缓存命中不伪报下载；版本、来源、TLS、identity、长度/大小上限、重定向次数、取消、离线失败和候选清理不变，重试仅按上述有界传输规则执行。链金标Git入口仅补固定步骤、退出码、信号和安全错误码，stderr只匹配固定传输类别，不回显正文/命令/参数/环境；保留原错误文案、spawn参数、HTTPS来源、准确提交、独立干净快照、金标及所有权清场校验。
+资源下载诊断只增加可观测性：请求开始输出固定阶段、声明工具ID、当前来源主机、已收正文字节数及`none`；失败输出同一组字段及有界安全错误码。重定向仅记录主机，不记录URL路径、查询、凭据或原始错误正文；未知工具名归为dependency，未知错误码归为UNKNOWN，cause链有界。不可恢复或尝试耗尽时原Error对象重新抛出，缓存命中不伪报下载；版本、来源、TLS、identity、长度/大小上限、重定向次数、取消、离线失败和候选清理不变，重试仅按上述有界传输规则执行。链金标Git入口仅补固定步骤、退出码、信号和安全错误码，stderr只匹配固定传输类别，不回显正文/命令/参数/环境；传输失败进一步区分固定curl类别、提前EOF和连接中断，仍不输出原始正文。保留原错误文案、spawn安全参数、HTTPS来源、准确提交、独立干净快照、金标及所有权清场校验。
 
 归档资源下载在每次HTTPS请求及重定向请求中声明`Accept-Encoding: identity`。无`Content-Encoding`或明确为`identity`时，非零`Content-Length`须与实际正文严格等长；来源仍返回压缩响应时，Fetch已解码正文，不将传输长度与解码后字节数混比。传输声明上限、实际正文上限、非空、HTTPS与重定向限制、流错误、取消清理及离线缺件失败继续保留；资源版本、来源及依赖锁不变。
 
@@ -3457,7 +3457,7 @@ iOS 的 `GeneratedPluginRegistrant.h/.m` 及 SwiftPM 生成状态只存在于源
 CitizenApp本机测试的TataChatSDK宿主库从产品原始声明与锁定Git提交取得，在源码外当前测试工作目录编译；禁止已退役聚合仓路径或邻仓工作树。原生发布回归测试也从同一声明取得不可变Git输入，验证实际SDK视图和当轮Framework链接、幂等、归属和越界拒绝，SDK源码及原始宿主声明锁保持只读。
 
 ### 独立测试源与链金标
-scripts/build.mjs 的 TEST_INPUTS_SOURCE声明链所有者crcfrcn/citizenchain的main和两个金标准确路径。build.mjs inputs只消费已明确传入、验真且干净的detached链快照，独立检出时先捕获远端main真实SHA再取得该提交。测试不复制Runtime金标、不读取已退役聚合仓父根；SCALE和岗位测试读取CITIZENCHAIN_ROOT下的原始所有者文件。公民CI原生SDK源从同轮dependencies结果的citizen_sdk.root取得。
+scripts/build.mjs 的 TEST_INPUTS_SOURCE声明链所有者crcfrcn/citizenchain的main和两个金标准确路径。build.mjs inputs只消费已明确传入、验真且干净的detached链快照，独立检出时先捕获远端main真实SHA再以`--depth=1 --filter=blob:none`取得该提交的Git快照，准确配置原HTTPS origin的promisor及blob:none；非cone稀疏检出仅物化合同的两个根锚定金标路径。真实Git回归夹具仅在测试现场的独立子目录初始化仓库，父现场所有权元数据不纳入合成提交或稀疏检出。上游不支持过滤即失败，不静默改为完整获取、不自动重试或替换来源；后续HEAD、detached、独立Git根、来源、干净状态、普通文件和非空校验全部保留。测试不复制Runtime金标、不读取已退役聚合仓父根；SCALE和岗位测试读取CITIZENCHAIN_ROOT下的原始所有者文件。公民CI原生SDK源从同轮dependencies结果的citizen_sdk.root取得。
 
 ## 完整产品组织与执行合同
 

@@ -5649,6 +5649,8 @@ function safeDiagnosticCode(error,{status,aborted=false}={}){
 function testInputGitStep(args){
  const step=args[0];if(['ls-remote','init','fetch','checkout','status'].includes(step))return step;
  if(step==='remote')return args[1]==='add'?'configure-origin':'verify-origin';
+ if(step==='sparse-checkout')return 'sparse-checkout';
+ if(step==='config')return ['remote.origin.promisor','remote.origin.partialclonefilter'].includes(args[1])?'configure-partial':'unknown';
  if(step==='rev-parse')return ({HEAD:'verify-head','--abbrev-ref':'verify-branch','--show-toplevel':'verify-root','--absolute-git-dir':'verify-gitdir','--git-common-dir':'verify-common-dir'})[args[1]]||'verify-repository';
  return 'unknown';
 }
@@ -5662,7 +5664,14 @@ function testInputGitDiagnostic(args,result){
   else if(/connection reset|connection was reset/iu.test(text))code='ECONNRESET';
   else if(/SSL certificate problem|certificate verify failed|server certificate verification failed/iu.test(text))code='TLS_CERTIFICATE_ERROR';
   else if(/authentication failed|terminal prompts disabled/iu.test(text))code='GIT_AUTH_FAILED';
-  else if(/early EOF|unexpected disconnect|RPC failed/iu.test(text))code='GIT_TRANSPORT_ERROR';
+  else {
+   // 仅暴露固定curl类别，禁止将原始stderr、URL和服务端回显带入诊断。
+   const curl=/RPC failed; curl (18|28|35|52|55|56|60|92)(?:\s|$)/u.exec(text);
+   if(curl)code='GIT_CURL_'+curl[1];
+   else if(/early EOF/iu.test(text))code='GIT_EARLY_EOF';
+   else if(/unexpected disconnect/iu.test(text))code='GIT_DISCONNECTED';
+   else if(/RPC failed/iu.test(text))code='GIT_TRANSPORT_ERROR';
+  }
  }
  const signal=result.signal==null?'none':Object.hasOwn(resourceOs.constants.signals,result.signal)?result.signal:'UNKNOWN';
  return {step:testInputGitStep(args),exit_code:Number.isSafeInteger(result.status)?result.status:null,signal,code};
@@ -5674,7 +5683,20 @@ function runTestInputGit(root,args,{spawnGit=spawnSync,environment=process.env,r
   encoding:'utf8',env:{...environment,GIT_TERMINAL_PROMPT:'0',GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:process.platform==='win32'?'NUL':'/dev/null'}
  });}catch(error){emit(testInputGitDiagnostic(args,{error,status:null,signal:null}));throw error;}
  if(result.error||result.status!==0){emit(testInputGitDiagnostic(args,result));throw Error('链测试源取得或验真失败');}
+ // 上游不支持过滤时不得静默退回完整正文；原失败清场仍由拥有者处理。
+ if(args[0]==='fetch'&&args.includes('--filter=blob:none')&&/filtering not recognized by server|does not support filter/iu.test(result.stderr||'')){
+  emit({step:'fetch',exit_code:0,signal:'none',code:'GIT_FILTER_UNSUPPORTED'});throw Error('链测试源不支持部分获取');
+ }
  return result.stdout.trim();
+}
+// 只改变本轮Git快照的传输和物化范围：准确提交不变，两个金标仍由原Git对象提供。
+function checkoutTestInputSnapshot(root,expected,paths,git){
+ git(root,['config','remote.origin.promisor','true']);
+ git(root,['config','remote.origin.partialclonefilter','blob:none']);
+ git(root,['fetch','--no-tags','--depth=1','--filter=blob:none','origin',expected]);
+ // 非cone模式使用根锚定的准确文件模式，避免同目录其它正文和根层文件被物化。
+ git(root,['sparse-checkout','set','--no-cone','--',...paths.map(value=>'/'+value)]);
+ git(root,['checkout','--quiet','--detach',expected]);
 }
 async function runTestInputs(argv) {
 // App金标读取链所有者已保存的不可变Git快照；不复制金标，不猜测邻仓。
@@ -5712,8 +5734,7 @@ try {
     expected = match[1]; mkdirSync(root, { mode: 0o700 }); const owned = lstatSync(root);
     try {
       git(root, ['init', '--quiet']); git(root, ['remote', 'add', 'origin', url]);
-      git(root, ['fetch', '--no-tags', '--depth=1', 'origin', expected]);
-      git(root, ['checkout', '--quiet', '--detach', expected]);
+      checkoutTestInputSnapshot(root, expected, contract.citizenchain.paths, git);
     } catch (error) {
       const now = lstatSync(root, { throwIfNoEntry: false });
       if (now?.isDirectory() && !now.isSymbolicLink() && now.dev === owned.dev && now.ino === owned.ino) rmSync(root, { recursive: true });
@@ -7262,6 +7283,36 @@ if(process.env.NODE_TEST_CONTEXT&&process.argv.length===2&&process.argv[1]===imp
   assert.equal(runTestInputGit(root,args,{...common,report:()=>{throw Error(marker);},spawnGit:()=>({status:0,stdout:'ok'})}),'ok');
   assert.equal(testInputGitStep(['rev-parse','--absolute-git-dir']),'verify-gitdir');assert.equal(testInputGitStep([marker]),'unknown');
   assert.equal(testInputGitDiagnostic(args,{status:null,signal:marker,stderr:marker}).signal,'UNKNOWN');
+ });
+ test('链金标部分获取固定提交并仅稀疏检出合同两文件，任一步失败立即停止',()=>{
+  const root='/synthetic/chain',sha='a'.repeat(40),paths=JSON.parse(TEST_INPUTS_SOURCE).citizenchain.paths,calls=[];
+  checkoutTestInputSnapshot(root,sha,paths,(where,args)=>{assert.equal(where,root);calls.push(args);});
+  assert.deepEqual(calls,[['config','remote.origin.promisor','true'],['config','remote.origin.partialclonefilter','blob:none'],['fetch','--no-tags','--depth=1','--filter=blob:none','origin',sha],['sparse-checkout','set','--no-cone','--',...paths.map(value=>'/'+value)],['checkout','--quiet','--detach',sha]]);
+  for(let at=0;at<calls.length;at++){
+   let count=0;const failure=Error('synthetic-step');
+   assert.throws(()=>checkoutTestInputSnapshot(root,sha,paths,()=>{if(count++===at)throw failure;}),error=>error===failure);assert.equal(count,at+1);
+  }
+ });
+ test('链金标稀疏检出实际保留两份原Git正文和干净detached身份',async()=>{
+  await withFixedWork('test',async()=>{
+   // 合成Git仅拥有子目录，父测试现场的所有权元数据不得纳入提交或稀疏检出。
+   const root=join(fixedWork('test'),'chain-fixture'),paths=JSON.parse(TEST_INPUTS_SOURCE).citizenchain.paths;mkdirSync(root);
+   const git=(where,args)=>{const result=spawnSync('git',['-c','credential.helper=','-c','core.hooksPath=/dev/null','-C',where,...args],{encoding:'utf8',env:{...process.env,GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',GIT_TERMINAL_PROMPT:'0'}});assert.equal(result.status,0,'合成Git命令失败');return result.stdout.trim();};
+   git(root,['init','--quiet']);git(root,['config','user.name','fixture']);git(root,['config','user.email','fixture@example.invalid']);
+   for(const [index,rel]of [...paths,'unrelated.bin','runtime/primitives/tests/fixtures/unrelated.json'].entries()){const file=join(root,rel);mkdirSync(dirname(file),{recursive:true});writeFileSync(file,'synthetic-'+index);}
+   git(root,['add','.']);git(root,['commit','--quiet','-m','synthetic']);const sha=git(root,['rev-parse','HEAD']);
+   checkoutTestInputSnapshot(root,sha,paths,(where,args)=>{if(args[0]==='fetch')return '';return git(where,args);});
+   paths.forEach((rel,index)=>assert.equal(readFileSync(join(root,rel),'utf8'),'synthetic-'+index));
+   assert.equal(existsSync(join(root,'unrelated.bin')),false);assert.equal(existsSync(join(root,'runtime/primitives/tests/fixtures/unrelated.json')),false);
+   assert.equal(git(root,['rev-parse','HEAD']),sha);assert.equal(git(root,['rev-parse','--abbrev-ref','HEAD']),'HEAD');assert.equal(git(root,['status','--porcelain=v1','--untracked-files=all']),'');
+  });
+ });
+ test('链测试传输诊断细分固定类别且拒绝过滤静默降级',()=>{
+  const args=['fetch','--no-tags','--depth=1','--filter=blob:none','origin','a'.repeat(40)];
+  for(const [stderr,code]of [['RPC failed; curl 92 synthetic','GIT_CURL_92'],['RPC failed; curl 56 synthetic','GIT_CURL_56'],['early EOF','GIT_EARLY_EOF'],['unexpected disconnect','GIT_DISCONNECTED'],['RPC failed; curl 999 synthetic','GIT_TRANSPORT_ERROR']])assert.equal(testInputGitDiagnostic(args,{status:128,stderr}).code,code);
+  for(const stderr of ['warning: filtering not recognized by server, ignoring','server does not support filter']){
+   const records=[];assert.throws(()=>runTestInputGit('/synthetic',args,{spawnGit:()=>({status:0,stdout:'',stderr}),report:record=>records.push(record)}),/不支持部分获取/u);assert.equal(records.at(-1).code,'GIT_FILTER_UNSUPPORTED');assert.equal(JSON.stringify(records).includes(stderr),false);
+  }
  });
  test('SDK任务锁拒绝错误来源、提交、重复及本机目录，缓存绑定实际提交',()=>{
   const selection=sdkReleaseFixture();assert.deepEqual(checkedSdkSelection(selection),selection);
