@@ -67,7 +67,9 @@ class IsarCoreBootstrap {
     final file = File(path);
     if (FileSystemEntity.typeSync(path, followLinks: false) != FileSystemEntityType.file ||
         file.resolveSymbolicLinksSync() != path || Directory(work).resolveSymbolicLinksSync() != work ||
-        !path.startsWith('$work${Platform.pathSeparator}')) return null;
+        !path.startsWith('$work${Platform.pathSeparator}')) {
+      return null;
+    }
     return path;
   }
 }

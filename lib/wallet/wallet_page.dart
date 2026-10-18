@@ -187,8 +187,10 @@ class _WalletTabState extends State<WalletTab> {
     }
     try {
       // SDK拥有钱包及取消语义；App只限制页面等待，绝不将超时当成底层已退出。
-      if (_directoryRead != null) throw const CitizenSdkException(
-        code: CitizenSdkErrorCode.busy, message: 'previous catalog read is draining');
+      if (_directoryRead != null) {
+        throw const CitizenSdkException(
+          code: CitizenSdkErrorCode.busy, message: 'previous catalog read is draining');
+      }
       final read = _wallet.inspect();
       _directoryRead = read;
       var expired = false;
@@ -240,10 +242,12 @@ class _WalletTabState extends State<WalletTab> {
     if (!mounted || generation != _loadGeneration) return;
     try {
       final pending = await _accountSecurity.hasPendingAccountCleanup;
-      if (mounted && generation == _loadGeneration) setState(() {
-        _pendingAccountCleanup = pending;
-        if (!pending) _cleanupError = null;
-      });
+      if (mounted && generation == _loadGeneration) {
+        setState(() {
+          _pendingAccountCleanup = pending;
+          if (!pending) _cleanupError = null;
+        });
+      }
     } on Object { AppLog.d('wallet_cleanup_status_read_failed'); }
     if (!mounted || generation != _loadGeneration) return;
     unawaited(_loadIdentity(generation));

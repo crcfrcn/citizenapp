@@ -66,9 +66,11 @@ class _WalletGateState extends State<WalletGate> {
   }
 
   Future<CitizenWalletState> _loadState() {
-    if (_stateRead != null) return Future<CitizenWalletState>.error(
-      const CitizenSdkException(code: CitizenSdkErrorCode.busy, message: 'wallet read is draining'),
-    );
+    if (_stateRead != null) {
+      return Future<CitizenWalletState>.error(
+        const CitizenSdkException(code: CitizenSdkErrorCode.busy, message: 'wallet read is draining'),
+      );
+    }
     final loader = widget.walletStateLoader;
     final operation = loader == null ? context.read<CitizenSdk>().wallet.getState() : null;
     final read = loader == null ? operation!.result : Future<CitizenWalletState>.sync(loader);
