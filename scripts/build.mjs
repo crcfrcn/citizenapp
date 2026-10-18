@@ -2017,6 +2017,28 @@ async function commitCandidate(pending,target,{signal}={}){
 
 
 
+// 宿主发行件只请求本产品实际使用的五个组件；原归档缺少任一必需项仍失败，不能静默过滤。
+function rustHostComponentPlan(text){
+ if(typeof text!=='string'||Buffer.byteLength(text)>65536)fail('Rust组件清单超限或无效');
+ const available=text.trimEnd().split(/\r?\n/u);
+ if(!available.length||available.some(name=>! /^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(name))||new Set(available).size!==available.length)fail('Rust组件清单格式无效');
+ const required=['rustc','cargo','rust-std-aarch64-apple-darwin','rustfmt-preview','clippy-preview'];
+ for(const name of required)if(!available.includes(name))fail('Rust宿主缺少必需组件：'+name);
+ return required;
+}
+async function installRustTool({source,payload,tool,canonical,library,foundation,environment,options},{run=exec,acquire=acquireArchive,extract=unpack}={}){
+ options.signal?.throwIfAborted();const manifest=join(source,'components');await regular(manifest);
+ if((await lstat(manifest)).size>65536)fail('Rust组件清单超限或无效');
+ const components=rustHostComponentPlan(new TextDecoder('utf-8',{fatal:true}).decode(await readFile(manifest)));
+ await run(foundation.tools.bash,[join(source,'install.sh'),'--prefix='+payload,'--disable-ldconfig','--components='+components.join(',')],{signal:options.signal,env:environment,maxBuffer:2*1024**2,timeout:300000});
+ // 五个目标标准库仍按既有声明逐个获取、展开和安装；失败/取消立即中止，外层负责原候选清场。
+ for(const component of tool.components||[]){
+  options.signal?.throwIfAborted();const file=await acquire(component,{work:library.work,store:join(library.root,'archives'),offline:options.offline,fetcher:options.fetcher,signal:options.signal}),dir=join(canonical,component.target);
+  await extract(file,dir,{foundation,signal:options.signal});
+  await run(foundation.tools.bash,[join(dir,component.root,'install.sh'),'--prefix='+payload,'--disable-ldconfig'],{signal:options.signal,env:environment,maxBuffer:2*1024**2,timeout:300000});
+ }
+}
+
 async function installTool(library,tool,options,visiting=new Set()){
 
 
@@ -2038,8 +2060,7 @@ async function installTool(library,tool,options,visiting=new Set()){
   if(['native-source','gem'].includes(archive.kind))await sourceRecipe.buildSourceTool({library:localLibrary,tool,source,archive:original,pending:canonical,payload,finalPayload:localLibrary.finalPayload,signal:options.signal,fetcher:options.fetcher,exec,lookup:lookupInstalled,apple:appleTools,bootstrap:['bash','grep','sed'].includes(tool.id),environment,prepare:input=>prepareSourceDependencies({...input,options}),download:(entry,target,context)=>downloadTool(entry,target,{...context,...options,work:library.work,store:join(library.root,'archives')})});
   else if(['binary','phar'].includes(archive.kind)){await mkdir(dirname(join(payload,archive.executable)),{recursive:true});await copyFile(original,join(payload,archive.executable));await chmod(join(payload,archive.executable),0o555);}
   else if(archive.kind==='rust'){
-   await exec(foundation.tools.bash,[join(source,'install.sh'),'--prefix='+payload,'--disable-ldconfig','--components=rustc,cargo,rust-std-aarch64-apple-darwin,rust-src,rustfmt-preview,clippy-preview'],{signal:options.signal,env:environment,maxBuffer:2*1024**2,timeout:300000});
-   for(const component of tool.components||[]){const file=await acquireArchive(component,{work:library.work,store:join(library.root,'archives'),offline:options.offline,fetcher:options.fetcher,signal:options.signal}),dir=join(canonical,component.target);await unpack(file,dir,{foundation,signal:options.signal});await exec(foundation.tools.bash,[join(dir,component.root,'install.sh'),'--prefix='+payload,'--disable-ldconfig'],{signal:options.signal,env:environment,maxBuffer:2*1024**2,timeout:300000});}
+   await installRustTool({source,payload,tool,canonical,library,foundation,environment,options});
   }else if(archive.kind==='cargo-source'){
    await directory(payload,true);const rust=library.installed.get('rust').path,apple=await appleTools(library,{names:['clang','ar'],environment:cleanEnvironment(options.environment),signal:options.signal}),work=join(canonical,'cargo');await directory(work,true);
    const deps=await prepareCargo([join(source,'Cargo.lock')],work,{...options,library});await exec(join(dirname(rust),'cargo'),['build','--manifest-path',join(source,'Cargo.toml'),'--release','--locked','--offline','--bin',tool.command],{cwd:work,signal:options.signal,timeout:1800000,maxBuffer:8*1024**2,env:{...environment,PATH:dirname(rust)+':'+environment.PATH,RUSTC:rust,CC:apple.tools.clang,AR:apple.tools.ar,DEVELOPER_DIR:apple.developerDirectory,CARGO_HOME:deps.cargoHome,CARGO_TARGET_DIR:join(work,'target')}});await mkdir(join(payload,'bin'));await copyFile(join(work,'target/release',tool.command),join(payload,archive.executable));await copyFile(original,join(payload,'source.crate'));
@@ -2491,6 +2512,33 @@ const hash=b=>createHash('sha256').update(b).digest('hex');
 async function sandbox(t){const root=await realpath(await fixedScratch(join(tmpdir(),contract.product_id+'-resources-')));t.after(()=>rm(root,{recursive:true,force:true}));return root;}
 const archive=(body,url='https://example.invalid/locked.tgz')=>({url,sha256:hash(body)});
 function tar(entries){const records=[];for(const {name,body='',type='0',target='',mtime=0}of entries){const b=Buffer.from(body),h=Buffer.alloc(512);h.write(name,0,100);h.write('0000644\0',100);h.write('0000000\0',108);h.write('0000000\0',116);h.write(b.length.toString(8).padStart(11,'0')+'\0',124);h.write(mtime.toString(8).padStart(11,'0')+'\0',136);h.fill(32,148,156);h.write(type,156);h.write(target,157,100);h.write('ustar\0',257);h.write('00',263);h.write([...h].reduce((a,b)=>a+b,0).toString(8).padStart(6,'0')+'\0 ',148);records.push(h,b,Buffer.alloc((512-b.length%512)%512));}return gzipSync(Buffer.concat([...records,Buffer.alloc(1024)]));}
+test('Rust宿主组件与官方清单一致，缺必需项、重复、非法及过大清单拒绝',()=>{
+ const required=['rustc','cargo','rust-std-aarch64-apple-darwin','rustfmt-preview','clippy-preview'];
+ assert.deepEqual(rustHostComponentPlan([...required,'rust-docs','rust-analyzer-preview'].join('\n')+'\n'),required);
+ assert.equal(rustHostComponentPlan(required.join('\r\n')).includes('rust-src'),false);
+ for(const missing of required)assert.throws(()=>rustHostComponentPlan(required.filter(name=>name!==missing).join('\n')),/缺少必需组件/);
+ for(const text of ['',required.join('\n')+'\nrustc',required.join('\n')+'\n../outside','x'.repeat(65537)])assert.throws(()=>rustHostComponentPlan(text),/组件清单/);
+});
+test('Rust安装保留全部目标标准库和原参数，缺件、失败及取消不跳过',async t=>{
+ const root=await sandbox(t),source=join(root,'source');await mkdir(source);
+ const manifest=join(source,'components'),valid='rustc\ncargo\nrust-std-aarch64-apple-darwin\nrustfmt-preview\nclippy-preview\n';await writeFile(manifest,valid);
+ const tool=toolDefinitions.find(item=>item.id==='rust'),events=[],signal=new AbortController().signal;
+ const input={source,payload:join(root,'payload'),canonical:root,tool,library:{root:join(root,'library'),work:root},foundation:{tools:{bash:join(root,'bash')}},environment:{PATH:root},options:{offline:true,signal,fetcher:()=>assert.fail('夹具联网')}};
+ const simulation={
+  acquire:async(component,options)=>{assert.equal(options.offline,true);assert.equal(options.signal,signal);events.push(['acquire',component.target]);return join(root,component.target+'.tar.xz');},
+  extract:async(file,dir,options)=>{assert.equal(options.signal,signal);events.push(['extract',dir]);},
+  run:async(command,args,options)=>{assert.equal(command,input.foundation.tools.bash);assert.equal(options.maxBuffer,2*1024**2);assert.equal(options.timeout,300000);assert.equal(options.signal,signal);assert.equal(options.env,input.environment);events.push(['run',args]);}
+ };
+ await installRustTool(input,simulation);const runs=events.filter(event=>event[0]==='run');
+ assert.deepEqual(runs[0][1],[join(source,'install.sh'),'--prefix='+input.payload,'--disable-ldconfig','--components=rustc,cargo,rust-std-aarch64-apple-darwin,rustfmt-preview,clippy-preview']);
+ assert.deepEqual(events.filter(event=>event[0]==='acquire').map(event=>event[1]),tool.components.map(component=>component.target));
+ assert.equal(runs.length,1+tool.components.length);
+ for(const [index,component]of tool.components.entries())assert.deepEqual(runs[index+1][1],[join(root,component.target,component.root,'install.sh'),'--prefix='+input.payload,'--disable-ldconfig']);
+ events.length=0;await writeFile(manifest,'rustc\n');await assert.rejects(installRustTool(input,simulation),/缺少必需组件/);assert.equal(events.length,0);
+ await writeFile(manifest,valid);const failure=Error('synthetic target install failed');let calls=0;
+ await assert.rejects(installRustTool(input,{...simulation,run:async()=>{if(++calls===3)throw failure;}}),error=>error===failure);assert.equal(calls,3);
+ await assert.rejects(installRustTool({...input,options:{...input.options,signal:AbortSignal.abort()}},simulation),/abort/iu);
+});
 test('按声明取得原件，复用路径不重新校验字节',async t=>{
  const root=await sandbox(t),entry=archive(Buffer.from('declared'));let requests=0;
  const options={store:root,fetcher:async()=>{requests++;return new Response('supplied');}};
