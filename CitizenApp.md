@@ -3460,6 +3460,8 @@ CitizenApp本机测试的TataChatSDK宿主库从产品原始声明与锁定Git�
 
 钱包目录首卡在显示前恢复已有本地余额，缓存失败仍按原SDK目录展示；恢复后复核页面存活及加载代次并归还过期inspection。目录刷新等待本地待清理状态确认后返回，身份和联网余额独立推进。下拉刷新回归以既有有界等待确认实际请求次数，不以单帧替代刷新动画触发，原次数与快照断言保留。目录读取仍合并在途请求；对应两组测试按在途合并、完成/失败排空后再刷新验证，保留最终最新快照、过期内容不可见及失败恢复断言。
 
+iOS原生安全验真器按JSON键排序输出完整结果，避免独立Swift进程字典键序不同触发签名漂移误报；原安装前、安装期间和安装失败后完整字段比较、Apple签名、版本及设备身份校验均保留。既有真实宿主夹具重复16次跨进程验证输出一致，并确认重新签名的版本或build变化仍不相等。
+
 ### 独立测试源与链金标
 scripts/build.mjs 的 TEST_INPUTS_SOURCE声明链所有者crcfrcn/citizenchain的main和两个金标准确路径。build.mjs inputs只消费已明确传入、验真且干净的detached链快照，独立检出时先捕获远端main真实SHA再以`--depth=1 --filter=blob:none`取得该提交的Git快照，准确配置原HTTPS origin的promisor及blob:none；非cone稀疏检出仅物化合同的两个根锚定金标路径。真实Git回归夹具仅在测试现场的独立子目录初始化仓库，父现场所有权元数据不纳入合成提交或稀疏检出。上游不支持过滤即失败，不静默改为完整获取、不自动重试或替换来源；后续HEAD、detached、独立Git根、来源、干净状态、普通文件和非空校验全部保留。测试不复制Runtime金标、不读取已退役聚合仓父根；SCALE和岗位测试读取CITIZENCHAIN_ROOT下的原始所有者文件。公民CI原生SDK源从同轮dependencies结果的citizen_sdk.root取得。
 

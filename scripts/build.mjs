@@ -3579,7 +3579,8 @@ do {
         defer { if var bytes = stored { bytes.resetBytes(in: 0..<bytes.count) }; stored = nil }
         result = ["value": stored?.base64EncodedString() as Any? ?? NSNull()]
     } else { throw ProductFailure(message: "产品安全操作未声明") }
-    FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: result))
+    // 多次独立验真固定键序，避免同一签名事实因字典枚举顺序被误报为漂移。
+    FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]))
 } catch {
     FileHandle.standardError.write(Data("产品安全验真失败\\n".utf8)); exit(1)
 }`;
@@ -6350,12 +6351,19 @@ test('本产品iOS签名检查由Apple API执行并拒绝身份漂移',async()=>
   const app=join(work,'Product.app');mkdirSync(app,{recursive:true});
   const executable=join(app,'Product');copyFileSync('/bin/ls',executable);chmodSync(executable,0o700);
   const bundle=IOS_VERIFIER_SOURCE.match(/static let bundleIdentifier = "([^"]+)"/u)?.[1];assert.ok(bundle);
-  const writeInfo=value=>writeFixture(join(app,'Info.plist'),`<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleExecutable</key><string>Product</string><key>CFBundleIdentifier</key><string>${value}</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>1.2</string><key>CFBundleVersion</key><string>7</string></dict></plist>`);
+  const writeInfo=(value,version='1.2',build='7')=>writeFixture(join(app,'Info.plist'),`<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleExecutable</key><string>Product</string><key>CFBundleIdentifier</key><string>${value}</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>${version}</string><key>CFBundleVersion</key><string>${build}</string></dict></plist>`);
   const sign=value=>spawnSync('/usr/bin/codesign',['--force','--sign','-','--identifier',value,app],{encoding:'utf8',env:testEnvironment});
   const inspect=()=>spawnSync(binary,[],{encoding:'utf8',input:JSON.stringify({operation:'ios.verify',app}),env:testEnvironment});
   writeInfo(bundle);assert.equal(sign(bundle).status,0);
   const accepted=inspect();assert.equal(accepted.status,0,accepted.stderr);const result=JSON.parse(accepted.stdout);
   assert.deepEqual({version:result.version,build:result.build,bundle_id:result.bundle_id},{version:'1.2',build:'7',bundle_id:bundle});
+  assert.deepEqual(Object.keys(result),['build','bundle_id','team','version']);
+  // 独立进程重复验真必须逐字一致；真实版本变化仍须被原完整比较识别。
+  for(let i=0;i<16;i++){const repeated=inspect();assert.equal(repeated.status,0,repeated.stderr);assert.equal(repeated.stdout,accepted.stdout);assert.equal(JSON.stringify(JSON.parse(repeated.stdout)),JSON.stringify(result));}
+  for(const [version,build]of [['1.3','7'],['1.2','8']]){
+   writeInfo(bundle,version,build);assert.equal(sign(bundle).status,0);const changed=inspect();assert.equal(changed.status,0,changed.stderr);
+   const value=JSON.parse(changed.stdout);assert.equal(value.version,version);assert.equal(value.build,build);assert.equal(value.bundle_id,result.bundle_id);assert.equal(value.team,result.team);assert.notEqual(JSON.stringify(value),JSON.stringify(result));
+  }
   writeInfo('invalid.other.product');assert.equal(sign('invalid.other.product').status,0);assert.notEqual(inspect().status,0);
   writeInfo(bundle);assert.equal(sign(bundle).status,0);writeFileSync(executable,Buffer.concat([readFileSync(executable),Buffer.from('drift')]));assert.notEqual(inspect().status,0);
   assert.match(IOS_VERIFIER_SOURCE,/SecStaticCodeCheckValidity/u);assert.match(IOS_VERIFIER_SOURCE,/bundleIdentifier/u);
