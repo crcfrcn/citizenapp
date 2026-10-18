@@ -188,6 +188,161 @@ export const contract=Object.freeze({"schema": 1,"product_id": "citizenapp","ent
     }
   }});
 const product=contract.product_id, prefix=product.toUpperCase();
+// 产品版本规则、显示名和平台隔离只归本编译文件；YAML及控制台消费公开结果。
+const buildPlatforms=Object.freeze({ios:Object.freeze({title:'iOS',initialVersion:'1.0.0'}),android:Object.freeze({title:'Android',initialVersion:'1.0.0'})});
+export function checkedBuildVersion(version){
+ if(typeof version!=='string'||!/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(version)||version.length>48)throw Error('公民App版本无效');return version;
+}
+export function nextBuildVersion(version){const parts=checkedBuildVersion(version).split('.');parts[2]=String(BigInt(parts[2])+1n);return checkedBuildVersion(parts.join('.'));}
+export function buildDisplayName(platform,version){const item=buildPlatforms[platform];if(!item)throw Error('公民App平台无效');return '公民·'+item.title+'·v'+checkedBuildVersion(version);}
+export function buildTaskName(platform,flow='编译'){const item=buildPlatforms[platform];if(!item||!['编译','塔塔自动化','发布'].includes(flow))throw Error('公民App任务名称无效');return '公民·'+flow+'·'+item.title;}
+const incrementalPaths=Object.freeze(['source-view','work/cargo-target','work/gradle-project','work/flutter','work/flutter-gradle-plugin','work/citizensdk-work/cargo-target','work/citizensdk-work/gradle-project-cache','work/citizensdk-work/gradle-project/.gradle','work/citizensdk-work/gradle-native','dependencies/gradle/caches']);
+function runtimeDocument(path){
+ const info=lstatSync(path);if(!info.isFile()||info.isSymbolicLink()||info.nlink!==1||info.size>65536||realpathSync(path)!==path)throw Error('公民App运行记录身份无效');
+ return JSON.parse(readFileSync(path,'utf8'));
+}
+export function incrementalIdentity(platform){
+ const item=buildPlatforms[platform];if(!item)throw Error('公民App增量平台无效');
+ // 此值只作编译缓存兼容坐标，不用于资源字节或源码全树复验。
+ const locks=['pubspec.lock',...(platform==='ios'?['ios/Podfile.lock']:[])].map(name=>[name,readFileSync(join(root,name),'utf8')]);
+ return createHash('sha256').update(JSON.stringify({product,platform,host:process.platform,arch:process.arch,source:root,tools:contract.platforms[platform].tools,locks,mode:'release',recipe:1})).digest('hex');
+}
+function checkedRetainedEntry(work,name){
+ const kind=name.replace(/\.(?:previous|pending)$/u,'');if(!['incremental','artifact'].includes(kind))throw Error('公民App保留目录类型无效');
+ const directory=join(work,name),info=lstatSync(directory,{throwIfNoEntry:false});if(!info)return null;
+ if(!info.isDirectory()||info.isSymbolicLink()||realpathSync(directory)!==directory)throw Error('公民App保留目录身份漂移');
+ const record=runtimeDocument(join(directory,'receipt.json')),platform=Object.keys(buildPlatforms).find(value=>work===fixedWork('build/'+value));
+ if(record.schema!==1||record.product_id!==product||record.platform!==platform)throw Error('公民App保留记录归属不符');
+ if(kind==='incremental'&&(!/^[a-f0-9]{64}$/u.test(record.identity||'')||!Array.isArray(record.paths)||new Set(record.paths).size!==record.paths.length||record.paths.some(value=>!incrementalPaths.includes(value))))throw Error('公民App增量记录无效');
+ if(kind==='artifact'&&(!Array.isArray(record.files)||!record.files.length||new Set(record.files.map(file=>file.name)).size!==record.files.length||record.files.some(file=>!Number.isSafeInteger(file.size)||file.size<1||typeof file.name!=='string'||file.name.includes('/')||file.name.includes('\\')||!file.name.startsWith(buildDisplayName(platform,record.version)+'.')||!/^[a-f0-9]{64}$/u.test(file.sha256||''))))throw Error('公民App产物记录无效');
+ return record;
+}
+function rememberedAutomation(work){
+ const file=join(work,'automation.json');if(!existsSync(file))return null;const record=runtimeDocument(file),platform=Object.keys(buildPlatforms).find(value=>work===fixedWork('build/'+value));
+ if(record.schema!==1||record.product_id!==product||record.platform!==platform||record.repository!=='crcfrcn/citizenapp'||!Number.isSafeInteger(record.run_id)||record.run_id<1||!Number.isSafeInteger(record.run_attempt)||record.run_attempt<1||!/^[a-f0-9]{40}$/u.test(record.source_sha||''))throw Error('公民App成功自动化快照无效');
+ checkedBuildVersion(record.version);return record;
+}
+function retainedBuildEntries(work){
+ if(!Object.keys(buildPlatforms).some(platform=>work===fixedWork('build/'+platform)))return [];
+ const names=['incremental','artifact'].filter(name=>checkedRetainedEntry(work,name));if(rememberedAutomation(work))names.push('automation.json');return names;
+}
+function localBuildVersion(platform,work){return rememberedAutomation(work)?.version||buildPlatforms[platform].initialVersion;}
+function cacheExcluded(name){
+ return ['.git','.active.json','.resource-active.json','.product-build.lock','.claim.lock','owner.json','_CodeSignature','embedded.mobileprovision','.npmrc','.netrc','.pypirc','.gitconfig','auth.json','credentials.json'].includes(name)||/^\.env(?:\.|$)/u.test(name)
+  ||/\.(?:app|ipa|apk|aab|p12|pfx|mobileprovision|keychain(?:-db)?|jks|keystore|pem|key)$/iu.test(name)||/^(?:sign-stage|.*-signing)$/u.test(name);
+}
+function copyIncrementalTree(source,target){
+ const info=lstatSync(source);if(info.isSymbolicLink())return;
+ if(info.isDirectory()){
+  mkdirSync(target,{recursive:true,mode:0o700});for(const name of readdirSync(source)){if(!cacheExcluded(name))copyIncrementalTree(join(source,name),join(target,name));}
+ }else if(info.isFile()&&info.nlink===1){
+  mkdirSync(dirname(target),{recursive:true,mode:0o700});copyFileSync(source,target,constants.COPYFILE_EXCL);chmodSync(target,info.mode&0o777);targetFs.utimesSync(target,info.atime,info.mtime);
+ }else throw Error('公民App增量包含特殊文件');
+}
+function restoreIncremental(platform,work){
+ const record=checkedRetainedEntry(work,'incremental');if(!record)return false;
+ if(record.identity!==incrementalIdentity(platform)||record.source!==root||record.work!==work){process.stderr.write('本平台增量与当前工具链、锁或路径不兼容，由同一编译器重建\n');return false;}
+ const data=join(work,'incremental/data');
+ for(const name of record.paths){const target=join(work,name);if(existsSync(target))throw Error('公民App增量恢复目标已存在');copyIncrementalTree(join(data,...name.split('/')),target);}
+ return true;
+}
+function replaceRetainedDirectory(work,name,pending,{retainPrevious=false}={}){
+ const target=join(work,name),previous=join(work,name+'.previous');if(existsSync(previous))throw Error('公民App保留事务尚未收尾');
+ const existing=checkedRetainedEntry(work,name);if(existing)renameSync(target,previous);
+ try{renameSync(pending,target);}catch(error){if(existing)renameSync(previous,target);throw error;}
+ if(existing&&!retainPrevious)rmSync(previous,{recursive:true});
+}
+function finishArtifactRetention(work,commit){
+ const record=checkedRetainedEntry(work,'artifact');
+ const current=join(work,'artifact'),previous=join(work,'artifact.previous');
+ if(!record){
+  const staged=checkedRetainedEntry(work,'artifact.pending');
+  if(existsSync(previous)){const old=checkedRetainedEntry(work,'artifact.previous');if(commit||!staged?.pending||!staged.previous||old.pending)throw Error('公民App产物换位尚未验真');renameSync(previous,current);}
+  if(staged){if(commit||!staged.pending)throw Error('公民App产物候选未完成');rmSync(join(work,'artifact.pending'),{recursive:true});}
+  return;
+ }
+ if(commit)for(const item of record.files){const file=join(current,item.name),info=lstatSync(file);if(!info.isFile()||info.isSymbolicLink()||info.nlink!==1||realpathSync(file)!==file||info.size!==item.size||outputDigest(file)!==item.sha256)throw Error('公民App产物提交前变化');}
+ if(!record.pending)return;
+ if(typeof record.previous!=='boolean'||record.previous!==existsSync(previous))throw Error('公民App产物事务归属不符');
+ if(record.previous){const old=checkedRetainedEntry(work,'artifact.previous');if(old.pending)throw Error('公民App上一产物归属不符');}
+ if(!commit){rmSync(current,{recursive:true});if(record.previous)renameSync(previous,current);return;}
+ const finalized={...record};delete finalized.pending;delete finalized.previous;
+ const candidate=join(current,'receipt.json.pending');if(existsSync(candidate)){if(JSON.stringify(runtimeDocument(candidate))!==JSON.stringify(finalized))throw Error('公民App产物提交候选漂移');}else writeFileSync(candidate,JSON.stringify(finalized)+'\n',{flag:'wx',mode:0o600});renameSync(candidate,join(current,'receipt.json'));
+ return record.previous;
+}
+// 事务标记只属于当前平台现场；阶段换位失败或崩溃都不能靠猜测删除另一集合。
+function writeRetentionIntent(work,value){
+ const file=join(work,'.build-retain.json'),candidate=file+'.pending';if(existsSync(candidate)){if(JSON.stringify(runtimeDocument(candidate))!==JSON.stringify(value))throw Error('公民App事务候选归属漂移');}else writeFileSync(candidate,JSON.stringify(value)+'\n',{flag:'wx',mode:0o600});
+ try{renameSync(candidate,file);}finally{if(existsSync(candidate))unlinkSync(candidate);}
+}
+function clearRetentionPrevious(work){
+ for(const name of ['artifact','incremental'])if(existsSync(join(work,name+'.previous'))){checkedRetainedEntry(work,name+'.previous');rmSync(join(work,name+'.previous'),{recursive:true});}
+}
+// 只由真实领取者在执行器及工具组退出后提交快照；嵌套执行器不清理或发布自己的现场。
+function commitProductRetention(work){
+ const marker=join(work,'.build-retain.json');if(!existsSync(marker)){finishArtifactRetention(work,false);return;}
+ const intent=runtimeDocument(marker),platform=Object.keys(buildPlatforms).find(value=>work===fixedWork('build/'+value));
+ if(intent.schema!==1||intent.product_id!==product||intent.platform!==platform||intent.work!==work)throw Error('公民App保留提交身份不符');checkedBuildVersion(intent.version);
+ if(intent.phase!==undefined){
+  if(!['prepared','committing'].includes(intent.phase)||typeof intent.cache_previous!=='boolean'||!/^[a-f0-9-]{36}$/u.test(intent.generation||''))throw Error('公民App保留事务阶段无效');
+  const intentCandidate=marker+'.pending';if(existsSync(intentCandidate)){const value=runtimeDocument(intentCandidate);if(value.product_id!==product||value.platform!==platform||value.work!==work||value.generation!==intent.generation||!['prepared','committing'].includes(value.phase))throw Error('公民App事务候选归属漂移');unlinkSync(intentCandidate);}
+  const cache=checkedRetainedEntry(work,'incremental'),swapped=cache?.generation===intent.generation;
+  if(intent.phase==='committing'){
+   if(!swapped||cache.source!==root||cache.work!==work||cache.identity!==incrementalIdentity(platform))throw Error('公民App提交缓存归属变化');finishArtifactRetention(work,true);clearRetentionPrevious(work);unlinkSync(marker);return;
+  }
+  // prepared尚未形成提交点；只回滚这个generation的候选。
+  const previous=join(work,'incremental.previous');
+  if(existsSync(previous)&&(!intent.cache_previous||cache&&!swapped))throw Error('公民App上一增量归属变化');
+  if(intent.cache_previous&&!cache&&!existsSync(previous))throw Error('公民App上一增量缺失');
+  if(swapped)rmSync(join(work,'incremental'),{recursive:true});
+  if(intent.cache_previous&&existsSync(previous)){checkedRetainedEntry(work,'incremental.previous');renameSync(previous,join(work,'incremental'));}
+  finishArtifactRetention(work,false);
+  const candidate=join(work,'incremental.pending');if(existsSync(candidate)){const record=runtimeDocument(join(candidate,'receipt.json'));if(record.generation!==intent.generation)throw Error('公民App增量候选归属变化');rmSync(candidate,{recursive:true});}
+  unlinkSync(marker);return;
+ }
+ const pending=join(work,'incremental.pending');if(existsSync(pending))throw Error('公民App增量候选未清理');
+ mkdirSync(pending,{mode:0o700});let replaced=false,committed=false,hadPrevious=false;
+ try{
+  const paths=incrementalPaths.filter(name=>existsSync(join(work,name)));
+  for(const name of paths)copyIncrementalTree(join(work,name),join(pending,'data',...name.split('/')));
+  const generation=randomUUID(),record={schema:1,product_id:product,platform,identity:incrementalIdentity(platform),source:root,work,paths,generation};
+  writeFileSync(join(pending,'receipt.json'),JSON.stringify(record)+'\n',{flag:'wx',mode:0o600});
+  hadPrevious=Boolean(checkedRetainedEntry(work,'incremental'));const transaction={...intent,phase:'prepared',generation,cache_previous:hadPrevious};writeRetentionIntent(work,transaction);
+  replaceRetainedDirectory(work,'incremental',pending,{retainPrevious:true});replaced=true;writeRetentionIntent(work,{...transaction,phase:'committing'});
+  finishArtifactRetention(work,true);committed=true;clearRetentionPrevious(work);unlinkSync(marker);
+ }catch(error){
+  if(!committed){if(replaced){rmSync(join(work,'incremental'),{recursive:true});if(hadPrevious)renameSync(join(work,'incremental.previous'),join(work,'incremental'));}finishArtifactRetention(work,false);}
+  if(existsSync(pending))rmSync(pending,{recursive:true});if(!committed)error.retentionRolledBack=true;throw error;
+ }
+}
+function retainCompiledArtifacts(platform,work,version,files){
+ const pending=join(work,'artifact.pending');if(existsSync(pending))throw Error('公民App产物候选未清理');mkdirSync(pending,{mode:0o700});
+ try{
+  const assets=files.map(({path,extension})=>{
+   const info=lstatSync(path);if(!info.isFile()||info.isSymbolicLink()||info.nlink!==1||realpathSync(path)!==path||!info.size)throw Error('公民App产物不是独占普通文件');
+   const name=buildDisplayName(platform,version)+extension,target=join(pending,name);if(existsSync(target))throw Error('公民App产物名称重复');copyFileSync(path,target);
+   return {name,size:info.size,sha256:outputDigest(target)};
+  });
+  const record={schema:1,product_id:product,platform,version,files:assets,pending:true,previous:Boolean(checkedRetainedEntry(work,'artifact'))};writeFileSync(join(pending,'receipt.json'),JSON.stringify(record)+'\n',{flag:'wx',mode:0o600});replaceRetainedDirectory(work,'artifact',pending,{retainPrevious:true});
+  return assets.map(item=>({...item,path:join(work,'artifact',item.name)}));
+ }catch(error){if(existsSync(pending))rmSync(pending,{recursive:true});throw error;}
+}
+// 新工程视图仍完整重建来源；仅对未变更输入恢复mtime，并迁回明确的编译器状态。
+function mergeCompilerState(source,target){
+ const before=lstatSync(source),after=lstatSync(target,{throwIfNoEntry:false});if(before.isSymbolicLink()||cacheExcluded(source.slice(source.lastIndexOf(sep)+1)))return;
+ if(!after){copyIncrementalTree(source,target);return;}
+ if(before.isDirectory()&&after.isDirectory()&&!after.isSymbolicLink())for(const name of readdirSync(source))mergeCompilerState(join(source,name),join(target,name));
+}
+function restoreViewIncremental(previous,current){
+ const generated=new Set(['.dart_tool','.gradle','.kotlin']);
+ for(const name of readdirSync(previous)){
+  if(cacheExcluded(name))continue;const old=join(previous,name),next=join(current,name),before=lstatSync(old),after=lstatSync(next,{throwIfNoEntry:false});
+  if(before.isDirectory()&&!before.isSymbolicLink()){
+   if(!after&&generated.has(name))copyIncrementalTree(old,next);
+   else if(after?.isDirectory()&&!after.isSymbolicLink()){if(generated.has(name))mergeCompilerState(old,next);restoreViewIncremental(old,next);}
+  }else if(before.isFile()&&after?.isFile()&&!after.isSymbolicLink()&&before.size===after.size&&(before.mode&0o111)===(after.mode&0o111)&&readFileSync(old).equals(readFileSync(next)))targetFs.utimesSync(next,before.atime,before.mtime);
+ }
+}
 // 编译流程自身拥有固定工作根；这里是原工作根实现正文。
 const targetRuntime = await (async buildContract => {
 const fs=targetFs;
@@ -311,6 +466,7 @@ function detachVendorVolume(work){
 }
 function empty(work,keep=[]){
  assertSupplyExited(work);detachVendorVolume(work);
+ keep=[...new Set([...keep,...retainedBuildEntries(work)])];
  const before=directory(work);
  for(const name of fs.readdirSync(work)){if(keep.includes(name))continue;const path=join(work,name);removeTree(path);}
  const after=directory(work);if(before.dev!==after.dev||before.ino!==after.ino||fs.readdirSync(work).some(name=>!keep.includes(name)))fail('固定工作目录未完全清空或被替换');
@@ -329,7 +485,7 @@ function clearFixedWork(work){
  if(owner&&!(owner.state==='retained'&&owner.pid===process.pid)&&(!session||session.owner.work!==work||session.owner.nonce!==owner.nonce))fail('固定工作目录属于其他活跃任务');
  if(owner&&owner.groups.some(pid=>alive(pid,true)))fail('工具后代退出未确认，禁止清场');
  if(fs.existsSync(join(work,'.product-build.lock')))fail('产品编译进程仍持有守卫，禁止清场');
- const value=short(work,()=>{empty(work,owner&&!(owner.state==='retained'&&owner.pid===process.pid)?['.active.json','.claim.lock']:['.claim.lock']);if(isBuildWork(work)&&fs.readdirSync(work).length===0)fs.rmdirSync(work);});return value;
+ const value=short(work,()=>{assertSupplyExited(work);commitProductRetention(work);empty(work,owner&&!(owner.state==='retained'&&owner.pid===process.pid)?['.active.json','.claim.lock']:['.claim.lock']);if(isBuildWork(work)&&fs.readdirSync(work).length===0)fs.rmdirSync(work);});return value;
 }
 function claimFixedWork(scope,{environment=process.env,retain=false,run_id}={}){
  const work=checkFixedWork(fixedWork(scope),{create:true}),current=sessions.getStore();
@@ -344,6 +500,7 @@ function claimFixedWork(scope,{environment=process.env,retain=false,run_id}={}){
    if(alive(previous.pid))fail('固定工作目录已有活跃任务');
   }
   if(fs.existsSync(join(work,'.product-build.lock')))fail('产品守卫尚未释放，禁止覆盖');
+  assertSupplyExited(work);commitProductRetention(work);
   empty(work,['.claim.lock']);
   const github=environment.GITHUB_ACTIONS==='true'&&environment.GITHUB_REPOSITORY==='crcfrcn/citizenapp'
     &&environment.GITHUB_REF==='refs/heads/main'&&environment.GITHUB_EVENT_NAME==='workflow_dispatch'
@@ -396,9 +553,16 @@ function releaseFixedWork(session,{unsafe=false}={}){
   const owner=readOwner(work);if(owner?.nonce!==session.owner.nonce)fail('任务所有权漂移');
   const groups=owner.groups.filter(pid=>alive(pid,true));
   if(unsafe||groups.length){writeOwner({...owner,groups,state:'unsafe'});fail('工具后代退出未确认，保留守卫并禁止任务完成');}
+  if(fs.existsSync(join(work,'.product-build.lock')))fail('产品编译守卫未释放，禁止完成');
+  assertSupplyExited(work);
+  try{commitProductRetention(work);}catch(error){
+   // 仅在两份旧集合均已恢复后清本轮现场；未知事务或提交后的清理失败保留守卫。
+   if(error.retentionRolledBack){empty(work,['.claim.lock']);if(isBuildWork(work)&&fs.readdirSync(work).length===0)fs.rmdirSync(work);}
+   throw error;
+  }
   if(session.retain){writeOwner({...owner,groups:[],state:'retained'});return;}
   if(fs.existsSync(join(work,'.product-build.lock')))fail('产品编译守卫未释放，禁止完成');
-  empty(work,['.claim.lock']);if(isBuildWork(work))fs.rmdirSync(work);
+  empty(work,['.claim.lock']);if(isBuildWork(work)&&fs.readdirSync(work).length===0)fs.rmdirSync(work);
  });return value;
 }
 function withFixedWorkSync(scope,action,options={}){
@@ -423,7 +587,8 @@ function finishFixedWork(work,{run_id}={}){
   }
   if(fs.existsSync(join(work,'.product-build.lock')))fail('产品守卫尚未释放');
   if(run_id&&fs.existsSync(join(work,'build-result.json'))){regular(join(work,'build-result.json'));if(JSON.parse(fs.readFileSync(join(work,'build-result.json'),'utf8')).run_id!==run_id)fail('结果任务编号不符');}
-  empty(work,['.claim.lock']);if(isBuildWork(work))fs.rmdirSync(work);
+  commitProductRetention(work);
+  empty(work,['.claim.lock']);if(isBuildWork(work)&&fs.readdirSync(work).length===0)fs.rmdirSync(work);
  });return value;
 }
 function taskScope(work){checkFixedWork(work);if(work===fixedWork('test'))return 'test';const platform=Object.keys(contract.platforms).find(name=>work===fixedWork('build/'+name));if(!platform)fail('编译平台现场无效');return 'build/'+platform;}
@@ -560,7 +725,7 @@ const {lstat,realpath,readdir,readlink,symlink,copyFile,cp,readFile,writeFile,mk
 const {dirname,join,resolve,relative,isAbsolute,sep,parse,win32,posix}=resourcePath;
 const {fileURLToPath,pathToFileURL}=resourceUrl;
 const {homedir}=resourceOs;
-const {gunzipSync,inflateRawSync}=resourceZlib;
+const {gunzipSync,createInflateRaw}=resourceZlib;
 const {spawn}=resourceChild;
 const {createRequire}=resourceModuleBuiltin;
 // 产品资源阶段按本仓原始锁取得并物化输入。
@@ -675,15 +840,18 @@ async function resourceWork(work){
 async function acquireArchive(entry,{store,work,offline=false,fetcher=fetch,signal,maxBytes=4*1024**3}={}){
 
  const url=checkedURL(entry.url);await directory(store,true);const coordinate=hash(JSON.stringify([url,entry.sha256||entry.integrity]));const target=join(store,coordinate+'.blob');
- const check=async path=>{await regular(path);const b=await readFile(path);if(!b.length||b.length>maxBytes)fail('原件大小超限');return path;};
+ const check=async path=>{const info=await regular(path);if(!info.size||info.size>maxBytes)fail('原件大小超限');return path;};
  if(await stat(target))return check(target);
 
 
  if(offline)fail('离线缺少锁定资源：'+url);signal?.throwIfAborted();let response,current=url;
- for(let i=0;i<=5;i++){response=await fetcher(current,{redirect:'manual',signal});if([301,302,303,307,308].includes(response.status)){await response.body?.cancel();if(i===5)fail('来源重定向超限');current=checkedURL(new URL(response.headers.get('location'),current).href);continue;}break;}
+ for(let i=0;i<=5;i++){response=await fetcher(current,{redirect:'manual',headers:{'accept-encoding':'identity'},signal});if([301,302,303,307,308].includes(response.status)){await response.body?.cancel();if(i===5)fail('来源重定向超限');current=checkedURL(new URL(response.headers.get('location'),current).href);continue;}break;}
  if(!response?.ok||!response.body)fail('来源获取失败：'+url);const length=Number(response.headers.get('content-length'));if(length>maxBytes)fail('来源声明超限');
+ // Fetch会解码压缩正文，Content-Length仍是传输长度；仅无编码或identity时与正文严格等长。
+ // 每跳请求identity；来源仍返回压缩内容时，声明上限和解码后实际字节上限继续分别约束。
+ const encoding=(response.headers.get('content-encoding')||'').trim().toLowerCase(),identity=!encoding||encoding==='identity';
  const temporary=join(await resourceWork(work),'.'+coordinate+'.'+randomUUID()+'.pending'),h=await open(temporary,'wx',0o600);let bytes=0;
- try{for await(const chunk of response.body){signal?.throwIfAborted();bytes+=chunk.length;if(bytes>maxBytes)fail('来源数据超限');let offset=0;while(offset<chunk.length){const n=await h.write(chunk,offset,chunk.length-offset);if(!n.bytesWritten)fail('原件写入中断');offset+=n.bytesWritten;}}if(!bytes)fail('来源数据为空');if(length&&length!==bytes)fail('来源数据不完整');await h.sync();await h.close();signal?.throwIfAborted();await chmod(temporary,0o444);await commitCandidate(temporary,target,{signal,});return await check(target);}finally{await h.close().catch(()=>{});await rm(temporary,{force:true});await response.body?.cancel().catch(()=>{});}
+ try{for await(const chunk of response.body){signal?.throwIfAborted();bytes+=chunk.length;if(bytes>maxBytes)fail('来源数据超限');let offset=0;while(offset<chunk.length){const n=await h.write(chunk,offset,chunk.length-offset);if(!n.bytesWritten)fail('原件写入中断');offset+=n.bytesWritten;}}if(!bytes)fail('来源数据为空');if(identity&&length&&length!==bytes)fail('来源数据不完整');await h.sync();await h.close();signal?.throwIfAborted();await chmod(temporary,0o444);await commitCandidate(temporary,target,{signal,});return await check(target);}finally{await h.close().catch(()=>{});await rm(temporary,{force:true});await response.body?.cancel().catch(()=>{});}
 }
 async function downloadTool(entry,target,options){const archive=await acquireArchive(entry,{...options,store:options.store||dirname(target)});await copyFile(archive,target,constants.COPYFILE_EXCL);}
 // 解包先解析全部成员并验证闭包，之后才写入；链接不得指向归档外部或成为文件父目录。
@@ -714,25 +882,152 @@ async function verifyArchiveNames(destination,paths,signal){
   await rm(probe,{recursive:true});
  }
 }
+// 只按已确认文件句柄的位置读取有界片段；偏移使用安全整数，不把大归档整包装入内存。
+async function archiveRange(handle,fileSize,offset,length,signal){
+ signal?.throwIfAborted();
+ if(![fileSize,offset,length].every(Number.isSafeInteger)||offset<0||length<0||length>256*1024||offset+length>fileSize)fail('归档读取越界');
+ const bytes=Buffer.alloc(length);let read=0;
+ while(read<length){signal?.throwIfAborted();const value=await handle.read(bytes,read,length-read,offset+read);if(!value.bytesRead)fail('归档内容截断');read+=value.bytesRead;}
+ return bytes;
+}
+async function archiveHead(input,signal){
+ const info=await regular(input),handle=await open(input,constants.O_RDONLY|constants.O_NOFOLLOW);
+ try{const actual=await handle.stat();if(actual.dev!==info.dev||actual.ino!==info.ino||actual.size!==info.size)fail('归档读取身份漂移');return await archiveRange(handle,info.size,0,Math.min(2,info.size),signal);}
+ finally{await handle.close();}
+}
+function selectedArchiveEntries(entries,prefix){
+ const selected=entries.filter(e=>!prefix||e.path===prefix||e.path.startsWith(prefix+'/')).map(e=>({...e,path:prefix?e.path.slice(prefix.length).replace(/^\//u,''):e.path})).filter(e=>e.path);
+ if(!selected.length)fail('归档根缺失');const table=new Map(selected.map(e=>[e.path,e])),directories=new Set();
+ for(const entry of selected){
+  let parent=dirname(entry.path);while(parent!=='.'){if(table.has(parent)&&table.get(parent).type!=='directory')fail('归档父目录不是目录');directories.add(parent);parent=dirname(parent);}
+ }
+ // 只在归档成员图内逐组件解析：Current等目录链接可前向引用，不能借链逃出根。
+ // 每条目标最多展开40次，活动链检测循环；所有检查完成前不创建任何成员。
+ function resolveTarget(base,target,active,budget){
+  if(typeof target!=='string'||!target||isAbsolute(target)||/[\\\x00-\x1f]/u.test(target))fail('归档链接越界或缺失');
+  let parts=base.slice();
+  for(const component of target.split('/')){
+   if(!component||component==='.')continue;
+   const parent=parts.join('/'),parentEntry=table.get(parent);
+   if(parent&&parentEntry?.type!=='directory'&&!directories.has(parent))fail('归档链接父目录不是目录');
+   if(component==='..'){if(!parts.length)fail('归档链接越界或缺失');parts.pop();continue;}
+   const path=[...parts,component].join('/'),entry=table.get(path);
+   if(entry?.type==='symlink'){
+    if(active.has(path)||++budget.hops>40)fail('归档链接循环或跳转超限');
+    active.add(path);parts=resolveTarget(parts,entry.target,active,budget);active.delete(path);
+   }else{
+    if(!entry&&!directories.has(path))fail('归档链接越界或缺失');parts.push(component);
+   }
+  }
+  const path=parts.join('/');if(!safePath(path)||!table.has(path))fail('归档链接越界或缺失');return parts;
+ }
+ for(const entry of selected){
+  if(entry.type==='symlink')entry.resolved=resolveTarget(posix.dirname(entry.path)==='.'?[]:posix.dirname(entry.path).split('/'),entry.target,new Set([entry.path]),{hops:0}).join('/');
+  else if(entry.type==='hardlink'){
+   const target=prefix?entry.target.replace(new RegExp('^'+prefix+'/'),''):entry.target;
+   if(!safePath(target)||!table.has(target))fail('归档链接越界或缺失');entry.resolved=target;
+   if(table.get(target).type!=='file')fail('硬链接目标不是普通文件');
+  }
+ }
+ return selected;
+}
+async function materializeArchiveEntries(destination,selected,{signal,write}){
+ const table=new Map(selected.map(entry=>[entry.path,entry]));
+ await mkdir(destination,{mode:0o700});
+ try{
+  await verifyArchiveNames(destination,selected.map(entry=>entry.path),signal);
+  for(const entry of selected.filter(x=>['file','directory'].includes(x.type))){
+   signal?.throwIfAborted();const file=join(destination,entry.path);await mkdir(dirname(file),{recursive:true,mode:0o700});
+   if(entry.type==='directory')await mkdir(file,{recursive:true,mode:0o700});else await write(file,entry);
+  }
+  for(const entry of selected.filter(x=>['symlink','hardlink'].includes(x.type))){
+   signal?.throwIfAborted();const file=join(destination,entry.path);await mkdir(dirname(file),{recursive:true});
+   if(entry.type==='hardlink'){if(table.get(entry.resolved).type!=='file')fail('硬链接目标不是普通文件');await copyFile(join(destination,entry.resolved),file,constants.COPYFILE_EXCL);}
+   else await symlink(entry.target,file);
+  }
+  return destination;
+ }catch(error){await permissions(destination,true);await rm(destination,{recursive:true});throw error;}
+}
+async function zipEntryBytes(handle,fileSize,entry,signal,consume){
+ const {Readable}=await import('node:stream'),{pipeline}=await import('node:stream/promises');let length=0;
+ async function* chunks(){for(let position=0;position<entry.compressed;){const count=Math.min(64*1024,entry.compressed-position);yield await archiveRange(handle,fileSize,entry.start+position,count,signal);position+=count;}}
+ const sink=async source=>{for await(const chunk of source){signal?.throwIfAborted();length+=chunk.length;if(length>entry.size)fail('ZIP长度不符');if(consume)await consume(chunk);}if(length!==entry.size)fail('ZIP长度不符');};
+ const stages=[Readable.from(chunks())];if(entry.method===8)stages.push(createInflateRaw());stages.push(sink);
+ await pipeline(...stages,...(signal?[{signal}]:[]));
+}
+// ZIP先读取中央目录、校验全部路径与链接闭包；正文逐成员解码，不累计全部展开内容。
+async function extractZipArchive(input,destination,{prefix,signal,maxBytes}){
+ const identity=await regular(input),handle=await open(input,constants.O_RDONLY|constants.O_NOFOLLOW);
+ try{
+  const actual=await handle.stat();if(actual.dev!==identity.dev||actual.ino!==identity.ino||actual.size!==identity.size)fail('归档读取身份漂移');
+  const fileSize=identity.size,tailLength=Math.min(fileSize,65557),tail=await archiveRange(handle,fileSize,fileSize-tailLength,tailLength,signal);
+  let end=-1;for(let at=tail.length-22;at>=0;at--)if(tail.readUInt32LE(at)===0x06054b50&&at+22+tail.readUInt16LE(at+20)===tail.length){end=at;break;}
+  if(end<0)fail('ZIP目录缺失');
+  const count=tail.readUInt16LE(end+10),directorySize=tail.readUInt32LE(end+12),directoryOffset=tail.readUInt32LE(end+16),directoryEnd=directoryOffset+directorySize;
+  if(count===0xffff||directorySize===0xffffffff||directoryOffset===0xffffffff)fail('ZIP加密或Zip64未声明');
+  if(tail.readUInt16LE(end+4)||tail.readUInt16LE(end+6)||tail.readUInt16LE(end+8)!==count||directoryEnd>fileSize-tailLength+end)fail('ZIP目录越界或分卷未声明');
+  const entries=[],names=new Set();let cursor=directoryOffset,total=0;
+  for(let index=0;index<count;index++){
+   signal?.throwIfAborted();if(cursor+46>directoryEnd)fail('ZIP成员无效');
+   const header=await archiveRange(handle,fileSize,cursor,46,signal);if(header.readUInt32LE(0)!==0x02014b50)fail('ZIP成员无效');
+   const flags=header.readUInt16LE(8),method=header.readUInt16LE(10),compressed=header.readUInt32LE(20),size=header.readUInt32LE(24),nameLength=header.readUInt16LE(28),extra=header.readUInt16LE(30),comment=header.readUInt16LE(32),mode=header.readUInt32LE(38)>>>16,offset=header.readUInt32LE(42);
+   if(flags&1||size===0xffffffff||compressed===0xffffffff||offset===0xffffffff)fail('ZIP加密或Zip64未声明');
+   if(![0,8].includes(method))fail('ZIP压缩方式未声明');total+=size;if(total>maxBytes)fail('ZIP解压超限');
+   if(cursor+46+nameLength+extra+comment>directoryEnd)fail('ZIP成员无效');
+   const rawName=await archiveRange(handle,fileSize,cursor+46,nameLength,signal),name=rawName.toString('utf8');
+   if(offset+30>directoryOffset)fail('ZIP本地记录无效');
+   const local=await archiveRange(handle,fileSize,offset,30,signal);if(local.readUInt32LE(0)!==0x04034b50||local.readUInt16LE(8)!==method||local.readUInt16LE(6)&1)fail('ZIP本地记录无效');
+   const localNameLength=local.readUInt16LE(26),start=offset+30+localNameLength+local.readUInt16LE(28);
+   if(start+compressed>directoryOffset||!(await archiveRange(handle,fileSize,offset+30,localNameLength,signal)).equals(rawName))fail('ZIP本地记录无效');
+   const path=name.replace(/\/$/u,'').replace(/^\.\//u,'');cursor+=46+nameLength+extra+comment;
+   if(path==='.'||!path)continue;if(!safePath(path))fail('归档成员越界');if(entries.length>=400000||names.has(path))fail('归档成员重复或超限');names.add(path);
+   entries.push({path,index,type:name.endsWith('/')?'directory':(mode&0o170000)===0o120000?'symlink':'file',mode:mode||0o644,method,compressed,size,start});
+  }
+  if(cursor!==directoryEnd)fail('ZIP目录长度不符');
+  for(const entry of entries.filter(value=>value.type==='symlink')){
+   if(entry.size>65535)fail('ZIP链接内容超限');const parts=[];await zipEntryBytes(handle,fileSize,entry,signal,async chunk=>{parts.push(Buffer.from(chunk));});entry.target=Buffer.concat(parts).toString();
+  }
+  const selected=selectedArchiveEntries(entries,prefix),chosen=new Set(selected.map(entry=>entry.index));
+  // 未选中的成员与目录同样核对解码长度，前缀筛选不能绕过原正文检查。
+  for(const entry of entries)if(entry.type==='directory'||!chosen.has(entry.index)&&entry.type!=='symlink')await zipEntryBytes(handle,fileSize,entry,signal);
+  const result=await materializeArchiveEntries(destination,selected,{signal,write:async(file,entry)=>{
+   const output=await open(file,'wx',entry.mode&0o111?0o755:0o644);
+   try{await zipEntryBytes(handle,fileSize,entry,signal,async chunk=>{let at=0;while(at<chunk.length){const value=await output.write(chunk,at,chunk.length-at);if(!value.bytesWritten)fail('原件写入中断');at+=value.bytesWritten;}});}
+   finally{await output.close();}
+  }});
+  const final=await handle.stat(),path=await regular(input);if(final.size!==identity.size||path.dev!==identity.dev||path.ino!==identity.ino||path.size!==identity.size){await permissions(destination,true);await rm(destination,{recursive:true});fail('归档读取身份漂移');}
+  return result;
+ }finally{await handle.close();}
+}
 async function extractArchive(input,destination,{prefix='',signal,tar,maxBytes=8*1024**3}={}){
- await regular(input);if(await stat(destination))fail('解包目标已存在');let bytes=await readFile(input),entries=[];
- const add=(path,type,data,mode=0o644,target)=>{path=path.replace(/\/$/u,'').replace(/^\.\//u,'');if(path==='.'||!path)return;if(!safePath(path))fail('归档成员越界');if(entries.length>=400000||entries.some(x=>x.path===path))fail('归档成员重复或超限');entries.push({path,type,data,mode,target});};
- if(bytes[0]===0x50&&bytes[1]===0x4b){let end=-1;for(let i=bytes.length-22;i>=Math.max(0,bytes.length-65557);i--)if(bytes.readUInt32LE(i)===0x06054b50){end=i;break;}if(end<0)fail('ZIP目录缺失');const count=bytes.readUInt16LE(end+10);let cursor=bytes.readUInt32LE(end+16),total=0;for(let n=0;n<count;n++){signal?.throwIfAborted();if(bytes.readUInt32LE(cursor)!==0x02014b50)fail('ZIP成员无效');const method=bytes.readUInt16LE(cursor+10),size=bytes.readUInt32LE(cursor+24),compressed=bytes.readUInt32LE(cursor+20),nameLength=bytes.readUInt16LE(cursor+28),extra=bytes.readUInt16LE(cursor+30),comment=bytes.readUInt16LE(cursor+32),mode=bytes.readUInt32LE(cursor+38)>>>16,offset=bytes.readUInt32LE(cursor+42),name=bytes.subarray(cursor+46,cursor+46+nameLength).toString('utf8');if(bytes.readUInt16LE(cursor+8)&1||size===0xffffffff||offset===0xffffffff)fail('ZIP加密或Zip64未声明');total+=size;if(total>maxBytes)fail('ZIP解压超限');if(bytes.readUInt32LE(offset)!==0x04034b50)fail('ZIP本地记录无效');const start=offset+30+bytes.readUInt16LE(offset+26)+bytes.readUInt16LE(offset+28),data=bytes.subarray(start,start+compressed),output=method===0?data:method===8?inflateRawSync(data,{maxOutputLength:Math.max(1,size)}):fail('ZIP压缩方式未声明');if(output.length!==size)fail('ZIP长度不符');add(name,name.endsWith('/')?'directory':(mode&0o170000)===0o120000?'symlink':'file',output,mode||0o644,output.toString());cursor+=46+nameLength+extra+comment;}}
- else{if(bytes[0]===0x1f&&bytes[1]===0x8b)bytes=gunzipSync(bytes,{maxOutputLength:maxBytes});else if(bytes[0]===0xfd&&bytes[1]===0x37){if(!tar)fail('XZ需要已提供基础归档工具');fail('XZ应通过受控tar清单提取');}
+ await regular(input);if(await stat(destination))fail('解包目标已存在');const head=await archiveHead(input,signal);
+ if(head[0]===0x50&&head[1]===0x4b)return extractZipArchive(input,destination,{prefix,signal,maxBytes});
+ let bytes=await readFile(input),entries=[];
+ const add=(path,type,data,mode=0o644,target,mtime)=>{path=path.replace(/\/$/u,'').replace(/^\.\//u,'');if(path==='.'||!path)return;if(!safePath(path))fail('归档成员越界');if(entries.length>=400000||entries.some(x=>x.path===path))fail('归档成员重复或超限');entries.push({path,type,data,mode,target,mtime});};
+ {if(bytes[0]===0x1f&&bytes[1]===0x8b)bytes=gunzipSync(bytes,{maxOutputLength:maxBytes});else if(bytes[0]===0xfd&&bytes[1]===0x37){if(!tar)fail('XZ需要已提供基础归档工具');fail('XZ应通过受控tar清单提取');}
   const number=b=>{const v=b.toString().replace(/\0.*$/su,'').trim();if(!/^[0-7]*$/u.test(v))fail('TAR数字无效');return parseInt(v||'0',8);};let pax={},global={};
   for(let cursor=0;cursor+512<=bytes.length;){signal?.throwIfAborted();const block=bytes.subarray(cursor,cursor+512);if(block.every(x=>x===0))break;let sum=0;for(let i=0;i<512;i++)sum+=(i>=148&&i<156)?32:block[i];if(sum!==number(block.subarray(148,156)))fail('TAR头摘要不符');const size=number(block.subarray(124,136)),type=String.fromCharCode(block[156]||48),str=(a,b)=>block.subarray(a,b).toString().replace(/\0.*$/su,''),data=bytes.subarray(cursor+512,cursor+512+size);if(data.length!==size||size>maxBytes)fail('TAR内容超限');cursor+=512+Math.ceil(size/512)*512;
    if(type==='x'||type==='g'){const values={};let at=0;while(at<data.length){const space=data.indexOf(32,at),length=Number(data.subarray(at,space).toString());if(!Number.isInteger(length)||length<=space-at+1||at+length>data.length)fail('PAX长度无效');const record=data.subarray(space+1,at+length-1).toString(),eq=record.indexOf('=');if(eq<1)fail('PAX字段无效');values[record.slice(0,eq)]=record.slice(eq+1);at+=length;}if(type==='g')global={...global,...values};else pax=values;continue;}
    if(type==='L'){pax.path=data.toString().replace(/\0.*$/su,'');continue;}if(type==='K'){pax.linkpath=data.toString().replace(/\0.*$/su,'');continue;}
-   const attrs={...global,...pax};pax={};if(Object.keys(attrs).some(x=>x.startsWith('GNU.sparse')))fail('TAR稀疏文件未声明');const name=attrs.path||[str(345,500),str(0,100)].filter(Boolean).join('/'),target=attrs.linkpath||str(157,257);if(!['0','5','2','1'].includes(type))fail('TAR特殊成员未声明');add(name,{'0':'file','5':'directory','2':'symlink','1':'hardlink'}[type],data,number(block.subarray(100,108)),target);
+   const attrs={...global,...pax};pax={};if(Object.keys(attrs).some(x=>x.startsWith('GNU.sparse')))fail('TAR稀疏文件未声明');const name=attrs.path||[str(345,500),str(0,100)].filter(Boolean).join('/'),target=attrs.linkpath||str(157,257);if(!['0','5','2','1'].includes(type))fail('TAR特殊成员未声明');// 发行件的生成文件依赖原mtime；不能按解包写入顺序改变make依赖关系。
+   let mtime;
+   if(type==='0'){
+    if(attrs.mtime!==undefined&&!/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,9})?$/u.test(attrs.mtime))fail('TAR修改时间无效');
+    mtime=attrs.mtime===undefined?number(block.subarray(136,148)):Number(attrs.mtime);
+    if(!Number.isFinite(mtime)||mtime<0||mtime>8640000000000||!Number.isSafeInteger(Math.trunc(mtime*1000)))fail('TAR修改时间无效');
+   }
+   add(name,{'0':'file','5':'directory','2':'symlink','1':'hardlink'}[type],data,number(block.subarray(100,108)),target,mtime);
   }
  }
- const selected=entries.filter(e=>!prefix||e.path===prefix||e.path.startsWith(prefix+'/')).map(e=>({...e,path:prefix?e.path.slice(prefix.length).replace(/^\//u,''):e.path})).filter(e=>e.path);if(!selected.length)fail('归档根缺失');const table=new Map(selected.map(e=>[e.path,e]));
- for(const entry of selected){let parent=dirname(entry.path);while(parent!=='.'){if(table.has(parent)&&table.get(parent).type!=='directory')fail('归档父目录不是目录');parent=dirname(parent);}if(['symlink','hardlink'].includes(entry.type)){const target=entry.type==='symlink'?posix.normalize(posix.join(posix.dirname(entry.path),entry.target)):prefix?entry.target.replace(new RegExp('^'+prefix+'/'),''):entry.target;if(!safePath(target)||!table.has(target))fail('归档链接越界或缺失');entry.resolved=target;}}
- await mkdir(destination,{mode:0o700});try{await verifyArchiveNames(destination,selected.map(entry=>entry.path),signal);for(const entry of selected.filter(x=>['file','directory'].includes(x.type))){signal?.throwIfAborted();const file=join(destination,entry.path);await mkdir(dirname(file),{recursive:true,mode:0o700});if(entry.type==='directory')await mkdir(file,{recursive:true,mode:0o700});else await writeFile(file,entry.data,{flag:'wx',mode:entry.mode&0o111?0o755:0o644});}
- for(const entry of selected.filter(x=>['symlink','hardlink'].includes(x.type))){signal?.throwIfAborted();const file=join(destination,entry.path);await mkdir(dirname(file),{recursive:true});if(entry.type==='hardlink'){const source=table.get(entry.resolved);if(source.type!=='file')fail('硬链接目标不是普通文件');await copyFile(join(destination,entry.resolved),file,constants.COPYFILE_EXCL);}else await symlink(entry.target,file);}return destination;}catch(e){await permissions(destination,true);await rm(destination,{recursive:true});throw e;}
+ const selected=selectedArchiveEntries(entries,prefix);
+ return materializeArchiveEntries(destination,selected,{signal,write:async(file,entry)=>{
+  const output=await open(file,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,entry.mode&0o111?0o755:0o644);
+  try{await output.writeFile(entry.data);signal?.throwIfAborted();await output.utimes(entry.mtime,entry.mtime);}
+  finally{await output.close();}
+ }});
 }
 // XZ由供给的POSIX tar处理；双遍清单、无链接父目录与候选物化后的清单一起保护边界。
-async function unpack(input,target,{prefix='',signal,foundation,run=exec}={}){const b=await readFile(input);if(!(b[0]===0xfd&&b[1]===0x37))return extractArchive(input,target,{prefix,signal});const tar=foundation?.tools.tar;if(!tar)fail('XZ缺少tar入口');const list=await run(tar,['-tvf',input],{signal,maxBuffer:32*1024**2});if(list.stdout.split('\n').filter(Boolean).some(x=>!/^[-d]/u.test(x)))fail('XZ成员含链接或特殊项');const names=(await run(tar,['-tf',input],{signal,maxBuffer:32*1024**2})).stdout.split('\n').filter(Boolean);if(names.some(x=>!safePath(x.replace(/\/$/u,'').replace(/^\.\//u,''))))fail('XZ成员越界');await mkdir(target);try{await verifyArchiveNames(target,names.map(name=>name.replace(/\/$/u,'').replace(/^\.\//u,'' )).filter(name=>name&&name!=='.'),signal);await run(tar,['-xkf',input,'--no-same-owner','-C',target],{signal,maxBuffer:2*1024**2});if(prefix){const child=join(target,prefix),temporary=target+'.root';await directory(child);await rename(child,temporary);await permissions(target,true);await rm(target,{recursive:true});await rename(temporary,target);}return target;}catch(error){if(await stat(target)){await permissions(target,true);await rm(target,{recursive:true});}throw error;}}
+async function unpack(input,target,{prefix='',signal,foundation,run=exec}={}){const b=await archiveHead(input,signal);if(!(b[0]===0xfd&&b[1]===0x37))return extractArchive(input,target,{prefix,signal});const tar=foundation?.tools.tar;if(!tar)fail('XZ缺少tar入口');const list=await run(tar,['-tvf',input],{signal,maxBuffer:32*1024**2});if(list.stdout.split('\n').filter(Boolean).some(x=>!/^[-d]/u.test(x)))fail('XZ成员含链接或特殊项');const names=(await run(tar,['-tf',input],{signal,maxBuffer:32*1024**2})).stdout.split('\n').filter(Boolean);if(names.some(x=>!safePath(x.replace(/\/$/u,'').replace(/^\.\//u,''))))fail('XZ成员越界');await mkdir(target);try{await verifyArchiveNames(target,names.map(name=>name.replace(/\/$/u,'').replace(/^\.\//u,'' )).filter(name=>name&&name!=='.'),signal);await run(tar,['-xkf',input,'--no-same-owner','-C',target],{signal,maxBuffer:2*1024**2});if(prefix){const child=join(target,prefix),temporary=target+'.root';await directory(child);await rename(child,temporary);await permissions(target,true);await rm(target,{recursive:true});await rename(temporary,target);}return target;}catch(error){if(await stat(target)){await permissions(target,true);await rm(target,{recursive:true});}throw error;}}
 // 本仓准确工具配方；外部供给登记不能改变这些版本和来源。
 const posixRecipe=(()=>{
 
@@ -1586,7 +1881,19 @@ async function appleTools(library,{names=['xcodebuild'],signal,run=exec,environm
   const wanted=library.tools.find(tool=>tool.id==='xcode');if(!wanted||!Array.isArray(names)||names.some(name=>!appleBundleTools.has(name)&&!Object.hasOwn(appleSystemTools,name)))fail('Apple工具需求无效');
   // 任务上下文仅跟踪进程；Apple工具由本产品既有本机解析入口提供。
   const env=cleanEnvironment(environment),developerDirectory=(await run('/usr/bin/xcode-select',['-p'],{env,signal})).stdout.trim();await directory(developerDirectory);
-  const tools={};for(const name of names){const path=appleSystemTools[name]||(name==='xcodebuild'?join(developerDirectory,'usr/bin/xcodebuild'):(await run('/usr/bin/xcrun',['--find',name],{env:{...env,DEVELOPER_DIR:developerDirectory},signal})).stdout.trim());await regular(path);tools[name]=await realpath(path);}
+  const tools={};for(const name of names){
+   const system=appleSystemTools[name],path=system||(name==='xcodebuild'?join(developerDirectory,'usr/bin/xcodebuild'):(await run('/usr/bin/xcrun',['--find',name],{env:{...env,DEVELOPER_DIR:developerDirectory},signal})).stdout.trim());
+   if(system){await regular(path);tools[name]=await realpath(path);continue;}
+   // Xcode的clang++、ranlib等入口本身可为包内链接；普通资源regular规则不变。
+   if(!isAbsolute(path)||resolve(path)!==path||/[\x00-\x1f\x7f]/u.test(path)||!inside(developerDirectory,path)||basename(path)!==name)fail('Apple工具入口不属于所选Xcode');
+   const entry=await lstat(path);if(!entry.isFile()&&!entry.isSymbolicLink())fail('Apple工具入口不是文件或链接');
+   const parent=await realpath(dirname(path)),target=await realpath(path);
+   if(!inside(developerDirectory,parent)||!inside(developerDirectory,target))fail('Apple工具目标不属于所选Xcode');
+   await directory(parent);const executable=await regular(target);
+   if(!(executable.mode&0o111)||await realpath(path)!==target)fail('Apple工具不可执行或入口漂移');
+   // 保留原入口名称；把CXX改为clang真实路径会丢失clang++驱动语义。
+   tools[name]=path;
+  }
   return {developerDirectory,version:wanted.version,tools};
  }
 
@@ -1607,6 +1914,37 @@ if(process.env.NODE_TEST_CONTEXT&&process.argv.length===2&&process.argv[1]===imp
   await assert.rejects(resourceSupplies.run({work},()=>appleTools(library,{run:async()=>{throw original;}})),error=>error===original);
   await assert.rejects(appleTools(library,{names:['undeclared'],run}),/Apple工具需求无效/u);
 await resourceSupplies.run({work},async()=>{assert.deepEqual(gradleOfflineArguments({offline:false}),[]);assert.deepEqual(gradleOfflineArguments({offline:true}),['--offline']);assert.deepEqual(gradleOfflineArguments(),[]);});
+ });
+ test('Apple工具允许同一Xcode内部链接并保留clang++和ranlib原调用名称',async t=>{
+  await mkdir(testRoot(),{recursive:true});const work=await realpath(await mkdtemp(join(testRoot(),'apple-links-')));t.after(()=>rm(work,{recursive:true,force:true}));
+  const developer=join(work,'Developer'),bin=join(developer,'usr/bin');await mkdir(bin,{recursive:true});
+  for(const name of ['clang','libtool'])await writeFile(join(bin,name),'synthetic',{mode:0o755});
+  await symlink('clang',join(bin,'clang++'));await symlink('libtool',join(bin,'ranlib'));
+  const calls=[],run=async(command,args,options)=>{calls.push([command,args,options.env.DEVELOPER_DIR]);return {stdout:(command==='/usr/bin/xcode-select'?developer:join(bin,args[1]))+'\n'};};
+  const result=await appleTools({tools:[{id:'xcode',version:'fixture'}]},{names:['clang++','ranlib'],run});
+  assert.equal(result.tools['clang++'],join(bin,'clang++'));assert.equal(result.tools.ranlib,join(bin,'ranlib'));
+  assert.equal(await realpath(result.tools['clang++']),join(bin,'clang'));assert.equal(await realpath(result.tools.ranlib),join(bin,'libtool'));
+  assert.deepEqual(calls.slice(1),[['/usr/bin/xcrun',['--find','clang++'],developer],['/usr/bin/xcrun',['--find','ranlib'],developer]]);
+  await assert.rejects(regular(join(bin,'clang++')),/非独占普通文件/);
+ });
+ test('Apple工具拒绝包外入口、外链、断链、目录、不可执行目标及异常选择器路径',async t=>{
+  await mkdir(testRoot(),{recursive:true});const work=await realpath(await mkdtemp(join(testRoot(),'apple-invalid-')));t.after(()=>rm(work,{recursive:true,force:true}));
+  const developer=join(work,'Developer'),bin=join(developer,'usr/bin'),outside=join(work,'outside');await mkdir(bin,{recursive:true});await mkdir(outside);
+  const foreign=join(outside,'clang++');await writeFile(foreign,'synthetic',{mode:0o755});
+  const cases=['outside','external','broken','directory','noexec','wrong-name','relative','control'];
+  for(const mode of cases){
+   const folder=join(bin,mode);await mkdir(folder);let path=join(folder,'clang++');
+   if(mode==='outside')path=foreign;
+   else if(mode==='external')await symlink(foreign,path);
+   else if(mode==='broken')await symlink('missing',path);
+   else if(mode==='directory')await mkdir(path);
+   else if(mode==='noexec')await writeFile(path,'synthetic',{mode:0o644});
+   else if(mode==='wrong-name'){path=join(folder,'clang');await writeFile(path,'synthetic',{mode:0o755});}
+   else if(mode==='relative')path='relative/clang++';
+   else path=join(folder,'bad\u0001','clang++');
+   const run=async command=>({stdout:(command==='/usr/bin/xcode-select'?developer:path)+'\n'});
+   await assert.rejects(appleTools({tools:[{id:'xcode',version:'fixture'}]},{names:['clang++'],run}),error=>mode==='broken'?error.code==='ENOENT':/Apple工具/.test(error.message),mode);
+  }
  });
 }
 
@@ -2025,6 +2363,8 @@ async function materializeResources(platform,work,previous={},options={}){
  }
  for(const item of requirement.archives){process.stderr.write('资源阶段：归档 '+item.group+'/'+item.name+'\n');if(!safePath(item.group))fail('归档分组无效');const file=await packageOriginal(item,options),directory=join(work,'dependencies/archives',item.group);await directoryCheck(directory).catch(async e=>{if(e.code!=='ENOENT')throw e;await directoryCheck(work);await mkdir(directory,{recursive:true});});const path=join(directory,item.sha256+'.blob');if(!await stat(path))await copyFile(file,path,constants.COPYFILE_EXCL);await regular(path);(receipt.archives[item.group]??=[]).push({...item,path});}
  const flutter=library.installed.get('flutter');if(flutter){const sdk=dirname(dirname(flutter.path));receipt.environment.DART_EXECUTABLE=join(sdk,'bin/cache/dart-sdk/bin/dart');const os=platform.endsWith('ios')?'ios':platform.endsWith('macos')?'macos':null;if(os&&!await stat(join(work,'flutter-tools'))){const delivery=await flutterRecipe.prepareFlutterTaskTools(sdk,work,os,{signal:options.signal,environment:{PRODUCT_BASH_BIN:library.installed.get('bash').path,PRODUCT_RSYNC_BIN:foundation.tools.rsync}});if(delivery.PATH)receipt.environment.PATH=delivery.PATH+':'+receipt.environment.PATH;}if(os)receipt.environment.PATH=join(work,'flutter-tools')+':'+receipt.environment.PATH;receipt.environment.PRODUCT_RSYNC_BIN=foundation.tools.rsync;receipt.environment.PRODUCT_BASH_BIN=library.installed.get('bash').path;}
+ // 缓存工程视图先按本次源码重建，资源预解析不得执行已删除的旧构建输入。
+ if(library.installed.has('gradle')&&await stat(join(work,'source-view')))await owner.prepare(platform,work,receipt,cleanEnvironment(environment));
  await prepareGradleResources(work,options,receipt.environment,owner.resourceEnvironment(platform,work,receipt,cleanEnvironment(environment)));options.signal?.throwIfAborted();if(JSON.stringify(request())!==JSON.stringify(requirement)){if((options.depth||0)>=8)fail('资源递归闭包超限');return materializeResources(platform,work,receipt,{...options,depth:(options.depth||0)+1});}owner.resourceEnvironment(platform,work,receipt,cleanEnvironment(environment));return receipt;
 }
 async function flutterGradleImplementation() {
@@ -2090,7 +2430,7 @@ if(inlineTestEntry){
 const hash=b=>createHash('sha256').update(b).digest('hex');
 async function sandbox(t){const root=await realpath(await fixedScratch(join(tmpdir(),contract.product_id+'-resources-')));t.after(()=>rm(root,{recursive:true,force:true}));return root;}
 const archive=(body,url='https://example.invalid/locked.tgz')=>({url,sha256:hash(body)});
-function tar(entries){const records=[];for(const {name,body='',type='0',target=''}of entries){const b=Buffer.from(body),h=Buffer.alloc(512);h.write(name,0,100);h.write('0000644\0',100);h.write('0000000\0',108);h.write('0000000\0',116);h.write(b.length.toString(8).padStart(11,'0')+'\0',124);h.write('00000000000\0',136);h.fill(32,148,156);h.write(type,156);h.write(target,157,100);h.write('ustar\0',257);h.write('00',263);h.write([...h].reduce((a,b)=>a+b,0).toString(8).padStart(6,'0')+'\0 ',148);records.push(h,b,Buffer.alloc((512-b.length%512)%512));}return gzipSync(Buffer.concat([...records,Buffer.alloc(1024)]));}
+function tar(entries){const records=[];for(const {name,body='',type='0',target='',mtime=0}of entries){const b=Buffer.from(body),h=Buffer.alloc(512);h.write(name,0,100);h.write('0000644\0',100);h.write('0000000\0',108);h.write('0000000\0',116);h.write(b.length.toString(8).padStart(11,'0')+'\0',124);h.write(mtime.toString(8).padStart(11,'0')+'\0',136);h.fill(32,148,156);h.write(type,156);h.write(target,157,100);h.write('ustar\0',257);h.write('00',263);h.write([...h].reduce((a,b)=>a+b,0).toString(8).padStart(6,'0')+'\0 ',148);records.push(h,b,Buffer.alloc((512-b.length%512)%512));}return gzipSync(Buffer.concat([...records,Buffer.alloc(1024)]));}
 test('按声明取得原件，复用路径不重新校验字节',async t=>{
  const root=await sandbox(t),entry=archive(Buffer.from('declared'));let requests=0;
  const options={store:root,fetcher:async()=>{requests++;return new Response('supplied');}};
@@ -2107,6 +2447,46 @@ test('取消自建摘要验真，离线缺件、非HTTPS和下载失败仍报错
  const file=await acquireArchive(entry,{store:root,fetcher:async()=>new Response('delivered')});assert.equal(await readFile(file,'utf8'),'delivered');
 });
 
+test('资源每跳请求identity，保留HTTPS重定向和无编码等长校验',async t=>{
+ const root=await sandbox(t),body=Buffer.from('identity archive'),entry=archive(body),calls=[];
+ const file=await acquireArchive(entry,{store:join(root,'store'),work:root,fetcher:async(url,options)=>{
+  calls.push(url);assert.equal(new Headers(options.headers).get('accept-encoding'),'identity');assert.equal(options.redirect,'manual');
+  return calls.length===1?new Response(null,{status:302,headers:{location:'https://example.invalid/final.tgz'}}):new Response(body,{headers:{'content-length':String(body.length)}});
+ }});
+ assert.deepEqual(calls,[entry.url,'https://example.invalid/final.tgz']);assert.deepEqual(await readFile(file),body);
+ await assert.rejects(acquireArchive({...entry,url:'https://example.invalid/downgrade'},{store:join(root,'downgrade'),work:root,fetcher:async()=>new Response(null,{status:302,headers:{location:'http://example.invalid/plain'}})}),/HTTPS/);
+ let redirects=0;await assert.rejects(acquireArchive({...entry,url:'https://example.invalid/loop'},{store:join(root,'loop'),work:root,fetcher:async()=>{redirects++;return new Response(null,{status:307,headers:{location:'/loop'}});}}),/重定向超限/);assert.equal(redirects,6);
+});
+test('压缩传输长度不与Fetch已解码正文混比',async t=>{
+ const root=await sandbox(t),body=Buffer.alloc(1000,97),wire=gzipSync(body);assert.notEqual(wire.length,body.length);
+ // Response夹具模拟Fetch已完成解码的正文与保留的传输头，不在下载器另做解压。
+ const file=await acquireArchive(archive(body),{store:join(root,'store'),work:root,maxBytes:2048,fetcher:async(url,options)=>{
+  assert.equal(new Headers(options.headers).get('accept-encoding'),'identity');return new Response(body,{headers:{'content-encoding':' GZip ','content-length':String(wire.length)}});
+ }});
+ assert.deepEqual(await readFile(file),body);assert.deepEqual(await readdir(join(root,'resource-pending')),[]);
+});
+test('无编码及identity长度不符仍拒绝且不提交原件',async t=>{
+ const root=await sandbox(t),body=Buffer.from('plain');
+ for(const [index,encoding]of ['', 'identity',' Identity '].entries()){
+  const store=join(root,String(index)),headers={'content-length':String(body.length+1)};if(encoding)headers['content-encoding']=encoding;
+  await assert.rejects(acquireArchive(archive(body),{store,work:root,fetcher:async()=>new Response(body,{headers})}),/数据不完整/);
+  assert.deepEqual(await readdir(store),[]);assert.deepEqual(await readdir(join(root,'resource-pending')),[]);
+ }
+});
+test('压缩响应仍拒绝声明超限、解码正文超限及空正文',async t=>{
+ const root=await sandbox(t);
+ for(const [index,body,length,error]of [[0,'a',9,/声明超限/],[1,'123456789',2,/数据超限/],[2,'',1,/数据为空/]]){
+  const store=join(root,String(index));await assert.rejects(acquireArchive(archive(Buffer.from(body)),{store,work:root,maxBytes:8,fetcher:async()=>new Response(body,{headers:{'content-encoding':'gzip','content-length':String(length)}})}),error);
+  assert.deepEqual(await readdir(store),[]);
+ }
+ assert.deepEqual(await readdir(join(root,'resource-pending')),[]);
+});
+test('压缩响应流错误保留原异常并清除半包',async t=>{
+ const root=await sandbox(t),store=join(root,'store'),failure=new Error('资源流夹具中断');let reads=0;
+ const fetcher=async()=>new Response(new ReadableStream({pull(controller){if(reads++===0)controller.enqueue(Buffer.from('partial'));else controller.error(failure);}}),{headers:{'content-encoding':'gzip','content-length':'2'}});
+ await assert.rejects(acquireArchive(archive(Buffer.from('partial')),{store,work:root,fetcher}),error=>error===failure);
+ assert.deepEqual(await readdir(store),[]);assert.deepEqual(await readdir(join(root,'resource-pending')),[]);
+});
 test('取消下载清理本次候选；短锁只在提交阶段取得',async t=>{
  const root=await sandbox(t),entry=archive(Buffer.from('ab')),abort=new AbortController();
  const fetcher=async()=>new Response(new ReadableStream({start(controller){controller.enqueue(Buffer.from('a'));abort.abort();controller.close();}}));
@@ -2116,6 +2496,109 @@ test('取消下载清理本次候选；短锁只在提交阶段取得',async t=>
 test('同对象并发提交只保留一份验真原件，不留全局下载锁',async t=>{
  const root=await sandbox(t),body=Buffer.from('concurrent'),entry=archive(body);let calls=0;const options={store:root,fetcher:async()=>{calls++;await new Promise(r=>setTimeout(r,10));return new Response(body);}};
  const paths=await Promise.all(Array.from({length:8},()=>acquireArchive(entry,options)));assert.equal(new Set(paths).size,1);assert.equal(await readFile(paths[0],'utf8'),'concurrent');assert.equal(calls,8);assert.deepEqual(await readdir(root),[paths[0].slice(root.length+1)]);
+});
+// 稀疏ZIP只在指定偏移写少量真实记录；覆盖大文件寻址，不分配或下载数GiB测试正文。
+async function zipFixture(file,items,{base=0}={}){
+ const {deflateRawSync}=await import('node:zlib'),output=await open(file,'wx'),directory=[],records=[];let cursor=base;
+ try{
+  if(base)await output.write(Buffer.from([0x50,0x4b,3,4]),0,4,0);
+  for(const item of items){
+   const name=Buffer.from(item.name),body=Buffer.from(item.body||''),method=item.method??0,packed=method===8?deflateRawSync(body):body,size=item.size??body.length,flags=item.flags??0,mode=item.mode??0o100644;
+   const local=Buffer.alloc(30);local.writeUInt32LE(0x04034b50);local.writeUInt16LE(flags,6);local.writeUInt16LE(method,8);local.writeUInt32LE(packed.length,18);local.writeUInt32LE(size,22);local.writeUInt16LE(name.length,26);
+   const start=cursor+local.length+name.length;for(const part of [local,name,packed]){await output.write(part,0,part.length,cursor);cursor+=part.length;}
+   const central=Buffer.alloc(46);central.writeUInt32LE(0x02014b50);central.writeUInt16LE(flags,8);central.writeUInt16LE(method,10);central.writeUInt32LE(packed.length,20);central.writeUInt32LE(size,24);central.writeUInt16LE(name.length,28);central.writeUInt32LE((mode*65536)>>>0,38);central.writeUInt32LE(start-local.length-name.length,42);
+   directory.push(central,name);records.push({method,compressed:packed.length,size,start});
+  }
+  const directoryOffset=cursor;
+  for(const part of directory){await output.write(part,0,part.length,cursor);cursor+=part.length;}
+  const end=Buffer.alloc(22);end.writeUInt32LE(0x06054b50);end.writeUInt16LE(items.length,8);end.writeUInt16LE(items.length,10);end.writeUInt32LE(cursor-directoryOffset,12);end.writeUInt32LE(directoryOffset,16);await output.write(end,0,end.length,cursor);
+  return records;
+ }finally{await output.close();}
+}
+test('大于2GiB稀疏ZIP离线复用、格式识别与流式解包保留准确正文和链接',async t=>{
+ const root=await sandbox(t),store=join(root,'store');await mkdir(store);
+ const entry=archive(Buffer.from('large-zip-coordinate'),'https://example.invalid/large.zip'),file=join(store,hash(JSON.stringify([entry.url,entry.sha256]))+'.blob');
+ await zipFixture(file,[{name:'package/a',body:'original',method:8,mode:0o100755},{name:'package/b',body:'a',mode:0o120777}],{base:2**31+128});
+ assert.ok((await lstat(file)).size>2**31);
+ assert.equal(await acquireArchive(entry,{store,work:root,offline:true,fetcher:()=>assert.fail('离线联网')}),file);
+ const output=join(root,'output');await unpack(file,output,{prefix:'package'});assert.equal(await readFile(join(output,'a'),'utf8'),'original');assert.equal(await realpath(join(output,'b')),join(output,'a'));assert.ok((await lstat(join(output,'a'))).mode&0o111);
+});
+test('ZIP保留路径、重复、链接父目录、加密、Zip64、方式及展开上限拒绝',async t=>{
+ const root=await sandbox(t),cases=[
+  [[{name:'../outside',body:'x'}],/越界/],
+  [[{name:'a',body:'x'},{name:'a',body:'y'}],/重复/],
+  [[{name:'a',body:'../../outside',mode:0o120777}],/链接越界/],
+  [[{name:'a',body:'b',mode:0o120777},{name:'a/child',body:'x'},{name:'b',body:'x'}],/父目录/],
+  [[{name:'a',body:'x',flags:1}],/加密/],
+  [[{name:'a',body:'x',size:0xffffffff}],/Zip64/],
+  [[{name:'a',body:'x',method:99}],/压缩方式/],
+  [[{name:'a',body:'12345678901'}],/解压超限/],
+  [[{name:'a',body:'x',size:2}],/长度不符/]
+ ];
+ for(const [index,[items,error]]of cases.entries()){
+  const input=join(root,index+'.zip'),output=join(root,'output'+index);await zipFixture(input,items);
+  await assert.rejects(extractArchive(input,output,{maxBytes:10}),error);assert.equal(await stat(output),null);
+ }
+ const input=join(root,'truncated.zip');await zipFixture(input,[{name:'a',body:'x'}]);const handle=await open(input,'r+');await handle.truncate((await handle.stat()).size-1);await handle.close();await assert.rejects(extractArchive(input,join(root,'truncated')),/目录缺失/);
+});
+test('ZIP内部Framework目录链和前向引用在物化前解析且保留链接正文',async t=>{
+ const root=await sandbox(t),input=join(root,'framework.zip'),output=join(root,'output');
+ await zipFixture(input,[{name:'package/F/Resources',body:'Versions/Current/Resources',mode:0o120777},
+  {name:'package/F/Versions/Current',body:'A',mode:0o120777},{name:'package/F/Versions/A/',mode:0o40755},
+  {name:'package/F/Versions/A/Resources/',mode:0o40755},{name:'package/F/Versions/A/Resources/data',body:'original'}]);
+ await extractArchive(input,output,{prefix:'package'});
+ assert.equal(await realpath(join(output,'F/Resources')),join(output,'F/Versions/A/Resources'));
+ assert.equal(await readFile(join(output,'F/Resources/data'),'utf8'),'original');
+ assert.equal(await readlink(join(output,'F/Resources')),'Versions/Current/Resources');assert.equal(await readlink(join(output,'F/Versions/Current')),'A');
+});
+test('ZIP链接解析拒绝循环、自指、链式越界、缺失、绝对目标及非目录父项',async t=>{
+ const root=await sandbox(t),link=(name,body)=>({name,body,mode:0o120777}),cases=[
+  [link('a','b'),link('b','a')],[link('a','a')],
+  [link('a','b/file'),link('b','../outside')],
+  [link('a','b/file'),link('b','missing')],
+  [link('a','/file'),{name:'file',body:'x'}],
+  [link('a','b/child'),{name:'b',body:'x'}],
+  [link('a','b/../file'),{name:'b',body:'x'},{name:'file',body:'x'}],
+  Array.from({length:42},(_,i)=>i===41?{name:'link41',body:'x'}:link('link'+i,'link'+(i+1)))
+ ];
+ for(const [index,items]of cases.entries()){
+  const input=join(root,index+'.zip'),output=join(root,'output'+index);await zipFixture(input,items);
+  await assert.rejects(extractArchive(input,output),/链接越界|循环|跳转超限|父目录/);assert.equal(await stat(output),null);
+ }
+ // 硬链接仍只允许直接指向普通成员，不借目录链扩展原硬链接合同。
+ assert.throws(()=>selectedArchiveEntries([{path:'a',type:'hardlink',target:'b'},{path:'b',type:'symlink',target:'c'},{path:'c',type:'file'}],''),/硬链接目标不是普通文件/);
+});
+test('ZIP分块流错误和取消保留失败、关闭流且候选写入失败清场',async t=>{
+ const root=await sandbox(t),input=join(root,'stream.zip'),body=Buffer.alloc(256*1024,97),[entry]=await zipFixture(input,[{name:'a',body}]),handle=await open(input,'r'),size=(await handle.stat()).size;
+ try{
+  const failure=Error('ZIP流夹具中断');await assert.rejects(zipEntryBytes(handle,size,entry,undefined,async()=>{throw failure;}),error=>error===failure);
+  const controller=new AbortController();await assert.rejects(zipEntryBytes(handle,size,entry,controller.signal,async()=>controller.abort()),/abort/iu);
+  const output=join(root,'output');await assert.rejects(materializeArchiveEntries(output,[{path:'a',type:'file',mode:0o644}],{write:async()=>{throw failure;}}),error=>error===failure);assert.equal(await stat(output),null);
+ }finally{await handle.close();}
+ await assert.rejects(extractArchive(input,join(root,'cancelled'),{signal:AbortSignal.abort()}),/abort/iu);assert.equal(await stat(join(root,'cancelled')),null);
+});
+test('TAR恢复原文件时间顺序，先解出的configure仍晚于configure.ac',async t=>{
+ const root=await sandbox(t),input=join(root,'ruby.tgz'),output=join(root,'output');
+ await writeFile(input,tar([{name:'package/configure',body:'generated',mtime:1790141562},{name:'package/configure.ac',body:'input',mtime:1790141560}]));
+ await extractArchive(input,output,{prefix:'package'});
+ assert.equal((await lstat(join(output,'configure'))).mtimeMs,1790141562000);
+ assert.equal((await lstat(join(output,'configure.ac'))).mtimeMs,1790141560000);
+ assert.ok((await lstat(join(output,'configure'))).mtimeMs>(await lstat(join(output,'configure.ac'))).mtimeMs);
+ assert.equal(await readFile(join(output,'configure'),'utf8'),'generated');assert.equal(await readFile(join(output,'configure.ac'),'utf8'),'input');
+});
+test('TAR拒绝非法PAX时间且写入时间失败仍关闭句柄并清理本轮候选',async t=>{
+ const root=await sandbox(t),record=value=>{const body='mtime='+value+'\n';let length=body.length+2;while(String(length).length+1+body.length!==length)length=String(length).length+1+body.length;return length+' '+body;};
+ const valid=join(root,'fraction.tgz');await writeFile(valid,tar([{name:'PaxHeaders/a',type:'x',body:record('1790141560.125')},{name:'a',body:'x'}]));
+ const fraction=join(root,'fraction');await extractArchive(valid,fraction);assert.equal((await lstat(join(fraction,'a'))).mtimeMs,1790141560125);
+ for(const [index,value]of ['NaN','Infinity','-1','1e3','8640000000001','1.1234567890'].entries()){
+  const input=join(root,index+'.tgz'),output=join(root,'invalid'+index);await writeFile(input,tar([{name:'PaxHeaders/a',type:'x',body:record(value)},{name:'a',body:'x'}]));
+  await assert.rejects(extractArchive(input,output),/TAR修改时间无效/);assert.equal(await stat(output),null);
+ }
+ const output=join(root,'utimes'),failure=Error('synthetic TAR utimes failure');let closed=false;
+ await assert.rejects(materializeArchiveEntries(output,[{path:'a',type:'file',mode:0o644,mtime:1}],{write:async(file,entry)=>{
+  const handle=await open(file,'wx');try{await handle.writeFile('x');await handle.utimes(NaN,entry.mtime);}catch{throw failure;}finally{await handle.close();closed=true;}
+ }}),error=>error===failure);
+ assert.equal(closed,true);assert.equal(await stat(output),null);
 });
 test('归档安全解包并隔离不同任务，拒绝路径和链接越界',async t=>{
  const root=await sandbox(t),source=join(root,'source.tgz'),data=tar([{name:'package/a',body:'source'},{name:'package/b',type:'2',target:'a'}]);await writeFile(source,data);
@@ -2521,7 +3004,12 @@ export function resourceEnvironment(platform,work,receipt,base={}) {
  if(!receipt||receipt.schema!==1||receipt.product_id!==product||receipt.platform!==platform||receipt.work!==work||receipt.offline!==true
   ||!receipt.tools||!receipt.dependencies||!receipt.archives)fail('资源回执身份无效');
  const env={HOME:base.HOME,USER:base.USER,LOGNAME:base.LOGNAME,LANG:'zh_CN.UTF-8',LC_ALL:'zh_CN.UTF-8',
-  ...receipt.environment,TMPDIR:join(work,'tmp')+sep,TMP:join(work,'tmp'),TEMP:join(work,'tmp'),XDG_CACHE_HOME:join(work,'cache'),XDG_CONFIG_HOME:join(work,'config'),
+  ...receipt.environment,
+  // 公开调度身份随同一真实任务传递；令牌不进入工具及SDK测试环境。
+  ...(base.GITHUB_ACTIONS==='true'?Object.fromEntries(
+    ['GITHUB_ACTIONS','GITHUB_REPOSITORY','GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT','GITHUB_SHA']
+      .filter(key=>typeof base[key]==='string').map(key=>[key,base[key]])):{}),
+  TMPDIR:join(work,'tmp')+sep,TMP:join(work,'tmp'),TEMP:join(work,'tmp'),XDG_CACHE_HOME:join(work,'cache'),XDG_CONFIG_HOME:join(work,'config'),
   CARGO_TARGET_DIR:join(work,'work/cargo-target'),CARGO_NET_OFFLINE:'true',CARGO_INCREMENTAL:'1',
   npm_config_offline:'true',npm_config_audit:'false',npm_config_fund:'false'};
  const allowedEnvironment=new Set(['PRODUCT_WORK_DIR','PRODUCT_BASH_BIN','PRODUCT_RSYNC_BIN','PATH','DEVELOPER_DIR','SDKROOT','DART_EXECUTABLE','XCODEBUILD','XATTR','CODESIGN','SECURITY','XCRUN','XCODE_SELECT','CC','CXX','SWIFT','SWIFTC','OTOOL','INSTALL_NAME_TOOL','LIPO','MAKE','AR','RANLIB','NM','STRIP','LLVM_NM','LD','LDCXX','CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER','ANDROID_HOME','ANDROID_SDK_ROOT','ANDROID_NDK_HOME','ANDROID_USER_HOME','ANDROID_EMULATOR_HOME','GRADLE_INIT_SCRIPT','GRADLE_USER_HOME']);
@@ -2588,7 +3076,10 @@ export function resourceEnvironment(platform,work,receipt,base={}) {
  if(receipt.archives.protocol)env.CHATSERVER_PROTOCOL_ARCHIVE=receipt.archives.protocol[0].path;
 
 
- const execution=executions.getStore();if(execution)execution.buildEnvironment=env;
+ const execution=executions.getStore();
+ env.CITIZENAPP_BUILD_VERSION=execution?.version||localBuildVersion(platform,work);
+ if(execution?.delivery==='automation'){env.CITIZENAPP_CI_BUILD='true';env.CITIZENAPP_CI_BUILD_NUMBER=execution.ciEnvironment.GITHUB_RUN_NUMBER;}
+ if(execution)execution.buildEnvironment=env;
  return env;
 }
 function checkDependency(work,path){if(!isAbsolute(path)||resolve(path)!==path||!inside(work,path)||path===work||!lstatSync(path).isDirectory()||realpathSync(path)!==path)fail('依赖回执越界或无效');}
@@ -2633,6 +3124,8 @@ export async function build(platform,work,receipt,base) {
   env.CITIZENAPP_SDK_DEPENDENCY_WORK_DIR=join(work,'dependencies/citizensdk-native');
   await runShell('run',[platform],env,project,shell);
 
+ const state=executions.getStore();process.stderr.write(buildDisplayName(platform,state?.version||localBuildVersion(platform,work))+'编译完成，开始交付验收\n');
+ if(state?.delivery==='automation')return completeAutomation(platform,work,receipt,env,state.ciEnvironment,state.version);
  return completeBuild(platform,work,receipt,env);
 }
 
@@ -2860,6 +3353,11 @@ export function parseAndroidSigning(encoded) {
   return {keystore,password:fields.password,alias:fields.alias||'development',keyPassword:fields.keyPassword||fields.password};
  }finally{bytes.fill(0);}
 }
+function installationFailure(message){const error=Error(message);error.code='PRODUCT_INSTALLATION_FAILED';return error;}
+async function checkedInstallationOutcome(error,state){
+ state?.signal?.throwIfAborted();if(error.code!=='PRODUCT_INSTALLATION_FAILED'||state?.unconfirmed||!state?.verifyLocalArtifact)throw error;
+ await state.verifyLocalArtifact();return {state:'failed',code:error.code,message:error.message};
+}
 async function completeAndroid(platform,work,receipt,env) {
  const packageName=androidPackageName(),sdk=env.ANDROID_HOME;
  const definitions=resourceRuntime.resourceDeclarations().android;
@@ -2875,7 +3373,8 @@ async function completeAndroid(platform,work,receipt,env) {
   const version={name:await manifest(apk,'version-name'),code:await manifest(apk,'version-code')};if(!version.name||version.name.length>128||!/^[1-9]\d*$/u.test(version.code))fail('Android候选版本无效');
   if(certificate&&androidCertificate((await call(signer,['verify','--verbose','--print-certs',apk])).stdout)!==certificate)fail('Android安装证书不一致');return version;
  };
- const version=await inspect(candidate),unsigned=await runBuildProcess(signer,['verify','--print-certs',candidate],env,work,{capture:true,accepted:[0,1],timeout:300000});
+ const version=await inspect(candidate);if(version.name!==env.CITIZENAPP_BUILD_VERSION)fail('Android产品版本与本平台编译版本不符');
+ const unsigned=await runBuildProcess(signer,['verify','--print-certs',candidate],env,work,{capture:true,accepted:[0,1],timeout:300000});
  if(unsigned.code!==1||!(unsigned.stdout+unsigned.stderr).includes('DOES NOT VERIFY'))fail('Android候选必须是未签名Release包');
  let encoded=await developmentMaterial(work,env);
  if(encoded===null){
@@ -2894,7 +3393,7 @@ async function completeAndroid(platform,work,receipt,env) {
  if(JSON.stringify(await inspect(signed,certificate))!==JSON.stringify(version))fail('Android签名后版本漂移');const digest=outputDigest(signed);
  const install=async(target,index)=>{
   if(outputDigest(signed)!==digest)fail('Android安装前签名产物改变');
-  const result=await call(adb,[...target,'install','-r',signed]);if(!result.stdout.split(/\r?\n/u).includes('Success'))fail('Android安装失败');
+  const result=await runBuildProcess(adb,[...target,'install','-r',signed],env,work,{capture:true,accepted:[0,1],timeout:600000});if(result.code===1)throw installationFailure('Android设备安装失败');if(!result.stdout.split(/\r?\n/u).includes('Success'))fail('Android安装成功回执无效');
   await readback(target,index);
  };
  const readback=async(target,index)=>{
@@ -2904,14 +3403,15 @@ async function completeAndroid(platform,work,receipt,env) {
   if(realpathSync(file)!==file||JSON.stringify(await inspect(file,certificate))!==JSON.stringify(version))fail('Android安装后产品、证书或版本不一致');
  };
  await saveMobileArtifact(platform,work,signed);
+ const state=executions.getStore();if(state)state.verifyLocalArtifact=async()=>{if(outputDigest(signed)!==digest||outputDigest(join(work,'android.apk'))!==digest||JSON.stringify(await inspect(signed,certificate))!==JSON.stringify(version))fail('Android签名产物在交付失败后漂移');};
  if(outputDigest(signed)!==digest)fail('Android安装前签名产物改变');
  const first=await runBuildProcess(adb,['-d','install','-r',signed],env,work,{capture:true,accepted:[0,1],timeout:300000});
  if(first.code===0&&first.stdout.split(/\r?\n/u).includes('Success'))await readback(['-d'],0);
  else{
-  if(first.code!==1||!first.stderr.includes('more than one device'))fail('ADB直接USB安装失败');
-  const serials=androidUSBSerials((await call(adb,['devices','-l'])).stdout);let failures=0;
-  for(let i=0;i<serials.length;i++){executions.getStore()?.signal?.throwIfAborted();try{await install(['-s',serials[i]],i);}catch{executions.getStore()?.signal?.throwIfAborted();failures++;}}
-  if(failures)fail('Android USB安装或回读失败'+failures+'/'+serials.length+'，已尝试全部设备');
+  if(first.code===1&&!first.stderr.includes('more than one device'))throw installationFailure('ADB直接USB安装失败');if(first.code!==1)fail('ADB直接USB安装回执无效');
+  const serials=androidUSBSerials((await call(adb,['devices','-l'])).stdout);let failures=0,unsafe=null;
+  for(let i=0;i<serials.length;i++){executions.getStore()?.signal?.throwIfAborted();try{await install(['-s',serials[i]],i);}catch(error){executions.getStore()?.signal?.throwIfAborted();if(error.code!=='PRODUCT_INSTALLATION_FAILED')unsafe??=error;failures++;}}
+  if(unsafe)throw unsafe;if(failures)throw installationFailure('Android USB安装失败'+failures+'/'+serials.length+'，已尝试全部设备');
  }
  renameSync(signed,join(work,'android.apk'));
  process.stderr.write('本机移动产物已签名验真；设备安装及产品身份、版本回读通过\n');
@@ -2952,18 +3452,20 @@ async function completeIOS(platform,work,receipt,env) {
     const found=response.result,properties=found?.properties;
     if(found?.identifier!==d.identifier||properties?.hardware?.udid!==d.udid||properties.hardware.reality!=='physical'||properties.hardware.platform!=='iOS'||properties.connection?.pairingState!=='paired'||properties.state?.developerModeStatus?.enabled?.mode!==1)fail('iOS主动探测设备身份漂移');reachable.push(d);
    }
-   if(reachable.length>1)fail('多台可用iOS真机无法确定安装设备');if(reachable.length===1)return reachable[0];
+   if(reachable.length>1)throw installationFailure('多台可用iOS真机无法确定安装设备');if(reachable.length===1)return reachable[0];
    if(attempt<7)await pauseBuild(2000,signal);
-  }fail('iOS真机等待就绪超时');
+  }throw installationFailure('iOS真机等待就绪超时');
  };
- const device=await findDevice(),prepared=await helper({operation:'ios.verify',app});
+ const prepared=await helper({operation:'ios.verify',app});if(prepared.version!==env.CITIZENAPP_BUILD_VERSION)fail('iOS产品版本与本平台编译版本不符');
+ const state=executions.getStore();if(state)state.verifyLocalArtifact=async()=>{if(outputDigest(archive)!==archiveDigest||JSON.stringify(await helper({operation:'ios.verify',app}))!==JSON.stringify(prepared))fail('iOS签名产物在交付失败后漂移');};
+ const device=await findDevice();
  const before=iosInstalled(await deviceCall(['device','info','apps','--device',device.identifier,'--include-all-apps','--bundle-id',prepared.bundle_id]),device.identifier,prepared.bundle_id);
  const less=(a,b)=>{for(let i=0;i<3;i++){if(a[i]<b[i])return true;if(a[i]>b[i])return false;}return false;};
  if(before&&(less(iosVersion(prepared.version),iosVersion(before.version))||!less(iosVersion(prepared.version),iosVersion(before.version))&&!less(iosVersion(before.version),iosVersion(prepared.version))&&less(iosVersion(prepared.build),iosVersion(before.build))))fail('iOS禁止降级安装');
  const refreshed=await findDevice();if(JSON.stringify(refreshed)!==JSON.stringify(device)||JSON.stringify(await helper({operation:'ios.verify',app}))!==JSON.stringify(prepared))fail('iOS安装前设备或签名产物漂移');
  if(outputDigest(archive)!==archiveDigest)fail('iOS归档输入漂移');
  await saveMobileArtifact(platform,work,archive);
- await deviceCall(['device','install','app','--device',device.identifier,app]);
+ try{await deviceCall(['device','install','app','--device',device.identifier,app]);}catch(error){signal?.throwIfAborted();if(executions.getStore()?.unconfirmed||!(/^产品工具执行失败（exit=[1-9]\d*，signal=none，errors=none，/u.test(error.message)||error.message.endsWith('iOS设备命令失败')))throw error;throw installationFailure('iOS设备安装命令失败');}
  const after=iosInstalled(await deviceCall(['device','info','apps','--device',device.identifier,'--include-all-apps','--bundle-id',prepared.bundle_id]),device.identifier,prepared.bundle_id);
  if(!after||after.version!==prepared.version||after.build!==prepared.build)fail('iOS安装后产品或版本回读不一致');
  if(outputDigest(archive)!==archiveDigest||JSON.stringify(await helper({operation:'ios.verify',app}))!==JSON.stringify(prepared))fail('iOS安装期间签名产物漂移');
@@ -3139,6 +3641,91 @@ if(testSession&&process.argv.length===2&&testFiles().some(file=>join(root,file)=
 });
 if(testSession&&process.argv.length===2&&resolve(process.argv[1]||'')===fileURLToPath(import.meta.url)){
  const {test}=await import('node:test'),{default:assert}=await import('node:assert/strict');
+ test('安装失败仅在签名身份重新验真后保留编译成功，安全失败取消和未知退出不降级',async()=>{
+  const failure=installationFailure('设备安装失败');let verified=0;
+  assert.deepEqual(await checkedInstallationOutcome(failure,{verifyLocalArtifact:async()=>{verified++;}}),{state:'failed',code:'PRODUCT_INSTALLATION_FAILED',message:'设备安装失败'});assert.equal(verified,1);
+  const unsafe=Error('签名漂移');await assert.rejects(checkedInstallationOutcome(failure,{verifyLocalArtifact:async()=>{throw unsafe;}}),error=>error===unsafe);
+  await assert.rejects(checkedInstallationOutcome(unsafe,{verifyLocalArtifact:async()=>{verified++;}}),error=>error===unsafe);
+  await assert.rejects(checkedInstallationOutcome(failure,{unconfirmed:true,verifyLocalArtifact:async()=>{verified++;}}),error=>error===failure);
+  await assert.rejects(checkedInstallationOutcome(failure,{}),error=>error===failure);
+  await assert.rejects(checkedInstallationOutcome(failure,{signal:AbortSignal.abort(),verifyLocalArtifact:async()=>{verified++;}}),/abort/iu);assert.equal(verified,1);
+ });
+ test('产品任务与交付名称严格分离且平台版本独立',()=>{
+  assert.equal(buildTaskName('ios','塔塔自动化'),'公民·塔塔自动化·iOS');assert.equal(buildDisplayName('android','1.2.3'),'公民·Android·v1.2.3');
+  assert.equal(nextBuildVersion('1.2.9'),'1.2.10');assert.equal(buildPlatforms.ios.initialVersion,'1.0.0');assert.equal(buildPlatforms.android.initialVersion,'1.0.0');
+  for(const value of ['v1.0.0','01.0.0','1.0','1.0.0 ','1.0.0\n','1.0.0/other'])assert.throws(()=>checkedBuildVersion(value));
+  assert.throws(()=>buildTaskName('other'));assert.throws(()=>buildTaskName('ios','任意流程'));assert.throws(()=>buildDisplayName('other','1.0.0'));
+ });
+ test('增量只在真实领取者成功收尾后替换，失败保留上一份且平台隔离',async()=>{
+  const work=fixedWork('build/ios');
+  try{
+   await withFixedWork('build/ios',async path=>{
+    mkdirSync(join(path,'source-view'));writeFileSync(join(path,'source-view/input.dart'),'first');
+    writeFileSync(join(path,'.build-retain.json'),JSON.stringify({schema:1,product_id:product,platform:'ios',work:path,version:'1.0.0'}));
+   });
+   const cache=join(work,'incremental/data/source-view/input.dart');assert.equal(readFileSync(cache,'utf8'),'first');assert.equal(checkedRetainedEntry(work,'incremental').platform,'ios');
+   await assert.rejects(withFixedWork('build/ios',async path=>{assert.equal(restoreIncremental('ios',path),true);assert.equal(readFileSync(join(path,'source-view/input.dart'),'utf8'),'first');writeFileSync(join(path,'source-view/input.dart'),'failed');throw Error('增量夹具失败');}),/增量夹具失败/);
+   assert.equal(readFileSync(cache,'utf8'),'first');assert.equal(existsSync(join(work,'source-view')),false);
+   assert.notEqual(incrementalIdentity('ios'),incrementalIdentity('android'));
+   await withFixedWork('build/ios',async path=>{restoreIncremental('ios',path);writeFileSync(join(path,'.build-retain.json'),JSON.stringify({schema:1,product_id:product,platform:'ios',work:path,version:'1.0.2'}));writeFileSync(join(path,'input.apk'),'signed-fixture');const files=retainCompiledArtifacts('ios',path,'1.0.2',[{path:join(path,'input.apk'),extension:'.app.zip'}]);assert.equal(files[0].name,'公民·iOS·v1.0.2.app.zip');});
+   assert.equal(checkedRetainedEntry(work,'artifact').version,'1.0.2');assert.equal(readFileSync(cache,'utf8'),'first');
+  }finally{if(existsSync(work))rmSync(work,{recursive:true});}
+ });
+ test('产物在最终回执之前失败恢复上一集合，增量提交失败也回滚',async()=>{
+  const work=fixedWork('build/ios'),mark=path=>writeFileSync(join(path,'.build-retain.json'),JSON.stringify({schema:1,product_id:product,platform:'ios',work:path,version:'1.0.1'}));
+  try{
+   await withFixedWork('build/ios',async path=>{writeFileSync(join(path,'first'),'first');retainCompiledArtifacts('ios',path,'1.0.1',[{path:join(path,'first'),extension:'.app.zip'}]);mark(path);});
+   for(const mode of ['result','cache']){
+    await assert.rejects(withFixedWork('build/ios',async path=>{writeFileSync(join(path,'second'),'second');retainCompiledArtifacts('ios',path,'1.0.2',[{path:join(path,'second'),extension:'.app.zip'}]);if(mode==='result')throw Error('最终回执失败');mkdirSync(join(path,'source-view'));writeFileSync(join(path,'source-view/a'),'a');targetFs.linkSync(join(path,'source-view/a'),join(path,'source-view/b'));mark(path);}),/最终回执|特殊文件/);
+    assert.equal(checkedRetainedEntry(work,'artifact').version,'1.0.1');assert.equal(readFileSync(join(work,'artifact/公民·iOS·v1.0.1.app.zip'),'utf8'),'first');assert.equal(existsSync(join(work,'artifact.previous')),false);
+   }
+  }finally{if(existsSync(work))rmSync(work,{recursive:true});}
+ });
+ test('增量与产物事务按阶段恢复，未知归属拒绝且凭据不进入缓存',async()=>{
+  const work=fixedWork('build/ios');
+  try{
+   for(const phase of ['prepared','committing']){
+    await withFixedWork('build/ios',async path=>{
+     const generation=randomUUID(),pending=join(path,'incremental.pending');mkdirSync(pending);
+     const record={schema:1,product_id:product,platform:'ios',identity:incrementalIdentity('ios'),source:root,work:path,paths:[],generation};writeFileSync(join(pending,'receipt.json'),JSON.stringify(record));
+     const hadPrevious=Boolean(checkedRetainedEntry(path,'incremental'));replaceRetainedDirectory(path,'incremental',pending,{retainPrevious:true});
+     writeRetentionIntent(path,{schema:1,product_id:product,platform:'ios',work:path,version:'1.0.1',phase,generation,cache_previous:hadPrevious});
+    });
+    assert.equal(existsSync(join(work,'incremental.previous')),false);assert.equal(existsSync(join(work,'.build-retain.json')),false);
+    if(phase==='prepared')assert.equal(existsSync(join(work,'incremental')),false);else assert.equal(checkedRetainedEntry(work,'incremental').platform,'ios');
+   }
+   await withFixedWork('build/ios',async path=>{
+    writeFileSync(join(path,'.build-retain.json'),JSON.stringify({schema:1,product_id:'foreign',platform:'ios',work:path,version:'1.0.1'}));
+    assert.throws(()=>commitProductRetention(path),/提交身份不符/);unlinkSync(join(path,'.build-retain.json'));
+   });
+   const area=fixedScratch(join(testRoot(),'cache-sensitive-'));try{
+    const source=join(area,'source'),output=join(area,'output');mkdirSync(source);for(const name of ['.env','.env.local','.npmrc','credentials.json','signing.key','public.dart'])writeFileSync(join(source,name),'synthetic');
+    copyIncrementalTree(source,output);assert.deepEqual(readdirSync(output),['public.dart']);
+   }finally{rmSync(area,{recursive:true});}
+  }finally{if(existsSync(work))rmSync(work,{recursive:true});}
+ });
+ test('产物换位中断恢复旧集合，已写提交候选必须逐字匹配',async()=>{
+  const work=fixedWork('build/ios'),mark=path=>writeFileSync(join(path,'.build-retain.json'),JSON.stringify({schema:1,product_id:product,platform:'ios',work:path,version:'1.0.1'}));
+  try{
+   await withFixedWork('build/ios',async path=>{writeFileSync(join(path,'first'),'first');retainCompiledArtifacts('ios',path,'1.0.1',[{path:join(path,'first'),extension:'.app.zip'}]);mark(path);});
+   await withFixedWork('build/ios',async path=>{
+    writeFileSync(join(path,'second'),'second');retainCompiledArtifacts('ios',path,'1.0.2',[{path:join(path,'second'),extension:'.app.zip'}]);renameSync(join(path,'artifact'),join(path,'artifact.pending'));
+   });
+   assert.equal(checkedRetainedEntry(work,'artifact').version,'1.0.1');assert.equal(existsSync(join(work,'artifact.pending')),false);
+   await withFixedWork('build/ios',async path=>{
+    writeFileSync(join(path,'second'),'second');retainCompiledArtifacts('ios',path,'1.0.2',[{path:join(path,'second'),extension:'.app.zip'}]);const record=checkedRetainedEntry(path,'artifact'),finalized={...record};delete finalized.pending;delete finalized.previous;writeFileSync(join(path,'artifact/receipt.json.pending'),JSON.stringify(finalized));mark(path);
+   });
+   assert.equal(checkedRetainedEntry(work,'artifact').version,'1.0.2');assert.equal(existsSync(join(work,'artifact/receipt.json.pending')),false);
+  }finally{if(existsSync(work))rmSync(work,{recursive:true});}
+ });
+ test('工程视图只复用未变更mtime与编译状态，删除源码不恢复',()=>{
+  const area=fixedScratch(join(testRoot(),'view-incremental-')),before=join(area,'before'),after=join(area,'after');
+  try{
+   for(const path of [before,after])mkdirSync(path);writeFileSync(join(before,'same.dart'),'same');writeFileSync(join(after,'same.dart'),'same');targetFs.utimesSync(join(before,'same.dart'),100,100);
+   writeFileSync(join(before,'deleted.dart'),'deleted');writeFileSync(join(before,'changed.dart'),'old');writeFileSync(join(after,'changed.dart'),'new');mkdirSync(join(before,'.dart_tool'));writeFileSync(join(before,'.dart_tool/state.bin'),'compiler');
+   restoreViewIncremental(before,after);assert.equal(lstatSync(join(after,'same.dart')).mtimeMs,100000);assert.equal(existsSync(join(after,'deleted.dart')),false);assert.equal(readFileSync(join(after,'changed.dart'),'utf8'),'new');assert.equal(readFileSync(join(after,'.dart_tool/state.bin'),'utf8'),'compiler');
+  }finally{rmSync(area,{recursive:true});}
+ });
  test('本仓测试固定根归随机会话，正式平台根不变',()=>{
   assert.equal(fixedWork('test'),join(root,'target/test/sessions',testSession));
   for(const platform of Object.keys(contract.platforms))assert.equal(fixedWork('build/'+platform),join(fixedWork('test'),'build',platform));
@@ -3167,11 +3754,15 @@ async function executeTask(platform,work,request={},options={}) {
  if(existsSync(resultFile))fail('本轮完整Build已有结果，禁止复用旧终态');
  const handle=openSync(lock,'wx',0o600);closeSync(handle);
  const cancellation=new AbortController(),abort=()=>cancellation.abort();options.signal?.addEventListener('abort',abort,{once:true});if(options.signal?.aborted)abort();
- const state={signal:cancellation.signal,cancellation,unconfirmed:false,finished:false};
+ const delivery=options.delivery||'local';if(!['local','automation'].includes(delivery))fail('编译交付环境无效');
+ const version=checkedBuildVersion(options.version||localBuildVersion(platform,work));
+ if(delivery==='automation')checkedAutomationEnvironment(platform,options.ciEnvironment||{});
+ const state={signal:cancellation.signal,cancellation,unconfirmed:false,finished:false,delivery,version,ciEnvironment:options.ciEnvironment};
  try{return await executions.run(state,async()=>{
   const stages=options.stages||{requirements,resources:(...args)=>Promise.resolve(resourceRuntime.resources(...args)),prepare,build};
   const resourcesOptions={signal:state.signal,offline:Boolean(options.offline),environment:options.environment||process.env};
 
+  if(!options.stages)restoreIncremental(platform,work);
   await stages.requirements(platform,work);state.signal.throwIfAborted();
   let receipt=await stages.resources(platform,work,request,resourcesOptions);state.signal.throwIfAborted();
   await stages.prepare(platform,work,receipt,resourcesOptions.environment);state.signal.throwIfAborted();
@@ -3180,8 +3771,10 @@ async function executeTask(platform,work,request={},options={}) {
   await stages.requirements(platform,work);
   receipt=await stages.resources(platform,work,receipt,resourcesOptions);state.signal.throwIfAborted();
   const result=await stages.build(platform,work,receipt,resourcesOptions.environment);state.signal.throwIfAborted();
-  checkBuildResult(result,platform,work,request.run_id);
-  writeFileSync(resultFile,JSON.stringify(result)+'\n',{flag:'wx',mode:0o600});return result;
+  if(delivery==='automation'){if(result.product_id!==product||result.platform!==platform||result.version!==version||result.tag!==buildDisplayName(platform,version))fail('自动化编译回执无效');}
+  else checkBuildResult(result,platform,work,request.run_id);
+  writeFileSync(resultFile,JSON.stringify(result)+'\n',{flag:'wx',mode:0o600});
+  if(!options.stages)writeFileSync(join(work,'.build-retain.json'),JSON.stringify({schema:1,product_id:product,platform,work,version})+'\n',{flag:'wx',mode:0o600});return result;
  });}catch(error){if(String(error?.message).includes('退出未确认'))state.unconfirmed=true;throw error;}finally{
   state.finished=true;options.signal?.removeEventListener('abort',abort);
   // 本层仅释放自己创建的编译守卫；嵌套执行器仍属于外层登记的活跃进程组。
@@ -3196,21 +3789,34 @@ export function checkBuildResult(value,platform,work,runId) {
  const extension=platform==='ios'?'.app.zip':'.apk';
  if(!app.files[0].endsWith(extension))fail('公民App平台与移动产物类型不一致');
  if(value?.schema!==1||value.product_id!==product||value.platform!==platform||value.work!==work
-  ||value.run_id!==runId||value.completion!=='device-install'||!Array.isArray(value.files)||value.files.length!==1)fail('公民App安装终态无效');
+  ||value.run_id!==runId||!(value.completion==='device-install'||value.version!==undefined&&value.completion==='compile-only'&&value.installation?.state==='failed'&&value.installation.code==='PRODUCT_INSTALLATION_FAILED')||!Array.isArray(value.files)||value.files.length!==1)fail('公民App安装终态无效');
  const artifact=value.files[0],path=join(work,app.files[0]);
  if(artifact.path!==path||realpathSync(path)!==path||!inside(work,path)||!lstatSync(path).isFile()
   ||Object.keys(artifact).sort().join(',')!=='path,sha256'||!/^[a-f0-9]{64}$/u.test(artifact.sha256)||outputDigest(path)!==artifact.sha256)fail('公民App签名安装产物在交付前变化');
  const allowed=new Set(['schema','product_id','platform','work','completion','files']);if(runId)allowed.add('run_id');
+ if(value.version!==undefined){
+  checkedBuildVersion(value.version);allowed.add('version');allowed.add('artifacts');allowed.add('installation');
+  if(!value.installation||!['success','failed'].includes(value.installation.state)||value.installation.state==='success'&&Object.keys(value.installation).join(',')!=='state'||value.installation.state==='failed'&&(Object.keys(value.installation).sort().join(',')!=='code,message,state'||value.installation.code!=='PRODUCT_INSTALLATION_FAILED'||typeof value.installation.message!=='string'||value.installation.message.length>256))fail('公民App安装分阶段回执无效');
+  if(value.installation.state==='failed'&&(value.completion!=='compile-only'||/[\x00-\x1f\x7f]/u.test(value.installation.message))||value.installation.state==='success'&&value.completion!=='device-install')fail('公民App安装状态与终态不一致');
+  if(!Array.isArray(value.artifacts)||value.artifacts.length!==1)fail('公民App公开产物登记无效');
+  const retained=value.artifacts[0],name=buildDisplayName(platform,value.version)+extension;
+  if(retained.name!==name||retained.path!==join(work,'artifact',name)||realpathSync(retained.path)!==retained.path||retained.sha256!==outputDigest(retained.path))fail('公民App公开产物身份漂移');
+ }
  if(Object.keys(value).length!==allowed.size||Object.keys(value).some(field=>!allowed.has(field)))fail('公民App结果含未公开字段');
  return value;
 }
 async function completeBuild(platform,work,receipt,env) {
  const declared=platformContract(platform);
- if(declared.completion==='device-install')await completeMobile(platform,work,receipt,env);
+ let installation={state:'success'};
+ if(declared.completion==='device-install')try{await completeMobile(platform,work,receipt,env);}catch(error){
+  installation=await checkedInstallationOutcome(error,executions.getStore());process.stderr.write('编译及签名验真成功；设备安装失败：'+error.message+'\n');
+ }
  if(declared.completion==='macos-artifact')for(const name of declared.files)await run(env.CODESIGN,['--verify','--deep','--strict',join(work,name)],env);
  const result={schema:1,product_id:product,platform,work,completion:declared.completion,
   files:declared.files.map(name=>{const path=join(work,name);if(!inside(work,path)||realpathSync(path)!==path)fail('Build候选越界');return {path,sha256:outputDigest(path)};})};
- if(receipt.run_id)result.run_id=receipt.run_id;return checkBuildResult(result,platform,work,receipt.run_id);
+ if(receipt.run_id)result.run_id=receipt.run_id;
+ const state=executions.getStore();if(state?.version){result.version=state.version;result.installation=installation;if(installation.state==='failed')result.completion='compile-only';result.artifacts=retainCompiledArtifacts(platform,work,state.version,result.files.map(file=>({path:file.path,extension:platform==='ios'?'.app.zip':'.apk'})));}
+ return checkBuildResult(result,platform,work,receipt.run_id);
 }
 
 // 全双工宿主通道只传开发签名材料，不与stdout结果、stderr日志或资源回执混用。
@@ -3497,8 +4103,10 @@ async function createView(sourceInput, workInput, android = false) {
     if (!prior.isDirectory() || prior.isSymbolicLink() || !inside(workRoot, viewRoot)) {
       fail('旧工程视图归属无效');
     }
-    rmSync(viewRoot, { recursive: true });
+    if(existsSync(viewRoot+'.previous'))fail('旧工程视图事务尚未完成');
+    renameSync(viewRoot,viewRoot+'.previous');
   }
+  try{
   mkdirSync(viewRoot, { recursive: true, mode: 0o700 });
   const visited = new Set();
   const mappedPath = source => join(viewRoot, source.replace(/^\/+/, ''));
@@ -3594,7 +4202,9 @@ async function createView(sourceInput, workInput, android = false) {
     if (lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink()) rmSync(path);
     writeFileSync(path, value);
   }
+  if(prior){restoreViewIncremental(viewRoot+'.previous',viewRoot);rmSync(viewRoot+'.previous',{recursive:true});}
   return mappedPath(sourceRoot);
+  }catch(error){if(existsSync(viewRoot))rmSync(viewRoot,{recursive:true});if(prior&&existsSync(viewRoot+'.previous'))renameSync(viewRoot+'.previous',viewRoot);throw error;}
 }
 
 // CI预先解析Pub后复用同一视图；不接受另一工作根、源码副本或漂移的SDK依赖。
@@ -4597,8 +5207,8 @@ for(const platform of ['android','ios'])rejectPlatformCopies(join(root,platform)
 process.stdout.write('公民Logo派生物清单检查通过\n');
 
 }
-export const BUILD_SHELL_SOURCES=Object.freeze({"run":"#!/usr/bin/env bash\n# 在调用方指定的源码外工作根生成本机优化安装包；本脚本不启动、不安装产品。\n#\n# 用法：node scripts/build.mjs run <ios|android>\n# 只读包检查：node scripts/build.mjs run <verify-ios-localization|verify-android-localization> <产物路径>\n# Isar 生成后补齐职责注释：node scripts/build.mjs run normalize-isar-comments\n#\n# 目标平台是必填参数，不做任何自动探测：探测总要在失败时选一个回落，\n# 而回落的那一端会被当成用户想编的那一端——「以为编了 iOS、实际编的 Android」\n# 就是这么来的。任意调用方都必须显式传入且只能构建这一端。\n#\n# 调用方可提供本仓target内的独立缓存目录；默认使用target/build/<平台>。\n# 公民链轻节点、交易和链存储全部由 CitizenSDK Flutter plugin 提供。\nset -euo pipefail\nSCRIPT_DIR=\"${CITIZENAPP_SCRIPTS_ROOT:?缺少源码脚本根}\"\n# 消解 scripts/..，确保直接产品源码身份使用唯一真实路径。\nAPP_ROOT=\"${CITIZENAPP_SOURCE_ROOT:?缺少产品源码根}\"\nREPO_ROOT=\"$APP_ROOT\"\n# 只补齐两份既定生成文件的职责说明；全部输入通过检查后才允许写入。\nif [[ \"${1:-}\" == normalize-isar-comments ]]; then\n  [[ \"$#\" == 1 ]] || { echo 'Isar 注释规范化不接受额外参数' >&2; exit 1; }\n  node - \"$APP_ROOT\" <<'NORMALIZE_ISAR_COMMENTS'\nconst { lstatSync, readFileSync, writeFileSync } = require('node:fs');\nconst { join } = require('node:path');\nconst root = process.argv[2];\nfor (const path of [root, join(root, 'lib'), join(root, 'lib/storage')]) {\n  if (!lstatSync(path).isDirectory() || lstatSync(path).isSymbolicLink()) {\n    throw new Error('Isar 输入目录必须为真实目录');\n  }\n}\nconst entries = [\n  ['user_isar', '// 由 user_isar.dart 生成用户域集合、序列化与查询；身份展示缓存不得作为授权真源。'],\n  ['wallet_isar', '// 由 wallet_isar.dart 生成钱包域集合、序列化与查询；余额展示快照不得作为链上授权真源。'],\n];\nconst header = '// GENERATED CODE - DO NOT MODIFY BY HAND\\n';\nconst updates = entries.map(([name, comment]) => {\n  const path = join(root, 'lib/storage', `${name}.g.dart`);\n  if (!lstatSync(path).isFile() || lstatSync(path).isSymbolicLink()) {\n    throw new Error(`Isar 生成文件必须为普通文件：${name}`);\n  }\n  const original = readFileSync(path, 'utf8');\n  const normalized = `${header}${comment}\\n`;\n  const body = original.startsWith(normalized) ? original.slice(normalized.length)\n    : original.startsWith(header) ? original.slice(header.length) : null;\n  if (body === null || !body.startsWith(`\\npart of '${name}.dart';\\n`)) {\n    throw new Error(`Isar 生成头或所属源文件不匹配：${name}`);\n  }\n  return { path, original, next: normalized + body };\n});\nfor (const { path, original, next } of updates) {\n  if (original !== next) writeFileSync(path, next);\n}\nprocess.stdout.write('Isar 两份生成文件职责注释已规范化，生成正文保持不变\\n');\nNORMALIZE_ISAR_COMMENTS\n  exit 0\nfi\nCITIZENSDK_ROOT=''\nTATACHATSDK_ROOT=''\nVIEW_SCRIPT=\"$SCRIPT_DIR/build.mjs\"\nPLATFORM=\"${1:?缺少目标平台，用法：$0 <ios|android>}\"\n[[ \"$PLATFORM\" == ios || \"$PLATFORM\" == android \\\n  || \"$PLATFORM\" == verify-ios-localization || \"$PLATFORM\" == verify-android-localization ]] \\\n  || { echo \"目标平台或检查模式不合法：$PLATFORM\" >&2; exit 1; }\nif [[ \"$PLATFORM\" == ios || \"$PLATFORM\" == android ]]; then\n  CITIZENAPP_WORK_DIR=\"${CITIZENAPP_WORK_DIR:-$APP_ROOT/target/build/$PLATFORM}\"\n  # macOS 的 /tmp、/var 可能是系统链接；先创建再读取物理路径，使默认直接开发路径\n  # 与工程视图的“规范绝对路径、无链接祖先”安全合同一致。\n  mkdir -p \"$CITIZENAPP_WORK_DIR\"\n  CITIZENAPP_WORK_DIR=\"$(cd \"$CITIZENAPP_WORK_DIR\" && pwd -P)\"\n  dependency_sources=\"$(node \"$VIEW_SCRIPT\" view dependencies --source-root \"$APP_ROOT\" --work-root \"$CITIZENAPP_WORK_DIR\")\"\n  CITIZENSDK_ROOT=\"$(printf '%s' \"$dependency_sources\" | node -e 'let s=\"\";process.stdin.on(\"data\",c=>s+=c);process.stdin.on(\"end\",()=>process.stdout.write(JSON.parse(s).citizen_sdk.root));')\"\n  TATACHATSDK_ROOT=\"$(printf '%s' \"$dependency_sources\" | node -e 'let s=\"\";process.stdin.on(\"data\",c=>s+=c);process.stdin.on(\"end\",()=>process.stdout.write(JSON.parse(s).tatachat_sdk.root));')\"\n  # 源码根只用于读取输入和调用原生脚本；Flutter可写状态始终进入调用方工作目录。\n  [[ \"$APP_ROOT\" == \"$REPO_ROOT\" ]] || {\n    echo \"citizenapp本机Build源码身份无效：$APP_ROOT\" >&2\n    exit 1\n  }\n  if [[ -z \"${CITIZENAPP_PROJECT_ROOT:-}\" ]]; then\n    CITIZENAPP_PROJECT_ROOT=\"$(node \"$VIEW_SCRIPT\" view create \\\n      --source-root \"$APP_ROOT\" --work-root \"$CITIZENAPP_WORK_DIR\")\"\n  fi\n  [[ -d \"$CITIZENAPP_PROJECT_ROOT\" && -f \"$CITIZENAPP_PROJECT_ROOT/pubspec.yaml\" ]] \\\n    || { echo 'CitizenApp Flutter 产品目录无效' >&2; exit 1; }\n  export CITIZENAPP_PROJECT_ROOT\n  cd \"$CITIZENAPP_PROJECT_ROOT\"\n  BUILD_WORK_DIR=\"${CITIZENAPP_BUILD_WORK_DIR:-$CITIZENAPP_WORK_DIR/work}\"\n  DEPENDENCY_WORK_DIR=\"${CITIZENAPP_DEPENDENCY_DIR:-$CITIZENAPP_WORK_DIR/dependencies}\"\n  BUILD_DIR=\"${CITIZENAPP_BUILD_DIR:-$BUILD_WORK_DIR/flutter}\"\n  ARTIFACT_ROOT=\"${CITIZENAPP_ARTIFACT_DIR:-$CITIZENAPP_WORK_DIR}\"\n  python3 - \"$APP_ROOT\" \"$CITIZENAPP_WORK_DIR\" \"$BUILD_WORK_DIR\" \"$DEPENDENCY_WORK_DIR\" \"$BUILD_DIR\" \"$ARTIFACT_ROOT\" <<'CHECK_OUTPUTS'\nfrom pathlib import Path\nimport sys\nsource = Path(sys.argv[1]).resolve()\nfor value in sys.argv[2:]:\n    raw = Path(value)\n    target = raw.resolve()\n    if not raw.is_absolute() or source / 'target' not in target.parents:\n        raise SystemExit(f'CitizenApp可写目录必须是本仓target内绝对路径：{value}')\nCHECK_OUTPUTS\n  export CITIZENAPP_BUILD_DIR=\"$BUILD_DIR\"\n  export CITIZENAPP_NATIVE_ANDROID_DIR=\"${CITIZENAPP_NATIVE_ANDROID_DIR:-$BUILD_WORK_DIR/native/android}\"\n  export CITIZENAPP_NATIVE_IOS_DIR=\"${CITIZENAPP_NATIVE_IOS_DIR:-$BUILD_WORK_DIR/native/ios}\"\n  export CARGO_TARGET_DIR=\"${CARGO_TARGET_DIR:-$BUILD_WORK_DIR/cargo}\"\n  export XDG_CONFIG_HOME=\"${XDG_CONFIG_HOME:-$DEPENDENCY_WORK_DIR/flutter-config}\"\n  export PUB_CACHE=\"${PUB_CACHE:-$DEPENDENCY_WORK_DIR/pub}\"\n  export GRADLE_USER_HOME=\"$DEPENDENCY_WORK_DIR/gradle\"\n  # 只有 Android 使用 Gradle；iOS 工程不装配 Wrapper，也不依赖 Android 工具。\n  if [[ \"$PLATFORM\" == android ]]; then\n    GRADLE_EXECUTABLE=\"${CITIZENAPP_GRADLE:-$CITIZENAPP_PROJECT_ROOT/android/gradlew}\"\n    [[ \"$GRADLE_EXECUTABLE\" == /* && -f \"$GRADLE_EXECUTABLE\" && ! -L \"$GRADLE_EXECUTABLE\"\n        && -x \"$GRADLE_EXECUTABLE\" ]] \\\n      || { echo 'CitizenApp Gradle执行器必须是绝对普通可执行文件' >&2; exit 1; }\n  fi\n  export CP_HOME_DIR=\"$DEPENDENCY_WORK_DIR/cocoapods\"\n  export TMPDIR=\"$CITIZENAPP_WORK_DIR/tmp/\"\n  export FLUTTER_SUPPRESS_ANALYTICS=true COCOAPODS_DISABLE_STATS=true\n  CITIZENAPP_GRADLE_INIT_SCRIPT=\"${CITIZENAPP_GRADLE_INIT_SCRIPT:-$CITIZENAPP_WORK_DIR/gradle.init.gradle}\"\n  CITIZENAPP_FLUTTER_GRADLE_BUILD_DIR=\"${CITIZENAPP_FLUTTER_GRADLE_BUILD_DIR:-$BUILD_WORK_DIR/flutter-gradle-plugin}\"\n  export CITIZENAPP_GRADLE_INIT_SCRIPT CITIZENAPP_FLUTTER_GRADLE_BUILD_DIR\n  mkdir -p \"$XDG_CONFIG_HOME\" \"$TMPDIR\" \"$CITIZENAPP_FLUTTER_GRADLE_BUILD_DIR\"\n  printf '%s\\n' \\\n    'gradle.beforeSettings { settings ->' \\\n    '    def source = System.getenv(\"CITIZENAPP_FLUTTER_GRADLE_ROOT\")' \\\n    '    if (source && settings.settingsDir.canonicalPath == new File(source).canonicalPath) {' \\\n    '        settings.pluginManagement.repositories {' \\\n    '            clear()' \\\n    '            mavenCentral()' \\\n    '            google()' \\\n    '            gradlePluginPortal()' \\\n    '        }' \\\n    '    }' \\\n    '}' \\\n    'gradle.beforeProject { project ->' \\\n    '    def source = System.getenv(\"CITIZENAPP_FLUTTER_GRADLE_ROOT\")' \\\n    '    def output = System.getenv(\"CITIZENAPP_FLUTTER_GRADLE_BUILD_DIR\")' \\\n    '    if (source && output && project.rootDir.canonicalPath == new File(source).canonicalPath) {' \\\n    '        def suffix = project.path == \":\" ? \"root\" : project.path.substring(1).replace(\":\", \"/\")' \\\n    '        project.layout.buildDirectory.set(new File(output, suffix))' \\\n    '    }' \\\n    '}' >\"$CITIZENAPP_GRADLE_INIT_SCRIPT\"\n  # Flutter只接受相对产品根的build-dir配置；把源码外绝对目录换算为相对路径，\n  # 不能写死为产品源码下的cache/build，也不能在产品根生成build。\n  FLUTTER_BUILD_RELATIVE=\"$(python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' \"$BUILD_DIR\" \"$CITIZENAPP_PROJECT_ROOT\")\"\n  flutter config --build-dir=\"$FLUTTER_BUILD_RELATIVE\" >/dev/null\nfi\n\n# Android的SDK原生Gradle与最终App Gradle必须使用同一个产品JDK。\n# 直接开发可显式传JAVA_HOME；macOS本机默认使用Android Studio自带JBR。\nANDROID_JAVA_HOME=''\nANDROID_SDK_HOME=''\nif [[ \"$PLATFORM\" == android ]]; then\n  if [[ -n \"${ANDROID_HOME:-}\" && -n \"${ANDROID_SDK_ROOT:-}\" \\\n    && \"$ANDROID_HOME\" != \"$ANDROID_SDK_ROOT\" ]]; then\n    echo 'CitizenApp Android的ANDROID_HOME与ANDROID_SDK_ROOT必须一致' >&2\n    exit 1\n  fi\n  ANDROID_SDK_HOME=\"${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}\"\n  ANDROID_JAVA_HOME=\"${JAVA_HOME:-/Applications/Android Studio.app/Contents/jbr/Contents/Home}\"\n  [[ \"$ANDROID_SDK_HOME\" == /* && -d \"$ANDROID_SDK_HOME\" \\\n    && -d \"$ANDROID_SDK_HOME/ndk/28.2.13676358\" ]] \\\n    || { echo 'CitizenApp Android缺少带固定NDK的产品SDK目录' >&2; exit 1; }\n  [[ \"$ANDROID_JAVA_HOME\" == /* && -x \"$ANDROID_JAVA_HOME/bin/java\" ]] \\\n    || { echo 'CitizenApp Android缺少可执行产品JDK' >&2; exit 1; }\nfi\n\nPUB_GET_ARGS=(--enforce-lockfile)\ncase \"${CITIZENAPP_OFFLINE:-false}\" in\n  true) PUB_GET_ARGS+=(--offline); export CARGO_NET_OFFLINE=true ;;\n  false) ;;\n  *) echo 'CITIZENAPP_OFFLINE只接受true或false' >&2; exit 1 ;;\nesac\ngradle_network_arg=''\nCITIZENAPP_GRADLE_OFFLINE=\"${CITIZENAPP_GRADLE_OFFLINE:-${CITIZENAPP_OFFLINE:-false}}\"\ncase \"$CITIZENAPP_GRADLE_OFFLINE\" in\n  true) gradle_network_arg='--offline' ;;\n  false) ;;\n  *) echo 'CITIZENAPP_GRADLE_OFFLINE只接受true或false' >&2; exit 1 ;;\nesac\n\n# 离线调用方必须分别提供SDK与聊天SDK的Cargo闭包；产品Build按实际所有者切换，\n# 禁止把两套Cargo Home混用。普通开发者在线Build继续使用自己的标准Cargo环境。\nif [[ \"${CITIZENAPP_OFFLINE:-false}\" == true ]]; then\n  for value in \"${CITIZENAPP_SDK_CARGO_HOME:-}\" \"${CITIZENAPP_CHAT_CARGO_HOME:-}\"; do\n    [[ \"$value\" == \"$DEPENDENCY_WORK_DIR\"/* && -d \"$value\" && ! -L \"$value\" \\\n      && -f \"$value/config.toml\" ]] \\\n      || { echo 'CitizenApp离线Build缺少独立Cargo依赖闭包' >&2; exit 1; }\n  done\nfi\n\n# 仅清理本任务的候选包；不触碰源码、其它工作目录或另一端。\nclean_platform_build_outputs() {\n  case \"$PLATFORM\" in\n    ios) rm -rf \"$BUILD_DIR/ios/iphoneos/Runner.app\" ;;\n    android) rm -f \"$BUILD_DIR/app/outputs/flutter-apk/\"*.apk ;;\n  esac\n  mkdir -p \"$BUILD_DIR\"\n}\n\n# iOS Runner.app完成签名后只覆盖固定 `ios.app.zip`。\nretain_ios_local_artifact() {\n  local app_bundle=\"$1\" staging=\"$CITIZENAPP_WORK_DIR/ios.app.zip\" destination=\"$ARTIFACT_ROOT/ios.app.zip\"\n  rm -f \"$staging\"\n  ditto -c -k --norsrc --noextattr --keepParent \"$app_bundle\" \"$staging\"\n  mkdir -p \"$ARTIFACT_ROOT\"\n  # 同卷固定名称覆盖保证失败时不先删除上一次成功产物。\n  mv -f \"$staging\" \"$destination\"\n}\n\n# Android产品Build只提交已验真的无私钥候选；签名、安装和安装后回读\n# 继续由调用方的原生安全进程唯一负责。\nretain_android_local_artifact() {\n  local apk=\"$1\" staging=\"$CITIZENAPP_WORK_DIR/android.apk.pending\" destination=\"$ARTIFACT_ROOT/android.apk\"\n  rm -f \"$staging\"\n  cp \"$apk\" \"$staging\"\n  chmod 600 \"$staging\"\n  mkdir -p \"$ARTIFACT_ROOT\"\n  # 同卷固定名称覆盖，安全进程只会看到完整普通文件。\n  mv -f \"$staging\" \"$destination\"\n}\n\n# 系统权限弹窗由操作系统渲染；App 唯一能提供的是最终包内的受支持语言和本地化产品名。\n# 只检查源码会漏掉 Xcode variant group 未入 Resources 等问题，Build必须回读最终包。\nverify_ios_release_localization() {\n  local app_bundle=\"$1\" info=\"$1/Info.plist\"\n  local zh_strings=\"$1/zh-Hans.lproj/InfoPlist.strings\"\n  local en_strings=\"$1/en.lproj/InfoPlist.strings\"\n  [[ -f \"$info\" && -f \"$zh_strings\" && -f \"$en_strings\" ]] || {\n    echo \"iOS Release 缺少 Info.plist 或中英文本地化资源：$app_bundle\" >&2\n    return 1\n  }\n  [[ \"$(plutil -extract CFBundleDevelopmentRegion raw -o - \"$info\")\" == zh-Hans ]] || {\n    echo 'iOS Release 默认回落语言必须是 zh-Hans' >&2\n    return 1\n  }\n  plutil -extract CFBundleLocalizations json -o - \"$info\" | python3 -c '\nimport json, sys\nif json.load(sys.stdin) != [\"zh-Hans\", \"en\"]:\n    raise SystemExit(\"iOS Release 支持语言必须严格为 zh-Hans、en\")\n'\n  [[ \"$(plutil -extract CFBundleDisplayName raw -o - \"$zh_strings\")\" == 公民 \\\n    && \"$(plutil -extract CFBundleName raw -o - \"$zh_strings\")\" == 公民 ]] || {\n    echo 'iOS Release 中文产品名必须是“公民”' >&2\n    return 1\n  }\n  [[ \"$(plutil -extract CFBundleDisplayName raw -o - \"$en_strings\")\" == CitizenApp \\\n    && \"$(plutil -extract CFBundleName raw -o - \"$en_strings\")\" == CitizenApp ]] || {\n    echo 'iOS Release 英文产品名必须是 CitizenApp' >&2\n    return 1\n  }\n  echo '    iOS Release 本地化通过：中文=公民，英文=CitizenApp，默认回落=zh-Hans'\n}\n\n# Android 权限正文由系统按手机语言渲染；这里锁定最终 APK 的默认中文和英文限定应用名。\nverify_android_release_localization() {\n  local apk=\"$1\" aapt_bin sdk_home\n  [[ -f \"$apk\" ]] || { echo \"Android Release APK 不存在：$apk\" >&2; return 1; }\n  aapt_bin=\"$(command -v aapt2 || true)\"\n  if [[ -z \"$aapt_bin\" ]]; then\n    # 产品只读取公开工具链环境，不依赖启动它的桌面进程恰好继承ANDROID_HOME。\n    # 与原生库构建保持同一确定性规则：显式 SDK 优先，macOS 默认\n    # SDK 目录兜底，再从已安装 build-tools 中选择最高版本，禁止硬编码具体版本。\n    sdk_home=\"${ANDROID_HOME:-$HOME/Library/Android/sdk}\"\n    aapt_bin=\"$(find \"$sdk_home/build-tools\" -type f -name aapt2 -print 2>/dev/null | sort -V | tail -n 1)\"\n  fi\n  [[ -x \"$aapt_bin\" ]] || { echo '找不到 Android SDK aapt2，无法核验 APK 本地化' >&2; return 1; }\n  \"$aapt_bin\" dump resources \"$apk\" | python3 -c '\nimport re, sys\ntext = sys.stdin.read()\nmatch = re.search(r\"resource 0x[0-9a-f]+ string/app_name\\n(?P<body>(?:      .*\\n)+?)    resource \", text)\nif match is None:\n    raise SystemExit(\"Android Release APK 缺少 string/app_name\")\nbody = match.group(\"body\")\nif \"() \\\"公民\\\"\" not in body or \"(en) \\\"CitizenApp\\\"\" not in body:\n    raise SystemExit(\"Android Release APK 的默认中文或英文应用名不正确\")\n'\n  echo '    Android Release 本地化通过：默认=公民，英文=CitizenApp'\n}\n\nif [[ \"$PLATFORM\" == verify-ios-localization ]]; then\n  verify_ios_release_localization \"${2:?缺少 Runner.app 路径}\"\n  exit 0\nfi\nif [[ \"$PLATFORM\" == verify-android-localization ]]; then\n  verify_android_release_localization \"${2:?缺少 APK 路径}\"\n  exit 0\nfi\n\n\n# 构造 dart-define 参数\nDART_DEFINES=()\necho \"[Build模式] CitizenSDK · 目标平台 $PLATFORM\"\n\n# Flutter只负责在当前缓存根生成产品自己的Android配置和插件清单；真正的Gradle\n# 从产品真实android目录启动，所有可写状态仍由既有环境变量指向本任务缓存。\nbuild_android_release() {\n  local properties flutter_command flutter_sdk android_sdk product_version version_name version_code\n  local flutter_version dart_defines link_target java_home\n  properties=\"$CITIZENAPP_PROJECT_ROOT/android/local.properties\"\n  flutter_sdk=\"${FLUTTER_ROOT:-}\"\n  if [[ -z \"$flutter_sdk\" ]]; then\n    flutter_command=\"$(command -v flutter)\"\n    while [[ -L \"$flutter_command\" ]]; do\n      link_target=\"$(readlink \"$flutter_command\")\"\n      [[ \"$link_target\" == /* ]] || link_target=\"$(cd \"$(dirname \"$flutter_command\")\" && pwd -P)/$link_target\"\n      flutter_command=\"$link_target\"\n    done\n    flutter_sdk=\"$(cd \"$(dirname \"$flutter_command\")/..\" && pwd -P)\"\n  fi\n  [[ \"$flutter_sdk\" == /* && -x \"$flutter_sdk/bin/flutter\" \\\n      && -f \"$flutter_sdk/packages/flutter_tools/gradle/build.gradle.kts\" ]] \\\n    || { echo 'CitizenApp Flutter SDK根目录无效' >&2; exit 1; }\n  android_sdk=\"$ANDROID_SDK_HOME\"\n  # JDK与Android SDK由CitizenApp产品入口传给同一次Gradle调用；不在Worker增加前置检查。\n  java_home=\"$ANDROID_JAVA_HOME\"\n  product_version=\"$(sed -n 's/^version:[[:space:]]*//p' \"$CITIZENAPP_PROJECT_ROOT/pubspec.yaml\" | head -n 1)\"\n  version_name=\"${product_version%%+*}\"\n  version_code=\"${product_version##*+}\"\n  if [[ \"${CITIZENAPP_CI_BUILD:-false}\" == true ]]; then version_code=\"${CITIZENAPP_CI_BUILD_NUMBER:?}\"; fi\n  printf 'sdk.dir=%s\\nflutter.sdk=%s\\nflutter.buildMode=release\\nflutter.versionName=%s\\nflutter.versionCode=%s\\n' \\\n    \"$android_sdk\" \"$flutter_sdk\" \"$version_name\" \"$version_code\" >\"$properties\"\n  flutter_version=\"$(flutter --version --machine)\"\n  dart_defines=\"$(printf '%s' \"$flutter_version\" | python3 -c '\nimport base64, json, sys\nvalue = json.load(sys.stdin)\nfields = (\n    (\"FLUTTER_VERSION\", \"frameworkVersion\"),\n    (\"FLUTTER_CHANNEL\", \"channel\"),\n    (\"FLUTTER_GIT_URL\", \"repositoryUrl\"),\n    (\"FLUTTER_FRAMEWORK_REVISION\", \"frameworkRevision\"),\n    (\"FLUTTER_ENGINE_REVISION\", \"engineRevision\"),\n    (\"FLUTTER_DART_VERSION\", \"dartSdkVersion\"),\n)\nprint(\",\".join(base64.b64encode(f\"{name}={value[key]}\".encode()).decode() for name, key in fields))\n')\"\n  (\n    cd \"$CITIZENAPP_PROJECT_ROOT/android\"\n    # Flutter Gradle included-build 的 Kotlin 会默认在工具源码根写 .kotlin/sessions；\n    # 显式定位到本轮工作目录，共享 Flutter 工具原件始终保持只读。\n    ANDROID_HOME=\"$android_sdk\" ANDROID_SDK_ROOT=\"$android_sdk\" JAVA_HOME=\"$java_home\" PATH=\"$java_home/bin:$PATH\" \\\n    CITIZENAPP_FLUTTER_GRADLE_ROOT=\"$flutter_sdk/packages/flutter_tools/gradle\" \\\n    FLUTTER_ROOT=\"$flutter_sdk\" \"$GRADLE_EXECUTABLE\" ${gradle_network_arg:+\"$gradle_network_arg\"} --no-daemon --stacktrace --no-problems-report \\\n      --init-script \"$CITIZENAPP_GRADLE_INIT_SCRIPT\" \\\n      --project-cache-dir \"$BUILD_WORK_DIR/gradle-project\" \\\n      -Pkotlin.project.persistent.dir=\"$CITIZENAPP_FLUTTER_GRADLE_BUILD_DIR/kotlin-project\" \\\n      -Pflutter.sdk=\"$flutter_sdk\" \\\n      -Ptarget-platform=android-arm64 \\\n      -Ptarget=lib/main.dart \\\n      -Pbase-application-name=android.app.Application \\\n      -Pdart-defines=\"$dart_defines\" \\\n      -Pdart-obfuscation=false \\\n      -Ptrack-widget-creation=true \\\n      -Ptree-shake-icons=true \\\n      assembleRelease\n  )\n}\n\n# 这里曾有一句 `pkill -9 -f flutter_tools.snapshot`，用途是清掉上一轮残留的 flutter。\n# 已删除：`-f` 匹配全命令行，而 `flutter_tools.snapshot` 是每一个 flutter 命令的实际执行体，\n# 那一枪不区分产品、不区分平台、也不区分是不是本次运行的——公民钱包正在跑的编译、\n# 乃至你自己在终端里手敲的 flutter，都会一起被 SIGKILL（现象是 `Killed: 9`）。\n# 产品脚本不终止任何既有Flutter进程；进程生命周期由当前调用方管理。\n\n# 本机开发场景直接调用CitizenSDK唯一产品入口生成原生产物；CitizenApp只把SDK产物\n# 目录交给Flutter插件，不复制、不修改也不实现第二份链库。\nCITIZENSDK_DEPENDENCY_WORK_DIR=\"${CITIZENAPP_SDK_DEPENDENCY_WORK_DIR:-$DEPENDENCY_WORK_DIR/citizensdk-native}\"\n[[ \"$CITIZENSDK_DEPENDENCY_WORK_DIR\" == \"$DEPENDENCY_WORK_DIR\"/* ]] \\\n  || { echo 'CitizenSDK依赖目录必须属于CitizenApp依赖工作目录' >&2; exit 1; }\nCITIZENSDK_PRODUCT_WORK_DIR=\"$BUILD_WORK_DIR/citizensdk-work\"\nCITIZENSDK_PRODUCT_OUTPUT_DIR=\"$BUILD_WORK_DIR/citizensdk-output\"\nrm -rf \"$CITIZENSDK_PRODUCT_WORK_DIR\" \"$CITIZENSDK_PRODUCT_OUTPUT_DIR\"\nnode \"$CITIZENSDK_ROOT/scripts/build.mjs\" prepare-environment \\\n  --scope citizensdk --platform \"$([[ \"$PLATFORM\" == ios ]] && printf macOS || printf Android)\" \\\n  --work \"$CITIZENSDK_DEPENDENCY_WORK_DIR\"\nexport CITIZENSDK_ZXING_SOURCE_DIR=\"$CITIZENSDK_DEPENDENCY_WORK_DIR/zxing-cpp-3.1.1\"\nif [[ \"${CITIZENAPP_OFFLINE:-false}\" == true ]]; then\n  export CARGO_HOME=\"$CITIZENAPP_SDK_CARGO_HOME\"\nfi\nif [[ \"$PLATFORM\" == ios ]]; then\n  CITIZENSDK_WORK_DIR=\"$CITIZENSDK_PRODUCT_WORK_DIR\" \\\n    CITIZENSDK_NATIVE_OUTPUT_DIR=\"$CITIZENSDK_PRODUCT_OUTPUT_DIR\" \\\n    node \"$CITIZENSDK_ROOT/scripts/build.mjs\" native apple\n  node \"$VIEW_SCRIPT\" view project-framework \\\n    --source-root \"$APP_ROOT\" --project-root \"$CITIZENAPP_PROJECT_ROOT\" \\\n    --work-root \"$CITIZENAPP_WORK_DIR\" --package-root \"$CITIZENSDK_ROOT\" \\\n    --package-subpath darwin/CitizenSDK.xcframework \\\n    --framework \"$CITIZENSDK_PRODUCT_OUTPUT_DIR/apple/CitizenSDK.xcframework\" >/dev/null\nelse\n  CITIZENSDK_WORK_DIR=\"$CITIZENSDK_PRODUCT_WORK_DIR\" \\\n    CITIZENSDK_NATIVE_OUTPUT_DIR=\"$CITIZENSDK_PRODUCT_OUTPUT_DIR\" \\\n    CITIZENSDK_GRADLE=\"$GRADLE_EXECUTABLE\" \\\n    CITIZENSDK_OFFLINE=\"$CITIZENAPP_GRADLE_OFFLINE\" \\\n    JAVA_HOME=\"$ANDROID_JAVA_HOME\" PATH=\"$ANDROID_JAVA_HOME/bin:$PATH\" \\\n    ANDROID_HOME=\"$ANDROID_SDK_HOME\" ANDROID_SDK_ROOT=\"$ANDROID_SDK_HOME\" \\\n    node \"$CITIZENSDK_ROOT/scripts/build.mjs\" native android\n  export CITIZENSDK_ANDROID_CORE_DIR=\"$CITIZENSDK_PRODUCT_OUTPUT_DIR/android/arm64-v8a\"\nfi\n\n# TataChatSDK仍按聊天产品自有流程构建。\nif [[ \"${CITIZENAPP_OFFLINE:-false}\" == true ]]; then\n  export CARGO_HOME=\"$CITIZENAPP_CHAT_CARGO_HOME\"\nfi\nif [[ \"$PLATFORM\" == ios ]]; then\n  [[ -f \"$TATACHATSDK_ROOT/ios/tatachat_sdk.podspec\" ]] || {\n    echo 'CitizenApp 本端 TataChatSDK iOS 插件配置缺失' >&2\n    exit 1\n  }\n  TATACHATSDK_NATIVE_IOS_DIR=\"$CITIZENAPP_NATIVE_IOS_DIR\" \\\n    TATACHATSDK_WORK_DIR=\"$BUILD_WORK_DIR/tatachatsdk-work\" \\\n    node \"$TATACHATSDK_ROOT/scripts/build.mjs\" native-dependency \"$PLATFORM\"\n  node \"$VIEW_SCRIPT\" view project-framework \\\n    --source-root \"$APP_ROOT\" --project-root \"$CITIZENAPP_PROJECT_ROOT\" \\\n    --work-root \"$CITIZENAPP_WORK_DIR\" --package-root \"$TATACHATSDK_ROOT\" \\\n    --package-subpath ios/TataChatSDK.xcframework \\\n    --framework \"$CITIZENAPP_NATIVE_IOS_DIR/TataChatSDK.xcframework\" >/dev/null\nelse\n  TATACHATSDK_NATIVE_ANDROID_DIR=\"$CITIZENAPP_NATIVE_ANDROID_DIR\" \\\n    TATACHATSDK_WORK_DIR=\"$BUILD_WORK_DIR/tatachatsdk-work\" \\\n    node \"$TATACHATSDK_ROOT/scripts/build.mjs\" native-dependency \"$PLATFORM\"\nfi\n\necho \"==> 清理 ${PLATFORM} 平台构建产物...\"\nclean_platform_build_outputs\necho \"==> 按CitizenApp锁文件准备依赖...\"\nflutter pub get \"${PUB_GET_ARGS[@]}\"\n\n# Build不选择、不安装、不启动设备，只读取当前产品源码并生成产品产物。\n# `--release`只是本机优化配置，不表示或触发正式Release流程。\necho \"==> 编译本机优化安装包...\"\nif [[ \"$PLATFORM\" == ios ]]; then\n  if [[ \"${CITIZENAPP_CI_BUILD:-false}\" == true ]]; then\n    flutter build ios --no-pub --release --no-codesign --build-number=\"${CITIZENAPP_CI_BUILD_NUMBER:?}\" ${DART_DEFINES[@]+\"${DART_DEFINES[@]}\"}\n  else\n    flutter build ios --no-pub --release ${DART_DEFINES[@]+\"${DART_DEFINES[@]}\"}\n  fi\n  IOS_APP=\"$BUILD_DIR/ios/iphoneos/Runner.app\"\n  TATACHATSDK_WORK_DIR=\"$BUILD_WORK_DIR/tatachatsdk-work\" node \"$TATACHATSDK_ROOT/scripts/build.mjs\" native-dependency verify-ios-package \"$IOS_APP\"\n  verify_ios_release_localization \"$IOS_APP\"\n  retain_ios_local_artifact \"$IOS_APP\"\n  echo \"\"\n  echo \"==> Build完成：iOS产物已写入CitizenApp产物目录。\"\nelif [[ \"$PLATFORM\" == android ]]; then\n  ANDROID_APK=\"$BUILD_DIR/app/outputs/flutter-apk/app-release.apk\"\n  build_android_release\n  if [[ \"${CITIZENAPP_CI_BUILD:-false}\" == true ]]; then\n    flutter build appbundle --no-pub --release --build-number=\"${CITIZENAPP_CI_BUILD_NUMBER:?}\"\n  fi\n  [[ -f \"$ANDROID_APK\" ]] || {\n    echo \"Android 本机无私钥 APK 不存在\" >&2\n    exit 1\n  }\n  TATACHATSDK_WORK_DIR=\"$BUILD_WORK_DIR/tatachatsdk-work\" node \"$TATACHATSDK_ROOT/scripts/build.mjs\" native-dependency verify-android-package \"$ANDROID_APK\"\n  verify_android_release_localization \"$ANDROID_APK\"\n  retain_android_local_artifact \"$ANDROID_APK\"\n  echo \"==> Android无私钥候选完成，正在交给原生安全进程完成Build签名。\"\nfi\n","test":"#!/usr/bin/env bash\n# CitizenApp 本机与 CI 唯一 Flutter 测试入口。\n#\n# CitizenApp SDK金标消费锁定CitizenSDK的真实产品Core；两份SDK宿主库\n# 由各自产品入口准备，Isar消费本轮锁定包的宿主库。\nset -euo pipefail\n\nSCRIPT_DIR=\"${CITIZENAPP_SCRIPTS_ROOT:?缺少源码脚本根}\"\nCITIZENAPP_DIR=\"${CITIZENAPP_SOURCE_ROOT:?缺少产品源码根}\"\nFLUTTER_BIN=\"${FLUTTER_BIN:-flutter}\"\nVIEW_SCRIPT=\"$SCRIPT_DIR/build.mjs\"\nFLUTTER_ROOT=''\nANALYSIS_CONFIG=''\nTEST_CONFIG=''\nTEST_CONFIGS_STAGED=false\nCITIZENAPP_TEST_WORK_DIR=\"${CITIZENAPP_TEST_WORK_DIR:-$CITIZENAPP_DIR/target/test}\"\nBUILD_CACHE=\"${CITIZENAPP_TEST_BUILD_DIR:-$CITIZENAPP_TEST_WORK_DIR/work}\"\nDEPENDENCY_CACHE=\"${CITIZENAPP_TEST_DEPENDENCY_DIR:-$CITIZENAPP_TEST_WORK_DIR/dependencies}\"\npython3 - \"$CITIZENAPP_DIR\" \"$CITIZENAPP_TEST_WORK_DIR\" \"$BUILD_CACHE\" \"$DEPENDENCY_CACHE\" <<'CHECK_OUTPUTS'\nfrom pathlib import Path\nimport sys\nsource = Path(sys.argv[1]).resolve()\nfor value in sys.argv[2:]:\n    raw = Path(value)\n    target = raw.resolve()\n    if not raw.is_absolute() or source / 'target' not in target.parents:\n        raise SystemExit(f'CitizenApp测试目录必须是本仓target内绝对路径：{value}')\nCHECK_OUTPUTS\nmkdir -p \"$CITIZENAPP_TEST_WORK_DIR\"\nCITIZENCHAIN_ROOT=\"$(node \"$SCRIPT_DIR/build.mjs\" inputs \"$CITIZENAPP_TEST_WORK_DIR\")\"\nexport CITIZENCHAIN_ROOT\n# Flutter分析、测试、.dart_tool与build全部在源码外工程视图运行；源码文件保持\n# 唯一真源且只读投影，测试不得再向CitizenApp根生成build或临时配置。\nif [[ -n \"${CITIZENAPP_TEST_PROJECT_ROOT:-}\" ]]; then\n  FLUTTER_ROOT=\"$(node \"$VIEW_SCRIPT\" view verify \\\n    --source-root \"$CITIZENAPP_DIR\" --work-root \"$CITIZENAPP_TEST_WORK_DIR\")\"\n  [[ \"$FLUTTER_ROOT\" == \"$CITIZENAPP_TEST_PROJECT_ROOT\" ]] \\\n    || { echo '错误: CI测试视图与本轮工作根不一致' >&2; exit 1; }\nelse\n  FLUTTER_ROOT=\"$(node \"$VIEW_SCRIPT\" view create \\\n    --source-root \"$CITIZENAPP_DIR\" --work-root \"$CITIZENAPP_TEST_WORK_DIR\")\"\nfi\n[[ \"$FLUTTER_ROOT\" == \"$CITIZENAPP_TEST_WORK_DIR/source-view/\"* \\\n  && -f \"$FLUTTER_ROOT/pubspec.yaml\" ]] \\\n  || { echo '错误: CitizenApp测试工程视图无效' >&2; exit 1; }\nexport CARGO_TARGET_DIR=\"${CARGO_TARGET_DIR:-$BUILD_CACHE/cargo-tests}\"\nexport PUB_CACHE=\"${PUB_CACHE:-$DEPENDENCY_CACHE/dart-pub}\"\nexport XDG_CONFIG_HOME=\"${XDG_CONFIG_HOME:-$DEPENDENCY_CACHE/flutter-config}\"\nexport TMPDIR=\"$BUILD_CACHE/tmp\"\nmkdir -p \"$TMPDIR\"\nexport DYLD_LIBRARY_PATH=\"$CARGO_TARGET_DIR/release:$CARGO_TARGET_DIR/debug\"\nexport LD_LIBRARY_PATH=\"$CARGO_TARGET_DIR/release:$CARGO_TARGET_DIR/debug\"\n\nif ! command -v \"$FLUTTER_BIN\" >/dev/null 2>&1; then\n  echo \"错误: 找不到 Flutter: $FLUTTER_BIN\" >&2\n  exit 1\nfi\n\n# Flutter 版本由产品开发环境或 CI 工作流唯一确定；测试脚本只消费调用方\n# 注入的可执行文件，不维护第二份工具版本表。\n\nif [ ! -f \"$FLUTTER_ROOT/.dart_tool/package_config.json\" ]; then\n  if [[ \"${CI:-}\" == true ]]; then\n    echo \"错误: 缺少 .dart_tool/package_config.json；CI必须先执行锁定依赖解析\" >&2\n    exit 1\n  fi\n  PUB_GET_ARGS=(--enforce-lockfile)\n  case \"${CITIZENAPP_OFFLINE:-false}\" in\n    true) PUB_GET_ARGS+=(--offline) ;;\n    false) ;;\n    *) echo '错误: CITIZENAPP_OFFLINE只接受true或false' >&2; exit 1 ;;\n  esac\n  (cd \"$FLUTTER_ROOT\" && \"$FLUTTER_BIN\" pub get \"${PUB_GET_ARGS[@]}\")\nfi\n\n# 设备 Release 构建会先 cargo clean；测试必须从宿主库构建开始一直持锁到最后一个\n# flutter_tester 退出，禁止其它进程在测试中途删除 dylib/so。macOS 用系统 shlock\n# 自动识别死亡 PID，Linux CI 用 util-linux flock，二者都不依赖仓库内状态文件。\nNATIVE_BUILD_LOCK_PATH=\"$CITIZENAPP_TEST_WORK_DIR/citizenapp-native-build.lock\"\nNATIVE_BUILD_LOCK_KIND=\"\"\nacquire_native_build_lock() {\n  case \"$(uname -s)\" in\n    Darwin)\n      while ! shlock -f \"$NATIVE_BUILD_LOCK_PATH\" -p $$; do\n        echo \"等待 CitizenApp 设备原生构建结束...\"\n        sleep 1\n      done\n      NATIVE_BUILD_LOCK_KIND=shlock\n      ;;\n    Linux)\n      exec 9>\"$NATIVE_BUILD_LOCK_PATH\"\n      flock 9\n      NATIVE_BUILD_LOCK_KIND=flock\n      ;;\n    *)\n      echo \"错误: 不支持的原生测试锁平台：$(uname -s)\" >&2\n      return 1\n      ;;\n  esac\n}\nrelease_native_build_lock() {\n  case \"$NATIVE_BUILD_LOCK_KIND\" in\n    shlock)\n      if [[ \"$(cat \"$NATIVE_BUILD_LOCK_PATH\" 2>/dev/null || true)\" == \"$$\" ]]; then\n        rm -f -- \"$NATIVE_BUILD_LOCK_PATH\"\n      fi\n      ;;\n    flock)\n      flock -u 9\n      exec 9>&-\n      ;;\n  esac\n  NATIVE_BUILD_LOCK_KIND=\"\"\n}\n\ncleanup_test_configs() {\n  if [[ \"$TEST_CONFIGS_STAGED\" == true ]]; then\n    rm -f -- \"$ANALYSIS_CONFIG\" \"$TEST_CONFIG\"\n  fi\n  release_native_build_lock\n}\n\ncd \"$FLUTTER_ROOT\"\n# Flutter只从工程根发现这两类配置；源码真源统一放在scripts，执行期间只在本次\n# 源码外工程视图短暂落盘，退出时必定清理。\nANALYSIS_CONFIG=\"$FLUTTER_ROOT/analysis_options.yaml\"\nTEST_CONFIG=\"$FLUTTER_ROOT/dart_test.yaml\"\ntrap cleanup_test_configs EXIT\nif [[ ! -e \"$ANALYSIS_CONFIG\" && ! -L \"$ANALYSIS_CONFIG\"\n  && ! -e \"$TEST_CONFIG\" && ! -L \"$TEST_CONFIG\" ]]; then\n  TEST_CONFIGS_STAGED=true\n  node \"$SCRIPT_DIR/build.mjs\" config analysis > \"$ANALYSIS_CONFIG\"\n  node \"$SCRIPT_DIR/build.mjs\" config test > \"$TEST_CONFIG\"\nelif [[ \"$FLUTTER_ROOT\" == \"$CITIZENAPP_DIR\" || ! -f \"$ANALYSIS_CONFIG\" || -L \"$ANALYSIS_CONFIG\"\n  || ! -f \"$TEST_CONFIG\" || -L \"$TEST_CONFIG\" ]]; then\n  echo '错误: Flutter 工程根存在不受CitizenApp测试入口管理的分析或测试配置' >&2\n  exit 1\nfi\n# CI Runner 保持原生构建锁；本机测试使用独立工作目录，不使用跨端共享锁。\nif [[ \"${CI:-}\" == true ]]; then\n  acquire_native_build_lock\nfi\n# 宿主库只从产品声明与锁定Git输入取得，不编译邻仓或旧聚合仓源码。\nDEPENDENCIES=\"$(node \"$VIEW_SCRIPT\" view dependencies \\\n  --source-root \"$CITIZENAPP_DIR\" --work-root \"$CITIZENAPP_TEST_WORK_DIR\")\"\nTATACHATSDK_ROOT=\"$(printf '%s' \"$DEPENDENCIES\" | node --input-type=module -e 'let text=\"\"; for await (const part of process.stdin) text+=part; const root=JSON.parse(text).tatachat_sdk?.root; if(typeof root!==\"string\") throw Error(\"聊天SDK源码回执缺失\"); process.stdout.write(root);')\"\nCITIZENSDK_ROOT=\"$(printf '%s' \"$DEPENDENCIES\" | node --input-type=module -e 'let text=\"\"; for await (const part of process.stdin) text+=part; const root=JSON.parse(text).citizen_sdk?.root; if(typeof root!==\"string\") throw Error(\"公民SDK源码回执缺失\"); process.stdout.write(root);')\"\nfor sdk_root in \"$TATACHATSDK_ROOT\" \"$CITIZENSDK_ROOT\"; do\n  [[ -f \"$sdk_root/scripts/build.mjs\" && ! -L \"$sdk_root/scripts/build.mjs\" ]] \\\n    || { echo '锁定SDK原生入口无效' >&2; exit 1; }\ndone\n# SDK公开host交付绑定当前App任务，产物在测试结束前由App保有。\nexport PRODUCT_WORK_DIR=\"$CITIZENAPP_TEST_WORK_DIR\"\nexport TATACHATSDK_WORK_DIR=\"$CITIZENAPP_TEST_WORK_DIR/work/tatachatsdk-work\"\nexport TATACHATSDK_NATIVE_HOST_DIR=\"$CITIZENAPP_TEST_WORK_DIR/work/tatachatsdk-host\"\nexport CARGO_TARGET_DIR=\"$CITIZENAPP_TEST_WORK_DIR/work/tatachatsdk-work/cargo\"\nexport TATACHATSDK_TEST_WORK_ROOT=\"$CITIZENAPP_TEST_WORK_DIR\"\nnode \"$TATACHATSDK_ROOT/scripts/build.mjs\" native-dependency host\nexport TATACHATSDK_TEST_NATIVE_LIBRARY=\"$TATACHATSDK_NATIVE_HOST_DIR/libtatachat_sdk.dylib\"\nexport CITIZENSDK_WORK_DIR=\"$BUILD_CACHE/citizensdk-host/work\"\nexport CITIZENSDK_NATIVE_OUTPUT_DIR=\"$BUILD_CACHE/citizensdk-host/output\"\nnode \"$CITIZENSDK_ROOT/scripts/build.mjs\" native abi-host\nCITIZENSDK_TEST_CORE_LIB_PATH=\"$(node \"$SCRIPT_DIR/build.mjs\" native core \"$CITIZENSDK_NATIVE_OUTPUT_DIR\")\"\nISAR_CORE_LIB_PATH=\"$(node \"$SCRIPT_DIR/build.mjs\" native isar \"$FLUTTER_ROOT/.dart_tool/package_config.json\" \"$PUB_CACHE\" \"$CITIZENAPP_DIR/pubspec.lock\")\"\nexport CITIZENSDK_TEST_CORE_LIB_PATH ISAR_CORE_LIB_PATH\n\"$FLUTTER_BIN\" analyze --no-pub --fatal-infos --fatal-warnings\n\"$FLUTTER_BIN\" test --no-pub --concurrency=1 \"$@\"\n","ui-test":"#!/usr/bin/env bash\n# 对真机中已经安装的 CitizenApp Release 做长期黑盒 UI 验收。\n#\n# 安全边界：本脚本只构建和安装独立的 UITestHost/xctrunner，永远不构建、安装、卸载或\n# 清空 `ios.citizenapp`。测试前后会核对正式 App 的版本、bundle 容器、数据容器和全部 Isar\n# 数据库；既有数据库任一消失都拒绝把测试判为成功，正常运行新增数据库或扩大文件允许。\nset -euo pipefail\n\nSCRIPT_DIR=\"${CITIZENAPP_SCRIPTS_ROOT:?缺少源码脚本根}\"\nAPP_ROOT=\"${CITIZENAPP_SOURCE_ROOT:?缺少产品源码根}\"\nSCHEME=\"RunnerUITests\"\nTARGET_BUNDLE_ID=\"ios.citizenapp\"\nTEST_HOST_BUNDLE_ID=\"ios.citizenapp.UITestHost\"\nTEST_RUNNER_BUNDLE_ID=\"ios.citizenapp.UITests.xctrunner\"\nBUILD_ROOT=\"${CITIZENAPP_UI_TEST_WORK_DIR:-$APP_ROOT/target/test/ui}\"\nPROJECT_INPUT=\"$APP_ROOT/ios/project/Runner.pbxproj\"\nDERIVED_DATA=\"$BUILD_ROOT/DerivedData\"\nTEST_ONLY=\"${CITIZENAPP_UI_TEST_ONLY:-}\"\nif [[ -n \"$TEST_ONLY\" && ! \"$TEST_ONLY\" =~ ^testChatE2E(ReadIdentity|Send|VerifyRestart)$ ]]; then\n  echo 'CITIZENAPP_UI_TEST_ONLY 只能选择已登记的双机 XCTest' >&2\n  exit 1\nfi\nRESULT_BUNDLE=\"$BUILD_ROOT/RunnerUITests-${TEST_ONLY:-all}-$(date +%s)-$$.xcresult\"\n\npython3 - \"$APP_ROOT\" \"$BUILD_ROOT\" <<'CHECK_OUTPUTS'\nfrom pathlib import Path\nimport sys\nsource, raw = map(Path, sys.argv[1:])\nsource, target = source.resolve(), raw.resolve()\nif not raw.is_absolute() or source / 'target' not in target.parents:\n    raise SystemExit('CITIZENAPP_UI_TEST_WORK_DIR必须是CitizenApp本仓target内绝对路径')\nCHECK_OUTPUTS\n\n[[ -f \"$PROJECT_INPUT\" && ! -L \"$PROJECT_INPUT\" ]] || {\n  echo \"CitizenApp iOS 工程不存在：$PROJECT_INPUT\" >&2; exit 1\n}\nmkdir -p \"$BUILD_ROOT\"\n# XCTest 通过同一源码外视图消费扁平 scheme，正式 App 本体不参与构建。\nBUILD_ROOT=\"$(cd \"$BUILD_ROOT\" && pwd -P)\"\nPROJECT_ROOT=\"$(node \"$SCRIPT_DIR/build.mjs\" view create --source-root \"$APP_ROOT\" --work-root \"$BUILD_ROOT\")\"\nPROJECT=\"$PROJECT_ROOT/ios/Runner.xcodeproj\"\nexport TMPDIR=\"$BUILD_ROOT/\"\n\ndevice_fields=\"$(python3 - <<'SELECT_DEVICE'\nimport json\nimport subprocess\nimport time\n\nDEVICECTL = [\"/usr/bin/xcrun\", \"devicectl\"]\nATTEMPTS = 8\n\n\ndef developer_mode_enabled(value):\n    if value == \"enabled\":\n        return True\n    if not isinstance(value, dict):\n        return False\n    enabled = value.get(\"enabled\")\n    return isinstance(enabled, dict) and enabled.get(\"mode\") == 1\n\n\ndef command_json(arguments, timeout):\n    try:\n        result = subprocess.run(\n            DEVICECTL + arguments + [\"--quiet\", \"--json-output\", \"-\"],\n            stdout=subprocess.PIPE,\n            stderr=subprocess.DEVNULL,\n            text=True,\n            timeout=timeout,\n            check=False,\n        )\n        if result.returncode != 0:\n            return None\n        value = json.loads(result.stdout)\n        if value.get(\"info\", {}).get(\"outcome\") != \"success\":\n            return None\n        return value\n    except (json.JSONDecodeError, subprocess.TimeoutExpired):\n        return None\n\n\nfor attempt in range(ATTEMPTS):\n    listing = command_json([\"list\", \"devices\"], timeout=15)\n    candidates = []\n    if listing is not None:\n        for item in listing.get(\"result\", {}).get(\"devices\", []):\n            props = item.get(\"properties\", {})\n            hardware = props.get(\"hardware\", {})\n            connection = props.get(\"connection\", {})\n            state = props.get(\"state\", {})\n            identifier = item.get(\"identifier\")\n            udid = hardware.get(\"udid\")\n            if (\n                identifier\n                and udid\n                and hardware.get(\"platform\") == \"iOS\"\n                and hardware.get(\"reality\") == \"physical\"\n                and connection.get(\"pairingState\") == \"paired\"\n                and developer_mode_enabled(state.get(\"developerModeStatus\"))\n            ):\n                candidates.append((identifier, udid))\n\n    reachable = []\n    for identifier, udid in candidates:\n        details = command_json(\n            [\"device\", \"info\", \"details\", \"--device\", identifier],\n            timeout=20,\n        )\n        if details is None:\n            continue\n        result = details.get(\"result\", {})\n        props = result.get(\"properties\", {})\n        hardware = props.get(\"hardware\", {})\n        connection = props.get(\"connection\", {})\n        state = props.get(\"state\", {})\n        if (\n            result.get(\"identifier\") == identifier\n            and hardware.get(\"udid\") == udid\n            and hardware.get(\"platform\") == \"iOS\"\n            and hardware.get(\"reality\") == \"physical\"\n            and connection.get(\"pairingState\") == \"paired\"\n            and state.get(\"bootState\") == \"booted\"\n            and developer_mode_enabled(state.get(\"developerModeStatus\"))\n        ):\n            reachable.append((identifier, udid))\n\n    if len(reachable) > 1:\n        raise SystemExit(\"必须且只能主动探测到一台可用物理 iPhone，当前多于一台\")\n    if len(reachable) == 1:\n        print(reachable[0][0])\n        print(reachable[0][1])\n        break\n    if attempt + 1 < ATTEMPTS:\n        time.sleep(2)\nelse:\n    raise SystemExit(\"主动探测未发现可用物理 iPhone（已配对、开发者模式开启且可读取设备详情）\")\nSELECT_DEVICE\n)\"\nCORE_DEVICE_ID=\"$(sed -n '1p' <<<\"$device_fields\")\"\nHARDWARE_UDID=\"$(sed -n '2p' <<<\"$device_fields\")\"\n[[ -n \"$CORE_DEVICE_ID\" && -n \"$HARDWARE_UDID\" ]] || {\n  echo \"无法解析 iPhone 标识，拒绝测试\" >&2\n  exit 1\n}\n\ninstalled_app_snapshot() {\n  xcrun devicectl device info apps --quiet \\\n    --device \"$CORE_DEVICE_ID\" \\\n    --bundle-id \"$TARGET_BUNDLE_ID\" \\\n    --include-container-paths \\\n    --json-output - |\n    python3 -c '\nimport json, sys\nbundle_id = sys.argv[1]\napps = json.load(sys.stdin).get(\"result\", {}).get(\"apps\", [])\nif len(apps) != 1:\n    raise SystemExit(f\"设备中必须且只能有一个 {bundle_id}，当前：{len(apps)}\")\napp = apps[0]\nif app.get(\"bundleIdentifier\") != bundle_id:\n    raise SystemExit(\"设备返回的 CitizenApp Bundle ID 不一致\")\nfields = {\n    \"bundleIdentifier\": app.get(\"bundleIdentifier\"),\n    \"version\": app.get(\"version\"),\n    \"shortVersion\": app.get(\"shortVersion\"),\n    \"bundleContainerPath\": app.get(\"bundleContainerPath\"),\n    \"dataContainerPath\": app.get(\"dataContainerPath\"),\n}\nif not fields[\"bundleContainerPath\"] or not fields[\"dataContainerPath\"]:\n    raise SystemExit(\"无法读取 CitizenApp 的 bundle/data 容器，拒绝测试\")\nprint(json.dumps(fields, ensure_ascii=False, sort_keys=True, separators=(\",\", \":\")))\n' \"$TARGET_BUNDLE_ID\"\n}\n\ndatabase_snapshot() {\n  xcrun devicectl device info files --quiet \\\n    --device \"$CORE_DEVICE_ID\" \\\n    --domain-type appDataContainer \\\n    --domain-identifier \"$TARGET_BUNDLE_ID\" \\\n    --subdirectory 'Library/Application Support' \\\n    --recurse \\\n    --json-output - |\n    python3 -c '\nimport json, sys\nfiles = json.load(sys.stdin).get(\"result\", {}).get(\"files\", [])\nsnapshot = {}\nfor item in files:\n    relative = item.get(\"relativePath\")\n    if not isinstance(relative, str) or not relative.endswith(\".isar\"):\n        continue\n    resources = item.get(\"resources\", {})\n    size = item.get(\"metadata\", {}).get(\"size\", 0)\n    if (\n        relative in snapshot\n        or resources.get(\"isDirectory\") is not False\n        or resources.get(\"isSymbolicLink\") is not False\n        or resources.get(\"isReadable\") is not True\n        or not isinstance(size, int)\n        or size <= 0\n    ):\n        raise SystemExit(\"CitizenApp Isar 数据库路径、类型或大小无效\")\n    snapshot[relative] = size\nprint(json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(\",\", \":\")))\n'\n}\n\nis_installed() {\n  xcrun devicectl device info apps --quiet \\\n    --device \"$CORE_DEVICE_ID\" --bundle-id \"$1\" --json-output - 2>/dev/null |\n    python3 -c 'import json, sys; print(\"yes\" if json.load(sys.stdin).get(\"result\", {}).get(\"apps\", []) else \"no\")' \\\n    2>/dev/null\n}\n\ncleanup_test_apps() {\n  local bundle_id\n  for bundle_id in \"$TEST_RUNNER_BUNDLE_ID\" \"$TEST_HOST_BUNDLE_ID\"; do\n    if [[ \"$(is_installed \"$bundle_id\" || true)\" == yes ]]; then\n      echo \"[清理] 仅删除隔离测试组件：$bundle_id\"\n      xcrun devicectl device uninstall app --quiet --device \"$CORE_DEVICE_ID\" \"$bundle_id\" || true\n    fi\n  done\n  # 仅卸载本脚本创建的设备测试组件；不触碰正式CitizenApp与其它工作目录。\n}\ntrap cleanup_test_apps EXIT\n\necho \"[设备] 已主动探测唯一物理 iPhone\"\nbefore_snapshot=\"$(installed_app_snapshot)\"\nbefore_databases=\"$(database_snapshot)\"\nbefore_database_count=\"$(python3 -c 'import json,sys; print(len(json.loads(sys.argv[1])))' \"$before_databases\")\"\necho \"[保护] 已确认现有 ${TARGET_BUNDLE_ID}，Isar数据库=${before_database_count}个\"\n\n# iPhone 镜像与 XCTest 都要独占设备图形会话；自动测试期间只关闭镜像窗口，不改变配对。\nosascript -e 'tell application \"iPhone Mirroring\" to quit' >/dev/null 2>&1 || true\n\ndestination=\"platform=iOS,id=$HARDWARE_UDID\"\necho \"[构建] Release 隔离 UI Test Host（不含 CitizenApp target）\"\nxcodebuild build-for-testing \\\n  -project \"$PROJECT\" \\\n  -scheme \"$SCHEME\" \\\n  -configuration Release \\\n  -destination \"$destination\" \\\n  -derivedDataPath \"$DERIVED_DATA\"\n\n# 构建后、执行前审计所有 App 产物。只要混入正式 Bundle ID，就在任何安装发生前停止。\nwhile IFS= read -r plist; do\n  product_bundle_id=\"$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \"$plist\" 2>/dev/null || true)\"\n  [[ \"$product_bundle_id\" != \"$TARGET_BUNDLE_ID\" ]] || {\n    echo \"UI 测试产物错误包含正式 CitizenApp，已在安装前停止：$plist\" >&2\n    exit 1\n  }\ndone < <(find \"$DERIVED_DATA/Build/Products\" -path '*.app/Info.plist' -type f -print)\n\necho \"[测试] 启动设备中现有 CitizenApp Release\"\nset +e\nif [[ -n \"$TEST_ONLY\" ]]; then\n  xcodebuild test-without-building \\\n    -project \"$PROJECT\" \\\n    -scheme \"$SCHEME\" \\\n    -configuration Release \\\n    -destination \"$destination\" \\\n    -derivedDataPath \"$DERIVED_DATA\" \\\n    -only-testing:\"$SCHEME/$SCHEME/$TEST_ONLY\" \\\n    -resultBundlePath \"$RESULT_BUNDLE\"\nelse\n  xcodebuild test-without-building \\\n    -project \"$PROJECT\" \\\n    -scheme \"$SCHEME\" \\\n    -configuration Release \\\n    -destination \"$destination\" \\\n    -derivedDataPath \"$DERIVED_DATA\" \\\n    -resultBundlePath \"$RESULT_BUNDLE\"\nfi\ntest_status=$?\nset -e\n\nafter_snapshot=\"$(installed_app_snapshot)\"\nafter_databases=\"$(database_snapshot)\"\n[[ \"$after_snapshot\" == \"$before_snapshot\" ]] || {\n  echo \"CitizenApp 安装信息或数据容器在 UI 测试后发生变化，拒绝通过\" >&2\n  exit 1\n}\ndatabase_counts=\"$(python3 - \"$before_databases\" \"$after_databases\" <<'CHECK_DATABASES'\nimport json\nimport sys\n\nbefore = json.loads(sys.argv[1])\nafter = json.loads(sys.argv[2])\nmissing = sorted(set(before) - set(after))\nif missing:\n    raise SystemExit(f\"CitizenApp UI测试删除了既有Isar数据库，数量：{len(missing)}\")\nprint(f\"{len(before)} → {len(after)}\")\nCHECK_DATABASES\n)\"\necho \"[保护] CitizenApp容器未变化，既有Isar数据库仍全部存在：${database_counts}个\"\n\nif [[ \"$test_status\" -ne 0 ]]; then\n  echo \"UI 测试失败；结果保存在：$RESULT_BUNDLE\" >&2\n  exit \"$test_status\"\nfi\necho \"[完成] CitizenApp iOS Release 真机 UI 测试通过\"\n","chat-test":"#!/usr/bin/env bash\n# 已安装的两台公民 App 真机黑盒验收：iPhone XCTest + Pixel ADB UI。\n# 不构建、不安装、不清空 App；身份及目标联系人不唯一时不发送。\nset -euo pipefail\n\nSCRIPT_DIR=\"${CITIZENAPP_SCRIPTS_ROOT:?缺少源码脚本根}\"\nAPP_ROOT=\"${CITIZENAPP_SOURCE_ROOT:?缺少产品源码根}\"\nIOS_TEST=\"$SCRIPT_DIR/build.mjs\"\nexport CITIZENAPP_UI_TEST_WORK_DIR=\"${CITIZENAPP_UI_TEST_WORK_DIR:-$APP_ROOT/target/test/chat-e2e}\"\n\npython3 - \"$IOS_TEST\" \"${CITIZENAPP_NODE_BIN:?缺少产品Node入口}\" <<'PY'\nimport os\nimport re\nimport subprocess\nimport sys\nimport time\nimport xml.etree.ElementTree as ET\n\nIOS_TEST = sys.argv[1]\nNODE_BIN = sys.argv[2]\nPACKAGE = 'com.crcfrcn.citizenapp'\nCID_PATTERN = re.compile(r'CN[0-9]{3}-CTZN[0-9]-[0-9]{9}-[0-9]{4}')\nMARKER = 'CITIZEN_E2E_%010d_%06d' % (int(time.time()), os.getpid() % 1000000)\n\n\ndef command(args, *, timeout=30, input_text=None):\n    result = subprocess.run(args, input=input_text, text=True, capture_output=True,\n                            timeout=timeout, check=False)\n    if result.returncode != 0:\n        raise RuntimeError('%s 失败：%s' % (args[0], result.stderr[-500:]))\n    return result.stdout\n\n\ndef ios(stage, *, peer=None):\n    env = os.environ.copy()\n    env['CITIZENAPP_UI_TEST_ONLY'] = stage\n    if peer is not None:\n        env['TEST_RUNNER_CHAT_E2E_PEER_CID'] = peer\n        env['TEST_RUNNER_CHAT_E2E_MARKER'] = MARKER\n    result = subprocess.run([NODE_BIN, IOS_TEST, \"ui-test\"], env=env, text=True, capture_output=True,\n                            timeout=1800, check=False)\n    if result.returncode != 0:\n        # 仅输出测试阶段与尾部诊断，避免把设备 UI 快照写入控制台。\n        lines = [line for line in (result.stdout + '\\n' + result.stderr).splitlines()\n                 if re.search(r'failed|error|cancel|认证|UI 测试失败', line, re.I)]\n        diagnostic = '\\n'.join(lines[-8:])\n        diagnostic = CID_PATTERN.sub('[公民号已隐藏]', diagnostic)\n        raise RuntimeError('iPhone XCTest %s 失败：%s' % (stage, diagnostic))\n    return result.stdout\n\n\ndef android_nodes():\n    for attempt in range(3):\n        try:\n            raw = command(['adb', 'exec-out', 'uiautomator', 'dump', '/dev/tty'], timeout=25)\n            break\n        except RuntimeError as error:\n            if 'no devices/emulators found' not in str(error) or attempt == 2:\n                raise\n            time.sleep(2)\n    start = raw.find('<?xml')\n    end = raw.rfind('</hierarchy>')\n    if start < 0 or end < 0:\n        raise RuntimeError('Pixel 无法读取当前界面层级')\n    root = ET.fromstring(raw[start:end + len('</hierarchy>')])\n    return list(root.iter('node'))\n\n\ndef node_label(node):\n    return (node.get('text') or '') + ' ' + (node.get('content-desc') or '')\n\n\ndef matching(text, *, exact=False):\n    return [node for node in android_nodes() if\n            (node_label(node).strip() == text if exact else text in node_label(node))]\n\n\ndef await_nodes(text, *, exact=False, timeout=60):\n    deadline = time.monotonic() + timeout\n    while time.monotonic() < deadline:\n        found = matching(text, exact=exact)\n        if found:\n            return found\n        time.sleep(2)\n    raise RuntimeError('Pixel 等待界面元素超时：%s' % text)\n\n\ndef tap_node(node):\n    match = re.fullmatch(r'\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]', node.get('bounds', ''))\n    if not match:\n        raise RuntimeError('Pixel 界面目标没有有效边界')\n    left, top, right, bottom = map(int, match.groups())\n    if right <= left or bottom <= top:\n        raise RuntimeError('Pixel 界面目标边界无效')\n    command(['adb', 'shell', 'input', 'tap', str((left + right) // 2),\n             str((top + bottom) // 2)])\n\n\ndef tap_unique(text, *, exact=False, timeout=30):\n    found = await_nodes(text, exact=exact, timeout=timeout)\n    if len(found) != 1:\n        raise RuntimeError('Pixel 界面目标不唯一：%s' % text)\n    tap_node(found[0])\n\n\ndef start_android():\n    command(['adb', 'shell', 'am', 'force-stop', PACKAGE])\n    command(['adb', 'shell', 'am', 'start', '-n', PACKAGE + '/.MainActivity'])\n    await_nodes('聊天', timeout=45)\n\n\ndef android_identity():\n    start_android()\n    tap_unique('我的')\n    tap_unique('注册与查看')\n    await_nodes('公民号', timeout=30)\n    values = sorted(set(match.group(0) for node in android_nodes()\n                        for match in CID_PATTERN.finditer(node_label(node))))\n    if len(values) != 1:\n        raise RuntimeError('Pixel 本机公民号无法唯一读取')\n    command(['adb', 'shell', 'input', 'keyevent', '4'])\n    return values[0]\n\n\ndef open_android_peer(peer):\n    tap_unique('聊天')\n    tap_unique('新建')\n    tap_unique('发私信', exact=True)\n    await_nodes('选择联系人', timeout=30)\n    tap_unique('公民号：' + peer, exact=True, timeout=30)\n    await_nodes('输入消息', timeout=30)\n\n\ndef android_send_text(value):\n    if not re.fullmatch(r'[A-Z0-9_]+', value):\n        raise RuntimeError('Pixel 测试文字必须是无空格 ASCII 标记')\n    tap_unique('输入消息')\n    command(['adb', 'shell', 'input', 'text', value])\n    command(['adb', 'shell', 'input', 'keyevent', '66'])\n    await_nodes(value, exact=True, timeout=25)\n\n\ndef android_send_sticker():\n    tap_unique('表情和贴纸')\n    tap_unique('贴纸', exact=True)\n    nodes = android_nodes()\n    tabs = [node for node in nodes if node.get('text') == '贴纸']\n    if len(tabs) != 1:\n        raise RuntimeError('Pixel 贴纸面板未打开')\n    # SDK 固定五列网格；点击第一枚贴纸，不依赖图像资产的本地化名称。\n    bounds = re.fullmatch(r'\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]', tabs[0].get('bounds', ''))\n    if not bounds:\n        raise RuntimeError('Pixel 贴纸面板边界无效')\n    left, _, right, bottom = map(int, bounds.groups())\n    command(['adb', 'shell', 'input', 'tap', str(left + max(24, (right-left)//10)),\n             str(bottom + 42)])\n    await_nodes('[贴纸]', timeout=30)\n\n\ndef verify_android_after_restart():\n    start_android()\n    open_android_peer(iphone_cid)\n    for value in [MARKER, 'PIXEL_' + MARKER, 'AFTER_RESTART_' + MARKER]:\n        matches = await_nodes(value, exact=True, timeout=60)\n        if len(matches) != 1:\n            raise RuntimeError('Pixel 重启后消息重复或缺失')\n\n\ndevices = command(['adb', 'devices', '-l'])\nif len(re.findall(r'^\\S+\\s+device\\b', devices, re.MULTILINE)) != 1 or 'Pixel_8a' not in devices:\n    raise RuntimeError('必须且只能连接一台 Pixel 8a')\n\niphone_output = ios('testChatE2EReadIdentity')\ncid_matches = re.findall(r'CHAT_E2E_IPHONE_CID=(CN[0-9]{3}-CTZN[0-9]-[0-9]{9}-[0-9]{4})', iphone_output)\nif len(cid_matches) != 1:\n    raise RuntimeError('iPhone XCTest 没有唯一返回本机公民号')\niphone_cid = cid_matches[0]\npixel_cid = android_identity()\nif iphone_cid == pixel_cid:\n    raise RuntimeError('双机必须是不同公民号')\nprint('[身份] 两台不同公民号已由界面读取；不输出实际号码', flush=True)\n\n# 双向通讯录必须各自准确包含对方。匹配失败时不得发送消息。\nopen_android_peer(iphone_cid)\nprint('[前置] Pixel 已打开准确对端私聊', flush=True)\nios('testChatE2ESend', peer=pixel_cid)\nprint('[发送] iPhone 文字与 emoji 已进入真实会话', flush=True)\nawait_nodes(MARKER, exact=True, timeout=90)\nawait_nodes('😀' + MARKER, exact=True, timeout=90)\nandroid_send_text('PIXEL_' + MARKER)\nandroid_send_sticker()\nprint('[回信] Pixel 文字与贴纸已提交', flush=True)\nios('testChatE2EVerifyRestart', peer=pixel_cid)\nverify_android_after_restart()\nprint('[完成] 双机收发、重启与去重全部通过', flush=True)\nPY\n"});
-export const CI_SIGNING_STEPS=Object.freeze({"android":"set -euo pipefail\numask 077\nwork=\"$CITIZENAPP_BUILD_TEMP/citizenapp-android-signing\"\npublish=\"build/release\"\nrm -rf \"$work\" \"$publish\"\nmkdir -p \"$work\" \"$publish\"\ntrap 'rm -rf \"$work\"' EXIT\npython3 - \"$work\" <<'PY'\nimport base64, os, pathlib, re, sys\nroot = pathlib.Path(sys.argv[1])\nfields = {}\nfor raw in os.environ.get(\"APP_KEY\", \"\").splitlines():\n    line = raw.strip()\n    if not line or line.startswith(\"#\"):\n        continue\n    name, sep, value = line.partition(\"=\")\n    if not sep or name.strip() in fields or not value.strip():\n        raise SystemExit(\"APP_KEY 行格式无效\")\n    fields[name.strip()] = value.strip()\nif set(fields) - {\"keystore\", \"password\", \"alias\", \"keyPassword\"}:\n    raise SystemExit(\"APP_KEY 包含未登记字段\")\nalias = fields.get(\"alias\", \"upload\")\nif not re.fullmatch(r\"[A-Za-z0-9._-]{1,128}\", alias):\n    raise SystemExit(\"APP_KEY alias 无效\")\ntry:\n    key = base64.b64decode(fields[\"keystore\"], validate=True)\n    password = fields[\"password\"]\nexcept (KeyError, ValueError) as exc:\n    raise SystemExit(\"APP_KEY 缺少有效签名材料\") from exc\nif not 1024 <= len(key) <= 32 * 1024 * 1024:\n    raise SystemExit(\"APP_KEY keystore 大小无效\")\n(root / \"release.keystore\").write_bytes(key)\n(root / \"password\").write_text(password)\n(root / \"key-password\").write_text(fields.get(\"keyPassword\", password))\n(root / \"alias\").write_text(alias)\nPY\nstore_password=\"$(cat \"$work/password\")\"\nkey_password=\"$(cat \"$work/key-password\")\"\nalias=\"$(cat \"$work/alias\")\"\nexport GMB_ANDROID_STORE_PASSWORD=\"$store_password\"\nexport GMB_ANDROID_KEY_PASSWORD=\"$key_password\"\napksigner=\"$ANDROID_HOME/build-tools/36.0.0/apksigner\"\ntest -x \"$apksigner\"\n\"$apksigner\" sign --ks \"$work/release.keystore\" \\\n  --ks-pass env:GMB_ANDROID_STORE_PASSWORD --key-pass env:GMB_ANDROID_KEY_PASSWORD \\\n  --v4-signing-enabled false \\\n  --ks-key-alias \"$alias\" --out \"$publish/citizenapp.apk\" \\\n  build/app/outputs/flutter-apk/app-release.apk\ncp build/app/outputs/bundle/release/app-release.aab \"$publish/citizenapp.aab\"\njarsigner -keystore \"$work/release.keystore\" \\\n  -storepass:env GMB_ANDROID_STORE_PASSWORD -keypass:env GMB_ANDROID_KEY_PASSWORD \\\n  \"$publish/citizenapp.aab\" \"$alias\"\n\"$apksigner\" verify --verbose --print-certs \"$publish/citizenapp.apk\" \\\n  | tee \"$work/apk-verification.txt\"\ngrep -F 'Verified using v2 scheme (APK Signature Scheme v2): true' \"$work/apk-verification.txt\"\n# Android 上传证书按平台规范可以自签名；只验证包完整性，再从三处回读同一证书。\njarsigner -verify \"$publish/citizenapp.aab\"\napk_certificate_sha256=\"$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \"$work/apk-verification.txt\")\"\nkey_certificate_sha256=\"$(keytool -exportcert -alias \"$alias\" \\\n  -keystore \"$work/release.keystore\" -storepass:env GMB_ANDROID_STORE_PASSWORD -rfc \\\n  | openssl x509 -outform DER | shasum -a 256 | awk '{print $1}')\"\naab_certificate_sha256=\"$(keytool -printcert -jarfile \"$publish/citizenapp.aab\" -rfc \\\n  | openssl x509 -outform DER | shasum -a 256 | awk '{print $1}')\"\n[[ \"$apk_certificate_sha256\" =~ ^[0-9a-f]{64}$ ]]\ntest \"$apk_certificate_sha256\" = \"$key_certificate_sha256\"\ntest \"$apk_certificate_sha256\" = \"$aab_certificate_sha256\"\ntest \"$(apkanalyzer manifest application-id \"$publish/citizenapp.apk\")\" = com.crcfrcn.citizenapp\ntest \"$(apkanalyzer manifest version-code \"$publish/citizenapp.apk\")\" = \"$CITIZENAPP_BUILD_NUMBER\"","ios":"set -euo pipefail\numask 077\nwork=\"$CITIZENAPP_BUILD_TEMP/citizenapp-ios-signing\"\npublish=\"$CITIZENAPP_RELEASE_ROOT\"\nrm -rf \"$work\" \"$publish\"\nmkdir -p \"$work\" \"$publish\"\nkeychain=\"$work/release.keychain-db\"\nkeychain_password=\"$(openssl rand -hex 32)\"\n# 本机钥匙串搜索列表属共享用户状态；先保存，结束时恢复。\noriginal_keychains=()\nwhile IFS= read -r line; do\n  [[ \"$line\" =~ ^[[:space:]]*\\\"([^\\\"]+)\\\"$ ]] || exit 1\n  original_keychains+=(\"${BASH_REMATCH[1]}\")\ndone < <(security list-keychains -d user)\n(( ${#original_keychains[@]} > 0 )) || exit 1\ncleanup() {\n  security list-keychains -d user -s \"${original_keychains[@]}\" >/dev/null 2>&1 || true\n  security delete-keychain \"$keychain\" >/dev/null 2>&1 || true\n  rm -rf \"$work\"\n}\ntrap cleanup EXIT\npython3 - \"$work\" <<'PY'\nimport base64, os, pathlib, re, sys\nroot = pathlib.Path(sys.argv[1])\nfields = {}\nfor raw in os.environ.get(\"IOS_KEY\", \"\").splitlines():\n    line = raw.strip()\n    if not line or line.startswith(\"#\"):\n        continue\n    name, sep, value = line.partition(\"=\")\n    if not sep or name.strip() in fields or not value.strip():\n        raise SystemExit(\"IOS_KEY 行格式无效\")\n    fields[name.strip()] = value.strip()\nif set(fields) != {\"pkcs12\", \"password\", \"certificate_sha1\"}:\n    raise SystemExit(\"IOS_KEY 字段集合无效\")\nif not re.fullmatch(r\"[0-9A-F]{40}\", fields[\"certificate_sha1\"]):\n    raise SystemExit(\"Apple Distribution 证书摘要无效\")\ntry:\n    pkcs12 = base64.b64decode(fields[\"pkcs12\"], validate=True)\n    profile = base64.b64decode(os.environ.get(\"IOS_PROVISIONING_PROFILE\", \"\"), validate=True)\nexcept ValueError as exc:\n    raise SystemExit(\"Apple Distribution 或 provisioning profile Base64 无效\") from exc\nif not 1024 <= len(pkcs12) <= 32 * 1024 * 1024 or not 1024 <= len(profile) <= 1024 * 1024:\n    raise SystemExit(\"Apple Distribution 签名材料大小无效\")\n(root / \"distribution.p12\").write_bytes(pkcs12)\n(root / \"password\").write_text(fields[\"password\"])\n(root / \"certificate-sha1\").write_text(fields[\"certificate_sha1\"])\n(root / \"profile.mobileprovision\").write_bytes(profile)\nPY\nsecurity create-keychain -p \"$keychain_password\" \"$keychain\"\nsecurity set-keychain-settings -lut 21600 \"$keychain\"\nsecurity unlock-keychain -p \"$keychain_password\" \"$keychain\"\n# 中文注释：codesign 查找 identity 依赖用户钥匙串搜索列表；仅传 --keychain\n# 不能保证干净 runner 能从证书继续定位到同钥匙串中的私钥。\nsecurity list-keychains -d user -s \"$keychain\" \"${original_keychains[@]}\"\nsecurity import \"$work/distribution.p12\" -k \"$keychain\" -P \"$(cat \"$work/password\")\" -T /usr/bin/codesign\nsecurity set-key-partition-list -S apple-tool:,apple:,codesign: -s -k \"$keychain_password\" \"$keychain\" >/dev/null\ncertificate_sha1=\"$(cat \"$work/certificate-sha1\")\"\nsecurity find-certificate -a -Z \"$keychain\" | grep -F \"SHA-1 hash: $certificate_sha1\"\nsecurity find-identity -v -p codesigning \"$keychain\" | grep -Fq \"$certificate_sha1\"\n# 中文注释：干净 runner 的钥匙串不保证预装描述文件 CMS 签发链；LibreSSL\n# 直接验证 CMS 密码学签名并解出载荷，再用正式证书摘要锁定唯一配对。\n/usr/bin/openssl smime -verify -inform DER -in \"$work/profile.mobileprovision\" \\\n  -noverify -out \"$work/profile.plist\" >/dev/null\nprofile_certificate_sha1=\"$(\n  plutil -extract DeveloperCertificates.0 raw -o - \"$work/profile.plist\" \\\n    | base64 -D | shasum -a 1 | awk '{print toupper($1)}'\n)\"\ntest \"$profile_certificate_sha1\" = \"$certificate_sha1\"\ntest \"$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' \"$work/profile.plist\")\" = MHYMVRN6FC\ntest \"$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' \"$work/profile.plist\")\" = MHYMVRN6FC.ios.citizenapp\ntest \"$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:get-task-allow' \"$work/profile.plist\")\" = false\nplutil -extract Entitlements xml1 -o \"$work/entitlements.plist\" \"$work/profile.plist\"\napp=\"$CITIZENAPP_FLUTTER_ROOT/build/ios/iphoneos/Runner.app\"\ntest \"$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \"$app/Info.plist\")\" = ios.citizenapp\ncp \"$work/profile.mobileprovision\" \"$app/embedded.mobileprovision\"\nfind \"$app\" -type f -name '*.dylib' -print0 | while IFS= read -r -d '' item; do\n  codesign --force --sign \"$certificate_sha1\" --keychain \"$keychain\" --timestamp=none \"$item\"\ndone\nfind \"$app\" -type d \\( -name '*.framework' -o -name '*.appex' \\) -print0 \\\n  | while IFS= read -r -d '' item; do\n      codesign --force --sign \"$certificate_sha1\" --keychain \"$keychain\" --timestamp=none \"$item\"\n    done\ncodesign --force --sign \"$certificate_sha1\" --keychain \"$keychain\" --timestamp=none \\\n  --generate-entitlement-der --entitlements \"$work/entitlements.plist\" \"$app\"\ncodesign --verify --deep --strict \"$app\"\ncodesign -dv --verbose=4 \"$app\" 2> \"$work/codesign.txt\"\ngrep -F 'TeamIdentifier=MHYMVRN6FC' \"$work/codesign.txt\"\nmkdir -p \"$work/package/Payload\"\ncp -R \"$app\" \"$work/package/Payload/Runner.app\"\n(cd \"$work/package\" && ditto -c -k --sequesterRsrc --keepParent Payload \"$publish/citizenapp.ipa\")\nunzip -Z1 \"$publish/citizenapp.ipa\" | grep -Fx 'Payload/Runner.app/Info.plist'"});
+export const BUILD_SHELL_SOURCES=Object.freeze({"run":"#!/usr/bin/env bash\n# 在调用方指定的源码外工作根生成本机优化安装包；本脚本不启动、不安装产品。\n#\n# 用法：node scripts/build.mjs run <ios|android>\n# 只读包检查：node scripts/build.mjs run <verify-ios-localization|verify-android-localization> <产物路径>\n# Isar 生成后补齐职责注释：node scripts/build.mjs run normalize-isar-comments\n#\n# 目标平台是必填参数，不做任何自动探测：探测总要在失败时选一个回落，\n# 而回落的那一端会被当成用户想编的那一端——「以为编了 iOS、实际编的 Android」\n# 就是这么来的。任意调用方都必须显式传入且只能构建这一端。\n#\n# 调用方可提供本仓target内的独立缓存目录；默认使用target/build/<平台>。\n# 公民链轻节点、交易和链存储全部由 CitizenSDK Flutter plugin 提供。\nset -euo pipefail\nSCRIPT_DIR=\"${CITIZENAPP_SCRIPTS_ROOT:?缺少源码脚本根}\"\n# 消解 scripts/..，确保直接产品源码身份使用唯一真实路径。\nAPP_ROOT=\"${CITIZENAPP_SOURCE_ROOT:?缺少产品源码根}\"\nREPO_ROOT=\"$APP_ROOT\"\n# 只补齐两份既定生成文件的职责说明；全部输入通过检查后才允许写入。\nif [[ \"${1:-}\" == normalize-isar-comments ]]; then\n  [[ \"$#\" == 1 ]] || { echo 'Isar 注释规范化不接受额外参数' >&2; exit 1; }\n  node - \"$APP_ROOT\" <<'NORMALIZE_ISAR_COMMENTS'\nconst { lstatSync, readFileSync, writeFileSync } = require('node:fs');\nconst { join } = require('node:path');\nconst root = process.argv[2];\nfor (const path of [root, join(root, 'lib'), join(root, 'lib/storage')]) {\n  if (!lstatSync(path).isDirectory() || lstatSync(path).isSymbolicLink()) {\n    throw new Error('Isar 输入目录必须为真实目录');\n  }\n}\nconst entries = [\n  ['user_isar', '// 由 user_isar.dart 生成用户域集合、序列化与查询；身份展示缓存不得作为授权真源。'],\n  ['wallet_isar', '// 由 wallet_isar.dart 生成钱包域集合、序列化与查询；余额展示快照不得作为链上授权真源。'],\n];\nconst header = '// GENERATED CODE - DO NOT MODIFY BY HAND\\n';\nconst updates = entries.map(([name, comment]) => {\n  const path = join(root, 'lib/storage', `${name}.g.dart`);\n  if (!lstatSync(path).isFile() || lstatSync(path).isSymbolicLink()) {\n    throw new Error(`Isar 生成文件必须为普通文件：${name}`);\n  }\n  const original = readFileSync(path, 'utf8');\n  const normalized = `${header}${comment}\\n`;\n  const body = original.startsWith(normalized) ? original.slice(normalized.length)\n    : original.startsWith(header) ? original.slice(header.length) : null;\n  if (body === null || !body.startsWith(`\\npart of '${name}.dart';\\n`)) {\n    throw new Error(`Isar 生成头或所属源文件不匹配：${name}`);\n  }\n  return { path, original, next: normalized + body };\n});\nfor (const { path, original, next } of updates) {\n  if (original !== next) writeFileSync(path, next);\n}\nprocess.stdout.write('Isar 两份生成文件职责注释已规范化，生成正文保持不变\\n');\nNORMALIZE_ISAR_COMMENTS\n  exit 0\nfi\nCITIZENSDK_ROOT=''\nTATACHATSDK_ROOT=''\nVIEW_SCRIPT=\"$SCRIPT_DIR/build.mjs\"\nPLATFORM=\"${1:?缺少目标平台，用法：$0 <ios|android>}\"\n[[ \"$PLATFORM\" == ios || \"$PLATFORM\" == android \\\n  || \"$PLATFORM\" == verify-ios-localization || \"$PLATFORM\" == verify-android-localization ]] \\\n  || { echo \"目标平台或检查模式不合法：$PLATFORM\" >&2; exit 1; }\nif [[ \"$PLATFORM\" == ios || \"$PLATFORM\" == android ]]; then\n  CITIZENAPP_WORK_DIR=\"${CITIZENAPP_WORK_DIR:-$APP_ROOT/target/build/$PLATFORM}\"\n  # macOS 的 /tmp、/var 可能是系统链接；先创建再读取物理路径，使默认直接开发路径\n  # 与工程视图的“规范绝对路径、无链接祖先”安全合同一致。\n  mkdir -p \"$CITIZENAPP_WORK_DIR\"\n  CITIZENAPP_WORK_DIR=\"$(cd \"$CITIZENAPP_WORK_DIR\" && pwd -P)\"\n  dependency_sources=\"$(node \"$VIEW_SCRIPT\" view dependencies --source-root \"$APP_ROOT\" --work-root \"$CITIZENAPP_WORK_DIR\")\"\n  CITIZENSDK_ROOT=\"$(printf '%s' \"$dependency_sources\" | node -e 'let s=\"\";process.stdin.on(\"data\",c=>s+=c);process.stdin.on(\"end\",()=>process.stdout.write(JSON.parse(s).citizen_sdk.root));')\"\n  TATACHATSDK_ROOT=\"$(printf '%s' \"$dependency_sources\" | node -e 'let s=\"\";process.stdin.on(\"data\",c=>s+=c);process.stdin.on(\"end\",()=>process.stdout.write(JSON.parse(s).tatachat_sdk.root));')\"\n  # 源码根只用于读取输入和调用原生脚本；Flutter可写状态始终进入调用方工作目录。\n  [[ \"$APP_ROOT\" == \"$REPO_ROOT\" ]] || {\n    echo \"citizenapp本机Build源码身份无效：$APP_ROOT\" >&2\n    exit 1\n  }\n  if [[ -z \"${CITIZENAPP_PROJECT_ROOT:-}\" ]]; then\n    CITIZENAPP_PROJECT_ROOT=\"$(node \"$VIEW_SCRIPT\" view create \\\n      --source-root \"$APP_ROOT\" --work-root \"$CITIZENAPP_WORK_DIR\")\"\n  fi\n  [[ -d \"$CITIZENAPP_PROJECT_ROOT\" && -f \"$CITIZENAPP_PROJECT_ROOT/pubspec.yaml\" ]] \\\n    || { echo 'CitizenApp Flutter 产品目录无效' >&2; exit 1; }\n  export CITIZENAPP_PROJECT_ROOT\n  cd \"$CITIZENAPP_PROJECT_ROOT\"\n  BUILD_WORK_DIR=\"${CITIZENAPP_BUILD_WORK_DIR:-$CITIZENAPP_WORK_DIR/work}\"\n  DEPENDENCY_WORK_DIR=\"${CITIZENAPP_DEPENDENCY_DIR:-$CITIZENAPP_WORK_DIR/dependencies}\"\n  BUILD_DIR=\"${CITIZENAPP_BUILD_DIR:-$BUILD_WORK_DIR/flutter}\"\n  ARTIFACT_ROOT=\"${CITIZENAPP_ARTIFACT_DIR:-$CITIZENAPP_WORK_DIR}\"\n  python3 - \"$APP_ROOT\" \"$CITIZENAPP_WORK_DIR\" \"$BUILD_WORK_DIR\" \"$DEPENDENCY_WORK_DIR\" \"$BUILD_DIR\" \"$ARTIFACT_ROOT\" <<'CHECK_OUTPUTS'\nfrom pathlib import Path\nimport sys\nsource = Path(sys.argv[1]).resolve()\nfor value in sys.argv[2:]:\n    raw = Path(value)\n    target = raw.resolve()\n    if not raw.is_absolute() or source / 'target' not in target.parents:\n        raise SystemExit(f'CitizenApp可写目录必须是本仓target内绝对路径：{value}')\nCHECK_OUTPUTS\n  export CITIZENAPP_BUILD_DIR=\"$BUILD_DIR\"\n  export CITIZENAPP_NATIVE_ANDROID_DIR=\"${CITIZENAPP_NATIVE_ANDROID_DIR:-$BUILD_WORK_DIR/native/android}\"\n  export CITIZENAPP_NATIVE_IOS_DIR=\"${CITIZENAPP_NATIVE_IOS_DIR:-$BUILD_WORK_DIR/native/ios}\"\n  export CARGO_TARGET_DIR=\"${CARGO_TARGET_DIR:-$BUILD_WORK_DIR/cargo}\"\n  export XDG_CONFIG_HOME=\"${XDG_CONFIG_HOME:-$DEPENDENCY_WORK_DIR/flutter-config}\"\n  export PUB_CACHE=\"${PUB_CACHE:-$DEPENDENCY_WORK_DIR/pub}\"\n  export GRADLE_USER_HOME=\"$DEPENDENCY_WORK_DIR/gradle\"\n  # 只有 Android 使用 Gradle；iOS 工程不装配 Wrapper，也不依赖 Android 工具。\n  if [[ \"$PLATFORM\" == android ]]; then\n    GRADLE_EXECUTABLE=\"${CITIZENAPP_GRADLE:-$CITIZENAPP_PROJECT_ROOT/android/gradlew}\"\n    [[ \"$GRADLE_EXECUTABLE\" == /* && -f \"$GRADLE_EXECUTABLE\" && ! -L \"$GRADLE_EXECUTABLE\"\n        && -x \"$GRADLE_EXECUTABLE\" ]] \\\n      || { echo 'CitizenApp Gradle执行器必须是绝对普通可执行文件' >&2; exit 1; }\n  fi\n  export CP_HOME_DIR=\"$DEPENDENCY_WORK_DIR/cocoapods\"\n  export TMPDIR=\"$CITIZENAPP_WORK_DIR/tmp/\"\n  export FLUTTER_SUPPRESS_ANALYTICS=true COCOAPODS_DISABLE_STATS=true\n  CITIZENAPP_GRADLE_INIT_SCRIPT=\"${CITIZENAPP_GRADLE_INIT_SCRIPT:-$CITIZENAPP_WORK_DIR/gradle.init.gradle}\"\n  CITIZENAPP_FLUTTER_GRADLE_BUILD_DIR=\"${CITIZENAPP_FLUTTER_GRADLE_BUILD_DIR:-$BUILD_WORK_DIR/flutter-gradle-plugin}\"\n  export CITIZENAPP_GRADLE_INIT_SCRIPT CITIZENAPP_FLUTTER_GRADLE_BUILD_DIR\n  mkdir -p \"$XDG_CONFIG_HOME\" \"$TMPDIR\" \"$CITIZENAPP_FLUTTER_GRADLE_BUILD_DIR\"\n  printf '%s\\n' \\\n    'gradle.beforeSettings { settings ->' \\\n    '    def source = System.getenv(\"CITIZENAPP_FLUTTER_GRADLE_ROOT\")' \\\n    '    if (source && settings.settingsDir.canonicalPath == new File(source).canonicalPath) {' \\\n    '        settings.pluginManagement.repositories {' \\\n    '            clear()' \\\n    '            mavenCentral()' \\\n    '            google()' \\\n    '            gradlePluginPortal()' \\\n    '        }' \\\n    '    }' \\\n    '}' \\\n    'gradle.beforeProject { project ->' \\\n    '    def source = System.getenv(\"CITIZENAPP_FLUTTER_GRADLE_ROOT\")' \\\n    '    def output = System.getenv(\"CITIZENAPP_FLUTTER_GRADLE_BUILD_DIR\")' \\\n    '    if (source && output && project.rootDir.canonicalPath == new File(source).canonicalPath) {' \\\n    '        def suffix = project.path == \":\" ? \"root\" : project.path.substring(1).replace(\":\", \"/\")' \\\n    '        project.layout.buildDirectory.set(new File(output, suffix))' \\\n    '    }' \\\n    '}' >\"$CITIZENAPP_GRADLE_INIT_SCRIPT\"\n  # Flutter只接受相对产品根的build-dir配置；把源码外绝对目录换算为相对路径，\n  # 不能写死为产品源码下的cache/build，也不能在产品根生成build。\n  FLUTTER_BUILD_RELATIVE=\"$(python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' \"$BUILD_DIR\" \"$CITIZENAPP_PROJECT_ROOT\")\"\n  flutter config --build-dir=\"$FLUTTER_BUILD_RELATIVE\" >/dev/null\nfi\n\n# Android的SDK原生Gradle与最终App Gradle必须使用同一个产品JDK。\n# 直接开发可显式传JAVA_HOME；macOS本机默认使用Android Studio自带JBR。\nANDROID_JAVA_HOME=''\nANDROID_SDK_HOME=''\nif [[ \"$PLATFORM\" == android ]]; then\n  if [[ -n \"${ANDROID_HOME:-}\" && -n \"${ANDROID_SDK_ROOT:-}\" \\\n    && \"$ANDROID_HOME\" != \"$ANDROID_SDK_ROOT\" ]]; then\n    echo 'CitizenApp Android的ANDROID_HOME与ANDROID_SDK_ROOT必须一致' >&2\n    exit 1\n  fi\n  ANDROID_SDK_HOME=\"${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}\"\n  ANDROID_JAVA_HOME=\"${JAVA_HOME:-/Applications/Android Studio.app/Contents/jbr/Contents/Home}\"\n  [[ \"$ANDROID_SDK_HOME\" == /* && -d \"$ANDROID_SDK_HOME\" \\\n    && -d \"$ANDROID_SDK_HOME/ndk/28.2.13676358\" ]] \\\n    || { echo 'CitizenApp Android缺少带固定NDK的产品SDK目录' >&2; exit 1; }\n  [[ \"$ANDROID_JAVA_HOME\" == /* && -x \"$ANDROID_JAVA_HOME/bin/java\" ]] \\\n    || { echo 'CitizenApp Android缺少可执行产品JDK' >&2; exit 1; }\nfi\n\nPUB_GET_ARGS=(--enforce-lockfile)\ncase \"${CITIZENAPP_OFFLINE:-false}\" in\n  true) PUB_GET_ARGS+=(--offline); export CARGO_NET_OFFLINE=true ;;\n  false) ;;\n  *) echo 'CITIZENAPP_OFFLINE只接受true或false' >&2; exit 1 ;;\nesac\ngradle_network_arg=''\nCITIZENAPP_GRADLE_OFFLINE=\"${CITIZENAPP_GRADLE_OFFLINE:-${CITIZENAPP_OFFLINE:-false}}\"\ncase \"$CITIZENAPP_GRADLE_OFFLINE\" in\n  true) gradle_network_arg='--offline' ;;\n  false) ;;\n  *) echo 'CITIZENAPP_GRADLE_OFFLINE只接受true或false' >&2; exit 1 ;;\nesac\n\n# 离线调用方必须分别提供SDK与聊天SDK的Cargo闭包；产品Build按实际所有者切换，\n# 禁止把两套Cargo Home混用。普通开发者在线Build继续使用自己的标准Cargo环境。\nif [[ \"${CITIZENAPP_OFFLINE:-false}\" == true ]]; then\n  for value in \"${CITIZENAPP_SDK_CARGO_HOME:-}\" \"${CITIZENAPP_CHAT_CARGO_HOME:-}\"; do\n    [[ \"$value\" == \"$DEPENDENCY_WORK_DIR\"/* && -d \"$value\" && ! -L \"$value\" \\\n      && -f \"$value/config.toml\" ]] \\\n      || { echo 'CitizenApp离线Build缺少独立Cargo依赖闭包' >&2; exit 1; }\n  done\nfi\n\n# 仅清理本任务的候选包；不触碰源码、其它工作目录或另一端。\nclean_platform_build_outputs() {\n  case \"$PLATFORM\" in\n    ios) rm -rf \"$BUILD_DIR/ios/iphoneos/Runner.app\" ;;\n    android) rm -f \"$BUILD_DIR/app/outputs/flutter-apk/\"*.apk ;;\n  esac\n  mkdir -p \"$BUILD_DIR\"\n}\n\n# iOS Runner.app完成签名后只覆盖固定 `ios.app.zip`。\nretain_ios_local_artifact() {\n  local app_bundle=\"$1\" staging=\"$CITIZENAPP_WORK_DIR/ios.app.zip\" destination=\"$ARTIFACT_ROOT/ios.app.zip\"\n  rm -f \"$staging\"\n  ditto -c -k --norsrc --noextattr --keepParent \"$app_bundle\" \"$staging\"\n  mkdir -p \"$ARTIFACT_ROOT\"\n  # 同卷固定名称覆盖保证失败时不先删除上一次成功产物。\n  mv -f \"$staging\" \"$destination\"\n}\n\n# Android产品Build只提交已验真的无私钥候选；签名、安装和安装后回读\n# 继续由调用方的原生安全进程唯一负责。\nretain_android_local_artifact() {\n  local apk=\"$1\" staging=\"$CITIZENAPP_WORK_DIR/android.apk.pending\" destination=\"$ARTIFACT_ROOT/android.apk\"\n  rm -f \"$staging\"\n  cp \"$apk\" \"$staging\"\n  chmod 600 \"$staging\"\n  mkdir -p \"$ARTIFACT_ROOT\"\n  # 同卷固定名称覆盖，安全进程只会看到完整普通文件。\n  mv -f \"$staging\" \"$destination\"\n}\n\n# 系统权限弹窗由操作系统渲染；App 唯一能提供的是最终包内的受支持语言和本地化产品名。\n# 只检查源码会漏掉 Xcode variant group 未入 Resources 等问题，Build必须回读最终包。\nverify_ios_release_localization() {\n  local app_bundle=\"$1\" info=\"$1/Info.plist\"\n  local zh_strings=\"$1/zh-Hans.lproj/InfoPlist.strings\"\n  local en_strings=\"$1/en.lproj/InfoPlist.strings\"\n  [[ -f \"$info\" && -f \"$zh_strings\" && -f \"$en_strings\" ]] || {\n    echo \"iOS Release 缺少 Info.plist 或中英文本地化资源：$app_bundle\" >&2\n    return 1\n  }\n  [[ \"$(plutil -extract CFBundleDevelopmentRegion raw -o - \"$info\")\" == zh-Hans ]] || {\n    echo 'iOS Release 默认回落语言必须是 zh-Hans' >&2\n    return 1\n  }\n  plutil -extract CFBundleLocalizations json -o - \"$info\" | python3 -c '\nimport json, sys\nif json.load(sys.stdin) != [\"zh-Hans\", \"en\"]:\n    raise SystemExit(\"iOS Release 支持语言必须严格为 zh-Hans、en\")\n'\n  [[ \"$(plutil -extract CFBundleDisplayName raw -o - \"$zh_strings\")\" == 公民 \\\n    && \"$(plutil -extract CFBundleName raw -o - \"$zh_strings\")\" == 公民 ]] || {\n    echo 'iOS Release 中文产品名必须是“公民”' >&2\n    return 1\n  }\n  [[ \"$(plutil -extract CFBundleDisplayName raw -o - \"$en_strings\")\" == CitizenApp \\\n    && \"$(plutil -extract CFBundleName raw -o - \"$en_strings\")\" == CitizenApp ]] || {\n    echo 'iOS Release 英文产品名必须是 CitizenApp' >&2\n    return 1\n  }\n  echo '    iOS Release 本地化通过：中文=公民，英文=CitizenApp，默认回落=zh-Hans'\n}\n\n# Android 权限正文由系统按手机语言渲染；这里锁定最终 APK 的默认中文和英文限定应用名。\nverify_android_release_localization() {\n  local apk=\"$1\" aapt_bin sdk_home\n  [[ -f \"$apk\" ]] || { echo \"Android Release APK 不存在：$apk\" >&2; return 1; }\n  aapt_bin=\"$(command -v aapt2 || true)\"\n  if [[ -z \"$aapt_bin\" ]]; then\n    # 产品只读取公开工具链环境，不依赖启动它的桌面进程恰好继承ANDROID_HOME。\n    # 与原生库构建保持同一确定性规则：显式 SDK 优先，macOS 默认\n    # SDK 目录兜底，再从已安装 build-tools 中选择最高版本，禁止硬编码具体版本。\n    sdk_home=\"${ANDROID_HOME:-$HOME/Library/Android/sdk}\"\n    aapt_bin=\"$(find \"$sdk_home/build-tools\" -type f -name aapt2 -print 2>/dev/null | sort -V | tail -n 1)\"\n  fi\n  [[ -x \"$aapt_bin\" ]] || { echo '找不到 Android SDK aapt2，无法核验 APK 本地化' >&2; return 1; }\n  \"$aapt_bin\" dump resources \"$apk\" | python3 -c '\nimport re, sys\ntext = sys.stdin.read()\nmatch = re.search(r\"resource 0x[0-9a-f]+ string/app_name\\n(?P<body>(?:      .*\\n)+?)    resource \", text)\nif match is None:\n    raise SystemExit(\"Android Release APK 缺少 string/app_name\")\nbody = match.group(\"body\")\nif \"() \\\"公民\\\"\" not in body or \"(en) \\\"CitizenApp\\\"\" not in body:\n    raise SystemExit(\"Android Release APK 的默认中文或英文应用名不正确\")\n'\n  echo '    Android Release 本地化通过：默认=公民，英文=CitizenApp'\n}\n\nif [[ \"$PLATFORM\" == verify-ios-localization ]]; then\n  verify_ios_release_localization \"${2:?缺少 Runner.app 路径}\"\n  exit 0\nfi\nif [[ \"$PLATFORM\" == verify-android-localization ]]; then\n  verify_android_release_localization \"${2:?缺少 APK 路径}\"\n  exit 0\nfi\n\n\n# 构造 dart-define 参数\nDART_DEFINES=()\necho \"[Build模式] CitizenSDK · 目标平台 $PLATFORM\"\n\n# Flutter只负责在当前缓存根生成产品自己的Android配置和插件清单；真正的Gradle\n# 从产品真实android目录启动，所有可写状态仍由既有环境变量指向本任务缓存。\nbuild_android_release() {\n  local properties flutter_command flutter_sdk android_sdk product_version version_name version_code\n  local flutter_version dart_defines link_target java_home\n  properties=\"$CITIZENAPP_PROJECT_ROOT/android/local.properties\"\n  flutter_sdk=\"${FLUTTER_ROOT:-}\"\n  if [[ -z \"$flutter_sdk\" ]]; then\n    flutter_command=\"$(command -v flutter)\"\n    while [[ -L \"$flutter_command\" ]]; do\n      link_target=\"$(readlink \"$flutter_command\")\"\n      [[ \"$link_target\" == /* ]] || link_target=\"$(cd \"$(dirname \"$flutter_command\")\" && pwd -P)/$link_target\"\n      flutter_command=\"$link_target\"\n    done\n    flutter_sdk=\"$(cd \"$(dirname \"$flutter_command\")/..\" && pwd -P)\"\n  fi\n  [[ \"$flutter_sdk\" == /* && -x \"$flutter_sdk/bin/flutter\" \\\n      && -f \"$flutter_sdk/packages/flutter_tools/gradle/build.gradle.kts\" ]] \\\n    || { echo 'CitizenApp Flutter SDK根目录无效' >&2; exit 1; }\n  android_sdk=\"$ANDROID_SDK_HOME\"\n  # JDK与Android SDK由CitizenApp产品入口传给同一次Gradle调用；不在Worker增加前置检查。\n  java_home=\"$ANDROID_JAVA_HOME\"\n  product_version=\"$(sed -n 's/^version:[[:space:]]*//p' \"$CITIZENAPP_PROJECT_ROOT/pubspec.yaml\" | head -n 1)\"\n  version_name=\"${CITIZENAPP_BUILD_VERSION:?缺少本平台编译版本}\"\n  version_code=\"${product_version##*+}\"\n  if [[ \"${CITIZENAPP_CI_BUILD:-false}\" == true ]]; then version_code=\"${CITIZENAPP_CI_BUILD_NUMBER:?}\"; fi\n  printf 'sdk.dir=%s\\nflutter.sdk=%s\\nflutter.buildMode=release\\nflutter.versionName=%s\\nflutter.versionCode=%s\\n' \\\n    \"$android_sdk\" \"$flutter_sdk\" \"$version_name\" \"$version_code\" >\"$properties\"\n  flutter_version=\"$(flutter --version --machine)\"\n  dart_defines=\"$(printf '%s' \"$flutter_version\" | python3 -c '\nimport base64, json, sys\nvalue = json.load(sys.stdin)\nfields = (\n    (\"FLUTTER_VERSION\", \"frameworkVersion\"),\n    (\"FLUTTER_CHANNEL\", \"channel\"),\n    (\"FLUTTER_GIT_URL\", \"repositoryUrl\"),\n    (\"FLUTTER_FRAMEWORK_REVISION\", \"frameworkRevision\"),\n    (\"FLUTTER_ENGINE_REVISION\", \"engineRevision\"),\n    (\"FLUTTER_DART_VERSION\", \"dartSdkVersion\"),\n)\nprint(\",\".join(base64.b64encode(f\"{name}={value[key]}\".encode()).decode() for name, key in fields))\n')\"\n  (\n    cd \"$CITIZENAPP_PROJECT_ROOT/android\"\n    # Flutter Gradle included-build 的 Kotlin 会默认在工具源码根写 .kotlin/sessions；\n    # 显式定位到本轮工作目录，共享 Flutter 工具原件始终保持只读。\n    ANDROID_HOME=\"$android_sdk\" ANDROID_SDK_ROOT=\"$android_sdk\" JAVA_HOME=\"$java_home\" PATH=\"$java_home/bin:$PATH\" \\\n    CITIZENAPP_FLUTTER_GRADLE_ROOT=\"$flutter_sdk/packages/flutter_tools/gradle\" \\\n    FLUTTER_ROOT=\"$flutter_sdk\" \"$GRADLE_EXECUTABLE\" ${gradle_network_arg:+\"$gradle_network_arg\"} --no-daemon --stacktrace --no-problems-report \\\n      --init-script \"$CITIZENAPP_GRADLE_INIT_SCRIPT\" \\\n      --project-cache-dir \"$BUILD_WORK_DIR/gradle-project\" \\\n      -Pkotlin.project.persistent.dir=\"$CITIZENAPP_FLUTTER_GRADLE_BUILD_DIR/kotlin-project\" \\\n      -Pflutter.sdk=\"$flutter_sdk\" \\\n      -Ptarget-platform=android-arm64 \\\n      -Ptarget=lib/main.dart \\\n      -Pbase-application-name=android.app.Application \\\n      -Pdart-defines=\"$dart_defines\" \\\n      -Pdart-obfuscation=false \\\n      -Ptrack-widget-creation=true \\\n      -Ptree-shake-icons=true \\\n      assembleRelease\n  )\n}\n\n# 这里曾有一句 `pkill -9 -f flutter_tools.snapshot`，用途是清掉上一轮残留的 flutter。\n# 已删除：`-f` 匹配全命令行，而 `flutter_tools.snapshot` 是每一个 flutter 命令的实际执行体，\n# 那一枪不区分产品、不区分平台、也不区分是不是本次运行的——公民钱包正在跑的编译、\n# 乃至你自己在终端里手敲的 flutter，都会一起被 SIGKILL（现象是 `Killed: 9`）。\n# 产品脚本不终止任何既有Flutter进程；进程生命周期由当前调用方管理。\n\n# 本机开发场景直接调用CitizenSDK唯一产品入口生成原生产物；CitizenApp只把SDK产物\n# 目录交给Flutter插件，不复制、不修改也不实现第二份链库。\nCITIZENSDK_DEPENDENCY_WORK_DIR=\"${CITIZENAPP_SDK_DEPENDENCY_WORK_DIR:-$DEPENDENCY_WORK_DIR/citizensdk-native}\"\n[[ \"$CITIZENSDK_DEPENDENCY_WORK_DIR\" == \"$DEPENDENCY_WORK_DIR\"/* ]] \\\n  || { echo 'CitizenSDK依赖目录必须属于CitizenApp依赖工作目录' >&2; exit 1; }\nCITIZENSDK_PRODUCT_WORK_DIR=\"$BUILD_WORK_DIR/citizensdk-work\"\nCITIZENSDK_PRODUCT_OUTPUT_DIR=\"$BUILD_WORK_DIR/citizensdk-output\"\n# SDK原生编译复用本平台受控工作目录；本轮产物仍由SDK公开入口重新核验。\nnode \"$CITIZENSDK_ROOT/scripts/build.mjs\" prepare-environment \\\n  --scope citizensdk --platform \"$([[ \"$PLATFORM\" == ios ]] && printf macOS || printf Android)\" \\\n  --work \"$CITIZENSDK_DEPENDENCY_WORK_DIR\"\nexport CITIZENSDK_ZXING_SOURCE_DIR=\"$CITIZENSDK_DEPENDENCY_WORK_DIR/zxing-cpp-3.1.1\"\nif [[ \"${CITIZENAPP_OFFLINE:-false}\" == true ]]; then\n  export CARGO_HOME=\"$CITIZENAPP_SDK_CARGO_HOME\"\nfi\nif [[ \"$PLATFORM\" == ios ]]; then\n  CITIZENSDK_WORK_DIR=\"$CITIZENSDK_PRODUCT_WORK_DIR\" \\\n    CITIZENSDK_NATIVE_OUTPUT_DIR=\"$CITIZENSDK_PRODUCT_OUTPUT_DIR\" \\\n    node \"$CITIZENSDK_ROOT/scripts/build.mjs\" native apple\n  node \"$VIEW_SCRIPT\" view project-framework \\\n    --source-root \"$APP_ROOT\" --project-root \"$CITIZENAPP_PROJECT_ROOT\" \\\n    --work-root \"$CITIZENAPP_WORK_DIR\" --package-root \"$CITIZENSDK_ROOT\" \\\n    --package-subpath darwin/CitizenSDK.xcframework \\\n    --framework \"$CITIZENSDK_PRODUCT_OUTPUT_DIR/apple/CitizenSDK.xcframework\" >/dev/null\nelse\n  CITIZENSDK_WORK_DIR=\"$CITIZENSDK_PRODUCT_WORK_DIR\" \\\n    CITIZENSDK_NATIVE_OUTPUT_DIR=\"$CITIZENSDK_PRODUCT_OUTPUT_DIR\" \\\n    CITIZENSDK_GRADLE=\"$GRADLE_EXECUTABLE\" \\\n    CITIZENSDK_OFFLINE=\"$CITIZENAPP_GRADLE_OFFLINE\" \\\n    JAVA_HOME=\"$ANDROID_JAVA_HOME\" PATH=\"$ANDROID_JAVA_HOME/bin:$PATH\" \\\n    ANDROID_HOME=\"$ANDROID_SDK_HOME\" ANDROID_SDK_ROOT=\"$ANDROID_SDK_HOME\" \\\n    node \"$CITIZENSDK_ROOT/scripts/build.mjs\" native android\n  export CITIZENSDK_ANDROID_CORE_DIR=\"$CITIZENSDK_PRODUCT_OUTPUT_DIR/android/arm64-v8a\"\nfi\n\n# TataChatSDK仍按聊天产品自有流程构建。\nif [[ \"${CITIZENAPP_OFFLINE:-false}\" == true ]]; then\n  export CARGO_HOME=\"$CITIZENAPP_CHAT_CARGO_HOME\"\nfi\nif [[ \"$PLATFORM\" == ios ]]; then\n  [[ -f \"$TATACHATSDK_ROOT/ios/tatachat_sdk.podspec\" ]] || {\n    echo 'CitizenApp 本端 TataChatSDK iOS 插件配置缺失' >&2\n    exit 1\n  }\n  TATACHATSDK_NATIVE_IOS_DIR=\"$CITIZENAPP_NATIVE_IOS_DIR\" \\\n    TATACHATSDK_WORK_DIR=\"$BUILD_WORK_DIR/tatachatsdk-work\" \\\n    node \"$TATACHATSDK_ROOT/scripts/build.mjs\" native-dependency \"$PLATFORM\"\n  node \"$VIEW_SCRIPT\" view project-framework \\\n    --source-root \"$APP_ROOT\" --project-root \"$CITIZENAPP_PROJECT_ROOT\" \\\n    --work-root \"$CITIZENAPP_WORK_DIR\" --package-root \"$TATACHATSDK_ROOT\" \\\n    --package-subpath ios/TataChatSDK.xcframework \\\n    --framework \"$CITIZENAPP_NATIVE_IOS_DIR/TataChatSDK.xcframework\" >/dev/null\nelse\n  TATACHATSDK_NATIVE_ANDROID_DIR=\"$CITIZENAPP_NATIVE_ANDROID_DIR\" \\\n    TATACHATSDK_WORK_DIR=\"$BUILD_WORK_DIR/tatachatsdk-work\" \\\n    node \"$TATACHATSDK_ROOT/scripts/build.mjs\" native-dependency \"$PLATFORM\"\nfi\n\necho \"==> 清理 ${PLATFORM} 平台构建产物...\"\nclean_platform_build_outputs\necho \"==> 按CitizenApp锁文件准备依赖...\"\nflutter pub get \"${PUB_GET_ARGS[@]}\"\n\n# Build不选择、不安装、不启动设备，只读取当前产品源码并生成产品产物。\n# `--release`只是本机优化配置，不表示或触发正式Release流程。\necho \"==> 编译本机优化安装包...\"\nif [[ \"$PLATFORM\" == ios ]]; then\n  if [[ \"${CITIZENAPP_CI_BUILD:-false}\" == true ]]; then\n    flutter build ios --no-pub --release --no-codesign --build-name=\"${CITIZENAPP_BUILD_VERSION:?}\" --build-number=\"${CITIZENAPP_CI_BUILD_NUMBER:?}\" ${DART_DEFINES[@]+\"${DART_DEFINES[@]}\"}\n  else\n    flutter build ios --no-pub --release --build-name=\"${CITIZENAPP_BUILD_VERSION:?}\" ${DART_DEFINES[@]+\"${DART_DEFINES[@]}\"}\n  fi\n  IOS_APP=\"$BUILD_DIR/ios/iphoneos/Runner.app\"\n  TATACHATSDK_WORK_DIR=\"$BUILD_WORK_DIR/tatachatsdk-work\" node \"$TATACHATSDK_ROOT/scripts/build.mjs\" native-dependency verify-ios-package \"$IOS_APP\"\n  verify_ios_release_localization \"$IOS_APP\"\n  retain_ios_local_artifact \"$IOS_APP\"\n  echo \"\"\n  echo \"==> Build完成：iOS产物已写入CitizenApp产物目录。\"\nelif [[ \"$PLATFORM\" == android ]]; then\n  ANDROID_APK=\"$BUILD_DIR/app/outputs/flutter-apk/app-release.apk\"\n  build_android_release\n  if [[ \"${CITIZENAPP_CI_BUILD:-false}\" == true ]]; then\n    flutter build appbundle --no-pub --release --build-name=\"${CITIZENAPP_BUILD_VERSION:?}\" --build-number=\"${CITIZENAPP_CI_BUILD_NUMBER:?}\"\n  fi\n  [[ -f \"$ANDROID_APK\" ]] || {\n    echo \"Android 本机无私钥 APK 不存在\" >&2\n    exit 1\n  }\n  TATACHATSDK_WORK_DIR=\"$BUILD_WORK_DIR/tatachatsdk-work\" node \"$TATACHATSDK_ROOT/scripts/build.mjs\" native-dependency verify-android-package \"$ANDROID_APK\"\n  verify_android_release_localization \"$ANDROID_APK\"\n  retain_android_local_artifact \"$ANDROID_APK\"\n  echo \"==> Android无私钥候选完成，正在交给原生安全进程完成Build签名。\"\nfi\n","test":"#!/usr/bin/env bash\n# CitizenApp 本机与 CI 唯一 Flutter 测试入口。\n#\n# CitizenApp SDK金标消费锁定CitizenSDK的真实产品Core；两份SDK宿主库\n# 由各自产品入口准备，Isar消费本轮锁定包的宿主库。\nset -euo pipefail\n\nSCRIPT_DIR=\"${CITIZENAPP_SCRIPTS_ROOT:?缺少源码脚本根}\"\nCITIZENAPP_DIR=\"${CITIZENAPP_SOURCE_ROOT:?缺少产品源码根}\"\nFLUTTER_BIN=\"${FLUTTER_BIN:-flutter}\"\nVIEW_SCRIPT=\"$SCRIPT_DIR/build.mjs\"\nFLUTTER_ROOT=''\nANALYSIS_CONFIG=''\nTEST_CONFIG=''\nTEST_CONFIGS_STAGED=false\nCITIZENAPP_TEST_WORK_DIR=\"${CITIZENAPP_TEST_WORK_DIR:-$CITIZENAPP_DIR/target/test}\"\nBUILD_CACHE=\"${CITIZENAPP_TEST_BUILD_DIR:-$CITIZENAPP_TEST_WORK_DIR/work}\"\nDEPENDENCY_CACHE=\"${CITIZENAPP_TEST_DEPENDENCY_DIR:-$CITIZENAPP_TEST_WORK_DIR/dependencies}\"\npython3 - \"$CITIZENAPP_DIR\" \"$CITIZENAPP_TEST_WORK_DIR\" \"$BUILD_CACHE\" \"$DEPENDENCY_CACHE\" <<'CHECK_OUTPUTS'\nfrom pathlib import Path\nimport sys\nsource = Path(sys.argv[1]).resolve()\nfor value in sys.argv[2:]:\n    raw = Path(value)\n    target = raw.resolve()\n    if not raw.is_absolute() or source / 'target' not in target.parents:\n        raise SystemExit(f'CitizenApp测试目录必须是本仓target内绝对路径：{value}')\nCHECK_OUTPUTS\nmkdir -p \"$CITIZENAPP_TEST_WORK_DIR\"\nCITIZENCHAIN_ROOT=\"$(node \"$SCRIPT_DIR/build.mjs\" inputs \"$CITIZENAPP_TEST_WORK_DIR\")\"\nexport CITIZENCHAIN_ROOT\n# Flutter分析、测试、.dart_tool与build全部在源码外工程视图运行；源码文件保持\n# 唯一真源且只读投影，测试不得再向CitizenApp根生成build或临时配置。\nif [[ -n \"${CITIZENAPP_TEST_PROJECT_ROOT:-}\" ]]; then\n  FLUTTER_ROOT=\"$(node \"$VIEW_SCRIPT\" view verify \\\n    --source-root \"$CITIZENAPP_DIR\" --work-root \"$CITIZENAPP_TEST_WORK_DIR\")\"\n  [[ \"$FLUTTER_ROOT\" == \"$CITIZENAPP_TEST_PROJECT_ROOT\" ]] \\\n    || { echo '错误: CI测试视图与本轮工作根不一致' >&2; exit 1; }\nelse\n  FLUTTER_ROOT=\"$(node \"$VIEW_SCRIPT\" view create \\\n    --source-root \"$CITIZENAPP_DIR\" --work-root \"$CITIZENAPP_TEST_WORK_DIR\")\"\nfi\n[[ \"$FLUTTER_ROOT\" == \"$CITIZENAPP_TEST_WORK_DIR/source-view/\"* \\\n  && -f \"$FLUTTER_ROOT/pubspec.yaml\" ]] \\\n  || { echo '错误: CitizenApp测试工程视图无效' >&2; exit 1; }\nexport CARGO_TARGET_DIR=\"${CARGO_TARGET_DIR:-$BUILD_CACHE/cargo-tests}\"\nexport PUB_CACHE=\"${PUB_CACHE:-$DEPENDENCY_CACHE/dart-pub}\"\nexport XDG_CONFIG_HOME=\"${XDG_CONFIG_HOME:-$DEPENDENCY_CACHE/flutter-config}\"\nexport TMPDIR=\"$BUILD_CACHE/tmp\"\nmkdir -p \"$TMPDIR\"\nexport DYLD_LIBRARY_PATH=\"$CARGO_TARGET_DIR/release:$CARGO_TARGET_DIR/debug\"\nexport LD_LIBRARY_PATH=\"$CARGO_TARGET_DIR/release:$CARGO_TARGET_DIR/debug\"\n\nif ! command -v \"$FLUTTER_BIN\" >/dev/null 2>&1; then\n  echo \"错误: 找不到 Flutter: $FLUTTER_BIN\" >&2\n  exit 1\nfi\n\n# Flutter 版本由产品开发环境或 CI 工作流唯一确定；测试脚本只消费调用方\n# 注入的可执行文件，不维护第二份工具版本表。\n\nif [ ! -f \"$FLUTTER_ROOT/.dart_tool/package_config.json\" ]; then\n  if [[ \"${CI:-}\" == true ]]; then\n    echo \"错误: 缺少 .dart_tool/package_config.json；CI必须先执行锁定依赖解析\" >&2\n    exit 1\n  fi\n  PUB_GET_ARGS=(--enforce-lockfile)\n  case \"${CITIZENAPP_OFFLINE:-false}\" in\n    true) PUB_GET_ARGS+=(--offline) ;;\n    false) ;;\n    *) echo '错误: CITIZENAPP_OFFLINE只接受true或false' >&2; exit 1 ;;\n  esac\n  (cd \"$FLUTTER_ROOT\" && \"$FLUTTER_BIN\" pub get \"${PUB_GET_ARGS[@]}\")\nfi\n\n# 设备 Release 构建会先 cargo clean；测试必须从宿主库构建开始一直持锁到最后一个\n# flutter_tester 退出，禁止其它进程在测试中途删除 dylib/so。macOS 用系统 shlock\n# 自动识别死亡 PID，Linux CI 用 util-linux flock，二者都不依赖仓库内状态文件。\nNATIVE_BUILD_LOCK_PATH=\"$CITIZENAPP_TEST_WORK_DIR/citizenapp-native-build.lock\"\nNATIVE_BUILD_LOCK_KIND=\"\"\nacquire_native_build_lock() {\n  case \"$(uname -s)\" in\n    Darwin)\n      while ! shlock -f \"$NATIVE_BUILD_LOCK_PATH\" -p $$; do\n        echo \"等待 CitizenApp 设备原生构建结束...\"\n        sleep 1\n      done\n      NATIVE_BUILD_LOCK_KIND=shlock\n      ;;\n    Linux)\n      exec 9>\"$NATIVE_BUILD_LOCK_PATH\"\n      flock 9\n      NATIVE_BUILD_LOCK_KIND=flock\n      ;;\n    *)\n      echo \"错误: 不支持的原生测试锁平台：$(uname -s)\" >&2\n      return 1\n      ;;\n  esac\n}\nrelease_native_build_lock() {\n  case \"$NATIVE_BUILD_LOCK_KIND\" in\n    shlock)\n      if [[ \"$(cat \"$NATIVE_BUILD_LOCK_PATH\" 2>/dev/null || true)\" == \"$$\" ]]; then\n        rm -f -- \"$NATIVE_BUILD_LOCK_PATH\"\n      fi\n      ;;\n    flock)\n      flock -u 9\n      exec 9>&-\n      ;;\n  esac\n  NATIVE_BUILD_LOCK_KIND=\"\"\n}\n\ncleanup_test_configs() {\n  if [[ \"$TEST_CONFIGS_STAGED\" == true ]]; then\n    rm -f -- \"$ANALYSIS_CONFIG\" \"$TEST_CONFIG\"\n  fi\n  release_native_build_lock\n}\n\ncd \"$FLUTTER_ROOT\"\n# Flutter只从工程根发现这两类配置；源码真源统一放在scripts，执行期间只在本次\n# 源码外工程视图短暂落盘，退出时必定清理。\nANALYSIS_CONFIG=\"$FLUTTER_ROOT/analysis_options.yaml\"\nTEST_CONFIG=\"$FLUTTER_ROOT/dart_test.yaml\"\ntrap cleanup_test_configs EXIT\nif [[ ! -e \"$ANALYSIS_CONFIG\" && ! -L \"$ANALYSIS_CONFIG\"\n  && ! -e \"$TEST_CONFIG\" && ! -L \"$TEST_CONFIG\" ]]; then\n  TEST_CONFIGS_STAGED=true\n  node \"$SCRIPT_DIR/build.mjs\" config analysis > \"$ANALYSIS_CONFIG\"\n  node \"$SCRIPT_DIR/build.mjs\" config test > \"$TEST_CONFIG\"\nelif [[ \"$FLUTTER_ROOT\" == \"$CITIZENAPP_DIR\" || ! -f \"$ANALYSIS_CONFIG\" || -L \"$ANALYSIS_CONFIG\"\n  || ! -f \"$TEST_CONFIG\" || -L \"$TEST_CONFIG\" ]]; then\n  echo '错误: Flutter 工程根存在不受CitizenApp测试入口管理的分析或测试配置' >&2\n  exit 1\nfi\n# CI Runner 保持原生构建锁；本机测试使用独立工作目录，不使用跨端共享锁。\nif [[ \"${CI:-}\" == true ]]; then\n  acquire_native_build_lock\nfi\n# 宿主库只从产品声明与锁定Git输入取得，不编译邻仓或旧聚合仓源码。\nDEPENDENCIES=\"$(node \"$VIEW_SCRIPT\" view dependencies \\\n  --source-root \"$CITIZENAPP_DIR\" --work-root \"$CITIZENAPP_TEST_WORK_DIR\")\"\nTATACHATSDK_ROOT=\"$(printf '%s' \"$DEPENDENCIES\" | node --input-type=module -e 'let text=\"\"; for await (const part of process.stdin) text+=part; const root=JSON.parse(text).tatachat_sdk?.root; if(typeof root!==\"string\") throw Error(\"聊天SDK源码回执缺失\"); process.stdout.write(root);')\"\nCITIZENSDK_ROOT=\"$(printf '%s' \"$DEPENDENCIES\" | node --input-type=module -e 'let text=\"\"; for await (const part of process.stdin) text+=part; const root=JSON.parse(text).citizen_sdk?.root; if(typeof root!==\"string\") throw Error(\"公民SDK源码回执缺失\"); process.stdout.write(root);')\"\nfor sdk_root in \"$TATACHATSDK_ROOT\" \"$CITIZENSDK_ROOT\"; do\n  [[ -f \"$sdk_root/scripts/build.mjs\" && ! -L \"$sdk_root/scripts/build.mjs\" ]] \\\n    || { echo '锁定SDK原生入口无效' >&2; exit 1; }\ndone\n# SDK公开host交付绑定当前App任务，产物在测试结束前由App保有。\nexport PRODUCT_WORK_DIR=\"$CITIZENAPP_TEST_WORK_DIR\"\nexport TATACHATSDK_WORK_DIR=\"$CITIZENAPP_TEST_WORK_DIR/work/tatachatsdk-work\"\nexport TATACHATSDK_NATIVE_HOST_DIR=\"$CITIZENAPP_TEST_WORK_DIR/work/tatachatsdk-host\"\nexport CARGO_TARGET_DIR=\"$CITIZENAPP_TEST_WORK_DIR/work/tatachatsdk-work/cargo\"\nexport TATACHATSDK_TEST_WORK_ROOT=\"$CITIZENAPP_TEST_WORK_DIR\"\nnode \"$TATACHATSDK_ROOT/scripts/build.mjs\" native-dependency host\nexport TATACHATSDK_TEST_NATIVE_LIBRARY=\"$TATACHATSDK_NATIVE_HOST_DIR/libtatachat_sdk.dylib\"\nexport CITIZENSDK_WORK_DIR=\"$BUILD_CACHE/citizensdk-host/work\"\nexport CITIZENSDK_NATIVE_OUTPUT_DIR=\"$BUILD_CACHE/citizensdk-host/output\"\nnode \"$CITIZENSDK_ROOT/scripts/build.mjs\" native abi-host\nCITIZENSDK_TEST_CORE_LIB_PATH=\"$(node \"$SCRIPT_DIR/build.mjs\" native core \"$CITIZENSDK_NATIVE_OUTPUT_DIR\")\"\nISAR_CORE_LIB_PATH=\"$(node \"$SCRIPT_DIR/build.mjs\" native isar \"$FLUTTER_ROOT/.dart_tool/package_config.json\" \"$PUB_CACHE\" \"$CITIZENAPP_DIR/pubspec.lock\")\"\nexport CITIZENSDK_TEST_CORE_LIB_PATH ISAR_CORE_LIB_PATH\n\"$FLUTTER_BIN\" analyze --no-pub --fatal-infos --fatal-warnings\n\"$FLUTTER_BIN\" test --no-pub --concurrency=1 \"$@\"\n","ui-test":"#!/usr/bin/env bash\n# 对真机中已经安装的 CitizenApp Release 做长期黑盒 UI 验收。\n#\n# 安全边界：本脚本只构建和安装独立的 UITestHost/xctrunner，永远不构建、安装、卸载或\n# 清空 `ios.citizenapp`。测试前后会核对正式 App 的版本、bundle 容器、数据容器和全部 Isar\n# 数据库；既有数据库任一消失都拒绝把测试判为成功，正常运行新增数据库或扩大文件允许。\nset -euo pipefail\n\nSCRIPT_DIR=\"${CITIZENAPP_SCRIPTS_ROOT:?缺少源码脚本根}\"\nAPP_ROOT=\"${CITIZENAPP_SOURCE_ROOT:?缺少产品源码根}\"\nSCHEME=\"RunnerUITests\"\nTARGET_BUNDLE_ID=\"ios.citizenapp\"\nTEST_HOST_BUNDLE_ID=\"ios.citizenapp.UITestHost\"\nTEST_RUNNER_BUNDLE_ID=\"ios.citizenapp.UITests.xctrunner\"\nBUILD_ROOT=\"${CITIZENAPP_UI_TEST_WORK_DIR:-$APP_ROOT/target/test/ui}\"\nPROJECT_INPUT=\"$APP_ROOT/ios/project/Runner.pbxproj\"\nDERIVED_DATA=\"$BUILD_ROOT/DerivedData\"\nTEST_ONLY=\"${CITIZENAPP_UI_TEST_ONLY:-}\"\nif [[ -n \"$TEST_ONLY\" && ! \"$TEST_ONLY\" =~ ^testChatE2E(ReadIdentity|Send|VerifyRestart)$ ]]; then\n  echo 'CITIZENAPP_UI_TEST_ONLY 只能选择已登记的双机 XCTest' >&2\n  exit 1\nfi\nRESULT_BUNDLE=\"$BUILD_ROOT/RunnerUITests-${TEST_ONLY:-all}-$(date +%s)-$$.xcresult\"\n\npython3 - \"$APP_ROOT\" \"$BUILD_ROOT\" <<'CHECK_OUTPUTS'\nfrom pathlib import Path\nimport sys\nsource, raw = map(Path, sys.argv[1:])\nsource, target = source.resolve(), raw.resolve()\nif not raw.is_absolute() or source / 'target' not in target.parents:\n    raise SystemExit('CITIZENAPP_UI_TEST_WORK_DIR必须是CitizenApp本仓target内绝对路径')\nCHECK_OUTPUTS\n\n[[ -f \"$PROJECT_INPUT\" && ! -L \"$PROJECT_INPUT\" ]] || {\n  echo \"CitizenApp iOS 工程不存在：$PROJECT_INPUT\" >&2; exit 1\n}\nmkdir -p \"$BUILD_ROOT\"\n# XCTest 通过同一源码外视图消费扁平 scheme，正式 App 本体不参与构建。\nBUILD_ROOT=\"$(cd \"$BUILD_ROOT\" && pwd -P)\"\nPROJECT_ROOT=\"$(node \"$SCRIPT_DIR/build.mjs\" view create --source-root \"$APP_ROOT\" --work-root \"$BUILD_ROOT\")\"\nPROJECT=\"$PROJECT_ROOT/ios/Runner.xcodeproj\"\nexport TMPDIR=\"$BUILD_ROOT/\"\n\ndevice_fields=\"$(python3 - <<'SELECT_DEVICE'\nimport json\nimport subprocess\nimport time\n\nDEVICECTL = [\"/usr/bin/xcrun\", \"devicectl\"]\nATTEMPTS = 8\n\n\ndef developer_mode_enabled(value):\n    if value == \"enabled\":\n        return True\n    if not isinstance(value, dict):\n        return False\n    enabled = value.get(\"enabled\")\n    return isinstance(enabled, dict) and enabled.get(\"mode\") == 1\n\n\ndef command_json(arguments, timeout):\n    try:\n        result = subprocess.run(\n            DEVICECTL + arguments + [\"--quiet\", \"--json-output\", \"-\"],\n            stdout=subprocess.PIPE,\n            stderr=subprocess.DEVNULL,\n            text=True,\n            timeout=timeout,\n            check=False,\n        )\n        if result.returncode != 0:\n            return None\n        value = json.loads(result.stdout)\n        if value.get(\"info\", {}).get(\"outcome\") != \"success\":\n            return None\n        return value\n    except (json.JSONDecodeError, subprocess.TimeoutExpired):\n        return None\n\n\nfor attempt in range(ATTEMPTS):\n    listing = command_json([\"list\", \"devices\"], timeout=15)\n    candidates = []\n    if listing is not None:\n        for item in listing.get(\"result\", {}).get(\"devices\", []):\n            props = item.get(\"properties\", {})\n            hardware = props.get(\"hardware\", {})\n            connection = props.get(\"connection\", {})\n            state = props.get(\"state\", {})\n            identifier = item.get(\"identifier\")\n            udid = hardware.get(\"udid\")\n            if (\n                identifier\n                and udid\n                and hardware.get(\"platform\") == \"iOS\"\n                and hardware.get(\"reality\") == \"physical\"\n                and connection.get(\"pairingState\") == \"paired\"\n                and developer_mode_enabled(state.get(\"developerModeStatus\"))\n            ):\n                candidates.append((identifier, udid))\n\n    reachable = []\n    for identifier, udid in candidates:\n        details = command_json(\n            [\"device\", \"info\", \"details\", \"--device\", identifier],\n            timeout=20,\n        )\n        if details is None:\n            continue\n        result = details.get(\"result\", {})\n        props = result.get(\"properties\", {})\n        hardware = props.get(\"hardware\", {})\n        connection = props.get(\"connection\", {})\n        state = props.get(\"state\", {})\n        if (\n            result.get(\"identifier\") == identifier\n            and hardware.get(\"udid\") == udid\n            and hardware.get(\"platform\") == \"iOS\"\n            and hardware.get(\"reality\") == \"physical\"\n            and connection.get(\"pairingState\") == \"paired\"\n            and state.get(\"bootState\") == \"booted\"\n            and developer_mode_enabled(state.get(\"developerModeStatus\"))\n        ):\n            reachable.append((identifier, udid))\n\n    if len(reachable) > 1:\n        raise SystemExit(\"必须且只能主动探测到一台可用物理 iPhone，当前多于一台\")\n    if len(reachable) == 1:\n        print(reachable[0][0])\n        print(reachable[0][1])\n        break\n    if attempt + 1 < ATTEMPTS:\n        time.sleep(2)\nelse:\n    raise SystemExit(\"主动探测未发现可用物理 iPhone（已配对、开发者模式开启且可读取设备详情）\")\nSELECT_DEVICE\n)\"\nCORE_DEVICE_ID=\"$(sed -n '1p' <<<\"$device_fields\")\"\nHARDWARE_UDID=\"$(sed -n '2p' <<<\"$device_fields\")\"\n[[ -n \"$CORE_DEVICE_ID\" && -n \"$HARDWARE_UDID\" ]] || {\n  echo \"无法解析 iPhone 标识，拒绝测试\" >&2\n  exit 1\n}\n\ninstalled_app_snapshot() {\n  xcrun devicectl device info apps --quiet \\\n    --device \"$CORE_DEVICE_ID\" \\\n    --bundle-id \"$TARGET_BUNDLE_ID\" \\\n    --include-container-paths \\\n    --json-output - |\n    python3 -c '\nimport json, sys\nbundle_id = sys.argv[1]\napps = json.load(sys.stdin).get(\"result\", {}).get(\"apps\", [])\nif len(apps) != 1:\n    raise SystemExit(f\"设备中必须且只能有一个 {bundle_id}，当前：{len(apps)}\")\napp = apps[0]\nif app.get(\"bundleIdentifier\") != bundle_id:\n    raise SystemExit(\"设备返回的 CitizenApp Bundle ID 不一致\")\nfields = {\n    \"bundleIdentifier\": app.get(\"bundleIdentifier\"),\n    \"version\": app.get(\"version\"),\n    \"shortVersion\": app.get(\"shortVersion\"),\n    \"bundleContainerPath\": app.get(\"bundleContainerPath\"),\n    \"dataContainerPath\": app.get(\"dataContainerPath\"),\n}\nif not fields[\"bundleContainerPath\"] or not fields[\"dataContainerPath\"]:\n    raise SystemExit(\"无法读取 CitizenApp 的 bundle/data 容器，拒绝测试\")\nprint(json.dumps(fields, ensure_ascii=False, sort_keys=True, separators=(\",\", \":\")))\n' \"$TARGET_BUNDLE_ID\"\n}\n\ndatabase_snapshot() {\n  xcrun devicectl device info files --quiet \\\n    --device \"$CORE_DEVICE_ID\" \\\n    --domain-type appDataContainer \\\n    --domain-identifier \"$TARGET_BUNDLE_ID\" \\\n    --subdirectory 'Library/Application Support' \\\n    --recurse \\\n    --json-output - |\n    python3 -c '\nimport json, sys\nfiles = json.load(sys.stdin).get(\"result\", {}).get(\"files\", [])\nsnapshot = {}\nfor item in files:\n    relative = item.get(\"relativePath\")\n    if not isinstance(relative, str) or not relative.endswith(\".isar\"):\n        continue\n    resources = item.get(\"resources\", {})\n    size = item.get(\"metadata\", {}).get(\"size\", 0)\n    if (\n        relative in snapshot\n        or resources.get(\"isDirectory\") is not False\n        or resources.get(\"isSymbolicLink\") is not False\n        or resources.get(\"isReadable\") is not True\n        or not isinstance(size, int)\n        or size <= 0\n    ):\n        raise SystemExit(\"CitizenApp Isar 数据库路径、类型或大小无效\")\n    snapshot[relative] = size\nprint(json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(\",\", \":\")))\n'\n}\n\nis_installed() {\n  xcrun devicectl device info apps --quiet \\\n    --device \"$CORE_DEVICE_ID\" --bundle-id \"$1\" --json-output - 2>/dev/null |\n    python3 -c 'import json, sys; print(\"yes\" if json.load(sys.stdin).get(\"result\", {}).get(\"apps\", []) else \"no\")' \\\n    2>/dev/null\n}\n\ncleanup_test_apps() {\n  local bundle_id\n  for bundle_id in \"$TEST_RUNNER_BUNDLE_ID\" \"$TEST_HOST_BUNDLE_ID\"; do\n    if [[ \"$(is_installed \"$bundle_id\" || true)\" == yes ]]; then\n      echo \"[清理] 仅删除隔离测试组件：$bundle_id\"\n      xcrun devicectl device uninstall app --quiet --device \"$CORE_DEVICE_ID\" \"$bundle_id\" || true\n    fi\n  done\n  # 仅卸载本脚本创建的设备测试组件；不触碰正式CitizenApp与其它工作目录。\n}\ntrap cleanup_test_apps EXIT\n\necho \"[设备] 已主动探测唯一物理 iPhone\"\nbefore_snapshot=\"$(installed_app_snapshot)\"\nbefore_databases=\"$(database_snapshot)\"\nbefore_database_count=\"$(python3 -c 'import json,sys; print(len(json.loads(sys.argv[1])))' \"$before_databases\")\"\necho \"[保护] 已确认现有 ${TARGET_BUNDLE_ID}，Isar数据库=${before_database_count}个\"\n\n# iPhone 镜像与 XCTest 都要独占设备图形会话；自动测试期间只关闭镜像窗口，不改变配对。\nosascript -e 'tell application \"iPhone Mirroring\" to quit' >/dev/null 2>&1 || true\n\ndestination=\"platform=iOS,id=$HARDWARE_UDID\"\necho \"[构建] Release 隔离 UI Test Host（不含 CitizenApp target）\"\nxcodebuild build-for-testing \\\n  -project \"$PROJECT\" \\\n  -scheme \"$SCHEME\" \\\n  -configuration Release \\\n  -destination \"$destination\" \\\n  -derivedDataPath \"$DERIVED_DATA\"\n\n# 构建后、执行前审计所有 App 产物。只要混入正式 Bundle ID，就在任何安装发生前停止。\nwhile IFS= read -r plist; do\n  product_bundle_id=\"$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \"$plist\" 2>/dev/null || true)\"\n  [[ \"$product_bundle_id\" != \"$TARGET_BUNDLE_ID\" ]] || {\n    echo \"UI 测试产物错误包含正式 CitizenApp，已在安装前停止：$plist\" >&2\n    exit 1\n  }\ndone < <(find \"$DERIVED_DATA/Build/Products\" -path '*.app/Info.plist' -type f -print)\n\necho \"[测试] 启动设备中现有 CitizenApp Release\"\nset +e\nif [[ -n \"$TEST_ONLY\" ]]; then\n  xcodebuild test-without-building \\\n    -project \"$PROJECT\" \\\n    -scheme \"$SCHEME\" \\\n    -configuration Release \\\n    -destination \"$destination\" \\\n    -derivedDataPath \"$DERIVED_DATA\" \\\n    -only-testing:\"$SCHEME/$SCHEME/$TEST_ONLY\" \\\n    -resultBundlePath \"$RESULT_BUNDLE\"\nelse\n  xcodebuild test-without-building \\\n    -project \"$PROJECT\" \\\n    -scheme \"$SCHEME\" \\\n    -configuration Release \\\n    -destination \"$destination\" \\\n    -derivedDataPath \"$DERIVED_DATA\" \\\n    -resultBundlePath \"$RESULT_BUNDLE\"\nfi\ntest_status=$?\nset -e\n\nafter_snapshot=\"$(installed_app_snapshot)\"\nafter_databases=\"$(database_snapshot)\"\n[[ \"$after_snapshot\" == \"$before_snapshot\" ]] || {\n  echo \"CitizenApp 安装信息或数据容器在 UI 测试后发生变化，拒绝通过\" >&2\n  exit 1\n}\ndatabase_counts=\"$(python3 - \"$before_databases\" \"$after_databases\" <<'CHECK_DATABASES'\nimport json\nimport sys\n\nbefore = json.loads(sys.argv[1])\nafter = json.loads(sys.argv[2])\nmissing = sorted(set(before) - set(after))\nif missing:\n    raise SystemExit(f\"CitizenApp UI测试删除了既有Isar数据库，数量：{len(missing)}\")\nprint(f\"{len(before)} → {len(after)}\")\nCHECK_DATABASES\n)\"\necho \"[保护] CitizenApp容器未变化，既有Isar数据库仍全部存在：${database_counts}个\"\n\nif [[ \"$test_status\" -ne 0 ]]; then\n  echo \"UI 测试失败；结果保存在：$RESULT_BUNDLE\" >&2\n  exit \"$test_status\"\nfi\necho \"[完成] CitizenApp iOS Release 真机 UI 测试通过\"\n","chat-test":"#!/usr/bin/env bash\n# 已安装的两台公民 App 真机黑盒验收：iPhone XCTest + Pixel ADB UI。\n# 不构建、不安装、不清空 App；身份及目标联系人不唯一时不发送。\nset -euo pipefail\n\nSCRIPT_DIR=\"${CITIZENAPP_SCRIPTS_ROOT:?缺少源码脚本根}\"\nAPP_ROOT=\"${CITIZENAPP_SOURCE_ROOT:?缺少产品源码根}\"\nIOS_TEST=\"$SCRIPT_DIR/build.mjs\"\nexport CITIZENAPP_UI_TEST_WORK_DIR=\"${CITIZENAPP_UI_TEST_WORK_DIR:-$APP_ROOT/target/test/chat-e2e}\"\n\npython3 - \"$IOS_TEST\" \"${CITIZENAPP_NODE_BIN:?缺少产品Node入口}\" <<'PY'\nimport os\nimport re\nimport subprocess\nimport sys\nimport time\nimport xml.etree.ElementTree as ET\n\nIOS_TEST = sys.argv[1]\nNODE_BIN = sys.argv[2]\nPACKAGE = 'com.crcfrcn.citizenapp'\nCID_PATTERN = re.compile(r'CN[0-9]{3}-CTZN[0-9]-[0-9]{9}-[0-9]{4}')\nMARKER = 'CITIZEN_E2E_%010d_%06d' % (int(time.time()), os.getpid() % 1000000)\n\n\ndef command(args, *, timeout=30, input_text=None):\n    result = subprocess.run(args, input=input_text, text=True, capture_output=True,\n                            timeout=timeout, check=False)\n    if result.returncode != 0:\n        raise RuntimeError('%s 失败：%s' % (args[0], result.stderr[-500:]))\n    return result.stdout\n\n\ndef ios(stage, *, peer=None):\n    env = os.environ.copy()\n    env['CITIZENAPP_UI_TEST_ONLY'] = stage\n    if peer is not None:\n        env['TEST_RUNNER_CHAT_E2E_PEER_CID'] = peer\n        env['TEST_RUNNER_CHAT_E2E_MARKER'] = MARKER\n    result = subprocess.run([NODE_BIN, IOS_TEST, \"ui-test\"], env=env, text=True, capture_output=True,\n                            timeout=1800, check=False)\n    if result.returncode != 0:\n        # 仅输出测试阶段与尾部诊断，避免把设备 UI 快照写入控制台。\n        lines = [line for line in (result.stdout + '\\n' + result.stderr).splitlines()\n                 if re.search(r'failed|error|cancel|认证|UI 测试失败', line, re.I)]\n        diagnostic = '\\n'.join(lines[-8:])\n        diagnostic = CID_PATTERN.sub('[公民号已隐藏]', diagnostic)\n        raise RuntimeError('iPhone XCTest %s 失败：%s' % (stage, diagnostic))\n    return result.stdout\n\n\ndef android_nodes():\n    for attempt in range(3):\n        try:\n            raw = command(['adb', 'exec-out', 'uiautomator', 'dump', '/dev/tty'], timeout=25)\n            break\n        except RuntimeError as error:\n            if 'no devices/emulators found' not in str(error) or attempt == 2:\n                raise\n            time.sleep(2)\n    start = raw.find('<?xml')\n    end = raw.rfind('</hierarchy>')\n    if start < 0 or end < 0:\n        raise RuntimeError('Pixel 无法读取当前界面层级')\n    root = ET.fromstring(raw[start:end + len('</hierarchy>')])\n    return list(root.iter('node'))\n\n\ndef node_label(node):\n    return (node.get('text') or '') + ' ' + (node.get('content-desc') or '')\n\n\ndef matching(text, *, exact=False):\n    return [node for node in android_nodes() if\n            (node_label(node).strip() == text if exact else text in node_label(node))]\n\n\ndef await_nodes(text, *, exact=False, timeout=60):\n    deadline = time.monotonic() + timeout\n    while time.monotonic() < deadline:\n        found = matching(text, exact=exact)\n        if found:\n            return found\n        time.sleep(2)\n    raise RuntimeError('Pixel 等待界面元素超时：%s' % text)\n\n\ndef tap_node(node):\n    match = re.fullmatch(r'\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]', node.get('bounds', ''))\n    if not match:\n        raise RuntimeError('Pixel 界面目标没有有效边界')\n    left, top, right, bottom = map(int, match.groups())\n    if right <= left or bottom <= top:\n        raise RuntimeError('Pixel 界面目标边界无效')\n    command(['adb', 'shell', 'input', 'tap', str((left + right) // 2),\n             str((top + bottom) // 2)])\n\n\ndef tap_unique(text, *, exact=False, timeout=30):\n    found = await_nodes(text, exact=exact, timeout=timeout)\n    if len(found) != 1:\n        raise RuntimeError('Pixel 界面目标不唯一：%s' % text)\n    tap_node(found[0])\n\n\ndef start_android():\n    command(['adb', 'shell', 'am', 'force-stop', PACKAGE])\n    command(['adb', 'shell', 'am', 'start', '-n', PACKAGE + '/.MainActivity'])\n    await_nodes('聊天', timeout=45)\n\n\ndef android_identity():\n    start_android()\n    tap_unique('我的')\n    tap_unique('注册与查看')\n    await_nodes('公民号', timeout=30)\n    values = sorted(set(match.group(0) for node in android_nodes()\n                        for match in CID_PATTERN.finditer(node_label(node))))\n    if len(values) != 1:\n        raise RuntimeError('Pixel 本机公民号无法唯一读取')\n    command(['adb', 'shell', 'input', 'keyevent', '4'])\n    return values[0]\n\n\ndef open_android_peer(peer):\n    tap_unique('聊天')\n    tap_unique('新建')\n    tap_unique('发私信', exact=True)\n    await_nodes('选择联系人', timeout=30)\n    tap_unique('公民号：' + peer, exact=True, timeout=30)\n    await_nodes('输入消息', timeout=30)\n\n\ndef android_send_text(value):\n    if not re.fullmatch(r'[A-Z0-9_]+', value):\n        raise RuntimeError('Pixel 测试文字必须是无空格 ASCII 标记')\n    tap_unique('输入消息')\n    command(['adb', 'shell', 'input', 'text', value])\n    command(['adb', 'shell', 'input', 'keyevent', '66'])\n    await_nodes(value, exact=True, timeout=25)\n\n\ndef android_send_sticker():\n    tap_unique('表情和贴纸')\n    tap_unique('贴纸', exact=True)\n    nodes = android_nodes()\n    tabs = [node for node in nodes if node.get('text') == '贴纸']\n    if len(tabs) != 1:\n        raise RuntimeError('Pixel 贴纸面板未打开')\n    # SDK 固定五列网格；点击第一枚贴纸，不依赖图像资产的本地化名称。\n    bounds = re.fullmatch(r'\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]', tabs[0].get('bounds', ''))\n    if not bounds:\n        raise RuntimeError('Pixel 贴纸面板边界无效')\n    left, _, right, bottom = map(int, bounds.groups())\n    command(['adb', 'shell', 'input', 'tap', str(left + max(24, (right-left)//10)),\n             str(bottom + 42)])\n    await_nodes('[贴纸]', timeout=30)\n\n\ndef verify_android_after_restart():\n    start_android()\n    open_android_peer(iphone_cid)\n    for value in [MARKER, 'PIXEL_' + MARKER, 'AFTER_RESTART_' + MARKER]:\n        matches = await_nodes(value, exact=True, timeout=60)\n        if len(matches) != 1:\n            raise RuntimeError('Pixel 重启后消息重复或缺失')\n\n\ndevices = command(['adb', 'devices', '-l'])\nif len(re.findall(r'^\\S+\\s+device\\b', devices, re.MULTILINE)) != 1 or 'Pixel_8a' not in devices:\n    raise RuntimeError('必须且只能连接一台 Pixel 8a')\n\niphone_output = ios('testChatE2EReadIdentity')\ncid_matches = re.findall(r'CHAT_E2E_IPHONE_CID=(CN[0-9]{3}-CTZN[0-9]-[0-9]{9}-[0-9]{4})', iphone_output)\nif len(cid_matches) != 1:\n    raise RuntimeError('iPhone XCTest 没有唯一返回本机公民号')\niphone_cid = cid_matches[0]\npixel_cid = android_identity()\nif iphone_cid == pixel_cid:\n    raise RuntimeError('双机必须是不同公民号')\nprint('[身份] 两台不同公民号已由界面读取；不输出实际号码', flush=True)\n\n# 双向通讯录必须各自准确包含对方。匹配失败时不得发送消息。\nopen_android_peer(iphone_cid)\nprint('[前置] Pixel 已打开准确对端私聊', flush=True)\nios('testChatE2ESend', peer=pixel_cid)\nprint('[发送] iPhone 文字与 emoji 已进入真实会话', flush=True)\nawait_nodes(MARKER, exact=True, timeout=90)\nawait_nodes('😀' + MARKER, exact=True, timeout=90)\nandroid_send_text('PIXEL_' + MARKER)\nandroid_send_sticker()\nprint('[回信] Pixel 文字与贴纸已提交', flush=True)\nios('testChatE2EVerifyRestart', peer=pixel_cid)\nverify_android_after_restart()\nprint('[完成] 双机收发、重启与去重全部通过', flush=True)\nPY\n"});
+export const CI_SIGNING_STEPS=Object.freeze({"android":"set -euo pipefail\numask 077\nwork=\"$CITIZENAPP_BUILD_TEMP/citizenapp-android-signing\"\npublish=\"build/release\"\nrm -rf \"$work\" \"$publish\"\nmkdir -p \"$work\" \"$publish\"\ntrap 'rm -rf \"$work\"' EXIT\npython3 - \"$work\" <<'PY'\nimport base64, os, pathlib, re, sys\nroot = pathlib.Path(sys.argv[1])\nfields = {}\nfor raw in os.environ.get(\"APP_KEY\", \"\").splitlines():\n    line = raw.strip()\n    if not line or line.startswith(\"#\"):\n        continue\n    name, sep, value = line.partition(\"=\")\n    if not sep or name.strip() in fields or not value.strip():\n        raise SystemExit(\"APP_KEY 行格式无效\")\n    fields[name.strip()] = value.strip()\nif set(fields) - {\"keystore\", \"password\", \"alias\", \"keyPassword\"}:\n    raise SystemExit(\"APP_KEY 包含未登记字段\")\nalias = fields.get(\"alias\", \"upload\")\nif not re.fullmatch(r\"[A-Za-z0-9._-]{1,128}\", alias):\n    raise SystemExit(\"APP_KEY alias 无效\")\ntry:\n    key = base64.b64decode(fields[\"keystore\"], validate=True)\n    password = fields[\"password\"]\nexcept (KeyError, ValueError) as exc:\n    raise SystemExit(\"APP_KEY 缺少有效签名材料\") from exc\nif not 1024 <= len(key) <= 32 * 1024 * 1024:\n    raise SystemExit(\"APP_KEY keystore 大小无效\")\n(root / \"release.keystore\").write_bytes(key)\n(root / \"password\").write_text(password)\n(root / \"key-password\").write_text(fields.get(\"keyPassword\", password))\n(root / \"alias\").write_text(alias)\nPY\nstore_password=\"$(cat \"$work/password\")\"\nkey_password=\"$(cat \"$work/key-password\")\"\nalias=\"$(cat \"$work/alias\")\"\nexport GMB_ANDROID_STORE_PASSWORD=\"$store_password\"\nexport GMB_ANDROID_KEY_PASSWORD=\"$key_password\"\napksigner=\"$ANDROID_HOME/build-tools/36.0.0/apksigner\"\ntest -x \"$apksigner\"\n\"$apksigner\" sign --ks \"$work/release.keystore\" \\\n  --ks-pass env:GMB_ANDROID_STORE_PASSWORD --key-pass env:GMB_ANDROID_KEY_PASSWORD \\\n  --v4-signing-enabled false \\\n  --ks-key-alias \"$alias\" --out \"$publish/citizenapp.apk\" \\\n  build/app/outputs/flutter-apk/app-release.apk\ncp build/app/outputs/bundle/release/app-release.aab \"$publish/citizenapp.aab\"\njarsigner -keystore \"$work/release.keystore\" \\\n  -storepass:env GMB_ANDROID_STORE_PASSWORD -keypass:env GMB_ANDROID_KEY_PASSWORD \\\n  \"$publish/citizenapp.aab\" \"$alias\"\n\"$apksigner\" verify --verbose --print-certs \"$publish/citizenapp.apk\" \\\n  | tee \"$work/apk-verification.txt\"\ngrep -F 'Verified using v2 scheme (APK Signature Scheme v2): true' \"$work/apk-verification.txt\"\n# Android 上传证书按平台规范可以自签名；只验证包完整性，再从三处回读同一证书。\njarsigner -verify \"$publish/citizenapp.aab\"\napk_certificate_sha256=\"$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \"$work/apk-verification.txt\")\"\nkey_certificate_sha256=\"$(keytool -exportcert -alias \"$alias\" \\\n  -keystore \"$work/release.keystore\" -storepass:env GMB_ANDROID_STORE_PASSWORD -rfc \\\n  | openssl x509 -outform DER | shasum -a 256 | awk '{print $1}')\"\naab_certificate_sha256=\"$(keytool -printcert -jarfile \"$publish/citizenapp.aab\" -rfc \\\n  | openssl x509 -outform DER | shasum -a 256 | awk '{print $1}')\"\n[[ \"$apk_certificate_sha256\" =~ ^[0-9a-f]{64}$ ]]\ntest \"$apk_certificate_sha256\" = \"$key_certificate_sha256\"\ntest \"$apk_certificate_sha256\" = \"$aab_certificate_sha256\"\ntest \"$(apkanalyzer manifest application-id \"$publish/citizenapp.apk\")\" = com.crcfrcn.citizenapp\ntest \"$(apkanalyzer manifest version-code \"$publish/citizenapp.apk\")\" = \"$CITIZENAPP_BUILD_NUMBER\"\ntest \"$(apkanalyzer manifest version-name \"$publish/citizenapp.apk\")\" = \"$CITIZENAPP_BUILD_VERSION\"","ios":"set -euo pipefail\numask 077\nwork=\"$CITIZENAPP_BUILD_TEMP/citizenapp-ios-signing\"\npublish=\"$CITIZENAPP_RELEASE_ROOT\"\nrm -rf \"$work\" \"$publish\"\nmkdir -p \"$work\" \"$publish\"\nkeychain=\"$work/release.keychain-db\"\nkeychain_password=\"$(openssl rand -hex 32)\"\n# 本机钥匙串搜索列表属共享用户状态；先保存，结束时恢复。\noriginal_keychains=()\nwhile IFS= read -r line; do\n  [[ \"$line\" =~ ^[[:space:]]*\\\"([^\\\"]+)\\\"$ ]] || exit 1\n  original_keychains+=(\"${BASH_REMATCH[1]}\")\ndone < <(security list-keychains -d user)\n(( ${#original_keychains[@]} > 0 )) || exit 1\ncleanup() {\n  security list-keychains -d user -s \"${original_keychains[@]}\" >/dev/null 2>&1 || true\n  security delete-keychain \"$keychain\" >/dev/null 2>&1 || true\n  rm -rf \"$work\"\n}\ntrap cleanup EXIT\npython3 - \"$work\" <<'PY'\nimport base64, os, pathlib, re, sys\nroot = pathlib.Path(sys.argv[1])\nfields = {}\nfor raw in os.environ.get(\"IOS_KEY\", \"\").splitlines():\n    line = raw.strip()\n    if not line or line.startswith(\"#\"):\n        continue\n    name, sep, value = line.partition(\"=\")\n    if not sep or name.strip() in fields or not value.strip():\n        raise SystemExit(\"IOS_KEY 行格式无效\")\n    fields[name.strip()] = value.strip()\nif set(fields) != {\"pkcs12\", \"password\", \"certificate_sha1\"}:\n    raise SystemExit(\"IOS_KEY 字段集合无效\")\nif not re.fullmatch(r\"[0-9A-F]{40}\", fields[\"certificate_sha1\"]):\n    raise SystemExit(\"Apple Distribution 证书摘要无效\")\ntry:\n    pkcs12 = base64.b64decode(fields[\"pkcs12\"], validate=True)\n    profile = base64.b64decode(os.environ.get(\"IOS_PROVISIONING_PROFILE\", \"\"), validate=True)\nexcept ValueError as exc:\n    raise SystemExit(\"Apple Distribution 或 provisioning profile Base64 无效\") from exc\nif not 1024 <= len(pkcs12) <= 32 * 1024 * 1024 or not 1024 <= len(profile) <= 1024 * 1024:\n    raise SystemExit(\"Apple Distribution 签名材料大小无效\")\n(root / \"distribution.p12\").write_bytes(pkcs12)\n(root / \"password\").write_text(fields[\"password\"])\n(root / \"certificate-sha1\").write_text(fields[\"certificate_sha1\"])\n(root / \"profile.mobileprovision\").write_bytes(profile)\nPY\nsecurity create-keychain -p \"$keychain_password\" \"$keychain\"\nsecurity set-keychain-settings -lut 21600 \"$keychain\"\nsecurity unlock-keychain -p \"$keychain_password\" \"$keychain\"\n# 中文注释：codesign 查找 identity 依赖用户钥匙串搜索列表；仅传 --keychain\n# 不能保证干净 runner 能从证书继续定位到同钥匙串中的私钥。\nsecurity list-keychains -d user -s \"$keychain\" \"${original_keychains[@]}\"\nsecurity import \"$work/distribution.p12\" -k \"$keychain\" -P \"$(cat \"$work/password\")\" -T /usr/bin/codesign\nsecurity set-key-partition-list -S apple-tool:,apple:,codesign: -s -k \"$keychain_password\" \"$keychain\" >/dev/null\ncertificate_sha1=\"$(cat \"$work/certificate-sha1\")\"\nsecurity find-certificate -a -Z \"$keychain\" | grep -F \"SHA-1 hash: $certificate_sha1\"\nsecurity find-identity -v -p codesigning \"$keychain\" | grep -Fq \"$certificate_sha1\"\n# 中文注释：干净 runner 的钥匙串不保证预装描述文件 CMS 签发链；LibreSSL\n# 直接验证 CMS 密码学签名并解出载荷，再用正式证书摘要锁定唯一配对。\n/usr/bin/openssl smime -verify -inform DER -in \"$work/profile.mobileprovision\" \\\n  -noverify -out \"$work/profile.plist\" >/dev/null\nprofile_certificate_sha1=\"$(\n  plutil -extract DeveloperCertificates.0 raw -o - \"$work/profile.plist\" \\\n    | base64 -D | shasum -a 1 | awk '{print toupper($1)}'\n)\"\ntest \"$profile_certificate_sha1\" = \"$certificate_sha1\"\ntest \"$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' \"$work/profile.plist\")\" = MHYMVRN6FC\ntest \"$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' \"$work/profile.plist\")\" = MHYMVRN6FC.ios.citizenapp\ntest \"$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:get-task-allow' \"$work/profile.plist\")\" = false\nplutil -extract Entitlements xml1 -o \"$work/entitlements.plist\" \"$work/profile.plist\"\napp=\"$CITIZENAPP_FLUTTER_ROOT/build/ios/iphoneos/Runner.app\"\ntest \"$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \"$app/Info.plist\")\" = ios.citizenapp\ncp \"$work/profile.mobileprovision\" \"$app/embedded.mobileprovision\"\nfind \"$app\" -type f -name '*.dylib' -print0 | while IFS= read -r -d '' item; do\n  codesign --force --sign \"$certificate_sha1\" --keychain \"$keychain\" --timestamp=none \"$item\"\ndone\nfind \"$app\" -type d \\( -name '*.framework' -o -name '*.appex' \\) -print0 \\\n  | while IFS= read -r -d '' item; do\n      codesign --force --sign \"$certificate_sha1\" --keychain \"$keychain\" --timestamp=none \"$item\"\n    done\ncodesign --force --sign \"$certificate_sha1\" --keychain \"$keychain\" --timestamp=none \\\n  --generate-entitlement-der --entitlements \"$work/entitlements.plist\" \"$app\"\ncodesign --verify --deep --strict \"$app\"\ncodesign -dv --verbose=4 \"$app\" 2> \"$work/codesign.txt\"\ngrep -F 'TeamIdentifier=MHYMVRN6FC' \"$work/codesign.txt\"\nmkdir -p \"$work/package/Payload\"\ncp -R \"$app\" \"$work/package/Payload/Runner.app\"\n(cd \"$work/package\" && ditto -c -k --sequesterRsrc --keepParent Payload \"$publish/citizenapp.ipa\")\nunzip -Z1 \"$publish/citizenapp.ipa\" | grep -Fx 'Payload/Runner.app/Info.plist'"});
 
 async function runShell(command,args,environment=process.env,cwd=root,shell=environment.PRODUCT_BASH_BIN||'/bin/bash') {
  const source=BUILD_SHELL_SOURCES[command];if(!source)fail('Shell入口无效');
@@ -4628,38 +5238,29 @@ export function cleanShellPaths(args,environment=process.env){
 }
 
 
-// GitHub 在当前 Runner 内完成编译、正式签名和 Release 资产准备；本机安装入口不参与。
-export async function ciBuild(platform,environment=process.env){
- platformContract(platform);
- const workflow=platform+'.yml',sha=environment.GITHUB_SHA,run=environment.GITHUB_RUN_ID,
-  attempt=environment.GITHUB_RUN_ATTEMPT,number=environment.GITHUB_RUN_NUMBER;
+// GitHub身份校验后复用唯一execute编排；仅正式签名和资产交付与本机安装不同。
+function checkedAutomationEnvironment(platform,environment){
+ platformContract(platform);const sha=environment.GITHUB_SHA,run=environment.GITHUB_RUN_ID,attempt=environment.GITHUB_RUN_ATTEMPT,number=environment.GITHUB_RUN_NUMBER;
  if(environment.GITHUB_ACTIONS!=='true'||environment.GITHUB_REPOSITORY!=='crcfrcn/'+product
   ||environment.GITHUB_REF!=='refs/heads/main'||environment.GITHUB_EVENT_NAME!=='workflow_dispatch'
-  ||environment.GITHUB_WORKFLOW!==product+'.'+platform||!/^[a-f0-9]{40}$/u.test(sha||'')
-  ||[run,attempt,number].some(value=>!/^[1-9][0-9]*$/u.test(value||'')||!Number.isSafeInteger(Number(value))))
-  fail('GitHub移动编译身份无效');
- const head=spawnSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'});
- if(head.status!==0||head.stdout.trim()!==sha)fail('GitHub源码提交不匹配');
- const versionMatch=[...readFileSync(join(root,'pubspec.yaml'),'utf8').matchAll(/^version:\s*([0-9]+\.[0-9]+\.[0-9]+)\+[1-9][0-9]*\s*$/gmu)];
- if(versionMatch.length!==1)fail('移动产品版本真源无效');
- const version=versionMatch[0][1],names=platform==='ios'?[product+'.ipa']:[product+'.apk',product+'.aab'];
- return withFixedWork('build/'+platform,async work=>{
-  const project=join(work,'source-view',root.replace(/^\/+/u,'')),buildRoot=join(work,'work/flutter');
-  mkdirSync(join(work,'work'),{recursive:true});mkdirSync(join(work,'dependencies'),{recursive:true});
-  const {APP_KEY:_appKey,IOS_KEY:_iosKey,IOS_PROVISIONING_PROFILE:_iosProfile,GH_TOKEN:_ghToken,GITHUB_TOKEN:_githubToken,...buildEnvironment}=environment;
-  const options={environment:buildEnvironment,signal:executions.getStore()?.signal,offline:false};
-  let receipt=await resources(platform,work,{},options);
-  await prepare(platform,work,receipt,buildEnvironment);
-  const env={...buildEnvironment,...resourceEnvironment(platform,work,receipt,buildEnvironment),
-   NODE:receipt.tools.node.path,PRODUCT_NODE_BIN:receipt.tools.node.path,
-   CITIZENAPP_WORK_DIR:work,CITIZENAPP_BUILD_WORK_DIR:join(work,'work'),
-   CITIZENAPP_DEPENDENCY_DIR:join(work,'dependencies'),CITIZENAPP_BUILD_DIR:buildRoot,
-   CITIZENAPP_ARTIFACT_DIR:work,CITIZENAPP_CI_BUILD:'true',CITIZENAPP_CI_BUILD_NUMBER:number,
-   CITIZENAPP_SDK_DEPENDENCY_WORK_DIR:join(work,'dependencies/citizensdk-native')};
-  await runProductTests(platform,work,receipt,buildEnvironment);
-  receipt=await resources(platform,work,receipt,options);
-  await stageArchives(work,receipt);
-  await runShell('run',[platform],env,root,receipt.tools.bash.path);
+  ||environment.GITHUB_WORKFLOW_REF!=='crcfrcn/'+product+'/.github/workflows/'+platform+'.yml@refs/heads/main'||!/^[a-f0-9]{40}$/u.test(sha||'')
+  ||[run,attempt,number].some(value=>!/^[1-9][0-9]*$/u.test(value||'')||!Number.isSafeInteger(Number(value))))fail('GitHub移动编译身份无效');
+ return {sha,run,attempt,number};
+}
+export async function ciBuild(platform,environment=process.env){
+ const {sha,run,attempt,number}=checkedAutomationEnvironment(platform,environment),token=environment.GH_TOKEN||environment.GITHUB_TOKEN;
+ const head=spawnSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'});if(head.status!==0||head.stdout.trim()!==sha)fail('GitHub源码提交不匹配');
+ const current=checkedHistoryRun(await automationRequest('actions/runs/'+run,token),platform);
+ if(current.head_sha!==sha||String(current.run_attempt)!==attempt||String(current.run_number)!==number||current.status==='completed')fail('GitHub当前Run身份不匹配');
+ const plan=await automationVersionPlan(platform,token,{currentRunId:run}),version=checkedBuildVersion(environment.CITIZENAPP_AUTOMATION_VERSION);
+ if(plan.version!==version||current.display_title!==buildDisplayName(platform,version))fail('GitHub移动编译候选版本变化');
+ const {APP_KEY:_appKey,IOS_KEY:_iosKey,IOS_PROVISIONING_PROFILE:_iosProfile,GH_TOKEN:_ghToken,GITHUB_TOKEN:_githubToken,...buildEnvironment}=environment;
+ return withFixedWork('build/'+platform,async work=>execute(platform,work,{},
+  {environment:buildEnvironment,delivery:'automation',version,ciEnvironment:environment}),{environment,retain:true});
+}
+// 正式签名和资产验收是共同编译链的环境交付阶段，版本仍由上述编译计划提供。
+async function completeAutomation(platform,work,receipt,env,environment,version){
+ const {sha,run,attempt,number}=checkedAutomationEnvironment(platform,environment),workflow=platform+'.yml',buildRoot=env.CITIZENAPP_BUILD_DIR;
   const stage=join(work,'sign-stage'),output=join(stage,'build/release');
   mkdirSync(output,{recursive:true});
   if(platform==='android'){
@@ -4676,6 +5277,7 @@ export async function ciBuild(platform,environment=process.env){
    if(!existsSync(app)||!lstatSync(app).isDirectory())fail('GitHub iOS未签名候选缺失');
    const plist=spawnSync('/usr/libexec/PlistBuddy',['-c','Print :CFBundleVersion',join(app,'Info.plist')],{encoding:'utf8'});
    if(plist.status!==0||plist.stdout.trim()!==number)fail('GitHub iOS构建编号不匹配');
+   const marketing=spawnSync('/usr/libexec/PlistBuddy',['-c','Print :CFBundleShortVersionString',join(app,'Info.plist')],{encoding:'utf8'});if(marketing.status!==0||marketing.stdout.trim()!==version)fail('GitHub iOS产品版本不匹配');
    const destination=join(stage,'build/ios/iphoneos/Runner.app');
    mkdirSync(dirname(destination),{recursive:true});
    const {cpSync}=await import('node:fs');cpSync(app,destination,{recursive:true});
@@ -4688,33 +5290,33 @@ export async function ciBuild(platform,environment=process.env){
    [product.toUpperCase()+'_BUILD_NUMBER']:number};
   await runBuildProcess(env.PRODUCT_BASH_BIN||'/bin/bash',['--noprofile','--norc','-e','-o','pipefail','-c',CI_SIGNING_STEPS[platform],'github-mobile-signing'],
    signingEnv,stage,{timeout:1800000});
+  const names=platform==='ios'?[product+'.ipa']:[product+'.apk',product+'.aab'];
   const assetsDir=join(work,'release-assets');mkdirSync(assetsDir,{mode:0o700});
   const assets=[];
-  for(const name of names){const source=join(output,name),info=lstatSync(source);
+  for(const stagedName of names){const source=join(output,stagedName),info=lstatSync(source),name=buildDisplayName(platform,version)+stagedName.slice(product.length);
    if(!info.isFile()||info.isSymbolicLink()||!info.size)fail('GitHub正式签名包缺失');
    const destination=join(assetsDir,name);copyFileSync(source,destination);
    assets.push({name,size:info.size,sha256:createHash('sha256').update(readFileSync(destination)).digest('hex')});
   }
   const bundleId='ios.'+product,packageName='com.crcfrcn.'+product;
-  const manifestName=product+'-release-'+platform+'.json';
-  const manifest={product_id:product,version,github_run_number:Number(number),head_sha:sha,bundle_id:bundleId,
+  const manifestName=buildDisplayName(platform,version)+'.json';
+  const manifest={product_id:product,platform,version,github_run_id:Number(run),github_run_attempt:Number(attempt),github_run_number:Number(number),head_sha:sha,bundle_id:bundleId,
    package_name:packageName,assets:assets.map(value=>({platform:platform==='ios'?'iOS':'Android',asset_name:value.name,asset_sha256:value.sha256}))};
   writeFileSync(join(assetsDir,manifestName),JSON.stringify(manifest)+'\n',{flag:'wx',mode:0o600});
   const manifestInfo=lstatSync(join(assetsDir,manifestName));
   assets.push({name:manifestName,size:manifestInfo.size,sha256:createHash('sha256').update(readFileSync(join(assetsDir,manifestName))).digest('hex')});
-  const tag=product+'-'+platform+'-v'+version+'-r'+run+'-a'+attempt;
+  const tag=buildDisplayName(platform,version);
   const proof={schema:1,repository:'crcfrcn/'+product,product_id:product,platform,workflow:'.github/workflows/'+workflow,
    run_id:Number(run),run_attempt:Number(attempt),run_number:Number(number),source_sha:sha,version,tag,assets};
   const notes=join(work,'release-notes.txt');writeFileSync(notes,'<!-- automation:'+JSON.stringify(proof)+' -->\n',{flag:'wx',mode:0o600});
   const plan={schema:1,product_id:product,platform,tag,version,source_sha:sha,assets,directory:assetsDir,notes};
   writeFileSync(join(work,'release-plan.json'),JSON.stringify(plan)+'\n',{flag:'wx',mode:0o600});
+  retainCompiledArtifacts(platform,work,version,assets.map(item=>({path:join(assetsDir,item.name),extension:item.name.slice(tag.length)})));
   return plan;
- },{environment,retain:true});
 }
+
 export async function ciVerifyRelease(platform,phase,environment=process.env,{fetchImpl=fetch}={}){
- if(!['draft','published'].includes(phase)||environment.GITHUB_ACTIONS!=='true'
-  ||environment.GITHUB_REPOSITORY!=='crcfrcn/'+product||environment.GITHUB_WORKFLOW!==product+'.'+platform)
-  fail('GitHub移动Release核验身份无效');
+ checkedAutomationEnvironment(platform,environment);if(!['draft','published'].includes(phase))fail('GitHub移动Release核验身份无效');
  const work=fixedWork('build/'+platform);checkFixedWork(work);
  const plan=JSON.parse(readFileSync(join(work,'release-plan.json'),'utf8')),token=environment.GH_TOKEN||environment.GITHUB_TOKEN;
  if(!token||plan.product_id!==product||plan.platform!==platform||plan.source_sha!==environment.GITHUB_SHA)fail('GitHub移动Release计划无效');
@@ -4727,20 +5329,73 @@ export async function ciVerifyRelease(platform,phase,environment=process.env,{fe
  const tag=await reference.json();
  if(tag.ref!=='refs/tags/'+plan.tag||tag.object?.type!=='commit'||tag.object?.sha!==plan.source_sha)fail('GitHub移动Tag来源不符');
  const release=await response.json();
- if(release.tag_name!==plan.tag||release.target_commitish!==plan.source_sha||release.prerelease!==false
+ if(release.tag_name!==plan.tag||release.name!==buildDisplayName(platform,plan.version)||release.target_commitish!==plan.source_sha||release.prerelease!==false
   ||release.draft!==(phase==='draft')||phase==='published'&&!release.published_at
   ||release.body?.trim()!==readFileSync(plan.notes,'utf8').trim()
   ||!Array.isArray(release.assets)||release.assets.length!==plan.assets.length)fail('GitHub移动Release身份不符');
  for(const item of plan.assets){const local=join(plan.directory,item.name);
   if(createHash('sha256').update(readFileSync(local)).digest('hex')!==item.sha256)fail('本轮移动资产字节漂移');
-  const rows=release.assets.filter(value=>value.name===item.name);
+  const rows=release.assets.filter(value=>value.label===item.name);
   if(rows.length!==1||rows[0].state!=='uploaded'||rows[0].size!==item.size||rows[0].digest!=='sha256:'+item.sha256)
    fail('GitHub移动Release资产回读不符');
  }
  return {platform,tag:plan.tag,phase};
 }
+// HTTP资产上传与正式版验收仍归唯一编译文件；YAML不持有gh脚本或第二套产物规则。
+export async function ciRelease(platform,environment=process.env,{fetchImpl=fetch}={}){
+ checkedAutomationEnvironment(platform,environment);const work=fixedWork('build/'+platform);checkFixedWork(work);
+ const plan=runtimeDocument(join(work,'release-plan.json')),token=environment.GH_TOKEN||environment.GITHUB_TOKEN;
+ if(!token||plan.product_id!==product||plan.platform!==platform||plan.source_sha!==environment.GITHUB_SHA||plan.tag!==buildDisplayName(platform,plan.version)||plan.directory!==join(work,'release-assets')||plan.notes!==join(work,'release-notes.txt'))fail('GitHub移动Release计划无效');
+ const request=async(path,{method='GET',body,allowMissing=false}={})=>{
+  const response=await fetchImpl('https://api.github.com/repos/'+automationRepository+'/'+path,{method,redirect:'error',headers:{Accept:'application/vnd.github+json',Authorization:'Bearer '+token,'Content-Type':'application/json','X-GitHub-Api-Version':'2026-03-10'},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(30000)});
+  if(allowMissing&&response.status===404)return null;if(!response.ok)fail('GitHub移动Release请求失败：HTTP '+response.status);
+  if(response.status===204)return null;return response.json();
+ };
+ const tagPath='git/ref/tags/'+encodeURIComponent(plan.tag),reference=await request(tagPath,{allowMissing:true});
+ if(reference){if(reference.ref!=='refs/tags/'+plan.tag||reference.object?.type!=='commit'||reference.object.sha!==plan.source_sha)fail('GitHub移动Tag已属于其它候选');}
+ else await request('git/refs',{method:'POST',body:{ref:'refs/tags/'+plan.tag,sha:plan.source_sha}});
+ const existing=await request('releases/tags/'+encodeURIComponent(plan.tag),{allowMissing:true});if(existing)fail('GitHub移动Release已存在，须先恢复原任务');
+ const release=await request('releases',{method:'POST',body:{tag_name:plan.tag,target_commitish:plan.source_sha,name:plan.tag,body:readFileSync(plan.notes,'utf8'),draft:true,prerelease:false,make_latest:'false'}});
+ if(!Number.isSafeInteger(release?.id)||release.id<1||release.tag_name!==plan.tag||release.draft!==true)fail('GitHub移动草稿回执无效');
+ const endpoint='https://uploads.github.com/repos/'+automationRepository+'/releases/'+release.id+'/assets';
+ if(release.upload_url?.replace(/\{\?name,label\}$/u,'')!==endpoint)fail('GitHub移动资产上传地址越界');
+ for(const item of plan.assets){
+  const file=join(plan.directory,item.name),info=lstatSync(file);if(!info.isFile()||info.isSymbolicLink()||info.nlink!==1||realpathSync(file)!==file||info.size!==item.size)fail('GitHub移动上传产物身份漂移');
+  const extension=item.name.slice(plan.tag.length);if(!['.ipa','.apk','.aab','.json'].includes(extension))fail('GitHub移动资产类型未声明');
+  const name=product+'-'+platform+'-v'+plan.version+extension,url=new URL(endpoint);url.searchParams.set('name',name);url.searchParams.set('label',item.name);
+  const stream=targetFs.createReadStream(file);
+  try{
+   const response=await fetchImpl(url.href,{method:'POST',redirect:'error',headers:{Authorization:'Bearer '+token,Accept:'application/vnd.github+json','Content-Type':'application/octet-stream','Content-Length':String(item.size)},body:stream,duplex:'half',signal:AbortSignal.timeout(1800000)});
+   if(!response.ok)fail('GitHub移动资产上传失败：HTTP '+response.status);const asset=await response.json();
+   if(asset.name!==name||asset.label!==item.name||asset.state!=='uploaded'||asset.size!==item.size||asset.digest!=='sha256:'+item.sha256)fail('GitHub移动资产上传回读不符');
+  }finally{if(!stream.closed)await new Promise(resolve=>{stream.once('close',resolve);stream.destroy();});}
+ }
+ await ciVerifyRelease(platform,'draft',environment,{fetchImpl});
+ await request('releases/'+release.id,{method:'PATCH',body:{draft:false}});
+ await ciVerifyRelease(platform,'published',environment,{fetchImpl});return {platform,version:plan.version,tag:plan.tag,release_id:release.id};
+}
+export function ciCachePlan(platform,environment=process.env){
+ const {run,attempt}=checkedAutomationEnvironment(platform,environment),identity=incrementalIdentity(platform),prefix=product+'-'+platform+'-incremental-';
+ return {identity,path:'target/build/'+platform+'/incremental',prefix,key:prefix+identity+'-r'+run+'-a'+attempt,restore_prefix:prefix+identity+'-'};
+}
 
 async function runCLI(){
+ if(process.argv[2]==='run'&&Object.hasOwn(buildPlatforms,process.argv[3])&&process.argv.length===4)process.argv.splice(2,2,'execute',process.argv[3],'--work',fixedWork('build/'+process.argv[3]));
+ if(process.argv[2]==='ci-cache-plan'){
+  if(process.argv.length!==4)fail('GitHub增量计划参数无效');const value=ciCachePlan(process.argv[3]);
+  if(!process.env.GITHUB_OUTPUT||!isAbsolute(process.env.GITHUB_OUTPUT))fail('GitHub增量输出通道缺失');
+  writeFileSync(process.env.GITHUB_OUTPUT,Object.entries(value).map(([key,value])=>key+'='+value).join('\n')+'\n',{flag:'a'});return;
+ }
+ if(process.argv[2]==='ci-release'){
+  if(process.argv.length!==4)fail('GitHub正式包参数无效');process.stdout.write(JSON.stringify(await ciRelease(process.argv[3]))+'\n');return;
+ }
+ if(process.argv[2]==='automation'){
+  const [operation,platform,id]=process.argv.slice(3),token=process.env.GH_TOKEN||process.env.GITHUB_TOKEN;
+  if(operation==='plan'&&id===undefined){process.stdout.write(JSON.stringify(await automationVersionPlan(platform,token))+'\n');return;}
+  if(operation==='run'&&id===undefined||operation==='resume'&&/^[1-9]\d*$/u.test(id||'')){process.stdout.write(JSON.stringify(await runAutomation(platform,token,{runId:id?Number(id):undefined,accepted:value=>process.stderr.write('Run已接收：'+value.html_url+'\n'),report:value=>process.stderr.write('GitHub：'+value.state+'\n')}))+'\n');return;}
+  if(operation==='settle'&&/^[1-9]\d*$/u.test(id||'')){process.stdout.write(JSON.stringify(await settleCompletedAutomation(platform,Number(id),token))+'\n');return;}
+  fail('自动化公开入口参数无效');
+ }
  if(process.argv[2]==='ci-build'){
   if(process.argv.length!==4)fail('GitHub移动编译参数无效');
   process.stdout.write(JSON.stringify(await ciBuild(process.argv[3]))+'\n');return;
@@ -4751,7 +5406,6 @@ async function runCLI(){
  }
  const [operation,platform,flag,work]=process.argv.slice(2);
  if(operation==='execute'){if(flag!=='--work'||work!==fixedWork('build/'+platform))fail('平台编译现场不符');return withFixedWork('build/'+platform,()=>runCommand(),{environment:process.env});}
- if(operation==='execute')return runCommand();
  if(['resources','prepare','build'].includes(operation)&&flag==='--work'){
   checkWork(work);
   return withFixedWork(taskScope(work),()=>runCommand(),{environment:process.env});
@@ -4903,6 +5557,13 @@ test('资源回执隔离产品、平台、工作根，直接交付工具路径�
   const env=resourceEnvironment(platform,work,receipt,{HOME:'/home',TOKEN:'private',INJECTED_CONTEXT:'/private'});
   assert.equal(env.TOKEN,undefined);assert.equal(env.INJECTED_CONTEXT,undefined);assert.equal(env.CARGO_NET_OFFLINE,'true');
   assert.equal(env[contract.product_id.toUpperCase()+'_WORK_DIR'],work);
+  const github={GITHUB_ACTIONS:'true',GITHUB_REPOSITORY:'crcfrcn/citizenapp',
+    GITHUB_RUN_ID:'39044524886',GITHUB_RUN_ATTEMPT:'2',GITHUB_SHA:'a'.repeat(40)};
+  const scheduled=resourceEnvironment(platform,work,receipt,{...github,GH_TOKEN:'fixture',GITHUB_TOKEN:'fixture'});
+  for(const [key,value]of Object.entries(github))assert.equal(scheduled[key],value);
+  assert.equal(scheduled.GH_TOKEN,undefined);assert.equal(scheduled.GITHUB_TOKEN,undefined);
+  const independent=resourceEnvironment(platform,work,receipt,{GITHUB_ACTIONS:'false',GITHUB_RUN_ID:github.GITHUB_RUN_ID});
+  assert.equal(independent.GITHUB_ACTIONS,undefined);assert.equal(independent.GITHUB_RUN_ID,undefined);
  }finally{removeFixture(work,{recursive:true});}
 });
 test('原始锁需要的依赖必须显式交付，不能使用用户默认缓存',()=>{
@@ -5617,7 +6278,10 @@ function automationRoute(route,action){
 }
 
 async function automationRequest(path,token,{method='GET',body}={}){
- if(!/^actions\/(?:workflows\/(?:ios\.yml|android\.yml)\/dispatches|runs\/[1-9]\d*(?:\/(?:jobs(?:\?per_page=100&page=[1-9]\d*)?|cancel|force-cancel))?)$/u.test(path))
+ const reads=/^(?:actions\/workflows\/(?:ios\.yml|android\.yml)\/runs\?branch=main&event=workflow_dispatch&per_page=100&page=[1-9]\d*|actions\/runs\/[1-9]\d*(?:\/jobs(?:\?per_page=100&page=[1-9]\d*)?)?|actions\/caches\?per_page=100&page=[1-9]\d*|releases(?:\?per_page=100&page=[1-9]\d*|\/[1-9]\d*)|git\/ref\/tags\/[^/?#]+)$/u;
+ const writes=/^actions\/(?:workflows\/(?:ios\.yml|android\.yml)\/dispatches|runs\/[1-9]\d*\/(?:cancel|force-cancel))$/u;
+ const deletes=/^(?:actions\/(?:runs|caches)\/[1-9]\d*|releases\/[1-9]\d*|git\/refs\/tags\/[^/?#]+)$/u;
+ if(!(method==='GET'&&reads.test(path)||method==='POST'&&writes.test(path)||method==='DELETE'&&deletes.test(path)))
   throw Error('公民App GitHub 请求目标无效');
  const response=await (automationTransport.getStore()?.fetchImpl??fetch)(`https://api.github.com/repos/${automationRepository}/${path}`,{
   method,redirect:'error',credentials:'omit',headers:{Authorization:`Bearer ${token}`,
@@ -5630,6 +6294,124 @@ async function automationRequest(path,token,{method='GET',body}={}){
  for await(const chunk of response.body){size+=chunk.length;if(size>8*1024*1024)throw Error('公民App GitHub 回执超限');chunks.push(chunk);}
  return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(Buffer.concat(chunks)));
 }
+async function automationPages(path,field,token){
+ const records=[];for(let page=1;page<=10000;page++){const result=await automationRequest(path+(path.includes('?')?'&':'?')+'per_page=100&page='+page,token),values=field?result?.[field]:result;if(!Array.isArray(values)||values.length>100)throw Error('公民App GitHub 分页响应无效');records.push(...values);if(values.length<100)return records;}throw Error('公民App GitHub 分页未结束');
+}
+function checkedHistoryRun(run,platform){
+ if(!Number.isSafeInteger(run?.id)||run.id<1)throw Error('公民App历史Run编号无效');
+ return automationCheckedRun(run,{repository:product,product,platform,workflow:automationWorkflows[platform],canonicalId:product+'.'+platform+'.release'},run.id);
+}
+function runBuildVersion(run,platform){
+ const prefix='公民·'+buildPlatforms[platform].title+'·v';if(typeof run.display_title!=='string'||!run.display_title.startsWith(prefix))throw Error('公民App成功Run缺少准确平台版本');
+ const version=checkedBuildVersion(run.display_title.slice(prefix.length));if(run.display_title!==buildDisplayName(platform,version))throw Error('公民App Run版本名称不符');return version;
+}
+export async function automationVersionPlan(platform,token,{currentRunId}={}){
+ if(!buildPlatforms[platform]||typeof token!=='string'||!token)throw Error('公民App版本计划参数无效');
+ const runs=await automationPages('actions/workflows/'+automationWorkflows[platform]+'/runs?branch=main&event=workflow_dispatch','workflow_runs',token);
+ runs.forEach(run=>checkedHistoryRun(run,platform));
+ const active=runs.filter(run=>run.status!=='completed'&&String(run.id)!==String(currentRunId));if(active.length)throw Error('公民App本平台自动化仍在运行，禁止重复派发');
+ const successes=runs.filter(run=>run.status==='completed'&&run.conclusion==='success'&&String(run.id)!==String(currentRunId)).sort((a,b)=>b.id-a.id);
+ const previous=successes[0],lastVersion=previous?runBuildVersion(previous,platform):buildPlatforms[platform].initialVersion;
+ const releases=await automationPages('releases',null,token),owned=releases.map(release=>({release,proof:compiledReleaseProof(release,platform)})).filter(value=>value.proof);
+ if(previous){
+  const matched=owned.filter(value=>value.proof.run_id===previous.id&&value.proof.run_attempt===previous.run_attempt&&!value.release.draft&&!value.release.prerelease);
+  if(matched.length!==1)throw Error('公民App成功版本缺少唯一正式版证明');await verifyCompletedRelease(previous,platform,matched[0],token);
+ }else for(const value of owned){
+  if(value.release.draft||value.release.prerelease||String(value.proof.run_id)===String(currentRunId))continue;
+  const owner=checkedHistoryRun(await automationRequest('actions/runs/'+value.proof.run_id,token),platform);
+  if(owner.status!=='completed'||owner.conclusion==='success')throw Error('公民App历史成功依据不完整，禁止重置版本');
+ }
+ const terminal=runs.filter(run=>run.status==='completed'&&String(run.id)!==String(currentRunId)).sort((a,b)=>b.id-a.id)[0];
+ return {schema:1,product_id:product,platform,last_version:lastVersion,version:nextBuildVersion(lastVersion),previous_run_id:previous?.id??null,latest_run_id:terminal?.id??null};
+}
+export function compiledReleaseProof(release,platform){
+ if(!release||!Number.isSafeInteger(release.id)||release.id<1||typeof release.body!=='string')return null;
+ const match=/^<!-- automation:(\{[^\n]+\}) -->\s*$/u.exec(release.body.trim());if(!match)return null;let proof;try{proof=JSON.parse(match[1]);}catch{return null;}
+ if(proof.schema!==1||proof.repository!==automationRepository||proof.product_id!==product||proof.platform!==platform||proof.workflow!=='.github/workflows/'+automationWorkflows[platform]
+  ||!Number.isSafeInteger(proof.run_id)||proof.run_id<1||!Number.isSafeInteger(proof.run_attempt)||proof.run_attempt<1||!/^[a-f0-9]{40}$/u.test(proof.source_sha||'')
+  ||proof.tag!==release.tag_name||release.tag_name!==buildDisplayName(platform,proof.version)||release.name!==release.tag_name||release.target_commitish!==proof.source_sha)return null;
+ return proof;
+}
+async function deleteOwnedRelease(release,platform,token){
+ const fresh=await automationRequest('releases/'+release.id,token),proof=compiledReleaseProof(fresh,platform);
+ if(!proof||fresh.tag_name!==release.tag_name)throw Error('公民App正式版清理归属变化');
+ const tag=await optionalAutomationRead('git/ref/tags/'+encodeURIComponent(fresh.tag_name),token);
+ if(tag){if(tag.ref!=='refs/tags/'+fresh.tag_name||tag.object?.type!=='commit'||tag.object.sha!==proof.source_sha)throw Error('公民App待删除Tag归属变化');await automationRequest('git/refs/tags/'+encodeURIComponent(fresh.tag_name),token,{method:'DELETE'});}
+ const confirmed=await automationRequest('releases/'+fresh.id,token);if(JSON.stringify(compiledReleaseProof(confirmed,platform))!==JSON.stringify(proof)||confirmed.tag_name!==fresh.tag_name)throw Error('公民App正式版删除前归属变化');
+ await automationRequest('releases/'+fresh.id,token,{method:'DELETE'});
+}
+async function optionalAutomationRead(path,token){
+ try{return await automationRequest(path,token);}catch(error){if(error.message.endsWith('HTTP 404'))return null;throw error;}
+}
+async function verifyCompletedRelease(run,platform,value,token){
+ const {release,proof}=value,version=runBuildVersion(run,platform),title=buildDisplayName(platform,version);
+ if(proof.run_id!==run.id||proof.run_attempt!==run.run_attempt||proof.run_number!==run.run_number||proof.source_sha!==run.head_sha||proof.version!==version||release.draft||release.prerelease||!release.published_at||!Array.isArray(proof.assets)||!Array.isArray(release.assets))throw Error('公民App成功Run正式版证明不符');
+ const names=(platform==='ios'?['.ipa','.json']:['.apk','.aab','.json']).map(extension=>title+extension);
+ if(proof.assets.length!==names.length||release.assets.length!==names.length)throw Error('公民App正式资产集合不符');
+ for(const name of names){
+  const local=proof.assets.filter(item=>item.name===name),remote=release.assets.filter(item=>item.label===name);
+  if(local.length!==1||remote.length!==1||!Number.isSafeInteger(local[0].size)||local[0].size<1||!/^[a-f0-9]{64}$/u.test(local[0].sha256||'')||!Number.isSafeInteger(remote[0].id)||remote[0].id<1||remote[0].state!=='uploaded'||remote[0].size!==local[0].size||remote[0].digest!=='sha256:'+local[0].sha256)throw Error('公民App正式资产回执不符');
+ }
+ const tag=await automationRequest('git/ref/tags/'+encodeURIComponent(title),token);
+ if(tag.ref!=='refs/tags/'+title||tag.object?.type!=='commit'||tag.object.sha!==run.head_sha)throw Error('公民App正式Tag提交不符');
+}
+// Run外完成入口只按真实终态收敛；控制台观察者和产品独立CLI调用同一实现。
+export async function settleCompletedAutomation(platform,runId,token){
+ if(!buildPlatforms[platform]||!Number.isSafeInteger(runId)||runId<1)throw Error('公民App终态收尾参数无效');
+ const current=checkedHistoryRun(await automationRequest('actions/runs/'+runId,token),platform);
+ if(current.status!=='completed')throw Error('公民App Run仍在运行，禁止终态收尾');
+ const runs=await automationPages('actions/workflows/'+automationWorkflows[platform]+'/runs?branch=main&event=workflow_dispatch','workflow_runs',token);runs.forEach(run=>checkedHistoryRun(run,platform));
+ if(runs.some(run=>run.status!=='completed'))throw Error('公民App本平台仍有活跃Run，终态清理待恢复');
+ const completed=runs.filter(run=>run.status==='completed').sort((a,b)=>b.id-a.id||b.run_attempt-a.run_attempt);
+ const latest=new Map();for(const run of completed){const state=run.conclusion==='success'?'success':'failed';if(!latest.has(state))latest.set(state,run);}
+ const releases=await automationPages('releases',null,token),owned=releases.map(release=>({release,proof:compiledReleaseProof(release,platform)})).filter(value=>value.proof);
+ const success=latest.get('success'),failed=latest.get('failed');
+ if(current.conclusion==='success'){
+  const version=runBuildVersion(current,platform),matches=owned.filter(value=>value.proof.run_id===current.id&&value.proof.run_attempt===current.run_attempt&&!value.release.draft&&!value.release.prerelease);
+  if(matches.length!==1||matches[0].proof.version!==version)throw Error('公民App成功Run缺少唯一已验收正式版');
+ }
+ const keepRelease=success?owned.filter(value=>value.proof.run_id===success.id&&value.proof.run_attempt===success.run_attempt&&!value.release.draft&&!value.release.prerelease):[];
+ if(success&&keepRelease.length!==1)throw Error('公民App最新成功Run的正式版不唯一');
+ if(success)await verifyCompletedRelease(success,platform,keepRelease[0],token);
+ for(const value of owned)if(!keepRelease.some(keep=>keep.release.id===value.release.id)){
+  const owner=runs.find(run=>run.id===value.proof.run_id);
+  if(!owner||owner.status!=='completed')continue;await deleteOwnedRelease(value.release,platform,token);
+ }
+ // Release删除后发生中断时，仍凭未删除的真实Run身份收敛同平台孤立Tag。
+ const candidates=new Map();
+ for(const run of completed){
+  let version;try{version=runBuildVersion(run,platform);}catch{continue;}
+  const tag=buildDisplayName(platform,version);if(keepRelease.some(value=>value.release.tag_name===tag))continue;
+  if(!candidates.has(tag))candidates.set(tag,new Set());candidates.get(tag).add(run.head_sha);
+ }
+ for(const [name,sources]of candidates){
+  const tag=await optionalAutomationRead('git/ref/tags/'+encodeURIComponent(name),token);if(!tag)continue;
+  if(tag.ref!=='refs/tags/'+name||tag.object?.type!=='commit'||!sources.has(tag.object.sha))throw Error('公民App待清理Tag归属不符');
+  await automationRequest('git/refs/tags/'+encodeURIComponent(name),token,{method:'DELETE'});
+ }
+ for(const run of completed)if(run.id!==success?.id&&run.id!==failed?.id){
+  const fresh=checkedHistoryRun(await automationRequest('actions/runs/'+run.id,token),platform);if(fresh.status!=='completed')throw Error('公民App待清理Run终态变化');await automationRequest('actions/runs/'+run.id,token,{method:'DELETE'});
+ }
+ const caches=await automationPages('actions/caches','actions_caches',token),cachePrefix='citizenapp-'+platform+'-incremental-';
+ const cachePattern=new RegExp('^'+cachePrefix+'[a-f0-9]{64}-r[1-9][0-9]*-a[1-9][0-9]*$','u');
+ const cacheRows=caches.filter(cache=>typeof cache.key==='string'&&cachePattern.test(cache.key)&&cache.ref==='refs/heads/main').sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at)||b.id-a.id);
+ for(const cache of cacheRows)if(!Number.isSafeInteger(cache.id)||cache.id<1||!Number.isFinite(Date.parse(cache.created_at)))throw Error('公民App缓存身份无效');
+ for(const cache of cacheRows.slice(1)){
+  const fresh=(await automationPages('actions/caches','actions_caches',token)).filter(value=>value.id===cache.id);
+  if(!fresh.length)continue;if(fresh.length!==1||fresh[0].key!==cache.key||fresh[0].ref!==cache.ref||fresh[0].created_at!==cache.created_at)throw Error('公民App缓存删除前归属变化');
+  await automationRequest('actions/caches/'+cache.id,token,{method:'DELETE'});
+ }
+ let mirror={state:'not-required'};
+ if(success){
+  const version=runBuildVersion(success,platform);
+  try{await withFixedWork('build/'+platform,async work=>{
+   const previous=rememberedAutomation(work);if(previous&&previous.run_id>success.id)return;
+   const record={schema:1,product_id:product,platform,repository:automationRepository,run_id:success.id,run_attempt:success.run_attempt,source_sha:success.head_sha,version};
+   const file=join(work,'automation.json'),pending=file+'.pending';writeFileSync(pending,JSON.stringify(record)+'\n',{flag:'wx',mode:0o600});try{renameSync(pending,file);}finally{if(existsSync(pending))unlinkSync(pending);}
+  });mirror={state:'synchronized'};}catch(error){mirror={state:'pending',reason:String(error.message).replace(/[\x00-\x1f\x7f]/gu,' ').slice(0,256)};}
+ }
+ return {platform,run_id:current.id,state:current.conclusion==='success'?'success':'failed',success_run_id:success?.id??null,failed_run_id:failed?.id??null,mirror};
+}
 function automationCheckedRun(run,route,expected){
  const workflow=automationRoute(route);
  if(!Number.isSafeInteger(run?.id)||run.id!==expected||run.path!==`.github/workflows/${workflow}`
@@ -5640,16 +6422,36 @@ function automationCheckedRun(run,route,expected){
  return run;
 }
 // 本产品独立拥有此实现，通过自身公开接口执行。
-export async function dispatchAutomation(platform,token,{inputs={}}={}){
+export async function dispatchAutomation(platform,token,{inputs={},accepted}={}){
  const route={repository:'citizenapp',product:'citizenapp',platform,workflow:automationWorkflows[platform],canonicalId:`citizenapp.${platform}.release`};
  const workflow=automationRoute(route);
  if(typeof token!=='string'||!token||!inputs||typeof inputs!=='object'||Array.isArray(inputs))throw Error('公民App派发参数无效');
- const value=await automationRequest(`actions/workflows/${workflow}/dispatches`,token,{method:'POST',body:{ref:'main',inputs}});
+ if(Object.keys(inputs).some(key=>key!=='version'))throw Error('公民App派发含未声明输入');
+ let plan=await automationVersionPlan(platform,token);if(inputs.version!==undefined&&inputs.version!==plan.version)throw Error('公民App派发版本已变化');
+ // 先收敛上次真实终态，失败候选Tag/草稿不能拖到新一轮编译结束才暴露冲突。
+ if(plan.latest_run_id){
+  const settled=await settleCompletedAutomation(platform,plan.latest_run_id,token);if(settled.mirror?.state==='pending')throw Error('公民App上轮成功镜像同步待恢复，尚未派发');
+  const fresh=await automationVersionPlan(platform,token);if(fresh.version!==plan.version)throw Error('公民App收尾期间版本已变化');plan=fresh;
+ }
+ const value=await automationRequest(`actions/workflows/${workflow}/dispatches`,token,{method:'POST',body:{ref:'main',inputs:{version:plan.version}}});
  if(!Number.isSafeInteger(value.workflow_run_id)||value.workflow_run_id<1
   ||value.html_url!==`https://github.com/${automationRepository}/actions/runs/${value.workflow_run_id}`)
   throw Error('公民App派发未返回准确 Run，禁止再次派发');
+ await accepted?.({...value,version:plan.version});
  const run=automationCheckedRun(await automationRequest(`actions/runs/${value.workflow_run_id}`,token),route,value.workflow_run_id);
+ if(run.display_title!==buildDisplayName(platform,plan.version))throw Error('公民App派发Run版本回读不符');
  return run;
+}
+// 独立客户端保持观察到真实终态，再调用相同收尾；只派发不是完整自动化。
+export async function runAutomation(platform,token,{runId,inputs={},accepted,report=()=>{},pause=()=>new Promise(resolve=>setTimeout(resolve,5000))}={}){
+ let run=runId?checkedHistoryRun(await automationRequest('actions/runs/'+runId,token),platform):await dispatchAutomation(platform,token,{inputs,accepted});
+ const source=run.head_sha;let previous='';
+ while(true){
+  if(run.head_sha!==source)throw Error('公民App观察中的Run提交身份变化');
+  const state=run.status==='completed'?run.conclusion:run.status;if(state!==previous){report({run_id:run.id,state});previous=state;}
+  if(run.status==='completed'){const result=await settleCompletedAutomation(platform,run.id,token);return {...result,source_sha:source};}
+  await pause();run=checkedHistoryRun(await automationRequest('actions/runs/'+run.id,token),platform);
+ }
 }
 // 只读取当前 Run 的 Job 与终态日志，日志和下载均有限额，令牌不进入任务输出。
 function automationSafeText(value,token){
@@ -5740,11 +6542,155 @@ if(inlineTestEntry){
 }
 
 // 外部调用方使用普通参数和返回值；此公开接口不接收任务宿主。
-export const automationClient=Object.freeze({automationWorkflows,automationRepository,automationTransport,automationRoute,automationRequest,automationCheckedRun,dispatchAutomation,automationSafeText,automationJobs,automationLogArchive,automationReadLogs});
+export const automationClient=Object.freeze({automationWorkflows,automationRepository,automationTransport,automationRoute,automationRequest,automationCheckedRun,dispatchAutomation,automationVersionPlan,settleCompletedAutomation,automationSafeText,automationJobs,automationLogArchive,automationReadLogs});
 
 // 合成回归只在本文件作为测试入口时注册；普通导入不要求调度器、其它仓库或外部服务。
 if(process.env.NODE_TEST_CONTEXT&&process.argv.length===2&&process.argv[1]===import.meta.filename){
  const {test}=await import('node:test'),{default:assert}=await import('node:assert/strict');
+ const historyRun=(platform,id,conclusion,version)=>({id,run_number:id,run_attempt:1,path:'.github/workflows/'+platform+'.yml',event:'workflow_dispatch',head_branch:'main',head_sha:'a'.repeat(40),repository:{full_name:automationRepository},status:'completed',conclusion,display_title:buildDisplayName(platform,version),html_url:'https://github.com/'+automationRepository+'/actions/runs/'+id});
+ function historyRelease(run,platform='ios'){
+  const title=run.display_title,assets=(platform==='ios'?['.ipa','.json']:['.apk','.aab','.json']).map((extension,index)=>({name:title+extension,size:10+index,sha256:String(index+1).repeat(64)}));
+  const proof={schema:1,repository:automationRepository,product_id:product,platform,workflow:run.path,run_id:run.id,run_attempt:run.run_attempt,run_number:run.run_number,source_sha:run.head_sha,version:runBuildVersion(run,platform),tag:title,assets};
+  return {id:run.id+100,name:title,tag_name:title,target_commitish:run.head_sha,body:'<!-- automation:'+JSON.stringify(proof)+' -->',draft:false,prerelease:false,published_at:'2026-10-17T00:00:00Z',assets:assets.map((item,index)=>({id:run.id*10+index,name:'transport-'+index,label:item.name,size:item.size,state:'uploaded',digest:'sha256:'+item.sha256}))};
+ }
+ function historyFixture(){
+  const runs=[historyRun('ios',70,'success','1.0.0'),historyRun('ios',71,'success','1.0.1'),historyRun('ios',72,'failure','1.0.2'),historyRun('ios',73,'cancelled','1.0.2')],mutations=[],tags=new Map();
+  const release=run=>{const value=historyRelease(run);tags.set(value.tag_name,{ref:'refs/tags/'+value.tag_name,object:{type:'commit',sha:run.head_sha}});return value;};
+  const releases=[release(runs[0]),release(runs[1]),{id:999,name:'other-product',tag_name:'other-product',body:'not ours',draft:false}],identity='c'.repeat(64),cachePrefix='citizenapp-ios-incremental-';
+  const caches=[{id:801,key:cachePrefix+identity+'-r70-a1',ref:'refs/heads/main',created_at:'2026-10-17T00:00:00Z'},{id:802,key:cachePrefix+identity+'-r71-a1',ref:'refs/heads/main',created_at:'2026-10-17T01:00:00Z'},{id:803,key:'citizenapp-android-incremental-'+identity+'-r74-a1',ref:'refs/heads/main',created_at:'2026-10-17T02:00:00Z'}];
+  let drift=false;
+  const fetchImpl=async(url,options={})=>{
+   const path=decodeURIComponent(new URL(url).pathname.replace('/repos/'+automationRepository+'/','')),method=options.method||'GET';
+   if(method==='DELETE'){
+    mutations.push(path);
+    if(path.startsWith('releases/')){const index=releases.findIndex(item=>item.id===Number(path.split('/').at(-1)));assert.ok(index>=0);releases.splice(index,1);}
+    else if(path.startsWith('actions/runs/')){const index=runs.findIndex(item=>item.id===Number(path.split('/').at(-1)));assert.ok(index>=0);runs.splice(index,1);}
+    else if(path.startsWith('actions/caches/')){const index=caches.findIndex(item=>item.id===Number(path.split('/').at(-1)));assert.ok(index>=0);caches.splice(index,1);}
+    else if(path.startsWith('git/refs/tags/'))assert.equal(tags.delete(path.slice('git/refs/tags/'.length)),true);
+    else assert.fail('未知删除入口');return new Response(null,{status:204});
+   }
+   assert.equal(method,'GET');
+   if(path==='actions/workflows/ios.yml/runs')return Response.json({workflow_runs:runs});
+   if(/^actions\/runs\/\d+$/u.test(path)){const run=runs.find(item=>item.id===Number(path.split('/').at(-1)));return run?Response.json(run):new Response(null,{status:404});}
+   if(path==='releases')return Response.json(releases);
+   if(/^releases\/\d+$/u.test(path)){const item=releases.find(value=>value.id===Number(path.split('/').at(-1)));return Response.json(drift?{...item,target_commitish:'b'.repeat(40)}:item);}
+   if(path.startsWith('git/ref/tags/')){const tag=tags.get(path.slice('git/ref/tags/'.length));return tag?Response.json(tag):new Response(null,{status:404});}
+   if(path==='actions/caches')return Response.json({actions_caches:caches});assert.fail('未知读取入口：'+path);
+  };
+  return {runs,releases,caches,tags,mutations,fetchImpl,drift:()=>{drift=true;}};
+ }
+ test('平台成功版本递增，失败重试不消耗且活跃或异仓事实拒绝',async()=>{
+  let rows=[];const fetchImpl=async url=>{
+   const path=decodeURIComponent(new URL(url).pathname);
+   if(path.endsWith('/runs'))return Response.json({workflow_runs:rows});
+   if(path.endsWith('/releases'))return Response.json(rows.filter(run=>run.conclusion==='success').map(run=>historyRelease(run)));
+   if(path.includes('/git/ref/tags/'))return Response.json({ref:'refs/tags/'+path.split('/git/ref/tags/')[1],object:{type:'commit',sha:'a'.repeat(40)}});
+   assert.fail('版本夹具未知读取：'+path);
+  };
+  await automationTransport.run({fetchImpl},async()=>{
+   assert.equal((await automationVersionPlan('ios','fixture')).version,'1.0.1');
+   rows=[historyRun('ios',10,'success','1.0.8'),historyRun('ios',11,'failure','1.0.9')];assert.equal((await automationVersionPlan('ios','fixture')).version,'1.0.9');
+   rows[1].status='in_progress';await assert.rejects(automationVersionPlan('ios','fixture'),/仍在运行/);assert.equal((await automationVersionPlan('ios','fixture',{currentRunId:11})).version,'1.0.9');
+   rows=[{...historyRun('ios',12,'success','1.0.9'),repository:{full_name:'other/repo'}}];await assert.rejects(automationVersionPlan('ios','fixture'),/身份/);
+   rows=[{...historyRun('ios',12,'success','1.0.9'),display_title:'公民·Android·v1.0.9'}];await assert.rejects(automationVersionPlan('ios','fixture'),/准确平台版本/);
+  });
+ });
+ test('真实终态仅留最新成功失败、正式版和缓存，重复收尾不重复计版且不删其它归属',async()=>{
+  const f=historyFixture(),work=fixedWork('build/ios');
+  try{await automationTransport.run({fetchImpl:f.fetchImpl},async()=>{
+   const value=await settleCompletedAutomation('ios',73,'fixture');assert.equal(value.state,'failed');assert.deepEqual(f.runs.map(run=>run.id),[71,73]);assert.deepEqual(f.releases.map(item=>item.id),[171,999]);assert.deepEqual(f.caches.map(item=>item.id),[802,803]);
+   assert.equal(rememberedAutomation(work).version,'1.0.1');const count=f.mutations.length;
+   await settleCompletedAutomation('ios',73,'fixture');assert.equal(f.mutations.length,count);assert.equal(rememberedAutomation(work).run_id,71);
+  });}finally{if(existsSync(work))rmSync(work,{recursive:true});}
+ });
+ test('活跃Run、正式资产变更、Tag漂移和删除前归属变化均失败关闭',async()=>{
+  for(const mode of ['active','asset','tag','drift']){
+   const f=historyFixture();if(mode==='active')f.runs.push({...historyRun('ios',74,'failure','1.0.2'),status:'queued'});
+   if(mode==='asset')f.releases[1].assets[0].digest='sha256:'+'f'.repeat(64);
+   if(mode==='tag')f.tags.get('公民·iOS·v1.0.1').object.sha='b'.repeat(40);if(mode==='drift')f.drift();
+   await automationTransport.run({fetchImpl:f.fetchImpl},()=>assert.rejects(settleCompletedAutomation('ios',73,'fixture'),/活跃|资产|Tag|归属/));assert.deepEqual(f.mutations,[]);
+  }
+ });
+ test('成功版本必须有完整正式证明，失败包不占号且遗失历史不重置',async()=>{
+  for(const mode of ['missing','duplicate','asset','tag','lost']){
+   const f=historyFixture();
+   if(mode==='missing')f.releases.splice(1,1);
+   if(mode==='duplicate')f.releases.push({...f.releases[1],id:777});
+   if(mode==='asset')f.releases[1].assets[0].digest='sha256:'+'f'.repeat(64);
+   if(mode==='tag')f.tags.get('公民·iOS·v1.0.1').object.sha='b'.repeat(40);
+   if(mode==='lost')f.runs.splice(0,2);
+   await automationTransport.run({fetchImpl:f.fetchImpl},()=>assert.rejects(automationVersionPlan('ios','fixture'),/证明|资产|Tag|404|历史/));assert.deepEqual(f.mutations,[]);
+  }
+  const f=historyFixture();f.runs.splice(0,2);f.releases.splice(0,2);f.runs[0].display_title=buildDisplayName('ios','1.0.1');f.releases.push(historyRelease(f.runs[0]));
+  await automationTransport.run({fetchImpl:f.fetchImpl},async()=>assert.equal((await automationVersionPlan('ios','fixture')).version,'1.0.1'));
+ });
+ test('旧Tag漂移拒绝删除，Tag已删但Release未删允许原事务恢复',async()=>{
+  const bad=historyFixture();bad.tags.get('公民·iOS·v1.0.0').object.sha='b'.repeat(40);
+  await automationTransport.run({fetchImpl:bad.fetchImpl},()=>assert.rejects(settleCompletedAutomation('ios',73,'fixture'),/Tag.*归属/));assert.deepEqual(bad.mutations,[]);
+  const f=historyFixture(),work=fixedWork('build/ios');f.tags.delete('公民·iOS·v1.0.0');
+  try{await automationTransport.run({fetchImpl:f.fetchImpl},()=>settleCompletedAutomation('ios',73,'fixture'));assert.deepEqual(f.releases.map(value=>value.id),[171,999]);}finally{if(existsSync(work))rmSync(work,{recursive:true});}
+ });
+ test('远端收尾不因本机占用丢失，镜像待同步后可恢复且不重复删除',async()=>{
+  const f=historyFixture(),work=fixedWork('build/ios');
+  try{await automationTransport.run({fetchImpl:f.fetchImpl},async()=>{
+   let entered,release;const ready=new Promise(resolve=>{entered=resolve;}),hold=new Promise(resolve=>{release=resolve;});
+   const holder=withFixedWork('build/ios',async()=>{entered();await hold;});await ready;
+   try{const value=await settleCompletedAutomation('ios',73,'fixture');assert.equal(value.mirror.state,'pending');assert.equal(value.state,'failed');}finally{release();await holder;}
+   const count=f.mutations.length,value=await settleCompletedAutomation('ios',73,'fixture');assert.equal(value.mirror.state,'synchronized');assert.equal(f.mutations.length,count);assert.equal(rememberedAutomation(work).run_id,71);
+  });}finally{if(existsSync(work))rmSync(work,{recursive:true});}
+ });
+ test('缓存只清理准确平台坐标并拒绝删除前身份漂移',async()=>{
+  for(const drift of [false,true]){
+   const f=historyFixture(),work=fixedWork('build/ios');f.caches.push({id:900,key:'citizenapp-ios-incremental-foreign',ref:'refs/heads/main',created_at:'2026-10-18T00:00:00Z'});let reads=0;
+   const fetchImpl=async(url,options)=>{if(new URL(url).pathname.endsWith('/actions/caches')){reads++;if(drift&&reads===2)f.caches[0].key='foreign-cache';}return f.fetchImpl(url,options);};
+   try{await automationTransport.run({fetchImpl},async()=>{if(drift)await assert.rejects(settleCompletedAutomation('ios',73,'fixture'),/缓存删除前归属/);else await settleCompletedAutomation('ios',73,'fixture');});assert.ok(f.caches.some(value=>value.id===900));if(drift)assert.ok(!f.mutations.includes('actions/caches/801'));}finally{if(existsSync(work))rmSync(work,{recursive:true});}
+  }
+ });
+ test('CI缓存计划独立绑定平台、工具锁与本次Run，错误身份不产生计划',()=>{
+  const environment={GITHUB_ACTIONS:'true',GITHUB_REPOSITORY:automationRepository,GITHUB_REF:'refs/heads/main',GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_WORKFLOW_REF:automationRepository+'/.github/workflows/ios.yml@refs/heads/main',GITHUB_SHA:'a'.repeat(40),GITHUB_RUN_ID:'71',GITHUB_RUN_ATTEMPT:'1',GITHUB_RUN_NUMBER:'7'};
+  const first=ciCachePlan('ios',environment),second=ciCachePlan('ios',{...environment,GITHUB_RUN_ID:'72'});assert.equal(first.identity,second.identity);assert.notEqual(first.key,second.key);assert.equal(first.path,'target/build/ios/incremental');
+  assert.throws(()=>ciCachePlan('android',environment),/身份/);assert.throws(()=>ciCachePlan('ios',{...environment,GITHUB_SHA:'invalid'}),/身份/);
+ });
+ test('CI正式资产按准确HTTPS端点上传并回读，错误地址、摘要和中断不发布',async()=>{
+  for(const mode of ['success','endpoint','digest','interrupted']){
+   const platform='ios',work=fixedWork('build/ios'),version='1.0.1',title=buildDisplayName(platform,version),environment={GITHUB_ACTIONS:'true',GITHUB_REPOSITORY:automationRepository,GITHUB_REF:'refs/heads/main',GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_WORKFLOW_REF:automationRepository+'/.github/workflows/ios.yml@refs/heads/main',GITHUB_SHA:'a'.repeat(40),GITHUB_RUN_ID:'71',GITHUB_RUN_ATTEMPT:'1',GITHUB_RUN_NUMBER:'7',GH_TOKEN:'fixture'};
+   let plan,reference=null,release=null,uploads=0,publishes=0;
+   try{
+    await withFixedWork('build/ios',async path=>{
+     const directory=join(path,'release-assets');mkdirSync(directory);
+     const assets=['.ipa','.json'].map(extension=>{const name=title+extension,bytes=Buffer.from('signed-fixture'+extension);writeFileSync(join(directory,name),bytes);return {name,size:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')};});
+     const notes=join(path,'release-notes.txt');writeFileSync(notes,'fixture proof\n');plan={schema:1,product_id:product,platform,version,tag:title,source_sha:environment.GITHUB_SHA,assets,directory,notes};writeFileSync(join(path,'release-plan.json'),JSON.stringify(plan));
+    },{retain:true});
+    const fetchImpl=async(url,options={})=>{
+     const endpoint=new URL(url),path=decodeURIComponent(endpoint.pathname.replace('/repos/'+automationRepository+'/','')),method=options.method||'GET';assert.equal(endpoint.protocol,'https:');assert.equal(options.redirect,'error');assert.equal(options.headers.Authorization,'Bearer fixture');
+     if(endpoint.hostname==='uploads.github.com'){
+      uploads++;assert.equal(path,'releases/123/assets');assert.equal(method,'POST');if(mode==='interrupted')throw Error('fixture upload interrupted');
+      const parts=[];for await(const chunk of options.body)parts.push(chunk);const bytes=Buffer.concat(parts),label=endpoint.searchParams.get('label'),asset={id:1000+uploads,name:endpoint.searchParams.get('name'),label,size:bytes.length,state:'uploaded',digest:'sha256:'+createHash('sha256').update(bytes).digest('hex')};
+      assert.equal(String(bytes.length),options.headers['Content-Length']);assert.ok(plan.assets.some(item=>item.name===label));if(mode==='digest')asset.digest='sha256:'+'f'.repeat(64);release.assets.push(asset);return Response.json(asset);
+     }
+     assert.equal(endpoint.hostname,'api.github.com');
+     if(path==='git/ref/tags/'+title)return reference?Response.json(reference):new Response(null,{status:404});
+     if(path==='git/refs'&&method==='POST'){const body=JSON.parse(options.body);assert.equal(body.sha,environment.GITHUB_SHA);reference={ref:body.ref,object:{type:'commit',sha:body.sha}};return Response.json(reference);}
+     if(path==='releases/tags/'+title)return release?Response.json(release):new Response(null,{status:404});
+     if(path==='releases'&&method==='POST'){const body=JSON.parse(options.body);assert.equal(body.name,title);assert.equal(body.draft,true);release={...body,id:123,assets:[],upload_url:(mode==='endpoint'?'https://other.invalid/':'https://uploads.github.com/repos/'+automationRepository+'/releases/123/assets')+'{?name,label}'};return Response.json(release);}
+     if(path==='releases/123'&&method==='PATCH'){publishes++;assert.deepEqual(JSON.parse(options.body),{draft:false});release.draft=false;release.published_at='2026-10-17T00:00:00Z';return Response.json(release);}
+     assert.fail('未登记的CI请求：'+method+' '+path);
+    };
+    if(mode==='success'){const result=await ciRelease(platform,environment,{fetchImpl});assert.equal(result.tag,title);assert.equal(uploads,2);assert.equal(publishes,1);}
+    else{await assert.rejects(ciRelease(platform,environment,{fetchImpl}),/地址|回读|interrupted/);assert.equal(publishes,0);if(mode==='endpoint')assert.equal(uploads,0);}
+   }finally{if(existsSync(work))finishFixedWork(work);}
+  }
+ });
+ test('再次派发前清理上次失败候选并复用版本，不先编译或重复派发',async()=>{
+  const f=historyFixture(),work=fixedWork('build/ios'),failed=f.runs.at(-1),candidate=historyRelease(failed);f.releases.push(candidate);f.tags.set(candidate.tag_name,{ref:'refs/tags/'+candidate.tag_name,object:{type:'commit',sha:failed.head_sha}});let calls=0;
+  const fetchImpl=async(url,options={})=>{
+   if(new URL(url).pathname.endsWith('/dispatches')){
+    calls++;assert.ok(!f.releases.some(value=>value.id===candidate.id));assert.equal(f.tags.has(candidate.tag_name),false);assert.equal(JSON.parse(options.body).inputs.version,'1.0.2');
+    const run={...historyRun('ios',74,'failure','1.0.2'),status:'queued'};f.runs.push(run);return Response.json({workflow_run_id:74,html_url:run.html_url});
+   }return f.fetchImpl(url,options);
+  };
+  try{await automationTransport.run({fetchImpl},async()=>assert.equal((await dispatchAutomation('ios','fixture')).id,74));assert.equal(calls,1);}finally{if(existsSync(work))rmSync(work,{recursive:true});}
+ });
  test('独立自动化接口不接收任务宿主，准确派发与错误回执只请求一次',async()=>{
   const api=automationClient,workflows=api.automationWorkflows||api.automationWorkflow;
   const platform=Object.keys(workflows)[0],workflow=workflows[platform],repository=api.automationRepository;
@@ -5752,10 +6698,12 @@ if(process.env.NODE_TEST_CONTEXT&&process.argv.length===2&&process.argv[1]===imp
   let dispatches=0,mode='success';
   const run={id:731,run_number:1,run_attempt:1,path:'.github/workflows/'+workflow,event:'workflow_dispatch',head_branch:'main',
    head_sha:'a'.repeat(40),repository:{full_name:repository},status:'completed',conclusion:'success',
-   html_url:'https://github.com/'+repository+'/actions/runs/731'};
+   html_url:'https://github.com/'+repository+'/actions/runs/731',display_title:buildDisplayName(platform,'1.0.1')};
   const fetchImpl=async(url,options)=>{
+   if(new URL(url).pathname.endsWith('/runs')&&new URL(url).pathname.includes('/workflows/'))return Response.json({workflow_runs:[]});
+   if(new URL(url).pathname.endsWith('/releases'))return Response.json([]);
    if(new URL(url).pathname.endsWith('/dispatches')){
-    dispatches++;assert.equal(options.method,'POST');
+    dispatches++;assert.equal(options.method,'POST');assert.deepEqual(JSON.parse(options.body),{ref:'main',inputs:{version:'1.0.1'}});
     return mode==='ambiguous'?new Response(null,{status:204}):Response.json({workflow_run_id:731,html_url:run.html_url});
    }
    assert.ok(new URL(url).pathname.endsWith('/runs/731'));

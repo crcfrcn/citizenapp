@@ -45,6 +45,8 @@ class _WalletGateState extends State<WalletGate> {
   _GateStatus _status = _GateStatus.checking;
   String? _error;
   StreamSubscription<CitizenSdkEvent>? _walletEvents;
+  Future<CitizenWalletState>? _stateRead;
+  CitizenSdkOperation<CitizenWalletState>? _stateOperation;
 
   @override
   void initState() {
@@ -58,16 +60,27 @@ class _WalletGateState extends State<WalletGate> {
   @override
   void dispose() {
     unawaited(_walletEvents?.cancel());
+    final operation = _stateOperation;
+    if (operation != null) unawaited(operation.cancel().catchError((Object _) => false));
     super.dispose();
   }
 
   Future<CitizenWalletState> _loadState() {
+    if (_stateRead != null) return Future<CitizenWalletState>.error(
+      const CitizenSdkException(code: CitizenSdkErrorCode.busy, message: 'wallet read is draining'),
+    );
     final loader = widget.walletStateLoader;
-    if (loader != null) return loader().timeout(widget.loadTimeout);
-    final operation = context.read<CitizenSdk>().wallet.getState();
-    return operation.result.timeout(widget.loadTimeout, onTimeout: () async {
-      // 只限制显示等待；转发真实取消，不把超时当作底层已结束或目录为空。
-      await operation.cancel();
+    final operation = loader == null ? context.read<CitizenSdk>().wallet.getState() : null;
+    final read = loader == null ? operation!.result : Future<CitizenWalletState>.sync(loader);
+    _stateRead = read;
+    _stateOperation = operation;
+    // 真实请求退出前不叠加重试；迟到结果只排空，不能把未知状态当成空目录。
+    unawaited(read.then<void>((_) {}, onError: (Object _) {}).whenComplete(() {
+      if (identical(_stateRead, read)) { _stateRead = null; _stateOperation = null; }
+    }));
+    return read.timeout(widget.loadTimeout, onTimeout: () {
+      // 取消本身也可能等待原生；页面超时不能继续等待取消确认。
+      if (operation != null) unawaited(operation.cancel().catchError((Object _) => false));
       throw TimeoutException('本地钱包读取超时', widget.loadTimeout);
     });
   }

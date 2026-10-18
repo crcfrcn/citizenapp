@@ -20,7 +20,7 @@ void main() {
   });
   tearDown(() async { await sdk.close(); await transport.dispose(); });
 
-  Widget gate(Future<CitizenWalletState> Function() loader, {Duration timeout = const Duration(seconds: 5), VoidCallback? introduced}) =>
+  Widget gate(Future<CitizenWalletState> Function()? loader, {Duration timeout = const Duration(seconds: 5), VoidCallback? introduced}) =>
       Provider<CitizenSdk>.value(value: sdk, child: MaterialApp(home: WalletGate(
         walletStateLoader: loader, loadTimeout: timeout,
         onInitialized: (_) => introduced?.call(), child: const Scaffold(body: Text('main-shell')),
@@ -98,8 +98,33 @@ void main() {
     final pending = Completer<CitizenWalletState>();
     await tester.pumpWidget(gate(() => pending.future, timeout: const Duration(milliseconds: 20)));
     await tester.pump(const Duration(milliseconds: 25));
-    expect(find.textContaining('本地钱包读取失败'), findsOneWidget);
+    expect(find.text('本地钱包读取超时，请重试'), findsOneWidget);
     expect(find.byType(CreateWalletOnboardingPage), findsNothing);
+  });
+  testWidgets('门禁超时不等待取消确认，重试等真实请求排空后恢复', (tester) async {
+    final pending = Completer<List<Object?>>();
+    final cancellation = Completer<List<Object?>>();
+    var reads = 0;
+    transport.handlers['getWalletState'] = (_) {
+      reads += 1;
+      return reads == 1 ? pending.future : <Object?>[testCitizenWalletState()];
+    };
+    transport.handlers['cancelOperation'] = (_) => cancellation.future;
+    await tester.pumpWidget(gate(null, timeout: const Duration(milliseconds: 20)));
+    await tester.pump(const Duration(milliseconds: 25));
+    await tester.pump();
+    expect(find.text('本地钱包读取超时，请重试'), findsOneWidget);
+    expect(transport.calls.where((value) => value == 'cancelOperation'), hasLength(1));
+    await tester.tap(find.text('重试')); await tester.pumpAndSettle();
+    expect(reads, 1);
+    expect(find.text('本地钱包正忙，请稍后重试'), findsOneWidget);
+    cancellation.complete(<Object?>[true]);
+    pending.complete(<Object?>[testCitizenWalletState()]);
+    await tester.pumpAndSettle();
+    expect(find.text('main-shell'), findsNothing);
+    await tester.tap(find.text('重试')); await tester.pumpAndSettle();
+    expect(reads, 2);
+    expect(find.text('main-shell'), findsOneWidget);
   });
 }
 

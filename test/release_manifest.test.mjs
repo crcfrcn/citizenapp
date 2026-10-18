@@ -4,7 +4,7 @@ import {
   existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { testRoot as tmpdir, BUILD_SHELL_SOURCES, SOURCE_VIEW_SOURCE, checkFlutterReport } from '../scripts/build.mjs';
+import { testRoot as tmpdir, BUILD_SHELL_SOURCES, SOURCE_VIEW_SOURCE, CI_SIGNING_STEPS, buildDisplayName, buildTaskName, checkFlutterReport } from '../scripts/build.mjs';
 import { platformFiles as androidPlatformFiles } from '../android/platform.mjs';
 import { platformFiles as iosPlatformFiles } from '../ios/platform.mjs';
 import { dirname, join } from 'node:path';
@@ -570,4 +570,31 @@ test('非钱包客户端依赖只保留MLS及系统保护存储', () => {
   assert.match(attachment, /groupCreateMessage/u);
   assert.match(media, /attachment_welcome/u);
   assert.doesNotMatch(media, /cipher_key/u);
+});
+
+// 两端只配置环境并调用唯一Build；版本计算不下放YAML，原Gradle/JDK/SDK断言继续保留。
+test('双端Workflow消费唯一Build版本与命名合同并传输最新增量', () => {
+  for (const [platform, title] of [['ios', 'iOS'], ['android', 'Android']]) {
+    const workflow = readFileSync(join(sourceRoot, '.github/workflows', platform + '.yml'), 'utf8');
+    assert.ok(workflow.startsWith('name: 公民·' + title + '\n'));
+    assert.ok(workflow.includes('run-name: 公民·' + title + '·v${{ inputs.version }}'));
+    assert.ok(workflow.includes('    name: 公民·' + title + '·v${{ inputs.version }}'));
+    assert.ok(workflow.includes('node scripts/build.mjs ci-build ' + platform));
+    assert.ok(workflow.includes('node scripts/build.mjs ci-release ' + platform));
+    assert.ok(workflow.includes('node scripts/build.mjs ci-cache-plan ' + platform));
+    assert.ok(workflow.indexOf('node scripts/build.mjs ci-release ' + platform) < workflow.indexOf('actions/cache/save@'));
+    assert.ok(workflow.includes("if: success() && steps.build.outcome == 'success'"));
+    assert.ok(workflow.includes('if: always()'));
+    assert.ok(workflow.includes('node scripts/build.mjs finish ' + platform));
+    assert.match(workflow, /actions\/cache\/restore@[a-f0-9]{40}/u);
+    assert.match(workflow, /actions\/cache\/save@[a-f0-9]{40}/u);
+    assert.doesNotMatch(workflow, /gh release|sed.*version|pubspec.*version/u);
+    assert.equal(buildTaskName(platform, '塔塔自动化'), '公民·塔塔自动化·' + title);
+    assert.equal(buildDisplayName(platform, '1.2.3'), '公民·' + title + '·v1.2.3');
+  }
+  assert.match(runner, /version_name="\$\{CITIZENAPP_BUILD_VERSION:/u);
+  assert.match(runner, /flutter build ios.*--build-name=/u);
+  assert.match(runner, /flutter build appbundle.*--build-name=/u);
+  assert.match(CI_SIGNING_STEPS.android, /manifest version-name/u);
+  assert.doesNotMatch(runner, /rm -rf "\$CITIZENSDK_PRODUCT_WORK_DIR"/u);
 });

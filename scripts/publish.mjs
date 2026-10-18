@@ -1,13 +1,12 @@
 #!/usr/bin/env node
 // 公民App发布只消费GitHub自动化已完成的公开Run、Release与资产，不创建或派发自动化。
 import {createHash} from 'node:crypto';
+import {buildDisplayName,checkedBuildVersion,compiledReleaseProof} from './build.mjs';
 
 const product='citizenapp',repository='crcfrcn/citizenapp';
 const targets=Object.freeze({
- ios:Object.freeze({workflow:'.github/workflows/ios.yml',manifest:'citizenapp-release-ios.json',
-  binaries:Object.freeze(['citizenapp.ipa']),display:'iOS'}),
- android:Object.freeze({workflow:'.github/workflows/android.yml',manifest:'citizenapp-release-android.json',
-  binaries:Object.freeze(['citizenapp.apk','citizenapp.aab']),display:'Android'}),
+ ios:Object.freeze({workflow:'.github/workflows/ios.yml',extensions:Object.freeze(['.ipa']),display:'iOS'}),
+ android:Object.freeze({workflow:'.github/workflows/android.yml',extensions:Object.freeze(['.apk','.aab']),display:'Android'}),
 });
 const fail=message=>{throw Error('公民App Publish：'+message);};
 const sha=value=>typeof value==='string'&&/^[a-f0-9]{64}$/u.test(value);
@@ -48,20 +47,23 @@ async function verifyPublication({platform,runs,releases,readTag,readAsset}){
  const run=success.sort((a,b)=>b.id-a.id)[0];
  if(!positive(run.id)||!positive(run.run_attempt)||!positive(run.run_number)
   ||!sourceSHA(run.head_sha)||!Number.isFinite(Date.parse(run.created_at)))fail('成功自动化身份无效');
- const prefix=product+'-'+platform+'-v',suffix='-r'+run.id+'-a'+run.run_attempt;
- const matched=releases.filter(release=>typeof release?.tag_name==='string'
-  &&release.tag_name.startsWith(prefix)&&release.tag_name.endsWith(suffix));
- if(matched.length!==1)fail('成功自动化缺少唯一正式Release');
- const release=matched[0],version=release.tag_name.slice(prefix.length,-suffix.length);
+ const displayPrefix='公民·'+target.display+'·v';
+ if(typeof run.display_title!=='string'||!run.display_title.startsWith(displayPrefix))fail('成功自动化版本名称无效');
+ const version=checkedBuildVersion(run.display_title.slice(displayPrefix.length)),title=buildDisplayName(platform,version);
+ const matched=releases.filter(release=>{const proof=compiledReleaseProof(release,platform);return release?.tag_name===title&&proof?.run_id===run.id&&proof?.run_attempt===run.run_attempt;});
+ if(matched.length!==1)fail('成功自动化缺少唯一正式Release身份');
+ const release=matched[0],binaries=target.extensions.map(extension=>title+extension),manifestName=title+'.json';
+ const proof=compiledReleaseProof(release,platform);if(proof.run_number!==run.run_number||!Array.isArray(proof.assets))fail('正式Release身份证明不完整');
  if(!positive(release.id)||!/^\d+\.\d+\.\d+$/u.test(version)
-  ||release.draft||release.prerelease||release.target_commitish!==run.head_sha
+  ||release.name!==title||release.draft||release.prerelease||release.target_commitish!==run.head_sha
   ||!Array.isArray(release.assets))fail('正式Release身份无效');
  const tag=await readTag(release.tag_name);
  if(tag?.ref!=='refs/tags/'+release.tag_name||tag.object?.type!=='commit'
   ||tag.object.sha!==run.head_sha)fail('正式Tag与成功自动化提交不一致');
- const needed=[target.manifest,...target.binaries],assets=new Map();
+ const needed=[manifestName,...binaries],assets=new Map();
+ if(release.assets.length!==needed.length||proof.assets.length!==needed.length||!release.published_at)fail('正式资产集合或发布状态无效');
  for(const name of needed){
-  const found=release.assets.filter(asset=>asset?.name===name);
+  const found=release.assets.filter(asset=>asset?.label===name);
   if(found.length!==1)fail('正式资产缺失或重复：'+name);
   const asset=found[0];
   if(!positive(asset.id)||!positive(asset.size)||asset.state!=='uploaded'
@@ -70,6 +72,7 @@ async function verifyPublication({platform,runs,releases,readTag,readAsset}){
   let endpoint;try{endpoint=new URL(asset.url);}catch{fail('正式资产地址无效：'+name);}
   if(endpoint.protocol!=='https:'||endpoint.username||endpoint.password||endpoint.hash)
    fail('正式资产地址不是无凭据HTTPS：'+name);
+  const declared=proof.assets.filter(value=>value.name===name);if(declared.length!==1||declared[0].size!==asset.size||declared[0].sha256!==asset.digest.slice(7))fail('正式资产与编译证明不一致');
   assets.set(name,asset);
  }
  const load=async(asset,{limit=asset.size,buffer=false}={})=>{
@@ -84,16 +87,16 @@ async function verifyPublication({platform,runs,releases,readTag,readAsset}){
   if(size!==asset.size||hash.digest('hex')!==asset.digest.slice(7))fail('正式资产回读与Release证明不一致');
   return buffer?Buffer.concat(parts):null;
  };
- const metadata=assets.get(target.manifest);
+ const metadata=assets.get(manifestName);
  const raw=await load(metadata,{limit:1024*1024,buffer:true});
  let manifest;try{manifest=JSON.parse(raw.toString('utf8'));}catch{fail('正式产物清单不是JSON');}
  if(manifest?.product_id!==product||manifest.version!==version
-  ||manifest.github_run_number!==run.run_number||manifest.head_sha!==run.head_sha
+  ||manifest.github_run_id!==run.id||manifest.github_run_attempt!==run.run_attempt||manifest.github_run_number!==run.run_number||manifest.head_sha!==run.head_sha
   ||manifest.bundle_id!=='ios.citizenapp'||manifest.package_name!=='com.crcfrcn.citizenapp'
-  ||!Array.isArray(manifest.assets)||manifest.assets.length!==target.binaries.length)
+  ||!Array.isArray(manifest.assets)||manifest.assets.length!==binaries.length)
   fail('正式产物清单身份无效');
  const records=[];
- for(const name of target.binaries){
+ for(const name of binaries){
   const rows=manifest.assets.filter(value=>value?.asset_name===name);
   const asset=assets.get(name);
   if(rows.length!==1||rows[0].platform!==target.display||rows[0].asset_sha256!==asset.digest.slice(7))
@@ -110,29 +113,30 @@ if (process.env.NODE_TEST_CONTEXT&&process.argv.length===2&&process.argv[1]===im
  const {test}=await import('node:test'),{default:assert}=await import('node:assert/strict');
  const {Readable}=await import('node:stream');
  const fixture=(platform='ios')=>{
-  const target=targets[platform],head='a'.repeat(40),run={id:42,run_attempt:2,run_number:17,
+  const title=buildDisplayName(platform,'1.2.3'),target={...targets[platform],manifest:title+'.json',binaries:targets[platform].extensions.map(extension=>title+extension)},head='a'.repeat(40),run={id:42,run_attempt:2,run_number:17,
    path:target.workflow,head_branch:'main',event:'workflow_dispatch',repository:{full_name:repository},
-   status:'completed',conclusion:'success',head_sha:head,created_at:'2026-10-10T00:00:00Z'};
+   status:'completed',conclusion:'success',display_title:title,head_sha:head,created_at:'2026-10-10T00:00:00Z'};
   const binaries=target.binaries.map((name,index)=>({name,body:Buffer.from('signed-'+name+'-'+index)}));
-  const manifest={product_id:product,version:'1.2.3',github_run_number:17,head_sha:head,
+  const manifest={product_id:product,version:'1.2.3',github_run_id:42,github_run_attempt:2,github_run_number:17,head_sha:head,
    bundle_id:'ios.citizenapp',package_name:'com.crcfrcn.citizenapp',
    assets:binaries.map(value=>({platform:target.display,asset_name:value.name,asset_sha256:digest(value.body)}))};
   const all=[{name:target.manifest,body:Buffer.from(JSON.stringify(manifest))},...binaries];
-  const assets=all.map((value,index)=>({id:index+1,name:value.name,size:value.body.length,
+  const assets=all.map((value,index)=>({id:index+1,name:'transport-'+index+'.bin',label:value.name,size:value.body.length,
    state:'uploaded',digest:'sha256:'+digest(value.body),url:'https://api.example.invalid/assets/'+(index+1)}));
-  const release={id:7,tag_name:product+'-'+platform+'-v1.2.3-r42-a2',target_commitish:head,
-   draft:false,prerelease:false,assets};
+  const proof={schema:1,repository,product_id:product,platform,workflow:target.workflow,run_id:42,run_attempt:2,run_number:17,source_sha:head,version:'1.2.3',tag:title,assets:all.map(value=>({name:value.name,size:value.body.length,sha256:digest(value.body)}))};
+  const release={id:7,name:title,tag_name:title,target_commitish:head,body:'<!-- automation:'+JSON.stringify(proof)+' -->',
+   draft:false,prerelease:false,published_at:'2026-10-10T00:00:00Z',assets};
   const body=new Map(all.map(value=>[value.name,value.body]));
   return {platform,runs:[run],releases:[release],readTag:async()=>({ref:'refs/tags/'+release.tag_name,
-   object:{type:'commit',sha:head}}),readAsset:async asset=>Readable.from([body.get(asset.name)]),body};
+   object:{type:'commit',sha:head}}),readAsset:async asset=>Readable.from([body.get(asset.label)]),body};
  };
  test('只消费唯一成功自动化的正式产物并核对完整字节',async()=>{
   const input=fixture('ios'),result=await verifyPublication(input);
   assert.deepEqual({platform:result.platform,tag:result.tag,run_id:result.run_id,release_id:result.release_id,
    assets:result.assets.map(value=>value.name)},
-   {platform:'ios',tag:input.releases[0].tag_name,run_id:42,release_id:7,assets:['citizenapp.ipa']});
+   {platform:'ios',tag:input.releases[0].tag_name,run_id:42,release_id:7,assets:['公民·iOS·v1.2.3.ipa']});
   const android=await verifyPublication(fixture('android'));
-  assert.deepEqual(android.assets.map(value=>value.name),['citizenapp.apk','citizenapp.aab']);
+  assert.deepEqual(android.assets.map(value=>value.name),['公民·Android·v1.2.3.apk','公民·Android·v1.2.3.aab']);
  });
  test('失败、重复、跨平台与漂移的自动化产物不能发布',async()=>{
   const base=fixture();
@@ -146,6 +150,15 @@ if (process.env.NODE_TEST_CONTEXT&&process.argv.length===2&&process.argv[1]===im
   await assert.rejects(verifyPublication({...base,readAsset:async()=>Readable.from([Buffer.from('changed')])}),/回读/);
   await assert.rejects(verifyPublication({...base,platform:'windows'}),/平台/);
  });
+ test('发布只消费编译证明闭集，额外资产和编译编号漂移拒绝',async()=>{
+  for(const mode of ['extra','number','digest','unpublished']){
+   const value=fixture(),release=value.releases[0];
+   if(mode==='extra')release.assets.push({...release.assets[0],id:99,label:'extra'});
+   if(mode==='unpublished')release.published_at=null;
+   if(mode==='number'||mode==='digest'){const proof=JSON.parse(release.body.slice('<!-- automation:'.length,-' -->'.length));if(mode==='number')proof.run_number++;else proof.assets[0].sha256='f'.repeat(64);release.body='<!-- automation:'+JSON.stringify(proof)+' -->';}
+   await assert.rejects(verifyPublication(value),/证明|资产/);
+  }
+ });
  test('公开发布入口自行读取完整分页且只发出读取请求',async()=>{
   const input=fixture(),calls=[];
   const request=async(path,options={})=>{
@@ -158,7 +171,7 @@ if (process.env.NODE_TEST_CONTEXT&&process.argv.length===2&&process.argv[1]===im
    throw Error('意外公开读取路径');
   };
   const result=await preparePublication({platform:'ios',request});
-  assert.equal(result.release_id,7);assert.equal(result.assets[0].name,'citizenapp.ipa');
+  assert.equal(result.release_id,7);assert.equal(result.assets[0].name,'公民·iOS·v1.2.3.ipa');
   assert.equal(calls.filter(path=>path.startsWith('actions/runs?')).length,1);
   assert.equal(calls.filter(path=>path.startsWith('releases?')).length,1);
   await assert.rejects(preparePublication({platform:'ios',request:async()=>({workflow_runs:'invalid'})}),/分页/);

@@ -1,17 +1,26 @@
-name: citizenapp.ios
+name: 公民·iOS
+run-name: 公民·iOS·v${{ inputs.version }}
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 本平台编译入口计算的候选版本
+        required: true
+        type: string
 concurrency:
   group: "${{ github.repository }}-ios"
   cancel-in-progress: false
 permissions:
   contents: write
+  actions: write
 jobs:
   release:
+    name: 公民·iOS·v${{ inputs.version }}
     if: github.ref == 'refs/heads/main'
     runs-on: xcode-27
     timeout-minutes: 360
     env:
+      CITIZENAPP_AUTOMATION_VERSION: "${{ inputs.version }}"
       GH_TOKEN: "${{ github.token }}"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -22,8 +31,18 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           node-version: 25.2.1
+      - name: 取得本平台增量计划
+        id: cache-plan
+        run: node scripts/build.mjs ci-cache-plan ios
+      - name: 恢复本平台最新兼容增量
+        uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: ${{ steps.cache-plan.outputs.path }}
+          key: ${{ steps.cache-plan.outputs.key }}
+          restore-keys: ${{ steps.cache-plan.outputs.restore_prefix }}
       # 锁定工具、依赖、分析、测试及原生编译统一归本产品build.mjs。
       - name: 本 Runner 编译、签名并验收
+        id: build
         env:
           IOS_KEY: "${{ secrets.IOS_KEY }}"
           IOS_PROVISIONING_PROFILE: "${{ secrets.APP_PROFILE }}"
@@ -32,18 +51,14 @@ jobs:
           set -euo pipefail
           test -n "$IOS_KEY" && test -n "$IOS_PROVISIONING_PROFILE"
           node scripts/build.mjs ci-build ios > "$RUNNER_TEMP/citizenapp-ios-result.json"
-      - name: 创建并回读本平台正式 GitHub Release
-        shell: bash
-        run: |
-          set -euo pipefail
-          plan="$GITHUB_WORKSPACE/target/build/ios/release-plan.json"
-          tag="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.tag)' "$plan")"
-          notes="$(node -e 'const p=require(process.argv[1]);process.stdout.write(p.notes)' "$plan")"
-          assets="$GITHUB_WORKSPACE/target/build/ios/release-assets"
-          gh release create "$tag" "$assets"/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "citizenapp · ios · $tag" --notes-file "$notes" --draft --latest=false
-          node scripts/build.mjs ci-verify-release ios draft
-          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false
-          node scripts/build.mjs ci-verify-release ios published
+      - name: 本产品生成并验收正式版
+        run: node scripts/build.mjs ci-release ios
+      - name: 保存本平台最新完整增量
+        if: success() && steps.build.outcome == 'success'
+        uses: actions/cache/save@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: ${{ steps.cache-plan.outputs.path }}
+          key: ${{ steps.cache-plan.outputs.key }}
       - name: 清理本平台编译现场
         if: always()
         shell: bash
