@@ -179,6 +179,198 @@ test('活动Run、缺失正式证明和回执丢失均禁止再次派发', () =>
     }
 });
 
+// 回归直接执行对应Workflow正文；外部命令由合成端口返回，不访问真实GitHub。
+function workflowBody(platform, name) {
+    const text = readFileSync(join(root, '.github/workflows/' + platform + '.yml'), 'utf8');
+    const step = text.split('      - name: ' + name + '\n')[1];
+    assert.ok(step, '真实Workflow步骤必须存在：' + name);
+    const block = step.split("node --input-type=module <<'JS'\n")[1].split('\n          JS')[0];
+    return block.split('\n').map(line => line.slice(10)).filter(line => !line.startsWith('import ')).join('\n');
+}
+
+function remoteRun(id, platform, extra = {}) {
+    return {
+        id, head_sha: 'a'.repeat(40), head_branch: 'main', event: 'workflow_dispatch',
+        path: '.github/workflows/' + platform + '.yml', repository: {full_name: 'crcfrcn/citizenapp'},
+        created_at: '2026-10-19T00:00:00Z', display_title: '公民·' + (platform === 'ios' ? 'iOS' : 'Android') + '·v1.2.3',
+        status: 'completed', conclusion: 'success', ...extra
+    };
+}
+
+function executeBody(body, exec, extra = {}) {
+    return new Function('execFileSync', 'process', 'console', body)(exec, {env: {
+        GITHUB_REPOSITORY: 'crcfrcn/citizenapp', GITHUB_SHA: 'a'.repeat(40),
+        ORIGINAL_CONTROLLER: '20', ORIGINAL_RUN: '42', CITIZENAPP_VERSION: '1.2.3',
+        ...extra
+    }}, {log() {}});
+}
+
+function serverFailure(status = 500) {
+    return Object.assign(Error('合成GitHub读取失败'), {stderr: Buffer.from('HTTP ' + status)});
+}
+
+for (const platform of ['ios', 'android']) {
+    test(platform + '观察500后仍只读取原Run，远端成功才报告成功', () => {
+        const calls = [];
+        let reads = 0;
+        const exec = (command, args) => {
+            calls.push([command, args]);
+            if (command === 'sleep') return '';
+            assert.equal(command, 'gh');
+            assert.ok(args.at(-1).endsWith('/actions/runs/42'));
+            if (++reads === 1) throw serverFailure();
+            return JSON.stringify(remoteRun(42, platform, {
+                status: reads === 2 ? 'in_progress' : 'completed', conclusion: reads === 2 ? null : 'success'
+            }));
+        };
+        executeBody(workflowBody(platform, '观察准确原编译Run'), exec);
+        assert.equal(reads, 3);
+        assert.deepEqual(calls.filter(row => row[0] === 'sleep').map(row => row[1]), [['1'], ['10']]);
+        assert.ok(calls.every(row => !row[1].includes('-X') && !row[1].includes('cancel')));
+    });
+
+    test(platform + '只读500耗尽三次重试仍失败，不取消、不重派', () => {
+        let reads = 0;
+        const exec = (command, args) => {
+            if (command === 'sleep') return '';
+            assert.equal(command, 'gh');
+            assert.equal(args.includes('-X'), false);
+            reads++;
+            throw serverFailure();
+        };
+        assert.throws(() => executeBody(workflowBody(platform, '观察准确原编译Run'), exec), /合成GitHub/);
+        assert.equal(reads, 4);
+    });
+
+    test(platform + '远端明确失败时报告失败，不触发变更请求', () => {
+        let calls = 0;
+        const exec = (command, args) => {
+            assert.equal(command, 'gh');
+            assert.equal(args.includes('-X'), false);
+            calls++;
+            return JSON.stringify(remoteRun(42, platform, {conclusion: 'failure'}));
+        };
+        assert.throws(() => executeBody(workflowBody(platform, '观察准确原编译Run'), exec), /原编译Run失败/);
+        assert.equal(calls, 1);
+    });
+
+    test(platform + '准备Run结束后仍核对身份和候选，明确取消及错源码拒绝', () => {
+        const body = workflowBody(platform, '原准备Run·${{ inputs.controller }}');
+        for (const extra of [{conclusion: 'failure'}, {conclusion: 'cancelled'}, {head_sha: 'b'.repeat(40)}]) {
+            let jobs = 0;
+            const exec = (command, args) => {
+                if (command === 'sleep') return '';
+                if (args.at(-1).endsWith('/actions/runs/20')) return JSON.stringify(remoteRun(20, platform, extra));
+                assert.ok(args.at(-1).includes('/20/jobs?'));
+                jobs++;
+                return JSON.stringify([{jobs: [{steps: jobs < 3 ? [] : [{name: '候选版本·v1.2.3'}]}]}]);
+            };
+            if (extra.conclusion === 'failure') {
+                executeBody(body, exec);
+                assert.equal(jobs, 3);
+            } else {
+                assert.throws(() => executeBody(body, exec), /身份不符或已明确取消/);
+                assert.equal(jobs, 0);
+            }
+        }
+    });
+
+    test(platform + '收尾使用准确Run ID，Job延迟出现后仍确认原关联', () => {
+        const all = workflowBody(platform, '核对原Run、取消及真实清理');
+        const body = all.slice(0, all.indexOf("if (process.env.OPERATION === 'cancel'")) + '\nreturn child;';
+        for (const original of ['42', '']) {
+            let jobs = 0, scans = 0;
+            const exec = (command, args) => {
+                if (command === 'sleep') return '';
+                assert.equal(command, 'gh');
+                assert.equal(args.includes('-X'), false);
+                const endpoint = args.at(-1);
+                if (endpoint.endsWith('/actions/runs/20')) return JSON.stringify(remoteRun(20, platform));
+                if (endpoint.endsWith('/actions/runs/42')) return JSON.stringify(remoteRun(42, platform));
+                if (endpoint.includes('/workflows/')) {
+                    scans++;
+                    return JSON.stringify([{workflow_runs: [remoteRun(42, platform)]}]);
+                }
+                assert.ok(endpoint.includes('/42/jobs?'));
+                jobs++;
+                return JSON.stringify([{jobs: [{steps: jobs < 3 ? [] : [{name: '原准备Run·20'}]}]}]);
+            };
+            const child = executeBody(body, exec, {ORIGINAL_RUN: original, WORKFLOW: platform + '.yml'});
+            assert.equal(child.id, 42);
+            assert.equal(jobs, 3);
+            assert.equal(scans, original ? 0 : 3);
+        }
+    });
+
+    test(platform + '收尾拒绝关联到其它准备Run的准确编号', () => {
+        const all = workflowBody(platform, '核对原Run、取消及真实清理');
+        const body = all.slice(0, all.indexOf("if (process.env.OPERATION === 'cancel'")) + '\nreturn child;';
+        const exec = (command, args) => {
+            assert.equal(command, 'gh');
+            const endpoint = args.at(-1);
+            if (endpoint.endsWith('/actions/runs/20')) return JSON.stringify(remoteRun(20, platform));
+            if (endpoint.endsWith('/actions/runs/42')) return JSON.stringify(remoteRun(42, platform));
+            return JSON.stringify([{jobs: [{steps: [{name: '原准备Run·99'}]}]}]);
+        };
+        assert.throws(() => executeBody(body, exec, {WORKFLOW: platform + '.yml'}), /关联不符/);
+    });
+
+    test(platform + 'Job始终不可见时有限等待后保留记录，不猜测或重派', () => {
+        const all = workflowBody(platform, '核对原Run、取消及真实清理');
+        const body = all.slice(0, all.indexOf("if (process.env.OPERATION === 'cancel'")) + '\nreturn child;';
+        let jobs = 0;
+        const exec = (command, args) => {
+            if (command === 'sleep') return '';
+            assert.equal(command, 'gh');
+            assert.equal(args.includes('-X'), false);
+            const endpoint = args.at(-1);
+            if (endpoint.endsWith('/actions/runs/20')) return JSON.stringify(remoteRun(20, platform));
+            if (endpoint.endsWith('/actions/runs/42')) return JSON.stringify(remoteRun(42, platform));
+            assert.ok(endpoint.includes('/42/jobs?'));
+            jobs++;
+            return JSON.stringify([{jobs: []}]);
+        };
+        assert.throws(() => executeBody(body, exec, {WORKFLOW: platform + '.yml'}), /保留记录，禁止重新派发/);
+        assert.equal(jobs, 60);
+    });
+
+    test(platform + '实际收尾Shell仅对明确取消请求cancel，并传准确Run ID', t => {
+        const value = fixture(t, platform);
+        const gh = join(value.directory, 'bin/gh');
+        writeFileSync(gh, '#!' + process.execPath + '\n' +
+            'require("node:fs").writeFileSync(process.env.CALLS, JSON.stringify(process.argv.slice(2)));\n');
+        chmodSync(gh, 0o700);
+        const workflow = readFileSync(join(root, '.github/workflows/' + platform + '.yml'), 'utf8');
+        const source = workflow.split('      - name: 请求原Run收尾\n')[1]
+            .split('        run: |\n')[1].split('\n  manage:')[0]
+            .split('\n').map(line => line.slice(10)).join('\n');
+        for (const status of ['success', 'failure', 'cancelled']) {
+            const shell = source.replaceAll('${{ job.status }}', status);
+            const result = spawnSync('bash', ['-c', shell], {
+                env: {...value.env, ORIGINAL_RUN: '42'}, encoding: 'utf8'
+            });
+            assert.equal(result.status, 0, result.stderr);
+            const args = JSON.parse(readFileSync(value.env.CALLS, 'utf8'));
+            assert.ok(args.includes('inputs[operation]=' + (status === 'cancelled' ? 'cancel' : 'settle')));
+            assert.ok(args.includes('inputs[run_id]=42'));
+            assert.ok(args.includes('inputs[controller]=21'));
+        }
+    });
+}
+
+test('派发POST即使返回500也只执行一次', () => {
+    const body = workflowBody('android', '核对版本并且只派发一次');
+    const start = body.indexOf('const request =');
+    const end = body.indexOf('\n};', start) + 3;
+    let calls = 0;
+    const request = new Function('execFileSync', 'console', body.slice(start, end) + '\nreturn request;')(() => {
+        calls++;
+        throw serverFailure();
+    }, {log() {}});
+    assert.throws(() => request('repos/crcfrcn/citizenapp/actions/workflows/android.yml/dispatches', ['-X', 'POST']), /合成GitHub/);
+    assert.equal(calls, 1);
+});
+
 test('CitizenApp不重复声明SDK内部依赖或未使用的协议生成器', () => {
     assert.doesNotMatch(pubspec, /^  (?:cupertino_icons|protoc_plugin|build_runner|isar_community_generator|camera|record|just_audio|protobuf|fixnum|blurhash_dart):/mu);
     assert.match(pubspec, /dev_dependencies:[\s\S]*^  image: 4[.]9[.]1$/mu);

@@ -13,6 +13,10 @@ run-name: ${{ inputs.operation == 'build' && format('公民·iOS·v{0}', inputs.
         description: 仅由准备流程交付的准确版本
         type: string
         default: ''
+      run_id:
+        description: 官方派发回执中的准确编译Run，仅收尾使用
+        type: string
+        default: ''
       controller:
         description: 原准备Run
         type: string
@@ -49,7 +53,23 @@ jobs:
           node --input-type=module <<'JS'
           import {execFileSync} from 'node:child_process';
           import {readFileSync, appendFileSync} from 'node:fs';
-          const api = (path, args = []) => JSON.parse(execFileSync('gh', ['api', ...args, path], {encoding: 'utf8'}));
+          // 只读5xx最多退避重试三次；任何变更请求和不确定派发均不重试。
+          const request = (path, args = []) => {
+              const readOnly = !args.some(arg => ['-X', '--method', '-f', '--raw-field', '-F', '--field'].includes(arg));
+              for (let attempt = 0; ; attempt++) {
+                  try {
+                      const text = execFileSync('gh', ['api', ...args, path], {
+                          encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe']
+                      });
+                      return text.trim() ? JSON.parse(text) : null;
+                  } catch (error) {
+                      if (!readOnly || attempt === 3 || !/\bHTTP\s+5\d{2}\b/.test(String(error.stderr || ''))) throw error;
+                      console.log('GitHub只读查询暂时失败，重试第' + (attempt + 1) + '次');
+                      execFileSync('sleep', [String(2 ** attempt)]);
+                  }
+              }
+          };
+          const api = request;
           const base = 'repos/' + process.env.GITHUB_REPOSITORY;
           const pages = api(base + '/actions/workflows/' + process.env.WORKFLOW + '/runs?branch=main&event=workflow_dispatch&per_page=100', ['--paginate', '--slurp']);
           const rows = pages.flatMap(page => page.workflow_runs);
@@ -112,7 +132,43 @@ jobs:
       - name: 观察准确原编译Run
         env:
           ORIGINAL_RUN: ${{ steps.dispatch.outputs.run }}
-        run: gh run watch "$ORIGINAL_RUN" --repo "$GITHUB_REPOSITORY" --exit-status --interval 10
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import {execFileSync} from 'node:child_process';
+          // 只读5xx最多退避重试三次；任何变更请求和不确定派发均不重试。
+          const request = (path, args = []) => {
+              const readOnly = !args.some(arg => ['-X', '--method', '-f', '--raw-field', '-F', '--field'].includes(arg));
+              for (let attempt = 0; ; attempt++) {
+                  try {
+                      const text = execFileSync('gh', ['api', ...args, path], {
+                          encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe']
+                      });
+                      return text.trim() ? JSON.parse(text) : null;
+                  } catch (error) {
+                      if (!readOnly || attempt === 3 || !/\bHTTP\s+5\d{2}\b/.test(String(error.stderr || ''))) throw error;
+                      console.log('GitHub只读查询暂时失败，重试第' + (attempt + 1) + '次');
+                      execFileSync('sleep', [String(2 ** attempt)]);
+                  }
+              }
+          };
+          if (!/^[1-9]\d*$/.test(process.env.ORIGINAL_RUN)) throw Error('缺少准确原编译Run');
+          const base = 'repos/' + process.env.GITHUB_REPOSITORY;
+          const deadline = Date.now() + 360 * 60 * 1000;
+          while (Date.now() < deadline) {
+              const run = request(base + '/actions/runs/' + process.env.ORIGINAL_RUN);
+              if (run.id !== Number(process.env.ORIGINAL_RUN) || run.head_sha !== process.env.GITHUB_SHA ||
+                  run.repository.full_name !== process.env.GITHUB_REPOSITORY || run.event !== 'workflow_dispatch' ||
+                  run.head_branch !== 'main' || run.path !== '.github/workflows/ios.yml') throw Error('原编译Run归属不符');
+              if (run.status === 'completed') {
+                  if (run.conclusion !== 'success') throw Error('原编译Run失败：' + run.conclusion);
+                  console.log('准确原编译Run成功');
+                  break;
+              }
+              execFileSync('sleep', ['10']);
+          }
+          if (Date.now() >= deadline) throw Error('观察超时，保留原Run等待恢复');
+          JS
       - name: 请求原Run收尾
         if: always()
         env:
@@ -120,10 +176,11 @@ jobs:
         run: |
           set -euo pipefail
           operation=settle
-          if [ "${{ job.status }}" != success ]; then operation=cancel; fi
+          if [ "${{ job.status }}" = cancelled ]; then operation=cancel; fi
           gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/ios.yml/dispatches" \
             -H 'X-GitHub-Api-Version: 2026-03-10' -f ref=main \
-            -f "inputs[operation]=$operation" -f "inputs[controller]=$GITHUB_RUN_ID"
+            -f "inputs[operation]=$operation" -f "inputs[controller]=$GITHUB_RUN_ID" \
+            -f "inputs[run_id]=${ORIGINAL_RUN:-}"
   manage:
     if: (inputs.operation == 'settle' || inputs.operation == 'cancel') && github.ref == 'refs/heads/main' && github.repository == 'crcfrcn/citizenapp'
     name: 原Run收尾
@@ -136,6 +193,7 @@ jobs:
       - name: 核对原Run、取消及真实清理
         env:
           ORIGINAL_CONTROLLER: ${{ inputs.controller }}
+          ORIGINAL_RUN: ${{ inputs.run_id }}
           OPERATION: ${{ inputs.operation }}
           WORKFLOW: ios.yml
         run: |
@@ -143,10 +201,23 @@ jobs:
           node --input-type=module <<'JS'
           import {execFileSync} from 'node:child_process';
           const base = 'repos/' + process.env.GITHUB_REPOSITORY;
-          const api = (path, args = []) => {
-              const output = execFileSync('gh', ['api', ...args, base + '/' + path], {encoding: 'utf8'});
-              return output.trim() ? JSON.parse(output) : null;
+          // 只读5xx最多退避重试三次；任何变更请求和不确定派发均不重试。
+          const request = (path, args = []) => {
+              const readOnly = !args.some(arg => ['-X', '--method', '-f', '--raw-field', '-F', '--field'].includes(arg));
+              for (let attempt = 0; ; attempt++) {
+                  try {
+                      const text = execFileSync('gh', ['api', ...args, path], {
+                          encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe']
+                      });
+                      return text.trim() ? JSON.parse(text) : null;
+                  } catch (error) {
+                      if (!readOnly || attempt === 3 || !/\bHTTP\s+5\d{2}\b/.test(String(error.stderr || ''))) throw error;
+                      console.log('GitHub只读查询暂时失败，重试第' + (attempt + 1) + '次');
+                      execFileSync('sleep', [String(2 ** attempt)]);
+                  }
+              }
           };
+          const api = (path, args = []) => request(base + '/' + path, args);
           const checked = run => {
               if (run.path !== '.github/workflows/' + process.env.WORKFLOW || run.head_branch !== 'main' ||
                   run.event !== 'workflow_dispatch' || run.repository.full_name !== process.env.GITHUB_REPOSITORY) throw Error('原Run归属不符');
@@ -157,14 +228,28 @@ jobs:
           if (!/^[1-9]\d*$/.test(process.env.ORIGINAL_CONTROLLER)) throw Error('缺少原准备Run');
           const owner = checked(api('actions/runs/' + process.env.ORIGINAL_CONTROLLER));
           const marker = '原准备Run·' + owner.id;
-          const rows = list();
-          const children = [];
-          for (const run of rows.filter(run => run.display_title.startsWith('公民·iOS·v') && run.created_at >= owner.created_at)) {
-              const jobs = api('actions/runs/' + run.id + '/jobs?per_page=100', ['--paginate', '--slurp']).flatMap(page => page.jobs);
-              if (jobs.some(job => job.steps?.some(step => step.name === marker))) children.push(run);
+          const supplied = process.env.ORIGINAL_RUN || '';
+          if (supplied && !/^[1-9]\d*$/.test(supplied)) throw Error('原编译Run编号无效');
+          let child;
+          // 正常收尾直接用官方派发回执；只有恢复缺回执时才核对原准备Run的关联。
+          for (let attempt = 0; attempt < 60; attempt++) {
+              const rows = supplied ? [checked(api('actions/runs/' + supplied))] : list();
+              const children = [];
+              for (const run of rows.filter(run => run.display_title.startsWith('公民·iOS·v') &&
+                  run.head_sha === owner.head_sha && run.created_at >= owner.created_at)) {
+                  const jobs = api('actions/runs/' + run.id + '/jobs?per_page=100', ['--paginate', '--slurp']).flatMap(page => page.jobs);
+                  const names = jobs.flatMap(job => (job.steps || []).map(step => step.name));
+                  if (supplied && names.some(name => name.startsWith('原准备Run·') && name !== marker)) throw Error('原编译Run关联不符');
+                  if (names.includes(marker)) children.push(run);
+              }
+              if (children.length > 1) throw Error('原编译Run关联重复，禁止猜测');
+              if (children.length === 1) {
+                  child = children[0];
+                  break;
+              }
+              if (attempt < 59) execFileSync('sleep', ['1']);
           }
-          if (children.length !== 1) throw Error('原编译Run尚无法唯一确认，保留记录，禁止重新派发');
-          let child = children[0];
+          if (!child) throw Error('原编译Run尚无法唯一确认，保留记录，禁止重新派发');
           if (process.env.OPERATION === 'cancel' && child.status !== 'completed') {
               execFileSync('gh', ['run', 'cancel', String(child.id), '--repo', process.env.GITHUB_REPOSITORY], {stdio: 'inherit'});
               for (let count = 0; count < 60 && child.status !== 'completed'; count++) {
@@ -179,11 +264,12 @@ jobs:
                   }
               }
           }
-          if (child.status !== 'completed' && process.env.OPERATION === 'settle') {
-              try {
-                  execFileSync('gh', ['run', 'watch', String(child.id), '--repo', process.env.GITHUB_REPOSITORY, '--exit-status', '--interval', '10'], {stdio: 'inherit'});
-              } catch {}
-              child = checked(api('actions/runs/' + child.id));
+          if (process.env.OPERATION === 'settle') {
+              const deadline = Date.now() + 360 * 60 * 1000;
+              while (child.status !== 'completed' && Date.now() < deadline) {
+                  execFileSync('sleep', ['10']);
+                  child = checked(api('actions/runs/' + child.id));
+              }
           }
           if (child.status !== 'completed') throw Error('原Run仍活动，禁止清理');
           const current = list().sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
@@ -269,17 +355,45 @@ jobs:
           ORIGINAL_CONTROLLER: ${{ inputs.controller }}
         run: |
           set -euo pipefail
-          [[ "$ORIGINAL_CONTROLLER" =~ ^[1-9][0-9]*$ ]]
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ORIGINAL_CONTROLLER" \
-            --jq '{path,event,head_branch,status,head_sha}' > "$RUNNER_TEMP/citizenapp-controller.json"
-          jq -e --arg sha "$GITHUB_SHA" '.path==".github/workflows/ios.yml" and .event=="workflow_dispatch" and .head_branch=="main" and .head_sha==$sha and .status!="completed"' \
-            "$RUNNER_TEMP/citizenapp-controller.json" >/dev/null
-          for attempt in {1..60}; do
-            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ORIGINAL_CONTROLLER/jobs?per_page=100" > "$RUNNER_TEMP/citizenapp-parent-jobs.json"
-            if jq -e --arg marker "候选版本·v$CITIZENAPP_VERSION" '[.jobs[].steps[]?|select(.name==$marker)]|length==1' "$RUNNER_TEMP/citizenapp-parent-jobs.json" >/dev/null; then break; fi
-            if [ "$attempt" = 60 ]; then echo '候选版本未与原准备Run绑定' >&2; exit 1; fi
-            sleep 1
-          done
+          node --input-type=module <<'JS'
+          import {execFileSync} from 'node:child_process';
+          // 只读5xx最多退避重试三次；任何变更请求和不确定派发均不重试。
+          const request = (path, args = []) => {
+              const readOnly = !args.some(arg => ['-X', '--method', '-f', '--raw-field', '-F', '--field'].includes(arg));
+              for (let attempt = 0; ; attempt++) {
+                  try {
+                      const text = execFileSync('gh', ['api', ...args, path], {
+                          encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe']
+                      });
+                      return text.trim() ? JSON.parse(text) : null;
+                  } catch (error) {
+                      if (!readOnly || attempt === 3 || !/\bHTTP\s+5\d{2}\b/.test(String(error.stderr || ''))) throw error;
+                      console.log('GitHub只读查询暂时失败，重试第' + (attempt + 1) + '次');
+                      execFileSync('sleep', [String(2 ** attempt)]);
+                  }
+              }
+          };
+          if (!/^[1-9]\d*$/.test(process.env.ORIGINAL_CONTROLLER)) throw Error('缺少原准备Run');
+          const base = 'repos/' + process.env.GITHUB_REPOSITORY;
+          const owner = request(base + '/actions/runs/' + process.env.ORIGINAL_CONTROLLER);
+          if (owner.id !== Number(process.env.ORIGINAL_CONTROLLER) ||
+              owner.repository.full_name !== process.env.GITHUB_REPOSITORY || owner.head_sha !== process.env.GITHUB_SHA ||
+              owner.path !== '.github/workflows/ios.yml' || owner.event !== 'workflow_dispatch' ||
+              owner.head_branch !== 'main' || owner.conclusion === 'cancelled') throw Error('原准备Run身份不符或已明确取消');
+          // 准备Run已结束不撤销既有授权；源码、候选和明确取消仍须核对。
+          const marker = '候选版本·v' + process.env.CITIZENAPP_VERSION;
+          let matched = false;
+          for (let attempt = 0; attempt < 60; attempt++) {
+              const pages = request(base + '/actions/runs/' + owner.id + '/jobs?per_page=100', ['--paginate', '--slurp']);
+              const names = pages.flatMap(page => page.jobs).flatMap(job => (job.steps || []).map(step => step.name));
+              if (names.filter(name => name === marker).length === 1) {
+                  matched = true;
+                  break;
+              }
+              if (attempt < 59) execFileSync('sleep', ['1']);
+          }
+          if (!matched) throw Error('候选版本未与原准备Run绑定');
+          JS
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           ref: ${{ github.sha }}
