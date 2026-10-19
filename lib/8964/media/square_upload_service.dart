@@ -124,10 +124,8 @@ class SquareUploadService
     onStage?.call(SquarePublishStage.signingIn);
     final session = await sessionForAccount(accountId);
     // 发布只读取 CitizenServe 已同步的会员状态，禁止在发布路径读取链或触发状态修复。
-    final membership = await _subscriptionService.authorizeMembership(
-      session,
-      forceRefresh: true,
-    );
+    // 与会员页/附件共用同一请求和结果；缺失或到期才读取，不每次强刷。
+    final membership = await _subscriptionService.authorizeMembership(session);
     final plan = membership.activePlan;
     final usageState = membership.usageState;
     if (plan == null || usageState == null) {

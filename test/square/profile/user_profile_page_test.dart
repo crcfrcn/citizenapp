@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:citizenapp/account/profile/user_profile_page.dart';
+import 'package:citizenapp/account/profile/citizen_profile.dart';
 import 'package:citizenapp/account/profile/collapsible_header.dart';
 import 'package:citizenapp/account/profile/profile_category_tabs.dart';
 import 'package:citizenapp/account/membership/membership_revision.dart';
@@ -90,9 +91,39 @@ class _DeniedMembership extends _NullMembershipSnapshotService {
   }
 }
 
+// 拒绝来自真实业务端口；普通页面不得先请求会员状态。
+class _ServerDeniedProfile extends FakeProfileApi {
+  _ServerDeniedProfile() : super(sampleProfile());
+  @override
+  Future<CitizenProfile> fetchProfile(
+    String cidNumber, {
+    SquareSession? session,
+  }) async {
+    calls++;
+    throw const SquareApiException(
+      '非会员禁止访问用户主页',
+      statusCode: 403,
+      errorCode: 'profile_membership_required',
+    );
+  }
+}
+
+class _PendingProfile extends FakeProfileApi {
+  _PendingProfile() : super(sampleProfile());
+  final resultFuture = Completer<CitizenProfile>();
+  @override
+  Future<CitizenProfile> fetchProfile(
+    String cidNumber, {
+    SquareSession? session,
+  }) {
+    calls++;
+    return resultFuture.future;
+  }
+}
+
 void main() {
-  testWidgets('非会员他人主页在读取初始资料及缓存前拒绝，isSelf提示不能越权', (tester) async {
-    final api = FakeProfileApi(sampleProfile(displayName: '不得显示的缓存'));
+  testWidgets('他人主页直接请求业务接口，服务端拒绝后清除展示且不前置会员GET', (tester) async {
+    final api = _ServerDeniedProfile();
     final denied = _DeniedMembership();
     await tester.pumpWidget(
       MaterialApp(
@@ -111,9 +142,42 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('非会员禁止访问用户主页'), findsOneWidget);
     expect(find.text('不得显示的缓存'), findsNothing);
-    expect(api.calls, 0);
-    expect(denied.checks, 1);
+    expect(api.calls, 1);
+    expect(denied.checks, 0);
   });
+  testWidgets('他人业务请求尚未通过时不展示旧缓存，失败也不补会员GET', (tester) async {
+    final api = _PendingProfile(), service = _DeniedMembership();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: UserProfilePage(
+          cidNumber: sampleProfile().cidNumber!,
+          isSelf: false,
+          initialProfile: sampleProfile(displayName: '旧缓存不可提前显示'),
+          api: api,
+          cache: FakeProfileCache(sampleProfile(displayName: '旧缓存不可提前显示')),
+          sessionProvider: FakeSessionProvider(fakeSession()),
+          subscriptionService: service,
+          viewerAccountLoader: () async => null,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(api.calls, 1);
+    expect(service.checks, 0);
+    expect(find.text('旧缓存不可提前显示'), findsNothing);
+    api.resultFuture.completeError(
+      const SquareApiException(
+        'denied',
+        statusCode: 403,
+        errorCode: 'profile_membership_required',
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('非会员禁止访问用户主页'), findsOneWidget);
+    expect(service.checks, 0);
+  });
+
   testWidgets('非会员本人离线主页不调用会员门禁并保留本地资料', (tester) async {
     final denied = _DeniedMembership();
     final api = FakeProfileApi(sampleProfile());

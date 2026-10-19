@@ -1,7 +1,5 @@
 import '../square/mls_authentication_fixture.dart';
 
-import 'package:citizenapp/account/identity/cid_business_gate.dart';
-
 import '../support/fake_citizen_sdk.dart';
 
 import 'package:citizenapp/chat/tatachat_sdk_adapter.dart';
@@ -33,10 +31,6 @@ class _ChatAccessProvider extends SquareSessionProvider {
         accountSecurity: _UnusedSecurity(),
         currentUserContext: _UnusedCurrentUserContext(),
         // 本夹具只映射已注册用户的聊天许可，不调用真实钱包或链门禁。
-        resolveCid: () async => const CidBusinessDecision(
-          CidBusinessStatus.ready,
-          cidNumber: 'user-a',
-        ),
       );
   int requests = 0;
   @override
@@ -229,8 +223,6 @@ void main() {
     final sessions = SquareSessionProvider(
       accountSecurity: security,
       currentUserContext: current,
-      resolveCid: () async =>
-          const CidBusinessDecision(CidBusinessStatus.noWallet),
     );
     final runtime = createCitizenChatRuntime(
       accountSecurity: security,

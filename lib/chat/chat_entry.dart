@@ -53,6 +53,7 @@ class _CitizenChatConversationHost extends ChatConversationHost {
     super.groupSenderBuilder,
     super.onTransfer,
     super.actionIconBuilder,
+    super.prepareAttachment,
   });
 
   @override
@@ -71,6 +72,7 @@ ChatConversationHost _citizenConversationHost({
   CitizenProfileCache? profileCache,
   CitizenProfileMediaCache? profileMediaCache,
   SquareSessionProvider? sessionProvider,
+  SubscriptionService? subscriptionService,
 }) {
   const style = ChatViewStyle(
     backgroundColor: AppTheme.scaffoldBg,
@@ -86,6 +88,16 @@ ChatConversationHost _citizenConversationHost({
     style: style,
     mediaLimits: const CitizenChatMediaLimitPolicy(),
     canSend: SubscriptionService.chatAuthorizedFor,
+    prepareAttachment: (userId) async {
+      final session = await sessionProvider?.ensureSession();
+      if (session == null || session.cidNumber.trim() != userId.trim()) {
+        throw const SquareApiException('当前公民会话不可用');
+      }
+      await SubscriptionService.prepareAttachment(
+        session,
+        service: subscriptionService,
+      );
+    },
     unavailableMessage: (userId) {
       final resolved =
           SubscriptionService.chatAuthorizationResolvedFor(userId) &&
@@ -508,6 +520,7 @@ class _ChatTabState extends State<ChatTab> {
     _subscriptionService =
         widget.subscriptionService ??
         SubscriptionService(
+          resumePendingTransactions: false,
           wallet: _wallet!,
           chain: sdk.chain,
           transactions: sdk.transactions,
@@ -666,7 +679,12 @@ class _ChatTabState extends State<ChatTab> {
     } catch (error) {
       if (mounted && generation == _reloadGeneration) {
         setState(() {
-          _error = chatUserErrorMessage(error);
+          // 本机缺绑定使用已知闭集恢复提示，未知底层异常仍走原脱敏文案。
+          _error =
+              error is SquareApiException &&
+                  error.errorCode == 'identity_local_missing'
+              ? SquareSessionResolution.fromError(error).message
+              : chatUserErrorMessage(error);
         });
       }
     } finally {
@@ -686,8 +704,7 @@ class _ChatTabState extends State<ChatTab> {
     }
   }
 
-  /// 当前 CID 在身份鉴权时读取一次 CitizenServe；聊天列表和窗口复用统一本地缓存。
-  /// 结果由会员模块按 CID 隔离，切换钱包后旧 CID 权益不能复用。
+  /// 打开聊天只恢复展示、登记公民会话；附件动作才按需读取唯一会员缓存。
   Future<void> _ensureChatEntitlement(
     String cidNumber,
     int reloadGeneration,
@@ -697,22 +714,38 @@ class _ChatTabState extends State<ChatTab> {
     final sessionProvider = _sessionProvider;
     if (subscriptionService == null || sessionProvider == null) return;
     // 展示先恢复上一次服务端确认的本地快照，避免每次进入页面先显示无会员；
-    // 随后的服务端鉴权仍由 authorizeMembership 在同一登录会话内严格去重一次。
+    // 展示不授予附件权限；打开聊天不为此发GET会员。
     await subscriptionService.readDisplaySnapshot(cidNumber);
     if (mounted &&
         reloadGeneration == _reloadGeneration &&
         cidNumber == _cidNumber) {
       setState(() {});
     }
+    if (!mounted ||
+        reloadGeneration != _reloadGeneration ||
+        cidNumber != _cidNumber) {
+      return;
+    }
     try {
       final session = _profileSession ?? await sessionProvider.ensureSession();
-      if (session == null || session.cidNumber.trim() != cidNumber) return;
+      if (!mounted ||
+          reloadGeneration != _reloadGeneration ||
+          cidNumber != _cidNumber ||
+          session == null ||
+          session.cidNumber.trim() != cidNumber) {
+        return;
+      }
+      await session.validateCurrent();
+      if (!mounted ||
+          reloadGeneration != _reloadGeneration ||
+          cidNumber != _cidNumber) {
+        return;
+      }
       _profileSession = session;
       SubscriptionService.rememberCitizenSession(session);
-      await subscriptionService.authorizeMembership(session);
+      // 打开聊天只登记基础会话；首次附件动作由SDK异步钩子取得唯一会员缓存。
     } on Exception {
-      // 展示仍可复用本地快照，但发送授权必须由本次会话的 CitizenServe 结果确认。
-      SubscriptionService.markAttachmentAuthorizationUnavailable(cidNumber);
+      // 基础会话失败不读取会员；保留离线展示，服务端仍最终核验会话。
     }
     if (mounted &&
         reloadGeneration == _reloadGeneration &&
@@ -891,7 +924,7 @@ class _ChatTabState extends State<ChatTab> {
     }
     final currentUserContext = _currentUserContext;
     if (currentUserContext != null) {
-      return _resolveChatIdentity(currentUserContext, _sessionProvider);
+      return _resolveChatIdentity(currentUserContext);
     }
     final current = await widget.runtime.readCurrentUser();
     return (cidNumber: current.userId, accountId: current.accountId);
@@ -1126,6 +1159,7 @@ class _ChatTabState extends State<ChatTab> {
           profileCache: _profileCache,
           profileMediaCache: _profileMediaCache,
           sessionProvider: _sessionProvider,
+          subscriptionService: _subscriptionService,
         ),
         currentUserId: _cidNumber,
         accountId: _accountId,
@@ -1965,44 +1999,36 @@ UserContactService? _contactServiceFromContextOrNull(BuildContext context) {
   );
 }
 
-/// 本地绑定缺失时由当前账户会话恢复身份，服务故障不能降级成未注册。
+/// 聊天只读本机绑定；缺失是未知态，恢复必须由用户在身份页主动发起。
 Future<({String cidNumber, String accountId})> _resolveChatIdentity(
   CurrentUserContext currentUser,
-  SquareSessionProvider? sessionProvider,
 ) async {
   final identity = await currentUser.resolve();
   if (identity == null) return (cidNumber: '', accountId: '');
   if (identity.isRegistered) {
     return (cidNumber: identity.cidNumber, accountId: identity.accountId);
   }
-  if (sessionProvider == null) {
-    throw const AccountSecurityException('身份暂时无法验证，请稍后重试');
-  }
-  final resolution = await sessionProvider.resolveSession();
-  final session = resolution.session;
-  if (session != null && session.accountId == identity.accountId) {
-    return (cidNumber: session.cidNumber, accountId: session.accountId);
-  }
-  if (resolution.status == SquareSessionStatus.identityUnbound) {
-    return (cidNumber: '', accountId: identity.accountId);
-  }
-  throw AccountSecurityException(resolution.message);
+  throw const SquareApiException(
+    '请在身份页恢复或完成注册后重试',
+    errorCode: 'identity_local_missing',
+    stage: SquareApiStage.identity,
+  );
 }
 
 Future<({String cidNumber, String accountId})?> _readChatEntryIdentity(
   BuildContext context,
 ) async {
   try {
-    return await _resolveChatIdentity(
-      context.read<CurrentUserContext>(),
-      context.read<SquareSessionProvider?>(),
-    );
+    return await _resolveChatIdentity(context.read<CurrentUserContext>());
   } on Exception catch (error) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            error is AccountSecurityException
+            error is SquareApiException &&
+                    error.errorCode == 'identity_local_missing'
+                ? SquareSessionResolution.fromError(error).message
+                : error is AccountSecurityException
                 ? error.message
                 : chatUserErrorMessage(error),
           ),
@@ -2044,6 +2070,7 @@ Future<void> openGroupChat(
       peerUserId: groupId,
       title: title,
       isGroup: true,
+      sessionProvider: context.read<SquareSessionProvider?>(),
     ),
     currentUserId: currentUserId,
     accountId: accountId,
@@ -2094,6 +2121,7 @@ Future<void> openDirectChat(
       peerUserId: peerUserId,
       title: title,
       isGroup: false,
+      sessionProvider: context.read<SquareSessionProvider?>(),
     ),
     currentUserId: currentUserId,
     accountId: accountId,

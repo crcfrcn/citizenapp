@@ -18,7 +18,8 @@ class MembershipRevisionEvent {
 /// CitizenApp 会员缓存刷新唯一广播器。
 ///
 /// 钱包 revision 只表示钱包／身份绑定变化，不能混入纯会员变化；CitizenServe 快照写入
-/// 统一缓存后通过本广播器按 CID 定向刷新页面。网络读取只由会员服务在身份鉴权边界执行。
+/// 统一缓存后通过本广播器按 CID 定向刷新页面；监听器不得先删除新缓存再查询。
+/// 显式失效由身份/会员操作执行，广播本身不触发网络读取。
 class MembershipRevision {
   MembershipRevision._();
 

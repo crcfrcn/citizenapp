@@ -29,6 +29,7 @@ class MyIdPage extends StatefulWidget {
   const MyIdPage({super.key, this.myIdService, this.openRegistrationTopup});
 
   final MyIdService? myIdService;
+
   /// 仅测试注入；正式流程始终打开所选账户的链上充值页。
   final Future<void> Function(BuildContext, String)? openRegistrationTopup;
 
@@ -110,7 +111,7 @@ class _MyIdPageState extends State<MyIdPage> {
   bool _refreshing = false;
 
   Future<void> _refreshState() async {
-    if (_refreshing) return;
+    if (_refreshing || _submitting) return;
     _refreshing = true;
     final generation = ++_loadGeneration;
     setState(() {
@@ -212,6 +213,47 @@ class _MyIdPageState extends State<MyIdPage> {
     });
   }
 
+  /// 显式恢复和普通展示刷新分离；重复点击与迟到提示均由原忙状态/代次挡住。
+  Future<void> _recoverService() async {
+    if (_submitting || _loading || _refreshing) return;
+    final generation = ++_loadGeneration;
+    final currentUser = context.read<CurrentUserContext?>();
+    String? accountId;
+    var captured = false;
+    setState(() {
+      _submitting = true;
+      _refreshError = null;
+    });
+    try {
+      accountId = (await currentUser?.resolve())?.accountId;
+      captured = true;
+      if (!mounted) return;
+      await _myIdService!.recoverServiceAccess();
+      if (!mounted) return;
+      // 服务已完成账户/绑定复核，重新读当前本机展示，不应用旧异步快照。
+      await _loadState();
+    } catch (error) {
+      // 恢复自身会广播快照/绑定代次；同账户失败仍应可见，切账户的迟到错误丢弃。
+      var current = generation == _loadGeneration;
+      if (mounted && captured && currentUser != null) {
+        try {
+          current = (await currentUser.resolve())?.accountId == accountId;
+        } catch (_) {
+          current = false;
+        }
+      }
+      if (error is AccountSecurityException &&
+          error.code == 'identityChanged') {
+        current = false;
+      }
+      if (mounted && current) {
+        setState(() => _refreshError = '服务恢复失败，请重试或完成注册');
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
   /// 统一提交外壳:置 loading → 跑动作 → 成功提示并回刷身份 → 失败提示;不吞异常。
   Future<void> _runSubmit(Future<String> Function() action) async {
     setState(() => _submitting = true);
@@ -269,6 +311,12 @@ class _MyIdPageState extends State<MyIdPage> {
         title: const Text('身份'),
         centerTitle: true,
         actions: [
+          TextButton(
+            onPressed: _submitting || _loading || _refreshing
+                ? null
+                : _recoverService,
+            child: const Text('恢复服务'),
+          ),
           if (_actionLabel != null)
             _submitting
                 ? Padding(

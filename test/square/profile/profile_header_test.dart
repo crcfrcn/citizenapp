@@ -517,13 +517,14 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    // 先让真实缓存I/O完成并推进头像请求，再等待页面稳定；保留原30次有界等待。
     for (var n = 0; n < 30 && requests.isEmpty; n++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 10)),
       );
       await tester.pump();
     }
+    await tester.pumpAndSettle();
     expect(find.byType(Image), findsWidgets);
     expect(
       requests.single.url.path,

@@ -2,11 +2,12 @@ import 'package:citizenapp/account/identity/registration_models.dart';
 import 'package:citizenapp/account/identity/public_identity_store.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
-import 'package:citizenapp/account/identity/cid_business_gate.dart';
 import 'package:citizenapp/account/identity/account_security_service.dart';
 import 'package:citizenapp/account/identity/square_session_provider.dart';
 
 import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -29,7 +30,8 @@ const _binding = IdentityBinding(
 );
 
 class _SessionApi extends SquareApiClient {
-  _SessionApi({required this.deviceMissing});
+  _SessionApi({required this.deviceMissing, this.beforeReturn});
+  final Future<void> Function()? beforeReturn;
   final bool deviceMissing;
   bool registered = false;
   @override
@@ -50,11 +52,14 @@ class _SessionApi extends SquareApiClient {
       registered = true;
     }
     await authentication.requireCurrent(identity);
+    await beforeReturn?.call();
     return fakeSquareSession(accountId);
   }
 }
 
 class _SessionWalletManager implements AccountSecurityService {
+  @override
+  final revision = ValueNotifier<int>(0);
   int registrationCalls = 0;
   @override
   Future<IdentityBinding> identityBindingForAccountId(String accountId) async =>
@@ -83,6 +88,8 @@ class _SessionWalletManager implements AccountSecurityService {
 }
 
 class _SessionIdentityCache implements CurrentUserContext {
+  _SessionIdentityCache({this.localBinding = _binding});
+  final IdentityBinding? localBinding;
   @override
   Future<CurrentUser?> resolve() async => CurrentUser(
     account: CitizenWalletStateAccount(
@@ -95,7 +102,7 @@ class _SessionIdentityCache implements CurrentUserContext {
       createdAtMillis: BigInt.one,
       isDefault: true,
     ),
-    binding: _binding,
+    binding: localBinding,
   );
 
   @override
@@ -163,59 +170,100 @@ Future<void> _register(
 
 void main() {
   TestCitizenSdkHarness();
-  test('确认无公民号时会话入口不读取 MLS 或登记设备', () async {
+  test('本机绑定缺失为未知，不读MLS或代办链恢复/登记', () async {
     final source = FakeMlsAuthentication();
     final wallet = _SessionWalletManager();
     final provider = SquareSessionProvider(
-      resolveCid: () async => const CidBusinessDecision(
-        CidBusinessStatus.unregistered,
-      ),
       client: _SessionApi(deviceMissing: true),
       accountSecurity: wallet,
       authentication: source,
-      currentUserContext: _SessionIdentityCache(),
+      currentUserContext: _SessionIdentityCache(localBinding: null),
     );
     await expectLater(
       provider.ensureSession(),
-      throwsA(isA<SquareApiException>().having(
-        (error) => error.errorCode,
-        'errorCode',
-        'cid_not_bound',
-      )),
+      throwsA(
+        isA<SquareApiException>().having(
+          (error) => error.errorCode,
+          'errorCode',
+          'identity_local_missing',
+        ),
+      ),
     );
     expect(source.identityCalls, 0);
     expect(source.proofCalls, 0);
     expect(wallet.registrationCalls, 0);
   });
 
-  test("普通会话只使用 MLS，未登记只协调一次授权登记", () async {
+  test("普通会话未登记直接拒绝，仅显式入口协调一次登记", () async {
     final existingWallet = _SessionWalletManager();
     final existing = SquareSessionProvider(
-      resolveCid: () async => const CidBusinessDecision(
-        CidBusinessStatus.ready,
-        cidNumber: testMlsCidNumber,
-      ),
       client: _SessionApi(deviceMissing: false),
       accountSecurity: existingWallet,
       authentication: FakeMlsAuthentication(),
       currentUserContext: _SessionIdentityCache(),
     );
     expect(await existing.ensureSession(), isNotNull);
+    expect(await existing.registerCurrentDevice(), isNotNull);
     expect(existingWallet.registrationCalls, 0);
     final missingWallet = _SessionWalletManager();
     final missing = SquareSessionProvider(
-      resolveCid: () async => const CidBusinessDecision(
-        CidBusinessStatus.ready,
-        cidNumber: testMlsCidNumber,
-      ),
       client: _SessionApi(deviceMissing: true),
       accountSecurity: missingWallet,
       authentication: FakeMlsAuthentication(),
       currentUserContext: _SessionIdentityCache(),
     );
-    expect(await missing.ensureSession(), isNotNull);
+    for (final ordinary in [
+      missing.ensureSession,
+      missing.refreshSession,
+      () => missing.ensureSessionForAccountId(_accountId),
+    ]) {
+      await expectLater(
+        ordinary(),
+        throwsA(
+          isA<SquareApiException>().having(
+            (e) => e.errorCode,
+            '错误码',
+            'device_not_registered',
+          ),
+        ),
+      );
+      expect(missingWallet.registrationCalls, 0);
+    }
+    expect(await missing.registerCurrentDevice(), isNotNull);
     expect(await missing.ensureSession(), isNotNull);
     expect(missingWallet.registrationCalls, 1);
+  });
+
+  test('普通握手期间本机代次改变拒绝迟到会话，目标账户不符不读MLS', () async {
+    final wallet = _SessionWalletManager(), source = FakeMlsAuthentication();
+    final api = _SessionApi(
+      deviceMissing: false,
+      beforeReturn: () async {
+        wallet.revision.value++;
+      },
+    );
+    final provider = SquareSessionProvider(
+      client: api,
+      accountSecurity: wallet,
+      authentication: source,
+      currentUserContext: _SessionIdentityCache(),
+    );
+    await expectLater(
+      provider.ensureSessionForAccountId('0x${'ef' * 32}'),
+      throwsA(isA<AccountSecurityException>()),
+    );
+    expect(source.identityCalls, 0);
+    await expectLater(
+      provider.ensureSession(),
+      throwsA(
+        isA<AccountSecurityException>().having(
+          (e) => e.code,
+          '代次',
+          'identityChanged',
+        ),
+      ),
+    );
+    expect(wallet.registrationCalls, 0);
   });
 
   test('钱包授权先落盘；登记只提交MLS公开身份与新鲜MLS证明', () async {

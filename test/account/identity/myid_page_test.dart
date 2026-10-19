@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,6 +12,8 @@ import 'registration_api_test.dart' show registrationContext;
 import 'registration_coordinator_test.dart' show Api, MemoryStore;
 
 import 'package:citizenapp/account/identity/myid_page.dart';
+import 'package:citizenapp/account/identity/current_user_context.dart';
+import 'package:citizenapp/account/identity/identity_badge_snapshot_store.dart';
 import 'package:citizenapp/account/identity/register_identity_sheet.dart';
 import 'package:citizenapp/account/identity/myid_service.dart';
 import 'package:citizenapp/system/theme/app_layout.dart';
@@ -61,6 +65,91 @@ void main() {
       MaterialApp(home: MyIdPage(myIdService: _FakeMyIdService(state))),
     );
     await tester.pumpAndSettle();
+  }
+
+  testWidgets('打开/刷新身份页不恢复，恢复仅点击一次且失败保持材料', (tester) async {
+    final service = _FakeMyIdService(_votingState);
+    await tester.pumpWidget(MaterialApp(home: MyIdPage(myIdService: service)));
+    await tester.pumpAndSettle();
+    expect(service.recoveries, 0);
+    await tester
+        .widget<RefreshIndicator>(find.byType(RefreshIndicator))
+        .onRefresh();
+    await tester.pumpAndSettle();
+    expect(service.recoveries, 0);
+    final pending = Completer<void>();
+    service.recovery = pending.future;
+    await tester.tap(find.text('恢复服务'));
+    await tester.pump();
+    await tester.tap(find.text('恢复服务'));
+    await tester.pump();
+    expect(service.recoveries, 1);
+    pending.completeError(StateError('不应显示的服务正文'));
+    await tester.pumpAndSettle();
+    expect(find.text('服务恢复失败，请重试或完成注册'), findsOneWidget);
+    expect(find.textContaining('不应显示的服务正文'), findsNothing);
+    expect(find.text(_votingState.cidNumber!), findsOneWidget);
+    service.recovery = null;
+    await tester.tap(find.text('恢复服务'));
+    await tester.pumpAndSettle();
+    expect(service.recoveries, 2);
+    expect(find.text('服务恢复失败，请重试或完成注册'), findsNothing);
+  });
+
+  testWidgets('恢复自身广播快照后同账户失败仍可见且材料保留', (tester) async {
+    final service = _FakeMyIdService(_votingState), pending = Completer<void>();
+    service.recovery = pending.future;
+    await tester.pumpWidget(
+      Provider<CurrentUserContext>.value(
+        value: _PageCurrentUser(),
+        child: MaterialApp(home: MyIdPage(myIdService: service)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('恢复服务'));
+    await tester.pump();
+    IdentityBadgeSnapshotStore.revision.value++;
+    await tester.pump();
+    pending.completeError(StateError('本次设备登记失败'));
+    await tester.pumpAndSettle();
+    expect(find.text('服务恢复失败，请重试或完成注册'), findsOneWidget);
+    expect(find.text(_votingState.cidNumber!), findsOneWidget);
+  });
+
+  for (final failed in [false, true]) {
+    testWidgets('恢复迟到$failed不能覆盖更新后的身份展示', (tester) async {
+      final service = _FakeMyIdService(_votingState),
+          pending = Completer<void>();
+      service.recovery = pending.future;
+      final currentUser = _PageCurrentUser();
+      await tester.pumpWidget(
+        Provider<CurrentUserContext>.value(
+          value: currentUser,
+          child: MaterialApp(home: MyIdPage(myIdService: service)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('恢复服务'));
+      await tester.pump();
+      service.state = const MyIdState(
+        tier: MyIdTier.visitor,
+        cidNumber: 'CID-NEW-CURRENT',
+      );
+      currentUser.selectedAccountId = '0x${'22' * 32}';
+      IdentityBadgeSnapshotStore.revision.value++;
+      // 恢复仍在进行，忙指示器持续动画，不能等待所有帧停止。
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      if (failed) {
+        pending.completeError(StateError('旧账户失败'));
+      } else {
+        pending.complete();
+      }
+      await tester.pumpAndSettle();
+      expect(find.text('CID-NEW-CURRENT'), findsOneWidget);
+      expect(find.text(_votingState.cidNumber!), findsNothing);
+      expect(find.text('服务恢复失败，请重试或完成注册'), findsNothing);
+    });
   }
 
   testWidgets('三张身份卡始终存在且旧访客文案彻底删除', (tester) async {
@@ -264,9 +353,9 @@ void main() {
   // 余额用例从已保存的真人验证恢复，执行真实编排；云端边界仍为明确合成夹具。
   Future<void> pumpRegistration(
     WidgetTester tester,
-    _RegisterFlowService service,
-    {void Function(String)? onTopup,}
-  ) async {
+    _RegisterFlowService service, {
+    void Function(String)? onTopup,
+  }) async {
     final api = Api([])..state = 'human_verified';
     final store = MemoryStore([]);
     final context = registrationContext();
@@ -285,10 +374,13 @@ void main() {
     await tester.pumpWidget(
       Provider<RegistrationCoordinator>.value(
         value: RegistrationCoordinator(api: api, store: store),
-        child: MaterialApp(home: MyIdPage(
-          myIdService: service,
-          openRegistrationTopup: (_, accountId) async => onTopup?.call(accountId),
-        )),
+        child: MaterialApp(
+          home: MyIdPage(
+            myIdService: service,
+            openRegistrationTopup: (_, accountId) async =>
+                onTopup?.call(accountId),
+          ),
+        ),
       ),
     );
   }
@@ -617,12 +709,20 @@ class _RegisterFlowService implements MyIdService {
 class _FakeMyIdService implements MyIdService {
   _FakeMyIdService(this.state);
 
-  final MyIdState state;
+  MyIdState state;
 
   @override
   Future<MyIdState> getState() async {
     localReads++;
     return state;
+  }
+
+  int recoveries = 0;
+  Future<void>? recovery;
+  @override
+  Future<void> recoverServiceAccess() async {
+    recoveries++;
+    await recovery;
   }
 
   int localReads = 0;
@@ -636,6 +736,27 @@ class _FakeMyIdService implements MyIdService {
     return state;
   }
 
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// 页面只核对本机账户，快照广播不能吞掉同账户失败，也不能触发链解析。
+class _PageCurrentUser implements CurrentUserContext {
+  String selectedAccountId = '0x${'11' * 32}';
+  @override
+  Future<CurrentUser?> resolve() async => CurrentUser(
+    account: CitizenWalletStateAccount(
+      signMode: CitizenWalletSignMode.hot,
+      walletIndex: 0,
+      accountIndex: 0,
+      accountId: selectedAccountId,
+      ss58Address: 'synthetic',
+      name: '测试账户',
+      createdAtMillis: BigInt.zero,
+      isDefault: true,
+    ),
+    binding: null,
+  );
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

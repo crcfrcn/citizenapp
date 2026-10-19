@@ -68,8 +68,6 @@ class _MembershipPageState extends State<MembershipPage>
   late final AnimationController _snapController;
   Animation<double>? _snapAnim;
 
-  static const _pricesCacheTtl = Duration(minutes: 30);
-
   /// 首屏永远使用 App 内置三档静态定义立即渲染；联网只在后台替换动态字段。
   bool _refreshing = false;
   bool _identityReloadPending = false;
@@ -191,7 +189,12 @@ class _MembershipPageState extends State<MembershipPage>
       final snapshot = await _subscriptionService.readDisplaySnapshot(
         event.cidNumber,
       );
-      if (!mounted || snapshot == null) return;
+      if (!mounted ||
+          snapshot == null ||
+          _data.cidNumber != event.cidNumber ||
+          MembershipRevision.instance.listenable.value != event) {
+        return;
+      }
       _applyViewData(
         _MembershipViewData(
           accountId: _data.accountId,
@@ -301,65 +304,37 @@ class _MembershipPageState extends State<MembershipPage>
         );
       }
 
-      final nowMs = DateTime.now().millisecondsSinceEpoch;
-      final refreshPrices =
-          forceRefresh ||
-          cached == null ||
-          !cached.pricesAreFresh(nowMs, _pricesCacheTtl);
-
       SquareMembershipState? refreshedState;
-      Map<String, int>? refreshedPrices;
-      final refreshes = <Future<void>>[];
-      refreshes.add(() async {
-        try {
-          refreshedState = await _subscriptionService.authorizeMembership(
-            session,
-            forceRefresh: forceRefresh,
-          );
-        } on Object catch (error) {
-          refreshError ??= error;
-        }
-      }());
-      if (refreshPrices) {
-        refreshes.add(() async {
-          try {
-            refreshedPrices = await _chainService.fetchAllPlatformPrices(
-              forceFresh: forceRefresh,
-            );
-          } on Object catch (error) {
-            refreshError ??= error;
-          }
-        }());
+      try {
+        refreshedState = await _subscriptionService.authorizeMembership(
+          session,
+          forceRefresh: forceRefresh,
+        );
+      } on Object catch (error) {
+        refreshError ??= error;
       }
-      await Future.wait(refreshes);
-
+      // 已注册页面直接消费同一服务端快照的真实价格，不再并行查链。
+      final refreshedPrices = refreshedState == null
+          ? null
+          : <String, int>{
+              for (final plan in refreshedState.plans)
+                if (plan.priceFen != null) plan.membershipLevel: plan.priceFen!,
+            };
+      await session.validateCurrent();
+      if (_identityReloadPending) return;
       final serverSnapshot = await _subscriptionService.readDisplaySnapshot(
         cidNumber,
       );
+      await session.validateCurrent();
+      if (_identityReloadPending) return;
       final state =
           refreshedState ??
           serverSnapshot?.state ??
           cached?.state ??
           _staticMembershipState;
-      final prices = refreshedPrices ?? cached?.prices ?? const <String, int>{};
-      final updated = MembershipDisplaySnapshot(
-        state: state,
-        prices: prices,
-        subscriptionFetchedAtMs:
-            serverSnapshot?.subscriptionFetchedAtMs ??
-            cached?.subscriptionFetchedAtMs ??
-            0,
-        pricesFetchedAtMs: refreshedPrices == null
-            ? cached?.pricesFetchedAtMs ?? 0
-            : nowMs,
-      );
-      if (refreshedPrices != null) {
-        try {
-          await _subscriptionService.writeDisplaySnapshot(cidNumber, updated);
-        } on Object {
-          // 本地缓存失败不影响当前内存态，也不能让静态首屏退回加载页。
-        }
-      }
+      final prices = refreshedPrices?.isNotEmpty == true
+          ? refreshedPrices!
+          : serverSnapshot?.prices ?? cached?.prices ?? const <String, int>{};
       if (!mounted) return;
       _applyViewData(
         _MembershipViewData(
@@ -367,7 +342,12 @@ class _MembershipPageState extends State<MembershipPage>
           cidNumber: cidNumber,
           state: _withStaticPlans(state),
           prices: prices,
-          subscriptionReady: updated.subscriptionFetchedAtMs > 0,
+          subscriptionReady:
+              refreshedState != null ||
+              (serverSnapshot?.subscriptionFetchedAtMs ??
+                      cached?.subscriptionFetchedAtMs ??
+                      0) >
+                  0,
         ),
       );
     } on Object catch (error) {
@@ -435,17 +415,14 @@ class _MembershipPageState extends State<MembershipPage>
     if (!mounted) return;
     setState(() => _busy = true);
     try {
-      // 订阅动作是鉴权边界：只强制读取一次 CitizenServe，链上交易本身继续最终校验状态。
+      // 复用本会话已有状态；真实交易仍执行原链验真和签名。
       final resolution = await _sessionProvider.resolveSession(refresh: true);
       final session = resolution.session;
       if (session == null || session.cidNumber != _data.cidNumber) {
         throw SubscriptionException(resolution.message);
       }
       final state = _withStaticPlans(
-        await _subscriptionService.authorizeMembership(
-          session,
-          forceRefresh: true,
-        ),
+        await _subscriptionService.authorizeMembership(session),
       );
       final action = _actionFor(state, level);
       final prices = action == _SubscribeAction.cancel
@@ -506,7 +483,8 @@ class _MembershipPageState extends State<MembershipPage>
         : action != _SubscribeAction.cancel && priceFen == null
         ? '链上价格未就绪'
         : _actionLabel(action);
-    final enabled = !noWallet &&
+    final enabled =
+        !noWallet &&
         !sessionUnavailable &&
         !stateNotReady &&
         (action == _SubscribeAction.cancel || priceFen != null);
@@ -938,8 +916,10 @@ class _MembershipTierCard extends StatelessWidget {
                       color: tierColor,
                       busy: busy,
                       action: action,
-                      enabled: canSubscribe &&
-                          (action == _SubscribeAction.cancel || priceFen != null),
+                      enabled:
+                          canSubscribe &&
+                          (action == _SubscribeAction.cancel ||
+                              priceFen != null),
                       onTap: onTapAction,
                     ),
                   ),

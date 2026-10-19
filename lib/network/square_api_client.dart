@@ -183,6 +183,7 @@ class SquareMembershipPlan {
     required this.usage,
     this.imageMaxBytes = 0,
     this.imageMaxEdge = 0,
+    this.priceFen,
   });
 
   final String membershipLevel;
@@ -197,6 +198,9 @@ class SquareMembershipPlan {
   final SquareMembershipUsageQuota usage;
   final int imageMaxBytes;
   final int imageMaxEdge;
+
+  /// 原服务端真实价格；未知保持null，不能以0代替。
+  final int? priceFen;
 
   /// 提炼展示用短串（卡片与详情页共用，杜绝口径漂移）。
   String get chatFileSizeLabel => _fileSize(chatFileMaxBytes);
@@ -1254,8 +1258,8 @@ class SquareApiClient
     );
   }
 
-  /// 平台会员变更 finalized 后先核对交易/块回执，再读取同一会话的真实会员快照。
-  /// 两次请求都使用各自新鲜的MLS证明；回执或快照失败时保留原交易恢复记录。
+  /// 确认请求携带原MLS正文证明，一次取得回执和真实快照，不再额外GET会员。
+  /// 回执或快照失败保留原证明；不能再次签名或付款。
   Future<SquareMembershipState> confirmPlatformSubscription({
     required SquareSession session,
     required String txHash,
@@ -1268,14 +1272,26 @@ class SquareApiClient
     final data = await _postJson('/membership/confirm', {
       'tx_hash': txHash,
       'block_hash': blockHashHex,
+      'include_state': true,
     }, session: session);
-    if (data.length != 3 ||
+    if (data.length != 4 ||
         data['ok'] != true ||
         data['tx_hash'] != txHash ||
         data['block_hash'] != blockHashHex) {
       throw const SquareApiException('会员确认回执与本次交易不一致');
     }
-    return fetchMembership(session);
+    final snapshot = data['membership_state'];
+    if (snapshot is! Map<String, dynamic> ||
+        snapshot['ok'] != true ||
+        snapshot['membership_active'] is! bool ||
+        !snapshot.containsKey('membership') ||
+        (snapshot['membership_active'] == true &&
+            snapshot['membership'] is! Map<String, dynamic>) ||
+        snapshot['plans'] is! List ||
+        snapshot['usage'] is! Map<String, dynamic>) {
+      throw const SquareApiException('会员确认快照不完整');
+    }
+    return _parseMembershipState(snapshot);
   }
 
   /// 同 CID 的真实 MLS 传递；请求内没有属主、联系人或钱包数据密钥。
@@ -2154,7 +2170,10 @@ class SquareApiClient
       throw SquareApiException(
         decoded['message']?.toString() ?? '广场服务请求失败',
         statusCode: response.statusCode,
-        errorCode: decoded['error_code']?.toString(),
+        // CitizenServe错误码只来自真实error字符串；未知结构保持失败关闭。
+        errorCode: decoded['error'] is String
+            ? decoded['error'] as String
+            : null,
         stage: stage,
       );
     }
@@ -2218,6 +2237,7 @@ class SquareApiClient
     return SquareMembershipPlan(
       membershipLevel: level,
       displayName: name,
+      priceFen: data['price_fen'] == null ? null : quota(data, 'price_fen'),
       chatFileMaxBytes: quota(plan, 'chat_file_max_bytes'),
       imageMaxBytes: quota(limits, 'image_bytes'),
       imageMaxEdge: quota(limits, 'image_dimension'),

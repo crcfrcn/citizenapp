@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       sdk_selection:
-        description: 本产品编译入口锁定的SDK正式Release与提交
+        description: 本产品原始声明与原始锁固定的SDK提交
         required: true
         type: string
 concurrency:
@@ -24,7 +24,7 @@ jobs:
     runs-on: xcode-27
     timeout-minutes: 360
     env:
-      CITIZENAPP_SDK_RELEASES: "${{ inputs.sdk_selection }}"
+      CITIZENAPP_SDK_INPUTS: "${{ inputs.sdk_selection }}"
       CITIZENAPP_AUTOMATION_VERSION: "${{ inputs.version }}"
       GH_TOKEN: "${{ github.token }}"
     steps:
@@ -37,9 +37,11 @@ jobs:
         with:
           node-version: 25.2.1
       - name: 取得本平台增量计划
+        continue-on-error: true
         id: cache-plan
         run: node scripts/build.mjs ci-cache-plan ios
       - name: 恢复本平台最新兼容增量
+        continue-on-error: true
         uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57
         with:
           path: ${{ steps.cache-plan.outputs.path }}
@@ -59,6 +61,7 @@ jobs:
       - name: 本产品生成并验收正式版
         run: node scripts/build.mjs ci-release ios
       - name: 保存本平台最新完整增量
+        continue-on-error: true
         if: success() && steps.build.outcome == 'success'
         uses: actions/cache/save@1bd1e32a3bdc45362d1e726936510720a7c30a57
         with:

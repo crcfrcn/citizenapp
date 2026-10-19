@@ -23,6 +23,7 @@ import 'package:citizenapp/account/identity/current_user_context.dart';
 import 'package:citizenapp/account/identity/identity_binding.dart';
 import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
 import 'package:citizenapp/system/theme/app_theme.dart';
+import 'package:citizenapp/storage/wallet_isar.dart';
 import 'package:citizenapp/account/identity/identity_badge.dart';
 
 import '../../support/isar_test_env.dart';
@@ -43,7 +44,7 @@ final _identityAccount = CitizenWalletStateAccount(
 );
 
 class _FakeSessionProvider implements SquareSessionProvider {
-  SquareSession _session() => SquareSession(
+  late final SquareSession value = SquareSession(
     deviceId: testMlsDeviceId,
     sessionToken: 'tok',
     cidNumber: "CN220-CTZN2-198805200-2026",
@@ -53,8 +54,14 @@ class _FakeSessionProvider implements SquareSessionProvider {
     authenticateRequest: fakeMlsRequestHeaders,
   );
 
+  SquareSession _session() => value;
+
+  int calls = 0;
   @override
-  Future<SquareSession?> ensureSession() async => _session();
+  Future<SquareSession?> ensureSession() async {
+    calls++;
+    return _session();
+  }
 
   @override
   Future<SquareSessionResolution> resolveSession({
@@ -181,6 +188,7 @@ class _RecordingSubscriptionService implements SubscriptionService {
   SquareMembershipState? mirror;
   MembershipDisplaySnapshot? cachedSnapshot;
   bool mirrorPending = false;
+  Map<String, int> serverPrices = const {};
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -195,11 +203,13 @@ class _RecordingSubscriptionService implements SubscriptionService {
   }) async {
     authorizationCount++;
     forceAuthorizationCalls.add(forceRefresh);
-    final state = mirror!;
+    final state = _priced(mirror!, serverPrices);
     final previous = cachedSnapshot;
     cachedSnapshot = MembershipDisplaySnapshot(
       state: state,
-      prices: previous?.prices ?? const <String, int>{},
+      prices: serverPrices.isNotEmpty
+          ? serverPrices
+          : previous?.prices ?? const <String, int>{},
       subscriptionFetchedAtMs: DateTime.now().millisecondsSinceEpoch,
       pricesFetchedAtMs: previous?.pricesFetchedAtMs ?? 0,
     );
@@ -268,6 +278,102 @@ SquareMembershipState _state({
   );
 }
 
+// 服务端价格夹具与静态名称分开，注册页面只能消费响应中的真实价格。
+SquareMembershipState _priced(
+  SquareMembershipState state,
+  Map<String, int> prices,
+) => SquareMembershipState(
+  active: state.active,
+  paidUntil: state.paidUntil,
+  membershipLevel: state.membershipLevel,
+  subscriptionStatus: state.subscriptionStatus,
+  subscriptionActive: state.subscriptionActive,
+  lastChargedAt: state.lastChargedAt,
+  plans: [for (final price in prices.entries) _plan(price.key, price.value)],
+  usageState: state.usageState,
+);
+SquareMembershipPlan _plan(String level, int price) => SquareMembershipPlan(
+  membershipLevel: level,
+  displayName: level,
+  priceFen: price,
+  chatFileMaxBytes: 100 * 1024 * 1024,
+  chat: const SquareChatQuota(
+    textEnabled: true,
+    emojiEnabled: true,
+    stickerEnabled: true,
+    imageEnabled: true,
+    voiceMessageMaxSeconds: 180,
+    videoMessageMaxSeconds: 180,
+    voiceCallEnabled: true,
+    videoCallEnabled: true,
+  ),
+  document: const SquareDocumentQuota(
+    textMaxChars: 300,
+    imageQuality: 'hd',
+    maxImages: 9,
+  ),
+  video: const SquareVideoQuota(
+    textMaxChars: 300,
+    videoQuality: 'hd',
+    maxVideoSeconds: 180,
+    maxVideoBytes: 100 * 1024 * 1024,
+  ),
+  article: const SquareArticleQuota(
+    titleMinChars: 10,
+    titleMaxChars: 50,
+    bodyMaxChars: 30000,
+    coverQuality: 'hd',
+    imageQuality: 'hd',
+    maxImages: 9,
+    maxVideos: 1,
+  ),
+  usage: const SquareMembershipUsageQuota(
+    monthlyImages: 100,
+    monthlyVideoSeconds: 1800,
+    activeUploads: 5,
+    storageBytes: 1024 * 1024 * 1024,
+  ),
+);
+const _membershipJson =
+    '{"ok":true,"membership_active":true,"membership":{"membership_level":"democracy","paid_until":9999999999999,"subscription_status":"active","last_charged_at":1000},"plans":[],"usage":{"used_images":0,"reserved_images":0,"used_video_seconds":0,"reserved_video_seconds":0,"active_uploads":0}}';
+
+class _MemoryMembershipApi extends SquareApiClient {
+  _MemoryMembershipApi(this.read);
+  final Future<SquareMembershipState> Function() read;
+  int calls = 0;
+  @override
+  Future<SquareMembershipState> fetchMembership(SquareSession session) {
+    calls++;
+    return read();
+  }
+}
+
+SquareSession _cacheSession({
+  String cid = 'CN220-CTZN2-198805200-2026',
+  String account = _owner,
+  int revision = 1,
+  String device = testMlsDeviceId,
+  String token = 'cache-session',
+  int expires = 9999999999999,
+}) => SquareSession(
+  cidNumber: cid,
+  accountId: account,
+  bindingRevision: revision,
+  deviceId: device,
+  sessionToken: token,
+  expiresAt: expires,
+  authenticateRequest: fakeMlsRequestHeaders,
+);
+SquareMembershipState _cacheState(int until, {bool active = true}) =>
+    SquareMembershipState(
+      active: active,
+      paidUntil: until,
+      membershipLevel: 'freedom',
+      subscriptionActive: active,
+      subscriptionStatus: 'active',
+      plans: [_plan('freedom', 29900)],
+    );
+
 Future<void> _pump(
   WidgetTester tester,
   SquareMembershipState state, {
@@ -280,6 +386,7 @@ Future<void> _pump(
   final effectiveService = service ?? _RecordingSubscriptionService();
   if (effectiveService is _RecordingSubscriptionService) {
     effectiveService.mirror ??= effectiveService.cachedSnapshot?.state ?? state;
+    effectiveService.serverPrices = prices;
   }
   // 页面与动作门禁从同一上下文取得同一已注册会话，避免构造器/Provider事实分离。
   final effectiveSession = sessionProvider ?? _FakeSessionProvider();
@@ -367,19 +474,260 @@ class _FakeWallet implements CitizenSdkWallet {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-SubscriptionService _subscriptionService({SquareApiClient? api}) =>
-    SubscriptionService(
-      wallet: _FakeWallet(),
-      chain: TestCitizenChain(),
-      transactions: TestCitizenTransactions(),
-      identityResolver: _RegisteredFinalizedIdentity(),
-      sessionProvider: _FakeSessionProvider(),
-      api: api,
-    );
+SubscriptionService _subscriptionService({
+  SquareApiClient? api,
+  SquareSessionProvider? sessionProvider,
+  bool resumePendingTransactions = true,
+}) => SubscriptionService(
+  wallet: _FakeWallet(),
+  chain: TestCitizenChain(),
+  transactions: TestCitizenTransactions(),
+  identityResolver: _RegisteredFinalizedIdentity(),
+  sessionProvider: sessionProvider ?? _FakeSessionProvider(),
+  api: api,
+  resumePendingTransactions: resumePendingTransactions,
+);
 
 void main() {
   TestCitizenSdkHarness();
   useIsolatedIsar();
+
+  setUp(() {
+    SubscriptionService.invalidateCitizenAccount(_owner);
+    SubscriptionService.setChatAuthorizationForTesting(testMlsCidNumber, null);
+    SubscriptionService.nowForTesting = null;
+  });
+  tearDown(() {
+    SubscriptionService.invalidateCitizenAccount(_owner);
+    SubscriptionService.nowForTesting = null;
+  });
+
+  test('强刷合并在途请求；广播前安装唯一缓存，附件重复准备不再GET', () async {
+    final pending = Completer<SquareMembershipState>();
+    final api = _MemoryMembershipApi(() => pending.future),
+        session = _cacheSession();
+    addTearDown(api.close);
+    final service = _subscriptionService(api: api);
+    Future<SquareMembershipState>? listenerResult;
+    void changed() {
+      listenerResult = service.authorizeMembership(session);
+    }
+
+    MembershipRevision.instance.listenable.addListener(changed);
+    addTearDown(
+      () => MembershipRevision.instance.listenable.removeListener(changed),
+    );
+    final first = service.authorizeMembership(session),
+        second = service.authorizeMembership(session, forceRefresh: true);
+    await Future<void>.delayed(Duration.zero);
+    expect(api.calls, 1);
+    expect(SubscriptionService.chatFileMaxBytesFor(session.cidNumber), 0);
+    pending.complete(
+      _cacheState(DateTime.now().millisecondsSinceEpoch + 120000),
+    );
+    expect(identical(await first, await second), isTrue);
+    if (listenerResult != null) await listenerResult;
+    await SubscriptionService.prepareAttachment(session, service: service);
+    await SubscriptionService.prepareAttachment(session, service: service);
+    expect(api.calls, 1);
+    expect(
+      SubscriptionService.chatFileMaxBytesFor(session.cidNumber),
+      100 * 1024 * 1024,
+    );
+  });
+  test('60秒正向缓存与paidUntil边界，30秒无权益缓存到点失效', () async {
+    var now = DateTime.now().millisecondsSinceEpoch;
+    SubscriptionService.nowForTesting = () => now;
+    var result = _cacheState(now + 180000);
+    final api = _MemoryMembershipApi(() async => result),
+        session = _cacheSession();
+    addTearDown(api.close);
+    final service = _subscriptionService(api: api);
+    await service.authorizeMembership(session);
+    now += 59999;
+    await service.authorizeMembership(session);
+    expect(api.calls, 1);
+    now++;
+    await service.authorizeMembership(session);
+    expect(api.calls, 2);
+    result = _cacheState(now + 1000);
+    await service.authorizeMembership(session, forceRefresh: true);
+    now += 1000;
+    expect(SubscriptionService.chatFileMaxBytesFor(session.cidNumber), 0);
+    result = _cacheState(0, active: false);
+    await service.authorizeMembership(session);
+    expect(api.calls, 4);
+    now += 29999;
+    await service.authorizeMembership(session);
+    expect(api.calls, 4);
+    now++;
+    await service.authorizeMembership(session);
+    expect(api.calls, 5);
+    await expectLater(
+      SubscriptionService.prepareAttachment(session, service: service),
+      throwsA(isA<SquareApiException>()),
+    );
+    expect(api.calls, 5);
+  });
+  for (final error in [
+    for (final status in [429, 500, 501, 502, 503, 504, 599])
+      SquareApiException('unavailable', statusCode: status),
+    StateError('network'),
+  ]) {
+    test('失败退避5秒，强刷不能绕过且失败不授予权限：$error', () async {
+      var now = DateTime.now().millisecondsSinceEpoch;
+      SubscriptionService.nowForTesting = () => now;
+      var fail = true;
+      final api = _MemoryMembershipApi(() async {
+            if (fail) throw error;
+            return _cacheState(now + 60000);
+          }),
+          session = _cacheSession();
+      addTearDown(api.close);
+      final service = _subscriptionService(api: api);
+      await expectLater(
+        service.authorizeMembership(session),
+        throwsA(same(error)),
+      );
+      now += 4999;
+      await expectLater(
+        service.authorizeMembership(session, forceRefresh: true),
+        throwsA(same(error)),
+      );
+      expect(api.calls, 1);
+      expect(SubscriptionService.chatFileMaxBytesFor(session.cidNumber), 0);
+      now++;
+      fail = false;
+      await service.authorizeMembership(session);
+      expect(api.calls, 2);
+    });
+  }
+  for (final field in [
+    'cid',
+    'account',
+    'revision',
+    'device',
+    'token',
+    'expiry',
+    'invalidate',
+  ]) {
+    test('会话$field变化后旧Future不能写权限或展示', () async {
+      final old = _cacheSession();
+      final next = _cacheSession(
+        cid: field == 'cid' ? 'CN220-CTZN2-198805299-2026' : old.cidNumber,
+        account: field == 'account' ? 'different-account' : old.accountId,
+        revision: field == 'revision' ? 2 : 1,
+        device: field == 'device' ? 'other-device' : old.deviceId,
+        token: field == 'token' ? 'new-token' : old.sessionToken,
+        expires: field == 'expiry' ? old.expiresAt - 1 : old.expiresAt,
+      );
+      final pending = Completer<SquareMembershipState>();
+      var reads = 0;
+      final api = _MemoryMembershipApi(
+        () => ++reads == 1
+            ? pending.future
+            : Future.value(_cacheState(0, active: false)),
+      );
+      addTearDown(api.close);
+      final service = _subscriptionService(api: api);
+      final stale = expectLater(
+        service.authorizeMembership(old),
+        throwsA(isA<SubscriptionException>()),
+      );
+      await Future<void>.delayed(Duration.zero);
+      if (field == 'invalidate') {
+        SubscriptionService.invalidateBusinessMembership(old.cidNumber);
+      }
+      await service.authorizeMembership(next);
+      pending.complete(
+        _cacheState(DateTime.now().millisecondsSinceEpoch + 120000),
+      );
+      await stale;
+      expect(api.calls, 2);
+      expect(SubscriptionService.chatFileMaxBytesFor(next.cidNumber), 0);
+      expect(
+        (await service.readDisplaySnapshot(next.cidNumber))!.state.active,
+        isFalse,
+      );
+    });
+  }
+  test('会话期限先于60秒时立即裁剪，普通业务只验证会话并保持零GET', () async {
+    var now = DateTime.now().millisecondsSinceEpoch;
+    SubscriptionService.nowForTesting = () => now;
+    final session = _cacheSession(expires: now + 1000),
+        api = _MemoryMembershipApi(() async => _cacheState(now + 60000));
+    addTearDown(api.close);
+    final service = _subscriptionService(api: api);
+    await service.requireSquareAccess(session);
+    await service.requireProfileAccess(session, 'other');
+    expect(api.calls, 0);
+    await service.authorizeMembership(session);
+    now += 1000;
+    expect(SubscriptionService.chatFileMaxBytesFor(session.cidNumber), 0);
+    await expectLater(
+      service.authorizeMembership(session),
+      throwsA(isA<SquareApiException>()),
+    );
+    expect(api.calls, 1);
+  });
+
+  test('自动附件仅派生当前唯一缓存，缺失/过期/设备不符均零新增GET', () async {
+    var now = DateTime.now().millisecondsSinceEpoch;
+    SubscriptionService.nowForTesting = () => now;
+    final session = _cacheSession(),
+        api = _MemoryMembershipApi(() async => _cacheState(now + 120000));
+    addTearDown(api.close);
+    Future<bool> cached({String? device, int? revision}) =>
+        SubscriptionService.cachedAttachmentAuthorized(
+          cidNumber: session.cidNumber,
+          accountId: session.accountId,
+          bindingRevision: revision ?? session.bindingRevision,
+          expectedDeviceId: device ?? session.deviceId,
+        );
+    expect(await cached(), isFalse);
+    expect(api.calls, 0);
+    await _subscriptionService(api: api).authorizeMembership(session);
+    expect(await cached(), isTrue);
+    expect(api.calls, 1);
+    expect(await cached(device: 'changed-device'), isFalse);
+    expect(await cached(revision: 2), isFalse);
+    expect(api.calls, 1);
+    now += 60000;
+    expect(await cached(), isFalse);
+    expect(api.calls, 1);
+  });
+  test('缓存派生异步校验期间失效，迟到true不能授权附件', () async {
+    Completer<void>? validation;
+    final base = _cacheSession();
+    final session = SquareSession(
+      cidNumber: base.cidNumber,
+      accountId: base.accountId,
+      bindingRevision: base.bindingRevision,
+      deviceId: base.deviceId,
+      sessionToken: base.sessionToken,
+      expiresAt: base.expiresAt,
+      requireCurrent: () async {
+        await validation?.future;
+      },
+    );
+    final api = _MemoryMembershipApi(
+      () async => _cacheState(DateTime.now().millisecondsSinceEpoch + 120000),
+    );
+    addTearDown(api.close);
+    await _subscriptionService(api: api).authorizeMembership(session);
+    validation = Completer<void>();
+    final pending = SubscriptionService.cachedAttachmentAuthorized(
+      cidNumber: session.cidNumber,
+      accountId: session.accountId,
+      bindingRevision: 1,
+      expectedDeviceId: session.deviceId,
+    );
+    await Future<void>.delayed(Duration.zero);
+    SubscriptionService.invalidateBusinessMembership(session.cidNumber);
+    validation.complete();
+    expect(await pending, isFalse);
+    expect(api.calls, 1);
+  });
 
   test('平台finalized确认使用MLS证明，核对回执后读取真实会员快照', () async {
     var deviceSignCount = 0;
@@ -394,8 +742,20 @@ void main() {
         expect(request.headers['x-mls-proof'], isNotEmpty);
         if (request.method == 'POST') {
           expect(request.url.path, '/api/membership/confirm');
-          expect(jsonDecode(request.body), {'tx_hash': txHash, 'block_hash': blockHash});
-          return http.Response(jsonEncode({'ok': true, 'tx_hash': txHash, 'block_hash': blockHash}), 200);
+          expect(jsonDecode(request.body), {
+            'tx_hash': txHash,
+            'block_hash': blockHash,
+            'include_state': true,
+          });
+          return http.Response(
+            jsonEncode({
+              'ok': true,
+              'tx_hash': txHash,
+              'block_hash': blockHash,
+              'membership_state': jsonDecode(_membershipJson),
+            }),
+            200,
+          );
         }
         expect(request.method, 'GET');
         expect(request.url.path, '/api/membership');
@@ -413,62 +773,280 @@ void main() {
       bindingRevision: 1,
       accountId: _identityAccountId,
       expiresAt: 9999999999999,
-      authenticateRequest: ({required method, required uri, required body, required sessionToken}) async {
-        deviceSignCount++;
-        return fakeMlsRequestHeaders(method: method, uri: uri, body: body, sessionToken: sessionToken);
-      },
+      authenticateRequest:
+          ({
+            required method,
+            required uri,
+            required body,
+            required sessionToken,
+          }) async {
+            deviceSignCount++;
+            return fakeMlsRequestHeaders(
+              method: method,
+              uri: uri,
+              body: body,
+              sessionToken: sessionToken,
+            );
+          },
     );
-    final confirmed = await api.confirmPlatformSubscription(session: session, txHash: txHash, blockHashHex: blockHash);
-    expect(sent.map((request) => request.method), ['POST', 'GET']);
-    expect(deviceSignCount, 2);
+    final confirmed = await api.confirmPlatformSubscription(
+      session: session,
+      txHash: txHash,
+      blockHashHex: blockHash,
+    );
+    expect(sent.map((request) => request.method), ['POST']);
+    expect(deviceSignCount, 1);
     expect(confirmed.active, isTrue);
     expect(confirmed.subscriptionActive, isTrue);
     expect(confirmed.membershipLevel, 'democracy');
   });
 
-  for (final damagedField in ['ok', 'tx_hash', 'block_hash', 'extra']) {
+  for (final damagedField in [
+    'ok',
+    'tx_hash',
+    'block_hash',
+    'extra',
+    'membership_state',
+  ]) {
     test('会员确认拒绝损坏回执字段$damagedField，不能读取快照或冒认确认成功', () async {
       var calls = 0;
       final txHash = '0x${'a' * 64}', blockHash = '0x${'b' * 64}';
-      final receipt = <String, Object>{'ok': true, 'tx_hash': txHash, 'block_hash': blockHash};
+      final receipt = <String, Object>{
+        'ok': true,
+        'tx_hash': txHash,
+        'block_hash': blockHash,
+        'membership_state': jsonDecode(_membershipJson),
+      };
       receipt[damagedField] = damagedField == 'ok' ? false : '0x${'c' * 64}';
-      final api = SquareApiClient(baseUrl: 'https://membership.test/api', httpClient: MockClient((request) async {
-        calls++;
-        expect(request.method, 'POST');
-        return http.Response(jsonEncode(receipt), 200);
-      }));
+      final api = SquareApiClient(
+        baseUrl: 'https://membership.test/api',
+        httpClient: MockClient((request) async {
+          calls++;
+          expect(request.method, 'POST');
+          return http.Response(jsonEncode(receipt), 200);
+        }),
+      );
       addTearDown(api.close);
-      await expectLater(api.confirmPlatformSubscription(session: _FakeSessionProvider()._session(), txHash: txHash, blockHashHex: blockHash), throwsA(isA<SquareApiException>()));
+      await expectLater(
+        api.confirmPlatformSubscription(
+          session: _FakeSessionProvider()._session(),
+          txHash: txHash,
+          blockHashHex: blockHash,
+        ),
+        throwsA(isA<SquareApiException>()),
+      );
       expect(calls, 1);
     });
   }
 
-  test('会员确认成功但快照读取失败仍传播失败，不能将回执转成未激活会员', () async {
+  test('确认快照暂不可用传播503并且不补GET，不将回执转成未激活会员', () async {
     var confirmations = 0, reads = 0;
     final txHash = '0x${'a' * 64}', blockHash = '0x${'b' * 64}';
-    final api = SquareApiClient(baseUrl: 'https://membership.test/api', httpClient: MockClient((request) async {
-      if (request.method == 'POST') {
-        confirmations++;
-        return http.Response(jsonEncode({'ok': true, 'tx_hash': txHash, 'block_hash': blockHash}), 200);
-      }
-      reads++;
-      return http.Response('{"error_code":"membership_unavailable"}', 503);
-    }));
+    final api = SquareApiClient(
+      baseUrl: 'https://membership.test/api',
+      httpClient: MockClient((request) async {
+        if (request.method == 'POST') {
+          confirmations++;
+          return http.Response('{"error":"membership_unavailable"}', 503);
+        }
+        reads++;
+        return http.Response('{"error":"membership_unavailable"}', 503);
+      }),
+    );
     addTearDown(api.close);
-    await expectLater(api.confirmPlatformSubscription(session: _FakeSessionProvider()._session(), txHash: txHash, blockHashHex: blockHash), throwsA(isA<SquareApiException>().having((error) => error.statusCode, 'statusCode', 503)));
+    await expectLater(
+      api.confirmPlatformSubscription(
+        session: _FakeSessionProvider()._session(),
+        txHash: txHash,
+        blockHashHex: blockHash,
+      ),
+      throwsA(
+        isA<SquareApiException>().having(
+          (error) => error.statusCode,
+          'statusCode',
+          503,
+        ),
+      ),
+    );
     expect(confirmations, 1);
-    expect(reads, 1);
+    expect(reads, 0);
   });
+
+  for (final broken in [
+    {},
+    {'ok': true},
+    {
+      'ok': true,
+      'membership_active': true,
+      'membership': null,
+      'plans': [],
+      'usage': {},
+    },
+  ]) {
+    test('确认快照字段缺失不能被解释成明确无权益 $broken', () async {
+      final tx = '0x${'a' * 64}', block = '0x${'b' * 64}';
+      final api = SquareApiClient(
+        baseUrl: 'https://membership.test/api',
+        httpClient: MockClient(
+          (_) async => http.Response(
+            jsonEncode({
+              'ok': true,
+              'tx_hash': tx,
+              'block_hash': block,
+              'membership_state': broken,
+            }),
+            200,
+          ),
+        ),
+      );
+      addTearDown(api.close);
+      await expectLater(
+        api.confirmPlatformSubscription(
+          session: _cacheSession(),
+          txHash: tx,
+          blockHashHex: block,
+        ),
+        throwsA(isA<SquareApiException>()),
+      );
+    });
+  }
 
   test('会员确认拒绝非规范交易和块，失败前不发请求', () async {
     var calls = 0;
-    final api = SquareApiClient(baseUrl: 'https://membership.test/api', httpClient: MockClient((_) async { calls++; return http.Response('{}', 200); }));
+    final api = SquareApiClient(
+      baseUrl: 'https://membership.test/api',
+      httpClient: MockClient((_) async {
+        calls++;
+        return http.Response('{}', 200);
+      }),
+    );
     addTearDown(api.close);
     for (final value in ['', '0x1234', '0x${'A' * 64}']) {
-      await expectLater(api.confirmPlatformSubscription(session: _FakeSessionProvider()._session(), txHash: value, blockHashHex: '0x${'b' * 64}'), throwsA(isA<SquareApiException>()));
-      await expectLater(api.confirmPlatformSubscription(session: _FakeSessionProvider()._session(), txHash: '0x${'a' * 64}', blockHashHex: value), throwsA(isA<SquareApiException>()));
+      await expectLater(
+        api.confirmPlatformSubscription(
+          session: _FakeSessionProvider()._session(),
+          txHash: value,
+          blockHashHex: '0x${'b' * 64}',
+        ),
+        throwsA(isA<SquareApiException>()),
+      );
+      await expectLater(
+        api.confirmPlatformSubscription(
+          session: _FakeSessionProvider()._session(),
+          txHash: '0x${'a' * 64}',
+          blockHashHex: value,
+        ),
+        throwsA(isA<SquareApiException>()),
+      );
     }
     expect(calls, 0);
+  });
+
+  test('聊天关闭构造期恢复时有真实待同步证明也零会话/确认/GET且保留证明', () async {
+    final provider = _FakeSessionProvider(), session = _cacheSession();
+    final key =
+        'platform_subscription_mirror_pending_by_cid:${provider.value.cidNumber}';
+    final proof = jsonEncode([
+      {'tx_hash': '0x${'a' * 64}', 'block_hash': '0x${'b' * 64}'},
+    ]);
+    await WalletIsar.instance.writeTxn((isar) async {
+      await isar.walletMembershipStateEntitys.put(
+        WalletMembershipStateEntity()
+          ..stateKey = key
+          ..payloadJson = proof,
+      );
+    });
+    var calls = 0;
+    final api = SquareApiClient(
+      baseUrl: 'https://membership.test/api',
+      httpClient: MockClient((_) async {
+        calls++;
+        throw StateError('聊天构造期不得发请求');
+      }),
+    );
+    addTearDown(api.close);
+    final service = _subscriptionService(
+      api: api,
+      sessionProvider: provider,
+      resumePendingTransactions: false,
+    );
+    await Future<void>.delayed(Duration.zero);
+    // 只读展示、检查后台缓存均不能启动交易恢复。
+    await service.readDisplaySnapshot(session.cidNumber);
+    expect(provider.calls, 0);
+    expect(calls, 0);
+    expect(
+      (await WalletIsar.instance.read(
+        (isar) => isar.walletMembershipStateEntitys.getByStateKey(key),
+      ))?.payloadJson,
+      proof,
+    );
+  });
+
+  test('待同步证明确认先装唯一缓存再广播，后续消费者零GET且删除原证明', () async {
+    final provider = _FakeSessionProvider(),
+        session = await _FakeSessionProvider().ensureSession();
+    final tx = '0x${'a' * 64}',
+        block = '0x${'b' * 64}',
+        key =
+            'platform_subscription_mirror_pending_by_cid:${session!.cidNumber}';
+    await WalletIsar.instance.writeTxn((isar) async {
+      await isar.walletMembershipStateEntitys.put(
+        WalletMembershipStateEntity()
+          ..stateKey = key
+          ..payloadJson = jsonEncode([
+            {'tx_hash': tx, 'block_hash': block},
+          ]),
+      );
+    });
+    final sent = <String>[], changed = Completer<void>();
+    void listener() {
+      if (!changed.isCompleted) changed.complete();
+    }
+
+    MembershipRevision.instance.listenable.addListener(listener);
+    addTearDown(
+      () => MembershipRevision.instance.listenable.removeListener(listener),
+    );
+    final api = SquareApiClient(
+      baseUrl: 'https://membership.test/api',
+      httpClient: MockClient((request) async {
+        sent.add(request.method);
+        expect(request.method, 'POST');
+        return http.Response(
+          jsonEncode({
+            'ok': true,
+            'tx_hash': tx,
+            'block_hash': block,
+            'membership_state': jsonDecode(_membershipJson),
+          }),
+          200,
+        );
+      }),
+    );
+    addTearDown(api.close);
+    final service = _subscriptionService(api: api, sessionProvider: provider);
+    await changed.future.timeout(const Duration(seconds: 5));
+    expect(
+      (await service.authorizeMembership((await provider.ensureSession())!))
+          .active,
+      isTrue,
+    );
+    expect(sent, ['POST']);
+    // 广播早于原证明清除，排空同一数据库队列后核对幂等恢复已完成。
+    for (var i = 0; i < 10; i++) {
+      final row = await WalletIsar.instance.read(
+        (isar) => isar.walletMembershipStateEntitys.getByStateKey(key),
+      );
+      if (row == null) break;
+      await Future<void>.delayed(Duration.zero);
+    }
+    expect(
+      await WalletIsar.instance.read(
+        (isar) => isar.walletMembershipStateEntitys.getByStateKey(key),
+      ),
+      isNull,
+    );
   });
 
   test('同一 CitizenServe 身份会话跨页面服务实例只读取一次会员', () async {
@@ -711,7 +1289,7 @@ void main() {
     expect(chain.fetchCount, 0);
   });
 
-  testWidgets('手动刷新绕过会话结果强制读取 CitizenServe 和链上价格', (tester) async {
+  testWidgets('手动刷新统一服务端快照，注册页面不再查链价格', (tester) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     final service = _RecordingSubscriptionService()
       ..cachedSnapshot = MembershipDisplaySnapshot(
@@ -723,17 +1301,18 @@ void main() {
     final chain = _FakeChainService(const {'freedom': 39900});
 
     await _pump(tester, _state(), service: service, chainService: chain);
+    service.serverPrices = const {'freedom': 39900};
     await tester.tap(find.byTooltip('刷新'));
     await tester.pumpAndSettle();
 
     expect(service.authorizationCount, 2);
     expect(service.forceAuthorizationCalls, [isFalse, isTrue]);
-    expect(chain.fetchCount, 1);
-    expect(chain.forceFreshCalls, [isTrue]);
+    expect(chain.fetchCount, 0);
+    expect(chain.forceFreshCalls, isEmpty);
     expect(find.text('399.00 元'), findsOneWidget);
   });
 
-  testWidgets('后台价格刷新失败时保留上一次缓存价格和三张卡', (tester) async {
+  testWidgets('服务端未给新价格时保留上一次展示价格，不补查链', (tester) async {
     final stale = DateTime.now()
         .subtract(const Duration(hours: 1))
         .millisecondsSinceEpoch;
@@ -748,7 +1327,7 @@ void main() {
 
     await _pump(tester, _state(), service: service, chainService: chain);
 
-    expect(chain.fetchCount, 1);
+    expect(chain.fetchCount, 0);
     expect(find.text('自由会员'), findsOneWidget);
     expect(find.text('民主会员'), findsOneWidget);
     expect(find.text('薪火会员'), findsOneWidget);
@@ -832,10 +1411,7 @@ void main() {
       final image = tester.widget<Image>(
         find.byKey(ValueKey('membership-price-gmb-mark-$level')),
       );
-      expect(
-        (image.image as AssetImage).assetName,
-        'assets/logo/mark256.png',
-      );
+      expect((image.image as AssetImage).assetName, 'assets/logo/mark256.png');
       expect(image.width, 18);
       expect(image.height, 18);
       expect(image.colorBlendMode, BlendMode.srcIn);

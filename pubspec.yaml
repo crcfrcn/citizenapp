@@ -15,8 +15,7 @@ dependencies:
     git:
       url: https://github.com/crcfrcn/citizensdk.git
       path: .
-      ref: de5563df18f7e5332406c78ec00d0c64a5e2d842
-  cupertino_icons: 1.0.9
+      ref: 004e5a4917c129cfd985342857f4ce16a3b3ebad
   http: 1.6.0
   shared_preferences: ^2.5.5
   polkadart: 0.7.3
@@ -36,12 +35,6 @@ dependencies:
   image_picker: ^1.2.3
   # 发布页统一相册：双端同一网格，支持图片数量上限及“多图或单视频”选择中互斥。
   wechat_assets_picker: ^10.1.2
-  # Chat 应用内拍摄：统一实现点按拍照、长按录像与三分钟自动停止。
-  camera: ^0.12.0+2
-  # Chat 语音消息：录音只写入 App 临时目录，发送后进入既有端到端附件通道。
-  record: ^7.1.1
-  # Chat 语音气泡只播放本机已解密缓存文件，不启用后台播放或远程代理。
-  just_audio: ^0.10.6
   crypto: 3.0.7
   # 应用锁使用标准 PBKDF2-HMAC-SHA256 实现，避免手写循环产生额外分配。
   pointycastle: ^4.0.0
@@ -53,9 +46,7 @@ dependencies:
   saver_gallery: 5.1.0
   # CitizenApp 不实现 sr25519；钱包签名与验签全部由 CitizenSDK 提供。
   # polkadart_keyring 仅用于 App 现有 SS58 地址编解码，禁止用它另造签名实现。
-  protobuf: ^6.0.0
   path: ^1.9.1
-  fixnum: ^1.1.1
   flutter_chat_ui: ^2.11.1
   flutter_chat_core: ^2.9.0
   # Chat 自绘 Composer 通过现有 flutter_chat_ui Provider 同步输入栏高度。
@@ -67,8 +58,6 @@ dependencies:
   video_player: 2.11.1
   image_size_getter: ^2.4.1
   flutter_image_compress: 2.4.0
-  blurhash_dart: ^1.2.1
-  image: 4.9.1
   # 文章正文富文本编辑器；11.5.1 实现 Flutter 3.44 新增的 TextInputClient.onFocusReceived。
   flutter_quill: 11.5.1
   # CitizenApp直接依赖公开TataChatSDK根包的唯一固定Git提交。
@@ -76,17 +65,15 @@ dependencies:
     git:
       url: https://github.com/tuyutata/tatachatsdk.git
       path: .
-      ref: c1bc7b5590b74ffa3f21333280e9557522b5ea74
+      ref: 0f91ca7c7f685ce065e16bc077697dd48173e33b
 dev_dependencies:
   integration_test:
     sdk: flutter
   flutter_test:
     sdk: flutter
   flutter_lints: 6.0.0
-  # 两款移动产品共同使用的代码生成器固定同一解析版本。
-  build_runner: 2.15.0
-  isar_community_generator: ^3.3.2
-  protoc_plugin: 25.0.0
+  # 仅媒体处理回归直接使用；运行时图像能力由SDK声明。
+  image: 4.9.1
 
 flutter:
   # 两款移动产品统一使用 CocoaPods，禁止本机全局配置

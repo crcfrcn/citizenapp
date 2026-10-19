@@ -1,5 +1,7 @@
 import 'dart:convert';
-import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart';
+import 'package:citizenapp/network/square_api_client.dart';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart';
@@ -104,6 +106,7 @@ void main() {
     int Function()? cidYearProvider,
     IdentityBadgeSnapshotStore? badgeSnapshotStore,
     ChatSdk? runtime,
+    SquareSessionProvider? sessionProvider,
   }) {
     final actualWallet = wallet ?? _FakeWalletManager(_aliceWallet);
     final actualChain = chain ?? _FakeChain();
@@ -116,7 +119,7 @@ void main() {
       currentUserContext:
           currentUserContext ?? _InvalidationCountingIdentityCache(),
       identityResolver: identityResolver ?? _FakeIdentityResolver(null),
-      sessionProvider: _UnusedSessionProvider(),
+      sessionProvider: sessionProvider ?? _UnusedSessionProvider(),
       chatRuntime: () => actualRuntime,
       chain: actualChain,
       transactions: TestCitizenTransactions(),
@@ -125,6 +128,64 @@ void main() {
       identityTransaction: identityTransaction,
       cidYearProvider: cidYearProvider,
     );
+  }
+
+  for (final result in [
+    'registered',
+    'unregistered',
+    'network',
+    'changed',
+    'late',
+  ]) {
+    test('只有显式恢复服务一次验真并登记，$result失败关闭', () async {
+      final wallet = _FakeWalletManager(_aliceWallet);
+      final current = CurrentUserContext(
+        wallet: wallet,
+        accountSecurity: wallet,
+      );
+      final identity = _registeredIdentity(_validAccountId);
+      final resolver = _RecoveryResolver(
+        result == 'unregistered'
+            ? const FinalizedIdentity(
+                accountId: _validAccountId,
+                ss58Address: _validAddress,
+                snapshot: null,
+              )
+            : identity,
+        failure: result == 'network',
+        changed: result == 'changed',
+      );
+      final sessions = _RecoverySessions(
+        identity,
+        onRegister: result == 'late'
+            ? () {
+                wallet.revision.value++;
+              }
+            : null,
+      );
+      final service = testService(
+        wallet: wallet,
+        currentUserContext: current,
+        identityResolver: resolver,
+        sessionProvider: sessions,
+      );
+      if (result == 'registered') {
+        await service.recoverServiceAccess();
+        expect(sessions.registrations, 1);
+        expect(
+          (await current.resolve())?.cidNumber,
+          identity.snapshot!.cidNumber,
+        );
+      } else {
+        await expectLater(
+          service.recoverServiceAccess(),
+          throwsA(isA<Exception>()),
+        );
+        expect(sessions.registrations, result == 'late' ? 1 : 0);
+      }
+      expect(resolver.reads, 1);
+      expect(wallet.signCalls, 0);
+    });
   }
 
   test('本地公民号与完整快照重进复用且不调用验真', () async {
@@ -736,6 +797,8 @@ class _FakeWalletManager
     this.accounts = const <CitizenWalletStateAccount>[],
   });
   final CitizenWalletStateAccount? _wallet;
+  @override
+  final revision = ValueNotifier<int>(0);
   final List<CitizenWalletStateAccount> accounts;
 
   int mlsDeviceRegistrationCalls = 0;
@@ -815,6 +878,7 @@ class _FakeWalletManager
   @override
   void notifyIdentityBindingChanged() {
     identityNotifications++;
+    revision.value++;
   }
 
   @override
@@ -1138,4 +1202,57 @@ class _BindingRuntime extends ChatSdk {
   Future<void> convergeFinalizedBinding(ChatBinding current) async {
     observed = current;
   }
+}
+
+/// 恢复用例仍核对每次本机代际；错误不会触发第二次链读取。
+class _RecoveryResolver implements FinalizedIdentityResolver {
+  _RecoveryResolver(
+    this.identity, {
+    this.failure = false,
+    this.changed = false,
+  });
+  final FinalizedIdentity identity;
+  final bool failure, changed;
+  int reads = 0;
+  @override
+  Future<FinalizedIdentity?> resolve() async {
+    reads++;
+    if (failure) throw const FormatException('合成链故障');
+    return identity;
+  }
+
+  @override
+  Future<void> assertCurrent(FinalizedIdentity identity) async {
+    if (changed) {
+      throw const AccountSecurityException('当前用户已变化', code: 'identityChanged');
+    }
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _RecoverySessions implements SquareSessionProvider {
+  _RecoverySessions(this.identity, {this.onRegister});
+  final FinalizedIdentity identity;
+  final void Function()? onRegister;
+  int registrations = 0;
+  @override
+  void invalidateAccount(String accountId) {}
+  @override
+  Future<SquareSession?> registerCurrentDevice() async {
+    registrations++;
+    onRegister?.call();
+    return SquareSession(
+      sessionToken: 'recovered',
+      cidNumber: identity.snapshot!.cidNumber,
+      accountId: identity.accountId,
+      bindingRevision: identity.snapshot!.bindingRevision,
+      deviceId: 'ab' * 32,
+      expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
+    );
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

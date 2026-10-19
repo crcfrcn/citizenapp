@@ -10,6 +10,112 @@ import 'mls_authentication_fixture.dart';
 
 void main() {
   _chatAccessTests();
+  for (final status in [401, 403, 429, 503]) {
+    for (final data in <Map<String, Object?>>[
+      {'error': 'device_not_registered'},
+      {},
+      {'error': 1},
+      {'error': null},
+      {
+        'error': {'code': 'device_not_registered'},
+      },
+      {'error_code': 'device_not_registered'},
+    ]) {
+      test('真实错误字段$status/$data仅接受error字符串且不重试', () async {
+        var calls = 0;
+        final api = SquareApiClient(
+          baseUrl: 'https://square.test/api',
+          httpClient: MockClient((_) async {
+            calls++;
+            return http.Response(jsonEncode(data), status);
+          }),
+        );
+        addTearDown(api.close);
+        await expectLater(
+          api.ensureSession(
+            accountId: testMlsAccountId,
+            authentication: FakeMlsAuthentication(),
+          ),
+          throwsA(
+            isA<SquareApiException>()
+                .having((e) => e.statusCode, 'HTTP状态', status)
+                .having((e) => e.stage, '阶段', SquareApiStage.challenge)
+                .having(
+                  (e) => e.errorCode,
+                  '错误码',
+                  data['error'] is String ? data['error'] : null,
+                ),
+          ),
+        );
+        expect(calls, 1);
+      });
+    }
+  }
+
+  for (final price in [null, 0, 29900, -1, 1.5, true, 9007199254740992]) {
+    test('会员真实价格解析不伪造未知值并拒绝非法数值 $price', () async {
+      final api = SquareApiClient(
+        baseUrl: 'https://square.test/api',
+        httpClient: MockClient(
+          (r) async => http.Response(
+            jsonEncode({
+              'ok': true,
+              'membership_active': false,
+              'membership': null,
+              'plans': [
+                {
+                  'membership_level': 'freedom',
+                  'price_fen': price,
+                  'plan': {
+                    'membership_level': 'freedom',
+                    'chat_file_max_bytes': 104857600,
+                    'video_max_seconds': 180,
+                    'video_max_bytes': 104857600,
+                    'article_max_images': 9,
+                    'article_max_videos': 1,
+                    'monthly_images': 100,
+                    'monthly_video_seconds': 1800,
+                    'active_uploads': 5,
+                  },
+                  'limits': {
+                    'image_dimension': 1920,
+                    'image_bytes': 10485760,
+                    'storage_bytes': 1073741824,
+                  },
+                },
+              ],
+              'usage': {
+                'used_images': 0,
+                'reserved_images': 0,
+                'used_video_seconds': 0,
+                'reserved_video_seconds': 0,
+                'active_uploads': 0,
+              },
+            }),
+            200,
+          ),
+        ),
+      );
+      addTearDown(api.close);
+      final state = api.fetchMembership(
+        const SquareSession(
+          deviceId: testMlsDeviceId,
+          sessionToken: 'price',
+          cidNumber: testMlsCidNumber,
+          accountId: testMlsAccountId,
+          bindingRevision: 1,
+          expiresAt: 9999999999999,
+          authenticateRequest: fakeMlsRequestHeaders,
+        ),
+      );
+      if (price == null ||
+          price is int && price >= 0 && price <= 9007199254740991) {
+        expect((await state).plans.single.priceFen, price);
+      } else {
+        await expectLater(state, throwsA(isA<SquareApiException>()));
+      }
+    });
+  }
   test('功能API使用实际/api路径；方法、查询及正文与证明完全相同', () async {
     final signed = <({String method, Uri uri, List<int> body})>[],
         sent = <http.Request>[];
@@ -235,19 +341,30 @@ void _chatAccessTests() {
   for (final endpoints in const [
     ('https://square.test/api', 'wss://square.test:443/api/tatachat/realtime'),
     ('https://square.test:443/api', 'wss://square.test/api/tatachat/realtime'),
-    ('https://square.test:8443/api', 'wss://square.test:8443/api/tatachat/realtime'),
-    ('https://square.test:8443/api', 'WSS://square.test:8443/api/tatachat/realtime'),
+    (
+      'https://square.test:8443/api',
+      'wss://square.test:8443/api/tatachat/realtime',
+    ),
+    (
+      'https://square.test:8443/api',
+      'WSS://square.test:8443/api/tatachat/realtime',
+    ),
   ]) {
     test('聊天许可有效安全端口一致 ${endpoints.$1} ${endpoints.$2}', () async {
       final api = SquareApiClient(
         baseUrl: endpoints.$1,
-        httpClient: MockClient((_) async => http.Response(
-          jsonEncode({...receipt(), 'realtime_url': endpoints.$2}),
-          200,
-        )),
+        httpClient: MockClient(
+          (_) async => http.Response(
+            jsonEncode({...receipt(), 'realtime_url': endpoints.$2}),
+            200,
+          ),
+        ),
       );
       addTearDown(api.close);
-      final access = await api.fetchChatAccess(session: session, deviceId: testMlsDeviceId);
+      final access = await api.fetchChatAccess(
+        session: session,
+        deviceId: testMlsDeviceId,
+      );
       expect(access.realtimeUrl, Uri.parse(endpoints.$2));
       expect(access.accessToken, 'opaque-token');
     });
@@ -259,10 +376,12 @@ void _chatAccessTests() {
     test('自定义HTTPS端口拒绝默认WSS端口 $realtime', () async {
       final api = SquareApiClient(
         baseUrl: 'https://square.test:8443/api',
-        httpClient: MockClient((_) async => http.Response(
-          jsonEncode({...receipt(), 'realtime_url': realtime}),
-          200,
-        )),
+        httpClient: MockClient(
+          (_) async => http.Response(
+            jsonEncode({...receipt(), 'realtime_url': realtime}),
+            200,
+          ),
+        ),
       );
       addTearDown(api.close);
       await expectLater(

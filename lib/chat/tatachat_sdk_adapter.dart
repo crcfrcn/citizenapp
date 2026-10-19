@@ -54,7 +54,8 @@ typedef ChatPushTokenProvider = Future<sdk.ChatPushToken> Function();
 ///
 /// CID、当前账户、会员和 CitizenServe 会话仍由各自业务模块拥有；
 /// 本类型不保存或复制这些事实，只在 TataChatSDK 调用时读取并映射。
-final class CitizenChatRuntimeHost implements sdk.ChatRuntimeHost {
+final class CitizenChatRuntimeHost
+    implements sdk.ChatRuntimeHost, sdk.ChatAttachmentAuthorizationHost {
   CitizenChatRuntimeHost({
     required this.accountSecurity,
     required this.currentUserContext,
@@ -80,6 +81,38 @@ final class CitizenChatRuntimeHost implements sdk.ChatRuntimeHost {
     if (session == null || session.cidNumber != userId) return false;
     SubscriptionService.rememberCitizenSession(session);
     return SubscriptionService.chatAuthorizedFor(userId);
+  }
+
+  @override
+  Future<bool> prepareAttachment(
+    sdk.ChatRuntimeAccount account, {
+    required bool allowRefresh,
+    String? expectedDeviceId,
+  }) async {
+    if (!allowRefresh) {
+      return SubscriptionService.cachedAttachmentAuthorized(
+        cidNumber: account.userId,
+        accountId: account.accountId,
+        bindingRevision: account.bindingRevision,
+        expectedDeviceId: expectedDeviceId,
+      );
+    }
+    final session = await squareSessionProvider.ensureSession();
+    if (session == null ||
+        session.cidNumber != account.userId ||
+        session.accountId != account.accountId ||
+        session.bindingRevision != account.bindingRevision ||
+        (expectedDeviceId != null && session.deviceId != expectedDeviceId)) {
+      throw const SquareApiException(
+        '附件会话与当前账户或设备不一致',
+        statusCode: 401,
+        errorCode: 'invalid_session',
+      );
+    }
+    await session.validateCurrent();
+    await SubscriptionService.prepareAttachment(session);
+    await session.validateCurrent();
+    return true;
   }
 
   @override

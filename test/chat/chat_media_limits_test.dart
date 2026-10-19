@@ -24,9 +24,10 @@ void main() {
     );
     SubscriptionService.setChatAuthorizationForTesting(_cidNumber, 100 * mib);
   });
-  tearDown(
-    () => SubscriptionService.setChatAuthorizationForTesting(_cidNumber, null),
-  );
+  tearDown(() {
+    SubscriptionService.setChatAuthorizationForTesting(_cidNumber, null);
+    SubscriptionService.nowForTesting = null;
+  });
 
   test('会员模块唯一保存 CID 绑定的聊天附件权益', () {
     expect(SubscriptionService.membershipResolvedFor(_cidNumber), isTrue);
@@ -58,6 +59,16 @@ void main() {
     expect(policy.exceedsForKind(ChatMessageKind.file, 1), isTrue);
     expect(policy.exceedsForKind(ChatMessageKind.text, 1 << 40), isFalse);
   });
+  test('唯一缓存60秒到期立即收回附件，展示事实和基础会话不被会员查询替代', () {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    SubscriptionService.nowForTesting = () => now;
+    SubscriptionService.setChatAuthorizationForTesting(_cidNumber, 100 * mib);
+    SubscriptionService.nowForTesting = () => now + 60000;
+    expect(SubscriptionService.chatFileMaxBytesFor(_cidNumber), 0);
+    expect(SubscriptionService.membershipResolvedFor(_cidNumber), isTrue);
+    expect(policy.exceedsForKind(ChatMessageKind.file, 1), isTrue);
+  });
+
   test('聊天模块的媒体策略无状态读取会员模块当前上限', () {
     expect(policy.limitForKind(ChatMessageKind.image), 100 * mib);
     expect(policy.limitForKind(ChatMessageKind.video), 100 * mib);

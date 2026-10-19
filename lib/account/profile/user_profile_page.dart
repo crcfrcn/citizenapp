@@ -217,24 +217,23 @@ class _UserProfilePageState extends State<UserProfilePage> {
         if (session == null || session.cidNumber != citizen) {
           throw const SquareApiException('当前公民会话不可用');
         }
-        final service = _subscriptionService;
-        if (service == null) throw const SquareApiException('暂时无法验证会员状态');
-        await service.requireProfileAccess(session, widget.cidNumber);
+        // 原资料请求由服务端门禁最终决定；不先GET一遍会员。
       }
       if (!current()) return;
       setState(() {
         _verifiedSelf = self;
         _accessAllowed = true;
-        _accessReady = true;
+        _accessReady = self;
         _accessError = null;
       });
       if (_profile is CitizenProfileCard) _profile = null;
-      if (_profile != null) {
+      if (self && _profile != null) {
         unawaited(_resolveOwnAccount(_profile!.accountId));
         unawaited(_loadProfileMedia(_profile!));
       }
       if (self) unawaited(_loadConfirmedMembership());
-      await _load();
+      await _load(propagateFailure: true);
+      if (current()) setState(() => _accessReady = true);
     } on Object catch (error) {
       if (!current()) return;
       setState(() {
@@ -263,7 +262,6 @@ class _UserProfilePageState extends State<UserProfilePage> {
   /// 当前主页 CID 的会员镜像变化时重读资料，并重建当前内容 Tab 的作者徽章。
   void _onMembershipChanged() {
     if (MembershipRevision.instance.listenable.value?.cidNumber == _viewerCid) {
-      SubscriptionService.invalidateBusinessMembership(_viewerCid);
       _invalidatePageAccess();
       return;
     }
@@ -343,7 +341,10 @@ class _UserProfilePageState extends State<UserProfilePage> {
     final generation = ++_profileLoadGeneration;
     try {
       if (!_accessAllowed) return;
-      final local = await _cache.read(widget.cidNumber);
+      // 他人主页先等原业务请求通过；不得在服务端拒绝前展示旧缓存或发媒体请求。
+      final local = _verifiedSelf || localOnly
+          ? await _cache.read(widget.cidNumber)
+          : null;
       if (!mounted || generation != _profileLoadGeneration) return;
       if (local != null && local.cidNumber == widget.cidNumber) {
         setState(() => _profile = local);

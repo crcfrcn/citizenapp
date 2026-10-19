@@ -510,12 +510,81 @@ class MyIdService {
       throw const AccountSecurityException('当前账户尚未注册公民号');
     }
     await _identityResolver.assertCurrent(resolved);
-    await _finishResolvedBinding(resolved);
+    final binding = await _bindingForFinalizedIdentity(resolved);
+    await _identityResolver.assertCurrent(resolved);
+    // 恢复收尾每个异步边界继续核对原默认账户/钱包代次；本步骤自身会改变绑定代次。
+    Future<void> requireWallet() async {
+      final state = await _wallet.getState().result;
+      if (state.defaultAccount?.accountId != resolved.accountId ||
+          (resolved.walletRevision != null &&
+              state.revision != resolved.walletRevision)) {
+        throw const AccountSecurityException(
+          '当前用户已变化，请重试',
+          code: 'identityChanged',
+        );
+      }
+    }
+
+    await _finishFinalizedBinding(binding, requireCurrent: requireWallet);
+  }
+
+  /// 用户点击“恢复服务”才查一次finalized身份；普通聊天/刷新展示不得调用。
+  Future<void> recoverServiceAccess() async {
+    final resolved = await _identityResolver.resolve();
+    if (resolved == null) throw const AccountSecurityException('请先创建钱包');
+    final snapshot = resolved.snapshot;
+    if (snapshot == null) {
+      throw const AccountSecurityException('当前账户尚未注册公民号，请先完成注册');
+    }
+    await _identityResolver.assertCurrent(resolved);
+    await recoverFinalizedBinding(resolved);
+    // 绑定收尾自身会广播新代次，后续只核对新的本机绑定和原钱包代次，不再次查链。
+    final revision = _accountSecurity.revision.value;
+    Future<void> requireCurrent() async {
+      final state = await _wallet.getState().result;
+      final current = await _currentUserContext.resolve();
+      if (state.defaultAccount?.accountId != resolved.accountId ||
+          (resolved.walletRevision != null &&
+              state.revision != resolved.walletRevision) ||
+          _accountSecurity.revision.value != revision ||
+          current?.accountId != resolved.accountId ||
+          current?.cidNumber != snapshot.cidNumber ||
+          current?.bindingRevision != snapshot.bindingRevision) {
+        throw const AccountSecurityException(
+          '当前用户已变化，请重试',
+          code: 'identityChanged',
+        );
+      }
+    }
+
+    await requireCurrent();
+    // 恢复使用本次完整验真快照，不能把投票/竞选身份永久降成匿名展示。
+    await _badgeSnapshotStore.writeVerified(
+      accountId: resolved.accountId,
+      identity: snapshot,
+      isCurrent: () => _accountSecurity.revision.value == revision,
+    );
+    await requireCurrent();
+    final session = await _sessionProvider.registerCurrentDevice();
+    await requireCurrent();
+    if (session == null ||
+        session.accountId != resolved.accountId ||
+        session.cidNumber != snapshot.cidNumber ||
+        session.bindingRevision != snapshot.bindingRevision ||
+        !session.isUsable) {
+      throw const AccountSecurityException('恢复会话与当前身份不一致');
+    }
+    await session.validateCurrent();
+    await requireCurrent();
   }
 
   /// finalized只推进公开身份和失效代次；不派生材料，不登记设备或请求钱包授权。
-  Future<void> _finishFinalizedBinding(IdentityBinding current) async {
+  Future<void> _finishFinalizedBinding(
+    IdentityBinding current, {
+    Future<void> Function()? requireCurrent,
+  }) async {
     try {
+      await requireCurrent?.call();
       // 自助占号/换绑已经按交易finalized块验证匿名CID绑定；直接保存该事实，页面不再查链。
       await _badgeSnapshotStore.writeVerified(
         accountId: current.accountId,
@@ -530,15 +599,18 @@ class MyIdService {
         ),
         isCurrent: () => true,
       );
+      await requireCurrent?.call();
       final previous = await _accountSecurity.readIdentityBindingForCid(
         current.cidNumber,
       );
+      await requireCurrent?.call();
       await _accountSecurity.activateIdentityBinding(
         genesisHash: current.genesisHash,
         cidNumber: current.cidNumber,
         bindingRevision: current.bindingRevision,
         accountId: current.accountId,
       );
+      await requireCurrent?.call();
       _currentUserContext.invalidate();
       if (previous != null) {
         _sessionProvider.invalidateAccount(previous.accountId);
@@ -556,6 +628,7 @@ class MyIdService {
           accountId: current.accountId,
         ),
       );
+      await requireCurrent?.call();
     } finally {
       // CID 占号与换绑不一定改变 account_id，必须先清“未注册”快照再广播；所有常驻
       // 页面收到 revision 后按 cid_number + account_id 重读，禁止依赖重启 App。
@@ -715,17 +788,37 @@ class MyIdService {
   }
 
   Future<String> activateRegistration(FinalizedRegistration finalized) async {
+    final guard = await registrationGuard(finalized.binding.accountId);
+    if ((await _wallet.getState().result).defaultAccount?.accountId !=
+        finalized.binding.accountId) {
+      throw const AccountSecurityException(
+        '注册期间默认账户已变化',
+        code: 'identityChanged',
+      );
+    }
+    await guard();
     await _sessionProvider.projectFinalizedIdentity(finalized.blockHash);
+    await guard();
     await _finishFinalizedBinding(finalized.binding);
-    final session = await _sessionProvider.ensureSessionForAccountId(
-      finalized.binding.accountId,
-    );
+    await guard();
+    final current = await _currentUserContext.resolve();
+    if (current?.accountId != finalized.binding.accountId) {
+      throw const AccountSecurityException(
+        '注册期间默认账户已变化',
+        code: 'identityChanged',
+      );
+    }
+    final session = await _sessionProvider.registerCurrentDevice();
+    await guard();
     if (session == null ||
+        session.accountId != finalized.binding.accountId ||
         session.cidNumber != finalized.binding.cidNumber ||
         session.bindingRevision != finalized.binding.bindingRevision ||
         !session.isUsable) {
       throw const AccountSecurityException('注册普通会话与finalized身份不一致');
     }
+    await session.validateCurrent();
+    await guard();
     // 会话deviceId已经由同一SDK的实际MLS证明核对；编排再核对服务器激活回执。
     return session.deviceId;
   }

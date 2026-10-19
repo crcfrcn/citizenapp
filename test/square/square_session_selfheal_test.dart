@@ -7,7 +7,6 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/account/identity/square_session_provider.dart';
-import 'package:citizenapp/account/identity/cid_business_gate.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
 import 'package:citizenapp/account/identity/account_security_service.dart';
 import 'package:citizenapp/account/identity/mls_authentication.dart';
@@ -112,7 +111,7 @@ void main() {
         baseUrl: 'https://worker.test/api',
         httpClient: MockClient(
           (_) async => http.Response(
-            jsonEncode({'error_code': entry.key, 'message': '不应进入诊断的合成服务正文'}),
+            jsonEncode({'error': entry.key, 'message': '不应进入诊断的合成服务正文'}),
             entry.value.$1,
             headers: {'content-type': 'application/json; charset=utf-8'},
           ),
@@ -164,7 +163,7 @@ void main() {
           }
           sessionCalls++;
           return http.Response(
-            jsonEncode({'error_code': error, 'message': '拒绝'}),
+            jsonEncode({'error': error, 'message': '拒绝'}),
             401,
             headers: {'content-type': 'application/json; charset=utf-8'},
           );
@@ -201,10 +200,7 @@ void main() {
           sessionCalls++;
           if (sessionCalls == 1 || !success) {
             return http.Response(
-              jsonEncode({
-                'error_code': 'device_not_registered',
-                'message': '未登记',
-              }),
+              jsonEncode({'error': 'device_not_registered', 'message': '未登记'}),
               401,
               headers: {'content-type': 'application/json; charset=utf-8'},
             );
@@ -264,10 +260,6 @@ class _ChatSessionFixture extends SquareSessionProvider {
         accountSecurity: _UnusedChatSecurity(),
         currentUserContext: _UnusedChatCurrent(),
         // 与本用例冻结的已注册会话一致，仍由原断言验证迟到许可被拒绝。
-        resolveCid: () async => CidBusinessDecision(
-          CidBusinessStatus.ready,
-          cidNumber: session.cidNumber,
-        ),
         client: client,
         authentication: source,
       );

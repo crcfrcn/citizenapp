@@ -150,7 +150,6 @@ Future<void> main() async {
   squareSessionProvider = SquareSessionProvider(
     accountSecurity: accountSecurity,
     currentUserContext: currentUserContext,
-    resolveCid: cidBusinessGate.resolve,
     client: squareApiClient,
     authentication: authentication,
   );

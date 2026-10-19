@@ -1,9 +1,22 @@
 import '../square/mls_authentication_fixture.dart';
 
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:citizenapp/storage/wallet_isar.dart';
+import 'package:citizenapp/account/identity/identity_binding.dart';
+
+import '../support/isar_test_env.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:provider/provider.dart';
+import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
+
+import '../support/fake_citizen_sdk.dart';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:citizenapp/account/profile/citizen_profile.dart';
@@ -13,6 +26,8 @@ import 'package:citizenapp/account/identity/square_session_provider.dart';
 import 'package:citizenapp/account/profile/profile_avatar.dart';
 import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/chat/chat_entry.dart';
+import 'package:citizenapp/chat/tatachat_sdk_adapter.dart';
+import 'package:citizenapp/account/identity/current_user_context.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart';
 import 'package:citizenapp/account/membership/subscription_service.dart';
 import 'package:citizenapp/account/contacts/contact_service.dart';
@@ -99,6 +114,204 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
   }
 
+  group('聊天构造期不恢复会员交易', () {
+    useIsolatedIsar();
+    testWidgets('真实默认服务在打开及重连时保留待同步证明，网络和链均为零', (tester) async {
+      final key = 'platform_subscription_mirror_pending_by_cid:$_ownerUserId';
+      final proof = jsonEncode([
+        {'tx_hash': '0x${'a' * 64}', 'block_hash': '0x${'b' * 64}'},
+      ]);
+      await tester.runAsync(() async {
+        await WalletIsar.instance.writeTxn((isar) async {
+          await isar.walletMembershipStateEntitys.put(
+            WalletMembershipStateEntity()
+              ..stateKey = key
+              ..payloadJson = proof,
+          );
+        });
+      });
+      final security = _UnusedSecurity(),
+          sessions = _FakeProfileSessionProvider(),
+          resolver = _NoChatChainRecovery();
+      final transport = TestCitizenSdkTransport({}),
+          network = _ChatNetworkCounter();
+      final sdk = await transport.open();
+      addTearDown(() async {
+        await sdk.close();
+        await transport.dispose();
+        security.revision.dispose();
+      });
+      await HttpOverrides.runZoned(() async {
+        await tester.pumpWidget(
+          MultiProvider(
+            providers: [
+              Provider<CitizenSdk>.value(value: sdk),
+              Provider<AccountSecurityService>.value(value: security),
+              Provider<FinalizedIdentityResolver>.value(value: resolver),
+              Provider<CurrentUserContext>.value(
+                value: _LocalChatIdentity(registered: true),
+              ),
+              Provider<SquareSessionProvider>.value(value: sessions),
+            ],
+            child: MaterialApp(
+              home: Scaffold(
+                body: ChatTab(
+                  runtime: _FakeRuntime(address: testMlsAccountId),
+                  store: _FakeChatStore(),
+                  contactService: _FakeContactService([]),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.runAsync(() async {
+          expect(
+            (await WalletIsar.instance.read(
+              (isar) => isar.walletMembershipStateEntitys.getByStateKey(key),
+            ))?.payloadJson,
+            proof,
+          );
+        });
+        expect(network.requests, 0);
+        expect(resolver.reads, 0);
+        expect(transport.calls, ['open']);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump();
+      }, createHttpClient: (_) => network);
+    });
+  });
+
+  testWidgets('打开聊天列表及窗口零会员GET，附件动作才请求授权', (tester) async {
+    final service = _AttachmentOnlySubscription();
+    final store = _FakeChatStore(
+      conversations: [
+        ChatConversationPreview(
+          conversationId: _directConversationId,
+          title: 'Bob',
+          peerUserId: _peerUserId,
+          lastMessage: 'hi',
+          lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(2),
+          unreadCount: 0,
+          deliveryState: ChatMessageDeliveryState.sent,
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ChatTab(
+            store: store,
+            cidNumber: _ownerUserId,
+            accountId: '0x${'11' * 32}',
+            runtime: _FakeRuntime(address: '0x${'11' * 32}', store: store),
+            sessionProvider: _FakeProfileSessionProvider(),
+            subscriptionService: service,
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(service.requests, 0);
+    await tester.tap(
+      find.byKey(const ValueKey('chat-conversation-$_directConversationId')),
+    );
+    await tester.pumpAndSettle();
+    final page = tester.widget<ChatConversationPage>(
+      find.byType(ChatConversationPage),
+    );
+    expect(service.requests, 0);
+    await expectLater(
+      page.host.prepareAttachment!(_ownerUserId),
+      throwsA(isA<SquareApiException>()),
+    );
+    expect(service.requests, 1);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  test('真实聊天适配器后台不建会话不刷新，核对账户/revision/设备；基础聊天独立', () async {
+    final provider = _FakeProfileSessionProvider();
+    final host = createCitizenChatRuntimeHost(
+      accountSecurity: _UnusedSecurity(),
+      currentUserContext: _UnusedCurrentUser(),
+      squareSessionProvider: provider,
+    );
+    addTearDown(host.push.dispose);
+    final capability = host as ChatAttachmentAuthorizationHost;
+    final account = ChatRuntimeAccount(
+      hostIndex: 0,
+      bindingScope: 'genesis',
+      userId: _ownerUserId,
+      bindingRevision: 1,
+      accountId: provider.value.accountId,
+      displayName: 'A',
+    );
+    SubscriptionService.setChatAuthorizationForTesting(_ownerUserId, null);
+    expect(
+      await capability.prepareAttachment(
+        account,
+        allowRefresh: false,
+        expectedDeviceId: testMlsDeviceId,
+      ),
+      isFalse,
+    );
+    expect(provider.calls, 0);
+    expect(await host.canSend(_ownerUserId), isTrue);
+    expect(provider.calls, 1);
+    SubscriptionService.setChatAuthorizationForTesting(
+      _ownerUserId,
+      10 * 1024 * 1024,
+    );
+    expect(
+      await capability.prepareAttachment(
+        account,
+        allowRefresh: false,
+        expectedDeviceId: testMlsDeviceId,
+      ),
+      isTrue,
+    );
+    expect(provider.calls, 1);
+    expect(
+      await capability.prepareAttachment(
+        account,
+        allowRefresh: false,
+        expectedDeviceId: 'wrong-device',
+      ),
+      isFalse,
+    );
+    expect(provider.calls, 1);
+    await expectLater(
+      capability.prepareAttachment(
+        account,
+        allowRefresh: true,
+        expectedDeviceId: 'wrong-device',
+      ),
+      throwsA(
+        isA<SquareApiException>().having((e) => e.statusCode, 'status', 401),
+      ),
+    );
+    final changed = ChatRuntimeAccount(
+      hostIndex: 0,
+      bindingScope: 'genesis',
+      userId: _ownerUserId,
+      bindingRevision: 2,
+      accountId: account.accountId,
+      displayName: 'A',
+    );
+    await expectLater(
+      capability.prepareAttachment(changed, allowRefresh: true),
+      throwsA(
+        isA<SquareApiException>().having((e) => e.statusCode, 'status', 401),
+      ),
+    );
+  });
+
   testWidgets('系统保护记录读取失败显示可重试错误', (tester) async {
     const accountId =
         '0x1111111111111111111111111111111111111111111111111111111111111111';
@@ -153,6 +366,53 @@ void main() {
     expect(find.byKey(const ValueKey('chat-sync-progress')), findsNothing);
     expect(tester.getTopLeft(find.text('搜索会话、联系人和聊天记录')).dy, searchTopBefore);
 
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
+  testWidgets('聊天本机绑定未知只提示主动恢复，不调用会话/会员/加密存储', (tester) async {
+    final store = _FakeChatStore(), sessions = _FakeProfileSessionProvider();
+    final memberships = _AttachmentOnlySubscription(),
+        security = _UnusedSecurity();
+    final transport = TestCitizenSdkTransport({});
+    final sdk = await transport.open();
+    addTearDown(() async {
+      await sdk.close();
+      await transport.dispose();
+      security.revision.dispose();
+    });
+    final resolver = _NoChatChainRecovery();
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          Provider<CitizenSdk>.value(value: sdk),
+          Provider<AccountSecurityService>.value(value: security),
+          Provider<FinalizedIdentityResolver>.value(value: resolver),
+          Provider<CurrentUserContext>.value(value: _LocalChatIdentity()),
+          Provider<SquareSessionProvider>.value(value: sessions),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: ChatTab(
+              runtime: _FakeRuntime(address: _peerAccountId),
+              store: store,
+              subscriptionService: memberships,
+              contactService: _FakeContactService([]),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    // 原错误横幅和空态各显示同一固定提示。
+    expect(find.textContaining('请在身份页恢复或完成注册后重试'), findsNWidgets(2));
+    expect(find.text('尚未注册'), findsNothing);
+    expect(sessions.calls, 0);
+    expect(memberships.requests, 0);
+    expect(resolver.reads, 0);
+    expect(transport.calls, ['open']);
+    expect(store.readPreviewCount, 0);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
   });
@@ -1046,8 +1306,8 @@ class _MemoryProfileMediaCache extends CitizenProfileMediaCache {
 }
 
 class _FakeProfileSessionProvider implements SquareSessionProvider {
-  @override
-  Future<SquareSession?> ensureSession() async => SquareSession(
+  int calls = 0;
+  late final value = SquareSession(
     deviceId: testMlsDeviceId,
     sessionToken: 'profile-token',
     cidNumber: _ownerUserId,
@@ -1056,6 +1316,12 @@ class _FakeProfileSessionProvider implements SquareSessionProvider {
         '0x1111111111111111111111111111111111111111111111111111111111111111',
     expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
   );
+
+  @override
+  Future<SquareSession?> ensureSession() async {
+    calls++;
+    return value;
+  }
 
   @override
   Future<SquareSessionResolution> resolveSession({bool refresh = false}) async {
@@ -1165,4 +1431,90 @@ class _FakeRuntime extends ChatSdk {
       realtimeStopCount += 1;
     };
   }
+}
+
+class _AttachmentOnlySubscription implements SubscriptionService {
+  int requests = 0;
+  @override
+  Future<MembershipDisplaySnapshot?> readDisplaySnapshot(
+    String cidNumber,
+  ) async => null;
+  @override
+  Future<SquareMembershipState> authorizeMembership(
+    SquareSession session, {
+    bool forceRefresh = false,
+  }) async {
+    requests++;
+    throw const SquareApiException('附件会员不可用', statusCode: 503);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _UnusedSecurity implements AccountSecurityService {
+  @override
+  final revision = ValueNotifier<int>(0);
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _UnusedCurrentUser implements CurrentUserContext {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _LocalChatIdentity implements CurrentUserContext {
+  _LocalChatIdentity({this.registered = false});
+  final bool registered;
+  @override
+  Future<CurrentUser?> resolve() async => CurrentUser(
+    account: CitizenWalletStateAccount(
+      signMode: CitizenWalletSignMode.hot,
+      walletIndex: 0,
+      accountIndex: 0,
+      accountId: testMlsAccountId,
+      ss58Address: 'synthetic',
+      name: '测试账户',
+      createdAtMillis: BigInt.zero,
+      isDefault: true,
+    ),
+    binding: registered
+        ? IdentityBinding(
+            genesisHash: '0x${'ab' * 32}',
+            cidNumber: _ownerUserId,
+            bindingRevision: 1,
+            accountId: testMlsAccountId,
+          )
+        : null,
+  );
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _NoChatChainRecovery implements FinalizedIdentityResolver {
+  int reads = 0;
+  @override
+  Future<FinalizedIdentity?> resolve() async {
+    reads++;
+    throw StateError('聊天禁止查链');
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// 真实默认HTTP客户端的网络边界；构造服务本身不计请求，任何发送都立即失败并计数。
+class _ChatNetworkCounter implements HttpClient {
+  int requests = 0;
+  @override
+  Future<HttpClientRequest> openUrl(String method, Uri url) async {
+    requests++;
+    throw const SocketException('聊天禁止补发会员交易');
+  }
+
+  @override
+  void close({bool force = false}) {}
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

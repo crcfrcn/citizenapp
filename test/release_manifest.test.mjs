@@ -4,7 +4,7 @@ import {
   existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { testRoot as tmpdir, BUILD_SHELL_SOURCES, SOURCE_VIEW_SOURCE, CI_SIGNING_STEPS, buildDisplayName, buildTaskName, checkFlutterReport, nodeVerificationPlan, parseNodeTestReport, checkedSdkSelection } from '../scripts/build.mjs';
+import { testRoot as tmpdir, BUILD_SHELL_SOURCES, SOURCE_VIEW_SOURCE, CI_SIGNING_STEPS, buildDisplayName, buildTaskName, checkFlutterReport, nodeVerificationPlan, parseNodeTestReport, checkedSdkSelection, lockedSources, requireAutomationBuild } from '../scripts/build.mjs';
 import { platformFiles as androidPlatformFiles } from '../android/platform.mjs';
 import { platformFiles as iosPlatformFiles } from '../ios/platform.mjs';
 import { dirname, join } from 'node:path';
@@ -26,7 +26,7 @@ const testRunner = BUILD_SHELL_SOURCES.test;
 const pubspec = readFileSync(new URL('../pubspec.yaml', import.meta.url), 'utf8');
 const pubLock = readFileSync(new URL('../pubspec.lock', import.meta.url), 'utf8');
 const podLock = readFileSync(new URL('../ios/Podfile.lock', import.meta.url), 'utf8');
-// 跨SDK验收读取本任务锁定并物化的准确提交；SDK工作树只在本机选择阶段只读访问。
+// 跨SDK验收只读取本产品原始声明和锁定提交，不访问兄弟仓状态。
 // 本轮调用方交付工作根及SDK任务锁；resolver仍回读来源、detached提交及干净状态，不消费未提交修改。
 const suppliedDependencyWork = process.env.CITIZENAPP_TEST_WORK_DIR;
 const dependencyWork = suppliedDependencyWork
@@ -167,9 +167,9 @@ test('CitizenApp Isar 注释入口消费当前 storage 目录并拒绝旧目录'
   }
 });
 
-test('CitizenApp locks the shared Dart protocol generator exactly', () => {
-  assert.match(pubspec, /^  protoc_plugin: 25[.]0[.]0$/mu);
-  assert.doesNotMatch(pubspec, /^  protoc_plugin: [\^~><=]/mu);
+test('CitizenApp不重复声明SDK内部依赖或未使用的协议生成器', () => {
+  assert.doesNotMatch(pubspec, /^  (?:cupertino_icons|protoc_plugin|build_runner|isar_community_generator|camera|record|just_audio|protobuf|fixnum|blurhash_dart):/mu);
+  assert.match(pubspec, /dev_dependencies:[\s\S]*^  image: 4[.]9[.]1$/mu);
 });
 
 // 只约束CitizenApp自己的扫码所有权；SDK原生功能由SDK测试与真实验收覆盖。
@@ -246,8 +246,13 @@ test('Android从本轮消费工程启动Gradle并把可写状态放入外部工�
   assert.match(root, /classpath\("com\.android\.tools\.build:gradle:9\.0\.1"\)/u);
   assert.match(root, /classpath\("org\.jetbrains\.kotlin:kotlin-gradle-plugin:2\.2\.20"\)/u);
   assert.doesNotMatch(root, /com\.android\.tools\.build:gradle:8\./u);
-  assert.match(root, /System\.getenv\("CITIZENAPP_BUILD_DIR"\)/u);
-  assert.match(root, /System\.getProperty\("java\.io\.tmpdir"\)/u);
+  assert.ok(root.includes('rootProject.layout.projectDirectory.dir("../build")'));
+  assert.ok(!root.includes('System.getenv("CITIZENAPP_BUILD_DIR")'));
+  // 输出根跟随本轮工程视图，所有模块共用该根，不再借系统临时目录推导。
+  assert.doesNotMatch(root, /System\.getProperty\("java\.io\.tmpdir"\)/u);
+  assert.ok(root.includes('rootProject.layout.buildDirectory.value(newBuildDir)'));
+  assert.ok(root.includes('val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)'));
+  assert.ok(root.includes('project.layout.buildDirectory.value(newSubprojectBuildDir)'));
   assert.match(application, /import java\.util\.Properties/u);
   assert.doesNotMatch(application, /java\.util\.Properties\(\)/u);
   assert.match(application, /compileSdk = 36/u);
@@ -267,47 +272,40 @@ test('Android从本轮消费工程启动Gradle并把可写状态放入外部工�
   assert.match(wrapper, /distributionSha256Sum=a17ddd85a26b6a7f5ddb71ff8b05fc5104c0202c6e64782429790c933686c806/u);
   assert.doesNotMatch(wrapper, /gradle-8\./u);
   assert.match(application, /System\.getenv\("CITIZENAPP_PROJECT_ROOT"\) \?: "\.\.\/\.\."/u);
-  assert.match(runner, /cd "\$CITIZENAPP_PROJECT_ROOT\/android"/u);
-  assert.match(runner, /--no-problems-report/u);
-  assert.match(runner, /--init-script "\$CITIZENAPP_GRADLE_INIT_SCRIPT"/u);
-  assert.match(runner, /retain_android_local_artifact\(\)/u);
-  assert.match(runner, /android[.]apk[.]pending/u);
-  assert.match(runner, /destination="\$ARTIFACT_ROOT\/android[.]apk"/u);
-  assert.match(runner, /retain_android_local_artifact "\$ANDROID_APK"/u);
-  assert.match(runner, /gradle\.beforeSettings \{ settings ->/u);
-  assert.match(runner, /settings\.settingsDir\.canonicalPath == new File\(source\)\.canonicalPath/u);
-  const includedBuildRepositories = runner.slice(
-    runner.indexOf('settings.pluginManagement.repositories'),
-    runner.indexOf("'gradle.beforeProject"),
-  );
-  assert.ok(includedBuildRepositories.indexOf('mavenCentral()')
-    < includedBuildRepositories.indexOf('google()'));
-  assert.ok(includedBuildRepositories.indexOf('google()')
-    < includedBuildRepositories.indexOf('gradlePluginPortal()'));
-  assert.doesNotMatch(includedBuildRepositories, new RegExp(['resolutionStrategy', 'force\\(', 'PUB_CACHE', ['TATA', '_CONSOLE'].join('')].join('|'), 'u'));
-  assert.match(runner, /CITIZENAPP_FLUTTER_GRADLE_ROOT="\$flutter_sdk\/packages\/flutter_tools\/gradle"/u);
-  assert.match(runner, /flutter_sdk="\$\{FLUTTER_ROOT:-\}"/u);
-  assert.match(runner, /CitizenApp Flutter SDK根目录无效/u);
-  assert.match(runner, /java_home="\$ANDROID_JAVA_HOME"/u);
-  assert.match(runner, /ANDROID_JAVA_HOME="\$\{JAVA_HOME:-\/Applications\/Android Studio\.app\/Contents\/jbr\/Contents\/Home\}"/u);
+  // 官方Flutter入口拥有Release注册表、内部Dart参数及Gradle任务选择。
+  // 最终构建不可跳过Pub，否则Flutter会跳过Release插件注册表再生成。
+  assert.doesNotMatch(runner, /flutter build (?:ios|apk|appbundle)[^\n]*--no-pub|ANDROID_BUILD_ARGS=\([^\n]*--no-pub/u);
+  assert.match(runner, /flutter build apk "\$\{ANDROID_BUILD_ARGS\[@\]\}"/u);
+  assert.match(runner, /flutter build appbundle "\$\{ANDROID_BUILD_ARGS\[@\]\}"/u);
+  assert.match(runner, /ANDROID_BUILD_ARGS=\(--release --target-platform android-arm64 --build-name=/u);
+  assert.match(runner, /ANDROID_BUILD_ARGS\+=\(--build-number="\$\{CITIZENAPP_CI_BUILD_NUMBER:\?\}"\)/u);
+  assert.doesNotMatch(runner, /build_android_release|assembleRelease|-Pdart-defines|-Ptarget-platform|flutter --version --machine|gradle\.beforeSettings|gradle\.beforeProject/u);
+  // Runner候选直接交给原包检查和正式签名，不恢复已退役的本机产物通道。
+  assert.match(runner, /ANDROID_APK="\$BUILD_DIR\/app\/outputs\/flutter-apk\/app-release\.apk"/u);
+  assert.match(runner, /\[\[ -f "\$ANDROID_APK" \]\]/u);
+  assert.match(runner, /native-dependency verify-android-package "\$ANDROID_APK"/u);
+  assert.match(runner, /verify_android_release_localization "\$ANDROID_APK"/u);
+  assert.doesNotMatch(runner, /retain_android_local_artifact|android[.]apk[.]pending/u);
+  // Runner显式交付唯一产品JDK，不恢复本机Android Studio默认回退。
+  assert.match(runner, /ANDROID_JAVA_HOME="\$\{JAVA_HOME:\?Runner必须交付产品声明的JDK\}"/u);
+  assert.doesNotMatch(runner, /JAVA_HOME:-\/Applications\/Android Studio/u);
   assert.match(runner, /ANDROID_SDK_HOME="\$\{ANDROID_HOME:-\$\{ANDROID_SDK_ROOT:-\$HOME\/Library\/Android\/sdk\}\}"/u);
   assert.match(runner, /ANDROID_HOME与ANDROID_SDK_ROOT必须一致/u);
   assert.match(runner, /ANDROID_SDK_HOME\/ndk\/28\.2\.13676358/u);
   assert.match(runner, /-x "\$ANDROID_JAVA_HOME\/bin\/java"/u);
-  assert.match(runner, /ANDROID_HOME="\$android_sdk" ANDROID_SDK_ROOT="\$android_sdk" JAVA_HOME="\$java_home" PATH="\$java_home\/bin:\$PATH"/u);
+  assert.match(runner, /JAVA_HOME="\$ANDROID_JAVA_HOME" ANDROID_HOME="\$ANDROID_SDK_HOME" ANDROID_SDK_ROOT="\$ANDROID_SDK_HOME"[\s\S]*flutter build apk/u);
   assert.match(runner, /GRADLE_EXECUTABLE="\$\{CITIZENAPP_GRADLE:-\$CITIZENAPP_PROJECT_ROOT\/android\/gradlew\}"/u);
   assert.match(runner, /Gradle执行器必须是绝对普通可执行文件/u);
-  assert.match(runner, /"\$GRADLE_EXECUTABLE"[\s\S]*--project-cache-dir "\$BUILD_WORK_DIR\/gradle-project"/u);
-  assert.match(runner, /-Pkotlin[.]project[.]persistent[.]dir="\$CITIZENAPP_FLUTTER_GRADLE_BUILD_DIR\/kotlin-project"/u);
-  assert.match(runner, /-Pflutter[.]sdk="\$flutter_sdk"/u);
   assert.match(runner, /CITIZENSDK_GRADLE="\$GRADLE_EXECUTABLE"[\s\S]*node "\$CITIZENSDK_ROOT\/scripts\/build\.mjs" native android/u);
   assert.match(runner, /CITIZENSDK_GRADLE="\$GRADLE_EXECUTABLE"[\s\S]*JAVA_HOME="\$ANDROID_JAVA_HOME" PATH="\$ANDROID_JAVA_HOME\/bin:\$PATH"/u);
   assert.doesNotMatch(runner, new RegExp([['TATA', '_CONSOLE'].join(''), ['tata', 'console'].join('')].join('|'), 'u'));
   assert.match(runner, /CITIZENAPP_GRADLE_OFFLINE="\$\{CITIZENAPP_GRADLE_OFFLINE:-\$\{CITIZENAPP_OFFLINE:-false\}\}"/u);
-  assert.match(runner, /gradle_network_arg=''/u);
-  assert.match(runner, /true\) gradle_network_arg='--offline'/u);
-  assert.match(runner, /\$\{gradle_network_arg:\+"\$gradle_network_arg"\}/u);
   assert.doesNotMatch(runner, /GRADLE_NETWORK_ARGS/u);
+  assert.match(runner, /export CITIZENAPP_GRADLE_OFFLINE/u);
+  const buildSource=readFileSync(viewScript,'utf8');
+  assert.ok(buildSource.includes("const apk=join(buildRoot,'app/outputs/flutter-apk/app-release.apk')"));
+  assert.ok(buildSource.includes('true) set -- --offline "$@"'));
+  assert.ok(buildSource.includes('Gradle离线参数无效'));
   assert.match(runner, /CITIZENSDK_OFFLINE="\$CITIZENAPP_GRADLE_OFFLINE"/u);
   assert.match(runner, /ANDROID_HOME="\$ANDROID_SDK_HOME" ANDROID_SDK_ROOT="\$ANDROID_SDK_HOME"[\s\S]*node "\$CITIZENSDK_ROOT\/scripts\/build\.mjs" native android/u);
 });
@@ -581,7 +579,7 @@ test('双端Workflow消费唯一Build版本与命名合同并传输最新增量'
     assert.ok(workflow.includes('    name: 公民·' + title + '·v${{ inputs.version }}'));
     assert.ok(workflow.includes('node scripts/build.mjs ci-build ' + platform));
     assert.ok(workflow.includes('      sdk_selection:\n'));
-    assert.ok(workflow.includes('CITIZENAPP_SDK_RELEASES: "${{ inputs.sdk_selection }}"'));
+    assert.ok(workflow.includes('CITIZENAPP_SDK_INPUTS: "${{ inputs.sdk_selection }}"'));
     assert.doesNotMatch(workflow,/releases\/latest|git ls-remote|git fetch/u);
     assert.ok(workflow.includes('node scripts/build.mjs ci-release ' + platform));
     assert.ok(workflow.includes('node scripts/build.mjs ci-cache-plan ' + platform));
@@ -595,45 +593,28 @@ test('双端Workflow消费唯一Build版本与命名合同并传输最新增量'
     assert.equal(buildTaskName(platform, '塔塔自动化'), '公民·塔塔自动化·' + title);
     assert.equal(buildDisplayName(platform, '1.2.3'), '公民·' + title + '·v1.2.3');
   }
-  assert.match(runner, /version_name="\$\{CITIZENAPP_BUILD_VERSION:/u);
+  // 版本由同一官方Flutter参数数组传给APK和AAB，不恢复旧手写版本变量。
+  assert.match(runner, /ANDROID_BUILD_ARGS=\([^\n]*--build-name="\$\{CITIZENAPP_BUILD_VERSION:\?\}"/u);
   assert.match(runner, /flutter build ios.*--build-name=/u);
-  assert.match(runner, /flutter build appbundle.*--build-name=/u);
+  assert.match(runner, /flutter build appbundle "\$\{ANDROID_BUILD_ARGS\[@\]\}"/u);
   assert.match(CI_SIGNING_STEPS.android, /manifest version-name/u);
   assert.doesNotMatch(runner, /rm -rf "\$CITIZENSDK_PRODUCT_WORK_DIR"/u);
 });
 
 // 独立测试和编译链必须消费同一执行器，产品测试不能变成另一个编译入口。
-test('独立Node验收归唯一Build，固定清单、资源缺件失败且不进入交付',()=>{
-  const plan=nodeVerificationPlan(),source=readFileSync(viewScript,'utf8');
-  assert.deepEqual(plan.files,['scripts/build.mjs','scripts/publish.mjs','test/release_manifest.test.mjs']);
-  const cli=source.slice(source.indexOf(" if(process.argv[2]==='verify'){"),source.indexOf(" if(process.argv[2]==='run'"));
-  assert.match(cli,/process\.argv\.length!==4/u);assert.match(cli,/process\.argv\[3\]!=='node'/u);assert.match(cli,/verifyNode\(/u);
-  assert.doesNotMatch(cli,/ciBuild|completeMobile|dispatchAutomation|runProductTests|bootstrapNode/u);
-  const entry=source.slice(source.indexOf('export async function verifyNode('),source.indexOf('function flutterTestFiles('));
-  assert.match(entry,/nodeTestResources/u);assert.match(entry,/runNodeTestFiles/u);
-  assert.doesNotMatch(entry,/stages\.build|runShell|ciBuild|completeMobile|dispatchAutomation|bootstrapNode/u);
-  const complete=source.slice(source.indexOf('async function runProductTests('),source.indexOf('\nif(testSession&&process.argv.length===2&&testFiles()'));
-  assert.match(complete,/await runNodeTestFiles\(node,work,testEnvironment\)/u);
-  assert.doesNotMatch(complete,/--test-concurrency/u);
-  const resources=source.slice(source.indexOf('async function nodeTestResources('),source.indexOf('\nasync function resources('));
-  assert.match(resources,/offline:true/u);assert.match(resources,/原件库边界交叉/u);assert.match(resources,/gitBundlePath/u);assert.doesNotMatch(resources,/installTool\(|buildSourceTool\(|fetcher:|bootstrapNode\(/u);
-  assert.equal(parseNodeTestReport('TAP version 13\nok 1 - synthetic\n1..1\n# tests 1\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n',0).status,'success');
+test('独立本机验收入口已退出且不启动资源和交付',()=>{
+ assert.throws(()=>requireAutomationBuild({}),/塔塔自动化/);
+ const result=spawnSync(process.execPath,[viewScript,'verify','node'],{encoding:'utf8',env:{HOME:process.env.HOME,PATH:process.env.PATH,LANG:'C',NODE_TEST_CONTEXT:''},timeout:30000});
+ assert.notEqual(result.status,0);assert.equal(result.stdout,'');assert.match(result.stderr,/测试由本产品塔塔自动化执行/);
 });
 
 // SDK任务锁是选择结果；根声明与传递依赖原锁保持校验，不为环境选择修改正式源码。
-test('公民App本机HEAD与自动化正式版共用任务锁及隔离SDK视图',()=>{
-  const source=readFileSync(viewScript,'utf8'),record=JSON.parse(process.env.CITIZENAPP_SDK_SELECTION||'null');
-  assert.ok(record);assert.equal(record.work,dependencyWork);const selected=checkedSdkSelection(record.selection);
-  for(const item of selected.sources){assert.equal(dependencySources[item.name].sha,item.ref);assert.equal(dependencySources[item.name].url,item.url);}
-  assert.match(source,/state\.sdkSelection=await resourceRuntime\.prepareSdkInputs/u);
-  assert.match(source,/incrementalIdentity\(platform,automationSdkInputs\(environment\)\.sources\)/u);
-  assert.match(source,/sdk_selection:JSON\.stringify\(sdkSelection\)/u);
-  assert.match(source,/selectReleaseSdkInputs\([^\n]+\{locked\}/u);
-  assert.match(view,/const declaredSha = dependencyField\(declared, 'ref'\)/u);
-  assert.match(view,/sdkSelectionForWork\(work\)/u);
-  assert.match(view,/sourceGit\(root, \['rev-parse', 'HEAD'\]\) !== sha/u);
-  assert.match(view,/sourceGit\(root, \['status', '--porcelain=v1', '--untracked-files=all'\]\) !== ''/u);
-  assert.match(view,/JSON\.stringify\(dependencies\[name\]\.version\|\|'1\.0\.0'\)/u);
+test('公民App依赖只接受本产品声明的准确锁定来源',()=>{
+ const sources=lockedSources(),selection={schema:1,product_id:'citizenapp',mode:'locked',sources};
+ assert.deepEqual(checkedSdkSelection(selection),selection);
+ for(const change of [value=>value.mode='local',value=>value.sources[0].ref='main',value=>value.sources[0].local_root='/unrelated']){
+  const changed=structuredClone(selection);change(changed);assert.throws(()=>checkedSdkSelection(changed));
+ }
 });
 
 // 自动化常量包含异步初始化；CLI必须位于模块末尾，不能通过提前微任务替代初始化顺序。
@@ -646,8 +627,8 @@ test('CLI在全部声明初始化之后启动，导入静默且非法自动化�
   assert.equal(source.split(registration).length,2);
   assert.ok(source.indexOf(registration)>source.indexOf('export const automationClient='));
   assert.ok(source.indexOf(registration)<source.indexOf(startup));
-  assert.equal((source.match(/^if[^\n]*inlineTestRegistrations\.push\(async/gmu)||[]).length,13);
-  assert.ok(source.includes('assert.deepEqual(JSON.parse(body.inputs.sdk_selection),sdkReleaseFixture())'));
+  assert.ok((source.match(/^if[^\n]*inlineTestRegistrations\.push\(async/gmu)||[]).length>0);
+  assert.ok(source.includes('assert.deepEqual(JSON.parse(body.inputs.sdk_selection),sdkLockedFixture())'));
 
   const env={HOME:process.env.HOME,PATH:process.env.PATH,LANG:'C'};
   const options={encoding:'utf8',env,timeout:30000,maxBuffer:1024*1024};

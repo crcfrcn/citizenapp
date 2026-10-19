@@ -98,7 +98,9 @@ void main() {
       expect(runner, isNot(contains('cleanup_direct_source_state')));
       expect(runner, isNot(contains(r'rm -f "$TATACHATSDK_ROOT/ios/')));
       expect(runner, contains(r'flutter pub get "${PUB_GET_ARGS[@]}"'));
-      expect(runner, contains('flutter build ios --no-pub --release'));
+      // 最终Release使用Flutter默认Pub检查，重新生成排除开发插件的注册表。
+      expect(runner, contains('flutter build ios --release'));
+      expect(runner, isNot(contains('flutter build ios --no-pub')));
       expect(
         runner,
         contains(
@@ -109,15 +111,15 @@ void main() {
         runner,
         contains(r'[[ "$GRADLE_EXECUTABLE" == /* && -f "$GRADLE_EXECUTABLE"'),
       );
-      expect(
-        runner,
-        contains(
-          r'"$GRADLE_EXECUTABLE" ${gradle_network_arg:+"$gradle_network_arg"}',
-        ),
-      );
+      // Flutter官方入口负责Release插件筛选；SDK原生边界与产物安全验收保持。
+      expect(runner, contains(r'flutter build apk "${ANDROID_BUILD_ARGS[@]}"'));
+      expect(runner, contains(r'flutter build appbundle "${ANDROID_BUILD_ARGS[@]}"'));
+      expect(runner, contains('--target-platform android-arm64'));
+      expect(runner, isNot(contains('assembleRelease')));
+      expect(runner, isNot(contains('-Pdart-defines')));
       expect(runner, isNot(contains('GRADLE_NETWORK_ARGS')));
-      expect(runner, contains('gradle.beforeSettings { settings ->'));
-      expect(runner, contains('settings.pluginManagement.repositories'));
+      expect(runner, isNot(contains('gradle.beforeSettings { settings ->')));
+      expect(runner, isNot(contains('settings.pluginManagement.repositories')));
       expect(runner, isNot(contains('resolutionStrategy.force')));
       expect(runner, isNot(contains('\nflutter pub get\n')));
       expect(testRunner, isNot(contains('pubspec_overrides.yaml')));
