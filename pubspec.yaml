@@ -65,7 +65,7 @@ dependencies:
     git:
       url: https://github.com/tuyutata/tatachatsdk.git
       path: .
-      ref: 0f91ca7c7f685ce065e16bc077697dd48173e33b
+      ref: c7822de810772e11363f9bf8c1c02826889c0bb2
 dev_dependencies:
   integration_test:
     sdk: flutter

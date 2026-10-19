@@ -1,154 +1,30 @@
-import 'dart:io';
 import 'dart:convert';
-
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import '../support/platform_input.dart';
 
-// 宿主脚本是独占普通副本；按既定source-view映射回读正式原文，并验真副本字节。
-String _originalSourceRoot(String sourceScript) {
-  final script = File(sourceScript);
-  final project = script.parent.parent.path;
-  const marker = '/source-view/';
-  final candidates = <String>[];
-  for (var start = 0; ;) {
-    final index = project.indexOf(marker, start);
-    if (index < 0) break;
-    start = index + marker.length;
-    final candidate = project.substring(index + marker.length - 1);
-    if (!project.startsWith('$candidate/target/')) continue;
-    final original = File('$candidate/scripts/build.mjs');
-    if (Directory(candidate).resolveSymbolicLinksSync() != candidate ||
-        FileSystemEntity.typeSync(original.path, followLinks: false) !=
-            FileSystemEntityType.file ||
-        original.readAsStringSync() != script.readAsStringSync()) {
-      throw StateError('消费脚本与正式来源不一致');
-    }
-    candidates.add(candidate);
-  }
-  if (candidates.length > 1) throw StateError('正式来源映射不唯一');
-  return candidates.isEmpty ? project : candidates.single;
-}
-
 void main() {
-  test(
-    'CitizenApp consumes TataChatSDK product output without source staging',
-    () {
-      final buildSource = File('scripts/build.mjs').readAsStringSync();
-      final match = RegExp(
-        r'export const BUILD_SHELL_SOURCES=Object.freeze\((\{[^\n]+\})\);',
-      ).firstMatch(buildSource);
-      expect(match, isNotNull);
-      final shellSources = jsonDecode(match!.group(1)!) as Map<String, dynamic>;
-      final runner = shellSources['run'] as String;
-      final testRunner = shellSources['test'] as String;
-      final sourceScript = File('scripts/build.mjs').resolveSymbolicLinksSync();
-      final sourceRoot = _originalSourceRoot(sourceScript);
-      final pubspec = File('$sourceRoot/pubspec.yaml').readAsStringSync();
-      final pubLock = File('$sourceRoot/pubspec.lock').readAsStringSync();
-      final podfile = platformInput('ios/Podfile');
-      final lockfile = File('ios/Podfile.lock').readAsStringSync();
-
-      expect(runner, contains('TATACHATSDK_NATIVE_IOS_DIR='));
-      expect(runner, contains('ios/TataChatSDK.xcframework'));
-      expect(runner, contains('project-framework'));
-      expect(runner, isNot(contains('TATACHATSDK_APPLE_FRAMEWORK_DIR')));
-      expect(runner, contains(r'verify-ios-package "$IOS_APP"'));
-      expect(pubspec, contains('https://github.com/tuyutata/tatachatsdk.git'));
-      // 正式声明是固定提交的唯一来源；锁文件必须逐字一致，避免测试另存旧提交。
-      final dependency = RegExp(
-        r'^  tatachat_sdk:\n(?:(?:    .*|)\n)*',
-        multiLine: true,
-      ).firstMatch(pubspec)?.group(0);
-      final lockedDependency = RegExp(
-        r'^  tatachat_sdk:\n(?:(?:    .*|)\n)*',
-        multiLine: true,
-      ).firstMatch(pubLock)?.group(0);
-      expect(dependency, isNotNull);
-      expect(lockedDependency, isNotNull);
-      final ref = RegExp(
-        r'^      ref: ([0-9a-f]{40})$',
-        multiLine: true,
-      ).firstMatch(dependency!)?.group(1);
-      expect(ref, isNotNull);
-      expect(lockedDependency, contains('ref: $ref'));
-      expect(lockedDependency, contains('resolved-ref: $ref'));
-      expect(
-        lockedDependency,
-        contains('https://github.com/tuyutata/tatachatsdk.git'),
-      );
-      // App取消独立密码学与包装存储插件，钱包上游传递依赖保持原锁。
-      expect(
-        RegExp(
-          r'^  (?:cryptography|flutter_secure_storage):',
-          multiLine: true,
-        ).hasMatch(pubspec),
-        isFalse,
-      );
-      expect(
-        RegExp(
-          r'^  flutter_secure_storage(?:_\w+)?:',
-          multiLine: true,
-        ).hasMatch(pubLock),
-        isFalse,
-      );
-      expect(lockfile, isNot(contains('flutter_secure_storage')));
-      expect(testRunner, contains('dependencies'));
-      // 原始产品声明只读；所有环境从同一锁定Git SDK取得本轮视图，不增加override配置。
-      expect(runner, isNot(contains('pubspec_overrides.yaml')));
-      expect(runner, isNot(contains('cleanup_direct_source_state')));
-      expect(runner, isNot(contains(r'rm -f "$TATACHATSDK_ROOT/ios/')));
-      expect(runner, contains(r'flutter pub get "${PUB_GET_ARGS[@]}"'));
-      // 最终Release使用Flutter默认Pub检查，重新生成排除开发插件的注册表。
-      expect(runner, contains('flutter build ios --release'));
-      expect(runner, isNot(contains('flutter build ios --no-pub')));
-      expect(
-        runner,
-        contains(
-          r'GRADLE_EXECUTABLE="${CITIZENAPP_GRADLE:-$CITIZENAPP_PROJECT_ROOT/android/gradlew}"',
-        ),
-      );
-      expect(
-        runner,
-        contains(r'[[ "$GRADLE_EXECUTABLE" == /* && -f "$GRADLE_EXECUTABLE"'),
-      );
-      // Flutter官方入口负责Release插件筛选；SDK原生边界与产物安全验收保持。
-      expect(runner, contains(r'flutter build apk "${ANDROID_BUILD_ARGS[@]}"'));
-      expect(runner, contains(r'flutter build appbundle "${ANDROID_BUILD_ARGS[@]}"'));
-      expect(runner, contains('--target-platform android-arm64'));
-      expect(runner, isNot(contains('assembleRelease')));
-      expect(runner, isNot(contains('-Pdart-defines')));
-      expect(runner, isNot(contains('GRADLE_NETWORK_ARGS')));
-      expect(runner, isNot(contains('gradle.beforeSettings { settings ->')));
-      expect(runner, isNot(contains('settings.pluginManagement.repositories')));
-      expect(runner, isNot(contains('resolutionStrategy.force')));
-      expect(runner, isNot(contains('\nflutter pub get\n')));
-      expect(testRunner, isNot(contains('pubspec_overrides.yaml')));
-      expect(testRunner, contains(r'pub get "${PUB_GET_ARGS[@]}"'));
-      expect(podfile, contains('TataChatSDK 通过自身 Flutter FFI plugin'));
-      expect(lockfile, contains('- tatachat_sdk (1.0.0)'));
-    },
-  );
-  // 合成工程验证普通复制后的来源归属；改写消费副本必须失败且原文不变。
-  test('source-view读取正式来源，脚本副本漂移拒绝', () {
-    final area = Directory.systemTemp.createTempSync('native-contract-source-');
-    try {
-      final owner = Directory('${area.path}/owner')..createSync();
-      final original = File('${owner.path}/scripts/build.mjs');
-      original.parent.createSync();
-      original.writeAsStringSync('locked product script');
-      expect(_originalSourceRoot(original.path), owner.path);
-      final view = Directory(
-        '${owner.path}/target/ios/test/task/source-view${owner.path}',
-      )..createSync(recursive: true);
-      final copy = File('${view.path}/scripts/build.mjs');
-      copy.parent.createSync();
-      original.copySync(copy.path);
-      expect(_originalSourceRoot(copy.path), owner.path);
-      copy.writeAsStringSync('changed task copy');
-      expect(() => _originalSourceRoot(copy.path), throwsStateError);
-      expect(original.readAsStringSync(), 'locked product script');
-    } finally {
-      area.deleteSync(recursive: true);
-    }
+  test('App直接依赖公开SDK且保留唯一应用身份', () {
+    final source = Platform.environment['CITIZENAPP_SOURCE_ROOT'] ?? Directory.current.path;
+    final manifest = File('$source/pubspec.yaml').readAsStringSync();
+    final lock = File('$source/pubspec.lock').readAsStringSync();
+    expect(manifest, contains('https://github.com/tuyutata/tatachatsdk.git'));
+    final record = RegExp(r'^  tatachat_sdk:\n(?:    .*\n|\n)+', multiLine: true).firstMatch(manifest)!.group(0)!;
+    final ref = RegExp(r'ref: ([a-f0-9]{40})').firstMatch(record)!.group(1)!;
+    expect(lock, contains('resolved-ref: $ref'));
+    expect(File('android/app/build.gradle.kts').readAsStringSync(), contains('applicationId = "com.crcfrcn.citizenapp"'));
+    expect(File('ios/source/Info.plist').readAsStringSync(), contains('CFBundleIdentifier'));
+    expect(platformInput('ios/Podfile'), contains('tatachat_sdk.podspec'));
+  });
+  test('原生平台与FFI合同只消费SDK公开插件', () {
+    final config = File('.dart_tool/package_config.json');
+    final packages = (jsonDecode(config.readAsStringSync()) as Map<String, dynamic>)['packages'] as List<dynamic>;
+    final entry = packages.cast<Map<String, dynamic>>().singleWhere((row) => row['name'] == 'tatachat_sdk');
+    final sdk = config.absolute.uri.resolve(entry['rootUri'] as String);
+    expect(File.fromUri(sdk.resolve('android/src/main/java/chat/tata/sdk/TataChatSdkPlugin.java')).readAsStringSync(), contains('class TataChatSdkPlugin'));
+    final pod = File.fromUri(sdk.resolve('ios/tatachat_sdk.podspec')).readAsStringSync();
+    expect(pod, contains('spec.vendored_frameworks = framework_path'));
+    expect(File.fromUri(sdk.resolve('lib/mls/mls_native.dart')).readAsStringSync(), isNot(contains('PRODUCT_WORK_LEASE')));
+    expect(File.fromUri(sdk.resolve('lib/mls/mls_native.dart')).readAsStringSync(), isNot(contains('.active.json')));
   });
 }

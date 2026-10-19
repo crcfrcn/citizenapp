@@ -1,74 +1,690 @@
+# 产品流程归本仓Workflow；编译只调用scripts/build.mjs。
 name: 公民·iOS
-run-name: 公民·iOS·v${{ inputs.version }}
-on:
+run-name: ${{ inputs.operation == 'build' && format('公民·iOS·v{0}', inputs.version) || format('公民·{0}·iOS', inputs.operation) }}
+'on':
   workflow_dispatch:
     inputs:
+      operation:
+        description: 产品流程
+        type: choice
+        options: [prepare, build, settle, cancel]
+        default: prepare
       version:
-        description: 本平台编译入口计算的候选版本
-        required: true
+        description: 仅由准备流程交付的准确版本
         type: string
-      sdk_selection:
-        description: 本产品原始声明与原始锁固定的SDK提交
-        required: true
+        default: ''
+      controller:
+        description: 原准备Run
         type: string
-concurrency:
-  group: "${{ github.repository }}-ios"
-  cancel-in-progress: false
+        default: ''
 permissions:
-  contents: write
   actions: write
+  contents: write
+defaults:
+  run:
+    shell: bash
+env:
+  GH_TOKEN: ${{ github.token }}
+  PLATFORM: ios
+  SEGMENT_DOWNLOAD_TIMEOUT_MINS: '1'
 jobs:
-  release:
-    name: 公民·iOS·v${{ inputs.version }}
-    if: github.ref == 'refs/heads/main'
-    runs-on: xcode-27
-    timeout-minutes: 360
-    env:
-      CITIZENAPP_SDK_INPUTS: "${{ inputs.sdk_selection }}"
-      CITIZENAPP_AUTOMATION_VERSION: "${{ inputs.version }}"
-      GH_TOKEN: "${{ github.token }}"
+  prepare:
+    if: inputs.operation == 'prepare' && github.ref == 'refs/heads/main' && github.repository == 'crcfrcn/citizenapp'
+    name: 准备与观察
+    runs-on: ubuntu-latest
+    timeout-minutes: 390
+    concurrency:
+      group: citizenapp-ios-prepare
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          ref: "${{ github.sha }}"
-          fetch-depth: 0
+          persist-credentials: false
+      - name: 核对版本并且只派发一次
+        id: dispatch
+        env:
+          WORKFLOW: ios.yml
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import {execFileSync} from 'node:child_process';
+          import {readFileSync, appendFileSync} from 'node:fs';
+          const api = (path, args = []) => JSON.parse(execFileSync('gh', ['api', ...args, path], {encoding: 'utf8'}));
+          const base = 'repos/' + process.env.GITHUB_REPOSITORY;
+          const pages = api(base + '/actions/workflows/' + process.env.WORKFLOW + '/runs?branch=main&event=workflow_dispatch&per_page=100', ['--paginate', '--slurp']);
+          const rows = pages.flatMap(page => page.workflow_runs);
+          if (rows.some(run => run.id !== Number(process.env.GITHUB_RUN_ID) && run.status !== 'completed')) {
+              throw Error('本平台已有活动Run，禁止重复派发');
+          }
+          const prefix = '公民·iOS·v';
+          for (const run of rows.filter(row => row.display_title.startsWith(prefix))) {
+              const jobs = api(base + '/actions/runs/' + run.id + '/jobs?per_page=100', ['--paginate', '--slurp']).flatMap(page => page.jobs);
+              if (jobs.some(job => job.steps?.some(step => step.name === '原准备Run·' + process.env.GITHUB_RUN_ID))) {
+                  throw Error('本准备Run已经派发过编译，只允许恢复原Run');
+              }
+          }
+          const success = rows.filter(run => run.status === 'completed' && run.conclusion === 'success' && run.display_title.startsWith(prefix));
+          const releases = api(base + '/releases?per_page=100', ['--paginate', '--slurp']).flat();
+          const confirmed = [];
+          for (const release of releases) {
+              let proof;
+              try { proof = JSON.parse(release.body); } catch { continue; }
+              if (proof.product_id !== 'citizenapp' || proof.platform !== process.env.PLATFORM || release.draft || release.prerelease) continue;
+              const run = api(base + '/actions/runs/' + proof.run_id + '/attempts/' + proof.run_attempt);
+              if (run.status !== 'completed' || run.conclusion !== 'success' || run.head_sha !== proof.source_sha ||
+                  run.path !== '.github/workflows/' + process.env.WORKFLOW || release.target_commitish !== run.head_sha || release.tag_name !== prefix + proof.version) {
+                  throw Error('已有正式版本缺少准确成功事实');
+              }
+              const tag = api(base + '/git/ref/tags/' + encodeURIComponent(release.tag_name));
+              if (tag.object.type !== 'commit' || tag.object.sha !== run.head_sha) throw Error('正式Tag提交不一致');
+              confirmed.push(proof.version);
+          }
+          if (success.length && !confirmed.length) throw Error('成功记录缺少正式版本，禁止重置版本');
+          const compare = (a, b) => {
+              const aa = a.split('.').map(BigInt), bb = b.split('.').map(BigInt);
+              for (let i = 0; i < 3; i++) if (aa[i] !== bb[i]) return aa[i] > bb[i] ? 1 : -1;
+              return 0;
+          };
+          confirmed.sort(compare);
+          let version = /^version: (\d+\.\d+\.\d+)/m.exec(readFileSync('pubspec.yaml', 'utf8'))?.[1];
+          if (confirmed.length) {
+              const parts = confirmed.at(-1).split('.');
+              parts[2] = String(BigInt(parts[2]) + 1n);
+              version = parts.join('.');
+          }
+          if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version || '')) throw Error('候选版本无效');
+          appendFileSync(process.env.GITHUB_OUTPUT, 'version=' + version + '\n');
+          // 官方派发回执是唯一Run来源；POST失败或回执丢失均不重试。
+          const receipt = api(base + '/actions/workflows/' + process.env.WORKFLOW + '/dispatches', [
+              '-X', 'POST', '-H', 'X-GitHub-Api-Version: 2026-03-10',
+              '-f', 'ref=main', '-f', 'inputs[operation]=build', '-f', 'inputs[version]=' + version,
+              '-f', 'inputs[controller]=' + process.env.GITHUB_RUN_ID
+          ]);
+          if (!Number.isSafeInteger(receipt.workflow_run_id) ||
+              receipt.html_url !== 'https://github.com/' + process.env.GITHUB_REPOSITORY + '/actions/runs/' + receipt.workflow_run_id) {
+              throw Error('派发回执不完整，禁止再次派发');
+          }
+          appendFileSync(process.env.GITHUB_OUTPUT, 'run=' + receipt.workflow_run_id + '\n');
+          console.log(receipt.html_url);
+          JS
+      - name: 候选版本·v${{ steps.dispatch.outputs.version }}
+        run: ":"
+      - name: 观察准确原编译Run
+        env:
+          ORIGINAL_RUN: ${{ steps.dispatch.outputs.run }}
+        run: gh run watch "$ORIGINAL_RUN" --repo "$GITHUB_REPOSITORY" --exit-status --interval 10
+      - name: 请求原Run收尾
+        if: always()
+        env:
+          ORIGINAL_RUN: ${{ steps.dispatch.outputs.run }}
+        run: |
+          set -euo pipefail
+          operation=settle
+          if [ "${{ job.status }}" != success ]; then operation=cancel; fi
+          gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/ios.yml/dispatches" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' -f ref=main \
+            -f "inputs[operation]=$operation" -f "inputs[controller]=$GITHUB_RUN_ID"
+  manage:
+    if: (inputs.operation == 'settle' || inputs.operation == 'cancel') && github.ref == 'refs/heads/main' && github.repository == 'crcfrcn/citizenapp'
+    name: 原Run收尾
+    concurrency:
+      group: citizenapp-ios-settle
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 390
+    steps:
+      - name: 核对原Run、取消及真实清理
+        env:
+          ORIGINAL_CONTROLLER: ${{ inputs.controller }}
+          OPERATION: ${{ inputs.operation }}
+          WORKFLOW: ios.yml
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import {execFileSync} from 'node:child_process';
+          const base = 'repos/' + process.env.GITHUB_REPOSITORY;
+          const api = (path, args = []) => {
+              const output = execFileSync('gh', ['api', ...args, base + '/' + path], {encoding: 'utf8'});
+              return output.trim() ? JSON.parse(output) : null;
+          };
+          const checked = run => {
+              if (run.path !== '.github/workflows/' + process.env.WORKFLOW || run.head_branch !== 'main' ||
+                  run.event !== 'workflow_dispatch' || run.repository.full_name !== process.env.GITHUB_REPOSITORY) throw Error('原Run归属不符');
+              return run;
+          };
+          const list = () => api('actions/workflows/' + process.env.WORKFLOW + '/runs?branch=main&event=workflow_dispatch&per_page=100',
+              ['--paginate', '--slurp']).flatMap(page => page.workflow_runs).map(checked);
+          if (!/^[1-9]\d*$/.test(process.env.ORIGINAL_CONTROLLER)) throw Error('缺少原准备Run');
+          const owner = checked(api('actions/runs/' + process.env.ORIGINAL_CONTROLLER));
+          const marker = '原准备Run·' + owner.id;
+          const rows = list();
+          const children = [];
+          for (const run of rows.filter(run => run.display_title.startsWith('公民·iOS·v') && run.created_at >= owner.created_at)) {
+              const jobs = api('actions/runs/' + run.id + '/jobs?per_page=100', ['--paginate', '--slurp']).flatMap(page => page.jobs);
+              if (jobs.some(job => job.steps?.some(step => step.name === marker))) children.push(run);
+          }
+          if (children.length !== 1) throw Error('原编译Run尚无法唯一确认，保留记录，禁止重新派发');
+          let child = children[0];
+          if (process.env.OPERATION === 'cancel' && child.status !== 'completed') {
+              execFileSync('gh', ['run', 'cancel', String(child.id), '--repo', process.env.GITHUB_REPOSITORY], {stdio: 'inherit'});
+              for (let count = 0; count < 60 && child.status !== 'completed'; count++) {
+                  await new Promise(done => setTimeout(done, 5000));
+                  child = checked(api('actions/runs/' + child.id));
+              }
+              if (child.status !== 'completed') {
+                  api('actions/runs/' + child.id + '/force-cancel', ['-X', 'POST']);
+                  for (let count = 0; count < 60 && child.status !== 'completed'; count++) {
+                      await new Promise(done => setTimeout(done, 5000));
+                      child = checked(api('actions/runs/' + child.id));
+                  }
+              }
+          }
+          if (child.status !== 'completed' && process.env.OPERATION === 'settle') {
+              try {
+                  execFileSync('gh', ['run', 'watch', String(child.id), '--repo', process.env.GITHUB_REPOSITORY, '--exit-status', '--interval', '10'], {stdio: 'inherit'});
+              } catch {}
+              child = checked(api('actions/runs/' + child.id));
+          }
+          if (child.status !== 'completed') throw Error('原Run仍活动，禁止清理');
+          const current = list().sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
+          const releases = api('releases?per_page=100', ['--paginate', '--slurp']).flat();
+          const proven = [];
+          for (const release of releases) {
+              let proof;
+              try { proof = JSON.parse(release.body); } catch { continue; }
+              if (proof.product_id !== 'citizenapp' || proof.platform !== process.env.PLATFORM || release.draft || release.prerelease) continue;
+              if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(proof.version)) throw Error('正式版本格式不符');
+              const producer = checked(api('actions/runs/' + proof.run_id + '/attempts/' + proof.run_attempt));
+              // 版本成功事实属于原attempt，不能被同一Run后来失败的重跑抹掉。
+              if (producer.status !== 'completed' || producer.conclusion !== 'success' || producer.head_sha !== proof.source_sha ||
+                  release.tag_name !== '公民·iOS·v' + proof.version || release.target_commitish !== proof.source_sha) continue;
+              proven.push({release, proof});
+          }
+          const compare = (a, b) => {
+              const aa = a.proof.version.split('.').map(BigInt), bb = b.proof.version.split('.').map(BigInt);
+              for (let i = 0; i < 3; i++) if (aa[i] !== bb[i]) return aa[i] > bb[i] ? -1 : 1;
+              return 0;
+          };
+          const latest = proven.sort(compare)[0];
+          if (latest) {
+              const {release, proof} = latest;
+              if (release.assets.length !== 2 || proof.assets.length !== 2) throw Error('最新正式产物不完整');
+              for (const asset of release.assets) {
+                  const declared = proof.assets.filter(row => row.name === asset.label);
+                  if (declared.length !== 1 || asset.state !== 'uploaded' || asset.size !== declared[0].size ||
+                      asset.digest !== 'sha256:' + declared[0].sha256) throw Error('正式附件证明不符');
+              }
+              const tag = api('git/ref/tags/' + encodeURIComponent(release.tag_name));
+              if (tag.object.type !== 'commit' || tag.object.sha !== proof.source_sha) throw Error('最新正式Tag不符');
+          } else if (current.some(run => run.status === 'completed' && run.conclusion === 'success' && run.display_title.startsWith('公民·iOS·v'))) {
+              throw Error('成功记录缺少正式证明，保留旧记录');
+          }
+          const keep = new Set(), states = new Set();
+          if (latest) keep.add(latest.proof.run_id);
+          for (const run of current) {
+              if (run.status !== 'completed') { keep.add(run.id); continue; }
+              const compilation = run.display_title.startsWith('公民·iOS·v');
+              if (compilation && run.conclusion === 'success') continue;
+              const key = (compilation ? 'build' : run.display_title) + ':' + (run.conclusion === 'success' ? 'success' : 'failed');
+              if (!states.has(key)) { states.add(key); keep.add(run.id); }
+          }
+          const stale = current.filter(run => run.status === 'completed' && !keep.has(run.id));
+          for (const release of releases) {
+              let proof;
+              try { proof = JSON.parse(release.body); } catch { continue; }
+              if (proof.product_id !== 'citizenapp' || proof.platform !== process.env.PLATFORM ||
+                  !stale.some(run => run.id === proof.run_id && run.head_sha === proof.source_sha)) continue;
+              const tag = api('git/ref/tags/' + encodeURIComponent(release.tag_name));
+              if (tag.object.type !== 'commit' || tag.object.sha !== proof.source_sha) throw Error('旧Tag归属不符');
+              execFileSync('gh', ['release', 'delete', release.tag_name, '--repo', process.env.GITHUB_REPOSITORY, '--yes', '--cleanup-tag'], {stdio: 'inherit'});
+          }
+          for (const run of stale) api('actions/runs/' + run.id, ['-X', 'DELETE']);
+          const remaining = new Set(list().map(run => run.id));
+          if (stale.some(run => remaining.has(run.id))) throw Error('旧Run、日志与产物清理未完成');
+          console.log('原Run终态及本平台记录清理已确认');
+          if (child.conclusion !== 'success' && process.env.OPERATION !== 'cancel') throw Error('原编译Run失败：' + child.conclusion);
+          JS
+  compile:
+    if: inputs.operation == 'build' && github.ref == 'refs/heads/main' && github.repository == 'crcfrcn/citizenapp'
+    name: 公民·iOS·v${{ inputs.version }}
+    runs-on: xcode-27
+    timeout-minutes: 360
+    concurrency:
+      group: citizenapp-ios-build
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ''
+      CITIZENAPP_VERSION: ${{ inputs.version }}
+      CITIZENAPP_SOURCE_ROOT: ${{ github.workspace }}
+      PUB_CACHE: ${{ github.workspace }}/target/cache/pub
+      GRADLE_USER_HOME: ${{ github.workspace }}/target/cache/gradle
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target/cache/rust
+      RUSTUP_TOOLCHAIN: 1.97.1
+      FLUTTER_ROOT: ${{ github.workspace }}/target/cache/flutter
+      FLUTTER_SUPPRESS_ANALYTICS: 'true'
+    steps:
+      - name: 原准备Run·${{ inputs.controller }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ORIGINAL_CONTROLLER: ${{ inputs.controller }}
+        run: |
+          set -euo pipefail
+          [[ "$ORIGINAL_CONTROLLER" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ORIGINAL_CONTROLLER" \
+            --jq '{path,event,head_branch,status,head_sha}' > "$RUNNER_TEMP/citizenapp-controller.json"
+          jq -e --arg sha "$GITHUB_SHA" '.path==".github/workflows/ios.yml" and .event=="workflow_dispatch" and .head_branch=="main" and .head_sha==$sha and .status!="completed"' \
+            "$RUNNER_TEMP/citizenapp-controller.json" >/dev/null
+          for attempt in {1..60}; do
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ORIGINAL_CONTROLLER/jobs?per_page=100" > "$RUNNER_TEMP/citizenapp-parent-jobs.json"
+            if jq -e --arg marker "候选版本·v$CITIZENAPP_VERSION" '[.jobs[].steps[]?|select(.name==$marker)]|length==1' "$RUNNER_TEMP/citizenapp-parent-jobs.json" >/dev/null; then break; fi
+            if [ "$attempt" = 60 ]; then echo '候选版本未与原准备Run绑定' >&2; exit 1; fi
+            sleep 1
+          done
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           node-version: 25.2.1
-      - name: 取得本平台增量计划
-        continue-on-error: true
-        id: cache-plan
-        run: node scripts/build.mjs ci-cache-plan ios
-      - name: 恢复本平台最新兼容增量
-        continue-on-error: true
-        uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
         with:
-          path: ${{ steps.cache-plan.outputs.path }}
-          key: ${{ steps.cache-plan.outputs.key }}
-          restore-keys: ${{ steps.cache-plan.outputs.restore_prefix }}
-      # 锁定工具、依赖、分析、测试及原生编译统一归本产品build.mjs。
-      - name: 本 Runner 编译、签名并验收
-        id: build
-        env:
-          IOS_KEY: "${{ secrets.IOS_KEY }}"
-          IOS_PROVISIONING_PROFILE: "${{ secrets.APP_PROFILE }}"
-        shell: bash
+          distribution: temurin
+          java-version: 17.0.20.1
+      - name: 恢复官方增量缓存
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809
+        timeout-minutes: 2
+        continue-on-error: true
+        with:
+          path: |
+            target/cache/flutter
+            target/cache/pub
+            target/cache/rust
+            target/cache/gradle/caches/modules-2
+            target/cache/gradle/wrapper
+          key: citizenapp-ios-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pubspec.lock', 'ios/Podfile.lock', 'android/platform.mjs') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            citizenapp-ios-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pubspec.lock', 'ios/Podfile.lock', 'android/platform.mjs') }}-
+      - name: 准备官方工具和本轮目录
         run: |
           set -euo pipefail
-          test -n "$IOS_KEY" && test -n "$IOS_PROVISIONING_PROFILE"
-          node scripts/build.mjs ci-build ios > "$RUNNER_TEMP/citizenapp-ios-result.json"
-      - name: 本产品生成并验收正式版
-        run: node scripts/build.mjs ci-release ios
-      - name: 保存本平台最新完整增量
-        continue-on-error: true
-        if: success() && steps.build.outcome == 'success'
-        uses: actions/cache/save@1bd1e32a3bdc45362d1e726936510720a7c30a57
-        with:
-          path: ${{ steps.cache-plan.outputs.path }}
-          key: ${{ steps.cache-plan.outputs.key }}
-      - name: 清理本平台编译现场
-        if: always()
-        shell: bash
+          work="$GITHUB_WORKSPACE/target/build/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -p "$work" target/cache
+          echo "WORK=$work" >> "$GITHUB_ENV"
+          if [ ! -d "$FLUTTER_ROOT/.git" ]; then
+            git clone --branch 3.47.2 --depth 1 https://github.com/flutter/flutter.git "$FLUTTER_ROOT"
+          fi
+          test "$(git -C "$FLUTTER_ROOT" rev-parse HEAD)" = d3b14c876900e553bc736ca19295fc09e3853e8e
+          echo "$FLUTTER_ROOT/bin" >> "$GITHUB_PATH"
+          "$FLUTTER_ROOT/bin/flutter" --version
+          "$FLUTTER_ROOT/bin/flutter" --version --machine | jq -e '.frameworkVersion=="3.47.2"' >/dev/null
+          rustup toolchain install 1.97.1 --profile minimal
+          gem install cocoapods -v 1.17.0 --no-document --install-dir "$work/gems"
+          echo "GEM_HOME=$work/gems" >> "$GITHUB_ENV"
+          echo "$work/gems/bin" >> "$GITHUB_PATH"
+          sdkmanager "platforms;android-34" "platforms;android-35" "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.31.6"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+          echo "$ANDROID_HOME/cmake/3.31.6/bin" >> "$GITHUB_PATH"
+      - name: 按本产品原锁装配普通工程
         run: |
-          if [ -d "target/build/ios" ]; then node scripts/build.mjs finish ios; fi
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import {execFileSync} from 'node:child_process';
+          import {mkdirSync, cpSync, copyFileSync, readFileSync, writeFileSync, readdirSync, appendFileSync, chmodSync} from 'node:fs';
+          import {join, dirname} from 'node:path';
+          import {pathToFileURL} from 'node:url';
+          const root = process.env.GITHUB_WORKSPACE, work = process.env.WORK;
+          const project = join(work, 'project');
+          mkdirSync(project);
+          for (const entry of readdirSync(root)) {
+              if (['target', '.git', '.dart_tool', 'build', '.gradle'].includes(entry)) continue;
+              cpSync(join(root, entry), join(project, entry), {recursive: true});
+          }
+          let declaration = readFileSync(join(project, 'pubspec.yaml'), 'utf8');
+          let lock = readFileSync(join(project, 'pubspec.lock'), 'utf8');
+          for (const name of ['citizen_sdk', 'tatachat_sdk']) {
+              const record = lock.split('\n  ' + name + ':\n')[1]?.split(/\n  \S/)[0];
+              const ref = /resolved-ref: ([a-f0-9]{40})/.exec(record || '')?.[1];
+              const url = /url: "?(https:\/\/github.com\/[^"\s]+\.git)"?/.exec(record || '')?.[1];
+              const declared = declaration.split('  ' + name + ':\n')[1]?.split(/\n  \S/)[0];
+              if (!ref || !url || !declared?.includes(url) || !declared.includes('ref: ' + ref)) {
+                  throw Error('SDK声明与原锁来源不一致');
+              }
+              const source = join(work, 'sources', name), output = join(work, 'packages', name);
+              mkdirSync(source, {recursive: true});
+              execFileSync('git', ['init', source]);
+              execFileSync('git', ['-C', source, 'fetch', '--depth=1', url, ref]);
+              execFileSync('git', ['-C', source, 'checkout', '--detach', 'FETCH_HEAD']);
+              mkdirSync(dirname(output), {recursive: true});
+              const sdk = await import(pathToFileURL(join(source, 'scripts/build.mjs')));
+              sdk.createFlutterSourceView(source, output);
+              sdk.assertFlutterSourceView(source, output);
+              declaration = declaration.replace(new RegExp('  ' + name + ':\\n(?:    .*\\n)+'), '  ' + name + ':\n    path: ' + output + '\n');
+              lock = lock.replace(new RegExp('  ' + name + ':\\n(?:    .*\\n)+'), entry => {
+                  const version = /    version: .+/.exec(entry)?.[0];
+                  return '  ' + name + ':\n    dependency: "direct main"\n    description:\n      path: "' + output +
+                      '"\n      relative: false\n    source: path\n' + version + '\n';
+              });
+          }
+          writeFileSync(join(project, 'pubspec.yaml'), declaration);
+          writeFileSync(join(project, 'pubspec.lock'), lock);
+          for (const platform of ['android', 'ios']) {
+              const input = await import(pathToFileURL(join(root, platform, 'platform.mjs')));
+              for (const [destination, text] of Object.entries(input.platformFiles)) {
+                  mkdirSync(dirname(join(project, destination)), {recursive: true});
+                  writeFileSync(join(project, destination), text);
+              }
+              for (const [source, destination] of input.platformSources) {
+                  mkdirSync(dirname(join(project, destination)), {recursive: true});
+                  copyFileSync(join(root, source), join(project, destination));
+              }
+          }
+          writeFileSync(join(project, 'analysis_options.yaml'), 'include: package:flutter_lints/flutter.yaml\nanalyzer:\n  exclude:\n    - build/**\n    - android/**\n    - ios/**\n');
+          const flutter = join(process.env.FLUTTER_ROOT, 'bin/flutter');
+          const template = join(work, 'template');
+          execFileSync(flutter, ['create', '--no-pub', '--platforms=android', '--project-name=citizenapp', template], {stdio: 'inherit'});
+          for (const name of ['gradlew', 'gradlew.bat', 'gradle/wrapper/gradle-wrapper.jar']) {
+              mkdirSync(dirname(join(project, 'android', name)), {recursive: true});
+              copyFileSync(join(template, 'android', name), join(project, 'android', name));
+          }
+          chmodSync(join(project, 'android/gradlew'), 0o755);
+          const citizen = join(work, 'sources/citizen_sdk/scripts/build.mjs');
+          const source = join(work, 'citizen-sources');
+          execFileSync(process.execPath, [citizen, 'prepare-environment', '--platform', 'macOS', '--work', source], {stdio: 'inherit'});
+          const plan = JSON.parse(execFileSync(process.execPath, [citizen, 'plan', '--platform', 'macOS'], {encoding: 'utf8'}));
+          const qr = plan.archives.filter(entry => /zxing/i.test(entry.name));
+          if (qr.length !== 1) throw Error('SDK公开QR来源不唯一');
+          const values = {
+              CITIZENSDK_WORK_DIR: join(work, 'native-work'),
+              CITIZENSDK_NATIVE_OUTPUT_DIR: join(work, 'native'),
+              CITIZENSDK_ZXING_SOURCE_DIR: join(source, qr[0].archive_root),
+              CITIZENSDK_GRADLE: join(project, 'android/gradlew'),
+              CITIZENSDK_ANDROID_CORE_DIR: join(work, 'native/android/arm64-v8a'),
+              CITIZENSDK_ANDROID_BUILD_DIR: join(work, 'citizen-android'),
+              CITIZENSDK_TEST_CORE_LIB_PATH: join(work, 'native/abi-host/libcitizensdk.dylib'),
+              TATACHATSDK_TEST_WORK_ROOT: work,
+              TATACHATSDK_TEST_NATIVE_LIBRARY: join(work, 'packages/tatachat_sdk/native/libtatachat_sdk.dylib')
+          };
+          for (const [key, value] of Object.entries(values)) appendFileSync(process.env.GITHUB_ENV, key + '=' + value + '\n');
+          JS
+      - name: 编译本轮原生依赖
+        run: node scripts/build.mjs ios dependencies
+      - name: 准备原生测试输入
+        run: |
+          set -euo pipefail
+          if [ "$PLATFORM" = ios ]; then
+            cp -R "$WORK/native/apple/CitizenSDK.xcframework" "$WORK/packages/citizen_sdk/darwin/"
+          fi
+          cd "$WORK/project"
+          flutter pub get --enforce-lockfile
+          node --input-type=module <<'JS'
+          import {readFileSync, copyFileSync, appendFileSync} from 'node:fs';
+          import {fileURLToPath} from 'node:url';
+          const file = new URL('file://' + process.cwd() + '/.dart_tool/package_config.json');
+          const entry = JSON.parse(readFileSync(file)).packages.find(row => row.name === 'isar_community_flutter_libs');
+          if (!entry) throw Error('原锁缺少Isar');
+          const library = process.env.WORK + '/libisar.dylib';
+          copyFileSync(fileURLToPath(new URL('macos/libisar.dylib', new URL(entry.rootUri, file))), library);
+          appendFileSync(process.env.GITHUB_ENV, 'ISAR_CORE_LIB_PATH=' + library + '\n');
+          JS
+          git clone --filter=blob:none --sparse --depth=1 https://github.com/crcfrcn/citizenchain.git "$WORK/chain"
+          git -C "$WORK/chain" sparse-checkout set runtime/primitives/tests/fixtures
+          git -C "$WORK/chain" rev-parse HEAD > "$WORK/chain-source-sha"
+          echo "CITIZENCHAIN_ROOT=$WORK/chain" >> "$GITHUB_ENV"
+      - name: AI代码回归、严格分析及完整Flutter测试
+        run: |
+          set -euo pipefail
+          node --test test/release_manifest.test.mjs
+          cd "$WORK/project"
+          flutter analyze --fatal-infos --fatal-warnings --no-pub
+          flutter test --no-pub --concurrency=1 --fail-fast --reporter=json | tee "$WORK/flutter-report.jsonl"
+          node --input-type=module <<'JS'
+          import {readFileSync, readdirSync} from 'node:fs';
+          const events = readFileSync(process.env.WORK + '/flutter-report.jsonl', 'utf8').trim().split('\n').map(JSON.parse);
+          const starts = new Set(events.filter(row => row.type === 'testStart').map(row => row.test.id));
+          const ended = events.filter(row => row.type === 'testDone');
+          const done = events.filter(row => row.type === 'done');
+          const walk = path => readdirSync(path, {withFileTypes: true}).flatMap(entry =>
+              entry.isDirectory() ? walk(path + '/' + entry.name) : [path + '/' + entry.name]);
+          const expected = walk(process.cwd() + '/test').filter(path => path.endsWith('_test.dart'));
+          const loaded = events.filter(row => row.type === 'suite').map(row => row.suite.path);
+          if (!starts.size || done.length !== 1 || done[0].success !== true || ended.length !== starts.size ||
+              ended.some(row => row.skipped || row.result !== 'success') || expected.some(path => !loaded.includes(path))) {
+              throw Error('Flutter全量回归失败、跳过或不完整');
+          }
+          JS
+      - name: 准备本轮Apple签名输入
+        env:
+          IOS_KEY: ${{ secrets.IOS_KEY }}
+          APP_PROFILE: ${{ secrets.APP_PROFILE }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir "$WORK/signing"
+          python3 - <<'PY'
+          import os, pathlib, base64, re
+          work = pathlib.Path(os.environ['WORK']) / 'signing'
+          fields = {}
+          for raw in os.environ['IOS_KEY'].splitlines():
+              line = raw.strip()
+              if not line or line.startswith('#'):
+                  continue
+              name, separator, value = line.partition('=')
+              if not separator or name in fields or not value:
+                  raise ValueError('IOS_KEY字段无效')
+              fields[name] = value
+          if set(fields) != {'pkcs12', 'password', 'certificate_sha1'} or not re.fullmatch('[0-9A-F]{40}', fields['certificate_sha1']):
+              raise ValueError('IOS_KEY内容无效')
+          (work / 'distribution.p12').write_bytes(base64.b64decode(fields['pkcs12'], validate=True))
+          (work / 'password').write_text(fields['password'])
+          (work / 'certificate').write_text(fields['certificate_sha1'])
+          (work / 'profile.mobileprovision').write_bytes(base64.b64decode(os.environ['APP_PROFILE'], validate=True))
+          PY
+          security list-keychains -d user > "$WORK/signing/keychains"
+          password="$(openssl rand -hex 32)"
+          echo "::add-mask::$password"
+          keychain="$WORK/signing/release.keychain-db"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$WORK/signing/distribution.p12" -k "$keychain" \
+            -P "$(cat "$WORK/signing/password")" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
+          python3 - <<'PY'
+          import os, pathlib, subprocess, shlex
+          directory = pathlib.Path(os.environ['WORK']) / 'signing'
+          original = shlex.split((directory / 'keychains').read_text())
+          subprocess.run(['security', 'list-keychains', '-d', 'user', '-s', str(directory / 'release.keychain-db'), *original], check=True)
+          PY
+          security cms -D -i "$WORK/signing/profile.mobileprovision" > "$WORK/signing/profile.plist"
+          plutil -convert json -o "$WORK/signing/project.json" "$WORK/project/ios/Runner.xcodeproj/project.pbxproj"
+          python3 - <<'PY'
+          import os, pathlib, plistlib, hashlib, datetime, json, shutil
+          work = pathlib.Path(os.environ['WORK'])
+          directory = work / 'signing'
+          profile = plistlib.loads((directory / 'profile.plist').read_bytes())
+          certificate = (directory / 'certificate').read_text()
+          entitlement = profile['Entitlements']
+          if profile['TeamIdentifier'] != ['MHYMVRN6FC'] or entitlement.get('application-identifier') != 'MHYMVRN6FC.ios.citizenapp' or entitlement.get('get-task-allow') is not False:
+              raise ValueError('描述文件应用身份不符')
+          if profile['ExpirationDate'] <= datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None):
+              raise ValueError('描述文件已过期')
+          if certificate not in [hashlib.sha1(value).hexdigest().upper() for value in profile['DeveloperCertificates']]:
+              raise ValueError('描述文件证书不符')
+          destination = pathlib.Path.home() / 'Library/MobileDevice/Provisioning Profiles' / (profile['UUID'] + '.mobileprovision')
+          destination.parent.mkdir(parents=True, exist_ok=True)
+          if destination.exists():
+              raise ValueError('描述文件路径已占用')
+          (directory / 'installed-profile').write_text(str(destination))
+          shutil.copyfile(directory / 'profile.mobileprovision', destination)
+          project = json.loads((directory / 'project.json').read_text())
+          for obj in project['objects'].values():
+              settings = obj.get('buildSettings', {})
+              if obj.get('name') == 'Release' and settings.get('PRODUCT_BUNDLE_IDENTIFIER') == 'ios.citizenapp':
+                  settings.update(CODE_SIGN_STYLE='Manual', DEVELOPMENT_TEAM='MHYMVRN6FC',
+                      CODE_SIGN_IDENTITY='Apple Distribution', PROVISIONING_PROFILE_SPECIFIER=profile['UUID'])
+          (directory / 'project.json').write_text(json.dumps(project))
+          export = {'method': 'release-testing' if profile.get('ProvisionedDevices') else 'app-store-connect',
+              'teamID': 'MHYMVRN6FC', 'signingStyle': 'manual', 'signingCertificate': certificate,
+              'provisioningProfiles': {'ios.citizenapp': profile['UUID']}}
+          (directory / 'export.plist').write_bytes(plistlib.dumps(export))
+          PY
+          plutil -convert xml1 -o "$WORK/project/ios/Runner.xcodeproj/project.pbxproj" "$WORK/signing/project.json"
+          security find-identity -v -p codesigning "$keychain" > "$WORK/signing/identities"
+          grep -Fq "$(cat "$WORK/signing/certificate")" "$WORK/signing/identities"
+      - name: 编译并导出正式IPA
+        id: build
+        run: node scripts/build.mjs ios
+      - name: 核对iOS正式包
+        run: |
+          set -euo pipefail
+          name="公民·iOS·v$CITIZENAPP_VERSION"
+          unzip -q "$WORK/artifact/$name.ipa" -d "$WORK/verify"
+          apps=("$WORK"/verify/Payload/*.app)
+          test "${#apps[@]}" = 1
+          app="${apps[0]}"
+          test "$(plutil -extract CFBundleIdentifier raw -o - "$app/Info.plist")" = ios.citizenapp
+          test "$(plutil -extract CFBundleShortVersionString raw -o - "$app/Info.plist")" = "$CITIZENAPP_VERSION"
+          test "$(plutil -extract CFBundleVersion raw -o - "$app/Info.plist")" = "$GITHUB_RUN_NUMBER"
+          codesign --verify --deep --strict "$app"
+          codesign -dv --verbose=4 "$app" 2> "$WORK/signing/verified"
+          grep -Fxq TeamIdentifier=MHYMVRN6FC "$WORK/signing/verified"
+          node --input-type=module <<'JS'
+          import {readdirSync} from 'node:fs';
+          import {pathToFileURL} from 'node:url';
+          const work = process.env.WORK;
+          const apps = readdirSync(work + '/verify/Payload').filter(name => name.endsWith('.app'));
+          const sdk = await import(pathToFileURL(work + '/sources/tatachat_sdk/scripts/build.mjs'));
+          await sdk.verifyNative(work + '/verify/Payload/' + apps[0] + '/Frameworks/TataChatSDK.framework/TataChatSDK', 'ios');
+          JS
+      - name: 生成本轮正式附件说明
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import {execFileSync} from 'node:child_process';
+          import {readFileSync, writeFileSync, readdirSync, statSync} from 'node:fs';
+          const work = process.env.WORK, title = '公民·iOS·v' + process.env.CITIZENAPP_VERSION;
+          const directory = work + '/artifact';
+          const digest = file => execFileSync('shasum', ['-a', '256', file], {encoding: 'utf8'}).split(' ')[0];
+          const asset = name => ({name, size: statSync(directory + '/' + name).size, sha256: digest(directory + '/' + name)});
+          const proof = {
+              schema: 1, product_id: 'citizenapp', platform: process.env.PLATFORM,
+              version: process.env.CITIZENAPP_VERSION, version_code: Number(process.env.GITHUB_RUN_NUMBER),
+              source_sha: process.env.GITHUB_SHA, run_id: Number(process.env.GITHUB_RUN_ID),
+              run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT), controller: Number(process.env.CONTROLLER),
+              chain_test_sha: readFileSync(work + '/chain-source-sha', 'utf8').trim(),
+              assets: readdirSync(directory).sort().map(asset)
+          };
+          const name = title + '.json';
+          writeFileSync(directory + '/' + name, JSON.stringify(proof, null, 2) + '\n');
+          proof.assets.push(asset(name));
+          writeFileSync(work + '/proof.json', JSON.stringify(proof, null, 2) + '\n');
+          JS
+        env:
+          CONTROLLER: ${{ inputs.controller }}
+      - name: 公民·iOS·v${{ inputs.version }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: 公民·iOS·v${{ inputs.version }}
+          path: ${{ env.WORK }}/artifact
+          if-no-files-found: error
+          compression-level: 0
+      - name: 创建正式Tag和Release并逐件回读
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          name="公民·iOS·v$CITIZENAPP_VERSION"
+          encoded="$(jq -nr --arg value "$name" '$value|@uri')"
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$WORK/releases.json"
+          old="$(jq -c --arg tag "$name" '[.[][]|select(.tag_name==$tag)]' "$WORK/releases.json")"
+          test "$(jq 'length' <<< "$old")" -le 1
+          if [ "$(jq 'length' <<< "$old")" = 1 ]; then
+            proof="$(jq -r '.[0].body' <<< "$old")"
+            jq -e --arg version "$CITIZENAPP_VERSION" '.product_id=="citizenapp" and .platform=="ios" and .version==$version' <<< "$proof" >/dev/null
+            previous_run="$(jq -r .run_id <<< "$proof")"
+            previous_attempt="$(jq -r .run_attempt <<< "$proof")"
+            previous_sha="$(jq -r .source_sha <<< "$proof")"
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$previous_run/attempts/$previous_attempt" \
+              | jq -e --arg sha "$previous_sha" '.status=="completed" and .conclusion!="success" and .head_sha==$sha and .path==".github/workflows/ios.yml"' >/dev/null
+            gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$encoded" \
+              | jq -e --arg sha "$previous_sha" '.object.type=="commit" and .object.sha==$sha' >/dev/null
+            gh release delete "$name" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+          fi
+          # 未登记的同名Tag绝不覆盖。只有本轮新建对象可被失败回滚删除。
+          export CITIZENAPP_RELEASE_NAME="$name"
+          tag_created=false
+          rollback() {
+            code=$?
+            if [ "$code" != 0 ]; then
+              # gh创建成功但附件上传失败也可能留下草稿，按本Run证明准确查回。
+              owned="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[]|select(.tag_name==env.CITIZENAPP_RELEASE_NAME and .target_commitish==env.GITHUB_SHA)|select((.body|fromjson?|.run_id)==(env.GITHUB_RUN_ID|tonumber))|.id')" || echo '本次Release查询未完成' >&2
+              if [[ "${owned:-}" =~ ^[1-9][0-9]*$ ]]; then
+                gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$owned" || echo '本次Release撤销未完成' >&2
+              fi
+              if [ "$tag_created" = true ]; then
+                if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$encoded" | jq -e --arg sha "$GITHUB_SHA" '.object.type=="commit" and .object.sha==$sha' >/dev/null; then
+                  gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$encoded" || echo '本次Tag撤销未完成' >&2
+                else
+                  echo '本次Tag归属或撤销状态未确认' >&2
+                fi
+              fi
+            fi
+            exit "$code"
+          }
+          trap rollback EXIT
+          gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$name" -f "sha=$GITHUB_SHA" > "$WORK/tag.json"
+          tag_created=true
+          assets=()
+          for file in "$WORK/artifact/"*; do assets+=("$file#$(basename "$file")"); done
+          gh release create "$name" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --target "$GITHUB_SHA" --title "$name" --notes-file "$WORK/proof.json" --draft
+          gh release view "$name" --repo "$GITHUB_REPOSITORY" --json assets > "$WORK/assets.json"
+          mkdir "$WORK/readback"
+          for file in "$WORK/artifact/"*; do
+            label="$(basename "$file")"
+            remote="$(jq -er --arg label "$label" '[.assets[]|select(.label==$label)]|if length==1 then .[0].name else error("附件标签不唯一") end' "$WORK/assets.json")"
+            gh release download "$name" --repo "$GITHUB_REPOSITORY" --pattern "$remote" --output "$WORK/readback/$label"
+            cmp "$file" "$WORK/readback/$label"
+          done
+          gh release edit "$name" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false --latest=false
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$encoded" \
+            | jq -e --arg sha "$GITHUB_SHA" --arg tag "$name" '.draft==false and .prerelease==false and .published_at!=null and .name==$tag and .tag_name==$tag and .target_commitish==$sha and (.assets|length)==2' >/dev/null
+          gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$encoded" \
+            | jq -e --arg sha "$GITHUB_SHA" '.object.type=="commit" and .object.sha==$sha' >/dev/null
+          trap - EXIT
+      - name: 保存官方增量缓存
+        if: always()
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809
+        timeout-minutes: 2
+        continue-on-error: true
+        with:
+          path: |
+            target/cache/flutter
+            target/cache/pub
+            target/cache/rust
+            target/cache/gradle/caches/modules-2
+            target/cache/gradle/wrapper
+          key: citizenapp-ios-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pubspec.lock', 'ios/Podfile.lock', 'android/platform.mjs') }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: 清理本轮普通现场和签名输入
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -z "${WORK:-}" ]; then exit 0; fi
+          test "$WORK" = "$GITHUB_WORKSPACE/target/build/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          python3 - <<'PY'
+          import os, pathlib, shlex, subprocess, shutil
+          work = pathlib.Path(os.environ['WORK'])
+          directory = work / 'signing'
+          if (work / 'build-active.json').exists():
+              raise RuntimeError('编译进程退出未确认，保留现场')
+          if (directory / 'keychains').exists():
+              original = shlex.split((directory / 'keychains').read_text())
+              subprocess.run(['security', 'list-keychains', '-d', 'user', '-s', *original], check=True)
+          if (directory / 'release.keychain-db').exists():
+              subprocess.run(['security', 'delete-keychain', str(directory / 'release.keychain-db')], check=True)
+          if (directory / 'installed-profile').exists():
+              pathlib.Path((directory / 'installed-profile').read_text()).unlink(missing_ok=True)
+          shutil.rmtree(work)
+          PY

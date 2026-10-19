@@ -447,3 +447,35 @@ export const platformFiles = Object.freeze({
     ""
   ].join("\n")
 });
+
+// 工具标准布局的来源映射；仅声明文件对应关系，不执行复制或编译。
+export const platformSources = Object.freeze([
+  ["ios/project/Runner.pbxproj", "ios/Runner.xcodeproj/project.pbxproj"],
+  ["ios/project/Runner.xcscheme", "ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme"],
+  ["ios/source/AppDelegate.swift", "ios/Runner/AppDelegate.swift"],
+  ["assets/logo/icon1024.png", "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png"],
+  ["assets/logo/icon20.png", "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-20x20@1x.png"],
+  ["assets/logo/icon40.png", "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-20x20@2x.png"],
+  ["assets/logo/icon60.png", "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-20x20@3x.png"],
+  ["assets/logo/icon29.png", "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-29x29@1x.png"],
+  ["assets/logo/icon58.png", "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-29x29@2x.png"],
+  ["assets/logo/icon87.png", "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-29x29@3x.png"],
+  ["assets/logo/icon40.png", "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-40x40@1x.png"],
+  ["assets/logo/icon80.png", "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-40x40@2x.png"],
+  ["assets/logo/icon120.png", "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-40x40@3x.png"],
+  ["assets/logo/icon120.png", "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-60x60@2x.png"],
+  ["assets/logo/icon180.png", "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-60x60@3x.png"],
+  ["assets/logo/icon76.png", "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-76x76@1x.png"],
+  ["assets/logo/icon152.png", "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-76x76@2x.png"],
+  ["assets/logo/icon167.png", "ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-83.5x83.5@2x.png"],
+  ["assets/logo/launch160.png", "ios/Runner/Assets.xcassets/CitizenLaunchLogo.imageset/CitizenLaunchLogo.png"],
+  ["assets/logo/launch320.png", "ios/Runner/Assets.xcassets/CitizenLaunchLogo.imageset/CitizenLaunchLogo@2x.png"],
+  ["assets/logo/launch480.png", "ios/Runner/Assets.xcassets/CitizenLaunchLogo.imageset/CitizenLaunchLogo@3x.png"],
+  ["ios/source/Info.plist", "ios/Runner/Info.plist"],
+  ["ios/source/InfoPlist.xcstrings", "ios/Runner/InfoPlist.xcstrings"],
+  ["ios/square/SquareMediaChannel.swift", "ios/Runner/SquareMediaChannel.swift"],
+  ["ios/square/SquareVideoTranscoder.swift", "ios/Runner/SquareVideoTranscoder.swift"],
+  ["ios/source/SystemProtectedDataChannel.swift", "ios/Runner/SystemProtectedDataChannel.swift"],
+  ["ios/tests/RunnerTests.swift", "ios/RunnerTests.swift"],
+  ["ios/tests/RunnerUITests.swift", "ios/RunnerUITests.swift"],
+]);
