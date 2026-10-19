@@ -16,7 +16,7 @@ iOS和Android按各自平台锁、现场和原Run并行执行，不先等待另�
 
 控制台tata/citizenapp.mjs仅声明动作、转交通用授权/任务/日志并调用上述所属Workflow。原生固定流程不支持的本机测试动作移除，完整测试在自动化先执行。本产品不导入控制台代码，不依赖邻仓工作树、工具库存、租约或供给回执。配置和流程也不依赖控制台运行环境；相同公开Workflow可由有权限的调用方通过官方GitHub接口发起。
 
-工具使用官方渠道：Node25.2.1、Flutter3.47.2、Rust1.97.1、JDK17.0.20.1、Gradle9.1.0、AGP9.0.1、KGP2.2.20、NDK28.2.13676358、BuildTools36.0.0、CMake3.31.6与CocoaPods1.17.0。SDK只取pubspec.yaml/pubspec.lock的准确HTTPS Git提交并调用其公开装配和原生接口；当前TataChatSDK固定c7822de810772e11363f9bf8c1c02826889c0bb2，CitizenSDK固定004e5a4917c129cfd985342857f4ce16a3b3ebad。派生Pub声明只将这两个直接SDK映射到本轮公开布局，其余传递锁条目保持，并由官方Pub严格校验。
+工具使用官方渠道：Node25.2.1、Flutter3.47.2、Rust1.97.1、JDK17.0.20.1、Gradle9.1.0、AGP9.0.1、KGP2.2.20、NDK28.2.13676358、BuildTools36.0.0、CMake3.31.6与CocoaPods1.17.0。JDK由官方setup-java v6固定提交b843ebf9b913146b38da2eaa7aeddf76074ae1ad安装，准确输入Temurin 17.0.20.1+1，保留原JDK及其构建号；四段版本按官方JEP322支持解析。SDK只取pubspec.yaml/pubspec.lock的准确HTTPS Git提交并调用其公开装配和原生接口；当前TataChatSDK固定c7822de810772e11363f9bf8c1c02826889c0bb2，CitizenSDK固定004e5a4917c129cfd985342857f4ce16a3b3ebad。派生Pub声明只将这两个直接SDK映射到本轮公开布局，其余传递锁条目保持，并由官方Pub严格校验。
 
 现有平台输入和纯来源映射分别归android/platform.mjs与ios/platform.mjs，由Workflow装配到本轮普通工程，不写源码。SDK内部构建归SDK公开接口；最终App只使用Flutter官方build apk/appbundle/ipa。Android使用原锁兼容的KGP与旧DSL配置，不改写Flutter或Pub包源码；CitizenSDK库模块通过宿主同一KGP编译其声明的Kotlin源。
 
