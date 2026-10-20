@@ -98,30 +98,51 @@ test('准确任务现场被占用时拒绝第二次编译', t => {
     assert.equal(existsSync(value.env.CALLS), false);
 });
 
-test('取消等待真实合成工具退出后才释放本轮编译标记', {timeout: 15000}, async t => {
-    const value = fixture(t);
-    const child = spawn(process.execPath, [value.script, 'android'], {
-        env: {...value.env, HOLD: '1'}, stdio: ['ignore', 'ignore', 'pipe']
+for (const phase of ['app', 'dependencies']) {
+    test(phase + '取消等待真实合成工具退出后才释放本轮编译标记', {timeout: 15000}, async t => {
+        const value = fixture(t);
+        if (phase === 'dependencies') {
+            const source = join(value.directory, 'target/build/21-1/sources/citizen_sdk/scripts');
+            mkdirSync(source, {recursive: true});
+            writeFileSync(join(source, 'build.mjs'), `
+                import {writeFileSync} from 'node:fs';
+                writeFileSync(process.env.CALLS, '依赖编译已启动');
+                setInterval(() => {}, 1000);
+            `);
+        }
+        const child = spawn(process.execPath, [value.script, 'android', phase], {
+            env: {...value.env, HOLD: '1'}, stdio: ['ignore', 'ignore', 'pipe']
+        });
+        t.after(() => { try { child.kill('SIGKILL'); } catch {} });
+        const finished = new Promise(resolve => child.once('close', code => resolve(code)));
+        for (let attempt = 0; attempt < 100 && !existsSync(value.env.CALLS); attempt++) {
+            await new Promise(resolve => setTimeout(resolve, 30));
+        }
+        assert.ok(existsSync(value.env.CALLS));
+        child.kill('SIGTERM');
+        assert.notEqual(await finished, 0);
+        assert.equal(existsSync(join(value.directory, 'target/build/21-1/build-active.json')), false);
     });
-    t.after(() => { try { child.kill('SIGKILL'); } catch {} });
-    const finished = new Promise(resolve => child.once('close', code => resolve(code)));
-    for (let attempt = 0; attempt < 100 && !existsSync(value.env.CALLS); attempt++) {
-        await new Promise(resolve => setTimeout(resolve, 30));
-    }
-    assert.ok(existsSync(value.env.CALLS));
-    child.kill('SIGTERM');
-    assert.notEqual(await finished, 0);
-    assert.equal(existsSync(join(value.directory, 'target/build/21-1/build-active.json')), false);
-});
+}
 
-test('原生依赖入口失败阻止后续App编译', t => {
+test('原生依赖失败保留失败结果、阻止App编译并释放已退出的现场', t => {
     const value = fixture(t);
-    mkdirSync(join(value.directory, 'target/build/21-1/sources/citizen_sdk'), {recursive: true});
+    const source = join(value.directory, 'target/build/21-1/sources/citizen_sdk/scripts');
+    mkdirSync(source, {recursive: true});
+    writeFileSync(join(source, 'build.mjs'), 'process.exitCode = 17;\n');
     const result = spawnSync(process.execPath, [value.script, 'android', 'dependencies'], {env: value.env, encoding: 'utf8'});
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /编译失败/);
     assert.equal(existsSync(value.env.CALLS), false);
-    assert.ok(existsSync(join(value.directory, 'target/build/21-1/build-active.json')));
+    assert.equal(existsSync(join(value.directory, 'target/build/21-1/build-active.json')), false);
+});
+
+test('iOS在原锁版本核对后、原生编译前预缓存两种Apple引擎', () => {
+    const workflow = readFileSync(join(root, '.github/workflows/ios.yml'), 'utf8');
+    const version = workflow.indexOf('.frameworkVersion=="3.47.2"');
+    const precache = workflow.indexOf('"$FLUTTER_ROOT/bin/flutter" precache --ios --macos');
+    const compile = workflow.indexOf('node scripts/build.mjs ios dependencies');
+    assert.ok(version >= 0 && precache > version && compile > precache);
 });
 
 // 直接执行所属Workflow的真实正文，仅替换外部I/O；不复制版本或装配算法。

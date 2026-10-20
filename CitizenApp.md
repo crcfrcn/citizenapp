@@ -2,7 +2,7 @@
 
 ## 当前构建合同
 
-公民App只在所属塔塔自动化编译。scripts/build.mjs原文保持正常排版150行，只包含自动化身份守卫、SDK原生编译、Flutter正式App编译及本轮编译进程退出处理；不承担测试调度、GitHub任务、版本、正式版本管理或历史清理。scripts/config.mjs原文保持，只声明APP_KEY、IOS_KEY、APP_PROFILE等配置需求，不放任务执行或版本算法。不新增模块，不恢复已删除的平台输入模块。
+公民App只在所属塔塔自动化编译。scripts/build.mjs保持正常排版不超过150行，只包含自动化身份守卫、SDK原生编译、Flutter正式App编译及本轮编译进程退出处理；不承担测试调度、GitHub任务、版本、正式版本管理或历史清理。scripts/config.mjs原文保持，只声明APP_KEY、IOS_KEY、APP_PROFILE等配置需求，不放任务执行或版本算法。不新增模块，不恢复已删除的平台输入模块。
 
 每个平台一次执行只有一个本机自动化任务和一个GitHub Run。产品所属.github/workflows/ios.yml与android.yml分别公开workflow_dispatch，唯一输入为version；固定Workflow名称为公民·iOS、公民·Android，每次Run、Job、Artifact、Tag、Release使用公民·平台·vX.Y.Z。没有prepare/settle/cancel操作、父子Run、管理Run或递归派发。iOS与Android独立任务、授权、现场和并发组，可以同时执行；同平台重复点击、恢复和取消都不创建新Run。
 
@@ -18,7 +18,9 @@
 
 工具使用官方渠道和原锁：Node25.2.1、Flutter3.47.2、Rust1.97.1、Temurin17.0.20.1+1、Gradle9.1.0、AGP9.0.1、KGP2.2.20、NDK28.2.13676358、BuildTools36.0.0、CMake3.31.6和CocoaPods1.17.0。setup-java固定官方v6提交b843ebf9b913146b38da2eaa7aeddf76074ae1ad。显式交付官方运行机Android SDK完整路径；Rust准备iOS真机/模拟器或Android交叉目标。SDK准确来源仍只取pubspec.yaml/pubspec.lock，普通公开工程视图和原生接口由SDK持有；派生视图只映射两个直接SDK路径，其余原锁由官方Pub严格校验，不依赖控制台工具库存、邻仓检出或租约。
 
-GitHub官方缓存只保存Flutter、Pub、Cargo和Gradle可再生内容，不含签名材料；恢复/保存限时且故障不阻塞实际构建。本轮工程与签名输入按Run/attempt隔离，确认编译进程退出后只清理本轮现场；SDK失败仍有活动标记时保留现场，不因外层Node退出而假定内部后代均已退出。没有本机App编译入口。
+iOS所属Workflow在核对原锁Flutter版本后，通过官方precache --ios --macos准备原锁CitizenSDK Apple入口需要的iOS和macOS引擎，原生依赖编译前完成，不改变工具或SDK版本。准备失败即停止，不以已有缓存存在代替本轮官方命令的成功结果。
+
+GitHub官方缓存只保存Flutter、Pub、Cargo和Gradle可再生内容，不含签名材料；恢复/保存限时且故障不阻塞实际构建。本轮工程与签名输入按Run/attempt隔离，确认编译进程退出后只清理本轮现场。依赖或App编译成功、失败及取消均在确认本轮编译进程组全部退出后释放活动标记，失败结果继续上报；无法确认退出时保留标记与现场，不因外层Node退出而假定内部后代均已退出。没有本机App编译入口。
 
 ## 2026-10-16 公民服务业务门禁与注册失败收口
 

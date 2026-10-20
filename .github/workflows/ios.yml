@@ -101,6 +101,8 @@ jobs:
           echo "$FLUTTER_ROOT/bin" >> "$GITHUB_PATH"
           "$FLUTTER_ROOT/bin/flutter" --version
           "$FLUTTER_ROOT/bin/flutter" --version --machine | jq -e '.frameworkVersion=="3.47.2"' >/dev/null
+          # 原锁CitizenSDK的Apple入口同时消费iOS和macOS Release引擎。
+          "$FLUTTER_ROOT/bin/flutter" precache --ios --macos
           rustup toolchain install 1.97.1 --profile minimal
           rustup target add --toolchain 1.97.1 aarch64-apple-ios aarch64-apple-ios-sim
           gem install cocoapods -v 1.17.0 --no-document --install-dir "$work/gems"

@@ -90,7 +90,6 @@ export async function build(platform, phase = 'app') {
     const work = requireAutomationBuild(platform);
     if (!['dependencies', 'app'].includes(phase)) throw Error('未知编译阶段');
     const project = join(work, 'project');
-    let dependencyComplete = phase !== 'dependencies';
     activeMarker = join(work, 'build-active.json');
     if (existsSync(activeMarker)) throw Error('本轮编译现场仍被占用');
     writeFileSync(activeMarker, JSON.stringify({pid: process.pid}), {flag: 'wx', mode: 0o600});
@@ -114,7 +113,6 @@ export async function build(platform, phase = 'app') {
                     cpSync(target === 'ios' ? join(output, 'TataChatSDK.xcframework') : output, destination, {recursive: true});
                 }
             }
-            dependencyComplete = true;
             return;
         }
         const flutter = join(process.env.FLUTTER_ROOT, 'bin/flutter');
@@ -135,7 +133,8 @@ export async function build(platform, phase = 'app') {
             copyFileSync(join(directory, files[0]), join(output, `${title}.ipa`));
         }
     } finally {
-        if (dependencyComplete && !groups.size) rmSync(activeMarker);
+        // 成败不决定现场占用；只有编译进程组全部退出后才释放标记。
+        if (!groups.size) rmSync(activeMarker);
     }
 }
 
