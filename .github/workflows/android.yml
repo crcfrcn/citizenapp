@@ -505,6 +505,7 @@ jobs:
           const packageRoot = fileURLToPath(new URL(entry.rootUri, file));
           copyFileSync(join(packageRoot, 'macos', 'libisar.dylib'), library);
           appendFileSync(process.env.GITHUB_ENV, 'ISAR_CORE_LIB_PATH=' + library + '\n');
+          appendFileSync(process.env.GITHUB_ENV, 'CITIZENAPP_TEST_WORK_DIR=' + process.env.WORK + '\n');
           JS
           git clone --filter=blob:none --sparse --depth=1 https://github.com/crcfrcn/citizenchain.git "$WORK/chain"
           git -C "$WORK/chain" sparse-checkout set runtime/primitives/tests/fixtures
@@ -742,8 +743,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CITIZENAPP_CLEANUP_RESULT: ${{ job.status }}
         run: |
-          set -Eeuo pipefail
-          trap 'echo "本平台历史清理未完成，不能视为旧记录已清空" >&2' ERR
+          set -euo pipefail
           test "$GITHUB_REPOSITORY" = crcfrcn/citizenapp
           test "$GITHUB_REF" = refs/heads/main
           case "$PLATFORM" in ios) label=iOS ;; android) label=Android ;; *) exit 1 ;; esac
@@ -883,7 +883,7 @@ jobs:
             done < <(jq -c --argjson id "$id" '.[] | select((.body | fromjson? | .run_id) == $id)' <<<"$releases")
             if ! jq -e --arg name "$name" 'index($name) != null' <<<"$protected" >/dev/null; then
               # 无Release的孤立Tag只按本平台准确Run名称和提交归属删除。
-              case "$name" in "公民·$label·v"*) ;; *) echo '旧Run名称无法确认Tag归属' >&2; exit 1 ;; esac
+              case "$name" in "公民·${label}·v"*) ;; *) echo '旧Run名称无法确认Tag归属' >&2; exit 1 ;; esac
               encoded="$(jq -nr --arg tag "$name" '$tag | @uri')"
               attached="$(optional "releases/tags/$encoded")"
               if [ "$attached" != null ]; then
@@ -923,11 +923,11 @@ jobs:
               (.key | capture("-(?<run>[1-9][0-9]*)-(?<attempt>[1-9][0-9]*)$") | .run | tonumber) as $id |
               ($keep | index($id)) != null)' <<<"$caches" >/dev/null
           # 无法认领的本平台旧正式对象必须报错，不能漏掉后声称清理成功。
-          pages releases '' | jq -e --arg prefix "公民·$label·v" --argjson protected "$protected" '
+          pages releases '' | jq -e --arg prefix "公民·${label}·v" --argjson protected "$protected" '
             if all(.[] | select(.tag_name | startswith($prefix));
               .tag_name as $tag | $protected | index($tag) != null)
             then true else error("本平台仍有未清理或归属未确认的Release") end' >/dev/null
-          encoded="$(jq -nr --arg prefix "公民·$label·v" '$prefix | @uri')"
+          encoded="$(jq -nr --arg prefix "公民·${label}·v" '$prefix | @uri')"
           pages "git/matching-refs/tags/$encoded" '' | jq -e --argjson protected "$protected" '
             if all(.[]; (.ref | ltrimstr("refs/tags/")) as $tag | $protected | index($tag) != null)
             then true else error("本平台仍有归属未确认的Tag") end' >/dev/null
