@@ -40,3 +40,18 @@ export const manifest=Object.freeze({
   }
 });
 export function describeConfiguration(){return JSON.parse(JSON.stringify(manifest));}
+
+// 本仓流程的公开入口声明；调用方只交付标准传输能力，不拥有产品规则或任务宿主。
+export async function describeAction({flow,platform}){
+ const targets={ios:{name:'iOS',workflow:'ios.yml'},android:{name:'Android',workflow:'android.yml'}},target=targets[platform];
+ if(flow!=='release'||!target)throw Error('本产品尚未声明该流程入口：'+flow+'·'+platform);
+ return {repository:'crcfrcn/citizenapp',launch:async({read,dispatch})=>{
+  const rows=[];
+  for(let page=1;;page++){const data=await read('actions/workflows/'+target.workflow+'/runs?branch=main&event=workflow_dispatch&per_page=100&page='+page);rows.push(...data.workflow_runs);if(data.workflow_runs.length<100)break;}
+  const latest=rows.filter(run=>run.status==='completed'&&run.conclusion==='success').sort((a,b)=>Date.parse(b.updated_at)-Date.parse(a.updated_at)||b.id-a.id)[0];
+  const {readFile}=await import('node:fs/promises');let version;
+  if(latest){const prefix='公民·'+target.name+'·v';if(!latest.display_title.startsWith(prefix))throw Error('本产品最新成功Run没有准确版本');const parts=latest.display_title.slice(prefix.length).split('.');parts[2]=String(BigInt(parts[2])+1n);version=parts.join('.');}
+  else version=/^version:\s*(\S+)/mu.exec(await readFile(new URL('../pubspec.yaml',import.meta.url),'utf8'))[1].split('+')[0];
+  const receipt=await dispatch({workflow:target.workflow,ref:'main',inputs:{version}});return {runID:receipt.workflow_run_id};
+ }};
+}
