@@ -22,6 +22,8 @@ iOS所属Workflow在核对原锁Flutter版本后，通过官方precache --ios --
 
 双端宿主测试库从本轮官方.dart_tool/package_config.json读取Isar的rootUri，先按配置文件URI解析并用fileURLToPath转为包根路径，再用path.join拼接macos/libisar.dylib。绝对或相对URI、有无尾斜线及转义目录均保持同一包目录；缺包或缺库直接失败，不猜测缓存位置、不另取版本。
 
+四个既有Isar生成文件仅在原ignore_for_file声明补experimental_member_use，确认原锁生成器使用的实验性索引API。集合与索引ID、schema、序列化及全部执行正文保持；不排除生成文件、不全局忽略诊断。所属Workflow继续执行原19项Node回归、fatal infos/warnings严格分析及完整Flutter测试，实际结果归任务卡。
+
 GitHub官方缓存只保存Flutter、Pub、Cargo和Gradle可再生内容，不含签名材料；恢复/保存限时且故障不阻塞实际构建。本轮工程与签名输入按Run/attempt隔离，确认编译进程退出后只清理本轮现场。依赖或App编译成功、失败及取消均在确认本轮编译进程组全部退出后释放活动标记，失败结果继续上报；无法确认退出时保留标记与现场，不因外层Node退出而假定内部后代均已退出。没有本机App编译入口。
 
 ## 2026-10-16 公民服务业务门禁与注册失败收口
