@@ -25,13 +25,13 @@ class LegislationApi {
   final Map<String, LawVersionLabel> _versionLabelCache = {};
   ImmutableManifest? _manifestCache;
 
-  /// 某层级+行政区范围下的全部 law_id(`list_laws(tier, scope_code)`)。
-  Future<List<int>> listLaws(LawTier tier, int scopeCode) async {
+  /// 某层级+行政区范围下的全部 law_id(`list_laws(tier, region)`)。
+  Future<List<int>> listLaws(LawTier tier, LawRegion region) async {
     final finalized = await _chain.getFinalizedHead();
     final raw = await _chain.callRuntimeApi(
       finalized,
       'LegislationApi_list_laws',
-      Uint8List.fromList([tier.index, ..._u32(scopeCode)]),
+      Uint8List.fromList([tier.index, ...encodeLawRegion(tier, region)]),
     );
     return decodeLawIds(raw);
   }

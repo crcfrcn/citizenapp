@@ -124,251 +124,82 @@ test('原生依赖入口失败阻止后续App编译', t => {
     assert.ok(existsSync(join(value.directory, 'target/build/21-1/build-active.json')));
 });
 
-// 执行所属Workflow的真实准备正文，替换外部I/O；不另造版本算法。
-function prepareWorkflow({active = false, missing = false, lost = false} = {}) {
-    const workflow = readFileSync(join(root, '.github/workflows/android.yml'), 'utf8');
-    const block = workflow.split("node --input-type=module <<'JS'\n")[1].split('\n          JS')[0];
-    const body = block.split('\n').map(line => line.slice(10)).filter(line => !line.startsWith('import ')).join('\n');
-    const run = {
-        id: 10, status: 'completed', conclusion: 'success',
-        path: '.github/workflows/android.yml', head_sha: 'a'.repeat(40),
-        display_title: '公民·Android·v1.0.1'
-    };
-    const rows = [run, {...run, id: 11, conclusion: 'failure', display_title: '公民·Android·v1.0.2'}];
-    if (active) rows.push({...run, id: 12, status: 'queued'});
-    const release = {
-        tag_name: run.display_title, target_commitish: run.head_sha, draft: false, prerelease: false,
-        body: JSON.stringify({product_id: 'citizenapp', platform: 'android', version: '1.0.1',
-            run_id: 10, run_attempt: 1, source_sha: run.head_sha})
-    };
-    const dispatches = [];
-    const exec = (command, args) => {
-        assert.equal(command, 'gh');
-        const endpoint = args.at(-1);
-        if (args.includes('inputs[operation]=build')) {
-            dispatches.push(args);
-            if (lost) throw Error('派发响应丢失');
-            return JSON.stringify({workflow_run_id: 15, html_url: 'https://github.com/crcfrcn/citizenapp/actions/runs/15'});
-        }
-        if (endpoint.includes('/workflows/')) return JSON.stringify([{workflow_runs: rows}]);
-        if (endpoint.includes('/releases?')) return JSON.stringify([missing ? [] : [release]]);
-        if (endpoint.includes('/attempts/')) return JSON.stringify(run);
-        if (endpoint.includes('/jobs?')) return JSON.stringify([{jobs: []}]);
-        if (endpoint.includes('/git/ref/')) return JSON.stringify({object: {type: 'commit', sha: run.head_sha}});
-        throw Error('未声明的外部调用');
-    };
-    const evaluate = new Function('execFileSync', 'readFileSync', 'appendFileSync', 'process', 'console', body);
-    return {dispatches, run: () => evaluate(exec, () => 'version: 1.0.0+1\n', () => {}, {env: {
-        GITHUB_REPOSITORY: 'crcfrcn/citizenapp', WORKFLOW: 'android.yml', PLATFORM: 'android',
-        GITHUB_RUN_ID: '20', GITHUB_OUTPUT: 'fixture'
-    }}, {log() {}})};
-}
-
-test('失败候选不递增，准备流程只派发准确后继版本一次', () => {
-    const value = prepareWorkflow();
-    value.run();
-    assert.equal(value.dispatches.length, 1);
-    assert.ok(value.dispatches[0].includes('inputs[version]=1.0.2'));
-});
-
-test('活动Run、缺失正式证明和回执丢失均禁止再次派发', () => {
-    for (const input of [{active: true}, {missing: true}, {lost: true}]) {
-        const value = prepareWorkflow(input);
-        assert.throws(value.run);
-        assert.equal(value.dispatches.length, input.lost ? 1 : 0);
-    }
-});
-
-// 回归直接执行对应Workflow正文；外部命令由合成端口返回，不访问真实GitHub。
+// 直接执行所属Workflow的真实正文，仅替换外部I/O；不复制版本或装配算法。
 function workflowBody(platform, name) {
-    const text = readFileSync(join(root, '.github/workflows/' + platform + '.yml'), 'utf8');
-    const step = text.split('      - name: ' + name + '\n')[1];
-    assert.ok(step, '真实Workflow步骤必须存在：' + name);
-    const block = step.split("node --input-type=module <<'JS'\n")[1].split('\n          JS')[0];
-    return block.split('\n').map(line => line.slice(10)).filter(line => !line.startsWith('import ')).join('\n');
+    const source = readFileSync(join(root, '.github/workflows/' + platform + '.yml'), 'utf8');
+    const step = source.split('      - name: ' + name + '\n')[1];
+    assert.ok(step, '缺少所属Workflow步骤：' + name);
+    return step.split("node --input-type=module <<'JS'\n")[1].split('\n          JS')[0]
+        .split('\n').map(line => line.slice(10)).filter(line => !line.startsWith('import ')).join('\n');
 }
-
-function remoteRun(id, platform, extra = {}) {
-    return {
-        id, head_sha: 'a'.repeat(40), head_branch: 'main', event: 'workflow_dispatch',
-        path: '.github/workflows/' + platform + '.yml', repository: {full_name: 'crcfrcn/citizenapp'},
-        created_at: '2026-10-19T00:00:00Z', display_title: '公民·' + (platform === 'ios' ? 'iOS' : 'Android') + '·v1.2.3',
-        status: 'completed', conclusion: 'success', ...extra
-    };
+function checkCandidate(platform, rows, candidate, initial = '1.0.0') {
+    const calls = [];
+    const execute = new Function('execFileSync', 'readFileSync', 'process', workflowBody(platform, '核对候选版本及唯一原Run'));
+    return {calls, run: () => execute((command, args) => {
+        assert.equal(command, 'gh');
+        calls.push(args);
+        assert.equal(args.some(value => ['POST','DELETE','-f'].includes(value)), false);
+        return JSON.stringify([{workflow_runs:rows}]);
+    }, () => 'version: ' + initial + '+1\n', {env:{CITIZENAPP_VERSION:candidate,
+        GITHUB_RUN_ID:'20', GITHUB_REPOSITORY:'crcfrcn/citizenapp', PLATFORM:platform}})};
 }
-
-function executeBody(body, exec, extra = {}) {
-    return new Function('execFileSync', 'process', 'console', body)(exec, {env: {
-        GITHUB_REPOSITORY: 'crcfrcn/citizenapp', GITHUB_SHA: 'a'.repeat(40),
-        ORIGINAL_CONTROLLER: '20', ORIGINAL_RUN: '42', CITIZENAPP_VERSION: '1.2.3',
-        ...extra
-    }}, {log() {}});
-}
-
-function serverFailure(status = 500) {
-    return Object.assign(Error('合成GitHub读取失败'), {stderr: Buffer.from('HTTP ' + status)});
-}
-
 for (const platform of ['ios', 'android']) {
-    test(platform + '观察500后仍只读取原Run，远端成功才报告成功', () => {
-        const calls = [];
-        let reads = 0;
-        const exec = (command, args) => {
-            calls.push([command, args]);
-            if (command === 'sleep') return '';
-            assert.equal(command, 'gh');
-            assert.ok(args.at(-1).endsWith('/actions/runs/42'));
-            if (++reads === 1) throw serverFailure();
-            return JSON.stringify(remoteRun(42, platform, {
-                status: reads === 2 ? 'in_progress' : 'completed', conclusion: reads === 2 ? null : 'success'
-            }));
+    const label = platform === 'ios' ? 'iOS' : 'Android';
+    const success = {id:10, status:'completed', conclusion:'success', display_title:'公民·' + label + '·v1.0.1'};
+    test(platform + '单Run按成功记录校验候选，失败和当前Run不占号', () => {
+        const value = checkCandidate(platform, [success,
+            {...success,id:11,conclusion:'failure',display_title:'公民·' + label + '·v1.0.2'},
+            {...success,id:20,status:'in_progress'}], '1.0.2');
+        value.run();
+        assert.equal(value.calls.length, 1);
+        checkCandidate(platform, [], '1.0.0').run();
+    });
+    test(platform + '拒绝错误候选、更早活动Run和未知成功版本', () => {
+        for (const [rows, candidate] of [
+            [[success], '1.0.3'], [[{...success,status:'in_progress'}], '1.0.0'],
+            [[{...success,display_title:'未知旧版本'}], '1.0.2'], [[], '01.0.0']
+        ]) assert.throws(checkCandidate(platform, rows, candidate).run);
+    });
+    test(platform + '平台装配正文读取真实原件并生成必要标准配置', () => {
+        const all = workflowBody(platform, '按本产品原锁装配普通工程');
+        const body = all.slice(all.indexOf('// Flutter官方模板'), all.indexOf("const citizen = join(work, 'sources/citizen_sdk/scripts/build.mjs');"));
+        const files = new Map(), copies = [], tools = [];
+        const project = '/fixture/project';
+        const icon = project + '/ios/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json';
+        const fsRead = path => {
+            if (files.has(path)) return files.get(path);
+            if (path === icon) return JSON.stringify({images:[{size:'20x20',scale:'2x',filename:'Icon-App-20x20@2x.png'}]});
+            throw Error('未声明读取：' + path);
         };
-        executeBody(workflowBody(platform, '观察准确原编译Run'), exec);
-        assert.equal(reads, 3);
-        assert.deepEqual(calls.filter(row => row[0] === 'sleep').map(row => row[1]), [['1'], ['10']]);
-        assert.ok(calls.every(row => !row[1].includes('-X') && !row[1].includes('cancel')));
-    });
-
-    test(platform + '只读500耗尽三次重试仍失败，不取消、不重派', () => {
-        let reads = 0;
-        const exec = (command, args) => {
-            if (command === 'sleep') return '';
-            assert.equal(command, 'gh');
-            assert.equal(args.includes('-X'), false);
-            reads++;
-            throw serverFailure();
-        };
-        assert.throws(() => executeBody(workflowBody(platform, '观察准确原编译Run'), exec), /合成GitHub/);
-        assert.equal(reads, 4);
-    });
-
-    test(platform + '远端明确失败时报告失败，不触发变更请求', () => {
-        let calls = 0;
-        const exec = (command, args) => {
-            assert.equal(command, 'gh');
-            assert.equal(args.includes('-X'), false);
-            calls++;
-            return JSON.stringify(remoteRun(42, platform, {conclusion: 'failure'}));
-        };
-        assert.throws(() => executeBody(workflowBody(platform, '观察准确原编译Run'), exec), /原编译Run失败/);
-        assert.equal(calls, 1);
-    });
-
-    test(platform + '准备Run结束后仍核对身份和候选，明确取消及错源码拒绝', () => {
-        const body = workflowBody(platform, '原准备Run·${{ inputs.controller }}');
-        for (const extra of [{conclusion: 'failure'}, {conclusion: 'cancelled'}, {head_sha: 'b'.repeat(40)}]) {
-            let jobs = 0;
-            const exec = (command, args) => {
-                if (command === 'sleep') return '';
-                if (args.at(-1).endsWith('/actions/runs/20')) return JSON.stringify(remoteRun(20, platform, extra));
-                assert.ok(args.at(-1).includes('/20/jobs?'));
-                jobs++;
-                return JSON.stringify([{jobs: [{steps: jobs < 3 ? [] : [{name: '候选版本·v1.2.3'}]}]}]);
-            };
-            if (extra.conclusion === 'failure') {
-                executeBody(body, exec);
-                assert.equal(jobs, 3);
-            } else {
-                assert.throws(() => executeBody(body, exec), /身份不符或已明确取消/);
-                assert.equal(jobs, 0);
-            }
-        }
-    });
-
-    test(platform + '收尾使用准确Run ID，Job延迟出现后仍确认原关联', () => {
-        const all = workflowBody(platform, '核对原Run、取消及真实清理');
-        const body = all.slice(0, all.indexOf("if (process.env.OPERATION === 'cancel'")) + '\nreturn child;';
-        for (const original of ['42', '']) {
-            let jobs = 0, scans = 0;
-            const exec = (command, args) => {
-                if (command === 'sleep') return '';
-                assert.equal(command, 'gh');
-                assert.equal(args.includes('-X'), false);
-                const endpoint = args.at(-1);
-                if (endpoint.endsWith('/actions/runs/20')) return JSON.stringify(remoteRun(20, platform));
-                if (endpoint.endsWith('/actions/runs/42')) return JSON.stringify(remoteRun(42, platform));
-                if (endpoint.includes('/workflows/')) {
-                    scans++;
-                    return JSON.stringify([{workflow_runs: [remoteRun(42, platform)]}]);
-                }
-                assert.ok(endpoint.includes('/42/jobs?'));
-                jobs++;
-                return JSON.stringify([{jobs: [{steps: jobs < 3 ? [] : [{name: '原准备Run·20'}]}]}]);
-            };
-            const child = executeBody(body, exec, {ORIGINAL_RUN: original, WORKFLOW: platform + '.yml'});
-            assert.equal(child.id, 42);
-            assert.equal(jobs, 3);
-            assert.equal(scans, original ? 0 : 3);
-        }
-    });
-
-    test(platform + '收尾拒绝关联到其它准备Run的准确编号', () => {
-        const all = workflowBody(platform, '核对原Run、取消及真实清理');
-        const body = all.slice(0, all.indexOf("if (process.env.OPERATION === 'cancel'")) + '\nreturn child;';
-        const exec = (command, args) => {
-            assert.equal(command, 'gh');
-            const endpoint = args.at(-1);
-            if (endpoint.endsWith('/actions/runs/20')) return JSON.stringify(remoteRun(20, platform));
-            if (endpoint.endsWith('/actions/runs/42')) return JSON.stringify(remoteRun(42, platform));
-            return JSON.stringify([{jobs: [{steps: [{name: '原准备Run·99'}]}]}]);
-        };
-        assert.throws(() => executeBody(body, exec, {WORKFLOW: platform + '.yml'}), /关联不符/);
-    });
-
-    test(platform + 'Job始终不可见时有限等待后保留记录，不猜测或重派', () => {
-        const all = workflowBody(platform, '核对原Run、取消及真实清理');
-        const body = all.slice(0, all.indexOf("if (process.env.OPERATION === 'cancel'")) + '\nreturn child;';
-        let jobs = 0;
-        const exec = (command, args) => {
-            if (command === 'sleep') return '';
-            assert.equal(command, 'gh');
-            assert.equal(args.includes('-X'), false);
-            const endpoint = args.at(-1);
-            if (endpoint.endsWith('/actions/runs/20')) return JSON.stringify(remoteRun(20, platform));
-            if (endpoint.endsWith('/actions/runs/42')) return JSON.stringify(remoteRun(42, platform));
-            assert.ok(endpoint.includes('/42/jobs?'));
-            jobs++;
-            return JSON.stringify([{jobs: []}]);
-        };
-        assert.throws(() => executeBody(body, exec, {WORKFLOW: platform + '.yml'}), /保留记录，禁止重新派发/);
-        assert.equal(jobs, 60);
-    });
-
-    test(platform + '实际收尾Shell仅对明确取消请求cancel，并传准确Run ID', t => {
-        const value = fixture(t, platform);
-        const gh = join(value.directory, 'bin/gh');
-        writeFileSync(gh, '#!' + process.execPath + '\n' +
-            'require("node:fs").writeFileSync(process.env.CALLS, JSON.stringify(process.argv.slice(2)));\n');
-        chmodSync(gh, 0o700);
-        const workflow = readFileSync(join(root, '.github/workflows/' + platform + '.yml'), 'utf8');
-        const source = workflow.split('      - name: 请求原Run收尾\n')[1]
-            .split('        run: |\n')[1].split('\n  manage:')[0]
-            .split('\n').map(line => line.slice(10)).join('\n');
-        for (const status of ['success', 'failure', 'cancelled']) {
-            const shell = source.replaceAll('${{ job.status }}', status);
-            const result = spawnSync('bash', ['-c', shell], {
-                env: {...value.env, ORIGINAL_RUN: '42'}, encoding: 'utf8'
-            });
-            assert.equal(result.status, 0, result.stderr);
-            const args = JSON.parse(readFileSync(value.env.CALLS, 'utf8'));
-            assert.ok(args.includes('inputs[operation]=' + (status === 'cancelled' ? 'cancel' : 'settle')));
-            assert.ok(args.includes('inputs[run_id]=42'));
-            assert.ok(args.includes('inputs[controller]=21'));
-        }
+        new Function('execFileSync', 'readFileSync', 'writeFileSync', 'mkdirSync', 'copyFileSync', 'chmodSync', 'rmSync',
+            'join', 'dirname', 'root', 'work', 'project', 'process', body)(
+            (command,args) => tools.push([command,args]), fsRead, (path,text) => files.set(path,text), () => {},
+            (source,destination) => copies.push([source,destination]), () => {}, () => {}, join, dirname,
+            '/fixture/source','/fixture',project,{env:{FLUTTER_ROOT:'/fixture/flutter'}});
+        assert.ok(tools[0][1].includes('--platforms=android,ios'));
+        assert.ok(copies.some(([source,target]) => source.endsWith('ios/project/Runner.pbxproj') && target.endsWith('Runner.xcodeproj/project.pbxproj')));
+        assert.ok(copies.some(([source,target]) => source.endsWith('android/square/SquareMediaChannel.kt') && target.endsWith('src/main/SquareMediaChannel.kt')));
+        assert.ok(copies.some(([source,target]) => source.endsWith('assets/logo/icon40.png') && target.endsWith('Icon-App-20x20@2x.png')));
+        assert.match(files.get(project+'/android/app/src/main/res/values/strings.xml'), /<string name="app_name">公民<\/string>/);
+        assert.match(files.get(project+'/android/app/src/main/res/values-en/strings.xml'), />CitizenApp</);
+        assert.match(files.get(project+'/android/app/src/main/res/xml/network_security_config.xml'), /cleartextTrafficPermitted="false"/);
+        assert.match(files.get(project+'/ios/Runner/Runner.entitlements'), /\$\(APS_ENVIRONMENT\)/);
+        assert.match(files.get(project+'/ios/Podfile'), /tatachat_sdk\.podspec/);
+        assert.match(files.get(project+'/ios/Podfile'), /isar_community_flutter_libs\/libisar\.a/);
+        assert.match(files.get(project+'/android/gradle.properties'), /android\.builtInKotlin=false/);
+        assert.match(files.get(project+'/android/gradle/wrapper/gradle-wrapper.properties'), /gradle-9\.1\.0-bin\.zip/);
     });
 }
 
-test('派发POST即使返回500也只执行一次', () => {
-    const body = workflowBody('android', '核对版本并且只派发一次');
-    const start = body.indexOf('const request =');
-    const end = body.indexOf('\n};', start) + 3;
-    let calls = 0;
-    const request = new Function('execFileSync', 'console', body.slice(start, end) + '\nreturn request;')(() => {
-        calls++;
-        throw serverFailure();
-    }, {log() {}});
-    assert.throws(() => request('repos/crcfrcn/citizenapp/actions/workflows/android.yml/dispatches', ['-X', 'POST']), /合成GitHub/);
-    assert.equal(calls, 1);
+// 固定链金标仍归链源码；这里只检查产品依赖来源，真实ABI与业务回归由原命令执行。
+test('两项SDK原始声明和锁的准确提交一致', () => {
+    for (const name of ['citizen_sdk', 'tatachat_sdk']) {
+        const declaration = pubspec.split('  ' + name + ':\n')[1]?.split(/\n  \S/)[0];
+        const record = pubLock.split('\n  ' + name + ':\n')[1]?.split(/\n  \S/)[0];
+        const ref = /resolved-ref: ([a-f0-9]{40})/.exec(record || '')?.[1];
+        assert.ok(ref && declaration?.includes('ref: ' + ref));
+    }
+    assert.ok(podLock.includes('PODS:'));
 });
 
 test('CitizenApp不重复声明SDK内部依赖或未使用的协议生成器', () => {

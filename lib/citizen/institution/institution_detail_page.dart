@@ -565,25 +565,18 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
 
   // ──── 法律原文入口(仅立法机构,ADR-028 P3-1)────
 
-  /// 立法机构 → (tier, scope_code);非立法机构返回 null。国家级 scope=0;省/市级
-  /// scope 取行政区数字 code(省码为字母时回退 0,待链端有省/市级法律后核验映射;
-  /// 当前仅宪法 law_id=0 经顶部卡直达,本入口对其余立法机构暂为空)。
-  ({LawTier tier, int scope})? _lawTarget(Institution inst) {
+  /// 法律列表范围使用原省码和省内市号；非立法机构不提供入口。
+  ({LawTier tier, LawRegion region})? _lawTarget(Institution inst) {
     const national = {'NLG', 'NRP', 'NSN', 'NED'};
     const provincial = {'PLG', 'PRP', 'PSN'};
     const municipal = {'CLEG'};
     final code = inst.institutionCode;
-    if (national.contains(code)) return (tier: LawTier.national, scope: 0);
-    if (provincial.contains(code)) {
-      return (
-        tier: LawTier.provincial,
-        scope: int.tryParse(inst.provinceCode) ?? 0,
-      );
-    }
-    if (municipal.contains(code)) {
-      return (tier: LawTier.municipal, scope: int.tryParse(inst.cityCode) ?? 0);
-    }
-    return null;
+    final tier = national.contains(code) ? LawTier.national
+        : provincial.contains(code) ? LawTier.provincial
+        : municipal.contains(code) ? LawTier.municipal : null;
+    if (tier == null) return null;
+    return (tier: tier,
+        region: LawRegion.fromCodes(tier, inst.provinceCode, inst.cityCode));
   }
 
   Widget _lawOriginalEntry(Institution inst) {
@@ -596,7 +589,7 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
         MaterialPageRoute<void>(
           builder: (_) => LawListPage(
             tier: target.tier,
-            scopeCode: target.scope,
+            region: target.region,
             title: '${inst.cidShortNameOrFullName} · 法律原文',
           ),
         ),

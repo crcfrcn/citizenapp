@@ -135,12 +135,26 @@ List<int> decodeLawIds(Uint8List raw) {
   return ids;
 }
 
+/// 固定两字节省码 + u16 LE 市号；全国四零字节与冻结宪法布局一致。
+Uint8List encodeLawRegion(LawTier tier, LawRegion region) {
+  region.validate(tier);
+  return Uint8List.fromList([
+    if (region.provinceCode.isEmpty) ...[0, 0] else ...region.provinceCode.codeUnits,
+    region.cityNumber & 0xff, region.cityNumber >> 8,
+  ]);
+}
+
 /// 解 `Law`(内层字节,调用方先 [decodeOptionBytes] 拆 Option)。
 Law decodeLaw(Uint8List raw) {
   final s = _Scale(raw);
   final lawId = s.u64();
   final tier = LawTier.fromIndex(s.u8());
-  final scopeCode = s.u32();
+  final province = [s.u8(), s.u8()];
+  final region = LawRegion(
+    provinceCode: province.every((byte) => byte == 0) ? '' : String.fromCharCodes(province),
+    cityNumber: s.u8() | (s.u8() << 8),
+  );
+  region.validate(tier);
   final houses = s.vec(s.cidNumber);
   final effectiveVersion = s.option(s.u32);
   final latestVersion = s.u32();
@@ -150,7 +164,7 @@ Law decodeLaw(Uint8List raw) {
   return Law(
     lawId: lawId,
     tier: tier,
-    scopeCode: scopeCode,
+    region: region,
     houses: houses,
     effectiveVersion: effectiveVersion,
     latestVersion: latestVersion,

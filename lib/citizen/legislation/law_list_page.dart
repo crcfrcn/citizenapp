@@ -8,21 +8,21 @@ import 'package:citizenapp/citizen/legislation/law_reader_page.dart';
 import 'package:citizenapp/system/theme/app_theme.dart';
 import 'package:citizenapp/system/theme/app_layout.dart';
 
-/// 某立法机构的法律列表(ADR-028 P3-1)——`list_laws(tier, scope)`。
+/// 某立法机构的法律列表(ADR-028 P3-1)——`list_laws(tier, region)`。
 ///
-/// 由立法机构详情页「法律原文」入口进入;tier/scope 由机构派生。
+/// 由立法机构详情页「法律原文」入口进入;tier/region 由机构派生。
 /// 列表项标题取公民端默认阅读版本(同一 api 实例缓存,点进阅读器复用不重拉)。
 class LawListPage extends StatefulWidget {
   const LawListPage({
     super.key,
     required this.tier,
-    required this.scopeCode,
+    required this.region,
     required this.title,
     this.api,
   });
 
   final LawTier tier;
-  final int scopeCode;
+  final LawRegion region;
 
   /// AppBar 标题(机构简称 + 「法律原文」)。
   final String title;
@@ -73,7 +73,7 @@ class _LawListPageState extends State<LawListPage> {
       _error = null;
     });
     try {
-      final ids = await _api.listLaws(widget.tier, widget.scopeCode);
+      final ids = await _api.listLaws(widget.tier, widget.region);
       final items = await Future.wait(ids.map((id) async {
         final law = await _api.law(id);
         if (law == null) return null;

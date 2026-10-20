@@ -41,7 +41,7 @@ void main() {
     final raw = Uint8List.fromList([
       ..._u64(0), // law_id
       0x00, // tier=Constitution
-      ..._u32(0), // scope_code=0
+      ..._u32(0), // 冻结全国四零字节，保留原金标
       _c(1), // houses len=1
       ..._s(houseCid), // houses 只保存机构 CID
       ..._someU32(1), // effective_version
@@ -52,13 +52,44 @@ void main() {
     final law = decodeLaw(raw);
     expect(law.lawId, 0);
     expect(law.tier, LawTier.constitution);
-    expect(law.scopeCode, 0);
+    expect(law.region.provinceCode, isEmpty);
+    expect(law.region.cityNumber, 0);
     expect(law.houses.length, 1);
     expect(law.houses.first, houseCid);
     expect(law.effectiveVersion, 1);
     expect(law.latestVersion, 1);
     expect(law.pendingVersion, isNull);
     expect(law.status, LawStatus.effective);
+  });
+
+  test('法律地域保留字母、省内市号和四字节位置，非法值不回退全国', () {
+    for (final entry in [
+      (LawTier.provincial, 'GD', '001', [71, 68, 0, 0]),
+      (LawTier.municipal, 'GD', '001', [71, 68, 1, 0]),
+      (LawTier.municipal, 'GZ', '001', [71, 90, 1, 0]),
+      (LawTier.municipal, 'GD', '999', [71, 68, 231, 3]),
+    ]) {
+      final region = LawRegion.fromCodes(entry.$1, entry.$2, entry.$3);
+      expect(encodeLawRegion(entry.$1, region), entry.$4);
+      final raw = Uint8List.fromList([
+        ..._u64(7), entry.$1.index, ...entry.$4, _c(0),
+        ..._someU32(1), ..._u32(1), 0, 1,
+      ]);
+      final law = decodeLaw(raw);
+      expect(law.region.provinceCode, entry.$2);
+      expect(law.region.cityNumber, entry.$1 == LawTier.provincial ? 0 : int.parse(entry.$3));
+      expect(law.latestVersion, 1); // 后续字段没有偏移。
+    }
+    expect(encodeLawRegion(LawTier.constitution, LawRegion.national), _u32(0));
+    expect(() => LawRegion.fromCodes(LawTier.provincial, 'gd', '001'), throwsFormatException);
+    expect(() => LawRegion.fromCodes(LawTier.provincial, '', '001'), throwsFormatException);
+    expect(() => LawRegion.fromCodes(LawTier.municipal, 'GD', '1'), throwsFormatException);
+    expect(() => LawRegion.fromCodes(LawTier.municipal, 'GD', '0a1'), throwsFormatException);
+    expect(() => encodeLawRegion(LawTier.national,
+        const LawRegion(provinceCode: 'GD', cityNumber: 0)), throwsFormatException);
+    expect(() => decodeLaw(Uint8List.fromList([
+      ..._u64(7), 2, 0, 0, 0, 0, _c(0), ..._someU32(1), ..._u32(1), 0, 1,
+    ])), throwsFormatException);
   });
 
   test('decodeImmutableManifest: 不可修改条款', () {

@@ -29,6 +29,38 @@ enum LawTier {
       };
 }
 
+/// 法律地域：省码永久保留两位大写字母，市号为原省内三位编号的数值。
+/// 全国使用显式值，不将非法省码或市号回退为全国。
+class LawRegion {
+  const LawRegion({required this.provinceCode, required this.cityNumber});
+  static const national = LawRegion(provinceCode: '', cityNumber: 0);
+  final String provinceCode;
+  final int cityNumber;
+
+  factory LawRegion.fromCodes(LawTier tier, String province, String city) {
+    if (tier == LawTier.constitution || tier == LawTier.national) {
+      return national;
+    }
+    if (tier == LawTier.municipal && !RegExp(r'^[0-9]{3}$').hasMatch(city)) {
+      throw const FormatException('法律市号必须沿用省内三位编号');
+    }
+    final region = LawRegion(provinceCode: province,
+        cityNumber: tier == LawTier.municipal ? int.parse(city) : 0);
+    region.validate(tier);
+    return region;
+  }
+
+  void validate(LawTier tier) {
+    final nationwide = tier == LawTier.constitution || tier == LawTier.national;
+    if (nationwide ? provinceCode.isNotEmpty || cityNumber != 0
+        : !RegExp(r'^[A-Z]{2}$').hasMatch(provinceCode) ||
+          cityNumber < 0 || cityNumber > 999 ||
+          (tier == LawTier.provincial && cityNumber != 0)) {
+      throw const FormatException('法律地域与层级不符');
+    }
+  }
+}
+
 /// 法律状态(链端 LawStatus,1 字节)。
 enum LawStatus {
   pending, // 0 通过待生效
@@ -141,7 +173,7 @@ class Law {
   const Law({
     required this.lawId,
     required this.tier,
-    required this.scopeCode,
+    required this.region,
     required this.houses,
     required this.effectiveVersion,
     required this.latestVersion,
@@ -151,10 +183,10 @@ class Law {
   final int lawId;
   final LawTier tier;
 
-  /// 0=全国;否则 china.sqlite 行政区 code(ADR-021)。
-  final int scopeCode;
+  /// 与链端 LawRegion 固定四字节布局对应，不把字母省码转成整数。
+  final LawRegion region;
 
-  /// 归属立法机构 CID 序列；`houses[0]` 是发起院。
+  /// 归属立法机构 CID 序列；宪法固定归属国家立法院，不等于修宪发起院。
   /// 机构码由 CID 解析，任何机构账户都不得替代机构身份。
   final List<String> houses;
 

@@ -32,7 +32,7 @@ class _PendingLawListApi extends LegislationApi {
   final Completer<List<int>> completer = Completer<List<int>>();
 
   @override
-  Future<List<int>> listLaws(LawTier tier, int scopeCode) => completer.future;
+  Future<List<int>> listLaws(LawTier tier, LawRegion region) => completer.future;
 }
 
 class _PendingLawReaderApi extends LegislationApi {
@@ -82,7 +82,7 @@ void main() {
       MaterialApp(
         home: LawListPage(
           tier: LawTier.national,
-          scopeCode: 0,
+          region: LawRegion.national,
           title: '国家法律原文',
           api: _PendingLawListApi(),
         ),

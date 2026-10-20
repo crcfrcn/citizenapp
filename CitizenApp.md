@@ -2,29 +2,27 @@
 
 ## 当前构建合同
 
-公民App只在所属塔塔自动化编译。scripts/build.mjs只有自动化身份校验、依赖原生编译、App正式编译和本轮编译进程退出处理；正常排版不超过150行，不承载测试、资源供给器、业务数据生成器、版本、GitHub请求、发布或记录清理。scripts/config.mjs仅声明APP_KEY、IOS_KEY、APP_PROFILE等产品配置需求，不包含工具准备或执行逻辑。
+公民App只在所属塔塔自动化编译。scripts/build.mjs原文保持正常排版150行，只包含自动化身份守卫、SDK原生编译、Flutter正式App编译及本轮编译进程退出处理；不承担测试调度、GitHub任务、版本、正式版本管理或历史清理。scripts/config.mjs原文保持，只声明APP_KEY、IOS_KEY、APP_PROFILE等配置需求，不放任务执行或版本算法。不新增模块，不恢复已删除的平台输入模块。
 
-产品流程由既有.github/workflows/ios.yml和android.yml实现。prepare负责依据准确成功正式版本计算候选、一次派发并观察原编译Run；build先核对原准备Run及候选，再准备官方工具、按原锁装配工程、调用编译入口准备原生库、执行Node/Flutter回归，全部通过后调用同一编译入口生成IPA或APK+AAB。settle/cancel只处理原准备Run关联的准确编译Run，不递增版本、不编译、不重新派发编译。允许额外准备/收尾Run；正式编译Run、Job、Artifact、Tag、Release及附件使用公民·平台·vX.Y.Z。
+每个平台一次执行只有一个本机自动化任务和一个GitHub Run。产品所属.github/workflows/ios.yml与android.yml分别公开workflow_dispatch，唯一输入为version；固定Workflow名称为公民·iOS、公民·Android，每次Run、Job、Artifact、Tag、Release使用公民·平台·vX.Y.Z。没有prepare/settle/cancel操作、父子Run、管理Run或递归派发。iOS与Android独立任务、授权、现场和并发组，可以同时执行；同平台重复点击、恢复和取消都不创建新Run。
 
-GitHub状态查询只读取准确原Run；HTTP5xx最多按1、2、4秒退避重试三次，派发POST、取消和删除不重试。观察只在远端status=completed后按conclusion判定；只读错误或观察超时保留原Run，不取消、不重新派发、不递增版本。只有明确取消才调用cancel。
+唯一控制台接入tata/citizenapp.mjs按现有SDK/控制台模式承担GitHub任务调度：先核对本平台没有远端活动任务，依据最新有效成功Run及正式交付证明计算候选，失败不占号；没有成功Run时读取本产品pubspec.yaml基准版本。派发前记录准确main源码身份，只调用一次官方Workflow派发接口，准确回执立即持久化。回执丢失保留不明派发状态，重启后也禁止再次派发。输入版本在所属Workflow开始时再次核对，不改源码版本或原锁。
 
-编译入口核对原准备Run的仓库、Workflow、main、准确SHA、候选版本及明确取消状态，不要求原准备Run必须仍活动。正常收尾通过既有Workflow的run_id输入接收官方派发回执中的准确编译Run ID，核对原准备Run关联后处理；恢复缺回执时只在原准备Run范围查证。Job步骤暂未可见时最多等待60轮，始终不明确则保留记录并失败，不猜测或重派。
+接入只转交现有通用授权、任务、日志和官方gh调用；App测试、编译、签名、正式打包及Release生成仍归产品Workflow，不改控制台通用宿主，不导入其它产品接入。公开Workflow可由有权限的调用方使用相同version输入独立调用，原Run也可通过官方GitHub接口观察和取消。只读5xx按1、2、4秒最多退避重试三次，POST和DELETE不自动重试；观察错误不等同编译失败，不自动取消或重新派发。
 
-iOS和Android按各自平台锁、现场和原Run并行执行，不先等待另一平台成功。测试和编译失败仍如实失败，停止后续人工发起并报告原因，修复须另获确认。
+恢复只校验和观察原仓库、平台Workflow、main、Run编号、attempt及源码SHA。取消只调用原Run的cancel；普通取消仍活动才对同一Run使用force-cancel，确认远端终态后处理记录，不另派管理流程。
 
-版本按平台从已证实成功的正式版本递增补丁号；失败或取消不占号。正式附件说明绑定准确源码SHA、Run/attempt与实际链测试快照；Tag和Release由官方gh命令生成、回读并比较附件字节，未知同名对象禁止覆盖。新成功完整确认后实际删除旧同类终态、日志和产物，活动任务保留。管理Run与编译Run分别保留最新成功/失败；当前活动管理Run的历史由后续收尾清理，不将额外Run称为全仓仅两条记录。强制中断或归属不明时保留事实，恢复只处理原Run。
+新Run真实结束且记录完整可见后才清理旧同类记录。成功必须核对正式非草稿非预发布Release、准确Tag提交、Run/attempt/SHA及全部附件label、大小和官方摘要。每平台只保留最新成功和最新失败，活动Run全部保留，不按标题或内部步骤另分保留组；先删除准确旧Release/Tag，再实际删除旧Run及关联日志、Artifact，随后重新分页查询确认。Release删除后中断时先收口准确旧Tag，再删除其Run证明。保留版本仍在使用的同名Tag不删除，未知或归属不明对象保留并报错。
 
-控制台tata/citizenapp.mjs仅声明动作、转交通用授权/任务/日志并调用上述所属Workflow。原生固定流程不支持的本机测试动作移除，完整测试在自动化先执行。本产品不导入控制台代码，不依赖邻仓工作树、工具库存、租约或供给回执。配置和流程也不依赖控制台运行环境；相同公开Workflow可由有权限的调用方通过官方GitHub接口发起。
+清理失败不提前报告整体成功；本机任务明确失败并保留准确原Run。下一次同平台调用优先恢复该任务清理，不新增Run、不重新编译。清理确认后用现有状态接口替换该平台远端镜像，再结束本机唯一任务；现有任务持久化实际移除旧同类本机记录和内嵌日志。其它平台及其它产品不在清理范围。
 
-工具使用官方渠道：Node25.2.1、Flutter3.47.2、Rust1.97.1、JDK17.0.20.1、Gradle9.1.0、AGP9.0.1、KGP2.2.20、NDK28.2.13676358、BuildTools36.0.0、CMake3.31.6与CocoaPods1.17.0。JDK由官方setup-java v6固定提交b843ebf9b913146b38da2eaa7aeddf76074ae1ad安装，准确输入Temurin 17.0.20.1+1，保留原JDK及其构建号；四段版本按官方JEP322支持解析。SDK只取pubspec.yaml/pubspec.lock的准确HTTPS Git提交并调用其公开装配和原生接口；当前TataChatSDK固定c7822de810772e11363f9bf8c1c02826889c0bb2，CitizenSDK固定004e5a4917c129cfd985342857f4ce16a3b3ebad。派生Pub声明只将这两个直接SDK映射到本轮公开布局，其余传递锁条目保持，并由官方Pub严格校验。
+所属Workflow在单一Run中依次核对候选、准备官方工具和原锁SDK工程、调用build.mjs编译真实原生测试依赖、执行既有Node/Flutter完整回归与严格分析、准备签名输入、调用同一build.mjs编译IPA或APK+AAB、核验完整包、上传Artifact、生成正式Tag/Release并逐件下载cmp回读。任一真实依赖、测试、编译、签名或交付失败必须失败。正式Release属于自动化交付，不等于应用商店提交或开发升级发布；独立发布仍不可用并须另行授权。
 
-两份Workflow显式使用官方macOS运行机的$HOME/Library/Android/sdk，核对cmdline-tools/latest/bin/sdkmanager可执行，再通过完整路径与--sdk_root安装原锁组件；ANDROID_HOME及命令行/平台工具路径由GitHub标准环境文件交付后续步骤，不依赖交互Shell初始化，不另建工具安装器。工具缺失即失败，不自动换版本或来源。
+平台工程只生成在target/build/<Run>-<attempt>/project：Flutter官方create --no-pub生成普通Android/iOS模板，复制本产品既有原生源码、工程、测试及唯一assets/logo资源，必要Podfile、Gradle、权限、网络安全和启动图配置由Workflow直接写入本轮标准位置。正式仓库不恢复平台包装模块，不生成业务数据、不改Flutter/Pub包源码。test/support/platform_input.dart直接回读当前本轮工程里的真实平台文件，不解析脚本文本或模块源码；现有业务测试预期保持。
 
-现有平台输入和纯来源映射分别归android/platform.mjs与ios/platform.mjs，由Workflow装配到本轮普通工程，不写源码。SDK内部构建归SDK公开接口；最终App只使用Flutter官方build apk/appbundle/ipa。Android使用原锁兼容的KGP与旧DSL配置，不改写Flutter或Pub包源码；CitizenSDK库模块通过宿主同一KGP编译其声明的Kotlin源。
+工具使用官方渠道和原锁：Node25.2.1、Flutter3.47.2、Rust1.97.1、Temurin17.0.20.1+1、Gradle9.1.0、AGP9.0.1、KGP2.2.20、NDK28.2.13676358、BuildTools36.0.0、CMake3.31.6和CocoaPods1.17.0。setup-java固定官方v6提交b843ebf9b913146b38da2eaa7aeddf76074ae1ad。显式交付官方运行机Android SDK完整路径；Rust准备iOS真机/模拟器或Android交叉目标。SDK准确来源仍只取pubspec.yaml/pubspec.lock，普通公开工程视图和原生接口由SDK持有；派生视图只映射两个直接SDK路径，其余原锁由官方Pub严格校验，不依赖控制台工具库存、邻仓检出或租约。
 
-可再生工具及依赖缓存使用GitHub官方cache动作；仅缓存Flutter、Pub、Cargo、Gradle模块和Wrapper，不包含签名输入。缓存恢复/上传失败不阻塞，实际依赖、测试、编译、签名或清理失败必须失败。工程、签名材料和产物归target/build/<Run>-<attempt>，确认编译进程退出后只清理本轮现场；活动标记未解除时保留现场。SDK原生编译失败时因其内部独立进程组退出尚未被调用方确认，也保留本轮现场，不先删除仍可能使用的签名材料。
-
-正式Release属于自动化交付，不代表应用商店或升级发布。当前独立发布授权和商店渠道未接通，发布动作明确不可用；自动化不生成客户端旧升级通道的激活清单，不改客户端业务协议。没有本机App编译或设备测试编译入口，既有业务代码、已提交资源和设备测试源码保持。
+GitHub官方缓存只保存Flutter、Pub、Cargo和Gradle可再生内容，不含签名材料；恢复/保存限时且故障不阻塞实际构建。本轮工程与签名输入按Run/attempt隔离，确认编译进程退出后只清理本轮现场；SDK失败仍有活动标记时保留现场，不因外层Node退出而假定内部后代均已退出。没有本机App编译入口。
 
 ## 2026-10-16 公民服务业务门禁与注册失败收口
 
@@ -42,7 +40,7 @@ iOS和Android按各自平台锁、现场和原Run并行执行，不先等待另�
 
 ## 2026-10-16 双端平台输入整合
 
-iOS 与 Android 的受控源码目录只保留一级子目录：`ios/project`、`ios/source`、`ios/square`、`ios/tests`、`android/app` 和 `android/square`。平台工具仍要求分开的 Podfile、Gradle 配置、Storyboard、资源 XML、entitlements 与 scheme；这些短输入分别由 `ios/platform.mjs` 和 `android/platform.mjs` 以原字节集中保存，所属Workflow仅在本轮源码外工程视图还原准确消费路径。正式仓库不保留生成文件，也不保留被替代的短配置目录及二级子目录。
+iOS 与 Android 的受控源码目录只保留一级子目录：`ios/project`、`ios/source`、`ios/square`、`ios/tests`、`android/app` 和 `android/square`。平台工具仍要求分开的 Podfile、Gradle 配置、Storyboard、资源 XML、entitlements 与 scheme；这些输入由所属Workflow在本轮普通工程中直接装配，工具标准模板与本产品必要配置共同交付准确消费路径。正式仓库不保留生成文件，也不保留被替代的短配置目录及二级子目录。
 
 Android 主 Manifest、应用入口和合并设备测试直属 `android/app`，广场专属 Kotlin 源码直属 `android/square`；三组设备测试在同一 `InstrumentedTests.kt` 中保留原测试类和隔离边界。主 Manifest 已声明 `INTERNET`，因此不再生成内容重复的 debug/profile Manifest；普通启动图资源覆盖全部支持的 API，圆形与普通自适应图标分别输出但共用唯一内容。iOS 钱包回跳 `SceneDelegate` 与 `AppDelegate` 同文件，Xcode 项目不再引用单独的场景源文件。四份只含 IDE 警告或预览状态的 workspace 文件不进入产品输入。
 
@@ -63,7 +61,7 @@ citizenapp/  # 第0级
 ├── .github/
 │   ├── tatalulu.yml  # 本仓身份与main分支
 │   └── workflows/  # 两个平台各一份YAML
-├── android/  # 直属platform.mjs
+├── android/  # 既有App与广场原生源码
 │   ├── app/  # Gradle应用配置、主Manifest、应用入口与合并设备测试
 │   └── square/  # 广场媒体通道、视频转码与MP4 faststart
 ├── assets/
@@ -76,7 +74,7 @@ citizenapp/  # 第0级
 │   ├── logo/  # 直属31个文件
 │   ├── profiles/  # 直属11个文件
 │   └── topup/  # 直属2个文件
-├── ios/  # 直属Podfile.lock与platform.mjs
+├── ios/  # 原Podfile锁、工程与原生源码
 │   ├── project/  # Xcode项目与主scheme
 │   ├── source/  # 应用入口、设备保护与应用声明
 │   ├── square/  # 广场媒体通道与视频转码
@@ -166,7 +164,7 @@ citizenapp/  # 第0级
 └── pubspec.yaml
 ```
 
-平台输入模块的platformSources只声明三级来源到工具标准路径的对应关系，由所属Workflow在本轮target工程装配。Logo只读取本仓assets/logo，源码、图标和已提交业务数据不在编译时生成。
+所属Workflow直接将既有原生源码复制到本轮target工程的工具标准路径，不再依赖平台输入模块。Logo只读取本仓assets/logo，源码、图标和已提交业务数据不在编译时生成。
 
 .github/tatalulu.yml只声明本仓身份；塔塔鹿鹿的保存、推送和远端main回查归控制台。产品编译与自动化仍须由各自入口实际执行。
 
@@ -3261,7 +3259,7 @@ App声明ref与锁ref/resolved-ref已统一固定TataChatSDK真实提交b0485cf0
 
 Android原20张PNG与iOS原18张PNG共38张，8张为字节完全相同的重复副本；其余30张具有不同像素尺寸、透明背景或平台用途。去重后全部集中到`assets/logo/`，应用内原`gmb-mark.png`一并移为`assets/logo/mark256.png`，共有31张唯一PNG。`icon`为不透明应用图标，`foreground`为Android自适应前景，`launch`为启动图，`mark256`为应用内公民币标识；同尺寸的不同用途仍可能具有不同字节，不能互删。
 
-Android、iOS平台输入均不保存PNG副本。原生构建通过同一`PLATFORM_INPUTS`从唯一图片来源恢复各密度、圆形／普通入口及Xcode规格所需文件，圆形和普通入口共享一个来源；这些多份平台消费文件仅存在本轮`target`。iOS图标与启动图声明集中于`ios/platform.mjs`，消费时恢复原`Contents.json`及全部文件名。图标、启动图、背景、尺寸及显示字节保持整理前一致。
+Android、iOS平台输入均不保存PNG副本。原生构建通过所属Workflow从唯一图片来源恢复各密度、圆形／普通入口及Xcode规格所需文件，圆形和普通入口共享一个来源；这些多份平台消费文件仅存在本轮`target`。iOS图标与启动图由所属Workflow写入本轮标准Asset Catalog，使用原有图片来源及规格。图标、启动图、背景、尺寸及显示字节保持整理前一致。
 
 `assets/badges`已删除，两份SVG原字节移到`assets/icons/institution_private.svg`与`assets/icons/institution_public.svg`，Flutter声明同步为准确文件路径。应用内Logo的Dart与Flutter声明只更新资源路径；页面布局、功能、平台配置和依赖版本不变。
 
@@ -3353,3 +3351,10 @@ SDK运行时通过可选ChatAttachmentAuthorizationHost覆盖单/群发送、长
 Android平台组件交付包含App/SDK及Flutter默认的API36、音频/表情/Isar插件所需API35 revision 2，以及Firebase/图片压缩/键盘插件所需API34 revision 3。按锁定插件实际compileSdk交付，优先复用本机准确组件；缺件才按Google官方准确发行件获取，不修改插件compileSdk或App目标。
 
 聊天附件在密文下载、校验、解密、最终缓存保存和MLS终态成功后沿原接口ACK；单收件用户确认或全部收件用户确认后，服务端关闭整份附件读取并进入deleting。ACK成功表示已受理该用户确认，正常小批未删完由原维护继续物理回收，客户端不为此轮询或查链。到期未下载的暂存同样直接禁读并清理；重复ACK、终止及失败恢复继续原幂等规则。服务端删除实际完成前不释放暂存占用，未知写入和预算退避可能延后物理回收。App/SDK协议、唯一会员缓存、原账户围栏及后台0会员GET保持。
+
+
+### 法律地域读取
+
+法律模型与列表查询统一使用LawRegion，省码永久保持两位大写字母，市号沿用原省内三位编号，不把字母省码int.tryParse后回退全国。机构详情继续使用现有解析结果；法律地域SCALE固定为省码原两字节与市号u16小端，查询参数为tier加四字节地域，对应LegislationApi v2。宪法/全国明确四零字节，保留原宪法记录金标和字段位置；CN、CID及现有省市解析规则不改。非法地域拒绝，不使用错误默认值。页面、控件、导航和交互保持。
+
+原有编解码和首帧测试同步类型，覆盖省级、市级、同市号跨省隔离、非法输入、后续字段位置与冻结宪法字节。回归仅编写，未运行测试、类型检查、编译或安装，不代表运行节点已采用新协议。Runtime升级遵循CitizenChainRuntime.md的统一政策，每次正式升级两个版本各自加1并同步钱包；App不另建版本生成机制，本轮没有修改版本数值。
