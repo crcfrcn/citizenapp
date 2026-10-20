@@ -244,7 +244,10 @@ for (const platform of ['ios', 'android']) {
                 }, (...args) => copies.push(args), (...args) => writes.push(args), fileURLToPath, join,
                 {cwd:() => '/fixture/project',env:{WORK:'/fixture/work',GITHUB_ENV:'/fixture/env'}});
                 assert.deepEqual(copies, [[parent + '/isar_community_flutter_libs-3.3.2/macos/libisar.dylib', '/fixture/work/libisar.dylib']]);
-                assert.deepEqual(writes, [['/fixture/env', 'ISAR_CORE_LIB_PATH=/fixture/work/libisar.dylib\n']]);
+                assert.deepEqual(writes, [
+                    ['/fixture/env', 'ISAR_CORE_LIB_PATH=/fixture/work/libisar.dylib\n'],
+                    ['/fixture/env', 'CITIZENAPP_TEST_WORK_DIR=/fixture/work\n']
+                ]);
             }
         }
         for (const missing of ['package', 'library']) {
