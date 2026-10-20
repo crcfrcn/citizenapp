@@ -20,7 +20,9 @@ void main() {
     final config = File('.dart_tool/package_config.json');
     final packages = (jsonDecode(config.readAsStringSync()) as Map<String, dynamic>)['packages'] as List<dynamic>;
     final entry = packages.cast<Map<String, dynamic>>().singleWhere((row) => row['name'] == 'tatachat_sdk');
-    final sdk = config.absolute.uri.resolve(entry['rootUri'] as String);
+    final sdk = Directory.fromUri(
+      config.absolute.uri.resolve(entry['rootUri'] as String),
+    ).uri;
     expect(File.fromUri(sdk.resolve('android/src/main/java/chat/tata/sdk/TataChatSdkPlugin.java')).readAsStringSync(), contains('class TataChatSdkPlugin'));
     final pod = File.fromUri(sdk.resolve('ios/tatachat_sdk.podspec')).readAsStringSync();
     expect(pod, contains('spec.vendored_frameworks = framework_path'));
