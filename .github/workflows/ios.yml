@@ -498,11 +498,14 @@ jobs:
           node --input-type=module <<'JS'
           import {readFileSync, copyFileSync, appendFileSync} from 'node:fs';
           import {fileURLToPath} from 'node:url';
+          import {join} from 'node:path';
           const file = new URL('file://' + process.cwd() + '/.dart_tool/package_config.json');
           const entry = JSON.parse(readFileSync(file)).packages.find(row => row.name === 'isar_community_flutter_libs');
           if (!entry) throw Error('原锁缺少Isar');
           const library = process.env.WORK + '/libisar.dylib';
-          copyFileSync(fileURLToPath(new URL('macos/libisar.dylib', new URL(entry.rootUri, file))), library);
+          // rootUri可不带尾斜线；先解析包根路径，避免URL拼接替换末级包目录。
+          const packageRoot = fileURLToPath(new URL(entry.rootUri, file));
+          copyFileSync(join(packageRoot, 'macos', 'libisar.dylib'), library);
           appendFileSync(process.env.GITHUB_ENV, 'ISAR_CORE_LIB_PATH=' + library + '\n');
           JS
           git clone --filter=blob:none --sparse --depth=1 https://github.com/crcfrcn/citizenchain.git "$WORK/chain"

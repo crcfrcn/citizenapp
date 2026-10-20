@@ -225,6 +225,40 @@ for (const platform of ['ios', 'android']) {
     });
 }
 
+for (const platform of ['ios', 'android']) {
+    test(platform + '从真实包根URI定位Isar，保留包名、版本及转义目录', () => {
+        const execute = new Function('readFileSync', 'copyFileSync', 'appendFileSync', 'fileURLToPath', 'join', 'process',
+            workflowBody(platform, '准备原生测试输入'));
+        const cases = [
+            ['file:///fixture/cache/isar_community_flutter_libs-3.3.2', '/fixture/cache'],
+            ['../../cache/isar_community_flutter_libs-3.3.2', '/fixture/cache'],
+            ['file:///fixture/cache%20pub/isar_community_flutter_libs-3.3.2', '/fixture/cache pub'],
+            ['../../cache%20pub/isar_community_flutter_libs-3.3.2', '/fixture/cache pub']
+        ];
+        for (const [uri, parent] of cases) {
+            for (const suffix of ['', '/']) {
+                const copies = [], writes = [];
+                execute(file => {
+                    assert.equal(file.href, 'file:///fixture/project/.dart_tool/package_config.json');
+                    return JSON.stringify({packages:[{name:'isar_community_flutter_libs',rootUri:uri + suffix}]});
+                }, (...args) => copies.push(args), (...args) => writes.push(args), fileURLToPath, join,
+                {cwd:() => '/fixture/project',env:{WORK:'/fixture/work',GITHUB_ENV:'/fixture/env'}});
+                assert.deepEqual(copies, [[parent + '/isar_community_flutter_libs-3.3.2/macos/libisar.dylib', '/fixture/work/libisar.dylib']]);
+                assert.deepEqual(writes, [['/fixture/env', 'ISAR_CORE_LIB_PATH=/fixture/work/libisar.dylib\n']]);
+            }
+        }
+        for (const missing of ['package', 'library']) {
+            const writes = [];
+            assert.throws(() => execute(() => JSON.stringify({packages:missing === 'package' ? [] :
+                [{name:'isar_community_flutter_libs',rootUri:cases[0][0]}]}),
+            () => { throw Error('ENOENT'); }, (...args) => writes.push(args), fileURLToPath, join,
+            {cwd:() => '/fixture/project',env:{WORK:'/fixture/work',GITHUB_ENV:'/fixture/env'}}),
+            missing === 'package' ? /原锁缺少Isar/ : /ENOENT/);
+            assert.deepEqual(writes, [], '缺包或缺库必须原样失败，不写入成功环境');
+        }
+    });
+}
+
 // 固定链金标仍归链源码；这里只检查产品依赖来源，真实ABI与业务回归由原命令执行。
 test('两项SDK原始声明和锁的准确提交一致', () => {
     for (const name of ['citizen_sdk', 'tatachat_sdk']) {
