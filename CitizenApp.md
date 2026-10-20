@@ -18,6 +18,8 @@ iOS和Android按各自平台锁、现场和原Run并行执行，不先等待另�
 
 工具使用官方渠道：Node25.2.1、Flutter3.47.2、Rust1.97.1、JDK17.0.20.1、Gradle9.1.0、AGP9.0.1、KGP2.2.20、NDK28.2.13676358、BuildTools36.0.0、CMake3.31.6与CocoaPods1.17.0。JDK由官方setup-java v6固定提交b843ebf9b913146b38da2eaa7aeddf76074ae1ad安装，准确输入Temurin 17.0.20.1+1，保留原JDK及其构建号；四段版本按官方JEP322支持解析。SDK只取pubspec.yaml/pubspec.lock的准确HTTPS Git提交并调用其公开装配和原生接口；当前TataChatSDK固定c7822de810772e11363f9bf8c1c02826889c0bb2，CitizenSDK固定004e5a4917c129cfd985342857f4ce16a3b3ebad。派生Pub声明只将这两个直接SDK映射到本轮公开布局，其余传递锁条目保持，并由官方Pub严格校验。
 
+两份Workflow显式使用官方macOS运行机的$HOME/Library/Android/sdk，核对cmdline-tools/latest/bin/sdkmanager可执行，再通过完整路径与--sdk_root安装原锁组件；ANDROID_HOME及命令行/平台工具路径由GitHub标准环境文件交付后续步骤，不依赖交互Shell初始化，不另建工具安装器。工具缺失即失败，不自动换版本或来源。
+
 现有平台输入和纯来源映射分别归android/platform.mjs与ios/platform.mjs，由Workflow装配到本轮普通工程，不写源码。SDK内部构建归SDK公开接口；最终App只使用Flutter官方build apk/appbundle/ipa。Android使用原锁兼容的KGP与旧DSL配置，不改写Flutter或Pub包源码；CitizenSDK库模块通过宿主同一KGP编译其声明的Kotlin源。
 
 可再生工具及依赖缓存使用GitHub官方cache动作；仅缓存Flutter、Pub、Cargo、Gradle模块和Wrapper，不包含签名输入。缓存恢复/上传失败不阻塞，实际依赖、测试、编译、签名或清理失败必须失败。工程、签名材料和产物归target/build/<Run>-<attempt>，确认编译进程退出后只清理本轮现场；活动标记未解除时保留现场。SDK原生编译失败时因其内部独立进程组退出尚未被调用方确认，也保留本轮现场，不先删除仍可能使用的签名材料。
