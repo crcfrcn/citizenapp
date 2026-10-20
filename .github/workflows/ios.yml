@@ -519,7 +519,8 @@ jobs:
           node --test test/release_manifest.test.mjs
           cd "$WORK/project"
           flutter analyze --fatal-infos --fatal-warnings --no-pub
-          flutter test --no-pub --concurrency=1 --fail-fast --reporter=json | tee "$WORK/flutter-report.jsonl"
+          flutter test --no-pub --concurrency=1 --fail-fast \
+            --file-reporter "json:$WORK/flutter-report.jsonl"
           node --input-type=module <<'JS'
           import {readFileSync, readdirSync} from 'node:fs';
           const events = readFileSync(process.env.WORK + '/flutter-report.jsonl', 'utf8').trim().split('\n').map(JSON.parse);
