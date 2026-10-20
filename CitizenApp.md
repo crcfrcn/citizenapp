@@ -18,7 +18,7 @@
 
 所属Workflow在单一Run中依次核对候选、准备官方工具和原锁SDK工程、调用build.mjs编译真实原生测试依赖、执行既有Node/Flutter完整回归与严格分析、准备签名输入、调用同一build.mjs编译IPA或APK+AAB、核验完整包、上传Artifact、生成正式Tag/Release并逐件下载cmp回读。任一真实依赖、测试、编译、签名或交付失败必须失败。正式Release属于自动化交付，不等于应用商店提交或开发升级发布；独立发布仍不可用并须另行授权。
 
-平台工程只生成在target/build/<Run>-<attempt>/project：Flutter官方create --no-pub生成普通Android/iOS模板，复制本产品既有原生源码、工程、测试及唯一assets/logo资源，必要Podfile、Gradle、权限、网络安全和启动图配置由Workflow直接写入本轮标准位置。正式仓库不恢复平台包装模块，不生成业务数据、不改Flutter/Pub包源码。test/support/platform_input.dart直接回读当前本轮工程里的真实平台文件，不解析脚本文本或模块源码；现有业务测试预期保持。
+平台工程只生成在target/build/<Run>-<attempt>/project：Flutter官方create --no-pub生成普通Android/iOS模板，复制本产品既有原生源码、工程、测试及唯一assets/logo资源，必要Podfile、Gradle、权限、网络安全和启动图配置由Workflow直接写入本轮标准位置。AppFrameworkInfo.plist保留原锁官方模板，不改写其中不存在的MinimumOSVersion；iOS最低16.0由既有Xcode工程与Podfile声明。只排除原产品没有的模板示例test/widget_test.dart，产品原有同名测试保留。正式仓库不恢复平台包装模块，不生成业务数据、不改Flutter/Pub包源码。test/support/platform_input.dart直接回读当前本轮工程里的真实平台文件，不解析脚本文本或模块源码；现有业务测试预期保持。
 
 工具使用官方渠道和原锁：Node25.2.1、Flutter3.47.2、Rust1.97.1、Temurin17.0.20.1+1、Gradle9.1.0、AGP9.0.1、KGP2.2.20、NDK28.2.13676358、BuildTools36.0.0、CMake3.31.6和CocoaPods1.17.0。setup-java固定官方v6提交b843ebf9b913146b38da2eaa7aeddf76074ae1ad。显式交付官方运行机Android SDK完整路径；Rust准备iOS真机/模拟器或Android交叉目标。SDK准确来源仍只取pubspec.yaml/pubspec.lock，普通公开工程视图和原生接口由SDK持有；派生视图只映射两个直接SDK路径，其余原锁由官方Pub严格校验，不依赖控制台工具库存、邻仓检出或租约。
 

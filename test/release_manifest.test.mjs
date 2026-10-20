@@ -163,31 +163,41 @@ for (const platform of ['ios', 'android']) {
     test(platform + '平台装配正文读取真实原件并生成必要标准配置', () => {
         const all = workflowBody(platform, '按本产品原锁装配普通工程');
         const body = all.slice(all.indexOf('// Flutter官方模板'), all.indexOf("const citizen = join(work, 'sources/citizen_sdk/scripts/build.mjs');"));
-        const files = new Map(), copies = [], tools = [];
-        const project = '/fixture/project';
-        const icon = project + '/ios/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json';
-        const fsRead = path => {
-            if (files.has(path)) return files.get(path);
-            if (path === icon) return JSON.stringify({images:[{size:'20x20',scale:'2x',filename:'Icon-App-20x20@2x.png'}]});
-            throw Error('未声明读取：' + path);
-        };
-        new Function('execFileSync', 'readFileSync', 'writeFileSync', 'mkdirSync', 'copyFileSync', 'chmodSync', 'rmSync',
-            'join', 'dirname', 'root', 'work', 'project', 'process', body)(
-            (command,args) => tools.push([command,args]), fsRead, (path,text) => files.set(path,text), () => {},
-            (source,destination) => copies.push([source,destination]), () => {}, () => {}, join, dirname,
-            '/fixture/source','/fixture',project,{env:{FLUTTER_ROOT:'/fixture/flutter'}});
-        assert.ok(tools[0][1].includes('--platforms=android,ios'));
-        assert.ok(copies.some(([source,target]) => source.endsWith('ios/project/Runner.pbxproj') && target.endsWith('Runner.xcodeproj/project.pbxproj')));
-        assert.ok(copies.some(([source,target]) => source.endsWith('android/square/SquareMediaChannel.kt') && target.endsWith('src/main/SquareMediaChannel.kt')));
-        assert.ok(copies.some(([source,target]) => source.endsWith('assets/logo/icon40.png') && target.endsWith('Icon-App-20x20@2x.png')));
-        assert.match(files.get(project+'/android/app/src/main/res/values/strings.xml'), /<string name="app_name">公民<\/string>/);
-        assert.match(files.get(project+'/android/app/src/main/res/values-en/strings.xml'), />CitizenApp</);
-        assert.match(files.get(project+'/android/app/src/main/res/xml/network_security_config.xml'), /cleartextTrafficPermitted="false"/);
-        assert.match(files.get(project+'/ios/Runner/Runner.entitlements'), /\$\(APS_ENVIRONMENT\)/);
-        assert.match(files.get(project+'/ios/Podfile'), /tatachat_sdk\.podspec/);
-        assert.match(files.get(project+'/ios/Podfile'), /isar_community_flutter_libs\/libisar\.a/);
-        assert.match(files.get(project+'/android/gradle.properties'), /android\.builtInKotlin=false/);
-        assert.match(files.get(project+'/android/gradle/wrapper/gradle-wrapper.properties'), /gradle-9\.1\.0-bin\.zip/);
+        for (const sourceHasWidgetTest of [false, true]) {
+            const files = new Map(), copies = [], tools = [], removed = [];
+            const project = '/fixture/project';
+            const icon = project + '/ios/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json';
+            const fsRead = path => {
+                if (files.has(path)) return files.get(path);
+                if (path === icon) return JSON.stringify({images:[{size:'20x20',scale:'2x',filename:'Icon-App-20x20@2x.png'}]});
+                throw Error('未声明读取：' + path);
+            };
+            new Function('execFileSync', 'readFileSync', 'writeFileSync', 'mkdirSync', 'copyFileSync', 'chmodSync', 'rmSync', 'readdirSync',
+                'join', 'dirname', 'root', 'work', 'project', 'process', body)(
+                (command,args) => {
+                    assert.equal(command, '/fixture/flutter/bin/flutter', '装配不得调用未声明工具');
+                    assert.equal(args[0], 'create');
+                    tools.push([command,args]);
+                }, fsRead, (path,text) => files.set(path,text), () => {},
+                (source,destination) => copies.push([source,destination]), () => {}, path => removed.push(path),
+                path => { assert.equal(path, '/fixture/source/test'); return sourceHasWidgetTest ? ['widget_test.dart'] : []; }, join, dirname,
+                '/fixture/source','/fixture',project,{env:{FLUTTER_ROOT:'/fixture/flutter'}});
+            assert.equal(tools.length, 1, '只允许本轮Flutter模板生成命令');
+            assert.ok(tools[0][1].includes('--platforms=android,ios'));
+            assert.equal(removed.includes(project + '/test/widget_test.dart'), !sourceHasWidgetTest);
+            assert.ok(removed.every(path => path.startsWith(project + '/')), '不得删除产品源码');
+            assert.ok(copies.some(([source,target]) => source.endsWith('ios/project/Runner.pbxproj') && target.endsWith('Runner.xcodeproj/project.pbxproj')));
+            assert.ok(copies.some(([source,target]) => source.endsWith('android/square/SquareMediaChannel.kt') && target.endsWith('src/main/SquareMediaChannel.kt')));
+            assert.ok(copies.some(([source,target]) => source.endsWith('assets/logo/icon40.png') && target.endsWith('Icon-App-20x20@2x.png')));
+            assert.match(files.get(project+'/android/app/src/main/res/values/strings.xml'), /<string name="app_name">公民<\/string>/);
+            assert.match(files.get(project+'/android/app/src/main/res/values-en/strings.xml'), />CitizenApp</);
+            assert.match(files.get(project+'/android/app/src/main/res/xml/network_security_config.xml'), /cleartextTrafficPermitted="false"/);
+            assert.match(files.get(project+'/ios/Runner/Runner.entitlements'), /\$\(APS_ENVIRONMENT\)/);
+            assert.match(files.get(project+'/ios/Podfile'), /tatachat_sdk\.podspec/);
+            assert.match(files.get(project+'/ios/Podfile'), /isar_community_flutter_libs\/libisar\.a/);
+            assert.match(files.get(project+'/android/gradle.properties'), /android\.builtInKotlin=false/);
+            assert.match(files.get(project+'/android/gradle/wrapper/gradle-wrapper.properties'), /gradle-9\.1\.0-bin\.zip/);
+        }
     });
 }
 
