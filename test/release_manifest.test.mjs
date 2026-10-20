@@ -194,17 +194,20 @@ for (const platform of ['ios', 'android']) {
                 throw Error('未声明读取：' + path);
             };
             new Function('execFileSync', 'readFileSync', 'writeFileSync', 'mkdirSync', 'copyFileSync', 'chmodSync', 'rmSync', 'readdirSync',
-                'join', 'dirname', 'root', 'work', 'project', 'process', body)(
+                'join', 'dirname', 'root', 'work', 'project', 'process', 'lock', body)(
                 (command,args) => {
                     assert.equal(command, '/fixture/flutter/bin/flutter', '装配不得调用未声明工具');
                     assert.equal(args[0], 'create');
                     tools.push([command,args]);
+                    // 对应原锁Flutter的create：--no-pub仍会用模板依赖重写工程锁。
+                    files.set(project + '/pubspec.lock', '{"packages":{}}');
                 }, fsRead, (path,text) => files.set(path,text), () => {},
                 (source,destination) => copies.push([source,destination]), () => {}, path => removed.push(path),
                 path => { assert.equal(path, '/fixture/source/test'); return sourceHasWidgetTest ? ['widget_test.dart'] : []; }, join, dirname,
-                '/fixture/source','/fixture',project,{env:{FLUTTER_ROOT:'/fixture/flutter'}});
+                '/fixture/source','/fixture',project,{env:{FLUTTER_ROOT:'/fixture/flutter'}},pubLock);
             assert.equal(tools.length, 1, '只允许本轮Flutter模板生成命令');
             assert.ok(tools[0][1].includes('--platforms=android,ios'));
+            assert.equal(files.get(project + '/pubspec.lock'), pubLock, '模板生成后必须完整恢复传入的锁，不重新解版本');
             assert.equal(removed.includes(project + '/test/widget_test.dart'), !sourceHasWidgetTest);
             assert.ok(removed.every(path => path.startsWith(project + '/')), '不得删除产品源码');
             assert.ok(copies.some(([source,target]) => source.endsWith('ios/project/Runner.pbxproj') && target.endsWith('Runner.xcodeproj/project.pbxproj')));

@@ -160,10 +160,11 @@ jobs:
               });
           }
           writeFileSync(join(project, 'pubspec.yaml'), declaration);
-          writeFileSync(join(project, 'pubspec.lock'), lock);
           // Flutter官方模板只写本轮工程；保留既有业务源码和平台工程原件。
           const flutter = join(process.env.FLUTTER_ROOT, 'bin/flutter');
           execFileSync(flutter, ['create', '--no-pub', '--platforms=android,ios', '--org=com.crcfrcn', '--project-name=citizenapp', project], {stdio: 'inherit'});
+          // create即使不执行Pub也会重写锁；完成后写回只映射SDK路径的完整原锁。
+          writeFileSync(join(project, 'pubspec.lock'), lock);
           // 只排除模板新增的示例；产品原有同名测试必须保留。
           if (!readdirSync(join(root, 'test')).includes('widget_test.dart')) rmSync(join(project, 'test/widget_test.dart'), {force: true});
           const write = (path, text) => {
