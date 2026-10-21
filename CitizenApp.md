@@ -12,7 +12,7 @@
 
 原Run结束后按平台只保留最新成功与最新失败，活动Run保留；按旧Run名称定位不再被保留记录使用的旧Release/Tag，实际删除旧正式对象、Run和关联日志/Artifact，再查询官方记录确认删除结果。正式交付是否完整由产品Workflow决定，控制台不另加Release证明或摘要门禁。清理失败如实记为任务失败并保留原Run供显式恢复，但不再作为下一次产品启动的前置条件；新的产品启动按当前官方Run状态继续，结束后再次清理旧同类记录。共用状态接口仅保存本平台返回记录，其它产品及其它平台保持。
 
-所属Workflow在单一Run中依次核对候选、准备官方工具和原锁SDK工程、调用build.mjs编译真实原生测试依赖、执行既有Node/Flutter完整回归与严格分析、准备签名输入、调用同一build.mjs编译IPA或APK+AAB、核验完整包、上传Artifact、生成正式Tag/Release并逐件下载cmp回读。任一真实依赖、测试、编译、签名或交付失败必须失败。正式Release属于自动化交付，不等于应用商店提交或开发升级发布；独立发布仍不可用并须另行授权。
+所属Workflow在单一Run中依次核对候选、准备官方工具和原锁SDK工程、调用build.mjs编译真实原生测试依赖、执行既有Node/Flutter完整回归与严格分析、准备签名输入、调用同一build.mjs编译IPA或APK+AAB、核验完整包、上传Artifact、生成正式Tag/Release并逐件下载cmp回读。任一真实依赖、测试、编译、签名或交付失败必须失败。正式Release属于自动化交付。验证与正式交付通过后，同一Run上传同一份IPA到App Store Connect并等待处理；Android使用Google官方auth Action固定提交取得androidpublisher短期令牌，再通过官方Edits/Bundles/Tracks API上传同一份AAB、保存internal内部测试轨道草稿并以新edit回查后删除观察edit。只替换内部轨道旧草稿，保留已分发版本，不提交审核或上架；失败如实令本端Run失败，不影响另一端。
 
 平台工程只生成在target/build/<Run>-<attempt>/project：Flutter官方create --no-pub生成普通Android/iOS模板，复制本产品既有原生源码、工程、测试及唯一assets/logo资源，必要Podfile、Gradle、权限、网络安全和启动图配置由Workflow直接写入本轮标准位置。create即使使用--no-pub也会重写工程锁，因此双端在模板命令成功后写回只映射两个SDK路径的完整派生pubspec.lock，再由既有pub get --enforce-lockfile严格消费；不改源码原锁、依赖版本或校验选项。AppFrameworkInfo.plist保留原锁官方模板，不改写其中不存在的MinimumOSVersion；iOS最低16.0由既有Xcode工程与Podfile声明。只排除原产品没有的模板示例test/widget_test.dart，产品原有同名测试保留。正式仓库不恢复平台包装模块，不生成业务数据、不改Flutter/Pub包源码。test/support/platform_input.dart直接回读当前本轮工程里的真实平台文件，不解析脚本文本或模块源码；现有业务测试预期保持。
 
@@ -3084,7 +3084,7 @@ CitizenApp 不保存助记词、私钥、wallet profile、加密秘密信封或 
 - 第3步已同步删除旧 CitizenServe 聊天数据面代码和测试；原服务端消息、信令、附件、推送端点不再作为当前实现。
 ### 产品流程物理归属
 
-本产品每个实际产品、平台、流程身份使用下列独立文件，主 Job 为 `flow`；CI 验证源码，Release 生成正式产物，本步不实现Publish，发布待后续逐产品重建。
+本产品只保留安装与塔塔自动化入口，没有独立发布按钮、脚本或Workflow。双端在原有自动化Run内完成商店上传；审核与正式上架由官方商店后台操作。Apple沿用现有APP_STORE_KEY_ID、APP_STORE_ISSUER_ID、APP_STORE_PRIVATE_KEY；Google使用仓库Secret GOOGLE_PLAY_SERVICE_ACCOUNT，须启用官方API、完成Play Console应用首次初始化，并只授予公民应用上传所需权限及官方auth Action生成访问令牌所需服务账号权限。Google专用服务账号及JSON密钥已配置：控制台公民受保护配置和本仓GitHub Secret均为GOOGLE_PLAY_SERVICE_ACCOUNT；账号仅有公民应用的读取及测试轨道权限，并仅在账号自身授予Service Account Token Creator。Play Console已确认旧内部草稿版本1（1.0.0），首包条件已满足；Google Play Android Developer API与IAM Service Account Credentials API均已启用并回查，尚未真实上传验收。Play Console现有公民应用为草稿，正式版权限尚未解锁，因此上传保存在内部测试轨道草稿；同一AAB后续可在商店后台用于测试及正式发布，无须为此重新编译。build.mjs与config.mjs不承担商店上传，不新增模块或Job。
 
 ### Flutter插件消费目录
 

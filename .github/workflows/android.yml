@@ -700,6 +700,60 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$encoded" \
             | jq -e --arg sha "$GITHUB_SHA" '.object.type=="commit" and .object.sha==$sha' >/dev/null
           trap - EXIT
+      # Google官方认证仅生成短期令牌，不写凭据文件，不进入正式附件。
+      - name: 取得Google Play上传授权
+        id: google
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+        with:
+          credentials_json: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
+          create_credentials_file: false
+          export_environment_variables: false
+      - name: 上传正式AAB到Google Play草稿并回查
+        timeout-minutes: 15
+        env:
+          GOOGLE_PLAY_ACCESS_TOKEN: ${{ steps.google.outputs.access_token }}
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFile} from 'node:fs/promises';
+          const token = process.env.GOOGLE_PLAY_ACCESS_TOKEN;
+          if (!token) throw Error('缺少Google Play上传授权');
+          const base = 'https://androidpublisher.googleapis.com/androidpublisher/v3/applications/com.crcfrcn.citizenapp/edits';
+          const request = async (url, method = 'GET', body, type = 'application/json') => {
+            const response = await fetch(url, {method, redirect: 'error',
+              headers: {Authorization: 'Bearer ' + token, 'Content-Type': type},
+              body: body === undefined ? undefined : type === 'application/json' ? JSON.stringify(body) : body,
+              signal: AbortSignal.timeout(600000)});
+            if (!response.ok) throw Error('Google Play请求失败：' + method + ' HTTP ' + response.status);
+            return response.status === 204 ? null : response.json();
+          };
+          const name = '公民·Android·v' + process.env.CITIZENAPP_VERSION;
+          const code = String(process.env.GITHUB_RUN_NUMBER);
+          let edit;
+          try {
+            edit = (await request(base, 'POST', {})).id;
+            const url = base + '/' + edit;
+            const bundle = await request(url.replace('/androidpublisher/v3/', '/upload/androidpublisher/v3/') + '/bundles?uploadType=media',
+              'POST', await readFile(process.env.WORK + '/artifact/' + name + '.aab'), 'application/octet-stream');
+            if (String(bundle.versionCode) !== code) throw Error('Google Play返回版本号不一致');
+            const track = await request(url + '/tracks/internal');
+            // 只替换内部轨道旧草稿，保留已分发版本，不触发分发、审核或上架。
+            track.releases = [...(track.releases ?? []).filter(row => row.status !== 'draft'),
+              {name, versionCodes: [code], status: 'draft'}];
+            await request(url + '/tracks/internal', 'PUT', track);
+            await request(url + ':commit', 'POST', {});
+            edit = undefined;
+            // 新edit回读已保存草稿，观察edit随后删除，不产生正式发布。
+            edit = (await request(base, 'POST', {})).id;
+            const saved = await request(base + '/' + edit + '/tracks/internal');
+            if (!saved.releases?.some(row => row.name === name && row.status === 'draft' &&
+                row.versionCodes?.includes(code))) throw Error('Google Play草稿回查失败');
+            console.log(name + ' 已上传Google Play，草稿回查通过，未上架');
+          } finally {
+            if (edit) await request(base + '/' + edit, 'DELETE');
+          }
+          NODE
       - name: 保存官方增量缓存
         if: always()
         uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809
