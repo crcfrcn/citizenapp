@@ -103,9 +103,6 @@ jobs:
           "$FLUTTER_ROOT/bin/flutter" --version --machine | jq -e '.frameworkVersion=="3.47.2"' >/dev/null
           rustup toolchain install 1.97.1 --profile minimal
           rustup target add --toolchain 1.97.1 aarch64-linux-android
-          gem install cocoapods -v 1.17.0 --no-document --install-dir "$work/gems"
-          echo "GEM_HOME=$work/gems" >> "$GITHUB_ENV"
-          echo "$work/gems/bin" >> "$GITHUB_PATH"
           # 复用官方运行机SDK，显式路径不依赖交互Shell的初始化。
           export ANDROID_HOME="$HOME/Library/Android/sdk"
           test -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
