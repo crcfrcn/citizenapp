@@ -725,7 +725,15 @@ jobs:
               headers: {Authorization: 'Bearer ' + token, 'Content-Type': type},
               body: body === undefined ? undefined : type === 'application/json' ? JSON.stringify(body) : body,
               signal: AbortSignal.timeout(600000)});
-            if (!response.ok) throw Error('Google Play请求失败：' + method + ' HTTP ' + response.status);
+            if (!response.ok) {
+              // 只保留Google错误说明，不输出请求头、正文或访问令牌。
+              const data = await response.json().catch(() => null);
+              const reasons = Array.isArray(data?.error?.errors) ? data.error.errors.map(item => item?.reason) : [];
+              const detail = [data?.error?.status, data?.error?.message, ...reasons]
+                .filter(value => typeof value === 'string' && value).join('；').replaceAll(token, '[已隐藏]');
+              throw Error('Google Play请求失败：' + method + ' HTTP ' + response.status + '；' +
+                (detail || 'Google未返回JSON错误说明'));
+            }
             return response.status === 204 ? null : response.json();
           };
           const name = '公民·Android·v' + process.env.CITIZENAPP_VERSION;
