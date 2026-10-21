@@ -730,6 +730,27 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$encoded" \
             | jq -e --arg sha "$GITHUB_SHA" '.object.type=="commit" and .object.sha==$sha' >/dev/null
           trap - EXIT
+      # 同一Run交付成功后上传同一份IPA；只等待Apple处理，不提交审核或上架。
+      - name: 上传正式IPA到App Store Connect
+        timeout-minutes: 30
+        env:
+          APP_STORE_KEY_ID: ${{ secrets.APP_STORE_KEY_ID }}
+          APP_STORE_ISSUER_ID: ${{ secrets.APP_STORE_ISSUER_ID }}
+          APP_STORE_PRIVATE_KEY: ${{ secrets.APP_STORE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          : "${APP_STORE_KEY_ID:?缺少APP_STORE_KEY_ID}"
+          : "${APP_STORE_ISSUER_ID:?缺少APP_STORE_ISSUER_ID}"
+          : "${APP_STORE_PRIVATE_KEY:?缺少APP_STORE_PRIVATE_KEY}"
+          # 私钥只写本轮签名现场，不进入正式附件；上传成败均立即删除。
+          export API_PRIVATE_KEYS_DIR="$WORK/signing/appstore"
+          mkdir "$API_PRIVATE_KEYS_DIR"
+          trap 'rm -rf "$API_PRIVATE_KEYS_DIR"' EXIT
+          printf '%s\n' "$APP_STORE_PRIVATE_KEY" > "$API_PRIVATE_KEYS_DIR/AuthKey_$APP_STORE_KEY_ID.p8"
+          xcrun altool --upload-package "$WORK/artifact/公民·iOS·v$CITIZENAPP_VERSION.ipa" \
+            --api-key "$APP_STORE_KEY_ID" --api-issuer "$APP_STORE_ISSUER_ID" \
+            --wait --output-format json
       - name: 保存官方增量缓存
         if: always()
         uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809
