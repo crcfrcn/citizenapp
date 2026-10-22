@@ -4,7 +4,7 @@ import {spawn, spawnSync} from 'node:child_process';
 import {chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {requireAutomationBuild,assembleProject,selectSDKRelease,describeAction} from '../scripts/build.mjs';
+import {requireAutomationBuild,assembleProject,selectSDKRelease,describeAction,existingFlutter} from '../scripts/build.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const pubspec = readFileSync(join(root, 'pubspec.yaml'), 'utf8');
@@ -279,7 +279,7 @@ test('CitizenApp二维码非UI能力只由SDK提供', () => {
     assert.equal(caller.includes('package:citizen_sdk/src/'), false);
 });
 
-test('SDK自动选择最新成功正式版，本机与自动化使用独立消费路径', async () => {
+test('SDK自动选择最新成功正式版，本机与自动化使用独立消费路径', async t => {
     const builder = readFileSync(join(root, 'scripts/build.mjs'), 'utf8');
     for (const platform of ['ios', 'android']) {
         const workflow = readFileSync(join(root, '.github/workflows', platform + '.yml'), 'utf8');
@@ -306,4 +306,17 @@ test('SDK自动选择最新成功正式版，本机与自动化使用独立消�
         sent=value;return {workflow_run_id:12};
     }});
     assert.deepEqual(sent.inputs,{version:'1.0.0'});
+    // 已有工具缺件或版本错误时直接失败；只接受现成完整安装，不生成或下载工具。
+    const value = fixture(t), tool = join(value.directory, 'flutter');
+    assert.throws(() => existingFlutter('android', {}, [tool]), /禁止自动下载/);
+    for (const name of ['dart-sdk/bin/dart','flutter_tools.snapshot','artifacts/engine/android-arm64-release']) {
+        const file = join(tool, 'bin/cache', name);
+        mkdirSync(dirname(file), {recursive:true});writeFileSync(file, 'fixture');
+    }
+    const metadata = join(tool, 'bin/cache/flutter.version.json');
+    writeFileSync(metadata, JSON.stringify({frameworkVersion:'3.0.0',frameworkRevision:'b'.repeat(40)}));
+    assert.throws(() => existingFlutter('android', {}, [tool]), /禁止自动下载/);
+    writeFileSync(metadata, JSON.stringify({frameworkVersion:'3.47.2',frameworkRevision:'d3b14c876900e553bc736ca19295fc09e3853e8e'}));
+    assert.equal(existingFlutter('android', {}, [tool]), tool);
+    assert.throws(() => existingFlutter('ios', {}, [tool]), /禁止自动下载/);
 });

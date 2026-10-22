@@ -38,7 +38,11 @@ export function requireAutomationBuild(platform, environment = process.env) {
 async function run(command, args, cwd, capture = false, environment = process.env, operation = '编译') {
     controller.signal.throwIfAborted();
     return new Promise((accept, reject) => {
-        const child = spawn(command, args, {cwd, env: environment, detached: true,
+        // 本机编译禁止间接下载工具；系统限制同时覆盖Flutter、Gradle及SDK的后代进程。
+        const offline = environment.CITIZENAPP_OFFLINE === 'true';
+        const child = spawn(offline ? '/usr/bin/sandbox-exec' : command,
+            offline ? ['-p', '(version 1)(allow default)(deny network-outbound)', command, ...args] : args,
+            {cwd, env: environment, detached: true,
             stdio: ['ignore', capture ? 'pipe' : 'inherit', 'inherit']});
         let output = '', failure, timer;
         if (child.pid) groups.add(child.pid);
@@ -265,22 +269,22 @@ for (const name of ['citizen_sdk', 'tatachat_sdk']) {
             const tools = settings.tools, zxing = settings.nativeSources.zxing;
             const nativeEnvironment = {...environment,
                 ANDROID_NDK_HOME: join(environment.ANDROID_HOME, 'ndk', tools.ndk),
-                CITIZENSDK_ZXING_SOURCE_DIR: join(work, 'sources', zxing.archive_root)};
+                CITIZENSDK_ZXING_SOURCE_DIR: environment.CITIZENSDK_ZXING_SOURCE_DIR ||
+                    join(local, 'target/cache/sources', zxing.archive_root)};
             if (!existsSync(nativeEnvironment.CITIZENSDK_ZXING_SOURCE_DIR)) {
-                const archive = join(work, 'zxing.zip');
-                await run('curl', ['--fail', '--location', '--proto', '=https', zxing.url, '-o', archive], root, false, environment);
-                await run('unzip', ['-q', archive, '-d', join(work, 'sources')], root, false, environment);
+                throw Error('缺少SDK声明的现有ZXing ' + zxing.version + '源码，请交付CITIZENSDK_ZXING_SOURCE_DIR；本机禁止自动下载');
             }
             nativeEnvironment.PATH = join(environment.ANDROID_HOME, 'cmake', tools.cmake, 'bin') + ':' + environment.PATH;
             if (environment.PLATFORM === 'android') {
-                // Gradle版本读取SDK公开声明，只准备在本轮现场，不依赖全局安装。
-                const directory = join(work, 'tools');
-                mkdirSync(directory, {recursive: true});
-                const archive = join(directory, 'gradle.zip');
-                await run('curl', ['--fail', '--location', '--proto', '=https',
-                    'https://services.gradle.org/distributions/gradle-' + tools.gradle + '-bin.zip', '-o', archive], root, false, environment);
-                await run('unzip', ['-q', archive, '-d', directory], root, false, environment);
-                nativeEnvironment.PATH = join(directory, 'gradle-' + tools.gradle, 'bin') + ':' + nativeEnvironment.PATH;
+                // 复用Gradle官方wrapper已安装版本，不下载第二份工具。
+                const distributions = join(environment.HOME, '.gradle/wrapper/dists');
+                const candidates = environment.GRADLE_HOME ? [environment.GRADLE_HOME] :
+                    readdirSync(distributions).filter(name => name.startsWith('gradle-' + tools.gradle + '-'))
+                        .flatMap(name => readdirSync(join(distributions, name))
+                            .map(id => join(distributions, name, id, 'gradle-' + tools.gradle)));
+                const gradle = candidates.find(path => existsSync(join(path, 'bin/gradle')));
+                if (!gradle) throw Error('缺少现有Gradle ' + tools.gradle + '；本机禁止自动下载');
+                nativeEnvironment.PATH = join(gradle, 'bin') + ':' + nativeEnvironment.PATH;
             }
             const result = JSON.parse(await run(globalThis.process.execPath,
                 [join(source, 'scripts/build.mjs'), 'native', environment.PLATFORM === 'ios' ? 'Apple' : 'Android'],
@@ -615,8 +619,26 @@ if(environment.GITHUB_ENV)for (const [key, value] of Object.entries(values)) app
 return {project,values};
 }
 
+// 仅查找本机现有的同版官方Flutter，不建立工具库存、不下载或复制工具。
+export function existingFlutter(platform, environment = process.env, candidates) {
+ const required = ['dart-sdk/bin/dart', 'flutter_tools.snapshot',
+  'artifacts/engine/' + (platform === 'ios' ? 'ios-release/Flutter.xcframework' : 'android-arm64-release')];
+ const paths = candidates || (environment.FLUTTER_ROOT ? [environment.FLUTTER_ROOT] : [
+  ...(environment.PATH || '').split(':').filter(Boolean).map(path => resolve(path, '..')),
+  ...readdirSync(dirname(root), {withFileTypes:true}).filter(entry => entry.isDirectory())
+   .map(entry => join(dirname(root), entry.name, 'target/cache/flutter'))]);
+ for (const path of paths) {
+  const file = join(path, 'bin/cache/flutter.version.json');
+  if (!existsSync(file) || !required.every(name => existsSync(join(path, 'bin/cache', name)))) continue;
+  const version = JSON.parse(readFileSync(file, 'utf8'));
+  if (version.frameworkVersion === '3.47.2' && version.frameworkRevision === 'd3b14c876900e553bc736ca19295fc09e3853e8e') return realpathSync(path);
+ }
+ throw Error('未找到现有完整Flutter 3.47.2，请提供FLUTTER_ROOT；本机禁止自动下载');
+}
+
 export async function compile(platform){
  if(!['ios','android'].includes(platform)||process.env.GITHUB_ACTIONS==='true')throw Error('本机编译平台或环境无效');
+ const flutterRoot=existingFlutter(platform);
  const parent=join(root,'target/build');mkdirSync(parent,{recursive:true});
  if(realpathSync(parent)!==parent)throw Error('本机编译现场经过链接');
  const work=mkdtempSync(join(parent,'local-'));let safe=true;
@@ -624,17 +646,16 @@ export async function compile(platform){
  const version=/^version:\s*([^+\s]+)(?:\+(\d+))?/mu.exec(readFileSync(join(root,'pubspec.yaml'),'utf8'));
  const environment={...process.env,GITHUB_WORKSPACE:root,WORK:work,PLATFORM:platform,
   CITIZENAPP_VERSION:version[1],CITIZENAPP_BUILD_NUMBER:version[2]||'1',
-  FLUTTER_ROOT:join(cache,'flutter'),PUB_CACHE:join(cache,'pub'),GRADLE_USER_HOME:join(cache,'gradle'),
+  FLUTTER_ROOT:flutterRoot,PUB_CACHE:process.env.PUB_CACHE||join(cache,'pub'),GRADLE_USER_HOME:process.env.GRADLE_USER_HOME||join(cache,'gradle'),
+  CITIZENAPP_OFFLINE:'true',CARGO_NET_OFFLINE:'true',
   CARGO_TARGET_DIR:join(cache,'rust'),RUSTUP_TOOLCHAIN:'1.97.1',
   PATH:process.env.HOME+'/.cargo/bin:'+process.env.HOME+'/.nvm/versions/node/v25.2.1/bin:'+(process.env.PATH||'/usr/bin:/bin'),
   ANDROID_HOME:process.env.ANDROID_HOME||join(process.env.HOME,'Library/Android/sdk'),
   JAVA_HOME:process.env.JAVA_HOME||'/Applications/Android Studio.app/Contents/jbr/Contents/Home'};
  delete environment.GH_TOKEN;delete environment.GITHUB_TOKEN;delete environment.GITHUB_ENV;
  try{
-  if(!existsSync(environment.FLUTTER_ROOT))await run('git',['clone','--branch','3.47.2','--depth','1','https://github.com/flutter/flutter.git',environment.FLUTTER_ROOT],root,false,environment);
   if(await run('git',['-C',environment.FLUTTER_ROOT,'rev-parse','HEAD'],root,true,environment)!=='d3b14c876900e553bc736ca19295fc09e3853e8e')throw Error('Flutter版本与产品原声明不一致');
   environment.PATH=join(environment.FLUTTER_ROOT,'bin')+':'+environment.PATH;
-  await run(join(environment.FLUTTER_ROOT,'bin/flutter'),['precache',platform==='ios'?'--ios':'--android',...(platform==='ios'?['--macos']:[])],root,false,environment);
   await assembleProject(environment);
   await build(platform,'dependencies',{local:true,work,environment});
   await build(platform,'app',{local:true,work,environment});
