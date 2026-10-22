@@ -179,9 +179,12 @@ for (const platform of ['ios', 'android']) {
             const fsRead = path => {
                 if (files.has(path)) return files.get(path);
                 if (path === icon) return JSON.stringify({images:[{size:'20x20',scale:'2x',filename:'Icon-App-20x20@2x.png'}]});
+                if (path === '/fixture/flutter/packages/flutter_tools/templates/cocoapods/Podfile-ios') {
+                    return "# platform :ios, '15.0'\nflutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))\npost_install do |installer|\nflutter_additional_ios_build_settings(target)\nend\n";
+                }
                 throw Error('未声明读取：' + path);
             };
-            new Function('execFileSync', 'readFileSync', 'writeFileSync', 'mkdirSync', 'copyFileSync', 'chmodSync', 'rmSync', 'readdirSync',
+            new Function('execFileSync', 'readFileSync', 'writeFileSync', 'appendFileSync', 'mkdirSync', 'copyFileSync', 'chmodSync', 'rmSync', 'readdirSync',
                 'join', 'dirname', 'root', 'work', 'project', 'process', 'lock', body)(
                 (command,args) => {
                     assert.equal(command, '/fixture/flutter/bin/flutter', '装配不得调用未声明工具');
@@ -189,7 +192,15 @@ for (const platform of ['ios', 'android']) {
                     tools.push([command,args]);
                     // 对应原锁Flutter的create：--no-pub仍会用模板依赖重写工程锁。
                     files.set(project + '/pubspec.lock', '{"packages":{}}');
-                }, fsRead, (path,text) => files.set(path,text), () => {},
+                    files.set(project + '/android/build.gradle.kts', 'rootProject.layout.buildDirectory.dir("../../build")');
+                    files.set(project + '/android/settings.gradle.kts', 'plugins { id("dev.flutter.flutter-plugin-loader") version "1.0.0"\nid("com.android.application") version "8.0.0" apply false\nid("org.jetbrains.kotlin.android") version "2.0.0" apply false }\ninclude(":app")');
+                    files.set(project + '/android/gradle.properties', 'android.useAndroidX=true\n');
+                    files.set(project + '/android/gradle/wrapper/gradle-wrapper.properties', 'distributionUrl=https\\://services.gradle.org/distributions/gradle-8.0.0-bin.zip\n');
+                    files.set(project + '/ios/Runner/Base.lproj/LaunchScreen.storyboard', '<image name="LaunchImage" width="168" height="185"/>');
+                    files.set(project + '/android/app/src/main/res/values/styles.xml', 'Flutter官方主题');
+                    files.set(project + '/ios/Runner/Runner-Bridging-Header.h', '#import "GeneratedPluginRegistrant.h"');
+                }, fsRead, (path,text) => files.set(path,text),
+                (path,text) => files.set(path,(files.get(path)||'')+text), () => {},
                 (source,destination) => copies.push([source,destination]), () => {}, path => removed.push(path),
                 path => { assert.equal(path, '/fixture/source/test'); return sourceHasWidgetTest ? ['widget_test.dart'] : []; }, join, dirname,
                 '/fixture/source','/fixture',project,{env:{FLUTTER_ROOT:'/fixture/flutter'}},pubLock);
@@ -205,8 +216,11 @@ for (const platform of ['ios', 'android']) {
             assert.match(files.get(project+'/android/app/src/main/res/values-en/strings.xml'), />CitizenApp</);
             assert.match(files.get(project+'/android/app/src/main/res/xml/network_security_config.xml'), /cleartextTrafficPermitted="false"/);
             assert.match(files.get(project+'/ios/Runner/Runner.entitlements'), /\$\(APS_ENVIRONMENT\)/);
-            assert.match(files.get(project+'/ios/Podfile'), /tatachat_sdk\.podspec/);
+            assert.match(files.get(project+'/ios/Podfile'), /flutter_install_all_ios_pods/);
             assert.match(files.get(project+'/ios/Podfile'), /isar_community_flutter_libs\/libisar\.a/);
+            assert.equal(files.get(project+'/android/app/src/main/res/values/styles.xml'), 'Flutter官方主题');
+            assert.equal(files.get(project+'/ios/Runner/Runner-Bridging-Header.h'), '#import "GeneratedPluginRegistrant.h"');
+            assert.match(files.get(project+'/ios/Runner/Base.lproj/CitizenLaunchScreen.storyboard'), /name="CitizenLaunchLogo" width="160" height="160"/);
             assert.match(files.get(project+'/android/gradle.properties'), /android\.builtInKotlin=false/);
             assert.match(files.get(project+'/android/gradle/wrapper/gradle-wrapper.properties'), /gradle-9\.1\.0-bin\.zip/);
         }

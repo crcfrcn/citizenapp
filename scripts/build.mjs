@@ -105,10 +105,10 @@ export async function build(platform, phase = 'app', options={}) {
     }
 }
 
-// 沿用控制台现有公开接口；配置文件仅同名导出，流程正文只有本文件这一份。
+// 为保留现有自动化功能暂留必要接口；配置文件仅同名导出，不扩展职责。
 export async function describeAction({flow, platform}) {
     const labels = {ios: 'iOS', android: 'Android'};
-    // 自动化原有版本与单Run派发规则整体移出配置文件，不改变调用协议。
+    // 版本按本平台最新成功Run递增，只派发一次并返回原Run编号。
     return {repository: 'crcfrcn/citizenapp', launch: async ({read, dispatch}) => {
         const rows = [];
         for (let page = 1; ; page++) {
@@ -274,52 +274,30 @@ for (const name of ['AppDelegate.swift', 'SystemProtectedDataChannel.swift', 'In
 for (const name of ['SquareMediaChannel', 'SquareVideoTranscoder']) copy('ios/square/' + name + '.swift', 'ios/Runner/' + name + '.swift');
 for (const name of ['RunnerTests', 'RunnerUITests']) copy('ios/tests/' + name + '.swift', 'ios/' + name + '.swift');
 // 以下仅为本轮平台工具直接消费的必要配置，不生成常驻模块。
-write("android/build.gradle.kts", `// App与Flutter插件共用官方AGP/KGP；不改写插件缓存或另建工具链。
-allprojects {
-    repositories { google(); mavenCentral() }
+// 使用Flutter生成的标准工程，只应用本产品编译需要的插件和版本差异。
+const gradleRoot = join(project, 'android/build.gradle.kts');
+write('android/build.gradle.kts', readFileSync(gradleRoot, 'utf8') + `
+subprojects {
     plugins.withId("com.android.library") {
-        // 原锁CitizenSDK声明Kotlin源；宿主选择旧KGP时为该模块应用同一插件。
         if (project.name == "citizen_sdk") { pluginManager.apply("org.jetbrains.kotlin.android") }
         if (project.name == "camera_android_camerax") {
             dependencies.add("implementation", "androidx.concurrent:concurrent-futures:1.2.0")
         }
     }
 }
-rootProject.layout.buildDirectory.value(rootProject.layout.projectDirectory.dir("../build"))
-subprojects {
-    layout.buildDirectory.value(rootProject.layout.buildDirectory.dir(name))
-    evaluationDependsOn(":app")
-}
-tasks.register<Delete>("clean") { delete(rootProject.layout.buildDirectory) }
 `);
-write("android/settings.gradle.kts", `pluginManagement {
-    val properties = java.util.Properties()
-    file("local.properties").inputStream().use { properties.load(it) }
-    val flutterSdkPath = properties.getProperty("flutter.sdk") ?: error("flutter.sdk未配置")
-    includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
-    repositories { google(); mavenCentral(); gradlePluginPortal() }
-}
-plugins {
-    id("dev.flutter.flutter-plugin-loader") version "1.0.0"
-    id("com.android.application") version "9.0.1" apply false
-    id("com.android.library") version "9.0.1" apply false
-    id("org.jetbrains.kotlin.android") version "2.2.20" apply false
-}
-include(":app")
-`);
-write("android/gradle.properties", `org.gradle.jvmargs=-Xmx8G -XX:MaxMetaspaceSize=4G -XX:ReservedCodeCacheSize=512m
-android.useAndroidX=true
-# Flutter 3.47与当前原锁插件使用官方支持的KGP和DSL配置，不修补Flutter源码。
-android.builtInKotlin=false
-android.newDsl=false
-`);
-write("android/gradle/wrapper/gradle-wrapper.properties", `distributionBase=GRADLE_USER_HOME
-distributionPath=wrapper/dists
-zipStoreBase=GRADLE_USER_HOME
-zipStorePath=wrapper/dists
-distributionUrl=https\\://services.gradle.org/distributions/gradle-9.1.0-bin.zip
-distributionSha256Sum=a17ddd85a26b6a7f5ddb71ff8b05fc5104c0202c6e64782429790c933686c806
-`);
+const settings = join(project, 'android/settings.gradle.kts');
+write('android/settings.gradle.kts', readFileSync(settings, 'utf8')
+    .replace(/id\("com.android.application"\) version "[^"]+"/, 'id("com.android.application") version "9.0.1"')
+    .replace(/id\("org.jetbrains.kotlin.android"\) version "[^"]+"/, 'id("org.jetbrains.kotlin.android") version "2.2.20"')
+    .replace('id("dev.flutter.flutter-plugin-loader") version "1.0.0"',
+        'id("dev.flutter.flutter-plugin-loader") version "1.0.0"\n    id("com.android.library") version "9.0.1" apply false'));
+appendFileSync(join(project, 'android/gradle.properties'), '\nandroid.builtInKotlin=false\nandroid.newDsl=false\n');
+const wrapper = join(project, 'android/gradle/wrapper/gradle-wrapper.properties');
+write('android/gradle/wrapper/gradle-wrapper.properties', readFileSync(wrapper, 'utf8')
+    .replace(/gradle-[^/]+-(?:bin|all)\.zip/, 'gradle-9.1.0-bin.zip')
+    .replace(/^distributionSha256Sum=.*\n?/gm, '') +
+    '\ndistributionSha256Sum=a17ddd85a26b6a7f5ddb71ff8b05fc5104c0202c6e64782429790c933686c806\n');
 write("android/app/src/main/res/xml/network_security_config.xml", `<?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
     <!-- 生产全部走 HTTPS / WSS（TLS）：cid、square/chain-bootstrap Worker、
@@ -335,115 +313,27 @@ write("android/app/src/main/res/xml/update_file_paths.xml", `<?xml version="1.0"
         path="." />
 </paths>
 `);
-write("ios/Podfile", `platform :ios, '16.0'
-
-# CocoaPods analytics sends network stats synchronously affecting flutter build latency.
-ENV['COCOAPODS_DISABLE_STATS'] = 'true'
-
-project 'Runner', {
-  'Debug' => :debug,
-  'Profile' => :release,
-  'Release' => :release,
-}
-
-def flutter_root
-  generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
-  unless File.exist?(generated_xcode_build_settings_path)
-    raise "#{generated_xcode_build_settings_path} must exist. If you're running pod install manually, make sure flutter pub get is executed first"
-  end
-
-  File.foreach(generated_xcode_build_settings_path) do |line|
-    matches = line.match(/FLUTTER_ROOT\\=(.*)/)
-    return matches[1].strip if matches
-  end
-  raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try deleting Generated.xcconfig, then run flutter pub get"
-end
-
-require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
-
-flutter_ios_podfile_setup
-
-target 'Runner' do
-  # Swift 插件统一以 framework 集成，避免静态模块映射与 Objective-C 桥接头冲突。
-  use_frameworks!
-
-  # TataChatSDK 通过自身 Flutter FFI plugin 和 tatachat_sdk.podspec 自动安装；宿主
-  # Podfile 不直接登记其 Rust 库，避免恢复跨产品链接所有权。
-
-  # 保留调用方源码外工程视图的词法路径；Podfile可以是只读链接，
-  # realpath会跳回产品源码并把Pods/.symlinks误写进源码目录。
-  flutter_install_all_ios_pods File.dirname(File.expand_path(__FILE__))
-  target 'RunnerTests' do
-    inherit! :search_paths
-  end
-end
-
-post_install do |installer|
-  installer.pods_project.targets.each do |target|
-    flutter_additional_ios_build_settings(target)
-    target.build_configurations.each do |config|
-      # Apple Silicon simulator requires arm64. Do not exclude it.
-      config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = ''
-      # 两个 iOS 产品统一以 16.0 为唯一最低版本，禁止 Pods 保留 9/11/12/13 的旧目标。
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'
-    end
-  end
-
-  # CocoaPods 1.17 会把 Isar 静态 XCFramework 的脚本输出误写成不存在的
-  # \`isar.framework\`，实际切片是 \`libisar.a\`。Xcode 27 据此建立错误依赖图，
-  # 可能在复制静态库前启动链接器。这里只修正每次 pod install 的生成清单，
-  # 不修改 pub cache、Isar 源码或引入手工预构建流程。
-  isar_support_dir = File.join(
-    installer.sandbox.root.to_s,
-    'Target Support Files',
-    'isar_community_flutter_libs',
-  )
-  isar_output_list = File.join(
-    isar_support_dir,
-    'isar_community_flutter_libs-xcframeworks-output-files.xcfilelist',
-  )
+// Podfile和启动页正文沿用现有Flutter官方模板，不在脚本重复维护。
+const podfile = join(process.env.FLUTTER_ROOT, 'packages/flutter_tools/templates/cocoapods/Podfile-ios');
+write('ios/Podfile', readFileSync(podfile, 'utf8')
+    .replace(/^# platform :ios.*$/m, "platform :ios, '16.0'")
+    .replace('post_install do |installer|', `post_install do |installer|
+  # 沿用Isar静态XCFramework实际输出，修正CocoaPods生成的输出列表。
   File.write(
-    isar_output_list,
+    File.join(installer.sandbox.root.to_s, 'Target Support Files', 'isar_community_flutter_libs',
+      'isar_community_flutter_libs-xcframeworks-output-files.xcfilelist'),
     "\${PODS_XCFRAMEWORKS_BUILD_DIR}/isar_community_flutter_libs/libisar.a\\n",
   )
-end
-`);
-write("ios/Runner/Base.lproj/CitizenLaunchScreen.storyboard", `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="12121" systemVersion="16G29" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" colorMatched="YES" initialViewController="01J-lp-oVM">
-    <dependencies>
-        <deployment identifier="iOS"/>
-        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="12089"/>
-    </dependencies>
-    <scenes>
-        <scene sceneID="EHf-IW-A2E">
-            <objects>
-                <viewController id="01J-lp-oVM" sceneMemberID="viewController">
-                    <layoutGuides>
-                        <viewControllerLayoutGuide type="top" id="Ydg-fD-yQy"/>
-                        <viewControllerLayoutGuide type="bottom" id="xbc-2k-c8Z"/>
-                    </layoutGuides>
-                    <view key="view" contentMode="scaleToFill" id="Ze5-6b-2t3">
-                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
-                        <subviews>
-                            <imageView opaque="NO" clipsSubviews="YES" contentMode="center" image="CitizenLaunchLogo" translatesAutoresizingMaskIntoConstraints="NO" id="YRO-k0-Ey4"/>
-                        </subviews>
-                        <color key="backgroundColor" red="1" green="1" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
-                        <constraints>
-                            <constraint firstItem="YRO-k0-Ey4" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="1a2-6s-vTC"/>
-                            <constraint firstItem="YRO-k0-Ey4" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" id="4X2-HB-R7a"/>
-                        </constraints>
-                    </view>
-                </viewController>
-                <placeholder placeholderIdentifier="IBFirstResponder" id="iYj-Kq-Ea1" userLabel="First Responder" sceneMemberID="firstResponder"/>
-            </objects>
-            <point key="canvasLocation" x="53" y="375"/>
-        </scene>
-    </scenes>
-    <resources>
-        <image name="CitizenLaunchLogo" width="160" height="160"/>
-    </resources>
-</document>
-`);
+`)
+    .replace('flutter_additional_ios_build_settings(target)', `flutter_additional_ios_build_settings(target)
+    target.build_configurations.each do |config|
+      config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = ''
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'
+    end`));
+write('ios/Runner/Base.lproj/CitizenLaunchScreen.storyboard',
+    readFileSync(join(project, 'ios/Runner/Base.lproj/LaunchScreen.storyboard'), 'utf8')
+        .replaceAll('LaunchImage', 'CitizenLaunchLogo')
+        .replace('width="168" height="185"', 'width="160" height="160"'));
 write("ios/Runner/Runner.entitlements", `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -488,50 +378,14 @@ write("android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml", `<adap
     <foreground android:drawable="@mipmap/ic_launcher_foreground" />
 </adaptive-icon>
 `);
-write("android/app/src/main/res/values/styles.xml", `<resources>
-    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
-        <item name="android:windowBackground">@drawable/launch_background</item>
-    </style>
-    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
-        <item name="android:windowBackground">?android:colorBackground</item>
-    </style>
-</resources>
-`);
-write("android/app/src/main/res/values-night/styles.xml", `<resources>
-    <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
-        <item name="android:windowBackground">@drawable/launch_background</item>
-    </style>
-    <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
-        <item name="android:windowBackground">?android:colorBackground</item>
-    </style>
-</resources>
-`);
-write("ios/Runner/Runner-Bridging-Header.h", `#import "GeneratedPluginRegistrant.h"
-`);
-write("ios/Runner/Assets.xcassets/CitizenLaunchLogo.imageset/Contents.json", `{
-  "images": [
-    {
-      "filename": "CitizenLaunchLogo.png",
-      "idiom": "universal",
-      "scale": "1x"
-    },
-    {
-      "filename": "CitizenLaunchLogo@2x.png",
-      "idiom": "universal",
-      "scale": "2x"
-    },
-    {
-      "filename": "CitizenLaunchLogo@3x.png",
-      "idiom": "universal",
-      "scale": "3x"
-    }
-  ],
-  "info": {
-    "author": "xcode",
-    "version": 1
-  }
-}
-`);
+// 保留Flutter生成的主题和桥接头，只生成产品图标所需的资源清单。
+write('ios/Runner/Assets.xcassets/CitizenLaunchLogo.imageset/Contents.json', JSON.stringify({
+    images: [1, 2, 3].map(scale => ({
+        filename: 'CitizenLaunchLogo' + (scale === 1 ? '' : '@' + scale + 'x') + '.png',
+        idiom: 'universal', scale: scale + 'x',
+    })),
+    info: {version: 1, author: 'xcode'},
+}, null, 2));
 for (const [density, icon, foreground, launch] of [['mdpi',48,108,120], ['hdpi',72,162,180], ['xhdpi',96,216,240], ['xxhdpi',144,324,360], ['xxxhdpi',192,432,480]]) {
     const destination = 'android/app/src/main/res/mipmap-' + density + '/';
     for (const name of ['ic_launcher', 'ic_launcher_round']) copy('assets/logo/icon' + icon + '.png', destination + name + '.png');
