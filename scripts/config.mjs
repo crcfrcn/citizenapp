@@ -41,4 +41,12 @@ export const manifest=Object.freeze({
 });
 export function describeConfiguration(){return JSON.parse(JSON.stringify(manifest));}
 
-export {describeAction} from './build.mjs';
+// 本产品Workflow坐标声明。
+export const workflows=Object.freeze({"ios":"ios.yml","android":"android.yml"});
+
+// 只返回声明数据；派发与观察归通用调用方，版本及交付归本仓YAML。
+export function describeAction({flow,platform,inputs={}}){
+ const workflow=workflows[platform];
+ if(flow==='release'&&workflow)return {repository:"crcfrcn/citizenapp",workflow,ref:'main',inputs};
+ throw Error('本产品未声明该流程：'+flow+'·'+platform);
+}

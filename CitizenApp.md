@@ -4,11 +4,9 @@
 
 公民App的编译与依赖装配唯一归scripts/build.mjs。本机由塔塔控制台既有塔塔安装器调用compile ios/android，签名、安装和回读归控制台；GitHub由本产品两份既有Workflow调用同一工程装配与App编译入口。scripts/config.mjs原文保持，只声明APP_KEY、IOS_KEY、APP_PROFILE等配置需求，不放任务执行或版本算法。不新增模块，不恢复已删除的平台输入模块。
 
-为保留现有自动化功能，describeAction的必要版本计算与单次Run派发暂留build.mjs，config.mjs只同名导出。此接口是明确保留的职责边界，不据此继续加入其他非编译实现。
 
 每个平台一次执行只有一个本机自动化任务和一个GitHub Run。产品所属.github/workflows/ios.yml与android.yml分别公开workflow_dispatch，唯一输入为version；固定Workflow名称为公民·iOS、公民·Android，每次Run、Job、Artifact、Tag、Release使用公民·平台·vX.Y.Z。没有prepare/settle/cancel操作、父子Run、管理Run或递归派发。iOS与Android独立任务、授权、现场和并发组，可以同时执行；同平台重复点击、恢复和取消都不创建新Run。
 
-控制台只调用产品公开动作，不实现SDK选择、依赖准备或产品编译。产品既有describeAction保留version单一派发输入，使用官方GitHub接口发起所属Workflow。版本从官方成功Run名称递增；没有成功记录时原样读取产品pubspec.yaml基准版本，交给产品Workflow判断。控制台不再前置校验产品版本、路径、main提交、Run源码/attempt、候选Release或产物完整性；不在接入重复验真Release正文、Tag或附件。测试、编译、原锁、产品身份和正式交付检查归所属Workflow。
 
 共用的原生动作授权、Touch ID、密钥权限及签名保护保持，安装功能正文保持。接入始终调用固定公民App仓库和所选平台Workflow；本机同平台活动任务去重、官方已有活动Run续接、派发回执持久化和不明派发不重复POST属于任务管理，保持一个平台一次执行一个任务/Run。恢复只读取已保存原Run，展示官方返回状态和字段；取消直接请求原Run，等待官方真实终态，不另建管理Run。只读5xx有限退避，变更请求不自动重试，官方错误如实报告。
 
@@ -3364,7 +3362,6 @@ Android平台组件交付包含App/SDK及Flutter默认的API36、音频/表情/I
 
 ## 外部调用入口
 
-本仓现有 scripts/config.mjs 的 describeAction({flow,platform}) 声明流程入口。自动化启动逻辑、版本输入与平台选择归本仓；调用方交付已授权令牌和标准 read/dispatch 传输能力，接收准确 Run 编号。既有独立自动化接口继续由本仓实现。未提供的安装或发布入口明确报产品侧未声明，不错接到编译，也不产生成功回执。
 
 ## SDK消费与本机安装
 
@@ -3377,3 +3374,5 @@ CitizenSDK与TataChatSDK的Git来源声明保持，ref统一为main。仓库原�
 本机签名、安装及回读唯一归控制台既有Installer.swift。本产品compile ios|android只交付本轮未签名产物，消费结束后清场；iOS与Android现场和失败结果独立。自动化仍保留原正式签名、商店上传及历史清理行为；启动该流程须有对应授权。
 
 本机编译复用调用环境提供的缓存参数，Pub未显式提供时使用用户已有的标准缓存，Gradle复用现有Flutter安装旁的已有gradle缓存；Cargo增量输出保持本产品缓存或调用方指定位置。CitizenSDK的ZXing源码路径按其公开nativeSources声明映射到本产品target/cache/sources，或使用调用方显式提供的CITIZENSDK_ZXING_SOURCE_DIR。App只传递这项必要编译输入，不另加目录检查、下载器或依赖准备模块；资源获取须另行授权。
+
+本产品scripts/config.mjs的describeAction仅返回repository、workflow、ref、inputs，或既有本地进程命令声明；不导入构建实现、不派发GitHub请求、不处理令牌、版本或历史。控制台使用统一数据接口直接派发并只读观察准确Run；产品GitHub业务归所属既有YAML。本次自动化Run名称使用运行编号，正式构建及产物保持版本名称。已有工具和依赖复用，缺少时才按原声明准备。

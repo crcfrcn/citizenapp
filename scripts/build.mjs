@@ -1,5 +1,5 @@
 // 按官方要求或推荐实现；必需的工具依赖有就复用，没有就下载；使用最简单的实现方式；本脚本只允许放编译构建代码和注释，禁止增加无关内容，禁止增加复杂的校验阻断。
-// 本产品唯一编译与自动化实现；本机签名、安装统一由控制台安装器负责。
+// config.mjs：只负责配置声明；build.mjs：只负责编译构建实现和必要注释；*.yml：负责全部GitHub流程，包括版本、作业编排、发布及历史清理。
 import {spawn, execFileSync} from 'node:child_process';
 import {appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync,
     readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync} from 'node:fs';
@@ -82,7 +82,7 @@ export async function build(platform, phase = 'app', options={}) {
             return;
         }
         const flutter = join(environment.FLUTTER_ROOT, 'bin/flutter');
-        const version = ['--build-name', environment.CITIZENAPP_VERSION, '--build-number', environment.CITIZENAPP_BUILD_NUMBER||environment.GITHUB_RUN_NUMBER];
+        const version = ['--build-name', environment.CITIZENAPP_VERSION, '--build-number', environment.GITHUB_RUN_NUMBER];
         const output = join(work, 'artifact');
         mkdirSync(output);
         const title = `公民·${platform === 'ios' ? 'iOS' : 'Android'}·v${environment.CITIZENAPP_VERSION}`;
@@ -107,32 +107,7 @@ export async function build(platform, phase = 'app', options={}) {
 }
 
 // 为保留现有自动化功能暂留必要接口；配置文件仅同名导出，不扩展职责。
-export async function describeAction({flow, platform}) {
-    const labels = {ios: 'iOS', android: 'Android'};
-    // 版本按本平台最新成功Run递增，只派发一次并返回原Run编号。
-    return {repository: 'crcfrcn/citizenapp', launch: async ({read, dispatch}) => {
-        const rows = [];
-        for (let page = 1; ; page++) {
-            const data = await read('actions/workflows/' + platform + '.yml/runs?' +
-                'branch=main&event=workflow_dispatch&per_page=100&page=' + page);
-            rows.push(...data.workflow_runs);
-            if (data.workflow_runs.length < 100) break;
-        }
-        const latest = rows.filter(row => row.status === 'completed' && row.conclusion === 'success')
-            .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at) || b.id - a.id)[0];
-        let version;
-        if (latest) {
-            const prefix = '公民·' + labels[platform] + '·v';
-            const parts = latest.display_title.slice(prefix.length).split('.');
-            parts[2] = String(BigInt(parts[2]) + 1n);
-            version = parts.join('.');
-        } else {
-            version = /^version:\s*(\S+)/mu.exec(readFileSync(join(root, 'pubspec.yaml'), 'utf8'))[1].split('+')[0];
-        }
-        const receipt = await dispatch({workflow: platform + '.yml', ref: 'main', inputs: {version}});
-        return {runID: receipt.workflow_run_id};
-    }};
-}
+
 
 // 只在本轮选择一次正式版本；不用GitHub的latest标记或手填Run代替真实成功来源。
 export async function selectSDKRelease(product, read) {
@@ -432,13 +407,17 @@ export function existingFlutter(platform, environment = process.env, candidates)
 
 export async function compile(platform){
  const flutterRoot=existingFlutter(platform);
+ // 本机沿用同平台现有最新Run的构建号，只读查询，不派发Run或另行计数。
+ const response=await fetch('https://api.github.com/repos/crcfrcn/citizenapp/actions/workflows/'+platform+'.yml/runs?branch=main&event=workflow_dispatch&per_page=1');
+ if(!response.ok)throw Error('读取GitHub Run失败：HTTP '+response.status);
+ const {workflow_runs:[{run_number}]}=await response.json();
  const parent=join(root,'target/build');mkdirSync(parent,{recursive:true});
  if(realpathSync(parent)!==parent)throw Error('本机编译现场经过链接');
  const work=mkdtempSync(join(parent,'local-'));let safe=true;
  const cache=join(root,'target/cache');mkdirSync(cache,{recursive:true});
- const version=/^version:\s*([^+\s]+)(?:\+(\d+))?/mu.exec(readFileSync(join(root,'pubspec.yaml'),'utf8'));
+ const version=/^version:\s*([^+\s]+)/mu.exec(readFileSync(join(root,'pubspec.yaml'),'utf8'));
  const environment={...process.env,GITHUB_WORKSPACE:root,WORK:work,PLATFORM:platform,
-  CITIZENAPP_VERSION:version[1],CITIZENAPP_BUILD_NUMBER:version[2]||'1',
+  CITIZENAPP_VERSION:version[1],GITHUB_RUN_NUMBER:String(run_number),
   FLUTTER_ROOT:flutterRoot,PUB_CACHE:process.env.PUB_CACHE||join(process.env.HOME,'.pub-cache'),GRADLE_USER_HOME:process.env.GRADLE_USER_HOME||join(dirname(flutterRoot),'gradle'),
   CARGO_TARGET_DIR:process.env.CARGO_TARGET_DIR||join(cache,'rust'),RUSTUP_TOOLCHAIN:'1.97.1',
   PATH:process.env.HOME+'/.cargo/bin:'+process.env.HOME+'/.nvm/versions/node/v25.2.1/bin:/opt/homebrew/bin:'+(process.env.PATH||'/usr/bin:/bin'),
