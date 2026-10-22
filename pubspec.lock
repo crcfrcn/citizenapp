@@ -141,7 +141,7 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: 004e5a4917c129cfd985342857f4ce16a3b3ebad
+      ref: main
       resolved-ref: 004e5a4917c129cfd985342857f4ce16a3b3ebad
       url: "https://github.com/crcfrcn/citizensdk.git"
     source: git
@@ -1583,7 +1583,7 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: f8362b07bd721584105b044ee253796a5f897760
+      ref: main
       resolved-ref: f8362b07bd721584105b044ee253796a5f897760
       url: "https://github.com/tuyutata/tatachatsdk.git"
     source: git

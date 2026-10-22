@@ -4,7 +4,7 @@ import {spawn, spawnSync} from 'node:child_process';
 import {chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {requireAutomationBuild,assembleProject} from '../scripts/build.mjs';
+import {requireAutomationBuild,assembleProject,selectSDKRelease,describeAction} from '../scripts/build.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const pubspec = readFileSync(join(root, 'pubspec.yaml'), 'utf8');
@@ -98,18 +98,9 @@ test('准确任务现场被占用时拒绝第二次编译', t => {
     assert.equal(existsSync(value.env.CALLS), false);
 });
 
-for (const phase of ['app', 'dependencies']) {
+for (const phase of ['app']) {
     test(phase + '取消等待真实合成工具退出后才释放本轮编译标记', {timeout: 15000}, async t => {
         const value = fixture(t);
-        if (phase === 'dependencies') {
-            const source = join(value.directory, 'target/build/21-1/sources/tatachat_sdk/scripts');
-            mkdirSync(source, {recursive: true});
-            writeFileSync(join(source, 'build.mjs'), `
-                import {writeFileSync} from 'node:fs';
-                writeFileSync(process.env.CALLS, '依赖编译已启动');
-                setInterval(() => {}, 1000);
-            `);
-        }
         const child = spawn(process.execPath, [value.script, 'android', phase], {
             env: {...value.env, HOLD: '1'}, stdio: ['ignore', 'ignore', 'pipe']
         });
@@ -125,23 +116,19 @@ for (const phase of ['app', 'dependencies']) {
     });
 }
 
-test('原生依赖失败保留失败结果、阻止App编译并释放已退出的现场', t => {
+test('自动化复用正式SDK，依赖阶段不重新编译SDK', t => {
     const value = fixture(t);
-    const source = join(value.directory, 'target/build/21-1/sources/tatachat_sdk/scripts');
-    mkdirSync(source, {recursive: true});
-    writeFileSync(join(source, 'build.mjs'), 'process.exitCode = 17;\n');
     const result = spawnSync(process.execPath, [value.script, 'android', 'dependencies'], {env: value.env, encoding: 'utf8'});
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /编译失败/);
+    assert.equal(result.status, 0, result.stderr);
     assert.equal(existsSync(value.env.CALLS), false);
     assert.equal(existsSync(join(value.directory, 'target/build/21-1/build-active.json')), false);
 });
 
-test('iOS在原锁版本核对后、原生编译前预缓存两种Apple引擎', () => {
+test('iOS在原锁版本核对后、工程装配前预缓存两种Apple引擎', () => {
     const workflow = readFileSync(join(root, '.github/workflows/ios.yml'), 'utf8');
     const version = workflow.indexOf('.frameworkVersion=="3.47.2"');
     const precache = workflow.indexOf('"$FLUTTER_ROOT/bin/flutter" precache --ios --macos');
-    const compile = workflow.indexOf('node scripts/build.mjs ios dependencies');
+    const compile = workflow.indexOf('await assembleProject(process.env)');
     assert.ok(version >= 0 && precache > version && compile > precache);
 });
 
@@ -264,12 +251,12 @@ for (const platform of ['ios', 'android']) {
 }
 
 // 固定链金标仍归链源码；这里只检查产品依赖来源，真实ABI与业务回归由原命令执行。
-test('两项SDK原始声明和锁的准确提交一致', () => {
+test('两项SDK声明main，仓库锁保留基线提交且无需人工追更', () => {
     for (const name of ['citizen_sdk', 'tatachat_sdk']) {
         const declaration = pubspec.split('  ' + name + ':\n')[1]?.split(/\n  \S/)[0];
         const record = pubLock.split('\n  ' + name + ':\n')[1]?.split(/\n  \S/)[0];
         const ref = /resolved-ref: ([a-f0-9]{40})/.exec(record || '')?.[1];
-        assert.ok(ref && declaration?.includes('ref: ' + ref));
+        assert.ok(ref && declaration?.includes('ref: main') && record.includes('ref: main'));
     }
     assert.ok(podLock.includes('PODS:'));
 });
@@ -292,12 +279,31 @@ test('CitizenApp二维码非UI能力只由SDK提供', () => {
     assert.equal(caller.includes('package:citizen_sdk/src/'), false);
 });
 
-test('公民SDK消费同一成功Run的完整包，不调用SDK编译器',()=>{
- const builder=readFileSync(join(root,'scripts/build.mjs'),'utf8');assert.doesNotMatch(builder,/abi-host|sources\/citizen_sdk.*native/u);
- for(const platform of ['ios','android']){
-  const workflow=readFileSync(join(root,'.github/workflows',platform+'.yml'),'utf8');
-  assert.match(workflow,/run-id: \$\{\{ inputs.sdk_run \}\}/u);assert.match(builder,/sdk\.consume\(/u);
-  assert.match(builder,/CITIZENSDK_TEST_CORE_LIB_PATH: join\(sdkRoot,'darwin\/CitizenSDK.xcframework/u);
-  assert.doesNotMatch(workflow,/abi-host|prepare-environment/u);
- }
+test('SDK自动选择最新成功正式版，本机与自动化使用独立消费路径', async () => {
+    const builder = readFileSync(join(root, 'scripts/build.mjs'), 'utf8');
+    for (const platform of ['ios', 'android']) {
+        const workflow = readFileSync(join(root, '.github/workflows', platform + '.yml'), 'utf8');
+        assert.doesNotMatch(workflow, /sdk_run|CITIZENSDK_PACKAGE|CITIZENSDK_ATTEMPT/u);
+        assert.match(workflow, /await assembleProject\(process.env\)/u);
+    }
+    assert.match(builder, /rev-parse', 'refs\/heads\/main'/u);
+    assert.match(builder, /sdk\.consume\(/u);
+    assert.doesNotMatch(builder, /请指定已成功|缺少本产品原锁的完整SDK交付目录/u);
+    const proof = {product_id:'citizensdk',platform:'sdk',software_version:'1.0.1',
+        git_commit_sha:'a'.repeat(40),producer_run_id:8,producer_run_attempt:1};
+    const release = {id:8,tag_name:'公民SDK·SDK·v1.0.1',draft:false,prerelease:false,
+        published_at:'2026-10-22',body:JSON.stringify(proof)};
+    const run = {status:'completed',conclusion:'success',head_sha:proof.git_commit_sha,run_attempt:1};
+    const rows = [release,{...release,id:9,draft:true,body:JSON.stringify({...proof,software_version:'1.0.9'})}];
+    const read = async path => path.startsWith('releases?') ? rows : run;
+    assert.equal((await selectSDKRelease('citizensdk',read)).release.id,8);
+    await assert.rejects(selectSDKRelease('citizensdk',async () => []),/没有可用/);
+    await assert.rejects(selectSDKRelease('citizensdk',async path =>
+        path.startsWith('releases?') ? rows : {...run,conclusion:'failure'}),/未成功/);
+    const action = await describeAction({flow:'release',platform:'android'});
+    let sent;
+    await action.launch({read:async () => ({workflow_runs:[]}),dispatch:async value => {
+        sent=value;return {workflow_run_id:12};
+    }});
+    assert.deepEqual(sent.inputs,{version:'1.0.0'});
 });

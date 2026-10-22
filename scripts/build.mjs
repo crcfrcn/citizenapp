@@ -98,8 +98,10 @@ export async function build(platform, phase = 'app', options={}) {
     writeFileSync(activeMarker, JSON.stringify({pid: process.pid}), {flag: 'wx', mode: 0o600});
     try {
         if (phase === 'dependencies') {
+            // 自动化已经消费正式SDK中的原生组件，不重复编译SDK。
+            if (!options.local) return;
             const source=join(work,'sources/tatachat_sdk');
-            for(const target of ['macos',platform]){
+            for(const target of [platform]){
                 const dependencyEnvironment={...environment};delete dependencyEnvironment.GH_TOKEN;delete dependencyEnvironment.GITHUB_TOKEN;
                 const result=await run(process.execPath,[join(source,'scripts/build.mjs'),'native',target],source,true,dependencyEnvironment);
                 const output=JSON.parse(result).output;
@@ -135,12 +137,11 @@ export async function build(platform, phase = 'app', options={}) {
 }
 
 // 沿用控制台现有公开接口；配置文件仅同名导出，流程正文只有本文件这一份。
-export async function describeAction({flow, platform, inputs={}}) {
+export async function describeAction({flow, platform}) {
     const labels = {ios: 'iOS', android: 'Android'};
     if (!['ios', 'android'].includes(platform) || flow!=='release') {
         throw Error('本产品尚未声明该流程入口：' + flow + '·' + platform);
     }
-    if(!/^[1-9]\d*$/.test(String(inputs.sdkRun||''))||!Number.isSafeInteger(Number(inputs.sdkRun)))throw Error('请指定已成功的公民SDK自动化Run');
     // 自动化原有版本与单Run派发规则整体移出配置文件，不改变调用协议。
     return {repository: 'crcfrcn/citizenapp', launch: async ({read, dispatch}) => {
         const rows = [];
@@ -162,9 +163,44 @@ export async function describeAction({flow, platform, inputs={}}) {
         } else {
             version = /^version:\s*(\S+)/mu.exec(readFileSync(join(root, 'pubspec.yaml'), 'utf8'))[1].split('+')[0];
         }
-        const receipt = await dispatch({workflow: platform + '.yml', ref: 'main', inputs: {version,sdk_run:String(inputs.sdkRun)}});
+        const receipt = await dispatch({workflow: platform + '.yml', ref: 'main', inputs: {version}});
         return {runID: receipt.workflow_run_id};
     }};
+}
+
+// 只在本轮选择一次正式版本；不用GitHub的latest标记或手填Run代替真实成功来源。
+export async function selectSDKRelease(product, read) {
+    const releases = [];
+    for (let page = 1; ; page++) {
+        const rows = await read('releases?per_page=100&page=' + page);
+        releases.push(...rows);
+        if (rows.length < 100) break;
+    }
+    const candidates = releases.flatMap(release => {
+        if (release.draft || release.prerelease || !release.published_at) return [];
+        let proof;
+        try { proof = JSON.parse(release.body); } catch { return []; }
+        if (proof.product_id !== product || proof.platform !== 'sdk' ||
+            !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(proof.software_version || '')) return [];
+        const title = (product === 'citizensdk' ? '公民SDK' : '塔塔聊天') + '·SDK·v' + proof.software_version;
+        if (release.tag_name !== title || !/^[a-f0-9]{40}$/.test(proof.git_commit_sha || '') ||
+            !Number.isSafeInteger(proof.producer_run_id) || proof.producer_run_id < 1 ||
+            !Number.isSafeInteger(proof.producer_run_attempt) || proof.producer_run_attempt < 1) return [];
+        return [{release, proof}];
+    }).sort((a, b) => {
+        const left = a.proof.software_version.split('.').map(BigInt);
+        const right = b.proof.software_version.split('.').map(BigInt);
+        for (let i = 0; i < 3; i++) if (left[i] !== right[i]) return left[i] > right[i] ? -1 : 1;
+        return b.release.id - a.release.id;
+    });
+    const selected = candidates[0];
+    if (!selected) throw Error(product + '没有可用的正式SDK版本');
+    const run = await read('actions/runs/' + selected.proof.producer_run_id);
+    if (run.status !== 'completed' || run.conclusion !== 'success' ||
+        run.head_sha !== selected.proof.git_commit_sha || run.run_attempt !== selected.proof.producer_run_attempt) {
+        throw Error(product + '最新正式SDK的来源自动化未成功');
+    }
+    return selected;
 }
 
 // 两个平台及本机共用产品自己的工程装配，公开IO注入仅供既有合成回归。
@@ -182,36 +218,79 @@ let declaration = readFileSync(join(project, 'pubspec.yaml'), 'utf8');
 let lock = readFileSync(join(project, 'pubspec.lock'), 'utf8');
 for (const name of ['citizen_sdk', 'tatachat_sdk']) {
     const record = lock.split('\n  ' + name + ':\n')[1]?.split(/\n  \S/)[0];
-    const ref = /resolved-ref: ([a-f0-9]{40})/.exec(record || '')?.[1];
     const url = /url: "?(https:\/\/github.com\/[^"\s]+\.git)"?/.exec(record || '')?.[1];
     const declared = declaration.split('  ' + name + ':\n')[1]?.split(/\n  \S/)[0];
-    if (!ref || !url || !declared?.includes(url) || !declared.includes('ref: ' + ref)) {
+    if (!url || !declared?.includes(url) || !declared.includes('ref: main')) {
         throw Error('SDK声明与原锁来源不一致');
     }
+    const repository = url.slice('https://github.com/'.length, -4);
+    const product = repository.split('/')[1];
+    const local = resolve(root, '..', product);
+    const read = path => JSON.parse(execute('gh', ['api', 'repos/' + repository + '/' + path],
+        {encoding: 'utf8', env: environment}));
+    const selected = environment.GITHUB_ACTIONS === 'true' ? await selectSDKRelease(product, read) : null;
+    const ref = selected ? selected.proof.git_commit_sha :
+        execute('git', ['-C', local, 'rev-parse', 'refs/heads/main'], {encoding: 'utf8'}).trim();
     const source = join(work, 'sources', name), output = join(work, 'packages', name);
     mkdirSync(source, {recursive: true});
     execute('git', ['init', source]);
-    execute('git', ['-C', source, 'fetch', '--depth=1', url, ref]);
+    execute('git', ['-C', source, 'fetch', '--depth=1', selected ? url : local, ref]);
     execute('git', ['-C', source, 'checkout', '--detach', 'FETCH_HEAD']);
     mkdirSync(dirname(output), {recursive: true});
     const sdk = await import(pathToFileURL(join(source, 'scripts/build.mjs')));
-    if(name==='citizen_sdk'){
-        if(typeof sdk.consume!=='function')throw Error('锁定SDK缺少完整交付接口');
-        const marker=join(work,'build-active.json');let safe=true;
-        writeFileSync(marker,JSON.stringify({pid:process.pid,stage:'sdk'}),{flag:'wx',mode:0o600});
-        try{
-            const selected=environment.GITHUB_ACTIONS==='true'?await sdk.publicationSource({sourceRun:process.env.CITIZENSDK_RUN,token:process.env.GH_TOKEN,current:false}):null;
-            if(selected&&(selected.sourceSha!==ref||selected.sourceAttempt!==Number(process.env.CITIZENSDK_ATTEMPT)))throw Error('SDK来源已变化');
-            const staged=await sdk.consume({directory:process.env.CITIZENSDK_PACKAGE,sourceSha:ref,sourceRun:selected?.sourceRun,sourceAttempt:selected?.sourceAttempt,output});
-            if(selected&&staged.version!==selected.version)throw Error('SDK交付版本与成功来源不一致');
+    console.log(product + '：' + (selected ? selected.release.tag_name : 'main') + ' ' + ref);
+    if (selected) {
+        const directory = join(work, 'downloads', product);
+        mkdirSync(directory, {recursive: true});
+        for (const extension of ['zip', 'json', 'sha256']) {
+            const label = selected.release.tag_name + '.' + extension;
+            const asset = selected.release.assets.find(asset => asset.label === label && asset.state === 'uploaded');
+            if (!asset) throw Error(product + '正式SDK缺少附件：' + extension);
+            await run('gh', ['release', 'download', selected.release.tag_name, '--repo', repository,
+                '--pattern', asset.name, '--output', join(directory, label)], root, false, environment);
         }
-        catch(error){safe=!error?.keepWork;throw error;}
-        finally{if(safe)rmSync(marker);}
+        if (name === 'citizen_sdk') {
+            await sdk.consume({directory, sourceSha: ref, sourceRun: selected.proof.producer_run_id,
+                sourceAttempt: selected.proof.producer_run_attempt, output, signal: controller.signal});
+        } else {
+            const expanded = join(directory, 'expanded');
+            await run('unzip', ['-q', join(directory, selected.release.tag_name + '.zip'), '-d', expanded], root, false, environment);
+            sdk.createFlutterSourceView(join(expanded, 'project'), output);
+            sdk.assertFlutterSourceView(join(expanded, 'project'), output);
+        }
+    } else {
+        sdk.createFlutterSourceView(source, output);
+        if (name === 'citizen_sdk') {
+            const settings = await import(pathToFileURL(join(source, 'scripts/config.mjs')));
+            const tools = settings.tools, zxing = settings.nativeSources.zxing;
+            const nativeEnvironment = {...environment,
+                ANDROID_NDK_HOME: join(environment.ANDROID_HOME, 'ndk', tools.ndk),
+                CITIZENSDK_ZXING_SOURCE_DIR: join(work, 'sources', zxing.archive_root)};
+            if (!existsSync(nativeEnvironment.CITIZENSDK_ZXING_SOURCE_DIR)) {
+                const archive = join(work, 'zxing.zip');
+                await run('curl', ['--fail', '--location', '--proto', '=https', zxing.url, '-o', archive], root, false, environment);
+                await run('unzip', ['-q', archive, '-d', join(work, 'sources')], root, false, environment);
+            }
+            nativeEnvironment.PATH = join(environment.ANDROID_HOME, 'cmake', tools.cmake, 'bin') + ':' + environment.PATH;
+            if (environment.PLATFORM === 'android') {
+                // Gradle版本读取SDK公开声明，只准备在本轮现场，不依赖全局安装。
+                const directory = join(work, 'tools');
+                mkdirSync(directory, {recursive: true});
+                const archive = join(directory, 'gradle.zip');
+                await run('curl', ['--fail', '--location', '--proto', '=https',
+                    'https://services.gradle.org/distributions/gradle-' + tools.gradle + '-bin.zip', '-o', archive], root, false, environment);
+                await run('unzip', ['-q', archive, '-d', directory], root, false, environment);
+                nativeEnvironment.PATH = join(directory, 'gradle-' + tools.gradle, 'bin') + ':' + nativeEnvironment.PATH;
+            }
+            const result = JSON.parse(await run(globalThis.process.execPath,
+                [join(source, 'scripts/build.mjs'), 'native', environment.PLATFORM === 'ios' ? 'Apple' : 'Android'],
+                source, true, nativeEnvironment));
+            cpSync(result.output, output, {recursive: true});
+        }
     }
-    else {sdk.createFlutterSourceView(source,output);sdk.assertFlutterSourceView(source,output);}
     declaration = declaration.replace(new RegExp('  ' + name + ':\\n(?:    .*\\n)+'), '  ' + name + ':\n    path: ' + output + '\n');
     lock = lock.replace(new RegExp('  ' + name + ':\\n(?:    .*\\n)+'), entry => {
-        const version = name==='citizen_sdk'?'    version: '+JSON.stringify(/^version: (\S+)$/m.exec(readFileSync(join(output,'pubspec.yaml'),'utf8'))[1]):/    version: .+/.exec(entry)?.[0];
+        const version = '    version: ' + JSON.stringify(/^version: (\S+)$/m.exec(readFileSync(join(output,'pubspec.yaml'),'utf8'))[1]);
         return '  ' + name + ':\n    dependency: "direct main"\n    description:\n      path: "' + output +
             '"\n      relative: false\n    source: path\n' + version + '\n';
     });
@@ -543,20 +622,19 @@ export async function compile(platform){
  const work=mkdtempSync(join(parent,'local-'));let safe=true;
  const cache=join(root,'target/cache');mkdirSync(cache,{recursive:true});
  const version=/^version:\s*([^+\s]+)(?:\+(\d+))?/mu.exec(readFileSync(join(root,'pubspec.yaml'),'utf8'));
- const environment={...process.env,GITHUB_WORKSPACE:root,WORK:work,
+ const environment={...process.env,GITHUB_WORKSPACE:root,WORK:work,PLATFORM:platform,
   CITIZENAPP_VERSION:version[1],CITIZENAPP_BUILD_NUMBER:version[2]||'1',
   FLUTTER_ROOT:join(cache,'flutter'),PUB_CACHE:join(cache,'pub'),GRADLE_USER_HOME:join(cache,'gradle'),
   CARGO_TARGET_DIR:join(cache,'rust'),RUSTUP_TOOLCHAIN:'1.97.1',
   PATH:process.env.HOME+'/.cargo/bin:'+process.env.HOME+'/.nvm/versions/node/v25.2.1/bin:'+(process.env.PATH||'/usr/bin:/bin'),
   ANDROID_HOME:process.env.ANDROID_HOME||join(process.env.HOME,'Library/Android/sdk'),
-  JAVA_HOME:process.env.JAVA_HOME||'/Applications/Android Studio.app/Contents/jbr/Contents/Home',
-  CITIZENSDK_PACKAGE:process.env.CITIZENSDK_PACKAGE||join(cache,'citizensdk')};
+  JAVA_HOME:process.env.JAVA_HOME||'/Applications/Android Studio.app/Contents/jbr/Contents/Home'};
  delete environment.GH_TOKEN;delete environment.GITHUB_TOKEN;delete environment.GITHUB_ENV;
  try{
-  if(!existsSync(environment.CITIZENSDK_PACKAGE))throw Error('缺少本产品原锁的完整SDK交付目录：'+environment.CITIZENSDK_PACKAGE);
   if(!existsSync(environment.FLUTTER_ROOT))await run('git',['clone','--branch','3.47.2','--depth','1','https://github.com/flutter/flutter.git',environment.FLUTTER_ROOT],root,false,environment);
   if(await run('git',['-C',environment.FLUTTER_ROOT,'rev-parse','HEAD'],root,true,environment)!=='d3b14c876900e553bc736ca19295fc09e3853e8e')throw Error('Flutter版本与产品原声明不一致');
   environment.PATH=join(environment.FLUTTER_ROOT,'bin')+':'+environment.PATH;
+  await run(join(environment.FLUTTER_ROOT,'bin/flutter'),['precache',platform==='ios'?'--ios':'--android',...(platform==='ios'?['--macos']:[])],root,false,environment);
   await assembleProject(environment);
   await build(platform,'dependencies',{local:true,work,environment});
   await build(platform,'app',{local:true,work,environment});

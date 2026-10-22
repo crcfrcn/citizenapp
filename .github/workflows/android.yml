@@ -4,10 +4,6 @@ run-name: 公民·Android·v${{ inputs.version }}
 'on':
   workflow_dispatch:
     inputs:
-      sdk_run:
-        description: 同版完整公民SDK的成功自动化Run
-        required: true
-        type: string
       version:
         description: 由最新有效成功版本计算的候选版本，失败不占号
         required: true
@@ -22,7 +18,6 @@ defaults:
   run:
     shell: bash
 env:
-  CITIZENSDK_RUN: ${{ inputs.sdk_run }}
   PLATFORM: android
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: '1'
 jobs:
@@ -32,7 +27,6 @@ jobs:
     runs-on: xcode-27
     timeout-minutes: 360
     env:
-      CITIZENSDK_PACKAGE: ${{ runner.temp }}/citizensdk
       GH_TOKEN: ''
       CITIZENAPP_VERSION: ${{ inputs.version }}
       CITIZENAPP_SOURCE_ROOT: ${{ github.workspace }}
@@ -119,31 +113,6 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
           echo "$ANDROID_HOME/cmake/3.31.6/bin" >> "$GITHUB_PATH"
-      - name: 核对完整SDK来源Run
-        id: sdk
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          [[ "$CITIZENSDK_RUN" =~ ^[1-9][0-9]*$ ]]
-          gh api "repos/crcfrcn/citizensdk/actions/runs/$CITIZENSDK_RUN" > "$RUNNER_TEMP/sdk-run.json"
-          node --input-type=module <<'JS'
-          import {readFileSync,appendFileSync} from 'node:fs';
-          const text=readFileSync('pubspec.yaml','utf8'),block=text.split('  citizen_sdk:\n')[1]?.split(/\n  \S/)[0];
-          const sha=/ref: ([a-f0-9]{40})/.exec(block||'')?.[1];
-          const run=JSON.parse(readFileSync(process.env.RUNNER_TEMP+'/sdk-run.json','utf8'));
-          if(!sha||run.id!==Number(process.env.CITIZENSDK_RUN)||run.head_sha!==sha||run.path!=='.github/workflows/sdk.yml'||run.event!=='workflow_dispatch'||run.head_branch!=='main'||run.repository?.full_name!=='crcfrcn/citizensdk'||run.head_repository?.full_name!=='crcfrcn/citizensdk'||run.status!=='completed'||run.conclusion!=='success'||!Number.isSafeInteger(run.run_attempt)||run.run_attempt<1||!/^公民SDK·SDK·v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(run.display_title))throw Error('公民SDK来源与原锁或成功Run不符');
-          appendFileSync(process.env.GITHUB_OUTPUT,'name='+run.display_title+'\n');
-          appendFileSync(process.env.GITHUB_ENV,'CITIZENSDK_ATTEMPT='+run.run_attempt+'\n');
-          JS
-      - name: 取得准确Run的完整SDK
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          repository: crcfrcn/citizensdk
-          run-id: ${{ inputs.sdk_run }}
-          name: ${{ steps.sdk.outputs.name }}
-          github-token: ${{ github.token }}
-          path: ${{ env.CITIZENSDK_PACKAGE }}
       - name: 按本产品原锁装配普通工程
         env:
           GH_TOKEN: ${{ github.token }}
@@ -152,8 +121,6 @@ jobs:
           import {assembleProject} from './scripts/build.mjs';
           await assembleProject(process.env);
           JS
-      - name: 编译本轮原生依赖
-        run: node scripts/build.mjs android dependencies
       - name: 准备原生测试输入
         run: |
           set -euo pipefail

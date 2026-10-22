@@ -2,29 +2,29 @@
 
 ## 当前构建合同
 
-公民App只在所属塔塔自动化编译。scripts/build.mjs保持正常排版不超过150行，只包含自动化身份守卫、SDK原生编译、Flutter正式App编译及本轮编译进程退出处理；不承担测试调度、GitHub任务、版本、正式版本管理或历史清理。scripts/config.mjs原文保持，只声明APP_KEY、IOS_KEY、APP_PROFILE等配置需求，不放任务执行或版本算法。不新增模块，不恢复已删除的平台输入模块。
+公民App的编译与依赖装配唯一归scripts/build.mjs。本机由塔塔控制台既有塔塔安装器调用compile ios/android，签名、安装和回读归控制台；GitHub由本产品两份既有Workflow调用同一工程装配与App编译入口。scripts/config.mjs原文保持，只声明APP_KEY、IOS_KEY、APP_PROFILE等配置需求，不放任务执行或版本算法。不新增模块，不恢复已删除的平台输入模块。
 
 每个平台一次执行只有一个本机自动化任务和一个GitHub Run。产品所属.github/workflows/ios.yml与android.yml分别公开workflow_dispatch，唯一输入为version；固定Workflow名称为公民·iOS、公民·Android，每次Run、Job、Artifact、Tag、Release使用公民·平台·vX.Y.Z。没有prepare/settle/cancel操作、父子Run、管理Run或递归派发。iOS与Android独立任务、授权、现场和并发组，可以同时执行；同平台重复点击、恢复和取消都不创建新Run。
 
-唯一控制台接入tata/citizenapp.mjs只调度现有公民App动作，使用官方gh接口发起、观察和取消所属Workflow。版本从官方成功Run名称递增；没有成功记录时原样读取产品pubspec.yaml基准版本，交给产品Workflow判断。控制台不再前置校验产品版本、路径、main提交、Run源码/attempt、候选Release或产物完整性；不在接入重复验真Release正文、Tag或附件。测试、编译、原锁、产品身份和正式交付检查归所属Workflow。
+控制台只调用产品公开动作，不实现SDK选择、依赖准备或产品编译。产品既有describeAction保留version单一派发输入，使用官方GitHub接口发起所属Workflow。版本从官方成功Run名称递增；没有成功记录时原样读取产品pubspec.yaml基准版本，交给产品Workflow判断。控制台不再前置校验产品版本、路径、main提交、Run源码/attempt、候选Release或产物完整性；不在接入重复验真Release正文、Tag或附件。测试、编译、原锁、产品身份和正式交付检查归所属Workflow。
 
 共用的原生动作授权、Touch ID、密钥权限及签名保护保持，安装功能正文保持。接入始终调用固定公民App仓库和所选平台Workflow；本机同平台活动任务去重、官方已有活动Run续接、派发回执持久化和不明派发不重复POST属于任务管理，保持一个平台一次执行一个任务/Run。恢复只读取已保存原Run，展示官方返回状态和字段；取消直接请求原Run，等待官方真实终态，不另建管理Run。只读5xx有限退避，变更请求不自动重试，官方错误如实报告。
 
 原Run结束后按平台只保留最新成功与最新失败，活动Run保留；按旧Run名称定位不再被保留记录使用的旧Release/Tag，实际删除旧正式对象、Run和关联日志/Artifact，再查询官方记录确认删除结果。正式交付是否完整由产品Workflow决定，控制台不另加Release证明或摘要门禁。清理失败如实记为任务失败并保留原Run供显式恢复，但不再作为下一次产品启动的前置条件；新的产品启动按当前官方Run状态继续，结束后再次清理旧同类记录。共用状态接口仅保存本平台返回记录，其它产品及其它平台保持。
 
-所属Workflow在单一Run中依次核对候选、准备官方工具和原锁SDK工程、调用build.mjs编译真实原生测试依赖、执行既有Node/Flutter完整回归与严格分析、准备签名输入、调用同一build.mjs编译IPA或APK+AAB、核验完整包、上传Artifact、生成正式Tag/Release并逐件下载cmp回读。任一真实依赖、测试、编译、签名或交付失败必须失败。正式Release属于自动化交付。验证与正式交付通过后，同一Run上传同一份IPA到App Store Connect并等待处理；Android使用Google官方auth Action固定提交取得androidpublisher短期令牌，再通过官方Edits/Bundles/Tracks API上传同一份AAB、保存internal内部测试轨道草稿并以新edit回查后删除观察edit。只替换内部轨道旧草稿，保留已分发版本，不提交审核或上架；失败如实令本端Run失败，不影响另一端。
+所属Workflow在单一Run中依次核对候选、准备官方工具和正式SDK组件、执行既有Node/Flutter完整回归与严格分析、准备签名输入、调用同一build.mjs编译IPA或APK+AAB、核验完整包、上传Artifact、生成正式Tag/Release并逐件下载cmp回读。任一真实依赖、测试、编译、签名或交付失败必须失败。正式Release属于自动化交付。验证与正式交付通过后，同一Run上传同一份IPA到App Store Connect并等待处理；Android使用Google官方auth Action固定提交取得androidpublisher短期令牌，再通过官方Edits/Bundles/Tracks API上传同一份AAB、保存internal内部测试轨道草稿并以新edit回查后删除观察edit。只替换内部轨道旧草稿，保留已分发版本，不提交审核或上架；失败如实令本端Run失败，不影响另一端。
 
-平台工程只生成在target/build/<Run>-<attempt>/project：Flutter官方create --no-pub生成普通Android/iOS模板，复制本产品既有原生源码、工程、测试及唯一assets/logo资源，必要Podfile、Gradle、权限、网络安全和启动图配置由Workflow直接写入本轮标准位置。create即使使用--no-pub也会重写工程锁，因此双端在模板命令成功后写回只映射两个SDK路径的完整派生pubspec.lock，再由既有pub get --enforce-lockfile严格消费；不改源码原锁、依赖版本或校验选项。AppFrameworkInfo.plist保留原锁官方模板，不改写其中不存在的MinimumOSVersion；iOS最低16.0由既有Xcode工程与Podfile声明。只排除原产品没有的模板示例test/widget_test.dart，产品原有同名测试保留。正式仓库不恢复平台包装模块，不生成业务数据、不改Flutter/Pub包源码。test/support/platform_input.dart直接回读当前本轮工程里的真实平台文件，不解析脚本文本或模块源码；现有业务测试预期保持。
+平台工程只生成在target/build/<Run>-<attempt>/project：Flutter官方create --no-pub生成普通Android/iOS模板，复制本产品既有原生源码、工程、测试及唯一assets/logo资源，必要Podfile、Gradle、权限、网络安全和启动图配置由产品既有assembleProject写入本轮标准位置。create即使使用--no-pub也会重写工程锁，因此双端在模板命令成功后写回只映射两个SDK路径的完整派生pubspec.lock，再由既有pub get --enforce-lockfile严格消费；不改源码原锁、依赖版本或校验选项。AppFrameworkInfo.plist保留原锁官方模板，不改写其中不存在的MinimumOSVersion；iOS最低16.0由既有Xcode工程与Podfile声明。只排除原产品没有的模板示例test/widget_test.dart，产品原有同名测试保留。正式仓库不恢复平台包装模块，不生成业务数据、不改Flutter/Pub包源码。test/support/platform_input.dart直接回读当前本轮工程里的真实平台文件，不解析脚本文本或模块源码；现有业务测试预期保持。
 
-工具使用官方渠道和原锁：Node25.2.1、Flutter3.47.2、Rust1.97.1、Temurin17.0.20.1+1、Gradle9.1.0、AGP9.0.1、KGP2.2.20、NDK28.2.13676358、BuildTools36.0.0、CMake3.31.6和CocoaPods1.17.0。setup-java固定官方v6提交b843ebf9b913146b38da2eaa7aeddf76074ae1ad。显式交付官方运行机Android SDK完整路径；Rust准备iOS真机/模拟器或Android交叉目标。SDK准确来源仍只取pubspec.yaml/pubspec.lock，普通公开工程视图和原生接口由SDK持有；派生视图只映射两个直接SDK路径，其余原锁由官方Pub严格校验，不依赖控制台工具库存、邻仓检出或租约。
+工具使用官方渠道和原锁：Node25.2.1、Flutter3.47.2、Rust1.97.1、Temurin17.0.20.1+1、Gradle9.1.0、AGP9.0.1、KGP2.2.20、NDK28.2.13676358、BuildTools36.0.0、CMake3.31.6和CocoaPods1.17.0。setup-java固定官方v6提交b843ebf9b913146b38da2eaa7aeddf76074ae1ad。显式交付官方运行机Android SDK完整路径；Rust准备iOS真机/模拟器或Android交叉目标。两项SDK的Git来源保持在pubspec.yaml/pubspec.lock，ref统一为main，仓库锁的resolved-ref只记录基线，不再要求人工跟随SDK更新。塔塔安装器每轮读取本机两个SDK main的最新已提交SHA，在独立现场冻结源码，并调用SDK既有编译入口；自动化每轮自动选择各SDK最新非草稿、非预发布且来源自动化成功的正式Release，冻结其准确Git提交并下载正式组件，不重复编译SDK。只在本轮临时工程改写两个SDK路径与锁；其余依赖不主动升级。无可用正式版或真实获取、编译失败直接失败，不回退旧版本、不手填Run、不要求预置交付目录。普通工程视图与原生实现仍归SDK，控制台不参与版本选择。
 
-iOS所属Workflow在核对原锁Flutter版本后，通过官方precache --ios --macos准备原锁CitizenSDK Apple入口需要的iOS和macOS引擎，原生依赖编译前完成，不改变工具或SDK版本。准备失败即停止，不以已有缓存存在代替本轮官方命令的成功结果。
+iOS所属Workflow在核对原锁Flutter版本后，通过官方precache --ios --macos准备原锁CitizenSDK Apple入口需要的iOS和macOS引擎，工程装配前完成，不改变工具版本。准备失败即停止，不以已有缓存存在代替本轮官方命令的成功结果。
 
 双端宿主测试库从本轮官方.dart_tool/package_config.json读取Isar的rootUri，先按配置文件URI解析并用fileURLToPath转为包根路径，再用path.join拼接macos/libisar.dylib。绝对或相对URI、有无尾斜线及转义目录均保持同一包目录；缺包或缺库直接失败，不猜测缓存位置、不另取版本。
 
 四个既有Isar生成文件仅在原ignore_for_file声明补experimental_member_use，确认原锁生成器使用的实验性索引API。集合与索引ID、schema、序列化及全部执行正文保持；不排除生成文件、不全局忽略诊断。所属Workflow继续执行原19项Node回归、fatal infos/warnings严格分析及完整Flutter测试，实际结果归任务卡。
 
-GitHub官方缓存只保存Flutter、Pub、Cargo和Gradle可再生内容，不含签名材料；恢复/保存限时且故障不阻塞实际构建。本轮工程与签名输入按Run/attempt隔离，确认编译进程退出后只清理本轮现场。依赖或App编译成功、失败及取消均在确认本轮编译进程组全部退出后释放活动标记，失败结果继续上报；无法确认退出时保留标记与现场，不因外层Node退出而假定内部后代均已退出。没有本机App编译入口。
+GitHub官方缓存只保存Flutter、Pub、Cargo和Gradle可再生内容，不含签名材料；恢复/保存限时且故障不阻塞实际构建。本轮工程与签名输入按Run/attempt隔离，确认编译进程退出后只清理本轮现场。依赖或App编译成功、失败及取消均在确认本轮编译进程组全部退出后释放活动标记，失败结果继续上报；无法确认退出时保留标记与现场，不因外层Node退出而假定内部后代均已退出。本机编译也只写本轮独立现场，安装器消费结束后由既有compile入口清理。
 
 ## 2026-10-16 公民服务业务门禁与注册失败收口
 
@@ -3364,15 +3364,12 @@ Android平台组件交付包含App/SDK及Flutter默认的API36、音频/表情/I
 
 本仓现有 scripts/config.mjs 的 describeAction({flow,platform}) 声明流程入口。自动化启动逻辑、版本输入与平台选择归本仓；调用方交付已授权令牌和标准 read/dispatch 传输能力，接收准确 Run 编号。既有独立自动化接口继续由本仓实现。未提供的安装或发布入口明确报产品侧未声明，不错接到编译，也不产生成功回执。
 
-## CitizenSDK完整交付接入
+## SDK消费与本机安装
 
-CitizenSDK来源由本产品pubspec.yaml与pubspec.lock的固定Git提交共同定义，SDK的完整包回执必须对应同一SHA。调用方以CITIZENSDK_PACKAGE交付已授权取得的原ZIP、JSON和sha256三件目录；本产品只调用锁定SDK的scripts/build.mjs公开consume与verifyConsumer入口。校验、解包和四宿主完整性由SDK唯一实现，应用不维护SDK依赖计划、Cargo闭包或第二编译器，不从邻仓、旧工作目录或另一个来源补件。
+CitizenSDK与TataChatSDK的Git来源声明保持，ref统一为main。仓库原锁的resolved-ref保留历史基线，不作为两种流程选择SDK版本的门禁。每轮只解析一次准确SHA，并在公民App独立现场装配；本轮临时pubspec与锁映射为SDK公开工程视图，其余第三方依赖不主动升级。
 
-实际Pub解析使用本轮工程中唯一.source-packages/citizen_sdk视图；构建副本的直接依赖版本读取交付包pubspec，正式Git声明及原锁保持。普通业务仍只调用包根CitizenSdk公开门面，钱包、链、签名、安全存储与认证职责不变。实际运行、链接与设备验收以所属平台真实结果为准。
+塔塔安装器使用本机两个SDK main的最新已提交源码，在本轮副本调用SDK既有公开编译入口；原生实现与内部原锁仍由SDK独立拥有。SDK声明的必要官方工具和来源由产品正常准备，不要求预置完整包或填写SDK Run。App只编译自身，不复制SDK构建实现。SDK调用环境不携带GitHub令牌。
 
-GitHub两个移动平台工作流明确接收sdk_run，核对准确成功SDK Run的仓库、工作流、main、SHA和attempt后，用官方Artifact动作下载该Run的完整包。SDK再次核对原回执与输入；UI测试直接使用同包macOS Framework的公开C接口，不另造abi-host。SDK产物与应用版本各自保持独立身份，未指定有效输入或SDK来源尚未更新时直接失败。
+塔塔自动化按各SDK最新正式Release选择准确Git提交，确认来源自动化成功，并下载同版正式组件。CitizenSDK完整包继续由所属公开consume入口装配；TataChatSDK使用所属公开工程视图接口装配已交付组件。正式组件也供既有宿主测试使用，不在App自动化重复编译SDK。两份Workflow唯一输入为version，没有sdk_run或手工交付目录；无有效正式版、缺件或真实执行失败直接失败，不回退到较旧版本。
 
-
-本机塔塔安装器唯一实现归控制台app/source/Installer.swift；本产品仅提供scripts/build.mjs compile ios|android，复用同一工程装配与编译实现，交付本轮未签名产物，消费结束后清场。完整公民SDK按原锁通过consume验证，输入为CITIZENSDK_PACKAGE，默认本产品target/cache/citizensdk；缺少完整交付直接失败，不替换SDK来源或下载本产品安装包。两端GitHub工作流的工程装配也调用同一assembleProject，原来源和正式签名校验保留。旧install及GitHub安装包下载入口彻底删除。
-
-依赖阶段使用独立dependencyEnvironment，保留原环境并删除GitHub令牌；SDK工程配置检查读取实际所属build.mjs，不再查已迁出的Workflow正文。
+本机签名、安装及回读唯一归控制台既有Installer.swift。本产品compile ios|android只交付本轮未签名产物，消费结束后清场；iOS与Android现场和失败结果独立。自动化仍保留原正式签名、商店上传及历史清理行为；启动该流程须有对应授权。
