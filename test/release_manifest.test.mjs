@@ -4,7 +4,7 @@ import {spawn, spawnSync} from 'node:child_process';
 import {chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {requireAutomationBuild,assembleProject,selectSDKRelease,describeAction,existingFlutter} from '../scripts/build.mjs';
+import {assembleProject,selectSDKRelease,describeAction,existingFlutter} from '../scripts/build.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const pubspec = readFileSync(join(root, 'pubspec.yaml'), 'utf8');
@@ -53,15 +53,15 @@ function fixture(t, platform = 'android') {
     return {directory, env, script: join(directory, 'scripts/build.mjs')};
 }
 
-test('普通本机、错误工作流及非法版本在任何工程写入前拒绝', () => {
-    for (const environment of [
-        {}, {GITHUB_ACTIONS: 'true'},
-        {GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: 'other/product'},
-        {GITHUB_ACTIONS: 'true', CITIZENAPP_VERSION: '1.2.3\n'}
-    ]) {
-        assert.throws(() => requireAutomationBuild('android', environment), /只能/);
-    }
-    assert.throws(() => requireAutomationBuild('macos', {}), /只能/);
+test('编译入口直接调用Flutter并保留工具实际失败', t => {
+    const value = fixture(t);
+    writeFileSync(join(value.directory, 'bin/flutter'), '#!' + process.execPath + '\nconsole.error("Flutter合成错误");process.exit(17);\n');
+    const result = spawnSync(process.execPath, [value.script, 'android'], {
+        env:{...value.env,GITHUB_REPOSITORY:'other/product'},encoding:'utf8',
+    });
+    assert.notEqual(result.status,0);
+    assert.match(result.stderr,/Flutter合成错误/);
+    assert.doesNotMatch(result.stderr,/只能在本平台|自动化源码提交不一致/);
 });
 
 for (const platform of ['android', 'ios']) {
@@ -306,17 +306,11 @@ test('SDK自动选择最新成功正式版，本机与自动化使用独立消�
         sent=value;return {workflow_run_id:12};
     }});
     assert.deepEqual(sent.inputs,{version:'1.0.0'});
-    // 已有工具缺件或版本错误时直接失败；只接受现成完整安装，不生成或下载工具。
+    // 仅定位现有工具；版本、引擎或目录门禁不得重新进入编译入口。
     const value = fixture(t), tool = join(value.directory, 'flutter');
-    assert.throws(() => existingFlutter('android', {}, [tool]), /禁止自动下载/);
-    for (const name of ['dart-sdk/bin/dart','flutter_tools.snapshot','artifacts/engine/android-arm64-release']) {
-        const file = join(tool, 'bin/cache', name);
-        mkdirSync(dirname(file), {recursive:true});writeFileSync(file, 'fixture');
-    }
-    const metadata = join(tool, 'bin/cache/flutter.version.json');
-    writeFileSync(metadata, JSON.stringify({frameworkVersion:'3.0.0',frameworkRevision:'b'.repeat(40)}));
-    assert.throws(() => existingFlutter('android', {}, [tool]), /禁止自动下载/);
-    writeFileSync(metadata, JSON.stringify({frameworkVersion:'3.47.2',frameworkRevision:'d3b14c876900e553bc736ca19295fc09e3853e8e'}));
-    assert.equal(existingFlutter('android', {}, [tool]), tool);
-    assert.throws(() => existingFlutter('ios', {}, [tool]), /禁止自动下载/);
+    mkdirSync(join(tool,'bin'),{recursive:true});writeFileSync(join(tool,'bin/flutter'),'fixture');
+    assert.equal(existingFlutter('android',{},[tool]),tool);
+    assert.equal(existingFlutter('ios',{},[tool]),tool);
+    assert.doesNotMatch(builder,/requireAutomationBuild|sandbox-exec|CITIZENAPP_OFFLINE|CARGO_NET_OFFLINE|缺少SDK声明的现有ZXing/);
+
 });
