@@ -141,17 +141,30 @@ class MainActivity : FlutterFragmentActivity() {
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "citizenapp/system_protected_data")
             .setMethodCallHandler { call, result ->
+                var stage = when (call.method) {
+                    "prepareRecords" -> "prepare_records"
+                    "protectUserDatabase" -> "user_directory_argument"
+                    "compareRecords" -> "compare_records"
+                    "eraseObsoleteDataMaterial" -> "obsolete_material_cleanup"
+                    else -> "unsupported_method"
+                }
                 try {
                     when (call.method) {
                         "prepareRecords" -> result.success(prepareProtectedRecords())
                         "protectUserDatabase" -> {
                             val directory = call.argument<String>("directory") ?: throw IllegalArgumentException()
+                            stage = "user_directory_path"
                             require(File(directory).absolutePath == filesDir.canonicalPath)
+                            stage = "user_directory_protect"
                             protectAppDirectory(filesDir.canonicalFile)
+                            stage = "user_database_list"
                             for (file in filesDir.listFiles() ?: throw IllegalStateException()) {
                                 if (file.name == "citizenapp_user.isar" || file.name.startsWith("citizenapp_user.isar.")) {
+                                    stage = "user_database_type"
                                     require(file.isFile && file.absolutePath == file.canonicalPath)
+                                    stage = "user_database_permissions"
                                     android.system.Os.chmod(file.path, 384)
+                                    stage = "user_database_verify"
                                     require((android.system.Os.stat(file.path).st_mode and 511) == 384)
                                 }
                             }
@@ -161,8 +174,13 @@ class MainActivity : FlutterFragmentActivity() {
                         "eraseObsoleteDataMaterial" -> { eraseObsoleteDataMaterial(); result.success(null) }
                         else -> result.notImplemented()
                     }
-                } catch (_: Exception) {
-                    result.error("system_protection_unavailable", "系统保护存储不可用", null)
+                } catch (error: Exception) {
+                    // 正式包只记录固定阶段、异常类型和errno，禁止输出路径、参数或异常正文。
+                    val type = error.javaClass.simpleName
+                    val errno = (error as? android.system.ErrnoException)?.errno
+                    android.util.Log.e("CitizenAppStorage", "stage=$stage type=$type errno=${errno ?: 0}")
+                    result.error("system_protection_unavailable", "系统保护存储不可用",
+                        mapOf("stage" to stage, "type" to type, "errno" to errno))
                 }
             }
 

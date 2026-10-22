@@ -1583,8 +1583,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: c7822de810772e11363f9bf8c1c02826889c0bb2
-      resolved-ref: c7822de810772e11363f9bf8c1c02826889c0bb2
+      ref: f8362b07bd721584105b044ee253796a5f897760
+      resolved-ref: f8362b07bd721584105b044ee253796a5f897760
       url: "https://github.com/tuyutata/tatachatsdk.git"
     source: git
     version: "1.0.0"

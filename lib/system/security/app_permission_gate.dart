@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:citizenapp/system/security/app_permission_bootstrap.dart';
 import 'package:citizenapp/system/theme/app_theme.dart';
 import 'package:citizenapp/system/theme/app_layout.dart';
@@ -62,8 +65,18 @@ class _AppPermissionGateState extends State<AppPermissionGate> {
         _loading = false;
         _error = null;
       });
-    } catch (_) {
+    } catch (error) {
       if (!mounted || generation != _loadGeneration) return;
+      // 正式包只输出错误类别和白名单通道码，不开启自由文本日志或打印异常内容。
+      final kind = error is TimeoutException ? 'timeout' : error.runtimeType;
+      final code = error is PlatformException
+          ? switch (error.code) {
+              'system_protection_unavailable' => 'system_protection_unavailable',
+              'channel-error' => 'channel-error',
+              _ => 'other',
+            }
+          : 'none';
+      debugPrint('permission_guide:read_failed type=$kind code=$code');
       setState(() {
         _loading = false;
         _error = '用户设置读取失败，请重试';
