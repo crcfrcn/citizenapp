@@ -154,11 +154,13 @@ class MainActivity : FlutterFragmentActivity() {
                         "protectUserDatabase" -> {
                             val directory = call.argument<String>("directory") ?: throw IllegalArgumentException()
                             stage = "user_directory_path"
-                            require(File(directory).absolutePath == filesDir.canonicalPath)
+                            // 输入和系统目录统一规范化，后续保护、遍历沿用同一个根。
+                            val root = filesDir.canonicalFile
+                            require(File(directory).canonicalFile == root)
                             stage = "user_directory_protect"
-                            protectAppDirectory(filesDir.canonicalFile)
+                            protectAppDirectory(root)
                             stage = "user_database_list"
-                            for (file in filesDir.listFiles() ?: throw IllegalStateException()) {
+                            for (file in root.listFiles() ?: throw IllegalStateException()) {
                                 if (file.name == "citizenapp_user.isar" || file.name.startsWith("citizenapp_user.isar.")) {
                                     stage = "user_database_type"
                                     require(file.isFile && file.absolutePath == file.canonicalPath)

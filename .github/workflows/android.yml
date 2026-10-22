@@ -1,13 +1,8 @@
 # 一个产品平台一次执行只有一个Run，所有产品执行归本仓Workflow。
 name: 公民·Android
-run-name: 公民·Android·v${{ inputs.version }}
+run-name: 公民·Android·${{ github.run_number }}
 'on':
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 由最新有效成功版本计算的候选版本，失败不占号
-        required: true
-        type: string
+  workflow_dispatch: {}
 concurrency:
   group: citizenapp-android
   cancel-in-progress: false
@@ -21,14 +16,52 @@ env:
   PLATFORM: android
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: '1'
 jobs:
+  version:
+    name: 公民·Android·版本
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: '25.2.1'
+          check-latest: false
+      - id: version
+        name: 计算本Run版本
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/android.yml/runs?branch=main&event=workflow_dispatch&status=success&per_page=1" > "$RUNNER_TEMP/previous.json"
+          node --input-type=module >> "$GITHUB_OUTPUT" <<'NODE'
+          import {readFileSync} from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          let version=/^version:\s*([^+\s]+)/mu.exec(readFileSync('pubspec.yaml','utf8'))[1];
+          const previous=JSON.parse(readFileSync(process.env.RUNNER_TEMP+'/previous.json','utf8')).workflow_runs[0];
+          if(previous){
+            const data=JSON.parse(execFileSync('gh',['api','repos/'+process.env.GITHUB_REPOSITORY+'/actions/runs/'+previous.id+'/artifacts?per_page=100'],{encoding:'utf8'}));
+            const prefix="公民·Android·v";
+            const artifact=data.artifacts.find(value=>value.name.startsWith(prefix)&&/^\d+\.\d+\.\d+$/u.test(value.name.slice(prefix.length)));
+            const parts=artifact.name.slice(prefix.length).split('.');parts[2]=String(BigInt(parts[2])+1n);version=parts.join('.');
+          }
+          console.log('version='+version);
+          NODE
   compile:
+    needs: version
     if: github.ref == 'refs/heads/main' && github.repository == 'crcfrcn/citizenapp'
-    name: 公民·Android·v${{ inputs.version }}
+    name: 公民·Android·v${{ needs.version.outputs.version }}
     runs-on: xcode-27
     timeout-minutes: 360
     env:
       GH_TOKEN: ''
-      CITIZENAPP_VERSION: ${{ inputs.version }}
+      CITIZENAPP_VERSION: ${{ needs.version.outputs.version }}
       CITIZENAPP_SOURCE_ROOT: ${{ github.workspace }}
       PUB_CACHE: ${{ github.workspace }}/target/cache/pub
       GRADLE_USER_HOME: ${{ github.workspace }}/target/cache/gradle
@@ -41,31 +74,6 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: 核对候选版本及唯一原Run
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          node --input-type=module <<'JS'
-          import {execFileSync} from 'node:child_process';
-          import {readFileSync} from 'node:fs';
-          const version = process.env.CITIZENAPP_VERSION;
-          if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) throw Error('候选版本无效');
-          const pages = JSON.parse(execFileSync('gh', ['api', '--paginate', '--slurp', 'repos/' + process.env.GITHUB_REPOSITORY + '/actions/workflows/' + process.env.PLATFORM + '.yml/runs?branch=main&event=workflow_dispatch&per_page=100'], {encoding: 'utf8'}));
-          const rows = pages.flatMap(page => page.workflow_runs).filter(run => String(run.id) !== process.env.GITHUB_RUN_ID);
-          if (rows.some(run => run.status !== 'completed' && run.id < Number(process.env.GITHUB_RUN_ID))) throw Error('存在更早活动Run');
-          const success = rows.filter(run => run.status === 'completed' && run.conclusion === 'success').sort((a,b) => b.id - a.id)[0];
-          let expected = /^version: ([^+\s]+)/m.exec(readFileSync('pubspec.yaml', 'utf8'))?.[1];
-          if (success) {
-              const prefix = '公民·' + (process.env.PLATFORM === 'ios' ? 'iOS' : 'Android') + '·v';
-              if (!success.display_title.startsWith(prefix)) throw Error('成功Run缺少准确版本');
-              const parts = success.display_title.slice(prefix.length).split('.');
-              if (parts.length !== 3 || parts.some(value => !/^(0|[1-9]\d*)$/.test(value))) throw Error('成功版本无效');
-              parts[2] = String(BigInt(parts[2]) + 1n);
-              expected = parts.join('.');
-          }
-          if (version !== expected) throw Error('候选版本已变化，禁止编译');
-          JS
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           node-version: 25.2.1
@@ -265,10 +273,10 @@ jobs:
           proof.assets.push(asset(name));
           writeFileSync(work + '/proof.json', JSON.stringify(proof, null, 2) + '\n');
           JS
-      - name: 公民·Android·v${{ inputs.version }}
+      - name: 公民·Android·v${{ needs.version.outputs.version }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: 公民·Android·v${{ inputs.version }}
+          name: 公民·Android·v${{ needs.version.outputs.version }}
           path: ${{ env.WORK }}/artifact
           if-no-files-found: error
           compression-level: 0
@@ -628,3 +636,38 @@ jobs:
             if all(.[]; (.ref | ltrimstr("refs/tags/")) as $tag | $protected | index($tag) != null)
             then true else error("本平台仍有归属未确认的Tag") end' >/dev/null
           printf '本平台历史清理完成，保留Run：%s；本Run最终结果仍由GitHub确认。\n' "$keep"
+  cleanup:
+    name: 公民·Android·收尾
+    needs: [version, compile]
+    if: ${{ always() && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: 保留本平台最新版本、成功失败记录和缓存
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ needs.version.result == 'success' && needs.compile.result == 'success' && 'success' || 'failure' }}
+          PREFIX: 公民·Android·v
+          CACHE_PREFIX: citizenapp-android-
+        run: |
+          set -euo pipefail
+          workflow="${GITHUB_WORKFLOW_REF%@*}"; workflow="${workflow##*/}"
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/caches?per_page=100" > "$RUNNER_TEMP/caches.json"
+          jq -r --arg prefix "$CACHE_PREFIX" '[.[].actions_caches[]|select(.ref=="refs/heads/main" and (.key|startswith($prefix)))]|sort_by(.created_at,.id)|reverse|.[1:][]|.id' "$RUNNER_TEMP/caches.json" |
+          while IFS= read -r id; do gh cache delete "$id" --repo "$GITHUB_REPOSITORY"; done
+          if [ "$RESULT" = success ]; then
+            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/releases.json"
+            jq -r --arg prefix "$PREFIX" '[.[][]|select(.draft==false and (.tag_name|startswith($prefix)))]|sort_by(.published_at,.id)|reverse|.[1:][]|.tag_name' "$RUNNER_TEMP/releases.json" |
+            while IFS= read -r tag; do gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag; done
+          fi
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?branch=main&event=workflow_dispatch&per_page=100" > "$RUNNER_TEMP/runs.json"
+          jq --argjson current "$GITHUB_RUN_ID" --arg result "$RESULT" '
+            [.[].workflow_runs[]|select(.status=="completed" or .id==$current)|
+             .+{state:(if .id==$current then $result elif .conclusion=="success" then "success" else "failure" end)}]|
+            group_by(.state)|map(sort_by(.run_number)|last.id)' "$RUNNER_TEMP/runs.json" > "$RUNNER_TEMP/keep.json"
+          jq -r --argjson current "$GITHUB_RUN_ID" --slurpfile keep "$RUNNER_TEMP/keep.json" '
+            [.[].workflow_runs[]|select(.status=="completed" and .id!=$current)|select(.id as $id|$keep[0]|index($id)|not)]|
+            sort_by(.conclusion=="success",.run_number)[]|.id' "$RUNNER_TEMP/runs.json" |
+          while IFS= read -r id; do gh run delete "$id" --repo "$GITHUB_REPOSITORY"; done

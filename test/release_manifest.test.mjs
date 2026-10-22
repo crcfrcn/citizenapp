@@ -4,7 +4,8 @@ import {spawn, spawnSync} from 'node:child_process';
 import {chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {assembleProject,selectSDKRelease,describeAction,existingFlutter} from '../scripts/build.mjs';
+import {assembleProject,selectSDKRelease,existingFlutter} from '../scripts/build.mjs';
+import {describeAction} from '../scripts/config.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const pubspec = readFileSync(join(root, 'pubspec.yaml'), 'utf8');
@@ -315,11 +316,7 @@ test('SDK自动选择最新成功正式版，本机与自动化使用独立消�
     await assert.rejects(selectSDKRelease('citizensdk',async path =>
         path.startsWith('releases?') ? rows : {...run,conclusion:'failure'}),/未成功/);
     const action = await describeAction({flow:'release',platform:'android'});
-    let sent;
-    await action.launch({read:async () => ({workflow_runs:[]}),dispatch:async value => {
-        sent=value;return {workflow_run_id:12};
-    }});
-    assert.deepEqual(sent.inputs,{version:'1.0.0'});
+    assert.deepEqual(action,{repository:'crcfrcn/citizenapp',workflow:'android.yml',ref:'main',inputs:{}});
     // 仅定位现有工具；版本、引擎或目录门禁不得重新进入编译入口。
     const value = fixture(t), tool = join(value.directory, 'flutter');
     mkdirSync(join(tool,'bin'),{recursive:true});writeFileSync(join(tool,'bin/flutter'),'fixture');
