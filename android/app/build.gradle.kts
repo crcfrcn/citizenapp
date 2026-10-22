@@ -32,18 +32,20 @@ android {
         }
     }
 
-    // 自动化只交付本轮签名输入；正式签名由Gradle标准签名配置完成。
+    // 自动化由Gradle签名；本机只编译未签名Release，交给安装器签名。
     signingConfigs {
-        create("release") {
-            storeFile = file(System.getenv("CITIZENAPP_KEYSTORE") ?: error("缺少自动化签名输入"))
-            storePassword = System.getenv("CITIZENAPP_STORE_PASSWORD")
-            keyAlias = System.getenv("CITIZENAPP_KEY_ALIAS")
-            keyPassword = System.getenv("CITIZENAPP_KEY_PASSWORD")
+        if (System.getenv("GITHUB_ACTIONS") == "true") {
+            create("release") {
+                storeFile = file(System.getenv("CITIZENAPP_KEYSTORE") ?: error("缺少自动化签名输入"))
+                storePassword = System.getenv("CITIZENAPP_STORE_PASSWORD")
+                keyAlias = System.getenv("CITIZENAPP_KEY_ALIAS")
+                keyPassword = System.getenv("CITIZENAPP_KEY_PASSWORD")
+            }
         }
     }
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = signingConfigs.findByName("release")
             // Release 包不保留本地调试符号；CitizenSDK 原生库的构建与
             // 符号归档由 CitizenSDK 自己的产品流程负责。
         }

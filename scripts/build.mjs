@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+// 按官方要求或推荐实现；必需的工具依赖有就复用，没有就下载；使用最简单的实现方式；本脚本只允许放编译构建代码和注释，禁止增加无关内容，禁止增加复杂的校验阻断。
 // 本产品唯一编译与自动化实现；本机签名、安装统一由控制台安装器负责。
 import {spawn, execFileSync} from 'node:child_process';
 import {appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync,
@@ -16,7 +16,8 @@ async function run(command, args, cwd, capture = false, environment = process.en
     controller.signal.throwIfAborted();
     return new Promise((accept, reject) => {
         const child = spawn(command, args, {cwd, env: environment, detached: true,
-            stdio: ['ignore', capture ? 'pipe' : 'inherit', 'inherit']});
+            // 本机诊断逐行交给安装器日志，避免stderr缓冲上限吞掉最终错误。
+            stdio: ['ignore', capture ? 'pipe' : 'inherit', environment.GITHUB_ACTIONS === 'true' ? 'inherit' : 1]});
         let output = '', failure, timer;
         if (child.pid) groups.add(child.pid);
         const stop = () => {
@@ -73,7 +74,7 @@ export async function build(platform, phase = 'app', options={}) {
             const source=join(work,'sources/tatachat_sdk');
             for(const target of [platform]){
                 const dependencyEnvironment={...environment};delete dependencyEnvironment.GH_TOKEN;delete dependencyEnvironment.GITHUB_TOKEN;
-                const result=await run(process.execPath,[join(source,'scripts/build.mjs'),'native',target],source,true,dependencyEnvironment);
+                const result=await run(process.execPath,[join(source,'scripts/build.mjs'),'native',target,'--device'],source,true,dependencyEnvironment);
                 const output=JSON.parse(result).output;
                 const packagePath=target==='android'?'android/src/main/jniLibs':target==='ios'?'ios/TataChatSDK.xcframework':'native';
                 cpSync(target==='ios'?join(output,'TataChatSDK.xcframework'):output,join(work,'packages/tatachat_sdk',packagePath),{recursive:true});
@@ -233,7 +234,7 @@ for (const name of ['citizen_sdk', 'tatachat_sdk']) {
                 if (gradle) nativeEnvironment.PATH = join(gradle, 'bin') + ':' + nativeEnvironment.PATH;
             }
             const result = JSON.parse(await run(globalThis.process.execPath,
-                [join(source, 'scripts/build.mjs'), 'native', environment.PLATFORM === 'ios' ? 'Apple' : 'Android'],
+                [join(source, 'scripts/build.mjs'), 'native', environment.PLATFORM === 'ios' ? 'Apple' : 'Android', '--device'],
                 source, true, nativeEnvironment));
             cpSync(result.output, output, {recursive: true});
         }
@@ -440,7 +441,7 @@ export async function compile(platform){
   CITIZENAPP_VERSION:version[1],CITIZENAPP_BUILD_NUMBER:version[2]||'1',
   FLUTTER_ROOT:flutterRoot,PUB_CACHE:process.env.PUB_CACHE||join(process.env.HOME,'.pub-cache'),GRADLE_USER_HOME:process.env.GRADLE_USER_HOME||join(dirname(flutterRoot),'gradle'),
   CARGO_TARGET_DIR:process.env.CARGO_TARGET_DIR||join(cache,'rust'),RUSTUP_TOOLCHAIN:'1.97.1',
-  PATH:process.env.HOME+'/.cargo/bin:'+process.env.HOME+'/.nvm/versions/node/v25.2.1/bin:'+(process.env.PATH||'/usr/bin:/bin'),
+  PATH:process.env.HOME+'/.cargo/bin:'+process.env.HOME+'/.nvm/versions/node/v25.2.1/bin:/opt/homebrew/bin:'+(process.env.PATH||'/usr/bin:/bin'),
   ANDROID_HOME:process.env.ANDROID_HOME||join(process.env.HOME,'Library/Android/sdk'),
   JAVA_HOME:process.env.JAVA_HOME||'/Applications/Android Studio.app/Contents/jbr/Contents/Home'};
  delete environment.GH_TOKEN;delete environment.GITHUB_TOKEN;delete environment.GITHUB_ENV;
