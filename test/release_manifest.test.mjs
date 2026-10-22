@@ -4,7 +4,7 @@ import {spawn, spawnSync} from 'node:child_process';
 import {chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {requireAutomationBuild} from '../scripts/build.mjs';
+import {requireAutomationBuild,assembleProject} from '../scripts/build.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const pubspec = readFileSync(join(root, 'pubspec.yaml'), 'utf8');
@@ -102,7 +102,7 @@ for (const phase of ['app', 'dependencies']) {
     test(phase + '取消等待真实合成工具退出后才释放本轮编译标记', {timeout: 15000}, async t => {
         const value = fixture(t);
         if (phase === 'dependencies') {
-            const source = join(value.directory, 'target/build/21-1/sources/citizen_sdk/scripts');
+            const source = join(value.directory, 'target/build/21-1/sources/tatachat_sdk/scripts');
             mkdirSync(source, {recursive: true});
             writeFileSync(join(source, 'build.mjs'), `
                 import {writeFileSync} from 'node:fs';
@@ -127,7 +127,7 @@ for (const phase of ['app', 'dependencies']) {
 
 test('原生依赖失败保留失败结果、阻止App编译并释放已退出的现场', t => {
     const value = fixture(t);
-    const source = join(value.directory, 'target/build/21-1/sources/citizen_sdk/scripts');
+    const source = join(value.directory, 'target/build/21-1/sources/tatachat_sdk/scripts');
     mkdirSync(source, {recursive: true});
     writeFileSync(join(source, 'build.mjs'), 'process.exitCode = 17;\n');
     const result = spawnSync(process.execPath, [value.script, 'android', 'dependencies'], {env: value.env, encoding: 'utf8'});
@@ -147,6 +147,7 @@ test('iOS在原锁版本核对后、原生编译前预缓存两种Apple引擎', 
 
 // 直接执行所属Workflow的真实正文，仅替换外部I/O；不复制版本或装配算法。
 function workflowBody(platform, name) {
+    if(name==='按本产品原锁装配普通工程')return assembleProject.toString().replaceAll('execute(','execFileSync(');
     const source = readFileSync(join(root, '.github/workflows/' + platform + '.yml'), 'utf8');
     const step = source.split('      - name: ' + name + '\n')[1];
     assert.ok(step, '缺少所属Workflow步骤：' + name);
@@ -183,7 +184,7 @@ for (const platform of ['ios', 'android']) {
     });
     test(platform + '平台装配正文读取真实原件并生成必要标准配置', () => {
         const all = workflowBody(platform, '按本产品原锁装配普通工程');
-        const body = all.slice(all.indexOf('// Flutter官方模板'), all.indexOf("const citizen = join(work, 'sources/citizen_sdk/scripts/build.mjs');"));
+        const body = all.slice(all.indexOf('// Flutter官方模板'), all.indexOf("const sdkRoot = join(work, 'packages/citizen_sdk');"));
         for (const sourceHasWidgetTest of [false, true]) {
             const files = new Map(), copies = [], tools = [], removed = [];
             const project = '/fixture/project';
@@ -289,4 +290,14 @@ test('CitizenApp二维码非UI能力只由SDK提供', () => {
     const caller = readFileSync(join(root, 'lib/scanner/scan_dispatch_flow.dart'), 'utf8');
     assert.ok(caller.includes("import 'package:citizen_sdk/citizen_sdk.dart';"));
     assert.equal(caller.includes('package:citizen_sdk/src/'), false);
+});
+
+test('公民SDK消费同一成功Run的完整包，不调用SDK编译器',()=>{
+ const builder=readFileSync(join(root,'scripts/build.mjs'),'utf8');assert.doesNotMatch(builder,/abi-host|sources\/citizen_sdk.*native/u);
+ for(const platform of ['ios','android']){
+  const workflow=readFileSync(join(root,'.github/workflows',platform+'.yml'),'utf8');
+  assert.match(workflow,/run-id: \$\{\{ inputs.sdk_run \}\}/u);assert.match(builder,/sdk\.consume\(/u);
+  assert.match(builder,/CITIZENSDK_TEST_CORE_LIB_PATH: join\(sdkRoot,'darwin\/CitizenSDK.xcframework/u);
+  assert.doesNotMatch(workflow,/abi-host|prepare-environment/u);
+ }
 });

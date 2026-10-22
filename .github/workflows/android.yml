@@ -4,6 +4,10 @@ run-name: 公民·Android·v${{ inputs.version }}
 'on':
   workflow_dispatch:
     inputs:
+      sdk_run:
+        description: 同版完整公民SDK的成功自动化Run
+        required: true
+        type: string
       version:
         description: 由最新有效成功版本计算的候选版本，失败不占号
         required: true
@@ -18,6 +22,7 @@ defaults:
   run:
     shell: bash
 env:
+  CITIZENSDK_RUN: ${{ inputs.sdk_run }}
   PLATFORM: android
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: '1'
 jobs:
@@ -27,6 +32,7 @@ jobs:
     runs-on: xcode-27
     timeout-minutes: 360
     env:
+      CITIZENSDK_PACKAGE: ${{ runner.temp }}/citizensdk
       GH_TOKEN: ''
       CITIZENAPP_VERSION: ${{ inputs.version }}
       CITIZENAPP_SOURCE_ROOT: ${{ github.workspace }}
@@ -113,381 +119,44 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
           echo "$ANDROID_HOME/cmake/3.31.6/bin" >> "$GITHUB_PATH"
-      - name: 按本产品原锁装配普通工程
+      - name: 核对完整SDK来源Run
+        id: sdk
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          [[ "$CITIZENSDK_RUN" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/crcfrcn/citizensdk/actions/runs/$CITIZENSDK_RUN" > "$RUNNER_TEMP/sdk-run.json"
           node --input-type=module <<'JS'
-          import {execFileSync} from 'node:child_process';
-          import {mkdirSync, cpSync, copyFileSync, readFileSync, writeFileSync, readdirSync, appendFileSync, chmodSync, rmSync} from 'node:fs';
-          import {join, dirname} from 'node:path';
-          import {pathToFileURL} from 'node:url';
-          const root = process.env.GITHUB_WORKSPACE, work = process.env.WORK;
-          const project = join(work, 'project');
-          mkdirSync(project);
-          for (const entry of readdirSync(root)) {
-              if (['target', '.git', '.dart_tool', 'build', '.gradle'].includes(entry)) continue;
-              cpSync(join(root, entry), join(project, entry), {recursive: true});
-          }
-          let declaration = readFileSync(join(project, 'pubspec.yaml'), 'utf8');
-          let lock = readFileSync(join(project, 'pubspec.lock'), 'utf8');
-          for (const name of ['citizen_sdk', 'tatachat_sdk']) {
-              const record = lock.split('\n  ' + name + ':\n')[1]?.split(/\n  \S/)[0];
-              const ref = /resolved-ref: ([a-f0-9]{40})/.exec(record || '')?.[1];
-              const url = /url: "?(https:\/\/github.com\/[^"\s]+\.git)"?/.exec(record || '')?.[1];
-              const declared = declaration.split('  ' + name + ':\n')[1]?.split(/\n  \S/)[0];
-              if (!ref || !url || !declared?.includes(url) || !declared.includes('ref: ' + ref)) {
-                  throw Error('SDK声明与原锁来源不一致');
-              }
-              const source = join(work, 'sources', name), output = join(work, 'packages', name);
-              mkdirSync(source, {recursive: true});
-              execFileSync('git', ['init', source]);
-              execFileSync('git', ['-C', source, 'fetch', '--depth=1', url, ref]);
-              execFileSync('git', ['-C', source, 'checkout', '--detach', 'FETCH_HEAD']);
-              mkdirSync(dirname(output), {recursive: true});
-              const sdk = await import(pathToFileURL(join(source, 'scripts/build.mjs')));
-              sdk.createFlutterSourceView(source, output);
-              sdk.assertFlutterSourceView(source, output);
-              declaration = declaration.replace(new RegExp('  ' + name + ':\\n(?:    .*\\n)+'), '  ' + name + ':\n    path: ' + output + '\n');
-              lock = lock.replace(new RegExp('  ' + name + ':\\n(?:    .*\\n)+'), entry => {
-                  const version = /    version: .+/.exec(entry)?.[0];
-                  return '  ' + name + ':\n    dependency: "direct main"\n    description:\n      path: "' + output +
-                      '"\n      relative: false\n    source: path\n' + version + '\n';
-              });
-          }
-          writeFileSync(join(project, 'pubspec.yaml'), declaration);
-          // Flutter官方模板只写本轮工程；保留既有业务源码和平台工程原件。
-          const flutter = join(process.env.FLUTTER_ROOT, 'bin/flutter');
-          execFileSync(flutter, ['create', '--no-pub', '--platforms=android,ios', '--org=com.crcfrcn', '--project-name=citizenapp', project], {stdio: 'inherit'});
-          // create即使不执行Pub也会重写锁；完成后写回只映射SDK路径的完整原锁。
-          writeFileSync(join(project, 'pubspec.lock'), lock);
-          // 只排除模板新增的示例；产品原有同名测试必须保留。
-          if (!readdirSync(join(root, 'test')).includes('widget_test.dart')) rmSync(join(project, 'test/widget_test.dart'), {force: true});
-          const write = (path, text) => {
-              mkdirSync(dirname(join(project, path)), {recursive: true});
-              writeFileSync(join(project, path), text);
-          };
-          const copy = (source, destination) => {
-              mkdirSync(dirname(join(project, destination)), {recursive: true});
-              copyFileSync(join(root, source), join(project, destination));
-          };
-          // 移除模板入口，唯一原生入口来自本产品已提交源码。
-          rmSync(join(project, 'android/app/src/main/kotlin'), {recursive: true, force: true});
-          for (const name of ['MainActivity', 'SquareMediaChannel', 'SquareMp4FastStart', 'SquareVideoTranscoder']) {
-              const source = name === 'MainActivity' ? 'app' : 'square';
-              copy('android/' + source + '/' + name + '.kt', 'android/app/src/main/' + name + '.kt');
-          }
-          copy('android/app/AndroidManifest.xml', 'android/app/src/main/AndroidManifest.xml');
-          copy('android/app/InstrumentedTests.kt', 'android/app/src/androidTest/InstrumentedTests.kt');
-          copy('ios/project/Runner.pbxproj', 'ios/Runner.xcodeproj/project.pbxproj');
-          copy('ios/project/Runner.xcscheme', 'ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme');
-          for (const name of ['AppDelegate.swift', 'SystemProtectedDataChannel.swift', 'Info.plist', 'InfoPlist.xcstrings']) {
-              copy('ios/source/' + name, 'ios/Runner/' + name);
-          }
-          for (const name of ['SquareMediaChannel', 'SquareVideoTranscoder']) copy('ios/square/' + name + '.swift', 'ios/Runner/' + name + '.swift');
-          for (const name of ['RunnerTests', 'RunnerUITests']) copy('ios/tests/' + name + '.swift', 'ios/' + name + '.swift');
-          // 以下仅为本轮平台工具直接消费的必要配置，不生成常驻模块。
-          write("android/build.gradle.kts", `// App与Flutter插件共用官方AGP/KGP；不改写插件缓存或另建工具链。
-          allprojects {
-              repositories { google(); mavenCentral() }
-              plugins.withId("com.android.library") {
-                  // 原锁CitizenSDK声明Kotlin源；宿主选择旧KGP时为该模块应用同一插件。
-                  if (project.name == "citizen_sdk") { pluginManager.apply("org.jetbrains.kotlin.android") }
-                  if (project.name == "camera_android_camerax") {
-                      dependencies.add("implementation", "androidx.concurrent:concurrent-futures:1.2.0")
-                  }
-              }
-          }
-          rootProject.layout.buildDirectory.value(rootProject.layout.projectDirectory.dir("../build"))
-          subprojects {
-              layout.buildDirectory.value(rootProject.layout.buildDirectory.dir(name))
-              evaluationDependsOn(":app")
-          }
-          tasks.register<Delete>("clean") { delete(rootProject.layout.buildDirectory) }
-          `);
-          write("android/settings.gradle.kts", `pluginManagement {
-              val properties = java.util.Properties()
-              file("local.properties").inputStream().use { properties.load(it) }
-              val flutterSdkPath = properties.getProperty("flutter.sdk") ?: error("flutter.sdk未配置")
-              includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
-              repositories { google(); mavenCentral(); gradlePluginPortal() }
-          }
-          plugins {
-              id("dev.flutter.flutter-plugin-loader") version "1.0.0"
-              id("com.android.application") version "9.0.1" apply false
-              id("com.android.library") version "9.0.1" apply false
-              id("org.jetbrains.kotlin.android") version "2.2.20" apply false
-          }
-          include(":app")
-          `);
-          write("android/gradle.properties", `org.gradle.jvmargs=-Xmx8G -XX:MaxMetaspaceSize=4G -XX:ReservedCodeCacheSize=512m
-          android.useAndroidX=true
-          # Flutter 3.47与当前原锁插件使用官方支持的KGP和DSL配置，不修补Flutter源码。
-          android.builtInKotlin=false
-          android.newDsl=false
-          `);
-          write("android/gradle/wrapper/gradle-wrapper.properties", `distributionBase=GRADLE_USER_HOME
-          distributionPath=wrapper/dists
-          zipStoreBase=GRADLE_USER_HOME
-          zipStorePath=wrapper/dists
-          distributionUrl=https\\://services.gradle.org/distributions/gradle-9.1.0-bin.zip
-          distributionSha256Sum=a17ddd85a26b6a7f5ddb71ff8b05fc5104c0202c6e64782429790c933686c806
-          `);
-          write("android/app/src/main/res/xml/network_security_config.xml", `<?xml version="1.0" encoding="utf-8"?>
-          <network-security-config>
-              <!-- 生产全部走 HTTPS / WSS（TLS）：cid、square/chain-bootstrap Worker、
-                   GitHub 更新和 CitizenSDK 公民链节点。
-                   默认阻断一切明文流量，防中间人（iOS 侧由默认 ATS 同等阻断）。 -->
-              <base-config cleartextTrafficPermitted="false" />
-          </network-security-config>
-          `);
-          write("android/app/src/main/res/xml/update_file_paths.xml", `<?xml version="1.0" encoding="utf-8"?>
-          <paths xmlns:android="http://schemas.android.com/apk/res/android">
-              <cache-path
-                  name="citizenapp_update_cache"
-                  path="." />
-          </paths>
-          `);
-          write("ios/Podfile", `platform :ios, '16.0'
-
-          # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
-          ENV['COCOAPODS_DISABLE_STATS'] = 'true'
-
-          project 'Runner', {
-            'Debug' => :debug,
-            'Profile' => :release,
-            'Release' => :release,
-          }
-
-          def flutter_root
-            generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
-            unless File.exist?(generated_xcode_build_settings_path)
-              raise "#{generated_xcode_build_settings_path} must exist. If you're running pod install manually, make sure flutter pub get is executed first"
-            end
-
-            File.foreach(generated_xcode_build_settings_path) do |line|
-              matches = line.match(/FLUTTER_ROOT\\=(.*)/)
-              return matches[1].strip if matches
-            end
-            raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try deleting Generated.xcconfig, then run flutter pub get"
-          end
-
-          require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
-
-          flutter_ios_podfile_setup
-
-          target 'Runner' do
-            # Swift 插件统一以 framework 集成，避免静态模块映射与 Objective-C 桥接头冲突。
-            use_frameworks!
-
-            # TataChatSDK 通过自身 Flutter FFI plugin 和 tatachat_sdk.podspec 自动安装；宿主
-            # Podfile 不直接登记其 Rust 库，避免恢复跨产品链接所有权。
-
-            # 保留调用方源码外工程视图的词法路径；Podfile可以是只读链接，
-            # realpath会跳回产品源码并把Pods/.symlinks误写进源码目录。
-            flutter_install_all_ios_pods File.dirname(File.expand_path(__FILE__))
-            target 'RunnerTests' do
-              inherit! :search_paths
-            end
-          end
-
-          post_install do |installer|
-            installer.pods_project.targets.each do |target|
-              flutter_additional_ios_build_settings(target)
-              target.build_configurations.each do |config|
-                # Apple Silicon simulator requires arm64. Do not exclude it.
-                config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = ''
-                # 两个 iOS 产品统一以 16.0 为唯一最低版本，禁止 Pods 保留 9/11/12/13 的旧目标。
-                config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'
-              end
-            end
-
-            # CocoaPods 1.17 会把 Isar 静态 XCFramework 的脚本输出误写成不存在的
-            # \`isar.framework\`，实际切片是 \`libisar.a\`。Xcode 27 据此建立错误依赖图，
-            # 可能在复制静态库前启动链接器。这里只修正每次 pod install 的生成清单，
-            # 不修改 pub cache、Isar 源码或引入手工预构建流程。
-            isar_support_dir = File.join(
-              installer.sandbox.root.to_s,
-              'Target Support Files',
-              'isar_community_flutter_libs',
-            )
-            isar_output_list = File.join(
-              isar_support_dir,
-              'isar_community_flutter_libs-xcframeworks-output-files.xcfilelist',
-            )
-            File.write(
-              isar_output_list,
-              "\${PODS_XCFRAMEWORKS_BUILD_DIR}/isar_community_flutter_libs/libisar.a\\n",
-            )
-          end
-          `);
-          write("ios/Runner/Base.lproj/CitizenLaunchScreen.storyboard", `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-          <document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="12121" systemVersion="16G29" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" colorMatched="YES" initialViewController="01J-lp-oVM">
-              <dependencies>
-                  <deployment identifier="iOS"/>
-                  <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="12089"/>
-              </dependencies>
-              <scenes>
-                  <scene sceneID="EHf-IW-A2E">
-                      <objects>
-                          <viewController id="01J-lp-oVM" sceneMemberID="viewController">
-                              <layoutGuides>
-                                  <viewControllerLayoutGuide type="top" id="Ydg-fD-yQy"/>
-                                  <viewControllerLayoutGuide type="bottom" id="xbc-2k-c8Z"/>
-                              </layoutGuides>
-                              <view key="view" contentMode="scaleToFill" id="Ze5-6b-2t3">
-                                  <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
-                                  <subviews>
-                                      <imageView opaque="NO" clipsSubviews="YES" contentMode="center" image="CitizenLaunchLogo" translatesAutoresizingMaskIntoConstraints="NO" id="YRO-k0-Ey4"/>
-                                  </subviews>
-                                  <color key="backgroundColor" red="1" green="1" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
-                                  <constraints>
-                                      <constraint firstItem="YRO-k0-Ey4" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="1a2-6s-vTC"/>
-                                      <constraint firstItem="YRO-k0-Ey4" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" id="4X2-HB-R7a"/>
-                                  </constraints>
-                              </view>
-                          </viewController>
-                          <placeholder placeholderIdentifier="IBFirstResponder" id="iYj-Kq-Ea1" userLabel="First Responder" sceneMemberID="firstResponder"/>
-                      </objects>
-                      <point key="canvasLocation" x="53" y="375"/>
-                  </scene>
-              </scenes>
-              <resources>
-                  <image name="CitizenLaunchLogo" width="160" height="160"/>
-              </resources>
-          </document>
-          `);
-          write("ios/Runner/Runner.entitlements", `<?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <!-- 这里只声明请求值；最终 APNs 环境以签名 provisioning profile 为唯一真源。 -->
-              <key>aps-environment</key>
-              <string>$(APS_ENVIRONMENT)</string>
-          </dict>
-          </plist>
-          `);
-          write("android/app/src/main/res/values/strings.xml", `<resources>
-              <string name="app_name">公民</string>
-          </resources>
-          `);
-          write("android/app/src/main/res/values-en/strings.xml", `<resources>
-              <string name="app_name">CitizenApp</string>
-          </resources>
-          `);
-          write("android/app/src/main/res/values/colors.xml", `<resources>
-              <color name="ic_launcher_background">#18787D</color>
-          </resources>
-          `);
-          write("android/app/src/main/res/drawable/launch_background.xml", `<?xml version="1.0" encoding="utf-8"?>
-          <!-- Modify this file to customize your launch splash screen -->
-          <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-              <item android:drawable="@android:color/white" />
-
-              <item>
-                  <bitmap
-                      android:gravity="center"
-                      android:src="@mipmap/launch_image" />
-              </item>
-          </layer-list>
-          `);
-          write("android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml", `<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-              <background android:drawable="@color/ic_launcher_background" />
-              <foreground android:drawable="@mipmap/ic_launcher_foreground" />
-          </adaptive-icon>
-          `);
-          write("android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml", `<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-              <background android:drawable="@color/ic_launcher_background" />
-              <foreground android:drawable="@mipmap/ic_launcher_foreground" />
-          </adaptive-icon>
-          `);
-          write("android/app/src/main/res/values/styles.xml", `<resources>
-              <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
-                  <item name="android:windowBackground">@drawable/launch_background</item>
-              </style>
-              <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
-                  <item name="android:windowBackground">?android:colorBackground</item>
-              </style>
-          </resources>
-          `);
-          write("android/app/src/main/res/values-night/styles.xml", `<resources>
-              <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
-                  <item name="android:windowBackground">@drawable/launch_background</item>
-              </style>
-              <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
-                  <item name="android:windowBackground">?android:colorBackground</item>
-              </style>
-          </resources>
-          `);
-          write("ios/Runner/Runner-Bridging-Header.h", `#import "GeneratedPluginRegistrant.h"
-          `);
-          write("ios/Runner/Assets.xcassets/CitizenLaunchLogo.imageset/Contents.json", `{
-            "images": [
-              {
-                "filename": "CitizenLaunchLogo.png",
-                "idiom": "universal",
-                "scale": "1x"
-              },
-              {
-                "filename": "CitizenLaunchLogo@2x.png",
-                "idiom": "universal",
-                "scale": "2x"
-              },
-              {
-                "filename": "CitizenLaunchLogo@3x.png",
-                "idiom": "universal",
-                "scale": "3x"
-              }
-            ],
-            "info": {
-              "author": "xcode",
-              "version": 1
-            }
-          }
-          `);
-          for (const [density, icon, foreground, launch] of [['mdpi',48,108,120], ['hdpi',72,162,180], ['xhdpi',96,216,240], ['xxhdpi',144,324,360], ['xxxhdpi',192,432,480]]) {
-              const destination = 'android/app/src/main/res/mipmap-' + density + '/';
-              for (const name of ['ic_launcher', 'ic_launcher_round']) copy('assets/logo/icon' + icon + '.png', destination + name + '.png');
-              copy('assets/logo/foreground' + foreground + '.png', destination + 'ic_launcher_foreground.png');
-              copy('assets/logo/launch' + launch + '.png', destination + 'launch_image.png');
-          }
-          write('android/app/src/main/res/drawable-v21/launch_background.xml', readFileSync(join(project, 'android/app/src/main/res/drawable/launch_background.xml'), 'utf8'));
-          const iconSet = 'ios/Runner/Assets.xcassets/AppIcon.appiconset/';
-          const icons = JSON.parse(readFileSync(join(project, iconSet, 'Contents.json')));
-          for (const image of icons.images) {
-              if (!image.filename) continue;
-              const size = Number(image.size.split('x')[0]) * Number(image.scale.replace('x', ''));
-              copy('assets/logo/icon' + size + '.png', iconSet + image.filename);
-          }
-          for (const [scale, suffix] of [[1,''], [2,'@2x'], [3,'@3x']]) copy('assets/logo/launch' + 160 * scale + '.png', 'ios/Runner/Assets.xcassets/CitizenLaunchLogo.imageset/CitizenLaunchLogo' + suffix + '.png');
-          writeFileSync(join(project, 'analysis_options.yaml'), 'include: package:flutter_lints/flutter.yaml\nanalyzer:\n  exclude:\n    - build/**\n    - android/**\n    - ios/**\n');
-          chmodSync(join(project, 'android/gradlew'), 0o755);
-          const citizen = join(work, 'sources/citizen_sdk/scripts/build.mjs');
-          const source = join(work, 'citizen-sources');
-          execFileSync(process.execPath, [citizen, 'prepare-environment', '--platform', 'macOS', '--work', source], {stdio: 'inherit'});
-          const plan = JSON.parse(execFileSync(process.execPath, [citizen, 'plan', '--platform', 'macOS'], {encoding: 'utf8'}));
-          const qr = plan.archives.filter(entry => /zxing/i.test(entry.name));
-          if (qr.length !== 1) throw Error('SDK公开QR来源不唯一');
-          const values = {
-              CITIZENSDK_WORK_DIR: join(work, 'native-work'),
-              CITIZENSDK_NATIVE_OUTPUT_DIR: join(work, 'native'),
-              CITIZENSDK_ZXING_SOURCE_DIR: join(source, qr[0].archive_root),
-              CITIZENSDK_GRADLE: join(project, 'android/gradlew'),
-              CITIZENSDK_ANDROID_CORE_DIR: join(work, 'native/android/arm64-v8a'),
-              CITIZENSDK_ANDROID_BUILD_DIR: join(work, 'citizen-android'),
-              CITIZENSDK_TEST_CORE_LIB_PATH: join(work, 'native/abi-host/libcitizensdk.dylib'),
-              TATACHATSDK_TEST_WORK_ROOT: work,
-              TATACHATSDK_TEST_NATIVE_LIBRARY: join(work, 'packages/tatachat_sdk/native/libtatachat_sdk.dylib')
-          };
-          for (const [key, value] of Object.entries(values)) appendFileSync(process.env.GITHUB_ENV, key + '=' + value + '\n');
+          import {readFileSync,appendFileSync} from 'node:fs';
+          const text=readFileSync('pubspec.yaml','utf8'),block=text.split('  citizen_sdk:\n')[1]?.split(/\n  \S/)[0];
+          const sha=/ref: ([a-f0-9]{40})/.exec(block||'')?.[1];
+          const run=JSON.parse(readFileSync(process.env.RUNNER_TEMP+'/sdk-run.json','utf8'));
+          if(!sha||run.id!==Number(process.env.CITIZENSDK_RUN)||run.head_sha!==sha||run.path!=='.github/workflows/sdk.yml'||run.event!=='workflow_dispatch'||run.head_branch!=='main'||run.repository?.full_name!=='crcfrcn/citizensdk'||run.head_repository?.full_name!=='crcfrcn/citizensdk'||run.status!=='completed'||run.conclusion!=='success'||!Number.isSafeInteger(run.run_attempt)||run.run_attempt<1||!/^公民SDK·SDK·v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(run.display_title))throw Error('公民SDK来源与原锁或成功Run不符');
+          appendFileSync(process.env.GITHUB_OUTPUT,'name='+run.display_title+'\n');
+          appendFileSync(process.env.GITHUB_ENV,'CITIZENSDK_ATTEMPT='+run.run_attempt+'\n');
+          JS
+      - name: 取得准确Run的完整SDK
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          repository: crcfrcn/citizensdk
+          run-id: ${{ inputs.sdk_run }}
+          name: ${{ steps.sdk.outputs.name }}
+          github-token: ${{ github.token }}
+          path: ${{ env.CITIZENSDK_PACKAGE }}
+      - name: 按本产品原锁装配普通工程
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module <<'JS'
+          import {assembleProject} from './scripts/build.mjs';
+          await assembleProject(process.env);
           JS
       - name: 编译本轮原生依赖
         run: node scripts/build.mjs android dependencies
       - name: 准备原生测试输入
         run: |
           set -euo pipefail
-          if [ "$PLATFORM" = ios ]; then
-            cp -R "$WORK/native/apple/CitizenSDK.xcframework" "$WORK/packages/citizen_sdk/darwin/"
-          fi
           cd "$WORK/project"
           flutter pub get --enforce-lockfile
           node --input-type=module <<'JS'

@@ -545,7 +545,7 @@ D1   (Worker)        square_posts / square_follows / 计数聚合
 
 #### 公民统一注册目标合同（2026-10-07，第1步）
 
-本节锁定目标流程；实施过程见[任务卡](/Users/rhett/tataconsole/tasks/进行中/塔塔通用验证与公民统一注册.md)。接口字段、期限、错误和测试编号唯一详见[CitizenServe注册协议](/Users/rhett/citizenserve/CitizenServe.md#公民统一注册协议2026-10-07第1步合同)，App不维护第二套服务端协议或验证事实。
+本节锁定目标流程；实施过程见[任务卡](/Users/rhett/tataconsole/work/进行中/公民前后端任务.md)。接口字段、期限、错误和测试编号唯一详见[CitizenServe注册协议](/Users/rhett/citizenserve/CitizenServe.md#公民统一注册协议2026-10-07第1步合同)，App不维护第二套服务端协议或验证事实。
 
 唯一入口保持startCidRegistrationFlow和同一showRegisterIdentitySheet，所有注册引导复用它。点击「确认注册」后先弹出Cloudflare验证，登记使用已有账户、公民/居民类型和链环境；不在验证前计算或提交CID，不新增CID准备阶段或冻结CID年份。CitizenServe保存human_verified后，继续现有费用检查，并调用原有MyIdService.registerAnonymousCid执行既有注册；载荷准备、钱包签名、上链和finalized核验保持原位。真实CID以原注册完成后的finalized结果为准。
 
@@ -3171,13 +3171,12 @@ iOS当前Xcode27原生环境不提供Mac摄像头映射。按用户最新决定�
 
 ### 产品独立资源与编译入口
 
-本轮已回读当前产品Build的SDK依赖来源与归档统一位于dependencies/citizensdk-native，同属已声明依赖根，满足build.mjs run约束；该修正由当前流程来源任务写入，本线程没有重复覆盖。钱包生产流程及签署方式不改。本轮相关验证、准确消费提交与Release验收仍以真实结果记录。
 
 Release合同核验正式锁定SDK公开QR方法的准确返回类型、参数顺序及参数类型，不依赖Dart格式化的单行排列；保持禁止宿主第二QR实现及私有SDK导入的断言。当前同一3e53f183来源的16项Release合同全部通过。
 
 ## 公民统一注册A第8步预备核对（2026-10-08）
 
-本节属于CitizenServe Rust重建与统一注册任务A；不覆盖上文其他任务的工具、SDK来源或原执行记录。用户明确要求本窗口继续独立工作，不因B聊天适配尚未交付而暂停。当前只读分析和技术方案已完成，**App运行代码尚未改造、尚未运行本步骤App测试**。完整步骤、准确新增/修改/删除/只读/测试文件清单及实际API表见[统一注册任务卡](/Users/rhett/tataconsole/tasks/塔塔通用验证与公民统一注册.md)。
+本节属于CitizenServe Rust重建与统一注册任务A；不覆盖上文其他任务的工具、SDK来源或原执行记录。用户明确要求本窗口继续独立工作，不因B聊天适配尚未交付而暂停。当前只读分析和技术方案已完成，**App运行代码尚未改造、尚未运行本步骤App测试**。完整步骤、准确新增/修改/删除/只读/测试文件清单及实际API表见[统一注册任务卡](/Users/rhett/tataconsole/work/进行中/公民前后端任务.md)。
 
 唯一顺序为：点击确认注册→Cloudflare验证→CitizenServe保存通过结果→原钱包签名/上链/finalized完成CID注册→同一SDK的MLS设备授权激活→普通会话就绪后开放账户服务。没有候选CID，原MyIdService中的CID计算与钱包交易位置保持。原函数目前在finalized后本机收敛失败仍返回CID；新编排须分别报告链完成和服务激活，不能重复上链或凭返回字符串宣称账户已就绪。
 
@@ -3207,7 +3206,7 @@ Release合同核验正式锁定SDK公开QR方法的准确返回类型、参数�
 
 本步的恢复与拒绝规则包括：真人通过结果落盘失败时零钱包动作；未知广播不重发；既有finalized回执不被新链头覆盖；激活必须对应同一普通会话设备ID、CID和binding_revision；受保护记录按服务origin、链genesis与所选账户隔离。验证码仅短暂留在内存，registration.json不保存MLS私钥或钱包签名；设备绑定仍通过原TataChatSDK身份执行。
 
-完整旧测试尚有原/square会话、feed、资料路径夹具未纳入本轮21件执行；注销历史缺口仍未补齐。因此178项局部通过不能代表全套回归。准确未修改路径及后续边界已逐项记录于 /Users/rhett/tataconsole/tasks/塔塔通用验证与公民统一注册.md。
+完整旧测试尚有原/square会话、feed、资料路径夹具未纳入本轮21件执行；注销历史缺口仍未补齐。因此178项局部通过不能代表全套回归。准确未修改路径及后续边界已逐项记录于 /Users/rhett/tataconsole/work/进行中/公民前后端任务.md。
 
 统一注册完整验收的资源复核仍为只读：已登记13份Pod原件SHA256匹配缓存记录，但其中8份文件字节SHA1与现有Pod锁不同，不能通过改锁或减弱校验掩盖；应由资源维护方修正原件供给/规范spec消费合同。锁定libcrux-intrinsics0.0.6的README.md与Readme.md再次确认内容不同，真实宿主展开需要区分大小写的工作文件系统。没有删上游文件、改名或升级依赖。旧feed、会话、资料夹具和相关注释仍需要按实际/api合同适配，尚未纳入统一注册局部178项结果。完整App入口、TataChatSDK MLS原生、双平台签名和实际WebView/恢复验收继续保持未完成。CitizenServe新聊天正式装配已交付，但未完成运行验收，App不能仅凭装配或历史源视图测试开放上线判断。
 
@@ -3364,3 +3363,16 @@ Android平台组件交付包含App/SDK及Flutter默认的API36、音频/表情/I
 ## 外部调用入口
 
 本仓现有 scripts/config.mjs 的 describeAction({flow,platform}) 声明流程入口。自动化启动逻辑、版本输入与平台选择归本仓；调用方交付已授权令牌和标准 read/dispatch 传输能力，接收准确 Run 编号。既有独立自动化接口继续由本仓实现。未提供的安装或发布入口明确报产品侧未声明，不错接到编译，也不产生成功回执。
+
+## CitizenSDK完整交付接入
+
+CitizenSDK来源由本产品pubspec.yaml与pubspec.lock的固定Git提交共同定义，SDK的完整包回执必须对应同一SHA。调用方以CITIZENSDK_PACKAGE交付已授权取得的原ZIP、JSON和sha256三件目录；本产品只调用锁定SDK的scripts/build.mjs公开consume与verifyConsumer入口。校验、解包和四宿主完整性由SDK唯一实现，应用不维护SDK依赖计划、Cargo闭包或第二编译器，不从邻仓、旧工作目录或另一个来源补件。
+
+实际Pub解析使用本轮工程中唯一.source-packages/citizen_sdk视图；构建副本的直接依赖版本读取交付包pubspec，正式Git声明及原锁保持。普通业务仍只调用包根CitizenSdk公开门面，钱包、链、签名、安全存储与认证职责不变。实际运行、链接与设备验收以所属平台真实结果为准。
+
+GitHub两个移动平台工作流明确接收sdk_run，核对准确成功SDK Run的仓库、工作流、main、SHA和attempt后，用官方Artifact动作下载该Run的完整包。SDK再次核对原回执与输入；UI测试直接使用同包macOS Framework的公开C接口，不另造abi-host。SDK产物与应用版本各自保持独立身份，未指定有效输入或SDK来源尚未更新时直接失败。
+
+
+本机塔塔安装器唯一实现归控制台app/source/Installer.swift；本产品仅提供scripts/build.mjs compile ios|android，复用同一工程装配与编译实现，交付本轮未签名产物，消费结束后清场。完整公民SDK按原锁通过consume验证，输入为CITIZENSDK_PACKAGE，默认本产品target/cache/citizensdk；缺少完整交付直接失败，不替换SDK来源或下载本产品安装包。两端GitHub工作流的工程装配也调用同一assembleProject，原来源和正式签名校验保留。旧install及GitHub安装包下载入口彻底删除。
+
+依赖阶段使用独立dependencyEnvironment，保留原环境并删除GitHub令牌；SDK工程配置检查读取实际所属build.mjs，不再查已迁出的Workflow正文。
