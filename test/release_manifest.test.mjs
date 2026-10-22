@@ -137,38 +137,53 @@ test('iOS在原锁版本核对后、工程装配前预缓存两种Apple引擎', 
 function workflowBody(platform, name) {
     if(name==='按本产品原锁装配普通工程')return assembleProject.toString().replaceAll('execute(','execFileSync(');
     const source = readFileSync(join(root, '.github/workflows/' + platform + '.yml'), 'utf8');
-    const step = source.split('      - name: ' + name + '\n')[1];
+    const marker = name === '计算本Run版本' ? '        name: ' : '      - name: ';
+    const step = source.split(marker + name + '\n')[1];
     assert.ok(step, '缺少所属Workflow步骤：' + name);
-    return step.split("node --input-type=module <<'JS'\n")[1].split('\n          JS')[0]
-        .split('\n').map(line => line.slice(10)).filter(line => !line.startsWith('import ')).join('\n');
+    const body = /<<'(JS|NODE)'\n([\s\S]*?)\n\s+\1(?:\n|$)/u.exec(step);
+    assert.ok(body, '缺少所属Workflow的Node正文：' + name);
+    return body[2].split('\n').map(line => line.slice(10)).filter(line => !line.startsWith('import ')).join('\n');
 }
-function checkCandidate(platform, rows, candidate, initial = '1.0.0') {
-    const calls = [];
-    const execute = new Function('execFileSync', 'readFileSync', 'process', workflowBody(platform, '核对候选版本及唯一原Run'));
-    return {calls, run: () => execute((command, args) => {
-        assert.equal(command, 'gh');
-        calls.push(args);
-        assert.equal(args.some(value => ['POST','DELETE','-f'].includes(value)), false);
-        return JSON.stringify([{workflow_runs:rows}]);
-    }, () => 'version: ' + initial + '+1\n', {env:{CITIZENAPP_VERSION:candidate,
-        GITHUB_RUN_ID:'20', GITHUB_REPOSITORY:'crcfrcn/citizenapp', PLATFORM:platform}})};
+// 运行当前版本计算正文；GitHub返回与文件读取只在内存替换，不访问网络。
+function versionFor(platform, {previous, artifacts = [], initial = '1.0.0', failure} = {}) {
+    const calls = [], output = [];
+    const execute = new Function('execFileSync', 'readFileSync', 'process', 'console', workflowBody(platform, '计算本Run版本'));
+    return {calls, run: () => {
+        execute((command, args) => {
+            assert.equal(command, 'gh');
+            assert.deepEqual(args, ['api', 'repos/crcfrcn/citizenapp/actions/runs/' + previous.id + '/artifacts?per_page=100']);
+            calls.push(args);
+            if (failure) throw failure;
+            return JSON.stringify({artifacts});
+        }, path => {
+            if (path === 'pubspec.yaml') return 'version: ' + initial + '+1\n';
+            assert.equal(path, '/fixture/previous.json');
+            return JSON.stringify({workflow_runs:previous ? [previous] : []});
+        }, {env:{RUNNER_TEMP:'/fixture', GITHUB_REPOSITORY:'crcfrcn/citizenapp'}}, {log:value => output.push(value)});
+        assert.equal(output.length, 1);
+        return output[0];
+    }};
 }
 for (const platform of ['ios', 'android']) {
     const label = platform === 'ios' ? 'iOS' : 'Android';
-    const success = {id:10, status:'completed', conclusion:'success', display_title:'公民·' + label + '·v1.0.1'};
-    test(platform + '单Run按成功记录校验候选，失败和当前Run不占号', () => {
-        const value = checkCandidate(platform, [success,
-            {...success,id:11,conclusion:'failure',display_title:'公民·' + label + '·v1.0.2'},
-            {...success,id:20,status:'in_progress'}], '1.0.2');
-        value.run();
+    test(platform + '首次使用本仓版本，只从成功Run完整Artifact递增', () => {
+        const workflow = readFileSync(join(root, '.github/workflows/' + platform + '.yml'), 'utf8');
+        assert.match(workflow, /runs\?branch=main&event=workflow_dispatch&status=success&per_page=1/u, '失败和当前活动Run不进入官方成功记录查询');
+        const first = versionFor(platform, {initial:'1.2.3'});
+        assert.equal(first.run(), 'version=1.2.3');
+        assert.equal(first.calls.length, 0);
+        const value = versionFor(platform, {previous:{id:10, display_title:'公民·' + label + '·10'}, artifacts:[
+            {name:'其他产品·v9.9.9'}, {name:'公民·' + label + '·v1.0.99·内部'}, {name:'公民·' + label + '·v1.0.99'}
+        ]});
+        assert.equal(value.run(), 'version=1.0.100');
         assert.equal(value.calls.length, 1);
-        checkCandidate(platform, [], '1.0.0').run();
     });
-    test(platform + '拒绝错误候选、更早活动Run和未知成功版本', () => {
-        for (const [rows, candidate] of [
-            [[success], '1.0.3'], [[{...success,status:'in_progress'}], '1.0.0'],
-            [[{...success,display_title:'未知旧版本'}], '1.0.2'], [[], '01.0.0']
-        ]) assert.throws(checkCandidate(platform, rows, candidate).run);
+    test(platform + '成功Artifact缺失或API失败时原样失败，不猜版本', () => {
+        for (const artifacts of [[], [{name:'公民·' + label + '·10'}], [{name:'公民·' + label + '·v1.0.1·内部'}]]) {
+            assert.throws(versionFor(platform, {previous:{id:10}, artifacts}).run, TypeError);
+        }
+        const failure = new Error('合成GitHub读取错误');
+        assert.throws(versionFor(platform, {previous:{id:10}, failure}).run, error => error === failure);
     });
     test(platform + '平台装配正文读取真实原件并生成必要标准配置', () => {
         const all = workflowBody(platform, '按本产品原锁装配普通工程');

@@ -40,7 +40,8 @@ final class SystemProtectedDataChannel {
   static func protect(_ url: URL) throws {
     let manager = FileManager.default
     let values = try url.resourceValues(forKeys: [.isSymbolicLinkKey, .isDirectoryKey])
-    guard values.isSymbolicLink != true, url.resolvingSymlinksInPath().path == url.path else {
+    // 拒绝符号链接；系统路径别名不按字符串差异拒绝。
+    guard values.isSymbolicLink != true else {
       throw CocoaError(.fileReadInvalidFileName)
     }
     try manager.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication,

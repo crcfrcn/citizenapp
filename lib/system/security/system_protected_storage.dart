@@ -12,10 +12,12 @@ abstract final class SystemProtectedStorage {
     if (path == null || path.isEmpty || !path.startsWith('/')) {
       throw StateError('系统保护记录目录不可用');
     }
-    if (await Directory(path).resolveSymbolicLinks() != path) {
+    if (await FileSystemEntity.type(path, followLinks: false) !=
+        FileSystemEntityType.directory) {
       throw StateError('系统保护记录路径不可用');
     }
-    return path;
+    // 拒绝链接目录后统一使用Dart规范路径，避免系统路径别名被误判。
+    return Directory(path).resolveSymbolicLinks();
   }
 
   static Future<void> protectUserDatabase(String directory) => channel
