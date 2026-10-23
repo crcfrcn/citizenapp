@@ -12,21 +12,21 @@ final class CidBusinessDecision {
   final String? cidNumber;
 }
 
-/// 先用当前钱包身份判断公民号。只有本机缺少绑定时才读链区分未注册与待恢复。
-/// 链故障、账户切换和恢复失败均为未知状态，不能冒充未注册。
+/// 先用当前钱包身份判断公民号。只有本机身份未知时才核对链事实并同步公开绑定。
+/// 链故障、账户切换和同步失败均为未知状态，不能冒充未注册。
 interface class CidBusinessGate {
   CidBusinessGate({
     required CurrentUserContext currentUserContext,
     required FinalizedIdentityResolver identityResolver,
-    required Future<void> Function(FinalizedIdentity) restoreFinalizedBinding,
+    required Future<void> Function(FinalizedIdentity) synchronizeIdentity,
     required this.revision,
   }) : _currentUser = currentUserContext,
        _resolver = identityResolver,
-       _restore = restoreFinalizedBinding;
+       _synchronize = synchronizeIdentity;
 
   final CurrentUserContext _currentUser;
   final FinalizedIdentityResolver _resolver;
-  final Future<void> Function(FinalizedIdentity) _restore;
+  final Future<void> Function(FinalizedIdentity) _synchronize;
   final ValueListenable<int> revision;
   final Map<(String, int), Future<CidBusinessDecision>> _inflight = {};
 
@@ -60,6 +60,9 @@ interface class CidBusinessGate {
 
   Future<CidBusinessDecision> _resolve(CurrentUser current, int expectedRevision) async {
     try {
+      if (current.isUnregistered) {
+        return const CidBusinessDecision(CidBusinessStatus.unregistered);
+      }
       final local = current.binding;
       if (local != null && local.accountId == current.accountId) {
         return CidBusinessDecision(
@@ -82,11 +85,13 @@ interface class CidBusinessGate {
       }
       final snapshot = verified.snapshot;
       if (snapshot == null) {
+        await _synchronize(verified);
+        _currentUser.invalidate();
         return const CidBusinessDecision(CidBusinessStatus.unregistered);
       }
 
-      // 只恢复已验证的公开绑定；原有单源负责通知会话和聊天身份变更。
-      await _restore(verified);
+      // 只同步已验证的公开绑定；原有单源负责通知会话和聊天身份变更。
+      await _synchronize(verified);
       _currentUser.invalidate();
       final restored = await _currentUser.resolve();
       final binding = restored?.binding;

@@ -370,7 +370,7 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets('聊天本机绑定未知只提示主动恢复，不调用会话/会员/加密存储', (tester) async {
+  testWidgets('聊天本机绑定未知提示身份刷新，不调用会话/会员/加密存储', (tester) async {
     final store = _FakeChatStore(), sessions = _FakeProfileSessionProvider();
     final memberships = _AttachmentOnlySubscription(),
         security = _UnusedSecurity();
@@ -406,7 +406,7 @@ void main() {
     await tester.pump();
     await tester.pump();
     // 原错误横幅和空态各显示同一固定提示。
-    expect(find.textContaining('请在身份页恢复或完成注册后重试'), findsNWidgets(2));
+    expect(find.textContaining('身份信息暂不可用，请在身份页刷新后重试'), findsNWidgets(2));
     expect(find.text('尚未注册'), findsNothing);
     expect(sessions.calls, 0);
     expect(memberships.requests, 0);

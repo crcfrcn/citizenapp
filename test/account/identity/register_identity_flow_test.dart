@@ -28,7 +28,7 @@ class _RegisteredCache implements FinalizedIdentityResolver {
     ss58Address: 'ss58-demo',
     snapshot: CitizenIdentityChainSnapshot(
       cidNumber: 'CN220-CTZN2-100000001-2026',
-      accountId: Uint8List(32),
+      accountId: Uint8List.fromList(List.filled(32, 0x11)),
       bindingRevision: 1,
       votingIdentity: null,
     ),
@@ -65,6 +65,11 @@ class _FlowService implements MyIdService {
   _FlowService({this.guardFailure});
   final Object? guardFailure;
   int registerCalls = 0;
+  int synchronizations = 0;
+  @override
+  Future<void> synchronizeIdentity(FinalizedIdentity identity) async {
+    synchronizations++;
+  }
 
   @override
   Future<List<CitizenWalletStateAccount>> listBindableAccounts() async =>
@@ -103,6 +108,7 @@ class _FlowService implements MyIdService {
     if (guardFailure != null) throw guardFailure!;
     return () async {};
   }
+
   @override
   Future<FinalizedRegistration> registerEnrollmentCid({
     required BuildContext? context,
@@ -166,20 +172,41 @@ class _FlowCoordinator extends RegistrationCoordinator {
 }
 
 class _ReadySession implements SquareSessionProvider {
+  _ReadySession({this.missing = false, this.cancel = false});
+  bool missing, cancel;
+  int registrations = 0;
+  @override
+  Future<SquareSession?> registerCurrentDevice() async {
+    registrations++;
+    if (cancel) {
+      throw const CitizenSdkException(
+        code: CitizenSdkErrorCode.authenticationCancelled,
+        message: '合成用户取消',
+      );
+    }
+    missing = false;
+    return (await resolveSession()).session;
+  }
+
   @override
   Future<SquareSessionResolution> resolveSession({
     bool refresh = false,
-  }) async => SquareSessionResolution(
-    SquareSessionStatus.ready,
-    session: SquareSession(
-      sessionToken: 'ordinary',
-      cidNumber: 'CN220-CTZN2-100000001-2026',
-      bindingRevision: 1,
-      accountId: _accountId,
-      deviceId: '33' * 32,
-      expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
-    ),
-  );
+  }) async => missing
+      ? const SquareSessionResolution(
+          SquareSessionStatus.deviceUnavailable,
+          errorCode: 'device_not_registered',
+        )
+      : SquareSessionResolution(
+          SquareSessionStatus.ready,
+          session: SquareSession(
+            sessionToken: 'ordinary',
+            cidNumber: 'CN220-CTZN2-100000001-2026',
+            bindingRevision: 1,
+            accountId: _accountId,
+            deviceId: '33' * 32,
+            expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
+          ),
+        );
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -188,14 +215,15 @@ class _ReadySession implements SquareSessionProvider {
 Widget _harness(
   List<bool> results,
   MyIdService service,
-  FinalizedIdentityResolver resolver,
-  {bool directRegistration = false,}
-) {
+  FinalizedIdentityResolver resolver, {
+  bool directRegistration = false,
+  _ReadySession? sessions,
+}) {
   return MultiProvider(
     providers: [
       Provider<FinalizedIdentityResolver>.value(value: resolver),
       Provider<RegistrationCoordinator>.value(value: _FlowCoordinator()),
-      Provider<SquareSessionProvider>.value(value: _ReadySession()),
+      Provider<SquareSessionProvider>.value(value: sessions ?? _ReadySession()),
     ],
     child: MaterialApp(
       theme: AppTheme.lightTheme,
@@ -234,24 +262,49 @@ void main() {
     expect(find.text('确认注册'), findsNothing);
   });
 
+  for (final cancelled in [false, true]) {
+    testWidgets('只有明确业务点击可登记设备，取消=$cancelled且不重复占号', (tester) async {
+      final service = _FlowService();
+      final sessions = _ReadySession(missing: true, cancel: cancelled);
+      final results = <bool>[];
+      await tester.pumpWidget(
+        _harness(results, service, _RegisteredCache(), sessions: sessions),
+      );
+      await tester.pumpAndSettle();
+      expect(sessions.registrations, 0);
+      await tester.tap(find.text('触发动作'));
+      await tester.pumpAndSettle();
+      expect(sessions.registrations, 1);
+      expect(service.synchronizations, 1);
+      expect(service.registerCalls, 0);
+      expect(results, [!cancelled]);
+      if (cancelled) expect(find.text('设备授权已取消，可再次主动发起'), findsOneWidget);
+      await tester.pump();
+      expect(sessions.registrations, 1, reason: '渲染和重连不能自动重复授权');
+    });
+  }
+
   testWidgets('未注册动作不越过统一注册页面直接打开面板', (tester) async {
     final results = <bool>[];
-    await tester.pumpWidget(
-      _harness(results, _FlowService(), _UnregisteredCache()),
-    );
+    final service = _FlowService();
+    await tester.pumpWidget(_harness(results, service, _UnregisteredCache()));
 
     await tester.tap(find.text('触发动作'));
     await tester.pumpAndSettle();
 
     expect(find.text('确认注册'), findsNothing);
     expect(results, [false]);
+    expect(service.synchronizations, 1);
+    expect(service.registerCalls, 0);
   });
 
   testWidgets('统一注册入口确认占号:只提交一次，缓存收敛归服务层', (tester) async {
     final cache = _UnregisteredCache();
     final service = _FlowService();
     final results = <bool>[];
-    await tester.pumpWidget(_harness(results, service, cache, directRegistration: true));
+    await tester.pumpWidget(
+      _harness(results, service, cache, directRegistration: true),
+    );
 
     await tester.tap(find.text('触发动作'));
     await tester.pumpAndSettle();
@@ -276,7 +329,12 @@ void main() {
         ),
       );
       await tester.pumpWidget(
-        _harness(<bool>[], service, _UnregisteredCache(), directRegistration: true),
+        _harness(
+          <bool>[],
+          service,
+          _UnregisteredCache(),
+          directRegistration: true,
+        ),
       );
       await tester.tap(find.text('触发动作'));
       await tester.pumpAndSettle();

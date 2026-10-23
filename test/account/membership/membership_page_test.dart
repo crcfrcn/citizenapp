@@ -418,10 +418,13 @@ Finder _frontButton(String label) => find.descendant(
 );
 
 class _CachedCurrentUser implements CurrentUserContext {
+  _CachedCurrentUser({this.unregistered = false});
+  final bool unregistered;
   @override
   Future<CurrentUser?> resolve() async => CurrentUser(
     account: _identityAccount,
-    binding: const IdentityBinding(
+    verifiedUnregistered: unregistered,
+    binding: unregistered ? null : const IdentityBinding(
       genesisHash:
           '0x1111111111111111111111111111111111111111111111111111111111111111',
       cidNumber: 'CN220-CTZN2-198805200-2026',
@@ -1090,6 +1093,14 @@ void main() {
       SubscriptionService.membershipResolvedFor(session.cidNumber),
       isTrue,
     );
+  });
+
+  testWidgets('已核实未注册直接显示引导，不建立普通会话', (tester) async {
+    await _pump(tester, const SquareMembershipState(active: false, paidUntil: 0),
+      currentUserContext: _CachedCurrentUser(unregistered: true));
+    expect(find.text('尚未注册'), findsOneWidget);
+    expect(find.byKey(const ValueKey('membership-front-card')), findsNothing);
+    expect(find.textContaining('恢复服务'), findsNothing);
   });
 
   testWidgets('renders the three subscription tier cards', (tester) async {

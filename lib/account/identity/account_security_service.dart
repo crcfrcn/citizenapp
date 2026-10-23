@@ -171,42 +171,65 @@ interface class AccountSecurityService {
               );
             }
             await _requireCurrent(binding, generation);
-            final String signature;
-            if (account.signMode == CitizenWalletSignMode.hot) {
-              // 使用既有钱包签署接口完成已批准的0x1C MLS设备登记授权。
-              final result = await _signing
-                  .begin(
-                    CitizenSigningIntent(
+            try {
+              final String signature;
+              if (account.signMode == CitizenWalletSignMode.hot) {
+                // 使用既有钱包签署接口完成已批准的0x1C MLS设备登记授权。
+                final result = await _signing
+                    .begin(
+                      CitizenSigningIntent(
+                        accountId: binding.accountId,
+                        payload: signingMessage,
+                        transform: CitizenSigningTransform.raw(),
+                      ),
+                    )
+                    .result;
+                if (result is! CitizenSigningCompleted ||
+                    result.accountId != binding.accountId ||
+                    !await CitizenSigning.verify(
                       accountId: binding.accountId,
+                      signature: result.signature,
                       payload: signingMessage,
-                      transform: CitizenSigningTransform.raw(),
-                    ),
-                  )
-                  .result;
-              if (result is! CitizenSigningCompleted ||
-                  result.accountId != binding.accountId ||
-                  !await CitizenSigning.verify(
-                    accountId: binding.accountId,
-                    signature: result.signature,
-                    payload: signingMessage,
-                  )) {
-                throw const AccountSecurityException(
-                  'MLS登记钱包授权无效',
-                  code: 'integrity',
+                    )) {
+                  throw const AccountSecurityException(
+                    'MLS登记钱包授权无效',
+                    code: 'integrity',
+                  );
+                }
+                signature = '0x${bytesToHex(result.signature)}';
+              } else {
+                signature = await _coldMlsDeviceBindingSigner(
+                  binding: binding,
+                  payload: payload,
+                  signingMessage: signingMessage,
+                  publicKey: publicKey,
+                  issuedAtMillis: issuedAtMillis,
                 );
               }
-              signature = '0x${bytesToHex(result.signature)}';
-            } else {
-              signature = await _coldMlsDeviceBindingSigner(
-                binding: binding,
-                payload: payload,
-                signingMessage: signingMessage,
-                publicKey: publicKey,
-                issuedAtMillis: issuedAtMillis,
-              );
+              await _requireCurrent(binding, generation);
+              return signature;
+            } on Object catch (error) {
+              final cancelled =
+                  error is CitizenSdkException &&
+                      (error.code ==
+                              CitizenSdkErrorCode.authenticationCancelled ||
+                          error.code == CitizenSdkErrorCode.cancelled) ||
+                  error is AccountSecurityException &&
+                      error.code == 'authenticationCancelled';
+              // 这里只捕获签名回调尚未交付的明确取消；已签回执和未知失败绝不删除。
+              if (cancelled &&
+                  !await _records.compareAndSet(
+                    attempt,
+                    expected: 'attempted',
+                    next: null,
+                  )) {
+                throw const AccountSecurityException(
+                  '设备授权取消状态保存失败，请重试',
+                  code: 'device_proof_storage',
+                );
+              }
+              rethrow;
             }
-            await _requireCurrent(binding, generation);
-            return signature;
           },
     );
     await _requireCurrent(binding, generation);

@@ -16,6 +16,21 @@ import 'mls_authentication_fixture.dart';
 /// 只有明确未登记才编排一次登记；签名失败绝不触发钱包或重建MLS身份。
 void main() {
   _chatAccessSessionTests();
+  test('未知、已核实未注册和设备未登记保持不同状态及固定提示', () {
+    const cases = {
+      'identity_local_missing': SquareSessionStatus.identityUnavailable,
+      'identity_unregistered': SquareSessionStatus.identityUnbound,
+      'device_not_registered': SquareSessionStatus.deviceUnavailable,
+    };
+    for (final entry in cases.entries) {
+      final result = SquareSessionResolution.fromError(SquareApiException(
+        '不应进入提示的原始正文', errorCode: entry.key, stage: SquareApiStage.identity,
+      ));
+      expect(result.status, entry.value);
+      expect(result.message, isNot(contains('恢复服务')));
+      expect(result.message, isNot(contains('原始正文')));
+    }
+  });
   // 真实HTTP解码与会话分类联测：未知状态及损坏响应不能伪装成MLS设备故障。
   for (final status in [200, 404, 429, 503]) {
     test('挑战非JSON响应$status保留阶段，分类为服务失败', () async {
@@ -145,7 +160,7 @@ void main() {
     expect(failure.status, SquareSessionStatus.deviceUnavailable);
     expect(failure.statusCode, isNull);
     expect(failure.stage, SquareApiStage.registration);
-    expect(failure.message, '请在身份页完成注册安全验证和设备激活');
+    expect(failure.message, '请完成注册验证和当前设备授权');
   });
   for (final error in [
     'invalid_mls_signature',

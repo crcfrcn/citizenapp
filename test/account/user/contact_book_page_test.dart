@@ -294,7 +294,7 @@ class _RegisteredIdentityCache implements CurrentUserContext {
 class _UnregisteredIdentityCache implements CurrentUserContext {
   @override
   Future<CurrentUser?> resolve() async =>
-      CurrentUser(account: _ownerAccount, binding: null);
+      CurrentUser(account: _ownerAccount, binding: null, verifiedUnregistered: true);
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -307,6 +307,7 @@ class _MutableIdentityCache implements CurrentUserContext {
   Future<CurrentUser?> resolve() async => CurrentUser(
     account: _ownerAccount,
     binding: registered ? _ownerBinding() : null,
+    verifiedUnregistered: !registered,
   );
 
   @override

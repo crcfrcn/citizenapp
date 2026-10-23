@@ -70,7 +70,7 @@ class _MyIdPageState extends State<MyIdPage> {
     IdentityBadgeSnapshotStore.revision.addListener(_onSnapshotChanged);
     if (widget.myIdService != null) {
       _myIdService = widget.myIdService;
-      _loadState();
+      _openIdentity();
     }
   }
 
@@ -81,7 +81,7 @@ class _MyIdPageState extends State<MyIdPage> {
     final sdk = context.read<CitizenSdk>();
     final accountSecurity = context.read<AccountSecurityService>();
     _accountSecurity = accountSecurity;
-    _myIdService = MyIdService(
+    _myIdService = context.read<MyIdService?>() ?? MyIdService(
       wallet: sdk.wallet,
       signing: sdk.signing,
       chain: sdk.chain,
@@ -93,14 +93,14 @@ class _MyIdPageState extends State<MyIdPage> {
       chatRuntime: () => context.read<ChatSdk>(),
     );
     // 身份账户切换必须让身份页立即重排，和广场、聊天共用同一身份版本号。
-    accountSecurity.revision.addListener(_loadState);
-    _loadState();
+    accountSecurity.revision.addListener(_onIdentityChanged);
+    _openIdentity();
   }
 
   @override
   void dispose() {
     IdentityBadgeSnapshotStore.revision.removeListener(_onSnapshotChanged);
-    _accountSecurity?.revision.removeListener(_loadState);
+    _accountSecurity?.revision.removeListener(_onIdentityChanged);
     super.dispose();
   }
 
@@ -109,18 +109,40 @@ class _MyIdPageState extends State<MyIdPage> {
   }
 
   bool _refreshing = false;
+  bool _identityChanged = false;
+
+  Future<void> _openIdentity() async {
+    await _loadState();
+    if (mounted) await _refreshState();
+  }
+
+  void _onIdentityChanged() {
+    if (_refreshing) {
+      _identityChanged = true;
+    } else {
+      _loadState();
+    }
+  }
 
   Future<void> _refreshState() async {
     if (_refreshing || _submitting) return;
     _refreshing = true;
     final generation = ++_loadGeneration;
+    final currentUser = context.read<CurrentUserContext?>();
+    String? account;
     setState(() {
       _loading = true;
       _refreshError = null;
     });
     try {
+      account = (await currentUser?.resolve())?.accountId;
+      if (!mounted || generation != _loadGeneration) return;
       final result = await _myIdService!.refreshState();
       if (!mounted || generation != _loadGeneration) return;
+      if (currentUser != null && (await currentUser.resolve())?.accountId != account) {
+        await _loadState();
+        return;
+      }
       setState(() {
         if (result.status == MyIdStatus.queryFailed) {
           _refreshError = '身份验证失败，请重试';
@@ -137,16 +159,20 @@ class _MyIdPageState extends State<MyIdPage> {
       if (mounted && generation == _loadGeneration) {
         setState(() => _loading = false);
       }
+      if (_identityChanged && mounted) {
+        _identityChanged = false;
+        await _loadState(preserveError: true);
+      }
     }
   }
 
-  Future<void> _loadState() async {
+  Future<void> _loadState({bool preserveError = false}) async {
     final generation = ++_loadGeneration;
     if (mounted) setState(() => _loading = true);
     MyIdState nextState;
     try {
       nextState = await _myIdService!.getState();
-    } on Exception {
+    } on Object {
       // 本地展示读取失败时保留错误状态，不能把未知误认成访客。
       nextState = const MyIdState(
         tier: MyIdTier.visitor,
@@ -156,7 +182,7 @@ class _MyIdPageState extends State<MyIdPage> {
     }
     if (!mounted || generation != _loadGeneration) return;
     setState(() {
-      _refreshError = null;
+      if (!preserveError) _refreshError = null;
       _state = nextState;
       _loading = false;
     });
@@ -211,47 +237,6 @@ class _MyIdPageState extends State<MyIdPage> {
       );
       return '身份 CID 已换绑到所选账户';
     });
-  }
-
-  /// 显式恢复和普通展示刷新分离；重复点击与迟到提示均由原忙状态/代次挡住。
-  Future<void> _recoverService() async {
-    if (_submitting || _loading || _refreshing) return;
-    final generation = ++_loadGeneration;
-    final currentUser = context.read<CurrentUserContext?>();
-    String? accountId;
-    var captured = false;
-    setState(() {
-      _submitting = true;
-      _refreshError = null;
-    });
-    try {
-      accountId = (await currentUser?.resolve())?.accountId;
-      captured = true;
-      if (!mounted) return;
-      await _myIdService!.recoverServiceAccess();
-      if (!mounted) return;
-      // 服务已完成账户/绑定复核，重新读当前本机展示，不应用旧异步快照。
-      await _loadState();
-    } catch (error) {
-      // 恢复自身会广播快照/绑定代次；同账户失败仍应可见，切账户的迟到错误丢弃。
-      var current = generation == _loadGeneration;
-      if (mounted && captured && currentUser != null) {
-        try {
-          current = (await currentUser.resolve())?.accountId == accountId;
-        } catch (_) {
-          current = false;
-        }
-      }
-      if (error is AccountSecurityException &&
-          error.code == 'identityChanged') {
-        current = false;
-      }
-      if (mounted && current) {
-        setState(() => _refreshError = '服务恢复失败，请重试或完成注册');
-      }
-    } finally {
-      if (mounted) setState(() => _submitting = false);
-    }
   }
 
   /// 统一提交外壳:置 loading → 跑动作 → 成功提示并回刷身份 → 失败提示;不吞异常。
@@ -311,12 +296,6 @@ class _MyIdPageState extends State<MyIdPage> {
         title: const Text('身份'),
         centerTitle: true,
         actions: [
-          TextButton(
-            onPressed: _submitting || _loading || _refreshing
-                ? null
-                : _recoverService,
-            child: const Text('恢复服务'),
-          ),
           if (_actionLabel != null)
             _submitting
                 ? Padding(

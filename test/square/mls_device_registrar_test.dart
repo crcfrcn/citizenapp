@@ -6,6 +6,9 @@ import 'package:citizenapp/account/identity/account_security_service.dart';
 import 'package:citizenapp/account/identity/square_session_provider.dart';
 
 import 'dart:convert';
+import 'dart:async';
+
+import 'package:citizen_sdk/account_codec.dart';
 
 import 'package:flutter/foundation.dart';
 
@@ -168,7 +171,191 @@ Future<void> _register(
       }) async => '0x${'bb' * 64}',
 );
 
+/// 只控制明确的签名取消/失败；不伪造成功签名，也不访问设备钱包或金库。
+class _AttemptWallet implements CitizenSdkWallet, CitizenSigning {
+  _AttemptWallet({
+    this.cold = false,
+    this.failure = CitizenSdkErrorCode.authenticationCancelled,
+  });
+  final bool cold;
+  final CitizenSdkErrorCode failure;
+  int signs = 0;
+  Completer<void>? barrier;
+  @override
+  CitizenSdkOperation<CitizenWalletState> getState() => testCitizenOperation(
+    () async => CitizenWalletState(
+      initializationState: CitizenWalletInitializationState.ready,
+      cleanupPending: false,
+      revision: BigInt.one,
+      hotProfile: null,
+      accounts: [
+        CitizenWalletStateAccount(
+          signMode: cold
+              ? CitizenWalletSignMode.cold
+              : CitizenWalletSignMode.hot,
+          walletIndex: 0,
+          accountIndex: cold ? null : 0,
+          accountId: _accountId,
+          ss58Address: citizenSs58FromAccountId(_accountId),
+          name: '合成账户',
+          createdAtMillis: BigInt.zero,
+          isDefault: true,
+        ),
+      ],
+    ),
+  );
+  @override
+  CitizenSdkOperation<CitizenSigningOutcome> begin(
+    CitizenSigningIntent intent,
+  ) => testCitizenOperation(() async {
+    signs++;
+    await barrier?.future;
+    throw CitizenSdkException(code: failure, message: '合成签名终态');
+  });
+  @override
+  dynamic noSuchMethod(Invocation invocation) => throw StateError('不应调用此钱包能力');
+}
+
 void main() {
+  Future<AccountSecurityService> attemptSecurity(
+    _AttemptWallet wallet,
+    _ProofStore records, {
+    void Function()? onCold,
+  }) async {
+    final service = AccountSecurityService(
+      wallet: wallet,
+      signing: wallet,
+      blobStore: records,
+      mlsDeviceRegistrar:
+          ({
+            required cidNumber,
+            required bindingRevision,
+            required accountId,
+            required signBinding,
+          }) async {
+            await signBinding(
+              payload: Uint8List.fromList([1]),
+              signingMessage: Uint8List.fromList([2]),
+              publicKey: '0x${'ab' * 32}',
+              issuedAtMillis: 1,
+            );
+          },
+      coldMlsDeviceBindingSigner:
+          ({
+            required binding,
+            required payload,
+            required signingMessage,
+            required publicKey,
+            required issuedAtMillis,
+          }) async {
+            onCold?.call();
+            throw const AccountSecurityException(
+              '合成冷签取消',
+              code: 'authenticationCancelled',
+            );
+          },
+    );
+    addTearDown(service.dispose);
+    await service.activateIdentityBinding(
+      genesisHash: _binding.genesisHash,
+      cidNumber: _binding.cidNumber,
+      bindingRevision: 1,
+      accountId: _accountId,
+    );
+    return service;
+  }
+
+  for (final failure in [
+    CitizenSdkErrorCode.authenticationCancelled,
+    CitizenSdkErrorCode.cancelled,
+    CitizenSdkErrorCode.network,
+    CitizenSdkErrorCode.integrity,
+  ]) {
+    test('首次设备授权$failure：只有明确取消才能再次主动授权', () async {
+      final records = _ProofStore(), wallet = _AttemptWallet(failure: failure);
+      final service = await attemptSecurity(wallet, records);
+      final cancelled =
+          failure == CitizenSdkErrorCode.authenticationCancelled ||
+          failure == CitizenSdkErrorCode.cancelled;
+      await expectLater(
+        service.registerMlsDeviceForBinding(_binding),
+        throwsA(isA<CitizenSdkException>()),
+      );
+      final attempts = records.entries.keys.where(
+        (key) => key.startsWith('mls.registration.attempt:'),
+      );
+      expect(attempts.length, cancelled ? 0 : 1);
+      await expectLater(
+        service.registerMlsDeviceForBinding(_binding),
+        cancelled
+            ? throwsA(isA<CitizenSdkException>())
+            : throwsA(
+                isA<AccountSecurityException>().having(
+                  (e) => e.code,
+                  'code',
+                  'authenticationRequired',
+                ),
+              ),
+      );
+      expect(wallet.signs, cancelled ? 2 : 1);
+      expect(records.entries.containsKey('identity.bindings'), isTrue);
+    });
+  }
+
+  test('冷签明确取消可再次主动授权，不触发热签或删除公开绑定', () async {
+    final records = _ProofStore(), wallet = _AttemptWallet(cold: true);
+    var calls = 0;
+    final service = await attemptSecurity(
+      wallet,
+      records,
+      onCold: () => calls++,
+    );
+    for (var i = 0; i < 2; i++) {
+      await expectLater(
+        service.registerMlsDeviceForBinding(_binding),
+        throwsA(
+          isA<AccountSecurityException>().having(
+            (e) => e.code,
+            'code',
+            'authenticationCancelled',
+          ),
+        ),
+      );
+    }
+    expect(calls, 2);
+    expect(wallet.signs, 0);
+    expect(
+      records.entries.keys.where(
+        (key) => key.startsWith('mls.registration.attempt:'),
+      ),
+      isEmpty,
+    );
+    expect(records.entries.containsKey('identity.bindings'), isTrue);
+  });
+
+  test('同绑定并发授权共用一次，取消结束后才允许下一次用户动作', () async {
+    final records = _ProofStore(),
+        wallet = _AttemptWallet()..barrier = Completer<void>();
+    final service = await attemptSecurity(wallet, records);
+    final first = service.registerMlsDeviceForBinding(_binding);
+    final second = service.registerMlsDeviceForBinding(_binding);
+    expect(identical(first, second), isTrue);
+    await Future<void>.delayed(Duration.zero);
+    expect(wallet.signs, 1);
+    final checks = Future.wait([
+      expectLater(first, throwsA(isA<CitizenSdkException>())),
+      expectLater(second, throwsA(isA<CitizenSdkException>())),
+    ]);
+    wallet.barrier!.complete();
+    await checks;
+    wallet.barrier = null;
+    await expectLater(
+      service.registerMlsDeviceForBinding(_binding),
+      throwsA(isA<CitizenSdkException>()),
+    );
+    expect(wallet.signs, 2);
+  });
+
   TestCitizenSdkHarness();
   test('本机绑定缺失为未知，不读MLS或代办链恢复/登记', () async {
     final source = FakeMlsAuthentication();

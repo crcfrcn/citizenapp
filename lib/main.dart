@@ -130,28 +130,33 @@ Future<void> main() async {
   final squareApiClient = SquareApiClient();
   final appPushService = AppPushService();
   late final SquareSessionProvider squareSessionProvider;
+  late final MyIdService identityService;
+  chat.ChatSdk? sharedChatRuntime;
   final cidBusinessGate = CidBusinessGate(
     currentUserContext: currentUserContext,
     identityResolver: finalizedIdentityResolver,
     revision: accountSecurity.revision,
-    restoreFinalizedBinding: (verified) => MyIdService(
-      wallet: citizenSdk.wallet,
-      signing: citizenSdk.signing,
-      chain: citizenSdk.chain,
-      transactions: citizenSdk.transactions,
-      history: citizenSdk.history,
-      accountSecurity: accountSecurity,
-      currentUserContext: currentUserContext,
-      identityResolver: finalizedIdentityResolver,
-      sessionProvider: squareSessionProvider,
-      chatRuntime: readChatRuntime,
-    ).recoverFinalizedBinding(verified),
+    synchronizeIdentity: (verified) => identityService.synchronizeIdentity(verified),
   );
   squareSessionProvider = SquareSessionProvider(
     accountSecurity: accountSecurity,
     currentUserContext: currentUserContext,
     client: squareApiClient,
     authentication: authentication,
+  );
+
+  identityService = MyIdService(
+    wallet: citizenSdk.wallet,
+    signing: citizenSdk.signing,
+    chain: citizenSdk.chain,
+    transactions: citizenSdk.transactions,
+    history: citizenSdk.history,
+    accountSecurity: accountSecurity,
+    currentUserContext: currentUserContext,
+    identityResolver: finalizedIdentityResolver,
+    sessionProvider: squareSessionProvider,
+    chatRuntime: () => readChatRuntime(),
+    activeChatRuntime: () => sharedChatRuntime,
   );
 
   // 任何 ChatSdk、钱包页或 PIN 门禁构造前先处理跨重启擦除门闩。
@@ -191,7 +196,6 @@ Future<void> main() async {
   }
 
   // 普通认证和聊天惰性共用一个运行实例；擦除门闩通过前不创建MLS状态。
-  chat.ChatSdk? sharedChatRuntime;
   readChatRuntime = () => sharedChatRuntime ??= createCitizenChatRuntime(
     accountSecurity: accountSecurity,
     currentUserContext: currentUserContext,
@@ -255,6 +259,7 @@ Future<void> main() async {
       sdk: citizenSdk,
       startChain: () => citizenSdk.start(),
       registrationCoordinator: registrationCoordinator,
+      identityService: identityService,
       accountSecurity: accountSecurity,
       currentUserContext: currentUserContext,
       finalizedIdentityResolver: finalizedIdentityResolver,
@@ -455,6 +460,7 @@ class CitizenApp extends StatefulWidget {
   const CitizenApp({
     super.key,
     this.registrationCoordinator,
+    this.identityService,
     this.startChain,
     required this.sdk,
     required this.accountSecurity,
@@ -469,6 +475,7 @@ class CitizenApp extends StatefulWidget {
     required this.closeChatRuntime,
   });
 
+  final MyIdService? identityService;
   final Future<void> Function()? startChain;
   final RegistrationCoordinator? registrationCoordinator;
   final CitizenSdk sdk;
@@ -490,10 +497,62 @@ class CitizenApp extends StatefulWidget {
 class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
   Future<void> _chainStartup = Future<void>.value();
   bool _closing = false;
+  StreamSubscription<CitizenSdkEvent>? _identityEvents;
+  String? _identityAccount;
+  bool _identityRetry = true;
+  bool _identityRequested = false;
+  Future<void>? _identitySync;
+
+  /// 身份生命周期独立于聊天；只在账户变化或首次缺绑定时做公开同步。
+  void _requestIdentitySync() {
+    if (_closing || widget.identityService == null) return;
+    _identityRequested = true;
+    if (_identitySync != null) return;
+    _identitySync = _synchronizeIdentity().whenComplete(() {
+      _identitySync = null;
+      if (_identityRequested && !_closing) _requestIdentitySync();
+    });
+  }
+
+  Future<void> _synchronizeIdentity() async {
+    while (_identityRequested && !_closing) {
+      _identityRequested = false;
+      try {
+        final account = (await widget.sdk.wallet.getState().result).defaultAccount;
+        if (_closing) return;
+        if (account == null) {
+          _identityAccount = null;
+          _identityRetry = true;
+          widget.currentUserContext.invalidate();
+          continue;
+        }
+        final initial = _identityAccount == null;
+        final changed = _identityAccount != account.accountId;
+        if (changed) widget.currentUserContext.invalidate();
+        final current = await widget.currentUserContext.resolve();
+        if (!changed && !_identityRetry) continue;
+        _identityAccount = account.accountId;
+        // 已有绑定的首次启动直接复用；切换账户仍核对新账户的链事实。
+        if (initial && current?.isRegistered == true) {
+          _identityRetry = false;
+          continue;
+        }
+        final state = await widget.identityService!.refreshState();
+        _identityRetry = state.status == MyIdStatus.queryFailed;
+      } on Object {
+        _identityRetry = true;
+        AppLog.d('identity_sync_unavailable');
+      }
+    }
+  }
+
   Future<void> _startChain() async {
     try {
       await widget.startChain?.call();
-      if (!_closing) await widget.transactionHistory.start();
+      if (!_closing) {
+        await widget.transactionHistory.start();
+        _requestIdentitySync();
+      }
     } on Object {
       // 原生安全诊断归SDK；App不记录可能含业务数据的异常原文。
       AppLog.d('[CitizenSDK] chain_start_failed');
@@ -501,7 +560,14 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
   }
   Future<void> _stopSdk() async {
     _closing = true;
+    try {
+      await _identityEvents?.cancel();
+    } on Object {
+      // 身份监听撤销失败也必须继续原SDK的有序关闭。
+      AppLog.d('identity_listener_close_failed');
+    }
     await _chainStartup;
+    await _identitySync;
     await _closeCitizenSdk(widget.sdk, widget.transactionHistory);
   }
   late final _registrationCoordinator =
@@ -513,6 +579,12 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
     widget.squareSessionProvider.installRuntimeFactory(
       widget.chatRuntimeFactory,
     );
+    _identityEvents = widget.sdk.events.listen((event) {
+      if (event is CitizenSdkWalletChanged ||
+          ((event is CitizenSdkFinalizedBlockChanged || event is CitizenSdkCapabilitiesChanged) && _identityRetry)) {
+        _requestIdentitySync();
+      }
+    });
     _chainStartup = _startChain();
   }
 
@@ -546,6 +618,8 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
           value: _registrationCoordinator,
         ),
         Provider<CitizenSdk>.value(value: widget.sdk),
+        if (widget.identityService != null)
+          Provider<MyIdService>.value(value: widget.identityService!),
         Provider<AccountSecurityService>.value(value: widget.accountSecurity),
         Provider<CurrentUserContext>.value(value: widget.currentUserContext),
         Provider<FinalizedIdentityResolver>.value(

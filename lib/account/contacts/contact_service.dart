@@ -662,15 +662,13 @@ class UserContactService {
 
   /// 解析通讯录永久属主与当前授权账户；未注册 CID 必须失败关闭。
   Future<_ContactOwner> _requireIdentityOwner() async {
-    var identity = await _currentUser.resolve();
-    if (identity != null && !identity.isRegistered) {
-      // 首次安装/重新导入可能还没有本机公开绑定；普通通讯录通过 Cloudflare
-      // finalized 用户投影建立会话并恢复绑定，禁止为此建立第二节点。
-      await _sessionProvider.ensureSession();
-      identity = await _currentUser.resolve();
-    }
+    final identity = await _currentUser.resolve();
     if (identity == null || !identity.isRegistered) {
-      throw const AccountSecurityException('请先注册 CID 身份');
+      throw SquareApiException(
+        identity?.isUnregistered == true ? '当前账户尚未注册公民号' : '身份信息暂不可用，请在身份页刷新后重试',
+        errorCode: identity?.isUnregistered == true ? 'identity_unregistered' : 'identity_local_missing',
+        stage: SquareApiStage.identity,
+      );
     }
     return _ContactOwner(
       cidNumber: requireCidNumber(identity.cidNumber),

@@ -182,8 +182,11 @@ class InstitutionAdminView {
   const InstitutionAdminView({
     required this.admin,
     this.assignments = const [],
+    this.assignmentsLoaded = true,
   });
 
+  /// 只表示附加岗位资料是否完整读取，不参与任何业务授权。
+  final bool assignmentsLoaded;
   final AdminPerson admin;
   final List<InstitutionAdminAssignment> assignments;
 }

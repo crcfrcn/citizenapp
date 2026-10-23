@@ -256,8 +256,11 @@ class _MembershipPageState extends State<MembershipPage>
           ),
         );
       }
-      // 会话入口先经公民号门禁；本机绑定缺失时核对 finalized 链事实并恢复绑定，
-      // 不能把本机缓存未命中直接当作未注册，也不能提前启动 MLS。
+      // 只消费公开身份同步的结果；缺缓存不冒充未注册，也不借页面加载登记设备。
+      if (localUser?.isUnregistered == true) {
+        _enterUnregistered();
+        return;
+      }
       final resolution = await _sessionProvider.resolveSession();
       _sessionStatus = resolution.status;
       final session = resolution.session;

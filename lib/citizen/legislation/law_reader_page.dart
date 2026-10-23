@@ -13,11 +13,7 @@ import 'package:citizenapp/system/theme/app_layout.dart';
 /// 顶部显状态 + 链上生效时间。读链:law + law_version(公民端默认生效版本)
 /// + (宪法)immutableManifest;若存在待生效修订,额外读取待生效版时间用于提示。
 class LawReaderPage extends StatefulWidget {
-  const LawReaderPage({
-    super.key,
-    required this.lawId,
-    this.api,
-  });
+  const LawReaderPage({super.key, required this.lawId, this.api});
 
   final int lawId;
   final LegislationApi? api;
@@ -38,6 +34,10 @@ class _LawReaderPageState extends State<LawReaderPage> {
   int? _pendingEffectiveAt;
   bool _loading = true;
   String? _error;
+  int _generation = 0;
+  int? _requestedVersion;
+
+  bool _isCurrent(int generation) => mounted && generation == _generation;
   bool _showEn = false;
   final Set<int> _expanded = {};
   final Set<String> _expandedSections = {};
@@ -67,17 +67,23 @@ class _LawReaderPageState extends State<LawReaderPage> {
   }
 
   Future<void> _load() async {
-    final hasLocal = await _loadLocalSnapshot();
-    await _refreshFromChain(showSpinner: !hasLocal);
+    final generation = ++_generation;
+    _requestedVersion = null;
+    try {
+      await _loadLocalSnapshot(generation);
+    } on Object {
+      // 本机读取异常不代表链上正文缺失；继续原 finalized 查询。
+    }
+    if (_isCurrent(generation)) await _refreshFromChain(generation);
   }
 
   /// 先读本机快照，避免用户每次进入公民宪法都等待链上 RPC。
-  Future<bool> _loadLocalSnapshot() async {
+  Future<void> _loadLocalSnapshot(int generation) async {
     final law = await _api.localLaw(widget.lawId);
     final versionId = law?.readerVersion;
-    if (law == null || versionId == null) return false;
+    if (law == null || versionId == null) return;
     final version = await _api.localLawVersion(law.lawId, versionId);
-    if (version == null) return false;
+    if (version == null) return;
     final manifest = law.tier == LawTier.constitution
         ? await _api.localImmutableManifest()
         : null;
@@ -85,11 +91,13 @@ class _LawReaderPageState extends State<LawReaderPage> {
     final pendingVersionId = law.pendingVersion;
     int? pendingEffectiveAt;
     if (pendingVersionId != null && pendingVersionId != versionId) {
-      final pendingVersion =
-          await _api.localLawVersion(law.lawId, pendingVersionId);
+      final pendingVersion = await _api.localLawVersion(
+        law.lawId,
+        pendingVersionId,
+      );
       pendingEffectiveAt = pendingVersion?.effectiveAt;
     }
-    if (!mounted) return false;
+    if (!_isCurrent(generation)) return;
     setState(() {
       _applySnapshot(
         law,
@@ -101,39 +109,50 @@ class _LawReaderPageState extends State<LawReaderPage> {
       _loading = false;
       _error = null;
     });
-    return true;
   }
 
-  Future<void> _refreshFromChain({required bool showSpinner}) async {
-    if (showSpinner && mounted) {
-      setState(() {
-        _loading = true;
-        _error = null;
-      });
-    }
+  void _fail(int generation, String message) {
+    if (!_isCurrent(generation)) return;
+    setState(() {
+      _loading = false;
+      _error = message;
+    });
+  }
+
+  Future<void> _retry() => _requestedVersion == null
+      ? _load()
+      : _changeVersion(_requestedVersion!, force: true);
+
+  Future<void> _refreshFromChain(int generation) async {
+    setState(() {
+      _loading = _version == null;
+      _error = null;
+    });
     try {
       final law = await _api.law(widget.lawId, forceRefresh: true);
+      if (!_isCurrent(generation)) return;
       if (law == null) {
-        if (mounted) {
-          setState(() {
-            _loading = false;
-            _error = _showEn ? 'Law not found' : '未找到该法律';
-          });
-        }
+        _fail(generation, _showEn ? 'Law not found' : '未找到该法律');
         return;
       }
       final versionId = law.readerVersion;
       if (versionId == null) {
-        if (mounted) {
-          setState(() {
-            _loading = false;
-            _error = _showEn ? 'No readable version is available' : '该法律暂无可读版本';
-          });
-        }
+        _fail(
+          generation,
+          _showEn ? 'No readable version is available' : '该法律暂无可读版本',
+        );
         return;
       }
-      final version =
-          await _api.lawVersion(law.lawId, versionId, forceRefresh: true);
+      final version = await _api.lawVersion(
+        law.lawId,
+        versionId,
+        forceRefresh: true,
+      );
+      if (!_isCurrent(generation)) return;
+      if (version == null) {
+        _fail(generation, _showEn ? 'Law content not found' : '法律正文缺失，请重试');
+        return;
+      }
       final manifest = law.tier == LawTier.constitution
           ? await _api.immutableManifest(forceRefresh: true)
           : null;
@@ -141,21 +160,16 @@ class _LawReaderPageState extends State<LawReaderPage> {
       final pendingVersionId = law.pendingVersion;
       int? pendingEffectiveAt;
       if (pendingVersionId != null && pendingVersionId != versionId) {
-        final pendingVersion = await _api.lawVersion(
+        final pending = await _api.lawVersion(
           law.lawId,
           pendingVersionId,
           forceRefresh: true,
         );
-        pendingEffectiveAt = pendingVersion?.effectiveAt;
+        pendingEffectiveAt = pending?.effectiveAt;
       }
-      if (!mounted) return;
-      if (!showSpinner &&
-          _sameSnapshot(law, version, manifest,
-              versionLabels: versionLabels,
-              pendingEffectiveAt: pendingEffectiveAt)) {
-        return;
-      }
+      if (!_isCurrent(generation)) return;
       setState(() {
+        // 保持相同正文的展开位置；成功的重试也必须清除上一次错误。
         _applySnapshot(
           law,
           version,
@@ -167,83 +181,90 @@ class _LawReaderPageState extends State<LawReaderPage> {
         _error = null;
       });
     } on Object {
-      if (mounted) {
-        if (showSpinner) {
-          setState(() {
-            _loading = false;
-            _error =
-                _showEn ? 'Failed to read law from chain' : '法律读取失败，请检查网络后重试';
-          });
-        }
-      }
+      _fail(
+        generation,
+        _showEn ? 'Failed to read law from chain' : '法律读取失败，请检查网络后重试',
+      );
     }
   }
 
-  /// 切换到历史版本(版本史)。重新拉取该版本正文并重置展开态。
-  Future<void> _changeVersion(int version) async {
+  /// 用户选择立即作废旧后台结果；失败保留正文，重试仍查询本次目标版本。
+  Future<void> _changeVersion(int version, {bool force = false}) async {
     final law = _law;
-    if (law == null || version == _selectedVersion) return;
-    final local = await _api.localLawVersion(law.lawId, version);
-    final localLabel = await _api.localLawVersionLabel(law.lawId, version);
-    if (local != null && mounted) {
-      setState(() {
-        _version = local;
-        _selectedVersion = version;
-        _effectiveAt = local.effectiveAt;
-        _setVersionLabel(version, localLabel);
-        _expanded.clear();
-        _expandedSections.clear();
-      });
-    } else {
-      setState(() {
-        _loading = true;
-        _error = null;
-      });
-    }
+    if (law == null ||
+        (!force && version == _selectedVersion && _requestedVersion == version))
+      return;
+    final generation = ++_generation;
+    _requestedVersion = version;
+    setState(() {
+      _loading = _version == null;
+      _error = null;
+    });
     try {
-      final v = await _api.lawVersion(
+      final local = await _api.localLawVersion(law.lawId, version);
+      final label = await _api.localLawVersionLabel(law.lawId, version);
+      if (!_isCurrent(generation)) return;
+      if (local != null) {
+        setState(() => _applyVersion(local, label));
+      }
+    } on Object {
+      // 本机历史正文不可读时仍尝试同一个目标版本，不重置为当前生效版。
+    }
+    if (!_isCurrent(generation)) return;
+    try {
+      final value = await _api.lawVersion(
         law.lawId,
         version,
         forceRefresh: true,
       );
+      if (!_isCurrent(generation)) return;
+      if (value == null) {
+        _fail(generation, _showEn ? 'Version content not found' : '版本正文缺失，请重试');
+        return;
+      }
       final label = await _api.lawVersionLabel(
         law.lawId,
         version,
         forceRefresh: true,
       );
-      if (!mounted) return;
+      if (!_isCurrent(generation)) return;
       setState(() {
-        _version = v;
-        _selectedVersion = version;
-        _effectiveAt = v?.effectiveAt;
-        _setVersionLabel(version, label);
-        _expanded.clear();
-        _expandedSections.clear();
+        _applyVersion(value, label);
         _loading = false;
+        _error = null;
       });
     } on Object {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _error = _showEn ? 'Failed to read this version' : '版本读取失败，请检查网络后重试';
-        });
-      }
+      _fail(
+        generation,
+        _showEn ? 'Failed to read this version' : '版本读取失败，请检查网络后重试',
+      );
     }
+  }
+
+  void _applyVersion(LawVersion version, LawVersionLabel? label) {
+    if (_selectedVersion != version.version) {
+      _expanded.clear();
+      _expandedSections.clear();
+    }
+    _version = version;
+    _selectedVersion = version.version;
+    _effectiveAt = version.effectiveAt;
+    _setVersionLabel(version.version, label);
   }
 
   void _applySnapshot(
     Law law,
-    LawVersion? version,
+    LawVersion version,
     ImmutableManifest? manifest, {
     required Map<int, LawVersionLabel> versionLabels,
     required int? pendingEffectiveAt,
   }) {
     _law = law;
     _version = version;
-    _selectedVersion = version?.version ?? law.readerVersion ?? 0;
+    _selectedVersion = version.version;
     _versionLabels = Map<int, LawVersionLabel>.unmodifiable(versionLabels);
     _manifest = manifest;
-    _effectiveAt = version?.effectiveAt;
+    _effectiveAt = version.effectiveAt;
     _pendingEffectiveAt = pendingEffectiveAt;
   }
 
@@ -280,61 +301,6 @@ class _LawReaderPageState extends State<LawReaderPage> {
       next[version] = label;
     }
     _versionLabels = Map<int, LawVersionLabel>.unmodifiable(next);
-  }
-
-  bool _sameSnapshot(
-    Law law,
-    LawVersion? version,
-    ImmutableManifest? manifest, {
-    required Map<int, LawVersionLabel> versionLabels,
-    required int? pendingEffectiveAt,
-  }) {
-    final currentLaw = _law;
-    final currentVersion = _version;
-    if (currentLaw == null || currentVersion == null || version == null) {
-      return false;
-    }
-    return currentLaw.lawId == law.lawId &&
-        currentLaw.effectiveVersion == law.effectiveVersion &&
-        currentLaw.latestVersion == law.latestVersion &&
-        currentLaw.pendingVersion == law.pendingVersion &&
-        currentLaw.status == law.status &&
-        currentVersion.version == version.version &&
-        currentVersion.contentHash == version.contentHash &&
-        _pendingEffectiveAt == pendingEffectiveAt &&
-        _sameVersionLabels(_versionLabels, versionLabels) &&
-        _sameManifest(_manifest, manifest);
-  }
-
-  bool _sameVersionLabels(
-    Map<int, LawVersionLabel> a,
-    Map<int, LawVersionLabel> b,
-  ) {
-    if (a.length != b.length) return false;
-    for (final entry in a.entries) {
-      final other = b[entry.key];
-      if (other == null) return false;
-      if (entry.value.title != other.title ||
-          entry.value.titleEn != other.titleEn) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  bool _sameManifest(ImmutableManifest? a, ImmutableManifest? b) {
-    if (a == null || b == null) return a == b;
-    if (a.articleNumbers.length != b.articleNumbers.length ||
-        a.articleHashes.length != b.articleHashes.length) {
-      return false;
-    }
-    for (var i = 0; i < a.articleNumbers.length; i++) {
-      if (a.articleNumbers[i] != b.articleNumbers[i]) return false;
-    }
-    for (var i = 0; i < a.articleHashes.length; i++) {
-      if (a.articleHashes[i] != b.articleHashes[i]) return false;
-    }
-    return true;
   }
 
   String _t(String zh, String? en) =>
@@ -422,8 +388,9 @@ class _LawReaderPageState extends State<LawReaderPage> {
           Container(
             key: const ValueKey('law-reader-loading-shell'),
             padding: EdgeInsets.symmetric(
-                horizontal: AppLayout.scaledValue(14),
-                vertical: AppLayout.scaledValue(18)),
+              horizontal: AppLayout.scaledValue(14),
+              vertical: AppLayout.scaledValue(18),
+            ),
             decoration: BoxDecoration(
               color: AppTheme.surfaceCard,
               borderRadius: BorderRadius.circular(AppLayout.scaledValue(12)),
@@ -451,18 +418,15 @@ class _LawReaderPageState extends State<LawReaderPage> {
         ],
       );
     }
-    if (_error != null) {
+    if (_error != null && (v == null || law == null)) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              _error!,
-              style: const TextStyle(color: AppTheme.textTertiary),
-            ),
+            Text(_error!, style: const TextStyle(color: AppTheme.textTertiary)),
             SizedBox(height: AppLayout.scaledValue(8)),
             TextButton(
-              onPressed: _load,
+              onPressed: _retry,
               child: Text(_showEn ? 'Retry' : '重试'),
             ),
           ],
@@ -474,6 +438,26 @@ class _LawReaderPageState extends State<LawReaderPage> {
     }
     return CustomScrollView(
       slivers: [
+        if (_error != null)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _error!,
+                      style: const TextStyle(color: AppTheme.warning),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _retry,
+                    child: Text(_showEn ? 'Retry' : '重试'),
+                  ),
+                ],
+              ),
+            ),
+          ),
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
           sliver: SliverToBoxAdapter(child: _header(law, v)),

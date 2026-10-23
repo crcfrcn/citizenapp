@@ -679,7 +679,7 @@ class _ChatTabState extends State<ChatTab> {
     } catch (error) {
       if (mounted && generation == _reloadGeneration) {
         setState(() {
-          // 本机缺绑定使用已知闭集恢复提示，未知底层异常仍走原脱敏文案。
+          // 本机缺绑定使用已知闭集身份提示，未知底层异常仍走原脱敏文案。
           _error =
               error is SquareApiException &&
                   error.errorCode == 'identity_local_missing'
@@ -704,7 +704,7 @@ class _ChatTabState extends State<ChatTab> {
     }
   }
 
-  /// 打开聊天只恢复展示、登记公民会话；附件动作才按需读取唯一会员缓存。
+  /// 打开聊天只读取展示、复用普通会话；附件动作才按需读取唯一会员缓存。
   Future<void> _ensureChatEntitlement(
     String cidNumber,
     int reloadGeneration,
@@ -1999,7 +1999,7 @@ UserContactService? _contactServiceFromContextOrNull(BuildContext context) {
   );
 }
 
-/// 聊天只读本机绑定；缺失是未知态，恢复必须由用户在身份页主动发起。
+/// 聊天只消费统一身份结果；缓存缺失保持未知，不查链或隐式登记设备。
 Future<({String cidNumber, String accountId})> _resolveChatIdentity(
   CurrentUserContext currentUser,
 ) async {
@@ -2008,8 +2008,9 @@ Future<({String cidNumber, String accountId})> _resolveChatIdentity(
   if (identity.isRegistered) {
     return (cidNumber: identity.cidNumber, accountId: identity.accountId);
   }
+  if (identity.isUnregistered) return (cidNumber: '', accountId: identity.accountId);
   throw const SquareApiException(
-    '请在身份页恢复或完成注册后重试',
+    '身份信息暂不可用，请在身份页刷新后重试',
     errorCode: 'identity_local_missing',
     stage: SquareApiStage.identity,
   );

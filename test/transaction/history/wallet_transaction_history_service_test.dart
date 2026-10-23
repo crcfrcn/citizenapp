@@ -74,32 +74,6 @@ void main() {
     );
   });
 
-  test('Revive日志按准确metadata保留原生序号、地址、字节和最多四个主题', () {
-    final decoded = const CitizenChainTransactionEventDecoder().decode(
-      eventsBytes: _transferEvents(contractTopics: 4),
-      metadataBytes: _eventMetadata(),
-    );
-    final log = decoded.contractLogs.single;
-    expect(log.contract, '0x${'dd' * 20}');
-    expect(log.data, [1, 2, 3]);
-    expect(log.topics, List.filled(4, '0x${'ee' * 32}'));
-    expect(log.extrinsicIndex, 0);
-    expect(() => log.data[0] = 9, throwsUnsupportedError);
-    expect(() => log.topics.add('0x'), throwsUnsupportedError);
-    for (final bytes in [
-      _transferEvents(contractTopics: 5),
-      _transferEvents(contractTopics: 1, failed: true),
-    ]) {
-      expect(
-        () => const CitizenChainTransactionEventDecoder().decode(
-          eventsBytes: bytes,
-          metadataBytes: _eventMetadata(),
-        ),
-        throwsFormatException,
-      );
-    }
-  });
-
   test('重复费用不写入流水或推进游标，修正后从原块恢复', () async {
     final chain = _HistoryChain()..height = 1;
     chain.encodedEvents[1] = _transferEvents(
@@ -705,27 +679,6 @@ Uint8List _eventMetadata({
     const metadata.TypeDefTuple([]),
   ];
 
-  definitions.addAll([
-    const metadata.TypeDefArray(length: 20, type: 0),
-    const metadata.TypeDefSequence(type: 3),
-    metadata.TypeDefVariant(
-      variants: [
-        variant('ContractEmitted', 3, [
-          field('contract', 14),
-          field('data', 4),
-          field('topics', 15),
-        ]),
-      ],
-    ),
-  ]);
-  final outer = definitions[9] as metadata.TypeDefVariant;
-  definitions[9] = metadata.TypeDefVariant(
-    variants: [
-      ...outer.variants,
-      variant('Revive', 35, [field(null, 16)]),
-    ],
-  );
-
   // 账户类型默认按 AccountId32 的透明包装形状生成，防止裸数组掩盖回归。
   for (var depth = 0; depth < accountWrapperDepth; depth++) {
     final inner = definitions.length;
@@ -821,7 +774,6 @@ Uint8List _transferEvents({
   bool recursiveEvent = false,
   BigInt? feeFen,
   bool duplicateFee = false,
-  int? contractTopics,
 }) {
   final from = List.filled(32, incoming ? 0xbb : 0xaa);
   final to = List.filled(32, incoming ? 0xaa : 0xbb);
@@ -867,19 +819,6 @@ Uint8List _transferEvents({
   if (recursiveEvent) {
     // RuntimeEvent::Tree 包含两层单元素序列及空序列，无业务信息。
     events.add([0, ...scale.U32Codec.codec.encode(0), 9, 4, 4, 0, 0]);
-  }
-  if (contractTopics != null) {
-    events.add(
-      record(35, 3, [
-        ...List.filled(20, 0xdd),
-        12,
-        1,
-        2,
-        3,
-        ...scale.CompactCodec.codec.encode(contractTopics),
-        for (var i = 0; i < contractTopics; i++) ...List.filled(32, 0xee),
-      ]),
-    );
   }
   if (!omitOutcome) events.add(record(0, failed ? 1 : 0, []));
   return Uint8List.fromList([

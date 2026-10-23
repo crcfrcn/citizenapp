@@ -7,6 +7,7 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizenapp/main.dart';
 import 'package:citizenapp/account/identity/account_security_service.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
+import 'package:citizenapp/account/identity/myid_service.dart';
 import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
 import 'package:citizenapp/account/identity/cid_business_gate.dart';
 import 'package:citizenapp/account/identity/square_session_provider.dart';
@@ -26,7 +27,21 @@ class _Security extends Fake implements AccountSecurityService {
   void dispose() {}
 }
 
-class _Current extends Fake implements CurrentUserContext {}
+class _Current extends Fake implements CurrentUserContext {
+  @override
+  Future<CurrentUser?> resolve() async => null;
+  @override
+  void invalidate() {}
+}
+
+class _PublicSync extends Fake implements MyIdService {
+  int calls = 0;
+  @override
+  Future<MyIdState> refreshState() async {
+    calls++;
+    return const MyIdState(tier: MyIdTier.visitor);
+  }
+}
 
 class _Resolver extends Fake implements FinalizedIdentityResolver {}
 
@@ -69,6 +84,7 @@ void main() {
           });
       final transport = TestCitizenSdkTransport({
         'start': (_) => ['running'],
+        'getWalletState': (_) => [testCitizenWalletState()],
         'stop': (_) {
           if (stopFails) {
             throw const CitizenSdkException(
@@ -95,11 +111,13 @@ void main() {
         events: events.stream,
       );
       await history.start();
+      final publicSync = _PublicSync();
       var runtimeCreations = 0;
       var runtimeCloses = 0;
       await tester.pumpWidget(
         CitizenApp(
           sdk: sdk,
+          identityService: publicSync,
           accountSecurity: _Security(),
           currentUserContext: _Current(),
           finalizedIdentityResolver: _Resolver(),
@@ -107,7 +125,7 @@ void main() {
             currentUserContext: _Current(),
             identityResolver: _Resolver(),
             revision: ValueNotifier<int>(0),
-            restoreFinalizedBinding: (_) async {},
+            synchronizeIdentity: (_) async {},
           ),
           squareSessionProvider: _Sessions(),
           squareApiClient: SquareApiClient(),
@@ -122,10 +140,21 @@ void main() {
           },
         ),
       );
+      await tester.pump();
+      expect(publicSync.calls, 1);
+      transport.walletChanged();
+      transport.walletChanged();
+      await tester.pump();
+      await tester.pump();
+      expect(publicSync.calls, 1, reason: '同一默认账户事件不得重复查询身份');
+      expect(runtimeCreations, 0);
       await tester.pumpWidget(const SizedBox.shrink());
-      for (var i = 0; i < 30 && !transport.calls.contains('stop'); i++) {
-        await tester.pump(const Duration(milliseconds: 10));
-      }
+      // 新身份监听与交易监听均真实撤销后才停SDK，虚拟帧不能代替原生I/O。
+      await tester.runAsync(() async {
+        for (var i = 0; i < 100 && !transport.calls.contains('stop'); i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      });
       await tester.pump();
       expect(runtimeCreations, 0);
       expect(runtimeCloses, 1);
@@ -140,9 +169,11 @@ void main() {
           await sdk.close();
         });
       } else {
-        for (var i = 0; i < 30 && !transport.calls.contains('close'); i++) {
-          await tester.pump(const Duration(milliseconds: 10));
-        }
+        await tester.runAsync(() async {
+          for (var i = 0; i < 100 && !transport.calls.contains('close'); i++) {
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+          }
+        });
         expect(
           transport.calls.indexOf('stop'),
           lessThan(transport.calls.indexOf('close')),
@@ -163,6 +194,8 @@ void main() {
           .setMockMethodCallHandler(storage, null);
       // 流控制器关闭可能投递真实事件；离开Widget虚拟时钟完成夹具清理。
       await tester.runAsync(() async {
+        // 合成取消失败会保留历史服务租约；根关闭断言之后单独排空夹具。
+        await history.stop();
         await events.close();
         await transport.dispose();
         await records!.delete(recursive: true);

@@ -2,19 +2,28 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'package:citizenapp/account/identity/account_security_service.dart';
 import 'package:citizenapp/account/identity/identity_binding.dart';
+import 'identity_badge_snapshot_store.dart';
 
 /// 普通业务的当前用户快照；账户直接使用 CitizenSDK 公开模型。
 final class CurrentUser {
-  const CurrentUser({required this.account, required this.binding});
+  const CurrentUser({
+    required this.account,
+    required this.binding,
+    this.verifiedUnregistered = false,
+  });
 
   final CitizenWalletStateAccount account;
   final IdentityBinding? binding;
+
+  /// 仅完整验真得到空身份才成立；本机缺绑定仍是未知。
+  final bool verifiedUnregistered;
 
   String get accountId => account.accountId;
   String get ss58Address => account.ss58Address;
   String get cidNumber => binding?.cidNumber ?? '';
   int get bindingRevision => binding?.bindingRevision ?? 0;
   bool get isRegistered => binding != null;
+  bool get isUnregistered => binding == null && verifiedUnregistered;
 }
 
 typedef CurrentUserBindingReader = Future<IdentityBinding?> Function(
@@ -29,13 +38,16 @@ interface class CurrentUserContext {
     required CitizenSdkWallet wallet,
     required AccountSecurityService accountSecurity,
     CurrentUserBindingReader? bindingReader,
+    Future<IdentityBadgeSnapshot?> Function(String)? identityReader,
   }) : _wallet = wallet,
        _accountSecurity = accountSecurity,
-       _bindingReader = bindingReader;
+       _bindingReader = bindingReader,
+       _identityReader = identityReader;
 
   final CitizenSdkWallet _wallet;
   final AccountSecurityService _accountSecurity;
   final CurrentUserBindingReader? _bindingReader;
+  final Future<IdentityBadgeSnapshot?> Function(String)? _identityReader;
 
   CurrentUser? _cached;
   int _cachedRevision = -1;
@@ -65,12 +77,25 @@ interface class CurrentUserContext {
   Future<CurrentUser?> _resolveFresh(int revision, int generation) async {
     final account = (await _wallet.getState().result).defaultAccount;
     if (account == null) return null;
-    final binding =
+    var binding =
         await (_bindingReader?.call(account.accountId) ??
             _accountSecurity.readIdentityBindingForAccountId(
               account.accountId,
             ));
-    final current = CurrentUser(account: account, binding: binding);
+    IdentityBadgeSnapshot? saved;
+    try {
+      saved = await (_identityReader?.call(account.accountId) ??
+          IdentityBadgeSnapshotStore().readForAccountId(account.accountId));
+    } on Object {
+      // 展示库不可读不能触发查链，也不能把缓存缺失认作未注册。
+    }
+    final unregistered = saved?.verified == true && saved?.identity == null;
+    if (unregistered) binding = null;
+    final current = CurrentUser(
+      account: account,
+      binding: binding,
+      verifiedUnregistered: unregistered,
+    );
     if (_generation == generation &&
         _accountSecurity.revision.value == revision) {
       _cached = current;

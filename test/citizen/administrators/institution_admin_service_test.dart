@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -19,6 +20,11 @@ import '../../support/fake_citizen_sdk.dart';
 class FakeChain extends TestCitizenChain {
   final Map<String, Uint8List?> responses = {};
   final List<String> requestedKeys = [];
+  final Set<String> failedKeys = {};
+  final Map<String, List<Uint8List>> scanKeys = {};
+  final queued = <String, List<Future<Uint8List?> Function()>>{};
+  int scans = 0;
+  bool scanFailure = false;
 
   @override
   Future<CitizenBlockRef> getFinalizedHead() async => CitizenBlockRef(
@@ -34,8 +40,20 @@ class FakeChain extends TestCitizenChain {
   ) async {
     final storageKeyHex = '0x${key.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join()}';
     requestedKeys.add(storageKeyHex);
+    if (queued[storageKeyHex]?.isNotEmpty == true) return queued[storageKeyHex]!.removeAt(0)();
+    if (failedKeys.contains(storageKeyHex)) throw StateError('合成人员/阈值读取失败');
     return responses[storageKeyHex];
   }
+  @override
+  Future<List<Uint8List>> getStorageKeysPaged(CitizenBlockRef block, Uint8List prefix,
+      {Uint8List? startKey, int limit = 256}) async {
+    scans++;
+    if (scanFailure) throw StateError('合成岗位读取失败');
+    return scanKeys['0x${prefix.map((v) => v.toRadixString(16).padLeft(2, '0')).join()}'] ?? [];
+  }
+  @override
+  Future<List<Uint8List?>> getStorageBatch(CitizenBlockRef block, List<Uint8List> keys) async =>
+      [for (final key in keys) responses['0x${key.map((v) => v.toRadixString(16).padLeft(2, '0')).join()}']];
 }
 
 class FakeAdminService extends InstitutionAdminService {
@@ -49,8 +67,29 @@ class FakeAdminService extends InstitutionAdminService {
       admins;
 }
 
+/// 合成只读人员和岗位结果，不构造钱包签名或真实管理员授权。
+class _ViewService extends InstitutionAdminService {
+  _ViewService(this.people) : super(chain: TestCitizenChain());
+  final List<AdminPerson> people;
+  List<InstitutionAdminAssignment> assignments = [];
+  bool peopleFailure = false, assignmentFailure = false;
+  int assignmentReads = 0;
+  @override
+  Future<List<AdminPerson>> fetchAdmins(AdminAccountIdentity identity) async {
+    if (peopleFailure) throw StateError('合成人员失败');
+    return people;
+  }
+  @override
+  Future<List<InstitutionAdminAssignment>> fetchAssignments(AdminAccountIdentity identity, String cid) async {
+    assignmentReads++;
+    if (assignmentFailure) throw StateError('合成岗位失败');
+    return assignments;
+  }
+}
+
 void main() {
   useIsolatedIsar();
+  setUp(() => AdminAccountService(chain: TestCitizenChain()).clearCache());
   String hexOf(Iterable<int> bytes) =>
       bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
 
@@ -123,6 +162,157 @@ void main() {
     ];
     return '0x${hexOf(bytes)}';
   }
+
+  final displayIdentity = AdminAccountIdentity.institution(
+    cidNumber: 'LN001-NRC0G-944805165-2026', institutionCode: 'NRC', accountLabel: '合成机构');
+  final people = [for (final byte in ['aa', 'bb']) AdminPerson(
+    account_id: '0x${byte * 32}', family_name: '合成', given_name: byte)];
+  InstitutionAdminAssignment assignment(String role) => InstitutionAdminAssignment(
+    cidNumber: displayIdentity.cidNumber!, account_id: people.first.account_id,
+    roleCode: role, roleName: role, termStart: 0, termEnd: 0,
+    source: InstitutionAssignmentSource.genesis, sourceRef: '', active: true);
+
+  test('人员成功且岗位失败保留完整顺序，重试后区分无岗位与多岗位', () async {
+    final service = _ViewService(people)..assignmentFailure = true;
+    final unknown = await service.fetchAdminViews(displayIdentity, displayIdentity.cidNumber!);
+    expect(unknown.map((v) => v.admin.account_id), people.map((p) => p.account_id));
+    expect(unknown.every((v) => !v.assignmentsLoaded && v.assignments.isEmpty), isTrue);
+    service.assignmentFailure = false;
+    service.assignments = [assignment('FIRST'), assignment('SECOND')];
+    final loaded = await service.fetchAdminViews(displayIdentity, displayIdentity.cidNumber!);
+    expect(loaded.every((v) => v.assignmentsLoaded), isTrue);
+    expect(loaded.first.assignments.map((v) => v.roleCode), ['FIRST', 'SECOND']);
+    expect(loaded.last.assignments, isEmpty);
+  });
+  test('人员失败不伪造零人，后续重试仍可成功', () async {
+    final service = _ViewService(people)..peopleFailure = true;
+    await expectLater(service.fetchAdminViews(displayIdentity, displayIdentity.cidNumber!), throwsStateError);
+    expect(service.assignmentReads, 0);
+    service.peopleFailure = false;
+    expect(await service.fetchAdminViews(displayIdentity, displayIdentity.cidNumber!), hasLength(2));
+  });
+  test('完整核实零人不等待附加岗位查询', () async {
+    final service = _ViewService([])..assignmentFailure = true;
+    expect(await service.fetchAdminViews(displayIdentity, displayIdentity.cidNumber!), isEmpty);
+    expect(service.assignmentReads, 0);
+  });
+  test('人员视图拒绝CID不一致及个人账户，不进入未知岗位分支', () async {
+    final service = _ViewService(people);
+    await expectLater(service.fetchAdminViews(displayIdentity, 'OTHER'), throwsArgumentError);
+    await expectLater(service.fetchAdminViews(AdminAccountIdentity.personalAccount(
+      personalAccountId: '0x${'01' * 32}', accountLabel: '合成个人'), displayIdentity.cidNumber!), throwsArgumentError);
+    expect(service.assignmentReads, 0);
+  });
+  for (final code in ['NRC', 'FRG', 'UNIN']) {
+    test('真实人员读取按$code精确主体路由，岗位失败不丢人', () async {
+      final rpc = FakeChain()..scanFailure = true;
+      final identity = AdminAccountIdentity.institution(cidNumber: 'GD001-${code}00-123456789-2026',
+        institutionCode: code, accountLabel: '合成机构', kind: code == 'UNIN' ? 1 : 0);
+      final key = '0x${hexOf(AdminAccountIdCodec.institutionAdminStorageKey(identity.cidNumber!,
+        institutionCode: code, adminKind: identity.kind))}';
+      rpc.responses[key] = institutionAdminBytes(institutionCode: code, admin: List.filled(32, 0xaa));
+      final service = InstitutionAdminService(chain: rpc);
+      final views = await service.fetchAdminViews(identity, identity.cidNumber!);
+      expect(views.single.admin.account_id, '0x${'aa' * 32}');
+      expect(views.single.assignmentsLoaded, isFalse);
+      expect(rpc.requestedKeys.first, key);
+      rpc.scanFailure = false;
+      final retried = await service.fetchAdminViews(identity, identity.cidNumber!);
+      expect(retried.single.assignmentsLoaded, isTrue);
+      expect(retried.single.assignments, isEmpty);
+    });
+  }
+  for (final malformed in [false, true]) {
+    test('扫描到岗位键但${malformed ? '解码无效' : '值缺失'}时不能显示暂无岗位', () async {
+      final rpc = FakeChain();
+      final identity = displayIdentity;
+      final key = '0x${hexOf(AdminAccountIdCodec.institutionAdminStorageKey(identity.cidNumber!,
+        institutionCode: 'NRC', adminKind: 0))}';
+      rpc.responses[key] = institutionAdminBytes(institutionCode: 'NRC', admin: List.filled(32, 0xaa));
+      final cidBytes = AdminAccountIdCodec.scaleBytes(utf8.encode(identity.cidNumber!));
+      final prefix = Uint8List.fromList([...Hasher.twoxx128.hashString('PublicManage'),
+        ...Hasher.twoxx128.hashString('InstitutionRoles'), ...AdminAccountIdCodec.blake2128Concat(cidBytes)]);
+      final roleKey = Uint8List.fromList([...prefix, 1]);
+      rpc.scanKeys['0x${hexOf(prefix)}'] = [roleKey];
+      if (malformed) rpc.responses['0x${hexOf(roleKey)}'] = Uint8List.fromList([255]);
+      final views = await InstitutionAdminService(chain: rpc).fetchAdminViews(identity, identity.cidNumber!);
+      expect(views.single.assignmentsLoaded, isFalse);
+    });
+  }
+
+  test('阈值失败仍可展示同一人员，完整权限失败且重试不冒认成功', () async {
+    final rpc = FakeChain(); final identity = displayIdentity;
+    final key = '0x${hexOf(AdminAccountIdCodec.institutionAdminStorageKey(identity.cidNumber!,
+      institutionCode: 'NRC', adminKind: 0))}';
+    final threshold = thresholdKey(palletName: 'PublicManage', storageName: 'InstitutionGovernanceThresholds',
+      keyData: AdminAccountIdCodec.scaleBytes(utf8.encode(identity.cidNumber!)));
+    rpc.responses[key] = institutionAdminBytes(institutionCode: 'NRC', admin: List.filled(32, 0xaa));
+    rpc.responses[threshold] = Uint8List.fromList(u32Le(2)); rpc.failedKeys.add(threshold);
+    final source = AdminAccountService(chain: rpc);
+    final service = InstitutionAdminService(chain: rpc);
+    final views = await service.fetchAdminViews(identity, identity.cidNumber!);
+    expect(views.single.admin.account_id, '0x${'aa' * 32}');
+    expect(views.single.assignmentsLoaded, isFalse);
+    await expectLater(source.fetchByIdentity(identity), throwsStateError);
+    await expectLater(service.fetchState(identity, cidNumber: identity.cidNumber!), throwsStateError);
+    await expectLater(source.isAdmin('0x${'aa' * 32}', identity), throwsStateError);
+    await expectLater(service.isAdmin('0x${'aa' * 32}', identity), throwsStateError);
+    expect(await source.fetchAdmins(identity), hasLength(1));
+    expect(rpc.requestedKeys.where((v) => v == key), hasLength(1));
+    rpc.failedKeys.clear();
+    expect((await source.fetchByIdentity(identity))?.threshold, 2);
+    expect(await source.isAdmin('0x${'aa' * 32}', identity), isTrue);
+    expect((await service.fetchAdminViews(identity, identity.cidNumber!)).single.assignmentsLoaded, isTrue);
+  });
+  test('真实零人员记录只读取名册，不查询阈值或岗位', () async {
+    final rpc = FakeChain(); final identity = displayIdentity;
+    final key = '0x${hexOf(AdminAccountIdCodec.institutionAdminStorageKey(identity.cidNumber!,
+      institutionCode: 'NRC', adminKind: 0))}';
+    rpc.responses[key] = Uint8List.fromList([...codeBytes('NRC'), 0]);
+    final views = await InstitutionAdminService(chain: rpc).fetchAdminViews(identity, identity.cidNumber!);
+    expect(views, isEmpty); expect(rpc.requestedKeys, [key]); expect(rpc.scans, 0);
+  });
+  test('损坏人员记录失败不能伪造成零人，失败后可重新读取', () async {
+    final rpc = FakeChain(); final identity = displayIdentity;
+    final key = '0x${hexOf(AdminAccountIdCodec.institutionAdminStorageKey(identity.cidNumber!,
+      institutionCode: 'NRC', adminKind: 0))}';
+    rpc.responses[key] = Uint8List.fromList([255]);
+    final service = InstitutionAdminService(chain: rpc);
+    await expectLater(service.fetchAdminViews(identity, identity.cidNumber!), throwsFormatException);
+    expect(rpc.scans, 0);
+    rpc.responses[key] = institutionAdminBytes(institutionCode: 'NRC', admin: List.filled(32, 0xaa));
+    expect(await service.fetchAdminViews(identity, identity.cidNumber!), hasLength(1));
+  });
+  test('人员和完整状态并发复用同一次读取与finalized块，不复制名册缓存', () async {
+    final rpc = FakeChain(); final identity = displayIdentity;
+    final key = '0x${hexOf(AdminAccountIdCodec.institutionAdminStorageKey(identity.cidNumber!,
+      institutionCode: 'NRC', adminKind: 0))}';
+    final threshold = thresholdKey(palletName: 'PublicManage', storageName: 'InstitutionGovernanceThresholds',
+      keyData: AdminAccountIdCodec.scaleBytes(utf8.encode(identity.cidNumber!)));
+    final delayed = Completer<Uint8List?>(); rpc.queued[key] = [() => delayed.future];
+    rpc.responses[threshold] = Uint8List.fromList(u32Le(3));
+    final source = AdminAccountService(chain: rpc);
+    final peopleRead = source.fetchAdmins(identity), fullRead = source.fetchByIdentity(identity);
+    await Future<void>.delayed(Duration.zero); expect(rpc.requestedKeys, [key]);
+    delayed.complete(institutionAdminBytes(institutionCode: 'NRC', admin: List.filled(32, 0xaa)));
+    expect(await peopleRead, hasLength(1)); expect((await fullRead)?.threshold, 3);
+    expect(rpc.requestedKeys, [key, threshold]);
+    expect(await source.fetchAdmins(identity), hasLength(1)); expect(rpc.requestedKeys, [key, threshold]);
+  });
+  test('清缓存后的旧人员读取不能覆盖新名册', () async {
+    final rpc = FakeChain(); final identity = displayIdentity;
+    final key = '0x${hexOf(AdminAccountIdCodec.institutionAdminStorageKey(identity.cidNumber!,
+      institutionCode: 'NRC', adminKind: 0))}';
+    final delayed = Completer<Uint8List?>(); rpc.queued[key] = [() => delayed.future];
+    rpc.responses[key] = institutionAdminBytes(institutionCode: 'NRC', admin: List.filled(32, 0xbb));
+    final source = AdminAccountService(chain: rpc); final old = source.fetchAdmins(identity);
+    await Future<void>.delayed(Duration.zero); source.clearCache(identity);
+    expect((await source.fetchAdmins(identity)).single.account_id, '0x${'bb' * 32}');
+    delayed.complete(institutionAdminBytes(institutionCode: 'NRC', admin: List.filled(32, 0xaa)));
+    await old;
+    expect((await source.fetchAdmins(identity)).single.account_id, '0x${'bb' * 32}');
+    expect(rpc.requestedKeys, [key, key]);
+  });
 
   test('私权非法人机构按 CID 与显式 kind 路由', () async {
     const cidNumber = 'GD001-UNIN0-123456789-2026';

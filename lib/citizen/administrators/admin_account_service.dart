@@ -19,6 +19,7 @@ class AdminAccountService {
   static const Duration _cacheTtl = Duration(seconds: 30);
   static final Map<String, _AdminAccountCacheEntry> _cache = {};
   static final Map<String, Future<AdminAccountState?>> _inFlight = {};
+  static final Map<String, Future<_AdminAccountCacheEntry?>> _accountReads = {};
 
   final CitizenChain _chain;
 
@@ -27,7 +28,7 @@ class AdminAccountService {
   ) async {
     final cacheKey = identity.identityKey;
     final cached = _cache[cacheKey];
-    if (cached != null && cached.isFresh(_cacheTtl)) return cached.state;
+    if (cached != null && cached.isFresh(_cacheTtl) && cached.thresholdLoaded) return cached.state;
     final existing = _inFlight[cacheKey];
     if (existing != null) return existing;
 
@@ -41,41 +42,58 @@ class AdminAccountService {
   Future<AdminAccountState?> _fetchUncached(
     AdminAccountIdentity identity,
   ) async {
-    final finalized = await _chain.getFinalizedHead();
-    final AdminAccountState? decoded;
-    if (identity.type == AdminAccountIdentityType.institution) {
-      final cidNumber = identity.cidNumber!;
-      final key = AdminAccountIdCodec.institutionAdminStorageKey(
-        cidNumber,
-        institutionCode: identity.institutionCode,
-        adminKind: identity.kind,
-      );
-      final data = await _chain.getStorage(finalized, key);
-      decoded = data == null
-          ? null
-          : AdminAccountCodec.decodeInstitution(
-              cidNumber: cidNumber,
-              data: data,
-              institutionKind: identity.kind,
-            );
-    } else {
-      final personalAccount =
-          AdminAccountIdCodec.fromAccountIdText(identity.personalAccountId!);
-      final key = AdminAccountIdCodec.personalAdminStorageKey(personalAccount);
-      final data = await _chain.getStorage(finalized, key);
-      decoded = data == null
-          ? null
-          : AdminAccountCodec.decodePersonal(personalAccount, data);
-    }
-    if (decoded == null) return null;
-    final threshold = await _resolveThreshold(identity, finalized);
-    final state = decoded.copyWith(threshold: threshold ?? 0);
-    _cache[identity.identityKey] = _AdminAccountCacheEntry(state);
-    return state;
+    final account = await _loadAccount(identity);
+    if (account == null) return null;
+    // 完整权限仍要求同一 finalized 块的阈值读取成功，失败不把名册当权限快照。
+    final threshold = await _resolveThreshold(identity, account.finalized);
+    account.state = account.state.copyWith(threshold: threshold ?? 0);
+    account.thresholdLoaded = true;
+    return account.state;
   }
 
+  Future<_AdminAccountCacheEntry?> _loadAccount(AdminAccountIdentity identity) {
+    final key = identity.identityKey;
+    final cached = _cache[key];
+    if (cached != null && cached.isFresh(_cacheTtl)) return Future.value(cached);
+    final existing = _accountReads[key];
+    if (existing != null) return existing;
+    late final Future<_AdminAccountCacheEntry?> pending;
+    pending = _readAccount(identity).then((account) {
+      // clearCache之后的迟到读取不重新填入已作废的缓存。
+      if (account != null && identical(_accountReads[key], pending)) _cache[key] = account;
+      return account;
+    }).whenComplete(() {
+      if (identical(_accountReads[key], pending)) _accountReads.remove(key);
+    });
+    _accountReads[key] = pending;
+    return pending;
+  }
+
+  /// 人员和完整状态共用唯一整键读取与公开解码；不复制机构/个人布局。
+  Future<_AdminAccountCacheEntry?> _readAccount(AdminAccountIdentity identity) async {
+    final finalized = await _chain.getFinalizedHead();
+    final Uint8List key;
+    if (identity.type == AdminAccountIdentityType.institution) {
+      key = AdminAccountIdCodec.institutionAdminStorageKey(identity.cidNumber!,
+        institutionCode: identity.institutionCode, adminKind: identity.kind);
+    } else {
+      key = AdminAccountIdCodec.personalAdminStorageKey(
+        AdminAccountIdCodec.fromAccountIdText(identity.personalAccountId!));
+    }
+    final data = await _chain.getStorage(finalized, key);
+    if (data == null) return null;
+    final decoded = identity.type == AdminAccountIdentityType.institution
+        ? AdminAccountCodec.decodeInstitution(cidNumber: identity.cidNumber!,
+            data: data, institutionKind: identity.kind)
+        : AdminAccountCodec.decodePersonal(
+            AdminAccountIdCodec.fromAccountIdText(identity.personalAccountId!), data);
+    if (decoded == null) throw const FormatException('管理员人员记录无效');
+    return _AdminAccountCacheEntry(decoded, finalized);
+  }
+
+  /// 名册只消费人员；阈值失败不会丢弃同一缓存中已核实的人员集合。
   Future<List<AdminPerson>> fetchAdmins(AdminAccountIdentity identity) async =>
-      (await fetchByIdentity(identity))?.admins ?? const [];
+      (await _loadAccount(identity))?.state.admins ?? const [];
 
   Future<int?> fetchThreshold(AdminAccountIdentity identity) async =>
       (await fetchByIdentity(identity))?.threshold;
@@ -85,7 +103,8 @@ class AdminAccountService {
     AdminAccountIdentity identity,
   ) async {
     final normalizedAccountId = AdminAccountIdCodec.requireAccountId(accountId);
-    return (await fetchAdmins(identity))
+    // 此入口仍是完整状态门禁，不能因只读名册解耦而跳过阈值故障。
+    return ((await fetchByIdentity(identity))?.admins ?? const <AdminPerson>[])
         .any((admin) => admin.account_id == normalizedAccountId);
   }
 
@@ -93,10 +112,12 @@ class AdminAccountService {
     if (identity == null) {
       _cache.clear();
       _inFlight.clear();
+      _accountReads.clear();
       return;
     }
     _cache.remove(identity.identityKey);
     _inFlight.remove(identity.identityKey);
+    _accountReads.remove(identity.identityKey);
   }
 
   void clearPersonalAccountCache(String personalAccountId) {
@@ -104,6 +125,7 @@ class AdminAccountService {
     final key = 'personal-account:$normalized';
     _cache.remove(key);
     _inFlight.remove(key);
+    _accountReads.remove(key);
   }
 
   Future<int?> _resolveThreshold(
@@ -156,9 +178,11 @@ class AdminAccountService {
 }
 
 class _AdminAccountCacheEntry {
-  _AdminAccountCacheEntry(this.state) : createdAt = DateTime.now();
+  _AdminAccountCacheEntry(this.state, this.finalized) : createdAt = DateTime.now();
 
-  final AdminAccountState state;
+  AdminAccountState state;
+  final CitizenBlockRef finalized;
+  bool thresholdLoaded = false;
   final DateTime createdAt;
 
   bool isFresh(Duration ttl) => DateTime.now().difference(createdAt) < ttl;

@@ -161,7 +161,7 @@ void main() {
       currentUserContext: current,
       identityResolver: resolver,
       revision: ValueNotifier<int>(0),
-      restoreFinalizedBinding: (_) async { restores++; },
+      synchronizeIdentity: (_) async { restores++; },
     );
     expect((await gate.resolve()).status, CidBusinessStatus.noWallet);
     expect(resolver.reads, 0);
@@ -176,13 +176,26 @@ void main() {
       currentUserContext: current,
       identityResolver: resolver,
       revision: ValueNotifier<int>(0),
-      restoreFinalizedBinding: (_) async { restores++; },
+      synchronizeIdentity: (_) async { restores++; },
     );
     final decision = await gate.resolve();
     expect(decision.status, CidBusinessStatus.ready);
     expect(decision.cidNumber, cidNumber);
     expect(resolver.reads, 0);
     expect(restores, 0);
+  });
+
+  test('已核实未注册直接显示引导，不重复查链或同步', () async {
+    final current = _Current(CurrentUser(account: account(accountId), binding: null, verifiedUnregistered: true));
+    final resolver = _Resolver(null)..fails = true;
+    final gate = CidBusinessGate(
+      currentUserContext: current,
+      identityResolver: resolver,
+      revision: ValueNotifier<int>(0),
+      synchronizeIdentity: (_) async => fail('已核实状态不应重新同步'),
+    );
+    expect((await gate.resolve()).status, CidBusinessStatus.unregistered);
+    expect(resolver.reads, 0);
   });
 
   test('并发入口共用当前账户一次链核对', () async {
@@ -192,7 +205,7 @@ void main() {
       currentUserContext: current,
       identityResolver: resolver,
       revision: ValueNotifier<int>(0),
-      restoreFinalizedBinding: (_) async {},
+      synchronizeIdentity: (_) async {},
     );
     final first = gate.resolve();
     final second = gate.resolve();
@@ -214,7 +227,7 @@ void main() {
       currentUserContext: current,
       identityResolver: resolver,
       revision: ValueNotifier<int>(0),
-      restoreFinalizedBinding: (_) async {},
+      synchronizeIdentity: (_) async {},
     );
     final pending = gate.resolve();
     await Future<void>.delayed(Duration.zero);
@@ -235,7 +248,7 @@ void main() {
       currentUserContext: current,
       identityResolver: resolver,
       revision: revision,
-      restoreFinalizedBinding: (_) async {},
+      synchronizeIdentity: (_) async {},
     );
     final oldDecision = gate.resolve();
     await Future<void>.delayed(Duration.zero);
@@ -251,7 +264,7 @@ void main() {
     expect((await oldDecision).status, CidBusinessStatus.unavailable);
   });
 
-  test('链上确认无公民号才输出统一注册态，不触发恢复', () async {
+  test('链上确认无公民号同步空身份后输出注册态', () async {
     final current = _Current(CurrentUser(account: account(accountId), binding: null));
     final resolver = _Resolver(FinalizedIdentity(
       accountId: accountId,
@@ -263,10 +276,10 @@ void main() {
       currentUserContext: current,
       identityResolver: resolver,
       revision: ValueNotifier<int>(0),
-      restoreFinalizedBinding: (_) async { restores++; },
+      synchronizeIdentity: (_) async { restores++; },
     );
     expect((await gate.resolve()).status, CidBusinessStatus.unregistered);
-    expect(restores, 0);
+    expect(restores, 1);
   });
 
   test('本机缓存缺失但链上已有公民号时恢复同一绑定', () async {
@@ -281,7 +294,7 @@ void main() {
       currentUserContext: current,
       identityResolver: resolver,
       revision: ValueNotifier<int>(0),
-      restoreFinalizedBinding: (_) async {
+      synchronizeIdentity: (_) async {
         restores++;
         current.value = CurrentUser(account: account(accountId), binding: binding);
       },
@@ -304,7 +317,7 @@ void main() {
       currentUserContext: current,
       identityResolver: resolver,
       revision: ValueNotifier<int>(0),
-      restoreFinalizedBinding: (_) async {},
+      synchronizeIdentity: (_) async {},
     );
     expect((await gate.resolve()).status, CidBusinessStatus.unavailable);
     resolver.fails = false;
@@ -312,7 +325,7 @@ void main() {
       currentUserContext: current,
       identityResolver: resolver,
       revision: ValueNotifier<int>(0),
-      restoreFinalizedBinding: (_) async {
+      synchronizeIdentity: (_) async {
         current.value = CurrentUser(account: account(otherAccountId), binding: null);
       },
     );

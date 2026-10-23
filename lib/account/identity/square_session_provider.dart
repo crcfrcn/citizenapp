@@ -57,8 +57,9 @@ class SquareSessionResolution {
   final SquareApiStage? stage;
 
   String get message => switch (errorCode) {
-    'identity_local_missing' => '请在身份页恢复或完成注册后重试',
-    'registration_required' => '请在身份页完成注册安全验证和设备激活',
+    'identity_local_missing' => '身份信息暂不可用，请在身份页刷新后重试',
+    'device_not_registered' => '当前设备尚未登记，请完成设备授权后重试',
+    'registration_required' => '请完成注册验证和当前设备授权',
     'mls_challenge_limit_reached' || 'request_rate_exceeded' => '请求过于频繁，请稍后重试',
     'authenticationRequired' => '首次设备登记授权尚未完成',
     _ => status.message,
@@ -68,6 +69,7 @@ class SquareSessionResolution {
   static SquareSessionResolution fromError(Object error) {
     if (error is SquareApiException) {
       final status = switch (error.errorCode) {
+        'identity_unregistered' => SquareSessionStatus.identityUnbound,
         'identity_local_missing' ||
         'cid_not_bound' ||
         'identity_projection_pending' =>
@@ -86,6 +88,7 @@ class SquareSessionResolution {
         _ => SquareSessionStatus.serviceUnavailable,
       };
       const knownCodes = {
+        'identity_unregistered',
         'identity_local_missing',
         'cid_not_bound',
         'identity_projection_pending',
@@ -250,7 +253,7 @@ class SquareSessionProvider {
 
   Future<SquareSession?> ensureSession() => _ensureSession();
 
-  /// 仅用户主动恢复/注册调用；Worker明确未登记后才允许一次钱包登记。
+  /// 仅用户明确发起的业务动作或注册调用；Worker明确未登记后才允许一次钱包登记。
   Future<SquareSession?> registerCurrentDevice() =>
       _ensureSession(allowRegistration: true);
 
@@ -271,9 +274,9 @@ class SquareSessionProvider {
     }
     final binding = current.binding;
     if (binding == null || binding.accountId != current.accountId) {
-      throw const SquareApiException(
-        '请在身份页恢复或完成注册后重试',
-        errorCode: 'identity_local_missing',
+      throw SquareApiException(
+        current.isUnregistered ? '当前账户尚未注册公民号' : '身份信息暂不可用，请在身份页刷新后重试',
+        errorCode: current.isUnregistered ? 'identity_unregistered' : 'identity_local_missing',
         stage: SquareApiStage.identity,
       );
     }

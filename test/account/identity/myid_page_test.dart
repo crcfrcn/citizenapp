@@ -67,90 +67,40 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('打开/刷新身份页不恢复，恢复仅点击一次且失败保持材料', (tester) async {
+  testWidgets('身份页没有独立恢复入口，打开与下拉复用公开同步', (tester) async {
     final service = _FakeMyIdService(_votingState);
     await tester.pumpWidget(MaterialApp(home: MyIdPage(myIdService: service)));
     await tester.pumpAndSettle();
-    expect(service.recoveries, 0);
-    await tester
-        .widget<RefreshIndicator>(find.byType(RefreshIndicator))
-        .onRefresh();
+    expect(find.text('恢复服务'), findsNothing);
+    expect(service.refreshes, 1);
+    await tester.widget<RefreshIndicator>(find.byType(RefreshIndicator)).onRefresh();
     await tester.pumpAndSettle();
-    expect(service.recoveries, 0);
-    final pending = Completer<void>();
-    service.recovery = pending.future;
-    await tester.tap(find.text('恢复服务'));
-    await tester.pump();
-    await tester.tap(find.text('恢复服务'));
-    await tester.pump();
-    expect(service.recoveries, 1);
-    pending.completeError(StateError('不应显示的服务正文'));
-    await tester.pumpAndSettle();
-    expect(find.text('服务恢复失败，请重试或完成注册'), findsOneWidget);
-    expect(find.textContaining('不应显示的服务正文'), findsNothing);
+    expect(service.refreshes, 2);
     expect(find.text(_votingState.cidNumber!), findsOneWidget);
-    service.recovery = null;
-    await tester.tap(find.text('恢复服务'));
-    await tester.pumpAndSettle();
-    expect(service.recoveries, 2);
-    expect(find.text('服务恢复失败，请重试或完成注册'), findsNothing);
   });
 
-  testWidgets('恢复自身广播快照后同账户失败仍可见且材料保留', (tester) async {
-    final service = _FakeMyIdService(_votingState), pending = Completer<void>();
-    service.recovery = pending.future;
-    await tester.pumpWidget(
-      Provider<CurrentUserContext>.value(
-        value: _PageCurrentUser(),
-        child: MaterialApp(home: MyIdPage(myIdService: service)),
-      ),
-    );
+  testWidgets('刷新期间切换账户丢弃旧结果并读取当前展示', (tester) async {
+    final service = _FakeMyIdService(_votingState);
+    final current = _PageCurrentUser();
+    await tester.pumpWidget(Provider<CurrentUserContext>.value(
+      value: current,
+      child: MaterialApp(home: MyIdPage(myIdService: service)),
+    ));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('恢复服务'));
+    final pending = Completer<MyIdState>();
+    service.pending = pending.future;
+    final refresh = tester.widget<RefreshIndicator>(find.byType(RefreshIndicator)).onRefresh();
     await tester.pump();
+    current.selectedAccountId = '0x${'22' * 32}';
+    service.state = const MyIdState(tier: MyIdTier.visitor, cidNumber: 'CID-NEW');
     IdentityBadgeSnapshotStore.revision.value++;
-    await tester.pump();
-    pending.completeError(StateError('本次设备登记失败'));
+    pending.complete(_votingState);
+    await refresh;
     await tester.pumpAndSettle();
-    expect(find.text('服务恢复失败，请重试或完成注册'), findsOneWidget);
-    expect(find.text(_votingState.cidNumber!), findsOneWidget);
+    expect(find.text('CID-NEW'), findsOneWidget);
+    expect(find.text(_votingState.cidNumber!), findsNothing);
+    expect(find.text('身份验证失败，请重试'), findsNothing);
   });
-
-  for (final failed in [false, true]) {
-    testWidgets('恢复迟到$failed不能覆盖更新后的身份展示', (tester) async {
-      final service = _FakeMyIdService(_votingState),
-          pending = Completer<void>();
-      service.recovery = pending.future;
-      final currentUser = _PageCurrentUser();
-      await tester.pumpWidget(
-        Provider<CurrentUserContext>.value(
-          value: currentUser,
-          child: MaterialApp(home: MyIdPage(myIdService: service)),
-        ),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('恢复服务'));
-      await tester.pump();
-      service.state = const MyIdState(
-        tier: MyIdTier.visitor,
-        cidNumber: 'CID-NEW-CURRENT',
-      );
-      currentUser.selectedAccountId = '0x${'22' * 32}';
-      IdentityBadgeSnapshotStore.revision.value++;
-      // 恢复仍在进行，忙指示器持续动画，不能等待所有帧停止。
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-      if (failed) {
-        pending.completeError(StateError('旧账户失败'));
-      } else {
-        pending.complete();
-      }
-      await tester.pumpAndSettle();
-      expect(find.text('CID-NEW-CURRENT'), findsOneWidget);
-      expect(find.text(_votingState.cidNumber!), findsNothing);
-      expect(find.text('服务恢复失败，请重试或完成注册'), findsNothing);
-    });
-  }
 
   testWidgets('三张身份卡始终存在且旧访客文案彻底删除', (tester) async {
     await pumpPage(tester, const MyIdState(tier: MyIdTier.visitor));
@@ -274,7 +224,7 @@ void main() {
       ),
     );
 
-    expect(find.text('链上身份读取失败'), findsOneWidget);
+    expect(find.text('身份验证失败，请重试'), findsOneWidget);
     expect(find.text('重试'), findsOneWidget);
     expect(find.text('当前身份'), findsNothing);
     expect(find.text('身份·访客'), findsOneWidget);
@@ -580,23 +530,23 @@ void main() {
     expectCompactField(card(MyIdTier.candidate), '公民姓名', '张三');
   });
 
-  testWidgets('进入只读本地，刷新一次且失败保留已显示公民号', (tester) async {
+  testWidgets('打开先读本地并同步，主动刷新失败保留已显示公民号', (tester) async {
     final service = _FakeMyIdService(_votingState);
     await tester.pumpWidget(MaterialApp(home: MyIdPage(myIdService: service)));
     await tester.pumpAndSettle();
     expect(service.localReads, 1);
-    expect(service.refreshes, 0);
+    expect(service.refreshes, 1);
     final refresh = tester.widget<RefreshIndicator>(
       find.byType(RefreshIndicator),
     );
     await refresh.onRefresh();
     await tester.pumpAndSettle();
-    expect(service.refreshes, 1);
+    expect(service.refreshes, 2);
     expect(find.text('CID-2026-0715'), findsOneWidget);
     service.refreshFails = true;
     await refresh.onRefresh();
     await tester.pumpAndSettle();
-    expect(service.refreshes, 2);
+    expect(service.refreshes, 3);
     expect(find.text('CID-2026-0715'), findsOneWidget);
     expect(find.text('身份验证失败，请重试'), findsOneWidget);
   });
@@ -717,22 +667,16 @@ class _FakeMyIdService implements MyIdService {
     return state;
   }
 
-  int recoveries = 0;
-  Future<void>? recovery;
-  @override
-  Future<void> recoverServiceAccess() async {
-    recoveries++;
-    await recovery;
-  }
-
   int localReads = 0;
   int refreshes = 0;
   bool refreshFails = false;
+  Future<MyIdState>? pending;
 
   @override
   Future<MyIdState> refreshState() async {
     refreshes++;
     if (refreshFails) throw StateError('测试断网');
+    if (pending != null) return pending!;
     return state;
   }
 

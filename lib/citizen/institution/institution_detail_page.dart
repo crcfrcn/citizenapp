@@ -49,6 +49,8 @@ class InstitutionDetailPage extends StatefulWidget {
     required this.repository,
     this.chainState,
     this.subscriberCidNumberProvider,
+    this.contextResolver,
+    this.activationService,
   });
 
   final String cidNumber;
@@ -56,6 +58,10 @@ class InstitutionDetailPage extends StatefulWidget {
 
   /// 链态读服务(余额/管理员/提案);测试注入,默认 Live。
   final InstitutionChainState? chainState;
+
+  /// 可注入原角色/激活接口；测试与生产共用同一名册和权限加载路径。
+  final ProposalContextResolver? contextResolver;
+  final ActivationService? activationService;
 
   /// 当前已注册公民的永久 CID（只用于本地关注关系归属）。
   ///
@@ -95,6 +101,13 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
   bool _mainBalanceLoading = true;
 
   List<InstitutionAdminView> _adminViews = const [];
+  bool _adminsLoaded = false;
+  bool _adminsLoading = true;
+  bool _adminsFailed = false;
+  int _adminGeneration = 0;
+  int _roleGeneration = 0;
+  bool _roleLoading = false;
+  bool _roleFailed = false;
 
   // 治理路径专用(管理员角色 / 激活 / 富提案列表)。
   List<CitizenWalletStateAccount> _adminWallets = const [];
@@ -150,7 +163,7 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
     _multisigTransferFeed = multisigFeed;
     final adminService = InstitutionAdminService(chain: sdk.chain);
     _adminService = adminService;
-    final activationService = ActivationService(adminService: adminService);
+    final activationService = widget.activationService ?? ActivationService(adminService: adminService);
     _activationService = activationService;
     _chainState =
         widget.chainState ??
@@ -160,7 +173,7 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
           adminService: adminService,
           feed: multisigFeed,
         );
-    _contextResolver = ProposalContextResolver(
+    _contextResolver = widget.contextResolver ?? ProposalContextResolver(
       wallet: wallet,
       adminService: adminService,
       activationService: activationService,
@@ -233,8 +246,17 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
   Future<void> _loadDynamics({bool force = false}) async {
     final inst = _inst;
     if (inst == null) return;
+    // 名册、权限、余额和提案独立完成，任何一项的失败不能抹去其它已读结果。
+    await Future.wait<void>([
+      _loadAdmins(force: force),
+      _loadRole(force: force),
+      _loadBalance(),
+      if (_isGovernance) _loadGovernanceProposals(force: force)
+      else _loadPublicProposals(inst),
+    ]);
+  }
 
-    // 主账户余额(批量接口查一条)。
+  Future<void> _loadBalance() async {
     final mainHex = _accounts.isNotEmpty ? _accounts.first.accountId : '';
     try {
       final balances = await _chainState.balances([mainHex]);
@@ -244,95 +266,95 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
           _mainBalanceLoading = false;
         });
       }
-    } on Exception {
+    } on Object {
       if (mounted) setState(() => _mainBalanceLoading = false);
     }
+  }
 
-    if (_isGovernance) {
-      await _loadGovernanceAdminsAndRole(force: force);
-      await _loadGovernanceProposals(force: force);
-    } else {
-      unawaited(_loadGovernanceAdminsAndRole(force: force));
-      await _loadPublicDynamics(inst);
+  Future<void> _reloadAdmins() async {
+    await Future.wait<void>([_loadAdmins(force: true), _loadRole(force: true)]);
+  }
+
+  /// 所有机构名册只由这一条路径写入；失败保留旧名单，未核实不显示0人。
+  Future<void> _loadAdmins({bool force = false}) async {
+    final inst = _inst;
+    if (inst == null) return;
+    final generation = ++_adminGeneration;
+    final identity = _accountIdentity;
+    if (force && identity != null) _adminService?.clearCache(identity);
+    setState(() {
+      _adminsLoading = true;
+      _adminsFailed = false;
+    });
+    try {
+      final views = await _chainState.adminViews(inst);
+      if (!mounted || generation != _adminGeneration) return;
+      setState(() {
+        _adminViews = views;
+        _adminsLoaded = true;
+        _adminsLoading = false;
+      });
+    } on Object {
+      if (!mounted || generation != _adminGeneration) return;
+      setState(() {
+        _adminsFailed = true;
+        _adminsLoading = false;
+      });
     }
   }
 
-  // ──── 管理员角色加载(固定治理与注册机构账户共用)────
-
-  Future<void> _loadGovernanceAdminsAndRole({bool force = false}) async {
+  /// 当前钱包角色独立核对；失败或重查期间撤销旧操作状态，不影响人员展示。
+  Future<void> _loadRole({bool force = false}) async {
     final identity = _accountIdentity;
     final govInfo = _govInfo;
-    final adminService = _adminService;
-    final contextResolver = _contextResolver;
-    final activationService = _activationService;
-    if (identity == null ||
-        govInfo == null ||
-        adminService == null ||
-        contextResolver == null ||
-        activationService == null) {
-      return;
-    }
-    if (force) {
-      adminService.clearCache(identity);
-      contextResolver.clearWalletCache();
-    }
+    final resolver = _contextResolver;
+    final activation = _activationService;
+    if (identity == null || govInfo == null || resolver == null || activation == null) return;
+    final generation = ++_roleGeneration;
+    if (force) resolver.clearWalletCache();
+    setState(() {
+      _roleLoading = true;
+      _roleFailed = false;
+      _adminWallets = const [];
+      _isCurrentUserAdmin = false;
+      _importedColdAccountIds = const {};
+      _activatedAccountIds = const {};
+    });
     try {
       final results = await Future.wait<Object>([
-        adminService.fetchAdminViews(identity, _inst!.cidNumber),
-        contextResolver.resolve(knownInstitution: govInfo),
-        activationService
-            .getActivatedAdmins(identity)
-            .catchError((_) => <ActivatedAdmin>[]),
+        resolver.resolve(actorCidNumber: govInfo.cidNumber, knownInstitution: govInfo),
+        activation.getActivatedAdmins(identity),
       ]);
-      final adminViews = results[0] as List<InstitutionAdminView>;
-      final adminAccountIds = adminViews
-          .map((view) => view.admin.account_id)
-          .toList(growable: false);
-      final ctx = results[1] as ProposalContext;
-      final activated = results[2] as List<ActivatedAdmin>;
-      final coldAccountIds = await _loadImportedColdAccountIds(adminAccountIds);
-      if (ctx.isAdmin) {
-        ProposalContextResolver.markInstitutionAdmin(
-          _inst?.cidNumber ?? govInfo.cidNumber,
-        );
-      }
-      if (!mounted) return;
-      final shouldUpdateAdmins =
-          _isGovernance || adminViews.isNotEmpty || _adminViews.isEmpty;
+      final ctx = results[0] as ProposalContext;
+      final activated = results[1] as List<ActivatedAdmin>;
+      final imported = await _loadImportedColdAccountIds();
+      if (!mounted || generation != _roleGeneration) return;
+      if (ctx.isAdmin) ProposalContextResolver.markInstitutionAdmin(govInfo.cidNumber);
       setState(() {
-        if (shouldUpdateAdmins) {
-          _adminViews = adminViews;
-        }
         _govInfo = ctx.institution ?? govInfo;
         _adminWallets = ctx.adminWallets;
-        _importedColdAccountIds = coldAccountIds;
-        _activatedAccountIds = activated.map((a) => a.accountId).toSet();
         _isCurrentUserAdmin = ctx.isAdmin;
+        _importedColdAccountIds = imported;
+        _activatedAccountIds = activated.map((item) => item.accountId).toSet();
+        _roleLoading = false;
       });
-    } catch (_) {
-      // 联网失败保持空,不崩(治理角色仅影响发起入口可用态)。
+    } on Object {
+      if (!mounted || generation != _roleGeneration) return;
+      setState(() {
+        _roleLoading = false;
+        _roleFailed = true;
+      });
     }
   }
 
-  Future<Set<String>> _loadImportedColdAccountIds(
-    List<String> adminAccountIds,
-  ) async {
+  Future<Set<String>> _loadImportedColdAccountIds() async {
     final wallet = _wallet;
     if (wallet == null) return const {};
-    final coldAccountIds = <String>{};
-    try {
-      final allWallets = (await wallet.getState().result).accounts;
-      for (final w in allWallets) {
-        if (w.signMode == CitizenWalletSignMode.cold) {
-          if (adminAccountIds.contains(w.accountId)) {
-            coldAccountIds.add(w.accountId);
-          }
-        }
-      }
-    } on Exception {
-      // 本地钱包库异常不影响展示。
-    }
-    return coldAccountIds;
+    // 只读本机冷账户集合；名单卡片仍按精确账户ID判断是否已导入。
+    return {
+      for (final account in (await wallet.getState().result).accounts)
+        if (account.signMode == CitizenWalletSignMode.cold) account.accountId,
+    };
   }
 
   Future<void> _loadGovernanceProposals({bool force = false}) async {
@@ -368,21 +390,11 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
 
   // ──── 注册机构路径加载 ────
 
-  Future<void> _loadPublicDynamics(Institution inst) async {
-    try {
-      final adminViews = await _chainState.adminViews(inst);
-      if (mounted) {
-        setState(() {
-          _adminViews = adminViews;
-        });
-      }
-    } on Exception {
-      // 保持空。
-    }
+  Future<void> _loadPublicProposals(Institution inst) async {
     try {
       final proposals = await _chainState.proposals(inst);
       if (mounted) setState(() => _publicProposals = proposals);
-    } on Exception {
+    } on Object {
       // 保持空。
     }
   }
@@ -556,7 +568,9 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
     return _entryCard(
       icon: Icons.how_to_vote_outlined,
       title: '发起提案',
-      subtitle: _isCurrentUserAdmin
+      subtitle: _roleFailed ? '当前钱包权限暂不可用，请重试'
+          : _roleLoading ? '正在核实当前钱包权限'
+          : _isCurrentUserAdmin
           ? '转账 / 管理员更换 / …（链上按岗位授权）'
           : '激活机构签名钱包后按岗位授权发起',
       onTap: _openProposalTypes,
@@ -618,14 +632,34 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
   // ──── ④ 管理员入口(治理→AdminListPage 含激活;公权→只读列表)────
 
   Widget _adminsEntry() {
-    return _entryCard(
-      icon: Icons.people_outline,
-      title: '管理员',
-      subtitle: '共 ${_adminViews.length} 位管理员',
-      onTap: _accountIdentity != null
-          ? _openGovernanceAdminList
-          : _openPublicAdminList,
-    );
+    final incomplete = _adminViews.any((view) => !view.assignmentsLoaded);
+    final subtitle = _adminsLoaded
+        ? '共 ${_adminViews.length} 位管理员'
+        : _adminsLoading ? '正在读取管理员' : '管理员读取失败，请重试';
+    return Column(children: [
+      Row(children: [Expanded(child: _entryCard(
+        icon: Icons.people_outline,
+        title: '管理员',
+        subtitle: subtitle,
+        onTap: !_adminsLoaded ? (_adminsLoading ? null : _reloadAdmins)
+            : _accountIdentity != null ? _openGovernanceAdminList : _openPublicAdminList,
+      )), IconButton(tooltip: '刷新管理员', onPressed: _reloadAdmins,
+          icon: const Icon(Icons.refresh))]),
+      if (_adminsFailed || incomplete)
+        Row(children: [
+          Expanded(child: Text(_adminsFailed
+              ? (_adminsLoaded ? '管理员刷新失败，已保留名单' : '管理员读取失败')
+              : '岗位信息暂不可用', style: const TextStyle(color: AppTheme.warning))),
+          TextButton(key: const ValueKey('admins-retry'), onPressed: _reloadAdmins,
+              child: const Text('重试')),
+        ]),
+      if (_roleFailed)
+        Row(children: [
+          const Expanded(child: Text('当前钱包权限暂不可用', style: TextStyle(color: AppTheme.warning))),
+          TextButton(key: const ValueKey('admin-role-retry'),
+              onPressed: () => _loadRole(force: true), child: const Text('重试')),
+        ]),
+    ]);
   }
 
   void _openGovernanceAdminList() {
@@ -642,9 +676,7 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
           activatedAccountIds: _activatedAccountIds,
           badgeColor: AppTheme.primary,
           onActivated: () {
-            _adminService?.clearCache(identity);
-            _contextResolver?.clearWalletCache();
-            unawaited(_loadGovernanceAdminsAndRole());
+            unawaited(_reloadAdmins());
           },
         ),
       ),
@@ -999,7 +1031,7 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
     required IconData icon,
     required String title,
     required String subtitle,
-    required VoidCallback onTap,
+    required VoidCallback? onTap,
   }) {
     return Container(
       decoration: BoxDecoration(

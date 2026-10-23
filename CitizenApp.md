@@ -584,7 +584,7 @@ POST /api/user/challenges严格提交account_id、public_key、purpose、method�
 
 会话只提交account_id并携带MLS证明，响应严格包含ok、session_token、cid_number、device_id、binding_revision、account_id、expires_at。缓存与在途握手锁定CID、账户、代次及同一设备；切换、失效和SDK关闭期间的迟到结果不进入缓存或被业务消费。聊天服务授权只提交与会话相同的设备标识。
 
-普通SquareSessionProvider.ensureSession/refreshSession/ensureSessionForAccountId只消费CurrentUserContext本机绑定及服务端MLS会话，不调用链身份解析、绑定恢复、设备登记或钱包授权；缺绑定返回identity_local_missing并提示到身份页恢复或完成注册。只有身份页“恢复服务”或原用户注册编排显式调用registerCurrentDevice，且Worker明确device_not_registered后才调用原登记器并至多再握手一次；其他错误直接失败，原钱包0x1C及MLS签名合同保持。CitizenServe HTTP错误码仅读取真实error字符串，缺失或非字符串保持未知失败，不接受旧error_code。
+普通SquareSessionProvider.ensureSession/refreshSession/ensureSessionForAccountId只消费CurrentUserContext本机身份与服务端MLS会话，不查链、不登记设备或请求钱包授权。完整公开身份同步、未注册与未知区分及设备授权边界统一见下文“普通会话与公开身份同步”。原钱包0x1C及MLS签名合同保持；CitizenServe HTTP错误码仅读取真实error字符串，缺失或非字符串保持未知失败，不接受旧error_code。
 
 现有源码在新建或更新设备登记时校验Turnstile，完全相同回执重试不再验证；CID注册入口尚未接入注册前验证。此现状将按统一注册目标替换：先保存真人结果，再钱包签名/上链和设备激活，正常流程不二次弹窗。既有测试源码由test/square/square_session_selfheal_test.dart、square_request_signer_test.dart及mls_device_registrar_test.dart承载；本任务每个代码步骤运行对应检查，最后完成跨模块验证。
 
@@ -963,8 +963,9 @@ Admin = [account_id:AccountId32][family_name:Compact<Vec<u8>>][given_name:Compac
 
 #### 管理员与岗位展示
 
-- `AdminAccountService` 对公权、私权机构和个人多签统一解码四字段 `Vec<Admin>`；旧纯账户、旧三字段、合并姓名或尾部多余字节一律拒绝。
-- `InstitutionAdminService` 将管理员人员真源与 entity 岗位任职做左连接；授权只比较 `account_id`，管理员可以没有岗位，同一管理员也可展示多个岗位。
+- `AdminAccountService` 的人员与完整状态共用同一整键读取、同一人员缓存及finalized块；仅展示人员不等待治理阈值，完整状态及isAdmin门禁必须继续读取同块阈值，失败不授权。清缓存后的旧读取不能回填。对公权、私权机构和个人多签统一解码四字段 `Vec<Admin>`；旧纯账户、旧三字段、合并姓名或尾部多余字节一律拒绝。
+- 机构详情的管理员名册、当前钱包角色/激活、余额和提案独立加载；名册仅有一个写入入口，首次加载/失败不显示0人，完整成功的空集合才显示0。失败保留旧名单并提供局部重试，旧请求不得覆盖新结果。权限重查或失败时撤销旧操作状态，人员展示不授予业务权限。
+- `InstitutionAdminService` 将管理员人员真源与 entity 岗位任职做左连接；授权只比较 `account_id`，管理员可以没有岗位，同一管理员也可展示多个岗位。岗位读取失败保留人员并标记资料未知；共用人员卡将未知与已核实无岗位分开显示，非法主体及人员读取失败不伪造空集合。
 - 机构管理员列表和公开机构管理员列表统一使用 `<本仓根>/lib/citizen/institution/institution_assignment_card.dart`；姓名只在 UI 中按中文顺序合并显示，同时展示账户、岗位、任期、来源和余额。
 - 个人多签仍由独立 `AdminAccount` 布局和个人管理员集合页面处理；`PersonalAdmins.propose_admin_set_change` 是 CitizenApp 唯一保留的管理员集合变更调用，公权/私权机构不得从客户端直接改写管理员集合。
 
@@ -1589,6 +1590,10 @@ governance 侧只允许保留通用提案列表、机构详情页挂载点、投
 字段。更多制度账户不再进入二级页面，而是在当前账户信息卡内点击箭头展开。展开项按机构
 实际存在的 `feeAccount / safetyFundAccount / stakeAccount` 懒加载 finalized 链上余额，分别显示
 费用账户、安全基金账户和永久质押账户。
+
+公民提案页的合法空索引保持成功空态；首次链读失败显示局部错误和重试，刷新或翻页失败保留已有列表及待投票数。下拉和错误重试共用原强制刷新入口，清理既有年缓存再查询；首批、翻页和后台索引绑定请求代次，迟到成功或失败不得覆盖新刷新。原只读依赖可注入，组件回归显式配置后沿同一首批、刷新和事件路径验证，不能用首帧测试跳过链读代替业务验证。
+
+法律阅读器优先展示本机完整快照，本机读取异常仍可继续 finalized 链查询。缺失法律、默认可读版本或目标正文分别给出明确错误；刷新失败保留有效正文并提供重试。用户选择历史版本立即作废旧后台请求，失败重试保持目标版本；晚到结果不得切回旧版本或覆盖新选择。生效、待生效和不可修改条款语义保持，展示缓存不参与业务授权。
 
 治理机构详情页的提案列表先读取 `ProposalLocalStore` 中的机构索引和摘要；链上刷新成功后
 回写本地摘要与机构索引。该列表展示的本地摘要允许短暂落后链上状态，但点击提案详情、投票、
@@ -3149,15 +3154,9 @@ iOS当前Xcode27原生环境不提供Mac摄像头映射。按用户最新决定�
 
 ## 第7步原生客户端适配（2026年10月6日，源码回归通过，全量门禁与正式页面验收待完成）
 
-历史与费用：CitizenChainTransactionEventDecoder按准确metadata投影OnchainTransaction.FeePaid和Revive.ContractEmitted，同一extrinsic重复费用、非正u128费用、缺失extrinsic、超过四主题、失败执行保留日志均拒绝。WalletTransactionHistoryService只处理SDK已验证finalized事件与同一块正文，完整原生extrinsic的Blake2-256决定交易哈希，付款账户只在一条本金流水附实际费用；无本金或失败执行仍保存收费事实。实际费用、流水和账户游标原子提交，重放幂等。LocalTxStore保留submit key与SDK execution终态权限，真实费用覆盖预估；事件先到后到均不能被预估覆盖。失败收费事实可关联本机提交，但不会代替SDK推进交易终态。
+历史与费用：CitizenChainTransactionEventDecoder在既有交易事件文件内按准确metadata解析System执行终态、转账和OnchainTransaction.FeePaid；通用portable类型解析与事件投影在同一处维护。同一extrinsic重复费用、非正u128费用或缺失extrinsic均拒绝。WalletTransactionHistoryService只处理SDK已验证finalized事件与同一块正文，完整原生extrinsic的Blake2-256决定交易哈希，付款账户只在一条本金流水附实际费用；无本金或失败执行仍保存收费事实。实际费用、流水和账户游标原子提交，重放幂等。LocalTxStore保留submit key与SDK execution终态权限，真实费用覆盖预估；事件先到后到均不能被预估覆盖。失败收费事实可关联本机提交，但不会代替SDK推进交易终态。
 
-流水页面用BigInt整数分格式化，保持千分位及两位小数，不通过double丢失u128最后一分。详情区分等待打包、最佳链已打包、最终链确认和执行失败；未读取finalized事件的本机费用明确标为预估。gas表示资源消耗，原生费用取自FeePaid，ED仍是独立最低余额。
-
-合约只读模块位于lib/transaction/contract/。应用拥有portable metadata编解码和业务参数，全部读取复用CitizenSDK同一smoldot verified chain。默认V14 metadata没有API类型表时，经同一finalized块的Metadata_metadata_at_version(15)取得V15，不改变SDK交易metadata。ReviveApi_get_storage使用准确32字节键；ReviveApi_call固定value=0、storage_deposit_limit=Some(0)，输入最多4096字节、返回最多1MiB。结果完整解码并重编码验证规范SCALE；ReturnFlags按真实V15具名bits字段解析，仅解释0与REVERT=1。不存在的合约存储与空账户零金额模拟分别保留Runtime的错误或空成功语义，不混同。
-
-执行记录由同一finalized块的正文、System执行结果、FeePaid和Revive.ContractEmitted重建。原生transaction_hash与extrinsic_index不能称为Ethereum交易哈希或过滤后序号；日志保留合约、数据、主题与事件序号。钱包账户详情接线合约查询；主动查询才读链，改参或销毁使迟到结果失效，结果标注准确块。该页面不准备签名或提交交易。
-
-真实V15、存储与模拟参数、成功/REVERT/执行失败、同块API类型表获取、原生正文哈希/费用/日志、迟到结果及页面展示均已有回归；原生签名和二维码金标保持。真实WASM输出已由生产portable codec解码，执行overlay丢弃后存储根不变。具体日志与来源登记于唯一任务卡。
+流水页面用BigInt整数分格式化，保持千分位及两位小数，不通过double丢失u128最后一分。详情区分等待打包、最佳链已打包、最终链确认和执行失败；未读取finalized事件的本机费用明确标为预估。原生费用取自FeePaid，ED仍是独立最低余额。
 
 第7步相关源码用例通过；固定SDK消费后的全量分析仍有原任务聊天测试接口错误，由原任务处理，用户已明确保持本轮边界。App的声明及锁在该阶段曾统一消费CitizenSDK固定提交3e53f18354e1b21c75d7e4543f2102ba8163c575，离线来源为产品已取得的固定Git原件。原生离线Pub锁及来源视图验真已通过；相关用例的Flutter native-assets执行尚受固定xcrun交付问题阻塞。消费产品回归、已签名Release及设备页面验收完成前，第7步不标记完成。
 
@@ -3316,9 +3315,17 @@ Android、iOS平台输入均不保存PNG副本。原生构建通过所属Workflo
 
 资料媒体的头像/背景读取由CitizenServe在对象操作前执行独立公民号和IP频率限制及日额预留；Range、未修改、未找到和失败都占预留额度。服务端返回额度拒绝时沿原资料占位/重试行为处理，不能通过换IP、重连或重新注册刷新同公民号当日余额。读取额度不改变本人/名片基础资格或他人完整资料会员要求；具体数值与口径由CitizenServe原技术文档及membership/limits.rs唯一维护。聊天Ping继续SDK原心跳协议，由服务端原设备分钟窗增加子限额，不为此升级SDK或跳过撤销核验。
 
-## 普通会话与显式恢复
+## 普通会话与公开身份同步
 
-聊天创建SubscriptionService时明确resumePendingTransactions=false，不读取待同步交易队列或补发会员确认，避免打开/重连间接触发服务端查链；会员调用方保持默认true及原已finalized交易恢复，不重复上链。聊天自动路径只读本机绑定、原服务端会话及原会员缓存；缺失绑定是未知，不能宣称已核实未注册，也不代办链恢复、设备登记或钱包签名。非聊天CidBusinessGate保留既有合同。身份页打开只读本机展示，下拉刷新仅主动验证展示，不登记设备。“恢复服务”由用户点击后，MyIdService.recoverServiceAccess只解析一次finalized身份，复用原绑定收尾、保存完整本次展示，再显式建立/登记原设备会话；各边界核对当前账户、钱包和绑定代次。未注册仅提示完成注册，失败保留原恢复材料，不自动提交CID交易。注册激活在原用户编排内显式调用registerCurrentDevice并核对原回执。
+聊天创建SubscriptionService时明确resumePendingTransactions=false，不读取待同步交易队列或补发会员确认，避免打开或重连间接触发服务端查链；会员调用方保持原已finalized交易恢复，不重复上链。普通会话、聊天加载及重连只消费本机身份、既有服务端会话与会员缓存。
+
+根组件持有唯一MyIdService。启动后默认账户缺绑定、默认账户变化及身份页打开或下拉刷新，共用一次公开身份同步；同一账户的页面、门禁和业务动作复用完整在途操作，不只合并查链。只查询当前默认账户，保存完整投票/竞选字段与公开绑定，沿原修订通知各页面。成功后页面原地更新；未知不能冒充未注册，完整验真为空也通过同一入口保存并广播，随后才显示注册引导。读取或保存失败可由身份页主动重试，不保留不可重试的刷新忙状态。账户变化后的迟到结果不得展示、授权或写回当前身份。在途身份查询同时绑定发起时的默认账户与钱包修订；查询返回另一个账户时失败关闭，待当前账户重新同步，不能让旧任务消费新账户结果。
+
+身份页不再提供独立服务恢复入口。公共同步不登记设备、不请求钱包签名，也不为了刷新身份创建MLS运行态；只向已经存在的聊天实例收敛同CID绑定。根组件通过原SDK账户/最终块/能力事件驱动缺失身份重试，不建立轮询或第二节点；退出时撤销监听并排空同步，再沿原SDK停止、关闭顺序收尾，监听撤销错误不能阻断后续关闭。
+
+Worker明确device_not_registered后，只有用户点击受保护业务动作或原注册编排才可调用registerCurrentDevice，复用原登记器和一次钱包授权；取消或失败停止本次动作，不由渲染、重连或定时器自动重复。只有SDK或冷签明确取消且签名回调尚未交付时，原子释放本次尝试标记，允许下次用户主动授权；已签回执、网络故障、验签失败等未知终态仍保留标记和原证明，不重新签名。冷签取消使用明确错误码，不解析提示文字。已有CID不重复占号或重提身份交易；registration_required继续原真人验证与注册激活编排。缺本机绑定、已核实未注册、设备待授权及网络故障使用不同闭集状态，通讯录不把身份门禁失败混作实际同步失败。
+
+展示快照只供显示；权限仍取当前精确绑定及服务端会话。身份查询失败保留现有展示，并提供主动刷新重试。公开身份记录、钱包、聊天与通讯录历史不因本步骤重置或清空。
 
 Session挑战采用实际单字段account_id紧凑JSON的准确字节摘要；同一当前已登记设备/绑定/源/目标复用原nonce和原到期时间，不续期；真正请求仍签原始字节并只消费一次。SDK、签名字段及两份Git依赖锁保持原版本。
 

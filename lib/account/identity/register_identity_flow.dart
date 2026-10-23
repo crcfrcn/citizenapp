@@ -33,18 +33,20 @@ Future<bool> startCidRegistrationFlow(
     service = myIdService;
   } else {
     final sdk = context.read<CitizenSdk>();
-    service = MyIdService(
-      wallet: sdk.wallet,
-      signing: sdk.signing,
-      chain: sdk.chain,
-      transactions: sdk.transactions,
-      history: sdk.history,
-      accountSecurity: context.read<AccountSecurityService>(),
-      currentUserContext: context.read<CurrentUserContext>(),
-      identityResolver: context.read<FinalizedIdentityResolver>(),
-      sessionProvider: context.read<SquareSessionProvider>(),
-      chatRuntime: () => context.read<ChatSdk>(),
-    );
+    service =
+        context.read<MyIdService?>() ??
+        MyIdService(
+          wallet: sdk.wallet,
+          signing: sdk.signing,
+          chain: sdk.chain,
+          transactions: sdk.transactions,
+          history: sdk.history,
+          accountSecurity: context.read<AccountSecurityService>(),
+          currentUserContext: context.read<CurrentUserContext>(),
+          identityResolver: context.read<FinalizedIdentityResolver>(),
+          sessionProvider: context.read<SquareSessionProvider>(),
+          chatRuntime: () => context.read<ChatSdk>(),
+        );
   }
   final List<CitizenWalletStateAccount> accounts;
   try {
@@ -81,10 +83,8 @@ Future<bool> startCidRegistrationFlow(
               ),
             );
           },
-          requireAffordable: () => _requireAffordable(
-            service,
-            choice.bindAccountId,
-          ),
+          requireAffordable: () =>
+              _requireAffordable(service, choice.bindAccountId),
           readFinalized: () =>
               service.readRegistrationIdentity(choice.bindAccountId),
           registerCid: (saveCheckpoint) => service.registerEnrollmentCid(
@@ -100,7 +100,8 @@ Future<bool> startCidRegistrationFlow(
           '身份 CID 已注册:${result.binding.cidNumber}',
         );
       } on Object catch (error) {
-        final insufficient = error is RegistrationException &&
+        final insufficient =
+            error is RegistrationException &&
             error.code == 'insufficient_balance';
         return RegistrationSubmitOutcome.failure(
           _describeError(error),
@@ -146,11 +147,23 @@ Future<bool> ensureCidRegisteredOrPrompt(
   if (identity == null) {
     return false;
   }
+  try {
+    final service = myIdService ?? context.read<MyIdService?>();
+    if (service != null) await service.synchronizeIdentity(identity);
+  } on Object {
+    if (context.mounted) _showSnack(context, '身份同步失败，请重试', isError: true);
+    return false;
+  }
+  if (!context.mounted) return false;
   if (identity.isRegistered) {
     try {
-      final resolution = await context
-          .read<SquareSessionProvider>()
-          .resolveSession();
+      final provider = context.read<SquareSessionProvider>();
+      var resolution = await provider.resolveSession();
+      // 此函数只由明确的业务点击调用；Worker明确未登记后沿原钱包授权登记一次。
+      if (resolution.errorCode == 'device_not_registered') {
+        await provider.registerCurrentDevice();
+        resolution = await provider.resolveSession();
+      }
       if (!context.mounted) return false;
       if (resolution.status == SquareSessionStatus.ready &&
           resolution.session?.accountId == identity.accountId &&
@@ -171,9 +184,19 @@ Future<bool> ensureCidRegisteredOrPrompt(
       } else {
         _showSnack(context, resolution.message, isError: true);
       }
-    } catch (_) {
+    } catch (error) {
       if (context.mounted) {
-        _showSnack(context, '账户服务尚未完成验证和设备激活，请在身份页继续注册', isError: true);
+        final cancelled =
+            error is CitizenSdkException &&
+                (error.code == CitizenSdkErrorCode.authenticationCancelled ||
+                    error.code == CitizenSdkErrorCode.cancelled) ||
+            error is AccountSecurityException &&
+                error.code == 'authenticationCancelled';
+        _showSnack(
+          context,
+          cancelled ? '设备授权已取消，可再次主动发起' : '账户服务尚未完成验证和设备激活，请在身份页继续注册',
+          isError: true,
+        );
       }
     }
     return false;

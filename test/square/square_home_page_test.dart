@@ -352,12 +352,14 @@ class _UnregisteredIdentityCache implements CurrentUserContext {
 
 /// Worker 真源判定:登录挑战对未绑定账户回 403 cid_not_bound。
 class _CidNotBoundSessionProvider implements SquareSessionProvider {
+  _CidNotBoundSessionProvider({this.errorCode = 'cid_not_bound'});
+  final String errorCode;
   @override
   Future<SquareSession?> ensureSession() async {
-    throw const SquareApiException(
-      '该钱包账户未绑定 CID,无法登录',
+    throw SquareApiException(
+      '当前身份不可用',
       statusCode: 403,
-      errorCode: 'cid_not_bound',
+      errorCode: errorCode,
     );
   }
 
@@ -1452,13 +1454,13 @@ void main() {
     expect(find.text('注册'), findsNothing);
   });
 
-  testWidgets('本机无绑定 → 仍由 Worker 判定未注册并显示统一注册引导', (tester) async {
+  testWidgets('已核实未注册显示统一注册引导', (tester) async {
     await tester.pumpWidget(
       _wrap(
         SquareHomePage(
           identityService: _unregisteredIdentityService(),
           feedSource: _FakeSquareApiClient(),
-          sessionProvider: _CidNotBoundSessionProvider(),
+          sessionProvider: _CidNotBoundSessionProvider(errorCode: 'identity_unregistered'),
         ),
       ),
     );
@@ -1471,8 +1473,8 @@ void main() {
     expect(find.text('广场内容加载失败'), findsNothing);
   });
 
-  testWidgets('未注册(缓存未命中,Worker 判定 cid_not_bound) → 同一注册引导', (tester) async {
-    // 默认 _NullIdentityCache = 缓存未命中,本地不武断,由 Worker 真源判定。
+  testWidgets('缓存缺失且Worker投影未绑定保持未知，不误显注册', (tester) async {
+    // 缺少本机事实时，服务端投影缺失仍不能当作已核实未注册。
     await tester.pumpWidget(
       _wrap(
         SquareHomePage(
@@ -1485,8 +1487,9 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(find.text('尚未注册'), findsOneWidget);
-    expect(find.text('注册'), findsOneWidget);
+    expect(find.text('尚未注册'), findsNothing);
+    expect(find.text('身份同步中，请稍后重试'), findsOneWidget);
+    expect(find.text('注册'), findsNothing);
     expect(find.text('广场内容加载失败'), findsNothing);
   });
   testWidgets('已有身份但生产投影未绑定时不显示注册按钮', (tester) async {

@@ -48,6 +48,9 @@ class InstitutionAdminService {
     if (identity.type == AdminAccountIdentityType.personalAccount) {
       throw ArgumentError('个人多签不属于机构岗位模型');
     }
+    if (identity.cidNumber != cidNumber) {
+      throw ArgumentError('机构CID与管理员主体不一致');
+    }
     final adminState = await _accountService.fetchByIdentity(identity);
     if (adminState == null) return const [];
     final adminSet = adminState.admins.map((admin) => admin.account_id).toSet();
@@ -60,8 +63,8 @@ class InstitutionAdminService {
     final roles = <String, InstitutionRole>{};
     for (final value in roleValues) {
       final role = InstitutionRoleStorageCodec.decodeRole(value);
-      if (role != null &&
-          role.cidNumber == cidNumber &&
+      if (role == null) throw const FormatException('机构岗位资料无效');
+      if (role.cidNumber == cidNumber &&
           role.status == InstitutionRoleStatus.active) {
         roles[role.roleCode] = role;
       }
@@ -71,7 +74,7 @@ class InstitutionAdminService {
         Duration.millisecondsPerDay;
     for (final value in assignmentValues) {
       final decoded = InstitutionRoleStorageCodec.decodeAssignments(value);
-      if (decoded == null) continue;
+      if (decoded == null) throw const FormatException('机构任职资料无效');
       for (final assignment in decoded) {
         final role = roles[assignment.roleCode];
         if (assignment.cidNumber == cidNumber &&
@@ -90,17 +93,25 @@ class InstitutionAdminService {
     AdminAccountIdentity identity,
     String cidNumber,
   ) async {
-    final account = await _accountService.fetchByIdentity(identity);
-    if (account == null) return const [];
-    final assignments = await fetchAssignments(identity, cidNumber);
-    return mergeAdminViews(account.admins, assignments);
+    if (identity.type != AdminAccountIdentityType.institution || identity.cidNumber != cidNumber) {
+      throw ArgumentError('机构CID与管理员主体不一致');
+    }
+    // 人员为主记录，岗位查询失败只能使附加资料变为未知，不能抹去人员。
+    final admins = await fetchAdmins(identity);
+    if (admins.isEmpty) return const [];
+    try {
+      return mergeAdminViews(admins, await fetchAssignments(identity, cidNumber));
+    } on Object {
+      return mergeAdminViews(admins, const [], assignmentsLoaded: false);
+    }
   }
 
   /// 纯函数合并人员与岗位，供链读和测试共用；结果顺序严格跟随 admins 真源。
   static List<InstitutionAdminView> mergeAdminViews(
     List<AdminPerson> admins,
-    List<InstitutionAdminAssignment> assignments,
-  ) {
+    List<InstitutionAdminAssignment> assignments, {
+    bool assignmentsLoaded = true,
+  }) {
     final byAccount = <String, List<InstitutionAdminAssignment>>{};
     for (final assignment in assignments) {
       byAccount.putIfAbsent(assignment.account_id, () => []).add(assignment);
@@ -109,6 +120,7 @@ class InstitutionAdminService {
         .map(
           (admin) => InstitutionAdminView(
             admin: admin,
+            assignmentsLoaded: assignmentsLoaded,
             assignments: List.unmodifiable(
               byAccount[admin.account_id] ?? const [],
             ),
@@ -171,7 +183,10 @@ class InstitutionAdminService {
         finalized,
         keys.sublist(offset, end),
       );
-      values.addAll(rows.whereType<Uint8List>());
+      if (rows.length != end - offset || rows.any((row) => row == null)) {
+        throw StateError('机构岗位扫描结果不完整');
+      }
+      values.addAll(rows.cast<Uint8List>());
     }
     return values;
   }

@@ -11,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
 import 'package:citizenapp/account/identity/account_security_service.dart';
 import 'package:citizenapp/account/identity/identity_binding.dart';
+import 'package:citizenapp/account/identity/identity_badge_snapshot_store.dart';
 
 const _hotId =
     '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
@@ -43,6 +44,36 @@ void main() {
     );
     expect((await context.resolve())!.accountId, _hotId);
     expect(requested, [_hotId]);
+  });
+
+  test('缺绑定是未知，只有已核实空身份才是未注册', () async {
+    for (final verified in [false, true]) {
+      final context = CurrentUserContext(
+        wallet: _FakeWallet(_account(_hotId, CitizenWalletSignMode.hot)),
+        accountSecurity: security,
+        bindingReader: (_) async => null,
+        identityReader: (_) async => verified ? const IdentityBadgeSnapshot(
+          cidNumber: '', identityLevel: 'visitor', updatedAtMillis: 1, verified: true,
+        ) : null,
+      );
+      final current = (await context.resolve())!;
+      expect(current.isRegistered, isFalse);
+      expect(current.isUnregistered, verified);
+    }
+  });
+
+  test('已核实未注册不会继续使用旧公开绑定', () async {
+    final context = CurrentUserContext(
+      wallet: _FakeWallet(_account(_hotId, CitizenWalletSignMode.hot)),
+      accountSecurity: security,
+      bindingReader: (_) async => _binding(_hotId, 'CID-OLD'),
+      identityReader: (_) async => const IdentityBadgeSnapshot(
+        cidNumber: '', identityLevel: 'visitor', updatedAtMillis: 1, verified: true,
+      ),
+    );
+    final current = (await context.resolve())!;
+    expect(current.binding, isNull);
+    expect(current.isUnregistered, isTrue);
   });
 
   test('冷账户可以成为当前默认用户', () async {

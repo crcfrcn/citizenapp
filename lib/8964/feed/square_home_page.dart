@@ -417,7 +417,7 @@ class _SquareHomePageState extends State<SquareHomePage> {
                         builder: (context, snapshot) {
                           final error = snapshot.error;
                           if (error is SquareApiException &&
-                              error.errorCode == 'cid_not_bound') {
+                              error.errorCode == 'identity_unregistered') {
                             // 当前本地身份已存在时，服务端缺项只能显示同步状态。
                             if (_identityCidNumber?.isNotEmpty == true) {
                               return const Center(child: Text('身份同步中，请稍后重试'));
@@ -437,9 +437,9 @@ class _SquareHomePageState extends State<SquareHomePage> {
                           final posts = _composeFeed(
                             snapshot.data ?? const <SquarePost>[],
                           );
-                          final errorMessage = snapshot.hasError
-                              ? '广场内容加载失败'
-                              : null;
+                          final errorMessage = error is SquareApiException
+                              ? SquareSessionResolution.fromError(error).message
+                              : snapshot.hasError ? '广场内容加载失败' : null;
                           return Stack(
                             children: [
                               RefreshIndicator(

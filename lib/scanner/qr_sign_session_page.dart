@@ -81,7 +81,13 @@ Future<Uint8List> signCitizenPayload({
       request: pending.transportRequest,
       expiresAt: pending.expiresAt,
     );
-    if (response == null) throw const AccountSecurityException('签名已取消');
+    if (response == null) {
+      // 明确取消区别于未知扫码或验签故障，调用方可安全结束本次授权尝试。
+      throw const AccountSecurityException(
+        '签名已取消',
+        code: 'authenticationCancelled',
+      );
+    }
     final completed = await signing
         .consumeExternalSignature(
           sessionId: pending.sessionId,

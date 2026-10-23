@@ -206,11 +206,10 @@ class _ContactBookPageState extends State<ContactBookPage> {
     final generation = ++_loadGeneration;
     try {
       // 未注册 CID 必须在此短路:通讯录属主 = CID,`getContacts()` 第一步
-      // `_requireIdentityOwner()` 对未注册身份必抛 AccountSecurityException,catch 后
+      // `_requireIdentityOwner()` 对身份未知或未注册返回精确门禁错误，catch 后
       // `_contacts` 保持空,渲染会落到「空通讯录」——把"你没注册"显示成"你没有联系人",
       // 与广场当初把权限态伪装成"加载失败"是同一类错误。
-      // 本机缓存无绑定时，会话门禁先核对当前默认账户的 finalized 链事实；
-      // 确认未注册才显示引导，不扫描其它钱包账户或提前启动 MLS。
+      // 公开同步独立完成；页面只消费已核实状态，不借会话入口查链或登记设备。
       var identity = await _currentUserContext.resolve();
       if (!mounted || generation != _loadGeneration) return;
       if (identity == null) {
@@ -221,22 +220,20 @@ class _ContactBookPageState extends State<ContactBookPage> {
         });
         return;
       }
+      if (identity.isUnregistered) {
+        setState(() {
+          _unregistered = true;
+          _contacts = const <UserContact>[];
+          _loading = false;
+        });
+        return;
+      }
       if (!identity.isRegistered) {
-        try {
-          await _sessionProvider.ensureSession();
-          identity = await _currentUserContext.resolve();
-        } on SquareApiException catch (error) {
-          if (error.errorCode != 'cid_not_bound') rethrow;
-        }
-        if (!mounted || generation != _loadGeneration) return;
-        if (identity == null || !identity.isRegistered) {
-          setState(() {
-            _unregistered = true;
-            _contacts = const <UserContact>[];
-            _loading = false;
-          });
-          return;
-        }
+        throw const SquareApiException(
+          '身份信息暂不可用，请在身份页刷新后重试',
+          errorCode: 'identity_local_missing',
+          stage: SquareApiStage.identity,
+        );
       }
       if (_unregistered) setState(() => _unregistered = false);
       final contacts = await _service.getContacts();
@@ -262,11 +259,14 @@ class _ContactBookPageState extends State<ContactBookPage> {
       if (generation == _loadGeneration) await _sync();
     } on Exception catch (error) {
       if (!mounted || generation != _loadGeneration) return;
+      final failure = SquareSessionResolution.fromError(error);
       setState(() {
         _loading = false;
         _syncState = ContactSyncState(
           phase: ContactSyncPhase.failed,
-          message: error.toString(),
+          message: failure.message,
+          errorCode: failure.errorCode,
+          stage: failure.stage,
         );
       });
     }
@@ -854,7 +854,11 @@ class _SyncBanner extends StatelessWidget {
             ),
             SizedBox(width: AppLayout.scaled(context, 6)),
             Text(
-              state.label,
+              state.stage == SquareApiStage.identity ||
+                      state.stage == SquareApiStage.registration ||
+                      state.errorCode == 'device_not_registered'
+                  ? state.message ?? state.label
+                  : state.label,
               style: TextStyle(
                 color: retryable ? AppTheme.warning : AppTheme.textTertiary,
                 fontSize: AppLayout.scaled(context, 12),

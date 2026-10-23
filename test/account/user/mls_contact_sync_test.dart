@@ -85,10 +85,12 @@ class _Sessions implements SquareSessionProvider {
   _Sessions(this.runtime);
   final _Runtime runtime;
   Object? failure;
+  int calls = 0;
   @override
   ChatSdk get mlsRuntime => runtime;
   @override
   Future<SquareSession?> ensureSession() async {
+    calls++;
     if (failure != null) throw failure!;
     return SquareSession(
       deviceId: '11' * 32,
@@ -106,6 +108,24 @@ class _Sessions implements SquareSessionProvider {
 
 void main() {
   useIsolatedIsar();
+  test('身份未知时不握手或同步，身份更新后原服务可重试', () async {
+    final current = _Current()..changed = true;
+    final sessions = _Sessions(_Runtime());
+    final service = UserContactService(
+      accountSecurity: _Security(), currentUserContext: current,
+      sessionProvider: sessions,
+      chainReader: CitizenIdentityChainReader(chain: TestCitizenChain()), autoSync: false,
+    );
+    await expectLater(service.sync(), throwsA(isA<SquareApiException>().having(
+      (error) => error.errorCode, 'errorCode', 'identity_local_missing')));
+    expect(sessions.calls, 0);
+    current.changed = false;
+    await service.sync();
+    expect(sessions.calls, 1);
+    expect((await service.readSyncState()).phase, ContactSyncPhase.synced);
+    await sessions.runtime.close();
+  });
+
   // 同样的失败在有无待发记录时都必须保持真实类别；失败不能消费待同步操作。
   for (final withPending in [false, true]) {
     for (final failure in <Object>[

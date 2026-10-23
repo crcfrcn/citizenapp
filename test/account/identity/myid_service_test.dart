@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:citizenapp/network/square_api_client.dart';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_sdk/account_codec.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
@@ -135,16 +137,15 @@ void main() {
     'unregistered',
     'network',
     'changed',
-    'late',
   ]) {
-    test('只有显式恢复服务一次验真并登记，$result失败关闭', () async {
+    test('公开身份同步只验真一次且不登记设备，$result保持正确状态', () async {
       final wallet = _FakeWalletManager(_aliceWallet);
       final current = CurrentUserContext(
         wallet: wallet,
         accountSecurity: wallet,
       );
       final identity = _registeredIdentity(_validAccountId);
-      final resolver = _RecoveryResolver(
+      final resolver = _SyncResolver(
         result == 'unregistered'
             ? const FinalizedIdentity(
                 accountId: _validAccountId,
@@ -155,13 +156,8 @@ void main() {
         failure: result == 'network',
         changed: result == 'changed',
       );
-      final sessions = _RecoverySessions(
+      final sessions = _SyncSessions(
         identity,
-        onRegister: result == 'late'
-            ? () {
-                wallet.revision.value++;
-              }
-            : null,
       );
       final service = testService(
         wallet: wallet,
@@ -170,23 +166,96 @@ void main() {
         sessionProvider: sessions,
       );
       if (result == 'registered') {
-        await service.recoverServiceAccess();
-        expect(sessions.registrations, 1);
+        final state = await service.refreshState();
+        expect(state.status, isNot(MyIdStatus.queryFailed));
+        expect(sessions.registrations, 0);
         expect(
           (await current.resolve())?.cidNumber,
           identity.snapshot!.cidNumber,
         );
       } else {
-        await expectLater(
-          service.recoverServiceAccess(),
-          throwsA(isA<Exception>()),
-        );
-        expect(sessions.registrations, result == 'late' ? 1 : 0);
+        final state = await service.refreshState();
+        expect(state.status, result == 'network' || result == 'changed'
+            ? MyIdStatus.queryFailed : isNot(MyIdStatus.queryFailed));
+        expect(sessions.registrations, 0);
       }
       expect(resolver.reads, 1);
       expect(wallet.signCalls, 0);
     });
   }
+
+  test('同步失败后主动重试可写入绑定，不请求钱包签名或登记', () async {
+    final wallet = _FakeWalletManager(_aliceWallet);
+    final resolver = _SyncResolver(_registeredIdentity(_validAccountId), failure: true);
+    final service = testService(wallet: wallet, identityResolver: resolver);
+    expect((await service.refreshState()).status, MyIdStatus.queryFailed);
+    expect(wallet.bindings, isEmpty);
+    resolver.failure = false;
+    expect((await service.refreshState()).cidNumber, resolver.identity.snapshot!.cidNumber);
+    expect(resolver.reads, 2);
+    expect(wallet.activeBinding!.cidNumber, resolver.identity.snapshot!.cidNumber);
+    expect(wallet.signCalls, 0);
+    expect(wallet.mlsDeviceRegistrationCalls, 0);
+  });
+
+  test('同一账户并发刷新共用完整同步，不只合并链读取', () async {
+    final wallet = _FakeWalletManager(_aliceWallet);
+    final resolver = _SyncResolver(_registeredIdentity(_validAccountId))
+      ..pending = Completer<FinalizedIdentity?>();
+    final service = testService(wallet: wallet, identityResolver: resolver);
+    final requests = [service.refreshState(), service.refreshState()];
+    await Future<void>.delayed(Duration.zero);
+    expect(resolver.reads, 1);
+    final gateSynchronization = service.synchronizeIdentity(resolver.identity);
+    resolver.pending!.complete(resolver.identity);
+    final states = await Future.wait(requests);
+    await gateSynchronization;
+    expect(states.map((state) => state.cidNumber).toSet(), {resolver.identity.snapshot!.cidNumber});
+    expect(wallet.bindings, hasLength(1));
+    expect(wallet.identityNotifications, 1);
+  });
+
+  test('排队时默认账户变化不能把新账户结果作为旧任务成功，重试才接管', () async {
+    final wallet = _FakeWalletManager(_aliceWallet);
+    final resolver = _SyncResolver(_registeredIdentity(_validAccountId))
+      ..pending = Completer<FinalizedIdentity?>();
+    final service = testService(wallet: wallet, identityResolver: resolver);
+    final pending = service.refreshState();
+    await Future<void>.delayed(Duration.zero);
+    final nextId = '0x${'22' * 32}';
+    wallet._wallet = _testAccount(accountId: nextId,
+      ss58Address: citizenSs58FromAccountId(nextId), accountIndex: 0, name: '新账户');
+    resolver.pending!.complete(_registeredIdentity(nextId));
+    expect((await pending).status, MyIdStatus.queryFailed);
+    expect(wallet.bindings, isEmpty);
+    expect((await service.refreshState()).status, isNot(MyIdStatus.queryFailed));
+    expect(wallet.activeBinding!.accountId, nextId);
+  });
+
+  test('公开同步保存完整竞选快照，绑定收尾不能降为匿名', () async {
+    final base = _registeredIdentity(_validAccountId);
+    final identity = FinalizedIdentity(
+      accountId: base.accountId,
+      ss58Address: base.ss58Address,
+      snapshot: CitizenIdentityChainSnapshot(
+        cidNumber: base.snapshot!.cidNumber,
+        accountId: base.snapshot!.accountId,
+        bindingRevision: 1,
+        votingIdentity: _encodeVoting(from: 20260101, until: 20310101, status: 0,
+          province: 'GD', city: '001', town: '001'),
+        candidateIdentity: _encodeCandidate(province: 'GD', city: '001', town: '001',
+          familyName: '张', givenName: '三', sex: 0),
+      ),
+    );
+    final store = IdentityBadgeSnapshotStore();
+    final service = testService(identityResolver: _SyncResolver(identity), badgeSnapshotStore: store);
+    expect((await service.refreshState()).tier, MyIdTier.candidate);
+    final saved = await service.getState();
+    expect(saved.tier, MyIdTier.candidate);
+    expect(saved.familyName, '张');
+    expect(saved.givenName, '三');
+    expect(saved.passportValidUntil, '2031-01-01');
+  });
 
   test('本地公民号与完整快照重进复用且不调用验真', () async {
     final store = IdentityBadgeSnapshotStore();
@@ -426,7 +495,7 @@ void main() {
   test('链上读取失败时不静默降级访客,而是标记读取失败', () async {
     final state = await buildService(chainThrows: true).refreshState();
     expect(state.status, MyIdStatus.queryFailed);
-    expect(state.errorMessage, '链上身份读取失败');
+    expect(state.errorMessage, '身份同步失败，请重试');
   });
 
   test('反向钱包错配或 CID 已吊销时不承认公民身份', () async {
@@ -796,7 +865,7 @@ class _FakeWalletManager
     this._wallet, {
     this.accounts = const <CitizenWalletStateAccount>[],
   });
-  final CitizenWalletStateAccount? _wallet;
+  CitizenWalletStateAccount? _wallet;
   @override
   final revision = ValueNotifier<int>(0);
   final List<CitizenWalletStateAccount> accounts;
@@ -821,7 +890,7 @@ class _FakeWalletManager
       revision: BigInt.one,
       hotProfile: null,
       accounts: <CitizenWalletStateAccount>[
-        if (_wallet != null) _wallet,
+        ?_wallet,
         ...accounts.where((account) => account.accountId != _wallet?.accountId),
       ],
     ),
@@ -965,10 +1034,11 @@ FinalizedIdentity _registeredIdentity(
   int bindingRevision = 1,
 }) => FinalizedIdentity(
   accountId: accountId,
-  ss58Address: _validAddress,
+  ss58Address: citizenSs58FromAccountId(accountId),
   snapshot: CitizenIdentityChainSnapshot(
     cidNumber: cidNumber,
-    accountId: Uint8List(32),
+    accountId: Uint8List.fromList(List.generate(32,
+      (i) => int.parse(accountId.substring(2 + i * 2, 4 + i * 2), radix: 16))),
     bindingRevision: bindingRevision,
     votingIdentity: null,
     candidateIdentity: null,
@@ -1204,20 +1274,22 @@ class _BindingRuntime extends ChatSdk {
   }
 }
 
-/// 恢复用例仍核对每次本机代际；错误不会触发第二次链读取。
-class _RecoveryResolver implements FinalizedIdentityResolver {
-  _RecoveryResolver(
+/// 公开同步用例仍核对每次本机代际；错误不会触发第二次链读取。
+class _SyncResolver implements FinalizedIdentityResolver {
+  _SyncResolver(
     this.identity, {
     this.failure = false,
     this.changed = false,
   });
   final FinalizedIdentity identity;
-  final bool failure, changed;
+  bool failure, changed;
+  Completer<FinalizedIdentity?>? pending;
   int reads = 0;
   @override
   Future<FinalizedIdentity?> resolve() async {
     reads++;
     if (failure) throw const FormatException('合成链故障');
+    if (pending != null) return pending!.future;
     return identity;
   }
 
@@ -1232,19 +1304,17 @@ class _RecoveryResolver implements FinalizedIdentityResolver {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-class _RecoverySessions implements SquareSessionProvider {
-  _RecoverySessions(this.identity, {this.onRegister});
+class _SyncSessions implements SquareSessionProvider {
+  _SyncSessions(this.identity);
   final FinalizedIdentity identity;
-  final void Function()? onRegister;
   int registrations = 0;
   @override
   void invalidateAccount(String accountId) {}
   @override
   Future<SquareSession?> registerCurrentDevice() async {
     registrations++;
-    onRegister?.call();
     return SquareSession(
-      sessionToken: 'recovered',
+      sessionToken: 'ordinary',
       cidNumber: identity.snapshot!.cidNumber,
       accountId: identity.accountId,
       bindingRevision: identity.snapshot!.bindingRevision,

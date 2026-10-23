@@ -9,7 +9,6 @@ import 'package:citizenapp/storage/wallet_isar.dart';
 import 'package:citizenapp/app_log.dart';
 import 'package:citizenapp/system/security/screenshot_guard.dart';
 import 'package:citizenapp/transaction/history/local_tx_store.dart';
-import 'package:citizenapp/transaction/contract/citizenchain_contract_page.dart';
 import 'package:citizenapp/transaction/history/tx_auto_refresh_mixin.dart';
 import 'package:citizenapp/system/theme/app_theme.dart';
 import 'package:citizenapp/transaction/history/transaction_history_page.dart';
@@ -376,21 +375,6 @@ class _AccountDetailPageState extends State<AccountDetailPage>
             ),
             SizedBox(height: AppLayout.scaled(context, 12)),
             _buildTransactionHistoryCard(),
-            const SizedBox(height: 12),
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.code),
-                title: const Text('合约查询'),
-                subtitle: const Text('查询已确认存储、只读模拟与执行日志'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) =>
-                        CitizenChainContractPage(accountId: account.accountId),
-                  ),
-                ),
-              ),
-            ),
           ],
         ),
       ),
