@@ -1,0 +1,365 @@
+{
+  "schema": "citizenapp.topup.v2",
+  "config": {
+    "ok": true,
+    "rails": [
+      {
+        "token": "USDC",
+        "network": "ethereum",
+        "asset": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+        "decimals": 6,
+        "recv_address": "0x0202020202020202020202020202020202020202"
+      },
+      {
+        "token": "USDC",
+        "network": "base",
+        "asset": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        "decimals": 6,
+        "recv_address": "0x0202020202020202020202020202020202020202"
+      },
+      {
+        "token": "USDC",
+        "network": "solana",
+        "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "decimals": 6,
+        "recv_address": "11111111111111111111111111111111"
+      },
+      {
+        "token": "USDT",
+        "network": "ethereum",
+        "asset": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+        "decimals": 6,
+        "recv_address": "0x0202020202020202020202020202020202020202"
+      },
+      {
+        "token": "USDT",
+        "network": "tron",
+        "asset": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+        "decimals": 6,
+        "recv_address": "TA9pkx4DFxrEw8JZzUtyDrh2uAat1LDuJL"
+      },
+      {
+        "token": "USDT",
+        "network": "bnb",
+        "asset": "0x55d398326f99059ff775485246999027b3197955",
+        "decimals": 18,
+        "recv_address": "0x0202020202020202020202020202020202020202"
+      }
+    ],
+    "packages": [
+      {
+        "package_id": "pkg_15",
+        "pay_display": "15",
+        "coin_display": "10,000.00",
+        "coin_fen": "1000000",
+        "payments": [
+          {
+            "token": "USDC",
+            "network": "ethereum",
+            "pay_amount": "15000000"
+          },
+          {
+            "token": "USDC",
+            "network": "base",
+            "pay_amount": "15000000"
+          },
+          {
+            "token": "USDC",
+            "network": "solana",
+            "pay_amount": "15000000"
+          },
+          {
+            "token": "USDT",
+            "network": "ethereum",
+            "pay_amount": "15000000"
+          },
+          {
+            "token": "USDT",
+            "network": "tron",
+            "pay_amount": "15000000"
+          },
+          {
+            "token": "USDT",
+            "network": "bnb",
+            "pay_amount": "15000000000000000000"
+          }
+        ]
+      },
+      {
+        "package_id": "pkg_1400",
+        "pay_display": "1400",
+        "coin_display": "1,000,000.00",
+        "coin_fen": "100000000",
+        "payments": [
+          {
+            "token": "USDC",
+            "network": "ethereum",
+            "pay_amount": "1400000000"
+          },
+          {
+            "token": "USDC",
+            "network": "base",
+            "pay_amount": "1400000000"
+          },
+          {
+            "token": "USDC",
+            "network": "solana",
+            "pay_amount": "1400000000"
+          },
+          {
+            "token": "USDT",
+            "network": "ethereum",
+            "pay_amount": "1400000000"
+          },
+          {
+            "token": "USDT",
+            "network": "tron",
+            "pay_amount": "1400000000"
+          },
+          {
+            "token": "USDT",
+            "network": "bnb",
+            "pay_amount": "1400000000000000000000"
+          }
+        ]
+      }
+    ]
+  },
+  "intent": {
+    "ok": true,
+    "order_id": "top_11111111111111111111111111111111",
+    "payment_intent": "eyJpbnRlbnRfaWQiOiJ0cGlfMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTEiLCJjaWRfbnVtYmVyIjpudWxsLCJhY2NvdW50X2lkIjoiMHgwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0IiwicGF5ZXJfYWRkcmVzcyI6IjB4N2U1ZjQ1NTIwOTFhNjkxMjVkNWRmY2I3YjhjMjY1OTAyOTM5NWJkZiIsInRva2VuIjoiVVNEQyIsIm5ldHdvcmsiOiJiYXNlIiwicGFja2FnZV9pZCI6InBrZ18xNSIsImFzc2V0IjoiMHg4MzM1ODlmY2Q2ZWRiNmUwOGY0YzdjMzJkNGY3MWI1NGJkYTAyOTEzIiwicmVjdl9hZGRyZXNzIjoiMHgwMjAyMDIwMjAyMDIwMjAyMDIwMjAyMDIwMjAyMDIwMjAyMDIwMjAyIiwicGF5X2Ftb3VudCI6IjE1MDAwMDAwIiwiY29pbl9mZW4iOiIxMDAwMDAwIiwiaXNzdWVkX2F0IjoxMDAwMDAwLCJleHBpcmVzX2F0IjoxNjAwMDAwfQ.FuwKgnPY0XnM2UssyHZoudpQGC-6OeA7AiTFqPAvUNg",
+    "wallet_authorization_message": "CitizenServe Topup v1\nservice_origin=https://www.crcfrcn.com\nchain_genesis_hash=0x0000000000000000000000000000000000000000000000000000000000000000\nintent_id=tpi_11111111111111111111111111111111\nnetwork=base\npayer_address=0x7e5f4552091a69125d5dfcb7b8c2659029395bdf\nasset=0x833589fcd6edb6e08f4c7c32d4f71b54bda02913\nrecv_address=0x0202020202020202020202020202020202020202\npay_amount=15000000\ncoin_fen=1000000\naccount_id=0x0404040404040404040404040404040404040404040404040404040404040404\npackage_id=pkg_15\nissued_at=1000000\nexpires_at=1600000\nintent_sha256=fdc4a4f07a746a7e821777855f7c8b0e1b91307fcbd959b0daf29976b2d19afd\n",
+    "intent": {
+      "intent_id": "tpi_11111111111111111111111111111111",
+      "cid_number": null,
+      "account_id": "0x0404040404040404040404040404040404040404040404040404040404040404",
+      "payer_address": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+      "token": "USDC",
+      "network": "base",
+      "package_id": "pkg_15",
+      "asset": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+      "recv_address": "0x0202020202020202020202020202020202020202",
+      "pay_amount": "15000000",
+      "coin_fen": "1000000",
+      "issued_at": 1000000,
+      "expires_at": 1600000
+    }
+  },
+  "signature": "0xb19643cd7bcad122c99077a04f6bb634bb10a7eb838d2fc03dbd317f78d559ee692bb19c92bc1b3f8e3229bb38df207bdf4fa9b7860bde57d919d203d7349bd800",
+  "native": {
+    "tron": {
+      "intent": {
+        "intent_id": "tpi_55555555555555555555555555555555",
+        "cid_number": null,
+        "account_id": "0x0404040404040404040404040404040404040404040404040404040404040404",
+        "payer_address": "TMVQGm1qAQYVdetCeGRRkTWYYrLXuHK2HC",
+        "token": "USDT",
+        "network": "tron",
+        "package_id": "pkg_15",
+        "asset": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+        "recv_address": "TA9pkx4DFxrEw8JZzUtyDrh2uAat1LDuJL",
+        "pay_amount": "15000000",
+        "coin_fen": "1000000",
+        "issued_at": 1000000,
+        "expires_at": 1600000
+      },
+      "token": "eyJpbnRlbnRfaWQiOiJ0cGlfNTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTUiLCJjaWRfbnVtYmVyIjpudWxsLCJhY2NvdW50X2lkIjoiMHgwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0IiwicGF5ZXJfYWRkcmVzcyI6IlRNVlFHbTFxQVFZVmRldENlR1JSa1RXWVlyTFh1SEsySEMiLCJ0b2tlbiI6IlVTRFQiLCJuZXR3b3JrIjoidHJvbiIsInBhY2thZ2VfaWQiOiJwa2dfMTUiLCJhc3NldCI6IlRSN05IcWplS1F4R1RDaThxOFpZNHBMOG90U3pnakxqNnQiLCJyZWN2X2FkZHJlc3MiOiJUQTlwa3g0REZ4ckV3OEpaelV0eURyaDJ1QWF0MUxEdUpMIiwicGF5X2Ftb3VudCI6IjE1MDAwMDAwIiwiY29pbl9mZW4iOiIxMDAwMDAwIiwiaXNzdWVkX2F0IjoxMDAwMDAwLCJleHBpcmVzX2F0IjoxNjAwMDAwfQ.s2xDgbJgM7mIAnjmj0m9e9uAu3LFcYmXw6mzHFPGqCo",
+      "message": "CitizenServe Topup v1\nservice_origin=https://www.crcfrcn.com\nchain_genesis_hash=0x0000000000000000000000000000000000000000000000000000000000000000\nintent_id=tpi_55555555555555555555555555555555\nnetwork=tron\npayer_address=TMVQGm1qAQYVdetCeGRRkTWYYrLXuHK2HC\nasset=TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t\nrecv_address=TA9pkx4DFxrEw8JZzUtyDrh2uAat1LDuJL\npay_amount=15000000\ncoin_fen=1000000\naccount_id=0x0404040404040404040404040404040404040404040404040404040404040404\npackage_id=pkg_15\nissued_at=1000000\nexpires_at=1600000\nintent_sha256=f8f3a639df9d4b9beb2d80c0584331da8ead4561d37ddb3b8623c54436331d6c\n",
+      "signature": "0x2f123df90b2cbe1d1ca701cda0a6af3c34d59f6500e0e29764828f27b6adac4c1a1ff2aa69409ba70f5286ad71eb5fd4405c2112784c3654f32be8aaa81888d500",
+      "txid": "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81",
+      "transaction": {
+        "txID": "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81",
+        "raw_data_hex": "010203",
+        "raw_data": {
+          "contract": [
+            {
+              "type": "TriggerSmartContract",
+              "parameter": {
+                "type_url": "type.googleapis.com/protocol.TriggerSmartContract",
+                "value": {
+                  "owner_address": "417e5f4552091a69125d5dfcb7b8c2659029395bdf",
+                  "contract_address": "41a614f803b6fd780986a42c78ec9c7f77e6ded13c"
+                }
+              }
+            }
+          ]
+        },
+        "ret": [
+          {
+            "contractRet": "SUCCESS"
+          }
+        ]
+      },
+      "receipt": {
+        "id": "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81",
+        "blockNumber": 10,
+        "blockTimeStamp": 1001000,
+        "receipt": {
+          "result": "SUCCESS"
+        },
+        "log": [
+          {
+            "address": "a614f803b6fd780986a42c78ec9c7f77e6ded13c",
+            "topics": [
+              "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+              "0000000000000000000000007e5f4552091a69125d5dfcb7b8c2659029395bdf",
+              "0000000000000000000000000202020202020202020202020202020202020202"
+            ],
+            "data": "0000000000000000000000000000000000000000000000000000000000e4e1c0"
+          }
+        ]
+      },
+      "block": {
+        "blockID": "1010101010101010101010101010101010101010101010101010101010101010",
+        "block_header": {
+          "raw_data": {
+            "number": 10,
+            "timestamp": 1001000
+          }
+        },
+        "transactions": [
+          {
+            "txID": "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81",
+            "raw_data_hex": "010203",
+            "raw_data": {
+              "contract": [
+                {
+                  "type": "TriggerSmartContract",
+                  "parameter": {
+                    "type_url": "type.googleapis.com/protocol.TriggerSmartContract",
+                    "value": {
+                      "owner_address": "417e5f4552091a69125d5dfcb7b8c2659029395bdf",
+                      "contract_address": "41a614f803b6fd780986a42c78ec9c7f77e6ded13c"
+                    }
+                  }
+                }
+              ]
+            },
+            "ret": [
+              {
+                "contractRet": "SUCCESS"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "solana": {
+      "intent": {
+        "intent_id": "tpi_55555555555555555555555555555555",
+        "cid_number": null,
+        "account_id": "0x0404040404040404040404040404040404040404040404040404040404040404",
+        "payer_address": "EdmxWPmx2WH6WgFfTdu9xfkYf3k1g5wD1zccTVySEEh1",
+        "token": "USDC",
+        "network": "solana",
+        "package_id": "pkg_15",
+        "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "recv_address": "11111111111111111111111111111111",
+        "pay_amount": "15000000",
+        "coin_fen": "1000000",
+        "issued_at": 1000000,
+        "expires_at": 1600000
+      },
+      "token": "eyJpbnRlbnRfaWQiOiJ0cGlfNTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTU1NTUiLCJjaWRfbnVtYmVyIjpudWxsLCJhY2NvdW50X2lkIjoiMHgwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0IiwicGF5ZXJfYWRkcmVzcyI6IkVkbXhXUG14MldINldnRmZUZHU5eGZrWWYzazFnNXdEMXpjY1RWeVNFRWgxIiwidG9rZW4iOiJVU0RDIiwibmV0d29yayI6InNvbGFuYSIsInBhY2thZ2VfaWQiOiJwa2dfMTUiLCJhc3NldCI6IkVQakZXZGQ1QXVmcVNTcWVNMnFOMXh6eWJhcEM4RzR3RUdHa1p3eVREdDF2IiwicmVjdl9hZGRyZXNzIjoiMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTEiLCJwYXlfYW1vdW50IjoiMTUwMDAwMDAiLCJjb2luX2ZlbiI6IjEwMDAwMDAiLCJpc3N1ZWRfYXQiOjEwMDAwMDAsImV4cGlyZXNfYXQiOjE2MDAwMDB9.o8I7To7icy-a-7ivRAcrHD058VPNpwBEEcmTDt7xhJU",
+      "message": "CitizenServe Topup v1\nservice_origin=https://www.crcfrcn.com\nchain_genesis_hash=0x0000000000000000000000000000000000000000000000000000000000000000\nintent_id=tpi_55555555555555555555555555555555\nnetwork=solana\npayer_address=EdmxWPmx2WH6WgFfTdu9xfkYf3k1g5wD1zccTVySEEh1\nasset=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v\nrecv_address=11111111111111111111111111111111\npay_amount=15000000\ncoin_fen=1000000\naccount_id=0x0404040404040404040404040404040404040404040404040404040404040404\npackage_id=pkg_15\nissued_at=1000000\nexpires_at=1600000\nintent_sha256=7af9e248d38825a0561c7c7366278dd1bc1dde98f590d1b7bae9c6f7534aa981\n",
+      "signature": "26hwszhsVcZ2CypM9MGUuUAJBM3R1Akt9JFC5PMRMPTuPKVvxvkB4ng33PHRJsWgF75hJoNNGmmZ6LpHxQDajni3",
+      "txid": "BUguQsv2ZuHus54HAFzjdJHzZBkygAjKhEeYwSG19tUfUyvvz3worsdQCdAXDNjakJHioSiyxhFiDJrm8XpSXRA",
+      "transaction": {
+        "slot": 10,
+        "blockTime": 1001,
+        "version": "legacy",
+        "transaction": {
+          "signatures": [
+            "BUguQsv2ZuHus54HAFzjdJHzZBkygAjKhEeYwSG19tUfUyvvz3worsdQCdAXDNjakJHioSiyxhFiDJrm8XpSXRA"
+          ],
+          "message": {
+            "accountKeys": [
+              {
+                "pubkey": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY",
+                "signer": false
+              },
+              {
+                "pubkey": "QWmroo4YnnMqYW3cnxWkFdaTxGD3P7vMSzwMHGbUzwF",
+                "signer": false
+              }
+            ],
+            "instructions": [
+              {
+                "programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+                "parsed": {
+                  "type": "transferChecked",
+                  "info": {
+                    "source": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY",
+                    "destination": "QWmroo4YnnMqYW3cnxWkFdaTxGD3P7vMSzwMHGbUzwF",
+                    "authority": "EdmxWPmx2WH6WgFfTdu9xfkYf3k1g5wD1zccTVySEEh1",
+                    "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+                    "tokenAmount": {
+                      "amount": "15000000",
+                      "decimals": 6
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "meta": {
+          "err": null,
+          "preTokenBalances": [
+            {
+              "accountIndex": 0,
+              "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+              "owner": "EdmxWPmx2WH6WgFfTdu9xfkYf3k1g5wD1zccTVySEEh1",
+              "programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+              "uiTokenAmount": {
+                "amount": "15000000",
+                "decimals": 6
+              }
+            },
+            {
+              "accountIndex": 1,
+              "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+              "owner": "11111111111111111111111111111111",
+              "programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+              "uiTokenAmount": {
+                "amount": "15000000",
+                "decimals": 6
+              }
+            }
+          ],
+          "postTokenBalances": [
+            {
+              "accountIndex": 0,
+              "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+              "owner": "EdmxWPmx2WH6WgFfTdu9xfkYf3k1g5wD1zccTVySEEh1",
+              "programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+              "uiTokenAmount": {
+                "amount": "15000000",
+                "decimals": 6
+              }
+            },
+            {
+              "accountIndex": 1,
+              "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+              "owner": "11111111111111111111111111111111",
+              "programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+              "uiTokenAmount": {
+                "amount": "15000000",
+                "decimals": 6
+              }
+            }
+          ],
+          "innerInstructions": []
+        }
+      },
+      "block": {
+        "blockhash": "gBxS1f6uyyGPuW5MzGBukidSb71jdsCb5fZaoSzULE5",
+        "blockTime": 1001,
+        "signatures": [
+          "BUguQsv2ZuHus54HAFzjdJHzZBkygAjKhEeYwSG19tUfUyvvz3worsdQCdAXDNjakJHioSiyxhFiDJrm8XpSXRA"
+        ]
+      }
+    }
+  }
+}

@@ -22,6 +22,7 @@ function fixture(t, platform = 'android') {
         mkdirSync(join(directory, path), {recursive: true});
     }
     copyFileSync(join(root, 'scripts/build.mjs'), join(directory, 'scripts/build.mjs'));
+    copyFileSync(join(root, 'scripts/topup.mjs'), join(directory, 'scripts/topup.mjs'));
     const executable = (name, code) => {
         const path = join(directory, 'bin', name);
         writeFileSync(path, '#!' + process.execPath + '\n' + code);
@@ -48,6 +49,7 @@ function fixture(t, platform = 'android') {
         GITHUB_WORKFLOW_REF: 'crcfrcn/citizenapp/.github/workflows/' + platform + '.yml@refs/heads/main',
         GITHUB_RUN_ID: '21', GITHUB_RUN_ATTEMPT: '1', GITHUB_RUN_NUMBER: '9',
         GITHUB_SHA: 'a'.repeat(40), CITIZENAPP_VERSION: '1.2.3',
+        WORK: join(directory, 'target/build/21-1'),
         FLUTTER_ROOT: directory, CALLS: join(directory, 'calls.jsonl'),
         GH_TOKEN: '', GITHUB_TOKEN: ''
     };
@@ -339,4 +341,15 @@ test('SDK自动选择最新成功正式版，本机与自动化使用独立消�
     assert.equal(existingFlutter('ios',{},[tool]),tool);
     assert.doesNotMatch(builder,/requireAutomationBuild|sandbox-exec|CITIZENAPP_OFFLINE|CARGO_NET_OFFLINE|缺少SDK声明的现有ZXing/);
 
+});
+
+test('双端在装配前准备同一声明的esbuild，源码钱包库不带工具安装脚本',()=>{
+ const declaration=JSON.parse(readFileSync(join(root,'assets/topup/package.json')));
+ const lock=JSON.parse(readFileSync(join(root,'assets/topup/package-lock.json')));
+ assert.equal(declaration.citizenapp.tools.esbuild,'0.28.1');assert.equal(declaration.engines.node,'25.2.1');
+ assert.deepEqual(lock.packages[''].dependencies,declaration.dependencies);assert.equal(declaration.scripts,undefined);assert.equal(declaration.dependencies.esbuild,undefined);
+ for(const platform of ['ios','android']){
+  const workflow=readFileSync(join(root,'.github/workflows/'+platform+'.yml'),'utf8');const tools=workflow.indexOf('name: 准备本轮充值构建工具');assert.ok(tools>=0&&tools<workflow.indexOf('name: 按本产品原锁装配普通工程'));
+  assert.match(workflow,/citizenapp[.]tools[.]esbuild/);assert.match(workflow,/npm install --prefix "[$]WORK\/tools" --ignore-scripts --no-audit --no-fund "esbuild@[$]version"/);assert.match(workflow,/ESBUILD_BIN=[$]WORK\/tools\/node_modules\/[.]bin\/esbuild/);
+ }
 });

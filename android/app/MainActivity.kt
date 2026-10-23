@@ -501,6 +501,6 @@ class MainActivity : FlutterFragmentActivity() {
 
 /** 主记录及辅助锁/残片的唯一白名单；原生检查仍逐项验证文件类型与路径。 */
 internal fun isCitizenProtectedRecordName(name: String, auxiliary: Boolean = false): Boolean {
-    val main = setOf("identity.json", "lock.json", "registration.json")
+    val main = setOf("identity.json", "lock.json", "registration.json", "topup.json")
     return name in main || (auxiliary && main.any { name == "$it.lock" || name == "$it.part" })
 }

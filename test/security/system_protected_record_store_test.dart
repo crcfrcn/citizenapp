@@ -38,6 +38,38 @@ void main() {
     expect(result.where((value) => value), hasLength(1));
     expect(await store().read('record'), result.first ? 'a' : 'b');
   });
+  test('损坏和超限写入失败后队列释放，修复合成记录后可重试', () async {
+    final records = store();
+    final file = File('${root.path}/identity.json');
+    await file.writeAsString('{');
+    await expectLater(records.write('record', 'failed'), throwsFormatException);
+    // 只修复本测试的合成夹具；生产代码不得以清空记录绕过损坏。
+    await file.writeAsString('{}');
+    await expectLater(
+      records.write('record', 'x' * 262144),
+      throwsFormatException,
+    );
+    expect(await file.readAsString(), '{}');
+    await records.write('record', 'retry');
+    expect(await records.read('record'), 'retry');
+    expect(await File('${root.path}/identity.json.part').exists(), isFalse);
+    expect(await File('${root.path}/identity.json.lock').exists(), isFalse);
+  });
+  test('删除、清空和CAS未命中保持完整记录语义', () async {
+    final records = store();
+    await records.write('a', 'one');
+    await records.write('b', 'two');
+    expect(
+      await records.compareAndSet('a', expected: 'wrong', next: 'lost'),
+      isFalse,
+    );
+    expect(await records.readAll(), {'a': 'one', 'b': 'two'});
+    expect(await records.compareAndSet('a', expected: 'one'), isTrue);
+    await records.delete('missing');
+    expect(await records.readAll(), {'b': 'two'});
+    await records.deleteAll();
+    expect(await records.readAll(), isEmpty);
+  });
   test('未提交残片不能覆盖完整记录；损坏主文件失败关闭', () async {
     final records = store();
     await records.write('record', 'committed');

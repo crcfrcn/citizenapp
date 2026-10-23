@@ -1,3 +1,4 @@
+import Darwin
 import Flutter
 import UIKit
 import XCTest
@@ -122,6 +123,60 @@ class RunnerTests: XCTestCase {
     ]
   }
 
+  func testStorageChannelRegistersBackgroundQueueAndRejectsInvalidArgumentsThere() {
+    let messenger = StorageTestMessenger()
+    let channel = SystemProtectedDataChannel(binaryMessenger: messenger)
+    XCTAssertTrue(messenger.registeredQueue === messenger.queue)
+    let finished = expectation(description: "后台存储通道回执")
+    let codec = FlutterStandardMethodCodec.sharedInstance()
+    let request = codec.encode(FlutterMethodCall(methodName: "compareRecords", arguments: [:]))
+    messenger.deliver(request) { reply in
+      XCTAssertFalse(Thread.isMainThread)
+      let error = codec.decodeEnvelope(reply!) as? FlutterError
+      XCTAssertEqual(error?.code, "system_protection_unavailable")
+      finished.fulfill()
+    }
+    wait(for: [finished], timeout: 2)
+    withExtendedLifetime(channel) {}
+  }
+
+  func testNativeRecordLockWaitLeavesMainThreadResponsiveAndCommitsAfterRelease() throws {
+    let manager = FileManager.default
+    let root = manager.temporaryDirectory.resolvingSymlinksInPath()
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try manager.createDirectory(at: root, withIntermediateDirectories: false)
+    defer { try? manager.removeItem(at: root) }
+    let descriptor = open(root.appendingPathComponent("identity.json.lock").path, O_RDWR | O_CREAT, 0o600)
+    XCTAssertGreaterThanOrEqual(descriptor, 0)
+    guard descriptor >= 0 else { return }
+    defer { _ = flock(descriptor, LOCK_UN); close(descriptor) }
+    XCTAssertEqual(flock(descriptor, LOCK_EX), 0)
+    let entered = DispatchSemaphore(value: 0), finished = DispatchSemaphore(value: 0)
+    let results = RecordCasResults()
+    DispatchQueue.global().async {
+      entered.signal()
+      do {
+        results.append(success: try SystemProtectedDataChannel.compareRecordFile(root: root,
+          name: "identity.json", expected: nil, next: "{\"record\":\"synthetic\"}"), error: nil)
+      } catch { results.append(success: false, error: error) }
+      finished.signal()
+    }
+    XCTAssertEqual(entered.wait(timeout: .now() + 2), .success)
+    XCTAssertEqual(finished.wait(timeout: .now() + 0.1), .timedOut)
+    let heartbeat = expectation(description: "文件锁等待期间主线程响应")
+    DispatchQueue.main.async { heartbeat.fulfill() }
+    wait(for: [heartbeat], timeout: 1)
+    XCTAssertEqual(flock(descriptor, LOCK_UN), 0)
+    XCTAssertEqual(finished.wait(timeout: .now() + 2), .success)
+    XCTAssertEqual(results.errors.count, 0)
+    XCTAssertEqual(results.successes, [true])
+    let committed = "{\"record\":\"synthetic\"}"
+    XCTAssertFalse(try SystemProtectedDataChannel.compareRecordFile(root: root,
+      name: "identity.json", expected: nil, next: "{}"))
+    XCTAssertTrue(try SystemProtectedDataChannel.compareRecordFile(root: root,
+      name: "identity.json", expected: committed, next: "{}"))
+  }
+
   func testSystemProtectedFilesReadBackProtectionAndPermissions() throws {
     let manager = FileManager.default
     let root = manager.temporaryDirectory.resolvingSymlinksInPath()
@@ -183,6 +238,9 @@ class RunnerTests: XCTestCase {
     let record = root.appendingPathComponent("registration.json")
     XCTAssertEqual(try manager.attributesOfItem(atPath: record.path)[.posixPermissions] as? Int, 0o600)
     XCTAssertTrue(try record.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup == true)
+    XCTAssertTrue(try SystemProtectedDataChannel.compareRecordFile(root: root, name: "topup.json", expected: nil, next: "{\"order\":\"public-fixture\"}"))
+    XCTAssertFalse(try SystemProtectedDataChannel.compareRecordFile(root: root, name: "topup.json", expected: nil, next: "{}"))
+    XCTAssertThrowsError(try SystemProtectedDataChannel.compareRecordFile(root: root, name: "../topup.json", expected: nil, next: "{}"))
     XCTAssertThrowsError(try SystemProtectedDataChannel.compareRecordFile(root: root, name: "registration.json.part", expected: nil, next: "{}"))
     XCTAssertThrowsError(try SystemProtectedDataChannel.compareRecordFile(root: root, name: "../registration.json", expected: nil, next: "{}"))
   }
@@ -199,5 +257,39 @@ private final class RecordCasResults: @unchecked Sendable {
     lock.lock(); defer { lock.unlock() }
     successes.append(success)
     if let error { errors.append(error) }
+  }
+}
+
+/// 只模拟Flutter消息调度；存储算法仍调用生产实现，夹具不触及正式记录目录。
+private final class StorageTestQueue: NSObject, FlutterTaskQueue {
+  let executor = DispatchQueue(label: "citizenapp.storage.tests")
+}
+
+private final class StorageTestMessenger: NSObject, FlutterBinaryMessenger {
+  let queue = StorageTestQueue()
+  var registeredQueue: FlutterTaskQueue?
+  private var handler: FlutterBinaryMessageHandler?
+  func makeBackgroundTaskQueue() -> FlutterTaskQueue { queue }
+  func send(onChannel channel: String, message: Data?) {}
+  func send(onChannel channel: String, message: Data?, binaryReply callback: FlutterBinaryReply?) {}
+  func setMessageHandlerOnChannel(_ channel: String,
+      binaryMessageHandler handler: FlutterBinaryMessageHandler?) -> FlutterBinaryMessengerConnection {
+    self.handler = handler
+    return 1
+  }
+  func setMessageHandlerOnChannel(_ channel: String, binaryMessageHandler handler: FlutterBinaryMessageHandler?,
+      taskQueue: FlutterTaskQueue?) -> FlutterBinaryMessengerConnection {
+    registeredQueue = taskQueue
+    self.handler = handler
+    return 1
+  }
+  func cleanUpConnection(_ connection: FlutterBinaryMessengerConnection) { handler = nil }
+  func deliver(_ message: Data, reply: @escaping FlutterBinaryReply) {
+    guard let handler else { XCTFail("存储通道未注册"); return }
+    if let background = registeredQueue as? StorageTestQueue {
+      background.executor.async { handler(message, reply) }
+    } else {
+      DispatchQueue.main.async { handler(message, reply) }
+    }
   }
 }

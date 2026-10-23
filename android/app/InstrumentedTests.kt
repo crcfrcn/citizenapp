@@ -37,6 +37,10 @@ class MlsTransportSecurityInstrumentedTest {
 class RegistrationRecordSecurityInstrumentedTest {
     @Test fun nativeRecordWhitelistSeparatesMainAndAuxiliaryFiles() {
         assertTrue(isCitizenProtectedRecordName("registration.json"))
+        assertTrue(isCitizenProtectedRecordName("topup.json"))
+        assertFalse(isCitizenProtectedRecordName("topup.json.part"))
+        assertTrue(isCitizenProtectedRecordName("topup.json.part", auxiliary = true))
+        assertFalse(isCitizenProtectedRecordName("../topup.json"))
         for (name in listOf("registration.json.lock", "registration.json.part")) {
             assertTrue(isCitizenProtectedRecordName(name, auxiliary = true))
             assertFalse(isCitizenProtectedRecordName(name))

@@ -1,251 +1,362 @@
-import 'package:provider/provider.dart';
-import 'package:citizen_sdk/citizen_sdk.dart';
-
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
-
 import 'package:citizenapp/system/theme/app_theme.dart';
-
-import 'topup_api.dart';
-import 'topup_erc20.dart';
-import 'topup_models.dart';
-import 'wallet_link_dispatcher.dart';
-
 import 'package:citizenapp/system/theme/app_layout.dart';
 
-/// WebView WalletConnect 返回结果：付款交易哈希 + 付款前已绑定账户的短期意图。
-class TopupWebResult {
-  const TopupWebResult({
-    required this.txHash,
-    required this.paymentIntent,
-    required this.payerAddress,
-  });
+import 'topup_api.dart';
+import 'topup_models.dart';
+import 'topup_erc20.dart';
+import 'tron.dart';
+import 'solana.dart';
+import 'store.dart';
+import 'wallet_link_dispatcher.dart';
 
-  final String txHash;
-  final String paymentIntent;
-  final String payerAddress;
-}
-
-/// WalletConnect 支付页(方案 A):在 WebView 内加载打包的 AppKit JS 页,连自托管钱包并发
-/// ERC-20 转账。App 只把「币+链+收款地址+应付额」交给页面,拿回 txHash;不引 reown Dart SDK
-/// 页面使用已打包的 JS SDK 完成既有流程。
+/// 保留原连接钱包页；App只接收签名和公开交易，公民币由服务端转账。
 class TopupWebviewPage extends StatefulWidget {
   const TopupWebviewPage({
     super.key,
-    required this.rail,
+    required this.config,
+    required this.token,
     required this.package,
-    required this.recvAddress,
     required this.accountId,
     required this.api,
+    required this.store,
+    this.resume,
+    this.replay = false,
   });
-
-  final TopupRail rail;
+  final TopupConfig config;
+  final String token, accountId;
   final TopupPackage package;
-  final String recvAddress;
-  final String accountId;
   final TopupApi api;
-
-  /// Reown Project ID 是公开客户端标识，不是授权凭据。生产只登记一个 CitizenApp
-  /// 项目，因此这里固定唯一真源，禁止构建参数恢复第二条项目配置轨道。
+  final TopupStore store;
+  final TopupRecord? resume;
+  final bool replay;
   static const projectId = '8830074307d80484b839db4eb10b1f2c';
-
   @override
   State<TopupWebviewPage> createState() => _TopupWebviewPageState();
 }
 
 class _TopupWebviewPageState extends State<TopupWebviewPage> {
   late final WebViewController _controller;
-  late final WalletLinkDispatcher _walletLinks;
-  String? _error;
-  String? _paymentIntent;
-  String? _intentPayer;
-  bool _creatingIntent = false;
-  bool _openingWallet = false;
+  late final WalletLinkDispatcher _links;
+  final _session = List.generate(
+    16,
+    (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
+  ).join();
+  String? _document, _error;
+  bool _started = false, _handling = false, _opening = false;
+  int _last = 0;
+  TopupRecord? _record;
+  bool _local(String raw) {
+    final uri = Uri.tryParse(raw);
+    return uri != null &&
+        uri.scheme == 'file' &&
+        !uri.hasQuery &&
+        !uri.hasFragment &&
+        uri.path.endsWith('/assets/topup/walletconnect.html');
+  }
 
   @override
   void initState() {
     super.initState();
-    _walletLinks = WalletLinkDispatcher(
+    _record = widget.resume;
+    _links = WalletLinkDispatcher(
       launcher: (uri) => launchUrl(uri, mode: LaunchMode.externalApplication),
     );
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..addJavaScriptChannel('TopupBridge', onMessageReceived: _onBridgeMessage)
+      ..addJavaScriptChannel('TopupBridge', onMessageReceived: _message)
       ..setNavigationDelegate(
         NavigationDelegate(
-          onNavigationRequest: _onNavigation,
-          onPageFinished: (_) => _injectAndStart(),
+          onNavigationRequest: (r) async {
+            if (r.isMainFrame &&
+                _local(r.url) &&
+                (_document == null || r.url == _document))
+              return NavigationDecision.navigate;
+            if (!r.isMainFrame) return NavigationDecision.navigate;
+            // 外部网页没有桥接权限；钱包唤起只能由本地页面的明确消息触发。
+            return NavigationDecision.prevent;
+          },
+          onPageFinished: _start,
         ),
       )
       ..loadFlutterAsset('assets/topup/walletconnect.html');
   }
 
-  /// 主框架中的普通 HTTP(S) 仍由 WebView 加载；钱包自定义 scheme 才交给系统。
-  ///
-  /// Reown 的 HTTPS Universal Link 由 JS bridge 明确标记后走 [_openWalletLink]，不能在
-  /// 这里把所有 HTTPS 导航外部化，否则 Relay、图标和条款页都会被误送到浏览器。
-  Future<NavigationDecision> _onNavigation(NavigationRequest request) async {
-    final decision = WalletLinkDispatcher.classify(
-      request.url,
-      source: WalletLinkSource.webViewNavigation,
-    );
-    if (decision.disposition == WalletLinkDisposition.stayInWebView) {
-      return NavigationDecision.navigate;
-    }
-    if (decision.disposition == WalletLinkDisposition.openExternalWallet) {
-      await _openWalletLink(
-        request.url,
-        source: WalletLinkSource.webViewNavigation,
-      );
-    }
-    return NavigationDecision.prevent;
-  }
-
-  /// 串行打开外部钱包，避免 Reown 同一次点击的重复事件同时唤起两个系统窗口。
-  Future<void> _openWalletLink(
-    String rawUrl, {
-    required WalletLinkSource source,
-  }) async {
-    if (_openingWallet) return;
-    _openingWallet = true;
-    final result = await _walletLinks.open(rawUrl, source: source);
-    _openingWallet = false;
-    if (!mounted || result == WalletLinkOpenResult.opened) return;
-
-    final message = switch (result) {
-      WalletLinkOpenResult.blocked => '该链接不是可打开的钱包链接',
-      WalletLinkOpenResult.invalid => '钱包链接无效，请重新选择钱包',
-      WalletLinkOpenResult.failed => '未能打开该钱包，请确认钱包已安装或选择其他钱包',
-      WalletLinkOpenResult.opened => '',
-    };
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
-  }
-
-  Future<void> _injectAndStart() async {
-    if (TopupWebviewPage.projectId.isEmpty) {
-      setState(() => _error = 'WalletConnect 未配置（缺少 Project ID）');
-      return;
-    }
-    // 收款金额与 ERC-20 calldata 在 Dart 侧构造(复用已验证的编码器),页面只负责签发。
-    final data = encodeErc20Transfer(
-      widget.recvAddress,
-      widget.package.payAmountValue,
-    );
-    final params = jsonEncode({
+  Future<void> _start(String url) async {
+    if (_started || !_local(url)) return;
+    _document = url;
+    _started = true;
+    final cfg = {
+      'session': _session,
       'projectId': TopupWebviewPage.projectId,
-      'caip2': widget.rail.caip2,
-      'chainId': widget.rail.chainId,
-      'to': widget.rail.tokenContract,
-      'data': data,
-      'token': widget.rail.token,
-      'label': widget.rail.label,
-      'payDisplay': widget.package.payDisplay,
-    });
+      'token': widget.token,
+      'tronRpc': TopupRpcConfig.tron,
+      'solanaRpc': TopupRpcConfig.solana,
+      if (widget.replay)
+        'replay': {
+          'context': {
+            'network': _record!.intent.network.wire,
+            'chain': _record!.intent.network.caip2,
+            'payer': _record!.intent.payer,
+          },
+          'txid': _record!.txid,
+          'wire': _record!.wire,
+          'expiresAt': _record!.intent.expiresAt,
+          'rpc': _record!.intent.network == TopupNetwork.tron
+              ? TopupRpcConfig.tron
+              : TopupRpcConfig.solana,
+        },
+    };
+    await _controller.runJavaScript('CitizenTopup.start(${jsonEncode(cfg)})');
+  }
+
+  Future<void> _reply(int id, {Object? value, String? error}) async {
+    if (!mounted) return;
     await _controller.runJavaScript(
-      'window.__TOPUP__=$params; if(window.startTopup){window.startTopup();}',
+      'CitizenTopup.reply(${jsonEncode(_session)},$id,${jsonEncode({'ok': error == null, 'value': value, 'error': error})})',
     );
   }
 
-  Future<void> _onBridgeMessage(JavaScriptMessage message) async {
-    Map<String, dynamic> payload;
+  Future<void> _save(TopupRecord next) async {
+    await widget.store.save(next, before: _record);
+    _record = next;
+  }
+
+  Future<void> _message(JavaScriptMessage message) async {
+    if (!mounted ||
+        _document == null ||
+        await _controller.currentUrl() != _document ||
+        message.message.length > 32768)
+      return;
+    Map<String, dynamic> data;
     try {
-      payload = jsonDecode(message.message) as Map<String, dynamic>;
-    } catch (_) {
+      data = jsonDecode(message.message) as Map<String, dynamic>;
+    } on Object {
       return;
     }
-    if (payload['kind'] == 'external_wallet') {
-      await _openWalletLink(
-        payload['url']?.toString() ?? '',
-        source: WalletLinkSource.walletOpenBridge,
+    final id = data['id'];
+    if (data['session'] != _session || id is! int || id <= _last) return;
+    if (data['kind'] == 'external_wallet') {
+      _last = id;
+      if (_opening) return;
+      _opening = true;
+      try {
+        final opened = await _links.open(
+          data['url'] as String,
+          source: WalletLinkSource.walletOpenBridge,
+        );
+        await _reply(
+          id,
+          error: opened == WalletLinkOpenResult.opened ? null : '未能打开付款钱包',
+        );
+      } on Object {
+        await _reply(id, error: '未能打开付款钱包');
+      } finally {
+        _opening = false;
+      }
+      return;
+    }
+    if (data['kind'] == 'error') {
+      _last = id;
+      setState(
+        () => _error =
+            _record != null &&
+                _record!.progress.index >= TopupProgress.submitting.index
+            ? '付款回执待核实，请返回恢复原订单，勿重复付款'
+            : '连接或付款未完成，可返回原充值页面',
       );
       return;
     }
-    if (payload['kind'] == 'connected') {
-      final payer = payload['payer']?.toString() ?? '';
-      if (payer.isEmpty || _creatingIntent || _paymentIntent != null) return;
-      _creatingIntent = true;
-      try {
-        final intent = await widget.api.createIntent(
-          token: widget.rail.token,
-          packageId: widget.package.packageId,
-          accountId: widget.accountId,
-          payerAddress: payer,
-        );
+    if (_handling) return;
+    _handling = true;
+    _last = id;
+    try {
+      final contextValue = TopupContext.fromJson(data);
+      if (data['kind'] == 'connected') {
+        final rail = widget.config.rail(widget.token, contextValue.network);
+        if (rail.network == TopupNetwork.tron)
+          TopupRpcConfig.url(TopupRpcConfig.tron);
+        if (rail.network == TopupNetwork.solana)
+          TopupRpcConfig.url(TopupRpcConfig.solana);
+        if (_record != null &&
+            (_record!.progress.index >= TopupProgress.submitting.index ||
+                _record!.intent.accountId != widget.accountId))
+          throw const FormatException('请先核实原付款订单');
+        final intent =
+            _record?.intent ??
+            await widget.api.createIntent(
+              token: widget.token,
+              packageId: widget.package.packageId,
+              accountId: widget.accountId,
+              payer: contextValue,
+            );
         if (!mounted) return;
         final genesis = await context.read<CitizenSdk>().chain.getGenesisHash();
         intent.validatePayment(
-          rail: widget.rail,
+          rail: rail,
           package: widget.package,
           accountId: widget.accountId,
-          payerAddress: payer,
-          recvAddress: widget.recvAddress,
+          payerAddress: contextValue.payer,
           chainGenesisHash: genesis,
-          serviceOrigin: Uri.parse(widget.api.baseUrl).origin,
+          serviceOrigin: topupOrigin(widget.api.baseUrl),
         );
-        _intentPayer = payer.toLowerCase();
-        _paymentIntent = intent.token;
-        await _controller.runJavaScript(
-          'if(window.submitTopupPayment){window.submitTopupPayment(${jsonEncode(intent.authorizationMessage)},${intent.expiresAt});}',
+        if (_record == null)
+          await _save(
+            TopupRecord(
+              origin: topupOrigin(widget.api.baseUrl),
+              intent: intent,
+            ),
+          );
+        final details = rail.network == TopupNetwork.tron
+            ? tronPayment(rail, intent)
+            : rail.network == TopupNetwork.solana
+            ? solanaPayment(rail, intent)
+            : <String, Object>{
+                'asset': rail.asset,
+                'data': encodeErc20Transfer(
+                  rail.recvAddress,
+                  BigInt.parse(widget.package.amount(rail)),
+                ),
+              };
+        await _reply(
+          id,
+          value: {
+            ...details,
+            'context': {
+              'network': contextValue.network.wire,
+              'chain': contextValue.network.caip2,
+              'payer': contextValue.payer,
+            },
+            'message': intent.authorizationMessage,
+            'expiresAt': intent.expiresAt,
+            'signature': _record!.signature,
+          },
         );
-      } on Object catch (error) {
-        if (!mounted) return;
-        setState(
-          () => _error = error is TopupApiException
-              ? error.message
-              : '付款意图核验失败，未发起支付',
-        );
-      } finally {
-        _creatingIntent = false;
+      } else {
+        final before = _record;
+        if (before == null ||
+            before.intent.payer != contextValue.payer ||
+            before.intent.network != contextValue.network)
+          throw const FormatException('付款上下文已变化');
+        switch (data['kind']) {
+          case 'replay':
+            if (!widget.replay ||
+                before.terminal ||
+                before.wire == null ||
+                before.txid == null ||
+                before.signature == null ||
+                contextValue.network.evmId != null ||
+                data['wire'] != before.wire ||
+                data['txid'] != before.txid ||
+                DateTime.now().millisecondsSinceEpoch >=
+                    before.intent.expiresAt)
+              throw const FormatException('原交易不能继续广播');
+            await _reply(id);
+            break;
+          case 'authorization':
+            final signature = data['signature'] as String;
+            contextValue.network.signature(signature);
+            await _save(
+              before.update(
+                progress: TopupProgress.authorized,
+                signature: signature,
+              ),
+            );
+            await _reply(id);
+            break;
+          case 'submitting':
+            if (before.signature == null) throw const FormatException('缺少付款授权');
+            final txid = data['txid'] as String?;
+            final wire = data['wire'] as String?;
+            if (contextValue.network.evmId == null &&
+                (txid == null ||
+                    wire == null ||
+                    !contextValue.network.transaction(txid)))
+              throw const FormatException('缺少原签名交易');
+            if (DateTime.now().millisecondsSinceEpoch >=
+                before.intent.expiresAt)
+              throw const FormatException('付款意图已过期');
+            await _save(
+              before.update(
+                progress: TopupProgress.submitting,
+                txid: txid,
+                wire: wire,
+              ),
+            );
+            if (txid != null) {
+              try {
+                final status = await widget.api.confirm(
+                  intent: before.intent,
+                  paymentTxid: txid,
+                  payerSignature: before.signature!,
+                );
+                await _save(_record!.update(order: status));
+              } on TopupApiException {
+                /* 已有原交易可恢复；网络未知不能促使重签。 */
+              }
+            }
+            await _reply(id);
+            break;
+          case 'submitted':
+            if (before.progress.index < TopupProgress.submitting.index)
+              throw const FormatException('付款未持久提交');
+            final txid = data['txid'] as String;
+            if (!before.intent.network.transaction(txid))
+              throw const FormatException('付款回执无效');
+            await _save(
+              before.update(
+                progress: before.progress.index > TopupProgress.submitted.index
+                    ? before.progress
+                    : TopupProgress.submitted,
+                txid: txid,
+              ),
+            );
+            await _reply(id);
+            if (mounted) Navigator.of(context).pop(_record);
+            break;
+          default:
+            throw const FormatException('未知付款桥接阶段');
+        }
       }
-      return;
+    } on Object {
+      await _reply(id, error: '付款流程已停止，请返回核实原订单');
+      if (mounted) setState(() => _error = '付款未继续；如已在钱包确认，请恢复原订单，勿重复付款');
+    } finally {
+      _handling = false;
     }
-    if (payload['kind'] == 'paid') {
-      final txHash = payload['txHash']?.toString() ?? '';
-      final payer = payload['payer']?.toString() ?? '';
-      final paymentIntent = _paymentIntent;
-      final signature = payload['payerSignature'];
-      if (!RegExp(r'^0x[0-9a-fA-F]{64}$').hasMatch(txHash) ||
-          payer.toLowerCase() != _intentPayer ||
-          paymentIntent == null ||
-          signature is! String ||
-          !mounted) {
-        return;
-      }
-      widget.api.rememberPayerAuthorization(paymentIntent, signature);
-      Navigator.of(context).pop(
-        TopupWebResult(
-          txHash: txHash,
-          paymentIntent: paymentIntent,
-          payerAddress: payer,
-        ),
-      );
-      return;
-    }
-    final error = payload['error']?.toString() ?? '支付未完成';
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('连接钱包支付'), centerTitle: true),
-      body: _error != null
-          ? Center(
-              child: Padding(
-                padding: EdgeInsets.all(AppLayout.scaled(context, 24)),
-                child: Text(
-                  _error!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: AppTheme.danger),
-                ),
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('连接钱包支付'), centerTitle: true),
+    body: _error == null
+        ? WebViewWidget(controller: _controller)
+        : Center(
+            child: Padding(
+              padding: EdgeInsets.all(AppLayout.scaled(context, 24)),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _error!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: AppTheme.danger),
+                  ),
+                  const SizedBox(height: 16),
+                  OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop(_record),
+                    child: const Text('返回原订单'),
+                  ),
+                ],
               ),
-            )
-          : WebViewWidget(controller: _controller),
-    );
-  }
+            ),
+          ),
+  );
 }

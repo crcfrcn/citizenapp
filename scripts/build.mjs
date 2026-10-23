@@ -1,6 +1,7 @@
 // 按官方要求或推荐实现；必需的工具依赖有就复用，没有就下载；使用最简单的实现方式；本脚本只允许放编译构建代码和注释，禁止增加无关内容，禁止增加复杂的校验阻断。
 // config.mjs：只负责配置声明；build.mjs：只负责编译构建实现和必要注释；*.yml：负责全部GitHub流程，包括版本、作业编排、发布及历史清理。
 import {spawn, execFileSync} from 'node:child_process';
+import {prepareTopup} from './topup.mjs';
 import {appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync,
     readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync} from 'node:fs';
 import {join, resolve, dirname} from 'node:path';
@@ -82,7 +83,7 @@ export async function build(platform, phase = 'app', options={}) {
             return;
         }
         const flutter = join(environment.FLUTTER_ROOT, 'bin/flutter');
-        const version = ['--build-name', environment.CITIZENAPP_VERSION, '--build-number', environment.GITHUB_RUN_NUMBER];
+        const version = ['--build-name', environment.CITIZENAPP_VERSION, '--build-number', environment.GITHUB_RUN_NUMBER, ...['TOPUP_TRON_RPC_URL','TOPUP_SOLANA_RPC_URL'].map(name=>'--dart-define='+name+'='+(environment[name]||''))];
         const output = join(work, 'artifact');
         mkdirSync(output);
         const title = `公民·${platform === 'ios' ? 'iOS' : 'Android'}·v${environment.CITIZENAPP_VERSION}`;
@@ -392,6 +393,7 @@ const values = {
 };
 Object.assign(environment,values);
 if(environment.GITHUB_ENV)for (const [key, value] of Object.entries(values)) appendFileSync(environment.GITHUB_ENV, key + '=' + value + '\n');
+await (io.topup || prepareTopup)(project,{environment,run:(command,args,cwd,env)=>run(command,args,cwd,false,env,'充值资源构建')});
 return {project,values};
 }
 

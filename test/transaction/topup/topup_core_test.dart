@@ -1,480 +1,282 @@
 import 'dart:convert';
-
-import 'package:crypto/crypto.dart';
-
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-
+import 'package:citizenapp/transaction/topup/topup_models.dart';
 import 'package:citizenapp/transaction/topup/topup_api.dart';
 import 'package:citizenapp/transaction/topup/topup_erc20.dart';
-import 'package:citizenapp/transaction/topup/topup_models.dart';
 import 'package:citizenapp/transaction/topup/wallet_link_dispatcher.dart';
-import '../../support/platform_input.dart';
 
+Map<String, dynamic> fixture() =>
+    jsonDecode(File('test/transaction/topup/contract.json').readAsStringSync())
+        as Map<String, dynamic>;
 void main() {
-  test('付款意图逐字段绑定目标/付款人/报价/期限；授权文本一字变化拒绝', () {
-    const now = 1000000;
-    final account = '0x${'11' * 32}',
-        payer = '0x${'22' * 20}',
-        genesis = '0x${'55' * 32}';
-    const rail = TopupRail(
-      token: 'USDC',
-      chainId: 1,
-      tokenContract: '0x3333333333333333333333333333333333333333',
-      tokenDecimals: 6,
-      label: 'USDC',
-    );
-    const package = TopupPackage(
-      packageId: 'pkg',
-      payDisplay: '1',
-      payAmount: '1000000',
-      coinDisplay: '1',
-      coinFen: '100',
-    );
-    const recipient = '0x4444444444444444444444444444444444444444';
-    final intent = <String, dynamic>{
-      'intent_id': 'intent',
-      'cid_number': null,
-      'account_id': account,
-      'payer_address': payer,
-      'token': 'USDC',
-      'package_id': 'pkg',
-      'chain_id': 1,
-      'token_contract': rail.tokenContract,
-      'recv_address': recipient,
-      'pay_amount': '1000000',
-      'coin_fen': '100',
-      'issued_at': now,
-      'expires_at': now + 600000,
-    };
-    final token =
-        '${base64Url.encode(utf8.encode(jsonEncode(intent))).replaceAll('=', '')}.mac';
-    final message =
-        'CitizenServe Topup v1\nservice_origin=https://www.crcfrcn.com\nchain_genesis_hash=$genesis\n'
-        'intent_id=intent\nchain_id=1\npayer_address=$payer\ntoken_contract=${rail.tokenContract}\nrecv_address=$recipient\n'
-        'pay_amount=1000000\ncoin_fen=100\naccount_id=$account\npackage_id=pkg\nissued_at=$now\nexpires_at=${now + 600000}\nintent_sha256=${sha256.convert(utf8.encode(token))}\n';
-    TopupPaymentIntent value({Map<String, dynamic>? body, String? text}) =>
-        TopupPaymentIntent.fromJson({
-          'intent': body ?? intent,
-          'payment_intent': token,
-          'wallet_authorization_message': text ?? message,
-        });
-    void validate(TopupPaymentIntent v, {String? target, int time = now}) =>
-        v.validatePayment(
-          rail: rail,
-          package: package,
-          accountId: target ?? account,
-          payerAddress: payer,
-          recvAddress: recipient,
-          chainGenesisHash: genesis,
-          now: time,
-        );
-    validate(value());
+  test('六条准确币轨、两个套餐和18位金额不丢精度', () {
+    final c = TopupConfig.fromJson(fixture()['config'] as Map<String, dynamic>);
+    expect(c.rails.length, 6);
+    expect(c.packages.length, 2);
+    expect(c.rail('USDT', TopupNetwork.bnb).decimals, 18);
     expect(
-      () => validate(value(), target: '0x${'66' * 32}'),
+      c.packages[1].amount(c.rail('USDT', TopupNetwork.bnb)),
+      '1400000000000000000000',
+    );
+    for (final n in TopupNetwork.values) {
+      for (final t in ['USDC', 'USDT']) {
+        if (!allowedPair(t, n))
+          expect(() => c.rail(t, n), throwsFormatException);
+      }
+    }
+    final bad = fixture()['config'] as Map<String, dynamic>;
+    bad['packages'].add(bad['packages'][0]);
+    expect(() => TopupConfig.fromJson(bad), throwsFormatException);
+  });
+  test('缺失、假金额、错误精度、重复币轨和不支持的资产组合均拒绝', () {
+    for (var n = 0; n < 5; n++) {
+      final j = fixture()['config'] as Map<String, dynamic>;
+      switch (n) {
+        case 0:
+          j['rails'][0]['decimals'] = 18;
+        case 1:
+          j['rails'][0]['token'] = 'OTHER';
+        case 2:
+          j['packages'][0]['payments'][0]['pay_amount'] = '15.0';
+        case 3:
+          j['rails'][1] = j['rails'][0];
+        case 4:
+          j['packages'][0]['package_id'] = 'custom';
+      }
+      expect(() => TopupConfig.fromJson(j), throwsFormatException);
+    }
+  });
+  test('付款意图、HMAC原文及钱包消息逐字段对齐服务端金标', () {
+    final j = fixture();
+    final i = TopupPaymentIntent.fromJson(j['intent'] as Map<String, dynamic>);
+    final c = TopupConfig.fromJson(j['config'] as Map<String, dynamic>);
+    i.validatePayment(
+      rail: c.rail('USDC', TopupNetwork.base),
+      package: c.packages[0],
+      accountId: i.accountId,
+      payerAddress: i.payer,
+      chainGenesisHash: '0x${'00' * 32}',
+      serviceOrigin: 'https://www.crcfrcn.com',
+      now: 1005000,
+    );
+    expect(
+      () => i.validatePayment(
+        rail: c.rail('USDC', TopupNetwork.base),
+        package: c.packages[0],
+        accountId: '0x${'05' * 32}',
+        payerAddress: i.payer,
+        chainGenesisHash: '0x${'00' * 32}',
+        serviceOrigin: 'https://www.crcfrcn.com',
+        now: 1005000,
+      ),
       throwsFormatException,
     );
-    expect(() => validate(value(), time: now + 600000), throwsFormatException);
-    expect(() => validate(value(text: '$message ')), throwsFormatException);
     expect(
-      () => validate(value(body: {...intent, 'pay_amount': '1'})),
+      () => i.validatePayment(
+        rail: c.rail('USDC', TopupNetwork.base),
+        package: c.packages[0],
+        accountId: i.accountId,
+        payerAddress: i.payer,
+        chainGenesisHash: '0x${'00' * 32}',
+        serviceOrigin: 'https://www.crcfrcn.com',
+        now: i.expiresAt,
+      ),
       throwsFormatException,
+    );
+    final bad = fixture()['intent'] as Map<String, dynamic>;
+    bad['intent']['pay_amount'] = '16000000';
+    expect(() => TopupPaymentIntent.fromJson(bad), throwsFormatException);
+  });
+  test('三协议地址及交易格式独立，Solana大小写不能转小写', () {
+    final f = fixture();
+    for (final name in ['tron', 'solana']) {
+      final j = f['native'][name] as Map<String, dynamic>;
+      final n = TopupNetwork.parse(name);
+      expect(
+        n.address(j['intent']['payer_address'] as String),
+        j['intent']['payer_address'],
+      );
+      expect(n.transaction(j['txid'] as String), true);
+      n.signature(j['signature'] as String);
+    }
+    expect(TopupNetwork.solana.transaction('0x${'11' * 32}'), false);
+    expect(TopupNetwork.tron.transaction('0x${'11' * 32}'), false);
+    expect(TopupNetwork.base.transaction('11' * 32), false);
+  });
+  test('ERC20严格uint256整数字符串编码，负值/溢出/错误地址拒绝', () {
+    final data = encodeErc20Transfer(
+      '0x${'22' * 20}',
+      BigInt.parse('1400000000000000000000'),
+    );
+    expect(data.length, 138);
+    expect(
+      data.endsWith(
+        BigInt.parse('1400000000000000000000')
+            .toRadixString(16)
+            .padLeft(64, '0'),
+      ),
+      true,
+    );
+    expect(() => encodeErc20Transfer('bad', BigInt.one), throwsArgumentError);
+    expect(
+      () => encodeErc20Transfer('0x${'22' * 20}', BigInt.from(-1)),
+      throwsArgumentError,
+    );
+    expect(
+      () => encodeErc20Transfer('0x${'22' * 20}', BigInt.one << 256),
+      throwsArgumentError,
     );
   });
-  test('没有付款签名零HTTP；确认重试复用同一签名', () async {
-    final bodies = <String>[];
+  test('钱包唤起保留scheme和HTTPS桥接，远端主框架及危险协议拒绝', () async {
+    for (final s in [
+      'http://bad',
+      'javascript:alert(1)',
+      'data:text/html,bad',
+      'mailto:test@test',
+    ]) {
+      expect(
+        WalletLinkDispatcher.classify(
+          s,
+          source: WalletLinkSource.walletOpenBridge,
+        ).disposition,
+        WalletLinkDisposition.blocked,
+      );
+    }
+    expect(
+      WalletLinkDispatcher.classify(
+        'https://wallet.example/',
+        source: WalletLinkSource.webViewNavigation,
+      ).disposition,
+      WalletLinkDisposition.blocked,
+    );
+    expect(
+      WalletLinkDispatcher.classify(
+        'https://wallet.example/',
+        source: WalletLinkSource.walletOpenBridge,
+      ).disposition,
+      WalletLinkDisposition.openExternalWallet,
+    );
+    final called = <String>[];
+    final links = WalletLinkDispatcher(
+      launcher: (u) async {
+        called.add(u.toString());
+        return true;
+      },
+    );
+    expect(
+      await links.open(
+        'wallet://wc?uri=wc%3Atest',
+        source: WalletLinkSource.walletOpenBridge,
+      ),
+      WalletLinkOpenResult.opened,
+    );
+    expect(called.length, 1);
+    expect(
+      await WalletLinkDispatcher(launcher: (_) async => false)
+          .open('wallet://connect', source: WalletLinkSource.walletOpenBridge),
+      WalletLinkOpenResult.failed,
+    );
+    expect(
+      await WalletLinkDispatcher(
+        launcher: (_) async => throw StateError('test'),
+      ).open('wallet://connect', source: WalletLinkSource.walletOpenBridge),
+      WalletLinkOpenResult.failed,
+    );
+  });
+  test('API使用当前network和payment_txid合同，不带普通会话或把凭证放URL', () async {
+    final f = fixture();
+    final i = TopupPaymentIntent.fromJson(f['intent'] as Map<String, dynamic>);
+    var calls = 0;
     final api = TopupApi(
-      baseUrl: 'https://example.com/api',
+      baseUrl: 'https://www.crcfrcn.com/api',
       httpClient: MockClient((r) async {
-        bodies.add(r.body);
-        return http.Response('{"ok":true,"status":"confirming"}', 200);
+        calls++;
+        expect(r.headers.containsKey('authorization'), false);
+        expect(r.url.query, isEmpty);
+        if (r.url.path.endsWith('/config'))
+          return http.Response(jsonEncode(f['config']), 200);
+        final body = jsonDecode(r.body) as Map<String, dynamic>;
+        if (r.url.path.endsWith('/intent')) {
+          expect(body['network'], 'base');
+          expect(body.containsKey('cid_number'), false);
+          return http.Response(jsonEncode(f['intent']), 200);
+        }
+        if (r.url.path.endsWith('/confirm')) {
+          expect(body.keys.toSet(), {
+            'payment_intent',
+            'payment_txid',
+            'payer_signature',
+          });
+          expect(body['payer_signature'], f['signature']);
+        }
+        return http.Response(
+          jsonEncode({
+            'ok': true,
+            'order_id': i.order,
+            'status': 'pending',
+            'phase': 'verifying',
+            'coin_fen': i.coinFen,
+            'payment_txid': '0x${'09' * 32}',
+            'gmb_tx_hash': null,
+            'reason': null,
+          }),
+          200,
+        );
       }),
     );
+    await api.fetchConfig();
+    await api.createIntent(
+      token: 'USDC',
+      packageId: 'pkg_15',
+      accountId: i.accountId,
+      payer: TopupContext(TopupNetwork.base, i.payer),
+    );
+    await api.confirm(
+      intent: i,
+      paymentTxid: '0x${'09' * 32}',
+      payerSignature: f['signature'] as String,
+    );
+    expect((await api.status(i)).phase, TopupPhase.verifying);
+    expect(calls, 4);
+    api.close();
+  });
+  test('API准确读取error字段，未知/矛盾/缺证明的到账状态不能成功', () async {
+    final i = TopupPaymentIntent.fromJson(
+      fixture()['intent'] as Map<String, dynamic>,
+    );
+    final api = TopupApi(
+      httpClient: MockClient(
+        (_) async =>
+            http.Response('{"ok":false,"error":"topup_payment_conflict"}', 409),
+      ),
+    );
     await expectLater(
-      api.confirm(paymentIntent: 'intent', evmTxHash: 'tx'),
-      throwsA(isA<TopupApiException>()),
+      api.status(i),
+      throwsA(
+        isA<TopupApiException>().having(
+          (e) => e.errorCode,
+          'error',
+          'topup_payment_conflict',
+        ),
+      ),
     );
-    expect(bodies, isEmpty);
-    api.rememberPayerAuthorization('intent', '0x${'aa' * 65}');
-    await api.confirm(paymentIntent: 'intent', evmTxHash: 'tx');
-    await api.confirm(paymentIntent: 'intent', evmTxHash: 'tx');
-    expect(bodies, hasLength(2));
-    expect(bodies[0], bodies[1]);
-    expect(
-      () => api.rememberPayerAuthorization('intent', '0x${'bb' * 65}'),
-      throwsA(isA<TopupApiException>()),
-    );
-  });
-  group('WalletConnect WebView CSP', () {
-    final html = File('assets/topup/walletconnect.html').readAsStringSync();
-
-    test('只给钱包图片开放 blob 并固定 Reown 字体域名', () {
-      expect(html, contains("img-src 'self' data: blob: https:;"));
-      expect(html, contains('font-src https://fonts.reown.com;'));
-    });
-
-    test('不向脚本或框架开放 blob，正式官网元数据保持不变', () {
-      expect(html, contains("script-src 'self' 'unsafe-inline';"));
-      expect(html, isNot(contains('script-src blob:')));
-      expect(html, isNot(contains('frame-src blob:')));
-      expect(html, contains("url: 'https://www.crcfrcn.com'"));
-    });
-
-    test('Reown 新窗口统一交给 bridge，且 metadata 声明双端回跳', () {
-      expect(html, contains("window.open = (url, target, features) =>"));
-      expect(html, contains("kind: 'external_wallet'"));
-      expect(
-        html,
-        contains("redirect: { native: 'citizenapp://walletconnect' }"),
-      );
-      // 不配置 includeWalletIds，保持 WalletGuide 全部兼容钱包可见。
-      expect(html, isNot(contains('includeWalletIds')));
-    });
-  });
-
-  group('WalletLinkDispatcher', () {
-    test('HTTP和WS全部来源均拒绝且不调用系统打开', () async {
-      final opened = <Uri>[];
-      final dispatcher = WalletLinkDispatcher(
-        launcher: (uri) async {
-          opened.add(uri);
-          return true;
-        },
-      );
-      // 负向输入按URI组件明确构造，保留大小写、回环与局域网覆盖；不建立网络连接。
-      final rejectedUrls = [
-        Uri(scheme: 'http', host: '127.0.0.1', path: '/connect').toString(),
-        Uri(
-          scheme: 'http',
-          host: 'wallet.example',
-          path: '/connect',
-        ).toString().replaceFirst('http:', 'HTTP:'),
-        Uri(scheme: 'ws', host: 'localhost', port: 9944).toString(),
-        Uri(
-          scheme: 'ws',
-          host: '192.168.1.10',
-          port: 9944,
-        ).toString().replaceFirst('ws:', 'WS:'),
-      ];
-      for (final source in WalletLinkSource.values) {
-        for (final url in rejectedUrls) {
-          expect(
-            WalletLinkDispatcher.classify(url, source: source).disposition,
-            WalletLinkDisposition.blocked,
-          );
-          expect(
-            await dispatcher.open(url, source: source),
-            WalletLinkOpenResult.blocked,
-          );
-        }
-      }
-      expect(opened, isEmpty);
-    });
-
-    test('普通 HTTPS 导航留在 WebView，Reown 钱包打开事件外部化', () {
-      final navigation = WalletLinkDispatcher.classify(
-        'https://wallet.example/connect',
-        source: WalletLinkSource.webViewNavigation,
-      );
-      final walletOpen = WalletLinkDispatcher.classify(
-        'https://wallet.example/connect',
-        source: WalletLinkSource.walletOpenBridge,
-      );
-      expect(navigation.disposition, WalletLinkDisposition.stayInWebView);
-      expect(walletOpen.disposition, WalletLinkDisposition.openExternalWallet);
-    });
-
-    test('WalletGuide 自定义 scheme 不按钱包品牌裁剪', () {
-      final decision = WalletLinkDispatcher.classify(
-        'future-wallet://wc?uri=redacted',
-        source: WalletLinkSource.webViewNavigation,
-      );
-      expect(decision.disposition, WalletLinkDisposition.openExternalWallet);
-    });
-
-    test('危险协议拒绝，WebView 内部资源不交给系统', () {
-      for (final url in const [
-        'javascript:alert(1)',
-        'data:text/plain,secret',
-        'tel:10086',
-        'mailto:test@example.com',
-      ]) {
-        final decision = WalletLinkDispatcher.classify(
-          url,
-          source: WalletLinkSource.walletOpenBridge,
-        );
-        expect(decision.disposition, WalletLinkDisposition.blocked);
-      }
-      final asset = WalletLinkDispatcher.classify(
-        'file:///walletconnect.html',
-        source: WalletLinkSource.webViewNavigation,
-      );
-      expect(asset.disposition, WalletLinkDisposition.stayInWebView);
-    });
-
-    test('系统打开成功、返回 false 和抛异常均转换为固定结果', () async {
-      final opened = WalletLinkDispatcher(launcher: (_) async => true);
-      final failed = WalletLinkDispatcher(launcher: (_) async => false);
-      final crashed = WalletLinkDispatcher(
-        launcher: (_) async {
-          throw Exception('platform failure');
-        },
-      );
-
-      expect(
-        await opened.open(
-          'wc:topic@2?relay-protocol=irn&symKey=redacted',
-          source: WalletLinkSource.webViewNavigation,
-        ),
-        WalletLinkOpenResult.opened,
-      );
-      expect(
-        await failed.open(
-          'another-wallet://wc',
-          source: WalletLinkSource.walletOpenBridge,
-        ),
-        WalletLinkOpenResult.failed,
-      );
-      expect(
-        await crashed.open(
-          'https://wallet.example/connect',
-          source: WalletLinkSource.walletOpenBridge,
-        ),
-        WalletLinkOpenResult.failed,
-      );
-    });
-
-    test('钱包专属链接失效时回退标准 wc URI，不维护品牌兼容表', () async {
-      final attempts = <Uri>[];
-      final dispatcher = WalletLinkDispatcher(
-        launcher: (uri) async {
-          attempts.add(uri);
-          return uri.scheme == 'wc';
-        },
-      );
-
-      final result = await dispatcher.open(
-        'legacy-wallet://main/wc?uri='
-        'wc%3Atopic%402%3Frelay-protocol%3Dirn%26symKey%3Dredacted',
-        source: WalletLinkSource.walletOpenBridge,
-      );
-
-      expect(result, WalletLinkOpenResult.opened);
-      expect(attempts.map((uri) => uri.scheme), ['legacy-wallet', 'wc']);
-    });
-  });
-
-  group('WalletConnect 双端回跳配置', () {
-    test('iOS 与 Android 都注册 citizenapp://walletconnect', () {
-      final infoPlist = File('ios/source/Info.plist').readAsStringSync();
-      final androidManifest = File('android/app/AndroidManifest.xml')
-          .readAsStringSync();
-      expect(infoPlist, contains('<string>citizenapp</string>'));
-      expect(infoPlist, contains('citizenapp.walletconnect'));
-      expect(androidManifest, contains('android:scheme="citizenapp"'));
-      expect(androidManifest, contains('android:host="walletconnect"'));
-    });
-  });
-
-  group('iOS 静态 XCFramework 构建配置', () {
-    test('Isar 输出清单按真实 libisar.a 建立 Xcode 依赖', () {
-      final podfile = platformInput('ios/Podfile');
-      expect(
-        podfile,
-        contains(
-          r'${PODS_XCFRAMEWORKS_BUILD_DIR}/'
-          r'isar_community_flutter_libs/libisar.a',
-        ),
-      );
-      expect(
-        podfile,
-        contains(
-          "'isar_community_flutter_libs-xcframeworks-output-files.xcfilelist'",
-        ),
-      );
-    });
-  });
-
-  group('encodeErc20Transfer', () {
-    test('按 selector + 32B 地址 + 32B 金额编码', () {
-      final data = encodeErc20Transfer('0x${'ab' * 20}', BigInt.from(15000000));
-      final expected =
-          '0xa9059cbb'
-          '${'0' * 24}${'ab' * 20}'
-          '${'0' * 58}e4e1c0';
-      expect(data, expected);
-      expect(data.length, 2 + 8 + 64 + 64);
-    });
-
-    test('非法地址抛错', () {
-      expect(
-        () => encodeErc20Transfer('0x1234', BigInt.one),
-        throwsArgumentError,
-      );
-    });
-
-    test('负数金额抛错', () {
-      expect(
-        () => encodeErc20Transfer('0x${'ab' * 20}', BigInt.from(-1)),
-        throwsArgumentError,
-      );
-    });
-  });
-
-  group('TopupConfig 解析', () {
-    test('解析币轨与套餐', () {
-      final config = TopupConfig.fromJson({
-        'network': 'production',
-        'recv_address': '0x${'cd' * 20}',
-        'rails': [
-          {
-            'token': 'USDC',
-            'chain_id': 8453,
-            'token_contract': '0x${'11' * 20}',
-            'token_decimals': 6,
-            'label': 'USDC · Base',
-          },
-        ],
-        'packages': [
-          {
-            'package_id': 'pkg_15',
-            'pay_display': '15',
-            'pay_amount': '15000000',
-            'coin_display': '10,000.00',
-            'coin_fen': '1000000',
-          },
-        ],
-      });
-      expect(config.rails.single.chainId, 8453);
-      expect(config.rails.single.caip2, 'eip155:8453');
-      expect(config.packages.single.payAmountValue, BigInt.from(15000000));
-    });
-  });
-
-  group('TopupApi', () {
-    const accountId =
-        '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-    // 充值已与广场会话解耦:客户端不再持有 / 传递任何 session。
-    TopupApi apiWith(MockClient client) =>
-        TopupApi(baseUrl: 'https://x.test/api', httpClient: client);
-
-    test('fetchConfig 走 /topup/config', () async {
-      final api = apiWith(
-        MockClient((request) async {
-          expect(request.url.path, '/api/topup/config');
-          return http.Response(
-            jsonEncode({
-              'ok': true,
-              'network': 'testnet',
-              'recv_address': '0x${'cd' * 20}',
-              'rails': [],
-              'packages': [],
-            }),
-            200,
-          );
-        }),
-      );
-      final config = await api.fetchConfig();
-      expect(config.network, 'testnet');
-    });
-
-    test('createIntent 上传充值目标 account_id 且不带任何会话头', () async {
-      final api = apiWith(
-        MockClient((request) async {
-          expect(request.method, 'POST');
-          expect(request.url.path, '/api/topup/intent');
-          expect(request.headers.containsKey('authorization'), isFalse);
-          final body = jsonDecode(request.body) as Map<String, dynamic>;
-          expect(body['account_id'], accountId);
-          return http.Response(
-            jsonEncode({
-              'ok': true,
-              'payment_intent': 'signed-intent',
-              'intent': {'expires_at': 123},
-              'wallet_authorization_message': 'fixed-message',
-            }),
-            200,
-          );
-        }),
-      );
-      final result = await api.createIntent(
-        token: 'USDC',
-        packageId: 'pkg_15',
-        accountId: accountId,
-        payerAddress: '0x${'22' * 20}',
-      );
-      expect(result.token, 'signed-intent');
-    });
-
-    test('confirm 未确认 → confirming，且不带会话头', () async {
-      final api = apiWith(
-        MockClient((request) async {
-          expect(request.headers.containsKey('authorization'), isFalse);
-          expect(jsonDecode(request.body)['payer_signature'], '0x${'aa' * 65}');
-          return http.Response(
-            jsonEncode({'ok': true, 'status': 'confirming'}),
-            200,
-          );
-        }),
-      );
-      api.rememberPayerAuthorization('signed-intent', '0x${'aa' * 65}');
-      final result = await api.confirm(
-        paymentIntent: 'signed-intent',
-        evmTxHash: '0x${'22' * 32}',
-      );
-      expect(result.status, TopupOrderStatus.confirming);
-    });
-
-    test('status 走 POST，凭付款意图查单，订单号不入 URL', () async {
-      final api = apiWith(
-        MockClient((request) async {
-          expect(request.method, 'POST');
-          expect(request.url.path, '/api/topup/status');
-          expect(request.headers.containsKey('authorization'), isFalse);
-          final body = jsonDecode(request.body) as Map<String, dynamic>;
-          expect(body['order_id'], 'top_123');
-          expect(body['payment_intent'], 'signed-intent');
-          return http.Response(jsonEncode({'ok': true, 'status': 'paid'}), 200);
-        }),
-      );
-      final status = await api.status(
-        orderId: 'top_123',
-        paymentIntent: 'signed-intent',
-      );
-      expect(status, TopupOrderStatus.paid);
-    });
-
-    test('非 2xx 抛 TopupApiException 带 error_code', () async {
-      final api = apiWith(
-        MockClient(
-          (request) async => http.Response(
-            jsonEncode({
-              'ok': false,
-              'error_code': 'topup_payment_invalid',
-              'message': '未确认到有效到账',
-            }),
-            400,
-            headers: {'content-type': 'application/json; charset=utf-8'},
-          ),
-        ),
-      );
-      api.rememberPayerAuthorization('signed-intent', '0x${'aa' * 65}');
-      expect(
-        () => api.confirm(
-          paymentIntent: 'signed-intent',
-          evmTxHash: '0x${'11' * 32}',
-        ),
-        throwsA(
-          isA<TopupApiException>().having(
-            (e) => e.errorCode,
-            'errorCode',
-            'topup_payment_invalid',
-          ),
-        ),
-      );
-    });
+    api.close();
+    for (final j in [
+      {'ok': true, 'status': 'paid', 'phase': 'broadcast'},
+      {'ok': true, 'status': 'other', 'phase': 'paid'},
+      {
+        'ok': true,
+        'status': 'paid',
+        'phase': 'paid',
+        'order_id': i.order,
+        'coin_fen': i.coinFen,
+      },
+    ]) {
+      expect(() => TopupOrder.fromJson(j), throwsFormatException);
+    }
   });
 }

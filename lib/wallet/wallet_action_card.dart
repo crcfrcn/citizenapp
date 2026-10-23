@@ -194,13 +194,13 @@ class WalletActionCardState extends State<WalletActionCard> {
 
   /// 充值 = 稳定币购买公民币,进链上充值页;不依赖清算行绑定。
   Future<void> _openTopup(BuildContext context) async {
-    await Navigator.push(
+    final paid = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (_) => OnchainTopupPage(accountId: widget.accountId),
       ),
     );
-    await refresh(forceRefresh: false);
+    if (mounted) await refresh(forceRefresh: paid == true);
   }
 
   Future<void> _openWithdraw(BuildContext context) async {

@@ -5,8 +5,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
-import 'package:citizenapp/network/square_api_client.dart'
-    show SquareApiConfig;
+import 'package:citizenapp/network/square_api_client.dart' show SquareApiConfig;
 
 import 'topup_models.dart';
 
@@ -38,65 +37,59 @@ class TopupApi {
 
   final String baseUrl;
   final http.Client _http;
-  final Map<String, String> _payerAuthorizations = {};
-
-  void rememberPayerAuthorization(String intent, String signature) {
-    if (!RegExp(r'^0x[0-9a-fA-F]{130}$').hasMatch(signature)) {
-      throw const TopupApiException('付款授权签名无效');
-    }
-    final previous = _payerAuthorizations[intent];
-    if (previous != null && previous != signature) {
-      throw const TopupApiException('付款授权已变化');
-    }
-    _payerAuthorizations[intent] = signature;
-  }
-
-  Future<TopupConfig> fetchConfig() async {
-    final data = await _getJson('/topup/config');
-    return TopupConfig.fromJson(data);
-  }
-
-  /// 钱包连接后、付款前创建短期意图；[accountId] 即公民币充值目标账户。
+  Future<TopupConfig> fetchConfig() async =>
+      TopupConfig.fromJson(await _getJson('/topup/config'));
   Future<TopupPaymentIntent> createIntent({
     required String token,
     required String packageId,
     required String accountId,
-    required String payerAddress,
+    required TopupContext payer,
   }) async {
-    final data = await _postJson('/topup/intent', {
-      'account_id': accountId,
-      'token': token,
-      'package_id': packageId,
-      'payer_address': payerAddress,
-    });
-    return TopupPaymentIntent.fromJson(data);
+    targetAccount(accountId);
+    return TopupPaymentIntent.fromJson(
+      await _postJson('/topup/intent', {
+        'account_id': accountId,
+        'token': token,
+        'package_id': packageId,
+        'network': payer.network.wire,
+        'payer_address': payer.payer,
+      }),
+    );
   }
 
-  /// 付款后提交交易哈希；Worker 从 HMAC 意图恢复充值目标、付款人与精确报价。
-  Future<TopupConfirmResult> confirm({
-    required String paymentIntent,
-    required String evmTxHash,
+  Future<TopupOrder> confirm({
+    required TopupPaymentIntent intent,
+    required String paymentTxid,
+    required String payerSignature,
   }) async {
-    final signature = _payerAuthorizations[paymentIntent];
-    if (signature == null) throw const TopupApiException('缺少本次付款钱包授权');
-    final data = await _postJson('/topup/confirm', {
-      'payment_intent': paymentIntent,
-      'evm_tx_hash': evmTxHash,
-      'payer_signature': signature,
-    });
-    return TopupConfirmResult.fromJson(data);
+    intent.network.signature(payerSignature);
+    if (!intent.network.transaction(paymentTxid))
+      throw const FormatException('原付款交易定位无效');
+    return _order(
+      await _postJson('/topup/confirm', {
+        'payment_intent': intent.token,
+        'payment_txid': paymentTxid,
+        'payer_signature': payerSignature,
+      }),
+      intent,
+    );
   }
 
-  /// 按订单 ID 轮询；付款意图即查询凭证，故走 POST——凭证不能出现在 URL 里。
-  Future<TopupOrderStatus> status({
-    required String orderId,
-    required String paymentIntent,
-  }) async {
-    final data = await _postJson('/topup/status', {
-      'order_id': orderId,
-      'payment_intent': paymentIntent,
-    });
-    return topupOrderStatusFrom(data['status']?.toString());
+  Future<TopupOrder> status(TopupPaymentIntent intent) async => _order(
+    await _postJson('/topup/status', {
+      'order_id': intent.order,
+      'payment_intent': intent.token,
+    }),
+    intent,
+  );
+  TopupOrder _order(Map<String, dynamic> data, TopupPaymentIntent intent) {
+    final order = TopupOrder.fromJson(data);
+    if (order.id != intent.order ||
+        order.coinFen != intent.coinFen ||
+        order.paymentTxid != null &&
+            !intent.network.transaction(order.paymentTxid!))
+      throw const FormatException('订单与充值目标不一致');
+    return order;
   }
 
   Future<Map<String, dynamic>> _getJson(String path) async {
@@ -141,9 +134,9 @@ class TopupApi {
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw TopupApiException(
-        decoded['message']?.toString() ?? '充值服务请求失败',
+        '充值服务请求失败，请稍后核实原订单',
         statusCode: response.statusCode,
-        errorCode: decoded['error_code']?.toString(),
+        errorCode: decoded['error']?.toString(),
       );
     }
     return decoded;

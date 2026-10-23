@@ -75,7 +75,7 @@ citizenapp/  # 第0级
 │   ├── institutions/  # 直属44个文件
 │   ├── logo/  # 直属31个文件
 │   ├── profiles/  # 直属11个文件
-│   └── topup/  # 直属2个文件
+│   └── topup/  # HTML、JS源码和npm声明/原锁
 ├── ios/  # 原Podfile锁、工程与原生源码
 │   ├── project/  # Xcode项目与主scheme
 │   ├── source/  # 应用入口、设备保护与应用声明
@@ -117,7 +117,7 @@ citizenapp/  # 第0级
 │   │   ├── offchain/  # 直属12个文件
 │   │   ├── onchain/  # 直属5个文件
 │   │   ├── personal/  # 14：个人多签管理与创建金额规则
-│   │   └── topup/  # 直属7个文件
+│   │   └── topup/  # 三协议付款、HTTP合同、恢复和原UI
 │   ├── wallet/  # 14：钱包页面、账户组件、助记词与密码输入
 │   └── widgets/  # 3：通用链状态栏、按压卡片与加载效果
 ├── scripts/  # 自动化编译与纯配置声明
@@ -154,7 +154,7 @@ citizenapp/  # 第0级
 │   │   ├── offchain/  # 直属3个文件
 │   │   ├── onchain/  # 直属2个文件
 │   │   ├── personal/  # 直属6个文件
-│   │   └── topup/  # 直属2个文件
+│   │   └── topup/  # 合同夹具、页面/存储与JS回归
 │   └── wallet/  # 直属2个文件
 │       ├── pages/  # 直属4个文件
 │       └── widgets/  # 直属4个文件
@@ -3097,7 +3097,7 @@ CI检查阶段的Pub解析与测试复用同一视图，复用前核对产品来
 
 ### 用户数据持久化组件测试的真实IO边界
 
-聊天与通讯录普通读取使用所属产品的系统保护私有数据库。公开身份绑定和登记回执保存在原子系统保护记录；生产提交在原生文件描述符锁内比较完整JSON快照，写临时文件并同步、rename及父目录同步后回读。Dart的Unix进程级文件锁只辅助排队，不承担跨isolate的CAS。PIN算法、盐、失败计数及应用锁规则保持。普通认证和通讯录网络同步只使用同一MLS身份，不触发钱包或生物识别。首次MLS设备登记沿用已授权的钱包证明及原Turnstile规则。
+聊天与通讯录普通读取使用所属产品的系统保护私有数据库。公开身份绑定和登记回执保存在原子系统保护记录；生产提交在原生文件描述符锁内比较完整JSON快照，写临时文件并同步、rename及父目录同步后回读。Dart只做同isolate排队与完整记录读取，不持操作系统文件锁等待原生回执；跨isolate竞争由原生完整快照CAS拒绝旧值。iOS存储通道使用Flutter串行后台任务队列处理文件锁与同步落盘，主线程继续处理触摸及场景生命周期。存储回归必须覆盖生产平台通道、锁等待期间主线程响应、失败后主动重试及关闭后迟到回执。PIN算法、盐、失败计数及应用锁规则保持。普通认证和通讯录网络同步只使用同一MLS身份，不触发钱包或生物识别。首次MLS设备登记沿用已授权的钱包证明及原Turnstile规则。
 
 全部七步源修改、测试源码、注释、实际接口说明、文档和残留清理完成后统一执行适用测试及iOS XCTest/Android instrumentation真实验收；当前源修改不作为运行通过证据。
 
@@ -3197,7 +3197,7 @@ Release合同核验正式锁定SDK公开QR方法的准确返回类型、参数�
 
 普通API改用/api/user、/api/8964、/api/notifications、/api/membership、/api/topup；证明覆盖实际方法/原始URL查询/正文。创作者档位读取tiers及各周期价格；finalized确认需普通request MLS证明。资料上传核对同源能力URL和PUT内容哈希；manifest与complete按新结构/路径。公开链extrinsic入口为/api/chain/extrinsics。
 
-付款意图核对当前链genesis、服务origin、付款人/代币/收款地址/金额/目标账户/套餐/期限及原始token摘要；WalletConnect先personal_sign固定CitizenServe Topup v1消息，成功后才发送原ERC20交易。确认复用同一payer_signature及交易哈希，不重复支付。
+付款意图、钱包授权与恢复仅使用下文“三协议链上充值”的当前合同。
 
 本轮相关21件Flutter文件的178项用例全部通过，完整App源视图analyze无问题，47件批准Dart源码/测试的format检查零变化。实际充值HTML内联JavaScript另有7项Node VM检查通过：成功先签授权再发送一次交易；取消、无效签名、错链、账户变化和签名期间过期均不发送交易，重复提交不重复支付。VM中的钱包提供方是模拟端口，没有真实签名或付款。Flutter测试使用准确公开CitizenSDK提交0c442b4065ff1577e235cba76978749827d9f575、TataChatSDK提交29b7e4377833802a0a9f833c44c3e92036bd8493和既有固定链金标；SDK工作树未被修改。CitizenSDK由固定提交真实编译并通过其ABI符号及C/C++头文件检查；相关Flutter结果不等于TataChatSDK MLS原生库或现行自动化的完整测试通过。
 
@@ -3383,3 +3383,29 @@ CitizenSDK与TataChatSDK的Git来源声明保持，ref统一为main。仓库原�
 本机编译复用调用环境提供的缓存参数，Pub未显式提供时使用用户已有的标准缓存，Gradle复用现有Flutter安装旁的已有gradle缓存；Cargo增量输出保持本产品缓存或调用方指定位置。CitizenSDK的ZXing源码路径按其公开nativeSources声明映射到本产品target/cache/sources，或使用调用方显式提供的CITIZENSDK_ZXING_SOURCE_DIR。App只传递这项必要编译输入，不另加目录检查、下载器或依赖准备模块；资源获取须另行授权。
 
 本产品scripts/config.mjs的describeAction仅返回repository、workflow、ref、inputs，或既有本地进程命令声明；不导入构建实现、不派发GitHub请求、不处理令牌、版本或历史。控制台使用统一数据接口直接派发并只读观察准确Run；产品GitHub业务归所属既有YAML。本次自动化Run名称使用运行编号，正式构建及产物保持版本名称。已有工具和依赖复用，缺少时才按原声明准备。
+
+## 三协议链上充值
+
+复用链上充值页的币种卡片、套餐弹窗和结果页交互；USDC支持Ethereum/Base/Solana，USDT支持Ethereum/Tron/BNB；只允许两个原套餐，无网络选择或自定义金额。钱包自动提供付款上下文，服务端独立验款和发GMB，App不持有发币种子。实际开发验收及生产验收的范围和结果归唯一任务卡。
+
+充值合同改用network/asset和分币轨整数报价；意图必须匹配目标、付款人、资产、金额及原始授权文本。topup.json复用系统保护记录的原子CAS并按服务origin/目标账户隔离；付款定位、签名和阶段不可替换或倒退；充值仅增加自己的记录名，不改变其他业务的存储合同。
+
+随包钱包改用UniversalProvider 2.23.10及AppKit 1.8.19；TronWeb 6.5.1、Solana web3.js 1.98.4/SPL Token 0.4.15只构造公开交易。钱包只签其所属协议；接收多网络授权不代表当前网络，没有唯一实际上下文即停止。生成bundle移出源码，在本轮工程内构建。
+
+产品assembleProject在既有工作工程内按JS锁准备库依赖并调用已交付esbuild0.28.1，构建随包资源；本地和两平台同一入口，不在源码安装node_modules/产出bundle。客户端公开节点只声明TOPUP_TRON_RPC_URL/TOPUP_SOLANA_RPC_URL，不猜填生产值。
+
+充值页面沿原样式按USDC/USDT各显示一张卡，原套餐弹窗保留；未完成记录按当前GMB账户恢复。桥接主框架固定本地随包页面，随机会话及递增请求号拦截旧回执；每阶段成功落盘后才放行下一操作。成功返回原钱包入口并通过原SDK刷新。
+
+结果页复用原视觉，按服务端完整阶段显示；前台逐步降频查单，后台停止页面计时器、回前台恢复，超时不判失败。回执丢失仅补交原交易与原签名，不再次请求付款；paid必须有原付款和GMB链定位。服务端允许原报价期付款离线补交。
+
+开发回归使用App原Flutter/Pub锁、公开服务响应及合成钱包端口，检查原UI两币两套餐、三协议格式、意图原文、精度、桥接来源和保护记录恢复。原生保护只增加准确文件名，其他资料记录仍拒绝任意路径。
+
+钱包当前链只接受远端认证会话事件或唯一批准上下文，不把AppKit默认网络当作钱包选择；原两币种UI保持。相同流程在隔离JS VM以合成钱包检验落盘顺序、错误和重复风险，不冒充真钱包付款。
+
+原付款进入提交阶段但结果未明时，币种卡片恢复原单；Tron/Solana保护记录中已有签名原字节的订单，可在原报价有效期内明确继续广播同一交易，不重新签名或生成付款。报价过期只查原单，禁止新广播。
+
+TronWeb公开HttpProvider只传输付款所需的三个POST接口，使用HTTPS且禁止重定向；Solana JSON-RPC也禁止重定向。HTML不允许内联或远端脚本。Tron钱包方法载荷按[Tron官方WalletConnect适配器](https://github.com/tronweb3/walletconnect-tron/blob/main/src/adapter.ts)的协商版本发送；金额与签名原文仍按CitizenServe合同独立核对。
+
+两个套餐固定为15U兑换10,000GMB、1400U兑换1,000,000GMB。EVM交易同时传准确chainId；Tron/Solana原签名交易先保存再广播。未决提交优先恢复，套餐弹窗防重复打开；已保存paid在离线时仍保留准确到账展示。充值构建子进程复用既有构建取消与退出确认，所需esbuild按公开声明交付，缺失时失败，不自动下载工具。
+
+两平台塔塔自动化在既有工具准备阶段，读取assets/topup/package.json的唯一esbuild版本，通过官方npm准备到本轮WORK/tools并交付ESBUILD_BIN，禁用安装脚本；工具包与钱包库分别准备。本机由环境ESBUILD_BIN或PATH交付已有工具，缺失时构建失败，不在构建入口隐式下载工具。

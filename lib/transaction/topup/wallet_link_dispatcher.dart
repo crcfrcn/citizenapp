@@ -73,7 +73,7 @@ class WalletLinkDispatcher {
       return WalletLinkDecision(
         source == WalletLinkSource.walletOpenBridge
             ? WalletLinkDisposition.openExternalWallet
-            : WalletLinkDisposition.stayInWebView,
+            : WalletLinkDisposition.blocked,
         uri: uri,
       );
     }

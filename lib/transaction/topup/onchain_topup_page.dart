@@ -2,18 +2,26 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import 'package:citizenapp/system/theme/app_theme.dart';
+
 import 'topup_api.dart';
 import 'topup_models.dart';
 import 'topup_result_page.dart';
 import 'topup_webview_page.dart';
+import 'store.dart';
+
 import 'package:citizenapp/system/theme/app_layout.dart';
 
-/// 链上充值页(第 1 屏):USDC/USDT 两条入金轨 → 套餐弹窗 → WalletConnect(WebView) 支付。
+/// 沿用原币种卡片与套餐弹窗；只选U和两个套餐，钱包自动提供付款网络。
 ///
 /// 币轨/收款地址/套餐全部来自 Worker config(App 不写死合约);支付通过 WebView 内的
-/// WalletConnect(AppKit JS)连自托管钱包并发 ERC-20 转账,拿 txHash 后回到 App 上报并轮询到账。
+/// WalletConnect连自托管钱包，按钱包实际网络构造付款；仅服务端paid代表到账。
 class OnchainTopupPage extends StatefulWidget {
-  const OnchainTopupPage({super.key, required this.accountId, this.api});
+  const OnchainTopupPage({
+    super.key,
+    required this.accountId,
+    this.api,
+    this.store,
+  });
 
   /// 收公民币的公民链账户(充值目标 `account_id`,0x+64 hex)。
   /// 付款用的自托管钱包由 WalletConnect 另接。
@@ -21,6 +29,7 @@ class OnchainTopupPage extends StatefulWidget {
 
   /// 注入用于测试;生产用默认 TopupApi(连当前 Worker)。
   final TopupApi? api;
+  final TopupStore? store;
 
   @override
   State<OnchainTopupPage> createState() => _OnchainTopupPageState();
@@ -29,11 +38,49 @@ class OnchainTopupPage extends StatefulWidget {
 class _OnchainTopupPageState extends State<OnchainTopupPage> {
   late final TopupApi _api = widget.api ?? TopupApi();
   late Future<TopupConfig> _configFuture;
+  late final TopupStore _store = widget.store ?? TopupStore();
+  List<TopupRecord> _records = [];
+  bool _recordsLoaded = false;
+  bool _paymentOpen = false;
+  String? _recoveryError;
 
   @override
   void initState() {
     super.initState();
     _configFuture = _api.fetchConfig();
+    _loadRecords();
+  }
+
+  Future<void> _loadRecords() async {
+    final account = widget.accountId;
+    try {
+      final records = await _store.list(topupOrigin(_api.baseUrl), account);
+      if (mounted && account == widget.accountId)
+        setState(() {
+          _records = records;
+          _recordsLoaded = true;
+          _recoveryError = null;
+        });
+    } on Object {
+      if (mounted && account == widget.accountId)
+        setState(() => _recoveryError = '订单恢复记录暂不可用，暂不能发起付款');
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant OnchainTopupPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.accountId != widget.accountId) {
+      _records = [];
+      _recordsLoaded = false;
+      _loadRecords();
+    }
+  }
+
+  @override
+  void dispose() {
+    if (widget.api == null) _api.close();
+    super.dispose();
   }
 
   void _reload() {
@@ -83,12 +130,51 @@ class _OnchainTopupPageState extends State<OnchainTopupPage> {
           ),
         ),
         SizedBox(height: AppLayout.scaled(context, 16)),
-        ...config.rails.map(
-          (rail) => _RailCard(
-            rail: rail,
-            onTap: () => _openPackageSheet(context, config, rail),
+        ...config.tokens.map(
+          (token) => _RailCard(
+            token: token,
+            onTap: () async {
+              if (!_recordsLoaded || _recoveryError != null) return;
+              // 未知付款结果只能恢复原单，避免返回后误付第二笔。
+              final pending = _records.where(
+                (r) =>
+                    !r.terminal &&
+                    r.progress.index >= TopupProgress.submitting.index,
+              );
+              if (pending.isNotEmpty) {
+                await _resume(config, pending.first);
+                return;
+              }
+              await _openPackageSheet(context, config, token);
+            },
           ),
         ),
+        if (_recoveryError != null)
+          Text(_recoveryError!, style: const TextStyle(color: AppTheme.danger)),
+        ..._records
+            .where(
+              (r) =>
+                  r.progress.index >= TopupProgress.submitting.index ||
+                  DateTime.now().millisecondsSinceEpoch < r.intent.expiresAt,
+            )
+            .take(10)
+            .map(
+              (r) => ListTile(
+                title: Text(
+                  r.terminal
+                      ? '充值订单 · ${r.order!.status == TopupOrderStatus.paid ? '已到账' : '待核查'}'
+                      : '恢复充值订单',
+                ),
+                subtitle: Text(
+                  r.order?.message ??
+                      (r.progress.index >= TopupProgress.submitting.index
+                          ? '付款回执待核实，请勿重复付款'
+                          : '付款尚未提交'),
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => _resume(config, r),
+              ),
+            ),
         SizedBox(height: AppLayout.scaled(context, 8)),
         Row(
           children: [
@@ -102,8 +188,9 @@ class _OnchainTopupPageState extends State<OnchainTopupPage> {
               child: Text(
                 '支持 WalletConnect 兼容钱包，包括 MetaMask、OKX、Bitget 等',
                 style: TextStyle(
-                    fontSize: AppLayout.scaled(context, 12),
-                    color: AppTheme.textTertiary),
+                  fontSize: AppLayout.scaled(context, 12),
+                  color: AppTheme.textTertiary,
+                ),
               ),
             ),
           ],
@@ -115,61 +202,115 @@ class _OnchainTopupPageState extends State<OnchainTopupPage> {
   Future<void> _openPackageSheet(
     BuildContext context,
     TopupConfig config,
-    TopupRail rail,
+    String token,
   ) async {
-    final package = await showModalBottomSheet<TopupPackage>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _PackageSheet(rail: rail, packages: config.packages),
-    );
-    if (package == null || !mounted) return;
-    await _startPayment(config, rail, package);
+    if (_paymentOpen) return;
+    _paymentOpen = true;
+    try {
+      final package = await showModalBottomSheet<TopupPackage>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => _PackageSheet(token: token, packages: config.packages),
+      );
+      if (package == null || !mounted) return;
+      await _startPayment(config, token, package);
+    } finally {
+      _paymentOpen = false;
+    }
   }
 
   Future<void> _startPayment(
     TopupConfig config,
-    TopupRail rail,
-    TopupPackage package,
-  ) async {
-    // WebView 内 WalletConnect 连钱包并发 ERC-20 转账,返回付款交易哈希与付款地址。
-    final web = await Navigator.of(context).push<TopupWebResult>(
+    String token,
+    TopupPackage package, {
+    TopupRecord? resume,
+  }) async {
+    final record = await Navigator.of(context).push<TopupRecord>(
       MaterialPageRoute(
         builder: (_) => TopupWebviewPage(
-          rail: rail,
+          config: config,
+          token: token,
           package: package,
-          recvAddress: config.recvAddress,
           accountId: widget.accountId,
           api: _api,
+          store: _store,
+          resume: resume,
         ),
       ),
     );
-    if (web == null || !mounted) return;
-    await Navigator.of(context).push(
+    if (!mounted) return;
+    await _loadRecords();
+    if (record != null &&
+        record.progress.index >= TopupProgress.submitting.index)
+      await _showResult(config, record, package);
+  }
+
+  Future<void> _resume(TopupConfig config, TopupRecord record) async {
+    final package = config.packages.firstWhere(
+      (p) => p.packageId == record.intent.intent['package_id'],
+    );
+    if (record.progress.index < TopupProgress.submitting.index &&
+        DateTime.now().millisecondsSinceEpoch < record.intent.expiresAt) {
+      await _startPayment(
+        config,
+        record.intent.intent['token'] as String,
+        package,
+        resume: record,
+      );
+    } else {
+      await _showResult(config, record, package);
+    }
+  }
+
+  Future<void> _showResult(
+    TopupConfig config,
+    TopupRecord record,
+    TopupPackage package,
+  ) async {
+    final paid = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => TopupResultPage(
           api: _api,
-          rail: rail,
+          store: _store,
+          record: record,
           package: package,
-          evmTxHash: web.txHash,
-          paymentIntent: web.paymentIntent,
+          onReplay: (original) => Navigator.of(context).push<TopupRecord>(
+            MaterialPageRoute(
+              builder: (_) => TopupWebviewPage(
+                config: config,
+                token: original.intent.intent['token'] as String,
+                package: package,
+                accountId: widget.accountId,
+                api: _api,
+                store: _store,
+                resume: original,
+                replay: true,
+              ),
+            ),
+          ),
         ),
       ),
     );
+    if (!mounted) return;
+    if (paid == true) {
+      Navigator.of(context).pop(true);
+    } else {
+      await _loadRecords();
+    }
   }
 }
 
-/// 单条 Base 主网币轨卡片（USDC / USDT）。
-/// 币种 → 币标资源。币轨由 Worker config 下发,未登记的币种回退 USDC 底图,
-/// 绝不因为多了一条币轨就崩页。
+/// 原币种卡片视觉不变，同一币种的多个网络不重复生成卡片。
+/// 严格模型仅允许USDC/USDT，六币轨共用各自币种图标。
 String _tokenIconAsset(String token) => token.toUpperCase() == 'USDT'
     ? 'assets/icons/usdt.svg'
     : 'assets/icons/usdc.svg';
 
 class _RailCard extends StatelessWidget {
-  const _RailCard({required this.rail, required this.onTap});
+  const _RailCard({required this.token, required this.onTap});
 
-  final TopupRail rail;
+  final String token;
   final VoidCallback onTap;
 
   @override
@@ -186,10 +327,9 @@ class _RailCard extends StatelessWidget {
             decoration: AppTheme.cardDecoration(radius: AppTheme.radiusLg),
             child: Row(
               children: [
-                // 币标用各币种官方形态(SVG 自带圆形底色),两条币轨一眼可分;
-                // 原来两卡共用同一个 Material 图标,看不出是哪种稳定币。
+                // 沿用两张官方币标卡片，不把六币轨扩成网络选择。
                 SvgPicture.asset(
-                  _tokenIconAsset(rail.token),
+                  _tokenIconAsset(token),
                   width: AppLayout.scaled(context, 44),
                   height: AppLayout.scaled(context, 44),
                 ),
@@ -200,7 +340,7 @@ class _RailCard extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        rail.token,
+                        token,
                         style: TextStyle(
                           fontSize: AppLayout.scaled(context, 16),
                           fontWeight: FontWeight.w600,
@@ -209,7 +349,9 @@ class _RailCard extends StatelessWidget {
                       ),
                       SizedBox(height: AppLayout.scaled(context, 2)),
                       Text(
-                        rail.label,
+                        token == 'USDC'
+                            ? 'Ethereum · Base · Solana'
+                            : 'Ethereum · Tron · BNB',
                         style: TextStyle(
                           fontSize: AppLayout.scaled(context, 12),
                           color: AppTheme.textTertiary,
@@ -221,8 +363,9 @@ class _RailCard extends StatelessWidget {
                 Text(
                   '去支付',
                   style: TextStyle(
-                      fontSize: AppLayout.scaled(context, 13),
-                      color: AppTheme.primary),
+                    fontSize: AppLayout.scaled(context, 13),
+                    color: AppTheme.primary,
+                  ),
                 ),
                 Icon(
                   Icons.chevron_right,
@@ -240,9 +383,9 @@ class _RailCard extends StatelessWidget {
 
 /// 套餐选择弹窗(第 2 屏):选套餐 → 连接钱包并支付。
 class _PackageSheet extends StatefulWidget {
-  const _PackageSheet({required this.rail, required this.packages});
+  const _PackageSheet({required this.token, required this.packages});
 
-  final TopupRail rail;
+  final String token;
   final List<TopupPackage> packages;
 
   @override
@@ -259,7 +402,8 @@ class _PackageSheetState extends State<_PackageSheet> {
       decoration: BoxDecoration(
         color: AppTheme.surfaceCard,
         borderRadius: BorderRadius.vertical(
-            top: Radius.circular(AppLayout.scaledValue(20))),
+          top: Radius.circular(AppLayout.scaledValue(20)),
+        ),
       ),
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       child: Column(
@@ -278,7 +422,7 @@ class _PackageSheetState extends State<_PackageSheet> {
             ),
           ),
           Text(
-            '选择充值套餐 · ${widget.rail.label}',
+            '选择充值套餐 · ${widget.token}',
             style: TextStyle(
               fontSize: AppLayout.scaled(context, 15),
               fontWeight: FontWeight.w600,
@@ -295,7 +439,7 @@ class _PackageSheetState extends State<_PackageSheet> {
                 ),
               ),
               child: _PackageOption(
-                token: widget.rail.token,
+                token: widget.token,
                 package: packages[index],
                 selected: index == _selected,
                 // 末档为大额档,标「更优汇率」对应批量优惠。
@@ -307,8 +451,9 @@ class _PackageSheetState extends State<_PackageSheet> {
           FilledButton(
             style: FilledButton.styleFrom(
               backgroundColor: AppTheme.primary,
-              padding:
-                  EdgeInsets.symmetric(vertical: AppLayout.scaled(context, 14)),
+              padding: EdgeInsets.symmetric(
+                vertical: AppLayout.scaled(context, 14),
+              ),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(AppLayout.scaledValue(14)),
               ),
@@ -316,22 +461,27 @@ class _PackageSheetState extends State<_PackageSheet> {
             onPressed: packages.isEmpty
                 ? null
                 : () => Navigator.of(context).pop(packages[_selected]),
-            child: Text('连接钱包并支付',
-                style: TextStyle(fontSize: AppLayout.scaled(context, 15))),
+            child: Text(
+              '连接钱包并支付',
+              style: TextStyle(fontSize: AppLayout.scaled(context, 15)),
+            ),
           ),
           SizedBox(height: AppLayout.scaled(context, 10)),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.open_in_new,
-                  size: AppLayout.scaled(context, 14),
-                  color: AppTheme.textTertiary),
+              Icon(
+                Icons.open_in_new,
+                size: AppLayout.scaled(context, 14),
+                color: AppTheme.textTertiary,
+              ),
               SizedBox(width: AppLayout.scaled(context, 6)),
               Text(
                 '将通过 WalletConnect 打开你的钱包确认支付',
                 style: TextStyle(
-                    fontSize: AppLayout.scaled(context, 12),
-                    color: AppTheme.textTertiary),
+                  fontSize: AppLayout.scaled(context, 12),
+                  color: AppTheme.textTertiary,
+                ),
               ),
             ],
           ),
@@ -400,23 +550,29 @@ class _PackageOption extends StatelessWidget {
             if (showBetterRate)
               Container(
                 padding: EdgeInsets.symmetric(
-                    horizontal: AppLayout.scaled(context, 8),
-                    vertical: AppLayout.scaled(context, 3)),
+                  horizontal: AppLayout.scaled(context, 8),
+                  vertical: AppLayout.scaled(context, 3),
+                ),
                 decoration: BoxDecoration(
                   color: AppTheme.gold.withAlpha(31),
-                  borderRadius:
-                      BorderRadius.circular(AppLayout.scaledValue(999)),
+                  borderRadius: BorderRadius.circular(
+                    AppLayout.scaledValue(999),
+                  ),
                 ),
                 child: Text(
                   '更优汇率',
                   style: TextStyle(
-                      fontSize: AppLayout.scaled(context, 11),
-                      color: AppTheme.gold),
+                    fontSize: AppLayout.scaled(context, 11),
+                    color: AppTheme.gold,
+                  ),
                 ),
               )
             else if (selected)
-              Icon(Icons.check_circle,
-                  size: AppLayout.scaled(context, 22), color: AppTheme.primary),
+              Icon(
+                Icons.check_circle,
+                size: AppLayout.scaled(context, 22),
+                color: AppTheme.primary,
+              ),
           ],
         ),
       ),

@@ -29,13 +29,14 @@ abstract final class SystemProtectedStorage {
 }
 
 /// 系统保护原子记录；同isolate排队，生产提交在原生文件锁内比较完整快照。
-/// Dart在Unix上的文件锁为进程级，不能单独承担跨isolate的CAS。
+/// Dart不持有原生提交所需的锁；跨isolate竞争只由原生完整快照CAS裁决。
 final class SystemProtectedRecordStore {
   SystemProtectedRecordStore(this.name, {Future<String> Function()? directory})
     : _directory = directory;
   static final identity = SystemProtectedRecordStore('identity.json');
   static final lock = SystemProtectedRecordStore('lock.json');
   static final registration = SystemProtectedRecordStore('registration.json');
+  static final topup = SystemProtectedRecordStore('topup.json');
   final String name;
   final Future<String> Function()? _directory;
   static final Map<String, Future<void>> _tails = {};
@@ -48,7 +49,8 @@ final class SystemProtectedRecordStore {
   Future<String> _path() async {
     if (name != 'identity.json' &&
         name != 'lock.json' &&
-        name != 'registration.json') {
+        name != 'registration.json' &&
+        name != 'topup.json') {
       throw ArgumentError('记录名称无效');
     }
     if (_directory != null &&
@@ -88,32 +90,26 @@ final class SystemProtectedRecordStore {
           throw StateError('保护记录拒绝非普通文件');
         }
       }
-      final handle = await lockFile.open(mode: FileMode.append);
-      try {
-        await handle.lock(FileLock.blockingExclusive);
-        _require(generation);
-        // 未提交临时文件没有读取资格；禁止以残片替换完整记录。
-        final values = <String, String>{};
-        String? expected;
-        if (await file.exists()) {
-          if (await file.length() > 262144) {
-            throw const FormatException('记录体积超限');
-          }
-          expected = await file.readAsString();
-          final decoded = jsonDecode(expected);
-          if (decoded is! Map<String, dynamic> ||
-              decoded.values.any((v) => v is! String)) {
-            throw const FormatException('保护记录格式损坏');
-          }
-          values.addAll(decoded.cast<String, String>());
+      // 原生提交会锁定同一.lock文件；持外层锁等待平台回执会造成重入死锁。
+      // rename保证读取完整记录，读后发生的并发变化由原生expected比较拒绝。
+      // 未提交临时文件没有读取资格；禁止以残片替换完整记录。
+      final values = <String, String>{};
+      String? expected;
+      if (await file.exists()) {
+        if (await file.length() > 262144) {
+          throw const FormatException('记录体积超限');
         }
-        final result = await action(values, file, generation, expected);
-        _require(generation);
-        return result;
-      } finally {
-        await handle.unlock();
-        await handle.close();
+        expected = await file.readAsString();
+        final decoded = jsonDecode(expected);
+        if (decoded is! Map<String, dynamic> ||
+            decoded.values.any((v) => v is! String)) {
+          throw const FormatException('保护记录格式损坏');
+        }
+        values.addAll(decoded.cast<String, String>());
       }
+      final result = await action(values, file, generation, expected);
+      _require(generation);
+      return result;
     } finally {
       done.complete();
       if (identical(_tails[path], done.future)) _tails.remove(path);
