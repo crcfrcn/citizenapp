@@ -103,7 +103,6 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
   List<InstitutionAdminView> _adminViews = const [];
   bool _adminsLoaded = false;
   bool _adminsLoading = true;
-  bool _adminsFailed = false;
   int _adminGeneration = 0;
   int _roleGeneration = 0;
   bool _roleLoading = false;
@@ -163,7 +162,9 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
     _multisigTransferFeed = multisigFeed;
     final adminService = InstitutionAdminService(chain: sdk.chain);
     _adminService = adminService;
-    final activationService = widget.activationService ?? ActivationService(adminService: adminService);
+    final activationService =
+        widget.activationService ??
+        ActivationService(adminService: adminService);
     _activationService = activationService;
     _chainState =
         widget.chainState ??
@@ -173,11 +174,13 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
           adminService: adminService,
           feed: multisigFeed,
         );
-    _contextResolver = widget.contextResolver ?? ProposalContextResolver(
-      wallet: wallet,
-      adminService: adminService,
-      activationService: activationService,
-    );
+    _contextResolver =
+        widget.contextResolver ??
+        ProposalContextResolver(
+          wallet: wallet,
+          adminService: adminService,
+          activationService: activationService,
+        );
     _dependenciesReady = true;
     _load();
   }
@@ -251,8 +254,10 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
       _loadAdmins(force: force),
       _loadRole(force: force),
       _loadBalance(),
-      if (_isGovernance) _loadGovernanceProposals(force: force)
-      else _loadPublicProposals(inst),
+      if (_isGovernance)
+        _loadGovernanceProposals(force: force)
+      else
+        _loadPublicProposals(inst),
     ]);
   }
 
@@ -284,7 +289,6 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
     if (force && identity != null) _adminService?.clearCache(identity);
     setState(() {
       _adminsLoading = true;
-      _adminsFailed = false;
     });
     try {
       final views = await _chainState.adminViews(inst);
@@ -297,7 +301,6 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
     } on Object {
       if (!mounted || generation != _adminGeneration) return;
       setState(() {
-        _adminsFailed = true;
         _adminsLoading = false;
       });
     }
@@ -309,7 +312,12 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
     final govInfo = _govInfo;
     final resolver = _contextResolver;
     final activation = _activationService;
-    if (identity == null || govInfo == null || resolver == null || activation == null) return;
+    if (identity == null ||
+        govInfo == null ||
+        resolver == null ||
+        activation == null) {
+      return;
+    }
     final generation = ++_roleGeneration;
     if (force) resolver.clearWalletCache();
     setState(() {
@@ -322,14 +330,19 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
     });
     try {
       final results = await Future.wait<Object>([
-        resolver.resolve(actorCidNumber: govInfo.cidNumber, knownInstitution: govInfo),
+        resolver.resolve(
+          actorCidNumber: govInfo.cidNumber,
+          knownInstitution: govInfo,
+        ),
         activation.getActivatedAdmins(identity),
       ]);
       final ctx = results[0] as ProposalContext;
       final activated = results[1] as List<ActivatedAdmin>;
       final imported = await _loadImportedColdAccountIds();
       if (!mounted || generation != _roleGeneration) return;
-      if (ctx.isAdmin) ProposalContextResolver.markInstitutionAdmin(govInfo.cidNumber);
+      if (ctx.isAdmin) {
+        ProposalContextResolver.markInstitutionAdmin(govInfo.cidNumber);
+      }
       setState(() {
         _govInfo = ctx.institution ?? govInfo;
         _adminWallets = ctx.adminWallets;
@@ -568,8 +581,10 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
     return _entryCard(
       icon: Icons.how_to_vote_outlined,
       title: '发起提案',
-      subtitle: _roleFailed ? '当前钱包权限暂不可用，请重试'
-          : _roleLoading ? '正在核实当前钱包权限'
+      subtitle: _roleFailed
+          ? '当前钱包权限暂不可用，请重试'
+          : _roleLoading
+          ? '正在核实当前钱包权限'
           : _isCurrentUserAdmin
           ? '转账 / 管理员更换 / …（链上按岗位授权）'
           : '激活机构签名钱包后按岗位授权发起',
@@ -585,12 +600,18 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
     const provincial = {'PLG', 'PRP', 'PSN'};
     const municipal = {'CLEG'};
     final code = inst.institutionCode;
-    final tier = national.contains(code) ? LawTier.national
-        : provincial.contains(code) ? LawTier.provincial
-        : municipal.contains(code) ? LawTier.municipal : null;
+    final tier = national.contains(code)
+        ? LawTier.national
+        : provincial.contains(code)
+        ? LawTier.provincial
+        : municipal.contains(code)
+        ? LawTier.municipal
+        : null;
     if (tier == null) return null;
-    return (tier: tier,
-        region: LawRegion.fromCodes(tier, inst.provinceCode, inst.cityCode));
+    return (
+      tier: tier,
+      region: LawRegion.fromCodes(tier, inst.provinceCode, inst.cityCode),
+    );
   }
 
   Widget _lawOriginalEntry(Institution inst) {
@@ -631,36 +652,21 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
 
   // ──── ④ 管理员入口(治理→AdminListPage 含激活;公权→只读列表)────
 
-  Widget _adminsEntry() {
-    final incomplete = _adminViews.any((view) => !view.assignmentsLoaded);
-    final subtitle = _adminsLoaded
+  /// 管理员入口保持单一卡片；岗位/权限故障不增加外部按钮，也不能伪造零人。
+  Widget _adminsEntry() => _entryCard(
+    icon: Icons.people_outline,
+    title: '管理员',
+    subtitle: _adminsLoaded
         ? '共 ${_adminViews.length} 位管理员'
-        : _adminsLoading ? '正在读取管理员' : '管理员读取失败，请重试';
-    return Column(children: [
-      Row(children: [Expanded(child: _entryCard(
-        icon: Icons.people_outline,
-        title: '管理员',
-        subtitle: subtitle,
-        onTap: !_adminsLoaded ? (_adminsLoading ? null : _reloadAdmins)
-            : _accountIdentity != null ? _openGovernanceAdminList : _openPublicAdminList,
-      )), IconButton(tooltip: '刷新管理员', onPressed: _reloadAdmins,
-          icon: const Icon(Icons.refresh))]),
-      if (_adminsFailed || incomplete)
-        Row(children: [
-          Expanded(child: Text(_adminsFailed
-              ? (_adminsLoaded ? '管理员刷新失败，已保留名单' : '管理员读取失败')
-              : '岗位信息暂不可用', style: const TextStyle(color: AppTheme.warning))),
-          TextButton(key: const ValueKey('admins-retry'), onPressed: _reloadAdmins,
-              child: const Text('重试')),
-        ]),
-      if (_roleFailed)
-        Row(children: [
-          const Expanded(child: Text('当前钱包权限暂不可用', style: TextStyle(color: AppTheme.warning))),
-          TextButton(key: const ValueKey('admin-role-retry'),
-              onPressed: () => _loadRole(force: true), child: const Text('重试')),
-        ]),
-    ]);
-  }
+        : _adminsLoading
+        ? '正在读取管理员'
+        : '管理员信息暂不可用',
+    onTap: !_adminsLoaded
+        ? null
+        : _accountIdentity != null
+        ? _openGovernanceAdminList
+        : _openPublicAdminList,
+  );
 
   void _openGovernanceAdminList() {
     final govInfo = _govInfo;
@@ -904,9 +910,8 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
     final proposal = await _resolveProposalDetail(summary);
     if (!mounted) return;
     if (proposal == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('提案详情读取失败，请稍后重试')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('提案详情读取失败，请稍后重试')));
       return;
     }
     final proposalId = proposal.meta.proposalId;
@@ -943,9 +948,8 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
         ),
       );
     } else {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('该联合提案详情页正在开发中')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('该联合提案详情页正在开发中')));
       return;
     }
     if (mounted) unawaited(_loadDynamics(force: true));

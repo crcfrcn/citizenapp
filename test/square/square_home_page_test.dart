@@ -1,3 +1,6 @@
+import 'package:tatachat_sdk/tatachat_sdk.dart' as chat_sdk;
+import 'package:citizenapp/account/membership/subscription_service.dart';
+
 import 'mls_authentication_fixture.dart';
 
 import 'dart:async';
@@ -356,11 +359,7 @@ class _CidNotBoundSessionProvider implements SquareSessionProvider {
   final String errorCode;
   @override
   Future<SquareSession?> ensureSession() async {
-    throw SquareApiException(
-      '当前身份不可用',
-      statusCode: 403,
-      errorCode: errorCode,
-    );
+    throw SquareApiException('当前身份不可用', statusCode: 403, errorCode: errorCode);
   }
 
   @override
@@ -467,7 +466,52 @@ Widget _wrap(Widget child) {
   );
 }
 
+class _GateMlsSessions implements SquareSessionProvider {
+  bool ready = false;
+  int calls = 0;
+  @override
+  Future<SquareSessionResolution> resolveSession({bool refresh = false}) async {
+    calls++;
+    return ready
+        ? SquareSessionResolution(
+            SquareSessionStatus.ready,
+            session: fakeSquareSession(testMlsAccountId),
+          )
+        : SquareSessionResolution.fromError(
+            const chat_sdk.MlsNativeException(
+              chat_sdk.MlsNativeErrorCode.directoryInvalid,
+              'synthetic raw directory detail',
+            ),
+          );
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 void main() {
+  testWidgets('真实广场门禁只显示固定MLS原因，下拉重试成功后挂载内容且不增加按钮', (tester) async {
+    final sessions = _GateMlsSessions();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MembershipBusinessGate(
+          sessionProvider: sessions,
+          child: const Text('合成广场内容'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('本机聊天存储路径校验失败'), findsOneWidget);
+    expect(find.textContaining('synthetic raw'), findsNothing);
+    expect(find.byType(TextButton), findsNothing);
+    expect(find.text('合成广场内容'), findsNothing);
+    sessions.ready = true;
+    await tester.drag(find.byType(ListView), const Offset(0, 500));
+    await tester.pumpAndSettle();
+    expect(find.text('合成广场内容'), findsOneWidget);
+    expect(sessions.calls, 2);
+  });
+
   for (final type in [SquarePostType.document, SquarePostType.article]) {
     testWidgets('广场$type作者头像实际GET使用当前会话及新鲜MLS证明', (tester) async {
       final bytes = await tester.runAsync(
@@ -1460,7 +1504,9 @@ void main() {
         SquareHomePage(
           identityService: _unregisteredIdentityService(),
           feedSource: _FakeSquareApiClient(),
-          sessionProvider: _CidNotBoundSessionProvider(errorCode: 'identity_unregistered'),
+          sessionProvider: _CidNotBoundSessionProvider(
+            errorCode: 'identity_unregistered',
+          ),
         ),
       ),
     );

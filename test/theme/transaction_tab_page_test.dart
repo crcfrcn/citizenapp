@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:citizenapp/transaction/onchain/onchain_payment_models.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -68,28 +71,46 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('隐藏底层错误行但保留未就绪禁用与同步恢复', (tester) async {
-    await tester.pumpWidget(MaterialApp(
-      theme: AppTheme.lightTheme,
-      home: OnchainPaymentPanel(
-        title: '交易',
-        currentWalletLoader: () async => _wallet(
-          index: 0, name: '测试钱包', address: 'wallet_a', accountId: _walletAAccountId),
-        balanceLoader: (_) async => 100,
-        localRecordsLoader: (_, {limit = 100}) async => const [],
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        home: OnchainPaymentPanel(
+          title: '交易',
+          currentWalletLoader: () async => _wallet(
+            index: 0,
+            name: '测试钱包',
+            address: 'wallet_a',
+            accountId: _walletAAccountId,
+          ),
+          balanceLoader: (_) async => 100,
+          localRecordsLoader: (_, {limit = 100}) async => const [],
+        ),
       ),
-    ));
+    );
     await _pumpUntilFound(tester, find.textContaining('钱包可用余额：100'));
-    FilledButton submit() => tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, '签名交易'));
-    final banner = tester.widget<ChainProgressBanner>(find.byType(ChainProgressBanner));
+    FilledButton submit() =>
+        tester.widget<FilledButton>(find.widgetWithText(FilledButton, '签名交易'));
+    final banner = tester.widget<ChainProgressBanner>(
+      find.byType(ChainProgressBanner),
+    );
     banner.onErrorChanged?.call('capability unavailable: engine_not_running');
     await tester.pump();
     expect(find.textContaining('capability unavailable'), findsNothing);
     expect(submit().onPressed, isNull);
-    final block = CitizenBlockRef(hash: _walletAAccountId, number: BigInt.one,
-      finality: CitizenBlockFinality.finalized);
-    banner.onProgressChanged?.call(CitizenChainSyncStatus(
-      peerCount: BigInt.one, isSyncing: false, isUsable: true, best: block, finalized: block));
+    final block = CitizenBlockRef(
+      hash: _walletAAccountId,
+      number: BigInt.one,
+      finality: CitizenBlockFinality.finalized,
+    );
+    banner.onProgressChanged?.call(
+      CitizenChainSyncStatus(
+        peerCount: BigInt.one,
+        isSyncing: false,
+        isUsable: true,
+        best: block,
+        finalized: block,
+      ),
+    );
     banner.onErrorChanged?.call(null);
     await tester.pump();
     expect(submit().onPressed, isNotNull);
@@ -176,7 +197,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
   });
 
-  testWidgets('链上交易状态跟随交易钱包切换刷新且只统计转出', (tester) async {
+  testWidgets('链上交易状态跟随精确付款账户切换刷新且只统计转出', (tester) async {
     final walletA = _wallet(
       index: 1,
       name: '钱包A',
@@ -246,7 +267,10 @@ void main() {
           },
           walletPicker: () async {
             currentWallet = walletB;
-            return true;
+            return PaymentAccountSelection(
+              accountId: walletB.accountId,
+              revision: BigInt.one,
+            );
           },
         ),
       ),
@@ -265,6 +289,57 @@ void main() {
     expect(find.text('待确认 0'), findsOneWidget);
     expect(find.text('已确认 0'), findsOneWidget);
     expect(find.text('失败 0'), findsOneWidget);
+  });
+
+  testWidgets('迟到的初始账户读取不能污染已经选定的付款账户和记录', (tester) async {
+    final delayed = Completer<CitizenWalletStateAccount?>();
+    final accountA = _wallet(
+      index: 0,
+      name: '合成账户A',
+      address: 'a',
+      accountId: _walletAAccountId,
+    );
+    final accountB = _wallet(
+      index: 1,
+      name: '合成账户B',
+      address: 'b',
+      accountId: _walletBAccountId,
+    );
+    var reads = 0;
+    final balanceAccounts = <String>[];
+    final recordAccounts = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: OnchainPaymentPanel(
+          title: '交易',
+          currentWalletLoader: () {
+            reads++;
+            return reads == 1 ? delayed.future : Future.value(accountB);
+          },
+          walletPicker: () async => PaymentAccountSelection(
+            accountId: accountB.accountId,
+            revision: BigInt.one,
+          ),
+          balanceLoader: (id) async {
+            balanceAccounts.add(id);
+            return 100;
+          },
+          localRecordsLoader: (id, {limit = 100}) async {
+            recordAccounts.add(id);
+            return [];
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byTooltip('选择交易钱包'));
+    await _pumpUntilFound(tester, find.text('待确认 0'));
+    delayed.complete(accountA);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(balanceAccounts, isNotEmpty);
+    expect(recordAccounts, isNotEmpty);
+    expect(balanceAccounts.toSet(), {_walletBAccountId});
+    expect(recordAccounts.toSet(), {_walletBAccountId});
   });
 
   testWidgets('通讯录转账只预填收款地址且不改变付款钱包', (tester) async {
@@ -304,8 +379,7 @@ void main() {
         (widget) =>
             widget is Image &&
             widget.image is AssetImage &&
-            (widget.image as AssetImage).assetName ==
-                'assets/logo/mark256.png',
+            (widget.image as AssetImage).assetName == 'assets/logo/mark256.png',
       ),
     );
     expect(gmbMark.width, 18);

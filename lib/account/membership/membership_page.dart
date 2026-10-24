@@ -225,6 +225,36 @@ class _MembershipPageState extends State<MembershipPage>
     }
   }
 
+  /// 只有手动刷新允许确认本机初始化/设备授权；普通加载保持只读会话入口。
+  Future<void> _retryLoad() async {
+    if (_refreshing) return;
+    setState(() => _refreshing = true);
+    late final SquareSessionResolution resolution;
+    try {
+      resolution = await resolveCitizenSessionForAction(
+        context,
+        provider: _sessionProvider,
+        currentUserContext: _currentUserContext,
+      );
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+    if (!mounted) return;
+    if (_identityReloadPending) {
+      _identityReloadPending = false;
+      await _load();
+      return;
+    }
+    if (resolution.status != SquareSessionStatus.ready) {
+      setState(() {
+        _loadFailure = resolution.message;
+        _sessionStatus = resolution.status;
+      });
+      return;
+    }
+    await _load(forceRefresh: true);
+  }
+
   Future<void> _load({bool forceRefresh = false}) async {
     if (_refreshing) return;
     setState(() {
@@ -379,8 +409,13 @@ class _MembershipPageState extends State<MembershipPage>
       }
     }
     if (forceRefresh && refreshError != null && mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('会员动态数据刷新失败：$refreshError')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            SquareSessionResolution.fromError(refreshError).message,
+          ),
+        ),
+      );
     }
   }
 
@@ -546,7 +581,7 @@ class _MembershipPageState extends State<MembershipPage>
           if (!_unregistered)
             IconButton(
               tooltip: '刷新',
-              onPressed: _refreshing ? null : () => _load(forceRefresh: true),
+              onPressed: _refreshing ? null : _retryLoad,
               icon: const Icon(Icons.refresh),
             ),
         ],
@@ -585,7 +620,7 @@ class _MembershipPageState extends State<MembershipPage>
           _LoadFailureBanner(
             key: const ValueKey('membership-load-failure-banner'),
             message: _loadFailure!,
-            onRetry: () => _load(forceRefresh: true),
+            onRetry: _retryLoad,
           ),
         if (state.hasSubscriptionWindow) _ActiveMembershipBanner(state: state),
         Expanded(

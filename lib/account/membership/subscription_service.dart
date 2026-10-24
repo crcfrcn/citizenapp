@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:citizenapp/account/identity/account_security_service.dart';
 import 'package:citizenapp/account/identity/square_session_provider.dart';
+import 'package:citizenapp/account/identity/register_identity_flow.dart';
 import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/account/membership/membership_revision.dart';
 import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
@@ -960,6 +961,7 @@ class _MembershipBusinessGateState extends State<MembershipBusinessGate> {
   int _generation = 0;
   bool _ready = false;
   String? _error;
+  Future<void>? _actionFlight;
   AccountSecurityService? _security;
   @override
   void didChangeDependencies() {
@@ -982,15 +984,42 @@ class _MembershipBusinessGateState extends State<MembershipBusinessGate> {
     _check();
   }
 
-  Future<void> _check() async {
+  Future<void> _retry() {
+    final existing = _actionFlight;
+    if (existing != null) return existing;
+    late final Future<void> task;
+    task = _check(userInitiated: true).whenComplete(() {
+      if (identical(_actionFlight, task)) _actionFlight = null;
+    });
+    _actionFlight = task;
+    return task;
+  }
+
+  Future<void> _check({bool userInitiated = false}) async {
     final generation = ++_generation;
     final revision = _security?.revision.value;
     try {
       if (!widget.localContent) {
         final provider =
             widget.sessionProvider ?? context.read<SquareSessionProvider?>();
-        final session = await provider?.ensureSession();
-        if (session == null) throw const SquareApiException('当前公民会话不可用');
+        final resolution = provider == null
+            ? const SquareSessionResolution(SquareSessionStatus.noWallet)
+            : userInitiated
+            ? await resolveCitizenSessionForAction(context, provider: provider)
+            : await provider.resolveSession();
+        if (!mounted ||
+            generation != _generation ||
+            revision != _security?.revision.value) {
+          return;
+        }
+        final session = resolution.session;
+        if (session == null) {
+          setState(() {
+            _ready = false;
+            _error = resolution.message;
+          });
+          return;
+        }
         await SubscriptionService.requireSquareSession(
           session,
           client: widget.client,
@@ -1013,7 +1042,7 @@ class _MembershipBusinessGateState extends State<MembershipBusinessGate> {
       }
       setState(() {
         _ready = false;
-        _error = error.toString();
+        _error = SquareSessionResolution.fromError(error).message;
       });
     }
   }
@@ -1030,11 +1059,24 @@ class _MembershipBusinessGateState extends State<MembershipBusinessGate> {
   Widget build(BuildContext context) {
     if (_ready) return widget.child;
     return Scaffold(
-      body: Center(
-        child: _error == null
-            ? const CircularProgressIndicator()
-            : Text(_error!),
-      ),
+      body: _error == null
+          ? const Center(child: CircularProgressIndicator())
+          : LayoutBuilder(
+              builder: (context, constraints) => RefreshIndicator(
+                onRefresh: _retry,
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: [
+                    SizedBox(
+                      height: constraints.maxHeight,
+                      child: Center(
+                        child: Text(_error!, textAlign: TextAlign.center),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
     );
   }
 }

@@ -1,3 +1,5 @@
+import 'package:tatachat_sdk/tatachat_sdk.dart' as chat_sdk;
+
 import '../../square/mls_authentication_fixture.dart';
 
 import 'dart:async';
@@ -140,6 +142,34 @@ class _FakeContacts implements UserContactService {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class _MlsFailedContacts extends _FakeContacts {
+  static final failure = SquareSessionResolution.fromError(
+    const chat_sdk.MlsNativeException(
+      chat_sdk.MlsNativeErrorCode.stateMissing,
+      'synthetic detail',
+    ),
+  );
+  @override
+  Future<ContactSyncState> readSyncState() async => ContactSyncState(
+    phase: ContactSyncPhase.failed,
+    message: failure.message,
+    errorCode: failure.errorCode,
+    stage: failure.stage,
+  );
+  @override
+  Future<List<UserContact>> sync() async {
+    syncState.value = await readSyncState();
+    return contacts;
+  }
+}
+
+class _MlsFailedSessions extends _FakeSessionProvider {
+  @override
+  Future<SquareSessionResolution> resolveSession({
+    bool refresh = false,
+  }) async => _MlsFailedContacts.failure;
+}
+
 class _PendingContacts extends _FakeContacts {
   final Completer<List<UserContact>> completer = Completer<List<UserContact>>();
 
@@ -243,6 +273,7 @@ Widget _page({
   transferOpener,
   CurrentUserContext? currentUserContext,
   Listenable? identityRevision,
+  SquareSessionProvider? sessionProvider,
 }) => Provider<CidBusinessGate>.value(
   value: _ReadyBusinessGate(),
   child: MaterialApp(
@@ -253,7 +284,7 @@ Widget _page({
       profileApi: profileApi ?? _FakeProfileApi(profile),
       profileCache: profileCache,
       profileMediaCache: profileMediaCache,
-      sessionProvider: _FakeSessionProvider(),
+      sessionProvider: sessionProvider ?? _FakeSessionProvider(),
       initialProfiles: initialProfiles ?? {_contactCidNumber: profile},
       directChatOpener: directChatOpener,
       transferOpener: transferOpener,
@@ -293,8 +324,11 @@ class _RegisteredIdentityCache implements CurrentUserContext {
 /// 未注册：当前默认账户的本地绑定为空，不回退到其他账户。
 class _UnregisteredIdentityCache implements CurrentUserContext {
   @override
-  Future<CurrentUser?> resolve() async =>
-      CurrentUser(account: _ownerAccount, binding: null, verifiedUnregistered: true);
+  Future<CurrentUser?> resolve() async => CurrentUser(
+    account: _ownerAccount,
+    binding: null,
+    verifiedUnregistered: true,
+  );
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -315,6 +349,20 @@ class _MutableIdentityCache implements CurrentUserContext {
 }
 
 void main() {
+  testWidgets('MLS已使用身份缺失显示准确原因，点击重试仍保留本地联系人且不弹初始化', (tester) async {
+    final contacts = _MlsFailedContacts();
+    await tester.pumpWidget(
+      _page(service: contacts, sessionProvider: _MlsFailedSessions()),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(_MlsFailedContacts.failure.message), findsOneWidget);
+    expect(find.text('备注：张三'), findsOneWidget);
+    await tester.tap(find.text(_MlsFailedContacts.failure.message));
+    await tester.pumpAndSettle();
+    expect(find.text('初始化本机聊天设备'), findsNothing);
+    expect(find.text('备注：张三'), findsOneWidget);
+    expect(contacts.contacts, hasLength(1));
+  });
   testWidgets('本地通讯录未返回时直接显示页面结构且不使用整页转圈', (tester) async {
     final service = _PendingContacts();
     await tester.pumpWidget(_page(service: service));

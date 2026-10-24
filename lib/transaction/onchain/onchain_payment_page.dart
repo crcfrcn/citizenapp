@@ -21,7 +21,8 @@ import 'package:citizenapp/storage/wallet_isar.dart';
 import 'package:citizenapp/scanner/qr_sign_session_page.dart';
 import 'package:citizenapp/scanner/address_scan_button.dart';
 import 'package:citizenapp/account/contacts/contact_book_page.dart';
-import 'package:citizenapp/account/contacts/contact_service.dart' show UserContact;
+import 'package:citizenapp/account/contacts/contact_service.dart'
+    show UserContact;
 import 'package:citizenapp/citizen/account_derivation.dart';
 import 'package:citizenapp/account/identity/account_security_service.dart';
 import 'package:citizenapp/wallet/wallet_page.dart';
@@ -70,7 +71,7 @@ InputDecoration transactionFieldDecoration({
   );
 }
 
-typedef OnchainWalletPicker = Future<bool?> Function();
+typedef OnchainWalletPicker = Future<PaymentAccountSelection?> Function();
 typedef OnchainCurrentWalletLoader =
     Future<CitizenWalletStateAccount?> Function();
 typedef OnchainLocalRecordsLoader = Future<List<LocalTxEntity>> Function(
@@ -160,20 +161,28 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
   final String _selectedSymbol = 'GMB';
 
   CitizenWalletStateAccount? _currentWallet;
+  // IndexedStack存活期间保留付款选择；重新启动按默认账户初始化，不写SDK身份或钱包选择。
+  String? _selectedAccountId;
   WalletBalanceState<CitizenAccountBalance>? _walletBalance;
   double _testBalance = 0;
   int _walletLoadGeneration = 0;
   double get _currentBalance => widget.balanceLoader != null
-      ? _testBalance : (_walletBalance?.value?.freeFen.toDouble() ?? 0) / 100;
+      ? _testBalance
+      : (_walletBalance?.value?.freeFen.toDouble() ?? 0) / 100;
   String get _balanceText {
-    if (widget.balanceLoader != null) return AmountFormat.format(_testBalance, symbol: '');
+    if (widget.balanceLoader != null) {
+      return AmountFormat.format(_testBalance, symbol: '');
+    }
     final value = _walletBalance?.value;
-    return value == null ? '—' : AccountBalanceSnapshotStore.formatFen(value.freeFen);
+    return value == null
+        ? '—'
+        : AccountBalanceSnapshotStore.formatFen(value.freeFen);
   }
 
   void _onBalanceChanged() {
     if (mounted) setState(() {});
   }
+
   bool _loadingWallet = true;
   bool _submitting = false;
   bool _checkingBalance = false;
@@ -330,21 +339,39 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     CitizenWalletStateAccount? wallet;
     WalletBalanceState<CitizenAccountBalance>? balance;
     double testBalance = 0;
+    var accountValidated = false;
     try {
       final loader = widget.currentWalletLoader;
-      wallet = loader != null ? await loader() : await _paymentService!.getCurrentWallet();
+      wallet = loader != null
+          ? await loader()
+          : await _paymentService!.getCurrentWallet(
+              accountId: _selectedAccountId,
+            );
       if (!mounted || generation != _walletLoadGeneration) return;
+      if (wallet != null &&
+          _selectedAccountId != null &&
+          wallet.accountId != _selectedAccountId) {
+        throw const OnchainPaymentException(
+          OnchainPaymentErrorCode.walletMissing,
+          '付款账户已变化，请重新选择',
+        );
+      }
+      _selectedAccountId ??= wallet?.accountId;
+      accountValidated = true;
       if (wallet != null) {
         final injected = widget.balanceLoader;
         if (injected != null) {
           testBalance = await injected(wallet.accountId);
         } else {
-          final store = AccountBalanceSnapshotStore.forChain(context.read<CitizenSdk>().chain);
+          final store = AccountBalanceSnapshotStore.forChain(
+            context.read<CitizenSdk>().chain,
+          );
           await store.restore([wallet.accountId]);
           balance = store.accountState(wallet.accountId);
         }
       }
     } catch (e, st) {
+      if (!accountValidated) wallet = null;
       if (!WalletIsar.instance.isBusyError(e)) {
         AppLog.d('[链上交易] 当前钱包加载失败: $e\n$st');
       }
@@ -400,9 +427,9 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
   Future<void> _openWalletTab() async {
     final picker = widget.walletPicker;
     final navigator = Navigator.of(context);
-    final changed = picker != null
+    final selected = picker != null
         ? await picker()
-        : await navigator.push<bool>(
+        : await navigator.push<PaymentAccountSelection>(
             MaterialPageRoute(
               builder: (_) => const WalletTab(selectForTrade: true),
             ),
@@ -410,7 +437,8 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     if (!mounted) {
       return;
     }
-    if (changed == true) {
+    if (selected != null) {
+      _selectedAccountId = selected.accountId;
       await _reloadWalletAndLocalRecords();
     }
   }
@@ -538,6 +566,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     // 误弹一次键盘(紧接着就是生物识别,键盘纯属多余)。进入确认流程即失焦,
     // 弹窗关闭后无焦点可恢复,键盘不再弹。
     FocusManager.instance.primaryFocus?.unfocus();
+    final payerName = _currentWallet!.name;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -546,6 +575,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Text('付款账户：$payerName'),
             Text(
               '转账金额：${AmountFormat.format(amount, symbol: _selectedSymbol)}',
             ),
@@ -578,6 +608,11 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     );
     if (confirmed != true) return;
     if (!mounted) return;
+    if (_currentWallet?.accountId != balanceAccountId) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('付款账户已变化，请重新确认')));
+      return;
+    }
 
     setState(() {
       _submitting = true;
@@ -588,12 +623,22 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
       final sdk = context.read<CitizenSdk>();
       final prepared = await _paymentService!.prepareTransfer(
         OnchainPaymentDraft(
+          sourceAccountId: balanceAccountId,
           toSs58Address: toSs58Address,
           amount: amount,
           symbol: _selectedSymbol,
           remark: remark,
         ),
       );
+      if (!mounted || _currentWallet?.accountId != balanceAccountId) {
+        await sdk.transactions.cancelPreparedTransaction(
+          prepared.preparationId,
+        );
+        throw const OnchainPaymentException(
+          OnchainPaymentErrorCode.walletMissing,
+          '付款账户已变化，请重新确认',
+        );
+      }
       paymentStep = OnchainPaymentStep.execution;
       final started = await sdk.transactions.executePreparedTransaction(
         prepared.preparationId,

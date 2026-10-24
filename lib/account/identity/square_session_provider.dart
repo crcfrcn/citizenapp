@@ -1,3 +1,6 @@
+import 'package:citizen_sdk/citizen_sdk.dart'
+    show CitizenSdkException, CitizenSdkErrorCode;
+
 import 'dart:async';
 import 'dart:io';
 
@@ -56,17 +59,48 @@ class SquareSessionResolution {
   final int? statusCode;
   final SquareApiStage? stage;
 
-  String get message => switch (errorCode) {
-    'identity_local_missing' => '身份信息暂不可用，请在身份页刷新后重试',
-    'device_not_registered' => '当前设备尚未登记，请完成设备授权后重试',
-    'registration_required' => '请完成注册验证和当前设备授权',
-    'mls_challenge_limit_reached' || 'request_rate_exceeded' => '请求过于频繁，请稍后重试',
-    'authenticationRequired' => '首次设备登记授权尚未完成',
-    _ => status.message,
-  };
+  static sdk.MlsNativeException? _mlsError(String? value) {
+    for (final code in sdk.MlsNativeErrorCode.values) {
+      final error = sdk.MlsNativeException(code, '');
+      if (value == 'mls_${error.diagnosticCode}') return error;
+    }
+    return null;
+  }
+
+  String get message =>
+      _mlsError(errorCode)?.userMessage ??
+      switch (errorCode) {
+        'identity_local_missing' => '身份信息暂不可用，请在身份页刷新后重试',
+        'device_not_registered' => '当前设备尚未登记，请完成设备授权后重试',
+        'registration_required' => '请完成注册验证和当前设备授权',
+        'mls_challenge_limit_reached' ||
+        'request_rate_exceeded' => '请求过于频繁，请稍后重试',
+        'authenticationRequired' => '首次设备登记授权尚未完成',
+        'authenticationCancelled' => '设备授权已取消，可再次主动发起',
+        'mls_initialization_cancelled' => '已取消初始化本机聊天设备',
+        _ => status.message,
+      };
 
   /// 页面和通讯录复用同一错误分类；无记录不等于离线，未知HTTP错误不等于设备故障。
   static SquareSessionResolution fromError(Object error) {
+    if (error is sdk.MlsNativeException) {
+      return SquareSessionResolution(
+        error.code == sdk.MlsNativeErrorCode.stateOwnerMismatch
+            ? SquareSessionStatus.identityChanged
+            : SquareSessionStatus.deviceUnavailable,
+        errorCode: 'mls_${error.diagnosticCode}',
+        stage: SquareApiStage.identity,
+      );
+    }
+    if (error is CitizenSdkException &&
+        (error.code == CitizenSdkErrorCode.authenticationCancelled ||
+            error.code == CitizenSdkErrorCode.cancelled)) {
+      return const SquareSessionResolution(
+        SquareSessionStatus.deviceUnavailable,
+        errorCode: 'authenticationCancelled',
+        stage: SquareApiStage.registration,
+      );
+    }
     if (error is SquareApiException) {
       final status = switch (error.errorCode) {
         'identity_unregistered' => SquareSessionStatus.identityUnbound,
@@ -162,6 +196,7 @@ class SquareSessionResolution {
             const {
               'identityChanged',
               'authenticationRequired',
+              'authenticationCancelled',
               'integrity',
             }.contains(error.code)
             ? error.code
@@ -207,6 +242,7 @@ class SquareSessionProvider {
   final CurrentUserContext _currentUserContext;
   late final MlsAuthenticationSource _authentication;
   sdk.ChatSdk Function()? _runtimeFactory;
+  final Map<(String, String, int), Future<void>> _initializationFlights = {};
   MlsAuthenticationSource get authentication => _authentication;
   sdk.ChatSdk get mlsRuntime =>
       (_runtimeFactory ??
@@ -276,7 +312,9 @@ class SquareSessionProvider {
     if (binding == null || binding.accountId != current.accountId) {
       throw SquareApiException(
         current.isUnregistered ? '当前账户尚未注册公民号' : '身份信息暂不可用，请在身份页刷新后重试',
-        errorCode: current.isUnregistered ? 'identity_unregistered' : 'identity_local_missing',
+        errorCode: current.isUnregistered
+            ? 'identity_unregistered'
+            : 'identity_local_missing',
         stage: SquareApiStage.identity,
       );
     }
@@ -394,9 +432,54 @@ class SquareSessionProvider {
         );
       }
       return SquareSessionResolution.fromError(error);
-    } on Exception catch (error) {
+    } on Object catch (error) {
+      // 未知Error同样失败关闭，不能穿透到会员页面或输出原始异常。
       return SquareSessionResolution.fromError(error);
     }
+  }
+
+  /// 只由明确确认后的动作调用；固定当前绑定，并发确认只执行一次离线初始化。
+  Future<void> initializeCurrentDevice({
+    required String expectedCidNumber,
+    required String expectedAccountId,
+    required int expectedBindingRevision,
+  }) async {
+    final generation = _accountSecurity.revision.value;
+    Future<void> requireCurrent() async {
+      final binding = await _currentMlsBinding();
+      if (generation != _accountSecurity.revision.value ||
+          binding.cidNumber != expectedCidNumber ||
+          binding.accountId != expectedAccountId ||
+          binding.bindingRevision != expectedBindingRevision) {
+        throw const AccountSecurityException(
+          '初始化期间身份已变化',
+          code: 'identityChanged',
+        );
+      }
+    }
+
+    await requireCurrent();
+    final key = (expectedCidNumber, expectedAccountId, expectedBindingRevision);
+    final previous = _initializationFlights[key];
+    if (previous != null) return previous;
+    late final Future<void> task;
+    task =
+        (() async {
+          await requireCurrent();
+          await mlsRuntime.initializeLocalMlsIdentity(
+            expectedUserId: expectedCidNumber,
+            expectedAccountId: expectedAccountId,
+            expectedBindingRevision: expectedBindingRevision,
+          );
+          await requireCurrent();
+          _client.clearSession(expectedAccountId);
+        })().whenComplete(() {
+          if (identical(_initializationFlights[key], task)) {
+            _initializationFlights.remove(key);
+          }
+        });
+    _initializationFlights[key] = task;
+    await task;
   }
 
   /// Worker 明确返回 401 后清除当前身份账户的本地缓存并重新握手一次。

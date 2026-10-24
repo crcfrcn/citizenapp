@@ -107,6 +107,7 @@ class _ContactBookPageState extends State<ContactBookPage> {
     phase: ContactSyncPhase.idle,
   );
   bool _loading = true;
+  bool _retrying = false;
 
   /// 当前钱包未注册 CID(合法状态,非故障)。置真时整页显示统一注册引导,
   /// 且**不读通讯录**——通讯录属主就是 CID,没有 CID 连读都不该读。
@@ -257,7 +258,7 @@ class _ContactBookPageState extends State<ContactBookPage> {
         // 页面仍可离线展示 CID 关系；转账前会再次严格链读并禁止使用旧地址。
       }
       if (generation == _loadGeneration) await _sync();
-    } on Exception catch (error) {
+    } on Object catch (error) {
       if (!mounted || generation != _loadGeneration) return;
       final failure = SquareSessionResolution.fromError(error);
       setState(() {
@@ -269,6 +270,36 @@ class _ContactBookPageState extends State<ContactBookPage> {
           stage: failure.stage,
         );
       });
+    }
+  }
+
+  /// 下拉与点击共用明确动作；不以重试名义清联系人或自动替换缺失身份。
+  Future<void> _retrySync() async {
+    if (_retrying) return;
+    _retrying = true;
+    final generation = ++_loadGeneration;
+    try {
+      final resolution = await resolveCitizenSessionForAction(
+        context,
+        provider: _sessionProvider,
+        currentUserContext: _currentUserContext,
+      );
+      if (!mounted || generation != _loadGeneration) return;
+      if (resolution.status != SquareSessionStatus.ready) {
+        setState(() {
+          _loading = false;
+          _syncState = ContactSyncState(
+            phase: ContactSyncPhase.failed,
+            message: resolution.message,
+            errorCode: resolution.errorCode,
+            stage: resolution.stage,
+          );
+        });
+        return;
+      }
+      await _load();
+    } finally {
+      _retrying = false;
     }
   }
 
@@ -573,7 +604,7 @@ class _ContactBookPageState extends State<ContactBookPage> {
 
   Widget _buildContactList(List<UserContact> visible) {
     return RefreshIndicator(
-      onRefresh: _sync,
+      onRefresh: _retrySync,
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 28),
@@ -585,7 +616,7 @@ class _ContactBookPageState extends State<ContactBookPage> {
             ),
             SizedBox(height: AppLayout.scaledValue(10)),
           ],
-          _SyncBanner(state: _syncState, onRetry: _load),
+          _SyncBanner(state: _syncState, onRetry: _retrySync),
           SizedBox(height: AppLayout.scaledValue(10)),
           TextField(
             key: const ValueKey('contact-search'),
@@ -856,7 +887,8 @@ class _SyncBanner extends StatelessWidget {
             Text(
               state.stage == SquareApiStage.identity ||
                       state.stage == SquareApiStage.registration ||
-                      state.errorCode == 'device_not_registered'
+                      state.errorCode == 'device_not_registered' ||
+                      state.errorCode?.startsWith('mls_') == true
                   ? state.message ?? state.label
                   : state.label,
               style: TextStyle(

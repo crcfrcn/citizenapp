@@ -1762,6 +1762,28 @@ final class RunnerUITests: XCTestCase {
     app.buttons.matching(NSPredicate(format: "label == %@", "创建钱包")).firstMatch
   }
 
+  /// 只读检查机构页面和侧滑返回；不点击管理员激活、订阅或任何签名操作。
+  func testInstitutionDetailsInteractiveBackWithoutExtraAdminActions() throws {
+    let app = XCUIApplication(bundleIdentifier: targetBundleIdentifier)
+    app.launch()
+    dismissPermissionGuideIfNeeded(in: app)
+    try requireMainNavigation(in: app)
+    let citizen = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "公民")).firstMatch
+    XCTAssertTrue(citizen.waitForExistence(timeout: 10)); citizen.tap()
+    let governance = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "治理")).firstMatch
+    XCTAssertTrue(governance.waitForExistence(timeout: 10)); governance.tap()
+    let institution = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "国家储委会")).firstMatch
+    XCTAssertTrue(institution.waitForExistence(timeout: 10)); institution.tap()
+    let admins = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "管理员")).firstMatch
+    XCTAssertTrue(admins.waitForExistence(timeout: 15))
+    XCTAssertFalse(app.buttons["刷新管理员"].exists)
+    XCTAssertFalse(app.staticTexts["岗位信息暂不可用"].exists)
+    app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.4)).press(forDuration: 0.1,
+        thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.4)))
+    XCTAssertTrue(governance.waitForExistence(timeout: 10), "机构详情侧滑后应回到治理列表")
+    NSLog("INSTITUTION_UI interactive_back=1 extra_admin_actions=0")
+  }
+
   private func requireMainNavigation(in app: XCUIApplication) throws {
     if walletGateCreate(in: app).waitForExistence(timeout: 2) {
       throw XCTSkip("正常App尚无账户；模拟器须先导入公开冷账户，真机账户由用户准备")

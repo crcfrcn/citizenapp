@@ -1,3 +1,7 @@
+import 'package:citizen_sdk/citizen_sdk.dart'
+    show CitizenSdkException, CitizenSdkErrorCode;
+import 'package:tatachat_sdk/tatachat_sdk.dart' as sdk;
+
 import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
@@ -16,6 +20,51 @@ import 'mls_authentication_fixture.dart';
 /// 只有明确未登记才编排一次登记；签名失败绝不触发钱包或重建MLS身份。
 void main() {
   _chatAccessSessionTests();
+  test('明确取消保留取消分类，不变成服务故障或再次注册', () {
+    for (final error in <Object>[
+      const CitizenSdkException(
+        code: CitizenSdkErrorCode.authenticationCancelled,
+        message: 'synthetic detail',
+      ),
+      const AccountSecurityException(
+        'synthetic detail',
+        code: 'authenticationCancelled',
+      ),
+    ]) {
+      final result = SquareSessionResolution.fromError(error);
+      expect(result.errorCode, 'authenticationCancelled');
+      expect(result.message, '设备授权已取消，可再次主动发起');
+    }
+    expect(
+      const SquareSessionResolution(
+        SquareSessionStatus.deviceUnavailable,
+        errorCode: 'mls_initialization_cancelled',
+      ).message,
+      '已取消初始化本机聊天设备',
+    );
+  });
+  test('MLS本地错误保留固定阶段及中文，不冒充网络或泄露技术文本', () {
+    for (final code in [
+      sdk.MlsNativeErrorCode.directoryInvalid,
+      sdk.MlsNativeErrorCode.directoryUnavailable,
+      sdk.MlsNativeErrorCode.initializationRequired,
+      sdk.MlsNativeErrorCode.stateMissing,
+      sdk.MlsNativeErrorCode.storageReadFailed,
+    ]) {
+      final error = sdk.MlsNativeException(code, 'synthetic-private-path');
+      final result = SquareSessionResolution.fromError(error);
+      expect(result.status, SquareSessionStatus.deviceUnavailable);
+      expect(result.stage, SquareApiStage.identity);
+      expect(result.errorCode, 'mls_${error.diagnosticCode}');
+      expect(result.message, error.userMessage);
+      expect(result.message, isNot(contains('synthetic-private-path')));
+    }
+    expect(
+      SquareSessionResolution.fromError(StateError('synthetic internal error'))
+          .status,
+      SquareSessionStatus.serviceUnavailable,
+    );
+  });
   test('未知、已核实未注册和设备未登记保持不同状态及固定提示', () {
     const cases = {
       'identity_local_missing': SquareSessionStatus.identityUnavailable,
@@ -23,9 +72,13 @@ void main() {
       'device_not_registered': SquareSessionStatus.deviceUnavailable,
     };
     for (final entry in cases.entries) {
-      final result = SquareSessionResolution.fromError(SquareApiException(
-        '不应进入提示的原始正文', errorCode: entry.key, stage: SquareApiStage.identity,
-      ));
+      final result = SquareSessionResolution.fromError(
+        SquareApiException(
+          '不应进入提示的原始正文',
+          errorCode: entry.key,
+          stage: SquareApiStage.identity,
+        ),
+      );
       expect(result.status, entry.value);
       expect(result.message, isNot(contains('恢复服务')));
       expect(result.message, isNot(contains('原始正文')));

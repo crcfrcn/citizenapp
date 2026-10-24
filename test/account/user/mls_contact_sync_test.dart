@@ -112,12 +112,22 @@ void main() {
     final current = _Current()..changed = true;
     final sessions = _Sessions(_Runtime());
     final service = UserContactService(
-      accountSecurity: _Security(), currentUserContext: current,
+      accountSecurity: _Security(),
+      currentUserContext: current,
       sessionProvider: sessions,
-      chainReader: CitizenIdentityChainReader(chain: TestCitizenChain()), autoSync: false,
+      chainReader: CitizenIdentityChainReader(chain: TestCitizenChain()),
+      autoSync: false,
     );
-    await expectLater(service.sync(), throwsA(isA<SquareApiException>().having(
-      (error) => error.errorCode, 'errorCode', 'identity_local_missing')));
+    await expectLater(
+      service.sync(),
+      throwsA(
+        isA<SquareApiException>().having(
+          (error) => error.errorCode,
+          'errorCode',
+          'identity_local_missing',
+        ),
+      ),
+    );
     expect(sessions.calls, 0);
     current.changed = false;
     await service.sync();
@@ -129,6 +139,18 @@ void main() {
   // 同样的失败在有无待发记录时都必须保持真实类别；失败不能消费待同步操作。
   for (final withPending in [false, true]) {
     for (final failure in <Object>[
+      const MlsNativeException(
+        MlsNativeErrorCode.initializationRequired,
+        'synthetic private detail',
+      ),
+      const MlsNativeException(
+        MlsNativeErrorCode.stateMissing,
+        'synthetic private detail',
+      ),
+      const MlsNativeException(
+        MlsNativeErrorCode.directoryInvalid,
+        'synthetic private detail',
+      ),
       const SocketException('合成断网'),
       TimeoutException('合成超时'),
       const SquareApiException(
@@ -174,6 +196,12 @@ void main() {
         if (failure is SquareApiException) {
           expect(state.statusCode, failure.statusCode);
           expect(state.stage, failure.stage);
+        }
+        if (failure is MlsNativeException) {
+          expect(state.message, failure.userMessage);
+          expect(state.errorCode, 'mls_${failure.diagnosticCode}');
+          expect(state.stage, SquareApiStage.identity);
+          expect(sessions.runtime.sent, isEmpty);
         }
         sessions.failure = null;
         await service.sync();

@@ -1,3 +1,4 @@
+import 'package:tatachat_sdk/tatachat_sdk.dart' as chat_sdk;
 import 'package:citizenapp/account/identity/registration_models.dart';
 import 'package:citizenapp/account/identity/public_identity_store.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -58,6 +59,15 @@ class _SessionApi extends SquareApiClient {
     await beforeReturn?.call();
     return fakeSquareSession(accountId);
   }
+}
+
+class _StorageAuthentication extends FakeMlsAuthentication {
+  @override
+  Future<MlsAuthenticationIdentity> readIdentity() async =>
+      throw const chat_sdk.MlsNativeException(
+        chat_sdk.MlsNativeErrorCode.initializationRequired,
+        'synthetic private detail',
+      );
 }
 
 class _SessionWalletManager implements AccountSecurityService {
@@ -217,6 +227,20 @@ class _AttemptWallet implements CitizenSdkWallet, CitizenSigning {
 }
 
 void main() {
+  test('普通MLS身份缺失只报告需要确认，不能自动登记或请求钱包授权', () async {
+    final security = _SessionWalletManager();
+    final provider = SquareSessionProvider(
+      client: _SessionApi(deviceMissing: true),
+      accountSecurity: security,
+      currentUserContext: _SessionIdentityCache(),
+      authentication: _StorageAuthentication(),
+    );
+    final result = await provider.resolveSession();
+    expect(result.errorCode, 'mls_initialization_required');
+    expect(security.registrationCalls, 0);
+    expect(result.message, isNot(contains('synthetic private')));
+  });
+
   Future<AccountSecurityService> attemptSecurity(
     _AttemptWallet wallet,
     _ProofStore records, {

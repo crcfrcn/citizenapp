@@ -7,7 +7,8 @@ import 'package:citizenapp/citizen/institution/institution.dart';
 import 'package:citizenapp/citizen/institution/institution_classification.dart';
 import 'package:citizenapp/citizen/institution/institution_detail_page.dart';
 import 'package:citizenapp/citizen/institution/institution_repository.dart';
-import 'package:citizenapp/citizen/institution/institution_info.dart' show OrgType;
+import 'package:citizenapp/citizen/institution/institution_info.dart'
+    show OrgType;
 import 'package:citizenapp/citizen/proposal/proposal_context.dart';
 import 'package:citizenapp/citizen/governance/whitepaper_page.dart';
 import 'package:citizenapp/storage/user_isar.dart';
@@ -68,16 +69,10 @@ List<Institution> reorderGovernanceInstitutions(
   return next;
 }
 
-enum _GovernanceSectionKind {
-  provincialCouncil,
-  provincialBank,
-}
+enum _GovernanceSectionKind { provincialCouncil, provincialBank }
 
 class _GovernanceDragData {
-  const _GovernanceDragData({
-    required this.sectionKind,
-    required this.index,
-  });
+  const _GovernanceDragData({required this.sectionKind, required this.index});
 
   final _GovernanceSectionKind sectionKind;
   final int index;
@@ -121,10 +116,7 @@ class GovernanceInstitutionOrderStore {
     return _write(cidNumbers, isCouncil: false);
   }
 
-  Future<void> _write(
-    List<String> cidNumbers, {
-    required bool isCouncil,
-  }) {
+  Future<void> _write(List<String> cidNumbers, {required bool isCouncil}) {
     return UserIsar.instance.writeTxn((isar) async {
       final settings =
           await isar.userSettingsEntitys.get(0) ?? UserSettingsEntity();
@@ -208,12 +200,15 @@ class _GovernanceTabState extends State<GovernanceTab> {
     }
     try {
       final all = await _repo.listByCodes(_governanceCodes);
-      final national =
-          all.where((i) => i.orgType == OrgType.nrc).toList(growable: false);
-      final councilsRaw =
-          all.where((i) => i.orgType == OrgType.prc).toList(growable: false);
-      final banksRaw =
-          all.where((i) => i.orgType == OrgType.prb).toList(growable: false);
+      final national = all
+          .where((i) => i.orgType == OrgType.nrc)
+          .toList(growable: false);
+      final councilsRaw = all
+          .where((i) => i.orgType == OrgType.prc)
+          .toList(growable: false);
+      final banksRaw = all
+          .where((i) => i.orgType == OrgType.prb)
+          .toList(growable: false);
       final order = await _orderStore.read();
       final councils = applyGovernanceInstitutionOrder(
         councilsRaw,
@@ -264,8 +259,9 @@ class _GovernanceTabState extends State<GovernanceTab> {
     });
 
     try {
-      final orderedCidNumbers =
-          next.map((institution) => institution.cidNumber).toList();
+      final orderedCidNumbers = next
+          .map((institution) => institution.cidNumber)
+          .toList();
       if (sectionKind == _GovernanceSectionKind.provincialCouncil) {
         await _orderStore.writeProvincialCouncilCidNumbers(orderedCidNumbers);
       } else {
@@ -273,14 +269,14 @@ class _GovernanceTabState extends State<GovernanceTab> {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('保存治理机构顺序失败：$e')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('保存治理机构顺序失败：$e')));
     }
   }
 
   void _openWhitepaper() {
-    final page = widget.whitepaperPageBuilder?.call(context) ??
+    final page =
+        widget.whitepaperPageBuilder?.call(context) ??
         const CitizenWhitepaperPage();
     Navigator.of(context).push(FadeSlideRoute<void>(page: page));
   }
@@ -307,8 +303,9 @@ class _GovernanceTabState extends State<GovernanceTab> {
           ? _governanceProvincialCouncilIconAsset
           : _governanceProvincialBankIconAsset,
       badgeColor: isCouncil ? AppTheme.primary : AppTheme.accent,
-      institutionCount:
-          isCouncil ? _provincialCouncils.length : _provincialBanks.length,
+      institutionCount: isCouncil
+          ? _provincialCouncils.length
+          : _provincialBanks.length,
       expanded: _expandedSection == sectionKind,
       onToggleExpanded: () => _toggleSection(sectionKind),
     );
@@ -319,6 +316,7 @@ class _GovernanceTabState extends State<GovernanceTab> {
     if (sectionKind == null) return const SizedBox.shrink();
     final isCouncil = sectionKind == _GovernanceSectionKind.provincialCouncil;
     return _GovernanceInstitutionGrid(
+      repository: _repo,
       sectionKind: sectionKind,
       icon: isCouncil
           ? Icons.groups_2_outlined
@@ -435,12 +433,11 @@ class _GovernanceTabState extends State<GovernanceTab> {
         decoration: BoxDecoration(
           color: AppTheme.surfaceCard,
           borderRadius: BorderRadius.circular(AppLayout.scaledValue(12)),
-          border:
-              Border.all(color: AppTheme.primaryDark.withValues(alpha: 0.22)),
+          border: Border.all(
+            color: AppTheme.primaryDark.withValues(alpha: 0.22),
+          ),
         ),
-        padding: EdgeInsets.symmetric(
-          horizontal: AppLayout.scaledValue(10),
-        ),
+        padding: EdgeInsets.symmetric(horizontal: AppLayout.scaledValue(10)),
         child: Row(
           children: [
             Container(
@@ -489,7 +486,8 @@ class _GovernanceTabState extends State<GovernanceTab> {
   Widget _nationalCouncilCard() {
     final institution = _national.isEmpty ? null : _national.first;
     final enabled = institution != null;
-    final isAdmin = institution != null &&
+    final isAdmin =
+        institution != null &&
         ProposalContextResolver.isInstitutionAdmin(institution.cidNumber);
     final card = Container(
       key: institution == null
@@ -502,11 +500,12 @@ class _GovernanceTabState extends State<GovernanceTab> {
           onTap: institution == null
               ? null
               : () async {
+                  // 机构详情沿用当前目录及平台标准路由，保留iOS交互式侧滑返回。
                   await Navigator.of(context).push(
-                    FadeSlideRoute(
-                      page: InstitutionDetailPage(
+                    MaterialPageRoute<void>(
+                      builder: (_) => InstitutionDetailPage(
                         cidNumber: institution.cidNumber,
-                        repository: InstitutionRepository(),
+                        repository: _repo,
                       ),
                     ),
                   );
@@ -620,6 +619,7 @@ class _GovernanceSectionHeader extends StatelessWidget {
 
 class _GovernanceInstitutionGrid extends StatelessWidget {
   const _GovernanceInstitutionGrid({
+    required this.repository,
     required this.sectionKind,
     required this.icon,
     required this.badgeColor,
@@ -634,6 +634,8 @@ class _GovernanceInstitutionGrid extends StatelessWidget {
   final List<Institution> institutions;
   final Future<void> Function(int fromIndex, int toIndex) onReorder;
   final VoidCallback onReturnFromDetail;
+
+  final InstitutionRepository repository;
 
   @override
   Widget build(BuildContext context) {
@@ -660,6 +662,7 @@ class _GovernanceInstitutionGrid extends StatelessWidget {
               inst.cidNumber,
             );
             final card = _GovernanceCard(
+              repository: repository,
               institution: inst,
               icon: icon,
               badgeColor: badgeColor,
@@ -668,6 +671,7 @@ class _GovernanceInstitutionGrid extends StatelessWidget {
               onReturnFromDetail: onReturnFromDetail,
             );
             return _GovernanceReorderableCard(
+              repository: repository,
               sectionKind: sectionKind,
               index: index,
               institution: inst,
@@ -687,6 +691,7 @@ class _GovernanceInstitutionGrid extends StatelessWidget {
 
 class _GovernanceReorderableCard extends StatelessWidget {
   const _GovernanceReorderableCard({
+    required this.repository,
     required this.sectionKind,
     required this.index,
     required this.institution,
@@ -707,6 +712,8 @@ class _GovernanceReorderableCard extends StatelessWidget {
   final Future<void> Function(int fromIndex, int toIndex) onReorder;
   final Widget child;
   final VoidCallback? onReturnFromDetail;
+
+  final InstitutionRepository repository;
 
   @override
   Widget build(BuildContext context) {
@@ -730,10 +737,7 @@ class _GovernanceReorderableCard extends StatelessWidget {
                 )
               : null,
           child: LongPressDraggable<_GovernanceDragData>(
-            data: _GovernanceDragData(
-              sectionKind: sectionKind,
-              index: index,
-            ),
+            data: _GovernanceDragData(sectionKind: sectionKind, index: index),
             feedback: Material(
               color: Colors.transparent,
               child: SizedBox(
@@ -742,6 +746,7 @@ class _GovernanceReorderableCard extends StatelessWidget {
                 child: Opacity(
                   opacity: 0.92,
                   child: _GovernanceCard(
+                    repository: repository,
                     institution: institution,
                     icon: icon,
                     badgeColor: badgeColor,
@@ -764,6 +769,7 @@ class _GovernanceReorderableCard extends StatelessWidget {
 
 class _GovernanceCard extends StatelessWidget {
   const _GovernanceCard({
+    required this.repository,
     required this.institution,
     required this.icon,
     required this.badgeColor,
@@ -781,6 +787,8 @@ class _GovernanceCard extends StatelessWidget {
   final bool pressAnimationEnabled;
   final VoidCallback? onReturnFromDetail;
 
+  final InstitutionRepository repository;
+
   @override
   Widget build(BuildContext context) {
     final card = Container(
@@ -790,11 +798,12 @@ class _GovernanceCard extends StatelessWidget {
         child: InkWell(
           onTap: navigationEnabled
               ? () async {
+                  // 机构详情沿用当前目录及平台标准路由，保留iOS交互式侧滑返回。
                   await Navigator.of(context).push(
-                    FadeSlideRoute(
-                      page: InstitutionDetailPage(
+                    MaterialPageRoute<void>(
+                      builder: (_) => InstitutionDetailPage(
                         cidNumber: institution.cidNumber,
-                        repository: InstitutionRepository(),
+                        repository: repository,
                       ),
                     ),
                   );
@@ -804,8 +813,9 @@ class _GovernanceCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppTheme.radiusMd),
           child: Padding(
             padding: EdgeInsets.symmetric(
-                horizontal: AppLayout.scaled(context, 12),
-                vertical: AppLayout.scaled(context, 10)),
+              horizontal: AppLayout.scaled(context, 12),
+              vertical: AppLayout.scaled(context, 10),
+            ),
             child: Row(
               children: [
                 Expanded(

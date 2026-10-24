@@ -10,15 +10,26 @@ class OnchainPaymentService {
   OnchainPaymentService({
     required CitizenSdkWallet wallet,
     required CitizenTransactions transactions,
-  })  : _wallet = wallet,
-        _transactions = transactions;
+  }) : _wallet = wallet,
+       _transactions = transactions;
 
   final CitizenSdkWallet _wallet;
   final CitizenTransactions _transactions;
 
-  /// 原付款钱包选择来自SDK独立字段；不借用全局默认账户或热当前账户。
-  Future<CitizenWalletStateAccount?> getCurrentWallet() async =>
-      (await _wallet.getState().result).activeWalletAccount;
+  /// 首次按默认账户初始化表单；选定后只核对该精确账户，缺失绝不回退账户0。
+  Future<CitizenWalletStateAccount?> getCurrentWallet({
+    String? accountId,
+  }) async {
+    final state = await _wallet.getState().result;
+    if (accountId == null) return state.defaultAccount;
+    for (final account in state.accounts) {
+      if (account.accountId == accountId) return account;
+    }
+    throw const OnchainPaymentException(
+      OnchainPaymentErrorCode.walletMissing,
+      '付款账户已不可用，请重新选择',
+    );
+  }
 
   /// 校验 CitizenApp 转账表单、编码 opaque RuntimeCall，然后直接
   /// 交给 CitizenSDK 准备。签名、广播和最终执行不在 App 业务服务内实现。
@@ -28,8 +39,11 @@ class OnchainPaymentService {
     final toSs58Address = draft.toSs58Address.trim();
     final symbol = draft.symbol.trim().toUpperCase();
     final remarkBytes = utf8.encode(draft.remark).length;
-    if (toSs58Address.isEmpty || symbol.isEmpty ||
-        !draft.amount.isFinite || !(draft.amount * 100).isFinite ||
+    if (!RegExp(r'^0x[0-9a-f]{64}$').hasMatch(draft.sourceAccountId) ||
+        toSs58Address.isEmpty ||
+        symbol.isEmpty ||
+        !draft.amount.isFinite ||
+        !(draft.amount * 100).isFinite ||
         draft.amount <= 0) {
       throw const OnchainPaymentException(
         OnchainPaymentErrorCode.invalidDraft,
@@ -43,7 +57,7 @@ class OnchainPaymentService {
       );
     }
 
-    final wallet = (await _wallet.getState().result).activeWalletAccount;
+    final wallet = await getCurrentWallet(accountId: draft.sourceAccountId);
     if (wallet == null) {
       throw const OnchainPaymentException(
         OnchainPaymentErrorCode.walletMissing,
@@ -71,10 +85,21 @@ class OnchainPaymentService {
         '收款地址或金额超出允许范围',
       );
     }
-    return _transactions.prepareTransaction(
+    final prepared = await _transactions.prepareTransaction(
       Uint8List.fromList(sourceAccountId),
       callData,
     );
+    if (prepared.sourceAccountId.length != sourceAccountId.length ||
+        List.generate(sourceAccountId.length, (index) => index).any(
+          (index) => prepared.sourceAccountId[index] != sourceAccountId[index],
+        )) {
+      await _transactions.cancelPreparedTransaction(prepared.preparationId);
+      throw const OnchainPaymentException(
+        OnchainPaymentErrorCode.invalidDraft,
+        '交易准备的付款账户不一致',
+      );
+    }
+    return prepared;
   }
 
   List<int> _hexToBytes(String input) {

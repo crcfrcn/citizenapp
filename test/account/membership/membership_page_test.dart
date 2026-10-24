@@ -1,3 +1,5 @@
+import 'package:tatachat_sdk/tatachat_sdk.dart' as chat_sdk;
+
 import '../../square/mls_authentication_fixture.dart';
 
 import 'dart:async';
@@ -71,6 +73,39 @@ class _FakeSessionProvider implements SquareSessionProvider {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _InitializationSessions extends _FakeSessionProvider {
+  _InitializationSessions({this.missingCommitted = false});
+  final bool missingCommitted;
+  bool initialized = false;
+  int initializationCalls = 0;
+  @override
+  Future<SquareSessionResolution> resolveSession({
+    bool refresh = false,
+  }) async => initialized
+      ? super.resolveSession(refresh: refresh)
+      : SquareSessionResolution.fromError(
+          chat_sdk.MlsNativeException(
+            missingCommitted
+                ? chat_sdk.MlsNativeErrorCode.stateMissing
+                : chat_sdk.MlsNativeErrorCode.initializationRequired,
+            'synthetic detail',
+          ),
+        );
+  @override
+  Future<void> initializeCurrentDevice({
+    required String expectedCidNumber,
+    required String expectedAccountId,
+    required int expectedBindingRevision,
+  }) async {
+    final current = await _CachedCurrentUser().resolve();
+    expect(expectedAccountId, current!.accountId);
+    expect(expectedCidNumber, current.cidNumber);
+    expect(expectedBindingRevision, current.bindingRevision);
+    initializationCalls++;
+    initialized = true;
+  }
 }
 
 class _CidNotBoundSessionProvider implements SquareSessionProvider {
@@ -424,13 +459,14 @@ class _CachedCurrentUser implements CurrentUserContext {
   Future<CurrentUser?> resolve() async => CurrentUser(
     account: _identityAccount,
     verifiedUnregistered: unregistered,
-    binding: unregistered ? null : const IdentityBinding(
-      genesisHash:
-          '0x1111111111111111111111111111111111111111111111111111111111111111',
-      cidNumber: 'CN220-CTZN2-198805200-2026',
-      accountId: _identityAccountId,
-      bindingRevision: 1,
-    ),
+    binding: unregistered
+        ? null
+        : const IdentityBinding(
+            genesisHash: '0x1111111111111111111111111111111111111111111111111111111111111111',
+            cidNumber: 'CN220-CTZN2-198805200-2026',
+            accountId: _identityAccountId,
+            bindingRevision: 1,
+          ),
   );
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -1096,11 +1132,54 @@ void main() {
   });
 
   testWidgets('已核实未注册直接显示引导，不建立普通会话', (tester) async {
-    await _pump(tester, const SquareMembershipState(active: false, paidUntil: 0),
-      currentUserContext: _CachedCurrentUser(unregistered: true));
+    await _pump(
+      tester,
+      const SquareMembershipState(active: false, paidUntil: 0),
+      currentUserContext: _CachedCurrentUser(unregistered: true),
+    );
     expect(find.text('尚未注册'), findsOneWidget);
     expect(find.byKey(const ValueKey('membership-front-card')), findsNothing);
     expect(find.textContaining('恢复服务'), findsNothing);
+  });
+
+  testWidgets('会员MLS旧空目录仅主动重试后确认；取消不初始化，确认后恢复原页面', (tester) async {
+    final sessions = _InitializationSessions();
+    await _pump(
+      tester,
+      _state(active: false),
+      sessionProvider: sessions,
+      currentUserContext: _CachedCurrentUser(),
+    );
+    expect(sessions.initializationCalls, 0);
+    await tester.tap(find.text('重试'));
+    await tester.pumpAndSettle();
+    expect(find.text('初始化本机聊天设备'), findsOneWidget);
+    expect(sessions.initializationCalls, 0);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(sessions.initializationCalls, 0);
+    expect(find.text('已取消初始化本机聊天设备'), findsOneWidget);
+    await tester.tap(find.text('重试'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('初始化'));
+    await tester.pumpAndSettle();
+    expect(sessions.initializationCalls, 1);
+    expect(find.text('初始化本机聊天设备'), findsNothing);
+    expect(find.text('自由会员'), findsOneWidget);
+  });
+  testWidgets('会员已使用MLS状态缺失不得通过重试换钥', (tester) async {
+    final sessions = _InitializationSessions(missingCommitted: true);
+    await _pump(
+      tester,
+      _state(active: false),
+      sessionProvider: sessions,
+      currentUserContext: _CachedCurrentUser(),
+    );
+    await tester.tap(find.text('重试'));
+    await tester.pumpAndSettle();
+    expect(sessions.initializationCalls, 0);
+    expect(find.text('初始化本机聊天设备'), findsNothing);
+    expect(find.text('本机已使用的聊天身份文件缺失，无法自动重新初始化'), findsOneWidget);
   });
 
   testWidgets('renders the three subscription tier cards', (tester) async {

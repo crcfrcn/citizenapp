@@ -434,7 +434,8 @@ class UserContactService {
         failure.status == SquareSessionStatus.networkUnavailable
             ? ContactSyncPhase.offline
             : ContactSyncPhase.failed,
-        // 同步失败保留本地联系人和待发记录，只保存固定分类，禁止持久化原始异常正文。
+        // MLS目录、初始化和状态缺失沿会话固定分类显示；失败保留本地联系人与待发记录。
+        // 不自动换钥、不以重试清空记录，也不持久化原始异常正文。
         message: failure.message,
         errorCode: failure.errorCode,
         statusCode: failure.statusCode,
@@ -665,8 +666,12 @@ class UserContactService {
     final identity = await _currentUser.resolve();
     if (identity == null || !identity.isRegistered) {
       throw SquareApiException(
-        identity?.isUnregistered == true ? '当前账户尚未注册公民号' : '身份信息暂不可用，请在身份页刷新后重试',
-        errorCode: identity?.isUnregistered == true ? 'identity_unregistered' : 'identity_local_missing',
+        identity?.isUnregistered == true
+            ? '当前账户尚未注册公民号'
+            : '身份信息暂不可用，请在身份页刷新后重试',
+        errorCode: identity?.isUnregistered == true
+            ? 'identity_unregistered'
+            : 'identity_local_missing',
         stage: SquareApiStage.identity,
       );
     }

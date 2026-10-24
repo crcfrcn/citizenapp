@@ -1,3 +1,10 @@
+import 'package:citizenapp/account/identity/current_user_context.dart';
+import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:provider/provider.dart';
+
+import '../support/fake_citizen_sdk.dart';
+
+import 'package:citizenapp/citizen/institution/institution_detail_page.dart';
 // 治理 tab 视图(ADR-028 P2)测试 —— 替代旧 governance_list_page_test。
 // 机构改由统一目录按机构码加载(注入 seeded fake 仓库),分组/折叠/拖拽 UI 保持。
 
@@ -16,8 +23,24 @@ import 'package:citizenapp/citizen/legislation/legislation_tab.dart';
 import 'package:citizenapp/citizen/public/public_institution_dto.dart';
 import 'package:citizenapp/citizen/public/public_institution_repository.dart';
 import 'package:citizenapp/system/theme/app_layout.dart';
+
 import 'public/fake_public_institution_store.dart';
 import '../support/isar_test_env.dart';
+
+class _GuestUserContext implements CurrentUserContext {
+  @override
+  Future<CurrentUser?> resolve() async => null;
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// 导航专用的目录失败夹具仍使用真实机构详情与生产路由，不开启另一套Isar。
+class _UnavailableDetailRepository extends InstitutionRepository {
+  _UnavailableDetailRepository(InstitutionRepository source)
+    : super(directory: source.directory);
+  @override
+  Future<Institution?> getByCid(String cidNumber) async => null;
+}
 
 /// 构造统一机构(helper 纯函数测试用)。
 Institution _inst(String name, String cid, String code) => Institution(
@@ -96,18 +119,31 @@ Future<void> _pumpPage(
   GovernanceInstitutionOrderStore? orderStore,
   WidgetBuilder? whitepaperPageBuilder,
   double width = 420,
+  CitizenSdk? sdk,
+  bool unavailableDetail = false,
+  TargetPlatform? platform,
 }) async {
   final repo = await _buildRepo(councils: councils, banks: banks);
   await tester.pumpWidget(
-    MaterialApp(
-      home: Scaffold(
-        body: SizedBox(
-          width: width,
-          height: 900,
-          child: GovernanceTab(
-            repository: repo,
-            orderStore: orderStore ?? _FakeGovernanceInstitutionOrderStore(),
-            whitepaperPageBuilder: whitepaperPageBuilder,
+    Provider<CitizenSdk?>.value(
+      value: sdk,
+      child: Provider<CurrentUserContext>.value(
+        value: _GuestUserContext(),
+        child: MaterialApp(
+          theme: platform == null ? null : ThemeData(platform: platform),
+          home: Scaffold(
+            body: SizedBox(
+              width: width,
+              height: 900,
+              child: GovernanceTab(
+                repository: unavailableDetail
+                    ? _UnavailableDetailRepository(repo)
+                    : repo,
+                orderStore:
+                    orderStore ?? _FakeGovernanceInstitutionOrderStore(),
+                whitepaperPageBuilder: whitepaperPageBuilder,
+              ),
+            ),
           ),
         ),
       ),
@@ -261,6 +297,40 @@ void main() {
       tester.getCenter(nationalIcon).dx,
       lessThan(tester.getCenter(find.text('国家储备委员会')).dx),
     );
+  });
+
+  testWidgets('iOS机构详情目录不可用时侧滑取消保留详情、完成返回治理列表', (tester) async {
+    final transport = TestCitizenSdkTransport({
+      'getWalletState': (_) => [testCitizenWalletState()],
+    });
+    final sdk = await transport.open();
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await sdk.close();
+      await transport.dispose();
+    });
+    await _pumpPage(
+      tester,
+      councils: councils,
+      banks: banks,
+      sdk: sdk,
+      unavailableDetail: true,
+      platform: TargetPlatform.iOS,
+    );
+    await tester.tap(find.text('甲省储委会'));
+    await tester.pumpAndSettle();
+    expect(find.byType(InstitutionDetailPage), findsOneWidget);
+    final gesture = await tester.startGesture(const Offset(1, 300));
+    await gesture.moveBy(const Offset(80, 0));
+    await tester.pump();
+    await gesture.moveBy(const Offset(-80, 0));
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(find.byType(InstitutionDetailPage), findsOneWidget);
+    await tester.flingFrom(const Offset(1, 300), const Offset(700, 0), 1000);
+    await tester.pumpAndSettle();
+    expect(find.byType(InstitutionDetailPage), findsNothing);
+    expect(find.text('甲省储委会'), findsOneWidget);
   });
 
   testWidgets('点击白皮书卡在 App 内进入阅读页', (tester) async {
