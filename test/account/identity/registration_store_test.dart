@@ -112,11 +112,58 @@ void main() {
       value.capabilities.enrollmentId,
     );
     expect(await store().hasPendingAccount(c.accountId, c.chainScope), true);
+    final ready = value.next(phase: RegistrationPhase.ready);
+    await store().save(value, ready);
+    expect(
+      await store().forDevice(identity, chainScope: c.chainScope),
+      isNull,
+      reason: '已完成公民号使用普通设备准备，不再消费真人登记能力',
+    );
+    await store().save(ready, value);
     await expectLater(
       store().save(value, value.next(checkpoint: {'private_key': 'secret'})),
       throwsFormatException,
     );
     expect((await store().read(c))?.checkpoint, isNull);
+  });
+  test('过期真人登记能力不交付；已有公民号改用普通准备，不重复验证', () async {
+    final c = registrationContext();
+    final json = registrationResponse(c, state: 'human_verified');
+    json['created_at_millis'] = 1;
+    json['human_verified_at_millis'] = 2;
+    json['expires_at_millis'] = 3;
+    final value = record(c).next(
+      response: RegistrationResponse.parse(json, c),
+      phase: RegistrationPhase.finalized,
+      finalized: FinalizedRegistration(
+        binding: IdentityBinding(
+          genesisHash: c.chainScope,
+          cidNumber: 'CN220-CTZN2-100000001-2026',
+          bindingRevision: 1,
+          accountId: c.accountId,
+        ),
+        blockHash: '0x${'44' * 32}',
+      ),
+    );
+    await store().save(null, value);
+    expect(
+      await store().forDevice(
+        MlsAuthenticationIdentity(
+          cidNumber: value.finalized!.binding.cidNumber,
+          accountId: c.accountId,
+          bindingRevision: 1,
+          deviceId: '33' * 32,
+          publicKey: '0x${'33' * 32}',
+        ),
+        chainScope: c.chainScope,
+      ),
+      isNull,
+    );
+    expect(
+      (await store().read(c))!.response.state,
+      RegistrationState.humanVerified,
+      reason: '不能把过期或故障改写为假的真人通过或没有CID',
+    );
   });
   test('公开序列化白名单不保存Turnstile token或私钥', () {
     final text = record().encode();

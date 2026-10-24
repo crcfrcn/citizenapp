@@ -91,40 +91,29 @@ class MlsDeviceRegistrar {
     await _authentication.requireCurrent(identity);
     late final int issuedAt;
     late final String signature;
+    var reusable = false;
     if (rawProof != null) {
       try {
-        final proof = jsonDecode(rawProof);
-        const fields = {
-          'cid_number',
-          'binding_revision',
-          'account_id',
-          'public_key',
-          'issued_at',
-          'signature',
-        };
-        if (proof is! Map<String, dynamic> ||
-            proof.length != fields.length ||
-            !proof.keys.every(fields.contains) ||
-            proof['cid_number'] != cidNumber ||
-            proof['binding_revision'] != bindingRevision ||
-            proof['account_id'] != accountId ||
-            proof['public_key'] != identity.publicKey ||
-            proof['issued_at'] is! int ||
-            proof['issued_at'] <= 0 ||
-            proof['issued_at'] > 9007199254740991 ||
-            proof['signature'] is! String ||
-            !RegExp(r'^0x[0-9a-f]{128}$').hasMatch(proof['signature'])) {
-          throw const FormatException();
+        final proof = decodeDeviceRegistrationProof(
+          rawProof,
+          cidNumber: cidNumber,
+          bindingRevision: bindingRevision,
+          accountId: accountId,
+        );
+        reusable = proof['public_key'] == identity.publicKey;
+        if (reusable) {
+          issuedAt = proof['issued_at'] as int;
+          signature = proof['signature'] as String;
         }
-        issuedAt = proof['issued_at'] as int;
-        signature = proof['signature'] as String;
       } on FormatException {
         throw const SquareApiException(
           '本机MLS登记授权不可用',
           errorCode: 'device_proof_invalid',
         );
       }
-    } else {
+    }
+    // 只复用当前设备的回执；不同公钥重新走原钱包签署，绝不借用旧签名。
+    if (!reusable) {
       issuedAt = issuedAtMillis ?? DateTime.now().millisecondsSinceEpoch;
       final payload = await encodeMlsDeviceBindingPayload(
         cidNumber: cidNumber,
@@ -164,7 +153,7 @@ class MlsDeviceRegistrar {
       });
       if (!await _proofStore.compareAndSet(
             proofKey,
-            expected: null,
+            expected: rawProof,
             next: proof,
           ) ||
           await _proofStore.read(proofKey) != proof) {

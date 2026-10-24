@@ -11,6 +11,7 @@ import 'package:citizenapp/transaction/topup/store.dart';
 
 class FakeApi extends TopupApi {
   int statusCalls = 0;
+  final bool ready;
   TopupOrder? order;
   @override
   Future<TopupOrder> status(TopupPaymentIntent intent) async {
@@ -19,13 +20,20 @@ class FakeApi extends TopupApi {
     return order!;
   }
 
-  FakeApi() : super(baseUrl: 'https://www.crcfrcn.com/api');
+  FakeApi({this.ready = true}) : super(baseUrl: 'https://www.crcfrcn.com/api');
   @override
-  Future<TopupConfig> fetchConfig() async => TopupConfig.fromJson(
-    (jsonDecode(File('test/transaction/topup/contract.json').readAsStringSync())
-            as Map<String, dynamic>)['config']
-        as Map<String, dynamic>,
-  );
+  Future<TopupConfig> fetchConfig() async {
+    final value =
+        (jsonDecode(
+                  File(
+                    'test/transaction/topup/contract.json',
+                  ).readAsStringSync(),
+                )
+                as Map<String, dynamic>)['config']
+            as Map<String, dynamic>;
+    value['ready'] = ready;
+    return TopupConfig.fromJson(value);
+  }
 }
 
 class MemoryStore extends TopupStore {
@@ -38,7 +46,7 @@ class MemoryStore extends TopupStore {
 }
 
 void main() {
-  testWidgets('复用两张币种卡片，六币轨不变成网络选择', (tester) async {
+  testWidgets('币种入口保留两张，网络只在套餐内选择', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: OnchainTopupPage(
@@ -57,33 +65,126 @@ void main() {
     expect(find.byType(TextField), findsNothing);
     expect(find.byType(DropdownButton<String>), findsNothing);
   });
-  testWidgets('原套餐弹窗只显示两项，选择效果和按钮保留', (tester) async {
+  testWidgets('两个套餐各三条链，点击一次直接传递十二种准确付款组合', (tester) async {
+    for (final token in ['USDC', 'USDT']) {
+      for (final id in ['pkg_15', 'pkg_1400']) {
+        for (final network in TopupNetwork.values.where(
+          (n) => allowedPair(token, n),
+        )) {
+          final opened = <TopupSelection>[];
+          await tester.pumpWidget(
+            MaterialApp(
+              key: ValueKey('$token:$id:${network.wire}'),
+              home: OnchainTopupPage(
+                accountId: '0x${'04' * 32}',
+                api: FakeApi(),
+                store: MemoryStore(),
+                paymentOpener: (choice, record) async {
+                  opened.add(choice);
+                  expect(record, isNull);
+                  return null;
+                },
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(find.text(token));
+          await tester.pumpAndSettle();
+          expect(find.text('10,000.00 公民币'), findsOneWidget);
+          expect(find.text('1,000,000.00 公民币'), findsOneWidget);
+          expect(find.text('连接钱包并支付'), findsNothing);
+          for (final n in TopupNetwork.values.where(
+            (n) => allowedPair(token, n),
+          )) {
+            expect(find.text(n.label), findsNWidgets(2));
+          }
+          expect(find.byType(OutlinedButton), findsNWidgets(6));
+          expect(find.byType(TextField), findsNothing);
+          final entry = find.byKey(ValueKey('$id:${network.wire}'));
+          await tester.ensureVisible(entry);
+          await tester.tap(entry);
+          await tester.tap(entry, warnIfMissed: false);
+          await tester.pumpAndSettle();
+          expect(opened.length, 1);
+          expect(opened.single.toJson(), {
+            'token': token,
+            'package_id': id,
+            'network': network.wire,
+          });
+        }
+      }
+    }
+  });
+  testWidgets('未就绪仍显示两档和三链，但不能进入钱包', (tester) async {
+    var opened = 0;
     await tester.pumpWidget(
       MaterialApp(
         home: OnchainTopupPage(
           accountId: '0x${'04' * 32}',
-          api: FakeApi(),
+          api: FakeApi(ready: false),
           store: MemoryStore(),
+          paymentOpener: (_, _) async {
+            opened++;
+            return null;
+          },
         ),
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('USDC'));
-    await tester.tap(find.text('USDC'), warnIfMissed: false);
+    await tester.tap(find.text('USDT'));
     await tester.pumpAndSettle();
-    expect(find.text('选择充值套餐 · USDC'), findsOneWidget);
-    expect(find.text('10,000.00 公民币'), findsOneWidget);
-    expect(find.text('1,000,000.00 公民币'), findsOneWidget);
-    expect(find.text('连接钱包并支付'), findsOneWidget);
-    expect(find.byType(TextField), findsNothing);
-    await tester.tap(find.text('1,000,000.00 公民币'));
+    final buttons = tester.widgetList<OutlinedButton>(
+      find.byType(OutlinedButton),
+    );
+    expect(buttons.length, 6);
+    expect(buttons.every((b) => b.onPressed == null), true);
+    expect(find.text('充值暂未开放'), findsOneWidget);
+    expect(opened, 0);
+  });
+  testWidgets('窄屏和大字体的套餐与完整网络名称不溢出，可滚动选择高档', (tester) async {
+    tester.view.physicalSize = const Size(320, 568);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    TopupSelection? chosen;
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: const TextScaler.linear(1.6)),
+          child: child!,
+        ),
+        home: OnchainTopupPage(
+          accountId: '0x${'04' * 32}',
+          api: FakeApi(),
+          store: MemoryStore(),
+          paymentOpener: (choice, _) async {
+            chosen = choice;
+            return null;
+          },
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
-    expect(find.text('更优汇率'), findsOneWidget);
+    await tester.tap(find.text('USDT'));
+    await tester.pumpAndSettle();
+    final high = find.byKey(const ValueKey('pkg_1400:bnb'));
+    await tester.ensureVisible(high);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.tap(high);
+    await tester.pumpAndSettle();
+    expect(chosen?.package.packageId, 'pkg_1400');
+    expect(chosen?.network, TopupNetwork.bnb);
+    expect(tester.takeException(), isNull);
   });
   TopupRecord original() {
-    final f = jsonDecode(
-      File('test/transaction/topup/contract.json').readAsStringSync(),
-    ) as Map<String, dynamic>;
+    final f =
+        jsonDecode(
+              File('test/transaction/topup/contract.json').readAsStringSync(),
+            )
+            as Map<String, dynamic>;
     return TopupRecord(
       origin: 'https://www.crcfrcn.com',
       intent: TopupPaymentIntent.fromJson(f['intent'] as Map<String, dynamic>),

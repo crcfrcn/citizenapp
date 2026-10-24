@@ -1,4 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
+
+import 'package:citizenapp/app_log.dart';
+import 'package:citizenapp/account/identity/mls_authentication.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -9,7 +13,9 @@ import 'package:citizenapp/8964/feed/square_models.dart';
 import 'mls_authentication_fixture.dart';
 
 void main() {
+  _failureDiagnosticsTests();
   _chatAccessTests();
+  _readCoalescingTests();
   for (final status in [401, 403, 429, 503]) {
     for (final data in <Map<String, Object?>>[
       {'error': 'device_not_registered'},
@@ -60,14 +66,14 @@ void main() {
           (r) async => http.Response(
             jsonEncode({
               'ok': true,
-              'membership_active': false,
-              'membership': null,
+              'membergate_active': false,
+              'membergate': null,
               'plans': [
                 {
-                  'membership_level': 'freedom',
+                  'membergate_level': 'freedom',
                   'price_fen': price,
                   'plan': {
-                    'membership_level': 'freedom',
+                    'membergate_level': 'freedom',
                     'chat_file_max_bytes': 104857600,
                     'video_max_seconds': 180,
                     'video_max_bytes': 104857600,
@@ -456,6 +462,475 @@ void _chatAccessTests() {
     await expectLater(
       api.fetchChatAccess(session: session, deviceId: testMlsDeviceId),
       throwsA(isA<SquareApiException>()),
+    );
+  });
+}
+
+// 同一实际请求只签一次，完成/失败后不保存可重复消费的证明或响应。
+void _readCoalescingTests() {
+  SquareSession session({
+    String token = 'coalesced',
+    Future<void> Function()? current,
+    Future<Map<String, String>> Function()? sign,
+  }) => SquareSession(
+    sessionToken: token,
+    cidNumber: testMlsCidNumber,
+    accountId: testMlsAccountId,
+    bindingRevision: 1,
+    deviceId: testMlsDeviceId,
+    expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
+    requireCurrent: current,
+    authenticateRequest:
+        ({
+          required method,
+          required uri,
+          required body,
+          required sessionToken,
+        }) =>
+            sign?.call() ??
+            fakeMlsRequestHeaders(
+              method: method,
+              uri: uri,
+              body: body,
+              sessionToken: sessionToken,
+            ),
+  );
+  http.Response result([int status = 200]) => http.Response(
+    jsonEncode(
+      status == 200
+          ? {'ok': true, 'posts': []}
+          : {'ok': false, 'error': 'synthetic_denial'},
+    ),
+    status,
+  );
+  test('跨客户端同会话十个并发GET只签发一次，完成后的读取重新签名', () async {
+    var requests = 0, signed = 0;
+    final entered = Completer<void>(), release = Completer<void>();
+    final owner = session(
+      sign: () async => {'x-mls-proof': 'read-${++signed}'},
+    );
+    http.Client client() => MockClient((_) async {
+      requests++;
+      if (!entered.isCompleted) {
+        entered.complete();
+      }
+      await release.future;
+      return result();
+    });
+    final a = SquareApiClient(
+      baseUrl: 'https://square.test/api',
+      httpClient: client(),
+    );
+    final b = SquareApiClient(
+      baseUrl: 'https://square.test/api',
+      httpClient: client(),
+    );
+    addTearDown(a.close);
+    addTearDown(b.close);
+    final reads = List.generate(
+      10,
+      (index) => (index.isEven ? a : b).fetchFeed(
+        feedKind: SquareFeedKind.recommended,
+        session: owner,
+      ),
+    );
+    await entered.future;
+    expect(requests, 1);
+    expect(signed, 1);
+    release.complete();
+    expect((await Future.wait(reads)).every((value) => value.isEmpty), isTrue);
+    await b.fetchFeed(feedKind: SquareFeedKind.recommended, session: owner);
+    expect(requests, 2);
+    expect(signed, 2);
+  });
+  test('不同会话和完整URL不能共用在途GET', () async {
+    var requests = 0;
+    final entered = Completer<void>(), release = Completer<void>();
+    final api = SquareApiClient(
+      baseUrl: 'https://square.test/api',
+      httpClient: MockClient((_) async {
+        if (++requests == 3) {
+          entered.complete();
+        }
+        await release.future;
+        return result();
+      }),
+    );
+    addTearDown(api.close);
+    final a = session(), b = session(token: 'other');
+    final reads = [
+      api.fetchFeed(feedKind: SquareFeedKind.recommended, session: a),
+      api.fetchFeed(feedKind: SquareFeedKind.recommended, session: b),
+      api.fetchFeed(feedKind: SquareFeedKind.following, session: a),
+    ];
+    await entered.future;
+    expect(requests, 3);
+    release.complete();
+    await Future.wait(reads);
+  });
+  for (final status in [401, 403, 429, 503]) {
+    test('合并GET的$status原样拒绝且不重试，下一次读取可重新签名', () async {
+      var requests = 0, signed = 0;
+      final entered = Completer<void>(), release = Completer<void>();
+      final owner = session(
+        sign: () async => {'x-mls-proof': 'error-${++signed}'},
+      );
+      final api = SquareApiClient(
+        baseUrl: 'https://square.test/api',
+        httpClient: MockClient((_) async {
+          requests++;
+          if (!entered.isCompleted) {
+            entered.complete();
+          }
+          await release.future;
+          return result(requests == 1 ? status : 200);
+        }),
+      );
+      addTearDown(api.close);
+      final first = api.fetchFeed(
+        feedKind: SquareFeedKind.recommended,
+        session: owner,
+      );
+      final second = api.fetchFeed(
+        feedKind: SquareFeedKind.recommended,
+        session: owner,
+      );
+      final failure = isA<SquareApiException>().having(
+        (e) => e.statusCode,
+        'status',
+        status,
+      );
+      final checked = [
+        expectLater(first, throwsA(failure)),
+        expectLater(second, throwsA(failure)),
+      ];
+      await entered.future;
+      expect(requests, 1);
+      release.complete();
+      await Future.wait(checked);
+      expect(requests, 1);
+      expect(signed, 1);
+      await api.fetchFeed(feedKind: SquareFeedKind.recommended, session: owner);
+      expect(requests, 2);
+      expect(signed, 2);
+    });
+  }
+  test('共享GET等待期间身份失效，两名等待者都拒绝迟到结果', () async {
+    var current = true, requests = 0;
+    final entered = Completer<void>(), release = Completer<void>();
+    final owner = session(
+      current: () async {
+        if (!current) {
+          throw StateError('synthetic identity changed');
+        }
+      },
+    );
+    final api = SquareApiClient(
+      baseUrl: 'https://square.test/api',
+      httpClient: MockClient((_) async {
+        requests++;
+        entered.complete();
+        await release.future;
+        return result();
+      }),
+    );
+    addTearDown(api.close);
+    final checked = [
+      for (var i = 0; i < 2; i++)
+        expectLater(
+          api.fetchFeed(feedKind: SquareFeedKind.recommended, session: owner),
+          throwsStateError,
+        ),
+    ];
+    await entered.future;
+    current = false;
+    release.complete();
+    await Future.wait(checked);
+    expect(requests, 1);
+  });
+  test('签名失败清除在途GET，显式重试不复用失败证明', () async {
+    var signed = 0, requests = 0;
+    final owner = session(
+      sign: () async {
+        if (++signed == 1) {
+          throw StateError('synthetic signer failure');
+        }
+        return {'x-mls-proof': 'fresh'};
+      },
+    );
+    final api = SquareApiClient(
+      baseUrl: 'https://square.test/api',
+      httpClient: MockClient((_) async {
+        requests++;
+        return result();
+      }),
+    );
+    addTearDown(api.close);
+    await expectLater(
+      api.fetchFeed(feedKind: SquareFeedKind.recommended, session: owner),
+      throwsStateError,
+    );
+    expect(requests, 0);
+    await api.fetchFeed(feedKind: SquareFeedKind.recommended, session: owner);
+    expect(requests, 1);
+    expect(signed, 2);
+  });
+  test('关闭的客户端不能借另一客户端在途GET交付数据', () async {
+    final entered = Completer<void>(), release = Completer<void>();
+    var requests = 0;
+    final owner = session();
+    final a = SquareApiClient(
+      baseUrl: 'https://square.test/api',
+      httpClient: MockClient((_) async {
+        requests++;
+        entered.complete();
+        await release.future;
+        return result();
+      }),
+    );
+    final b = SquareApiClient(
+      baseUrl: 'https://square.test/api',
+      httpClient: MockClient(
+        (_) async => throw StateError('closed client must not send'),
+      ),
+    );
+    addTearDown(a.close);
+    b.close();
+    final read = a.fetchFeed(
+      feedKind: SquareFeedKind.recommended,
+      session: owner,
+    );
+    await entered.future;
+    await expectLater(
+      b.fetchFeed(feedKind: SquareFeedKind.recommended, session: owner),
+      throwsA(isA<http.ClientException>()),
+    );
+    release.complete();
+    await read;
+    expect(requests, 1);
+  });
+  test('相同写操作仍分别签名和发送，不进入只读GET合并', () async {
+    var requests = 0, signed = 0;
+    final owner = session(
+      sign: () async => {'x-mls-proof': 'write-${++signed}'},
+    );
+    final api = SquareApiClient(
+      baseUrl: 'https://square.test/api',
+      httpClient: MockClient((r) async {
+        expect(r.method, 'PUT');
+        requests++;
+        return http.Response('{"ok":true}', 200);
+      }),
+    );
+    addTearDown(api.close);
+    await Future.wait([
+      for (var i = 0; i < 2; i++)
+        api.setNotify(
+          session: owner,
+          followedCidNumber: testMlsCidNumber,
+          enabled: true,
+        ),
+    ]);
+    expect(requests, 2);
+    expect(signed, 2);
+  });
+}
+
+// 所有标记均为合成金丝雀；真实账户、URL、挑战及回执不得进入诊断。
+void _failureDiagnosticsTests() {
+  const canary = 'synthetic-private-canary';
+  for (final boundary in ['challenge', 'session', 'registration']) {
+    for (final status in [401, 403, 404, 429, 503]) {
+      test('$boundary真实HTTP$status保留阶段且不追加请求或泄漏正文', () async {
+        final lines = <String>[], paths = <String>[];
+        final source = FakeMlsAuthentication();
+        final api = SquareApiClient(
+          baseUrl: 'https://square.test/api',
+          httpClient: MockClient((request) async {
+            paths.add(request.url.path);
+            if (boundary != 'challenge' &&
+                request.url.path.endsWith('/challenges')) {
+              return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
+            }
+            return http.Response(
+              jsonEncode({
+                'error': 'registration_required',
+                'message': canary,
+                'session_token': canary,
+                'challenge': canary,
+                'proof': canary,
+              }),
+              status,
+            );
+          }),
+        );
+        addTearDown(api.close);
+        await runZoned(
+          () async {
+            final request = boundary == 'registration'
+                ? api.registerMlsDevice(
+                    identity: source.identity,
+                    authentication: source,
+                    issuedAt: 1,
+                    bindingSignatureHex: '0x${'ab' * 64}',
+                    enrollmentId: null,
+                    recoveryToken: null,
+                  )
+                : api.ensureSession(
+                    accountId: testMlsAccountId,
+                    authentication: source,
+                    onDeviceNotRegistered: (_) async => fail('未准入不得触发登记'),
+                  );
+            await expectLater(
+              request,
+              throwsA(
+                isA<SquareApiException>()
+                    .having((e) => e.statusCode, 'HTTP', status)
+                    .having((e) => e.stage?.name, '阶段', boundary)
+                    .having((e) => e.errorCode, '原码', 'registration_required'),
+              ),
+            );
+          },
+          zoneSpecification: ZoneSpecification(
+            print: (_, _, _, line) => lines.add(line),
+          ),
+        );
+        expect(
+          paths,
+          boundary == 'challenge'
+              ? ['/api/user/challenges']
+              : [
+                  '/api/user/challenges',
+                  boundary == 'registration'
+                      ? '/api/user/devices'
+                      : '/api/user/sessions',
+                ],
+        );
+        expect(source.proofCalls, boundary == 'challenge' ? 0 : 1);
+        expect(lines, [
+          '[CitizenFailure] stage=$boundary http=$status code=registration_required',
+        ]);
+        expect(lines.join(), isNot(contains(canary)));
+        for (final secret in [
+          testMlsAccountId,
+          testMlsCidNumber,
+          testMlsDeviceId,
+        ]) {
+          expect(lines.join(), isNot(contains(secret)));
+        }
+      });
+    }
+    for (final shape in ['json', 'shape', 'receipt']) {
+      test('$boundary损坏$shape失败关闭并安全分类', () async {
+        final lines = <String>[];
+        var calls = 0;
+        final source = FakeMlsAuthentication();
+        final api = SquareApiClient(
+          baseUrl: 'https://square.test/api',
+          httpClient: MockClient((request) async {
+            calls++;
+            if (boundary != 'challenge' &&
+                request.url.path.endsWith('/challenges')) {
+              return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
+            }
+            return http.Response(switch (shape) {
+              'json' => '{$canary',
+              'shape' => jsonEncode([canary]),
+              _ => jsonEncode({'ok': true, 'session_token': canary}),
+            }, 200);
+          }),
+        );
+        addTearDown(api.close);
+        await runZoned(
+          () async {
+            final request = boundary == 'registration'
+                ? api.registerMlsDevice(
+                    identity: source.identity,
+                    authentication: source,
+                    issuedAt: 1,
+                    bindingSignatureHex: '0x${'ab' * 64}',
+                    enrollmentId: null,
+                    recoveryToken: null,
+                  )
+                : api.ensureSession(
+                    accountId: testMlsAccountId,
+                    authentication: source,
+                    onDeviceNotRegistered: (_) async => fail('损坏回执不得登记'),
+                  );
+            await expectLater(
+              request,
+              throwsA(
+                shape == 'receipt'
+                    ? isA<MlsAuthenticationException>()
+                    : isA<SquareApiException>(),
+              ),
+            );
+          },
+          zoneSpecification: ZoneSpecification(
+            print: (_, _, _, line) => lines.add(line),
+          ),
+        );
+        expect(calls, boundary == 'challenge' ? 1 : 2);
+        final code = shape == 'receipt'
+            ? boundary == 'challenge'
+                  ? 'invalid_mls_proof'
+                  : 'response_invalid'
+            : shape;
+        expect(lines, [
+          '[CitizenFailure] stage=$boundary http=${shape == 'receipt' ? 'none' : '200'} code=$code',
+        ]);
+        expect(lines.join(), isNot(contains(canary)));
+      });
+    }
+  }
+  test('未知错误码和恶意输入只输出other；日志出口故障不覆盖原异常', () async {
+    final lines = <String>[];
+    final api = SquareApiClient(
+      baseUrl: 'https://square.test/api',
+      httpClient: MockClient(
+        (_) async => http.Response(
+          jsonEncode({'error': '$canary\ncode=forged', 'message': canary}),
+          403,
+        ),
+      ),
+    );
+    addTearDown(api.close);
+    await runZoned(
+      () async {
+        AppLog.failure(stage: canary, statusCode: 600, code: canary);
+        await expectLater(
+          api.ensureSession(
+            accountId: testMlsAccountId,
+            authentication: FakeMlsAuthentication(),
+          ),
+          throwsA(
+            isA<SquareApiException>().having((e) => e.statusCode, 'HTTP', 403),
+          ),
+        );
+      },
+      zoneSpecification: ZoneSpecification(
+        print: (_, _, _, line) => lines.add(line),
+      ),
+    );
+    expect(lines, [
+      '[CitizenFailure] stage=other http=none code=other',
+      '[CitizenFailure] stage=challenge http=403 code=other',
+    ]);
+    await runZoned(
+      () async {
+        await expectLater(
+          api.ensureSession(
+            accountId: testMlsAccountId,
+            authentication: FakeMlsAuthentication(),
+          ),
+          throwsA(
+            isA<SquareApiException>().having((e) => e.statusCode, '原异常', 403),
+          ),
+        );
+      },
+      zoneSpecification: ZoneSpecification(
+        print: (_, _, _, _) => throw StateError('synthetic sink failure'),
+      ),
     );
   });
 }

@@ -1,9 +1,8 @@
 // 按官方要求或推荐实现；必需的工具依赖有就复用，没有就下载；使用最简单的实现方式；本脚本只允许放编译构建代码和注释，禁止增加无关内容，禁止增加复杂的校验阻断。
 // config.mjs：只负责配置声明；build.mjs：只负责编译构建实现和必要注释；*.yml：负责全部GitHub流程，包括版本、作业编排、发布及历史清理。
 import {spawn, execFileSync} from 'node:child_process';
-import {prepareTopup} from './topup.mjs';
 import {appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync,
-    readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync} from 'node:fs';
+    lstatSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync} from 'node:fs';
 import {join, resolve, dirname} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 
@@ -83,7 +82,7 @@ export async function build(platform, phase = 'app', options={}) {
             return;
         }
         const flutter = join(environment.FLUTTER_ROOT, 'bin/flutter');
-        const version = ['--build-name', environment.CITIZENAPP_VERSION, '--build-number', environment.GITHUB_RUN_NUMBER, ...['TOPUP_TRON_RPC_URL','TOPUP_SOLANA_RPC_URL'].map(name=>'--dart-define='+name+'='+(environment[name]||''))];
+        const version = ['--build-name', environment.CITIZENAPP_VERSION, '--build-number', environment.GITHUB_RUN_NUMBER];
         const output = join(work, 'artifact');
         mkdirSync(output);
         const title = `公民·${platform === 'ios' ? 'iOS' : 'Android'}·v${environment.CITIZENAPP_VERSION}`;
@@ -387,13 +386,27 @@ const sdkRoot = join(work, 'packages/citizen_sdk');
 const values = {
     CITIZENSDK_SOURCE_DIR: sdkRoot,
     CITIZENSDK_ANDROID_BUILD_DIR: join(work,'citizen-android'),
-    CITIZENSDK_TEST_CORE_LIB_PATH: join(sdkRoot,'darwin/CitizenSDK.xcframework/macos-arm64/CitizenSDK.framework/CitizenSDK'),
     TATACHATSDK_TEST_WORK_ROOT: work,
     TATACHATSDK_TEST_NATIVE_LIBRARY: join(work,'packages/tatachat_sdk/native/libtatachat_sdk.dylib')
 };
+// 完整Apple组件的Framework使用标准内部链接；测试只消费同轮真实普通文件。
+// 真机专用组件没有宿主切片，不能宣称已交付测试库或沿用外部旧路径。
+delete environment.CITIZENSDK_TEST_CORE_LIB_PATH;
+const testCore = join(sdkRoot,'darwin/CitizenSDK.xcframework/macos-arm64/CitizenSDK.framework/CitizenSDK');
+if (existsSync(testCore)) {
+    const file = realpathSync(testCore);
+    if (!lstatSync(file).isFile()) throw Error('宿主测试Core不是普通文件');
+    values.CITIZENSDK_TEST_CORE_LIB_PATH = file;
+}
 Object.assign(environment,values);
 if(environment.GITHUB_ENV)for (const [key, value] of Object.entries(values)) appendFileSync(environment.GITHUB_ENV, key + '=' + value + '\n');
-await (io.topup || prepareTopup)(project,{environment,run:(command,args,cwd,env)=>run(command,args,cwd,false,env,'充值资源构建')});
+// App随包资源随普通工程一起准备，不增加功能构建入口。
+const assets = join(project, 'assets/topup');
+const resourceEnvironment = {...environment, npm_config_ignore_scripts: 'true'};
+await run('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], assets, false, resourceEnvironment, 'App资源准备');
+await run(environment.ESBUILD_BIN || 'esbuild', ['walletconnect.js', '--bundle', '--format=iife',
+    '--global-name=CitizenTopup', '--platform=browser', '--target=safari15,chrome100', '--minify',
+    '--outfile=walletconnect.bundle.js', '--define:process.env.NODE_ENV="production"'], assets, false, resourceEnvironment, 'App资源准备');
 return {project,values};
 }
 

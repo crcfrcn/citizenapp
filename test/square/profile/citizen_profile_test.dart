@@ -63,8 +63,8 @@ Map<String, dynamic> _profileJson({
     'cid_number': cidNumber,
     'is_certified': cidNumber != null,
     'identity_level': identityLevel,
-    'membership_level': membershipLevel,
-    'membership_active': membershipActive,
+    'membergate_level': membershipLevel,
+    'membergate_active': membershipActive,
     'counts': {
       'following': following,
       'followers': followers,
@@ -437,6 +437,100 @@ void main() {
       expect(image.toString(), isNot(contains('synthetic-proof')));
       expect(image.toString(), isNot(contains('tok')));
     });
+  });
+
+  testWidgets('同会话同版本图片跨客户端复用一次GET，不同会话和版本隔离', (tester) async {
+    final png = await tester.runAsync(
+      () => File('assets/logo/mark256.png').readAsBytes(),
+    );
+    var requests = 0, signed = 0;
+    SquareApiClient client() => _client(
+      MockClient((_) async {
+        requests++;
+        return http.Response.bytes(
+          png!,
+          200,
+          headers: {'content-type': 'image/png'},
+        );
+      }),
+    );
+    final firstClient = client(), secondClient = client();
+    addTearDown(firstClient.close);
+    addTearDown(secondClient.close);
+    final session = SquareSession(
+      deviceId: testMlsDeviceId,
+      sessionToken: 'synthetic-shared-image',
+      cidNumber: _profileCid,
+      bindingRevision: 1,
+      accountId: _owner,
+      expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
+      authenticateRequest: ({
+        required method,
+        required uri,
+        required body,
+        required sessionToken,
+      }) async => {'x-mls-proof': 'shared-image-${++signed}'},
+    );
+    final a = CitizenProfileApi(client: firstClient),
+        b = CitizenProfileApi(client: secondClient);
+    final first = a.mediaImage(
+      'profile/$_profileCid/avatar',
+      session: session,
+      updatedAt: 606,
+    );
+    final second = b.mediaImage(
+      'profile/$_profileCid/avatar',
+      session: session,
+      updatedAt: 606,
+    );
+    expect(second, first);
+    expect(second.hashCode, first.hashCode);
+    expect(
+      b.mediaImage(
+        'profile/$_profileCid/avatar',
+        session: _session(),
+        updatedAt: 606,
+      ),
+      isNot(first),
+    );
+    expect(
+      b.mediaImage(
+        'profile/$_profileCid/avatar',
+        session: session,
+        updatedAt: 607,
+      ),
+      isNot(first),
+    );
+    expect(
+      b.mediaImage(
+        'profile/$_profileCid/banner',
+        session: session,
+        updatedAt: 606,
+      ),
+      isNot(first),
+    );
+    Future<void> decode(ImageProvider image) async {
+      final received = Completer<ImageInfo>();
+      final stream = image.resolve(ImageConfiguration.empty);
+      final listener = ImageStreamListener(
+        (info, _) => received.complete(info),
+        onError: (Object e, StackTrace? st) => received.completeError(e, st),
+      );
+      stream.addListener(listener);
+      try {
+        (await received.future.timeout(const Duration(seconds: 10))).dispose();
+      } finally {
+        stream.removeListener(listener);
+      }
+    }
+
+    await tester.runAsync(() => Future.wait([decode(first), decode(second)]));
+    expect(requests, 1);
+    expect(signed, 1);
+    await tester.runAsync(() => decode(second));
+    expect(requests, 1);
+    expect(signed, 1);
+    await first.evict();
   });
 
   testWidgets('图片读取器失败后重试现签，命中图片缓存不产生新GET或保存证明', (tester) async {

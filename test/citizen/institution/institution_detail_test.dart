@@ -383,7 +383,7 @@ void main() {
     expect(chain.adminReads, 1);
   });
   for (final loaded in [false, true]) {
-    testWidgets('共用人员卡区分${loaded ? '已核实无岗位' : '岗位未知'}并保留姓名账户', (tester) async {
+    testWidgets('共用人员卡区分${loaded ? '已核实无岗位' : '岗位未读到'}并保留姓名账户', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
@@ -394,11 +394,85 @@ void main() {
         ),
       );
       expect(find.text('合成管理员0'), findsOneWidget);
-      expect(find.text(loaded ? '岗位：暂无岗位' : '岗位信息暂不可用'), findsOneWidget);
-      expect(find.text(loaded ? '岗位信息暂不可用' : '岗位：暂无岗位'), findsNothing);
+      expect(find.text('岗位：暂无岗位'), loaded ? findsOneWidget : findsNothing);
+      _expectOriginalAdminCard();
       expect(find.textContaining('管理员账户：'), findsOneWidget);
     });
   }
+
+  testWidgets('未核实的旧岗位不展示，人员账户保留且不新增提示或操作', (tester) async {
+    final admin = _rows(1).single.admin;
+    const stale = InstitutionAdminAssignment(
+      cidNumber: _cid,
+      account_id: _adminAccountId,
+      roleCode: 'STALE',
+      roleName: '旧岗位',
+      termStart: 0,
+      termEnd: 0,
+      source: InstitutionAssignmentSource.genesis,
+      sourceRef: '旧引用',
+      active: true,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: InstitutionAssignmentCard(
+            adminView: InstitutionAdminView(
+              admin: admin,
+              assignmentsLoaded: false,
+              assignments: const [stale],
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(find.text('合成管理员0'), findsOneWidget);
+    expect(find.textContaining('管理员账户：'), findsOneWidget);
+    expect(find.text('岗位：暂无岗位'), findsNothing);
+    expect(find.textContaining('旧岗位'), findsNothing);
+    expect(find.textContaining('旧引用'), findsNothing);
+    _expectOriginalAdminCard();
+    expect(find.byType(TextButton), findsNothing);
+    expect(find.byType(IconButton), findsNothing);
+  });
+
+  testWidgets('已核实人员卡展示多个真实岗位及任期来源，不增加刷新重试', (tester) async {
+    final admin = _rows(1).single.admin;
+    final assignments = [
+      for (final code in ['A', 'B'])
+        InstitutionAdminAssignment(
+          cidNumber: _cid,
+          account_id: _adminAccountId,
+          roleCode: code,
+          roleName: '合成岗位$code',
+          termStart: 10,
+          termEnd: 20,
+          termRequired: true,
+          source: InstitutionAssignmentSource.registry,
+          sourceRef: '合成引用',
+          active: true,
+        ),
+    ];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: InstitutionAssignmentCard(
+            adminView: InstitutionAdminView(
+              admin: admin,
+              assignments: assignments,
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(find.text('岗位：合成岗位A'), findsOneWidget);
+    expect(find.text('岗位：合成岗位B'), findsOneWidget);
+    expect(find.text('任期：10 ~ 20（自纪元日序）'), findsNWidgets(2));
+    expect(find.text('任职来源：注册局'), findsNWidgets(2));
+    expect(find.text('来源引用：合成引用'), findsNWidgets(2));
+    expect(find.text('岗位：暂无岗位'), findsNothing);
+    _expectOriginalAdminCard();
+  });
 
   group('institutionAccountIdRows(公权派生)', () {
     test('主/费/自定义三行,地址与卡0 派生吻合', () {

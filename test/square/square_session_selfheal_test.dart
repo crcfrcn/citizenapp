@@ -1,10 +1,17 @@
 import 'package:citizen_sdk/citizen_sdk.dart'
-    show CitizenSdkException, CitizenSdkErrorCode;
+    show
+        CitizenSdkException,
+        CitizenSdkErrorCode,
+        CitizenWalletStateAccount,
+        CitizenWalletSignMode;
 import 'package:tatachat_sdk/tatachat_sdk.dart' as sdk;
 
 import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+import 'package:citizenapp/account/identity/identity_binding.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -19,6 +26,7 @@ import 'mls_authentication_fixture.dart';
 
 /// 只有明确未登记才编排一次登记；签名失败绝不触发钱包或重建MLS身份。
 void main() {
+  _preparationDiagnosticsTests();
   _chatAccessSessionTests();
   test('明确取消保留取消分类，不变成服务故障或再次注册', () {
     for (final error in <Object>[
@@ -35,19 +43,11 @@ void main() {
       expect(result.errorCode, 'authenticationCancelled');
       expect(result.message, '设备授权已取消，可再次主动发起');
     }
-    expect(
-      const SquareSessionResolution(
-        SquareSessionStatus.deviceUnavailable,
-        errorCode: 'mls_initialization_cancelled',
-      ).message,
-      '已取消初始化本机聊天设备',
-    );
   });
   test('MLS本地错误保留固定阶段及中文，不冒充网络或泄露技术文本', () {
     for (final code in [
       sdk.MlsNativeErrorCode.directoryInvalid,
       sdk.MlsNativeErrorCode.directoryUnavailable,
-      sdk.MlsNativeErrorCode.initializationRequired,
       sdk.MlsNativeErrorCode.stateMissing,
       sdk.MlsNativeErrorCode.storageReadFailed,
     ]) {
@@ -213,7 +213,7 @@ void main() {
     expect(failure.status, SquareSessionStatus.deviceUnavailable);
     expect(failure.statusCode, isNull);
     expect(failure.stage, SquareApiStage.registration);
-    expect(failure.message, '请完成注册验证和当前设备授权');
+    expect(failure.message, '公民服务准备未完成，请重试');
   });
   for (final error in [
     'invalid_mls_signature',
@@ -404,4 +404,194 @@ void _chatAccessSessionTests() {
       );
     });
   }
+}
+
+// 已有CID的合成上下文：所有未列明操作（含CID注册/Turnstile）均立即失败。
+class _DiagnosticCurrent implements CurrentUserContext {
+  Object? failure;
+  final _binding = const IdentityBinding(
+    genesisHash:
+        '0xabababababababababababababababababababababababababababababababab',
+    cidNumber: testMlsCidNumber,
+    bindingRevision: 1,
+    accountId: testMlsAccountId,
+  );
+  @override
+  Future<CurrentUser?> resolve() async {
+    if (failure != null) throw failure!;
+    return CurrentUser(
+      account: CitizenWalletStateAccount(
+        signMode: CitizenWalletSignMode.hot,
+        walletIndex: 7,
+        accountIndex: 0,
+        accountId: testMlsAccountId,
+        ss58Address: 'synthetic-public-address',
+        name: '合成账户',
+        createdAtMillis: BigInt.one,
+        isDefault: true,
+      ),
+      binding: _binding,
+    );
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw StateError('unexpected identity operation');
+}
+
+class _DiagnosticSecurity implements AccountSecurityService {
+  @override
+  final revision = ValueNotifier<int>(0);
+  int deviceRegistrations = 0;
+  final unexpected = <Symbol>[];
+  @override
+  Future<void> registerMlsDeviceForBinding(IdentityBinding binding) async {
+    deviceRegistrations++;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) {
+    unexpected.add(invocation.memberName);
+    throw StateError('unexpected security operation');
+  }
+}
+
+void _preparationDiagnosticsTests() {
+  for (final code in ['registration_required', 'device_not_registered']) {
+    test('已有CID的$code仅明确设备未登记恢复一次且不进入注册或真人验证', () async {
+      final security = _DiagnosticSecurity(), current = _DiagnosticCurrent();
+      final source = FakeMlsAuthentication(), lines = <String>[];
+      var sessions = 0, challenges = 0;
+      final client = SquareApiClient(
+        baseUrl: 'https://worker.test/api',
+        httpClient: MockClient((request) async {
+          if (request.url.path.endsWith('/challenges')) {
+            challenges++;
+            return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
+          }
+          expect(request.url.path, '/api/user/sessions');
+          sessions++;
+          return http.Response(
+            jsonEncode({
+              'error': code,
+              'message': 'synthetic-private-preparation',
+            }),
+            403,
+          );
+        }),
+      );
+      addTearDown(client.close);
+      addTearDown(security.revision.dispose);
+      final provider = SquareSessionProvider(
+        accountSecurity: security,
+        currentUserContext: current,
+        client: client,
+        authentication: source,
+      );
+      await runZoned(
+        () async {
+          final result = await provider.resolveSession();
+          expect(result.status, SquareSessionStatus.deviceUnavailable);
+          expect(result.errorCode, code);
+          expect(result.stage, SquareApiStage.session);
+          expect(result.statusCode, 403);
+        },
+        zoneSpecification: ZoneSpecification(
+          print: (_, _, _, line) => lines.add(line),
+        ),
+      );
+      final attempts = code == 'device_not_registered' ? 2 : 1;
+      expect(security.deviceRegistrations, attempts - 1);
+      expect(security.unexpected, isEmpty); // 零CID注册、零Turnstile、零其它钱包操作。
+      expect(sessions, attempts);
+      expect(challenges, attempts);
+      expect(source.proofCalls, attempts);
+      expect(
+        lines,
+        List.filled(
+          attempts,
+          '[CitizenFailure] stage=session http=403 code=$code',
+        ),
+      );
+    });
+  }
+  for (final error in <Object>[
+    const FormatException('synthetic-private-preparation'),
+    StateError('synthetic-private-preparation'),
+    const SocketException('synthetic-private-preparation'),
+    const sdk.MlsNativeException(
+      sdk.MlsNativeErrorCode.stateMissing,
+      'synthetic-private-preparation',
+    ),
+  ]) {
+    test('本地准备${error.runtimeType}保留原异常及安全分类且零网络', () async {
+      final current = _DiagnosticCurrent()..failure = error;
+      final lines = <String>[];
+      var requests = 0;
+      final client = SquareApiClient(
+        httpClient: MockClient((_) async {
+          requests++;
+          throw StateError('must not request');
+        }),
+      );
+      addTearDown(client.close);
+      final provider = SquareSessionProvider(
+        accountSecurity: _UnusedChatSecurity(),
+        currentUserContext: current,
+        client: client,
+        authentication: FakeMlsAuthentication(),
+      );
+      await runZoned(
+        () async {
+          await expectLater(provider.ensureSession(), throwsA(same(error)));
+        },
+        zoneSpecification: ZoneSpecification(
+          print: (_, _, _, line) => lines.add(line),
+        ),
+      );
+      final (stage, code) = switch (error) {
+        FormatException() => ('prepare', 'format'),
+        StateError() => ('prepare', 'state'),
+        SocketException() => ('request', 'network_unavailable'),
+        _ => ('identity', 'mls_state_missing'),
+      };
+      expect(requests, 0);
+      expect(lines, ['[CitizenFailure] stage=$stage http=none code=$code']);
+      expect(lines.join(), isNot(contains('synthetic-private-preparation')));
+    });
+  }
+  test('已有CID在会话返回前切换代次，拒绝迟到结果且不登记或再次认证', () async {
+    final security = _DiagnosticSecurity(), current = _DiagnosticCurrent();
+    final reached = Completer<void>(), response = Completer<http.Response>();
+    var sessions = 0;
+    final source = FakeMlsAuthentication();
+    final client = SquareApiClient(
+      baseUrl: 'https://worker.test/api',
+      httpClient: MockClient((request) async {
+        if (request.url.path.endsWith('/challenges')) {
+          return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
+        }
+        sessions++;
+        reached.complete();
+        return response.future;
+      }),
+    );
+    addTearDown(client.close);
+    addTearDown(security.revision.dispose);
+    final provider = SquareSessionProvider(
+      accountSecurity: security,
+      currentUserContext: current,
+      client: client,
+      authentication: source,
+    );
+    final pending = provider.resolveSession();
+    await reached.future;
+    security.revision.value++;
+    response.complete(http.Response(jsonEncode(fakeMlsSession()), 200));
+    expect((await pending).status, SquareSessionStatus.identityChanged);
+    expect(security.deviceRegistrations, 0);
+    expect(security.unexpected, isEmpty);
+    expect(sessions, 1);
+    expect(source.proofCalls, 1);
+  });
 }

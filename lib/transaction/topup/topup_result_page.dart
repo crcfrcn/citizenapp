@@ -99,11 +99,12 @@ class _TopupResultPageState extends State<TopupResultPage>
       if (!mounted) return;
       _showOrder(order);
     } on Object {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _phase = _Phase.unresolved;
           _message = '暂时无法核实原订单，请稍后重试，勿重复付款';
         });
+      }
     } finally {
       _polling = false;
     }
@@ -167,9 +168,10 @@ class _TopupResultPageState extends State<TopupResultPage>
         _record.update(progress: TopupProgress.submitted, txid: canonical),
       );
     } on Object {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('原订单记录未更新，请稍后核实')));
+      }
     } finally {
       field.dispose();
       _polling = false;

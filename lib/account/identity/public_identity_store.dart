@@ -1,4 +1,5 @@
 import 'dart:convert';
+
 import 'identity_binding.dart';
 import '../../system/security/system_protected_storage.dart';
 
@@ -33,11 +34,46 @@ final class SystemPublicIdentityRecordStore
   }) => _records.compareAndSet(key, expected: expected, next: next);
 }
 
+/// 同绑定只保存当前实际设备回执；替换必须CAS，旧设备签名不能用于新公钥。
 String deviceRegistrationProofKey(
   String cidNumber,
   int revision,
   String accountId,
 ) => 'mls.registration:${Uri.encodeComponent(cidNumber)}:$revision:$accountId';
+
+/// 同一严格六字段解码供登记及尝试归属核对复用，损坏记录不授予重新签署。
+Map<String, dynamic> decodeDeviceRegistrationProof(
+  String raw, {
+  required String cidNumber,
+  required int bindingRevision,
+  required String accountId,
+}) {
+  final proof = jsonDecode(raw);
+  const fields = {
+    'cid_number',
+    'binding_revision',
+    'account_id',
+    'public_key',
+    'issued_at',
+    'signature',
+  };
+  if (proof is! Map<String, dynamic> ||
+      proof.length != fields.length ||
+      !proof.keys.every(fields.contains) ||
+      proof['cid_number'] != cidNumber ||
+      proof['binding_revision'] != bindingRevision ||
+      proof['account_id'] != accountId ||
+      proof['public_key'] is! String ||
+      !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(proof['public_key']) ||
+      proof['issued_at'] is! int ||
+      proof['issued_at'] <= 0 ||
+      proof['issued_at'] > 9007199254740991 ||
+      proof['signature'] is! String ||
+      !RegExp(r'^0x[0-9a-f]{128}$').hasMatch(proof['signature'])) {
+    throw const FormatException();
+  }
+  return proof;
+}
 
 /// 所有CID公开绑定在同一个原子记录中提交，版本不回退且不借用活动钱包指针。
 final class PublicIdentityStore {

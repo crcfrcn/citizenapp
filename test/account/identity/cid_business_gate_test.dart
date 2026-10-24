@@ -93,7 +93,10 @@ class _FixedGate implements CidBusinessGate {
 }
 
 void main() {
-  for (final status in [CidBusinessStatus.unregistered, CidBusinessStatus.unavailable]) {
+  for (final status in [
+    CidBusinessStatus.unregistered,
+    CidBusinessStatus.unavailable,
+  ]) {
     testWidgets('${status.name} 不挂载公民服务业务内容', (tester) async {
       await tester.pumpWidget(
         Provider<CidBusinessGate>.value(
@@ -161,7 +164,9 @@ void main() {
       currentUserContext: current,
       identityResolver: resolver,
       revision: ValueNotifier<int>(0),
-      synchronizeIdentity: (_) async { restores++; },
+      synchronizeIdentity: (_) async {
+        restores++;
+      },
     );
     expect((await gate.resolve()).status, CidBusinessStatus.noWallet);
     expect(resolver.reads, 0);
@@ -169,14 +174,18 @@ void main() {
   });
 
   test('本机已有当前账户绑定时直接放行，不读取链或恢复绑定', () async {
-    final current = _Current(CurrentUser(account: account(accountId), binding: binding));
+    final current = _Current(
+      CurrentUser(account: account(accountId), binding: binding),
+    );
     final resolver = _Resolver(null)..fails = true;
     var restores = 0;
     final gate = CidBusinessGate(
       currentUserContext: current,
       identityResolver: resolver,
       revision: ValueNotifier<int>(0),
-      synchronizeIdentity: (_) async { restores++; },
+      synchronizeIdentity: (_) async {
+        restores++;
+      },
     );
     final decision = await gate.resolve();
     expect(decision.status, CidBusinessStatus.ready);
@@ -186,7 +195,13 @@ void main() {
   });
 
   test('已核实未注册直接显示引导，不重复查链或同步', () async {
-    final current = _Current(CurrentUser(account: account(accountId), binding: null, verifiedUnregistered: true));
+    final current = _Current(
+      CurrentUser(
+        account: account(accountId),
+        binding: null,
+        verifiedUnregistered: true,
+      ),
+    );
     final resolver = _Resolver(null)..fails = true;
     final gate = CidBusinessGate(
       currentUserContext: current,
@@ -199,7 +214,9 @@ void main() {
   });
 
   test('并发入口共用当前账户一次链核对', () async {
-    final current = _Current(CurrentUser(account: account(accountId), binding: null));
+    final current = _Current(
+      CurrentUser(account: account(accountId), binding: null),
+    );
     final resolver = _Resolver(null)..pending = Completer<FinalizedIdentity?>();
     final gate = CidBusinessGate(
       currentUserContext: current,
@@ -211,17 +228,21 @@ void main() {
     final second = gate.resolve();
     await Future<void>.delayed(Duration.zero);
     expect(resolver.reads, 1);
-    resolver.pending!.complete(FinalizedIdentity(
-      accountId: accountId,
-      ss58Address: account(accountId).ss58Address,
-      snapshot: null,
-    ));
+    resolver.pending!.complete(
+      FinalizedIdentity(
+        accountId: accountId,
+        ss58Address: account(accountId).ss58Address,
+        snapshot: null,
+      ),
+    );
     expect((await first).status, CidBusinessStatus.unregistered);
     expect((await second).status, CidBusinessStatus.unregistered);
   });
 
   test('链读取期间切换账户不显示旧账户的未注册引导', () async {
-    final current = _Current(CurrentUser(account: account(accountId), binding: null));
+    final current = _Current(
+      CurrentUser(account: account(accountId), binding: null),
+    );
     final resolver = _Resolver(null)..pending = Completer<FinalizedIdentity?>();
     final gate = CidBusinessGate(
       currentUserContext: current,
@@ -231,17 +252,24 @@ void main() {
     );
     final pending = gate.resolve();
     await Future<void>.delayed(Duration.zero);
-    current.value = CurrentUser(account: account(otherAccountId), binding: null);
-    resolver.pending!.complete(FinalizedIdentity(
-      accountId: accountId,
-      ss58Address: account(accountId).ss58Address,
-      snapshot: null,
-    ));
+    current.value = CurrentUser(
+      account: account(otherAccountId),
+      binding: null,
+    );
+    resolver.pending!.complete(
+      FinalizedIdentity(
+        accountId: accountId,
+        ss58Address: account(accountId).ss58Address,
+        snapshot: null,
+      ),
+    );
     expect((await pending).status, CidBusinessStatus.unavailable);
   });
 
   test('同账户注册完成并广播修订后，新门禁不复用旧的未注册链请求', () async {
-    final current = _Current(CurrentUser(account: account(accountId), binding: null));
+    final current = _Current(
+      CurrentUser(account: account(accountId), binding: null),
+    );
     final resolver = _Resolver(null)..pending = Completer<FinalizedIdentity?>();
     final revision = ValueNotifier<int>(0);
     final gate = CidBusinessGate(
@@ -256,39 +284,27 @@ void main() {
     revision.value++;
     final newDecision = await gate.resolve();
     expect(newDecision.status, CidBusinessStatus.ready);
-    resolver.pending!.complete(FinalizedIdentity(
-      accountId: accountId,
-      ss58Address: account(accountId).ss58Address,
-      snapshot: null,
-    ));
+    resolver.pending!.complete(
+      FinalizedIdentity(
+        accountId: accountId,
+        ss58Address: account(accountId).ss58Address,
+        snapshot: null,
+      ),
+    );
     expect((await oldDecision).status, CidBusinessStatus.unavailable);
   });
 
   test('链上确认无公民号同步空身份后输出注册态', () async {
-    final current = _Current(CurrentUser(account: account(accountId), binding: null));
-    final resolver = _Resolver(FinalizedIdentity(
-      accountId: accountId,
-      ss58Address: account(accountId).ss58Address,
-      snapshot: null,
-    ));
-    var restores = 0;
-    final gate = CidBusinessGate(
-      currentUserContext: current,
-      identityResolver: resolver,
-      revision: ValueNotifier<int>(0),
-      synchronizeIdentity: (_) async { restores++; },
+    final current = _Current(
+      CurrentUser(account: account(accountId), binding: null),
     );
-    expect((await gate.resolve()).status, CidBusinessStatus.unregistered);
-    expect(restores, 1);
-  });
-
-  test('本机缓存缺失但链上已有公民号时恢复同一绑定', () async {
-    final current = _Current(CurrentUser(account: account(accountId), binding: null));
-    final resolver = _Resolver(FinalizedIdentity(
-      accountId: accountId,
-      ss58Address: account(accountId).ss58Address,
-      snapshot: snapshot(),
-    ));
+    final resolver = _Resolver(
+      FinalizedIdentity(
+        accountId: accountId,
+        ss58Address: account(accountId).ss58Address,
+        snapshot: null,
+      ),
+    );
     var restores = 0;
     final gate = CidBusinessGate(
       currentUserContext: current,
@@ -296,7 +312,34 @@ void main() {
       revision: ValueNotifier<int>(0),
       synchronizeIdentity: (_) async {
         restores++;
-        current.value = CurrentUser(account: account(accountId), binding: binding);
+      },
+    );
+    expect((await gate.resolve()).status, CidBusinessStatus.unregistered);
+    expect(restores, 1);
+  });
+
+  test('本机缓存缺失但链上已有公民号时恢复同一绑定', () async {
+    final current = _Current(
+      CurrentUser(account: account(accountId), binding: null),
+    );
+    final resolver = _Resolver(
+      FinalizedIdentity(
+        accountId: accountId,
+        ss58Address: account(accountId).ss58Address,
+        snapshot: snapshot(),
+      ),
+    );
+    var restores = 0;
+    final gate = CidBusinessGate(
+      currentUserContext: current,
+      identityResolver: resolver,
+      revision: ValueNotifier<int>(0),
+      synchronizeIdentity: (_) async {
+        restores++;
+        current.value = CurrentUser(
+          account: account(accountId),
+          binding: binding,
+        );
       },
     );
     final decision = await gate.resolve();
@@ -306,13 +349,17 @@ void main() {
     expect(current.invalidations, 1);
   });
 
-  test('链故障及恢复时账户切换均保持未知，不冒充未注册', () async {
-    final current = _Current(CurrentUser(account: account(accountId), binding: null));
-    final resolver = _Resolver(FinalizedIdentity(
-      accountId: accountId,
-      ss58Address: account(accountId).ss58Address,
-      snapshot: snapshot(),
-    ))..fails = true;
+  test('链故障及恢复时账户切换只报告操作失败，不写入没有CID', () async {
+    final current = _Current(
+      CurrentUser(account: account(accountId), binding: null),
+    );
+    final resolver = _Resolver(
+      FinalizedIdentity(
+        accountId: accountId,
+        ss58Address: account(accountId).ss58Address,
+        snapshot: snapshot(),
+      ),
+    )..fails = true;
     final gate = CidBusinessGate(
       currentUserContext: current,
       identityResolver: resolver,
@@ -320,13 +367,20 @@ void main() {
       synchronizeIdentity: (_) async {},
     );
     expect((await gate.resolve()).status, CidBusinessStatus.unavailable);
+    expect(current.value!.verifiedUnregistered, false);
+    expect(current.invalidations, 0);
+    expect((await gate.resolve()).status, CidBusinessStatus.unavailable);
+    expect(resolver.reads, 2, reason: '失败不缓存为没有CID，下一次仍核对真实链');
     resolver.fails = false;
     final changed = CidBusinessGate(
       currentUserContext: current,
       identityResolver: resolver,
       revision: ValueNotifier<int>(0),
       synchronizeIdentity: (_) async {
-        current.value = CurrentUser(account: account(otherAccountId), binding: null);
+        current.value = CurrentUser(
+          account: account(otherAccountId),
+          binding: null,
+        );
       },
     );
     expect((await changed.resolve()).status, CidBusinessStatus.unavailable);

@@ -106,7 +106,7 @@ class CreatorApiHttp implements CreatorApi {
 
   @override
   Future<CreatorOverview> fetchOverview(SquareSession session) async {
-    final data = await _getJson('/membership/creator/overview', session);
+    final data = await _getJson('/membergate/creator/overview', session);
     final overview = data['overview'];
     if (data["ok"] != true ||
         overview is! Map<String, dynamic> ||
@@ -130,7 +130,7 @@ class CreatorApiHttp implements CreatorApi {
     required String blockHashHex,
   }) async {
     final saved = await _postFinalizedProjectionJson(
-      '/membership/creators/plans',
+      '/membergate/creators/plans',
       {'tx_hash': txHash, 'block_hash': blockHashHex},
       session,
     );
@@ -148,12 +148,12 @@ class CreatorApiHttp implements CreatorApi {
     String creatorCidNumber,
   ) async {
     final data = await _getJson(
-      '/membership/creators/${Uri.encodeComponent(creatorCidNumber)}/plans',
+      '/membergate/creators/${Uri.encodeComponent(creatorCidNumber)}/plans',
       session,
     );
     if (data['ok'] != true ||
         data['tiers'] is! List ||
-        data['membership_active'] is! bool) {
+        data['membergate_active'] is! bool) {
       throw const CreatorApiException('创作者档位响应不完整');
     }
     final subscription = data['subscription'];
@@ -181,7 +181,7 @@ class CreatorApiHttp implements CreatorApi {
     required String blockHashHex,
   }) async {
     await _postFinalizedProjectionJson(
-      '/membership/creators/${Uri.encodeComponent(creatorCidNumber)}/subscription/confirm',
+      '/membergate/creators/${Uri.encodeComponent(creatorCidNumber)}/subscription/confirm',
       {'tx_hash': txHash, 'block_hash': blockHashHex},
       session,
     );

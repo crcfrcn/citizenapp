@@ -17,6 +17,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:citizenapp/account/identity/identity_binding.dart';
+import 'package:citizenapp/account/identity/cid_business_gate.dart';
 import 'package:citizenapp/account/identity/mls_authentication.dart';
 import 'package:citizenapp/account/identity/mls_device_registrar.dart';
 import 'package:citizenapp/network/square_api_client.dart';
@@ -65,7 +66,7 @@ class _StorageAuthentication extends FakeMlsAuthentication {
   @override
   Future<MlsAuthenticationIdentity> readIdentity() async =>
       throw const chat_sdk.MlsNativeException(
-        chat_sdk.MlsNativeErrorCode.initializationRequired,
+        chat_sdk.MlsNativeErrorCode.stateMissing,
         'synthetic private detail',
       );
 }
@@ -74,6 +75,7 @@ class _SessionWalletManager implements AccountSecurityService {
   @override
   final revision = ValueNotifier<int>(0);
   int registrationCalls = 0;
+  Object? registrationFailure;
   @override
   Future<IdentityBinding> identityBindingForAccountId(String accountId) async =>
       _binding;
@@ -94,6 +96,7 @@ class _SessionWalletManager implements AccountSecurityService {
   @override
   Future<void> registerMlsDeviceForBinding(IdentityBinding binding) async {
     registrationCalls++;
+    if (registrationFailure != null) throw registrationFailure!;
   }
 
   @override
@@ -102,7 +105,7 @@ class _SessionWalletManager implements AccountSecurityService {
 
 class _SessionIdentityCache implements CurrentUserContext {
   _SessionIdentityCache({this.localBinding = _binding});
-  final IdentityBinding? localBinding;
+  IdentityBinding? localBinding;
   @override
   Future<CurrentUser?> resolve() async => CurrentUser(
     account: CitizenWalletStateAccount(
@@ -123,6 +126,21 @@ class _SessionIdentityCache implements CurrentUserContext {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FactGate implements CidBusinessGate {
+  _FactGate(this.decision, {this.prepare});
+  final CidBusinessDecision decision;
+  final void Function()? prepare;
+  @override
+  Future<CidBusinessDecision> resolve() async {
+    prepare?.call();
+    return decision;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw StateError('unexpected gate operation');
 }
 
 class _ProofStore implements PublicIdentityRecordStore {
@@ -227,7 +245,7 @@ class _AttemptWallet implements CitizenSdkWallet, CitizenSigning {
 }
 
 void main() {
-  test('普通MLS身份缺失只报告需要确认，不能自动登记或请求钱包授权', () async {
+  test('已提交MLS身份缺失拒绝换钥，不登记或请求钱包授权', () async {
     final security = _SessionWalletManager();
     final provider = SquareSessionProvider(
       client: _SessionApi(deviceMissing: true),
@@ -236,9 +254,84 @@ void main() {
       authentication: _StorageAuthentication(),
     );
     final result = await provider.resolveSession();
-    expect(result.errorCode, 'mls_initialization_required');
+    expect(result.errorCode, 'mls_state_missing');
     expect(security.registrationCalls, 0);
     expect(result.message, isNot(contains('synthetic private')));
+  });
+
+  test('已有CID先恢复公开绑定，再共享自动准备；并发只登记一次', () async {
+    final current = _SessionIdentityCache(localBinding: null);
+    final security = _SessionWalletManager(), source = FakeMlsAuthentication();
+    final provider = SquareSessionProvider(
+      accountSecurity: security,
+      currentUserContext: current,
+      authentication: source,
+      client: _SessionApi(deviceMissing: true),
+      cidBusinessGate: _FactGate(
+        const CidBusinessDecision(CidBusinessStatus.ready),
+        prepare: () => current.localBinding = _binding,
+      ),
+    );
+    final result = await Future.wait([
+      provider.ensureSession(),
+      provider.ensureSession(),
+    ]);
+    expect(result.every((s) => s?.cidNumber == testMlsCidNumber), true);
+    expect(security.registrationCalls, 1);
+  });
+  for (final fact in [
+    CidBusinessStatus.unregistered,
+    CidBusinessStatus.unavailable,
+  ]) {
+    test('CID事实$fact在MLS前结束；读取失败不当作没有CID', () async {
+      final security = _SessionWalletManager(),
+          source = FakeMlsAuthentication();
+      final provider = SquareSessionProvider(
+        accountSecurity: security,
+        currentUserContext: _SessionIdentityCache(localBinding: null),
+        authentication: source,
+        cidBusinessGate: _FactGate(CidBusinessDecision(fact)),
+        client: _SessionApi(deviceMissing: true),
+      );
+      final resolution = await provider.resolveSession();
+      expect(
+        resolution.errorCode,
+        fact == CidBusinessStatus.unregistered
+            ? 'identity_unregistered'
+            : 'identity_projection_unavailable',
+      );
+      expect(source.identityCalls, 0);
+      expect(security.registrationCalls, 0);
+    });
+  }
+  test('自动准备取消后渲染和前台重试不重复授权，主动重试沿原入口恢复', () async {
+    final security = _SessionWalletManager()
+      ..registrationFailure = const AccountSecurityException(
+        'synthetic cancellation',
+        code: 'authenticationCancelled',
+      );
+    final provider = SquareSessionProvider(
+      accountSecurity: security,
+      currentUserContext: _SessionIdentityCache(),
+      authentication: FakeMlsAuthentication(),
+      client: _SessionApi(deviceMissing: true),
+    );
+    expect(
+      (await provider.resolveSession()).errorCode,
+      'authenticationCancelled',
+    );
+    for (var i = 0; i < 3; i++) {
+      expect(
+        (await provider.resolveSession()).errorCode,
+        'authenticationRequired',
+      );
+    }
+    expect(security.registrationCalls, 1);
+    security.registrationFailure = null;
+    expect(await provider.registerCurrentDevice(), isNotNull);
+    expect(security.registrationCalls, 2);
+    expect(await provider.ensureSession(), isNotNull);
+    expect(security.registrationCalls, 2);
   });
 
   Future<AccountSecurityService> attemptSecurity(
@@ -287,6 +380,48 @@ void main() {
       accountId: _accountId,
     );
     return service;
+  }
+
+  for (final receiptKey in <String?>[null, 'ab', 'bc']) {
+    test('既有尝试标记仅凭真实另一设备回执解除：$receiptKey', () async {
+      final records = _ProofStore(),
+          wallet = _AttemptWallet(failure: CitizenSdkErrorCode.network);
+      final service = await attemptSecurity(wallet, records);
+      final attempt =
+          'mls.registration.attempt:${jsonEncode(_binding.toJson())}';
+      records.entries[attempt] = 'attempted';
+      if (receiptKey != null) {
+        records.entries[deviceRegistrationProofKey(
+          testMlsCidNumber,
+          1,
+          testMlsAccountId,
+        )] = jsonEncode({
+          'cid_number': testMlsCidNumber,
+          'binding_revision': 1,
+          'account_id': testMlsAccountId,
+          'public_key': '0x${receiptKey * 32}',
+          'issued_at': 1,
+          'signature': '0x${'bb' * 64}',
+        });
+      }
+      await expectLater(
+        service.registerMlsDeviceForBinding(_binding),
+        receiptKey == 'bc'
+            ? throwsA(isA<CitizenSdkException>())
+            : throwsA(
+                isA<AccountSecurityException>().having(
+                  (e) => e.code,
+                  'code',
+                  'authenticationRequired',
+                ),
+              ),
+      );
+      expect(wallet.signs, receiptKey == 'bc' ? 1 : 0);
+      expect(
+        records.entries[attempt],
+        receiptKey == 'bc' ? '0x${'ab' * 32}' : 'attempted',
+      );
+    });
   }
 
   for (final failure in [
@@ -405,7 +540,7 @@ void main() {
     expect(wallet.registrationCalls, 0);
   });
 
-  test("普通会话未登记直接拒绝，仅显式入口协调一次登记", () async {
+  test("普通会话未登记自动准备，已登记会话不再钱包授权", () async {
     final existingWallet = _SessionWalletManager();
     final existing = SquareSessionProvider(
       client: _SessionApi(deviceMissing: false),
@@ -423,22 +558,14 @@ void main() {
       authentication: FakeMlsAuthentication(),
       currentUserContext: _SessionIdentityCache(),
     );
+    // 普通页面、刷新及精确账户入口共用自动准备；只登记一次。
     for (final ordinary in [
       missing.ensureSession,
       missing.refreshSession,
       () => missing.ensureSessionForAccountId(_accountId),
     ]) {
-      await expectLater(
-        ordinary(),
-        throwsA(
-          isA<SquareApiException>().having(
-            (e) => e.errorCode,
-            '错误码',
-            'device_not_registered',
-          ),
-        ),
-      );
-      expect(missingWallet.registrationCalls, 0);
+      expect(await ordinary(), isNotNull);
+      expect(missingWallet.registrationCalls, 1);
     }
     expect(await missing.registerCurrentDevice(), isNotNull);
     expect(await missing.ensureSession(), isNotNull);
@@ -625,48 +752,57 @@ void main() {
     expect(requests, 0);
   });
 
-  test('保存授权对应另一个MLS设备时拒绝，禁止重新钱包签名', () async {
-    final store = _ProofStore();
-    store.entries[deviceRegistrationProofKey(
+  test('新公钥不能借旧设备签名，原子保存自身回执且随后重试复用', () async {
+    final store = _ProofStore(), source = FakeMlsAuthentication();
+    final key = deviceRegistrationProofKey(
       testMlsCidNumber,
       1,
       testMlsAccountId,
-    )] = jsonEncode({
+    );
+    store.entries[key] = jsonEncode({
       'cid_number': testMlsCidNumber,
       'binding_revision': 1,
       'account_id': testMlsAccountId,
       'public_key': '0x${'bc' * 32}',
       'issued_at': 1700000000000,
-      'signature': '0x${'bb' * 64}',
+      'signature': '0x${'cc' * 64}',
     });
     var wallets = 0;
+    final api = SquareApiClient(
+      baseUrl: 'https://square.test/api',
+      httpClient: MockClient((request) async {
+        if (request.url.path.endsWith('/challenges')) {
+          return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
+        }
+        final body = jsonDecode(request.body);
+        expect(body['public_key'], source.identity.publicKey);
+        expect(body['binding_signature'], '0x${'bb' * 64}');
+        expect(
+          jsonDecode(store.entries[key]!)['public_key'],
+          source.identity.publicKey,
+        );
+        return http.Response(jsonEncode(_receipt()), 200);
+      }),
+    );
+    addTearDown(api.close);
     final registrar = MlsDeviceRegistrar(
-      authentication: FakeMlsAuthentication(),
+      authentication: source,
       proofStore: store,
+      apiClient: api,
     );
-    await expectLater(
-      _register(
-        registrar,
-        signer:
-            ({
-              required payload,
-              required signingMessage,
-              required publicKey,
-              required issuedAtMillis,
-            }) async {
-              wallets++;
-              return '0x${'bb' * 64}';
-            },
-      ),
-      throwsA(
-        isA<SquareApiException>().having(
-          (e) => e.errorCode,
-          '错误码',
-          'device_proof_invalid',
-        ),
-      ),
-    );
-    expect(wallets, 0);
+    Future<String> signer({
+      required payload,
+      required signingMessage,
+      required publicKey,
+      required issuedAtMillis,
+    }) async {
+      wallets++;
+      return '0x${'bb' * 64}';
+    }
+
+    await _register(registrar, signer: signer);
+    await _register(registrar, signer: signer);
+    expect(wallets, 1);
   });
 
   test('钱包授权期间账户变化，禁止保存或提交', () async {

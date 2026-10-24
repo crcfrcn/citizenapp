@@ -7,6 +7,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:citizenapp/app_log.dart';
 import 'package:citizenapp/network/chain_bootstrap_api.dart'
     show HttpsOnlyClient;
 
@@ -564,6 +565,8 @@ class SquareApiClient
   static final List<WeakReference<SquareApiClient>> _liveClients =
       <WeakReference<SquareApiClient>>[];
   static _FinalizedSessionBinding? _finalizedSessionBinding;
+  // 仅合并同一会话和完整URL的在途GET，响应结束即移除；不保存证明或结果缓存。
+  static final Map<(SquareSession, Uri), Future<http.Response>> _reads = {};
 
   /// finalized 绑定切换后立即清除所有现存 API 客户端中的非当前 Session。
   ///
@@ -716,46 +719,66 @@ class SquareApiClient
     required List<int> body,
     String? sessionToken,
   }) async {
-    if (uri.origin != baseUri.origin) {
-      throw const MlsAuthenticationException('MLS认证目标服务不一致');
+    var stage = 'identity';
+    try {
+      if (uri.origin != baseUri.origin) {
+        throw const MlsAuthenticationException('MLS认证目标服务不一致');
+      }
+      final bytes = List<int>.unmodifiable(body);
+      await _requireAuthenticationCurrent(identity, authentication, generation);
+      stage = 'challenge';
+      final challenge = await _postAuthentication(
+        '/user/challenges',
+        jsonEncode({
+          'account_id': identity.accountId,
+          'public_key': identity.publicKey,
+          'purpose': purpose,
+          'method': method,
+          'request_target': uri.path + (uri.hasQuery ? '?${uri.query}' : ''),
+          'body_sha256': '0x${sha256.convert(bytes)}',
+        }),
+        sessionToken: sessionToken,
+      );
+      await _requireAuthenticationCurrent(identity, authentication, generation);
+      final nonce = challenge['challenge'];
+      final expiry = challenge['expires_at_millis'];
+      if (nonce is! String || expiry is! int) {
+        throw const MlsAuthenticationException('MLS挑战响应不完整');
+      }
+      final request = sdk.MlsAuthenticationRequest(
+        serviceOrigin: uri.origin,
+        challenge: nonce,
+        expiresAtMillis: expiry,
+        method: method,
+        requestTarget: uri.path + (uri.hasQuery ? '?${uri.query}' : ''),
+        bodyBytes: bytes,
+      );
+      validateMlsChallenge(identity, request, challenge);
+      stage = 'proof';
+      final proof = await authentication.createProof(
+        identity: identity,
+        request: request,
+        challenge: challenge,
+      );
+      await _requireAuthenticationCurrent(identity, authentication, generation);
+      validateMlsProofMatches(identity, request, challenge, proof);
+      return mlsProofHeaders(proof);
+    } on SquareApiException {
+      // HTTP和传输失败已在实际发送边界分类，不重复读取或输出正文。
+      rethrow;
+    } on Object catch (error) {
+      AppLog.failure(
+        stage: stage,
+        code: error is MlsAuthenticationException
+            ? error.code
+            : error is sdk.MlsNativeException
+            ? 'mls_${error.diagnosticCode}'
+            : error is FormatException
+            ? 'format'
+            : 'response_invalid',
+      );
+      rethrow;
     }
-    final bytes = List<int>.unmodifiable(body);
-    await _requireAuthenticationCurrent(identity, authentication, generation);
-    final challenge = await _postAuthentication(
-      '/user/challenges',
-      jsonEncode({
-        'account_id': identity.accountId,
-        'public_key': identity.publicKey,
-        'purpose': purpose,
-        'method': method,
-        'request_target': uri.path + (uri.hasQuery ? '?${uri.query}' : ''),
-        'body_sha256': '0x${sha256.convert(bytes)}',
-      }),
-      sessionToken: sessionToken,
-    );
-    await _requireAuthenticationCurrent(identity, authentication, generation);
-    final nonce = challenge['challenge'];
-    final expiry = challenge['expires_at_millis'];
-    if (nonce is! String || expiry is! int) {
-      throw const MlsAuthenticationException('MLS挑战响应不完整');
-    }
-    final request = sdk.MlsAuthenticationRequest(
-      serviceOrigin: uri.origin,
-      challenge: nonce,
-      expiresAtMillis: expiry,
-      method: method,
-      requestTarget: uri.path + (uri.hasQuery ? '?${uri.query}' : ''),
-      bodyBytes: bytes,
-    );
-    validateMlsChallenge(identity, request, challenge);
-    final proof = await authentication.createProof(
-      identity: identity,
-      request: request,
-      challenge: challenge,
-    );
-    await _requireAuthenticationCurrent(identity, authentication, generation);
-    validateMlsProofMatches(identity, request, challenge, proof);
-    return mlsProofHeaders(proof);
   }
 
   Future<Map<String, dynamic>> _postAuthentication(
@@ -784,18 +807,21 @@ class SquareApiClient
           .timeout(const Duration(seconds: 20));
       return _decodeResponse(response, stage: stage);
     } on SocketException {
+      AppLog.failure(stage: stage.name, code: 'network_unavailable');
       throw SquareApiException(
         '网络连接失败',
         errorCode: 'network_unavailable',
         stage: stage,
       );
     } on TimeoutException {
+      AppLog.failure(stage: stage.name, code: 'network_unavailable');
       throw SquareApiException(
         '网络请求超时',
         errorCode: 'network_unavailable',
         stage: stage,
       );
     } on http.ClientException {
+      AppLog.failure(stage: stage.name, code: 'network_unavailable');
       // 传输失败保留固定阶段；不保存客户端异常中的URL或服务响应正文。
       throw SquareApiException(
         '网络传输失败',
@@ -849,6 +875,7 @@ class SquareApiClient
         response['device_id'] != identity.deviceId ||
         response['account_id'] != identity.accountId ||
         response['binding_revision'] != identity.bindingRevision) {
+      AppLog.failure(stage: 'session', code: 'response_invalid');
       throw const MlsAuthenticationException('MLS会话响应与当前身份不一致');
     }
     final next = SquareSession(
@@ -1120,6 +1147,7 @@ class SquareApiClient
         response['cid_number'] != identity.cidNumber ||
         response['device_id'] != identity.deviceId ||
         response['binding_revision'] != identity.bindingRevision) {
+      AppLog.failure(stage: 'registration', code: 'response_invalid');
       throw const MlsAuthenticationException('MLS登记回执与当前身份不一致');
     }
   }
@@ -1127,7 +1155,7 @@ class SquareApiClient
   /// 读取 CitizenServe 的平台会员快照。该方法只解析响应，不修改页面或聊天全局状态；
   /// 会话级去重、本地缓存和刷新广播统一由 SubscriptionService 负责。
   Future<SquareMembershipState> fetchMembership(SquareSession session) async {
-    const membershipPath = '/membership';
+    const membershipPath = '/membergate';
     final data = await _getJson(membershipPath, session: session);
     return _parseMembershipState(data);
   }
@@ -1228,13 +1256,32 @@ class SquareApiClient
   }
 
   SquareMembershipState _parseMembershipState(Map<String, dynamic> data) {
-    final membership = data['membership'];
-    final active = data['membership_active'] == true;
-    final subscriptionActive = data['membership_active'] == true;
+    final membership = data['membergate'];
+    // GET与确认只接受同一份完整快照；读取失败不能冒充未订阅或清空原事实。
+    if (data['ok'] != true ||
+        data['membergate_active'] is! bool ||
+        !data.containsKey('membergate') ||
+        (membership != null && membership is! Map<String, dynamic>) ||
+        (data['membergate_active'] == true && membership == null) ||
+        data['plans'] is! List ||
+        data['usage'] is! Map<String, dynamic>) {
+      throw const SquareApiException('会员快照不完整');
+    }
+    if (membership is Map<String, dynamic> &&
+        (membership['membergate_level'] is! String ||
+            membership['subscription_status'] is! String ||
+            membership['paid_until'] is! int ||
+            (membership['paid_until'] as int) < 0 ||
+            membership['last_charged_at'] is! int ||
+            (membership['last_charged_at'] as int) < 0)) {
+      throw const SquareApiException('会员快照字段无效');
+    }
+    final active = data['membergate_active'] == true;
+    final subscriptionActive = data['membergate_active'] == true;
     final plans = _parseMembershipPlans(data['plans']);
     final usageState = _parseMembershipUsageState(
       data['usage'],
-      data['membership'],
+      data['membergate'],
     );
     // 会员与身份解耦（ADR-037）：响应只含订阅与套餐，无身份/冻结字段。
     if (membership is! Map<String, dynamic>) {
@@ -1245,7 +1292,7 @@ class SquareApiClient
         usageState: usageState,
       );
     }
-    final membershipLevel = membership['membership_level']?.toString();
+    final membershipLevel = membership['membergate_level']?.toString();
     return SquareMembershipState(
       active: active,
       paidUntil: _asInt(membership['paid_until']),
@@ -1269,7 +1316,7 @@ class SquareApiClient
     if (!hash.hasMatch(txHash) || !hash.hasMatch(blockHashHex)) {
       throw const SquareApiException('会员确认交易或块无效');
     }
-    final data = await _postJson('/membership/confirm', {
+    final data = await _postJson('/membergate/confirm', {
       'tx_hash': txHash,
       'block_hash': blockHashHex,
       'include_state': true,
@@ -1280,15 +1327,8 @@ class SquareApiClient
         data['block_hash'] != blockHashHex) {
       throw const SquareApiException('会员确认回执与本次交易不一致');
     }
-    final snapshot = data['membership_state'];
-    if (snapshot is! Map<String, dynamic> ||
-        snapshot['ok'] != true ||
-        snapshot['membership_active'] is! bool ||
-        !snapshot.containsKey('membership') ||
-        (snapshot['membership_active'] == true &&
-            snapshot['membership'] is! Map<String, dynamic>) ||
-        snapshot['plans'] is! List ||
-        snapshot['usage'] is! Map<String, dynamic>) {
+    final snapshot = data['membergate_state'];
+    if (snapshot is! Map<String, dynamic>) {
       throw const SquareApiException('会员确认快照不完整');
     }
     return _parseMembershipState(snapshot);
@@ -2053,9 +2093,29 @@ class SquareApiClient
       );
     }
     final uri = _uri(path);
-    final response = await _http
-        .get(uri, headers: await _headers('GET', uri, '', session))
-        .timeout(const Duration(seconds: 20));
+    if (_closed) {
+      throw http.ClientException('服务客户端已关闭');
+    }
+    final key = (session, uri);
+    var pending = _reads[key];
+    if (pending != null) {
+      await session.validateCurrent();
+    } else {
+      pending = () async {
+        try {
+          return await _http
+              .get(uri, headers: await _headers('GET', uri, '', session))
+              .timeout(const Duration(seconds: 20));
+        } finally {
+          _reads.remove(key);
+        }
+      }();
+      _reads[key] = pending;
+    }
+    final response = await pending;
+    if (_closed) {
+      throw http.ClientException('服务客户端已关闭');
+    }
     await session.validateCurrent();
     return _decodeResponse(response);
   }
@@ -2153,6 +2213,11 @@ class SquareApiClient
     try {
       decoded = jsonDecode(response.body);
     } catch (_) {
+      AppLog.failure(
+        stage: stage.name,
+        statusCode: response.statusCode,
+        code: 'json',
+      );
       throw SquareApiException(
         '广场服务响应不是 JSON：${response.statusCode}',
         statusCode: response.statusCode,
@@ -2160,6 +2225,11 @@ class SquareApiClient
       );
     }
     if (decoded is! Map<String, dynamic>) {
+      AppLog.failure(
+        stage: stage.name,
+        statusCode: response.statusCode,
+        code: 'shape',
+      );
       throw SquareApiException(
         '广场服务响应结构不合法：${response.statusCode}',
         statusCode: response.statusCode,
@@ -2167,6 +2237,11 @@ class SquareApiClient
       );
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
+      AppLog.failure(
+        stage: stage.name,
+        statusCode: response.statusCode,
+        code: decoded['error'] is String ? decoded['error'] as String : null,
+      );
       throw SquareApiException(
         decoded['message']?.toString() ?? '广场服务请求失败',
         statusCode: response.statusCode,
@@ -2212,7 +2287,7 @@ class SquareApiClient
   }
 
   SquareMembershipPlan _parseMembershipPlan(Map<String, dynamic> data) {
-    final level = _requireString(data, 'membership_level');
+    final level = _requireString(data, 'membergate_level');
     final name = switch (level) {
       'freedom' => '自由',
       'democracy' => '民主',
@@ -2222,7 +2297,7 @@ class SquareApiClient
     final plan = data['plan'], limits = data['limits'];
     if (plan is! Map<String, dynamic> ||
         limits is! Map<String, dynamic> ||
-        plan['membership_level'] != level) {
+        plan['membergate_level'] != level) {
       throw const SquareApiException('会员额度响应不完整');
     }
     int quota(Map<String, dynamic> source, String key) {
@@ -2289,6 +2364,18 @@ class SquareApiClient
     if (value is! Map<String, dynamic>) {
       throw const SquareApiException('会员用量响应缺失');
     }
+    for (final field in [
+      'used_images',
+      'reserved_images',
+      'used_video_seconds',
+      'reserved_video_seconds',
+      'active_uploads',
+    ]) {
+      final count = value[field];
+      if (count is! int || count < 0 || count > 9007199254740991) {
+        throw const SquareApiException('会员用量响应无效');
+      }
+    }
     final period = membership is Map<String, dynamic>
         ? membership
         : const <String, dynamic>{};
@@ -2344,10 +2431,10 @@ class SquareApiClient
         identityLevel:
             data['identity_level']?.toString() ?? fallbackAuthor?.identityLevel,
         membershipLevel:
-            data['membership_level']?.toString() ??
+            data['membergate_level']?.toString() ??
             fallbackAuthor?.membershipLevel,
-        membershipActive: data.containsKey('membership_active')
-            ? data['membership_active'] == true
+        membershipActive: data.containsKey('membergate_active')
+            ? data['membergate_active'] == true
             : fallbackAuthor?.membershipActive ?? false,
       ),
       postCategory: _parseCategory(data['post_category']),

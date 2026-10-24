@@ -23,6 +23,7 @@ import 'package:citizenapp/account/profile/citizen_profile.dart';
 import 'package:citizenapp/account/profile/citizen_profile_api.dart';
 import 'package:citizenapp/account/profile/citizen_profile_cache.dart';
 import 'package:citizenapp/account/identity/square_session_provider.dart';
+import 'package:citizenapp/main.dart' show AppShell;
 import 'package:citizenapp/account/profile/profile_avatar.dart';
 import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/chat/chat_entry.dart';
@@ -87,6 +88,67 @@ void main() {
     () =>
         SubscriptionService.setChatAuthorizationForTesting(_ownerUserId, null),
   );
+
+  testWidgets('根首帧及账户/前台变化自动准备，挂起不阻止导航也不提前启动聊天', (tester) async {
+    final sessions = _PendingPreparationSessions(),
+        security = _UnusedSecurity();
+    var chatInstances = 0;
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          Provider<SquareSessionProvider>.value(value: sessions),
+          Provider<AccountSecurityService>.value(value: security),
+        ],
+        child: MaterialApp(
+          home: AppShell(
+            openedPushData: const Stream<Map<String, dynamic>>.empty(),
+            chatRuntimeFactory: () {
+              chatInstances++;
+              return _FakeRuntime(address: testMlsAccountId);
+            },
+            tabBuilder: (index, _) => Center(child: Text('page:$index')),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(sessions.calls, 1);
+    expect(find.text('page:0'), findsOneWidget);
+    expect(chatInstances, 0);
+    expect(find.byType(AlertDialog), findsNothing);
+    await tester.tap(find.text('交易'));
+    await tester.pump();
+    expect(find.text('page:3'), findsOneWidget);
+    security.revision.value++;
+    await tester.pump();
+    await tester.pump();
+    expect(sessions.calls, 2);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    await tester.pump();
+    expect(sessions.calls, 3);
+    expect(chatInstances, 0);
+    await tester.pumpWidget(const SizedBox());
+    sessions.pending.complete(
+      const SquareSessionResolution(SquareSessionStatus.noWallet),
+    );
+    await tester.pump();
+    security.revision.dispose();
+  });
+  test('聊天投影/设备故障不提示再次注册或真人验证', () {
+    for (final code in [
+      'cid_not_bound',
+      'registration_required',
+      'device_not_registered',
+    ]) {
+      final message = chatUserErrorMessage(
+        SquareApiException('synthetic', errorCode: code),
+      );
+      expect(message, isNot(contains('注册')));
+      expect(message, isNot(contains('验证')));
+    }
+  });
 
   Future<void> pumpTab(WidgetTester tester, {ChatEntryOpeners? openers}) async {
     const accountId =
@@ -1303,6 +1365,20 @@ class _MemoryProfileMediaCache extends CitizenProfileMediaCache {
     required String? bannerUrl,
     required Map<String, String>? headers,
   }) async => snapshot;
+}
+
+class _PendingPreparationSessions implements SquareSessionProvider {
+  final pending = Completer<SquareSessionResolution>();
+  int calls = 0;
+  @override
+  Future<SquareSessionResolution> resolveSession({bool refresh = false}) {
+    calls++;
+    return pending.future;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw StateError('unexpected preparation operation');
 }
 
 class _FakeProfileSessionProvider implements SquareSessionProvider {

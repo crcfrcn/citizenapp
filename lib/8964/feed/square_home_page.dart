@@ -430,16 +430,16 @@ class _SquareHomePageState extends State<SquareHomePage> {
                           if (error is SquareApiException &&
                               (error.errorCode == 'device_not_registered' ||
                                   error.errorCode == 'invalid_signature')) {
-                            return const Center(
-                              child: Text('本机设备授权尚未完成，请稍后重试'),
-                            );
+                            return const Center(child: Text('公民服务准备未完成，请重试'));
                           }
                           final posts = _composeFeed(
                             snapshot.data ?? const <SquarePost>[],
                           );
                           final errorMessage = error is SquareApiException
                               ? SquareSessionResolution.fromError(error).message
-                              : snapshot.hasError ? '广场内容加载失败' : null;
+                              : snapshot.hasError
+                              ? '广场内容加载失败'
+                              : null;
                           return Stack(
                             children: [
                               RefreshIndicator(

@@ -4,8 +4,9 @@ import 'topup_models.dart';
 Map<String, Object> solanaPayment(TopupRail rail, TopupPaymentIntent intent) {
   if (rail.network != TopupNetwork.solana ||
       rail.token != 'USDC' ||
-      intent.network != rail.network)
+      intent.network != rail.network) {
     throw const FormatException('Solana付款上下文无效');
+  }
   return {
     'rpc': TopupRpcConfig.url(TopupRpcConfig.solana),
     'mint': rail.asset,

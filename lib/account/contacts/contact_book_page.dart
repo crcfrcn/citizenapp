@@ -282,7 +282,6 @@ class _ContactBookPageState extends State<ContactBookPage> {
       final resolution = await resolveCitizenSessionForAction(
         context,
         provider: _sessionProvider,
-        currentUserContext: _currentUserContext,
       );
       if (!mounted || generation != _loadGeneration) return;
       if (resolution.status != SquareSessionStatus.ready) {

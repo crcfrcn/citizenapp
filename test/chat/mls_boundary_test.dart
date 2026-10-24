@@ -149,11 +149,16 @@ void main() {
       expect(message, isNot(contains('CHAT_MLS')));
     });
 
-    test('Cloudflare 未绑定 CID 与MLS设备认证失败分层提示', () {
-      const unregistered = SquareApiException(
+    test('身份同步失败、明确未注册与MLS设备认证失败分层提示', () {
+      const unsynchronized = SquareApiException(
         '该钱包账户未绑定 CID',
         statusCode: 403,
         errorCode: 'cid_not_bound',
+      );
+      const unregistered = SquareApiException(
+        '当前账户明确未注册',
+        statusCode: 403,
+        errorCode: 'identity_unregistered',
       );
       const deviceMissing = SquareApiException(
         'MLS设备未登记',
@@ -161,7 +166,9 @@ void main() {
         errorCode: 'device_not_registered',
       );
 
-      expect(chatUserErrorMessage(unregistered), contains('当前默认账户'));
+      expect(chatUserErrorMessage(unsynchronized), '公民身份同步失败，请重试');
+      expect(chatUserErrorMessage(unsynchronized), isNot(contains('注册')));
+      expect(chatUserErrorMessage(unregistered), '当前默认账户尚未注册公民号，无法使用聊天');
       expect(chatUserErrorMessage(deviceMissing), contains('聊天设备身份'));
     });
 
@@ -182,7 +189,7 @@ void main() {
       const error = SquareApiException(
         'attachment membership required',
         statusCode: 403,
-        errorCode: 'attachment_membership_required',
+        errorCode: 'attachment_membergate_required',
       );
 
       expect(chatUserErrorMessage(error), '非会员禁止使用聊天附件');

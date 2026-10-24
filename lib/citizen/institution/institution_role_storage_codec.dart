@@ -9,26 +9,22 @@ import 'institution_role_models.dart';
 class InstitutionRoleStorageCodec {
   InstitutionRoleStorageCodec._();
 
-  static InstitutionAdminsStorage? decodeAdmins(
-    Uint8List data,
-  ) {
+  static InstitutionAdminsStorage? decodeAdmins(Uint8List data) {
     var offset = 0;
     // 机构 CID 是 `AdminAccounts` 的 storage key，不在 value 中重复保存。
     // value 唯一布局为 institution_code:[u8;4] + admins：统一 Admin
     // (account_id, cid_number, family_name, given_name)，公私权同构。
     if (offset + 4 > data.length) return null;
     final code = String.fromCharCodes(
-        data.sublist(offset, offset + 4).where((b) => b != 0));
+      data.sublist(offset, offset + 4).where((b) => b != 0),
+    );
     offset += 4;
     final decodedAdmins = decodeAdminVector(data, offset);
     if (decodedAdmins == null) return null;
     final admins = decodedAdmins.$1;
     offset = decodedAdmins.$2;
     if (offset != data.length) return null;
-    return InstitutionAdminsStorage(
-      institutionCode: code,
-      admins: admins,
-    );
+    return InstitutionAdminsStorage(institutionCode: code, admins: admins);
   }
 
   /// 从指定偏移严格解码统一管理员集合，并返回下一字段偏移。
@@ -133,17 +129,18 @@ class InstitutionRoleStorageCodec {
       if (cid == null) return null;
       offset = cid.$2;
       if (offset + 32 > data.length) return null;
-      final accountId = _hex(data.sublist(offset, offset + 32));
+      // 与人员名册使用同一规范 AccountId，避免任职关联被格式差异全部过滤。
+      final accountId = '0x${_hex(data.sublist(offset, offset + 32))}';
       offset += 32;
       final code = _readBytes(data, offset, minLength: 1, maxLength: 64);
       if (code == null) return null;
       offset = code.$2;
       if (offset + 9 > data.length) return null;
-      final termStart =
-          ByteData.sublistView(data).getUint32(offset, Endian.little);
+      final termStart = ByteData.sublistView(data)
+          .getUint32(offset, Endian.little);
       offset += 4;
-      final termEnd =
-          ByteData.sublistView(data).getUint32(offset, Endian.little);
+      final termEnd = ByteData.sublistView(data)
+          .getUint32(offset, Endian.little);
       offset += 4;
       final source = data[offset++];
       final sourceRef = _readBytes(data, offset, maxLength: 128);
@@ -156,16 +153,18 @@ class InstitutionRoleStorageCodec {
       final status = data[offset++];
       if (status > 1) return null;
       try {
-        out.add(InstitutionAdminAssignment(
-          cidNumber: utf8.decode(cid.$1),
-          account_id: accountId,
-          roleCode: utf8.decode(code.$1),
-          termStart: termStart,
-          termEnd: termEnd,
-          source: InstitutionAssignmentSource.values[source],
-          sourceRef: utf8.decode(sourceRef.$1),
-          active: status == 0,
-        ));
+        out.add(
+          InstitutionAdminAssignment(
+            cidNumber: utf8.decode(cid.$1),
+            account_id: accountId,
+            roleCode: utf8.decode(code.$1),
+            termStart: termStart,
+            termEnd: termEnd,
+            source: InstitutionAssignmentSource.values[source],
+            sourceRef: utf8.decode(sourceRef.$1),
+            active: status == 0,
+          ),
+        );
       } on FormatException {
         return null;
       }
@@ -203,7 +202,8 @@ class InstitutionRoleStorageCodec {
       if (permission == null) return null;
       offset = permission.$2;
       final item = permission.$1;
-      final key = '${item.roleSubject.cidNumber}:${item.roleSubject.roleCode}:'
+      final key =
+          '${item.roleSubject.cidNumber}:${item.roleSubject.roleCode}:'
           '${item.businessActionId.moduleTag}:${item.businessActionId.actionCode}:'
           '${item.operation.index}';
       if (!seen.add(key)) return null;
@@ -286,18 +286,12 @@ class InstitutionRoleStorageCodec {
     );
   }
 
-  static (RoleSubject, int)? _decodeRoleSubjectAt(
-    Uint8List data,
-    int offset,
-  ) {
+  static (RoleSubject, int)? _decodeRoleSubjectAt(Uint8List data, int offset) {
     final cid = _readUtf8(data, offset, minLength: 1, maxLength: 32);
     if (cid == null) return null;
     final roleCode = _readUtf8(data, cid.$2, minLength: 1, maxLength: 64);
     if (roleCode == null) return null;
-    return (
-      RoleSubject(cidNumber: cid.$1, roleCode: roleCode.$1),
-      roleCode.$2,
-    );
+    return (RoleSubject(cidNumber: cid.$1, roleCode: roleCode.$1), roleCode.$2);
   }
 
   static (BusinessActionId, int)? _decodeBusinessActionIdAt(
@@ -306,8 +300,8 @@ class InstitutionRoleStorageCodec {
   ) {
     final moduleTag = _readUtf8(data, offset, minLength: 1, maxLength: 32);
     if (moduleTag == null || moduleTag.$2 + 4 > data.length) return null;
-    final actionCode =
-        ByteData.sublistView(data).getUint32(moduleTag.$2, Endian.little);
+    final actionCode = ByteData.sublistView(data)
+        .getUint32(moduleTag.$2, Endian.little);
     return (
       BusinessActionId(moduleTag: moduleTag.$1, actionCode: actionCode),
       moduleTag.$2 + 4,

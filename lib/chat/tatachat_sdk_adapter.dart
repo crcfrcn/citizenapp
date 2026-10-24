@@ -18,7 +18,9 @@ String chatUserErrorMessage(
 }) {
   if (error is SquareApiException) {
     return switch (error.errorCode) {
-      'cid_not_bound' => '当前默认账户尚未注册公民号，无法使用聊天',
+      'cid_not_bound' => '公民身份同步失败，请重试',
+      'identity_unregistered' => '当前默认账户尚未注册公民号，无法使用聊天',
+      'registration_required' => '公民服务准备未完成，请重试',
       'device_not_registered' ||
       'chat_device_not_registered' ||
       'invalid_mls_signature' ||
@@ -27,7 +29,7 @@ String chatUserErrorMessage(
       'missing_session' ||
       'invalid_session' ||
       'session_expired' => '聊天会话已失效，请重试',
-      'attachment_membership_required' => '非会员禁止使用聊天附件',
+      'attachment_membergate_required' => '非会员禁止使用聊天附件',
       'chat_server_not_configured' => '聊天服务尚未配置',
       _ =>
         error.statusCode == null || error.statusCode! >= 500

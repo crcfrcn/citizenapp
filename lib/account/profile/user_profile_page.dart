@@ -241,7 +241,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
         _accessAllowed = false;
         _accessError =
             error is SquareApiException &&
-                error.errorCode == 'profile_membership_required'
+                error.errorCode == 'profile_membergate_required'
             ? '非会员禁止访问用户主页'
             : '内容加载失败，请下拉刷新';
         _profile = null;
@@ -381,7 +381,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
         isCurrent: current,
       );
     } on SquareApiException catch (error) {
-      if (error.errorCode != 'square_membership_required') rethrow;
+      if (error.errorCode != 'square_membergate_required') rethrow;
     }
   }
 

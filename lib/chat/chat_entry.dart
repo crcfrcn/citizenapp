@@ -26,6 +26,7 @@ import 'package:citizenapp/account/membership/membership_revision.dart';
 import 'package:citizenapp/account/membership/subscription_service.dart';
 import 'package:citizenapp/account/identity/citizen_identity_chain_reader.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
+import 'package:citizenapp/account/identity/cid_business_gate.dart';
 import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
 import 'package:citizenapp/account/contacts/contact_book_page.dart';
 import 'package:citizenapp/account/contacts/contact_service.dart';
@@ -924,6 +925,14 @@ class _ChatTabState extends State<ChatTab> {
     }
     final currentUserContext = _currentUserContext;
     if (currentUserContext != null) {
+      // 根准备与页面复用同一CID事实门禁；读取失败不能冒充没有公民号。
+      final decision = await context.read<CidBusinessGate?>()?.resolve();
+      if (decision?.status == CidBusinessStatus.unavailable) {
+        throw const SquareApiException(
+          '身份读取失败，请重试',
+          errorCode: 'identity_projection_unavailable',
+        );
+      }
       return _resolveChatIdentity(currentUserContext);
     }
     final current = await widget.runtime.readCurrentUser();
@@ -1999,7 +2008,7 @@ UserContactService? _contactServiceFromContextOrNull(BuildContext context) {
   );
 }
 
-/// 聊天只消费统一身份结果；缓存缺失保持未知，不查链或隐式登记设备。
+/// 聊天消费门禁核实后的有/无CID事实；缓存读取失败是操作错误，不增加身份状态。
 Future<({String cidNumber, String accountId})> _resolveChatIdentity(
   CurrentUserContext currentUser,
 ) async {
@@ -2008,7 +2017,9 @@ Future<({String cidNumber, String accountId})> _resolveChatIdentity(
   if (identity.isRegistered) {
     return (cidNumber: identity.cidNumber, accountId: identity.accountId);
   }
-  if (identity.isUnregistered) return (cidNumber: '', accountId: identity.accountId);
+  if (identity.isUnregistered) {
+    return (cidNumber: '', accountId: identity.accountId);
+  }
   throw const SquareApiException(
     '身份信息暂不可用，请在身份页刷新后重试',
     errorCode: 'identity_local_missing',

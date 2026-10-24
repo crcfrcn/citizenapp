@@ -58,21 +58,24 @@ class TopupRecord {
     final tx = j['txid'] as String?;
     final progress = TopupProgress.values.byName(j['progress'] as String);
     if (signature != null) i.network.signature(signature);
-    if (tx != null && !i.network.transaction(tx))
+    if (tx != null && !i.network.transaction(tx)) {
       throw const FormatException('恢复交易定位无效');
+    }
     if ((progress.index >= TopupProgress.authorized.index &&
             signature == null) ||
         (progress.index >= TopupProgress.submitted.index && tx == null) ||
-        (j['wire'] != null && (tx == null || i.network.evmId != null)))
+        (j['wire'] != null && (tx == null || i.network.evmId != null))) {
       throw const FormatException('恢复记录阶段不完整');
+    }
     final o = j['order'] == null
         ? null
         : TopupOrder.fromJson(j['order'] as Map<String, dynamic>);
     if (o != null &&
         (o.id != i.order ||
             o.coinFen != i.coinFen ||
-            o.paymentTxid != null && o.paymentTxid != tx))
+            o.paymentTxid != null && o.paymentTxid != tx)) {
       throw const FormatException('恢复订单归属错误');
+    }
     return TopupRecord(
       origin: topupOrigin(base),
       intent: i,
@@ -118,8 +121,9 @@ class TopupStore {
                 record.order!.phase.index < before.order!.phase.index ||
             before.terminal &&
                 jsonEncode(before.order?.toJson()) !=
-                    jsonEncode(record.order?.toJson())))
+                    jsonEncode(record.order?.toJson()))) {
       throw const FormatException('充值记录不能替换或倒退');
+    }
     final current = await _records.read(record.key);
     if (current == record.encode()) return;
     if (current != before?.encode() ||
@@ -127,7 +131,8 @@ class TopupStore {
           record.key,
           expected: before?.encode(),
           next: record.encode(),
-        ))
+        )) {
       throw StateError('充值记录已变化，请恢复原订单');
+    }
   }
 }

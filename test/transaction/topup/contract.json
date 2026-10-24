@@ -123,7 +123,8 @@
           }
         ]
       }
-    ]
+    ],
+    "ready": true
   },
   "intent": {
     "ok": true,

@@ -15,6 +15,13 @@ enum TopupNetwork {
   final String wire;
   final String caip2;
   final int? evmId;
+  String get label => switch (this) {
+    ethereum => 'Ethereum/以太坊链',
+    base => 'Base/Base链',
+    bnb => 'BNB/币安链',
+    tron => 'Tron/波场链',
+    solana => 'Solana/索拉纳链',
+  };
   static TopupNetwork parse(Object? value) => values.firstWhere(
     (n) => n.wire == value,
     orElse: () => throw const FormatException('不支持的付款网络'),
@@ -33,8 +40,12 @@ enum TopupNetwork {
       final checksum = sha256
           .convert(sha256.convert(bytes.sublist(0, 21)).bytes)
           .bytes;
-      if (List.generate(4, (i) => bytes[21 + i] == checksum[i]).every((v) => v))
+      if (List.generate(
+        4,
+        (i) => bytes[21 + i] == checksum[i],
+      ).every((v) => v)) {
         return value;
+      }
     }
     throw const FormatException('付款地址无效');
   }
@@ -58,8 +69,9 @@ enum TopupNetwork {
 /// Base58是地址/签名编码，不承担任何签名或私钥功能。
 List<int> base58Bytes(String text) {
   const alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-  if (text.isEmpty || text.length > 128)
+  if (text.isEmpty || text.length > 128) {
     throw const FormatException('Base58编码无效');
+  }
   var value = BigInt.zero;
   for (final c in text.split('')) {
     final digit = alphabet.indexOf(c);
@@ -86,20 +98,23 @@ bool _base58Length(String v, int length) {
 }
 
 String decimal(Object? value) {
-  if (value is! String || !RegExp(r'^[1-9][0-9]{0,77}$').hasMatch(value))
+  if (value is! String || !RegExp(r'^[1-9][0-9]{0,77}$').hasMatch(value)) {
     throw const FormatException('金额必须为正整数文本');
+  }
   return value;
 }
 
 String targetAccount(String value) {
-  if (!RegExp(r'^0x[0-9a-f]{64}$').hasMatch(value))
+  if (!RegExp(r'^0x[0-9a-f]{64}$').hasMatch(value)) {
     throw const FormatException('充值目标账户无效');
+  }
   return value;
 }
 
 String orderId(String value) {
-  if (!RegExp(r'^top_[0-9a-f]{32}$').hasMatch(value))
+  if (!RegExp(r'^top_[0-9a-f]{32}$').hasMatch(value)) {
     throw const FormatException('订单编号无效');
+  }
   return value;
 }
 
@@ -127,7 +142,7 @@ class TopupRail {
   final String token, asset, recvAddress;
   final TopupNetwork network;
   final int decimals;
-  String get key => '${token}:${network.wire}';
+  String get key => '$token:${network.wire}';
   factory TopupRail.fromJson(Map<String, dynamic> j) {
     final n = TopupNetwork.parse(j['network']);
     final t = j['token'];
@@ -137,10 +152,12 @@ class TopupRail {
         !allowedPair(t, n) ||
         a is! String ||
         r is! String ||
-        j['decimals'] != (n == TopupNetwork.bnb ? 18 : 6))
+        j['decimals'] != (n == TopupNetwork.bnb ? 18 : 6)) {
       throw const FormatException('币轨配置无效');
-    if (n.address(a) != a || n.address(r) != r)
+    }
+    if (n.address(a) != a || n.address(r) != r) {
       throw const FormatException('币轨地址未规范化');
+    }
     return TopupRail(
       token: t,
       network: n,
@@ -165,8 +182,9 @@ class TopupPackage {
       payments[rail.key] ?? (throw const FormatException('该套餐不支持当前币轨'));
   factory TopupPackage.fromJson(Map<String, dynamic> j) {
     final id = j['package_id'];
-    if (id != 'pkg_15' && id != 'pkg_1400')
+    if (id != 'pkg_15' && id != 'pkg_1400') {
       throw const FormatException('不支持自定义套餐');
+    }
     final payment = j['payments'];
     if (payment is! List) throw const FormatException('缺少币轨报价');
     final amounts = <String, String>{};
@@ -174,8 +192,9 @@ class TopupPackage {
       if (raw is! Map<String, dynamic>) throw const FormatException('币轨报价无效');
       final n = TopupNetwork.parse(raw['network']);
       final token = raw['token'];
-      if (token is! String || !allowedPair(token, n))
+      if (token is! String || !allowedPair(token, n)) {
         throw const FormatException('不支持的币轨');
+      }
       final key = '$token:${n.wire}';
       if (amounts.containsKey(key)) throw const FormatException('币轨报价重复');
       final a = decimal(raw['pay_amount']);
@@ -188,8 +207,9 @@ class TopupPackage {
     if (amounts.length != 6 ||
         j['pay_display'] != (id == 'pkg_15' ? '15' : '1400') ||
         j['coin_fen'] != (id == 'pkg_15' ? '1000000' : '100000000') ||
-        j['coin_display'] is! String)
+        j['coin_display'] is! String) {
       throw const FormatException('套餐配置无效');
+    }
     return TopupPackage(
       packageId: id as String,
       payDisplay: j['pay_display'] as String,
@@ -201,17 +221,30 @@ class TopupPackage {
 }
 
 class TopupConfig {
-  const TopupConfig({required this.rails, required this.packages});
+  const TopupConfig({
+    required this.ready,
+    required this.rails,
+    required this.packages,
+  });
+  final bool ready;
   final List<TopupRail> rails;
   final List<TopupPackage> packages;
   List<String> get tokens => const ['USDC', 'USDT'];
   TopupRail rail(String token, TopupNetwork n) => rails.firstWhere(
     (r) => r.token == token && r.network == n,
-    orElse: () => throw const FormatException('当前币种不支持钱包所在网络'),
+    orElse: () => throw const FormatException('当前币种不支持所选网络'),
+  );
+  TopupPackage packageById(String id) => packages.firstWhere(
+    (p) => p.packageId == id,
+    orElse: () => throw const FormatException('充值套餐不存在'),
   );
   factory TopupConfig.fromJson(Map<String, dynamic> j) {
-    if (j['ok'] != true || j['rails'] is! List || j['packages'] is! List)
+    if (j['ok'] != true ||
+        j['ready'] is! bool ||
+        j['rails'] is! List ||
+        j['packages'] is! List) {
       throw const FormatException('充值配置无效');
+    }
     final rails = (j['rails'] as List)
         .map((r) => TopupRail.fromJson(Map<String, dynamic>.from(r as Map)))
         .toList(growable: false);
@@ -221,17 +254,64 @@ class TopupConfig {
     if (rails.length != 6 ||
         rails.map((r) => r.key).toSet().length != 6 ||
         packs.length != 2 ||
-        packs.map((p) => p.packageId).toSet().length != 2)
+        packs.map((p) => p.packageId).toSet().length != 2) {
       throw const FormatException('充值配置缺项或重复');
+    }
     final evm = rails
         .where((r) => r.network.evmId != null)
         .map((r) => r.recvAddress)
         .toSet();
     if (evm.length != 1) throw const FormatException('EVM收款账户不一致');
+    packs.sort(
+      (a, b) => a.packageId == b.packageId
+          ? 0
+          : a.packageId == 'pkg_15'
+          ? -1
+          : 1,
+    );
     return TopupConfig(
+      ready: j['ready'] as bool,
       rails: List.unmodifiable(rails),
       packages: List.unmodifiable(packs),
     );
+  }
+}
+
+/// 一次点击固定币种、套餐和主网；恢复时只从原意图重建，不另存第二份选择。
+class TopupSelection {
+  factory TopupSelection({
+    required String token,
+    required TopupPackage package,
+    required TopupNetwork network,
+  }) {
+    if (!allowedPair(token, network)) throw const FormatException('币种与网络不匹配');
+    return TopupSelection._(token, package, network);
+  }
+  const TopupSelection._(this.token, this.package, this.network);
+  final String token;
+  final TopupPackage package;
+  final TopupNetwork network;
+  factory TopupSelection.fromIntent(
+    TopupPaymentIntent intent,
+    TopupConfig config,
+  ) => TopupSelection(
+    token: intent.intent['token'] as String,
+    package: config.packageById(intent.intent['package_id'] as String),
+    network: intent.network,
+  );
+  Map<String, String> toJson() => {
+    'token': token,
+    'package_id': package.packageId,
+    'network': network.wire,
+  };
+  void validate(TopupConfig config, TopupContext payer) {
+    if (payer.network != network) throw const FormatException('钱包网络与所选网络不一致');
+    final rail = config.rail(token, network),
+        current = config.packageById(package.packageId);
+    if (package.coinFen != current.coinFen ||
+        package.amount(rail) != current.amount(rail)) {
+      throw const FormatException('充值报价已更新，请重新选择');
+    }
   }
 }
 
@@ -242,8 +322,9 @@ class TopupContext {
   factory TopupContext.fromJson(Map<String, dynamic> j) {
     final n = TopupNetwork.parse(j['network']);
     final p = j['payer'];
-    if (j['chain'] != n.caip2 || p is! String)
+    if (j['chain'] != n.caip2 || p is! String) {
       throw const FormatException('钱包上下文无效');
+    }
     return TopupContext(n, n.address(p));
   }
 }
@@ -274,8 +355,9 @@ class TopupPaymentIntent {
         j['order_id'] is! String ||
         j['payment_intent'] is! String ||
         j['wallet_authorization_message'] is! String ||
-        j['intent'] is! Map<String, dynamic>)
+        j['intent'] is! Map<String, dynamic>) {
       throw const FormatException('付款意图响应无效');
+    }
     final i = Map<String, dynamic>.unmodifiable(
       j['intent'] as Map<String, dynamic>,
     );
@@ -301,31 +383,36 @@ class TopupPaymentIntent {
         i['issued_at'] is! int ||
         i['expires_at'] is! int ||
         (i['issued_at'] as int) <= 0 ||
-        (i['expires_at'] as int) - (i['issued_at'] as int) != 600000)
+        (i['expires_at'] as int) - (i['issued_at'] as int) != 600000) {
       throw const FormatException('付款意图字段无效');
+    }
     final o = orderId(j['order_id'] as String);
-    if (o != 'top_${(i['intent_id'] as String).substring(4)}')
+    if (o != 'top_${(i['intent_id'] as String).substring(4)}') {
       throw const FormatException('订单与意图不一致');
+    }
     targetAccount(i['account_id'] as String);
     final n = TopupNetwork.parse(i['network']);
     if (!allowedPair(i['token'] as String, n) ||
         n.address(i['payer_address'] as String) != i['payer_address'] ||
         n.address(i['asset'] as String) != i['asset'] ||
-        n.address(i['recv_address'] as String) != i['recv_address'])
+        n.address(i['recv_address'] as String) != i['recv_address']) {
       throw const FormatException('付款意图币轨无效');
+    }
     decimal(i['pay_amount']);
     decimal(i['coin_fen']);
     final token = j['payment_intent'] as String;
     final parts = token.split('.');
-    if (token.length > 8192 || parts.length != 2)
+    if (token.length > 8192 || parts.length != 2) {
       throw const FormatException('付款凭证无效');
+    }
     final decoded = base64Url.decode(base64Url.normalize(parts[0]));
     final mac = base64Url.decode(base64Url.normalize(parts[1]));
     if (base64Url.encode(decoded).replaceAll('=', '') != parts[0] ||
         base64Url.encode(mac).replaceAll('=', '') != parts[1] ||
         mac.length != 32 ||
-        jsonEncode(jsonDecode(utf8.decode(decoded))) != jsonEncode(i))
+        jsonEncode(jsonDecode(utf8.decode(decoded))) != jsonEncode(i)) {
       throw const FormatException('付款凭证与意图不一致');
+    }
     return TopupPaymentIntent(
       order: o,
       token: token,
@@ -355,12 +442,14 @@ class TopupPaymentIntent {
         time < (intent['issued_at'] as int) ||
         time >= expiresAt ||
         !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(chainGenesisHash) ||
-        Uri.parse(serviceOrigin).origin != serviceOrigin)
+        Uri.parse(serviceOrigin).origin != serviceOrigin) {
       throw const FormatException('付款意图与本次充值不一致或过期');
+    }
     final expected =
         'CitizenServe Topup v1\nservice_origin=$serviceOrigin\nchain_genesis_hash=$chainGenesisHash\nintent_id=${intent['intent_id']}\nnetwork=${intent['network']}\npayer_address=${intent['payer_address']}\nasset=${intent['asset']}\nrecv_address=${intent['recv_address']}\npay_amount=${intent['pay_amount']}\ncoin_fen=${intent['coin_fen']}\naccount_id=${intent['account_id']}\npackage_id=${intent['package_id']}\nissued_at=${intent['issued_at']}\nexpires_at=${intent['expires_at']}\nintent_sha256=${sha256.convert(utf8.encode(token))}\n';
-    if (authorizationMessage != expected)
+    if (authorizationMessage != expected) {
       throw const FormatException('付款授权原文不一致');
+    }
   }
 }
 
@@ -424,13 +513,15 @@ class TopupOrder {
     );
     if ((status == TopupOrderStatus.paid) != (phase == TopupPhase.paid) ||
         (status == TopupOrderStatus.exception) !=
-            (phase == TopupPhase.exception))
+            (phase == TopupPhase.exception)) {
       throw const FormatException('订单状态不一致');
+    }
     if (status == TopupOrderStatus.paid &&
         (j['gmb_tx_hash'] is! String ||
             !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(j['gmb_tx_hash'] as String) ||
-            j['payment_txid'] is! String))
+            j['payment_txid'] is! String)) {
       throw const FormatException('已到账回执缺少链上定位');
+    }
     return TopupOrder(
       id: orderId(j['order_id'] as String),
       status: status,
@@ -445,8 +536,19 @@ class TopupOrder {
 
 /// 客户端公开节点只用于构造和广播U交易，不是服务端验款或NRC秘密端点。
 abstract final class TopupRpcConfig {
-  static const tron = String.fromEnvironment('TOPUP_TRON_RPC_URL');
-  static const solana = String.fromEnvironment('TOPUP_SOLANA_RPC_URL');
+  // 与服务端相同的唯一公开入口；不读取环境变量、节点Key或自定义URL。
+  static const ethereum = 'https://ethereum-rpc.publicnode.com';
+  static const base = 'https://mainnet.base.org';
+  static const bnb = 'https://bsc-dataseed.bnbchain.org';
+  static const tron = 'https://tron-rpc.publicnode.com';
+  static const solana = 'https://api.mainnet.solana.com';
+  static String endpoint(TopupNetwork network) => switch (network) {
+    TopupNetwork.ethereum => ethereum,
+    TopupNetwork.base => base,
+    TopupNetwork.bnb => bnb,
+    TopupNetwork.tron => tron,
+    TopupNetwork.solana => solana,
+  };
   static String url(String value) {
     final u = Uri.tryParse(value);
     if (u == null ||
@@ -454,8 +556,9 @@ abstract final class TopupRpcConfig {
         u.host.isEmpty ||
         u.userInfo.isNotEmpty ||
         u.hasQuery ||
-        u.hasFragment)
+        u.hasFragment) {
       throw const FormatException('付款网络尚未配置');
+    }
     return u.toString();
   }
 }

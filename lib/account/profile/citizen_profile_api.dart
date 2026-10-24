@@ -311,12 +311,11 @@ final class _SignedProfileMediaImage
   @override
   bool operator ==(Object other) =>
       other is _SignedProfileMediaImage &&
-      identical(client, other.client) &&
       identical(session, other.session) &&
       url == other.url &&
       version == other.version;
   @override
-  int get hashCode => Object.hash(client, session, url, version);
+  int get hashCode => Object.hash(session, url, version);
   @override
   String toString() => '公民资料图片';
 }

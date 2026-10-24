@@ -13,7 +13,6 @@ import 'package:tatachat_sdk/tatachat_sdk.dart';
 
 import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
 import 'package:citizenapp/account/identity/square_session_provider.dart';
-import 'package:citizenapp/network/square_api_client.dart' show SquareApiStage;
 import 'package:citizenapp/account/identity/myid_service.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
 import 'package:citizenapp/account/identity/register_identity_sheet.dart';
@@ -48,6 +47,21 @@ Future<bool> startCidRegistrationFlow(
           sessionProvider: context.read<SquareSessionProvider>(),
           chatRuntime: () => context.read<ChatSdk>(),
         );
+  }
+  // 已有公民号先恢复公开绑定与服务准备，绝不打开注册面板或Turnstile。
+  try {
+    final verified = await context.read<FinalizedIdentityResolver>().resolve();
+    if (verified == null) return false;
+    await service.synchronizeIdentity(verified);
+    if (!context.mounted) return false;
+    if (verified.isRegistered) {
+      return await ensureCidRegisteredOrPrompt(context, myIdService: service);
+    }
+  } on Object catch (error) {
+    if (context.mounted) {
+      _showSnack(context, _describeError(error), isError: true);
+    }
+    return false;
   }
   final List<CitizenWalletStateAccount> accounts;
   try {
@@ -164,12 +178,6 @@ Future<bool> ensureCidRegisteredOrPrompt(
         provider: provider,
       );
       if (!context.mounted) return false;
-      // 本地状态错误/取消不能借已有注册检查点再次打开注册或授权。
-      if (resolution.errorCode?.startsWith('mls_') == true ||
-          resolution.errorCode == 'authenticationCancelled') {
-        _showSnack(context, resolution.message, isError: true);
-        return false;
-      }
       if (resolution.status == SquareSessionStatus.ready &&
           resolution.session?.accountId == identity.accountId &&
           resolution.session?.cidNumber == identity.snapshot?.cidNumber &&
@@ -177,29 +185,12 @@ Future<bool> ensureCidRegisteredOrPrompt(
               identity.snapshot?.bindingRevision) {
         return true;
       }
-      final pending =
-          resolution.status == SquareSessionStatus.deviceUnavailable &&
-          await context.read<RegistrationCoordinator>().store.hasPendingAccount(
-            identity.accountId,
-            await context.read<CitizenSdk>().chain.getGenesisHash(),
-          );
-      if (!context.mounted) return false;
-      if (resolution.errorCode == 'registration_required' || pending) {
-        await startCidRegistrationFlow(context, myIdService: myIdService);
-      } else {
-        _showSnack(context, resolution.message, isError: true);
-      }
-    } catch (error) {
+      _showSnack(context, resolution.message, isError: true);
+    } on Object catch (error) {
       if (context.mounted) {
-        final cancelled =
-            error is CitizenSdkException &&
-                (error.code == CitizenSdkErrorCode.authenticationCancelled ||
-                    error.code == CitizenSdkErrorCode.cancelled) ||
-            error is AccountSecurityException &&
-                error.code == 'authenticationCancelled';
         _showSnack(
           context,
-          cancelled ? '设备授权已取消，可再次主动发起' : '账户服务尚未完成验证和设备激活，请在身份页继续注册',
+          SquareSessionResolution.fromError(error).message,
           isError: true,
         );
       }
@@ -210,68 +201,16 @@ Future<bool> ensureCidRegisteredOrPrompt(
   return false;
 }
 
-/// 已有重试或明确业务动作共用；页面进入/后台刷新不得调用这个可授权入口。
-/// 旧空目录的初始化不是恢复旧密钥，必须先确认；取消不调用SDK或设备登记。
+/// 已有重试共用自动准备；没有初始化弹窗，也不借设备故障进入注册。
 Future<SquareSessionResolution> resolveCitizenSessionForAction(
   BuildContext context, {
   required SquareSessionProvider provider,
-  CurrentUserContext? currentUserContext,
 }) async {
   try {
     var resolution = await provider.resolveSession();
     if (!context.mounted) return resolution;
-    if (resolution.errorCode == 'mls_initialization_required') {
-      final current =
-          await (currentUserContext ?? context.read<CurrentUserContext>())
-              .resolve();
-      final binding = current?.binding;
-      if (!context.mounted ||
-          current?.isRegistered != true ||
-          binding == null) {
-        return const SquareSessionResolution(
-          SquareSessionStatus.identityUnavailable,
-        );
-      }
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('初始化本机聊天设备'),
-          content: const Text(
-            '本机聊天身份文件缺失。初始化将创建新的设备身份，不能恢复已丢失的旧密钥或历史解密能力。钱包和公民号不会改变。是否继续？',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('初始化'),
-            ),
-          ],
-        ),
-      );
-      if (confirmed != true || !context.mounted) {
-        return const SquareSessionResolution(
-          SquareSessionStatus.deviceUnavailable,
-          errorCode: 'mls_initialization_cancelled',
-          stage: SquareApiStage.identity,
-        );
-      }
-      await provider.initializeCurrentDevice(
-        expectedCidNumber: binding.cidNumber,
-        expectedAccountId: binding.accountId,
-        expectedBindingRevision: binding.bindingRevision,
-      );
-      if (!context.mounted) {
-        return const SquareSessionResolution(
-          SquareSessionStatus.identityChanged,
-        );
-      }
-      resolution = await provider.resolveSession();
-    }
-    // 只接受服务器的明确未登记结果，沿唯一设备登记流程完成原授权。
-    if (context.mounted && resolution.errorCode == 'device_not_registered') {
+    if (resolution.errorCode == 'device_not_registered' ||
+        resolution.errorCode == 'authenticationRequired') {
       await provider.registerCurrentDevice();
       resolution = await provider.resolveSession();
     }

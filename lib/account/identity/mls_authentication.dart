@@ -1,4 +1,5 @@
 import 'dart:convert';
+
 import 'package:crypto/crypto.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart' as sdk;
 
@@ -84,6 +85,7 @@ class MlsAuthentication implements MlsAuthenticationSource {
       );
     }
     final binding = await _currentBinding();
+    // SDK在同一受保护锁内自动准备合法空存储或复用原身份；这里只读取公开结果。
     final local = await _runtime().readLocalMlsIdentity();
     final publicKey = local.publicKey;
     if (publicKey == null) throw const MlsAuthenticationException('MLS公开身份缺失');

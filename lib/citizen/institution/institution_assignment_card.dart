@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import 'package:citizenapp/citizen/account_derivation.dart';
 import 'package:citizenapp/transaction/amount_format.dart';
+
 import 'institution_role_models.dart';
+
 import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 机构管理员人员卡；姓名与账户来自 admins，岗位任职来自 entity。
@@ -31,18 +33,22 @@ class InstitutionAssignmentCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [
-              if (index != null) Text('$index　'),
-              Expanded(
-                  child: Text(personName,
-                      style: Theme.of(context).textTheme.titleMedium)),
-              ?trailing,
-            ]),
-            if (!adminView.assignmentsLoaded)
-              const Text('岗位信息暂不可用')
-            else if (adminView.assignments.isEmpty)
+            Row(
+              children: [
+                if (index != null) Text('$index　'),
+                Expanded(
+                  child: Text(
+                    personName,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                ?trailing,
+              ],
+            ),
+            // 附加资料未读到时只保留人员，不新增提示，也不冒充已核实无岗位。
+            if (adminView.assignmentsLoaded && adminView.assignments.isEmpty)
               const Text('岗位：暂无岗位')
-            else
+            else if (adminView.assignmentsLoaded)
               for (final assignment in adminView.assignments) ...[
                 Text('岗位：${assignment.roleName}'),
                 Text('任期：${assignment.termLabel}'),

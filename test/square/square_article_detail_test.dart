@@ -44,7 +44,7 @@ void main() {
     final api = SquareApiClient(
       baseUrl: 'https://square.test/api',
       httpClient: MockClient((request) async {
-        if (request.url.path.endsWith('/membership')) {
+        if (request.url.path.endsWith('/membergate')) {
           membershipRequests++;
           fail('详情不应前置会员GET');
         }
@@ -54,7 +54,7 @@ void main() {
           utf8.encode(
             jsonEncode({
               'ok': false,
-              'error': 'square_membership_required',
+              'error': 'square_membergate_required',
               'message': '非会员禁止使用广场功能',
             }),
           ),
@@ -217,7 +217,7 @@ void main() {
           api: SquareApiClient(
             baseUrl: 'https://square.test/api',
             httpClient: MockClient((request) async {
-              expect(request.url.path.endsWith('/membership'), isFalse);
+              expect(request.url.path.endsWith('/membergate'), isFalse);
               expect(request.url.path, '/api/8964/posts/p1');
               detailRequests++;
               return http.Response(
@@ -252,7 +252,7 @@ void main() {
           api: SquareApiClient(
             baseUrl: 'https://square.test/api',
             httpClient: MockClient((request) async {
-              expect(request.url.path.endsWith('/membership'), isFalse);
+              expect(request.url.path.endsWith('/membergate'), isFalse);
               expect(request.url.path, '/api/8964/posts/p1');
               detailRequests++;
               return http.Response(

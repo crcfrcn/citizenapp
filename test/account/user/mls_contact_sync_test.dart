@@ -140,7 +140,7 @@ void main() {
   for (final withPending in [false, true]) {
     for (final failure in <Object>[
       const MlsNativeException(
-        MlsNativeErrorCode.initializationRequired,
+        MlsNativeErrorCode.stateInvalid,
         'synthetic private detail',
       ),
       const MlsNativeException(

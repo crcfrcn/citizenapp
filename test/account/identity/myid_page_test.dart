@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:citizenapp/account/identity/registration_coordinator.dart';
 import 'package:citizenapp/account/identity/registration_models.dart';
 import 'package:citizenapp/account/identity/identity_binding.dart';
+import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
 
 import 'registration_api_test.dart' show registrationContext;
 import 'registration_coordinator_test.dart' show Api, MemoryStore;
@@ -322,8 +323,15 @@ void main() {
     service.api = api;
     addTearDown(api.close);
     await tester.pumpWidget(
-      Provider<RegistrationCoordinator>.value(
-        value: RegistrationCoordinator(api: api, store: store),
+      MultiProvider(
+        providers: [
+          Provider<RegistrationCoordinator>.value(
+            value: RegistrationCoordinator(api: api, store: store),
+          ),
+          Provider<FinalizedIdentityResolver>.value(
+            value: _UnregisteredIdentity(),
+          ),
+        ],
         child: MaterialApp(
           home: MyIdPage(
             myIdService: service,
@@ -557,6 +565,19 @@ void main() {
   });
 }
 
+/// 三个余额用例的链上前置事实明确为未注册，不绕过入口的身份核实。
+class _UnregisteredIdentity implements FinalizedIdentityResolver {
+  @override
+  Future<FinalizedIdentity?> resolve() async => FinalizedIdentity(
+    accountId: registrationContext().accountId,
+    ss58Address: 'ss58-demo',
+    snapshot: null,
+  );
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 /// 驱动注册前余额闸三分支的假 service：可配门槛、余额与链读失败。
 class _RegisterFlowService implements MyIdService {
   _RegisterFlowService({this.balanceFen = 0, this.affordabilityThrows = false});
@@ -568,6 +589,13 @@ class _RegisterFlowService implements MyIdService {
   final bool affordabilityThrows;
   int registerCalls = 0;
   late Api api;
+
+  @override
+  Future<void> synchronizeIdentity(FinalizedIdentity identity) async {
+    expect(identity.accountId, registrationContext().accountId);
+    expect(identity.isRegistered, isFalse);
+    expect(api.state, 'human_verified');
+  }
 
   @override
   Future<MyIdState> getState() async => const MyIdState(tier: MyIdTier.visitor);

@@ -37,7 +37,7 @@ void main() {
     'follows': follows.main,
     'contacts': contacts.main,
     'square': square.main,
-    'membership': membership.main,
+    'membergate': membership.main,
     'session': session.main,
     'chat': chat.main,
   };

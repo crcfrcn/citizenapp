@@ -7,8 +7,6 @@ export const manifest=Object.freeze({
     "kind": "mobile",
     "title": "公民配置",
     "items": [
-      {"environment":"production","name":"TOPUP_TRON_RPC_URL","title":"Tron公开付款节点","description":"App构造和广播Tron付款的HTTPS公开端点，不含访问秘密","revealable":true,"accessLevel":"public","kind":"runtime"},
-      {"environment":"production","name":"TOPUP_SOLANA_RPC_URL","title":"Solana公开付款节点","description":"App构造和广播Solana付款的HTTPS公开端点，不含访问秘密","revealable":true,"accessLevel":"public","kind":"runtime"},
       {
         "environment": "release",
         "name": "APP_KEY",

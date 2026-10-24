@@ -192,8 +192,9 @@ class _LawReaderPageState extends State<LawReaderPage> {
   Future<void> _changeVersion(int version, {bool force = false}) async {
     final law = _law;
     if (law == null ||
-        (!force && version == _selectedVersion && _requestedVersion == version))
+        (!force && version == _selectedVersion && _requestedVersion == version)) {
       return;
+    }
     final generation = ++_generation;
     _requestedVersion = version;
     setState(() {

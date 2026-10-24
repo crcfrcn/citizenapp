@@ -229,7 +229,11 @@ class MyIdService {
       if (account == null) {
         return const MyIdState(tier: MyIdTier.visitor, errorMessage: '请先创建钱包');
       }
-      final key = (account.accountId, wallet.revision, _accountSecurity.revision.value);
+      final key = (
+        account.accountId,
+        wallet.revision,
+        _accountSecurity.revision.value,
+      );
       final existing = _identityReads[key];
       if (existing != null) return await existing;
       final pending = _refreshIdentity(account.accountId, wallet.revision);
@@ -248,12 +252,20 @@ class MyIdService {
     }
   }
 
-  Future<MyIdState> _refreshIdentity(String accountId, BigInt walletRevision) async {
+  Future<MyIdState> _refreshIdentity(
+    String accountId,
+    BigInt walletRevision,
+  ) async {
     final resolved = await _identityResolver.resolve();
     // 请求排队期间默认账户也可能变化；不能把新账户结果装入旧账户的在途任务。
-    if (resolved == null || resolved.accountId != accountId ||
-        (resolved.walletRevision != null && resolved.walletRevision != walletRevision)) {
-      throw const AccountSecurityException('当前用户已变化，请重试', code: 'identityChanged');
+    if (resolved == null ||
+        resolved.accountId != accountId ||
+        (resolved.walletRevision != null &&
+            resolved.walletRevision != walletRevision)) {
+      throw const AccountSecurityException(
+        '当前用户已变化，请重试',
+        code: 'identityChanged',
+      );
     }
     return _applyIdentityState(resolved);
   }
@@ -266,8 +278,11 @@ class MyIdService {
   /// 门禁和业务动作也加入同一完整同步，不能和启动刷新重复保存或广播。
   Future<void> synchronizeIdentity(FinalizedIdentity identity) async {
     final wallet = await _wallet.getState().result;
-    final key = (identity.accountId, identity.walletRevision ?? wallet.revision,
-        identity.identityRevision ?? _accountSecurity.revision.value);
+    final key = (
+      identity.accountId,
+      identity.walletRevision ?? wallet.revision,
+      identity.identityRevision ?? _accountSecurity.revision.value,
+    );
     final existing = _identityReads[key];
     if (existing != null) {
       await existing;
@@ -542,7 +557,7 @@ class MyIdService {
     );
   }
 
-  /// 只供 CID 注册 finalized 调用；页面门禁与 finalized 均不得初始化任何设备密钥。
+  /// 收敛finalized公开绑定；MLS由共用准备入口离线准备，不在身份写回中创建。
   Future<void> _finishResolvedBinding(FinalizedIdentity resolved) async {
     await _finishFinalizedBinding(
       await _bindingForFinalizedIdentity(resolved),
@@ -559,7 +574,8 @@ class MyIdService {
       await _badgeSnapshotStore.writeVerified(
         accountId: resolved.accountId,
         identity: null,
-        isCurrent: () => resolved.identityRevision == null ||
+        isCurrent: () =>
+            resolved.identityRevision == null ||
             _accountSecurity.revision.value == resolved.identityRevision,
       );
       await _identityResolver.assertCurrent(resolved);
@@ -602,10 +618,13 @@ class MyIdService {
     try {
       await requireCurrent?.call();
       // 已有完整身份优先；注册收尾仅在没有同代次完整快照时构造匿名展示。
-      final saved = await _badgeSnapshotStore.readForAccountId(current.accountId);
+      final saved = await _badgeSnapshotStore.readForAccountId(
+        current.accountId,
+      );
       await requireCurrent?.call();
       final known = saved?.identity;
-      final display = identity ??
+      final display =
+          identity ??
           (known?.cidNumber == current.cidNumber &&
                   known?.bindingRevision == current.bindingRevision
               ? known
@@ -647,7 +666,9 @@ class MyIdService {
         accountId: current.accountId,
       );
       // 公开同步只通知已经存在的聊天实例，不能为刷新身份创建MLS运行态。
-      final runtime = existingRuntimeOnly ? _activeChatRuntime?.call() : _chatRuntime();
+      final runtime = existingRuntimeOnly
+          ? _activeChatRuntime?.call()
+          : _chatRuntime();
       await runtime?.convergeFinalizedBinding(
         ChatBinding(
           bindingScope: current.genesisHash,
@@ -847,7 +868,7 @@ class MyIdService {
     }
     await session.validateCurrent();
     await guard();
-    // 会话deviceId已经由同一SDK的实际MLS证明核对；编排再核对服务器激活回执。
+    // 会话deviceId已由实际MLS证明核对；已有CID可用普通凭据准备，不要求新真人记录。
     return session.deviceId;
   }
 

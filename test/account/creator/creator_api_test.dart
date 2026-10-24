@@ -86,7 +86,7 @@ void main() {
                 'yearly_price_fen': null,
               },
             ],
-            'membership_active': true,
+            'membergate_active': true,
             'subscription': null,
           }),
           200,
@@ -110,8 +110,8 @@ void main() {
     );
     expect(plan.tiers.single.priceFenOf(BillingPeriod.monthly), 990);
     expect(requests.map((r) => r.url.path), [
-      '/api/membership/creators/plans',
-      '/api/membership/creators/${session.cidNumber}/plans',
+      '/api/membergate/creators/plans',
+      '/api/membergate/creators/${session.cidNumber}/plans',
     ]);
     await api.confirmCreatorSubscription(
       session: authorized,
@@ -121,7 +121,7 @@ void main() {
     );
     expect(
       requests.last.url.path,
-      '/api/membership/creators/CN220-CTZN2-100000001-2026/subscription/confirm',
+      '/api/membergate/creators/CN220-CTZN2-100000001-2026/subscription/confirm',
     );
   });
 

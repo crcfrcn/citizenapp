@@ -11,16 +11,17 @@ import 'store.dart';
 
 import 'package:citizenapp/system/theme/app_layout.dart';
 
-/// 沿用原币种卡片与套餐弹窗；只选U和两个套餐，钱包自动提供付款网络。
+/// 沿用原币种卡片与套餐弹窗；用户在两个套餐下面选择固定付款网络。
 ///
 /// 币轨/收款地址/套餐全部来自 Worker config(App 不写死合约);支付通过 WebView 内的
-/// WalletConnect连自托管钱包，按钱包实际网络构造付款；仅服务端paid代表到账。
+/// WalletConnect连自托管钱包，按用户所选网络构造付款；仅服务端paid代表到账。
 class OnchainTopupPage extends StatefulWidget {
   const OnchainTopupPage({
     super.key,
     required this.accountId,
     this.api,
     this.store,
+    this.paymentOpener,
   });
 
   /// 收公民币的公民链账户(充值目标 `account_id`,0x+64 hex)。
@@ -30,6 +31,13 @@ class OnchainTopupPage extends StatefulWidget {
   /// 注入用于测试;生产用默认 TopupApi(连当前 Worker)。
   final TopupApi? api;
   final TopupStore? store;
+
+  /// 测试可注入同一付款导航端口；生产仍使用本模块原WebView付款页。
+  final Future<TopupRecord?> Function(
+    TopupSelection selection,
+    TopupRecord? resume,
+  )?
+  paymentOpener;
 
   @override
   State<OnchainTopupPage> createState() => _OnchainTopupPageState();
@@ -55,15 +63,17 @@ class _OnchainTopupPageState extends State<OnchainTopupPage> {
     final account = widget.accountId;
     try {
       final records = await _store.list(topupOrigin(_api.baseUrl), account);
-      if (mounted && account == widget.accountId)
+      if (mounted && account == widget.accountId) {
         setState(() {
           _records = records;
           _recordsLoaded = true;
           _recoveryError = null;
         });
+      }
     } on Object {
-      if (mounted && account == widget.accountId)
+      if (mounted && account == widget.accountId) {
         setState(() => _recoveryError = '订单恢复记录暂不可用，暂不能发起付款');
+      }
     }
   }
 
@@ -107,17 +117,6 @@ class _OnchainTopupPageState extends State<OnchainTopupPage> {
   }
 
   Widget _buildLoaded(BuildContext context, TopupConfig config) {
-    if (config.rails.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: EdgeInsets.all(AppLayout.scaledValue(24)),
-          child: const Text(
-            '充值渠道尚未开放',
-            style: TextStyle(color: AppTheme.textTertiary),
-          ),
-        ),
-      );
-    }
     return ListView(
       padding: EdgeInsets.all(AppLayout.scaled(context, 16)),
       children: [
@@ -130,6 +129,14 @@ class _OnchainTopupPageState extends State<OnchainTopupPage> {
           ),
         ),
         SizedBox(height: AppLayout.scaled(context, 16)),
+        if (!config.ready)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 12),
+            child: Text(
+              '充值暂未开放，原订单仍可查询',
+              style: TextStyle(color: AppTheme.textTertiary),
+            ),
+          ),
         ...config.tokens.map(
           (token) => _RailCard(
             token: token,
@@ -186,7 +193,7 @@ class _OnchainTopupPageState extends State<OnchainTopupPage> {
             SizedBox(width: AppLayout.scaled(context, 8)),
             Expanded(
               child: Text(
-                '支持 WalletConnect 兼容钱包，包括 MetaMask、OKX、Bitget 等',
+                '使用支持所选网络的 WalletConnect 兼容钱包',
                 style: TextStyle(
                   fontSize: AppLayout.scaled(context, 12),
                   color: AppTheme.textTertiary,
@@ -207,14 +214,15 @@ class _OnchainTopupPageState extends State<OnchainTopupPage> {
     if (_paymentOpen) return;
     _paymentOpen = true;
     try {
-      final package = await showModalBottomSheet<TopupPackage>(
+      final account = widget.accountId;
+      final selection = await showModalBottomSheet<TopupSelection>(
         context: context,
         isScrollControlled: true,
         backgroundColor: Colors.transparent,
-        builder: (_) => _PackageSheet(token: token, packages: config.packages),
+        builder: (_) => _PackageSheet(token: token, config: config),
       );
-      if (package == null || !mounted) return;
-      await _startPayment(config, token, package);
+      if (selection == null || !mounted || account != widget.accountId) return;
+      await _startPayment(config, selection);
     } finally {
       _paymentOpen = false;
     }
@@ -222,44 +230,54 @@ class _OnchainTopupPageState extends State<OnchainTopupPage> {
 
   Future<void> _startPayment(
     TopupConfig config,
-    String token,
-    TopupPackage package, {
+    TopupSelection selection, {
     TopupRecord? resume,
   }) async {
-    final record = await Navigator.of(context).push<TopupRecord>(
-      MaterialPageRoute(
-        builder: (_) => TopupWebviewPage(
-          config: config,
-          token: token,
-          package: package,
-          accountId: widget.accountId,
-          api: _api,
-          store: _store,
-          resume: resume,
-        ),
-      ),
-    );
-    if (!mounted) return;
+    final account = widget.accountId;
+    final record = widget.paymentOpener != null
+        ? await widget.paymentOpener!(selection, resume)
+        : await Navigator.of(context).push<TopupRecord>(
+            MaterialPageRoute(
+              builder: (_) => TopupWebviewPage(
+                selection: selection,
+                accountId: widget.accountId,
+                api: _api,
+                store: _store,
+                resume: resume,
+              ),
+            ),
+          );
+    if (!mounted || account != widget.accountId) return;
     await _loadRecords();
     if (record != null &&
-        record.progress.index >= TopupProgress.submitting.index)
-      await _showResult(config, record, package);
+        record.progress.index >= TopupProgress.submitting.index) {
+      await _showResult(config, record, selection.package);
+    }
   }
 
   Future<void> _resume(TopupConfig config, TopupRecord record) async {
-    final package = config.packages.firstWhere(
-      (p) => p.packageId == record.intent.intent['package_id'],
-    );
-    if (record.progress.index < TopupProgress.submitting.index &&
-        DateTime.now().millisecondsSinceEpoch < record.intent.expiresAt) {
-      await _startPayment(
-        config,
-        record.intent.intent['token'] as String,
-        package,
-        resume: record,
-      );
-    } else {
-      await _showResult(config, record, package);
+    if (_paymentOpen) return;
+    _paymentOpen = true;
+    try {
+      if (record.origin != topupOrigin(_api.baseUrl) ||
+          record.intent.accountId != widget.accountId) {
+        return;
+      }
+      final selection = TopupSelection.fromIntent(record.intent, config);
+      if (record.progress.index < TopupProgress.submitting.index &&
+          DateTime.now().millisecondsSinceEpoch < record.intent.expiresAt) {
+        if (!config.ready) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('充值暂未开放，未继续付款')));
+          return;
+        }
+        await _startPayment(config, selection, resume: record);
+      } else {
+        await _showResult(config, record, selection.package);
+      }
+    } finally {
+      _paymentOpen = false;
     }
   }
 
@@ -278,9 +296,7 @@ class _OnchainTopupPageState extends State<OnchainTopupPage> {
           onReplay: (original) => Navigator.of(context).push<TopupRecord>(
             MaterialPageRoute(
               builder: (_) => TopupWebviewPage(
-                config: config,
-                token: original.intent.intent['token'] as String,
-                package: package,
+                selection: TopupSelection.fromIntent(original.intent, config),
                 accountId: widget.accountId,
                 api: _api,
                 store: _store,
@@ -327,7 +343,7 @@ class _RailCard extends StatelessWidget {
             decoration: AppTheme.cardDecoration(radius: AppTheme.radiusLg),
             child: Row(
               children: [
-                // 沿用两张官方币标卡片，不把六币轨扩成网络选择。
+                // 币种入口保持两张，具体网络在套餐内选择。
                 SvgPicture.asset(
                   _tokenIconAsset(token),
                   width: AppLayout.scaled(context, 44),
@@ -381,23 +397,29 @@ class _RailCard extends StatelessWidget {
   }
 }
 
-/// 套餐选择弹窗(第 2 屏):选套餐 → 连接钱包并支付。
+/// 金额只展示；点击套餐内的网络一次确定币种、套餐和网络。
 class _PackageSheet extends StatefulWidget {
-  const _PackageSheet({required this.token, required this.packages});
-
+  const _PackageSheet({required this.token, required this.config});
   final String token;
-  final List<TopupPackage> packages;
-
+  final TopupConfig config;
   @override
   State<_PackageSheet> createState() => _PackageSheetState();
 }
 
 class _PackageSheetState extends State<_PackageSheet> {
-  int _selected = 0;
-
+  bool _opening = false;
   @override
   Widget build(BuildContext context) {
-    final packages = widget.packages;
+    const order = [
+      TopupNetwork.ethereum,
+      TopupNetwork.base,
+      TopupNetwork.solana,
+      TopupNetwork.tron,
+      TopupNetwork.bnb,
+    ];
+    final networks = order
+        .where((n) => allowedPair(widget.token, n))
+        .toList(growable: false);
     return Container(
       decoration: BoxDecoration(
         color: AppTheme.surfaceCard,
@@ -405,87 +427,75 @@ class _PackageSheetState extends State<_PackageSheet> {
           top: Radius.circular(AppLayout.scaledValue(20)),
         ),
       ),
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Center(
-            child: Container(
-              width: AppLayout.scaled(context, 36),
-              height: AppLayout.scaled(context, 4),
-              margin: EdgeInsets.only(bottom: AppLayout.scaled(context, 16)),
-              decoration: BoxDecoration(
-                color: AppTheme.border,
-                borderRadius: BorderRadius.circular(AppLayout.scaledValue(2)),
-              ),
-            ),
-          ),
-          Text(
-            '选择充值套餐 · ${widget.token}',
-            style: TextStyle(
-              fontSize: AppLayout.scaled(context, 15),
-              fontWeight: FontWeight.w600,
-              color: AppTheme.textPrimary,
-            ),
-          ),
-          SizedBox(height: AppLayout.scaled(context, 14)),
-          ...List.generate(packages.length, (index) {
-            final isLast = index == packages.length - 1;
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: AppLayout.scaledValue(
-                  index == packages.length - 1 ? 18 : 10,
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * .85,
+      ),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: AppLayout.scaled(context, 36),
+                height: AppLayout.scaled(context, 4),
+                margin: EdgeInsets.only(bottom: AppLayout.scaled(context, 16)),
+                decoration: BoxDecoration(
+                  color: AppTheme.border,
+                  borderRadius: BorderRadius.circular(AppLayout.scaledValue(2)),
                 ),
               ),
-              child: _PackageOption(
-                token: widget.token,
-                package: packages[index],
-                selected: index == _selected,
-                // 末档为大额档,标「更优汇率」对应批量优惠。
-                showBetterRate: isLast && packages.length > 1,
-                onTap: () => setState(() => _selected = index),
-              ),
-            );
-          }),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: AppTheme.primary,
-              padding: EdgeInsets.symmetric(
-                vertical: AppLayout.scaled(context, 14),
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppLayout.scaledValue(14)),
+            ),
+            Text(
+              '选择充值套餐 · ${widget.token}',
+              style: TextStyle(
+                fontSize: AppLayout.scaled(context, 15),
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textPrimary,
               ),
             ),
-            onPressed: packages.isEmpty
-                ? null
-                : () => Navigator.of(context).pop(packages[_selected]),
-            child: Text(
-              '连接钱包并支付',
-              style: TextStyle(fontSize: AppLayout.scaled(context, 15)),
-            ),
-          ),
-          SizedBox(height: AppLayout.scaled(context, 10)),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.open_in_new,
-                size: AppLayout.scaled(context, 14),
-                color: AppTheme.textTertiary,
-              ),
-              SizedBox(width: AppLayout.scaled(context, 6)),
-              Text(
-                '将通过 WalletConnect 打开你的钱包确认支付',
-                style: TextStyle(
-                  fontSize: AppLayout.scaled(context, 12),
-                  color: AppTheme.textTertiary,
+            SizedBox(height: AppLayout.scaled(context, 14)),
+            for (final package in widget.config.packages)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _PackageOption(
+                  token: widget.token,
+                  package: package,
+                  networks: networks,
+                  enabled: widget.config.ready && !_opening,
+                  showBetterRate: package == widget.config.packages.last,
+                  onNetwork: (network) {
+                    if (_opening) return;
+                    setState(() => _opening = true);
+                    Navigator.of(context).pop(
+                      TopupSelection(
+                        token: widget.token,
+                        package: package,
+                        network: network,
+                      ),
+                    );
+                  },
                 ),
               ),
-            ],
-          ),
-        ],
+            if (!widget.config.ready)
+              const Text(
+                '充值暂未开放',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppTheme.textTertiary),
+              ),
+            const Text(
+              '选择网络后，将打开兼容钱包确认付款',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppTheme.textTertiary),
+            ),
+            const Text(
+              '网络手续费由付款钱包另行确认',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppTheme.textTertiary),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -495,38 +505,32 @@ class _PackageOption extends StatelessWidget {
   const _PackageOption({
     required this.token,
     required this.package,
-    required this.selected,
+    required this.networks,
+    required this.enabled,
     required this.showBetterRate,
-    required this.onTap,
+    required this.onNetwork,
   });
-
   final String token;
   final TopupPackage package;
-  final bool selected;
-  final bool showBetterRate;
-  final VoidCallback onTap;
-
+  final List<TopupNetwork> networks;
+  final bool enabled, showBetterRate;
+  final ValueChanged<TopupNetwork> onNetwork;
   @override
-  Widget build(BuildContext context) {
-    return InkWell(
+  Widget build(BuildContext context) => Container(
+    padding: EdgeInsets.all(AppLayout.scaled(context, 14)),
+    decoration: BoxDecoration(
+      color: AppTheme.surfaceCard,
       borderRadius: BorderRadius.circular(AppLayout.scaledValue(14)),
-      onTap: onTap,
-      child: Container(
-        padding: EdgeInsets.all(AppLayout.scaled(context, 14)),
-        decoration: BoxDecoration(
-          color: AppTheme.surfaceCard,
-          borderRadius: BorderRadius.circular(AppLayout.scaledValue(14)),
-          border: Border.all(
-            color: selected ? AppTheme.primary : AppTheme.border,
-            width: selected ? 2 : 0.5,
-          ),
-        ),
-        child: Row(
+      border: Border.all(color: AppTheme.border, width: .5),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
           children: [
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
                     '${package.coinDisplay} 公民币',
@@ -536,7 +540,6 @@ class _PackageOption extends StatelessWidget {
                       color: AppTheme.textPrimary,
                     ),
                   ),
-                  SizedBox(height: AppLayout.scaled(context, 2)),
                   Text(
                     '支付 ${package.payDisplay} $token',
                     style: TextStyle(
@@ -549,35 +552,34 @@ class _PackageOption extends StatelessWidget {
             ),
             if (showBetterRate)
               Container(
-                padding: EdgeInsets.symmetric(
-                  horizontal: AppLayout.scaled(context, 8),
-                  vertical: AppLayout.scaled(context, 3),
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: AppTheme.gold.withAlpha(31),
-                  borderRadius: BorderRadius.circular(
-                    AppLayout.scaledValue(999),
-                  ),
+                  borderRadius: BorderRadius.circular(999),
                 ),
-                child: Text(
+                child: const Text(
                   '更优汇率',
-                  style: TextStyle(
-                    fontSize: AppLayout.scaled(context, 11),
-                    color: AppTheme.gold,
-                  ),
+                  style: TextStyle(fontSize: 11, color: AppTheme.gold),
                 ),
-              )
-            else if (selected)
-              Icon(
-                Icons.check_circle,
-                size: AppLayout.scaled(context, 22),
-                color: AppTheme.primary,
               ),
           ],
         ),
-      ),
-    );
-  }
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final network in networks)
+              OutlinedButton(
+                key: ValueKey('${package.packageId}:${network.wire}'),
+                onPressed: enabled ? () => onNetwork(network) : null,
+                child: Text(network.label),
+              ),
+          ],
+        ),
+      ],
+    ),
+  );
 }
 
 class _ErrorState extends StatelessWidget {

@@ -58,7 +58,10 @@ class RegistrationStore {
           binding?.cidNumber == identity.cidNumber &&
           binding?.accountId == identity.accountId &&
           binding?.bindingRevision == identity.bindingRevision &&
-          record.response.state == RegistrationState.humanVerified) {
+          record.response.state == RegistrationState.humanVerified &&
+          record.phase != RegistrationPhase.ready &&
+          registrationInt(record.response.json, 'expires_at_millis') >
+              DateTime.now().millisecondsSinceEpoch) {
         matches.add(record);
       }
     }

@@ -140,6 +140,9 @@ final class RunnerUITests: XCTestCase {
       XCTAssertTrue(entry.waitForExistence(timeout: 10))
       entry.tap()
       XCTAssertTrue(exact("身份").waitForExistence(timeout: 10))
+      XCTAssertFalse(exact("恢复服务").exists)
+      XCTAssertFalse(exact("初始化本机聊天设备").exists)
+      XCTAssertFalse(app.webViews.firstMatch.exists, "已有公民号的身份查看不能打开真人验证")
     }
     func cidLabel() -> String? {
       // 必须取实际号码所在行，不能把空卡片的“公民号”标题误当成持久化数据。
@@ -569,7 +572,40 @@ final class RunnerUITests: XCTestCase {
       "label BEGINSWITH %@ AND label CONTAINS %@", "我的", "Tab ")).firstMatch
     XCTAssertTrue(my.waitForExistence(timeout: 10))
     my.tap()
+    XCTAssertTrue(app.buttons["我的用户码"].waitForExistence(timeout: 10),
+      "未进入实际我的页，禁止继续寻找账户入口")
     return app
+  }
+
+  /// 只读打开原钱包页；入口不依赖可能变化的副标题，不进入添加或导入流程。
+  private func openExistingWallet() throws -> XCUIApplication {
+    let app = try openExistingAccountServices()
+    let wallet = app.descendants(matching: .any).matching(NSPredicate(
+      format: "label MATCHES %@", "(?s)^钱包(?:\\s.*)?$")).firstMatch
+    XCTAssertTrue(wallet.waitForExistence(timeout: 10), "我的页缺少钱包入口")
+    wallet.tap()
+    XCTAssertTrue(app.staticTexts["我的钱包"].waitForExistence(timeout: 10))
+    return app
+  }
+
+  /// 热账户用原序号徽标定位；WalletAccountTile没有wallet-hot-row标识。
+  /// 语义仅在内存取公开序号，其他行内容不输出或保存，不增加生产语义。
+  private func hotAccountBadges(in app: XCUIApplication) -> XCUIElementQuery {
+    app.descendants(matching: .any).matching(NSPredicate(
+      format: "label MATCHES %@", "(?s)^#[0-9]+(?:\\s.*)?$"))
+  }
+
+  private func observedHotAccountIndices(in app: XCUIApplication) -> Set<Int> {
+    var indices = Set<Int>()
+    for attempt in 0...12 {
+      for badge in hotAccountBadges(in: app).allElementsBoundByIndex
+        where badge.isHittable {
+        let prefix = badge.label.prefix { !$0.isWhitespace }
+        if let index = Int(prefix.dropFirst()) { indices.insert(index) }
+      }
+      if attempt < 12 { app.swipeUp() }
+    }
+    return indices
   }
 
   /// 真实通讯录验收必须收到云端同步结果；显示本地记录或失败横幅不能判为成功。
@@ -777,6 +813,12 @@ final class RunnerUITests: XCTestCase {
     dismissPermissionGuideIfNeeded(in: app)
     try requireMainNavigation(in: app)
 
+    // 每次重启均明确导航，不能依赖上次选中的Tab或首屏默认值。
+    let square = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "广场")).firstMatch
+    XCTAssertTrue(square.waitForExistence(timeout: 10), "找不到广场主导航入口")
+    square.tap()
+    XCTAssertFalse(app.staticTexts["初始化本机聊天设备"].exists)
+
     let publish = app.buttons.matching(
       NSPredicate(format: "label == %@", "发布")
     ).firstMatch
@@ -809,7 +851,6 @@ final class RunnerUITests: XCTestCase {
     XCTAssertTrue(cover.exists)
     XCTAssertEqual(cover.frame.maxX, addSection.frame.maxX, accuracy: 1.5)
     XCTAssertEqual(inlineMedia.frame.maxX, addSection.frame.maxX, accuracy: 1.5)
-    attachScreenshot(app, name: "CitizenApp-发布文章")
   }
 
   /// iOS 必须直接显示安装包内的完整版本，不能依赖 Android APK 更新接口。
@@ -872,7 +913,6 @@ final class RunnerUITests: XCTestCase {
     XCTAssertTrue(nationalCouncil.waitForExistence(timeout: 10))
     XCTAssertEqual(whitepaper.frame.midY, nationalCouncil.frame.midY, accuracy: 3)
     XCTAssertFalse(app.staticTexts["治理机构"].exists, "治理页仍显示重复标题")
-    attachScreenshot(app, name: "CitizenApp-治理双列卡片")
   }
 
   /// 交易Tab必须继续显示原有公民链顶栏，并从真实CitizenSDK链状态得到非递减finalized高度。
@@ -917,7 +957,6 @@ final class RunnerUITests: XCTestCase {
       )
     }
     XCTAssertTrue(app.buttons["选择交易钱包"].exists, "交易Tab缺少原有钱包选择入口")
-    attachScreenshot(app, name: "CitizenApp-交易Tab公民链状态")
   }
 
   /// 只读实网观察：只提取公开最终块高度及连接标志，不读取表单、不截图、不发交易。
@@ -1511,7 +1550,7 @@ final class RunnerUITests: XCTestCase {
       for (kind, phrase) in [
         ("identity_failed", "暂时无法验证身份，请稍后重试"),
         ("wallet_missing", "请先在「我的 → 我的钱包」创建热钱包"),
-        ("registration_required", "注册身份"),
+        ("identity_unregistered", "注册身份"),
       ] {
         if app.descendants(matching: .any).matching(
           NSPredicate(format: "label == %@", phrase)).firstMatch.exists {
@@ -1523,6 +1562,7 @@ final class RunnerUITests: XCTestCase {
     }, object: nil)
     if XCTWaiter.wait(for: [ready], timeout: 60) != .completed { gate = "timeout" }
     NSLog("CONTACT_SCAN_GATE result=%@ elapsed_s=%.1f", gate, Date().timeIntervalSince(started))
+    XCTAssertFalse(app.alerts["初始化本机聊天设备"].exists, "内部准备不得弹出初始化确认")
     XCTAssertEqual(gate, "opened", "通讯录扫码前置条件未通过，不能进行相机验收")
     try assertLiveScannerPreview(in: app, title: "扫码添加好友")
   }
@@ -1702,17 +1742,7 @@ final class RunnerUITests: XCTestCase {
   /// 创作者页必须使用「我的」已持有的本地身份/会员展示态立即出首帧，
   /// 不得把 Worker 或链上读取放在路由打开的关键路径。
   func testCreatorPageDisplaysImmediatelyFromMyTab() throws {
-    let app = XCUIApplication(bundleIdentifier: targetBundleIdentifier)
-    app.launch()
-    XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20))
-    dismissPermissionGuideIfNeeded(in: app)
-    try requireMainNavigation(in: app)
-
-    let myTab = app.buttons.matching(
-      NSPredicate(format: "label CONTAINS %@", "我的")
-    ).firstMatch
-    XCTAssertTrue(myTab.waitForExistence(timeout: 20), "找不到我的主导航入口")
-    myTab.tap()
+    let app = try openExistingAccountServices()
 
     let creatorEntry = app.descendants(matching: .any).matching(
       NSPredicate(format: "label == %@", "创作者")
@@ -1720,23 +1750,20 @@ final class RunnerUITests: XCTestCase {
     XCTAssertTrue(creatorEntry.waitForExistence(timeout: 10), "我的页缺少创作者入口")
 
     creatorEntry.tap()
-    let creatorSurface = app.descendants(matching: .any).matching(
-      NSPredicate(
-        format: "label IN %@",
-        ["我的创作者会员", "去订阅平台会员"]
-      )
-    ).firstMatch
-    let immediate = creatorSurface.waitForExistence(timeout: 1)
-    // 只记录固定页面标记，区分入口未打开与Flutter组合语义，不输出账户或页面正文。
-    let combinedSurface = app.descendants(matching: .any).matching(NSPredicate(
+    // Flutter将卡片标题、说明和动作合并为语义节点；仍须确认已离开“我的”。
+    let creatorSurface = app.descendants(matching: .any).matching(NSPredicate(
       format: "label CONTAINS %@ OR label CONTAINS %@", "我的创作者会员", "去订阅平台会员")).firstMatch
-    NSLog("CREATOR_UI immediate_exact=%d combined=%d refresh=%d my_header=%d",
-      immediate ? 1 : 0, combinedSurface.exists ? 1 : 0,
-      app.buttons["刷新"].exists ? 1 : 0, app.buttons["我的用户码"].exists ? 1 : 0)
+    let creatorTitle = app.staticTexts["创作者"]
+    // 单一内容节点承担1秒要求；标题/页面归属随后独立核对，不混入多次IPC查询。
+    let immediate = creatorSurface.waitForExistence(timeout: 1)
+    NSLog("CREATOR_UI immediate=%d page=%d structure=%d",
+      immediate ? 1 : 0, creatorTitle.exists ? 1 : 0, creatorSurface.exists ? 1 : 0)
     XCTAssertTrue(
       immediate,
       "创作者页没有在 1 秒内显示本地会员或非会员结构"
     )
+    XCTAssertTrue(creatorTitle.exists, "内容不属于实际创作者页")
+    XCTAssertTrue(creatorSurface.isHittable, "创作者原结构不可交互")
     XCTAssertFalse(app.staticTexts["正在连接聊天服务"].exists)
     XCTAssertFalse(app.staticTexts["同步中"].exists)
     XCTAssertFalse(app.staticTexts["状态同步中"].exists)
@@ -1770,18 +1797,149 @@ final class RunnerUITests: XCTestCase {
     try requireMainNavigation(in: app)
     let citizen = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "公民")).firstMatch
     XCTAssertTrue(citizen.waitForExistence(timeout: 10)); citizen.tap()
-    let governance = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "治理")).firstMatch
+    let governance = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "治理")).firstMatch
     XCTAssertTrue(governance.waitForExistence(timeout: 10)); governance.tap()
     let institution = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "国家储委会")).firstMatch
     XCTAssertTrue(institution.waitForExistence(timeout: 10)); institution.tap()
     let admins = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "管理员")).firstMatch
     XCTAssertTrue(admins.waitForExistence(timeout: 15))
+    let count = app.descendants(matching: .any).matching(NSPredicate(
+      format: "label MATCHES %@", "(?s).*共 [1-9][0-9]* 位管理员.*")).firstMatch
+    XCTAssertTrue(count.waitForExistence(timeout: 30), "已知有管理员的机构未显示真实正人数")
     XCTAssertFalse(app.buttons["刷新管理员"].exists)
+    XCTAssertFalse(app.buttons["重试"].exists)
     XCTAssertFalse(app.staticTexts["岗位信息暂不可用"].exists)
+    app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.4)).press(forDuration: 0.1,
+        thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.4)))
+    XCTAssertTrue(admins.waitForExistence(timeout: 5), "取消侧滑后应保留机构详情")
     app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.4)).press(forDuration: 0.1,
         thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.4)))
     XCTAssertTrue(governance.waitForExistence(timeout: 10), "机构详情侧滑后应回到治理列表")
     NSLog("INSTITUTION_UI interactive_back=1 extra_admin_actions=0")
+  }
+
+  /// 仅消费设备已有的多热账户条件；不新增账户、不选择付款源、不输出行内容。
+  func testTradeWalletPickerShowsExistingHotAccounts() throws {
+    let app = try openExistingWallet()
+    XCTAssertTrue(hotAccountBadges(in: app).firstMatch.waitForExistence(timeout: 10),
+      "未取得原热账户卡片，不能当作多账户条件不足")
+    let original = observedHotAccountIndices(in: app)
+    guard original.count >= 2 else {
+      throw XCTSkip("本轮滚动未观察到至少两个已有热账户，多账户未覆盖；不新增账户")
+    }
+    let back = app.buttons.matching(NSPredicate(format: "label IN %@", ["返回", "Back"])).firstMatch
+    XCTAssertTrue(back.waitForExistence(timeout: 5)); back.tap()
+    let trade = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "交易")).firstMatch
+    XCTAssertTrue(trade.waitForExistence(timeout: 10)); trade.tap()
+    let picker = app.buttons["选择交易钱包"]
+    XCTAssertTrue(picker.waitForExistence(timeout: 10)); picker.tap()
+    XCTAssertTrue(app.staticTexts["选择交易钱包"].waitForExistence(timeout: 10))
+    XCTAssertTrue(hotAccountBadges(in: app).firstMatch.waitForExistence(timeout: 10))
+    let selectable = observedHotAccountIndices(in: app)
+    XCTAssertTrue(original.isSubset(of: selectable), "已有热账户在交易选择页缺失或被折叠")
+    NSLog("WALLET_PICKER_UI multiple_existing_hot_accounts=1")
+  }
+
+  /// 只读取账户详情与配置；已有恢复订单时不点币种，避免进入恢复或授权流程。
+  func testTopupConfigAndPackagesWithoutOpeningPayment() throws {
+    let app = try openExistingWallet()
+    let row = hotAccountBadges(in: app).firstMatch
+    XCTAssertTrue(row.waitForExistence(timeout: 10), "未取得原热账户卡片")
+    XCTAssertTrue(row.isHittable, "原热账户卡片不在可点击区域")
+    row.tap()
+    XCTAssertTrue(app.staticTexts["账户详情"].waitForExistence(timeout: 10))
+    XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "合约查询")).firstMatch.exists)
+    let topup = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "充值")).firstMatch
+    XCTAssertTrue(topup.waitForExistence(timeout: 10)); topup.tap()
+    XCTAssertTrue(app.staticTexts["链上充值"].waitForExistence(timeout: 10))
+    let usdc = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "USDC")).firstMatch
+    XCTAssertTrue(usdc.waitForExistence(timeout: 30), "充值配置未显示原币种入口")
+    XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "USDT")).firstMatch.exists)
+    let recovery = app.descendants(matching: .any).matching(NSPredicate(format:
+      "label CONTAINS %@ OR label CONTAINS %@", "恢复充值订单", "充值订单 ·")).firstMatch
+    guard !recovery.exists else { throw XCTSkip("存在原充值订单，仅完成配置读取，不进入原单或付款") }
+    for (token, networks) in [
+      ("USDC", ["Ethereum/以太坊链", "Base/Base链", "Solana/索拉纳链"]),
+      ("USDT", ["Ethereum/以太坊链", "Tron/波场链", "BNB/币安链"])
+    ] {
+      let card = app.descendants(matching: .any).matching(NSPredicate(
+        format: "label BEGINSWITH %@", token)).firstMatch
+      XCTAssertTrue(card.isHittable); card.tap()
+      XCTAssertTrue(app.staticTexts["选择充值套餐 · " + token].waitForExistence(timeout: 10))
+      // 两档各三链共十二个组合；只读按钮，网络入口会唤起钱包，禁止点击。
+      for network in networks {
+        let buttons = app.buttons.matching(NSPredicate(format: "label == %@", network))
+        XCTAssertEqual(buttons.count, 2, "每个套餐必须各显示三个原网络入口")
+      }
+      XCTAssertTrue(app.staticTexts["选择网络后，将打开兼容钱包确认付款"].exists)
+      XCTAssertFalse(app.webViews.firstMatch.exists, "读取套餐不应打开付款WebView")
+      // 关闭原底部套餐弹窗，只在弹窗外、已观测卡片区域点击，不触碰网络按钮。
+      let sheet = app.staticTexts["选择充值套餐 · " + token].frame
+      XCTAssertGreaterThan(sheet.minY, app.frame.minY + 20)
+      app.coordinate(withNormalizedOffset: .zero)
+        .withOffset(CGVector(dx: app.frame.midX, dy: (app.frame.minY + sheet.minY) / 2)).tap()
+      XCTAssertFalse(app.staticTexts["选择充值套餐 · " + token].exists)
+    }
+    NSLog("TOPUP_UI config=1 package_sheet=1 payment_opened=0 contract_entry=0")
+  }
+
+  /// 提案只读查看和下拉；前景空白没有可证明的读取回执，必须标记未覆盖。
+  func testCitizenProposalReadOnly() throws {
+    let app = XCUIApplication(bundleIdentifier: targetBundleIdentifier)
+    app.launch(); dismissPermissionGuideIfNeeded(in: app)
+    try requireMainNavigation(in: app)
+    let citizen = app.buttons.matching(NSPredicate(
+      format: "label BEGINSWITH %@ AND label CONTAINS %@", "公民", "Tab ")).firstMatch
+    XCTAssertTrue(citizen.waitForExistence(timeout: 10)); citizen.tap()
+    let proposal = app.descendants(matching: .any).matching(NSPredicate(
+      format: "label == %@", "提案")).firstMatch
+    XCTAssertTrue(proposal.waitForExistence(timeout: 10)); proposal.tap()
+    app.swipeDown()
+    let failure = app.staticTexts.matching(NSPredicate(format:
+      "label CONTAINS %@ OR label CONTAINS %@ OR label CONTAINS %@",
+      "提案链状态暂时不可用", "提案读取失败", "提案刷新失败")).firstMatch
+    let card = app.descendants(matching: .any).matching(NSPredicate(format:
+      "label CONTAINS %@ OR label CONTAINS %@ OR label CONTAINS %@ OR label CONTAINS %@ OR label CONTAINS %@",
+      "投票中", "已通过", "已拒绝", "已执行", "执行失败")).firstMatch
+    let observed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+      failure.exists || card.exists
+    }, object: nil)
+    let terminal = XCTWaiter.wait(for: [observed], timeout: 30) == .completed
+    XCTAssertFalse(failure.exists, "提案真实读取失败，不能以空白页面判成功")
+    if failure.exists { return }
+    guard terminal && card.exists else {
+      throw XCTSkip("提案前景无卡片/成功回执，仅完成进入及下拉，实网读取未覆盖")
+    }
+    XCTAssertTrue(card.isHittable, "未观察到实际提案卡片")
+    NSLog("PROPOSAL_UI readonly_card=1")
+  }
+
+  /// 只读展开原宪法章、节并读到条文；不点击修改、投票或任何链操作。
+  func testCitizenConstitutionReadOnly() throws {
+    let app = XCUIApplication(bundleIdentifier: targetBundleIdentifier)
+    app.launch(); dismissPermissionGuideIfNeeded(in: app)
+    try requireMainNavigation(in: app)
+    let citizen = app.buttons.matching(NSPredicate(
+      format: "label BEGINSWITH %@ AND label CONTAINS %@", "公民", "Tab ")).firstMatch
+    XCTAssertTrue(citizen.waitForExistence(timeout: 10)); citizen.tap()
+    let legislation = app.descendants(matching: .any).matching(NSPredicate(
+      format: "label == %@", "立法")).firstMatch
+    XCTAssertTrue(legislation.waitForExistence(timeout: 10)); legislation.tap()
+    let constitution = app.descendants(matching: .any).matching(NSPredicate(
+      format: "label CONTAINS %@", "《公民宪法》")).firstMatch
+    XCTAssertTrue(constitution.waitForExistence(timeout: 20)); constitution.tap()
+    let chapter = app.buttons["展开本章"].firstMatch
+    XCTAssertTrue(chapter.waitForExistence(timeout: 30), "未读到原宪法章结构")
+    chapter.tap()
+    let section = app.buttons["展开本节"].firstMatch
+    XCTAssertTrue(section.waitForExistence(timeout: 10)); section.tap()
+    let article = app.descendants(matching: .any).matching(NSPredicate(
+      format: "label MATCHES %@", "(?s).*第[0-9]+条.*")).firstMatch
+    XCTAssertTrue(article.waitForExistence(timeout: 10), "展开后未显示宪法条文")
+    XCTAssertTrue(app.staticTexts["不可修改条款"].exists)
+    XCTAssertFalse(app.staticTexts.matching(NSPredicate(
+      format: "label CONTAINS %@", "法律读取失败")).firstMatch.exists)
+    NSLog("CONSTITUTION_UI chapter=1 section=1 article=1")
   }
 
   private func requireMainNavigation(in app: XCUIApplication) throws {

@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {spawn, spawnSync} from 'node:child_process';
-import {chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, lstatSync, rmSync, symlinkSync, writeFileSync} from 'node:fs';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {assembleProject,selectSDKRelease,existingFlutter} from '../scripts/build.mjs';
@@ -22,7 +22,6 @@ function fixture(t, platform = 'android') {
         mkdirSync(join(directory, path), {recursive: true});
     }
     copyFileSync(join(root, 'scripts/build.mjs'), join(directory, 'scripts/build.mjs'));
-    copyFileSync(join(root, 'scripts/topup.mjs'), join(directory, 'scripts/topup.mjs'));
     const executable = (name, code) => {
         const path = join(directory, 'bin', name);
         writeFileSync(path, '#!' + process.execPath + '\n' + code);
@@ -125,6 +124,41 @@ test('自动化复用正式SDK，依赖阶段不重新编译SDK', t => {
     assert.equal(result.status, 0, result.stderr);
     assert.equal(existsSync(value.env.CALLS), false);
     assert.equal(existsSync(join(value.directory, 'target/build/21-1/build-active.json')), false);
+});
+
+test('宿主Core输入解析同轮Framework内部链接，真机组件不输出不存在的宿主库', t => {
+    const base = join(root, 'target/test');
+    mkdirSync(base, {recursive:true});
+    const work = mkdtempSync(join(base, 'host-'));
+    t.after(() => rmSync(work, {recursive:true, force:true}));
+    const body = assembleProject.toString().split("const sdkRoot = join(work, 'packages/citizen_sdk');")[1].split('// App随包资源')[0];
+    assert.ok(body);
+    const execute = new Function('join', 'work', 'existsSync', 'realpathSync', 'lstatSync', 'appendFileSync', 'environment',
+        "const sdkRoot = join(work, 'packages/citizen_sdk');" + body + 'return values;');
+    const environment = {CITIZENSDK_TEST_CORE_LIB_PATH:'/obsolete/Core', GITHUB_ENV:'/fixture/env'};
+    let writes = [];
+    const run = () => execute(join, work, existsSync, realpathSync, lstatSync, (file, value) => {
+        assert.equal(file, '/fixture/env'); writes.push(value);
+    }, environment);
+    let values = run();
+    assert.equal('CITIZENSDK_TEST_CORE_LIB_PATH' in values, false);
+    assert.equal('CITIZENSDK_TEST_CORE_LIB_PATH' in environment, false);
+    assert.ok(writes.every(value => !value.startsWith('CITIZENSDK_TEST_CORE_LIB_PATH=')));
+    const framework = join(work, 'packages/citizen_sdk/darwin/CitizenSDK.xcframework/macos-arm64/CitizenSDK.framework');
+    const core = join(framework, 'Versions/A/CitizenSDK');
+    mkdirSync(dirname(core), {recursive:true});
+    writeFileSync(core, 'same-run synthetic Core');
+    symlinkSync('A', join(framework, 'Versions/Current'));
+    symlinkSync('Versions/Current/CitizenSDK', join(framework, 'CitizenSDK'));
+    writes = [];
+    values = run();
+    assert.equal(values.CITIZENSDK_TEST_CORE_LIB_PATH, realpathSync(core));
+    assert.equal(environment.CITIZENSDK_TEST_CORE_LIB_PATH, realpathSync(core));
+    assert.equal(lstatSync(values.CITIZENSDK_TEST_CORE_LIB_PATH).isSymbolicLink(), false);
+    assert.ok(writes.includes('CITIZENSDK_TEST_CORE_LIB_PATH=' + realpathSync(core) + '\n'));
+    rmSync(core);
+    mkdirSync(core);
+    assert.throws(run, /宿主测试Core不是普通文件/);
 });
 
 test('iOS在原锁版本核对后、工程装配前预缓存两种Apple引擎', () => {
@@ -343,13 +377,37 @@ test('SDK自动选择最新成功正式版，本机与自动化使用独立消�
 
 });
 
-test('双端在装配前准备同一声明的esbuild，源码钱包库不带工具安装脚本',()=>{
- const declaration=JSON.parse(readFileSync(join(root,'assets/topup/package.json')));
- const lock=JSON.parse(readFileSync(join(root,'assets/topup/package-lock.json')));
- assert.equal(declaration.citizenapp.tools.esbuild,'0.28.1');assert.equal(declaration.engines.node,'25.2.1');
- assert.deepEqual(lock.packages[''].dependencies,declaration.dependencies);assert.equal(declaration.scripts,undefined);assert.equal(declaration.dependencies.esbuild,undefined);
- for(const platform of ['ios','android']){
-  const workflow=readFileSync(join(root,'.github/workflows/'+platform+'.yml'),'utf8');const tools=workflow.indexOf('name: 准备本轮充值构建工具');assert.ok(tools>=0&&tools<workflow.indexOf('name: 按本产品原锁装配普通工程'));
-  assert.match(workflow,/citizenapp[.]tools[.]esbuild/);assert.match(workflow,/npm install --prefix "[$]WORK\/tools" --ignore-scripts --no-audit --no-fund "esbuild@[$]version"/);assert.match(workflow,/ESBUILD_BIN=[$]WORK\/tools\/node_modules\/[.]bin\/esbuild/);
- }
+// 直接执行App装配函数中的真实资源正文，不另建功能构建入口或复制实现。
+test('App普通装配生成随包资源，库或资源工具失败不得继续', async () => {
+    const source = assembleProject.toString();
+    const start = source.indexOf('// App随包资源随普通工程一起准备，不增加功能构建入口。');
+    assert.ok(start >= 0);
+    const body = source.slice(start, source.indexOf('return {project,values};', start));
+    const execute = new Function('join', 'project', 'environment', 'run', 'return (async () => {' + body + '})();');
+    for (const failure of [null, 'npm', '/fixture/esbuild']) {
+        const calls = [], error = new Error('合成工具失败');
+        const result = execute(join, '/fixture/project', {ESBUILD_BIN:'/fixture/esbuild'}, async (...args) => {
+            calls.push(args);
+            if (args[0] === failure) throw error;
+        });
+        if (failure) await assert.rejects(result, actual => actual === error);
+        else await result;
+        assert.equal(calls.length, failure === 'npm' ? 1 : 2);
+        assert.deepEqual(calls[0].slice(0, 3), ['npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], '/fixture/project/assets/topup']);
+        assert.equal(calls[0][4].npm_config_ignore_scripts, 'true');
+        if (calls.length === 2) {
+            assert.equal(calls[1][0], '/fixture/esbuild');
+            assert.ok(calls[1][1].includes('--outfile=walletconnect.bundle.js'));
+            assert.equal(calls[1][2], '/fixture/project/assets/topup');
+        }
+    }
+    const declaration = JSON.parse(readFileSync(join(root, 'assets/topup/package.json')));
+    for (const platform of ['ios', 'android']) {
+        const workflow = readFileSync(join(root, '.github/workflows/' + platform + '.yml'), 'utf8');
+        const tools = workflow.slice(workflow.indexOf('      - name: 准备官方工具和本轮目录'), workflow.indexOf('      - name: 按本产品原锁装配普通工程'));
+        assert.match(tools, /citizenapp[.]tools[.]esbuild/);
+        assert.match(tools, /ESBUILD_BIN/);
+        assert.doesNotMatch(workflow, /name: 准备本轮充值构建工具/);
+    }
+    assert.equal(declaration.citizenapp.tools.esbuild, '0.28.1');
 });

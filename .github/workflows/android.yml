@@ -13,8 +13,6 @@ defaults:
   run:
     shell: bash
 env:
-  TOPUP_TRON_RPC_URL: ${{ vars.TOPUP_TRON_RPC_URL }}
-  TOPUP_SOLANA_RPC_URL: ${{ vars.TOPUP_SOLANA_RPC_URL }}
   PLATFORM: android
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: '1'
 jobs:
@@ -123,13 +121,10 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
           echo "$ANDROID_HOME/cmake/3.31.6/bin" >> "$GITHUB_PATH"
-      - name: 准备本轮充值构建工具
-        run: |
-          set -euo pipefail
-          # 唯一版本读取本产品声明，工具与钱包库分开，只写本轮目录。
+          # App资源工具与其他官方工具在同一步准备，不增加功能构建步骤。
           version=$(node --input-type=module -e "import fs from 'node:fs'; console.log(JSON.parse(fs.readFileSync('assets/topup/package.json')).citizenapp.tools.esbuild)")
-          npm install --prefix "$WORK/tools" --ignore-scripts --no-audit --no-fund "esbuild@$version"
-          echo "ESBUILD_BIN=$WORK/tools/node_modules/.bin/esbuild" >> "$GITHUB_ENV"
+          npm install --prefix "$work/tools" --ignore-scripts --no-audit --no-fund "esbuild@$version"
+          echo "ESBUILD_BIN=$work/tools/node_modules/.bin/esbuild" >> "$GITHUB_ENV"
       - name: 按本产品原锁装配普通工程
         env:
           GH_TOKEN: ${{ github.token }}

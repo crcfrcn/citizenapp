@@ -4,8 +4,9 @@ import 'topup_models.dart';
 Map<String, Object> tronPayment(TopupRail rail, TopupPaymentIntent intent) {
   if (rail.network != TopupNetwork.tron ||
       rail.token != 'USDT' ||
-      intent.network != rail.network)
+      intent.network != rail.network) {
     throw const FormatException('Tron付款上下文无效');
+  }
   return {
     'rpc': TopupRpcConfig.url(TopupRpcConfig.tron),
     'asset': rail.asset,

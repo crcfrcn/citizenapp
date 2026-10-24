@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:citizenapp/account/identity/account_security_service.dart';
 import 'package:citizenapp/account/identity/square_session_provider.dart';
+import 'package:citizenapp/account/identity/identity_register_guide.dart';
 import 'package:citizenapp/account/identity/register_identity_flow.dart';
 import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/account/membership/membership_revision.dart';
@@ -247,7 +248,7 @@ class SubscriptionService {
       throw const SquareApiException(
         '需要有效会员才能发送附件',
         statusCode: 403,
-        errorCode: 'attachment_membership_required',
+        errorCode: 'attachment_membergate_required',
       );
     }
   }
@@ -470,7 +471,7 @@ class SubscriptionService {
   }
 
   static String _displaySnapshotKey(String cidNumber) =>
-      'platform_membership_display_snapshot:$cidNumber';
+      'platform_membergate_display_snapshot:$cidNumber';
 
   /// 读取当前账户上一次成功同步的展示快照；损坏缓存只忽略展示，读取路径不删除事实。
   Future<MembershipDisplaySnapshot?> readDisplaySnapshot(String cidNumber) =>
@@ -499,7 +500,7 @@ class SubscriptionService {
           if (value is int && value >= 0) prices[level] = value;
         }
       }
-      final membershipLevel = decoded['membership_level'];
+      final membershipLevel = decoded['membergate_level'];
       final subscriptionStatus = decoded['subscription_status'];
       final snapshot = MembershipDisplaySnapshot(
         state: SquareMembershipState(
@@ -549,7 +550,7 @@ class SubscriptionService {
       jsonEncode({
         'active': effective.state.active,
         'paid_until': effective.state.paidUntil,
-        'membership_level': effective.state.membershipLevel,
+        'membergate_level': effective.state.membershipLevel,
         'subscription_status': effective.state.subscriptionStatus,
         'subscription_active': effective.state.subscriptionActive,
         'last_charged_at': effective.state.lastChargedAt,
@@ -958,6 +959,7 @@ class MembershipBusinessGate extends StatefulWidget {
 }
 
 class _MembershipBusinessGateState extends State<MembershipBusinessGate> {
+  bool _unregistered = false;
   int _generation = 0;
   bool _ready = false;
   String? _error;
@@ -997,6 +999,7 @@ class _MembershipBusinessGateState extends State<MembershipBusinessGate> {
 
   Future<void> _check({bool userInitiated = false}) async {
     final generation = ++_generation;
+    _unregistered = false;
     final revision = _security?.revision.value;
     try {
       if (!widget.localContent) {
@@ -1017,6 +1020,7 @@ class _MembershipBusinessGateState extends State<MembershipBusinessGate> {
           setState(() {
             _ready = false;
             _error = resolution.message;
+            _unregistered = resolution.errorCode == 'identity_unregistered';
           });
           return;
         }
@@ -1058,6 +1062,14 @@ class _MembershipBusinessGateState extends State<MembershipBusinessGate> {
   @override
   Widget build(BuildContext context) {
     if (_ready) return widget.child;
+    if (_unregistered) {
+      return Scaffold(
+        body: IdentityRegisterGuide(
+          description: '注册后即可使用公民服务。',
+          onRegistered: _changed,
+        ),
+      );
+    }
     return Scaffold(
       body: _error == null
           ? const Center(child: CircularProgressIndicator())

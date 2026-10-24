@@ -1494,7 +1494,7 @@ void main() {
     expect(provider.registrationCalls, 0);
     expect(find.byKey(const ValueKey('square-register-device')), findsNothing);
     expect(find.text('验证并登记本机设备'), findsNothing);
-    expect(find.text('本机设备授权尚未完成，请稍后重试'), findsOneWidget);
+    expect(find.text('公民服务准备未完成，请重试'), findsOneWidget);
     expect(find.text('注册'), findsNothing);
   });
 

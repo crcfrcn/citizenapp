@@ -434,7 +434,7 @@ class UserContactService {
         failure.status == SquareSessionStatus.networkUnavailable
             ? ContactSyncPhase.offline
             : ContactSyncPhase.failed,
-        // MLS目录、初始化和状态缺失沿会话固定分类显示；失败保留本地联系人与待发记录。
+        // 唯一会话入口自动准备MLS；目录/已提交状态故障沿固定分类显示，保留联系人及待发项。
         // 不自动换钥、不以重试清空记录，也不持久化原始异常正文。
         message: failure.message,
         errorCode: failure.errorCode,

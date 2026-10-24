@@ -29,8 +29,8 @@ class InstitutionAdminState {
 /// `cidNumber` 当作个人多签、机构账户和治理机构共用的模糊参数。
 class InstitutionAdminService {
   InstitutionAdminService({required CitizenChain chain})
-      : _chain = chain,
-        _accountService = AdminAccountService(chain: chain);
+    : _chain = chain,
+      _accountService = AdminAccountService(chain: chain);
 
   final CitizenChain _chain;
   final AdminAccountService _accountService;
@@ -51,15 +51,26 @@ class InstitutionAdminService {
     if (identity.cidNumber != cidNumber) {
       throw ArgumentError('机构CID与管理员主体不一致');
     }
-    final adminState = await _accountService.fetchByIdentity(identity);
-    if (adminState == null) return const [];
-    final adminSet = adminState.admins.map((admin) => admin.account_id).toSet();
+    // 岗位展示只依赖人员名册；治理阈值仍由完整状态/权限入口核验。
+    final admins = await fetchAdmins(identity);
+    if (admins.isEmpty) return const [];
+    final adminSet = admins.map((admin) => admin.account_id).toSet();
     // 非法人机构码本身不能推断公权/私权，必须按链上管理员类型路由。
     final entityPallet = identity.kind == 1 ? 'PrivateManage' : 'PublicManage';
-    final roleValues =
-        await _scanValues(entityPallet, 'InstitutionRoles', cidNumber);
+    // 岗位目录、任职及其全部分页/批取固定到同一个 finalized 块。
+    final finalized = await _chain.getFinalizedHead();
+    final roleValues = await _scanValues(
+      finalized,
+      entityPallet,
+      'InstitutionRoles',
+      cidNumber,
+    );
     final assignmentValues = await _scanValues(
-        entityPallet, 'InstitutionRoleAssignments', cidNumber);
+      finalized,
+      entityPallet,
+      'InstitutionRoleAssignments',
+      cidNumber,
+    );
     final roles = <String, InstitutionRole>{};
     for (final value in roleValues) {
       final role = InstitutionRoleStorageCodec.decodeRole(value);
@@ -70,7 +81,8 @@ class InstitutionAdminService {
       }
     }
     final out = <InstitutionAdminAssignment>[];
-    final currentDay = DateTime.now().toUtc().millisecondsSinceEpoch ~/
+    final currentDay =
+        DateTime.now().toUtc().millisecondsSinceEpoch ~/
         Duration.millisecondsPerDay;
     for (final value in assignmentValues) {
       final decoded = InstitutionRoleStorageCodec.decodeAssignments(value);
@@ -93,14 +105,18 @@ class InstitutionAdminService {
     AdminAccountIdentity identity,
     String cidNumber,
   ) async {
-    if (identity.type != AdminAccountIdentityType.institution || identity.cidNumber != cidNumber) {
+    if (identity.type != AdminAccountIdentityType.institution ||
+        identity.cidNumber != cidNumber) {
       throw ArgumentError('机构CID与管理员主体不一致');
     }
     // 人员为主记录，岗位查询失败只能使附加资料变为未知，不能抹去人员。
     final admins = await fetchAdmins(identity);
     if (admins.isEmpty) return const [];
     try {
-      return mergeAdminViews(admins, await fetchAssignments(identity, cidNumber));
+      return mergeAdminViews(
+        admins,
+        await fetchAssignments(identity, cidNumber),
+      );
     } on Object {
       return mergeAdminViews(admins, const [], assignmentsLoaded: false);
     }
@@ -157,10 +173,16 @@ class InstitutionAdminService {
   }
 
   Future<List<Uint8List>> _scanValues(
-      String pallet, String storage, String cidNumber) async {
-    final prefix =
-        _doubleMapFirstKeyPrefix(pallet, storage, utf8.encode(cidNumber));
-    final finalized = await _chain.getFinalizedHead();
+    CitizenBlockRef finalized,
+    String pallet,
+    String storage,
+    String cidNumber,
+  ) async {
+    final prefix = _doubleMapFirstKeyPrefix(
+      pallet,
+      storage,
+      utf8.encode(cidNumber),
+    );
     final keys = <Uint8List>[];
     Uint8List? startKey;
     while (true) {
@@ -192,16 +214,21 @@ class InstitutionAdminService {
   }
 
   Uint8List _doubleMapFirstKeyPrefix(
-      String pallet, String storage, List<int> cidBytes) {
-    final encodedCid =
-        Uint8List.fromList([(cidBytes.length << 2), ...cidBytes]);
+    String pallet,
+    String storage,
+    List<int> cidBytes,
+  ) {
+    final encodedCid = Uint8List.fromList([
+      (cidBytes.length << 2),
+      ...cidBytes,
+    ]);
     final parts = [
       Hasher.twoxx128.hashString(pallet),
       Hasher.twoxx128.hashString(storage),
       AdminAccountIdCodec.blake2128Concat(encodedCid),
     ];
     return Uint8List.fromList(
-        parts.expand((part) => part).toList(growable: false));
+      parts.expand((part) => part).toList(growable: false),
+    );
   }
-
 }

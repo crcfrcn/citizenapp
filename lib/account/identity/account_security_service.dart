@@ -157,14 +157,40 @@ interface class AccountSecurityService {
             required issuedAtMillis,
           }) async {
             await _requireCurrent(binding, generation);
-            // 钱包回调只在没有持久登记授权时执行；CAS在真实授权之前占用唯一尝试。
+            // 尝试归属实际设备公钥；新设备不能被上一设备的尝试永久阻断。
             final attempt = 'mls.registration.attempt:${_owner(binding)}';
-            if (!await _records.compareAndSet(
+            final previousAttempt = await _records.read(attempt);
+            var previousKey = previousAttempt;
+            if (previousAttempt == 'attempted') {
+              final raw = await _records.read(
+                deviceRegistrationProofKey(
+                  binding.cidNumber,
+                  binding.bindingRevision,
+                  binding.accountId,
+                ),
+              );
+              // 只有完整旧回执才能证明旧尝试属于另一公钥；无回执的未知终态仍禁止重签。
+              if (raw != null) {
+                previousKey =
+                    decodeDeviceRegistrationProof(
+                          raw,
+                          cidNumber: binding.cidNumber,
+                          bindingRevision: binding.bindingRevision,
+                          accountId: binding.accountId,
+                        )['public_key']
+                        as String;
+              }
+            }
+            if (previousKey == 'attempted' ||
+                previousKey == publicKey ||
+                (previousKey != null &&
+                    !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(previousKey)) ||
+                !await _records.compareAndSet(
                   attempt,
-                  expected: null,
-                  next: 'attempted',
+                  expected: previousAttempt,
+                  next: publicKey,
                 ) ||
-                await _records.read(attempt) != 'attempted') {
+                await _records.read(attempt) != publicKey) {
               throw const AccountSecurityException(
                 '首次登记授权已尝试，不能自动重复',
                 code: 'authenticationRequired',
@@ -220,8 +246,8 @@ interface class AccountSecurityService {
               if (cancelled &&
                   !await _records.compareAndSet(
                     attempt,
-                    expected: 'attempted',
-                    next: null,
+                    expected: publicKey,
+                    next: previousAttempt,
                   )) {
                 throw const AccountSecurityException(
                   '设备授权取消状态保存失败，请重试',

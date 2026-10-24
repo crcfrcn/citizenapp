@@ -75,36 +75,21 @@ class _FakeSessionProvider implements SquareSessionProvider {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-class _InitializationSessions extends _FakeSessionProvider {
-  _InitializationSessions({this.missingCommitted = false});
+class _PreparingSessions extends _FakeSessionProvider {
+  _PreparingSessions({this.missingCommitted = false});
   final bool missingCommitted;
-  bool initialized = false;
-  int initializationCalls = 0;
+  int preparations = 0;
   @override
-  Future<SquareSessionResolution> resolveSession({
-    bool refresh = false,
-  }) async => initialized
-      ? super.resolveSession(refresh: refresh)
-      : SquareSessionResolution.fromError(
-          chat_sdk.MlsNativeException(
-            missingCommitted
-                ? chat_sdk.MlsNativeErrorCode.stateMissing
-                : chat_sdk.MlsNativeErrorCode.initializationRequired,
-            'synthetic detail',
-          ),
-        );
-  @override
-  Future<void> initializeCurrentDevice({
-    required String expectedCidNumber,
-    required String expectedAccountId,
-    required int expectedBindingRevision,
-  }) async {
-    final current = await _CachedCurrentUser().resolve();
-    expect(expectedAccountId, current!.accountId);
-    expect(expectedCidNumber, current.cidNumber);
-    expect(expectedBindingRevision, current.bindingRevision);
-    initializationCalls++;
-    initialized = true;
+  Future<SquareSessionResolution> resolveSession({bool refresh = false}) async {
+    preparations++;
+    return missingCommitted
+        ? SquareSessionResolution.fromError(
+            const chat_sdk.MlsNativeException(
+              chat_sdk.MlsNativeErrorCode.stateMissing,
+              'synthetic detail',
+            ),
+          )
+        : super.resolveSession(refresh: refresh);
   }
 }
 
@@ -370,7 +355,7 @@ SquareMembershipPlan _plan(String level, int price) => SquareMembershipPlan(
   ),
 );
 const _membershipJson =
-    '{"ok":true,"membership_active":true,"membership":{"membership_level":"democracy","paid_until":9999999999999,"subscription_status":"active","last_charged_at":1000},"plans":[],"usage":{"used_images":0,"reserved_images":0,"used_video_seconds":0,"reserved_video_seconds":0,"active_uploads":0}}';
+    '{"ok":true,"membergate_active":true,"membergate":{"membergate_level":"democracy","paid_until":9999999999999,"subscription_status":"active","last_charged_at":1000},"plans":[],"usage":{"used_images":0,"reserved_images":0,"used_video_seconds":0,"reserved_video_seconds":0,"active_uploads":0}}';
 
 class _MemoryMembershipApi extends SquareApiClient {
   _MemoryMembershipApi(this.read);
@@ -533,7 +518,14 @@ void main() {
 
   setUp(() {
     SubscriptionService.invalidateCitizenAccount(_owner);
-    SubscriptionService.setChatAuthorizationForTesting(testMlsCidNumber, null);
+    // 清理本文件三种会话夹具的内存展示，避免相同事实抑制下一例的变化广播。
+    for (final cid in [
+      testMlsCidNumber,
+      'CN220-CTZN2-198805200-2026',
+      'CN220-CTZN2-198805299-2026',
+    ]) {
+      SubscriptionService.setChatAuthorizationForTesting(cid, null);
+    }
     SubscriptionService.nowForTesting = null;
   });
   tearDown(() {
@@ -768,19 +760,228 @@ void main() {
     expect(api.calls, 1);
   });
 
+  // 正例只用现行结构，旧结构保留为明确拒绝负例；两条读取入口共用校验。
+  final malformedSnapshots = <String, Map<String, dynamic>>{
+    '旧字段': {
+      'ok': true,
+      'membership_active': true,
+      'membership': {'membership_level': 'democracy'},
+      'plans': [],
+      'usage': {},
+    },
+    for (final field in [
+      'ok',
+      'membergate_active',
+      'membergate',
+      'plans',
+      'usage',
+    ])
+      '缺$field': (jsonDecode(_membershipJson) as Map<String, dynamic>)
+        ..remove(field),
+    for (final field in [
+      'ok',
+      'membergate_active',
+      'membergate',
+      'plans',
+      'usage',
+    ])
+      '错类型$field': (jsonDecode(_membershipJson) as Map<String, dynamic>)
+        ..[field] = 'invalid',
+    '活跃但无会员': (jsonDecode(_membershipJson) as Map<String, dynamic>)
+      ..['membergate'] = null,
+    for (final field in [
+      'membergate_level',
+      'paid_until',
+      'subscription_status',
+      'last_charged_at',
+    ])
+      '会员缺$field': (jsonDecode(_membershipJson) as Map<String, dynamic>)
+        ..['membergate'].remove(field),
+    for (final field in [
+      'used_images',
+      'reserved_images',
+      'used_video_seconds',
+      'reserved_video_seconds',
+      'active_uploads',
+    ])
+      '用量缺$field': (jsonDecode(_membershipJson) as Map<String, dynamic>)
+        ..['usage'].remove(field),
+    '用量错类型': (jsonDecode(_membershipJson) as Map<String, dynamic>)
+      ..['usage']['used_images'] = '0',
+    '用量负数': (jsonDecode(_membershipJson) as Map<String, dynamic>)
+      ..['usage']['used_images'] = -1,
+    '用量越界': (jsonDecode(_membershipJson) as Map<String, dynamic>)
+      ..['usage']['used_images'] = 9007199254740992,
+    '会员日期错类型': (jsonDecode(_membershipJson) as Map<String, dynamic>)
+      ..['membergate']['paid_until'] = '9999999999999',
+  };
+  for (final entry in malformedSnapshots.entries) {
+    test('GET和确认均拒绝损坏快照：${entry.key}', () async {
+      var calls = 0;
+      final tx = '0x${'a' * 64}', block = '0x${'b' * 64}';
+      final api = SquareApiClient(
+        baseUrl: 'https://membergate.test/api',
+        httpClient: MockClient((request) async {
+          calls++;
+          return http.Response(
+            jsonEncode(
+              request.method == 'GET'
+                  ? entry.value
+                  : {
+                      'ok': true,
+                      'tx_hash': tx,
+                      'block_hash': block,
+                      'membergate_state': entry.value,
+                    },
+            ),
+            200,
+          );
+        }),
+      );
+      addTearDown(api.close);
+      await expectLater(
+        api.fetchMembership(_cacheSession()),
+        throwsA(isA<SquareApiException>()),
+      );
+      await expectLater(
+        api.confirmPlatformSubscription(
+          session: _cacheSession(),
+          txHash: tx,
+          blockHashHex: block,
+        ),
+        throwsA(isA<SquareApiException>()),
+      );
+      expect(calls, 2, reason: '失败不能补GET或自动重复确认');
+    });
+  }
+
+  test('明确未订阅可读取，原用量不得被置零', () async {
+    final snapshot = jsonDecode(_membershipJson) as Map<String, dynamic>;
+    snapshot['membergate_active'] = false;
+    snapshot['membergate'] = null;
+    snapshot['usage']['used_images'] = 7;
+    snapshot['usage']['reserved_images'] = 2;
+    snapshot['usage']['used_video_seconds'] = 31;
+    snapshot['usage']['reserved_video_seconds'] = 4;
+    snapshot['usage']['active_uploads'] = 3;
+    final api = SquareApiClient(
+      baseUrl: 'https://membergate.test/api',
+      httpClient: MockClient(
+        (_) async => http.Response(jsonEncode(snapshot), 200),
+      ),
+    );
+    addTearDown(api.close);
+    final state = await api.fetchMembership(_cacheSession());
+    expect(state.active, isFalse);
+    expect(state.usageState!.imageCount, 9);
+    expect(state.usageState!.videoSeconds, 35);
+    expect(state.usageState!.activeUploads, 3);
+  });
+
+  test('GET损坏只报读取失败，不覆盖已确认会员展示事实', () async {
+    var damaged = false, calls = 0;
+    final api = SquareApiClient(
+      baseUrl: 'https://membergate.test/api',
+      httpClient: MockClient((_) async {
+        calls++;
+        return http.Response(
+          damaged ? '{"ok":true,"plans":[],"usage":{}}' : _membershipJson,
+          200,
+        );
+      }),
+    );
+    addTearDown(api.close);
+    final session = _cacheSession();
+    final service = _subscriptionService(
+      api: api,
+      resumePendingTransactions: false,
+    );
+    final original = await service.authorizeMembership(session);
+    damaged = true;
+    await expectLater(
+      service.authorizeMembership(session, forceRefresh: true),
+      throwsA(isA<SquareApiException>()),
+    );
+    final kept = (await service.readDisplaySnapshot(session.cidNumber))!.state;
+    expect(kept.active, original.active);
+    expect(kept.membershipLevel, original.membershipLevel);
+    expect(kept.paidUntil, original.paidUntil);
+    expect(kept.lastChargedAt, original.lastChargedAt);
+    expect(calls, 2);
+  });
+
+  test('确认损坏保留原finalized证明，零成功广播及额外GET', () async {
+    final provider = _FakeSessionProvider();
+    final session = provider.value;
+    final key =
+        'platform_subscription_mirror_pending_by_cid:${session.cidNumber}';
+    final tx = '0x${'a' * 64}', block = '0x${'b' * 64}';
+    final proof = jsonEncode([
+      {'tx_hash': tx, 'block_hash': block},
+    ]);
+    await WalletIsar.instance.writeTxn((isar) async {
+      await isar.walletMembershipStateEntitys.put(
+        WalletMembershipStateEntity()
+          ..stateKey = key
+          ..payloadJson = proof,
+      );
+    });
+    var calls = 0, broadcasts = 0;
+    void changed() => broadcasts++;
+    MembershipRevision.instance.listenable.addListener(changed);
+    addTearDown(
+      () => MembershipRevision.instance.listenable.removeListener(changed),
+    );
+    final api = SquareApiClient(
+      baseUrl: 'https://membergate.test/api',
+      httpClient: MockClient((request) async {
+        calls++;
+        expect(request.method, 'POST');
+        expect(jsonDecode(request.body), {
+          'tx_hash': tx,
+          'block_hash': block,
+          'include_state': true,
+        });
+        return http.Response(
+          jsonEncode({
+            'ok': true,
+            'tx_hash': tx,
+            'block_hash': block,
+            'membergate_state': malformedSnapshots['旧字段'],
+          }),
+          200,
+        );
+      }),
+    );
+    addTearDown(api.close);
+    final service = _subscriptionService(api: api, sessionProvider: provider);
+    for (var i = 0; i < 100 && !service.mirrorSyncPending; i++) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    expect(service.mirrorSyncPending, isTrue);
+    expect(
+      (await WalletIsar.instance.read(
+        (isar) => isar.walletMembershipStateEntitys.getByStateKey(key),
+      ))?.payloadJson,
+      proof,
+    );
+    expect(calls, 1);
+    expect(broadcasts, 0);
+  });
+
   test('平台finalized确认使用MLS证明，核对回执后读取真实会员快照', () async {
     var deviceSignCount = 0;
     final sent = <http.Request>[];
     final txHash = '0x${'a' * 64}';
     final blockHash = '0x${'b' * 64}';
     final api = SquareApiClient(
-      baseUrl: 'https://membership.test/api',
+      baseUrl: 'https://membergate.test/api',
       httpClient: MockClient((request) async {
         sent.add(request);
         expect(request.headers['authorization'], 'Bearer tok');
         expect(request.headers['x-mls-proof'], isNotEmpty);
         if (request.method == 'POST') {
-          expect(request.url.path, '/api/membership/confirm');
+          expect(request.url.path, '/api/membergate/confirm');
           expect(jsonDecode(request.body), {
             'tx_hash': txHash,
             'block_hash': blockHash,
@@ -791,15 +992,15 @@ void main() {
               'ok': true,
               'tx_hash': txHash,
               'block_hash': blockHash,
-              'membership_state': jsonDecode(_membershipJson),
+              'membergate_state': jsonDecode(_membershipJson),
             }),
             200,
           );
         }
         expect(request.method, 'GET');
-        expect(request.url.path, '/api/membership');
+        expect(request.url.path, '/api/membergate');
         return http.Response(
-          '{"ok":true,"membership_active":true,"membership":{"membership_level":"democracy","paid_until":9999999999999,"subscription_status":"active","last_charged_at":1000},"plans":[],"usage":{"used_images":0,"reserved_images":0,"used_video_seconds":0,"reserved_video_seconds":0,"active_uploads":0}}',
+          '{"ok":true,"membergate_active":true,"membergate":{"membergate_level":"democracy","paid_until":9999999999999,"subscription_status":"active","last_charged_at":1000},"plans":[],"usage":{"used_images":0,"reserved_images":0,"used_video_seconds":0,"reserved_video_seconds":0,"active_uploads":0}}',
           200,
         );
       }),
@@ -845,7 +1046,7 @@ void main() {
     'tx_hash',
     'block_hash',
     'extra',
-    'membership_state',
+    'membergate_state',
   ]) {
     test('会员确认拒绝损坏回执字段$damagedField，不能读取快照或冒认确认成功', () async {
       var calls = 0;
@@ -854,11 +1055,11 @@ void main() {
         'ok': true,
         'tx_hash': txHash,
         'block_hash': blockHash,
-        'membership_state': jsonDecode(_membershipJson),
+        'membergate_state': jsonDecode(_membershipJson),
       };
       receipt[damagedField] = damagedField == 'ok' ? false : '0x${'c' * 64}';
       final api = SquareApiClient(
-        baseUrl: 'https://membership.test/api',
+        baseUrl: 'https://membergate.test/api',
         httpClient: MockClient((request) async {
           calls++;
           expect(request.method, 'POST');
@@ -882,7 +1083,7 @@ void main() {
     var confirmations = 0, reads = 0;
     final txHash = '0x${'a' * 64}', blockHash = '0x${'b' * 64}';
     final api = SquareApiClient(
-      baseUrl: 'https://membership.test/api',
+      baseUrl: 'https://membergate.test/api',
       httpClient: MockClient((request) async {
         if (request.method == 'POST') {
           confirmations++;
@@ -916,8 +1117,8 @@ void main() {
     {'ok': true},
     {
       'ok': true,
-      'membership_active': true,
-      'membership': null,
+      'membergate_active': true,
+      'membergate': null,
       'plans': [],
       'usage': {},
     },
@@ -925,14 +1126,14 @@ void main() {
     test('确认快照字段缺失不能被解释成明确无权益 $broken', () async {
       final tx = '0x${'a' * 64}', block = '0x${'b' * 64}';
       final api = SquareApiClient(
-        baseUrl: 'https://membership.test/api',
+        baseUrl: 'https://membergate.test/api',
         httpClient: MockClient(
           (_) async => http.Response(
             jsonEncode({
               'ok': true,
               'tx_hash': tx,
               'block_hash': block,
-              'membership_state': broken,
+              'membergate_state': broken,
             }),
             200,
           ),
@@ -953,7 +1154,7 @@ void main() {
   test('会员确认拒绝非规范交易和块，失败前不发请求', () async {
     var calls = 0;
     final api = SquareApiClient(
-      baseUrl: 'https://membership.test/api',
+      baseUrl: 'https://membergate.test/api',
       httpClient: MockClient((_) async {
         calls++;
         return http.Response('{}', 200);
@@ -997,7 +1198,7 @@ void main() {
     });
     var calls = 0;
     final api = SquareApiClient(
-      baseUrl: 'https://membership.test/api',
+      baseUrl: 'https://membergate.test/api',
       httpClient: MockClient((_) async {
         calls++;
         throw StateError('聊天构造期不得发请求');
@@ -1048,7 +1249,7 @@ void main() {
       () => MembershipRevision.instance.listenable.removeListener(listener),
     );
     final api = SquareApiClient(
-      baseUrl: 'https://membership.test/api',
+      baseUrl: 'https://membergate.test/api',
       httpClient: MockClient((request) async {
         sent.add(request.method);
         expect(request.method, 'POST');
@@ -1057,7 +1258,7 @@ void main() {
             'ok': true,
             'tx_hash': tx,
             'block_hash': block,
-            'membership_state': jsonDecode(_membershipJson),
+            'membergate_state': jsonDecode(_membershipJson),
           }),
           200,
         );
@@ -1091,12 +1292,12 @@ void main() {
   test('同一 CitizenServe 身份会话跨页面服务实例只读取一次会员', () async {
     var membershipCalls = 0;
     final api = SquareApiClient(
-      baseUrl: 'https://membership.test/api',
+      baseUrl: 'https://membergate.test/api',
       httpClient: MockClient((request) async {
-        expect(request.url.path, '/api/membership');
+        expect(request.url.path, '/api/membergate');
         membershipCalls += 1;
         return http.Response(
-          '''{"ok":true,"membership_active":true,"membership":{"membership_level":"freedom","paid_until":9999999999999,"subscription_status":"active","last_charged_at":1000},"plans":[],"usage":{"used_images":0,"reserved_images":0,"used_video_seconds":0,"reserved_video_seconds":0,"active_uploads":0}}''',
+          '''{"ok":true,"membergate_active":true,"membergate":{"membergate_level":"freedom","paid_until":9999999999999,"subscription_status":"active","last_charged_at":1000},"plans":[],"usage":{"used_images":0,"reserved_images":0,"used_video_seconds":0,"reserved_video_seconds":0,"active_uploads":0}}''',
           200,
         );
       }),
@@ -1142,33 +1343,21 @@ void main() {
     expect(find.textContaining('恢复服务'), findsNothing);
   });
 
-  testWidgets('会员MLS旧空目录仅主动重试后确认；取消不初始化，确认后恢复原页面', (tester) async {
-    final sessions = _InitializationSessions();
+  testWidgets('会员普通进入自动准备，没有初始化弹窗或新增按钮', (tester) async {
+    final sessions = _PreparingSessions();
     await _pump(
       tester,
       _state(active: false),
       sessionProvider: sessions,
       currentUserContext: _CachedCurrentUser(),
     );
-    expect(sessions.initializationCalls, 0);
-    await tester.tap(find.text('重试'));
-    await tester.pumpAndSettle();
-    expect(find.text('初始化本机聊天设备'), findsOneWidget);
-    expect(sessions.initializationCalls, 0);
-    await tester.tap(find.text('取消'));
-    await tester.pumpAndSettle();
-    expect(sessions.initializationCalls, 0);
-    expect(find.text('已取消初始化本机聊天设备'), findsOneWidget);
-    await tester.tap(find.text('重试'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('初始化'));
-    await tester.pumpAndSettle();
-    expect(sessions.initializationCalls, 1);
+    expect(sessions.preparations, 1);
+    expect(find.byType(AlertDialog), findsNothing);
     expect(find.text('初始化本机聊天设备'), findsNothing);
     expect(find.text('自由会员'), findsOneWidget);
   });
   testWidgets('会员已使用MLS状态缺失不得通过重试换钥', (tester) async {
-    final sessions = _InitializationSessions(missingCommitted: true);
+    final sessions = _PreparingSessions(missingCommitted: true);
     await _pump(
       tester,
       _state(active: false),
@@ -1177,9 +1366,9 @@ void main() {
     );
     await tester.tap(find.text('重试'));
     await tester.pumpAndSettle();
-    expect(sessions.initializationCalls, 0);
-    expect(find.text('初始化本机聊天设备'), findsNothing);
-    expect(find.text('本机已使用的聊天身份文件缺失，无法自动重新初始化'), findsOneWidget);
+    expect(sessions.preparations, 2);
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.text('本机聊天身份文件缺失，聊天暂时无法使用'), findsOneWidget);
   });
 
   testWidgets('renders the three subscription tier cards', (tester) async {

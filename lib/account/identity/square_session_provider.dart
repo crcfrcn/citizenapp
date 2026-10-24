@@ -1,3 +1,4 @@
+import 'package:citizenapp/app_log.dart';
 import 'package:citizen_sdk/citizen_sdk.dart'
     show CitizenSdkException, CitizenSdkErrorCode;
 
@@ -9,6 +10,9 @@ import 'package:http/http.dart' as http;
 
 import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
+
+import 'cid_business_gate.dart';
+
 import 'package:citizenapp/account/identity/account_security_service.dart';
 import 'package:citizenapp/account/identity/identity_binding.dart';
 import 'package:citizenapp/account/identity/mls_authentication.dart';
@@ -71,13 +75,12 @@ class SquareSessionResolution {
       _mlsError(errorCode)?.userMessage ??
       switch (errorCode) {
         'identity_local_missing' => '身份信息暂不可用，请在身份页刷新后重试',
-        'device_not_registered' => '当前设备尚未登记，请完成设备授权后重试',
-        'registration_required' => '请完成注册验证和当前设备授权',
+        'device_not_registered' => '公民服务准备未完成，请重试',
+        'registration_required' => '公民服务准备未完成，请重试',
         'mls_challenge_limit_reached' ||
         'request_rate_exceeded' => '请求过于频繁，请稍后重试',
         'authenticationRequired' => '首次设备登记授权尚未完成',
         'authenticationCancelled' => '设备授权已取消，可再次主动发起',
-        'mls_initialization_cancelled' => '已取消初始化本机聊天设备',
         _ => status.message,
       };
 
@@ -217,16 +220,18 @@ class SquareSessionResolution {
   }
 }
 
-/// 广场与聊天共用的MLS会话协调；普通认证不访问钱包或聊天权益。
+/// 广场与聊天共用的MLS准备和会话协调；普通认证不启动聊天权益或消息网络。
 class SquareSessionProvider {
   SquareSessionProvider({
     required AccountSecurityService accountSecurity,
     required CurrentUserContext currentUserContext,
     SquareApiClient? client,
     MlsAuthenticationSource? authentication,
+    CidBusinessGate? cidBusinessGate,
   }) : _client = client ?? SquareApiClient(),
        _accountSecurity = accountSecurity,
-       _currentUserContext = currentUserContext {
+       _currentUserContext = currentUserContext,
+       _cidBusinessGate = cidBusinessGate {
     _authentication =
         authentication ??
         MlsAuthentication(
@@ -242,7 +247,9 @@ class SquareSessionProvider {
   final CurrentUserContext _currentUserContext;
   late final MlsAuthenticationSource _authentication;
   sdk.ChatSdk Function()? _runtimeFactory;
-  final Map<(String, String, int), Future<void>> _initializationFlights = {};
+  final CidBusinessGate? _cidBusinessGate;
+  final Map<(String, int), Future<SquareSession?>> _flights = {};
+  final Set<(String, String, int)> _blockedAuthorization = {};
   MlsAuthenticationSource get authentication => _authentication;
   sdk.ChatSdk get mlsRuntime =>
       (_runtimeFactory ??
@@ -289,20 +296,82 @@ class SquareSessionProvider {
 
   Future<SquareSession?> ensureSession() => _ensureSession();
 
-  /// 仅用户明确发起的业务动作或注册调用；Worker明确未登记后才允许一次钱包登记。
+  /// 主动重试只恢复内部准备，不进入公民号注册或真人验证。
   Future<SquareSession?> registerCurrentDevice() =>
-      _ensureSession(allowRegistration: true);
+      _ensureSession(userInitiated: true);
 
-  /// 普通入口仅消费本机绑定；不查询链、不恢复绑定，也不隐式登记设备。
+  /// 所有消费者共用当前账户的唯一准备任务；先确认CID事实，再离线准备MLS和服务会话。
   Future<SquareSession?> _ensureSession({
-    bool allowRegistration = false,
+    bool userInitiated = false,
     String? expectedAccountId,
+  }) async {
+    try {
+      final decision = await _cidBusinessGate?.resolve();
+      if (decision != null && decision.status != CidBusinessStatus.ready) {
+        if (decision.status == CidBusinessStatus.noWallet) return null;
+        throw SquareApiException(
+          decision.status == CidBusinessStatus.unregistered
+              ? '当前账户尚未注册公民号'
+              : '身份读取失败，请重试',
+          errorCode: decision.status == CidBusinessStatus.unregistered
+              ? 'identity_unregistered'
+              : 'identity_projection_unavailable',
+          stage: SquareApiStage.identity,
+        );
+      }
+      final current = await _currentUser.resolve();
+      if (current == null) return null;
+      if (expectedAccountId != null && current.accountId != expectedAccountId) {
+        throw const AccountSecurityException(
+          '当前用户已变化',
+          code: 'identityChanged',
+        );
+      }
+      final key = (current.accountId, _accountSecurity.revision.value);
+      final existing = _flights[key];
+      if (existing != null) return await existing;
+      late final Future<SquareSession?> task;
+      task =
+          _prepareSession(
+            userInitiated: userInitiated,
+            expectedAccountId: current.accountId,
+          ).whenComplete(() {
+            if (identical(_flights[key], task)) _flights.remove(key);
+          });
+      _flights[key] = task;
+      return await task;
+    } on Object catch (error) {
+      // 网络边界已有真实阶段；本地准备只输出既有闭集分类，不读异常正文。
+      if (error is! SquareApiException ||
+          error.stage == null ||
+          error.stage == SquareApiStage.identity) {
+        final failure = SquareSessionResolution.fromError(error);
+        AppLog.failure(
+          stage: failure.stage?.name ?? 'prepare',
+          statusCode: failure.statusCode,
+          code:
+              failure.errorCode ??
+              switch (error) {
+                FormatException() => 'format',
+                TypeError() => 'type',
+                StateError() => 'state',
+                PlatformException() => 'platform',
+                _ => null,
+              },
+        );
+      }
+      rethrow;
+    }
+  }
+
+  Future<SquareSession?> _prepareSession({
+    required bool userInitiated,
+    required String expectedAccountId,
   }) async {
     final revision = _accountSecurity.revision.value;
     final current = await _currentUser.resolve();
     if (current == null) return null;
-    if (current.accountId.isEmpty ||
-        (expectedAccountId != null && current.accountId != expectedAccountId)) {
+    if (current.accountId.isEmpty || current.accountId != expectedAccountId) {
       throw const AccountSecurityException(
         '当前用户已变化，请重试',
         code: 'identityChanged',
@@ -336,21 +405,40 @@ class SquareSessionProvider {
     final session = await _client.ensureSession(
       accountId: current.accountId,
       authentication: _authentication,
-      onDeviceNotRegistered: allowRegistration
-          ? (context) async {
-              await requireCurrent();
-              if (context.accountId != binding.accountId ||
-                  context.cidNumber != binding.cidNumber ||
-                  context.bindingRevision != binding.bindingRevision) {
-                throw const MlsAuthenticationException(
-                  '当前用户已变化',
-                  code: 'identityChanged',
-                );
-              }
-              await _registerMissingMlsDevice(binding);
-              await requireCurrent();
-            }
-          : null,
+      onDeviceNotRegistered: (context) async {
+        await requireCurrent();
+        if (context.accountId != binding.accountId ||
+            context.cidNumber != binding.cidNumber ||
+            context.bindingRevision != binding.bindingRevision) {
+          throw const MlsAuthenticationException(
+            '当前用户已变化',
+            code: 'identityChanged',
+          );
+        }
+        final owner = (
+          binding.cidNumber,
+          binding.accountId,
+          binding.bindingRevision,
+        );
+        if (userInitiated) _blockedAuthorization.remove(owner);
+        if (_blockedAuthorization.contains(owner)) {
+          throw const AccountSecurityException(
+            '钱包授权尚未完成',
+            code: 'authenticationRequired',
+          );
+        }
+        try {
+          await _registerMissingMlsDevice(binding);
+        } on Object catch (error) {
+          // 明确取消后只接受下一次主动重试；渲染、前台恢复和推送不得反复请求授权。
+          if (error is AccountSecurityException ||
+              error is CitizenSdkException) {
+            _blockedAuthorization.add(owner);
+          }
+          rethrow;
+        }
+        await requireCurrent();
+      },
     );
     await requireCurrent();
     await session.validateCurrent();
@@ -374,6 +462,7 @@ class SquareSessionProvider {
     required int expectedBindingRevision,
     required String expectedAccountId,
   }) async {
+    final session = await ensureSession();
     final identity = await _authentication.readIdentity();
     if (identity.cidNumber != expectedCidNumber ||
         identity.bindingRevision != expectedBindingRevision ||
@@ -384,7 +473,6 @@ class SquareSessionProvider {
         code: 'identityChanged',
       );
     }
-    final session = await ensureSession();
     if (session == null ||
         session.cidNumber != expectedCidNumber ||
         session.bindingRevision != expectedBindingRevision ||
@@ -438,50 +526,6 @@ class SquareSessionProvider {
     }
   }
 
-  /// 只由明确确认后的动作调用；固定当前绑定，并发确认只执行一次离线初始化。
-  Future<void> initializeCurrentDevice({
-    required String expectedCidNumber,
-    required String expectedAccountId,
-    required int expectedBindingRevision,
-  }) async {
-    final generation = _accountSecurity.revision.value;
-    Future<void> requireCurrent() async {
-      final binding = await _currentMlsBinding();
-      if (generation != _accountSecurity.revision.value ||
-          binding.cidNumber != expectedCidNumber ||
-          binding.accountId != expectedAccountId ||
-          binding.bindingRevision != expectedBindingRevision) {
-        throw const AccountSecurityException(
-          '初始化期间身份已变化',
-          code: 'identityChanged',
-        );
-      }
-    }
-
-    await requireCurrent();
-    final key = (expectedCidNumber, expectedAccountId, expectedBindingRevision);
-    final previous = _initializationFlights[key];
-    if (previous != null) return previous;
-    late final Future<void> task;
-    task =
-        (() async {
-          await requireCurrent();
-          await mlsRuntime.initializeLocalMlsIdentity(
-            expectedUserId: expectedCidNumber,
-            expectedAccountId: expectedAccountId,
-            expectedBindingRevision: expectedBindingRevision,
-          );
-          await requireCurrent();
-          _client.clearSession(expectedAccountId);
-        })().whenComplete(() {
-          if (identical(_initializationFlights[key], task)) {
-            _initializationFlights.remove(key);
-          }
-        });
-    _initializationFlights[key] = task;
-    await task;
-  }
-
   /// Worker 明确返回 401 后清除当前身份账户的本地缓存并重新握手一次。
   ///
   /// 仅供已经收到未授权响应的前台请求调用；普通首次加载仍走 [ensureSession] 的缓存与
@@ -502,7 +546,7 @@ class SquareSessionProvider {
   /// 账户换绑时只由会话所有者清理准确账户的 CitizenServe 登录态。
   void invalidateAccount(String accountId) => _client.clearSession(accountId);
 
-  /// 目标账户仍须是当前默认账户；与普通入口共用同一协调和缓存，不代办登记。
+  /// 目标账户仍须是当前默认账户；与普通入口共用同一自动准备和缓存。
   Future<SquareSession?> ensureSessionForAccountId(String accountId) =>
       _ensureSession(expectedAccountId: accountId);
 

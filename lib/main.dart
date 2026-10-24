@@ -63,6 +63,13 @@ Future<void> main() async {
     runtime: () => readChatRuntime(),
     currentBinding: () async {
       final registering = registrationCoordinator.activeBinding;
+      // 新注册在真实回执持久保存前不让根自动准备抢跑；注册激活继续复用同一实例。
+      if (registrationCoordinator.isRegistering && registering == null) {
+        throw const MlsAuthenticationException(
+          '注册回执正在保存',
+          code: 'identityUnavailable',
+        );
+      }
       if (registering != null) {
         await registrationCoordinator.requireActiveCurrent();
         return (
@@ -136,13 +143,15 @@ Future<void> main() async {
     currentUserContext: currentUserContext,
     identityResolver: finalizedIdentityResolver,
     revision: accountSecurity.revision,
-    synchronizeIdentity: (verified) => identityService.synchronizeIdentity(verified),
+    synchronizeIdentity: (verified) =>
+        identityService.synchronizeIdentity(verified),
   );
   squareSessionProvider = SquareSessionProvider(
     accountSecurity: accountSecurity,
     currentUserContext: currentUserContext,
     client: squareApiClient,
     authentication: authentication,
+    cidBusinessGate: cidBusinessGate,
   );
 
   identityService = MyIdService(
@@ -518,7 +527,8 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
     while (_identityRequested && !_closing) {
       _identityRequested = false;
       try {
-        final account = (await widget.sdk.wallet.getState().result).defaultAccount;
+        final account =
+            (await widget.sdk.wallet.getState().result).defaultAccount;
         if (_closing) return;
         if (account == null) {
           _identityAccount = null;
@@ -558,6 +568,7 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
       AppLog.d('[CitizenSDK] chain_start_failed');
     }
   }
+
   Future<void> _stopSdk() async {
     _closing = true;
     try {
@@ -570,6 +581,7 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
     await _identitySync;
     await _closeCitizenSdk(widget.sdk, widget.transactionHistory);
   }
+
   late final _registrationCoordinator =
       widget.registrationCoordinator ?? RegistrationCoordinator();
   @override
@@ -581,7 +593,9 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
     );
     _identityEvents = widget.sdk.events.listen((event) {
       if (event is CitizenSdkWalletChanged ||
-          ((event is CitizenSdkFinalizedBlockChanged || event is CitizenSdkCapabilitiesChanged) && _identityRetry)) {
+          ((event is CitizenSdkFinalizedBlockChanged ||
+                  event is CitizenSdkCapabilitiesChanged) &&
+              _identityRetry)) {
         _requestIdentitySync();
       }
     });
@@ -1067,7 +1081,9 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
+class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
+  AccountSecurityService? _preparationSecurity;
+  bool _preparationAttached = false;
   final AppUpdateController _updateController = AppUpdateController.instance;
   late final ValueNotifier<int> _selectedTab;
   chat.ChatSdk? _chatRuntime;
@@ -1094,7 +1110,34 @@ class _AppShellState extends State<AppShell> {
     _updateController.check();
     // 点击推送属于 App 导航，不得为此提前构造 ChatSdk。聊天推送只表示邮箱变化；
     // 广场推送仍直接切广场 Tab。
-    unawaited(_startPushOpenRouting());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_startPushOpenRouting());
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_preparationAttached) return;
+    _preparationAttached = true;
+    _preparationSecurity = context.read<AccountSecurityService?>();
+    _preparationSecurity?.revision.addListener(_schedulePreparation);
+    WidgetsBinding.instance.addObserver(this);
+    _schedulePreparation();
+  }
+
+  void _schedulePreparation() {
+    // 首帧和账户变更后异步消费唯一准备任务，不阻塞钱包、交易及链页面。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        unawaited(context.read<SquareSessionProvider?>()?.resolveSession());
+      }
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _schedulePreparation();
   }
 
   Future<void> _startPushOpenRouting() async {
@@ -1163,6 +1206,8 @@ class _AppShellState extends State<AppShell> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _preparationSecurity?.revision.removeListener(_schedulePreparation);
     _updateController.removeListener(_handleUpdateStateChanged);
     unawaited(_pushOpenSub?.cancel());
     unawaited(_pushTokenSub?.cancel());

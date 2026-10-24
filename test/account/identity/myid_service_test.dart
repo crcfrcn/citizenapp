@@ -132,12 +132,7 @@ void main() {
     );
   }
 
-  for (final result in [
-    'registered',
-    'unregistered',
-    'network',
-    'changed',
-  ]) {
+  for (final result in ['registered', 'unregistered', 'network', 'changed']) {
     test('公开身份同步只验真一次且不登记设备，$result保持正确状态', () async {
       final wallet = _FakeWalletManager(_aliceWallet);
       final current = CurrentUserContext(
@@ -156,9 +151,7 @@ void main() {
         failure: result == 'network',
         changed: result == 'changed',
       );
-      final sessions = _SyncSessions(
-        identity,
-      );
+      final sessions = _SyncSessions(identity);
       final service = testService(
         wallet: wallet,
         currentUserContext: current,
@@ -175,8 +168,12 @@ void main() {
         );
       } else {
         final state = await service.refreshState();
-        expect(state.status, result == 'network' || result == 'changed'
-            ? MyIdStatus.queryFailed : isNot(MyIdStatus.queryFailed));
+        expect(
+          state.status,
+          result == 'network' || result == 'changed'
+              ? MyIdStatus.queryFailed
+              : isNot(MyIdStatus.queryFailed),
+        );
         expect(sessions.registrations, 0);
       }
       expect(resolver.reads, 1);
@@ -186,14 +183,23 @@ void main() {
 
   test('同步失败后主动重试可写入绑定，不请求钱包签名或登记', () async {
     final wallet = _FakeWalletManager(_aliceWallet);
-    final resolver = _SyncResolver(_registeredIdentity(_validAccountId), failure: true);
+    final resolver = _SyncResolver(
+      _registeredIdentity(_validAccountId),
+      failure: true,
+    );
     final service = testService(wallet: wallet, identityResolver: resolver);
     expect((await service.refreshState()).status, MyIdStatus.queryFailed);
     expect(wallet.bindings, isEmpty);
     resolver.failure = false;
-    expect((await service.refreshState()).cidNumber, resolver.identity.snapshot!.cidNumber);
+    expect(
+      (await service.refreshState()).cidNumber,
+      resolver.identity.snapshot!.cidNumber,
+    );
     expect(resolver.reads, 2);
-    expect(wallet.activeBinding!.cidNumber, resolver.identity.snapshot!.cidNumber);
+    expect(
+      wallet.activeBinding!.cidNumber,
+      resolver.identity.snapshot!.cidNumber,
+    );
     expect(wallet.signCalls, 0);
     expect(wallet.mlsDeviceRegistrationCalls, 0);
   });
@@ -210,7 +216,9 @@ void main() {
     resolver.pending!.complete(resolver.identity);
     final states = await Future.wait(requests);
     await gateSynchronization;
-    expect(states.map((state) => state.cidNumber).toSet(), {resolver.identity.snapshot!.cidNumber});
+    expect(states.map((state) => state.cidNumber).toSet(), {
+      resolver.identity.snapshot!.cidNumber,
+    });
     expect(wallet.bindings, hasLength(1));
     expect(wallet.identityNotifications, 1);
   });
@@ -223,12 +231,19 @@ void main() {
     final pending = service.refreshState();
     await Future<void>.delayed(Duration.zero);
     final nextId = '0x${'22' * 32}';
-    wallet._wallet = _testAccount(accountId: nextId,
-      ss58Address: citizenSs58FromAccountId(nextId), accountIndex: 0, name: '新账户');
+    wallet._wallet = _testAccount(
+      accountId: nextId,
+      ss58Address: citizenSs58FromAccountId(nextId),
+      accountIndex: 0,
+      name: '新账户',
+    );
     resolver.pending!.complete(_registeredIdentity(nextId));
     expect((await pending).status, MyIdStatus.queryFailed);
     expect(wallet.bindings, isEmpty);
-    expect((await service.refreshState()).status, isNot(MyIdStatus.queryFailed));
+    expect(
+      (await service.refreshState()).status,
+      isNot(MyIdStatus.queryFailed),
+    );
     expect(wallet.activeBinding!.accountId, nextId);
   });
 
@@ -241,14 +256,29 @@ void main() {
         cidNumber: base.snapshot!.cidNumber,
         accountId: base.snapshot!.accountId,
         bindingRevision: 1,
-        votingIdentity: _encodeVoting(from: 20260101, until: 20310101, status: 0,
-          province: 'GD', city: '001', town: '001'),
-        candidateIdentity: _encodeCandidate(province: 'GD', city: '001', town: '001',
-          familyName: '张', givenName: '三', sex: 0),
+        votingIdentity: _encodeVoting(
+          from: 20260101,
+          until: 20310101,
+          status: 0,
+          province: 'GD',
+          city: '001',
+          town: '001',
+        ),
+        candidateIdentity: _encodeCandidate(
+          province: 'GD',
+          city: '001',
+          town: '001',
+          familyName: '张',
+          givenName: '三',
+          sex: 0,
+        ),
       ),
     );
     final store = IdentityBadgeSnapshotStore();
-    final service = testService(identityResolver: _SyncResolver(identity), badgeSnapshotStore: store);
+    final service = testService(
+      identityResolver: _SyncResolver(identity),
+      badgeSnapshotStore: store,
+    );
     expect((await service.refreshState()).tier, MyIdTier.candidate);
     final saved = await service.getState();
     expect(saved.tier, MyIdTier.candidate);
@@ -611,6 +641,7 @@ void main() {
     expect(metadataRuntime.observed!.userId, 'GD-CTZN1-8F3A2B');
     expect(metadataRuntime.observed!.accountId, newAccount.accountId);
     expect(metadataRuntime.observed!.bindingRevision, 2);
+    expect(fakeRpc.occupiedCid, isNull, reason: '已有公民号换绑收敛不得再次占号');
   });
 
   test('换绑 finalized 不登记 MLS设备，后续仅由 Worker 未登记响应触发', () async {
@@ -1037,8 +1068,12 @@ FinalizedIdentity _registeredIdentity(
   ss58Address: citizenSs58FromAccountId(accountId),
   snapshot: CitizenIdentityChainSnapshot(
     cidNumber: cidNumber,
-    accountId: Uint8List.fromList(List.generate(32,
-      (i) => int.parse(accountId.substring(2 + i * 2, 4 + i * 2), radix: 16))),
+    accountId: Uint8List.fromList(
+      List.generate(
+        32,
+        (i) => int.parse(accountId.substring(2 + i * 2, 4 + i * 2), radix: 16),
+      ),
+    ),
     bindingRevision: bindingRevision,
     votingIdentity: null,
     candidateIdentity: null,
@@ -1276,11 +1311,7 @@ class _BindingRuntime extends ChatSdk {
 
 /// 公开同步用例仍核对每次本机代际；错误不会触发第二次链读取。
 class _SyncResolver implements FinalizedIdentityResolver {
-  _SyncResolver(
-    this.identity, {
-    this.failure = false,
-    this.changed = false,
-  });
+  _SyncResolver(this.identity, {this.failure = false, this.changed = false});
   final FinalizedIdentity identity;
   bool failure, changed;
   Completer<FinalizedIdentity?>? pending;

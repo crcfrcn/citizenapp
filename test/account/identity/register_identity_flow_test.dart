@@ -249,6 +249,17 @@ Widget _harness(
 }
 
 void main() {
+  testWidgets('已有公民号点击注册也不打开面板或再次占号', (tester) async {
+    final results = <bool>[], service = _FlowService();
+    await tester.pumpWidget(
+      _harness(results, service, _RegisteredCache(), directRegistration: true),
+    );
+    await tester.tap(find.text('触发动作'));
+    await tester.pumpAndSettle();
+    expect(results, [true]);
+    expect(service.registerCalls, 0);
+    expect(find.text('确认注册'), findsNothing);
+  });
   testWidgets('已注册 → 放行返回 true,不弹注册面板', (tester) async {
     final results = <bool>[];
     await tester.pumpWidget(

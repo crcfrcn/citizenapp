@@ -174,18 +174,18 @@ void main() {
           (_) async => http.Response(
             jsonEncode({
               'ok': true,
-              'membership_active': true,
-              'membership': {
-                'membership_level': 'democracy',
+              'membergate_active': true,
+              'membergate': {
+                'membergate_level': 'democracy',
                 'paid_until': 200,
                 'last_charged_at': 100,
                 'subscription_status': 'active',
               },
               'plans': [
                 {
-                  'membership_level': 'democracy',
+                  'membergate_level': 'democracy',
                   'plan': {
-                    'membership_level': 'democracy',
+                    'membergate_level': 'democracy',
                     'chat_file_max_bytes': 1,
                     'video_max_seconds': 1800,
                     'video_max_bytes': 300000000,

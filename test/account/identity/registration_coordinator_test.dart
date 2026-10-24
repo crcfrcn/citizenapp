@@ -33,6 +33,7 @@ class Api extends RegistrationApi {
   String state = 'prepared';
   int pages = 0;
   bool failStatus = false;
+  bool acceptVerification = true;
   Api(this.events);
   RegistrationResponse response(
     RegistrationContext c, {
@@ -56,7 +57,7 @@ class Api extends RegistrationApi {
     required String token,
   }) async {
     events.add('verify');
-    state = 'human_verified';
+    state = acceptVerification ? 'human_verified' : 'prepared';
     return response(c);
   }
 
@@ -111,6 +112,8 @@ void main() {
       if (changed) throw StateError('account changed');
     },
     showVerification: (_) async {
+      expect(coordinator.isRegistering, true);
+      expect(coordinator.activeBinding, isNull);
       pages++;
       events.add('page');
       return cancel ? null : 'valid-ephemeral-token';
@@ -138,10 +141,21 @@ void main() {
       return activatedDevice;
     },
   );
+  test('已有公民号零登记API、零真人验证、零费用及占号', () async {
+    chain = finalized;
+    api.failStatus = true;
+    expect(await run(), finalized);
+    expect(events, ['activate']);
+    expect(pages, 0);
+    expect(wallets, 0);
+    expect(store.value, isNull);
+  });
   test('服务器通过和两次保护保存先于余额/原钱包；成功只弹一次', () async {
     await run();
     expect(pages, 1);
     expect(wallets, 1);
+    expect(coordinator.isRegistering, false);
+    expect(coordinator.activeBinding, isNull);
     expect(store.value?.phase, RegistrationPhase.ready);
     expect(
       events.indexOf('save:verification:prepared'),
@@ -171,6 +185,64 @@ void main() {
     );
     expect(store.value?.phase, RegistrationPhase.finalized);
     expect(wallets, 1);
+  });
+  test('链读取异常不准备登记、不弹真人验证或占号', () async {
+    await expectLater(
+      coordinator.run(
+        context: registrationContext(),
+        requireCurrent: () async {},
+        showVerification: (_) async {
+          pages++;
+          return 'token';
+        },
+        requireAffordable: () async {
+          events.add('balance');
+        },
+        readFinalized: () async =>
+            throw StateError('synthetic network failure'),
+        registerCid: (_) async {
+          wallets++;
+          return finalized;
+        },
+        activate: (_) async => '33' * 32,
+      ),
+      throwsStateError,
+    );
+    expect(events, isEmpty);
+    expect(pages, 0);
+    expect(wallets, 0);
+  });
+  test('finalized恢复不依赖过期或故障的登记服务', () async {
+    activateFail = true;
+    await expectLater(run(), throwsA(isA<RegistrationException>()));
+    activateFail = false;
+    events.clear();
+    api.failStatus = true;
+    await run();
+    expect(
+      events.where(
+        (e) =>
+            e.startsWith('status') ||
+            e == 'prepare' ||
+            e == 'page' ||
+            e == 'wallet',
+      ),
+      isEmpty,
+    );
+    expect(
+      store.value!.response.state,
+      RegistrationState.humanVerified,
+      reason: '只更新本机阶段，不能伪造服务器activated',
+    );
+    expect(store.value!.phase, RegistrationPhase.ready);
+  });
+  test('Turnstile未被服务器确认通过，零余额读取和链交易', () async {
+    api.acceptVerification = false;
+    await expectLater(run(), throwsA(isA<RegistrationException>()));
+    expect(pages, 1);
+    expect(events, isNot(contains('balance')));
+    expect(wallets, 0);
+    expect(store.value!.phase, RegistrationPhase.verification);
   });
   test('取消和保存失败：钱包/余额均为零', () async {
     cancel = true;

@@ -86,7 +86,7 @@ class _DeniedMembership extends _NullMembershipSnapshotService {
     throw const SquareApiException(
       '非会员禁止访问用户主页',
       statusCode: 403,
-      errorCode: 'profile_membership_required',
+      errorCode: 'profile_membergate_required',
     );
   }
 }
@@ -103,7 +103,7 @@ class _ServerDeniedProfile extends FakeProfileApi {
     throw const SquareApiException(
       '非会员禁止访问用户主页',
       statusCode: 403,
-      errorCode: 'profile_membership_required',
+      errorCode: 'profile_membergate_required',
     );
   }
 }
@@ -170,7 +170,7 @@ void main() {
       const SquareApiException(
         'denied',
         statusCode: 403,
-        errorCode: 'profile_membership_required',
+        errorCode: 'profile_membergate_required',
       ),
     );
     await tester.pumpAndSettle();

@@ -9,8 +9,10 @@ import 'package:citizenapp/citizen/institution/institution_models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  List<int> bytes(String text) =>
-      [(utf8.encode(text).length << 2), ...utf8.encode(text)];
+  List<int> bytes(String text) => [
+    (utf8.encode(text).length << 2),
+    ...utf8.encode(text),
+  ];
 
   List<int> compact(int value) {
     if (value < 64) return [value << 2];
@@ -32,9 +34,9 @@ void main() {
 
   Uint8List fixtureBytes(Map<String, dynamic> fixture, String name) {
     final cases = fixture['cases']! as List<dynamic>;
-    final entry = cases
-        .cast<Map<String, dynamic>>()
-        .singleWhere((item) => item['name'] == name);
+    final entry = cases.cast<Map<String, dynamic>>().singleWhere(
+      (item) => item['name'] == name,
+    );
     final hex = entry['encoded_hex']! as String;
     return Uint8List.fromList([
       for (var index = 0; index < hex.length; index += 2)
@@ -84,13 +86,17 @@ void main() {
       0,
     ]);
     expect(
-        InstitutionRoleStorageCodec.decodeVotePlan(withTrailingByte), isNull);
+      InstitutionRoleStorageCodec.decodeVotePlan(withTrailingByte),
+      isNull,
+    );
   });
 
   test('岗位权限 storage 向量严格解码并拒绝重复项', () {
     final fixture = readRolePermissionFixture();
-    final permission =
-        fixtureBytes(fixture, 'permission_resolution_issuance_propose');
+    final permission = fixtureBytes(
+      fixture,
+      'permission_resolution_issuance_propose',
+    );
     final decoded = InstitutionRoleStorageCodec.decodeRolePermissions(
       Uint8List.fromList([4, ...permission]),
     )!;
@@ -123,10 +129,10 @@ void main() {
     expect(decoded.admins, hasLength(2));
     expect(decoded.admins.map((admin) => admin.family_name), ['张', '管理']);
     expect(decoded.admins.map((admin) => admin.given_name), ['三', '员']);
-    expect(
-      decoded.admins.map((admin) => admin.account_id),
-      ['0x${'01' * 32}', '0x${'02' * 32}'],
-    );
+    expect(decoded.admins.map((admin) => admin.account_id), [
+      '0x${'01' * 32}',
+      '0x${'02' * 32}',
+    ]);
   });
 
   test('机构管理员拒绝纯账户、合并姓名和重复账户布局', () {
@@ -176,52 +182,87 @@ void main() {
     ]);
     final decoded = InstitutionRoleStorageCodec.decodeAdmins(value)!;
     expect(decoded.admins.single.account_id, '0x${'03' * 32}');
-    expect(
-      decoded.admins.single.cid_number,
-      'CN220-CTZN2-198805200-2026',
-    );
+    expect(decoded.admins.single.cid_number, 'CN220-CTZN2-198805200-2026');
     expect(decoded.admins.single.family_name, isEmpty);
     expect(decoded.admins.single.given_name, isEmpty);
   });
 
   test('岗位和任职分别按 entity 布局解码', () {
-    final role = InstitutionRoleStorageCodec.decodeRole(Uint8List.fromList([
-      ...bytes('CID-1'),
-      ...bytes('DIRECTOR'),
-      ...bytes('董事'),
-      1,
-      0,
-    ]))!;
+    final role = InstitutionRoleStorageCodec.decodeRole(
+      Uint8List.fromList([
+        ...bytes('CID-1'),
+        ...bytes('DIRECTOR'),
+        ...bytes('董事'),
+        1,
+        0,
+      ]),
+    )!;
     expect(role.roleName, '董事');
     expect(role.termRequired, isTrue);
 
-    final assignment =
-        InstitutionRoleStorageCodec.decodeAssignments(Uint8List.fromList([
+    final assignment = InstitutionRoleStorageCodec.decodeAssignments(
+      Uint8List.fromList([
+        4,
+        ...bytes('CID-1'),
+        ...List.filled(32, 7),
+        ...bytes('DIRECTOR'),
+        10,
+        0,
+        0,
+        0,
+        20,
+        0,
+        0,
+        0,
+        1,
+        ...bytes('REG-1'),
+        0,
+      ]),
+    )!.single;
+    expect(assignment.source, InstitutionAssignmentSource.registry);
+    expect(assignment.account_id, '0x${'07' * 32}');
+  });
+
+  test('任职向量允许已核实空集，截断或尾随字节必须拒绝', () {
+    final encoded = Uint8List.fromList([
       4,
       ...bytes('CID-1'),
       ...List.filled(32, 7),
-      ...bytes('DIRECTOR'),
-      10,
+      ...bytes('MEMBER'),
+      ...List.filled(8, 0),
       0,
+      ...bytes(''),
       0,
-      0,
-      20,
-      0,
-      0,
-      0,
-      1,
-      ...bytes('REG-1'),
-      0,
-    ]))!
-            .single;
-    expect(assignment.source, InstitutionAssignmentSource.registry);
-    expect(assignment.account_id, '07' * 32);
+    ]);
+    expect(
+      InstitutionRoleStorageCodec.decodeAssignments(Uint8List.fromList([0])),
+      isEmpty,
+    );
+    for (var length = 0; length < encoded.length; length++) {
+      expect(
+        InstitutionRoleStorageCodec.decodeAssignments(
+          Uint8List.sublistView(encoded, 0, length),
+        ),
+        isNull,
+        reason: '截断任职不得被当作空岗位',
+      );
+    }
+    expect(
+      InstitutionRoleStorageCodec.decodeAssignments(
+        Uint8List.fromList([...encoded, 0]),
+      ),
+      isNull,
+    );
+    expect(
+      InstitutionRoleStorageCodec.decodeAssignments(encoded)!.single.account_id,
+      '0x${'07' * 32}',
+    );
   });
 
   test('任期窗口包含起止日且无任期岗位只接受零值', () {
     final base = InstitutionAdminAssignment(
       cidNumber: 'CID-1',
-      account_id: '07' * 32,
+      account_id: '0x${'07' * 32}',
       roleCode: 'ROLE-1',
       termStart: 10,
       termEnd: 20,
@@ -235,7 +276,7 @@ void main() {
     expect(base.isEffectiveOnDay(21), isFalse);
     final nonTerm = InstitutionAdminAssignment(
       cidNumber: 'CID-1',
-      account_id: '07' * 32,
+      account_id: '0x${'07' * 32}',
       roleCode: 'ROLE-2',
       termStart: 0,
       termEnd: 0,

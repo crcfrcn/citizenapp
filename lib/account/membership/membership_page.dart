@@ -225,7 +225,7 @@ class _MembershipPageState extends State<MembershipPage>
     }
   }
 
-  /// 只有手动刷新允许确认本机初始化/设备授权；普通加载保持只读会话入口。
+  /// 普通加载与主动重试共用自动准备；明确取消的钱包授权仅由主动重试继续。
   Future<void> _retryLoad() async {
     if (_refreshing) return;
     setState(() => _refreshing = true);
@@ -234,7 +234,6 @@ class _MembershipPageState extends State<MembershipPage>
       resolution = await resolveCitizenSessionForAction(
         context,
         provider: _sessionProvider,
-        currentUserContext: _currentUserContext,
       );
     } finally {
       if (mounted) setState(() => _refreshing = false);

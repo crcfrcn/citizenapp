@@ -19,9 +19,11 @@ void main() {
         directory: () => dir.resolveSymbolicLinks(),
       ),
     );
-    final f = jsonDecode(
-      File('test/transaction/topup/contract.json').readAsStringSync(),
-    ) as Map<String, dynamic>;
+    final f =
+        jsonDecode(
+              File('test/transaction/topup/contract.json').readAsStringSync(),
+            )
+            as Map<String, dynamic>;
     record = TopupRecord(
       origin: 'https://www.crcfrcn.com',
       intent: TopupPaymentIntent.fromJson(f['intent'] as Map<String, dynamic>),
@@ -130,5 +132,37 @@ void main() {
       store.save(record.update(order: order)),
       throwsFormatException,
     );
+  });
+  test('恢复组合只取原意图，不增加字段或允许换币、换链、换套餐', () async {
+    await store.save(record);
+    final f =
+        jsonDecode(
+              File('test/transaction/topup/contract.json').readAsStringSync(),
+            )
+            as Map<String, dynamic>;
+    final config = TopupConfig.fromJson(f['config'] as Map<String, dynamic>);
+    final restored = (await store.list(
+      record.origin,
+      record.intent.accountId,
+    )).single;
+    final selection = TopupSelection.fromIntent(restored.intent, config);
+    expect(selection.toJson(), {
+      'token': 'USDC',
+      'package_id': 'pkg_15',
+      'network': 'base',
+    });
+    expect(jsonDecode(restored.encode()).containsKey('selection'), false);
+    for (final field in ['token', 'network', 'package_id']) {
+      final changed = jsonDecode(record.encode()) as Map<String, dynamic>;
+      changed['intent']['intent'][field] = field == 'token'
+          ? 'USDT'
+          : field == 'network'
+          ? 'ethereum'
+          : 'pkg_1400';
+      expect(
+        () => TopupRecord.decode(jsonEncode(changed)),
+        throwsFormatException,
+      );
+    }
   });
 }

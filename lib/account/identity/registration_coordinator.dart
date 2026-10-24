@@ -13,6 +13,7 @@ class RegistrationCoordinator {
   final RegistrationStore store;
   Future<FinalizedRegistration>? _flight;
   String? _context;
+  bool get isRegistering => _flight != null;
   IdentityBinding? activeBinding;
   Future<void> Function()? _guard;
   Future<void> requireActiveCurrent() async => _guard?.call();
@@ -73,7 +74,13 @@ class RegistrationCoordinator {
     Future<bool> Function(Map<String, dynamic>?)? canRetryChain,
   ) async {
     await guard();
+    // 先核对真实finalized事实；失败直接抛出，不创建登记、不打开真人验证。
+    final existing = await readChain();
+    await guard();
     final previous = await store.read(context);
+    if (existing != null) {
+      return _completeExisting(context, previous, existing, guard, activate);
+    }
     final prepared = previous == null;
     var response = previous == null
         ? await api.prepare(context)
@@ -94,8 +101,10 @@ class RegistrationCoordinator {
         response.state == RegistrationState.expired) {
       final existing = await readChain();
       await guard();
-      if (existing == null &&
-          record.phase == RegistrationPhase.chainPending &&
+      if (existing != null) {
+        return _completeExisting(context, record, existing, guard, activate);
+      }
+      if (record.phase == RegistrationPhase.chainPending &&
           !(await canRetryChain?.call(record.checkpoint) ?? false)) {
         throw const RegistrationException('登记已过期，原交易结果尚未确认；不会重复上链');
       }
@@ -108,16 +117,18 @@ class RegistrationCoordinator {
           registrationText(response.json, 'recovery_token'),
         ),
         response: response,
-        phase: existing == null
-            ? RegistrationPhase.verification
-            : RegistrationPhase.finalized,
-        finalized: existing,
+        phase: RegistrationPhase.verification,
         checkpoint: record.checkpoint,
       );
       await store.save(record, renewed);
       record = renewed;
     }
     if (response.state == RegistrationState.prepared) {
+      final existing = await readChain();
+      await guard();
+      if (existing != null) {
+        return _completeExisting(context, record, existing, guard, activate);
+      }
       if (!prepared) {
         response = await api.status(
           context,
@@ -161,15 +172,17 @@ class RegistrationCoordinator {
     // 恢复时先读真实finalized链事实；网络异常向上抛，绝不等同“未注册”。
     var finalized = await readChain();
     await guard();
-    if (record.finalized != null &&
-        (finalized == null ||
-            finalized.binding.cidNumber !=
-                record.finalized!.binding.cidNumber ||
-            finalized.binding.bindingRevision !=
-                record.finalized!.binding.bindingRevision)) {
+    if (finalized != null) {
+      return _completeExisting(context, record, finalized, guard, activate);
+    }
+    if (record.finalized != null) {
       throw const RegistrationException('注册身份绑定已变化，请核实当前账户');
     }
     if (finalized == null) {
+      if (response.state != RegistrationState.humanVerified &&
+          response.state != RegistrationState.activated) {
+        throw const RegistrationException('新注册必须先通过真人验证');
+      }
       if ((record.phase == RegistrationPhase.chainPending &&
               !(await canRetryChain?.call(record.checkpoint) ?? false)) ||
           record.finalized != null ||
@@ -180,27 +193,34 @@ class RegistrationCoordinator {
       // 把所有失败误报成钱包余额不足。
       await affordable();
       await guard();
-      final pending = record.next(phase: RegistrationPhase.chainPending);
-      await store.save(record, pending);
-      record = pending;
+      finalized = await readChain();
       await guard();
-      try {
-        finalized = await register((checkpoint) async {
-          await guard();
-          final next = record.next(checkpoint: checkpoint);
-          await store.save(record, next);
-          record = next;
-          await guard();
-        });
-      } on RegistrationBeforeBroadcastException {
-        await guard();
-        await store.save(
-          record,
-          record.next(phase: RegistrationPhase.verified),
-        );
-        rethrow;
+      if (finalized != null) {
+        return _completeExisting(context, record, finalized, guard, activate);
       }
-      await guard();
+      if (finalized == null) {
+        final pending = record.next(phase: RegistrationPhase.chainPending);
+        await store.save(record, pending);
+        record = pending;
+        await guard();
+        try {
+          finalized = await register((checkpoint) async {
+            await guard();
+            final next = record.next(checkpoint: checkpoint);
+            await store.save(record, next);
+            record = next;
+            await guard();
+          });
+        } on RegistrationBeforeBroadcastException {
+          await guard();
+          await store.save(
+            record,
+            record.next(phase: RegistrationPhase.verified),
+          );
+          rethrow;
+        }
+        await guard();
+      }
     }
     if (finalized.binding.accountId != context.accountId ||
         finalized.binding.genesisHash != context.chainScope) {
@@ -237,6 +257,48 @@ class RegistrationCoordinator {
     } catch (_) {
       throw const RegistrationException(
         'CID已注册，设备激活待完成；请重试恢复，不会重复上链',
+        code: 'activation_pending',
+      );
+    }
+  }
+
+  Future<FinalizedRegistration> _completeExisting(
+    RegistrationContext context,
+    RegistrationRecord? previous,
+    FinalizedRegistration existing,
+    Future<void> Function() guard,
+    Future<String> Function(FinalizedRegistration) activate,
+  ) async {
+    final saved = previous?.finalized?.binding;
+    final binding = existing.binding;
+    if (binding.accountId != context.accountId ||
+        binding.genesisHash != context.chainScope ||
+        (saved != null &&
+            (saved.cidNumber != binding.cidNumber ||
+                saved.accountId != binding.accountId ||
+                saved.genesisHash != binding.genesisHash ||
+                saved.bindingRevision != binding.bindingRevision))) {
+      throw const RegistrationException('finalized身份与当前账户或链不一致');
+    }
+    final finalized = previous?.finalized ?? existing;
+    activeBinding = finalized.binding;
+    try {
+      final deviceId = await activate(finalized);
+      await guard();
+      if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(deviceId)) {
+        throw const RegistrationException('普通会话设备校验失败');
+      }
+      // 仅推进本机阶段，保留真实服务响应，不伪造activated或真人验证。
+      if (previous != null) {
+        await store.save(
+          previous,
+          previous.next(phase: RegistrationPhase.ready, finalized: finalized),
+        );
+      }
+      return finalized;
+    } on Object {
+      throw const RegistrationException(
+        '公民号已存在，服务准备未完成，请重试',
         code: 'activation_pending',
       );
     }

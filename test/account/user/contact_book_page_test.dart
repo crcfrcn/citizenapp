@@ -360,6 +360,8 @@ void main() {
     await tester.tap(find.text(_MlsFailedContacts.failure.message));
     await tester.pumpAndSettle();
     expect(find.text('初始化本机聊天设备'), findsNothing);
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.textContaining('注册验证'), findsNothing);
     expect(find.text('备注：张三'), findsOneWidget);
     expect(contacts.contacts, hasLength(1));
   });
