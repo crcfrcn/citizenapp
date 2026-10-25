@@ -183,7 +183,7 @@ jobs:
       - name: 准备本轮Apple签名输入
         env:
           IOS_KEY: ${{ secrets.IOS_KEY }}
-          APP_PROFILE: ${{ secrets.APP_PROFILE }}
+          CITIZENAPP_PROFILE: ${{ secrets.CITIZENAPP_PROFILE }}
         run: |
           set -euo pipefail
           umask 077
@@ -205,7 +205,7 @@ jobs:
           (work / 'distribution.p12').write_bytes(base64.b64decode(fields['pkcs12'], validate=True))
           (work / 'password').write_text(fields['password'])
           (work / 'certificate').write_text(fields['certificate_sha1'])
-          (work / 'profile.mobileprovision').write_bytes(base64.b64decode(os.environ['APP_PROFILE'], validate=True))
+          (work / 'profile.mobileprovision').write_bytes(base64.b64decode(os.environ['CITIZENAPP_PROFILE'], validate=True))
           PY
           security list-keychains -d user > "$WORK/signing/keychains"
           password="$(openssl rand -hex 32)"
@@ -382,22 +382,22 @@ jobs:
       - name: 上传正式IPA到App Store Connect
         timeout-minutes: 30
         env:
-          APP_STORE_KEY_ID: ${{ secrets.APP_STORE_KEY_ID }}
-          APP_STORE_ISSUER_ID: ${{ secrets.APP_STORE_ISSUER_ID }}
-          APP_STORE_PRIVATE_KEY: ${{ secrets.APP_STORE_PRIVATE_KEY }}
+          APPSTORE_KEYID: ${{ secrets.APPSTORE_KEYID }}
+          APPSTORE_ISSUERID: ${{ secrets.APPSTORE_ISSUERID }}
+          APPSTORE_PRIVATEKEY: ${{ secrets.APPSTORE_PRIVATEKEY }}
         run: |
           set -euo pipefail
           umask 077
-          : "${APP_STORE_KEY_ID:?缺少APP_STORE_KEY_ID}"
-          : "${APP_STORE_ISSUER_ID:?缺少APP_STORE_ISSUER_ID}"
-          : "${APP_STORE_PRIVATE_KEY:?缺少APP_STORE_PRIVATE_KEY}"
+          : "${APPSTORE_KEYID:?缺少APPSTORE_KEYID}"
+          : "${APPSTORE_ISSUERID:?缺少APPSTORE_ISSUERID}"
+          : "${APPSTORE_PRIVATEKEY:?缺少APPSTORE_PRIVATEKEY}"
           # 私钥只写本轮签名现场，不进入正式附件；上传成败均立即删除。
           export API_PRIVATE_KEYS_DIR="$WORK/signing/appstore"
           mkdir "$API_PRIVATE_KEYS_DIR"
           trap 'rm -rf "$API_PRIVATE_KEYS_DIR"' EXIT
-          printf '%s\n' "$APP_STORE_PRIVATE_KEY" > "$API_PRIVATE_KEYS_DIR/AuthKey_$APP_STORE_KEY_ID.p8"
+          printf '%s\n' "$APPSTORE_PRIVATEKEY" > "$API_PRIVATE_KEYS_DIR/AuthKey_$APPSTORE_KEYID.p8"
           xcrun altool --upload-package "$WORK/artifact/公民·iOS·v$CITIZENAPP_VERSION.ipa" \
-            --api-key "$APP_STORE_KEY_ID" --api-issuer "$APP_STORE_ISSUER_ID" \
+            --api-key "$APPSTORE_KEYID" --api-issuer "$APPSTORE_ISSUERID" \
             --wait --output-format json
       - name: 保存官方增量缓存
         if: always()

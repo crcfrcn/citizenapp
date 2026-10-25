@@ -2,7 +2,7 @@
 
 ## 当前构建合同
 
-公民App的编译与依赖装配唯一归scripts/build.mjs。本机由塔塔控制台既有塔塔安装器调用compile ios/android，签名、安装和回读归控制台；GitHub由本产品两份既有Workflow调用同一工程装配与App编译入口。scripts/config.mjs原文保持，只声明APP_KEY、IOS_KEY、APP_PROFILE等配置需求，不放任务执行或版本算法。不新增模块，不恢复已删除的平台输入模块。
+公民App的编译与依赖装配唯一归scripts/build.mjs。本机由塔塔控制台既有塔塔安装器调用compile ios/android，签名、安装和回读归控制台；GitHub由本产品两份既有Workflow调用同一工程装配与App编译入口。scripts/config.mjs原文保持，只声明APP_KEY、IOS_KEY、CITIZENAPP_PROFILE等配置需求，不放任务执行或版本算法。不新增模块，不恢复已删除的平台输入模块。
 
 
 每个平台一次执行只有一个本机自动化任务和一个GitHub Run。产品所属.github/workflows/ios.yml与android.yml分别公开workflow_dispatch，唯一输入为version；固定Workflow名称为公民·iOS、公民·Android，每次Run、Job、Artifact、Tag、Release使用公民·平台·vX.Y.Z。没有prepare/settle/cancel操作、父子Run、管理Run或递归派发。iOS与Android独立任务、授权、现场和并发组，可以同时执行；同平台重复点击、恢复和取消都不创建新Run。
@@ -3068,7 +3068,7 @@ CitizenApp 不保存助记词、私钥、wallet profile、加密秘密信封或 
 - 第3步已同步删除旧 CitizenServe 聊天数据面代码和测试；原服务端消息、信令、附件、推送端点不再作为当前实现。
 ### 产品流程物理归属
 
-本产品只保留安装与塔塔自动化入口，没有独立发布按钮、脚本或Workflow。双端在原有自动化Run内完成商店上传；审核与正式上架由官方商店后台操作。Apple沿用现有APP_STORE_KEY_ID、APP_STORE_ISSUER_ID、APP_STORE_PRIVATE_KEY；Google使用仓库Secret GOOGLE_PLAY_SERVICE_ACCOUNT，须启用官方API、完成Play Console应用首次初始化，并只授予公民应用上传所需权限及官方auth Action生成访问令牌所需服务账号权限。Google专用服务账号及JSON密钥已配置：控制台公民受保护配置和本仓GitHub Secret均为GOOGLE_PLAY_SERVICE_ACCOUNT；账号仅有公民应用的读取及测试轨道权限，并仅在账号自身授予Service Account Token Creator。Play Console已确认旧内部草稿版本1（1.0.0），首包条件已满足；Google Play Android Developer API与IAM Service Account Credentials API均已启用并回查，尚未真实上传验收。Play Console现有公民应用为草稿，正式版权限尚未解锁，因此上传保存在内部测试轨道草稿；同一AAB后续可在商店后台用于测试及正式发布，无须为此重新编译。build.mjs与config.mjs不承担商店上传，不新增模块或Job。
+本产品只保留安装与塔塔自动化入口，没有独立发布按钮、脚本或Workflow。双端在原有自动化Run内完成商店上传；审核与正式上架由官方商店后台操作。Apple沿用现有APPSTORE_KEYID、APPSTORE_ISSUERID、APPSTORE_PRIVATEKEY；Google使用仓库Secret PLAY_SERVICEACCOUNT，须启用官方API、完成Play Console应用首次初始化，并只授予公民应用上传所需权限及官方auth Action生成访问令牌所需服务账号权限。Google专用服务账号及JSON密钥已配置：控制台公民受保护配置和本仓GitHub Secret均为PLAY_SERVICEACCOUNT；账号仅有公民应用的读取及测试轨道权限，并仅在账号自身授予Service Account Token Creator。Play Console已确认旧内部草稿版本1（1.0.0），首包条件已满足；Google Play Android Developer API与IAM Service Account Credentials API均已启用并回查，尚未真实上传验收。Play Console现有公民应用为草稿，正式版权限尚未解锁，因此上传保存在内部测试轨道草稿；同一AAB后续可在商店后台用于测试及正式发布，无须为此重新编译。build.mjs与config.mjs不承担商店上传，不新增模块或Job。
 
 ### Flutter插件消费目录
 
@@ -3465,3 +3465,5 @@ RunnerUITests的创作者、钱包与充值复用准确主“我的”Tab和实�
 充值继续使用原WalletConnect/AppKit选择弹窗，总名单固定15个官方目录ID，顺序为MetaMask、Trust Wallet、OKX Wallet、Binance Wallet、Bitget Wallet、TokenPocket、imToken、SafePal、OneKey、Ledger Wallet、Trezor Suite、Rabby、Rainbow、Zerion、Gem Wallet。同品牌只保留一个ID，不按展示名称猜ID；前六个优先顺序固定，其余沿该序列显示。
 
 同一数组同时传入includeWalletIds与featuredWalletIds；“所有钱包”和搜索仍限定此名单。关闭额外自定义钱包、EIP6963发现、邮箱和社交入口，保留原所选网络及必要方法核验，不自动换链、不承诺每款钱包都支持全部五链。原锁AppKit公开common接口仅清除RECENT_WALLETS和RECENT_WALLET两项选择器展示偏好，避免历史条目或去重排序破坏名单；不清空localStorage，不读写账户、会话凭据、充值订单或签名原字节。连接成功或取消后沿原关闭收尾，不建立新的付款或广播流程。
+
+配置项统一为environment、name、description、accessLevel、kind、format六个必填字段，name使用两组大写字母和一个下划线；名称相同共用一个值，description最多30字，kind/format无要求时明确填不适用。公民App描述文件独立声明CITIZENAPP_PROFILE并核对ios.citizenapp；商店四项为APPSTORE_PRIVATEKEY、APPSTORE_KEYID、APPSTORE_ISSUERID、PLAY_SERVICEACCOUNT。官方Apple/Google身份、权限及签名值保持，工作流只更换第一方输入名称。
