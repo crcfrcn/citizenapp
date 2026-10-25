@@ -3467,3 +3467,5 @@ RunnerUITests的创作者、钱包与充值复用准确主“我的”Tab和实�
 同一数组同时传入includeWalletIds与featuredWalletIds；“所有钱包”和搜索仍限定此名单。关闭额外自定义钱包、EIP6963发现、邮箱和社交入口，保留原所选网络及必要方法核验，不自动换链、不承诺每款钱包都支持全部五链。原锁AppKit公开common接口仅清除RECENT_WALLETS和RECENT_WALLET两项选择器展示偏好，避免历史条目或去重排序破坏名单；不清空localStorage，不读写账户、会话凭据、充值订单或签名原字节。连接成功或取消后沿原关闭收尾，不建立新的付款或广播流程。
 
 配置项统一为environment、name、description、accessLevel、kind、format六个必填字段，name使用两组大写字母和一个下划线；名称相同共用一个值，description最多30字，kind/format无要求时明确填不适用。公民App描述文件独立声明CITIZENAPP_PROFILE并核对ios.citizenapp；商店四项为APPSTORE_PRIVATEKEY、APPSTORE_KEYID、APPSTORE_ISSUERID、PLAY_SERVICEACCOUNT。官方Apple/Google身份、权限及签名值保持，工作流只更换第一方输入名称。
+
+本产品配置项统一为name、description、accessLevel、kind、format五个必填字段；不适用规则明确填写“不适用”。name严格使用两组大写字母和一个下划线，同名共用控制台唯一值，当前页仅汇总实际声明的使用产品。操作列固定写入/更换、查看、删除；保密查看保留生物识别。现有配置消费者随声明同步改名，官方工具/API字段保持官方名称，不新增旧名兼容或配置副本。
