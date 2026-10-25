@@ -1,3 +1,5 @@
+import 'package:citizenapp/system/notifications/notifications.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -5,8 +7,7 @@ import 'dart:typed_data';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:citizenapp/account/identity/square_session_provider.dart';
-import 'package:citizenapp/network/square_api_client.dart'
-    show SquareSession;
+import 'package:citizenapp/network/square_api_client.dart' show SquareSession;
 import 'package:citizenapp/account/creator/creator_api.dart';
 import 'package:citizenapp/account/creator/creator_overview.dart';
 import 'package:citizenapp/account/creator/creator_plan.dart';
@@ -109,6 +110,7 @@ class CreatorService {
   final CitizenSdkWallet _wallet;
   final FinalizedIdentityResolver _identityResolver;
   final SquareSessionProvider _session;
+  final Map<SquareSession, Future<CreatorPageData>> _loads = {};
   final SubscriptionService _subscriptionService;
 
   String _displaySnapshotKey(String cidNumber) =>
@@ -118,6 +120,43 @@ class CreatorService {
   Future<CreatorDisplaySnapshot?> readDisplaySnapshot(String cidNumber) async {
     final normalized = cidNumber.trim();
     if (normalized.isEmpty) return null;
+    final member = await _subscriptionService.readDisplaySnapshot(normalized);
+    if (member != null && !member.state.active) {
+      return CreatorDisplaySnapshot(
+        cidNumber: normalized,
+        data: CreatorPageData.gated(),
+        membershipFetchedAtMs: member.subscriptionFetchedAtMs,
+        creatorFetchedAtMs: 0,
+      );
+    }
+    final pushed = Notifications.instance.creatorFor(normalized);
+    if (pushed != null) {
+      final CreatorPageData data;
+      if (pushed['gated'] == true) {
+        data = CreatorPageData.gated();
+      } else {
+        final plan = CreatorPlan.fromJson(
+          (pushed['plan'] as Map).cast<String, dynamic>(),
+        );
+        if (plan.creatorCidNumber != normalized) {
+          throw const FormatException('创作者快照身份不一致');
+        }
+        final overview = (pushed['overview'] as Map).cast<String, dynamic>();
+        data = CreatorPageData.active(
+          plan: plan,
+          overview: CreatorOverview.fromJson({
+            ...overview,
+            'month_income_fen': overview['monthly_income_fen'],
+          }),
+        );
+      }
+      return CreatorDisplaySnapshot(
+        cidNumber: normalized,
+        data: data,
+        membershipFetchedAtMs: Notifications.instance.memberReceivedAt,
+        creatorFetchedAtMs: Notifications.instance.creatorReceivedAt,
+      );
+    }
     final raw = await _readCreatorState(_displaySnapshotKey(normalized));
     if (raw == null || raw.isEmpty) return null;
     try {
@@ -211,10 +250,40 @@ class CreatorService {
       throw const CreatorException('当前会话与创作者身份不一致，请稍后重试');
     }
 
-    final membership = await _subscriptionService.authorizeMembership(session);
+    final pending = _loads[session];
+    if (pending != null) return pending;
+    final task = _loadSession(session);
+    _loads[session] = task;
+    try {
+      return await task;
+    } on CreatorException {
+      rethrow;
+    } on Object {
+      throw const CreatorException('创作者刷新失败，已保留本地内容');
+    } finally {
+      if (identical(_loads[session], task)) _loads.remove(session);
+    }
+  }
+
+  Future<CreatorPageData> _loadSession(SquareSession session) async {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
-    if (!membership.active) {
+    // 已finalized的待确认投影先补交，再读取本人快照；不再提交链上交易。
+    await _retryPendingProjection(session);
+    await session.validateCurrent();
+    // 本人概览自身执行当前会员门禁；展示刷新不再前置GET会员。
+    // 两个逻辑读取在HTTP层共用同一本人概览响应，失败不覆盖已有快照或刷新成功时间。
+    final List<Object?> results;
+    try {
+      results = await Future.wait<Object?>([
+        _api.fetchMyPlan(session),
+        _api.fetchOverview(session),
+      ]);
+    } on CreatorApiException catch (error) {
+      if (error.statusCode != 403 || error.errorCode != 'membergate_required') {
+        rethrow;
+      }
       final data = CreatorPageData.gated();
+      await session.validateCurrent();
       await rememberDisplayData(
         cidNumber: session.cidNumber,
         data: data,
@@ -223,41 +292,10 @@ class CreatorService {
       );
       return data;
     }
-
-    // 上一次链上已 finalized、但 Cloudflare 瞬时失败时只重试 finalized 投影确认，不再签名。
-    unawaited(_retryPendingProjection(session));
-
-    final displayPlanFuture = () async {
-      try {
-        return await _api.fetchMyPlan(session);
-      } on Exception {
-        return null;
-      }
-    }();
-    final overviewFuture = () async {
-      try {
-        return await _api.fetchOverview(session);
-      } on Exception {
-        return null;
-      }
-    }();
-    final results = await Future.wait([
-      // 档位、统计与平台会员全部采用 CitizenServe finalized 投影。
-      displayPlanFuture,
-      overviewFuture,
-    ]);
-    final displayPlan = results[0] as CreatorPlan?;
-    final cached = await readDisplaySnapshot(session.cidNumber);
-    final overview =
-        results[1] as CreatorOverview? ??
-        cached?.data.overview ??
-        CreatorOverview.zero;
+    await session.validateCurrent();
     final data = CreatorPageData.active(
-      plan:
-          displayPlan ??
-          cached?.data.plan ??
-          CreatorPlan.empty(session.cidNumber),
-      overview: overview,
+      plan: results[0] as CreatorPlan? ?? CreatorPlan.empty(session.cidNumber),
+      overview: results[1] as CreatorOverview,
     );
     await rememberDisplayData(
       cidNumber: session.cidNumber,

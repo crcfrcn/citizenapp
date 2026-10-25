@@ -302,6 +302,7 @@ Future<void> _refreshProposal(WidgetTester tester) =>
 void main() {
   useIsolatedIsar();
   _proposalReadinessTests();
+  _proposalReadResultTests();
   _proposalDiagnosticsTests();
   testWidgets('提案合法空索引成功为空，不显示链不可用或错误', (tester) async {
     final feed = _PageFeed()..ids = [];
@@ -1048,5 +1049,110 @@ void _proposalDiagnosticsTests() {
     expect(counts.last, 0);
     expect(find.text('提案读取失败，请重试'), findsNothing);
     expect(lines, isEmpty);
+  });
+}
+
+
+Future<T> _captureReadResult<T>(List<String> lines, Future<T> Function() action) =>
+    runZoned(action, zoneSpecification: ZoneSpecification(
+      print: (_, _, _, line) {
+        if (line.startsWith('[CitizenRead]')) lines.add(line);
+      },
+    ));
+
+// 真实页面、公开SDK事件及原Feed夹具联合验证；不靠空白或骨架证明成功。
+void _proposalReadResultTests() {
+  const prefix = '[CitizenRead] stage=proposal_first state=';
+  for (final empty in [true, false]) {
+    testWidgets('当前提案首批真实完成才报告${empty ? '空索引' : '非空展示'}', (tester) async {
+      final lines = <String>[];
+      await _captureReadResult(lines, () async {
+        final feed = _PageFeed()..ids = empty ? [] : [1];
+        final counts = <int>[];
+        await _openProposal(tester, feed, counts);
+        expect(lines, ['${prefix}started', '$prefix${empty ? 'empty' : 'nonempty'}']);
+        expect(counts, [empty ? 0 : 1]);
+      });
+    });
+  }
+  testWidgets('等待读链只报waiting，就绪后沿原读取报完成', (tester) async {
+    final lines = <String>[];
+    await _captureReadResult(lines, () async {
+      final transport = _PageTransport()..ready = false..reason = CitizenCapabilityReason.chainUnsynced;
+      final feed = _PageFeed()..ids = [];
+      final counts = <int>[];
+      await _openProposal(tester, feed, counts, transportOverride: transport, waitForTerminal: false);
+      await _flush(tester);
+      transport.capability(isReady: false, why: CitizenCapabilityReason.chainUnsynced);
+      await _flush(tester);
+      expect(lines, ['${prefix}waiting']);
+      expect(feed.forced, isEmpty);
+      transport.capability(isReady: true);
+      await _flush(tester);
+      expect(lines, ['${prefix}waiting', '${prefix}started', '${prefix}empty']);
+      expect(feed.forced, [false]);
+    });
+  });
+  for (final code in [CitizenSdkErrorCode.decode, CitizenSdkErrorCode.network]) {
+    testWidgets('提案真实${code.name}失败不产生成功回执', (tester) async {
+      final lines = <String>[];
+      await _captureReadResult(lines, () async {
+        final feed = _PageFeed()..scopes.add(() => throw CitizenSdkException(
+          code: code, message: 'synthetic private read error'));
+        await _openProposal(tester, feed, <int>[]);
+        expect(lines, ['${prefix}started']);
+        expect(find.text('提案读取失败，请重试'), findsOneWidget);
+      });
+    });
+  }
+  for (final fail in [false, true]) {
+    testWidgets('旧刷新迟到${fail ? '失败' : '成功'}不报当前完成', (tester) async {
+      final lines = <String>[];
+      await _captureReadResult(lines, () async {
+        final feed = _PageFeed();
+        await _openProposal(tester, feed, <int>[]);
+        lines.clear();
+        final old = Completer<List<int>>();
+        feed.scopes.add(() => old.future);
+        final first = _refreshProposal(tester);
+        await _flush(tester);
+        feed.ids = [];
+        await _refreshProposal(tester);
+        await _flush(tester);
+        if (fail) { old.completeError(StateError('synthetic late failure')); }
+        else { old.complete([2]); }
+        await first;
+        await _flush(tester);
+        expect(lines, ['${prefix}started', '${prefix}started', '${prefix}empty']);
+        expect(find.text('提案读取失败，请重试'), findsNothing);
+      });
+    });
+  }
+  for (final waiting in [true, false]) {
+    testWidgets('提案${waiting ? '等待读链' : '读取中'}销毁后不报成功', (tester) async {
+      final lines = <String>[];
+      await _captureReadResult(lines, () async {
+        final transport = _PageTransport()..ready = !waiting
+          ..reason = waiting ? CitizenCapabilityReason.chainStarting : CitizenCapabilityReason.none;
+        final lateRead = Completer<List<int>>();
+        final feed = _PageFeed()..scopes.add(() => lateRead.future);
+        await _openProposal(tester, feed, <int>[], transportOverride: transport, waitForTerminal: false);
+        await _flush(tester);
+        await tester.pumpWidget(const SizedBox.shrink());
+        transport.capability(isReady: true);
+        lateRead.complete([]);
+        await _flush(tester);
+        expect(lines, ['$prefix${waiting ? 'waiting' : 'started'}']);
+        expect(tester.takeException(), isNull);
+      });
+    });
+  }
+  testWidgets('非空索引但详情缺失不能报成功空索引', (tester) async {
+    final lines = <String>[];
+    await _captureReadResult(lines, () async {
+      final feed = _PageFeed()..details = (_) async => [];
+      await _openProposal(tester, feed, <int>[]);
+      expect(lines, ['${prefix}started']);
+    });
   });
 }

@@ -6,6 +6,17 @@ import 'isar_core_bootstrap.dart';
 
 part 'social_isar.g.dart';
 
+/// 按浏览者CID和帖子保存已读取评论与待重试操作；公开内容不写入聊天历史。
+@collection
+class SquareCommentsEntity {
+  Id id = Isar.autoIncrement;
+  @Index(composite: [CompositeIndex('postId')], unique: true, replace: true)
+  late String cidNumber;
+  late String postId;
+  late String pageJson;
+  String? pendingJson;
+}
+
 /// 用户明确删除的持久事实；确认后保留以阻止迟到同步复活帖子。
 @collection
 class SquarePostDeletionEntity {
@@ -252,6 +263,7 @@ class SocialIsar {
         SquareMediaChunkEntitySchema,
         SquareMediaReferenceEntitySchema,
         SquarePublicationEntitySchema,
+        SquareCommentsEntitySchema,
       ];
 
   bool get hasActiveOperation => _operationActive;
@@ -410,6 +422,7 @@ class SocialIsar {
         existing.squareMediaChunkEntitys;
         existing.squareMediaReferenceEntitys;
         existing.squarePublicationEntitys;
+        existing.squareCommentsEntitys;
       } catch (error) {
         throw StateError('已打开的 SocialIsar 不是当前完整 schema：$error');
       }

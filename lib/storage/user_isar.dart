@@ -1,4 +1,5 @@
 import 'package:citizenapp/system/security/system_protected_storage.dart';
+
 import 'dart:async';
 
 import 'package:isar_community/isar.dart';
@@ -93,6 +94,16 @@ class UserContactStateEntity {
   late String payloadJson;
 }
 
+/// 当前CID的通知展示缓存；不承载会话凭据，不作为会员执行许可。
+@collection
+class UserNotificationStateEntity {
+  Id id = Isar.autoIncrement;
+  @Index(unique: true, replace: true)
+  late String cidNumber;
+  late String stateJson;
+  String? pendingJson;
+}
+
 /// 通用用户设置和 App 展示状态。
 ///
 /// 钱包排序、活动钱包、设备锁和安全失败计数不属于本行。
@@ -173,6 +184,7 @@ class UserIsar {
         UserProfileMediaEntitySchema,
         UserIdentityBadgeSnapshotEntitySchema,
         UserContactStateEntitySchema,
+        UserNotificationStateEntitySchema,
         UserSettingsEntitySchema,
         UserPublicInstitutionSubscriptionEntitySchema,
       ];
@@ -228,7 +240,11 @@ class UserIsar {
   Future<T> read<T>(Future<T> Function(Isar isar) action) {
     return _enqueue(() async {
       final isar = await db();
-      if (!IsarCoreBootstrap.isFlutterTest) await SystemProtectedStorage.protectUserDatabase(await IsarCoreBootstrap.resolveDirectory());
+      if (!IsarCoreBootstrap.isFlutterTest) {
+        await SystemProtectedStorage.protectUserDatabase(
+          await IsarCoreBootstrap.resolveDirectory(),
+        );
+      }
       return action(isar);
     });
   }
@@ -237,9 +253,13 @@ class UserIsar {
     return _enqueue(() async {
       final isar = await db();
       final directory = await IsarCoreBootstrap.resolveDirectory();
-      if (!IsarCoreBootstrap.isFlutterTest) await SystemProtectedStorage.protectUserDatabase(directory);
+      if (!IsarCoreBootstrap.isFlutterTest) {
+        await SystemProtectedStorage.protectUserDatabase(directory);
+      }
       final result = await isar.writeTxn<T>(() => action(isar));
-      if (!IsarCoreBootstrap.isFlutterTest) await SystemProtectedStorage.protectUserDatabase(directory);
+      if (!IsarCoreBootstrap.isFlutterTest) {
+        await SystemProtectedStorage.protectUserDatabase(directory);
+      }
       return result;
     });
   }
@@ -347,7 +367,9 @@ class UserIsar {
     await IsarCoreBootstrap.ensureTestCoreInitialized();
 
     final directory = await IsarCoreBootstrap.resolveDirectory();
-    if (!IsarCoreBootstrap.isFlutterTest) await SystemProtectedStorage.protectUserDatabase(directory);
+    if (!IsarCoreBootstrap.isFlutterTest) {
+      await SystemProtectedStorage.protectUserDatabase(directory);
+    }
     final existing = Isar.getInstance('citizenapp_user');
     if (existing != null && existing.isOpen) {
       try {
@@ -356,6 +378,7 @@ class UserIsar {
         existing.userProfileMediaEntitys;
         existing.userIdentityBadgeSnapshotEntitys;
         existing.userContactStateEntitys;
+        existing.userNotificationStateEntitys;
         existing.userSettingsEntitys;
         existing.userPublicInstitutionSubscriptionEntitys;
       } catch (error) {
@@ -373,7 +396,9 @@ class UserIsar {
       directory: directory,
     );
     try {
-      if (!IsarCoreBootstrap.isFlutterTest) await SystemProtectedStorage.protectUserDatabase(directory);
+      if (!IsarCoreBootstrap.isFlutterTest) {
+        await SystemProtectedStorage.protectUserDatabase(directory);
+      }
       await _eraseObsoleteContacts(opened);
       return opened;
     } catch (_) {
@@ -385,13 +410,22 @@ class UserIsar {
   /// 初次暴露库实例前精确删除废弃通讯录行；不读取内容，也不触及其他集合。
   Future<void> _eraseObsoleteContacts(Isar isar) async {
     await isar.writeTxn(() async {
-      await isar.userContactStateEntitys.filter().stateKeyStartsWith('user.contact.').deleteAll();
-      if (await isar.userContactStateEntitys.filter().stateKeyStartsWith('user.contact.').count() != 0) {
+      await isar.userContactStateEntitys
+          .filter()
+          .stateKeyStartsWith('user.contact.')
+          .deleteAll();
+      if (await isar.userContactStateEntitys
+              .filter()
+              .stateKeyStartsWith('user.contact.')
+              .count() !=
+          0) {
         throw StateError('废弃通讯录记录仍存在');
       }
     });
     if (!IsarCoreBootstrap.isFlutterTest) {
-      await SystemProtectedStorage.protectUserDatabase(await IsarCoreBootstrap.resolveDirectory());
+      await SystemProtectedStorage.protectUserDatabase(
+        await IsarCoreBootstrap.resolveDirectory(),
+      );
     }
   }
 

@@ -1,3 +1,5 @@
+import 'package:citizenapp/account/membership/subscription_service.dart';
+import 'package:citizenapp/system/notifications/notifications.dart';
 import 'package:provider/provider.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
@@ -14,7 +16,6 @@ import 'package:citizenapp/account/creator/creator_overview_card.dart';
 import 'package:citizenapp/account/creator/creator_tier_card.dart';
 import 'package:citizenapp/account/membership/membership_page.dart';
 import 'package:citizenapp/account/membership/membership_revision.dart';
-import 'package:citizenapp/account/membership/subscription_service.dart';
 import 'package:citizenapp/account/identity/cid_business_gate.dart';
 import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
 import 'package:citizenapp/account/identity/square_session_provider.dart';
@@ -57,6 +58,7 @@ class _CreatorPageState extends State<CreatorPage> {
   CreatorPageData? _data;
   bool _identityConfirmed = false;
   bool _businessReady = false;
+  Timer? _displayExpiry;
   bool _unregistered = false;
   String? _error;
   String _cidNumber = '';
@@ -76,6 +78,7 @@ class _CreatorPageState extends State<CreatorPage> {
       ),
     };
     MembershipRevision.instance.listenable.addListener(_onMembershipChanged);
+    Notifications.instance.addListener(_onNotificationChanged);
   }
 
   @override
@@ -106,8 +109,10 @@ class _CreatorPageState extends State<CreatorPage> {
 
   @override
   void dispose() {
+    _displayExpiry?.cancel();
     _accountSecurity?.revision.removeListener(_onIdentityChanged);
     MembershipRevision.instance.listenable.removeListener(_onMembershipChanged);
+    Notifications.instance.removeListener(_onNotificationChanged);
     super.dispose();
   }
 
@@ -116,11 +121,43 @@ class _CreatorPageState extends State<CreatorPage> {
     if (mounted) unawaited(_bootstrap());
   }
 
+  void _scheduleDisplayExpiry() {
+    _displayExpiry?.cancel();
+    final until = SubscriptionService.displayPaidUntilFor(_cidNumber),
+        remaining =
+            SubscriptionService.displayPaidUntilFor(_cidNumber) -
+            DateTime.now().millisecondsSinceEpoch;
+    if (_data?.gated == false && remaining > 0) {
+      final cid = _cidNumber;
+      _displayExpiry = Timer(Duration(milliseconds: remaining), () {
+        if (mounted &&
+            cid == _cidNumber &&
+            until == SubscriptionService.displayPaidUntilFor(cid)) {
+          setState(() => _data = CreatorPageData.gated());
+        }
+      });
+    }
+  }
+
+  void _onNotificationChanged() {
+    if (mounted &&
+        _businessReady &&
+        Notifications.instance.cidNumber == _cidNumber &&
+        Notifications.instance.creatorFor(_cidNumber) != null) {
+      unawaited(_bootstrap());
+    }
+  }
+
   /// 会员动作确认后只刷新同一永久 CID；广播本身不直接授予页面能力。
   void _onMembershipChanged() {
     final event = MembershipRevision.instance.listenable.value;
-    if (!mounted || !_businessReady || event == null || event.cidNumber != _cidNumber) return;
-    unawaited(_refresh(forceVisibleError: false));
+    if (!mounted ||
+        !_businessReady ||
+        event == null ||
+        event.cidNumber != _cidNumber) {
+      return;
+    }
+    unawaited(_bootstrap());
   }
 
   /// 入口提示不具备授权效力；先核对当前账户 CID，再读取本地创作者快照。
@@ -173,10 +210,10 @@ class _CreatorPageState extends State<CreatorPage> {
         setState(() {
           _data = snapshot.data;
           _membershipFetchedAtMs = snapshot.membershipFetchedAtMs;
+          _scheduleDisplayExpiry();
           _error = null;
         });
       }
-
     } on Exception catch (e) {
       if (!mounted || generation != _loadGeneration) return;
       setState(() {
@@ -195,9 +232,7 @@ class _CreatorPageState extends State<CreatorPage> {
     }
   }
 
-  Future<void> _refresh({
-    required bool forceVisibleError,
-  }) async {
+  Future<void> _refresh({required bool forceVisibleError}) async {
     if (!_businessReady) return;
     final owner = ++_loadGeneration;
     final cidNumber = _cidNumber;
@@ -210,6 +245,7 @@ class _CreatorPageState extends State<CreatorPage> {
       setState(() {
         _data = data;
         _membershipFetchedAtMs = DateTime.now().millisecondsSinceEpoch;
+        _scheduleDisplayExpiry();
         _error = null;
       });
     } on CreatorException catch (e) {
@@ -448,9 +484,9 @@ class _CreatorPageState extends State<CreatorPage> {
   Widget _subscribersEntry(int count, {required bool resolved}) {
     return InkWell(
       onTap: resolved
-          ? () => ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(const SnackBar(content: Text('订阅者明细即将上线')))
+          ? () =>
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(const SnackBar(content: Text('订阅者明细即将上线')))
           : null,
       borderRadius: BorderRadius.circular(AppTheme.radiusMd),
       child: Container(
@@ -573,9 +609,8 @@ class _CreatorPageState extends State<CreatorPage> {
   }
 
   Future<void> _openMembership() async {
-    await Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const MembershipPage()));
+    await Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const MembershipPage()));
     // 仅浏览会员页再返回不代表用户请求刷新；实际会员动作已有独立广播。
     if (mounted) await _bootstrap();
   }

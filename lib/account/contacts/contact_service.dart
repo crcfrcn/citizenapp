@@ -8,7 +8,6 @@ import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 import 'package:citizenapp/account/identity/square_session_provider.dart';
 import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/citizen/account_derivation.dart';
-import 'package:citizenapp/account/identity/citizen_identity_chain_reader.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
 import 'package:citizenapp/storage/user_isar.dart';
 import 'package:citizenapp/account/identity/account_security_service.dart';
@@ -146,14 +145,12 @@ class UserContactService {
     required AccountSecurityService accountSecurity,
     required CurrentUserContext currentUserContext,
     required SquareSessionProvider sessionProvider,
-    required CitizenIdentityChainReader chainReader,
     SquareApiClient? apiClient,
     bool autoSync = true,
   }) : _accountSecurity = accountSecurity,
        _sessionProvider = sessionProvider,
        _apiClient = apiClient ?? SquareApiClient(),
        _currentUserContext = currentUserContext,
-       _chainReader = chainReader,
        _autoSync = autoSync;
 
   static const String _contactsPrefix = 'user.mls.contacts.book:';
@@ -164,14 +161,9 @@ class UserContactService {
   final SquareSessionProvider _sessionProvider;
   final SquareApiClient _apiClient;
   final CurrentUserContext _currentUserContext;
-  final CitizenIdentityChainReader _chainReader;
   final bool _autoSync;
   static const _recordsPrefix = 'user.mls.contacts.records:';
   static final _syncFlights = <String, Future<List<UserContact>>>{};
-
-  /// 只有刷新联系人绑定、转账等权限动作才创建链读入口。
-  /// 普通通讯录/Chat 搜索只读系统保护的本地记录，构造服务时不得建立第二节点。
-  CitizenIdentityChainReader get _finalizedIdentityReader => _chainReader;
 
   /// 通讯录永久归属 CID；当前绑定账户只参与公开授权代次和云会话鉴权。
   CurrentUserContext get _currentUser => _currentUserContext;
@@ -191,78 +183,30 @@ class UserContactService {
     return await _readContacts(owner);
   }
 
-  /// 从同一个 finalized 区块批量刷新全部联系人当前绑定账户。
-  ///
-  /// 绑定快照只是可更新缓存；联系人关系与备注仍只归 CID。失效或不闭环的 CID
-  /// 不会用此前账户冒充有效绑定，也不会因此删除用户的联系人关系。
-  Future<List<UserContact>> refreshContactBindings() async {
+  /// 扫码导入使用服务端身份投影核对名片；联系人浏览和同步没有链读取依赖。
+  Future<ContactImportResult> importContact({
+    required String cidNumber,
+    required String accountId,
+  }) async {
     final owner = await _requireIdentityOwner();
-    final contacts = await _readContacts(owner);
-    if (contacts.isEmpty) return contacts;
-    final bindings = await _finalizedIdentityReader.readBindingsByCidNumbers(
-      contacts.map((contact) => contact.cidNumber),
-    );
-    return _applyBindingSnapshots(owner, contacts, bindings);
-  }
-
-  /// 转账等账户敏感动作前，按 CID 严格读取 finalized 当前绑定。
-  ///
-  /// 链读失败、CID 未激活或双向绑定不闭环时直接失败，禁止回退通讯录旧地址。
-  Future<UserContact> resolveCurrentContact(String contactCidNumber) async {
-    final owner = await _requireIdentityOwner();
-    final cidNumber = requireCidNumber(contactCidNumber);
-    final contacts = await _readContacts(owner);
-    final index = contacts.indexWhere(
-      (contact) => contact.cidNumber == cidNumber,
-    );
-    if (index < 0) throw Exception('未找到联系人');
-    final binding = await _finalizedIdentityReader.readBindingByCidNumber(
-      cidNumber,
-    );
-    if (binding == null) {
-      throw StateError('联系人 CID 当前没有有效钱包绑定');
+    final session = await _sessionProvider.ensureSession();
+    if (session == null || session.cidNumber != owner.cidNumber) {
+      throw StateError('通讯录会话不可用');
     }
-    final refreshed = await _applyBindingSnapshots(
+    final profile = await _apiClient.fetchUserCard(
+      cidNumber: requireCidNumber(cidNumber),
+      session: session,
+    );
+    if (profile.cidNumber != cidNumber ||
+        profile.accountId != requireAccountId(accountId)) {
+      throw const FormatException('用户码与服务端当前绑定不一致');
+    }
+    return _addContact(
       owner,
-      contacts,
-      <String, CitizenBindingChainSnapshot>{cidNumber: binding},
+      cidNumber: cidNumber,
+      ss58Address: ss58FromAccountIdText(profile.accountId),
+      contactRemark: '',
     );
-    return refreshed.firstWhere((contact) => contact.cidNumber == cidNumber);
-  }
-
-  Future<List<UserContact>> _applyBindingSnapshots(
-    _ContactOwner owner,
-    List<UserContact> contacts,
-    Map<String, CitizenBindingChainSnapshot> bindings,
-  ) async {
-    final refreshed = contacts.toList(growable: true);
-    final changed = <UserContact>[];
-    for (var index = 0; index < refreshed.length; index++) {
-      final contact = refreshed[index];
-      final binding = bindings[contact.cidNumber];
-      if (binding == null) continue;
-      final accountId = requireAccountId(binding.accountIdText);
-      if (accountId == contact.accountId) continue;
-      final next = contact.copyWith(
-        accountId: accountId,
-        ss58Address: ss58FromAccountIdText(accountId),
-        updatedAt: _nextTimestamp(contact.updatedAt),
-      );
-      refreshed[index] = next;
-      changed.add(next);
-    }
-    if (changed.isEmpty) return _sorted(refreshed);
-
-    final pending = (await _readPending(owner)).toList(growable: true);
-    for (final contact in changed) {
-      pending
-        ..removeWhere((item) => item.cidNumber == contact.cidNumber)
-        ..add(_PendingContactOp.upsert(contact.cidNumber, contact.updatedAt));
-    }
-    await _writeSnapshot(owner, refreshed, pending);
-    await _setSyncState(owner, ContactSyncPhase.pending);
-    if (_autoSync) unawaited(_syncOwner(owner));
-    return _sorted(refreshed);
   }
 
   /// 返回通讯录当前所属的身份账户，供扫码页做“不能添加自己”校验。
@@ -275,6 +219,22 @@ class UserContactService {
     required String contactRemark,
   }) async {
     final owner = await _requireIdentityOwner();
+    return _addContact(
+      owner,
+      cidNumber: cidNumber,
+      ss58Address: ss58Address,
+      contactRemark: contactRemark,
+    );
+  }
+
+  /// 导入与手动添加共用同一属主；所有等待之后仍核对原账户修订。
+  Future<ContactImportResult> _addContact(
+    _ContactOwner owner, {
+    required String cidNumber,
+    required String ss58Address,
+    required String contactRemark,
+  }) async {
+    await _assertOwner(owner);
     final normalizedCidNumber = requireCidNumber(cidNumber);
     final normalizedSs58Address = normalizeSs58Address(ss58Address);
     final contactAccountId = accountIdFromSs58(normalizedSs58Address);
@@ -446,11 +406,15 @@ class UserContactService {
   }
 
   Future<void> _assertOwner(_ContactOwner owner) async {
+    if (owner.accountRevision != _accountSecurity.revision.value) {
+      throw const AccountSecurityException('通讯录账户修订已变化');
+    }
     final current = await _currentUser.resolve();
     final binding = await _accountSecurity.readIdentityBindingForCid(
       owner.cidNumber,
     );
-    if (binding == null ||
+    if (owner.accountRevision != _accountSecurity.revision.value ||
+        binding == null ||
         binding.bindingRevision != owner.bindingRevision ||
         binding.accountId != owner.accountId) {
       throw const AccountSecurityException('通讯录公开绑定已变化');
@@ -663,7 +627,11 @@ class UserContactService {
 
   /// 解析通讯录永久属主与当前授权账户；未注册 CID 必须失败关闭。
   Future<_ContactOwner> _requireIdentityOwner() async {
+    final accountRevision = _accountSecurity.revision.value;
     final identity = await _currentUser.resolve();
+    if (accountRevision != _accountSecurity.revision.value) {
+      throw const AccountSecurityException('通讯录账户修订已变化');
+    }
     if (identity == null || !identity.isRegistered) {
       throw SquareApiException(
         identity?.isUnregistered == true
@@ -676,6 +644,7 @@ class UserContactService {
       );
     }
     return _ContactOwner(
+      accountRevision: accountRevision,
       cidNumber: requireCidNumber(identity.cidNumber),
       bindingRevision: identity.bindingRevision,
       accountId: requireAccountId(identity.accountId),
@@ -965,6 +934,7 @@ class UserContactService {
 /// 通讯录的永久属主与本次有效授权账户。
 class _ContactOwner {
   _ContactOwner({
+    required this.accountRevision,
     required this.cidNumber,
     required this.bindingRevision,
     required this.accountId,
@@ -975,6 +945,7 @@ class _ContactOwner {
   final String accountId;
   String? contactsSnapshot;
   String? pendingSnapshot;
+  final int accountRevision;
 }
 
 enum _PendingAction { upsert, delete }

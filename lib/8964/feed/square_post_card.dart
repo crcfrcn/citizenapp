@@ -64,7 +64,7 @@ class SquarePostCard extends StatelessWidget {
               ),
               _buildBody(context),
               SizedBox(height: AppLayout.scaled(context, 12)),
-              const SquarePostActions(),
+              SquarePostActions(onComment: onTap),
             ],
           ),
         ),

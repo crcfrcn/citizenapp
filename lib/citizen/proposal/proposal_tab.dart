@@ -197,7 +197,8 @@ class _ProposalViewState extends State<ProposalTab> {
   }
 
   /// 只等待同一SDK的公开能力变化；不启动节点、不轮询、不把真实读取错误重试成成功。
-  Future<bool> _waitForChainRead(int generation) async {
+  Future<bool> _waitForChainRead(int generation, {bool reportWaiting = false}) async {
+    var reportedWaiting = false;
     while (_isCurrent(generation)) {
       final changed = _chainChanged ??= Completer<void>();
       final status = (await _sdk.getCapabilities())[CitizenCapabilityName.chainRead];
@@ -219,6 +220,10 @@ class _ProposalViewState extends State<ProposalTab> {
             CitizenCapabilityReason.chainStarting,
             CitizenCapabilityReason.chainUnsynced}.contains(status.reason)) {
         throw StateError('提案读链能力不可用');
+      }
+      if (reportWaiting && !reportedWaiting) {
+        AppLog.proposalRead(state: 'waiting');
+        reportedWaiting = true;
       }
       await changed.future;
     }
@@ -407,7 +412,8 @@ class _ProposalViewState extends State<ProposalTab> {
     });
 
     try {
-      if (!await _waitForChainRead(generation)) return;
+      if (!await _waitForChainRead(generation, reportWaiting: true)) return;
+      AppLog.proposalRead(state: 'started');
       final scope = await _fetchVisibleProposalScope(forceRefresh: force);
       if (!_isCurrent(generation)) return;
       final ids = scope.ids;
@@ -421,6 +427,8 @@ class _ProposalViewState extends State<ProposalTab> {
           _loading = false;
         });
         _updatePendingVoteCount();
+        // 只有当前代次真实取得空可见范围并完成页面更新，才能报告成功空结果。
+        if (_isCurrent(generation)) AppLog.proposalRead(state: 'empty');
         return;
       }
 
@@ -444,6 +452,10 @@ class _ProposalViewState extends State<ProposalTab> {
       });
 
       _updatePendingVoteCount();
+      // 可见ID非空但详情尚无可展示项时不冒充空范围；失败/迟到/销毁均无成功回执。
+      if (_isCurrent(generation) && items.isNotEmpty) {
+        AppLog.proposalRead(state: 'nonempty');
+      }
     } catch (e) {
       if (!_isCurrent(generation)) return;
       setState(() {

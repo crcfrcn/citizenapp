@@ -1,13 +1,16 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:citizenapp/system/theme/app_theme.dart';
 import 'package:citizenapp/system/theme/app_layout.dart';
+import 'package:citizenapp/app_log.dart';
 
 import 'topup_api.dart';
 import 'topup_models.dart';
@@ -16,6 +19,64 @@ import 'tron.dart';
 import 'solana.dart';
 import 'store.dart';
 import 'wallet_link_dispatcher.dart';
+
+/// 文档和脚本都来自随包资产；HTTPS基址只设置来源，不加载网站网页。
+/// 随机标记只留在当前文档内；相同域名的其它网页不能取得桥接权限。
+class TopupDocument {
+  TopupDocument(String template, List<int> script, String nonce)
+    : _nonce = nonce,
+      html = _render(template, script, nonce);
+
+  static const baseUrl = 'https://www.crcfrcn.com/';
+  final String html;
+  final String _nonce;
+  String? _url;
+  bool get started => _url != null;
+
+  static String _render(String template, List<int> script, String nonce) {
+    if (!RegExp(r'^[A-Za-z0-9+/]{22,}={0,2}$').hasMatch(nonce) ||
+        script.isEmpty ||
+        template.split('{{TOPUP_NONCE}}').length != 5 ||
+        template.split('{{TOPUP_SCRIPT}}').length != 2) {
+      throw const FormatException('连接页面资源无效');
+    }
+    return template
+        .replaceAll('{{TOPUP_NONCE}}', nonce)
+        .replaceAll('{{TOPUP_SCRIPT}}', base64Encode(script));
+  }
+
+  String get markerCheck =>
+      'window === window.top && '
+      'document.documentElement.getAttribute("data-topup-document") === ${jsonEncode(_nonce)}';
+  String get check =>
+      '($markerCheck) && window.origin === ${jsonEncode(Uri.parse(baseUrl).origin)} && '
+      'typeof window.CitizenTopup?.start === "function"';
+
+  // 两端系统API可能把内存文档地址报告为基址或about:blank；仅初次装配可导航，
+  // 真正准入仍须本次标记、运行时HTTPS来源和随包脚本同时成立。
+  bool mayNavigate(String url, {required bool mainFrame}) =>
+      !mainFrame || (!started && (url == baseUrl || url == 'about:blank'));
+
+  bool begin(String beforeUrl, String? currentUrl, Object proof) {
+    if (started ||
+        beforeUrl != currentUrl ||
+        proof != true ||
+        !mayNavigate(beforeUrl, mainFrame: true)) {
+      return false;
+    }
+    _url = currentUrl;
+    return true;
+  }
+
+  bool accepts(String? currentUrl, Object proof) =>
+      started && currentUrl == _url && proof == true;
+
+  bool ownsReady(Map<String, dynamic> value) =>
+      value.length == 3 &&
+      value['kind'] == 'document_ready' &&
+      value['nonce'] == _nonce &&
+      value['ready'] is bool;
+}
 
 /// 保留原连接钱包页；App只接收签名和公开交易，公民币由服务端转账。
 class TopupWebviewPage extends StatefulWidget {
@@ -46,21 +107,14 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
     16,
     (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
   ).join();
-  String? _document, _error;
-  bool _started = false, _handling = false, _opening = false;
+  TopupDocument? _document;
+  String? _error;
+  bool _handling = false, _opening = false;
   late final String _accountId = widget.accountId;
   bool get _active => mounted && widget.accountId == _accountId;
   int _last = 0;
+  int _lastObservation = 0;
   TopupRecord? _record;
-  bool _local(String raw) {
-    final uri = Uri.tryParse(raw);
-    return uri != null &&
-        uri.scheme == 'file' &&
-        !uri.hasQuery &&
-        !uri.hasFragment &&
-        uri.path.endsWith('/assets/topup/walletconnect.html');
-  }
-
   @override
   void initState() {
     super.initState();
@@ -68,31 +122,99 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
     _links = WalletLinkDispatcher(
       launcher: (uri) => launchUrl(uri, mode: LaunchMode.externalApplication),
     );
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..addJavaScriptChannel('TopupBridge', onMessageReceived: _message)
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onNavigationRequest: (r) async {
-            if (r.isMainFrame &&
-                _local(r.url) &&
-                (_document == null || r.url == _document)) {
-              return NavigationDecision.navigate;
-            }
-            if (!r.isMainFrame) return NavigationDecision.navigate;
-            // 外部网页没有桥接权限；钱包唤起只能由本地页面的明确消息触发。
-            return NavigationDecision.prevent;
-          },
-          onPageFinished: _start,
-        ),
-      )
-      ..loadFlutterAsset('assets/topup/walletconnect.html');
+    _controller = WebViewController();
+    unawaited(_loadDocument());
   }
 
-  Future<void> _start(String url) async {
-    if (_started || !_local(url)) return;
-    _document = url;
-    _started = true;
+  Future<void> _loadDocument() async {
+    try {
+      // 就绪消息可能紧随内存文档执行；必须先等待系统模式、通道及委托实际注册完成。
+      await _controller.setJavaScriptMode(JavaScriptMode.unrestricted);
+      await _controller.addJavaScriptChannel(
+        'TopupBridge',
+        onMessageReceived: _message,
+      );
+      await _controller.setNavigationDelegate(
+        NavigationDelegate(
+          onNavigationRequest: (r) async {
+            if (_document?.mayNavigate(r.url, mainFrame: r.isMainFrame) ==
+                true) {
+              return NavigationDecision.navigate;
+            }
+            // 外部主框架网页没有桥接权限，不能因HTTPS域名相同就放行。
+            return NavigationDecision.prevent;
+          },
+        ),
+      );
+      final template = await rootBundle.loadString(
+        'assets/topup/walletconnect.html',
+      );
+      final bytes = await rootBundle.load(
+        'assets/topup/walletconnect.bundle.js',
+      );
+      final nonce = base64Encode(
+        List.generate(16, (_) => Random.secure().nextInt(256)),
+      );
+      if (!_active) return;
+      final document = TopupDocument(
+        template,
+        bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes),
+        nonce,
+      );
+      _document = document;
+      await _controller.loadHtmlString(
+        document.html,
+        baseUrl: TopupDocument.baseUrl,
+      );
+    } on Object {
+      if (_active) setState(() => _error = '连接页面初始化失败，可返回原充值页面');
+    }
+  }
+
+  Future<bool> _trusted() async {
+    final document = _document;
+    if (!_active || document == null || !document.started) return false;
+    try {
+      if (!document.accepts(await _controller.currentUrl(), true)) return false;
+      final proof = await _controller.runJavaScriptReturningResult(
+        document.check,
+      );
+      return _active &&
+          identical(_document, document) &&
+          document.accepts(await _controller.currentUrl(), proof);
+    } on Object {
+      return false;
+    }
+  }
+
+  Future<void> _start() async {
+    final document = _document;
+    if (!_active || document == null || document.started) return;
+    try {
+      final current = await _controller.currentUrl();
+      // 就绪消息只触发检查；准入以真实当前文档及JS证明为准。
+      if (current == null || !document.mayNavigate(current, mainFrame: true)) {
+        return;
+      }
+      if (await _controller.runJavaScriptReturningResult(
+            document.markerCheck,
+          ) !=
+          true) {
+        return;
+      }
+      final proof = await _controller.runJavaScriptReturningResult(
+        document.check,
+      );
+      if (proof != true) throw const FormatException('连接页面来源或脚本无效');
+      if (!_active ||
+          !identical(_document, document) ||
+          !document.begin(current, await _controller.currentUrl(), proof)) {
+        return;
+      }
+    } on Object {
+      if (_active) setState(() => _error = '连接页面初始化失败，可返回原充值页面');
+      return;
+    }
     if (widget.replay) {
       try {
         final record = _record;
@@ -141,13 +263,17 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
           'rpc': TopupRpcConfig.endpoint(_record!.intent.network),
         },
     };
-    await _controller.runJavaScript('CitizenTopup.start(${jsonEncode(cfg)})');
+    // 在同一JS执行中再核对本次文档，避免异步原生检查后导航提交的竞态。
+    await _controller.runJavaScript(
+      'if (${document.check}) CitizenTopup.start(${jsonEncode(cfg)})',
+    );
   }
 
   Future<void> _reply(int id, {Object? value, String? error}) async {
-    if (!mounted) return;
+    final document = _document;
+    if (document == null || !await _trusted()) return;
     await _controller.runJavaScript(
-      'CitizenTopup.reply(${jsonEncode(_session)},$id,${jsonEncode({'ok': error == null, 'value': value, 'error': error})})',
+      'if (${document.check}) CitizenTopup.reply(${jsonEncode(_session)},$id,${jsonEncode({'ok': error == null, 'value': value, 'error': error})})',
     );
   }
 
@@ -157,10 +283,7 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
   }
 
   Future<void> _message(JavaScriptMessage message) async {
-    if (!mounted ||
-        _document == null ||
-        await _controller.currentUrl() != _document ||
-        message.message.length > 32768) {
+    if (!_active || _document == null || message.message.length > 32768) {
       return;
     }
     Map<String, dynamic> data;
@@ -169,22 +292,56 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
     } on Object {
       return;
     }
+    final document = _document;
+    if (data['kind'] == 'document_ready') {
+      if (document == null || !document.ownsReady(data) || document.started) {
+        return;
+      }
+      if (data['ready'] != true) {
+        setState(() => _error = '连接页面初始化失败，可返回原充值页面');
+        return;
+      }
+      await _start();
+      return;
+    }
     final id = data['id'];
-    if (data['session'] != _session || id is! int || id <= _last) return;
+    if (data['session'] != _session || id is! int || id <= 0) return;
+    if (!await _trusted()) return;
+    // 观察消息沿本次文档、真实来源及原会话守卫，不抢占付款回执。
+    if (data['kind'] == 'connection_observation' ||
+        data['kind'] == 'connection_trace') {
+      if (id <= _lastObservation) return;
+      _lastObservation = id;
+      if (data['kind'] == 'connection_trace') {
+        AppLog.topupConnectTrace(data['observation']);
+      } else {
+        AppLog.topupConnection(data['observation']);
+      }
+      return;
+    }
+    if (id <= _last) return;
     if (data['kind'] == 'external_wallet') {
       _last = id;
-      if (_opening) return;
+      AppLog.topupWallet('requested');
+      if (_opening) {
+        AppLog.topupWallet('busy');
+        return;
+      }
       _opening = true;
       try {
         final opened = await _links.open(
           data['url'] as String,
           source: WalletLinkSource.walletOpenBridge,
         );
+        AppLog.topupWallet(
+          opened == WalletLinkOpenResult.opened ? 'opened' : 'rejected',
+        );
         await _reply(
           id,
           error: opened == WalletLinkOpenResult.opened ? null : '未能打开付款钱包',
         );
       } on Object {
+        AppLog.topupWallet('rejected');
         await _reply(id, error: '未能打开付款钱包');
       } finally {
         _opening = false;

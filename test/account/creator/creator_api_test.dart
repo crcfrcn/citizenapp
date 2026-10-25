@@ -76,18 +76,24 @@ void main() {
         return http.Response(
           jsonEncode({
             'ok': true,
-            'tiers': [
-              {
-                'tier_id': 't1',
-                'tier_name': '铁杆粉丝',
-                'tier_order': 0,
-                'monthly_price_fen': 990,
-                'quarterly_price_fen': null,
-                'yearly_price_fen': null,
-              },
-            ],
-            'membergate_active': true,
-            'subscription': null,
+            'revision': 1,
+            'plan': {
+              'creator_cid_number': session.cidNumber,
+              'updated_at': 0,
+              'tiers': [
+                {
+                  'tier_id': 't1',
+                  'tier_name': '铁杆粉丝',
+                  'tier_order': 0,
+                  'prices_fen': {'monthly': 990},
+                },
+              ],
+            },
+            'overview': {
+              'subscriber_count': 0,
+              'monthly_income_fen': 0,
+              'tier_count': 1,
+            },
           }),
           200,
           headers: {"content-type": "application/json; charset=utf-8"},
@@ -111,7 +117,7 @@ void main() {
     expect(plan.tiers.single.priceFenOf(BillingPeriod.monthly), 990);
     expect(requests.map((r) => r.url.path), [
       '/api/membergate/creators/plans',
-      '/api/membergate/creators/${session.cidNumber}/plans',
+      '/api/membergate/creator/overview',
     ]);
     await api.confirmCreatorSubscription(
       session: authorized,
@@ -338,6 +344,11 @@ class _FakeWallet implements CitizenSdkWallet {
 }
 
 class _ActiveMembershipService implements SubscriptionService {
+  @override
+  Future<MembershipDisplaySnapshot?> readDisplaySnapshot(
+    String cidNumber,
+  ) async => null;
+
   @override
   Future<SquareMembershipState> authorizeMembership(
     SquareSession session, {

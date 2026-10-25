@@ -113,6 +113,8 @@ class SubscriptionService {
 
   @visibleForTesting
   static int Function()? nowForTesting;
+  static int displayPaidUntilFor(String cid) =>
+      _memorySnapshots[cid]?.state.paidUntil ?? 0;
   static int _now() =>
       nowForTesting?.call() ?? DateTime.now().millisecondsSinceEpoch;
 
@@ -135,6 +137,61 @@ class SubscriptionService {
         errorCode: 'invalid_session',
       );
     }
+  }
+
+  /// 服务端推送只推进展示；旧请求权限缓存失效，业务执行仍由原服务端门禁判断。
+  static Future<void> applyPushedDisplay(
+    String cid,
+    Map<String, dynamic> data, {
+    required bool Function() isCurrent,
+    required int receivedAt,
+  }) async {
+    if (data['active'] is! bool ||
+        data['paid_until'] is! int ||
+        (data['paid_until'] as int) < 0 ||
+        !isCurrent()) {
+      return;
+    }
+    final previous = await _readDisplaySnapshot(cid, isCurrent: isCurrent);
+    if (!isCurrent()) return;
+    final prices = <String, int>{...?(previous?.prices)};
+    var receivedPrices = 0;
+    final raw = data['prices'];
+    if (raw is Map) {
+      for (final entry in raw.entries) {
+        if (entry.key is String &&
+            ['freedom', 'democracy', 'spark'].contains(entry.key) &&
+            entry.value is int &&
+            (entry.value as int) >= 0 &&
+            (entry.value as int) <= 9007199254740991) {
+          prices[entry.key as String] = entry.value as int;
+          receivedPrices++;
+        }
+      }
+    }
+    final state = SquareMembershipState(
+      active: data['active'] as bool,
+      paidUntil: data['paid_until'] as int,
+      membershipLevel: data['membergate_level'] as String?,
+      subscriptionStatus: data['subscription_status'] as String?,
+      subscriptionActive: data['active'] as bool,
+      lastChargedAt: (data['last_charged_at'] as int?) ?? 0,
+      plans: previous?.state.plans ?? const [],
+      usageState: previous?.state.usageState,
+    );
+    if (!_sameMembership(previous?.state, state)) _authorizations.remove(cid);
+    await _writeDisplaySnapshot(
+      cid,
+      MembershipDisplaySnapshot(
+        state: state,
+        prices: prices,
+        subscriptionFetchedAtMs: receivedAt,
+        pricesFetchedAtMs: receivedPrices == 3
+            ? receivedAt
+            : previous?.pricesFetchedAtMs ?? 0,
+      ),
+      isCurrent: isCurrent,
+    );
   }
 
   /// 普通业务直接请求原接口，由服务端门禁决定；这里不前置GET会员。

@@ -21,10 +21,8 @@ import 'package:citizenapp/account/profile/user_profile_page.dart';
 import 'package:citizenapp/account/profile/profile_avatar.dart';
 import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/chat/tatachat_sdk_adapter.dart';
-import 'package:citizenapp/citizen/account_derivation.dart';
 import 'package:citizenapp/account/membership/membership_revision.dart';
 import 'package:citizenapp/account/membership/subscription_service.dart';
-import 'package:citizenapp/account/identity/citizen_identity_chain_reader.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
 import 'package:citizenapp/account/identity/cid_business_gate.dart';
 import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
@@ -66,7 +64,6 @@ ChatConversationHost _citizenConversationHost({
   required String peerUserId,
   required String title,
   required bool isGroup,
-  ChatResolvePeerAddressCallback? resolvePeerAddress,
   CitizenProfile? initialProfile,
   CitizenProfileMediaSnapshot? initialProfileMedia,
   CitizenProfileApi? profileApi,
@@ -133,22 +130,13 @@ ChatConversationHost _citizenConversationHost({
       ),
     ),
     onTransfer: (context, targetUserId) async {
-      final String ss58Address;
-      if (resolvePeerAddress != null) {
-        ss58Address = await resolvePeerAddress(targetUserId);
-      } else {
-        final binding = await CitizenIdentityChainReader(
-          chain: context.read<CitizenSdk>().chain,
-        ).readBindingByCidNumber(targetUserId);
-        if (binding == null) {
-          throw StateError('对方 CID 当前没有有效钱包绑定');
-        }
-        ss58Address = ss58FromAccountIdText(binding.accountIdText);
-      }
       if (!context.mounted) return;
       await Navigator.of(context).push<void>(
         MaterialPageRoute<void>(
-          builder: (_) => OnchainPaymentPage(initialToAddress: ss58Address),
+          builder: (_) => OnchainPaymentPage(
+            initialToAddress: targetUserId,
+            initialRecipientCid: targetUserId,
+          ),
         ),
       );
     },
@@ -468,6 +456,8 @@ class _ChatTabState extends State<ChatTab> {
   final Map<String, CitizenProfileMediaSnapshot> _peerProfileMedia =
       <String, CitizenProfileMediaSnapshot>{};
   final Set<String> _resolvedPeerCidNumbers = <String>{};
+  final Set<String> _profileReadsInFlight = <String>{};
+  final Set<String> _profileAttempts = <String>{};
   final Map<String, String> _peerContactRemarks = <String, String>{};
   SquareSession? _profileSession;
   String _cidNumber = '';
@@ -534,7 +524,6 @@ class _ChatTabState extends State<ChatTab> {
           accountSecurity: accountSecurity,
           currentUserContext: currentUserContext,
           sessionProvider: _sessionProvider!,
-          chainReader: CitizenIdentityChainReader(chain: sdk.chain),
         );
     _accountSecurity = accountSecurity;
     accountSecurity.revision.addListener(_onWalletsChanged);
@@ -622,6 +611,7 @@ class _ChatTabState extends State<ChatTab> {
       .toList(growable: false);
 
   Future<void> _reload({bool syncFirst = false}) async {
+    if(syncFirst)_profileAttempts.clear();
     if (!_isActive) {
       return;
     }
@@ -831,20 +821,27 @@ class _ChatTabState extends State<ChatTab> {
     }
   }
 
-  /// 对端公开资料按四个 CID 一组刷新，防止大聊天列表产生无界请求；会员展示只采用
+  /// 仅首次发现缺失名片的对端按四个CID一组补齐；既有列表刷新只读本地。会员展示只采用
   /// CitizenServe 当前 D1 结果；本人的聊天授权统一由会员缓存与服务端 D1 门禁处理。
   Future<void> _refreshPeerProfiles(
     List<ChatConversationPreview> conversations,
   ) async {
-    final cidNumbers = _directPeerCidNumbers(conversations).toList();
+    final cidNumbers = _directPeerCidNumbers(conversations)
+        .where(
+          (cid) =>
+              !_resolvedPeerCidNumbers.contains(cid) &&
+              !_profileReadsInFlight.contains(cid) && _profileAttempts.add(cid),
+        )
+        .toList();
     if (cidNumbers.isEmpty || !mounted) return;
     final sessionProvider = _sessionProvider;
     if (sessionProvider == null) return;
     try {
-      _profileSession ??= await sessionProvider.ensureSession();
+      _profileSession = await sessionProvider.ensureSession();
     } on Exception {
       return;
     }
+    cidNumbers.removeWhere((cid) => !_profileReadsInFlight.add(cid));
     for (var offset = 0; offset < cidNumbers.length; offset += 4) {
       final end = offset + 4 < cidNumbers.length
           ? offset + 4
@@ -885,6 +882,8 @@ class _ChatTabState extends State<ChatTab> {
             }
           } on Exception {
             // Chat 继续使用本机资料或中性占位，单个公开资料失败不影响会话可用性。
+          } finally {
+            _profileReadsInFlight.remove(cidNumber);
           }
         }),
       );
@@ -2004,7 +2003,6 @@ UserContactService? _contactServiceFromContextOrNull(BuildContext context) {
     accountSecurity: accountSecurity,
     currentUserContext: currentUserContext,
     sessionProvider: sessionProvider,
-    chainReader: CitizenIdentityChainReader(chain: sdk.chain),
   );
 }
 

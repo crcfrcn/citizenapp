@@ -24,8 +24,9 @@ export const wallets=Object.freeze([
 ]);
 
 // 复用原AppKit弹窗；推荐、搜索及全部列表共用同一名单，不另建钱包连接实现。
-export async function connectWallet(provider,chosen,options,createAppKit){
+export async function connectWallet(provider,chosen,options,createAppKit,report=()=>{},trace){
  const {SafeLocalStorage,SafeLocalStorageKeys}=await import('@reown/appkit-common');
+ const {ConnectionController}=await import('@reown/appkit-controllers');
  // 只移除本选择器的最近钱包展示偏好，防止历史品牌插入或把已选钱包挪到前面。
  // 不清空localStorage，不接触WalletConnect会话、账户、充值原单或签名记录。
  const clearRecent=()=>{
@@ -34,15 +35,132 @@ export async function connectWallet(provider,chosen,options,createAppKit){
  };
  clearRecent();
  const ids=wallets.map(wallet=>wallet.id);
- const modal=createAppKit({...options,includeWalletIds:[...ids],featuredWalletIds:[...ids],
-  allWallets:'SHOW',customWallets:[],enableEIP6963:false,enableWalletGuide:false,
-  features:{...options.features,email:false,socials:false,connectMethodsOrder:['wallet'],connectorTypeOrder:['featured']}});
- let unsubscribe;let connecting=true;
+ const observed=observeConnection(provider,ConnectionController,report);
+ let modal,unsubscribe;let connecting=true,called=false;
  try{
+  modal=createAppKit({...options,includeWalletIds:[...ids],featuredWalletIds:[...ids],
+   allWallets:'SHOW',customWallets:[],enableEIP6963:false,enableWalletGuide:false,
+   features:{...options.features,email:false,socials:false,connectMethodsOrder:['wallet'],connectorTypeOrder:['featured']}});
   await modal.open({view:'Connect'});
-  const closed=new Promise((_,reject)=>{let opened=true;unsubscribe=modal.subscribeState(state=>{if(opened&&!state.open&&connecting)reject(Error('钱包连接已取消'));opened=state.open;});});
-  const result=await Promise.race([provider.connect(proposal(chosen)),closed]);connecting=false;return result;
- }finally{unsubscribe?.();await modal.close();clearRecent();}
+  const closed=new Promise((_,reject)=>{let opened=true;unsubscribe=modal.subscribeState(state=>{if(opened&&!state.open&&connecting){trace?.settle('modal_closed');reject(Error('钱包连接已取消'));}opened=state.open;});});
+  observed.connect();
+  trace?.event('connect');called=true;
+  const connection=provider.connect(proposal(chosen));
+  // 观察原Promise，不用包装Promise参与竞赛；不替换SDK方法或吞掉原拒绝。
+  if(trace)void connection.then(()=>trace.settle('provider_resolved'),error=>trace.settle('provider_rejected',error));
+  const result=await Promise.race([connection,closed]);connecting=false;return result;
+ }catch(error){trace?.settle(called?'provider_rejected':'modal_open_failed',error);throw error;}
+ finally{observed.end();trace?.end();unsubscribe?.();await modal?.close();clearRecent();}
+}
+// 只读观察已锁SDK的公开产生/接收边界；URI仅在闭包中比较，出口只接收固定布尔快照。
+// 不等待ready、不setUri、不重试；观察失败不得替换原连接结果，旧URI不算本轮接收。
+export function observeConnection(provider,controller,report){
+ let listening=false,connecting=false,emitted=false,matched=false,complete=true,baseline=false,uri,unsubscribe,ended=false;
+ const snapshot=stage=>{
+  let providerUri=false,modalUri=false;
+  try{providerUri=typeof provider.uri==='string'&&provider.uri.length>0;modalUri=typeof controller.state.wcUri==='string'&&controller.state.wcUri.length>0;matched ||= emitted&&controller.state.wcUri===uri;}catch(_){complete=false;}
+  try{report({stage,listening,connecting,emitted,provider_uri:providerUri,modal_uri:modalUri,matched,baseline,complete});}catch(_){complete=false;}
+ };
+ const display=value=>{if(ended)return;if(typeof value!=='string'||!value){complete=false;return;}uri=value;emitted=true;snapshot('uri');};
+ try{
+  baseline=Boolean(provider.uri)||Boolean(controller.state.wcUri);
+  provider.on('display_uri',display);
+  unsubscribe=controller.subscribeKey('wcUri',()=>{if(!ended)snapshot('modal');});
+  listening=true;
+ }catch(_){complete=false;}
+ snapshot('start');
+ return {
+  connect(){connecting=true;snapshot('connect');},
+  end(){if(ended)return;snapshot('end');ended=true;try{provider.removeListener('display_uri',display);}catch(_){}try{unsubscribe?.();}catch(_){}uri=undefined;}
+ };
+}
+// 已锁SDK公开logger的参数仅在内存精确分类，未知值不转发、不序列化。
+export function connectFailure(value){
+ try{
+  const read=key=>value&&typeof value==='object'?Object.getOwnPropertyDescriptor(value,key)?.value:undefined;
+  const message=typeof value==='string'?value:read('message');
+  const relayReasons=new Map([
+   ['Unauthorized: origin not allowed','origin_denied'],
+   ['Authorization error: Unauthorized: invalid key','invalid_key'],
+   ['Authorization error: Project ID is missing','project_missing'],
+   ['Unauthorized','relay_unauthorized'],
+  ]);
+  const messages=new Map([
+   ['No internet connection detected. Please restart your network and try again.','offline'],
+   ['Connection interrupted while trying to connect','socket_interrupted'],
+   ['Connection interrupted while trying to subscribe','subscribe_interrupted'],
+   ['Connection already closed','socket_closed'],['WebSocket connection is missing or invalid','socket_missing'],
+   ['Proposal expired','proposal_expired'],['Sign Client not initialized','client_missing'],
+   ['Failed to publish payload','publish_failed'],['Failed to Publish Payload','publish_failed'],
+   ['Unexpected server response: 401','http_401'],['Unexpected server response: 403','http_403'],
+   ['Unexpected server response: 429','http_429'],['Unexpected server response: 503','http_503'],
+  ]);
+  for(const [reason,category]of relayReasons){messages.set(reason,category);messages.set(`WebSocket connection closed abnormally with code: 3000 (${reason})`,category);}
+  for(const host of ['relay.walletconnect.org','relay.walletconnect.com']){
+   messages.set('Socket stalled when trying to connect to wss://'+host,'socket_stalled');
+   messages.set('WebSocket connection failed for host: '+host,'socket_failed');
+  }
+  const allowed=new Set([0,401,403,429,503,1000,1001,1006,1008,1011,1013,3000,-32600,-32601,-32602,-32603]);
+  const code=read('code');
+  const knownClose=[...relayReasons.keys()].some(reason=>message===`WebSocket connection closed abnormally with code: 3000 (${reason})`);
+  return {error:messages.get(message)??(value instanceof TypeError?'type':'other'),code:knownClose?'3000':allowed.has(code)?String(code):'none'};
+ }catch(_){return {error:'other',code:'none'};}
+}
+export function connectTrace(report){
+ let relay,topic,ended=false,complete=true,pairing=false,subscribed=false,published=false,attempts=0,stalls=0,winner='pending',lastError='none',lastCode='none';
+ const removers=[],publishIds=new Set();
+ const event=(name,failure)=>{
+  if(ended)return;
+  if(failure){const safe=connectFailure(failure);lastError=safe.error;lastCode=safe.code;}
+  let connected=false,connecting=false;
+  try{connected=relay?.connected===true;connecting=relay?.connecting===true;}catch(_){complete=false;}
+  try{report({stage:'trace',event:name,winner,error:lastError,code:lastCode,pairing,subscribed,published,relay_connected:connected,relay_connecting:connecting,attempts,stalls,complete});}catch(_){complete=false;}
+ };
+ const log=(...args)=>{
+  if(ended)return;
+  for(const value of args){
+   // 本锁版本以wc_proposeSession/pairingTopic发提案；回执params会被覆盖，只在内存关联原请求ID。
+   try{
+    const request=value&&typeof value==='object'&&value.type==='message'&&value.direction==='outgoing'?value.request:undefined;
+    if(topic&&request?.method==='wc_proposeSession'&&request.params?.pairingTopic===topic&&['string','number'].includes(typeof request.id))publishIds.add(String(request.id));
+   }catch(_){complete=false;}
+   if(typeof value==='string'){
+    let attempt=false;
+    for(const host of ['relay.walletconnect.org','relay.walletconnect.com'])for(let i=1;i<=5;i++)if(value===`Connecting to wss://${host}, attempt: ${i}...`){attempts=Math.min(20,attempts+1);event('attempt');attempt=true;}
+    if(attempt)continue;
+   }
+   const safe=connectFailure(value);
+   if(safe.error!=='other'||safe.code!=='none'){if(safe.error==='socket_stalled')stalls=Math.min(20,stalls+1);event('sdk_error',value);}
+  }
+ };
+ const logger={level:'trace',child:()=>logger,bindings:()=>({}),setBindings(){},isLevelEnabled:()=>true,trace:log,debug:log,info:log,warn:log,error:log,fatal:log,silent(){}};
+ const listen=(target,name,handler)=>{target.on(name,handler);removers.push(()=>target.off(name,handler));};
+ const sockets=new WeakSet();
+ const wireSocket=()=>{
+  const socket=relay?.provider?.connection;
+  if(!socket||sockets.has(socket))return;
+  sockets.add(socket);
+  listen(socket,'close',value=>event('socket_close',{code:value?.code,message:value?.reason}));
+ };
+ return {
+  logger,event,
+  bind(provider){
+   try{
+    const core=provider.client.core;relay=core.relayer;
+    // pairing_create位于formatUri之后、持久化/订阅之前；topic仅关联本次回执。
+    listen(core.pairing.events,'pairing_create',value=>{if(ended)return;topic=value.topic;pairing=true;event('pairing');});
+    listen(relay,'relayer_connect',()=>{wireSocket();event('relay_open');});
+    listen(relay,'relayer_disconnect',()=>event('relay_closed'));
+    listen(relay,'relayer_error',error=>event('relay_error',error));
+    listen(relay.subscriber,'subscription_created',value=>{if(value.topic===topic){subscribed=true;event('subscribed');}});
+    listen(relay,'relayer_publish',value=>{if(['string','number'].includes(typeof value.id)&&publishIds.has(String(value.id))){published=true;event('published');}});
+    wireSocket();
+   }catch(_){complete=false;}
+   event('ready');
+  },
+  settle(result,error){if(ended||winner!=='pending')return;winner=result;if(result==='modal_closed')lastError='user_closed';event(result,error);},
+  end(){if(ended)return;event('end');ended=true;for(const remove of removers){try{remove();}catch(_){}}publishIds.clear();topic=undefined;}
+ };
 }
 // 选择来自App的一次明确点击，不能从会话默认链补齐缺失字段。
 export function selection(value){
@@ -206,15 +324,18 @@ export async function defaultBuilder(solanaRpc){
   }
  };
 }
-async function connectedWallet(cfg){
+async function connectedWallet(cfg,report){
+ const trace=connectTrace(report);
+ try{
  const [{default:UniversalProvider},{createAppKit},{defineChain,mainnet,base,bsc,solana},{default:bs58}]=await Promise.all([import('@walletconnect/universal-provider'),import('@reown/appkit'),import('@reown/appkit/networks'),import('bs58')]);
- const provider=await UniversalProvider.init({projectId:cfg.projectId,logger:'silent',metadata:{name:'CitizenApp',description:'链上充值购买公民币',url:'https://www.crcfrcn.com',icons:[],redirect:{native:'citizenapp://walletconnect'}}});
+ const provider=await UniversalProvider.init({projectId:cfg.projectId,logger:trace.logger,metadata:{name:'CitizenApp',description:'链上充值购买公民币',url:'https://www.crcfrcn.com',icons:[],redirect:{native:'citizenapp://walletconnect'}}});
+ trace.bind(provider);
  // 本次用户已选择新付款；结束本模块原连接，避免SDK把旧批准链带入新连接请求。
  if(provider.session)await provider.disconnect();
  const tron=defineChain({id:'0x2b6653dc',caipNetworkId:chains.tron,chainNamespace:'tron',name:'Tron',nativeCurrency:{name:'TRX',symbol:'TRX',decimals:6},rpcUrls:{default:{http:[cfg.rpc]}}});
  const chosen=selection(cfg.selection),network={ethereum:mainnet,base,bnb:bsc,tron,solana}[chosen.network];
  const networks=[{...network,rpcUrls:{default:{http:[cfg.rpc]}}}];
- await connectWallet(provider,chosen,{projectId:cfg.projectId,networks,manualWCControl:true,universalProvider:provider,enableAnalytics:false,enableNetworkSwitch:false,features:{analytics:false,swaps:false,onramp:false,send:false,receive:false}},createAppKit);
+ await connectWallet(provider,chosen,{projectId:cfg.projectId,networks,manualWCControl:true,universalProvider:provider,enableAnalytics:false,enableNetworkSwitch:false,features:{analytics:false,swaps:false,onramp:false,send:false,receive:false}},createAppKit,report,trace);
  const channel=await bindSession(provider,chosen),request=channel.request;
  return {
   context:channel.context,request,
@@ -234,17 +355,19 @@ async function connectedWallet(cfg){
    return null;
   }
  };
+ }catch(error){trace.settle('setup_rejected',error);throw error;}finally{trace.end();}
 }
 let started=false;
 export async function start(cfg){
  if(started)return;started=true;
  const pending=new Map();let sequence=0;
+ const report=observation=>window.TopupBridge.postMessage(JSON.stringify({session:cfg.session,id:++sequence,kind:observation.stage==='trace'?'connection_trace':'connection_observation',observation}));
  const ask=(kind,payload)=>new Promise((resolve,reject)=>{const id=++sequence;const timer=setTimeout(()=>{pending.delete(id);reject(Error('付款回执待核实，请返回原订单'));},180000);pending.set(id,{resolve,reject,timer});window.TopupBridge.postMessage(JSON.stringify({session:cfg.session,id,kind,...payload}));});
  window.CitizenTopup.reply=(session,id,response)=>{if(session!==cfg.session)return;const p=pending.get(id);if(!p)return;pending.delete(id);clearTimeout(p.timer);response.ok?p.resolve(response.value):p.reject(Error(response.error??'付款流程已停止'));};
  window.open=(url)=>{if(typeof url==='string')void ask('external_wallet',{url}).catch(()=>{});return null;};
  try{
   const builder=await defaultBuilder((c,method,params)=>ask('solana_rpc',{...c,method,params}));
   if(cfg.replay)await replayFlow({builder,ask,replay:cfg.replay,selection:cfg.selection});
-  else { const wallet=await connectedWallet(cfg);await paymentFlow({wallet,builder,ask,selection:cfg.selection}); }
+  else { const wallet=await connectedWallet(cfg,report);await paymentFlow({wallet,builder,ask,selection:cfg.selection}); }
  }catch(_){window.TopupBridge.postMessage(JSON.stringify({session:cfg.session,id:++sequence,kind:'error'}));}
 }

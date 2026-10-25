@@ -1903,6 +1903,137 @@ final class RunnerUITests: XCTestCase {
     NSLog("TOPUP_UI config=1 package_sheet=1 payment_opened=0 contract_entry=0")
   }
 
+  /// 只检查已安装钱包的唤起；不批准钱包连接、签名或付款。
+  func testTopupMetaMaskLaunchReadOnly() throws {
+    try observeTopupWallet(name: "MetaMask", bundle: "io.metamask.MetaMask", kind: "metamask")
+  }
+
+  func testTopupOkxLaunchReadOnly() throws {
+    try observeTopupWallet(name: "OKX Wallet", bundle: "com.okex.OKExAppstoreFull", kind: "okx")
+  }
+
+  private func observeTopupWallet(name: String, bundle: String, kind: String) throws {
+    continueAfterFailure = false
+    executionTimeAllowance = 480
+    let app = try openExistingWallet()
+    let wallet = XCUIApplication(bundleIdentifier: bundle)
+    let system = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    defer {
+      // 一见外部钱包前台即结束；回到原App，不在钱包中批准任何请求。
+      app.activate()
+      if app.staticTexts["连接钱包支付"].exists {
+        let back = app.buttons.matching(NSPredicate(format: "label IN %@", ["返回", "Back"])).firstMatch
+        if back.exists && back.isHittable { back.tap() }
+      }
+    }
+    let row = hotAccountBadges(in: app).firstMatch
+    XCTAssertTrue(row.waitForExistence(timeout: 10), "未取得原热账户卡片")
+    XCTAssertTrue(row.isHittable, "原热账户卡片不可点击")
+    row.tap()
+    XCTAssertTrue(app.staticTexts["账户详情"].waitForExistence(timeout: 10))
+    let topup = app.descendants(matching: .any).matching(NSPredicate(
+      format: "label MATCHES %@", ReadOnlySurface.topupLabelPattern)).firstMatch
+    XCTAssertTrue(topup.waitForExistence(timeout: 10)); topup.tap()
+    XCTAssertTrue(app.staticTexts["链上充值"].waitForExistence(timeout: 10))
+    let coin = app.descendants(matching: .any).matching(NSPredicate(
+      format: "label BEGINSWITH %@", "USDC")).firstMatch
+    XCTAssertTrue(coin.waitForExistence(timeout: 30), "充值配置未显示USDC入口")
+    let recovery = app.descendants(matching: .any).matching(NSPredicate(format:
+      "label CONTAINS %@ OR label CONTAINS %@", "恢复充值订单", "充值订单 ·")).firstMatch
+    guard !recovery.exists else {
+      throw XCTSkip("存在原充值订单，不进入原单或新的钱包连接")
+    }
+    coin.tap()
+    XCTAssertTrue(app.staticTexts["选择充值套餐 · USDC"].waitForExistence(timeout: 10))
+    let network = app.buttons.matching(NSPredicate(format: "label == %@", "Ethereum/以太坊链"))
+    XCTAssertEqual(network.count, 2, "原两档Ethereum入口应分别存在")
+    XCTAssertTrue(network.firstMatch.isHittable)
+    network.firstMatch.tap()
+    XCTAssertTrue(app.staticTexts["连接钱包支付"].waitForExistence(timeout: 20))
+    let web = app.webViews.firstMatch
+    XCTAssertTrue(web.waitForExistence(timeout: 15), "未进入实际付款WebView")
+    let failed = app.descendants(matching: .any).matching(NSPredicate(
+      format: "label BEGINSWITH %@", "连接或付款未完成")).firstMatch
+    // WebKit可把品牌与辅助文字合并；只在连接页取带该品牌的可点击叶节点，排除整页容器。
+    let choices = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] %@", name))
+    func reportSurface() {
+      let caption = app.descendants(matching: .any).matching(NSPredicate(
+        format: "label CONTAINS %@", "正在唤起 WalletConnect")).firstMatch.exists
+      let modal = app.descendants(matching: .any).matching(NSPredicate(
+        format: "label CONTAINS[c] %@", "Connect Wallet")).firstMatch.exists
+      NSLog("TOPUP_WALLET_UI wallet=%@ stage=surface caption=%d modal=%d brand=%d web_text=%d web_children=%d", kind,
+            caption ? 1 : 0, modal ? 1 : 0, choices.count > 0 ? 1 : 0,
+            web.staticTexts.count > 0 ? 1 : 0, web.children(matching: .any).count > 0 ? 1 : 0)
+    }
+    reportSurface()
+    var choice: XCUIElement?
+    let picker = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+      choice = choices.allElementsBoundByIndex.first(where: {
+        [.button, .link, .staticText, .image].contains($0.elementType) && $0.isHittable
+      })
+      return choice != nil || failed.exists
+    }, object: nil)
+    let pickerReady = XCTWaiter.wait(for: [picker], timeout: 180) == .completed
+    reportSurface()
+    NSLog("TOPUP_WALLET_UI wallet=%@ stage=picker ready=%d failed=%d brand_found=%d web_found=%d", kind,
+          pickerReady && choice != nil ? 1 : 0, failed.exists ? 1 : 0, choices.count > 0 ? 1 : 0,
+          web.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] %@", name)).count > 0 ? 1 : 0)
+    XCTAssertTrue(pickerReady && choice != nil, "钱包选择器未就绪或已失败")
+    try XCTUnwrap(choice).tap()
+
+    let open = app.buttons.matching(NSPredicate(format: "label == %@", "Open")).firstMatch
+    let systemAlert = system.alerts.matching(NSPredicate(
+      format: "label CONTAINS[c] %@", kind == "okx" ? "OKX" : "MetaMask")).firstMatch
+    let systemOpen = systemAlert.buttons.matching(NSPredicate(format: "label IN %@", ["打开", "Open"])).firstMatch
+    let deadline = Date().addingTimeInterval(180)
+    var reportedOpen: String?
+    var manualOpen = false
+    var acceptedSystemOpen = false
+    var outcome = 0
+    while Date() < deadline && outcome == 0 {
+      var event = 0
+      let terminal = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+        if wallet.state == .runningForeground { event = 1; return true }
+        if failed.exists { event = 2; return true }
+        let exists = open.exists
+        let enabled = exists && open.isEnabled
+        let state = "\(exists ? 1 : 0):\(enabled ? 1 : 0)"
+        if reportedOpen != state {
+          reportedOpen = state
+          // 只记录公开控件状态，不读取连接URI、二维码或钱包账户。
+          NSLog("TOPUP_WALLET_UI wallet=%@ stage=open exists=%d enabled=%d", kind,
+                exists ? 1 : 0, enabled ? 1 : 0)
+        }
+        if !acceptedSystemOpen && systemOpen.exists && systemOpen.isHittable {
+          event = 4; return true
+        }
+        if !manualOpen && enabled && open.isHittable { event = 3; return true }
+        return false
+      }, object: nil)
+      let remaining = max(0, deadline.timeIntervalSinceNow)
+      guard XCTWaiter.wait(for: [terminal], timeout: remaining) == .completed else { break }
+      if event == 1 || event == 2 {
+        outcome = event
+      } else if event == 4 {
+        // 只接受SpringBoard准确品牌的“打开”提示，不点击钱包内的连接或授权。
+        acceptedSystemOpen = true
+        NSLog("TOPUP_WALLET_UI wallet=%@ stage=system_open", kind)
+        systemOpen.tap()
+      } else if event == 3 {
+        if wallet.wait(for: .runningForeground, timeout: 3) {
+          outcome = 1
+        } else {
+          manualOpen = true
+          NSLog("TOPUP_WALLET_UI wallet=%@ stage=manual_open", kind)
+          open.tap()
+        }
+      }
+    }
+    NSLog("TOPUP_WALLET_UI wallet=%@ stage=terminal opened=%d failed=%d timeout=%d", kind,
+          outcome == 1 ? 1 : 0, outcome == 2 ? 1 : 0, outcome == 0 ? 1 : 0)
+    XCTAssertEqual(outcome, 1, "已安装的钱包未被实际唤起；仅观察到失败或有界超时")
+  }
+
   /// 提案只读查看和下拉；前景空白没有可证明的读取回执，必须标记未覆盖。
   func testCitizenProposalReadOnly() throws {
     let app = XCUIApplication(bundleIdentifier: targetBundleIdentifier)

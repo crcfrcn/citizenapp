@@ -1,3 +1,9 @@
+import 'dart:convert';
+
+import 'package:citizenapp/system/notifications/notifications.dart';
+import 'package:citizenapp/8964/feed/square_home_page.dart'
+    show openSquareNotification;
+
 import 'dart:async';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -1120,9 +1126,25 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     super.didChangeDependencies();
     if (_preparationAttached) return;
     _preparationAttached = true;
+    final api = context.read<SquareApiClient?>(),
+        sessions = context.read<SquareSessionProvider?>(),
+        user = context.read<CurrentUserContext?>();
+    if (api != null && sessions != null && user != null) {
+      Notifications.instance.configure(
+        api: api,
+        sessions: sessions,
+        user: user,
+        push: context.read<AppPushService?>(),
+      );
+    }
     _preparationSecurity = context.read<AccountSecurityService?>();
-    _preparationSecurity?.revision.addListener(_schedulePreparation);
+    _preparationSecurity?.revision.addListener(_onPreparationIdentityChanged);
     WidgetsBinding.instance.addObserver(this);
+    _schedulePreparation();
+  }
+
+  void _onPreparationIdentityChanged() {
+    Notifications.instance.invalidate();
     _schedulePreparation();
   }
 
@@ -1131,13 +1153,18 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         unawaited(context.read<SquareSessionProvider?>()?.resolveSession());
+        unawaited(Notifications.instance.calibrate());
       }
     });
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _schedulePreparation();
+    Notifications.instance.setForeground(state == AppLifecycleState.resumed);
+    if (state == AppLifecycleState.resumed) {
+      _schedulePreparation();
+      unawaited(Notifications.instance.calibrate(force: true));
+    }
   }
 
   Future<void> _startPushOpenRouting() async {
@@ -1171,7 +1198,31 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   Future<void> _handleOpenedPushData(Map<String, dynamic> data) async {
     if (!mounted) return;
-    if (data['kind'] == 'square_post' || data['kind'] == 'storage_cleanup') {
+    final Map<String, dynamic> payload;
+    try {
+      final raw = data['citizen'] ?? data;
+      if (raw is String && utf8.encode(raw).length > 4096) return;
+      final decoded = raw is String ? jsonDecode(raw) : raw;
+      if (decoded is! Map) return;
+      payload = decoded.cast<String, dynamic>();
+    } on Object {
+      return;
+    }
+    await Notifications.instance.receive(data);
+    if (!mounted) return;
+    if (payload['post_id'] is String &&
+        ['square_post', 'notification_state'].contains(payload['kind'])) {
+      _openSquareTab();
+      await openSquareNotification(
+        context,
+        postId: payload['post_id'] as String,
+        commentId: payload['comment_id'] is String
+            ? payload['comment_id'] as String
+            : null,
+      );
+      return;
+    }
+    if (payload['kind'] == 'storage_cleanup') {
       _openSquareTab();
       return;
     }
@@ -1207,7 +1258,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _preparationSecurity?.revision.removeListener(_schedulePreparation);
+    _preparationSecurity?.revision.removeListener(
+      _onPreparationIdentityChanged,
+    );
+    Notifications.instance.stop();
     _updateController.removeListener(_handleUpdateStateChanged);
     unawaited(_pushOpenSub?.cancel());
     unawaited(_pushTokenSub?.cancel());

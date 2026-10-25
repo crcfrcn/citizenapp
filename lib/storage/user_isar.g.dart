@@ -8852,6 +8852,1294 @@ extension UserContactStateEntityQueryProperty
 // coverage:ignore-file
 // ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
 
+extension GetUserNotificationStateEntityCollection on Isar {
+  IsarCollection<UserNotificationStateEntity>
+  get userNotificationStateEntitys => this.collection();
+}
+
+const UserNotificationStateEntitySchema = CollectionSchema(
+  name: r'UserNotificationStateEntity',
+  id: 755258303635496517,
+  properties: {
+    r'cidNumber': PropertySchema(
+      id: 0,
+      name: r'cidNumber',
+      type: IsarType.string,
+    ),
+    r'pendingJson': PropertySchema(
+      id: 1,
+      name: r'pendingJson',
+      type: IsarType.string,
+    ),
+    r'stateJson': PropertySchema(
+      id: 2,
+      name: r'stateJson',
+      type: IsarType.string,
+    ),
+  },
+
+  estimateSize: _userNotificationStateEntityEstimateSize,
+  serialize: _userNotificationStateEntitySerialize,
+  deserialize: _userNotificationStateEntityDeserialize,
+  deserializeProp: _userNotificationStateEntityDeserializeProp,
+  idName: r'id',
+  indexes: {
+    r'cidNumber': IndexSchema(
+      id: -8947736671869741624,
+      name: r'cidNumber',
+      unique: true,
+      replace: true,
+      properties: [
+        IndexPropertySchema(
+          name: r'cidNumber',
+          type: IndexType.hash,
+          caseSensitive: true,
+        ),
+      ],
+    ),
+  },
+  links: {},
+  embeddedSchemas: {},
+
+  getId: _userNotificationStateEntityGetId,
+  getLinks: _userNotificationStateEntityGetLinks,
+  attach: _userNotificationStateEntityAttach,
+  version: '3.3.2',
+);
+
+int _userNotificationStateEntityEstimateSize(
+  UserNotificationStateEntity object,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  var bytesCount = offsets.last;
+  bytesCount += 3 + object.cidNumber.length * 3;
+  {
+    final value = object.pendingJson;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
+  bytesCount += 3 + object.stateJson.length * 3;
+  return bytesCount;
+}
+
+void _userNotificationStateEntitySerialize(
+  UserNotificationStateEntity object,
+  IsarWriter writer,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  writer.writeString(offsets[0], object.cidNumber);
+  writer.writeString(offsets[1], object.pendingJson);
+  writer.writeString(offsets[2], object.stateJson);
+}
+
+UserNotificationStateEntity _userNotificationStateEntityDeserialize(
+  Id id,
+  IsarReader reader,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  final object = UserNotificationStateEntity();
+  object.cidNumber = reader.readString(offsets[0]);
+  object.id = id;
+  object.pendingJson = reader.readStringOrNull(offsets[1]);
+  object.stateJson = reader.readString(offsets[2]);
+  return object;
+}
+
+P _userNotificationStateEntityDeserializeProp<P>(
+  IsarReader reader,
+  int propertyId,
+  int offset,
+  Map<Type, List<int>> allOffsets,
+) {
+  switch (propertyId) {
+    case 0:
+      return (reader.readString(offset)) as P;
+    case 1:
+      return (reader.readStringOrNull(offset)) as P;
+    case 2:
+      return (reader.readString(offset)) as P;
+    default:
+      throw IsarError('Unknown property with id $propertyId');
+  }
+}
+
+Id _userNotificationStateEntityGetId(UserNotificationStateEntity object) {
+  return object.id;
+}
+
+List<IsarLinkBase<dynamic>> _userNotificationStateEntityGetLinks(
+  UserNotificationStateEntity object,
+) {
+  return [];
+}
+
+void _userNotificationStateEntityAttach(
+  IsarCollection<dynamic> col,
+  Id id,
+  UserNotificationStateEntity object,
+) {
+  object.id = id;
+}
+
+extension UserNotificationStateEntityByIndex
+    on IsarCollection<UserNotificationStateEntity> {
+  Future<UserNotificationStateEntity?> getByCidNumber(String cidNumber) {
+    return getByIndex(r'cidNumber', [cidNumber]);
+  }
+
+  UserNotificationStateEntity? getByCidNumberSync(String cidNumber) {
+    return getByIndexSync(r'cidNumber', [cidNumber]);
+  }
+
+  Future<bool> deleteByCidNumber(String cidNumber) {
+    return deleteByIndex(r'cidNumber', [cidNumber]);
+  }
+
+  bool deleteByCidNumberSync(String cidNumber) {
+    return deleteByIndexSync(r'cidNumber', [cidNumber]);
+  }
+
+  Future<List<UserNotificationStateEntity?>> getAllByCidNumber(
+    List<String> cidNumberValues,
+  ) {
+    final values = cidNumberValues.map((e) => [e]).toList();
+    return getAllByIndex(r'cidNumber', values);
+  }
+
+  List<UserNotificationStateEntity?> getAllByCidNumberSync(
+    List<String> cidNumberValues,
+  ) {
+    final values = cidNumberValues.map((e) => [e]).toList();
+    return getAllByIndexSync(r'cidNumber', values);
+  }
+
+  Future<int> deleteAllByCidNumber(List<String> cidNumberValues) {
+    final values = cidNumberValues.map((e) => [e]).toList();
+    return deleteAllByIndex(r'cidNumber', values);
+  }
+
+  int deleteAllByCidNumberSync(List<String> cidNumberValues) {
+    final values = cidNumberValues.map((e) => [e]).toList();
+    return deleteAllByIndexSync(r'cidNumber', values);
+  }
+
+  Future<Id> putByCidNumber(UserNotificationStateEntity object) {
+    return putByIndex(r'cidNumber', object);
+  }
+
+  Id putByCidNumberSync(
+    UserNotificationStateEntity object, {
+    bool saveLinks = true,
+  }) {
+    return putByIndexSync(r'cidNumber', object, saveLinks: saveLinks);
+  }
+
+  Future<List<Id>> putAllByCidNumber(
+    List<UserNotificationStateEntity> objects,
+  ) {
+    return putAllByIndex(r'cidNumber', objects);
+  }
+
+  List<Id> putAllByCidNumberSync(
+    List<UserNotificationStateEntity> objects, {
+    bool saveLinks = true,
+  }) {
+    return putAllByIndexSync(r'cidNumber', objects, saveLinks: saveLinks);
+  }
+}
+
+extension UserNotificationStateEntityQueryWhereSort
+    on
+        QueryBuilder<
+          UserNotificationStateEntity,
+          UserNotificationStateEntity,
+          QWhere
+        > {
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterWhere
+  >
+  anyId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(const IdWhereClause.any());
+    });
+  }
+}
+
+extension UserNotificationStateEntityQueryWhere
+    on
+        QueryBuilder<
+          UserNotificationStateEntity,
+          UserNotificationStateEntity,
+          QWhereClause
+        > {
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterWhereClause
+  >
+  idEqualTo(Id id) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(IdWhereClause.between(lower: id, upper: id));
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterWhereClause
+  >
+  idNotEqualTo(Id id) {
+    return QueryBuilder.apply(this, (query) {
+      if (query.whereSort == Sort.asc) {
+        return query
+            .addWhereClause(
+              IdWhereClause.lessThan(upper: id, includeUpper: false),
+            )
+            .addWhereClause(
+              IdWhereClause.greaterThan(lower: id, includeLower: false),
+            );
+      } else {
+        return query
+            .addWhereClause(
+              IdWhereClause.greaterThan(lower: id, includeLower: false),
+            )
+            .addWhereClause(
+              IdWhereClause.lessThan(upper: id, includeUpper: false),
+            );
+      }
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterWhereClause
+  >
+  idGreaterThan(Id id, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IdWhereClause.greaterThan(lower: id, includeLower: include),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterWhereClause
+  >
+  idLessThan(Id id, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IdWhereClause.lessThan(upper: id, includeUpper: include),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterWhereClause
+  >
+  idBetween(
+    Id lowerId,
+    Id upperId, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IdWhereClause.between(
+          lower: lowerId,
+          includeLower: includeLower,
+          upper: upperId,
+          includeUpper: includeUpper,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterWhereClause
+  >
+  cidNumberEqualTo(String cidNumber) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IndexWhereClause.equalTo(indexName: r'cidNumber', value: [cidNumber]),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterWhereClause
+  >
+  cidNumberNotEqualTo(String cidNumber) {
+    return QueryBuilder.apply(this, (query) {
+      if (query.whereSort == Sort.asc) {
+        return query
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'cidNumber',
+                lower: [],
+                upper: [cidNumber],
+                includeUpper: false,
+              ),
+            )
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'cidNumber',
+                lower: [cidNumber],
+                includeLower: false,
+                upper: [],
+              ),
+            );
+      } else {
+        return query
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'cidNumber',
+                lower: [cidNumber],
+                includeLower: false,
+                upper: [],
+              ),
+            )
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'cidNumber',
+                lower: [],
+                upper: [cidNumber],
+                includeUpper: false,
+              ),
+            );
+      }
+    });
+  }
+}
+
+extension UserNotificationStateEntityQueryFilter
+    on
+        QueryBuilder<
+          UserNotificationStateEntity,
+          UserNotificationStateEntity,
+          QFilterCondition
+        > {
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  cidNumberEqualTo(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'cidNumber',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  cidNumberGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'cidNumber',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  cidNumberLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'cidNumber',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  cidNumberBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'cidNumber',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  cidNumberStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'cidNumber',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  cidNumberEndsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'cidNumber',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  cidNumberContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'cidNumber',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  cidNumberMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'cidNumber',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  cidNumberIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'cidNumber', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  cidNumberIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'cidNumber', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  idEqualTo(Id value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'id', value: value),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  idGreaterThan(Id value, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  idLessThan(Id value, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  idBetween(
+    Id lower,
+    Id upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'id',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  pendingJsonIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'pendingJson'),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  pendingJsonIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'pendingJson'),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  pendingJsonEqualTo(String? value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'pendingJson',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  pendingJsonGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'pendingJson',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  pendingJsonLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'pendingJson',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  pendingJsonBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'pendingJson',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  pendingJsonStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'pendingJson',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  pendingJsonEndsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'pendingJson',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  pendingJsonContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'pendingJson',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  pendingJsonMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'pendingJson',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  pendingJsonIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'pendingJson', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  pendingJsonIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'pendingJson', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  stateJsonEqualTo(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'stateJson',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  stateJsonGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'stateJson',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  stateJsonLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'stateJson',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  stateJsonBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'stateJson',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  stateJsonStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'stateJson',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  stateJsonEndsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'stateJson',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  stateJsonContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'stateJson',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  stateJsonMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'stateJson',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  stateJsonIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'stateJson', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterFilterCondition
+  >
+  stateJsonIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'stateJson', value: ''),
+      );
+    });
+  }
+}
+
+extension UserNotificationStateEntityQueryObject
+    on
+        QueryBuilder<
+          UserNotificationStateEntity,
+          UserNotificationStateEntity,
+          QFilterCondition
+        > {}
+
+extension UserNotificationStateEntityQueryLinks
+    on
+        QueryBuilder<
+          UserNotificationStateEntity,
+          UserNotificationStateEntity,
+          QFilterCondition
+        > {}
+
+extension UserNotificationStateEntityQuerySortBy
+    on
+        QueryBuilder<
+          UserNotificationStateEntity,
+          UserNotificationStateEntity,
+          QSortBy
+        > {
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterSortBy
+  >
+  sortByCidNumber() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'cidNumber', Sort.asc);
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterSortBy
+  >
+  sortByCidNumberDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'cidNumber', Sort.desc);
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterSortBy
+  >
+  sortByPendingJson() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'pendingJson', Sort.asc);
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterSortBy
+  >
+  sortByPendingJsonDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'pendingJson', Sort.desc);
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterSortBy
+  >
+  sortByStateJson() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'stateJson', Sort.asc);
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterSortBy
+  >
+  sortByStateJsonDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'stateJson', Sort.desc);
+    });
+  }
+}
+
+extension UserNotificationStateEntityQuerySortThenBy
+    on
+        QueryBuilder<
+          UserNotificationStateEntity,
+          UserNotificationStateEntity,
+          QSortThenBy
+        > {
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterSortBy
+  >
+  thenByCidNumber() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'cidNumber', Sort.asc);
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterSortBy
+  >
+  thenByCidNumberDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'cidNumber', Sort.desc);
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterSortBy
+  >
+  thenById() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'id', Sort.asc);
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterSortBy
+  >
+  thenByIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'id', Sort.desc);
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterSortBy
+  >
+  thenByPendingJson() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'pendingJson', Sort.asc);
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterSortBy
+  >
+  thenByPendingJsonDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'pendingJson', Sort.desc);
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterSortBy
+  >
+  thenByStateJson() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'stateJson', Sort.asc);
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QAfterSortBy
+  >
+  thenByStateJsonDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'stateJson', Sort.desc);
+    });
+  }
+}
+
+extension UserNotificationStateEntityQueryWhereDistinct
+    on
+        QueryBuilder<
+          UserNotificationStateEntity,
+          UserNotificationStateEntity,
+          QDistinct
+        > {
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QDistinct
+  >
+  distinctByCidNumber({bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'cidNumber', caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QDistinct
+  >
+  distinctByPendingJson({bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'pendingJson', caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<
+    UserNotificationStateEntity,
+    UserNotificationStateEntity,
+    QDistinct
+  >
+  distinctByStateJson({bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'stateJson', caseSensitive: caseSensitive);
+    });
+  }
+}
+
+extension UserNotificationStateEntityQueryProperty
+    on
+        QueryBuilder<
+          UserNotificationStateEntity,
+          UserNotificationStateEntity,
+          QQueryProperty
+        > {
+  QueryBuilder<UserNotificationStateEntity, int, QQueryOperations>
+  idProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'id');
+    });
+  }
+
+  QueryBuilder<UserNotificationStateEntity, String, QQueryOperations>
+  cidNumberProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'cidNumber');
+    });
+  }
+
+  QueryBuilder<UserNotificationStateEntity, String?, QQueryOperations>
+  pendingJsonProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'pendingJson');
+    });
+  }
+
+  QueryBuilder<UserNotificationStateEntity, String, QQueryOperations>
+  stateJsonProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'stateJson');
+    });
+  }
+}
+
+// coverage:ignore-file
+// ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
+
 extension GetUserSettingsEntityCollection on Isar {
   IsarCollection<UserSettingsEntity> get userSettingsEntitys =>
       this.collection();

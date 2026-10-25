@@ -1,3 +1,4 @@
+import 'package:citizenapp/system/notifications/notifications.dart';
 import 'package:provider/provider.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizenapp/account/identity/identity_badge_snapshot_store.dart';
@@ -87,10 +88,12 @@ class _SquareHomePageState extends State<SquareHomePage> {
   /// 关注子 tab 红点数（服务端 following_unread）。广场底部 tab 数经回调上抛。
   int _followingUnread = 0;
 
-  /// 发帖通知红点轮询；仅生产真实数据源下开启，测试注入 fake feedSource 时跳过不触网。
-  static const Duration _notifyPollInterval = Duration(seconds: 45);
-  Timer? _notifyTimer;
+  /// 红点只消费App级本地通知状态；页面没有定时器或进入即清读。
   bool _publishMenuOpen = false;
+  bool _openingNotifications = false;
+  int _notificationRequest = 0;
+  NotificationScope? _notificationOwner;
+  ModalRoute<dynamic>? _notificationRoute;
 
   @override
   void initState() {
@@ -129,28 +132,21 @@ class _SquareHomePageState extends State<SquareHomePage> {
     // 本页常驻 IndexedStack；切换身份账户（CID 换绑 / 切钱包）后经
     // 账户／身份 revision 广播重载身份，保证身份图标与作者点击的 isSelf
     // 判定始终基于当前身份账户。
-    // 发帖通知红点：仅生产真实数据源下开启（fake feedSource 的测试不触网）。
-    if (_feedSource is SquareApiClient) {
-      widget.selectedTab?.addListener(_onSelectedTabChanged);
-      unawaited(_onSquareActivated());
-      _notifyTimer = Timer.periodic(
-        _notifyPollInterval,
-        (_) => unawaited(_refreshNotify()),
-      );
-    }
+    Notifications.instance.addListener(_onNotificationChanged);
+    _followingUnread = Notifications.instance.followingUnread;
     _dependenciesReady = true;
   }
 
   @override
   void dispose() {
     _identityLoadGeneration++;
+    _notificationRequest++;
     _accountSecurity?.revision.removeListener(_onWalletsChanged);
     MembershipRevision.instance.listenable.removeListener(_onMembershipChanged);
     IdentityBadgeSnapshotStore.revision.removeListener(
       _onIdentitySnapshotChanged,
     );
-    _notifyTimer?.cancel();
-    widget.selectedTab?.removeListener(_onSelectedTabChanged);
+    Notifications.instance.removeListener(_onNotificationChanged);
     super.dispose();
   }
 
@@ -179,67 +175,140 @@ class _SquareHomePageState extends State<SquareHomePage> {
     }
   }
 
-  /// 底部导航切到广场（值 == tabIndex）→ 清广场红点。
-  void _onSelectedTabChanged() {
-    if (widget.selectedTab?.value == widget.tabIndex) {
-      unawaited(_onSquareActivated());
+  void _onNotificationChanged() {
+    if (!mounted) return;
+    if (_openingNotifications &&
+        (Notifications.instance.scope == null ||
+            (_notificationOwner != null &&
+                !Notifications.instance.isCurrent(_notificationOwner)))) {
+      final route = _notificationRoute;
+      // 旧请求可以仍在网络中，新账号立即获得自己的抽屉入口。
+      _notificationRequest++;
+      _openingNotifications = false;
+      _notificationOwner = null;
+      _notificationRoute = null;
+      if (route?.isActive == true) route!.navigator?.removeRoute(route);
     }
+    widget.onSquareUnreadChanged?.call(Notifications.instance.unread);
+    setState(() => _followingUnread = Notifications.instance.followingUnread);
   }
 
-  Future<SquareSession?> _notifySession() async {
+  Future<void> _openNotifications({int? cursor}) async {
+    if (_openingNotifications) return;
+    _openingNotifications = true;
+    final request = ++_notificationRequest;
+    NotificationScope? owner;
+    int? next;
     try {
-      return await (_sessionProvider ?? context.read<SquareSessionProvider>())
-          .ensureSession();
-    } on Object {
-      // 后台通知由 unawaited 启动，任何会话失败都只能降级为不刷新红点，
-      // 不得逸出为未捕获异步异常并影响广场浏览。
-      return null;
-    }
-  }
-
-  /// 拉双游标红点：广场数经回调上抛底部 tab，关注数留本地驱动关注子 tab 徽章。
-  Future<void> _refreshNotify() async {
-    if (_feedSource is! SquareApiClient) return;
-    final session = await _notifySession();
-    if (session == null) return;
-    try {
-      final counts = await _squareApi.fetchNotifyUnread(session: session);
-      if (!mounted) return;
-      widget.onSquareUnreadChanged?.call(counts.squareUnread);
-      if (counts.followingUnread != _followingUnread) {
-        setState(() => _followingUnread = counts.followingUnread);
+      if (!await Notifications.instance.restore() ||
+          !mounted ||
+          request != _notificationRequest) {
+        return;
       }
+      owner = Notifications.instance.scope!;
+      _notificationOwner = owner;
+      final page = await Notifications.instance.page(
+        owner: owner,
+        cursor: cursor,
+      );
+      if (!mounted ||
+          request != _notificationRequest ||
+          !Notifications.instance.isCurrent(owner)) {
+        return;
+      }
+      final through = (page['state'] as Map)['through'] as int;
+      final items = (page['items'] as List)
+          .whereType<Map>()
+          .map((v) => v.cast<String, dynamic>())
+          .toList();
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        builder: (sheet) {
+          _notificationRoute = ModalRoute.of(sheet);
+          return SafeArea(
+            child: SizedBox(
+              height: MediaQuery.sizeOf(sheet).height * 0.65,
+              child: Column(
+                children: [
+                  ListTile(
+                    title: const Text('通知'),
+                    trailing: TextButton(
+                      onPressed: () async {
+                        await Notifications.instance.readAll(
+                          owner: owner!,
+                          through: through,
+                        );
+                        if (sheet.mounted &&
+                            Notifications.instance.isCurrent(owner)) {
+                          Navigator.pop(sheet);
+                        }
+                      },
+                      child: const Text('全部已读'),
+                    ),
+                  ),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: items.length,
+                      itemBuilder: (context, index) {
+                        final item = items[index];
+                        return ListTile(
+                          title: Text(
+                            item['kind'] == 'post' ? '关注的人发布了帖子' : '新的评论或回复',
+                          ),
+                          subtitle: Text((item['title'] as String?) ?? ''),
+                          trailing: item['read_at'] == 0
+                              ? const Icon(Icons.circle, size: 8)
+                              : null,
+                          onTap: () async {
+                            if (!Notifications.instance.isCurrent(owner)) {
+                              return;
+                            }
+                            Navigator.pop(sheet);
+                            await openSquareNotification(
+                              this.context,
+                              postId: item['post_id'] as String,
+                              commentId: item['comment_id'] as String?,
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                  if (page['next_cursor'] != null)
+                    TextButton(
+                      onPressed: () {
+                        if (!Notifications.instance.isCurrent(owner)) return;
+                        next = page['next_cursor'] as int;
+                        Navigator.pop(sheet);
+                      },
+                      child: const Text('更早通知'),
+                    ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
     } on Object {
-      // 红点拉取失败静默：不影响广场浏览。
+      if (mounted &&
+          request == _notificationRequest &&
+          (owner == null || Notifications.instance.isCurrent(owner))) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('通知暂时不可用，请稍后重试')));
+      }
+    } finally {
+      if (request == _notificationRequest) {
+        _openingNotifications = false;
+        _notificationOwner = null;
+        _notificationRoute = null;
+      }
     }
-  }
-
-  /// 进广场：清广场游标 → 底部红点归零，随后回拉（关注游标不动，关注红点保留）。
-  Future<void> _onSquareActivated() async {
-    if (_feedSource is! SquareApiClient) return;
-    final session = await _notifySession();
-    if (session == null) return;
-    try {
-      await _squareApi.markNotifyRead(session: session, scope: 'square');
-      if (mounted) widget.onSquareUnreadChanged?.call(0);
-    } on Object {
-      // 清读失败静默；下次轮询以服务端为准。
-    }
-    await _refreshNotify();
-  }
-
-  /// 进关注子 tab：清关注游标 → 关注红点归零。
-  Future<void> _onFollowingActivated() async {
-    if (_feedSource is! SquareApiClient) return;
-    if (mounted && _followingUnread != 0) {
-      setState(() => _followingUnread = 0);
-    }
-    final session = await _notifySession();
-    if (session == null) return;
-    try {
-      await _squareApi.markNotifyRead(session: session, scope: 'following');
-    } on Object {
-      // 清读失败静默；本地已归零，下次轮询以服务端为准。
+    if (next != null &&
+        mounted &&
+        request == _notificationRequest &&
+        Notifications.instance.isCurrent(owner)) {
+      await _openNotifications(cursor: next);
     }
   }
 
@@ -361,18 +430,26 @@ class _SquareHomePageState extends State<SquareHomePage> {
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                   child: SizedBox(
                     width: double.infinity,
-                    child: SquareFeedTabs(
-                      selected: _selectedFeed,
-                      followingUnread: _followingUnread,
-                      onChanged: (feed) {
-                        setState(() {
-                          _selectedFeed = feed;
-                          _feedFuture = _beginFeedLoad();
-                        });
-                        if (feed == SquareFeedKind.following) {
-                          unawaited(_onFollowingActivated());
-                        }
-                      },
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: SquareFeedTabs(
+                            selected: _selectedFeed,
+                            followingUnread: _followingUnread,
+                            onChanged: (feed) {
+                              setState(() {
+                                _selectedFeed = feed;
+                                _feedFuture = _beginFeedLoad();
+                              });
+                            },
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: '通知',
+                          onPressed: _openNotifications,
+                          icon: const Icon(Icons.notifications_outlined),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -906,5 +983,41 @@ class _SquarePublishMenuState extends State<_SquarePublishMenu> {
         ),
       ),
     );
+  }
+}
+
+/// 推送与通知列表共用一个详情读取；目标评论由共用评论区定位。
+Future<void> openSquareNotification(
+  BuildContext context, {
+  required String postId,
+  String? commentId,
+}) async {
+  try {
+    final api = context.read<SquareApiClient>();
+    final session = await context.read<SquareSessionProvider>().ensureSession();
+    if (session == null || !context.mounted) return;
+    final post = await api.fetchPostDetail(session: session, postId: postId);
+    await session.validateCurrent();
+    if (!context.mounted) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => post.postType == SquarePostType.article
+            ? SquareArticleDetailPage(
+                post: post,
+                initialDetailLoaded: true,
+                initialCommentId: commentId,
+              )
+            : SquarePostDetailPage(
+                post: post,
+                initialDetailLoaded: true,
+                initialCommentId: commentId,
+              ),
+      ),
+    );
+  } on Object {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('通知内容暂时不可用或已删除')));
+    }
   }
 }

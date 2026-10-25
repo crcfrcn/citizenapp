@@ -97,7 +97,7 @@ class SquareArticleCard extends StatelessWidget {
                 ),
               ],
               SizedBox(height: AppLayout.scaled(context, 12)),
-              const SquarePostActions(),
+              SquarePostActions(onComment: onTap),
             ],
           ),
         ),

@@ -5,6 +5,7 @@ import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import {createRequire} from 'node:module';
 import {webcrypto} from 'node:crypto';
+import {EventEmitter} from 'node:events';
 import {join} from 'node:path';
 const work=process.env.WORK;if(!work?.startsWith('/'))throw Error('须先由本产品装配本轮工作工程');
 const source=readFileSync(join(work,'project/assets/topup/walletconnect.bundle.js'),'utf8');
@@ -21,6 +22,66 @@ function scenario(network,token=network==='solana'||network==='base'?'USDC':'USD
  return {wallet,builder,ask,now:()=>1000,selection:chosen,stages,get sent(){return sent;},get signatures(){return signatures;},change(){current={...c,payer:'changed'};}};
 }
 const choose=(token,network,package_id='pkg_15')=>({token,network,package_id});
+function tracePorts(){
+ const relay=new EventEmitter();relay.connected=false;relay.connecting=true;relay.subscriber=new EventEmitter();relay.provider={connection:new EventEmitter()};
+ const pairing=new EventEmitter(),provider=new EventEmitter();provider.client={core:{relayer:relay,pairing:{events:pairing}}};return {relay,pairing,provider};
+}
+test('内部URI创建、Relay订阅和发布按本次topic关联，秘密与未知异常不进入出口',()=>{
+ const p=tracePorts(),rows=[],trace=api.connectTrace(row=>rows.push(row));trace.logger.debug('unrelated setup');trace.logger.trace({type:'message',direction:'outgoing'});trace.bind(p.provider);trace.event('connect');
+ p.pairing.emit('pairing_create',{topic:'synthetic-private-topic'});p.relay.subscriber.emit('subscription_created',{topic:'synthetic-other-topic'});assert.equal(rows.at(-1).subscribed,false);
+ p.relay.subscriber.emit('subscription_created',{topic:'synthetic-private-topic'});
+ trace.logger.trace({type:'message',direction:'outgoing',request:{id:12,method:'wc_proposeSession',params:{pairingTopic:'synthetic-private-topic'}}});
+ p.relay.emit('relayer_publish',{id:13,params:{ttl:300}});assert.equal(rows.at(-1).published,false);
+ p.relay.emit('relayer_publish',{id:12,params:{ttl:300}});
+ trace.logger.warn({},'synthetic-private-jwt');trace.logger.warn({},'Socket stalled when trying to connect to wss://relay.walletconnect.org');trace.settle('provider_rejected',new Error('synthetic-private-error'));trace.end();
+ assert.equal(rows.at(-1).pairing,true);assert.equal(rows.at(-1).subscribed,true);assert.equal(rows.at(-1).published,true);assert.equal(rows.at(-1).winner,'provider_rejected');assert.equal(rows.at(-1).complete,true);assert.equal(rows.at(-1).stalls,1);assert.ok(!JSON.stringify(rows).includes('synthetic-'));assert.equal(p.pairing.listenerCount('pairing_create'),0);
+});
+test('固定错误精确分类，数值码限定白名单，不读取getter或转成字符串',()=>{
+ assert.equal(api.connectFailure(new Error('WebSocket connection closed abnormally with code: 3000 (Unauthorized: origin not allowed)')).error,'origin_denied');
+ assert.equal(api.connectFailure(new Error('WebSocket connection closed abnormally with code: 3000 (Unauthorized: origin not allowed)')).code,'3000');
+ assert.equal(api.connectFailure(new Error('Unexpected server response: 403')).error,'http_403');
+ assert.equal(api.connectFailure(new Error('Unexpected server response: 403 synthetic-private')).error,'other');
+ assert.equal(api.connectFailure({code:403,message:'synthetic-private'}).code,'403');assert.equal(api.connectFailure({code:987654}).code,'none');
+ assert.equal(api.connectFailure({get message(){throw Error('unreadable');},toString(){throw Error('unreadable');}}).error,'other');
+});
+test('公开WebSocket关闭事件只输出固定原因和关闭码，不泄漏未知reason',()=>{
+ const p=tracePorts(),rows=[],trace=api.connectTrace(row=>rows.push(row));trace.bind(p.provider);
+ p.relay.provider.connection.emit('close',{code:3000,reason:'Unauthorized: origin not allowed'});assert.equal(rows.at(-1).event,'socket_close');assert.equal(rows.at(-1).error,'origin_denied');assert.equal(rows.at(-1).code,'3000');
+ p.relay.provider.connection.emit('close',{code:3000,reason:'synthetic-private-jwt'});assert.equal(rows.at(-1).error,'other');assert.ok(!JSON.stringify(rows).includes('synthetic-private'));trace.end();assert.equal(p.relay.provider.connection.listenerCount('close'),0);
+});
+// 合成值只在内存参与比较；测试出口必须与真实闭集快照具有相同字段。
+function observationPorts(){
+ const listeners=new Map(),rows=[];let callback;
+ const provider={on:(name,fn)=>listeners.set(name,fn),removeListener:(name,fn)=>{assert.equal(listeners.get(name),fn);listeners.delete(name);}};
+ const controller={state:{},subscribeKey(key,fn){assert.equal(key,'wcUri');callback=fn;return()=>{callback=undefined;};}};
+ return {provider,controller,rows,emit(value){provider.uri=value;listeners.get('display_uri')?.(value);},receive(value){controller.state.wcUri=value;callback?.();},get active(){return listeners.size+(callback?1:0);}};
+}
+test('URI未生成、生成未接收、正确接收和旧URI分别有完整闭集证据',()=>{
+ for(const mode of ['none','producer','received','stale']){
+  const p=observationPorts();if(mode==='stale')p.controller.state.wcUri='synthetic-previous';
+  const observer=api.observeConnection(p.provider,p.controller,row=>p.rows.push(row));
+  assert.equal(p.active,2);observer.connect();
+  if(mode!=='none')p.emit('synthetic-current');
+  if(mode==='received')p.receive('synthetic-current');
+  observer.end();observer.end();const end=p.rows.at(-1);
+  assert.equal(end.stage,'end');assert.equal(end.listening,true);assert.equal(end.connecting,true);assert.equal(end.complete,true);
+  assert.equal(end.emitted,mode!=='none');assert.equal(end.provider_uri,mode!=='none');assert.equal(end.matched,mode==='received');assert.equal(end.baseline,mode==='stale');assert.equal(p.active,0);
+  assert.deepEqual(Object.keys(end).sort(),['stage','listening','connecting','emitted','provider_uri','modal_uri','matched','baseline','complete'].sort());
+  assert.ok(Object.values(end).every(value=>typeof value==='boolean'||['start','connect','uri','modal','end'].includes(value)));
+  assert.ok(!JSON.stringify(p.rows).includes('synthetic-'));
+ }
+});
+test('先收到弹窗变化也会在产生事件核对本轮URI；后续清空不会抹掉已接收事实',()=>{
+ const p=observationPorts(),observer=api.observeConnection(p.provider,p.controller,row=>p.rows.push(row));observer.connect();p.receive('synthetic-current');p.emit('synthetic-current');p.receive(undefined);observer.end();
+ assert.equal(p.rows.at(-1).matched,true);assert.equal(p.rows.at(-1).modal_uri,false);assert.equal(p.active,0);
+});
+test('监听或出口失败只标记证据不完整，不替换原业务结果',()=>{
+ for(const mode of ['listener','report','payload']){
+  const p=observationPorts();if(mode==='listener')p.controller.subscribeKey=()=>{throw Error('synthetic observer failure');};let calls=0;
+  const observer=api.observeConnection(p.provider,p.controller,row=>{if(mode==='report'&&calls++===0)throw Error('synthetic outlet failure');p.rows.push(row);});observer.connect();if(mode==='payload')p.emit({unexpected:true});observer.end();
+  assert.equal(p.rows.at(-1).complete,false);assert.equal(p.active,0);
+ }
+});
 test('六币轨由明确选择定位，多授权只使用所选链，缺失选择不得猜链',()=>{
  for(const [n,t] of [['ethereum','USDC'],['ethereum','USDT'],['base','USDC'],['bnb','USDT'],['tron','USDT'],['solana','USDC']])assert.equal(api.context(session(n),choose(t,n)).network,n);
  assert.throws(()=>api.context(session('base'),choose('USDT','base')));assert.throws(()=>api.context(session('tron'),choose('USDC','tron')));
@@ -48,8 +109,16 @@ test('签名后账户/网络变化、意图过期与回执冲突均停止',async
  const expired=scenario('tron');expired.now=()=>3000;await assert.rejects(api.paymentFlow(expired));assert.equal(expired.sent,0);
  const conflict=scenario('solana');conflict.builder.broadcast=async()=> 'other';await assert.rejects(api.paymentFlow(conflict));assert.equal(conflict.stages.includes('submitted'),false);
 });
-test('本地HTML只执行随包脚本，不从CDN执行脚本',()=>{
- const html=readFileSync(new URL('../../../assets/topup/walletconnect.html',import.meta.url),'utf8');assert.match(html,/<script src="walletconnect[.]bundle[.]js"><\/script>/);assert.doesNotMatch(html,/<script[^>]+src=["']https?:/);assert.doesNotMatch(source,/WalletConnectEthereumProvider[.]init/);
+test('HTTPS来源文档只执行本次nonce允许的随包脚本，不从网站加载JS',()=>{
+ const html=readFileSync(new URL('../../../assets/topup/walletconnect.html',import.meta.url),'utf8');
+ assert.equal(html.split('{{TOPUP_NONCE}}').length,5);assert.equal(html.split('{{TOPUP_SCRIPT}}').length,2);
+ assert.match(html,/<script nonce="{{TOPUP_NONCE}}" src="data:application\/javascript;base64,{{TOPUP_SCRIPT}}"><\/script>/);
+ const csp=html.match(/content="(default-src[^"]+)"/)[1];
+ assert.match(csp,/script-src 'nonce-{{TOPUP_NONCE}}';/);
+ assert.doesNotMatch(csp,/script-src[^;]*(?:'self'|unsafe-inline|unsafe-eval|https:|data:)/);
+ assert.doesNotMatch(html,/<script[^>]+src=["']https?:/);assert.doesNotMatch(html,/<script src="walletconnect[.]bundle[.]js"/);
+ assert.match(html,/kind: 'document_ready'/);assert.match(html,/ready: typeof window[.]CitizenTopup[?][.]start === 'function'/);
+ assert.doesNotMatch(source,/WalletConnectEthereumProvider[.]init/);
 });
 
 test('原字节续播只走原交易，过期、落盘拒绝和冲突回执停止',async()=>{
@@ -203,6 +272,38 @@ function assertPicker(options){
  assert.equal(options.allWallets,'SHOW');assert.equal(options.customWallets.length,0);assert.equal(options.enableEIP6963,false);assert.equal(options.enableWalletGuide,false);
  assert.equal(options.features.email,false);assert.equal(options.features.socials,false);assert.deepEqual(Array.from(options.features.connectMethodsOrder),['wallet']);assert.deepEqual(Array.from(options.features.connectorTypeOrder),['featured']);
 }
+test('原Promise成功、拒绝与弹窗先关闭有独立证据，保留原结果和异常',async()=>{
+ for(const mode of ['resolved','rejected','closed']){
+  const storage=pickerStorage(),restore=pickerGlobals(storage),p=tracePorts(),rows=[],failure=new Error('Connection already closed');let rejectLate;
+  const trace=api.connectTrace(row=>rows.push(row));trace.bind(p.provider);
+  p.provider.connect=()=>mode==='resolved'?Promise.resolve('synthetic-result'):mode==='rejected'?Promise.reject(failure):new Promise((_,reject)=>{rejectLate=reject;});
+  const modal={open:async()=>{},subscribeState(callback){if(mode==='closed')queueMicrotask(()=>callback({open:false}));return()=>{};},close:async()=>{}};
+  try{
+   const pending=api.connectWallet(p.provider,choose('USDC','ethereum'),{},()=>modal,()=>{},trace);
+   if(mode==='resolved')assert.equal(await pending,'synthetic-result');
+   else await assert.rejects(pending,error=>mode==='rejected'?error===failure:error.message==='钱包连接已取消');
+   assert.equal(rows.at(-1).winner,mode==='closed'?'modal_closed':'provider_'+mode);assert.equal(rows.at(-1).event,'end');assert.equal(rows.at(-1).complete,true);
+   const count=rows.length;if(rejectLate){rejectLate(failure);await Promise.resolve();assert.equal(rows.length,count);}
+  }finally{restore();}
+ }
+});
+test('真实连接入口先注册观察再open和connect，出口故障不改变结果且不等待ready',async()=>{
+ for(const broken of [false,true]){
+  const storage=pickerStorage(),restore=pickerGlobals(storage),order=[],rows=[];let listener;
+  const provider={
+   on(name,fn){assert.equal(name,'display_uri');listener=fn;order.push('listen');},
+   removeListener(name,fn){assert.equal(name,'display_uri');assert.equal(fn,listener);listener=undefined;order.push('remove');},
+   async connect(){assert.equal(typeof listener,'function');order.push('connect');this.uri='synthetic-current';listener(this.uri);return 'synthetic-result';}
+  };
+  try{
+   const result=await api.connectWallet(provider,choose('USDC','ethereum'),{},()=>({
+    async open(){order.push('open');},subscribeState:()=>()=>{},async close(){order.push('close');},ready(){throw Error('取证不能增加ready等待');}
+   }),row=>{if(broken)throw Error('synthetic outlet failure');rows.push(row);});
+   assert.equal(result,'synthetic-result');assert.deepEqual(order,['listen','open','connect','remove','close']);assert.equal(listener,undefined);
+   if(!broken){assert.equal(rows[0].listening,true);assert.equal(rows.at(-1).complete,true);assert.equal(rows.at(-1).emitted,true);assert.equal(rows.at(-1).stage,'end');assert.ok(!JSON.stringify(rows).includes('synthetic-'));}
+  }finally{restore();}
+ }
+});
 test('15钱包真实选择入口固定顺序，只清选择器历史而保留原单和会话',async()=>{
  const storage=pickerStorage(),restore=pickerGlobals(storage);let captured,closed=0,unsubscribed=0,connected=0;
  try{

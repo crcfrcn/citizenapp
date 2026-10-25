@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
@@ -7,14 +9,12 @@ import 'package:citizenapp/account/identity/square_session_provider.dart';
 import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/citizen/account_derivation.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
-import 'package:citizenapp/account/identity/citizen_identity_chain_reader.dart';
 import 'package:citizenapp/account/contacts/contact_service.dart';
 import 'package:citizenapp/account/identity/account_security_service.dart';
 import 'package:citizenapp/account/identity/identity_binding.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart';
 
-import '../../support/fake_citizen_sdk.dart';
 import '../../support/isar_test_env.dart';
 
 const _owner = 'CID-A';
@@ -29,6 +29,8 @@ const _binding = IdentityBinding(
 );
 
 class _Security implements AccountSecurityService {
+  @override
+  final revision = ValueNotifier<int>(0);
   @override
   Future<IdentityBinding?> readIdentityBindingForCid(String cid) async =>
       _binding;
@@ -115,7 +117,6 @@ void main() {
       accountSecurity: _Security(),
       currentUserContext: current,
       sessionProvider: sessions,
-      chainReader: CitizenIdentityChainReader(chain: TestCitizenChain()),
       autoSync: false,
     );
     await expectLater(
@@ -172,7 +173,6 @@ void main() {
           accountSecurity: _Security(),
           currentUserContext: _Current(),
           sessionProvider: sessions,
-          chainReader: CitizenIdentityChainReader(chain: TestCitizenChain()),
           autoSync: false,
         );
         if (withPending) {
@@ -220,7 +220,6 @@ void main() {
       accountSecurity: _Security(),
       currentUserContext: current,
       sessionProvider: _Sessions(runtime),
-      chainReader: CitizenIdentityChainReader(chain: TestCitizenChain()),
       autoSync: false,
     );
     final contact = await service.addContact(
@@ -256,7 +255,6 @@ void main() {
       accountSecurity: _Security(),
       currentUserContext: current,
       sessionProvider: _Sessions(runtime),
-      chainReader: CitizenIdentityChainReader(chain: TestCitizenChain()),
       autoSync: false,
     );
     runtime.incoming.add(

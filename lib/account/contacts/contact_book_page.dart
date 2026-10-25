@@ -2,7 +2,6 @@ import 'package:provider/provider.dart';
 
 import 'dart:async';
 
-import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -16,7 +15,6 @@ import 'package:citizenapp/account/profile/profile_avatar.dart';
 import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/chat/chat_entry.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
-import 'package:citizenapp/account/identity/citizen_identity_chain_reader.dart';
 import 'package:citizenapp/account/identity/register_identity_flow.dart';
 import 'package:citizenapp/account/membership/membership_revision.dart';
 import 'package:citizenapp/account/contacts/contact_service.dart';
@@ -73,6 +71,7 @@ class ContactBookPage extends StatefulWidget {
   final Future<void> Function(
     BuildContext context, {
     required String toSs58Address,
+    required String cidNumber,
   })?
   transferOpener;
 
@@ -154,9 +153,6 @@ class _ContactBookPageState extends State<ContactBookPage> {
           accountSecurity: accountSecurity,
           currentUserContext: _currentUserContext,
           sessionProvider: _sessionProvider,
-          chainReader: CitizenIdentityChainReader(
-            chain: context.read<CitizenSdk>().chain,
-          ),
         );
     _service.syncState.addListener(_onSyncStateChanged);
     _identityRevision = accountSecurity.revision;
@@ -247,16 +243,6 @@ class _ContactBookPageState extends State<ContactBookPage> {
         _syncState = syncState;
         _loading = false;
       });
-      await _refreshProfiles(contacts);
-      if (!mounted || generation != _loadGeneration) return;
-      try {
-        final refreshed = await _service.refreshContactBindings();
-        if (mounted && generation == _loadGeneration) {
-          setState(() => _contacts = refreshed);
-        }
-      } on Exception {
-        // 页面仍可离线展示 CID 关系；转账前会再次严格链读并禁止使用旧地址。
-      }
       if (generation == _loadGeneration) await _sync();
     } on Object catch (error) {
       if (!mounted || generation != _loadGeneration) return;
@@ -441,36 +427,27 @@ class _ContactBookPageState extends State<ContactBookPage> {
   }
 
   Future<void> _transfer(UserContact contact) async {
-    final UserContact current;
-    try {
-      current = await _service.resolveCurrentContact(contact.cidNumber);
-    } on Exception catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('无法确认联系人当前钱包：$error')));
-      }
-      return;
-    }
-    if (!mounted) return;
-    setState(() {
-      _contacts = [
-        for (final item in _contacts)
-          if (item.cidNumber == current.cidNumber) current else item,
-      ];
-    });
+    // 选择只传CID和展示缓存，绑定解析统一留到交易确认/签名前。
+    final current = contact;
     if (widget.mode == ContactPickMode.pickForTransfer) {
       Navigator.of(context).pop(current);
       return;
     }
     final opener = widget.transferOpener;
     if (opener != null) {
-      await opener(context, toSs58Address: current.ss58Address);
+      await opener(
+        context,
+        toSs58Address: current.ss58Address,
+        cidNumber: current.cidNumber,
+      );
       return;
     }
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
-        builder: (_) =>
-            OnchainPaymentPage(initialToAddress: current.ss58Address),
+        builder: (_) => OnchainPaymentPage(
+          initialToAddress: current.ss58Address,
+          initialRecipientCid: current.cidNumber,
+        ),
       ),
     );
   }

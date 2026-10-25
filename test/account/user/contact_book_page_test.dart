@@ -105,13 +105,6 @@ class _FakeContacts implements UserContactService {
   }
 
   @override
-  Future<List<UserContact>> refreshContactBindings() async => contacts;
-
-  @override
-  Future<UserContact> resolveCurrentContact(String cidNumber) async =>
-      contacts.singleWhere((contact) => contact.cidNumber == cidNumber);
-
-  @override
   Future<List<UserContact>> sync() async {
     syncState.value = const ContactSyncState(phase: ContactSyncPhase.synced);
     return contacts;
@@ -269,7 +262,11 @@ Widget _page({
   CitizenProfileCache? profileCache,
   CitizenProfileMediaCache? profileMediaCache,
   DirectChatOpener? directChatOpener,
-  Future<void> Function(BuildContext context, {required String toSs58Address})?
+  Future<void> Function(
+    BuildContext context, {
+    required String toSs58Address,
+    required String cidNumber,
+  })?
   transferOpener,
   CurrentUserContext? currentUserContext,
   Listenable? identityRevision,
@@ -580,6 +577,7 @@ void main() {
     Future<void> opener(
       BuildContext context, {
       required String toSs58Address,
+      required String cidNumber,
     }) async {
       openedToAddress = toSs58Address;
     }

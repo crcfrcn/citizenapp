@@ -46,12 +46,25 @@ void registerAppPushBackgroundHandler(
 
 /// CitizenApp唯一Firebase所有者；业务模块只消费中性Token和通知数据流。
 final class AppPushService {
-  AppPushService({MethodChannel? permissionsChannel})
-    : _permissionsChannel =
-          permissionsChannel ?? const MethodChannel('citizenapp/permissions');
+  AppPushService({
+    MethodChannel? permissionsChannel,
+    EventChannel? networkChannel,
+  }) : _networkChannel = networkChannel,
+       _permissionsChannel =
+           permissionsChannel ?? const MethodChannel('citizenapp/permissions');
 
+  final EventChannel? _networkChannel;
   final MethodChannel _permissionsChannel;
   Future<AppPushToken>? _initialization;
+
+  /// 唯一原生网络事件通道；只报告可用性变化，业务决定是否在前台校准。
+  late final Stream<bool> networkAvailability =
+      (_networkChannel ?? const EventChannel('citizenapp/network'))
+          .receiveBroadcastStream()
+          .where((event) => event is bool)
+          .cast<bool>()
+          .distinct()
+          .handleError((Object _) {});
 
   Stream<Map<String, dynamic>> get foregroundMessages =>
       FirebaseMessaging.onMessage.map((message) => message.data);

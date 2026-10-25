@@ -109,7 +109,7 @@ void main() {
     final main = File('lib/main.dart').readAsStringSync();
     expect(client, contains("_putJson('/notifications/endpoint'"));
     expect(main, contains('registerPushEndpoint'));
-    expect(main, contains("data['kind'] == 'storage_cleanup'"));
+    expect(main, contains("payload['kind'] == 'storage_cleanup'"));
   });
 
   test('iOS APNs 环境以 provisioning profile 和 App Store 收据为真源', () {

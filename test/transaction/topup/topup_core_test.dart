@@ -7,14 +7,18 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:citizenapp/transaction/topup/topup_models.dart';
 import 'package:citizenapp/transaction/topup/topup_api.dart';
+import 'package:citizenapp/transaction/topup/topup_webview_page.dart';
 import 'package:citizenapp/transaction/topup/topup_erc20.dart';
 import 'package:citizenapp/transaction/topup/wallet_link_dispatcher.dart';
+import 'package:citizenapp/app_log.dart';
 
 Map<String, dynamic> fixture() =>
     jsonDecode(File('test/transaction/topup/contract.json').readAsStringSync())
         as Map<String, dynamic>;
 void main() {
   _configDiagnosticsTests();
+  _connectionDiagnosticsTests();
+  _documentTests();
   TopupPaymentIntent solanaIntent() {
     final value = fixture()['native']['solana'] as Map<String, dynamic>;
     return TopupPaymentIntent.fromJson({
@@ -891,6 +895,116 @@ void main() {
   });
 }
 
+void _connectionDiagnosticsTests() {
+  test('连接原因只接受完整闭集，URI/异常原文/未知码和计数越界均拒绝', () {
+    final lines = <String>[];
+    final value = <String, Object>{
+      'stage': 'trace',
+      'event': 'provider_rejected',
+      'winner': 'provider_rejected',
+      'error': 'socket_stalled',
+      'code': 'none',
+      'pairing': true,
+      'subscribed': false,
+      'published': false,
+      'relay_connected': false,
+      'relay_connecting': false,
+      'complete': true,
+      'attempts': 5,
+      'stalls': 5,
+    };
+    runZoned(
+      () {
+        expect(AppLog.topupConnectTrace(value), true);
+        expect(
+          AppLog.topupConnectTrace({
+            ...value,
+            'event': 'socket_close',
+            'error': 'origin_denied',
+            'code': '3000',
+          }),
+          true,
+        );
+        for (final invalid in [
+          {...value, 'uri': 'synthetic-private'},
+          {...value, 'error': 'synthetic-private'},
+          {...value, 'code': '987654'},
+          {...value, 'attempts': 21},
+          {...value, 'pairing': 'synthetic-private'},
+        ]) {
+          expect(AppLog.topupConnectTrace(invalid), false);
+        }
+      },
+      zoneSpecification: ZoneSpecification(
+        print: (_, _, _, line) => lines.add(line),
+      ),
+    );
+    expect(lines.length, 2);
+    expect(
+      lines.first,
+      contains('winner=provider_rejected error=socket_stalled'),
+    );
+    expect(lines.last, contains('error=origin_denied code=3000'));
+    expect(lines.join(), isNot(contains('synthetic-private')));
+  });
+  Map<String, Object> observation(String stage) => {
+    'stage': stage,
+    'listening': true,
+    'connecting': true,
+    'emitted': false,
+    'provider_uri': false,
+    'modal_uri': false,
+    'matched': false,
+    'baseline': false,
+    'complete': true,
+  };
+  test('充值观察只输出固定阶段与布尔值，拒绝额外字段和非布尔输入', () {
+    final lines = <String>[];
+    runZoned(
+      () {
+        for (final stage in ['start', 'connect', 'uri', 'modal', 'end']) {
+          expect(AppLog.topupConnection(observation(stage)), true);
+        }
+        for (final value in [
+          null,
+          'synthetic-private-value',
+          observation('synthetic-private-value'),
+          {...observation('end'), 'uri': 'synthetic-private-value'},
+          {...observation('end'), 'emitted': 'synthetic-private-value'},
+          {...observation('end')}..remove('complete'),
+        ]) {
+          expect(AppLog.topupConnection(value), false);
+        }
+        for (final state in ['requested', 'busy', 'opened', 'rejected']) {
+          AppLog.topupWallet(state);
+        }
+        AppLog.topupWallet('synthetic-private-value');
+      },
+      zoneSpecification: ZoneSpecification(
+        print: (_, _, _, line) => lines.add(line),
+      ),
+    );
+    expect(lines.length, 10);
+    expect(
+      lines.first,
+      '[CitizenTopup] stage=start listening=1 connecting=1 emitted=0 provider_uri=0 modal_uri=0 matched=0 baseline=0 complete=1',
+    );
+    expect(lines.last, '[CitizenTopup] stage=native state=other');
+    expect(lines.join(), isNot(contains('synthetic-private-value')));
+  });
+  test('充值观察出口失败不改变原流程，也不启用自由文本诊断', () {
+    runZoned(
+      () {
+        expect(AppLog.topupConnection(observation('end')), true);
+        AppLog.topupWallet('opened');
+      },
+      zoneSpecification: ZoneSpecification(
+        print: (_, _, _, _) => throw StateError('synthetic outlet failure'),
+      ),
+    );
+  });
+}
+
 void _configDiagnosticsTests() {
   const canary = 'synthetic-private-topup';
   for (final status in [401, 403, 404, 429, 503]) {
@@ -1002,5 +1116,124 @@ void _configDiagnosticsTests() {
     );
     expect(calls, 1);
     expect(lines, isEmpty);
+  });
+}
+
+/// 只用合成标记和脚本；不保存或打印运行时文档nonce、URI或钱包资料。
+void _documentTests() {
+  const nonce = 'syntheticDocumentNonce0001';
+  String template() =>
+      File('assets/topup/walletconnect.html').readAsStringSync();
+  TopupDocument document() =>
+      TopupDocument(template(), utf8.encode('void 0;'), nonce);
+
+  test('HTTPS文档仅嵌入原随包字节，脚本中的HTML结束符不会截断文档', () {
+    final script = utf8.encode('/* </script><!-- 中文 */ void 0;');
+    final doc = TopupDocument(template(), script, nonce);
+    expect(TopupDocument.baseUrl, 'https://www.crcfrcn.com/');
+    expect(doc.html, isNot(contains('{{TOPUP_')));
+    expect(doc.html, contains("script-src 'nonce-$nonce'"));
+    expect(doc.html, contains('data-topup-document="$nonce"'));
+    final tag = RegExp(
+      r'<script nonce="([^"]+)" src="data:application/javascript;base64,([^"]+)"></script>',
+    ).firstMatch(doc.html)!;
+    expect(tag.group(1), nonce);
+    expect(base64Decode(tag.group(2)!), script);
+    expect(doc.html, isNot(contains('<script src="walletconnect.bundle.js"')));
+    expect(doc.html, isNot(contains('/* </script>')));
+    expect(doc.check, contains('window.origin === "https://www.crcfrcn.com"'));
+    expect(doc.check, contains('window === window.top'));
+    expect(doc.check, contains('data-topup-document'));
+    expect(doc.check, contains('CitizenTopup?.start'));
+  });
+  test('实际构建JS完整装入文档，不访问网站同名脚本', () {
+    final script = File('assets/topup/walletconnect.bundle.js')
+        .readAsBytesSync();
+    final doc = TopupDocument(template(), script, nonce);
+    // 数MB的真实bundle不使用无界捕获正则，避免测试引擎递归栈溢出。
+    const prefix = 'src="data:application/javascript;base64,';
+    final start = doc.html.indexOf(prefix);
+    expect(start, greaterThanOrEqualTo(0));
+    final from = start + prefix.length;
+    final encoded = doc.html.substring(from, doc.html.indexOf('"', from));
+    expect(base64Decode(encoded), script);
+    expect(RegExp(r'<script\b').allMatches(doc.html).length, 2);
+  });
+  test('来源/文档证明缺失、导航中地址变化和外部地址均不能启动连接', () {
+    for (final url in [
+      'file:///assets/topup/walletconnect.html',
+      'https://other.example/',
+      'https://www.crcfrcn.com/remote',
+      'https://www.crcfrcn.com/?q=1',
+      'https://www.crcfrcn.com/#x',
+      'https://www.crcfrcn.com:444/',
+      'https://user@www.crcfrcn.com/',
+    ]) {
+      final doc = document();
+      expect(doc.mayNavigate(url, mainFrame: true), false);
+      expect(doc.begin(url, url, true), false);
+      expect(doc.accepts(url, true), false);
+    }
+    for (final proof in [false, 'true', 1]) {
+      final doc = document();
+      expect(
+        doc.begin(TopupDocument.baseUrl, TopupDocument.baseUrl, proof),
+        false,
+      );
+      expect(doc.started, false);
+    }
+    final doc = document();
+    expect(doc.begin(TopupDocument.baseUrl, 'about:blank', true), false);
+    expect(doc.accepts(TopupDocument.baseUrl, true), false);
+  });
+  test('两端内存文档地址均须通过实际证明，仅启动一次，完成后禁止主框架导航', () {
+    for (final url in [TopupDocument.baseUrl, 'about:blank']) {
+      final doc = document();
+      expect(doc.begin(url, url, true), true);
+      expect(doc.started, true);
+      expect(doc.begin(url, url, true), false);
+      expect(doc.mayNavigate(url, mainFrame: true), false);
+      expect(doc.mayNavigate('https://other.example/', mainFrame: true), false);
+      expect(doc.accepts(url, true), true);
+      expect(doc.accepts(url, false), false);
+      expect(doc.accepts(url, 'true'), false);
+      expect(doc.accepts('https://www.crcfrcn.com/remote', true), false);
+      expect(doc.accepts(null, true), false);
+    }
+  });
+  test('随包脚本就绪消息只接受本次nonce及精确字段，不以旧文档或字符串布尔启动', () {
+    final doc = document();
+    final ready = <String, dynamic>{
+      'kind': 'document_ready',
+      'nonce': nonce,
+      'ready': true,
+    };
+    expect(doc.ownsReady(ready), true);
+    expect(doc.ownsReady({...ready, 'ready': false}), true);
+    expect(
+      doc.ownsReady({...ready, 'nonce': 'syntheticPreviousNonce001'}),
+      false,
+    );
+    expect(doc.ownsReady({...ready, 'ready': 'true'}), false);
+    expect(doc.ownsReady({...ready, 'kind': 'connected'}), false);
+    expect(doc.ownsReady({...ready, 'extra': true}), false);
+  });
+  test('不完整资产和不安全nonce在加载前失败', () {
+    for (final bad in ['', 'short', 'syntheticNonce" injection']) {
+      expect(() => TopupDocument(template(), [1], bad), throwsFormatException);
+    }
+    expect(() => TopupDocument(template(), [], nonce), throwsFormatException);
+    expect(
+      () => TopupDocument(template().replaceFirst('{{TOPUP_NONCE}}', ''), [
+        1,
+      ], nonce),
+      throwsFormatException,
+    );
+    expect(
+      () => TopupDocument(template().replaceFirst('{{TOPUP_SCRIPT}}', ''), [
+        1,
+      ], nonce),
+      throwsFormatException,
+    );
   });
 }

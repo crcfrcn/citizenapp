@@ -17,8 +17,12 @@ import 'package:flutter_test/flutter_test.dart';
 /// 每个测试文件拥有真实隔离数据库，测试环境不注入应用数据密钥。
 void useIsolatedIsar() {
   late Directory dir;
+  IOOverrides? previous;
   setUpAll(() async {
     dir = Directory.systemTemp.createTempSync('citizenapp_test_');
+    previous = IOOverrides.current;
+    // SDK自己的测试库沿用Directory.systemTemp；用Dart公开IO接口隔离当前测试isolate。
+    IOOverrides.global = _TestDirectory(dir);
     IsarCoreBootstrap.debugTestDirectoryOverride = dir.path;
     await IsarCoreBootstrap.ensureTestCoreInitialized();
   });
@@ -31,10 +35,18 @@ void useIsolatedIsar() {
   tearDownAll(() async {
     await _resetAllIsar();
     IsarCoreBootstrap.debugTestDirectoryOverride = null;
+    IOOverrides.global = previous;
     if (dir.existsSync()) {
       dir.deleteSync(recursive: true);
     }
   });
+}
+
+final class _TestDirectory extends IOOverrides {
+  _TestDirectory(this.directory);
+  final Directory directory;
+  @override
+  Directory getSystemTempDirectory() => directory;
 }
 
 Future<void> _resetAllIsar() async {

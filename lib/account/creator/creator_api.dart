@@ -1,3 +1,4 @@
+import 'package:citizenapp/system/notifications/notifications.dart';
 import 'package:citizenapp/network/chain_bootstrap_api.dart'
     show HttpsOnlyClient;
 
@@ -77,8 +78,10 @@ class CreatorSubscriptionState {
 }
 
 class CreatorApiException implements Exception {
-  const CreatorApiException(this.message);
+  const CreatorApiException(this.message, {this.statusCode, this.errorCode});
   final String message;
+  final int? statusCode;
+  final String? errorCode;
   @override
   String toString() => 'CreatorApiException: $message';
 }
@@ -86,9 +89,9 @@ class CreatorApiException implements Exception {
 /// 生产实现：直连 Cloudflare Worker，复用会话与设备级请求认证。
 ///
 /// 依赖 BFF 端点（另立 Cloudflare 卡实现）：
-///   GET  /membership/creators/{cid}/plans
-///   GET  /membership/creator/overview
-///   POST /membership/creators/plans             （校验 finalized 链状态后覆盖查询投影）
+///   GET  /membergate/creators/{cid}/plans
+///   GET  /membergate/creator/overview
+///   POST /membergate/creators/plans             （校验 finalized 链状态后覆盖查询投影）
 class CreatorApiHttp implements CreatorApi {
   CreatorApiHttp({String? baseUrl, http.Client? httpClient})
     : baseUrl = SquareApiConfig.normalizeBaseUrl(
@@ -98,15 +101,75 @@ class CreatorApiHttp implements CreatorApi {
 
   final String baseUrl;
   final http.Client _http;
+  final Map<(SquareSession, Uri), Future<http.Response>> _reads = {};
+  final Map<SquareSession, Map<String, dynamic>> _ownSnapshots = {};
+
+  Future<Map<String, dynamic>> _ownSnapshot(SquareSession session) async {
+    final cached = _ownSnapshots[session];
+    final revision = cached?['revision'];
+    final raw = await _getJson(
+      '/membergate/creator/overview${revision is int && revision > 0 ? '?revision=$revision' : ''}',
+      session,
+    );
+    final Map<String, dynamic> data;
+    if (raw['unchanged'] == true) {
+      if (cached == null || raw['revision'] != revision) {
+        throw const CreatorApiException('创作者版本基线缺失');
+      }
+      data = cached;
+    } else {
+      data = raw;
+    }
+    final plan = data['plan'], overview = data['overview'];
+    if (plan is! Map<String, dynamic> ||
+        overview is! Map<String, dynamic> ||
+        data['revision'] is! int) {
+      throw const CreatorApiException('创作者快照不完整');
+    }
+    final parsed = CreatorPlan.fromJson(plan);
+    if (parsed.creatorCidNumber != session.cidNumber) {
+      throw const CreatorApiException('创作者身份不一致');
+    }
+    for (final key in [
+      'subscriber_count',
+      'monthly_income_fen',
+      'tier_count',
+    ]) {
+      final value = overview[key];
+      if (value is! int || value < 0 || value > 9007199254740991) {
+        throw const CreatorApiException('创作者概览响应无效');
+      }
+    }
+    await session.validateCurrent();
+    _ownSnapshots.removeWhere(
+      (key, _) =>
+          key.cidNumber == session.cidNumber && !identical(key, session),
+    );
+    if (_ownSnapshots.length >= 16) {
+      _ownSnapshots.remove(_ownSnapshots.keys.first);
+    }
+    _ownSnapshots[session] = data;
+    await Notifications.instance.acceptCreator(
+      session.cidNumber,
+      data['revision'] as int,
+      {'gated': false, 'plan': plan, 'overview': overview},
+      session: session,
+    );
+    return data;
+  }
 
   @override
   Future<CreatorPlan?> fetchMyPlan(SquareSession session) async {
-    return (await fetchViewOf(session, session.cidNumber)).plan;
+    final data = await _ownSnapshot(session);
+    if (data['plan'] is! Map<String, dynamic>) {
+      throw const CreatorApiException('创作者档位响应不完整');
+    }
+    return CreatorPlan.fromJson(data['plan'] as Map<String, dynamic>);
   }
 
   @override
   Future<CreatorOverview> fetchOverview(SquareSession session) async {
-    final data = await _getJson('/membergate/creator/overview', session);
+    final data = await _ownSnapshot(session);
     final overview = data['overview'];
     if (data["ok"] != true ||
         overview is! Map<String, dynamic> ||
@@ -192,9 +255,17 @@ class CreatorApiHttp implements CreatorApi {
     SquareSession session,
   ) async {
     final uri = Uri.parse('$baseUrl$path');
-    final response = await _http
-        .get(uri, headers: await _headers('GET', uri, '', session))
-        .timeout(const Duration(seconds: 20));
+    final key = (session, uri);
+    final pending = _reads[key] ??= () async {
+      try {
+        return await _http
+            .get(uri, headers: await _headers('GET', uri, '', session))
+            .timeout(const Duration(seconds: 20));
+      } finally {
+        _reads.remove(key);
+      }
+    }();
+    final response = await pending;
     await session.validateCurrent();
     return _decode(response);
   }
@@ -255,7 +326,11 @@ class CreatorApiHttp implements CreatorApi {
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw CreatorApiException(
-        decoded['message']?.toString() ?? '创作者服务请求失败（${response.statusCode}）',
+        '创作者服务请求失败（${response.statusCode}）',
+        statusCode: response.statusCode,
+        errorCode: decoded['error'] is String
+            ? decoded['error'] as String
+            : null,
       );
     }
     return decoded;

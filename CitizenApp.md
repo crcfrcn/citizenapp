@@ -2,7 +2,7 @@
 
 ## 当前构建合同
 
-公民App的编译与依赖装配唯一归scripts/build.mjs。本机由塔塔控制台既有塔塔安装器调用compile ios/android，签名、安装和回读归控制台；GitHub由本产品两份既有Workflow调用同一工程装配与App编译入口。scripts/config.mjs原文保持，只声明APP_KEY、IOS_KEY、CITIZENAPP_PROFILE等配置需求，不放任务执行或版本算法。不新增模块，不恢复已删除的平台输入模块。
+公民App的编译与依赖装配唯一归scripts/build.mjs。本机由塔塔控制台既有塔塔安装器调用compile ios/android，签名、安装和回读归控制台；GitHub由本产品两份既有Workflow调用同一工程装配与App编译入口。scripts/config.mjs按统一五字段声明APP_KEY、IOS_KEY、CITIZENAPP_PROFILE等配置需求，不放任务执行或版本算法。不新增模块，不恢复已删除的平台输入模块。
 
 
 每个平台一次执行只有一个本机自动化任务和一个GitHub Run。产品所属.github/workflows/ios.yml与android.yml分别公开workflow_dispatch，唯一输入为version；固定Workflow名称为公民·iOS、公民·Android，每次Run、Job、Artifact、Tag、Release使用公民·平台·vX.Y.Z。没有prepare/settle/cancel操作、父子Run、管理Run或递归派发。iOS与Android独立任务、授权、现场和并发组，可以同时执行；同平台重复点击、恢复和取消都不创建新Run。
@@ -88,7 +88,7 @@ citizenapp/  # 第0级
 ├── lib/  # 直属2个文件
 │   ├── 8964/  # 广场，共37个文件
 │   │   ├── compose/  # 15：发布编辑、草稿与链上发布编排
-│   │   ├── feed/  # 15：内容流、详情、卡片与帖子同步删除
+│   │   ├── feed/  # 16：内容流、详情、评论、卡片与帖子同步删除
 │   │   └── media/  # 7：媒体处理、存储、上传与展示
 │   ├── account/  # 直属user.dart，承载“我的”与现有设置入口
 │   │   ├── contacts/  # 2：通讯录页面与同步服务
@@ -110,7 +110,7 @@ citizenapp/  # 第0级
 │   ├── scanner/  # 直属10个文件
 │   ├── storage/  # 直属9个文件
 │   ├── system/  # 系统能力统一归属，共19个文件
-│   │   ├── notifications/  # 2：系统推送与设备端点
+│   │   ├── notifications/  # 3：系统推送、设备端点和CID通知状态
 │   │   ├── security/  # 8：应用锁、权限、PIN、截屏保护、擦除与系统保护存储
 │   │   ├── theme/  # 3：主题、布局尺度与页面过渡
 │   │   └── update/  # 6：版本检查、更新清单、安装与提示
@@ -627,7 +627,7 @@ CitizenApp 的总目标是 `5+2`：
 - 同域重入：SocialIsar 回调内再次进入 SocialIsar 立即抛错，禁止形成同域自锁
 - 跨域规则：回调内只允许 SocialIsar 读写；网络、平台、文件和跨域读取必须在回调外
 
-当前 schema 的 9 个 collection：
+当前 schema 的 10 个 collection：
 
 1. `SquareLocalPostEntity`：本人已发布内容的规范 manifest 与不可变发布锚。
 2. `SquareComposeDraftEntity`：类型化草稿事实；媒体和文章块仅以规范有序 JSON 保存。
@@ -639,8 +639,9 @@ CitizenApp 的总目标是 `5+2`：
 8. `SquarePublicationEntity`：按 CID/草稿隔离的发布阶段、原始 manifest、不可变发布标识及确认事实，不保存会话凭据。
 9. `SquarePostDeletionEntity`：按CID/post_id保存pending/confirmed删除意图；确认事实保留，防止迟到同步重新保存已删除帖子。
 
-不建立本地评论、点赞、转发等当前产品没有持久化需求的空 collection；以后只有真实功能
-需要本地事实时，才在独立步骤中设计并确认。
+10. `SquareCommentsEntity`：按CID/帖子保存真实评论分页缓存与待发送操作；失败重试复用原操作ID，已删除正文清空。
+
+点赞、转发尚无持久化需求，不建立占位collection。
 
 ##### 2.1 媒体数据库基础（第一步）
 
@@ -3263,7 +3264,7 @@ Android、iOS平台输入均不保存PNG副本。原生构建通过所属Workflo
 
 `lib/account/profile/user_profile_page.dart`依据`SquareSessionProvider.currentCitizenId()`取得的本地当前身份CID判断本人；`isSelf`只沿用原UI布局参数，不能提供会员豁免。页面存活、账户revision、门禁代际及原请求版本共同约束异步结果；账户变化先隐藏旧资料，再重新核对。会员未知、会话或网络故障保留“内容加载失败，请下拉刷新”，不能冒充已确认非会员。
 
-`MembershipBusinessGate`复用于`lib/8964/feed/square_tab_page.dart`、`square_post_detail_page.dart`及`square_article_detail_page.dart`。远端详情实际请求前同样验证会员，不因初始帖子、缓存或通知直达路径跳过；本人本地副本保留原离线阅读。本人资料刷新与广场云端同步分开，未订阅不阻断本人资料。除指定门禁提示外，原布局、按钮、菜单、导航、播放器及媒体选择交互保持。
+广场Tab使用`CitizenServiceGate`核对CID事实；`MembershipBusinessGate`继续用于`lib/8964/feed/square_post_detail_page.dart`及`lib/8964/feed/square_article_detail_page.dart`。远端详情实际请求前同样验证会员，不因初始帖子、缓存或通知直达路径跳过；本人本地副本保留原离线阅读。本人资料刷新与广场云端同步分开，未订阅不阻断本人资料。除指定门禁提示外，原布局、按钮、菜单、导航、播放器及媒体选择交互保持。
 
 ### 最小聊天资料卡
 
@@ -3292,7 +3293,7 @@ Android、iOS平台输入均不保存PNG副本。原生构建通过所属Workflo
 
 产品资源环境只额外传递本轮五项公开GitHub调度身份（GITHUB_ACTIONS、GITHUB_REPOSITORY、GITHUB_RUN_ID、GITHUB_RUN_ATTEMPT、GITHUB_SHA），由SDK公开入口与真实任务守卫核对，不传递GitHub令牌。独立本地任务不伪造GitHub身份；原环境隔离回归同步验证保留与拒绝边界。
 
-资料媒体的头像/背景读取由CitizenServe在对象操作前执行独立公民号和IP频率限制及日额预留；Range、未修改、未找到和失败都占预留额度。服务端返回额度拒绝时沿原资料占位/重试行为处理，不能通过换IP、重连或重新注册刷新同公民号当日余额。读取额度不改变本人/名片基础资格或他人完整资料会员要求；具体数值与口径由CitizenServe原技术文档及membership/limits.rs唯一维护。聊天Ping继续SDK原心跳协议，由服务端原设备分钟窗增加子限额，不为此升级SDK或跳过撤销核验。
+资料媒体的头像/背景读取由CitizenServe在对象操作前执行独立公民号和IP频率限制及日额预留；Range、未修改、未找到和失败都占预留额度。服务端返回额度拒绝时沿原资料占位/重试行为处理，不能通过换IP、重连或重新注册刷新同公民号当日余额。读取额度不改变本人/名片基础资格或他人完整资料会员要求；具体数值与口径由CitizenServe原技术文档及membergate/limits.rs唯一维护。聊天Ping继续SDK原心跳协议，由服务端原设备分钟窗增加子限额，不为此升级SDK或跳过撤销核验。
 
 ## 普通会话与公开身份同步
 
@@ -3337,7 +3338,7 @@ SDK运行时通过可选ChatAttachmentAuthorizationHost覆盖单/群发送、长
 
 ## 服务端资源限额响应
 
-服务端按可信公民号合并各设备的UTC日用量，并分别限制IP；聊天附件上传、暂存和分块操作、聊天与广场共用的下载字节、媒体请求都有硬顶。整份附件在新建、上传、完成和下载时均按当前会员单文件权益检查，降档或低档接收者不能分块绕过。具体服务端数值唯一归CitizenServe的membership/limits.rs及根技术文档，App不复制一套额度判断真源。
+服务端按可信公民号合并各设备的UTC日用量，并分别限制IP；聊天附件上传、暂存和分块操作、聊天与广场共用的下载字节、媒体请求都有硬顶。整份附件在新建、上传、完成和下载时均按当前会员单文件权益检查，降档或低档接收者不能分块绕过。具体服务端数值唯一归CitizenServe的membergate/limits.rs及根技术文档，App不复制一套额度判断真源。
 
 沿原错误路径处理HTTP429（频率/日预算）、413（附件大小/存量）与聊天resource_limit，后台待发送队列保持原暂缓/恢复规则；ACK、终止及到期清理仍可释放旧占用。进入聊天、重连、后台附件不补会员GET，主动附件仅在需要时合并刷新原缓存；基础聊天仍不等会员请求。本次仅同步文档，不改UI、App源码、SDK依赖或协议。
 
@@ -3447,6 +3448,12 @@ Solana官方公开入口不能放行当前本地WebView跨域请求，因此只�
 
 ## 客户端安全失败诊断与只读UITest
 
+广场Tab外层只复用CitizenServiceGate核对钱包/CID事实，不以前置MLS会话阻止SquareHomePage及原本地编辑入口挂载。动态GET仍沿SquareSessionProvider认证并保留真实失败，打开编辑页不等于取得发布权限；最终发布继续原finalized身份、会员、证明及签名校验。已核实未注册显示统一引导，身份读取失败保持失败，已有CID不再注册或Turnstile。原MembershipBusinessGate在其它调用方的合同保持，不新增按钮或本地伪造内容。
+
+提案首批及手动刷新通过AppLog.proposalRead输出CitizenRead固定行，stage仅proposal_first，state仅waiting/started/empty/nonempty，未知输入other；不接收代次、身份、索引、标题、地址、金额或异常正文，不写诊断文件。waiting只在真实读链等待时报告，started只在能力就绪后开始原查询时报告；当前代次真实取得空可见范围并完成页面更新才报告empty；该回执不证明全链提案索引为空，原详情/展示/持久化完成且有可展示项才报告nonempty。可见ID非空但没有详情不冒充空范围；迟到、销毁和失败均无成功回执，出口失败不覆盖业务结果。原空白/骨架、SDK错误、分页、过滤、订阅与等待逻辑保持。真机必须联合本次固定完成回执和页面观察判定，原UITest跳过不能改记通过。
+
+挑战或会话返回HTTP503时，ensureSession原样抛出SquareApiException；即使error为device_not_registered，也不得调用设备登记回调、追加握手或生成后续证明。挑战503之前没有证明；会话503之前已生成的本次证明不等于失败后继续授权。原HTTP、阶段、error及消息不改，日志仍只接收闭集类别，未知码为other；不得打印响应正文或用户值。失败结束释放原在途任务，接口恢复后由原主动重试重新握手，成功后复用同身份有效会话；原非503明确设备未登记的一次恢复合同保持。已有CID不再次注册或Turnstile，新注册仍须真实真人验证。square_api_routes_test使用原合成MLS夹具覆盖两边界503、恢复、并发和脱敏；本地通过仅证明客户端合同，不能证明接口恢复或广场、通讯录、会员真机通过。
+
 AppLog.failure在正式包仅输出CitizenFailure固定事件：白名单阶段、真实HTTP状态或none、闭集错误码；任意未知阶段/码均为other，非法状态不输出。它不接收异常对象、URL、响应正文、身份、金额、挑战、证明或令牌，不启用自由文本开关、不写诊断文件，日志出口失败不替换业务异常。挑战/会话/设备登记在原发送及回执校验边界分类，本机准备沿既有SquareSessionResolution分类，充值仅分类配置读取失败。没有真实HTTP响应时不伪造200；registration_required仍然失败，只有明确device_not_registered才允许原单次登记恢复，不重新注册CID或触发Turnstile。
 
 RunnerUITests的创作者、钱包与充值复用准确主“我的”Tab和实际页面断言，不依赖钱包入口副标题。热账户使用原WalletAccountTile序号结构；wallet-hot-row属于另一类钱包卡片，不能拿它等待正常热账户。多账户仅在内存比较已观察的公开账户序号集合，滚动后仍不足两个时记录未覆盖，不新增账户、不输出名称/地址或把节点缺失当条件不足。创作者的单一内容节点保留1秒出现要求，标题和可交互归属独立核对，不将多次IPC查询混入计时，也不把之后存在冒充1秒通过。
@@ -3460,12 +3467,48 @@ RunnerUITests的创作者、钱包与充值复用准确主“我的”Tab和实�
 提案首批、刷新、翻页及区块更新读取前共用同一SDK的chainRead公开能力；先订阅能力/生命周期/最终块事件，再核对快照。查询快照期间若有新事件，必须重新核对，旧ready不得覆盖最新未就绪事实。启动或未同步时沿原加载态等待事件，就绪后只执行最新请求代次的原读取路径；实例停止、启动失败或能力不可用仍走原错误处理。禁止另启节点、固定睡眠/轮询、把真实decode/network失败吞掉或触发身份注册/Turnstile。刷新作废旧等待，页面销毁撤销等待和订阅。宪法测试允许不可修改标记与条文合并语义，要求完整标记词边界、实际可见标记及新增非空条文；仅在当前阅读器最多向上滚动三次，不用任意容器或元数据代替条文。
 
 
+原充值配置/套餐用例继续不点击网络入口。独立的iOS钱包唤起用例仅在取得准确授权后，通过原USDC首档Ethereum入口选择已安装MetaMask或OKX，分别记录选择器、Open控件存在/可用、准确品牌的系统打开提示及外部钱包前台状态。WebKit可合并品牌与辅助文字，钱包选择只取当前连接页中带准确品牌且实际可点击的按钮、链接、文本或图像叶节点，排除整页容器；只记录品牌存在、WebView归属、原静态等待文案/连接标题及文本子树是否可读的布尔值，不输出其他标签。只允许连接页内的Open和SpringBoard明确品牌的打开提示；不批准钱包连接、签名或付款，不读取URI、二维码、账户或金额。选择器和连接阶段各最多观察180秒，以覆盖实际长时间转圈和失败；失败/超时保持未通过，原订单存在则跳过新连接。使用原同标识UITest运行器和宿主、USB、keepNever/never；新增用例不改变正式App或服务合同，不能以Android观察代替iOS结果。
+
+钱包唤起用例整体执行上限480秒，选择器和连接两阶段各180秒的观察上限之外只用于原导航及清理，不延长或放宽实际钱包前台成功条件。
+
+## 充值URI边界取证
+
+连接保持原AppKit open到UniversalProvider connect顺序，不等待SDK ready、不手动setUri或重试。connect前通过UniversalProvider公开display_uri和已锁AppKit controllers公开wcUri订阅观察产生及弹窗接收；controllers1.8.19由既有传递依赖改为直接声明，不改变包版本。URI仅在当前闭包内比较，结束撤销订阅和引用。每轮报告start/connect/uri/modal/end固定阶段，字段仅listening、connecting、emitted、provider_uri、modal_uri、matched、baseline、complete布尔值；matched表示曾收到与本轮产生URI相同的值，baseline防止把旧值当成本轮生成。观察失败标记complete=false，不改变原业务异常或付款结果。
+
+桥接沿本次装配文档、实际HTTPS来源及原会话守卫接收观察，使用独立递增顺序，不能抢占原付款消息。AppLog只接受精确阶段/布尔字段，输出CitizenTopup闭集行，不保存URI、二维码、会话、账户、异常正文或诊断文件，不启用全局自由文本诊断。原生打开只输出requested/busy/opened/rejected固定结果；opened仍需外部钱包前台证据，不能冒充付款成功。连接入口回归必须核对监听先于open及connect、结束撤销监听、出口故障保留业务结果，并禁止额外调用ready。
+
+真机仅在准确签名/覆盖安装授权后独立检查两端USDC首档Ethereum到MetaMask，iOS补OKX；复用原USB UITest运行器/宿主，原订单存在则停止新连接，钱包前台即止，不批准连接或签名付款。只有完整start/connect/end且监听成功、complete=true、baseline=false的回执才允许用未产生事件及provider_uri=false认定本次观察期间URI未生成；emitted=true且matched始终false才定位产生至弹窗接收；缺少回执不依据沉默下结论。弹窗已接收时继续联合原生请求和设备前台核对后续边界；SDK连接调用顺序及服务端合同保持。
+
+上述产生边界指UniversalProvider公开连接接口实际产出可用URI；布尔快照不提供SignClient/Relay内部的具体失败原因，也不能据此认定项目权限、来源白名单、网络或ready等待是唯一根因。真实安装/用例与三阶段回执必须分别核验，故障复现不能改记为钱包唤起成功。
+
+连接原因取证沿原Promise竞赛，另行观察provider_resolved/provider_rejected与modal_closed，不用观察包装Promise参加竞赛，不改变拒绝传播。通过SDK公开logger及pairing_create、Relay连接/断开/错误、subscription_created、relayer_publish事件区分内部URI创建、订阅与发布；topic只在闭包中关联本次事件，结束撤销监听。SDKlogger只精确映射已锁源码固定消息和有限数值码，未知参数不转发、不序列化、不输出异常原文或堆栈，不启用App全局自由文本诊断。connection_trace沿本次文档/实际来源/原会话守卫和独立观察顺序，AppLog严格验证13字段、固定事件/结果/错误/码、布尔值及0到20有界计数。完成标准必须包括具体失败分支和触发条件，unknown或未产出URI不是最终根因；两端必须分别实测具体分支和实际钱包前台，服务端保持不动。
+
 ## 充值钱包选择名单与顺序
+
+连接发布回执使用Core Relayer公开relayer_publish事件。其官方payload合并opts后params可能只剩ttl，因此只按公开SDKlogger的wc_proposeSession请求、params.pairingTopic及ID在内存关联发布回执ID；不读/输出消息正文，结束清空关联。不将缺失事件单独当发布失败。公开WebSocket连接的close事件独立记录有限关闭码；3000的已核实固定来源/授权原因精确映射，未知reason不输出。回归端口覆盖params被opts覆盖、非本次ID拒绝及pairing前无请求日志；不存在本次topic时不关联请求，不因空值相等误降级complete。
+
+subscribed字段只表示本次公开subscription_created事件；SignClient的pairing.create使用skipSubscribe时，也会创建本地订阅状态，该布尔值不能单独当作远端订阅确认。来源条件验证须使用真实SDK认证和公开Relay协议实际订阅结果/关闭原因；101升级成功不能替代后续授权结果。
+
+连接文档由原HTML模板及同一原锁构建的随包JS在内存装配，loadHtmlString固定使用https://www.crcfrcn.com/基址；不请求远端网页或脚本。JS字节经Base64嵌入script src，CSP仅允许本次独立随机nonce，不开放脚本unsafe-inline/unsafe-eval或整个HTTPS/data来源。模板文档标记、CSP和脚本nonce一致；缺资源、非法标记或模板不完整在加载前失败。SDK版本、原Promise、钱包列表/时序及付款合同保持。
+
+先等待WebView的JavaScript模式、桥接通道及导航委托实际设置完成，再载入内存文档。同nonce的随包启动脚本在原bundle之后发送精确三字段document_ready消息：本次nonce、固定kind及真实ready布尔；原生只以此就绪入口核对文档，不保留平台历史URL完成通知的双路启动。准入必须实际核对主框架、本次随机文档标记、window.origin精确为https://www.crcfrcn.com及CitizenTopup.start存在，并以检查前后稳定的真实当前URL绑定文档；初始化只认可基址或about:blank形态。重复就绪、旧文档、外部地址或证明缺失不得重新启动。完成后阻止所有主框架导航；桥接和回复继续核对当前精确地址、实际来源/标记及原会话。启动和回复在同次JS执行中再次核对文档，避免原生异步检查后导航提交的竞态；域名相同本身不授予网站桥接权限。随机标记、URI、会话及业务内容不进入日志或诊断文件；不清理原订单或钱包数据，来源隔离变化可能需要重新连接WalletConnect。
+
+真实验收必须两端实际通过上述来源检查，原取证观察本轮display_uri产生且wcUri匹配接收、Relay发布成功，并由对应钱包真实前台证明唤起；不能以系统打开回执或桌面来源对照代替。钱包连接确认页即停，不批准连接、签名或付款；取消后能返回原页面。iOS使用原USB UITest运行器/宿主，Android用原USB设备，均经塔塔控制台发起。
+
 
 充值继续使用原WalletConnect/AppKit选择弹窗，总名单固定15个官方目录ID，顺序为MetaMask、Trust Wallet、OKX Wallet、Binance Wallet、Bitget Wallet、TokenPocket、imToken、SafePal、OneKey、Ledger Wallet、Trezor Suite、Rabby、Rainbow、Zerion、Gem Wallet。同品牌只保留一个ID，不按展示名称猜ID；前六个优先顺序固定，其余沿该序列显示。
 
 同一数组同时传入includeWalletIds与featuredWalletIds；“所有钱包”和搜索仍限定此名单。关闭额外自定义钱包、EIP6963发现、邮箱和社交入口，保留原所选网络及必要方法核验，不自动换链、不承诺每款钱包都支持全部五链。原锁AppKit公开common接口仅清除RECENT_WALLETS和RECENT_WALLET两项选择器展示偏好，避免历史条目或去重排序破坏名单；不清空localStorage，不读写账户、会话凭据、充值订单或签名原字节。连接成功或取消后沿原关闭收尾，不建立新的付款或广播流程。
 
-配置项统一为environment、name、description、accessLevel、kind、format六个必填字段，name使用两组大写字母和一个下划线；名称相同共用一个值，description最多30字，kind/format无要求时明确填不适用。公民App描述文件独立声明CITIZENAPP_PROFILE并核对ios.citizenapp；商店四项为APPSTORE_PRIVATEKEY、APPSTORE_KEYID、APPSTORE_ISSUERID、PLAY_SERVICEACCOUNT。官方Apple/Google身份、权限及签名值保持，工作流只更换第一方输入名称。
+换绑授权上下文在唯一finalized锚点以一次getStorageBatch读取账户、绑定revision及链时间；交易后置核验在实际finalized包含块一次批读账户与revision。两个阶段的SCALE、缺失、期限与目标精确一致性判断保持。
+
+通知删除45秒轮询和页面进入自动清读，由唯一Notifications业务状态接收AppPushService中性推送；按CID/绑定代次、绝对数量和版本更新UserIsar展示。启动、网络恢复、回前台和切身份按需校准，重复校准合并；后台不发校准请求。已读意图本地持久保存，提交成功后采用服务端返回的新状态，恢复先提交原意图。系统网络事件只接入既有iOS AppDelegate.swift及Android MainActivity.kt，不探测轮询、不新增依赖或权限。
+聊天列表读取ChatIsar与本地资料，仅首次缺失对端名片时补齐；已有名片变更复用原资料revision。联系人关系本地与服务端MLS密文同步，普通列表不查链，扫码由现有名片接口核对D1绑定。CID转账选择阶段保留CID，用户发起签名前才一次解析当前finalized绑定，实际账户展示确认后冻结；直接账户转账不解析CID。注册/换绑的必要链验证保留。
+所有帖子详情复用Comments，评论缓存和稳定重试操作归SocialIsar，正文只作文字渲染；回复、分页、本人删除及通知目标定位通过同一服务端模型。实际可见评论才提交已读，进入列表不批量清读。会员与创作者收到推送后只推进本地展示，已有期限以一次本地计时失效显示，不发网络轮询，不据此生成执行许可。本人创作者计划/概览共用一次带版本GET，失败保留原快照及成功时间。
 
 本产品配置项统一为name、description、accessLevel、kind、format五个必填字段；不适用规则明确填写“不适用”。name严格使用两组大写字母和一个下划线，同名共用控制台唯一值，当前页仅汇总实际声明的使用产品。操作列固定写入/更换、查看、删除；保密查看保留生物识别。现有配置消费者随声明同步改名，官方工具/API字段保持官方名称，不新增旧名兼容或配置副本。
+描述文件使用CITIZENAPP_PROFILE，format绑定真实iOS Bundle身份；不能将其它产品描述文件冒认成本产品已配置。
+
+通知恢复按同一身份共用Future；校准、列表、已读及本人概览写回固定CID/账户/绑定/本机代次，切换时立即失效旧任务和抽屉。抽屉的打开锁同样按请求代次隔离，新账号不等待旧HTTP，旧请求收尾也不能清除新抽屉的围栏。通知版本与评论事件序号独立；评论加载期间合并待刷新意图，后台或被其它页面遮挡时只保留意图，恢复可见后补取。评论身份和缓存恢复完成才启用输入，恢复期间同样监听作用域失效；旧详情不能重新装入原账号草稿。放弃本机待发只清本地重试记录，保存失败保留原操作，不自动换ID或声称撤回服务端。会员展示可从本机已持久快照按原接收时间重放，计数变化不重写会员，展示不授予权限。联系人扫码与手动添加共用同一捕获属主，最后写入仍检查原账户修订。
+
+通知缓存以保存代次隔离并保留待落盘状态，同版本必须允许补存；旧写操作不能回滚最新展示。评论失效统一消费interaction_sequence，当前可见评论区每批最多补取一次，隐藏页只记待刷新，已读不产生新互动；推送中的单条内容定位只供点击导航。评论读请求捕获同帖修订，发送期间或较新写操作完成后丢弃旧读取；完成状态落盘后才清除稳定待发操作。首次恢复失败的刷新重新执行原恢复入口；损坏本机已读意图逐条验证，不阻断有效意图和状态校准。

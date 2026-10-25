@@ -40,6 +40,7 @@ class CitizenIdentityChainSnapshot {
 /// 该快照只表达“CID 当前由哪个钱包授权”，不把钱包提升为身份主键。
 class CitizenBindingChainSnapshot {
   const CitizenBindingChainSnapshot({
+    this.block,
     required this.cidNumber,
     required this.accountId,
     required this.bindingRevision,
@@ -48,6 +49,8 @@ class CitizenBindingChainSnapshot {
   final String cidNumber;
   final Uint8List accountId;
   final int bindingRevision;
+
+  final CitizenBlockRef? block;
 
   String get accountIdText => CitizenIdentityChainReader.hexEncode(accountId);
 }
@@ -59,75 +62,36 @@ class CitizenIdentityChainReader {
 
   final CitizenChain _chain;
 
-  /// 在同一个 finalized 区块批量读取 CID 的当前有效钱包绑定。
-  ///
-  /// 每条结果都同时验证 `AccountIdByCid`、`CidRegistry Active`、
-  /// `BindingRevisionByCid` 与反向 `CidByAccountId`，任一不闭环就不返回该 CID。
-  ///
-  /// 任一条 `CidRegistry` 布局无法解析则整批上抛：解析器与链端结构不同步时，
-  /// 整批失败让用户重试，好过静默把全部联系人判成「无有效绑定」。
-  Future<Map<String, CitizenBindingChainSnapshot>> readBindingsByCidNumbers(
-    Iterable<String> cidNumbers,
-  ) async {
-    final normalized = <String>{
-      for (final cidNumber in cidNumbers) _normalizeCidNumber(cidNumber),
-    };
-    if (normalized.isEmpty) {
-      return const <String, CitizenBindingChainSnapshot>{};
-    }
-
-    final finalized = await _chain.getFinalizedHead();
-    final candidates = <String, CitizenBindingChainSnapshot>{};
-
-    await Future.wait(
-      normalized.map((cidNumber) async {
-        final cidScale = encodeBoundedBytes(utf8.encode(cidNumber));
-        final rows = await _chain.getStorageBatch(finalized, <Uint8List>[
-          storageMapKey('CitizenIdentity', 'AccountIdByCid', cidScale),
-          storageMapKey('CitizenIdentity', 'CidRegistry', cidScale),
-          storageMapKey('CitizenIdentity', 'BindingRevisionByCid', cidScale),
-        ]);
-        final accountId = rows[0];
-        final bindingRevision = _decodeU64(rows[2]);
-        if (accountId == null ||
-            accountId.length != 32 ||
-            !cidRecordIsActive(rows[1]) ||
-            bindingRevision <= 0) {
-          return;
-        }
-        candidates[cidNumber] = CitizenBindingChainSnapshot(
-          cidNumber: cidNumber,
-          accountId: accountId,
-          bindingRevision: bindingRevision,
-        );
-      }),
-    );
-
-    final verified = <String, CitizenBindingChainSnapshot>{};
-    await Future.wait(
-      candidates.values.map((candidate) async {
-        final reverse = await _chain.getStorage(
-          finalized,
-          storageMapKey(
-            'CitizenIdentity',
-            'CidByAccountId',
-            candidate.accountId,
-          ),
-        );
-        if (decodeCidNumber(reverse) == candidate.cidNumber) {
-          verified[candidate.cidNumber] = candidate;
-        }
-      }),
-    );
-    return verified;
-  }
-
-  /// 严格读取一个 CID 的当前有效钱包绑定。
+  /// 按需解析一个CID的当前绑定；注册/换绑核验和CID转账复用同一准确块闭环。
   Future<CitizenBindingChainSnapshot?> readBindingByCidNumber(
     String cidNumber,
   ) async {
-    final normalized = _normalizeCidNumber(cidNumber);
-    return (await readBindingsByCidNumbers([normalized]))[normalized];
+    final cid = _normalizeCidNumber(cidNumber);
+    final block = await _chain.getFinalizedHead();
+    final key = encodeBoundedBytes(utf8.encode(cid));
+    final rows = await _chain.getStorageBatch(block, [
+      storageMapKey('CitizenIdentity', 'AccountIdByCid', key),
+      storageMapKey('CitizenIdentity', 'CidRegistry', key),
+      storageMapKey('CitizenIdentity', 'BindingRevisionByCid', key),
+    ]);
+    final account = rows[0], revision = _decodeU64(rows[2]);
+    if (account == null ||
+        account.length != 32 ||
+        !cidRecordIsActive(rows[1]) ||
+        revision <= 0) {
+      return null;
+    }
+    final reverse = await _chain.getStorage(
+      block,
+      storageMapKey('CitizenIdentity', 'CidByAccountId', account),
+    );
+    if (decodeCidNumber(reverse) != cid) return null;
+    return CitizenBindingChainSnapshot(
+      cidNumber: cid,
+      accountId: account,
+      bindingRevision: revision,
+      block: block,
+    );
   }
 
   /// 按规范账户 ID 读取身份闭环,区分**纯访客 / 匿名已注册 / 投票 / 竞选**。
@@ -431,29 +395,5 @@ class CitizenIdentityChainReader {
       if (left[index] != right[index]) return false;
     }
     return true;
-  }
-}
-
-/// 账户边界动作使用的 `AccountId → CID` finalized 解析器。
-///
-/// 仅供扫码导入联系人等必须核验码内账户的动作使用；Chat 路由已经以 CID
-/// 为主键，普通打开会话或主页禁止使用本类读链。
-class CidByAccountIdResolver {
-  CidByAccountIdResolver({required CitizenIdentityChainReader chainReader})
-    : _chainReader = chainReader;
-
-  final CitizenIdentityChainReader _chainReader;
-  final Map<String, String> _cache = <String, String>{};
-
-  Future<String> resolve(String accountId) async {
-    final cached = _cache[accountId];
-    if (cached != null && cached.isNotEmpty) return cached;
-    final snapshot = await _chainReader.readByAccountId(accountId);
-    final cidNumber = snapshot?.cidNumber ?? '';
-    if (cidNumber.isEmpty) {
-      throw StateError('对方尚未绑定身份（CID）');
-    }
-    _cache[accountId] = cidNumber;
-    return cidNumber;
   }
 }

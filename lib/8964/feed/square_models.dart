@@ -326,3 +326,62 @@ class SquarePost {
   /// 竞选目标岗位；竞选卡头部有值时展示（如"市长候选人"），Worker 暂未回传则为空只显时间。
   final String? campaignPosition;
 }
+
+/// 评论/回复唯一客户端模型；已删除正文必须为空，坏响应不能冒充空评论列表。
+class SquareComment {
+  const SquareComment({
+    required this.sequence,
+    required this.commentId,
+    required this.postId,
+    required this.authorCid,
+    required this.body,
+    required this.state,
+    required this.displayName,
+    required this.createdAt,
+    this.replyTo,
+  });
+  final int sequence, createdAt;
+  final String commentId, postId, authorCid, body, state, displayName;
+  final String? replyTo;
+  factory SquareComment.fromJson(Map<String, dynamic> value) {
+    for (final key in [
+      'comment_id',
+      'post_id',
+      'author_cid_number',
+      'body',
+      'state',
+    ]) {
+      if (value[key] is! String) throw const FormatException('评论响应字段无效');
+    }
+    if (value['sequence'] is! int ||
+        (value['sequence'] as int) <= 0 ||
+        value['created_at'] is! int ||
+        !['active', 'deleted'].contains(value['state']) ||
+        (value['state'] == 'deleted' && value['body'] != '') ||
+        (value['body'] as String).runes.length > 2000) {
+      throw const FormatException('评论响应无效');
+    }
+    return SquareComment(
+      sequence: value['sequence'] as int,
+      commentId: value['comment_id'] as String,
+      postId: value['post_id'] as String,
+      authorCid: value['author_cid_number'] as String,
+      body: value['body'] as String,
+      state: value['state'] as String,
+      displayName: (value['display_name'] as String?) ?? '',
+      createdAt: value['created_at'] as int,
+      replyTo: value['reply_to'] as String?,
+    );
+  }
+  Map<String, Object?> toJson() => {
+    'sequence': sequence,
+    'comment_id': commentId,
+    'post_id': postId,
+    'author_cid_number': authorCid,
+    'body': body,
+    'state': state,
+    'display_name': displayName,
+    'created_at': createdAt,
+    'reply_to': replyTo,
+  };
+}

@@ -666,7 +666,9 @@ class SquareApiClient
       try {
         return await _establishSession(identity, authentication, generation);
       } on SquareApiException catch (error) {
-        if (error.errorCode != 'device_not_registered' ||
+        // 服务不可用必须保留原失败，即使响应携带未登记码也不能触发设备登记。
+        if (error.statusCode == 503 ||
+            error.errorCode != 'device_not_registered' ||
             onDeviceNotRegistered == null) {
           rethrow;
         }
@@ -1579,17 +1581,23 @@ class SquareApiClient
   /// 详情接口在确认 D1 可见状态后读取并校验 R2 manifest；Feed 只携带摘要。
   Future<SquarePost> fetchPostDetail({
     required SquareSession session,
-    required SquarePost summary,
+    SquarePost? summary,
+    String? postId,
   }) async {
+    final target = postId ?? summary?.postId;
+    if (target == null ||
+        (postId != null && summary != null && postId != summary.postId)) {
+      throw const SquareApiException('内容ID不一致');
+    }
     final data = await _getJson(
-      '/8964/posts/${Uri.encodeComponent(summary.postId)}',
+      '/8964/posts/${Uri.encodeComponent(target)}',
       session: session,
     );
     final post = data['post'];
     if (post is! Map<String, dynamic>) {
       throw const SquareApiException('内容详情响应缺少内容数据');
     }
-    return _parsePost(post, isDetail: true, fallbackAuthor: summary.author);
+    return _parsePost(post, isDetail: true, fallbackAuthor: summary?.author);
   }
 
   /// 显式恢复读取服务器已确认的发布证明，不签名、不重新提交交易。
@@ -2028,23 +2036,64 @@ class SquareApiClient
     );
   }
 
-  /// 拉取发帖通知双游标红点计数：广场底部 tab 与关注子 tab 各一。
-  Future<({int squareUnread, int followingUnread})> fetchNotifyUnread({
+  /// 仅启动、重连、切身份或缺失基线时校准；没有周期轮询。
+  Future<Map<String, dynamic>> fetchNotificationState({
     required SquareSession session,
+  }) => _getJson('/notifications/unread', session: session);
+  Future<Map<String, dynamic>> fetchNotifications({
+    required SquareSession session,
+    int? cursor,
+  }) => _getJson(
+    '/notifications?limit=20${cursor == null ? '' : '&cursor=$cursor'}',
+    session: session,
+  );
+  Future<Map<String, dynamic>> markNotifyRead({
+    required SquareSession session,
+    String scope = 'square',
+    List<int> ids = const [],
+    int? through,
+    List<String> postIds = const [],
+    List<String> commentIds = const [],
+  }) => _postJson('/notifications/read', {
+    'scope': scope,
+    'ids': ids,
+    'through': through,
+    'post_ids': postIds,
+    'comment_ids': commentIds,
+  }, session: session);
+  Future<Map<String, dynamic>> fetchComments({
+    required SquareSession session,
+    required String postId,
+    int? cursor,
+    String? target,
+  }) => _getJson(
+    '/8964/posts/${Uri.encodeComponent(postId)}/comments?limit=20${cursor == null ? '' : '&cursor=$cursor'}${target == null ? '' : '&target=${Uri.encodeComponent(target)}'}',
+    session: session,
+  );
+  Future<Map<String, dynamic>> createComment({
+    required SquareSession session,
+    required String postId,
+    required String operationId,
+    required String body,
+    String? replyTo,
+  }) => _postJson('/8964/posts/${Uri.encodeComponent(postId)}/comments', {
+    'operation_id': operationId,
+    'body': body,
+    'reply_to': replyTo,
+  }, session: session);
+  Future<void> deleteComment({
+    required SquareSession session,
+    required String postId,
+    required String commentId,
   }) async {
-    final data = await _getJson('/notifications/unread', session: session);
-    return (
-      squareUnread: (data['square_unread'] as num?)?.toInt() ?? 0,
-      followingUnread: (data['following_unread'] as num?)?.toInt() ?? 0,
+    final uri = _uri(
+      '/8964/posts/${Uri.encodeComponent(postId)}/comments/${Uri.encodeComponent(commentId)}',
     );
-  }
-
-  /// 推进某作用域的已读游标（`square` 进广场清、`following` 进关注子 tab 清），红点归零。
-  Future<void> markNotifyRead({
-    required SquareSession session,
-    required String scope,
-  }) async {
-    await _postJson('/notifications/read', {'scope': scope}, session: session);
+    final response = await _http
+        .delete(uri, headers: await _headers('DELETE', uri, '', session))
+        .timeout(const Duration(seconds: 20));
+    await session.validateCurrent();
+    _decodeResponse(response);
   }
 
   /// 拉取关注、关注者或互关列表（路由末段 = 目标身份主键 cid_number；列表项为

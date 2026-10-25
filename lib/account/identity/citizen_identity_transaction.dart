@@ -43,8 +43,8 @@ class CitizenIdentityTransaction {
   const CitizenIdentityTransaction({
     required CitizenChain chain,
     required CitizenTransactions transactions,
-  })  : _chain = chain,
-        _transactions = transactions;
+  }) : _chain = chain,
+       _transactions = transactions;
 
   final CitizenChain _chain;
   final CitizenTransactions _transactions;
@@ -79,7 +79,8 @@ class CitizenIdentityTransaction {
     required String accountId,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
+    )
+    externalSigning,
   }) async {
     final callData = buildSelfOccupyCidCall(cidNumber);
     final execution = await _execute(
@@ -109,7 +110,7 @@ class CitizenIdentityTransaction {
   /// 账户签 `CidRebindAuthorization`，新账户作为 origin 自签提交。修订号、当前账户、
   /// 创世与过期时间共同阻断此前授权在后续 A→B→A 或跨链场景重放。
   Future<({String txHash, int usedNonce, String blockHashHex})>
-      selfRebindCidAccount({
+  selfRebindCidAccount({
     required String cidNumber,
     required String newAccountId,
     required String currentAccountId,
@@ -117,7 +118,8 @@ class CitizenIdentityTransaction {
     required Uint8List currentAccountSignature,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
+    )
+    externalSigning,
   }) async {
     if (context.currentAccountId != currentAccountId) {
       throw StateError('CID 当前绑定账户已经变化，请刷新身份后重试');
@@ -158,7 +160,8 @@ class CitizenIdentityTransaction {
   /// `AccountIdByCid`、`BindingRevisionByCid`、`Timestamp.Now` 任一缺失或 SCALE
   /// 非法都 fail-closed；禁止回退本地缓存、设备时间或调用方传入修订号。
   Future<SelfRebindAuthorizationContext> fetchSelfRebindAuthorizationContext(
-      String cidNumber) async {
+    String cidNumber,
+  ) async {
     final finalized = await _chain.getFinalizedHead();
     final cidScale = _encodedCid(cidNumber);
     final accountKey = _storageMapKey(
@@ -174,14 +177,18 @@ class CitizenIdentityTransaction {
     final timestampKey = _storageValueKey('Timestamp', 'Now');
     final rows = await Future.wait<Object?>([
       _chain.getGenesisHash(),
-      _chain.getStorage(finalized, accountKey),
-      _chain.getStorage(finalized, revisionKey),
-      _chain.getStorage(finalized, timestampKey),
+      _chain.getStorageBatch(finalized, [
+        accountKey,
+        revisionKey,
+        timestampKey,
+      ]),
     ]);
     final genesisHash = _decodeHex32(rows[0] as String, '创世块哈希');
-    final currentAccountId = rows[1] as Uint8List?;
-    final revisionRaw = rows[2] as Uint8List?;
-    final timestampRaw = rows[3] as Uint8List?;
+    // 三项授权事实来自同一次准确块批读，不能混用本地时间或缓存绑定。
+    final storage = rows[1] as List<Uint8List?>;
+    final currentAccountId = storage[0];
+    final revisionRaw = storage[1];
+    final timestampRaw = storage[2];
     if (genesisHash.length != 32) {
       throw const FormatException('创世块哈希必须为 32 字节');
     }
@@ -196,7 +203,8 @@ class CitizenIdentityTransaction {
       throw StateError('CID 绑定 revision 已达 u64 上限，禁止继续签署换绑授权');
     }
     final timestampMillis = _decodeU64(timestampRaw, 'Timestamp.Now');
-    final expiresAt = timestampMillis ~/ BigInt.from(1000) +
+    final expiresAt =
+        timestampMillis ~/ BigInt.from(1000) +
         BigInt.from(_authorizationTtlSeconds);
     return SelfRebindAuthorizationContext(
       genesisHash: Uint8List.fromList(genesisHash),
@@ -233,13 +241,14 @@ class CitizenIdentityTransaction {
       'BindingRevisionByCid',
       cidScale,
     );
-    final rows = await Future.wait<Uint8List?>([
-      _chain.getStorage(finalizedBlock, accountKey),
-      _chain.getStorage(finalizedBlock, revisionKey),
+    final rows = await _chain.getStorageBatch(finalizedBlock, [
+      accountKey,
+      revisionKey,
     ]);
     final actualAccount = rows[0];
-    final actualRevision =
-        rows[1] == null ? null : _decodeU64(rows[1], 'BindingRevisionByCid');
+    final actualRevision = rows[1] == null
+        ? null
+        : _decodeU64(rows[1], 'BindingRevisionByCid');
     if (actualAccount == null ||
         actualAccount.length != expectedAccount.length ||
         !_sameBytes(actualAccount, expectedAccount) ||
@@ -250,15 +259,14 @@ class CitizenIdentityTransaction {
 
   /// 身份业务只提供 RuntimeCall；nonce、热签、冷签、extrinsic、
   /// 提交、观察和 System execution 核验全部由 CitizenSDK 完成。
-  Future<({
-    BigInt nonce,
-    CitizenTransactionExecutionCompleted completed,
-  })> _execute({
+  Future<({BigInt nonce, CitizenTransactionExecutionCompleted completed})>
+  _execute({
     required String accountId,
     required Uint8List callData,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
+    )
+    externalSigning,
   }) async {
     final prepared = await _transactions.prepareTransaction(
       _accountId32(accountId),
@@ -283,12 +291,9 @@ class CitizenIdentityTransaction {
     } else {
       completed = started as CitizenTransactionExecutionCompleted;
     }
-    if (completed.resolution !=
-            CitizenTransactionResolution.finalizedSuccess ||
+    if (completed.resolution != CitizenTransactionResolution.finalizedSuccess ||
         completed.execution == null) {
-      throw StateError(
-        completed.poolRejectionReason ?? '身份交易未成功执行',
-      );
+      throw StateError(completed.poolRejectionReason ?? '身份交易未成功执行');
     }
     return (nonce: prepared.nonce, completed: completed);
   }
@@ -327,8 +332,11 @@ class CitizenIdentityTransaction {
     output.write(_u64LittleEndian(expectedBindingRevision));
     output.write(_u64LittleEndian(expiresAt));
     // SignatureOf = BoundedVec<u8, MaxCitizenSignatureLength> = compact(len) ++ 字节。
-    output.write(CompactBigIntCodec.codec
-        .encode(BigInt.from(currentAccountSignature.length)));
+    output.write(
+      CompactBigIntCodec.codec.encode(
+        BigInt.from(currentAccountSignature.length),
+      ),
+    );
     output.write(currentAccountSignature);
     return output.toBytes();
   }
@@ -360,9 +368,12 @@ class CitizenIdentityTransaction {
       ..._u64LittleEndian(expectedBindingRevision),
       ..._u64LittleEndian(expiresAt),
     ];
-    return CitizenSigning.encodePayload(CitizenSigningPayload.message(
-      opTag: kOpSignCidRebind, scalePayload: Uint8List.fromList(payload),
-    ));
+    return CitizenSigning.encodePayload(
+      CitizenSigningPayload.message(
+        opTag: kOpSignCidRebind,
+        scalePayload: Uint8List.fromList(payload),
+      ),
+    );
   }
 
   static void _writeCidBoundedVec(ByteOutput output, String cidNumber) {
@@ -399,12 +410,11 @@ class CitizenIdentityTransaction {
     String pallet,
     String storage,
     Uint8List keyData,
-  ) =>
-      Uint8List.fromList([
-        ..._storageValueKey(pallet, storage),
-        ...Hasher.blake2b128.hash(keyData),
-        ...keyData,
-      ]);
+  ) => Uint8List.fromList([
+    ..._storageValueKey(pallet, storage),
+    ...Hasher.blake2b128.hash(keyData),
+    ...keyData,
+  ]);
 
   static String _hex(Uint8List value) =>
       '0x${value.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join()}';

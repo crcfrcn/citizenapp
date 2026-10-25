@@ -84,6 +84,7 @@ class _MembershipPageState extends State<MembershipPage>
 
   /// 订阅 / 取消上链进行中：期间禁用按钮、显示按钮内进度圈。
   bool _busy = false;
+  Timer? _displayExpiry;
   _MembershipViewData _data = const _MembershipViewData(
     accountId: '',
     cidNumber: '',
@@ -159,6 +160,7 @@ class _MembershipPageState extends State<MembershipPage>
 
   @override
   void dispose() {
+    _displayExpiry?.cancel();
     _accountSecurity?.revision.removeListener(_onIdentityChanged);
     MembershipRevision.instance.listenable.removeListener(_onMembershipChanged);
     _snapController.dispose();
@@ -420,6 +422,42 @@ class _MembershipPageState extends State<MembershipPage>
 
   void _applyViewData(_MembershipViewData data) {
     if (!mounted) return;
+    _displayExpiry?.cancel();
+    if (data.state.active &&
+        data.state.paidUntil > DateTime.now().millisecondsSinceEpoch) {
+      _displayExpiry = Timer(
+        Duration(
+          milliseconds:
+              data.state.paidUntil - DateTime.now().millisecondsSinceEpoch,
+        ),
+        () {
+          if (!mounted ||
+              _data.cidNumber != data.cidNumber ||
+              _data.state.paidUntil != data.state.paidUntil) {
+            return;
+          }
+          final state = data.state;
+          _applyViewData(
+            _MembershipViewData(
+              accountId: data.accountId,
+              cidNumber: data.cidNumber,
+              state: SquareMembershipState(
+                active: false,
+                paidUntil: state.paidUntil,
+                membershipLevel: state.membershipLevel,
+                subscriptionStatus: state.subscriptionStatus,
+                subscriptionActive: false,
+                lastChargedAt: state.lastChargedAt,
+                plans: state.plans,
+                usageState: state.usageState,
+              ),
+              prices: data.prices,
+              subscriptionReady: data.subscriptionReady,
+            ),
+          );
+        },
+      );
+    }
     final accountChanged = _data.accountId != data.accountId;
     final membershipChanged =
         _data.state.membershipLevel != data.state.membershipLevel;

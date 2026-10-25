@@ -1,4 +1,5 @@
 import Flutter
+import Network
 import UIKit
 import UserNotifications
 
@@ -9,6 +10,8 @@ import UserNotifications
   // 产品专用原生通道由 AppDelegate 强引用；钱包严档由共享 Flutter 插件自动注册。
   private var systemProtectedDataChannel: SystemProtectedDataChannel?
   private var securityChannel: FlutterMethodChannel?
+  private var networkChannel: FlutterEventChannel?
+  private let networkChanges = NetworkChanges()
   private var permissionsChannel: FlutterMethodChannel?
   private var chatNotificationsChannel: FlutterMethodChannel?
   private var squareMediaChannel: SquareMediaChannel?
@@ -91,6 +94,10 @@ import UserNotifications
       }
     }
     self.securityChannel = securityChannel
+
+    let networkChannel = FlutterEventChannel(name: "citizenapp/network", binaryMessenger: binaryMessenger)
+    networkChannel.setStreamHandler(networkChanges)
+    self.networkChannel = networkChannel
 
     let permissionsChannel = FlutterMethodChannel(
       name: "citizenapp/permissions",
@@ -386,4 +393,29 @@ class SceneDelegate: FlutterSceneDelegate {
     }
     super.scene(scene, openURLContexts: URLContexts)
   }
+}
+
+// 系统路径事件只交付可用性，不提供网络标识，不轮询或发HTTP探测。
+private final class NetworkChanges: NSObject, FlutterStreamHandler {
+  private var monitor: NWPathMonitor?
+  private var generation = 0
+  func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+    monitor?.cancel(); generation += 1
+    let current = generation, monitor = NWPathMonitor()
+    self.monitor = monitor
+    monitor.pathUpdateHandler = { [weak self] path in
+      let available = path.status == .satisfied
+      DispatchQueue.main.async { [weak self] in
+        guard self?.generation == current else { return }
+        events(available)
+      }
+    }
+    monitor.start(queue: DispatchQueue(label: "citizenapp.network"))
+    return nil
+  }
+  func onCancel(withArguments arguments: Any?) -> FlutterError? {
+    generation += 1; monitor?.pathUpdateHandler = nil; monitor?.cancel(); monitor = nil
+    return nil
+  }
+  deinit { monitor?.cancel() }
 }

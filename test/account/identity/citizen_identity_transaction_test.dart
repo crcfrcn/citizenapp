@@ -7,7 +7,9 @@
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
+
 import '../../support/fake_citizen_sdk.dart';
+
 import 'package:citizenapp/account/identity/citizen_identity_transaction.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -18,10 +20,10 @@ CitizenIdentityTransaction _transaction(CitizenChain chain) =>
     );
 
 CitizenBlockRef _finalized(String hash, [int number = 88]) => CitizenBlockRef(
-      hash: hash,
-      number: BigInt.from(number),
-      finality: CitizenBlockFinality.finalized,
-    );
+  hash: hash,
+  number: BigInt.from(number),
+  finality: CitizenBlockFinality.finalized,
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -53,8 +55,10 @@ void main() {
     });
 
     test('空 / 超 32 字节 cid 被拒', () async {
-      expect(() => CitizenIdentityTransaction.buildSelfOccupyCidCall(''),
-          throwsArgumentError);
+      expect(
+        () => CitizenIdentityTransaction.buildSelfOccupyCidCall(''),
+        throwsArgumentError,
+      );
       expect(
         () => CitizenIdentityTransaction.buildSelfOccupyCidCall('X' * 33),
         throwsArgumentError,
@@ -78,15 +82,27 @@ void main() {
       expect(call[2], compactCid);
       expect(call.sublist(3, 3 + 26), cidBytes);
       const revisionStart = 3 + 26;
-      expect(
-        call.sublist(revisionStart, revisionStart + 8),
-        <int>[0x04, 0x03, 0x02, 0x01, 0, 0, 0, 0],
-      );
+      expect(call.sublist(revisionStart, revisionStart + 8), <int>[
+        0x04,
+        0x03,
+        0x02,
+        0x01,
+        0,
+        0,
+        0,
+        0,
+      ]);
       const expiresStart = revisionStart + 8;
-      expect(
-        call.sublist(expiresStart, expiresStart + 8),
-        <int>[0x14, 0x13, 0x12, 0x11, 0, 0, 0, 0],
-      );
+      expect(call.sublist(expiresStart, expiresStart + 8), <int>[
+        0x14,
+        0x13,
+        0x12,
+        0x11,
+        0,
+        0,
+        0,
+        0,
+      ]);
       // sig 段:BoundedVec<u8> ⇒ compact(64) 两字节 [0x01,0x01] ++ 64 字节。
       const sigStart = expiresStart + 8;
       expect(call.sublist(sigStart, sigStart + 2), <int>[0x01, 0x01]);
@@ -123,9 +139,7 @@ void main() {
     const newAccount =
         '0x1111111111111111111111111111111111111111111111111111111111111111';
     final currentAccountBytes = Uint8List.fromList(List<int>.filled(32, 0x33));
-    final newAccountBytes = Uint8List.fromList(
-      List<int>.filled(32, 0x11),
-    );
+    final newAccountBytes = Uint8List.fromList(List<int>.filled(32, 0x11));
     final revision = BigInt.from(0x01020304);
     final expiresAt = BigInt.from(0x11121314);
 
@@ -164,8 +178,12 @@ void main() {
         0,
         0,
       ];
-      final expected =
-          (await CitizenSigning.encodePayload(CitizenSigningPayload.message(opTag: kOpSignCidRebind, scalePayload: Uint8List.fromList(payload))));
+      final expected = (await CitizenSigning.encodePayload(
+        CitizenSigningPayload.message(
+          opTag: kOpSignCidRebind,
+          scalePayload: Uint8List.fromList(payload),
+        ),
+      ));
       expect(digest, expected);
       expect(
         digest.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join(),
@@ -179,21 +197,26 @@ void main() {
         String? old,
         BigInt? revisionValue,
         BigInt? expiresValue,
-      }) =>
-          CitizenIdentityTransaction.buildRebindSigningDigest(
-            genesisHash: genesis ?? genesisHash,
-            cidNumber: cid,
-            currentAccountId: old ?? currentAccount,
-            newAccountId: newAccount,
-            expectedBindingRevision: revisionValue ?? revision,
-            expiresAt: expiresValue ?? expiresAt,
-          );
+      }) => CitizenIdentityTransaction.buildRebindSigningDigest(
+        genesisHash: genesis ?? genesisHash,
+        cidNumber: cid,
+        currentAccountId: old ?? currentAccount,
+        newAccountId: newAccount,
+        expectedBindingRevision: revisionValue ?? revision,
+        expiresAt: expiresValue ?? expiresAt,
+      );
 
       final baseline = await digest();
       expect(await digest(genesis: Uint8List(32)..[0] = 1), isNot(baseline));
       expect(await digest(old: '0x${'44' * 32}'), isNot(baseline));
-      expect(await digest(revisionValue: revision + BigInt.one), isNot(baseline));
-      expect(await digest(expiresValue: expiresAt + BigInt.one), isNot(baseline));
+      expect(
+        await digest(revisionValue: revision + BigInt.one),
+        isNot(baseline),
+      );
+      expect(
+        await digest(expiresValue: expiresAt + BigInt.one),
+        isNot(baseline),
+      );
     });
 
     test('非法 newAccountId 文本被拒', () {
@@ -223,15 +246,13 @@ void main() {
     expect(context.expiresAt, BigInt.from(1700000300));
     expect(rpc.readBlockHashes, List<String>.filled(3, '0x${'55' * 32}'));
     expect(rpc.storageKeys.toSet().length, 3);
+    expect(rpc.batchCalls, 1);
   });
 
   test('revision=u64::MAX 在生成签名前 fail-closed', () async {
-    final rpc = _RebindContextChain(
-      revision: (BigInt.one << 64) - BigInt.one,
-    );
+    final rpc = _RebindContextChain(revision: (BigInt.one << 64) - BigInt.one);
     await expectLater(
-      _transaction(rpc)
-          .fetchSelfRebindAuthorizationContext(cid),
+      _transaction(rpc).fetchSelfRebindAuthorizationContext(cid),
       throwsA(isA<StateError>()),
     );
   });
@@ -243,10 +264,7 @@ void main() {
         '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
     test('账户与 revision 精确命中才通过', () async {
-      final rpc = _FinalizedBindingChain(
-        accountByte: 0x11,
-        revision: 8,
-      );
+      final rpc = _FinalizedBindingChain(accountByte: 0x11, revision: 8);
       await expectLater(
         _transaction(rpc).verifyFinalizedBindingState(
           cidNumber: cid,
@@ -257,13 +275,11 @@ void main() {
         completes,
       );
       expect(rpc.readBlockHashes, <String>[blockHash, blockHash]);
+      expect(rpc.batchCalls, 1);
     });
 
     test('extrinsic 已 finalized 但绑定仍是此前账户/此前 revision 时拒绝', () async {
-      final rpc = _FinalizedBindingChain(
-        accountByte: 0x33,
-        revision: 7,
-      );
+      final rpc = _FinalizedBindingChain(accountByte: 0x33, revision: 7);
       await expectLater(
         _transaction(rpc).verifyFinalizedBindingState(
           cidNumber: cid,
@@ -276,10 +292,7 @@ void main() {
     });
 
     test('目标账户已变但 revision 没有精确推进时拒绝', () async {
-      final rpc = _FinalizedBindingChain(
-        accountByte: 0x11,
-        revision: 7,
-      );
+      final rpc = _FinalizedBindingChain(accountByte: 0x11, revision: 7);
       await expectLater(
         _transaction(rpc).verifyFinalizedBindingState(
           cidNumber: cid,
@@ -292,10 +305,7 @@ void main() {
     });
 
     test('首次占号只接受目标账户 + revision=1', () async {
-      final rpc = _FinalizedBindingChain(
-        accountByte: 0x11,
-        revision: 1,
-      );
+      final rpc = _FinalizedBindingChain(accountByte: 0x11, revision: 1);
       await expectLater(
         _transaction(rpc).verifyFinalizedBindingState(
           cidNumber: cid,
@@ -306,18 +316,27 @@ void main() {
         completes,
       );
     });
-
   });
 }
 
 class _RebindContextChain extends TestCitizenChain {
   _RebindContextChain({BigInt? revision})
-      : revision = revision ?? BigInt.from(7);
+    : revision = revision ?? BigInt.from(7);
 
   final BigInt revision;
   int _readIndex = 0;
   final List<String> readBlockHashes = <String>[];
   final List<String> storageKeys = <String>[];
+  int batchCalls = 0;
+
+  @override
+  Future<List<Uint8List?>> getStorageBatch(
+    CitizenBlockRef block,
+    List<Uint8List> keys,
+  ) async {
+    batchCalls++;
+    return Future.wait(keys.map((key) => getStorage(block, key)));
+  }
 
   @override
   Future<CitizenBlockRef> getFinalizedHead() async =>
@@ -356,15 +375,22 @@ class _RebindContextChain extends TestCitizenChain {
 }
 
 class _FinalizedBindingChain extends TestCitizenChain {
-  _FinalizedBindingChain({
-    required this.accountByte,
-    required this.revision,
-  });
+  _FinalizedBindingChain({required this.accountByte, required this.revision});
 
   final int accountByte;
   final int revision;
   int _readIndex = 0;
   final List<String> readBlockHashes = <String>[];
+  int batchCalls = 0;
+
+  @override
+  Future<List<Uint8List?>> getStorageBatch(
+    CitizenBlockRef block,
+    List<Uint8List> keys,
+  ) async {
+    batchCalls++;
+    return Future.wait(keys.map((key) => getStorage(block, key)));
+  }
 
   @override
   Future<Uint8List?> getStorage(

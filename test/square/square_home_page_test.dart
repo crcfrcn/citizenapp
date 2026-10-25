@@ -31,6 +31,7 @@ import 'package:citizenapp/8964/compose/video_compose_body.dart';
 import 'package:citizenapp/8964/compose/compose_media_widgets.dart';
 import 'package:citizenapp/8964/feed/square_models.dart';
 import 'package:citizenapp/8964/feed/square_home_page.dart';
+import 'package:citizenapp/8964/feed/square_tab_page.dart';
 import 'package:citizenapp/account/profile/citizen_profile.dart';
 import 'package:citizenapp/account/profile/citizen_profile_cache.dart';
 import 'package:citizenapp/account/identity/square_session_provider.dart';
@@ -45,6 +46,7 @@ import 'package:citizenapp/system/theme/app_theme.dart';
 import 'package:citizenapp/account/identity/identity_badge.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:citizenapp/storage/user_isar.dart';
+import 'package:citizenapp/system/notifications/notifications.dart';
 
 import 'profile/fake_profile.dart';
 
@@ -490,6 +492,8 @@ class _GateMlsSessions implements SquareSessionProvider {
 }
 
 void main() {
+  _squareTabGateTests();
+  _notificationOwnerTests();
   testWidgets('真实广场门禁只显示固定MLS原因，下拉重试成功后挂载内容且不增加按钮', (tester) async {
     final sessions = _GateMlsSessions();
     await tester.pumpWidget(
@@ -1552,5 +1556,300 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.text('身份同步中，请稍后重试'), findsOneWidget);
     expect(find.text('注册'), findsNothing);
+  });
+}
+
+/// 通知请求保留原CID；旧HTTP未完成时仍能打开新账号的列表。
+class _NotificationUser implements CurrentUserContext {
+  String cid = testMlsCidNumber;
+  @override
+  Future<CurrentUser?> resolve() async => CurrentUser(
+    account: _registeredWallet,
+    binding: IdentityBinding(
+      genesisHash: '0x${'22' * 32}',
+      cidNumber: cid,
+      accountId: _registeredWallet.accountId,
+      bindingRevision: 1,
+    ),
+  );
+  @override
+  dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError();
+}
+
+class _NotificationSessions implements SquareSessionProvider {
+  _NotificationSessions(this.user);
+  final _NotificationUser user;
+  @override
+  Future<SquareSession?> ensureSession() async => SquareSession(
+    deviceId: testMlsDeviceId,
+    sessionToken: 'synthetic',
+    cidNumber: user.cid,
+    accountId: _registeredWallet.accountId,
+    bindingRevision: 1,
+    expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
+  );
+  @override
+  dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError();
+}
+
+class _NotificationPages extends SquareApiClient {
+  final first = Completer<Map<String, dynamic>>();
+  final cids = <String>[];
+  Map<String, dynamic> page(String cid) => {
+    'ok': true,
+    'state': {
+      'ok': true,
+      'cid_number': cid,
+      'binding_revision': 1,
+      'revision': 1,
+      'square_unread': 1,
+      'following_unread': 1,
+      'interaction_unread': 0,
+  'interaction_sequence': 0,
+      'through': 1,
+      'membergate_revision': 0,
+      'creator_revision': 0,
+      'membergate': null,
+      'creator': null,
+    },
+    'items': [
+      {'kind': 'post', 'title': cid, 'read_at': 0, 'post_id': 'post'},
+    ],
+    'next_cursor': null,
+  };
+  @override
+  Future<Map<String, dynamic>> fetchNotifications({
+    required SquareSession session,
+    int? cursor,
+  }) async {
+    cids.add(session.cidNumber);
+    return cids.length == 1 ? first.future : page(session.cidNumber);
+  }
+}
+
+void _notificationOwnerTests() {
+  group('通知抽屉属主隔离', () {
+    useIsolatedIsar();
+    setUp(() async => UserIsar.instance.db());
+    testWidgets('旧列表在途不阻塞新账号，迟到结果不覆盖或解除新抽屉围栏', (tester) async {
+      final user = _NotificationUser();
+      final oldCid = user.cid;
+      final api = _NotificationPages();
+      final sessions = _NotificationSessions(user);
+      Notifications.instance.configure(
+        api: api,
+        sessions: sessions,
+        user: user,
+      );
+      Future<void> until(bool Function() done) async {
+        for (var i = 0; i < 100 && !done(); i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)),
+          );
+          await tester.pump();
+        }
+        expect(done(), isTrue);
+      }
+
+      try {
+        await tester.pumpWidget(
+          _wrap(
+            SquareHomePage(
+              feedSource: const _FakeFeedSource(),
+              identityService: _walletIdentityService(),
+              sessionProvider: sessions,
+            ),
+          ),
+        );
+        await _drainHomeIdentityReads(tester);
+        await tester.tap(find.byTooltip('通知'));
+        await until(() => api.cids.length == 1);
+        user.cid = 'CN220-CTZN2-100000098-2026';
+        Notifications.instance.invalidate();
+        var restored = false;
+        unawaited(Notifications.instance.restore().then((_) => restored = true));
+        await until(() => restored);
+        await tester.tap(find.byTooltip('通知'));
+        await until(() => find.text(user.cid).evaluate().isNotEmpty);
+        await tester.pumpAndSettle();
+        expect(api.cids, [oldCid, user.cid]);
+        api.first.complete(api.page(oldCid));
+        await _drainHomeIdentityReads(tester);
+        expect(find.text(user.cid), findsOneWidget);
+        expect(find.text(oldCid), findsNothing);
+        Notifications.instance.invalidate();
+        await tester.pumpAndSettle();
+        expect(find.text(user.cid), findsNothing);
+        expect(tester.takeException(), isNull);
+      } finally {
+        if (!api.first.isCompleted) api.first.complete(api.page(oldCid));
+        Notifications.instance.stop();
+        await tester.pumpWidget(const SizedBox.shrink());
+        await _drainHomeIdentityReads(tester);
+        await tester.runAsync(() => UserIsar.instance.resetForTest());
+        api.close();
+      }
+    });
+  });
+}
+
+// 真实SquareTab不注入页面替身；只在公开CID/SDK/会话边界提供合成事实。
+
+class _TabGate implements CidBusinessGate {
+  _TabGate(this.status);
+  CidBusinessStatus status;
+  @override
+  final ValueNotifier<int> revision = ValueNotifier<int>(0);
+  @override
+  Future<CidBusinessDecision> resolve() async => CidBusinessDecision(status,
+    cidNumber: status == CidBusinessStatus.ready ? testMlsCidNumber : null);
+  @override
+  dynamic noSuchMethod(Invocation invocation) => throw StateError('unconfigured CID boundary');
+}
+
+class _UnavailableTabSessions implements SquareSessionProvider {
+  int ensureCalls = 0, resolveCalls = 0, registrationCalls = 0;
+  @override
+  Future<SquareSession?> ensureSession() async {
+    ensureCalls++;
+    throw const SquareApiException('synthetic unavailable', statusCode: 503,
+      errorCode: 'synthetic_service_unavailable', stage: SquareApiStage.challenge);
+  }
+  @override
+  Future<SquareSessionResolution> resolveSession({bool refresh = false}) async {
+    resolveCalls++;
+    return SquareSessionResolution.fromError(const SquareApiException(
+      'synthetic unavailable', statusCode: 503, stage: SquareApiStage.challenge));
+  }
+  @override
+  Future<SquareSession?> registerCurrentDevice() async {
+    registrationCalls++;
+    throw StateError('CID入口不得触发设备登记');
+  }
+  @override
+  dynamic noSuchMethod(Invocation invocation) => throw StateError('unconfigured session boundary');
+}
+
+void _squareTabGateTests() {
+  group('广场真实Tab事实门禁', () {
+    useIsolatedIsar();
+    late TestCitizenSdkTransport transport;
+    late CitizenSdk sdk;
+    late AccountSecurityService security;
+    late _TabGate gate;
+    late _UnavailableTabSessions sessions;
+    late CurrentUserContext current;
+    setUp(() async {
+      // 与既有真实主页回归相同，在真实异步区打开库，避免原生回调绑定到测试虚拟时钟。
+      await UserIsar.instance.db();
+      transport = TestCitizenSdkTransport({'getWalletState': (_) => [testCitizenWalletState()]});
+      sdk = await transport.open();
+      security = AccountSecurityService(wallet: sdk.wallet, signing: sdk.signing,
+        mlsDeviceRegistrar: ({required cidNumber, required bindingRevision,
+          required accountId, required signBinding}) async => throw StateError('测试禁止登记设备'),
+        coldMlsDeviceBindingSigner: ({required binding, required payload,
+          required signingMessage, required publicKey, required issuedAtMillis}) async =>
+            throw StateError('测试禁止钱包签名'));
+      gate = _TabGate(CidBusinessStatus.ready);
+      sessions = _UnavailableTabSessions();
+      current = CurrentUserContext(wallet: sdk.wallet, accountSecurity: security,
+        bindingReader: (accountId) async => IdentityBinding(genesisHash: '0x${'11' * 32}',
+          cidNumber: testMlsCidNumber, accountId: accountId, bindingRevision: 1),
+        identityReader: (_) async => null);
+    });
+    tearDown(() async {
+      security.dispose(); gate.revision.dispose();
+      await sdk.close(); await transport.dispose();
+    });
+    Future<void> open(WidgetTester tester) async {
+      await tester.pumpWidget(MultiProvider(providers: [
+        Provider<CitizenSdk>.value(value: sdk),
+        Provider<AccountSecurityService>.value(value: security),
+        Provider<CurrentUserContext>.value(value: current),
+        Provider<SquareSessionProvider>.value(value: sessions),
+        Provider<CidBusinessGate>.value(value: gate),
+      ], child: MaterialApp(theme: AppTheme.lightTheme, home: const SquareTab())));
+      await _drainHomeIdentityReads(tester);
+      if (gate.status == CidBusinessStatus.ready) {
+        // 生产主页会顺序读取本地身份、徽章和资料；等待实际入口出现，不以空闲帧冒充完成。
+        for (var attempt = 0; attempt < 100 && find.byTooltip('发布').evaluate().isEmpty; attempt++) {
+          await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+          await tester.pump();
+        }
+      }
+      await tester.pumpAndSettle();
+    }
+    Future<void> check(WidgetTester tester, Future<void> Function() body) async {
+      try {
+        await open(tester);
+        await body();
+      } finally {
+        // 原生库关闭也必须在Widget测试仍可驱动微任务时完成，不能留到外层tearDown。
+        await tester.pumpWidget(const SizedBox.shrink());
+        // 编辑页身份完成后还会排队读取头像；逐段驱动原队列，不能在标题出现时立即关库。
+        for (var stage = 0; stage < 4; stage++) {
+          await _drainHomeIdentityReads(tester);
+        }
+        var closed = false;
+        Object? closeError;
+        unawaited(UserIsar.instance.resetForTest().then<void>((_) { closed = true; },
+          onError: (Object error) { closeError = error; closed = true; }));
+        for (var attempt = 0; attempt < 200 && !closed; attempt++) {
+          await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 10)));
+          await tester.pump();
+        }
+        expect(closed, isTrue, reason: '必须完成本用例隔离库关闭，不能污染下一用例');
+        if (closeError != null) throw closeError!;
+      }
+    }
+    testWidgets('已有CID且503仍显示原发布入口并进入文章编辑器，动态保持失败', (tester) async {
+      await check(tester, () async {
+      expect(find.byType(SquareHomePage), findsOneWidget);
+      expect(find.text('公民服务暂时不可用，请稍后重试'), findsOneWidget);
+      expect(find.byTooltip('发布'), findsOneWidget);
+      expect(sessions.ensureCalls, greaterThan(0));
+      expect(sessions.resolveCalls, 0);
+      expect(sessions.registrationCalls, 0);
+      await tester.tap(find.byTooltip('发布'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('square-publish-article')));
+      await _drainHomeIdentityReads(tester);
+      await tester.pumpAndSettle();
+      expect(find.text('发文章'), findsOneWidget);
+      expect(find.text('初始化本机聊天设备'), findsNothing);
+      expect(find.text('尚未注册'), findsNothing);
+      expect(sessions.registrationCalls, 0);
+      });
+    });
+    for (final status in [CidBusinessStatus.unregistered, CidBusinessStatus.unavailable,
+      CidBusinessStatus.noWallet]) {
+      testWidgets('CID事实${status.name}不挂载广场或准备会话', (tester) async {
+        gate.status = status;
+        await check(tester, () async {
+        expect(find.byType(SquareHomePage), findsNothing);
+        expect(find.byTooltip('发布'), findsNothing);
+        expect(sessions.ensureCalls, 0);
+        expect(sessions.resolveCalls, 0);
+        expect(sessions.registrationCalls, 0);
+        expect(find.text('尚未注册'), status == CidBusinessStatus.unregistered ? findsOneWidget : findsNothing);
+        if (status == CidBusinessStatus.unavailable) {
+          expect(find.text('暂时无法核实公民号身份，请重试'), findsOneWidget);
+        }
+        });
+      });
+    }
+    testWidgets('CID事实改变后撤下旧广场，失败不冒充未注册', (tester) async {
+      await check(tester, () async {
+      expect(find.byType(SquareHomePage), findsOneWidget);
+      gate.status = CidBusinessStatus.unavailable;
+      gate.revision.value++;
+      await tester.pumpAndSettle();
+      expect(find.byType(SquareHomePage), findsNothing);
+      expect(find.text('暂时无法核实公民号身份，请重试'), findsOneWidget);
+      expect(find.text('尚未注册'), findsNothing);
+      expect(find.byTooltip('发布'), findsNothing);
+      expect(sessions.registrationCalls, 0);
+      });
+    });
   });
 }

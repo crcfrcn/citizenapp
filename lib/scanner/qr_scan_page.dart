@@ -8,7 +8,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:citizenapp/system/theme/app_theme.dart';
 import 'package:citizenapp/citizen/account_derivation.dart';
 import 'package:citizenapp/scanner/qr_router.dart';
-import 'package:citizenapp/account/identity/citizen_identity_chain_reader.dart';
 import 'package:citizenapp/account/contacts/contact_service.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
 import 'package:citizenapp/account/identity/square_session_provider.dart';
@@ -33,25 +32,14 @@ class QrScanTransferResult {
   final String? bank;
 }
 
-/// 把用户名片码转成 CID 通讯录关系。
-///
-/// 码内 CID 只是声明值，必须拿码内 `account_id` 经链上双向绑定重新解析，
-/// 两者完全一致才允许入库。码内不含昵称：真实公开昵称由资料接口按 CID 拉取。
+/// 用户码只作为导入声明；服务端核对当前公开绑定，本地保存同CID联系人关系。
 Future<ContactImportResult> addUserQrContact({
   required CitizenQrDocument body,
-  required CidByAccountIdResolver cidResolver,
   required UserContactService contactService,
-}) async {
-  final resolvedCidNumber = await cidResolver.resolve(body.accountId!);
-  if (resolvedCidNumber != body.cidNumber) {
-    throw const FormatException('用户码 CID 与 account_id 的链上绑定不一致');
-  }
-  return contactService.addContact(
-    cidNumber: body.cidNumber!,
-    ss58Address: ss58FromAccountIdText(body.accountId!),
-    contactRemark: '',
-  );
-}
+}) => contactService.importContact(
+  cidNumber: body.cidNumber!,
+  accountId: body.accountId!,
+);
 
 /// 扫码模式。
 enum QrScanMode {
@@ -90,7 +78,6 @@ class QrScanPage extends StatefulWidget {
     this.initialCode,
     this.customTitle,
     this.contactService,
-    this.cidResolver,
     this.qr,
   });
 
@@ -107,7 +94,6 @@ class QrScanPage extends StatefulWidget {
   final UserContactService? contactService;
 
   /// 测试注入；正式运行通过链上双向绑定把二维码账户解析为永久 CID。
-  final CidByAccountIdResolver? cidResolver;
 
   /// CitizenSDK QR 公开端口；仅测试可注入，生产从根 Provider 读取同一实例。
   final CitizenQr? qr;
@@ -125,7 +111,6 @@ class _QrScanPageState extends State<QrScanPage> {
       : CitizenQrScanPurpose.generalScan;
   final QrRouter _router = QrRouter();
   UserContactService? _contactService;
-  CidByAccountIdResolver? _cidResolver;
   bool _handled = false;
   bool _torchOn = false;
   // 本页正在 pop/dispose 时置真，阻止 _handleCode 的 finally 重启相机（避免与 dispose 竞态）。
@@ -135,7 +120,6 @@ class _QrScanPageState extends State<QrScanPage> {
   void initState() {
     super.initState();
     _contactService = widget.contactService;
-    _cidResolver = widget.cidResolver;
     final code = widget.initialCode;
     if (code != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _handleCode(code));
@@ -405,17 +389,9 @@ class _QrScanPageState extends State<QrScanPage> {
         accountSecurity: context.read<AccountSecurityService>(),
         currentUserContext: context.read<CurrentUserContext>(),
         sessionProvider: context.read<SquareSessionProvider>(),
-        chainReader: CitizenIdentityChainReader(
-          chain: context.read<CitizenSdk>().chain,
-        ),
       );
       final addResult = await addUserQrContact(
         body: body,
-        cidResolver: _cidResolver ??= CidByAccountIdResolver(
-          chainReader: CitizenIdentityChainReader(
-            chain: context.read<CitizenSdk>().chain,
-          ),
-        ),
         contactService: contactService,
       );
       if (!mounted) return;

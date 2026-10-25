@@ -1,3 +1,5 @@
+import 'package:citizenapp/8964/feed/comments.dart';
+import 'package:citizenapp/system/notifications/notifications.dart';
 import 'package:citizenapp/8964/feed/square_post_store.dart';
 import 'package:citizenapp/8964/feed/square_local_post_presenter.dart';
 import 'package:citizenapp/8964/feed/square_post_sync_service.dart';
@@ -29,9 +31,13 @@ class SquareArticleDetailPage extends StatefulWidget {
     this.api,
     this.sessionProvider,
     this.deletionCoordinator,
+    this.initialDetailLoaded = false,
+    this.initialCommentId,
   });
 
   final SquarePost post;
+  final bool initialDetailLoaded;
+  final String? initialCommentId;
   final SquareApiClient? api;
   final SquareSessionProvider? sessionProvider;
   final SquarePostDeleteCoordinator? deletionCoordinator;
@@ -114,15 +120,37 @@ class _SquareArticleDetailPageState extends State<SquareArticleDetailPage> {
       final session = await _sessionProvider.ensureSession();
       if (session == null) throw const SquareApiException('请先选择默认钱包账户');
       await SubscriptionService.requireSquareSession(session, client: _api);
-      final detail = await _api.fetchPostDetail(
-        session: session,
-        summary: _post,
-      );
-      if (!mounted) return;
+      await Notifications.instance.restore();
+      final notificationOwner = Notifications.instance.scope;
+      await session.validateCurrent();
+      if (notificationOwner != null &&
+          (notificationOwner.cid != session.cidNumber ||
+              notificationOwner.binding != session.bindingRevision ||
+              notificationOwner.account != session.accountId)) {
+        throw StateError('内容详情身份已变化');
+      }
+      final detail = widget.initialDetailLoaded && !refresh
+          ? _post
+          : await _api.fetchPostDetail(session: session, summary: _post);
+      if (!mounted ||
+          (notificationOwner != null &&
+              !Notifications.instance.isCurrent(notificationOwner))) {
+        return;
+      }
       setState(() {
         _post = detail;
         _mediaHeaders = {'authorization': 'Bearer ${session.sessionToken}'};
         _loading = false;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && ModalRoute.of(context)?.isCurrent == true) {
+          unawaited(
+            Notifications.instance.read(
+              owner: notificationOwner,
+              postIds: [post.postId],
+            ),
+          );
+        }
       });
     } catch (error) {
       if (!mounted) return;
@@ -215,6 +243,13 @@ class _SquareArticleDetailPageState extends State<SquareArticleDetailPage> {
                         ),
                         SizedBox(height: AppLayout.scaled(context, 16)),
                         ..._buildBody(media),
+                        if (!post.isLocal || post.chainBlock != null)
+                          Comments(
+                            postId: post.postId,
+                            api: _api,
+                            sessionProvider: _sessionProvider,
+                            initialCommentId: widget.initialCommentId,
+                          ),
                       ],
                     ),
                   ),

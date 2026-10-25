@@ -52,6 +52,20 @@ class PaymentAccountSelection {
   final BigInt revision;
 }
 
+/// 一次签名前确认的收款目标；地址、CID和绑定版本在该次确认后冻结。
+class OnchainRecipient {
+  const OnchainRecipient({
+    required this.address,
+    this.cidNumber,
+    this.bindingRevision,
+    this.blockHash,
+  });
+  final String address;
+  final String? cidNumber;
+  final int? bindingRevision;
+  final String? blockHash;
+}
+
 class OnchainPaymentDraft {
   const OnchainPaymentDraft({
     required this.sourceAccountId,
@@ -59,6 +73,7 @@ class OnchainPaymentDraft {
     required this.amount,
     required this.symbol,
     required this.remark,
+    this.recipient,
   });
 
   final String sourceAccountId;
@@ -66,4 +81,5 @@ class OnchainPaymentDraft {
   final double amount;
   final String symbol;
   final String remark;
+  final OnchainRecipient? recipient;
 }

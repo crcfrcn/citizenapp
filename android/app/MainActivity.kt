@@ -6,6 +6,9 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -18,12 +21,15 @@ import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.EventChannel
 import java.io.File
 
 class MainActivity : FlutterFragmentActivity() {
     private val securityChannelName = "citizenapp/security"
     private val updateChannelName = "citizenapp/update"
     private val permissionsChannelName = "citizenapp/permissions"
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var networkGeneration = 0
     private var squareMediaChannel: SquareMediaChannel? = null
     private val notificationPermissionRequestCode = 170517
     private var pendingNotificationPermissionResult: MethodChannel.Result? = null
@@ -54,6 +60,28 @@ class MainActivity : FlutterFragmentActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
+        // 只监听系统网络事件；没有周期探测或服务器请求。
+        val networkManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, "citizenapp/network").setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
+                val generation = ++networkGeneration
+                networkCallback?.let { networkManager.unregisterNetworkCallback(it) }
+                fun available(): Boolean = networkManager.getNetworkCapabilities(networkManager.activeNetwork)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+                fun emit() { runOnUiThread { if (networkGeneration == generation) events.success(available()) } }
+                val callback = object : ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: Network) { emit() }
+                    override fun onLost(network: Network) { emit() }
+                    override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) { emit() }
+                }
+                networkCallback = callback
+                networkManager.registerDefaultNetworkCallback(callback)
+                emit()
+            }
+            override fun onCancel(arguments: Any?) {
+                networkGeneration++
+                networkCallback?.let { networkManager.unregisterNetworkCallback(it) }; networkCallback = null
+            }
+        })
         ensureSquarePostNotificationChannel()
         ensureChatNotificationChannel()
 
@@ -227,6 +255,9 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun onDestroy() {
+        networkGeneration++
+        networkCallback?.let { (getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager).unregisterNetworkCallback(it) }
+        networkCallback = null
         squareMediaChannel?.dispose()
         squareMediaChannel = null
         super.onDestroy()

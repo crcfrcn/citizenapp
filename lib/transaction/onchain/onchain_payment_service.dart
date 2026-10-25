@@ -1,3 +1,5 @@
+import 'package:citizenapp/account/identity/citizen_identity_chain_reader.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:convert';
@@ -10,11 +12,40 @@ class OnchainPaymentService {
   OnchainPaymentService({
     required CitizenSdkWallet wallet,
     required CitizenTransactions transactions,
+    CitizenChain? chain,
+    CitizenIdentityChainReader? bindingReader,
   }) : _wallet = wallet,
-       _transactions = transactions;
+       _transactions = transactions,
+       _bindingReader =
+           bindingReader ??
+           (chain == null ? null : CitizenIdentityChainReader(chain: chain));
 
   final CitizenSdkWallet _wallet;
   final CitizenTransactions _transactions;
+  final CitizenIdentityChainReader? _bindingReader;
+
+  /// 联系人列表不解析地址；用户发起签名时唯一一次核对CID当前有效绑定。
+  Future<OnchainRecipient> resolveRecipient({
+    required String address,
+    String? cidNumber,
+  }) async {
+    if (cidNumber == null) return OnchainRecipient(address: address.trim());
+    final reader = _bindingReader;
+    if (reader == null) throw StateError('收款人链验证不可用');
+    final binding = await reader.readBindingByCidNumber(cidNumber);
+    if (binding == null ||
+        binding.block?.finality != CitizenBlockFinality.finalized ||
+        binding.cidNumber != cidNumber ||
+        binding.bindingRevision <= 0) {
+      throw StateError('收款人CID当前没有有效钱包绑定');
+    }
+    return OnchainRecipient(
+      address: ss58FromAccountIdText(binding.accountIdText),
+      cidNumber: cidNumber,
+      bindingRevision: binding.bindingRevision,
+      blockHash: binding.block!.hash,
+    );
+  }
 
   /// 首次按默认账户初始化表单；选定后只核对该精确账户，缺失绝不回退账户0。
   Future<CitizenWalletStateAccount?> getCurrentWallet({
@@ -37,6 +68,12 @@ class OnchainPaymentService {
     OnchainPaymentDraft draft,
   ) async {
     final toSs58Address = draft.toSs58Address.trim();
+    if (draft.recipient != null && draft.recipient!.address != toSs58Address) {
+      throw const OnchainPaymentException(
+        OnchainPaymentErrorCode.invalidDraft,
+        '收款账户与已确认目标不一致',
+      );
+    }
     final symbol = draft.symbol.trim().toUpperCase();
     final remarkBytes = utf8.encode(draft.remark).length;
     if (!RegExp(r'^0x[0-9a-f]{64}$').hasMatch(draft.sourceAccountId) ||

@@ -81,16 +81,22 @@ typedef OnchainLocalRecordsLoader = Future<List<LocalTxEntity>> Function(
 typedef OnchainContactPageBuilder = Widget Function(ContactPickMode mode);
 
 class OnchainPaymentPage extends StatelessWidget {
-  const OnchainPaymentPage({super.key, this.initialToAddress});
+  const OnchainPaymentPage({
+    super.key,
+    this.initialToAddress,
+    this.initialRecipientCid,
+  });
 
   /// 预填收款地址（从通讯录等入口跳转时使用）。
   final String? initialToAddress;
+  final String? initialRecipientCid;
 
   @override
   Widget build(BuildContext context) {
     return OnchainPaymentPanel(
       title: '链上支付',
       initialToAddress: initialToAddress,
+      initialRecipientCid: initialRecipientCid,
     );
   }
 }
@@ -101,6 +107,7 @@ class OnchainPaymentPanel extends StatefulWidget {
     this.title,
     this.chainStatusInHeader = false,
     this.initialToAddress,
+    this.initialRecipientCid,
     this.extraEntriesBuilder,
     this.walletPicker,
     this.currentWalletLoader,
@@ -119,6 +126,7 @@ class OnchainPaymentPanel extends StatefulWidget {
 
   /// 预填收款地址（从通讯录等入口跳转时使用）。
   final String? initialToAddress;
+  final String? initialRecipientCid;
 
   /// 交易 Tab 可在顶栏链状态下方、链上支付表单上方插入入口。
   /// onchain 模块不直接 import offchain / multisig，跨功能编排留在 ui 层。
@@ -185,6 +193,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
 
   bool _loadingWallet = true;
   bool _submitting = false;
+  String? _recipientCid;
   bool _checkingBalance = false;
   CitizenChainSyncStatus? _chainProgress;
   String? _chainProgressError;
@@ -201,6 +210,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     if (widget.initialToAddress != null) {
       _toController.text = widget.initialToAddress!;
     }
+    _recipientCid = widget.initialRecipientCid;
     _remarkController.addListener(_onRemarkChanged);
   }
 
@@ -221,6 +231,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
         OnchainPaymentService(
           wallet: sdk.wallet,
           transactions: sdk.transactions,
+          chain: sdk.chain,
         );
     _accountSecurity = accountSecurity;
     accountSecurity.revision.addListener(_onWalletsChanged);
@@ -456,6 +467,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     setState(() {
       // 通讯录始终属于身份账户；这里只接收联系人 SS58 地址，付款钱包保持不变。
       _toController.text = contact.ss58Address;
+      _recipientCid = contact.cidNumber;
     });
   }
 
@@ -478,7 +490,8 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
       return;
     }
 
-    final toSs58Address = _toController.text.trim();
+    var toSs58Address = _toController.text.trim();
+    final requestedAddress = toSs58Address, requestedCid = _recipientCid;
     final amountRaw = _amountController.text.trim();
     if (toSs58Address.isEmpty || amountRaw.isEmpty) {
       ScaffoldMessenger.of(context)
@@ -489,14 +502,16 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
 
     // SS58 地址校验（prefix 走 kGmbSs58Prefix 单源）
     try {
-      final decoded = Keyring().decodeAddress(toSs58Address);
-      // 验证 prefix：重新编码后比对
-      final reEncoded = Keyring().encodeAddress(decoded, kGmbSs58Prefix);
-      if (reEncoded != toSs58Address) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('收款地址不是本链地址（SS58 前缀不匹配）')));
-        return;
+      if (requestedCid == null) {
+        final decoded = Keyring().decodeAddress(toSs58Address);
+        // 验证 prefix：重新编码后比对
+        final reEncoded = Keyring().encodeAddress(decoded, kGmbSs58Prefix);
+        if (reEncoded != toSs58Address) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('收款地址不是本链地址（SS58 前缀不匹配）')),
+          );
+          return;
+        }
       }
     } catch (e) {
       AppLog.d('[OnchainPay] 收款地址 SS58 校验失败: $e');
@@ -547,6 +562,29 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     } finally {
       if (mounted) setState(() => _checkingBalance = false);
     }
+    final OnchainRecipient recipient;
+    setState(() => _checkingBalance = true);
+    try {
+      recipient = await _paymentService!.resolveRecipient(
+        address: requestedAddress,
+        cidNumber: requestedCid,
+      );
+      if (!mounted ||
+          _recipientCid != requestedCid ||
+          _toController.text.trim() != requestedAddress ||
+          _currentWallet?.accountId != balanceAccountId) {
+        return;
+      }
+      toSs58Address = recipient.address;
+    } on Object {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('无法确认收款人当前账户，请重试')));
+      }
+      return;
+    } finally {
+      if (mounted) setState(() => _checkingBalance = false);
+    }
     final estimatedFee = OnchainTransferCall.estimateTransferFeeYuan(amount);
 
     // 余额校验：转账金额 + 手续费 ≤ 可用余额（余额 - ED）
@@ -576,6 +614,9 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('付款账户：$payerName'),
+            if (recipient.cidNumber != null)
+              Text('收款公民号：${recipient.cidNumber}'),
+            Text('收款账户：${recipient.address}'),
             Text(
               '转账金额：${AmountFormat.format(amount, symbol: _selectedSymbol)}',
             ),
@@ -625,6 +666,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
         OnchainPaymentDraft(
           sourceAccountId: balanceAccountId,
           toSs58Address: toSs58Address,
+          recipient: recipient,
           amount: amount,
           symbol: _selectedSymbol,
           remark: remark,
@@ -676,6 +718,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
         SnackBar(content: Text(_executionMessage(completed, txHash))),
       );
       _toController.clear();
+      _recipientCid = null;
       _amountController.clear();
       _remarkController.clear();
 
@@ -881,6 +924,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
             _buildFieldLabel('收款地址'),
             TextField(
               controller: _toController,
+              onChanged: (_) => setState(() => _recipientCid = null),
               style: TextStyle(
                 color: AppTheme.textPrimary,
                 fontSize: AppLayout.scaledValue(14),
@@ -888,8 +932,10 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
               decoration: transactionFieldDecoration(
                 hintText: '请输入账户',
                 suffixIcon: AddressScanButton(
-                  onAddressScanned: (ss58Address) =>
-                      setState(() => _toController.text = ss58Address),
+                  onAddressScanned: (ss58Address) => setState(() {
+                    _toController.text = ss58Address;
+                    _recipientCid = null;
+                  }),
                 ),
               ),
             ),

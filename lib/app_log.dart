@@ -147,6 +147,100 @@ class AppLog {
     failure(stage: stage, code: code);
   }
 
+  /// 原提案首批/刷新仅输出闭集状态；不接收代次、身份、提案或异常内容。
+  static void proposalRead({required String state}) {
+    const states = {'waiting', 'started', 'empty', 'nonempty'};
+    final safeState = states.contains(state) ? state : 'other';
+    try {
+      debugPrintSynchronously('[CitizenRead] stage=proposal_first state=$safeState');
+    } on Object {
+      // 完成回执出口失败不得改变真实读取结果。
+    }
+  }
+
+  /// 充值只接受精确字段和固定阶段；URI、会话及异常内容不能进入日志门面。
+  /// Release也可输出闭集行，不启用自由文本或诊断文件；出口失败不影响连接。
+  static bool topupConnection(Object? value) {
+    const stages = {'start', 'connect', 'uri', 'modal', 'end'};
+    const flags = [
+      'listening', 'connecting', 'emitted', 'provider_uri',
+      'modal_uri', 'matched', 'baseline', 'complete',
+    ];
+    if (value is! Map ||
+        value.length != flags.length + 1 ||
+        !stages.contains(value['stage']) ||
+        flags.any((key) => value[key] is! bool)) {
+      return false;
+    }
+    try {
+      final fields = flags.map((key) => '$key=${value[key] == true ? 1 : 0}');
+      debugPrintSynchronously(
+        '[CitizenTopup] stage=${value['stage']} ${fields.join(' ')}',
+      );
+    } on Object {
+      // 观察出口故障不得改变原连接或付款流程。
+    }
+    return true;
+  }
+
+  /// SDK错误与连接竞赛只接收精确闭集，不接收message、topic、URI或原始日志参数。
+  static bool topupConnectTrace(Object? value) {
+    const events = {
+      'ready', 'connect', 'pairing', 'relay_open', 'relay_closed', 'relay_error',
+      'subscribed', 'published', 'attempt', 'sdk_error', 'socket_close', 'end',
+      'provider_resolved', 'provider_rejected', 'modal_closed',
+      'modal_open_failed', 'setup_rejected',
+    };
+    const winners = {
+      'pending', 'provider_resolved', 'provider_rejected', 'modal_closed',
+      'modal_open_failed', 'setup_rejected',
+    };
+    const errors = {
+      'none', 'other', 'type', 'offline', 'socket_interrupted',
+      'subscribe_interrupted', 'socket_closed', 'socket_missing',
+      'proposal_expired', 'client_missing', 'publish_failed', 'http_401',
+      'http_403', 'http_429', 'http_503', 'socket_stalled', 'socket_failed',
+      'user_closed', 'origin_denied', 'invalid_key', 'project_missing',
+      'relay_unauthorized',
+    };
+    const codes = {
+      'none', '0', '401', '403', '429', '503', '1000', '1001', '1006',
+      '1008', '1011', '1013', '3000', '-32600', '-32601', '-32602', '-32603',
+    };
+    const flags = [
+      'pairing', 'subscribed', 'published', 'relay_connected',
+      'relay_connecting', 'complete',
+    ];
+    if (value is! Map || value.length != 13 || value['stage'] != 'trace' ||
+        !events.contains(value['event']) || !winners.contains(value['winner']) ||
+        !errors.contains(value['error']) || !codes.contains(value['code']) ||
+        flags.any((key) => value[key] is! bool) ||
+        ['attempts', 'stalls'].any((key) => value[key] is! int ||
+            (value[key] as int) < 0 || (value[key] as int) > 20)) {
+      return false;
+    }
+    try {
+      final fields = flags.map((key) => '$key=${value[key] == true ? 1 : 0}');
+      debugPrintSynchronously('[CitizenTopup] stage=trace event=${value['event']} '
+          'winner=${value['winner']} error=${value['error']} code=${value['code']} '
+          '${fields.join(' ')} attempts=${value['attempts']} stalls=${value['stalls']}');
+    } on Object {
+      // 取证失败不能改变原Promise或付款结果。
+    }
+    return true;
+  }
+
+  /// 原生打开仅报告闭集结果，系统返回成功仍须独立验证钱包前台。
+  static void topupWallet(String state) {
+    const states = {'requested', 'busy', 'opened', 'rejected'};
+    final safeState = states.contains(state) ? state : 'other';
+    try {
+      debugPrintSynchronously('[CitizenTopup] stage=native state=$safeState');
+    } on Object {
+      // 观察出口故障不得改变原生打开结果。
+    }
+  }
+
   /// 调试日志。签名与 debugPrint 兼容（String? + wrapWidth），既有调用点可原样迁移。
   static void d(String? message, {int? wrapWidth}) {
     if (!diagnosticsEnabled) return;

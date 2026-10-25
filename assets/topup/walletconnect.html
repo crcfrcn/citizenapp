@@ -1,12 +1,12 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-topup-document="{{TOPUP_NONCE}}">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
     <!-- Reown 把远端钱包图标转换为 blob URL 后再显示；blob 仅开放给图片，
-         字体只开放官方字体域名，脚本仅允许本地随包资源。 -->
+         字体只开放官方字体域名，脚本仅允许App本次装配的随包资源nonce。 -->
     <meta http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' data: blob: https:; font-src https://fonts.reown.com; connect-src https: wss:; frame-src https:; child-src https:; base-uri 'none'; form-action 'none'" />
+      content="default-src 'none'; script-src 'nonce-{{TOPUP_NONCE}}'; style-src 'unsafe-inline'; img-src 'self' data: blob: https:; font-src https://fonts.reown.com; connect-src https: wss:; frame-src https:; child-src https:; base-uri 'none'; form-action 'none'" />
     <title>连接钱包支付</title>
     <style>
       :root { color-scheme: light; }
@@ -31,6 +31,14 @@
       <p class="amount" id="amount"></p>
     </div>
     <!-- 本产品源码按原锁在工作工程构建，所有协议均由同一随包入口提供。 -->
-    <script src="walletconnect.bundle.js"></script>
+    <script nonce="{{TOPUP_NONCE}}" src="data:application/javascript;base64,{{TOPUP_SCRIPT}}"></script>
+    <!-- 由同一随包脚本的实际完成状态触发启动，不把平台历史URL回调当成文档就绪。 -->
+    <script nonce="{{TOPUP_NONCE}}">
+      window.TopupBridge.postMessage(JSON.stringify({
+        kind: 'document_ready',
+        nonce: document.documentElement.getAttribute('data-topup-document'),
+        ready: typeof window.CitizenTopup?.start === 'function'
+      }));
+    </script>
   </body>
 </html>
