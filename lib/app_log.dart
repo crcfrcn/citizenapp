@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// 全端唯一日志门面。Release默认关闭自由文本日志及诊断文件。
@@ -40,6 +41,15 @@ class AppLog {
       'request',
       'prepare',
       'topup_config',
+      'proposal_institutions',
+      'proposal_feed',
+      'proposal_year',
+      'proposal_index',
+      'proposal_details',
+      'proposal_context',
+      'proposal_votes',
+      'proposal_display',
+      'proposal_summary',
     };
     const codes = {
       'identity_unregistered',
@@ -87,6 +97,29 @@ class AppLog {
       'type',
       'state',
       'platform',
+      // 只接受SDK公开枚举的固定名称，不输出message/method/session等动态字段。
+      'sdk_invalidArgument',
+      'sdk_invalidHandle',
+      'sdk_invalidState',
+      'sdk_unsupported',
+      'sdk_unavailable',
+      'sdk_notReady',
+      'sdk_notFound',
+      'sdk_conflict',
+      'sdk_integrity',
+      'sdk_authenticationCancelled',
+      'sdk_authenticationRequired',
+      'sdk_keyInvalidated',
+      'sdk_permissionDenied',
+      'sdk_storage',
+      'sdk_network',
+      'sdk_decode',
+      'sdk_timeout',
+      'sdk_busy',
+      'sdk_queueFull',
+      'sdk_internal',
+      'sdk_panic',
+      'sdk_cancelled',
     };
     final safeStage = stages.contains(stage) ? stage : 'other';
     final safeCode = codes.contains(code) ? code : 'other';
@@ -100,6 +133,18 @@ class AppLog {
     } on Object {
       // 诊断出口失败不能替换原业务异常或改变认证、付款结果。
     }
+  }
+
+  /// 提案读取只报告固定阶段和类别；不得读取异常原文或改变调用方的异常。
+  static void proposalFailure({required String stage, required Object error}) {
+    final code = switch (error) {
+      CitizenSdkException() => 'sdk_${error.code.name}',
+      FormatException() => 'format',
+      TypeError() => 'type',
+      StateError() => 'state',
+      _ => 'other',
+    };
+    failure(stage: stage, code: code);
   }
 
   /// 调试日志。签名与 debugPrint 兼容（String? + wrapWidth），既有调用点可原样迁移。

@@ -24,6 +24,7 @@ import 'package:polkadart_keyring/polkadart_keyring.dart';
 import 'package:citizenapp/citizen/institution/institution_info.dart';
 import 'package:citizenapp/citizen/proposal/proposal_models.dart';
 import 'package:citizenapp/citizen/proposal/proposal_query_service.dart';
+import 'package:citizenapp/citizen/proposal/proposal_cache.dart';
 import 'package:citizenapp/transaction/multisig/multisig_transfer_service.dart';
 
 import '../support/fake_citizen_sdk.dart';
@@ -48,6 +49,53 @@ class _RawStorageChain extends TestCitizenChain {
     );
     return value;
   }
+}
+
+/// 合成链只提供公开读合同；真实Feed/Service负责年份、索引和详情读取。
+class _ProposalChain extends _RawStorageChain {
+  _ProposalChain({this.failureAt, this.failure, this.missingYear = false,
+    this.hasIndex = false}) : super(Uint8List.fromList([0xea, 0x07]));
+  final String? failureAt;
+  final Object? failure;
+  final bool missingYear;
+  final bool hasIndex;
+  final reads = <String>[];
+
+  @override
+  Future<Uint8List?> getStorage(CitizenBlockRef block, Uint8List key) async {
+    reads.add('year');
+    expectSync(key.length, 32);
+    if (failureAt == 'year') throw failure!;
+    return missingYear ? null : value;
+  }
+
+  @override
+  Future<List<Uint8List>> getStorageKeysPaged(CitizenBlockRef block,
+      Uint8List prefix, {Uint8List? startKey, int limit = 1000}) async {
+    reads.add('index');
+    expectSync(prefix.length, 42);
+    expectSync(prefix.sublist(40), [0xea, 0x07]);
+    expectSync(startKey, isNull);
+    expectSync(limit, 1000);
+    if (failureAt == 'index') throw failure!;
+    return hasIndex ? [Uint8List.fromList([...prefix,
+      ...List<int>.filled(8, 0), 1, ...List<int>.filled(7, 0)])] : [];
+  }
+
+  @override
+  Future<List<Uint8List?>> getStorageBatch(CitizenBlockRef block,
+      List<Uint8List> keys) async {
+    reads.add('details');
+    if (failureAt == 'details') throw failure!;
+    return [for (final _ in keys) null];
+  }
+}
+
+class _FailingScopeRepository extends InstitutionRepository {
+  _FailingScopeRepository({required super.directory});
+  @override
+  InstitutionInfo? governanceInfo(String cidNumber) =>
+      throw StateError('synthetic private scope detail');
 }
 
 /// 合成只读依赖只控制结果与时序，页面仍执行同一加载、持久化和刷新路径。
@@ -101,13 +149,17 @@ class _PageContext extends ProposalContextResolver {
           adminService: InstitutionAdminService(chain: TestCitizenChain()),
         ),
       );
+  Object? failure;
   @override
   Future<List<ProposalContext>> resolveBatch(
     List<String?> actorCidNumbers, {
     List<List<int>?>? executionAccountIds,
     List<String?>? internalCodeList,
     Map<String, InstitutionInfo> knownInstitutionsByCidNumber = const {},
-  }) async => [for (final _ in actorCidNumbers) const ProposalContext()];
+  }) async {
+    if (failure != null) throw failure!;
+    return [for (final _ in actorCidNumbers) const ProposalContext()];
+  }
 }
 
 class _PageVotes extends VoteChecker {
@@ -122,18 +174,43 @@ class _PageVotes extends VoteChecker {
         ),
         proposalQueryService: ProposalQueryService(chain: TestCitizenChain()),
       );
+  Object? failure;
+  Future<void> Function()? beforeReturn;
   @override
-  Future<Set<int>> proposalsNeedingVote(List<VoteCheckTarget> targets) async =>
-      targets
+  Future<Set<int>> proposalsNeedingVote(List<VoteCheckTarget> targets) async {
+    if (failure != null) throw failure!;
+    await beforeReturn?.call();
+    return targets
           .where((item) => item.proposalId.isOdd)
           .map((item) => item.proposalId)
           .toSet();
+  }
 }
 
 class _PageTransport extends TestCitizenSdkTransport {
-  _PageTransport() : super({'walletGetState': (_) => testCitizenWalletState()});
+  _PageTransport() : super({'walletGetState': (_) => testCitizenWalletState()}) {
+    handlers['getCapabilities'] = (_) => [capabilities()];
+  }
   final controller = StreamController<Object?>.broadcast();
   int sequence = 1;
+  int revision = 1;
+  bool ready = true;
+  CitizenCapabilityReason reason = CitizenCapabilityReason.none;
+  // 完整公开能力元组，不绕过页面的就绪读取路径。
+  List<Object?> capabilities() => ['$revision', [
+    for (final name in CitizenCapabilityName.values)
+      [name.name, true, true, true,
+        name == CitizenCapabilityName.chainRead ? ready : true,
+        name == CitizenCapabilityName.chainRead ? reason.name : 'none'],
+  ]];
+  void capability({required bool isReady,
+    CitizenCapabilityReason why = CitizenCapabilityReason.none}) {
+    ready = isReady; reason = why; revision++;
+    controller.add([2, 'synthetic-ui-session', sequence++,
+      'capabilitiesChanged', [capabilities()]]);
+  }
+  void lifecycle(String value) => controller.add([2, 'synthetic-ui-session',
+    sequence++, 'lifecycleChanged', [value]]);
   @override
   Stream<Object?> get events => controller.stream;
   void finalized() => controller.add([
@@ -166,9 +243,14 @@ Future<void> _flush(WidgetTester tester) async {
 Future<_PageTransport> _openProposal(
   WidgetTester tester,
   _PageFeed feed,
-  List<int> counts,
-) async {
-  final transport = _PageTransport();
+  List<int> counts, {
+  ProposalContextResolver? resolver,
+  VoteChecker? checker,
+  InstitutionRepository? repository,
+  _PageTransport? transportOverride,
+  bool waitForTerminal = true,
+}) async {
+  final transport = transportOverride ?? _PageTransport();
   final sdk = await transport.open();
   addTearDown(() async {
     await _flush(tester);
@@ -190,21 +272,23 @@ Future<_PageTransport> _openProposal(
         home: Scaffold(
           body: ProposalTab(
             feed: feed,
-            repository: InstitutionRepository(directory: directory),
-            contextResolver: _PageContext(),
-            voteChecker: _PageVotes(),
+            repository: repository ?? InstitutionRepository(directory: directory),
+            contextResolver: resolver ?? _PageContext(),
+            voteChecker: checker ?? _PageVotes(),
             onPendingVoteCountChanged: counts.add,
           ),
         ),
       ),
     ),
   );
-  for (var attempt = 0; attempt < 20; attempt++) {
+  for (var attempt = 0; waitForTerminal && attempt < 20; attempt++) {
     await _flush(tester);
     if (counts.isNotEmpty || find.text('提案读取失败，请重试').evaluate().isNotEmpty) break;
   }
-  expect(counts.isNotEmpty || find.text('提案读取失败，请重试').evaluate().isNotEmpty,
-      isTrue, reason: '必须等待真实首批读取完成，不能把骨架内部ListView认作提案列表');
+  if (waitForTerminal) {
+    expect(counts.isNotEmpty || find.text('提案读取失败，请重试').evaluate().isNotEmpty,
+        isTrue, reason: '必须等待真实首批读取完成，不能把骨架内部ListView认作提案列表');
+  }
   return transport;
 }
 
@@ -217,6 +301,8 @@ Future<void> _refreshProposal(WidgetTester tester) =>
 /// 始终按 actor CID + funding account 解码，短备注和空备注都不会静默消失。
 void main() {
   useIsolatedIsar();
+  _proposalReadinessTests();
+  _proposalDiagnosticsTests();
   testWidgets('提案合法空索引成功为空，不显示链不可用或错误', (tester) async {
     final feed = _PageFeed()..ids = [];
     final counts = <int>[];
@@ -739,5 +825,228 @@ void main() {
     );
 
     expect(ids, [6, 4, 1]);
+  });
+}
+
+/// 能力等待仍走真实页面/SDK事件，未就绪不得提前触发Feed或另启SDK。
+void _proposalReadinessTests() {
+  for (final reason in [CitizenCapabilityReason.engineNotRunning,
+    CitizenCapabilityReason.dependencyNotReady, CitizenCapabilityReason.chainStarting,
+    CitizenCapabilityReason.chainUnsynced]) {
+    testWidgets('提案等待${reason.name}，就绪事件只触发一次原首读', (tester) async {
+      final transport = _PageTransport()..ready = false..reason = reason;
+      final feed = _PageFeed(); final counts = <int>[];
+      await _openProposal(tester, feed, counts, transportOverride: transport, waitForTerminal: false);
+      await _flush(tester);
+      expect(feed.forced, isEmpty); expect(counts, isEmpty);
+      expect(find.text('提案读取失败，请重试'), findsNothing);
+      transport.capability(isReady: false, why: reason); transport.finalized();
+      await _flush(tester); expect(feed.forced, isEmpty);
+      transport.capability(isReady: true); transport.capability(isReady: true);
+      await _flush(tester);
+      expect(feed.forced, [false]); expect(counts, [1]);
+      expect(transport.calls, isNot(contains('start')));
+    });
+  }
+  testWidgets('等待期间多次刷新作废旧等待，仅最新请求读Feed', (tester) async {
+    final feed = _PageFeed(); final counts = <int>[];
+    final transport = await _openProposal(tester, feed, counts);
+    transport.capability(isReady: false, why: CitizenCapabilityReason.chainUnsynced);
+    await _flush(tester);
+    final first = _refreshProposal(tester); await _flush(tester);
+    final second = _refreshProposal(tester); await _flush(tester);
+    expect(feed.forced, [false]); expect(counts, [1]);
+    transport.capability(isReady: true); await _flush(tester);
+    await first; await second;
+    expect(feed.forced, [false, true]); expect(counts, [1, 1]);
+  });
+  testWidgets('启动失败立即沿原错误页收尾，不永久等待或伪造空成功', (tester) async {
+    final transport = _PageTransport()..ready = false..reason = CitizenCapabilityReason.chainStarting;
+    final feed = _PageFeed(); final counts = <int>[];
+    await _openProposal(tester, feed, counts, transportOverride: transport, waitForTerminal: false);
+    await _flush(tester); transport.lifecycle('startFailed'); await _flush(tester);
+    expect(find.text('提案读取失败，请重试'), findsOneWidget);
+    expect(feed.forced, isEmpty); expect(counts, isEmpty);
+  });
+  testWidgets('能力不可用不是启动等待，必须保留失败', (tester) async {
+    final transport = _PageTransport()..ready = false..reason = CitizenCapabilityReason.storageUnavailable;
+    final feed = _PageFeed(); final counts = <int>[];
+    await _openProposal(tester, feed, counts, transportOverride: transport);
+    expect(find.text('提案读取失败，请重试'), findsOneWidget);
+    expect(feed.forced, isEmpty); expect(counts, isEmpty);
+  });
+  for (final code in [CitizenSdkErrorCode.decode, CitizenSdkErrorCode.network]) {
+    testWidgets('就绪后的真实${code.name}仍失败，不自动重试或改为空列表', (tester) async {
+      final feed = _PageFeed()..scopes.add(() => throw CitizenSdkException(code: code, message: '合成读取失败'));
+      final counts = <int>[];
+      final transport = await _openProposal(tester, feed, counts);
+      transport.capability(isReady: true); await _flush(tester);
+      expect(find.text('提案读取失败，请重试'), findsOneWidget);
+      expect(feed.forced, [false]); expect(counts, isEmpty);
+    });
+  }
+  testWidgets('销毁等待页后就绪事件不得复活旧读取', (tester) async {
+    final transport = _PageTransport()..ready = false..reason = CitizenCapabilityReason.chainStarting;
+    final feed = _PageFeed(); final counts = <int>[];
+    await _openProposal(tester, feed, counts, transportOverride: transport, waitForTerminal: false);
+    await _flush(tester); await tester.pumpWidget(const SizedBox.shrink());
+    transport.capability(isReady: true); await _flush(tester);
+    expect(feed.forced, isEmpty); expect(counts, isEmpty); expect(tester.takeException(), isNull);
+  });
+  testWidgets('能力事件先于旧快照返回也不会丢失就绪唤醒', (tester) async {
+    final transport = _PageTransport()..ready = false..reason = CitizenCapabilityReason.chainStarting;
+    final oldSnapshot = transport.capabilities();
+    final gate = Completer<List<Object?>>(); var first = true;
+    transport.handlers['getCapabilities'] = (_) {
+      if (first) { first = false; return gate.future; }
+      return [transport.capabilities()];
+    };
+    final feed = _PageFeed(); final counts = <int>[];
+    await _openProposal(tester, feed, counts, transportOverride: transport, waitForTerminal: false);
+    await _flush(tester); transport.capability(isReady: true); gate.complete([oldSnapshot]);
+    await _flush(tester);
+    expect(feed.forced, [false]); expect(counts, [1]);
+  });
+  testWidgets('旧ready快照迟到不得覆盖最新未同步事实', (tester) async {
+    final transport = _PageTransport(); final oldReady = transport.capabilities();
+    final gate = Completer<List<Object?>>(); var first = true;
+    transport.handlers['getCapabilities'] = (_) {
+      if (first) { first = false; return gate.future; }
+      return [transport.capabilities()];
+    };
+    final feed = _PageFeed(); final counts = <int>[];
+    await _openProposal(tester, feed, counts, transportOverride: transport, waitForTerminal: false);
+    await _flush(tester);
+    transport.capability(isReady: false, why: CitizenCapabilityReason.chainUnsynced);
+    await tester.pump(); gate.complete([oldReady]); await _flush(tester);
+    expect(feed.forced, isEmpty); expect(counts, isEmpty);
+    transport.capability(isReady: true); await _flush(tester);
+    expect(feed.forced, [false]); expect(counts, [1]);
+  });
+}
+
+/// 日志仅收集固定安全事件；夹具正文均为合成，不替代真实链读取成功。
+Future<T> _captureProposal<T>(List<String> lines, Future<T> Function() action) =>
+    runZoned(action, zoneSpecification: ZoneSpecification(
+      print: (_, _, _, line) {
+        if (line.startsWith('[CitizenFailure]')) lines.add(line);
+      },
+    ));
+
+void _proposalDiagnosticsTests() {
+  for (final stage in ['year', 'index', 'details']) {
+    test('真实Feed/Service在$stage失败仍抛原SDK异常且不泄漏正文', () async {
+      MultisigTransferProposalAdapter.clearCache();
+      ProposalCache.clear();
+      final failure = CitizenSdkException(
+        code: stage == 'year' ? CitizenSdkErrorCode.notReady :
+          stage == 'index' ? CitizenSdkErrorCode.network : CitizenSdkErrorCode.decode,
+        message: 'synthetic private proposal detail',
+        method: 'synthetic private method',
+        sessionId: 'synthetic private session',
+      );
+      final chain = _ProposalChain(failureAt: stage, failure: failure, hasIndex: true);
+      final feed = MultisigTransferProposalFeed(service: MultisigTransferService(
+        chain: chain, transactions: TestCitizenTransactions()));
+      final lines = <String>[];
+      await _captureProposal(lines, () async {
+        await expectLater(feed.fetchCitizenProposalFeedIds(defaultCodes: {'NRC'},
+          subscribedInstitutionCidNumbers: {}, forceRefresh: true), throwsA(same(failure)));
+      });
+      expect(chain.reads, stage == 'year' ? ['year'] :
+        stage == 'index' ? ['year', 'index'] : ['year', 'index', 'details']);
+      expect(lines, ['[CitizenFailure] stage=proposal_$stage http=none code=sdk_${failure.code.name}']);
+      expect(lines.join(), isNot(contains('synthetic private')));
+      MultisigTransferProposalAdapter.clearCache();
+      ProposalCache.clear();
+    });
+  }
+  for (final missingYear in [true, false]) {
+    test('真实Feed合法${missingYear ? '缺省年份' : '空索引'}不产生失败事件', () async {
+      MultisigTransferProposalAdapter.clearCache();
+      final chain = _ProposalChain(missingYear: missingYear);
+      final feed = MultisigTransferProposalFeed(service: MultisigTransferService(
+        chain: chain, transactions: TestCitizenTransactions()));
+      final lines = <String>[];
+      final ids = await _captureProposal(lines, () => feed.fetchCitizenProposalFeedIds(
+        defaultCodes: {'NRC'}, subscribedInstitutionCidNumbers: {}, forceRefresh: true));
+      expect(ids, isEmpty);
+      expect(chain.reads, missingYear ? ['year'] : ['year', 'index']);
+      expect(lines, isEmpty);
+      MultisigTransferProposalAdapter.clearCache();
+    });
+  }
+  test('日志出口抛错不替换原链读异常及堆栈', () async {
+    final failure = StateError('synthetic private source');
+    final service = MultisigTransferService(chain: _ProposalChain(
+      failureAt: 'year', failure: failure), transactions: TestCitizenTransactions());
+    await runZoned(() async {
+      try {
+        await service.fetchCurrentYearProposals();
+        fail('必须继续抛出原异常');
+      } catch (error, stack) {
+        expect(error, same(failure));
+        expect(stack.toString(), contains('_ProposalChain.getStorage'));
+      }
+    }, zoneSpecification: ZoneSpecification(print: (_, _, _, _) =>
+      throw StateError('synthetic sink failure')));
+  });
+  for (final stage in ['feed', 'details', 'context', 'votes', 'summary']) {
+    testWidgets('页面$stage失败保留错误/重试且仅报告固定阶段', (tester) async {
+      final feed = _PageFeed();
+      final resolver = _PageContext();
+      final checker = _PageVotes();
+      final failure = StateError('synthetic private page detail');
+      if (stage == 'feed') feed.scopes.add(() => throw failure);
+      if (stage == 'details') feed.details = (_) async => throw failure;
+      if (stage == 'context') resolver.failure = failure;
+      if (stage == 'votes') checker.failure = failure;
+      // 真实隔离数据库关闭后，原摘要写事务必须失败，不能注入新的生产接口。
+      if (stage == 'summary') {
+        checker.beforeReturn = () => WalletIsar.instance.closeAndDeleteFromDisk();
+      }
+      final counts = <int>[];
+      final lines = <String>[];
+      await _captureProposal(lines, () => _openProposal(tester, feed, counts,
+        resolver: resolver, checker: checker));
+      expect(find.text('提案读取失败，请重试'), findsOneWidget);
+      expect(find.text('重试'), findsOneWidget);
+      expect(counts, isEmpty);
+      expect(lines, ['[CitizenFailure] stage=proposal_$stage http=none code=state']);
+      expect(lines.join(), isNot(contains('synthetic private')));
+    });
+  }
+  testWidgets('机构派生异常停在原错误页，不伪造空范围成功', (tester) async {
+    final directory = await buildSeededRepo(provinceOrder: ['LN'], institutions: [
+      seedDto('LN001-CGOVC-000000001-2026', provinceCode: 'LN', cityCode: '001', code: 'NRC')]);
+    final lines = <String>[];
+    final counts = <int>[];
+    final feed = _PageFeed();
+    await _captureProposal(lines, () => _openProposal(tester, feed, counts,
+      repository: _FailingScopeRepository(directory: directory)));
+    expect(find.text('提案读取失败，请重试'), findsOneWidget);
+    expect(counts, isEmpty);
+    expect(feed.forced, isEmpty);
+    expect(lines, ['[CitizenFailure] stage=proposal_institutions http=none code=state']);
+  });
+  testWidgets('旧代次详情失败不记为当前失败或覆盖刷新成功', (tester) async {
+    final feed = _PageFeed();
+    final counts = <int>[];
+    await _openProposal(tester, feed, counts);
+    final delayed = Completer<List<ProposalWithDetail>>();
+    feed.details = (_) => delayed.future;
+    final lines = <String>[];
+    await _captureProposal(lines, () async {
+      final oldRefresh = _refreshProposal(tester);
+      await _flush(tester);
+      feed.ids = [];
+      await _refreshProposal(tester);
+      delayed.completeError(StateError('synthetic private stale detail'));
+      await oldRefresh;
+      await _flush(tester);
+    });
+    expect(counts.last, 0);
+    expect(find.text('提案读取失败，请重试'), findsNothing);
+    expect(lines, isEmpty);
   });
 }

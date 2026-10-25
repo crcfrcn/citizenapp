@@ -9,6 +9,24 @@ final class RunnerUITestHostAppDelegate: UIResponder, UIApplicationDelegate {}
 import XCTest
 import UIKit
 
+/// 只读页面匹配规则；只处理内存语义，不保存金额、标题或正文。
+private enum ReadOnlySurface {
+  // 充值列按原标题开头定位，后续余额或读取状态不属于入口名称。
+  static let topupLabelPattern = "(?s)^充值(?:\\s.*)?$"
+
+  // 标记可与条文合并；必须是完整词边界，不能把“不可修改条款列表”等元数据当标记。
+  static let immutableLabelPattern = "(?s)(?:^|.*\\s)不可修改条款(?:$|\\s.*)"
+
+  /// 展开本节新增的文本才属于待验条文；原页标题、元数据和折叠控件不算正文。
+  static func articleContent(before: Set<String>, after: [String]) -> [String] {
+    let controls: Set<String> = ["不可修改条款", "展开本章", "收起本章", "展开本节", "收起本节"]
+    var seen = Set<String>()
+    return after.flatMap { $0.components(separatedBy: .newlines) }
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty && !before.contains($0) && !controls.contains($0) && seen.insert($0).inserted }
+  }
+}
+
 /// 对设备中已经安装的 Release CitizenApp 做黑盒验收。
 ///
 /// 本 target 不依赖 Runner target，也不参与目标 App 安装；它只用独立 xctrunner 启动
@@ -1849,7 +1867,9 @@ final class RunnerUITests: XCTestCase {
     row.tap()
     XCTAssertTrue(app.staticTexts["账户详情"].waitForExistence(timeout: 10))
     XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "合约查询")).firstMatch.exists)
-    let topup = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "充值")).firstMatch
+    // 原入口合并“充值”和余额/读取状态；不读取这些动态值，也不误匹配充值订单入口。
+    let topup = app.descendants(matching: .any).matching(NSPredicate(
+      format: "label MATCHES %@", ReadOnlySurface.topupLabelPattern)).firstMatch
     XCTAssertTrue(topup.waitForExistence(timeout: 10)); topup.tap()
     XCTAssertTrue(app.staticTexts["链上充值"].waitForExistence(timeout: 10))
     let usdc = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "USDC")).firstMatch
@@ -1932,11 +1952,32 @@ final class RunnerUITests: XCTestCase {
     XCTAssertTrue(chapter.waitForExistence(timeout: 30), "未读到原宪法章结构")
     chapter.tap()
     let section = app.buttons["展开本节"].firstMatch
-    XCTAssertTrue(section.waitForExistence(timeout: 10)); section.tap()
-    let article = app.descendants(matching: .any).matching(NSPredicate(
-      format: "label MATCHES %@", "(?s).*第[0-9]+条.*")).firstMatch
-    XCTAssertTrue(article.waitForExistence(timeout: 10), "展开后未显示宪法条文")
-    XCTAssertTrue(app.staticTexts["不可修改条款"].exists)
+    XCTAssertTrue(section.waitForExistence(timeout: 10))
+    let before = Set(app.staticTexts.allElementsBoundByIndex.flatMap {
+      $0.label.components(separatedBy: .newlines)
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+    })
+    section.tap()
+    let immutable = app.staticTexts.matching(NSPredicate(
+      format: "label MATCHES %@", ReadOnlySurface.immutableLabelPattern)).firstMatch
+    // 仅在当前阅读器有界滚动；不依赖金额/用户内容、不新增生产语义或截图。
+    var sawImmutable = false
+    var sawContent = false
+    for attempt in 0...3 {
+      if immutable.waitForExistence(timeout: attempt == 0 ? 10 : 2) && immutable.isHittable {
+        sawImmutable = true
+      }
+      if ReadOnlySurface.articleContent(before: before,
+        after: app.staticTexts.allElementsBoundByIndex.map { $0.label }).count >= 2 {
+        sawContent = true
+      }
+      if sawImmutable && sawContent { break }
+      if attempt < 3 { app.swipeUp() }
+    }
+    XCTAssertTrue(sawImmutable, "展开后未读到真实条文标记")
+    // 有标题时页面不显示“第N条”；只核对本节展开后新增的非空标题及正文/款文字。
+    // Flutter合并语义按行拆解，旧页元数据或仅有不可修改徽标不能让此断言通过。
+    XCTAssertTrue(sawContent, "本节未显示非空条文标题及正文/款文字")
     XCTAssertFalse(app.staticTexts.matching(NSPredicate(
       format: "label CONTAINS %@", "法律读取失败")).firstMatch.exists)
     NSLog("CONSTITUTION_UI chapter=1 section=1 article=1")

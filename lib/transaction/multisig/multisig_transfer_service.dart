@@ -733,10 +733,19 @@ class MultisigTransferService {
   /// 已解码 `subject_cid_numbers` 过滤,替代旧的账户归属过滤。
   /// 长前缀扫描,并让多页面共用一次查询(见 ProposalFeedCache,降全节点负载)。
   Future<List<ProposalWithDetail>> fetchCurrentYearProposals() async {
-    final currentYear = await _resolveCurrentYear();
-    if (currentYear == null) return const [];
-    final ids = await _fetchProposalIdsByYearTwox(currentYear);
-    return _fetchProposalsForIds(ids);
+    // 仅标记原读取失败边界，不记年份/索引内容，不把失败改成空列表。
+    var stage = 'proposal_year';
+    try {
+      final currentYear = await _resolveCurrentYear();
+      if (currentYear == null) return const [];
+      stage = 'proposal_index';
+      final ids = await _fetchProposalIdsByYearTwox(currentYear);
+      stage = 'proposal_details';
+      return await _fetchProposalsForIds(ids);
+    } on Object catch (error) {
+      AppLog.proposalFailure(stage: stage, error: error);
+      rethrow;
+    }
   }
 
   /// 从当前年提案全集过滤出指定机构页可见的提案(纯客户端,不联网):

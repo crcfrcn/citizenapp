@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizenapp/app_log.dart';
 import 'package:provider/provider.dart';
 import 'package:citizenapp/citizen/institution/institution.dart';
 import 'package:citizenapp/citizen/institution/institution_accounts.dart';
@@ -83,6 +84,8 @@ class _ProposalViewState extends State<ProposalTab> {
   final ScrollController _scrollController = ScrollController();
   late final InstitutionRepository _institutionRepo;
   late final CitizenSdkWallet _wallet;
+  late final CitizenSdk _sdk;
+  Completer<void>? _chainChanged;
   bool _dependenciesReady = false;
 
   StreamSubscription<CitizenSdkEvent>? _eventSub;
@@ -128,6 +131,7 @@ class _ProposalViewState extends State<ProposalTab> {
     super.didChangeDependencies();
     if (_dependenciesReady) return;
     final sdk = context.read<CitizenSdk>();
+    _sdk = sdk;
     _wallet = sdk.wallet;
     _institutionRepo = widget.repository ?? InstitutionRepository();
     final multisigService = MultisigTransferService(
@@ -163,19 +167,62 @@ class _ProposalViewState extends State<ProposalTab> {
       _loading = false;
       return;
     }
-    _loadFirstPage();
+    // 先订阅再读快照，不能漏掉订阅与首读之间发生的就绪变化。
     _eventSub = sdk.events.listen((event) {
+      if (event is CitizenSdkCapabilitiesChanged ||
+          event is CitizenSdkLifecycleChanged ||
+          event is CitizenSdkFinalizedBlockChanged) {
+        _wakeChainReaders();
+      }
       if (event is CitizenSdkFinalizedBlockChanged) {
         _checkForNewProposals();
       }
     });
+    _loadFirstPage();
   }
 
   @override
   void dispose() {
+    ++_generation;
+    _wakeChainReaders();
     _scrollController.dispose();
     _eventSub?.cancel();
     super.dispose();
+  }
+
+  void _wakeChainReaders() {
+    final changed = _chainChanged;
+    _chainChanged = null;
+    changed?.complete();
+  }
+
+  /// 只等待同一SDK的公开能力变化；不启动节点、不轮询、不把真实读取错误重试成成功。
+  Future<bool> _waitForChainRead(int generation) async {
+    while (_isCurrent(generation)) {
+      final changed = _chainChanged ??= Completer<void>();
+      final status = (await _sdk.getCapabilities())[CitizenCapabilityName.chainRead];
+      if (!_isCurrent(generation)) return false;
+      final lifecycle = _sdk.lifecycle;
+      if (lifecycle == CitizenSdkLifecycle.startFailed ||
+          lifecycle == CitizenSdkLifecycle.stopped ||
+          lifecycle == CitizenSdkLifecycle.disposed) {
+        throw StateError('提案读链实例已停止或启动失败');
+      }
+      // 查询期间发生了能力变化，旧“ready”也不得覆盖最新未就绪事实。
+      if (changed.isCompleted) continue;
+      if (status.supported && status.available && status.enabled && status.ready) {
+        return true;
+      }
+      if (!status.supported || !status.available || !status.enabled ||
+          !const {CitizenCapabilityReason.engineNotRunning,
+            CitizenCapabilityReason.dependencyNotReady,
+            CitizenCapabilityReason.chainStarting,
+            CitizenCapabilityReason.chainUnsynced}.contains(status.reason)) {
+        throw StateError('提案读链能力不可用');
+      }
+      await changed.future;
+    }
+    return false;
   }
 
   Future<void> _checkForNewProposals() async {
@@ -191,6 +238,7 @@ class _ProposalViewState extends State<ProposalTab> {
     _checkingIndex = true;
 
     try {
+      if (!await _waitForChainRead(generation)) return;
       final scope = await _fetchVisibleProposalScope();
       if (!_isCurrent(generation)) return;
       final fresh = scope.ids;
@@ -321,23 +369,35 @@ class _ProposalViewState extends State<ProposalTab> {
         List<int> ids,
         Map<String, InstitutionInfo> knownInstitutionsByCidNumber,
       })> _fetchVisibleProposalScope({bool forceRefresh = false}) async {
-    final institutionScope = await _loadInstitutionScope();
-    final ids = await _multisigTransferFeed.fetchCitizenProposalFeedIds(
-      defaultCodes: _defaultProposalCodes,
-      subscribedInstitutionCidNumbers:
-          institutionScope.subscribedInstitutionCidNumbers,
-      forceRefresh: forceRefresh,
-    );
-    return (
-      ids: ids,
-      knownInstitutionsByCidNumber:
-          institutionScope.knownInstitutionsByCidNumber,
-    );
+    final generation = _generation;
+    var stage = 'proposal_institutions';
+    try {
+      final institutionScope = await _loadInstitutionScope();
+      stage = 'proposal_feed';
+      final ids = await _multisigTransferFeed.fetchCitizenProposalFeedIds(
+        defaultCodes: _defaultProposalCodes,
+        subscribedInstitutionCidNumbers:
+            institutionScope.subscribedInstitutionCidNumbers,
+        forceRefresh: forceRefresh,
+      );
+      return (
+        ids: ids,
+        knownInstitutionsByCidNumber:
+            institutionScope.knownInstitutionsByCidNumber,
+      );
+    } on Object catch (error) {
+      // 页面诊断同样服从原请求代次；服务层事件是独立的链读失败事实。
+      if (_isCurrent(generation)) {
+        AppLog.proposalFailure(stage: stage, error: error);
+      }
+      rethrow;
+    }
   }
 
   /// 每次整页刷新作废旧首批、翻页和后台索引结果。
   Future<void> _loadFirstPage({bool force = false}) async {
     final generation = ++_generation;
+    _wakeChainReaders();
     setState(() {
       _refreshing = true;
       _pageFailed = false;
@@ -347,6 +407,7 @@ class _ProposalViewState extends State<ProposalTab> {
     });
 
     try {
+      if (!await _waitForChainRead(generation)) return;
       final scope = await _fetchVisibleProposalScope(forceRefresh: force);
       if (!_isCurrent(generation)) return;
       final ids = scope.ids;
@@ -405,6 +466,7 @@ class _ProposalViewState extends State<ProposalTab> {
     });
 
     try {
+      if (!await _waitForChainRead(generation)) return;
       final from = _items.length;
       final to = (from + _pageSize) > _allIds.length
           ? _allIds.length
@@ -443,48 +505,61 @@ class _ProposalViewState extends State<ProposalTab> {
   }) async {
     if (ids.isEmpty) return const [];
 
-    // 批量取提案详情(meta + 业务详情)
-    final proposals = await _multisigTransferFeed.fetchProposalsByIds(ids);
+    // 只定位原步骤，不吞错或增加读取；旧代次仍不得更新页面。
+    var stage = 'proposal_details';
+    try {
+      // 批量取提案详情(meta + 业务详情)
+      final proposals = await _multisigTransferFeed.fetchProposalsByIds(ids);
 
-    // 批量解析提案上下文
-    final contexts = await _contextResolver.resolveBatch(
-      proposals.map((p) => p.meta.actorCidNumber).toList(),
-      executionAccountIds: proposals
-          .map((p) => p.meta.executionAccountId?.toList())
-          .toList(),
-      internalCodeList: proposals.map((p) => p.meta.internalCode).toList(),
-      knownInstitutionsByCidNumber: knownInstitutionsByCidNumber,
-    );
-
-    // ADR-018 R2:一次性批量算出"哪些提案需要投票",替代过去每提案各发一次
-    // 投票查询 RPC(P 个提案 = P 次往返)。
-    final needVote = await _voteChecker.proposalsNeedingVote([
-      for (var i = 0; i < proposals.length; i++)
-        VoteCheckTarget(
-          proposalId: proposals[i].meta.proposalId,
-          kind: proposals[i].meta.kind,
-          status: proposals[i].meta.status,
-          adminWallets: contexts[i].adminWallets,
-          institution: contexts[i].institution,
-        ),
-    ]);
-
-    final items = <_ProposalDisplayItem>[];
-    for (var i = 0; i < proposals.length; i++) {
-      items.add(
-        _ProposalDisplayItem.fromProposal(
-          proposal: proposals[i],
-          context: contexts[i],
-          needsVote: needVote.contains(proposals[i].meta.proposalId),
-        ),
+      stage = 'proposal_context';
+      // 批量解析提案上下文
+      final contexts = await _contextResolver.resolveBatch(
+        proposals.map((p) => p.meta.actorCidNumber).toList(),
+        executionAccountIds: proposals
+            .map((p) => p.meta.executionAccountId?.toList())
+            .toList(),
+        internalCodeList: proposals.map((p) => p.meta.internalCode).toList(),
+        knownInstitutionsByCidNumber: knownInstitutionsByCidNumber,
       );
-    }
 
-    if (!_isCurrent(generation)) return const [];
-    await ProposalLocalStore.instance.upsertSummaries(
-      items.map((item) => item.summary).toList(growable: false),
-    );
-    return items;
+      // ADR-018 R2:一次性批量算出"哪些提案需要投票",替代过去每提案各发一次
+      // 投票查询 RPC(P 个提案 = P 次往返)。
+      stage = 'proposal_votes';
+      final needVote = await _voteChecker.proposalsNeedingVote([
+        for (var i = 0; i < proposals.length; i++)
+          VoteCheckTarget(
+            proposalId: proposals[i].meta.proposalId,
+            kind: proposals[i].meta.kind,
+            status: proposals[i].meta.status,
+            adminWallets: contexts[i].adminWallets,
+            institution: contexts[i].institution,
+          ),
+      ]);
+
+      stage = 'proposal_display';
+      final items = <_ProposalDisplayItem>[];
+      for (var i = 0; i < proposals.length; i++) {
+        items.add(
+          _ProposalDisplayItem.fromProposal(
+            proposal: proposals[i],
+            context: contexts[i],
+            needsVote: needVote.contains(proposals[i].meta.proposalId),
+          ),
+        );
+      }
+
+      if (!_isCurrent(generation)) return const [];
+      stage = 'proposal_summary';
+      await ProposalLocalStore.instance.upsertSummaries(
+        items.map((item) => item.summary).toList(growable: false),
+      );
+      return items;
+    } on Object catch (error) {
+      if (_isCurrent(generation)) {
+        AppLog.proposalFailure(stage: stage, error: error);
+      }
+      rethrow;
+    }
   }
 
   /// 按 proposalId 去重,保留首次出现(prepend 的 fresh 项优先)。
