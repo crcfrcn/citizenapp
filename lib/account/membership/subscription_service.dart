@@ -177,7 +177,11 @@ class SubscriptionService {
       subscriptionActive: data['active'] as bool,
       lastChargedAt: (data['last_charged_at'] as int?) ?? 0,
       plans: previous?.state.plans ?? const [],
-      usageState: previous?.state.usageState,
+      usageState:
+          previous?.state.lastChargedAt == data['last_charged_at'] &&
+              previous?.state.paidUntil == data['paid_until']
+          ? previous?.state.usageState
+          : null,
     );
     if (!_sameMembership(previous?.state, state)) _authorizations.remove(cid);
     await _writeDisplaySnapshot(
@@ -573,6 +577,15 @@ class SubscriptionService {
           lastChargedAt: decoded['last_charged_at'] is int
               ? decoded['last_charged_at'] as int
               : 0,
+          plans: decoded['plans'] == null
+              ? const []
+              : SquareApiClient.decodeMembershipPlans(decoded['plans']),
+          usageState: decoded['usage'] == null
+              ? null
+              : SquareApiClient.decodeMembershipUsage(
+                  decoded['usage'],
+                  decoded,
+                ),
         ),
         prices: prices,
         subscriptionFetchedAtMs: decoded['subscription_fetched_at_ms'] is int
@@ -583,7 +596,7 @@ class SubscriptionService {
             : 0,
       );
       return _rememberInMemory(normalized, snapshot, notify: false);
-    } on FormatException {
+    } on Object {
       // 损坏展示快照不参与授权；读取路径保留事实供显式诊断。
       return null;
     }
@@ -611,6 +624,8 @@ class SubscriptionService {
         'subscription_status': effective.state.subscriptionStatus,
         'subscription_active': effective.state.subscriptionActive,
         'last_charged_at': effective.state.lastChargedAt,
+        'plans': effective.state.plans.map((plan) => plan.toJson()).toList(),
+        'usage': effective.state.usageState?.toJson(),
         'prices': effective.prices,
         'subscription_fetched_at_ms': effective.subscriptionFetchedAtMs,
         'prices_fetched_at_ms': effective.pricesFetchedAtMs,

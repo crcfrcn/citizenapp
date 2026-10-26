@@ -184,6 +184,9 @@ class SquareMembershipPlan {
     required this.usage,
     this.imageMaxBytes = 0,
     this.imageMaxEdge = 0,
+    this.media = const {},
+    this.resources = const {},
+    this.dailyLimits = const {},
     this.priceFen,
   });
 
@@ -200,6 +203,35 @@ class SquareMembershipPlan {
   final int imageMaxBytes;
   final int imageMaxEdge;
 
+  /// 服务端下发的成品规格及资源额度；空值表示尚未取得，不能授予默认权益。
+  final Map<String, int> media;
+  final Map<String, int> resources;
+  final Map<String, int> dailyLimits;
+
+  Map<String, dynamic> toJson() => {
+    'membergate_level': membershipLevel,
+    'price_fen': priceFen,
+    'plan': {
+      'membergate_level': membershipLevel,
+      'chat_file_max_bytes': chatFileMaxBytes,
+      'video_max_seconds': video.maxVideoSeconds,
+      'video_max_bytes': video.maxVideoBytes,
+      'article_max_images': article.maxImages,
+      'article_max_videos': article.maxVideos,
+      'monthly_images': usage.monthlyImages,
+      'monthly_video_seconds': usage.monthlyVideoSeconds,
+      'active_uploads': usage.activeUploads,
+    },
+    'limits': {
+      ...media,
+      'image_bytes': imageMaxBytes,
+      'image_dimension': imageMaxEdge,
+      'storage_bytes': usage.storageBytes,
+    },
+    'resources': resources,
+    'daily_limits': dailyLimits,
+  };
+
   /// 原服务端真实价格；未知保持null，不能以0代替。
   final int? priceFen;
 
@@ -207,12 +239,13 @@ class SquareMembershipPlan {
   String get chatFileSizeLabel => _fileSize(chatFileMaxBytes);
   String get chatVoiceDurationLabel => _duration(chat.voiceMessageMaxSeconds);
   String get chatVideoDurationLabel => _duration(chat.videoMessageMaxSeconds);
-  String get documentImageQualityLabel => _quality(document.imageQuality);
-  String get videoQualityLabel => _quality(video.videoQuality);
+  String get documentImageQualityLabel => document.imageQuality;
+  String get imageBytesLabel => '${imageMaxBytes / 1000000}MB';
+  String get videoQualityLabel => video.videoQuality;
   String get videoDurationLabel => _duration(video.maxVideoSeconds);
   String get videoBytesLabel => _decimalFileSize(video.maxVideoBytes);
-  String get articleImageQualityLabel => _quality(article.imageQuality);
-  String get articleCoverQualityLabel => _quality(article.coverQuality);
+  String get articleImageQualityLabel => article.imageQuality;
+  String get articleCoverQualityLabel => article.coverQuality;
 
   /// 周期额度以服务端定义的完整分钟数展示，不能折算整小时后丢失余下分钟。
   String get monthlyVideoDurationLabel =>
@@ -222,15 +255,13 @@ class SquareMembershipPlan {
   String get chatFileLabel => '聊天附件：单个 ≤ ${_fileSize(chatFileMaxBytes)}';
 
   String get documentLabel =>
-      '公文：${document.textMaxChars} 字、${document.maxImages} 张${_quality(document.imageQuality)}图片';
+      '公文：${document.textMaxChars} 字、${document.maxImages} 张${document.imageQuality}图片';
 
   String get videoLabel =>
-      '视频：${video.textMaxChars} 字配文、1 个${_duration(video.maxVideoSeconds)}${_quality(video.videoQuality)}视频';
+      '视频：${video.textMaxChars} 字配文、1 个${_duration(video.maxVideoSeconds)}${video.videoQuality}视频';
 
   String get articleLabel =>
-      '文章：${article.bodyMaxChars} 字、${article.maxImages} 张${_quality(article.imageQuality)}图片（含首图）、${article.maxVideos} 个视频、标题 ${article.titleMinChars}-${article.titleMaxChars} 字';
-
-  static String _quality(String value) => value == 'hd' ? '高清' : '标清';
+      '文章：${article.bodyMaxChars} 字、${article.maxImages} 张${article.imageQuality}图片（含首图）、${article.maxVideos} 个视频、标题 ${article.titleMinChars}-${article.titleMaxChars} 字';
 
   static String _thousands(int value) => value.toString().replaceAllMapped(
     RegExp(r'\B(?=(\d{3})+(?!\d))'),
@@ -255,13 +286,14 @@ class SquareMembershipPlan {
     return '${(bytes / mib).round()}MB';
   }
 
-  /// 广场媒体与存储额度按服务端资源表的十进制字节展示，避免把 300MB 误显为 286MB。
+  /// 按服务端十进制字节展示；GB允许精确的MB小数，不把1.8GB显示为1800MB。
   static String _decimalFileSize(int bytes) {
     const mb = 1000 * 1000;
     const gb = 1000 * mb;
     const tb = 1000 * gb;
     if (bytes >= tb && bytes % tb == 0) return '${bytes ~/ tb}TB';
     if (bytes >= gb && bytes % gb == 0) return '${bytes ~/ gb}GB';
+    if (bytes >= gb && bytes % mb == 0) return '${bytes / gb}GB';
     if (bytes >= mb && bytes % mb == 0) return '${bytes ~/ mb}MB';
     return '$bytes B';
   }
@@ -342,7 +374,7 @@ class SquareArticleQuota {
   final int maxVideos;
 }
 
-/// 会员用量额度结构与 Worker `usage` 对象逐字段对应。
+/// 服务端plan/limits中的订阅周期额度；不按自然月重置。
 class SquareMembershipUsageQuota {
   const SquareMembershipUsageQuota({
     required this.monthlyImages,
@@ -367,6 +399,13 @@ class SquareMembershipUsageState {
     required this.imageCount,
     required this.videoSeconds,
     required this.activeUploads,
+    this.usedBytes = 0,
+    this.reservedBytes = 0,
+    this.reservedImages = 0,
+    this.reservedVideoSeconds = 0,
+    this.dayStart = 0,
+    this.daily = const {},
+    this.publishedCount = 0,
   });
 
   final int periodStart;
@@ -374,6 +413,26 @@ class SquareMembershipUsageState {
   final int imageCount;
   final int videoSeconds;
   final int activeUploads;
+  final int usedBytes;
+  final int reservedBytes;
+  final int reservedImages;
+  final int reservedVideoSeconds;
+  final int dayStart;
+  final Map<String, int> daily;
+  final int publishedCount;
+
+  Map<String, dynamic> toJson() => {
+    'used_bytes': usedBytes,
+    'reserved_bytes': reservedBytes,
+    'used_images': imageCount - reservedImages,
+    'reserved_images': reservedImages,
+    'used_video_seconds': videoSeconds - reservedVideoSeconds,
+    'reserved_video_seconds': reservedVideoSeconds,
+    'active_uploads': activeUploads,
+    'day_start': dayStart,
+    'daily': daily,
+    'published_count': publishedCount,
+  };
 }
 
 class SquareUploadMediaRequest {
@@ -1159,7 +1218,7 @@ class SquareApiClient
   Future<SquareMembershipState> fetchMembership(SquareSession session) async {
     const membershipPath = '/membergate';
     final data = await _getJson(membershipPath, session: session);
-    return _parseMembershipState(data);
+    return decodeMembership(data);
   }
 
   /// 许可由宿主当前会话签发；传输可用性仍由聊天适配交付验收。
@@ -1257,7 +1316,7 @@ class SquareApiClient
     }
   }
 
-  SquareMembershipState _parseMembershipState(Map<String, dynamic> data) {
+  static SquareMembershipState decodeMembership(Map<String, dynamic> data) {
     final membership = data['membergate'];
     // GET与确认只接受同一份完整快照；读取失败不能冒充未订阅或清空原事实。
     if (data['ok'] != true ||
@@ -1280,11 +1339,8 @@ class SquareApiClient
     }
     final active = data['membergate_active'] == true;
     final subscriptionActive = data['membergate_active'] == true;
-    final plans = _parseMembershipPlans(data['plans']);
-    final usageState = _parseMembershipUsageState(
-      data['usage'],
-      data['membergate'],
-    );
+    final plans = decodeMembershipPlans(data['plans']);
+    final usageState = decodeMembershipUsage(data['usage'], data['membergate']);
     // 会员与身份解耦（ADR-037）：响应只含订阅与套餐，无身份/冻结字段。
     if (membership is! Map<String, dynamic>) {
       return SquareMembershipState(
@@ -1333,7 +1389,7 @@ class SquareApiClient
     if (snapshot is! Map<String, dynamic>) {
       throw const SquareApiException('会员确认快照不完整');
     }
-    return _parseMembershipState(snapshot);
+    return decodeMembership(snapshot);
   }
 
   /// 同 CID 的真实 MLS 传递；请求内没有属主、联系人或钱包数据密钥。
@@ -2325,22 +2381,44 @@ class SquareApiClient
     );
   }
 
-  List<SquareMembershipPlan> _parseMembershipPlans(Object? value) {
+  static List<SquareMembershipPlan> decodeMembershipPlans(Object? value) {
     if (value is! List || value.any((row) => row is! Map<String, dynamic>)) {
       throw const SquareApiException("会员档位响应不完整");
     }
-    return value
+    final plans = value
         .whereType<Map<String, dynamic>>()
         .map(_parseMembershipPlan)
         .toList(growable: false);
+    if (plans.length != 3 ||
+        plans.map((p) => p.membershipLevel).toSet().length != 3) {
+      throw const SquareApiException('会员三档额度响应不完整');
+    }
+    return List.unmodifiable(plans);
   }
 
-  SquareMembershipPlan _parseMembershipPlan(Map<String, dynamic> data) {
+  static Map<String, int> _quotaMap(Object? value, List<String> fields) {
+    if (value is! Map<String, dynamic> ||
+        fields.any((key) => !value.containsKey(key))) {
+      throw const SquareApiException('会员额度或用量响应不完整');
+    }
+    final result = <String, int>{};
+    for (final entry in value.entries) {
+      if (entry.value is! int ||
+          entry.value < 0 ||
+          entry.value > 9007199254740991) {
+        throw const SquareApiException('会员额度或用量无效');
+      }
+      result[entry.key] = entry.value as int;
+    }
+    return Map.unmodifiable(result);
+  }
+
+  static SquareMembershipPlan _parseMembershipPlan(Map<String, dynamic> data) {
     final level = _requireString(data, 'membergate_level');
     final name = switch (level) {
-      'freedom' => '自由',
-      'democracy' => '民主',
-      'spark' => '薪火',
+      'freedom' => '自由会员',
+      'democracy' => '民主会员',
+      'spark' => '薪火会员',
       _ => throw const SquareApiException('会员档位未知'),
     };
     final plan = data['plan'], limits = data['limits'];
@@ -2357,7 +2435,47 @@ class SquareApiClient
       return value;
     }
 
-    final quality = quota(limits, 'image_dimension') >= 1920 ? 'hd' : 'sd';
+    final media = _quotaMap(limits, const [
+      'image_bytes',
+      'image_dimension',
+      'storage_bytes',
+      'image_quality',
+      'thumbnail_bytes',
+      'thumbnail_dimension',
+      'thumbnail_quality',
+      'cover_bytes',
+      'cover_dimension',
+      'cover_quality',
+      'video_width',
+      'video_height',
+      'video_total_bitrate',
+      'video_peak_bitrate',
+      'audio_bitrate',
+      'video_frame_rate',
+      'video_key_frame_seconds',
+      'audio_sample_rate',
+    ]);
+    final resources = _quotaMap(data['resources'], const [
+      'pending_attachments',
+      'writing_chunks',
+      'attachment_count',
+      'attachment_bytes',
+      'attachment_begins_day',
+      'upload_bytes_day',
+      'delivery_bytes_day',
+      'chunk_operations_day',
+      'media_requests_day',
+    ]);
+    final dailyLimits = _quotaMap(data['daily_limits'], const [
+      'media_requests',
+      'upload_bytes',
+      'delivery_bytes',
+    ]);
+    if (dailyLimits.isEmpty || dailyLimits.values.any((v) => v <= 0)) {
+      throw const SquareApiException('每日资源额度无效');
+    }
+    final imageQuality = '${quota(limits, 'image_dimension')}px';
+    final videoQuality = '${quota(limits, 'video_height')}p';
     return SquareMembershipPlan(
       membershipLevel: level,
       displayName: name,
@@ -2365,6 +2483,9 @@ class SquareApiClient
       chatFileMaxBytes: quota(plan, 'chat_file_max_bytes'),
       imageMaxBytes: quota(limits, 'image_bytes'),
       imageMaxEdge: quota(limits, 'image_dimension'),
+      media: media,
+      resources: resources,
+      dailyLimits: dailyLimits,
       // 保留既有三档聊天展示能力；授权仍由实际会话和宿主聊天许可决定。
       chat: const SquareChatQuota(
         textEnabled: true,
@@ -2379,12 +2500,12 @@ class SquareApiClient
       // 文本/标题上限来自既有发布协议，动态媒体/周期/存储额度只读服务器plan/limits。
       document: SquareDocumentQuota(
         textMaxChars: 300,
-        imageQuality: quality,
+        imageQuality: imageQuality,
         maxImages: 9,
       ),
       video: SquareVideoQuota(
         textMaxChars: 300,
-        videoQuality: quality,
+        videoQuality: videoQuality,
         maxVideoSeconds: quota(plan, 'video_max_seconds'),
         maxVideoBytes: quota(plan, 'video_max_bytes'),
       ),
@@ -2392,8 +2513,8 @@ class SquareApiClient
         titleMinChars: 10,
         titleMaxChars: 50,
         bodyMaxChars: 30000,
-        coverQuality: 'hd',
-        imageQuality: quality,
+        coverQuality: '${quota(limits, 'cover_dimension')}px',
+        imageQuality: imageQuality,
         maxImages: quota(plan, 'article_max_images'),
         maxVideos: quota(plan, 'article_max_videos'),
       ),
@@ -2406,7 +2527,7 @@ class SquareApiClient
     );
   }
 
-  SquareMembershipUsageState? _parseMembershipUsageState(
+  static SquareMembershipUsageState decodeMembershipUsage(
     Object? value,
     Object? membership,
   ) {
@@ -2414,11 +2535,15 @@ class SquareApiClient
       throw const SquareApiException('会员用量响应缺失');
     }
     for (final field in [
+      'used_bytes',
+      'reserved_bytes',
       'used_images',
       'reserved_images',
       'used_video_seconds',
       'reserved_video_seconds',
       'active_uploads',
+      'day_start',
+      'published_count',
     ]) {
       final count = value[field];
       if (count is! int || count < 0 || count > 9007199254740991) {
@@ -2437,6 +2562,17 @@ class SquareApiClient
           _asInt(value['used_video_seconds']) +
           _asInt(value['reserved_video_seconds']),
       activeUploads: _asInt(value['active_uploads']),
+      usedBytes: _asInt(value['used_bytes']),
+      reservedBytes: _asInt(value['reserved_bytes']),
+      reservedImages: _asInt(value['reserved_images']),
+      reservedVideoSeconds: _asInt(value['reserved_video_seconds']),
+      dayStart: _asInt(value['day_start']),
+      daily: _quotaMap(value['daily'], const [
+        'media_requests',
+        'upload_bytes',
+        'delivery_bytes',
+      ]),
+      publishedCount: _asInt(value['published_count']),
     );
   }
 

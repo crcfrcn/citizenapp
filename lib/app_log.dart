@@ -135,6 +135,56 @@ class AppLog {
     }
   }
 
+  /// HTTP仅输出固定类别、状态和单调计时；headers不是正文完成，取消不算成功。
+  static void http({
+    required String stage,
+    required int elapsedMicros,
+    required String phase,
+    int? statusCode,
+    int? headersMicros,
+  }) {
+    const stages = {
+      'bootstrap',
+      'challenge',
+      'session',
+      'registration',
+      'membergate',
+      'creator',
+      'profile',
+      'card',
+      'feed',
+      'follows',
+      'notifications',
+      'comments',
+      'contacts',
+      'topup_config',
+      'topup_status',
+      'chat_access',
+      'media',
+    };
+    const phases = {'headers', 'complete', 'error', 'cancelled'};
+    String micros(int? value) =>
+        value != null && value >= 0 && value <= 9007199254740991
+        ? '$value'
+        : 'none';
+    final safeStage = stages.contains(stage) ? stage : 'other';
+    final safePhase = phases.contains(phase) ? phase : 'other';
+    final status = statusCode != null && statusCode >= 100 && statusCode <= 599
+        ? '$statusCode'
+        : 'none';
+    final header = headersMicros != null && headersMicros <= elapsedMicros
+        ? micros(headersMicros)
+        : 'none';
+    try {
+      debugPrintSynchronously(
+        '[CitizenHttp] stage=$safeStage http=$status '
+        'headers_us=$header total_us=${micros(elapsedMicros)} phase=$safePhase',
+      );
+    } on Object {
+      // 出口故障不得改变原HTTP结果、原异常或流的生命周期。
+    }
+  }
+
   /// 提案读取只报告固定阶段和类别；不得读取异常原文或改变调用方的异常。
   static void proposalFailure({required String stage, required Object error}) {
     final code = switch (error) {

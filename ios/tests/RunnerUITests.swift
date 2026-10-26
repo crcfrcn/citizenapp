@@ -595,6 +595,84 @@ final class RunnerUITests: XCTestCase {
     return app
   }
 
+  /// 闭集场景只触发读取；HTTP是否完成、状态及耗时由同轮CitizenHttp核对。
+  /// 不打印元素树、账户内容或截图；不点击通知项、全部已读或任何交易动作。
+  private func serviceReadScene() throws -> String {
+    let scene = ProcessInfo.processInfo.environment["CITIZEN_READONLY_SCENE"] ?? ""
+    guard ["recommended", "following", "campaign", "article", "videos",
+      "creator", "profile", "notifications"].contains(scene) else {
+      throw XCTSkip("须在测试运行器指定闭集只读场景")
+    }
+    return scene
+  }
+
+  func testServiceReadOnlyAction() throws {
+    let scene = try serviceReadScene()
+    let app = try openExistingAccountServices()
+    if scene == "creator" {
+      let entry = app.descendants(matching: .any).matching(
+        NSPredicate(format: "label == %@", "创作者")).firstMatch
+      XCTAssertTrue(entry.waitForExistence(timeout: 10))
+      entry.tap()
+      let refresh = app.buttons["刷新"]
+      XCTAssertTrue(refresh.waitForExistence(timeout: 10))
+      refresh.tap()
+    } else if scene == "profile" {
+      let code = app.buttons["我的用户码"]
+      app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0))
+        .withOffset(CGVector(dx: 0, dy: code.frame.midY + 24)).tap()
+      XCTAssertTrue(app.staticTexts["公文"].waitForExistence(timeout: 10))
+      app.swipeDown()
+    } else {
+      let square = app.buttons.matching(NSPredicate(format:
+        "label BEGINSWITH %@ AND label CONTAINS %@", "广场", "Tab ")).firstMatch
+      XCTAssertTrue(square.waitForExistence(timeout: 10))
+      square.tap()
+      if scene == "notifications" {
+        let notifications = app.buttons["通知"]
+        XCTAssertTrue(notifications.waitForExistence(timeout: 10))
+        notifications.tap()
+      } else {
+        let labels = ["recommended": "推荐", "following": "关注", "campaign": "竞选",
+          "article": "文章", "videos": "视频"]
+        let category = app.staticTexts[try XCTUnwrap(labels[scene])].firstMatch
+        XCTAssertTrue(category.waitForExistence(timeout: 10))
+        category.tap()
+        // 当前分类可能已选中，仍下拉显式发起本轮读取，不以缓存首帧充当成功。
+        app.swipeDown()
+      }
+    }
+    NSLog("SERVICE_UI scene=%@ action=1", scene)
+  }
+
+  /// 调度方先取得当轮对应HTTP终态，再执行结果检查；本方法不重启App。
+  /// 页面通过只代表UI检查通过，必须联合HTTP业务结果才能认定连接正常。
+  func testServiceReadOnlyResult() throws {
+    let scene = try serviceReadScene()
+    let app = XCUIApplication(bundleIdentifier: targetBundleIdentifier)
+    XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+    if scene == "notifications" {
+      XCTAssertTrue(app.buttons["全部已读"].waitForExistence(timeout: 10),
+        "真实通知列表没有打开")
+    } else if scene == "creator" {
+      XCTAssertTrue(app.staticTexts["创作者"].waitForExistence(timeout: 10))
+      XCTAssertTrue(app.buttons["刷新"].isEnabled)
+    } else if scene == "profile" {
+      XCTAssertTrue(app.staticTexts["公文"].waitForExistence(timeout: 10))
+      XCTAssertFalse(app.descendants(matching: .any).matching(
+        NSPredicate(format: "label == %@", "正在刷新内容")).firstMatch.exists)
+    } else {
+      let labels = ["recommended": "推荐", "following": "关注", "campaign": "竞选",
+        "article": "文章", "videos": "视频"]
+      XCTAssertTrue(app.staticTexts[try XCTUnwrap(labels[scene])].firstMatch.exists)
+    }
+    let failure = app.staticTexts.matching(NSPredicate(format:
+      "label CONTAINS %@ OR label CONTAINS %@ OR label CONTAINS %@ OR label CONTAINS %@ OR label CONTAINS %@",
+      "失败", "暂时不可用", "准备未完成", "身份同步中", "无法核实")).firstMatch
+    XCTAssertFalse(failure.exists, "页面仍有服务或身份失败提示")
+    NSLog("SERVICE_UI scene=%@ surface=1", scene)
+  }
+
   /// 只读打开原钱包页；入口不依赖可能变化的副标题，不进入添加或导入流程。
   private func openExistingWallet() throws -> XCUIApplication {
     let app = try openExistingAccountServices()

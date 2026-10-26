@@ -68,14 +68,11 @@ class _MembershipPageState extends State<MembershipPage>
   late final AnimationController _snapController;
   Animation<double>? _snapAnim;
 
-  /// 首屏永远使用 App 内置三档静态定义立即渲染；联网只在后台替换动态字段。
+  /// 首屏复用上次服务端快照；没有快照时显示待获取，不制造默认权益。
   bool _refreshing = false;
   bool _identityReloadPending = false;
 
-  /// 会话或刷新失败说明（已有本地会员快照时也显示）:三张静态卡按本页
-  /// 设计永远保留,失败原因用顶部横幅补充,绝不整页替换成错误页。
-  ///
-  /// **未注册不走这里**——它是合法状态不是故障,见 [_unregistered]。
+  /// 读取失败保留已有服务端快照，并给出可见的刷新入口。
   String? _loadFailure;
 
   /// 当前钱包未注册 CID。主体只显示统一注册引导，不加载会员价格或业务状态。
@@ -88,7 +85,7 @@ class _MembershipPageState extends State<MembershipPage>
   _MembershipViewData _data = const _MembershipViewData(
     accountId: '',
     cidNumber: '',
-    state: _staticMembershipState,
+    state: _emptyMembershipState,
     prices: <String, int>{},
     subscriptionReady: false,
   );
@@ -201,7 +198,7 @@ class _MembershipPageState extends State<MembershipPage>
         _MembershipViewData(
           accountId: _data.accountId,
           cidNumber: event.cidNumber,
-          state: _withStaticPlans(snapshot.state),
+          state: snapshot.state,
           prices: snapshot.prices,
           subscriptionReady: snapshot.subscriptionFetchedAtMs > 0,
         ),
@@ -279,9 +276,7 @@ class _MembershipPageState extends State<MembershipPage>
           _MembershipViewData(
             accountId: localUser?.accountId ?? '',
             cidNumber: localCid ?? '',
-            state: local == null
-                ? _staticMembershipState
-                : _withStaticPlans(local.state),
+            state: local == null ? _emptyMembershipState : local.state,
             prices: local?.prices ?? const <String, int>{},
             subscriptionReady: false,
           ),
@@ -321,7 +316,7 @@ class _MembershipPageState extends State<MembershipPage>
           _MembershipViewData(
             accountId: accountId,
             cidNumber: cidNumber,
-            state: _withStaticPlans(cached.state),
+            state: cached.state,
             prices: cached.prices,
             subscriptionReady: cached.subscriptionFetchedAtMs > 0,
           ),
@@ -331,7 +326,7 @@ class _MembershipPageState extends State<MembershipPage>
           _MembershipViewData(
             accountId: accountId,
             cidNumber: cidNumber,
-            state: _staticMembershipState,
+            state: _emptyMembershipState,
             prices: const <String, int>{},
             subscriptionReady: false,
           ),
@@ -365,7 +360,7 @@ class _MembershipPageState extends State<MembershipPage>
           refreshedState ??
           serverSnapshot?.state ??
           cached?.state ??
-          _staticMembershipState;
+          _emptyMembershipState;
       final prices = refreshedPrices?.isNotEmpty == true
           ? refreshedPrices!
           : serverSnapshot?.prices ?? cached?.prices ?? const <String, int>{};
@@ -374,7 +369,7 @@ class _MembershipPageState extends State<MembershipPage>
         _MembershipViewData(
           accountId: accountId,
           cidNumber: cidNumber,
-          state: _withStaticPlans(state),
+          state: state,
           prices: prices,
           subscriptionReady:
               refreshedState != null ||
@@ -396,7 +391,7 @@ class _MembershipPageState extends State<MembershipPage>
           _MembershipViewData(
             accountId: currentKnown ? _data.accountId : '',
             cidNumber: currentKnown ? _data.cidNumber : '',
-            state: currentKnown ? _data.state : _staticMembershipState,
+            state: currentKnown ? _data.state : _emptyMembershipState,
             prices: _data.prices,
             subscriptionReady: false,
           ),
@@ -496,9 +491,7 @@ class _MembershipPageState extends State<MembershipPage>
       if (session == null || session.cidNumber != _data.cidNumber) {
         throw SubscriptionException(resolution.message);
       }
-      final state = _withStaticPlans(
-        await _subscriptionService.authorizeMembership(session),
-      );
+      final state = await _subscriptionService.authorizeMembership(session);
       final action = _actionFor(state, level);
       final prices = action == _SubscribeAction.cancel
           ? _data.prices
@@ -547,7 +540,9 @@ class _MembershipPageState extends State<MembershipPage>
   ) {
     final action = _actionFor(state, plan.membershipLevel);
     final noWallet = _sessionStatus == SquareSessionStatus.noWallet;
-    final sessionUnavailable = _data.accountId.isEmpty && !noWallet;
+    // 缓存只提供展示，详情按钮与会员卡一样必须有当前可用会话。
+    final sessionUnavailable =
+        _sessionStatus != SquareSessionStatus.ready || _data.accountId.isEmpty;
     final stateNotReady = !_data.subscriptionReady;
     final label = noWallet
         ? '请先添加钱包账户'
@@ -567,6 +562,9 @@ class _MembershipPageState extends State<MembershipPage>
       MaterialPageRoute(
         builder: (_) => MembershipDetailPage(
           plan: plan,
+          usageState: state.membershipLevel == plan.membershipLevel
+              ? state.usageState
+              : null,
           priceFen: priceFen,
           actionLabel: label,
           subscribeEnabled: enabled,
@@ -636,9 +634,28 @@ class _MembershipPageState extends State<MembershipPage>
     }
     final data = _data;
     final state = data.state;
-    // 三档订阅卡（自由 / 民主 / 薪火）始终来自 App 内置静态定义。
+    // 三档卡只消费当前服务端套餐或其缓存；顺序不改变额度。
     final plans = _orderedPlans(state.plans);
     _cardCount = plans.length;
+    if (plans.isEmpty) {
+      return Column(
+        children: [
+          if (_loadFailure != null && !_refreshing)
+            _LoadFailureBanner(
+              key: const ValueKey('membership-load-failure-banner'),
+              message: _loadFailure!,
+              onRetry: _retryLoad,
+            ),
+          Expanded(
+            child: Center(
+              child: _refreshing
+                  ? const CircularProgressIndicator()
+                  : const Text('会员额度尚未获取，请刷新'),
+            ),
+          ),
+        ],
+      );
+    }
 
     final size = MediaQuery.of(context).size;
     final cardWidth = (size.width * 0.8).clamp(280.0, 360.0);
@@ -942,7 +959,7 @@ class _MembershipTierCard extends StatelessWidget {
                             icon: Icons.cloud_upload_outlined,
                             color: tierColor,
                             text:
-                                '每月 图 ${_thousands(plan.usage.monthlyImages)} · 视频 ${plan.monthlyVideoDurationLabel}',
+                                '本周期 图 ${_thousands(plan.usage.monthlyImages)} · 视频 ${plan.monthlyVideoDurationLabel}',
                           ),
                           SizedBox(height: AppLayout.scaled(context, 8)),
                           _ParamLine(
@@ -1528,154 +1545,16 @@ String _formatYmd(int ms) {
   return '${d.year}-$mm-$dd';
 }
 
-const int _mib = 1024 * 1024;
-
-/// 三档会员共用的聊天能力；无有效会员时 [SquareMembershipState.activePlan] 为 null，
-/// 手机端不得使用这里的静态展示数据授予聊天权限。
-const SquareChatQuota _activeChatQuota = SquareChatQuota(
-  textEnabled: true,
-  emojiEnabled: true,
-  stickerEnabled: true,
-  imageEnabled: true,
-  voiceMessageMaxSeconds: 180,
-  videoMessageMaxSeconds: 180,
-  voiceCallEnabled: true,
-  videoCallEnabled: true,
-);
-
-/// 三档 App 内置套餐：进入页面第一帧直接使用，与 Worker 权益参数对齐（ADR-037）。
-/// 价格不进入静态套餐，仍以链上 `PlatformPrice` 为单一真源。
-const List<SquareMembershipPlan> _fallbackMembershipPlans = [
-  SquareMembershipPlan(
-    membershipLevel: 'freedom',
-    displayName: '自由会员',
-    chatFileMaxBytes: 10 * _mib,
-    chat: _activeChatQuota,
-    document: SquareDocumentQuota(
-      textMaxChars: 300,
-      imageQuality: 'sd',
-      maxImages: 9,
-    ),
-    video: SquareVideoQuota(
-      textMaxChars: 300,
-      videoQuality: 'sd',
-      maxVideoSeconds: 180,
-      maxVideoBytes: 16000000,
-    ),
-    article: SquareArticleQuota(
-      titleMinChars: 10,
-      titleMaxChars: 50,
-      bodyMaxChars: 30000,
-      coverQuality: 'hd',
-      imageQuality: 'sd',
-      maxImages: 50,
-      maxVideos: 1,
-    ),
-    usage: SquareMembershipUsageQuota(
-      monthlyImages: 300,
-      monthlyVideoSeconds: 18000,
-      activeUploads: 1,
-      storageBytes: 100000000000,
-    ),
-  ),
-  SquareMembershipPlan(
-    membershipLevel: 'democracy',
-    displayName: '民主会员',
-    chatFileMaxBytes: 100 * _mib,
-    chat: _activeChatQuota,
-    document: SquareDocumentQuota(
-      textMaxChars: 300,
-      imageQuality: 'hd',
-      maxImages: 9,
-    ),
-    video: SquareVideoQuota(
-      textMaxChars: 300,
-      videoQuality: 'hd',
-      maxVideoSeconds: 1800,
-      maxVideoBytes: 300000000,
-    ),
-    article: SquareArticleQuota(
-      titleMinChars: 10,
-      titleMaxChars: 50,
-      bodyMaxChars: 30000,
-      coverQuality: 'hd',
-      imageQuality: 'hd',
-      maxImages: 100,
-      maxVideos: 3,
-    ),
-    usage: SquareMembershipUsageQuota(
-      monthlyImages: 1500,
-      monthlyVideoSeconds: 60000,
-      activeUploads: 2,
-      storageBytes: 1000000000000,
-    ),
-  ),
-  SquareMembershipPlan(
-    membershipLevel: 'spark',
-    displayName: '薪火会员',
-    chatFileMaxBytes: 5120 * _mib,
-    chat: _activeChatQuota,
-    document: SquareDocumentQuota(
-      textMaxChars: 300,
-      imageQuality: 'hd',
-      maxImages: 9,
-    ),
-    video: SquareVideoQuota(
-      textMaxChars: 300,
-      videoQuality: 'hd',
-      maxVideoSeconds: 10800,
-      maxVideoBytes: 3000000000,
-    ),
-    article: SquareArticleQuota(
-      titleMinChars: 10,
-      titleMaxChars: 50,
-      bodyMaxChars: 30000,
-      coverQuality: 'hd',
-      imageQuality: 'hd',
-      maxImages: 100,
-      maxVideos: 10,
-    ),
-    usage: SquareMembershipUsageQuota(
-      monthlyImages: 5000,
-      monthlyVideoSeconds: 600000,
-      activeUploads: 3,
-      storageBytes: 10000000000000,
-    ),
-  ),
-];
-
-const SquareMembershipState _staticMembershipState = SquareMembershipState(
+// 缺少真实快照只表示未知；没有静态套餐、默认额度或本地授权。
+const SquareMembershipState _emptyMembershipState = SquareMembershipState(
   active: false,
   paidUntil: 0,
-  plans: _fallbackMembershipPlans,
 );
-
-/// 给缓存或 finalized 订阅态补入 App 内置套餐；动态快照不持久化静态权益字段。
-SquareMembershipState _withStaticPlans(SquareMembershipState state) {
-  return SquareMembershipState(
-    active: state.active,
-    paidUntil: state.paidUntil,
-    membershipLevel: state.membershipLevel,
-    subscriptionStatus: state.subscriptionStatus,
-    subscriptionActive: state.subscriptionActive,
-    lastChargedAt: state.lastChargedAt,
-    plans: _fallbackMembershipPlans,
-  );
-}
-
-/// 按固定档序（自由 / 民主 / 薪火）取套餐。
-List<SquareMembershipPlan> _orderedPlans(List<SquareMembershipPlan> plans) {
-  SquareMembershipPlan planFor(String level) {
-    for (final plan in plans) {
-      if (plan.membershipLevel == level) return plan;
-    }
-    return _fallbackMembershipPlans.firstWhere(
-      (p) => p.membershipLevel == level,
-    );
-  }
-
-  return _tierOrder.map(planFor).toList();
-}
+List<SquareMembershipPlan> _orderedPlans(List<SquareMembershipPlan> plans) => [
+  for (final level in _tierOrder)
+    for (final plan in plans)
+      if (plan.membershipLevel == level) plan,
+];
 
 Color _tierColor(String level) => switch (level) {
   'spark' => AppTheme.identityCandidate,

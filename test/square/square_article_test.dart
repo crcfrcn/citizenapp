@@ -1,3 +1,5 @@
+import '../account/membership/membership_page_test.dart'
+    show membergatePlanFixture, membergateUsageFixture;
 import 'mls_authentication_fixture.dart';
 
 import 'dart:convert';
@@ -182,27 +184,11 @@ void main() {
                 'subscription_status': 'active',
               },
               'plans': [
-                {
-                  'membergate_level': 'democracy',
-                  'plan': {
-                    'membergate_level': 'democracy',
-                    'chat_file_max_bytes': 1,
-                    'video_max_seconds': 1800,
-                    'video_max_bytes': 300000000,
-                    'article_max_images': 100,
-                    'article_max_videos': 3,
-                    'monthly_images': 1500,
-                    'monthly_video_seconds': 60000,
-                    'active_uploads': 2,
-                  },
-                  'limits': {
-                    'image_dimension': 1920,
-                    'image_bytes': 2000000,
-                    'storage_bytes': 1000000000000,
-                  },
-                },
+                for (final level in const ['freedom', 'democracy', 'spark'])
+                  membergatePlanFixture(level),
               ],
               'usage': {
+                ...membergateUsageFixture(),
                 'used_images': 10,
                 'reserved_images': 2,
                 'used_video_seconds': 300,
@@ -229,7 +215,7 @@ void main() {
       );
       expect(state.activePlan!.article.maxVideos, 3);
       expect(state.activePlan!.video.maxVideoSeconds, 1800);
-      expect(state.activePlan!.video.maxVideoBytes, 300000000);
+      expect(state.activePlan!.video.maxVideoBytes, 200000000);
       expect(state.activePlan!.usage.monthlyVideoSeconds, 60000);
       expect(state.activePlan!.usage.storageBytes, 1000000000000);
       expect(state.usageState!.imageCount, 12);
@@ -253,10 +239,13 @@ void main() {
 
     test('每个段落不少于10字，并在手机端预检月度用量', () {
       expect(_validateUpload(textBlock: '不足十字'), '文章每个段落不少于 10 个字');
-      expect(_validateUpload(usedImages: 1499, imageCount: 2), '当前会员本月图片可用量不足');
+      expect(
+        _validateUpload(usedImages: 1499, imageCount: 2),
+        '当前会员本周期图片可用量不足',
+      );
       expect(
         _validateUpload(videoCount: 1, usedVideoSeconds: 59980),
-        '当前会员本月视频时长可用量不足',
+        '当前会员本周期视频时长可用量不足',
       );
       expect(_validateUpload(activeUploads: 2), '当前会员活动上传数已达上限');
     });

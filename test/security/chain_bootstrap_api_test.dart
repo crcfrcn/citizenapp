@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -15,6 +16,7 @@ const _stateRoot =
     '0x4444444444444444444444444444444444444444444444444444444444444444';
 
 void main() {
+  _httpTimingTests();
   test('共用 HTTPS Client 在发送前拒绝明文并禁止重定向', () async {
     var sent = 0;
     final client = HttpsOnlyClient(
@@ -158,6 +160,187 @@ void main() {
         throwsUnsupportedError,
       );
     }
+  });
+}
+
+// 内存端口验证消费时机及取消、背压、异常，不把测试等待当成生产延迟。
+class _TimingClient extends http.BaseClient {
+  _TimingClient(this.reply);
+  final Future<http.StreamedResponse> Function(http.BaseRequest) reply;
+  bool closed = false;
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) =>
+      reply(request);
+  @override
+  void close() => closed = true;
+}
+
+void _httpTimingTests() {
+  const canary = 'synthetic-private-http-detail';
+  test('实际业务路径只输出固定功能类别，不输出动态路径或查询', () async {
+    const paths = {
+      '/api/chain/bootstrap': 'bootstrap',
+      '/api/user/sessions': 'session',
+      '/api/user/contacts': 'contacts',
+      '/api/membergate/creator/tiers': 'creator',
+      '/api/membergate': 'membergate',
+      '/api/user/profiles/synthetic': 'profile',
+      '/api/user/cards/synthetic': 'card',
+      '/api/8964/follows': 'follows',
+      '/api/8964/feed': 'feed',
+      '/api/8964/posts/synthetic/comments': 'comments',
+      '/api/notifications': 'notifications',
+      '/api/topup/config': 'topup_config',
+      '/api/topup/status': 'topup_status',
+      '/api/tatachat/access': 'chat_access',
+    };
+    for (final entry in paths.entries) {
+      final lines = <String>[];
+      final client = HttpsOnlyClient(
+        _TimingClient(
+          (_) async => http.StreamedResponse(Stream.value([1]), 200),
+        ),
+      );
+      await runZoned(
+        () async {
+          await client.get(
+            Uri.parse('https://www.crcfrcn.com${entry.key}?q=$canary'),
+          );
+        },
+        zoneSpecification: ZoneSpecification(
+          print: (_, _, _, line) => lines.add(line),
+        ),
+      );
+      client.close();
+      expect(lines, hasLength(2));
+      expect(lines.last, contains('stage=${entry.value} http=200'));
+      expect(lines.last, endsWith('phase=complete'));
+      expect(lines.join(), isNot(contains(canary)));
+      expect(lines.join(), isNot(contains(entry.key)));
+    }
+  });
+  final uri = Uri.parse(
+    'https://www.crcfrcn.com/api/user/challenges?q=$canary',
+  );
+  Future<List<String>> capture(Future<void> Function() action) async {
+    final lines = <String>[];
+    await runZoned(
+      action,
+      zoneSpecification: ZoneSpecification(
+        print: (_, _, _, line) => lines.add(line),
+      ),
+    );
+    expect(lines.join(), isNot(contains(canary)));
+    return lines;
+  }
+
+  test('HTTP计时不预读，保留元数据、背压、正文和关闭', () async {
+    final source = StreamController<List<int>>();
+    final request = http.Request('POST', uri)
+      ..headers['authorization'] = canary
+      ..body = canary;
+    final inner = _TimingClient((sent) async {
+      expect(sent, same(request));
+      expect(sent.followRedirects, isFalse);
+      return http.StreamedResponse(
+        source.stream,
+        206,
+        request: sent,
+        contentLength: 3,
+        headers: {'x-test': 'kept'},
+        reasonPhrase: 'Partial Content',
+        persistentConnection: false,
+      );
+    });
+    final client = HttpsOnlyClient(inner);
+    final lines = await capture(() async {
+      final response = await client.send(request);
+      expect(source.hasListener, isFalse);
+      expect(response.request, same(request));
+      expect(response.contentLength, 3);
+      expect(response.headers['x-test'], 'kept');
+      expect(response.reasonPhrase, 'Partial Content');
+      expect(response.persistentConnection, isFalse);
+      final bytes = <int>[];
+      final done = Completer<void>();
+      final subscription = response.stream.listen(
+        bytes.addAll,
+        onDone: done.complete,
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(source.hasListener, isTrue);
+      subscription.pause();
+      await Future<void>.delayed(Duration.zero);
+      expect(source.isPaused, isTrue);
+      subscription.resume();
+      source.add([1, 2, 3]);
+      await source.close();
+      await done.future;
+      expect(bytes, [1, 2, 3]);
+      client.close();
+      expect(inner.closed, isTrue);
+    });
+    expect(lines.length, 2);
+    expect(lines.first, contains('stage=challenge http=206'));
+    expect(lines.first, endsWith('phase=headers'));
+    expect(lines.last, endsWith('phase=complete'));
+    final timing = RegExp(r'headers_us=(\d+) total_us=(\d+)')
+        .firstMatch(lines.last)!;
+    expect(int.parse(timing[2]!), greaterThanOrEqualTo(int.parse(timing[1]!)));
+  });
+  test('HTTP取消透传且不宣告正文完成', () async {
+    var cancelled = 0;
+    final source = StreamController<List<int>>(
+      onCancel: () {
+        cancelled++;
+      },
+    );
+    final client = HttpsOnlyClient(
+      _TimingClient((_) async => http.StreamedResponse(source.stream, 200)),
+    );
+    final lines = await capture(() async {
+      final response = await client.send(http.Request('GET', uri));
+      final subscription = response.stream.listen((_) {});
+      await Future<void>.delayed(Duration.zero);
+      await subscription.cancel();
+      client.close();
+    });
+    expect(cancelled, 1);
+    expect(lines.length, 2);
+    expect(lines.last, endsWith('phase=cancelled'));
+  });
+  for (final body in [false, true]) {
+    test('HTTP错误$body保留原异常且只结束一次', () async {
+      final failure = StateError(canary);
+      final client = HttpsOnlyClient(
+        _TimingClient((_) async {
+          if (!body) throw failure;
+          return http.StreamedResponse(Stream<List<int>>.error(failure), 200);
+        }),
+      );
+      final lines = await capture(() async {
+        await expectLater(client.get(uri), throwsA(same(failure)));
+        client.close();
+      });
+      expect(lines.where((line) => line.endsWith('phase=error')).length, 1);
+      expect(lines.join(), isNot(contains('phase=complete')));
+    });
+  }
+  test('非所属源保持原响应对象且不输出正式服务计时', () async {
+    final original = http.StreamedResponse(Stream.value([1]), 200);
+    final client = HttpsOnlyClient(_TimingClient((_) async => original));
+    final lines = await capture(() async {
+      final response = await client.send(
+        http.Request(
+          'GET',
+          Uri.parse('https://other.invalid/api/user/challenges'),
+        ),
+      );
+      expect(response, same(original));
+      await response.stream.drain<void>();
+      client.close();
+    });
+    expect(lines, isEmpty);
   });
 }
 

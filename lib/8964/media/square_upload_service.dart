@@ -444,10 +444,10 @@ String? validateSquarePostContent({
     (sum, item) => sum + (item.durationSeconds ?? 0),
   );
   if (usageState.imageCount + images.length > plan.usage.monthlyImages) {
-    return '当前会员本月图片可用量不足';
+    return '当前会员本周期图片可用量不足';
   }
   if (usageState.videoSeconds + videoSeconds > plan.usage.monthlyVideoSeconds) {
-    return '当前会员本月视频时长可用量不足';
+    return '当前会员本周期视频时长可用量不足';
   }
   if (usageState.activeUploads >= plan.usage.activeUploads) {
     return '当前会员活动上传数已达上限';

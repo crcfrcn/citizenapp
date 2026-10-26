@@ -1,7 +1,9 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:citizenapp/app_log.dart';
 import 'package:citizenapp/citizen/account_derivation.dart';
+import 'package:citizenapp/network/citizen_serve_api_config.dart';
 
 // 中文注释：共用真实 Client 边界只发送 HTTPS；关闭重定向以阻断服务端降级。
 class HttpsOnlyClient extends http.BaseClient {
@@ -9,7 +11,7 @@ class HttpsOnlyClient extends http.BaseClient {
   final http.Client _inner;
 
   @override
-  Future<http.StreamedResponse> send(http.BaseRequest request) {
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
     final uri = request.url;
     if (uri.scheme != 'https' ||
         uri.host.isEmpty ||
@@ -18,11 +20,99 @@ class HttpsOnlyClient extends http.BaseClient {
       throw UnsupportedError('网络请求必须使用完整 HTTPS 地址');
     }
     request.followRedirects = false;
-    return _inner.send(request);
+    final stage = _httpStage(uri);
+    if (stage == null) return _inner.send(request);
+    final clock = Stopwatch()..start();
+    int? status, headersMicros;
+    var finished = false;
+    void report(String phase) => AppLog.http(
+      stage: stage,
+      statusCode: status,
+      headersMicros: headersMicros,
+      elapsedMicros: clock.elapsedMicroseconds,
+      phase: phase,
+    );
+    void finish(String phase) {
+      if (finished) return;
+      finished = true;
+      report(phase);
+      clock.stop();
+    }
+
+    try {
+      final response = await _inner.send(request);
+      status = response.statusCode;
+      headersMicros = clock.elapsedMicroseconds;
+      report('headers');
+      // yield*随原消费者读取，透传背压、取消和异常，不预读或检查正文。
+      Stream<List<int>> body() async* {
+        try {
+          // yield*会直接转发流错误，不会抛回生成器；须在原错误转发处记失败。
+          yield* response.stream.handleError((Object error, StackTrace stack) {
+            finish('error');
+            Error.throwWithStackTrace(error, stack);
+          });
+          finish('complete');
+        } on Object {
+          finish('error');
+          rethrow;
+        } finally {
+          finish('cancelled');
+        }
+      }
+
+      return http.StreamedResponse(
+        body(),
+        response.statusCode,
+        contentLength: response.contentLength,
+        request: response.request,
+        headers: response.headers,
+        isRedirect: response.isRedirect,
+        persistentConnection: response.persistentConnection,
+        reasonPhrase: response.reasonPhrase,
+      );
+    } on Object {
+      finish('error');
+      rethrow;
+    }
   }
 
   @override
   void close() => _inner.close();
+}
+
+/// 仅在内存匹配正式服务；动态路径、查询、头和正文不交给日志接口。
+String? _httpStage(Uri uri) {
+  if (uri.origin == CitizenServeApiConfig.mediaOrigin &&
+      uri.path.startsWith('/square/')) {
+    return 'media';
+  }
+  if (uri.origin != Uri.parse(CitizenServeApiConfig.production).origin ||
+      !uri.path.startsWith('/api/')) {
+    return null;
+  }
+  final path = uri.path.substring(4);
+  return switch (path) {
+    '/chain/bootstrap' => 'bootstrap',
+    '/user/challenges' => 'challenge',
+    '/user/sessions' => 'session',
+    '/user/devices' => 'registration',
+    '/user/contacts' => 'contacts',
+    '/topup/config' => 'topup_config',
+    '/topup/status' => 'topup_status',
+    _ when path.startsWith('/user/registration') => 'registration',
+    _ when path.startsWith('/membergate/creator') => 'creator',
+    _ when path.startsWith('/membergate') => 'membergate',
+    _ when path.startsWith('/user/cards/') => 'card',
+    _ when path.startsWith('/user/profile') => 'profile',
+    _ when path.startsWith('/notifications') => 'notifications',
+    _ when path.startsWith('/8964/follows') => 'follows',
+    _ when path.startsWith('/8964/') && path.endsWith('/comments') =>
+      'comments',
+    _ when path.startsWith('/8964/') => 'feed',
+    _ when path.startsWith('/tatachat/') => 'chat_access',
+    _ => 'other',
+  };
 }
 
 class ChainBootstrapApiException implements Exception {

@@ -278,7 +278,7 @@ class _RecordingSubscriptionService implements SubscriptionService {
 }
 
 /// 会员与身份彻底解耦（ADR-037）：会员卡只描述订阅，不含任何身份字段。
-/// plans 留空 → 页面用三档兜底套餐（自由 / 民主 / 薪火）渲染。
+/// 三档额度通过服务端合同夹具注入，不依赖产品内置套餐。
 SquareMembershipState _state({
   bool active = false,
   bool subscriptionActive = false,
@@ -294,7 +294,7 @@ SquareMembershipState _state({
         subscriptionStatus ?? (subscriptionActive ? 'active' : null),
     subscriptionActive: subscriptionActive,
     lastChargedAt: lastChargedAt,
-    plans: const [],
+    plans: membergatePlansFixture(),
   );
 }
 
@@ -309,53 +309,187 @@ SquareMembershipState _priced(
   subscriptionStatus: state.subscriptionStatus,
   subscriptionActive: state.subscriptionActive,
   lastChargedAt: state.lastChargedAt,
-  plans: [for (final price in prices.entries) _plan(price.key, price.value)],
+  plans: SquareApiClient.decodeMembershipPlans([
+    for (final plan in state.plans)
+      {...plan.toJson(), 'price_fen': prices[plan.membershipLevel]},
+  ]),
   usageState: state.usageState,
 );
-SquareMembershipPlan _plan(String level, int price) => SquareMembershipPlan(
-  membershipLevel: level,
-  displayName: level,
-  priceFen: price,
-  chatFileMaxBytes: 100 * 1024 * 1024,
-  chat: const SquareChatQuota(
-    textEnabled: true,
-    emojiEnabled: true,
-    stickerEnabled: true,
-    imageEnabled: true,
-    voiceMessageMaxSeconds: 180,
-    videoMessageMaxSeconds: 180,
-    voiceCallEnabled: true,
-    videoCallEnabled: true,
-  ),
-  document: const SquareDocumentQuota(
-    textMaxChars: 300,
-    imageQuality: 'hd',
-    maxImages: 9,
-  ),
-  video: const SquareVideoQuota(
-    textMaxChars: 300,
-    videoQuality: 'hd',
-    maxVideoSeconds: 180,
-    maxVideoBytes: 100 * 1024 * 1024,
-  ),
-  article: const SquareArticleQuota(
-    titleMinChars: 10,
-    titleMaxChars: 50,
-    bodyMaxChars: 30000,
-    coverQuality: 'hd',
-    imageQuality: 'hd',
-    maxImages: 9,
-    maxVideos: 1,
-  ),
-  usage: const SquareMembershipUsageQuota(
-    monthlyImages: 100,
-    monthlyVideoSeconds: 1800,
-    activeUploads: 5,
-    storageBytes: 1024 * 1024 * 1024,
-  ),
-);
-const _membershipJson =
-    '{"ok":true,"membergate_active":true,"membergate":{"membergate_level":"democracy","paid_until":9999999999999,"subscription_status":"active","last_charged_at":1000},"plans":[],"usage":{"used_images":0,"reserved_images":0,"used_video_seconds":0,"reserved_video_seconds":0,"active_uploads":0}}';
+// 会员合同的公开测试夹具，供既有广场测试复用；不进入产品运行代码。
+Map<String, dynamic> membergatePlanFixture(String level, {int? price}) {
+  final v = switch (level) {
+    'democracy' => (
+      800000,
+      1600,
+      72,
+      1280,
+      720,
+      800000,
+      1200000,
+      96000,
+      1800,
+      200000000,
+      1500,
+      60000,
+      2,
+      1000000000000,
+      15000,
+      100 * 1024 * 1024,
+    ),
+    'spark' => (
+      1200000,
+      1920,
+      78,
+      1920,
+      1080,
+      1200000,
+      1800000,
+      128000,
+      10800,
+      1800000000,
+      5000,
+      600000,
+      3,
+      10000000000000,
+      50000,
+      5120 * 1024 * 1024,
+    ),
+    _ => (
+      400000,
+      1280,
+      65,
+      854,
+      480,
+      450000,
+      675000,
+      64000,
+      180,
+      12000000,
+      300,
+      18000,
+      1,
+      100000000000,
+      5000,
+      10 * 1024 * 1024,
+    ),
+  };
+  final r = switch (level) {
+    'democracy' => (
+      16,
+      512 * 1024 * 1024,
+      128,
+      1024 * 1024 * 1024,
+      2 * 1024 * 1024 * 1024,
+      4096,
+    ),
+    'spark' => (
+      32,
+      12 * 1024 * 1024 * 1024,
+      256,
+      12 * 1024 * 1024 * 1024,
+      24 * 1024 * 1024 * 1024,
+      65536,
+    ),
+    _ => (8, 32 * 1024 * 1024, 32, 64 * 1024 * 1024, 128 * 1024 * 1024, 512),
+  };
+  return {
+    'membergate_level': level,
+    'price_fen': price,
+    'plan': {
+      'membergate_level': level,
+      'chat_file_max_bytes': v.$16,
+      'video_max_seconds': v.$9,
+      'video_max_bytes': v.$10,
+      'article_max_images': level == 'freedom' ? 50 : 100,
+      'article_max_videos': level == 'freedom'
+          ? 1
+          : level == 'democracy'
+          ? 3
+          : 10,
+      'monthly_images': v.$11,
+      'monthly_video_seconds': v.$12,
+      'active_uploads': v.$13,
+    },
+    'limits': {
+      'image_bytes': v.$1,
+      'image_dimension': v.$2,
+      'image_quality': v.$3,
+      'storage_bytes': v.$14,
+      'thumbnail_bytes': 80000,
+      'thumbnail_dimension': 360,
+      'thumbnail_quality': 65,
+      'cover_bytes': 120000,
+      'cover_dimension': 540,
+      'cover_quality': 70,
+      'video_width': v.$4,
+      'video_height': v.$5,
+      'video_total_bitrate': v.$6,
+      'video_peak_bitrate': v.$7,
+      'audio_bitrate': v.$8,
+      'video_frame_rate': 30,
+      'video_key_frame_seconds': 2,
+      'audio_sample_rate': 48000,
+    },
+    'resources': {
+      'pending_attachments': v.$13,
+      'writing_chunks': v.$13,
+      'attachment_count': r.$1,
+      'attachment_bytes': r.$2,
+      'attachment_begins_day': r.$3,
+      'upload_bytes_day': r.$4,
+      'delivery_bytes_day': r.$5,
+      'chunk_operations_day': r.$6,
+      'media_requests_day': v.$15,
+    },
+    'daily_limits': {
+      'chat_connections': 512,
+      'chat_commands': 20000,
+      'chat_frame_bytes': 128 * 1024 * 1024,
+      'chat_deliveries': 10000,
+      'profile_requests': 1000,
+      'profile_read_bytes': 64 * 1024 * 1024,
+      'attachment_begins': r.$3,
+      'chat_chunk_operations': r.$6,
+      'upload_bytes': r.$4,
+      'delivery_bytes': r.$5,
+      'media_requests': v.$15,
+    },
+  };
+}
+
+List<SquareMembershipPlan> membergatePlansFixture([
+  Map<String, int> prices = const {},
+]) => SquareApiClient.decodeMembershipPlans([
+  for (final level in const ['freedom', 'democracy', 'spark'])
+    membergatePlanFixture(level, price: prices[level]),
+]);
+SquareMembershipPlan _plan(String level, int? price) =>
+    membergatePlansFixture(price == null ? const {} : {level: price})
+        .firstWhere((p) => p.membershipLevel == level);
+Map<String, dynamic> membergateUsageFixture() => {
+  'used_bytes': 0,
+  'reserved_bytes': 0,
+  'used_images': 0,
+  'reserved_images': 0,
+  'used_video_seconds': 0,
+  'reserved_video_seconds': 0,
+  'active_uploads': 0,
+  'day_start': 0,
+  'daily': {'media_requests': 0, 'upload_bytes': 0, 'delivery_bytes': 0},
+  'published_count': 0,
+};
+final _membershipJson = jsonEncode({
+  'ok': true,
+  'membergate_active': true,
+  'membergate': {
+    'membergate_level': 'democracy',
+    'paid_until': 9999999999999,
+    'subscription_status': 'active',
+    'last_charged_at': 1000,
+  },
+  'plans': [for (final plan in membergatePlansFixture()) plan.toJson()],
+  'usage': membergateUsageFixture(),
+});
 
 class _MemoryMembershipApi extends SquareApiClient {
   _MemoryMembershipApi(this.read);
@@ -563,7 +697,7 @@ void main() {
     expect(api.calls, 1);
     expect(
       SubscriptionService.chatFileMaxBytesFor(session.cidNumber),
-      100 * 1024 * 1024,
+      10 * 1024 * 1024,
     );
   });
   test('60秒正向缓存与paidUntil边界，30秒无权益缓存到点失效', () async {
@@ -999,10 +1133,7 @@ void main() {
         }
         expect(request.method, 'GET');
         expect(request.url.path, '/api/membergate');
-        return http.Response(
-          '{"ok":true,"membergate_active":true,"membergate":{"membergate_level":"democracy","paid_until":9999999999999,"subscription_status":"active","last_charged_at":1000},"plans":[],"usage":{"used_images":0,"reserved_images":0,"used_video_seconds":0,"reserved_video_seconds":0,"active_uploads":0}}',
-          200,
-        );
+        return http.Response(_membershipJson, 200);
       }),
     );
     addTearDown(api.close);
@@ -1297,7 +1428,7 @@ void main() {
         expect(request.url.path, '/api/membergate');
         membershipCalls += 1;
         return http.Response(
-          '''{"ok":true,"membergate_active":true,"membergate":{"membergate_level":"freedom","paid_until":9999999999999,"subscription_status":"active","last_charged_at":1000},"plans":[],"usage":{"used_images":0,"reserved_images":0,"used_video_seconds":0,"reserved_video_seconds":0,"active_uploads":0}}''',
+          _membershipJson.replaceFirst('democracy', 'freedom'),
           200,
         );
       }),
@@ -1465,7 +1596,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('会话请求未完成时首帧已经显示三张静态会员卡', (tester) async {
+  testWidgets('没有缓存且会话未完成时显示待获取，不制造会员额度', (tester) async {
     final pendingSession = Completer<SquareSession?>();
     await tester.pumpWidget(
       MaterialApp(
@@ -1479,15 +1610,12 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('自由会员'), findsOneWidget);
-    expect(find.text('民主会员'), findsOneWidget);
-    expect(find.text('薪火会员'), findsOneWidget);
-    expect(find.text('会员状态同步中'), findsNWidgets(3));
-    expect(find.byType(CircularProgressIndicator), findsNothing);
-
+    expect(find.text('自由会员'), findsNothing);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
     pendingSession.complete(null);
     await tester.pumpAndSettle();
-    expect(find.text('请先添加钱包账户'), findsNWidgets(4));
+    expect(find.text('请先添加钱包账户'), findsOneWidget);
+    expect(find.text('会员额度尚未获取，请刷新'), findsOneWidget);
   });
 
   testWidgets('已有本地会员时会话未绑定仍显示会员和同步说明，不授权订阅', (tester) async {
@@ -1613,7 +1741,7 @@ void main() {
     expect(find.text('299.00 元'), findsOneWidget);
   });
 
-  testWidgets('会员页不依赖 Cloudflare 套餐接口也能展示静态名称', (tester) async {
+  testWidgets('会员页展示服务端套餐及真实价格', (tester) async {
     await _pump(tester, _state(), prices: const {'freedom': 29900});
 
     expect(find.text('自由会员'), findsOneWidget);
@@ -1726,17 +1854,17 @@ void main() {
     expect(find.text('聊天 文字/表情/贴纸/图片'), findsNWidgets(3));
     expect(find.text('语音/视频消息 3 分钟 · 语音/视频通话'), findsNWidgets(3));
     expect(find.text('聊天附件 每个 10MB'), findsOneWidget);
-    expect(find.text('视频 3 分钟 · 标清 · 16MB'), findsOneWidget);
+    expect(find.text('视频 3 分钟 · 480p · 12MB'), findsOneWidget);
     expect(find.text('文章 3 万字 · 50 图 · 1 视频'), findsOneWidget);
-    expect(find.text('每月 图 300 · 视频 300 分钟'), findsOneWidget);
+    expect(find.text('本周期 图 300 · 视频 300 分钟'), findsOneWidget);
     expect(find.text('并发上传 1 个 · 存储 100GB'), findsOneWidget);
-    expect(find.text('视频 30 分钟 · 高清 · 300MB'), findsOneWidget);
+    expect(find.text('视频 30 分钟 · 720p · 200MB'), findsOneWidget);
     expect(find.text('文章 3 万字 · 100 图 · 3 视频'), findsOneWidget);
-    expect(find.text('每月 图 1,500 · 视频 1,000 分钟'), findsOneWidget);
+    expect(find.text('本周期 图 1,500 · 视频 1,000 分钟'), findsOneWidget);
     expect(find.text('并发上传 2 个 · 存储 1TB'), findsOneWidget);
-    expect(find.text('视频 3 小时 · 高清 · 3GB'), findsOneWidget);
+    expect(find.text('视频 3 小时 · 1080p · 1.8GB'), findsOneWidget);
     expect(find.text('文章 3 万字 · 100 图 · 10 视频'), findsOneWidget);
-    expect(find.text('每月 图 5,000 · 视频 10,000 分钟'), findsOneWidget);
+    expect(find.text('本周期 图 5,000 · 视频 10,000 分钟'), findsOneWidget);
     expect(find.text('并发上传 3 个 · 存储 10TB'), findsOneWidget);
 
     await tester.tap(
@@ -1893,22 +2021,22 @@ void main() {
     expect(find.textContaining('订阅 '), findsOneWidget);
   });
 
-  testWidgets('会话建立失败且无可展示数据 → 顶部失败横幅 + 三卡保留', (tester) async {
+  testWidgets('会话建立失败且无快照时保留错误与重试，不显示假套餐', (tester) async {
     await _pump(
       tester,
       _state(active: false),
       sessionProvider: _ThrowingSessionProvider(),
     );
 
-    // 失败必须有可见解释与重试入口;三张静态卡按本页设计不得被整页错误替换。
+    // 没有真实套餐时只显示读取错误和重试入口。
     expect(
       find.byKey(const ValueKey('membership-load-failure-banner')),
       findsOneWidget,
     );
-    expect(find.text('MLS设备认证暂时不可用，请稍后重试'), findsNWidgets(4));
+    expect(find.text('MLS设备认证暂时不可用，请稍后重试'), findsOneWidget);
     expect(find.text('请先添加钱包账户'), findsNothing);
     expect(find.text('重试'), findsOneWidget);
-    expect(find.byKey(const ValueKey('membership-front-card')), findsOneWidget);
+    expect(find.byKey(const ValueKey('membership-front-card')), findsNothing);
   });
 
   testWidgets('已取消订阅 → 横幅标签「到期终止」且不再续费', (tester) async {
@@ -1945,33 +2073,51 @@ void main() {
     expect(noWindow.hasSubscriptionWindow, isFalse);
   });
 
-  test('会员动态展示快照按 CID 持久化且不包含静态套餐', () async {
+  test('真实套餐、媒体规格和用量按CID持久化；重启不补默认额度', () async {
     final service = _subscriptionService();
     const cidNumber = 'CN220-CTZN2-100000001-2026';
-    const snapshot = MembershipDisplaySnapshot(
-      state: SquareMembershipState(
-        active: true,
-        paidUntil: 9999999999999,
-        membershipLevel: 'democracy',
-        subscriptionStatus: 'active',
-        subscriptionActive: true,
-        lastChargedAt: 1000,
-      ),
-      prices: {'freedom': 29900, 'democracy': 99900, 'spark': 199900},
+    final raw = jsonDecode(_membershipJson) as Map<String, dynamic>;
+    raw['plans'][0]['plan']['monthly_images'] = 777;
+    raw['plans'][0]['limits']['image_quality'] = 61;
+    raw['plans'][0]['daily_limits']['media_requests'] = 4321;
+    raw['plans'][0]['resources']['media_requests_day'] = 4321;
+    raw['usage']['used_bytes'] = 9000;
+    raw['usage']['reserved_bytes'] = 700;
+    raw['usage']['daily']['media_requests'] = 123;
+    raw['usage']['published_count'] = 4;
+    final snapshot = MembershipDisplaySnapshot(
+      state: SquareApiClient.decodeMembership(raw),
+      prices: const {'freedom': 29900, 'democracy': 99900, 'spark': 199900},
       subscriptionFetchedAtMs: 3000,
       pricesFetchedAtMs: 4000,
     );
-
     await service.writeDisplaySnapshot(cidNumber, snapshot);
-    final restored = await service.readDisplaySnapshot(cidNumber);
-
-    expect(restored, isNotNull);
-    expect(restored!.state.membershipLevel, 'democracy');
-    expect(restored.state.plans, isEmpty);
-    expect(restored.decision, MembershipDisplayDecision.activeConfirmed);
+    SubscriptionService.setChatAuthorizationForTesting(cidNumber, null);
+    final restored = (await service.readDisplaySnapshot(cidNumber))!;
+    expect(restored.state.planForLevel('freedom')!.usage.monthlyImages, 777);
+    expect(restored.state.planForLevel('freedom')!.media['image_quality'], 61);
+    expect(
+      restored.state.planForLevel('freedom')!.dailyLimits['media_requests'],
+      4321,
+    );
+    expect(restored.state.planForLevel('freedom')!.imageBytesLabel, '0.4MB');
+    expect(restored.state.usageState!.usedBytes, 9000);
+    expect(restored.state.usageState!.reservedBytes, 700);
+    expect(restored.state.usageState!.daily['media_requests'], 123);
+    expect(restored.state.usageState!.publishedCount, 4);
     expect(restored.prices['spark'], 199900);
     expect(restored.subscriptionFetchedAtMs, 3000);
     expect(restored.pricesFetchedAtMs, 4000);
+  });
+
+  testWidgets('同一档位服务端额度变化直接展示，不被本地定义覆盖', (tester) async {
+    final raw = jsonDecode(_membershipJson) as Map<String, dynamic>;
+    raw['plans'][0]['plan']['monthly_images'] = 777;
+    raw['plans'][0]['plan']['video_max_bytes'] = 9000000;
+    await _pump(tester, SquareApiClient.decodeMembership(raw));
+    expect(find.text('本周期 图 777 · 视频 300 分钟'), findsOneWidget);
+    expect(find.text('视频 3 分钟 · 480p · 9MB'), findsOneWidget);
+    expect(find.text('本周期 图 300 · 视频 300 分钟'), findsNothing);
   });
 
   // 中文注释：同一状态在会员卡和详情页都必须保真，且按钮不得再与价格拼接。
@@ -1979,9 +2125,18 @@ void main() {
     final sessionProvider = _CidNotBoundSessionProvider(
       status: SquareSessionStatus.identityUnavailable,
     );
+    final service = _RecordingSubscriptionService()
+      ..cachedSnapshot = MembershipDisplaySnapshot(
+        state: _state(),
+        prices: const {'freedom': 299, 'democracy': 999, 'spark': 9999},
+        subscriptionFetchedAtMs: 1000,
+        pricesFetchedAtMs: 1000,
+      );
     await _pump(
       tester,
       _state(active: false),
+      service: service,
+      currentUserContext: _CachedCurrentUser(),
       prices: const {'freedom': 299, 'democracy': 999, 'spark': 9999},
       sessionProvider: sessionProvider,
     );

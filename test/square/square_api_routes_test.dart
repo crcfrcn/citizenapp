@@ -1,3 +1,6 @@
+import '../account/membership/membership_page_test.dart'
+    show membergatePlanFixture, membergateUsageFixture;
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -14,6 +17,44 @@ import 'package:citizenapp/8964/feed/square_models.dart';
 import 'mls_authentication_fixture.dart';
 
 void main() {
+  test('HTTP计时标签及数字严格闭集，出口故障不影响调用', () async {
+    const canary = 'synthetic-private-http-detail';
+    final lines = <String>[];
+    await runZoned(
+      () async {
+        AppLog.http(
+          stage: canary,
+          phase: canary,
+          statusCode: 600,
+          headersMicros: 4,
+          elapsedMicros: -1,
+        );
+        AppLog.http(
+          stage: 'challenge',
+          phase: 'complete',
+          statusCode: 200,
+          headersMicros: 2,
+          elapsedMicros: 3,
+        );
+      },
+      zoneSpecification: ZoneSpecification(
+        print: (_, _, _, line) => lines.add(line),
+      ),
+    );
+    expect(lines, [
+      '[CitizenHttp] stage=other http=none headers_us=none total_us=none phase=other',
+      '[CitizenHttp] stage=challenge http=200 headers_us=2 total_us=3 phase=complete',
+    ]);
+    expect(lines.join(), isNot(contains(canary)));
+    await runZoned(
+      () async {
+        AppLog.http(stage: 'challenge', phase: 'error', elapsedMicros: 1);
+      },
+      zoneSpecification: ZoneSpecification(
+        print: (_, _, _, _) => throw StateError(canary),
+      ),
+    );
+  });
   _proposalFailureDiagnosticsTests();
   _proposalReadDiagnosticsTests();
   _failureDiagnosticsTests();
@@ -73,34 +114,10 @@ void main() {
               'membergate_active': false,
               'membergate': null,
               'plans': [
-                {
-                  'membergate_level': 'freedom',
-                  'price_fen': price,
-                  'plan': {
-                    'membergate_level': 'freedom',
-                    'chat_file_max_bytes': 104857600,
-                    'video_max_seconds': 180,
-                    'video_max_bytes': 104857600,
-                    'article_max_images': 9,
-                    'article_max_videos': 1,
-                    'monthly_images': 100,
-                    'monthly_video_seconds': 1800,
-                    'active_uploads': 5,
-                  },
-                  'limits': {
-                    'image_dimension': 1920,
-                    'image_bytes': 10485760,
-                    'storage_bytes': 1073741824,
-                  },
-                },
+                for (final level in const ['freedom', 'democracy', 'spark'])
+                  membergatePlanFixture(level)..['price_fen'] = price,
               ],
-              'usage': {
-                'used_images': 0,
-                'reserved_images': 0,
-                'used_video_seconds': 0,
-                'reserved_video_seconds': 0,
-                'active_uploads': 0,
-              },
+              'usage': membergateUsageFixture(),
             }),
             200,
           ),
@@ -120,7 +137,7 @@ void main() {
       );
       if (price == null ||
           price is int && price >= 0 && price <= 9007199254740991) {
-        expect((await state).plans.single.priceFen, price);
+        expect((await state).planForLevel('freedom')!.priceFen, price);
       } else {
         await expectLater(state, throwsA(isA<SquareApiException>()));
       }
@@ -196,7 +213,7 @@ void main() {
       enabled: true,
     );
     await api.fetchNotificationState(session: session);
-    await api.markNotifyRead(session: session, scope: 'square',through:1);
+    await api.markNotifyRead(session: session, scope: 'square', through: 1);
     expect(sent.map((r) => r.url.path), [
       '/api/user/contacts',
       '/api/8964/feed/recommended',
@@ -302,7 +319,8 @@ void main() {
 /// 合成异常的toString不得被日志读取，防止未来把动态正文混入固定事件。
 class _UnreadableProposalError {
   @override
-  String toString() => throw StateError('synthetic error text must not be read');
+  String toString() =>
+      throw StateError('synthetic error text must not be read');
 }
 
 // 仅用合成输入核对回执闭集，不把任意字符串或秘密写进设备日志。
@@ -310,22 +328,39 @@ void _proposalReadDiagnosticsTests() {
   for (final state in ['waiting', 'started', 'empty', 'nonempty']) {
     test('提案读取回执$state仅输出固定状态', () {
       final lines = <String>[];
-      runZoned(() => AppLog.proposalRead(state: state),
-        zoneSpecification: ZoneSpecification(print: (_, _, _, line) => lines.add(line)));
+      runZoned(
+        () => AppLog.proposalRead(state: state),
+        zoneSpecification: ZoneSpecification(
+          print: (_, _, _, line) => lines.add(line),
+        ),
+      );
       expect(lines, ['[CitizenRead] stage=proposal_first state=$state']);
     });
   }
   test('提案回执未知或恶意状态只输出other，出口失败不覆盖业务结果', () {
     final lines = <String>[];
-    runZoned(() {
-      AppLog.proposalRead(state: 'synthetic private identity');
-      AppLog.proposalRead(state: 'empty\nstate=nonempty');
-    }, zoneSpecification: ZoneSpecification(print: (_, _, _, line) => lines.add(line)));
-    expect(lines, List.filled(2, '[CitizenRead] stage=proposal_first state=other'));
-    final value = runZoned(() {
-      AppLog.proposalRead(state: 'empty');
-      return true;
-    }, zoneSpecification: ZoneSpecification(print: (_, _, _, _) => throw StateError('synthetic sink failure')));
+    runZoned(
+      () {
+        AppLog.proposalRead(state: 'synthetic private identity');
+        AppLog.proposalRead(state: 'empty\nstate=nonempty');
+      },
+      zoneSpecification: ZoneSpecification(
+        print: (_, _, _, line) => lines.add(line),
+      ),
+    );
+    expect(
+      lines,
+      List.filled(2, '[CitizenRead] stage=proposal_first state=other'),
+    );
+    final value = runZoned(
+      () {
+        AppLog.proposalRead(state: 'empty');
+        return true;
+      },
+      zoneSpecification: ZoneSpecification(
+        print: (_, _, _, _) => throw StateError('synthetic sink failure'),
+      ),
+    );
     expect(value, isTrue);
   });
 }
@@ -334,48 +369,107 @@ void _proposalFailureDiagnosticsTests() {
   for (final code in CitizenSdkErrorCode.values) {
     test('提案SDK公开错误类别${code.name}仅输出固定枚举', () {
       final lines = <String>[];
-      runZoned(() {
-        AppLog.proposalFailure(stage: 'proposal_year', error: CitizenSdkException(
-          code: code, message: 'synthetic private message',
-          method: 'synthetic private method', sessionId: 'synthetic private session'));
-      }, zoneSpecification: ZoneSpecification(print: (_, _, _, line) => lines.add(line)));
-      expect(lines, ['[CitizenFailure] stage=proposal_year http=none code=sdk_${code.name}']);
+      runZoned(
+        () {
+          AppLog.proposalFailure(
+            stage: 'proposal_year',
+            error: CitizenSdkException(
+              code: code,
+              message: 'synthetic private message',
+              method: 'synthetic private method',
+              sessionId: 'synthetic private session',
+            ),
+          );
+        },
+        zoneSpecification: ZoneSpecification(
+          print: (_, _, _, line) => lines.add(line),
+        ),
+      );
+      expect(lines, [
+        '[CitizenFailure] stage=proposal_year http=none code=sdk_${code.name}',
+      ]);
       expect(lines.join(), isNot(contains('synthetic private')));
     });
   }
-  for (final stage in ['institutions', 'feed', 'year', 'index', 'details',
-    'context', 'votes', 'display', 'summary']) {
+  for (final stage in [
+    'institutions',
+    'feed',
+    'year',
+    'index',
+    'details',
+    'context',
+    'votes',
+    'display',
+    'summary',
+  ]) {
     test('提案固定阶段$stage沿同一安全出口', () {
       final lines = <String>[];
-      runZoned(() => AppLog.proposalFailure(stage: 'proposal_$stage',
-        error: StateError('synthetic private detail')),
-        zoneSpecification: ZoneSpecification(print: (_, _, _, line) => lines.add(line)));
-      expect(lines, ['[CitizenFailure] stage=proposal_$stage http=none code=state']);
+      runZoned(
+        () => AppLog.proposalFailure(
+          stage: 'proposal_$stage',
+          error: StateError('synthetic private detail'),
+        ),
+        zoneSpecification: ZoneSpecification(
+          print: (_, _, _, line) => lines.add(line),
+        ),
+      );
+      expect(lines, [
+        '[CitizenFailure] stage=proposal_$stage http=none code=state',
+      ]);
     });
   }
   for (final fixture in <(Object, String)>[
     (const FormatException('synthetic private detail'), 'format'),
-    (TypeError(), 'type'), (StateError('synthetic private detail'), 'state'),
+    (TypeError(), 'type'),
+    (StateError('synthetic private detail'), 'state'),
     (_UnreadableProposalError(), 'other'),
   ]) {
     test('提案非SDK异常仅分类${fixture.$2}且不读取原文', () {
       final lines = <String>[];
-      runZoned(() => AppLog.proposalFailure(stage: 'proposal_summary', error: fixture.$1),
-        zoneSpecification: ZoneSpecification(print: (_, _, _, line) => lines.add(line)));
-      expect(lines, ['[CitizenFailure] stage=proposal_summary http=none code=${fixture.$2}']);
+      runZoned(
+        () => AppLog.proposalFailure(
+          stage: 'proposal_summary',
+          error: fixture.$1,
+        ),
+        zoneSpecification: ZoneSpecification(
+          print: (_, _, _, line) => lines.add(line),
+        ),
+      );
+      expect(lines, [
+        '[CitizenFailure] stage=proposal_summary http=none code=${fixture.$2}',
+      ]);
     });
   }
   test('提案恶意阶段及伪造SDK错误名称均归other，出口故障不外抛', () {
     final lines = <String>[];
-    runZoned(() {
-      AppLog.proposalFailure(stage: 'proposal_index\nsynthetic private detail',
-        error: _UnreadableProposalError());
-      AppLog.failure(stage: 'proposal_index', code: 'sdk_network\nsynthetic private detail');
-    }, zoneSpecification: ZoneSpecification(print: (_, _, _, line) => lines.add(line)));
-    expect(lines, ['[CitizenFailure] stage=other http=none code=other',
-      '[CitizenFailure] stage=proposal_index http=none code=other']);
-    runZoned(() => AppLog.proposalFailure(stage: 'proposal_index', error: _UnreadableProposalError()),
-      zoneSpecification: ZoneSpecification(print: (_, _, _, _) => throw StateError('synthetic sink failure')));
+    runZoned(
+      () {
+        AppLog.proposalFailure(
+          stage: 'proposal_index\nsynthetic private detail',
+          error: _UnreadableProposalError(),
+        );
+        AppLog.failure(
+          stage: 'proposal_index',
+          code: 'sdk_network\nsynthetic private detail',
+        );
+      },
+      zoneSpecification: ZoneSpecification(
+        print: (_, _, _, line) => lines.add(line),
+      ),
+    );
+    expect(lines, [
+      '[CitizenFailure] stage=other http=none code=other',
+      '[CitizenFailure] stage=proposal_index http=none code=other',
+    ]);
+    runZoned(
+      () => AppLog.proposalFailure(
+        stage: 'proposal_index',
+        error: _UnreadableProposalError(),
+      ),
+      zoneSpecification: ZoneSpecification(
+        print: (_, _, _, _) => throw StateError('synthetic sink failure'),
+      ),
+    );
   });
 }
 

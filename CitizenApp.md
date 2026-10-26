@@ -1,5 +1,9 @@
 # CitizenApp 技术文档
 
+正式服务HTTP计时复用HttpsOnlyClient.send和AppLog.http，仅记录经过该客户端的正式API及所属媒体源。CitizenHttp包含固定功能类别、HTTP状态、headers_us、total_us及headers/complete/error/cancelled阶段；通讯录使用contacts类别，未知标签归other，无效数字归none。动态URL、查询、账户、请求头、正文和异常内容不进入门面。Stopwatch测量发送至响应头及原消费者读取正文结束，不预读正文，保留原背压、取消、响应元数据及异常身份/堆栈；正文错误在原流转发处记录，不能误报complete。headers、未消费或取消均不能当成成功。该计时不覆盖绕过客户端的图片、WebView、SDK内部WSS或页面渲染；原网络重试、超时、签名及CitizenFailure合同保持。
+
+双端验收逐项联合当轮HTTP终态、状态及页面业务结果。iOS既有RunnerUITests以CITIZEN_READONLY_SCENE选择推荐、关注、竞选、文章、视频、创作者刷新、本人内容主动刷新、通知列表八类场景；先执行testServiceReadOnlyAction，调度方取得对应HTTP终态后再执行不重启App的testServiceReadOnlyResult。UI事件仅表示动作或页面核验，缓存、按钮可见和等待结束不能代替远端成功。会员、三类关注和充值配置沿用既有业务断言及只读矩阵。通讯录可能自动上传待同步密文、评论详情可能自动标记已读，不混入纯只读验收；聊天空列表不能证明WSS已连接。原设备授权由用户完成，测试不代签、不注册身份、不点击通知项或全部已读，不保存账户截图。延迟报告分开列HTTP响应头、正文完成及页面等待，首轮与后续样本分列，失败或未覆盖项明确保留。
+
 ## 当前构建合同
 
 公民App的编译与依赖装配唯一归scripts/build.mjs。本机由塔塔控制台既有塔塔安装器调用compile ios/android，签名、安装和回读归控制台；GitHub由本产品两份既有Workflow调用同一工程装配与App编译入口。scripts/config.mjs按统一五字段声明APP_KEY、IOS_KEY、CITIZENAPP_PROFILE等配置需求，不放任务执行或版本算法。不新增模块，不恢复已删除的平台输入模块。
@@ -769,17 +773,11 @@ CitizenApp 的总目标是 `5+2`：
 #### 8. 广场手机本地媒体成品
 
 - Worker计划以plans条目的membergate_level、price_fen、plan、limits及顶层usage为准。SquareApiClient将真实plan/limits数值映射为App内部document/video/article/usage模型；这些内部模型不是服务端JSON结构。缺失、类型错误或越界额度直接拒绝，不默认补齐。
-- `SquareMediaPolicy` 是手机端三档图片与视频规则唯一真源；发布流程取得 Worker 当前有效
-  `membergate_level` 后，必须先进入 `processingMedia`，不得直接上传相册原文件。
-- 图片统一在临时批次目录生成 WebP 主图和 WebP 缩略图：自由、民主、薪火最长边分别为
-  1280/1920/2560，质量分别为 72/80/85，主图硬上限分别为 1,000,000/
-  2,000,000/4,000,000 字节；缩略图固定最长边 480、质量 70、上限 256,000 字节。
-  压缩时自动归一方向且 `keepExif=false`，不得把原图 GPS、设备型号等 EXIF 带入成品。
-- 视频只生成一份 MP4：HEVC Main 8-bit、SDR BT.709、4:2:0、`hvc1`、最高 30fps、
-  2 秒关键帧、AAC-LC 48kHz 和 faststart。自由/民主/薪火分别为 480p/720p/1080p，
-  音视频总平均码率 0.6/1.2/2.0Mbps，总峰值 0.9/1.8/3.0Mbps，单文件上限
-  16,000,000/300,000,000/3,000,000,000 字节。视频封面固定 WebP 最长边 720、
-  质量 75、上限 512,000 字节。
+- 媒体额度与成品规格唯一来自CitizenServe的membergate/limits.rs，经现有会员接口plan/limits/resources/daily_limits交付。SquareMediaPolicy只映射本次响应，不按会员名称推导码率、尺寸、质量或默认值。缺规格拒绝发布。
+- 图片统一在手机生成WebP主图及缩略图；主图上限400000/800000/1200000字节，最长边1280/1600/1920，初始质量65/72/78。缩略图360px/80000字节、初始质量65；视频封面540px/120000字节、初始质量70。按比例缩放，不放大小图，归一方向并移除EXIF。
+- 视频仍为单份HEVC Main 8-bit/SDR/hvc1/MP4、最高30fps、2秒关键帧、AAC-LC 48kHz和faststart。三档480p/720p/1080p，音视频目标平均码率450000/800000/1200000bit/s、峰值675000/1200000/1800000，音频64000/96000/128000；文件上限12000000/200000000/1800000000字节，时长180/1800/10800秒。压缩由手机完成，服务端验证成品与额度，不承担转码。
+- 会员页只显示真实服务端套餐或原缓存，不保留静态套餐、缺档默认值或本地额度；无快照显示待获取及刷新入口。缓存保留真实套餐、媒体规格和用量，读取与网络复用同一解码；缓存用于展示，不作为授权。周期额度以last_charged_at至paid_until展示为本周期，每日资源用量标明UTC统计日。每日广场媒体请求为5000/15000/50000次，由服务端直接交付，会员详情显示同份额度和已用量。
+- 历史已保存媒体的安全读取顶与新上传规格独立；调小上传上限不重压、不删除历史内容，不将旧内容按新上传档位拒绝读取。
 - Android 使用 Media3 Transformer 与系统 MediaCodec，只接受 API 29+ 的硬件 HEVC
   编码器和解码器；iOS 使用 AVFoundation/VideoToolbox，并以“只允许硬件”的
   `VTCompressionSession` 探针确认编码能力。任一端缺硬件能力、源视频为 HDR/Dolby
@@ -3272,7 +3270,7 @@ Android、iOS平台输入均不保存PNG副本。原生构建通过所属Workflo
 
 ### 额度、缓存及传输
 
-`SquareMembershipPlan`承接服务器Plan及limits；媒体Processor消费本次Plan的图片字节/尺寸与视频时长/字节，不再按本机静态档位决定会员额度。原编解码预设、衍生图和本机文件安全顶保持。展示用套餐静态文案不授予上传资格。
+`SquareMembershipPlan`承接服务器plan、limits、resources及daily_limits；媒体Processor直接消费同份图片/视频/衍生图成品规格，不按本机档位补入预设或额度。会员卡和详情页只显示真实响应及缓存；本机历史文件安全读取顶保持，缓存不授予业务权限。
 
 会员核验最多复用60秒且不超过paid_until，会员变化先撤销相关资格缓存；附件额度失效归0，基础聊天会话不随会员到期关闭。所有业务请求只使用HTTPS，聊天能力地址只使用WSS；原源、主机、有效端口、准确路径、凭据、查询、重定向及签名校验保持。媒体回灌仅向准确信任地址携带当前普通会话头。
 

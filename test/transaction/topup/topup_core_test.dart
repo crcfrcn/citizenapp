@@ -1007,6 +1007,36 @@ void _connectionDiagnosticsTests() {
 
 void _configDiagnosticsTests() {
   const canary = 'synthetic-private-topup';
+  // HTTP计时与业务失败是不同固定事件；逐条校验计时格式，不以过滤掩盖泄漏或额外事件。
+  List<String> configEvents(List<String> lines, {required bool network}) {
+    final events = <String>[], phases = <String>[];
+    final pattern = RegExp(
+      r'^\[CitizenHttp\] stage=topup_config http=(200|none) headers_us=(none|[0-9]+) total_us=([0-9]+) phase=(headers|complete|error)$',
+    );
+    var previousTotal = 0;
+    for (final line in lines) {
+      if (!line.startsWith('[CitizenHttp]')) {
+        events.add(line);
+        continue;
+      }
+      final match = pattern.firstMatch(line);
+      expect(match, isNotNull);
+      final event = match!;
+      expect(event.group(1), network ? 'none' : '200');
+      final total = int.parse(event.group(3)!);
+      expect(total, inInclusiveRange(previousTotal, 9007199254740991));
+      previousTotal = total;
+      if (network) {
+        expect(event.group(2), 'none');
+      } else {
+        expect(int.parse(event.group(2)!), inInclusiveRange(0, total));
+      }
+      phases.add(event.group(4)!);
+    }
+    expect(phases, network ? ['error'] : ['headers', 'complete']);
+    return events;
+  }
+
   for (final status in [401, 403, 404, 429, 503]) {
     for (final known in [true, false]) {
       test('充值配置HTTP$status/${known ? "已知" : "未知"}码安全分类且零付款请求', () async {
@@ -1089,7 +1119,7 @@ void _configDiagnosticsTests() {
           ? 'format'
           : 'response_invalid';
       expect(calls, 1);
-      expect(lines, [
+      expect(configEvents(lines, network: shape == 'network'), [
         '[CitizenFailure] stage=topup_config http=${shape == 'network' ? 'none' : '200'} code=$code',
       ]);
       expect(lines.join(), isNot(contains(canary)));
@@ -1115,7 +1145,7 @@ void _configDiagnosticsTests() {
       ),
     );
     expect(calls, 1);
-    expect(lines, isEmpty);
+    expect(configEvents(lines, network: false), isEmpty);
   });
 }
 

@@ -83,15 +83,14 @@ final class SquareVideoTranscodeRequest {
     'video_bitrate': policy.videoBitrate,
     'total_peak_bitrate': policy.videoPeakBitrate,
     'audio_bitrate': policy.audioBitrate,
-    'audio_sample_rate': SquareMediaPolicy.audioSampleRate,
-    'max_frame_rate': SquareMediaPolicy.videoMaxFrameRate,
-    'key_frame_interval_seconds':
-        SquareMediaPolicy.videoKeyFrameIntervalSeconds,
+    'audio_sample_rate': policy.audioSampleRate,
+    'max_frame_rate': policy.videoMaxFrameRate,
+    'key_frame_interval_seconds': policy.videoKeyFrameIntervalSeconds,
     'max_duration_seconds': policy.maxVideoSeconds,
     'max_bytes': policy.maxVideoBytes,
-    'cover_max_edge': SquareMediaPolicy.videoCoverMaxEdge,
-    'cover_quality': SquareMediaPolicy.videoCoverQuality,
-    'cover_max_bytes': SquareMediaPolicy.videoCoverMaxBytes,
+    'cover_max_edge': policy.videoCoverMaxEdge,
+    'cover_quality': policy.videoCoverQuality,
+    'cover_max_bytes': policy.videoCoverMaxBytes,
   };
 }
 
@@ -333,7 +332,7 @@ final class SquareMediaProcessor {
     final thumbnailSize = _fitLongestEdge(
       primaryOutputSize.width,
       primaryOutputSize.height,
-      SquareMediaPolicy.imageThumbnailMaxEdge,
+      policy.imageThumbnailMaxEdge,
     );
     final thumbnailPath = path.join(
       temporaryDirectory.path,
@@ -344,8 +343,8 @@ final class SquareMediaProcessor {
       outputPath: thumbnailPath,
       width: thumbnailSize.width,
       height: thumbnailSize.height,
-      quality: SquareMediaPolicy.imageThumbnailQuality,
-      maxBytes: SquareMediaPolicy.imageThumbnailMaxBytes,
+      quality: policy.imageThumbnailQuality,
+      maxBytes: policy.imageThumbnailMaxBytes,
     );
     return (
       SquareLocalMediaDraft(
@@ -413,7 +412,7 @@ final class SquareMediaProcessor {
     final coverSize = _fitLongestEdge(
       coverSourceSize.width,
       coverSourceSize.height,
-      SquareMediaPolicy.videoCoverMaxEdge,
+      policy.videoCoverMaxEdge,
     );
     final coverPath = path.join(
       temporaryDirectory.path,
@@ -424,8 +423,8 @@ final class SquareMediaProcessor {
       outputPath: coverPath,
       width: coverSize.width,
       height: coverSize.height,
-      quality: SquareMediaPolicy.videoCoverQuality,
-      maxBytes: SquareMediaPolicy.videoCoverMaxBytes,
+      quality: policy.videoCoverQuality,
+      maxBytes: policy.videoCoverMaxBytes,
     );
     await File(coverSourcePath).delete();
     return (
@@ -469,7 +468,7 @@ final class SquareMediaProcessor {
         result.width > policy.videoShortSide &&
             result.height > policy.videoShortSide ||
         result.frameRate <= 0 ||
-        result.frameRate > SquareMediaPolicy.videoMaxFrameRate + 0.01 ||
+        result.frameRate > policy.videoMaxFrameRate + 0.01 ||
         result.totalAverageBitrate > policy.videoTotalBitrate * 1.08 ||
         result.totalPeakBitrate > policy.videoPeakBitrate ||
         result.byteSize <= 0 ||

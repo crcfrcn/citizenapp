@@ -1,82 +1,81 @@
 import 'package:citizenapp/network/square_api_client.dart';
 
-/// 公民广场手机端媒体成品规则。
-///
-/// 本文件只描述手机本地生成的最终媒体，不替代 Worker 的独立额度与文件复核。
-/// 所有字节上限均采用十进制 MB/GB，与 R2 计量和产品展示保持一致。
+/// 手机只执行服务端下发的成品规格；本文件不定义三档额度或编码参数副本。
 final class SquareMediaPolicy {
-  const SquareMediaPolicy({
-    required this.membershipLevel,
-    required this.imageMaxEdge,
-    required this.imageQuality,
-    required this.imageMaxBytes,
-    required this.videoShortSide,
-    required this.videoLongSide,
-    required this.videoTotalBitrate,
-    required this.videoPeakBitrate,
-    required this.audioBitrate,
-    required this.maxVideoSeconds,
-    required this.maxVideoBytes,
-  });
+  const SquareMediaPolicy._(this._plan);
+  final SquareMembershipPlan _plan;
 
-  static const int imageThumbnailMaxEdge = 480;
-  static const int imageThumbnailQuality = 70;
-  static const int imageThumbnailMaxBytes = 256000;
-  static const int videoCoverMaxEdge = 720;
-  static const int videoCoverQuality = 75;
-  static const int videoCoverMaxBytes = 512000;
-  static const int videoMaxFrameRate = 30;
-  static const int videoKeyFrameIntervalSeconds = 2;
-  static const int audioSampleRate = 48000;
-
-  final String membershipLevel;
-  final int imageMaxEdge;
-  final int imageQuality;
-  final int imageMaxBytes;
-  final int videoShortSide;
-  final int videoLongSide;
-
-  /// 音视频合计目标平均码率，单位 bit/s。
-  final int videoTotalBitrate;
-
-  /// 一秒滑动窗口允许的音视频合计峰值码率，单位 bit/s。
-  final int videoPeakBitrate;
-  final int audioBitrate;
-  final int maxVideoSeconds;
-  final int maxVideoBytes;
-
-  int get videoBitrate => videoTotalBitrate - audioBitrate;
-
-  // 本机已保存图片的安全读取顶，不提供当前账户会员授权。
+  // 历史已保存媒体的安全读取顶，与新上传额度无关，降档或调小上传规格不损坏旧内容。
   static const int maxLocalImageBytes = 4000000;
   static const int maxLocalPlaybackBytes = 3000000000;
 
-  /// 档位只选择原编解码参数；会员字节/尺寸/时长来自本次服务端Plan。
+  String get membershipLevel => _plan.membershipLevel;
+  int get imageMaxEdge => _plan.imageMaxEdge;
+  int get imageMaxBytes => _plan.imageMaxBytes;
+  int get imageQuality => _value('image_quality');
+  int get imageThumbnailMaxEdge => _value('thumbnail_dimension');
+  int get imageThumbnailQuality => _value('thumbnail_quality');
+  int get imageThumbnailMaxBytes => _value('thumbnail_bytes');
+  int get videoCoverMaxEdge => _value('cover_dimension');
+  int get videoCoverQuality => _value('cover_quality');
+  int get videoCoverMaxBytes => _value('cover_bytes');
+  int get videoMaxFrameRate => _value('video_frame_rate');
+  int get videoKeyFrameIntervalSeconds => _value('video_key_frame_seconds');
+  int get audioSampleRate => _value('audio_sample_rate');
+  int get videoShortSide => _value('video_height');
+  int get videoLongSide => _value('video_width');
+  int get videoTotalBitrate => _value('video_total_bitrate');
+  int get videoPeakBitrate => _value('video_peak_bitrate');
+  int get audioBitrate => _value('audio_bitrate');
+  int get videoBitrate => videoTotalBitrate - audioBitrate;
+  int get maxVideoSeconds => _plan.video.maxVideoSeconds;
+  int get maxVideoBytes => _plan.video.maxVideoBytes;
+
+  int _value(String key) {
+    final value = _plan.media[key];
+    if (value == null || value <= 0) throw FormatException('媒体成品参数缺失：$key');
+    return value;
+  }
+
   static SquareMediaPolicy forPlan(SquareMembershipPlan plan) {
-    if (plan.imageMaxBytes <= 0 ||
+    if (!const [
+          'freedom',
+          'democracy',
+          'spark',
+        ].contains(plan.membershipLevel) ||
+        plan.imageMaxBytes <= 0 ||
         plan.imageMaxEdge <= 0 ||
         plan.video.maxVideoBytes <= 0 ||
         plan.video.maxVideoSeconds <= 0) {
       throw const FormatException('会员媒体参数缺失');
     }
-    final codec = switch (plan.membershipLevel) {
-      'freedom' => (72, 480, 854, 600000, 900000, 96000),
-      'democracy' => (80, 720, 1280, 1200000, 1800000, 96000),
-      'spark' => (85, 1080, 1920, 2000000, 3000000, 128000),
-      _ => throw const FormatException('会员档位不支持广场媒体处理'),
-    };
-    return SquareMediaPolicy(
-      membershipLevel: plan.membershipLevel,
-      imageMaxEdge: plan.imageMaxEdge,
-      imageQuality: codec.$1,
-      imageMaxBytes: plan.imageMaxBytes,
-      videoShortSide: codec.$2,
-      videoLongSide: codec.$3,
-      videoTotalBitrate: codec.$4,
-      videoPeakBitrate: codec.$5,
-      audioBitrate: codec.$6,
-      maxVideoSeconds: plan.video.maxVideoSeconds,
-      maxVideoBytes: plan.video.maxVideoBytes,
-    );
+    final policy = SquareMediaPolicy._(plan);
+    for (final key in const [
+      'image_quality',
+      'thumbnail_dimension',
+      'thumbnail_quality',
+      'thumbnail_bytes',
+      'cover_dimension',
+      'cover_quality',
+      'cover_bytes',
+      'video_frame_rate',
+      'video_key_frame_seconds',
+      'audio_sample_rate',
+      'video_height',
+      'video_width',
+      'video_total_bitrate',
+      'video_peak_bitrate',
+      'audio_bitrate',
+    ]) {
+      policy._value(key);
+    }
+    if (policy.imageQuality > 100 ||
+        policy.imageThumbnailQuality > 100 ||
+        policy.videoCoverQuality > 100 ||
+        policy.audioBitrate >= policy.videoTotalBitrate ||
+        policy.videoPeakBitrate < policy.videoTotalBitrate) {
+      throw const FormatException('媒体成品规格无效');
+    }
+    return policy;
   }
 }

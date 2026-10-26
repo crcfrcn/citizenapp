@@ -7,7 +7,7 @@ import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 会员详情页：展开某一档（自由/民主/薪火）的**完整权益**（聊天 / 公文 / 文章 / 视频 / 用量额度）。
 ///
-/// 数据全部取自 [SquareMembershipPlan]（后端下发或本地兜底，单源），价格取自链上（[priceFen]）。
+/// 额度、规格与用量只展示服务端快照或它的缓存，不定义静态套餐。
 /// 订阅动作不在本页实现：点击底部按钮返回会员页并触发原订阅流程（[onSubscribe]），
 /// 避免把签名/上链逻辑复制到详情页。
 class MembershipDetailPage extends StatelessWidget {
@@ -18,9 +18,11 @@ class MembershipDetailPage extends StatelessWidget {
     required this.actionLabel,
     required this.subscribeEnabled,
     required this.onSubscribe,
+    this.usageState,
   });
 
   final SquareMembershipPlan plan;
+  final SquareMembershipUsageState? usageState;
 
   /// 本档链上月价（分）；null=链上未设该档价，显示占位「—」。
   final int? priceFen;
@@ -51,32 +53,81 @@ class MembershipDetailPage extends StatelessWidget {
           SizedBox(height: AppLayout.scaled(context, 12)),
           _section(tierColor, Icons.description_outlined, '公文', [
             _row('文字', '最多 ${plan.document.textMaxChars} 字'),
-            _row('图片',
-                '${plan.document.maxImages} 张 · ${plan.documentImageQualityLabel}'),
+            _row(
+              '图片',
+              '${plan.document.maxImages} 张 · ${plan.documentImageQualityLabel}',
+            ),
+            _row('单图片体积', '最大 ${plan.imageBytesLabel}'),
           ]),
           SizedBox(height: AppLayout.scaled(context, 12)),
           _section(tierColor, Icons.videocam_outlined, '视频', [
             _row('配文', '最多 ${plan.video.textMaxChars} 字'),
-            _row('视频',
-                '1 个 · ${plan.videoDurationLabel} · ${plan.videoQualityLabel}'),
+            _row(
+              '视频',
+              '1 个 · ${plan.videoDurationLabel} · ${plan.videoQualityLabel}',
+            ),
             _row('单视频体积', '最大 ${plan.videoBytesLabel}'),
           ]),
           SizedBox(height: AppLayout.scaled(context, 12)),
           _section(tierColor, Icons.article_outlined, '文章', [
             _row('正文', '最多 ${_wan(plan.article.bodyMaxChars)}'),
-            _row('配图',
-                '${plan.article.maxImages} 张 · ${plan.articleImageQualityLabel}'),
+            _row(
+              '配图',
+              '${plan.article.maxImages} 张 · ${plan.articleImageQualityLabel}',
+            ),
             _row('视频', '最多 ${plan.article.maxVideos} 个'),
-            _row('首图 · 标题',
-                '${plan.articleCoverQualityLabel} · ${plan.article.titleMinChars}–${plan.article.titleMaxChars} 字'),
+            _row(
+              '首图 · 标题',
+              '${plan.articleCoverQualityLabel} · ${plan.article.titleMinChars}–${plan.article.titleMaxChars} 字',
+            ),
           ]),
           SizedBox(height: AppLayout.scaled(context, 12)),
           _section(tierColor, Icons.storage_outlined, '用量额度', [
-            _row('每月图片', '${_thousands(plan.usage.monthlyImages)} 张'),
-            _row('每月视频', plan.monthlyVideoDurationLabel),
+            _row('本周期图片', '${_thousands(plan.usage.monthlyImages)} 张'),
+            _row('本周期视频', plan.monthlyVideoDurationLabel),
             _row('并发上传', '${plan.usage.activeUploads} 个'),
             _row('存储空间', plan.storageSizeLabel),
           ]),
+          if (plan.dailyLimits.isNotEmpty) ...[
+            SizedBox(height: AppLayout.scaled(context, 12)),
+            _section(tierColor, Icons.today_outlined, '每日资源额度（UTC）', [
+              for (final entry in plan.dailyLimits.entries.where(
+                (entry) => _dailyDisplay.containsKey(entry.key),
+              ))
+                _row(
+                  _dailyDisplay[entry.key]!,
+                  _meterValue(entry.key, entry.value),
+                ),
+            ]),
+          ],
+          if (usageState case final usage?) ...[
+            SizedBox(height: AppLayout.scaled(context, 12)),
+            _section(tierColor, Icons.data_usage_outlined, '服务端用量快照', [
+              _row('已用存储', _meterValue('delivery_bytes', usage.usedBytes)),
+              _row(
+                '上传预留存储',
+                _meterValue('delivery_bytes', usage.reservedBytes),
+              ),
+              _row('周期图片（含预留）', '${_thousands(usage.imageCount)} 张'),
+              _row('周期视频（含预留）', '${usage.videoSeconds} 秒'),
+              _row('当前上传', '${usage.activeUploads} 个'),
+              _row('周期发布', '${usage.publishedCount} 条'),
+              _row(
+                '统计日（UTC）',
+                DateTime.fromMillisecondsSinceEpoch(
+                  usage.dayStart,
+                  isUtc: true,
+                ).toIso8601String().substring(0, 10),
+              ),
+              for (final entry in usage.daily.entries.where(
+                (entry) => _dailyDisplay.containsKey(entry.key),
+              ))
+                _row(
+                  _dailyDisplay[entry.key]!,
+                  _meterValue(entry.key, entry.value),
+                ),
+            ]),
+          ],
           SizedBox(height: AppLayout.scaled(context, 20)),
           _subscribeButton(context, tierColor, onTier),
         ],
@@ -86,8 +137,9 @@ class MembershipDetailPage extends StatelessWidget {
 
   Widget _header(String level, Color tierColor, Color onTier) {
     // 与三档会员卡一致：自由金底使用主文字色，深色档位使用纯白公民币标志。
-    final gmbMarkColor =
-        level == 'freedom' ? AppTheme.textPrimary : Colors.white;
+    final gmbMarkColor = level == 'freedom'
+        ? AppTheme.textPrimary
+        : Colors.white;
     return Container(
       padding: EdgeInsets.all(AppLayout.scaledValue(16)),
       decoration: BoxDecoration(
@@ -252,8 +304,9 @@ class MembershipDetailPage extends StatelessWidget {
               }
             : null,
         child: Padding(
-          padding:
-              EdgeInsets.symmetric(vertical: AppLayout.scaled(context, 14)),
+          padding: EdgeInsets.symmetric(
+            vertical: AppLayout.scaled(context, 14),
+          ),
           child: Center(
             child: Text(
               // 价格已经在详情头部单独展示；按钮只表达动作或不可用原因，避免把
@@ -272,12 +325,35 @@ class MembershipDetailPage extends StatelessWidget {
   }
 }
 
+// 指标名称和单位只用于展示；额度及已用值均来自同一服务端响应。
+// 界面只展示用户能直接理解的媒体请求与流量；完整计数仍保留在同一服务端快照中。
+const _dailyDisplay = {
+  'media_requests': '广场媒体请求',
+  'upload_bytes': '附件上传流量',
+  'delivery_bytes': '媒体及附件下发流量',
+};
+String _meterValue(String metric, int value) {
+  if (metric.endsWith('_bytes')) {
+    if (value >= 1000000000) {
+      return '${(value / 1000000000).toStringAsFixed(2)} GB';
+    }
+    if (value >= 1000000) {
+      return '${(value / 1000000).toStringAsFixed(2)} MB';
+    }
+    if (value >= 1000) {
+      return '${(value / 1000).toStringAsFixed(2)} KB';
+    }
+    return '$value B';
+  }
+  return '${_thousands(value)} 次';
+}
+
 /// 会员档色（自由金 / 民主蓝 / 薪火红），与会员卡片一致。
 Color _tierColor(String level) => switch (level) {
-      'spark' => AppTheme.identityCandidate,
-      'democracy' => AppTheme.identityVoting,
-      _ => AppTheme.identityVisitor,
-    };
+  'spark' => AppTheme.identityCandidate,
+  'democracy' => AppTheme.identityVoting,
+  _ => AppTheme.identityVisitor,
+};
 
 /// 顶带前景色：自由金底用深棕，其余用白字。
 Color _onTierColor(String level) =>

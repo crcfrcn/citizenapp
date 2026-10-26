@@ -1,3 +1,6 @@
+import '../account/membership/membership_page_test.dart'
+    show membergatePlansFixture, membergatePlanFixture;
+
 import 'package:citizenapp/network/square_api_client.dart';
 
 import 'dart:io';
@@ -109,7 +112,7 @@ void main() {
           SquareMediaPolicy.forPlan(_plan('freedom')).maxVideoSeconds,
           SquareMediaPolicy.forPlan(_plan('freedom')).maxVideoBytes,
         ),
-        (1280, 72, 1000000, 480, 600000, 180, 16000000),
+        (1280, 65, 400000, 480, 450000, 180, 12000000),
       );
       expect(
         (
@@ -121,7 +124,7 @@ void main() {
           SquareMediaPolicy.forPlan(_plan('democracy')).maxVideoSeconds,
           SquareMediaPolicy.forPlan(_plan('democracy')).maxVideoBytes,
         ),
-        (1920, 80, 2000000, 720, 1200000, 1800, 300000000),
+        (1600, 72, 800000, 720, 800000, 1800, 200000000),
       );
       expect(
         (
@@ -133,15 +136,38 @@ void main() {
           SquareMediaPolicy.forPlan(_plan('spark')).maxVideoSeconds,
           SquareMediaPolicy.forPlan(_plan('spark')).maxVideoBytes,
         ),
-        (2560, 85, 4000000, 1080, 2000000, 10800, 3000000000),
+        (1920, 78, 1200000, 1080, 1200000, 10800, 1800000000),
       );
-      expect(SquareMediaPolicy.imageThumbnailMaxEdge, 480);
-      expect(SquareMediaPolicy.videoCoverMaxBytes, 512000);
+      expect(
+        SquareMediaPolicy.forPlan(_plan('freedom')).imageThumbnailMaxEdge,
+        360,
+      );
+      expect(
+        SquareMediaPolicy.forPlan(_plan('freedom')).videoCoverMaxBytes,
+        120000,
+      );
       expect(
         () => SquareMediaPolicy.forPlan(_plan('unknown')),
         throwsFormatException,
       );
     });
+  });
+
+  test('同档位编码参数只消费响应，缺失或坏规格不按名称补值', () {
+    final rows = [
+      for (final level in const ['freedom', 'democracy', 'spark'])
+        membergatePlanFixture(level),
+    ];
+    (rows.first['limits'] as Map)['image_quality'] = 61;
+    (rows.first['limits'] as Map)['video_total_bitrate'] = 400000;
+    final plan = SquareApiClient.decodeMembershipPlans(rows).first;
+    expect(SquareMediaPolicy.forPlan(plan).imageQuality, 61);
+    expect(SquareMediaPolicy.forPlan(plan).videoTotalBitrate, 400000);
+    (rows.first['limits'] as Map).remove('audio_bitrate');
+    expect(
+      () => SquareApiClient.decodeMembershipPlans(rows),
+      throwsA(isA<SquareApiException>()),
+    );
   });
 
   group('SquareMediaProcessor', () {
@@ -198,8 +224,8 @@ void main() {
       );
 
       expect(calls, [
-        (width: 1280, height: 640, quality: 72),
-        (width: 480, height: 240, quality: 70),
+        (width: 1280, height: 640, quality: 65),
+        (width: 360, height: 180, quality: 65),
       ]);
       expect(batch.mediaDrafts.single.contentType, 'image/webp');
       expect(batch.mediaDrafts.single.fileName, 'source.webp');
@@ -333,8 +359,8 @@ final class _FakeVideoBridge implements SquareVideoBridge {
       width: 854,
       height: 480,
       frameRate: 30,
-      totalAverageBitrate: 580000,
-      totalPeakBitrate: 850000,
+      totalAverageBitrate: request.policy.videoTotalBitrate - 20000,
+      totalPeakBitrate: request.policy.videoPeakBitrate - 50000,
       byteSize: 4,
       coverByteSize: cover.length,
       videoCodec: 'hevc',
@@ -345,54 +371,26 @@ final class _FakeVideoBridge implements SquareVideoBridge {
   }
 }
 
-// 合成服务端Plan保留原三级数值金标；媒体处理只消费响应参数。
+// 当前服务端合同夹具；压缩处理不按档位补入任何参数。
 SquareMembershipPlan _plan(String level) {
-  final values = switch (level) {
-    'democracy' => (1920, 2000000, 1800, 300000000),
-    'spark' => (2560, 4000000, 10800, 3000000000),
-    _ => (1280, 1000000, 180, 16000000),
-  };
+  final plans = membergatePlansFixture();
+  if (level != 'unknown') {
+    return plans.firstWhere((p) => p.membershipLevel == level);
+  }
+  final p = plans.first;
   return SquareMembershipPlan(
     membershipLevel: level,
-    displayName: level,
-    chatFileMaxBytes: 1,
-    imageMaxEdge: values.$1,
-    imageMaxBytes: values.$2,
-    chat: const SquareChatQuota(
-      textEnabled: true,
-      emojiEnabled: true,
-      stickerEnabled: true,
-      imageEnabled: true,
-      voiceMessageMaxSeconds: 180,
-      videoMessageMaxSeconds: 180,
-      voiceCallEnabled: true,
-      videoCallEnabled: true,
-    ),
-    document: const SquareDocumentQuota(
-      textMaxChars: 300,
-      imageQuality: 'hd',
-      maxImages: 9,
-    ),
-    video: SquareVideoQuota(
-      textMaxChars: 300,
-      videoQuality: 'hd',
-      maxVideoSeconds: values.$3,
-      maxVideoBytes: values.$4,
-    ),
-    article: const SquareArticleQuota(
-      titleMinChars: 10,
-      titleMaxChars: 50,
-      bodyMaxChars: 30000,
-      coverQuality: 'hd',
-      imageQuality: 'hd',
-      maxImages: 100,
-      maxVideos: 3,
-    ),
-    usage: const SquareMembershipUsageQuota(
-      monthlyImages: 1500,
-      monthlyVideoSeconds: 60000,
-      activeUploads: 2,
-      storageBytes: 1000000000000,
-    ),
+    displayName: p.displayName,
+    chatFileMaxBytes: p.chatFileMaxBytes,
+    chat: p.chat,
+    document: p.document,
+    video: p.video,
+    article: p.article,
+    usage: p.usage,
+    imageMaxBytes: p.imageMaxBytes,
+    imageMaxEdge: p.imageMaxEdge,
+    media: p.media,
+    resources: p.resources,
+    dailyLimits: p.dailyLimits,
   );
 }
