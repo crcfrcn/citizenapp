@@ -96,7 +96,7 @@ void main() {
         expect(request.headers['authorization'], 'Bearer tok');
         pushBody = jsonDecode(request.body) as Map<String, dynamic>;
         return http.Response(
-          jsonEncode({'ok': true, 'expires_at': pushBody!['expires_at']}),
+          jsonEncode({'is_ok': true, 'expires_at': pushBody!['expires_at']}),
           200,
         );
       }),

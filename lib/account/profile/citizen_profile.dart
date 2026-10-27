@@ -8,7 +8,7 @@ class CitizenProfile {
   const CitizenProfile({
     required this.accountId,
     required this.displayName,
-    required this.bio,
+    required this.profileBio,
     required this.avatarObjectKey,
     required this.bannerObjectKey,
     required this.cidNumber,
@@ -31,7 +31,7 @@ class CitizenProfile {
 
   final String accountId;
   final String displayName;
-  final String bio;
+  final String profileBio;
   final String? avatarObjectKey;
   final String? bannerObjectKey;
   final String? cidNumber;
@@ -73,7 +73,8 @@ class CitizenProfile {
 
   factory CitizenProfile.fromJson(Map<String, dynamic> json) {
     final counts = json['counts'];
-    if (counts is! Map<String, dynamic> ||
+    if (json['profile_bio'] is! String ||
+        counts is! Map<String, dynamic> ||
         !counts.containsKey('following') ||
         !counts.containsKey('followers') ||
         !counts.containsKey('mutual_following') ||
@@ -88,7 +89,7 @@ class CitizenProfile {
     return CitizenProfile(
       accountId: _asString(json['account_id']),
       displayName: _asString(json['display_name']),
-      bio: _asString(json['bio']),
+      profileBio: _asString(json['profile_bio']),
       avatarObjectKey: _asNullableString(json['avatar_object_key']),
       bannerObjectKey: _asNullableString(json['banner_object_key']),
       cidNumber: _asNullableString(json['cid_number']),
@@ -113,7 +114,7 @@ class CitizenProfile {
   Map<String, dynamic> toJson() => <String, dynamic>{
     'account_id': accountId,
     'display_name': displayName,
-    'bio': bio,
+    'profile_bio': profileBio,
     'avatar_object_key': avatarObjectKey,
     'banner_object_key': bannerObjectKey,
     'cid_number': cidNumber,
@@ -138,7 +139,7 @@ class CitizenProfile {
 
   CitizenProfile copyWith({
     String? displayName,
-    String? bio,
+    String? profileBio,
     Object? avatarObjectKey = _sentinel,
     Object? bannerObjectKey = _sentinel,
     Object? membershipLevel = _sentinel,
@@ -153,7 +154,7 @@ class CitizenProfile {
     return CitizenProfile(
       accountId: accountId,
       displayName: displayName ?? this.displayName,
-      bio: bio ?? this.bio,
+      profileBio: profileBio ?? this.profileBio,
       avatarObjectKey: identical(avatarObjectKey, _sentinel)
           ? this.avatarObjectKey
           : avatarObjectKey as String?,
@@ -242,7 +243,7 @@ final class CitizenProfileCard extends CitizenProfile {
         displayName: card['display_name'] as String,
         avatarObjectKey: card['avatar_object_key'] as String?,
         updatedAt: card['updated_at'] as int,
-        bio: '',
+        profileBio: '',
         bannerObjectKey: null,
         isCertified: card['is_certified'] == true,
         identityLevel: card['identity_level'] as String? ?? 'visitor',

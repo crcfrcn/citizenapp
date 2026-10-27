@@ -22,12 +22,12 @@ void main() {
   TopupPaymentIntent solanaIntent() {
     final value = fixture()['native']['solana'] as Map<String, dynamic>;
     return TopupPaymentIntent.fromJson({
-      'ok': true,
+      'is_ok': true,
       'order_id':
-          'top_${(value['intent']['intent_id'] as String).substring(4)}',
-      'payment_intent': value['token'],
-      'intent': value['intent'],
-      'wallet_authorization_message': value['message'],
+          'top_${(value['intent_data']['intent_id'] as String).substring(4)}',
+      'intent_token': value['token'],
+      'intent_data': value['intent_data'],
+      'sign_message': value['message'],
     });
   }
 
@@ -145,7 +145,7 @@ void main() {
       throwsFormatException,
     );
     final evm = TopupPaymentIntent.fromJson(
-      fixture()['intent'] as Map<String, dynamic>,
+      fixture()['intent_data'] as Map<String, dynamic>,
     );
     await expectLater(
       api.solanaRpc(
@@ -369,7 +369,9 @@ void main() {
   });
   test('付款意图、HMAC原文及钱包消息逐字段对齐服务端金标', () {
     final j = fixture();
-    final i = TopupPaymentIntent.fromJson(j['intent'] as Map<String, dynamic>);
+    final i = TopupPaymentIntent.fromJson(
+      j['intent_data'] as Map<String, dynamic>,
+    );
     final c = TopupConfig.fromJson(j['config'] as Map<String, dynamic>);
     i.validatePayment(
       rail: c.rail('USDC', TopupNetwork.base),
@@ -404,8 +406,8 @@ void main() {
       ),
       throwsFormatException,
     );
-    final bad = fixture()['intent'] as Map<String, dynamic>;
-    bad['intent']['pay_amount'] = '16000000';
+    final bad = fixture()['intent_data'] as Map<String, dynamic>;
+    bad['intent_data']['pay_amount'] = '16000000';
     expect(() => TopupPaymentIntent.fromJson(bad), throwsFormatException);
   });
   test('三协议地址及交易格式独立，Solana大小写不能转小写', () {
@@ -414,8 +416,8 @@ void main() {
       final j = f['native'][name] as Map<String, dynamic>;
       final n = TopupNetwork.parse(name);
       expect(
-        n.address(j['intent']['payer_address'] as String),
-        j['intent']['payer_address'],
+        n.address(j['intent_data']['payer_address'] as String),
+        j['intent_data']['payer_address'],
       );
       expect(n.transaction(j['txid'] as String), true);
       n.signature(j['signature'] as String);
@@ -506,7 +508,9 @@ void main() {
   });
   test('API使用当前network和payment_txid合同，不带普通会话或把凭证放URL', () async {
     final f = fixture();
-    final i = TopupPaymentIntent.fromJson(f['intent'] as Map<String, dynamic>);
+    final i = TopupPaymentIntent.fromJson(
+      f['intent_data'] as Map<String, dynamic>,
+    );
     var calls = 0;
     final api = TopupApi(
       baseUrl: 'https://www.crcfrcn.com/api',
@@ -521,11 +525,11 @@ void main() {
         if (r.url.path.endsWith('/intent')) {
           expect(body['network'], 'base');
           expect(body.containsKey('cid_number'), false);
-          return http.Response(jsonEncode(f['intent']), 200);
+          return http.Response(jsonEncode(f['intent_data']), 200);
         }
         if (r.url.path.endsWith('/confirm')) {
           expect(body.keys.toSet(), {
-            'payment_intent',
+            'intent_token',
             'payment_txid',
             'payer_signature',
           });
@@ -533,14 +537,14 @@ void main() {
         }
         return http.Response(
           jsonEncode({
-            'ok': true,
-            'order_id': i.order,
+            'is_ok': true,
+            'order_id': i.orderId,
             'status': 'pending',
-            'phase': 'verifying',
+            'order_state': 'verifying',
             'coin_fen': i.coinFen,
             'payment_txid': '0x${'09' * 32}',
             'gmb_tx_hash': null,
-            'reason': null,
+            'exception_reason': null,
           }),
           200,
         );
@@ -558,18 +562,20 @@ void main() {
       paymentTxid: '0x${'09' * 32}',
       payerSignature: f['signature'] as String,
     );
-    expect((await api.status(i)).phase, TopupPhase.verifying);
+    expect((await api.status(i)).orderState, TopupPhase.verifying);
     expect(calls, 4);
     api.close();
   });
-  test('API准确读取error字段，未知/矛盾/缺证明的到账状态不能成功', () async {
+  test('API准确读取error_code字段，未知/矛盾/缺证明的到账状态不能成功', () async {
     final i = TopupPaymentIntent.fromJson(
-      fixture()['intent'] as Map<String, dynamic>,
+      fixture()['intent_data'] as Map<String, dynamic>,
     );
     final api = TopupApi(
       httpClient: MockClient(
-        (_) async =>
-            http.Response('{"ok":false,"error":"topup_payment_conflict"}', 409),
+        (_) async => http.Response(
+          '{"is_ok":false,"error_code":"topup_payment_conflict"}',
+          409,
+        ),
       ),
     );
     await expectLater(
@@ -584,13 +590,13 @@ void main() {
     );
     api.close();
     for (final j in [
-      {'ok': true, 'status': 'paid', 'phase': 'broadcast'},
-      {'ok': true, 'status': 'other', 'phase': 'paid'},
+      {'is_ok': true, 'status': 'paid', 'order_state': 'broadcast'},
+      {'is_ok': true, 'status': 'other', 'order_state': 'paid'},
       {
-        'ok': true,
+        'is_ok': true,
         'status': 'paid',
-        'phase': 'paid',
-        'order_id': i.order,
+        'order_state': 'paid',
+        'order_id': i.orderId,
         'coin_fen': i.coinFen,
       },
     ]) {
@@ -600,7 +606,9 @@ void main() {
   test('新付款重新取配置，未就绪、所选错链及关闭页面均不能创建意图', () async {
     final f = fixture(),
         c = TopupConfig.fromJson(f['config'] as Map<String, dynamic>),
-        i = TopupPaymentIntent.fromJson(f['intent'] as Map<String, dynamic>);
+        i = TopupPaymentIntent.fromJson(
+          f['intent_data'] as Map<String, dynamic>,
+        );
     final choice = TopupSelection(
       token: 'USDC',
       package: c.packages.first,
@@ -613,7 +621,7 @@ void main() {
           calls++;
           if (request.url.path.endsWith('/intent')) {
             created++;
-            return http.Response(jsonEncode(f['intent']), 200);
+            return http.Response(jsonEncode(f['intent_data']), 200);
           }
           final config = Map<String, dynamic>.from(f['config'] as Map);
           if (mode == 'unready') config['ready'] = false;
@@ -643,7 +651,9 @@ void main() {
   test('恢复先向服务端核验原凭据，地址更换只影响新订单且不重建原意图', () async {
     final f = fixture(),
         c = TopupConfig.fromJson(f['config'] as Map<String, dynamic>),
-        i = TopupPaymentIntent.fromJson(f['intent'] as Map<String, dynamic>);
+        i = TopupPaymentIntent.fromJson(
+          f['intent_data'] as Map<String, dynamic>,
+        );
     final choice = TopupSelection.fromIntent(i, c);
     for (final accepted in [true, false]) {
       final paths = <String>[];
@@ -661,23 +671,26 @@ void main() {
             return http.Response(jsonEncode(config), 200);
           }
           expect(request.url.path.endsWith('/status'), true);
-          expect((jsonDecode(request.body) as Map)['payment_intent'], i.token);
+          expect(
+            (jsonDecode(request.body) as Map)['intent_token'],
+            i.intentToken,
+          );
           if (!accepted) {
             return http.Response(
-              '{"ok":false,"error":"topup_order_not_found"}',
+              '{"is_ok":false,"error_code":"topup_order_not_found"}',
               404,
             );
           }
           return http.Response(
             jsonEncode({
-              'ok': true,
-              'order_id': i.order,
+              'is_ok': true,
+              'order_id': i.orderId,
               'status': 'pending',
-              'phase': 'awaiting',
+              'order_state': 'awaiting',
               'coin_fen': i.coinFen,
               'payment_txid': null,
               'gmb_tx_hash': null,
-              'reason': null,
+              'exception_reason': null,
             }),
             200,
           );
@@ -693,8 +706,8 @@ void main() {
       );
       if (accepted) {
         final prepared = await result;
-        expect(prepared.rail.recvAddress, i.intent['recv_address']);
-        expect(prepared.intent.token, i.token);
+        expect(prepared.rail.recvAddress, i.intentData['recv_address']);
+        expect(prepared.intent.intentToken, i.intentToken);
       } else {
         await expectLater(result, throwsA(isA<TopupApiException>()));
       }
@@ -705,7 +718,9 @@ void main() {
   test('已有付款定位或服务端已进入核验阶段时，不再恢复成一笔新付款', () async {
     final f = fixture(),
         c = TopupConfig.fromJson(f['config'] as Map<String, dynamic>),
-        i = TopupPaymentIntent.fromJson(f['intent'] as Map<String, dynamic>);
+        i = TopupPaymentIntent.fromJson(
+          f['intent_data'] as Map<String, dynamic>,
+        );
     final api = TopupApi(
       httpClient: MockClient(
         (request) async => http.Response(
@@ -713,14 +728,14 @@ void main() {
             request.url.path.endsWith('/config')
                 ? f['config']
                 : {
-                    'ok': true,
-                    'order_id': i.order,
+                    'is_ok': true,
+                    'order_id': i.orderId,
                     'status': 'pending',
-                    'phase': 'verifying',
+                    'order_state': 'verifying',
                     'coin_fen': i.coinFen,
                     'payment_txid': '0x${'09' * 32}',
                     'gmb_tx_hash': null,
-                    'reason': null,
+                    'exception_reason': null,
                   },
           ),
           200,
@@ -742,11 +757,13 @@ void main() {
   });
   test('网络尚未开放的服务端错误保留准确代码并显示未发起付款', () async {
     final f = fixture(),
-        i = TopupPaymentIntent.fromJson(f['intent'] as Map<String, dynamic>);
+        i = TopupPaymentIntent.fromJson(
+          f['intent_data'] as Map<String, dynamic>,
+        );
     final api = TopupApi(
       httpClient: MockClient(
         (_) async => http.Response(
-          '{"ok":false,"error":"topup_network_unconfigured"}',
+          '{"is_ok":false,"error_code":"topup_network_unconfigured"}',
           503,
         ),
       ),
@@ -793,7 +810,9 @@ void main() {
   test('新付款按所选元组取得新报价，错误网络的服务端报价在签名前拒绝', () async {
     final f = fixture(),
         c = TopupConfig.fromJson(f['config'] as Map<String, dynamic>),
-        i = TopupPaymentIntent.fromJson(f['intent'] as Map<String, dynamic>);
+        i = TopupPaymentIntent.fromJson(
+          f['intent_data'] as Map<String, dynamic>,
+        );
     for (final network in [TopupNetwork.base, TopupNetwork.ethereum]) {
       final paths = <String>[];
       final api = TopupApi(
@@ -807,7 +826,7 @@ void main() {
           expect(body['package_id'], 'pkg_15');
           expect(body['network'], network.wire);
           expect(body['account_id'], i.accountId);
-          return http.Response(jsonEncode(f['intent']), 200);
+          return http.Response(jsonEncode(f['intent_data']), 200);
         }),
       );
       final future = api.preparePayment(
@@ -823,7 +842,7 @@ void main() {
       );
       if (network == TopupNetwork.base) {
         final payment = await future;
-        expect(payment.intent.token, i.token);
+        expect(payment.intent.intentToken, i.intentToken);
         expect(payment.rail.network, network);
       } else {
         await expectLater(future, throwsFormatException);
@@ -837,11 +856,12 @@ void main() {
         c = TopupConfig.fromJson(f['config'] as Map<String, dynamic>),
         n = f['native']['tron'] as Map<String, dynamic>;
     final i = TopupPaymentIntent.fromJson({
-      'ok': true,
-      'order_id': 'top_${(n['intent']['intent_id'] as String).substring(4)}',
-      'payment_intent': n['token'],
-      'wallet_authorization_message': n['message'],
-      'intent': n['intent'],
+      'is_ok': true,
+      'order_id':
+          'top_${(n['intent_data']['intent_id'] as String).substring(4)}',
+      'intent_token': n['token'],
+      'sign_message': n['message'],
+      'intent_data': n['intent_data'],
     });
     final choice = TopupSelection.fromIntent(i, c), tx = n['txid'] as String;
     for (final phase in [
@@ -860,18 +880,18 @@ void main() {
               request.url.path.endsWith('/config')
                   ? f['config']
                   : {
-                      'ok': true,
-                      'order_id': i.order,
+                      'is_ok': true,
+                      'order_id': i.orderId,
                       'status': state == 'paid'
                           ? 'paid'
                           : state == 'exception'
                           ? 'exception'
                           : 'pending',
-                      'phase': state,
+                      'order_state': state,
                       'coin_fen': i.coinFen,
                       'payment_txid': state == 'awaiting' ? null : tx,
                       'gmb_tx_hash': state == 'paid' ? '0x${'09' * 32}' : null,
-                      'reason': null,
+                      'exception_reason': null,
                     },
             ),
             200,
@@ -1050,7 +1070,11 @@ void _configDiagnosticsTests() {
             expect(request.method, 'GET');
             expect(request.url.path, '/api/topup/config');
             return http.Response(
-              jsonEncode({'error': code, 'message': canary, 'amount': canary}),
+              jsonEncode({
+                'error_code': code,
+                'message': canary,
+                'amount': canary,
+              }),
               status,
             );
           }),

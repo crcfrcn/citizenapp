@@ -147,6 +147,7 @@ class SquarePostSyncService {
         final response = await _api.openPostMedia(
           source['url'] as String,
           session: session,
+          expectedBytes: descriptor.byteSize,
         );
         if (response.contentLength != null &&
             response.contentLength != descriptor.byteSize) {

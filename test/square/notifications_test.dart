@@ -73,10 +73,10 @@ Map<String, dynamic> _state(
   String cid = _cid,
   int binding = 1,
 }) => {
-  'ok': true,
+  'is_ok': true,
   'cid_number': cid,
   'binding_revision': binding,
-  'revision': revision,
+  'notice_revision': revision,
   'square_unread': unread,
   'following_unread': unread,
   'interaction_unread': 0,
@@ -111,7 +111,12 @@ class _Api extends SquareApiClient {
     required SquareSession session,
     int? cursor,
   }) async => onPage == null
-      ? {'ok': true, 'items': <Object>[], 'state': value, 'next_cursor': null}
+      ? {
+          'is_ok': true,
+          'items': <Object>[],
+          'state': value,
+          'next_cursor': null,
+        }
       : await onPage!(session);
   @override
   Future<Map<String, dynamic>> markNotifyRead({
@@ -146,6 +151,39 @@ void main() {
     service.dispose();
     api.close();
   });
+  test('旧通知快照原子升级，同一身份计数与待回执保留', () async {
+    final old = _state(7, 4);
+    old['revision'] = old.remove('notice_revision');
+    old['ok'] = old.remove('is_ok');
+    final pending = jsonEncode([
+      {
+        'scope': 'square',
+        'ids': [],
+        'through': 1,
+        'post_ids': [],
+        'comment_ids': [],
+      },
+    ]);
+    await UserIsar.instance.writeTxn((db) async {
+      await db.userNotificationStateEntitys.put(
+        UserNotificationStateEntity()
+          ..cidNumber = _cid
+          ..stateJson = jsonEncode(old)
+          ..pendingJson = pending,
+      );
+    });
+    expect(await service.restore(), true);
+    expect(service.noticeRevision, 7);
+    expect(service.unread, 4);
+    expect(api.reads, 0);
+    final saved = await UserIsar.instance.read(
+      (db) => db.userNotificationStateEntitys.getByCidNumber(_cid),
+    );
+    final value = jsonDecode(saved!.stateJson) as Map<String, dynamic>;
+    expect(value.containsKey('revision'), false);
+    expect(value['notice_revision'], 7);
+    expect(saved.pendingJson, pending);
+  });
   test('绝对计数按新版本覆盖，重复、乱序和错误身份不累加', () async {
     await service.accept(_state(3, 5));
     await service.accept(_state(3, 5));
@@ -153,7 +191,7 @@ void main() {
     await service.accept(_state(4, 9, cid: 'CN220-CTZN2-100000009-2026'));
     await service.accept({..._state(4, 9), 'interaction_unread': -1});
     expect(service.unread, 5);
-    expect(service.revision, 3);
+    expect(service.noticeRevision, 3);
     expect(api.reads, 0);
   });
   test('并发校准只读取一次，已有成功基线不因普通准备重复读取', () async {
@@ -266,7 +304,7 @@ void main() {
       service.accept(_state(3, 9)),
       service.restore(),
     ]);
-    expect(service.revision, 5);
+    expect(service.noticeRevision, 5);
     expect(service.unread, 3);
     api.value = _state(6, 1);
     await service.calibrate(force: true);
@@ -309,7 +347,7 @@ void main() {
     await service.restore();
     final rejected = expectLater(oldPage, throwsStateError);
     response.complete({
-      'ok': true,
+      'is_ok': true,
       'state': _state(1, 2),
       'items': <Object>[],
       'next_cursor': null,
@@ -367,7 +405,7 @@ void main() {
     await recovered.accept(value);
     await recovered.accept({
       ...value,
-      'revision': 4,
+      'notice_revision': 4,
       'square_unread': 1,
       'following_unread': 1,
     });
@@ -422,7 +460,7 @@ void main() {
     expect(notifications, 0);
     await cache.accept(_state(7, 4));
     expect(attempts, 2);
-    expect(saved?['revision'], 7);
+    expect(saved?['notice_revision'], 7);
     expect(notifications, 1);
     await cache.accept(_state(7, 4));
     expect(attempts, 2);

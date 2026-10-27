@@ -40,7 +40,7 @@ class CitizenProfileCache {
     final epoch = CitizenProfileMediaCache._epoch(cid);
     const allowed = {
       'display_name',
-      'bio',
+      'profile_bio',
       'avatar_object_key',
       'avatar_content_hash',
       'banner_object_key',
@@ -97,9 +97,18 @@ class CitizenProfileCache {
       )
       .toString();
 
+  /// 只用于本地旧记录的一次升级；网络模型不接受bio旧键。
+  static String _upgradeProfileJson(String raw) {
+    final value = jsonDecode(raw) as Map<String, dynamic>;
+    if (!value.containsKey('bio')) return raw;
+    if (value.containsKey('profile_bio')) throw StateError('资料旧记录字段冲突');
+    value['profile_bio'] = value.remove('bio');
+    return jsonEncode(value);
+  }
+
   Future<UserProfileUpdateEntity?> readUpdate(String cidNumber) async {
     final cid = _cid(cidNumber);
-    final row = await UserIsar.instance.read(
+    var row = await UserIsar.instance.read(
       (db) => db.userProfileUpdateEntitys.getByCidNumber(cid),
     );
     if (row != null &&
@@ -108,6 +117,30 @@ class CitizenProfileCache {
             !{'pending', 'confirmed'}.contains(row.operationState) ||
             (row.operationState == 'confirmed' && row.responseJson == null))) {
       throw StateError('资料恢复记录损坏');
+    }
+    if (row != null) {
+      final before = row;
+      final request = _upgradeProfileJson(before.requestJson);
+      final response = before.responseJson == null
+          ? null
+          : _upgradeProfileJson(before.responseJson!);
+      if (request != before.requestJson || response != before.responseJson) {
+        row = await UserIsar.instance.writeTxn((db) async {
+          final current = await db.userProfileUpdateEntitys.getByCidNumber(cid);
+          if (current == null ||
+              current.contentHash != before.contentHash ||
+              current.requestJson != before.requestJson ||
+              current.responseJson != before.responseJson) {
+            throw StateError('资料恢复记录已变化，升级未提交');
+          }
+          current
+            ..requestJson = request
+            ..responseJson = response;
+          current.contentHash = _updateHash(current);
+          await db.userProfileUpdateEntitys.put(current);
+          return current;
+        });
+      }
     }
     return row;
   }
@@ -186,11 +219,24 @@ class CitizenProfileCache {
     );
     if (raw == null) return null;
     try {
-      final decoded = jsonDecode(raw);
+      final upgraded = _upgradeProfileJson(raw);
+      final decoded = jsonDecode(upgraded);
       if (decoded is! Map<String, dynamic>) return null;
       final profile = CitizenProfile.fromJson(decoded);
       // 主键与内容必须一致，不能把其它用户的资料读到当前页面。
       if (profile.cidNumber != cid || profile.updatedAt < 0) return null;
+      if (upgraded != raw) {
+        await UserIsar.instance.writeTxn((db) async {
+          final current = await db.userPublicProfileCacheEntitys.getByCidNumber(
+            cid,
+          );
+          if (current == null || current.profileJson != raw) {
+            throw StateError('资料缓存已变化，升级未提交');
+          }
+          current.profileJson = upgraded;
+          await db.userPublicProfileCacheEntitys.put(current);
+        });
+      }
       return profile;
     } on FormatException {
       // 损坏记录保留，不将读取失败推断为注销，也不自动联网修复。
@@ -324,18 +370,15 @@ class CitizenProfileMediaCache {
   CitizenProfileMediaCache({
     Future<Directory> Function()? supportDirectoryProvider,
     Future<Directory> Function()? temporaryDirectoryProvider,
-    http.Client? client,
   }) : _supportDirectoryProvider =
            supportDirectoryProvider ?? getApplicationSupportDirectory,
        _temporaryDirectoryProvider =
            temporaryDirectoryProvider ??
            supportDirectoryProvider ??
-           getTemporaryDirectory,
-       _client = client;
+           getTemporaryDirectory;
 
   final Future<Directory> Function() _supportDirectoryProvider;
   final Future<Directory> Function() _temporaryDirectoryProvider;
-  final http.Client? _client;
 
   /// 与持久资料图片复用原大小边界，网络ImageProvider不能另建额度值。
   static int maxBytesFor(String role) => _limit(role);
@@ -402,7 +445,7 @@ class CitizenProfileMediaCache {
     required CitizenProfile profile,
     required String? avatarUrl,
     required String? bannerUrl,
-    required Map<String, String>? headers,
+    required http.Client client,
   }) async {
     final cid = _cid(profile.cidNumber ?? '');
     final epoch = _epoch(cid);
@@ -420,10 +463,8 @@ class CitizenProfileMediaCache {
           uri.userInfo.isNotEmpty) {
         throw ArgumentError('资料图片地址必须使用HTTPS');
       }
-      final client = _client ?? http.Client();
       try {
         final request = http.Request('GET', uri)..followRedirects = false;
-        if (headers != null) request.headers.addAll(headers);
         final response = await client
             .send(request)
             .timeout(const Duration(seconds: 30));
@@ -453,8 +494,6 @@ class CitizenProfileMediaCache {
         if (changed) CitizenProfileCache._notify(cid);
       } on Exception {
         // 下载失败不修改旧字节，不能由网络错误推断云端已删除。
-      } finally {
-        if (_client == null) client.close();
       }
     }
     _check(cid, epoch);

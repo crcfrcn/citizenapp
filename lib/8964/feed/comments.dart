@@ -155,27 +155,55 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
           !Notifications.instance.isCurrent(scope)) {
         return;
       }
-      // 整份缓存读取完才启用输入，不能在用户已发送后重新安装旧待发记录。
-      _cid = owner;
+      // 完整缓存校验及升级提交后才安装CID，失败不能留下可继续操作的旧快照。
       _ownerScope = scope;
-      _loading = false;
       if (owner == previousCid) {
         _reloadPending = _reloadPending || reload;
         _pending = pending;
-        _text.text = pending?['body'] as String? ?? draft;
+        _text.text = pending?['reply_text'] as String? ?? draft;
       }
       if (saved != null) {
         final page = jsonDecode(saved.pageJson) as Map<String, dynamic>;
+        var upgraded = false;
+        void move(Map<String, dynamic> value, String old, String current) {
+          if (!value.containsKey(old)) return;
+          if (value.containsKey(current)) throw StateError('评论旧记录字段冲突');
+          value[current] = value.remove(old);
+          upgraded = true;
+        }
+
+        if (page['comments'] is List) {
+          for (final raw in page['comments'] as List) {
+            final value = (raw as Map).cast<String, dynamic>();
+            move(value, 'sequence', 'reply_seq');
+            move(value, 'body', 'reply_text');
+            move(value, 'state', 'reply_state');
+          }
+        }
         _rows = _decode(page);
         _next = page['next_cursor'] as int?;
         if (saved.pendingJson != null) {
           _pending = (jsonDecode(saved.pendingJson!) as Map)
               .cast<String, dynamic>();
-          _text.text = _pending!['body'] as String;
+          move(_pending!, 'body', 'reply_text');
+          _text.text = _pending!['reply_text'] as String;
+        }
+        if (upgraded) {
+          await _save(
+            ownerCid: owner,
+            priorPage: saved.pageJson,
+            priorPending: saved.pendingJson,
+          );
         }
         _afterLayout();
       }
-      setState(() {});
+      if (!mounted ||
+          generation != _generation ||
+          !Notifications.instance.isCurrent(scope)) {
+        return;
+      }
+      _cid = owner;
+      setState(() => _loading = false);
       if (_reloadPending ||
           saved == null ||
           (widget.initialCommentId != null &&
@@ -185,6 +213,14 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
     } on Object {
       if (mounted && generation == _generation) {
         setState(() {
+          // 升级未确认时撤销内存操作入口；原记录保留，刷新须重新读取完整快照。
+          _cid = '';
+          _ownerScope = null;
+          _rows = [];
+          _pending = null;
+          _reply = null;
+          _next = null;
+          _text.clear();
           _loading = false;
           _error = '评论暂时不可用，请刷新重试';
         });
@@ -262,7 +298,7 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
         merged[row.commentId] = row;
       }
       _rows = merged.values.toList()
-        ..sort((a, b) => b.sequence.compareTo(a.sequence));
+        ..sort((a, b) => b.replySeq.compareTo(a.replySeq));
       _next = page['next_cursor'] as int?;
       setState(() {});
       await _save();
@@ -290,11 +326,16 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _save({bool completed = false}) async {
-    final generation = _generation, cid = _cid;
+  Future<void> _save({
+    bool completed = false,
+    String? ownerCid,
+    String? priorPage,
+    String? priorPending,
+  }) async {
+    final generation = _generation, cid = ownerCid ?? _cid;
     final page = jsonEncode({
       'comments': _rows.take(50).map((r) => r.toJson()).toList(),
-      'next_cursor': _rows.length > 50 ? _rows[49].sequence : _next,
+      'next_cursor': _rows.length > 50 ? _rows[49].replySeq : _next,
     });
     final pending = completed || _pending == null ? null : jsonEncode(_pending);
     if (widget.cacheWriter != null) {
@@ -315,6 +356,10 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
             widget.postId,
           ) ??
           SquareCommentsEntity();
+      if (priorPage != null &&
+          (row.pageJson != priorPage || row.pendingJson != priorPending)) {
+        throw StateError('评论旧记录已变化，升级未提交');
+      }
       if (!mounted || generation != _generation) return;
       row
         ..cidNumber = cid
@@ -340,7 +385,7 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
         16,
         (_) => _random.nextInt(256).toRadixString(16).padLeft(2, '0'),
       ).join(),
-      'body': body,
+      'reply_text': body,
       'reply_to': _reply?.commentId,
     };
     setState(() {
@@ -357,7 +402,7 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
         session: session,
         postId: widget.postId,
         operationId: pending['operation_id'] as String,
-        body: pending['body'] as String,
+        replyText: pending['reply_text'] as String,
         replyTo: pending['reply_to'] as String?,
       );
       await session.validateCurrent();
@@ -395,7 +440,7 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
 
   /// 放弃的是本机重试意图；保存失败仍保留原操作，不自动换ID或声称撤回服务端。
   Future<void> _abandon() async {
-    if (_sending || _pending == null) {
+    if (_cid.isEmpty || _sending || _pending == null) {
       return;
     }
     final generation = _generation, previous = _pending, reply = _reply;
@@ -442,8 +487,8 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
       if (!mounted || generation != _generation) return;
       _revision++;
       final data = row.toJson()
-        ..['body'] = ''
-        ..['state'] = 'deleted';
+        ..['reply_text'] = ''
+        ..['reply_state'] = 'deleted';
       _rows = [
         for (final current in _rows)
           current.commentId == row.commentId
@@ -584,8 +629,8 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
         ListTile(
           key: _keys.putIfAbsent(row.commentId, GlobalKey.new),
           title: Text(row.displayName.trim().isEmpty ? '公民' : row.displayName),
-          subtitle: Text(row.state == 'deleted' ? '评论已删除' : row.body),
-          trailing: row.state == 'active'
+          subtitle: Text(row.replyState == 'deleted' ? '评论已删除' : row.replyText),
+          trailing: row.replyState == 'active'
               ? PopupMenuButton<String>(
                   onSelected: (action) {
                     if (action == 'reply') {
@@ -623,7 +668,9 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
         ),
       if (_pending != null)
         TextButton(
-          onPressed: _sending ? null : () => unawaited(_abandon()),
+          onPressed: _cid.isEmpty || _sending
+              ? null
+              : () => unawaited(_abandon()),
           child: const Text('放弃本机待发'),
         ),
       TextField(

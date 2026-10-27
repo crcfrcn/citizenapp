@@ -85,7 +85,7 @@ class Notifications extends ChangeNotifier {
       (_state['_creator_received_at'] as int?) ?? receivedAt;
   int get unread => (_state['square_unread'] as int?) ?? 0;
   int get followingUnread => (_state['following_unread'] as int?) ?? 0;
-  int get revision => (_state['revision'] as int?) ?? 0;
+  int get noticeRevision => (_state['notice_revision'] as int?) ?? 0;
   Map<String, dynamic>? creatorFor(String cid) =>
       cid == _cid && _state['creator'] is Map<String, dynamic>
       ? _state['creator'] as Map<String, dynamic>
@@ -184,13 +184,38 @@ class Notifications extends ChangeNotifier {
     if (!isCurrent(owner)) return;
     if (row?.stateJson != null) {
       try {
-        final value = jsonDecode(row!.stateJson);
+        final raw = row!.stateJson;
+        final value = jsonDecode(raw);
+        if (value is Map<String, dynamic> && value.containsKey('revision')) {
+          if (value.containsKey('notice_revision') ||
+              value.containsKey('is_ok')) {
+            throw const FormatException('通知旧记录字段冲突');
+          }
+          value['notice_revision'] = value.remove('revision');
+          if (value.containsKey('ok')) value['is_ok'] = value.remove('ok');
+          if (!valid(value, owner.cid) ||
+              value['binding_revision'] != owner.binding) {
+            throw const FormatException('通知旧记录归属或计数无效');
+          }
+          final upgraded = jsonEncode(value);
+          await UserIsar.instance.writeTxn((db) async {
+            if (!isCurrent(owner)) throw StateError('通知身份已变化');
+            final current = await db.userNotificationStateEntitys
+                .getByCidNumber(owner.cid);
+            if (current == null || current.stateJson != raw) {
+              throw StateError('通知旧记录已变化');
+            }
+            current.stateJson = upgraded;
+            await db.userNotificationStateEntitys.put(current);
+          });
+          if (!isCurrent(owner)) return;
+        }
         if (value is Map<String, dynamic> &&
             value['cid_number'] == owner.cid &&
             value['binding_revision'] == owner.binding) {
           final baseline = valid(value, owner.cid);
           final partial =
-              !value.containsKey('revision') &&
+              !value.containsKey('notice_revision') &&
               value['creator'] is Map<String, dynamic> &&
               value['creator_revision'] is int &&
               (value['creator_revision'] as int) > 0;
@@ -265,7 +290,7 @@ class Notifications extends ChangeNotifier {
   static bool valid(Map<String, dynamic> value, String cid) {
     if (value['cid_number'] != cid) return false;
     for (final key in [
-      'revision',
+      'notice_revision',
       'square_unread',
       'following_unread',
       'interaction_unread',
@@ -322,7 +347,8 @@ class Notifications extends ChangeNotifier {
       return false;
     }
     final owner = scope!;
-    final counter = (value['revision'] as int) > revision || !_known;
+    final counter =
+        (value['notice_revision'] as int) > noticeRevision || !_known;
     final interaction =
         (value['interaction_sequence'] as int) > interactionSequence;
     final creator =
@@ -348,10 +374,10 @@ class Notifications extends ChangeNotifier {
         now = DateTime.now().millisecondsSinceEpoch;
     if (counter) {
       for (final key in [
-        'ok',
+        'is_ok',
         'cid_number',
         'binding_revision',
-        'revision',
+        'notice_revision',
         'square_unread',
         'following_unread',
         'interaction_unread',

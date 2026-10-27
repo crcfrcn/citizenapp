@@ -353,18 +353,12 @@ class _ContactBookPageState extends State<ContactBookPage> {
             await _profileCache.write(profile);
             final key = profile.avatarObjectKey?.trim();
             if (key != null && key.isNotEmpty) {
-              final refreshed = await _profileMediaCache.refresh(
-                profile: profile,
-                avatarUrl: _profileApi.cardMediaUrl(
-                  key,
-                  updatedAt: profile.updatedAt,
-                ),
-                bannerUrl: null,
-                headers: _session == null
-                    ? null
-                    : <String, String>{
-                        'authorization': 'Bearer ${_session!.sessionToken}',
-                      },
+              final session = _session;
+              if (session == null) return;
+              final refreshed = await _profileApi.refreshCardMedia(
+                profile,
+                session: session,
+                cache: _profileMediaCache,
               );
               if (_profiles[cidNumber]?.updatedAt == profile.updatedAt) {
                 _profileMedia[cidNumber] = refreshed;
@@ -640,11 +634,7 @@ class _ContactBookPageState extends State<ContactBookPage> {
                 ),
                 avatarPath: _profileMedia[contact.cidNumber]?.avatarPath,
                 avatarUrl: _avatarUrl(_profileOf(contact)),
-                avatarHeaders: _session == null
-                    ? null
-                    : <String, String>{
-                        'authorization': 'Bearer ${_session!.sessionToken}',
-                      },
+
                 // 纯选私信模式只允许点选,不显示逐项操作菜单。
                 showActions: widget.mode != ContactPickMode.pickForMessage,
                 onTap: () => _open(contact),
@@ -681,7 +671,7 @@ class _ContactCard extends StatelessWidget {
     required this.profileResolved,
     required this.avatarPath,
     required this.avatarUrl,
-    required this.avatarHeaders,
+
     required this.showActions,
     required this.onTap,
     required this.onTransfer,
@@ -695,7 +685,6 @@ class _ContactCard extends StatelessWidget {
   final bool profileResolved;
   final String? avatarPath;
   final String? avatarUrl;
-  final Map<String, String>? avatarHeaders;
 
   /// 是否显示逐项操作菜单(转账/私信/改名/删除);纯选人模式为 false。
   final bool showActions;
@@ -728,7 +717,7 @@ class _ContactCard extends StatelessWidget {
                   size: AppLayout.scaled(context, 52),
                   imagePath: avatarPath,
                   imageUrl: avatarUrl,
-                  imageHeaders: avatarHeaders,
+
                   userImageSet: profileResolved
                       ? profile?.avatarObjectKey?.trim().isNotEmpty == true
                       : true,

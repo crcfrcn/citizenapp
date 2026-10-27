@@ -330,56 +330,56 @@ class SquarePost {
 /// 评论/回复唯一客户端模型；已删除正文必须为空，坏响应不能冒充空评论列表。
 class SquareComment {
   const SquareComment({
-    required this.sequence,
+    required this.replySeq,
     required this.commentId,
     required this.postId,
     required this.authorCid,
-    required this.body,
-    required this.state,
+    required this.replyText,
+    required this.replyState,
     required this.displayName,
     required this.createdAt,
     this.replyTo,
   });
-  final int sequence, createdAt;
-  final String commentId, postId, authorCid, body, state, displayName;
+  final int replySeq, createdAt;
+  final String commentId, postId, authorCid, replyText, replyState, displayName;
   final String? replyTo;
   factory SquareComment.fromJson(Map<String, dynamic> value) {
     for (final key in [
       'comment_id',
       'post_id',
       'author_cid_number',
-      'body',
-      'state',
+      'reply_text',
+      'reply_state',
     ]) {
       if (value[key] is! String) throw const FormatException('评论响应字段无效');
     }
-    if (value['sequence'] is! int ||
-        (value['sequence'] as int) <= 0 ||
+    if (value['reply_seq'] is! int ||
+        (value['reply_seq'] as int) <= 0 ||
         value['created_at'] is! int ||
-        !['active', 'deleted'].contains(value['state']) ||
-        (value['state'] == 'deleted' && value['body'] != '') ||
-        (value['body'] as String).runes.length > 2000) {
+        !['active', 'deleted'].contains(value['reply_state']) ||
+        (value['reply_state'] == 'deleted' && value['reply_text'] != '') ||
+        (value['reply_text'] as String).runes.length > 2000) {
       throw const FormatException('评论响应无效');
     }
     return SquareComment(
-      sequence: value['sequence'] as int,
+      replySeq: value['reply_seq'] as int,
       commentId: value['comment_id'] as String,
       postId: value['post_id'] as String,
       authorCid: value['author_cid_number'] as String,
-      body: value['body'] as String,
-      state: value['state'] as String,
+      replyText: value['reply_text'] as String,
+      replyState: value['reply_state'] as String,
       displayName: (value['display_name'] as String?) ?? '',
       createdAt: value['created_at'] as int,
       replyTo: value['reply_to'] as String?,
     );
   }
   Map<String, Object?> toJson() => {
-    'sequence': sequence,
+    'reply_seq': replySeq,
     'comment_id': commentId,
     'post_id': postId,
     'author_cid_number': authorCid,
-    'body': body,
-    'state': state,
+    'reply_text': replyText,
+    'reply_state': replyState,
     'display_name': displayName,
     'created_at': createdAt,
     'reply_to': replyTo,

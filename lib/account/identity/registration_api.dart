@@ -51,7 +51,7 @@ class RegistrationApi {
           body: jsonEncode(body),
         )
         .timeout(const Duration(seconds: 20));
-    if (response.statusCode != 200) {
+    if (response.statusCode != (initial ? 201 : 200)) {
       // 不展示可能含登记能力的服务端正文；按 HTTP 状态区分可操作原因。
       final reason = switch (response.statusCode) {
         400 => '注册信息无效，请核对所选钱包账户后重试',

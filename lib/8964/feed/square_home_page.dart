@@ -79,7 +79,7 @@ class _SquareHomePageState extends State<SquareHomePage> {
   late final CitizenProfileApi _profileApi;
   final SquarePostSyncService _postSyncService = SquarePostSyncService();
 
-  /// 当前分类响应所属会话：完整资料头像每次读取现签，正文媒体保留原普通会话头。
+  /// 当前分类响应所属会话；媒体和头像均由当前会话的受保护读取器获取。
   SquareSession? _feedSession;
   SquareSessionProvider? _sessionProvider;
   AccountSecurityService? _accountSecurity;
@@ -254,7 +254,7 @@ class _SquareHomePageState extends State<SquareHomePage> {
                         final item = items[index];
                         return ListTile(
                           title: Text(
-                            item['kind'] == 'post' ? '关注的人发布了帖子' : '新的评论或回复',
+                            item['notice_kind'] == 'post' ? '关注的人发布了帖子' : '新的评论或回复',
                           ),
                           subtitle: Text((item['title'] as String?) ?? ''),
                           trailing: item['read_at'] == 0
@@ -532,12 +532,6 @@ class _SquareHomePageState extends State<SquareHomePage> {
                                           key,
                                           session: _feedSession!,
                                         ),
-                                  avatarHeaders: _feedSession == null
-                                      ? null
-                                      : {
-                                          'authorization':
-                                              'Bearer ${_feedSession!.sessionToken}',
-                                        },
                                 ),
                               ),
                               if (snapshot.connectionState !=
@@ -708,7 +702,6 @@ class _FeedBody extends StatelessWidget {
     required this.onOpenPost,
     required this.onOpenAuthor,
     required this.avatarImageOf,
-    required this.avatarHeaders,
   });
 
   final List<SquarePost> posts;
@@ -718,9 +711,6 @@ class _FeedBody extends StatelessWidget {
 
   /// 完整资料头像只从逐请求签名的图片源读取，不保存一次性证明头。
   final ImageProvider? Function(String objectKey) avatarImageOf;
-
-  /// 正文媒体继续沿用原普通会话头；头像实际读取由avatarImageOf独立现签。
-  final Map<String, String>? avatarHeaders;
 
   ImageProvider? _avatarImage(SquareAuthor author) {
     final key = author.avatarObjectKey;
@@ -756,7 +746,6 @@ class _FeedBody extends StatelessWidget {
             onTap: () => onOpenPost(post),
             onAuthorTap: () => onOpenAuthor(post.author.cidNumber ?? ''),
             avatarImage: avatarImage,
-            avatarHeaders: avatarHeaders,
           );
         }
         return SquarePostCard(
@@ -764,7 +753,6 @@ class _FeedBody extends StatelessWidget {
           onTap: () => onOpenPost(post),
           onAuthorTap: () => onOpenAuthor(post.author.cidNumber ?? ''),
           avatarImage: avatarImage,
-          avatarHeaders: avatarHeaders,
         );
       },
       separatorBuilder: (_, _) =>

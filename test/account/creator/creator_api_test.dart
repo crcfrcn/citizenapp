@@ -69,13 +69,13 @@ void main() {
             'block_hash': block,
           });
           return http.Response(
-            jsonEncode({'ok': true, 'tx_hash': tx, 'block_hash': block}),
+            jsonEncode({'is_ok': true, 'tx_hash': tx, 'block_hash': block}),
             200,
           );
         }
         return http.Response(
           jsonEncode({
-            'ok': true,
+            'is_ok': true,
             'revision': 1,
             'plan': {
               'creator_cid_number': session.cidNumber,

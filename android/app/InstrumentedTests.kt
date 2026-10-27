@@ -1,5 +1,9 @@
 package com.crcfrcn.citizenapp
 
+import android.net.Uri
+import androidx.media3.datasource.DataSpec
+import androidx.media3.common.util.UnstableApi
+import java.io.IOException
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ApplicationInfo
@@ -102,13 +106,56 @@ class RegistrationRecordSecurityInstrumentedTest {
 
 /** 广场媒体原生契约的 Android 设备级测试；不读写相册、账户或远端存储。 */
 @RunWith(AndroidJUnit4::class)
+@UnstableApi
 class SquareMediaChannelInstrumentedTest {
+    @Test
+    fun rangeSourceBoundsEveryReadAndStopsAfterClose() {
+        val calls = mutableListOf<Pair<Long,Int>>()
+        val source = SquareRangeSource(600000) { offset, size ->
+            calls.add(offset to size)
+            ByteArray(size) { ((offset+it)%251).toByte() }
+        }
+        assertEquals(600000L, source.open(DataSpec.Builder().setUri(Uri.parse("citizenmedia://player/1")).build()))
+        val buffer = ByteArray(65536)
+        var total = 0
+        while (true) {
+            val count = source.read(buffer,0,buffer.size)
+            if (count == -1) break
+            for (i in 0 until count) assertEquals(((total+i)%251).toByte(),buffer[i])
+            total += count
+        }
+        assertEquals(600000,total)
+        assertEquals(listOf(0L to 524288,524288L to 75712),calls)
+        source.close()
+        assertThrows(IOException::class.java) { source.read(buffer,0,1) }
+        assertEquals(2,calls.size)
+    }
+
+    @Test
+    fun rangeSourceRejectsShortBlocksAndHonorsSeek() {
+        val source = SquareRangeSource(100) { offset,size ->
+            assertEquals(20L,offset); assertEquals(10,size); ByteArray(9)
+        }
+        assertEquals(10L,source.open(DataSpec.Builder().setUri(Uri.parse("citizenmedia://player/1")).setPosition(20).setLength(10).build()))
+        assertThrows(IOException::class.java) { source.read(ByteArray(10),0,10) }
+        source.close()
+    }
+
     @Test
     fun requestAcceptsOnlyThePublishedCodecEnvelope() {
         val request = SquareVideoRequest.from(MethodCall("transcode_video", validArguments()))
         assertEquals(854, request.maxWidth)
         assertEquals(48_000, request.audioSampleRate)
         assertEquals(2, request.keyFrameIntervalSeconds)
+        assertEquals(12L * 1024 * 1024, request.maxBytes)
+        assertEquals(120 * 1024, request.coverMaxBytes)
+
+        val boundary = validArguments().toMutableMap().apply { this["max_bytes"] = 3L * 1024 * 1024 * 1024 }
+        assertEquals(3L * 1024 * 1024 * 1024, SquareVideoRequest.from(MethodCall("transcode_video", boundary)).maxBytes)
+        boundary["max_bytes"] = 3L * 1024 * 1024 * 1024 + 1
+        assertThrows(IllegalArgumentException::class.java) {
+            SquareVideoRequest.from(MethodCall("transcode_video", boundary))
+        }
 
         val invalid = validArguments().toMutableMap().apply { this["audio_sample_rate"] = 44_100 }
         assertThrows(IllegalArgumentException::class.java) {
@@ -170,10 +217,10 @@ class SquareMediaChannelInstrumentedTest {
         "max_frame_rate" to 30,
         "key_frame_interval_seconds" to 2,
         "max_duration_seconds" to 180,
-        "max_bytes" to 12_000_000L,
+        "max_bytes" to 12L * 1024 * 1024,
         "cover_max_edge" to 540,
         "cover_quality" to 70,
-        "cover_max_bytes" to 120_000,
+        "cover_max_bytes" to 120 * 1024,
     )
 
     private fun atom(type: String, payload: ByteArray): ByteArray = ByteArrayOutputStream().use { output ->

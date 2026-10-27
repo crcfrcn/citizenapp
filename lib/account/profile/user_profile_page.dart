@@ -909,7 +909,10 @@ class _UserProfilePageState extends State<UserProfilePage> {
     final expandedHeight =
         _bannerHeight +
         ProfileCategoryTabs.height +
-        ProfileHeaderCard.requiredHeight(context, bio: _profile?.bio ?? '');
+        ProfileHeaderCard.requiredHeight(
+          context,
+          profileBio: _profile?.profileBio ?? '',
+        );
     return DefaultTabController(
       length: ProfileTab.values.length,
       child: Scaffold(

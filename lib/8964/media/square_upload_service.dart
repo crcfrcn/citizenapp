@@ -15,14 +15,12 @@ class SquareUploadedContent {
     required this.postId,
     required this.contentHash,
     required this.storageReceiptId,
-    required this.manifestHash,
   });
 
   final SquareSession session;
   final String postId;
   final String contentHash;
   final String storageReceiptId;
-  final String manifestHash;
 }
 
 class SquarePreparedContent {
@@ -32,7 +30,6 @@ class SquarePreparedContent {
     required this.postId,
     required this.contentHash,
     required this.storageReceiptId,
-    required this.manifestHash,
     required this.manifestBytes,
     required List<SquareLocalMediaDraft> mediaDrafts,
     this.processedMedia,
@@ -44,7 +41,6 @@ class SquarePreparedContent {
   final String postId;
   final String contentHash;
   final String storageReceiptId;
-  final String manifestHash;
   final Uint8List manifestBytes;
   final List<SquareLocalMediaDraft> mediaDrafts;
   final SquareProcessedMediaBatch? processedMedia;
@@ -131,6 +127,25 @@ class SquareUploadService
     if (plan == null || usageState == null) {
       throw const SquareApiException('需要有效会员才能发布广场内容');
     }
+    final earlyError = validateSquarePostContent(
+      postType: postType,
+      title: title,
+      text: text,
+      mediaDrafts: mediaDrafts,
+      contentSections: contentSections,
+      plan: plan,
+      usageState: usageState,
+      processed: false,
+    );
+    if (earlyError != null) {
+      throw SquarePreflightException(earlyError, 'upload_limit');
+    }
+    final earlyReservation = await SubscriptionService.resourceGate.reserve(
+      origin: _api.baseUri.origin,
+      session: session,
+      operation: 'square',
+      costs: const {},
+    );
     SquareProcessedMediaBatch? processedMedia;
     try {
       onStage?.call(SquarePublishStage.processingMedia);
@@ -203,10 +218,11 @@ class SquareUploadService
           'content_sections': contentSections,
         'media_items': mediaManifests,
       });
-      final manifestHash = sha256.convert(manifestBytes).toString();
+      final contentHash = sha256.convert(manifestBytes).toString();
 
       onStage?.call(SquarePublishStage.preparingStorage);
       // prepare 只请求 Worker 的 D1 会员投影和额度早期反馈；编辑、哈希与上传均不读链。
+      earlyReservation.cancel(); // 实际prepare以精确成品/衍生图/manifest总量原子重占。
       final prepared = await _api.prepareUpload(
         session: session,
         postType: postType,
@@ -214,7 +230,7 @@ class SquareUploadService
             ? trimmedTitle.runes.length
             : 0,
         textLength: text.trim().runes.length,
-        manifestHash: manifestHash,
+        contentHash: contentHash,
         manifestByteSize: manifestBytes.length,
         mediaItems: finalMediaDrafts
             .asMap()
@@ -255,9 +271,8 @@ class SquareUploadService
         session: session,
         preparedUpload: prepared,
         postId: prepared.postId,
-        contentHash: manifestHash,
+        contentHash: contentHash,
         storageReceiptId: prepared.storageReceiptId,
-        manifestHash: manifestHash,
         manifestBytes: manifestBytes,
         mediaDrafts: finalMediaDrafts,
         processedMedia: processedMedia,
@@ -283,6 +298,7 @@ class SquareUploadService
         ],
       );
     } catch (_) {
+      earlyReservation.cancel();
       await processedMedia?.deleteTemporaryFiles();
       rethrow;
     }
@@ -311,7 +327,11 @@ class SquareUploadService
       for (var i = 0; i < mediaDrafts.length; i++) {
         final draft = mediaDrafts[i];
         final upload = preparedUpload.mediaItems[i];
-        await _api.uploadMediaAsset(upload: upload, filePath: draft.path);
+        await _api.uploadMediaAsset(
+          session: prepared.session,
+          upload: upload,
+          filePath: draft.path,
+        );
         final derivative = prepared.processedMedia?.derivatives[i];
         if (derivative == null ||
             derivative.mediaIndex != i ||
@@ -319,6 +339,7 @@ class SquareUploadService
           throw const SquareApiException('衍生图上传授权与本地文件不一致');
         }
         await _api.uploadMediaDerivative(
+          session: prepared.session,
           upload: upload,
           filePath: derivative.path,
         );
@@ -328,7 +349,6 @@ class SquareUploadService
       final completed = await _api.completeUpload(
         session: prepared.session,
         uploadId: preparedUpload.uploadId,
-        manifestHash: prepared.manifestHash,
         contentHash: prepared.contentHash,
       );
       if (completed.postId != prepared.postId ||
@@ -341,7 +361,6 @@ class SquareUploadService
         postId: completed.postId,
         contentHash: completed.contentHash,
         storageReceiptId: completed.storageReceiptId,
-        manifestHash: prepared.manifestHash,
       );
     } finally {
       // 成品字节已入库并由发布恢复行持有引用；这里只删除可再生的处理文件。
@@ -364,6 +383,7 @@ String? validateSquarePostContent({
   required List<Map<String, Object?>>? contentSections,
   required SquareMembershipPlan plan,
   required SquareMembershipUsageState usageState,
+  bool processed = true,
 }) {
   final titleLength = (title ?? '').trim().runes.length;
   final textLength = text.trim().runes.length;
@@ -376,7 +396,7 @@ String? validateSquarePostContent({
 
   String? videoError() {
     for (final video in videos) {
-      if (video.byteSize > plan.video.maxVideoBytes) {
+      if (processed && video.byteSize > plan.video.maxVideoBytes) {
         return '单个视频体积超出当前会员档位上限';
       }
       final duration = video.durationSeconds ?? 0;
@@ -439,19 +459,6 @@ String? validateSquarePostContent({
       break;
   }
 
-  final videoSeconds = videos.fold<int>(
-    0,
-    (sum, item) => sum + (item.durationSeconds ?? 0),
-  );
-  if (usageState.imageCount + images.length > plan.usage.monthlyImages) {
-    return '当前会员本周期图片可用量不足';
-  }
-  if (usageState.videoSeconds + videoSeconds > plan.usage.monthlyVideoSeconds) {
-    return '当前会员本周期视频时长可用量不足';
-  }
-  if (usageState.activeUploads >= plan.usage.activeUploads) {
-    return '当前会员活动上传数已达上限';
-  }
   return null;
 }
 

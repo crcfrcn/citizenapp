@@ -1,4 +1,5 @@
 import '../mls_authentication_fixture.dart';
+
 import 'package:citizenapp/storage/user_isar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -48,7 +49,7 @@ Widget _wrap(
   return MaterialApp(
     home: CitizenProfileEditPage(
       cidNumber: sampleProfile().cidNumber!,
-      initialProfile: sampleProfile(displayName: '旧名', bio: '旧签名'),
+      initialProfile: sampleProfile(displayName: '旧名', profileBio: '旧签名'),
       api: api,
       cache: cache ?? _FakeProfileCache(),
       sessionProvider:
@@ -135,7 +136,7 @@ void main() {
     await tester.enterText(find.byType(TextField).at(1), '新签名');
     await _save(tester);
 
-    expect(api.lastUpdate, {'display_name': '新名', 'bio': '新签名'});
+    expect(api.lastUpdate, {'display_name': '新名', 'profile_bio': '新签名'});
   });
 
   testWidgets('save without a hot wallet shows guidance and skips the call', (

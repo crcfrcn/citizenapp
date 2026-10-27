@@ -84,7 +84,7 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
       text: widget.initialProfile?.displayName ?? '',
     );
     _bioController = TextEditingController(
-      text: widget.initialProfile?.bio ?? '',
+      text: widget.initialProfile?.profileBio ?? '',
     );
   }
 
@@ -208,6 +208,10 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
           bytes: _pendingAvatar!.bytes,
           contentType: _pendingAvatar!.contentType,
         );
+        _pendingAvatar = _PendingImage(
+          bytes: result.bytes,
+          contentType: 'image/webp',
+        );
         avatarKey = result.objectKey;
         avatarHash = result.contentHash;
       }
@@ -221,6 +225,10 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
           bytes: _pendingBanner!.bytes,
           contentType: _pendingBanner!.contentType,
         );
+        _pendingBanner = _PendingImage(
+          bytes: result.bytes,
+          contentType: 'image/webp',
+        );
         bannerKey = result.objectKey;
         bannerHash = result.contentHash;
       }
@@ -228,7 +236,7 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
       final nickname = _nameController.text.trim();
       final request = <String, String>{
         'display_name': nickname,
-        'bio': _bioController.text.trim(),
+        'profile_bio': _bioController.text.trim(),
         'avatar_object_key': ?avatarKey,
         'avatar_content_hash': ?avatarHash,
         'banner_object_key': ?bannerKey,
@@ -246,6 +254,10 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
       _savedRemotely = updated;
       await _cache.confirmUpdate(updated);
       await _saveLocal();
+    } on SquarePreflightException catch (error) {
+      if (mounted) {
+        _snack(error.message);
+      }
     } on SquareApiException catch (error) {
       if (!mounted) return;
       _snack(error.message);
@@ -266,7 +278,7 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
   ) => _api.updateProfile(
     session: session,
     displayName: request['display_name'],
-    bio: request['bio'],
+    profileBio: request['profile_bio'],
     avatarObjectKey: request['avatar_object_key'],
     avatarContentHash: request['avatar_content_hash'],
     bannerObjectKey: request['banner_object_key'],

@@ -1,9 +1,13 @@
+import 'package:citizenapp/8964/media/square_media_policy.dart';
+
 import 'dart:async';
 import 'dart:ui' as ui;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/painting.dart';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:citizenapp/account/membership/subscription_service.dart';
 import 'package:citizenapp/8964/feed/square_models.dart';
 import 'package:citizenapp/account/profile/citizen_profile.dart';
 import 'package:citizenapp/account/profile/citizen_profile_cache.dart';
@@ -56,7 +60,8 @@ class CitizenProfileApi {
         if (profile.cidNumber != cidNumber) throw StateError('远端资料归属不一致');
         final mediaClient = _client.profileMediaClient(session);
         try {
-          await CitizenProfileMediaCache(client: mediaClient).refresh(
+          await CitizenProfileMediaCache().refresh(
+            client: mediaClient,
             profile: profile,
             avatarUrl: profile.avatarObjectKey == null
                 ? null
@@ -70,7 +75,6 @@ class CitizenProfileApi {
                     profile.bannerObjectKey!,
                     updatedAt: profile.updatedAt,
                   ),
-            headers: null,
           );
         } finally {
           mediaClient.close();
@@ -108,6 +112,30 @@ class CitizenProfileApi {
       objectKey.split('/').last,
       updatedAt,
     );
+  }
+
+  /// 名片缓存刷新同样使用现签读取器；存储层不再拥有普通HTTP兜底或鉴权头。
+  Future<CitizenProfileMediaSnapshot> refreshCardMedia(
+    CitizenProfile profile, {
+    required SquareSession session,
+    required CitizenProfileMediaCache cache,
+  }) async {
+    final reader = _client.profileMediaClient(session);
+    try {
+      return await cache.refresh(
+        client: reader,
+        profile: profile,
+        avatarUrl: profile.avatarObjectKey == null
+            ? null
+            : cardMediaUrl(
+                profile.avatarObjectKey!,
+                updatedAt: profile.updatedAt,
+              ),
+        bannerUrl: null,
+      );
+    } finally {
+      reader.close();
+    }
   }
 
   Future<CitizenProfileCard> fetchCard(
@@ -214,7 +242,7 @@ class CitizenProfileApi {
   Future<CitizenProfile> updateProfile({
     required SquareSession session,
     String? displayName,
-    String? bio,
+    String? profileBio,
     String? avatarObjectKey,
     String? avatarContentHash,
     String? bannerObjectKey,
@@ -223,7 +251,7 @@ class CitizenProfileApi {
     return _client.updateProfile(
       session: session,
       displayName: displayName,
-      bio: bio,
+      profileBio: profileBio,
       avatarObjectKey: avatarObjectKey,
       avatarContentHash: avatarContentHash,
       bannerObjectKey: bannerObjectKey,
@@ -240,13 +268,15 @@ final class _SignedProfileMediaImage
     this.session,
     this.url,
     this.role,
-    this.version,
-  );
+    this.version, {
+    this.expectedBytes,
+  });
   final SquareApiClient client;
   final SquareSession session;
   final String url;
   final String role;
   final int? version;
+  final int? expectedBytes;
   @override
   Future<_SignedProfileMediaImage> obtainKey(
     ImageConfiguration configuration,
@@ -262,8 +292,20 @@ final class _SignedProfileMediaImage
   );
   Future<ui.Codec> _load(ImageDecoderCallback decode) async {
     try {
-      final response = await client.openProfileMedia(url, session: session);
-      final limit = CitizenProfileMediaCache.maxBytesFor(role);
+      final response = role == 'post'
+          ? await client.openPostMedia(
+              url,
+              session: session,
+              expectedBytes: expectedBytes,
+            )
+          : role == 'card'
+          ? await client.openCardMedia(url, session: session)
+          : await client.openProfileMedia(url, session: session);
+      final limit = role == 'post'
+          ? SquareMediaPolicy.maxLocalImageBytes
+          : CitizenProfileMediaCache.maxBytesFor(
+              role == 'card' ? 'avatar' : role,
+            );
       if (response.statusCode != 200 || (response.contentLength ?? 0) > limit) {
         await response.stream.listen(null).cancel();
         throw SquareApiException('资料图片读取失败', statusCode: response.statusCode);
@@ -312,10 +354,70 @@ final class _SignedProfileMediaImage
   bool operator ==(Object other) =>
       other is _SignedProfileMediaImage &&
       identical(session, other.session) &&
+      role == other.role &&
       url == other.url &&
       version == other.version;
   @override
-  int get hashCode => Object.hash(session, url, version);
+  int get hashCode => Object.hash(session, role, url, version);
   @override
   String toString() => '公民资料图片';
+}
+
+/// 保护媒体统一沿现有会话和图片缓存读取；没有会话时保持占位，不直连网络。
+class CitizenRemoteImage extends StatefulWidget {
+  const CitizenRemoteImage({
+    super.key,
+    required this.url,
+    this.role = 'post',
+    this.expectedBytes,
+    this.fit = BoxFit.cover,
+    this.width,
+    this.height,
+  });
+  final String url, role;
+  final int? expectedBytes;
+  final BoxFit fit;
+  final double? width, height;
+  @override
+  State<CitizenRemoteImage> createState() => _CitizenRemoteImageState();
+}
+
+class _CitizenRemoteImageState extends State<CitizenRemoteImage> {
+  SquareApiClient? _client;
+  bool _ownsClient = false;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_client == null) {
+      _client = context.read<SquareApiClient?>();
+      _ownsClient = _client == null;
+      _client ??= SquareApiClient();
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_ownsClient) _client?.close();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final session = SubscriptionService.currentSession;
+    if (session == null) return const ColoredBox(color: Colors.transparent);
+    return Image(
+      image: _SignedProfileMediaImage(
+        _client!,
+        session,
+        widget.url,
+        widget.role,
+        null,
+        expectedBytes: widget.expectedBytes,
+      ),
+      fit: widget.fit,
+      width: widget.width,
+      height: widget.height,
+      errorBuilder: (_, _, _) => const ColoredBox(color: Colors.transparent),
+    );
+  }
 }

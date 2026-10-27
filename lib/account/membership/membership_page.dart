@@ -956,17 +956,9 @@ class _MembershipTierCard extends StatelessWidget {
                           ),
                           SizedBox(height: AppLayout.scaled(context, 8)),
                           _ParamLine(
-                            icon: Icons.cloud_upload_outlined,
-                            color: tierColor,
-                            text:
-                                '本周期 图 ${_thousands(plan.usage.monthlyImages)} · 视频 ${plan.monthlyVideoDurationLabel}',
-                          ),
-                          SizedBox(height: AppLayout.scaled(context, 8)),
-                          _ParamLine(
                             icon: Icons.storage_outlined,
                             color: tierColor,
-                            text:
-                                '并发上传 ${plan.usage.activeUploads} 个 · 存储 ${plan.storageSizeLabel}',
+                            text: '广场存储 ${plan.storageSizeLabel}',
                           ),
                         ],
                       ),

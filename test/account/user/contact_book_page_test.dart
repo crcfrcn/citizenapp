@@ -1,3 +1,4 @@
+import 'package:http/http.dart' as http;
 import 'package:tatachat_sdk/tatachat_sdk.dart' as chat_sdk;
 
 import '../../square/mls_authentication_fixture.dart';
@@ -61,7 +62,7 @@ const _contact = UserContact(
 const _profile = CitizenProfile(
   accountId: _contactAccountId,
   displayName: 'Rhett',
-  bio: '建设一个可信、自由的社会',
+  profileBio: '建设一个可信、自由的社会',
   avatarObjectKey: null,
   bannerObjectKey: null,
   cidNumber: _contactCidNumber,
@@ -248,7 +249,7 @@ class _MemoryProfileMediaCache extends CitizenProfileMediaCache {
     required CitizenProfile profile,
     required String? avatarUrl,
     required String? bannerUrl,
-    required Map<String, String>? headers,
+    required http.Client client,
   }) async => snapshot;
 }
 

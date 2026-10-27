@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -78,7 +79,7 @@ void main() {
     final old = record(c);
     final value = old.next(
       response: RegistrationResponse.parse(
-        registrationResponse(c, state: 'human_verified'),
+        registrationResponse(c, jobState: 'human_verified'),
         c,
       ),
       phase: RegistrationPhase.finalized,
@@ -128,10 +129,10 @@ void main() {
   });
   test('过期真人登记能力不交付；已有公民号改用普通准备，不重复验证', () async {
     final c = registrationContext();
-    final json = registrationResponse(c, state: 'human_verified');
-    json['created_at_millis'] = 1;
-    json['human_verified_at_millis'] = 2;
-    json['expires_at_millis'] = 3;
+    final json = registrationResponse(c, jobState: 'human_verified');
+    json['created_at'] = 1;
+    json['human_verified_at'] = 2;
+    json['expires_at'] = 3;
     final value = record(c).next(
       response: RegistrationResponse.parse(json, c),
       phase: RegistrationPhase.finalized,
@@ -160,7 +161,7 @@ void main() {
       isNull,
     );
     expect(
-      (await store().read(c))!.response.state,
+      (await store().read(c))!.response.jobState,
       RegistrationState.humanVerified,
       reason: '不能把过期或故障改写为假的真人通过或没有CID',
     );
@@ -170,5 +171,98 @@ void main() {
     expect(text, isNot(contains('turnstile_token')));
     expect(text, isNot(contains('private_key')));
     expect(RegistrationRecord.decode(text).encode(), text);
+  });
+  test('旧注册完整快照一次升级，保留恢复能力与原检查点，混入双名拒绝且不覆盖', () async {
+    final value = record();
+    Map<String, dynamic> legacy() {
+      final data = jsonDecode(value.encode()) as Map<String, dynamic>;
+      data.remove('record_version');
+      final response = data['response'] as Map<String, dynamic>;
+      response['registration_context_hash'] = value.context.hash;
+      for (final entry in {
+        'job_state': 'state',
+        'is_ok': 'ok',
+        'created_at': 'created_at_millis',
+        'expires_at': 'expires_at_millis',
+        'human_verified_at': 'human_verified_at_millis',
+      }.entries) {
+        response[entry.value] = response.remove(entry.key);
+      }
+      final verification = response['verification'];
+      if (verification is Map<String, dynamic>) {
+        verification['page_expires_at_millis'] = verification.remove(
+          'page_expires_at',
+        );
+      }
+      return data;
+    }
+
+    final records = SystemProtectedRecordStore(
+      'registration.json',
+      directory: () async => root.path,
+    );
+    final raw = jsonEncode(legacy());
+    expect(
+      await records.compareAndSet(
+        value.context.hash,
+        expected: null,
+        next: raw,
+      ),
+      true,
+    );
+    final restored = (await store().read(value.context))!;
+    expect(restored.capabilities.toJson(), value.capabilities.toJson());
+    expect(restored.context.hash, value.context.hash);
+    expect(restored.checkpoint, value.checkpoint);
+    expect(await records.read(value.context.hash), restored.encode());
+    expect(jsonDecode(restored.encode())['record_version'], 3);
+    final invalid = legacy();
+    (invalid['response'] as Map)['is_ok'] = true;
+    final mixed = jsonEncode(invalid);
+    expect(
+      await records.compareAndSet(
+        value.context.hash,
+        expected: restored.encode(),
+        next: mixed,
+      ),
+      true,
+    );
+    await expectLater(store().read(value.context), throwsFormatException);
+    expect(await records.read(value.context.hash), mixed);
+  });
+  test('v2注册完整快照升级v3，旧状态仅在存储入口升级且混名不覆盖', () async {
+    final value = record();
+    final data = jsonDecode(value.encode()) as Map<String, dynamic>;
+    data['record_version'] = 2;
+    final response = data['response'] as Map<String, dynamic>;
+    response['state'] = response.remove('job_state');
+    final raw = jsonEncode(data);
+    final records = SystemProtectedRecordStore(
+      'registration.json',
+      directory: () async => root.path,
+    );
+    expect(
+      await records.compareAndSet(
+        value.context.hash,
+        expected: null,
+        next: raw,
+      ),
+      true,
+    );
+    final restored = (await store().read(value.context))!;
+    expect(jsonDecode(restored.encode()), jsonDecode(value.encode()));
+    expect(await records.read(value.context.hash), restored.encode());
+    response['job_state'] = response['state'];
+    final mixed = jsonEncode(data);
+    expect(
+      await records.compareAndSet(
+        value.context.hash,
+        expected: restored.encode(),
+        next: mixed,
+      ),
+      true,
+    );
+    await expectLater(store().read(value.context), throwsFormatException);
+    expect(await records.read(value.context.hash), mixed);
   });
 }

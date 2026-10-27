@@ -1,6 +1,12 @@
 import Flutter
 import Foundation
 import Darwin
+import AVFoundation
+import AVKit
+import UniformTypeIdentifiers
+
+// 历史媒体的本机安全读取顶，统一1024进制；会员成品额度仍由服务端交付。
+private let maxMediaBytes: Int64 = 3 * 1024 * 1024 * 1024
 
 /// 公民广场媒体原生通道；跨端字段统一使用 snake_case。
 final class SquareMediaChannel {
@@ -8,13 +14,15 @@ final class SquareMediaChannel {
 
   private let channel: FlutterMethodChannel
   private let transcoder = SquareVideoTranscoder()
+  private let playback = SquarePlayback()
   private var playbackInitializationFailed = false
 
-  init(binaryMessenger: FlutterBinaryMessenger) {
+  init(binaryMessenger: FlutterBinaryMessenger, registrar: FlutterApplicationRegistrar? = nil) {
     channel = FlutterMethodChannel(
       name: Self.channelName,
       binaryMessenger: binaryMessenger
     )
+    registrar?.register(SquarePlayerFactory(channel: channel, playback: playback), withId: "citizenapp/square_video")
     do {
       _ = try Self.playbackDirectory()
     } catch {
@@ -26,12 +34,19 @@ final class SquareMediaChannel {
   }
 
   deinit {
+    Array(playback.players.values).forEach { $0.dispose() }
     transcoder.cancel()
     channel.setMethodCallHandler(nil)
   }
 
   private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
+    case "pause_playback", "dispose_playback":
+      if let args = call.arguments as? [String: Any], let id = args["player_id"] as? Int {
+        if call.method == "pause_playback" { playback.players[id]?.pause() }
+        else { playback.players[id]?.dispose() }
+      }
+      result(nil)
     case "capabilities":
       result(transcoder.capabilities())
     case "transcode_video":
@@ -72,7 +87,7 @@ final class SquareMediaChannel {
         }
         if call.method == "prepare_playback_file" {
           let size = try values.requiredInt64("byte_size")
-          guard size > 0, size <= 3_000_000_000 else {
+          guard size > 0, size <= maxMediaBytes else {
             throw SquareMediaError.invalidRequest("本地视频大小无效")
           }
           let root = try Self.playbackDirectory()
@@ -102,7 +117,7 @@ final class SquareMediaChannel {
           let file = try Self.ownedFile(path)
           if call.method == "verify_playback_file" {
             let size = try values.requiredInt64("byte_size")
-            guard size > 0, size <= 3_000_000_000 else {
+            guard size > 0, size <= maxMediaBytes else {
               throw SquareMediaError.invalidRequest("本地视频大小无效")
             }
             try Self.checkFile(file, size: size)
@@ -271,10 +286,10 @@ struct SquareVideoRequest {
           maxFrameRate > 0, maxFrameRate <= 30,
           keyFrameIntervalSeconds == 2,
           maxDurationSeconds > 0, maxDurationSeconds <= 10_800,
-          maxBytes > 0, maxBytes <= 3_000_000_000,
+          maxBytes > 0, maxBytes <= maxMediaBytes,
           coverMaxEdge > 0, coverMaxEdge <= 720,
           coverQuality > 0, coverQuality <= 100,
-          coverMaxBytes > 0, coverMaxBytes <= 512_000
+          coverMaxBytes > 0, coverMaxBytes <= 512 * 1024
     else {
       throw SquareMediaError.invalidRequest("视频参数超出允许范围")
     }
@@ -318,4 +333,156 @@ private extension Dictionary where Key == String, Value == Any {
     }
     return number.int64Value
   }
+}
+
+/// AVPlayer只通过本资源加载器读取App交付的有界字节；不持有URL或凭据。
+final class SquareRangeLoader: NSObject, AVAssetResourceLoaderDelegate {
+  typealias Read = (Int64, Int, @escaping (Result<Data, Error>) -> Void) -> Void
+  let total: Int64
+  let read: Read
+  private var pending = Set<ObjectIdentifier>()
+  private var closed = false
+  init(total: Int64, read: @escaping Read) { self.total = total; self.read = read }
+  static func count(offset: Int64, requested: Int64, total: Int64) -> Int {
+    guard offset >= 0, requested > 0, total > offset else { return 0 }
+    return Int(min(524288, requested, total-offset))
+  }
+  func resourceLoader(_ resourceLoader: AVAssetResourceLoader,
+      shouldWaitForLoadingOfRequestedResource request: AVAssetResourceLoadingRequest) -> Bool {
+    guard !closed else { return false }
+    let key = ObjectIdentifier(request)
+    pending.insert(key)
+    request.contentInformationRequest?.contentType = UTType.mpeg4Movie.identifier
+    request.contentInformationRequest?.contentLength = total
+    request.contentInformationRequest?.isByteRangeAccessSupported = true
+    pump(request)
+    return true
+  }
+  private func pump(_ request: AVAssetResourceLoadingRequest) {
+    let key = ObjectIdentifier(request)
+    guard !closed, pending.contains(key), !request.isCancelled else { return }
+    guard let data = request.dataRequest else {
+      pending.remove(key); request.finishLoading(); return
+    }
+    let offset = max(data.requestedOffset, data.currentOffset)
+    let end = data.requestsAllDataToEndOfResource ? total : min(total, data.requestedOffset + Int64(data.requestedLength))
+    let count = Self.count(offset: offset, requested: end-offset, total: total)
+    if count == 0 { pending.remove(key); request.finishLoading(); return }
+    read(offset,count) { [weak self, weak request] result in
+      DispatchQueue.main.async {
+        guard let self, let request, !self.closed, self.pending.contains(key), !request.isCancelled else { return }
+        switch result {
+        case let .success(bytes) where bytes.count == count:
+          request.dataRequest?.respond(with: bytes)
+          self.pump(request)
+        default:
+          self.pending.remove(key)
+          request.finishLoading(with: NSError(domain: "citizenmedia",code: 1))
+        }
+      }
+    }
+  }
+  func resourceLoader(_ resourceLoader: AVAssetResourceLoader, didCancel request: AVAssetResourceLoadingRequest) {
+    pending.remove(ObjectIdentifier(request))
+  }
+  func close() { closed = true; pending.removeAll() }
+}
+
+private final class SquarePlayback { var players = [Int:SquarePlayer]() }
+
+private final class SquarePlayerFactory: NSObject, FlutterPlatformViewFactory {
+  private let channel: FlutterMethodChannel
+  private let playback: SquarePlayback
+  init(channel: FlutterMethodChannel, playback: SquarePlayback) { self.channel = channel; self.playback = playback }
+  func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol { FlutterStandardMessageCodec.sharedInstance() }
+  func create(withFrame frame: CGRect, viewIdentifier viewId: Int64, arguments args: Any?) -> FlutterPlatformView {
+    let values = args as? [String: Any] ?? [:]
+    let id=values["player_id"] as? Int ?? -1
+    playback.players[id]?.dispose()
+    return SquarePlayer(frame: frame, id:id,
+      total: (values["byte_size"] as? NSNumber)?.int64Value ?? 0, channel: channel, playback:playback)
+  }
+}
+
+/// 平台View使用标准子控制器归属，播放器控制与全屏呈现由所属Flutter控制器承接。
+private final class SquarePlayerView: UIView {
+  weak var controller: AVPlayerViewController?
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    guard window != nil, let controller, controller.parent == nil else { return }
+    var responder: UIResponder? = next
+    while let current = responder {
+      if let parent = current as? UIViewController {
+        parent.addChild(controller)
+        controller.didMove(toParent:parent)
+        return
+      }
+      responder = current.next
+    }
+  }
+}
+
+private final class SquarePlayer: NSObject, FlutterPlatformView {
+  private weak var playback: SquarePlayback?
+  private let id: Int
+  private let player = AVPlayer()
+  private let controller = AVPlayerViewController()
+  private let root: SquarePlayerView
+  private var loader: SquareRangeLoader?
+  private var observation: NSKeyValueObservation?
+  private var disposed = false
+  init(frame: CGRect, id: Int, total: Int64, channel: FlutterMethodChannel, playback:SquarePlayback) {
+    self.id = id
+    self.playback = playback
+    self.root = SquarePlayerView(frame:frame)
+    super.init()
+    controller.view.frame = root.bounds
+    controller.view.autoresizingMask = [.flexibleWidth,.flexibleHeight]
+    root.addSubview(controller.view)
+    root.controller = controller
+    guard id >= 0, total > 0, total <= maxMediaBytes, playback.players[id] == nil else { return }
+    playback.players[id] = self
+    let loader = SquareRangeLoader(total: total) { [weak self] offset, length, done in
+      guard let self, !self.disposed else { done(.failure(NSError(domain:"citizenmedia",code:2))); return }
+      channel.invokeMethod("read_range", arguments: ["player_id":id,"offset":offset,"length":length]) { value in
+        guard !self.disposed, let values = value as? [String:Any],
+          (values["offset"] as? NSNumber)?.int64Value == offset,
+          (values["total"] as? NSNumber)?.int64Value == total,
+          values["content_type"] as? String == "video/mp4",
+          let bytes = values["bytes"] as? FlutterStandardTypedData, bytes.data.count == length
+        else { done(.failure(NSError(domain:"citizenmedia",code:3))); return }
+        done(.success(bytes.data))
+      }
+    }
+    self.loader = loader
+    let asset = AVURLAsset(url: URL(string:"citizenmedia://player/\(id)")!)
+    asset.resourceLoader.setDelegate(loader, queue: .main)
+    let item = AVPlayerItem(asset:asset)
+    observation = item.observe(\.status, options:[.new]) { [weak self] item, _ in
+      if item.status == .failed, let self, !self.disposed {
+        DispatchQueue.main.async { channel.invokeMethod("playback_failed",arguments:["player_id":id]) }
+      }
+    }
+    player.replaceCurrentItem(with:item)
+    controller.player = player
+    controller.showsPlaybackControls = true
+    player.play()
+  }
+  func view() -> UIView { root }
+  func pause() { player.pause() }
+  func dispose() {
+    guard !disposed else { return }
+    disposed = true
+    player.pause()
+    loader?.close()
+    player.replaceCurrentItem(with:nil)
+    controller.player = nil
+    controller.willMove(toParent:nil)
+    controller.view.removeFromSuperview()
+    controller.removeFromParent()
+    observation = nil
+    loader = nil
+    playback?.players.removeValue(forKey:id)
+  }
+  deinit { dispose() }
 }

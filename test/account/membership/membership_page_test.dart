@@ -317,9 +317,10 @@ SquareMembershipState _priced(
 );
 // 会员合同的公开测试夹具，供既有广场测试复用；不进入产品运行代码。
 Map<String, dynamic> membergatePlanFixture(String level, {int? price}) {
+  const kib = 1024, mib = 1024 * kib, gib = 1024 * mib, tib = 1024 * gib;
   final v = switch (level) {
     'democracy' => (
-      800000,
+      800 * kib,
       1600,
       72,
       1280,
@@ -328,16 +329,19 @@ Map<String, dynamic> membergatePlanFixture(String level, {int? price}) {
       1200000,
       96000,
       1800,
-      200000000,
-      1500,
-      60000,
-      2,
-      1000000000000,
+      200 * mib,
+      tib,
       15000,
-      100 * 1024 * 1024,
+      100 * mib,
+      5 * gib,
+      256,
+      2 * gib,
+      5 * gib,
+      50,
+      3,
     ),
     'spark' => (
-      1200000,
+      1200 * kib,
       1920,
       78,
       1920,
@@ -346,16 +350,19 @@ Map<String, dynamic> membergatePlanFixture(String level, {int? price}) {
       1800000,
       128000,
       10800,
-      1800000000,
-      5000,
-      600000,
-      3,
-      10000000000000,
+      1800 * mib,
+      10 * tib,
       50000,
-      5120 * 1024 * 1024,
+      5 * gib,
+      12 * gib,
+      1024,
+      10 * gib,
+      50 * gib,
+      100,
+      10,
     ),
     _ => (
-      400000,
+      400 * kib,
       1280,
       65,
       854,
@@ -364,61 +371,38 @@ Map<String, dynamic> membergatePlanFixture(String level, {int? price}) {
       675000,
       64000,
       180,
-      12000000,
-      300,
-      18000,
-      1,
-      100000000000,
+      12 * mib,
+      256 * gib,
       5000,
-      10 * 1024 * 1024,
-    ),
-  };
-  final r = switch (level) {
-    'democracy' => (
-      16,
-      512 * 1024 * 1024,
+      10 * mib,
+      gib,
       128,
-      1024 * 1024 * 1024,
-      2 * 1024 * 1024 * 1024,
-      4096,
+      512 * mib,
+      gib,
+      20,
+      1,
     ),
-    'spark' => (
-      32,
-      12 * 1024 * 1024 * 1024,
-      256,
-      12 * 1024 * 1024 * 1024,
-      24 * 1024 * 1024 * 1024,
-      65536,
-    ),
-    _ => (8, 32 * 1024 * 1024, 32, 64 * 1024 * 1024, 128 * 1024 * 1024, 512),
   };
   return {
     'membergate_level': level,
     'price_fen': price,
     'plan': {
       'membergate_level': level,
-      'chat_file_max_bytes': v.$16,
+      'chat_file_max_bytes': v.$13,
       'video_max_seconds': v.$9,
       'video_max_bytes': v.$10,
-      'article_max_images': level == 'freedom' ? 50 : 100,
-      'article_max_videos': level == 'freedom'
-          ? 1
-          : level == 'democracy'
-          ? 3
-          : 10,
-      'monthly_images': v.$11,
-      'monthly_video_seconds': v.$12,
-      'active_uploads': v.$13,
+      'article_max_images': v.$18,
+      'article_max_videos': v.$19,
     },
     'limits': {
       'image_bytes': v.$1,
       'image_dimension': v.$2,
       'image_quality': v.$3,
-      'storage_bytes': v.$14,
-      'thumbnail_bytes': 80000,
+      'storage_bytes': v.$11,
+      'thumbnail_bytes': 80 * kib,
       'thumbnail_dimension': 360,
       'thumbnail_quality': 65,
-      'cover_bytes': 120000,
+      'cover_bytes': 120 * kib,
       'cover_dimension': 540,
       'cover_quality': 70,
       'video_width': v.$4,
@@ -430,29 +414,12 @@ Map<String, dynamic> membergatePlanFixture(String level, {int? price}) {
       'video_key_frame_seconds': 2,
       'audio_sample_rate': 48000,
     },
-    'resources': {
-      'pending_attachments': v.$13,
-      'writing_chunks': v.$13,
-      'attachment_count': r.$1,
-      'attachment_bytes': r.$2,
-      'attachment_begins_day': r.$3,
-      'upload_bytes_day': r.$4,
-      'delivery_bytes_day': r.$5,
-      'chunk_operations_day': r.$6,
-      'media_requests_day': v.$15,
-    },
+    'resources': {'attachment_bytes': v.$14},
     'daily_limits': {
-      'chat_connections': 512,
-      'chat_commands': 20000,
-      'chat_frame_bytes': 128 * 1024 * 1024,
-      'chat_deliveries': 10000,
-      'profile_requests': 1000,
-      'profile_read_bytes': 64 * 1024 * 1024,
-      'attachment_begins': r.$3,
-      'chat_chunk_operations': r.$6,
-      'upload_bytes': r.$4,
-      'delivery_bytes': r.$5,
-      'media_requests': v.$15,
+      'media_requests': v.$12,
+      'delivery_bytes': v.$17,
+      'upload_bytes': v.$16,
+      'attachment_begins': v.$15,
     },
   };
 }
@@ -469,17 +436,18 @@ SquareMembershipPlan _plan(String level, int? price) =>
 Map<String, dynamic> membergateUsageFixture() => {
   'used_bytes': 0,
   'reserved_bytes': 0,
-  'used_images': 0,
-  'reserved_images': 0,
-  'used_video_seconds': 0,
-  'reserved_video_seconds': 0,
-  'active_uploads': 0,
   'day_start': 0,
-  'daily': {'media_requests': 0, 'upload_bytes': 0, 'delivery_bytes': 0},
+  'daily': {
+    'media_requests': 0,
+    'upload_bytes': 0,
+    'delivery_bytes': 0,
+    'attachment_begins': 0,
+  },
   'published_count': 0,
+  'observed_at': 1000,
 };
 final _membershipJson = jsonEncode({
-  'ok': true,
+  'is_ok': true,
   'membergate_active': true,
   'membergate': {
     'membergate_level': 'democracy',
@@ -647,6 +615,7 @@ SubscriptionService _subscriptionService({
 );
 
 void main() {
+  _resourcePreflightTests();
   TestCitizenSdkHarness();
   useIsolatedIsar();
 
@@ -897,14 +866,14 @@ void main() {
   // 正例只用现行结构，旧结构保留为明确拒绝负例；两条读取入口共用校验。
   final malformedSnapshots = <String, Map<String, dynamic>>{
     '旧字段': {
-      'ok': true,
+      'is_ok': true,
       'membership_active': true,
       'membership': {'membership_level': 'democracy'},
       'plans': [],
       'usage': {},
     },
     for (final field in [
-      'ok',
+      'is_ok',
       'membergate_active',
       'membergate',
       'plans',
@@ -913,7 +882,7 @@ void main() {
       '缺$field': (jsonDecode(_membershipJson) as Map<String, dynamic>)
         ..remove(field),
     for (final field in [
-      'ok',
+      'is_ok',
       'membergate_active',
       'membergate',
       'plans',
@@ -932,20 +901,20 @@ void main() {
       '会员缺$field': (jsonDecode(_membershipJson) as Map<String, dynamic>)
         ..['membergate'].remove(field),
     for (final field in [
-      'used_images',
-      'reserved_images',
-      'used_video_seconds',
-      'reserved_video_seconds',
-      'active_uploads',
+      'used_bytes',
+      'reserved_bytes',
+      'day_start',
+      'published_count',
+      'observed_at',
     ])
       '用量缺$field': (jsonDecode(_membershipJson) as Map<String, dynamic>)
         ..['usage'].remove(field),
     '用量错类型': (jsonDecode(_membershipJson) as Map<String, dynamic>)
-      ..['usage']['used_images'] = '0',
+      ..['usage']['used_bytes'] = '0',
     '用量负数': (jsonDecode(_membershipJson) as Map<String, dynamic>)
-      ..['usage']['used_images'] = -1,
+      ..['usage']['used_bytes'] = -1,
     '用量越界': (jsonDecode(_membershipJson) as Map<String, dynamic>)
-      ..['usage']['used_images'] = 9007199254740992,
+      ..['usage']['used_bytes'] = 9007199254740992,
     '会员日期错类型': (jsonDecode(_membershipJson) as Map<String, dynamic>)
       ..['membergate']['paid_until'] = '9999999999999',
   };
@@ -962,7 +931,7 @@ void main() {
               request.method == 'GET'
                   ? entry.value
                   : {
-                      'ok': true,
+                      'is_ok': true,
                       'tx_hash': tx,
                       'block_hash': block,
                       'membergate_state': entry.value,
@@ -1007,9 +976,12 @@ void main() {
     addTearDown(api.close);
     final state = await api.fetchMembership(_cacheSession());
     expect(state.active, isFalse);
-    expect(state.usageState!.imageCount, 9);
-    expect(state.usageState!.videoSeconds, 35);
-    expect(state.usageState!.activeUploads, 3);
+    expect(state.usageState!.toJson().containsKey('used_images'), isFalse);
+    expect(
+      state.usageState!.toJson().containsKey('used_video_seconds'),
+      isFalse,
+    );
+    expect(state.usageState!.toJson().containsKey('active_uploads'), isFalse);
   });
 
   test('GET损坏只报读取失败，不覆盖已确认会员展示事实', () async {
@@ -1019,7 +991,7 @@ void main() {
       httpClient: MockClient((_) async {
         calls++;
         return http.Response(
-          damaged ? '{"ok":true,"plans":[],"usage":{}}' : _membershipJson,
+          damaged ? '{"is_ok":true,"plans":[],"usage":{}}' : _membershipJson,
           200,
         );
       }),
@@ -1078,7 +1050,7 @@ void main() {
         });
         return http.Response(
           jsonEncode({
-            'ok': true,
+            'is_ok': true,
             'tx_hash': tx,
             'block_hash': block,
             'membergate_state': malformedSnapshots['旧字段'],
@@ -1123,7 +1095,7 @@ void main() {
           });
           return http.Response(
             jsonEncode({
-              'ok': true,
+              'is_ok': true,
               'tx_hash': txHash,
               'block_hash': blockHash,
               'membergate_state': jsonDecode(_membershipJson),
@@ -1173,7 +1145,7 @@ void main() {
   });
 
   for (final damagedField in [
-    'ok',
+    'is_ok',
     'tx_hash',
     'block_hash',
     'extra',
@@ -1183,12 +1155,12 @@ void main() {
       var calls = 0;
       final txHash = '0x${'a' * 64}', blockHash = '0x${'b' * 64}';
       final receipt = <String, Object>{
-        'ok': true,
+        'is_ok': true,
         'tx_hash': txHash,
         'block_hash': blockHash,
         'membergate_state': jsonDecode(_membershipJson),
       };
-      receipt[damagedField] = damagedField == 'ok' ? false : '0x${'c' * 64}';
+      receipt[damagedField] = damagedField == 'is_ok' ? false : '0x${'c' * 64}';
       final api = SquareApiClient(
         baseUrl: 'https://membergate.test/api',
         httpClient: MockClient((request) async {
@@ -1218,10 +1190,10 @@ void main() {
       httpClient: MockClient((request) async {
         if (request.method == 'POST') {
           confirmations++;
-          return http.Response('{"error":"membership_unavailable"}', 503);
+          return http.Response('{"error_code":"membership_unavailable"}', 503);
         }
         reads++;
-        return http.Response('{"error":"membership_unavailable"}', 503);
+        return http.Response('{"error_code":"membership_unavailable"}', 503);
       }),
     );
     addTearDown(api.close);
@@ -1245,9 +1217,9 @@ void main() {
 
   for (final broken in [
     {},
-    {'ok': true},
+    {'is_ok': true},
     {
-      'ok': true,
+      'is_ok': true,
       'membergate_active': true,
       'membergate': null,
       'plans': [],
@@ -1261,7 +1233,7 @@ void main() {
         httpClient: MockClient(
           (_) async => http.Response(
             jsonEncode({
-              'ok': true,
+              'is_ok': true,
               'tx_hash': tx,
               'block_hash': block,
               'membergate_state': broken,
@@ -1386,7 +1358,7 @@ void main() {
         expect(request.method, 'POST');
         return http.Response(
           jsonEncode({
-            'ok': true,
+            'is_ok': true,
             'tx_hash': tx,
             'block_hash': block,
             'membergate_state': jsonDecode(_membershipJson),
@@ -1853,19 +1825,19 @@ void main() {
 
     expect(find.text('聊天 文字/表情/贴纸/图片'), findsNWidgets(3));
     expect(find.text('语音/视频消息 3 分钟 · 语音/视频通话'), findsNWidgets(3));
-    expect(find.text('聊天附件 每个 10MB'), findsOneWidget);
-    expect(find.text('视频 3 分钟 · 480p · 12MB'), findsOneWidget);
-    expect(find.text('文章 3 万字 · 50 图 · 1 视频'), findsOneWidget);
-    expect(find.text('本周期 图 300 · 视频 300 分钟'), findsOneWidget);
-    expect(find.text('并发上传 1 个 · 存储 100GB'), findsOneWidget);
-    expect(find.text('视频 30 分钟 · 720p · 200MB'), findsOneWidget);
-    expect(find.text('文章 3 万字 · 100 图 · 3 视频'), findsOneWidget);
-    expect(find.text('本周期 图 1,500 · 视频 1,000 分钟'), findsOneWidget);
-    expect(find.text('并发上传 2 个 · 存储 1TB'), findsOneWidget);
-    expect(find.text('视频 3 小时 · 1080p · 1.8GB'), findsOneWidget);
+    expect(find.text('聊天附件 每个 10 MiB'), findsOneWidget);
+    expect(find.text('视频 3 分钟 · 480p · 12 MiB'), findsOneWidget);
+    expect(find.text('文章 3 万字 · 20 图 · 1 视频'), findsOneWidget);
+    expect(find.textContaining('本周期 图'), findsNothing);
+    expect(find.text('广场存储 256 GiB'), findsOneWidget);
+    expect(find.text('视频 30 分钟 · 720p · 200 MiB'), findsOneWidget);
+    expect(find.text('文章 3 万字 · 50 图 · 3 视频'), findsOneWidget);
+    expect(find.textContaining('并发上传'), findsNothing);
+    expect(find.text('广场存储 1 TiB'), findsOneWidget);
+    expect(find.text('视频 3 小时 · 1080p · 1800 MiB'), findsOneWidget);
     expect(find.text('文章 3 万字 · 100 图 · 10 视频'), findsOneWidget);
-    expect(find.text('本周期 图 5,000 · 视频 10,000 分钟'), findsOneWidget);
-    expect(find.text('并发上传 3 个 · 存储 10TB'), findsOneWidget);
+    expect(find.textContaining('周期视频'), findsNothing);
+    expect(find.text('广场存储 10 TiB'), findsOneWidget);
 
     await tester.tap(
       find.descendant(
@@ -1878,20 +1850,20 @@ void main() {
     expect(find.text('文字、表情、贴纸、图片'), findsOneWidget);
     expect(find.text('最长 3 分钟'), findsNWidgets(2));
     expect(find.text('支持'), findsNWidgets(2));
-    expect(find.text('最大 10MB'), findsOneWidget);
+    expect(find.text('最大 10 MiB'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('最多 1 个'),
-      300,
+      100,
       scrollable: find.byType(Scrollable).last,
     );
     expect(find.text('最多 1 个'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('用量额度'),
-      300,
+      100,
       scrollable: find.byType(Scrollable).last,
     );
-    expect(find.text('300 分钟'), findsOneWidget);
-    expect(find.text('100GB'), findsOneWidget);
+    expect(find.text('本周期图片'), findsNothing);
+    expect(find.text('256 GiB'), findsOneWidget);
   });
 
   testWidgets('链上未设价 → 显示占位且禁止发起订阅', (tester) async {
@@ -2077,10 +2049,9 @@ void main() {
     final service = _subscriptionService();
     const cidNumber = 'CN220-CTZN2-100000001-2026';
     final raw = jsonDecode(_membershipJson) as Map<String, dynamic>;
-    raw['plans'][0]['plan']['monthly_images'] = 777;
+    raw['plans'][0]['limits']['storage_bytes'] = 777 * 1024 * 1024 * 1024;
     raw['plans'][0]['limits']['image_quality'] = 61;
     raw['plans'][0]['daily_limits']['media_requests'] = 4321;
-    raw['plans'][0]['resources']['media_requests_day'] = 4321;
     raw['usage']['used_bytes'] = 9000;
     raw['usage']['reserved_bytes'] = 700;
     raw['usage']['daily']['media_requests'] = 123;
@@ -2094,13 +2065,16 @@ void main() {
     await service.writeDisplaySnapshot(cidNumber, snapshot);
     SubscriptionService.setChatAuthorizationForTesting(cidNumber, null);
     final restored = (await service.readDisplaySnapshot(cidNumber))!;
-    expect(restored.state.planForLevel('freedom')!.usage.monthlyImages, 777);
+    expect(
+      restored.state.planForLevel('freedom')!.usage.storageBytes,
+      777 * 1024 * 1024 * 1024,
+    );
     expect(restored.state.planForLevel('freedom')!.media['image_quality'], 61);
     expect(
       restored.state.planForLevel('freedom')!.dailyLimits['media_requests'],
       4321,
     );
-    expect(restored.state.planForLevel('freedom')!.imageBytesLabel, '0.4MB');
+    expect(restored.state.planForLevel('freedom')!.imageBytesLabel, '400 KiB');
     expect(restored.state.usageState!.usedBytes, 9000);
     expect(restored.state.usageState!.reservedBytes, 700);
     expect(restored.state.usageState!.daily['media_requests'], 123);
@@ -2112,11 +2086,11 @@ void main() {
 
   testWidgets('同一档位服务端额度变化直接展示，不被本地定义覆盖', (tester) async {
     final raw = jsonDecode(_membershipJson) as Map<String, dynamic>;
-    raw['plans'][0]['plan']['monthly_images'] = 777;
-    raw['plans'][0]['plan']['video_max_bytes'] = 9000000;
+    raw['plans'][0]['limits']['storage_bytes'] = 777 * 1024 * 1024 * 1024;
+    raw['plans'][0]['plan']['video_max_bytes'] = 9 * 1024 * 1024;
     await _pump(tester, SquareApiClient.decodeMembership(raw));
-    expect(find.text('本周期 图 777 · 视频 300 分钟'), findsOneWidget);
-    expect(find.text('视频 3 分钟 · 480p · 9MB'), findsOneWidget);
+    expect(find.text('广场存储 777 GiB'), findsOneWidget);
+    expect(find.text('视频 3 分钟 · 480p · 9 MiB'), findsOneWidget);
     expect(find.text('本周期 图 300 · 视频 300 分钟'), findsNothing);
   });
 
@@ -2197,5 +2171,276 @@ void main() {
 
     expect(find.text('尚未注册'), findsOneWidget);
     expect(find.textContaining('2.99'), findsNothing);
+  });
+}
+
+/// 合成规则只用于验证服务端下发值会生效；不是产品额度来源。
+Map<String, dynamic> preflightGateFixture(
+  SquareSession s, {
+  int? now,
+  int limit = 2,
+}) {
+  final time = now ?? DateTime.now().millisecondsSinceEpoch;
+  return {
+    'version': 2,
+    'cid_number': s.cidNumber,
+    'account_id': s.accountId,
+    'binding_revision': s.bindingRevision,
+    'device_id': s.deviceId,
+    'server_time': time,
+    'valid_until': time + 60000,
+    'day_start': time ~/ 86400000 * 86400000,
+    'day_millis': 86400000,
+    'rules': {
+      'chat': {'self': 'base', 'other': 'base'},
+      'media': {'self': 'member', 'other': 'member'},
+      'profile_asset': {'self': 'base', 'other': 'member'},
+    },
+    'daily_limits': {'media_requests': limit, 'delivery_bytes': 10},
+    'device_limits': {
+      'window_millis': 60000,
+      'frames': 2,
+      'frame_bytes': 1024,
+      'pings': 1,
+      'ping_bytes': 64,
+    },
+    'resource_actions': {
+      'chat_command': [
+        {'metric': 'media_requests', 'amount': 'one'},
+      ],
+      'media_request': [
+        {'metric': 'media_requests', 'amount': 'one'},
+      ],
+      'media_body': [
+        {'metric': 'delivery_bytes', 'amount': 'bytes'},
+      ],
+      'profile_read': [
+        {'metric': 'media_requests', 'amount': 'one'},
+      ],
+    },
+    'profile_media': {
+      'content_type': 'image/webp',
+      'avatar_bytes': 512,
+      'banner_bytes': 1024,
+    },
+  };
+}
+
+void _resourcePreflightTests() {
+  group('本地资源预检', () {
+    const origin = 'https://preflight.test';
+    tearDown(
+      () => SubscriptionService.invalidateCitizenAccount('test-account'),
+    );
+    SquareSession session() => SquareSession(
+      sessionToken: 'synthetic',
+      cidNumber: '1001',
+      bindingRevision: 1,
+      accountId: 'test-account',
+      deviceId: 'test-device',
+      expiresAt: DateTime.now().millisecondsSinceEpoch + 120000,
+    );
+    Future<SquareResourceLease> reserve(
+      MembershipResourceGate gate,
+      SquareSession s,
+    ) => gate.reserve(
+      origin: origin,
+      session: s,
+      operation: 'chat',
+      actions: {'media_request': {}},
+    );
+    test('连接不再消费会员每日额度', () async {
+      final gate = MembershipResourceGate(),
+          s = session(),
+          rules = preflightGateFixture(session(), limit: 0);
+      (rules['resource_actions'] as Map)['chat_connect'] = <Map<String,String>>[];
+      gate.observe(origin, s, {'gate': rules});
+      (await gate.reserve(
+        origin: origin,
+        session: s,
+        operation: 'chat',
+        actions: {'chat_connect': {}},
+      )).cancel();
+    });
+    Map<String, dynamic> stockSnapshot(SquareSession s, {int period = 1000}) {
+      final data = jsonDecode(_membershipJson) as Map<String, dynamic>;
+      data['gate'] = preflightGateFixture(s, limit: 1);
+      data['membergate']['last_charged_at'] = period;
+      data['plans'][1]['limits']['storage_bytes'] = 1;
+      data['plans'][1]['daily_limits']['media_requests'] = 1;
+      data['usage']['attachment'] = {
+        'status': 'available',
+        'observed_at': 1000,
+        'bytes': 0,
+      };
+      return data;
+    }
+
+    test('跨订阅周期的上传仍占同一真实空间，迟到完成不会释放占用', () async {
+      final gate = MembershipResourceGate(), s = session();
+      gate.observe(origin, s, stockSnapshot(s));
+      final old = await gate.reserve(
+        origin: origin,
+        session: s,
+        operation: 'chat',
+        costs: {'storage_bytes': 1},
+      );
+      old.sent();
+      gate.observe(origin, s, stockSnapshot(s, period: 2000));
+      await expectLater(
+        gate.reserve(
+          origin: origin,
+          session: s,
+          operation: 'chat',
+          costs: {'storage_bytes': 1},
+        ),
+        throwsA(isA<SquarePreflightException>()),
+      );
+      old.finish();
+      await expectLater(
+        gate.reserve(
+          origin: origin,
+          session: s,
+          operation: 'chat',
+          costs: {'storage_bytes': 1},
+        ),
+        throwsA(isA<SquarePreflightException>()),
+      );
+    });
+    test('无响应使存量变未知，不能永久卡住写入；已发送日扣量仍保留', () async {
+      final gate = MembershipResourceGate(), s = session();
+      gate.observe(origin, s, stockSnapshot(s));
+      final old = await gate.reserve(
+        origin: origin,
+        session: s,
+        operation: 'chat',
+        costs: {'storage_bytes': 1},
+        actions: {'media_request': {}},
+      );
+      old
+        ..sent()
+        ..cancel();
+      (await gate.reserve(
+        origin: origin,
+        session: s,
+        operation: 'chat',
+        costs: {'storage_bytes': 1},
+      )).cancel();
+      await expectLater(
+        reserve(gate, s),
+        throwsA(isA<SquarePreflightException>()),
+      );
+    });
+    test('旧快照不能替换较新会话，清除账户也清除图片可读的会话引用', () async {
+      final gate = MembershipResourceGate(),
+          s = session(),
+          now = DateTime.now().millisecondsSinceEpoch;
+      final next = SquareSession(
+        sessionToken: 'new-synthetic',
+        cidNumber: s.cidNumber,
+        bindingRevision: s.bindingRevision,
+        accountId: s.accountId,
+        deviceId: s.deviceId,
+        expiresAt: s.expiresAt,
+      );
+      gate.observe(origin, next, {
+        'gate': preflightGateFixture(next, now: now + 1),
+      });
+      gate.observe(origin, s, {'gate': preflightGateFixture(s, now: now)});
+      expect(SubscriptionService.currentSession, same(next));
+      gate.invalidate(s.accountId);
+      expect(SubscriptionService.currentSession, isNull);
+    });
+    test('并发预留消费服务端下发上限，未发送取消后准确释放', () async {
+      final gate = MembershipResourceGate(), s = session();
+      gate.observe(origin, s, {'gate': preflightGateFixture(s, limit: 1)});
+      final first = await reserve(gate, s);
+      await expectLater(
+        reserve(gate, s),
+        throwsA(isA<SquarePreflightException>()),
+      );
+      first.cancel();
+      (await reserve(gate, s)).cancel();
+    });
+    test('发送后无回执保留不确定消耗，不能靠重试退款', () async {
+      final gate = MembershipResourceGate(), s = session();
+      gate.observe(origin, s, {'gate': preflightGateFixture(s, limit: 1)});
+      (await reserve(gate, s))
+        ..sent()
+        ..cancel();
+      await expectLater(
+        reserve(gate, s),
+        throwsA(isA<SquarePreflightException>()),
+      );
+    });
+    test('回执使用真实used；跨设备伪造与损坏回执均不能释放预留', () async {
+      final gate = MembershipResourceGate(),
+          s = session(),
+          now = DateTime.now().millisecondsSinceEpoch;
+      gate.observe(origin, s, {
+        'gate': preflightGateFixture(s, now: now, limit: 1),
+      });
+      final lease = (await reserve(gate, s))..sent();
+      Map<String, dynamic> receipt(String device) => {
+        'user_id': s.cidNumber,
+        'account_id': s.accountId,
+        'binding_revision': s.bindingRevision,
+        'device_id': device,
+        'server_time_millis': now,
+        'counters': [
+          {
+            'metric': 'media_requests',
+            'window_start_millis': now ~/ 86400000 * 86400000,
+            'charged': 1,
+            'used': 1,
+            'limit': 1,
+          },
+        ],
+      };
+      lease.finish(receipt: receipt('other-device'));
+      await expectLater(
+        reserve(gate, s),
+        throwsA(isA<SquarePreflightException>()),
+      );
+      lease.finish(receipt: receipt(s.deviceId));
+      await expectLater(
+        reserve(gate, s),
+        throwsA(isA<SquarePreflightException>()),
+      );
+      gate.observe(origin, s, {
+        'gate': preflightGateFixture(s, now: now + 86400000, limit: 1),
+      });
+      (await reserve(gate, s)).cancel();
+    });
+    test('旧账户预留不能在失效后发送；未知规则不伪造HTTP拒绝', () async {
+      final gate = MembershipResourceGate(), s = session();
+      gate.observe(origin, s, {'gate': preflightGateFixture(s)});
+      final lease = await reserve(gate, s);
+      gate.invalidate(s.accountId);
+      expect(lease.sent, throwsA(isA<SquarePreflightException>()));
+      (await reserve(gate, s)).cancel();
+    });
+    test('实际网络请求本地拒绝发生在MLS证明和HTTP之前', () async {
+      final gate = MembershipResourceGate(), s = session();
+      final rules = preflightGateFixture(s);
+      (rules['daily_limits'] as Map)['media_requests'] = 0;
+      gate.observe(origin, s, {'gate': rules});
+      SquareApiClient.resourceGate = gate;
+      addTearDown(() => SquareApiClient.resourceGate = null);
+      var network = 0;
+      final api = SquareApiClient(
+        baseUrl: '$origin/api',
+        httpClient: MockClient((_) async {
+          network++;
+          return http.Response('{}', 200);
+        }),
+      );
+      addTearDown(api.close);
+      await expectLater(
+        api.openCardMedia('$origin/api/user/cards/1002/avatar', session: s),
+        throwsA(isA<SquarePreflightException>()),
+      );
+      expect(network, 0);
+    });
   });
 }

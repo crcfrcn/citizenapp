@@ -145,9 +145,9 @@ enum RegistrationPhase {
 }
 
 class RegistrationResponse {
-  RegistrationResponse._(this.json, this.state, this.verification);
+  RegistrationResponse._(this.json, this.jobState, this.verification);
   final Map<String, dynamic> json;
-  final RegistrationState state;
+  final RegistrationState jobState;
   final RegistrationVerification? verification;
   String get enrollmentId => registrationText(json, 'enrollment_id');
   factory RegistrationResponse.parse(
@@ -157,32 +157,32 @@ class RegistrationResponse {
     bool initial = false,
   }) {
     registrationFields(json, {
-      'ok',
+      'is_ok',
       'protocol_version',
       'enrollment_id',
       'registration_scope',
       'service_origin',
       'registration_context_hash',
-      'state',
-      'created_at_millis',
-      'expires_at_millis',
-      'human_verified_at_millis',
+      'job_state',
+      'created_at',
+      'expires_at',
+      'human_verified_at',
       'activation',
       'verification',
       if (initial) 'recovery_token',
     });
-    if (json['ok'] != true ||
+    if (json['is_ok'] != true ||
         json['protocol_version'] != 1 ||
         json['registration_scope'] != context.registrationScope ||
         json['service_origin'] != context.origin ||
-        json['registration_context_hash'] != context.hash ||
+        json['registration_context_hash'] != '0x${context.hash}' ||
         (capabilities != null &&
             json['enrollment_id'] != capabilities.enrollmentId)) {
       throw const FormatException('登记响应上下文不一致');
     }
     registrationText(json, 'enrollment_id');
     if (initial) registrationText(json, 'recovery_token');
-    final state = switch (json['state']) {
+    final jobState = switch (json['job_state']) {
       'prepared' => RegistrationState.prepared,
       'human_verified' => RegistrationState.humanVerified,
       'activated' => RegistrationState.activated,
@@ -190,13 +190,13 @@ class RegistrationResponse {
       'cancelled' => RegistrationState.cancelled,
       _ => throw const FormatException('登记状态无效'),
     };
-    final created = registrationInt(json, 'created_at_millis');
-    if (registrationInt(json, 'expires_at_millis') <= created) {
+    final created = registrationInt(json, 'created_at');
+    if (registrationInt(json, 'expires_at') <= created) {
       throw const FormatException('登记期限无效');
     }
-    final verified = json['human_verified_at_millis'];
-    if ((state == RegistrationState.humanVerified ||
-            state == RegistrationState.activated) &&
+    final verified = json['human_verified_at'];
+    if ((jobState == RegistrationState.humanVerified ||
+            jobState == RegistrationState.activated) &&
         (verified is! int || verified < created)) {
       throw const FormatException('登记缺少服务器通过事实');
     }
@@ -213,7 +213,7 @@ class RegistrationResponse {
       registrationFields(raw, {
         'verification_id',
         'page_url',
-        'page_expires_at_millis',
+        'page_expires_at',
         'action',
         'hostname',
       });
@@ -235,11 +235,11 @@ class RegistrationResponse {
       verification = RegistrationVerification(
         id,
         page,
-        registrationInt(raw, 'page_expires_at_millis'),
+        registrationInt(raw, 'page_expires_at'),
       );
     }
     final activation = json['activation'];
-    if (state == RegistrationState.activated) {
+    if (jobState == RegistrationState.activated) {
       if (activation is! Map<String, dynamic>) {
         throw const FormatException('登记激活回执无效');
       }
@@ -262,10 +262,14 @@ class RegistrationResponse {
     } else if (activation != null) {
       throw const FormatException('登记激活状态不一致');
     }
-    if (state == RegistrationState.prepared && verification == null) {
+    if (jobState == RegistrationState.prepared && verification == null) {
       throw const FormatException('登记缺少验证页面');
     }
-    return RegistrationResponse._(Map.unmodifiable(json), state, verification);
+    return RegistrationResponse._(
+      Map.unmodifiable(json),
+      jobState,
+      verification,
+    );
   }
 }
 
@@ -331,6 +335,7 @@ class RegistrationRecord {
     checkpoint: checkpoint ?? this.checkpoint,
   );
   String encode() => jsonEncode({
+    'record_version': 3,
     'context': context.toRecord(),
     'capabilities': capabilities.toJson(),
     'response': {...response.json}..remove('recovery_token'),
@@ -338,9 +343,17 @@ class RegistrationRecord {
     'finalized': finalized?.toJson(),
     'checkpoint': checkpoint,
   });
-  factory RegistrationRecord.decode(String text) {
+
+  /// 只用于原存储的单次版本升级；HTTP解析器始终只接受当前字段。
+  static String upgrade(String text) {
     final raw = jsonDecode(text) as Map<String, dynamic>;
+    if (raw['record_version'] == 3) return text;
+    final version = raw['record_version'];
+    if (raw.containsKey('record_version') && version != 2) {
+      throw const FormatException('登记恢复记录版本无效');
+    }
     registrationFields(raw, {
+      if (version == 2) 'record_version',
       'context',
       'capabilities',
       'response',
@@ -348,6 +361,52 @@ class RegistrationRecord {
       'finalized',
       'checkpoint',
     });
+    final response = (raw['response'] as Map).cast<String, dynamic>();
+    void move(Map<String, dynamic> value, String old, String current) {
+      if (!value.containsKey(old) || value.containsKey(current)) {
+        throw const FormatException('登记旧记录字段冲突');
+      }
+      value[current] = value.remove(old);
+    }
+
+    move(response, 'state', 'job_state');
+    if (version == null) {
+      move(response, 'ok', 'is_ok');
+      move(response, 'created_at_millis', 'created_at');
+      move(response, 'expires_at_millis', 'expires_at');
+      move(response, 'human_verified_at_millis', 'human_verified_at');
+      if (response['verification'] != null) {
+        final verification = (response['verification'] as Map)
+            .cast<String, dynamic>();
+        move(verification, 'page_expires_at_millis', 'page_expires_at');
+        response['verification'] = verification;
+      }
+    }
+    // 本地记录定位键仍是原摘要文本；HTTP H256沿服务端原0x表示，不移动恢复键。
+    final context = RegistrationContext.fromRecord(
+      (raw['context'] as Map).cast<String, dynamic>(),
+    );
+    if (response['registration_context_hash'] == context.hash) {
+      response['registration_context_hash'] = '0x${context.hash}';
+    }
+    raw['response'] = response;
+    raw['record_version'] = 3;
+    final result = jsonEncode(raw);
+    return RegistrationRecord.decode(result).encode();
+  }
+
+  factory RegistrationRecord.decode(String text) {
+    final raw = jsonDecode(text) as Map<String, dynamic>;
+    registrationFields(raw, {
+      'record_version',
+      'context',
+      'capabilities',
+      'response',
+      'phase',
+      'finalized',
+      'checkpoint',
+    });
+    if (raw['record_version'] != 3) throw const FormatException('登记恢复记录版本无效');
     final context = RegistrationContext.fromRecord(
       raw['context'] as Map<String, dynamic>,
     );

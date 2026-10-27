@@ -53,8 +53,8 @@ void main() {
         return http.Response.bytes(
           utf8.encode(
             jsonEncode({
-              'ok': false,
-              'error': 'square_membergate_required',
+              'is_ok': false,
+              'error_code': 'square_membergate_required',
               'message': '非会员禁止使用广场功能',
             }),
           ),
@@ -221,7 +221,7 @@ void main() {
               expect(request.url.path, '/api/8964/posts/p1');
               detailRequests++;
               return http.Response(
-                '''{"ok":true,"post":{"post_id":"p1","account_id":"$kOwner","cid_number":"CN001-CTZN-000000001-2026","post_category":"normal","post_type":"article","title":"标题X","text":"正文内容正文内容正文","content_sections":[{"text_delta":[{"insert":"正文内容正文内容正文"},{"insert":"\\n"}]}],"content_hash":"${List<String>.filled(64, '1').join()}","storage_receipt_id":"sqr_1","chain_block":1,"created_at":1000,"post_state":"published","media_items":[{"media_kind":"image","url":"https://media.test/cover.jpg"}]}}''',
+                '''{"is_ok":true,"post":{"post_id":"p1","account_id":"$kOwner","cid_number":"CN001-CTZN-000000001-2026","post_category":"normal","post_type":"article","post_title":"标题X","content_hash":"${List<String>.filled(64, '1').join()}","storage_receipt_id":"sqr_1","chain_block":1,"created_at":1000,"post_state":"published","media_items":[{"media_kind":"image","url":"https://media.test/cover.jpg"}]},"manifest":{"schema":"citizenapp.square.post","cid_number":"CN001-CTZN-000000001-2026","post_type":"article","text":"正文内容正文内容正文","media_items":[],"title":"标题X","content_sections":[{"text_delta":[{"insert":"正文内容正文内容正文"},{"insert":"\\n"}]}]}}''',
                 200,
                 headers: {'content-type': 'application/json'},
               );
@@ -256,7 +256,7 @@ void main() {
               expect(request.url.path, '/api/8964/posts/p1');
               detailRequests++;
               return http.Response(
-                '''{"ok":true,"post":{"post_id":"p2","account_id":"$kOwner","cid_number":"CN001-CTZN-000000001-2026","post_category":"normal","post_type":"article","title":"图集文章","text":"这是满足十个字的正文内容","content_sections":[{"text_delta":[{"insert":"图集前面的正文内容满足十字"},{"insert":"\\n"}],"gallery_media_indices":[1,2,3]},{"text_delta":[{"insert":"第一个视频正文内容满足十字"},{"insert":"\\n"}],"video_media_index":4},{"text_delta":[{"insert":"第二个视频正文内容满足十字"},{"insert":"\\n"}],"video_media_index":5}],"content_hash":"$hash","storage_receipt_id":"sqr_2","chain_block":2,"created_at":1000,"post_state":"published","media_items":[{"media_kind":"image","url":"https://media.test/cover.jpg"},{"media_kind":"image","url":"https://media.test/1.jpg"},{"media_kind":"image","url":"https://media.test/2.jpg"},{"media_kind":"image","url":"https://media.test/3.jpg"},{"media_kind":"video","url":"https://media.test/1.m3u8","thumbnail_url":"https://media.test/1.jpg"},{"media_kind":"video","url":"https://media.test/2.m3u8","thumbnail_url":"https://media.test/2.jpg"}]}}''',
+                '''{"is_ok":true,"post":{"post_id":"p1","account_id":"$kOwner","cid_number":"CN001-CTZN-000000001-2026","post_category":"normal","post_type":"article","post_title":"图集文章","content_hash":"$hash","storage_receipt_id":"sqr_2","chain_block":2,"created_at":1000,"post_state":"published","media_items":[{"media_kind":"image","url":"https://media.test/cover.jpg"},{"media_kind":"image","url":"https://media.test/1.jpg"},{"media_kind":"image","url":"https://media.test/2.jpg"},{"media_kind":"image","url":"https://media.test/3.jpg"},{"media_kind":"video","url":"https://media.test/1.m3u8","thumbnail_url":"https://media.test/1.jpg"},{"media_kind":"video","url":"https://media.test/2.m3u8","thumbnail_url":"https://media.test/2.jpg"}]},"manifest":{"schema":"citizenapp.square.post","cid_number":"CN001-CTZN-000000001-2026","post_type":"article","text":"这是满足十个字的正文内容","media_items":[],"title":"图集文章","content_sections":[{"text_delta":[{"insert":"图集前面的正文内容满足十字"},{"insert":"\\n"}],"gallery_media_indices":[1,2,3]},{"text_delta":[{"insert":"第一个视频正文内容满足十字"},{"insert":"\\n"}],"video_media_index":4},{"text_delta":[{"insert":"第二个视频正文内容满足十字"},{"insert":"\\n"}],"video_media_index":5}]}}''',
                 200,
                 headers: {'content-type': 'application/json'},
               );

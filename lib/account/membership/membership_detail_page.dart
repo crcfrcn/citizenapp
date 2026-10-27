@@ -83,10 +83,11 @@ class MembershipDetailPage extends StatelessWidget {
           ]),
           SizedBox(height: AppLayout.scaled(context, 12)),
           _section(tierColor, Icons.storage_outlined, '用量额度', [
-            _row('本周期图片', '${_thousands(plan.usage.monthlyImages)} 张'),
-            _row('本周期视频', plan.monthlyVideoDurationLabel),
-            _row('并发上传', '${plan.usage.activeUploads} 个'),
-            _row('存储空间', plan.storageSizeLabel),
+            _row('广场存储空间', plan.storageSizeLabel),
+            _row(
+              '聊天附件存储',
+              plan.resources['attachment_bytes'] == null ? '未知' : SquareMembershipPlan.formatBytes(plan.resources['attachment_bytes']!),
+            ),
           ]),
           if (plan.dailyLimits.isNotEmpty) ...[
             SizedBox(height: AppLayout.scaled(context, 12)),
@@ -108,10 +109,25 @@ class MembershipDetailPage extends StatelessWidget {
                 '上传预留存储',
                 _meterValue('delivery_bytes', usage.reservedBytes),
               ),
-              _row('周期图片（含预留）', '${_thousands(usage.imageCount)} 张'),
-              _row('周期视频（含预留）', '${usage.videoSeconds} 秒'),
-              _row('当前上传', '${usage.activeUploads} 个'),
               _row('周期发布', '${usage.publishedCount} 条'),
+              _row(
+                '服务端采样时间',
+                usage.observedAt > 0
+                    ? DateTime.fromMillisecondsSinceEpoch(
+                        usage.observedAt,
+                        isUtc: true,
+                      ).toIso8601String()
+                    : '未知',
+              ),
+              if (usage.attachment case final stock?) ...[
+                if (stock['status'] == 'available') ...[
+                  _row(
+                    '聊天附件存储',
+                    _meterValue('delivery_bytes', stock['bytes'] as int),
+                  ),
+                ] else
+                  _row('聊天附件存量', '暂不可用'),
+              ],
               _row(
                 '统计日（UTC）',
                 DateTime.fromMillisecondsSinceEpoch(
@@ -328,25 +344,14 @@ class MembershipDetailPage extends StatelessWidget {
 // 指标名称和单位只用于展示；额度及已用值均来自同一服务端响应。
 // 界面只展示用户能直接理解的媒体请求与流量；完整计数仍保留在同一服务端快照中。
 const _dailyDisplay = {
-  'media_requests': '广场媒体请求',
-  'upload_bytes': '附件上传流量',
-  'delivery_bytes': '媒体及附件下发流量',
+  'media_requests': '媒体读取请求',
+  'upload_bytes': '聊天附件上传总大小',
+  'delivery_bytes': '媒体下发总大小',
+  'attachment_begins': '新建聊天附件次数',
 };
-String _meterValue(String metric, int value) {
-  if (metric.endsWith('_bytes')) {
-    if (value >= 1000000000) {
-      return '${(value / 1000000000).toStringAsFixed(2)} GB';
-    }
-    if (value >= 1000000) {
-      return '${(value / 1000000).toStringAsFixed(2)} MB';
-    }
-    if (value >= 1000) {
-      return '${(value / 1000).toStringAsFixed(2)} KB';
-    }
-    return '$value B';
-  }
-  return '${_thousands(value)} 次';
-}
+String _meterValue(String metric, int value) => metric.endsWith('_bytes')
+    ? SquareMembershipPlan.formatBytes(value)
+    : '${_thousands(value)} 次';
 
 /// 会员档色（自由金 / 民主蓝 / 薪火红），与会员卡片一致。
 Color _tierColor(String level) => switch (level) {

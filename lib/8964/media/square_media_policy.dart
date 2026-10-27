@@ -5,9 +5,9 @@ final class SquareMediaPolicy {
   const SquareMediaPolicy._(this._plan);
   final SquareMembershipPlan _plan;
 
-  // 历史已保存媒体的安全读取顶，与新上传额度无关，降档或调小上传规格不损坏旧内容。
-  static const int maxLocalImageBytes = 4000000;
-  static const int maxLocalPlaybackBytes = 3000000000;
+  // 历史已保存媒体的1024进制安全读取顶，与新上传额度无关，降档或调小上传规格不损坏旧内容。
+  static const int maxLocalImageBytes = 4 * 1024 * 1024;
+  static const int maxLocalPlaybackBytes = 3 * 1024 * 1024 * 1024;
 
   String get membershipLevel => _plan.membershipLevel;
   int get imageMaxEdge => _plan.imageMaxEdge;

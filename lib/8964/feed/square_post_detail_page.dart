@@ -62,7 +62,6 @@ class _SquarePostDetailPageState extends State<SquarePostDetailPage> {
   Object? _loadError;
   bool _deleting = false;
   bool _dependenciesReady = false;
-  Map<String, String>? _mediaHeaders;
 
   SquarePost get post => _post;
 
@@ -143,7 +142,7 @@ class _SquarePostDetailPageState extends State<SquarePostDetailPage> {
       }
       setState(() {
         _post = detail;
-        _mediaHeaders = {'authorization': 'Bearer ${session.sessionToken}'};
+
         _loading = false;
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -218,7 +217,7 @@ class _SquarePostDetailPageState extends State<SquarePostDetailPage> {
                 children: [
                   SquarePostCard(
                     post: post,
-                    mediaHeaders: _mediaHeaders,
+
                     displayMode: SquarePostCardDisplayMode.detail,
                   ),
                   if (!post.isLocal || post.chainBlock != null)

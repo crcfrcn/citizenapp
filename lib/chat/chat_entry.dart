@@ -193,7 +193,6 @@ class _CitizenChatHeaderState extends State<_CitizenChatHeader> {
   late final SquareSessionProvider? _sessionProvider;
   CitizenProfile? _profile;
   CitizenProfileMediaSnapshot _media = const CitizenProfileMediaSnapshot();
-  SquareSession? _session;
   bool _resolved = false;
   bool _dependenciesReady = false;
 
@@ -252,7 +251,6 @@ class _CitizenChatHeaderState extends State<_CitizenChatHeader> {
       final media = await _profileMediaCache.read(profile);
       if (!mounted) return;
       setState(() {
-        _session = session;
         _profile = profile;
         _media = media;
         _resolved = true;
@@ -306,11 +304,7 @@ class _CitizenChatHeaderState extends State<_CitizenChatHeader> {
                     updatedAt: _profile!.updatedAt,
                   )
                 : null,
-            imageHeaders: _session == null
-                ? null
-                : <String, String>{
-                    'authorization': 'Bearer ${_session!.sessionToken}',
-                  },
+
             userImageSet: _resolved
                 ? _profile?.avatarObjectKey?.trim().isNotEmpty == true
                 : true,
@@ -611,7 +605,7 @@ class _ChatTabState extends State<ChatTab> {
       .toList(growable: false);
 
   Future<void> _reload({bool syncFirst = false}) async {
-    if(syncFirst)_profileAttempts.clear();
+    if (syncFirst) _profileAttempts.clear();
     if (!_isActive) {
       return;
     }
@@ -830,7 +824,8 @@ class _ChatTabState extends State<ChatTab> {
         .where(
           (cid) =>
               !_resolvedPeerCidNumbers.contains(cid) &&
-              !_profileReadsInFlight.contains(cid) && _profileAttempts.add(cid),
+              !_profileReadsInFlight.contains(cid) &&
+              _profileAttempts.add(cid),
         )
         .toList();
     if (cidNumbers.isEmpty || !mounted) return;
@@ -866,16 +861,10 @@ class _ChatTabState extends State<ChatTab> {
                 _profileSession == null) {
               return;
             }
-            final media = await _profileMediaCache.refresh(
-              profile: profile,
-              avatarUrl: _profileApi.cardMediaUrl(
-                avatarKey,
-                updatedAt: profile.updatedAt,
-              ),
-              bannerUrl: null,
-              headers: <String, String>{
-                'authorization': 'Bearer ${_profileSession!.sessionToken}',
-              },
+            final media = await _profileApi.refreshCardMedia(
+              profile,
+              session: _profileSession!,
+              cache: _profileMediaCache,
             );
             if (_peerProfiles[cidNumber]?.updatedAt == profile.updatedAt) {
               _peerProfileMedia[cidNumber] = media;
@@ -1212,11 +1201,7 @@ class _ChatTabState extends State<ChatTab> {
                     updatedAt: profile.updatedAt,
                   )
                 : null,
-            imageHeaders: _profileSession == null
-                ? null
-                : <String, String>{
-                    'authorization': 'Bearer ${_profileSession!.sessionToken}',
-                  },
+
             userImageSet: resolved
                 ? profile?.avatarObjectKey?.trim().isNotEmpty == true
                 : true,

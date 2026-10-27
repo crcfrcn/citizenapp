@@ -86,7 +86,7 @@ Map<String, Object> fakeMlsChallenge(
 }) {
   final body = jsonDecode(request.body) as Map<String, dynamic>;
   return {
-    'ok': true,
+    'is_ok': true,
     'user_id': cidNumber,
     'account_id': body['account_id'] as String,
     'binding_revision': bindingRevision,
@@ -108,7 +108,7 @@ Map<String, Object> fakeMlsSession({
   int bindingRevision = 1,
   String token = 'tok',
 }) => {
-  'ok': true,
+  'is_ok': true,
   'session_token': token,
   'cid_number': cidNumber,
   'device_id': deviceId,
@@ -147,8 +147,9 @@ Future<Map<String, String>> fakeMlsRequestHeaders({
           'body_sha256': '0x${sha256.convert(body)}',
         }
         ..remove('session_token')
-        ..remove('cid_number')
-        ..remove('expires_at');
+        // 会话期限与挑战期限分属原HTTP合同；只移除继承的会话expires_at。
+        ..remove('expires_at')
+        ..remove('cid_number');
   return mlsProofHeaders(
     await source.createProof(
       identity: identity,

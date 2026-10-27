@@ -26,7 +26,7 @@ class SubscriptionException implements Exception {
 
 /// 会员页持久化展示快照：只缓存 CitizenServe 已确认的订阅态与三档链上价格。
 ///
-/// 套餐名称和权益不进入缓存，始终使用 App 内置静态定义；订阅或支付动作仍在提交前
+/// 套餐和权益缓存服务端真实定义；订阅或支付动作仍在提交前
 /// 使用 CitizenServe D1 鉴权并由链上交易最终执行，展示缓存不构成服务端授权真源。
 class MembershipDisplaySnapshot {
   const MembershipDisplaySnapshot({
@@ -99,6 +99,8 @@ class SubscriptionService {
   final SquareSessionProvider _session;
   final SquareApiClient _api;
 
+  /// 唯一预检实例：规则/用量来自服务端，未决预留只在本进程存活。
+  static final MembershipResourceGate resourceGate = MembershipResourceGate();
   bool _mirrorSyncPending = false;
 
   /// 全 App 按 CID 共享一份内存会员快照；WalletIsar 只是跨进程重启的持久化副本。
@@ -108,7 +110,14 @@ class SubscriptionService {
   /// 唯一请求/权限缓存；离线展示快照不参与授权。所有消费者共用同一个进行中Future。
   static final Map<String, _MembershipAuthorization> _authorizations = {};
   static String? _currentAuthorizedCidNumber;
-  static final Map<String, SquareSession> _citizenChatSessions = {};
+  static final Map<String, SquareSession> _citizenSessions = {};
+
+  /// 图片渲染只读取已有会话，不触发登录、设备登记、PIN或会员请求。
+  static SquareSession? get currentSession {
+    final session = _citizenSessions[_currentAuthorizedCidNumber];
+    return session?.isUsable == true ? session : null;
+  }
+
   static int _cacheGeneration = 0;
 
   @visibleForTesting
@@ -183,7 +192,10 @@ class SubscriptionService {
           ? previous?.state.usageState
           : null,
     );
-    if (!_sameMembership(previous?.state, state)) _authorizations.remove(cid);
+    if (!_sameMembership(previous?.state, state)) {
+      resourceGate.expireMember(cid);
+      _authorizations.remove(cid);
+    }
     await _writeDisplaySnapshot(
       cid,
       MembershipDisplaySnapshot(
@@ -207,32 +219,32 @@ class SubscriptionService {
     rememberCitizenSession(session);
   }
 
-  /// 基础聊天只需要公民会话；切账户/令牌/设备后，旧Future不得写回。
+  /// 全部业务共享当前公民会话引用；切账户/令牌/设备后旧Future不得写回。
   static void rememberCitizenSession(SquareSession session) {
     final cid = session.cidNumber.trim();
     if (cid.isEmpty) return;
-    final old = _citizenChatSessions[cid];
+    final old = _citizenSessions[cid];
     if ((_currentAuthorizedCidNumber != null &&
             _currentAuthorizedCidNumber != cid) ||
         (old != null && !_sameSession(old, session))) {
       _cacheGeneration++;
       _authorizations.clear();
     }
-    _citizenChatSessions.removeWhere((key, _) => key != cid);
-    _citizenChatSessions[cid] = session;
+    _citizenSessions.removeWhere((key, _) => key != cid);
+    _citizenSessions[cid] = session;
     _currentAuthorizedCidNumber = cid;
   }
 
   static void invalidateCitizenAccount(String accountId) {
+    resourceGate.invalidate(accountId);
     _cacheGeneration++;
     _authorizations.clear();
-    _citizenChatSessions.removeWhere(
-      (_, value) => value.accountId == accountId,
-    );
+    _citizenSessions.removeWhere((_, value) => value.accountId == accountId);
   }
 
   /// 只有明确失效路径调用；MembershipRevision表示缓存已推进，不能反向删除它。
   static void invalidateBusinessMembership(String? cidNumber) {
+    resourceGate.expireMember(cidNumber);
     if (cidNumber == null) return;
     _cacheGeneration++;
     _authorizations.remove(cidNumber.trim());
@@ -246,9 +258,9 @@ class SubscriptionService {
   static bool membershipResolvedFor(String cidNumber) =>
       _memorySnapshots.containsKey(cidNumber.trim());
   static bool chatAuthorizationResolvedFor(String cidNumber) =>
-      _citizenChatSessions.containsKey(cidNumber.trim());
+      _citizenSessions.containsKey(cidNumber.trim());
   static bool chatAuthorizedFor(String cidNumber) {
-    final session = _citizenChatSessions[cidNumber.trim()];
+    final session = _citizenSessions[cidNumber.trim()];
     return session != null && session.expiresAt > _now();
   }
 
@@ -258,7 +270,7 @@ class SubscriptionService {
   static int chatFileMaxBytesFor(String cidNumber) {
     final cid = cidNumber.trim(),
         entry = _authorizations[cid],
-        session = _citizenChatSessions[cid];
+        session = _citizenSessions[cid];
     if (entry == null ||
         session == null ||
         !_sameSession(entry.session, session) ||
@@ -348,7 +360,7 @@ class SubscriptionService {
     if (chatFileMaxBytes == null) return;
     final now = _now(), end = now + 60000;
     final session =
-        _citizenChatSessions[cid] ??
+        _citizenSessions[cid] ??
         SquareSession(
           deviceId: 'test-device',
           sessionToken: 'test-session',
@@ -399,12 +411,7 @@ class SubscriptionService {
             maxImages: 1,
             maxVideos: 0,
           ),
-          usage: const SquareMembershipUsageQuota(
-            monthlyImages: 1,
-            monthlyVideoSeconds: 1,
-            activeUploads: 1,
-            storageBytes: 1,
-          ),
+          usage: const SquareMembershipUsageQuota(storageBytes: 1),
         ),
       ],
     );
@@ -421,16 +428,7 @@ class SubscriptionService {
     );
   }
 
-  static String _chatFileSizeLabel(int bytes) {
-    const mib = 1024 * 1024;
-    if (bytes >= 1024 * mib) {
-      final gib = bytes / (1024 * mib);
-      return gib == gib.roundToDouble()
-          ? '${gib.round()}GB'
-          : '${gib.toStringAsFixed(1)}GB';
-    }
-    return '${(bytes / mib).round()}MB';
-  }
+  static String _chatFileSizeLabel(int bytes) => SquareMembershipPlan.formatBytes(bytes);
 
   /// 最近一次平台订阅动作已经 finalized，但 Worker 镜像仍等待确认。
   ///
@@ -444,8 +442,7 @@ class SubscriptionService {
   }) => _authorizeSession(session, client: _api, forceRefresh: forceRefresh);
 
   static bool _currentEntry(_MembershipAuthorization entry) {
-    final cid = entry.session.cidNumber.trim(),
-        session = _citizenChatSessions[cid];
+    final cid = entry.session.cidNumber.trim(), session = _citizenSessions[cid];
     return identical(_authorizations[cid], entry) &&
         entry.generation == _cacheGeneration &&
         session != null &&
@@ -584,7 +581,6 @@ class SubscriptionService {
               ? null
               : SquareApiClient.decodeMembershipUsage(
                   decoded['usage'],
-                  decoded,
                 ),
         ),
         prices: prices,
@@ -898,7 +894,7 @@ class SubscriptionService {
         blockHashHex: blockHashHex,
       );
       await _validateSession(session);
-      final current = _citizenChatSessions[subscriberCidNumber];
+      final current = _citizenSessions[subscriberCidNumber];
       if (generation != _cacheGeneration ||
           !identical(_authorizations[subscriberCidNumber], previousEntry) ||
           (current != null && !_sameSession(current, session))) {
@@ -1162,5 +1158,453 @@ class _MembershipBusinessGateState extends State<MembershipBusinessGate> {
               ),
             ),
     );
+  }
+}
+
+/// 服务端规则的本地执行器。原账本是确认值，预留是尚未确认的本机请求；两者不互相冒充。
+/// 所有数值上限均消费gate/plan，不按会员名称推导，不持久化授权或另建用量表。
+final class MembershipResourceGate implements SquareResourceGate {
+  static const _stockMetrics = {'storage_bytes', 'attachment_bytes'};
+  final Map<String, _ResourceScope> _scopes = {};
+  final Map<String, Future<void>> _refreshes = {};
+  final Map<String, int> _retryAt = {};
+  String _key(String origin, SquareSession s) => jsonEncode([
+    origin,
+    s.cidNumber,
+    s.accountId,
+    s.bindingRevision,
+    s.deviceId,
+  ]);
+
+  @override
+  void invalidate(String accountId) {
+    _scopes.removeWhere((_, scope) => scope.session.accountId == accountId);
+    SubscriptionService._citizenSessions.removeWhere(
+      (_, session) => session.accountId == accountId,
+    );
+    SubscriptionService._authorizations.removeWhere(
+      (_, entry) => entry.session.accountId == accountId,
+    );
+  }
+
+  void expireMember(String? cid) {
+    for (final scope in _scopes.values) {
+      if (scope.session.cidNumber == cid) {
+        scope.memberDeadline = 0;
+      }
+    }
+  }
+
+  /// 用真实服务端时间锚定单调时钟；手机系统时间跳变不能延长服务端许可。
+  @override
+  void observe(
+    String origin,
+    SquareSession session,
+    Map<String, dynamic> data, {
+    String? path,
+  }) {
+    if (path != null &&
+        (RegExp(r'^/api/8964/uploads/[^/]+/(complete|abort)$').hasMatch(path) ||
+            RegExp(r'^/api/8964/posts/[^/]+/delete$').hasMatch(path))) {
+      expireMember(session.cidNumber);
+      SubscriptionService._authorizations.remove(session.cidNumber);
+    }
+    final raw = data['gate'];
+    if (raw is! Map<String, dynamic> ||
+        raw['version'] != 2 ||
+        raw['cid_number'] != session.cidNumber ||
+        raw['account_id'] != session.accountId ||
+        raw['binding_revision'] != session.bindingRevision ||
+        raw['device_id'] != session.deviceId) {
+      return;
+    }
+    final now = raw['server_time'],
+        end = raw['valid_until'],
+        day = raw['day_millis'];
+    if (!_number(now) ||
+        !_number(end) ||
+        !_number(day) ||
+        day == 0 ||
+        end <= now ||
+        raw['rules'] is! Map ||
+        raw['resource_actions'] is! Map ||
+        raw['daily_limits'] is! Map ||
+        raw['device_limits'] is! Map ||
+        raw['profile_media'] is! Map) {
+      return;
+    }
+    final key = _key(origin, session);
+    var scope = _scopes[key];
+    if (scope != null && now < scope.anchor) {
+      return;
+    }
+    SubscriptionService.rememberCitizenSession(session);
+    scope ??= _ResourceScope(session);
+    _scopes[key] = scope;
+    scope.session = session;
+    scope.anchor = now as int;
+    scope.clock = Stopwatch()..start();
+    scope.receivedAt = DateTime.now().millisecondsSinceEpoch;
+    scope.deadline = end as int;
+    scope.gate = raw;
+    final usage = data['usage'];
+    if (usage is Map && _number(usage['day_start']) && usage['daily'] is Map) {
+      final window = usage['day_start'] as int;
+      for (final entry in (usage['daily'] as Map).entries) {
+        if (entry.key is String && _number(entry.value)) {
+          scope.confirm(entry.key as String, window, entry.value as int);
+        }
+      }
+    }
+    if (data['membergate_active'] is bool) {
+      try {
+        final member = SquareApiClient.decodeMembership(data);
+        scope.member = member;
+        scope.memberDeadline = end;
+        final u = member.usageState;
+        if (u != null) {
+          scope.gauges = {'storage_bytes': u.usedBytes + u.reservedBytes};
+        }
+        final attachment = usage is Map ? usage['attachment'] : null;
+        scope.attachmentAvailable =
+            attachment is Map && attachment['status'] == 'available';
+        if (scope.attachmentAvailable) {
+          for (final entry in const {'bytes': 'attachment_bytes'}.entries) {
+            if (_number(attachment[entry.key])) {
+              scope.gauges[entry.value] = attachment[entry.key] as int;
+            }
+          }
+        }
+      } on Object {
+        scope.memberDeadline = 0;
+      }
+    }
+  }
+
+  Future<void> _refresh(String origin, SquareSession session) async {
+    final key = _key(origin, session);
+    final existing = _refreshes[key];
+    if (existing != null) return existing;
+    if ((_retryAt[key] ?? 0) > DateTime.now().millisecondsSinceEpoch) {
+      return;
+    }
+    late final Future<void> work;
+    work = () async {
+      final client = SquareApiClient(baseUrl: '$origin/api');
+      try {
+        await client.fetchMembership(session);
+        final scope = _scopes[key];
+        if (scope == null || scope.memberDeadline <= scope.now) {
+          _retryAt[key] = DateTime.now().millisecondsSinceEpoch + 5000;
+        }
+      } on Object {
+        _retryAt[key] = DateTime.now().millisecondsSinceEpoch + 5000;
+      } finally {
+        client.close();
+        if (identical(_refreshes[key], work)) {
+          _refreshes.remove(key);
+        }
+      }
+    }();
+    _refreshes[key] = work;
+    return work;
+  }
+
+  /// 规则未知时不伪造会员或零用量；普通操作仍到原服务端校验。
+  /// 只有需要付费规则且缓存失效时合并一次按需刷新，基础聊天不依赖价格。
+  @override
+  Future<SquareResourceLease> reserve({
+    required String origin,
+    required SquareSession session,
+    required String operation,
+    String? target,
+    Map<String, int> costs = const {},
+    Map<String, Map<String, int>> actions = const {},
+  }) async {
+    await session.validateCurrent();
+    final key = _key(origin, session);
+    var scope = _scopes[key];
+    final own = target == null || target == session.cidNumber;
+    Map? rule() => scope?.gate['rules'] is Map
+        ? (scope!.gate['rules'] as Map)[operation] as Map?
+        : null;
+    if ((rule()?[own ? 'self' : 'other'] == 'member' ||
+            (scope?.member?.active == true && actions.containsKey('profile_read'))) &&
+        scope != null &&
+        scope.now >= scope.memberDeadline) {
+      await _refresh(origin, session);
+      await session.validateCurrent();
+      scope = _scopes[key];
+    }
+    if (!session.isUsable) {
+      throw const SquarePreflightException('当前公民会话已失效', 'session_expired');
+    }
+    if (scope == null || scope.now >= scope.deadline) {
+      return _LocalResourceLease(null, const {}, null);
+    }
+    final current = scope;
+    final requiresMember = rule()?[own ? 'self' : 'other'] == 'member';
+    if (requiresMember &&
+        current.memberDeadline > current.now &&
+        current.member?.active != true) {
+      throw const SquarePreflightException('此操作需要有效会员', 'membergate_required');
+    }
+    final plan = current.memberDeadline > current.now
+        ? current.member?.activePlan
+        : null;
+    final limits = <String, int>{};
+    _copyNumbers(current.gate['daily_limits'], limits);
+    if (plan != null) {
+      limits.addAll(plan.dailyLimits);
+    }
+    final device = current.gate['device_limits'] as Map;
+    final minute = device['window_millis'];
+    if (_number(minute) && minute > 0) {
+      for (final e in const {
+        'frames': 'device_frames',
+        'frame_bytes': 'device_frame_bytes',
+        'pings': 'device_pings',
+      }.entries) {
+        if (_number(device[e.key])) {
+          limits[e.value] = device[e.key] as int;
+        }
+      }
+    }
+    if (plan != null) {
+      limits.addAll({
+        'storage_bytes': plan.usage.storageBytes,
+      });
+      limits.addAll(plan.resources);
+    }
+    final amounts = <String, int>{...costs};
+    final actionRules = current.gate['resource_actions'] as Map;
+    for (final action in actions.entries) {
+      final rules = actionRules[action.key];
+      if (rules is! List) {
+        continue;
+      }
+      for (final raw in rules) {
+        if (raw is! Map ||
+            raw['metric'] is! String ||
+            raw['amount'] is! String) {
+          continue;
+        }
+        if (raw['when'] == 'begin_attachment' &&
+            action.value['begin_attachment'] != 1) {
+          continue;
+        }
+        final amount = raw['amount'] == 'one' ? 1 : action.value[raw['amount']];
+        if (amount == null || amount == 0 && raw['when'] == 'positive') {
+          continue;
+        }
+        if (amount < 0) {
+          throw const SquarePreflightException(
+            '资源请求不合法',
+            'invalid_resource_cost',
+          );
+        }
+        amounts.update(
+          raw['metric'] as String,
+          (v) => v + amount,
+          ifAbsent: () => amount,
+        );
+      }
+    }
+    final day = current.gate['day_millis'] as int;
+    final reserved = <(String, int), int>{};
+    final chargeAt = current.now;
+    for (final entry in amounts.entries) {
+      if (entry.value < 0 || entry.value > 9007199254740991) {
+        throw const SquarePreflightException(
+          '资源请求不合法',
+          'invalid_resource_cost',
+        );
+      }
+      final metric = entry.key;
+      final gauge = _stockMetrics.contains(metric);
+      final window = gauge
+          ? -1
+          : chargeAt ~/
+                (metric.startsWith('device_') && _number(minute) && minute > 0
+                    ? minute as int
+                    : day) *
+                (metric.startsWith('device_') && _number(minute) && minute > 0
+                    ? minute as int
+                    : day);
+      final id = (metric, window);
+      final used = gauge
+          ? current.gauges[metric] ?? 0
+          : current.confirmed[id] ?? 0;
+      final pending = current.holds.fold<int>(
+        0,
+        (v, hold) => v + (hold.amounts[id] ?? 0),
+      );
+      final limit = limits[metric];
+      if (limit != null && used + pending + entry.value > limit) {
+        throw SquarePreflightException('当前资源用量已达上限，请查看会员用量', 'resource_limit');
+      }
+      reserved[id] = entry.value;
+    }
+    final lease = _LocalResourceLease(
+      current,
+      reserved,
+      () =>
+          identical(_scopes[key], current) &&
+          SubscriptionService._sameSession(current.session, session),
+    );
+    current.holds.add(lease);
+    return lease;
+  }
+
+  Map<String, dynamic>? profileMedia(String origin, SquareSession session) {
+    final scope = _scopes[_key(origin, session)];
+    return scope != null
+        ? Map<String, dynamic>.from(scope.gate['profile_media'] as Map)
+        : null;
+  }
+
+  static bool _number(Object? v) => v is int && v >= 0 && v <= 9007199254740991;
+  static void _copyNumbers(Object? source, Map<String, int> to) {
+    if (source is Map) {
+      for (final e in source.entries) {
+        if (e.key is String && _number(e.value)) {
+          to[e.key as String] = e.value as int;
+        }
+      }
+    }
+  }
+}
+
+final class _ResourceScope {
+  _ResourceScope(this.session);
+  SquareSession session;
+  int anchor = 0, deadline = 0, memberDeadline = 0;
+  Stopwatch clock = Stopwatch();
+  int receivedAt = DateTime.now().millisecondsSinceEpoch;
+  int get now {
+    final wall = DateTime.now().millisecondsSinceEpoch - receivedAt;
+    return anchor +
+        (wall > clock.elapsedMilliseconds ? wall : clock.elapsedMilliseconds);
+  }
+
+  Map<String, dynamic> gate = {};
+  SquareMembershipState? member;
+  bool attachmentAvailable = false;
+  Map<String, int> gauges = {};
+  final Map<(String, int), int> confirmed = {};
+  final List<_LocalResourceLease> holds = [];
+  void confirm(String metric, int window, int used) {
+    final key = (metric, window);
+    if (used > (confirmed[key] ?? -1)) {
+      confirmed[key] = used;
+    }
+  }
+}
+
+final class _LocalResourceLease implements SquareResourceLease {
+  _LocalResourceLease(this.scope, this.amounts, this.current);
+  final _ResourceScope? scope;
+  final Map<(String, int), int> amounts;
+  final bool Function()? current;
+  bool _sent = false, _done = false;
+  void _unknownStock() {
+    final s = scope;
+    if (s == null) return;
+    var changed = false;
+    for (final key in amounts.keys.toList()) {
+      if (MembershipResourceGate._stockMetrics.contains(key.$1)) {
+        s.gauges.remove(key.$1);
+        amounts.remove(key);
+        changed = true;
+      }
+    }
+    // 存量不是不可逆日扣量。未知存量明确失效，下一次按需采样或交服务端判定；日扣量仍保留。
+    if (changed) {
+      s.memberDeadline = 0;
+      SubscriptionService._authorizations.remove(s.session.cidNumber);
+    }
+  }
+
+  @override
+  void sent() {
+    if (current?.call() == false) {
+      throw const SquarePreflightException('当前用户已变化', 'identity_changed');
+    }
+    _sent = true;
+  }
+
+  @override
+  void cancel() {
+    if (_sent && !_done) _unknownStock();
+    if (!_sent && !_done) {
+      _done = true;
+      scope?.holds.remove(this);
+    }
+  }
+
+  @override
+  void finish({
+    Map<String, String>? headers,
+    Map<String, dynamic>? receipt,
+    bool accepted = true,
+  }) {
+    if (_done || current?.call() == false) {
+      return;
+    }
+    final raw = headers?['x-citizenserve-usage'];
+    if (receipt == null && raw != null && raw.length <= 8192) {
+      try {
+        final v = jsonDecode(raw);
+        if (v is Map<String, dynamic>) {
+          receipt = v;
+        }
+      } on FormatException {
+        /* 损坏回执不退款。 */
+      }
+    }
+    final s = scope;
+    if (s != null && receipt != null) {
+      if (receipt['user_id'] != s.session.cidNumber ||
+          receipt['device_id'] != s.session.deviceId ||
+          receipt['account_id'] != s.session.accountId ||
+          receipt['binding_revision'] != s.session.bindingRevision ||
+          !MembershipResourceGate._number(receipt['server_time_millis']) ||
+          receipt['counters'] is! List) {
+        return;
+      }
+      for (final c in receipt['counters'] as List) {
+        if (c is! Map ||
+            c['metric'] is! String ||
+            !MembershipResourceGate._number(c['window_start_millis']) ||
+            !MembershipResourceGate._number(c['used']) ||
+            !MembershipResourceGate._number(c['charged']) ||
+            c['charged'] > c['used']) {
+          return;
+        }
+      }
+      for (final c in receipt['counters'] as List) {
+        s.confirm(
+          c['metric'] as String,
+          c['window_start_millis'] as int,
+          c['used'] as int,
+        );
+      }
+    } else if (raw != null) {
+      return;
+    }
+    if (accepted && s != null) {
+      for (final entry in amounts.entries) {
+        if (MembershipResourceGate._stockMetrics.contains(entry.key.$1)) {
+          s.gauges.update(
+            entry.key.$1,
+            (v) => v + entry.value,
+            ifAbsent: () => entry.value,
+          );
+        }
+      }
+    }
+    if (!accepted) _unknownStock();
+    _done = true;
+    s?.holds.remove(this);
   }
 }

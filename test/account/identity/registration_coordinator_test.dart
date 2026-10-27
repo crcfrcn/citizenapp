@@ -23,14 +23,14 @@ class MemoryStore extends RegistrationStore {
     RegistrationRecord next,
   ) async {
     if (fail || !identical(value, previous)) throw StateError('CAS refused');
-    events.add('save:${next.phase.name}:${next.response.state.name}');
+    events.add('save:${next.phase.name}:${next.response.jobState.name}');
     value = next;
   }
 }
 
 class Api extends RegistrationApi {
   final List<String> events;
-  String state = 'prepared';
+  String jobState = 'prepared';
   int pages = 0;
   bool failStatus = false;
   bool acceptVerification = true;
@@ -39,7 +39,7 @@ class Api extends RegistrationApi {
     RegistrationContext c, {
     bool initial = false,
   }) => RegistrationResponse.parse(
-    registrationResponse(c, state: state, initial: initial),
+    registrationResponse(c, jobState: jobState, initial: initial),
     c,
     initial: initial,
   );
@@ -57,7 +57,7 @@ class Api extends RegistrationApi {
     required String token,
   }) async {
     events.add('verify');
-    state = acceptVerification ? 'human_verified' : 'prepared';
+    jobState = acceptVerification ? 'human_verified' : 'prepared';
     return response(c);
   }
 
@@ -137,7 +137,7 @@ void main() {
       events.add('activate');
       expect(coordinator.activeBinding, result.binding);
       if (activateFail) throw StateError('timeout');
-      api.state = 'activated';
+      api.jobState = 'activated';
       return activatedDevice;
     },
   );
@@ -230,7 +230,7 @@ void main() {
       isEmpty,
     );
     expect(
-      store.value!.response.state,
+      store.value!.response.jobState,
       RegistrationState.humanVerified,
       reason: '只更新本机阶段，不能伪造服务器activated',
     );
@@ -308,7 +308,7 @@ void main() {
     cancel = true;
     await expectLater(run(), throwsA(isA<RegistrationException>()));
     cancel = false;
-    api.state = 'human_verified';
+    api.jobState = 'human_verified';
     store.value = store.value!.next(
       response: api.response(registrationContext()),
       phase: RegistrationPhase.chainPending,

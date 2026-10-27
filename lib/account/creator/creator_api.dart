@@ -171,7 +171,7 @@ class CreatorApiHttp implements CreatorApi {
   Future<CreatorOverview> fetchOverview(SquareSession session) async {
     final data = await _ownSnapshot(session);
     final overview = data['overview'];
-    if (data["ok"] != true ||
+    if (data["is_ok"] != true ||
         overview is! Map<String, dynamic> ||
         [
           "subscriber_count",
@@ -197,7 +197,7 @@ class CreatorApiHttp implements CreatorApi {
       {'tx_hash': txHash, 'block_hash': blockHashHex},
       session,
     );
-    if (saved['ok'] != true ||
+    if (saved['is_ok'] != true ||
         saved['tx_hash'] != txHash ||
         saved['block_hash'] != blockHashHex) {
       throw const CreatorApiException('创作者档位确认回执不一致');
@@ -214,7 +214,7 @@ class CreatorApiHttp implements CreatorApi {
       '/membergate/creators/${Uri.encodeComponent(creatorCidNumber)}/plans',
       session,
     );
-    if (data['ok'] != true ||
+    if (data['is_ok'] != true ||
         data['tiers'] is! List ||
         data['membergate_active'] is! bool) {
       throw const CreatorApiException('创作者档位响应不完整');
@@ -328,8 +328,8 @@ class CreatorApiHttp implements CreatorApi {
       throw CreatorApiException(
         '创作者服务请求失败（${response.statusCode}）',
         statusCode: response.statusCode,
-        errorCode: decoded['error'] is String
-            ? decoded['error'] as String
+        errorCode: decoded['error_code'] is String
+            ? decoded['error_code'] as String
             : null,
       );
     }

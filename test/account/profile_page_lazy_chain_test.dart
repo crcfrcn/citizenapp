@@ -1,3 +1,5 @@
+import 'package:http/http.dart' as http;
+
 import 'dart:typed_data';
 
 import 'package:provider/provider.dart';
@@ -236,7 +238,7 @@ class _StaticProfileMediaCache extends CitizenProfileMediaCache {
     required CitizenProfile profile,
     required String? avatarUrl,
     required String? bannerUrl,
-    required Map<String, String>? headers,
+    required http.Client client,
   }) => read(profile);
 }
 

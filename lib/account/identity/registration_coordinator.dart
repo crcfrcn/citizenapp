@@ -97,8 +97,8 @@ class RegistrationCoordinator {
           )
         : previous.next(response: response);
     await store.save(previous, record);
-    if (response.state == RegistrationState.cancelled ||
-        response.state == RegistrationState.expired) {
+    if (response.jobState == RegistrationState.cancelled ||
+        response.jobState == RegistrationState.expired) {
       final existing = await readChain();
       await guard();
       if (existing != null) {
@@ -123,7 +123,7 @@ class RegistrationCoordinator {
       await store.save(record, renewed);
       record = renewed;
     }
-    if (response.state == RegistrationState.prepared) {
+    if (response.jobState == RegistrationState.prepared) {
       final existing = await readChain();
       await guard();
       if (existing != null) {
@@ -159,7 +159,7 @@ class RegistrationCoordinator {
         token: token,
       );
       await guard();
-      if (response.state != RegistrationState.humanVerified) {
+      if (response.jobState != RegistrationState.humanVerified) {
         throw const RegistrationException('服务器未保存验证通过结果');
       }
       final next = record.next(
@@ -179,14 +179,14 @@ class RegistrationCoordinator {
       throw const RegistrationException('注册身份绑定已变化，请核实当前账户');
     }
     if (finalized == null) {
-      if (response.state != RegistrationState.humanVerified &&
-          response.state != RegistrationState.activated) {
+      if (response.jobState != RegistrationState.humanVerified &&
+          response.jobState != RegistrationState.activated) {
         throw const RegistrationException('新注册必须先通过真人验证');
       }
       if ((record.phase == RegistrationPhase.chainPending &&
               !(await canRetryChain?.call(record.checkpoint) ?? false)) ||
           record.finalized != null ||
-          response.state == RegistrationState.activated) {
+          response.jobState == RegistrationState.activated) {
         throw const RegistrationException('链交易结果尚未确认，请稍后恢复；不会重复签名或上链');
       }
       // 费用读取失败与确认余额不足由调用方分别抛出带代码的结果，不再用 bool
@@ -241,7 +241,7 @@ class RegistrationCoordinator {
       response = await api.status(context, record.capabilities);
       await guard();
       if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(deviceId) ||
-          response.state != RegistrationState.activated ||
+          response.jobState != RegistrationState.activated ||
           response.json['activation']['device_id'] != deviceId ||
           response.json['activation']['cid_number'] !=
               finalized.binding.cidNumber ||

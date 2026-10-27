@@ -11,6 +11,6 @@ Map<String, Object> tronPayment(TopupRail rail, TopupPaymentIntent intent) {
     'rpc': TopupRpcConfig.url(TopupRpcConfig.tron),
     'asset': rail.asset,
     'receiver': rail.recvAddress,
-    'amount': decimal(intent.intent['pay_amount']),
+    'amount': decimal(intent.intentData['pay_amount']),
   };
 }

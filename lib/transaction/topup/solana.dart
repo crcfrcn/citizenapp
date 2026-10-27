@@ -11,7 +11,7 @@ Map<String, Object> solanaPayment(TopupRail rail, TopupPaymentIntent intent) {
     'rpc': TopupRpcConfig.url(TopupRpcConfig.solana),
     'mint': rail.asset,
     'receiver': rail.recvAddress,
-    'amount': decimal(intent.intent['pay_amount']),
+    'amount': decimal(intent.intentData['pay_amount']),
     'decimals': rail.decimals,
   };
 }

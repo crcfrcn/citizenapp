@@ -15,23 +15,24 @@ const enrollment = '11111111-1111-4111-8111-111111111111';
 const verificationId = '22222222-2222-4222-8222-222222222222';
 Map<String, dynamic> registrationResponse(
   RegistrationContext c, {
-  String state = 'prepared',
+  String jobState = 'prepared',
   bool initial = false,
 }) {
   final now = DateTime.now().millisecondsSinceEpoch;
   return {
-    'ok': true,
+    'is_ok': true,
     'protocol_version': 1,
     'enrollment_id': enrollment,
     'registration_scope': c.registrationScope,
     'service_origin': c.origin,
-    'registration_context_hash': c.hash,
-    'state': state,
-    'created_at_millis': now - 1000,
-    'expires_at_millis': now + 86400000,
-    'human_verified_at_millis':
-        state == 'human_verified' || state == 'activated' ? now : null,
-    'activation': state == 'activated'
+    'registration_context_hash': '0x${c.hash}',
+    'job_state': jobState,
+    'created_at': now - 1000,
+    'expires_at': now + 86400000,
+    'human_verified_at': jobState == 'human_verified' || jobState == 'activated'
+        ? now
+        : null,
+    'activation': jobState == 'activated'
         ? {
             'cid_number': 'CN220-CTZN2-100000001-2026',
             'account_id': c.accountId,
@@ -40,12 +41,12 @@ Map<String, dynamic> registrationResponse(
             'public_key': '0x${'33' * 32}',
           }
         : null,
-    'verification': state == 'prepared'
+    'verification': jobState == 'prepared'
         ? {
             'verification_id': verificationId,
             'page_url':
                 '${c.baseUrl}/user/registration/page?verification_id=$verificationId&page_token=capability',
-            'page_expires_at_millis': now + 60000,
+            'page_expires_at': now + 60000,
             'action': 'cid_register',
             'hostname': Uri.parse(c.baseUrl).host,
           }
@@ -55,6 +56,43 @@ Map<String, dynamic> registrationResponse(
 }
 
 void main() {
+  test('与Serve原七字段金标一致，HTTP只接受原0x摘要且本地定位键保持', () {
+    // 来源：Serve既有test/contract/registration.json的公开上下文与摘要。
+    final c = RegistrationContext(
+      accountId:
+          '0x2afba9278e30ccf6a6ceb3a8b6e336b70068f045c666f2e7f4f9cc5f47db8972',
+      institution: 'CTZN',
+      chainScope: '0x${'00' * 32}',
+      baseUrl: 'https://registration.example.test/api',
+      registrationScope: 'citizenserve:fixture',
+    );
+    expect(
+      '0x${c.hash}',
+      '0x3f41f857b7cdc569ac12579659aab7a5f319b716624bc9a4fcdbb33cfacf7d2b',
+    );
+    expect(c.hash.length, 64);
+    final response = registrationResponse(c, initial: true);
+    expect(
+      RegistrationResponse.parse(response, c, initial: true).enrollmentId,
+      enrollment,
+    );
+    final oldState = {...response}..['state'] = response['job_state'];
+    expect(
+      () => RegistrationResponse.parse(oldState, c, initial: true),
+      throwsFormatException,
+    );
+    oldState.remove('job_state');
+    expect(
+      () => RegistrationResponse.parse(oldState, c, initial: true),
+      throwsFormatException,
+    );
+    response['registration_context_hash'] = c.hash;
+    expect(
+      () => RegistrationResponse.parse(response, c, initial: true),
+      throwsFormatException,
+    );
+  });
+
   test('prepare只有四字段；验证和status秘密只放正文', () async {
     final c = registrationContext(), requests = <http.Request>[];
     final api = RegistrationApi(
@@ -65,11 +103,11 @@ void main() {
           jsonEncode(
             registrationResponse(
               c,
-              state: initial ? 'prepared' : 'human_verified',
+              jobState: initial ? 'prepared' : 'human_verified',
               initial: initial,
             ),
           ),
-          200,
+          initial ? 201 : 200,
         );
       }),
     );
@@ -109,7 +147,7 @@ void main() {
       {'registration_context_hash': '00' * 32},
       {'protocol_version': 2},
       {'cid_number': 'premature'},
-      {'ok': false},
+      {'is_ok': false},
     ]) {
       expect(
         () => RegistrationResponse.parse({...raw, ...change}, c, initial: true),
@@ -136,7 +174,7 @@ void main() {
   });
   test('activated必须带准确账户和设备回执；HTTP失败不降级prepared', () async {
     final c = registrationContext();
-    final raw = registrationResponse(c, state: 'activated');
+    final raw = registrationResponse(c, jobState: 'activated');
     raw['activation']['account_id'] = '0x${'44' * 32}';
     expect(() => RegistrationResponse.parse(raw, c), throwsFormatException);
     final api = RegistrationApi(
@@ -156,11 +194,13 @@ void main() {
     ]) {
       final api = RegistrationApi(
         // 显式交付UTF-8字节及响应头，保留真实HTTP错误分类与正文隔离断言。
-        client: MockClient((_) async => http.Response.bytes(
-          utf8.encode('服务端私有登记能力不得展示'),
-          caseValue.$1,
-          headers: const {'content-type': 'text/plain; charset=utf-8'},
-        )),
+        client: MockClient(
+          (_) async => http.Response.bytes(
+            utf8.encode('服务端私有登记能力不得展示'),
+            caseValue.$1,
+            headers: const {'content-type': 'text/plain; charset=utf-8'},
+          ),
+        ),
       );
       try {
         await api.prepare(c);

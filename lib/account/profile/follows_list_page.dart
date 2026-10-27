@@ -253,9 +253,7 @@ class _FollowsListPageState extends State<FollowsListPage> {
               seed: entry.cidNumber,
               size: AppLayout.scaled(context, 42),
               imageUrl: avatarKey == null ? null : _api.cardMediaUrl(avatarKey),
-              imageHeaders: <String, String>{
-                'authorization': 'Bearer ${widget.session.sessionToken}',
-              },
+
               identityLevel: profile?.identityLevel,
               membershipLevel: profile?.membershipLevel,
               membershipActive: profile?.membershipActive ?? false,

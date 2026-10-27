@@ -16,6 +16,9 @@ String chatUserErrorMessage(
   Object error, {
   String fallback = '聊天暂时无法使用，请稍后重试',
 }) {
+  if (error is SquarePreflightException) {
+    return error.message;
+  }
   if (error is SquareApiException) {
     return switch (error.errorCode) {
       'cid_not_bound' => '公民身份同步失败，请重试',
@@ -161,6 +164,12 @@ final class CitizenChatRuntimeHost
       realtimeUrl: response.realtimeUrl,
       accessToken: response.accessToken,
       expiresAtMillis: response.expiresAtMillis,
+      resources: _CitizenChatResources(
+        squareSessionProvider,
+        account,
+        identity.deviceId,
+        response.realtimeUrl,
+      ),
     );
     access.validate(DateTime.now().millisecondsSinceEpoch);
     return access;
@@ -255,4 +264,132 @@ sdk.ChatRuntimeHost createCitizenChatRuntimeHost({
     pushService: push,
   );
   return host;
+}
+
+/// 同一App预检的中性SDK适配；不在聊天产品层复制会员额度或另存用量。
+final class _CitizenChatResources implements sdk.ChatResourceGate {
+  _CitizenChatResources(this.sessions, this.account, this.device, this.url);
+  final SquareSessionProvider sessions;
+  final sdk.ChatRuntimeAccount account;
+  final String device;
+  final Uri url;
+  final _knownAttachments = <String, bool>{};
+  @override
+  Future<sdk.ChatResourceLease> reserve(
+    String action, {
+    List<int> frame = const [],
+    int bytes = 0,
+  }) async {
+    final session = await sessions.ensureSession();
+    if (session == null ||
+        session.accountId != account.accountId ||
+        session.cidNumber != account.userId ||
+        session.bindingRevision != account.bindingRevision ||
+        session.deviceId != device) {
+      throw const SquarePreflightException('聊天用户已变化', 'identity_changed');
+    }
+    await session.validateCurrent();
+    final input = <String, int>{
+      'bytes': bytes,
+      'frame_bytes': frame.length,
+      'begin_attachment': 0,
+    };
+    final costs = <String, int>{};
+    var operation = 'chat';
+    final control = frame.isEmpty ? null : sdk.ChatFrame.fromBuffer(frame);
+    if (control != null) {
+      final value = control;
+      // 明文单文件限制已由SDK注入的mediaLimits在加密前检查，不能用明文上限再拒绝合法MLS密文。
+      input['begin_attachment'] = value.hasBeginAttachment() &&
+          _knownAttachments[value.beginAttachment.attachment.attachmentId] != true ? 1 : 0;
+      costs.addAll({'device_frames': 1, 'device_frame_bytes': frame.length});
+      if (value.hasBeginAttachment() || value.hasCompleteAttachment()) {
+        operation = 'attachment';
+      }
+      if (value.hasBeginAttachment() &&
+          _knownAttachments[value.beginAttachment.attachment.attachmentId] ==
+              false) {
+        final meta = value.beginAttachment.attachment;
+        costs.addAll({'attachment_bytes': meta.cipherByteSize.toInt()});
+      }
+    }
+    if (action.startsWith('attachment_')) {
+      operation = 'attachment';
+    }
+    final lease = await SubscriptionService.resourceGate.reserve(
+      origin: url.replace(scheme: 'https').origin,
+      session: session,
+      operation: operation,
+      costs: costs,
+      actions: {action: input},
+    );
+    final stockChanged =
+        control != null &&
+        (control.hasCompleteAttachment() ||
+            control.hasAcknowledgeAttachment() ||
+            control.hasAbortAttachment());
+    return _CitizenChatResourceLease(
+      lease,
+      onResult: (accepted, errorCode) {
+        if (control?.hasCompleteAttachment() == true) {
+          if (accepted) {
+            _knownAttachments[control!.completeAttachment.attachmentId] = true;
+          } else if (errorCode == 'not_found') {
+            _knownAttachments[control!.completeAttachment.attachmentId] = false;
+          } else {
+            _knownAttachments.remove(control!.completeAttachment.attachmentId);
+          }
+        }
+        if (control?.hasBeginAttachment() == true && accepted) {
+          _knownAttachments[control!.beginAttachment.attachment.attachmentId] =
+              true;
+        }
+        if (accepted && stockChanged) {
+          SubscriptionService.invalidateBusinessMembership(session.cidNumber);
+        }
+      },
+    );
+  }
+}
+
+final class _CitizenChatResourceLease implements sdk.ChatResourceLease {
+  _CitizenChatResourceLease(this.lease, {this.onResult});
+  final SquareResourceLease lease;
+  final void Function(bool, String?)? onResult;
+  @override
+  void sent() => lease.sent();
+  @override
+  void cancel() => lease.cancel();
+  @override
+  void finish({
+    sdk.ResourceUsage? receipt,
+    Map<String, String>? headers,
+    bool accepted = true,
+    String? errorCode,
+  }) {
+    onResult?.call(accepted, errorCode);
+    lease.finish(
+      headers: headers,
+      accepted: accepted,
+      receipt: receipt == null
+          ? null
+          : {
+              'user_id': receipt.userId,
+              'device_id': receipt.deviceId,
+              'account_id': receipt.accountId,
+              'binding_revision': receipt.bindingRevision.toInt(),
+              'server_time_millis': receipt.serverTimeMillis.toInt(),
+              'counters': [
+                for (final c in receipt.counters)
+                  {
+                    'metric': c.metric,
+                    'window_start_millis': c.windowStartMillis.toInt(),
+                    'charged': c.charged.toInt(),
+                    'used': c.used.toInt(),
+                    'limit': c.hasLimit() ? c.limit.toInt() : null,
+                  },
+              ],
+            },
+    );
+  }
 }

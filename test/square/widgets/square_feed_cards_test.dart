@@ -1,3 +1,5 @@
+import 'package:citizenapp/account/profile/citizen_profile_api.dart'
+    show CitizenRemoteImage;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -21,6 +23,7 @@ import 'package:citizenapp/8964/feed/square_article_card.dart';
 import 'package:citizenapp/8964/media/square_media_grid.dart';
 import 'package:citizenapp/8964/feed/square_post_card.dart';
 import 'package:citizenapp/network/citizen_serve_api_config.dart';
+
 import '../../support/platform_input.dart';
 
 SquareMediaItem _img({int? w, int? h}) => SquareMediaItem(
@@ -84,29 +87,66 @@ Future<void> _pump(WidgetTester tester, Widget child, {double textScale = 1}) {
 
 void main() {
   test('受保护媒体只向批准来源发送当前会话头，外域和能力查询不带凭据', () {
-    final headers = {'authorization': 'Bearer sqs_${'12' * 16}', 'x-mls-proof': '不能复用头像的一次性证明'};
+    final headers = {
+      'authorization': 'Bearer sqs_${'12' * 16}',
+      'x-mls-proof': '不能复用头像的一次性证明',
+    };
     const path = '/square/CID1/posts/p1/media/0/source.webp';
-    expect(CitizenServeApiConfig.mediaHeaders('https://media.crcfrcn.com$path', headers),
-      {'authorization': headers['authorization']!});
-    for (final url in ['https://other.example$path', 'http://media.crcfrcn.com$path',
-      'https://media.crcfrcn.com$path?token=other', 'https://user@media.crcfrcn.com$path',
-      'https://media.crcfrcn.com/unrelated']) {
+    expect(
+      CitizenServeApiConfig.mediaHeaders(
+        'https://media.crcfrcn.com$path',
+        headers,
+      ),
+      {'authorization': headers['authorization']!},
+    );
+    for (final url in [
+      'https://other.example$path',
+      'http://media.crcfrcn.com$path',
+      'https://media.crcfrcn.com$path?token=other',
+      'https://user@media.crcfrcn.com$path',
+      'https://media.crcfrcn.com/unrelated',
+    ]) {
       expect(CitizenServeApiConfig.mediaHeaders(url, headers), isEmpty);
     }
-    expect(CitizenServeApiConfig.mediaHeaders('https://media.crcfrcn.com$path', null), isEmpty);
+    expect(
+      CitizenServeApiConfig.mediaHeaders(
+        'https://media.crcfrcn.com$path',
+        null,
+      ),
+      isEmpty,
+    );
   });
 
-  testWidgets('卡片仅传递媒体鉴权头，原媒体组件和布局不变', (tester) async {
-    final headers = {'authorization': 'Bearer sqs_${'12' * 16}'};
-    await tester.pumpWidget(MaterialApp(home: Scaffold(body: SquarePostCard(
-      post: _post(media: [_img()]), avatarHeaders: headers,
-    ))));
-    expect(tester.widget<SquareMediaGrid>(find.byType(SquareMediaGrid)).httpHeaders, headers);
-    expect(tester.widget<SquareMediaImage>(find.byType(SquareMediaImage)).httpHeaders, headers);
-    await tester.pumpWidget(MaterialApp(home: Scaffold(body: SquareArticleCard(
-      post: _post(postType: SquarePostType.article, media: [const SquareMediaItem(mediaKind: SquareMediaKind.image, url: 'synthetic-media-placeholder')]), avatarHeaders: headers,
-    ))));
-    expect(tester.widget<SquareMediaImage>(find.byType(SquareMediaImage)).httpHeaders, headers);
+  testWidgets('卡片媒体复用受保护读取器，保留原组件和布局', (tester) async {
+    const media = SquareMediaItem(
+      mediaKind: SquareMediaKind.image,
+      url: 'https://media.crcfrcn.com/square/CID1/posts/p1/media/0/source.webp',
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SquarePostCard(post: _post(media: [media])),
+        ),
+      ),
+    );
+    expect(find.byType(SquareMediaGrid), findsOneWidget);
+    expect(find.byType(SquareMediaImage), findsOneWidget);
+    expect(find.byType(CitizenRemoteImage), findsOneWidget);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SquareArticleCard(
+            post: _post(postType: SquarePostType.article, media: [media]),
+          ),
+        ),
+      ),
+    );
+    expect(find.byType(SquareMediaImage), findsOneWidget);
+    expect(find.byType(CitizenRemoteImage), findsOneWidget);
+    expect(
+      tester.widget<CitizenRemoteImage>(find.byType(CitizenRemoteImage)).url,
+      media.url,
+    );
   });
 
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -357,9 +397,8 @@ void main() {
   });
 
   test('本地视频没有HTTP监听与系统明文例外', () {
-    final source = File(
-      'lib/8964/media/square_media_grid.dart',
-    ).readAsStringSync();
+    final source = File('lib/8964/media/square_media_grid.dart')
+        .readAsStringSync();
     expect(source, isNot(contains('HttpServer')));
     expect(source, contains('VideoPlayerController.file(source.file)'));
     expect(

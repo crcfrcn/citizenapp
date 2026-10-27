@@ -371,12 +371,8 @@ class _ProfilePostsTabState extends State<ProfilePostsTab> {
                 post.isLocal || avatarKey == null || session == null
                 ? null
                 : widget.api.mediaImage(avatarKey, session: session);
-            // 广场正文媒体仍使用原普通会话头；作者完整资料头像仅从现签provider读取。
-            final avatarHeaders = session == null
-                ? null
-                : <String, String>{
-                    'authorization': 'Bearer ${session.sessionToken}',
-                  };
+            // 媒体和头像均交给所属受保护读取器，不在UI保存鉴权头。
+
             if (widget.postType == SquarePostType.article) {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -385,7 +381,7 @@ class _ProfilePostsTabState extends State<ProfilePostsTab> {
                     post: post,
                     onTap: () => widget.onOpenPost?.call(post),
                     onAuthorTap: () => widget.onOpenPost?.call(post),
-                    avatarHeaders: avatarHeaders,
+
                     avatarImage: avatarImage,
                   ),
                 ],
@@ -398,7 +394,7 @@ class _ProfilePostsTabState extends State<ProfilePostsTab> {
                   post: post,
                   onTap: () => widget.onOpenPost?.call(post),
                   onAuthorTap: () => widget.onOpenPost?.call(post),
-                  avatarHeaders: avatarHeaders,
+
                   avatarImage: avatarImage,
                 ),
               ],

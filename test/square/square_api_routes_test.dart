@@ -55,6 +55,162 @@ void main() {
       ),
     );
   });
+  test('原发布确认事实回执后只读一次实际post和manifest证明，不接受旧内联格式', () async {
+    final paths = <String>[];
+    final hash = '11' * 32, block = '0x${'22' * 32}', tx = '0x${'33' * 32}';
+    final session = SquareSession(
+      deviceId: testMlsDeviceId,
+      sessionToken: 'synthetic',
+      cidNumber: testMlsCidNumber,
+      accountId: testMlsAccountId,
+      bindingRevision: 1,
+      expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
+      authenticateRequest: fakeMlsRequestHeaders,
+    );
+    final index = <String, dynamic>{
+      'post_id': 'post',
+      'account_id': testMlsAccountId,
+      'cid_number': testMlsCidNumber,
+      'post_category': 'normal',
+      'post_type': 'document',
+      'post_title': null,
+      'post_excerpt': '摘要',
+      'content_hash': hash,
+      'storage_receipt_id': 'receipt',
+      'chain_block': 1,
+      'chain_block_hash': block,
+      'tx_hash': tx,
+      'created_at': 1000,
+      'post_state': 'published',
+      'media_items': <Object>[],
+    };
+    final manifest = <String, dynamic>{
+      'schema': 'citizenapp.square.post',
+      'cid_number': testMlsCidNumber,
+      'post_type': 'document',
+      'text': '真实清单正文',
+      'media_items': <Object>[],
+    };
+    final api = SquareApiClient(
+      baseUrl: 'https://square.test/api',
+      httpClient: MockClient((request) async {
+        paths.add('${request.method} ${request.url.path}');
+        return http.Response(
+          jsonEncode(
+            request.method == 'POST'
+                ? {
+                    'is_ok': true,
+                    'post_id': 'post',
+                    'content_hash': hash,
+                    'post_category': 'normal',
+                  }
+                : {'is_ok': true, 'post': index, 'manifest': manifest},
+          ),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }),
+    );
+    addTearDown(api.close);
+    final post = await api.confirmPublishedPost(
+      session: session,
+      postId: 'post',
+      blockHashHex: block,
+      txHash: tx,
+    );
+    expect(post.text, '真实清单正文');
+    expect(post.contentHash, hash);
+    expect(paths, ['POST /api/8964/posts/confirm', 'GET /api/8964/posts/post']);
+    for (final bad in [
+      'block',
+      'tx',
+      'hash',
+      'category',
+      'schema',
+      'author',
+      'type',
+      'http',
+    ]) {
+      final calls = <String>[];
+      final invalidIndex = {...index};
+      final invalidManifest = {...manifest};
+      switch (bad) {
+        case 'block':
+          invalidIndex['chain_block_hash'] = '0x${'44' * 32}';
+        case 'tx':
+          invalidIndex['tx_hash'] = '0x${'44' * 32}';
+        case 'hash':
+          invalidIndex['content_hash'] = '44' * 32;
+        case 'category':
+          invalidIndex['post_category'] = 'campaign';
+        case 'schema':
+          invalidManifest['schema'] = 'unknown';
+        case 'author':
+          invalidManifest['cid_number'] = 'other';
+        case 'type':
+          invalidManifest['post_type'] = 'article';
+      }
+      final invalid = SquareApiClient(
+        baseUrl: 'https://square.test/api',
+        httpClient: MockClient((request) async {
+          calls.add('${request.method} ${request.url.path}');
+          return http.Response(
+            jsonEncode(
+              request.method == 'POST'
+                  ? {
+                      'is_ok': true,
+                      'post_id': 'post',
+                      'content_hash': hash,
+                      'post_category': 'normal',
+                    }
+                  : {
+                      'is_ok': true,
+                      'post': invalidIndex,
+                      'manifest': invalidManifest,
+                    },
+            ),
+            bad == 'http' && request.method == 'GET' ? 503 : 200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }),
+      );
+      try {
+        await expectLater(
+          invalid.confirmPublishedPost(
+            session: session,
+            postId: 'post',
+            blockHashHex: block,
+            txHash: tx,
+          ),
+          throwsA(isA<SquareApiException>()),
+        );
+        expect(calls, [
+          'POST /api/8964/posts/confirm',
+          'GET /api/8964/posts/post',
+        ]);
+      } finally {
+        invalid.close();
+      }
+    }
+    final old = SquareApiClient(
+      baseUrl: 'https://square.test/api',
+      httpClient: MockClient(
+        (_) async => http.Response(
+          jsonEncode({
+            'is_ok': true,
+            'post': {...index, 'text': '旧内联正文'},
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        ),
+      ),
+    );
+    addTearDown(old.close);
+    await expectLater(
+      old.fetchPostDetail(session: session, postId: 'post'),
+      throwsA(isA<SquareApiException>()),
+    );
+  });
   _proposalFailureDiagnosticsTests();
   _proposalReadDiagnosticsTests();
   _failureDiagnosticsTests();
@@ -63,16 +219,16 @@ void main() {
   _readCoalescingTests();
   for (final status in [401, 403, 429, 503]) {
     for (final data in <Map<String, Object?>>[
-      {'error': 'device_not_registered'},
-      {},
-      {'error': 1},
-      {'error': null},
-      {
-        'error': {'code': 'device_not_registered'},
-      },
       {'error_code': 'device_not_registered'},
+      {},
+      {'error_code': 1},
+      {'error_code': null},
+      {
+        'error_code': {'code': 'device_not_registered'},
+      },
+      {'error': 'device_not_registered'},
     ]) {
-      test('真实错误字段$status/$data仅接受error字符串且不重试', () async {
+      test('真实错误字段$status/$data仅接受error_code字符串且不重试', () async {
         var calls = 0;
         final api = SquareApiClient(
           baseUrl: 'https://square.test/api',
@@ -94,7 +250,7 @@ void main() {
                 .having(
                   (e) => e.errorCode,
                   '错误码',
-                  data['error'] is String ? data['error'] : null,
+                  data['error_code'] is String ? data['error_code'] : null,
                 ),
           ),
         );
@@ -110,7 +266,7 @@ void main() {
         httpClient: MockClient(
           (r) async => http.Response(
             jsonEncode({
-              'ok': true,
+              'is_ok': true,
               'membergate_active': false,
               'membergate': null,
               'plans': [
@@ -175,7 +331,7 @@ void main() {
         sent.add(r);
         return http.Response(
           jsonEncode({
-            'ok': true,
+            'is_ok': true,
             'posts': [],
             'entries': [],
             'square_unread': 0,
@@ -251,7 +407,7 @@ void main() {
           jsonEncode(
             r.url.path == '/api/8964/uploads'
                 ? {
-                    'ok': true,
+                    'is_ok': true,
                     'upload_id': 'upload',
                     'post_id': 'post',
                     'storage_receipt_id': 'receipt',
@@ -264,12 +420,11 @@ void main() {
                     'media_uploads': [],
                   }
                 : {
-                    'ok': true,
+                    'is_ok': true,
                     'upload_id': 'upload',
                     'post_id': 'post',
                     'content_hash': 'ab' * 32,
                     'storage_receipt_id': 'receipt',
-                    'storage_state': 'ready',
                   },
           ),
           200,
@@ -282,7 +437,7 @@ void main() {
       postType: SquarePostType.document,
       titleLength: 0,
       textLength: 1,
-      manifestHash: 'ab' * 32,
+      contentHash: 'ab' * 32,
       manifestByteSize: 1,
       mediaItems: [],
     );
@@ -293,14 +448,44 @@ void main() {
     await api.completeUpload(
       session: session,
       uploadId: 'upload',
-      manifestHash: 'ab' * 32,
       contentHash: 'ab' * 32,
     );
     expect(requests.last.url.path, '/api/8964/uploads/upload/complete');
-    expect(jsonDecode(requests.last.body), {
-      'manifest_hash': 'ab' * 32,
-      'content_hash': 'ab' * 32,
-    });
+    expect(jsonDecode(requests.last.body), {'content_hash': 'ab' * 32});
+    for (final field in ['upload_id', 'content_hash']) {
+      var calls = 0;
+      final invalid = SquareApiClient(
+        baseUrl: 'https://square.test/api',
+        httpClient: MockClient((request) async {
+          calls++;
+          expect(request.url.path, '/api/8964/uploads/upload/complete');
+          return http.Response(
+            jsonEncode({
+              'is_ok': true,
+              'upload_id': 'upload',
+              'post_id': 'post',
+              'content_hash': 'ab' * 32,
+              'storage_receipt_id': 'receipt',
+              field: 'mismatch',
+            }),
+            200,
+          );
+        }),
+      );
+      try {
+        await expectLater(
+          invalid.completeUpload(
+            session: session,
+            uploadId: 'upload',
+            contentHash: 'ab' * 32,
+          ),
+          throwsA(isA<SquareApiException>()),
+        );
+        expect(calls, 1);
+      } finally {
+        invalid.close();
+      }
+    }
   });
   test('资料资源按CID和类型寻址，无旧更新时间查询； arbitrary键拒绝', () {
     final api = SquareApiClient(baseUrl: 'https://square.test/api');
@@ -486,7 +671,7 @@ void _chatAccessTests() {
   Map<String, Object> receipt() {
     final now = DateTime.now().millisecondsSinceEpoch;
     return {
-      'ok': true,
+      'is_ok': true,
       'realtime_url': 'wss://square.test/api/tatachat/realtime',
       'access_token': 'opaque-token',
       'expires_at': now + 300000,
@@ -676,8 +861,8 @@ void _readCoalescingTests() {
   http.Response result([int status = 200]) => http.Response(
     jsonEncode(
       status == 200
-          ? {'ok': true, 'posts': []}
-          : {'ok': false, 'error': 'synthetic_denial'},
+          ? {'is_ok': true, 'posts': []}
+          : {'is_ok': false, 'error_code': 'synthetic_denial'},
     ),
     status,
   );
@@ -897,7 +1082,7 @@ void _readCoalescingTests() {
       httpClient: MockClient((r) async {
         expect(r.method, 'PUT');
         requests++;
-        return http.Response('{"ok":true}', 200);
+        return http.Response('{"is_ok":true}', 200);
       }),
     );
     addTearDown(api.close);
@@ -936,7 +1121,11 @@ void _serviceUnavailableTests() {
               return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
             }
             return http.Response(
-              jsonEncode({'error': code, 'message': canary, 'proof': canary}),
+              jsonEncode({
+                'error_code': code,
+                'message': canary,
+                'proof': canary,
+              }),
               503,
             );
           }),
@@ -997,7 +1186,7 @@ void _serviceUnavailableTests() {
           final challenge = request.url.path.endsWith('/challenges');
           if (unavailable && challenge == (boundary == 'challenge')) {
             return http.Response(
-              jsonEncode({'error': 'device_not_registered'}),
+              jsonEncode({'error_code': 'device_not_registered'}),
               503,
             );
           }
@@ -1070,7 +1259,7 @@ void _serviceUnavailableTests() {
             entered.complete();
             await release.future;
             return http.Response(
-              jsonEncode({'error': 'device_not_registered'}),
+              jsonEncode({'error_code': 'device_not_registered'}),
               503,
             );
           }
@@ -1136,7 +1325,7 @@ void _failureDiagnosticsTests() {
             }
             return http.Response(
               jsonEncode({
-                'error': 'registration_required',
+                'error_code': 'registration_required',
                 'message': canary,
                 'session_token': canary,
                 'challenge': canary,
@@ -1218,7 +1407,7 @@ void _failureDiagnosticsTests() {
             return http.Response(switch (shape) {
               'json' => '{$canary',
               'shape' => jsonEncode([canary]),
-              _ => jsonEncode({'ok': true, 'session_token': canary}),
+              _ => jsonEncode({'is_ok': true, 'session_token': canary}),
             }, 200);
           }),
         );
@@ -1271,7 +1460,7 @@ void _failureDiagnosticsTests() {
       baseUrl: 'https://square.test/api',
       httpClient: MockClient(
         (_) async => http.Response(
-          jsonEncode({'error': '$canary\ncode=forged', 'message': canary}),
+          jsonEncode({'error_code': '$canary\ncode=forged', 'message': canary}),
           403,
         ),
       ),

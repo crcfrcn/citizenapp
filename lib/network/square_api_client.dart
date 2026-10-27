@@ -58,6 +58,44 @@ class SquareAccountDeletionPendingException extends SquareApiException {
       );
 }
 
+/// 本地预检失败没有HTTP状态；服务端仍对每次实际请求独立校验。
+class SquarePreflightException implements Exception {
+  const SquarePreflightException(this.message, this.code);
+  final String message;
+  final String code;
+  @override
+  String toString() => message;
+}
+
+/// 由会员模块拥有实现；网络层只交付真实请求和响应事实。
+abstract interface class SquareResourceGate {
+  Future<SquareResourceLease> reserve({
+    required String origin,
+    required SquareSession session,
+    required String operation,
+    String? target,
+    Map<String, int> costs = const {},
+    Map<String, Map<String, int>> actions = const {},
+  });
+  void observe(
+    String origin,
+    SquareSession session,
+    Map<String, dynamic> data, {
+    String? path,
+  });
+  void invalidate(String accountId);
+}
+
+abstract interface class SquareResourceLease {
+  void sent();
+  void finish({
+    Map<String, String>? headers,
+    Map<String, dynamic>? receipt,
+    bool accepted = true,
+  });
+  void cancel();
+}
+
 class SquareSession {
   const SquareSession({
     required this.sessionToken,
@@ -193,7 +231,7 @@ class SquareMembershipPlan {
   final String membershipLevel;
   final String displayName;
 
-  /// 聊天文件大小上限（字节，会员权益之一，ADR-037）：自由 10MB / 民主 100MB / 薪火 5GB。
+  /// 聊天文件大小上限（字节，会员权益之一，ADR-037）：自由 10MiB / 民主 100MiB / 薪火 5GiB。
   final int chatFileMaxBytes;
   final SquareChatQuota chat;
   final SquareDocumentQuota document;
@@ -218,9 +256,6 @@ class SquareMembershipPlan {
       'video_max_bytes': video.maxVideoBytes,
       'article_max_images': article.maxImages,
       'article_max_videos': article.maxVideos,
-      'monthly_images': usage.monthlyImages,
-      'monthly_video_seconds': usage.monthlyVideoSeconds,
-      'active_uploads': usage.activeUploads,
     },
     'limits': {
       ...media,
@@ -236,23 +271,20 @@ class SquareMembershipPlan {
   final int? priceFen;
 
   /// 提炼展示用短串（卡片与详情页共用，杜绝口径漂移）。
-  String get chatFileSizeLabel => _fileSize(chatFileMaxBytes);
+  String get chatFileSizeLabel => formatBytes(chatFileMaxBytes);
   String get chatVoiceDurationLabel => _duration(chat.voiceMessageMaxSeconds);
   String get chatVideoDurationLabel => _duration(chat.videoMessageMaxSeconds);
   String get documentImageQualityLabel => document.imageQuality;
-  String get imageBytesLabel => '${imageMaxBytes / 1000000}MB';
+  String get imageBytesLabel => formatBytes(imageMaxBytes);
   String get videoQualityLabel => video.videoQuality;
   String get videoDurationLabel => _duration(video.maxVideoSeconds);
-  String get videoBytesLabel => _decimalFileSize(video.maxVideoBytes);
+  String get videoBytesLabel => formatBytes(video.maxVideoBytes);
   String get articleImageQualityLabel => article.imageQuality;
   String get articleCoverQualityLabel => article.coverQuality;
 
-  /// 周期额度以服务端定义的完整分钟数展示，不能折算整小时后丢失余下分钟。
-  String get monthlyVideoDurationLabel =>
-      '${_thousands(usage.monthlyVideoSeconds ~/ 60)} 分钟';
-  String get storageSizeLabel => _decimalFileSize(usage.storageBytes);
+  String get storageSizeLabel => formatBytes(usage.storageBytes);
 
-  String get chatFileLabel => '聊天附件：单个 ≤ ${_fileSize(chatFileMaxBytes)}';
+  String get chatFileLabel => '聊天附件：单个 ≤ ${formatBytes(chatFileMaxBytes)}';
 
   String get documentLabel =>
       '公文：${document.textMaxChars} 字、${document.maxImages} 张${document.imageQuality}图片';
@@ -263,38 +295,30 @@ class SquareMembershipPlan {
   String get articleLabel =>
       '文章：${article.bodyMaxChars} 字、${article.maxImages} 张${article.imageQuality}图片（含首图）、${article.maxVideos} 个视频、标题 ${article.titleMinChars}-${article.titleMaxChars} 字';
 
-  static String _thousands(int value) => value.toString().replaceAllMapped(
-    RegExp(r'\B(?=(\d{3})+(?!\d))'),
-    (_) => ',',
-  );
-
   static String _duration(int seconds) {
     if (seconds >= 3600) return '${seconds ~/ 3600} 小时';
     if (seconds >= 60) return '${seconds ~/ 60} 分钟';
     return '$seconds 秒';
   }
 
-  static String _fileSize(int bytes) {
-    const mib = 1024 * 1024;
-    if (bytes >= 1024 * mib) {
-      // 非整 GB 保留一位小数，避免聊天文件额度被取整成失真的整数 GB。
-      final gb = bytes / (1024 * mib);
-      return gb == gb.roundToDouble()
-          ? '${gb.round()}GB'
-          : '${gb.toStringAsFixed(1)}GB';
+  /// 文件、流量、存储共用1024进制显示；整数额度不以四舍五入改变上限。
+  static String formatBytes(int bytes) {
+    const units = {
+      'TiB': 1024 * 1024 * 1024 * 1024,
+      'GiB': 1024 * 1024 * 1024,
+      'MiB': 1024 * 1024,
+      'KiB': 1024,
+    };
+    for (final entry in units.entries) {
+      if (bytes >= entry.value && bytes % entry.value == 0) {
+        return '${bytes ~/ entry.value} ${entry.key}';
+      }
     }
-    return '${(bytes / mib).round()}MB';
-  }
-
-  /// 按服务端十进制字节展示；GB允许精确的MB小数，不把1.8GB显示为1800MB。
-  static String _decimalFileSize(int bytes) {
-    const mb = 1000 * 1000;
-    const gb = 1000 * mb;
-    const tb = 1000 * gb;
-    if (bytes >= tb && bytes % tb == 0) return '${bytes ~/ tb}TB';
-    if (bytes >= gb && bytes % gb == 0) return '${bytes ~/ gb}GB';
-    if (bytes >= gb && bytes % mb == 0) return '${bytes / gb}GB';
-    if (bytes >= mb && bytes % mb == 0) return '${bytes ~/ mb}MB';
+    for (final entry in units.entries) {
+      if (bytes >= entry.value) {
+        return '${(bytes / entry.value).toStringAsFixed(2)} ${entry.key}';
+      }
+    }
     return '$bytes B';
   }
 }
@@ -349,7 +373,7 @@ class SquareVideoQuota {
   final String videoQuality;
   final int maxVideoSeconds;
 
-  /// 单个发布视频体积上限（十进制字节）：自由 16MB / 民主 300MB / 薪火 3GB。
+  /// 单个发布视频体积上限（整数字节，1024进制展示）：自由 12MiB / 民主 200MiB / 薪火 1800MiB。
   final int maxVideoBytes;
 }
 
@@ -374,64 +398,42 @@ class SquareArticleQuota {
   final int maxVideos;
 }
 
-/// 服务端plan/limits中的订阅周期额度；不按自然月重置。
+/// 服务端唯一广场空间上限；不再包含周期或并发额度。
 class SquareMembershipUsageQuota {
-  const SquareMembershipUsageQuota({
-    required this.monthlyImages,
-    required this.monthlyVideoSeconds,
-    required this.activeUploads,
-    required this.storageBytes,
-  });
+  const SquareMembershipUsageQuota({required this.storageBytes});
 
-  final int monthlyImages;
-  final int monthlyVideoSeconds;
-  final int activeUploads;
-
-  /// 当前档位允许占用的总存储空间（十进制字节），不随订阅周期重置。
+  /// 当前档位允许占用的总存储空间（整数字节，1024进制展示），不随订阅周期重置。
   final int storageBytes;
 }
 
 /// 当前会员已用量与未过期上传预留的合计；手机端只用于发布前预检。
 class SquareMembershipUsageState {
   const SquareMembershipUsageState({
-    required this.periodStart,
-    required this.periodEnd,
-    required this.imageCount,
-    required this.videoSeconds,
-    required this.activeUploads,
     this.usedBytes = 0,
     this.reservedBytes = 0,
-    this.reservedImages = 0,
-    this.reservedVideoSeconds = 0,
     this.dayStart = 0,
     this.daily = const {},
     this.publishedCount = 0,
+    this.observedAt = 0,
+    this.attachment,
   });
 
-  final int periodStart;
-  final int periodEnd;
-  final int imageCount;
-  final int videoSeconds;
-  final int activeUploads;
   final int usedBytes;
   final int reservedBytes;
-  final int reservedImages;
-  final int reservedVideoSeconds;
   final int dayStart;
   final Map<String, int> daily;
   final int publishedCount;
+  final int observedAt;
+  final Map<String, dynamic>? attachment;
 
   Map<String, dynamic> toJson() => {
     'used_bytes': usedBytes,
     'reserved_bytes': reservedBytes,
-    'used_images': imageCount - reservedImages,
-    'reserved_images': reservedImages,
-    'used_video_seconds': videoSeconds - reservedVideoSeconds,
-    'reserved_video_seconds': reservedVideoSeconds,
-    'active_uploads': activeUploads,
     'day_start': dayStart,
     'daily': daily,
     'published_count': publishedCount,
+    'observed_at': observedAt,
+    if (attachment != null) 'attachment': attachment,
   };
 }
 
@@ -535,14 +537,12 @@ class SquareCompletedUpload {
     required this.postId,
     required this.contentHash,
     required this.storageReceiptId,
-    required this.storageState,
   });
 
   final String uploadId;
   final String postId;
   final String contentHash;
   final String storageReceiptId;
-  final String storageState;
 }
 
 class SquareBrowseState {
@@ -619,6 +619,8 @@ class SquareApiClient
     _liveClients.add(WeakReference<SquareApiClient>(this));
   }
 
+  // 所有客户端实例消费同一宿主预检，正式启动时由组合根注入。
+  static SquareResourceGate? resourceGate;
   static const int _r2UploadAttempts = 3;
 
   static final List<WeakReference<SquareApiClient>> _liveClients =
@@ -716,6 +718,7 @@ class SquareApiClient
       await authentication.requireCurrent(identity);
       return cached;
     }
+    resourceGate?.invalidate(accountId);
     _sessions.remove(accountId);
     final key = identity.cacheKey;
     final pending = _inflightSessions[key];
@@ -914,19 +917,20 @@ class SquareApiClient
     );
     await _requireAuthenticationCurrent(identity, authentication, generation);
     const fields = {
-      'ok',
+      'is_ok',
       'session_token',
       'cid_number',
       'device_id',
       'binding_revision',
       'account_id',
       'expires_at',
+      'gate',
+      'usage',
     };
     final token = response['session_token'];
     final expiry = response['expires_at'];
-    if (response.length != fields.length ||
-        !response.keys.every(fields.contains) ||
-        response['ok'] != true ||
+    if (!response.keys.every(fields.contains) ||
+        response['is_ok'] != true ||
         token is! String ||
         token.isEmpty ||
         expiry is! int ||
@@ -977,12 +981,14 @@ class SquareApiClient
         code: 'identityChanged',
       );
     }
+    resourceGate?.observe(baseUri.origin, next, response);
     _sessions[identity.accountId] = next;
     return next;
   }
 
   /// 清除某账户的本地会话缓存（注销后调用，配合 Worker 端会话失效实现零残留）。
   void clearSession(String accountId) {
+    resourceGate?.invalidate(accountId);
     _sessions.remove(accountId);
     _sessionGenerations[accountId] = (_sessionGenerations[accountId] ?? 0) + 1;
     _inflightSessions.clear();
@@ -1028,7 +1034,6 @@ class SquareApiClient
           '/user/deletion/challenges',
           {},
           session: session,
-          rejectRedirects: true,
         );
       } on SquareApiException catch (error) {
         if (error.statusCode != 401) rethrow;
@@ -1036,13 +1041,13 @@ class SquareApiClient
         challenge = await _postJson('/user/deletion/status/challenges', {
           'cid_number': binding.cidNumber,
           'account_id': binding.accountId,
-        }, rejectRedirects: true);
+        });
       }
     } else {
       challenge = await _postJson('/user/deletion/status/challenges', {
         'cid_number': binding.cidNumber,
         'account_id': binding.accountId,
-      }, rejectRedirects: true);
+      });
     }
     await check();
     final payload = _accountDeletionPayload(challenge, binding, purpose);
@@ -1060,11 +1065,10 @@ class SquareApiClient
       purpose == 'delete' ? '/user/deletion' : '/user/deletion/status',
       {'challenge_id': challenge['challenge_id'], 'signature': signature},
       session: purpose == 'delete' ? session : null,
-      rejectRedirects: true,
     );
     await check();
     const fields = {
-      'ok',
+      'is_ok',
       'cid_number',
       'account_id',
       'binding_revision',
@@ -1075,7 +1079,7 @@ class SquareApiClient
     final id = receipt['deletion_id'];
     if (receipt.length != fields.length ||
         !receipt.keys.every(fields.contains) ||
-        receipt['ok'] != true ||
+        receipt['is_ok'] != true ||
         receipt['cid_number'] != binding.cidNumber ||
         receipt['account_id'] != binding.accountId ||
         receipt['binding_revision'] != binding.bindingRevision ||
@@ -1100,7 +1104,7 @@ class SquareApiClient
     String purpose,
   ) {
     const fields = {
-      'ok',
+      'is_ok',
       'purpose',
       'challenge_id',
       'cid_number',
@@ -1108,15 +1112,15 @@ class SquareApiClient
       'binding_revision',
       'chain_scope',
       'service_origin',
-      'expires_at_millis',
+      'expires_at',
       'signing_payload_hex',
     };
     final id = challenge['challenge_id'];
-    final expiry = challenge['expires_at_millis'];
+    final expiry = challenge['expires_at'];
     final now = DateTime.now().millisecondsSinceEpoch;
     if (challenge.length != fields.length ||
         !challenge.keys.every(fields.contains) ||
-        challenge['ok'] != true ||
+        challenge['is_ok'] != true ||
         challenge['purpose'] != purpose ||
         challenge['cid_number'] != binding.cidNumber ||
         challenge['account_id'] != binding.accountId ||
@@ -1201,10 +1205,9 @@ class SquareApiClient
       proofHeaders: headers,
     );
     await _requireAuthenticationCurrent(identity, authentication, generation);
-    const fields = {'ok', 'cid_number', 'binding_revision', 'device_id'};
-    if (response.length != fields.length ||
-        !response.keys.every(fields.contains) ||
-        response['ok'] != true ||
+    const fields = {'is_ok', 'cid_number', 'binding_revision', 'device_id'};
+    if (!response.keys.every(fields.contains) ||
+        response['is_ok'] != true ||
         response['cid_number'] != identity.cidNumber ||
         response['device_id'] != identity.deviceId ||
         response['binding_revision'] != identity.bindingRevision) {
@@ -1229,12 +1232,7 @@ class SquareApiClient
     if (deviceId != session.deviceId) {
       throw const SquareApiException('聊天许可设备不一致');
     }
-    final data = await _postJson(
-      '/tatachat/access',
-      {},
-      session: session,
-      rejectRedirects: true,
-    );
+    final data = await _postJson('/tatachat/access', {}, session: session);
     final realtimeValue = _requireString(data, 'realtime_url');
     final realtime = Uri.tryParse(realtimeValue);
     // Dart未定义WSS默认端口，还会把显式:0规范化掉；从原文按安全443计算，
@@ -1248,8 +1246,18 @@ class SquareApiClient
     final now = DateTime.now().millisecondsSinceEpoch;
     final expiry = data['expires_at'];
     final recheck = data['recheck_at'];
-    if (data['ok'] != true ||
-        data.length != 5 ||
+    if (data['is_ok'] != true ||
+        data.keys.any(
+          (key) => !const {
+            'is_ok',
+            'realtime_url',
+            'access_token',
+            'expires_at',
+            'recheck_at',
+            'gate',
+            'usage',
+          }.contains(key),
+        ) ||
         realtime == null ||
         realtime.scheme != 'wss' ||
         realtime.host != baseUri.host ||
@@ -1282,7 +1290,7 @@ class SquareApiClient
       throw const SquareApiException('finalized块无效');
     }
     final data = await _postJson('/user/identity', {'block_hash': blockHash});
-    if (data['ok'] != true) throw const SquareApiException('身份投影尚未完成');
+    if (data['is_ok'] != true) throw const SquareApiException('身份投影尚未完成');
   }
 
   /// 幂等登记CitizenServe普通应用通知端点；设备身份只由已验签Session决定。
@@ -1311,7 +1319,7 @@ class SquareApiClient
       'apns_environment': environment,
       'expires_at': expiresAt,
     }, session: session);
-    if (data['ok'] != true || data['expires_at'] is! num) {
+    if (data['is_ok'] != true || data['expires_at'] is! num) {
       throw const SquareApiException('应用推送端点响应不合法');
     }
   }
@@ -1319,7 +1327,7 @@ class SquareApiClient
   static SquareMembershipState decodeMembership(Map<String, dynamic> data) {
     final membership = data['membergate'];
     // GET与确认只接受同一份完整快照；读取失败不能冒充未订阅或清空原事实。
-    if (data['ok'] != true ||
+    if (data['is_ok'] != true ||
         data['membergate_active'] is! bool ||
         !data.containsKey('membergate') ||
         (membership != null && membership is! Map<String, dynamic>) ||
@@ -1340,7 +1348,7 @@ class SquareApiClient
     final active = data['membergate_active'] == true;
     final subscriptionActive = data['membergate_active'] == true;
     final plans = decodeMembershipPlans(data['plans']);
-    final usageState = decodeMembershipUsage(data['usage'], data['membergate']);
+    final usageState = decodeMembershipUsage(data['usage']);
     // 会员与身份解耦（ADR-037）：响应只含订阅与套餐，无身份/冻结字段。
     if (membership is! Map<String, dynamic>) {
       return SquareMembershipState(
@@ -1380,7 +1388,7 @@ class SquareApiClient
       'include_state': true,
     }, session: session);
     if (data.length != 4 ||
-        data['ok'] != true ||
+        data['is_ok'] != true ||
         data['tx_hash'] != txHash ||
         data['block_hash'] != blockHashHex) {
       throw const SquareApiException('会员确认回执与本次交易不一致');
@@ -1403,7 +1411,7 @@ class SquareApiClient
     required SquarePostType postType,
     required int titleLength,
     required int textLength,
-    required String manifestHash,
+    required String contentHash,
     required int manifestByteSize,
     required List<SquareUploadMediaRequest> mediaItems,
   }) async {
@@ -1411,7 +1419,7 @@ class SquareApiClient
       'post_type': postType.workerValue,
       'title_length': titleLength,
       'text_length': textLength,
-      'manifest_hash': manifestHash,
+      'content_hash': contentHash,
       'manifest_byte_size': manifestByteSize,
       'media_items': mediaItems.map((item) => item.toJson()).toList(),
     }, session: session);
@@ -1451,6 +1459,7 @@ class SquareApiClient
   }
 
   Future<void> uploadMediaAsset({
+    required SquareSession session,
     required SquarePreparedMediaUpload upload,
     required String filePath,
   }) async {
@@ -1459,6 +1468,7 @@ class SquareApiClient
     }
     await _retryR2Upload<void>(
       () => _uploadFileToR2(
+        session: session,
         uploadUrl: upload.uploadUrl,
         filePath: filePath,
         contentLength: upload.byteSize,
@@ -1468,10 +1478,12 @@ class SquareApiClient
   }
 
   Future<void> uploadMediaDerivative({
+    required SquareSession session,
     required SquarePreparedMediaUpload upload,
     required String filePath,
   }) => _retryR2Upload<void>(
     () => _uploadFileToR2(
+      session: session,
       uploadUrl: upload.derivativeUploadUrl,
       filePath: filePath,
       contentLength: upload.derivativeByteSize,
@@ -1482,20 +1494,21 @@ class SquareApiClient
   Future<SquareCompletedUpload> completeUpload({
     required SquareSession session,
     required String uploadId,
-    required String manifestHash,
     required String contentHash,
   }) async {
     final data = await _postJson(
       '/8964/uploads/${Uri.encodeComponent(uploadId)}/complete',
-      {'manifest_hash': manifestHash, 'content_hash': contentHash},
+      {'content_hash': contentHash},
       session: session,
     );
+    if (data['content_hash'] != contentHash || data['upload_id'] != uploadId) {
+      throw const SquareApiException('上传完成摘要不一致');
+    }
     return SquareCompletedUpload(
       uploadId: _requireString(data, 'upload_id'),
       postId: _requireString(data, 'post_id'),
       contentHash: _requireString(data, 'content_hash'),
       storageReceiptId: _requireString(data, 'storage_receipt_id'),
-      storageState: _requireString(data, 'storage_state'),
     );
   }
 
@@ -1511,11 +1524,24 @@ class SquareApiClient
       'block_hash': blockHashHex,
       'tx_hash': txHash,
     }, session: session);
-    final post = data['post'];
-    if (post is! Map<String, dynamic>) {
-      throw const SquareApiException('广场确认发布响应缺少内容数据');
+    final hash = data['content_hash'];
+    final category = data['post_category'];
+    if (data['is_ok'] != true ||
+        data['post_id'] != postId ||
+        hash is! String ||
+        !RegExp(r'^[0-9a-f]{64}$').hasMatch(hash) ||
+        !const {'normal', 'campaign'}.contains(category)) {
+      throw const SquareApiException('发布确认回执不一致');
     }
-    return _parsePost(post);
+    // 原确认只返回事实回执；沿既有详情入口读回一次，不猜造旧post结构或重发链交易。
+    final proof = await readPublishedProof(session: session, postId: postId);
+    if (proof.blockHash != blockHashHex ||
+        proof.transactionHash != txHash ||
+        proof.post.contentHash != hash ||
+        proof.post.postCategory.name != category) {
+      throw const SquareApiException('发布确认与实际证明不一致');
+    }
+    return proof.post;
   }
 
   @override
@@ -1650,10 +1676,17 @@ class SquareApiClient
       session: session,
     );
     final post = data['post'];
-    if (post is! Map<String, dynamic>) {
-      throw const SquareApiException('内容详情响应缺少内容数据');
+    final manifest = data['manifest'];
+    if (post is! Map<String, dynamic> ||
+        post['post_id'] != target ||
+        manifest is! Map<String, dynamic>) {
+      throw const SquareApiException('内容详情响应不完整，请重试');
     }
-    return _parsePost(post, isDetail: true, fallbackAuthor: summary?.author);
+    return _parsePost(
+      post,
+      manifest: manifest,
+      fallbackAuthor: summary?.author,
+    );
   }
 
   /// 显式恢复读取服务器已确认的发布证明，不签名、不重新提交交易。
@@ -1682,8 +1715,12 @@ class SquareApiClient
         !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(tx)) {
       throw const SquareApiException('发布证明缺少区块或交易哈希');
     }
+    final manifest = data['manifest'];
+    if (manifest is! Map<String, dynamic>) {
+      throw const SquareApiException('发布证明缺少清单');
+    }
     return (
-      post: _parsePost(raw, isDetail: true),
+      post: _parsePost(raw, manifest: manifest),
       blockHash: block,
       transactionHash: tx,
     );
@@ -1720,23 +1757,18 @@ class SquareApiClient
   Future<http.StreamedResponse> openPostMedia(
     String url, {
     required SquareSession session,
+    String? range,
+    int? expectedBytes,
   }) async {
     final uri = Uri.parse(url);
-    if (uri.scheme != 'https' || uri.host.isEmpty || uri.userInfo.isNotEmpty) {
-      throw const SquareApiException('媒体地址必须使用HTTPS');
-    }
-    final response = await _http
-        .send(
-          http.Request('GET', uri)
-            ..followRedirects = false
-            ..headers.addAll(
-              CitizenServeApiConfig.mediaHeaders(url, {
-                'authorization': 'Bearer ${session.sessionToken}',
-              }),
-            ),
-        )
-        .timeout(const Duration(seconds: 30));
-    if (response.statusCode != 200) {
+    final request = http.Request('GET', uri)..followRedirects = false;
+    if (range != null) request.headers['range'] = range;
+    final response = await _sendProtected(
+      request,
+      session,
+      expectedBytes: expectedBytes,
+    );
+    if (response.statusCode != (range == null ? 200 : 206)) {
       await response.stream.listen(null).cancel();
       throw SquareApiException('媒体读取失败', statusCode: response.statusCode);
     }
@@ -1788,7 +1820,7 @@ class SquareApiClient
       session: session,
     );
     final card = data['card'];
-    if (data['ok'] != true ||
+    if (data['is_ok'] != true ||
         card is! Map<String, dynamic> ||
         card['cid_number'] != cidNumber ||
         card['account_id'] is! String ||
@@ -1930,58 +1962,25 @@ class SquareApiClient
     if (range != null) request.headers['range'] = range;
     if (ifRange != null) request.headers['if-range'] = ifRange;
     if (ifNoneMatch != null) request.headers['if-none-match'] = ifNoneMatch;
-    request.headers.addAll(await _headers('GET', uri, '', session));
-    // 签名等待期间账户可能变化，旧结果不得带入实际HTTP发送。
-    await session.validateCurrent();
-    if (!session.isUsable) {
-      throw const SquareApiException('资料媒体会话已失效', errorCode: 'session_expired');
-    }
-    final response = await _http
-        .send(request)
-        .timeout(const Duration(seconds: 30));
-    try {
-      await session.validateCurrent();
-      if (!session.isUsable) {
-        throw const SquareApiException(
-          '资料媒体会话已失效',
-          errorCode: 'session_expired',
-        );
-      }
-      // 字节消费期间同样复核当前账户，迟到正文不能进入资料缓存或解码器。
-      Stream<List<int>> guarded() async* {
-        await for (final chunk in response.stream) {
-          await session.validateCurrent();
-          if (!session.isUsable) {
-            throw const SquareApiException(
-              '资料媒体会话已失效',
-              errorCode: 'session_expired',
-            );
-          }
-          yield chunk;
-        }
-        await session.validateCurrent();
-        if (!session.isUsable) {
-          throw const SquareApiException(
-            '资料媒体会话已失效',
-            errorCode: 'session_expired',
-          );
-        }
-      }
+    final response = await _sendProtected(request, session);
+    return response;
+  }
 
-      return http.StreamedResponse(
-        guarded(),
-        response.statusCode,
-        contentLength: response.contentLength,
-        request: response.request,
-        headers: response.headers,
-        isRedirect: response.isRedirect,
-        persistentConnection: response.persistentConnection,
-        reasonPhrase: response.reasonPhrase,
-      );
-    } on Object {
-      await response.stream.listen(null).cancel();
-      rethrow;
+  Future<http.StreamedResponse> openCardMedia(
+    String url, {
+    required SquareSession session,
+  }) async {
+    final uri = Uri.parse(url);
+    if (uri.origin != baseUri.origin ||
+        !RegExp(r'^/api/user/cards/[A-Za-z0-9-]+/avatar$').hasMatch(uri.path) ||
+        uri.hasQuery ||
+        uri.hasFragment) {
+      throw const SquareApiException('名片图片地址无效');
     }
+    return _sendProtected(
+      http.Request('GET', uri)..followRedirects = false,
+      session,
+    );
   }
 
   /// 用户小文件只允许 PUT 到同域 Worker，并对原始字节生成设备请求签名。
@@ -1995,26 +1994,14 @@ class SquareApiClient
     if (session == null || uri.origin != baseUri.origin) {
       throw const SquareApiException('资源上传地址必须是当前 Worker 且携带钱包会话');
     }
-    final signer = session.authenticateRequest;
-    if (signer == null) {
-      throw const SquareApiException('MLS请求认证未接入，请重新登录');
-    }
-    await session.validateCurrent();
     final body = Uint8List.fromList(bytes);
-    final headers = <String, String>{
-      'content-type': contentType,
-      'authorization': 'Bearer ${session.sessionToken}',
-      ...await squareRequestHeadersForBytes(
-        method: 'PUT',
-        uri: uri,
-        body: body,
-        sessionToken: session.sessionToken,
-        authenticate: signer,
-      ),
-    };
-    final response = await _http
-        .put(uri, headers: headers, body: body)
-        .timeout(const Duration(seconds: 60));
+    final request = http.Request('PUT', uri)
+      ..headers['content-type'] = contentType
+      ..bodyBytes = body;
+    request.headers['content-type'] = 'application/json; charset=utf-8';
+    final response = await http.Response.fromStream(
+      await _sendProtected(request, session),
+    );
     await session.validateCurrent();
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw SquareApiException(
@@ -2034,7 +2021,7 @@ class SquareApiClient
   Future<CitizenProfile> updateProfile({
     required SquareSession session,
     String? displayName,
-    String? bio,
+    String? profileBio,
     String? avatarObjectKey,
     String? avatarContentHash,
     String? bannerObjectKey,
@@ -2042,7 +2029,7 @@ class SquareApiClient
   }) async {
     final body = <String, Object?>{
       'display_name': ?displayName,
-      'bio': ?bio,
+      'profile_bio': ?profileBio,
       'avatar_object_key': ?avatarObjectKey,
       'avatar_content_hash': ?avatarContentHash,
       'banner_object_key': ?bannerObjectKey,
@@ -2130,11 +2117,11 @@ class SquareApiClient
     required SquareSession session,
     required String postId,
     required String operationId,
-    required String body,
+    required String replyText,
     String? replyTo,
   }) => _postJson('/8964/posts/${Uri.encodeComponent(postId)}/comments', {
     'operation_id': operationId,
-    'body': body,
+    'reply_text': replyText,
     'reply_to': replyTo,
   }, session: session);
   Future<void> deleteComment({
@@ -2145,9 +2132,10 @@ class SquareApiClient
     final uri = _uri(
       '/8964/posts/${Uri.encodeComponent(postId)}/comments/${Uri.encodeComponent(commentId)}',
     );
-    final response = await _http
-        .delete(uri, headers: await _headers('DELETE', uri, '', session))
-        .timeout(const Duration(seconds: 20));
+    final response = await _protectedJsonRequest(
+      http.Request('DELETE', uri),
+      session,
+    );
     await session.validateCurrent();
     _decodeResponse(response);
   }
@@ -2208,9 +2196,7 @@ class SquareApiClient
     } else {
       pending = () async {
         try {
-          return await _http
-              .get(uri, headers: await _headers('GET', uri, '', session))
-              .timeout(const Duration(seconds: 20));
+          return await _protectedJsonRequest(http.Request('GET', uri), session);
         } finally {
           _reads.remove(key);
         }
@@ -2229,23 +2215,16 @@ class SquareApiClient
     String path,
     Map<String, Object?> body, {
     SquareSession? session,
-    bool rejectRedirects = false,
   }) async {
     final encoded = jsonEncode(body);
     await session?.validateCurrent();
     final uri = _uri(path);
-    final headers = await _headers('POST', uri, encoded, session);
-    final response =
-        await (rejectRedirects
-                ? () async {
-                    final request = http.Request('POST', uri)
-                      ..followRedirects = false
-                      ..headers.addAll(headers)
-                      ..body = encoded;
-                    return http.Response.fromStream(await _http.send(request));
-                  }()
-                : _http.post(uri, headers: headers, body: encoded))
-            .timeout(const Duration(seconds: 20));
+    final response = await _protectedJsonRequest(
+      http.Request('POST', uri)
+        ..followRedirects = false
+        ..body = encoded,
+      session,
+    );
     await session?.validateCurrent();
     return _decodeResponse(response);
   }
@@ -2257,13 +2236,10 @@ class SquareApiClient
   }) async {
     final encoded = jsonEncode(body);
     final uri = _uri(path);
-    final response = await _http
-        .put(
-          uri,
-          headers: await _headers('PUT', uri, encoded, session),
-          body: encoded,
-        )
-        .timeout(const Duration(seconds: 20));
+    final response = await _protectedJsonRequest(
+      http.Request('PUT', uri)..body = encoded,
+      session,
+    );
     await session?.validateCurrent();
     return _decodeResponse(response);
   }
@@ -2273,41 +2249,231 @@ class SquareApiClient
     SquareSession? session,
   }) async {
     final uri = _uri(path);
-    final response = await _http
-        .delete(uri, headers: await _headers('DELETE', uri, '', session))
-        .timeout(const Duration(seconds: 20));
+    final response = await _protectedJsonRequest(
+      http.Request('DELETE', uri),
+      session,
+    );
     await session?.validateCurrent();
     return _decodeResponse(response);
   }
 
   Uri _uri(String path) => Uri.parse('$baseUrl$path');
 
-  Future<Map<String, String>> _headers(
-    String method,
-    Uri uri,
-    String body,
+  /// 先预留再申请MLS证明；证明完成后重查身份，响应头到达即释放短期预留。
+  /// 不把下载正文放进计量互斥区，网络无回执时保留已发送的不确定消耗。
+  Future<http.StreamedResponse> _sendProtected(
+    http.Request request,
+    SquareSession? session, {
+    int? expectedBytes,
+  }) async {
+    SquareResourceLease? lease;
+    var connectionPreview = false;
+    try {
+      if (session != null) {
+        final uri = request.url;
+        final media =
+            uri.origin == CitizenServeApiConfig.mediaOrigin &&
+            uri.path.startsWith('/square/');
+        if (uri.scheme != 'https' || (!media && uri.origin != baseUri.origin)) {
+          throw const SquareApiException('受保护请求来源不一致');
+        }
+        await session.validateCurrent();
+        if (media &&
+            CitizenServeApiConfig.mediaHeaders(uri.toString(), {
+              'authorization': 'Bearer ${session.sessionToken}',
+            }).isEmpty) {
+          throw const SquareApiException('媒体来源或会话无效');
+        }
+        final path = media ? uri.path : uri.path.substring(baseUri.path.length);
+        var operation = 'account';
+        String? target;
+        final actions = <String, Map<String, int>>{};
+        final costs = <String, int>{};
+        if (path == '/tatachat/access') {
+          operation = 'chat';
+          actions['chat_connect'] = const {};
+          connectionPreview = true; // 仅预留后续连接，实际扣量由WS握手回执确认。
+        } else if (path.startsWith('/membergate')) {
+          operation = path == '/membergate/overview'
+              ? 'creator_overview'
+              : 'membergate';
+        } else if (path.startsWith('/user/cards/')) {
+          target = path.split('/')[3];
+          operation = path.endsWith('/avatar') ? 'card_avatar' : 'card';
+        } else if (path.startsWith('/user/profiles/')) {
+          target = path.split('/')[3];
+          operation = path.contains('/assets/') ? 'profile_asset' : 'profile';
+        } else if (media) {
+          operation = 'media';
+          actions['media_request'] = const {};
+          if (request.method != 'HEAD') {
+            actions['media_body'] = {'bytes': expectedBytes ?? 1};
+          }
+        } else if (path.startsWith('/8964/')) {
+          operation =
+              path.contains('/feed/') ||
+                  path == '/8964/posts' && request.method == 'GET'
+              ? 'square_feed'
+              : RegExp(r'^/8964/posts/[^/]+$').hasMatch(path) &&
+                    request.method == 'GET'
+              ? 'square_post'
+              : path.endsWith('/confirm')
+              ? 'square_publish'
+              : 'square';
+        }
+        if (path == '/8964/uploads' && request.method == 'POST') {
+          final data = jsonDecode(request.body) as Map<String, dynamic>;
+          final media = data['media_items'] as List;
+          costs['storage_bytes'] =
+              (data['manifest_byte_size'] as int) +
+              media.fold<int>(
+                0,
+                (n, v) =>
+                    n +
+                    (v['byte_size'] as int) +
+                    (v['derivative_byte_size'] as int),
+              );
+        }
+        if (operation == 'profile_asset' || operation == 'card_avatar') {
+          actions['profile_read'] = const {};
+          if (request.method != 'HEAD') {
+            actions['media_body'] = {'bytes': expectedBytes ?? 1};
+          }
+        }
+        lease = await resourceGate?.reserve(
+          origin: baseUri.origin,
+          session: session,
+          operation: operation,
+          target: target,
+          costs: costs,
+          actions: actions,
+        );
+        final signer = session.authenticateRequest;
+        if (!media && signer == null) {
+          throw const SquareApiException('MLS请求认证未接入，请重新登录');
+        }
+        request.headers['authorization'] = 'Bearer ${session.sessionToken}';
+        if (!media) {
+          request.headers.addAll(
+            await squareRequestHeadersForBytes(
+              method: request.method,
+              uri: uri,
+              body: request.bodyBytes,
+              sessionToken: session.sessionToken,
+              authenticate: signer!,
+            ),
+          );
+        }
+        await session.validateCurrent();
+        if (!session.isUsable || _closed) {
+          throw const SquareApiException(
+            '当前公民会话不可用',
+            errorCode: 'invalid_session',
+          );
+        }
+      }
+      request.followRedirects = false;
+      request.headers.putIfAbsent(
+        'content-type',
+        () => 'application/json; charset=utf-8',
+      );
+      if (!connectionPreview) lease?.sent();
+      final abort = Completer<void>();
+      final actual =
+          http.AbortableRequest(
+              request.method,
+              request.url,
+              abortTrigger: abort.future,
+            )
+            ..headers.addAll(request.headers)
+            ..bodyBytes = request.bodyBytes
+            ..followRedirects = request.followRedirects
+            ..maxRedirects = request.maxRedirects
+            ..persistentConnection = request.persistentConnection;
+      final response = await _http
+          .send(actual)
+          .timeout(
+            const Duration(seconds: 30),
+            onTimeout: () {
+              if (!abort.isCompleted) {
+                abort.complete();
+              }
+              throw TimeoutException('公民服务请求超时');
+            },
+          );
+      lease?.finish(
+        headers: response.headers,
+        accepted: response.statusCode >= 200 && response.statusCode < 300,
+      );
+      try {
+        await session?.validateCurrent();
+      } on Object {
+        await response.stream.listen(null).cancel();
+        rethrow;
+      }
+      Stream<List<int>> guarded() async* {
+        await for (final chunk in response.stream) {
+          await session?.validateCurrent();
+          if (_closed || session != null && !session.isUsable) {
+            throw const SquareApiException(
+              '当前公民会话不可用',
+              errorCode: 'session_expired',
+            );
+          }
+          yield chunk;
+        }
+        await session?.validateCurrent();
+      }
+
+      return http.StreamedResponse(
+        guarded(),
+        response.statusCode,
+        contentLength: response.contentLength,
+        request: response.request,
+        headers: response.headers,
+        isRedirect: response.isRedirect,
+        persistentConnection: response.persistentConnection,
+        reasonPhrase: response.reasonPhrase,
+      );
+    } on Object {
+      lease?.cancel();
+      rethrow;
+    }
+  }
+
+  Future<http.Response> _protectedJsonRequest(
+    http.Request request,
     SquareSession? session,
   ) async {
-    final headers = <String, String>{
-      'content-type': 'application/json; charset=utf-8',
-    };
-    if (session == null) return headers;
-    await session.validateCurrent();
-    headers['authorization'] = 'Bearer ${session.sessionToken}';
-    final signer = session.authenticateRequest;
-    if (signer == null) {
-      throw const SquareApiException('MLS请求认证未接入，请重新登录');
+    final response = await http.Response.fromStream(
+      await _sendProtected(request, session),
+    ).timeout(const Duration(seconds: 20));
+    if (session != null &&
+        response.statusCode >= 200 &&
+        response.statusCode < 300) {
+      if (resourceGate != null) await session.validateCurrent();
+      try {
+        final data = jsonDecode(response.body);
+        if (data is Map<String, dynamic>) {
+          resourceGate?.observe(
+            baseUri.origin,
+            session,
+            data,
+            path: request.url.path,
+          );
+          if (data['membergate_state'] is Map<String, dynamic>) {
+            resourceGate?.observe(
+              baseUri.origin,
+              session,
+              data['membergate_state'] as Map<String, dynamic>,
+            );
+          }
+        }
+      } on FormatException {
+        /* 正式解码器负责报告损坏响应。 */
+      }
     }
-    headers.addAll(
-      await squareRequestHeaders(
-        method: method,
-        uri: uri,
-        body: body,
-        sessionToken: session.sessionToken,
-        authenticate: signer,
-      ),
-    );
-    return headers;
+    return response;
   }
 
   Map<String, dynamic> _decodeResponse(
@@ -2345,14 +2511,16 @@ class SquareApiClient
       AppLog.failure(
         stage: stage.name,
         statusCode: response.statusCode,
-        code: decoded['error'] is String ? decoded['error'] as String : null,
+        code: decoded['error_code'] is String
+            ? decoded['error_code'] as String
+            : null,
       );
       throw SquareApiException(
         decoded['message']?.toString() ?? '广场服务请求失败',
         statusCode: response.statusCode,
         // CitizenServe错误码只来自真实error字符串；未知结构保持失败关闭。
-        errorCode: decoded['error'] is String
-            ? decoded['error'] as String
+        errorCode: decoded['error_code'] is String
+            ? decoded['error_code'] as String
             : null,
         stage: stage,
       );
@@ -2422,6 +2590,20 @@ class SquareApiClient
       _ => throw const SquareApiException('会员档位未知'),
     };
     final plan = data['plan'], limits = data['limits'];
+    const planKeys = {
+      'membergate_level',
+      'chat_file_max_bytes',
+      'video_max_seconds',
+      'video_max_bytes',
+      'article_max_images',
+      'article_max_videos',
+    };
+    if (plan is Map &&
+        (plan.length != planKeys.length ||
+            !plan.keys.every(planKeys.contains))) {
+      throw const SquareApiException('会员规格版本不一致');
+    }
+
     if (plan is! Map<String, dynamic> ||
         limits is! Map<String, dynamic> ||
         plan['membergate_level'] != level) {
@@ -2455,22 +2637,13 @@ class SquareApiClient
       'video_key_frame_seconds',
       'audio_sample_rate',
     ]);
-    final resources = _quotaMap(data['resources'], const [
-      'pending_attachments',
-      'writing_chunks',
-      'attachment_count',
-      'attachment_bytes',
-      'attachment_begins_day',
-      'upload_bytes_day',
-      'delivery_bytes_day',
-      'chunk_operations_day',
-      'media_requests_day',
-    ]);
-    final dailyLimits = _quotaMap(data['daily_limits'], const [
-      'media_requests',
-      'upload_bytes',
-      'delivery_bytes',
-    ]);
+    final resources = _quotaMap(data['resources'], const ['attachment_bytes']);
+    final dailyLimits = _quotaMap(
+      data['daily_limits'],
+      data['daily_limits'] is Map
+          ? (data['daily_limits'] as Map).keys.cast<String>().toList()
+          : const [],
+    );
     if (dailyLimits.isEmpty || dailyLimits.values.any((v) => v <= 0)) {
       throw const SquareApiException('每日资源额度无效');
     }
@@ -2519,68 +2692,74 @@ class SquareApiClient
         maxVideos: quota(plan, 'article_max_videos'),
       ),
       usage: SquareMembershipUsageQuota(
-        monthlyImages: quota(plan, 'monthly_images'),
-        monthlyVideoSeconds: quota(plan, 'monthly_video_seconds'),
-        activeUploads: quota(plan, 'active_uploads'),
         storageBytes: quota(limits, 'storage_bytes'),
       ),
     );
   }
 
-  static SquareMembershipUsageState decodeMembershipUsage(
-    Object? value,
-    Object? membership,
-  ) {
+  static SquareMembershipUsageState decodeMembershipUsage(Object? value) {
     if (value is! Map<String, dynamic>) {
       throw const SquareApiException('会员用量响应缺失');
     }
     for (final field in [
       'used_bytes',
       'reserved_bytes',
-      'used_images',
-      'reserved_images',
-      'used_video_seconds',
-      'reserved_video_seconds',
-      'active_uploads',
       'day_start',
       'published_count',
+      'observed_at',
     ]) {
       final count = value[field];
       if (count is! int || count < 0 || count > 9007199254740991) {
         throw const SquareApiException('会员用量响应无效');
       }
     }
-    final period = membership is Map<String, dynamic>
-        ? membership
-        : const <String, dynamic>{};
+    final attachment = value['attachment'];
+    if (attachment != null) {
+      if (attachment is! Map<String, dynamic> ||
+          !const {'available', 'unavailable'}.contains(attachment['status'])) {
+        throw const SquareApiException('聊天存量状态无效');
+      }
+      if (attachment['status'] == 'available') {
+        for (final key in ['observed_at', 'bytes']) {
+          final n = attachment[key];
+          if (n is! int || n < 0 || n > 9007199254740991) {
+            throw const SquareApiException('聊天存量无效');
+          }
+        }
+      }
+    }
     return SquareMembershipUsageState(
-      periodStart: _asInt(period['last_charged_at']),
-      periodEnd: _asInt(period['paid_until']),
-      imageCount:
-          _asInt(value['used_images']) + _asInt(value['reserved_images']),
-      videoSeconds:
-          _asInt(value['used_video_seconds']) +
-          _asInt(value['reserved_video_seconds']),
-      activeUploads: _asInt(value['active_uploads']),
       usedBytes: _asInt(value['used_bytes']),
       reservedBytes: _asInt(value['reserved_bytes']),
-      reservedImages: _asInt(value['reserved_images']),
-      reservedVideoSeconds: _asInt(value['reserved_video_seconds']),
       dayStart: _asInt(value['day_start']),
-      daily: _quotaMap(value['daily'], const [
-        'media_requests',
-        'upload_bytes',
-        'delivery_bytes',
-      ]),
+      daily: _quotaMap(
+        value['daily'],
+        value['daily'] is Map
+            ? (value['daily'] as Map).keys.cast<String>().toList()
+            : const [],
+      ),
       publishedCount: _asInt(value['published_count']),
+      observedAt: value['observed_at'] as int,
+      attachment: attachment == null
+          ? null
+          : Map<String, dynamic>.unmodifiable(
+              attachment as Map<String, dynamic>,
+            ),
     );
   }
 
   SquarePost _parsePost(
     Map<String, dynamic> data, {
-    bool isDetail = false,
+    Map<String, dynamic>? manifest,
     SquareAuthor? fallbackAuthor,
   }) {
+    if (manifest != null &&
+        (manifest['schema'] != SquarePostStore.manifestSchema ||
+            manifest['cid_number'] != data['cid_number'] ||
+            manifest['post_type'] != data['post_type'] ||
+            manifest['text'] is! String)) {
+      throw const SquareApiException('内容详情核验失败，请重试');
+    }
     final postType = _parsePostType(data['post_type']);
     final rawMediaItems = data['media_items'];
     final mediaItems = rawMediaItems is List
@@ -2602,7 +2781,7 @@ class SquareApiClient
       author: SquareAuthor(
         accountId: _requireString(data, 'account_id'),
         cidNumber: data['cid_number']?.toString(),
-        // 昵称与头像来自作者 profile.json（Worker feed 按去重作者回填）；缺失时
+        // 昵称与头像引用来自Worker的user_data作者投影；缺失时
         // Flutter 优先按作者永久 CID 稳定选择本地默认昵称和照片；纯访客才按账户兜底。
         displayName:
             (data['display_name']?.toString().trim().isNotEmpty ?? false)
@@ -2624,13 +2803,23 @@ class SquareApiClient
       ),
       postCategory: _parseCategory(data['post_category']),
       postType: postType,
-      title: (data['title']?.toString().trim().isNotEmpty ?? false)
-          ? data['title'].toString().trim()
+      title:
+          ((manifest == null ? data['post_title'] : manifest['title'])
+                  ?.toString()
+                  .trim()
+                  .isNotEmpty ??
+              false)
+          ? (manifest == null ? data['post_title'] : manifest['title'])
+                .toString()
+                .trim()
           : null,
-      contentSections: isDetail
-          ? parseArticleContentSections(data['content_sections'])
+      contentSections: manifest != null
+          ? parseArticleContentSections(manifest['content_sections'])
           : const <ArticleContentSection>[],
-      text: (isDetail ? data['text'] : data['excerpt'])?.toString() ?? '',
+      text:
+          (manifest == null ? data['post_excerpt'] : manifest['text'])
+              ?.toString() ??
+          '',
       createdAt: DateTime.fromMillisecondsSinceEpoch(
         _asInt(data['created_at']),
       ),
@@ -2669,6 +2858,7 @@ class SquareApiClient
   }
 
   Future<void> _uploadFileToR2({
+    required SquareSession session,
     required String uploadUrl,
     required String filePath,
     required int contentLength,
@@ -2679,24 +2869,63 @@ class SquareApiClient
       throw const SquareApiException('媒体实际大小与上传授权不一致');
     }
     final uri = Uri.parse(uploadUrl);
-    final request = http.StreamedRequest('PUT', uri)
-      ..headers.addAll(headers)
-      ..contentLength = contentLength;
-    // 先让 Client 订阅请求流，再泵入文件；反向等待会因无人消费 StreamedRequest 而死锁。
-    final responseFuture = _http
-        .send(request)
-        .timeout(const Duration(hours: 4));
-    await request.sink.addStream(file.openRead());
-    await request.sink.close();
-    final response = await responseFuture;
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      final text = await response.stream.bytesToString();
-      throw SquareApiException(
-        'R2 上传失败：${response.statusCode} $text',
-        statusCode: response.statusCode,
+    await session.validateCurrent();
+    final lease = await resourceGate?.reserve(
+      origin: baseUri.origin,
+      session: session,
+      operation: 'square',
+    );
+    final abort = Completer<void>();
+    final request =
+        http.AbortableStreamedRequest('PUT', uri, abortTrigger: abort.future)
+          ..followRedirects = false
+          ..headers.addAll(headers)
+          ..contentLength = contentLength;
+    try {
+      await session.validateCurrent();
+      if (!session.isUsable) {
+        throw const SquarePreflightException('上传会话已失效', 'session_expired');
+      }
+      lease?.sent();
+      final responseFuture = _http
+          .send(request)
+          .timeout(
+            const Duration(hours: 4),
+            onTimeout: () {
+              if (!abort.isCompleted) {
+                abort.complete();
+              }
+              throw TimeoutException('媒体上传超时');
+            },
+          );
+      unawaited(
+        responseFuture.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
       );
+      await request.sink.addStream(
+        file.openRead().asyncMap((bytes) async {
+          await session.validateCurrent();
+          return bytes;
+        }),
+      );
+      await request.sink.close();
+      final response = await responseFuture;
+      lease?.finish(
+        headers: response.headers,
+        accepted: response.statusCode >= 200 && response.statusCode < 300,
+      );
+      await session.validateCurrent();
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        await response.stream.drain<void>();
+        throw SquareApiException('媒体上传失败', statusCode: response.statusCode);
+      }
+      await response.stream.drain<void>();
+    } on Object {
+      if (!abort.isCompleted) {
+        abort.complete();
+      }
+      lease?.cancel();
+      rethrow;
     }
-    await response.stream.drain<void>();
   }
 
   Future<T> _retryR2Upload<T>(Future<T> Function() operation) async {
@@ -2829,6 +3058,9 @@ final class _ProfileMediaClient extends http.BaseClient {
   Future<http.StreamedResponse> send(http.BaseRequest request) {
     if (_closed || request.method != 'GET' || request.contentLength != 0) {
       throw http.ClientException('资料媒体读取器只接受无正文GET');
+    }
+    if (request.url.path.startsWith('/api/user/cards/')) {
+      return api.openCardMedia(request.url.toString(), session: session);
     }
     return api.openProfileMedia(
       request.url.toString(),

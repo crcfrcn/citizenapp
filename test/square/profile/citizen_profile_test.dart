@@ -57,7 +57,7 @@ Map<String, dynamic> _profileJson({
   return <String, dynamic>{
     'account_id': _owner,
     'display_name': displayName,
-    'bio': '链上公民',
+    'profile_bio': '链上公民',
     'avatar_object_key': cidNumber == null ? null : 'profile/$cidNumber/avatar',
     'banner_object_key': null,
     'cid_number': cidNumber,
@@ -106,6 +106,73 @@ SquareSession _session() => SquareSession(
 void main() {
   TestCitizenSdkHarness();
   useIsolatedIsar();
+
+  test('旧待保存资料先验完整摘要再升级，内容与操作状态保留', () async {
+    const cache = CitizenProfileCache();
+    await cache.prepareUpdate(_profileCid, request: {'profile_bio': '保留待恢复资料'});
+    await UserIsar.instance.writeTxn((db) async {
+      final row = (await db.userProfileUpdateEntitys.getByCidNumber(
+        _profileCid,
+      ))!;
+      row.requestJson = jsonEncode({'bio': '保留待恢复资料'});
+      row.contentHash = sha256
+          .convert(
+            utf8.encode(
+              jsonEncode([
+                row.cidNumber,
+                row.requestJson,
+                sha256.convert(row.avatarBytes).toString(),
+                sha256.convert(row.bannerBytes).toString(),
+              ]),
+            ),
+          )
+          .toString();
+      await db.userProfileUpdateEntitys.put(row);
+    });
+    final restored = (await cache.readUpdate(_profileCid))!;
+    expect(jsonDecode(restored.requestJson), {'profile_bio': '保留待恢复资料'});
+    expect(restored.operationState, 'pending');
+    expect(restored.avatarBytes, isEmpty);
+    expect(restored.bannerBytes, isEmpty);
+    final saved = await UserIsar.instance.read(
+      (db) => db.userProfileUpdateEntitys.getByCidNumber(_profileCid),
+    );
+    expect(saved!.contentHash, restored.contentHash);
+    expect(saved.requestJson, restored.requestJson);
+    await UserIsar.instance.writeTxn((db) async {
+      final current = (await db.userProfileUpdateEntitys.getByCidNumber(
+        _profileCid,
+      ))!;
+      current.contentHash = 'bad';
+      await db.userProfileUpdateEntitys.put(current);
+    });
+    await expectLater(cache.readUpdate(_profileCid), throwsStateError);
+  });
+
+  test('旧资料缓存一次升级为profile_bio，远端模型拒绝旧键且资料事实保持', () async {
+    final old = _profileJson();
+    old['bio'] = old.remove('profile_bio');
+    expect(() => CitizenProfile.fromJson(old), throwsFormatException);
+    final raw = jsonEncode(old);
+    await UserIsar.instance.writeTxn((db) async {
+      await db.userPublicProfileCacheEntitys.put(
+        UserPublicProfileCacheEntity()
+          ..cidNumber = _profileCid
+          ..profileJson = raw,
+      );
+    });
+    final profile = (await const CitizenProfileCache().read(_profileCid))!;
+    expect(profile.profileBio, old['bio']);
+    expect(profile.accountId, old['account_id']);
+    final saved = await UserIsar.instance.read(
+      (db) => db.userPublicProfileCacheEntitys.getByCidNumber(_profileCid),
+    );
+    final value = jsonDecode(saved!.profileJson) as Map<String, dynamic>;
+    expect(value.containsKey('bio'), false);
+    expect(value['profile_bio'], old['bio']);
+    expect(value['counts'], old['counts']);
+  });
+
   test('最小名片使用独立路径并保留昵称徽标，不覆盖完整主页缓存', () async {
     final full = CitizenProfile.fromJson(_profileJson());
     await const CitizenProfileCache().write(full);
@@ -114,10 +181,10 @@ void main() {
         expect(request.url.path, '/api/user/cards/$_profileCid');
         expect(request.headers['authorization'], 'Bearer tok');
         final card = Map<String, dynamic>.from(_profileJson())
-          ..remove('bio')
+          ..remove('profile_bio')
           ..remove('counts')
           ..remove('banner_object_key');
-        return _ok({'ok': true, 'card': card});
+        return _ok({'is_ok': true, 'card': card});
       }),
     );
     final card = await client.fetchUserCard(
@@ -128,13 +195,13 @@ void main() {
     expect(card.displayName, full.displayName);
     expect(card.identityLevel, full.identityLevel);
     expect(card.membershipLevel, full.membershipLevel);
-    expect(card.bio, isEmpty);
+    expect(card.profileBio, isEmpty);
     expect(card.posts, 0);
     expect(card.bannerObjectKey, isNull);
     await const CitizenProfileCache().write(card);
     expect(
-      (await const CitizenProfileCache().read(_profileCid))?.bio,
-      full.bio,
+      (await const CitizenProfileCache().read(_profileCid))?.profileBio,
+      full.profileBio,
     );
     expect(
       client.cardAvatarUrl(_profileCid),
@@ -153,7 +220,7 @@ void main() {
       {'cid_number': _profileCid, 'account_id': _owner, 'display_name': 'name'},
     ]) {
       final client = _client(
-        MockClient((_) async => _ok({'ok': true, 'card': card})),
+        MockClient((_) async => _ok({'is_ok': true, 'card': card})),
       );
       await expectLater(
         client.fetchUserCard(cidNumber: _profileCid, session: _session()),
@@ -940,12 +1007,12 @@ void main() {
 
     test('重开数据库并删除临时文件后两种图片仍可恢复，普通读取不联网', () async {
       var requests = 0;
+      final reader = MockClient((_) async {
+        requests++;
+        throw StateError('普通读取不能联网');
+      });
       final cache = CitizenProfileMediaCache(
         supportDirectoryProvider: () async => root,
-        client: MockClient((_) async {
-          requests++;
-          throw StateError('普通读取不能联网');
-        }),
       );
       final profile = CitizenProfile.fromJson(_profileJson())
           .copyWith(bannerObjectKey: 'profile/banner');
@@ -973,6 +1040,12 @@ void main() {
       final restored = await cache.read(profile);
       expect(await File(restored.avatarPath!).readAsBytes(), _png);
       expect(await File(restored.bannerPath!).readAsBytes(), _png);
+      await cache.refresh(
+        client: reader,
+        profile: profile,
+        avatarUrl: 'https://example.com/avatar',
+        bannerUrl: 'https://example.com/banner',
+      );
       expect(requests, 0);
     });
 
@@ -1122,19 +1195,19 @@ void main() {
     test('清除CID后迟到下载不得写回', () async {
       final entered = Completer<void>();
       final response = Completer<http.Response>();
+      final reader = MockClient((_) {
+        entered.complete();
+        return response.future;
+      });
       final cache = CitizenProfileMediaCache(
         supportDirectoryProvider: () async => root,
-        client: MockClient((_) {
-          entered.complete();
-          return response.future;
-        }),
       );
       final profile = CitizenProfile.fromJson(_profileJson());
       final pending = cache.refresh(
         profile: profile,
         avatarUrl: 'https://example.com/avatar',
         bannerUrl: null,
-        headers: null,
+        client: reader,
       );
       final rejected = expectLater(pending, throwsStateError);
       await entered.future;
@@ -1151,12 +1224,12 @@ void main() {
 
     test('显式下载入库后后续刷新复用本地，拒绝非HTTPS地址', () async {
       var requests = 0;
+      final reader = MockClient((_) async {
+        requests++;
+        return http.Response.bytes(_png, 200);
+      });
       final cache = CitizenProfileMediaCache(
         supportDirectoryProvider: () async => root,
-        client: MockClient((_) async {
-          requests++;
-          return http.Response.bytes(_png, 200);
-        }),
       );
       final profile = CitizenProfile.fromJson(_profileJson());
       await expectLater(
@@ -1164,7 +1237,7 @@ void main() {
           profile: profile,
           avatarUrl: 'file:///image',
           bannerUrl: null,
-          headers: null,
+          client: reader,
         ),
         throwsArgumentError,
       );
@@ -1173,7 +1246,7 @@ void main() {
           profile: profile,
           avatarUrl: 'https://example.com/avatar',
           bannerUrl: null,
-          headers: null,
+          client: reader,
         );
         expect(await File(result.avatarPath!).readAsBytes(), _png);
       }
@@ -1202,9 +1275,9 @@ void main() {
 
     test('新图片下载失败时保留上一张用户图片且不回退内置随机图', () async {
       final profile = CitizenProfile.fromJson(_profileJson());
+      final reader = MockClient((_) async => http.Response('failed', 503));
       final cache = CitizenProfileMediaCache(
         supportDirectoryProvider: () async => root,
-        client: MockClient((_) async => http.Response('failed', 503)),
       );
       final previous = await cache.rememberSelected(
         profile: profile,
@@ -1216,7 +1289,7 @@ void main() {
         profile: changed,
         avatarUrl: 'https://example.com/avatar',
         bannerUrl: null,
-        headers: const <String, String>{'authorization': 'Bearer token'},
+        client: reader,
       );
 
       expect(refreshed.avatarPath, previous.avatarPath);
@@ -1266,7 +1339,7 @@ void main() {
             expect(request.url.path, '/api/user/profiles/$_profileCid');
             expect(request.headers['x-mls-proof'], isNotEmpty);
             return _ok({
-              'ok': true,
+              'is_ok': true,
               'profile': _profileJson(isFollowing: true),
             });
           }),
@@ -1298,14 +1371,14 @@ void main() {
             expect(request.headers['authorization'], 'Bearer tok');
             expect(request.headers['x-mls-proof'], isNotEmpty);
             return _ok({
-              'ok': true,
+              'is_ok': true,
               'posts': [
                 {
                   'post_id': 'c1',
                   'account_id': _owner,
                   'post_category': 'campaign',
                   'post_type': 'document',
-                  'excerpt': '竞选宣言',
+                  'post_excerpt': '竞选宣言',
                   'created_at': 300,
                 },
               ],
@@ -1335,15 +1408,15 @@ void main() {
       final client = _client(
         MockClient((request) async {
           return _ok({
-            'ok': true,
+            'is_ok': true,
             'posts': [
               {
                 'post_id': 'a1',
                 'account_id': _owner,
                 'post_category': 'normal',
                 'post_type': 'article',
-                'title': '我的文章',
-                'excerpt': '正文摘要',
+                'post_title': '我的文章',
+                'post_excerpt': '正文摘要',
                 'created_at': 100,
                 'media_items': [
                   {
@@ -1376,7 +1449,7 @@ void main() {
           expect(request.method, 'GET');
           expect(request.headers['authorization'], 'Bearer tok');
           expect(request.headers['x-mls-proof'], isNotEmpty);
-          return _ok({'ok': true, 'posts': [], 'next_cursor': null});
+          return _ok({'is_ok': true, 'posts': [], 'next_cursor': null});
         }),
       );
 
@@ -1397,7 +1470,7 @@ void main() {
           expect(request.method, 'GET');
           expect(request.headers['authorization'], 'Bearer tok');
           expect(request.headers['x-mls-proof'], isNotEmpty);
-          return _ok({'ok': true, 'entries': [], 'next_cursor': null});
+          return _ok({'is_ok': true, 'entries': [], 'next_cursor': null});
         }),
       );
 
@@ -1439,7 +1512,10 @@ void main() {
           expect(request.headers['authorization'], 'Bearer tok');
           expect(request.headers['x-mls-proof'], isNotEmpty);
           body = jsonDecode(request.body) as Map<String, dynamic>;
-          return _ok({'ok': true, 'profile': _profileJson(displayName: '新名字')});
+          return _ok({
+            'is_ok': true,
+            'profile': _profileJson(displayName: '新名字'),
+          });
         }),
       );
 

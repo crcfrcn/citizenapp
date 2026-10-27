@@ -1,7 +1,7 @@
 {
   "schema": "citizenapp.topup.v2",
   "config": {
-    "ok": true,
+    "is_ok": true,
     "rails": [
       {
         "token": "USDC",
@@ -126,12 +126,12 @@
     ],
     "ready": true
   },
-  "intent": {
-    "ok": true,
+  "intent_data": {
+    "is_ok": true,
     "order_id": "top_11111111111111111111111111111111",
-    "payment_intent": "eyJpbnRlbnRfaWQiOiJ0cGlfMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTEiLCJjaWRfbnVtYmVyIjpudWxsLCJhY2NvdW50X2lkIjoiMHgwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0IiwicGF5ZXJfYWRkcmVzcyI6IjB4N2U1ZjQ1NTIwOTFhNjkxMjVkNWRmY2I3YjhjMjY1OTAyOTM5NWJkZiIsInRva2VuIjoiVVNEQyIsIm5ldHdvcmsiOiJiYXNlIiwicGFja2FnZV9pZCI6InBrZ18xNSIsImFzc2V0IjoiMHg4MzM1ODlmY2Q2ZWRiNmUwOGY0YzdjMzJkNGY3MWI1NGJkYTAyOTEzIiwicmVjdl9hZGRyZXNzIjoiMHgwMjAyMDIwMjAyMDIwMjAyMDIwMjAyMDIwMjAyMDIwMjAyMDIwMjAyIiwicGF5X2Ftb3VudCI6IjE1MDAwMDAwIiwiY29pbl9mZW4iOiIxMDAwMDAwIiwiaXNzdWVkX2F0IjoxMDAwMDAwLCJleHBpcmVzX2F0IjoxNjAwMDAwfQ.FuwKgnPY0XnM2UssyHZoudpQGC-6OeA7AiTFqPAvUNg",
-    "wallet_authorization_message": "CitizenServe Topup v1\nservice_origin=https://www.crcfrcn.com\nchain_genesis_hash=0x0000000000000000000000000000000000000000000000000000000000000000\nintent_id=tpi_11111111111111111111111111111111\nnetwork=base\npayer_address=0x7e5f4552091a69125d5dfcb7b8c2659029395bdf\nasset=0x833589fcd6edb6e08f4c7c32d4f71b54bda02913\nrecv_address=0x0202020202020202020202020202020202020202\npay_amount=15000000\ncoin_fen=1000000\naccount_id=0x0404040404040404040404040404040404040404040404040404040404040404\npackage_id=pkg_15\nissued_at=1000000\nexpires_at=1600000\nintent_sha256=fdc4a4f07a746a7e821777855f7c8b0e1b91307fcbd959b0daf29976b2d19afd\n",
-    "intent": {
+    "intent_token": "eyJpbnRlbnRfaWQiOiJ0cGlfMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTEiLCJjaWRfbnVtYmVyIjpudWxsLCJhY2NvdW50X2lkIjoiMHgwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0MDQwNDA0IiwicGF5ZXJfYWRkcmVzcyI6IjB4N2U1ZjQ1NTIwOTFhNjkxMjVkNWRmY2I3YjhjMjY1OTAyOTM5NWJkZiIsInRva2VuIjoiVVNEQyIsIm5ldHdvcmsiOiJiYXNlIiwicGFja2FnZV9pZCI6InBrZ18xNSIsImFzc2V0IjoiMHg4MzM1ODlmY2Q2ZWRiNmUwOGY0YzdjMzJkNGY3MWI1NGJkYTAyOTEzIiwicmVjdl9hZGRyZXNzIjoiMHgwMjAyMDIwMjAyMDIwMjAyMDIwMjAyMDIwMjAyMDIwMjAyMDIwMjAyIiwicGF5X2Ftb3VudCI6IjE1MDAwMDAwIiwiY29pbl9mZW4iOiIxMDAwMDAwIiwiaXNzdWVkX2F0IjoxMDAwMDAwLCJleHBpcmVzX2F0IjoxNjAwMDAwfQ.FuwKgnPY0XnM2UssyHZoudpQGC-6OeA7AiTFqPAvUNg",
+    "sign_message": "CitizenServe Topup v1\nservice_origin=https://www.crcfrcn.com\nchain_genesis_hash=0x0000000000000000000000000000000000000000000000000000000000000000\nintent_id=tpi_11111111111111111111111111111111\nnetwork=base\npayer_address=0x7e5f4552091a69125d5dfcb7b8c2659029395bdf\nasset=0x833589fcd6edb6e08f4c7c32d4f71b54bda02913\nrecv_address=0x0202020202020202020202020202020202020202\npay_amount=15000000\ncoin_fen=1000000\naccount_id=0x0404040404040404040404040404040404040404040404040404040404040404\npackage_id=pkg_15\nissued_at=1000000\nexpires_at=1600000\nintent_sha256=fdc4a4f07a746a7e821777855f7c8b0e1b91307fcbd959b0daf29976b2d19afd\n",
+    "intent_data": {
       "intent_id": "tpi_11111111111111111111111111111111",
       "cid_number": null,
       "account_id": "0x0404040404040404040404040404040404040404040404040404040404040404",
@@ -150,7 +150,7 @@
   "signature": "0xb19643cd7bcad122c99077a04f6bb634bb10a7eb838d2fc03dbd317f78d559ee692bb19c92bc1b3f8e3229bb38df207bdf4fa9b7860bde57d919d203d7349bd800",
   "native": {
     "tron": {
-      "intent": {
+      "intent_data": {
         "intent_id": "tpi_55555555555555555555555555555555",
         "cid_number": null,
         "account_id": "0x0404040404040404040404040404040404040404040404040404040404040404",
@@ -247,7 +247,7 @@
       }
     },
     "solana": {
-      "intent": {
+      "intent_data": {
         "intent_id": "tpi_55555555555555555555555555555555",
         "cid_number": null,
         "account_id": "0x0404040404040404040404040404040404040404040404040404040404040404",

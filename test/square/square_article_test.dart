@@ -175,7 +175,7 @@ void main() {
         httpClient: MockClient(
           (_) async => http.Response(
             jsonEncode({
-              'ok': true,
+              'is_ok': true,
               'membergate_active': true,
               'membergate': {
                 'membergate_level': 'democracy',
@@ -215,12 +215,15 @@ void main() {
       );
       expect(state.activePlan!.article.maxVideos, 3);
       expect(state.activePlan!.video.maxVideoSeconds, 1800);
-      expect(state.activePlan!.video.maxVideoBytes, 200000000);
-      expect(state.activePlan!.usage.monthlyVideoSeconds, 60000);
-      expect(state.activePlan!.usage.storageBytes, 1000000000000);
-      expect(state.usageState!.imageCount, 12);
-      expect(state.usageState!.videoSeconds, 345);
-      expect(state.usageState!.activeUploads, 1);
+      expect(state.activePlan!.video.maxVideoBytes, 200 * 1024 * 1024);
+      expect(state.activePlan!.dailyLimits.length, 4);
+      expect(state.activePlan!.usage.storageBytes, 1024 * 1024 * 1024 * 1024);
+      expect(state.usageState!.toJson().containsKey('used_images'), isFalse);
+      expect(
+        state.usageState!.toJson().containsKey('used_video_seconds'),
+        isFalse,
+      );
+      expect(state.usageState!.toJson().containsKey('active_uploads'), isFalse);
     });
 
     test('民主会员单篇允许3个视频但拒绝4个', () {
@@ -229,25 +232,17 @@ void main() {
     });
 
     test('首图计入单篇图片总数且图集每组最多9张', () {
-      expect(_validateUpload(imageCount: 100), isNull);
-      expect(_validateUpload(imageCount: 101), '文章图片总数不能超过 100 张');
+      expect(_validateUpload(imageCount: 50), isNull);
+      expect(_validateUpload(imageCount: 51), '文章图片总数不能超过 50 张');
       expect(
         _validateUpload(gallerySize: 10, imageCount: 11),
         '文章每个图集必须包含 1-9 张图片',
       );
     });
 
-    test('每个段落不少于10字，并在手机端预检月度用量', () {
+    test('保留正文边界，发布不再检查周期和会员并发额度', () {
       expect(_validateUpload(textBlock: '不足十字'), '文章每个段落不少于 10 个字');
-      expect(
-        _validateUpload(usedImages: 1499, imageCount: 2),
-        '当前会员本周期图片可用量不足',
-      );
-      expect(
-        _validateUpload(videoCount: 1, usedVideoSeconds: 59980),
-        '当前会员本周期视频时长可用量不足',
-      );
-      expect(_validateUpload(activeUploads: 2), '当前会员活动上传数已达上限');
+      expect(_validateUpload(imageCount: 50, videoCount: 3), isNull);
     });
   });
 
@@ -656,9 +651,6 @@ String? _validateUpload({
   int imageCount = 1,
   int videoCount = 0,
   int gallerySize = 0,
-  int usedImages = 0,
-  int usedVideoSeconds = 0,
-  int activeUploads = 0,
   String textBlock = '这是满足十个字的正文内容',
 }) {
   final media = <SquareLocalMediaDraft>[
@@ -704,13 +696,7 @@ String? _validateUpload({
         },
     ],
     plan: _democracyPlan,
-    usageState: SquareMembershipUsageState(
-      periodStart: 1,
-      periodEnd: 2,
-      imageCount: usedImages,
-      videoSeconds: usedVideoSeconds,
-      activeUploads: activeUploads,
-    ),
+    usageState: SquareMembershipUsageState(),
   );
 }
 
@@ -762,13 +748,8 @@ const _democracyPlan = SquareMembershipPlan(
     bodyMaxChars: 30000,
     coverQuality: 'hd',
     imageQuality: 'hd',
-    maxImages: 100,
+    maxImages: 50,
     maxVideos: 3,
   ),
-  usage: SquareMembershipUsageQuota(
-    monthlyImages: 1500,
-    monthlyVideoSeconds: 60000,
-    activeUploads: 2,
-    storageBytes: 1000000000000,
-  ),
+  usage: SquareMembershipUsageQuota(storageBytes: 1099511627776),
 );

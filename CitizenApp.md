@@ -373,13 +373,13 @@ CitizenApp 已删除独立 hardware-secretvault 插件；钱包设备金库由 C
   账户边界解析，主页不展示或复制 AccountId / SS58。`ss58_address` 只用于用户码、钱包、
   转账等明确账户边界
   输入输出；换绑账户不改变主页或公开昵称。
-- 头像/背景/签名/公开昵称等资料是**链下数据**，用户设置值进 Cloudflare R2；链上只有发帖、交易。`display_name` 是唯一公开昵称真源，`walletName` 只是本机钱包标签，两者不再同步。公开资料字段从未设置时，App 才按 CID 稳定选择内置昵称、头像和背景；用户已经设置图片后，优先显示UserIsar中持久保存的用户图片，读取失败保留已保存数据，缺少图片时显示中性占位，绝不回退内置照片。
+- 头像/背景/签名/公开昵称等资料是**链下数据**，公开资料字段保存于Worker D1的user_data，头像和背景实际字节保存于Cloudflare R2；链上只有发帖、交易。`display_name` 是唯一公开昵称真源，`walletName` 只是本机钱包标签，两者不再同步。公开资料字段从未设置时，App 才按 CID 稳定选择内置昵称、头像和背景；用户已经设置图片后，优先显示UserIsar中持久保存的用户图片，读取失败保留已保存数据，缺少图片时显示中性占位，绝不回退内置照片。
 
 #### 数据分层
 ```
 链上 citizenchain   发帖索引/哈希/回执、交易                        ← 不动
-R2   (Worker)        profile/{cid_number}/profile.json + 头像/背景对象 = 远端公开资料
-D1   (Worker)        square_posts / square_follows / 计数聚合
+R2   (Worker)        profile/{cid_number}/avatar、banner = 资料图片字节
+D1   (Worker)        user_data / post_data / user_links / 计数聚合
 本地 (App assets)    assets/profiles 只提供稳定展示兜底；不成为公开资料真源
 本地 (UserIsar)      按 CID 持久保存身份、公开资料、头像及背景实际字节
 本地 (临时目录)      从UserIsar生成的展示文件，删除后可重建，不承担持久保存
@@ -485,8 +485,8 @@ D1   (Worker)        square_posts / square_follows / 计数聚合
 - `square_media_grid.dart`（`SquareMediaGrid` + 共享 `SquareMediaTile`）：横竖屏由 `mediaItems.first.isPortrait`（媒体原始 width/height，缺失按横屏兜底）决定。1图/视频=横屏 16:9 / 竖屏 3:4 单块；2图/3图以上=只出前两张、左右各半、**外侧圆角+中缝直角+2px 缝**（容器比例横 2:1、竖 3:2 使左右图为 1:1/3:4），3图以上第二张**右下角 `+N`**（N=总数-2）；视频叠播放键、冷归档态占位。
 - `square_post_card.dart`：头部 → 正文/媒体 → `square_post_actions.dart` 互动栏。**竖屏单图/单视频=左媒体（flex2,3:4）+右正文（flex3）**；其余=正文在上、下走 `SquareMediaGrid`。
 - `square_article_card.dart`：头部 → **标题(2行截断)+正文(2行截断)在上 → 强制横屏 16:9 首图在下** → 互动栏；首图=`media_items[0]`，方向恒横屏不随原始朝向。home feed 与 profile 文章 Tab 均按 `content_format==article` 分发到此卡。
-- **数据链（媒体尺寸）**：横竖屏所需 width/height——Worker 全链路已带（`LimitTicket→D1→feed manifestMediaItems`），Flutter 端 `SquareMediaItem.{width,height}` + `_parseMediaItem` 读 `data['width'/'height']` 补齐；`limits` 仅做上传门控（字节+包围盒+额度），不承载显示朝向。
-- **数据链（作者昵称/头像）**：feed/作者拉帖的作者 `display_name` + `avatar_object_key` 由 `social/author_signals.resolveAuthorSignals` 对去重作者并行读 `profile.json`（`readProfileDoc`，缺失软降级空名/无头像）回填，`hydrateFeedItems` 与 `listAuthorPosts` 一并 spread；Flutter `SquareAuthor.{displayName,avatarObjectKey}` + `_parsePost` 解析。头像走 `Image.network(mediaUrl(avatar_object_key), 带 viewer session Bearer)`；昵称或头像缺失/失败时统一走 `ProfilePresentation` / `ProfileAvatar` 的本地稳定兜底，账户只显示在明确的账户行。
+- **数据链（媒体尺寸）**：上传Item、媒体计划和post_media使用同一width/height事实，Worker由8964/media.rs与cloudflare/square.rs读回媒体行并通过posts::Media交付；Flutter的SquareMediaItem与_parseMediaItem直接消费width/height。limits只约束上传成品和额度，不替代显示尺寸。
+- **数据链（作者昵称/头像）**：Worker的cloudflare/square.rs通过POST_SELECT从user_data读取display_name/avatar_content_hash并回填帖子作者；头像定位由当前CID与引用事实生成。Flutter由SquareAuthor和_parsePost消费，图片通过当前会话的CitizenRemoteImage读取；资料字段直接读取D1投影，UI不透传Bearer或证明头。
 
 #### 关键行为
 - 关注/取关：单击 + 乐观更新（粉丝数±1，失败回滚），**不逐次做钱包账户签名**；session 由当前CID的同一MLS设备身份静默认证后复用，与钱包账户 `Hot/Cold` 模式无关。session 存在的意义是防伪造他人关注（写入完整性），非内容加密。
@@ -693,8 +693,8 @@ CitizenApp 的总目标是 `5+2`：
   await本地收尾以捕获异步失败。恢复记录仍存在时禁止覆盖/删除该草稿；发布页暂停自动保存，
   并在成功返回后清除快照，阻止退出回调复活草稿。删除事务返回实际完成的布尔结果后才广播本地通知。
 - SocialIsar使用上游`maxSizeMiB`参数统一设置4096 MiB（4 GiB）映射上限，保留
-  当前3,000,000,000字节单视频合同。容量或空间耗尽明确失败，保留已提交内容；
-  不自动淘汰内容。iOS映射及3GB内容边界须通过最终真实验收，不以配置修改代替证据。
+  当前3 GiB单视频历史安全读取合同。容量或空间耗尽明确失败，保留已提交内容；
+  不自动淘汰内容。iOS映射及当前会员视频成品边界须通过最终真实验收，不以配置修改代替证据。
 - 本步仅补齐测试代码：来源文件删除后恢复、超过100条保留、旧文件越界拒绝、流分片与长度
   变化、发布事务回滚、远端确认失败后重开恢复、终态不明禁止重发。本轮不执行编译或测试。
 
@@ -774,8 +774,8 @@ CitizenApp 的总目标是 `5+2`：
 
 - Worker计划以plans条目的membergate_level、price_fen、plan、limits及顶层usage为准。SquareApiClient将真实plan/limits数值映射为App内部document/video/article/usage模型；这些内部模型不是服务端JSON结构。缺失、类型错误或越界额度直接拒绝，不默认补齐。
 - 媒体额度与成品规格唯一来自CitizenServe的membergate/limits.rs，经现有会员接口plan/limits/resources/daily_limits交付。SquareMediaPolicy只映射本次响应，不按会员名称推导码率、尺寸、质量或默认值。缺规格拒绝发布。
-- 图片统一在手机生成WebP主图及缩略图；主图上限400000/800000/1200000字节，最长边1280/1600/1920，初始质量65/72/78。缩略图360px/80000字节、初始质量65；视频封面540px/120000字节、初始质量70。按比例缩放，不放大小图，归一方向并移除EXIF。
-- 视频仍为单份HEVC Main 8-bit/SDR/hvc1/MP4、最高30fps、2秒关键帧、AAC-LC 48kHz和faststart。三档480p/720p/1080p，音视频目标平均码率450000/800000/1200000bit/s、峰值675000/1200000/1800000，音频64000/96000/128000；文件上限12000000/200000000/1800000000字节，时长180/1800/10800秒。压缩由手机完成，服务端验证成品与额度，不承担转码。
+- 图片统一在手机生成WebP主图及缩略图；主图上限400/800/1200 KiB，最长边1280/1600/1920，初始质量65/72/78。缩略图360px/80 KiB、初始质量65；视频封面540px/120 KiB、初始质量70。按比例缩放，不放大小图，归一方向并移除EXIF。
+- 视频仍为单份HEVC Main 8-bit/SDR/hvc1/MP4、最高30fps、2秒关键帧、AAC-LC 48kHz和faststart。三档480p/720p/1080p，音视频目标平均码率450000/800000/1200000bit/s、峰值675000/1200000/1800000，音频64000/96000/128000；文件上限12/200/1800 MiB，时长180/1800/10800秒。压缩由手机完成，服务端验证成品与额度，不承担转码。
 - 会员页只显示真实服务端套餐或原缓存，不保留静态套餐、缺档默认值或本地额度；无快照显示待获取及刷新入口。缓存保留真实套餐、媒体规格和用量，读取与网络复用同一解码；缓存用于展示，不作为授权。周期额度以last_charged_at至paid_until展示为本周期，每日资源用量标明UTC统计日。每日广场媒体请求为5000/15000/50000次，由服务端直接交付，会员详情显示同份额度和已用量。
 - 历史已保存媒体的安全读取顶与新上传规格独立；调小上传上限不重压、不删除历史内容，不将旧内容按新上传档位拒绝读取。
 - Android 使用 Media3 Transformer 与系统 MediaCodec，只接受 API 29+ 的硬件 HEVC
@@ -807,16 +807,11 @@ CitizenApp 的总目标是 `5+2`：
   再通过 Cloudflare 单 URL purge 清除全局 CDN 缓存；purge 失败时 D1 索引不得删除。
   R2 每次最多批删 1000 个对象，Cache Purge 每次最多提交 100 个 URL；单篇最多 110 个
   媒体项时只产生一次 R2 批删和三次 purge，禁止恢复逐媒体外部请求。
-- 会员降级只收紧新增上传，既有超额内容保留。会员过期满 30 天且超过自由会员 100GB 时先
-  发送清理通知，至少 24 小时后按最旧内容清到 100GB；重新订阅取消待清理状态。单轮最多
+- 会员降级只收紧新增上传，既有超额内容保留。会员过期满 30 天且超过自由会员当前存储额度 时先
+  发送清理通知，至少 24 小时后按最旧内容清到自由会员当前存储额度；重新订阅取消待清理状态。单轮最多
   检查 3 个 CID、删除 4 项内容，过期上传单轮最多处理 8 项，给设备通知和订阅 batch 留出
   Free Worker 50 subrequest 的硬余量。
-- 每日一致性检查在独立 Cron 中每类最多抽查 10 个 D1 `ready/completed` 引用，
-  单次最多 30 次 R2 HEAD；使用 KV 保存键集游标，不对 bucket 做全量 LIST，
-  缺失对象只记录结构化错误，不因暂时存储故障自动删 D1。
-- Free 账户恰好使用 5 个错峰 Cron：D1/过期上传清理、用户投影、会员投影、订阅对账、
-  R2 巡检各自独立。用户与订阅 storage 按 finalized 区块合并为标准 JSON-RPC batch，
-  禁止把逐事件、逐候选链读取或多组任务串入同一次调用。
+- Worker仅有cloudflare/wrangler.toml声明的六分钟Cron，沿现有入口执行有界数据库回收、身份/会员同步及必要对象维护；无独立每日巡检、五Cron或KV巡检游标。纯数据库回收不创建队列任务；对象结果未知时保留原定位与恢复状态。
 - 唯一 WAF 限流规则 `api-media` 同时覆盖 API 与公开媒体域，按 IP 每 10 秒最多 60 次并
   阻断 10 秒；缓存键忽略查询参数解决同对象绕缓存，媒体域限流补齐随机 object key
   放大 R2 Class B 读取的单源攻击面。
@@ -3336,7 +3331,7 @@ SDK运行时通过可选ChatAttachmentAuthorizationHost覆盖单/群发送、长
 
 ## 服务端资源限额响应
 
-服务端按可信公民号合并各设备的UTC日用量，并分别限制IP；聊天附件上传、暂存和分块操作、聊天与广场共用的下载字节、媒体请求都有硬顶。整份附件在新建、上传、完成和下载时均按当前会员单文件权益检查，降档或低档接收者不能分块绕过。具体服务端数值唯一归CitizenServe的membergate/limits.rs及根技术文档，App不复制一套额度判断真源。
+服务端按可信公民号合并各设备的UTC日用量，并分别限制IP；仅按媒体请求、媒体下发字节、聊天附件上传字节和新建附件许可四种日用量，以及广场和聊天附件两种存量执行门禁；独立分块、周期图片/视频、附件数量及会员分档并发额度已删除。整份附件在新建、上传、完成和下载时均按当前会员单文件权益检查，降档或低档接收者不能分块绕过。具体服务端数值唯一归CitizenServe的membergate/limits.rs及根技术文档，App不复制一套额度判断真源。
 
 沿原错误路径处理HTTP429（频率/日预算）、413（附件大小/存量）与聊天resource_limit，后台待发送队列保持原暂缓/恢复规则；ACK、终止及到期清理仍可释放旧占用。进入聊天、重连、后台附件不补会员GET，主动附件仅在需要时合并刷新原缓存；基础聊天仍不等会员请求。本次仅同步文档，不改UI、App源码、SDK依赖或协议。
 
@@ -3389,6 +3384,8 @@ CitizenSDK与TataChatSDK的Git来源声明保持，ref统一为main。仓库原�
 原付款进入提交阶段但结果未明时，币种卡片恢复原单；Tron/Solana保护记录中已有签名原字节的订单，可在原报价有效期内明确继续广播同一交易，不重新签名或生成付款。报价过期只查原单，禁止新广播。
 
 TronWeb公开HttpProvider只传输付款所需的三个POST接口，使用HTTPS且禁止重定向；Solana JSON-RPC也禁止重定向。HTML不允许内联或远端脚本。Tron钱包方法载荷按[Tron官方WalletConnect适配器](https://github.com/tronweb3/walletconnect-tron/blob/main/src/adapter.ts)的协商版本发送；金额与签名原文仍按CitizenServe合同独立核对。
+
+官方Solana JSON-RPC响应按上游error字段拒绝错误，不因第一方HTTP字段整理改写上游协议。
 
 两个套餐固定为15U兑换10,000GMB、1400U兑换1,000,000GMB。EVM交易同时传准确chainId；Tron/Solana原签名交易先保存再广播。未决提交优先恢复，套餐弹窗防重复打开；已保存paid在离线时仍保留准确到账展示。
 
@@ -3510,3 +3507,29 @@ subscribed字段只表示本次公开subscription_created事件；SignClient的p
 通知恢复按同一身份共用Future；校准、列表、已读及本人概览写回固定CID/账户/绑定/本机代次，切换时立即失效旧任务和抽屉。抽屉的打开锁同样按请求代次隔离，新账号不等待旧HTTP，旧请求收尾也不能清除新抽屉的围栏。通知版本与评论事件序号独立；评论加载期间合并待刷新意图，后台或被其它页面遮挡时只保留意图，恢复可见后补取。评论身份和缓存恢复完成才启用输入，恢复期间同样监听作用域失效；旧详情不能重新装入原账号草稿。放弃本机待发只清本地重试记录，保存失败保留原操作，不自动换ID或声称撤回服务端。会员展示可从本机已持久快照按原接收时间重放，计数变化不重写会员，展示不授予权限。联系人扫码与手动添加共用同一捕获属主，最后写入仍检查原账户修订。
 
 通知缓存以保存代次隔离并保留待落盘状态，同版本必须允许补存；旧写操作不能回滚最新展示。评论失效统一消费interaction_sequence，当前可见评论区每批最多补取一次，隐藏页只记待刷新，已读不产生新互动；推送中的单条内容定位只供点击导航。评论读请求捕获同帖修订，发送期间或较新写操作完成后丢弃旧读取；完成状态落盘后才清除稳定待发操作。首次恢复失败的刷新重新执行原恢复入口；损坏本机已读意图逐条验证，不阻断有效意图和状态校准。
+
+本地资源预检由SubscriptionService的唯一MembershipResourceGate消费CitizenServe gate、完整用量与真实HTTP/WSS回执。组合根注入全部SquareApiClient；保护请求在MLS证明前预留，发送前及读取正文时复核当前身份。规则/额度只读服务端，不按档位复制数值；服务端始终再次校验。服务器时间锚与单调时钟判定规则期限，UTC日/设备分钟窗和已付周期分别计量；切账户旧结果不能交付。真实回执推进确认基线，在途与已发送不确定消耗单独保留；日扣量未知不退款，可能增减的存量未知则失效并按需重采样，不冒充零，也不永久卡住恢复操作。会员推送使本地旧付费规则失效，基础聊天不依赖价格。
+
+广场图片、名片和完整资料图片统一通过当前会话读取器及原图片缓存；UI不保存或透传Bearer/证明头。图片渲染只消费已建立的当前会话引用，不因渲染建立会话、登记设备或请求PIN；实际网络读取仍复核当前身份。资料缓存不自建HTTP客户端，显式刷新只能接收业务API交付的受保护读取器。远端视频通过既有媒体通道，由Android Media3数据源/iOS资源加载器提交有界Range；每次实际请求和重试复用App同一预检/HTTPS/回执，原生不持有会话或第二套会员账本。播放器归各引擎通道实例，失效、离页及取消释放原生资源。完整本地媒体保持离线读取，HEVC能力检查和历史读取安全边界保留。尚无准确媒体长度时只预检已知请求及最小读取成本，实际字节仍由服务端裁定，不能把未知长度认作零。
+
+发布先校验结构、周期和活动上传，再压缩；实际prepare使用成品、衍生图与manifest精确总量，同周期并发预留与跨周期迟到结果隔离。直传和重试也复核当前会话，上传失败不泄漏R2错误正文。资料图片按服务端profile_media压成WebP，上传、回执和本地收尾使用同份成品字节及哈希，不借付费套餐规格。会员详情展示同份完整日额度、真实采样时间和聊天存量分区状态。topup保持独立，不参与这些预检；不新增用量表、轮询、链读取或云资源。
+
+### 会员用量与1024容量统一合同
+
+本地预检只消费CitizenServe下发的整数字节、四种日额度与两种存量，规则数值唯一归服务端membergate/limits.rs。原图、视频、缩略图、封面、头像、背景、附件、空间和流量统一1024进制，页面共用SquareMembershipPlan.formatBytes显示KiB/MiB/GiB/TiB，不再按1000或MB/GB别名计算。文章图片20/50/100张的上限由同一响应交付。
+
+所有媒体读取共用media_requests和delivery_bytes，聊天上传仅upload_bytes，新附件许可仅attachment_begins；无连接/命令/帧/投递日账、独立分块账、资料专用账或周期图片/视频账。手机先校验单篇结构、压缩成品，再按真实总空间和传输事实预占；服务端独立重检，HTTP/WSS原回执校准，保留账户隔离、取消、未知结果保守占量及并发围栏。旧字段/展示/本地兼容读取删除；未知存量不作为零，完整本地缓存离线读取不计网络额度。全站只有服务端判定，App不轮询全站剩余。
+
+历史已保存媒体的本机安全读取顶也统一1024进制：图片4 MiB、视频3 GiB；双端原生参数防护沿同一含义使用整数字节，封面参数技术顶512 KiB。它们只保护本机解码和历史内容读取，不替代服务端下发的新上传成品规格或会员额度。
+
+### 服务端字段与恢复记录
+
+公民业务HTTP与启动清单直接消费is_ok/error_code，注册错误使用can_retry；官方JSON-RPC仍使用其原error。资料使用profile_bio，评论使用reply_seq/reply_text/reply_state，通知使用notice_revision/notice_seq/notice_kind/is_cancelled；通知推送的外层state与评论行reply_state属于不同字段。充值付款意图外层为is_ok/order_id/intent_token/sign_message/intent_data准确五字段，订单使用order_state/exception_reason。网络解析器只接受当前字段，不在HTTP入口转换成另一套旧模型。对应模型成员直接使用profileBio、replySeq/replyText/replyState、noticeRevision、orderId/intentToken/intentData/signMessage/orderState/exceptionReason，不保留同义旧getter。
+
+注册HTTP的registration_context_hash沿服务端原0x前缀H256表示，本地恢复定位键保持原64位摘要文本，不移动记录；状态直接使用jobState/job_state，使用created_at/expires_at/human_verified_at/page_expires_at，prepare仅接受201，其余操作仅接受200。MLS挑战和证明直接沿SDK原expires_at_millis，证明与签名字节保持。上传准备和完成仅持有contentHash一份正文摘要，完成请求只传content_hash，回执须与已提交摘要一致；Manifest原JSON和sha256/width/height保持。
+
+注册受保护恢复记录以record_version=3保存，充值保持record_version=2；注册无版本及v2记录、充值无版本记录只由原存储入口一次升级，校验完整结构与归属后，以原完整快照CAS写入唯一格式并准确读回，之后才继续原业务。原付款Intent内部JSON、token、签名、交易字节、能力、操作ID与SDK检查点保持；未知、混入双键、冲突或写入失败保留原记录并阻断后续动作。
+
+资料旧记录先验证原完整摘要，再于原事务比较旧快照后升级；通知比较原stateJson和身份；评论比较原页及待发完整快照；升级未确认时禁止发送、删除和放弃，失败撤销内存操作入口，刷新必须重读完整快照，不能覆盖并发新记录；保存后仍使用原操作ID，不增加网络读取或发送。网络模型不承担旧记录兼容。真实受保护文件与隔离Isar回归覆盖升级、原事实保持、双键拒绝、并发及坏摘要保护；代码验证不代表真实用户数据已升级。
+
+详情直接读取既有post索引与manifest正文，清单schema/作者/类型须与索引一致；不接受旧内联正文，也不重编码清单计算链哈希。上传完成删除无上游、无消费者的storageState要求，完成权限仍由Serve原upload_state事务判定。发布确认只接收既有事实回执，再沿原详情入口读回一次完整证明并匹配区块/交易/内容摘要，不增加会员GET、查链或交易重播；读取失败保留原finalized恢复记录。

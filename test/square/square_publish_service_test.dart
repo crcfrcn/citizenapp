@@ -622,7 +622,6 @@ class _FakeUploader implements SquareContentUploader {
       postId: 'sqp_test',
       contentHash: contentHash,
       storageReceiptId: 'sqr_test',
-      manifestHash: contentHash,
       manifestBytes: bytes,
       mediaDrafts: mediaDrafts,
     );
@@ -642,7 +641,6 @@ class _FakeUploader implements SquareContentUploader {
       postId: prepared.postId,
       contentHash: prepared.contentHash,
       storageReceiptId: prepared.storageReceiptId,
-      manifestHash: prepared.manifestHash,
     );
   }
 }

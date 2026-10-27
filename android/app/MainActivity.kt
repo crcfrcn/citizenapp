@@ -119,6 +119,7 @@ class MainActivity : FlutterFragmentActivity() {
         squareMediaChannel = SquareMediaChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             applicationContext,
+            flutterEngine.platformViewsController.registry,
         )
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, securityChannelName)

@@ -18,7 +18,7 @@ class SquareArticleCard extends StatelessWidget {
     this.onTap,
     this.onAuthorTap,
     this.avatarUrl,
-    this.avatarHeaders,
+
     this.avatarImage,
   });
 
@@ -28,9 +28,8 @@ class SquareArticleCard extends StatelessWidget {
   /// 点击作者头像/名进入其用户主页。
   final VoidCallback? onAuthorTap;
 
-  /// 作者真头像地址与鉴权头（由页面据 avatarObjectKey + session 生成）。
+  /// 作者头像地址；实际获取交给当前会话的受保护读取器。
   final String? avatarUrl;
-  final Map<String, String>? avatarHeaders;
 
   /// 完整资料媒体的签名读取器；不携带可复用的一次性证明头。
   final ImageProvider? avatarImage;
@@ -53,7 +52,7 @@ class SquareArticleCard extends StatelessWidget {
                 post: post,
                 onAuthorTap: onAuthorTap,
                 avatarUrl: avatarUrl,
-                avatarHeaders: avatarHeaders,
+
                 avatarImage: avatarImage,
               ),
               SizedBox(height: AppLayout.scaled(context, 12)),
@@ -88,11 +87,7 @@ class SquareArticleCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(AppTheme.radiusMd),
                   child: AspectRatio(
                     aspectRatio: 16 / 9,
-                    child: SquareMediaImage(
-                      item: cover,
-                      preview: true,
-                      httpHeaders: avatarHeaders,
-                    ),
+                    child: SquareMediaImage(item: cover, preview: true),
                   ),
                 ),
               ],

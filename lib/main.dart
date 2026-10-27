@@ -1,3 +1,5 @@
+import 'package:citizenapp/account/membership/subscription_service.dart';
+
 import 'dart:convert';
 
 import 'package:citizenapp/system/notifications/notifications.dart';
@@ -140,6 +142,7 @@ Future<void> main() async {
     snapshotStore: IdentityBadgeSnapshotStore(),
     identityRevision: accountSecurity.revision,
   );
+  SquareApiClient.resourceGate = SubscriptionService.resourceGate;
   final squareApiClient = SquareApiClient();
   final appPushService = AppPushService();
   late final SquareSessionProvider squareSessionProvider;

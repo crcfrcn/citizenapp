@@ -1596,9 +1596,9 @@ class _NotificationPages extends SquareApiClient {
   final first = Completer<Map<String, dynamic>>();
   final cids = <String>[];
   Map<String, dynamic> page(String cid) => {
-    'ok': true,
+    'is_ok': true,
     'state': {
-      'ok': true,
+      'is_ok': true,
       'cid_number': cid,
       'binding_revision': 1,
       'revision': 1,

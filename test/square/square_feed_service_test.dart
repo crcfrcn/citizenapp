@@ -1,5 +1,6 @@
 import 'mls_authentication_fixture.dart';
 import '../support/fake_citizen_sdk.dart';
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -11,7 +12,7 @@ import 'package:http/testing.dart';
 import 'package:citizenapp/8964/feed/square_models.dart';
 import 'package:citizenapp/network/square_api_client.dart';
 
-// 发布会员体系后，`SquareApiClient._headers` 对带 session 的请求强制要求设备请求签名器，
+// 受保护请求统一在本地预检后使用当前会话的设备请求签名器，
 // 缺失即抛「设备请求签名器缺失」。测试用固定假签名占位；MockClient 不校验签名头。
 SquareSession _session() => const SquareSession(
   deviceId: testMlsDeviceId,
@@ -38,7 +39,7 @@ void main() {
         return http.Response(
           '''
           {
-            "ok": true,
+            "is_ok": true,
             "feed_kind": "recommended",
             "posts": [
               {
@@ -49,7 +50,7 @@ void main() {
                 "avatar_object_key": "profile/1111111111111111111111111111111111111111111111111111111111111111/avatar",
                 "post_category": "campaign",
                 "post_type": "document",
-                "excerpt": "竞选公文摘要",
+                "post_excerpt": "竞选公文摘要",
                 "content_hash": "0x1111",
                 "storage_receipt_id": "sqr_001",
                 "chain_block": 88,
@@ -79,7 +80,10 @@ void main() {
       }),
     );
 
-    final posts = await client.fetchFeed(feedKind: SquareFeedKind.recommended, session: _session());
+    final posts = await client.fetchFeed(
+      feedKind: SquareFeedKind.recommended,
+      session: _session(),
+    );
 
     expect(posts, hasLength(1));
     expect(posts.first.postCategory, SquarePostCategory.campaign);
@@ -110,8 +114,7 @@ void main() {
     final summary = SquarePost(
       postId: 'sqp_detail',
       author: const SquareAuthor(
-        accountId:
-            '0x0101010101010101010101010101010101010101010101010101010101010101',
+        accountId: '0x0101010101010101010101010101010101010101010101010101010101010101',
         cidNumber: 'CN001-CTZN-000000001-2026',
         displayName: '林正华',
       ),
@@ -127,23 +130,13 @@ void main() {
         expect(request.url.path, '/api/8964/posts/sqp_detail');
         return http.Response(
           jsonEncode({
-            'ok': true,
+            'is_ok': true,
             'post': {
               'post_id': 'sqp_detail',
               'account_id': summary.author.accountId,
               'cid_number': summary.author.cidNumber,
               'post_category': 'normal',
               'post_type': 'article',
-              'title': '文章标题标题标题',
-              'text': 'R2 规范全文',
-              'content_sections': [
-                {
-                  'text_delta': [
-                    {'insert': 'R2 规范全文满足十个字'},
-                    {'insert': '\n'},
-                  ],
-                },
-              ],
               'content_hash': List<String>.filled(64, '1').join(),
               'storage_receipt_id': 'sqr_detail',
               'chain_block': 88,
@@ -155,6 +148,22 @@ void main() {
                   'url': 'https://media.test/cover.jpg',
                   'width': 1920,
                   'height': 1080,
+                },
+              ],
+            },
+            'manifest': {
+              'schema': 'citizenapp.square.post',
+              'cid_number': summary.author.cidNumber,
+              'post_type': 'article',
+              'media_items': <Object>[],
+              'title': '文章标题标题标题',
+              'text': 'R2 规范全文',
+              'content_sections': [
+                {
+                  'text_delta': [
+                    {'insert': 'R2 规范全文满足十个字'},
+                    {'insert': '\n'},
+                  ],
                 },
               ],
             },
@@ -181,13 +190,12 @@ void main() {
       httpClient: MockClient(
         (_) async => http.Response(
           jsonEncode({
-            'ok': true,
+            'is_ok': true,
             'feed_kind': 'recommended',
             'posts': [
               {
                 'post_id': 'article_without_cover',
-                'account_id':
-                    '0x0101010101010101010101010101010101010101010101010101010101010101',
+                'account_id': '0x0101010101010101010101010101010101010101010101010101010101010101',
                 'post_category': 'normal',
                 'post_type': 'article',
                 'title': '缺少首图的非法文章',
@@ -204,7 +212,10 @@ void main() {
     );
 
     await expectLater(
-      client.fetchFeed(feedKind: SquareFeedKind.recommended, session: _session()),
+      client.fetchFeed(
+        feedKind: SquareFeedKind.recommended,
+        session: _session(),
+      ),
       throwsA(
         isA<SquareApiException>().having(
           (error) => error.message,
@@ -234,7 +245,10 @@ void main() {
       'https://square.example/api#other',
       'https://account@square.example/api',
     ]) {
-      expect(() => SquareApiConfig.normalizeBaseUrl(root), throwsFormatException);
+      expect(
+        () => SquareApiConfig.normalizeBaseUrl(root),
+        throwsFormatException,
+      );
     }
   });
 
@@ -253,7 +267,7 @@ void main() {
         expect(body['text_length'], 30000);
         return http.Response(
           jsonEncode({
-            'ok': true,
+            'is_ok': true,
             'upload_id': 'squ_test',
             'post_id': 'sqp_test',
             'storage_receipt_id': 'sqr_test',
@@ -261,7 +275,8 @@ void main() {
             'estimated_bytes': 1024,
             'manifest': {
               'object_key': 'square/cid/posts/sqp_test/manifest.json',
-              'upload_url': 'https://square.test/api/8964/uploads/squ_test/manifest',
+              'upload_url':
+                  'https://square.test/api/8964/uploads/squ_test/manifest',
             },
             'media_uploads': [
               {
@@ -298,29 +313,29 @@ void main() {
       postType: SquarePostType.article,
       titleLength: 12,
       textLength: 30000,
-      manifestHash: '11' * 32,
+      contentHash: '11' * 32,
       manifestByteSize: 512,
       mediaItems: const [
         SquareUploadMediaRequest(
           mediaKind: SquareMediaKind.image,
           contentType: 'image/webp',
           byteSize: 1024,
-          sha256:
-              '1111111111111111111111111111111111111111111111111111111111111111',
+          sha256: '1111111111111111111111111111111111111111111111111111111111111111',
           width: 320,
           height: 240,
           derivativeKind: 'thumbnail',
           derivativeContentType: 'image/webp',
           derivativeByteSize: 256,
-          derivativeSha256:
-              '2222222222222222222222222222222222222222222222222222222222222222',
+          derivativeSha256: '2222222222222222222222222222222222222222222222222222222222222222',
         ),
       ],
     );
 
     expect(prepared.postId, 'sqp_test');
-    expect(prepared.manifestUploadUrl,
-        'https://square.test/api/8964/uploads/squ_test/manifest');
+    expect(
+      prepared.manifestUploadUrl,
+      'https://square.test/api/8964/uploads/squ_test/manifest',
+    );
     expect(prepared.mediaItems.single.byteSize, 1024);
   });
 
@@ -338,31 +353,37 @@ void main() {
           calls++;
           expect(request.method, 'POST');
           expect(request.url.path, '/api/8964/uploads');
-          return http.Response(jsonEncode({
-            'ok': true,
-            'upload_id': 'squ_test',
-            'post_id': 'sqp_test',
-            'storage_receipt_id': 'sqr_test',
-            'expires_at': 1800000000000,
-            'estimated_bytes': 512,
-            'manifest': {
-              'object_key': 'square/cid/posts/sqp_test/manifest.json',
-              'upload_url': capability,
-            },
-            'media_uploads': <Object>[],
-          }), 200);
+          return http.Response(
+            jsonEncode({
+              'is_ok': true,
+              'upload_id': 'squ_test',
+              'post_id': 'sqp_test',
+              'storage_receipt_id': 'sqr_test',
+              'expires_at': 1800000000000,
+              'estimated_bytes': 512,
+              'manifest': {
+                'object_key': 'square/cid/posts/sqp_test/manifest.json',
+                'upload_url': capability,
+              },
+              'media_uploads': <Object>[],
+            }),
+            200,
+          );
         }),
       );
       addTearDown(client.close);
-      await expectLater(client.prepareUpload(
-        session: _session(),
-        postType: SquarePostType.document,
-        titleLength: 0,
-        textLength: 10,
-        manifestHash: '11' * 32,
-        manifestByteSize: 512,
-        mediaItems: const [],
-      ), throwsFormatException);
+      await expectLater(
+        client.prepareUpload(
+          session: _session(),
+          postType: SquarePostType.document,
+          titleLength: 0,
+          textLength: 10,
+          contentHash: '11' * 32,
+          manifestByteSize: 512,
+          mediaItems: const [],
+        ),
+        throwsFormatException,
+      );
       expect(calls, 1);
     }
   });
@@ -383,6 +404,7 @@ void main() {
     );
     try {
       await client.uploadMediaAsset(
+        session: _session(),
         upload: const SquarePreparedMediaUpload(
           mediaKind: SquareMediaKind.image,
           contentType: 'image/webp',
@@ -417,7 +439,7 @@ void main() {
         expect(request.url.path, '/api/8964/posts/sqp_old');
         expect(request.headers['authorization'], 'Bearer sqs_test');
         return http.Response(
-          jsonEncode({'ok': true, 'post_id': 'sqp_old'}),
+          jsonEncode({'is_ok': true, 'post_id': 'sqp_old'}),
           200,
           headers: {'content-type': 'application/json; charset=utf-8'},
         );
@@ -448,7 +470,7 @@ void main() {
         expect(request.headers['x-mls-proof'], isNotEmpty);
         return http.Response(
           jsonEncode({
-            'ok': true,
+            'is_ok': true,
             'items': [
               {
                 'post_id': 'sqp_self',
@@ -486,7 +508,7 @@ void main() {
       httpClient: MockClient(
         (_) async => http.Response(
           jsonEncode({
-            'ok': true,
+            'is_ok': true,
             'items': [
               {
                 'post_id': 'sqp_wrong',

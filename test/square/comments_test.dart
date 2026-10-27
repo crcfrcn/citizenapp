@@ -19,20 +19,20 @@ import '../support/isar_test_env.dart';
 
 const _cid = 'CN220-CTZN2-100000007-2026';
 Map<String, dynamic> _comment({
-  String body = '评论',
+  String replyText = '评论',
   String post = 'post',
   String state = 'active',
   String id = 'comment',
   int sequence = 1,
   String author = _cid,
 }) => {
-  'sequence': sequence,
+  'reply_seq': sequence,
   'created_at': 1000000,
   'comment_id': id,
   'post_id': post,
   'author_cid_number': author,
-  'body': body,
-  'state': state,
+  'reply_text': replyText,
+  'reply_state': state,
   'display_name': '公民',
   'reply_to': null,
 };
@@ -83,10 +83,10 @@ class _User implements CurrentUserContext {
 }
 
 Map<String, dynamic> _notice(int revision) => {
-  'ok': true,
+  'is_ok': true,
   'cid_number': _cid,
   'binding_revision': 1,
-  'revision': revision,
+  'notice_revision': revision,
   'square_unread': 0,
   'following_unread': 0,
   'interaction_unread': 0,
@@ -119,7 +119,7 @@ class _Api extends SquareApiClient {
     cursors.add(cursor);
     targets.add(target);
     return (cursor == null ? firstPage : nextPage) ??
-        {'ok': true, 'comments': <Object>[], 'next_cursor': null};
+        {'is_ok': true, 'comments': <Object>[], 'next_cursor': null};
   }
 
   @override
@@ -127,13 +127,16 @@ class _Api extends SquareApiClient {
     required SquareSession session,
     required String postId,
     required String operationId,
-    required String body,
+    required String replyText,
     String? replyTo,
   }) async {
     operations.add(operationId);
     replies.add(replyTo);
     if (failSend) throw StateError('synthetic offline');
-    return {'ok': true, 'comment': _comment(body: body, post: postId)};
+    return {
+      'is_ok': true,
+      'comment': _comment(replyText: replyText, post: postId),
+    };
   }
 
   @override
@@ -230,17 +233,18 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   useIsolatedIsar();
   test('模型拒绝坏分页行和已删除正文，不用空列表掩盖错误', () {
-    expect(SquareComment.fromJson(_comment()).body, '评论');
+    expect(SquareComment.fromJson(_comment()).replyText, '评论');
     for (final value in [
-      {..._comment(), 'sequence': 0},
+      {..._comment(), 'reply_seq': 0},
       _comment(state: 'unknown'),
       _comment(state: 'deleted'),
-      _comment(body: '字' * 2001),
+      _comment(replyText: '字' * 2001),
     ]) {
       expect(() => SquareComment.fromJson(value), throwsFormatException);
     }
     expect(
-      SquareComment.fromJson(_comment(body: '', state: 'deleted')).state,
+      SquareComment.fromJson(_comment(replyText: '', state: 'deleted'))
+          .replyState,
       'deleted',
     );
   });
@@ -290,6 +294,206 @@ void main() {
       expect(api.reads, 1);
     });
   });
+  testWidgets('旧评论页和待发意图一次升级，原操作ID保留且不发网络请求', (tester) async {
+    await _check(tester, () async {
+      final old = _comment(replyText: '旧评论');
+      for (final entry in {
+        'reply_seq': 'sequence',
+        'reply_text': 'body',
+        'reply_state': 'state',
+      }.entries) {
+        old[entry.value] = old.remove(entry.key);
+      }
+      final operation = '11' * 16;
+      await tester.runAsync(() async {
+        await SocialIsar.instance.writeTxn((db) async {
+          await db.squareCommentsEntitys.put(
+            SquareCommentsEntity()
+              ..cidNumber = _cid
+              ..postId = 'post'
+              ..pageJson = jsonEncode({
+                'comments': [old],
+                'next_cursor': null,
+              })
+              ..pendingJson = jsonEncode({
+                'operation_id': operation,
+                'body': '旧待发',
+                'reply_to': null,
+              }),
+          );
+        });
+      });
+      final api = _Api();
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: Comments(
+                postId: 'post',
+                ownerCid: _cid,
+                api: api,
+                sessionProvider: _Sessions(),
+              ),
+            ),
+          ),
+        ),
+      );
+      await _drain(
+        tester,
+        () =>
+            find.text('旧评论').evaluate().isNotEmpty &&
+            find.text('旧待发').evaluate().isNotEmpty,
+      );
+      await tester.runAsync(() async {
+        final saved = (await SocialIsar.instance.read(
+          (db) => db.squareCommentsEntitys.getByCidNumberPostId(_cid, 'post'),
+        ))!;
+        final page = jsonDecode(saved.pageJson) as Map<String, dynamic>;
+        final row = (page['comments'] as List).single as Map;
+        expect(row['reply_text'], '旧评论');
+        expect(row.containsKey('body'), false);
+        final pending = jsonDecode(saved.pendingJson!) as Map;
+        expect(pending['operation_id'], operation);
+        expect(pending['reply_text'], '旧待发');
+        expect(pending.containsKey('body'), false);
+      });
+      expect(api.reads, 0);
+      expect(api.operations, isEmpty);
+    });
+  });
+  for (final mode in ['write', 'conflict', 'mixed']) {
+    testWidgets('评论旧缓存升级$mode失败后禁止发送和覆盖，刷新重新读取原快照', (tester) async {
+      await _check(tester, () async {
+        final oldPending = jsonEncode({
+          'operation_id': '11' * 16,
+          'body': '旧待发',
+          'reply_to': null,
+          if (mode == 'mixed') 'reply_text': '混名正文',
+        });
+        final page = jsonEncode({'comments': <Object>[], 'next_cursor': null});
+        await tester.runAsync(
+          () => SocialIsar.instance.writeTxn((db) async {
+            await db.squareCommentsEntitys.put(
+              SquareCommentsEntity()
+                ..cidNumber = _cid
+                ..postId = 'post'
+                ..pageJson = page
+                ..pendingJson = oldPending,
+            );
+          }),
+        );
+        final newerPending = jsonEncode({
+          'operation_id': '22' * 16,
+          'reply_text': '新待发',
+          'reply_to': null,
+        });
+        var fail = true;
+        final api = _Api();
+        addTearDown(api.close);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: Comments(
+                  postId: 'post',
+                  ownerCid: _cid,
+                  api: api,
+                  sessionProvider: _Sessions(),
+                  cacheWriter:
+                      (
+                        cid,
+                        post,
+                        nextPage,
+                        nextPending, {
+                        required isCurrent,
+                      }) async {
+                        if (fail) {
+                          if (mode == 'conflict') {
+                            await SocialIsar.instance.writeTxn((db) async {
+                              final row = (await db.squareCommentsEntitys
+                                  .getByCidNumberPostId(cid, post))!;
+                              row.pendingJson = newerPending;
+                              await db.squareCommentsEntitys.put(row);
+                            });
+                          }
+                          throw StateError('synthetic upgrade write failure');
+                        }
+                        await SocialIsar.instance.writeTxn((db) async {
+                          if (!isCurrent()) throw StateError('stale owner');
+                          final row = (await db.squareCommentsEntitys
+                              .getByCidNumberPostId(cid, post))!;
+                          row
+                            ..pageJson = nextPage
+                            ..pendingJson = nextPending;
+                          await db.squareCommentsEntitys.put(row);
+                        });
+                      },
+                ),
+              ),
+            ),
+          ),
+        );
+        await _drain(
+          tester,
+          () => find.text('评论暂时不可用，请刷新重试').evaluate().isNotEmpty,
+        );
+        expect(
+          tester
+              .widget<FilledButton>(find.byKey(const ValueKey('comment-send')))
+              .onPressed,
+          isNull,
+        );
+        expect(
+          tester
+              .widget<TextField>(find.byKey(const ValueKey('comment-input')))
+              .readOnly,
+          true,
+        );
+        expect(find.text('放弃本机待发'), findsNothing);
+        expect(api.operations, isEmpty);
+        expect(api.reads, 0);
+        await tester.runAsync(() async {
+          final row = (await SocialIsar.instance.read(
+            (db) => db.squareCommentsEntitys.getByCidNumberPostId(_cid, 'post'),
+          ))!;
+          expect(row.pageJson, page);
+          expect(
+            row.pendingJson,
+            mode == 'conflict' ? newerPending : oldPending,
+          );
+        });
+        if (mode != 'mixed') {
+          fail = false;
+          await tester.tap(find.byTooltip('刷新评论'));
+          await _drain(
+            tester,
+            () =>
+                find
+                    .text(mode == 'conflict' ? '新待发' : '旧待发')
+                    .evaluate()
+                    .isNotEmpty &&
+                tester
+                        .widget<FilledButton>(
+                          find.byKey(const ValueKey('comment-send')),
+                        )
+                        .onPressed !=
+                    null,
+          );
+          expect(
+            tester
+                .widget<FilledButton>(
+                  find.byKey(const ValueKey('comment-send')),
+                )
+                .onPressed,
+            isNotNull,
+          );
+          expect(api.operations, isEmpty);
+          expect(api.reads, 0);
+        }
+      });
+    });
+  }
   testWidgets('已有评论缓存先展示，进入不重新请求全部评论', (tester) async {
     await _check(tester, () async {
       await tester.runAsync(() async {
@@ -329,14 +533,19 @@ void main() {
     await _check(tester, () async {
       final api = _Api()
         ..firstPage = {
-          'ok': true,
-          'comments': [_comment(id: 'parent', sequence: 2, body: '待回复')],
+          'is_ok': true,
+          'comments': [_comment(id: 'parent', sequence: 2, replyText: '待回复')],
           'next_cursor': 2,
         }
         ..nextPage = {
-          'ok': true,
+          'is_ok': true,
           'comments': [
-            _comment(id: 'older', sequence: 1, body: '较早评论', author: 'other'),
+            _comment(
+              id: 'older',
+              sequence: 1,
+              replyText: '较早评论',
+              author: 'other',
+            ),
           ],
           'next_cursor': null,
         };
@@ -414,8 +623,8 @@ void main() {
     await _check(tester, () async {
       final api = _Api()
         ..firstPage = {
-          'ok': true,
-          'comments': [_comment(id: 'far', body: '目标回复')],
+          'is_ok': true,
+          'comments': [_comment(id: 'far', replyText: '目标回复')],
           'next_cursor': null,
         };
       addTearDown(api.close);
@@ -446,8 +655,8 @@ void main() {
       api.onRead = (n) async => n == 1
           ? await first.future
           : {
-              'ok': true,
-              'comments': [_comment(body: '新通知评论')],
+              'is_ok': true,
+              'comments': [_comment(replyText: '新通知评论')],
               'next_cursor': null,
             };
       Notifications.instance.configure(
@@ -484,7 +693,11 @@ void main() {
           'state': {..._notice(5), 'through': 9, 'interaction_sequence': 9},
         }),
       );
-      first.complete({'ok': true, 'comments': <Object>[], 'next_cursor': null});
+      first.complete({
+        'is_ok': true,
+        'comments': <Object>[],
+        'next_cursor': null,
+      });
       await _drain(
         tester,
         () =>
@@ -716,16 +929,16 @@ void main() {
         final api = _Api(), stale = Completer<Map<String, dynamic>>();
         addTearDown(api.close);
         Map<String, dynamic> page(bool changed) => {
-          'ok': true,
+          'is_ok': true,
           'comments': remove
               ? [
                   _comment(
-                    body: changed ? '' : '旧正文',
+                    replyText: changed ? '' : '旧正文',
                     state: changed ? 'deleted' : 'active',
                   ),
                 ]
               : changed
-              ? [_comment(body: '新发送')]
+              ? [_comment(replyText: '新发送')]
               : <Object>[],
           'next_cursor': null,
         };

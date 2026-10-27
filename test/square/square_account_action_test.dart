@@ -53,7 +53,7 @@ Map<String, dynamic> challenge(String purpose) {
   out.add(hexToBytes(_nonce));
   u64(expiry);
   return {
-    'ok': true,
+    'is_ok': true,
     'purpose': purpose,
     'challenge_id': _nonce,
     'cid_number': _cidNumber,
@@ -61,13 +61,13 @@ Map<String, dynamic> challenge(String purpose) {
     'binding_revision': 1,
     'chain_scope': _binding.genesisHash,
     'service_origin': 'https://square.test',
-    'expires_at_millis': expiry,
+    'expires_at': expiry,
     'signing_payload_hex': '0x${bytesToHex(out.takeBytes())}',
   };
 }
 
 Map<String, Object?> receipt(String state) => {
-  'ok': true,
+  'is_ok': true,
   'cid_number': _cidNumber,
   'account_id': _accountId,
   'binding_revision': 1,
@@ -218,7 +218,7 @@ void main() {
     final api = client((request) async {
       paths.add(request.url.path);
       if (request.url.path == '/api/user/deletion/challenges') {
-        return json({'error': 'invalid_session'}, 401);
+        return json({'error_code': 'invalid_session'}, 401);
       }
       if (request.url.path == '/api/user/deletion/status/challenges') {
         return json(challenge('status'));
@@ -245,7 +245,7 @@ void main() {
       {'chain_scope': '0x${List.filled(32, '44').join()}'},
       {'service_origin': 'https://other.test'},
       {'purpose': 'delete'},
-      {'expires_at_millis': 1},
+      {'expires_at': 1},
       {'signing_payload_hex': '0x00'},
       {'op_tag': 0x99},
       {'challenge_id': '../other'},

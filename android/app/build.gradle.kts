@@ -64,6 +64,7 @@ dependencies {
     implementation("androidx.core:core:1.13.1")
     // 广场视频只走系统硬件 MediaCodec；Media3 提供受控的解码、缩放和 HEVC 编码帧管线。
     implementation("androidx.media3:media3-transformer:1.10.1")
+    implementation("androidx.media3:media3-exoplayer:1.10.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }

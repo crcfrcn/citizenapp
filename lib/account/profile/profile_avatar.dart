@@ -1,3 +1,5 @@
+import 'package:citizenapp/account/profile/citizen_profile_api.dart';
+
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -15,7 +17,7 @@ class ProfileAvatar extends StatelessWidget {
     required this.size,
     this.imagePath,
     this.imageUrl,
-    this.imageHeaders,
+
     this.imageProvider,
     this.userImageSet,
     this.identityLevel,
@@ -32,9 +34,8 @@ class ProfileAvatar extends StatelessWidget {
   final double size;
   final String? imagePath;
   final String? imageUrl;
-  final Map<String, String>? imageHeaders;
 
-  /// 完整资料图片按请求现签；名片图片保留原普通会话来源。
+  /// 资料和名片图片统一使用当前会话的受保护读取器。
   final ImageProvider? imageProvider;
 
   /// null 时按 imagePath/imageUrl/imageProvider 推导。明确为 true 表示用户已经设置图片；即使本机
@@ -92,19 +93,27 @@ class ProfileAvatar extends StatelessWidget {
                     height: size,
                   )
                 : imageProvider != null || (url != null && url.isNotEmpty)
-                ? Image(
-                    image:
-                        imageProvider ??
-                        NetworkImage(url!, headers: imageHeaders),
-                    fit: BoxFit.cover,
-                    width: size,
-                    height: size,
-                    frameBuilder: (context, child, frame, syncLoaded) =>
-                        syncLoaded || frame != null
-                        ? child
-                        : const _UserImagePlaceholder(),
-                    errorBuilder: (_, _, _) => const _UserImagePlaceholder(),
-                  )
+                ? imageProvider == null
+                      ? CitizenRemoteImage(
+                          url: url!,
+                          role: Uri.parse(url).path.contains('/cards/')
+                              ? 'card'
+                              : 'avatar',
+                          width: size,
+                          height: size,
+                        )
+                      : Image(
+                          image: imageProvider!,
+                          fit: BoxFit.cover,
+                          width: size,
+                          height: size,
+                          frameBuilder: (context, child, frame, syncLoaded) =>
+                              syncLoaded || frame != null
+                              ? child
+                              : const _UserImagePlaceholder(),
+                          errorBuilder: (_, _, _) =>
+                              const _UserImagePlaceholder(),
+                        )
                 : hasUserImage
                 ? const _UserImagePlaceholder()
                 : _StableDefaultAvatar(seed: seed, size: size),

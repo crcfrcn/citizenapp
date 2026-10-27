@@ -282,7 +282,7 @@ void main() {
     addTearDown(tester.view.reset);
 
     Future<({double labelTopPadding, double statsTop})> layoutOf(
-      String bio, {
+      String profileBio, {
       required TargetPlatform platform,
       required EdgeInsets padding,
     }) async {
@@ -291,7 +291,7 @@ void main() {
       await tester.pumpWidget(
         _wrap(
           isSelf: true,
-          api: FakeProfileApi(sampleProfile(bio: bio)),
+          api: FakeProfileApi(sampleProfile(profileBio: profileBio)),
           platform: platform,
           padding: padding,
         ),
@@ -422,7 +422,7 @@ void main() {
         _wrap(
           isSelf: false,
           api: FakeProfileApi(
-            sampleProfile(bio: '两行简介用于验证窄屏和不同平台字体度量下统计区仍完整可见'),
+            sampleProfile(profileBio: '两行简介用于验证窄屏和不同平台字体度量下统计区仍完整可见'),
           ),
           platform: platform,
           textScaler: const TextScaler.linear(1.3),

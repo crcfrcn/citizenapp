@@ -24,7 +24,7 @@ class TopupRecord {
   final String? signature, txid, wire;
   final TopupOrder? order;
   bool get terminal => order?.terminal ?? false;
-  String get key => '$origin|${intent.order}';
+  String get key => '$origin|${intent.orderId}';
   TopupRecord update({
     TopupProgress? progress,
     String? signature,
@@ -41,6 +41,7 @@ class TopupRecord {
     order: order ?? this.order,
   );
   Map<String, Object?> toJson() => {
+    'record_version': 2,
     'origin': origin,
     'intent': intent.toJson(),
     'progress': progress.name,
@@ -50,8 +51,75 @@ class TopupRecord {
     'order': order?.toJson(),
   };
   String encode() => jsonEncode(toJson());
+
+  /// 只升级原持久外层字段；付款Intent内部、token、签名和交易字节逐值保留。
+  static String upgrade(String raw) {
+    final value = jsonDecode(raw) as Map<String, dynamic>;
+    if (value['record_version'] == 2) {
+      TopupRecord.decode(raw);
+      return raw;
+    }
+    if (value.containsKey('record_version') ||
+        value.length != 7 ||
+        !value.keys.every(
+          const {
+            'origin',
+            'intent',
+            'progress',
+            'signature',
+            'txid',
+            'wire',
+            'order',
+          }.contains,
+        )) {
+      throw const FormatException('充值旧记录结构无效');
+    }
+    void move(Map<String, dynamic> data, String old, String current) {
+      if (!data.containsKey(old) || data.containsKey(current)) {
+        throw const FormatException('充值旧记录字段冲突');
+      }
+      data[current] = data.remove(old);
+    }
+
+    final intent = (value['intent'] as Map).cast<String, dynamic>();
+    move(intent, 'ok', 'is_ok');
+    move(intent, 'payment_intent', 'intent_token');
+    move(intent, 'wallet_authorization_message', 'sign_message');
+    move(intent, 'intent', 'intent_data');
+    value['intent'] = intent;
+    if (value['order'] != null) {
+      final order = (value['order'] as Map).cast<String, dynamic>();
+      move(order, 'ok', 'is_ok');
+      move(order, 'phase', 'order_state');
+      move(order, 'reason', 'exception_reason');
+      value['order'] = order;
+    }
+    value['record_version'] = 2;
+    final result = jsonEncode(value);
+    return TopupRecord.decode(result).encode();
+  }
+
+  // 恢复记录独立校验完整闭集；未知字段不能被模型重编码静默丢弃。
+  static void _fields(Map<String, dynamic> value, Set<String> expected) {
+    if (value.length != expected.length ||
+        !value.keys.every(expected.contains)) {
+      throw const FormatException('充值恢复记录字段不完整或含未知字段');
+    }
+  }
+
   factory TopupRecord.decode(String raw) {
     final j = jsonDecode(raw) as Map<String, dynamic>;
+    _fields(j, const {
+      'record_version',
+      'origin',
+      'intent',
+      'progress',
+      'signature',
+      'txid',
+      'wire',
+      'order',
+    });
+    if (j['record_version'] != 2) throw const FormatException('充值恢复记录版本无效');
     final base = CitizenServeApiConfig.normalize('${j['origin']}/api');
     final i = TopupPaymentIntent.fromJson(j['intent'] as Map<String, dynamic>);
     final signature = j['signature'] as String?;
@@ -67,11 +135,23 @@ class TopupRecord {
         (j['wire'] != null && (tx == null || i.network.evmId != null))) {
       throw const FormatException('恢复记录阶段不完整');
     }
+    if (j['order'] != null) {
+      _fields(j['order'] as Map<String, dynamic>, const {
+        'is_ok',
+        'order_id',
+        'status',
+        'order_state',
+        'coin_fen',
+        'payment_txid',
+        'gmb_tx_hash',
+        'exception_reason',
+      });
+    }
     final o = j['order'] == null
         ? null
         : TopupOrder.fromJson(j['order'] as Map<String, dynamic>);
     if (o != null &&
-        (o.id != i.order ||
+        (o.orderId != i.orderId ||
             o.coinFen != i.coinFen ||
             o.paymentTxid != null && o.paymentTxid != tx)) {
       throw const FormatException('恢复订单归属错误');
@@ -93,13 +173,27 @@ class TopupStore {
     : _records = records ?? SystemProtectedRecordStore.topup;
   final SystemProtectedRecordStore _records;
   Future<List<TopupRecord>> list(String origin, String account) async {
-    final records = (await _records.readAll()).values
-        .map(TopupRecord.decode)
-        .where((r) => r.origin == origin && r.intent.accountId == account)
-        .toList();
+    final records = <TopupRecord>[];
+    for (final entry in (await _records.readAll()).entries) {
+      final upgraded = TopupRecord.upgrade(entry.value);
+      final record = TopupRecord.decode(upgraded);
+      if (entry.key != record.key) throw StateError('充值恢复记录归属不一致');
+      if (upgraded != entry.value &&
+          (!await _records.compareAndSet(
+                entry.key,
+                expected: entry.value,
+                next: upgraded,
+              ) ||
+              await _records.read(entry.key) != upgraded)) {
+        throw StateError('充值恢复记录升级未确认，未继续付款');
+      }
+      if (record.origin == origin && record.intent.accountId == account) {
+        records.add(record);
+      }
+    }
     records.sort(
-      (a, b) => (b.intent.intent['issued_at'] as int).compareTo(
-        a.intent.intent['issued_at'] as int,
+      (a, b) => (b.intent.intentData['issued_at'] as int).compareTo(
+        a.intent.intentData['issued_at'] as int,
       ),
     );
     return records;
@@ -118,7 +212,8 @@ class TopupStore {
             before.wire != null && record.wire != before.wire ||
             before.order != null &&
                 record.order != null &&
-                record.order!.phase.index < before.order!.phase.index ||
+                record.order!.orderState.index <
+                    before.order!.orderState.index ||
             before.terminal &&
                 jsonEncode(before.order?.toJson()) !=
                     jsonEncode(record.order?.toJson()))) {

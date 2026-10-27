@@ -345,7 +345,7 @@ void _httpTimingTests() {
 }
 
 Map<String, dynamic> _manifest() => {
-  'ok': true,
+  'is_ok': true,
   'schema': 'citizenapp.chain.bootstrap',
   'generated_at': 1800000000000,
   'cache_ttl_seconds': 300,

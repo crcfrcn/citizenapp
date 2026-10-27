@@ -111,7 +111,7 @@ String targetAccount(String value) {
   return value;
 }
 
-String orderId(String value) {
+String validateOrderId(String value) {
   if (!RegExp(r'^top_[0-9a-f]{32}$').hasMatch(value)) {
     throw const FormatException('订单编号无效');
   }
@@ -239,7 +239,7 @@ class TopupConfig {
     orElse: () => throw const FormatException('充值套餐不存在'),
   );
   factory TopupConfig.fromJson(Map<String, dynamic> j) {
-    if (j['ok'] != true ||
+    if (j['is_ok'] != true ||
         j['ready'] is! bool ||
         j['rails'] is! List ||
         j['packages'] is! List) {
@@ -295,8 +295,8 @@ class TopupSelection {
     TopupPaymentIntent intent,
     TopupConfig config,
   ) => TopupSelection(
-    token: intent.intent['token'] as String,
-    package: config.packageById(intent.intent['package_id'] as String),
+    token: intent.intentData['token'] as String,
+    package: config.packageById(intent.intentData['package_id'] as String),
     network: intent.network,
   );
   Map<String, String> toJson() => {
@@ -331,35 +331,45 @@ class TopupContext {
 
 class TopupPaymentIntent {
   const TopupPaymentIntent({
-    required this.order,
-    required this.token,
-    required this.intent,
-    required this.authorizationMessage,
+    required this.orderId,
+    required this.intentToken,
+    required this.intentData,
+    required this.signMessage,
   });
-  final String order, token, authorizationMessage;
-  final Map<String, dynamic> intent;
-  int get expiresAt => intent['expires_at'] as int;
-  String get accountId => intent['account_id'] as String;
-  String get payer => intent['payer_address'] as String;
-  TopupNetwork get network => TopupNetwork.parse(intent['network']);
-  String get coinFen => intent['coin_fen'] as String;
+  final String orderId, intentToken, signMessage;
+  final Map<String, dynamic> intentData;
+  int get expiresAt => intentData['expires_at'] as int;
+  String get accountId => intentData['account_id'] as String;
+  String get payer => intentData['payer_address'] as String;
+  TopupNetwork get network => TopupNetwork.parse(intentData['network']);
+  String get coinFen => intentData['coin_fen'] as String;
   Map<String, dynamic> toJson() => {
-    'ok': true,
-    'order_id': order,
-    'payment_intent': token,
-    'intent': intent,
-    'wallet_authorization_message': authorizationMessage,
+    'is_ok': true,
+    'order_id': orderId,
+    'intent_token': intentToken,
+    'intent_data': intentData,
+    'sign_message': signMessage,
   };
   factory TopupPaymentIntent.fromJson(Map<String, dynamic> j) {
-    if (j['ok'] != true ||
+    if (j.length != 5 ||
+        !j.keys.every(
+          const {
+            'is_ok',
+            'order_id',
+            'intent_token',
+            'sign_message',
+            'intent_data',
+          }.contains,
+        ) ||
+        j['is_ok'] != true ||
         j['order_id'] is! String ||
-        j['payment_intent'] is! String ||
-        j['wallet_authorization_message'] is! String ||
-        j['intent'] is! Map<String, dynamic>) {
+        j['intent_token'] is! String ||
+        j['sign_message'] is! String ||
+        j['intent_data'] is! Map<String, dynamic>) {
       throw const FormatException('付款意图响应无效');
     }
     final i = Map<String, dynamic>.unmodifiable(
-      j['intent'] as Map<String, dynamic>,
+      j['intent_data'] as Map<String, dynamic>,
     );
     const fields = {
       'intent_id',
@@ -386,7 +396,7 @@ class TopupPaymentIntent {
         (i['expires_at'] as int) - (i['issued_at'] as int) != 600000) {
       throw const FormatException('付款意图字段无效');
     }
-    final o = orderId(j['order_id'] as String);
+    final o = validateOrderId(j['order_id'] as String);
     if (o != 'top_${(i['intent_id'] as String).substring(4)}') {
       throw const FormatException('订单与意图不一致');
     }
@@ -400,9 +410,9 @@ class TopupPaymentIntent {
     }
     decimal(i['pay_amount']);
     decimal(i['coin_fen']);
-    final token = j['payment_intent'] as String;
-    final parts = token.split('.');
-    if (token.length > 8192 || parts.length != 2) {
+    final intentToken = j['intent_token'] as String;
+    final parts = intentToken.split('.');
+    if (intentToken.length > 8192 || parts.length != 2) {
       throw const FormatException('付款凭证无效');
     }
     final decoded = base64Url.decode(base64Url.normalize(parts[0]));
@@ -414,10 +424,10 @@ class TopupPaymentIntent {
       throw const FormatException('付款凭证与意图不一致');
     }
     return TopupPaymentIntent(
-      order: o,
-      token: token,
-      intent: i,
-      authorizationMessage: j['wallet_authorization_message'] as String,
+      orderId: o,
+      intentToken: intentToken,
+      intentData: i,
+      signMessage: j['sign_message'] as String,
     );
   }
   void validatePayment({
@@ -430,24 +440,24 @@ class TopupPaymentIntent {
     int? now,
   }) {
     final time = now ?? DateTime.now().millisecondsSinceEpoch;
-    if (intent['account_id'] != targetAccount(accountId) ||
-        intent['payer_address'] != rail.network.address(payerAddress) ||
-        intent['token'] != rail.token ||
-        intent['network'] != rail.network.wire ||
-        intent['asset'] != rail.asset ||
-        intent['recv_address'] != rail.recvAddress ||
-        intent['pay_amount'] != package.amount(rail) ||
-        intent['coin_fen'] != package.coinFen ||
-        intent['package_id'] != package.packageId ||
-        time < (intent['issued_at'] as int) ||
+    if (intentData['account_id'] != targetAccount(accountId) ||
+        intentData['payer_address'] != rail.network.address(payerAddress) ||
+        intentData['token'] != rail.token ||
+        intentData['network'] != rail.network.wire ||
+        intentData['asset'] != rail.asset ||
+        intentData['recv_address'] != rail.recvAddress ||
+        intentData['pay_amount'] != package.amount(rail) ||
+        intentData['coin_fen'] != package.coinFen ||
+        intentData['package_id'] != package.packageId ||
+        time < (intentData['issued_at'] as int) ||
         time >= expiresAt ||
         !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(chainGenesisHash) ||
         Uri.parse(serviceOrigin).origin != serviceOrigin) {
       throw const FormatException('付款意图与本次充值不一致或过期');
     }
     final expected =
-        'CitizenServe Topup v1\nservice_origin=$serviceOrigin\nchain_genesis_hash=$chainGenesisHash\nintent_id=${intent['intent_id']}\nnetwork=${intent['network']}\npayer_address=${intent['payer_address']}\nasset=${intent['asset']}\nrecv_address=${intent['recv_address']}\npay_amount=${intent['pay_amount']}\ncoin_fen=${intent['coin_fen']}\naccount_id=${intent['account_id']}\npackage_id=${intent['package_id']}\nissued_at=${intent['issued_at']}\nexpires_at=${intent['expires_at']}\nintent_sha256=${sha256.convert(utf8.encode(token))}\n';
-    if (authorizationMessage != expected) {
+        'CitizenServe Topup v1\nservice_origin=$serviceOrigin\nchain_genesis_hash=$chainGenesisHash\nintent_id=${intentData['intent_id']}\nnetwork=${intentData['network']}\npayer_address=${intentData['payer_address']}\nasset=${intentData['asset']}\nrecv_address=${intentData['recv_address']}\npay_amount=${intentData['pay_amount']}\ncoin_fen=${intentData['coin_fen']}\naccount_id=${intentData['account_id']}\npackage_id=${intentData['package_id']}\nissued_at=${intentData['issued_at']}\nexpires_at=${intentData['expires_at']}\nintent_sha256=${sha256.convert(utf8.encode(intentToken))}\n';
+    if (signMessage != expected) {
       throw const FormatException('付款授权原文不一致');
     }
   }
@@ -467,24 +477,24 @@ enum TopupPhase {
 
 class TopupOrder {
   const TopupOrder({
-    required this.id,
+    required this.orderId,
     required this.status,
-    required this.phase,
+    required this.orderState,
     required this.coinFen,
     this.paymentTxid,
     this.gmbTxHash,
-    this.reason,
+    this.exceptionReason,
   });
-  final String id, coinFen;
+  final String orderId, coinFen;
   final TopupOrderStatus status;
-  final TopupPhase phase;
-  final String? paymentTxid, gmbTxHash, reason;
+  final TopupPhase orderState;
+  final String? paymentTxid, gmbTxHash, exceptionReason;
   bool get terminal => status != TopupOrderStatus.pending;
-  String get message => switch (phase) {
+  String get message => switch (orderState) {
     TopupPhase.awaiting => '付款回执待核实，请勿重复付款',
     TopupPhase.verifying => '正在确认稳定币付款',
     TopupPhase.received =>
-      reason == 'topup_disburse_insufficient_balance'
+      exceptionReason == 'topup_disburse_insufficient_balance'
           ? '稳定币已收款，等待发币处理'
           : '稳定币已收款，等待发币',
     TopupPhase.signed || TopupPhase.broadcast => '稳定币已收款，公民币正在到账',
@@ -492,28 +502,28 @@ class TopupOrder {
     TopupPhase.exception => '订单需要核查，请保留原付款交易，勿重复付款',
   };
   Map<String, dynamic> toJson() => {
-    'ok': true,
-    'order_id': id,
+    'is_ok': true,
+    'order_id': orderId,
     'status': status.name,
-    'phase': phase.name,
+    'order_state': orderState.name,
     'coin_fen': coinFen,
     'payment_txid': paymentTxid,
     'gmb_tx_hash': gmbTxHash,
-    'reason': reason,
+    'exception_reason': exceptionReason,
   };
   factory TopupOrder.fromJson(Map<String, dynamic> j) {
-    if (j['ok'] != true) throw const FormatException('订单响应无效');
+    if (j['is_ok'] != true) throw const FormatException('订单响应无效');
     final status = TopupOrderStatus.values.firstWhere(
       (v) => v.name == j['status'],
       orElse: () => throw const FormatException('未知订单状态'),
     );
-    final phase = TopupPhase.values.firstWhere(
-      (v) => v.name == j['phase'],
+    final orderState = TopupPhase.values.firstWhere(
+      (v) => v.name == j['order_state'],
       orElse: () => throw const FormatException('未知订单阶段'),
     );
-    if ((status == TopupOrderStatus.paid) != (phase == TopupPhase.paid) ||
+    if ((status == TopupOrderStatus.paid) != (orderState == TopupPhase.paid) ||
         (status == TopupOrderStatus.exception) !=
-            (phase == TopupPhase.exception)) {
+            (orderState == TopupPhase.exception)) {
       throw const FormatException('订单状态不一致');
     }
     if (status == TopupOrderStatus.paid &&
@@ -523,13 +533,13 @@ class TopupOrder {
       throw const FormatException('已到账回执缺少链上定位');
     }
     return TopupOrder(
-      id: orderId(j['order_id'] as String),
+      orderId: validateOrderId(j['order_id'] as String),
       status: status,
-      phase: phase,
+      orderState: orderState,
       coinFen: decimal(j['coin_fen']),
       paymentTxid: j['payment_txid'] as String?,
       gmbTxHash: j['gmb_tx_hash'] as String?,
-      reason: j['reason'] as String?,
+      exceptionReason: j['exception_reason'] as String?,
     );
   }
 }

@@ -92,6 +92,8 @@ class _MediaApi extends SquareApiClient {
   Future<http.StreamedResponse> openPostMedia(
     String url, {
     required SquareSession session,
+    String? range,
+    int? expectedBytes,
   }) async {
     downloads++;
     final bytes = url.endsWith('/main')

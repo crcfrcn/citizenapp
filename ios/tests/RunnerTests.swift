@@ -1,10 +1,63 @@
 import Darwin
+import AVFoundation
+import CoreVideo
 import Flutter
 import UIKit
 import XCTest
 @testable import Runner
 
 class RunnerTests: XCTestCase {
+  func testNativeRangeUsesBoundedLengthAndExactTail() {
+    XCTAssertEqual(SquareRangeLoader.count(offset:0,requested:3_000_000_000,total:3_000_000_000),524288)
+    XCTAssertEqual(SquareRangeLoader.count(offset:524288,requested:524288,total:600000),75712)
+    XCTAssertEqual(SquareRangeLoader.count(offset:600000,requested:1,total:600000),0)
+    XCTAssertEqual(SquareRangeLoader.count(offset:-1,requested:1,total:600000),0)
+    XCTAssertEqual(SquareRangeLoader.count(offset:20,requested:10,total:100),10)
+  }
+
+
+  func testNativeResourceLoaderReadsValidatedVideo() async throws {
+    let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
+    defer { try? FileManager.default.removeItem(at:file) }
+    let writer = try AVAssetWriter(outputURL:file,fileType:.mp4)
+    let input = AVAssetWriterInput(mediaType:.video,outputSettings:[AVVideoCodecKey:AVVideoCodecType.h264,
+      AVVideoWidthKey:64,AVVideoHeightKey:64])
+    let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput:input,
+      sourcePixelBufferAttributes:[kCVPixelBufferPixelFormatTypeKey as String:kCVPixelFormatType_32BGRA,
+        kCVPixelBufferWidthKey as String:64,kCVPixelBufferHeightKey as String:64])
+    writer.add(input)
+    XCTAssertTrue(writer.startWriting())
+    writer.startSession(atSourceTime:.zero)
+    var pixel: CVPixelBuffer?
+    XCTAssertEqual(CVPixelBufferCreate(nil,64,64,kCVPixelFormatType_32BGRA,nil,&pixel),kCVReturnSuccess)
+    let buffer = try XCTUnwrap(pixel)
+    CVPixelBufferLockBaseAddress(buffer,[])
+    memset(CVPixelBufferGetBaseAddress(buffer),0,CVPixelBufferGetDataSize(buffer))
+    CVPixelBufferUnlockBaseAddress(buffer,[])
+    for index in 0..<2 {
+      while !input.isReadyForMoreMediaData { try await Task.sleep(nanoseconds:1_000_000) }
+      XCTAssertTrue(adaptor.append(buffer,withPresentationTime:CMTime(value:Int64(index),timescale:5)))
+    }
+    input.markAsFinished()
+    await writer.finishWriting()
+    XCTAssertEqual(writer.status,.completed)
+    let bytes = try Data(contentsOf:file)
+    var reads = 0
+    let loader = SquareRangeLoader(total:Int64(bytes.count)) { offset,count,reply in
+      reads += 1
+      XCTAssertGreaterThan(count,0)
+      XCTAssertLessThanOrEqual(count,524288)
+      XCTAssertLessThanOrEqual(offset + Int64(count),Int64(bytes.count))
+      reply(.success(bytes.subdata(in:Int(offset)..<Int(offset)+count)))
+    }
+    let asset = AVURLAsset(url:URL(string:"citizenmedia://native-test/video")!)
+    asset.resourceLoader.setDelegate(loader,queue:.main)
+    let duration = try await asset.load(.duration)
+    XCTAssertGreaterThan(CMTimeGetSeconds(duration),0)
+    XCTAssertGreaterThan(reads,0)
+    asset.cancelLoading()
+    loader.close()
+  }
 
   func testPackageInfoUsesInstalledBundleVersion() {
     let info = AppDelegate.packageInfo(
@@ -24,6 +77,14 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(request.maxWidth, 854)
     XCTAssertEqual(request.audioSampleRate, 48_000)
     XCTAssertEqual(request.keyFrameIntervalSeconds, 2)
+    XCTAssertEqual(request.maxBytes, 12 * 1024 * 1024)
+    XCTAssertEqual(request.coverMaxBytes, 120 * 1024)
+
+    var boundary = squareVideoArguments()
+    boundary["max_bytes"] = Int64(3) * 1024 * 1024 * 1024
+    XCTAssertEqual(try SquareVideoRequest(arguments: boundary).maxBytes, Int64(3) * 1024 * 1024 * 1024)
+    boundary["max_bytes"] = Int64(3) * 1024 * 1024 * 1024 + 1
+    XCTAssertThrowsError(try SquareVideoRequest(arguments: boundary))
 
     var invalid = squareVideoArguments()
     invalid["audio_sample_rate"] = 44_100
@@ -116,10 +177,10 @@ class RunnerTests: XCTestCase {
       "max_frame_rate": 30,
       "key_frame_interval_seconds": 2,
       "max_duration_seconds": 180,
-      "max_bytes": 12_000_000,
+      "max_bytes": 12 * 1024 * 1024,
       "cover_max_edge": 540,
       "cover_quality": 70,
-      "cover_max_bytes": 120_000,
+      "cover_max_bytes": 120 * 1024,
     ]
   }
 

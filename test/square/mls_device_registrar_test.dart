@@ -175,7 +175,7 @@ class _ProofStore implements PublicIdentityRecordStore {
 }
 
 Map<String, Object> _receipt() => {
-  'ok': true,
+  'is_ok': true,
   'cid_number': testMlsCidNumber,
   'binding_revision': 1,
   'device_id': testMlsDeviceId,

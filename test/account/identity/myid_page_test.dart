@@ -74,7 +74,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('恢复服务'), findsNothing);
     expect(service.refreshes, 1);
-    await tester.widget<RefreshIndicator>(find.byType(RefreshIndicator)).onRefresh();
+    await tester
+        .widget<RefreshIndicator>(find.byType(RefreshIndicator))
+        .onRefresh();
     await tester.pumpAndSettle();
     expect(service.refreshes, 2);
     expect(find.text(_votingState.cidNumber!), findsOneWidget);
@@ -83,17 +85,24 @@ void main() {
   testWidgets('刷新期间切换账户丢弃旧结果并读取当前展示', (tester) async {
     final service = _FakeMyIdService(_votingState);
     final current = _PageCurrentUser();
-    await tester.pumpWidget(Provider<CurrentUserContext>.value(
-      value: current,
-      child: MaterialApp(home: MyIdPage(myIdService: service)),
-    ));
+    await tester.pumpWidget(
+      Provider<CurrentUserContext>.value(
+        value: current,
+        child: MaterialApp(home: MyIdPage(myIdService: service)),
+      ),
+    );
     await tester.pumpAndSettle();
     final pending = Completer<MyIdState>();
     service.pending = pending.future;
-    final refresh = tester.widget<RefreshIndicator>(find.byType(RefreshIndicator)).onRefresh();
+    final refresh = tester
+        .widget<RefreshIndicator>(find.byType(RefreshIndicator))
+        .onRefresh();
     await tester.pump();
     current.selectedAccountId = '0x${'22' * 32}';
-    service.state = const MyIdState(tier: MyIdTier.visitor, cidNumber: 'CID-NEW');
+    service.state = const MyIdState(
+      tier: MyIdTier.visitor,
+      cidNumber: 'CID-NEW',
+    );
     IdentityBadgeSnapshotStore.revision.value++;
     pending.complete(_votingState);
     await refresh;
@@ -307,7 +316,7 @@ void main() {
     _RegisterFlowService service, {
     void Function(String)? onTopup,
   }) async {
-    final api = Api([])..state = 'human_verified';
+    final api = Api([])..jobState = 'human_verified';
     final store = MemoryStore([]);
     final context = registrationContext();
     final response = api.response(context);
@@ -594,7 +603,7 @@ class _RegisterFlowService implements MyIdService {
   Future<void> synchronizeIdentity(FinalizedIdentity identity) async {
     expect(identity.accountId, registrationContext().accountId);
     expect(identity.isRegistered, isFalse);
-    expect(api.state, 'human_verified');
+    expect(api.jobState, 'human_verified');
   }
 
   @override
@@ -672,7 +681,7 @@ class _RegisterFlowService implements MyIdService {
 
   @override
   Future<String> activateRegistration(FinalizedRegistration result) async {
-    api.state = 'activated';
+    api.jobState = 'activated';
     return '33' * 32;
   }
 

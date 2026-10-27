@@ -127,13 +127,13 @@ class TopupApi {
       if (original.accountId != accountId ||
           original.payer != payer.payer ||
           original.network != selection.network ||
-          original.intent['token'] != selection.token ||
-          original.intent['package_id'] != selection.package.packageId) {
+          original.intentData['token'] != selection.token ||
+          original.intentData['package_id'] != selection.package.packageId) {
         throw const FormatException('原订单与本次选择不一致');
       }
       final order = await status(original);
       active();
-      if (order.phase != TopupPhase.awaiting ||
+      if (order.orderState != TopupPhase.awaiting ||
           order.terminal ||
           order.paymentTxid != null) {
         throw const TopupApiException('原订单已有付款进度，请返回查询原订单');
@@ -144,7 +144,7 @@ class TopupApi {
         network: rail.network,
         asset: rail.asset,
         decimals: rail.decimals,
-        recvAddress: original.intent['recv_address'] as String,
+        recvAddress: original.intentData['recv_address'] as String,
       );
     }
     active();
@@ -178,8 +178,8 @@ class TopupApi {
     active();
     if (intent.accountId != accountId ||
         intent.network != selection.network ||
-        intent.intent['token'] != selection.token ||
-        intent.intent['package_id'] != selection.package.packageId ||
+        intent.intentData['token'] != selection.token ||
+        intent.intentData['package_id'] != selection.package.packageId ||
         intent.network.evmId != null ||
         !intent.network.transaction(txid)) {
       throw const FormatException('原交易与本次选择不一致');
@@ -194,7 +194,7 @@ class TopupApi {
         !const [
           TopupPhase.awaiting,
           TopupPhase.verifying,
-        ].contains(order.phase) ||
+        ].contains(order.orderState) ||
         order.paymentTxid != null && order.paymentTxid != txid) {
       throw const TopupApiException('原订单已有付款进度，请返回查询原订单');
     }
@@ -214,7 +214,7 @@ class TopupApi {
     }
     return _order(
       await _postJson('/topup/confirm', {
-        'payment_intent': intent.token,
+        'intent_token': intent.intentToken,
         'payment_txid': paymentTxid,
         'payer_signature': payerSignature,
       }),
@@ -224,14 +224,14 @@ class TopupApi {
 
   Future<TopupOrder> status(TopupPaymentIntent intent) async => _order(
     await _postJson('/topup/status', {
-      'order_id': intent.order,
-      'payment_intent': intent.token,
+      'order_id': intent.orderId,
+      'intent_token': intent.intentToken,
     }),
     intent,
   );
   TopupOrder _order(Map<String, dynamic> data, TopupPaymentIntent intent) {
     final order = TopupOrder.fromJson(data);
-    if (order.id != intent.order ||
+    if (order.orderId != intent.orderId ||
         order.coinFen != intent.coinFen ||
         order.paymentTxid != null &&
             !intent.network.transaction(order.paymentTxid!)) {
@@ -362,7 +362,7 @@ class TopupApi {
       );
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      final code = decoded['error']?.toString();
+      final code = decoded['error_code']?.toString();
       final creating = path == '/topup/intent';
       throw TopupApiException(
         creating

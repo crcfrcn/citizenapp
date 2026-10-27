@@ -135,7 +135,7 @@ class MlsAuthentication implements MlsAuthenticationSource {
 }
 
 const mlsChallengeFields = {
-  'ok',
+  'is_ok',
   'user_id',
   'device_id',
   'public_key',
@@ -158,7 +158,7 @@ void validateMlsChallenge(
   request.validate();
   if (challenge.length != mlsChallengeFields.length ||
       !challenge.keys.every(mlsChallengeFields.contains) ||
-      challenge['ok'] != true ||
+      challenge['is_ok'] != true ||
       challenge['user_id'] != identity.cidNumber ||
       challenge['device_id'] != identity.deviceId ||
       challenge['public_key'] != identity.publicKey ||

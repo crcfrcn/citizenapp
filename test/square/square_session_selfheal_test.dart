@@ -179,7 +179,7 @@ void main() {
         baseUrl: 'https://worker.test/api',
         httpClient: MockClient(
           (_) async => http.Response(
-            jsonEncode({'error': entry.key, 'message': '不应进入诊断的合成服务正文'}),
+            jsonEncode({'error_code': entry.key, 'message': '不应进入诊断的合成服务正文'}),
             entry.value.$1,
             headers: {'content-type': 'application/json; charset=utf-8'},
           ),
@@ -231,7 +231,7 @@ void main() {
           }
           sessionCalls++;
           return http.Response(
-            jsonEncode({'error': error, 'message': '拒绝'}),
+            jsonEncode({'error_code': error, 'message': '拒绝'}),
             401,
             headers: {'content-type': 'application/json; charset=utf-8'},
           );
@@ -268,7 +268,7 @@ void main() {
           sessionCalls++;
           if (sessionCalls == 1 || !success) {
             return http.Response(
-              jsonEncode({'error': 'device_not_registered', 'message': '未登记'}),
+              jsonEncode({'error_code': 'device_not_registered', 'message': '未登记'}),
               401,
               headers: {'content-type': 'application/json; charset=utf-8'},
             );
@@ -375,7 +375,7 @@ void _chatAccessSessionTests() {
           final now = DateTime.now().millisecondsSinceEpoch;
           return http.Response(
             jsonEncode({
-              'ok': true,
+              'is_ok': true,
               'realtime_url': 'wss://worker.test/api/tatachat/realtime',
               'access_token': 'opaque',
               'expires_at': now + 300000,
@@ -473,7 +473,7 @@ void _preparationDiagnosticsTests() {
           sessions++;
           return http.Response(
             jsonEncode({
-              'error': code,
+              'error_code': code,
               'message': 'synthetic-private-preparation',
             }),
             403,

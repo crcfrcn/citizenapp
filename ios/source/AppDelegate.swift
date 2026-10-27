@@ -60,13 +60,14 @@ import UserNotifications
     // UIScene 模式下 AppDelegate.window 在启动回调中尚未建立；必须使用 engine
     // 提供的 application registrar 注册通道，确保 iOS 16+ 首次启动也必然可用。
     registerApplicationChannels(
-      binaryMessenger: engineBridge.applicationRegistrar.messenger()
+      binaryMessenger: engineBridge.applicationRegistrar.messenger(),
+      registrar: engineBridge.applicationRegistrar
     )
   }
 
-  private func registerApplicationChannels(binaryMessenger: FlutterBinaryMessenger) {
+  private func registerApplicationChannels(binaryMessenger: FlutterBinaryMessenger, registrar: FlutterApplicationRegistrar) {
     systemProtectedDataChannel = SystemProtectedDataChannel(binaryMessenger: binaryMessenger)
-    squareMediaChannel = SquareMediaChannel(binaryMessenger: binaryMessenger)
+    squareMediaChannel = SquareMediaChannel(binaryMessenger: binaryMessenger, registrar: registrar)
 
     let securityChannel = FlutterMethodChannel(
       name: "citizenapp/security",

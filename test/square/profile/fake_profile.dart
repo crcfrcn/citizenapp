@@ -82,7 +82,7 @@ CitizenProfile sampleProfile({
   int videos = 4,
   int articles = 12,
   String displayName = '轻节点',
-  String bio = '链上公民',
+  String profileBio = '链上公民',
   String accountId = kOwner,
   String? avatarKey,
   String? bannerKey,
@@ -93,7 +93,7 @@ CitizenProfile sampleProfile({
   return CitizenProfile(
     accountId: accountId,
     displayName: displayName,
-    bio: bio,
+    profileBio: profileBio,
     avatarObjectKey: avatarKey,
     bannerObjectKey: bannerKey,
     cidNumber: certified ? 'CN001-CTZN-000000001-2026' : null,
@@ -262,14 +262,14 @@ class FakeProfileApi extends CitizenProfileApi {
   Future<CitizenProfile> updateProfile({
     required SquareSession session,
     String? displayName,
-    String? bio,
+    String? profileBio,
     String? avatarObjectKey,
     String? avatarContentHash,
     String? bannerObjectKey,
     String? bannerContentHash,
   }) async {
-    lastUpdate = {'display_name': displayName, 'bio': bio};
-    return result.copyWith(displayName: displayName, bio: bio);
+    lastUpdate = {'display_name': displayName, 'profile_bio': profileBio};
+    return result.copyWith(displayName: displayName, profileBio: profileBio);
   }
 }
 

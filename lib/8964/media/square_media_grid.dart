@@ -5,9 +5,14 @@ import 'dart:typed_data';
 import 'package:citizenapp/8964/media/square_media_store.dart';
 import 'package:citizenapp/8964/media/square_media_policy.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show mapEquals;
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import 'package:citizenapp/account/identity/square_session_provider.dart';
+import 'package:citizenapp/account/profile/citizen_profile_api.dart';
+
+import 'dart:async';
+
 import 'package:video_player/video_player.dart';
-import 'package:citizenapp/network/citizen_serve_api_config.dart';
 
 import 'package:citizenapp/8964/feed/square_models.dart';
 import 'package:citizenapp/network/square_api_client.dart';
@@ -27,16 +32,16 @@ class SquareMediaGrid extends StatelessWidget {
     super.key,
     required this.mediaItems,
     this.enableVideoPlayback = false,
-    this.httpHeaders,
   });
 
   final List<SquareMediaItem> mediaItems;
   final bool enableVideoPlayback;
-  final Map<String, String>? httpHeaders;
 
   @override
   Widget build(BuildContext context) {
-    if (mediaItems.isEmpty) return const SizedBox.shrink();
+    if (mediaItems.isEmpty) {
+      return const SizedBox.shrink();
+    }
 
     const r = AppTheme.radiusMd;
 
@@ -47,7 +52,7 @@ class SquareMediaGrid extends StatelessWidget {
           for (final item in mediaItems)
             SquareMediaTile(
               item: item,
-              httpHeaders: httpHeaders,
+
               radius: BorderRadius.circular(r),
               enableVideoPlayback: true,
             ),
@@ -63,7 +68,7 @@ class SquareMediaGrid extends StatelessWidget {
         aspectRatio: isPortraitVideo ? 3 / 4 : 16 / 9,
         child: SquareMediaTile(
           item: item,
-          httpHeaders: httpHeaders,
+
           radius: BorderRadius.circular(r),
           enableVideoPlayback: enableVideoPlayback,
         ),
@@ -80,7 +85,7 @@ class SquareMediaGrid extends StatelessWidget {
           Expanded(
             child: SquareMediaTile(
               item: mediaItems[0],
-              httpHeaders: httpHeaders,
+
               radius: const BorderRadius.only(
                 topLeft: Radius.circular(r),
                 bottomLeft: Radius.circular(r),
@@ -92,7 +97,7 @@ class SquareMediaGrid extends StatelessWidget {
           Expanded(
             child: SquareMediaTile(
               item: mediaItems[1],
-              httpHeaders: httpHeaders,
+
               radius: const BorderRadius.only(
                 topRight: Radius.circular(r),
                 bottomRight: Radius.circular(r),
@@ -115,12 +120,11 @@ class SquareMediaTile extends StatelessWidget {
     required this.radius,
     this.enableVideoPlayback = false,
     this.overlayCount,
-    this.httpHeaders,
   });
 
   final SquareMediaItem item;
   final BorderRadius radius;
-  final Map<String, String>? httpHeaders;
+
   final bool enableVideoPlayback;
 
   /// 非空时在右下角显示 `+N`，表示还有 N 张未展开。
@@ -132,12 +136,7 @@ class SquareMediaTile extends StatelessWidget {
     return ClipRRect(
       borderRadius: radius,
       child: isVideo && enableVideoPlayback
-          ? SquareVideo(
-              url: item.url,
-              thumbnailUrl: item.coverUrl,
-              item: item,
-              httpHeaders: httpHeaders,
-            )
+          ? SquareVideo(url: item.url, thumbnailUrl: item.coverUrl, item: item)
           : _buildCover(context, isVideo),
     );
   }
@@ -147,11 +146,7 @@ class SquareMediaTile extends StatelessWidget {
     child: Stack(
       fit: StackFit.expand,
       children: [
-        SquareMediaImage(
-          item: item,
-          preview: !enableVideoPlayback,
-          httpHeaders: httpHeaders,
-        ),
+        SquareMediaImage(item: item, preview: !enableVideoPlayback),
         if (isVideo)
           Center(
             child: Icon(
@@ -174,20 +169,18 @@ class SquareMediaTile extends StatelessWidget {
 /// 广场单版本HEVC播放器，本地来源只通过受保护的临时文件读取。
 ///
 /// Feed 只渲染封面；详情页点击后才检查设备解码能力并初始化。本地来源逐块校验后写入受保护文件，
-/// 他人公开来源使用HTTPS；两者均不生成或切换不存在的多清晰度版本。
+/// 远端来源逐个有界Range经过同一App预检；两者均不生成或切换不存在的多清晰度版本。
 class SquareVideo extends StatefulWidget {
   const SquareVideo({
     super.key,
     required this.url,
     this.thumbnailUrl,
     this.item,
-    this.httpHeaders,
   });
 
   final String url;
   final String? thumbnailUrl;
   final SquareMediaItem? item;
-  final Map<String, String>? httpHeaders;
 
   @override
   State<SquareVideo> createState() => _SquareVideoState();
@@ -195,6 +188,7 @@ class SquareVideo extends StatefulWidget {
 
 class _SquareVideoState extends State<SquareVideo> {
   VideoPlayerController? _controller;
+  bool _remoteStarted = false;
   SquareLocalVideoSource? _localSource;
   Future<void>? _initializationInProgress;
   Future<bool>? _resetInProgress;
@@ -207,7 +201,6 @@ class _SquareVideoState extends State<SquareVideo> {
   void didUpdateWidget(covariant SquareVideo oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.url != widget.url ||
-        !mapEquals(oldWidget.httpHeaders, widget.httpHeaders) ||
         oldWidget.item?.cidNumber != widget.item?.cidNumber ||
         oldWidget.item?.postId != widget.item?.postId ||
         oldWidget.item?.mediaIndex != widget.item?.mediaIndex) {
@@ -217,6 +210,7 @@ class _SquareVideoState extends State<SquareVideo> {
 
   Future<bool> _reset() {
     _initializationGeneration++;
+    _remoteStarted = false;
     _initializing = true;
     return _resetInProgress ??= _resetResources();
   }
@@ -243,12 +237,16 @@ class _SquareVideoState extends State<SquareVideo> {
       _resetInProgress = null;
       _initializing = false;
     }
-    if (mounted) setState(() {});
+    if (mounted) {
+      setState(() {});
+    }
     return released;
   }
 
   Future<void> _initializeAndPlay() {
-    if (_initializing) return Future<void>.value();
+    if (_initializing) {
+      return Future<void>.value();
+    }
     final operation = _runInitialization();
     _initializationInProgress = operation;
     return operation.whenComplete(() {
@@ -259,7 +257,9 @@ class _SquareVideoState extends State<SquareVideo> {
   }
 
   Future<void> _runInitialization() async {
-    if (_initializing) return;
+    if (_initializing) {
+      return;
+    }
     final generation = ++_initializationGeneration;
     final uri = Uri.tryParse(widget.url);
     if (!mounted ||
@@ -274,11 +274,25 @@ class _SquareVideoState extends State<SquareVideo> {
     VideoPlayerController? controller;
     SquareLocalVideoSource? source;
     try {
-      if (_localSource != null) throw StateError('上次本地视频资源尚未清理');
+      if (_localSource != null) {
+        throw StateError('上次本地视频资源尚未清理');
+      }
       final capability = await const MethodChannelSquareVideoBridge()
           .capabilities();
       if (!capability.canDecodeHevc) {
         throw const SquareApiException('当前设备不支持播放 HEVC 视频');
+      }
+      if (widget.item?.isLocal != true) {
+        final size = widget.item?.byteSize;
+        if (size == null ||
+            size <= 0 ||
+            size > SquareMediaPolicy.maxLocalPlaybackBytes) {
+          throw const SquareApiException('视频大小信息不可用');
+        }
+        if (mounted && generation == _initializationGeneration) {
+          setState(() => _remoteStarted = true);
+        }
+        return;
       }
       if (widget.item?.isLocal == true) {
         source = await SquareLocalVideoSource.open(
@@ -291,20 +305,15 @@ class _SquareVideoState extends State<SquareVideo> {
         return;
       }
       // 原生文件播放器不经过任何HTTP服务；初始化期间资源由本次操作持有。
-      controller = source == null
-          ? VideoPlayerController.networkUrl(
-              uri!,
-              httpHeaders: CitizenServeApiConfig.mediaHeaders(
-                uri.toString(),
-                widget.httpHeaders,
-              ),
-            )
-          : VideoPlayerController.file(source.file);
+      if (source == null) {
+        throw const SquareApiException('本地视频来源不可用');
+      }
+      controller = VideoPlayerController.file(source.file);
       await controller.initialize();
       await controller.seekTo(Duration.zero);
       if (!mounted || generation != _initializationGeneration) {
         await controller.dispose();
-        await source?.close();
+        await source.close();
         return;
       }
       _controller = controller;
@@ -320,7 +329,9 @@ class _SquareVideoState extends State<SquareVideo> {
       } on Object {
         cleanupFailed = true;
         _controller = controller;
-        if (source != null) _localSource = source;
+        if (source != null) {
+          _localSource = source;
+        }
         if (!mounted) {
           FlutterError.reportError(
             FlutterErrorDetails(
@@ -331,7 +342,9 @@ class _SquareVideoState extends State<SquareVideo> {
         }
       }
       if (mounted && generation == _initializationGeneration) {
-        if (!cleanupFailed) _controller = null;
+        if (!cleanupFailed) {
+          _controller = null;
+        }
         if (!cleanupFailed && identical(_localSource, source)) {
           _localSource = null;
         }
@@ -380,7 +393,9 @@ class _SquareVideoState extends State<SquareVideo> {
 
   void _handleControllerValueChanged() {
     final controller = _controller;
-    if (!mounted || controller == null) return;
+    if (!mounted || controller == null) {
+      return;
+    }
     final value = controller.value;
     final nextFailure = value.hasError
         ? (widget.item?.isLocal == true ? '本地视频读取失败' : '加载失败，点击重试')
@@ -396,7 +411,9 @@ class _SquareVideoState extends State<SquareVideo> {
 
   void _togglePlayback() {
     final controller = _controller;
-    if (controller == null) return;
+    if (controller == null) {
+      return;
+    }
     if (controller.value.isPlaying) {
       controller.pause();
     } else {
@@ -406,9 +423,13 @@ class _SquareVideoState extends State<SquareVideo> {
   }
 
   Future<void> _handleTap() async {
-    if (_initializing) return;
+    if (_initializing) {
+      return;
+    }
     if (_failureMessage != null) {
-      if (!await _reset()) return;
+      if (!await _reset()) {
+        return;
+      }
       await _initializeAndPlay();
       return;
     }
@@ -421,6 +442,9 @@ class _SquareVideoState extends State<SquareVideo> {
 
   @override
   Widget build(BuildContext context) {
+    if (_remoteStarted) {
+      return _SquareRemoteVideo(url: widget.url, total: widget.item!.byteSize!);
+    }
     final controller = _controller;
     final initialized = controller?.value.isInitialized == true;
     return GestureDetector(
@@ -440,22 +464,9 @@ class _SquareVideoState extends State<SquareVideo> {
               ),
             )
           else if (widget.item?.isLocal == true)
-            SquareMediaImage(
-              item: widget.item!,
-              preview: true,
-              httpHeaders: widget.httpHeaders,
-            )
+            SquareMediaImage(item: widget.item!, preview: true)
           else if (Uri.tryParse(widget.thumbnailUrl ?? '')?.scheme == 'https')
-            Image.network(
-              widget.thumbnailUrl!,
-              headers: CitizenServeApiConfig.mediaHeaders(
-                widget.thumbnailUrl!,
-                widget.httpHeaders,
-              ),
-              fit: BoxFit.cover,
-              errorBuilder: (_, _, _) =>
-                  const ColoredBox(color: AppTheme.surfaceElevated),
-            )
+            CitizenRemoteImage(url: widget.thumbnailUrl!)
           else
             const ColoredBox(color: AppTheme.surfaceElevated),
           if (initialized)
@@ -507,7 +518,9 @@ Future<SquareStoredMedia?> _localMedia(
   SquareMediaItem item,
   String role,
 ) async {
-  if (!item.isLocal) throw ArgumentError('缺少本地媒体归属');
+  if (!item.isLocal) {
+    throw ArgumentError('缺少本地媒体归属');
+  }
   const store = SquareMediaStore();
   final refs = await store.referencesForContent(
     cidNumber: item.cidNumber!,
@@ -517,13 +530,19 @@ Future<SquareStoredMedia?> _localMedia(
   final selected = refs
       .where((r) => r.mediaIndex == item.mediaIndex && r.mediaRole == role)
       .toList();
-  if (selected.isEmpty) return null;
-  if (selected.length != 1) throw StateError('媒体槽位重复');
+  if (selected.isEmpty) {
+    return null;
+  }
+  if (selected.length != 1) {
+    throw StateError('媒体槽位重复');
+  }
   final media = await store.get(
     cidNumber: item.cidNumber!,
     mediaId: selected.single.mediaId,
   );
-  if (media == null || !media.complete) return null;
+  if (media == null || !media.complete) {
+    return null;
+  }
   if (media.mediaKind !=
       (role == 'main' && item.mediaKind == SquareMediaKind.video
           ? 'video'
@@ -540,12 +559,11 @@ class SquareMediaImage extends StatefulWidget {
     required this.item,
     this.preview = false,
     this.fit = BoxFit.cover,
-    this.httpHeaders,
   });
   final SquareMediaItem item;
   final bool preview;
   final BoxFit fit;
-  final Map<String, String>? httpHeaders;
+
   @override
   State<SquareMediaImage> createState() => _SquareMediaImageState();
 }
@@ -577,11 +595,15 @@ class _SquareMediaImageState extends State<SquareMediaImage> {
         ? 'thumbnail'
         : 'main';
     final media = await _localMedia(item, role);
-    if (media == null) return null;
+    if (media == null) {
+      return null;
+    }
     final limit = role == 'main'
         ? SquareMediaPolicy.maxLocalImageBytes
         : 4 * 1024 * 1024; // 与显式同步的衍生图接收上限一致。
-    if (media.byteSize > limit) throw StateError('图片大小无效');
+    if (media.byteSize > limit) {
+      throw StateError('图片大小无效');
+    }
     final bytes = BytesBuilder(copy: false);
     for (
       var offset = 0;
@@ -616,12 +638,16 @@ class _SquareMediaImageState extends State<SquareMediaImage> {
       return FutureBuilder<Uint8List?>(
         future: _bytes,
         builder: (context, snapshot) {
-          if (snapshot.hasError) return _message('本地媒体读取失败');
+          if (snapshot.hasError) {
+            return _message('本地媒体读取失败');
+          }
           if (snapshot.connectionState != ConnectionState.done) {
             return const ColoredBox(color: AppTheme.surfaceElevated);
           }
           final bytes = snapshot.data;
-          if (bytes == null) return _message('本地尚未保存媒体');
+          if (bytes == null) {
+            return _message('本地尚未保存媒体');
+          }
           return Image.memory(
             bytes,
             fit: widget.fit,
@@ -630,17 +656,17 @@ class _SquareMediaImageState extends State<SquareMediaImage> {
         },
       );
     }
-    final url = widget.item.mediaKind == SquareMediaKind.video
-        ? widget.item.coverUrl
-        : widget.item.url;
+    final derivative =
+        widget.item.mediaKind == SquareMediaKind.video ||
+        widget.preview && widget.item.coverUrl != null;
+    final url = derivative ? widget.item.coverUrl : widget.item.url;
     if (url == null || Uri.tryParse(url)?.scheme != 'https') {
       return _message('媒体不可用');
     }
-    return Image.network(
-      url,
-      headers: CitizenServeApiConfig.mediaHeaders(url, widget.httpHeaders),
+    return CitizenRemoteImage(
+      url: url,
+      expectedBytes: derivative ? null : widget.item.byteSize,
       fit: widget.fit,
-      errorBuilder: (_, _, _) => _message('媒体加载失败'),
     );
   }
 }
@@ -658,14 +684,20 @@ class SquareLocalVideoSource {
     SquareMediaItem item, {
     bool Function()? isCurrent,
   }) async {
-    if (item.mediaKind != SquareMediaKind.video) throw ArgumentError('不是视频');
+    if (item.mediaKind != SquareMediaKind.video) {
+      throw ArgumentError('不是视频');
+    }
     for (final pending in _failedCleanup.toList()) {
       await pending.close();
     }
     final media = await _localMedia(item, 'main');
-    if (media == null) throw StateError('本地尚未保存视频');
+    if (media == null) {
+      throw StateError('本地尚未保存视频');
+    }
     void checkCurrent() {
-      if (isCurrent?.call() == false) throw StateError('本地视频播放已取消');
+      if (isCurrent?.call() == false) {
+        throw StateError('本地视频播放已取消');
+      }
     }
 
     checkCurrent();
@@ -690,7 +722,9 @@ class SquareLocalVideoSource {
         );
         try {
           checkCurrent();
-          if (bytes.length != length) throw StateError('本地视频长度不一致');
+          if (bytes.length != length) {
+            throw StateError('本地视频长度不一致');
+          }
           await output.writeFrom(bytes);
         } finally {
           bytes.fillRange(0, bytes.length, 0);
@@ -715,7 +749,9 @@ class SquareLocalVideoSource {
   }
 
   Future<void> close() {
-    if (_closed) return Future<void>.value();
+    if (_closed) {
+      return Future<void>.value();
+    }
     return _closing ??= _delete();
   }
 
@@ -758,5 +794,185 @@ class _CountBadge extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// 原生播放器只提交有界读取意图；凭据、HTTPS、预检和回执始终由同一App网络层拥有。
+class _SquareRemoteVideo extends StatefulWidget {
+  const _SquareRemoteVideo({required this.url, required this.total});
+  final String url;
+  final int total;
+  @override
+  State<_SquareRemoteVideo> createState() => _SquareRemoteVideoState();
+}
+
+class _SquareRemoteVideoState extends State<_SquareRemoteVideo>
+    with WidgetsBindingObserver {
+  static const channel = MethodChannel('citizenapp/square_media');
+  static int _next = 0;
+  static final _players = <int, _SquareRemoteVideoState>{};
+  late final int _id;
+  final _api = SquareApiClient();
+  SquareSession? _session;
+  String? _error;
+  bool _ready = false;
+  bool _active = true;
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _id = ++_next;
+    _players[_id] = this;
+    channel.setMethodCallHandler((call) async {
+      final args = Map<String, dynamic>.from(call.arguments as Map);
+      final player = _players[args['player_id']];
+      if (player == null || !player.mounted) {
+        throw PlatformException(code: 'playback_cancelled');
+      }
+      if (call.method == 'read_range') {
+        return player._read(args);
+      }
+      if (call.method == 'playback_failed') {
+        player.setState(() => player._error = '视频读取失败，请重试');
+        unawaited(
+          channel
+              .invokeMethod<void>('dispose_playback', {'player_id': player._id})
+              .catchError((Object _) {}),
+        );
+        return null;
+      }
+      throw MissingPluginException();
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_ready) {
+      unawaited(_prepare());
+    }
+  }
+
+  Future<void> _prepare() async {
+    _ready = true;
+    try {
+      final session = await context
+          .read<SquareSessionProvider>()
+          .ensureSession();
+      if (session == null || !mounted) {
+        throw StateError('会话不可用');
+      }
+      await session.validateCurrent();
+      if (mounted) {
+        setState(() => _session = session);
+      }
+    } on Object {
+      if (mounted) {
+        setState(() => _error = '视频会话不可用');
+      }
+    }
+  }
+
+  Future<Map<String, Object>> _read(Map<String, dynamic> args) async {
+    final session = _session, offset = args['offset'], length = args['length'];
+    if (session == null ||
+        offset is! int ||
+        length is! int ||
+        offset < 0 ||
+        length < 1 ||
+        length > 512 * 1024 ||
+        offset + length > widget.total) {
+      throw PlatformException(code: 'invalid_media_range');
+    }
+    await session.validateCurrent();
+    if (!mounted || !_active || !identical(_players[_id], this)) {
+      throw PlatformException(code: 'playback_cancelled');
+    }
+    final response = await _api.openPostMedia(
+      widget.url,
+      session: session,
+      range: 'bytes=$offset-${offset + length - 1}',
+      expectedBytes: length,
+    );
+    if (response.headers['content-range'] !=
+            'bytes $offset-${offset + length - 1}/${widget.total}' ||
+        response.contentLength != length) {
+      await response.stream.listen(null).cancel();
+      throw PlatformException(code: 'invalid_media_range');
+    }
+    final out = BytesBuilder(copy: false);
+    await for (final chunk in response.stream.timeout(
+      const Duration(seconds: 30),
+    )) {
+      await session.validateCurrent();
+      if (!mounted || out.length + chunk.length > length) {
+        throw PlatformException(code: 'playback_cancelled');
+      }
+      out.add(chunk);
+    }
+    await session.validateCurrent();
+    if (!mounted || out.length != length) {
+      throw PlatformException(code: 'invalid_media_range');
+    }
+    return {
+      'bytes': out.takeBytes(),
+      'offset': offset,
+      'total': widget.total,
+      'content_type': 'video/mp4',
+    };
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _active = state == AppLifecycleState.resumed;
+    if (!_active) {
+      unawaited(
+        channel
+            .invokeMethod<void>('pause_playback', {'player_id': _id})
+            .catchError((Object _) {}),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _players.remove(_id);
+    _api.close();
+    unawaited(
+      channel
+          .invokeMethod<void>('dispose_playback', {'player_id': _id})
+          .catchError((Object _) {}),
+    );
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_error != null) {
+      return Center(child: Text(_error!));
+    }
+    if (_session == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final params = <String, Object>{
+      'player_id': _id,
+      'byte_size': widget.total,
+    };
+    if (Platform.isAndroid) {
+      return AndroidView(
+        viewType: 'citizenapp/square_video',
+        creationParams: params,
+        creationParamsCodec: const StandardMessageCodec(),
+      );
+    }
+    if (Platform.isIOS) {
+      return UiKitView(
+        viewType: 'citizenapp/square_video',
+        creationParams: params,
+        creationParamsCodec: const StandardMessageCodec(),
+      );
+    }
+    return const Center(child: Text('当前平台不支持原生视频'));
   }
 }

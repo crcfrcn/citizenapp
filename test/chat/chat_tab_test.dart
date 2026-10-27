@@ -1,3 +1,5 @@
+import 'package:http/http.dart' as http;
+
 import '../square/mls_authentication_fixture.dart';
 
 import 'dart:async';
@@ -45,7 +47,7 @@ const _peerAccountId =
 const _peerProfile = CitizenProfile(
   accountId: _peerAccountId,
   displayName: '会员用户',
-  bio: '公开签名',
+  profileBio: '公开签名',
   avatarObjectKey: 'profile/$_peerUserId/avatar',
   bannerObjectKey: null,
   cidNumber: _peerUserId,
@@ -1363,7 +1365,7 @@ class _MemoryProfileMediaCache extends CitizenProfileMediaCache {
     required CitizenProfile profile,
     required String? avatarUrl,
     required String? bannerUrl,
-    required Map<String, String>? headers,
+    required http.Client client,
   }) async => snapshot;
 }
 

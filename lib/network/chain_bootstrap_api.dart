@@ -215,8 +215,8 @@ class ChainBootstrapManifest {
     if (_string(json, 'schema') != 'citizenapp.chain.bootstrap') {
       throw const ChainBootstrapApiException('链启动清单 schema 不匹配');
     }
-    if (json['ok'] != true) {
-      throw const ChainBootstrapApiException('链启动清单状态不是 ok');
+    if (json['is_ok'] != true) {
+      throw const ChainBootstrapApiException('链启动清单状态不是 is_ok');
     }
     if (_containsForbiddenRpcUrlKey(json)) {
       throw const ChainBootstrapApiException('链启动清单不得下发 RPC URL');

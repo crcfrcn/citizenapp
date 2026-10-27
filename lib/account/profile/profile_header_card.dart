@@ -20,7 +20,7 @@ class ProfileHeaderCard extends StatelessWidget {
     required this.actions,
     this.avatarPath,
     this.avatarUrl,
-    this.avatarHeaders,
+
     this.avatarImage,
     this.confirmedMembershipLevel,
     this.confirmedMembershipActive,
@@ -39,7 +39,6 @@ class ProfileHeaderCard extends StatelessWidget {
 
   /// 头像图片 URL（object_key 解析后的公开媒体地址）；为空显示占位。
   final String? avatarUrl;
-  final Map<String, String>? avatarHeaders;
 
   /// 完整资料媒体的签名读取器；不携带可复用的一次性证明头。
   final ImageProvider? avatarImage;
@@ -68,7 +67,10 @@ class ProfileHeaderCard extends StatelessWidget {
   /// SliverAppBar 不能从 FlexibleSpaceBar 的子项反向取得自然高度，因此这里按
   /// 与真实 Column 完全相同的文字样式测量。头像操作带、各段间距、统计与底部留白
   /// 均固定，只有个性签名的有无及一/两行高度会改变结果。
-  static double requiredHeight(BuildContext context, {required String bio}) {
+  static double requiredHeight(
+    BuildContext context, {
+    required String profileBio,
+  }) {
     final textScaler = MediaQuery.textScalerOf(context);
     final textDirection = Directionality.of(context);
     double textHeight(
@@ -99,7 +101,7 @@ class ProfileHeaderCard extends StatelessWidget {
       fontSize: AppLayout.scaled(context, 13),
       fontWeight: FontWeight.w600,
     );
-    final normalizedBio = bio.trim();
+    final normalizedBio = profileBio.trim();
     final bioHeight = normalizedBio.isEmpty
         ? 0.0
         : 8 +
@@ -141,7 +143,7 @@ class ProfileHeaderCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bio = profile?.bio.trim() ?? '';
+    final profileBio = profile?.profileBio.trim() ?? '';
     return ColoredBox(
       color: AppTheme.surfaceCard,
       child: Stack(
@@ -179,10 +181,10 @@ class ProfileHeaderCard extends StatelessWidget {
                 ),
                 SizedBox(height: AppLayout.scaled(context, 3)),
                 _IdentityDetails(cidNumber: cidNumber),
-                if (bio.isNotEmpty) ...[
+                if (profileBio.isNotEmpty) ...[
                   SizedBox(height: AppLayout.scaled(context, 8)),
                   Text(
-                    bio,
+                    profileBio,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -231,7 +233,7 @@ class ProfileHeaderCard extends StatelessWidget {
               membershipActive: _membershipActive,
               imagePath: avatarPath,
               imageUrl: avatarUrl,
-              imageHeaders: avatarHeaders,
+
               imageProvider: avatarImage,
               userImageSet: profile?.avatarObjectKey?.trim().isNotEmpty == true,
               seed: cidNumber,

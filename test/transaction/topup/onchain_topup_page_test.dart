@@ -25,11 +25,8 @@ class FakeApi extends TopupApi {
   Future<TopupConfig> fetchConfig() async {
     final value =
         (jsonDecode(
-                  File(
-                    'test/transaction/topup/contract.json',
-                  ).readAsStringSync(),
-                )
-                as Map<String, dynamic>)['config']
+              File('test/transaction/topup/contract.json').readAsStringSync(),
+            ) as Map<String, dynamic>)['config']
             as Map<String, dynamic>;
     value['ready'] = ready;
     return TopupConfig.fromJson(value);
@@ -150,9 +147,8 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(
-            context,
-          ).copyWith(textScaler: const TextScaler.linear(1.6)),
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: const TextScaler.linear(1.6)),
           child: child!,
         ),
         home: OnchainTopupPage(
@@ -180,14 +176,14 @@ void main() {
     expect(tester.takeException(), isNull);
   });
   TopupRecord original() {
-    final f =
-        jsonDecode(
-              File('test/transaction/topup/contract.json').readAsStringSync(),
-            )
-            as Map<String, dynamic>;
+    final f = jsonDecode(
+      File('test/transaction/topup/contract.json').readAsStringSync(),
+    ) as Map<String, dynamic>;
     return TopupRecord(
       origin: 'https://www.crcfrcn.com',
-      intent: TopupPaymentIntent.fromJson(f['intent'] as Map<String, dynamic>),
+      intent: TopupPaymentIntent.fromJson(
+        f['intent_data'] as Map<String, dynamic>,
+      ),
     );
   }
 
@@ -218,9 +214,9 @@ void main() {
       signature: '0x${'aa' * 65}',
       txid: '0x${'09' * 32}',
       order: TopupOrder(
-        id: r.intent.order,
+        orderId: r.intent.orderId,
         status: TopupOrderStatus.paid,
-        phase: TopupPhase.paid,
+        orderState: TopupPhase.paid,
         coinFen: r.intent.coinFen,
         paymentTxid: '0x${'09' * 32}',
         gmbTxHash: '0x${'08' * 32}',
@@ -234,9 +230,9 @@ void main() {
   testWidgets('服务端已收U等待发币与长等待均不显示失败或已到账', (tester) async {
     final r = original(), api = FakeApi();
     api.order = TopupOrder(
-      id: r.intent.order,
+      orderId: r.intent.orderId,
       status: TopupOrderStatus.pending,
-      phase: TopupPhase.received,
+      orderState: TopupPhase.received,
       coinFen: r.intent.coinFen,
       paymentTxid: '0x${'09' * 32}',
     );

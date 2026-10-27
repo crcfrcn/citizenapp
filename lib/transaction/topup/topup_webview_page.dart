@@ -426,7 +426,7 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
               'chain': contextValue.network.caip2,
               'payer': contextValue.payer,
             },
-            'message': intent.authorizationMessage,
+            'message': intent.signMessage,
             'expiresAt': intent.expiresAt,
             'signature': _record!.signature,
           },

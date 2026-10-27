@@ -73,7 +73,7 @@ void main() {
     });
     test('无原生保护实现、相对路径和越界尺寸全部失败', () async {
       const bridge = MethodChannelSquareVideoBridge();
-      for (final size in [0, -1, 3000000001]) {
+      for (final size in [0, -1, 3 * 1024 * 1024 * 1024 + 1]) {
         await expectLater(
           bridge.preparePlaybackFile(size),
           throwsFormatException,
@@ -102,6 +102,8 @@ void main() {
 
   group('SquareMediaPolicy', () {
     test('三个会员档位使用唯一确定的图片与视频规则', () {
+      expect(SquareMediaPolicy.maxLocalImageBytes, 4 * 1024 * 1024);
+      expect(SquareMediaPolicy.maxLocalPlaybackBytes, 3 * 1024 * 1024 * 1024);
       expect(
         (
           SquareMediaPolicy.forPlan(_plan('freedom')).imageMaxEdge,
@@ -112,7 +114,7 @@ void main() {
           SquareMediaPolicy.forPlan(_plan('freedom')).maxVideoSeconds,
           SquareMediaPolicy.forPlan(_plan('freedom')).maxVideoBytes,
         ),
-        (1280, 65, 400000, 480, 450000, 180, 12000000),
+        (1280, 65, 400 * 1024, 480, 450000, 180, 12 * 1024 * 1024),
       );
       expect(
         (
@@ -124,7 +126,7 @@ void main() {
           SquareMediaPolicy.forPlan(_plan('democracy')).maxVideoSeconds,
           SquareMediaPolicy.forPlan(_plan('democracy')).maxVideoBytes,
         ),
-        (1600, 72, 800000, 720, 800000, 1800, 200000000),
+        (1600, 72, 800 * 1024, 720, 800000, 1800, 200 * 1024 * 1024),
       );
       expect(
         (
@@ -136,7 +138,7 @@ void main() {
           SquareMediaPolicy.forPlan(_plan('spark')).maxVideoSeconds,
           SquareMediaPolicy.forPlan(_plan('spark')).maxVideoBytes,
         ),
-        (1920, 78, 1200000, 1080, 1200000, 10800, 1800000000),
+        (1920, 78, 1200 * 1024, 1080, 1200000, 10800, 1800 * 1024 * 1024),
       );
       expect(
         SquareMediaPolicy.forPlan(_plan('freedom')).imageThumbnailMaxEdge,
@@ -144,7 +146,7 @@ void main() {
       );
       expect(
         SquareMediaPolicy.forPlan(_plan('freedom')).videoCoverMaxBytes,
-        120000,
+        120 * 1024,
       );
       expect(
         () => SquareMediaPolicy.forPlan(_plan('unknown')),
