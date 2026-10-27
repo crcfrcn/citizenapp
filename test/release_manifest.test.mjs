@@ -411,3 +411,51 @@ test('App普通装配生成随包资源，库或资源工具失败不得继续',
     }
     assert.equal(declaration.citizenapp.tools.esbuild, '0.28.1');
 });
+
+// 执行所属YAML的实际Shell正文，合成端口只记录读取/删除，绝不访问GitHub。
+for (const [platform, label] of [['ios', 'iOS'], ['android', 'Android']]) {
+    test(platform + '孤立Tag仅按完整版本名和准确提交删除，运行编号仍可清理', () => {
+        const workflow = readFileSync(join(root, '.github/workflows/' + platform + '.yml'), 'utf8');
+        const start = workflow.indexOf('            # 仅准确版本名称才可能认领孤立Tag；');
+        const end = workflow.indexOf('            artifacts=', start);
+        assert.ok(start >= 0 && end > start);
+        const body = workflow.slice(start, end);
+        const sha = 'a'.repeat(40), tag = '公民·' + label + '·v1.2.3';
+        const execute = (name, options = {}) => spawnSync('/bin/bash', ['-c', `
+set -euo pipefail
+optional() {
+    printf 'read:%s\n' "$1" >&2
+    case "$1" in releases/tags/*) printf '%s' "$ATTACHED" ;; git/ref/tags/*) printf '%s' "$REF" ;; *) exit 91 ;; esac
+}
+remove() { printf 'remove:%s\n' "$1" >&2; }
+${body}
+`], {encoding:'utf8', env:{...process.env, name, label, sha,
+            protected:JSON.stringify(options.protected ?? []), ATTACHED:options.attached ?? 'null',
+            REF:options.ref ? JSON.stringify(options.ref) : 'null'}});
+        for (const name of ['公民·' + label + '·38', tag + '-extra', tag.replace('1.2.3', '1.2.x'),
+            '公民·' + (label === 'iOS' ? 'Android' : 'iOS') + '·v1.2.3']) {
+            const result = execute(name);
+            assert.equal(result.status, 0, result.stderr);
+            assert.equal(result.stderr, '');
+        }
+        const protectedTag = execute(tag, {protected:[tag]});
+        assert.equal(protectedTag.status, 0, protectedTag.stderr);
+        assert.equal(protectedTag.stderr, '');
+        const missing = execute(tag);
+        assert.equal(missing.status, 0, missing.stderr);
+        assert.equal(missing.stderr.split('\n').filter(line => line.startsWith('read:')).length, 2);
+        assert.doesNotMatch(missing.stderr, /remove:/);
+        const owned = execute(tag, {ref:{object:{type:'commit', sha}}});
+        assert.equal(owned.status, 0, owned.stderr);
+        assert.equal(owned.stderr.split('\n').filter(line => line.startsWith('remove:')).length, 1);
+        assert.match(owned.stderr, /remove:git\/refs\/tags\//);
+        for (const ref of [{object:{type:'commit', sha:'b'.repeat(40)}}, {object:{type:'tag', sha}}]) {
+            const result = execute(tag, {ref});
+            assert.notEqual(result.status, 0);
+            assert.doesNotMatch(result.stderr, /remove:/);
+        }
+        const attached = execute(tag, {attached:'{"id":1}', ref:{object:{type:'commit', sha}}});
+        assert.notEqual(attached.status, 0);
+        assert.doesNotMatch(attached.stderr, /remove:|read:git\/ref/);
+    });
+}

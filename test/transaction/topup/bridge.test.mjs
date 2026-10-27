@@ -151,7 +151,7 @@ test('实际Solana库构造ATA与TransferChecked，冻结验签拒绝改收款�
  assert.deepEqual(calls,['getGenesisHash','getLatestBlockhash','getGenesisHash','sendTransaction']);
 });
 test('实际Tron库构造整数合约付款与原签名冻结，改raw_data或签名拒绝',async()=>{
- const {TronWeb}=require('tronweb');const p={rpc:'https://tron.example.test',asset:fixture.native.tron.intent.asset,receiver:fixture.native.tron.intent.recv_address,amount:'15000000'};
+ const {TronWeb}=require('tronweb');const p={rpc:'https://tron.example.test',asset:fixture.native.tron.intent_data.asset,receiver:fixture.native.tron.intent_data.recv_address,amount:'15000000'};
  const web=new TronWeb({fullHost:p.rpc});const publicVector='01'.padStart(64,'0');const payer=TronWeb.address.fromPrivateKey(publicVector);
  class LocalTron extends TronWeb {constructor(){super({fullHost:p.rpc});this.trx={getBlock:async()=>({blockID:'00000000000000001ebf88508a03865c71d452e25f4d51194196a1d22b6653dc'})};this.transactionBuilder={triggerSmartContract:async(asset,selector,options,parameters,owner)=>{
   assert.equal(asset,p.asset);assert.equal(selector,'transfer(address,uint256)');assert.equal(options.callValue,0);assert.equal(parameters[1].value,p.amount);assert.equal(owner,payer);

@@ -3361,7 +3361,7 @@ CitizenSDK与TataChatSDK的Git来源声明保持，ref统一为main。仓库原�
 
 本机编译复用调用环境提供的缓存参数，Pub未显式提供时使用用户已有的标准缓存，Gradle复用现有Flutter安装旁的已有gradle缓存；Cargo增量输出保持本产品缓存或调用方指定位置。CitizenSDK的ZXing源码路径按其公开nativeSources声明映射到本产品target/cache/sources，或使用调用方显式提供的CITIZENSDK_ZXING_SOURCE_DIR。App只传递这项必要编译输入，不另加目录检查、下载器或依赖准备模块；资源获取须另行授权。
 
-本产品scripts/config.mjs的describeAction仅返回repository、workflow、ref、inputs，或既有本地进程命令声明；不导入构建实现、不派发GitHub请求、不处理令牌、版本或历史。控制台使用统一数据接口直接派发并只读观察准确Run；产品GitHub业务归所属既有YAML。本次自动化Run名称使用运行编号，正式构建及产物保持版本名称。已有工具和依赖复用，缺少时才按原声明准备。
+本产品scripts/config.mjs的describeAction仅返回repository、workflow、ref、inputs，或既有本地进程命令声明；不导入构建实现、不派发GitHub请求、不处理令牌、版本或历史。控制台使用统一数据接口直接派发并只读观察准确Run；产品GitHub业务归所属既有YAML。本次自动化Run名称使用运行编号，正式构建及产物保持版本名称。历史清理只在Run名称是本平台准确vX.Y.Z且不受保留保护时检查孤立Tag，核对Tag目标提交后才删除；运行编号不认领Tag，仍按既有Run ID、提交及附件归属规则清理。已有工具和依赖复用，缺少时才按原声明准备。
 
 ## 三协议链上充值
 

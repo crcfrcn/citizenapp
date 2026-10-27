@@ -589,9 +589,9 @@ jobs:
             while IFS= read -r release; do
               remove_release "$release" "$id" "$sha" "$name" "$(jq -r .run_attempt <<<"$old")"
             done < <(jq -c --argjson id "$id" '.[] | select((.body | fromjson? | .run_id) == $id)' <<<"$releases")
-            if ! jq -e --arg name "$name" 'index($name) != null' <<<"$protected" >/dev/null; then
-              # 无Release的孤立Tag只按本平台准确Run名称和提交归属删除。
-              case "$name" in "公民·${label}·v"*) ;; *) echo '旧Run名称无法确认Tag归属' >&2; exit 1 ;; esac
+            # 仅准确版本名称才可能认领孤立Tag；运行编号不作为Tag，仍沿原Run归属清理。
+            if [[ "$name" =~ ^公民·${label}·v[0-9]+\.[0-9]+\.[0-9]+$ ]] &&
+              ! jq -e --arg name "$name" 'index($name) != null' <<<"$protected" >/dev/null; then
               encoded="$(jq -nr --arg tag "$name" '$tag | @uri')"
               attached="$(optional "releases/tags/$encoded")"
               if [ "$attached" != null ]; then
