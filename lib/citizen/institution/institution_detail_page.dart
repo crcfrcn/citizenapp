@@ -87,7 +87,7 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
   /// CID 为唯一身份；账户集合只用于具体资金操作。
   InstitutionInfo? _govInfo;
   bool get _isGovernance =>
-      InstitutionClassification.isGovernance(_inst?.institutionCode ?? '');
+      InstitutionClassification.isGovernance(_inst?.orgCode ?? '');
 
   bool _loading = true;
 
@@ -194,7 +194,7 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
 
   Future<void> _load() async {
     final inst = await widget.repository.getByCid(widget.cidNumber);
-    final subscriberCidNumber = await _resolveSubscriberCidNumber();
+    final cidNumber = await _resolveSubscriberCidNumber();
     if (!mounted) return;
     if (inst == null) {
       setState(() => _loading = false);
@@ -205,18 +205,15 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
     final govInfo =
         widget.repository.governanceInfo(inst.cidNumber) ??
         _infoFromInstitution(inst);
-    final subscribed = subscriberCidNumber == null
+    final subscribed = cidNumber == null
         ? false
-        : await widget.repository.isSubscribed(
-            subscriberCidNumber,
-            inst.cidNumber,
-          );
+        : await widget.repository.isSubscribed(cidNumber, inst.cidNumber);
     final areaPath = await widget.repository.institutionAreaPath(inst);
     if (!mounted) return;
     setState(() {
       _inst = inst;
       _govInfo = govInfo;
-      _subscriberCidNumber = subscriberCidNumber;
+      _subscriberCidNumber = cidNumber;
       _subscribed = subscribed;
       _accounts = institutionAccountIdRows(inst);
       _areaPath = areaPath;
@@ -235,14 +232,14 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
     final main = rows.first.accountId;
     final fee = rows[1].accountId;
     return InstitutionInfo(
-      cidFullName: inst.cidFullName,
-      cidShortName: inst.cidShortNameOrFullName,
-      cidFullNameEn: inst.cidFullName, // 普通公权机构暂无英文名,中文兜底
+      fullName: inst.fullName,
+      shortName: inst.cidShortNameOrFullName,
+      cidFullNameEn: inst.fullName, // 普通公权机构暂无英文名,中文兜底
       cidShortNameEn: inst.cidShortNameOrFullName,
       cidNumber: inst.cidNumber,
       orgType: inst.orgType,
       accounts: InstitutionAccounts(mainAccountId: main, feeAccountId: fee),
-      adminAccountCode: inst.institutionCode,
+      adminCode: inst.orgCode,
     );
   }
 
@@ -414,12 +411,12 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
 
   Future<void> _toggleSubscribe() async {
     final inst = _inst;
-    final subscriberCidNumber = _subscriberCidNumber;
-    if (inst == null || subscriberCidNumber == null) return;
+    final cidNumber = _subscriberCidNumber;
+    if (inst == null || cidNumber == null) return;
     if (_subscribed) {
-      await widget.repository.unsubscribe(subscriberCidNumber, inst.cidNumber);
+      await widget.repository.unsubscribe(cidNumber, inst.cidNumber);
     } else {
-      await widget.repository.subscribe(subscriberCidNumber, inst.cidNumber);
+      await widget.repository.subscribe(cidNumber, inst.cidNumber);
     }
     if (!mounted) return;
     setState(() => _subscribed = !_subscribed);
@@ -485,7 +482,9 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
   // ── ① 机构信息卡(全称/身份CID号/主账户/余额/法代/所属地;非法人 +所属上级法人) ──
 
   Widget _infoCard(Institution inst) {
-    final mainSs58 = _accounts.isNotEmpty ? _accounts.first.ss58Address : '—';
+    final mainSs58 = _accounts.isNotEmpty
+        ? _accounts.first.accountAddress
+        : '—';
     return Container(
       decoration: BoxDecoration(
         color: AppTheme.surfaceCard,
@@ -503,7 +502,7 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
             _infoTile(
               icon: Icons.account_balance_outlined,
               label: '全称',
-              value: inst.cidFullName,
+              value: inst.fullName,
             ),
             Divider(height: AppLayout.scaledValue(18)),
             _infoTile(
@@ -541,7 +540,7 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
               _infoTile(
                 icon: Icons.account_tree_outlined,
                 label: '所属上级法人',
-                value: inst.parentCidNumber ?? '',
+                value: inst.parentCid ?? '',
               ),
             ],
           ],
@@ -599,7 +598,7 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
     const national = {'NLG', 'NRP', 'NSN', 'NED'};
     const provincial = {'PLG', 'PRP', 'PSN'};
     const municipal = {'CLEG'};
-    final code = inst.institutionCode;
+    final code = inst.orgCode;
     final tier = national.contains(code)
         ? LawTier.national
         : provincial.contains(code)
@@ -639,7 +638,7 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
       MaterialPageRoute(
         builder: (_) => ProposalEntryPage(
           institution: govInfo,
-          institutionCode: _inst?.institutionCode ?? '',
+          orgCode: _inst?.orgCode ?? '',
           icon: Icons.account_balance,
           badgeColor: AppTheme.primary,
           adminWallets: _adminWallets,

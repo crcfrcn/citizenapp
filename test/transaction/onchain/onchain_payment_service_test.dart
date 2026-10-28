@@ -35,7 +35,7 @@ void main() {
     final binding = CitizenBindingChainSnapshot(
       cidNumber: _cid,
       accountId: Uint8List.fromList(List.filled(32, 0xaa)),
-      bindingRevision: 2,
+      bindRev: 2,
       block: CitizenBlockRef(
         hash: '0x${'11' * 32}',
         number: BigInt.from(9),
@@ -50,8 +50,8 @@ void main() {
     expect(reader.reads, 1);
     expect(target.address, ss58FromAccountIdText(binding.accountIdText));
     expect(target.cidNumber, _cid);
-    expect(target.bindingRevision, 2);
-    expect(target.blockHash, binding.block!.hash);
+    expect(target.bindRev, 2);
+    expect(target.chainHash, binding.block!.hash);
   });
   test('无有效绑定时拒绝，禁止回退联系人缓存地址', () async {
     final reader = _Reader(null);
@@ -79,7 +79,7 @@ void main() {
       service(reader).prepareTransfer(
         OnchainPaymentDraft(
           sourceAccountId: '0x${'aa' * 32}',
-          toSs58Address: 'changed',
+          toAddress: 'changed',
           amount: 1,
           symbol: 'GMB',
           remark: '',

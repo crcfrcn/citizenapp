@@ -1,3 +1,7 @@
+import 'package:citizenapp/storage/user_isar.dart'
+    as user_store
+    show Edit, ProfileMedia, Profile;
+
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -28,6 +32,14 @@ class CitizenProfileCache {
   static final ValueNotifier<CitizenProfileRevisionEvent?> revision =
       ValueNotifier<CitizenProfileRevisionEvent?>(null);
   static int _revision = 0;
+  static const _updateFields = {
+    'display_name',
+    'profile_bio',
+    'avatar_key',
+    'avatar_hash',
+    'banner_key',
+    'banner_hash',
+  };
 
   /// 请求与选图先于远端PUT落盘；同CID只允许一个未完成修改。
   Future<void> prepareUpdate(
@@ -38,35 +50,27 @@ class CitizenProfileCache {
   }) async {
     final cid = _cid(cidNumber);
     final epoch = CitizenProfileMediaCache._epoch(cid);
-    const allowed = {
-      'display_name',
-      'profile_bio',
-      'avatar_object_key',
-      'avatar_content_hash',
-      'banner_object_key',
-      'banner_content_hash',
-    };
-    if (request.isEmpty || request.keys.any((key) => !allowed.contains(key))) {
+    if (request.isEmpty ||
+        request.keys.any((key) => !_updateFields.contains(key))) {
       throw ArgumentError('资料修改字段不合法');
     }
-    final row = UserProfileUpdateEntity()
+    final row = user_store.Edit()
       ..cidNumber = cid
-      ..operationState = 'pending'
-      ..requestJson = jsonEncode(request)
+      ..jobState = 'pending'
+      ..requestData = jsonEncode(request)
       ..avatarBytes = Uint8List.fromList(avatarBytes ?? [])
       ..bannerBytes = Uint8List.fromList(bannerBytes ?? []);
     for (final role in ['avatar', 'banner']) {
       final bytes = role == 'avatar' ? row.avatarBytes : row.bannerBytes;
       if (bytes.isEmpty) {
-        if (request.containsKey('${role}_object_key') ||
-            request.containsKey('${role}_content_hash')) {
+        if (request.containsKey('${role}_key') ||
+            request.containsKey('${role}_hash')) {
           throw ArgumentError('修改图片必须持有完整字节');
         }
       } else {
         if (bytes.length > _limit(role) ||
-            request['${role}_content_hash'] !=
-                sha256.convert(bytes).toString() ||
-            request['${role}_object_key']?.isNotEmpty != true) {
+            request['${role}_hash'] != sha256.convert(bytes).toString() ||
+            request['${role}_key']?.isNotEmpty != true) {
           throw ArgumentError('待保存图片声明不一致');
         }
         _contentType(bytes);
@@ -75,21 +79,21 @@ class CitizenProfileCache {
     row.contentHash = _updateHash(row);
     await UserIsar.instance.writeTxn((db) async {
       CitizenProfileMediaCache._check(cid, epoch);
-      final old = await db.userProfileUpdateEntitys.getByCidNumber(cid);
+      final old = await db.collection<user_store.Edit>().getByCidNumber(cid);
       if (old != null) {
         if (old.contentHash != row.contentHash) throw StateError('请先恢复上次资料修改');
         return;
       }
-      await db.userProfileUpdateEntitys.put(row);
+      await db.collection<user_store.Edit>().put(row);
     });
   }
 
-  static String _updateHash(UserProfileUpdateEntity row) => sha256
+  static String _updateHash(user_store.Edit row) => sha256
       .convert(
         utf8.encode(
           jsonEncode([
             row.cidNumber,
-            row.requestJson,
+            row.requestData,
             sha256.convert(row.avatarBytes).toString(),
             sha256.convert(row.bannerBytes).toString(),
           ]),
@@ -97,60 +101,35 @@ class CitizenProfileCache {
       )
       .toString();
 
-  /// 只用于本地旧记录的一次升级；网络模型不接受bio旧键。
-  static String _upgradeProfileJson(String raw) {
-    final value = jsonDecode(raw) as Map<String, dynamic>;
-    if (!value.containsKey('bio')) return raw;
-    if (value.containsKey('profile_bio')) throw StateError('资料旧记录字段冲突');
-    value['profile_bio'] = value.remove('bio');
-    return jsonEncode(value);
-  }
-
-  Future<UserProfileUpdateEntity?> readUpdate(String cidNumber) async {
+  Future<user_store.Edit?> readUpdate(String cidNumber) async {
     final cid = _cid(cidNumber);
-    var row = await UserIsar.instance.read(
-      (db) => db.userProfileUpdateEntitys.getByCidNumber(cid),
+    final row = await UserIsar.instance.read(
+      (db) => db.collection<user_store.Edit>().getByCidNumber(cid),
     );
     if (row != null &&
         (row.cidNumber != cid ||
             row.contentHash != _updateHash(row) ||
-            !{'pending', 'confirmed'}.contains(row.operationState) ||
-            (row.operationState == 'confirmed' && row.responseJson == null))) {
+            !{'pending', 'confirmed'}.contains(row.jobState) ||
+            (row.jobState == 'confirmed' && row.responseData == null))) {
       throw StateError('资料恢复记录损坏');
     }
     if (row != null) {
-      final before = row;
-      final request = _upgradeProfileJson(before.requestJson);
-      final response = before.responseJson == null
-          ? null
-          : _upgradeProfileJson(before.responseJson!);
-      if (request != before.requestJson || response != before.responseJson) {
-        row = await UserIsar.instance.writeTxn((db) async {
-          final current = await db.userProfileUpdateEntitys.getByCidNumber(cid);
-          if (current == null ||
-              current.contentHash != before.contentHash ||
-              current.requestJson != before.requestJson ||
-              current.responseJson != before.responseJson) {
-            throw StateError('资料恢复记录已变化，升级未提交');
-          }
-          current
-            ..requestJson = request
-            ..responseJson = response;
-          current.contentHash = _updateHash(current);
-          await db.userProfileUpdateEntitys.put(current);
-          return current;
-        });
+      final request = jsonDecode(row.requestData);
+      if (request is! Map<String, dynamic> ||
+          request.isEmpty ||
+          request.keys.any((key) => !_updateFields.contains(key))) {
+        throw StateError('资料恢复字段无效');
       }
     }
     return row;
   }
 
-  bool updateMatches(UserProfileUpdateEntity row, CitizenProfile profile) {
+  bool updateMatches(user_store.Edit row, CitizenProfile profile) {
     if (row.cidNumber != profile.cidNumber) return false;
-    final request = jsonDecode(row.requestJson) as Map<String, dynamic>;
+    final request = jsonDecode(row.requestData) as Map<String, dynamic>;
     final actual = profile.toJson();
     return request.entries
-        .where((e) => !e.key.endsWith('_content_hash'))
+        .where((e) => !e.key.endsWith('_hash'))
         .every((e) => actual[e.key] == e.value);
   }
 
@@ -161,30 +140,30 @@ class CitizenProfileCache {
     }
     final response = jsonEncode(profile.toJson());
     await UserIsar.instance.writeTxn((db) async {
-      final current = await db.userProfileUpdateEntitys.getByCidNumber(
+      final current = await db.collection<user_store.Edit>().getByCidNumber(
         row.cidNumber,
       );
       if (current == null || current.contentHash != row.contentHash) {
         throw StateError('资料修改上下文已变化');
       }
       current
-        ..operationState = 'confirmed'
-        ..responseJson = response;
-      await db.userProfileUpdateEntitys.put(current);
+        ..jobState = 'confirmed'
+        ..responseData = response;
+      await db.collection<user_store.Edit>().put(current);
     });
   }
 
   /// 已确认修改只在本地收尾，资料、图片与恢复行删除同事务提交。
   Future<CitizenProfile> finishUpdate(String cidNumber) async {
     final row = await readUpdate(cidNumber);
-    if (row == null || row.operationState != 'confirmed') {
+    if (row == null || row.jobState != 'confirmed') {
       throw StateError('资料修改尚未确认');
     }
     final profile = CitizenProfile.fromJson(
-      jsonDecode(row.responseJson!) as Map<String, dynamic>,
+      jsonDecode(row.responseData!) as Map<String, dynamic>,
     );
     if (!updateMatches(row, profile)) throw StateError('资料确认响应与请求不一致');
-    final media = <UserProfileMediaEntity>[
+    final media = <user_store.ProfileMedia>[
       if (row.avatarBytes.isNotEmpty)
         CitizenProfileMediaCache._prepare(
           profile,
@@ -214,29 +193,17 @@ class CitizenProfileCache {
     final cid = _cid(cidNumber);
     final raw = await UserIsar.instance.read(
       (db) async =>
-          (await db.userPublicProfileCacheEntitys.getByCidNumber(cid))
-              ?.profileJson,
+          (await db.collection<user_store.Profile>().getByCidNumber(cid))
+              ?.profileData,
     );
     if (raw == null) return null;
     try {
-      final upgraded = _upgradeProfileJson(raw);
-      final decoded = jsonDecode(upgraded);
+      final decoded = jsonDecode(raw);
       if (decoded is! Map<String, dynamic>) return null;
-      final profile = CitizenProfile.fromJson(decoded);
-      // 主键与内容必须一致，不能把其它用户的资料读到当前页面。
-      if (profile.cidNumber != cid || profile.updatedAt < 0) return null;
-      if (upgraded != raw) {
-        await UserIsar.instance.writeTxn((db) async {
-          final current = await db.userPublicProfileCacheEntitys.getByCidNumber(
-            cid,
-          );
-          if (current == null || current.profileJson != raw) {
-            throw StateError('资料缓存已变化，升级未提交');
-          }
-          current.profileJson = upgraded;
-          await db.userPublicProfileCacheEntitys.put(current);
-        });
-      }
+      // CID只存自然索引，正文出现第二份归属即拒绝；读取从不改写持久记录。
+      if (decoded.containsKey('cid_number')) return null;
+      final profile = CitizenProfile.fromJson({'cid_number': cid, ...decoded});
+      if (profile.profileAt < 0) return null;
       return profile;
     } on FormatException {
       // 损坏记录保留，不将读取失败推断为注销，也不自动联网修复。
@@ -264,7 +231,7 @@ class CitizenProfileCache {
   }) async {
     final cid = _cid(profile.cidNumber ?? '');
     final epoch = CitizenProfileMediaCache._epoch(cid);
-    final rows = <UserProfileMediaEntity>[
+    final rows = <user_store.ProfileMedia>[
       if (avatarBytes != null)
         CitizenProfileMediaCache._prepare(profile, 'avatar', avatarBytes),
       if (bannerBytes != null)
@@ -280,55 +247,56 @@ class CitizenProfileCache {
   /// 媒体在事务外校验；完整资料及本次所选图片只提交一次，再通知展示端。
   static Future<void> _commit(
     CitizenProfile profile,
-    List<UserProfileMediaEntity> media, {
+    List<user_store.ProfileMedia> media, {
     void Function()? assertCurrent,
-    UserProfileUpdateEntity? completeUpdate,
+    user_store.Edit? completeUpdate,
   }) async {
     final cid = _cid(profile.cidNumber ?? '');
-    if (profile.updatedAt < 0) throw ArgumentError('资料版本无效');
-    final payload = jsonEncode(profile.toJson());
+    if (profile.profileAt < 0) throw ArgumentError('资料版本无效');
+    final response = jsonEncode(profile.toJson());
+    final body = profile.toJson()..remove('cid_number');
+    final payload = jsonEncode(body);
     final changed = await UserIsar.instance.writeTxn((db) async {
       assertCurrent?.call();
       if (completeUpdate != null) {
-        final row = await db.userProfileUpdateEntitys.getByCidNumber(cid);
+        final row = await db.collection<user_store.Edit>().getByCidNumber(cid);
         if (row == null ||
             row.contentHash != completeUpdate.contentHash ||
-            row.operationState != 'confirmed' ||
-            row.responseJson != payload) {
+            row.jobState != 'confirmed' ||
+            row.responseData != response) {
           throw StateError('资料恢复事实已变化');
         }
       }
-      final current = await db.userPublicProfileCacheEntitys.getByCidNumber(
+      final current = await db.collection<user_store.Profile>().getByCidNumber(
         cid,
       );
       if (current != null) {
-        final old = CitizenProfile.fromJson(
-          jsonDecode(current.profileJson) as Map<String, dynamic>,
-        );
-        if (old.cidNumber != cid) throw StateError('本地资料归属损坏');
-        if (old.updatedAt > profile.updatedAt) {
+        final data = jsonDecode(current.profileData) as Map<String, dynamic>;
+        if (data.containsKey('cid_number')) throw StateError('本地资料归属重复');
+        final old = CitizenProfile.fromJson({'cid_number': cid, ...data});
+        if (old.profileAt > profile.profileAt) {
           throw StateError('旧资料不能覆盖较新的本地版本');
         }
       }
-      var changed = current?.profileJson != payload;
+      var changed = current?.profileData != payload;
       for (final row in media) {
         if (row.cidNumber != cid ||
-            row.updatedAt != profile.updatedAt ||
+            row.profileAt != profile.profileAt ||
             row.objectKey != _objectKey(profile, row.mediaRole)) {
           throw StateError('资料媒体与当前资料归属不一致');
         }
         changed = await CitizenProfileMediaCache._put(db, row) || changed;
       }
-      if (current?.profileJson != payload) {
-        await db.userPublicProfileCacheEntitys.putByCidNumber(
-          UserPublicProfileCacheEntity()
+      if (current?.profileData != payload) {
+        await db.collection<user_store.Profile>().putByCidNumber(
+          user_store.Profile()
             ..cidNumber = cid
-            ..profileJson = payload,
+            ..profileData = payload,
         );
       }
       assertCurrent?.call();
       if (completeUpdate != null) {
-        await db.userProfileUpdateEntitys.delete(completeUpdate.id);
+        await db.collection<user_store.Edit>().delete(completeUpdate.rowId);
       }
       return changed;
     });
@@ -341,11 +309,12 @@ class CitizenProfileCache {
     final cid = _cid(cidNumber);
     CitizenProfileMediaCache._invalidate(cid);
     final changed = await UserIsar.instance.writeTxn((db) async {
-      final removed = await db.userPublicProfileCacheEntitys.deleteByCidNumber(
-        cid,
-      );
-      await db.userProfileUpdateEntitys.deleteByCidNumber(cid);
-      final images = await db.userProfileMediaEntitys
+      final removed = await db
+          .collection<user_store.Profile>()
+          .deleteByCidNumber(cid);
+      await db.collection<user_store.Edit>().deleteByCidNumber(cid);
+      final images = await db
+          .collection<user_store.ProfileMedia>()
           .filter()
           .cidNumberEqualTo(cid)
           .deleteAll();
@@ -396,21 +365,22 @@ class CitizenProfileMediaCache {
     final cid = _cid(cidNumber);
     _invalidate(cid);
     await UserIsar.instance.writeTxn((db) async {
-      await db.userProfileMediaEntitys
+      await db
+          .collection<user_store.ProfileMedia>()
           .filter()
           .cidNumberEqualTo(cid)
           .deleteAll();
     });
-    await _deleteExactTree(p.join((await _legacyRoot()).path, _cidHash(cid)));
+    await _deleteExactTree(p.join((await _mediaRoot()).path, _cidHash(cid)));
     await _deleteExactTree(p.join((await _workRoot()).path, _cidHash(cid)));
     CitizenProfileCache._notify(cid);
   }
 
-  /// AppLock先关闭并擦除UserIsar，再清除旧文件与临时域；这里不重新打开数据库。
+  /// AppLock先关闭并擦除UserIsar，再清除临时域；这里不重新打开数据库。
   /// 代次检查阻止此前下载或文件写入在擦除后复活用户图片。
   Future<void> closeAndDeleteAll() async {
     _generation++;
-    await _deleteExactTree((await _legacyRoot()).path);
+    await _deleteExactTree((await _mediaRoot()).path);
     await _deleteExactTree((await _workRoot()).path);
   }
 
@@ -456,7 +426,6 @@ class CitizenProfileMediaCache {
         continue;
       }
       if (await _exact(profile, role) != null) continue;
-      if (await _importLegacy(profile, role, epoch) != null) continue;
       final uri = Uri.parse(url);
       if (uri.scheme != 'https' ||
           uri.host.isEmpty ||
@@ -500,14 +469,14 @@ class CitizenProfileMediaCache {
     return read(profile);
   }
 
-  static UserProfileMediaEntity _prepare(
+  static user_store.ProfileMedia _prepare(
     CitizenProfile profile,
     String role,
     Uint8List input,
   ) {
     final cid = _cid(profile.cidNumber ?? '');
     final key = _objectKey(profile, role);
-    if (key == null || profile.updatedAt < 0) {
+    if (key == null || profile.profileAt < 0) {
       throw ArgumentError('资料图片缺少归属或版本');
     }
     // 复制后计算摘要，防止调用方修改缓冲区导致入库字节与哈希不一致。
@@ -515,70 +484,68 @@ class CitizenProfileMediaCache {
     if (bytes.isEmpty || bytes.length > _limit(role)) {
       throw const FormatException('资料图片大小无效');
     }
-    return UserProfileMediaEntity()
+    _contentType(bytes);
+    return user_store.ProfileMedia()
       ..cidNumber = cid
       ..mediaRole = role
-      ..mediaId = _mediaId(profile, role)
       ..objectKey = key
-      ..updatedAt = profile.updatedAt
-      ..contentType = _contentType(bytes)
-      ..byteSize = bytes.length
-      ..sha256 = sha256.convert(bytes).toString()
+      ..profileAt = profile.profileAt
+      ..bodyHash = sha256.convert(bytes).toString()
       ..mediaBytes = bytes;
   }
 
   /// 已处于User写事务；调用方先在事务外校验字节，同版本只接受完全相同的内容。
-  static Future<bool> _put(Isar db, UserProfileMediaEntity row) async {
-    final previous = await db.userProfileMediaEntitys
-        .getByCidNumberMediaRoleMediaId(
+  static Future<bool> _put(Isar db, user_store.ProfileMedia row) async {
+    final previous = await db
+        .collection<user_store.ProfileMedia>()
+        .getByCidNumberMediaRoleProfileAt(
           row.cidNumber,
           row.mediaRole,
-          row.mediaId,
+          row.profileAt,
         );
     if (previous != null) {
-      if (previous.sha256 != row.sha256 ||
-          previous.byteSize != row.byteSize ||
-          previous.contentType != row.contentType ||
+      if (previous.bodyHash != row.bodyHash ||
           previous.objectKey != row.objectKey ||
-          previous.updatedAt != row.updatedAt ||
+          previous.profileAt != row.profileAt ||
           !listEquals(previous.mediaBytes, row.mediaBytes)) {
         throw StateError('同一资料图片版本的内容冲突，保留原记录');
       }
       return false;
     }
-    row.id = Isar.autoIncrement;
-    await db.userProfileMediaEntitys.put(row);
+    row.rowId = Isar.autoIncrement;
+    await db.collection<user_store.ProfileMedia>().put(row);
     return true;
   }
 
-  Future<UserProfileMediaEntity?> _exact(
+  Future<user_store.ProfileMedia?> _exact(
     CitizenProfile profile,
     String role,
   ) async {
     final cid = _cid(profile.cidNumber ?? '');
     final row = await UserIsar.instance.read(
-      (db) => db.userProfileMediaEntitys.getByCidNumberMediaRoleMediaId(
-        cid,
-        role,
-        _mediaId(profile, role),
-      ),
+      (db) => db
+          .collection<user_store.ProfileMedia>()
+          .getByCidNumberMediaRoleProfileAt(cid, role, profile.profileAt),
     );
-    if (row != null) _validate(row, cid, role);
+    if (row != null) {
+      _validate(row, cid, role);
+      if (row.objectKey != _objectKey(profile, role)) {
+        throw StateError('同一资料版本的对象归属冲突');
+      }
+    }
     return row;
   }
 
-  static void _validate(UserProfileMediaEntity row, String cid, String role) {
+  static void _validate(user_store.ProfileMedia row, String cid, String role) {
     if (row.cidNumber != cid ||
         row.mediaRole != role ||
-        row.updatedAt < 0 ||
-        row.mediaId != _version(cid, role, row.objectKey, row.updatedAt) ||
-        row.byteSize <= 0 ||
-        row.byteSize > _limit(role) ||
-        row.mediaBytes.length != row.byteSize ||
-        sha256.convert(row.mediaBytes).toString() != row.sha256 ||
-        _contentType(row.mediaBytes) != row.contentType) {
+        row.profileAt < 0 ||
+        row.mediaBytes.isEmpty ||
+        row.mediaBytes.length > _limit(role) ||
+        sha256.convert(row.mediaBytes).toString() != row.bodyHash) {
       throw StateError('本地资料图片归属或完整性校验失败');
     }
+    _contentType(row.mediaBytes);
   }
 
   Future<String?> _readBest(
@@ -589,15 +556,15 @@ class CitizenProfileMediaCache {
     final cid = _cid(profile.cidNumber ?? '');
     if (_objectKey(profile, role) == null) return null;
     var row = await _exact(profile, role);
-    row ??= await _importLegacy(profile, role, epoch);
     // 刷新失败可显示同CID已有图片，但不把它登记为新版本下载成功。
     row ??= await UserIsar.instance.read(
-      (db) => db.userProfileMediaEntitys
+      (db) => db
+          .collection<user_store.ProfileMedia>()
           .filter()
           .cidNumberEqualTo(cid)
           .mediaRoleEqualTo(role)
-          .updatedAtLessThan(profile.updatedAt, include: true)
-          .sortByUpdatedAtDesc()
+          .profileAtLessThan(profile.profileAt, include: true)
+          .sortByProfileAtDesc()
           .findFirst(),
     );
     if (row == null) return null;
@@ -609,7 +576,7 @@ class CitizenProfileMediaCache {
       create: true,
     );
     final dir = await _directory(p.join(owner.path, epoch), create: true);
-    final target = File(p.join(dir.path, '${row.mediaRole}_${row.mediaId}'));
+    final target = File(p.join(dir.path, '${row.mediaRole}_${row.rowId}'));
     Directory? staging;
     try {
       _check(cid, epoch);
@@ -619,8 +586,9 @@ class CitizenProfileMediaCache {
         throw StateError('资料临时文件不是普通文件');
       }
       if (type == FileSystemEntityType.notFound ||
-          await target.length() != row.byteSize ||
-          sha256.convert(await target.readAsBytes()).toString() != row.sha256) {
+          await target.length() != row.mediaBytes.length ||
+          sha256.convert(await target.readAsBytes()).toString() !=
+              row.bodyHash) {
         // 同一图片可被多个页面同时读取，用独立临时文件原子替换，避免显示半份字节。
         staging = await dir.createTemp('writing-');
         final temporary = File(p.join(staging.path, 'image'));
@@ -640,43 +608,8 @@ class CitizenProfileMediaCache {
     }
   }
 
-  /// 只导入当前CID/用途/准确版本的旧文件，不按文件时间猜测未知版本归属。
-  /// 成功提交并回读校验后才删除来源；失败保留，普通读取不连接远端。
-  Future<UserProfileMediaEntity?> _importLegacy(
-    CitizenProfile profile,
-    String role,
-    String epoch,
-  ) async {
-    final cid = _cid(profile.cidNumber ?? '');
-    final root = await _legacyRoot();
-    final owner = await _directory(
-      p.join(root.path, _cidHash(cid)),
-      create: false,
-    );
-    final source = File(
-      p.join(owner.path, '${role}_${_mediaId(profile, role)}'),
-    );
-    final type = await FileSystemEntity.type(source.path, followLinks: false);
-    if (type == FileSystemEntityType.notFound) return null;
-    if (type != FileSystemEntityType.file) throw StateError('旧资料图片不是普通文件');
-    if (await source.length() > _limit(role)) {
-      throw const FormatException('旧资料图片超出大小限制');
-    }
-    final row = _prepare(profile, role, await source.readAsBytes());
-    await UserIsar.instance.writeTxn((db) async {
-      _check(cid, epoch);
-      await _put(db, row);
-    });
-    final saved = await _exact(profile, role);
-    if (saved == null || saved.sha256 != row.sha256) {
-      throw StateError('旧资料图片入库回读失败');
-    }
-    _check(cid, epoch);
-    await source.delete();
-    return saved;
-  }
-
-  Future<Directory> _legacyRoot() async {
+  /// 安全擦除仍覆盖既有持久媒体目录；不读取、导入或改写旧格式。
+  Future<Directory> _mediaRoot() async {
     final parent = await _supportDirectoryProvider();
     final user = await _directory(p.join(parent.path, 'user'), create: false);
     return _directory(p.join(user.path, 'profile_media'), create: false);
@@ -733,21 +666,9 @@ int _limit(String role) => switch (role) {
 };
 String? _objectKey(CitizenProfile profile, String role) {
   _limit(role);
-  final key = role == 'avatar'
-      ? profile.avatarObjectKey
-      : profile.bannerObjectKey;
+  final key = role == 'avatar' ? profile.avatarKey : profile.bannerKey;
   return key == null || key.trim().isEmpty ? null : key.trim();
 }
-
-String _version(String cid, String role, String key, int updatedAt) => sha256
-    .convert(utf8.encode('$cid\u0000$role\u0000$key\u0000$updatedAt'))
-    .toString();
-String _mediaId(CitizenProfile profile, String role) => _version(
-  _cid(profile.cidNumber ?? ''),
-  role,
-  _objectKey(profile, role) ?? '',
-  profile.updatedAt,
-);
 
 /// 只接受现有选图链路输出的PNG/JPEG/WebP，类型不取自URL扩展名或响应声明。
 String _contentType(List<int> bytes) {

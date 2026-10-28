@@ -11,7 +11,7 @@ import 'package:citizenapp/citizen/proposal/proposal_models.dart';
 /// 避免 proposal 共享层依赖业务 service。
 class InternalVoteQueryService {
   const InternalVoteQueryService({required CitizenChain chain})
-      : _chain = chain;
+    : _chain = chain;
 
   final CitizenChain _chain;
 
@@ -28,12 +28,14 @@ class InternalVoteQueryService {
     String voterRoleCode,
     String accountId,
   ) async {
-    final data = await _readOne(_ticketVoteKey(
-      proposalId,
-      accountId,
-      cidNumber: cidNumber,
-      voterRoleCode: voterRoleCode,
-    ));
+    final data = await _readOne(
+      _ticketVoteKey(
+        proposalId,
+        accountId,
+        cidNumber: cidNumber,
+        voterRoleCode: voterRoleCode,
+      ),
+    );
     return _decodeVote(data);
   }
 
@@ -48,8 +50,10 @@ class InternalVoteQueryService {
     final keyByAccountId = <String, Uint8List>{};
     for (final accountId in accountIds) {
       final normalizedAccountId = _requireAccountId(accountId);
-      keyByAccountId[normalizedAccountId] =
-          _ticketVoteKey(proposalId, normalizedAccountId);
+      keyByAccountId[normalizedAccountId] = _ticketVoteKey(
+        proposalId,
+        normalizedAccountId,
+      );
     }
     if (keyByAccountId.isEmpty) return const {};
 
@@ -81,11 +85,11 @@ class InternalVoteQueryService {
     };
   }
 
-  /// 跨提案批量查询内部投票:输入 `{proposalId: [accountId]}`,一次链查返回
-  /// `{proposalId: {accountId: vote?}}`。
+  /// 跨提案批量查询内部投票:输入 `{proposal_id: [account_id]}`,一次链查返回
+  /// `{proposal_id: {account_id: vote?}}`。
   ///
   /// (ADR-018 R2):公民-提案列表原来每个提案各发一次批量 RPC(P 个提案
-  /// = P 次往返),这里把所有 (proposalId, admin) 的 storage key 一次拼齐、单次
+  /// = P 次往返),这里把所有 (proposal_id, admin) 的 storage key 一次拼齐、单次
   /// 分块读取,P 次往返降为 1 次。
   Future<Map<int, Map<String, bool?>>> fetchAdminVotesForProposals(
     Map<int, List<String>> accountIdsByProposal,
@@ -104,8 +108,9 @@ class InternalVoteQueryService {
     final result = <int, Map<String, bool?>>{};
     for (var index = 0; index < coordinates.length; index++) {
       final coord = coordinates[index];
-      (result[coord.pid] ??= <String, bool?>{})[coord.accountId] =
-          _decodeVote(values[index]);
+      (result[coord.pid] ??= <String, bool?>{})[coord.accountId] = _decodeVote(
+        values[index],
+      );
     }
     return result;
   }
@@ -125,10 +130,7 @@ class InternalVoteQueryService {
           voterRoleCode: ticket.voterRoleCode,
         );
         keys.add(storageKey);
-        coordinates.add((
-          pid: entry.key,
-          ticketKey: ticket.ticketKey,
-        ));
+        coordinates.add((pid: entry.key, ticketKey: ticket.ticketKey));
       }
     }
     if (keys.isEmpty) return const {};
@@ -136,8 +138,9 @@ class InternalVoteQueryService {
     final result = <int, Map<String, bool?>>{};
     for (var index = 0; index < coordinates.length; index++) {
       final coord = coordinates[index];
-      (result[coord.pid] ??= <String, bool?>{})[coord.ticketKey] =
-          _decodeVote(values[index]);
+      (result[coord.pid] ??= <String, bool?>{})[coord.ticketKey] = _decodeVote(
+        values[index],
+      );
     }
     return result;
   }
@@ -201,9 +204,7 @@ class InternalVoteQueryService {
   bool? _decodeVote(Uint8List? data) {
     if (data == null) return null;
     if (data.length != 1 || (data[0] != 0 && data[0] != 1)) {
-      throw const FormatException(
-        'InternalVotesByTicket 必须是严格的 SCALE bool',
-      );
+      throw const FormatException('InternalVotesByTicket 必须是严格的 SCALE bool');
     }
     return data[0] == 1;
   }
@@ -250,5 +251,4 @@ class InternalVoteQueryService {
     }
     return accountId;
   }
-
 }

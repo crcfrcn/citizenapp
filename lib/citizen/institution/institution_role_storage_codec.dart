@@ -24,7 +24,7 @@ class InstitutionRoleStorageCodec {
     final admins = decodedAdmins.$1;
     offset = decodedAdmins.$2;
     if (offset != data.length) return null;
-    return InstitutionAdminsStorage(institutionCode: code, admins: admins);
+    return InstitutionAdminsStorage(orgCode: code, admins: admins);
   }
 
   /// 从指定偏移严格解码统一管理员集合，并返回下一字段偏移。
@@ -75,12 +75,12 @@ class InstitutionRoleStorageCodec {
       offset = givenName.$2;
       try {
         final admin = AdminPerson(
-          account_id: accountId,
-          cid_number: utf8.decode(citizenCid.$1),
-          family_name: utf8.decode(familyName.$1),
-          given_name: utf8.decode(givenName.$1),
+          accountId: accountId,
+          cidNumber: utf8.decode(citizenCid.$1),
+          familyName: utf8.decode(familyName.$1),
+          givenName: utf8.decode(givenName.$1),
         );
-        if (!accountIds.add(admin.account_id)) return null;
+        if (!accountIds.add(admin.accountId)) return null;
         admins.add(admin);
       } on FormatException {
         return null;
@@ -156,7 +156,7 @@ class InstitutionRoleStorageCodec {
         out.add(
           InstitutionAdminAssignment(
             cidNumber: utf8.decode(cid.$1),
-            account_id: accountId,
+            accountId: accountId,
             roleCode: utf8.decode(code.$1),
             termStart: termStart,
             termEnd: termEnd,
@@ -257,7 +257,7 @@ class InstitutionRoleStorageCodec {
       offset = voter.$2;
       final key = voter.$1.isInstitution
           ? 'i:${voter.$1.roleSubject!.cidNumber}:${voter.$1.roleSubject!.roleCode}'
-          : 'p:${voter.$1.personalAccountId}';
+          : 'p:${voter.$1.accountId}';
       if (!voterKeys.add(key)) return null;
       voters.add(voter.$1);
     }
@@ -272,7 +272,7 @@ class InstitutionRoleStorageCodec {
     } else {
       if (voters.length != 1 ||
           voters.single.isInstitution ||
-          voters.single.personalAccountId != proposer.$1.personalAccountId) {
+          voters.single.accountId != proposer.$1.accountId) {
         return null;
       }
     }

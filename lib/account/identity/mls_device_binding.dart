@@ -5,14 +5,14 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 /// 已单独授权的登记载荷；SCALE与GMB摘要只使用CitizenSDK原语。
 Future<Uint8List> encodeMlsDeviceBindingPayload({
   required String cidNumber,
-  required int bindingRevision,
+  required int bindRev,
   required String accountId,
   required String publicKey,
   required int issuedAtMillis,
 }) async {
   if (!RegExp(r'^[A-Za-z0-9][A-Za-z0-9-]{0,31}$').hasMatch(cidNumber) ||
-      bindingRevision <= 0 ||
-      bindingRevision > 9007199254740991 ||
+      bindRev <= 0 ||
+      bindRev > 9007199254740991 ||
       !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(accountId) ||
       !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(publicKey) ||
       issuedAtMillis <= 0 ||
@@ -24,7 +24,7 @@ Future<Uint8List> encodeMlsDeviceBindingPayload({
       CitizenSigningPayload.scaleString(cidNumber),
     ),
     ...await CitizenSigning.encodePayload(
-      CitizenSigningPayload.u64Le(BigInt.from(bindingRevision)),
+      CitizenSigningPayload.u64Le(BigInt.from(bindRev)),
     ),
     ...await CitizenSigning.encodePayload(
       CitizenSigningPayload.scaleString(accountId),
@@ -40,7 +40,7 @@ Future<Uint8List> encodeMlsDeviceBindingPayload({
 
 Future<Uint8List> buildMlsDeviceBindingSigningMessage(
   String cidNumber,
-  int bindingRevision,
+  int bindRev,
   String accountId,
   String publicKey,
   int issuedAt,
@@ -49,7 +49,7 @@ Future<Uint8List> buildMlsDeviceBindingSigningMessage(
     opTag: kOpSignMlsDeviceBind,
     scalePayload: await encodeMlsDeviceBindingPayload(
       cidNumber: cidNumber,
-      bindingRevision: bindingRevision,
+      bindRev: bindRev,
       accountId: accountId,
       publicKey: publicKey,
       issuedAtMillis: issuedAt,

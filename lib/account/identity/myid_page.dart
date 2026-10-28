@@ -81,17 +81,19 @@ class _MyIdPageState extends State<MyIdPage> {
     final sdk = context.read<CitizenSdk>();
     final accountSecurity = context.read<AccountSecurityService>();
     _accountSecurity = accountSecurity;
-    _myIdService = context.read<MyIdService?>() ?? MyIdService(
-      wallet: sdk.wallet,
-      signing: sdk.signing,
-      chain: sdk.chain,
-      transactions: sdk.transactions,
-      accountSecurity: accountSecurity,
-      currentUserContext: context.read<CurrentUserContext>(),
-      identityResolver: context.read<FinalizedIdentityResolver>(),
-      sessionProvider: context.read<SquareSessionProvider>(),
-      chatRuntime: () => context.read<ChatSdk>(),
-    );
+    _myIdService =
+        context.read<MyIdService?>() ??
+        MyIdService(
+          wallet: sdk.wallet,
+          signing: sdk.signing,
+          chain: sdk.chain,
+          transactions: sdk.transactions,
+          accountSecurity: accountSecurity,
+          currentUserContext: context.read<CurrentUserContext>(),
+          identityResolver: context.read<FinalizedIdentityResolver>(),
+          sessionProvider: context.read<SquareSessionProvider>(),
+          chatRuntime: () => context.read<ChatSdk>(),
+        );
     // 身份账户切换必须让身份页立即重排，和广场、聊天共用同一身份版本号。
     accountSecurity.revision.addListener(_onIdentityChanged);
     _openIdentity();
@@ -139,7 +141,8 @@ class _MyIdPageState extends State<MyIdPage> {
       if (!mounted || generation != _loadGeneration) return;
       final result = await _myIdService!.refreshState();
       if (!mounted || generation != _loadGeneration) return;
-      if (currentUser != null && (await currentUser.resolve())?.accountId != account) {
+      if (currentUser != null &&
+          (await currentUser.resolve())?.accountId != account) {
         await _loadState();
         return;
       }
@@ -530,9 +533,9 @@ class _PassportIdentityCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final badgeStyle = identityBadgeStyle(
-      identityLevel: _identityLevel,
-      membershipLevel: null,
-      membershipActive: false,
+      cidLevel: _identityLevel,
+      memberLevel: null,
+      membergateActive: false,
     )!;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 220),

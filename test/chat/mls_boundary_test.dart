@@ -48,7 +48,7 @@ class _ChatAccessProvider extends SquareSessionProvider {
     return CitizenServeChatAccess(
       realtimeUrl: Uri.parse('wss://service.test/api/tatachat/realtime'),
       accessToken: 'opaque',
-      expiresAtMillis: DateTime.now().millisecondsSinceEpoch + 300000,
+      expiresAt: DateTime.now().millisecondsSinceEpoch + 300000,
     );
   }
 }
@@ -211,7 +211,7 @@ void main() {
           deviceId: testMlsDeviceId,
           sessionToken: 'session-a',
           cidNumber: 'CN220-CTZN2-100000001-2026',
-          bindingRevision: 1,
+          bindRev: 1,
           accountId: '0x1111111111111111111111111111111111111111111111111111111111111111',
           expiresAt: 4102444800000,
           authenticateRequest: fakeMlsRequestHeaders,

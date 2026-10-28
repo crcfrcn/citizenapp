@@ -267,9 +267,8 @@ class _OnchainTopupPageState extends State<OnchainTopupPage> {
       if (record.progress.index < TopupProgress.submitting.index &&
           DateTime.now().millisecondsSinceEpoch < record.intent.expiresAt) {
         if (!config.ready) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('充值暂未开放，未继续付款')));
+          ScaffoldMessenger.of(context)
+              .showSnackBar(const SnackBar(content: Text('充值暂未开放，未继续付款')));
           return;
         }
         await _startPayment(config, selection, resume: record);

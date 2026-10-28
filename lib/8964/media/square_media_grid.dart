@@ -136,7 +136,11 @@ class SquareMediaTile extends StatelessWidget {
     return ClipRRect(
       borderRadius: radius,
       child: isVideo && enableVideoPlayback
-          ? SquareVideo(url: item.url, thumbnailUrl: item.coverUrl, item: item)
+          ? SquareVideo(
+              url: item.url,
+              thumbnailUrl: item.previewUrl,
+              item: item,
+            )
           : _buildCover(context, isVideo),
     );
   }
@@ -286,7 +290,7 @@ class _SquareVideoState extends State<SquareVideo> {
         final size = widget.item?.byteSize;
         if (size == null ||
             size <= 0 ||
-            size > SquareMediaPolicy.maxLocalPlaybackBytes) {
+            size > SquareMediaPolicy.playbackBytes) {
           throw const SquareApiException('视频大小信息不可用');
         }
         if (mounted && generation == _initializationGeneration) {
@@ -538,9 +542,9 @@ Future<SquareStoredMedia?> _localMedia(
   }
   final media = await store.get(
     cidNumber: item.cidNumber!,
-    mediaId: selected.single.mediaId,
+    bodyHash: selected.single.bodyHash,
   );
-  if (media == null || !media.complete) {
+  if (media == null || !media.isComplete) {
     return null;
   }
   if (media.mediaKind !=
@@ -599,7 +603,7 @@ class _SquareMediaImageState extends State<SquareMediaImage> {
       return null;
     }
     final limit = role == 'main'
-        ? SquareMediaPolicy.maxLocalImageBytes
+        ? SquareMediaPolicy.localImageBytes
         : 4 * 1024 * 1024; // 与显式同步的衍生图接收上限一致。
     if (media.byteSize > limit) {
       throw StateError('图片大小无效');
@@ -613,7 +617,7 @@ class _SquareMediaImageState extends State<SquareMediaImage> {
       bytes.add(
         await const SquareMediaStore().readRange(
           cidNumber: media.cidNumber,
-          mediaId: media.mediaId,
+          bodyHash: media.bodyHash,
           offset: offset,
           length: math.min(SquareMediaStore.chunkSize, media.byteSize - offset),
         ),
@@ -658,8 +662,8 @@ class _SquareMediaImageState extends State<SquareMediaImage> {
     }
     final derivative =
         widget.item.mediaKind == SquareMediaKind.video ||
-        widget.preview && widget.item.coverUrl != null;
-    final url = derivative ? widget.item.coverUrl : widget.item.url;
+        widget.preview && widget.item.previewUrl != null;
+    final url = derivative ? widget.item.previewUrl : widget.item.url;
     if (url == null || Uri.tryParse(url)?.scheme != 'https') {
       return _message('媒体不可用');
     }
@@ -716,7 +720,7 @@ class SquareLocalVideoSource {
         );
         final bytes = await const SquareMediaStore().readRange(
           cidNumber: media.cidNumber,
-          mediaId: media.mediaId,
+          bodyHash: media.bodyHash,
           offset: offset,
           length: length,
         );

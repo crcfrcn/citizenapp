@@ -247,16 +247,16 @@ class _FollowsListPageState extends State<FollowsListPage> {
           final presentation = ProfilePresentation.forIdentityKey(
             entry.cidNumber,
           );
-          final avatarKey = profile?.avatarObjectKey;
+          final avatarKey = profile?.avatarKey;
           return ListTile(
             leading: ProfileAvatar(
               seed: entry.cidNumber,
               size: AppLayout.scaled(context, 42),
               imageUrl: avatarKey == null ? null : _api.cardMediaUrl(avatarKey),
 
-              identityLevel: profile?.identityLevel,
-              membershipLevel: profile?.membershipLevel,
-              membershipActive: profile?.membershipActive ?? false,
+              cidLevel: profile?.cidLevel,
+              memberLevel: profile?.memberLevel,
+              membergateActive: profile?.membergateActive ?? false,
             ),
             title: Text(
               presentation.resolveDisplayName(publicName: profile?.displayName),

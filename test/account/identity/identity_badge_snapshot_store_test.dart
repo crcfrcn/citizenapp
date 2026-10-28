@@ -1,3 +1,5 @@
+import 'package:citizenapp/storage/user_isar.dart' as user_store show Identity;
+
 import 'dart:typed_data';
 
 import 'package:isar_community/isar.dart';
@@ -22,7 +24,7 @@ void main() {
         CitizenIdentityChainSnapshot(
           cidNumber: cidA,
           accountId: Uint8List.fromList(List.filled(32, byte)),
-          bindingRevision: version,
+          bindRev: version,
           votingIdentity: null,
         );
     final store = IdentityBadgeSnapshotStore();
@@ -48,7 +50,7 @@ void main() {
       isCurrent: () => true,
     );
     expect((await reopened.readForAccountId(a))?.identity, isNull);
-    expect((await reopened.readForAccountId(b))?.identity?.bindingRevision, 2);
+    expect((await reopened.readForAccountId(b))?.identity?.bindRev, 2);
     expect((await reopened.read(cidA))?.accountId, b);
     await store.writeVerified(
       accountId: b,
@@ -68,7 +70,7 @@ void main() {
       identity: CitizenIdentityChainSnapshot(
         cidNumber: cidA,
         accountId: Uint8List.fromList(List.filled(32, 0xaa)),
-        bindingRevision: 1,
+        bindRev: 1,
         votingIdentity: null,
       ),
       isCurrent: () => true,
@@ -83,12 +85,13 @@ void main() {
     );
     expect((await store.readForAccountId(account))?.cidNumber, cidA);
     await UserIsar.instance.writeTxn((isar) async {
-      final row = await isar.userIdentityBadgeSnapshotEntitys
+      final row = await isar
+          .collection<user_store.Identity>()
           .filter()
           .accountIdEqualTo(account)
           .findFirst();
-      row!.identitySnapshotJson = '{broken';
-      await isar.userIdentityBadgeSnapshotEntitys.put(row);
+      row!.identityData = '{broken';
+      await isar.collection<user_store.Identity>().put(row);
     });
     expect(await store.readForAccountId(account), isNull);
   });
@@ -98,42 +101,43 @@ void main() {
       nowProvider: () => DateTime.fromMillisecondsSinceEpoch(1234),
     );
 
-    await store.write(cidNumber: cidA, identityLevel: 'voting');
-    await store.write(cidNumber: cidB, identityLevel: 'candidate');
+    await store.write(cidNumber: cidA, cidLevel: 'voting');
+    await store.write(cidNumber: cidB, cidLevel: 'candidate');
 
     final citizenA = await store.read(cidA);
     final citizenB = await store.read(cidB);
-    expect(citizenA?.identityLevel, 'voting');
-    expect(citizenA?.updatedAtMillis, 1234);
-    expect(citizenB?.identityLevel, 'candidate');
+    expect(citizenA?.cidLevel, 'voting');
+    expect(citizenA?.updatedAt, 1234);
+    expect(citizenB?.cidLevel, 'candidate');
   });
 
   test('损坏快照按无展示处理且读取路径不删除事实', () async {
     final store = IdentityBadgeSnapshotStore();
     await UserIsar.instance.writeTxn((isar) async {
-      await isar.userIdentityBadgeSnapshotEntitys.put(
-        UserIdentityBadgeSnapshotEntity()
+      await isar.collection<user_store.Identity>().put(
+        user_store.Identity()
           ..cidNumber = cidA
-          ..identityLevel = 'broken'
-          ..updatedAtMillis = -1,
+          ..identityData = '{"cid_level":"broken"}'
+          ..updatedAt = -1,
       );
     });
     expect(await store.read(cidA), isNull);
     final retained = await UserIsar.instance.read(
-      (isar) async => isar.userIdentityBadgeSnapshotEntitys
+      (isar) async => isar
+          .collection<user_store.Identity>()
           .filter()
           .cidNumberEqualTo(cidA)
           .findFirst(),
     );
     expect(retained, isNotNull);
-    expect(retained?.identityLevel, 'broken');
+    expect(retained?.identityData, '{"cid_level":"broken"}');
   });
 
   test('不接受非正式身份档', () async {
     final store = IdentityBadgeSnapshotStore();
 
     await expectLater(
-      store.write(cidNumber: cidA, identityLevel: 'admin'),
+      store.write(cidNumber: cidA, cidLevel: 'admin'),
       throwsArgumentError,
     );
     expect(await store.read(cidA), isNull);

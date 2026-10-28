@@ -1,3 +1,7 @@
+import 'package:citizenapp/storage/social_isar.dart'
+    as social_store
+    show Cleanup, Draft;
+
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -22,7 +26,7 @@ SquareComposeDraft _draft(
   postType: SquarePostType.document,
   text: '内容 $id',
   media: const <SquareLocalMediaDraft>[],
-  updatedAtMillis: updatedAt,
+  updatedAt: updatedAt,
 );
 
 void main() {
@@ -88,7 +92,7 @@ void main() {
       ),
     );
     final saved = (await store.list(cid)).single;
-    expect(saved.media.single.mediaId, isNotNull);
+    expect(saved.media.single.bodyHash, isNotNull);
     expect(saved.media.single.path, isEmpty);
     expect(saved.toJsonString(), isNot(contains(documentsDirectory.path)));
     await input.delete();
@@ -97,8 +101,8 @@ void main() {
     expect(
       (await const SquareMediaStore().get(
         cidNumber: cid,
-        mediaId: saved.media.single.mediaId!,
-      ))!.complete,
+        bodyHash: saved.media.single.bodyHash!,
+      ))!.isComplete,
       isTrue,
     );
   });
@@ -142,7 +146,7 @@ void main() {
             SquareLocalMediaDraft(
               mediaKind: SquareMediaKind.image,
               path: '',
-              mediaId: other.mediaId,
+              bodyHash: other.bodyHash,
               fileName: 'other.webp',
               contentType: 'image/webp',
               byteSize: 2,
@@ -152,7 +156,7 @@ void main() {
       ),
       throwsA(isA<SquareMediaStoreException>()),
     );
-    expect((await store.list(cid)).single.updatedAtMillis, 1000);
+    expect((await store.list(cid)).single.updatedAt, 1000);
   });
 
   test('旧草稿恢复先持久保存字节，删除旧目录后仍能再次恢复', () async {
@@ -175,7 +179,7 @@ void main() {
       ],
     );
     final restored = await store.restore(legacy);
-    expect(restored.media.single.mediaId, isNotNull);
+    expect(restored.media.single.bodyHash, isNotNull);
     expect(await File(restored.media.single.path).readAsBytes(), [2, 4, 6, 8]);
     expect(await root.exists(), isFalse);
     await File(restored.media.single.path).delete();
@@ -214,22 +218,21 @@ void main() {
     await store.save(_draft('s', 5000, cidNumber: 'CN001-CTZN-200000001-2026'));
     final drafts = await store.list('CN001-CTZN-200000001-2026');
     expect(drafts.length, 1);
-    expect(drafts.single.updatedAtMillis, 5000);
+    expect(drafts.single.updatedAt, 5000);
   });
 
   test('损坏草稿读取 fail-closed，数据库行与媒体目录均原样保留', () async {
     const cidNumber = 'CN001-CTZN-300000001-2026';
     const draftId = 'broken';
-    final entity = SquareComposeDraftEntity()
-      ..draftKey = '${cidNumber.length}:$cidNumber$draftId'
+    final entity = social_store.Draft()
       ..cidNumber = cidNumber
       ..draftId = draftId
       ..postType = 'document'
       ..text = '损坏行'
-      ..mediaJson = '{bad-json'
-      ..updatedAtMillis = 1000;
+      ..mediaData = '{bad-json'
+      ..updatedAt = 1000;
     await SocialIsar.instance.writeTxn((isar) async {
-      await isar.squareComposeDraftEntitys.putByDraftKey(entity);
+      await isar.collection<social_store.Draft>().putByCidNumberDraftId(entity);
     });
     final mediaDir = Directory(
       '${documentsDirectory.path}/square_drafts/'
@@ -244,7 +247,10 @@ void main() {
     );
 
     final retained = await SocialIsar.instance.read(
-      (isar) => isar.squareComposeDraftEntitys.getByDraftKey(entity.draftKey),
+      (isar) => isar.collection<social_store.Draft>().getByCidNumberDraftId(
+        entity.cidNumber,
+        entity.draftId,
+      ),
     );
     expect(retained, isNotNull);
     expect(File('${mediaDir.path}/sentinel.bin').existsSync(), isTrue);
@@ -264,15 +270,15 @@ void main() {
 
     expect(await store.list(cidNumber), isEmpty);
     final pending = await SocialIsar.instance.read(
-      (isar) => isar.squareFileCleanupEntitys.where().findAll(),
+      (isar) => isar.collection<social_store.Cleanup>().where().findAll(),
     );
     expect(pending, hasLength(1));
-    expect(pending.single.attemptCount, 1);
+    expect(pending.single.tryCount, 1);
 
     invalidRoot.deleteSync();
     await store.retryPendingFileCleanup(cidNumber: cidNumber);
     final remaining = await SocialIsar.instance.read(
-      (isar) => isar.squareFileCleanupEntitys.where().count(),
+      (isar) => isar.collection<social_store.Cleanup>().where().count(),
     );
     expect(remaining, 0);
   });

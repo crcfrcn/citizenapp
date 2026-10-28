@@ -26,7 +26,7 @@ class InstitutionAssignmentCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final admin = adminView.admin;
-    final personName = '${admin.family_name}${admin.given_name}';
+    final personName = '${admin.familyName}${admin.givenName}';
     return Card(
       child: Padding(
         padding: EdgeInsets.all(AppLayout.scaled(context, 12)),
@@ -56,7 +56,7 @@ class InstitutionAssignmentCard extends StatelessWidget {
                 if (assignment.sourceRef.isNotEmpty)
                   Text('来源引用：${assignment.sourceRef}'),
               ],
-            Text('管理员账户：${ss58FromAccountIdText(admin.account_id)}'),
+            Text('管理员账户：${ss58FromAccountIdText(admin.accountId)}'),
             if (balanceYuan != null)
               Text('余额：${AmountFormat.formatThousands(balanceYuan)} 元'),
           ],

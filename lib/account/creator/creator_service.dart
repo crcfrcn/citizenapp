@@ -1,3 +1,6 @@
+import 'package:citizenapp/storage/wallet_isar.dart'
+    as wallet_store
+    show Creator, Member;
 import 'package:citizenapp/system/notifications/notifications.dart';
 
 import 'dart:async';
@@ -16,7 +19,7 @@ import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
 import 'package:citizenapp/scanner/qr_sign_session_page.dart';
 import 'package:citizenapp/account/membership/subscription_chain.dart';
 import 'package:citizenapp/network/hex_codec.dart' show hexToBytes;
-import 'package:citizenapp/storage/wallet_isar.dart';
+import 'package:citizenapp/storage/wallet_isar.dart' hide Group;
 
 /// 创作者页展示态：无可用钱包账户会话 / 已开通（含计划与概览）。
 
@@ -45,14 +48,14 @@ class CreatorDisplaySnapshot {
   const CreatorDisplaySnapshot({
     required this.cidNumber,
     required this.data,
-    required this.membershipFetchedAtMs,
-    required this.creatorFetchedAtMs,
+    required this.memberAt,
+    required this.creatorAt,
   });
 
   final String cidNumber;
   final CreatorPageData data;
-  final int membershipFetchedAtMs;
-  final int creatorFetchedAtMs;
+  final int memberAt;
+  final int creatorAt;
 
   bool isFresh(
     int nowMs, {
@@ -63,8 +66,8 @@ class CreatorDisplaySnapshot {
         timestamp > 0 &&
         nowMs >= timestamp &&
         nowMs - timestamp <= ttl.inMilliseconds;
-    return fresh(membershipFetchedAtMs, membershipTtl) &&
-        (data.gated || fresh(creatorFetchedAtMs, creatorTtl));
+    return fresh(memberAt, membershipTtl) &&
+        (data.gated || fresh(creatorAt, creatorTtl));
   }
 }
 
@@ -113,9 +116,6 @@ class CreatorService {
   final Map<SquareSession, Future<CreatorPageData>> _loads = {};
   final SubscriptionService _subscriptionService;
 
-  String _displaySnapshotKey(String cidNumber) =>
-      'creator_display_snapshot_by_cid:$cidNumber';
-
   /// 读取上一次成功同步的页面快照；损坏快照不参与展示，读取路径绝不删除数据。
   Future<CreatorDisplaySnapshot?> readDisplaySnapshot(String cidNumber) async {
     final normalized = cidNumber.trim();
@@ -125,8 +125,8 @@ class CreatorService {
       return CreatorDisplaySnapshot(
         cidNumber: normalized,
         data: CreatorPageData.gated(),
-        membershipFetchedAtMs: member.subscriptionFetchedAtMs,
-        creatorFetchedAtMs: 0,
+        memberAt: member.memberAt,
+        creatorAt: 0,
       );
     }
     final pushed = Notifications.instance.creatorFor(normalized);
@@ -144,40 +144,37 @@ class CreatorService {
         final overview = (pushed['overview'] as Map).cast<String, dynamic>();
         data = CreatorPageData.active(
           plan: plan,
-          overview: CreatorOverview.fromJson({
-            ...overview,
-            'month_income_fen': overview['monthly_income_fen'],
-          }),
+          overview: CreatorOverview.fromJson(overview),
         );
       }
       return CreatorDisplaySnapshot(
         cidNumber: normalized,
         data: data,
-        membershipFetchedAtMs: Notifications.instance.memberReceivedAt,
-        creatorFetchedAtMs: Notifications.instance.creatorReceivedAt,
+        memberAt: Notifications.instance.memberReceivedAt,
+        creatorAt: Notifications.instance.creatorReceivedAt,
       );
     }
-    final raw = await _readCreatorState(_displaySnapshotKey(normalized));
+    final raw = await _readCreatorState(normalized);
     if (raw == null || raw.isEmpty) return null;
     try {
       final decoded = jsonDecode(raw);
       if (decoded is! Map<String, dynamic> ||
-          decoded['cid_number'] != normalized ||
+          decoded.containsKey('cid_number') ||
           decoded['gated'] is! bool) {
         return null;
       }
       final gated = decoded['gated'] as bool;
-      final membershipFetchedAtMs = decoded['membership_fetched_at_ms'];
-      final creatorFetchedAtMs = decoded['creator_fetched_at_ms'];
-      if (membershipFetchedAtMs is! int || creatorFetchedAtMs is! int) {
+      final memberAt = decoded['member_at'];
+      final creatorAt = decoded['creator_at'];
+      if (memberAt is! int || creatorAt is! int) {
         return null;
       }
       if (gated) {
         return CreatorDisplaySnapshot(
           cidNumber: normalized,
           data: CreatorPageData.gated(),
-          membershipFetchedAtMs: membershipFetchedAtMs,
-          creatorFetchedAtMs: creatorFetchedAtMs,
+          memberAt: memberAt,
+          creatorAt: creatorAt,
         );
       }
       final planRaw = decoded['plan'];
@@ -186,7 +183,11 @@ class CreatorService {
           overviewRaw is! Map<String, dynamic>) {
         return null;
       }
-      final plan = CreatorPlan.fromJson(planRaw);
+      if (planRaw.containsKey('creator_cid_number')) return null;
+      final plan = CreatorPlan.fromJson({
+        'creator_cid_number': normalized,
+        ...planRaw,
+      });
       if (plan.creatorCidNumber != normalized) return null;
       return CreatorDisplaySnapshot(
         cidNumber: normalized,
@@ -194,8 +195,8 @@ class CreatorService {
           plan: plan,
           overview: CreatorOverview.fromJson(overviewRaw),
         ),
-        membershipFetchedAtMs: membershipFetchedAtMs,
-        creatorFetchedAtMs: creatorFetchedAtMs,
+        memberAt: memberAt,
+        creatorAt: creatorAt,
       );
     } on FormatException {
       return null;
@@ -206,30 +207,25 @@ class CreatorService {
   Future<void> rememberDisplayData({
     required String cidNumber,
     required CreatorPageData data,
-    required int membershipFetchedAtMs,
-    required int creatorFetchedAtMs,
+    required int memberAt,
+    required int creatorAt,
   }) async {
     final normalized = cidNumber.trim();
     if (normalized.isEmpty) return;
     final plan = data.plan;
     final overview = data.overview;
     await _writeCreatorState(
-      _displaySnapshotKey(normalized),
+      normalized,
       jsonEncode({
-        'cid_number': normalized,
         'gated': data.gated,
-        'membership_fetched_at_ms': membershipFetchedAtMs,
-        'creator_fetched_at_ms': creatorFetchedAtMs,
+        'member_at': memberAt,
+        'creator_at': creatorAt,
         if (plan != null)
-          'plan': {
-            'creator_cid_number': plan.creatorCidNumber,
-            'tiers': plan.tiersJson(),
-            'updated_at': plan.updatedAt,
-          },
+          'plan': {'tiers': plan.tiersJson(), 'updated_at': plan.updatedAt},
         if (overview != null)
           'overview': {
             'subscriber_count': overview.subscriberCount,
-            'month_income_fen': overview.monthIncomeFen,
+            'monthly_income_fen': overview.monthlyIncomeFen,
             'tier_count': overview.tierCount,
           },
       }),
@@ -287,8 +283,8 @@ class CreatorService {
       await rememberDisplayData(
         cidNumber: session.cidNumber,
         data: data,
-        membershipFetchedAtMs: nowMs,
-        creatorFetchedAtMs: 0,
+        memberAt: nowMs,
+        creatorAt: 0,
       );
       return data;
     }
@@ -300,8 +296,8 @@ class CreatorService {
     await rememberDisplayData(
       cidNumber: session.cidNumber,
       data: data,
-      membershipFetchedAtMs: nowMs,
-      creatorFetchedAtMs: nowMs,
+      memberAt: nowMs,
+      creatorAt: nowMs,
     );
     return data;
   }
@@ -399,15 +395,6 @@ class CreatorService {
       } on Exception {
         // 链上已经 finalized；本地审计缓存失败不得诱导用户再次签名。
       }
-      try {
-        await _writePendingProjection(
-          creatorCidNumber: session.cidNumber,
-          txHash: result.txHash,
-          blockHashHex: result.blockHashHex,
-        );
-      } on Exception {
-        // 链上已经 finalized；本地待同步缓存失败不改变交易结果。
-      }
       CreatorPlan? projectedPlan;
       try {
         projectedPlan = await _api.saveMyPlan(
@@ -415,7 +402,11 @@ class CreatorService {
           txHash: result.txHash,
           blockHashHex: result.blockHashHex,
         );
-        await _clearPendingProjection(session.cidNumber);
+        await wallet_store.Member.finishProof(
+          session.cidNumber,
+          result.txHash,
+          'plan',
+        );
       } on Exception {
         // 保留同一 finalized 交易，下次进入创作者页只重试投影确认。
       }
@@ -468,32 +459,14 @@ class CreatorService {
     return account;
   }
 
-  String _pendingProjectionKey(String creatorCidNumber) =>
-      'creator_plan_projection_pending_by_cid:$creatorCidNumber';
-
-  Future<void> _writePendingProjection({
-    required String creatorCidNumber,
-    required String txHash,
-    required String blockHashHex,
-  }) async {
-    await _writeCreatorState(
-      _pendingProjectionKey(creatorCidNumber),
-      jsonEncode({'tx_hash': txHash, 'block_hash': blockHashHex}),
-    );
-  }
-
-  Future<void> _clearPendingProjection(String creatorCidNumber) async {
-    await _deleteCreatorState(_pendingProjectionKey(creatorCidNumber));
-  }
-
   Future<void> _retryPendingProjection(SquareSession session) async {
     try {
-      final raw = await _readCreatorState(
-        _pendingProjectionKey(session.cidNumber),
+      final pending = await wallet_store.Member.readProofs(
+        session.cidNumber,
+        pendingKind: 'plan',
       );
-      if (raw == null) return;
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map<String, dynamic>) return;
+      if (pending.isEmpty) return;
+      final decoded = pending.single;
       final txHash = decoded['tx_hash'];
       final blockHashHex = decoded['block_hash'];
       if (txHash is! String || blockHashHex is! String) {
@@ -504,7 +477,7 @@ class CreatorService {
         txHash: txHash,
         blockHashHex: blockHashHex,
       );
-      await _deleteCreatorState(_pendingProjectionKey(session.cidNumber));
+      await wallet_store.Member.finishProof(session.cidNumber, txHash, 'plan');
     } on Exception {
       // 保留待同步记录；页面继续使用上一次 CitizenServe 快照，不阻断创作者功能。
     }
@@ -532,11 +505,6 @@ class CreatorService {
         txHash: txHash,
         blockHashHex: blockHashHex,
       );
-      await _writePendingProjection(
-        creatorCidNumber: creatorCidNumber,
-        txHash: txHash,
-        blockHashHex: blockHashHex,
-      );
     } on Exception {
       // 继续立即提交 Cloudflare；链上已成功，禁止把本地缓存异常变成第二次签名。
     }
@@ -548,7 +516,7 @@ class CreatorService {
         txHash: txHash,
         blockHashHex: blockHashHex,
       );
-      await _clearPendingProjection(creatorCidNumber);
+      await wallet_store.Member.finishProof(creatorCidNumber, txHash, 'plan');
     } on Exception {
       // 保留待同步记录；下次进入创作者页只重试 HTTP。
     }
@@ -565,61 +533,33 @@ class CreatorService {
     required String txHash,
     required String blockHashHex,
   }) async {
-    final key = 'subscription_tx_history_by_cid:$creatorCidNumber';
-    final raw = await _readMembershipState(key);
-    final history = <Map<String, dynamic>>[];
-    if (raw != null) {
-      final decoded = jsonDecode(raw);
-      if (decoded is List) {
-        history.addAll(decoded.whereType<Map<String, dynamic>>());
-      }
-    }
-    history.removeWhere((item) => item['tx_hash'] == txHash);
-    history.add({
-      'action': action,
-      'tx_hash': txHash,
-      'block_hash': blockHashHex,
-      'signer_account_id': accountId,
-    });
-    if (history.length > 50) history.removeRange(0, history.length - 50);
-    await _writeMembershipState(key, jsonEncode(history));
+    await wallet_store.Member.storeProof(
+      creatorCidNumber,
+      {
+        'action': action,
+        'tx_hash': txHash,
+        'block_hash': blockHashHex,
+        'signer_account_id': accountId,
+      },
+      pendingKind: 'plan',
+      replacePending: true,
+    );
   }
 
-  Future<String?> _readCreatorState(String key) => WalletIsar.instance.read(
-    (isar) async =>
-        (await isar.walletCreatorStateEntitys.getByStateKey(key))?.payloadJson,
-  );
+  Future<String?> _readCreatorState(String cidNumber) =>
+      WalletIsar.instance.read(
+        (db) async =>
+            (await db.collection<wallet_store.Creator>().getByCidNumber(
+              cidNumber,
+            ))?.bodyData,
+      );
 
-  Future<void> _writeCreatorState(String key, String payloadJson) =>
-      WalletIsar.instance.writeTxn((isar) async {
-        final row =
-            await isar.walletCreatorStateEntitys.getByStateKey(key) ??
-            WalletCreatorStateEntity();
-        row
-          ..stateKey = key
-          ..payloadJson = payloadJson;
-        await isar.walletCreatorStateEntitys.put(row);
-      });
-
-  Future<void> _deleteCreatorState(String key) =>
-      WalletIsar.instance.writeTxn((isar) async {
-        await isar.walletCreatorStateEntitys.deleteByStateKey(key);
-      });
-
-  Future<String?> _readMembershipState(String key) => WalletIsar.instance.read(
-    (isar) async =>
-        (await isar.walletMembershipStateEntitys.getByStateKey(key))
-            ?.payloadJson,
-  );
-
-  Future<void> _writeMembershipState(String key, String payloadJson) =>
-      WalletIsar.instance.writeTxn((isar) async {
-        final row =
-            await isar.walletMembershipStateEntitys.getByStateKey(key) ??
-            WalletMembershipStateEntity();
-        row
-          ..stateKey = key
-          ..payloadJson = payloadJson;
-        await isar.walletMembershipStateEntitys.put(row);
+  Future<void> _writeCreatorState(String cidNumber, String bodyData) =>
+      WalletIsar.instance.writeTxn((db) async {
+        await db.collection<wallet_store.Creator>().putByCidNumber(
+          wallet_store.Creator()
+            ..cidNumber = cidNumber
+            ..bodyData = bodyData,
+        );
       });
 }

@@ -44,12 +44,12 @@ final class CitizenChainExtrinsicOutcome {
 final class CitizenChainFeePaidEvent {
   const CitizenChainFeePaidEvent({
     required this.accountId,
-    required this.feeFen,
+    required this.feeAmount,
     required this.eventRecordIndex,
     required this.extrinsicIndex,
   });
   final String accountId;
-  final String feeFen;
+  final String feeAmount;
   final int eventRecordIndex;
   final int extrinsicIndex;
 }
@@ -143,7 +143,7 @@ final class CitizenChainTransactionEventDecoder {
         ], 'OnchainTransaction.FeePaid');
         fees[extrinsicIndex] = CitizenChainFeePaidEvent(
           accountId: _accountId(fields[0], 'account_id'),
-          feeFen: _positiveAmount(fields[1]),
+          feeAmount: _positiveAmount(fields[1]),
           eventRecordIndex: index,
           extrinsicIndex: extrinsicIndex,
         );

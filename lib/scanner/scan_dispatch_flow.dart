@@ -123,10 +123,10 @@ Future<void> _handleSquareActionSignRequest(
   final confirmed = await _showActionConfirm(context, prep);
   if (confirmed != true || !context.mounted) return;
 
-  final String responseJson;
+  final String responseData;
   try {
     // 动钱动权 → 读硬件金库、弹一次生物识别。
-    responseJson = await service.sign(prep, sdk.signing, context);
+    responseData = await service.sign(prep, sdk.signing, context);
   } on AccountSecurityException catch (e) {
     if (context.mounted) _snack(context, e.message);
     return;
@@ -140,7 +140,7 @@ Future<void> _handleSquareActionSignRequest(
   await Navigator.of(context).push(
     MaterialPageRoute(
       builder: (_) => QrSignResponsePage(
-        responseJson: responseJson,
+        responseData: responseData,
         actionLabel: prep.actionLabel,
         reviewEntries: prep.decoded.reviewFields!
             .map((field) => (field.label, field.value))
@@ -190,7 +190,7 @@ Future<void> _handleCitizenIdentitySignRequest(
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => QrSignResponsePage(
-          responseJson: response,
+          responseData: response,
           actionLabel: prep.actionLabel,
           reviewEntries: fields,
         ),
@@ -266,7 +266,7 @@ Future<void> _handleOccupySignRequest(
       final target = IdentityBinding(
         genesisHash: prep.genesisHash,
         cidNumber: prep.cidNumber,
-        bindingRevision: prep.expectedBindingRevision.toInt() + 1,
+        bindRev: prep.expectedBindingRevision.toInt() + 1,
         accountId: prep.account.accountId,
       );
       // 钱包签署响应保持；随后只等待finalized公开绑定，不暂存或重加密私有数据。
@@ -284,7 +284,7 @@ Future<void> _handleOccupySignRequest(
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => QrSignResponsePage(
-          responseJson: response,
+          responseData: response,
           actionLabel: prep.actionLabel,
           reviewEntries: reviewEntries,
         ),
@@ -311,25 +311,25 @@ Future<void> _completeRegistryBinding({
     try {
       final current = await reader.readBindingByCidNumber(target.cidNumber);
       if (current?.accountIdText == target.accountId &&
-          current?.bindingRevision == target.bindingRevision) {
+          current?.bindRev == target.bindRev) {
         await accountSecurity.activateIdentityBinding(
           genesisHash: target.genesisHash,
           cidNumber: target.cidNumber,
-          bindingRevision: target.bindingRevision,
+          bindRev: target.bindRev,
           accountId: target.accountId,
         );
         await chatRuntime.convergeFinalizedBinding(
           ChatBinding(
             bindingScope: target.genesisHash,
             userId: target.cidNumber,
-            bindingRevision: target.bindingRevision,
+            bindingRevision: target.bindRev,
             accountId: target.accountId,
           ),
         );
         accountSecurity.notifyIdentityBindingChanged();
         return;
       }
-      if (current != null && current.bindingRevision > target.bindingRevision) {
+      if (current != null && current.bindRev > target.bindRev) {
         return;
       }
     } catch (_) {

@@ -37,7 +37,7 @@ void main() {
     expect(page, hasLength(1));
     expect(page.single.proposalId, 12);
     expect(page.single.displayId, '2026000003');
-    expect(page.single.cidFullName, nationalCouncil.cidFullName);
+    expect(page.single.fullName, nationalCouncil.fullName);
     expect(page.single.subjectCidNumbers, ['LN001-NRC0G-000000001-2026']);
   });
 

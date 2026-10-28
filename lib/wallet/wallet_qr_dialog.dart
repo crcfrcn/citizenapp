@@ -27,13 +27,12 @@ Future<void> showWalletQrDialog(
 }) async {
   final normalizedAccountId = accountId.trim();
   if (!isAccountIdText(normalizedAccountId)) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('账户标识无效，无法生成二维码')));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('账户标识无效，无法生成二维码')));
     return;
   }
 
-  final ss58Address = ss58FromAccountIdText(normalizedAccountId);
+  final accountAddress = ss58FromAccountIdText(normalizedAccountId);
   final qrData = await buildWalletAccountQrData(
     context.read<CitizenSdk>().qr,
     normalizedAccountId,
@@ -82,7 +81,7 @@ Future<void> showWalletQrDialog(
             ),
             SizedBox(height: AppLayout.scaled(dialogContext, 12)),
             SelectableText(
-              ss58Address,
+              accountAddress,
               key: const ValueKey('wallet-account-address'),
               textAlign: TextAlign.center,
               style: TextStyle(
@@ -105,7 +104,9 @@ Future<void> showWalletQrDialog(
                 Expanded(
                   child: TextButton(
                     onPressed: () async {
-                      await Clipboard.setData(ClipboardData(text: ss58Address));
+                      await Clipboard.setData(
+                        ClipboardData(text: accountAddress),
+                      );
                       if (!dialogContext.mounted) return;
                       ScaffoldMessenger.of(dialogContext).showSnackBar(
                         const SnackBar(

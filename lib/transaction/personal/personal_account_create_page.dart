@@ -1,3 +1,6 @@
+import 'package:citizenapp/storage/wallet_isar.dart'
+    as wallet_store
+    show Account;
 import 'package:citizenapp/wallet/account_balance_snapshot_store.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
@@ -8,7 +11,7 @@ import 'package:provider/provider.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
-import 'package:citizenapp/storage/wallet_isar.dart';
+import 'package:citizenapp/storage/wallet_isar.dart' hide Group;
 import 'package:citizenapp/transaction/personal/multisig_create_amount_rules.dart';
 import 'package:citizenapp/scanner/qr_scan_page.dart'
     show QrScanMode, QrScanPage;
@@ -109,13 +112,13 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
     final accountId = wallet.accountId;
     // 移除旧创建人
     if (_creatorAccountId != null) {
-      _admins.removeWhere((admin) => admin.account_id == _creatorAccountId);
+      _admins.removeWhere((admin) => admin.accountId == _creatorAccountId);
     }
     _creatorAccountId = accountId;
-    _admins.removeWhere((admin) => admin.account_id == accountId); // 防重复
+    _admins.removeWhere((admin) => admin.accountId == accountId); // 防重复
     _admins.insert(
       0,
-      AdminPerson(account_id: accountId, family_name: '管理', given_name: '员'),
+      AdminPerson(accountId: accountId, familyName: '管理', givenName: '员'),
     );
   }
 
@@ -129,7 +132,7 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
     try {
       // 个人多签账户派生统一走 [derivePersonalAccountSs58]，全 app 仅此一处。
       return derivePersonalAccountSs58(
-        creatorAccountId: Uint8List.fromList(_hexDecode(wallet.accountId)),
+        creatorAccount: Uint8List.fromList(_hexDecode(wallet.accountId)),
         accountName: name,
         ss58Prefix: kGmbSs58Prefix,
       );
@@ -174,15 +177,15 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
     if (names == null || !mounted) return;
     _addAdmin(
       AdminPerson(
-        account_id: accountId,
-        family_name: names.$1,
-        given_name: names.$2,
+        accountId: accountId,
+        familyName: names.$1,
+        givenName: names.$2,
       ),
     );
   }
 
   void _addAdmin(AdminPerson admin) {
-    if (_admins.any((item) => item.account_id == admin.account_id)) {
+    if (_admins.any((item) => item.accountId == admin.accountId)) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('该管理员已在列表中')));
       return;
@@ -200,7 +203,7 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
 
   void _removeAdmin(int index) {
     // 创建人不可移除
-    if (_admins[index].account_id == _creatorAccountId) return;
+    if (_admins[index].accountId == _creatorAccountId) return;
     setState(() {
       _admins.removeAt(index);
       _syncThresholdInput();
@@ -209,10 +212,10 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
 
   Future<(String, String)?> _editNamesDialog({AdminPerson? admin}) async {
     final familyController = TextEditingController(
-      text: admin?.family_name ?? '管理',
+      text: admin?.familyName ?? '管理',
     );
     final givenController = TextEditingController(
-      text: admin?.given_name ?? '员',
+      text: admin?.givenName ?? '员',
     );
     final result = await showDialog<(String, String)>(
       context: context,
@@ -265,8 +268,8 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
     if (names == null || !mounted) return;
     setState(() {
       _admins[index] = current.copyWith(
-        family_name: names.$1,
-        given_name: names.$2,
+        familyName: names.$1,
+        givenName: names.$2,
       );
     });
   }
@@ -407,12 +410,12 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
 
       final addrHex = result.accountId;
       await WalletIsar.instance.writeTxn((isar) async {
-        final entity = PersonalAccountEntity()
+        final entity = wallet_store.Account()
           ..accountId = '0x$addrHex'
           ..accountName = nameText
-          ..creatorAccountId = wallet.accountId
-          ..addedAtMillis = DateTime.now().millisecondsSinceEpoch;
-        await isar.personalAccountEntitys.put(entity);
+          ..creatorAccount = wallet.accountId
+          ..addedAt = DateTime.now().millisecondsSinceEpoch;
+        await isar.collection<wallet_store.Account>().put(entity);
         await PersonalMultisigLocalState.putStatusInTxn(
           isar,
           addrHex,
@@ -421,15 +424,15 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
       });
 
       // 只有入块并确认 个人账户创建成功事件 事件后，才写本地
-      // 创建提案；proposalId 使用链上事件返回值，不能再预测 NextProposalId。
+      // 创建提案；proposal_id 使用链上事件返回值，不能再预测 NextProposalId。
       await PersonalProposalHistoryService(chain: chain).recordOrUpdate(
-        personalAccountId: addrHex,
+        accountId: addrHex,
         proposalId: result.proposalId,
-        action: PersonalProposalAction.create,
+        actionKind: PersonalProposalAction.create,
         status: PersonalProposalStatus.voting,
         // runtime 投票引擎创建提案后会在同一事务自动给发起人记一票赞成。
-        yesVotes: 1,
-        noVotes: 0,
+        yesCount: 1,
+        noCount: 0,
         snapshot: {
           'name': nameText,
           'admins_len': _admins.length,
@@ -534,8 +537,8 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
           SizedBox(height: AppLayout.scaled(context, 8)),
           ..._admins.asMap().entries.map((entry) {
             final admin = entry.value;
-            final ss58 = _hexToSs58(admin.account_id);
-            final isCreator = admin.account_id == _creatorAccountId;
+            final ss58 = _hexToSs58(admin.accountId);
+            final isCreator = admin.accountId == _creatorAccountId;
             return ListTile(
               dense: true,
               contentPadding: EdgeInsets.zero,
@@ -584,7 +587,7 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
                   ],
                 ],
               ),
-              subtitle: Text('${admin.family_name}${admin.given_name}'),
+              subtitle: Text('${admin.familyName}${admin.givenName}'),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [

@@ -17,7 +17,7 @@ import 'package:citizenapp/transaction/history/wallet_transaction_history_servic
 ///   @override
 ///   void initState() {
 ///     super.initState();
-///     startTxAutoRefresh(accountId);
+///     startTxAutoRefresh(account_id);
 ///   }
 ///   @override
 ///   Future<void> onTxRecordsChanged() => _loadRecords();

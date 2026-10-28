@@ -75,9 +75,9 @@ class SquareVideoTranscoder(private val context: Context) {
         cover.delete()
 
         val source = inspectSource(input)
-        require(source.durationSeconds in 1..request.maxDurationSeconds) { "视频时长超出会员上限" }
+        require(source.videoSecs in 1..request.videoMaxSeconds) { "视频时长超出会员上限" }
         require(!source.isHdr) { "HDR/Dolby Vision 视频不允许发布，请先转为 SDR" }
-        val target = fitVideo(source.width, source.height, request.maxWidth, request.maxHeight)
+        val target = fitVideo(source.pixelWidth, source.pixelHeight, request.videoWidth, request.videoHeight)
         val videoEffect: Effect = Presentation.createForWidthAndHeight(
             target.first,
             target.second,
@@ -87,14 +87,14 @@ class SquareVideoTranscoder(private val context: Context) {
             setOutputSampleRateHz(request.audioSampleRate)
         }
         val editedMediaItem = EditedMediaItem.Builder(MediaItem.fromUri(input.toURI().toString()))
-            .setFrameRate(min(source.frameRate.roundToInt().coerceAtLeast(1), request.maxFrameRate))
+            .setFrameRate(min(source.videoFrameRate.roundToInt().coerceAtLeast(1), request.videoFrameRate))
             .setEffects(Effects(listOf(resampler), listOf(videoEffect)))
             .build()
 
         val videoSettings = VideoEncoderSettings.Builder()
             .setBitrate(request.videoBitrate)
             .setBitrateMode(MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)
-            .setiFrameIntervalSeconds(request.keyFrameIntervalSeconds.toFloat())
+            .setiFrameIntervalSeconds(request.keyframeSecs.toFloat())
             .setMaxBFrames(0)
             .build()
         val audioSettings = AudioEncoderSettings.Builder()
@@ -174,10 +174,10 @@ class SquareVideoTranscoder(private val context: Context) {
     }
 
     private data class SourceInfo(
-        val durationSeconds: Int,
-        val width: Int,
-        val height: Int,
-        val frameRate: Float,
+        val videoSecs: Int,
+        val pixelWidth: Int,
+        val pixelHeight: Int,
+        val videoFrameRate: Float,
         val isHdr: Boolean,
     )
 
@@ -206,8 +206,8 @@ class SquareVideoTranscoder(private val context: Context) {
                 if (rotation == 90 || rotation == 270) {
                     width = height.also { height = width }
                 }
-                val frameRate = video.floatOrNull(MediaFormat.KEY_FRAME_RATE) ?: 30f
-                return SourceInfo(ceil(durationMs / 1000.0).toInt(), width, height, frameRate, isHdr)
+                val videoFrameRate = video.floatOrNull(MediaFormat.KEY_FRAME_RATE) ?: 30f
+                return SourceInfo(ceil(durationMs / 1000.0).toInt(), width, height, videoFrameRate, isHdr)
             } finally {
                 retriever.release()
             }
@@ -216,9 +216,9 @@ class SquareVideoTranscoder(private val context: Context) {
         }
     }
 
-    private fun fitVideo(width: Int, height: Int, maxWidth: Int, maxHeight: Int): Pair<Int, Int> {
-        val boundWidth = if (height > width) maxHeight else maxWidth
-        val boundHeight = if (height > width) maxWidth else maxHeight
+    private fun fitVideo(width: Int, height: Int, videoWidth: Int, videoHeight: Int): Pair<Int, Int> {
+        val boundWidth = if (height > width) videoHeight else videoWidth
+        val boundHeight = if (height > width) videoWidth else videoHeight
         val scale = min(1.0, min(boundWidth.toDouble() / width, boundHeight.toDouble() / height))
         val outputWidth = max(2, ((width * scale).roundToInt() / 2) * 2)
         val outputHeight = max(2, ((height * scale).roundToInt() / 2) * 2)
@@ -233,7 +233,7 @@ class SquareVideoTranscoder(private val context: Context) {
                 ?: retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                 ?: throw IllegalArgumentException("无法生成视频封面")
             val longest = max(frame.width, frame.height)
-            val scale = min(1.0, request.coverMaxEdge.toDouble() / longest)
+            val scale = min(1.0, request.coverDimension.toDouble() / longest)
             val scaled = if (scale < 1.0) {
                 Bitmap.createScaledBitmap(
                     frame,
@@ -258,7 +258,7 @@ class SquareVideoTranscoder(private val context: Context) {
     }
 
     private fun inspectOutput(video: File, cover: File, request: SquareVideoRequest): Map<String, Any> {
-        require(video.length() in 1..request.maxBytes) { "视频成品超过大小上限" }
+        require(video.length() in 1..request.videoMaxBytes) { "视频成品超过大小上限" }
         require(SquareMp4FastStart.isFastStart(video)) { "视频成品不是 faststart MP4" }
         require(SquareMp4FastStart.containsSampleEntry(video, "hvc1")) { "视频 sample entry 不是 hvc1" }
         val extractor = MediaExtractor()
@@ -284,17 +284,17 @@ class SquareVideoTranscoder(private val context: Context) {
             val format = videoFormat ?: throw IllegalArgumentException("成品缺少视频轨")
             require(durationUs > 0) { "视频成品时长不合法" }
             val peak = peakBitrate(extractor)
-            val durationSeconds = ceil(durationUs / 1_000_000.0).toInt()
+            val videoSecs = ceil(durationUs / 1_000_000.0).toInt()
             val average = (video.length() * 8_000_000L / durationUs).toInt()
             val transfer = format.intOrNull(MediaFormat.KEY_COLOR_TRANSFER)
             val isSdr = transfer == null || transfer == MediaFormat.COLOR_TRANSFER_SDR_VIDEO
             return mapOf(
-                "duration_seconds" to durationSeconds,
-                "width" to format.getInteger(MediaFormat.KEY_WIDTH),
-                "height" to format.getInteger(MediaFormat.KEY_HEIGHT),
-                "frame_rate" to (format.floatOrNull(MediaFormat.KEY_FRAME_RATE) ?: request.maxFrameRate.toFloat()),
-                "total_average_bitrate" to average,
-                "total_peak_bitrate" to peak,
+                "video_secs" to videoSecs,
+                "pixel_width" to format.getInteger(MediaFormat.KEY_WIDTH),
+                "pixel_height" to format.getInteger(MediaFormat.KEY_HEIGHT),
+                "video_frame_rate" to (format.floatOrNull(MediaFormat.KEY_FRAME_RATE) ?: request.videoFrameRate.toFloat()),
+                "video_average_bitrate" to average,
+                "video_peak_bitrate" to peak,
                 "byte_size" to video.length(),
                 "cover_byte_size" to cover.length(),
                 "video_codec" to "hevc",

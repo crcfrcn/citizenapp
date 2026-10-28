@@ -36,7 +36,7 @@ class CitizenProfileApi {
   }) {
     if (!userInitiated) throw StateError('普通加载不得刷新远端资料');
     final binding =
-        '${session.cidNumber}:${session.accountId}:${session.bindingRevision}';
+        '${session.cidNumber}:${session.accountId}:${session.bindRev}';
     void check() {
       if (!session.isUsable || !(isCurrent?.call() ?? true)) {
         throw StateError('资料刷新身份已变化');
@@ -63,18 +63,12 @@ class CitizenProfileApi {
           await CitizenProfileMediaCache().refresh(
             client: mediaClient,
             profile: profile,
-            avatarUrl: profile.avatarObjectKey == null
+            avatarUrl: profile.avatarKey == null
                 ? null
-                : mediaUrl(
-                    profile.avatarObjectKey!,
-                    updatedAt: profile.updatedAt,
-                  ),
-            bannerUrl: profile.bannerObjectKey == null
+                : mediaUrl(profile.avatarKey!, updatedAt: profile.profileAt),
+            bannerUrl: profile.bannerKey == null
                 ? null
-                : mediaUrl(
-                    profile.bannerObjectKey!,
-                    updatedAt: profile.updatedAt,
-                  ),
+                : mediaUrl(profile.bannerKey!, updatedAt: profile.profileAt),
           );
         } finally {
           mediaClient.close();
@@ -125,12 +119,9 @@ class CitizenProfileApi {
       return await cache.refresh(
         client: reader,
         profile: profile,
-        avatarUrl: profile.avatarObjectKey == null
+        avatarUrl: profile.avatarKey == null
             ? null
-            : cardMediaUrl(
-                profile.avatarObjectKey!,
-                updatedAt: profile.updatedAt,
-              ),
+            : cardMediaUrl(profile.avatarKey!, updatedAt: profile.profileAt),
         bannerUrl: null,
       );
     } finally {
@@ -170,7 +161,7 @@ class CitizenProfileApi {
   }) {
     return _client.fetchAuthorPosts(
       cidNumber: cidNumber,
-      category: category,
+      postCategory: category,
       postType: postType,
       limit: limit,
       cursor: cursor,
@@ -243,19 +234,19 @@ class CitizenProfileApi {
     required SquareSession session,
     String? displayName,
     String? profileBio,
-    String? avatarObjectKey,
-    String? avatarContentHash,
-    String? bannerObjectKey,
-    String? bannerContentHash,
+    String? avatarKey,
+    String? avatarHash,
+    String? bannerKey,
+    String? bannerHash,
   }) {
     return _client.updateProfile(
       session: session,
       displayName: displayName,
       profileBio: profileBio,
-      avatarObjectKey: avatarObjectKey,
-      avatarContentHash: avatarContentHash,
-      bannerObjectKey: bannerObjectKey,
-      bannerContentHash: bannerContentHash,
+      avatarKey: avatarKey,
+      avatarHash: avatarHash,
+      bannerKey: bannerKey,
+      bannerHash: bannerHash,
     );
   }
 }
@@ -302,7 +293,7 @@ final class _SignedProfileMediaImage
           ? await client.openCardMedia(url, session: session)
           : await client.openProfileMedia(url, session: session);
       final limit = role == 'post'
-          ? SquareMediaPolicy.maxLocalImageBytes
+          ? SquareMediaPolicy.localImageBytes
           : CitizenProfileMediaCache.maxBytesFor(
               role == 'card' ? 'avatar' : role,
             );

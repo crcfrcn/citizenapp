@@ -23,39 +23,34 @@ void main() {
 
   ScannedAdminAccount acc({
     required String key,
-    required String institutionCode,
+    required String orgCode,
     required int kind,
     required List<String> adminAccountIds,
-  }) =>
-      ScannedAdminAccount(
-        cidNumber: kind == AdminAccountStorageCodec.kindPersonal ? null : key,
-        personalAccountId:
-            kind == AdminAccountStorageCodec.kindPersonal ? key : null,
-        institutionCode: institutionCode,
-        kind: kind,
-        admins: adminAccountIds
-            .map(
-              (account) => AdminPerson(
-                account_id: account,
-                family_name: '管理',
-                given_name: '员',
-              ),
-            )
-            .toList(growable: false),
-      );
+  }) => ScannedAdminAccount(
+    cidNumber: kind == AdminAccountStorageCodec.kindPersonal ? null : key,
+    accountId: kind == AdminAccountStorageCodec.kindPersonal ? key : null,
+    orgCode: orgCode,
+    kind: kind,
+    admins: adminAccountIds
+        .map(
+          (account) =>
+              AdminPerson(accountId: account, familyName: '管理', givenName: '员'),
+        )
+        .toList(growable: false),
+  );
 
   group('AdminAccountsScanService.filterMine', () {
     test('按 kind 分流:只保留个人多签', () {
       final scan = resultOf([
         acc(
           key: 'CID-01',
-          institutionCode: 'CGOV',
+          orgCode: 'CGOV',
           kind: AdminAccountStorageCodec.kindPublicInstitution,
           adminAccountIds: [myAccountId],
         ),
         acc(
           key: '02',
-          institutionCode: 'PMUL',
+          orgCode: 'PMUL',
           kind: AdminAccountStorageCodec.kindPersonal,
           adminAccountIds: [myAccountId],
         ),
@@ -66,20 +61,20 @@ void main() {
         myAccountIds: {myAccountId},
         kind: AdminAccountStorageCodec.kindPersonal,
       );
-      expect(personals.map((e) => e.personalAccountId), ['02']);
+      expect(personals.map((e) => e.accountId), ['02']);
     });
 
     test('institution_code 白名单:个人多签仍可按 PMUL 过滤', () {
       final scan = resultOf([
         acc(
           key: '01',
-          institutionCode: 'PMUL',
+          orgCode: 'PMUL',
           kind: AdminAccountStorageCodec.kindPersonal,
           adminAccountIds: [myAccountId],
         ),
         acc(
           key: '02',
-          institutionCode: 'XXXX',
+          orgCode: 'XXXX',
           kind: AdminAccountStorageCodec.kindPersonal,
           adminAccountIds: [myAccountId],
         ),
@@ -90,44 +85,47 @@ void main() {
         kind: AdminAccountStorageCodec.kindPersonal,
         codeWhitelist: const {'PMUL'},
       );
-      expect(result.map((e) => e.personalAccountId), ['01']);
+      expect(result.map((e) => e.accountId), ['01']);
     });
 
     test('钱包匹配:管理员不含本地钱包的账户被排除', () {
       final scan = resultOf([
         acc(
-            key: '01',
-            institutionCode: 'PMUL',
-            kind: AdminAccountStorageCodec.kindPersonal,
-            adminAccountIds: [myAccountId, otherAccountId]),
+          key: '01',
+          orgCode: 'PMUL',
+          kind: AdminAccountStorageCodec.kindPersonal,
+          adminAccountIds: [myAccountId, otherAccountId],
+        ),
         acc(
-            key: '02',
-            institutionCode: 'PMUL',
-            kind: AdminAccountStorageCodec.kindPersonal,
-            adminAccountIds: [otherAccountId]),
+          key: '02',
+          orgCode: 'PMUL',
+          kind: AdminAccountStorageCodec.kindPersonal,
+          adminAccountIds: [otherAccountId],
+        ),
       ]);
       final result = AdminAccountsScanService.filterMine(
         scan,
         myAccountIds: {myAccountId},
         kind: AdminAccountStorageCodec.kindPersonal,
       );
-      expect(result.map((e) => e.personalAccountId), ['01']);
+      expect(result.map((e) => e.accountId), ['01']);
     });
 
     test('多钱包:命中任一本地钱包即保留', () {
       final scan = resultOf([
         acc(
-            key: '01',
-            institutionCode: 'PMUL',
-            kind: AdminAccountStorageCodec.kindPersonal,
-            adminAccountIds: [secondAccountId]),
+          key: '01',
+          orgCode: 'PMUL',
+          kind: AdminAccountStorageCodec.kindPersonal,
+          adminAccountIds: [secondAccountId],
+        ),
       ]);
       final result = AdminAccountsScanService.filterMine(
         scan,
         myAccountIds: {myAccountId, secondAccountId},
         kind: AdminAccountStorageCodec.kindPersonal,
       );
-      expect(result.map((e) => e.personalAccountId), ['01']);
+      expect(result.map((e) => e.accountId), ['01']);
     });
 
     test('空扫描结果返回空', () {

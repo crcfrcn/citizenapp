@@ -34,17 +34,17 @@ class CreatorTierInput {
 
 /// finalized `Subscriptions` 中的平台或创作者付款计划。
 class ChainSubscriptionPlan {
-  const ChainSubscriptionPlan.platform(this.membershipLevel)
-      : kind = 'platform',
-        tierId = null,
-        billingPeriod = null;
+  const ChainSubscriptionPlan.platform(this.memberLevel)
+    : kind = 'platform',
+      tierId = null,
+      billingPeriod = null;
 
   const ChainSubscriptionPlan.creator(this.tierId, this.billingPeriod)
-      : kind = 'creator',
-        membershipLevel = null;
+    : kind = 'creator',
+      memberLevel = null;
 
   final String kind;
-  final String? membershipLevel;
+  final String? memberLevel;
   final String? tierId;
   final String? billingPeriod;
 }
@@ -54,23 +54,23 @@ class ChainSubscriptionState {
   const ChainSubscriptionState({
     required this.plan,
     required this.startedAt,
-    required this.lastChargedAt,
-    required this.lastChargedPriceFen,
+    required this.chargeAt,
+    required this.chargeFen,
     required this.paidUntil,
-    required this.status,
-    required this.authorizedPriceFen,
+    required this.subState,
+    required this.priceFen,
     required this.suspendReason,
   });
 
   final ChainSubscriptionPlan plan;
   final int startedAt;
-  final int lastChargedAt;
-  final BigInt lastChargedPriceFen;
+  final int chargeAt;
+  final BigInt chargeFen;
   final int paidUntil;
-  final String status;
+  final String subState;
 
   /// 订阅者已授权用于自动续费的价格；创作者改价后据此提示重新签名。
-  final BigInt authorizedPriceFen;
+  final BigInt priceFen;
 
   /// 挂起原因：`needReconsent` / `insufficientBalance` /
   /// `identityBindingUnavailable` / `null`（非挂起态）。
@@ -79,7 +79,8 @@ class ChainSubscriptionState {
   /// Active 与已签名取消但仍在已付周期内的 Cancelled 都继续提供权益；
   /// suspended / issuerPaused 暂停期无权益。
   bool isEffectiveAt(int chainNowMs) =>
-      (status == 'active' || status == 'cancelled') && chainNowMs < paidUntil;
+      (subState == 'active' || subState == 'cancelled') &&
+      chainNowMs < paidUntil;
 }
 
 /// 同一 finalized 区块上的订阅状态与共识时间戳，避免本机时钟参与权益判断。
@@ -127,8 +128,8 @@ class SubscriptionChain {
   const SubscriptionChain({
     required CitizenChain chain,
     required CitizenTransactions transactions,
-  })  : _chain = chain,
-        _transactions = transactions;
+  }) : _chain = chain,
+       _transactions = transactions;
 
   final CitizenChain _chain;
   final CitizenTransactions _transactions;
@@ -149,18 +150,18 @@ class SubscriptionChain {
   static const int _planCreatorTag = 1;
 
   static int membershipLevelByte(String level) => switch (level) {
-        'freedom' => 0,
-        'democracy' => 1,
-        'spark' => 2,
-        _ => throw ArgumentError('未知平台会员档：$level'),
-      };
+    'freedom' => 0,
+    'democracy' => 1,
+    'spark' => 2,
+    _ => throw ArgumentError('未知平台会员档：$level'),
+  };
 
   static int billingPeriodByte(String period) => switch (period) {
-        'monthly' => 0,
-        'quarterly' => 1,
-        'yearly' => 2,
-        _ => throw ArgumentError('未知订阅周期：$period'),
-      };
+    'monthly' => 0,
+    'quarterly' => 1,
+    'yearly' => 2,
+    _ => throw ArgumentError('未知订阅周期：$period'),
+  };
 
   Future<FinalizedSubscriptionTransaction> subscribePlatform({
     required Uint8List signerPublicKey,
@@ -168,16 +169,16 @@ class SubscriptionChain {
     required BigInt expectedPriceFen,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
-  }) =>
-      _submitFinalized(
-        callData: buildSubscribePlatformCall(
-          membershipLevelByte(level),
-          expectedPriceFen,
-        ),
-        signerPublicKey: signerPublicKey,
-        externalSigning: externalSigning,
-      );
+    )
+    externalSigning,
+  }) => _submitFinalized(
+    callData: buildSubscribePlatformCall(
+      membershipLevelByte(level),
+      expectedPriceFen,
+    ),
+    signerPublicKey: signerPublicKey,
+    externalSigning: externalSigning,
+  );
 
   Future<FinalizedSubscriptionTransaction> subscribeCreator({
     required Uint8List signerPublicKey,
@@ -187,43 +188,43 @@ class SubscriptionChain {
     required BigInt expectedPriceFen,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
-  }) =>
-      _submitFinalized(
-        callData: buildSubscribeCreatorCall(
-          creatorCidNumber,
-          tierId,
-          billingPeriod,
-          expectedPriceFen,
-        ),
-        signerPublicKey: signerPublicKey,
-        externalSigning: externalSigning,
-      );
+    )
+    externalSigning,
+  }) => _submitFinalized(
+    callData: buildSubscribeCreatorCall(
+      creatorCidNumber,
+      tierId,
+      billingPeriod,
+      expectedPriceFen,
+    ),
+    signerPublicKey: signerPublicKey,
+    externalSigning: externalSigning,
+  );
 
   Future<FinalizedSubscriptionTransaction> cancelPlatform({
     required Uint8List signerPublicKey,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
-  }) =>
-      _submitFinalized(
-        callData: buildCancelPlatformCall(),
-        signerPublicKey: signerPublicKey,
-        externalSigning: externalSigning,
-      );
+    )
+    externalSigning,
+  }) => _submitFinalized(
+    callData: buildCancelPlatformCall(),
+    signerPublicKey: signerPublicKey,
+    externalSigning: externalSigning,
+  );
 
   Future<FinalizedSubscriptionTransaction> cancelCreator({
     required Uint8List signerPublicKey,
     required String creatorCidNumber,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
-  }) =>
-      _submitFinalized(
-        callData: buildCancelCreatorCall(creatorCidNumber),
-        signerPublicKey: signerPublicKey,
-        externalSigning: externalSigning,
-      );
+    )
+    externalSigning,
+  }) => _submitFinalized(
+    callData: buildCancelCreatorCall(creatorCidNumber),
+    signerPublicKey: signerPublicKey,
+    externalSigning: externalSigning,
+  );
 
   Future<FinalizedSubscriptionTransaction> changePlatformPlan({
     required Uint8List signerPublicKey,
@@ -231,16 +232,16 @@ class SubscriptionChain {
     required BigInt expectedPriceFen,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
-  }) =>
-      _submitFinalized(
-        callData: buildChangePlatformPlanCall(
-          membershipLevelByte(level),
-          expectedPriceFen,
-        ),
-        signerPublicKey: signerPublicKey,
-        externalSigning: externalSigning,
-      );
+    )
+    externalSigning,
+  }) => _submitFinalized(
+    callData: buildChangePlatformPlanCall(
+      membershipLevelByte(level),
+      expectedPriceFen,
+    ),
+    signerPublicKey: signerPublicKey,
+    externalSigning: externalSigning,
+  );
 
   Future<FinalizedSubscriptionTransaction> changeCreatorPlan({
     required Uint8List signerPublicKey,
@@ -250,18 +251,18 @@ class SubscriptionChain {
     required BigInt expectedPriceFen,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
-  }) =>
-      _submitFinalized(
-        callData: buildChangeCreatorPlanCall(
-          creatorCidNumber,
-          tierId,
-          billingPeriod,
-          expectedPriceFen,
-        ),
-        signerPublicKey: signerPublicKey,
-        externalSigning: externalSigning,
-      );
+    )
+    externalSigning,
+  }) => _submitFinalized(
+    callData: buildChangeCreatorPlanCall(
+      creatorCidNumber,
+      tierId,
+      billingPeriod,
+      expectedPriceFen,
+    ),
+    signerPublicKey: signerPublicKey,
+    externalSigning: externalSigning,
+  );
 
   /// 创作者一次签名覆盖链上付款档位；Cloudflare 保存展示字段时不得再索要业务签名。
   Future<FinalizedSubscriptionTransaction> setCreatorPlans({
@@ -269,13 +270,13 @@ class SubscriptionChain {
     required List<CreatorTierInput> tiers,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
-  }) =>
-      _submitFinalized(
-        callData: buildSetCreatorPlansCall(tiers),
-        signerPublicKey: signerPublicKey,
-        externalSigning: externalSigning,
-      );
+    )
+    externalSigning,
+  }) => _submitFinalized(
+    callData: buildSetCreatorPlansCall(tiers),
+    signerPublicKey: signerPublicKey,
+    externalSigning: externalSigning,
+  );
 
   /// 只更新既有档位名称，不改变价格、订阅授权或续费状态。
   Future<FinalizedSubscriptionTransaction> updateCreatorTierName({
@@ -284,29 +285,29 @@ class SubscriptionChain {
     required String tierName,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
-  }) =>
-      _submitFinalized(
-        callData: buildUpdateCreatorTierNameCall(tierId, tierName),
-        signerPublicKey: signerPublicKey,
-        externalSigning: externalSigning,
-      );
+    )
+    externalSigning,
+  }) => _submitFinalized(
+    callData: buildUpdateCreatorTierNameCall(tierId, tierName),
+    signerPublicKey: signerPublicKey,
+    externalSigning: externalSigning,
+  );
 
   /// 在同一个 finalized 区块读取订阅真态与 `Timestamp.Now`。
   Future<FinalizedSubscriptionSnapshot> fetchSubscriptionSnapshot({
-    required String subscriberCidNumber,
+    required String cidNumber,
     String? creatorCidNumber,
   }) async {
     final block = await _chain.getFinalizedHead();
     final subscriptionKey = buildSubscriptionStorageKey(
-      subscriberCidNumber,
+      cidNumber,
       creatorCidNumber,
     );
     final timestampKey = buildStorageValueKey('Timestamp', 'Now');
-    final values = await _chain.getStorageBatch(
-      block,
-      <Uint8List>[subscriptionKey, timestampKey],
-    );
+    final values = await _chain.getStorageBatch(block, <Uint8List>[
+      subscriptionKey,
+      timestampKey,
+    ]);
     final timestamp = values[1];
     if (timestamp == null || timestamp.length != 8) {
       throw const FormatException('finalized Timestamp.Now 缺失或编码不合法');
@@ -338,13 +339,10 @@ class SubscriptionChain {
     final data = await _chain.getStorage(block, key);
     if (data == null) return const <ChainCreatorTier>[];
     final priceTiers = decodeCreatorPlans(data);
-    final encodedNames = await _chain.getStorageBatch(
-      block,
-      <Uint8List>[
-        for (final tier in priceTiers)
-          buildCreatorTierNameStorageKey(creatorCidNumber, tier.tierId),
-      ],
-    );
+    final encodedNames = await _chain.getStorageBatch(block, <Uint8List>[
+      for (final tier in priceTiers)
+        buildCreatorTierNameStorageKey(creatorCidNumber, tier.tierId),
+    ]);
     return List.unmodifiable([
       for (var index = 0; index < priceTiers.length; index++)
         ChainCreatorTier(
@@ -362,7 +360,8 @@ class SubscriptionChain {
     required Uint8List signerPublicKey,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
+    )
+    externalSigning,
   }) async {
     final prepared = await _transactions.prepareTransaction(
       signerPublicKey,
@@ -387,8 +386,7 @@ class SubscriptionChain {
     } else {
       completed = started as CitizenTransactionExecutionCompleted;
     }
-    if (completed.resolution !=
-            CitizenTransactionResolution.finalizedSuccess ||
+    if (completed.resolution != CitizenTransactionResolution.finalizedSuccess ||
         completed.execution == null) {
       throw StateError(completed.poolRejectionReason ?? '订阅交易执行失败');
     }
@@ -583,11 +581,11 @@ class SubscriptionChain {
   /// `Subscriptions[(subscriber, issuer)]` 的 Blake2_128Concat 单键布局。
   @visibleForTesting
   static Uint8List buildSubscriptionStorageKey(
-    String subscriberCidNumber,
+    String cidNumber,
     String? creatorCidNumber,
   ) {
     final raw = BytesBuilder(copy: false)
-      ..add(_encodedCidNumber(subscriberCidNumber))
+      ..add(_encodedCidNumber(cidNumber))
       ..addByte(
         creatorCidNumber == null ? _issuerPlatformTag : _issuerCreatorTag,
       );
@@ -633,26 +631,24 @@ class SubscriptionChain {
     String pallet,
     String storage,
     Uint8List keyData,
-  ) =>
-      Uint8List.fromList([
-        ...buildStorageValueKey(pallet, storage),
-        ...Hasher.blake2b128.hash(keyData),
-        ...keyData,
-      ]);
+  ) => Uint8List.fromList([
+    ...buildStorageValueKey(pallet, storage),
+    ...Hasher.blake2b128.hash(keyData),
+    ...keyData,
+  ]);
 
   static Uint8List _storageDoubleMapKey(
     String pallet,
     String storage,
     Uint8List firstKeyData,
     Uint8List secondKeyData,
-  ) =>
-      Uint8List.fromList([
-        ...buildStorageValueKey(pallet, storage),
-        ...Hasher.blake2b128.hash(firstKeyData),
-        ...firstKeyData,
-        ...Hasher.blake2b128.hash(secondKeyData),
-        ...secondKeyData,
-      ]);
+  ) => Uint8List.fromList([
+    ...buildStorageValueKey(pallet, storage),
+    ...Hasher.blake2b128.hash(firstKeyData),
+    ...firstKeyData,
+    ...Hasher.blake2b128.hash(secondKeyData),
+    ...secondKeyData,
+  ]);
 
   /// 严格解码 `SubscriptionState`；截断、非法枚举和尾随字节直接报错，禁止降级成无订阅。
   @visibleForTesting
@@ -660,8 +656,8 @@ class SubscriptionChain {
     final reader = _ScaleReader(data);
     final plan = _readPlan(reader);
     final startedAt = reader.u64();
-    final lastChargedAt = reader.u64();
-    final lastChargedPriceFen = reader.u128();
+    final chargeAt = reader.u64();
+    final chargeFen = reader.u128();
     final paidUntil = reader.u64();
     final status = switch (reader.byte()) {
       0 => 'active',
@@ -669,9 +665,9 @@ class SubscriptionChain {
       2 => 'terminated',
       3 => 'suspended',
       4 => 'issuerPaused',
-      _ => throw const FormatException('subscription_status 枚举不合法'),
+      _ => throw const FormatException('sub_state 枚举不合法'),
     };
-    final authorizedPriceFen = reader.u128();
+    final priceFen = reader.u128();
     final suspendTag = reader.byte();
     final String? suspendReason;
     if (suspendTag == 0) {
@@ -687,17 +683,17 @@ class SubscriptionChain {
       throw const FormatException('suspend_reason Option 枚举不合法');
     }
     reader.requireEnd();
-    if (paidUntil <= lastChargedAt) {
+    if (paidUntil <= chargeAt) {
       throw const FormatException('paid_until 必须晚于最近扣款时间');
     }
     return ChainSubscriptionState(
       plan: plan,
       startedAt: startedAt,
-      lastChargedAt: lastChargedAt,
-      lastChargedPriceFen: lastChargedPriceFen,
+      chargeAt: chargeAt,
+      chargeFen: chargeFen,
       paidUntil: paidUntil,
-      status: status,
-      authorizedPriceFen: authorizedPriceFen,
+      subState: status,
+      priceFen: priceFen,
       suspendReason: suspendReason,
     );
   }

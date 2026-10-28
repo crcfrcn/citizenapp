@@ -1,3 +1,4 @@
+import 'package:citizenapp/storage/app_isar.dart' as app_store show Entity;
 import 'package:provider/provider.dart';
 
 import 'dart:async';
@@ -9,7 +10,6 @@ import 'package:citizenapp/citizen/institution/institution_repository.dart';
 import 'package:citizenapp/citizen/public/city_institution_list_page.dart';
 import 'package:citizenapp/citizen/public/public_institution_repository.dart';
 import 'package:citizenapp/citizen/public/public_provinces.dart';
-import 'package:citizenapp/storage/app_isar.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
 import 'package:citizenapp/system/theme/app_theme.dart';
 import 'package:citizenapp/system/theme/app_layout.dart';
@@ -35,7 +35,7 @@ class PublicTab extends StatefulWidget {
 /// 关注分组的固定标签(置顶,非省份)。
 const String _kFollowGroup = '关注';
 
-/// 市列表行 view-model:cityCode(查询/导航键)+ 预 join 的市名(显示)。
+/// 市列表行 view-model:city_code(查询/导航键)+ 预 join 的市名(显示)。
 ///
 /// (ADR-021):机构只存 code,市名查字典 join。**不在 widget build 里
 /// await**——在 state 层预 join 成此 view-model,UI 直接读 [name]。
@@ -50,8 +50,9 @@ class _PublicPageState extends State<PublicTab> {
       widget.repository ?? PublicInstitutionRepository();
 
   /// 统一详情页入口仓库门面(包装目录仓库;ADR-028 决策 2)。
-  late final InstitutionRepository _institutionRepo =
-      InstitutionRepository(directory: _repo);
+  late final InstitutionRepository _institutionRepo = InstitutionRepository(
+    directory: _repo,
+  );
 
   List<PublicProvinceItem> _provinces = const [];
 
@@ -60,13 +61,13 @@ class _PublicPageState extends State<PublicTab> {
   String? _subscriberCidNumber;
 
   List<_CityVm> _cities = const [];
-  List<PublicInstitutionEntity> _subscribed = const [];
+  List<app_store.Entity> _subscribed = const [];
 
   /// 已 join 的各省市列表内存缓存:再次进入同一省直接秒显,不重跑、不转圈。
   /// 后台增量刷新成功后回写本缓存,保证再次进入既快又新。
   final Map<String, List<_CityVm>> _cityCache = {};
 
-  /// 关注分组每条机构的预 join 所属地(cidNumber → 「省名·市名」)。
+  /// 关注分组每条机构的预 join 所属地(cid_number → 「省名·市名」)。
   Map<String, String> _subscribedArea = const {};
   bool _contentLoading = true;
   String? _contentError;
@@ -129,7 +130,7 @@ class _PublicPageState extends State<PublicTab> {
           _contentError = null;
         });
         final subs = _subscriberCidNumber == null
-            ? <PublicInstitutionEntity>[]
+            ? <app_store.Entity>[]
             : await _repo.listSubscribed(_subscriberCidNumber!);
         // 预 join 关注机构的所属地(省名·市名),不在 build 里 await。
         final areas = <String, String>{};
@@ -184,14 +185,16 @@ class _PublicPageState extends State<PublicTab> {
     if (codes.isEmpty) return const [];
     // 一次取全省市名映射,避免逐市查字典的 N+1(ADR-018 R2)。
     final nameMap = await _repo.cityNameMap(provinceCode);
-    return codes.map((code) {
-      // 字典名缺失(null)或为空串都回退 code,绝不渲染留白(ADR-021 字典 join)。
-      final joined = nameMap[code];
-      return _CityVm(
-        code: code,
-        name: (joined != null && joined.isNotEmpty) ? joined : code,
-      );
-    }).toList(growable: false);
+    return codes
+        .map((code) {
+          // 字典名缺失(null)或为空串都回退 code,绝不渲染留白(ADR-021 字典 join)。
+          final joined = nameMap[code];
+          return _CityVm(
+            code: code,
+            name: (joined != null && joined.isNotEmpty) ? joined : code,
+          );
+        })
+        .toList(growable: false);
   }
 
   /// 按省 code 刷新本地 finalized 链快照索引；省名只用于展示。
@@ -298,9 +301,9 @@ class _PublicPageState extends State<PublicTab> {
       itemBuilder: (context, i) {
         final inst = _subscribed[i];
         return _InstitutionTile(
-          title: inst.cidShortName?.isNotEmpty == true
-              ? inst.cidShortName!
-              : inst.cidFullName,
+          title: inst.shortName?.isNotEmpty == true
+              ? inst.shortName!
+              : inst.fullName,
           // 预 join 的所属地(省名·市名),字典缺失回退 code(repo 已兜底)。
           subtitle: _subscribedArea[inst.cidNumber] ?? '',
           onTap: () => _openDetail(inst.cidNumber),
@@ -330,9 +333,11 @@ class _PublicPageState extends State<PublicTab> {
         return _InstitutionTile(
           // 市卡片只显市名「xx市」;进入后由列表页顶部展示「xx市公权机构」。
           title: city.name,
-          trailing: Icon(Icons.chevron_right,
-              color: AppTheme.textTertiary,
-              size: AppLayout.scaled(context, 20)),
+          trailing: Icon(
+            Icons.chevron_right,
+            color: AppTheme.textTertiary,
+            size: AppLayout.scaled(context, 20),
+          ),
           onTap: () => _openCity(city),
         );
       },
@@ -376,21 +381,30 @@ class _PublicPageState extends State<PublicTab> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon,
-                size: AppLayout.scaledValue(44), color: AppTheme.textTertiary),
+            Icon(
+              icon,
+              size: AppLayout.scaledValue(44),
+              color: AppTheme.textTertiary,
+            ),
             SizedBox(height: AppLayout.scaledValue(12)),
-            Text(title,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                    fontSize: AppLayout.scaledValue(15),
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.textSecondary)),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: AppLayout.scaledValue(15),
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textSecondary,
+              ),
+            ),
             SizedBox(height: AppLayout.scaledValue(6)),
-            Text(subtitle,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                    fontSize: AppLayout.scaledValue(12.5),
-                    color: AppTheme.textTertiary)),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: AppLayout.scaledValue(12.5),
+                color: AppTheme.textTertiary,
+              ),
+            ),
           ],
         ),
       ),
@@ -431,9 +445,10 @@ class _ProvinceRail extends StatelessWidget {
             ),
           ),
           Divider(
-              height: AppLayout.scaled(context, 9),
-              indent: AppLayout.scaled(context, 14),
-              endIndent: AppLayout.scaled(context, 14)),
+            height: AppLayout.scaled(context, 9),
+            indent: AppLayout.scaled(context, 14),
+            endIndent: AppLayout.scaled(context, 14),
+          ),
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.fromLTRB(6, 0, 6, 12),
@@ -441,8 +456,9 @@ class _ProvinceRail extends StatelessWidget {
               itemBuilder: (context, i) {
                 final p = provinces[i];
                 return Padding(
-                  padding:
-                      EdgeInsets.only(bottom: AppLayout.scaled(context, 4)),
+                  padding: EdgeInsets.only(
+                    bottom: AppLayout.scaled(context, 4),
+                  ),
                   child: _railItem(
                     // 展示去"省";选中键用省 code。
                     label: p.provinceDisplayName,
@@ -471,8 +487,9 @@ class _ProvinceRail extends StatelessWidget {
         // width 撑满:让"关注"(在 Column 里)与省份(在 ListView 里)选中背景同宽。
         width: double.infinity,
         padding: EdgeInsets.symmetric(
-            vertical: AppLayout.scaledValue(12),
-            horizontal: AppLayout.scaledValue(6)),
+          vertical: AppLayout.scaledValue(12),
+          horizontal: AppLayout.scaledValue(6),
+        ),
         decoration: BoxDecoration(
           color: active ? AppTheme.surfaceElevated : Colors.transparent,
           borderRadius: BorderRadius.circular(AppLayout.scaledValue(10)),
@@ -525,8 +542,9 @@ class _InstitutionTile extends StatelessWidget {
           ? Text(
               sub,
               style: TextStyle(
-                  fontSize: AppLayout.scaled(context, 12.5),
-                  color: AppTheme.textTertiary),
+                fontSize: AppLayout.scaled(context, 12.5),
+                color: AppTheme.textTertiary,
+              ),
             )
           : null,
       trailing: trailing,

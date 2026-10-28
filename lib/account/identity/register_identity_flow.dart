@@ -83,7 +83,7 @@ Future<bool> startCidRegistrationFlow(
         final guard = await service.registrationGuard(choice.bindAccountId);
         final registration = RegistrationContext(
           accountId: choice.bindAccountId,
-          institution: choice.institution,
+          orgCode: choice.institution,
           chainScope: await service.registrationChainScope(),
         );
         await guard();
@@ -181,8 +181,7 @@ Future<bool> ensureCidRegisteredOrPrompt(
       if (resolution.status == SquareSessionStatus.ready &&
           resolution.session?.accountId == identity.accountId &&
           resolution.session?.cidNumber == identity.snapshot?.cidNumber &&
-          resolution.session?.bindingRevision ==
-              identity.snapshot?.bindingRevision) {
+          resolution.session?.bindRev == identity.snapshot?.bindRev) {
         return true;
       }
       _showSnack(context, resolution.message, isError: true);

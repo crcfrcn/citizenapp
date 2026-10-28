@@ -1,3 +1,7 @@
+import 'package:citizenapp/storage/wallet_isar.dart'
+    as wallet_store
+    show WalletCursor, Entry;
+
 import 'dart:async';
 import 'dart:typed_data';
 
@@ -5,7 +9,7 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:polkadart/polkadart.dart' show Hasher;
 import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 import 'package:citizenapp/citizen/account_derivation.dart';
-import 'package:citizenapp/storage/wallet_isar.dart';
+import 'package:citizenapp/storage/wallet_isar.dart' hide Group;
 import 'package:citizenapp/app_log.dart';
 import 'package:citizenapp/transaction/history/citizenchain_transaction_event_decoder.dart';
 import 'package:citizenapp/transaction/history/local_tx_store.dart';
@@ -151,14 +155,14 @@ final class WalletTransactionHistoryService {
     final txHash = record.transactionHash;
     final accountId = record.sourceAccountId;
     final executionId = record.executionId;
-    final callDataHash = record.callDataHash;
+    final callHash = record.callDataHash;
     switch (record.status) {
       case CitizenTransactionHistoryStatus.pending:
         await LocalTxStore.markLocalSubmitPending(
           accountId: accountId,
           txHash: txHash,
           executionId: executionId,
-          callDataHash: callDataHash,
+          callHash: callHash,
         );
         break;
       case CitizenTransactionHistoryStatus.inBlock:
@@ -168,8 +172,8 @@ final class WalletTransactionHistoryService {
             accountId: accountId,
             txHash: txHash,
             executionId: executionId,
-            callDataHash: callDataHash,
-            blockHash: block.hash,
+            callHash: callHash,
+            chainHash: block.hash,
           );
         }
         break;
@@ -179,8 +183,8 @@ final class WalletTransactionHistoryService {
           accountId: accountId,
           txHash: txHash,
           executionId: executionId,
-          callDataHash: callDataHash,
-          failureReason:
+          callHash: callHash,
+          failReason:
               record.poolRejectionReason ??
               (record.status == CitizenTransactionHistoryStatus.poolRejected
                   ? '交易池拒绝'
@@ -193,11 +197,11 @@ final class WalletTransactionHistoryService {
           accountId: accountId,
           txHash: txHash,
           executionId: executionId,
-          callDataHash: callDataHash,
-          blockHash: block?.hash,
+          callHash: callHash,
+          chainHash: block?.hash,
           blockNumber: block?.number.toInt(),
           extrinsicIndex: record.execution?.extrinsicIndex,
-          confirmedAtMillis: record.updatedAtMillis.toInt(),
+          confirmedAt: record.updatedAtMillis.toInt(),
         );
         break;
     }
@@ -208,9 +212,8 @@ final class WalletTransactionHistoryService {
         (record.status == CitizenTransactionHistoryStatus.finalizedSuccess ||
             record.status == CitizenTransactionHistoryStatus.finalizedFailed)) {
       try {
-        await AccountBalanceSnapshotStore.forChain(
-          _chain,
-        ).afterFinalized(block, [accountId]);
+        await AccountBalanceSnapshotStore.forChain(_chain)
+            .afterFinalized(block, [accountId]);
       } catch (_) {
         // 交易的链上结果已确认；余额刷新失败不得把结果降为失败或清空原快照。
       }
@@ -229,7 +232,7 @@ final class WalletTransactionHistoryService {
       throw StateError('finalized 高度超出本机进度范围');
     }
     _requireBlock(head, head.number.toInt());
-    final cursors = <String, WalletTransactionHistoryCursorEntity>{};
+    final cursors = <String, wallet_store.WalletCursor>{};
     final accounts = {for (final a in wallet.accounts) a.accountId: a};
     // 同次导入的多个账户共享边界定位结果，避免重复二分查询。
     final starts = <BigInt, int>{};
@@ -242,25 +245,25 @@ final class WalletTransactionHistoryService {
             await _findStartBlock(head, account.createdAtMillis, epoch);
         starts[account.createdAtMillis] = start;
         if (!_current(epoch)) return false;
-        cursor = WalletTransactionHistoryCursorEntity()
+        cursor = wallet_store.WalletCursor()
           ..accountId = account.accountId
-          ..createdAtMillis = account.createdAtMillis.toInt()
+          ..createdAt = account.createdAtMillis.toInt()
           ..genesisHash = genesis
-          ..startBlockNumber = start
-          ..cursorBlockNumber = start - 1;
+          ..startBlock = start
+          ..cursorBlock = start - 1;
         await LocalTxStore.insertHistoryCursor(cursor);
       }
       if (cursor.genesisHash != genesis ||
-          BigInt.from(cursor.createdAtMillis) != account.createdAtMillis ||
-          cursor.startBlockNumber < 1 ||
-          cursor.cursorBlockNumber < cursor.startBlockNumber - 1 ||
-          cursor.cursorBlockNumber > head.number.toInt()) {
+          BigInt.from(cursor.createdAt) != account.createdAtMillis ||
+          cursor.startBlock < 1 ||
+          cursor.cursorBlock < cursor.startBlock - 1 ||
+          cursor.cursorBlock > head.number.toInt()) {
         throw StateError('钱包进度的链身份或账户代次不一致');
       }
       cursors[account.accountId] = cursor;
     }
     final first = cursors.values
-        .map((c) => c.cursorBlockNumber + 1)
+        .map((c) => c.cursorBlock + 1)
         .reduce((a, b) => a < b ? a : b);
     final target = head.number.toInt();
     final end = first + 31 < target ? first + 31 : target;
@@ -270,11 +273,11 @@ final class WalletTransactionHistoryService {
       _requireBlock(block, number);
       final time = await _timestamp(block);
       final participants = cursors.values
-          .where((c) => c.cursorBlockNumber == number - 1)
+          .where((c) => c.cursorBlock == number - 1)
           .toList();
       final addresses = <String, String>{
         for (final c in participants)
-          if (time >= c.createdAtMillis)
+          if (time >= c.createdAt)
             c.accountId: accounts[c.accountId]!.ss58Address,
       };
       final records = await _readRecords(block, time, addresses);
@@ -285,20 +288,19 @@ final class WalletTransactionHistoryService {
         records: records,
       );
       for (final cursor in participants) {
-        cursor.cursorBlockNumber = number;
+        cursor.cursorBlock = number;
       }
       // 历史补齐不逐块刷新余额，只有最新块影响钱包时通知余额唯一入口。
       if (number == target && records.isNotEmpty && _current(epoch)) {
         try {
-          await AccountBalanceSnapshotStore.forChain(
-            _chain,
-          ).afterFinalized(block, records.map((r) => r.accountId).toSet());
+          await AccountBalanceSnapshotStore.forChain(_chain)
+              .afterFinalized(block, records.map((r) => r.accountId).toSet());
         } catch (_) {
           // 余额失败不撤销交易记录，也不清空原快照。
         }
       }
     }
-    return cursors.values.any((c) => c.cursorBlockNumber < target);
+    return cursors.values.any((c) => c.cursorBlock < target);
   }
 
   /// 本链 Timestamp.Now 为严格递增 u64 毫秒；按高度二分定位导入时间。
@@ -352,7 +354,7 @@ final class WalletTransactionHistoryService {
     }
   }
 
-  Future<List<LocalTxEntity>> _readRecords(
+  Future<List<wallet_store.Entry>> _readRecords(
     CitizenBlockRef block,
     int time,
     Map<String, String> addresses,
@@ -385,7 +387,7 @@ final class WalletTransactionHistoryService {
     if (body.block.hash != block.hash || body.block.number != block.number) {
       throw StateError('区块正文与事件锚点不一致');
     }
-    final records = <LocalTxEntity>[];
+    final records = <wallet_store.Entry>[];
     // 同一账户/extrinsic 只给第一条本金流水附一份费用，其余保持各自事件身份。
     final attachedFees = <int>{};
     for (final transfer in relevant) {
@@ -408,46 +410,37 @@ final class WalletTransactionHistoryService {
         final incoming = accountId == transfer.toAccountId;
         final self = transfer.fromAccountId == transfer.toAccountId;
         final fee = index == null ? null : decoded.fees[index];
-        final feeFen =
+        final feeAmount =
             fee != null &&
                 fee.accountId == accountId &&
                 attachedFees.add(index!)
-            ? fee.feeFen
+            ? fee.feeAmount
             : null;
         final principalDelta = self
             ? BigInt.zero
             : incoming
             ? BigInt.parse(transfer.amountFen)
             : -BigInt.parse(transfer.amountFen);
-        final actualDelta = principalDelta - BigInt.parse(feeFen ?? '0');
+        final actualDelta = principalDelta - BigInt.parse(feeAmount ?? '0');
         records.add(
-          LocalTxEntity()
-            ..recordKey = LocalTxStore.blockEventRecordKey(
-              accountId,
-              block.hash,
-              transfer.eventRecordIndex,
-            )
+          wallet_store.Entry()
             ..accountId = accountId
-            ..ss58Address = address
-            ..type = 'transfer'
-            ..amountDeltaFen = actualDelta.toString()
-            ..feeFen = feeFen
-            ..transferAmountFen = transfer.amountFen
-            ..fromSs58Address = _ss58(transfer.fromAccountId)
-            ..toSs58Address = _ss58(transfer.toAccountId)
-            ..counterpartySs58Address = _ss58(
-              incoming ? transfer.fromAccountId : transfer.toAccountId,
-            )
-            ..remark = transfer.remark
-            ..status = LocalTxStore.statusFinalized
-            ..source = 'sdk_finalized_event'
+            ..entryKind = 'transfer'
+            ..amountDelta = actualDelta.toString()
+            ..feeAmount = feeAmount
+            ..transferAmount = transfer.amountFen
+            ..fromAddress = _ss58(transfer.fromAccountId)
+            ..toAddress = _ss58(transfer.toAccountId)
+            ..txNote = transfer.remark
+            ..entryState = LocalTxStore.statusFinalized
+            ..entrySource = 'sdk_finalized_event'
             ..txHash = hash
             ..blockNumber = block.number.toInt()
-            ..blockHash = block.hash
+            ..chainHash = block.hash
             ..eventIndex = transfer.eventRecordIndex
             ..extrinsicIndex = index
-            ..createdAtMillis = time
-            ..confirmedAtMillis = time,
+            ..createdAt = time
+            ..confirmedAt = time,
         );
       }
     }
@@ -460,29 +453,21 @@ final class WalletTransactionHistoryService {
       if (attachedFees.contains(index)) continue;
       // 没有本金转账的执行（包括失败合约）仍保留实际收费事实。
       records.add(
-        LocalTxEntity()
-          ..recordKey = LocalTxStore.blockEventRecordKey(
-            fee.accountId,
-            block.hash,
-            fee.eventRecordIndex,
-          )
+        wallet_store.Entry()
           ..accountId = fee.accountId
-          ..ss58Address = addresses[fee.accountId]!
-          ..type = 'fee'
-          ..amountDeltaFen = LocalTxStore.negateFen(fee.feeFen)
-          ..feeFen = fee.feeFen
-          ..status = LocalTxStore.statusFinalized
-          ..source = 'sdk_finalized_event'
+          ..entryKind = 'fee'
+          ..amountDelta = LocalTxStore.negateFen(fee.feeAmount)
+          ..feeAmount = fee.feeAmount
+          ..entryState = LocalTxStore.statusFinalized
+          ..entrySource = 'sdk_finalized_event'
           ..txHash = '0x${_hex(Hasher.blake2b256.hash(body.extrinsics[index]))}'
           ..blockNumber = block.number.toInt()
-          ..blockHash = block.hash
+          ..chainHash = block.hash
           ..eventIndex = fee.eventRecordIndex
           ..extrinsicIndex = index
-          ..failureReason = outcome.succeeded
-              ? null
-              : outcome.failureDescription
-          ..createdAtMillis = time
-          ..confirmedAtMillis = time,
+          ..failReason = outcome.succeeded ? null : outcome.failureDescription
+          ..createdAt = time
+          ..confirmedAt = time,
       );
     }
     return records;

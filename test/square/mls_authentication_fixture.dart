@@ -1,4 +1,5 @@
 import 'dart:convert';
+
 import 'package:citizenapp/network/square_api_client.dart';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
@@ -17,12 +18,12 @@ class FakeMlsAuthentication implements MlsAuthenticationSource {
   FakeMlsAuthentication({
     String cidNumber = testMlsCidNumber,
     String accountId = testMlsAccountId,
-    int bindingRevision = 1,
+    int bindRev = 1,
     String deviceId = testMlsDeviceId,
   }) : identity = MlsAuthenticationIdentity(
          cidNumber: cidNumber,
          accountId: accountId,
-         bindingRevision: bindingRevision,
+         bindRev: bindRev,
          deviceId: deviceId,
          publicKey: '0x$deviceId',
        );
@@ -62,42 +63,47 @@ class FakeMlsAuthentication implements MlsAuthenticationSource {
     await beforeProof?.call();
     await requireCurrent(identity);
     proofCalls++;
-    return sdk.MlsAuthenticationProof(
-      userId: identity.cidNumber,
-      deviceId: identity.deviceId,
-      publicKey: identity.publicKey,
-      accountId: identity.accountId,
-      bindingRevision: identity.bindingRevision,
-      serviceOrigin: request.serviceOrigin,
-      challenge: request.challenge,
-      expiresAtMillis: request.expiresAtMillis,
-      method: request.method,
-      requestTarget: request.requestTarget,
-      bodySha256: '0x${sha256.convert(request.bodyBytes)}',
-      signature: '0x${List.filled(64, 'ab').join()}',
-    );
+    return _fakeProof(identity, request);
   }
 }
+
+sdk.MlsAuthenticationProof _fakeProof(
+  MlsAuthenticationIdentity identity,
+  sdk.MlsAuthenticationRequest request,
+) => sdk.MlsAuthenticationProof(
+  userId: identity.cidNumber,
+  deviceId: identity.deviceId,
+  publicKey: identity.publicKey,
+  accountId: identity.accountId,
+  bindingRevision: identity.bindRev,
+  serviceOrigin: request.serviceOrigin,
+  challenge: request.challenge,
+  expiresAtMillis: request.expiresAtMillis,
+  method: request.method,
+  requestTarget: request.requestTarget,
+  bodySha256: '0x${sha256.convert(request.bodyBytes)}',
+  signature: '0x${List.filled(64, 'ab').join()}',
+);
 
 Map<String, Object> fakeMlsChallenge(
   http.Request request, {
   String cidNumber = testMlsCidNumber,
-  int bindingRevision = 1,
+  int bindRev = 1,
 }) {
   final body = jsonDecode(request.body) as Map<String, dynamic>;
   return {
     'is_ok': true,
-    'user_id': cidNumber,
+    'cid_number': cidNumber,
     'account_id': body['account_id'] as String,
-    'binding_revision': bindingRevision,
+    'bind_rev': bindRev,
     'public_key': body['public_key'] as String,
     'device_id': (body['public_key'] as String).substring(2),
     'service_origin': request.url.origin,
-    'challenge': '0x${List.filled(32, 'cd').join()}',
-    'expires_at_millis': DateTime.now().millisecondsSinceEpoch + 240000,
-    'method': body['method'] as String,
+    'nonce_id': '0x${List.filled(32, 'cd').join()}',
+    'expires_at': DateTime.now().millisecondsSinceEpoch + 240000,
+    'http_method': body['http_method'] as String,
     'request_target': body['request_target'] as String,
-    'body_sha256': body['body_sha256'] as String,
+    'body_hash': body['body_hash'] as String,
   };
 }
 
@@ -105,7 +111,7 @@ Map<String, Object> fakeMlsSession({
   String cidNumber = testMlsCidNumber,
   String accountId = testMlsAccountId,
   String deviceId = testMlsDeviceId,
-  int bindingRevision = 1,
+  int bindRev = 1,
   String token = 'tok',
 }) => {
   'is_ok': true,
@@ -113,7 +119,7 @@ Map<String, Object> fakeMlsSession({
   'cid_number': cidNumber,
   'device_id': deviceId,
   'account_id': accountId,
-  'binding_revision': bindingRevision,
+  'bind_rev': bindRev,
   'expires_at': 4102444800000,
 };
 
@@ -134,29 +140,9 @@ Future<Map<String, String>> fakeMlsRequestHeaders({
     expiresAtMillis: DateTime.now().millisecondsSinceEpoch + 240000,
   );
   final identity = source.identity;
-  final challenge =
-      {
-          ...fakeMlsSession(),
-          'user_id': identity.cidNumber,
-          'public_key': identity.publicKey,
-          'service_origin': request.serviceOrigin,
-          'challenge': request.challenge,
-          'expires_at_millis': request.expiresAtMillis,
-          'method': method,
-          'request_target': request.requestTarget,
-          'body_sha256': '0x${sha256.convert(body)}',
-        }
-        ..remove('session_token')
-        // 会话期限与挑战期限分属原HTTP合同；只移除继承的会话expires_at。
-        ..remove('expires_at')
-        ..remove('cid_number');
-  return mlsProofHeaders(
-    await source.createProof(
-      identity: identity,
-      request: request,
-      challenge: challenge,
-    ),
-  );
+  identity.validate();
+  request.validate();
+  return mlsProofHeaders(_fakeProof(identity, request));
 }
 
 SquareSession fakeSquareSession(
@@ -166,7 +152,7 @@ SquareSession fakeSquareSession(
   sessionToken: "tok",
   cidNumber: cidNumber,
   accountId: accountId,
-  bindingRevision: 1,
+  bindRev: 1,
   deviceId: testMlsDeviceId,
   expiresAt: 4102444800000,
   authenticateRequest: fakeMlsRequestHeaders,

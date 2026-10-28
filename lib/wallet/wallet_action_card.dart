@@ -25,7 +25,7 @@ class WalletActionCard extends StatefulWidget {
   const WalletActionCard({
     super.key,
     required this.accountId,
-    required this.ss58Address,
+    required this.accountAddress,
     this.finalizedBalanceLoader,
   });
 
@@ -33,7 +33,7 @@ class WalletActionCard extends StatefulWidget {
   final String accountId;
 
   /// 该账户 SS58 地址,用于查询清算行存款余额。
-  final String ss58Address;
+  final String accountAddress;
 
   /// 默认复用链上余额 RPC；测试可注入稳定结果，避免把网络状态写进组件断言。
   final Future<double> Function(String accountId)? finalizedBalanceLoader;
@@ -108,7 +108,7 @@ class WalletActionCardState extends State<WalletActionCard> {
   void didUpdateWidget(covariant WalletActionCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.accountId != widget.accountId ||
-        oldWidget.ss58Address != widget.ss58Address ||
+        oldWidget.accountAddress != widget.accountAddress ||
         oldWidget.finalizedBalanceLoader != widget.finalizedBalanceLoader) {
       _unbind();
       _binding = null;
@@ -139,7 +139,7 @@ class WalletActionCardState extends State<WalletActionCard> {
         : AccountBalanceSnapshotStore.forChain(context.read<CitizenSdk>().chain)
               .clearingState(
                 accountId: accountId,
-                ss58Address: widget.ss58Address,
+                accountAddress: widget.accountAddress,
                 wssUrl: binding.wssUrl,
               );
     _clearing?.addListener(_changed);
@@ -214,7 +214,7 @@ class WalletActionCardState extends State<WalletActionCard> {
       MaterialPageRoute(
         builder: (_) => WithdrawPage(
           accountId: widget.accountId,
-          ss58Address: widget.ss58Address,
+          accountAddress: widget.accountAddress,
           wssUrl: binding.wssUrl,
         ),
       ),
@@ -234,7 +234,7 @@ class WalletActionCardState extends State<WalletActionCard> {
       MaterialPageRoute(
         builder: (_) => PettyWalletPage(
           accountId: widget.accountId,
-          ss58Address: widget.ss58Address,
+          accountAddress: widget.accountAddress,
           wssUrl: binding.wssUrl,
           displayTitle: binding.displayTitle,
         ),

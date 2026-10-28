@@ -19,7 +19,7 @@ import 'package:tatachat_sdk/tatachat_sdk.dart';
 
 import '../../storage/app_isar.dart';
 import '../../storage/user_isar.dart';
-import '../../storage/wallet_isar.dart';
+import '../../storage/wallet_isar.dart' hide Group;
 import '../../account/identity/account_security_service.dart';
 import 'system_protected_storage.dart';
 

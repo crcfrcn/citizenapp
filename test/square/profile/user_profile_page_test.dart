@@ -17,7 +17,7 @@ import 'package:citizenapp/system/theme/app_theme.dart';
 
 import 'fake_profile.dart';
 
-/// 身份账户缓存 fake：resolve/accountId 返回 null，让 _resolveOwnAccount 回退成
+/// 身份账户缓存 fake：resolve/account_id 返回 null，让 _resolveOwnAccount 回退成
 /// 「非本人」（行为与迁移前一致）；避免 instance 触发真链读/真 Isar。
 class _NullMembershipSnapshotService implements SubscriptionService {
   @override

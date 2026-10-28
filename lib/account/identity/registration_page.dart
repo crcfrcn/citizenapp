@@ -16,7 +16,7 @@ class RegistrationPage extends StatefulWidget {
     int? now,
   }) {
     if ((now ?? DateTime.now().millisecondsSinceEpoch) >=
-            verification.expiresAt ||
+            verification.pageExpiresAt ||
         message.length > 4096) {
       return null;
     }
@@ -24,8 +24,8 @@ class RegistrationPage extends StatefulWidget {
       final raw = jsonDecode(message);
       if (raw is! Map<String, dynamic> ||
           raw.length != 2 ||
-          !raw.keys.every({'verification_id', 'token'}.contains) ||
-          raw['verification_id'] != verification.id ||
+          !raw.keys.every({'check_id', 'token'}.contains) ||
+          raw['check_id'] != verification.checkId ||
           raw['token'] is! String) {
         return null;
       }
@@ -51,7 +51,8 @@ class _RegistrationPageState extends State<RegistrationPage> {
   void initState() {
     super.initState();
     final remaining =
-        widget.verification.expiresAt - DateTime.now().millisecondsSinceEpoch;
+        widget.verification.pageExpiresAt -
+        DateTime.now().millisecondsSinceEpoch;
     expiry = Timer(Duration(milliseconds: remaining > 0 ? remaining : 0), () {
       if (mounted && !returned) setState(() => error = '验证页面已过期，请返回后重试');
     });
@@ -74,7 +75,7 @@ class _RegistrationPageState extends State<RegistrationPage> {
         NavigationDelegate(
           onNavigationRequest: (request) =>
               !request.isMainFrame ||
-                  request.url == widget.verification.page.toString()
+                  request.url == widget.verification.pageUrl.toString()
               ? NavigationDecision.navigate
               : NavigationDecision.prevent,
           onWebResourceError: (event) {
@@ -86,7 +87,9 @@ class _RegistrationPageState extends State<RegistrationPage> {
       );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        controller.loadRequest(widget.verification.page).catchError((Object _) {
+        controller.loadRequest(widget.verification.pageUrl).catchError((
+          Object _,
+        ) {
           if (mounted && !returned) setState(() => error = '验证页面加载失败，请返回后重试');
         });
       }

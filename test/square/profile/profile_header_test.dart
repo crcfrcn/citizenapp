@@ -32,7 +32,7 @@ late TestCitizenSdkHarness _sdkHarness;
 
 const String _profileCidNumber = 'CN001-CTZN-000000001-2026';
 
-/// 身份账户缓存 fake：resolve/accountId 返回 null，让 _resolveOwnAccount 回退成
+/// 身份账户缓存 fake：resolve/account_id 返回 null，让 _resolveOwnAccount 回退成
 /// 「非本人」（行为与迁移前一致）；避免 instance 触发真链读/真 Isar。
 class _NullMembershipSnapshotService implements SubscriptionService {
   @override
@@ -167,13 +167,13 @@ void main() {
       _wrap(
         isSelf: true,
         api: FakeProfileApi(
-          sampleProfile(membershipLevel: null, membershipActive: false),
+          sampleProfile(memberLevel: null, membergateActive: false),
         ),
         initialMembershipDecision: MembershipDisplayDecision.activeConfirmed,
         initialMembershipState: const SquareMembershipState(
           active: true,
           paidUntil: 9999999999999,
-          membershipLevel: 'democracy',
+          memberLevel: 'democracy',
         ),
       ),
     );
@@ -558,7 +558,7 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         isSelf: false,
-        api: FakeProfileApi(sampleProfile(identityLevel: 'voting')),
+        api: FakeProfileApi(sampleProfile(cidLevel: 'voting')),
       ),
     );
     await tester.pumpAndSettle();
@@ -574,7 +574,7 @@ void main() {
       _wrap(
         isSelf: false,
         api: FakeProfileApi(
-          sampleProfile(identityLevel: 'voting', membershipLevel: 'democracy'),
+          sampleProfile(cidLevel: 'voting', memberLevel: 'democracy'),
         ),
       ),
     );
@@ -591,7 +591,7 @@ void main() {
       _wrap(
         isSelf: false,
         api: FakeProfileApi(
-          sampleProfile(identityLevel: 'candidate', membershipLevel: 'spark'),
+          sampleProfile(cidLevel: 'candidate', memberLevel: 'spark'),
         ),
       ),
     );
@@ -609,7 +609,7 @@ void main() {
       _wrap(
         isSelf: false,
         api: FakeProfileApi(
-          sampleProfile(identityLevel: 'candidate', membershipLevel: 'freedom'),
+          sampleProfile(cidLevel: 'candidate', memberLevel: 'freedom'),
         ),
       ),
     );

@@ -2,7 +2,9 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
+
 import '../support/fake_citizen_sdk.dart';
+
 import 'package:citizenapp/account/profile/square_action_payload.dart';
 
 Future<String> _payloadHex({
@@ -13,11 +15,22 @@ Future<String> _payloadHex({
   required int expiresAt,
 }) async {
   final bytes = <int>[
-    ...(await CitizenSigning.encodePayload(CitizenSigningPayload.scaleString(action))),
-    ...(await CitizenSigning.encodePayload(CitizenSigningPayload.scaleString(accountId))),
-    ...(await CitizenSigning.encodePayload(CitizenSigningPayload.scaleString(challengeId))),
-    if (level != null) ...(await CitizenSigning.encodePayload(CitizenSigningPayload.scaleString(level))),
-    ...(await CitizenSigning.encodePayload(CitizenSigningPayload.u64Le(BigInt.from(expiresAt)))),
+    ...(await CitizenSigning.encodePayload(
+      CitizenSigningPayload.scaleString(action),
+    )),
+    ...(await CitizenSigning.encodePayload(
+      CitizenSigningPayload.scaleString(accountId),
+    )),
+    ...(await CitizenSigning.encodePayload(
+      CitizenSigningPayload.scaleString(challengeId),
+    )),
+    if (level != null)
+      ...(await CitizenSigning.encodePayload(
+        CitizenSigningPayload.scaleString(level),
+      )),
+    ...(await CitizenSigning.encodePayload(
+      CitizenSigningPayload.u64Le(BigInt.from(expiresAt)),
+    )),
   ];
   return Uint8List.fromList(bytes)
       .map((b) => b.toRadixString(16).padLeft(2, '0'))
@@ -98,7 +111,9 @@ void main() {
       expiresAt: 1,
     );
     expect(decodeSquareActionPayload('${hex}ff'), isNull); // 多一字节
-    expect(decodeSquareActionPayload(hex.substring(0, hex.length - 4)),
-        isNull); // 缺尾
+    expect(
+      decodeSquareActionPayload(hex.substring(0, hex.length - 4)),
+      isNull,
+    ); // 缺尾
   });
 }

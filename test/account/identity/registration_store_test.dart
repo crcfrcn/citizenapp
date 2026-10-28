@@ -34,7 +34,7 @@ void main() {
     return RegistrationRecord(
       context: c,
       capabilities: RegistrationCapabilities(
-        response.enrollmentId,
+        response.regId,
         response.json['recovery_token'] as String,
       ),
       response: response,
@@ -60,7 +60,7 @@ void main() {
     await store().save(null, value);
     final other = RegistrationContext(
       accountId: value.context.accountId,
-      institution: 'NATP',
+      orgCode: 'NATP',
       chainScope: value.context.chainScope,
     );
     expect(await store().read(other), isNull);
@@ -73,7 +73,7 @@ void main() {
   test('设备恢复能力只属于同链实际finalized账户；写入前拒绝秘密字段', () async {
     final c = RegistrationContext(
       accountId: '0x${'11' * 32}',
-      institution: 'CTZN',
+      orgCode: 'CTZN',
       chainScope: '0x${'22' * 32}',
     );
     final old = record(c);
@@ -87,17 +87,17 @@ void main() {
         binding: IdentityBinding(
           genesisHash: c.chainScope,
           cidNumber: 'CN220-CTZN2-100000001-2026',
-          bindingRevision: 1,
+          bindRev: 1,
           accountId: c.accountId,
         ),
-        blockHash: '0x${'44' * 32}',
+        chainHash: '0x${'44' * 32}',
       ),
     );
     await store().save(null, value);
     final identity = MlsAuthenticationIdentity(
       cidNumber: value.finalized!.binding.cidNumber,
       accountId: c.accountId,
-      bindingRevision: 1,
+      bindRev: 1,
       deviceId: '33' * 32,
       publicKey: '0x${'33' * 32}',
     );
@@ -106,11 +106,8 @@ void main() {
       isNull,
     );
     expect(
-      (await store().forDevice(
-        identity,
-        chainScope: c.chainScope,
-      ))?.enrollmentId,
-      value.capabilities.enrollmentId,
+      (await store().forDevice(identity, chainScope: c.chainScope))?.regId,
+      value.capabilities.regId,
     );
     expect(await store().hasPendingAccount(c.accountId, c.chainScope), true);
     final ready = value.next(phase: RegistrationPhase.ready);
@@ -131,7 +128,7 @@ void main() {
     final c = registrationContext();
     final json = registrationResponse(c, jobState: 'human_verified');
     json['created_at'] = 1;
-    json['human_verified_at'] = 2;
+    json['human_at'] = 2;
     json['expires_at'] = 3;
     final value = record(c).next(
       response: RegistrationResponse.parse(json, c),
@@ -140,10 +137,10 @@ void main() {
         binding: IdentityBinding(
           genesisHash: c.chainScope,
           cidNumber: 'CN220-CTZN2-100000001-2026',
-          bindingRevision: 1,
+          bindRev: 1,
           accountId: c.accountId,
         ),
-        blockHash: '0x${'44' * 32}',
+        chainHash: '0x${'44' * 32}',
       ),
     );
     await store().save(null, value);
@@ -152,7 +149,7 @@ void main() {
         MlsAuthenticationIdentity(
           cidNumber: value.finalized!.binding.cidNumber,
           accountId: c.accountId,
-          bindingRevision: 1,
+          bindRev: 1,
           deviceId: '33' * 32,
           publicKey: '0x${'33' * 32}',
         ),
@@ -167,24 +164,39 @@ void main() {
     );
   });
   test('公开序列化白名单不保存Turnstile token或私钥', () {
-    final text = record().encode();
+    final value = record();
+    final text = value.encode();
+    final raw = jsonDecode(text) as Map<String, dynamic>;
+    expect(raw.containsKey('capabilities'), false);
+    expect(raw.containsKey('record_version'), false);
+    expect(raw['recovery_token'], value.capabilities.recoveryToken);
+    expect((raw['response'] as Map)['reg_id'], value.capabilities.regId);
+    final wrong = RegistrationRecord(
+      context: value.context,
+      capabilities: RegistrationCapabilities(
+        'other',
+        value.capabilities.recoveryToken,
+      ),
+      response: value.response,
+    );
+    expect(wrong.encode, throwsFormatException);
     expect(text, isNot(contains('turnstile_token')));
     expect(text, isNot(contains('private_key')));
     expect(RegistrationRecord.decode(text).encode(), text);
   });
-  test('旧注册完整快照一次升级，保留恢复能力与原检查点，混入双名拒绝且不覆盖', () async {
+  test('旧注册快照与混合字段都拒绝，读取原样保留恢复能力及检查点', () async {
     final value = record();
     Map<String, dynamic> legacy() {
       final data = jsonDecode(value.encode()) as Map<String, dynamic>;
       data.remove('record_version');
       final response = data['response'] as Map<String, dynamic>;
-      response['registration_context_hash'] = value.context.hash;
+      response['context_hash'] = value.context.contextHash;
       for (final entry in {
         'job_state': 'state',
         'is_ok': 'ok',
         'created_at': 'created_at_millis',
         'expires_at': 'expires_at_millis',
-        'human_verified_at': 'human_verified_at_millis',
+        'human_at': 'human_at_millis',
       }.entries) {
         response[entry.value] = response.remove(entry.key);
       }
@@ -204,33 +216,29 @@ void main() {
     final raw = jsonEncode(legacy());
     expect(
       await records.compareAndSet(
-        value.context.hash,
+        value.context.contextHash,
         expected: null,
         next: raw,
       ),
       true,
     );
-    final restored = (await store().read(value.context))!;
-    expect(restored.capabilities.toJson(), value.capabilities.toJson());
-    expect(restored.context.hash, value.context.hash);
-    expect(restored.checkpoint, value.checkpoint);
-    expect(await records.read(value.context.hash), restored.encode());
-    expect(jsonDecode(restored.encode())['record_version'], 3);
+    await expectLater(store().read(value.context), throwsFormatException);
+    expect(await records.read(value.context.contextHash), raw);
     final invalid = legacy();
     (invalid['response'] as Map)['is_ok'] = true;
     final mixed = jsonEncode(invalid);
     expect(
       await records.compareAndSet(
-        value.context.hash,
-        expected: restored.encode(),
+        value.context.contextHash,
+        expected: raw,
         next: mixed,
       ),
       true,
     );
     await expectLater(store().read(value.context), throwsFormatException);
-    expect(await records.read(value.context.hash), mixed);
+    expect(await records.read(value.context.contextHash), mixed);
   });
-  test('v2注册完整快照升级v3，旧状态仅在存储入口升级且混名不覆盖', () async {
+  test('旧版本标记和旧状态拒绝读取，混合字段不被改写', () async {
     final value = record();
     final data = jsonDecode(value.encode()) as Map<String, dynamic>;
     data['record_version'] = 2;
@@ -243,26 +251,25 @@ void main() {
     );
     expect(
       await records.compareAndSet(
-        value.context.hash,
+        value.context.contextHash,
         expected: null,
         next: raw,
       ),
       true,
     );
-    final restored = (await store().read(value.context))!;
-    expect(jsonDecode(restored.encode()), jsonDecode(value.encode()));
-    expect(await records.read(value.context.hash), restored.encode());
+    await expectLater(store().read(value.context), throwsFormatException);
+    expect(await records.read(value.context.contextHash), raw);
     response['job_state'] = response['state'];
     final mixed = jsonEncode(data);
     expect(
       await records.compareAndSet(
-        value.context.hash,
-        expected: restored.encode(),
+        value.context.contextHash,
+        expected: raw,
         next: mixed,
       ),
       true,
     );
     await expectLater(store().read(value.context), throwsFormatException);
-    expect(await records.read(value.context.hash), mixed);
+    expect(await records.read(value.context.contextHash), mixed);
   });
 }

@@ -12,7 +12,7 @@ const _video = SquareLocalMediaDraft(
   fileName: 'video.mp4',
   contentType: 'video/mp4',
   byteSize: 1024,
-  durationSeconds: 30,
+  videoSecs: 30,
 );
 
 class _VideoPickerFake extends ImagePicker {
@@ -21,8 +21,7 @@ class _VideoPickerFake extends ImagePicker {
     required ImageSource source,
     CameraDevice preferredCameraDevice = CameraDevice.rear,
     Duration? maxDuration,
-  }) async =>
-      XFile(_video.path);
+  }) async => XFile(_video.path);
 }
 
 void main() {

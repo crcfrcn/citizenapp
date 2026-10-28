@@ -41,22 +41,18 @@ class MlsDeviceRegistrar {
 
   Future<void> register({
     required String cidNumber,
-    required int bindingRevision,
+    required int bindRev,
     required String accountId,
     required DeviceBindingSigner signBinding,
     int? issuedAtMillis,
   }) {
-    final key = deviceRegistrationProofKey(
-      cidNumber,
-      bindingRevision,
-      accountId,
-    );
+    final key = deviceRegistrationProofKey(cidNumber, bindRev, accountId);
     return _flights.putIfAbsent(
       key,
       () =>
           _register(
             cidNumber: cidNumber,
-            bindingRevision: bindingRevision,
+            bindRev: bindRev,
             accountId: accountId,
             signBinding: signBinding,
             issuedAtMillis: issuedAtMillis,
@@ -68,25 +64,21 @@ class MlsDeviceRegistrar {
 
   Future<void> _register({
     required String cidNumber,
-    required int bindingRevision,
+    required int bindRev,
     required String accountId,
     required DeviceBindingSigner signBinding,
     int? issuedAtMillis,
   }) async {
     final identity = await _authentication.readIdentity();
     if (identity.cidNumber != cidNumber ||
-        identity.bindingRevision != bindingRevision ||
+        identity.bindRev != bindRev ||
         identity.accountId != accountId) {
       throw const MlsAuthenticationException(
         '登记归属与当前MLS身份不一致',
         code: 'identityChanged',
       );
     }
-    final proofKey = deviceRegistrationProofKey(
-      cidNumber,
-      bindingRevision,
-      accountId,
-    );
+    final proofKey = deviceRegistrationProofKey(cidNumber, bindRev, accountId);
     final rawProof = await _proofStore.read(proofKey);
     await _authentication.requireCurrent(identity);
     late final int issuedAt;
@@ -97,7 +89,7 @@ class MlsDeviceRegistrar {
         final proof = decodeDeviceRegistrationProof(
           rawProof,
           cidNumber: cidNumber,
-          bindingRevision: bindingRevision,
+          bindRev: bindRev,
           accountId: accountId,
         );
         reusable = proof['public_key'] == identity.publicKey;
@@ -117,14 +109,14 @@ class MlsDeviceRegistrar {
       issuedAt = issuedAtMillis ?? DateTime.now().millisecondsSinceEpoch;
       final payload = await encodeMlsDeviceBindingPayload(
         cidNumber: cidNumber,
-        bindingRevision: bindingRevision,
+        bindRev: bindRev,
         accountId: accountId,
         publicKey: identity.publicKey,
         issuedAtMillis: issuedAt,
       );
       final message = await buildMlsDeviceBindingSigningMessage(
         cidNumber,
-        bindingRevision,
+        bindRev,
         accountId,
         identity.publicKey,
         issuedAt,
@@ -145,7 +137,7 @@ class MlsDeviceRegistrar {
       }
       final proof = jsonEncode({
         'cid_number': cidNumber,
-        'binding_revision': bindingRevision,
+        'bind_rev': bindRev,
         'account_id': accountId,
         'public_key': identity.publicKey,
         'issued_at': issuedAt,
@@ -173,7 +165,7 @@ class MlsDeviceRegistrar {
       authentication: _authentication,
       issuedAt: issuedAt,
       bindingSignatureHex: signature,
-      enrollmentId: capabilities?.enrollmentId,
+      regId: capabilities?.regId,
       recoveryToken: capabilities?.recoveryToken,
     );
     await _authentication.requireCurrent(identity);

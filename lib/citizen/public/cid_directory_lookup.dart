@@ -8,16 +8,16 @@ class CidDirectoryInfo {
     this.cityName,
     this.familyName,
     this.givenName,
-    this.legalRepresentativeCidNumber,
-    this.legalRepresentativeAccountId,
+    this.legalCid,
+    this.legalAccount,
   });
 
   final String? provinceName;
   final String? cityName;
   final String? familyName;
   final String? givenName;
-  final String? legalRepresentativeCidNumber;
-  final String? legalRepresentativeAccountId;
+  final String? legalCid;
+  final String? legalAccount;
 }
 
 /// 机构目录只读反查:复用 finalized 链快照建立的公权目录本地 Isar 库,按
@@ -29,7 +29,7 @@ class CidDirectoryInfo {
 /// 注册机构账户不在确定性目录)返回 null,调用方留空。
 class CidDirectoryLookup {
   CidDirectoryLookup({PublicInstitutionRepository? repository})
-      : _repo = repository ?? PublicInstitutionRepository();
+    : _repo = repository ?? PublicInstitutionRepository();
 
   final PublicInstitutionRepository _repo;
 
@@ -47,8 +47,8 @@ class CidDirectoryLookup {
       cityName: await _repo.cityName(entity.provinceCode, entity.cityCode),
       familyName: entity.familyName,
       givenName: entity.givenName,
-      legalRepresentativeCidNumber: entity.legalRepresentativeCidNumber,
-      legalRepresentativeAccountId: entity.legalRepresentativeAccountId,
+      legalCid: entity.legalCid,
+      legalAccount: entity.legalAccount,
     );
   }
 }

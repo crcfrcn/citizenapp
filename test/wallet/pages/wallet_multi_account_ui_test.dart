@@ -5,7 +5,7 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:citizenapp/storage/user_isar.dart';
-import 'package:citizenapp/storage/wallet_isar.dart';
+import 'package:citizenapp/storage/wallet_isar.dart' hide Group;
 import 'package:citizenapp/storage/app_isar.dart';
 import 'package:citizenapp/wallet/account_detail_page.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
@@ -730,7 +730,7 @@ void main() {
     _security.binding = IdentityBinding(
       genesisHash: '0x${'11' * 32}',
       cidNumber: 'GD-CTZN1-8F3A2B',
-      bindingRevision: 1,
+      bindRev: 1,
       accountId: account.accountId,
     );
     Uint8List voting() {
@@ -762,11 +762,11 @@ void main() {
 
     FinalizedIdentity identity(Uint8List? bytes) => FinalizedIdentity(
       accountId: account.accountId,
-      ss58Address: account.ss58Address,
+      accountAddress: account.ss58Address,
       snapshot: CitizenIdentityChainSnapshot(
         cidNumber: 'GD-CTZN1-8F3A2B',
         accountId: Uint8List.fromList(List.filled(32, 1)),
-        bindingRevision: 1,
+        bindRev: 1,
         votingIdentity: bytes,
       ),
     );
@@ -1719,7 +1719,7 @@ void main() {
       final result = service.prepareTransfer(
         OnchainPaymentDraft(
           sourceAccountId: childId,
-          toSs58Address: _makeColdWallet(walletIndex: 3).ss58Address,
+          toAddress: _makeColdWallet(walletIndex: 3).ss58Address,
           amount: 1,
           symbol: 'GMB',
           remark: '',
@@ -1752,7 +1752,7 @@ void main() {
       payments.prepareTransfer(
         OnchainPaymentDraft(
           sourceAccountId: _coldWalletSnapshot().accounts.single.accountId,
-          toSs58Address: _makeColdWallet(walletIndex: 3).ss58Address,
+          toAddress: _makeColdWallet(walletIndex: 3).ss58Address,
           amount: 1,
           symbol: 'GMB',
           remark: '',
@@ -1782,7 +1782,7 @@ void main() {
       payments.prepareTransfer(
         OnchainPaymentDraft(
           sourceAccountId: _coldWalletSnapshot().accounts.single.accountId,
-          toSs58Address: _makeColdWallet(walletIndex: 3).ss58Address,
+          toAddress: _makeColdWallet(walletIndex: 3).ss58Address,
           amount: double.infinity,
           symbol: 'GMB',
           remark: '',
@@ -1801,7 +1801,7 @@ void main() {
       payments.prepareTransfer(
         OnchainPaymentDraft(
           sourceAccountId: _coldWalletSnapshot().accounts.single.accountId,
-          toSs58Address: _makeColdWallet(walletIndex: 3).ss58Address,
+          toAddress: _makeColdWallet(walletIndex: 3).ss58Address,
           amount: double.maxFinite,
           symbol: 'GMB',
           remark: '',

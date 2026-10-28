@@ -112,9 +112,9 @@ class SquareDocumentComposeBodyState extends State<SquareDocumentComposeBody>
 
   @override
   ComposeSnapshot snapshot() => ComposeSnapshot(
-        text: _text.text,
-        media: List<SquareLocalMediaDraft>.of(_media),
-      );
+    text: _text.text,
+    media: List<SquareLocalMediaDraft>.of(_media),
+  );
 
   Future<void> pickImages() async {
     final remaining = documentMaxImages - _media.length;

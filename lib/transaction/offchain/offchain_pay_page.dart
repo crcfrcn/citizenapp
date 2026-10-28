@@ -36,7 +36,7 @@ class OffchainClearingPayPage extends StatefulWidget {
   const OffchainClearingPayPage({
     super.key,
     required this.wallet,
-    required this.toSs58Address,
+    required this.toAddress,
     required this.recipientBankCidNumber,
     required this.clearingNodeWssUrl,
     this.initialAmountYuan,
@@ -46,8 +46,8 @@ class OffchainClearingPayPage extends StatefulWidget {
   /// 付款方当前钱包(仅支持热钱包)。
   final CitizenWalletStateAccount wallet;
 
-  /// 商户 QR `UserTransferBody.ss58Address` 收款方 SS58 展示地址。
-  final String toSs58Address;
+  /// 商户 QR `UserTransferBody.account_address` 收款方 SS58 展示地址。
+  final String toAddress;
 
   /// 商户 QR `UserTransferBody.bank` 收款方清算行 `cid_number`。
   final String recipientBankCidNumber;
@@ -117,9 +117,8 @@ class _OffchainClearingPayPageState extends State<OffchainClearingPayPage> {
       }
 
       // 2. 付款前重新确认收款方仍有链上清算行声明，主账户只按链统一原语派生。
-      final endpoint = await ClearingBankDirectory(
-        chain: chain,
-      ).fetchEndpoint(widget.recipientBankCidNumber);
+      final endpoint = await ClearingBankDirectory(chain: chain)
+          .fetchEndpoint(widget.recipientBankCidNumber);
       if (endpoint == null) {
         _setError('收款方清算行未在链上声明节点,无法付款');
         return;
@@ -184,8 +183,8 @@ class _OffchainClearingPayPageState extends State<OffchainClearingPayPage> {
       _showSnack('请输入有效金额');
       return;
     }
-    final feeFen = _computeFeeFen(amountFen);
-    if (feeFen == null) {
+    final feeAmount = _computeFeeFen(amountFen);
+    if (feeAmount == null) {
       _showSnack('手续费计算失败');
       return;
     }
@@ -200,7 +199,7 @@ class _OffchainClearingPayPageState extends State<OffchainClearingPayPage> {
       if (payer.length != 32) {
         throw Exception('钱包公钥长度异常:${payer.length}');
       }
-      final recipient = _decodeAccount(widget.toSs58Address);
+      final recipient = _decodeAccount(widget.toAddress);
       final payerBankCidBytes = Uint8List.fromList(utf8.encode(_payerBankCid!));
       final recipientBankCidBytes = Uint8List.fromList(
         utf8.encode(_recipientBankCid!),
@@ -213,7 +212,7 @@ class _OffchainClearingPayPageState extends State<OffchainClearingPayPage> {
         recipient: recipient,
         recipientBankCid: recipientBankCidBytes,
         amount: amountFen,
-        fee: feeFen,
+        fee: feeAmount,
         nonce: BigInt.from(nonce),
         expiresAt: _currentBlockNumber + _expiresInBlocks,
       );
@@ -222,7 +221,7 @@ class _OffchainClearingPayPageState extends State<OffchainClearingPayPage> {
       final sig = await _signSigningHash(
         signingHash: await intent.signingHash(),
         amountFen: amountFen,
-        feeFen: feeFen,
+        feeAmount: feeAmount,
       );
       if (sig.length != 64) {
         throw Exception('签名长度异常:${sig.length}');
@@ -341,16 +340,16 @@ class _OffchainClearingPayPageState extends State<OffchainClearingPayPage> {
 
   Widget _confirmView() {
     final amountFen = _parseAmountFen();
-    final feeFen = (amountFen != null) ? _computeFeeFen(amountFen) : null;
-    final totalFen = (amountFen != null && feeFen != null)
-        ? amountFen + feeFen
+    final feeAmount = (amountFen != null) ? _computeFeeFen(amountFen) : null;
+    final totalFen = (amountFen != null && feeAmount != null)
+        ? amountFen + feeAmount
         : null;
     return SingleChildScrollView(
       padding: EdgeInsets.all(AppLayout.scaledValue(16)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _kv('收款方地址', widget.toSs58Address),
+          _kv('收款方地址', widget.toAddress),
           if (_payerBankCid != null) _kv('付款方清算行', _payerBankCid!),
           _kv('收款方清算行', widget.recipientBankCidNumber),
           if (_payerBankCid != null && _recipientBankCid != null)
@@ -372,11 +371,11 @@ class _OffchainClearingPayPageState extends State<OffchainClearingPayPage> {
           ),
           SizedBox(height: AppLayout.scaledValue(16)),
           _kv('费率', '$_rateBp bp (万分之 $_rateBp)'),
-          _kv('手续费', feeFen == null ? '—' : '${_fenToYuan(feeFen)} 元'),
+          _kv('手续费', feeAmount == null ? '—' : '${_fenToYuan(feeAmount)} 元'),
           _kv('合计扣款', totalFen == null ? '—' : '${_fenToYuan(totalFen)} 元'),
           SizedBox(height: AppLayout.scaledValue(24)),
           ElevatedButton(
-            onPressed: (amountFen != null && feeFen != null)
+            onPressed: (amountFen != null && feeAmount != null)
                 ? _confirmAndSubmit
                 : null,
             child: const Text('确认并签名付款'),
@@ -423,7 +422,7 @@ class _OffchainClearingPayPageState extends State<OffchainClearingPayPage> {
   Future<Uint8List> _signSigningHash({
     required Uint8List signingHash,
     required BigInt amountFen,
-    required BigInt feeFen,
+    required BigInt feeAmount,
   }) async {
     final wallet = widget.wallet;
     if (wallet.signMode == CitizenWalletSignMode.hot) {
@@ -451,7 +450,7 @@ class _OffchainClearingPayPageState extends State<OffchainClearingPayPage> {
     return neg ? '-$s' : s;
   }
 
-  /// QR 里的 `toSs58Address` 是用户展示/扫码边界，只允许 SS58。
+  /// QR 里的 `to_address` 是用户展示/扫码边界，只允许 SS58。
   Uint8List _decodeAccount(String address) {
     return _ss58ToBytes(address.trim());
   }

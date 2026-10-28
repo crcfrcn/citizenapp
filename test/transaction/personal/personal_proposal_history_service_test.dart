@@ -11,6 +11,7 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizenapp/citizen/proposal/proposal_query_service.dart';
 import 'package:citizenapp/transaction/personal/personal_proposal_history_service.dart';
+
 import '../../support/isar_test_env.dart';
 import '../../support/fake_citizen_sdk.dart';
 
@@ -47,7 +48,8 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   useIsolatedIsar();
 
-  const personalAccount = 'aabbccddeeff00112233445566778899'
+  const personalAccount =
+      'aabbccddeeff00112233445566778899'
       '00112233445566778899aabbccddeeff';
 
   List<int> compactU32(int value) {
@@ -106,119 +108,121 @@ void main() {
   test('recordOrUpdate inserts new entity then readAllFromIsar 返回单条', () async {
     final service = _service();
     await service.recordOrUpdate(
-      personalAccountId: personalAccount,
+      accountId: personalAccount,
       proposalId: 42,
-      action: PersonalProposalAction.create,
+      actionKind: PersonalProposalAction.create,
       status: PersonalProposalStatus.voting,
-      yesVotes: 1,
-      noVotes: 0,
+      yesCount: 1,
+      noCount: 0,
       snapshot: {'name': 'TestPersonal', 'amount_fen': '1000'},
     );
 
     final list = await service.fetchAll(personalAccount);
     expect(list.length, 1);
     expect(list[0].proposalId, 42);
-    expect(list[0].action, PersonalProposalAction.create);
-    expect(list[0].status, PersonalProposalStatus.voting);
-    expect(list[0].yesVotes, 1);
-    expect(list[0].noVotes, 0);
+    expect(list[0].actionKind, PersonalProposalAction.create);
+    expect(list[0].proposalState, PersonalProposalStatus.voting);
+    expect(list[0].yesCount, 1);
+    expect(list[0].noCount, 0);
     expect(list[0].isActive, isTrue);
-    expect(list[0].finalStatusAtMillis, isNull);
+    expect(list[0].finalAt, isNull);
     expect(list[0].snapshot?['name'], 'TestPersonal');
     expect(list[0].snapshot?['amount_fen'], '1000');
   });
 
-  test(
-      'recordOrUpdate 同 proposalId upsert,createdAt 保留首次值,'
+  test('recordOrUpdate 同 proposalId upsert,createdAt 保留首次值,'
       'snapshot 沿用旧值若新调用未传', () async {
     final service = _service();
     await service.recordOrUpdate(
-      personalAccountId: personalAccount,
+      accountId: personalAccount,
       proposalId: 7,
-      action: PersonalProposalAction.create,
+      actionKind: PersonalProposalAction.create,
       status: PersonalProposalStatus.voting,
-      yesVotes: 0,
-      noVotes: 0,
+      yesCount: 0,
+      noCount: 0,
       snapshot: {'name': 'X'},
     );
     final firstList = await service.fetchAll(personalAccount);
-    final firstCreatedAt = firstList[0].createdAtMillis;
+    final firstCreatedAt = firstList[0].createdAt;
 
     await Future<void>.delayed(const Duration(milliseconds: 5));
 
     // 二次写入只更新投票计数和状态,不传 snapshot
     await service.recordOrUpdate(
-      personalAccountId: personalAccount,
+      accountId: personalAccount,
       proposalId: 7,
-      action: PersonalProposalAction.create,
+      actionKind: PersonalProposalAction.create,
       status: PersonalProposalStatus.executed,
-      yesVotes: 3,
-      noVotes: 0,
+      yesCount: 3,
+      noCount: 0,
     );
     final list = await service.fetchAll(personalAccount);
     expect(list.length, 1);
-    expect(list[0].status, PersonalProposalStatus.executed);
-    expect(list[0].yesVotes, 3);
-    expect(list[0].finalStatusAtMillis, isNotNull);
-    expect(list[0].createdAtMillis, firstCreatedAt,
-        reason: '二次 upsert 必须保留首次 createdAt');
+    expect(list[0].proposalState, PersonalProposalStatus.executed);
+    expect(list[0].yesCount, 3);
+    expect(list[0].finalAt, isNotNull);
+    expect(
+      list[0].createdAt,
+      firstCreatedAt,
+      reason: '二次 upsert 必须保留首次 createdAt',
+    );
     expect(list[0].snapshot?['name'], 'X', reason: 'snapshot 旧值应保留');
   });
 
   test('voting → executed 转换会写入 finalStatusAtMillis', () async {
     final service = _service();
     await service.recordOrUpdate(
-      personalAccountId: personalAccount,
+      accountId: personalAccount,
       proposalId: 1,
-      action: PersonalProposalAction.create,
+      actionKind: PersonalProposalAction.create,
       status: PersonalProposalStatus.voting,
-      yesVotes: 0,
-      noVotes: 0,
+      yesCount: 0,
+      noCount: 0,
     );
     var list = await service.fetchAll(personalAccount);
-    expect(list[0].finalStatusAtMillis, isNull);
+    expect(list[0].finalAt, isNull);
     expect(list[0].isFinal, isFalse);
 
     await service.recordOrUpdate(
-      personalAccountId: personalAccount,
+      accountId: personalAccount,
       proposalId: 1,
-      action: PersonalProposalAction.create,
+      actionKind: PersonalProposalAction.create,
       status: PersonalProposalStatus.rejected,
-      yesVotes: 0,
-      noVotes: 3,
+      yesCount: 0,
+      noCount: 3,
     );
     list = await service.fetchAll(personalAccount);
-    expect(list[0].finalStatusAtMillis, isNotNull);
+    expect(list[0].finalAt, isNotNull);
     expect(list[0].isFinal, isTrue);
   });
 
   test('多个 proposal 按 createdAt desc 排序', () async {
     final service = _service();
     await service.recordOrUpdate(
-      personalAccountId: personalAccount,
+      accountId: personalAccount,
       proposalId: 100,
-      action: PersonalProposalAction.create,
+      actionKind: PersonalProposalAction.create,
       status: PersonalProposalStatus.voting,
-      yesVotes: 0,
-      noVotes: 0,
+      yesCount: 0,
+      noCount: 0,
     );
     await Future<void>.delayed(const Duration(milliseconds: 5));
     await service.recordOrUpdate(
-      personalAccountId: personalAccount,
+      accountId: personalAccount,
       proposalId: 101,
-      action: PersonalProposalAction.transfer,
+      actionKind: PersonalProposalAction.transfer,
       status: PersonalProposalStatus.voting,
-      yesVotes: 1,
-      noVotes: 0,
+      yesCount: 1,
+      noCount: 0,
     );
     await Future<void>.delayed(const Duration(milliseconds: 5));
     await service.recordOrUpdate(
-      personalAccountId: personalAccount,
+      accountId: personalAccount,
       proposalId: 102,
-      action: PersonalProposalAction.close,
+      actionKind: PersonalProposalAction.close,
       status: PersonalProposalStatus.executed,
-      yesVotes: 3,
-      noVotes: 0,
+      yesCount: 3,
+      noCount: 0,
     );
 
     final list = await service.fetchAll(personalAccount);

@@ -117,7 +117,7 @@ class _ProfilePageState extends State<MyTab> {
   ).resolveDisplayName(publicName: _publicProfile?.displayName);
 
   /// 默认钱包徽章信号：颜色只来自 CID 级链上身份快照，勾来自会员匹配。
-  String? get _defaultWalletMembershipLevel => _membership?.membershipLevel;
+  String? get _defaultWalletMembershipLevel => _membership?.memberLevel;
   bool get _defaultWalletMembershipActive =>
       _membershipDecision == MembershipDisplayDecision.activeConfirmed &&
       (_membership?.active ?? false);
@@ -267,13 +267,13 @@ class _ProfilePageState extends State<MyTab> {
     final identityCidNumber = saved?.verified == true
         ? saved!.identity?.cidNumber ?? ''
         : identity?.cidNumber ?? '';
-    String? identityLevel;
+    String? cidLevel;
     try {
       final snapshot = identityCidNumber.isEmpty
           ? null
           : await _badgeSnapshotStore.read(identityCidNumber);
-      identityLevel = switch (snapshot?.identityLevel) {
-        'voting' || 'candidate' => snapshot!.identityLevel,
+      cidLevel = switch (snapshot?.cidLevel) {
+        'voting' || 'candidate' => snapshot!.cidLevel,
         _ => null,
       };
     } catch (e) {
@@ -289,7 +289,7 @@ class _ProfilePageState extends State<MyTab> {
       _defaultWallet = defaultWallet;
       _identityAccountId = identityAccountId;
       _identityCidNumber = identityCidNumber;
-      _defaultWalletIdentityLevel = identityLevel;
+      _defaultWalletIdentityLevel = cidLevel;
       if (identityChanged) {
         _publicProfile = null;
         _publicProfileMedia = const CitizenProfileMediaSnapshot();
@@ -419,7 +419,7 @@ class _ProfilePageState extends State<MyTab> {
       if (mounted &&
           generation == _loadGeneration &&
           _publicProfile?.cidNumber == profile.cidNumber &&
-          _publicProfile?.updatedAt == profile.updatedAt) {
+          _publicProfile?.profileAt == profile.profileAt) {
         setState(() => _publicProfileMedia = local);
       }
     } catch (_) {
@@ -554,8 +554,7 @@ class _ProfilePageState extends State<MyTab> {
             imagePath: _publicProfileMedia.avatarPath,
             imageUrl: null,
 
-            userImageSet:
-                _publicProfile?.avatarObjectKey?.trim().isNotEmpty == true,
+            userImageSet: _publicProfile?.avatarKey?.trim().isNotEmpty == true,
             // 与用户主页统一为 80 逻辑像素；主页的 4px 边框会让默认徽章视觉上多
             // 外露约 4px，“我的”无边框，因此在这里补偿同等右下外溢距离。
             size: 80,
@@ -563,9 +562,9 @@ class _ProfilePageState extends State<MyTab> {
             seed: _identityCidNumber.isEmpty
                 ? _communicationAccountId
                 : _identityCidNumber,
-            identityLevel: _defaultWalletIdentityLevel,
-            membershipLevel: _defaultWalletMembershipLevel,
-            membershipActive: _defaultWalletMembershipActive,
+            cidLevel: _defaultWalletIdentityLevel,
+            memberLevel: _defaultWalletMembershipLevel,
+            membergateActive: _defaultWalletMembershipActive,
           ),
           SizedBox(width: AppLayout.scaledValue(12)),
           Expanded(
@@ -829,9 +828,7 @@ class _ProfilePageState extends State<MyTab> {
                         path: _publicProfileMedia.bannerPath,
 
                         userImageSet:
-                            _publicProfile?.bannerObjectKey
-                                ?.trim()
-                                .isNotEmpty ==
+                            _publicProfile?.bannerKey?.trim().isNotEmpty ==
                             true,
                         height: headerHeight,
                         seed: _identityCidNumber.isEmpty
@@ -1160,7 +1157,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _loadSettings() async {
     // 四项读取先同时启动，新增首页偏好不能延长原有三项安全设置的串行等待。
     final values = await Future.wait<Object?>([
-      SystemProtectedRecordStore.lock.read( _deviceLockKey),
+      SystemProtectedRecordStore.lock.read(_deviceLockKey),
       AppLockService.isPinSet(),
       AppLockService.isDuressModeEnabled(),
       (widget.homeTabPreferenceReader ??
@@ -1225,7 +1222,10 @@ class _SettingsPageState extends State<SettingsPage> {
       }
     }
 
-    await SystemProtectedRecordStore.lock.write(_deviceLockKey, value.toString());
+    await SystemProtectedRecordStore.lock.write(
+      _deviceLockKey,
+      value.toString(),
+    );
     if (!mounted) return;
     setState(() => _deviceLockEnabled = value);
   }

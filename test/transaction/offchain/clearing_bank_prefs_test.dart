@@ -20,8 +20,8 @@ ClearingBankBindingSnapshot _snapshot({
 }) {
   return ClearingBankBindingSnapshot(
     cidNumber: cidNumber,
-    cidFullName: '测试清算行',
-    cidShortName: '测试清算行',
+    fullName: '测试清算行',
+    shortName: '测试清算行',
     mainAccountId: mainAccountId,
     feeAccountId: feeAccountId,
     peerId: '12D3KooWTest',

@@ -4,12 +4,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:citizenapp/system/theme/app_theme.dart';
 import 'package:citizenapp/account/identity/identity_badge.dart';
 
-IdentityBadgeStyle _style(String? identity, String? membership,
-    {bool active = true}) {
+IdentityBadgeStyle _style(
+  String? identity,
+  String? membership, {
+  bool active = true,
+}) {
   return identityBadgeStyle(
-    identityLevel: identity,
-    membershipLevel: membership,
-    membershipActive: active,
+    cidLevel: identity,
+    memberLevel: membership,
+    membergateActive: active,
   )!;
 }
 
@@ -53,16 +56,16 @@ void main() {
     test('提示文案同时说明身份和具体会员档位', () {
       expect(
         identityBadgeLabel(
-          identityLevel: 'candidate',
-          membershipLevel: 'spark',
+          cidLevel: 'candidate',
+          memberLevel: 'spark',
           checked: true,
         ),
         '竞选公民 · 薪火会员',
       );
       expect(
         identityBadgeLabel(
-          identityLevel: 'voting',
-          membershipLevel: null,
+          cidLevel: 'voting',
+          memberLevel: null,
           checked: false,
         ),
         '投票公民',

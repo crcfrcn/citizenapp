@@ -41,7 +41,8 @@ class RuntimeUpgradeDetailPage extends StatefulWidget {
 
   /// 便捷访问。
   InstitutionInfo? get institution => proposalContext.institution;
-  List<CitizenWalletStateAccount> get adminWallets => proposalContext.adminWallets;
+  List<CitizenWalletStateAccount> get adminWallets =>
+      proposalContext.adminWallets;
 
   @override
   State<RuntimeUpgradeDetailPage> createState() =>
@@ -169,15 +170,25 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
 
       final institution = widget.institution;
       if (institution != null) {
-        futures.add(_proposalQueryService.fetchRoleVoterSnapshot(
-          widget.proposalId,
-          institution.cidNumber,
-          _voterRoleCode,
-        ));
-        futures.add(_service.fetchJointVoteByInstitution(
-            widget.proposalId, institution.cidNumber));
-        futures.add(_service.fetchJointInstitutionTally(
-            widget.proposalId, institution.cidNumber));
+        futures.add(
+          _proposalQueryService.fetchRoleVoterSnapshot(
+            widget.proposalId,
+            institution.cidNumber,
+            _voterRoleCode,
+          ),
+        );
+        futures.add(
+          _service.fetchJointVoteByInstitution(
+            widget.proposalId,
+            institution.cidNumber,
+          ),
+        );
+        futures.add(
+          _service.fetchJointInstitutionTally(
+            widget.proposalId,
+            institution.cidNumber,
+          ),
+        );
       }
 
       final results = await Future.wait(futures);
@@ -197,10 +208,13 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
         institutionVote = results[5] as bool?;
         institutionAdminTally = results[6] as ({int yes, int no});
         final adminSet = admins.toSet();
-        final matchedAdminWallets = widget.adminWallets.where((wallet) {
-          return adminSet.contains(_requireAccountId(wallet.accountId));
-        }).toList(growable: false)
-          ..sort((a, b) => a.walletIndex.compareTo(b.walletIndex));
+        final matchedAdminWallets =
+            widget.adminWallets
+                .where((wallet) {
+                  return adminSet.contains(_requireAccountId(wallet.accountId));
+                })
+                .toList(growable: false)
+              ..sort((a, b) => a.walletIndex.compareTo(b.walletIndex));
 
         final voteResults = await _service.fetchJointTicketVotesBatch(
           widget.proposalId,
@@ -210,32 +224,39 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
         );
         adminVotes = voteResults;
 
-        votableWallets = matchedAdminWallets.where((wallet) {
-          final accountId = _requireAccountId(wallet.accountId);
-          return adminVotes[accountId] == null;
-        }).toList(growable: false)
-          ..sort((a, b) => a.walletIndex.compareTo(b.walletIndex));
+        votableWallets =
+            matchedAdminWallets
+                .where((wallet) {
+                  final accountId = _requireAccountId(wallet.accountId);
+                  return adminVotes[accountId] == null;
+                })
+                .toList(growable: false)
+              ..sort((a, b) => a.walletIndex.compareTo(b.walletIndex));
 
         if (selectedVoteWallet == null ||
-            !votableWallets.any((wallet) =>
-                wallet.walletIndex == selectedVoteWallet!.walletIndex)) {
-          selectedVoteWallet =
-              votableWallets.isNotEmpty ? votableWallets.first : null;
+            !votableWallets.any(
+              (wallet) => wallet.walletIndex == selectedVoteWallet!.walletIndex,
+            )) {
+          selectedVoteWallet = votableWallets.isNotEmpty
+              ? votableWallets.first
+              : null;
         }
       }
 
       if (!mounted) return;
       try {
-        await _detailStore.put(_snapshotFromChain(
-          meta: meta,
-          proposalInfo: proposalInfo,
-          jointTally: jointTally,
-          referendumTally: referendumTally,
-          admins: admins,
-          adminVotes: adminVotes,
-          institutionVote: institutionVote,
-          institutionAdminTally: institutionAdminTally,
-        ));
+        await _detailStore.put(
+          _snapshotFromChain(
+            meta: meta,
+            proposalInfo: proposalInfo,
+            jointTally: jointTally,
+            referendumTally: referendumTally,
+            admins: admins,
+            adminVotes: adminVotes,
+            institutionVote: institutionVote,
+            institutionAdminTally: institutionAdminTally,
+          ),
+        );
       } catch (_) {
         // 详情快照写入失败不能影响链上最新结果展示。
       }
@@ -268,20 +289,28 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
 
   Future<ProposalDetailSnapshot?> _applyLocalSnapshot() async {
     try {
-      final snapshot =
-          await _detailStore.read('runtime_upgrade', widget.proposalId);
+      final snapshot = await _detailStore.read(
+        'runtime_upgrade',
+        widget.proposalId,
+      );
       if (snapshot == null || !mounted) return snapshot;
       final admins = snapshot.admins;
       final adminSet = admins.toSet();
-      final matchedAdminWallets = widget.adminWallets.where((wallet) {
-        return adminSet.contains(_requireAccountId(wallet.accountId));
-      }).toList(growable: false)
-        ..sort((a, b) => a.walletIndex.compareTo(b.walletIndex));
-      final votableWallets = matchedAdminWallets.where((wallet) {
-        final accountId = _requireAccountId(wallet.accountId);
-        return snapshot.adminVotes[accountId] == null;
-      }).toList(growable: false)
-        ..sort((a, b) => a.walletIndex.compareTo(b.walletIndex));
+      final matchedAdminWallets =
+          widget.adminWallets
+              .where((wallet) {
+                return adminSet.contains(_requireAccountId(wallet.accountId));
+              })
+              .toList(growable: false)
+            ..sort((a, b) => a.walletIndex.compareTo(b.walletIndex));
+      final votableWallets =
+          matchedAdminWallets
+              .where((wallet) {
+                final accountId = _requireAccountId(wallet.accountId);
+                return snapshot.adminVotes[accountId] == null;
+              })
+              .toList(growable: false)
+            ..sort((a, b) => a.walletIndex.compareTo(b.walletIndex));
       setState(() {
         _meta = _metaFromSnapshot(snapshot);
         _proposalInfo = _proposalInfoFromSnapshot(snapshot);
@@ -301,8 +330,9 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
         );
         _adminVotes = snapshot.adminVotes;
         _votableWallets = votableWallets;
-        _selectedVoteWallet =
-            votableWallets.isNotEmpty ? votableWallets.first : null;
+        _selectedVoteWallet = votableWallets.isNotEmpty
+            ? votableWallets.first
+            : null;
         _loading = false;
         _error = null;
       });
@@ -324,8 +354,8 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
   }) {
     return ProposalDetailSnapshot(
       proposalId: widget.proposalId,
-      typeKey: 'runtime_upgrade',
-      updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
+      proposalKind: 'runtime_upgrade',
+      updatedAt: DateTime.now().millisecondsSinceEpoch,
       status: meta?.status,
       yesCount: jointTally.yes,
       noCount: jointTally.no,
@@ -357,9 +387,7 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
     );
   }
 
-  Map<String, Object?> _proposalInfoToJson(
-    RuntimeUpgradeProposalInfo? info,
-  ) {
+  Map<String, Object?> _proposalInfoToJson(RuntimeUpgradeProposalInfo? info) {
     if (info == null) return const {};
     return {
       'actor_cid_number': info.actorCidNumber,
@@ -423,8 +451,8 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
     final stage = _toInt(snapshot.extra['meta_stage']);
     final status = _toInt(snapshot.extra['meta_status']);
     if (kind == null || stage == null || status == null) return null;
-    final executionAccountId =
-        snapshot.extra['meta_execution_account_id']?.toString();
+    final executionAccountId = snapshot.extra['meta_execution_account_id']
+        ?.toString();
     return ProposalMeta(
       proposalId: snapshot.proposalId,
       kind: kind,
@@ -432,12 +460,13 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
       status: status,
       internalCode: snapshot.extra['meta_internal_code']?.toString(),
       actorCidNumber: snapshot.extra['meta_actor_cid_number']?.toString(),
-      subjectCidNumbers:
-          _toStringList(snapshot.extra['meta_subject_cid_numbers']),
+      subjectCidNumbers: _toStringList(
+        snapshot.extra['meta_subject_cid_numbers'],
+      ),
       executionAccountId:
           executionAccountId == null || executionAccountId.isEmpty
-              ? null
-              : _accountIdBytes(executionAccountId),
+          ? null
+          : _accountIdBytes(executionAccountId),
     );
   }
 
@@ -549,8 +578,9 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
         _votableWallets = _votableWallets
             .where((w) => _requireAccountId(w.accountId) != accountId)
             .toList(growable: false);
-        _selectedVoteWallet =
-            _votableWallets.isNotEmpty ? _votableWallets.first : null;
+        _selectedVoteWallet = _votableWallets.isNotEmpty
+            ? _votableWallets.first
+            : null;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -559,10 +589,11 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
         ),
       );
 
-      _adminService
-          .clearCache(AdminAccountIdentity.fromInstitution(institution));
+      _adminService.clearCache(
+        AdminAccountIdentity.fromInstitution(institution),
+      );
       // 服务层已经等待入块并回读 JointVote storage；这里刷新页面
-      // 只负责同步最新展示状态，投票成功与否不再由 txHash 判断。
+      // 只负责同步最新展示状态，投票成功与否不再由 tx_hash 判断。
       unawaited(_load(showSpinner: false));
     } on AccountSecurityException catch (e) {
       if (!mounted) return;
@@ -587,9 +618,7 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text('确认提交$label票'),
-        content: Text(
-          '将使用所选岗位选民钱包直接提交$label票。投票后不可修改。',
-        ),
+        content: Text('将使用所选岗位选民钱包直接提交$label票。投票后不可修改。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
@@ -625,8 +654,9 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
         title: Text(
           '协议升级详情',
           style: TextStyle(
-              fontSize: AppLayout.scaled(context, 17),
-              fontWeight: FontWeight.w700),
+            fontSize: AppLayout.scaled(context, 17),
+            fontWeight: FontWeight.w700,
+          ),
         ),
         centerTitle: true,
         backgroundColor: Colors.white,
@@ -637,8 +667,8 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? _buildError()
-              : _buildContent(),
+          ? _buildError()
+          : _buildContent(),
       bottomNavigationBar: _buildBottomBar(),
     );
   }
@@ -650,19 +680,26 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.error_outline,
-                size: AppLayout.scaledValue(48), color: AppTheme.danger),
+            Icon(
+              Icons.error_outline,
+              size: AppLayout.scaledValue(48),
+              color: AppTheme.danger,
+            ),
             SizedBox(height: AppLayout.scaledValue(12)),
-            Text('加载失败',
-                style: TextStyle(
-                    fontSize: AppLayout.scaledValue(16),
-                    color: AppTheme.textSecondary)),
+            Text(
+              '加载失败',
+              style: TextStyle(
+                fontSize: AppLayout.scaledValue(16),
+                color: AppTheme.textSecondary,
+              ),
+            ),
             SizedBox(height: AppLayout.scaledValue(6)),
             Text(
               _error!,
               style: TextStyle(
-                  fontSize: AppLayout.scaledValue(12),
-                  color: AppTheme.textTertiary),
+                fontSize: AppLayout.scaledValue(12),
+                color: AppTheme.textTertiary,
+              ),
               textAlign: TextAlign.center,
               maxLines: 4,
               overflow: TextOverflow.ellipsis,
@@ -690,7 +727,9 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
           ProposalStatusBadge(
-              status: _meta?.status, proposalId: widget.proposalId),
+            status: _meta?.status,
+            proposalId: widget.proposalId,
+          ),
           SizedBox(height: AppLayout.scaledValue(16)),
           _buildProposalInfoCard(),
           SizedBox(height: AppLayout.scaledValue(16)),
@@ -733,13 +772,10 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
               ),
             ),
             SizedBox(height: AppLayout.scaledValue(12)),
-            _buildInfoRow(
-              '提案 ID',
-              formatProposalId(_meta?.displayMeta),
-            ),
+            _buildInfoRow('提案 ID', formatProposalId(_meta?.displayMeta)),
             if (widget.institution != null) ...[
               Divider(height: AppLayout.scaledValue(20)),
-              _buildInfoRow('当前机构简称', widget.institution!.cidShortName),
+              _buildInfoRow('当前机构简称', widget.institution!.shortName),
             ],
             if (info != null) ...[
               Divider(height: AppLayout.scaledValue(20)),
@@ -791,16 +827,18 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
           child: Text(
             label,
             style: TextStyle(
-                fontSize: AppLayout.scaledValue(13),
-                color: AppTheme.textSecondary),
+              fontSize: AppLayout.scaledValue(13),
+              color: AppTheme.textSecondary,
+            ),
           ),
         ),
         Expanded(
           child: Text(
             text,
             style: TextStyle(
-                fontSize: AppLayout.scaledValue(13),
-                color: AppTheme.textPrimary),
+              fontSize: AppLayout.scaledValue(13),
+              color: AppTheme.textPrimary,
+            ),
             maxLines: _reasonExpanded ? null : 1,
             overflow: _reasonExpanded ? null : TextOverflow.ellipsis,
           ),
@@ -829,23 +867,28 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
           child: Text(
             label,
             style: TextStyle(
-                fontSize: AppLayout.scaledValue(13),
-                color: AppTheme.textSecondary),
+              fontSize: AppLayout.scaledValue(13),
+              color: AppTheme.textSecondary,
+            ),
           ),
         ),
         Expanded(
           child: Text(
             value,
             style: TextStyle(
-                fontSize: AppLayout.scaledValue(13),
-                color: AppTheme.textPrimary),
+              fontSize: AppLayout.scaledValue(13),
+              color: AppTheme.textPrimary,
+            ),
           ),
         ),
         if (onCopy != null)
           GestureDetector(
             onTap: onCopy,
-            child: Icon(Icons.copy,
-                size: AppLayout.scaledValue(16), color: AppTheme.textTertiary),
+            child: Icon(
+              Icons.copy,
+              size: AppLayout.scaledValue(16),
+              color: AppTheme.textTertiary,
+            ),
           ),
       ],
     );
@@ -883,8 +926,9 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
                 value: progress,
                 minHeight: AppLayout.scaledValue(10),
                 backgroundColor: AppTheme.border,
-                valueColor:
-                    const AlwaysStoppedAnimation<Color>(AppTheme.primaryDark),
+                valueColor: const AlwaysStoppedAnimation<Color>(
+                  AppTheme.primaryDark,
+                ),
               ),
             ),
             SizedBox(height: AppLayout.scaledValue(8)),
@@ -912,8 +956,9 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
             Text(
               '联合投票总权重 $jointVoteTotal，国家储委会权重 19，省储委会/省储行各权重 1',
               style: TextStyle(
-                  fontSize: AppLayout.scaledValue(12),
-                  color: AppTheme.textTertiary),
+                fontSize: AppLayout.scaledValue(12),
+                color: AppTheme.textTertiary,
+              ),
             ),
           ],
         ),
@@ -947,7 +992,7 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
               ),
             ),
             SizedBox(height: AppLayout.scaledValue(12)),
-            _buildInfoRow('机构简称', institution.cidShortName),
+            _buildInfoRow('机构简称', institution.shortName),
             Divider(height: AppLayout.scaledValue(20)),
             _buildInfoRow('投票状态', _institutionVoteLabel()),
             Divider(height: AppLayout.scaledValue(20)),
@@ -966,9 +1011,10 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
                 minHeight: AppLayout.scaledValue(8),
                 backgroundColor: AppTheme.border,
                 valueColor: AlwaysStoppedAnimation<Color>(
-                    _institutionVote == true
-                        ? AppTheme.primaryDark
-                        : AppTheme.warning),
+                  _institutionVote == true
+                      ? AppTheme.primaryDark
+                      : AppTheme.warning,
+                ),
               ),
             ),
             SizedBox(height: AppLayout.scaledValue(12)),
@@ -978,14 +1024,16 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
                 Text(
                   '岗位选民反对 ${_institutionAdminTally.no}',
                   style: TextStyle(
-                      fontSize: AppLayout.scaledValue(13),
-                      color: AppTheme.danger),
+                    fontSize: AppLayout.scaledValue(13),
+                    color: AppTheme.danger,
+                  ),
                 ),
                 Text(
                   '提案岗位快照 ${_admins.length} 人',
                   style: TextStyle(
-                      fontSize: AppLayout.scaledValue(12),
-                      color: AppTheme.textTertiary),
+                    fontSize: AppLayout.scaledValue(12),
+                    color: AppTheme.textTertiary,
+                  ),
                 ),
               ],
             ),
@@ -996,8 +1044,9 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
               Text(
                 '本机构仅提案创建时冻结的岗位有效选民可直接上链投票；赞成达到机构阈值会形成机构赞成结果，剩余选民已不足以达到阈值时会形成机构反对结果。',
                 style: TextStyle(
-                    fontSize: AppLayout.scaledValue(12),
-                    color: AppTheme.textTertiary),
+                  fontSize: AppLayout.scaledValue(12),
+                  color: AppTheme.textTertiary,
+                ),
               ),
             ],
           ],
@@ -1018,7 +1067,9 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
         child: Text(
           '当前未导入属于本机构岗位快照的选民钱包',
           style: TextStyle(
-              fontSize: AppLayout.scaledValue(13), color: AppTheme.warning),
+            fontSize: AppLayout.scaledValue(13),
+            color: AppTheme.warning,
+          ),
         ),
       );
     }
@@ -1034,8 +1085,9 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
         child: Text(
           _allImportedAdminsVoted ? '已导入岗位选民钱包均已完成投票' : '当前没有可用的岗位选民钱包',
           style: TextStyle(
-              fontSize: AppLayout.scaledValue(13),
-              color: AppTheme.textSecondary),
+            fontSize: AppLayout.scaledValue(13),
+            color: AppTheme.textSecondary,
+          ),
         ),
       );
     }
@@ -1053,11 +1105,15 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
-              fontSize: AppLayout.scaledValue(11),
-              color: AppTheme.textTertiary),
+            fontSize: AppLayout.scaledValue(11),
+            color: AppTheme.textTertiary,
+          ),
         ),
-        trailing: Icon(Icons.shield_outlined,
-            size: AppLayout.scaledValue(18), color: AppTheme.warning),
+        trailing: Icon(
+          Icons.shield_outlined,
+          size: AppLayout.scaledValue(18),
+          color: AppTheme.warning,
+        ),
       );
     }
 
@@ -1085,8 +1141,11 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
                     ),
                   ),
                   SizedBox(width: AppLayout.scaledValue(8)),
-                  Icon(Icons.shield_outlined,
-                      size: AppLayout.scaledValue(18), color: AppTheme.warning),
+                  Icon(
+                    Icons.shield_outlined,
+                    size: AppLayout.scaledValue(18),
+                    color: AppTheme.warning,
+                  ),
                 ],
               ),
             );
@@ -1094,8 +1153,9 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
           onChanged: (walletIndex) {
             if (walletIndex == null) return;
             setState(() {
-              _selectedVoteWallet = _votableWallets
-                  .firstWhere((wallet) => wallet.walletIndex == walletIndex);
+              _selectedVoteWallet = _votableWallets.firstWhere(
+                (wallet) => wallet.walletIndex == walletIndex,
+              );
             });
           },
         ),
@@ -1176,7 +1236,11 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
   Widget _buildJointReferendumButtons() {
     return Container(
       padding: EdgeInsets.fromLTRB(
-          16, 12, 16, MediaQuery.of(context).padding.bottom + 12),
+        16,
+        12,
+        16,
+        MediaQuery.of(context).padding.bottom + 12,
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
@@ -1195,8 +1259,9 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
             child: Text(
               '联合公投',
               style: TextStyle(
-                  fontSize: AppLayout.scaledValue(13),
-                  color: AppTheme.textSecondary),
+                fontSize: AppLayout.scaledValue(13),
+                color: AppTheme.textSecondary,
+              ),
               textAlign: TextAlign.center,
             ),
           ),
@@ -1210,13 +1275,16 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.danger,
                     foregroundColor: Colors.white,
-                    disabledBackgroundColor:
-                        AppTheme.danger.withValues(alpha: 0.25),
+                    disabledBackgroundColor: AppTheme.danger.withValues(
+                      alpha: 0.25,
+                    ),
                     padding: EdgeInsets.symmetric(
-                        vertical: AppLayout.scaledValue(14)),
+                      vertical: AppLayout.scaledValue(14),
+                    ),
                     shape: RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.circular(AppLayout.scaledValue(10)),
+                      borderRadius: BorderRadius.circular(
+                        AppLayout.scaledValue(10),
+                      ),
                     ),
                   ),
                   child: _submitting
@@ -1240,13 +1308,16 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.success,
                     foregroundColor: Colors.white,
-                    disabledBackgroundColor:
-                        AppTheme.success.withValues(alpha: 0.25),
+                    disabledBackgroundColor: AppTheme.success.withValues(
+                      alpha: 0.25,
+                    ),
                     padding: EdgeInsets.symmetric(
-                        vertical: AppLayout.scaledValue(14)),
+                      vertical: AppLayout.scaledValue(14),
+                    ),
                     shape: RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.circular(AppLayout.scaledValue(10)),
+                      borderRadius: BorderRadius.circular(
+                        AppLayout.scaledValue(10),
+                      ),
                     ),
                   ),
                   child: _submitting
@@ -1274,9 +1345,7 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text('确认联合公投$label'),
-        content: Text(
-          '将对此协议升级提案投"$label"票。投票后不可修改。',
-        ),
+        content: Text('将对此协议升级提案投"$label"票。投票后不可修改。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
@@ -1309,7 +1378,11 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
     final disabledReason = _voteDisabledReason;
     return Container(
       padding: EdgeInsets.fromLTRB(
-          16, 12, 16, MediaQuery.of(context).padding.bottom + 12),
+        16,
+        12,
+        16,
+        MediaQuery.of(context).padding.bottom + 12,
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
@@ -1329,8 +1402,9 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
               child: Text(
                 disabledReason,
                 style: TextStyle(
-                    fontSize: AppLayout.scaledValue(13),
-                    color: AppTheme.textTertiary),
+                  fontSize: AppLayout.scaledValue(13),
+                  color: AppTheme.textTertiary,
+                ),
                 textAlign: TextAlign.center,
               ),
             ),
@@ -1342,13 +1416,16 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.danger,
                     foregroundColor: Colors.white,
-                    disabledBackgroundColor:
-                        AppTheme.danger.withValues(alpha: 0.25),
+                    disabledBackgroundColor: AppTheme.danger.withValues(
+                      alpha: 0.25,
+                    ),
                     padding: EdgeInsets.symmetric(
-                        vertical: AppLayout.scaledValue(14)),
+                      vertical: AppLayout.scaledValue(14),
+                    ),
                     shape: RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.circular(AppLayout.scaledValue(10)),
+                      borderRadius: BorderRadius.circular(
+                        AppLayout.scaledValue(10),
+                      ),
                     ),
                   ),
                   child: _submitting
@@ -1370,13 +1447,16 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.success,
                     foregroundColor: Colors.white,
-                    disabledBackgroundColor:
-                        AppTheme.success.withValues(alpha: 0.25),
+                    disabledBackgroundColor: AppTheme.success.withValues(
+                      alpha: 0.25,
+                    ),
                     padding: EdgeInsets.symmetric(
-                        vertical: AppLayout.scaledValue(14)),
+                      vertical: AppLayout.scaledValue(14),
+                    ),
                     shape: RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.circular(AppLayout.scaledValue(10)),
+                      borderRadius: BorderRadius.circular(
+                        AppLayout.scaledValue(10),
+                      ),
                     ),
                   ),
                   child: _submitting

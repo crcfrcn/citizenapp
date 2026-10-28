@@ -117,8 +117,8 @@ final class SquareVideoTranscoder {
       throw SquareMediaError.invalidRequest("文件不包含视频轨")
     }
     let duration = try await asset.load(.duration)
-    let durationSeconds = Int(ceil(duration.seconds))
-    guard durationSeconds > 0, durationSeconds <= request.maxDurationSeconds else {
+    let videoSecs = Int(ceil(duration.seconds))
+    guard videoSecs > 0, videoSecs <= request.videoMaxSeconds else {
       throw SquareMediaError.invalidRequest("视频时长超出会员上限")
     }
     try await rejectHdrOrDolbyVision(videoTrack)
@@ -131,15 +131,15 @@ final class SquareVideoTranscoder {
     let targetSize = fitVideo(
       width: sourceWidth,
       height: sourceHeight,
-      maxWidth: CGFloat(request.maxWidth),
-      maxHeight: CGFloat(request.maxHeight)
+      videoWidth: CGFloat(request.videoWidth),
+      videoHeight: CGFloat(request.videoHeight)
     )
     let nominalFrameRate = try await videoTrack.load(.nominalFrameRate)
-    let frameRate = max(1, min(Float(request.maxFrameRate), nominalFrameRate > 0 ? nominalFrameRate : 30))
+    let videoFrameRate = max(1, min(Float(request.videoFrameRate), nominalFrameRate > 0 ? nominalFrameRate : 30))
 
     let videoComposition = AVMutableVideoComposition()
     videoComposition.renderSize = targetSize
-    videoComposition.frameDuration = CMTime(value: 1, timescale: CMTimeScale(frameRate.rounded()))
+    videoComposition.frameDuration = CMTime(value: 1, timescale: CMTimeScale(videoFrameRate.rounded()))
     let instruction = AVMutableVideoCompositionInstruction()
     instruction.timeRange = CMTimeRange(start: .zero, duration: duration)
     let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: videoTrack)
@@ -187,8 +187,8 @@ final class SquareVideoTranscoder {
         ],
         AVVideoCompressionPropertiesKey: [
           AVVideoAverageBitRateKey: request.videoBitrate,
-          AVVideoExpectedSourceFrameRateKey: Int(frameRate.rounded()),
-          AVVideoMaxKeyFrameIntervalDurationKey: request.keyFrameIntervalSeconds,
+          AVVideoExpectedSourceFrameRateKey: Int(videoFrameRate.rounded()),
+          AVVideoMaxKeyFrameIntervalDurationKey: request.keyframeSecs,
           AVVideoAllowFrameReorderingKey: false,
           AVVideoProfileLevelKey: kVTProfileLevel_HEVC_Main_AutoLevel,
         ],
@@ -246,7 +246,7 @@ final class SquareVideoTranscoder {
     try await createCover(
       asset: AVURLAsset(url: outputURL),
       destination: coverURL,
-      maxEdge: request.coverMaxEdge
+      maxEdge: request.coverDimension
     )
     return try await inspectOutput(
       outputURL,
@@ -368,11 +368,11 @@ final class SquareVideoTranscoder {
   private func fitVideo(
     width: CGFloat,
     height: CGFloat,
-    maxWidth: CGFloat,
-    maxHeight: CGFloat
+    videoWidth: CGFloat,
+    videoHeight: CGFloat
   ) -> CGSize {
-    let boundWidth = height > width ? maxHeight : maxWidth
-    let boundHeight = height > width ? maxWidth : maxHeight
+    let boundWidth = height > width ? videoHeight : videoWidth
+    let boundHeight = height > width ? videoWidth : videoHeight
     let scale = min(1, min(boundWidth / width, boundHeight / height))
     let outputWidth = max(2, floor(width * scale / 2) * 2)
     let outputHeight = max(2, floor(height * scale / 2) * 2)
@@ -402,7 +402,7 @@ final class SquareVideoTranscoder {
   ) async throws -> [String: Any] {
     let byteSize = try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber
     let coverByteSize = try FileManager.default.attributesOfItem(atPath: coverURL.path)[.size] as? NSNumber
-    guard let byteSize, byteSize.int64Value > 0, byteSize.int64Value <= request.maxBytes,
+    guard let byteSize, byteSize.int64Value > 0, byteSize.int64Value <= request.videoMaxBytes,
           let coverByteSize, coverByteSize.int64Value > 0
     else {
       throw SquareMediaError.processing("视频或封面文件大小不合法")
@@ -432,20 +432,20 @@ final class SquareVideoTranscoder {
       }
     }
     let duration = try await asset.load(.duration)
-    let durationSeconds = Int(ceil(duration.seconds))
+    let videoSecs = Int(ceil(duration.seconds))
     let naturalSize = try await videoTrack.load(.naturalSize)
     let preferredTransform = try await videoTrack.load(.preferredTransform)
     let rect = CGRect(origin: .zero, size: naturalSize).applying(preferredTransform)
-    let frameRate = try await videoTrack.load(.nominalFrameRate)
+    let videoFrameRate = try await videoTrack.load(.nominalFrameRate)
     let average = Int(Double(byteSize.int64Value * 8) / duration.seconds)
     let peak = try await peakBitrate(asset)
     return [
-      "duration_seconds": durationSeconds,
-      "width": Int(abs(rect.width)),
-      "height": Int(abs(rect.height)),
-      "frame_rate": Double(frameRate),
-      "total_average_bitrate": average,
-      "total_peak_bitrate": peak,
+      "video_secs": videoSecs,
+      "pixel_width": Int(abs(rect.width)),
+      "pixel_height": Int(abs(rect.height)),
+      "video_frame_rate": Double(videoFrameRate),
+      "video_average_bitrate": average,
+      "video_peak_bitrate": peak,
       "byte_size": byteSize.int64Value,
       "cover_byte_size": coverByteSize.int64Value,
       "video_codec": "hevc",

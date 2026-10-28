@@ -30,7 +30,7 @@ class ProposalEntryPage extends StatefulWidget {
   const ProposalEntryPage({
     super.key,
     required this.institution,
-    required this.institutionCode,
+    required this.orgCode,
     required this.icon,
     required this.badgeColor,
     required this.adminWallets,
@@ -40,7 +40,7 @@ class ProposalEntryPage extends StatefulWidget {
   final InstitutionInfo institution;
 
   /// 机构码(registry 主键:NRC/PRC/PRB/NRP/CLEG/CGOV…)。
-  final String institutionCode;
+  final String orgCode;
   final IconData icon;
   final Color badgeColor;
 
@@ -111,7 +111,7 @@ class _ProposalEntryPageState extends State<ProposalEntryPage> {
                     SizedBox(width: AppLayout.scaled(context, 10)),
                     Expanded(
                       child: Text(
-                        widget.institution.cidShortName,
+                        widget.institution.shortName,
                         style: TextStyle(
                           fontSize: AppLayout.scaled(context, 15),
                           fontWeight: FontWeight.w600,
@@ -249,7 +249,7 @@ class _ProposalEntryPageState extends State<ProposalEntryPage> {
 
   ProposalSubject get _subject => ProposalSubject.fromInstitution(
     institution: widget.institution,
-    institutionCode: widget.institutionCode,
+    orgCode: widget.orgCode,
   );
 
   /// 按主体能力 registry 取可发起提案,逐项渲染卡片。
@@ -453,9 +453,8 @@ class _ProposalEntryPageState extends State<ProposalEntryPage> {
     final blockedReason = _proposalBlockedReason;
     if (blockedReason != null) {
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(blockedReason)));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(blockedReason)));
       }
       return;
     }
@@ -499,15 +498,13 @@ class _ProposalEntryPageState extends State<ProposalEntryPage> {
           Navigator.of(context).pop(true);
         }
       } else {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('${name ?? "该"}功能开发中')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('${name ?? "该"}功能开发中')));
       }
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('公民链状态暂时不可用')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('公民链状态暂时不可用')));
     }
   }
 

@@ -16,8 +16,11 @@ class AdminsChangeConfirmPage extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.check_circle_outline,
-                  size: AppLayout.scaled(context, 56), color: Colors.green),
+              Icon(
+                Icons.check_circle_outline,
+                size: AppLayout.scaled(context, 56),
+                color: Colors.green,
+              ),
               SizedBox(height: AppLayout.scaled(context, 12)),
               const Text('管理员更换提案已提交'),
               SizedBox(height: AppLayout.scaled(context, 8)),

@@ -17,7 +17,9 @@ import 'package:citizenapp/citizen/runtime/runtime_upgrade_service.dart';
 import 'package:citizenapp/transaction/multisig/multisig_transfer_proposal_adapter.dart';
 
 import '../support/isar_test_env.dart';
-import 'package:citizenapp/storage/wallet_isar.dart';
+
+import 'package:citizenapp/storage/wallet_isar.dart' hide Group;
+
 import '../citizen/public/public_nav_harness.dart';
 
 import 'package:polkadart_keyring/polkadart_keyring.dart';
@@ -53,8 +55,12 @@ class _RawStorageChain extends TestCitizenChain {
 
 /// 合成链只提供公开读合同；真实Feed/Service负责年份、索引和详情读取。
 class _ProposalChain extends _RawStorageChain {
-  _ProposalChain({this.failureAt, this.failure, this.missingYear = false,
-    this.hasIndex = false}) : super(Uint8List.fromList([0xea, 0x07]));
+  _ProposalChain({
+    this.failureAt,
+    this.failure,
+    this.missingYear = false,
+    this.hasIndex = false,
+  }) : super(Uint8List.fromList([0xea, 0x07]));
   final String? failureAt;
   final Object? failure;
   final bool missingYear;
@@ -70,21 +76,35 @@ class _ProposalChain extends _RawStorageChain {
   }
 
   @override
-  Future<List<Uint8List>> getStorageKeysPaged(CitizenBlockRef block,
-      Uint8List prefix, {Uint8List? startKey, int limit = 1000}) async {
+  Future<List<Uint8List>> getStorageKeysPaged(
+    CitizenBlockRef block,
+    Uint8List prefix, {
+    Uint8List? startKey,
+    int limit = 1000,
+  }) async {
     reads.add('index');
     expectSync(prefix.length, 42);
     expectSync(prefix.sublist(40), [0xea, 0x07]);
     expectSync(startKey, isNull);
     expectSync(limit, 1000);
     if (failureAt == 'index') throw failure!;
-    return hasIndex ? [Uint8List.fromList([...prefix,
-      ...List<int>.filled(8, 0), 1, ...List<int>.filled(7, 0)])] : [];
+    return hasIndex
+        ? [
+            Uint8List.fromList([
+              ...prefix,
+              ...List<int>.filled(8, 0),
+              1,
+              ...List<int>.filled(7, 0),
+            ]),
+          ]
+        : [];
   }
 
   @override
-  Future<List<Uint8List?>> getStorageBatch(CitizenBlockRef block,
-      List<Uint8List> keys) async {
+  Future<List<Uint8List?>> getStorageBatch(
+    CitizenBlockRef block,
+    List<Uint8List> keys,
+  ) async {
     reads.add('details');
     if (failureAt == 'details') throw failure!;
     return [for (final _ in keys) null];
@@ -181,14 +201,15 @@ class _PageVotes extends VoteChecker {
     if (failure != null) throw failure!;
     await beforeReturn?.call();
     return targets
-          .where((item) => item.proposalId.isOdd)
-          .map((item) => item.proposalId)
-          .toSet();
+        .where((item) => item.proposalId.isOdd)
+        .map((item) => item.proposalId)
+        .toSet();
   }
 }
 
 class _PageTransport extends TestCitizenSdkTransport {
-  _PageTransport() : super({'walletGetState': (_) => testCitizenWalletState()}) {
+  _PageTransport()
+    : super({'walletGetState': (_) => testCitizenWalletState()}) {
     handlers['getCapabilities'] = (_) => [capabilities()];
   }
   final controller = StreamController<Object?>.broadcast();
@@ -197,20 +218,43 @@ class _PageTransport extends TestCitizenSdkTransport {
   bool ready = true;
   CitizenCapabilityReason reason = CitizenCapabilityReason.none;
   // 完整公开能力元组，不绕过页面的就绪读取路径。
-  List<Object?> capabilities() => ['$revision', [
-    for (final name in CitizenCapabilityName.values)
-      [name.name, true, true, true,
-        name == CitizenCapabilityName.chainRead ? ready : true,
-        name == CitizenCapabilityName.chainRead ? reason.name : 'none'],
-  ]];
-  void capability({required bool isReady,
-    CitizenCapabilityReason why = CitizenCapabilityReason.none}) {
-    ready = isReady; reason = why; revision++;
-    controller.add([2, 'synthetic-ui-session', sequence++,
-      'capabilitiesChanged', [capabilities()]]);
+  List<Object?> capabilities() => [
+    '$revision',
+    [
+      for (final name in CitizenCapabilityName.values)
+        [
+          name.name,
+          true,
+          true,
+          true,
+          name == CitizenCapabilityName.chainRead ? ready : true,
+          name == CitizenCapabilityName.chainRead ? reason.name : 'none',
+        ],
+    ],
+  ];
+  void capability({
+    required bool isReady,
+    CitizenCapabilityReason why = CitizenCapabilityReason.none,
+  }) {
+    ready = isReady;
+    reason = why;
+    revision++;
+    controller.add([
+      2,
+      'synthetic-ui-session',
+      sequence++,
+      'capabilitiesChanged',
+      [capabilities()],
+    ]);
   }
-  void lifecycle(String value) => controller.add([2, 'synthetic-ui-session',
-    sequence++, 'lifecycleChanged', [value]]);
+
+  void lifecycle(String value) => controller.add([
+    2,
+    'synthetic-ui-session',
+    sequence++,
+    'lifecycleChanged',
+    [value],
+  ]);
   @override
   Stream<Object?> get events => controller.stream;
   void finalized() => controller.add([
@@ -236,7 +280,6 @@ Future<void> _flush(WidgetTester tester) async {
       () => Future<void>.delayed(const Duration(milliseconds: 20)),
     );
     await tester.pump(const Duration(milliseconds: 100));
-
   }
 }
 
@@ -272,7 +315,8 @@ Future<_PageTransport> _openProposal(
         home: Scaffold(
           body: ProposalTab(
             feed: feed,
-            repository: repository ?? InstitutionRepository(directory: directory),
+            repository:
+                repository ?? InstitutionRepository(directory: directory),
             contextResolver: resolver ?? _PageContext(),
             voteChecker: checker ?? _PageVotes(),
             onPendingVoteCountChanged: counts.add,
@@ -283,11 +327,16 @@ Future<_PageTransport> _openProposal(
   );
   for (var attempt = 0; waitForTerminal && attempt < 20; attempt++) {
     await _flush(tester);
-    if (counts.isNotEmpty || find.text('提案读取失败，请重试').evaluate().isNotEmpty) break;
+    if (counts.isNotEmpty || find.text('提案读取失败，请重试').evaluate().isNotEmpty) {
+      break;
+    }
   }
   if (waitForTerminal) {
-    expect(counts.isNotEmpty || find.text('提案读取失败，请重试').evaluate().isNotEmpty,
-        isTrue, reason: '必须等待真实首批读取完成，不能把骨架内部ListView认作提案列表');
+    expect(
+      counts.isNotEmpty || find.text('提案读取失败，请重试').evaluate().isNotEmpty,
+      isTrue,
+      reason: '必须等待真实首批读取完成，不能把骨架内部ListView认作提案列表',
+    );
   }
   return transport;
 }
@@ -459,11 +508,11 @@ void main() {
   }
 
   List<int> u32Le(int value) => [
-        value & 0xff,
-        (value >> 8) & 0xff,
-        (value >> 16) & 0xff,
-        (value >> 24) & 0xff,
-      ];
+    value & 0xff,
+    (value >> 8) & 0xff,
+    (value >> 16) & 0xff,
+    (value >> 24) & 0xff,
+  ];
 
   List<int> u64Le(int value) =>
       List<int>.generate(8, (i) => (value >> (i * 8)) & 0xff);
@@ -559,10 +608,7 @@ void main() {
   });
 
   test('MODULE_TAG 不符返回 null', () {
-    final body = <int>[
-      ...'dq-xxxx'.codeUnits,
-      ...List<int>.filled(114, 0x11),
-    ];
+    final body = <int>[...'dq-xxxx'.codeUnits, ...List<int>.filled(114, 0x11)];
     final raw = Uint8List.fromList([...compactU32(body.length), ...body]);
 
     expect(service.debugDecodeProposalData(3, raw), isNull);
@@ -582,7 +628,10 @@ void main() {
       ...remark,
       ...proposer,
     ]);
-    final decoded = await MultisigTransferService(chain: _RawStorageChain(raw), transactions: TestCitizenTransactions()).fetchSafetyFundAction(4);
+    final decoded = await MultisigTransferService(
+      chain: _RawStorageChain(raw),
+      transactions: TestCitizenTransactions(),
+    ).fetchSafetyFundAction(4);
 
     expect(decoded, isNotNull);
     expect(decoded!.actorCidNumber, actorCidNumber);
@@ -595,7 +644,10 @@ void main() {
 
     final trailing = Uint8List.fromList([...raw, 0]);
     expect(
-      await MultisigTransferService(chain: _RawStorageChain(trailing), transactions: TestCitizenTransactions()).fetchSafetyFundAction(4),
+      await MultisigTransferService(
+        chain: _RawStorageChain(trailing),
+        transactions: TestCitizenTransactions(),
+      ).fetchSafetyFundAction(4),
       isNull,
     );
   });
@@ -610,7 +662,10 @@ void main() {
       ...u128Le(BigInt.from(800)),
       ...proposer,
     ]);
-    final decoded = await MultisigTransferService(chain: _RawStorageChain(raw), transactions: TestCitizenTransactions()).fetchSweepAction(5);
+    final decoded = await MultisigTransferService(
+      chain: _RawStorageChain(raw),
+      transactions: TestCitizenTransactions(),
+    ).fetchSweepAction(5);
 
     expect(decoded, isNotNull);
     expect(decoded!.actorCidNumber, actorCidNumber);
@@ -623,7 +678,10 @@ void main() {
 
     final trailing = Uint8List.fromList([...raw, 0]);
     expect(
-      await MultisigTransferService(chain: _RawStorageChain(trailing), transactions: TestCitizenTransactions()).fetchSweepAction(5),
+      await MultisigTransferService(
+        chain: _RawStorageChain(trailing),
+        transactions: TestCitizenTransactions(),
+      ).fetchSweepAction(5),
       isNull,
     );
   });
@@ -656,13 +714,13 @@ void main() {
   });
 
   test('ProposalSubject 唯一编码严格区分机构 CID 与个人多签账户', () {
-    const institutionCidNumber = 'LN001-CGOVC-000000001-2026';
+    const peerCid = 'LN001-CGOVC-000000001-2026';
     final institution = InstitutionInfo(
-      cidFullName: '测试机构',
-      cidShortName: '测试机构',
+      fullName: '测试机构',
+      shortName: '测试机构',
       cidFullNameEn: 'Test Institution',
       cidShortNameEn: 'TI',
-      cidNumber: institutionCidNumber,
+      cidNumber: peerCid,
       orgType: OrgType.institution,
       accounts: InstitutionAccounts(
         mainAccountId: '0x${'11' * 32}',
@@ -671,18 +729,18 @@ void main() {
     );
     final institutionKey = ProposalQueryService.proposalSubjectKey(institution);
     expect(institutionKey.first, 0);
-    expect(institutionKey[1], utf8.encode(institutionCidNumber).length << 2);
-    expect(utf8.decode(institutionKey.sublist(2)), institutionCidNumber);
+    expect(institutionKey[1], utf8.encode(peerCid).length << 2);
+    expect(utf8.decode(institutionKey.sublist(2)), peerCid);
 
     final personalAccount = '0x${'ab' * 32}';
     final personal = InstitutionInfo(
-      cidFullName: '个人多签',
-      cidShortName: '个人多签',
+      fullName: '个人多签',
+      shortName: '个人多签',
       cidFullNameEn: 'Personal Multisig',
       cidShortNameEn: 'PMUL',
       cidNumber: 'personal-account:$personalAccount',
       orgType: OrgType.personalMultisig,
-      personalAccountId: personalAccount,
+      accountId: personalAccount,
     );
     final personalKey = ProposalQueryService.proposalSubjectKey(personal);
     expect(personalKey, Uint8List.fromList([1, ...List.filled(32, 0xab)]));
@@ -694,10 +752,10 @@ void main() {
       ...List.filled(32, 0x11),
       ...List.filled(32, 0x22),
     ]);
-    expect(
-      ProposalQueryService.decodeAdminSnapshot(adminsRaw),
-      ['0x${'11' * 32}', '0x${'22' * 32}'],
-    );
+    expect(ProposalQueryService.decodeAdminSnapshot(adminsRaw), [
+      '0x${'11' * 32}',
+      '0x${'22' * 32}',
+    ]);
     expect(
       ProposalQueryService.decodeAdminSnapshot(
         Uint8List.fromList([...adminsRaw, 0]),
@@ -727,8 +785,8 @@ void main() {
     final rpc = _RawStorageChain(raw);
     final query = ProposalQueryService(chain: rpc);
     final institution = InstitutionInfo(
-      cidFullName: '测试机构',
-      cidShortName: '测试机构',
+      fullName: '测试机构',
+      shortName: '测试机构',
       cidFullNameEn: 'Test Institution',
       cidShortNameEn: 'TI',
       cidNumber: 'LN001-CGOVC-000000001-2026',
@@ -740,13 +798,13 @@ void main() {
     );
     final personalAccount = '0x${'ab' * 32}';
     final personal = InstitutionInfo(
-      cidFullName: '个人多签',
-      cidShortName: '个人多签',
+      fullName: '个人多签',
+      shortName: '个人多签',
       cidFullNameEn: 'Personal Multisig',
       cidShortNameEn: 'PMUL',
       cidNumber: 'personal-account:$personalAccount',
       orgType: OrgType.personalMultisig,
-      personalAccountId: personalAccount,
+      accountId: personalAccount,
     );
 
     expect(
@@ -757,18 +815,16 @@ void main() {
       ),
       ['0x${'33' * 32}'],
     );
-    expect(
-      await query.fetchEligibleVoterSnapshot(7, personal),
-      ['0x${'33' * 32}'],
-    );
+    expect(await query.fetchEligibleVoterSnapshot(7, personal), [
+      '0x${'33' * 32}',
+    ]);
     expect(rpc.storageKeys, hasLength(2));
     expect(rpc.storageKeys[0], isNot(rpc.storageKeys[1]));
   });
 
   test('公民提案流按默认机构码和订阅机构 CID 合并过滤', () {
-    Uint8List accountIdBytes(int seed) => Uint8List.fromList(
-          List<int>.filled(32, seed),
-        );
+    Uint8List accountIdBytes(int seed) =>
+        Uint8List.fromList(List<int>.filled(32, seed));
 
     ProposalWithDetail proposal(
       int id, {
@@ -783,8 +839,9 @@ void main() {
           stage: 0,
           status: 0,
           internalCode: code,
-          actorCidNumber:
-              subjectCidNumbers.isEmpty ? null : subjectCidNumbers.first,
+          actorCidNumber: subjectCidNumbers.isEmpty
+              ? null
+              : subjectCidNumbers.first,
           executionAccountId: institution,
           subjectCidNumbers: subjectCidNumbers,
         ),
@@ -831,108 +888,213 @@ void main() {
 
 /// 能力等待仍走真实页面/SDK事件，未就绪不得提前触发Feed或另启SDK。
 void _proposalReadinessTests() {
-  for (final reason in [CitizenCapabilityReason.engineNotRunning,
-    CitizenCapabilityReason.dependencyNotReady, CitizenCapabilityReason.chainStarting,
-    CitizenCapabilityReason.chainUnsynced]) {
+  for (final reason in [
+    CitizenCapabilityReason.engineNotRunning,
+    CitizenCapabilityReason.dependencyNotReady,
+    CitizenCapabilityReason.chainStarting,
+    CitizenCapabilityReason.chainUnsynced,
+  ]) {
     testWidgets('提案等待${reason.name}，就绪事件只触发一次原首读', (tester) async {
-      final transport = _PageTransport()..ready = false..reason = reason;
-      final feed = _PageFeed(); final counts = <int>[];
-      await _openProposal(tester, feed, counts, transportOverride: transport, waitForTerminal: false);
+      final transport = _PageTransport()
+        ..ready = false
+        ..reason = reason;
+      final feed = _PageFeed();
+      final counts = <int>[];
+      await _openProposal(
+        tester,
+        feed,
+        counts,
+        transportOverride: transport,
+        waitForTerminal: false,
+      );
       await _flush(tester);
-      expect(feed.forced, isEmpty); expect(counts, isEmpty);
+      expect(feed.forced, isEmpty);
+      expect(counts, isEmpty);
       expect(find.text('提案读取失败，请重试'), findsNothing);
-      transport.capability(isReady: false, why: reason); transport.finalized();
-      await _flush(tester); expect(feed.forced, isEmpty);
-      transport.capability(isReady: true); transport.capability(isReady: true);
+      transport.capability(isReady: false, why: reason);
+      transport.finalized();
       await _flush(tester);
-      expect(feed.forced, [false]); expect(counts, [1]);
+      expect(feed.forced, isEmpty);
+      transport.capability(isReady: true);
+      transport.capability(isReady: true);
+      await _flush(tester);
+      expect(feed.forced, [false]);
+      expect(counts, [1]);
       expect(transport.calls, isNot(contains('start')));
     });
   }
   testWidgets('等待期间多次刷新作废旧等待，仅最新请求读Feed', (tester) async {
-    final feed = _PageFeed(); final counts = <int>[];
+    final feed = _PageFeed();
+    final counts = <int>[];
     final transport = await _openProposal(tester, feed, counts);
-    transport.capability(isReady: false, why: CitizenCapabilityReason.chainUnsynced);
+    transport.capability(
+      isReady: false,
+      why: CitizenCapabilityReason.chainUnsynced,
+    );
     await _flush(tester);
-    final first = _refreshProposal(tester); await _flush(tester);
-    final second = _refreshProposal(tester); await _flush(tester);
-    expect(feed.forced, [false]); expect(counts, [1]);
-    transport.capability(isReady: true); await _flush(tester);
-    await first; await second;
-    expect(feed.forced, [false, true]); expect(counts, [1, 1]);
+    final first = _refreshProposal(tester);
+    await _flush(tester);
+    final second = _refreshProposal(tester);
+    await _flush(tester);
+    expect(feed.forced, [false]);
+    expect(counts, [1]);
+    transport.capability(isReady: true);
+    await _flush(tester);
+    await first;
+    await second;
+    expect(feed.forced, [false, true]);
+    expect(counts, [1, 1]);
   });
   testWidgets('启动失败立即沿原错误页收尾，不永久等待或伪造空成功', (tester) async {
-    final transport = _PageTransport()..ready = false..reason = CitizenCapabilityReason.chainStarting;
-    final feed = _PageFeed(); final counts = <int>[];
-    await _openProposal(tester, feed, counts, transportOverride: transport, waitForTerminal: false);
-    await _flush(tester); transport.lifecycle('startFailed'); await _flush(tester);
+    final transport = _PageTransport()
+      ..ready = false
+      ..reason = CitizenCapabilityReason.chainStarting;
+    final feed = _PageFeed();
+    final counts = <int>[];
+    await _openProposal(
+      tester,
+      feed,
+      counts,
+      transportOverride: transport,
+      waitForTerminal: false,
+    );
+    await _flush(tester);
+    transport.lifecycle('startFailed');
+    await _flush(tester);
     expect(find.text('提案读取失败，请重试'), findsOneWidget);
-    expect(feed.forced, isEmpty); expect(counts, isEmpty);
+    expect(feed.forced, isEmpty);
+    expect(counts, isEmpty);
   });
   testWidgets('能力不可用不是启动等待，必须保留失败', (tester) async {
-    final transport = _PageTransport()..ready = false..reason = CitizenCapabilityReason.storageUnavailable;
-    final feed = _PageFeed(); final counts = <int>[];
+    final transport = _PageTransport()
+      ..ready = false
+      ..reason = CitizenCapabilityReason.storageUnavailable;
+    final feed = _PageFeed();
+    final counts = <int>[];
     await _openProposal(tester, feed, counts, transportOverride: transport);
     expect(find.text('提案读取失败，请重试'), findsOneWidget);
-    expect(feed.forced, isEmpty); expect(counts, isEmpty);
+    expect(feed.forced, isEmpty);
+    expect(counts, isEmpty);
   });
-  for (final code in [CitizenSdkErrorCode.decode, CitizenSdkErrorCode.network]) {
+  for (final code in [
+    CitizenSdkErrorCode.decode,
+    CitizenSdkErrorCode.network,
+  ]) {
     testWidgets('就绪后的真实${code.name}仍失败，不自动重试或改为空列表', (tester) async {
-      final feed = _PageFeed()..scopes.add(() => throw CitizenSdkException(code: code, message: '合成读取失败'));
+      final feed = _PageFeed()
+        ..scopes.add(
+          () => throw CitizenSdkException(code: code, message: '合成读取失败'),
+        );
       final counts = <int>[];
       final transport = await _openProposal(tester, feed, counts);
-      transport.capability(isReady: true); await _flush(tester);
+      transport.capability(isReady: true);
+      await _flush(tester);
       expect(find.text('提案读取失败，请重试'), findsOneWidget);
-      expect(feed.forced, [false]); expect(counts, isEmpty);
+      expect(feed.forced, [false]);
+      expect(counts, isEmpty);
     });
   }
   testWidgets('销毁等待页后就绪事件不得复活旧读取', (tester) async {
-    final transport = _PageTransport()..ready = false..reason = CitizenCapabilityReason.chainStarting;
-    final feed = _PageFeed(); final counts = <int>[];
-    await _openProposal(tester, feed, counts, transportOverride: transport, waitForTerminal: false);
-    await _flush(tester); await tester.pumpWidget(const SizedBox.shrink());
-    transport.capability(isReady: true); await _flush(tester);
-    expect(feed.forced, isEmpty); expect(counts, isEmpty); expect(tester.takeException(), isNull);
+    final transport = _PageTransport()
+      ..ready = false
+      ..reason = CitizenCapabilityReason.chainStarting;
+    final feed = _PageFeed();
+    final counts = <int>[];
+    await _openProposal(
+      tester,
+      feed,
+      counts,
+      transportOverride: transport,
+      waitForTerminal: false,
+    );
+    await _flush(tester);
+    await tester.pumpWidget(const SizedBox.shrink());
+    transport.capability(isReady: true);
+    await _flush(tester);
+    expect(feed.forced, isEmpty);
+    expect(counts, isEmpty);
+    expect(tester.takeException(), isNull);
   });
   testWidgets('能力事件先于旧快照返回也不会丢失就绪唤醒', (tester) async {
-    final transport = _PageTransport()..ready = false..reason = CitizenCapabilityReason.chainStarting;
+    final transport = _PageTransport()
+      ..ready = false
+      ..reason = CitizenCapabilityReason.chainStarting;
     final oldSnapshot = transport.capabilities();
-    final gate = Completer<List<Object?>>(); var first = true;
+    final gate = Completer<List<Object?>>();
+    var first = true;
     transport.handlers['getCapabilities'] = (_) {
-      if (first) { first = false; return gate.future; }
+      if (first) {
+        first = false;
+        return gate.future;
+      }
       return [transport.capabilities()];
     };
-    final feed = _PageFeed(); final counts = <int>[];
-    await _openProposal(tester, feed, counts, transportOverride: transport, waitForTerminal: false);
-    await _flush(tester); transport.capability(isReady: true); gate.complete([oldSnapshot]);
+    final feed = _PageFeed();
+    final counts = <int>[];
+    await _openProposal(
+      tester,
+      feed,
+      counts,
+      transportOverride: transport,
+      waitForTerminal: false,
+    );
     await _flush(tester);
-    expect(feed.forced, [false]); expect(counts, [1]);
+    transport.capability(isReady: true);
+    gate.complete([oldSnapshot]);
+    await _flush(tester);
+    expect(feed.forced, [false]);
+    expect(counts, [1]);
   });
   testWidgets('旧ready快照迟到不得覆盖最新未同步事实', (tester) async {
-    final transport = _PageTransport(); final oldReady = transport.capabilities();
-    final gate = Completer<List<Object?>>(); var first = true;
+    final transport = _PageTransport();
+    final oldReady = transport.capabilities();
+    final gate = Completer<List<Object?>>();
+    var first = true;
     transport.handlers['getCapabilities'] = (_) {
-      if (first) { first = false; return gate.future; }
+      if (first) {
+        first = false;
+        return gate.future;
+      }
       return [transport.capabilities()];
     };
-    final feed = _PageFeed(); final counts = <int>[];
-    await _openProposal(tester, feed, counts, transportOverride: transport, waitForTerminal: false);
+    final feed = _PageFeed();
+    final counts = <int>[];
+    await _openProposal(
+      tester,
+      feed,
+      counts,
+      transportOverride: transport,
+      waitForTerminal: false,
+    );
     await _flush(tester);
-    transport.capability(isReady: false, why: CitizenCapabilityReason.chainUnsynced);
-    await tester.pump(); gate.complete([oldReady]); await _flush(tester);
-    expect(feed.forced, isEmpty); expect(counts, isEmpty);
-    transport.capability(isReady: true); await _flush(tester);
-    expect(feed.forced, [false]); expect(counts, [1]);
+    transport.capability(
+      isReady: false,
+      why: CitizenCapabilityReason.chainUnsynced,
+    );
+    await tester.pump();
+    gate.complete([oldReady]);
+    await _flush(tester);
+    expect(feed.forced, isEmpty);
+    expect(counts, isEmpty);
+    transport.capability(isReady: true);
+    await _flush(tester);
+    expect(feed.forced, [false]);
+    expect(counts, [1]);
   });
 }
 
 /// 日志仅收集固定安全事件；夹具正文均为合成，不替代真实链读取成功。
-Future<T> _captureProposal<T>(List<String> lines, Future<T> Function() action) =>
-    runZoned(action, zoneSpecification: ZoneSpecification(
-      print: (_, _, _, line) {
-        if (line.startsWith('[CitizenFailure]')) lines.add(line);
-      },
-    ));
+Future<T> _captureProposal<T>(
+  List<String> lines,
+  Future<T> Function() action,
+) => runZoned(
+  action,
+  zoneSpecification: ZoneSpecification(
+    print: (_, _, _, line) {
+      if (line.startsWith('[CitizenFailure]')) lines.add(line);
+    },
+  ),
+);
 
 void _proposalDiagnosticsTests() {
   for (final stage in ['year', 'index', 'details']) {
@@ -940,23 +1102,48 @@ void _proposalDiagnosticsTests() {
       MultisigTransferProposalAdapter.clearCache();
       ProposalCache.clear();
       final failure = CitizenSdkException(
-        code: stage == 'year' ? CitizenSdkErrorCode.notReady :
-          stage == 'index' ? CitizenSdkErrorCode.network : CitizenSdkErrorCode.decode,
+        code: stage == 'year'
+            ? CitizenSdkErrorCode.notReady
+            : stage == 'index'
+            ? CitizenSdkErrorCode.network
+            : CitizenSdkErrorCode.decode,
         message: 'synthetic private proposal detail',
         method: 'synthetic private method',
         sessionId: 'synthetic private session',
       );
-      final chain = _ProposalChain(failureAt: stage, failure: failure, hasIndex: true);
-      final feed = MultisigTransferProposalFeed(service: MultisigTransferService(
-        chain: chain, transactions: TestCitizenTransactions()));
+      final chain = _ProposalChain(
+        failureAt: stage,
+        failure: failure,
+        hasIndex: true,
+      );
+      final feed = MultisigTransferProposalFeed(
+        service: MultisigTransferService(
+          chain: chain,
+          transactions: TestCitizenTransactions(),
+        ),
+      );
       final lines = <String>[];
       await _captureProposal(lines, () async {
-        await expectLater(feed.fetchCitizenProposalFeedIds(defaultCodes: {'NRC'},
-          subscribedInstitutionCidNumbers: {}, forceRefresh: true), throwsA(same(failure)));
+        await expectLater(
+          feed.fetchCitizenProposalFeedIds(
+            defaultCodes: {'NRC'},
+            subscribedInstitutionCidNumbers: {},
+            forceRefresh: true,
+          ),
+          throwsA(same(failure)),
+        );
       });
-      expect(chain.reads, stage == 'year' ? ['year'] :
-        stage == 'index' ? ['year', 'index'] : ['year', 'index', 'details']);
-      expect(lines, ['[CitizenFailure] stage=proposal_$stage http=none code=sdk_${failure.code.name}']);
+      expect(
+        chain.reads,
+        stage == 'year'
+            ? ['year']
+            : stage == 'index'
+            ? ['year', 'index']
+            : ['year', 'index', 'details'],
+      );
+      expect(lines, [
+        '[CitizenFailure] stage=proposal_$stage http=none code=sdk_${failure.code.name}',
+      ]);
       expect(lines.join(), isNot(contains('synthetic private')));
       MultisigTransferProposalAdapter.clearCache();
       ProposalCache.clear();
@@ -966,11 +1153,21 @@ void _proposalDiagnosticsTests() {
     test('真实Feed合法${missingYear ? '缺省年份' : '空索引'}不产生失败事件', () async {
       MultisigTransferProposalAdapter.clearCache();
       final chain = _ProposalChain(missingYear: missingYear);
-      final feed = MultisigTransferProposalFeed(service: MultisigTransferService(
-        chain: chain, transactions: TestCitizenTransactions()));
+      final feed = MultisigTransferProposalFeed(
+        service: MultisigTransferService(
+          chain: chain,
+          transactions: TestCitizenTransactions(),
+        ),
+      );
       final lines = <String>[];
-      final ids = await _captureProposal(lines, () => feed.fetchCitizenProposalFeedIds(
-        defaultCodes: {'NRC'}, subscribedInstitutionCidNumbers: {}, forceRefresh: true));
+      final ids = await _captureProposal(
+        lines,
+        () => feed.fetchCitizenProposalFeedIds(
+          defaultCodes: {'NRC'},
+          subscribedInstitutionCidNumbers: {},
+          forceRefresh: true,
+        ),
+      );
       expect(ids, isEmpty);
       expect(chain.reads, missingYear ? ['year'] : ['year', 'index']);
       expect(lines, isEmpty);
@@ -979,18 +1176,24 @@ void _proposalDiagnosticsTests() {
   }
   test('日志出口抛错不替换原链读异常及堆栈', () async {
     final failure = StateError('synthetic private source');
-    final service = MultisigTransferService(chain: _ProposalChain(
-      failureAt: 'year', failure: failure), transactions: TestCitizenTransactions());
-    await runZoned(() async {
-      try {
-        await service.fetchCurrentYearProposals();
-        fail('必须继续抛出原异常');
-      } catch (error, stack) {
-        expect(error, same(failure));
-        expect(stack.toString(), contains('_ProposalChain.getStorage'));
-      }
-    }, zoneSpecification: ZoneSpecification(print: (_, _, _, _) =>
-      throw StateError('synthetic sink failure')));
+    final service = MultisigTransferService(
+      chain: _ProposalChain(failureAt: 'year', failure: failure),
+      transactions: TestCitizenTransactions(),
+    );
+    await runZoned(
+      () async {
+        try {
+          await service.fetchCurrentYearProposals();
+          fail('必须继续抛出原异常');
+        } catch (error, stack) {
+          expect(error, same(failure));
+          expect(stack.toString(), contains('_ProposalChain.getStorage'));
+        }
+      },
+      zoneSpecification: ZoneSpecification(
+        print: (_, _, _, _) => throw StateError('synthetic sink failure'),
+      ),
+    );
   });
   for (final stage in ['feed', 'details', 'context', 'votes', 'summary']) {
     testWidgets('页面$stage失败保留错误/重试且仅报告固定阶段', (tester) async {
@@ -1004,31 +1207,60 @@ void _proposalDiagnosticsTests() {
       if (stage == 'votes') checker.failure = failure;
       // 真实隔离数据库关闭后，原摘要写事务必须失败，不能注入新的生产接口。
       if (stage == 'summary') {
-        checker.beforeReturn = () => WalletIsar.instance.closeAndDeleteFromDisk();
+        checker.beforeReturn = () =>
+            WalletIsar.instance.closeAndDeleteFromDisk();
       }
       final counts = <int>[];
       final lines = <String>[];
-      await _captureProposal(lines, () => _openProposal(tester, feed, counts,
-        resolver: resolver, checker: checker));
+      await _captureProposal(
+        lines,
+        () => _openProposal(
+          tester,
+          feed,
+          counts,
+          resolver: resolver,
+          checker: checker,
+        ),
+      );
       expect(find.text('提案读取失败，请重试'), findsOneWidget);
       expect(find.text('重试'), findsOneWidget);
       expect(counts, isEmpty);
-      expect(lines, ['[CitizenFailure] stage=proposal_$stage http=none code=state']);
+      expect(lines, [
+        '[CitizenFailure] stage=proposal_$stage http=none code=state',
+      ]);
       expect(lines.join(), isNot(contains('synthetic private')));
     });
   }
   testWidgets('机构派生异常停在原错误页，不伪造空范围成功', (tester) async {
-    final directory = await buildSeededRepo(provinceOrder: ['LN'], institutions: [
-      seedDto('LN001-CGOVC-000000001-2026', provinceCode: 'LN', cityCode: '001', code: 'NRC')]);
+    final directory = await buildSeededRepo(
+      provinceOrder: ['LN'],
+      institutions: [
+        seedDto(
+          'LN001-CGOVC-000000001-2026',
+          provinceCode: 'LN',
+          cityCode: '001',
+          code: 'NRC',
+        ),
+      ],
+    );
     final lines = <String>[];
     final counts = <int>[];
     final feed = _PageFeed();
-    await _captureProposal(lines, () => _openProposal(tester, feed, counts,
-      repository: _FailingScopeRepository(directory: directory)));
+    await _captureProposal(
+      lines,
+      () => _openProposal(
+        tester,
+        feed,
+        counts,
+        repository: _FailingScopeRepository(directory: directory),
+      ),
+    );
     expect(find.text('提案读取失败，请重试'), findsOneWidget);
     expect(counts, isEmpty);
     expect(feed.forced, isEmpty);
-    expect(lines, ['[CitizenFailure] stage=proposal_institutions http=none code=state']);
+    expect(lines, [
+      '[CitizenFailure] stage=proposal_institutions http=none code=state',
+    ]);
   });
   testWidgets('旧代次详情失败不记为当前失败或覆盖刷新成功', (tester) async {
     final feed = _PageFeed();
@@ -1052,13 +1284,17 @@ void _proposalDiagnosticsTests() {
   });
 }
 
-
-Future<T> _captureReadResult<T>(List<String> lines, Future<T> Function() action) =>
-    runZoned(action, zoneSpecification: ZoneSpecification(
-      print: (_, _, _, line) {
-        if (line.startsWith('[CitizenRead]')) lines.add(line);
-      },
-    ));
+Future<T> _captureReadResult<T>(
+  List<String> lines,
+  Future<T> Function() action,
+) => runZoned(
+  action,
+  zoneSpecification: ZoneSpecification(
+    print: (_, _, _, line) {
+      if (line.startsWith('[CitizenRead]')) lines.add(line);
+    },
+  ),
+);
 
 // 真实页面、公开SDK事件及原Feed夹具联合验证；不靠空白或骨架证明成功。
 void _proposalReadResultTests() {
@@ -1070,7 +1306,10 @@ void _proposalReadResultTests() {
         final feed = _PageFeed()..ids = empty ? [] : [1];
         final counts = <int>[];
         await _openProposal(tester, feed, counts);
-        expect(lines, ['${prefix}started', '$prefix${empty ? 'empty' : 'nonempty'}']);
+        expect(lines, [
+          '${prefix}started',
+          '$prefix${empty ? 'empty' : 'nonempty'}',
+        ]);
         expect(counts, [empty ? 0 : 1]);
       });
     });
@@ -1078,12 +1317,23 @@ void _proposalReadResultTests() {
   testWidgets('等待读链只报waiting，就绪后沿原读取报完成', (tester) async {
     final lines = <String>[];
     await _captureReadResult(lines, () async {
-      final transport = _PageTransport()..ready = false..reason = CitizenCapabilityReason.chainUnsynced;
+      final transport = _PageTransport()
+        ..ready = false
+        ..reason = CitizenCapabilityReason.chainUnsynced;
       final feed = _PageFeed()..ids = [];
       final counts = <int>[];
-      await _openProposal(tester, feed, counts, transportOverride: transport, waitForTerminal: false);
+      await _openProposal(
+        tester,
+        feed,
+        counts,
+        transportOverride: transport,
+        waitForTerminal: false,
+      );
       await _flush(tester);
-      transport.capability(isReady: false, why: CitizenCapabilityReason.chainUnsynced);
+      transport.capability(
+        isReady: false,
+        why: CitizenCapabilityReason.chainUnsynced,
+      );
       await _flush(tester);
       expect(lines, ['${prefix}waiting']);
       expect(feed.forced, isEmpty);
@@ -1093,12 +1343,20 @@ void _proposalReadResultTests() {
       expect(feed.forced, [false]);
     });
   });
-  for (final code in [CitizenSdkErrorCode.decode, CitizenSdkErrorCode.network]) {
+  for (final code in [
+    CitizenSdkErrorCode.decode,
+    CitizenSdkErrorCode.network,
+  ]) {
     testWidgets('提案真实${code.name}失败不产生成功回执', (tester) async {
       final lines = <String>[];
       await _captureReadResult(lines, () async {
-        final feed = _PageFeed()..scopes.add(() => throw CitizenSdkException(
-          code: code, message: 'synthetic private read error'));
+        final feed = _PageFeed()
+          ..scopes.add(
+            () => throw CitizenSdkException(
+              code: code,
+              message: 'synthetic private read error',
+            ),
+          );
         await _openProposal(tester, feed, <int>[]);
         expect(lines, ['${prefix}started']);
         expect(find.text('提案读取失败，请重试'), findsOneWidget);
@@ -1119,11 +1377,18 @@ void _proposalReadResultTests() {
         feed.ids = [];
         await _refreshProposal(tester);
         await _flush(tester);
-        if (fail) { old.completeError(StateError('synthetic late failure')); }
-        else { old.complete([2]); }
+        if (fail) {
+          old.completeError(StateError('synthetic late failure'));
+        } else {
+          old.complete([2]);
+        }
         await first;
         await _flush(tester);
-        expect(lines, ['${prefix}started', '${prefix}started', '${prefix}empty']);
+        expect(lines, [
+          '${prefix}started',
+          '${prefix}started',
+          '${prefix}empty',
+        ]);
         expect(find.text('提案读取失败，请重试'), findsNothing);
       });
     });
@@ -1132,11 +1397,20 @@ void _proposalReadResultTests() {
     testWidgets('提案${waiting ? '等待读链' : '读取中'}销毁后不报成功', (tester) async {
       final lines = <String>[];
       await _captureReadResult(lines, () async {
-        final transport = _PageTransport()..ready = !waiting
-          ..reason = waiting ? CitizenCapabilityReason.chainStarting : CitizenCapabilityReason.none;
+        final transport = _PageTransport()
+          ..ready = !waiting
+          ..reason = waiting
+              ? CitizenCapabilityReason.chainStarting
+              : CitizenCapabilityReason.none;
         final lateRead = Completer<List<int>>();
         final feed = _PageFeed()..scopes.add(() => lateRead.future);
-        await _openProposal(tester, feed, <int>[], transportOverride: transport, waitForTerminal: false);
+        await _openProposal(
+          tester,
+          feed,
+          <int>[],
+          transportOverride: transport,
+          waitForTerminal: false,
+        );
         await _flush(tester);
         await tester.pumpWidget(const SizedBox.shrink());
         transport.capability(isReady: true);

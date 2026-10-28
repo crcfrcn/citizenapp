@@ -1,3 +1,7 @@
+import 'package:citizenapp/storage/user_isar.dart'
+    as user_store
+    show Edit, ProfileMedia, Profile;
+
 import '../mls_authentication_fixture.dart';
 
 import 'dart:async';
@@ -50,21 +54,21 @@ Map<String, dynamic> _profileJson({
   int campaigns = 6,
   int videos = 4,
   int articles = 12,
-  String identityLevel = 'voting',
-  String? membershipLevel = 'democracy',
-  bool membershipActive = true,
+  String cidLevel = 'voting',
+  String? memberLevel = 'democracy',
+  bool membergateActive = true,
 }) {
   return <String, dynamic>{
     'account_id': _owner,
     'display_name': displayName,
     'profile_bio': '链上公民',
-    'avatar_object_key': cidNumber == null ? null : 'profile/$cidNumber/avatar',
-    'banner_object_key': null,
+    'avatar_key': cidNumber == null ? null : 'profile/$cidNumber/avatar',
+    'banner_key': null,
     'cid_number': cidNumber,
     'is_certified': cidNumber != null,
-    'identity_level': identityLevel,
-    'membergate_level': membershipLevel,
-    'membergate_active': membershipActive,
+    'cid_level': cidLevel,
+    'member_level': memberLevel,
+    'membergate_active': membergateActive,
     'counts': {
       'following': following,
       'followers': followers,
@@ -76,7 +80,7 @@ Map<String, dynamic> _profileJson({
     },
     'is_following': isFollowing,
     'is_followed_by': isFollowedBy,
-    'updated_at': 123,
+    'profile_at': 123,
   };
 }
 
@@ -97,7 +101,7 @@ SquareSession _session() => SquareSession(
   deviceId: testMlsDeviceId,
   sessionToken: 'tok',
   cidNumber: "CN220-CTZN2-198805200-2026",
-  bindingRevision: 1,
+  bindRev: 1,
   accountId: _owner,
   expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
   authenticateRequest: fakeMlsRequestHeaders,
@@ -107,70 +111,63 @@ void main() {
   TestCitizenSdkHarness();
   useIsolatedIsar();
 
-  test('旧待保存资料先验完整摘要再升级，内容与操作状态保留', () async {
+  test('恢复记录拒绝旧字段且不改写，完整性损坏同样拒绝', () async {
     const cache = CitizenProfileCache();
     await cache.prepareUpdate(_profileCid, request: {'profile_bio': '保留待恢复资料'});
     await UserIsar.instance.writeTxn((db) async {
-      final row = (await db.userProfileUpdateEntitys.getByCidNumber(
+      final row = (await db.collection<user_store.Edit>().getByCidNumber(
         _profileCid,
       ))!;
-      row.requestJson = jsonEncode({'bio': '保留待恢复资料'});
+      row.requestData = jsonEncode({'bio': '保留待恢复资料'});
       row.contentHash = sha256
           .convert(
             utf8.encode(
               jsonEncode([
                 row.cidNumber,
-                row.requestJson,
+                row.requestData,
                 sha256.convert(row.avatarBytes).toString(),
                 sha256.convert(row.bannerBytes).toString(),
               ]),
             ),
           )
           .toString();
-      await db.userProfileUpdateEntitys.put(row);
+      await db.collection<user_store.Edit>().put(row);
     });
-    final restored = (await cache.readUpdate(_profileCid))!;
-    expect(jsonDecode(restored.requestJson), {'profile_bio': '保留待恢复资料'});
-    expect(restored.operationState, 'pending');
-    expect(restored.avatarBytes, isEmpty);
-    expect(restored.bannerBytes, isEmpty);
+    await expectLater(cache.readUpdate(_profileCid), throwsStateError);
     final saved = await UserIsar.instance.read(
-      (db) => db.userProfileUpdateEntitys.getByCidNumber(_profileCid),
+      (db) => db.collection<user_store.Edit>().getByCidNumber(_profileCid),
     );
-    expect(saved!.contentHash, restored.contentHash);
-    expect(saved.requestJson, restored.requestJson);
+    expect(jsonDecode(saved!.requestData), {'bio': '保留待恢复资料'});
+    expect(saved.jobState, 'pending');
+    expect(saved.avatarBytes, isEmpty);
+    expect(saved.bannerBytes, isEmpty);
     await UserIsar.instance.writeTxn((db) async {
-      final current = (await db.userProfileUpdateEntitys.getByCidNumber(
+      final current = (await db.collection<user_store.Edit>().getByCidNumber(
         _profileCid,
       ))!;
       current.contentHash = 'bad';
-      await db.userProfileUpdateEntitys.put(current);
+      await db.collection<user_store.Edit>().put(current);
     });
     await expectLater(cache.readUpdate(_profileCid), throwsStateError);
   });
 
-  test('旧资料缓存一次升级为profile_bio，远端模型拒绝旧键且资料事实保持', () async {
+  test('旧资料缓存拒绝展示且原样保留，读取不升级或删除', () async {
     final old = _profileJson();
     old['bio'] = old.remove('profile_bio');
     expect(() => CitizenProfile.fromJson(old), throwsFormatException);
     final raw = jsonEncode(old);
     await UserIsar.instance.writeTxn((db) async {
-      await db.userPublicProfileCacheEntitys.put(
-        UserPublicProfileCacheEntity()
+      await db.collection<user_store.Profile>().put(
+        user_store.Profile()
           ..cidNumber = _profileCid
-          ..profileJson = raw,
+          ..profileData = raw,
       );
     });
-    final profile = (await const CitizenProfileCache().read(_profileCid))!;
-    expect(profile.profileBio, old['bio']);
-    expect(profile.accountId, old['account_id']);
+    expect(await const CitizenProfileCache().read(_profileCid), isNull);
     final saved = await UserIsar.instance.read(
-      (db) => db.userPublicProfileCacheEntitys.getByCidNumber(_profileCid),
+      (db) => db.collection<user_store.Profile>().getByCidNumber(_profileCid),
     );
-    final value = jsonDecode(saved!.profileJson) as Map<String, dynamic>;
-    expect(value.containsKey('bio'), false);
-    expect(value['profile_bio'], old['bio']);
-    expect(value['counts'], old['counts']);
+    expect(saved!.profileData, raw);
   });
 
   test('最小名片使用独立路径并保留昵称徽标，不覆盖完整主页缓存', () async {
@@ -183,7 +180,7 @@ void main() {
         final card = Map<String, dynamic>.from(_profileJson())
           ..remove('profile_bio')
           ..remove('counts')
-          ..remove('banner_object_key');
+          ..remove('banner_key');
         return _ok({'is_ok': true, 'card': card});
       }),
     );
@@ -193,11 +190,11 @@ void main() {
     );
     expect(card, isA<CitizenProfileCard>());
     expect(card.displayName, full.displayName);
-    expect(card.identityLevel, full.identityLevel);
-    expect(card.membershipLevel, full.membershipLevel);
+    expect(card.cidLevel, full.cidLevel);
+    expect(card.memberLevel, full.memberLevel);
     expect(card.profileBio, isEmpty);
     expect(card.posts, 0);
-    expect(card.bannerObjectKey, isNull);
+    expect(card.bannerKey, isNull);
     await const CitizenProfileCache().write(card);
     expect(
       (await const CitizenProfileCache().read(_profileCid))?.profileBio,
@@ -246,7 +243,7 @@ void main() {
       deviceId: testMlsDeviceId,
       sessionToken: 'tok',
       cidNumber: _profileCid,
-      bindingRevision: 1,
+      bindRev: 1,
       accountId: _owner,
       expiresAt: expiry ?? DateTime.now().millisecondsSinceEpoch + 60000,
       authenticateRequest: sign,
@@ -464,7 +461,7 @@ void main() {
         deviceId: testMlsDeviceId,
         sessionToken: 'tok',
         cidNumber: _profileCid,
-        bindingRevision: 1,
+        bindRev: 1,
         accountId: _owner,
         expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
       );
@@ -528,7 +525,7 @@ void main() {
       deviceId: testMlsDeviceId,
       sessionToken: 'synthetic-shared-image',
       cidNumber: _profileCid,
-      bindingRevision: 1,
+      bindRev: 1,
       accountId: _owner,
       expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
       authenticateRequest: ({
@@ -622,7 +619,7 @@ void main() {
       deviceId: testMlsDeviceId,
       sessionToken: 'synthetic-image-token',
       cidNumber: _profileCid,
-      bindingRevision: 1,
+      bindRev: 1,
       accountId: _owner,
       expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
       authenticateRequest: ({
@@ -705,8 +702,7 @@ void main() {
     var signed = 0;
     final paths = <String>[];
     final proofs = <String?>[];
-    final json = _profileJson()
-      ..['banner_object_key'] = 'profile/$_profileCid/banner';
+    final json = _profileJson()..['banner_key'] = 'profile/$_profileCid/banner';
     final client = _client(
       MockClient((request) async {
         paths.add(request.url.path);
@@ -725,7 +721,7 @@ void main() {
       deviceId: testMlsDeviceId,
       sessionToken: 'tok',
       cidNumber: _profileCid,
-      bindingRevision: 1,
+      bindRev: 1,
       accountId: _owner,
       expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
       authenticateRequest:
@@ -786,7 +782,7 @@ void main() {
       userInitiated: true,
     );
     expect(identical(first, second), isTrue);
-    final json = _profileJson()..['avatar_object_key'] = null;
+    final json = _profileJson()..['avatar_key'] = null;
     gate.complete(_ok({'profile': json}));
     await first;
     expect(requests, 1);
@@ -798,14 +794,14 @@ void main() {
     final cid = profile.cidNumber!;
     final request = {
       'display_name': '新名',
-      'avatar_object_key': profile.avatarObjectKey!,
-      'avatar_content_hash': sha256.convert(_png).toString(),
+      'avatar_key': profile.avatarKey!,
+      'avatar_hash': sha256.convert(_png).toString(),
     };
     await cache.prepareUpdate(cid, request: request, avatarBytes: _png);
     await (await UserIsar.instance.db()).close();
     final pending = await cache.readUpdate(cid);
     expect(pending!.avatarBytes, _png);
-    expect(pending.operationState, 'pending');
+    expect(pending.jobState, 'pending');
     await expectLater(
       cache.prepareUpdate(cid, request: {'display_name': '另一修改'}),
       throwsStateError,
@@ -817,7 +813,7 @@ void main() {
     expect((await cache.read(cid))!.displayName, '新名');
     expect(await cache.readUpdate(cid), isNull);
     final rows = await UserIsar.instance.read(
-      (db) => db.userProfileMediaEntitys.where().findAll(),
+      (db) => db.collection<user_store.ProfileMedia>().where().findAll(),
     );
     expect(rows.single.mediaBytes, _png);
   });
@@ -913,7 +909,7 @@ void main() {
       expect(restored.campaigns, original.campaigns);
       expect(restored.videos, original.videos);
       expect(restored.articles, original.articles);
-      expect(restored.avatarObjectKey, original.avatarObjectKey);
+      expect(restored.avatarKey, original.avatarKey);
     });
   });
 
@@ -935,6 +931,13 @@ void main() {
       expect(loaded!.displayName, '轻节点');
       expect(loaded.followers, 128);
       expect(CitizenProfileCache.revision.value?.cidNumber, cid);
+      final row = await UserIsar.instance.read(
+        (db) => db.collection<user_store.Profile>().getByCidNumber(cid),
+      );
+      expect(
+        (jsonDecode(row!.profileData) as Map).containsKey('cid_number'),
+        false,
+      );
     });
 
     test('clear removes the cached profile', () async {
@@ -947,17 +950,17 @@ void main() {
       expect(CitizenProfileCache.revision.value!.revision, greaterThan(before));
     });
 
-    test('较旧资料不能覆盖新版本，数据库主键与正文CID不一致拒绝展示', () async {
+    test('较旧资料不能覆盖新版本，正文重复CID拒绝展示且不删除', () async {
       const cache = CitizenProfileCache();
       final profile = CitizenProfile.fromJson(_profileJson());
-      await cache.write(profile.copyWith(updatedAt: 200));
+      await cache.write(profile.copyWith(profileAt: 200));
       await expectLater(cache.write(profile), throwsStateError);
-      expect((await cache.read(cid))!.updatedAt, 200);
+      expect((await cache.read(cid))!.profileAt, 200);
       await UserIsar.instance.writeTxn((db) async {
-        await db.userPublicProfileCacheEntitys.putByCidNumber(
-          UserPublicProfileCacheEntity()
+        await db.collection<user_store.Profile>().putByCidNumber(
+          user_store.Profile()
             ..cidNumber = cid
-            ..profileJson = jsonEncode(
+            ..profileData = jsonEncode(
               _profileJson(cidNumber: 'CN001-CTZN-000000002-2026'),
             ),
         );
@@ -965,7 +968,7 @@ void main() {
       expect(await cache.read(cid), isNull);
       expect(
         await UserIsar.instance.read(
-          (db) => db.userPublicProfileCacheEntitys.count(),
+          (db) => db.collection<user_store.Profile>().count(),
         ),
         1,
       );
@@ -975,11 +978,11 @@ void main() {
       'old cache without complete relation and content counts is rejected',
       () async {
         await UserIsar.instance.writeTxn((isar) async {
-          await isar.userPublicProfileCacheEntitys.putByCidNumber(
-            UserPublicProfileCacheEntity()
+          await isar.collection<user_store.Profile>().putByCidNumber(
+            user_store.Profile()
               ..cidNumber = cid
-              ..profileJson = jsonEncode({
-                ..._profileJson(),
+              ..profileData = jsonEncode({
+                ...(_profileJson()..remove('cid_number')),
                 'counts': {'following': 2, 'followers': 128, 'posts': 48},
               }),
           );
@@ -987,7 +990,7 @@ void main() {
         expect(await const CitizenProfileCache().read(cid), isNull);
         final retained = await UserIsar.instance.read(
           (isar) async =>
-              isar.userPublicProfileCacheEntitys.getByCidNumber(cid),
+              isar.collection<user_store.Profile>().getByCidNumber(cid),
         );
         expect(retained, isNotNull, reason: '损坏缓存读取不得隐式删除事实');
       },
@@ -1015,19 +1018,18 @@ void main() {
         supportDirectoryProvider: () async => root,
       );
       final profile = CitizenProfile.fromJson(_profileJson())
-          .copyWith(bannerObjectKey: 'profile/banner');
+          .copyWith(bannerKey: 'profile/banner');
       final saved = await cache.rememberSelected(
         profile: profile,
         avatarBytes: _png,
         bannerBytes: _png,
       );
       expect(
-        (await const CitizenProfileCache().read(profile.cidNumber!))
-            ?.bannerObjectKey,
+        (await const CitizenProfileCache().read(profile.cidNumber!))?.bannerKey,
         'profile/banner',
       );
       final rows = await UserIsar.instance.read(
-        (db) => db.userProfileMediaEntitys.where().findAll(),
+        (db) => db.collection<user_store.ProfileMedia>().where().findAll(),
       );
       expect(rows, hasLength(2));
       expect(rows.map((r) => r.mediaRole).toSet(), {'avatar', 'banner'});
@@ -1052,7 +1054,7 @@ void main() {
     test('同版本媒体冲突整笔回滚，资料和已有图片不被半更新', () async {
       const profiles = CitizenProfileCache();
       final profile = CitizenProfile.fromJson(_profileJson())
-          .copyWith(bannerObjectKey: 'profile/banner');
+          .copyWith(bannerKey: 'profile/banner');
       await profiles.writeWithMedia(
         profile,
         avatarBytes: _png,
@@ -1071,7 +1073,7 @@ void main() {
         profile.displayName,
       );
       final rows = await UserIsar.instance.read(
-        (db) => db.userProfileMediaEntitys.where().findAll(),
+        (db) => db.collection<user_store.ProfileMedia>().where().findAll(),
       );
       for (final row in rows) {
         expect(row.mediaBytes, _png);
@@ -1085,14 +1087,16 @@ void main() {
       final profile = CitizenProfile.fromJson(_profileJson());
       await cache.rememberSelected(profile: profile, avatarBytes: _png);
       await UserIsar.instance.writeTxn((db) async {
-        final row = (await db.userProfileMediaEntitys.where().findAll()).single;
+        final row =
+            (await db.collection<user_store.ProfileMedia>().where().findAll())
+                .single;
         row.mediaBytes = [...row.mediaBytes]..[0] = 0;
-        await db.userProfileMediaEntitys.put(row);
+        await db.collection<user_store.ProfileMedia>().put(row);
       });
       await expectLater(cache.read(profile), throwsStateError);
       expect(
         await UserIsar.instance.read(
-          (db) => db.userProfileMediaEntitys.count(),
+          (db) => db.collection<user_store.ProfileMedia>().count(),
         ),
         1,
       );
@@ -1123,20 +1127,20 @@ void main() {
       await profiles.writeWithMedia(profile, avatarBytes: atLimit);
       expect(
         await UserIsar.instance.read(
-          (db) => db.userProfileMediaEntitys.count(),
+          (db) => db.collection<user_store.ProfileMedia>().count(),
         ),
         1,
       );
     });
 
-    test('准确旧版本文件先入库回读再删除，未知版本文件保留', () async {
+    test('普通读取不导入或删除旧文件，显式清除才擦除所属目录', () async {
       final profile = CitizenProfile.fromJson(_profileJson());
       final cid = profile.cidNumber!;
       final hash = sha256.convert(utf8.encode(cid)).toString();
       final revision = sha256
           .convert(
             utf8.encode(
-              '$cid\u0000avatar\u0000${profile.avatarObjectKey}\u0000${profile.updatedAt}',
+              '$cid\u0000avatar\u0000${profile.avatarKey}\u0000${profile.profileAt}',
             ),
           )
           .toString();
@@ -1150,11 +1154,17 @@ void main() {
         supportDirectoryProvider: () async => root,
       );
       final result = await cache.read(profile);
-      expect(await old.exists(), isFalse);
+      expect(result.avatarPath, isNull);
+      expect(await old.readAsBytes(), _png);
       expect(await unknown.exists(), isTrue);
-      expect(await File(result.avatarPath!).readAsBytes(), _png);
-      await File(result.avatarPath!).delete();
-      expect((await cache.read(profile)).avatarPath, isNotNull);
+      expect(
+        await UserIsar.instance.read(
+          (db) => db.collection<user_store.ProfileMedia>().count(),
+        ),
+        0,
+      );
+      await cache.clearCid(cid);
+      expect(await dir.exists(), false);
     });
 
     test('旧文件为符号链接或损坏时保留来源且不入库', () async {
@@ -1164,7 +1174,7 @@ void main() {
       final revision = sha256
           .convert(
             utf8.encode(
-              '$cid\u0000avatar\u0000${profile.avatarObjectKey}\u0000${profile.updatedAt}',
+              '$cid\u0000avatar\u0000${profile.avatarKey}\u0000${profile.profileAt}',
             ),
           )
           .toString();
@@ -1177,16 +1187,19 @@ void main() {
       final cache = CitizenProfileMediaCache(
         supportDirectoryProvider: () async => root,
       );
-      await expectLater(cache.read(profile), throwsStateError);
+      expect((await cache.read(profile)).avatarPath, isNull);
       expect(await link.exists(), isTrue);
       await link.delete();
       final broken = File(link.path);
       await broken.writeAsBytes([1, 2, 3]);
-      await expectLater(cache.read(profile), throwsFormatException);
+      expect((await cache.read(profile)).avatarPath, isNull);
       expect(await broken.readAsBytes(), [1, 2, 3]);
+      await cache.clearCid(cid);
+      expect(await outside.readAsBytes(), _png);
+      expect(await dir.exists(), false);
       expect(
         await UserIsar.instance.read(
-          (db) => db.userProfileMediaEntitys.count(),
+          (db) => db.collection<user_store.ProfileMedia>().count(),
         ),
         0,
       );
@@ -1216,7 +1229,7 @@ void main() {
       await rejected;
       expect(
         await UserIsar.instance.read(
-          (db) => db.userProfileMediaEntitys.count(),
+          (db) => db.collection<user_store.ProfileMedia>().count(),
         ),
         0,
       );
@@ -1267,8 +1280,8 @@ void main() {
       expect(await File(remembered.avatarPath!).readAsBytes(), _png);
 
       final unset = profile.copyWith(
-        avatarObjectKey: null,
-        updatedAt: profile.updatedAt + 1,
+        avatarKey: null,
+        profileAt: profile.profileAt + 1,
       );
       expect((await cache.read(unset)).avatarPath, isNull);
     });
@@ -1283,7 +1296,7 @@ void main() {
         profile: profile,
         avatarBytes: Uint8List.fromList(_png),
       );
-      final changed = profile.copyWith(updatedAt: profile.updatedAt + 1);
+      final changed = profile.copyWith(profileAt: profile.profileAt + 1);
 
       final refreshed = await cache.refresh(
         profile: changed,
@@ -1389,14 +1402,14 @@ void main() {
 
         final page = await client.fetchAuthorPosts(
           cidNumber: _profileCid,
-          category: SquarePostCategory.campaign,
+          postCategory: SquarePostCategory.campaign,
           limit: 2,
           session: _session(),
         );
 
         expect(seen!.path, '/api/8964/posts');
         expect(seen!.queryParameters['cid_number'], _profileCid);
-        expect(seen!.queryParameters['category'], 'campaign');
+        expect(seen!.queryParameters['post_category'], 'campaign');
         expect(seen!.queryParameters['limit'], '2');
         expect(page.posts.single.postId, 'c1');
         expect(page.posts.single.postCategory, SquarePostCategory.campaign);

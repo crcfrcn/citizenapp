@@ -1,9 +1,5 @@
 class AdminsChangeSubmitResult {
-  const AdminsChangeSubmitResult({
-    required this.txHash,
-    required this.usedNonce,
-  });
+  const AdminsChangeSubmitResult({required this.txHash});
 
   final String txHash;
-  final int usedNonce;
 }

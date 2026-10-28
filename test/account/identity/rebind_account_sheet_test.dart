@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'package:citizenapp/account/identity/rebind_account_sheet.dart';
+
 CitizenWalletStateAccount _account({
   int index = 5,
   String name = '账户5',

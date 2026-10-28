@@ -5,20 +5,20 @@ final class IdentityBinding {
   const IdentityBinding({
     required this.genesisHash,
     required this.cidNumber,
-    required this.bindingRevision,
+    required this.bindRev,
     required this.accountId,
   });
   final String genesisHash;
   final String cidNumber;
-  final int bindingRevision;
+  final int bindRev;
   final String accountId;
   static final _hash = RegExp(r'^0x[0-9a-f]{64}$');
   void validate() {
     if (!_hash.hasMatch(genesisHash) ||
         !_hash.hasMatch(accountId) ||
         !RegExp(r'^[\x21-\x39\x3b-\x7e]{1,32}$').hasMatch(cidNumber) ||
-        bindingRevision <= 0 ||
-        bindingRevision > 9007199254740991) {
+        bindRev <= 0 ||
+        bindRev > 9007199254740991) {
       throw const FormatException('公开身份绑定格式无效');
     }
   }
@@ -26,7 +26,7 @@ final class IdentityBinding {
   Map<String, Object> toJson() => {
     'genesis_hash': genesisHash,
     'cid_number': cidNumber,
-    'binding_revision': bindingRevision,
+    'bind_rev': bindRev,
     'account_id': accountId,
   };
   static IdentityBinding? fromJson(String raw) {
@@ -36,14 +36,14 @@ final class IdentityBinding {
           value.length != 4 ||
           value['genesis_hash'] is! String ||
           value['cid_number'] is! String ||
-          value['binding_revision'] is! int ||
+          value['bind_rev'] is! int ||
           value['account_id'] is! String) {
         return null;
       }
       final binding = IdentityBinding(
         genesisHash: value['genesis_hash'] as String,
         cidNumber: value['cid_number'] as String,
-        bindingRevision: value['binding_revision'] as int,
+        bindRev: value['bind_rev'] as int,
         accountId: value['account_id'] as String,
       );
       binding.validate();

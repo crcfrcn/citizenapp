@@ -1,3 +1,7 @@
+import 'package:citizenapp/storage/social_isar.dart'
+    as social_store
+    show Draft, Media, Post, PostSchema, Publish;
+
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -37,7 +41,7 @@ Uint8List _manifest({
             'file_name': 'photo.jpg',
             'content_type': 'image/jpeg',
             'byte_size': 1234,
-            'sha256': 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+            'body_hash': 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
           },
         ],
       }),
@@ -53,7 +57,7 @@ SquareLocalPost _post({
   String postType = 'document',
   Uint8List? manifestBytes,
   String? contentHash,
-  String storageReceiptId = 'sr_a',
+  String receiptId = 'sr_a',
   int? chainBlock = 123,
   int createdAt = 1000,
   String postState = SquarePostStore.publishedState,
@@ -68,9 +72,9 @@ SquareLocalPost _post({
     postType: postType,
     manifestBytes: bytes,
     contentHash: contentHash ?? sha256.convert(bytes).toString(),
-    storageReceiptId: storageReceiptId,
+    receiptId: receiptId,
     chainBlock: chainBlock,
-    createdAt: createdAt,
+    publishedAt: createdAt,
     postState: postState,
   );
 }
@@ -113,7 +117,7 @@ void main() {
     await store.saveSyncedPage([post], {post.postId: []});
     expect(await store.listByCid(_cidA), isEmpty);
     expect(
-      (await store.readDeletion(_cidA, post.postId))!.operationState,
+      (await store.readDeletion(_cidA, post.postId))!.jobState,
       'confirmed',
     );
   });
@@ -125,11 +129,11 @@ void main() {
     await media.saveStream(
       SquareStoredMedia(
         cidNumber: _cidA,
-        mediaId: hash,
+
         mediaKind: 'image',
         contentType: 'image/png',
         byteSize: bytes.length,
-        sha256: hash,
+        bodyHash: hash,
       ),
       Stream.value(bytes),
     );
@@ -144,7 +148,7 @@ void main() {
           references: [
             SquareMediaReference(
               cidNumber: _cidA,
-              mediaId: hash,
+              bodyHash: hash,
               contentKind: 'post',
               contentId: id,
               mediaIndex: 0,
@@ -155,9 +159,9 @@ void main() {
       );
     }
     await store.delete(cidNumber: _cidA, postId: 'first');
-    expect(await media.get(cidNumber: _cidA, mediaId: hash), isNotNull);
+    expect(await media.get(cidNumber: _cidA, bodyHash: hash), isNotNull);
     await store.delete(cidNumber: _cidA, postId: 'second');
-    expect(await media.get(cidNumber: _cidA, mediaId: hash), isNull);
+    expect(await media.get(cidNumber: _cidA, bodyHash: hash), isNull);
   });
 
   for (final damage in [false, true]) {
@@ -170,11 +174,11 @@ void main() {
         await mediaStore.saveStream(
           SquareStoredMedia(
             cidNumber: _cidA,
-            mediaId: hash,
+
             mediaKind: 'image',
             contentType: 'image/webp',
             byteSize: bytes.length,
-            sha256: hash,
+            bodyHash: hash,
           ),
           Stream.value(bytes),
         );
@@ -195,7 +199,7 @@ void main() {
                 'media_kind': 'image',
                 'content_type': 'image/webp',
                 'byte_size': content.length,
-                'sha256': mainId,
+                'body_hash': mainId,
                 'file_name': 'synthetic.webp',
               },
             ],
@@ -203,20 +207,17 @@ void main() {
         ),
       );
       await SocialIsar.instance.writeTxn((db) async {
-        await db.squareComposeDraftEntitys.put(
-          SquareComposeDraftEntity()
-            ..draftKey =
-                '${_cidA.length}:$_cidA'
-                'draft-publish'
+        await db.collection<social_store.Draft>().put(
+          social_store.Draft()
             ..cidNumber = _cidA
             ..draftId = 'draft-publish'
             ..postType = 'document'
             ..text = '未完成前保留'
-            ..mediaJson = '[]'
-            ..updatedAtMillis = 1000,
+            ..mediaData = '[]'
+            ..updatedAt = 1000,
         );
       });
-      final row = SquarePublicationEntity()
+      final row = social_store.Publish()
         ..cidNumber = _cidA
         ..draftId = 'draft-publish'
         ..accountId = _accountA
@@ -224,15 +225,15 @@ void main() {
         ..postType = 'document'
         ..contentHash = sha256.convert(manifest).toString()
         ..manifestBytes = manifest
-        ..storageReceiptId = 'receipt'
+        ..receiptId = 'receipt'
         ..uploadId = 'upload'
-        ..publicationState = 'prepared';
+        ..jobState = 'prepared';
       await store.savePublication(
         row,
         references: [
           SquareMediaReference(
             cidNumber: _cidA,
-            mediaId: mainId,
+            bodyHash: mainId,
             contentKind: 'publication',
             contentId: row.postId,
             mediaIndex: 0,
@@ -240,7 +241,7 @@ void main() {
           ),
           SquareMediaReference(
             cidNumber: _cidA,
-            mediaId: thumbId,
+            bodyHash: thumbId,
             contentKind: 'publication',
             contentId: row.postId,
             mediaIndex: 0,
@@ -248,23 +249,25 @@ void main() {
           ),
         ],
       );
-      row.publicationState = 'submitting';
+      row.jobState = 'submitting';
       await store.savePublication(row);
       row
-        ..publicationState = 'finalized'
-        ..transactionHash = 'synthetic-transaction'
-        ..blockHash = 'synthetic-block';
+        ..jobState = 'finalized'
+        ..txHash = 'synthetic-transaction'
+        ..chainHash = 'synthetic-block';
       await store.savePublication(row);
       row
-        ..publicationState = 'confirmed'
+        ..jobState = 'confirmed'
         ..postCategory = 'normal'
-        ..createdAt = 1001
+        ..publishedAt = 1001
         ..chainBlock = 1;
       await store.savePublication(row);
       if (damage) {
         await SocialIsar.instance.writeTxn(
-          (db) =>
-              db.squareMediaEntitys.deleteByCidNumberMediaId(_cidA, thumbId),
+          (db) => db.collection<social_store.Media>().deleteByCidNumberBodyHash(
+            _cidA,
+            thumbId,
+          ),
         );
         await expectLater(
           store.save(
@@ -275,7 +278,7 @@ void main() {
         );
         expect(await store.read(cidNumber: _cidA, postId: row.postId), isNull);
         expect(
-          (await store.readPublication(_cidA, row.draftId))!.publicationState,
+          (await store.readPublication(_cidA, row.draftId))!.jobState,
           'confirmed',
         );
       } else {
@@ -294,7 +297,7 @@ void main() {
         expect(
           await mediaStore.readRange(
             cidNumber: _cidA,
-            mediaId: mainId,
+            bodyHash: mainId,
             offset: 0,
             length: 4,
           ),
@@ -311,8 +314,8 @@ void main() {
         );
       }
       final draft = await SocialIsar.instance.read(
-        (db) => db.squareComposeDraftEntitys.getByDraftKey(
-          '${_cidA.length}:$_cidA'
+        (db) => db.collection<social_store.Draft>().getByCidNumberDraftId(
+          _cidA,
           'draft-publish',
         ),
       );
@@ -332,7 +335,7 @@ void main() {
     );
     expect(presentation.post.mediaItems.single.cidNumber, _cidA);
     expect(presentation.post.mediaItems.single.url, isEmpty);
-    expect(presentation.post.createdAt.millisecondsSinceEpoch, 1700000000123);
+    expect(presentation.post.publishedAt.millisecondsSinceEpoch, 1700000000123);
   });
 
   test('展示转换器拒绝缺少首图声明的本地文章', () {
@@ -343,7 +346,7 @@ void main() {
           'schema': SquarePostStore.manifestSchema,
           'cid_number': _cidA,
           'post_type': 'article',
-          'title': '本地文章标题标题标题',
+          'post_title': '本地文章标题标题标题',
           'text': '本地文章正文内容满足最低要求',
           'media_items': <Object>[],
         }),
@@ -378,7 +381,7 @@ void main() {
     expect(saved, isNotNull);
     expect(saved!.manifestBytes, orderedEquals(bytes));
     expect(saved.contentHash, sha256.convert(bytes).toString());
-    expect(saved.createdAt, 1700000000123);
+    expect(saved.publishedAt, 1700000000123);
     expect(saved.chainBlock, 456);
     expect(saved.postState, SquarePostStore.publishedState);
   });
@@ -476,9 +479,9 @@ void main() {
             contentHash: invalid.contentHash == original.contentHash
                 ? invalid.contentHash
                 : sha256.convert(invalid.manifestBytes).toString(),
-            storageReceiptId: invalid.storageReceiptId,
+            receiptId: invalid.receiptId,
             chainBlock: invalid.chainBlock,
-            createdAt: invalid.createdAt,
+            publishedAt: invalid.publishedAt,
             postState: invalid.postState,
           ),
         ),
@@ -518,9 +521,11 @@ void main() {
   test('磁盘行被篡改后读取 fail-closed，不静默返回空白内容', () async {
     await store.save(_post());
     await SocialIsar.instance.writeTxn((isar) async {
-      final entity = await isar.squareLocalPostEntitys.getByPostId('sqp_a');
+      final entity = await isar.collection<social_store.Post>().getByPostId(
+        'sqp_a',
+      );
       entity!.manifestBytes = utf8.encode('{"broken":true}');
-      await isar.squareLocalPostEntitys.put(entity);
+      await isar.collection<social_store.Post>().put(entity);
     });
 
     expect(
@@ -556,11 +561,13 @@ void main() {
     await first.close();
 
     final reopened = await SocialIsar.instance.db();
-    final entity = await reopened.squareLocalPostEntitys.getByPostId('sqp_a');
+    final entity = await reopened.collection<social_store.Post>().getByPostId(
+      'sqp_a',
+    );
     expect(entity, isNotNull);
     expect(entity!.manifestBytes, isNotEmpty);
     expect(
-      SquareLocalPostEntitySchema.properties.keys,
+      social_store.PostSchema.properties.keys,
       isNot(
         containsAll(<String>['mediaPath', 'mediaUrl', 'coverUrl', 'cachedAt']),
       ),

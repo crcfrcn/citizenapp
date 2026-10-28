@@ -1,3 +1,6 @@
+import 'package:citizenapp/storage/social_isar.dart'
+    as social_store
+    show PostCursor, Erase, Draft, MediaLink, Media, Post, Publish;
 import 'package:flutter/foundation.dart' show ValueNotifier;
 
 import 'dart:convert';
@@ -24,9 +27,9 @@ class SquareLocalPost {
     required this.postType,
     required Uint8List manifestBytes,
     required this.contentHash,
-    required this.storageReceiptId,
+    required this.receiptId,
     required this.chainBlock,
-    required this.createdAt,
+    required this.publishedAt,
     required this.postState,
   }) : manifestBytes = Uint8List.fromList(manifestBytes);
 
@@ -37,9 +40,9 @@ class SquareLocalPost {
   final String postType;
   final Uint8List manifestBytes;
   final String contentHash;
-  final String storageReceiptId;
+  final String receiptId;
   final int? chainBlock;
-  final int createdAt;
+  final int publishedAt;
   final String postState;
 }
 
@@ -56,15 +59,15 @@ class SquareLocalPostPage {
 /// 已完成一次完整回灌时记录的远端最新发布事实。
 ///
 /// 它只用于缩短后续增量扫描，不是本地内容真源，也不含设备时间。远端为空时
-/// [newestPostId] 为 null、[newestCreatedAt] 为 0。
+/// [postId] 为 null、[publishedAt] 为 0。
 class SquarePostSyncCheckpoint {
   const SquarePostSyncCheckpoint({
-    required this.newestPostId,
-    required this.newestCreatedAt,
+    required this.postId,
+    required this.publishedAt,
   });
 
-  final String? newestPostId;
-  final int newestCreatedAt;
+  final String? postId;
+  final int publishedAt;
 }
 
 /// 发布链路写入本人副本所需的最小边界，便于隔离测试失败与重试语义。
@@ -116,31 +119,31 @@ class SquarePostStore
 
   /// 保存或幂等覆盖一条本人已发布内容。
   ///
-  /// [createdAt] 必须来自 Worker `square_posts.created_at`，本方法不读取设备时间。
+  /// [created_at] 必须来自 Worker `square_posts.created_at`，本方法不读取设备时间。
   @override
   Future<void> save(SquareLocalPost post, {String? draftId}) async {
     if (draftId == null) {
       await saveAll(<SquareLocalPost>[post]);
       return;
     }
-    final normalized = _validated(post);
+    final normalized = validate(post);
     await SocialIsar.instance.writeTxn((db) async {
-      final pending = await db.squarePublicationEntitys.getByCidNumberDraftId(
-        post.cidNumber,
-        draftId,
-      );
+      final pending = await db
+          .collection<social_store.Publish>()
+          .getByCidNumberDraftId(post.cidNumber, draftId);
       if (pending == null ||
-          pending.publicationState != 'confirmed' ||
+          pending.jobState != 'confirmed' ||
           pending.postId != post.postId ||
           pending.accountId != post.accountId ||
           pending.contentHash != post.contentHash ||
-          pending.storageReceiptId != post.storageReceiptId ||
+          pending.receiptId != post.receiptId ||
           pending.postCategory != post.postCategory ||
-          pending.createdAt != post.createdAt ||
+          pending.publishedAt != post.publishedAt ||
           pending.chainBlock != post.chainBlock) {
         throw const SquarePostStoreException('发布恢复事实与帖子不一致');
       }
-      final refs = await db.squareMediaReferenceEntitys
+      final refs = await db
+          .collection<social_store.MediaLink>()
           .where()
           .contentIdCidNumberContentKindEqualTo(
             post.postId,
@@ -156,20 +159,20 @@ class SquarePostStore
       );
       await _putPost(db, normalized);
       // 修改产生新帖；本地收尾与旧帖删除意图同事务，退出后仍能显式恢复。
-      final replaced = pending.replacePostId;
+      final replaced = pending.replaceId;
       if (replaced != null &&
           replaced.isNotEmpty &&
           replaced != post.postId &&
-          await db.squarePostDeletionEntitys.getByCidNumberPostId(
+          await db.collection<social_store.Erase>().getByCidNumberPostId(
                 post.cidNumber,
                 replaced,
               ) ==
               null) {
-        await db.squarePostDeletionEntitys.put(
-          SquarePostDeletionEntity()
+        await db.collection<social_store.Erase>().put(
+          social_store.Erase()
             ..cidNumber = post.cidNumber
             ..postId = replaced
-            ..operationState = 'pending',
+            ..jobState = 'pending',
         );
       }
       await SquareMediaStore.replaceReferencesInTransaction(
@@ -181,7 +184,7 @@ class SquarePostStore
             .map(
               (r) => SquareMediaReference(
                 cidNumber: r.cidNumber,
-                mediaId: r.mediaId,
+                bodyHash: r.bodyHash,
                 contentKind: 'post',
                 contentId: post.postId,
                 mediaIndex: r.mediaIndex,
@@ -202,27 +205,27 @@ class SquarePostStore
         contentKind: 'draft',
         contentId: draftId,
       );
-      await db.squareComposeDraftEntitys.deleteByDraftKey(
-        '${post.cidNumber.length}:${post.cidNumber}$draftId',
+      await db.collection<social_store.Draft>().deleteByCidNumberDraftId(
+        post.cidNumber,
+        draftId,
       );
       await SquareComposeDraftStore.planCleanupInTransaction(
         db,
         post.cidNumber,
         draftId,
       );
-      await db.squarePublicationEntitys.delete(pending.id);
+      await db.collection<social_store.Publish>().delete(pending.rowId);
     });
     _notify(post.cidNumber);
   }
 
-  Future<SquarePublicationEntity?> readPublication(String cid, String draftId) {
+  Future<social_store.Publish?> readPublication(String cid, String draftId) {
     _validateCidNumber(cid);
     _requireNonEmpty(draftId, 'draft_id');
     return SocialIsar.instance.read((db) async {
-      final row = await db.squarePublicationEntitys.getByCidNumberDraftId(
-        cid,
-        draftId,
-      );
+      final row = await db
+          .collection<social_store.Publish>()
+          .getByCidNumberDraftId(cid, draftId);
       if (row != null) _validatePublication(row);
       return row;
     });
@@ -230,43 +233,42 @@ class SquarePostStore
 
   /// 先提交发布意图与媒体引用，再允许上传/交易；阶段只前进、不推断交易失败。
   Future<void> savePublication(
-    SquarePublicationEntity row, {
+    social_store.Publish row, {
     List<SquareMediaReference>? references,
   }) async {
     _validatePublication(row);
     const states = ['prepared', 'submitting', 'finalized', 'confirmed'];
-    final next = states.indexOf(row.publicationState);
+    final next = states.indexOf(row.jobState);
     await SocialIsar.instance.writeTxn((db) async {
-      final current = await db.squarePublicationEntitys.getByCidNumberDraftId(
-        row.cidNumber,
-        row.draftId,
-      );
+      final current = await db
+          .collection<social_store.Publish>()
+          .getByCidNumberDraftId(row.cidNumber, row.draftId);
       if (current != null) {
-        final old = states.indexOf(current.publicationState);
+        final old = states.indexOf(current.jobState);
         if (old < 0 ||
             current.postId != row.postId ||
             current.accountId != row.accountId ||
             current.contentHash != row.contentHash ||
-            current.storageReceiptId != row.storageReceiptId ||
+            current.receiptId != row.receiptId ||
             current.uploadId != row.uploadId ||
-            current.replacePostId != row.replacePostId ||
+            current.replaceId != row.replaceId ||
             (old >= 2 &&
-                (current.transactionHash != row.transactionHash ||
-                    current.blockHash != row.blockHash)) ||
+                (current.txHash != row.txHash ||
+                    current.chainHash != row.chainHash)) ||
             (old >= 3 &&
-                (current.createdAt != row.createdAt ||
+                (current.publishedAt != row.publishedAt ||
                     current.postCategory != row.postCategory ||
                     current.chainBlock != row.chainBlock)) ||
             next < old ||
             next > old + 1) {
           throw const SquarePostStoreException('发布恢复记录禁止覆盖或倒退');
         }
-        row.id = current.id;
+        row.rowId = current.rowId;
       } else if (next != 0 || references == null) {
         throw const SquarePostStoreException('发布恢复记录缺少准备阶段');
       } else {
         // 调用方传来的数据库行号不能覆盖其它 CID 的记录。
-        row.id = Isar.autoIncrement;
+        row.rowId = Isar.autoIncrement;
       }
       if (references != null) {
         if (next != 0) throw const SquarePostStoreException('提交后不能替换发布媒体');
@@ -277,7 +279,8 @@ class SquarePostStore
           contentId: row.postId,
           references: references,
         );
-        final refs = await db.squareMediaReferenceEntitys
+        final refs = await db
+            .collection<social_store.MediaLink>()
             .where()
             .contentIdCidNumberContentKindEqualTo(
               row.postId,
@@ -292,11 +295,11 @@ class SquarePostStore
           refs,
         );
       }
-      await db.squarePublicationEntitys.put(row);
+      await db.collection<social_store.Publish>().put(row);
     });
   }
 
-  static void _validatePublication(SquarePublicationEntity row) {
+  static void _validatePublication(social_store.Publish row) {
     _validateCidNumber(row.cidNumber);
     _requireNonEmpty(row.draftId, 'draft_id');
     _requireNonEmpty(row.postId, 'post_id');
@@ -311,10 +314,10 @@ class SquarePostStore
       throw const SquarePostStoreException('发布恢复记录归属不一致');
     }
     const states = ['prepared', 'submitting', 'finalized', 'confirmed'];
-    final next = states.indexOf(row.publicationState);
+    final next = states.indexOf(row.jobState);
     if (next < 0 ||
-        (next >= 2 && (row.transactionHash == null || row.blockHash == null)) ||
-        (next == 3 && (row.createdAt == null || row.postCategory == null))) {
+        (next >= 2 && (row.txHash == null || row.chainHash == null)) ||
+        (next == 3 && (row.publishedAt == null || row.postCategory == null))) {
       throw const SquarePostStoreException('发布恢复阶段缺少确认事实');
     }
   }
@@ -328,14 +331,13 @@ class SquarePostStore
   }) async {
     _validateCidNumber(cid);
     await SocialIsar.instance.writeTxn((db) async {
-      final row = await db.squarePublicationEntitys.getByCidNumberDraftId(
-        cid,
-        draftId,
-      );
+      final row = await db
+          .collection<social_store.Publish>()
+          .getByCidNumberDraftId(cid, draftId);
       if (row == null) return;
       if (row.postId != postId ||
-          (row.publicationState != 'prepared' &&
-              !(definitiveFailure && row.publicationState == 'submitting'))) {
+          (row.jobState != 'prepared' &&
+              !(definitiveFailure && row.jobState == 'submitting'))) {
         throw const SquarePostStoreException('交易未明确失败，不能丢弃发布记录');
       }
       await SquareMediaStore.removeContentInTransaction(
@@ -344,15 +346,15 @@ class SquarePostStore
         contentKind: 'publication',
         contentId: row.postId,
       );
-      await db.squarePublicationEntitys.delete(row.id);
+      await db.collection<social_store.Publish>().delete(row.rowId);
     });
   }
 
-  static SquareLocalPost confirmedPublication(SquarePublicationEntity row) {
-    if (row.publicationState != 'confirmed') {
+  static SquareLocalPost confirmedPublication(social_store.Publish row) {
+    if (row.jobState != 'confirmed') {
       throw const SquarePostStoreException('远端发布尚未确认');
     }
-    return _validated(
+    return validate(
       SquareLocalPost(
         postId: row.postId,
         cidNumber: row.cidNumber,
@@ -361,9 +363,9 @@ class SquarePostStore
         postType: row.postType,
         manifestBytes: Uint8List.fromList(row.manifestBytes),
         contentHash: row.contentHash,
-        storageReceiptId: row.storageReceiptId,
+        receiptId: row.receiptId,
         chainBlock: row.chainBlock,
-        createdAt: row.createdAt!,
+        publishedAt: row.publishedAt!,
         postState: publishedState,
       ),
     );
@@ -373,7 +375,7 @@ class SquarePostStore
     Isar db,
     Uint8List bytes,
     String cid,
-    List<SquareMediaReferenceEntity> refs,
+    List<social_store.MediaLink> refs,
   ) async {
     final manifest = _decodeManifest(bytes);
     final items = manifest['media_items'];
@@ -393,22 +395,19 @@ class SquarePostStore
       final derivative = refs
           .where((r) => r.mediaIndex == i && r.mediaRole == derivativeRole)
           .single;
-      final media = await db.squareMediaEntitys.getByCidNumberMediaId(
-        cid,
-        main.mediaId,
-      );
-      final preview = await db.squareMediaEntitys.getByCidNumberMediaId(
-        cid,
-        derivative.mediaId,
-      );
+      final media = await db
+          .collection<social_store.Media>()
+          .getByCidNumberBodyHash(cid, main.bodyHash);
+      final preview = await db
+          .collection<social_store.Media>()
+          .getByCidNumberBodyHash(cid, derivative.bodyHash);
       if (media == null ||
-          !media.complete ||
-          media.sha256 != item['sha256'] ||
+          !media.isComplete ||
+          media.bodyHash != item['body_hash'] ||
           media.byteSize != item['byte_size'] ||
           media.mediaKind != item['media_kind'] ||
-          media.contentType != item['content_type'] ||
           preview == null ||
-          !preview.complete ||
+          !preview.isComplete ||
           preview.mediaKind != 'image') {
         throw const SquarePostStoreException('发布媒体与正文声明不一致');
       }
@@ -417,16 +416,18 @@ class SquarePostStore
 
   static Future<void> _putPost(Isar db, SquareLocalPost post) async {
     // 用户已发起删除的内容不得被较早发出的同步请求重新写回。
-    if (await db.squarePostDeletionEntitys.getByCidNumberPostId(
+    if (await db.collection<social_store.Erase>().getByCidNumberPostId(
           post.cidNumber,
           post.postId,
         ) !=
         null) {
       return;
     }
-    final existing = await db.squareLocalPostEntitys.getByPostId(post.postId);
+    final existing = await db.collection<social_store.Post>().getByPostId(
+      post.postId,
+    );
     if (existing != null) _assertSamePublishedFact(existing, post);
-    final entity = existing ?? SquareLocalPostEntity();
+    final entity = existing ?? social_store.Post();
     entity
       ..postId = post.postId
       ..cidNumber = post.cidNumber
@@ -435,11 +436,11 @@ class SquarePostStore
       ..postType = post.postType
       ..manifestBytes = post.manifestBytes
       ..contentHash = post.contentHash
-      ..storageReceiptId = post.storageReceiptId
+      ..receiptId = post.receiptId
       ..chainBlock = post.chainBlock
-      ..createdAt = post.createdAt
+      ..publishedAt = post.publishedAt
       ..postState = post.postState;
-    await db.squareLocalPostEntitys.put(entity);
+    await db.collection<social_store.Post>().put(entity);
   }
 
   /// 原子保存一整页 Worker 回灌结果。
@@ -448,7 +449,7 @@ class SquarePostStore
   /// 保证同步中断后最多留下完整页，不会留下半页空洞。
   Future<void> saveAll(List<SquareLocalPost> posts) async {
     if (posts.isEmpty) return;
-    final normalizedPosts = posts.map(_validated).toList(growable: false);
+    final normalizedPosts = posts.map(validate).toList(growable: false);
     final postIds = <String>{};
     for (final post in normalizedPosts) {
       if (!postIds.add(post.postId)) {
@@ -471,13 +472,13 @@ class SquarePostStore
     List<SquareLocalPost> posts,
     Map<String, List<SquareMediaReference>> references,
   ) async {
-    final normalized = posts.map(_validated).toList();
+    final normalized = posts.map(validate).toList();
     if (normalized.map((p) => p.postId).toSet().length != normalized.length) {
       throw const SquarePostStoreException('同步页包含重复帖子');
     }
     await SocialIsar.instance.writeTxn((db) async {
       for (final post in normalized) {
-        if (await db.squarePostDeletionEntitys.getByCidNumberPostId(
+        if (await db.collection<social_store.Erase>().getByCidNumberPostId(
               post.cidNumber,
               post.postId,
             ) !=
@@ -493,7 +494,8 @@ class SquarePostStore
           contentId: post.postId,
           references: refs,
         );
-        final rows = await db.squareMediaReferenceEntitys
+        final rows = await db
+            .collection<social_store.MediaLink>()
             .where()
             .contentIdCidNumberContentKindEqualTo(
               post.postId,
@@ -515,11 +517,12 @@ class SquarePostStore
     }
   }
 
-  Future<SquarePostDeletionEntity?> readDeletion(String cid, String postId) {
+  Future<social_store.Erase?> readDeletion(String cid, String postId) {
     _validateCidNumber(cid);
     _requireNonEmpty(postId, 'post_id');
     return SocialIsar.instance.read(
-      (db) => db.squarePostDeletionEntitys.getByCidNumberPostId(cid, postId),
+      (db) =>
+          db.collection<social_store.Erase>().getByCidNumberPostId(cid, postId),
     );
   }
 
@@ -532,40 +535,41 @@ class SquarePostStore
     _validateCidNumber(cid);
     _requireNonEmpty(postId, 'post_id');
     await SocialIsar.instance.writeTxn((db) async {
-      final current = await db.squarePostDeletionEntitys.getByCidNumberPostId(
-        cid,
-        postId,
-      );
+      final current = await db
+          .collection<social_store.Erase>()
+          .getByCidNumberPostId(cid, postId);
       final row =
           current ??
-          (SquarePostDeletionEntity()
+          (social_store.Erase()
             ..cidNumber = cid
             ..postId = postId);
       if (current != null &&
-          !{'pending', 'confirmed'}.contains(current.operationState)) {
+          !{'pending', 'confirmed'}.contains(current.jobState)) {
         throw const SquarePostStoreException('删除恢复状态损坏');
       }
-      row.operationState = confirmed || current?.operationState == 'confirmed'
+      row.jobState = confirmed || current?.jobState == 'confirmed'
           ? 'confirmed'
           : 'pending';
-      await db.squarePostDeletionEntitys.put(row);
+      await db.collection<social_store.Erase>().put(row);
     });
   }
 
-  Future<List<SquarePostDeletionEntity>> deletionsToRecover(String cid) {
+  Future<List<social_store.Erase>> deletionsToRecover(String cid) {
     _validateCidNumber(cid);
     return SocialIsar.instance.read((db) async {
-      final rows = await db.squarePostDeletionEntitys
+      final rows = await db
+          .collection<social_store.Erase>()
           .filter()
           .cidNumberEqualTo(cid)
           .findAll();
-      final result = <SquarePostDeletionEntity>[];
+      final result = <social_store.Erase>[];
       for (final row in rows) {
-        if (!{'pending', 'confirmed'}.contains(row.operationState)) {
+        if (!{'pending', 'confirmed'}.contains(row.jobState)) {
           throw const SquarePostStoreException('删除恢复状态损坏');
         }
-        if (row.operationState == 'pending' ||
-            await db.squareLocalPostEntitys.getByPostId(row.postId) != null) {
+        if (row.jobState == 'pending' ||
+            await db.collection<social_store.Post>().getByPostId(row.postId) !=
+                null) {
           result.add(row);
         }
       }
@@ -577,22 +581,19 @@ class SquarePostStore
   Future<SquarePostSyncCheckpoint?> readSyncCheckpoint(String cidNumber) async {
     _validateCidNumber(cidNumber);
     return SocialIsar.instance.read((isar) async {
-      final entity = await isar.squarePostSyncCheckpointEntitys.getByCidNumber(
-        cidNumber,
-      );
+      final entity = await isar
+          .collection<social_store.PostCursor>()
+          .getByCidNumber(cidNumber);
       if (entity == null) return null;
-      final postId = entity.newestPostId;
-      final createdAt = entity.newestCreatedAt;
+      final postId = entity.postId;
+      final createdAt = entity.publishedAt;
       final validEmpty = postId == null && createdAt == 0;
       final validPost =
           postId != null && postId.trim().isNotEmpty && createdAt > 0;
       if (!validEmpty && !validPost) {
         throw const SquarePostStoreException('本人副本同步检查点损坏');
       }
-      return SquarePostSyncCheckpoint(
-        newestPostId: postId,
-        newestCreatedAt: createdAt,
-      );
+      return SquarePostSyncCheckpoint(postId: postId, publishedAt: createdAt);
     });
   }
 
@@ -602,26 +603,26 @@ class SquarePostStore
     required SquarePostSyncCheckpoint checkpoint,
   }) async {
     _validateCidNumber(cidNumber);
-    final postId = checkpoint.newestPostId;
-    final validEmpty = postId == null && checkpoint.newestCreatedAt == 0;
+    final postId = checkpoint.postId;
+    final validEmpty = postId == null && checkpoint.publishedAt == 0;
     final validPost =
         postId != null &&
         postId.trim().isNotEmpty &&
-        checkpoint.newestCreatedAt > 0;
+        checkpoint.publishedAt > 0;
     if (!validEmpty && !validPost) {
       throw const SquarePostStoreException('本人副本同步检查点不合法');
     }
     await SocialIsar.instance.writeTxn((isar) async {
       final entity =
-          await isar.squarePostSyncCheckpointEntitys.getByCidNumber(
+          await isar.collection<social_store.PostCursor>().getByCidNumber(
             cidNumber,
           ) ??
-          SquarePostSyncCheckpointEntity();
+          social_store.PostCursor();
       entity
         ..cidNumber = cidNumber
-        ..newestPostId = postId
-        ..newestCreatedAt = checkpoint.newestCreatedAt;
-      await isar.squarePostSyncCheckpointEntitys.putByCidNumber(entity);
+        ..postId = postId
+        ..publishedAt = checkpoint.publishedAt;
+      await isar.collection<social_store.PostCursor>().putByCidNumber(entity);
     });
   }
 
@@ -632,7 +633,9 @@ class SquarePostStore
     _validateCidNumber(cidNumber);
     _requireNonEmpty(postId, 'post_id');
     return SocialIsar.instance.read((isar) async {
-      final entity = await isar.squareLocalPostEntitys.getByPostId(postId);
+      final entity = await isar.collection<social_store.Post>().getByPostId(
+        postId,
+      );
       if (entity == null || entity.cidNumber != cidNumber) {
         return null;
       }
@@ -646,12 +649,13 @@ class SquarePostStore
   Future<List<SquareLocalPost>> listByCid(String cidNumber) async {
     _validateCidNumber(cidNumber);
     return SocialIsar.instance.read((isar) async {
-      final entities = await isar.squareLocalPostEntitys
+      final entities = await isar
+          .collection<social_store.Post>()
           .filter()
           .cidNumberEqualTo(cidNumber)
           .findAll();
       entities.sort((left, right) {
-        final byCreatedAt = right.createdAt.compareTo(left.createdAt);
+        final byCreatedAt = right.publishedAt.compareTo(left.publishedAt);
         if (byCreatedAt != 0) return byCreatedAt;
         return right.postId.compareTo(left.postId);
       });
@@ -668,7 +672,9 @@ class SquarePostStore
     _validateCidNumber(cidNumber);
     _requireNonEmpty(postId, 'post_id');
     final removed = await SocialIsar.instance.writeTxn((isar) async {
-      final entity = await isar.squareLocalPostEntitys.getByPostId(postId);
+      final entity = await isar.collection<social_store.Post>().getByPostId(
+        postId,
+      );
       if (entity != null && entity.cidNumber != cidNumber) {
         return false;
       }
@@ -680,7 +686,7 @@ class SquarePostStore
       );
       return entity == null
           ? false
-          : await isar.squareLocalPostEntitys.delete(entity.id);
+          : await isar.collection<social_store.Post>().delete(entity.rowId);
     });
     _notify(cidNumber);
     return removed;
@@ -691,7 +697,8 @@ class SquarePostStore
   Future<int> deleteAllByCid(String cidNumber) async {
     _validateCidNumber(cidNumber);
     final deleted = await SocialIsar.instance.writeTxn((isar) async {
-      final entities = await isar.squareLocalPostEntitys
+      final entities = await isar
+          .collection<social_store.Post>()
           .filter()
           .cidNumberEqualTo(cidNumber)
           .findAll();
@@ -703,19 +710,23 @@ class SquarePostStore
           contentId: entity.postId,
         );
       }
-      await isar.squarePostDeletionEntitys
+      await isar
+          .collection<social_store.Erase>()
           .filter()
           .cidNumberEqualTo(cidNumber)
           .deleteAll();
       final deleted = entities.isEmpty
           ? 0
-          : await isar.squareLocalPostEntitys.deleteAll(
-              entities.map((entity) => entity.id).toList(),
+          : await isar.collection<social_store.Post>().deleteAll(
+              entities.map((entity) => entity.rowId).toList(),
             );
-      final checkpoint = await isar.squarePostSyncCheckpointEntitys
+      final checkpoint = await isar
+          .collection<social_store.PostCursor>()
           .getByCidNumber(cidNumber);
       if (checkpoint != null) {
-        await isar.squarePostSyncCheckpointEntitys.delete(checkpoint.id);
+        await isar.collection<social_store.PostCursor>().delete(
+          checkpoint.rowId,
+        );
       }
       return deleted;
     });
@@ -723,7 +734,7 @@ class SquarePostStore
     return deleted;
   }
 
-  static SquareLocalPost _validated(SquareLocalPost post) {
+  static SquareLocalPost validate(SquareLocalPost post) {
     _requireNonEmpty(post.postId, 'post_id');
     _validateCidNumber(post.cidNumber);
     if (!isAccountIdText(post.accountId)) {
@@ -740,12 +751,12 @@ class SquarePostStore
     if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(post.contentHash)) {
       throw const SquarePostStoreException('content_hash 格式不合法');
     }
-    _requireNonEmpty(post.storageReceiptId, 'storage_receipt_id');
+    _requireNonEmpty(post.receiptId, 'receipt_id');
     if (post.chainBlock != null && post.chainBlock! < 0) {
       throw const SquarePostStoreException('chain_block 不合法');
     }
-    if (post.createdAt <= 0) {
-      throw const SquarePostStoreException('created_at 不合法');
+    if (post.publishedAt <= 0) {
+      throw const SquarePostStoreException('published_at 不合法');
     }
     if (post.postState != publishedState) {
       throw const SquarePostStoreException('post_state 只允许 published');
@@ -779,9 +790,9 @@ class SquarePostStore
       postType: post.postType,
       manifestBytes: bytes,
       contentHash: post.contentHash,
-      storageReceiptId: post.storageReceiptId,
+      receiptId: post.receiptId,
       chainBlock: post.chainBlock,
-      createdAt: post.createdAt,
+      publishedAt: post.publishedAt,
       postState: post.postState,
     );
   }
@@ -800,7 +811,7 @@ class SquarePostStore
     }
   }
 
-  static SquareLocalPost _fromEntity(SquareLocalPostEntity entity) {
+  static SquareLocalPost _fromEntity(social_store.Post entity) {
     final post = SquareLocalPost(
       postId: entity.postId,
       cidNumber: entity.cidNumber,
@@ -809,13 +820,13 @@ class SquarePostStore
       postType: entity.postType,
       manifestBytes: Uint8List.fromList(entity.manifestBytes),
       contentHash: entity.contentHash,
-      storageReceiptId: entity.storageReceiptId,
+      receiptId: entity.receiptId,
       chainBlock: entity.chainBlock,
-      createdAt: entity.createdAt,
+      publishedAt: entity.publishedAt,
       postState: entity.postState,
     );
     // 磁盘行也必须重新过完整性闸门；损坏数据不得以空白正文等方式静默降级。
-    return _validated(post);
+    return validate(post);
   }
 
   /// `post_id` 对应链上不可变发布事实；重复同步只允许逐字段完全相同。
@@ -823,7 +834,7 @@ class SquarePostStore
   /// 这既阻止另一 CID 复用同一编号覆盖本人内容，也禁止把“编辑”误实现为原地改正文；
   /// 广场编辑必须发布新 post_id，再按已确认删除流程清理旧帖。
   static void _assertSamePublishedFact(
-    SquareLocalPostEntity existing,
+    social_store.Post existing,
     SquareLocalPost incoming,
   ) {
     if (existing.cidNumber != incoming.cidNumber ||
@@ -832,9 +843,9 @@ class SquarePostStore
         existing.postType != incoming.postType ||
         !_bytesEqual(existing.manifestBytes, incoming.manifestBytes) ||
         existing.contentHash != incoming.contentHash ||
-        existing.storageReceiptId != incoming.storageReceiptId ||
+        existing.receiptId != incoming.receiptId ||
         existing.chainBlock != incoming.chainBlock ||
-        existing.createdAt != incoming.createdAt ||
+        existing.publishedAt != incoming.publishedAt ||
         existing.postState != incoming.postState) {
       throw const SquarePostStoreException('post_id 已绑定另一条不可变发布事实');
     }

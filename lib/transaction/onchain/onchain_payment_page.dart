@@ -1,3 +1,4 @@
+import 'package:citizenapp/storage/wallet_isar.dart' as wallet_store show Entry;
 import 'package:citizenapp/wallet/account_balance_snapshot_store.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
@@ -17,7 +18,7 @@ import 'package:citizenapp/transaction/onchain/onchain_payment_service.dart';
 import 'package:citizenapp/transaction/onchain/onchain_transfer_call.dart';
 import 'package:citizenapp/transaction/history/local_tx_store.dart';
 import 'package:citizenapp/transaction/history/tx_auto_refresh_mixin.dart';
-import 'package:citizenapp/storage/wallet_isar.dart';
+import 'package:citizenapp/storage/wallet_isar.dart' hide Group;
 import 'package:citizenapp/scanner/qr_sign_session_page.dart';
 import 'package:citizenapp/scanner/address_scan_button.dart';
 import 'package:citizenapp/account/contacts/contact_book_page.dart';
@@ -74,7 +75,7 @@ InputDecoration transactionFieldDecoration({
 typedef OnchainWalletPicker = Future<PaymentAccountSelection?> Function();
 typedef OnchainCurrentWalletLoader =
     Future<CitizenWalletStateAccount?> Function();
-typedef OnchainLocalRecordsLoader = Future<List<LocalTxEntity>> Function(
+typedef OnchainLocalRecordsLoader = Future<List<wallet_store.Entry>> Function(
   String accountId, {
   int limit,
 });
@@ -202,7 +203,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
   bool _refreshing = false;
 
   /// 本地链上转账记录（用于状态行显示）。
-  List<LocalTxEntity> _localTxRecords = [];
+  List<wallet_store.Entry> _localTxRecords = [];
 
   @override
   void initState() {
@@ -288,12 +289,12 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     );
     try {
       final records = await _queryLocalRecords(targetAccountId, limit: 100);
-      // 钱包流水不再保存 direction，支出由 amountDeltaFen 的负号判断。
+      // 钱包流水不再保存 direction，支出由 amount_delta 的负号判断。
       final filtered = records
           .where(
             (r) =>
-                r.type == 'transfer' &&
-                BigInt.parse(r.amountDeltaFen).isNegative,
+                r.entryKind == 'transfer' &&
+                BigInt.parse(r.amountDelta).isNegative,
           )
           .toList();
       if (mounted) {
@@ -321,7 +322,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     return LocalTxStore.requireAccountId(wallet.accountId);
   }
 
-  Future<List<LocalTxEntity>> _queryLocalRecords(
+  Future<List<wallet_store.Entry>> _queryLocalRecords(
     String accountId, {
     int limit = 100,
   }) {
@@ -333,15 +334,15 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
   }
 
   int _countByStatus(String status) {
-    return _localTxRecords.where((r) => r.status == status).length;
+    return _localTxRecords.where((r) => r.entryState == status).length;
   }
 
   /// `inBlock` 只是未最终化的内部进度，界面与 `pending` 统一归为“待确认”。
   int get _waitingCount => _localTxRecords
       .where(
         (record) =>
-            record.status == LocalTxStore.statusPending ||
-            record.status == LocalTxStore.statusInBlock,
+            record.entryState == LocalTxStore.statusPending ||
+            record.entryState == LocalTxStore.statusInBlock,
       )
       .length;
 
@@ -466,7 +467,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     if (!mounted || contact == null) return;
     setState(() {
       // 通讯录始终属于身份账户；这里只接收联系人 SS58 地址，付款钱包保持不变。
-      _toController.text = contact.ss58Address;
+      _toController.text = contact.accountAddress;
       _recipientCid = contact.cidNumber;
     });
   }
@@ -490,10 +491,10 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
       return;
     }
 
-    var toSs58Address = _toController.text.trim();
-    final requestedAddress = toSs58Address, requestedCid = _recipientCid;
+    var toAddress = _toController.text.trim();
+    final requestedAddress = toAddress, requestedCid = _recipientCid;
     final amountRaw = _amountController.text.trim();
-    if (toSs58Address.isEmpty || amountRaw.isEmpty) {
+    if (toAddress.isEmpty || amountRaw.isEmpty) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('请先填写完整的收款地址和金额')));
       return;
@@ -503,10 +504,10 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     // SS58 地址校验（prefix 走 kGmbSs58Prefix 单源）
     try {
       if (requestedCid == null) {
-        final decoded = Keyring().decodeAddress(toSs58Address);
+        final decoded = Keyring().decodeAddress(toAddress);
         // 验证 prefix：重新编码后比对
         final reEncoded = Keyring().encodeAddress(decoded, kGmbSs58Prefix);
-        if (reEncoded != toSs58Address) {
+        if (reEncoded != toAddress) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('收款地址不是本链地址（SS58 前缀不匹配）')),
           );
@@ -575,7 +576,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
           _currentWallet?.accountId != balanceAccountId) {
         return;
       }
-      toSs58Address = recipient.address;
+      toAddress = recipient.address;
     } on Object {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -665,7 +666,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
       final prepared = await _paymentService!.prepareTransfer(
         OnchainPaymentDraft(
           sourceAccountId: balanceAccountId,
-          toSs58Address: toSs58Address,
+          toAddress: toAddress,
           recipient: recipient,
           amount: amount,
           symbol: _selectedSymbol,
@@ -724,27 +725,25 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
 
       // 写入本地交易记录（失败不影响交易）
       try {
-        final transferAmountFen = LocalTxStore.fenFromYuan(amount);
-        final feeFen = LocalTxStore.fenFromYuan(estimatedFee);
-        final amountDeltaFen =
-            (-(BigInt.parse(transferAmountFen) + BigInt.parse(feeFen)))
+        final transferAmount = LocalTxStore.fenFromYuan(amount);
+        final feeAmount = LocalTxStore.fenFromYuan(estimatedFee);
+        final amountDelta =
+            (-(BigInt.parse(transferAmount) + BigInt.parse(feeAmount)))
                 .toString();
         await LocalTxStore.upsertLocalSubmitTransfer(
-          ss58Address: wallet.ss58Address,
           accountId: wallet.accountId,
           txHash: txHash,
-          amountDeltaFen: amountDeltaFen,
-          transferAmountFen: transferAmountFen,
-          feeFen: feeFen,
-          counterpartySs58Address: toSs58Address,
-          fromSs58Address: wallet.ss58Address,
-          toSs58Address: toSs58Address,
-          remark: remark,
+          amountDelta: amountDelta,
+          transferAmount: transferAmount,
+          feeAmount: feeAmount,
+          fromAddress: wallet.ss58Address,
+          toAddress: toAddress,
+          txNote: remark,
           executionId: completed.executionId,
-          callDataHash: '0x${_toHex(completed.callDataHash)}',
-          usedNonce: prepared.nonce.toInt(),
-          createdAtMillis: DateTime.now().millisecondsSinceEpoch,
-          blockHash: completed.execution?.block.hash,
+          callHash: '0x${_toHex(completed.callDataHash)}',
+
+          createdAt: DateTime.now().millisecondsSinceEpoch,
+          chainHash: completed.execution?.block.hash,
         );
         await _applyExecutionToLocalRecord(wallet, completed);
         if (mounted) await _loadLocalRecords();
@@ -809,7 +808,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
   }
 
   /// 只把 CitizenSDK 已核验的终态投影到 App 交易展示记录。
-  /// CitizenApp 不根据 txHash、超时或页面生命周期猜测交易结果。
+  /// CitizenApp 不根据 tx_hash、超时或页面生命周期猜测交易结果。
   Future<void> _applyExecutionToLocalRecord(
     CitizenWalletStateAccount wallet,
     CitizenTransactionExecutionCompleted completed,
@@ -822,8 +821,8 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
           accountId: wallet.accountId,
           txHash: txHash,
           executionId: completed.executionId,
-          callDataHash: '0x${_toHex(completed.callDataHash)}',
-          blockHash: execution?.block.hash,
+          callHash: '0x${_toHex(completed.callDataHash)}',
+          chainHash: execution?.block.hash,
           blockNumber: execution?.block.number.toInt(),
           extrinsicIndex: execution?.extrinsicIndex,
         );
@@ -834,8 +833,8 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
           accountId: wallet.accountId,
           txHash: txHash,
           executionId: completed.executionId,
-          callDataHash: '0x${_toHex(completed.callDataHash)}',
-          failureReason: execution == null
+          callHash: '0x${_toHex(completed.callDataHash)}',
+          failReason: execution == null
               ? '链上执行失败'
               : '链上执行失败 '
                     '${execution.palletIndex ?? '-'}:'
@@ -847,8 +846,8 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
           accountId: wallet.accountId,
           txHash: txHash,
           executionId: completed.executionId,
-          callDataHash: '0x${_toHex(completed.callDataHash)}',
-          failureReason: completed.poolRejectionReason ?? '交易池拒绝',
+          callHash: '0x${_toHex(completed.callDataHash)}',
+          failReason: completed.poolRejectionReason ?? '交易池拒绝',
         );
         break;
     }
@@ -932,8 +931,8 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
               decoration: transactionFieldDecoration(
                 hintText: '请输入账户',
                 suffixIcon: AddressScanButton(
-                  onAddressScanned: (ss58Address) => setState(() {
-                    _toController.text = ss58Address;
+                  onAddressScanned: (accountAddress) => setState(() {
+                    _toController.text = accountAddress;
                     _recipientCid = null;
                   }),
                 ),
@@ -1103,7 +1102,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
                           Navigator.of(context).push(
                             MaterialPageRoute(
                               builder: (_) => TransactionHistoryPage(
-                                ss58Address: _currentWallet!.ss58Address,
+                                accountAddress: _currentWallet!.ss58Address,
                                 accountId: _currentWallet!.accountId,
                               ),
                             ),

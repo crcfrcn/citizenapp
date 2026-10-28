@@ -163,7 +163,7 @@ void main() {
       );
     }
   });
-  test('旧充值记录原子升级且付款token、签名、交易与Intent字节事实不变', () async {
+  test('旧充值记录拒绝读取且付款token、签名、交易与Intent字节原样保留', () async {
     final before = record.update(
       progress: TopupProgress.submitted,
       signature: '0x${'11' * 64}1b',
@@ -189,27 +189,15 @@ void main() {
       await records.compareAndSet(before.key, expected: null, next: raw),
       true,
     );
-    final restored = (await store.list(
-      before.origin,
-      before.intent.accountId,
-    )).single;
-    expect(restored.signature, before.signature);
-    expect(restored.txid, before.txid);
-    expect(restored.intent.intentToken, before.intent.intentToken);
-    expect(restored.intent.signMessage, before.intent.signMessage);
-    expect(
-      jsonEncode(restored.intent.intentData),
-      jsonEncode(before.intent.intentData),
+    await expectLater(
+      store.list(before.origin, before.intent.accountId),
+      throwsFormatException,
     );
-    expect(await records.read(before.key), restored.encode());
+    expect(await records.read(before.key), raw);
     intent['intent_token'] = before.intent.intentToken;
     final mixed = jsonEncode(value);
     expect(
-      await records.compareAndSet(
-        before.key,
-        expected: restored.encode(),
-        next: mixed,
-      ),
+      await records.compareAndSet(before.key, expected: raw, next: mixed),
       true,
     );
     await expectLater(
@@ -226,7 +214,7 @@ void main() {
     'legacy-order-extra',
     'version',
   ]) {
-    test('充值恢复$kind在任何规范化写回前拒绝，原完整记录保持', () async {
+    test('充值恢复$kind拒绝读取，原完整记录保持', () async {
       final original = record.update(
         order: TopupOrder(
           orderId: record.intent.orderId,

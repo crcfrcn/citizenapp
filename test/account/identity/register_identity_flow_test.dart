@@ -25,11 +25,11 @@ class _RegisteredCache implements FinalizedIdentityResolver {
   @override
   Future<FinalizedIdentity?> resolve() async => FinalizedIdentity(
     accountId: _accountId,
-    ss58Address: 'ss58-demo',
+    accountAddress: 'ss58-demo',
     snapshot: CitizenIdentityChainSnapshot(
       cidNumber: 'CN220-CTZN2-100000001-2026',
       accountId: Uint8List.fromList(List.filled(32, 0x11)),
-      bindingRevision: 1,
+      bindRev: 1,
       votingIdentity: null,
     ),
   );
@@ -43,7 +43,7 @@ class _UnregisteredCache implements FinalizedIdentityResolver {
   @override
   Future<FinalizedIdentity?> resolve() async => const FinalizedIdentity(
     accountId: _accountId,
-    ss58Address: 'ss58-demo',
+    accountAddress: 'ss58-demo',
     snapshot: null,
   );
 
@@ -125,10 +125,10 @@ class _FlowService implements MyIdService {
       binding: IdentityBinding(
         genesisHash: '0x${'22' * 32}',
         cidNumber: cid,
-        bindingRevision: 1,
+        bindRev: 1,
         accountId: accountId,
       ),
-      blockHash: '0x${'aa' * 32}',
+      chainHash: '0x${'aa' * 32}',
     );
   }
 
@@ -201,7 +201,7 @@ class _ReadySession implements SquareSessionProvider {
           session: SquareSession(
             sessionToken: 'ordinary',
             cidNumber: 'CN220-CTZN2-100000001-2026',
-            bindingRevision: 1,
+            bindRev: 1,
             accountId: _accountId,
             deviceId: '33' * 32,
             expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,

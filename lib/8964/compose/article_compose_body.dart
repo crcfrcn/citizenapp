@@ -24,7 +24,7 @@ sealed class _EditSectionMedia {
 
 final class _EditGallery extends _EditSectionMedia {
   _EditGallery(List<SquareLocalMediaDraft> drafts)
-      : drafts = List<SquareLocalMediaDraft>.unmodifiable(drafts);
+    : drafts = List<SquareLocalMediaDraft>.unmodifiable(drafts);
   final List<SquareLocalMediaDraft> drafts;
 }
 
@@ -159,9 +159,9 @@ class SquareArticleComposeBodyState extends State<SquareArticleComposeBody>
   }
 
   int get _bodyLength => _sections.fold<int>(
-        0,
-        (sum, section) => sum + section.plainText.runes.length,
-      );
+    0,
+    (sum, section) => sum + section.plainText.runes.length,
+  );
 
   @override
   bool get isContentValid {
@@ -310,7 +310,8 @@ class SquareArticleComposeBodyState extends State<SquareArticleComposeBody>
       }
       rebuilt.add(_newSection(raw['text_delta'], sectionMedia));
     }
-    final cover = media.isNotEmpty &&
+    final cover =
+        media.isNotEmpty &&
             media.first.mediaKind == SquareMediaKind.image &&
             !referenced.contains(0)
         ? media.first
@@ -373,15 +374,18 @@ class SquareArticleComposeBodyState extends State<SquareArticleComposeBody>
     }
     final drafts = <SquareLocalMediaDraft>[];
     for (final item in selected) {
-      var draft = (await widget.mediaDraftBuilder(item.file, item.mediaKind))
-          .copyWith(photoManagerAssetId: item.photoManagerAssetId);
+      var draft = (await widget.mediaDraftBuilder(
+        item.file,
+        item.mediaKind,
+      )).copyWith(assetId: item.assetId);
       final persist = widget.persistMedia;
       if (persist != null) draft = await persist(draft);
       drafts.add(draft);
     }
     if (!mounted) return;
-    final sectionMedia =
-        videoCount == 1 ? _EditVideo(drafts.single) : _EditGallery(drafts);
+    final sectionMedia = videoCount == 1
+        ? _EditVideo(drafts.single)
+        : _EditGallery(drafts);
     if (!_sections.contains(section)) return;
     setState(() {
       section.media = sectionMedia;
@@ -398,7 +402,7 @@ class SquareArticleComposeBodyState extends State<SquareArticleComposeBody>
     try {
       final current = (section.media as _EditGallery).drafts;
       final fixedWithoutAssetId = current
-          .where((draft) => draft.photoManagerAssetId == null)
+          .where((draft) => draft.assetId == null)
           .toList(growable: false);
       if (fixedWithoutAssetId.length >= 9) {
         throw const FormatException('现有照片已达到9张，请先删除一张再增加');
@@ -408,7 +412,7 @@ class SquareArticleComposeBodyState extends State<SquareArticleComposeBody>
         9 - fixedWithoutAssetId.length,
         selectedPhotoManagerAssetIds: [
           for (final draft in current)
-            if (draft.photoManagerAssetId case final String id) id,
+            if (draft.assetId case final String id) id,
         ],
       );
       if (selection == null || !mounted || !_sections.contains(section)) return;
@@ -417,20 +421,18 @@ class SquareArticleComposeBodyState extends State<SquareArticleComposeBody>
       )) {
         throw const FormatException('图集只能选择 1–9 张图片');
       }
-      final unavailable = selection.unavailablePhotoManagerAssetIds.toSet();
+      final unavailable = selection.missingAssetIds.toSet();
       final fixed = <SquareLocalMediaDraft>[
         ...fixedWithoutAssetId,
-        ...current.where(
-          (draft) => unavailable.contains(draft.photoManagerAssetId),
-        ),
+        ...current.where((draft) => unavailable.contains(draft.assetId)),
       ];
       final currentByAssetId = {
         for (final draft in current)
-          if (draft.photoManagerAssetId case final String id) id: draft,
+          if (draft.assetId case final String id) id: draft,
       };
       final selectedDrafts = <SquareLocalMediaDraft>[];
       for (final item in selection.selected) {
-        final existing = currentByAssetId[item.photoManagerAssetId];
+        final existing = currentByAssetId[item.assetId];
         if (existing != null) {
           selectedDrafts.add(existing);
           continue;
@@ -438,8 +440,7 @@ class SquareArticleComposeBodyState extends State<SquareArticleComposeBody>
         var draft = (await widget.mediaDraftBuilder(
           item.file,
           SquareMediaKind.image,
-        ))
-            .copyWith(photoManagerAssetId: item.photoManagerAssetId);
+        )).copyWith(assetId: item.assetId);
         final persist = widget.persistMedia;
         if (persist != null) draft = await persist(draft);
         selectedDrafts.add(draft);
@@ -471,8 +472,9 @@ class SquareArticleComposeBodyState extends State<SquareArticleComposeBody>
       _activeSection = section;
     });
     widget.onChanged?.call();
-    WidgetsBinding.instance
-        .addPostFrameCallback((_) => section.focusNode.requestFocus());
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => section.focusNode.requestFocus(),
+    );
   }
 
   Future<bool> _confirmDeleteSection(_EditSection section) async {
@@ -647,13 +649,14 @@ class SquareArticleComposeBodyState extends State<SquareArticleComposeBody>
                                     inputFormatters: const [
                                       _UnicodeScalarLengthFormatter(
                                         articleTitleMax,
-                                      )
+                                      ),
                                     ],
-                                    buildCounter: (_,
-                                            {required currentLength,
-                                            required isFocused,
-                                            maxLength}) =>
-                                        null,
+                                    buildCounter: (
+                                      _, {
+                                      required currentLength,
+                                      required isFocused,
+                                      maxLength,
+                                    }) => null,
                                     decoration: const InputDecoration(
                                       isDense: true,
                                       filled: false,
@@ -738,11 +741,13 @@ class SquareArticleComposeBodyState extends State<SquareArticleComposeBody>
               itemBuilder: (context, index) {
                 final section = _sections[index];
                 return Padding(
-                  padding:
-                      EdgeInsets.only(bottom: AppLayout.scaled(context, 14)),
+                  padding: EdgeInsets.only(
+                    bottom: AppLayout.scaled(context, 14),
+                  ),
                   child: _ArticleSectionGroup(
-                    connectorKey:
-                        ValueKey('article-section-connector-${section.id}'),
+                    connectorKey: ValueKey(
+                      'article-section-connector-${section.id}',
+                    ),
                     child: Column(
                       children: [
                         ArticleSectionEditor(
@@ -751,15 +756,14 @@ class SquareArticleComposeBodyState extends State<SquareArticleComposeBody>
                           focusNode: section.focusNode,
                           invalid: identical(_invalidSection, section),
                           mediaAction: ComposeMediaAddButton(
-                            key: ValueKey(
-                              'article-insert-media-${section.id}',
-                            ),
+                            key: ValueKey('article-insert-media-${section.id}'),
                             icon: Icons.add_photo_alternate_outlined,
                             // 只缩小图形，保持按钮点击区不变；入口随段落框内边距
                             // 一并向右下校准，避免侵占富文本输入区域。
                             iconSize: 24,
-                            tooltip:
-                                section.media == null ? '插入图片或视频' : '更换本段图片或视频',
+                            tooltip: section.media == null
+                                ? '插入图片或视频'
+                                : '更换本段图片或视频',
                             onPressed: () => _insertMediaForSection(section),
                           ),
                           confirmDelete: () => _confirmDeleteSection(section),
@@ -768,7 +772,8 @@ class SquareArticleComposeBodyState extends State<SquareArticleComposeBody>
                         if (section.media case _EditGallery(:final drafts))
                           Padding(
                             padding: EdgeInsets.only(
-                                top: AppLayout.scaled(context, 8)),
+                              top: AppLayout.scaled(context, 8),
+                            ),
                             child: Semantics(
                               button: true,
                               label: '重新选择本组照片',
@@ -780,9 +785,11 @@ class SquareArticleComposeBodyState extends State<SquareArticleComposeBody>
                                 onTap: () => _replaceGallery(section),
                                 child: SquareMediaCarousel(
                                   children: [
-                                    for (var imageIndex = 0;
-                                        imageIndex < drafts.length;
-                                        imageIndex++)
+                                    for (
+                                      var imageIndex = 0;
+                                      imageIndex < drafts.length;
+                                      imageIndex++
+                                    )
                                       _InlineImage(
                                         draft: drafts[imageIndex],
                                         onRemove: () => _removeGalleryImage(
@@ -798,7 +805,8 @@ class SquareArticleComposeBodyState extends State<SquareArticleComposeBody>
                         else if (section.media case _EditVideo(:final draft))
                           Padding(
                             padding: EdgeInsets.only(
-                                top: AppLayout.scaled(context, 8)),
+                              top: AppLayout.scaled(context, 8),
+                            ),
                             child: _InlineVideo(
                               draft: draft,
                               onRemove: () => _removeSectionMedia(section),
@@ -868,9 +876,8 @@ class _ArticleCoverAction extends StatelessWidget {
                 child: Image.file(
                   File(media.path),
                   fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) => const Center(
-                    child: Icon(Icons.broken_image_outlined),
-                  ),
+                  errorBuilder: (_, _, _) =>
+                      const Center(child: Icon(Icons.broken_image_outlined)),
                 ),
               ),
             ),
@@ -892,10 +899,7 @@ class _ArticleCoverAction extends StatelessWidget {
 
 /// 一个段落只绘制一条连接线，文本或媒体高度变化时由布局自动更新线长。
 class _ArticleSectionGroup extends StatelessWidget {
-  const _ArticleSectionGroup({
-    required this.connectorKey,
-    required this.child,
-  });
+  const _ArticleSectionGroup({required this.connectorKey, required this.child});
 
   final Key connectorKey;
   final Widget child;
@@ -963,32 +967,32 @@ class _InlineImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ClipRRect(
-        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-        child: AspectRatio(
-          aspectRatio: 16 / 9,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              Image.file(
-                File(draft.path),
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => const ColoredBox(
-                  color: AppTheme.surfaceElevated,
-                  child: Center(child: Icon(Icons.broken_image_outlined)),
-                ),
-              ),
-              Positioned(
-                top: 6,
-                right: 6,
-                child: ComposeMediaRemoveButton(
-                  tooltip: '删除图片',
-                  onPressed: onRemove,
-                ),
-              ),
-            ],
+    borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+    child: AspectRatio(
+      aspectRatio: 16 / 9,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.file(
+            File(draft.path),
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) => const ColoredBox(
+              color: AppTheme.surfaceElevated,
+              child: Center(child: Icon(Icons.broken_image_outlined)),
+            ),
           ),
-        ),
-      );
+          Positioned(
+            top: 6,
+            right: 6,
+            child: ComposeMediaRemoveButton(
+              tooltip: '删除图片',
+              onPressed: onRemove,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _InlineVideo extends StatelessWidget {
@@ -998,25 +1002,25 @@ class _InlineVideo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ClipRRect(
-        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-        child: AspectRatio(
-          aspectRatio: 16 / 9,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              ComposeLocalVideoPreview(path: draft.path, interactive: true),
-              Positioned(
-                top: 6,
-                right: 6,
-                child: ComposeMediaRemoveButton(
-                  tooltip: '删除视频',
-                  onPressed: onRemove,
-                ),
-              ),
-            ],
+    borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+    child: AspectRatio(
+      aspectRatio: 16 / 9,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          ComposeLocalVideoPreview(path: draft.path, interactive: true),
+          Positioned(
+            top: 6,
+            right: 6,
+            child: ComposeMediaRemoveButton(
+              tooltip: '删除视频',
+              onPressed: onRemove,
+            ),
           ),
-        ),
-      );
+        ],
+      ),
+    ),
+  );
 }
 
 class _UnicodeScalarLengthFormatter extends TextInputFormatter {

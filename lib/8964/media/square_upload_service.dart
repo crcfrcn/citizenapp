@@ -14,13 +14,13 @@ class SquareUploadedContent {
     required this.session,
     required this.postId,
     required this.contentHash,
-    required this.storageReceiptId,
+    required this.receiptId,
   });
 
   final SquareSession session;
   final String postId;
   final String contentHash;
-  final String storageReceiptId;
+  final String receiptId;
 }
 
 class SquarePreparedContent {
@@ -29,7 +29,7 @@ class SquarePreparedContent {
     required this.preparedUpload,
     required this.postId,
     required this.contentHash,
-    required this.storageReceiptId,
+    required this.receiptId,
     required this.manifestBytes,
     required List<SquareLocalMediaDraft> mediaDrafts,
     this.processedMedia,
@@ -40,7 +40,7 @@ class SquarePreparedContent {
   final SquarePreparedUpload preparedUpload;
   final String postId;
   final String contentHash;
-  final String storageReceiptId;
+  final String receiptId;
   final Uint8List manifestBytes;
   final List<SquareLocalMediaDraft> mediaDrafts;
   final SquareProcessedMediaBatch? processedMedia;
@@ -181,18 +181,16 @@ class SquareUploadService
           contentType: draft.contentType,
           byteSize: draft.byteSize,
         );
-        final digest = stored.sha256;
+        final digest = stored.bodyHash;
         mediaHashes.add(digest);
         mediaManifests.add({
           'media_kind': draft.mediaKind.workerValue,
           'file_name': draft.fileName,
-          'content_type': draft.contentType,
           'byte_size': draft.byteSize,
-          'sha256': digest.toString(),
-          if (draft.durationSeconds != null)
-            'duration_seconds': draft.durationSeconds,
-          if (draft.width != null) 'width': draft.width,
-          if (draft.height != null) 'height': draft.height,
+          'body_hash': digest,
+          if (draft.videoSecs != null) 'video_secs': draft.videoSecs,
+          if (draft.pixelWidth != null) 'pixel_width': draft.pixelWidth,
+          if (draft.pixelHeight != null) 'pixel_height': draft.pixelHeight,
         });
       }
       for (final derivative in derivatives) {
@@ -203,7 +201,7 @@ class SquareUploadService
           contentType: derivative.contentType,
           byteSize: derivative.byteSize,
         );
-        derivativeHashes.add(stored.sha256);
+        derivativeHashes.add(stored.bodyHash);
       }
 
       final trimmedTitle = title?.trim() ?? '';
@@ -211,7 +209,7 @@ class SquareUploadService
         'schema': 'citizenapp.square.post',
         'cid_number': session.cidNumber,
         'post_type': postType.workerValue,
-        if (trimmedTitle.isNotEmpty) 'title': trimmedTitle,
+        if (trimmedTitle.isNotEmpty) 'post_title': trimmedTitle,
         'text': text,
         // 每个文章段落先保存 text_delta，再保存一个可选媒体引用。
         if (contentSections != null && contentSections.isNotEmpty)
@@ -231,7 +229,7 @@ class SquareUploadService
             : 0,
         textLength: text.trim().runes.length,
         contentHash: contentHash,
-        manifestByteSize: manifestBytes.length,
+        manifestBytes: manifestBytes.length,
         mediaItems: finalMediaDrafts
             .asMap()
             .entries
@@ -242,28 +240,25 @@ class SquareUploadService
               if (derivative.mediaIndex != index) {
                 throw const SquareApiException('本地媒体衍生图顺序不一致');
               }
-              final width = draft.width;
-              final height = draft.height;
+              final width = draft.pixelWidth;
+              final height = draft.pixelHeight;
               if (width == null || height == null) {
                 throw const SquareApiException('本地媒体尺寸缺失');
               }
               return SquareUploadMediaRequest(
                 mediaKind: draft.mediaKind,
-                contentType: draft.contentType,
                 byteSize: draft.byteSize,
-                sha256: mediaHashes[index],
-                width: width,
-                height: height,
-                derivativeKind: derivative.derivativeKind.name,
-                derivativeContentType: derivative.contentType,
-                derivativeByteSize: derivative.byteSize,
-                derivativeSha256: derivativeHashes[index],
-                durationSeconds: draft.durationSeconds,
+                bodyHash: mediaHashes[index],
+                pixelWidth: width,
+                pixelHeight: height,
+                previewBytes: derivative.byteSize,
+                previewHash: derivativeHashes[index],
+                videoSecs: draft.videoSecs,
               );
             })
             .toList(growable: false),
       );
-      if (prepared.mediaItems.length != finalMediaDrafts.length) {
+      if (prepared.mediaUploads.length != finalMediaDrafts.length * 2) {
         throw const SquareApiException('上传授权数量与本地媒体数量不一致');
       }
 
@@ -272,7 +267,7 @@ class SquareUploadService
         preparedUpload: prepared,
         postId: prepared.postId,
         contentHash: contentHash,
-        storageReceiptId: prepared.storageReceiptId,
+        receiptId: prepared.receiptId,
         manifestBytes: manifestBytes,
         mediaDrafts: finalMediaDrafts,
         processedMedia: processedMedia,
@@ -280,7 +275,7 @@ class SquareUploadService
           for (var i = 0; i < finalMediaDrafts.length; i++) ...[
             SquareMediaReference(
               cidNumber: session.cidNumber,
-              mediaId: mediaHashes[i],
+              bodyHash: mediaHashes[i],
               contentKind: 'publication',
               contentId: prepared.postId,
               mediaIndex: i,
@@ -288,7 +283,7 @@ class SquareUploadService
             ),
             SquareMediaReference(
               cidNumber: session.cidNumber,
-              mediaId: derivativeHashes[i],
+              bodyHash: derivativeHashes[i],
               contentKind: 'publication',
               contentId: prepared.postId,
               mediaIndex: i,
@@ -311,7 +306,7 @@ class SquareUploadService
   }) async {
     final mediaDrafts = prepared.mediaDrafts;
     final preparedUpload = prepared.preparedUpload;
-    if (preparedUpload.mediaItems.length != mediaDrafts.length) {
+    if (preparedUpload.mediaUploads.length != mediaDrafts.length * 2) {
       throw const SquareApiException('上传授权数量与本地媒体数量不一致');
     }
 
@@ -324,24 +319,25 @@ class SquareUploadService
         body: prepared.manifestBytes,
         session: prepared.session,
       );
-      for (var i = 0; i < mediaDrafts.length; i++) {
+      for (final upload in preparedUpload.mediaUploads) {
+        final i = upload.mediaIndex;
+        if (i < 0 || i >= mediaDrafts.length) {
+          throw const SquareApiException('上传目标媒体序号无效');
+        }
         final draft = mediaDrafts[i];
-        final upload = preparedUpload.mediaItems[i];
-        await _api.uploadMediaAsset(
-          session: prepared.session,
-          upload: upload,
-          filePath: draft.path,
-        );
+        final source = upload.objectRole == 'source';
         final derivative = prepared.processedMedia?.derivatives[i];
-        if (derivative == null ||
-            derivative.mediaIndex != i ||
-            derivative.derivativeKind.name != upload.derivativeKind) {
+        if (!source &&
+            (derivative == null ||
+                derivative.mediaIndex != i ||
+                derivative.derivativeKind.name != upload.objectRole)) {
           throw const SquareApiException('衍生图上传授权与本地文件不一致');
         }
-        await _api.uploadMediaDerivative(
+        await _api.uploadMedia(
           session: prepared.session,
           upload: upload,
-          filePath: derivative.path,
+          filePath: source ? draft.path : derivative!.path,
+          byteSize: source ? draft.byteSize : derivative!.byteSize,
         );
       }
 
@@ -352,7 +348,7 @@ class SquareUploadService
         contentHash: prepared.contentHash,
       );
       if (completed.postId != prepared.postId ||
-          completed.storageReceiptId != prepared.storageReceiptId) {
+          completed.receiptId != prepared.receiptId) {
         throw const SquareApiException('存储完成响应与链上发布索引不一致');
       }
 
@@ -360,7 +356,7 @@ class SquareUploadService
         session: prepared.session,
         postId: completed.postId,
         contentHash: completed.contentHash,
-        storageReceiptId: completed.storageReceiptId,
+        receiptId: completed.receiptId,
       );
     } finally {
       // 成品字节已入库并由发布恢复行持有引用；这里只删除可再生的处理文件。
@@ -396,11 +392,11 @@ String? validateSquarePostContent({
 
   String? videoError() {
     for (final video in videos) {
-      if (processed && video.byteSize > plan.video.maxVideoBytes) {
+      if (processed && video.byteSize > plan.video.videoMaxBytes) {
         return '单个视频体积超出当前会员档位上限';
       }
-      final duration = video.durationSeconds ?? 0;
-      if (duration <= 0 || duration > plan.video.maxVideoSeconds) {
+      final duration = video.videoSecs ?? 0;
+      if (duration <= 0 || duration > plan.video.videoMaxSeconds) {
         return '单个视频时长超出当前会员档位上限';
       }
     }

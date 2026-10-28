@@ -21,20 +21,20 @@ import 'package:citizenapp/citizen/administrators/admin_account_storage_codec.da
 class ScannedAdminAccount {
   const ScannedAdminAccount({
     this.cidNumber,
-    this.personalAccountId,
-    required this.institutionCode,
+    this.accountId,
+    required this.orgCode,
     required this.kind,
     required this.admins,
-  }) : assert((cidNumber == null) != (personalAccountId == null));
+  }) : assert((cidNumber == null) != (accountId == null));
 
   /// 机构管理员表的唯一主键。
   final String? cidNumber;
 
   /// 个人多签管理员表的唯一主键。
-  final String? personalAccountId;
+  final String? accountId;
 
   /// 4 字节机构码字符串（"NRC"/"PRC"/"PRB"/"PMUL"/"CGOV" 等）。
-  final String institutionCode;
+  final String orgCode;
 
   /// 管理员账户类型(0=Public,1=Private,2=Personal)。
   final int kind;
@@ -157,25 +157,31 @@ class AdminAccountsScanService {
           final accountIdBytes =
               AdminAccountStorageCodec.extractPersonalAccountFromKey(keyBytes);
           if (accountIdBytes == null) continue;
-          final accountId =
-              AdminAccountStorageCodec.accountIdText(accountIdBytes);
+          final accountId = AdminAccountStorageCodec.accountIdText(
+            accountIdBytes,
+          );
           if (accountId == null) continue;
-          accounts.add(ScannedAdminAccount(
-            personalAccountId: accountId,
-            institutionCode: decoded.institutionCode,
-            kind: decoded.kind,
-            admins: decoded.admins,
-          ));
+          accounts.add(
+            ScannedAdminAccount(
+              accountId: accountId,
+              orgCode: decoded.orgCode,
+              kind: decoded.kind,
+              admins: decoded.admins,
+            ),
+          );
         } else {
-          final cidNumber =
-              AdminAccountStorageCodec.extractCidNumberFromKey(keyBytes);
+          final cidNumber = AdminAccountStorageCodec.extractCidNumberFromKey(
+            keyBytes,
+          );
           if (cidNumber == null) continue;
-          accounts.add(ScannedAdminAccount(
-            cidNumber: cidNumber,
-            institutionCode: decoded.institutionCode,
-            kind: decoded.kind,
-            admins: decoded.admins,
-          ));
+          accounts.add(
+            ScannedAdminAccount(
+              cidNumber: cidNumber,
+              orgCode: decoded.orgCode,
+              kind: decoded.kind,
+              admins: decoded.admins,
+            ),
+          );
         }
       }
       onProgress?.call(allKeys.length, allKeys.length, accounts.length);
@@ -202,19 +208,17 @@ class AdminAccountsScanService {
         .where(
           (a) =>
               acceptedKinds.contains(a.kind) &&
-              (codeWhitelist == null ||
-                  codeWhitelist.contains(a.institutionCode)) &&
-              a.admins.any(
-                (admin) => myAccountIds.contains(admin.account_id),
-              ),
+              (codeWhitelist == null || codeWhitelist.contains(a.orgCode)) &&
+              a.admins.any((admin) => myAccountIds.contains(admin.accountId)),
         )
         .toList(growable: false);
   }
 
   /// 每个短 prefix 同时携带 pallet 决定的主体类型，禁止再从 value 猜 kind。
   List<({Uint8List prefix, int kind})> _adminAccountsPrefixes() {
-    final invalid =
-        palletNames.where((name) => !_allowedPalletNames.contains(name));
+    final invalid = palletNames.where(
+      (name) => !_allowedPalletNames.contains(name),
+    );
     if (invalid.isNotEmpty) {
       throw ArgumentError.value(
         invalid.join(','),
@@ -224,17 +228,18 @@ class AdminAccountsScanService {
     }
     return palletNames
         .toSet()
-        .map((palletName) => (
-              prefix: _adminAccountsPrefix(palletName),
-              kind: switch (palletName) {
-                'PublicAdmins' =>
-                  AdminAccountStorageCodec.kindPublicInstitution,
-                'PrivateAdmins' =>
-                  AdminAccountStorageCodec.kindPrivateInstitution,
-                'PersonalAdmins' => AdminAccountStorageCodec.kindPersonal,
-                _ => throw StateError('未知管理员 pallet'),
-              },
-            ))
+        .map(
+          (palletName) => (
+            prefix: _adminAccountsPrefix(palletName),
+            kind: switch (palletName) {
+              'PublicAdmins' => AdminAccountStorageCodec.kindPublicInstitution,
+              'PrivateAdmins' =>
+                AdminAccountStorageCodec.kindPrivateInstitution,
+              'PersonalAdmins' => AdminAccountStorageCodec.kindPersonal,
+              _ => throw StateError('未知管理员 pallet'),
+            },
+          ),
+        )
         .toList(growable: false);
   }
 

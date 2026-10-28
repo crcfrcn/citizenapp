@@ -1,4 +1,5 @@
 import 'mls_authentication_fixture.dart';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:citizenapp/network/square_api_client.dart';
@@ -17,7 +18,7 @@ SquareSession _session() => const SquareSession(
   deviceId: testMlsDeviceId,
   sessionToken: 'session',
   cidNumber: _cidNumber,
-  bindingRevision: 1,
+  bindRev: 1,
   accountId: _accountId,
   expiresAt: 4102444800000,
 );
@@ -78,7 +79,7 @@ void main() {
       (await const SquarePostStore().readDeletion(
         _cidNumber,
         'pending-delete',
-      ))!.operationState,
+      ))!.jobState,
       'confirmed',
     );
     await (await SocialIsar.instance.db()).close();

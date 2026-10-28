@@ -3,8 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:citizenapp/account/creator/creator_subscribe_button.dart';
 import 'package:citizenapp/account/creator/creator_subscribe_service.dart';
-import 'package:citizenapp/network/square_api_client.dart'
-    show SquareSession;
+import 'package:citizenapp/network/square_api_client.dart' show SquareSession;
 import 'package:citizenapp/account/creator/creator_api.dart';
 import 'package:citizenapp/account/creator/creator_plan.dart';
 
@@ -46,7 +45,7 @@ CreatorSubscriptionState _activeCreatorSubscription() =>
     const CreatorSubscriptionState(
       tierId: 't1',
       billingPeriod: 'monthly',
-      subscriptionStatus: 'active',
+      subState: 'active',
       paidUntil: 9999999999999,
       active: true,
     );

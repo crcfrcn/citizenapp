@@ -1,3 +1,5 @@
+import 'package:citizenapp/storage/app_isar.dart' as app_store show Entity;
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -5,22 +7,20 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:citizenapp/citizen/public/city_institution_list_page.dart';
 import 'package:citizenapp/citizen/public/public_institution_repository.dart';
-import 'package:citizenapp/storage/app_isar.dart';
 
 import 'fake_public_institution_store.dart';
 
 class _PendingCityRepository extends PublicInstitutionRepository {
   _PendingCityRepository() : super(store: FakePublicInstitutionStore());
 
-  final Completer<List<PublicInstitutionEntity>> completer =
-      Completer<List<PublicInstitutionEntity>>();
+  final Completer<List<app_store.Entity>> completer =
+      Completer<List<app_store.Entity>>();
 
   @override
-  Future<List<PublicInstitutionEntity>> listInstitutionsByCity(
+  Future<List<app_store.Entity>> listInstitutionsByCity(
     String provinceCode,
     String cityCode,
-  ) =>
-      completer.future;
+  ) => completer.future;
 }
 
 void main() {

@@ -1,3 +1,6 @@
+import 'package:citizenapp/storage/wallet_isar.dart'
+    as wallet_store
+    show LawSnapshot;
 // LegislationApi 客户端(ADR-028 P3)——读链上法律 + 宪法不可修改条款 manifest。
 //
 // `list_laws` 走 runtime API(state_call);`law/law_version` 与
@@ -11,7 +14,7 @@ import 'package:polkadart/polkadart.dart' show Hasher;
 
 import 'package:citizenapp/citizen/legislation/law_models.dart';
 import 'package:citizenapp/citizen/legislation/legislation_codec.dart';
-import 'package:citizenapp/storage/wallet_isar.dart';
+import 'package:citizenapp/storage/wallet_isar.dart' hide Group;
 
 class LegislationApi {
   LegislationApi({required CitizenChain chain}) : _chain = chain;
@@ -19,7 +22,7 @@ class LegislationApi {
   final CitizenChain _chain;
 
   // 会话内内存缓存(法律体量大、改动稀;同实例复用避免重拉,尤其宪法 219KB)。
-  // 本机持久快照只写 WalletLegislationSnapshotEntity；链上 finalized 仍是真源。
+  // 本机持久快照只写 law；链上 finalized 仍是真源。
   final Map<int, Law> _lawCache = {};
   final Map<String, LawVersion> _versionCache = {};
   final Map<String, LawVersionLabel> _versionLabelCache = {};
@@ -103,8 +106,9 @@ class LegislationApi {
   }
 
   /// 宪法不可修改条款 manifest(展示「不可修改条款」徽章用)。
-  Future<ImmutableManifest?> immutableManifest(
-      {bool forceRefresh = false}) async {
+  Future<ImmutableManifest?> immutableManifest({
+    bool forceRefresh = false,
+  }) async {
     if (!forceRefresh && _manifestCache != null) return _manifestCache;
     final key = _storageValueKey(
       'LegislationYuan',
@@ -226,9 +230,10 @@ class LegislationApi {
   Future<Uint8List?> _readRaw(String key) async {
     try {
       return await WalletIsar.instance.read((isar) async {
-        final row =
-            await isar.walletLegislationSnapshotEntitys.getByStateKey(key);
-        final value = row?.rawHex;
+        final row = await isar
+            .collection<wallet_store.LawSnapshot>()
+            .getByStateKey(key);
+        final value = row?.stateHex;
         if (value == null || value.isEmpty) return null;
         return _decodeHex(value);
       });
@@ -240,24 +245,26 @@ class LegislationApi {
   Future<void> _writeRaw(String key, Uint8List raw) async {
     try {
       await WalletIsar.instance.writeTxn((isar) async {
-        final rawHex = _hex(raw);
-        final existing =
-            await isar.walletLegislationSnapshotEntitys.getByStateKey(key);
-        if (existing?.rawHex == rawHex) return;
-        final row =
-            existing ?? (WalletLegislationSnapshotEntity()..stateKey = key);
-        row
-          ..rawHex = rawHex
-          ..updatedAtMillis = DateTime.now().millisecondsSinceEpoch;
-        await isar.walletLegislationSnapshotEntitys.putByStateKey(row);
+        final stateHex = _hex(raw);
+        final existing = await isar
+            .collection<wallet_store.LawSnapshot>()
+            .getByStateKey(key);
+        if (existing?.stateHex == stateHex) return;
+        final row = existing ?? (wallet_store.LawSnapshot()..stateKey = key);
+        row.stateHex = stateHex;
+        await isar.collection<wallet_store.LawSnapshot>().putByStateKey(row);
       });
     } on Object {
       // 本机快照写入失败不影响链上读取；下次进入最多回到首屏等待。
     }
   }
 
-  List<int> _u32(int v) =>
-      [v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >> 24) & 0xff];
+  List<int> _u32(int v) => [
+    v & 0xff,
+    (v >> 8) & 0xff,
+    (v >> 16) & 0xff,
+    (v >> 24) & 0xff,
+  ];
 
   List<int> _u64(int v) => List.generate(8, (k) => (v >> (8 * k)) & 0xff);
 }

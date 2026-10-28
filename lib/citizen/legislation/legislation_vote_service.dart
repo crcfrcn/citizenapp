@@ -14,7 +14,7 @@ import 'package:citizenapp/citizen/legislation/legislation_vote_query_service.da
 /// 代表机构表决/行政签署/三人会签/护宪终审四个动作都是**纯 extrinsic**
 /// (signer=origin=动作人本人,零 op_tag)，业务层只编码 RuntimeCall，
 /// 交易准备、冷热签名和最终执行由 CitizenSDK 完成。提交后回读 legislation-vote storage 确认
-/// runtime 已记账,txHash 不代表已执行。特别案公投(referendum/snapshot)带 CID
+/// runtime 已记账,tx_hash 不代表已执行。特别案公投(referendum/snapshot)带 CID
 /// 凭证,另见 legislation_referendum_service。
 ///
 /// 代表机构表决额外携带 `voter_role_code`；其余签署调用保持

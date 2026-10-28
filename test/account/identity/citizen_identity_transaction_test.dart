@@ -260,7 +260,7 @@ void main() {
   group('finalized 目标绑定后置核验', () {
     const newAccount =
         '0x1111111111111111111111111111111111111111111111111111111111111111';
-    const blockHash =
+    const chainHash =
         '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
     test('账户与 revision 精确命中才通过', () async {
@@ -270,11 +270,11 @@ void main() {
           cidNumber: cid,
           expectedAccountId: newAccount,
           expectedBindingRevision: BigInt.from(8),
-          finalizedBlock: _finalized(blockHash),
+          finalizedBlock: _finalized(chainHash),
         ),
         completes,
       );
-      expect(rpc.readBlockHashes, <String>[blockHash, blockHash]);
+      expect(rpc.readBlockHashes, <String>[chainHash, chainHash]);
       expect(rpc.batchCalls, 1);
     });
 
@@ -285,7 +285,7 @@ void main() {
           cidNumber: cid,
           expectedAccountId: newAccount,
           expectedBindingRevision: BigInt.from(8),
-          finalizedBlock: _finalized(blockHash),
+          finalizedBlock: _finalized(chainHash),
         ),
         throwsA(isA<StateError>()),
       );
@@ -298,7 +298,7 @@ void main() {
           cidNumber: cid,
           expectedAccountId: newAccount,
           expectedBindingRevision: BigInt.from(8),
-          finalizedBlock: _finalized(blockHash),
+          finalizedBlock: _finalized(chainHash),
         ),
         throwsA(isA<StateError>()),
       );
@@ -311,7 +311,7 @@ void main() {
           cidNumber: cid,
           expectedAccountId: newAccount,
           expectedBindingRevision: BigInt.one,
-          finalizedBlock: _finalized(blockHash),
+          finalizedBlock: _finalized(chainHash),
         ),
         completes,
       );

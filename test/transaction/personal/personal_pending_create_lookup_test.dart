@@ -3,7 +3,7 @@
 // 验证:
 // - Isar 无 entity → null
 // - 仅有非 voting 状态 entity → null(只匹配 voting + create 双条件)
-// - 有 voting 状态 entity → 返回其 proposalId
+// - 有 voting 状态 entity → 返回其 proposal_id
 // - 同地址多 entity 时按状态过滤选 create+voting
 
 import 'package:flutter_test/flutter_test.dart';
@@ -17,7 +17,8 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   useIsolatedIsar();
 
-  const personalAccount = '0x11223344556677889900aabbccddeeff'
+  const personalAccount =
+      '0x11223344556677889900aabbccddeeff'
       'ffeeddccbbaa00998877665544332211';
 
   test('无 entity → 返回 null', () async {
@@ -28,20 +29,20 @@ void main() {
   test('仅有 executed/rejected entity → 不命中,返回 null', () async {
     final service = PersonalProposalHistoryService(chain: TestCitizenChain());
     await service.recordOrUpdate(
-      personalAccountId: personalAccount,
+      accountId: personalAccount,
       proposalId: 5,
-      action: PersonalProposalAction.create,
+      actionKind: PersonalProposalAction.create,
       status: PersonalProposalStatus.executed,
-      yesVotes: 3,
-      noVotes: 0,
+      yesCount: 3,
+      noCount: 0,
     );
     await service.recordOrUpdate(
-      personalAccountId: personalAccount,
+      accountId: personalAccount,
       proposalId: 6,
-      action: PersonalProposalAction.create,
+      actionKind: PersonalProposalAction.create,
       status: PersonalProposalStatus.rejected,
-      yesVotes: 0,
-      noVotes: 3,
+      yesCount: 0,
+      noCount: 3,
     );
 
     final lookup = PersonalPendingCreateLookup();
@@ -51,12 +52,12 @@ void main() {
   test('voting 状态的 create entity 命中,返回 proposalId', () async {
     final service = PersonalProposalHistoryService(chain: TestCitizenChain());
     await service.recordOrUpdate(
-      personalAccountId: personalAccount,
+      accountId: personalAccount,
       proposalId: 99,
-      action: PersonalProposalAction.create,
+      actionKind: PersonalProposalAction.create,
       status: PersonalProposalStatus.voting,
-      yesVotes: 1,
-      noVotes: 0,
+      yesCount: 1,
+      noCount: 0,
     );
 
     final lookup = PersonalPendingCreateLookup();
@@ -66,12 +67,12 @@ void main() {
   test('voting 但 action != create(如 transfer)不命中', () async {
     final service = PersonalProposalHistoryService(chain: TestCitizenChain());
     await service.recordOrUpdate(
-      personalAccountId: personalAccount,
+      accountId: personalAccount,
       proposalId: 200,
-      action: PersonalProposalAction.transfer,
+      actionKind: PersonalProposalAction.transfer,
       status: PersonalProposalStatus.voting,
-      yesVotes: 0,
-      noVotes: 0,
+      yesCount: 0,
+      noCount: 0,
     );
 
     final lookup = PersonalPendingCreateLookup();
@@ -83,12 +84,12 @@ void main() {
     const otherAccountId =
         '0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
     await service.recordOrUpdate(
-      personalAccountId: otherAccountId,
+      accountId: otherAccountId,
       proposalId: 77,
-      action: PersonalProposalAction.create,
+      actionKind: PersonalProposalAction.create,
       status: PersonalProposalStatus.voting,
-      yesVotes: 0,
-      noVotes: 0,
+      yesCount: 0,
+      noCount: 0,
     );
 
     final lookup = PersonalPendingCreateLookup();

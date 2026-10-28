@@ -323,7 +323,7 @@ void main() {
     store.value = RegistrationRecord(
       context: context,
       capabilities: RegistrationCapabilities(
-        response.enrollmentId,
+        response.regId,
         'protected-recovery-capability',
       ),
       response: response,
@@ -579,7 +579,7 @@ class _UnregisteredIdentity implements FinalizedIdentityResolver {
   @override
   Future<FinalizedIdentity?> resolve() async => FinalizedIdentity(
     accountId: registrationContext().accountId,
-    ss58Address: 'ss58-demo',
+    accountAddress: 'ss58-demo',
     snapshot: null,
   );
 
@@ -672,10 +672,10 @@ class _RegisterFlowService implements MyIdService {
       binding: IdentityBinding(
         genesisHash: registrationContext().chainScope,
         cidNumber: cid,
-        bindingRevision: 1,
+        bindRev: 1,
         accountId: accountId,
       ),
-      blockHash: '0x${'aa' * 32}',
+      chainHash: '0x${'aa' * 32}',
     );
   }
 

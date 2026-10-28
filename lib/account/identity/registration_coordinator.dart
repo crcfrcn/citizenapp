@@ -32,10 +32,10 @@ class RegistrationCoordinator {
     required Future<String> Function(FinalizedRegistration) activate,
   }) {
     if (_flight != null) {
-      if (_context == context.hash) return _flight!;
+      if (_context == context.contextHash) return _flight!;
       throw const RegistrationException('另一个账户正在注册，请完成后再切换');
     }
-    _context = context.hash;
+    _context = context.contextHash;
     _guard = requireCurrent;
     late final Future<FinalizedRegistration> future;
     future =
@@ -90,7 +90,7 @@ class RegistrationCoordinator {
         ? RegistrationRecord(
             context: context,
             capabilities: RegistrationCapabilities(
-              response.enrollmentId,
+              response.regId,
               registrationText(response.json, 'recovery_token'),
             ),
             response: response,
@@ -113,7 +113,7 @@ class RegistrationCoordinator {
       final renewed = RegistrationRecord(
         context: context,
         capabilities: RegistrationCapabilities(
-          response.enrollmentId,
+          response.regId,
           registrationText(response.json, 'recovery_token'),
         ),
         response: response,
@@ -141,7 +141,7 @@ class RegistrationCoordinator {
         record = next;
       }
       final verification = response.verification!;
-      if (verification.expiresAt <= DateTime.now().millisecondsSinceEpoch) {
+      if (verification.pageExpiresAt <= DateTime.now().millisecondsSinceEpoch) {
         throw const RegistrationException('验证页面已过期，请重试');
       }
       final token = await showPage(verification);
@@ -155,7 +155,7 @@ class RegistrationCoordinator {
       response = await api.verify(
         context,
         record.capabilities,
-        verificationId: verification.id,
+        checkId: verification.checkId,
         token: token,
       );
       await guard();
@@ -245,8 +245,8 @@ class RegistrationCoordinator {
           response.json['activation']['device_id'] != deviceId ||
           response.json['activation']['cid_number'] !=
               finalized.binding.cidNumber ||
-          response.json['activation']['binding_revision'] !=
-              finalized.binding.bindingRevision) {
+          response.json['activation']['bind_rev'] !=
+              finalized.binding.bindRev) {
         throw const RegistrationException('服务器设备激活尚未完成');
       }
       await store.save(
@@ -277,7 +277,7 @@ class RegistrationCoordinator {
             (saved.cidNumber != binding.cidNumber ||
                 saved.accountId != binding.accountId ||
                 saved.genesisHash != binding.genesisHash ||
-                saved.bindingRevision != binding.bindingRevision))) {
+                saved.bindRev != binding.bindRev))) {
       throw const RegistrationException('finalized身份与当前账户或链不一致');
     }
     final finalized = previous?.finalized ?? existing;

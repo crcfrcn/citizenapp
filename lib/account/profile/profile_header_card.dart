@@ -30,7 +30,7 @@ class ProfileHeaderCard extends StatelessWidget {
   });
 
   /// 主页身份主键 cid_number（默认昵称/头像的稳定派生种子）。展示用的当前绑定
-  /// 钱包账户从 [profile].accountId 取。
+  /// 钱包账户从 [profile].account_id 取。
   final String cidNumber;
   final CitizenProfile? profile;
 
@@ -127,14 +127,14 @@ class ProfileHeaderCard extends StatelessWidget {
   }
 
   /// 链上身份档位；无有效会员时徽章据此分色（访客金/投票蓝/竞选红）。
-  String? get _identityLevel => profile?.identityLevel;
+  String? get _identityLevel => profile?.cidLevel;
 
   /// 会员信号；有效态与合法档位共同决定会员徽章的档位色和对勾。
   String? get _membershipLevel => confirmedMembershipActive == true
       ? confirmedMembershipLevel
-      : profile?.membershipLevel;
+      : profile?.memberLevel;
   bool get _membershipActive =>
-      confirmedMembershipActive ?? profile?.membershipActive ?? false;
+      confirmedMembershipActive ?? profile?.membergateActive ?? false;
 
   String get _name {
     return ProfilePresentation.forIdentityKey(cidNumber)
@@ -228,14 +228,14 @@ class ProfileHeaderCard extends StatelessWidget {
             top: -_avatarOverlap,
             child: ProfileAvatar(
               size: _avatarSize,
-              identityLevel: _identityLevel,
-              membershipLevel: _membershipLevel,
-              membershipActive: _membershipActive,
+              cidLevel: _identityLevel,
+              memberLevel: _membershipLevel,
+              membergateActive: _membershipActive,
               imagePath: avatarPath,
               imageUrl: avatarUrl,
 
               imageProvider: avatarImage,
-              userImageSet: profile?.avatarObjectKey?.trim().isNotEmpty == true,
+              userImageSet: profile?.avatarKey?.trim().isNotEmpty == true,
               seed: cidNumber,
               borderColor: AppTheme.surfaceCard,
               borderWidth: 4,

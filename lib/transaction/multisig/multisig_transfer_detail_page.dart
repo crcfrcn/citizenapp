@@ -95,7 +95,7 @@ class _MultisigTransferDetailPageState
   // ──── kind 相关常量 ────
 
   /// 本详情页绑定的提案类型标签（供本地详情快照区分 key）。
-  String get _proposalTypeKey {
+  String get _proposalKind {
     switch (widget.kind) {
       case MultisigTransferKind.transfer:
         return 'transfer';
@@ -295,7 +295,7 @@ class _MultisigTransferDetailPageState
   Future<ProposalDetailSnapshot?> _applyLocalSnapshot() async {
     try {
       final snapshot = await _detailStore.read(
-        _proposalTypeKey,
+        _proposalKind,
         widget.proposalId,
       );
       if (snapshot == null || !mounted) return snapshot;
@@ -352,8 +352,8 @@ class _MultisigTransferDetailPageState
   }) {
     return ProposalDetailSnapshot(
       proposalId: widget.proposalId,
-      typeKey: _proposalTypeKey,
-      updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
+      proposalKind: _proposalKind,
+      updatedAt: DateTime.now().millisecondsSinceEpoch,
       status: status,
       yesCount: tally.yes,
       noCount: tally.no,
@@ -658,7 +658,7 @@ class _MultisigTransferDetailPageState
       // 刷新数据
       _adminService.clearCache(_accountIdentity);
       // 服务层已经等待入块并回读 InternalVote storage；这里
-      // 只后台刷新展示状态，不能再把 txHash 当作投票成功依据。
+      // 只后台刷新展示状态，不能再把 tx_hash 当作投票成功依据。
       unawaited(_load(showSpinner: false));
     } catch (e) {
       if (!mounted) return;
@@ -900,9 +900,7 @@ class _MultisigTransferDetailPageState
   /// 普通机构转账：机构简称 + 金额 + 收款地址 + 备注。
   List<Widget> _buildTransferRows() {
     final info = _transferInfo;
-    final rows = <Widget>[
-      _buildInfoRow('机构简称', widget.institution.cidShortName),
-    ];
+    final rows = <Widget>[_buildInfoRow('机构简称', widget.institution.shortName)];
     if (info != null) {
       rows
         ..add(Divider(height: AppLayout.scaledValue(20)))
@@ -958,9 +956,7 @@ class _MultisigTransferDetailPageState
   /// 手续费划转：机构简称 + 划转金额 + 目标（机构主账户），无备注、无收款地址。
   List<Widget> _buildSweepRows() {
     final info = _sweepInfo;
-    final rows = <Widget>[
-      _buildInfoRow('机构简称', widget.institution.cidShortName),
-    ];
+    final rows = <Widget>[_buildInfoRow('机构简称', widget.institution.shortName)];
     if (info != null) {
       rows
         ..add(Divider(height: AppLayout.scaledValue(20)))

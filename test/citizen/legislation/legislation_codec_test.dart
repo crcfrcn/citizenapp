@@ -19,8 +19,12 @@ List<int> _s(String s) {
   return [_c(b.length), ...b];
 }
 
-List<int> _u32(int v) =>
-    [v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >> 24) & 0xff];
+List<int> _u32(int v) => [
+  v & 0xff,
+  (v >> 8) & 0xff,
+  (v >> 16) & 0xff,
+  (v >> 24) & 0xff,
+];
 List<int> _u64(int v) => [...List.generate(8, (k) => (v >> (8 * k)) & 0xff)];
 List<int> _someU32(int v) => [0x01, ..._u32(v)];
 
@@ -31,8 +35,10 @@ void main() {
   });
 
   test('decodeOptionBytes: Some / None', () {
-    expect(decodeOptionBytes(Uint8List.fromList([0x01, _c(2), 0xAA, 0xBB])),
-        [0xAA, 0xBB]);
+    expect(decodeOptionBytes(Uint8List.fromList([0x01, _c(2), 0xAA, 0xBB])), [
+      0xAA,
+      0xBB,
+    ]);
     expect(decodeOptionBytes(Uint8List.fromList([0x00])), isNull);
   });
 
@@ -72,24 +78,65 @@ void main() {
       final region = LawRegion.fromCodes(entry.$1, entry.$2, entry.$3);
       expect(encodeLawRegion(entry.$1, region), entry.$4);
       final raw = Uint8List.fromList([
-        ..._u64(7), entry.$1.index, ...entry.$4, _c(0),
-        ..._someU32(1), ..._u32(1), 0, 1,
+        ..._u64(7),
+        entry.$1.index,
+        ...entry.$4,
+        _c(0),
+        ..._someU32(1),
+        ..._u32(1),
+        0,
+        1,
       ]);
       final law = decodeLaw(raw);
       expect(law.region.provinceCode, entry.$2);
-      expect(law.region.cityNumber, entry.$1 == LawTier.provincial ? 0 : int.parse(entry.$3));
+      expect(
+        law.region.cityNumber,
+        entry.$1 == LawTier.provincial ? 0 : int.parse(entry.$3),
+      );
       expect(law.latestVersion, 1); // 后续字段没有偏移。
     }
     expect(encodeLawRegion(LawTier.constitution, LawRegion.national), _u32(0));
-    expect(() => LawRegion.fromCodes(LawTier.provincial, 'gd', '001'), throwsFormatException);
-    expect(() => LawRegion.fromCodes(LawTier.provincial, '', '001'), throwsFormatException);
-    expect(() => LawRegion.fromCodes(LawTier.municipal, 'GD', '1'), throwsFormatException);
-    expect(() => LawRegion.fromCodes(LawTier.municipal, 'GD', '0a1'), throwsFormatException);
-    expect(() => encodeLawRegion(LawTier.national,
-        const LawRegion(provinceCode: 'GD', cityNumber: 0)), throwsFormatException);
-    expect(() => decodeLaw(Uint8List.fromList([
-      ..._u64(7), 2, 0, 0, 0, 0, _c(0), ..._someU32(1), ..._u32(1), 0, 1,
-    ])), throwsFormatException);
+    expect(
+      () => LawRegion.fromCodes(LawTier.provincial, 'gd', '001'),
+      throwsFormatException,
+    );
+    expect(
+      () => LawRegion.fromCodes(LawTier.provincial, '', '001'),
+      throwsFormatException,
+    );
+    expect(
+      () => LawRegion.fromCodes(LawTier.municipal, 'GD', '1'),
+      throwsFormatException,
+    );
+    expect(
+      () => LawRegion.fromCodes(LawTier.municipal, 'GD', '0a1'),
+      throwsFormatException,
+    );
+    expect(
+      () => encodeLawRegion(
+        LawTier.national,
+        const LawRegion(provinceCode: 'GD', cityNumber: 0),
+      ),
+      throwsFormatException,
+    );
+    expect(
+      () => decodeLaw(
+        Uint8List.fromList([
+          ..._u64(7),
+          2,
+          0,
+          0,
+          0,
+          0,
+          _c(0),
+          ..._someU32(1),
+          ..._u32(1),
+          0,
+          1,
+        ]),
+      ),
+      throwsFormatException,
+    );
   });
 
   test('decodeImmutableManifest: 不可修改条款', () {
@@ -172,8 +219,10 @@ void main() {
     expect(meta, isNotNull);
     expect(meta!.sequential, isTrue);
     expect(meta.bodies.map((body) => body.cidNumber), [firstCid, secondCid]);
-    expect(
-        meta.bodies.map((body) => body.roleCode), ['HOUSE_MEMBER', 'SENATOR']);
+    expect(meta.bodies.map((body) => body.roleCode), [
+      'HOUSE_MEMBER',
+      'SENATOR',
+    ]);
     expect(meta.currentBody, 1);
     expect(meta.rule, 2);
     expect(meta.procedure, 1);

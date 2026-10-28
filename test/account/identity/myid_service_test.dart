@@ -32,7 +32,7 @@ const _validAccountId =
 
 CitizenWalletStateAccount _testAccount({
   required String accountId,
-  required String ss58Address,
+  required String accountAddress,
   required int accountIndex,
   required String name,
 }) => CitizenWalletStateAccount(
@@ -40,7 +40,7 @@ CitizenWalletStateAccount _testAccount({
   walletIndex: 1,
   accountIndex: accountIndex,
   accountId: accountId,
-  ss58Address: ss58Address,
+  ss58Address: accountAddress,
   name: name,
   createdAtMillis: BigInt.zero,
   isDefault: accountIndex == 0,
@@ -48,7 +48,7 @@ CitizenWalletStateAccount _testAccount({
 
 final _aliceWallet = _testAccount(
   accountId: _validAccountId,
-  ss58Address: _validAddress,
+  accountAddress: _validAddress,
   accountIndex: 0,
   name: '账户0',
 );
@@ -144,7 +144,7 @@ void main() {
         result == 'unregistered'
             ? const FinalizedIdentity(
                 accountId: _validAccountId,
-                ss58Address: _validAddress,
+                accountAddress: _validAddress,
                 snapshot: null,
               )
             : identity,
@@ -233,7 +233,7 @@ void main() {
     final nextId = '0x${'22' * 32}';
     wallet._wallet = _testAccount(
       accountId: nextId,
-      ss58Address: citizenSs58FromAccountId(nextId),
+      accountAddress: citizenSs58FromAccountId(nextId),
       accountIndex: 0,
       name: '新账户',
     );
@@ -251,11 +251,11 @@ void main() {
     final base = _registeredIdentity(_validAccountId);
     final identity = FinalizedIdentity(
       accountId: base.accountId,
-      ss58Address: base.ss58Address,
+      accountAddress: base.accountAddress,
       snapshot: CitizenIdentityChainSnapshot(
         cidNumber: base.snapshot!.cidNumber,
         accountId: base.snapshot!.accountId,
-        bindingRevision: 1,
+        bindRev: 1,
         votingIdentity: _encodeVoting(
           from: 20260101,
           until: 20310101,
@@ -296,7 +296,7 @@ void main() {
         for (var i = 2; i < _validAccountId.length; i += 2)
           int.parse(_validAccountId.substring(i, i + 2), radix: 16),
       ]),
-      bindingRevision: 1,
+      bindRev: 1,
       votingIdentity: null,
     );
     await store.writeVerified(
@@ -326,7 +326,7 @@ void main() {
           for (var i = 2; i < _validAccountId.length; i += 2)
             int.parse(_validAccountId.substring(i, i + 2), radix: 16),
         ]),
-        bindingRevision: 1,
+        bindRev: 1,
         votingIdentity: _encodeVoting(
           from: 20260101,
           until: 20310101,
@@ -367,7 +367,7 @@ void main() {
       binding: const IdentityBinding(
         genesisHash: '0x0000000000000000000000000000000000000000000000000000000000000000',
         cidNumber: 'CID-LOCAL-TEST',
-        bindingRevision: 1,
+        bindRev: 1,
         accountId: _validAccountId,
       ),
     );
@@ -591,7 +591,7 @@ void main() {
       institution: kCidInstitutionCitizen,
     );
 
-    // 与 cid_generator 金标同源:accountId=_validAccountId, CTZN, 2026。
+    // 与 cid_generator 金标同源:account_id=_validAccountId, CTZN, 2026。
     expect(cid, expected);
     expect(fakeRpc.occupiedCid, expected);
     expect(fakeRpc.occupiedAccountId, _validAccountId);
@@ -604,14 +604,14 @@ void main() {
     final newAccount = _testAccount(
       accountIndex: 5,
       accountId: '0x${'11' * 32}',
-      ss58Address: 'new-ss58',
+      accountAddress: 'new-ss58',
       name: '账户5',
     );
     final fakeRpc = _FakeIdentityTransaction();
     final fakeWallet = _FakeWalletManager(_aliceWallet, accounts: [newAccount]);
     final resolver = _SequenceResolver(<FinalizedIdentity>[
       _registeredIdentity(_validAccountId),
-      _registeredIdentity(newAccount.accountId, bindingRevision: 2),
+      _registeredIdentity(newAccount.accountId, bindRev: 2),
     ]);
     final metadataRuntime = _BindingRuntime();
     final service = testService(
@@ -648,7 +648,7 @@ void main() {
     final newAccount = _testAccount(
       accountIndex: 5,
       accountId: '0x${'11' * 32}',
-      ss58Address: 'new-ss58',
+      accountAddress: 'new-ss58',
       name: '账户5',
     );
     final fakeWallet = _FakeWalletManager(_aliceWallet, accounts: [newAccount]);
@@ -658,7 +658,7 @@ void main() {
       chain: _FakeChain(),
       identityTransaction: _FakeIdentityTransaction(
         onRebound: () =>
-            resolver.setAccountId(newAccount.accountId, bindingRevision: 2),
+            resolver.setAccountId(newAccount.accountId, bindRev: 2),
       ),
       identityResolver: resolver,
     );
@@ -676,7 +676,7 @@ void main() {
     final newAccount = _testAccount(
       accountIndex: 5,
       accountId: '0x${'11' * 32}',
-      ss58Address: 'new-ss58',
+      accountAddress: 'new-ss58',
       name: '账户5',
     );
     final fakeWallet = _FakeWalletManager(_aliceWallet, accounts: [newAccount]);
@@ -708,7 +708,7 @@ void main() {
     final self = _testAccount(
       accountIndex: 0,
       accountId: _validAccountId,
-      ss58Address: _validAddress,
+      accountAddress: _validAddress,
       name: '账户0',
     );
     final wallet = _FakeWalletManager(_aliceWallet, accounts: [self]);
@@ -738,13 +738,13 @@ void main() {
     final self = _testAccount(
       accountIndex: 0,
       accountId: _validAccountId,
-      ss58Address: _validAddress,
+      accountAddress: _validAddress,
       name: '账户0',
     );
     final other = _testAccount(
       accountIndex: 1,
       accountId: '0x${'22' * 32}',
-      ss58Address: 'other-ss58',
+      accountAddress: 'other-ss58',
       name: '账户1',
     );
     final service = testService(
@@ -765,13 +765,13 @@ void main() {
     final acc0 = _testAccount(
       accountIndex: 0,
       accountId: _validAccountId,
-      ss58Address: _validAddress,
+      accountAddress: _validAddress,
       name: '账户0',
     );
     final acc5 = _testAccount(
       accountIndex: 5,
       accountId: '0x${'55' * 32}',
-      ss58Address: 'ss5-addr',
+      accountAddress: 'ss5-addr',
       name: '账户5',
     );
     final service = testService(
@@ -787,7 +787,7 @@ void main() {
     final acc5 = _testAccount(
       accountIndex: 5,
       accountId: '0x${'55' * 32}',
-      ss58Address: 'ss5-addr',
+      accountAddress: 'ss5-addr',
       name: '账户5',
     );
     final fakeRpc = _FakeIdentityTransaction();
@@ -943,20 +943,20 @@ class _FakeWalletManager
   Future<void> activateIdentityBinding({
     required String genesisHash,
     required String cidNumber,
-    required int bindingRevision,
+    required int bindRev,
     required String accountId,
   }) async {
     expect(genesisHash, '0x${'42' * 32}');
     events.add('activate');
     bindings.add((
       cidNumber: cidNumber,
-      bindingRevision: bindingRevision,
+      bindingRevision: bindRev,
       accountId: accountId,
     ));
     activeBinding = IdentityBinding(
       genesisHash: genesisHash,
       cidNumber: cidNumber,
-      bindingRevision: bindingRevision,
+      bindRev: bindRev,
       accountId: accountId,
     );
   }
@@ -1041,31 +1041,31 @@ class _SequenceResolver implements FinalizedIdentityResolver {
 
 /// 可变身份账户的假 resolver(对账测试:换绑前后链上身份账户切换)。
 class _MutableResolver implements FinalizedIdentityResolver {
-  _MutableResolver(this._accountId, {int bindingRevision = 1})
-    : _bindingRevision = bindingRevision;
+  _MutableResolver(this._accountId, {int bindRev = 1})
+    : _bindingRevision = bindRev;
   String _accountId;
   int _bindingRevision;
-  void setAccountId(String accountId, {required int bindingRevision}) {
+  void setAccountId(String accountId, {required int bindRev}) {
     _accountId = accountId;
-    _bindingRevision = bindingRevision;
+    _bindingRevision = bindRev;
   }
 
   @override
   Future<FinalizedIdentity?> resolve() async =>
-      _registeredIdentity(_accountId, bindingRevision: _bindingRevision);
+      _registeredIdentity(_accountId, bindRev: _bindingRevision);
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-/// 造一个「已注册(匿名)身份账户」解析结果:accountId 绑了 CID(snapshot 非空)。
+/// 造一个「已注册(匿名)身份账户」解析结果:account_id 绑了 CID(snapshot 非空)。
 FinalizedIdentity _registeredIdentity(
   String accountId, {
   String cidNumber = 'GD-CTZN1-8F3A2B',
-  int bindingRevision = 1,
+  int bindRev = 1,
 }) => FinalizedIdentity(
   accountId: accountId,
-  ss58Address: citizenSs58FromAccountId(accountId),
+  accountAddress: citizenSs58FromAccountId(accountId),
   snapshot: CitizenIdentityChainSnapshot(
     cidNumber: cidNumber,
     accountId: Uint8List.fromList(
@@ -1074,7 +1074,7 @@ FinalizedIdentity _registeredIdentity(
         (i) => int.parse(accountId.substring(2 + i * 2, 4 + i * 2), radix: 16),
       ),
     ),
-    bindingRevision: bindingRevision,
+    bindRev: bindRev,
     votingIdentity: null,
     candidateIdentity: null,
   ),
@@ -1265,11 +1265,16 @@ class _FakeChain extends TestCitizenChain {
 
 class _FakeDivisionStore implements AdminDivisionStore {
   @override
-  Future<String> divisionName(
-    String level,
-    String scopeKey,
-    String code,
-  ) async => 'N($code)';
+  Future<String> regionName({
+    required String provinceCode,
+    String cityCode = '',
+    String townCode = '',
+  }) async =>
+      'N(${townCode.isNotEmpty
+          ? townCode
+          : cityCode.isNotEmpty
+          ? cityCode
+          : provinceCode})';
   @override
   dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError();
 }
@@ -1285,7 +1290,7 @@ class _FakeBadgeStore extends IdentityBadgeSnapshotStore {
   @override
   Future<void> write({
     required String cidNumber,
-    required String identityLevel,
+    required String cidLevel,
   }) async {}
   @override
   Future<IdentityBadgeSnapshot?> read(String cidNumber) async => null;
@@ -1348,7 +1353,7 @@ class _SyncSessions implements SquareSessionProvider {
       sessionToken: 'ordinary',
       cidNumber: identity.snapshot!.cidNumber,
       accountId: identity.accountId,
-      bindingRevision: identity.snapshot!.bindingRevision,
+      bindRev: identity.snapshot!.bindRev,
       deviceId: 'ab' * 32,
       expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
     );

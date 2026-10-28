@@ -12,7 +12,7 @@ import 'citizen_identity_chain_reader.dart';
 class FinalizedIdentity {
   const FinalizedIdentity({
     required this.accountId,
-    required this.ss58Address,
+    required this.accountAddress,
     required this.snapshot,
     this.walletRevision,
     this.identityRevision,
@@ -20,7 +20,7 @@ class FinalizedIdentity {
 
   /// 当前默认账户；没有 CID 时仍返回该账户对应的访客状态。
   final String accountId;
-  final String ss58Address;
+  final String accountAddress;
 
   /// 本次操作的账户版本；不进入持久展示授权。
   final BigInt? walletRevision;
@@ -98,7 +98,7 @@ class FinalizedIdentityResolver {
     final snapshot = await _chainReader.readByAccountId(account.accountId);
     final result = FinalizedIdentity(
       accountId: account.accountId,
-      ss58Address: account.ss58Address,
+      accountAddress: account.ss58Address,
       snapshot: snapshot,
       walletRevision: key.$2,
       identityRevision: key.$3,

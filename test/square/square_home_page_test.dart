@@ -50,7 +50,7 @@ import 'package:citizenapp/system/notifications/notifications.dart';
 
 import 'profile/fake_profile.dart';
 
-/// 身份账户缓存 fake:resolve 返回 null,让 loadCurrent 回退 wallet.accountId
+/// 身份账户缓存 fake:resolve 返回 null,让 loadCurrent 回退 wallet.account_id
 /// 使用测试默认账户快照，避免 instance 访问真实本地钱包/Isar。
 class _NullIdentityCache implements CurrentUserContext {
   @override
@@ -132,8 +132,8 @@ class _LocalSnapshots extends IdentityBadgeSnapshotStore {
     reads++;
     return IdentityBadgeSnapshot(
       cidNumber: registered ? testMlsCidNumber : '',
-      identityLevel: 'visitor',
-      updatedAtMillis: 1,
+      cidLevel: 'visitor',
+      updatedAt: 1,
       accountId: accountId,
       verified: true,
       // 正向发布夹具提供完整已注册事实；默认仍是明确未注册，不更改反向用例。
@@ -141,7 +141,7 @@ class _LocalSnapshots extends IdentityBadgeSnapshotStore {
           ? CitizenIdentityChainSnapshot(
               cidNumber: testMlsCidNumber,
               accountId: Uint8List.fromList(List<int>.filled(32, 0xaa)),
-              bindingRevision: 1,
+              bindRev: 1,
               votingIdentity: null,
             )
           : null,
@@ -160,7 +160,7 @@ class _StaticComposeIdentityService implements SquareIdentityService {
       cidNumber: 'CN220-CTZN2-100000001-2026',
       displayName: '不应显示的用户昵称',
       signMode: CitizenWalletSignMode.hot,
-      identityLevel: 'voting',
+      cidLevel: 'voting',
     );
   }
 
@@ -290,7 +290,7 @@ class _DeviceMissingSessionProvider implements SquareSessionProvider {
       deviceId: testMlsDeviceId,
       sessionToken: 'registered',
       cidNumber: 'CN220-CTZN2-100000001-2026',
-      bindingRevision: 1,
+      bindRev: 1,
       accountId:
           '0x1111111111111111111111111111111111111111111111111111111111111111',
       expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
@@ -435,13 +435,13 @@ SquarePost _seedPost({
       accountId:
           '0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',
       displayName: '作者',
-      identityLevel: 'voting',
+      cidLevel: 'voting',
     ),
     postCategory: SquarePostCategory.normal,
     postType: postType,
     text: text,
     title: title,
-    createdAt: DateTime.fromMillisecondsSinceEpoch(1000),
+    publishedAt: DateTime.fromMillisecondsSinceEpoch(1000),
     mediaItems: media,
   );
 }
@@ -527,7 +527,7 @@ void main() {
         deviceId: testMlsDeviceId,
         sessionToken: 'synthetic-feed-token',
         cidNumber: testMlsCidNumber,
-        bindingRevision: 1,
+        bindRev: 1,
         accountId: testMlsAccountId,
         expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
         authenticateRequest:
@@ -564,12 +564,12 @@ void main() {
               accountId: testMlsAccountId,
               cidNumber: testMlsCidNumber,
               displayName: '合成作者',
-              avatarObjectKey: 'profile/$testMlsCidNumber/avatar',
+              avatarKey: 'profile/$testMlsCidNumber/avatar',
             ),
             postCategory: SquarePostCategory.normal,
             postType: type,
             text: '合成正文',
-            createdAt: DateTime.fromMillisecondsSinceEpoch(1000),
+            publishedAt: DateTime.fromMillisecondsSinceEpoch(1000),
           ),
         ],
       );
@@ -690,7 +690,7 @@ void main() {
         signing: sdk.signing,
         mlsDeviceRegistrar: ({
           required cidNumber,
-          required bindingRevision,
+          required bindRev,
           required accountId,
           required signBinding,
         }) async => throw StateError('主页回归禁止登记MLS设备'),
@@ -708,7 +708,7 @@ void main() {
           genesisHash: '0x${'11' * 32}',
           cidNumber: testMlsCidNumber,
           accountId: account.accountId,
-          bindingRevision: 1,
+          bindRev: 1,
         ),
       );
       // 页面挂载前写合成完整快照；只使用本组独占Isar，不读取设备钱包或金库。
@@ -717,7 +717,7 @@ void main() {
         identity: CitizenIdentityChainSnapshot(
           cidNumber: testMlsCidNumber,
           accountId: Uint8List.fromList(List<int>.filled(32, 1)),
-          bindingRevision: 1,
+          bindRev: 1,
           votingIdentity: null,
         ),
         isCurrent: () => true,
@@ -1360,7 +1360,7 @@ void main() {
       fileName: 'video.mp4',
       contentType: 'video/mp4',
       byteSize: 1,
-      durationSeconds: 10,
+      videoSecs: 10,
     );
 
     await tester.pumpWidget(
@@ -1382,7 +1382,7 @@ void main() {
         postType: SquarePostType.document,
         text: '',
         media: [image, image, image, image, image, image, image, image, image],
-        updatedAtMillis: 1,
+        updatedAt: 1,
       ),
     );
     await tester.pump();
@@ -1412,7 +1412,7 @@ void main() {
         postType: SquarePostType.video,
         text: '',
         media: [video],
-        updatedAtMillis: 1,
+        updatedAt: 1,
       ),
     );
     await tester.pump();
@@ -1569,7 +1569,7 @@ class _NotificationUser implements CurrentUserContext {
       genesisHash: '0x${'22' * 32}',
       cidNumber: cid,
       accountId: _registeredWallet.accountId,
-      bindingRevision: 1,
+      bindRev: 1,
     ),
   );
   @override
@@ -1585,7 +1585,7 @@ class _NotificationSessions implements SquareSessionProvider {
     sessionToken: 'synthetic',
     cidNumber: user.cid,
     accountId: _registeredWallet.accountId,
-    bindingRevision: 1,
+    bindRev: 1,
     expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
   );
   @override
@@ -1600,15 +1600,15 @@ class _NotificationPages extends SquareApiClient {
     'state': {
       'is_ok': true,
       'cid_number': cid,
-      'binding_revision': 1,
+      'bind_rev': 1,
       'revision': 1,
       'square_unread': 1,
       'following_unread': 1,
       'interaction_unread': 0,
-  'interaction_sequence': 0,
+      'interaction_sequence': 0,
       'through': 1,
-      'membergate_revision': 0,
-      'creator_revision': 0,
+      'member_rev': 0,
+      'creator_rev': 0,
       'membergate': null,
       'creator': null,
     },
@@ -1667,7 +1667,9 @@ void _notificationOwnerTests() {
         user.cid = 'CN220-CTZN2-100000098-2026';
         Notifications.instance.invalidate();
         var restored = false;
-        unawaited(Notifications.instance.restore().then((_) => restored = true));
+        unawaited(
+          Notifications.instance.restore().then((_) => restored = true),
+        );
         await until(() => restored);
         await tester.tap(find.byTooltip('通知'));
         await until(() => find.text(user.cid).evaluate().isNotEmpty);
@@ -1701,10 +1703,13 @@ class _TabGate implements CidBusinessGate {
   @override
   final ValueNotifier<int> revision = ValueNotifier<int>(0);
   @override
-  Future<CidBusinessDecision> resolve() async => CidBusinessDecision(status,
-    cidNumber: status == CidBusinessStatus.ready ? testMlsCidNumber : null);
+  Future<CidBusinessDecision> resolve() async => CidBusinessDecision(
+    status,
+    cidNumber: status == CidBusinessStatus.ready ? testMlsCidNumber : null,
+  );
   @override
-  dynamic noSuchMethod(Invocation invocation) => throw StateError('unconfigured CID boundary');
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw StateError('unconfigured CID boundary');
 }
 
 class _UnavailableTabSessions implements SquareSessionProvider {
@@ -1712,22 +1717,35 @@ class _UnavailableTabSessions implements SquareSessionProvider {
   @override
   Future<SquareSession?> ensureSession() async {
     ensureCalls++;
-    throw const SquareApiException('synthetic unavailable', statusCode: 503,
-      errorCode: 'synthetic_service_unavailable', stage: SquareApiStage.challenge);
+    throw const SquareApiException(
+      'synthetic unavailable',
+      statusCode: 503,
+      errorCode: 'synthetic_service_unavailable',
+      stage: SquareApiStage.challenge,
+    );
   }
+
   @override
   Future<SquareSessionResolution> resolveSession({bool refresh = false}) async {
     resolveCalls++;
-    return SquareSessionResolution.fromError(const SquareApiException(
-      'synthetic unavailable', statusCode: 503, stage: SquareApiStage.challenge));
+    return SquareSessionResolution.fromError(
+      const SquareApiException(
+        'synthetic unavailable',
+        statusCode: 503,
+        stage: SquareApiStage.challenge,
+      ),
+    );
   }
+
   @override
   Future<SquareSession?> registerCurrentDevice() async {
     registrationCalls++;
     throw StateError('CID入口不得触发设备登记');
   }
+
   @override
-  dynamic noSuchMethod(Invocation invocation) => throw StateError('unconfigured session boundary');
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw StateError('unconfigured session boundary');
 }
 
 void _squareTabGateTests() {
@@ -1742,44 +1760,84 @@ void _squareTabGateTests() {
     setUp(() async {
       // 与既有真实主页回归相同，在真实异步区打开库，避免原生回调绑定到测试虚拟时钟。
       await UserIsar.instance.db();
-      transport = TestCitizenSdkTransport({'getWalletState': (_) => [testCitizenWalletState()]});
+      transport = TestCitizenSdkTransport({
+        'getWalletState': (_) => [testCitizenWalletState()],
+      });
       sdk = await transport.open();
-      security = AccountSecurityService(wallet: sdk.wallet, signing: sdk.signing,
-        mlsDeviceRegistrar: ({required cidNumber, required bindingRevision,
-          required accountId, required signBinding}) async => throw StateError('测试禁止登记设备'),
-        coldMlsDeviceBindingSigner: ({required binding, required payload,
-          required signingMessage, required publicKey, required issuedAtMillis}) async =>
-            throw StateError('测试禁止钱包签名'));
+      security = AccountSecurityService(
+        wallet: sdk.wallet,
+        signing: sdk.signing,
+        mlsDeviceRegistrar: ({
+          required cidNumber,
+          required bindRev,
+          required accountId,
+          required signBinding,
+        }) async => throw StateError('测试禁止登记设备'),
+        coldMlsDeviceBindingSigner: ({
+          required binding,
+          required payload,
+          required signingMessage,
+          required publicKey,
+          required issuedAtMillis,
+        }) async => throw StateError('测试禁止钱包签名'),
+      );
       gate = _TabGate(CidBusinessStatus.ready);
       sessions = _UnavailableTabSessions();
-      current = CurrentUserContext(wallet: sdk.wallet, accountSecurity: security,
-        bindingReader: (accountId) async => IdentityBinding(genesisHash: '0x${'11' * 32}',
-          cidNumber: testMlsCidNumber, accountId: accountId, bindingRevision: 1),
-        identityReader: (_) async => null);
+      current = CurrentUserContext(
+        wallet: sdk.wallet,
+        accountSecurity: security,
+        bindingReader: (accountId) async => IdentityBinding(
+          genesisHash: '0x${'11' * 32}',
+          cidNumber: testMlsCidNumber,
+          accountId: accountId,
+          bindRev: 1,
+        ),
+        identityReader: (_) async => null,
+      );
     });
     tearDown(() async {
-      security.dispose(); gate.revision.dispose();
-      await sdk.close(); await transport.dispose();
+      security.dispose();
+      gate.revision.dispose();
+      await sdk.close();
+      await transport.dispose();
     });
     Future<void> open(WidgetTester tester) async {
-      await tester.pumpWidget(MultiProvider(providers: [
-        Provider<CitizenSdk>.value(value: sdk),
-        Provider<AccountSecurityService>.value(value: security),
-        Provider<CurrentUserContext>.value(value: current),
-        Provider<SquareSessionProvider>.value(value: sessions),
-        Provider<CidBusinessGate>.value(value: gate),
-      ], child: MaterialApp(theme: AppTheme.lightTheme, home: const SquareTab())));
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            Provider<CitizenSdk>.value(value: sdk),
+            Provider<AccountSecurityService>.value(value: security),
+            Provider<CurrentUserContext>.value(value: current),
+            Provider<SquareSessionProvider>.value(value: sessions),
+            Provider<CidBusinessGate>.value(value: gate),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.lightTheme,
+            home: const SquareTab(),
+          ),
+        ),
+      );
       await _drainHomeIdentityReads(tester);
       if (gate.status == CidBusinessStatus.ready) {
         // 生产主页会顺序读取本地身份、徽章和资料；等待实际入口出现，不以空闲帧冒充完成。
-        for (var attempt = 0; attempt < 100 && find.byTooltip('发布').evaluate().isEmpty; attempt++) {
-          await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+        for (
+          var attempt = 0;
+          attempt < 100 && find.byTooltip('发布').evaluate().isEmpty;
+          attempt++
+        ) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)),
+          );
           await tester.pump();
         }
       }
       await tester.pumpAndSettle();
     }
-    Future<void> check(WidgetTester tester, Future<void> Function() body) async {
+
+    Future<void> check(
+      WidgetTester tester,
+      Future<void> Function() body,
+    ) async {
       try {
         await open(tester);
         await body();
@@ -1792,63 +1850,83 @@ void _squareTabGateTests() {
         }
         var closed = false;
         Object? closeError;
-        unawaited(UserIsar.instance.resetForTest().then<void>((_) { closed = true; },
-          onError: (Object error) { closeError = error; closed = true; }));
+        unawaited(
+          UserIsar.instance.resetForTest().then<void>(
+            (_) {
+              closed = true;
+            },
+            onError: (Object error) {
+              closeError = error;
+              closed = true;
+            },
+          ),
+        );
         for (var attempt = 0; attempt < 200 && !closed; attempt++) {
-          await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 10)));
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)),
+          );
           await tester.pump();
         }
         expect(closed, isTrue, reason: '必须完成本用例隔离库关闭，不能污染下一用例');
         if (closeError != null) throw closeError!;
       }
     }
+
     testWidgets('已有CID且503仍显示原发布入口并进入文章编辑器，动态保持失败', (tester) async {
       await check(tester, () async {
-      expect(find.byType(SquareHomePage), findsOneWidget);
-      expect(find.text('公民服务暂时不可用，请稍后重试'), findsOneWidget);
-      expect(find.byTooltip('发布'), findsOneWidget);
-      expect(sessions.ensureCalls, greaterThan(0));
-      expect(sessions.resolveCalls, 0);
-      expect(sessions.registrationCalls, 0);
-      await tester.tap(find.byTooltip('发布'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('square-publish-article')));
-      await _drainHomeIdentityReads(tester);
-      await tester.pumpAndSettle();
-      expect(find.text('发文章'), findsOneWidget);
-      expect(find.text('初始化本机聊天设备'), findsNothing);
-      expect(find.text('尚未注册'), findsNothing);
-      expect(sessions.registrationCalls, 0);
+        expect(find.byType(SquareHomePage), findsOneWidget);
+        expect(find.text('公民服务暂时不可用，请稍后重试'), findsOneWidget);
+        expect(find.byTooltip('发布'), findsOneWidget);
+        expect(sessions.ensureCalls, greaterThan(0));
+        expect(sessions.resolveCalls, 0);
+        expect(sessions.registrationCalls, 0);
+        await tester.tap(find.byTooltip('发布'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('square-publish-article')));
+        await _drainHomeIdentityReads(tester);
+        await tester.pumpAndSettle();
+        expect(find.text('发文章'), findsOneWidget);
+        expect(find.text('初始化本机聊天设备'), findsNothing);
+        expect(find.text('尚未注册'), findsNothing);
+        expect(sessions.registrationCalls, 0);
       });
     });
-    for (final status in [CidBusinessStatus.unregistered, CidBusinessStatus.unavailable,
-      CidBusinessStatus.noWallet]) {
+    for (final status in [
+      CidBusinessStatus.unregistered,
+      CidBusinessStatus.unavailable,
+      CidBusinessStatus.noWallet,
+    ]) {
       testWidgets('CID事实${status.name}不挂载广场或准备会话', (tester) async {
         gate.status = status;
         await check(tester, () async {
-        expect(find.byType(SquareHomePage), findsNothing);
-        expect(find.byTooltip('发布'), findsNothing);
-        expect(sessions.ensureCalls, 0);
-        expect(sessions.resolveCalls, 0);
-        expect(sessions.registrationCalls, 0);
-        expect(find.text('尚未注册'), status == CidBusinessStatus.unregistered ? findsOneWidget : findsNothing);
-        if (status == CidBusinessStatus.unavailable) {
-          expect(find.text('暂时无法核实公民号身份，请重试'), findsOneWidget);
-        }
+          expect(find.byType(SquareHomePage), findsNothing);
+          expect(find.byTooltip('发布'), findsNothing);
+          expect(sessions.ensureCalls, 0);
+          expect(sessions.resolveCalls, 0);
+          expect(sessions.registrationCalls, 0);
+          expect(
+            find.text('尚未注册'),
+            status == CidBusinessStatus.unregistered
+                ? findsOneWidget
+                : findsNothing,
+          );
+          if (status == CidBusinessStatus.unavailable) {
+            expect(find.text('暂时无法核实公民号身份，请重试'), findsOneWidget);
+          }
         });
       });
     }
     testWidgets('CID事实改变后撤下旧广场，失败不冒充未注册', (tester) async {
       await check(tester, () async {
-      expect(find.byType(SquareHomePage), findsOneWidget);
-      gate.status = CidBusinessStatus.unavailable;
-      gate.revision.value++;
-      await tester.pumpAndSettle();
-      expect(find.byType(SquareHomePage), findsNothing);
-      expect(find.text('暂时无法核实公民号身份，请重试'), findsOneWidget);
-      expect(find.text('尚未注册'), findsNothing);
-      expect(find.byTooltip('发布'), findsNothing);
-      expect(sessions.registrationCalls, 0);
+        expect(find.byType(SquareHomePage), findsOneWidget);
+        gate.status = CidBusinessStatus.unavailable;
+        gate.revision.value++;
+        await tester.pumpAndSettle();
+        expect(find.byType(SquareHomePage), findsNothing);
+        expect(find.text('暂时无法核实公民号身份，请重试'), findsOneWidget);
+        expect(find.text('尚未注册'), findsNothing);
+        expect(find.byTooltip('发布'), findsNothing);
+        expect(sessions.registrationCalls, 0);
       });
     });
   });

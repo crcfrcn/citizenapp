@@ -113,23 +113,21 @@ String ss58FromAccountIdText(
 Uint8List deriveInstitutionMainAccountId(
   String cidNumber, {
   int ss58Prefix = kGmbSs58Prefix,
-}) =>
-    deriveAccountId(
-      opTag: kOpMain,
-      payload: utf8.encode(cidNumber),
-      ss58Prefix: ss58Prefix,
-    );
+}) => deriveAccountId(
+  opTag: kOpMain,
+  payload: utf8.encode(cidNumber),
+  ss58Prefix: ss58Prefix,
+);
 
 /// 机构费用账户 id(OP_FEE,payload = cid_number,不含名字)。
 Uint8List deriveInstitutionFeeAccountId(
   String cidNumber, {
   int ss58Prefix = kGmbSs58Prefix,
-}) =>
-    deriveAccountId(
-      opTag: kOpFee,
-      payload: utf8.encode(cidNumber),
-      ss58Prefix: ss58Prefix,
-    );
+}) => deriveAccountId(
+  opTag: kOpFee,
+  payload: utf8.encode(cidNumber),
+  ss58Prefix: ss58Prefix,
+);
 
 /// 机构清算账户 id(OP_CLEARING,payload = cid_number,不含名字)。
 ///
@@ -137,12 +135,11 @@ Uint8List deriveInstitutionFeeAccountId(
 Uint8List deriveInstitutionClearingAccountId(
   String cidNumber, {
   int ss58Prefix = kGmbSs58Prefix,
-}) =>
-    deriveAccountId(
-      opTag: kOpClearing,
-      payload: utf8.encode(cidNumber),
-      ss58Prefix: ss58Prefix,
-    );
+}) => deriveAccountId(
+  opTag: kOpClearing,
+  payload: utf8.encode(cidNumber),
+  ss58Prefix: ss58Prefix,
+);
 
 /// 机构自定义命名账户 id(OP_NAME,payload = cid_number || account_name)。
 ///
@@ -201,16 +198,16 @@ Uint8List deriveInstitutionAccountIdByName(
 /// 个人多签账户派生(OP_PERSONAL),返回 SS58。归位自原
 /// `personal-manage/personal_account_derive.dart`,行为不变。
 String derivePersonalAccountSs58({
-  required Uint8List creatorAccountId,
+  required Uint8List creatorAccount,
   required String accountName,
   int ss58Prefix = kGmbSs58Prefix,
 }) {
-  if (creatorAccountId.length != 32) {
+  if (creatorAccount.length != 32) {
     throw ArgumentError('creator account_id 必须为 32 字节');
   }
   final id = deriveAccountId(
     opTag: kOpPersonal,
-    payload: <int>[...creatorAccountId, ...utf8.encode(accountName)],
+    payload: <int>[...creatorAccount, ...utf8.encode(accountName)],
     ss58Prefix: ss58Prefix,
   );
   return ss58FromAccountId(id, ss58Prefix: ss58Prefix);

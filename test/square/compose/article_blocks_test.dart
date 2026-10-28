@@ -4,26 +4,26 @@ import 'package:citizenapp/8964/compose/article_blocks.dart';
 import 'package:citizenapp/8964/feed/square_models.dart';
 
 SquareLocalMediaDraft _img(String name) => SquareLocalMediaDraft(
-      mediaKind: SquareMediaKind.image,
-      path: '/tmp/$name',
-      fileName: name,
-      contentType: 'image/jpeg',
-      byteSize: 100,
-    );
+  mediaKind: SquareMediaKind.image,
+  path: '/tmp/$name',
+  fileName: name,
+  contentType: 'image/jpeg',
+  byteSize: 100,
+);
 
 SquareLocalMediaDraft _video(String name) => SquareLocalMediaDraft(
-      mediaKind: SquareMediaKind.video,
-      path: '/tmp/$name',
-      fileName: name,
-      contentType: 'video/mp4',
-      byteSize: 200,
-      durationSeconds: 30,
-    );
+  mediaKind: SquareMediaKind.video,
+  path: '/tmp/$name',
+  fileName: name,
+  contentType: 'video/mp4',
+  byteSize: 200,
+  videoSecs: 30,
+);
 
 List<Map<String, Object?>> _delta(String text) => [
-      {'insert': text},
-      const {'insert': '\n'},
-    ];
+  {'insert': text},
+  const {'insert': '\n'},
+];
 
 void main() {
   group('buildArticleManifest 段落拍平', () {
@@ -88,10 +88,11 @@ void main() {
         isEmpty,
       );
       expect(
-          parseArticleContentSections([
-            {'t': 'text', 'text': '旧块'}
-          ]),
-          isEmpty);
+        parseArticleContentSections([
+          {'t': 'text', 'text': '旧块'},
+        ]),
+        isEmpty,
+      );
     });
   });
 }

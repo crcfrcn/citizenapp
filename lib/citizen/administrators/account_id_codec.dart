@@ -18,7 +18,7 @@ class AdminAccountIdCodec {
 
   static Uint8List institutionAdminStorageKey(
     String cidNumber, {
-    required String institutionCode,
+    required String orgCode,
     int? adminKind,
   }) {
     final cidBytes = utf8.encode(cidNumber);
@@ -27,13 +27,14 @@ class AdminAccountIdCodec {
     }
     final palletHash = Hasher.twoxx128.hashString(
       adminKind == null
-          ? InstitutionCodeLabel.adminAccountsPalletName(institutionCode)
+          ? InstitutionCodeLabel.adminAccountsPalletName(orgCode)
           : InstitutionCodeLabel.adminAccountsPalletNameForKind(adminKind),
     );
     final storageHash = Hasher.twoxx128.hashString('AdminAccounts');
     final keyHash = blake2128Concat(scaleBytes(cidBytes));
-    final out =
-        Uint8List(palletHash.length + storageHash.length + keyHash.length);
+    final out = Uint8List(
+      palletHash.length + storageHash.length + keyHash.length,
+    );
     var offset = 0;
     out.setAll(offset, palletHash);
     offset += palletHash.length;
@@ -50,8 +51,9 @@ class AdminAccountIdCodec {
     final palletHash = Hasher.twoxx128.hashString('PersonalAdmins');
     final storageHash = Hasher.twoxx128.hashString('AdminAccounts');
     final keyHash = blake2128Concat(accountId);
-    final out =
-        Uint8List(palletHash.length + storageHash.length + keyHash.length);
+    final out = Uint8List(
+      palletHash.length + storageHash.length + keyHash.length,
+    );
     var offset = 0;
     out.setAll(offset, palletHash);
     offset += palletHash.length;

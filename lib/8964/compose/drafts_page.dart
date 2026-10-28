@@ -36,12 +36,13 @@ class _DraftsPageState extends State<DraftsPage> {
     _future = _loadDrafts();
   }
 
-  Future<List<SquareComposeDraft>> _loadDrafts() =>
-      _store.list(widget.cidNumber).then(
-            (drafts) => drafts
-                .where((draft) => draft.postType == widget.postType)
-                .toList(growable: false),
-          );
+  Future<List<SquareComposeDraft>> _loadDrafts() => _store
+      .list(widget.cidNumber)
+      .then(
+        (drafts) => drafts
+            .where((draft) => draft.postType == widget.postType)
+            .toList(growable: false),
+      );
 
   void _reloadAfterDelete() {
     if (!mounted) return;
@@ -61,35 +62,34 @@ class _DraftsPageState extends State<DraftsPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('草稿已删除，但本地媒体仍待清理'),
-          action: SnackBarAction(
-            label: '重试清理',
-            onPressed: _retryFileCleanup,
-          ),
+          action: SnackBarAction(label: '重试清理', onPressed: _retryFileCleanup),
         ),
       );
       // 数据库草稿事实已经删除；只保留可重试文件清理事实，列表应同步移除该卡片。
       return true;
     } on Object {
       if (!mounted) return false;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('草稿删除失败，请重试')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('草稿删除失败，请重试')));
       return false;
     }
   }
 
   void _retryFileCleanup() {
-    _store.retryPendingFileCleanup(cidNumber: widget.cidNumber).then<void>((_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('本地媒体清理完成')),
-      );
-    }, onError: (Object _) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('本地媒体仍未清理，请稍后重试')),
-      );
-    });
+    _store
+        .retryPendingFileCleanup(cidNumber: widget.cidNumber)
+        .then<void>(
+          (_) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context)
+                .showSnackBar(const SnackBar(content: Text('本地媒体清理完成')));
+          },
+          onError: (Object _) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context)
+                .showSnackBar(const SnackBar(content: Text('本地媒体仍未清理，请稍后重试')));
+          },
+        );
   }
 
   @override
@@ -136,12 +136,14 @@ class _DraftsPageState extends State<DraftsPage> {
                   direction: DismissDirection.endToStart,
                   background: Container(
                     alignment: Alignment.centerRight,
-                    padding:
-                        EdgeInsets.only(right: AppLayout.scaled(context, 20)),
+                    padding: EdgeInsets.only(
+                      right: AppLayout.scaled(context, 20),
+                    ),
                     decoration: BoxDecoration(
                       color: AppTheme.danger,
-                      borderRadius:
-                          BorderRadius.circular(AppLayout.scaledValue(12)),
+                      borderRadius: BorderRadius.circular(
+                        AppLayout.scaledValue(12),
+                      ),
                     ),
                     child: const Icon(
                       Icons.delete_outline,
@@ -209,10 +211,13 @@ class _DraftCard extends StatelessWidget {
                     children: [
                       _TypeChip(label: draft.typeLabel),
                       const Spacer(),
-                      Text(_relativeTime(draft.updatedAtMillis),
-                          style: TextStyle(
-                              color: AppTheme.textTertiary,
-                              fontSize: AppLayout.scaled(context, 11))),
+                      Text(
+                        _relativeTime(draft.updatedAt),
+                        style: TextStyle(
+                          color: AppTheme.textTertiary,
+                          fontSize: AppLayout.scaled(context, 11),
+                        ),
+                      ),
                     ],
                   ),
                   SizedBox(height: AppLayout.scaled(context, 4)),
@@ -221,8 +226,9 @@ class _DraftCard extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                        color: AppTheme.textPrimary,
-                        fontSize: AppLayout.scaled(context, 13)),
+                      color: AppTheme.textPrimary,
+                      fontSize: AppLayout.scaled(context, 13),
+                    ),
                   ),
                 ],
               ),
@@ -234,8 +240,9 @@ class _DraftCard extends StatelessWidget {
   }
 
   static String _relativeTime(int millis) {
-    final diff =
-        DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(millis));
+    final diff = DateTime.now().difference(
+      DateTime.fromMillisecondsSinceEpoch(millis),
+    );
     if (diff.inMinutes < 1) return '刚刚';
     if (diff.inHours < 1) return '${diff.inMinutes} 分钟前';
     if (diff.inDays < 1) return '${diff.inHours} 小时前';
@@ -265,8 +272,8 @@ class _Thumb extends StatelessWidget {
                   isVideo
                       ? Icons.play_circle_fill_rounded
                       : draft.isArticle
-                          ? Icons.article_outlined
-                          : Icons.image_outlined,
+                      ? Icons.article_outlined
+                      : Icons.image_outlined,
                   color: AppTheme.textTertiary,
                 ),
               ),
@@ -285,16 +292,21 @@ class _TypeChip extends StatelessWidget {
     const color = AppTheme.primary;
     return Container(
       padding: EdgeInsets.symmetric(
-          horizontal: AppLayout.scaled(context, 7), vertical: 1),
+        horizontal: AppLayout.scaled(context, 7),
+        vertical: 1,
+      ),
       decoration: BoxDecoration(
         color: color.withAlpha(0x1F),
         borderRadius: BorderRadius.circular(AppLayout.scaledValue(20)),
       ),
-      child: Text(label,
-          style: TextStyle(
-              color: color,
-              fontSize: AppLayout.scaled(context, 10),
-              fontWeight: FontWeight.w600)),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: AppLayout.scaled(context, 10),
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 }

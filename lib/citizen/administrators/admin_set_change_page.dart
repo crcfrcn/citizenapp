@@ -172,7 +172,7 @@ class _AdminsChangePageState extends State<AdminsChangePage> {
 
   Future<void> _loadBalances(List<AdminPerson> admins) async {
     final accountIds = {
-      for (final admin in admins) _balanceKey(admin.account_id),
+      for (final admin in admins) _balanceKey(admin.accountId),
     }.where((accountId) => accountId.isNotEmpty).toList(growable: false);
     if (accountIds.isEmpty) {
       if (mounted) setState(() => _balanceByAccountId = const {});
@@ -265,7 +265,7 @@ class _AdminsChangePageState extends State<AdminsChangePage> {
           ),
         ),
       );
-      _accountService.clearPersonalAccountCache(account.personalAccountId!);
+      _accountService.clearPersonalAccountCache(account.accountId!);
       _accountService.clearCache(widget.accountIdentity);
       if (!mounted) return;
       await Navigator.of(context).push(

@@ -8,21 +8,22 @@ import 'package:citizenapp/system/theme/app_layout.dart';
 class QrSignResponsePage extends StatelessWidget {
   const QrSignResponsePage({
     super.key,
-    required this.responseJson,
+    required this.responseData,
     required this.actionLabel,
     required this.reviewEntries,
   });
 
   /// signResponse envelope 的 JSON。
-  final String responseJson;
+  final String responseData;
 
   final String actionLabel;
   final List<(String, String)> reviewEntries;
 
   @override
   Widget build(BuildContext context) {
-    final fieldLines =
-        reviewEntries.map((field) => '${field.$1}：${field.$2}').join('\n');
+    final fieldLines = reviewEntries
+        .map((field) => '${field.$1}：${field.$2}')
+        .join('\n');
     return Scaffold(
       appBar: AppBar(title: const Text('签名结果')),
       body: SafeArea(
@@ -34,14 +35,15 @@ class QrSignResponsePage extends StatelessWidget {
               Text(
                 '$actionLabel\n$fieldLines',
                 style: TextStyle(
-                    fontSize: AppLayout.scaled(context, 18),
-                    fontWeight: FontWeight.w600),
+                  fontSize: AppLayout.scaled(context, 18),
+                  fontWeight: FontWeight.w600,
+                ),
                 textAlign: TextAlign.center,
               ),
               SizedBox(height: AppLayout.scaled(context, 24)),
               Center(
                 child: AppQrImage(
-                  data: responseJson,
+                  data: responseData,
                   size: AppLayout.scaled(context, 240),
                   errorStateBuilder: (context, error) {
                     return Container(

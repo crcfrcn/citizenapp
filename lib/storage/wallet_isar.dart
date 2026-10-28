@@ -9,141 +9,281 @@ import 'isar_core_bootstrap.dart';
 
 part 'wallet_isar.g.dart';
 
-/// 钱包设备证明的本机元数据；证明 token 本体仍由平台安全存储保存。
+/// 设备证明由SDK系统保护存储持有；保留既有集合，不重复保存其元数据。
+@Name('proof')
 @collection
-class WalletAttestationEntity {
-  Id id = 0;
-
-  int? expiresAtMillis;
-  String? policy;
-  String? lastRequestPayload;
+class Proof {
+  @Name('row_id')
+  Id rowId = 0;
 }
 
 /// 账户余额展示快照；链上交易授权不得使用本行作为真源。
+@Name('balance')
 @collection
-class WalletAccountBalanceSnapshotEntity {
-  Id id = Isar.autoIncrement;
+class Balance {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 
+  @Name('account_id')
   @Index(unique: true, replace: true)
   late String accountId;
 
-  late String payloadJson;
-  late int updatedAtMillis;
+  @Name('body_data')
+  late String bodyData;
 }
 
 /// 个人多签账户的本机生命周期与详情快照。
+@Name('group')
 @collection
-class WalletPersonalMultisigStateEntity {
-  Id id = Isar.autoIncrement;
+class Group {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 
+  @Name('account_id')
   @Index(unique: true, replace: true)
-  late String personalAccountId;
+  late String accountId;
 
-  String? status;
-  int? lastSyncAtMillis;
-  String? detailJson;
-  int? detailUpdatedAtMillis;
+  @Name('group_state')
+  String? groupState;
+  @Name('synced_at')
+  int? syncedAt;
+  @Name('detail_data')
+  String? detailData;
 }
 
 /// 当前钱包执行个人多签反向发现的边界快照。
+@Name('scan')
 @collection
-class WalletPersonalMultisigDiscoveryEntity {
-  Id id = 0;
+class Scan {
+  @Name('row_id')
+  Id rowId = 0;
 
-  late String walletFingerprint;
-  late int updatedAtMillis;
+  @Name('wallet_hash')
+  late String walletHash;
 }
 
 /// 链上治理提案列表的展示摘要。
+@Name('summary')
 @collection
-class WalletProposalSummaryEntity {
-  Id id = Isar.autoIncrement;
+class Summary {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 
+  @Name('proposal_id')
   @Index(unique: true, replace: true)
   late int proposalId;
 
-  late String payloadJson;
-  late int updatedAtMillis;
+  @Name('body_data')
+  late String bodyData;
 }
 
 /// 按机构 CID 保存的链上治理提案索引。
+@Name('list')
 @collection
-class WalletProposalIndexEntity {
-  Id id = Isar.autoIncrement;
+class ProposalList {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 
+  @Name('cid_number')
   @Index(unique: true, replace: true)
-  late String institutionCidNumber;
+  late String cidNumber;
 
-  late String payloadJson;
-  late int syncedAtMillis;
+  @Name('proposal_ids')
+  List<int> proposalIds = [];
+  @Name('synced_at')
+  late int syncedAt;
 }
 
 /// 链上提案详情展示快照。
+@Name('proposal')
 @collection
-class WalletProposalDetailEntity {
-  Id id = Isar.autoIncrement;
+class Proposal {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 
-  @Index(unique: true, replace: true)
-  late String proposalKey;
+  @Name('proposal_kind')
+  @Index(composite: [CompositeIndex('proposalId')], unique: true, replace: true)
+  late String proposalKind;
+  @Name('proposal_id')
+  late int proposalId;
 
-  late String payloadJson;
-  late int updatedAtMillis;
-  late bool isFinal;
+  @Name('body_data')
+  late String bodyData;
 }
 
 /// 宪法与立法链状态的原始快照。
+@Name('law')
 @collection
-class WalletLegislationSnapshotEntity {
-  Id id = Isar.autoIncrement;
+class LawSnapshot {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 
+  @Name('state_key')
   @Index(unique: true, replace: true)
   late String stateKey;
 
-  late String rawHex;
-  late int updatedAtMillis;
+  @Name('state_hex')
+  late String stateHex;
 }
 
 /// 当前设备已激活的链上机构管理员身份集合。
+@Name('admin')
 @collection
-class WalletAdminActivationStateEntity {
-  Id id = 0;
+class Admin {
+  @Name('row_id')
+  Id rowId = 0;
 
-  late String payloadJson;
+  @Name('body_data')
+  late String bodyData;
 }
 
-/// 会员链上 pending、历史与展示快照。
+/// 不可变交易证明只保存一份；pending_kind只表示尚待镜像的业务，不复制证明数组。
+@Name('member')
 @collection
-class WalletMembershipStateEntity {
-  Id id = Isar.autoIncrement;
+class Member {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
+  @Name('cid_number')
+  @Index(composite: [CompositeIndex('stateKind')], unique: true, replace: true)
+  late String cidNumber;
+  @Name('state_kind')
+  late String stateKind;
+  @Name('body_data')
+  late String bodyData;
 
-  @Index(unique: true, replace: true)
-  late String stateKey;
+  static Future<String?> readState(String cidNumber, String stateKind) =>
+      WalletIsar.instance.read(
+        (db) async => (await db.members.getByCidNumberStateKind(
+          cidNumber,
+          stateKind,
+        ))?.bodyData,
+      );
 
-  late String payloadJson;
+  static Future<void> writeState(
+    Member row, {
+    bool Function()? isCurrent,
+    Object? staleError,
+  }) => WalletIsar.instance.writeTxn((db) async {
+    if (isCurrent != null && !isCurrent()) return;
+    await db.members.putByCidNumberStateKind(row);
+    if (isCurrent != null && !isCurrent()) {
+      throw staleError ?? StateError('会员上下文已变化');
+    }
+  });
+
+  static List<Map<String, dynamic>> _proofs(String? raw) {
+    if (raw == null) return [];
+    final value = jsonDecode(raw);
+    if (value is! List ||
+        value.any(
+          (row) =>
+              row is! Map<String, dynamic> ||
+              row['tx_hash'] is! String ||
+              (row['tx_hash'] as String).isEmpty,
+        )) {
+      throw const FormatException('交易证明记录无效');
+    }
+    return value.cast<Map<String, dynamic>>().toList(growable: true);
+  }
+
+  static Future<List<Map<String, dynamic>>> readProofs(
+    String cidNumber, {
+    String? pendingKind,
+  }) async {
+    final rows = _proofs(await readState(cidNumber, 'proof'));
+    final selected = pendingKind == null && rows.length > 50
+        ? rows.skip(rows.length - 50)
+        : rows;
+    return selected
+        .where(
+          (row) => pendingKind == null || row['pending_kind'] == pendingKind,
+        )
+        .map((row) => Map<String, dynamic>.of(row)..remove('pending_kind'))
+        .toList(growable: false);
+  }
+
+  static void _retainProofs(List<Map<String, dynamic>> rows) {
+    final cutoff = rows.length - 50;
+    var position = 0;
+    rows.removeWhere(
+      (row) => position++ < cutoff && row['pending_kind'] == null,
+    );
+  }
+
+  /// 同一事务提交证明和待镜像状态；保留最近50条历史及所有未完成证明。
+  static Future<void> storeProof(
+    String cidNumber,
+    Map<String, dynamic> proof, {
+    String? pendingKind,
+    bool replacePending = false,
+  }) => WalletIsar.instance.writeTxn((db) async {
+    if (proof['tx_hash'] is! String ||
+        (proof['tx_hash'] as String).isEmpty ||
+        proof.containsKey('pending_kind')) {
+      throw const FormatException('交易证明无效');
+    }
+    final row =
+        await db.members.getByCidNumberStateKind(cidNumber, 'proof') ??
+        (Member()
+          ..cidNumber = cidNumber
+          ..stateKind = 'proof'
+          ..bodyData = '[]');
+    final rows = _proofs(row.bodyData);
+    if (replacePending) {
+      for (final item in rows) {
+        if (item['pending_kind'] == pendingKind) item.remove('pending_kind');
+      }
+    }
+    rows.removeWhere((item) => item['tx_hash'] == proof['tx_hash']);
+    rows.add({...proof, 'pending_kind': ?pendingKind});
+    _retainProofs(rows);
+    row.bodyData = jsonEncode(rows);
+    await db.members.putByCidNumberStateKind(row);
+  });
+
+  static Future<void> finishProof(
+    String cidNumber,
+    String txHash,
+    String pendingKind,
+  ) => WalletIsar.instance.writeTxn((db) async {
+    final row = await db.members.getByCidNumberStateKind(cidNumber, 'proof');
+    if (row == null) return;
+    final rows = _proofs(row.bodyData);
+    for (final proof in rows) {
+      if (proof['tx_hash'] == txHash && proof['pending_kind'] == pendingKind) {
+        proof.remove('pending_kind');
+      }
+    }
+    _retainProofs(rows);
+    row.bodyData = jsonEncode(rows);
+    await db.members.put(row);
+  });
 }
 
-/// 创作者链上 pending、历史与展示快照。
+/// 创作者展示快照；待确认计划直接引用member中的唯一交易证明。
+@Name('creator')
 @collection
-class WalletCreatorStateEntity {
-  Id id = Isar.autoIncrement;
-
+class Creator {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
+  @Name('cid_number')
   @Index(unique: true, replace: true)
-  late String stateKey;
-
-  late String payloadJson;
+  late String cidNumber;
+  @Name('body_data')
+  late String bodyData;
 }
 
 /// 多签账户本地状态快照。
 ///
-/// `status` 负责 UI 展示，`lastSyncAtMillis` 负责判断是否需要再次查链。
+/// groupState负责UI展示，syncedAt负责判断是否需要再次查链。
 class MultisigLocalStatusSnapshot {
   const MultisigLocalStatusSnapshot({
-    required this.status,
-    required this.lastSyncAtMillis,
+    required this.groupState,
+    required this.syncedAt,
   });
 
-  final String status;
-  final int? lastSyncAtMillis;
+  final String groupState;
+  final int? syncedAt;
 }
 
 /// 多签详情页本地持久化快照。
@@ -152,34 +292,31 @@ class MultisigLocalStatusSnapshot {
 /// 链上刷新成功后覆盖写入；链上失败时保留旧值，避免进详情页被 RPC 卡住。
 class MultisigLocalDetailSnapshot {
   const MultisigLocalDetailSnapshot({
-    required this.status,
+    required this.groupState,
     required this.admins,
     this.threshold,
-    this.lastChainRefreshAtMillis,
-    this.updatedAtMillis,
+    this.syncedAt,
   });
 
-  final String status;
+  final String groupState;
   final List<AdminPerson> admins;
   final int? threshold;
-  final int? lastChainRefreshAtMillis;
-  final int? updatedAtMillis;
+  final int? syncedAt;
 
   Map<String, dynamic> toJson() => {
-    'status': status,
+    'group_state': groupState,
     'admins': admins
         .map(
           (admin) => {
-            'account_id': admin.account_id,
-            'cid_number': admin.cid_number,
-            'family_name': admin.family_name,
-            'given_name': admin.given_name,
+            'account_id': admin.accountId,
+            'cid_number': admin.cidNumber,
+            'family_name': admin.familyName,
+            'given_name': admin.givenName,
           },
         )
         .toList(growable: false),
     'threshold': threshold,
-    'last_chain_refresh_at_millis': lastChainRefreshAtMillis,
-    'updated_at_millis': updatedAtMillis,
+    'synced_at': syncedAt,
   };
 
   static MultisigLocalDetailSnapshot? fromJsonString(String? raw) {
@@ -210,23 +347,20 @@ class MultisigLocalDetailSnapshot {
         }
         admins.add(
           AdminPerson(
-            account_id: accountId,
-            cid_number: cidNumber,
-            family_name: familyName,
-            given_name: givenName,
+            accountId: accountId,
+            cidNumber: cidNumber,
+            familyName: familyName,
+            givenName: givenName,
           ),
         );
       }
-      final status = decoded['status']?.toString();
-      if (status == null || status.isEmpty) return null;
+      final groupState = decoded['group_state']?.toString();
+      if (groupState == null || groupState.isEmpty) return null;
       return MultisigLocalDetailSnapshot(
-        status: status,
+        groupState: groupState,
         admins: admins,
         threshold: _toInt(decoded['threshold']),
-        lastChainRefreshAtMillis: _toInt(
-          decoded['last_chain_refresh_at_millis'],
-        ),
-        updatedAtMillis: _toInt(decoded['updated_at_millis']),
+        syncedAt: _toInt(decoded['synced_at']),
       );
     } catch (_) {
       return null;
@@ -254,7 +388,7 @@ class PersonalMultisigLocalState {
     Iterable<String> personalAccountIds,
   ) async {
     final snapshots = await readStatusSnapshots(isar, personalAccountIds);
-    return snapshots.map((key, value) => MapEntry(key, value.status));
+    return snapshots.map((key, value) => MapEntry(key, value.groupState));
   }
 
   static Future<Map<String, MultisigLocalStatusSnapshot>> readStatusSnapshots(
@@ -264,13 +398,12 @@ class PersonalMultisigLocalState {
     final result = <String, MultisigLocalStatusSnapshot>{};
     for (final accountId in personalAccountIds) {
       final normalizedAccountId = _requireAccountId(accountId);
-      final entity = await isar.walletPersonalMultisigStateEntitys
-          .getByPersonalAccountId(normalizedAccountId);
-      final status = entity?.status;
-      if (status != null && status.isNotEmpty) {
+      final entity = await isar.groups.getByAccountId(normalizedAccountId);
+      final groupState = entity?.groupState;
+      if (groupState != null && groupState.isNotEmpty) {
         result[normalizedAccountId] = MultisigLocalStatusSnapshot(
-          status: status,
-          lastSyncAtMillis: entity?.lastSyncAtMillis,
+          groupState: groupState,
+          syncedAt: entity?.syncedAt,
         );
       }
     }
@@ -279,91 +412,69 @@ class PersonalMultisigLocalState {
 
   static Future<MultisigLocalDetailSnapshot?> readDetail(
     Isar isar,
-    String personalAccountId,
+    String accountId,
   ) async {
-    final entity = await isar.walletPersonalMultisigStateEntitys
-        .getByPersonalAccountId(_requireAccountId(personalAccountId));
-    return MultisigLocalDetailSnapshot.fromJsonString(entity?.detailJson);
+    final entity = await isar.groups.getByAccountId(
+      _requireAccountId(accountId),
+    );
+    return MultisigLocalDetailSnapshot.fromJsonString(entity?.detailData);
   }
 
   /// 写入个人多签详情快照；调用方必须处在 Isar writeTxn 内。
   static Future<void> putDetailInTxn(
     Isar isar,
-    String personalAccountId,
+    String accountId,
     MultisigLocalDetailSnapshot snapshot,
   ) async {
-    final accountId = _requireAccountId(personalAccountId);
+    _requireAccountId(accountId);
     final entity =
-        await isar.walletPersonalMultisigStateEntitys.getByPersonalAccountId(
-          accountId,
-        ) ??
-        (WalletPersonalMultisigStateEntity()..personalAccountId = accountId);
-    entity
-      ..detailJson = jsonEncode(snapshot.toJson())
-      ..detailUpdatedAtMillis =
-          snapshot.lastChainRefreshAtMillis ??
-          snapshot.updatedAtMillis ??
-          DateTime.now().millisecondsSinceEpoch;
-    await isar.walletPersonalMultisigStateEntitys.putByPersonalAccountId(
-      entity,
-    );
+        await isar.groups.getByAccountId(accountId) ??
+        (Group()..accountId = accountId);
+    entity.detailData = jsonEncode(snapshot.toJson());
+    await isar.groups.putByAccountId(entity);
   }
 
   /// 写入个人多签本地状态；调用方必须处在 Isar writeTxn 内。
   static Future<void> putStatusInTxn(
     Isar isar,
-    String personalAccountId,
-    String status,
+    String accountId,
+    String groupState,
   ) async {
-    final accountId = _requireAccountId(personalAccountId);
+    _requireAccountId(accountId);
     final entity =
-        await isar.walletPersonalMultisigStateEntitys.getByPersonalAccountId(
-          accountId,
-        ) ??
-        (WalletPersonalMultisigStateEntity()..personalAccountId = accountId);
+        await isar.groups.getByAccountId(accountId) ??
+        (Group()..accountId = accountId);
     entity
-      ..status = status
-      ..lastSyncAtMillis = DateTime.now().millisecondsSinceEpoch;
-    await isar.walletPersonalMultisigStateEntitys.putByPersonalAccountId(
-      entity,
-    );
+      ..groupState = groupState
+      ..syncedAt = DateTime.now().millisecondsSinceEpoch;
+    await isar.groups.putByAccountId(entity);
   }
 
   /// 删除个人多签本地状态；调用方必须处在 Isar writeTxn 内。
-  static Future<void> deleteStatusInTxn(
-    Isar isar,
-    String personalAccountId,
-  ) async {
-    final accountId = _requireAccountId(personalAccountId);
-    final entity = await isar.walletPersonalMultisigStateEntitys
-        .getByPersonalAccountId(accountId);
+  static Future<void> deleteStatusInTxn(Isar isar, String accountId) async {
+    _requireAccountId(accountId);
+    final entity = await isar.groups.getByAccountId(accountId);
     if (entity == null) return;
     entity
-      ..status = null
-      ..lastSyncAtMillis = null;
-    if (entity.detailJson == null) {
-      await isar.walletPersonalMultisigStateEntitys.delete(entity.id);
+      ..groupState = null
+      ..syncedAt = null;
+    if (entity.detailData == null) {
+      await isar.groups.delete(entity.rowId);
     } else {
-      await isar.walletPersonalMultisigStateEntitys.put(entity);
+      await isar.groups.put(entity);
     }
   }
 
   /// 删除个人多签详情快照；调用方必须处在 Isar writeTxn 内。
-  static Future<void> deleteDetailInTxn(
-    Isar isar,
-    String personalAccountId,
-  ) async {
-    final accountId = _requireAccountId(personalAccountId);
-    final entity = await isar.walletPersonalMultisigStateEntitys
-        .getByPersonalAccountId(accountId);
+  static Future<void> deleteDetailInTxn(Isar isar, String accountId) async {
+    _requireAccountId(accountId);
+    final entity = await isar.groups.getByAccountId(accountId);
     if (entity == null) return;
-    entity
-      ..detailJson = null
-      ..detailUpdatedAtMillis = null;
-    if (entity.status == null) {
-      await isar.walletPersonalMultisigStateEntitys.delete(entity.id);
+    entity.detailData = null;
+    if (entity.groupState == null) {
+      await isar.groups.delete(entity.rowId);
     } else {
-      await isar.walletPersonalMultisigStateEntitys.put(entity);
+      await isar.groups.put(entity);
     }
   }
 
@@ -376,32 +487,40 @@ class PersonalMultisigLocalState {
 }
 
 /// 用户创建的个人多签账户（本地持久化）。
+@Name('account')
 @collection
-class PersonalAccountEntity {
-  Id id = Isar.autoIncrement;
+class Account {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 
   /// 个人多签规范 AccountId。
+  @Name('account_id')
   @Index(unique: true, replace: true)
   late String accountId;
 
   /// 个人多签账户名称。
+  @Name('account_name')
   late String accountName;
 
   /// 创建人账户 ID，小写 `0x` 加 64 位十六进制。
-  late String creatorAccountId;
+  @Name('creator_account')
+  late String creatorAccount;
 
   /// 添加时间戳（毫秒）。
+  @Name('added_at')
   @Index()
-  late int addedAtMillis;
+  late int addedAt;
 
   /// true = 通过反向索引发现的(钱包账户作为 admin 命中);false = 本机创建/手动添加。
   /// 反向校验只会删除 true 的 entity,false 的永不被自动清理。
+  @Name('is_found')
   @Index()
-  bool discoveredViaAdmin = false;
+  bool isFound = false;
 
   /// 本钱包持有的管理员 AccountId 列表(快照,UI 显示"我作为 N 位管理员之一参与")。
-  /// 仅在 discoveredViaAdmin=true 时填充;false 时空列表。
-  List<String> matchedAdminAccountIds = const [];
+  /// 仅在 is_found=true 时填充;false 时空列表。
+  @Name('admin_accounts')
+  List<String> adminAccounts = const [];
 }
 
 /// 个人多签提案历史快照（本地持久化）。
@@ -412,175 +531,184 @@ class PersonalAccountEntity {
 /// 写入时机:
 /// 1. 本机发起提案后(propose_create_personal / propose_transfer / propose_close)
 /// 2. 详情页打开时同步链上活跃提案最新状态（upsert）
-/// 3. 本机投票后刷新该提案的 status / yesVotes / noVotes
+/// 3. 本机投票后刷新该提案的 status / yes_count / no_count
+@Name('action')
 @collection
-class PersonalAccountProposalEntity {
-  Id id = Isar.autoIncrement;
+class Action {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 
   /// 个人多签规范 AccountId；复合索引键之一。
+  @Name('account_id')
   @Index(composite: [CompositeIndex('proposalId')], unique: true, replace: true)
-  late String personalAccountId;
+  late String accountId;
 
   /// 链上提案 ID。
+  @Name('proposal_id')
   late int proposalId;
 
   /// 提案动作:'create' / 'transfer' / 'close'。
+  @Name('action_kind')
   @Index()
-  late String action;
+  late String actionKind;
 
   /// 提案状态最新快照:'voting' / 'passed' / 'rejected' / 'executed' / 'execution_failed'。
+  @Name('proposal_state')
   @Index()
-  late String status;
+  late String proposalState;
 
   /// 投票计数 yes(每次刷新链上状态时同步)。
-  late int yesVotes;
+  @Name('yes_count')
+  late int yesCount;
 
   /// 投票计数 no。
-  late int noVotes;
+  @Name('no_count')
+  late int noCount;
 
   /// 提案首次记录时间(本机发起或首次发现)。
+  @Name('created_at')
   @Index()
-  late int createdAtMillis;
+  late int createdAt;
 
   /// 终态时间:rejected / executed / execution_failed 时写入;voting 期间为 null。
-  int? finalStatusAtMillis;
+  @Name('final_at')
+  int? finalAt;
 
   /// 业务快照(JSON 字符串):转账金额 / 关闭 beneficiary / 创建账户名等,便于扩展。
-  String? snapshotJson;
+  @Name('snapshot_data')
+  String? snapshotData;
 }
 
-/// 用户添加的多签机构（本地持久化）。
+/// 机构目录与账户事实由app/entity及SDK持有；保留既有集合，不复制未消费字段。
+@Name('body')
 @collection
-class InstitutionEntity {
-  Id id = Isar.autoIncrement;
-
-  /// 多签账户 AccountId（小写 `0x` + 64 位十六进制），唯一标识。
-  @Index(unique: true, replace: true)
-  late String accountId;
-
-  /// CID 标识（UTF-8 字符串）。
-  late String cidNumber;
-
-  /// 机构账户管理员更换 institution_code：如 CGOV/SFGQ/UNIN。
-  String? adminAccountCode;
-
-  /// 本地机构多签账户显示名,不是机构全称/简称;后者只允许使用 cidFullName/cidShortName。
-  late String accountName;
-
-  /// 添加时间戳（毫秒），用于排序。
-  @Index()
-  late int addedAtMillis;
-
-  /// true = 通过反向索引发现的(钱包账户作为 admin 命中);false = 本机创建/手动添加。
-  /// 反向校验只会删除 true 的 entity,false 的永不被自动清理。
-  @Index()
-  bool discoveredViaAdmin = false;
+class Body {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 }
 
 /// 钱包业务流水进度；与该块的流水在同一事务内提交。
 /// 账户导入时间和链身份共同隔离重导入、换链，不能复用另一代账户的进度。
+@Name('cursor')
 @collection
-class WalletTransactionHistoryCursorEntity {
-  Id id = Isar.autoIncrement;
+class WalletCursor {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 
+  @Name('account_id')
   @Index(unique: true, replace: true)
   late String accountId;
 
-  late int createdAtMillis;
+  @Name('created_at')
+  late int createdAt;
+  @Name('genesis_hash')
   late String genesisHash;
-  late int startBlockNumber;
+  @Name('start_block')
+  late int startBlock;
 
-  /// 已完整处理的高度；初始化为 startBlockNumber - 1。
-  late int cursorBlockNumber;
+  /// 已完整处理的高度；初始化为 start_block - 1。
+  @Name('cursor_block')
+  late int cursorBlock;
 }
 
 /// 本地钱包余额变化流水（持久化存储，去中心化设计，不依赖 CID 服务器）。
+@Name('entry')
 @collection
-class LocalTxEntity {
-  Id id = Isar.autoIncrement;
+class Entry {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 
   /// 单条钱包流水唯一键。
   ///
-  /// 钱包对应的链账户由 accountId 唯一，流水记录由 recordKey 唯一。
-  /// 区块事件（收入等）记录使用 `accountId:blockHash:eventIndex`；本机提交交易
-  /// 使用状态无关的 `accountId:tx:txHash`。本机提交记录通过
-  /// [executionId]、[callDataHash] 和 [txHash] 关联 CitizenSDK 执行事实；
-  /// CitizenApp 不根据交易池、超时或扫块自行猜测终态。
-  @Index(unique: true, replace: true)
-  late String recordKey;
-
-  /// 所属钱包地址（SS58）。
-  @Index()
-  late String ss58Address;
-
+  /// 提交记录以账户/交易哈希定位，事件以账户/区块哈希/事件序号定位。
+  /// Isar原row_id只作本机主键；SDK execution与call hash仍独立约束状态推进。
   /// 所属链账户 ID（小写 `0x` 加 64 位十六进制）。
+  @Name('account_id')
   @Index()
   late String accountId;
 
   /// 业务类型：transfer / fee / reward / interest / issuance / burn / multisig_transfer。
-  late String type;
+  @Name('entry_kind')
+  late String entryKind;
 
   /// 该钱包实际余额变化（分），带正负号；正数=增加，负数=减少。
   ///
   /// Dart int 在不同平台上不适合承载链上 u128，统一用十进制字符串保存。
-  late String amountDeltaFen;
+  @Name('amount_delta')
+  late String amountDelta;
 
   /// 转账本金（分），不带正负号。
-  String? transferAmountFen;
+  @Name('transfer_amount')
+  String? transferAmount;
 
   /// 手续费（分），不带正负号；只有本钱包支付手续费时记录。
-  String? feeFen;
+  @Name('fee_amount')
+  String? feeAmount;
 
-  /// 对方地址；余额增加时是来源，余额减少时是去向。
-  String? counterpartySs58Address;
+  /// 对方地址由真实收发双方和所属账户确定；净额含手续费，不能用正负号猜测。
+  @ignore
+  String? get peerAddress =>
+      fromAddress == ss58FromAccountIdText(accountId) ? toAddress : fromAddress;
 
-  String? fromSs58Address;
-  String? toSs58Address;
+  @Name('from_address')
+  String? fromAddress;
+  @Name('to_address')
+  String? toAddress;
 
   /// 转账备注，来自 OnchainTransaction::TransferWithRemark 事件或本机提交草稿。
-  String? remark;
+  @Name('tx_note')
+  String? txNote;
 
   /// 状态(ADR-017)：pending=已提交 / finalized=已确认 / failed=失败；
   /// inBlock 为交易提交 watch 的临时进度态(豁免区)，非 finalized 流水终态。
-  late String status;
+  @Name('entry_state')
+  late String entryState;
 
   /// 记录来源：local_submit / chain_event / resync。
-  late String source;
+  @Name('entry_source')
+  late String entrySource;
 
   /// 链上交易哈希。
+  @Name('tx_hash')
   String? txHash;
 
   /// CitizenSDK 为本机提交分配的唯一 execution 标识。
   /// 链上被动收入事件没有 SDK execution，因此为 null。
+  @Name('execution_id')
   String? executionId;
 
   /// CitizenSDK 返回的 opaque RuntimeCall hash，只用于关联业务记录。
-  String? callDataHash;
+  @Name('call_hash')
+  String? callHash;
 
   /// 链上区块号。
+  @Name('block_number')
   int? blockNumber;
 
   /// 链上区块哈希。
-  String? blockHash;
+  @Name('chain_hash')
+  String? chainHash;
 
   /// 区块内事件序号。
+  @Name('event_index')
   int? eventIndex;
 
   /// 事件所属 extrinsic 序号（如果 phase 为 ApplyExtrinsic）。
+  @Name('extrinsic_index')
   int? extrinsicIndex;
 
-  /// 提交交易时使用的 nonce（只用于详情辅助展示，不作为流水确认真源）。
-  int? usedNonce;
-
   /// 本地创建时间（毫秒时间戳）。
+  @Name('created_at')
   @Index()
-  late int createdAtMillis;
+  late int createdAt;
 
   /// 最终确认时间（毫秒时间戳）。
-  int? confirmedAtMillis;
+  @Name('confirmed_at')
+  int? confirmedAt;
 
   /// 失败原因。
-  String? failureReason;
+  @Name('fail_reason')
+  String? failReason;
 }
 
 enum _WalletIsarLifecycle { active, closing, closed }
@@ -721,22 +849,22 @@ class WalletIsar {
   /// Wallet 域的唯一 schema 清单；正常打开与终态擦除必须使用同一真源。
   static const List<CollectionSchema<dynamic>> _schemas =
       <CollectionSchema<dynamic>>[
-        WalletAttestationEntitySchema,
-        WalletAccountBalanceSnapshotEntitySchema,
-        WalletPersonalMultisigStateEntitySchema,
-        WalletPersonalMultisigDiscoveryEntitySchema,
-        WalletProposalSummaryEntitySchema,
-        WalletProposalIndexEntitySchema,
-        WalletProposalDetailEntitySchema,
-        WalletLegislationSnapshotEntitySchema,
-        WalletAdminActivationStateEntitySchema,
-        WalletMembershipStateEntitySchema,
-        WalletCreatorStateEntitySchema,
-        InstitutionEntitySchema,
-        PersonalAccountEntitySchema,
-        PersonalAccountProposalEntitySchema,
-        LocalTxEntitySchema,
-        WalletTransactionHistoryCursorEntitySchema,
+        ProofSchema,
+        BalanceSchema,
+        GroupSchema,
+        ScanSchema,
+        SummarySchema,
+        ProposalListSchema,
+        ProposalSchema,
+        LawSnapshotSchema,
+        AdminSchema,
+        MemberSchema,
+        CreatorSchema,
+        BodySchema,
+        AccountSchema,
+        ActionSchema,
+        EntrySchema,
+        WalletCursorSchema,
       ];
 
   /// 给低优先级后台任务判断是否让路；前台读写仍应直接排队执行。

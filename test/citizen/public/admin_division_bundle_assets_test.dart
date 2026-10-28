@@ -8,7 +8,6 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:citizenapp/citizen/public/admin_division_bundle_loader.dart';
-import 'package:citizenapp/citizen/public/admin_division_dto.dart';
 
 import 'fake_admin_division_store.dart';
 import 'fake_data_version_kv.dart';
@@ -26,11 +25,14 @@ void main() {
 
     final changed = await loader.ensureSynced();
     expect(changed, isTrue, reason: '首装应从 assets 全量灌入字典');
-    expect(await store.divisionCount(), greaterThan(40000),
-        reason: '全国省/市/镇字典应≈4.2 万条');
+    expect(
+      await store.divisionCount(),
+      greaterThan(40000),
+      reason: '全国省/市/镇字典应≈4.2 万条',
+    );
 
-    final jl = await store.divisionsByLevel(AdminDivisionLevel.city, 'JL');
-    final nameMap = {for (final d in jl) d.code: d.divisionName};
+    final jl = await store.cities('JL');
+    final nameMap = {for (final d in jl) d.cityCode: d.regionName};
     expect(nameMap['001'], '南关市', reason: '市名须 join 到字典,不回退 code');
     expect(nameMap['002'], '春阳市');
   });

@@ -15,7 +15,7 @@ SquareSession fakeSession({String? cidNumber}) => SquareSession(
   deviceId: testMlsDeviceId,
   sessionToken: 'tok',
   cidNumber: cidNumber ?? "CN220-CTZN2-198805200-2026",
-  bindingRevision: 1,
+  bindRev: 1,
   accountId: kOwner,
   expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
   authenticateRequest: fakeMlsRequestHeaders,
@@ -67,7 +67,7 @@ SquarePost samplePost({
     postType: postType,
     title: title,
     text: text,
-    createdAt: DateTime.fromMillisecondsSinceEpoch(1000),
+    publishedAt: DateTime.fromMillisecondsSinceEpoch(1000),
     mediaItems: media,
   );
 }
@@ -86,23 +86,23 @@ CitizenProfile sampleProfile({
   String accountId = kOwner,
   String? avatarKey,
   String? bannerKey,
-  String? identityLevel,
-  String? membershipLevel,
-  bool? membershipActive,
+  String? cidLevel,
+  String? memberLevel,
+  bool? membergateActive,
 }) {
   return CitizenProfile(
     accountId: accountId,
     displayName: displayName,
     profileBio: profileBio,
-    avatarObjectKey: avatarKey,
-    bannerObjectKey: bannerKey,
+    avatarKey: avatarKey,
+    bannerKey: bannerKey,
     cidNumber: certified ? 'CN001-CTZN-000000001-2026' : null,
     isCertified: certified,
     // 认证真源=链上身份档位；默认认证=投票公民，未认证=访客。
-    identityLevel: identityLevel ?? (certified ? 'voting' : 'visitor'),
-    // 会员默认未购买；传合法 membershipLevel 才显示对应档位色与对勾。
-    membershipLevel: membershipLevel,
-    membershipActive: membershipActive ?? (membershipLevel != null),
+    cidLevel: cidLevel ?? (certified ? 'voting' : 'visitor'),
+    // 会员默认未购买；传合法 member_level 才显示对应档位色与对勾。
+    memberLevel: memberLevel,
+    membergateActive: membergateActive ?? (memberLevel != null),
     following: 2,
     followers: 128,
     mutualFollowing: mutualFollowing,
@@ -113,7 +113,7 @@ CitizenProfile sampleProfile({
     isFollowing: following,
     isFollowedBy: followedBy,
     isNotifying: notifying,
-    updatedAt: 1,
+    profileAt: 1,
   );
 }
 
@@ -263,10 +263,10 @@ class FakeProfileApi extends CitizenProfileApi {
     required SquareSession session,
     String? displayName,
     String? profileBio,
-    String? avatarObjectKey,
-    String? avatarContentHash,
-    String? bannerObjectKey,
-    String? bannerContentHash,
+    String? avatarKey,
+    String? avatarHash,
+    String? bannerKey,
+    String? bannerHash,
   }) async {
     lastUpdate = {'display_name': displayName, 'profile_bio': profileBio};
     return result.copyWith(displayName: displayName, profileBio: profileBio);

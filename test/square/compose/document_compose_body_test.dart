@@ -27,12 +27,12 @@ class _ImagePickerFake extends ComposeMediaPicker {
 }
 
 SquareLocalMediaDraft _draftFor(XFile file) => SquareLocalMediaDraft(
-      mediaKind: SquareMediaKind.image,
-      path: file.path,
-      fileName: file.name,
-      contentType: 'image/jpeg',
-      byteSize: 1,
-    );
+  mediaKind: SquareMediaKind.image,
+  path: file.path,
+  fileName: file.name,
+  contentType: 'image/jpeg',
+  byteSize: 1,
+);
 
 void main() {
   testWidgets('公文支持纯文字并固定300字上限', (tester) async {

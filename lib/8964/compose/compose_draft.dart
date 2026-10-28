@@ -16,7 +16,7 @@ class SquareComposeDraft {
     required this.text,
     required this.media,
     this.contentSections,
-    required this.updatedAtMillis,
+    required this.updatedAt,
   });
 
   final String draftId;
@@ -28,7 +28,7 @@ class SquareComposeDraft {
   final String text;
   final List<SquareLocalMediaDraft> media;
   final List<Map<String, Object?>>? contentSections;
-  final int updatedAtMillis;
+  final int updatedAt;
 
   bool get isArticle => postType == SquarePostType.article;
 
@@ -49,7 +49,7 @@ class SquareComposeDraft {
   SquareComposeDraft copyWith({
     List<SquareLocalMediaDraft>? media,
     List<Map<String, Object?>>? contentSections,
-    int? updatedAtMillis,
+    int? updatedAt,
   }) {
     return SquareComposeDraft(
       draftId: draftId,
@@ -59,7 +59,7 @@ class SquareComposeDraft {
       text: text,
       media: media ?? this.media,
       contentSections: contentSections ?? this.contentSections,
-      updatedAtMillis: updatedAtMillis ?? this.updatedAtMillis,
+      updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 
@@ -71,7 +71,7 @@ class SquareComposeDraft {
     'text': text,
     'media': media.map(_mediaToJson).toList(),
     if (contentSections != null) 'content_sections': contentSections,
-    'updated_at': updatedAtMillis,
+    'updated_at': updatedAt,
   };
 
   String toJsonString() => jsonEncode(toJson());
@@ -120,7 +120,7 @@ class SquareComposeDraft {
               return e.map((k, v) => MapEntry(k.toString(), v));
             }).toList()
           : null,
-      updatedAtMillis: updatedAt,
+      updatedAt: updatedAt,
     );
   }
 
@@ -133,16 +133,14 @@ class SquareComposeDraft {
 
   static Map<String, Object?> _mediaToJson(SquareLocalMediaDraft draft) => {
     'media_kind': draft.mediaKind.workerValue,
-    'media_id': draft.mediaId ?? (throw const FormatException('草稿媒体尚未入库')),
+    'body_hash': draft.bodyHash ?? (throw const FormatException('草稿媒体尚未入库')),
     'file_name': draft.fileName,
     'content_type': draft.contentType,
     'byte_size': draft.byteSize,
-    if (draft.width != null) 'width': draft.width,
-    if (draft.height != null) 'height': draft.height,
-    if (draft.photoManagerAssetId != null)
-      'photo_manager_asset_id': draft.photoManagerAssetId,
-    if (draft.durationSeconds != null)
-      'duration_seconds': draft.durationSeconds,
+    if (draft.pixelWidth != null) 'pixel_width': draft.pixelWidth,
+    if (draft.pixelHeight != null) 'pixel_height': draft.pixelHeight,
+    if (draft.assetId != null) 'asset_id': draft.assetId,
+    if (draft.videoSecs != null) 'video_secs': draft.videoSecs,
   };
 
   static SquareLocalMediaDraft _mediaFromJson(Map<String, dynamic> json) {
@@ -153,22 +151,21 @@ class SquareComposeDraft {
     };
     return SquareLocalMediaDraft(
       mediaKind: mediaKind,
-      // 旧文件草稿仅供用户恢复时核验入库；新写入永不保存 path。
-      path: json['media_id'] == null ? json['path']?.toString() ?? '' : '',
-      mediaId: json['media_id'] as String?,
-      width: json['width'] as int?,
-      height: json['height'] as int?,
+      // 持久草稿只引用已入库内容；路径仅在本次预览时再生。
+      path: '',
+      bodyHash: json['body_hash'] as String?,
+      pixelWidth: json['pixel_width'] as int?,
+      pixelHeight: json['pixel_height'] as int?,
       fileName: json['file_name']?.toString() ?? '',
       contentType: json['content_type']?.toString() ?? '',
       byteSize: json['byte_size'] is int
           ? json['byte_size'] as int
           : int.tryParse(json['byte_size']?.toString() ?? '') ?? 0,
-      durationSeconds: json['duration_seconds'] is int
-          ? json['duration_seconds'] as int
-          : int.tryParse(json['duration_seconds']?.toString() ?? ''),
-      photoManagerAssetId:
-          json['photo_manager_asset_id']?.toString().trim().isEmpty == false
-          ? json['photo_manager_asset_id']?.toString()
+      videoSecs: json['video_secs'] is int
+          ? json['video_secs'] as int
+          : int.tryParse(json['video_secs']?.toString() ?? ''),
+      assetId: json['asset_id']?.toString().trim().isEmpty == false
+          ? json['asset_id']?.toString()
           : null,
     );
   }

@@ -69,7 +69,7 @@ void main() {
                     MaterialPageRoute(
                       builder: (_) => QrSignSessionPage(
                         request: request,
-                        requestJson: request.canonicalText,
+                        requestData: request.canonicalText,
                         qr: qr,
                         scanResponse:
                             scan ??

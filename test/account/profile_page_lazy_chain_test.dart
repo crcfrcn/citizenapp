@@ -98,7 +98,7 @@ class _CachedIdentityCache implements CurrentUserContext {
       cidNumber: _cidNumber,
       accountId:
           '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-      bindingRevision: 1,
+      bindRev: 1,
     ),
   );
   @override
@@ -140,14 +140,14 @@ class _VerifiedLocalBadgeStore extends _FakeIdentityBadgeSnapshotStore {
   Future<IdentityBadgeSnapshot?> readForAccountId(String accountId) async =>
       IdentityBadgeSnapshot(
         cidNumber: _cidNumber,
-        identityLevel: 'visitor',
-        updatedAtMillis: 1,
+        cidLevel: 'visitor',
+        updatedAt: 1,
         accountId: accountId,
         verified: true,
         identity: CitizenIdentityChainSnapshot(
           cidNumber: _cidNumber,
           accountId: Uint8List.fromList(List.filled(32, 0xaa)),
-          bindingRevision: 1,
+          bindRev: 1,
           votingIdentity: null,
         ),
       );
@@ -181,8 +181,8 @@ class _FakeIdentityBadgeSnapshotStore extends IdentityBadgeSnapshotStore {
     readCalls += 1;
     return IdentityBadgeSnapshot(
       cidNumber: cidNumber,
-      identityLevel: 'candidate',
-      updatedAtMillis: 1,
+      cidLevel: 'candidate',
+      updatedAt: 1,
     );
   }
 }
@@ -212,7 +212,7 @@ class _ActiveMembershipSquareApi extends SquareApiClient {
     return const SquareMembershipState(
       active: true,
       paidUntil: 9999999999999,
-      membershipLevel: 'democracy',
+      memberLevel: 'democracy',
     );
   }
 }
@@ -246,7 +246,7 @@ class _ConfirmedMembershipSnapshotService implements SubscriptionService {
   static const _state = SquareMembershipState(
     active: true,
     paidUntil: 9999999999999,
-    membershipLevel: 'democracy',
+    memberLevel: 'democracy',
   );
   int authorizeCalls = 0;
 
@@ -257,8 +257,8 @@ class _ConfirmedMembershipSnapshotService implements SubscriptionService {
     return const MembershipDisplaySnapshot(
       state: _state,
       prices: <String, int>{},
-      subscriptionFetchedAtMs: 1,
-      pricesFetchedAtMs: 0,
+      memberAt: 1,
+      priceAt: 0,
     );
   }
 
@@ -611,11 +611,11 @@ void main() {
         state: SquareMembershipState(
           active: true,
           paidUntil: 9999999999999,
-          membershipLevel: 'democracy',
+          memberLevel: 'democracy',
         ),
         prices: <String, int>{},
-        subscriptionFetchedAtMs: 1,
-        pricesFetchedAtMs: 0,
+        memberAt: 1,
+        priceAt: 0,
       ),
     );
     await tester.pump();
@@ -640,7 +640,7 @@ void main() {
       const SquareMembershipState(
         active: true,
         paidUntil: 9999999999999,
-        membershipLevel: 'democracy',
+        memberLevel: 'democracy',
       ),
     );
     await tester.pumpWidget(const SizedBox.shrink());

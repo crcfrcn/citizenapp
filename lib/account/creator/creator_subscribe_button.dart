@@ -127,7 +127,7 @@ class _CreatorSubscribeButtonState extends State<CreatorSubscribeButton> {
       return const SizedBox.shrink();
     }
     final actionable = widget.enabled && !_busy;
-    final subscribed = _subscription?.subscriptionStatus == 'active';
+    final subscribed = _subscription?.subState == 'active';
     // 顶部操作栏只保留一个紧凑入口，并固定在通知图标左侧。是否已订阅只决定
     // 点击后的操作面板，不能在主页头部展开成两个按钮或增加纵向高度。
     return SizedBox(
@@ -204,8 +204,7 @@ class _CreatorSubscribeButtonState extends State<CreatorSubscribeButton> {
         current?.tierId == selection.tierId &&
         current?.billingPeriod == selection.period.key;
     final shouldChange =
-        (current?.subscriptionStatus == 'active' ||
-            current?.subscriptionStatus == 'cancelled') &&
+        (current?.subState == 'active' || current?.subState == 'cancelled') &&
         !samePlan;
     final service = _service;
     if (service == null) return;
@@ -266,9 +265,8 @@ class _CreatorSubscribeButtonState extends State<CreatorSubscribeButton> {
       await _load();
     } on CreatorSubscribeException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(e.message)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -359,9 +357,9 @@ class _TierPeriodPicker extends StatelessWidget {
             children: periods.map((period) {
               final fen = tier.priceFenOf(period)!;
               return OutlinedButton(
-                onPressed: () => Navigator.of(
-                  context,
-                ).pop(_TierPeriodSelection(tier.tierId, period, fen)),
+                onPressed: () =>
+                    Navigator.of(context)
+                        .pop(_TierPeriodSelection(tier.tierId, period, fen)),
                 style: OutlinedButton.styleFrom(
                   minimumSize: Size(0, AppLayout.scaled(context, 40)),
                   padding: EdgeInsets.symmetric(

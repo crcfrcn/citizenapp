@@ -59,7 +59,7 @@ class _PersonalAccountClosePageState extends State<PersonalAccountClosePage> {
   void initState() {
     super.initState();
     _selectedWallet = widget.adminWallets.first;
-    _accountSs58 = _hexToSs58(widget.institution.personalAccountId);
+    _accountSs58 = _hexToSs58(widget.institution.accountId);
   }
 
   @override
@@ -90,7 +90,7 @@ class _PersonalAccountClosePageState extends State<PersonalAccountClosePage> {
           await AccountBalanceSnapshotStore.forChain(
             context.read<CitizenSdk>().chain,
           ).getAccountBalance(
-            widget.institution.personalAccountId,
+            widget.institution.accountId,
             forceRefresh: forceRefresh,
           );
       if (!mounted) return false;
@@ -184,7 +184,7 @@ class _PersonalAccountClosePageState extends State<PersonalAccountClosePage> {
       final predictedProposalId = await _proposalQuery.fetchNextProposalId();
 
       final result = await _manageService.submitProposeClosePersonal(
-        accountId: widget.institution.personalAccountId,
+        accountId: widget.institution.accountId,
         beneficiaryAddress: beneficiary,
         signerPublicKey: Uint8List.fromList(publicKeyBytes),
         externalSigning: (pending) => showCitizenSdkQrResponse(
@@ -196,15 +196,15 @@ class _PersonalAccountClosePageState extends State<PersonalAccountClosePage> {
         ),
       );
 
-      // 写入 Isar `PersonalAccountProposalEntity`,详情页提案列表才能显示。
+      // 写入 Isar `action`,详情页提案列表才能显示。
       await PersonalProposalHistoryService(chain: chain).recordOrUpdate(
-        personalAccountId: widget.institution.personalAccountId,
+        accountId: widget.institution.accountId,
         proposalId: predictedProposalId,
-        action: PersonalProposalAction.close,
+        actionKind: PersonalProposalAction.close,
         status: PersonalProposalStatus.voting,
         // 发起关闭提案签名成功后，投票引擎已自动记录发起人的赞成票。
-        yesVotes: 1,
-        noVotes: 0,
+        yesCount: 1,
+        noCount: 0,
         snapshot: {'beneficiary': beneficiary},
       );
 
@@ -357,8 +357,8 @@ class _PersonalAccountClosePageState extends State<PersonalAccountClosePage> {
                     vertical: AppLayout.scaled(context, 10),
                   ),
                   suffixIcon: AddressScanButton(
-                    onAddressScanned: (ss58Address) => setState(
-                      () => _beneficiaryController.text = ss58Address,
+                    onAddressScanned: (accountAddress) => setState(
+                      () => _beneficiaryController.text = accountAddress,
                     ),
                   ),
                 ),

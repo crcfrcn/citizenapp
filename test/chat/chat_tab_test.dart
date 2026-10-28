@@ -1,3 +1,6 @@
+import 'package:citizenapp/storage/wallet_isar.dart'
+    as wallet_store
+    show Member;
 import 'package:http/http.dart' as http;
 
 import '../square/mls_authentication_fixture.dart';
@@ -6,7 +9,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:citizenapp/storage/wallet_isar.dart';
 import 'package:citizenapp/account/identity/identity_binding.dart';
 
 import '../support/isar_test_env.dart';
@@ -48,13 +50,13 @@ const _peerProfile = CitizenProfile(
   accountId: _peerAccountId,
   displayName: '会员用户',
   profileBio: '公开签名',
-  avatarObjectKey: 'profile/$_peerUserId/avatar',
-  bannerObjectKey: null,
+  avatarKey: 'profile/$_peerUserId/avatar',
+  bannerKey: null,
   cidNumber: _peerUserId,
   isCertified: true,
-  identityLevel: 'voting',
-  membershipLevel: 'democracy',
-  membershipActive: true,
+  cidLevel: 'voting',
+  memberLevel: 'democracy',
+  membergateActive: true,
   following: 0,
   followers: 0,
   mutualFollowing: 0,
@@ -65,7 +67,7 @@ const _peerProfile = CitizenProfile(
   isFollowing: false,
   isFollowedBy: false,
   isNotifying: false,
-  updatedAt: 2,
+  profileAt: 2,
 );
 
 void main() {
@@ -76,7 +78,7 @@ void main() {
         deviceId: testMlsDeviceId,
         sessionToken: 'synthetic-chat-session',
         cidNumber: _ownerUserId,
-        bindingRevision: 1,
+        bindRev: 1,
         accountId: '0x${List.filled(32, '11').join()}',
         expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
       ),
@@ -181,18 +183,15 @@ void main() {
   group('聊天构造期不恢复会员交易', () {
     useIsolatedIsar();
     testWidgets('真实默认服务在打开及重连时保留待同步证明，网络和链均为零', (tester) async {
-      final key = 'platform_subscription_mirror_pending_by_cid:$_ownerUserId';
       final proof = jsonEncode([
         {'tx_hash': '0x${'a' * 64}', 'block_hash': '0x${'b' * 64}'},
       ]);
       await tester.runAsync(() async {
-        await WalletIsar.instance.writeTxn((isar) async {
-          await isar.walletMembershipStateEntitys.put(
-            WalletMembershipStateEntity()
-              ..stateKey = key
-              ..payloadJson = proof,
-          );
-        });
+        await wallet_store.Member.storeProof(
+          _ownerUserId,
+          (jsonDecode(proof) as List).single as Map<String, dynamic>,
+          pendingKind: 'member',
+        );
       });
       final security = _UnusedSecurity(),
           sessions = _FakeProfileSessionProvider(),
@@ -237,9 +236,12 @@ void main() {
         await tester.pump(const Duration(milliseconds: 100));
         await tester.runAsync(() async {
           expect(
-            (await WalletIsar.instance.read(
-              (isar) => isar.walletMembershipStateEntitys.getByStateKey(key),
-            ))?.payloadJson,
+            jsonEncode(
+              await wallet_store.Member.readProofs(
+                _ownerUserId,
+                pendingKind: 'member',
+              ),
+            ),
             proof,
           );
         });
@@ -633,7 +635,7 @@ void main() {
               const UserContact(
                 cidNumber: _peerUserId,
                 accountId: _peerAccountId,
-                ss58Address: 'test-address',
+                accountAddress: 'test-address',
                 contactRemark: '同事',
                 createdAt: 1,
                 updatedAt: 1,
@@ -652,8 +654,8 @@ void main() {
     expect(find.text('暂无消息'), findsOneWidget);
     expect(find.text('旧昵称'), findsNothing);
     expect(avatar.imagePath, avatarPath);
-    expect(avatar.membershipLevel, 'democracy');
-    expect(avatar.membershipActive, isTrue);
+    expect(avatar.memberLevel, 'democracy');
+    expect(avatar.membergateActive, isTrue);
     expect(avatar.showBadge, isTrue);
 
     await tester.pumpWidget(const SizedBox.shrink());
@@ -1389,7 +1391,7 @@ class _FakeProfileSessionProvider implements SquareSessionProvider {
     deviceId: testMlsDeviceId,
     sessionToken: 'profile-token',
     cidNumber: _ownerUserId,
-    bindingRevision: 1,
+    bindRev: 1,
     accountId:
         '0x1111111111111111111111111111111111111111111111111111111111111111',
     expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
@@ -1561,7 +1563,7 @@ class _LocalChatIdentity implements CurrentUserContext {
         ? IdentityBinding(
             genesisHash: '0x${'ab' * 32}',
             cidNumber: _ownerUserId,
-            bindingRevision: 1,
+            bindRev: 1,
             accountId: testMlsAccountId,
           )
         : null,

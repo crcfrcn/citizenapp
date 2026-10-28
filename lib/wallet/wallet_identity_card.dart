@@ -24,6 +24,7 @@ class WalletIdentityCard extends StatefulWidget {
   });
 
   final CitizenWalletStateAccount wallet;
+
   /// SDK目录的钱包级名称，不能用热账户0的name代替。
   final String walletName;
 
@@ -87,9 +88,8 @@ class _WalletIdentityCardState extends State<WalletIdentityCard> {
   /// 复制钱包地址并弹 SnackBar。
   void _copyAddress() {
     Clipboard.setData(ClipboardData(text: widget.wallet.ss58Address));
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('钱包地址已复制')));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('钱包地址已复制')));
   }
 
   /// 按最终设计稿把完整地址拆成两行：
@@ -135,8 +135,9 @@ class _WalletIdentityCardState extends State<WalletIdentityCard> {
     return Padding(
       key: const ValueKey('wallet-identity-section'),
       padding: EdgeInsets.symmetric(
-          horizontal: AppLayout.scaled(context, 20),
-          vertical: AppLayout.scaled(context, 12)),
+        horizontal: AppLayout.scaled(context, 20),
+        vertical: AppLayout.scaled(context, 12),
+      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
@@ -311,7 +312,9 @@ class _WalletIdentityCardState extends State<WalletIdentityCard> {
                                           // 最终确认稿只下移可见图标，不改变原子形状、
                                           // 点击热区、横向位置或与竖线的视觉等距。
                                           offset: Offset(
-                                              0, AppLayout.scaled(context, 4)),
+                                            0,
+                                            AppLayout.scaled(context, 4),
+                                          ),
                                           child: Icon(
                                             Icons.copy_outlined,
                                             key: const ValueKey(

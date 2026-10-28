@@ -300,9 +300,9 @@ class ProposalQueryService {
   }
 
   /// 个人多签历史同步入口；个人多签没有 CID，只能以 AccountId 为主体。
-  Future<List<int>> fetchActivePersonalProposalIds(String personalAccountId) {
+  Future<List<int>> fetchActivePersonalProposalIds(String accountId) {
     return _fetchActiveProposalIdsBySubjectKey(
-      personalAccountSubjectKey(personalAccountId),
+      personalAccountSubjectKey(accountId),
     );
   }
 
@@ -425,7 +425,7 @@ class ProposalQueryService {
   /// `PersonalAccount(account_id)`，机构账户绝不能替代机构 CID。
   static Uint8List proposalSubjectKey(InstitutionInfo institution) {
     if (isPersonalAccountIdentity(institution.cidNumber)) {
-      return personalAccountSubjectKey(institution.personalAccountId);
+      return personalAccountSubjectKey(institution.accountId);
     }
 
     return institutionCidSubjectKey(institution.cidNumber);
@@ -446,8 +446,8 @@ class ProposalQueryService {
   }
 
   /// `ProposalSubject::PersonalAccount` 编码；AccountId 必须恰好 32 字节。
-  static Uint8List personalAccountSubjectKey(String personalAccountId) {
-    return Uint8List.fromList([1, ...accountIdBytes(personalAccountId)]);
+  static Uint8List personalAccountSubjectKey(String accountId) {
+    return Uint8List.fromList([1, ...accountIdBytes(accountId)]);
   }
 
   /// 严格解码 `BoundedVec<AccountId32>` 管理员快照。

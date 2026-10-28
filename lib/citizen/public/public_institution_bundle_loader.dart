@@ -1,3 +1,4 @@
+import 'package:citizenapp/storage/app_isar.dart' as app_store show Entity;
 // 公权机构创世快照包载入 —— 链上快照驱动 reconcile(ADR-018 §九 混合模式 ①)。
 //
 // 发布期从链上创世状态导出的全量快照打进 assets;客户端把它当本地缓存,
@@ -14,7 +15,6 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show AssetBundle, rootBundle;
-import 'package:citizenapp/storage/app_isar.dart';
 
 import 'admin_division_bundle_loader.dart';
 import 'admin_division_store.dart';
@@ -30,13 +30,14 @@ class PublicInstitutionBundleLoader {
     AdminDivisionStore? divisionStore,
     AdminDivisionBundleLoader? divisionLoader,
     DataVersionKv? versionKv,
-  })  : bundle = bundle ?? rootBundle,
-        divisionLoader = divisionLoader ??
-            AdminDivisionBundleLoader(
-              store: divisionStore ?? IsarAdminDivisionStore(),
-              bundle: bundle ?? rootBundle,
-            ),
-        versionKv = versionKv ?? DataVersionKv(namespace: 'public_institution');
+  }) : bundle = bundle ?? rootBundle,
+       divisionLoader =
+           divisionLoader ??
+           AdminDivisionBundleLoader(
+             store: divisionStore ?? IsarAdminDivisionStore(),
+             bundle: bundle ?? rootBundle,
+           ),
+       versionKv = versionKv ?? DataVersionKv(dataKind: 'public_institution');
 
   final PublicInstitutionStore store;
   final AssetBundle bundle;
@@ -79,8 +80,9 @@ class PublicInstitutionBundleLoader {
     final hasData = await store.institutionCount() > 0;
 
     // 全局 version 变了才重写省份规范顺序;省内内容仍以省级 manifest_version 决定是否读分片。
-    final provinceNames =
-        provinceVers.map((p) => p.provinceName).toList(growable: false);
+    final provinceNames = provinceVers
+        .map((p) => p.provinceName)
+        .toList(growable: false);
     if (storedGlobal != globalVersion || !hasData) {
       await store.setProvinceOrder(provinceNames);
     }
@@ -119,22 +121,25 @@ class PublicInstitutionBundleLoader {
     final provinceVers = _parseProvinceVersions(manifest['provinces']);
     if (provinceVers.isEmpty) return false;
 
-    final provinceNames =
-        provinceVers.map((p) => p.provinceName).toList(growable: false);
+    final provinceNames = provinceVers
+        .map((p) => p.provinceName)
+        .toList(growable: false);
     final fallbackVersion = _snapshotVersion(manifest);
 
     await store.setProvinceOrder(provinceNames);
     var changed = false;
     for (final province in provinceNames) {
-      final provinceChanged =
-          await _reconcileProvince(province, fallbackVersion: fallbackVersion);
+      final provinceChanged = await _reconcileProvince(
+        province,
+        fallbackVersion: fallbackVersion,
+      );
       changed = changed || provinceChanged;
     }
 
     // 全量灌完落版本游标(供后续走增量),同步字典 manifest_version。
-    await versionKv.writeProvinceVersions(
-      {for (final p in provinceVers) p.provinceName: p.manifestVersion},
-    );
+    await versionKv.writeProvinceVersions({
+      for (final p in provinceVers) p.provinceName: p.manifestVersion,
+    });
     await versionKv.writeGlobalVersion(fallbackVersion);
 
     // 末尾确保字典已同步(机构名字 join 唯一真源,ADR-021)。
@@ -156,7 +161,7 @@ class PublicInstitutionBundleLoader {
         .map((e) => PublicInstitutionDto.fromJson(e as Map<String, dynamic>))
         .toList(growable: false);
 
-    // 删包里没有的废 cid:provinceCode 取自机构记录自带字段(同省一致)。
+    // 删包里没有的废 cid:province_code 取自机构记录自带字段(同省一致)。
     final provinceCode = _provinceCodeOf(
       items,
       fallback: shard['province_name']?.toString(),
@@ -169,14 +174,15 @@ class PublicInstitutionBundleLoader {
           .where((d) => !_sameInstitution(oldByCid[d.cidNumber], d))
           .toList(growable: false);
       if (changedItems.isNotEmpty) {
-        await store.upsertInstitutions(changedItems, catalogVersion: version);
+        await store.upsertInstitutions(changedItems);
         changed = true;
       }
 
       final newCids = items.map((d) => d.cidNumber).toSet();
       final oldCids = oldByCid.keys;
-      final staleCids =
-          oldCids.where((s) => !newCids.contains(s)).toList(growable: false);
+      final staleCids = oldCids
+          .where((s) => !newCids.contains(s))
+          .toList(growable: false);
       if (staleCids.isNotEmpty) {
         await store.deleteByCids(staleCids);
         changed = true;
@@ -187,7 +193,7 @@ class PublicInstitutionBundleLoader {
     return changed;
   }
 
-  /// 取该省机构记录自带的 provinceCode(同省一致);空分片返回 null。
+  /// 取该省机构记录自带的 province_code(同省一致);空分片返回 null。
   static String? _provinceCodeOf(
     List<PublicInstitutionDto> items, {
     String? fallback,
@@ -235,10 +241,12 @@ class PublicInstitutionBundleLoader {
       if (provinceName != null &&
           provinceName.isNotEmpty &&
           manifestVersion != null) {
-        out.add(_ProvinceVer(
-          provinceName: provinceName,
-          manifestVersion: manifestVersion,
-        ));
+        out.add(
+          _ProvinceVer(
+            provinceName: provinceName,
+            manifestVersion: manifestVersion,
+          ),
+        );
       }
     }
     return out;
@@ -256,26 +264,26 @@ class PublicInstitutionBundleLoader {
   }
 
   static bool _sameInstitution(
-    PublicInstitutionEntity? old,
+    app_store.Entity? old,
     PublicInstitutionDto dto,
   ) {
     if (old == null) return false;
     return old.cidNumber == dto.cidNumber &&
-        old.cidFullName == (dto.cidFullName ?? dto.cidNumber) &&
-        old.cidShortName == dto.cidShortName &&
-        old.status == dto.status &&
+        old.fullName == (dto.fullName ?? dto.cidNumber) &&
+        old.shortName == dto.shortName &&
+        old.cidState == dto.cidState &&
         old.provinceCode == dto.provinceCode &&
         old.cityCode == dto.cityCode &&
         old.townCode == dto.townCode &&
-        old.institutionCode == dto.institutionCode &&
-        old.parentCidNumber == dto.parentCidNumber &&
-        old.hasLegalPersonality == dto.hasLegalPersonality &&
+        old.orgCode == dto.orgCode &&
+        old.parentCid == dto.parentCid &&
+        old.isLegal == dto.isLegal &&
         old.familyName == dto.familyName &&
         old.givenName == dto.givenName &&
-        old.legalRepresentativeCidNumber == dto.legalRepresentativeCidNumber &&
-        old.legalRepresentativeAccountId == dto.legalRepresentativeAccountId &&
+        old.legalCid == dto.legalCid &&
+        old.legalAccount == dto.legalAccount &&
         old.accountCount == dto.accountCount &&
-        _sameStringList(old.customAccountNames, dto.customAccountNames);
+        _sameStringList(old.accountNames, dto.accountNames);
   }
 
   static bool _sameStringList(List<String> a, List<String> b) {

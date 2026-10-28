@@ -13,12 +13,12 @@ import 'package:citizenapp/citizen/account_derivation.dart';
 ///
 /// [votingIdentity] 为 `null` 表示**匿名已注册**:账户自助占了一个 CID 并双向绑定
 /// (`CidRegistry` Active),但链上无 `VotingIdentityByCid`(未经注册局线下升级)。
-/// 匿名态只暴露 `cidNumber`,不得据此当投票/竞选公民。非空即投票身份已闭环校验。
+/// 匿名态只暴露 `cid_number`,不得据此当投票/竞选公民。非空即投票身份已闭环校验。
 class CitizenIdentityChainSnapshot {
   const CitizenIdentityChainSnapshot({
     required this.cidNumber,
     required this.accountId,
-    required this.bindingRevision,
+    required this.bindRev,
     required this.votingIdentity,
     this.candidateIdentity,
   });
@@ -30,7 +30,7 @@ class CitizenIdentityChainSnapshot {
   final Uint8List accountId;
 
   /// CID 单调绑定版本；初绑为 1，每次换绑或撤销递增。
-  final int bindingRevision;
+  final int bindRev;
   final Uint8List? votingIdentity;
   final Uint8List? candidateIdentity;
 }
@@ -43,12 +43,12 @@ class CitizenBindingChainSnapshot {
     this.block,
     required this.cidNumber,
     required this.accountId,
-    required this.bindingRevision,
+    required this.bindRev,
   });
 
   final String cidNumber;
   final Uint8List accountId;
-  final int bindingRevision;
+  final int bindRev;
 
   final CitizenBlockRef? block;
 
@@ -89,7 +89,7 @@ class CitizenIdentityChainReader {
     return CitizenBindingChainSnapshot(
       cidNumber: cid,
       accountId: account,
-      bindingRevision: revision,
+      bindRev: revision,
       block: block,
     );
   }
@@ -101,7 +101,7 @@ class CitizenIdentityChainReader {
   /// - `CidByAccountId` 无、或绑定不闭环(反向错配 / 非 Active)→ 返回 `null`
   ///   (**纯访客**,可自助占号)。
   /// - 绑定闭环但无 `VotingIdentityByCid`(或其布局损坏)→ 返回 `isAnonymous` 快照
-  ///   (**匿名已注册**,只带 `cidNumber`)。布局损坏归匿名是 fail-closed 的**安全降级**
+  ///   (**匿名已注册**,只带 `cid_number`)。布局损坏归匿名是 fail-closed 的**安全降级**
   ///   (降到匿名而非误升成投票公民)。
   /// - 绑定闭环 + 合法 `VotingIdentityByCid` → **投票**;再有合法 candidate → **竞选**。
   Future<CitizenIdentityChainSnapshot?> readByAccountId(
@@ -165,14 +165,14 @@ class CitizenIdentityChainReader {
     final cidRecord = rows[1];
     final votingIdentity = rows[2];
     final candidateIdentity = rows[3];
-    final bindingRevision = _decodeU64(rows[4]);
+    final bindRev = _decodeU64(rows[4]);
     // 绑定闭环:AccountIdByCid 反向一致 + CidRegistry Active。不闭环(反查为空/错配/
     // 非 Active)= 该账户没有有效 CID → 纯访客兜底(可重新占号,链上残留绑定占号时再拒)。
     if (boundAccountId == null ||
         boundAccountId.length != accountId.length ||
         !_sameBytes(boundAccountId, accountId) ||
         !cidRecordIsActive(cidRecord) ||
-        bindingRevision <= 0) {
+        bindRev <= 0) {
       return null;
     }
 
@@ -182,7 +182,7 @@ class CitizenIdentityChainReader {
       return CitizenIdentityChainSnapshot(
         cidNumber: cidNumber,
         accountId: accountId,
-        bindingRevision: bindingRevision,
+        bindRev: bindRev,
         votingIdentity: null,
         candidateIdentity: null,
       );
@@ -192,7 +192,7 @@ class CitizenIdentityChainReader {
     return CitizenIdentityChainSnapshot(
       cidNumber: cidNumber,
       accountId: accountId,
-      bindingRevision: bindingRevision,
+      bindRev: bindRev,
       votingIdentity: votingIdentity,
       candidateIdentity:
           candidateIdentity != null &&

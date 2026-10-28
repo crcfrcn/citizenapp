@@ -94,24 +94,24 @@ class InstitutionAccounts {
 /// 单个机构或多签账户的结构化信息。
 class InstitutionInfo {
   const InstitutionInfo({
-    required this.cidFullName,
-    required this.cidShortName,
+    required this.fullName,
+    required this.shortName,
     required this.cidFullNameEn,
     required this.cidShortNameEn,
     required this.cidNumber,
     required this.orgType,
     this.accounts,
-    String? personalAccountId,
-    this.adminAccountCode,
+    String? accountId,
+    this.adminCode,
     this.internalThresholdOverride,
-  })  : assert((accounts == null) != (personalAccountId == null)),
-        _personalAccountId = personalAccountId;
+  }) : assert((accounts == null) != (accountId == null)),
+       _personalAccountId = accountId;
 
   /// 机构全称,与后端/链端 `cid_full_name` 对齐。
-  final String cidFullName;
+  final String fullName;
 
   /// 机构简称,与后端/链端 `cid_short_name` 对齐。
-  final String cidShortName;
+  final String shortName;
 
   /// 机构英文全称,与后端/链端 `cid_full_name_en` 对齐。
   final String cidFullNameEn;
@@ -127,7 +127,7 @@ class InstitutionInfo {
   final int orgType;
 
   /// 注册机构账户管理员更换使用的机构码（如 "CGOV"/"CGOV" 等注册机构 CID 码）。
-  final String? adminAccountCode;
+  final String? adminCode;
 
   /// 制度账户集合。
   ///
@@ -137,11 +137,11 @@ class InstitutionInfo {
   final String? _personalAccountId;
 
   /// 资金操作的默认账户：机构为主账户，个人多签为其 AccountId。
-  /// 本字段只是账户参数，不得替代机构 `cidNumber`。
-  String get mainAccountId => accounts?.mainAccountId ?? personalAccountId;
+  /// 本字段只是账户参数，不得替代机构 `cid_number`。
+  String get mainAccountId => accounts?.mainAccountId ?? accountId;
 
   /// 个人多签 AccountId hex；机构调用本 getter 直接失败。
-  String get personalAccountId {
+  String get accountId {
     final value = _personalAccountId;
     if (!isPersonalAccountIdentity(cidNumber) || value == null) {
       throw StateError('机构没有 personalAccountId，必须使用 CID + 具体机构账户');
@@ -156,13 +156,14 @@ class InstitutionInfo {
   bool get isRegisteredInstitution =>
       orgType == OrgType.institution &&
       !isPersonalAccountIdentity(cidNumber) &&
-      !InstitutionCodeLabel.isFixedGovernance(adminAccountCode ?? '');
+      !InstitutionCodeLabel.isFixedGovernance(adminCode ?? '');
 
   /// 内部投票通过阈值。
   int get internalThreshold {
     if (internalThresholdOverride != null) return internalThresholdOverride!;
-    final fixedByCode =
-        InstitutionCodeLabel.fixedGovernanceThreshold(adminAccountCode ?? '');
+    final fixedByCode = InstitutionCodeLabel.fixedGovernanceThreshold(
+      adminCode ?? '',
+    );
     if (fixedByCode != null) return fixedByCode;
     switch (orgType) {
       case OrgType.nrc:
@@ -193,27 +194,27 @@ class InstitutionInfo {
   }
 
   InstitutionInfo copyWith({
-    String? cidFullName,
-    String? cidShortName,
+    String? fullName,
+    String? shortName,
     String? cidFullNameEn,
     String? cidShortNameEn,
     String? cidNumber,
     int? orgType,
     InstitutionAccounts? accounts,
-    String? personalAccountId,
-    String? adminAccountCode,
+    String? accountId,
+    String? adminCode,
     int? internalThresholdOverride,
   }) {
     return InstitutionInfo(
-      cidFullName: cidFullName ?? this.cidFullName,
-      cidShortName: cidShortName ?? this.cidShortName,
+      fullName: fullName ?? this.fullName,
+      shortName: shortName ?? this.shortName,
       cidFullNameEn: cidFullNameEn ?? this.cidFullNameEn,
       cidShortNameEn: cidShortNameEn ?? this.cidShortNameEn,
       cidNumber: cidNumber ?? this.cidNumber,
       orgType: orgType ?? this.orgType,
       accounts: accounts ?? this.accounts,
-      personalAccountId: personalAccountId ?? _personalAccountId,
-      adminAccountCode: adminAccountCode ?? this.adminAccountCode,
+      accountId: accountId ?? _personalAccountId,
+      adminCode: adminCode ?? this.adminCode,
       internalThresholdOverride:
           internalThresholdOverride ?? this.internalThresholdOverride,
     );
@@ -228,8 +229,9 @@ bool isPersonalAccountIdentity(String institutionIdentity) {
 
 String? personalAccountIdFromIdentity(String institutionIdentity) {
   if (!isPersonalAccountIdentity(institutionIdentity)) return null;
-  final accountId =
-      institutionIdentity.substring(_personalAccountIdentityPrefix.length);
+  final accountId = institutionIdentity.substring(
+    _personalAccountIdentityPrefix.length,
+  );
   if (!isAccountIdText(accountId)) return null;
   return accountId;
 }

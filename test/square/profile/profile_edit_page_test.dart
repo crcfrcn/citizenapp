@@ -59,7 +59,7 @@ Widget _wrap(
               deviceId: testMlsDeviceId,
               sessionToken: 'test',
               cidNumber: sampleProfile().cidNumber!,
-              bindingRevision: 1,
+              bindRev: 1,
               accountId: kOwner,
               expiresAt: 4102444800000,
             ),

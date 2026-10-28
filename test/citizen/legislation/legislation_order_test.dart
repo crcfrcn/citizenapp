@@ -9,11 +9,11 @@ import 'package:citizenapp/system/theme/app_layout.dart';
 import '../public/public_nav_harness.dart';
 
 Institution _inst(String code, {String cityCode = ''}) => Institution(
-      cidNumber: 'cid-$code-$cityCode',
-      cidFullName: '$code$cityCode',
-      institutionCode: code,
-      cityCode: cityCode,
-    );
+  cidNumber: 'cid-$code-$cityCode',
+  fullName: '$code$cityCode',
+  orgCode: code,
+  cityCode: cityCode,
+);
 
 void main() {
   testWidgets('宪法卡标题使用书名号并在整张卡片水平居中', (tester) async {
@@ -72,10 +72,14 @@ void main() {
 
     final sorted = sortProvinceLegislationRows(rows);
 
-    expect(
-      sorted.map((e) => '${e.institutionCode}${e.cityCode}').toList(),
-      ['PLG', 'PSN', 'PRP', 'CLEG001', 'CLEG002', 'CLEG003'],
-    );
+    expect(sorted.map((e) => '${e.orgCode}${e.cityCode}').toList(), [
+      'PLG',
+      'PSN',
+      'PRP',
+      'CLEG001',
+      'CLEG002',
+      'CLEG003',
+    ]);
   });
 
   test('市代码升序按数值而非字符串（防未补零时 2 < 10）', () {

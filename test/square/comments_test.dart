@@ -1,3 +1,4 @@
+import 'package:citizenapp/storage/social_isar.dart' as social_store show Reply;
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
 import 'package:citizenapp/account/identity/identity_binding.dart';
@@ -30,7 +31,7 @@ Map<String, dynamic> _comment({
   'created_at': 1000000,
   'comment_id': id,
   'post_id': post,
-  'author_cid_number': author,
+  'author_cid': author,
   'reply_text': replyText,
   'reply_state': state,
   'display_name': '公民',
@@ -44,7 +45,7 @@ class _Sessions implements SquareSessionProvider {
     sessionToken: 'synthetic',
     cidNumber: _cid,
     accountId: '0x${'11' * 32}',
-    bindingRevision: 1,
+    bindRev: 1,
     expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
   );
   @override
@@ -73,7 +74,7 @@ class _User implements CurrentUserContext {
         genesisHash: '0x${'22' * 32}',
         cidNumber: cid,
         accountId: '0x${'11' * 32}',
-        bindingRevision: 1,
+        bindRev: 1,
       ),
     );
   }
@@ -85,15 +86,15 @@ class _User implements CurrentUserContext {
 Map<String, dynamic> _notice(int revision) => {
   'is_ok': true,
   'cid_number': _cid,
-  'binding_revision': 1,
-  'notice_revision': revision,
+  'bind_rev': 1,
+  'notice_rev': revision,
   'square_unread': 0,
   'following_unread': 0,
   'interaction_unread': 0,
   'interaction_sequence': 0,
   'through': revision,
-  'membergate_revision': 0,
-  'creator_revision': 0,
+  'member_rev': 0,
+  'creator_rev': 0,
   'membergate': null,
   'creator': null,
 };
@@ -294,103 +295,43 @@ void main() {
       expect(api.reads, 1);
     });
   });
-  testWidgets('旧评论页和待发意图一次升级，原操作ID保留且不发网络请求', (tester) async {
-    await _check(tester, () async {
-      final old = _comment(replyText: '旧评论');
-      for (final entry in {
-        'reply_seq': 'sequence',
-        'reply_text': 'body',
-        'reply_state': 'state',
-      }.entries) {
-        old[entry.value] = old.remove(entry.key);
-      }
-      final operation = '11' * 16;
-      await tester.runAsync(() async {
-        await SocialIsar.instance.writeTxn((db) async {
-          await db.squareCommentsEntitys.put(
-            SquareCommentsEntity()
-              ..cidNumber = _cid
-              ..postId = 'post'
-              ..pageJson = jsonEncode({
-                'comments': [old],
-                'next_cursor': null,
-              })
-              ..pendingJson = jsonEncode({
-                'operation_id': operation,
-                'body': '旧待发',
-                'reply_to': null,
-              }),
-          );
-        });
-      });
-      final api = _Api();
-      addTearDown(api.close);
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: SingleChildScrollView(
-              child: Comments(
-                postId: 'post',
-                ownerCid: _cid,
-                api: api,
-                sessionProvider: _Sessions(),
-              ),
-            ),
-          ),
-        ),
-      );
-      await _drain(
-        tester,
-        () =>
-            find.text('旧评论').evaluate().isNotEmpty &&
-            find.text('旧待发').evaluate().isNotEmpty,
-      );
-      await tester.runAsync(() async {
-        final saved = (await SocialIsar.instance.read(
-          (db) => db.squareCommentsEntitys.getByCidNumberPostId(_cid, 'post'),
-        ))!;
-        final page = jsonDecode(saved.pageJson) as Map<String, dynamic>;
-        final row = (page['comments'] as List).single as Map;
-        expect(row['reply_text'], '旧评论');
-        expect(row.containsKey('body'), false);
-        final pending = jsonDecode(saved.pendingJson!) as Map;
-        expect(pending['operation_id'], operation);
-        expect(pending['reply_text'], '旧待发');
-        expect(pending.containsKey('body'), false);
-      });
-      expect(api.reads, 0);
-      expect(api.operations, isEmpty);
-    });
-  });
-  for (final mode in ['write', 'conflict', 'mixed']) {
-    testWidgets('评论旧缓存升级$mode失败后禁止发送和覆盖，刷新重新读取原快照', (tester) async {
+  for (final mode in ['page', 'pending', 'mixed']) {
+    testWidgets('评论旧缓存$mode拒绝操作且原样保留，刷新读取并发新快照', (tester) async {
       await _check(tester, () async {
-        final oldPending = jsonEncode({
-          'operation_id': '11' * 16,
-          'body': '旧待发',
-          'reply_to': null,
-          if (mode == 'mixed') 'reply_text': '混名正文',
+        final row = _comment(replyText: '旧评论');
+        if (mode == 'page') {
+          for (final entry in {
+            'reply_seq': 'sequence',
+            'reply_text': 'body',
+            'reply_state': 'state',
+          }.entries) {
+            row[entry.value] = row.remove(entry.key);
+          }
+        }
+        final page = jsonEncode({
+          'comments': [row],
+          'next_cursor': null,
         });
-        final page = jsonEncode({'comments': <Object>[], 'next_cursor': null});
+        final pending = jsonEncode({
+          'operation_id': '11' * 16,
+          if (mode == 'page' || mode == 'mixed') 'reply_text': '旧待发',
+          if (mode != 'page') 'body': '旧待发',
+          'reply_to': null,
+        });
         await tester.runAsync(
           () => SocialIsar.instance.writeTxn((db) async {
-            await db.squareCommentsEntitys.put(
-              SquareCommentsEntity()
+            await db.collection<social_store.Reply>().put(
+              social_store.Reply()
                 ..cidNumber = _cid
                 ..postId = 'post'
-                ..pageJson = page
-                ..pendingJson = oldPending,
+                ..pageData = page
+                ..pendingData = pending,
             );
           }),
         );
-        final newerPending = jsonEncode({
-          'operation_id': '22' * 16,
-          'reply_text': '新待发',
-          'reply_to': null,
-        });
-        var fail = true;
         final api = _Api();
         addTearDown(api.close);
+        var writes = 0;
         await tester.pumpWidget(
           MaterialApp(
             home: Scaffold(
@@ -408,26 +349,8 @@ void main() {
                         nextPending, {
                         required isCurrent,
                       }) async {
-                        if (fail) {
-                          if (mode == 'conflict') {
-                            await SocialIsar.instance.writeTxn((db) async {
-                              final row = (await db.squareCommentsEntitys
-                                  .getByCidNumberPostId(cid, post))!;
-                              row.pendingJson = newerPending;
-                              await db.squareCommentsEntitys.put(row);
-                            });
-                          }
-                          throw StateError('synthetic upgrade write failure');
-                        }
-                        await SocialIsar.instance.writeTxn((db) async {
-                          if (!isCurrent()) throw StateError('stale owner');
-                          final row = (await db.squareCommentsEntitys
-                              .getByCidNumberPostId(cid, post))!;
-                          row
-                            ..pageJson = nextPage
-                            ..pendingJson = nextPending;
-                          await db.squareCommentsEntitys.put(row);
-                        });
+                        writes++;
+                        throw StateError('普通恢复不得写入');
                       },
                 ),
               ),
@@ -453,44 +376,53 @@ void main() {
         expect(find.text('放弃本机待发'), findsNothing);
         expect(api.operations, isEmpty);
         expect(api.reads, 0);
-        await tester.runAsync(() async {
-          final row = (await SocialIsar.instance.read(
-            (db) => db.squareCommentsEntitys.getByCidNumberPostId(_cid, 'post'),
-          ))!;
-          expect(row.pageJson, page);
-          expect(
-            row.pendingJson,
-            mode == 'conflict' ? newerPending : oldPending,
-          );
+        expect(writes, 0);
+        final newPending = jsonEncode({
+          'operation_id': '22' * 16,
+          'reply_text': '新待发',
+          'reply_to': null,
         });
-        if (mode != 'mixed') {
-          fail = false;
-          await tester.tap(find.byTooltip('刷新评论'));
-          await _drain(
-            tester,
-            () =>
-                find
-                    .text(mode == 'conflict' ? '新待发' : '旧待发')
-                    .evaluate()
-                    .isNotEmpty &&
-                tester
-                        .widget<FilledButton>(
-                          find.byKey(const ValueKey('comment-send')),
-                        )
-                        .onPressed !=
-                    null,
-          );
-          expect(
-            tester
-                .widget<FilledButton>(
-                  find.byKey(const ValueKey('comment-send')),
-                )
-                .onPressed,
-            isNotNull,
-          );
-          expect(api.operations, isEmpty);
-          expect(api.reads, 0);
-        }
+        await tester.runAsync(
+          () => SocialIsar.instance.writeTxn((db) async {
+            final saved = (await db
+                .collection<social_store.Reply>()
+                .getByCidNumberPostId(_cid, 'post'))!;
+            expect(saved.pageData, page);
+            expect(saved.pendingData, pending);
+            saved
+              ..pageData = jsonEncode({
+                'comments': [_comment(replyText: '新评论')],
+                'next_cursor': null,
+              })
+              ..pendingData = newPending;
+            await db.collection<social_store.Reply>().put(saved);
+          }),
+        );
+        await tester.tap(find.byTooltip('刷新评论'));
+        await _drain(
+          tester,
+          () =>
+              find.text('新待发').evaluate().isNotEmpty &&
+              tester
+                      .widget<FilledButton>(
+                        find.byKey(const ValueKey('comment-send')),
+                      )
+                      .onPressed !=
+                  null,
+        );
+        expect(find.text('新评论'), findsOneWidget);
+        expect(api.operations, isEmpty);
+        expect(api.reads, 0);
+        expect(writes, 0);
+        await tester.runAsync(() async {
+          final saved = (await SocialIsar.instance.read(
+            (db) => db.collection<social_store.Reply>().getByCidNumberPostId(
+              _cid,
+              'post',
+            ),
+          ))!;
+          expect(saved.pendingData, newPending);
+        });
       });
     });
   }
@@ -498,11 +430,11 @@ void main() {
     await _check(tester, () async {
       await tester.runAsync(() async {
         await SocialIsar.instance.writeTxn((db) async {
-          await db.squareCommentsEntitys.put(
-            SquareCommentsEntity()
+          await db.collection<social_store.Reply>().put(
+            social_store.Reply()
               ..cidNumber = _cid
               ..postId = 'post'
-              ..pageJson = jsonEncode({
+              ..pageData = jsonEncode({
                 'comments': [_comment()],
                 'next_cursor': null,
               }),
@@ -857,14 +789,19 @@ void main() {
       expect(api.operations.length, 1);
       final saved = await tester.runAsync(
         () => SocialIsar.instance.read(
-          (db) => db.squareCommentsEntitys.getByCidNumberPostId(_cid, 'post'),
+          (db) => db.collection<social_store.Reply>().getByCidNumberPostId(
+            _cid,
+            'post',
+          ),
         ),
       );
-      expect(saved?.pendingJson, contains('原账号私有待发'));
+      expect(saved?.pendingData, contains('原账号私有待发'));
       final foreign = await tester.runAsync(
         () => SocialIsar.instance.read(
-          (db) =>
-              db.squareCommentsEntitys.getByCidNumberPostId(user.cid, 'post'),
+          (db) => db.collection<social_store.Reply>().getByCidNumberPostId(
+            user.cid,
+            'post',
+          ),
         ),
       );
       expect(foreign, isNull);
@@ -1021,17 +958,16 @@ void main() {
                       await SocialIsar.instance.writeTxn((db) async {
                         if (!isCurrent()) return;
                         final row =
-                            await db.squareCommentsEntitys.getByCidNumberPostId(
-                              cid,
-                              post,
-                            ) ??
-                            SquareCommentsEntity();
+                            await db
+                                .collection<social_store.Reply>()
+                                .getByCidNumberPostId(cid, post) ??
+                            social_store.Reply();
                         row
                           ..cidNumber = cid
                           ..postId = post
-                          ..pageJson = page
-                          ..pendingJson = pending;
-                        await db.squareCommentsEntitys.put(row);
+                          ..pageData = page
+                          ..pendingData = pending;
+                        await db.collection<social_store.Reply>().put(row);
                       });
                     },
               ),
@@ -1056,10 +992,13 @@ void main() {
       );
       final saved = await tester.runAsync(
         () => SocialIsar.instance.read(
-          (db) => db.squareCommentsEntitys.getByCidNumberPostId(_cid, 'post'),
+          (db) => db.collection<social_store.Reply>().getByCidNumberPostId(
+            _cid,
+            'post',
+          ),
         ),
       );
-      expect(saved?.pendingJson, contains(api.operations.single));
+      expect(saved?.pendingData, contains(api.operations.single));
       fail = false;
       await tester.tap(find.byKey(const ValueKey('comment-send')));
       await _drain(tester, () => find.text('发送').evaluate().isNotEmpty);
@@ -1067,10 +1006,13 @@ void main() {
       expect(api.operations.toSet().length, 1);
       final completed = await tester.runAsync(
         () => SocialIsar.instance.read(
-          (db) => db.squareCommentsEntitys.getByCidNumberPostId(_cid, 'post'),
+          (db) => db.collection<social_store.Reply>().getByCidNumberPostId(
+            _cid,
+            'post',
+          ),
         ),
       );
-      expect(completed?.pendingJson, isNull);
+      expect(completed?.pendingData, isNull);
     });
   });
   testWidgets('首次身份恢复暂时失败后刷新会重新恢复并启用原评论入口', (tester) async {

@@ -4,7 +4,7 @@
 class CreatorOverview {
   const CreatorOverview({
     required this.subscriberCount,
-    required this.monthIncomeFen,
+    required this.monthlyIncomeFen,
     required this.tierCount,
   });
 
@@ -12,14 +12,14 @@ class CreatorOverview {
   final int subscriberCount;
 
   /// 预计月收入（分）：当前有效订阅按周期折算，不代表已结算收入。
-  final int monthIncomeFen;
+  final int monthlyIncomeFen;
 
   /// 档位数（= 当前计划档位数量）。
   final int tierCount;
 
   static const CreatorOverview zero = CreatorOverview(
     subscriberCount: 0,
-    monthIncomeFen: 0,
+    monthlyIncomeFen: 0,
     tierCount: 0,
   );
 
@@ -27,7 +27,7 @@ class CreatorOverview {
     int asInt(Object? value) => value is int ? value : 0;
     return CreatorOverview(
       subscriberCount: asInt(json['subscriber_count']),
-      monthIncomeFen: asInt(json['month_income_fen']),
+      monthlyIncomeFen: asInt(json['monthly_income_fen']),
       tierCount: asInt(json['tier_count']),
     );
   }

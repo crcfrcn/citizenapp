@@ -63,7 +63,7 @@ void main() {
       sessionToken: 'synthetic',
       cidNumber: testMlsCidNumber,
       accountId: testMlsAccountId,
-      bindingRevision: 1,
+      bindRev: 1,
       expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
       authenticateRequest: fakeMlsRequestHeaders,
     );
@@ -76,9 +76,9 @@ void main() {
       'post_title': null,
       'post_excerpt': '摘要',
       'content_hash': hash,
-      'storage_receipt_id': 'receipt',
+      'receipt_id': 'receipt',
       'chain_block': 1,
-      'chain_block_hash': block,
+      'chain_hash': block,
       'tx_hash': tx,
       'created_at': 1000,
       'post_state': 'published',
@@ -136,7 +136,7 @@ void main() {
       final invalidManifest = {...manifest};
       switch (bad) {
         case 'block':
-          invalidIndex['chain_block_hash'] = '0x${'44' * 32}';
+          invalidIndex['chain_hash'] = '0x${'44' * 32}';
         case 'tx':
           invalidIndex['tx_hash'] = '0x${'44' * 32}';
         case 'hash':
@@ -286,7 +286,7 @@ void main() {
           sessionToken: 'price',
           cidNumber: testMlsCidNumber,
           accountId: testMlsAccountId,
-          bindingRevision: 1,
+          bindRev: 1,
           expiresAt: 9999999999999,
           authenticateRequest: fakeMlsRequestHeaders,
         ),
@@ -305,7 +305,7 @@ void main() {
     final session = SquareSession(
       sessionToken: 'ordinary',
       cidNumber: testMlsCidNumber,
-      bindingRevision: 1,
+      bindRev: 1,
       accountId: testMlsAccountId,
       deviceId: testMlsDeviceId,
       expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
@@ -393,7 +393,7 @@ void main() {
     final session = SquareSession(
       sessionToken: 'ordinary',
       cidNumber: testMlsCidNumber,
-      bindingRevision: 1,
+      bindRev: 1,
       accountId: testMlsAccountId,
       deviceId: testMlsDeviceId,
       expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
@@ -410,9 +410,9 @@ void main() {
                     'is_ok': true,
                     'upload_id': 'upload',
                     'post_id': 'post',
-                    'storage_receipt_id': 'receipt',
+                    'receipt_id': 'receipt',
                     'expires_at': 9999999999999,
-                    'estimated_bytes': 1,
+                    'byte_size': 1,
                     'manifest': {
                       'object_key': 'manifest',
                       'upload_url': '/api/8964/uploads/upload/manifest',
@@ -424,7 +424,7 @@ void main() {
                     'upload_id': 'upload',
                     'post_id': 'post',
                     'content_hash': 'ab' * 32,
-                    'storage_receipt_id': 'receipt',
+                    'receipt_id': 'receipt',
                   },
           ),
           200,
@@ -438,7 +438,7 @@ void main() {
       titleLength: 0,
       textLength: 1,
       contentHash: 'ab' * 32,
-      manifestByteSize: 1,
+      manifestBytes: 1,
       mediaItems: [],
     );
     expect(
@@ -465,7 +465,7 @@ void main() {
               'upload_id': 'upload',
               'post_id': 'post',
               'content_hash': 'ab' * 32,
-              'storage_receipt_id': 'receipt',
+              'receipt_id': 'receipt',
               field: 'mismatch',
             }),
             200,
@@ -501,7 +501,7 @@ void main() {
   });
 }
 
-/// 合成异常的toString不得被日志读取，防止未来把动态正文混入固定事件。
+/// 合成异常的function toString() { [native code] }不得被日志读取，防止未来把动态正文混入固定事件。
 class _UnreadableProposalError {
   @override
   String toString() =>
@@ -662,7 +662,7 @@ void _chatAccessTests() {
   const session = SquareSession(
     sessionToken: 'ordinary',
     cidNumber: testMlsCidNumber,
-    bindingRevision: 1,
+    bindRev: 1,
     accountId: testMlsAccountId,
     deviceId: testMlsDeviceId,
     expiresAt: 4102444800000,
@@ -839,7 +839,7 @@ void _readCoalescingTests() {
     sessionToken: token,
     cidNumber: testMlsCidNumber,
     accountId: testMlsAccountId,
-    bindingRevision: 1,
+    bindRev: 1,
     deviceId: testMlsDeviceId,
     expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
     requireCurrent: current,
@@ -1197,14 +1197,14 @@ void _serviceUnavailableTests() {
               unorderedEquals([
                 'account_id',
                 'public_key',
-                'purpose',
-                'method',
+                'token_purpose',
+                'http_method',
                 'request_target',
-                'body_sha256',
+                'body_hash',
               ]),
             );
-            expect(body['purpose'], 'session');
-            expect(body['method'], 'POST');
+            expect(body['token_purpose'], 'session');
+            expect(body['http_method'], 'POST');
             expect(body['request_target'], '/api/user/sessions');
             return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
           }
@@ -1233,7 +1233,7 @@ void _serviceUnavailableTests() {
       expect(session.accountId, testMlsAccountId);
       expect(session.cidNumber, testMlsCidNumber);
       expect(session.deviceId, testMlsDeviceId);
-      expect(session.bindingRevision, source.identity.bindingRevision);
+      expect(session.bindRev, source.identity.bindRev);
       expect(await attempt(), same(session));
       expect(registrations, 0);
       expect(paths, [
@@ -1344,7 +1344,7 @@ void _failureDiagnosticsTests() {
                     authentication: source,
                     issuedAt: 1,
                     bindingSignatureHex: '0x${'ab' * 64}',
-                    enrollmentId: null,
+                    regId: null,
                     recoveryToken: null,
                   )
                 : api.ensureSession(
@@ -1420,7 +1420,7 @@ void _failureDiagnosticsTests() {
                     authentication: source,
                     issuedAt: 1,
                     bindingSignatureHex: '0x${'ab' * 64}',
-                    enrollmentId: null,
+                    regId: null,
                     recoveryToken: null,
                   )
                 : api.ensureSession(

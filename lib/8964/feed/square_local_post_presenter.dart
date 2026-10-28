@@ -69,19 +69,19 @@ class SquareLocalPostPresenter {
           postId: local.postId,
           mediaIndex: media.length,
           byteSize: item['byte_size'] as int?,
-          width: item['width'] as int?,
-          height: item['height'] as int?,
+          pixelWidth: item['pixel_width'] as int?,
+          pixelHeight: item['pixel_height'] as int?,
         ),
       );
     }
 
-    final title = manifest['title'];
+    final title = manifest['post_title'];
     if (title != null && title is! String) {
       throw const SquareLocalPostPresenterException('本地 manifest title 不合法');
     }
     if (postType == SquarePostType.article &&
         (title is! String || title.trim().isEmpty)) {
-      throw const SquareLocalPostPresenterException('本地文章 title 不能为空');
+      throw const SquareLocalPostPresenterException('本地文章标题不能为空');
     }
     // 规范 manifest 必须声明首项图片；否则该文章
     // 不具备首图真源，不能作为正常文章进入本人内容列表。
@@ -109,9 +109,9 @@ class SquareLocalPostPresenter {
         contentSections: parseArticleContentSections(
           manifest['content_sections'],
         ),
-        createdAt: DateTime.fromMillisecondsSinceEpoch(local.createdAt),
+        publishedAt: DateTime.fromMillisecondsSinceEpoch(local.publishedAt),
         contentHash: local.contentHash,
-        storageReceiptId: local.storageReceiptId,
+        receiptId: local.receiptId,
         chainBlock: local.chainBlock,
       ),
     );

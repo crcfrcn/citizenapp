@@ -27,8 +27,9 @@ class InstitutionAccountsPage extends StatefulWidget {
 }
 
 class _InstitutionAccountsPageState extends State<InstitutionAccountsPage> {
-  late List<InstitutionAccountRow> _rows =
-      institutionAccountIdRows(widget.institution);
+  late List<InstitutionAccountRow> _rows = institutionAccountIdRows(
+    widget.institution,
+  );
   bool _balanceLoading = true;
 
   @override
@@ -39,8 +40,9 @@ class _InstitutionAccountsPageState extends State<InstitutionAccountsPage> {
 
   Future<void> _loadBalances() async {
     try {
-      final balances = await widget.chainState
-          .balances(_rows.map((r) => r.accountId).toList());
+      final balances = await widget.chainState.balances(
+        _rows.map((r) => r.accountId).toList(),
+      );
       if (!mounted) return;
       setState(() {
         _rows = _rows
@@ -69,10 +71,8 @@ class _InstitutionAccountsPageState extends State<InstitutionAccountsPage> {
         itemCount: _rows.length,
         separatorBuilder: (_, _) =>
             SizedBox(height: AppLayout.scaled(context, 10)),
-        itemBuilder: (context, i) => _AccountCard(
-          row: _rows[i],
-          balanceLoading: _balanceLoading,
-        ),
+        itemBuilder: (context, i) =>
+            _AccountCard(row: _rows[i], balanceLoading: _balanceLoading),
       ),
     );
   }
@@ -99,29 +99,36 @@ class _AccountCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(row.label,
-                  style: TextStyle(
-                      fontSize: AppLayout.scaled(context, 14),
-                      fontWeight: FontWeight.w600,
-                      color: AppTheme.textPrimary)),
+              Text(
+                row.label,
+                style: TextStyle(
+                  fontSize: AppLayout.scaled(context, 14),
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.textPrimary,
+                ),
+              ),
               Text(
                 balanceLoading
                     ? '—'
                     : (row.balanceYuan == null
-                        ? '未激活'
-                        : '${AmountFormat.formatThousands(row.balanceYuan)} 元'),
+                          ? '未激活'
+                          : '${AmountFormat.formatThousands(row.balanceYuan)} 元'),
                 style: TextStyle(
-                    fontSize: AppLayout.scaled(context, 13.5),
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.primary),
+                  fontSize: AppLayout.scaled(context, 13.5),
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.primary,
+                ),
               ),
             ],
           ),
           SizedBox(height: AppLayout.scaled(context, 6)),
-          Text(row.ss58Address,
-              style: TextStyle(
-                  fontSize: AppLayout.scaled(context, 11.5),
-                  color: AppTheme.textTertiary)),
+          Text(
+            row.accountAddress,
+            style: TextStyle(
+              fontSize: AppLayout.scaled(context, 11.5),
+              color: AppTheme.textTertiary,
+            ),
+          ),
         ],
       ),
     );

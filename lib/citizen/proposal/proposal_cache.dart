@@ -39,18 +39,21 @@ class ProposalCache {
 
   /// 存入协议升级提案详情。
   static void putRuntimeUpgradeDetail(
-          int proposalId, RuntimeUpgradeProposalInfo detail) =>
-      _runtimeUpgradeDetailCache[proposalId] = detail;
+    int proposalId,
+    RuntimeUpgradeProposalInfo detail,
+  ) => _runtimeUpgradeDetailCache[proposalId] = detail;
 
   /// 存入创建多签提案详情。
   static void putCreateMultisigDetail(
-          int proposalId, CreateProposalInfo detail) =>
-      _createMultisigDetailCache[proposalId] = detail;
+    int proposalId,
+    CreateProposalInfo detail,
+  ) => _createMultisigDetailCache[proposalId] = detail;
 
   /// 存入关闭多签提案详情。
   static void putCloseMultisigDetail(
-          int proposalId, CloseProposalInfo detail) =>
-      _closeMultisigDetailCache[proposalId] = detail;
+    int proposalId,
+    CloseProposalInfo detail,
+  ) => _closeMultisigDetailCache[proposalId] = detail;
 
   // ──── 清除 ────
 

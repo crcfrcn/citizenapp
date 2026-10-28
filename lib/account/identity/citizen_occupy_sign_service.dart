@@ -64,7 +64,10 @@ class CitizenOccupySignService {
   ]) async {
     final CitizenQrDocument request;
     try {
-      request = (await _qr.parseForPurpose(raw, CitizenQrScanPurpose.signingRequest)).document;
+      request = (await _qr.parseForPurpose(
+        raw,
+        CitizenQrScanPurpose.signingRequest,
+      )).document;
     } on CitizenSdkException catch (error) {
       throw CitizenOccupySignException(error.message);
     }
@@ -73,9 +76,12 @@ class CitizenOccupySignService {
       throw const CitizenOccupySignException('该二维码不是注册局占号/换绑请求');
     }
     final actionLabel = action == CitizenQrActions.citizenOccupy
-        ? '注册局占号绑定确认' : '注册局换绑账户确认';
+        ? '注册局占号绑定确认'
+        : '注册局换绑账户确认';
     final authorization = await _qr.prepareAccountAuthorization(
-      action: action, payload: request.reviewPayload!, accountId: selectedAccount.accountId,
+      action: action,
+      payload: request.reviewPayload!,
+      accountId: selectedAccount.accountId,
     );
     switch (authorization.reason) {
       case CitizenQrAuthorizationReason.invalidTemplate:
@@ -121,10 +127,12 @@ class CitizenOccupySignService {
     CitizenSigning signing,
     BuildContext? context,
   ) async {
-    final bytes = await CitizenSigning.encodePayload(CitizenSigningPayload.message(
-      opTag: prep.isOccupy ? kOpSignCidOccupy : kOpSignCidAdminRebind,
-      scalePayload: prep.materializedPayload,
-    ));
+    final bytes = await CitizenSigning.encodePayload(
+      CitizenSigningPayload.message(
+        opTag: prep.isOccupy ? kOpSignCidOccupy : kOpSignCidAdminRebind,
+        scalePayload: prep.materializedPayload,
+      ),
+    );
     if (context != null && !context.mounted) {
       throw const CitizenOccupySignException('当前签名页面已经关闭');
     }
@@ -142,10 +150,12 @@ class CitizenOccupySignService {
         throw const CitizenOccupySignException('当前签名页面已经关闭');
       }
       // 同一次换绑扫码内，当前账户和新账户共同绑定同一份 materialized payload。
-      final currentAccountDigest = await CitizenSigning.encodePayload(CitizenSigningPayload.message(
-        opTag: kOpSignCidRebind,
-        scalePayload: prep.materializedPayload,
-      ));
+      final currentAccountDigest = await CitizenSigning.encodePayload(
+        CitizenSigningPayload.message(
+          opTag: kOpSignCidRebind,
+          scalePayload: prep.materializedPayload,
+        ),
+      );
       if (context != null && !context.mounted) {
         throw const CitizenOccupySignException('当前签名页面已经关闭');
       }
@@ -157,14 +167,18 @@ class CitizenOccupySignService {
         action: kOpSignCidRebind,
       );
     }
-    return (await _qr.encodeDocument(CitizenQrContent.signResponse(
-      requestId: prep.request.requestId!,
-      expiresAt: BigInt.from(prep.request.expiresAt!),
-      signerAccountId: prep.account.accountId,
-      signature: signature,
-      currentAccountId: currentAccountSignature == null ? null : currentAccount?.accountId,
-      currentAccountSignature: currentAccountSignature,
-    ))).canonicalText;
+    return (await _qr.encodeDocument(
+      CitizenQrContent.signResponse(
+        requestId: prep.request.requestId!,
+        expiresAt: BigInt.from(prep.request.expiresAt!),
+        signerAccountId: prep.account.accountId,
+        signature: signature,
+        currentAccountId: currentAccountSignature == null
+            ? null
+            : currentAccount?.accountId,
+        currentAccountSignature: currentAccountSignature,
+      ),
+    )).canonicalText;
   }
 
   static CitizenWalletStateAccount? _findAccount(

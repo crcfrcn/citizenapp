@@ -1,4 +1,5 @@
 import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizenapp/account/identity/identity_binding.dart';
 import 'package:citizenapp/account/identity/public_identity_store.dart';
@@ -37,7 +38,7 @@ IdentityBinding binding(String cid, int revision, String account) =>
     IdentityBinding(
       genesisHash: '0x${'11' * 32}',
       cidNumber: cid,
-      bindingRevision: revision,
+      bindRev: revision,
       accountId: account,
     );
 
@@ -74,6 +75,11 @@ void main() {
       (await a.readAll()).map((item) => item.cidNumber),
       unorderedEquals(['CID-A', 'CID-B']),
     );
+    final saved = jsonDecode(records.values['identity.bindings']!) as List;
+    expect(
+      saved.map((item) => (item as Map)['cid_number']),
+      unorderedEquals(['CID-A', 'CID-B']),
+    );
     await a.activate(binding('CID-A', 2, '0x${'44' * 32}'));
     await expectLater(
       b.activate(binding('CID-A', 1, '0x${'22' * 32}')),
@@ -86,5 +92,18 @@ void main() {
     await a.clearForCid('CID-A');
     expect(await b.readForCid('CID-A'), isNull);
     expect((await b.readForCid('CID-B'))!.accountId, '0x${'33' * 32}');
+  });
+  test('重复CID和旧对象索引拒绝且原值保持', () async {
+    final records = _Records();
+    final value = binding('CID-A', 1, '0x${'22' * 32}').toJson();
+    final store = PublicIdentityStore(records);
+    for (final raw in [
+      jsonEncode([value, value]),
+      jsonEncode({'CID-A': value}),
+    ]) {
+      records.values['identity.bindings'] = raw;
+      await expectLater(store.readAll(), throwsFormatException);
+      expect(records.values['identity.bindings'], raw);
+    }
   });
 }

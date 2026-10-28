@@ -42,12 +42,13 @@ abstract final class OnchainTransferCall {
     const perbillDenominator = 1000000000;
     const minimumFeeFen = 10;
     final amountFen = BigInt.from((amountYuan * 100).round());
-    final byRate = (amountFen * BigInt.from(perbillParts) +
+    final byRate =
+        (amountFen * BigInt.from(perbillParts) +
             BigInt.from(perbillDenominator ~/ 2)) ~/
         BigInt.from(perbillDenominator);
-    final feeFen = byRate < BigInt.from(minimumFeeFen)
+    final feeAmount = byRate < BigInt.from(minimumFeeFen)
         ? BigInt.from(minimumFeeFen)
         : byRate;
-    return feeFen.toDouble() / 100;
+    return feeAmount.toDouble() / 100;
   }
 }

@@ -17,21 +17,21 @@ class InstitutionAccountRow {
   const InstitutionAccountRow({
     required this.label,
     required this.accountId,
-    required this.ss58Address,
+    required this.accountAddress,
     this.balanceYuan,
   });
 
   final String label;
   final String accountId;
-  final String ss58Address;
+  final String accountAddress;
   final double? balanceYuan;
 
   InstitutionAccountRow withBalance(double? yuan) => InstitutionAccountRow(
-        label: label,
-        accountId: accountId,
-        ss58Address: ss58Address,
-        balanceYuan: yuan,
-      );
+    label: label,
+    accountId: accountId,
+    accountAddress: accountAddress,
+    balanceYuan: yuan,
+  );
 }
 
 /// 由机构构造全部账户行:固定治理档用 china 固定账户,普通机构本地派生。
@@ -58,27 +58,33 @@ List<InstitutionAccountRow> institutionAccountIdRows(Institution inst) {
   // 制度账户必须先按保留名路由到专用 op_tag，普通名称才回落 OP_NAME。
   final rows = <InstitutionAccountRow>[];
   final main = deriveInstitutionMainAccountId(inst.cidNumber);
-  rows.add(InstitutionAccountRow(
-    label: kReservedNameMain,
-    accountId: accountIdText(main),
-    ss58Address: ss58FromAccountId(main),
-  ));
+  rows.add(
+    InstitutionAccountRow(
+      label: kReservedNameMain,
+      accountId: accountIdText(main),
+      accountAddress: ss58FromAccountId(main),
+    ),
+  );
   final feeId = deriveInstitutionFeeAccountId(inst.cidNumber);
-  rows.add(InstitutionAccountRow(
-    label: kReservedNameFee,
-    accountId: accountIdText(feeId),
-    ss58Address: ss58FromAccountId(feeId),
-  ));
-  for (final name in inst.customAccountNames) {
+  rows.add(
+    InstitutionAccountRow(
+      label: kReservedNameFee,
+      accountId: accountIdText(feeId),
+      accountAddress: ss58FromAccountId(feeId),
+    ),
+  );
+  for (final name in inst.accountNames) {
     if (name.isEmpty || name == kReservedNameMain || name == kReservedNameFee) {
       continue;
     }
     final id = deriveInstitutionAccountIdByName(inst.cidNumber, name);
-    rows.add(InstitutionAccountRow(
-      label: name,
-      accountId: accountIdText(id),
-      ss58Address: ss58FromAccountId(id),
-    ));
+    rows.add(
+      InstitutionAccountRow(
+        label: name,
+        accountId: accountIdText(id),
+        accountAddress: ss58FromAccountId(id),
+      ),
+    );
   }
   return rows;
 }
@@ -98,6 +104,6 @@ InstitutionAccountRow _rowFromAccountId(String label, String accountId) {
   return InstitutionAccountRow(
     label: label,
     accountId: accountId,
-    ss58Address: ss58FromAccountId(bytes),
+    accountAddress: ss58FromAccountId(bytes),
   );
 }

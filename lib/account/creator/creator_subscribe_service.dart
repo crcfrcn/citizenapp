@@ -1,18 +1,16 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:citizenapp/account/identity/square_session_provider.dart';
-import 'package:citizenapp/network/square_api_client.dart'
-    show SquareSession;
+import 'package:citizenapp/network/square_api_client.dart' show SquareSession;
 import 'package:citizenapp/account/creator/creator_api.dart';
 import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
 import 'package:citizenapp/scanner/qr_sign_session_page.dart';
 import 'package:citizenapp/account/membership/subscription_chain.dart';
 import 'package:citizenapp/network/hex_codec.dart' show hexToBytes;
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:citizenapp/storage/wallet_isar.dart' show Member;
 
 class CreatorSubscribeException implements Exception {
   const CreatorSubscribeException(this.message);
@@ -34,15 +32,13 @@ class CreatorSubscribeService {
     required SquareSessionProvider sessionProvider,
     SubscriptionChain? subscriptionChain,
     CreatorApi? api,
-    SharedPreferences? preferences,
   }) : _subscriptionChain =
            subscriptionChain ??
            SubscriptionChain(chain: chain, transactions: transactions),
        _wallet = wallet,
        _identityResolver = identityResolver,
        _session = sessionProvider,
-       _api = api ?? CreatorApiHttp(),
-       _preferences = preferences {
+       _api = api ?? CreatorApiHttp() {
     unawaited(_retryPendingMirrors());
   }
 
@@ -51,7 +47,6 @@ class CreatorSubscribeService {
   final FinalizedIdentityResolver _identityResolver;
   final SquareSessionProvider _session;
   final CreatorApi _api;
-  final SharedPreferences? _preferences;
 
   Future<CreatorView> fetchView(
     SquareSession session,
@@ -85,7 +80,7 @@ class CreatorSubscribeService {
         externalSigning: (pending) => _showExternalSigning(context, pending),
       );
       await _confirm(
-        subscriberCidNumber: session.cidNumber,
+        cidNumber: session.cidNumber,
         creatorCidNumber: creatorCidNumber,
         txHash: result.txHash,
         blockHashHex: result.blockHashHex,
@@ -110,7 +105,7 @@ class CreatorSubscribeService {
         externalSigning: (pending) => _showExternalSigning(context, pending),
       );
       await _confirm(
-        subscriberCidNumber: session.cidNumber,
+        cidNumber: session.cidNumber,
         creatorCidNumber: creatorCidNumber,
         txHash: result.txHash,
         blockHashHex: result.blockHashHex,
@@ -144,7 +139,7 @@ class CreatorSubscribeService {
         externalSigning: (pending) => _showExternalSigning(context, pending),
       );
       await _confirm(
-        subscriberCidNumber: session.cidNumber,
+        cidNumber: session.cidNumber,
         creatorCidNumber: creatorCidNumber,
         txHash: result.txHash,
         blockHashHex: result.blockHashHex,
@@ -195,19 +190,10 @@ class CreatorSubscribeService {
     return session;
   }
 
-  Future<SharedPreferences> get _prefs async {
-    final preferences = _preferences;
-    if (preferences != null) return preferences;
-    return SharedPreferences.getInstance();
-  }
-
-  String _pendingKey(String subscriberCidNumber) =>
-      'creator_subscription_mirror_pending_by_cid:$subscriberCidNumber';
-
   /// finalized 回执按订阅者永久 CID 持久化；签名账户只作为交易事实保留。
   /// HTTP 失败只重放同一交易证明，不要求第二次签名。
   Future<void> _confirm({
-    required String subscriberCidNumber,
+    required String cidNumber,
     required String creatorCidNumber,
     required String txHash,
     required String blockHashHex,
@@ -218,20 +204,20 @@ class CreatorSubscribeService {
       'block_hash': blockHashHex,
     };
     try {
-      await _storeLocalProof(subscriberCidNumber, proof);
+      await Member.storeProof(cidNumber, proof, pendingKind: 'creator');
     } on Exception {
       // 链上已 finalized；本地缓存异常不得转化为重新签名。
     }
     try {
       final session = await _session.ensureSession();
-      if (session == null || session.cidNumber != subscriberCidNumber) return;
+      if (session == null || session.cidNumber != cidNumber) return;
       await _api.confirmCreatorSubscription(
         session: session,
         creatorCidNumber: creatorCidNumber,
         txHash: txHash,
         blockHashHex: blockHashHex,
       );
-      await _removePendingProof(subscriberCidNumber, txHash);
+      await Member.finishProof(cidNumber, txHash, 'creator');
     } on Exception {
       // 保留证明，下次进入创作者订阅页仅重试 HTTP。
     }
@@ -241,8 +227,11 @@ class CreatorSubscribeService {
     try {
       final session = await _session.ensureSession();
       if (session == null) return;
-      final subscriberCidNumber = session.cidNumber;
-      final pending = await _readList(_pendingKey(subscriberCidNumber));
+      final cidNumber = session.cidNumber;
+      final pending = await Member.readProofs(
+        cidNumber,
+        pendingKind: 'creator',
+      );
       for (final proof in List<Map<String, dynamic>>.from(pending)) {
         final txHash = proof['tx_hash'];
         final blockHashHex = proof['block_hash'];
@@ -258,56 +247,10 @@ class CreatorSubscribeService {
           txHash: txHash,
           blockHashHex: blockHashHex,
         );
-        await _removePendingProof(subscriberCidNumber, txHash);
+        await Member.finishProof(cidNumber, txHash, 'creator');
       }
     } on Exception {
       // Cloudflare 不可用不影响链上自动续费，证明继续保留。
     }
-  }
-
-  Future<void> _storeLocalProof(
-    String subscriberCidNumber,
-    Map<String, dynamic> proof,
-  ) async {
-    final pending = await _readList(_pendingKey(subscriberCidNumber));
-    pending.removeWhere((item) => item['tx_hash'] == proof['tx_hash']);
-    pending.add(proof);
-    await (await _prefs).setString(
-      _pendingKey(subscriberCidNumber),
-      jsonEncode(pending),
-    );
-
-    final historyKey = 'subscription_tx_history_by_cid:$subscriberCidNumber';
-    final history = await _readList(historyKey);
-    history.removeWhere((item) => item['tx_hash'] == proof['tx_hash']);
-    history.add(proof);
-    if (history.length > 50) history.removeRange(0, history.length - 50);
-    await (await _prefs).setString(historyKey, jsonEncode(history));
-  }
-
-  Future<void> _removePendingProof(
-    String subscriberCidNumber,
-    String txHash,
-  ) async {
-    final pending = await _readList(_pendingKey(subscriberCidNumber));
-    pending.removeWhere((item) => item['tx_hash'] == txHash);
-    final prefs = await _prefs;
-    if (pending.isEmpty) {
-      await prefs.remove(_pendingKey(subscriberCidNumber));
-    } else {
-      await prefs.setString(
-        _pendingKey(subscriberCidNumber),
-        jsonEncode(pending),
-      );
-    }
-  }
-
-  Future<List<Map<String, dynamic>>> _readList(String key) async {
-    final raw = (await _prefs).getString(key);
-    if (raw == null) return <Map<String, dynamic>>[];
-    final decoded = jsonDecode(raw);
-    return decoded is List
-        ? decoded.whereType<Map<String, dynamic>>().toList(growable: true)
-        : <Map<String, dynamic>>[];
   }
 }

@@ -3,11 +3,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart' as sdk;
 
-typedef MlsAccountBinding = ({
-  String cidNumber,
-  String accountId,
-  int bindingRevision,
-});
+typedef MlsAccountBinding = ({String cidNumber, String accountId, int bindRev});
 
 class MlsAuthenticationException implements Exception {
   const MlsAuthenticationException(
@@ -25,25 +21,24 @@ class MlsAuthenticationIdentity {
   const MlsAuthenticationIdentity({
     required this.cidNumber,
     required this.accountId,
-    required this.bindingRevision,
+    required this.bindRev,
     required this.deviceId,
     required this.publicKey,
   });
   final String cidNumber;
   final String accountId;
-  final int bindingRevision;
+  final int bindRev;
   final String deviceId;
   final String publicKey;
 
-  String get cacheKey =>
-      jsonEncode([cidNumber, accountId, bindingRevision, deviceId]);
+  String get cacheKey => jsonEncode([cidNumber, accountId, bindRev, deviceId]);
   void validate() {
     if (!RegExp(r'^[A-Za-z0-9][A-Za-z0-9-]{0,31}$').hasMatch(cidNumber) ||
         !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(accountId) ||
         !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(publicKey) ||
         deviceId != publicKey.substring(2) ||
-        bindingRevision <= 0 ||
-        bindingRevision > sdk.MlsAuthenticationRequest.maxJsonInteger) {
+        bindRev <= 0 ||
+        bindRev > sdk.MlsAuthenticationRequest.maxJsonInteger) {
       throw const MlsAuthenticationException('MLS公开身份与当前绑定无效');
     }
   }
@@ -92,7 +87,7 @@ class MlsAuthentication implements MlsAuthenticationSource {
     final identity = MlsAuthenticationIdentity(
       cidNumber: binding.cidNumber,
       accountId: binding.accountId,
-      bindingRevision: binding.bindingRevision,
+      bindRev: binding.bindRev,
       deviceId: local.deviceId,
       publicKey: publicKey,
     );
@@ -111,7 +106,7 @@ class MlsAuthentication implements MlsAuthenticationSource {
     if (_closed ||
         binding.cidNumber != identity.cidNumber ||
         binding.accountId != identity.accountId ||
-        binding.bindingRevision != identity.bindingRevision) {
+        binding.bindRev != identity.bindRev) {
       throw const MlsAuthenticationException(
         'MLS认证期间当前用户已变化',
         code: 'identityChanged',
@@ -136,17 +131,17 @@ class MlsAuthentication implements MlsAuthenticationSource {
 
 const mlsChallengeFields = {
   'is_ok',
-  'user_id',
+  'cid_number',
   'device_id',
   'public_key',
   'account_id',
-  'binding_revision',
+  'bind_rev',
   'service_origin',
-  'challenge',
-  'expires_at_millis',
-  'method',
+  'nonce_id',
+  'expires_at',
+  'http_method',
   'request_target',
-  'body_sha256',
+  'body_hash',
 };
 
 void validateMlsChallenge(
@@ -159,17 +154,17 @@ void validateMlsChallenge(
   if (challenge.length != mlsChallengeFields.length ||
       !challenge.keys.every(mlsChallengeFields.contains) ||
       challenge['is_ok'] != true ||
-      challenge['user_id'] != identity.cidNumber ||
+      challenge['cid_number'] != identity.cidNumber ||
       challenge['device_id'] != identity.deviceId ||
       challenge['public_key'] != identity.publicKey ||
       challenge['account_id'] != identity.accountId ||
-      challenge['binding_revision'] != identity.bindingRevision ||
+      challenge['bind_rev'] != identity.bindRev ||
       challenge['service_origin'] != request.serviceOrigin ||
-      challenge['challenge'] != request.challenge ||
-      challenge['expires_at_millis'] != request.expiresAtMillis ||
-      challenge['method'] != request.method ||
+      challenge['nonce_id'] != request.challenge ||
+      challenge['expires_at'] != request.expiresAtMillis ||
+      challenge['http_method'] != request.method ||
       challenge['request_target'] != request.requestTarget ||
-      challenge['body_sha256'] != '0x${sha256.convert(request.bodyBytes)}') {
+      challenge['body_hash'] != '0x${sha256.convert(request.bodyBytes)}') {
     throw const MlsAuthenticationException('MLS挑战与实际请求或当前身份不一致');
   }
 }
@@ -181,13 +176,26 @@ void validateMlsProofMatches(
   sdk.MlsAuthenticationProof proof,
 ) {
   validateMlsChallenge(identity, request, challenge);
+  // 依赖的证明字段与序列化由SDK拥有；用其公开构造器/编码器核对实际输出，
+  // 不把SDK字段改拼成另一套业务字段，也不复制其编码或签名实现。
   final fields = proof.toJson();
+  final expected = sdk.MlsAuthenticationProof(
+    userId: identity.cidNumber,
+    deviceId: identity.deviceId,
+    publicKey: identity.publicKey,
+    accountId: identity.accountId,
+    bindingRevision: identity.bindRev,
+    serviceOrigin: request.serviceOrigin,
+    challenge: request.challenge,
+    expiresAtMillis: request.expiresAtMillis,
+    method: request.method,
+    requestTarget: request.requestTarget,
+    bodySha256: challenge['body_hash'] as String,
+    signature: proof.signature,
+  ).toJson();
   if (fields.length != 12 ||
       !RegExp(r'^0x[0-9a-f]{128}$').hasMatch(proof.signature) ||
-      !fields.entries.every(
-        (entry) =>
-            entry.key == 'signature' || challenge[entry.key] == entry.value,
-      )) {
+      !fields.entries.every((entry) => expected[entry.key] == entry.value)) {
     throw const MlsAuthenticationException('MLS证明与固定挑战不一致');
   }
 }

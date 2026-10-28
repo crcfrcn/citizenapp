@@ -6,8 +6,10 @@ import 'package:citizenapp/account/identity/account_security_service.dart';
 import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
 import 'package:citizenapp/account/identity/square_session_provider.dart';
 import 'package:citizenapp/network/square_api_client.dart';
+
 import '../../support/fake_citizen_sdk.dart';
 import '../../support/isar_test_env.dart';
+
 import 'package:citizenapp/account/creator/creator_service.dart';
 import 'package:citizenapp/account/creator/creator_overview.dart';
 import 'package:citizenapp/account/creator/creator_plan.dart';
@@ -32,6 +34,7 @@ class _CreatorSecurity extends Fake implements AccountSecurityService {
   @override
   final revision = ValueNotifier<int>(0);
 }
+
 class _CreatorResolver extends Fake implements FinalizedIdentityResolver {
   int calls = 0;
   @override
@@ -40,6 +43,7 @@ class _CreatorResolver extends Fake implements FinalizedIdentityResolver {
     throw StateError('展示不能查链');
   }
 }
+
 class _CreatorSessions extends Fake implements SquareSessionProvider {
   int calls = 0;
   @override
@@ -51,11 +55,16 @@ class _CreatorSessions extends Fake implements SquareSessionProvider {
 
 Widget _creatorApp({required Widget home, CidBusinessGate? gate}) =>
     Provider<CidBusinessGate>.value(
-      value: gate ??
-          _BusinessGate(Future.value(const CidBusinessDecision(
-            CidBusinessStatus.ready,
-            cidNumber: 'CN220-CTZN2-100000001-2026',
-          ))),
+      value:
+          gate ??
+          _BusinessGate(
+            Future.value(
+              const CidBusinessDecision(
+                CidBusinessStatus.ready,
+                cidNumber: 'CN220-CTZN2-100000001-2026',
+              ),
+            ),
+          ),
       child: MaterialApp(home: home),
     );
 
@@ -112,21 +121,24 @@ void main() {
   useIsolatedIsar();
   const cidNumber = 'CN220-CTZN2-100000001-2026';
 
-  testWidgets('入口旧 CID 在门禁未完成时不显示创作者业务，确认未注册后显示统一引导',
-      (tester) async {
+  testWidgets('入口旧 CID 在门禁未完成时不显示创作者业务，确认未注册后显示统一引导', (tester) async {
     final decision = Completer<CidBusinessDecision>();
     final service = _PendingCreatorService();
-    await tester.pumpWidget(_creatorApp(
-      gate: _BusinessGate(decision.future),
-      home: CreatorPage(
-        service: service,
-        initialCidNumber: cidNumber,
-        initialMembershipDecision: MembershipDisplayDecision.activeConfirmed,
+    await tester.pumpWidget(
+      _creatorApp(
+        gate: _BusinessGate(decision.future),
+        home: CreatorPage(
+          service: service,
+          initialCidNumber: cidNumber,
+          initialMembershipDecision: MembershipDisplayDecision.activeConfirmed,
+        ),
       ),
-    ));
+    );
     expect(find.text('已开通'), findsNothing);
     expect(service.lastSnapshotCid, isNull);
-    decision.complete(const CidBusinessDecision(CidBusinessStatus.unregistered));
+    decision.complete(
+      const CidBusinessDecision(CidBusinessStatus.unregistered),
+    );
     await tester.pumpAndSettle();
     expect(find.text('尚未注册'), findsOneWidget);
     expect(find.text('已开通'), findsNothing);
@@ -136,17 +148,23 @@ void main() {
   testWidgets('入口 CID 与当前绑定不同，仅按已核实 CID 读取展示快照', (tester) async {
     final service = _PendingCreatorService();
     const currentCid = 'CN220-CTZN2-100000002-2026';
-    await tester.pumpWidget(_creatorApp(
-      gate: _BusinessGate(Future.value(const CidBusinessDecision(
-        CidBusinessStatus.ready,
-        cidNumber: currentCid,
-      ))),
-      home: CreatorPage(
-        service: service,
-        initialCidNumber: cidNumber,
-        initialMembershipDecision: MembershipDisplayDecision.activeConfirmed,
+    await tester.pumpWidget(
+      _creatorApp(
+        gate: _BusinessGate(
+          Future.value(
+            const CidBusinessDecision(
+              CidBusinessStatus.ready,
+              cidNumber: currentCid,
+            ),
+          ),
+        ),
+        home: CreatorPage(
+          service: service,
+          initialCidNumber: cidNumber,
+          initialMembershipDecision: MembershipDisplayDecision.activeConfirmed,
+        ),
       ),
-    ));
+    );
     await tester.pumpAndSettle();
     expect(service.lastSnapshotCid, currentCid);
     expect(find.text('已开通'), findsNothing);
@@ -154,16 +172,20 @@ void main() {
 
   testWidgets('身份核对故障时旧 CID 与刷新动作都不能读取创作者业务', (tester) async {
     final service = _PendingCreatorService();
-    await tester.pumpWidget(_creatorApp(
-      gate: _BusinessGate(Future.value(
-        const CidBusinessDecision(CidBusinessStatus.unavailable),
-      )),
-      home: CreatorPage(
-        service: service,
-        initialCidNumber: cidNumber,
-        initialMembershipDecision: MembershipDisplayDecision.activeConfirmed,
+    await tester.pumpWidget(
+      _creatorApp(
+        gate: _BusinessGate(
+          Future.value(
+            const CidBusinessDecision(CidBusinessStatus.unavailable),
+          ),
+        ),
+        home: CreatorPage(
+          service: service,
+          initialCidNumber: cidNumber,
+          initialMembershipDecision: MembershipDisplayDecision.activeConfirmed,
+        ),
       ),
-    ));
+    );
     await tester.pumpAndSettle();
     expect(find.textContaining('暂时无法核实公民号身份'), findsOneWidget);
     expect(find.text('已开通'), findsNothing);
@@ -174,9 +196,15 @@ void main() {
   });
 
   testWidgets('生产监听路径在身份同步广播后原地退出未知，不增加链或会话请求', (tester) async {
-    final gate = _BusinessGate(Future.value(const CidBusinessDecision(CidBusinessStatus.unavailable)));
-    final security = _CreatorSecurity(), resolver = _CreatorResolver(), sessions = _CreatorSessions();
-    final transport = TestCitizenSdkTransport({'getWalletState': (_) => [testCitizenWalletState()]});
+    final gate = _BusinessGate(
+      Future.value(const CidBusinessDecision(CidBusinessStatus.unavailable)),
+    );
+    final security = _CreatorSecurity(),
+        resolver = _CreatorResolver(),
+        sessions = _CreatorSessions();
+    final transport = TestCitizenSdkTransport({
+      'getWalletState': (_) => [testCitizenWalletState()],
+    });
     final sdk = await transport.open();
     addTearDown(() async {
       await tester.pumpWidget(const SizedBox.shrink());
@@ -187,21 +215,30 @@ void main() {
       security.revision.dispose();
       gate.revision.dispose();
     });
-    await tester.pumpWidget(MultiProvider(providers: [
-      Provider<CitizenSdk>.value(value: sdk),
-      Provider<AccountSecurityService>.value(value: security),
-      Provider<FinalizedIdentityResolver>.value(value: resolver),
-      Provider<SquareSessionProvider>.value(value: sessions),
-      Provider<CidBusinessGate>.value(value: gate),
-    ], child: const MaterialApp(home: CreatorPage())));
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          Provider<CitizenSdk>.value(value: sdk),
+          Provider<AccountSecurityService>.value(value: security),
+          Provider<FinalizedIdentityResolver>.value(value: resolver),
+          Provider<SquareSessionProvider>.value(value: sessions),
+          Provider<CidBusinessGate>.value(value: gate),
+        ],
+        child: const MaterialApp(home: CreatorPage()),
+      ),
+    );
     await tester.pumpAndSettle();
     expect(find.textContaining('暂时无法核实公民号身份'), findsOneWidget);
     // 构造时原会员恢复可能核对一次身份，本次广播不得追加链或会话请求。
     final initialReads = resolver.calls, initialSessions = sessions.calls;
-    gate.result = Future.value(const CidBusinessDecision(CidBusinessStatus.ready, cidNumber: cidNumber));
+    gate.result = Future.value(
+      const CidBusinessDecision(CidBusinessStatus.ready, cidNumber: cidNumber),
+    );
     security.revision.value++;
     for (var i = 0; i < 10; i++) {
-      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 10)));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
       await tester.pump();
     }
     expect(find.textContaining('暂时无法核实公民号身份'), findsNothing);
@@ -212,7 +249,6 @@ void main() {
     expect(resolver.calls, initialReads);
     expect(sessions.calls, initialSessions);
     expect(transport.calls, isNot(contains('beginSigning')));
-
   });
 
   testWidgets('无会员缺失快照直接显示门禁且不自动联网', (tester) async {
@@ -380,8 +416,8 @@ void main() {
     final gated = CreatorDisplaySnapshot(
       cidNumber: cidNumber,
       data: CreatorPageData.gated(),
-      membershipFetchedAtMs: nowMs - 1000,
-      creatorFetchedAtMs: 0,
+      memberAt: nowMs - 1000,
+      creatorAt: 0,
     );
     expect(gated.isFresh(nowMs), isTrue, reason: '门禁态不需要创作者档位时间戳');
 
@@ -391,8 +427,8 @@ void main() {
         plan: CreatorPlan.empty(cidNumber),
         overview: CreatorOverview.zero,
       ),
-      membershipFetchedAtMs: nowMs - 1000,
-      creatorFetchedAtMs: 0,
+      memberAt: nowMs - 1000,
+      creatorAt: 0,
     );
     expect(active.isFresh(nowMs), isFalse);
   });
@@ -441,12 +477,12 @@ void main() {
           ),
           overview: const CreatorOverview(
             subscriberCount: 7,
-            monthIncomeFen: 1234,
+            monthlyIncomeFen: 1234,
             tierCount: 1,
           ),
         ),
-        membershipFetchedAtMs: nowMs,
-        creatorFetchedAtMs: nowMs,
+        memberAt: nowMs,
+        creatorAt: nowMs,
       ),
     );
     await tester.pumpWidget(

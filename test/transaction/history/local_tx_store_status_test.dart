@@ -1,6 +1,9 @@
-import 'package:citizenapp/storage/wallet_isar.dart';
+import 'package:citizenapp/storage/wallet_isar.dart'
+    as wallet_store
+    show WalletCursor, Entry;
 import 'package:citizenapp/transaction/history/local_tx_store.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:citizenapp/citizen/account_derivation.dart';
 
 import '../../support/isar_test_env.dart';
 
@@ -9,25 +12,40 @@ void main() {
 
   const fromAccountId =
       '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-  const fromSs58Address = 'from-wallet';
-  const toSs58Address = 'to-wallet';
+  const fromAddress = 'from-wallet';
+  const toAddress = 'to-wallet';
+
+  test('对方地址取真实收发双方，净余额因费用为负也不改变收款方向', () {
+    final owner = ss58FromAccountIdText(fromAccountId);
+    final peer = ss58FromAccountIdText('0x${'bb' * 32}');
+    final incoming = wallet_store.Entry()
+      ..accountId = fromAccountId
+      ..fromAddress = peer
+      ..toAddress = owner
+      ..amountDelta = '-1';
+    expect(incoming.peerAddress, peer);
+    incoming
+      ..fromAddress = owner
+      ..toAddress = peer;
+    expect(incoming.peerAddress, peer);
+  });
 
   // 只使用合成账户和金额，覆盖接入前后的同表数据及账户隔离。
-  LocalTxEntity historicalRow(
+  wallet_store.Entry historicalRow(
     String source,
     int timestamp, {
     String? accountId,
   }) {
     final owner = accountId ?? fromAccountId;
-    return LocalTxEntity()
+    return wallet_store.Entry()
       ..accountId = owner
-      ..ss58Address = fromSs58Address
-      ..recordKey = '$owner:$source:$timestamp'
-      ..type = 'transfer'
-      ..amountDeltaFen = '100'
-      ..source = source
-      ..status = LocalTxStore.statusFinalized
-      ..createdAtMillis = timestamp;
+      ..chainHash = '0x11'
+      ..eventIndex = timestamp
+      ..entryKind = 'transfer'
+      ..amountDelta = '100'
+      ..entrySource = source
+      ..entryState = LocalTxStore.statusFinalized
+      ..createdAt = timestamp;
   }
 
   test('既有收款按账户可见，分页、单条查询与总数使用同一范围', () async {
@@ -52,7 +70,7 @@ void main() {
         fromAccountId,
         offset: 1,
         limit: 2,
-      )).map((row) => row.source),
+      )).map((row) => row.entrySource),
       ['sdk_finalized_event', 'resync'],
     );
     expect(
@@ -60,12 +78,9 @@ void main() {
       isEmpty,
     );
     for (final row in rows) {
-      expect(
-        (await LocalTxStore.queryByRecordKey(row.recordKey))?.recordKey,
-        row.recordKey,
-      );
+      expect((await LocalTxStore.readEntry(row.rowId))?.rowId, row.rowId);
     }
-    expect(await LocalTxStore.queryByRecordKey('missing'), isNull);
+    expect(await LocalTxStore.readEntry(-1), isNull);
   });
 
   test('恢复旧记录可见性不会授予其 SDK 状态更新权限', () async {
@@ -75,19 +90,19 @@ void main() {
       'local_submit',
     ]) {
       final row = historicalRow(source, 1)
-        ..recordKey = LocalTxStore.submitRecordKey(fromAccountId, '0xabc')
-        ..status = LocalTxStore.statusPending
+        ..txHash = '0xabc'
+        ..entryState = LocalTxStore.statusPending
         ..executionId = source == 'local_submit' ? '' : 'execution-1'
-        ..callDataHash = source == 'local_submit' ? '' : '0x${'11' * 32}';
+        ..callHash = source == 'local_submit' ? '' : '0x${'11' * 32}';
       await LocalTxStore.upsert(row);
       await LocalTxStore.markLocalSubmitFinalized(
         accountId: fromAccountId,
         txHash: '0xabc',
         executionId: row.executionId!,
-        callDataHash: row.callDataHash!,
+        callHash: row.callHash!,
       );
       expect(
-        (await LocalTxStore.queryByRecordKey(row.recordKey))?.status,
+        (await LocalTxStore.readEntry(row.rowId))?.entryState,
         LocalTxStore.statusPending,
       );
     }
@@ -95,20 +110,18 @@ void main() {
 
   Future<void> insert({String txHash = '0xabc'}) =>
       LocalTxStore.upsertLocalSubmitTransfer(
-        ss58Address: fromSs58Address,
         accountId: fromAccountId,
         txHash: txHash,
         executionId: 'execution-1',
-        callDataHash: '0x${'11' * 32}',
-        amountDeltaFen: '-101',
-        transferAmountFen: '100',
-        feeFen: '1',
-        counterpartySs58Address: toSs58Address,
-        fromSs58Address: fromSs58Address,
-        toSs58Address: toSs58Address,
-        usedNonce: 7,
-        createdAtMillis: 1,
-        remark: '备注',
+        callHash: '0x${'11' * 32}',
+        amountDelta: '-101',
+        transferAmount: '100',
+        feeAmount: '1',
+        fromAddress: fromAddress,
+        toAddress: toAddress,
+
+        createdAt: 1,
+        txNote: '备注',
       );
 
   test('App 业务字段与 SDK execution/hash 关联后只保留一条记录', () async {
@@ -118,29 +131,29 @@ void main() {
     expect(records, hasLength(1));
     final record = records.single;
     expect(record.executionId, 'execution-1');
-    expect(record.callDataHash, '0x${'11' * 32}');
+    expect(record.callHash, '0x${'11' * 32}');
     expect(record.txHash, '0xabc');
-    expect(record.transferAmountFen, '100');
-    expect(record.feeFen, '1');
-    expect(record.remark, '备注');
-    expect(record.status, LocalTxStore.statusPending);
+    expect(record.transferAmount, '100');
+    expect(record.feeAmount, '1');
+    expect(record.txNote, '备注');
+    expect(record.entryState, LocalTxStore.statusPending);
   });
 
-  test('inBlock 和 finalized 只投影 SDK 事实，recordKey 不变', () async {
+  test('inBlock 和 finalized 只投影 SDK 事实，原主键不变', () async {
     await insert();
-    final before = (await LocalTxStore.queryByAccountId(
-      fromAccountId,
-    )).single.recordKey;
+    final before = (await LocalTxStore.queryByAccountId(fromAccountId))
+        .single
+        .rowId;
 
     await LocalTxStore.markLocalSubmitInBlock(
       accountId: fromAccountId,
       txHash: '0xabc',
       executionId: 'execution-1',
-      callDataHash: '0x${'11' * 32}',
-      blockHash: '0x${'22' * 32}',
+      callHash: '0x${'11' * 32}',
+      chainHash: '0x${'22' * 32}',
     );
     expect(
-      (await LocalTxStore.queryByAccountId(fromAccountId)).single.status,
+      (await LocalTxStore.queryByAccountId(fromAccountId)).single.entryState,
       LocalTxStore.statusInBlock,
     );
 
@@ -148,14 +161,14 @@ void main() {
       accountId: fromAccountId,
       txHash: '0xabc',
       executionId: 'execution-1',
-      callDataHash: '0x${'11' * 32}',
-      blockHash: '0x${'22' * 32}',
+      callHash: '0x${'11' * 32}',
+      chainHash: '0x${'22' * 32}',
       blockNumber: 9,
       extrinsicIndex: 2,
     );
     final after = (await LocalTxStore.queryByAccountId(fromAccountId)).single;
-    expect(after.recordKey, before);
-    expect(after.status, LocalTxStore.statusFinalized);
+    expect(after.rowId, before);
+    expect(after.entryState, LocalTxStore.statusFinalized);
     expect(after.blockNumber, 9);
     expect(after.extrinsicIndex, 2);
   });
@@ -166,15 +179,15 @@ void main() {
       accountId: fromAccountId,
       txHash: '0xdef',
       executionId: 'execution-1',
-      callDataHash: '0x${'11' * 32}',
-      failureReason: 'pool rejected',
+      callHash: '0x${'11' * 32}',
+      failReason: 'pool rejected',
     );
 
     final record = (await LocalTxStore.queryByAccountId(fromAccountId)).single;
-    expect(record.status, LocalTxStore.statusFailed);
-    expect(record.failureReason, 'pool rejected');
+    expect(record.entryState, LocalTxStore.statusFailed);
+    expect(record.failReason, 'pool rejected');
     expect(record.executionId, 'execution-1');
-    expect(record.transferAmountFen, '100');
+    expect(record.transferAmount, '100');
   });
 
   test('拒绝 executionId 或 callDataHash 不匹配的 SDK 状态投影', () async {
@@ -184,42 +197,37 @@ void main() {
       accountId: fromAccountId,
       txHash: '0xabc',
       executionId: 'other-execution',
-      callDataHash: '0x${'11' * 32}',
+      callHash: '0x${'11' * 32}',
     );
     await LocalTxStore.markLocalSubmitFailed(
       accountId: fromAccountId,
       txHash: '0xabc',
       executionId: 'execution-1',
-      callDataHash: '0x${'22' * 32}',
-      failureReason: 'must-not-apply',
+      callHash: '0x${'22' * 32}',
+      failReason: 'must-not-apply',
     );
 
     final record = (await LocalTxStore.queryByAccountId(fromAccountId)).single;
-    expect(record.status, LocalTxStore.statusPending);
-    expect(record.failureReason, isNull);
+    expect(record.entryState, LocalTxStore.statusPending);
+    expect(record.failReason, isNull);
   });
 
-  test('finalized 业务事件合并后保留 submit key 且不覆盖 SDK 状态', () async {
+  test('finalized 业务事件合并后保留原主键 且不覆盖 SDK 状态', () async {
     await insert();
-    final submitKey = LocalTxStore.submitRecordKey(fromAccountId, '0xabc');
+    final rowId = (await LocalTxStore.queryByAccountId(fromAccountId))
+        .single
+        .rowId;
 
     await LocalTxStore.upsertBlockTransferEvent(
-      ss58Address: fromSs58Address,
       accountId: fromAccountId,
-      recordKey: LocalTxStore.blockEventRecordKey(
-        fromAccountId,
-        '0x${'33' * 32}',
-        4,
-      ),
-      status: LocalTxStore.statusFinalized,
-      amountDeltaFen: '-110',
-      transferAmountFen: '100',
-      feeFen: '10',
-      fromSs58Address: fromSs58Address,
-      toSs58Address: toSs58Address,
-      counterpartySs58Address: toSs58Address,
+      entryState: LocalTxStore.statusFinalized,
+      amountDelta: '-110',
+      transferAmount: '100',
+      feeAmount: '10',
+      fromAddress: fromAddress,
+      toAddress: toAddress,
       blockNumber: 10,
-      blockHash: '0x${'33' * 32}',
+      chainHash: '0x${'33' * 32}',
       eventIndex: 4,
       extrinsicIndex: 2,
       txHash: '0xabc',
@@ -227,44 +235,37 @@ void main() {
 
     final records = await LocalTxStore.queryByAccountId(fromAccountId);
     expect(records, hasLength(1));
-    expect(records.single.recordKey, submitKey);
+    expect(records.single.rowId, rowId);
     expect(records.single.executionId, 'execution-1');
-    expect(records.single.status, LocalTxStore.statusPending);
+    expect(records.single.entryState, LocalTxStore.statusPending);
 
     await LocalTxStore.markLocalSubmitFinalized(
       accountId: fromAccountId,
       txHash: '0xabc',
       executionId: 'execution-1',
-      callDataHash: '0x${'11' * 32}',
-      blockHash: '0x${'33' * 32}',
+      callHash: '0x${'11' * 32}',
+      chainHash: '0x${'33' * 32}',
       blockNumber: 10,
       extrinsicIndex: 2,
     );
     expect(
-      (await LocalTxStore.queryByAccountId(fromAccountId)).single.status,
+      (await LocalTxStore.queryByAccountId(fromAccountId)).single.entryState,
       LocalTxStore.statusFinalized,
     );
   });
 
   Future<void> event({String hash = '0xabc', int index = 4}) =>
       LocalTxStore.upsertBlockTransferEvent(
-        ss58Address: fromSs58Address,
         accountId: fromAccountId,
-        recordKey: LocalTxStore.blockEventRecordKey(
-          fromAccountId,
-          '0x33',
-          index,
-        ),
-        status: LocalTxStore.statusFinalized,
+        entryState: LocalTxStore.statusFinalized,
         txHash: hash,
-        amountDeltaFen: '-110',
-        transferAmountFen: '100',
-        feeFen: '10',
-        fromSs58Address: fromSs58Address,
-        toSs58Address: toSs58Address,
-        counterpartySs58Address: toSs58Address,
+        amountDelta: '-110',
+        transferAmount: '100',
+        feeAmount: '10',
+        fromAddress: fromAddress,
+        toAddress: toAddress,
         blockNumber: 10,
-        blockHash: '0x33',
+        chainHash: '0x33',
         eventIndex: index,
         extrinsicIndex: 2,
       );
@@ -284,13 +285,10 @@ void main() {
     await event();
     final rows = await LocalTxStore.queryByAccountId(fromAccountId);
     expect(rows, hasLength(1));
-    expect(
-      rows.single.recordKey,
-      LocalTxStore.submitRecordKey(fromAccountId, '0xabc'),
-    );
-    expect(rows.single.amountDeltaFen, '-110');
-    expect(rows.single.feeFen, '10');
-    expect(rows.single.status, LocalTxStore.statusPending);
+    expect(rows.single.txHash, '0xabc');
+    expect(rows.single.amountDelta, '-110');
+    expect(rows.single.feeAmount, '10');
+    expect(rows.single.entryState, LocalTxStore.statusPending);
   });
 
   test('同一 extrinsic 的第二个独立事件不能覆盖已关联事件', () async {
@@ -303,13 +301,12 @@ void main() {
     expect(rows.map((row) => row.eventIndex).toSet(), {4, 5});
   });
 
-  WalletTransactionHistoryCursorEntity cursor() =>
-      WalletTransactionHistoryCursorEntity()
-        ..accountId = fromAccountId
-        ..createdAtMillis = 1000
-        ..genesisHash = '0x00'
-        ..startBlockNumber = 10
-        ..cursorBlockNumber = 9;
+  wallet_store.WalletCursor cursor() => wallet_store.WalletCursor()
+    ..accountId = fromAccountId
+    ..createdAt = 1000
+    ..genesisHash = '0x00'
+    ..startBlock = 10
+    ..cursorBlock = 9;
 
   test('记录和进度原子提交，重新提交过期进度被拒绝', () async {
     final progress = cursor();
@@ -320,10 +317,7 @@ void main() {
       cursors: [progress],
       records: [row],
     );
-    expect(
-      (await LocalTxStore.historyCursor(fromAccountId))!.cursorBlockNumber,
-      10,
-    );
+    expect((await LocalTxStore.historyCursor(fromAccountId))!.cursorBlock, 10);
     expect(await LocalTxStore.countByAccountId(fromAccountId), 1);
     await expectLater(
       LocalTxStore.commitHistoryBlock(
@@ -350,11 +344,8 @@ void main() {
       throwsStateError,
     );
     expect(await LocalTxStore.countByAccountId(fromAccountId), 0);
-    expect(
-      (await LocalTxStore.historyCursor(fromAccountId))!.cursorBlockNumber,
-      9,
-    );
-    expect(progress.cursorBlockNumber, 9);
+    expect((await LocalTxStore.historyCursor(fromAccountId))!.cursorBlock, 9);
+    expect(progress.cursorBlock, 9);
   });
 
   test('导入代次不符或进度跳块时不得写入', () async {
@@ -368,7 +359,7 @@ void main() {
       ),
       throwsStateError,
     );
-    progress.createdAtMillis++;
+    progress.createdAt++;
     await expectLater(
       LocalTxStore.commitHistoryBlock(
         blockNumber: 10,
@@ -377,58 +368,47 @@ void main() {
       ),
       throwsStateError,
     );
-    expect(
-      (await LocalTxStore.historyCursor(fromAccountId))!.cursorBlockNumber,
-      9,
-    );
+    expect((await LocalTxStore.historyCursor(fromAccountId))!.cursorBlock, 9);
   });
 
   test('失败交易的收费事实原子合并，但不代替 SDK 推进执行状态', () async {
     await insert();
     final progress = cursor();
     await LocalTxStore.insertHistoryCursor(progress);
-    final fee = LocalTxEntity()
-      ..recordKey = '$fromAccountId:fee:block10:4'
+    final fee = wallet_store.Entry()
       ..accountId = fromAccountId
-      ..ss58Address = fromSs58Address
       ..txHash = '0xabc'
-      ..type = 'fee'
-      ..source = 'sdk_finalized_event'
-      ..status = LocalTxStore.statusFinalized
-      ..amountDeltaFen = '-10'
-      ..feeFen = '10'
+      ..entryKind = 'fee'
+      ..entrySource = 'sdk_finalized_event'
+      ..entryState = LocalTxStore.statusFinalized
+      ..amountDelta = '-10'
+      ..feeAmount = '10'
       ..blockNumber = 10
-      ..blockHash = '0x${'33' * 32}'
+      ..chainHash = '0x${'33' * 32}'
       ..eventIndex = 4
       ..extrinsicIndex = 2
-      ..failureReason = '链上执行失败'
-      ..createdAtMillis = 1000;
+      ..failReason = '链上执行失败'
+      ..createdAt = 1000;
     await LocalTxStore.commitHistoryBlock(
       blockNumber: 10,
       cursors: [progress],
       records: [fee],
     );
     final record = (await LocalTxStore.queryByAccountId(fromAccountId)).single;
-    expect(
-      record.recordKey,
-      LocalTxStore.submitRecordKey(fromAccountId, '0xabc'),
-    );
-    expect(record.amountDeltaFen, '-10');
-    expect(record.feeFen, '10');
-    expect(record.status, LocalTxStore.statusPending);
-    expect(
-      (await LocalTxStore.historyCursor(fromAccountId))!.cursorBlockNumber,
-      10,
-    );
+    expect(record.txHash, '0xabc');
+    expect(record.amountDelta, '-10');
+    expect(record.feeAmount, '10');
+    expect(record.entryState, LocalTxStore.statusPending);
+    expect((await LocalTxStore.historyCursor(fromAccountId))!.cursorBlock, 10);
     await LocalTxStore.markLocalSubmitFailed(
       accountId: fromAccountId,
       txHash: '0xabc',
       executionId: 'execution-1',
-      callDataHash: '0x${'11' * 32}',
-      failureReason: 'SDK确认执行失败',
+      callHash: '0x${'11' * 32}',
+      failReason: 'SDK确认执行失败',
     );
     expect(
-      (await LocalTxStore.queryByAccountId(fromAccountId)).single.status,
+      (await LocalTxStore.queryByAccountId(fromAccountId)).single.entryState,
       LocalTxStore.statusFailed,
     );
   });

@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:citizenapp/storage/wallet_isar.dart';
+import 'package:citizenapp/storage/wallet_isar.dart' hide Group;
 import 'package:citizenapp/transaction/history/local_tx_store.dart';
 import 'package:citizenapp/transaction/history/tx_auto_refresh_mixin.dart';
 
@@ -25,26 +25,25 @@ void main() {
 
   const fromAccountId =
       '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-  const fromSs58Address = 'from-wallet';
-  const toSs58Address = 'to-wallet';
+  const fromAddress = 'from-wallet';
+  const toAddress = 'to-wallet';
 
-  testWidgets('listenAccountChanges 在记录 pending→finalized 写库时发出事件',
-      (tester) async {
+  testWidgets('listenAccountChanges 在记录 pending→finalized 写库时发出事件', (
+    tester,
+  ) async {
     await tester.runAsync(() async {
       await LocalTxStore.upsertLocalSubmitTransfer(
-        ss58Address: fromSs58Address,
         accountId: fromAccountId,
         txHash: '0xfeed',
-        amountDeltaFen: '-101',
-        transferAmountFen: '100',
-        feeFen: '1',
-        counterpartySs58Address: toSs58Address,
-        fromSs58Address: fromSs58Address,
-        toSs58Address: toSs58Address,
+        amountDelta: '-101',
+        transferAmount: '100',
+        feeAmount: '1',
+        fromAddress: fromAddress,
+        toAddress: toAddress,
         executionId: 'execution-refresh',
-        callDataHash: '0x${'11' * 32}',
-        usedNonce: 1,
-        createdAtMillis: 1,
+        callHash: '0x${'11' * 32}',
+
+        createdAt: 1,
       );
 
       final seen = <void>[];
@@ -59,8 +58,8 @@ void main() {
         accountId: fromAccountId,
         txHash: '0xfeed',
         executionId: 'execution-refresh',
-        callDataHash: '0x${'11' * 32}',
-        blockHash: '0x22',
+        callHash: '0x${'11' * 32}',
+        chainHash: '0x22',
         blockNumber: 9,
       );
       await Future<void>.delayed(const Duration(milliseconds: 200)); // 通知送达
@@ -79,10 +78,7 @@ void main() {
 
       // close 已取得同一个 single-flight 取消任务，调用方随后重复取消仍应幂等完成。
       await sub.cancel();
-      expect(
-        () => WalletIsar.instance.db(),
-        throwsA(isA<StateError>()),
-      );
+      expect(() => WalletIsar.instance.db(), throwsA(isA<StateError>()));
     });
   }, timeout: const Timeout(Duration(seconds: 40)));
 
@@ -94,10 +90,7 @@ void main() {
       await WalletIsar.instance.closeAndDeleteFromDisk();
       await sub.cancel();
 
-      expect(
-        WalletIsar.instance.db,
-        throwsA(isA<StateError>()),
-      );
+      expect(WalletIsar.instance.db, throwsA(isA<StateError>()));
     });
   }, timeout: const Timeout(Duration(seconds: 40)));
 
@@ -107,9 +100,11 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
 
-    for (var attempt = 0;
-        attempt < 20 && WalletIsar.instance.hasActiveOperation;
-        attempt++) {
+    for (
+      var attempt = 0;
+      attempt < 20 && WalletIsar.instance.hasActiveOperation;
+      attempt++
+    ) {
       // 原生 Future 先在真实事件循环前进，再回 widget fake-async Zone 收尾；打开、
       // 查询是两个异步阶段，不能用一次固定延迟假定都已经完成。
       await tester.runAsync(
@@ -152,35 +147,38 @@ void main() {
   testWidgets('原生 watcher 取消失败由调用方观察且 root Zone 不泄漏', (tester) async {
     await tester.runAsync(() async {
       final uncaught = <Object>[];
-      await runZonedGuarded(() async {
-        final sub = LocalTxStore.listenAccountChanges(fromAccountId, () {});
-        await Future<void>.delayed(const Duration(milliseconds: 100));
+      await runZonedGuarded(
+        () async {
+          final sub = LocalTxStore.listenAccountChanges(fromAccountId, () {});
+          await Future<void>.delayed(const Duration(milliseconds: 100));
 
-        var shouldFail = true;
-        LocalTxAccountChangeSubscription.debugCancelSubscription =
-            (subscription) async {
-          if (shouldFail) throw StateError('模拟原生 watcher 取消失败');
-          await subscription.cancel();
-        };
+          var shouldFail = true;
+          LocalTxAccountChangeSubscription.debugCancelSubscription =
+              (subscription) async {
+                if (shouldFail) throw StateError('模拟原生 watcher 取消失败');
+                await subscription.cancel();
+              };
 
-        await expectLater(
-          sub.cancel(),
-          throwsA(
-            isA<StateError>().having(
-              (error) => error.toString(),
-              'message',
-              contains('模拟原生 watcher 取消失败'),
+          await expectLater(
+            sub.cancel(),
+            throwsA(
+              isA<StateError>().having(
+                (error) => error.toString(),
+                'message',
+                contains('模拟原生 watcher 取消失败'),
+              ),
             ),
-          ),
-        );
+          );
 
-        // 失败保留 lease/subscription；同一句柄可在原生边界恢复后重试并真实释放。
-        shouldFail = false;
-        await sub.cancel();
-        await WalletIsar.instance.closeAndDeleteFromDisk();
-      }, (error, _) {
-        uncaught.add(error);
-      });
+          // 失败保留 lease/subscription；同一句柄可在原生边界恢复后重试并真实释放。
+          shouldFail = false;
+          await sub.cancel();
+          await WalletIsar.instance.closeAndDeleteFromDisk();
+        },
+        (error, _) {
+          uncaught.add(error);
+        },
+      );
       expect(uncaught, isEmpty);
     });
   }, timeout: const Timeout(Duration(seconds: 40)));

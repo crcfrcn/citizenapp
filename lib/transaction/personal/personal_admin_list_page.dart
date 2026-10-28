@@ -29,8 +29,10 @@ import 'package:citizenapp/citizen/proposal/proposal_query_service.dart';
 import 'package:citizenapp/citizen/proposal/proposal_context.dart';
 import 'package:citizenapp/citizen/proposal/institution_manage_detail_page.dart';
 import 'package:citizenapp/system/theme/app_theme.dart';
+
 import 'personal_manage_models.dart';
 import 'personal_pending_create_lookup.dart';
+
 import 'package:citizenapp/system/theme/app_layout.dart';
 
 /// 管理员行的激活按钮渲染状态。
@@ -55,10 +57,10 @@ class PersonalAdminListPage extends StatefulWidget {
     required this.multisigStatus,
     required this.admins,
     required this.adminWallets,
-    this.creatorAccountId,
+    this.creatorAccount,
   });
 
-  /// 多签元信息(名称 / 多签账户 / cidNumber 等)。
+  /// 多签元信息(名称 / 多签账户 / cid_number 等)。
   final InstitutionInfo institution;
 
   /// 多签当前状态(Pending / Active)。
@@ -71,7 +73,7 @@ class PersonalAdminListPage extends StatefulWidget {
   final List<CitizenWalletStateAccount> adminWallets;
 
   /// 创建人规范 AccountId。req 3 未实现时只有创建者本机已知。
-  final String? creatorAccountId;
+  final String? creatorAccount;
 
   @override
   State<PersonalAdminListPage> createState() => _PersonalAdminListPageState();
@@ -123,18 +125,18 @@ class _PersonalAdminListPageState extends State<PersonalAdminListPage> {
         return;
       }
 
-      final pid = await _lookup.findActiveCreate(
-        widget.institution.personalAccountId,
-      );
+      final pid = await _lookup.findActiveCreate(widget.institution.accountId);
 
       // 仅查本钱包持有的 admin 投票状态(其他人投票状态对 UI 无意义,节省 RPC)。
       final votes = <String, bool?>{};
       if (pid != null) {
         // 本机可能导入多个管理员钱包，用批量 storage 查询避免逐钱包 RPC。
-        votes.addAll(await _proposalService.fetchAdminVotesBatch(
-          pid,
-          widget.adminWallets.map((wallet) => wallet.accountId),
-        ));
+        votes.addAll(
+          await _proposalService.fetchAdminVotesBatch(
+            pid,
+            widget.adminWallets.map((wallet) => wallet.accountId),
+          ),
+        );
       }
 
       if (!mounted) return;
@@ -158,8 +160,8 @@ class _PersonalAdminListPageState extends State<PersonalAdminListPage> {
       return _ActivateButtonState.hidden;
     }
     // 创建者 → 隐藏(创建即同意)
-    if (widget.creatorAccountId != null &&
-        widget.creatorAccountId!.toLowerCase() == adminAccountId) {
+    if (widget.creatorAccount != null &&
+        widget.creatorAccount!.toLowerCase() == adminAccountId) {
       return _ActivateButtonState.hidden;
     }
     // 非本钱包持有的 admin → 隐藏(本机不能代签)
@@ -209,8 +211,9 @@ class _PersonalAdminListPageState extends State<PersonalAdminListPage> {
         title: Text(
           '管理员列表',
           style: TextStyle(
-              fontSize: AppLayout.scaled(context, 17),
-              fontWeight: FontWeight.w700),
+            fontSize: AppLayout.scaled(context, 17),
+            fontWeight: FontWeight.w700,
+          ),
         ),
         centerTitle: true,
         backgroundColor: Colors.white,
@@ -221,8 +224,8 @@ class _PersonalAdminListPageState extends State<PersonalAdminListPage> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? _buildError()
-              : _buildContent(),
+          ? _buildError()
+          : _buildContent(),
     );
   }
 
@@ -232,12 +235,17 @@ class _PersonalAdminListPageState extends State<PersonalAdminListPage> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.error_outline,
-              size: AppLayout.scaledValue(36), color: AppTheme.textTertiary),
+          Icon(
+            Icons.error_outline,
+            size: AppLayout.scaledValue(36),
+            color: AppTheme.textTertiary,
+          ),
           SizedBox(height: AppLayout.scaledValue(12)),
-          Text(_error!,
-              style: const TextStyle(color: AppTheme.textSecondary),
-              textAlign: TextAlign.center),
+          Text(
+            _error!,
+            style: const TextStyle(color: AppTheme.textSecondary),
+            textAlign: TextAlign.center,
+          ),
           SizedBox(height: AppLayout.scaledValue(16)),
           OutlinedButton(onPressed: _load, child: const Text('重试')),
         ],
@@ -278,7 +286,7 @@ class _PersonalAdminListPageState extends State<PersonalAdminListPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    widget.institution.cidShortName,
+                    widget.institution.shortName,
                     style: TextStyle(
                       fontSize: AppLayout.scaledValue(15),
                       fontWeight: FontWeight.w700,
@@ -315,10 +323,11 @@ class _PersonalAdminListPageState extends State<PersonalAdminListPage> {
       child: Column(
         children: List.generate(widget.admins.length, (index) {
           final admin = widget.admins[index];
-          final accountId = admin.account_id;
+          final accountId = admin.accountId;
           final ss58 = _accountIdToSs58(accountId);
-          final isCreator = widget.creatorAccountId != null &&
-              widget.creatorAccountId!.toLowerCase() == accountId;
+          final isCreator =
+              widget.creatorAccount != null &&
+              widget.creatorAccount!.toLowerCase() == accountId;
           final state = _resolveButtonState(accountId);
           return Column(
             children: [
@@ -336,9 +345,7 @@ class _PersonalAdminListPageState extends State<PersonalAdminListPage> {
                     ),
                   ),
                 ),
-                title: Text(
-                  '${admin.family_name}${admin.given_name}',
-                ),
+                title: Text('${admin.familyName}${admin.givenName}'),
                 subtitle: Text(
                   isCreator ? '$ss58\n创建者' : ss58,
                   style: TextStyle(
@@ -367,13 +374,16 @@ class _PersonalAdminListPageState extends State<PersonalAdminListPage> {
             foregroundColor: AppTheme.primaryDark,
             backgroundColor: AppTheme.primaryDark.withValues(alpha: 0.08),
             padding: EdgeInsets.symmetric(
-                horizontal: AppLayout.scaledValue(14),
-                vertical: AppLayout.scaledValue(6)),
+              horizontal: AppLayout.scaledValue(14),
+              vertical: AppLayout.scaledValue(6),
+            ),
             minimumSize: Size(0, AppLayout.scaledValue(32)),
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           ),
-          child:
-              Text('激活', style: TextStyle(fontSize: AppLayout.scaledValue(13))),
+          child: Text(
+            '激活',
+            style: TextStyle(fontSize: AppLayout.scaledValue(13)),
+          ),
         );
       case _ActivateButtonState.alreadyApproved:
         return const _DisabledTag(label: '已激活');
@@ -414,8 +424,9 @@ class _DisabledTag extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: EdgeInsets.symmetric(
-          horizontal: AppLayout.scaled(context, 10),
-          vertical: AppLayout.scaled(context, 4)),
+        horizontal: AppLayout.scaled(context, 10),
+        vertical: AppLayout.scaled(context, 4),
+      ),
       decoration: BoxDecoration(
         color: AppTheme.textTertiary.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(AppLayout.scaledValue(6)),

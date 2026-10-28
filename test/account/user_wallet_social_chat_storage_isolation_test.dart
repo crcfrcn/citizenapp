@@ -1,3 +1,10 @@
+import 'package:citizenapp/citizen/public/isar_public_institution_store.dart';
+import 'package:citizenapp/storage/wallet_isar.dart' as wallet_store show Scan;
+import 'package:citizenapp/storage/social_isar.dart'
+    as social_store
+    show PostCursor;
+import 'package:citizenapp/storage/user_isar.dart' as user_store show Profile;
+
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -5,7 +12,7 @@ import 'package:isar_community/isar.dart';
 
 import 'package:citizenapp/storage/social_isar.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart';
-import 'package:citizenapp/storage/wallet_isar.dart';
+import 'package:citizenapp/storage/wallet_isar.dart' hide Group;
 import 'package:citizenapp/storage/user_isar.dart';
 
 import '../support/isar_test_env.dart';
@@ -13,6 +20,22 @@ import '../support/isar_test_env.dart';
 void main() {
   useIsolatedIsar();
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('机构关注只按两个自然CID隔离，重复关注不重写且取消不串用户', () async {
+    final store = IsarPublicInstitutionStore();
+    const owner = 'R5-K3P1C1-N9-D4';
+    const other = 'R5-K3P1C1-N8-D5';
+    const target = 'R5-K3P1C1-N7-D6';
+    await store.subscribe(owner, target);
+    await store.subscribe(owner, target);
+    await store.subscribe(other, target);
+    expect(await store.isSubscribed(owner, target), isTrue);
+    expect(await store.isSubscribed(other, target), isTrue);
+    expect(await store.isSubscribed(target, owner), isFalse);
+    await store.unsubscribe(owner, target);
+    expect(await store.isSubscribed(owner, target), isFalse);
+    expect(await store.isSubscribed(other, target), isTrue);
+  });
 
   test('UserIsar 队列挂起时 Wallet、Social、Chat 仍独立读写', () async {
     await WalletIsar.instance.db();
@@ -29,33 +52,39 @@ void main() {
     await entered.future.timeout(const Duration(seconds: 1));
 
     try {
-      await WalletIsar.instance.writeTxn<void>((isar) async {
-        await isar.walletAttestationEntitys.put(
-          WalletAttestationEntity()
-            ..id = 0
-            ..lastRequestPayload = 'wallet',
-        );
-      }).timeout(const Duration(seconds: 1));
-      await SocialIsar.instance.writeTxn<void>((isar) async {
-        await isar.squarePostSyncCheckpointEntitys.putByCidNumber(
-          SquarePostSyncCheckpointEntity()
-            ..cidNumber = 'R5-K3P1C1-N9-D4'
-            ..newestPostId = 'post'
-            ..newestCreatedAt = 1,
-        );
-      }).timeout(const Duration(seconds: 1));
-      await ChatIsar.instance.writeTxn<void>((isar) async {
-        await isar.chatRouteCacheEntitys.put(
-          ChatRouteCacheEntity()
-            ..ownerUserId = 'R5-K3P1C1-N9-D4'
-            ..peerUserId = 'R5-K3P1C1-N8-D5'
-            ..routeDisplayName = 'chat'
-            ..deviceId = 'device-user-isolation'
-            ..safetyNumber = '1234'
-            ..createdAtMillis = 1
-            ..updatedAtMillis = 1,
-        );
-      }).timeout(const Duration(seconds: 1));
+      await WalletIsar.instance
+          .writeTxn<void>((isar) async {
+            await isar.collection<wallet_store.Scan>().put(
+              wallet_store.Scan()
+                ..rowId = 0
+                ..walletHash = 'wallet',
+            );
+          })
+          .timeout(const Duration(seconds: 1));
+      await SocialIsar.instance
+          .writeTxn<void>((isar) async {
+            await isar.collection<social_store.PostCursor>().putByCidNumber(
+              social_store.PostCursor()
+                ..cidNumber = 'R5-K3P1C1-N9-D4'
+                ..postId = 'post'
+                ..publishedAt = 1,
+            );
+          })
+          .timeout(const Duration(seconds: 1));
+      await ChatIsar.instance
+          .writeTxn<void>((isar) async {
+            await isar.chatRouteCacheEntitys.put(
+              ChatRouteCacheEntity()
+                ..ownerUserId = 'R5-K3P1C1-N9-D4'
+                ..peerUserId = 'R5-K3P1C1-N8-D5'
+                ..routeDisplayName = 'chat'
+                ..deviceId = 'device-user-isolation'
+                ..safetyNumber = '1234'
+                ..createdAtMillis = 1
+                ..updatedAtMillis = 1,
+            );
+          })
+          .timeout(const Duration(seconds: 1));
 
       expect(UserIsar.instance.hasActiveOperation, isTrue);
       expect(WalletIsar.instance.hasActiveOperation, isFalse);
@@ -96,20 +125,24 @@ void main() {
     ]).timeout(const Duration(seconds: 1));
 
     try {
-      await UserIsar.instance.writeTxn<void>((isar) async {
-        await isar.userPublicProfileCacheEntitys.putByCidNumber(
-          UserPublicProfileCacheEntity()
-            ..cidNumber = 'R5-K3P1C1-N9-D4'
-            ..profileJson = '{"display_name":"独立用户资料"}',
-        );
-      }).timeout(const Duration(seconds: 1));
-      final profileJson = await UserIsar.instance.read((isar) async {
-        return (await isar.userPublicProfileCacheEntitys
-                .getByCidNumber('R5-K3P1C1-N9-D4'))
-            ?.profileJson;
-      }).timeout(const Duration(seconds: 1));
+      await UserIsar.instance
+          .writeTxn<void>((isar) async {
+            await isar.collection<user_store.Profile>().putByCidNumber(
+              user_store.Profile()
+                ..cidNumber = 'R5-K3P1C1-N9-D4'
+                ..profileData = '{"display_name":"独立用户资料"}',
+            );
+          })
+          .timeout(const Duration(seconds: 1));
+      final profileData = await UserIsar.instance
+          .read((isar) async {
+            return (await isar.collection<user_store.Profile>().getByCidNumber(
+              'R5-K3P1C1-N9-D4',
+            ))?.profileData;
+          })
+          .timeout(const Duration(seconds: 1));
 
-      expect(profileJson, '{"display_name":"独立用户资料"}');
+      expect(profileData, '{"display_name":"独立用户资料"}');
       expect(UserIsar.instance.hasActiveOperation, isFalse);
       expect(WalletIsar.instance.hasActiveOperation, isTrue);
       expect(SocialIsar.instance.hasActiveOperation, isTrue);
@@ -145,9 +178,9 @@ void main() {
     });
     await entered.future.timeout(const Duration(seconds: 1));
 
-    await UserIsar.instance
-        .closeAndDeleteFromDisk()
-        .timeout(const Duration(seconds: 3));
+    await UserIsar.instance.closeAndDeleteFromDisk().timeout(
+      const Duration(seconds: 3),
+    );
     await expectLater(UserIsar.instance.db(), throwsA(isA<StateError>()));
 
     release.complete();
@@ -160,25 +193,25 @@ void main() {
 
   test('关闭 UserIsar 只删除用户数据库，已写入的其他业务域事实保持可用', () async {
     await UserIsar.instance.writeTxn<void>((isar) async {
-      await isar.userPublicProfileCacheEntitys.putByCidNumber(
-        UserPublicProfileCacheEntity()
+      await isar.collection<user_store.Profile>().putByCidNumber(
+        user_store.Profile()
           ..cidNumber = 'R5-K3P1C1-N9-D4'
-          ..profileJson = '{"display_name":"用户资料"}',
+          ..profileData = '{"display_name":"用户资料"}',
       );
     });
     await WalletIsar.instance.writeTxn<void>((isar) async {
-      await isar.walletAttestationEntitys.put(
-        WalletAttestationEntity()
-          ..id = 0
-          ..lastRequestPayload = 'wallet',
+      await isar.collection<wallet_store.Scan>().put(
+        wallet_store.Scan()
+          ..rowId = 0
+          ..walletHash = 'wallet',
       );
     });
     await SocialIsar.instance.writeTxn<void>((isar) async {
-      await isar.squarePostSyncCheckpointEntitys.putByCidNumber(
-        SquarePostSyncCheckpointEntity()
+      await isar.collection<social_store.PostCursor>().putByCidNumber(
+        social_store.PostCursor()
           ..cidNumber = 'R5-K3P1C1-N9-D4'
-          ..newestPostId = 'social'
-          ..newestCreatedAt = 2,
+          ..postId = 'social'
+          ..publishedAt = 2,
       );
     });
     await ChatIsar.instance.writeTxn<void>((isar) async {
@@ -198,31 +231,36 @@ void main() {
     await expectLater(UserIsar.instance.db(), throwsA(isA<StateError>()));
 
     expect(
-      await WalletIsar.instance.read((isar) async =>
-          (await isar.walletAttestationEntitys.get(0))?.lastRequestPayload),
+      await WalletIsar.instance.read(
+        (isar) async =>
+            (await isar.collection<wallet_store.Scan>().get(0))?.walletHash,
+      ),
       'wallet',
     );
     expect(
-      await SocialIsar.instance.read((isar) async => (await isar
-              .squarePostSyncCheckpointEntitys
-              .getByCidNumber('R5-K3P1C1-N9-D4'))
-          ?.newestPostId),
+      await SocialIsar.instance.read(
+        (isar) async =>
+            (await isar.collection<social_store.PostCursor>().getByCidNumber(
+              'R5-K3P1C1-N9-D4',
+            ))?.postId,
+      ),
       'social',
     );
     expect(
-      await ChatIsar.instance.read((isar) async =>
-          (await isar.chatRouteCacheEntitys.getByOwnerUserIdPeerUserId(
-            'R5-K3P1C1-N9-D4',
-            'R5-K3P1C1-N8-D5',
-          ))
-              ?.routeDisplayName),
+      await ChatIsar.instance.read(
+        (isar) async =>
+            (await isar.chatRouteCacheEntitys.getByOwnerUserIdPeerUserId(
+              'R5-K3P1C1-N9-D4',
+              'R5-K3P1C1-N8-D5',
+            ))?.routeDisplayName,
+      ),
       'chat',
     );
 
     await UserIsar.instance.resetForTest();
     expect(
       await UserIsar.instance.read(
-        (isar) => isar.userPublicProfileCacheEntitys.where().count(),
+        (isar) => isar.collection<user_store.Profile>().where().count(),
       ),
       0,
     );

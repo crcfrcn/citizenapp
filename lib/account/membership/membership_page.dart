@@ -200,7 +200,7 @@ class _MembershipPageState extends State<MembershipPage>
           cidNumber: event.cidNumber,
           state: snapshot.state,
           prices: snapshot.prices,
-          subscriptionReady: snapshot.subscriptionFetchedAtMs > 0,
+          subscriptionReady: snapshot.memberAt > 0,
         ),
       );
     }());
@@ -318,7 +318,7 @@ class _MembershipPageState extends State<MembershipPage>
             cidNumber: cidNumber,
             state: cached.state,
             prices: cached.prices,
-            subscriptionReady: cached.subscriptionFetchedAtMs > 0,
+            subscriptionReady: cached.memberAt > 0,
           ),
         );
       } else if (mounted) {
@@ -347,7 +347,7 @@ class _MembershipPageState extends State<MembershipPage>
           ? null
           : <String, int>{
               for (final plan in refreshedState.plans)
-                if (plan.priceFen != null) plan.membershipLevel: plan.priceFen!,
+                if (plan.priceFen != null) plan.memberLevel: plan.priceFen!,
             };
       await session.validateCurrent();
       if (_identityReloadPending) return;
@@ -373,10 +373,7 @@ class _MembershipPageState extends State<MembershipPage>
           prices: prices,
           subscriptionReady:
               refreshedState != null ||
-              (serverSnapshot?.subscriptionFetchedAtMs ??
-                      cached?.subscriptionFetchedAtMs ??
-                      0) >
-                  0,
+              (serverSnapshot?.memberAt ?? cached?.memberAt ?? 0) > 0,
         ),
       );
     } on Object catch (error) {
@@ -439,10 +436,10 @@ class _MembershipPageState extends State<MembershipPage>
               state: SquareMembershipState(
                 active: false,
                 paidUntil: state.paidUntil,
-                membershipLevel: state.membershipLevel,
-                subscriptionStatus: state.subscriptionStatus,
-                subscriptionActive: false,
-                lastChargedAt: state.lastChargedAt,
+                memberLevel: state.memberLevel,
+                subState: state.subState,
+
+                chargeAt: state.chargeAt,
                 plans: state.plans,
                 usageState: state.usageState,
               ),
@@ -454,9 +451,8 @@ class _MembershipPageState extends State<MembershipPage>
       );
     }
     final accountChanged = _data.accountId != data.accountId;
-    final membershipChanged =
-        _data.state.membershipLevel != data.state.membershipLevel;
-    final defaultIndex = _tierIndexOfLevel(data.state.membershipLevel);
+    final membershipChanged = _data.state.memberLevel != data.state.memberLevel;
+    final defaultIndex = _tierIndexOfLevel(data.state.memberLevel);
     setState(() {
       _data = data;
       if (accountChanged || membershipChanged || _cardCount == 0) {
@@ -538,7 +534,7 @@ class _MembershipPageState extends State<MembershipPage>
     int? priceFen,
     SquareMembershipState state,
   ) {
-    final action = _actionFor(state, plan.membershipLevel);
+    final action = _actionFor(state, plan.memberLevel);
     final noWallet = _sessionStatus == SquareSessionStatus.noWallet;
     // 缓存只提供展示，详情按钮与会员卡一样必须有当前可用会话。
     final sessionUnavailable =
@@ -562,13 +558,13 @@ class _MembershipPageState extends State<MembershipPage>
       MaterialPageRoute(
         builder: (_) => MembershipDetailPage(
           plan: plan,
-          usageState: state.membershipLevel == plan.membershipLevel
+          usageState: state.memberLevel == plan.memberLevel
               ? state.usageState
               : null,
           priceFen: priceFen,
           actionLabel: label,
           subscribeEnabled: enabled,
-          onSubscribe: () => _handleAction(plan.membershipLevel),
+          onSubscribe: () => _handleAction(plan.memberLevel),
         ),
       ),
     );
@@ -662,7 +658,7 @@ class _MembershipPageState extends State<MembershipPage>
     final bandHeight = (size.height * 0.60).clamp(430.0, 540.0);
     final peek = cardWidth * 0.40;
     final frontIndex = _page.round().clamp(0, plans.length - 1);
-    final activeColor = _tierColor(plans[frontIndex].membershipLevel);
+    final activeColor = _tierColor(plans[frontIndex].memberLevel);
 
     // 绘制顺序：离最上层越远越先画（在下层），当前卡最后画（压在最上层）。
     final drawOrder = List<int>.generate(plans.length, (i) => i)
@@ -696,7 +692,7 @@ class _MembershipPageState extends State<MembershipPage>
                         index: index,
                         plan: plans[index],
                         state: state,
-                        priceFen: data.prices[plans[index].membershipLevel],
+                        priceFen: data.prices[plans[index].memberLevel],
                         canSubscribe:
                             _sessionStatus == SquareSessionStatus.ready &&
                             data.accountId.isNotEmpty &&
@@ -765,7 +761,7 @@ class _MembershipPageState extends State<MembershipPage>
               canSubscribe: canSubscribe,
               unavailableLabel: unavailableLabel,
               busy: _busy,
-              onTapAction: () => _handleAction(plan.membershipLevel),
+              onTapAction: () => _handleAction(plan.memberLevel),
               onViewDetail: () => _openDetail(plan, priceFen, state),
               elevated: isFront,
             ),
@@ -862,12 +858,11 @@ class _MembershipTierCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final level = plan.membershipLevel;
+    final level = plan.memberLevel;
     final tierColor = _tierColor(level);
     final onTier = _onTierColor(level);
     // 当前所购且有效的档：高亮边框 + 顶带「当前会员」标记。
-    final isCurrentTier =
-        state.subscriptionActive && state.membershipLevel == level;
+    final isCurrentTier = state.active && state.memberLevel == level;
     final action = _actionFor(state, level);
     final actionLabel = !canSubscribe
         ? unavailableLabel
@@ -924,14 +919,13 @@ class _MembershipTierCard extends StatelessWidget {
                           _ParamLine(
                             icon: Icons.mic_none_outlined,
                             color: tierColor,
-                            text:
-                                '语音/视频消息 ${plan.chatVoiceDurationLabel} · 语音/视频通话',
+                            text: '语音/视频消息 ${plan.chatVoiceLabel} · 语音/视频通话',
                           ),
                           SizedBox(height: AppLayout.scaled(context, 8)),
                           _ParamLine(
                             icon: Icons.attach_file_outlined,
                             color: tierColor,
-                            text: '聊天附件 每个 ${plan.chatFileSizeLabel}',
+                            text: '聊天附件 每个 ${plan.fileSizeLabel}',
                           ),
                           SizedBox(height: AppLayout.scaled(context, 8)),
                           _ParamLine(
@@ -945,7 +939,7 @@ class _MembershipTierCard extends StatelessWidget {
                             icon: Icons.photo_outlined,
                             color: tierColor,
                             text:
-                                '公文图片 ${plan.document.maxImages} 张 · ${plan.documentImageQualityLabel}',
+                                '公文图片 ${plan.document.maxImages} 张 · ${plan.documentImageLabel}',
                           ),
                           SizedBox(height: AppLayout.scaled(context, 8)),
                           _ParamLine(
@@ -1028,9 +1022,9 @@ class _MembershipTierCard extends StatelessWidget {
         ? AppTheme.textPrimary
         : Colors.white;
     final badgeStyle = identityBadgeStyle(
-      identityLevel: null,
-      membershipLevel: level,
-      membershipActive: true,
+      cidLevel: null,
+      memberLevel: level,
+      membergateActive: true,
     )!;
     final titleColumn = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1252,13 +1246,12 @@ String _wanLabel(int chars) => chars >= 10000 && chars % 10000 == 0
 enum _SubscribeAction { subscribe, change, cancel }
 
 _SubscribeAction _actionFor(SquareMembershipState state, String level) {
-  if (state.subscriptionStatus == 'active') {
-    return state.membershipLevel == level
+  if (state.subState == 'active') {
+    return state.memberLevel == level
         ? _SubscribeAction.cancel
         : _SubscribeAction.change;
   }
-  if (state.subscriptionStatus == 'cancelled' &&
-      state.membershipLevel != level) {
+  if (state.subState == 'cancelled' && state.memberLevel != level) {
     return _SubscribeAction.change;
   }
   return _SubscribeAction.subscribe;
@@ -1474,10 +1467,10 @@ class _ActiveMembershipBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final plan = state.planForLevel(state.membershipLevel);
+    final plan = state.planForLevel(state.memberLevel);
     final name = plan?.displayName ?? '会员';
     // 用户订阅授权未取消时，runtime 按链上真实公历到期时间自动扣款。
-    final route = switch (state.subscriptionStatus) {
+    final route = switch (state.subState) {
       'cancelled' => '已取消 · 到期终止',
       'terminated' => '扣款失败 · 订阅已终止',
       'suspended' => '已挂起 · 待重新签名或充值',
@@ -1485,7 +1478,7 @@ class _ActiveMembershipBanner extends StatelessWidget {
       _ => '链上到期自动续费',
     };
     final window =
-        '订阅 ${_formatYmd(state.lastChargedAt)} ~ ${_formatYmd(state.paidUntil)}';
+        '订阅 ${_formatYmd(state.chargeAt)} ~ ${_formatYmd(state.paidUntil)}';
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
       padding: EdgeInsets.all(AppLayout.scaled(context, 12)),
@@ -1545,7 +1538,7 @@ const SquareMembershipState _emptyMembershipState = SquareMembershipState(
 List<SquareMembershipPlan> _orderedPlans(List<SquareMembershipPlan> plans) => [
   for (final level in _tierOrder)
     for (final plan in plans)
-      if (plan.membershipLevel == level) plan,
+      if (plan.memberLevel == level) plan,
 ];
 
 Color _tierColor(String level) => switch (level) {

@@ -25,16 +25,16 @@ void main() {
         'custom_account_names': ['业务专户A', '业务专户B'],
       });
       expect(dto.cidNumber, 'AH001-ZF000-123456789-2026');
-      expect(dto.cidFullName, '安徽省人民政府');
+      expect(dto.fullName, '安徽省人民政府');
       expect(dto.provinceCode, 'AH');
       expect(dto.cityCode, '001');
       expect(dto.townCode, '');
       expect(dto.accountCount, 3);
       expect(dto.familyName, '李');
       expect(dto.givenName, '大民');
-      expect(dto.customAccountNames, ['业务专户A', '业务专户B']);
+      expect(dto.accountNames, ['业务专户A', '业务专户B']);
       // 行政区 code + 法定代表人随实体落库。
-      final entity = dto.toEntity(catalogVersion: 'v', updatedAtMillis: 0);
+      final entity = dto.toEntity();
       expect(entity.provinceCode, 'AH');
       expect(entity.cityCode, '001');
       expect(entity.familyName, '李');
@@ -52,13 +52,13 @@ void main() {
       expect(dto.provinceCode, 'ZS');
       expect(dto.cityCode, '001');
       expect(dto.townCode, ''); // 缺省镇 code → 空串
-      expect(dto.customAccountNames, isEmpty);
-      expect(dto.status, 'ACTIVE');
+      expect(dto.accountNames, isEmpty);
+      expect(dto.cidState, 'ACTIVE');
       expect(dto.familyName, isNull);
       expect(dto.givenName, isNull);
     });
 
-    test('toEntity 填 catalogVersion + 名称回退', () {
+    test('toEntity 保留真实目录事实和名称回退', () {
       final dto = PublicInstitutionDto.fromJson(<String, dynamic>{
         'cid_number': 'Y',
         'province_code': 'ZS',
@@ -66,11 +66,11 @@ void main() {
         'institution_code': 'LF',
         'account_count': 2,
       });
-      final e = dto.toEntity(catalogVersion: 'catalog', updatedAtMillis: 123);
+      final e = dto.toEntity();
       expect(e.cidNumber, 'Y');
-      expect(e.cidFullName, 'Y'); // 无名回退 cidNumber
-      expect(e.catalogVersion, 'catalog');
-      expect(e.updatedAtMillis, 123);
+      expect(e.fullName, 'Y'); // 无名回退 cid_number
+      expect(e.orgCode, 'LF');
+      expect(e.accountCount, 2);
     });
   });
 }

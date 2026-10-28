@@ -25,7 +25,7 @@ class AccountSecurityException implements Exception {
 
 typedef AccountMlsDeviceRegistrar = Future<void> Function({
   required String cidNumber,
-  required int bindingRevision,
+  required int bindRev,
   required String accountId,
   required Future<String> Function({
     required Uint8List payload,
@@ -80,13 +80,13 @@ interface class AccountSecurityService {
   Future<void> activateIdentityBinding({
     required String genesisHash,
     required String cidNumber,
-    required int bindingRevision,
+    required int bindRev,
     required String accountId,
   }) async {
     final next = IdentityBinding(
       genesisHash: genesisHash,
       cidNumber: cidNumber,
-      bindingRevision: bindingRevision,
+      bindRev: bindRev,
       accountId: accountId,
     );
     next.validate();
@@ -147,7 +147,7 @@ interface class AccountSecurityService {
     final account = (await _account(binding.accountId))!;
     await _mlsDeviceRegistrar(
       cidNumber: binding.cidNumber,
-      bindingRevision: binding.bindingRevision,
+      bindRev: binding.bindRev,
       accountId: binding.accountId,
       signBinding:
           ({
@@ -165,7 +165,7 @@ interface class AccountSecurityService {
               final raw = await _records.read(
                 deviceRegistrationProofKey(
                   binding.cidNumber,
-                  binding.bindingRevision,
+                  binding.bindRev,
                   binding.accountId,
                 ),
               );
@@ -175,7 +175,7 @@ interface class AccountSecurityService {
                     decodeDeviceRegistrationProof(
                           raw,
                           cidNumber: binding.cidNumber,
-                          bindingRevision: binding.bindingRevision,
+                          bindRev: binding.bindRev,
                           accountId: binding.accountId,
                         )['public_key']
                         as String;
@@ -330,7 +330,7 @@ interface class AccountSecurityService {
     await _records.delete(
       deviceRegistrationProofKey(
         binding.cidNumber,
-        binding.bindingRevision,
+        binding.bindRev,
         binding.accountId,
       ),
     );

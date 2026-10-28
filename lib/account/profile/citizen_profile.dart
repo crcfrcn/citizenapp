@@ -9,13 +9,13 @@ class CitizenProfile {
     required this.accountId,
     required this.displayName,
     required this.profileBio,
-    required this.avatarObjectKey,
-    required this.bannerObjectKey,
+    required this.avatarKey,
+    required this.bannerKey,
     required this.cidNumber,
     required this.isCertified,
-    required this.identityLevel,
-    required this.membershipLevel,
-    required this.membershipActive,
+    required this.cidLevel,
+    required this.memberLevel,
+    required this.membergateActive,
     required this.following,
     required this.followers,
     required this.mutualFollowing,
@@ -26,27 +26,27 @@ class CitizenProfile {
     required this.isFollowing,
     required this.isFollowedBy,
     required this.isNotifying,
-    required this.updatedAt,
+    required this.profileAt,
   });
 
   final String accountId;
   final String displayName;
   final String profileBio;
-  final String? avatarObjectKey;
-  final String? bannerObjectKey;
+  final String? avatarKey;
+  final String? bannerKey;
   final String? cidNumber;
   final bool isCertified;
 
   /// 链上身份档位：visitor 未认证 / voting 认证投票公民 / candidate 认证竞选公民。
   /// 认证真源=链上；无有效会员时，徽章据此分色（访客金/投票蓝/竞选红）。
-  final String identityLevel;
+  final String cidLevel;
 
   /// 已购买的会员档位（公开）：freedom/democracy/spark/null（未购买）。
   /// ADR-037 规定与链上身份档彻底解耦；有效会员徽章按本字段分色并显示对勾。
-  final String? membershipLevel;
+  final String? memberLevel;
 
   /// 会员是否当前有效。
-  final bool membershipActive;
+  final bool membergateActive;
 
   final int following;
   final int followers;
@@ -62,7 +62,7 @@ class CitizenProfile {
 
   /// 当前登录者是否对该账户开启发帖通知（= 已关注且未静音）。本人视角恒为 false。
   final bool isNotifying;
-  final int updatedAt;
+  final int profileAt;
 
   /// `display_name` 是公开昵称唯一真源；缺失时按 CID（无 CID 才按账户）
   /// 生成稳定默认昵称，绝不把钱包名、完整账户或截断账户当昵称。
@@ -90,13 +90,13 @@ class CitizenProfile {
       accountId: _asString(json['account_id']),
       displayName: _asString(json['display_name']),
       profileBio: _asString(json['profile_bio']),
-      avatarObjectKey: _asNullableString(json['avatar_object_key']),
-      bannerObjectKey: _asNullableString(json['banner_object_key']),
+      avatarKey: _asNullableString(json['avatar_key']),
+      bannerKey: _asNullableString(json['banner_key']),
       cidNumber: _asNullableString(json['cid_number']),
       isCertified: json['is_certified'] == true,
-      identityLevel: _asIdentityLevel(json['identity_level']),
-      membershipLevel: _asMembershipLevel(json['membergate_level']),
-      membershipActive: json['membergate_active'] == true,
+      cidLevel: _asIdentityLevel(json['cid_level']),
+      memberLevel: _asMembershipLevel(json['member_level']),
+      membergateActive: json['membergate_active'] == true,
       following: _asInt(countsMap['following']),
       followers: _asInt(countsMap['followers']),
       mutualFollowing: _asInt(countsMap['mutual_following']),
@@ -107,7 +107,7 @@ class CitizenProfile {
       isFollowing: json['is_following'] == true,
       isFollowedBy: json['is_followed_by'] == true,
       isNotifying: json['is_notifying'] == true,
-      updatedAt: _asInt(json['updated_at']),
+      profileAt: _asInt(json['profile_at']),
     );
   }
 
@@ -115,13 +115,13 @@ class CitizenProfile {
     'account_id': accountId,
     'display_name': displayName,
     'profile_bio': profileBio,
-    'avatar_object_key': avatarObjectKey,
-    'banner_object_key': bannerObjectKey,
+    'avatar_key': avatarKey,
+    'banner_key': bannerKey,
     'cid_number': cidNumber,
     'is_certified': isCertified,
-    'identity_level': identityLevel,
-    'membergate_level': membershipLevel,
-    'membergate_active': membershipActive,
+    'cid_level': cidLevel,
+    'member_level': memberLevel,
+    'membergate_active': membergateActive,
     'counts': <String, dynamic>{
       'following': following,
       'followers': followers,
@@ -134,40 +134,40 @@ class CitizenProfile {
     'is_following': isFollowing,
     'is_followed_by': isFollowedBy,
     'is_notifying': isNotifying,
-    'updated_at': updatedAt,
+    'profile_at': profileAt,
   };
 
   CitizenProfile copyWith({
     String? displayName,
     String? profileBio,
-    Object? avatarObjectKey = _sentinel,
-    Object? bannerObjectKey = _sentinel,
-    Object? membershipLevel = _sentinel,
-    bool? membershipActive,
+    Object? avatarKey = _sentinel,
+    Object? bannerKey = _sentinel,
+    Object? memberLevel = _sentinel,
+    bool? membergateActive,
     bool? isFollowing,
     bool? isFollowedBy,
     bool? isNotifying,
     int? followers,
     int? mutualFollowing,
-    int? updatedAt,
+    int? profileAt,
   }) {
     return CitizenProfile(
       accountId: accountId,
       displayName: displayName ?? this.displayName,
       profileBio: profileBio ?? this.profileBio,
-      avatarObjectKey: identical(avatarObjectKey, _sentinel)
-          ? this.avatarObjectKey
-          : avatarObjectKey as String?,
-      bannerObjectKey: identical(bannerObjectKey, _sentinel)
-          ? this.bannerObjectKey
-          : bannerObjectKey as String?,
+      avatarKey: identical(avatarKey, _sentinel)
+          ? this.avatarKey
+          : avatarKey as String?,
+      bannerKey: identical(bannerKey, _sentinel)
+          ? this.bannerKey
+          : bannerKey as String?,
       cidNumber: cidNumber,
       isCertified: isCertified,
-      identityLevel: identityLevel,
-      membershipLevel: identical(membershipLevel, _sentinel)
-          ? this.membershipLevel
-          : membershipLevel as String?,
-      membershipActive: membershipActive ?? this.membershipActive,
+      cidLevel: cidLevel,
+      memberLevel: identical(memberLevel, _sentinel)
+          ? this.memberLevel
+          : memberLevel as String?,
+      membergateActive: membergateActive ?? this.membergateActive,
       following: following,
       followers: followers ?? this.followers,
       mutualFollowing: mutualFollowing ?? this.mutualFollowing,
@@ -178,7 +178,7 @@ class CitizenProfile {
       isFollowing: isFollowing ?? this.isFollowing,
       isFollowedBy: isFollowedBy ?? this.isFollowedBy,
       isNotifying: isNotifying ?? this.isNotifying,
-      updatedAt: updatedAt ?? this.updatedAt,
+      profileAt: profileAt ?? this.profileAt,
     );
   }
 }
@@ -218,7 +218,7 @@ String _asIdentityLevel(Object? value) {
 
 /// 归一化会员档位；未知/缺失/未购买 → null（不给勾）。
 /// 会员三档 = freedom / democracy / spark；ADR-037 规定会员与链上身份档彻底解耦，
-/// voting / candidate 是身份档（identity_level），绝不能出现在会员白名单里。
+/// voting / candidate 是身份档（cid_level），绝不能出现在会员白名单里。
 String? _asMembershipLevel(Object? value) {
   final normalized = value?.toString().trim();
   return (normalized == 'freedom' ||
@@ -241,14 +241,14 @@ final class CitizenProfileCard extends CitizenProfile {
         accountId: card['account_id'] as String,
         cidNumber: card['cid_number'] as String,
         displayName: card['display_name'] as String,
-        avatarObjectKey: card['avatar_object_key'] as String?,
-        updatedAt: card['updated_at'] as int,
+        avatarKey: card['avatar_key'] as String?,
+        profileAt: card['profile_at'] as int,
         profileBio: '',
-        bannerObjectKey: null,
+        bannerKey: null,
         isCertified: card['is_certified'] == true,
-        identityLevel: card['identity_level'] as String? ?? 'visitor',
-        membershipLevel: card['membergate_level'] as String?,
-        membershipActive: card['membergate_active'] == true,
+        cidLevel: card['cid_level'] as String? ?? 'visitor',
+        memberLevel: card['member_level'] as String?,
+        membergateActive: card['membergate_active'] == true,
         following: 0,
         followers: 0,
         mutualFollowing: 0,

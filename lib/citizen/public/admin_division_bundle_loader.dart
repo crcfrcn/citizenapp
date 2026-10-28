@@ -14,7 +14,6 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show FlutterError;
 import 'package:flutter/services.dart' show AssetBundle, rootBundle;
-import 'package:citizenapp/storage/app_isar.dart';
 
 import 'admin_division_dto.dart';
 import 'admin_division_store.dart';
@@ -25,8 +24,8 @@ class AdminDivisionBundleLoader {
     required this.store,
     AssetBundle? bundle,
     DataVersionKv? versionKv,
-  })  : bundle = bundle ?? rootBundle,
-        versionKv = versionKv ?? DataVersionKv(namespace: 'admin_division');
+  }) : bundle = bundle ?? rootBundle,
+       versionKv = versionKv ?? DataVersionKv(dataKind: 'admin_division');
 
   final AdminDivisionStore store;
   final AssetBundle bundle;
@@ -73,8 +72,7 @@ class AdminDivisionBundleLoader {
       // 运行时不扫描、不删除、不重灌所谓旧 schema 数据。
       if (hasData && storedProvVers[code] == ver) continue;
 
-      final provinceChanged =
-          await _reconcileProvince(code, dictVersion: globalVersion);
+      final provinceChanged = await _reconcileProvince(code);
       changed = changed || provinceChanged;
 
       // 逐省落 ver,中断可续(下次启动从这里继续 reconcile 剩余省)。
@@ -103,13 +101,12 @@ class AdminDivisionBundleLoader {
     final provinceJson = jsonDecode(provincesRaw) as List<dynamic>;
     final provinces = provinceJson
         .map((e) => AdminDivisionDto.province(e as Map<String, dynamic>))
-        .where((dto) => provinceVers.containsKey(dto.code))
+        .where((dto) => provinceVers.containsKey(dto.provinceCode))
         .toList(growable: false);
 
     var changed = false;
     for (final p in provinces) {
-      final provinceChanged =
-          await _reconcileProvince(p.code, dictVersion: version);
+      final provinceChanged = await _reconcileProvince(p.provinceCode);
       changed = changed || provinceChanged;
     }
 
@@ -122,10 +119,7 @@ class AdminDivisionBundleLoader {
   }
 
   /// reconcile 单省:读该省分片 → 只 upsert 变化行 → 删包里已没有的废键。
-  Future<bool> _reconcileProvince(
-    String provinceCode, {
-    required String? dictVersion,
-  }) async {
+  Future<bool> _reconcileProvince(String provinceCode) async {
     final newDtos = <AdminDivisionDto>[];
 
     // 省级:从全量 provinces.json 取该省一条(分片不带省级记录)。
@@ -134,7 +128,7 @@ class AdminDivisionBundleLoader {
       final provinceJson = jsonDecode(provincesRaw) as List<dynamic>;
       for (final e in provinceJson) {
         final dto = AdminDivisionDto.province(e as Map<String, dynamic>);
-        if (dto.code == provinceCode) {
+        if (dto.provinceCode == provinceCode) {
           newDtos.add(dto);
           break;
         }
@@ -147,27 +141,29 @@ class AdminDivisionBundleLoader {
       ..addAll(shard.towns);
     if (newDtos.isEmpty) return false;
 
-    final newByKey = {for (final d in newDtos) d.divisionKey: d};
+    final newCodes = {
+      for (final d in newDtos) (d.provinceCode, d.cityCode, d.townCode),
+    };
     final oldRows = await store.divisionsOfProvince(provinceCode);
-    final oldByKey = {for (final e in oldRows) e.divisionKey: e};
-
-    // 只写新增/改名行;dictVersion 是排错字段,不作为内容变化条件,避免整省重写。
+    final oldByCode = {
+      for (final e in oldRows) (e.provinceCode, e.cityCode, e.townCode): e,
+    };
     final changedDtos = newDtos
-        .where((d) => !_sameDivision(oldByKey[d.divisionKey], d))
+        .where(
+          (d) =>
+              oldByCode[(d.provinceCode, d.cityCode, d.townCode)]?.regionName !=
+              d.regionName,
+        )
         .toList(growable: false);
-    if (changedDtos.isNotEmpty) {
-      await store.upsertDivisions(changedDtos, dictVersion: dictVersion);
-    }
-
-    // 删包里没有的(被删码 / 重排掉的旧键)。
-    final newKeys = newByKey.keys.toSet();
-    final oldKeys = oldByKey.keys;
-    final staleKeys =
-        oldKeys.where((k) => !newKeys.contains(k)).toList(growable: false);
-    if (staleKeys.isNotEmpty) {
-      await store.deleteByKeys(staleKeys);
-    }
-    return changedDtos.isNotEmpty || staleKeys.isNotEmpty;
+    if (changedDtos.isNotEmpty) await store.upsertDivisions(changedDtos);
+    final staleRows = oldRows
+        .where(
+          (e) => !newCodes.contains((e.provinceCode, e.cityCode, e.townCode)),
+        )
+        .map((e) => e.rowId)
+        .toList(growable: false);
+    if (staleRows.isNotEmpty) await store.deleteRows(staleRows);
+    return changedDtos.isNotEmpty || staleRows.isNotEmpty;
   }
 
   Future<_ProvinceShards> _loadProvinceShards(String provinceCode) async {
@@ -178,10 +174,7 @@ class AdminDivisionBundleLoader {
     if (citiesRaw != null) {
       cities.addAll(
         (jsonDecode(citiesRaw) as List<dynamic>).map(
-          (e) => AdminDivisionDto.city(
-            provinceCode,
-            e as Map<String, dynamic>,
-          ),
+          (e) => AdminDivisionDto.city(provinceCode, e as Map<String, dynamic>),
         ),
       );
     }
@@ -190,10 +183,7 @@ class AdminDivisionBundleLoader {
     if (townsRaw != null) {
       towns.addAll(
         (jsonDecode(townsRaw) as List<dynamic>).map(
-          (e) => AdminDivisionDto.town(
-            provinceCode,
-            e as Map<String, dynamic>,
-          ),
+          (e) => AdminDivisionDto.town(provinceCode, e as Map<String, dynamic>),
         ),
       );
     }
@@ -234,15 +224,6 @@ class AdminDivisionBundleLoader {
     } on Exception {
       return null;
     }
-  }
-
-  static bool _sameDivision(AdminDivisionEntity? old, AdminDivisionDto dto) {
-    if (old == null) return false;
-    return old.divisionKey == dto.divisionKey &&
-        old.level == dto.level &&
-        old.code == dto.code &&
-        old.scopeKey == dto.scopeKey &&
-        old.divisionName == dto.divisionName;
   }
 }
 

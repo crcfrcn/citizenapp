@@ -40,7 +40,7 @@ class SquareComposePage extends StatefulWidget {
     this.profileMediaCache,
     this.initialText,
     this.initialTitle,
-    this.replacePostId,
+    this.replaceId,
   });
 
   final SquareIdentityService? identityService;
@@ -53,7 +53,7 @@ class SquareComposePage extends StatefulWidget {
   /// 编辑既有帖时预填正文/标题；媒体需重选（远端资源无法转回本地草稿）。
   final String? initialText;
   final String? initialTitle;
-  final String? replacePostId;
+  final String? replaceId;
 
   @override
   State<SquareComposePage> createState() => _SquareComposePageState();
@@ -142,7 +142,7 @@ class _SquareComposePageState extends State<SquareComposePage>
       if (mounted && _identity?.cidNumber == identity.cidNumber) {
         setState(() {
           _avatarPath = media.avatarPath;
-          _avatarSet = profile.avatarObjectKey?.trim().isNotEmpty == true;
+          _avatarSet = profile.avatarKey?.trim().isNotEmpty == true;
         });
       }
     } on Exception {
@@ -264,7 +264,7 @@ class _SquareComposePageState extends State<SquareComposePage>
         text: snapshot.text,
         media: snapshot.media,
         contentSections: snapshot.contentSections,
-        updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
+        updatedAt: DateTime.now().millisecondsSinceEpoch,
       ),
     );
     _draftSaved = true;
@@ -516,7 +516,8 @@ class _SquareComposePageState extends State<SquareComposePage>
         contentSections: payload.contentSections,
         mediaDrafts: payload.mediaDrafts,
         sessionForAccount: (accountId) async =>
-            await sessions.ensureSessionForAccountId(accountId) ?? (throw StateError('MLS会话不可用')),
+            await sessions.ensureSessionForAccountId(accountId) ??
+            (throw StateError('MLS会话不可用')),
         externalSigning: (pending) => showCitizenSdkQrResponse(
           context,
           request: pending.qrRequest,
@@ -524,7 +525,7 @@ class _SquareComposePageState extends State<SquareComposePage>
             pending.expiresAt.millisecondsSinceEpoch ~/ 1000,
           ),
         ),
-        replacePostId: widget.replacePostId,
+        replaceId: widget.replaceId,
         onStage: (stage) {
           if (mounted) setState(() => _stage = stage);
         },

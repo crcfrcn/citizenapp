@@ -79,17 +79,18 @@ Uint8List buildPayload({
   String province = '11',
   String city = '01',
   String town = '001',
-}) =>
-    wrapAuthorization(buildVotingPayloadRaw(
-      cidNumber: cidNumber,
-      publicKeyByte: publicKeyByte,
-      validFrom: validFrom,
-      validUntil: validUntil,
-      status: status,
-      province: province,
-      city: city,
-      town: town,
-    ));
+}) => wrapAuthorization(
+  buildVotingPayloadRaw(
+    cidNumber: cidNumber,
+    publicKeyByte: publicKeyByte,
+    validFrom: validFrom,
+    validUntil: validUntil,
+    status: status,
+    province: province,
+    city: city,
+    town: town,
+  ),
+);
 
 Uint8List buildCandidatePayload() {
   final out = <int>[...buildVotingPayloadRaw()];
@@ -122,11 +123,11 @@ void main() {
       final decoded = VotingIdentityConsentPayload.decode(buildPayload());
 
       expect(decoded, isNotNull);
-      expect(decoded!.identityLevel, CitizenIdentityConsentLevel.voting);
+      expect(decoded!.cidLevel, CitizenIdentityConsentLevel.voting);
       expect(decoded.cidNumber, 'BJ110198512345678');
       expect(decoded.accountId, '0x${'aa' * 32}');
       expect(
-        decoded.ss58Address,
+        decoded.accountAddress,
         Keyring().encodeAddress(List.filled(32, 0xaa), 2027),
       );
       expect(decoded.statusNormal, isTrue);
@@ -150,7 +151,7 @@ void main() {
       );
 
       expect(decoded, isNotNull);
-      expect(decoded!.identityLevel, CitizenIdentityConsentLevel.candidate);
+      expect(decoded!.cidLevel, CitizenIdentityConsentLevel.candidate);
       expect(decoded.isCandidate, isTrue);
       expect(decoded.birthProvinceCode, '11');
       expect(decoded.birthCityCode, '01');

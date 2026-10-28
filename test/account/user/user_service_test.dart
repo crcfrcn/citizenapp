@@ -1,3 +1,17 @@
+import 'package:citizenapp/storage/user_isar.dart'
+    as user_store
+    show
+        Contact,
+        ContactSchema,
+        EditSchema,
+        FollowSchema,
+        IdentitySchema,
+        ProfileMediaSchema,
+        NoticeSchema,
+        ProfileSchema,
+        Setting,
+        SettingSchema;
+import 'package:citizenapp/storage/app_isar.dart' as app_store show Entity;
 import 'package:citizenapp/citizen/account_derivation.dart';
 import 'package:flutter/foundation.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -62,7 +76,7 @@ class _FakeIdentityCache implements CurrentUserContext {
         genesisHash: '0x${'11' * 32}',
         cidNumber: cid,
         accountId: account,
-        bindingRevision: 1,
+        bindRev: 1,
       ),
     );
   }
@@ -80,7 +94,7 @@ class _FakeSessionProvider implements SquareSessionProvider {
     deviceId: testMlsDeviceId,
     sessionToken: 'token',
     cidNumber: _ownerCidNumber,
-    bindingRevision: 1,
+    bindRev: 1,
     accountId: _accountId,
     expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
   );
@@ -102,12 +116,12 @@ class _FakeApi extends SquareApiClient {
       'cid_number': _contactCidNumber,
       'account_id': UserContactService.accountIdFromSs58(_contactA),
       'display_name': '联系人',
-      'updated_at': 1,
-      'identity_level': 'visitor',
+      'profile_at': 1,
+      'cid_level': 'visitor',
       'is_certified': false,
-      'membergate_level': null,
+      'member_level': null,
       'membergate_active': false,
-      'avatar_object_key': null,
+      'avatar_key': null,
     });
   }
 }
@@ -116,50 +130,50 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   useIsolatedIsar();
 
-  test('开库前精确删除废弃通讯录行，保留新记录和首页偏好', () async {
+  test('重开保留通讯录各状态与首页偏好，不隐式清理或改写记录', () async {
     final opened = await Isar.open(
       [
-        UserPublicProfileCacheEntitySchema,
-        UserProfileUpdateEntitySchema,
-        UserProfileMediaEntitySchema,
-        UserIdentityBadgeSnapshotEntitySchema,
-        UserContactStateEntitySchema,
-        UserNotificationStateEntitySchema,
-        UserSettingsEntitySchema,
-        UserPublicInstitutionSubscriptionEntitySchema,
+        user_store.ProfileSchema,
+        user_store.EditSchema,
+        user_store.ProfileMediaSchema,
+        user_store.IdentitySchema,
+        user_store.ContactSchema,
+        user_store.NoticeSchema,
+        user_store.SettingSchema,
+        user_store.FollowSchema,
       ],
       name: 'citizenapp_user',
       directory: await IsarCoreBootstrap.resolveDirectory(),
     );
     await opened.writeTxn(() async {
-      await opened.userContactStateEntitys.putAll([
-        UserContactStateEntity()
-          ..stateKey = 'user.contact.obsolete'
-          ..ownerCidNumber = _ownerCidNumber
-          ..stateKind = 'book'
-          ..payloadJson = 'discard-without-reading',
-        UserContactStateEntity()
-          ..stateKey = 'user.mls.contacts.book:$_ownerCidNumber'
-          ..ownerCidNumber = _ownerCidNumber
-          ..stateKind = 'book'
-          ..payloadJson = '[]',
+      await opened.collection<user_store.Contact>().putAll([
+        user_store.Contact()
+          ..cidNumber = _ownerCidNumber
+          ..stateKind = 'pending'
+          ..bodyData = 'retain-without-reading',
+        user_store.Contact()
+          ..cidNumber = _ownerCidNumber
+          ..stateKind = 'records'
+          ..bodyData = '{}',
       ]);
-      await opened.userSettingsEntitys.put(
-        UserSettingsEntity()..openChatOnLaunch = true,
+      await opened.collection<user_store.Setting>().put(
+        user_store.Setting()..chatHome = true,
       );
     });
     final usable = await UserIsar.instance.db();
     expect(
-      await usable.userContactStateEntitys
+      await usable
+          .collection<user_store.Contact>()
           .filter()
-          .stateKeyStartsWith('user.contact.')
+          .stateKindEqualTo('pending')
           .count(),
-      0,
+      1,
     );
     expect(
-      await usable.userContactStateEntitys
+      await usable
+          .collection<user_store.Contact>()
           .filter()
-          .stateKeyStartsWith('user.mls.contacts.book:')
+          .stateKindEqualTo('records')
           .count(),
       1,
     );
@@ -179,7 +193,7 @@ void main() {
       final service = createService();
       final created = await service.addContact(
         cidNumber: _contactCidNumber,
-        ss58Address: _contactA,
+        accountAddress: _contactA,
         contactRemark: '',
       );
       expect(created.created, isTrue);
@@ -212,7 +226,7 @@ void main() {
       await expectLater(
         service.addContact(
           cidNumber: _ownerCidNumber,
-          ss58Address: _owner,
+          accountAddress: _owner,
           contactRemark: '',
         ),
         throwsA(isA<FormatException>()),
@@ -223,12 +237,12 @@ void main() {
       final service = createService();
       await service.addContact(
         cidNumber: _contactCidNumber,
-        ss58Address: _contactA,
+        accountAddress: _contactA,
         contactRemark: '保留备注',
       );
       final contacts = await service.getContacts();
       expect(contacts.single.cidNumber, _contactCidNumber);
-      expect(contacts.single.ss58Address, _contactA);
+      expect(contacts.single.accountAddress, _contactA);
       expect(contacts.single.contactRemark, '保留备注');
     });
 
@@ -316,33 +330,33 @@ void main() {
       current.onResolve = null;
     }
     final contacts = await UserIsar.instance.read(
-      (db) => db.userContactStateEntitys.where().findAll(),
+      (db) => db.collection<user_store.Contact>().where().findAll(),
     );
     expect(contacts, isEmpty);
   });
   test('公权机构关注按订阅者 CID 持久化，钱包换绑不产生新分区', () async {
-    const institutionCidNumber = 'GD001-CGOV0-000000001-2026';
+    const peerCid = 'GD001-CGOV0-000000001-2026';
     final isar = await AppIsar.instance.db();
     await isar.writeTxn(() async {
-      await isar.publicInstitutionEntitys.clear();
+      await isar.collection<app_store.Entity>().clear();
     });
     final store = IsarPublicInstitutionStore(isar: isar);
     await store.upsertInstitutions([
       PublicInstitutionDto.fromJson(<String, dynamic>{
-        'cid_number': institutionCidNumber,
+        'cid_number': peerCid,
         'cid_full_name': '广东省人民政府',
         'province_code': 'GD',
         'city_code': '001',
         'institution_code': 'CGOV',
         'account_count': 2,
       }),
-    ], catalogVersion: 'test');
+    ]);
 
-    await store.subscribe(_ownerCidNumber, institutionCidNumber);
+    await store.subscribe(_ownerCidNumber, peerCid);
 
     expect(
       (await store.listSubscribed(_ownerCidNumber)).map((row) => row.cidNumber),
-      [institutionCidNumber],
+      [peerCid],
       reason: '关注归属永久 CID，不接收或存储当前钱包账户作为分区键',
     );
     expect(await store.listSubscribed('CN220-CTZN2-OTHER-2026'), isEmpty);

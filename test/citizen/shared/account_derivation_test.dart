@@ -153,10 +153,7 @@ void main() {
         ),
       );
       expect(
-        derivePersonalAccountSs58(
-          creatorAccountId: creator,
-          accountName: '个人钱包',
-        ),
+        derivePersonalAccountSs58(creatorAccount: creator, accountName: '个人钱包'),
         viaCore,
       );
     });
@@ -164,7 +161,7 @@ void main() {
     test('creator 非 32 字节抛错', () {
       expect(
         () => derivePersonalAccountSs58(
-          creatorAccountId: Uint8List(31),
+          creatorAccount: Uint8List(31),
           accountName: 'x',
         ),
         throwsArgumentError,

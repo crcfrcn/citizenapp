@@ -28,7 +28,7 @@ void main() {
     deviceId: testMlsDeviceId,
     sessionToken: 't',
     cidNumber: "CN220-CTZN2-198805200-2026",
-    bindingRevision: 1,
+    bindRev: 1,
     accountId:
         '0x7777777777777777777777777777777777777777777777777777777777777777',
     expiresAt: 9999999999999,
@@ -104,7 +104,7 @@ void main() {
       deviceId: session.deviceId,
       sessionToken: session.sessionToken,
       cidNumber: session.cidNumber,
-      bindingRevision: 1,
+      bindRev: 1,
       accountId: session.accountId,
       expiresAt: session.expiresAt,
       authenticateRequest: fakeMlsRequestHeaders,
@@ -163,15 +163,15 @@ void main() {
       ),
       overview: const CreatorOverview(
         subscriberCount: 7,
-        monthIncomeFen: 8800,
+        monthlyIncomeFen: 8800,
         tierCount: 1,
       ),
     );
     await service.rememberDisplayData(
       cidNumber: _creatorCidNumber,
       data: display,
-      membershipFetchedAtMs: 1000,
-      creatorFetchedAtMs: 2000,
+      memberAt: 1000,
+      creatorAt: 2000,
     );
 
     final snapshot = await service.readDisplaySnapshot(_creatorCidNumber);
@@ -180,8 +180,8 @@ void main() {
     expect(snapshot.data.gated, isFalse);
     expect(snapshot.data.plan!.tiers.single.tierName, '铁杆粉丝');
     expect(snapshot.data.overview!.subscriberCount, 7);
-    expect(snapshot.membershipFetchedAtMs, 1000);
-    expect(snapshot.creatorFetchedAtMs, 2000);
+    expect(snapshot.memberAt, 1000);
+    expect(snapshot.creatorAt, 2000);
   });
 
   test('链上 finalized 后 Cloudflare 失败只重试投影确认，不产生第二次链上签名', () async {
@@ -283,7 +283,7 @@ class _FakeSessionProvider implements SquareSessionProvider {
     deviceId: testMlsDeviceId,
     sessionToken: 'creator-session',
     cidNumber: _creatorCidNumber,
-    bindingRevision: 1,
+    bindRev: 1,
     accountId: accountId,
     expiresAt: 9999999999999,
   );
@@ -303,11 +303,11 @@ class _FakeIdentityCache implements FinalizedIdentityResolver {
   @override
   Future<FinalizedIdentity?> resolve() async => FinalizedIdentity(
     accountId: _accountId,
-    ss58Address: _signerSs58Address,
+    accountAddress: _signerSs58Address,
     snapshot: CitizenIdentityChainSnapshot(
       cidNumber: _creatorCidNumber,
       accountId: Uint8List(32),
-      bindingRevision: 1,
+      bindRev: 1,
       votingIdentity: null,
     ),
   );
@@ -356,9 +356,8 @@ class _ActiveMembershipService implements SubscriptionService {
   }) async => const SquareMembershipState(
     active: true,
     paidUntil: 9999999999999,
-    membershipLevel: 'freedom',
-    subscriptionStatus: 'active',
-    subscriptionActive: true,
+    memberLevel: 'freedom',
+    subState: 'active',
   );
 
   @override
@@ -377,17 +376,17 @@ class _FakeSubscriptionChain extends SubscriptionChain {
 
   @override
   Future<FinalizedSubscriptionSnapshot> fetchSubscriptionSnapshot({
-    required String subscriberCidNumber,
+    required String cidNumber,
     String? creatorCidNumber,
   }) async => FinalizedSubscriptionSnapshot(
     state: ChainSubscriptionState(
       plan: const ChainSubscriptionPlan.platform('freedom'),
       startedAt: 1000,
-      lastChargedAt: 1000,
-      lastChargedPriceFen: BigInt.one,
+      chargeAt: 1000,
+      chargeFen: BigInt.one,
       paidUntil: 3000,
-      status: 'active',
-      authorizedPriceFen: BigInt.one,
+      subState: 'active',
+      priceFen: BigInt.one,
       suspendReason: null,
     ),
     chainNowMs: 2000,

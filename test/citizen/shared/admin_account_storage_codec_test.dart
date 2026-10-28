@@ -29,38 +29,33 @@ void main() {
     String familyName,
     String givenName,
     List<int> account,
-  ) =>
-      [
-        ...account,
-        ...scaleBytes(''), // 空公民 CID（统一 Admin 恒带 cid，Compact(0)）
-        ...scaleBytes(familyName),
-        ...scaleBytes(givenName),
-      ];
+  ) => [
+    ...account,
+    ...scaleBytes(''), // 空公民 CID（统一 Admin 恒带 cid，Compact(0)）
+    ...scaleBytes(familyName),
+    ...scaleBytes(givenName),
+  ];
 
   List<int> publicAdminBytes(
     String cidNumber,
     String familyName,
     String givenName,
     List<int> account,
-  ) =>
-      [
-        ...account,
-        ...scaleBytes(cidNumber),
-        ...scaleBytes(familyName),
-        ...scaleBytes(givenName),
-      ];
+  ) => [
+    ...account,
+    ...scaleBytes(cidNumber),
+    ...scaleBytes(familyName),
+    ...scaleBytes(givenName),
+  ];
 
   group('tryDecode', () {
     test('成功解码 PublicInstitution(0 admins)', () {
-      final bytes = Uint8List.fromList([
-        ...codeBytes('NRC'),
-        0,
-      ]);
+      final bytes = Uint8List.fromList([...codeBytes('NRC'), 0]);
       final r = AdminAccountStorageCodec.tryDecode(
         bytes,
         kind: AdminAccountStorageCodec.kindPublicInstitution,
       )!;
-      expect(r.institutionCode, 'NRC');
+      expect(r.orgCode, 'NRC');
       expect(r.kind, AdminAccountStorageCodec.kindPublicInstitution);
       expect(r.admins, isEmpty);
     });
@@ -85,12 +80,13 @@ void main() {
         bytes,
         kind: AdminAccountStorageCodec.kindPersonal,
       )!;
-      expect(r.institutionCode, 'PMUL');
+      expect(r.orgCode, 'PMUL');
       expect(r.kind, AdminAccountStorageCodec.kindPersonal);
-      expect(
-        r.admins.map((admin) => admin.account_id),
-        ['0x${'11' * 32}', '0x${'22' * 32}', '0x${'33' * 32}'],
-      );
+      expect(r.admins.map((admin) => admin.accountId), [
+        '0x${'11' * 32}',
+        '0x${'22' * 32}',
+        '0x${'33' * 32}',
+      ]);
     });
 
     test('成功解码 PublicInstitution 含 2 个 admin', () {
@@ -106,15 +102,15 @@ void main() {
         bytes,
         kind: AdminAccountStorageCodec.kindPublicInstitution,
       )!;
-      expect(r.institutionCode, 'CGOV');
+      expect(r.orgCode, 'CGOV');
       expect(r.kind, AdminAccountStorageCodec.kindPublicInstitution);
-      expect(
-        r.admins.map((admin) => admin.account_id),
-        ['0x${'44' * 32}', '0x${'55' * 32}'],
-      );
-      expect(r.admins.first.cid_number, 'CN220-CTZN2-198805200-2026');
-      expect(r.admins.first.family_name, isEmpty);
-      expect(r.admins.last.cid_number, isEmpty);
+      expect(r.admins.map((admin) => admin.accountId), [
+        '0x${'44' * 32}',
+        '0x${'55' * 32}',
+      ]);
+      expect(r.admins.first.cidNumber, 'CN220-CTZN2-198805200-2026');
+      expect(r.admins.first.familyName, isEmpty);
+      expect(r.admins.last.cidNumber, isEmpty);
     });
 
     test('字节不足返回 null,不抛异常', () {
@@ -138,12 +134,7 @@ void main() {
       final bytes = Uint8List.fromList([
         ...codeBytes('NRC'),
         0x08, // 声明 2 个 admin 但只给 1 个完整管理员的字节。
-        ...publicAdminBytes(
-          '',
-          '',
-          '',
-          List.filled(32, 0xCC),
-        ),
+        ...publicAdminBytes('', '', '', List.filled(32, 0xCC)),
       ]);
       expect(
         AdminAccountStorageCodec.tryDecode(
@@ -196,8 +187,9 @@ void main() {
       for (var i = 48; i < key.length; i++) {
         key[i] = i - 48;
       }
-      final accountId =
-          AdminAccountStorageCodec.extractPersonalAccountFromKey(key)!;
+      final accountId = AdminAccountStorageCodec.extractPersonalAccountFromKey(
+        key,
+      )!;
       expect(
         AdminAccountStorageCodec.accountIdText(accountId),
         '0x000102030405060708090a0b0c0d0e0f'
@@ -214,10 +206,7 @@ void main() {
         AdminAccountStorageCodec.extractPersonalAccountFromKey(Uint8List(20)),
         isNull,
       );
-      expect(
-        AdminAccountStorageCodec.accountIdText(Uint8List(31)),
-        isNull,
-      );
+      expect(AdminAccountStorageCodec.accountIdText(Uint8List(31)), isNull);
     });
   });
 }

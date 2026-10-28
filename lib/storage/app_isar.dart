@@ -9,96 +9,122 @@ part 'app_isar.g.dart';
 /// 行政区字典实体。
 ///
 /// 行政区属于全 App 通用目录，不是用户、广场、聊天或区块链事实。
+@Name('region')
 @collection
-class AdminDivisionEntity {
-  Id id = Isar.autoIncrement;
+class Region {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 
-  /// `"<level>|<province_code>|<city_code>|<town_code>"`。
-  @Index(unique: true, replace: true)
-  late String divisionKey;
-
-  @Index()
-  late String level;
-
-  late String code;
-
-  @Index()
-  late String scopeKey;
-
-  late String divisionName;
-  String? dictVersion;
+  @Name('province_code')
+  @Index(
+    composite: [CompositeIndex('cityCode'), CompositeIndex('townCode')],
+    unique: true,
+    replace: true,
+  )
+  late String provinceCode;
+  @Name('city_code')
+  String cityCode = '';
+  @Name('town_code')
+  String townCode = '';
+  @Name('region_name')
+  late String regionName;
 }
 
 /// 公权机构公开目录的本机缓存。
 ///
 /// 本集合只保存公开目录事实；用户关注关系保存在 UserIsar，机构多签账户保存在
 /// WalletIsar，三者不得共用事务或队列。
+@Name('entity')
 @collection
-class PublicInstitutionEntity {
-  Id id = Isar.autoIncrement;
+class Entity {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 
+  @Name('cid_number')
   @Index(unique: true, replace: true)
   late String cidNumber;
 
-  late String cidFullName;
-  String? cidShortName;
-  late String status;
+  @Name('full_name')
+  late String fullName;
+  @Name('short_name')
+  String? shortName;
+  @Name('cid_state')
+  late String cidState;
 
+  @Name('province_code')
   @Index()
   late String provinceCode;
 
+  @Name('city_code')
   @Index()
   late String cityCode;
 
+  @Name('town_code')
   String townCode = '';
 
+  @Name('org_code')
   @Index()
-  late String institutionCode;
+  late String orgCode;
 
-  String? parentCidNumber;
-  bool? hasLegalPersonality;
+  @Name('parent_cid')
+  String? parentCid;
+  @Name('is_legal')
+  bool? isLegal;
+  @Name('family_name')
   String? familyName;
+  @Name('given_name')
   String? givenName;
-  String? legalRepresentativeCidNumber;
-  String? legalRepresentativeAccountId;
+  @Name('legal_cid')
+  String? legalCid;
+  @Name('legal_account')
+  String? legalAccount;
+  @Name('account_count')
   late int accountCount;
-  List<String> customAccountNames = const [];
-  String? catalogVersion;
-  late int updatedAtMillis;
+  @Name('account_names')
+  List<String> accountNames = const [];
 }
 
 /// 通用静态数据版本状态。
+@Name('version')
 @collection
-class AppDataVersionEntity {
-  Id id = Isar.autoIncrement;
+class Version {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 
+  @Name('data_kind')
   @Index(unique: true, replace: true)
-  late String namespace;
+  late String dataKind;
 
+  @Name('global_version')
   String? globalVersion;
-  String? provinceVersionsJson;
-  int updatedAtMillis = 0;
+  @Name('province_data')
+  String? provinceData;
 }
 
 /// 公权机构目录的省级顺序。
+@Name('catalog')
 @collection
-class AppPublicInstitutionCatalogEntity {
-  Id id = 0;
+class Catalog {
+  @Name('row_id')
+  Id rowId = 0;
 
+  @Name('province_codes')
   List<String> provinceCodes = const [];
-  int updatedAtMillis = 0;
 }
 
 /// 单省公权机构目录同步版本。
+@Name('province')
 @collection
-class AppPublicInstitutionProvinceVersionEntity {
-  Id id = Isar.autoIncrement;
+class Province {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 
+  @Name('province_code')
   @Index(unique: true, replace: true)
   late String provinceCode;
 
-  late String version;
-  late int updatedAtMillis;
+  @Name('data_version')
+  late String dataVersion;
 }
 
 enum _AppIsarLifecycle { active, closing, closed }
@@ -148,12 +174,12 @@ class AppIsar {
   /// App 域唯一 schema 清单。
   static const List<CollectionSchema<dynamic>> _schemas =
       <CollectionSchema<dynamic>>[
-    AdminDivisionEntitySchema,
-    PublicInstitutionEntitySchema,
-    AppDataVersionEntitySchema,
-    AppPublicInstitutionCatalogEntitySchema,
-    AppPublicInstitutionProvinceVersionEntitySchema,
-  ];
+        RegionSchema,
+        EntitySchema,
+        VersionSchema,
+        CatalogSchema,
+        ProvinceSchema,
+      ];
 
   bool get hasActiveOperation => _operationActive;
 
@@ -266,8 +292,8 @@ class AppIsar {
       return opened;
     }
     try {
-      final deleted =
-          await _deleteInstance(opened).timeout(_forcedDeleteTimeout);
+      final deleted = await _deleteInstance(opened)
+          .timeout(_forcedDeleteTimeout);
       if (!deleted) throw StateError('App 数据库仍被其它实例持有，未实际删除。');
       throw const _AppOpeningCancelled();
     } catch (error) {
@@ -300,11 +326,11 @@ class AppIsar {
     final existing = Isar.getInstance('citizenapp_app');
     if (existing != null && existing.isOpen) {
       try {
-        existing.adminDivisionEntitys;
-        existing.publicInstitutionEntitys;
-        existing.appDataVersionEntitys;
-        existing.appPublicInstitutionCatalogEntitys;
-        existing.appPublicInstitutionProvinceVersionEntitys;
+        existing.regions;
+        existing.entitys;
+        existing.versions;
+        existing.catalogs;
+        existing.provinces;
       } catch (error) {
         throw StateError('已打开的 AppIsar 不是当前完整 schema：$error');
       }
@@ -387,8 +413,8 @@ class AppIsar {
       if (!candidate.isOpen) continue;
       deleteWasAttempted = true;
       try {
-        final deleted =
-            await _deleteInstance(candidate).timeout(_forcedDeleteTimeout);
+        final deleted = await _deleteInstance(candidate)
+            .timeout(_forcedDeleteTimeout);
         if (!deleted) failures.add('App 数据库仍被其它实例持有，未实际删除。');
       } catch (error) {
         failures.add('强制删除 App 数据库失败：$error');

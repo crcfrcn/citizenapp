@@ -30,7 +30,7 @@ class SquarePostHeader extends StatefulWidget {
   /// 右上角更多菜单；为 null 时按钮仍展示但不响应。
   final VoidCallback? onMore;
 
-  /// 作者头像已解析的可读地址（由页面据 avatarObjectKey + session 生成）；
+  /// 作者头像已解析的可读地址（由页面据 avatar_key + session 生成）；
   /// 用户已设置但缺失时保留占位，只有从未设置才显示稳定默认照片。
   final String? avatarUrl;
 
@@ -123,15 +123,12 @@ class _SquarePostHeaderState extends State<SquarePostHeader> {
 
                   imageProvider: post.isLocal ? null : widget.avatarImage,
                   userImageSet:
-                      (_profile?.avatarObjectKey ?? author.avatarObjectKey)
-                          ?.isNotEmpty ==
+                      (_profile?.avatarKey ?? author.avatarKey)?.isNotEmpty ==
                       true,
-                  identityLevel:
-                      _profile?.identityLevel ?? author.identityLevel,
-                  membershipLevel:
-                      _profile?.membershipLevel ?? author.membershipLevel,
-                  membershipActive:
-                      _profile?.membershipActive ?? author.membershipActive,
+                  cidLevel: _profile?.cidLevel ?? author.cidLevel,
+                  memberLevel: _profile?.memberLevel ?? author.memberLevel,
+                  membergateActive:
+                      _profile?.membergateActive ?? author.membergateActive,
                   borderRadius: 12,
                 ),
                 SizedBox(width: AppLayout.scaled(context, 11)),
@@ -199,7 +196,7 @@ class _SquarePostHeaderState extends State<SquarePostHeader> {
 
   /// 竞选岗位只有竞选公民且有值时展示，否则只显示时间。
   String _subtitle() {
-    final time = _formatCreatedAt(post.createdAt);
+    final time = _formatCreatedAt(post.publishedAt);
     final position = post.campaignPosition?.trim();
     if (_isCampaign && position != null && position.isNotEmpty) {
       return '$position · $time';

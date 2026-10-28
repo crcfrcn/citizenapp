@@ -45,18 +45,18 @@ class ProfileAssetService {
 
   Future<ProfileAssetResult> upload({
     required SquareSession session,
-    required String kind,
+    required String uploadKind,
     required Uint8List bytes,
     required String contentType,
   }) async {
-    if (!const {'avatar', 'banner'}.contains(kind)) {
+    if (!const {'avatar', 'banner'}.contains(uploadKind)) {
       throw const SquarePreflightException('资料图片类型无效', 'invalid_profile_kind');
     }
     final rules = SubscriptionService.resourceGate.profileMedia(
       _client.baseUri.origin,
       session,
     );
-    final maxBytes = rules?['${kind}_bytes'];
+    final maxBytes = rules?['${uploadKind}_bytes'];
     if (maxBytes is! int ||
         maxBytes <= 0 ||
         rules?['content_type'] != 'image/webp') {
@@ -74,8 +74,8 @@ class ProfileAssetService {
       for (final quality in [75, 60, 45, 30]) {
         final candidate = await _compress(
           source,
-          kind == 'avatar' ? 1024 : 1920,
-          kind == 'avatar' ? 1024 : 720,
+          uploadKind == 'avatar' ? 1024 : 1920,
+          uploadKind == 'avatar' ? 1024 : 720,
           quality,
         );
         if (candidate.isNotEmpty && candidate.length <= maxBytes) {
@@ -96,10 +96,10 @@ class ProfileAssetService {
     final sha = sha256.convert(bytes).toString();
     final prepared = await _client.prepareProfileAsset(
       session: session,
-      kind: kind,
+      uploadKind: uploadKind,
       contentType: contentType,
       byteSize: bytes.length,
-      sha256Hex: sha,
+      contentHash: sha,
     );
     await _client.uploadBytesTo(
       prepared.uploadUrl,
@@ -109,7 +109,7 @@ class ProfileAssetService {
     );
     return ProfileAssetResult(
       objectKey: prepared.objectKey,
-      contentHash: prepared.contentHash,
+      contentHash: sha,
       bytes: bytes,
     );
   }

@@ -17,7 +17,7 @@ class RegisterChoice {
   /// [kCidInstitutionCitizen](公民)/ [kCidInstitutionResident](居民)。
   final String institution;
 
-  /// CID 绑定的钱包账户 accountId(鉴权凭证,可任意 `//n`;私钥泄漏可换绑)。
+  /// CID 绑定的钱包账户 account_id(鉴权凭证,可任意 `//n`;私钥泄漏可换绑)。
   final String bindAccountId;
 }
 
@@ -43,7 +43,8 @@ Future<bool?> showRegisterIdentitySheet(
   required Future<RegistrationSubmitOutcome> Function(
     BuildContext sheetContext,
     RegisterChoice choice,
-  ) onSubmit,
+  )
+  onSubmit,
   Future<void> Function(BuildContext, String)? openTopup,
 }) {
   return showModalBottomSheet<bool>(
@@ -71,7 +72,8 @@ class RegisterIdentitySheet extends StatefulWidget {
   final Future<RegistrationSubmitOutcome> Function(
     BuildContext sheetContext,
     RegisterChoice choice,
-  ) onSubmit;
+  )
+  onSubmit;
   final Future<void> Function(BuildContext, String)? openTopup;
 
   @override
@@ -148,129 +150,128 @@ class _RegisterIdentitySheetState extends State<RegisterIdentitySheet> {
       // 验证、交易和激活期间不允许系统返回关闭面板；空闲时可主动取消。
       canPop: !_submitted,
       child: SafeArea(
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(16, 8, 16, 16 + bottomInset),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: AppLayout.scaled(context, 36),
-                  height: AppLayout.scaled(context, 4),
-                  margin: EdgeInsets.only(
-                    bottom: AppLayout.scaled(context, 16),
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppTheme.textTertiary,
-                    borderRadius: BorderRadius.circular(
-                      AppLayout.scaledValue(2),
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(16, 8, 16, 16 + bottomInset),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: AppLayout.scaled(context, 36),
+                    height: AppLayout.scaled(context, 4),
+                    margin: EdgeInsets.only(
+                      bottom: AppLayout.scaled(context, 16),
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppTheme.textTertiary,
+                      borderRadius: BorderRadius.circular(
+                        AppLayout.scaledValue(2),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              Text(
-                '注册身份',
-                style: TextStyle(
-                  fontSize: AppLayout.scaled(context, 17),
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.textPrimary,
-                ),
-              ),
-              SizedBox(height: AppLayout.scaled(context, 6)),
-              Text(
-                '占用一个匿名身份 CID 号并绑定到你选的钱包账户,自付最低链上费。身份主键是'
-                'CID 号,绑定账户只是鉴权凭证——私钥泄漏可换绑到新账户,CID 不丢失。',
-                style: TextStyle(
-                  fontSize: AppLayout.scaled(context, 12),
-                  height: 1.5,
-                  color: AppTheme.textSecondary,
-                ),
-              ),
-              SizedBox(height: AppLayout.scaled(context, 16)),
-              const _SectionLabel('主体类型'),
-              SizedBox(height: AppLayout.scaled(context, 8)),
-              _TypeOption(
-                label: '公民',
-                code: kCidInstitutionCitizen,
-                desc: '可后续到注册局线下升级为投票 / 竞选公民。',
-                selected: _institution == kCidInstitutionCitizen,
-                onTap: () =>
-                    setState(() => _institution = kCidInstitutionCitizen),
-              ),
-              SizedBox(height: AppLayout.scaled(context, 10)),
-              _TypeOption(
-                label: '居民',
-                code: kCidInstitutionResident,
-                desc: '永久匿名身份,不可升级为投票 / 竞选公民。',
-                selected: _institution == kCidInstitutionResident,
-                onTap: () =>
-                    setState(() => _institution = kCidInstitutionResident),
-              ),
-              if (_sortedAccounts.length > 1) ...[
-                SizedBox(height: AppLayout.scaled(context, 16)),
-                const _SectionLabel('绑定钱包账户'),
-                SizedBox(height: AppLayout.scaled(context, 8)),
-                ..._sortedAccounts.map(
-                  (account) => Padding(
-                    padding: EdgeInsets.only(
-                      bottom: AppLayout.scaled(context, 8),
-                    ),
-                    child: _AccountRadio(
-                      account: account,
-                      selected: _bindAccountId == account.accountId,
-                      onTap: () =>
-                          setState(() => _bindAccountId = account.accountId),
-                    ),
+                Text(
+                  '注册身份',
+                  style: TextStyle(
+                    fontSize: AppLayout.scaled(context, 17),
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.textPrimary,
                   ),
                 ),
-              ],
-              SizedBox(height: AppLayout.scaled(context, 14)),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                decoration: AppTheme.bannerDecoration(AppTheme.warning),
-                child: Text(
-                  '自助注册只产生匿名身份。投票公民、竞选公民只能在对应注册局线下注册,'
-                  '本页无法自助升级。',
+                SizedBox(height: AppLayout.scaled(context, 6)),
+                Text(
+                  '占用一个匿名身份 CID 号并绑定到你选的钱包账户,自付最低链上费。身份主键是'
+                  'CID 号,绑定账户只是鉴权凭证——私钥泄漏可换绑到新账户,CID 不丢失。',
                   style: TextStyle(
                     fontSize: AppLayout.scaled(context, 12),
                     height: 1.5,
                     color: AppTheme.textSecondary,
-                    fontWeight: FontWeight.w600,
                   ),
                 ),
-              ),
-              SizedBox(height: AppLayout.scaled(context, 16)),
-              if (_error != null) ...[
-                Text(
-                  _error!,
-                  style: const TextStyle(color: AppTheme.danger),
+                SizedBox(height: AppLayout.scaled(context, 16)),
+                const _SectionLabel('主体类型'),
+                SizedBox(height: AppLayout.scaled(context, 8)),
+                _TypeOption(
+                  label: '公民',
+                  code: kCidInstitutionCitizen,
+                  desc: '可后续到注册局线下升级为投票 / 竞选公民。',
+                  selected: _institution == kCidInstitutionCitizen,
+                  onTap: () =>
+                      setState(() => _institution = kCidInstitutionCitizen),
                 ),
-                SizedBox(height: AppLayout.scaled(context, 12)),
+                SizedBox(height: AppLayout.scaled(context, 10)),
+                _TypeOption(
+                  label: '居民',
+                  code: kCidInstitutionResident,
+                  desc: '永久匿名身份,不可升级为投票 / 竞选公民。',
+                  selected: _institution == kCidInstitutionResident,
+                  onTap: () =>
+                      setState(() => _institution = kCidInstitutionResident),
+                ),
+                if (_sortedAccounts.length > 1) ...[
+                  SizedBox(height: AppLayout.scaled(context, 16)),
+                  const _SectionLabel('绑定钱包账户'),
+                  SizedBox(height: AppLayout.scaled(context, 8)),
+                  ..._sortedAccounts.map(
+                    (account) => Padding(
+                      padding: EdgeInsets.only(
+                        bottom: AppLayout.scaled(context, 8),
+                      ),
+                      child: _AccountRadio(
+                        account: account,
+                        selected: _bindAccountId == account.accountId,
+                        onTap: () =>
+                            setState(() => _bindAccountId = account.accountId),
+                      ),
+                    ),
+                  ),
+                ],
+                SizedBox(height: AppLayout.scaled(context, 14)),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                  decoration: AppTheme.bannerDecoration(AppTheme.warning),
+                  child: Text(
+                    '自助注册只产生匿名身份。投票公民、竞选公民只能在对应注册局线下注册,'
+                    '本页无法自助升级。',
+                    style: TextStyle(
+                      fontSize: AppLayout.scaled(context, 12),
+                      height: 1.5,
+                      color: AppTheme.textSecondary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                SizedBox(height: AppLayout.scaled(context, 16)),
+                if (_error != null) ...[
+                  Text(_error!, style: const TextStyle(color: AppTheme.danger)),
+                  SizedBox(height: AppLayout.scaled(context, 12)),
+                ],
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: _submitted
+                        ? null
+                        : () => Navigator.of(context).pop(false),
+                    child: const Text('取消'),
+                  ),
+                ),
+                SizedBox(
+                  width: double.infinity,
+                  height: AppLayout.scaled(context, 46),
+                  child: FilledButton(
+                    onPressed: _submitted || _sortedAccounts.isEmpty
+                        ? null
+                        : _submit,
+                    child: Text(_submitted ? '注册中…' : '确认注册'),
+                  ),
+                ),
               ],
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: _submitted
-                      ? null
-                      : () => Navigator.of(context).pop(false),
-                  child: const Text('取消'),
-                ),
-              ),
-              SizedBox(
-                width: double.infinity,
-                height: AppLayout.scaled(context, 46),
-                child: FilledButton(
-                  onPressed: _submitted || _sortedAccounts.isEmpty ? null : _submit,
-                  child: Text(_submitted ? '注册中…' : '确认注册'),
-                ),
-              ),
-            ],
+            ),
           ),
         ),
-      ),
       ),
     );
   }

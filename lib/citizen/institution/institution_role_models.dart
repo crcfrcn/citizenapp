@@ -1,5 +1,4 @@
-// 业务字段必须与链上管理员任职的 `account_id` 逐字一致。
-// ignore_for_file: non_constant_identifier_names
+// 管理员任职的业务含义与链上一致；Dart成员遵循camelCase，JSON键沿所属接口。
 
 import 'package:citizenapp/citizen/administrators/admin_account.dart';
 
@@ -45,14 +44,13 @@ class RoleBusinessPermission {
 ///
 /// 两个字段只允许存在其一；构造器固定分支，避免调用方混合主体。
 class AuthorizationSubject {
-  const AuthorizationSubject.institution(this.roleSubject)
-      : personalAccountId = null;
+  const AuthorizationSubject.institution(this.roleSubject) : accountId = null;
 
-  const AuthorizationSubject.personalMultisig(this.personalAccountId)
-      : roleSubject = null;
+  const AuthorizationSubject.personalMultisig(this.accountId)
+    : roleSubject = null;
 
   final RoleSubject? roleSubject;
-  final String? personalAccountId;
+  final String? accountId;
 
   bool get isInstitution => roleSubject != null;
 }
@@ -88,13 +86,13 @@ enum InstitutionAssignmentSource {
 
 extension InstitutionAssignmentSourceLabel on InstitutionAssignmentSource {
   String get label => switch (this) {
-        InstitutionAssignmentSource.genesis => '创世',
-        InstitutionAssignmentSource.registry => '注册局',
-        InstitutionAssignmentSource.popularElection => '普选',
-        InstitutionAssignmentSource.mutualElection => '互选',
-        InstitutionAssignmentSource.nominationAppointment => '提名任免',
-        InstitutionAssignmentSource.institutionGovernance => '机构内部治理',
-      };
+    InstitutionAssignmentSource.genesis => '创世',
+    InstitutionAssignmentSource.registry => '注册局',
+    InstitutionAssignmentSource.popularElection => '普选',
+    InstitutionAssignmentSource.mutualElection => '互选',
+    InstitutionAssignmentSource.nominationAppointment => '提名任免',
+    InstitutionAssignmentSource.institutionGovernance => '机构内部治理',
+  };
 }
 
 /// 机构岗位定义；岗位只在所属机构 CID 内唯一。
@@ -118,7 +116,7 @@ class InstitutionRole {
 class InstitutionAdminAssignment {
   const InstitutionAdminAssignment({
     required this.cidNumber,
-    required this.account_id,
+    required this.accountId,
     required this.roleCode,
     required this.termStart,
     required this.termEnd,
@@ -130,7 +128,7 @@ class InstitutionAdminAssignment {
   });
 
   final String cidNumber;
-  final String account_id;
+  final String accountId;
   final String roleCode;
   final String roleName;
   final bool termRequired;
@@ -152,7 +150,7 @@ class InstitutionAdminAssignment {
   InstitutionAdminAssignment withRole(InstitutionRole role) =>
       InstitutionAdminAssignment(
         cidNumber: cidNumber,
-        account_id: account_id,
+        accountId: accountId,
         roleCode: roleCode,
         roleName: role.roleName,
         termRequired: role.termRequired,
@@ -166,12 +164,9 @@ class InstitutionAdminAssignment {
 
 /// admins pallet 的机构管理员值；岗位资料仍由 entity 独立保存。
 class InstitutionAdminsStorage {
-  const InstitutionAdminsStorage({
-    required this.institutionCode,
-    required this.admins,
-  });
+  const InstitutionAdminsStorage({required this.orgCode, required this.admins});
 
-  final String institutionCode;
+  final String orgCode;
   final List<AdminPerson> admins;
 }
 

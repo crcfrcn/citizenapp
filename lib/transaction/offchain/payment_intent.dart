@@ -1,7 +1,7 @@
 import 'package:citizen_sdk/citizen_sdk.dart';
+
 import 'dart:math';
 import 'dart:typed_data';
-
 
 /// 扫码支付 Step 2c-i:**L3 扫码支付意图**(`NodePaymentIntent`)。
 ///
@@ -17,7 +17,7 @@ import 'dart:typed_data';
 ///       32 字节原始 publicKey。
 ///     - `amount` / `fee` 以**分**为单位。
 ///     - `nonce` 单调递增,从节点 `offchain_queryNextNonce` 取。
-///     - `expiresAt` 是链上**块高**(block number),runtime `execute_clearing_bank_batch`
+///     - `expires_at` 是链上**块高**(block number),runtime `execute_clearing_bank_batch`
 ///       会校验 `now <= expires_at`;CitizenApp 端设为"当前块高 + 合理缓冲"(例如
 ///       100 块)。Step 2c-i 暂由调用方传入,后续可 wrap 成自动补充。
 ///     - `txId` 是 L3 本地生成的 32 字节随机数,作为本笔支付唯一标识 + 防重放键。
@@ -45,18 +45,24 @@ class NodePaymentIntent {
     required this.fee,
     required this.nonce,
     required this.expiresAt,
-  })  : assert(txId.length == 32, 'tx_id 必须 32 字节'),
-        assert(payer.length == 32, 'payer 必须 32 字节'),
-        assert(payerBankCid.isNotEmpty && payerBankCid.length <= 32,
-            'payer_bank_cid 长度必须 1..32'),
-        assert(recipient.length == 32, 'recipient 必须 32 字节'),
-        assert(recipientBankCid.isNotEmpty && recipientBankCid.length <= 32,
-            'recipient_bank_cid 长度必须 1..32'),
-        assert(amount >= BigInt.zero, 'amount 不得为负'),
-        assert(fee >= BigInt.zero, 'fee 不得为负'),
-        assert(nonce >= BigInt.zero, 'nonce 不得为负'),
-        assert(
-            expiresAt >= 0 && expiresAt <= 0xFFFFFFFF, 'expires_at 必须 u32 范围');
+  }) : assert(txId.length == 32, 'tx_id 必须 32 字节'),
+       assert(payer.length == 32, 'payer 必须 32 字节'),
+       assert(
+         payerBankCid.isNotEmpty && payerBankCid.length <= 32,
+         'payer_bank_cid 长度必须 1..32',
+       ),
+       assert(recipient.length == 32, 'recipient 必须 32 字节'),
+       assert(
+         recipientBankCid.isNotEmpty && recipientBankCid.length <= 32,
+         'recipient_bank_cid 长度必须 1..32',
+       ),
+       assert(amount >= BigInt.zero, 'amount 不得为负'),
+       assert(fee >= BigInt.zero, 'fee 不得为负'),
+       assert(nonce >= BigInt.zero, 'nonce 不得为负'),
+       assert(
+         expiresAt >= 0 && expiresAt <= 0xFFFFFFFF,
+         'expires_at 必须 u32 范围',
+       );
 
   final Uint8List txId;
   final Uint8List payer;
@@ -82,7 +88,8 @@ class NodePaymentIntent {
     }
     if (recipientBankCid.isEmpty || recipientBankCid.length > 32) {
       throw ArgumentError(
-          'recipientBankCid 长度须 1..=32,实际 ${recipientBankCid.length}');
+        'recipientBankCid 长度须 1..=32,实际 ${recipientBankCid.length}',
+      );
     }
     final out = BytesBuilder(copy: false);
     out.add(txId);
@@ -103,10 +110,12 @@ class NodePaymentIntent {
   ///
   /// 经全仓签名唯一原语 [CitizenSigning.encodePayload] 构造,逐字节对齐链端
   /// `primitives::sign::signing_message(OP_SIGN_L3_PAY, SCALE(intent))`。
-  Future<Uint8List> signingHash() =>
-      CitizenSigning.encodePayload(CitizenSigningPayload.message(
-        opTag: kOpSignL3Pay, scalePayload: scaleEncode(),
-      ));
+  Future<Uint8List> signingHash() => CitizenSigning.encodePayload(
+    CitizenSigningPayload.message(
+      opTag: kOpSignL3Pay,
+      scalePayload: scaleEncode(),
+    ),
+  );
 
   /// 生成一个加密随机的 32 字节 `tx_id`,用作本笔支付的唯一标识 + 防重放键。
   ///
@@ -140,8 +149,9 @@ class NodePaymentIntent {
     final denom = BigInt.from(10000);
     final quotient = numerator ~/ denom;
     final remainder = numerator % denom;
-    final rounded =
-        remainder >= BigInt.from(5000) ? quotient + BigInt.one : quotient;
+    final rounded = remainder >= BigInt.from(5000)
+        ? quotient + BigInt.one
+        : quotient;
     final minFen = BigInt.from(minFeeFen);
     return rounded >= minFen ? rounded : minFen;
   }
@@ -157,8 +167,12 @@ Uint8List _compactU32(int n) {
     return Uint8List.fromList([v & 0xFF, (v >> 8) & 0xFF]);
   } else if (n <= 0x3FFFFFFF) {
     final v = (n << 2) | 0x02;
-    return Uint8List.fromList(
-        [v & 0xFF, (v >> 8) & 0xFF, (v >> 16) & 0xFF, (v >> 24) & 0xFF]);
+    return Uint8List.fromList([
+      v & 0xFF,
+      (v >> 8) & 0xFF,
+      (v >> 16) & 0xFF,
+      (v >> 24) & 0xFF,
+    ]);
   }
   throw ArgumentError('长度过大,超出单/双/四字节 Compact:$n');
 }

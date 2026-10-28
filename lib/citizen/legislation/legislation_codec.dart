@@ -26,7 +26,8 @@ class _Scale {
   int u8() => data[_i++];
 
   int u32() {
-    final v = data[_i] |
+    final v =
+        data[_i] |
         (data[_i + 1] << 8) |
         (data[_i + 2] << 16) |
         (data[_i + 3] << 24);
@@ -57,7 +58,8 @@ class _Scale {
       return v;
     }
     if (mode == 2) {
-      final v = (data[_i] |
+      final v =
+          (data[_i] |
               (data[_i + 1] << 8) |
               (data[_i + 2] << 16) |
               (data[_i + 3] << 24)) >>
@@ -139,8 +141,13 @@ List<int> decodeLawIds(Uint8List raw) {
 Uint8List encodeLawRegion(LawTier tier, LawRegion region) {
   region.validate(tier);
   return Uint8List.fromList([
-    if (region.provinceCode.isEmpty) ...[0, 0] else ...region.provinceCode.codeUnits,
-    region.cityNumber & 0xff, region.cityNumber >> 8,
+    if (region.provinceCode.isEmpty) ...[
+      0,
+      0,
+    ] else
+      ...region.provinceCode.codeUnits,
+    region.cityNumber & 0xff,
+    region.cityNumber >> 8,
   ]);
 }
 
@@ -151,7 +158,9 @@ Law decodeLaw(Uint8List raw) {
   final tier = LawTier.fromIndex(s.u8());
   final province = [s.u8(), s.u8()];
   final region = LawRegion(
-    provinceCode: province.every((byte) => byte == 0) ? '' : String.fromCharCodes(province),
+    provinceCode: province.every((byte) => byte == 0)
+        ? ''
+        : String.fromCharCodes(province),
     cityNumber: s.u8() | (s.u8() << 8),
   );
   region.validate(tier);
@@ -225,7 +234,11 @@ LawChapter _chapter(_Scale s) {
   final titleEn = s.option(s.boundedString);
   final sections = s.vec(() => _section(s));
   return LawChapter(
-      number: number, title: title, titleEn: titleEn, sections: sections);
+    number: number,
+    title: title,
+    titleEn: titleEn,
+    sections: sections,
+  );
 }
 
 LawSection _section(_Scale s) {
@@ -234,7 +247,11 @@ LawSection _section(_Scale s) {
   final titleEn = s.option(s.boundedString);
   final articles = s.vec(() => _article(s));
   return LawSection(
-      number: number, title: title, titleEn: titleEn, articles: articles);
+    number: number,
+    title: title,
+    titleEn: titleEn,
+    articles: articles,
+  );
 }
 
 LawArticle _article(_Scale s) {

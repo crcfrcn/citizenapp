@@ -12,8 +12,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ClearingBankBindingSnapshot {
   const ClearingBankBindingSnapshot({
     required this.cidNumber,
-    required this.cidFullName,
-    required this.cidShortName,
+    required this.fullName,
+    required this.shortName,
     required this.mainAccountId,
     required this.feeAccountId,
     required this.peerId,
@@ -24,8 +24,8 @@ class ClearingBankBindingSnapshot {
   });
 
   final String cidNumber;
-  final String cidFullName;
-  final String cidShortName;
+  final String fullName;
+  final String shortName;
   final String mainAccountId;
   final String feeAccountId;
   final String peerId;
@@ -38,16 +38,16 @@ class ClearingBankBindingSnapshot {
   String get wssUrl => 'wss://$rpcDomain:$rpcPort';
 
   String get displayTitle {
-    final cidShort = cidShortName.trim();
+    final cidShort = shortName.trim();
     if (cidShort.isNotEmpty) return cidShort;
-    final cidFull = cidFullName.trim();
+    final cidFull = fullName.trim();
     return cidFull.isEmpty ? cidNumber : cidFull;
   }
 
   Map<String, dynamic> toJson() => {
     'cid_number': cidNumber,
-    'cid_full_name': cidFullName,
-    'cid_short_name': cidShortName,
+    'cid_full_name': fullName,
+    'cid_short_name': shortName,
     'main_account_id': mainAccountId,
     'fee_account_id': feeAccountId,
     'peer_id': peerId,
@@ -60,8 +60,8 @@ class ClearingBankBindingSnapshot {
   factory ClearingBankBindingSnapshot.fromJson(Map<String, dynamic> json) {
     return ClearingBankBindingSnapshot(
       cidNumber: (json['cid_number'] as String?) ?? '',
-      cidFullName: (json['cid_full_name'] as String?) ?? '',
-      cidShortName: (json['cid_short_name'] as String?) ?? '',
+      fullName: (json['cid_full_name'] as String?) ?? '',
+      shortName: (json['cid_short_name'] as String?) ?? '',
       mainAccountId: (json['main_account_id'] as String?) ?? '',
       feeAccountId: (json['fee_account_id'] as String?) ?? '',
       peerId: (json['peer_id'] as String?) ?? '',

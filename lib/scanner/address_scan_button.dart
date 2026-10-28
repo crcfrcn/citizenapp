@@ -44,6 +44,6 @@ class AddressScanButton extends StatelessWidget {
       ),
     );
     if (result == null || !context.mounted) return;
-    onAddressScanned(result.toSs58Address);
+    onAddressScanned(result.toAddress);
   }
 }

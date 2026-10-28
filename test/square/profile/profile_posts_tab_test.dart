@@ -100,7 +100,7 @@ class _RefreshingSessionProvider implements SquareSessionProvider {
     deviceId: testMlsDeviceId,
     sessionToken: token,
     cidNumber: sampleProfile().cidNumber!,
-    bindingRevision: 1,
+    bindRev: 1,
     accountId: kOwner,
     expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
   );
@@ -169,9 +169,10 @@ SquareLocalPost _localPost({
           {
             'media_kind': 'image',
             'file_name': 'photo.jpg',
-            'content_type': 'image/jpeg',
             'byte_size': 123,
-            'sha256': 'a' * 64,
+            'body_hash': 'a' * 64,
+            'pixel_width': 100,
+            'pixel_height': 100,
           },
         ],
       }),
@@ -185,9 +186,9 @@ SquareLocalPost _localPost({
     postType: 'document',
     manifestBytes: bytes,
     contentHash: sha256.convert(bytes).toString(),
-    storageReceiptId: 'receipt-1',
+    receiptId: 'receipt-1',
     chainBlock: 88,
-    createdAt: 1700000000000,
+    publishedAt: 1700000000000,
     postState: SquarePostStore.publishedState,
   );
 }

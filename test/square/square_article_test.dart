@@ -73,7 +73,7 @@ class _ArticleMediaPickerFake extends ImagePicker
           ComposePickedMedia(
             file: file,
             mediaKind: SquareMediaKind.image,
-            photoManagerAssetId: file.path,
+            assetId: file.path,
           ),
       ],
     );
@@ -91,7 +91,7 @@ class _ArticleMediaPickerFake extends ImagePicker
             mediaKind: file.mimeType?.startsWith('video/') == true
                 ? SquareMediaKind.video
                 : SquareMediaKind.image,
-            photoManagerAssetId: file.path,
+            assetId: file.path,
           ),
         )
         .toList(growable: false);
@@ -107,7 +107,7 @@ Future<SquareLocalMediaDraft> _buildDraft(
   fileName: file.name,
   contentType: mediaKind == SquareMediaKind.image ? 'image/jpeg' : 'video/mp4',
   byteSize: 1,
-  durationSeconds: mediaKind == SquareMediaKind.video ? 30 : null,
+  videoSecs: mediaKind == SquareMediaKind.video ? 30 : null,
 );
 
 Widget _articleEditor({
@@ -178,10 +178,10 @@ void main() {
               'is_ok': true,
               'membergate_active': true,
               'membergate': {
-                'membergate_level': 'democracy',
+                'member_level': 'democracy',
                 'paid_until': 200,
-                'last_charged_at': 100,
-                'subscription_status': 'active',
+                'charge_at': 100,
+                'sub_state': 'active',
               },
               'plans': [
                 for (final level in const ['freedom', 'democracy', 'spark'])
@@ -206,7 +206,7 @@ void main() {
           deviceId: testMlsDeviceId,
           sessionToken: 'token',
           cidNumber: 'CN220-CTZN2-198805200-2026',
-          bindingRevision: 1,
+          bindRev: 1,
           accountId: '0x1111111111111111111111111111111111111111111111111111111111111111',
           expiresAt: 9999999999999,
           // MockClient 只验证响应解析，不校验设备请求签名头。
@@ -214,8 +214,8 @@ void main() {
         ),
       );
       expect(state.activePlan!.article.maxVideos, 3);
-      expect(state.activePlan!.video.maxVideoSeconds, 1800);
-      expect(state.activePlan!.video.maxVideoBytes, 200 * 1024 * 1024);
+      expect(state.activePlan!.video.videoMaxSeconds, 1800);
+      expect(state.activePlan!.video.videoMaxBytes, 200 * 1024 * 1024);
       expect(state.activePlan!.dailyLimits.length, 4);
       expect(state.activePlan!.usage.storageBytes, 1024 * 1024 * 1024 * 1024);
       expect(state.usageState!.toJson().containsKey('used_images'), isFalse);
@@ -714,20 +714,20 @@ SquareLocalMediaDraft _video(int index) => SquareLocalMediaDraft(
   fileName: '$index.mp4',
   contentType: 'video/mp4',
   byteSize: 100,
-  durationSeconds: 30,
+  videoSecs: 30,
 );
 
 const _democracyPlan = SquareMembershipPlan(
-  membershipLevel: 'democracy',
+  memberLevel: 'democracy',
   displayName: '民主会员',
-  chatFileMaxBytes: 1,
+  fileLimit: 1,
   chat: SquareChatQuota(
     textEnabled: true,
     emojiEnabled: true,
     stickerEnabled: true,
     imageEnabled: true,
-    voiceMessageMaxSeconds: 180,
-    videoMessageMaxSeconds: 180,
+    voiceSecs: 180,
+    videoSecs: 180,
     voiceCallEnabled: true,
     videoCallEnabled: true,
   ),
@@ -739,8 +739,8 @@ const _democracyPlan = SquareMembershipPlan(
   video: SquareVideoQuota(
     textMaxChars: 300,
     videoQuality: 'hd',
-    maxVideoSeconds: 1800,
-    maxVideoBytes: 1024,
+    videoMaxSeconds: 1800,
+    videoMaxBytes: 1024,
   ),
   article: SquareArticleQuota(
     titleMinChars: 10,

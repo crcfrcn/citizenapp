@@ -5,7 +5,6 @@ import 'package:citizenapp/citizen/pallet_registry.dart';
 
 import 'package:polkadart/scale_codec.dart' show CompactBigIntCodec, ByteOutput;
 
-
 /// 扫码支付清算体系中清算行(L2)业务的链上 RuntimeCall 与执行入口。
 ///
 ///
@@ -18,7 +17,7 @@ import 'package:polkadart/scale_codec.dart' show CompactBigIntCodec, ByteOutput;
 /// - 所有金额参数以**分**为单位的整数进入 SCALE 编码,与链上 `u128` 对齐。
 class OnchainClearingBankChain {
   const OnchainClearingBankChain({required CitizenTransactions transactions})
-      : _transactions = transactions;
+    : _transactions = transactions;
 
   final CitizenTransactions _transactions;
 
@@ -26,7 +25,8 @@ class OnchainClearingBankChain {
   static const int _palletIndex = PalletRegistry.offchainTransactionPallet;
 
   /// 4 个 call_index(对应 lib.rs call_index 30~33)。
-  static const int _bindClearingBankCallIndex = PalletRegistry.bindClearingBankCall;
+  static const int _bindClearingBankCallIndex =
+      PalletRegistry.bindClearingBankCall;
   static const int _depositCallIndex = PalletRegistry.depositCall;
   static const int _withdrawCallIndex = PalletRegistry.withdrawCall;
   static const int _switchBankCallIndex = PalletRegistry.switchBankCall;
@@ -43,7 +43,8 @@ class OnchainClearingBankChain {
     required Uint8List bankMainAccountId,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
+    )
+    externalSigning,
   }) {
     final callData = _buildBindClearingBankCall(bankMainAccountId);
     return _executeFinalized(
@@ -61,7 +62,8 @@ class OnchainClearingBankChain {
     required BigInt amountFen,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
+    )
+    externalSigning,
   }) {
     final callData = _buildAmountOnlyCall(_depositCallIndex, amountFen);
     return _executeFinalized(
@@ -77,7 +79,8 @@ class OnchainClearingBankChain {
     required BigInt amountFen,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
+    )
+    externalSigning,
   }) {
     final callData = _buildAmountOnlyCall(_withdrawCallIndex, amountFen);
     return _executeFinalized(
@@ -93,7 +96,8 @@ class OnchainClearingBankChain {
     required Uint8List newBankMainAccountId,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
+    )
+    externalSigning,
   }) {
     final callData = _buildAccountIdCall(
       _switchBankCallIndex,
@@ -148,7 +152,8 @@ class OnchainClearingBankChain {
     required Uint8List callData,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
+    )
+    externalSigning,
   }) async {
     final prepared = await _transactions.prepareTransaction(
       signerPublicKey,

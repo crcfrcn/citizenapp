@@ -49,12 +49,12 @@ IdentityBinding _ownerBinding() => IdentityBinding(
   genesisHash: '0x${'11' * 32}',
   cidNumber: 'CN220-CTZN2-100000009-2026',
   accountId: _accountId,
-  bindingRevision: 1,
+  bindRev: 1,
 );
 const _contact = UserContact(
   cidNumber: _contactCidNumber,
   accountId: _contactAccountId,
-  ss58Address: _contactAddress,
+  accountAddress: _contactAddress,
   contactRemark: '张三',
   createdAt: 1,
   updatedAt: 2,
@@ -63,13 +63,13 @@ const _profile = CitizenProfile(
   accountId: _contactAccountId,
   displayName: 'Rhett',
   profileBio: '建设一个可信、自由的社会',
-  avatarObjectKey: null,
-  bannerObjectKey: null,
+  avatarKey: null,
+  bannerKey: null,
   cidNumber: _contactCidNumber,
   isCertified: true,
-  identityLevel: 'voting',
-  membershipLevel: 'democracy',
-  membershipActive: true,
+  cidLevel: 'voting',
+  memberLevel: 'democracy',
+  membergateActive: true,
   following: 1,
   followers: 2,
   mutualFollowing: 1,
@@ -80,7 +80,7 @@ const _profile = CitizenProfile(
   isFollowing: false,
   isFollowedBy: false,
   isNotifying: false,
-  updatedAt: 2,
+  profileAt: 2,
 );
 
 class _FakeContacts implements UserContactService {
@@ -200,7 +200,7 @@ class _FakeSessionProvider implements SquareSessionProvider {
     deviceId: testMlsDeviceId,
     sessionToken: 'token',
     cidNumber: "CN220-CTZN2-198805200-2026",
-    bindingRevision: 1,
+    bindRev: 1,
     accountId: _accountId,
     expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
   );
@@ -265,7 +265,7 @@ Widget _page({
   DirectChatOpener? directChatOpener,
   Future<void> Function(
     BuildContext context, {
-    required String toSs58Address,
+    required String toAddress,
     required String cidNumber,
   })?
   transferOpener,
@@ -306,7 +306,7 @@ class _ReadyBusinessGate implements CidBusinessGate {
 
 /// 身份账户缓存 fake:**已注册**。通讯录属主 = CID,页面对未注册身份整页显示注册
 /// 引导,因此常规用例必须注入已注册身份,否则测的全是引导态。
-/// `accountId` 仍返回 null,让点开他人主页时 `_resolveOwnAccount` 回退成「非本人」
+/// `account_id` 仍返回 null,让点开他人主页时 `_resolveOwnAccount` 回退成「非本人」
 /// (行为与迁移前一致);避免 instance 触发真链读/真 Isar。
 class _RegisteredIdentityCache implements CurrentUserContext {
   @override
@@ -409,7 +409,7 @@ void main() {
 
   testWidgets('联系人列表首帧直接使用公开资料与本机头像缓存', (tester) async {
     final profile = _profile.copyWith(
-      avatarObjectKey: 'profile/$_contactCidNumber/avatar',
+      avatarKey: 'profile/$_contactCidNumber/avatar',
     );
     const avatarPath = '/cached/profile/avatar.webp';
     await tester.pumpWidget(
@@ -428,8 +428,8 @@ void main() {
     final avatar = tester.widget<ProfileAvatar>(find.byType(ProfileAvatar));
     expect(avatar.imagePath, avatarPath);
     expect(avatar.userImageSet, isTrue);
-    expect(avatar.membershipLevel, 'democracy');
-    expect(avatar.membershipActive, isTrue);
+    expect(avatar.memberLevel, 'democracy');
+    expect(avatar.membergateActive, isTrue);
     expect(avatar.showBadge, isTrue);
   });
 
@@ -577,10 +577,10 @@ void main() {
     String? openedToAddress;
     Future<void> opener(
       BuildContext context, {
-      required String toSs58Address,
+      required String toAddress,
       required String cidNumber,
     }) async {
-      openedToAddress = toSs58Address;
+      openedToAddress = toAddress;
     }
 
     await tester.pumpWidget(_page(transferOpener: opener));

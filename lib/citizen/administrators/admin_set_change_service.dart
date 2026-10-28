@@ -11,7 +11,7 @@ import 'package:citizenapp/citizen/administrators/admin_set_validation.dart';
 /// 热签、QR_V1 冷签和链上终态观察均由 SDK 提供，不在 CitizenApp 业务层重复实现。
 class AdminsChangeService {
   const AdminsChangeService({required CitizenTransactions transactions})
-      : _transactions = transactions;
+    : _transactions = transactions;
 
   final CitizenTransactions _transactions;
 
@@ -28,10 +28,9 @@ class AdminsChangeService {
       newThreshold: newThreshold,
     );
     return PersonalAdminsChangeCallCodec.build(
-      institutionCode: account.institutionCode,
+      orgCode: account.orgCode,
       adminKind: account.kind,
-      accountId:
-          AdminAccountIdCodec.fromAccountIdText(account.personalAccountId!),
+      accountId: AdminAccountIdCodec.fromAccountIdText(account.accountId!),
       admins: normalized.admins,
       newThreshold: normalized.threshold,
     );
@@ -44,7 +43,8 @@ class AdminsChangeService {
     required Uint8List signerPublicKey,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
+    )
+    externalSigning,
   }) async {
     final callData = buildCallData(
       account: account,
@@ -80,7 +80,6 @@ class AdminsChangeService {
     }
     return AdminsChangeSubmitResult(
       txHash: '0x${AdminAccountIdCodec.hexEncode(completed.transactionHash)}',
-      usedNonce: prepared.nonce.toInt(),
     );
   }
 }

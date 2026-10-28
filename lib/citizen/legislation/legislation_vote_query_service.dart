@@ -87,8 +87,8 @@ class LegProposalState {
 /// VotingEngine.Proposals。
 class LegislationVoteQueryService {
   LegislationVoteQueryService({required CitizenChain chain})
-      : _chain = chain,
-        _proposalQuery = ProposalQueryService(chain: chain);
+    : _chain = chain,
+      _proposalQuery = ProposalQueryService(chain: chain);
 
   final CitizenChain _chain;
   final ProposalQueryService _proposalQuery;
@@ -120,9 +120,7 @@ class LegislationVoteQueryService {
     return _decodeLegislationMeta(data);
   }
 
-  static LegRepresentativeMeta? debugDecodeRepresentativeMeta(
-    Uint8List data,
-  ) =>
+  static LegRepresentativeMeta? debugDecodeRepresentativeMeta(Uint8List data) =>
       _decodeRepresentativeMeta(data);
 
   static LegislationMeta? debugDecodeLegislationMeta(Uint8List data) =>
@@ -186,7 +184,9 @@ class LegislationVoteQueryService {
 
   /// 当前代表机构计票，按 body_index 独立保存。
   Future<({int yes, int no})> fetchRepresentativeTally(
-      int proposalId, int bodyIndex) async {
+    int proposalId,
+    int bodyIndex,
+  ) async {
     final key = _doubleMapKey(
       _votePallet,
       'RepresentativeTallies',
@@ -245,13 +245,15 @@ class LegislationVoteQueryService {
 
   /// 三人会签记录(LegOverrideSigns:BoundedVec<(AccountId,bool)>)。
   Future<List<({String accountId, bool approve})>> fetchOverrideSigns(
-      int proposalId) {
+    int proposalId,
+  ) {
     return _fetchSigns('LegOverrideSigns', proposalId);
   }
 
   /// 护宪大法官终审记录(LegGuardSigns:BoundedVec<(AccountId,bool)>)。
   Future<List<({String accountId, bool approve})>> fetchGuardSigns(
-      int proposalId) {
+    int proposalId,
+  ) {
     return _fetchSigns('LegGuardSigns', proposalId);
   }
 
@@ -350,7 +352,8 @@ class _Cursor {
   int u8() => data[_i++];
 
   int u32() {
-    final v = data[_i] |
+    final v =
+        data[_i] |
         (data[_i + 1] << 8) |
         (data[_i + 2] << 16) |
         (data[_i + 3] << 24);
@@ -371,7 +374,8 @@ class _Cursor {
       return v;
     }
     if (mode == 2) {
-      final v = (data[_i] |
+      final v =
+          (data[_i] |
               (data[_i + 1] << 8) |
               (data[_i + 2] << 16) |
               (data[_i + 3] << 24)) >>
@@ -411,10 +415,8 @@ class _Cursor {
     return utf8.decode(bytes(length));
   }
 
-  LegRepresentativeBody representativeBody() => LegRepresentativeBody(
-        cidNumber: cidNumber(),
-        roleCode: roleCode(),
-      );
+  LegRepresentativeBody representativeBody() =>
+      LegRepresentativeBody(cidNumber: cidNumber(), roleCode: roleCode());
 
   List<T> vec<T>(T Function() item) {
     final n = compact();

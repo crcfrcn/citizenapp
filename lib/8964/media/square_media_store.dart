@@ -1,3 +1,7 @@
+import 'package:citizenapp/storage/social_isar.dart'
+    as social_store
+    show Chunk, MediaLink, Media;
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -13,31 +17,29 @@ import 'package:citizenapp/storage/social_isar.dart';
 class SquareStoredMedia {
   const SquareStoredMedia({
     required this.cidNumber,
-    required this.mediaId,
     required this.mediaKind,
     required this.contentType,
     required this.byteSize,
-    required this.sha256,
-    this.complete = false,
+    required this.bodyHash,
+    this.isComplete = false,
   });
 
   final String cidNumber;
-  final String mediaId;
   final String mediaKind;
   final String contentType;
   final int byteSize;
-  final String sha256;
-  final bool complete;
+  final String bodyHash;
+  final bool isComplete;
 
-  factory SquareStoredMedia._fromEntity(SquareMediaEntity entity) {
+  factory SquareStoredMedia._fromEntity(social_store.Media entity) {
     return SquareStoredMedia(
       cidNumber: entity.cidNumber,
-      mediaId: entity.mediaId,
+
       mediaKind: entity.mediaKind,
       contentType: entity.contentType,
       byteSize: entity.byteSize,
-      sha256: entity.sha256,
-      complete: entity.complete,
+      bodyHash: entity.bodyHash,
+      isComplete: entity.isComplete,
     );
   }
 }
@@ -46,7 +48,7 @@ class SquareStoredMedia {
 class SquareMediaReference {
   const SquareMediaReference({
     required this.cidNumber,
-    required this.mediaId,
+    required this.bodyHash,
     required this.contentKind,
     required this.contentId,
     required this.mediaIndex,
@@ -54,19 +56,16 @@ class SquareMediaReference {
   });
 
   final String cidNumber;
-  final String mediaId;
+  final String bodyHash;
   final String contentKind;
   final String contentId;
   final int mediaIndex;
   final String mediaRole;
 
-  String get _key =>
-      jsonEncode([contentKind, contentId, mediaIndex, mediaRole]);
-
-  factory SquareMediaReference._fromEntity(SquareMediaReferenceEntity entity) {
+  factory SquareMediaReference._fromEntity(social_store.MediaLink entity) {
     return SquareMediaReference(
       cidNumber: entity.cidNumber,
-      mediaId: entity.mediaId,
+      bodyHash: entity.bodyHash,
       contentKind: entity.contentKind,
       contentId: entity.contentId,
       mediaIndex: entity.mediaIndex,
@@ -109,14 +108,14 @@ class SquareMediaStore {
     final digest = (await sha256.bind(file.openRead()).first).toString();
     final media = SquareStoredMedia(
       cidNumber: cidNumber,
-      mediaId: digest,
+
       mediaKind: mediaKind,
       contentType: contentType,
       byteSize: byteSize,
-      sha256: digest,
+      bodyHash: digest,
     );
     await saveStream(media, file.openRead());
-    return (await get(cidNumber: cidNumber, mediaId: digest))!;
+    return (await get(cidNumber: cidNumber, bodyHash: digest))!;
   }
 
   /// 将任意输入流归整为固定数据库块；不把整个视频载入内存。
@@ -142,8 +141,8 @@ class SquareMediaStore {
         if (used == chunkSize) {
           await writeChunk(
             cidNumber: media.cidNumber,
-            mediaId: media.mediaId,
-            chunkIndex: index++,
+            bodyHash: media.bodyHash,
+            partIndex: index++,
             bytes: block,
           );
           block = Uint8List(chunkSize);
@@ -155,12 +154,12 @@ class SquareMediaStore {
     if (used > 0) {
       await writeChunk(
         cidNumber: media.cidNumber,
-        mediaId: media.mediaId,
-        chunkIndex: index,
+        bodyHash: media.bodyHash,
+        partIndex: index,
         bytes: Uint8List.sublistView(block, 0, used),
       );
     }
-    await finish(cidNumber: media.cidNumber, mediaId: media.mediaId);
+    await finish(cidNumber: media.cidNumber, bodyHash: media.bodyHash);
   }
 
   /// 帖子/草稿事务的同域组成操作：调用方必须已处于 SocialIsar 写事务。
@@ -173,41 +172,42 @@ class SquareMediaStore {
     required List<SquareMediaReference> references,
   }) async {
     _validateContent(contentKind, contentId);
-    final keys = <String>{};
+    final slots = <(int, String)>{};
     for (final ref in references) {
       _validateReference(ref);
       if (ref.cidNumber != cidNumber ||
           ref.contentKind != contentKind ||
           ref.contentId != contentId ||
-          !keys.add(ref._key)) {
+          !slots.add((ref.mediaIndex, ref.mediaRole))) {
         _fail('媒体关联归属或槽位重复');
       }
-      final media = await _requireMedia(db, cidNumber, ref.mediaId);
-      if (!media.complete) _fail('未完成媒体不能关联内容');
+      final media = await _requireMedia(db, cidNumber, ref.bodyHash);
+      if (!media.isComplete) _fail('未完成媒体不能关联内容');
     }
-    final previous = await db.squareMediaReferenceEntitys
+    final previous = await db
+        .collection<social_store.MediaLink>()
         .where()
         .contentIdCidNumberContentKindEqualTo(contentId, cidNumber, contentKind)
         .findAll();
-    await db.squareMediaReferenceEntitys
+    await db
+        .collection<social_store.MediaLink>()
         .where()
         .contentIdCidNumberContentKindEqualTo(contentId, cidNumber, contentKind)
         .deleteAll();
     for (final ref in references) {
-      await db.squareMediaReferenceEntitys.put(
-        SquareMediaReferenceEntity()
+      await db.collection<social_store.MediaLink>().put(
+        social_store.MediaLink()
           ..cidNumber = cidNumber
-          ..referenceKey = ref._key
-          ..mediaId = ref.mediaId
+          ..bodyHash = ref.bodyHash
           ..contentKind = contentKind
           ..contentId = contentId
           ..mediaIndex = ref.mediaIndex
           ..mediaRole = ref.mediaRole,
       );
     }
-    final retained = references.map((r) => r.mediaId).toSet();
+    final retained = references.map((r) => r.bodyHash).toSet();
     for (final id
-        in previous.map((r) => r.mediaId).toSet().difference(retained)) {
+        in previous.map((r) => r.bodyHash).toSet().difference(retained)) {
       await _deleteIfUnreferenced(db, cidNumber, id);
     }
   }
@@ -220,14 +220,15 @@ class SquareMediaStore {
     required String contentId,
   }) async {
     _validateContent(contentKind, contentId);
-    final refs = await db.squareMediaReferenceEntitys
+    final refs = await db
+        .collection<social_store.MediaLink>()
         .where()
         .contentIdCidNumberContentKindEqualTo(contentId, cidNumber, contentKind)
         .findAll();
-    await db.squareMediaReferenceEntitys.deleteAll(
-      refs.map((r) => r.id).toList(),
+    await db.collection<social_store.MediaLink>().deleteAll(
+      refs.map((r) => r.rowId).toList(),
     );
-    for (final id in refs.map((r) => r.mediaId).toSet()) {
+    for (final id in refs.map((r) => r.bodyHash).toSet()) {
       await _deleteIfUnreferenced(db, cidNumber, id);
     }
   }
@@ -237,46 +238,48 @@ class SquareMediaStore {
     String cidNumber,
     String id,
   ) async {
-    final count = await db.squareMediaReferenceEntitys
+    final count = await db
+        .collection<social_store.MediaLink>()
         .where()
-        .mediaIdCidNumberEqualTo(id, cidNumber)
+        .bodyHashCidNumberEqualTo(id, cidNumber)
         .count();
     if (count != 0) return;
-    await db.squareMediaChunkEntitys
+    await db
+        .collection<social_store.Chunk>()
         .where()
-        .cidNumberMediaIdEqualToAnyChunkIndex(cidNumber, id)
+        .cidNumberBodyHashEqualToAnyPartIndex(cidNumber, id)
         .deleteAll();
-    await db.squareMediaEntitys.deleteByCidNumberMediaId(cidNumber, id);
+    await db.collection<social_store.Media>().deleteByCidNumberBodyHash(
+      cidNumber,
+      id,
+    );
   }
 
   /// 建立不可变描述；重试只接受完全相同的描述，不能由调用方标记完成。
   Future<void> begin(SquareStoredMedia media) async {
     _validateMedia(media);
-    if (media.complete) _fail('不能跳过媒体完整性校验');
+    if (media.isComplete) _fail('不能跳过媒体完整性校验');
     return _serial(
       media.cidNumber,
       () => SocialIsar.instance.writeTxn((db) async {
-        final existing = await db.squareMediaEntitys.getByCidNumberMediaId(
-          media.cidNumber,
-          media.mediaId,
-        );
+        final existing = await db
+            .collection<social_store.Media>()
+            .getByCidNumberBodyHash(media.cidNumber, media.bodyHash);
         if (existing != null) {
           if (existing.mediaKind != media.mediaKind ||
               existing.contentType != media.contentType ||
-              existing.byteSize != media.byteSize ||
-              existing.sha256 != media.sha256) {
+              existing.byteSize != media.byteSize) {
             _fail('媒体标识已对应不同内容');
           }
           return;
         }
-        await db.squareMediaEntitys.put(
-          SquareMediaEntity()
+        await db.collection<social_store.Media>().put(
+          social_store.Media()
             ..cidNumber = media.cidNumber
-            ..mediaId = media.mediaId
             ..mediaKind = media.mediaKind
             ..contentType = media.contentType
             ..byteSize = media.byteSize
-            ..sha256 = media.sha256,
+            ..bodyHash = media.bodyHash,
         );
       }),
     );
@@ -286,12 +289,12 @@ class SquareMediaStore {
   /// 完全相同的块可安全重试，已存在但不同的字节必须拒绝。
   Future<void> writeChunk({
     required String cidNumber,
-    required String mediaId,
-    required int chunkIndex,
+    required String bodyHash,
+    required int partIndex,
     required Uint8List bytes,
   }) async {
-    _validateId(mediaId);
-    if (chunkIndex < 0 || bytes.isEmpty || bytes.length > chunkSize) {
+    _validateId(bodyHash);
+    if (partIndex < 0 || bytes.isEmpty || bytes.length > chunkSize) {
       _fail('媒体分块范围不合法');
     }
     final owned = Uint8List.fromList(bytes);
@@ -299,27 +302,28 @@ class SquareMediaStore {
     return _serial(
       cidNumber,
       () => SocialIsar.instance.writeTxn((db) async {
-        final media = await _requireMedia(db, cidNumber, mediaId);
-        if (owned.length != _chunkLength(media.byteSize, chunkIndex)) {
+        final media = await _requireMedia(db, cidNumber, bodyHash);
+        if (owned.length != _chunkLength(media.byteSize, partIndex)) {
           _fail('媒体分块长度不匹配');
         }
-        final existing = await db.squareMediaChunkEntitys
-            .getByCidNumberMediaIdChunkIndex(cidNumber, mediaId, chunkIndex);
+        final existing = await db
+            .collection<social_store.Chunk>()
+            .getByCidNumberBodyHashPartIndex(cidNumber, bodyHash, partIndex);
         if (existing != null) {
-          if (existing.chunkSha256 != digest ||
-              !_sameBytes(existing.chunkBytes, owned)) {
+          if (existing.partHash != digest ||
+              !_sameBytes(existing.partBytes, owned)) {
             _fail('媒体分块重试内容不一致');
           }
           return;
         }
-        if (media.complete) _fail('已完成媒体禁止补写分块');
-        await db.squareMediaChunkEntitys.put(
-          SquareMediaChunkEntity()
+        if (media.isComplete) _fail('已完成媒体禁止补写分块');
+        await db.collection<social_store.Chunk>().put(
+          social_store.Chunk()
             ..cidNumber = cidNumber
-            ..mediaId = mediaId
-            ..chunkIndex = chunkIndex
-            ..chunkBytes = owned
-            ..chunkSha256 = digest,
+            ..bodyHash = bodyHash
+            ..partIndex = partIndex
+            ..partBytes = owned
+            ..partHash = digest,
         );
       }),
     );
@@ -327,16 +331,17 @@ class SquareMediaStore {
 
   /// 不拼接整个视频；逐块核验连续序号、每块长度、块哈希和整体 SHA-256。
   /// 任一步失败都不推进完成状态。重复完成仍重新校验，不信任旧标记。
-  Future<void> finish({required String cidNumber, required String mediaId}) {
+  Future<void> finish({required String cidNumber, required String bodyHash}) {
     return _serial(cidNumber, () async {
       final media = await SocialIsar.instance.read(
-        (db) => _requireMedia(db, cidNumber, mediaId),
+        (db) => _requireMedia(db, cidNumber, bodyHash),
       );
       final count = _chunkCount(media.byteSize);
       final storedCount = await SocialIsar.instance.read(
-        (db) => db.squareMediaChunkEntitys
+        (db) => db
+            .collection<social_store.Chunk>()
             .where()
-            .cidNumberMediaIdEqualToAnyChunkIndex(cidNumber, mediaId)
+            .cidNumberBodyHashEqualToAnyPartIndex(cidNumber, bodyHash)
             .count(),
       );
       if (storedCount != count) _fail('媒体分块不完整');
@@ -349,32 +354,32 @@ class SquareMediaStore {
       } finally {
         sink.close();
       }
-      if (result.digest?.toString() != media.sha256) {
+      if (result.digest?.toString() != media.bodyHash) {
         _fail('媒体整体哈希不匹配');
       }
       await SocialIsar.instance.writeTxn((db) async {
-        final current = await _requireMedia(db, cidNumber, mediaId);
-        if (current.id != media.id || current.sha256 != media.sha256) {
+        final current = await _requireMedia(db, cidNumber, bodyHash);
+        if (current.rowId != media.rowId ||
+            current.bodyHash != media.bodyHash) {
           _fail('媒体在校验期间发生变化');
         }
-        current.complete = true;
-        await db.squareMediaEntitys.put(current);
+        current.isComplete = true;
+        await db.collection<social_store.Media>().put(current);
       });
     });
   }
 
   Future<SquareStoredMedia?> get({
     required String cidNumber,
-    required String mediaId,
+    required String bodyHash,
   }) {
-    _validateId(mediaId);
+    _validateId(bodyHash);
     return _serial(
       cidNumber,
       () => SocialIsar.instance.read((db) async {
-        final media = await db.squareMediaEntitys.getByCidNumberMediaId(
-          cidNumber,
-          mediaId,
-        );
+        final media = await db
+            .collection<social_store.Media>()
+            .getByCidNumberBodyHash(cidNumber, bodyHash);
         return media == null ? null : SquareStoredMedia._fromEntity(media);
       }),
     );
@@ -385,9 +390,10 @@ class SquareMediaStore {
     return _serial(
       cidNumber,
       () => SocialIsar.instance.read((db) async {
-        final rows = await db.squareMediaEntitys
+        final rows = await db
+            .collection<social_store.Media>()
             .where()
-            .cidNumberEqualToAnyMediaId(cidNumber)
+            .cidNumberEqualToAnyBodyHash(cidNumber)
             .findAll();
         return rows.map(SquareStoredMedia._fromEntity).toList(growable: false);
       }),
@@ -398,7 +404,7 @@ class SquareMediaStore {
   /// 不截短越界请求；EOF 仅允许零长度读取。缺块或块损坏必须报错。
   Future<Uint8List> readRange({
     required String cidNumber,
-    required String mediaId,
+    required String bodyHash,
     required int offset,
     required int length,
   }) {
@@ -407,9 +413,9 @@ class SquareMediaStore {
         _fail('媒体读取范围不合法');
       }
       final media = await SocialIsar.instance.read(
-        (db) => _requireMedia(db, cidNumber, mediaId),
+        (db) => _requireMedia(db, cidNumber, bodyHash),
       );
-      if (!media.complete) _fail('媒体尚未完整保存');
+      if (!media.isComplete) _fail('媒体尚未完整保存');
       if (offset > media.byteSize || length > media.byteSize - offset) {
         _fail('媒体读取范围超出长度');
       }
@@ -427,6 +433,28 @@ class SquareMediaStore {
     });
   }
 
+  /// 原引擎复合索引最多三列；五个自然字段在同一写事务内精确核对。
+  static Future<social_store.MediaLink?> _slot(
+    Isar db,
+    SquareMediaReference reference,
+  ) async {
+    final rows = await db
+        .collection<social_store.MediaLink>()
+        .where()
+        .contentIdCidNumberContentKindEqualTo(
+          reference.contentId,
+          reference.cidNumber,
+          reference.contentKind,
+        )
+        .filter()
+        .mediaIndexEqualTo(reference.mediaIndex)
+        .mediaRoleEqualTo(reference.mediaRole)
+        .limit(2)
+        .findAll();
+    if (rows.length > 1) _fail('媒体槽位自然字段重复');
+    return rows.singleOrNull;
+  }
+
   /// 一个槽位只能关联一份已完成媒体；更换媒体需先显式移除旧关联。
   Future<void> attach(SquareMediaReference reference) async {
     _validateReference(reference);
@@ -436,22 +464,20 @@ class SquareMediaStore {
         final media = await _requireMedia(
           db,
           reference.cidNumber,
-          reference.mediaId,
+          reference.bodyHash,
         );
-        if (!media.complete) _fail('未完成媒体不能关联内容');
-        final existing = await db.squareMediaReferenceEntitys
-            .getByCidNumberReferenceKey(reference.cidNumber, reference._key);
+        if (!media.isComplete) _fail('未完成媒体不能关联内容');
+        final existing = await _slot(db, reference);
         if (existing != null) {
-          if (existing.mediaId != reference.mediaId) {
+          if (existing.bodyHash != reference.bodyHash) {
             _fail('媒体槽位已有不同关联');
           }
           return;
         }
-        await db.squareMediaReferenceEntitys.put(
-          SquareMediaReferenceEntity()
+        await db.collection<social_store.MediaLink>().put(
+          social_store.MediaLink()
             ..cidNumber = reference.cidNumber
-            ..referenceKey = reference._key
-            ..mediaId = reference.mediaId
+            ..bodyHash = reference.bodyHash
             ..contentKind = reference.contentKind
             ..contentId = reference.contentId
             ..mediaIndex = reference.mediaIndex
@@ -470,7 +496,8 @@ class SquareMediaStore {
     return _serial(
       cidNumber,
       () => SocialIsar.instance.read((db) async {
-        final rows = await db.squareMediaReferenceEntitys
+        final rows = await db
+            .collection<social_store.MediaLink>()
             .where()
             .contentIdCidNumberContentKindEqualTo(
               contentId,
@@ -493,12 +520,11 @@ class SquareMediaStore {
     return _serial(
       reference.cidNumber,
       () => SocialIsar.instance.writeTxn((db) async {
-        final existing = await db.squareMediaReferenceEntitys
-            .getByCidNumberReferenceKey(reference.cidNumber, reference._key);
-        if (existing == null || existing.mediaId != reference.mediaId) {
+        final existing = await _slot(db, reference);
+        if (existing == null || existing.bodyHash != reference.bodyHash) {
           return false;
         }
-        return db.squareMediaReferenceEntitys.delete(existing.id);
+        return db.collection<social_store.MediaLink>().delete(existing.rowId);
       }),
     );
   }
@@ -507,62 +533,63 @@ class SquareMediaStore {
   /// 删引用本身不会触发此操作，不因打开页面、数量上限或时间自动淘汰。
   Future<bool> deleteUnused({
     required String cidNumber,
-    required String mediaId,
+    required String bodyHash,
   }) {
-    _validateId(mediaId);
+    _validateId(bodyHash);
     return _serial(
       cidNumber,
       () => SocialIsar.instance.writeTxn((db) async {
-        final media = await db.squareMediaEntitys.getByCidNumberMediaId(
-          cidNumber,
-          mediaId,
-        );
+        final media = await db
+            .collection<social_store.Media>()
+            .getByCidNumberBodyHash(cidNumber, bodyHash);
         if (media == null) return false;
-        final references = await db.squareMediaReferenceEntitys
+        final references = await db
+            .collection<social_store.MediaLink>()
             .where()
-            .mediaIdCidNumberEqualTo(mediaId, cidNumber)
+            .bodyHashCidNumberEqualTo(bodyHash, cidNumber)
             .count();
         if (references != 0) _fail('媒体仍被内容引用');
-        await db.squareMediaChunkEntitys
+        await db
+            .collection<social_store.Chunk>()
             .where()
-            .cidNumberMediaIdEqualToAnyChunkIndex(cidNumber, mediaId)
+            .cidNumberBodyHashEqualToAnyPartIndex(cidNumber, bodyHash)
             .deleteAll();
-        return db.squareMediaEntitys.delete(media.id);
+        return db.collection<social_store.Media>().delete(media.rowId);
       }),
     );
   }
 
-  static Future<SquareMediaEntity> _requireMedia(
+  static Future<social_store.Media> _requireMedia(
     Isar db,
     String cidNumber,
-    String mediaId,
+    String bodyHash,
   ) async {
-    _validateId(mediaId);
-    final media = await db.squareMediaEntitys.getByCidNumberMediaId(
-      cidNumber,
-      mediaId,
-    );
+    _validateId(bodyHash);
+    final media = await db
+        .collection<social_store.Media>()
+        .getByCidNumberBodyHash(cidNumber, bodyHash);
     if (media == null) _fail('当前用户没有此媒体');
     return media;
   }
 
   static Future<List<int>> _readChunk(
-    SquareMediaEntity media,
+    social_store.Media media,
     int index,
   ) async {
     final chunk = await SocialIsar.instance.read(
-      (db) => db.squareMediaChunkEntitys.getByCidNumberMediaIdChunkIndex(
-        media.cidNumber,
-        media.mediaId,
-        index,
-      ),
+      (db) =>
+          db.collection<social_store.Chunk>().getByCidNumberBodyHashPartIndex(
+            media.cidNumber,
+            media.bodyHash,
+            index,
+          ),
     );
     if (chunk == null ||
-        chunk.chunkBytes.length != _chunkLength(media.byteSize, index) ||
-        sha256.convert(chunk.chunkBytes).toString() != chunk.chunkSha256) {
+        chunk.partBytes.length != _chunkLength(media.byteSize, index) ||
+        sha256.convert(chunk.partBytes).toString() != chunk.partHash) {
       _fail('媒体分块缺失或损坏');
     }
-    return chunk.chunkBytes;
+    return chunk.partBytes;
   }
 
   static int _chunkCount(int size) => (size - 1) ~/ chunkSize + 1;
@@ -581,7 +608,7 @@ class SquareMediaStore {
   }
 
   static void _validateMedia(SquareStoredMedia media) {
-    _validateId(media.mediaId);
+    _validateId(media.bodyHash);
     if (!{'image', 'video'}.contains(media.mediaKind) ||
         !media.contentType.startsWith('${media.mediaKind}/') ||
         media.contentType.trim() != media.contentType ||
@@ -589,7 +616,7 @@ class SquareMediaStore {
         media.contentType.length <= media.mediaKind.length + 1 ||
         media.byteSize <= 0 ||
         media.byteSize > 0x1fffffffffffff ||
-        !RegExp(r'^[0-9a-f]{64}$').hasMatch(media.sha256)) {
+        !RegExp(r'^[0-9a-f]{64}$').hasMatch(media.bodyHash)) {
       _fail('媒体描述不合法');
     }
   }
@@ -600,7 +627,7 @@ class SquareMediaStore {
   }
 
   static void _validateReference(SquareMediaReference reference) {
-    _validateId(reference.mediaId);
+    _validateId(reference.bodyHash);
     _validateContent(reference.contentKind, reference.contentId);
     if (reference.mediaIndex < 0 ||
         reference.mediaIndex > 0x1fffffffffffff ||

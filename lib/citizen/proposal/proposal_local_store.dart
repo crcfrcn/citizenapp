@@ -1,10 +1,14 @@
+import 'package:citizenapp/storage/wallet_isar.dart'
+    as wallet_store
+    show ProposalList, Summary;
+
 import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:citizenapp/citizen/institution/institution_info.dart';
 import 'package:citizenapp/citizen/proposal/proposal_models.dart';
 import 'package:citizenapp/citizen/account_derivation.dart';
-import 'package:citizenapp/storage/wallet_isar.dart';
+import 'package:citizenapp/storage/wallet_isar.dart' hide Group;
 import 'package:citizenapp/transaction/amount_format.dart';
 import 'package:citizenapp/transaction/multisig/multisig_transfer_models.dart';
 
@@ -41,11 +45,15 @@ class ProposalLocalStore {
     return WalletIsar.instance.read((isar) async {
       final result = <LocalProposalSummary>[];
       for (final id in ids) {
-        final entity =
-            await isar.walletProposalSummaryEntitys.getByProposalId(id);
-        final summary = LocalProposalSummary.fromJsonString(
-          entity?.payloadJson,
-        );
+        final entity = await isar
+            .collection<wallet_store.Summary>()
+            .getByProposalId(id);
+        final summary = entity == null
+            ? null
+            : LocalProposalSummary.fromJsonString(
+                entity.bodyData,
+                proposalId: entity.proposalId,
+              );
         if (summary != null) {
           result.add(summary);
         }
@@ -62,91 +70,64 @@ class ProposalLocalStore {
     if (summaries.isEmpty) return;
     await WalletIsar.instance.writeTxn((isar) async {
       for (final summary in summaries) {
-        final entity = await isar.walletProposalSummaryEntitys
-                .getByProposalId(summary.proposalId) ??
-            (WalletProposalSummaryEntity()..proposalId = summary.proposalId);
-        entity
-          ..payloadJson = jsonEncode(summary.toJson())
-          ..updatedAtMillis = summary.updatedAtMillis;
-        await isar.walletProposalSummaryEntitys.putByProposalId(entity);
+        final entity =
+            await isar.collection<wallet_store.Summary>().getByProposalId(
+              summary.proposalId,
+            ) ??
+            (wallet_store.Summary()..proposalId = summary.proposalId);
+        entity.bodyData = jsonEncode(summary.toJson());
+        await isar.collection<wallet_store.Summary>().putByProposalId(entity);
       }
     });
   }
 
   Future<void> clearAllForTest() async {
     await WalletIsar.instance.writeTxn((isar) async {
-      await isar.walletProposalSummaryEntitys.clear();
-      await isar.walletProposalIndexEntitys.clear();
+      await isar.collection<wallet_store.Summary>().clear();
+      await isar.collection<wallet_store.ProposalList>().clear();
     });
   }
 
-  Future<ProposalLocalIndex?> _readIndex(String institutionCidNumber) {
+  Future<ProposalLocalIndex?> _readIndex(String cidNumber) {
     return WalletIsar.instance.read((isar) async {
-      final entity = await isar.walletProposalIndexEntitys
-          .getByInstitutionCidNumber(institutionCidNumber);
-      return ProposalLocalIndex.fromJsonString(
-        entity?.payloadJson,
-        fallbackSyncedAtMillis: entity?.syncedAtMillis,
-      );
+      final entity = await isar
+          .collection<wallet_store.ProposalList>()
+          .getByCidNumber(cidNumber);
+      return entity == null
+          ? null
+          : ProposalLocalIndex(
+              ids: List<int>.unmodifiable(entity.proposalIds),
+              syncedAt: entity.syncedAt,
+            );
     });
   }
 
-  Future<void> _putIndex(String institutionCidNumber, List<int> ids) async {
+  Future<void> _putIndex(String cidNumber, List<int> ids) async {
     final now = DateTime.now().millisecondsSinceEpoch;
-    final index = ProposalLocalIndex(ids: ids, syncedAtMillis: now);
+    final proposalIds = List<int>.unmodifiable(ids);
     await WalletIsar.instance.writeTxn((isar) async {
-      final entity = await isar.walletProposalIndexEntitys
-              .getByInstitutionCidNumber(institutionCidNumber) ??
-          (WalletProposalIndexEntity()
-            ..institutionCidNumber = institutionCidNumber);
+      final entity =
+          await isar.collection<wallet_store.ProposalList>().getByCidNumber(
+            cidNumber,
+          ) ??
+          (wallet_store.ProposalList()..cidNumber = cidNumber);
       entity
-        ..payloadJson = jsonEncode(index.toJson())
-        ..syncedAtMillis = now;
-      await isar.walletProposalIndexEntitys.putByInstitutionCidNumber(entity);
+        ..proposalIds = proposalIds
+        ..syncedAt = now;
+      await isar.collection<wallet_store.ProposalList>().putByCidNumber(entity);
     });
   }
 }
 
 class ProposalLocalIndex {
-  const ProposalLocalIndex({
-    required this.ids,
-    required this.syncedAtMillis,
-  });
+  const ProposalLocalIndex({required this.ids, required this.syncedAt});
 
   final List<int> ids;
-  final int syncedAtMillis;
+  final int syncedAt;
 
   bool isFresh(Duration ttl) {
-    final age = DateTime.now().millisecondsSinceEpoch - syncedAtMillis;
+    final age = DateTime.now().millisecondsSinceEpoch - syncedAt;
     return age >= 0 && age < ttl.inMilliseconds;
-  }
-
-  Map<String, dynamic> toJson() => {
-        'ids': ids,
-        'synced_at_millis': syncedAtMillis,
-      };
-
-  static ProposalLocalIndex? fromJsonString(
-    String? raw, {
-    int? fallbackSyncedAtMillis,
-  }) {
-    if (raw == null || raw.isEmpty) return null;
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map<String, dynamic>) return null;
-      final rawIds = decoded['ids'];
-      if (rawIds is! List) return null;
-      final ids = rawIds
-          .map((item) => _toInt(item))
-          .whereType<int>()
-          .toList(growable: false);
-      final syncedAt =
-          _toInt(decoded['synced_at_millis']) ?? fallbackSyncedAtMillis;
-      if (syncedAt == null) return null;
-      return ProposalLocalIndex(ids: ids, syncedAtMillis: syncedAt);
-    } catch (_) {
-      return null;
-    }
   }
 }
 
@@ -160,15 +141,15 @@ class LocalProposalSummary {
     required this.subtitle,
     required this.listSubtitle,
     required this.iconKind,
-    required this.updatedAtMillis,
+    required this.updatedAt,
     this.internalCode,
     this.actorCidNumber,
     this.executionAccountId,
     this.subjectCidNumbers = const [],
     this.displayYear,
     this.displaySeqInYear,
-    this.institutionCidNumber,
-    this.cidFullName,
+    this.cidNumber,
+    this.fullName,
   });
 
   final int proposalId;
@@ -181,13 +162,13 @@ class LocalProposalSummary {
   final List<String> subjectCidNumbers;
   final int? displayYear;
   final int? displaySeqInYear;
-  final String? institutionCidNumber;
-  final String? cidFullName;
+  final String? cidNumber;
+  final String? fullName;
   final String title;
   final String subtitle;
   final String listSubtitle;
   final String iconKind;
-  final int updatedAtMillis;
+  final int updatedAt;
 
   ProposalDisplayMeta? get displayMeta {
     final year = displayYear;
@@ -199,16 +180,16 @@ class LocalProposalSummary {
   String get displayId => formatProposalId(displayMeta);
 
   ProposalMeta get meta => ProposalMeta(
-        proposalId: proposalId,
-        kind: kind,
-        stage: stage,
-        status: status,
-        internalCode: internalCode,
-        actorCidNumber: actorCidNumber,
-        executionAccountId: _hexToBytes(executionAccountId),
-        subjectCidNumbers: subjectCidNumbers,
-        displayMeta: displayMeta,
-      );
+    proposalId: proposalId,
+    kind: kind,
+    stage: stage,
+    status: status,
+    internalCode: internalCode,
+    actorCidNumber: actorCidNumber,
+    executionAccountId: _hexToBytes(executionAccountId),
+    subjectCidNumbers: subjectCidNumbers,
+    displayMeta: displayMeta,
+  );
 
   static LocalProposalSummary fromProposal(
     ProposalWithDetail proposal, {
@@ -296,42 +277,43 @@ class LocalProposalSummary {
       subjectCidNumbers: meta.subjectCidNumbers,
       displayYear: meta.displayMeta?.year,
       displaySeqInYear: meta.displayMeta?.seqInYear,
-      institutionCidNumber: institution?.cidNumber,
-      cidFullName: institution?.cidFullName,
+      cidNumber: institution?.cidNumber,
+      fullName: institution?.fullName,
       title: title,
       subtitle: subtitle,
       listSubtitle: listSubtitle,
       iconKind: iconKind,
-      updatedAtMillis: nowMillis ?? DateTime.now().millisecondsSinceEpoch,
+      updatedAt: nowMillis ?? DateTime.now().millisecondsSinceEpoch,
     );
   }
 
   Map<String, dynamic> toJson() => {
-        'proposal_id': proposalId,
-        'kind': kind,
-        'stage': stage,
-        'status': status,
-        'internal_code': internalCode,
-        'actor_cid_number': actorCidNumber,
-        'execution_account_id': executionAccountId,
-        'subject_cid_numbers': subjectCidNumbers,
-        'display_year': displayYear,
-        'display_seq_in_year': displaySeqInYear,
-        'institution_cid_number': institutionCidNumber,
-        'cid_full_name': cidFullName,
-        'title': title,
-        'subtitle': subtitle,
-        'list_subtitle': listSubtitle,
-        'icon_kind': iconKind,
-        'updated_at_millis': updatedAtMillis,
-      };
+    'kind': kind,
+    'stage': stage,
+    'status': status,
+    'internal_code': internalCode,
+    'actor_cid_number': actorCidNumber,
+    'execution_account_id': executionAccountId,
+    'subject_cid_numbers': subjectCidNumbers,
+    'display_year': displayYear,
+    'display_seq_in_year': displaySeqInYear,
+    'cid_number': cidNumber,
+    'cid_full_name': fullName,
+    'title': title,
+    'subtitle': subtitle,
+    'list_subtitle': listSubtitle,
+    'icon_kind': iconKind,
+    'updated_at': updatedAt,
+  };
 
-  static LocalProposalSummary? fromJsonString(String? raw) {
+  static LocalProposalSummary? fromJsonString(
+    String? raw, {
+    required int proposalId,
+  }) {
     if (raw == null || raw.isEmpty) return null;
     try {
       final decoded = jsonDecode(raw);
       if (decoded is! Map<String, dynamic>) return null;
-      final proposalId = _toInt(decoded['proposal_id']);
       final kind = _toInt(decoded['kind']);
       final stage = _toInt(decoded['stage']);
       final status = _toInt(decoded['status']);
@@ -339,8 +321,8 @@ class LocalProposalSummary {
       final subtitle = decoded['subtitle']?.toString();
       final listSubtitle = decoded['list_subtitle']?.toString();
       final iconKind = decoded['icon_kind']?.toString();
-      final updatedAt = _toInt(decoded['updated_at_millis']);
-      if (proposalId == null ||
+      final updatedAt = _toInt(decoded['updated_at']);
+      if (decoded.containsKey('proposal_id') ||
           kind == null ||
           stage == null ||
           status == null ||
@@ -362,14 +344,13 @@ class LocalProposalSummary {
         subjectCidNumbers: _toStringList(decoded['subject_cid_numbers']),
         displayYear: _toInt(decoded['display_year']),
         displaySeqInYear: _toInt(decoded['display_seq_in_year']),
-        institutionCidNumber:
-            _toNullableString(decoded['institution_cid_number']),
-        cidFullName: _toNullableString(decoded['cid_full_name']),
+        cidNumber: _toNullableString(decoded['cid_number']),
+        fullName: _toNullableString(decoded['cid_full_name']),
         title: title,
         subtitle: subtitle,
         listSubtitle: listSubtitle,
         iconKind: iconKind,
-        updatedAtMillis: updatedAt,
+        updatedAt: updatedAt,
       );
     } catch (_) {
       return null;
@@ -424,10 +405,7 @@ Uint8List? _hexToBytes(String? hex) {
   final clean = hex.substring(2);
   final result = Uint8List(clean.length ~/ 2);
   for (var i = 0; i < result.length; i++) {
-    final value = int.tryParse(
-      clean.substring(i * 2, i * 2 + 2),
-      radix: 16,
-    );
+    final value = int.tryParse(clean.substring(i * 2, i * 2 + 2), radix: 16);
     if (value == null) return null;
     result[i] = value;
   }

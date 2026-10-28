@@ -1,4 +1,4 @@
-// 行政区字典层单测(ADR-021):divisionName 命中/回退、formatAreaPath 三态、
+// 行政区字典层单测(ADR-021):region_name 命中/回退、formatAreaPath 三态、
 // 字典 loader 灌库、listCities 按 code 去重。
 
 import 'dart:convert';
@@ -9,6 +9,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:citizenapp/citizen/public/admin_division_bundle_loader.dart';
 import 'package:citizenapp/citizen/public/admin_division_dto.dart';
 import 'package:citizenapp/citizen/public/area_path_formatter.dart';
+import 'package:citizenapp/citizen/public/isar_admin_division_store.dart';
+import 'package:citizenapp/storage/app_isar.dart';
+
+import '../../support/isar_test_env.dart';
 
 import 'fake_admin_division_store.dart';
 import 'fake_data_version_kv.dart';
@@ -31,84 +35,124 @@ class _MapBundle extends AssetBundle {
 }
 
 void main() {
-  group('divisionKeyOf / scopeKeyOf', () {
-    test('省/市/镇键带完整层级前缀(镇 code 全国不唯一)', () {
+  group('行政区自然索引真实存储', () {
+    useIsolatedIsar();
+
+    test('同号市镇按完整父级隔离，省筛选不会误命中代码前缀', () async {
+      final store = IsarAdminDivisionStore(isar: await AppIsar.instance.db());
+      await store.upsertDivisions(const [
+        AdminDivisionDto(provinceCode: 'LN', regionName: '省'),
+        AdminDivisionDto(provinceCode: 'LN', cityCode: '001', regionName: '市一'),
+        AdminDivisionDto(
+          provinceCode: 'LNA',
+          cityCode: '001',
+          regionName: '市二',
+        ),
+        AdminDivisionDto(
+          provinceCode: 'LN',
+          cityCode: '001',
+          townCode: '005',
+          regionName: '镇一',
+        ),
+        AdminDivisionDto(
+          provinceCode: 'LN',
+          cityCode: '002',
+          townCode: '005',
+          regionName: '镇二',
+        ),
+      ]);
+      expect(await store.divisionCount(), 5);
       expect(
-        divisionKeyOf(level: AdminDivisionLevel.province, provinceCode: 'LN'),
-        'province|LN||',
-      );
-      expect(
-        divisionKeyOf(
-            level: AdminDivisionLevel.city,
-            provinceCode: 'LN',
-            cityCode: '001'),
-        'city|LN|001|',
-      );
-      expect(
-        divisionKeyOf(
-          level: AdminDivisionLevel.town,
+        await store.regionName(
           provinceCode: 'LN',
           cityCode: '001',
           townCode: '005',
         ),
-        'town|LN|001|005',
+        '镇一',
       );
+      expect(
+        await store.regionName(
+          provinceCode: 'LN',
+          cityCode: '002',
+          townCode: '005',
+        ),
+        '镇二',
+      );
+      expect(
+        await store.regionName(provinceCode: 'LNA', cityCode: '001'),
+        '市二',
+      );
+      expect(
+        await store.regionName(provinceCode: 'LN', cityCode: '999'),
+        '999',
+      );
+      expect((await store.divisionsOfProvince('LN')), hasLength(4));
+      expect((await store.cities('LN')).map((e) => e.regionName), ['市一']);
     });
 
-    test('scopeKey 父定位:province 空、city=pcode、town=pc|cc', () {
-      expect(
-        scopeKeyOf(level: AdminDivisionLevel.province, provinceCode: 'LN'),
-        '',
-      );
-      expect(
-        scopeKeyOf(level: AdminDivisionLevel.city, provinceCode: 'LN'),
-        'LN',
-      );
-      expect(
-        scopeKeyOf(
-            level: AdminDivisionLevel.town,
-            provinceCode: 'LN',
-            cityCode: '001'),
-        'LN|001',
-      );
+    test('自然索引覆盖保持原主键，准确删除不会影响别省同号行', () async {
+      final store = IsarAdminDivisionStore(isar: await AppIsar.instance.db());
+      await store.upsertDivisions(const [
+        AdminDivisionDto(provinceCode: 'LN', cityCode: '001', regionName: '旧名'),
+        AdminDivisionDto(
+          provinceCode: 'LNA',
+          cityCode: '001',
+          regionName: '保留',
+        ),
+      ]);
+      final before = (await store.cities('LN')).single;
+      await store.upsertDivisions(const [
+        AdminDivisionDto(provinceCode: 'LN', cityCode: '001', regionName: '新名'),
+      ]);
+      final after = (await store.cities('LN')).single;
+      expect(after.rowId, before.rowId);
+      expect(after.regionName, '新名');
+      expect(await store.divisionCount(), 2);
+      await store.deleteRows([after.rowId]);
+      expect(await store.cities('LN'), isEmpty);
+      expect((await store.cities('LNA')).single.regionName, '保留');
     });
   });
 
   group('FakeAdminDivisionStore.divisionName', () {
     test('命中返回名字;未命中回退 code 本身(绝不空)', () async {
       final store = FakeAdminDivisionStore();
-      store.seed(const AdminDivisionDto(
-        level: AdminDivisionLevel.city,
-        provinceCode: 'LN',
-        cityCode: '001',
-        code: '001',
-        divisionName: '广州市',
-      ));
-      expect(await store.divisionName(AdminDivisionLevel.city, 'LN', '001'),
-          '广州市');
+      store.seed(
+        const AdminDivisionDto(
+          provinceCode: 'LN',
+          cityCode: '001',
+          regionName: '广州市',
+        ),
+      );
+      expect(
+        await store.regionName(provinceCode: 'LN', cityCode: '001'),
+        '广州市',
+      );
       // 未命中:回退 code。
-      expect(await store.divisionName(AdminDivisionLevel.city, 'LN', '999'),
-          '999');
+      expect(
+        await store.regionName(provinceCode: 'LN', cityCode: '999'),
+        '999',
+      );
     });
   });
 
   group('formatAreaPath', () {
     final store = FakeAdminDivisionStore()
-      ..seed(const AdminDivisionDto(
-        level: AdminDivisionLevel.city,
-        provinceCode: 'LN',
-        cityCode: '001',
-        code: '001',
-        divisionName: '广州市',
-      ))
-      ..seed(const AdminDivisionDto(
-        level: AdminDivisionLevel.town,
-        provinceCode: 'LN',
-        cityCode: '001',
-        townCode: '005',
-        code: '005',
-        divisionName: '越秀镇',
-      ));
+      ..seed(
+        const AdminDivisionDto(
+          provinceCode: 'LN',
+          cityCode: '001',
+          regionName: '广州市',
+        ),
+      )
+      ..seed(
+        const AdminDivisionDto(
+          provinceCode: 'LN',
+          cityCode: '001',
+          townCode: '005',
+          regionName: '越秀镇',
+        ),
+      );
 
     test('有 town:省名·市名·镇名', () async {
       final path = await formatAreaPath(
@@ -170,77 +214,86 @@ void main() {
     }
 
     test('首装(库空,无 stored 版本)→ 全量灌入', () async {
-      final bundle = _MapBundle(bundleFiles(
-        version: 'before',
-        provinceVers: const {'LN': 'pln1'},
-        provinces: const [
-          {'code': 'LN', 'name': '岭南省'},
-        ],
-        cities: const {
-          'LN': [
-            {'code': '001', 'name': '广州市'},
+      final bundle = _MapBundle(
+        bundleFiles(
+          version: 'before',
+          provinceVers: const {'LN': 'pln1'},
+          provinces: const [
+            {'code': 'LN', 'name': '岭南省'},
           ],
-        },
-        towns: const {
-          'LN': [
-            {'city_code': '001', 'code': '005', 'name': '越秀镇'},
-          ],
-        },
-      ));
+          cities: const {
+            'LN': [
+              {'code': '001', 'name': '广州市'},
+            ],
+          },
+          towns: const {
+            'LN': [
+              {'city_code': '001', 'code': '005', 'name': '越秀镇'},
+            ],
+          },
+        ),
+      );
       final store = FakeAdminDivisionStore();
       final kv = FakeDataVersionKv();
       final loader = AdminDivisionBundleLoader(
-          store: store, bundle: bundle, versionKv: kv);
+        store: store,
+        bundle: bundle,
+        versionKv: kv,
+      );
 
       final changed = await loader.ensureSynced();
 
       expect(changed, isTrue);
       expect(await store.divisionCount(), 3); // 省1+市1+镇1
-      expect(await store.divisionName(AdminDivisionLevel.city, 'LN', '001'),
-          '广州市');
+      expect(
+        await store.regionName(provinceCode: 'LN', cityCode: '001'),
+        '广州市',
+      );
       expect(kv.globalVersion, 'before');
       expect(kv.provinceVersions, {'LN': 'pln1'});
     });
 
     test('全局 version 相等但省级 ver 变化 → 仍按省 reconcile', () async {
       final store = FakeAdminDivisionStore()
-        ..seed(const AdminDivisionDto(
-          level: AdminDivisionLevel.province,
-          provinceCode: 'LN',
-          code: 'LN',
-          divisionName: '岭南省',
-        ))
-        ..seed(const AdminDivisionDto(
-          level: AdminDivisionLevel.city,
-          provinceCode: 'LN',
-          cityCode: '001',
-          code: '001',
-          divisionName: '旧广州市',
-        ));
+        ..seed(const AdminDivisionDto(provinceCode: 'LN', regionName: '岭南省'))
+        ..seed(
+          const AdminDivisionDto(
+            provinceCode: 'LN',
+            cityCode: '001',
+            regionName: '旧广州市',
+          ),
+        );
       final kv = FakeDataVersionKv()
         ..globalVersion = 'before'
         ..provinceVersions = {'LN': 'pln1'};
-      final bundle = _MapBundle(bundleFiles(
-        version: 'before',
-        provinceVers: const {'LN': 'pln2'},
-        provinces: const [
-          {'code': 'LN', 'name': '岭南省'},
-        ],
-        cities: const {
-          'LN': [
-            {'code': '001', 'name': '广州市'},
+      final bundle = _MapBundle(
+        bundleFiles(
+          version: 'before',
+          provinceVers: const {'LN': 'pln2'},
+          provinces: const [
+            {'code': 'LN', 'name': '岭南省'},
           ],
-        },
-        towns: const {},
-      ));
+          cities: const {
+            'LN': [
+              {'code': '001', 'name': '广州市'},
+            ],
+          },
+          towns: const {},
+        ),
+      );
       final loader = AdminDivisionBundleLoader(
-          store: store, bundle: bundle, versionKv: kv);
+        store: store,
+        bundle: bundle,
+        versionKv: kv,
+      );
 
       final changed = await loader.ensureSynced();
 
       expect(changed, isTrue);
-      expect(await store.divisionName(AdminDivisionLevel.city, 'LN', '001'),
-          '广州市');
+      expect(
+        await store.regionName(provinceCode: 'LN', cityCode: '001'),
+        '广州市',
+      );
       expect(kv.globalVersion, 'before');
       expect(kv.provinceVersions, {'LN': 'pln2'});
     });
@@ -249,197 +302,227 @@ void main() {
       // 本地已有 LN(ver=pln1)+ GZ(ver=pgz1);manifest 全局 version 变(before→after),
       // 但只有 GZ 的 ver 变了(pgz1→pgz2)。期望:LN 不动,只 reconcile GZ。
       final store = FakeAdminDivisionStore()
-        ..seed(const AdminDivisionDto(
-          level: AdminDivisionLevel.province,
-          provinceCode: 'LN',
-          code: 'LN',
-          divisionName: '岭南省',
-        ))
-        ..seed(const AdminDivisionDto(
-          level: AdminDivisionLevel.city,
-          provinceCode: 'LN',
-          cityCode: '001',
-          code: '001',
-          divisionName: '广州市',
-        ))
-        ..seed(const AdminDivisionDto(
-          level: AdminDivisionLevel.city,
-          provinceCode: 'GZ',
-          cityCode: '001',
-          code: '001',
-          divisionName: '南宁市',
-        ));
+        ..seed(const AdminDivisionDto(provinceCode: 'LN', regionName: '岭南省'))
+        ..seed(
+          const AdminDivisionDto(
+            provinceCode: 'LN',
+            cityCode: '001',
+            regionName: '广州市',
+          ),
+        )
+        ..seed(
+          const AdminDivisionDto(
+            provinceCode: 'GZ',
+            cityCode: '001',
+            regionName: '南宁市',
+          ),
+        );
       final kv = FakeDataVersionKv()
         ..globalVersion = 'before'
         ..provinceVersions = {'LN': 'pln1', 'GZ': 'pgz1'};
-      final bundle = _MapBundle(bundleFiles(
-        version: 'after',
-        provinceVers: const {'LN': 'pln1', 'GZ': 'pgz2'},
-        provinces: const [
-          {'code': 'LN', 'name': '岭南省'},
-          {'code': 'GZ', 'name': '广西省'},
-        ],
-        cities: const {
-          'GZ': [
-            {'code': '001', 'name': '南宁市改名'},
+      final bundle = _MapBundle(
+        bundleFiles(
+          version: 'after',
+          provinceVers: const {'LN': 'pln1', 'GZ': 'pgz2'},
+          provinces: const [
+            {'code': 'LN', 'name': '岭南省'},
+            {'code': 'GZ', 'name': '广西省'},
           ],
-        },
-        towns: const {},
-      ));
+          cities: const {
+            'GZ': [
+              {'code': '001', 'name': '南宁市改名'},
+            ],
+          },
+          towns: const {},
+        ),
+      );
       final loader = AdminDivisionBundleLoader(
-          store: store, bundle: bundle, versionKv: kv);
+        store: store,
+        bundle: bundle,
+        versionKv: kv,
+      );
 
       final changed = await loader.ensureSynced();
 
       expect(changed, isTrue);
       // GZ reconcile 了:南宁市 → 南宁市改名。
-      expect(await store.divisionName(AdminDivisionLevel.city, 'GZ', '001'),
-          '南宁市改名');
+      expect(
+        await store.regionName(provinceCode: 'GZ', cityCode: '001'),
+        '南宁市改名',
+      );
       // LN 没动:广州市仍在,key 未被删。
-      expect(await store.divisionName(AdminDivisionLevel.city, 'LN', '001'),
-          '广州市');
+      expect(
+        await store.regionName(provinceCode: 'LN', cityCode: '001'),
+        '广州市',
+      );
       expect(kv.globalVersion, 'after');
       expect(kv.provinceVersions, {'LN': 'pln1', 'GZ': 'pgz2'});
     });
 
     test('reconcile 改名:code 不变 name 变 → 同条更新,同省其他条不变', () async {
       final store = FakeAdminDivisionStore()
-        ..seed(const AdminDivisionDto(
-          level: AdminDivisionLevel.province,
-          provinceCode: 'LN',
-          code: 'LN',
-          divisionName: '岭南省',
-        ))
-        ..seed(const AdminDivisionDto(
-          level: AdminDivisionLevel.city,
-          provinceCode: 'LN',
-          cityCode: '001',
-          code: '001',
-          divisionName: '旧广州市',
-        ))
-        ..seed(const AdminDivisionDto(
-          level: AdminDivisionLevel.city,
-          provinceCode: 'LN',
-          cityCode: '002',
-          code: '002',
-          divisionName: '深圳市',
-        ));
+        ..seed(const AdminDivisionDto(provinceCode: 'LN', regionName: '岭南省'))
+        ..seed(
+          const AdminDivisionDto(
+            provinceCode: 'LN',
+            cityCode: '001',
+            regionName: '旧广州市',
+          ),
+        )
+        ..seed(
+          const AdminDivisionDto(
+            provinceCode: 'LN',
+            cityCode: '002',
+            regionName: '深圳市',
+          ),
+        );
       final kv = FakeDataVersionKv()
         ..globalVersion = 'before'
         ..provinceVersions = {'LN': 'pln1'};
-      final bundle = _MapBundle(bundleFiles(
-        version: 'after',
-        provinceVers: const {'LN': 'pln2'},
-        provinces: const [
-          {'code': 'LN', 'name': '岭南省'},
-        ],
-        cities: const {
-          'LN': [
-            {'code': '001', 'name': '广州市'}, // 改名
-            {'code': '002', 'name': '深圳市'}, // 不变
+      final bundle = _MapBundle(
+        bundleFiles(
+          version: 'after',
+          provinceVers: const {'LN': 'pln2'},
+          provinces: const [
+            {'code': 'LN', 'name': '岭南省'},
           ],
-        },
-        towns: const {},
-      ));
+          cities: const {
+            'LN': [
+              {'code': '001', 'name': '广州市'}, // 改名
+              {'code': '002', 'name': '深圳市'}, // 不变
+            ],
+          },
+          towns: const {},
+        ),
+      );
       final loader = AdminDivisionBundleLoader(
-          store: store, bundle: bundle, versionKv: kv);
+        store: store,
+        bundle: bundle,
+        versionKv: kv,
+      );
 
       await loader.ensureSynced();
 
-      expect(await store.divisionName(AdminDivisionLevel.city, 'LN', '001'),
-          '广州市'); // 更新
-      expect(await store.divisionName(AdminDivisionLevel.city, 'LN', '002'),
-          '深圳市'); // 不变
-      expect(store.lastUpsertKeys, ['city|LN|001|']); // 只写改名这一条
+      expect(
+        await store.regionName(provinceCode: 'LN', cityCode: '001'),
+        '广州市',
+      ); // 更新
+      expect(
+        await store.regionName(provinceCode: 'LN', cityCode: '002'),
+        '深圳市',
+      ); // 不变
+      expect(store.lastUpsertCodes, [('LN', '001', '')]); // 只写改名这一条
       // 两市都还在 + 省级记录(reconcile 从 provinces.json 一并写),无残留多余条。
-      final keys = await store.divisionKeysOfProvince('LN');
-      expect(keys.toSet(), {'province|LN||', 'city|LN|001|', 'city|LN|002|'});
+      final keys = (await store.divisionsOfProvince('LN'))
+          .map((e) => (e.provinceCode, e.cityCode, e.townCode));
+      expect(keys.toSet(), {
+        ('LN', '', ''),
+        ('LN', '001', ''),
+        ('LN', '002', ''),
+      });
     });
 
-    test('reconcile 删除:包里少一个 code → 该 divisionKey 被删', () async {
+    test('reconcile 删除:包里少一个 code → 该 自然代码对应的行被删', () async {
       final store = FakeAdminDivisionStore()
-        ..seed(const AdminDivisionDto(
-          level: AdminDivisionLevel.city,
-          provinceCode: 'LN',
-          cityCode: '001',
-          code: '001',
-          divisionName: '广州市',
-        ))
-        ..seed(const AdminDivisionDto(
-          level: AdminDivisionLevel.city,
-          provinceCode: 'LN',
-          cityCode: '002',
-          code: '002',
-          divisionName: '将被删的市',
-        ));
+        ..seed(
+          const AdminDivisionDto(
+            provinceCode: 'LN',
+            cityCode: '001',
+            regionName: '广州市',
+          ),
+        )
+        ..seed(
+          const AdminDivisionDto(
+            provinceCode: 'LN',
+            cityCode: '002',
+            regionName: '将被删的市',
+          ),
+        );
       final kv = FakeDataVersionKv()
         ..globalVersion = 'before'
         ..provinceVersions = {'LN': 'pln1'};
-      final bundle = _MapBundle(bundleFiles(
-        version: 'after',
-        provinceVers: const {'LN': 'pln2'},
-        provinces: const [
-          {'code': 'LN', 'name': '岭南省'},
-        ],
-        cities: const {
-          'LN': [
-            {'code': '001', 'name': '广州市'}, // 只剩这一个
+      final bundle = _MapBundle(
+        bundleFiles(
+          version: 'after',
+          provinceVers: const {'LN': 'pln2'},
+          provinces: const [
+            {'code': 'LN', 'name': '岭南省'},
           ],
-        },
-        towns: const {},
-      ));
+          cities: const {
+            'LN': [
+              {'code': '001', 'name': '广州市'}, // 只剩这一个
+            ],
+          },
+          towns: const {},
+        ),
+      );
       final loader = AdminDivisionBundleLoader(
-          store: store, bundle: bundle, versionKv: kv);
+        store: store,
+        bundle: bundle,
+        versionKv: kv,
+      );
 
       await loader.ensureSynced();
 
-      final keys = await store.divisionKeysOfProvince('LN');
+      final keys = (await store.divisionsOfProvince('LN'))
+          .map((e) => (e.provinceCode, e.cityCode, e.townCode));
       // 002 被删;省级记录由 reconcile 从 provinces.json 写入。
-      expect(keys.toSet(), {'province|LN||', 'city|LN|001|'});
+      expect(keys.toSet(), {('LN', '', ''), ('LN', '001', '')});
     });
 
     test('reconcile 新增:包里多一个 → 插入', () async {
       final store = FakeAdminDivisionStore()
-        ..seed(const AdminDivisionDto(
-          level: AdminDivisionLevel.city,
-          provinceCode: 'LN',
-          cityCode: '001',
-          code: '001',
-          divisionName: '广州市',
-        ));
+        ..seed(
+          const AdminDivisionDto(
+            provinceCode: 'LN',
+            cityCode: '001',
+            regionName: '广州市',
+          ),
+        );
       final kv = FakeDataVersionKv()
         ..globalVersion = 'before'
         ..provinceVersions = {'LN': 'pln1'};
-      final bundle = _MapBundle(bundleFiles(
-        version: 'after',
-        provinceVers: const {'LN': 'pln2'},
-        provinces: const [
-          {'code': 'LN', 'name': '岭南省'},
-        ],
-        cities: const {
-          'LN': [
-            {'code': '001', 'name': '广州市'},
-            {'code': '003', 'name': '新增市'}, // 新增
+      final bundle = _MapBundle(
+        bundleFiles(
+          version: 'after',
+          provinceVers: const {'LN': 'pln2'},
+          provinces: const [
+            {'code': 'LN', 'name': '岭南省'},
           ],
-        },
-        towns: const {},
-      ));
+          cities: const {
+            'LN': [
+              {'code': '001', 'name': '广州市'},
+              {'code': '003', 'name': '新增市'}, // 新增
+            ],
+          },
+          towns: const {},
+        ),
+      );
       final loader = AdminDivisionBundleLoader(
-          store: store, bundle: bundle, versionKv: kv);
+        store: store,
+        bundle: bundle,
+        versionKv: kv,
+      );
 
       await loader.ensureSynced();
 
-      expect(await store.divisionName(AdminDivisionLevel.city, 'LN', '003'),
-          '新增市');
-      final keys = await store.divisionKeysOfProvince('LN');
+      expect(
+        await store.regionName(provinceCode: 'LN', cityCode: '003'),
+        '新增市',
+      );
+      final keys = (await store.divisionsOfProvince('LN'))
+          .map((e) => (e.provinceCode, e.cityCode, e.townCode));
       // 省级记录由 reconcile 从 provinces.json 写入。
-      expect(keys.toSet(), {'province|LN||', 'city|LN|001|', 'city|LN|003|'});
+      expect(keys.toSet(), {
+        ('LN', '', ''),
+        ('LN', '001', ''),
+        ('LN', '003', ''),
+      });
     });
 
     test('manifest 缺省级版本表 → 不写库、不删除本地数据', () async {
       final bundle = _MapBundle({
-        'assets/divisions/manifest.json':
-            jsonEncode({'version': 'invalid'}),
+        'assets/divisions/manifest.json': jsonEncode({'version': 'invalid'}),
         'assets/divisions/provinces.json': jsonEncode(const [
           {'code': 'LN', 'name': '岭南省'},
         ]),
@@ -448,20 +531,20 @@ void main() {
         ]),
       });
       final store = FakeAdminDivisionStore()
-        ..seed(const AdminDivisionDto(
-          level: AdminDivisionLevel.city,
-          provinceCode: 'LN',
-          cityCode: '001',
-          code: '001',
-          divisionName: '旧广州市',
-        ))
-        ..seed(const AdminDivisionDto(
-          level: AdminDivisionLevel.city,
-          provinceCode: 'LN',
-          cityCode: '002',
-          code: '002',
-          divisionName: '旧残留市',
-        ));
+        ..seed(
+          const AdminDivisionDto(
+            provinceCode: 'LN',
+            cityCode: '001',
+            regionName: '旧广州市',
+          ),
+        )
+        ..seed(
+          const AdminDivisionDto(
+            provinceCode: 'LN',
+            cityCode: '002',
+            regionName: '旧残留市',
+          ),
+        );
       final loader = AdminDivisionBundleLoader(
         store: store,
         bundle: bundle,
@@ -474,10 +557,14 @@ void main() {
       expect(changed, isFalse);
       expect(store.upsertCalls, upsertBefore);
       expect(store.deleteCalls, deleteBefore);
-      expect(await store.divisionName(AdminDivisionLevel.city, 'LN', '001'),
-          '旧广州市');
-      expect(await store.divisionName(AdminDivisionLevel.city, 'LN', '002'),
-          '旧残留市');
+      expect(
+        await store.regionName(provinceCode: 'LN', cityCode: '001'),
+        '旧广州市',
+      );
+      expect(
+        await store.regionName(provinceCode: 'LN', cityCode: '002'),
+        '旧残留市',
+      );
     });
 
     test('无数据包 → loadFromBundle 返回 false 不崩', () async {
@@ -494,14 +581,11 @@ void main() {
   group('listCities 按 cityCode 去重', () {
     test('同省多机构同市 code 只出一条;LN 三市 001 是不同省内 code', () async {
       final store = FakePublicInstitutionStore();
-      await store.upsertInstitutions(
-        [
-          seedDto('A', provinceCode: 'LN', cityCode: '001'),
-          seedDto('B', provinceCode: 'LN', cityCode: '001'), // 同市 code
-          seedDto('C', provinceCode: 'LN', cityCode: '002'),
-        ],
-        catalogVersion: 'v',
-      );
+      await store.upsertInstitutions([
+        seedDto('A', provinceCode: 'LN', cityCode: '001'),
+        seedDto('B', provinceCode: 'LN', cityCode: '001'), // 同市 code
+        seedDto('C', provinceCode: 'LN', cityCode: '002'),
+      ]);
       final cities = await store.listCities('LN');
       expect(cities.toSet(), {'001', '002'}); // 去重后两个市 code
     });

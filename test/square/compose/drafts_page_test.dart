@@ -34,7 +34,7 @@ class _CleanupFailureDraftStore implements SquareComposeDraftRepository {
     postType: SquarePostType.document,
     text: '待删除草稿',
     media: <SquareLocalMediaDraft>[],
-    updatedAtMillis: 1,
+    updatedAt: 1,
   );
 
   @override

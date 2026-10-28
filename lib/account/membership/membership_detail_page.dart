@@ -32,7 +32,7 @@ class MembershipDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final level = plan.membershipLevel;
+    final level = plan.memberLevel;
     final tierColor = _tierColor(level);
     final onTier = _onTierColor(level);
     return Scaffold(
@@ -44,9 +44,9 @@ class MembershipDetailPage extends StatelessWidget {
           SizedBox(height: AppLayout.scaled(context, 16)),
           _section(tierColor, Icons.chat_bubble_outline, '聊天', [
             _row('消息', '文字、表情、贴纸、图片'),
-            _row('语音消息', '最长 ${plan.chatVoiceDurationLabel}'),
-            _row('视频消息', '最长 ${plan.chatVideoDurationLabel}'),
-            _row('单个附件', '最大 ${plan.chatFileSizeLabel}'),
+            _row('语音消息', '最长 ${plan.chatVoiceLabel}'),
+            _row('视频消息', '最长 ${plan.chatVideoLabel}'),
+            _row('单个附件', '最大 ${plan.fileSizeLabel}'),
             _row('语音通话', plan.chat.voiceCallEnabled ? '支持' : '不支持'),
             _row('视频通话', plan.chat.videoCallEnabled ? '支持' : '不支持'),
           ]),
@@ -55,7 +55,7 @@ class MembershipDetailPage extends StatelessWidget {
             _row('文字', '最多 ${plan.document.textMaxChars} 字'),
             _row(
               '图片',
-              '${plan.document.maxImages} 张 · ${plan.documentImageQualityLabel}',
+              '${plan.document.maxImages} 张 · ${plan.documentImageLabel}',
             ),
             _row('单图片体积', '最大 ${plan.imageBytesLabel}'),
           ]),
@@ -73,12 +73,12 @@ class MembershipDetailPage extends StatelessWidget {
             _row('正文', '最多 ${_wan(plan.article.bodyMaxChars)}'),
             _row(
               '配图',
-              '${plan.article.maxImages} 张 · ${plan.articleImageQualityLabel}',
+              '${plan.article.maxImages} 张 · ${plan.articleImageLabel}',
             ),
             _row('视频', '最多 ${plan.article.maxVideos} 个'),
             _row(
               '首图 · 标题',
-              '${plan.articleCoverQualityLabel} · ${plan.article.titleMinChars}–${plan.article.titleMaxChars} 字',
+              '${plan.articleCoverLabel} · ${plan.article.titleMinChars}–${plan.article.titleMaxChars} 字',
             ),
           ]),
           SizedBox(height: AppLayout.scaled(context, 12)),
@@ -86,7 +86,11 @@ class MembershipDetailPage extends StatelessWidget {
             _row('广场存储空间', plan.storageSizeLabel),
             _row(
               '聊天附件存储',
-              plan.resources['attachment_bytes'] == null ? '未知' : SquareMembershipPlan.formatBytes(plan.resources['attachment_bytes']!),
+              plan.resources['attachment_bytes'] == null
+                  ? '未知'
+                  : SquareMembershipPlan.formatBytes(
+                      plan.resources['attachment_bytes']!,
+                    ),
             ),
           ]),
           if (plan.dailyLimits.isNotEmpty) ...[

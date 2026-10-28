@@ -18,7 +18,7 @@ SquareSession _session() => const SquareSession(
   deviceId: testMlsDeviceId,
   sessionToken: 'sqs_test',
   cidNumber: "CN220-CTZN2-198805200-2026",
-  bindingRevision: 1,
+  bindRev: 1,
   accountId:
       '0x8888888888888888888888888888888888888888888888888888888888888888',
   expiresAt: 1800000000000,
@@ -47,27 +47,23 @@ void main() {
                 "account_id": "0x0101010101010101010101010101010101010101010101010101010101010101",
                 "cid_number": "CN001-CTZN-000000001-2026",
                 "display_name": "林正华",
-                "avatar_object_key": "profile/1111111111111111111111111111111111111111111111111111111111111111/avatar",
+                "avatar_key": "profile/1111111111111111111111111111111111111111111111111111111111111111/avatar",
                 "post_category": "campaign",
                 "post_type": "document",
                 "post_excerpt": "竞选公文摘要",
                 "content_hash": "0x1111",
-                "storage_receipt_id": "sqr_001",
+                "receipt_id": "sqr_001",
                 "chain_block": 88,
-                "created_at": 1800000000000,
+                "published_at": 1800000000000,
                 "post_state": "published",
                 "media_items": [
                   {
                     "media_kind": "image",
-                    "object_key": "square/cid/posts/sqp_001/media/0/source.webp",
-                    "derivative_kind": "thumbnail",
-                    "derivative_object_key": "square/cid/posts/sqp_001/media/0/thumbnail.webp",
-                    "asset_state": "ready",
                     "url": "https://media.crcfrcn.com/square/cid/posts/sqp_001/media/0/source.webp",
-                    "thumbnail_url": "https://media.crcfrcn.com/square/cid/posts/sqp_001/media/0/thumbnail.webp",
+                    "preview_url": "https://media.crcfrcn.com/square/cid/posts/sqp_001/media/0/thumbnail.webp",
                     "byte_size": 1024,
-                    "width": 1080,
-                    "height": 1920
+                    "pixel_width": 1080,
+                    "pixel_height": 1920
                   }
                 ]
               }
@@ -92,7 +88,7 @@ void main() {
     // 真数据：作者展示名与头像键随 feed 回传并解析。
     expect(posts.first.author.displayName, '林正华');
     expect(
-      posts.first.author.avatarObjectKey,
+      posts.first.author.avatarKey,
       'profile/1111111111111111111111111111111111111111111111111111111111111111/avatar',
     );
     expect(posts.first.chainBlock, 88);
@@ -102,7 +98,7 @@ void main() {
       'https://media.crcfrcn.com/square/cid/posts/sqp_001/media/0/source.webp',
     );
     expect(
-      posts.first.mediaItems.single.coverUrl,
+      posts.first.mediaItems.single.previewUrl,
       'https://media.crcfrcn.com/square/cid/posts/sqp_001/media/0/thumbnail.webp',
     );
     expect(posts.first.mediaItems.single.byteSize, 1024);
@@ -122,7 +118,7 @@ void main() {
       postType: SquarePostType.article,
       title: '文章标题标题标题',
       text: '列表摘要',
-      createdAt: DateTime.fromMillisecondsSinceEpoch(1800000000000),
+      publishedAt: DateTime.fromMillisecondsSinceEpoch(1800000000000),
     );
     final client = SquareApiClient(
       baseUrl: 'https://square.test/api',
@@ -138,16 +134,16 @@ void main() {
               'post_category': 'normal',
               'post_type': 'article',
               'content_hash': List<String>.filled(64, '1').join(),
-              'storage_receipt_id': 'sqr_detail',
+              'receipt_id': 'sqr_detail',
               'chain_block': 88,
-              'created_at': 1800000000000,
+              'published_at': 1800000000000,
               'post_state': 'published',
               'media_items': [
                 {
                   'media_kind': 'image',
                   'url': 'https://media.test/cover.jpg',
-                  'width': 1920,
-                  'height': 1080,
+                  'pixel_width': 1920,
+                  'pixel_height': 1080,
                 },
               ],
             },
@@ -156,7 +152,7 @@ void main() {
               'cid_number': summary.author.cidNumber,
               'post_type': 'article',
               'media_items': <Object>[],
-              'title': '文章标题标题标题',
+              'post_title': '文章标题标题标题',
               'text': 'R2 规范全文',
               'content_sections': [
                 {
@@ -198,9 +194,9 @@ void main() {
                 'account_id': '0x0101010101010101010101010101010101010101010101010101010101010101',
                 'post_category': 'normal',
                 'post_type': 'article',
-                'title': '缺少首图的非法文章',
+                'post_title': '缺少首图的非法文章',
                 'excerpt': '这条数据不得作为正常文章进入动态流',
-                'created_at': 1800000000000,
+                'published_at': 1800000000000,
                 'media_items': <Object>[],
               },
             ],
@@ -270,36 +266,30 @@ void main() {
             'is_ok': true,
             'upload_id': 'squ_test',
             'post_id': 'sqp_test',
-            'storage_receipt_id': 'sqr_test',
+            'receipt_id': 'sqr_test',
             'expires_at': 1800000000000,
-            'estimated_bytes': 1024,
+            'byte_size': 1024,
             'manifest': {
               'object_key': 'square/cid/posts/sqp_test/manifest.json',
               'upload_url':
                   'https://square.test/api/8964/uploads/squ_test/manifest',
             },
             'media_uploads': [
-              {
-                'media_kind': 'image',
-                'content_type': 'image/webp',
-                'byte_size': 1024,
-                'object_key': 'square/cid/posts/sqp_test/media/0/source.webp',
-                'upload_method': 'r2_put',
-                'upload_url': 'https://upload.test/image',
-                'upload_headers': {
-                  'content-type': 'image/webp',
-                  'content-length': '1024',
+              for (final role in ['source', 'thumbnail'])
+                {
+                  'media_index': 0,
+                  'object_role': role,
+                  'object_key': 'square/cid/posts/sqp_test/media/0/$role.webp',
+                  'upload': {
+                    'http_method': 'PUT',
+                    'url': 'https://upload.test/$role',
+                    'expires_at': 1800000000000,
+                    'headers': {
+                      'content-type': 'image/webp',
+                      'content-length': role == 'source' ? '1024' : '256',
+                    },
+                  },
                 },
-                'derivative_kind': 'thumbnail',
-                'derivative_object_key':
-                    'square/cid/posts/sqp_test/media/0/thumbnail.webp',
-                'derivative_byte_size': 256,
-                'derivative_upload_url': 'https://upload.test/thumbnail',
-                'derivative_upload_headers': {
-                  'content-type': 'image/webp',
-                  'content-length': '256',
-                },
-              },
             ],
           }),
           200,
@@ -314,19 +304,16 @@ void main() {
       titleLength: 12,
       textLength: 30000,
       contentHash: '11' * 32,
-      manifestByteSize: 512,
+      manifestBytes: 512,
       mediaItems: const [
         SquareUploadMediaRequest(
           mediaKind: SquareMediaKind.image,
-          contentType: 'image/webp',
           byteSize: 1024,
-          sha256: '1111111111111111111111111111111111111111111111111111111111111111',
-          width: 320,
-          height: 240,
-          derivativeKind: 'thumbnail',
-          derivativeContentType: 'image/webp',
-          derivativeByteSize: 256,
-          derivativeSha256: '2222222222222222222222222222222222222222222222222222222222222222',
+          bodyHash: '1111111111111111111111111111111111111111111111111111111111111111',
+          pixelWidth: 320,
+          pixelHeight: 240,
+          previewBytes: 256,
+          previewHash: '2222222222222222222222222222222222222222222222222222222222222222',
         ),
       ],
     );
@@ -336,7 +323,10 @@ void main() {
       prepared.manifestUploadUrl,
       'https://square.test/api/8964/uploads/squ_test/manifest',
     );
-    expect(prepared.mediaItems.single.byteSize, 1024);
+    expect(prepared.mediaUploads.map((e) => (e.mediaIndex, e.objectRole)), [
+      (0, 'source'),
+      (0, 'thumbnail'),
+    ]);
   });
 
   test('prepareUpload拒绝错源、错上传身份和带查询的manifest能力', () async {
@@ -358,9 +348,9 @@ void main() {
               'is_ok': true,
               'upload_id': 'squ_test',
               'post_id': 'sqp_test',
-              'storage_receipt_id': 'sqr_test',
+              'receipt_id': 'sqr_test',
               'expires_at': 1800000000000,
-              'estimated_bytes': 512,
+              'byte_size': 512,
               'manifest': {
                 'object_key': 'square/cid/posts/sqp_test/manifest.json',
                 'upload_url': capability,
@@ -379,7 +369,7 @@ void main() {
           titleLength: 0,
           textLength: 10,
           contentHash: '11' * 32,
-          manifestByteSize: 512,
+          manifestBytes: 512,
           mediaItems: const [],
         ),
         throwsFormatException,
@@ -403,26 +393,18 @@ void main() {
       }),
     );
     try {
-      await client.uploadMediaAsset(
+      await client.uploadMedia(
         session: _session(),
         upload: const SquarePreparedMediaUpload(
-          mediaKind: SquareMediaKind.image,
-          contentType: 'image/webp',
-          byteSize: 4,
+          mediaIndex: 0,
+          objectRole: 'source',
           objectKey: 'square/cid/posts/sqp_test/media/0/source.webp',
-          uploadMethod: 'r2_put',
-          uploadUrl: 'https://upload.test/source.webp',
-          uploadHeaders: <String, String>{
-            'content-type': 'image/webp',
-            'content-length': '4',
-          },
-          derivativeKind: 'thumbnail',
-          derivativeByteSize: 1,
-          derivativeObjectKey:
-              'square/cid/posts/sqp_test/media/0/thumbnail.webp',
-          derivativeUploadUrl: 'https://upload.test/thumbnail.webp',
-          derivativeUploadHeaders: <String, String>{},
+          httpMethod: 'PUT',
+          url: 'https://upload.test/source.webp',
+          expiresAt: 1800000000000,
+          headers: {'content-type': 'image/webp', 'content-length': '4'},
         ),
+        byteSize: 4,
         filePath: file.path,
       );
       expect(attempts, 2);
@@ -471,19 +453,24 @@ void main() {
         return http.Response(
           jsonEncode({
             'is_ok': true,
-            'items': [
+            'posts': [
               {
-                'post_id': 'sqp_self',
-                'cid_number': _session().cidNumber,
-                'account_id': _session().accountId,
-                'post_category': 'normal',
-                'post_type': 'document',
-                'manifest_bytes_base64': base64Encode(manifestBytes),
+                'post': {
+                  'post_id': 'sqp_self',
+                  'cid_number': _session().cidNumber,
+                  'account_id': _session().accountId,
+                  'post_category': 'normal',
+                  'post_type': 'document',
+                  'content_hash': contentHash,
+                  'receipt_id': 'sqr_self',
+                  'chain_block': 88,
+                  'published_at': 1800000000000,
+                  'post_state': 'published',
+                },
                 'content_hash': contentHash,
-                'storage_receipt_id': 'sqr_self',
-                'chain_block': 88,
-                'created_at': 1800000000000,
-                'post_state': 'published',
+                'manifest_bytes_base64url': base64Url
+                    .encode(manifestBytes)
+                    .replaceAll('=', ''),
               },
             ],
             'next_cursor': null,
@@ -498,7 +485,7 @@ void main() {
 
     expect(page.items.single.manifestBytes, orderedEquals(manifestBytes));
     expect(page.items.single.contentHash, contentHash);
-    expect(page.items.single.createdAt, 1800000000000);
+    expect(page.items.single.publishedAt, 1800000000000);
     expect(page.nextCursor, isNull);
   });
 
@@ -509,19 +496,22 @@ void main() {
         (_) async => http.Response(
           jsonEncode({
             'is_ok': true,
-            'items': [
+            'posts': [
               {
-                'post_id': 'sqp_wrong',
-                'cid_number': 'OTHER-CID',
-                'account_id': _session().accountId,
-                'post_category': 'normal',
-                'post_type': 'document',
-                'manifest_bytes_base64': 'e30=',
+                'post': {
+                  'post_id': 'sqp_wrong',
+                  'cid_number': 'OTHER-CID',
+                  'account_id': _session().accountId,
+                  'post_category': 'normal',
+                  'post_type': 'document',
+                  'content_hash': '11' * 32,
+                  'receipt_id': 'sqr_wrong',
+                  'chain_block': 88,
+                  'published_at': 1800000000000,
+                  'post_state': 'published',
+                },
                 'content_hash': '11' * 32,
-                'storage_receipt_id': 'sqr_wrong',
-                'chain_block': 88,
-                'created_at': 1800000000000,
-                'post_state': 'published',
+                'manifest_bytes_base64url': 'e30',
               },
             ],
             'next_cursor': null,

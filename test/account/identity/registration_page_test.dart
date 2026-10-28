@@ -10,8 +10,8 @@ void main() {
     Uri.parse('https://www.crcfrcn.com/api/user/registration/page'),
     10000,
   );
-  test('只接收本次JSON verification_id/token；纯token、过期、未知字段拒绝', () {
-    final valid = {'verification_id': 'id', 'token': 'a' * 32};
+  test('只接收本次JSON check_id/token；纯token、过期、未知字段拒绝', () {
+    final valid = {'check_id': 'id', 'token': 'a' * 32};
     expect(
       RegistrationPage.tokenFromMessage(
         jsonEncode(valid),
@@ -31,7 +31,7 @@ void main() {
     );
     for (final raw in [
       'a' * 32,
-      jsonEncode({...valid, 'verification_id': 'other'}),
+      jsonEncode({...valid, 'check_id': 'other'}),
       jsonEncode({...valid, 'extra': true}),
       jsonEncode({...valid, 'token': ''}),
       jsonEncode({...valid, 'token': ' ${'a' * 32}'}),

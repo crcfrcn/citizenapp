@@ -25,10 +25,10 @@ enum CitizenIdentityConsentLevel { voting, candidate }
 
 class VotingIdentityConsentPayload {
   const VotingIdentityConsentPayload({
-    required this.identityLevel,
+    required this.cidLevel,
     required this.cidNumber,
     required this.accountId,
-    required this.ss58Address,
+    required this.accountAddress,
     required this.validFrom,
     required this.validUntil,
     required this.statusNormal,
@@ -54,10 +54,10 @@ class VotingIdentityConsentPayload {
     required int authorizationExpiresAt,
   }) {
     return VotingIdentityConsentPayload(
-      identityLevel: identityLevel,
+      cidLevel: cidLevel,
       cidNumber: cidNumber,
       accountId: accountId,
-      ss58Address: ss58Address,
+      accountAddress: accountAddress,
       validFrom: validFrom,
       validUntil: validUntil,
       statusNormal: statusNormal,
@@ -86,14 +86,14 @@ class VotingIdentityConsentPayload {
   /// 授权失效时间(Unix 秒)。
   final int? authorizationExpiresAt;
 
-  final CitizenIdentityConsentLevel identityLevel;
+  final CitizenIdentityConsentLevel cidLevel;
   final String cidNumber;
 
   /// 0x 小写 hex,32 字节公民钱包公钥。
   final String accountId;
 
   /// SS58(prefix 走 kGmbSs58Prefix 单源)展示地址。
-  final String ss58Address;
+  final String accountAddress;
 
   /// YYYYMMDD 整数。
   final int validFrom;
@@ -115,8 +115,7 @@ class VotingIdentityConsentPayload {
   /// 出生日期(YYYYMMDD 整数),仅竞选身份携带。
   final int? birthDate;
 
-  bool get isCandidate =>
-      identityLevel == CitizenIdentityConsentLevel.candidate;
+  bool get isCandidate => cidLevel == CitizenIdentityConsentLevel.candidate;
 
   /// 解码完整授权字节,必须恰好消费完全部字节。
   ///
@@ -146,27 +145,21 @@ class VotingIdentityConsentPayload {
 
   /// 确认页展示条目,字段中文名与 citizenwallet 确认页一致。
   List<(String, String)> get reviewEntries => [
-        ('身份类型', isCandidate ? '参选身份' : '投票身份'),
-        ('CID编号', cidNumber),
-        ('公民钱包账户', ss58Address),
-        (
-          '护照有效期',
-          '${_formatDateInt(validFrom)} 至 ${_formatDateInt(validUntil)}'
-        ),
-        ('身份状态', statusNormal ? '正常' : '注销'),
-        ('居住地', '$provinceCode / $cityCode / $townCode'),
-        if (isCandidate) ...[
-          (
-            '出生地',
-            '$birthProvinceCode / $birthCityCode / $birthTownCode',
-          ),
-          ('出生日期', birthDate == null ? '' : _formatDateInt(birthDate!)),
-          ('公民姓名', '${familyName ?? ''}${givenName ?? ''}'),
-          ('公民性别', citizenSexLabel ?? ''),
-        ],
-        if (authorizationExpiresAt != null)
-          ('授权有效期至', _formatUnixSeconds(authorizationExpiresAt!)),
-      ];
+    ('身份类型', isCandidate ? '参选身份' : '投票身份'),
+    ('CID编号', cidNumber),
+    ('公民钱包账户', accountAddress),
+    ('护照有效期', '${_formatDateInt(validFrom)} 至 ${_formatDateInt(validUntil)}'),
+    ('身份状态', statusNormal ? '正常' : '注销'),
+    ('居住地', '$provinceCode / $cityCode / $townCode'),
+    if (isCandidate) ...[
+      ('出生地', '$birthProvinceCode / $birthCityCode / $birthTownCode'),
+      ('出生日期', birthDate == null ? '' : _formatDateInt(birthDate!)),
+      ('公民姓名', '${familyName ?? ''}${givenName ?? ''}'),
+      ('公民性别', citizenSexLabel ?? ''),
+    ],
+    if (authorizationExpiresAt != null)
+      ('授权有效期至', _formatUnixSeconds(authorizationExpiresAt!)),
+  ];
 
   static VotingIdentityConsentPayload? _decodeVotingRoot(Uint8List bytes) {
     final decoded = _readVotingIdentityPayload(bytes, 0);
@@ -179,24 +172,39 @@ class VotingIdentityConsentPayload {
     if (voting == null) return null;
     var offset = voting.next;
 
-    final (birthProvinceCode, afterBirthProvince) =
-        _readUtf8Vec(bytes, offset, maxLen: 16);
+    final (birthProvinceCode, afterBirthProvince) = _readUtf8Vec(
+      bytes,
+      offset,
+      maxLen: 16,
+    );
     if (birthProvinceCode == null) return null;
     offset = afterBirthProvince;
-    final (birthCityCode, afterBirthCity) =
-        _readUtf8Vec(bytes, offset, maxLen: 16);
+    final (birthCityCode, afterBirthCity) = _readUtf8Vec(
+      bytes,
+      offset,
+      maxLen: 16,
+    );
     if (birthCityCode == null) return null;
     offset = afterBirthCity;
-    final (birthTownCode, afterBirthTown) =
-        _readUtf8Vec(bytes, offset, maxLen: 16);
+    final (birthTownCode, afterBirthTown) = _readUtf8Vec(
+      bytes,
+      offset,
+      maxLen: 16,
+    );
     if (birthTownCode == null) return null;
     offset = afterBirthTown;
-    final (familyName, afterFamilyName) =
-        _readUtf8Vec(bytes, offset, maxLen: 128);
+    final (familyName, afterFamilyName) = _readUtf8Vec(
+      bytes,
+      offset,
+      maxLen: 128,
+    );
     if (familyName == null) return null;
     offset = afterFamilyName;
-    final (givenName, afterGivenName) =
-        _readUtf8Vec(bytes, offset, maxLen: 128);
+    final (givenName, afterGivenName) = _readUtf8Vec(
+      bytes,
+      offset,
+      maxLen: 128,
+    );
     if (givenName == null) return null;
     offset = afterGivenName;
     if (offset >= bytes.length) return null;
@@ -217,10 +225,10 @@ class VotingIdentityConsentPayload {
 
     final base = voting.payload;
     return VotingIdentityConsentPayload(
-      identityLevel: CitizenIdentityConsentLevel.candidate,
+      cidLevel: CitizenIdentityConsentLevel.candidate,
       cidNumber: base.cidNumber,
       accountId: base.accountId,
-      ss58Address: base.ss58Address,
+      accountAddress: base.accountAddress,
       validFrom: base.validFrom,
       validUntil: base.validUntil,
       statusNormal: base.statusNormal,
@@ -237,10 +245,8 @@ class VotingIdentityConsentPayload {
     );
   }
 
-  static ({
-    VotingIdentityConsentPayload payload,
-    int next,
-  })? _readVotingIdentityPayload(Uint8List bytes, int offset) {
+  static ({VotingIdentityConsentPayload payload, int next})?
+  _readVotingIdentityPayload(Uint8List bytes, int offset) {
     final (cidNumber, afterCid) = _readUtf8Vec(bytes, offset, maxLen: 32);
     if (cidNumber == null) return null;
     offset = afterCid;
@@ -263,8 +269,11 @@ class VotingIdentityConsentPayload {
     offset += 1;
     if (status > 1) return null;
 
-    final (provinceCode, afterProvince) =
-        _readUtf8Vec(bytes, offset, maxLen: 16);
+    final (provinceCode, afterProvince) = _readUtf8Vec(
+      bytes,
+      offset,
+      maxLen: 16,
+    );
     if (provinceCode == null) return null;
     offset = afterProvince;
     final (cityCode, afterCity) = _readUtf8Vec(bytes, offset, maxLen: 16);
@@ -276,11 +285,13 @@ class VotingIdentityConsentPayload {
 
     return (
       payload: VotingIdentityConsentPayload(
-        identityLevel: CitizenIdentityConsentLevel.voting,
+        cidLevel: CitizenIdentityConsentLevel.voting,
         cidNumber: cidNumber,
         accountId: _bytesToLowerHex(walletBytes),
-        ss58Address:
-            Keyring().encodeAddress(walletBytes.toList(), kGmbSs58Prefix),
+        accountAddress: Keyring().encodeAddress(
+          walletBytes.toList(),
+          kGmbSs58Prefix,
+        ),
         validFrom: validFrom,
         validUntil: validUntil,
         statusNormal: status == 0,
@@ -325,7 +336,8 @@ class VotingIdentityConsentPayload {
         return ((first | (bytes[offset + 1] << 8)) >> 2, 2);
       case 2:
         if (offset + 4 > bytes.length) return (0, 0);
-        final value = first |
+        final value =
+            first |
             (bytes[offset + 1] << 8) |
             (bytes[offset + 2] << 16) |
             (bytes[offset + 3] << 24);
@@ -345,9 +357,10 @@ class VotingIdentityConsentPayload {
 
   /// Unix 秒 → 本地时区 `YYYY-MM-DD HH:mm`。
   static String _formatUnixSeconds(int seconds) {
-    final local =
-        DateTime.fromMillisecondsSinceEpoch(seconds * 1000, isUtc: true)
-            .toLocal();
+    final local = DateTime.fromMillisecondsSinceEpoch(
+      seconds * 1000,
+      isUtc: true,
+    ).toLocal();
     return '${local.year.toString().padLeft(4, '0')}-'
         '${local.month.toString().padLeft(2, '0')}-'
         '${local.day.toString().padLeft(2, '0')} '

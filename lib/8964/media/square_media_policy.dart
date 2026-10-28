@@ -6,30 +6,30 @@ final class SquareMediaPolicy {
   final SquareMembershipPlan _plan;
 
   // 历史已保存媒体的1024进制安全读取顶，与新上传额度无关，降档或调小上传规格不损坏旧内容。
-  static const int maxLocalImageBytes = 4 * 1024 * 1024;
-  static const int maxLocalPlaybackBytes = 3 * 1024 * 1024 * 1024;
+  static const int localImageBytes = 4 * 1024 * 1024;
+  static const int playbackBytes = 3 * 1024 * 1024 * 1024;
 
-  String get membershipLevel => _plan.membershipLevel;
-  int get imageMaxEdge => _plan.imageMaxEdge;
-  int get imageMaxBytes => _plan.imageMaxBytes;
+  String get memberLevel => _plan.memberLevel;
+  int get imageDimension => _plan.imageDimension;
+  int get imageBytes => _plan.imageBytes;
   int get imageQuality => _value('image_quality');
-  int get imageThumbnailMaxEdge => _value('thumbnail_dimension');
-  int get imageThumbnailQuality => _value('thumbnail_quality');
-  int get imageThumbnailMaxBytes => _value('thumbnail_bytes');
-  int get videoCoverMaxEdge => _value('cover_dimension');
-  int get videoCoverQuality => _value('cover_quality');
-  int get videoCoverMaxBytes => _value('cover_bytes');
-  int get videoMaxFrameRate => _value('video_frame_rate');
-  int get videoKeyFrameIntervalSeconds => _value('video_key_frame_seconds');
+  int get thumbnailDimension => _value('thumbnail_dimension');
+  int get thumbnailQuality => _value('thumbnail_quality');
+  int get thumbnailBytes => _value('thumbnail_bytes');
+  int get coverDimension => _value('cover_dimension');
+  int get coverQuality => _value('cover_quality');
+  int get coverBytes => _value('cover_bytes');
+  int get videoFrameRate => _value('video_frame_rate');
+  int get keyframeSecs => _value('keyframe_secs');
   int get audioSampleRate => _value('audio_sample_rate');
-  int get videoShortSide => _value('video_height');
-  int get videoLongSide => _value('video_width');
+  int get videoHeight => _value('video_height');
+  int get videoWidth => _value('video_width');
   int get videoTotalBitrate => _value('video_total_bitrate');
   int get videoPeakBitrate => _value('video_peak_bitrate');
   int get audioBitrate => _value('audio_bitrate');
   int get videoBitrate => videoTotalBitrate - audioBitrate;
-  int get maxVideoSeconds => _plan.video.maxVideoSeconds;
-  int get maxVideoBytes => _plan.video.maxVideoBytes;
+  int get videoMaxSeconds => _plan.video.videoMaxSeconds;
+  int get videoMaxBytes => _plan.video.videoMaxBytes;
 
   int _value(String key) {
     final value = _plan.media[key];
@@ -38,15 +38,11 @@ final class SquareMediaPolicy {
   }
 
   static SquareMediaPolicy forPlan(SquareMembershipPlan plan) {
-    if (!const [
-          'freedom',
-          'democracy',
-          'spark',
-        ].contains(plan.membershipLevel) ||
-        plan.imageMaxBytes <= 0 ||
-        plan.imageMaxEdge <= 0 ||
-        plan.video.maxVideoBytes <= 0 ||
-        plan.video.maxVideoSeconds <= 0) {
+    if (!const ['freedom', 'democracy', 'spark'].contains(plan.memberLevel) ||
+        plan.imageBytes <= 0 ||
+        plan.imageDimension <= 0 ||
+        plan.video.videoMaxBytes <= 0 ||
+        plan.video.videoMaxSeconds <= 0) {
       throw const FormatException('会员媒体参数缺失');
     }
     final policy = SquareMediaPolicy._(plan);
@@ -59,7 +55,7 @@ final class SquareMediaPolicy {
       'cover_quality',
       'cover_bytes',
       'video_frame_rate',
-      'video_key_frame_seconds',
+      'keyframe_secs',
       'audio_sample_rate',
       'video_height',
       'video_width',
@@ -70,8 +66,8 @@ final class SquareMediaPolicy {
       policy._value(key);
     }
     if (policy.imageQuality > 100 ||
-        policy.imageThumbnailQuality > 100 ||
-        policy.videoCoverQuality > 100 ||
+        policy.thumbnailQuality > 100 ||
+        policy.coverQuality > 100 ||
         policy.audioBitrate >= policy.videoTotalBitrate ||
         policy.videoPeakBitrate < policy.videoTotalBitrate) {
       throw const FormatException('媒体成品规格无效');

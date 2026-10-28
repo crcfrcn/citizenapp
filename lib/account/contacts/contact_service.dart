@@ -1,3 +1,5 @@
+import 'package:citizenapp/storage/user_isar.dart' as user_store show Contact;
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -21,7 +23,7 @@ class UserContact {
   const UserContact({
     required this.cidNumber,
     required this.accountId,
-    required this.ss58Address,
+    required this.accountAddress,
     required this.contactRemark,
     required this.createdAt,
     required this.updatedAt,
@@ -29,7 +31,7 @@ class UserContact {
 
   final String cidNumber;
   final String accountId;
-  final String ss58Address;
+  final String accountAddress;
   final String contactRemark;
   final int createdAt;
   final int updatedAt;
@@ -37,7 +39,7 @@ class UserContact {
   UserContact copyWith({
     String? cidNumber,
     String? accountId,
-    String? ss58Address,
+    String? accountAddress,
     String? contactRemark,
     int? createdAt,
     int? updatedAt,
@@ -45,7 +47,7 @@ class UserContact {
     return UserContact(
       cidNumber: cidNumber ?? this.cidNumber,
       accountId: accountId ?? this.accountId,
-      ss58Address: ss58Address ?? this.ss58Address,
+      accountAddress: accountAddress ?? this.accountAddress,
       contactRemark: contactRemark ?? this.contactRemark,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -55,7 +57,7 @@ class UserContact {
   Map<String, dynamic> toJson() => <String, dynamic>{
     'cid_number': cidNumber,
     'account_id': accountId,
-    'ss58_address': ss58Address,
+    'ss58_address': accountAddress,
     'contact_remark': contactRemark,
     'created_at': createdAt,
     'updated_at': updatedAt,
@@ -74,14 +76,14 @@ class UserContact {
       json['cid_number'] as String,
     );
     final accountId = json['account_id']?.toString() ?? '';
-    final ss58Address = json['ss58_address']?.toString().trim() ?? '';
+    final accountAddress = json['ss58_address']?.toString().trim() ?? '';
     final contactRemark = json['contact_remark'];
     if (!isAccountIdText(accountId) ||
-        ss58Address.isEmpty ||
+        accountAddress.isEmpty ||
         contactRemark is! String) {
       throw const FormatException('通讯录 CID、账户、地址或私人备注不合法');
     }
-    if (UserContactService.accountIdFromSs58(ss58Address) != accountId) {
+    if (UserContactService.accountIdFromSs58(accountAddress) != accountId) {
       throw const FormatException('通讯录 account_id 与 ss58_address 不匹配');
     }
     final createdAt = json['created_at'] as int;
@@ -95,7 +97,7 @@ class UserContact {
     return UserContact(
       cidNumber: cidNumber,
       accountId: accountId,
-      ss58Address: UserContactService.normalizeSs58Address(ss58Address),
+      accountAddress: UserContactService.normalizeSs58Address(accountAddress),
       contactRemark: normalizedRemark,
       createdAt: createdAt,
       updatedAt: updatedAt,
@@ -153,16 +155,11 @@ class UserContactService {
        _currentUserContext = currentUserContext,
        _autoSync = autoSync;
 
-  static const String _contactsPrefix = 'user.mls.contacts.book:';
-  static const String _pendingPrefix = 'user.mls.contacts.pending:';
-  static const String _syncPrefix = 'user.mls.contacts.sync:';
-
   final AccountSecurityService _accountSecurity;
   final SquareSessionProvider _sessionProvider;
   final SquareApiClient _apiClient;
   final CurrentUserContext _currentUserContext;
   final bool _autoSync;
-  static const _recordsPrefix = 'user.mls.contacts.records:';
   static final _syncFlights = <String, Future<List<UserContact>>>{};
 
   /// 通讯录永久归属 CID；当前绑定账户只参与公开授权代次和云会话鉴权。
@@ -204,7 +201,7 @@ class UserContactService {
     return _addContact(
       owner,
       cidNumber: cidNumber,
-      ss58Address: ss58FromAccountIdText(profile.accountId),
+      accountAddress: ss58FromAccountIdText(profile.accountId),
       contactRemark: '',
     );
   }
@@ -215,14 +212,14 @@ class UserContactService {
 
   Future<ContactImportResult> addContact({
     required String cidNumber,
-    required String ss58Address,
+    required String accountAddress,
     required String contactRemark,
   }) async {
     final owner = await _requireIdentityOwner();
     return _addContact(
       owner,
       cidNumber: cidNumber,
-      ss58Address: ss58Address,
+      accountAddress: accountAddress,
       contactRemark: contactRemark,
     );
   }
@@ -231,12 +228,12 @@ class UserContactService {
   Future<ContactImportResult> _addContact(
     _ContactOwner owner, {
     required String cidNumber,
-    required String ss58Address,
+    required String accountAddress,
     required String contactRemark,
   }) async {
     await _assertOwner(owner);
     final normalizedCidNumber = requireCidNumber(cidNumber);
-    final normalizedSs58Address = normalizeSs58Address(ss58Address);
+    final normalizedSs58Address = normalizeSs58Address(accountAddress);
     final contactAccountId = accountIdFromSs58(normalizedSs58Address);
     final normalizedRemark = normalizeContactRemark(contactRemark);
     if (normalizedCidNumber == owner.cidNumber ||
@@ -254,14 +251,14 @@ class UserContactService {
         ? UserContact(
             cidNumber: normalizedCidNumber,
             accountId: contactAccountId,
-            ss58Address: normalizedSs58Address,
+            accountAddress: normalizedSs58Address,
             contactRemark: normalizedRemark,
             createdAt: now,
             updatedAt: now,
           )
         : contacts[index].copyWith(
             accountId: contactAccountId,
-            ss58Address: normalizedSs58Address,
+            accountAddress: normalizedSs58Address,
             // 扫码得到的空备注不得抹掉用户已经填写的私人备注。
             contactRemark: normalizedRemark.isEmpty
                 ? contacts[index].contactRemark
@@ -361,7 +358,7 @@ class UserContactService {
       if (session == null ||
           session.accountId != owner.accountId ||
           session.cidNumber != owner.cidNumber ||
-          session.bindingRevision != owner.bindingRevision) {
+          session.bindRev != owner.bindRev) {
         throw const SquareApiException('通讯录同步需要当前 CID 的精确 MLS 会话');
       }
       final sent = await _sessionProvider.mlsRuntime.synchronizeContacts(
@@ -415,7 +412,7 @@ class UserContactService {
     );
     if (owner.accountRevision != _accountSecurity.revision.value ||
         binding == null ||
-        binding.bindingRevision != owner.bindingRevision ||
+        binding.bindRev != owner.bindRev ||
         binding.accountId != owner.accountId) {
       throw const AccountSecurityException('通讯录公开绑定已变化');
     }
@@ -423,14 +420,14 @@ class UserContactService {
         !current.isRegistered ||
         current.cidNumber != owner.cidNumber ||
         current.accountId != owner.accountId ||
-        current.bindingRevision != owner.bindingRevision) {
+        current.bindRev != owner.bindRev) {
       throw const AccountSecurityException('通讯录当前身份已变化');
     }
   }
 
   Future<List<List<int>>> _contactSnapshots(_ContactOwner owner) async {
     await _assertOwner(owner);
-    final raw = await _readKv(owner, _recordsPrefix + owner.cidNumber);
+    final raw = await _readState(owner, 'records');
     final records = _recordMap(raw).values.toList()
       ..sort(
         (a, b) =>
@@ -552,11 +549,10 @@ class UserContactService {
     await _assertOwner(owner);
     await UserIsar.instance.writeTxn((isar) async {
       await _assertOwner(owner);
-      final recordsKey = _recordsPrefix + owner.cidNumber;
-      final prior = await isar.userContactStateEntitys.getByStateKey(
-        recordsKey,
-      );
-      final merged = _recordMap(prior?.payloadJson);
+      final prior = await isar
+          .collection<user_store.Contact>()
+          .getByCidNumberStateKind(owner.cidNumber, 'records');
+      final merged = _recordMap(prior?.bodyData);
       for (final record in incoming) {
         final cid = record['cid_number'] as String;
         final previous = merged[cid];
@@ -573,28 +569,14 @@ class UserContactService {
         }
       }
       if (merged.length > 10000) throw const FormatException('通讯录记录数量超限');
-      final contacts = merged.values
-          .where((record) => record['contact'] != null)
-          .map(
-            (record) => UserContact.fromJson(
-              (record['contact'] as Map).cast<String, dynamic>(),
-            ),
-          );
-      await _putKvInTxn(isar, recordsKey, jsonEncode(merged));
-      await _putKvInTxn(
-        isar,
-        _contactsPrefix + owner.cidNumber,
-        jsonEncode(
-          _sorted(contacts).map((contact) => contact.toJson()).toList(),
-        ),
-      );
+      await _putState(isar, owner, 'records', jsonEncode(merged));
     });
     await _assertOwner(owner);
   }
 
   Future<ContactSyncState> readSyncState() async {
     final owner = await _requireIdentityOwner();
-    final raw = await _readKv(owner, '$_syncPrefix${owner.cidNumber}');
+    final raw = await _readState(owner, 'sync');
     if (raw == null) {
       return const ContactSyncState(phase: ContactSyncPhase.idle);
     }
@@ -646,38 +628,27 @@ class UserContactService {
     return _ContactOwner(
       accountRevision: accountRevision,
       cidNumber: requireCidNumber(identity.cidNumber),
-      bindingRevision: identity.bindingRevision,
+      bindRev: identity.bindRev,
       accountId: requireAccountId(identity.accountId),
     );
   }
 
   Future<List<UserContact>> _readContacts(_ContactOwner owner) async {
-    final raw = await _readKv(owner, '$_contactsPrefix${owner.cidNumber}');
-    owner.contactsSnapshot = raw;
-    if (raw == null) return const <UserContact>[];
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is! List || decoded.length > 10000) {
-        throw const FormatException('通讯录本地记录无效');
-      }
-      return _sorted(
-        decoded
-            .map((item) {
-              if (item is! Map<String, dynamic>) {
-                throw const FormatException('通讯录记录类型无效');
-              }
-              return item;
-            })
-            .map(UserContact.fromJson)
-            .toList(growable: false),
-      );
-    } on FormatException {
-      rethrow;
-    }
+    final raw = await _readState(owner, 'records');
+    owner.recordsSnapshot = raw;
+    return _sorted(
+      _recordMap(raw).values
+          .where((record) => record['contact'] != null)
+          .map(
+            (record) => UserContact.fromJson(
+              (record['contact'] as Map).cast<String, dynamic>(),
+            ),
+          ),
+    );
   }
 
   Future<List<_PendingContactOp>> _readPending(_ContactOwner owner) async {
-    final raw = await _readKv(owner, '$_pendingPrefix${owner.cidNumber}');
+    final raw = await _readState(owner, 'pending');
     owner.pendingSnapshot = raw;
     if (raw == null) return const <_PendingContactOp>[];
     try {
@@ -731,25 +702,19 @@ class UserContactService {
     List<_PendingContactOp> pending,
   ) async {
     await _assertOwner(owner);
-    final contactsKey = _contactsPrefix + owner.cidNumber;
-    final pendingKey = _pendingPrefix + owner.cidNumber;
     await UserIsar.instance.writeTxn((isar) async {
       await _assertOwner(owner);
-      final existing = await isar.userContactStateEntitys.getByStateKey(
-        contactsKey,
-      );
-      final queued = await isar.userContactStateEntitys.getByStateKey(
-        pendingKey,
-      );
-      if (existing?.payloadJson != owner.contactsSnapshot ||
-          queued?.payloadJson != owner.pendingSnapshot) {
+      final existing = await isar
+          .collection<user_store.Contact>()
+          .getByCidNumberStateKind(owner.cidNumber, 'records');
+      final queued = await isar
+          .collection<user_store.Contact>()
+          .getByCidNumberStateKind(owner.cidNumber, 'pending');
+      if (existing?.bodyData != owner.recordsSnapshot ||
+          queued?.bodyData != owner.pendingSnapshot) {
         throw StateError('通讯录已被其他操作更新，请重试');
       }
-      final recordsKey = _recordsPrefix + owner.cidNumber;
-      final records = _recordMap(
-        (await isar.userContactStateEntitys.getByStateKey(recordsKey))
-            ?.payloadJson,
-      );
+      final records = _recordMap(existing?.bodyData);
       for (final contact in contacts) {
         records[contact.cidNumber] = {
           'cid_number': contact.cidNumber,
@@ -767,14 +732,10 @@ class UserContactService {
         };
       }
       if (records.length > 10000) throw const FormatException('通讯录记录数量超限');
-      final book = jsonEncode(
-        _sorted(contacts).map((item) => item.toJson()).toList(),
-      );
       final queue = jsonEncode(pending.map((item) => item.toJson()).toList());
-      await _putKvInTxn(isar, contactsKey, book);
-      await _putKvInTxn(isar, pendingKey, queue);
-      await _putKvInTxn(isar, recordsKey, jsonEncode(records));
-      owner.contactsSnapshot = book;
+      await _putState(isar, owner, 'pending', queue);
+      await _putState(isar, owner, 'records', jsonEncode(records));
+      owner.recordsSnapshot = jsonEncode(records);
       owner.pendingSnapshot = queue;
     });
     await _assertOwner(owner);
@@ -783,9 +744,9 @@ class UserContactService {
   Future<void> _writePending(
     _ContactOwner owner,
     List<_PendingContactOp> pending,
-  ) => _writeKv(
+  ) => _writeState(
     owner,
-    '$_pendingPrefix${owner.cidNumber}',
+    'pending',
     jsonEncode(pending.map((item) => item.toJson()).toList()),
   );
 
@@ -806,9 +767,9 @@ class UserContactService {
       stage: stage,
     );
     syncState.value = state;
-    await _writeKv(
+    await _writeState(
       owner,
-      '$_syncPrefix${owner.cidNumber}',
+      'sync',
       jsonEncode(<String, Object?>{
         'phase': phase.name,
         'updated_at': state.updatedAt,
@@ -821,67 +782,62 @@ class UserContactService {
   }
 
   /// 读取只能使用当前 CID 的系统保护记录，损坏数据直接失败。
-  Future<String?> _readKv(_ContactOwner owner, String key) async {
+  Future<String?> _readState(_ContactOwner owner, String stateKind) async {
     await _assertOwner(owner);
     final value = await UserIsar.instance.read(
       (isar) async =>
-          (await isar.userContactStateEntitys.getByStateKey(key))?.payloadJson,
+          (await isar.collection<user_store.Contact>().getByCidNumberStateKind(
+            owner.cidNumber,
+            stateKind,
+          ))?.bodyData,
     );
     await _assertOwner(owner);
     return value;
   }
 
-  Future<void> _writeKv(_ContactOwner owner, String key, String value) async {
+  Future<void> _writeState(
+    _ContactOwner owner,
+    String stateKind,
+    String value,
+  ) async {
     await _assertOwner(owner);
     await UserIsar.instance.writeTxn((isar) async {
       await _assertOwner(owner);
-      if (key == _pendingPrefix + owner.cidNumber &&
-          (await isar.userContactStateEntitys.getByStateKey(key))
-                  ?.payloadJson !=
+      if (stateKind == 'pending' &&
+          (await isar.collection<user_store.Contact>().getByCidNumberStateKind(
+                owner.cidNumber,
+                stateKind,
+              ))?.bodyData !=
               owner.pendingSnapshot) {
         throw StateError('通讯录待同步操作已变化，请重试');
       }
-      await _putKvInTxn(isar, key, value);
-      if (key == _pendingPrefix + owner.cidNumber) {
+      await _putState(isar, owner, stateKind, value);
+      if (stateKind == 'pending') {
         owner.pendingSnapshot = value;
       }
     });
     await _assertOwner(owner);
   }
 
-  Future<void> _putKvInTxn(Isar isar, String key, String value) async {
-    final row =
-        await isar.userContactStateEntitys.getByStateKey(key) ??
-        _newContactState(key);
-    row
-      ..stateKey = key
-      ..payloadJson = value;
-    await isar.userContactStateEntitys.put(row);
-  }
-
-  static UserContactStateEntity _newContactState(String key) {
-    for (final entry in <(String, String)>[
-      (_contactsPrefix, 'book'),
-      (_pendingPrefix, 'pending'),
-      (_syncPrefix, 'sync'),
-      (_recordsPrefix, 'records'),
-    ]) {
-      if (!key.startsWith(entry.$1)) continue;
-      final suffix = key.substring(entry.$1.length);
-      final separator = suffix.indexOf(':');
-      final ownerCidNumber = separator < 0
-          ? suffix
-          : suffix.substring(0, separator);
-      if (ownerCidNumber.isEmpty) {
-        throw const FormatException('通讯录状态缺少 owner cid_number');
-      }
-      return UserContactStateEntity()
-        ..stateKey = key
-        ..ownerCidNumber = ownerCidNumber
-        ..stateKind = entry.$2
-        ..payloadJson = '';
+  Future<void> _putState(
+    Isar isar,
+    _ContactOwner owner,
+    String stateKind,
+    String value,
+  ) async {
+    if (!{'pending', 'sync', 'records'}.contains(stateKind)) {
+      throw const FormatException('通讯录状态种类无效');
     }
-    throw const FormatException('通讯录状态键不属于 UserContactStateEntity');
+    final row =
+        await isar.collection<user_store.Contact>().getByCidNumberStateKind(
+          owner.cidNumber,
+          stateKind,
+        ) ??
+        (user_store.Contact()
+          ..cidNumber = owner.cidNumber
+          ..stateKind = stateKind);
+    row.bodyData = value;
+    await isar.collection<user_store.Contact>().put(row);
   }
 
   static String normalizeSs58Address(String input) {
@@ -901,8 +857,8 @@ class UserContactService {
     }
   }
 
-  static String accountIdFromSs58(String ss58Address) {
-    final normalized = normalizeSs58Address(ss58Address);
+  static String accountIdFromSs58(String accountAddress) {
+    final normalized = normalizeSs58Address(accountAddress);
     final bytes = Keyring().decodeAddress(normalized);
     return '0x${_hex(bytes)}';
   }
@@ -936,14 +892,14 @@ class _ContactOwner {
   _ContactOwner({
     required this.accountRevision,
     required this.cidNumber,
-    required this.bindingRevision,
+    required this.bindRev,
     required this.accountId,
   });
 
   final String cidNumber;
-  final int bindingRevision;
+  final int bindRev;
   final String accountId;
-  String? contactsSnapshot;
+  String? recordsSnapshot;
   String? pendingSnapshot;
   final int accountRevision;
 }

@@ -1,9 +1,10 @@
+import 'package:citizenapp/storage/app_isar.dart' as app_store show Version;
 // 只读派生数据的版本游标存储(与 schemaVersion 解耦)。
 //
 // 行政区/公权机构是只读派生数据(无用户数据),数据新鲜度完全由本
-// helper 独立管理，并按 namespace 保存到 [AppDataVersionEntity]：
-//   - globalVersion = 全局包版本，相等即整体秒过
-//   - provinceVersionsJson = per-province 版本 map 的 JSON
+// helper 独立管理，并按 namespace 保存到 [version]：
+//   - global_version = 全局包版本，相等即整体秒过
+//   - province_data = per-province 版本 map 的 JSON
 // 逐省 reconcile 后逐省落 prov_vers,中断可续;全部省过完才落 data_version。
 //
 // 抽象成接口以便载入逻辑用内存 fake 单测,不依赖 Isar 真库;生产实现见
@@ -17,7 +18,7 @@ import 'package:citizenapp/storage/app_isar.dart';
 /// 版本游标读写接口。
 abstract interface class DataVersionKv {
   /// 默认走全局 [AppIsar] 的 Isar 实现；`isar` 可注入供集成测试。
-  factory DataVersionKv({required String namespace, Isar? isar}) =
+  factory DataVersionKv({required String dataKind, Isar? isar}) =
       IsarDataVersionKv;
 
   /// 读全局包版本;从未写过返回 null(首装)。
@@ -35,10 +36,10 @@ abstract interface class DataVersionKv {
 
 /// AppIsar 的 typed entity 实现。
 class IsarDataVersionKv implements DataVersionKv {
-  IsarDataVersionKv({required this.namespace, Isar? isar}) : _injected = isar;
+  IsarDataVersionKv({required this.dataKind, Isar? isar}) : _injected = isar;
 
   /// 键命名空间,如 `admin_division` / `public_institution`。
-  final String namespace;
+  final String dataKind;
   final Isar? _injected;
 
   Future<Isar> _db() async => _injected ?? await AppIsar.instance.db();
@@ -54,9 +55,10 @@ class IsarDataVersionKv implements DataVersionKv {
   @override
   Future<String?> readGlobalVersion() async {
     final isar = await _db();
-    final row = await isar.appDataVersionEntitys
+    final row = await isar
+        .collection<app_store.Version>()
         .filter()
-        .namespaceEqualTo(namespace)
+        .dataKindEqualTo(dataKind)
         .findFirst();
     return row?.globalVersion;
   }
@@ -64,41 +66,42 @@ class IsarDataVersionKv implements DataVersionKv {
   @override
   Future<void> writeGlobalVersion(String version) async {
     await _write((isar) async {
-      final entity = await isar.appDataVersionEntitys
+      final entity =
+          await isar
+              .collection<app_store.Version>()
               .filter()
-              .namespaceEqualTo(namespace)
+              .dataKindEqualTo(dataKind)
               .findFirst() ??
-          (AppDataVersionEntity()..namespace = namespace);
-      entity
-        ..globalVersion = version
-        ..updatedAtMillis = DateTime.now().millisecondsSinceEpoch;
-      await isar.appDataVersionEntitys.putByNamespace(entity);
+          (app_store.Version()..dataKind = dataKind);
+      entity.globalVersion = version;
+      await isar.collection<app_store.Version>().putByDataKind(entity);
     });
   }
 
   @override
   Future<Map<String, String>> readProvinceVersions() async {
     final isar = await _db();
-    final row = await isar.appDataVersionEntitys
+    final row = await isar
+        .collection<app_store.Version>()
         .filter()
-        .namespaceEqualTo(namespace)
+        .dataKindEqualTo(dataKind)
         .findFirst();
-    return decodeProvinceVersions(row?.provinceVersionsJson);
+    return decodeProvinceVersions(row?.provinceData);
   }
 
   @override
   Future<void> writeProvinceVersions(Map<String, String> versions) async {
     final encoded = jsonEncode(versions);
     await _write((isar) async {
-      final entity = await isar.appDataVersionEntitys
+      final entity =
+          await isar
+              .collection<app_store.Version>()
               .filter()
-              .namespaceEqualTo(namespace)
+              .dataKindEqualTo(dataKind)
               .findFirst() ??
-          (AppDataVersionEntity()..namespace = namespace);
-      entity
-        ..provinceVersionsJson = encoded
-        ..updatedAtMillis = DateTime.now().millisecondsSinceEpoch;
-      await isar.appDataVersionEntitys.putByNamespace(entity);
+          (app_store.Version()..dataKind = dataKind);
+      entity.provinceData = encoded;
+      await isar.collection<app_store.Version>().putByDataKind(entity);
     });
   }
 

@@ -1,3 +1,4 @@
+import 'package:citizenapp/storage/app_isar.dart' as app_store show Entity;
 // 卡B 公权机构导航 widget 测试。
 //
 // ADR-021:机构只存 code(中枢省=ZS,链上常量派生);省名走链上常量、市名走字典。
@@ -8,7 +9,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizenapp/citizen/public/public_page.dart';
 import 'package:citizenapp/citizen/public/public_institution_repository.dart';
-import 'package:citizenapp/storage/app_isar.dart';
 
 import 'fake_public_institution_store.dart';
 import 'public_nav_harness.dart';
@@ -18,16 +18,14 @@ Widget _wrap(Widget child) => MaterialApp(home: Scaffold(body: child));
 class _PendingPublicRepository extends PublicInstitutionRepository {
   _PendingPublicRepository() : super(store: FakePublicInstitutionStore());
 
-  final Completer<List<PublicInstitutionEntity>> completer =
-      Completer<List<PublicInstitutionEntity>>();
+  final Completer<List<app_store.Entity>> completer =
+      Completer<List<app_store.Entity>>();
 
   @override
   Future<bool> ensureSynced() async => false;
 
   @override
-  Future<List<PublicInstitutionEntity>> listSubscribed(
-    String subscriberCidNumber,
-  ) =>
+  Future<List<app_store.Entity>> listSubscribed(String cidNumber) =>
       completer.future;
 }
 
@@ -64,9 +62,9 @@ void main() {
       lateCityNames: const {'ZS|001': '中央'},
       gate: gate.future,
     );
-    await tester.pumpWidget(_wrap(
-      PublicTab(repository: repo, cidNumberProvider: () async => null),
-    ));
+    await tester.pumpWidget(
+      _wrap(PublicTab(repository: repo, cidNumberProvider: () async => null)),
+    );
     await tester.pumpAndSettle();
 
     // 字典未就绪(gate 未开):进省看市,市名回退 code,且这种脏列表不入缓存。
@@ -88,9 +86,9 @@ void main() {
       institutions: [seedDto('A', provinceCode: 'ZS', cityCode: '001')],
       cityNames: const {'ZS|001': '中央'},
     );
-    await tester.pumpWidget(_wrap(
-      PublicTab(repository: repo, cidNumberProvider: () async => null),
-    ));
+    await tester.pumpWidget(
+      _wrap(PublicTab(repository: repo, cidNumberProvider: () async => null)),
+    );
     await tester.pumpAndSettle();
 
     // 标题与治理 tab"治理机构"对称。
@@ -113,9 +111,9 @@ void main() {
       ],
       cityNames: const {'ZS|001': '中央', 'ZS|002': '北区'},
     );
-    await tester.pumpWidget(_wrap(
-      PublicTab(repository: repo, cidNumberProvider: () async => null),
-    ));
+    await tester.pumpWidget(
+      _wrap(PublicTab(repository: repo, cidNumberProvider: () async => null)),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('中枢'));
@@ -133,9 +131,9 @@ void main() {
       ],
       cityNames: const {'ZS|001': '中央'},
     );
-    await tester.pumpWidget(_wrap(
-      PublicTab(repository: repo, cidNumberProvider: () async => null),
-    ));
+    await tester.pumpWidget(
+      _wrap(PublicTab(repository: repo, cidNumberProvider: () async => null)),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('中枢'));
@@ -156,9 +154,11 @@ void main() {
       cityNames: const {'ZS|001': '中央'},
       subscriptions: const {'CID-USER': 'A'},
     );
-    await tester.pumpWidget(_wrap(
-      PublicTab(repository: repo, cidNumberProvider: () async => 'CID-USER'),
-    ));
+    await tester.pumpWidget(
+      _wrap(
+        PublicTab(repository: repo, cidNumberProvider: () async => 'CID-USER'),
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('中枢省人民政府'), findsOneWidget);

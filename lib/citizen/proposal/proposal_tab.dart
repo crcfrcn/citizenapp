@@ -109,7 +109,7 @@ class _ProposalViewState extends State<ProposalTab> {
   /// `_hasMore = _items.length < _allIds.length`。
   List<int> _allIds = const [];
 
-  /// cidNumber -> InstitutionInfo。列表和详情只按机构唯一 CID 复用上下文。
+  /// cid_number -> InstitutionInfo。列表和详情只按机构唯一 CID 复用上下文。
   Map<String, InstitutionInfo> _knownInstitutionsByCidNumber = const {};
 
   /// 待投票计数。
@@ -197,11 +197,15 @@ class _ProposalViewState extends State<ProposalTab> {
   }
 
   /// 只等待同一SDK的公开能力变化；不启动节点、不轮询、不把真实读取错误重试成成功。
-  Future<bool> _waitForChainRead(int generation, {bool reportWaiting = false}) async {
+  Future<bool> _waitForChainRead(
+    int generation, {
+    bool reportWaiting = false,
+  }) async {
     var reportedWaiting = false;
     while (_isCurrent(generation)) {
       final changed = _chainChanged ??= Completer<void>();
-      final status = (await _sdk.getCapabilities())[CitizenCapabilityName.chainRead];
+      final status = (await _sdk
+          .getCapabilities())[CitizenCapabilityName.chainRead];
       if (!_isCurrent(generation)) return false;
       final lifecycle = _sdk.lifecycle;
       if (lifecycle == CitizenSdkLifecycle.startFailed ||
@@ -211,14 +215,21 @@ class _ProposalViewState extends State<ProposalTab> {
       }
       // 查询期间发生了能力变化，旧“ready”也不得覆盖最新未就绪事实。
       if (changed.isCompleted) continue;
-      if (status.supported && status.available && status.enabled && status.ready) {
+      if (status.supported &&
+          status.available &&
+          status.enabled &&
+          status.ready) {
         return true;
       }
-      if (!status.supported || !status.available || !status.enabled ||
-          !const {CitizenCapabilityReason.engineNotRunning,
+      if (!status.supported ||
+          !status.available ||
+          !status.enabled ||
+          !const {
+            CitizenCapabilityReason.engineNotRunning,
             CitizenCapabilityReason.dependencyNotReady,
             CitizenCapabilityReason.chainStarting,
-            CitizenCapabilityReason.chainUnsynced}.contains(status.reason)) {
+            CitizenCapabilityReason.chainUnsynced,
+          }.contains(status.reason)) {
         throw StateError('提案读链能力不可用');
       }
       if (reportWaiting && !reportedWaiting) {
@@ -254,7 +265,7 @@ class _ProposalViewState extends State<ProposalTab> {
         return;
       }
 
-      // 新增提案插到列表顶部。按 proposalId 去重(fresh 在前优先保留),避免
+      // 新增提案插到列表顶部。按 proposal_id 去重(fresh 在前优先保留),避免
       // 本地缓存 _items 与 _allIds 口径不同步时同一提案出现两张卡片。
       final newItems = await _loadItemsForIds(
         newIds,
@@ -292,10 +303,12 @@ class _ProposalViewState extends State<ProposalTab> {
   }
 
   Future<
-      ({
-        Set<String> subscribedInstitutionCidNumbers,
-        Map<String, InstitutionInfo> knownInstitutionsByCidNumber,
-      })> _loadInstitutionScope() async {
+    ({
+      Set<String> subscribedInstitutionCidNumbers,
+      Map<String, InstitutionInfo> knownInstitutionsByCidNumber,
+    })
+  >
+  _loadInstitutionScope() async {
     // 机构/行政区数据包（首装 4.2 万条行政区，秒级~十几秒）**不阻塞**提案流
     // 首屏：后台同步，首次未就绪先按链上机构码兜底显示（代码本就容忍缺数据），
     // 就绪后回刷一次填充机构名。避免首次进「公民」卡十几秒。
@@ -313,8 +326,8 @@ class _ProposalViewState extends State<ProposalTab> {
     final subscribedInstitutions = activeWallet == null
         ? <Institution>[]
         : await _institutionRepo
-            .listSubscribed(activeWallet.accountId)
-            .catchError((_) => <Institution>[]);
+              .listSubscribed(activeWallet.accountId)
+              .catchError((_) => <Institution>[]);
 
     final known = <String, InstitutionInfo>{};
     for (final inst in [...defaultInstitutions, ...subscribedInstitutions]) {
@@ -358,22 +371,21 @@ class _ProposalViewState extends State<ProposalTab> {
     final main = rows.first.accountId;
     final fee = rows[1].accountId;
     return InstitutionInfo(
-      cidFullName: inst.cidFullName,
-      cidShortName: inst.cidShortNameOrFullName,
-      cidFullNameEn: inst.cidFullName,
+      fullName: inst.fullName,
+      shortName: inst.cidShortNameOrFullName,
+      cidFullNameEn: inst.fullName,
       cidShortNameEn: inst.cidShortNameOrFullName,
       cidNumber: inst.cidNumber,
       orgType: inst.orgType,
       accounts: InstitutionAccounts(mainAccountId: main, feeAccountId: fee),
-      adminAccountCode: inst.institutionCode,
+      adminCode: inst.orgCode,
     );
   }
 
   Future<
-      ({
-        List<int> ids,
-        Map<String, InstitutionInfo> knownInstitutionsByCidNumber,
-      })> _fetchVisibleProposalScope({bool forceRefresh = false}) async {
+    ({List<int> ids, Map<String, InstitutionInfo> knownInstitutionsByCidNumber})
+  >
+  _fetchVisibleProposalScope({bool forceRefresh = false}) async {
     final generation = _generation;
     var stage = 'proposal_institutions';
     try {
@@ -574,10 +586,11 @@ class _ProposalViewState extends State<ProposalTab> {
     }
   }
 
-  /// 按 proposalId 去重,保留首次出现(prepend 的 fresh 项优先)。
+  /// 按 proposal_id 去重,保留首次出现(prepend 的 fresh 项优先)。
   /// 防止本地缓存项与新查项口径不同步时同一提案重复成卡片。
   static List<_ProposalDisplayItem> _dedupById(
-      List<_ProposalDisplayItem> items) {
+    List<_ProposalDisplayItem> items,
+  ) {
     final seen = <int>{};
     final result = <_ProposalDisplayItem>[];
     for (final item in items) {
@@ -731,8 +744,9 @@ class _ProposalViewState extends State<ProposalTab> {
           borderRadius: BorderRadius.circular(AppLayout.scaledValue(12)),
           child: Padding(
             padding: EdgeInsets.symmetric(
-                horizontal: AppLayout.scaledValue(14),
-                vertical: AppLayout.scaledValue(12)),
+              horizontal: AppLayout.scaledValue(14),
+              vertical: AppLayout.scaledValue(12),
+            ),
             child: Row(
               children: [
                 // 左侧图标
@@ -741,11 +755,15 @@ class _ProposalViewState extends State<ProposalTab> {
                   height: AppLayout.scaledValue(36),
                   decoration: BoxDecoration(
                     color: statusColor.withValues(alpha: 0.10),
-                    borderRadius:
-                        BorderRadius.circular(AppLayout.scaledValue(10)),
+                    borderRadius: BorderRadius.circular(
+                      AppLayout.scaledValue(10),
+                    ),
                   ),
-                  child: Icon(_proposalIcon(item),
-                      size: AppLayout.scaledValue(18), color: statusColor),
+                  child: Icon(
+                    _proposalIcon(item),
+                    size: AppLayout.scaledValue(18),
+                    color: statusColor,
+                  ),
                 ),
                 SizedBox(width: AppLayout.scaledValue(12)),
                 // 中间信息
@@ -764,22 +782,26 @@ class _ProposalViewState extends State<ProposalTab> {
                             ),
                           ),
                           SizedBox(width: AppLayout.scaledValue(8)),
-                          if (item.cidFullName != null)
+                          if (item.fullName != null)
                             Container(
                               padding: EdgeInsets.symmetric(
-                                  horizontal: AppLayout.scaledValue(6),
-                                  vertical: 1),
+                                horizontal: AppLayout.scaledValue(6),
+                                vertical: 1,
+                              ),
                               decoration: BoxDecoration(
-                                color: AppTheme.primaryDark
-                                    .withValues(alpha: 0.08),
+                                color: AppTheme.primaryDark.withValues(
+                                  alpha: 0.08,
+                                ),
                                 borderRadius: BorderRadius.circular(
-                                    AppLayout.scaledValue(8)),
+                                  AppLayout.scaledValue(8),
+                                ),
                               ),
                               child: Text(
-                                item.cidFullName!,
+                                item.fullName!,
                                 style: TextStyle(
-                                    fontSize: AppLayout.scaledValue(10),
-                                    color: AppTheme.primaryDark),
+                                  fontSize: AppLayout.scaledValue(10),
+                                  color: AppTheme.primaryDark,
+                                ),
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
@@ -789,8 +811,9 @@ class _ProposalViewState extends State<ProposalTab> {
                       Text(
                         item.summary.listSubtitle,
                         style: TextStyle(
-                            fontSize: AppLayout.scaledValue(12),
-                            color: AppTheme.textTertiary),
+                          fontSize: AppLayout.scaledValue(12),
+                          color: AppTheme.textTertiary,
+                        ),
                       ),
                     ],
                   ),
@@ -801,19 +824,22 @@ class _ProposalViewState extends State<ProposalTab> {
                   children: [
                     Container(
                       padding: EdgeInsets.symmetric(
-                          horizontal: AppLayout.scaledValue(8),
-                          vertical: AppLayout.scaledValue(2)),
+                        horizontal: AppLayout.scaledValue(8),
+                        vertical: AppLayout.scaledValue(2),
+                      ),
                       decoration: BoxDecoration(
                         color: statusColor.withValues(alpha: 0.1),
-                        borderRadius:
-                            BorderRadius.circular(AppLayout.scaledValue(10)),
+                        borderRadius: BorderRadius.circular(
+                          AppLayout.scaledValue(10),
+                        ),
                       ),
                       child: Text(
                         statusLabel,
                         style: TextStyle(
-                            fontSize: AppLayout.scaledValue(11),
-                            fontWeight: FontWeight.w600,
-                            color: statusColor),
+                          fontSize: AppLayout.scaledValue(11),
+                          fontWeight: FontWeight.w600,
+                          color: statusColor,
+                        ),
                       ),
                     ),
                     if (item.needsVote) ...[
@@ -830,9 +856,11 @@ class _ProposalViewState extends State<ProposalTab> {
                   ],
                 ),
                 SizedBox(width: AppLayout.scaledValue(4)),
-                Icon(Icons.chevron_right,
-                    size: AppLayout.scaledValue(20),
-                    color: AppTheme.textTertiary),
+                Icon(
+                  Icons.chevron_right,
+                  size: AppLayout.scaledValue(20),
+                  color: AppTheme.textTertiary,
+                ),
               ],
             ),
           ),
@@ -861,9 +889,7 @@ class _ProposalViewState extends State<ProposalTab> {
   Color _statusColor(int status) => AppTheme.proposalStatusColor(status);
 
   /// 根据提案类型返回图标。
-  IconData _proposalIcon(
-    _ProposalDisplayItem item,
-  ) {
+  IconData _proposalIcon(_ProposalDisplayItem item) {
     return switch (item.summary.iconKind) {
       'transfer' => Icons.send_outlined,
       'safety_fund' => Icons.health_and_safety_outlined,
@@ -882,9 +908,8 @@ class _ProposalViewState extends State<ProposalTab> {
     final resolved = await _resolveProposalDetail(item);
     if (!mounted) return;
     if (resolved == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('提案详情读取失败，请稍后重试')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('提案详情读取失败，请稍后重试')));
       return;
     }
     final (:proposal, :proposalContext) = resolved;
@@ -923,9 +948,8 @@ class _ProposalViewState extends State<ProposalTab> {
       );
     } else {
       // 其他未知类型
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('该提案类型的详情页面正在开发中')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('该提案类型的详情页面正在开发中')));
       return;
     }
 
@@ -939,7 +963,7 @@ class _ProposalViewState extends State<ProposalTab> {
   }
 
   Future<({ProposalWithDetail proposal, ProposalContext proposalContext})?>
-      _resolveProposalDetail(_ProposalDisplayItem item) async {
+  _resolveProposalDetail(_ProposalDisplayItem item) async {
     final existingProposal = item.proposal;
     final existingContext = item.context;
     if (existingProposal != null && existingContext != null) {
@@ -947,8 +971,9 @@ class _ProposalViewState extends State<ProposalTab> {
     }
 
     try {
-      final proposals =
-          await _multisigTransferFeed.fetchProposalsByIds([item.proposalId]);
+      final proposals = await _multisigTransferFeed.fetchProposalsByIds([
+        item.proposalId,
+      ]);
       if (proposals.isEmpty) return null;
       final proposal = proposals.first;
       final contexts = await _contextResolver.resolveBatch(
@@ -957,16 +982,15 @@ class _ProposalViewState extends State<ProposalTab> {
         internalCodeList: [proposal.meta.internalCode],
         knownInstitutionsByCidNumber: _knownInstitutionsByCidNumber,
       );
-      final proposalContext =
-          contexts.isEmpty ? const ProposalContext() : contexts.first;
+      final proposalContext = contexts.isEmpty
+          ? const ProposalContext()
+          : contexts.first;
       final resolvedItem = _ProposalDisplayItem.fromProposal(
         proposal: proposal,
         context: proposalContext,
         needsVote: item.needsVote,
       );
-      await ProposalLocalStore.instance.upsertSummaries([
-        resolvedItem.summary,
-      ]);
+      await ProposalLocalStore.instance.upsertSummaries([resolvedItem.summary]);
       if (mounted) {
         setState(() {
           _items = [
@@ -1017,6 +1041,5 @@ class _ProposalDisplayItem {
   int get proposalId => summary.proposalId;
   int get status => summary.status;
   String get displayId => summary.displayId;
-  String? get cidFullName =>
-      context?.institution?.cidFullName ?? summary.cidFullName;
+  String? get fullName => context?.institution?.fullName ?? summary.fullName;
 }

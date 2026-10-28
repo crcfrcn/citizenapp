@@ -44,21 +44,21 @@ class InstitutionClassification {
   const InstitutionClassification._();
 
   /// 是否立法机构(立法 tab 过滤谓词)。
-  static bool isLegislation(String institutionCode) =>
-      kLegislationCodes.contains(institutionCode);
+  static bool isLegislation(String orgCode) =>
+      kLegislationCodes.contains(orgCode);
 
   /// 是否治理机构(治理 tab 过滤谓词)。
-  static bool isGovernance(String institutionCode) =>
-      kGovernanceCodes.contains(institutionCode);
+  static bool isGovernance(String orgCode) =>
+      kGovernanceCodes.contains(orgCode);
 
   /// 机构所属业务分组(立法/治理/其它)。公权 tab 不依赖本分组(全集)。
-  static InstitutionTabGroup groupOf(String institutionCode) {
-    if (isLegislation(institutionCode)) return InstitutionTabGroup.legislation;
-    if (isGovernance(institutionCode)) return InstitutionTabGroup.governance;
+  static InstitutionTabGroup groupOf(String orgCode) {
+    if (isLegislation(orgCode)) return InstitutionTabGroup.legislation;
+    if (isGovernance(orgCode)) return InstitutionTabGroup.governance;
     return InstitutionTabGroup.other;
   }
 
   /// 机构码人机展示标签(复用单一源:固定治理/个人多签特化中文,其余返回码本身)。
-  static String label(String institutionCode) =>
-      InstitutionCodeLabel.codeLabel(institutionCode);
+  static String label(String orgCode) =>
+      InstitutionCodeLabel.codeLabel(orgCode);
 }

@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+
 import 'package:citizenapp/account/identity/identity_binding.dart';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -12,7 +13,13 @@ import 'package:tatachat_sdk/tatachat_sdk.dart';
 const _owner =
     '0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d';
 const _cidNumber = 'CN001-CTZN-000000001-2026';
-const _binding=IdentityBinding(genesisHash:'0x3333333333333333333333333333333333333333333333333333333333333333',cidNumber:_cidNumber,bindingRevision:1,accountId:_owner);
+const _binding = IdentityBinding(
+  genesisHash:
+      '0x3333333333333333333333333333333333333333333333333333333333333333',
+  cidNumber: _cidNumber,
+  bindRev: 1,
+  accountId: _owner,
+);
 
 class _FakeApi extends SquareApiClient {
   _FakeApi({this.fail = false, this.pending = false});
@@ -194,12 +201,33 @@ void main() {
     expect(chatRuntime.erasedAccount, _owner);
   });
 
-  test('pending receipt keeps all local data and the chat runtime intact',()async{
-    final api=_FakeApi(pending:true);final cache=_FakeCache();final media=_FakeMediaCache();
-    final chat=_FakeChatRuntime();final posts=_FakeLocalPostStore();
-    final service=SquareAccountDeletionService(apiClient:api,profileCache:cache,profileMediaCache:media,chatRuntime:chat,localPostStore:posts);
-    await expectLater(service.deleteAccount(binding:_binding,signAction:(_)async=>'0xSIG'),throwsA(isA<SquareAccountDeletionPendingException>()));
-    expect(cache.clearedCidNumber,isNull);expect(media.clearedCidNumber,isNull);
-    expect(api.sessionCleared,isFalse);expect(chat.eraseCalls,0);expect(posts.cleared,isFalse);
-  });
+  test(
+    'pending receipt keeps all local data and the chat runtime intact',
+    () async {
+      final api = _FakeApi(pending: true);
+      final cache = _FakeCache();
+      final media = _FakeMediaCache();
+      final chat = _FakeChatRuntime();
+      final posts = _FakeLocalPostStore();
+      final service = SquareAccountDeletionService(
+        apiClient: api,
+        profileCache: cache,
+        profileMediaCache: media,
+        chatRuntime: chat,
+        localPostStore: posts,
+      );
+      await expectLater(
+        service.deleteAccount(
+          binding: _binding,
+          signAction: (_) async => '0xSIG',
+        ),
+        throwsA(isA<SquareAccountDeletionPendingException>()),
+      );
+      expect(cache.clearedCidNumber, isNull);
+      expect(media.clearedCidNumber, isNull);
+      expect(api.sessionCleared, isFalse);
+      expect(chat.eraseCalls, 0);
+      expect(posts.cleared, isFalse);
+    },
+  );
 }

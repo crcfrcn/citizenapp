@@ -116,7 +116,7 @@ class LiveInstitutionChainState implements InstitutionChainState {
 AdminAccountIdentity adminIdentityOf(Institution institution) {
   return AdminAccountIdentity.institution(
     cidNumber: institution.cidNumber,
-    institutionCode: institution.institutionCode,
-    accountLabel: institution.cidFullName,
+    orgCode: institution.orgCode,
+    accountLabel: institution.fullName,
   );
 }

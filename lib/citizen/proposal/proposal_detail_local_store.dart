@@ -1,6 +1,10 @@
+import 'package:citizenapp/storage/wallet_isar.dart'
+    as wallet_store
+    show Proposal;
+
 import 'dart:convert';
 
-import 'package:citizenapp/storage/wallet_isar.dart';
+import 'package:citizenapp/storage/wallet_isar.dart' hide Group;
 
 /// 提案详情本地持久化读库。
 ///
@@ -12,42 +16,45 @@ class ProposalDetailLocalStore {
   static final ProposalDetailLocalStore instance = ProposalDetailLocalStore._();
 
   static const Duration activeTtl = Duration(seconds: 60);
-  Future<ProposalDetailSnapshot?> read(String typeKey, int proposalId) {
+  Future<ProposalDetailSnapshot?> read(String proposalKind, int proposalId) {
     return WalletIsar.instance.read((isar) async {
-      final entity = await isar.walletProposalDetailEntitys
-          .getByProposalKey(key(typeKey, proposalId));
-      return ProposalDetailSnapshot.fromJsonString(entity?.payloadJson);
+      final entity = await isar
+          .collection<wallet_store.Proposal>()
+          .getByProposalKindProposalId(proposalKind, proposalId);
+      return entity == null
+          ? null
+          : ProposalDetailSnapshot.fromJsonString(
+              entity.bodyData,
+              proposalKind: entity.proposalKind,
+              proposalId: entity.proposalId,
+            );
     });
   }
 
   Future<void> put(ProposalDetailSnapshot snapshot) async {
     await WalletIsar.instance.writeTxn((isar) async {
-      final proposalKey = key(snapshot.typeKey, snapshot.proposalId);
-      final entity = await isar.walletProposalDetailEntitys
-              .getByProposalKey(proposalKey) ??
-          (WalletProposalDetailEntity()..proposalKey = proposalKey);
-      entity
-        ..payloadJson = jsonEncode(snapshot.toJson())
-        ..updatedAtMillis = snapshot.updatedAtMillis
-        ..isFinal = snapshot.isFinal;
-      await isar.walletProposalDetailEntitys.putByProposalKey(entity);
+      final entity = wallet_store.Proposal()
+        ..proposalKind = snapshot.proposalKind
+        ..proposalId = snapshot.proposalId
+        ..bodyData = jsonEncode(snapshot.toJson());
+      await isar
+          .collection<wallet_store.Proposal>()
+          .putByProposalKindProposalId(entity);
     });
   }
 
   Future<void> clearAllForTest() async {
     await WalletIsar.instance.writeTxn((isar) async {
-      await isar.walletProposalDetailEntitys.clear();
+      await isar.collection<wallet_store.Proposal>().clear();
     });
   }
-
-  static String key(String typeKey, int proposalId) => '$typeKey:$proposalId';
 }
 
 class ProposalDetailSnapshot {
   const ProposalDetailSnapshot({
     required this.proposalId,
-    required this.typeKey,
-    required this.updatedAtMillis,
+    required this.proposalKind,
+    required this.updatedAt,
     this.status,
     this.yesCount = 0,
     this.noCount = 0,
@@ -60,8 +67,8 @@ class ProposalDetailSnapshot {
   });
 
   final int proposalId;
-  final String typeKey;
-  final int updatedAtMillis;
+  final String proposalKind;
+  final int updatedAt;
   final int? status;
   final int yesCount;
   final int noCount;
@@ -76,52 +83,50 @@ class ProposalDetailSnapshot {
 
   bool isFresh(Duration ttl) {
     if (isFinal) return true;
-    return DateTime.now().millisecondsSinceEpoch - updatedAtMillis <
+    return DateTime.now().millisecondsSinceEpoch - updatedAt <
         ttl.inMilliseconds;
   }
 
   Map<String, Object?> toJson() => {
-        'proposal_id': proposalId,
-        'type_key': typeKey,
-        'updated_at_millis': updatedAtMillis,
-        'status': status,
-        'yes_count': yesCount,
-        'no_count': noCount,
-        'threshold': threshold,
-        'admins': admins,
-        'admin_votes': adminVotes.map(
-          (key, value) => MapEntry(key, value),
-        ),
-        'pending_signer_public_keys': pendingPublicKeys,
-        'detail': detail,
-        'extra': extra,
-      };
+    'updated_at': updatedAt,
+    'status': status,
+    'yes_count': yesCount,
+    'no_count': noCount,
+    'threshold': threshold,
+    'admins': admins,
+    'admin_votes': adminVotes.map((key, value) => MapEntry(key, value)),
+    'pending_public_keys': pendingPublicKeys,
+    'detail': detail,
+    'extra': extra,
+  };
 
-  static ProposalDetailSnapshot? fromJsonString(String? raw) {
+  static ProposalDetailSnapshot? fromJsonString(
+    String? raw, {
+    required String proposalKind,
+    required int proposalId,
+  }) {
     if (raw == null || raw.isEmpty) return null;
     try {
       final decoded = jsonDecode(raw);
       if (decoded is! Map<String, dynamic>) return null;
-      final proposalId = _toInt(decoded['proposal_id']);
-      final typeKey = decoded['type_key']?.toString();
-      final updatedAtMillis = _toInt(decoded['updated_at_millis']);
-      if (proposalId == null ||
-          typeKey == null ||
-          typeKey.isEmpty ||
-          updatedAtMillis == null) {
+      final updatedAt = _toInt(decoded['updated_at']);
+      if (decoded.containsKey('proposal_id') ||
+          decoded.containsKey('proposal_kind') ||
+          proposalKind.isEmpty ||
+          updatedAt == null) {
         return null;
       }
       return ProposalDetailSnapshot(
         proposalId: proposalId,
-        typeKey: typeKey,
-        updatedAtMillis: updatedAtMillis,
+        proposalKind: proposalKind,
+        updatedAt: updatedAt,
         status: _toInt(decoded['status']),
         yesCount: _toInt(decoded['yes_count']) ?? 0,
         noCount: _toInt(decoded['no_count']) ?? 0,
         threshold: _toInt(decoded['threshold']),
         admins: _stringList(decoded['admins']),
         adminVotes: _voteMap(decoded['admin_votes']),
-        pendingPublicKeys: _stringList(decoded['pending_signer_public_keys']),
+        pendingPublicKeys: _stringList(decoded['pending_public_keys']),
         detail: _objectMap(decoded['detail']),
         extra: _objectMap(decoded['extra']),
       );

@@ -1,3 +1,4 @@
+import 'package:citizenapp/storage/app_isar.dart' as app_store show Entity;
 // 统一机构仓库门面(ADR-028 决策 2)——finalized 链快照 + Isar 产出统一 [Institution];
 // 为创世治理机构附 china 固定账户。
 //
@@ -14,16 +15,15 @@ import 'package:citizenapp/citizen/public/public_institution_repository.dart';
 import 'package:citizenapp/citizen/public/public_provinces.dart';
 import 'package:citizenapp/citizen/institution/governance_registry.dart';
 import 'package:citizenapp/citizen/institution/institution_info.dart';
-import 'package:citizenapp/storage/app_isar.dart';
 
 class InstitutionRepository {
   InstitutionRepository({PublicInstitutionRepository? directory})
-      : directory = directory ?? PublicInstitutionRepository();
+    : directory = directory ?? PublicInstitutionRepository();
 
   /// 底层目录仓库(订阅 / 行政区所属地 join / 后台同步 直接复用)。
   final PublicInstitutionRepository directory;
 
-  /// 创世治理机构按 cidNumber 索引的静态账户项(构建一次)。
+  /// 创世治理机构按 cid_number 索引的静态账户项(构建一次)。
   /// 用途:① 取 china 固定账户附到统一机构上;② 发起提案/管理员页需要 `InstitutionInfo`。
   static final Map<String, InstitutionInfo> _governanceInfo = {
     for (final i in <InstitutionInfo>[
@@ -69,33 +69,26 @@ class InstitutionRepository {
     String provinceCode,
     Set<String> institutionCodes,
   ) async {
-    final rows =
-        await directory.listByProvinceAndCodes(provinceCode, institutionCodes);
+    final rows = await directory.listByProvinceAndCodes(
+      provinceCode,
+      institutionCodes,
+    );
     return rows.map(_toInstitution).toList(growable: false);
   }
 
   /// 某公民 CID 关注的机构列表（统一 Institution）。
-  Future<List<Institution>> listSubscribed(String subscriberCidNumber) async {
-    final rows = await directory.listSubscribed(subscriberCidNumber);
+  Future<List<Institution>> listSubscribed(String cidNumber) async {
+    final rows = await directory.listSubscribed(cidNumber);
     return rows.map(_toInstitution).toList(growable: false);
   }
 
   // ── 订阅(关注)passthrough ──
-  Future<bool> isSubscribed(
-    String subscriberCidNumber,
-    String institutionCidNumber,
-  ) =>
-      directory.isSubscribed(subscriberCidNumber, institutionCidNumber);
-  Future<void> subscribe(
-    String subscriberCidNumber,
-    String institutionCidNumber,
-  ) =>
-      directory.subscribe(subscriberCidNumber, institutionCidNumber);
-  Future<void> unsubscribe(
-    String subscriberCidNumber,
-    String institutionCidNumber,
-  ) =>
-      directory.unsubscribe(subscriberCidNumber, institutionCidNumber);
+  Future<bool> isSubscribed(String cidNumber, String peerCid) =>
+      directory.isSubscribed(cidNumber, peerCid);
+  Future<void> subscribe(String cidNumber, String peerCid) =>
+      directory.subscribe(cidNumber, peerCid);
+  Future<void> unsubscribe(String cidNumber, String peerCid) =>
+      directory.unsubscribe(cidNumber, peerCid);
 
   /// 机构所属地显示路径(详情页 所属地行;省名带"省"全名 + 字典市/镇名,ADR-021)。
   Future<String> institutionAreaPath(Institution inst) {
@@ -108,7 +101,7 @@ class InstitutionRepository {
     );
   }
 
-  Institution _toInstitution(PublicInstitutionEntity e) {
+  Institution _toInstitution(app_store.Entity e) {
     final inst = Institution.fromPublicEntity(e);
     if (inst.isFixedGovernance) {
       final baked = _governanceInfo[inst.cidNumber]?.accounts;

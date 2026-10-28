@@ -192,7 +192,9 @@ class _LawReaderPageState extends State<LawReaderPage> {
   Future<void> _changeVersion(int version, {bool force = false}) async {
     final law = _law;
     if (law == null ||
-        (!force && version == _selectedVersion && _requestedVersion == version)) {
+        (!force &&
+            version == _selectedVersion &&
+            _requestedVersion == version)) {
       return;
     }
     final generation = ++_generation;
@@ -358,10 +360,13 @@ class _LawReaderPageState extends State<LawReaderPage> {
           if (_isConstitution && v?.titleEn != null)
             TextButton(
               onPressed: () => setState(() => _showEn = !_showEn),
-              child: Text(_showEn ? '中' : 'EN',
-                  style: TextStyle(
-                      fontSize: AppLayout.scaled(context, 13),
-                      fontWeight: FontWeight.w600)),
+              child: Text(
+                _showEn ? '中' : 'EN',
+                style: TextStyle(
+                  fontSize: AppLayout.scaled(context, 13),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
         ],
       ),
@@ -476,23 +481,25 @@ class _LawReaderPageState extends State<LawReaderPage> {
       LawStatus.pending => AppTheme.primary,
     };
     final dateLabel = switch (law.status) {
-      LawStatus.effective => _showEn
-          ? 'Effective at ${_effectiveAt == null ? '—' : _formatMillis(_effectiveAt!)}'
-          : '生效时间 ${_effectiveAt == null ? '—' : _formatMillis(_effectiveAt!)}',
+      LawStatus.effective =>
+        _showEn
+            ? 'Effective at ${_effectiveAt == null ? '—' : _formatMillis(_effectiveAt!)}'
+            : '生效时间 ${_effectiveAt == null ? '—' : _formatMillis(_effectiveAt!)}',
       LawStatus.repealed => _showEn ? 'Repealed' : '已废止',
-      LawStatus.pending => law.pendingVersion != null &&
-              law.pendingVersion != v.version
-          ? (_showEn
-              ? 'Pending amendment takes effect at ${_pendingEffectiveAt == null ? '—' : _formatMillis(_pendingEffectiveAt!)}'
-              : '待生效修订将于 ${_pendingEffectiveAt == null ? '—' : _formatMillis(_pendingEffectiveAt!)} 生效')
-          : (_showEn
-              ? 'Takes effect at ${_effectiveAt == null ? '—' : _formatMillis(_effectiveAt!)}'
-              : '将于 ${_effectiveAt == null ? '—' : _formatMillis(_effectiveAt!)} 生效'),
+      LawStatus.pending =>
+        law.pendingVersion != null && law.pendingVersion != v.version
+            ? (_showEn
+                  ? 'Pending amendment takes effect at ${_pendingEffectiveAt == null ? '—' : _formatMillis(_pendingEffectiveAt!)}'
+                  : '待生效修订将于 ${_pendingEffectiveAt == null ? '—' : _formatMillis(_pendingEffectiveAt!)} 生效')
+            : (_showEn
+                  ? 'Takes effect at ${_effectiveAt == null ? '—' : _formatMillis(_effectiveAt!)}'
+                  : '将于 ${_effectiveAt == null ? '—' : _formatMillis(_effectiveAt!)} 生效'),
     };
     return Container(
       padding: EdgeInsets.symmetric(
-          horizontal: AppLayout.scaledValue(14),
-          vertical: AppLayout.scaledValue(12)),
+        horizontal: AppLayout.scaledValue(14),
+        vertical: AppLayout.scaledValue(12),
+      ),
       decoration: BoxDecoration(
         color: AppTheme.surfaceCard,
         borderRadius: BorderRadius.circular(AppLayout.scaledValue(12)),
@@ -502,42 +509,53 @@ class _LawReaderPageState extends State<LawReaderPage> {
         children: [
           Container(
             padding: EdgeInsets.symmetric(
-                horizontal: AppLayout.scaledValue(8),
-                vertical: AppLayout.scaledValue(3)),
+              horizontal: AppLayout.scaledValue(8),
+              vertical: AppLayout.scaledValue(3),
+            ),
             decoration: BoxDecoration(
               color: statusColor.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(AppLayout.scaledValue(8)),
             ),
-            child: Text('${_tierLabel(law.tier)} · ${_versionName(v.version)}',
-                style: TextStyle(
-                    fontSize: AppLayout.scaledValue(11),
-                    fontWeight: FontWeight.w600,
-                    color: statusColor)),
+            child: Text(
+              '${_tierLabel(law.tier)} · ${_versionName(v.version)}',
+              style: TextStyle(
+                fontSize: AppLayout.scaledValue(11),
+                fontWeight: FontWeight.w600,
+                color: statusColor,
+              ),
+            ),
           ),
-          // 表决类型徽章(创世宪法 proposalId=0 不显示)。
+          // 表决类型徽章(创世宪法 proposal_id=0 不显示)。
           if (v.proposalId != 0) ...[
             SizedBox(width: AppLayout.scaledValue(6)),
             Container(
               padding: EdgeInsets.symmetric(
-                  horizontal: AppLayout.scaledValue(8),
-                  vertical: AppLayout.scaledValue(3)),
+                horizontal: AppLayout.scaledValue(8),
+                vertical: AppLayout.scaledValue(3),
+              ),
               decoration: BoxDecoration(
                 color: AppTheme.primary.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(AppLayout.scaledValue(8)),
               ),
-              child: Text(_voteTypeLabel(v.voteTypeEnum),
-                  style: TextStyle(
-                      fontSize: AppLayout.scaledValue(11),
-                      fontWeight: FontWeight.w600,
-                      color: AppTheme.primary)),
+              child: Text(
+                _voteTypeLabel(v.voteTypeEnum),
+                style: TextStyle(
+                  fontSize: AppLayout.scaledValue(11),
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.primary,
+                ),
+              ),
             ),
           ],
           SizedBox(width: AppLayout.scaledValue(10)),
           Expanded(
-            child: Text(dateLabel,
-                style: TextStyle(
-                    fontSize: AppLayout.scaledValue(12.5),
-                    color: AppTheme.textSecondary)),
+            child: Text(
+              dateLabel,
+              style: TextStyle(
+                fontSize: AppLayout.scaledValue(12.5),
+                color: AppTheme.textSecondary,
+              ),
+            ),
           ),
           // 版本史:多版本时可切换查看历史版本。
           if (law.latestVersion > 1) _versionMenu(law),
@@ -557,8 +575,9 @@ class _LawReaderPageState extends State<LawReaderPage> {
             child: Text(
               _versionLabel(law, ver),
               style: TextStyle(
-                fontWeight:
-                    ver == _selectedVersion ? FontWeight.w700 : FontWeight.w400,
+                fontWeight: ver == _selectedVersion
+                    ? FontWeight.w700
+                    : FontWeight.w400,
               ),
             ),
           ),
@@ -566,13 +585,19 @@ class _LawReaderPageState extends State<LawReaderPage> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.history,
-              size: AppLayout.scaledValue(16), color: AppTheme.textSecondary),
+          Icon(
+            Icons.history,
+            size: AppLayout.scaledValue(16),
+            color: AppTheme.textSecondary,
+          ),
           SizedBox(width: AppLayout.scaledValue(2)),
-          Text(_showEn ? 'History' : '版本史',
-              style: TextStyle(
-                  fontSize: AppLayout.scaledValue(12),
-                  color: AppTheme.textSecondary)),
+          Text(
+            _showEn ? 'History' : '版本史',
+            style: TextStyle(
+              fontSize: AppLayout.scaledValue(12),
+              color: AppTheme.textSecondary,
+            ),
+          ),
         ],
       ),
     );
@@ -601,13 +626,12 @@ class _LawReaderPageState extends State<LawReaderPage> {
     return [
       SliverMainAxisGroup(
         slivers: [
-          PinnedHeaderSliver(
-            child: _chapterHeader(ch, expanded),
-          ),
+          PinnedHeaderSliver(child: _chapterHeader(ch, expanded)),
           if (expanded)
             SliverPadding(
-              padding:
-                  EdgeInsets.symmetric(horizontal: AppLayout.scaledValue(16)),
+              padding: EdgeInsets.symmetric(
+                horizontal: AppLayout.scaledValue(16),
+              ),
               sliver: SliverList(
                 delegate: SliverChildBuilderDelegate(
                   (context, index) => _sectionTile(ch, ch.sections[index]),
@@ -677,8 +701,9 @@ class _LawReaderPageState extends State<LawReaderPage> {
   void _toggleChapter(int chapterNumber) {
     setState(() {
       if (_expanded.remove(chapterNumber)) {
-        _expandedSections
-            .removeWhere((key) => key.startsWith('$chapterNumber:'));
+        _expandedSections.removeWhere(
+          (key) => key.startsWith('$chapterNumber:'),
+        );
       } else {
         _expanded.add(chapterNumber);
       }
@@ -690,9 +715,10 @@ class _LawReaderPageState extends State<LawReaderPage> {
     final expanded = _expandedSections.contains(key);
     return Padding(
       padding: EdgeInsets.only(
-          left: AppLayout.scaledValue(6),
-          top: AppLayout.scaledValue(6),
-          bottom: AppLayout.scaledValue(6)),
+        left: AppLayout.scaledValue(6),
+        top: AppLayout.scaledValue(6),
+        bottom: AppLayout.scaledValue(6),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -703,13 +729,15 @@ class _LawReaderPageState extends State<LawReaderPage> {
                   _headingTitle(
                     title: sec.title,
                     titleEn: sec.titleEn,
-                    fallback:
-                        _showEn ? 'Section ${sec.number}' : '第${sec.number}节',
+                    fallback: _showEn
+                        ? 'Section ${sec.number}'
+                        : '第${sec.number}节',
                   ),
                   style: TextStyle(
-                      fontSize: AppLayout.scaledValue(14),
-                      fontWeight: FontWeight.w600,
-                      color: AppTheme.textSecondary),
+                    fontSize: AppLayout.scaledValue(14),
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.textSecondary,
+                  ),
                 ),
               ),
               IconButton(
@@ -752,55 +780,73 @@ class _LawReaderPageState extends State<LawReaderPage> {
             children: [
               Flexible(
                 child: Text(
-                    _headingTitle(
-                      title: art.title,
-                      titleEn: art.titleEn,
-                      fallback:
-                          _showEn ? 'Article ${art.number}' : '第${art.number}条',
-                    ),
-                    style: TextStyle(
-                        fontSize: AppLayout.scaledValue(14.5),
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.textPrimary)),
+                  _headingTitle(
+                    title: art.title,
+                    titleEn: art.titleEn,
+                    fallback: _showEn
+                        ? 'Article ${art.number}'
+                        : '第${art.number}条',
+                  ),
+                  style: TextStyle(
+                    fontSize: AppLayout.scaledValue(14.5),
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.textPrimary,
+                  ),
+                ),
               ),
               if (immutable) ...[
                 SizedBox(width: AppLayout.scaledValue(8)),
                 Container(
                   padding: EdgeInsets.symmetric(
-                      horizontal: AppLayout.scaledValue(6), vertical: 1),
+                    horizontal: AppLayout.scaledValue(6),
+                    vertical: 1,
+                  ),
                   decoration: BoxDecoration(
                     color: AppTheme.danger.withValues(alpha: 0.1),
-                    borderRadius:
-                        BorderRadius.circular(AppLayout.scaledValue(6)),
+                    borderRadius: BorderRadius.circular(
+                      AppLayout.scaledValue(6),
+                    ),
                   ),
-                  child: Text(_showEn ? 'Immutable Clause' : '不可修改条款',
-                      style: TextStyle(
-                          fontSize: AppLayout.scaledValue(10),
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.danger)),
+                  child: Text(
+                    _showEn ? 'Immutable Clause' : '不可修改条款',
+                    style: TextStyle(
+                      fontSize: AppLayout.scaledValue(10),
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.danger,
+                    ),
+                  ),
                 ),
               ],
             ],
           ),
           if (art.body.isNotEmpty) ...[
             SizedBox(height: AppLayout.scaledValue(4)),
-            Text(_t(art.body, art.bodyEn),
-                style: TextStyle(
-                    fontSize: AppLayout.scaledValue(13.5),
-                    height: 1.6,
-                    color: AppTheme.textPrimary)),
+            Text(
+              _t(art.body, art.bodyEn),
+              style: TextStyle(
+                fontSize: AppLayout.scaledValue(13.5),
+                height: 1.6,
+                color: AppTheme.textPrimary,
+              ),
+            ),
           ],
-          ...art.clauses.map((c) => Padding(
-                padding: EdgeInsets.only(
-                    top: AppLayout.scaledValue(6),
-                    left: AppLayout.scaledValue(8)),
-                // 链上款正文已自带“第一款 / Paragraph 1”前缀,UI 不再二次拼接。
-                child: Text(_t(c.text, c.textEn),
-                    style: TextStyle(
-                        fontSize: AppLayout.scaledValue(13),
-                        height: 1.6,
-                        color: AppTheme.textSecondary)),
-              )),
+          ...art.clauses.map(
+            (c) => Padding(
+              padding: EdgeInsets.only(
+                top: AppLayout.scaledValue(6),
+                left: AppLayout.scaledValue(8),
+              ),
+              // 链上款正文已自带“第一款 / Paragraph 1”前缀,UI 不再二次拼接。
+              child: Text(
+                _t(c.text, c.textEn),
+                style: TextStyle(
+                  fontSize: AppLayout.scaledValue(13),
+                  height: 1.6,
+                  color: AppTheme.textSecondary,
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );

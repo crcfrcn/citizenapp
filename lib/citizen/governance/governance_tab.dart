@@ -1,3 +1,5 @@
+import 'package:citizenapp/storage/user_isar.dart' as user_store show Setting;
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -98,13 +100,11 @@ class GovernanceInstitutionOrderStore {
 
   Future<GovernanceInstitutionOrder> read() async {
     final settings = await UserIsar.instance.read(
-      (isar) async => isar.userSettingsEntitys.get(0),
+      (isar) async => isar.collection<user_store.Setting>().get(0),
     );
     return GovernanceInstitutionOrder(
-      provincialCouncilCidNumbers:
-          settings?.governanceProvincialCouncilOrder ?? const <String>[],
-      provincialBankCidNumbers:
-          settings?.governanceProvincialBankOrder ?? const <String>[],
+      provincialCouncilCidNumbers: settings?.councilOrder ?? const <String>[],
+      provincialBankCidNumbers: settings?.bankOrder ?? const <String>[],
     );
   }
 
@@ -119,16 +119,15 @@ class GovernanceInstitutionOrderStore {
   Future<void> _write(List<String> cidNumbers, {required bool isCouncil}) {
     return UserIsar.instance.writeTxn((isar) async {
       final settings =
-          await isar.userSettingsEntitys.get(0) ?? UserSettingsEntity();
-      settings
-        ..id = 0
-        ..updatedAtMillis = DateTime.now().millisecondsSinceEpoch;
+          await isar.collection<user_store.Setting>().get(0) ??
+          user_store.Setting();
+      settings.rowId = 0;
       if (isCouncil) {
-        settings.governanceProvincialCouncilOrder = cidNumbers;
+        settings.councilOrder = cidNumbers;
       } else {
-        settings.governanceProvincialBankOrder = cidNumbers;
+        settings.bankOrder = cidNumbers;
       }
-      await isar.userSettingsEntitys.put(settings);
+      await isar.collection<user_store.Setting>().put(settings);
     });
   }
 }

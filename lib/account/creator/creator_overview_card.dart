@@ -36,9 +36,11 @@ class CreatorOverviewCard extends StatelessWidget {
                   color: AppTheme.primary.withAlpha(24),
                   borderRadius: BorderRadius.circular(AppTheme.radiusSm),
                 ),
-                child: Icon(Icons.storefront_outlined,
-                    size: AppLayout.scaled(context, 16),
-                    color: AppTheme.primary),
+                child: Icon(
+                  Icons.storefront_outlined,
+                  size: AppLayout.scaled(context, 16),
+                  color: AppTheme.primary,
+                ),
               ),
               SizedBox(width: AppLayout.scaled(context, 8)),
               Text(
@@ -52,12 +54,14 @@ class CreatorOverviewCard extends StatelessWidget {
               const Spacer(),
               Container(
                 padding: EdgeInsets.symmetric(
-                    horizontal: AppLayout.scaled(context, 8),
-                    vertical: AppLayout.scaled(context, 2)),
+                  horizontal: AppLayout.scaled(context, 8),
+                  vertical: AppLayout.scaled(context, 2),
+                ),
                 decoration: BoxDecoration(
                   color: AppTheme.primary.withAlpha(24),
-                  borderRadius:
-                      BorderRadius.circular(AppLayout.scaledValue(20)),
+                  borderRadius: BorderRadius.circular(
+                    AppLayout.scaledValue(20),
+                  ),
                 ),
                 child: Text(
                   resolved ? '已开通' : '创作者',
@@ -84,7 +88,7 @@ class CreatorOverviewCard extends StatelessWidget {
                 child: _stat(
                   '本月已收入',
                   resolved
-                      ? '${fenToYuanLabel(overview.monthIncomeFen)} 元'
+                      ? '${fenToYuanLabel(overview.monthlyIncomeFen)} 元'
                       : '--',
                   AppTheme.gold,
                 ),
@@ -95,8 +99,9 @@ class CreatorOverviewCard extends StatelessWidget {
           Text(
             '数据来自链上扣款投影 · 完整收入台账随税务功能上线',
             style: TextStyle(
-                fontSize: AppLayout.scaled(context, 11),
-                color: AppTheme.textTertiary),
+              fontSize: AppLayout.scaled(context, 11),
+              color: AppTheme.textTertiary,
+            ),
           ),
         ],
       ),
@@ -106,8 +111,9 @@ class CreatorOverviewCard extends StatelessWidget {
   Widget _stat(String label, String value, Color valueColor) {
     return Container(
       padding: EdgeInsets.symmetric(
-          horizontal: AppLayout.scaledValue(12),
-          vertical: AppLayout.scaledValue(10)),
+        horizontal: AppLayout.scaledValue(12),
+        vertical: AppLayout.scaledValue(10),
+      ),
       decoration: BoxDecoration(
         color: AppTheme.surfaceMuted,
         borderRadius: BorderRadius.circular(AppTheme.radiusMd),
@@ -115,10 +121,13 @@ class CreatorOverviewCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label,
-              style: TextStyle(
-                  fontSize: AppLayout.scaledValue(12),
-                  color: AppTheme.textSecondary)),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: AppLayout.scaledValue(12),
+              color: AppTheme.textSecondary,
+            ),
+          ),
           SizedBox(height: AppLayout.scaledValue(2)),
           Text(
             value,

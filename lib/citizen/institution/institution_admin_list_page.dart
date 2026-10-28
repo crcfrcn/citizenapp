@@ -80,7 +80,7 @@ class _AdminListPageState extends State<AdminListPage> {
 
   Future<void> _loadBalances() async {
     final accountIds = {
-      for (final view in widget.admins) _balanceKey(view.admin.account_id),
+      for (final view in widget.admins) _balanceKey(view.admin.accountId),
     }.where((accountId) => accountId.isNotEmpty).toList(growable: false);
     if (accountIds.isEmpty) {
       if (mounted) setState(() => _balanceByAccountId = const {});
@@ -161,7 +161,7 @@ class _AdminListPageState extends State<AdminListPage> {
           else
             ...List.generate(widget.admins.length, (index) {
               final adminView = widget.admins[index];
-              final accountId = adminView.admin.account_id;
+              final accountId = adminView.admin.accountId;
               final isImported = widget.importedColdAccountIds.contains(
                 accountId,
               );
@@ -201,7 +201,7 @@ class _AdminListPageState extends State<AdminListPage> {
         SizedBox(width: AppLayout.scaledValue(10)),
         Expanded(
           child: Text(
-            widget.institution.cidShortName,
+            widget.institution.shortName,
             style: TextStyle(
               fontSize: AppLayout.scaledValue(15),
               fontWeight: FontWeight.w600,
@@ -249,7 +249,7 @@ class _AdminTile extends StatelessWidget {
   final InstitutionAdminView adminView;
 
   /// 管理员规范 AccountId；激活和匹配只按账户 ID。
-  String get accountId => adminView.admin.account_id;
+  String get accountId => adminView.admin.accountId;
 
   /// 用户是否已导入此账户 ID 的冷钱包。
   final bool isImported;

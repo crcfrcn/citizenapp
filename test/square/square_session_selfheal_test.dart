@@ -268,7 +268,10 @@ void main() {
           sessionCalls++;
           if (sessionCalls == 1 || !success) {
             return http.Response(
-              jsonEncode({'error_code': 'device_not_registered', 'message': '未登记'}),
+              jsonEncode({
+                'error_code': 'device_not_registered',
+                'message': '未登记',
+              }),
               401,
               headers: {'content-type': 'application/json; charset=utf-8'},
             );
@@ -344,7 +347,7 @@ void _chatAccessSessionTests() {
       final session = SquareSession(
         sessionToken: 'ordinary',
         cidNumber: testMlsCidNumber,
-        bindingRevision: 1,
+        bindRev: 1,
         accountId: testMlsAccountId,
         deviceId: testMlsDeviceId,
         expiresAt: 4102444800000,
@@ -365,7 +368,7 @@ void _chatAccessSessionTests() {
             source.identity = const MlsAuthenticationIdentity(
               cidNumber: testMlsCidNumber,
               accountId: testMlsAccountId,
-              bindingRevision: 2,
+              bindRev: 2,
               deviceId: testMlsDeviceId,
               publicKey: '0x$testMlsDeviceId',
             );
@@ -413,7 +416,7 @@ class _DiagnosticCurrent implements CurrentUserContext {
     genesisHash:
         '0xabababababababababababababababababababababababababababababababab',
     cidNumber: testMlsCidNumber,
-    bindingRevision: 1,
+    bindRev: 1,
     accountId: testMlsAccountId,
   );
   @override

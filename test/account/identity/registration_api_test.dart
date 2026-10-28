@@ -8,11 +8,11 @@ import 'package:citizenapp/account/identity/registration_models.dart';
 
 RegistrationContext registrationContext() => RegistrationContext(
   accountId: '0x${'11' * 32}',
-  institution: 'CTZN',
+  orgCode: 'CTZN',
   chainScope: '0x${'22' * 32}',
 );
-const enrollment = '11111111-1111-4111-8111-111111111111';
-const verificationId = '22222222-2222-4222-8222-222222222222';
+const regId = '11111111-1111-4111-8111-111111111111';
+const checkId = '22222222-2222-4222-8222-222222222222';
 Map<String, dynamic> registrationResponse(
   RegistrationContext c, {
   String jobState = 'prepared',
@@ -22,30 +22,30 @@ Map<String, dynamic> registrationResponse(
   return {
     'is_ok': true,
     'protocol_version': 1,
-    'enrollment_id': enrollment,
-    'registration_scope': c.registrationScope,
-    'service_origin': c.origin,
-    'registration_context_hash': '0x${c.hash}',
+    'reg_id': regId,
+    'reg_scope': c.regScope,
+    'service_origin': c.serviceOrigin,
+    'context_hash': '0x${c.contextHash}',
     'job_state': jobState,
     'created_at': now - 1000,
     'expires_at': now + 86400000,
-    'human_verified_at': jobState == 'human_verified' || jobState == 'activated'
+    'human_at': jobState == 'human_verified' || jobState == 'activated'
         ? now
         : null,
     'activation': jobState == 'activated'
         ? {
             'cid_number': 'CN220-CTZN2-100000001-2026',
             'account_id': c.accountId,
-            'binding_revision': 1,
+            'bind_rev': 1,
             'device_id': '33' * 32,
             'public_key': '0x${'33' * 32}',
           }
         : null,
     'verification': jobState == 'prepared'
         ? {
-            'verification_id': verificationId,
+            'check_id': checkId,
             'page_url':
-                '${c.baseUrl}/user/registration/page?verification_id=$verificationId&page_token=capability',
+                '${c.baseUrl}/user/registration/page?check_id=$checkId&page_token=capability',
             'page_expires_at': now + 60000,
             'action': 'cid_register',
             'hostname': Uri.parse(c.baseUrl).host,
@@ -61,21 +61,18 @@ void main() {
     final c = RegistrationContext(
       accountId:
           '0x2afba9278e30ccf6a6ceb3a8b6e336b70068f045c666f2e7f4f9cc5f47db8972',
-      institution: 'CTZN',
+      orgCode: 'CTZN',
       chainScope: '0x${'00' * 32}',
       baseUrl: 'https://registration.example.test/api',
-      registrationScope: 'citizenserve:fixture',
+      regScope: 'citizenserve:fixture',
     );
     expect(
-      '0x${c.hash}',
+      '0x${c.contextHash}',
       '0x3f41f857b7cdc569ac12579659aab7a5f319b716624bc9a4fcdbb33cfacf7d2b',
     );
-    expect(c.hash.length, 64);
+    expect(c.contextHash.length, 64);
     final response = registrationResponse(c, initial: true);
-    expect(
-      RegistrationResponse.parse(response, c, initial: true).enrollmentId,
-      enrollment,
-    );
+    expect(RegistrationResponse.parse(response, c, initial: true).regId, regId);
     final oldState = {...response}..['state'] = response['job_state'];
     expect(
       () => RegistrationResponse.parse(oldState, c, initial: true),
@@ -86,7 +83,7 @@ void main() {
       () => RegistrationResponse.parse(oldState, c, initial: true),
       throwsFormatException,
     );
-    response['registration_context_hash'] = c.hash;
+    response['context_hash'] = c.contextHash;
     expect(
       () => RegistrationResponse.parse(response, c, initial: true),
       throwsFormatException,
@@ -114,17 +111,29 @@ void main() {
     addTearDown(api.close);
     final initial = await api.prepare(c);
     final cap = RegistrationCapabilities(
-      initial.enrollmentId,
+      initial.regId,
       initial.json['recovery_token'] as String,
     );
     await api.verify(
       c,
       cap,
-      verificationId: verificationId,
+      checkId: checkId,
       token: 'ephemeral-token-value-1234',
     );
     await api.status(c, cap);
-    expect(jsonDecode(requests[0].body), c.toJson());
+    expect(jsonDecode(requests[0].body), {
+      'protocol_version': 1,
+      'chain_scope': c.chainScope,
+      'account_id': c.accountId,
+      'org_code': c.orgCode,
+    });
+    expect(jsonDecode(requests[1].body), {
+      'protocol_version': 1,
+      'reg_id': cap.regId,
+      'recovery_token': cap.recoveryToken,
+      'check_id': checkId,
+      'turnstile_token': 'ephemeral-token-value-1234',
+    });
     expect(requests.map((r) => r.url.path), [
       '/api/user/registration',
       '/api/user/registration/verify',
@@ -144,7 +153,7 @@ void main() {
     final raw = registrationResponse(c, initial: true);
     for (final change in [
       {'service_origin': 'https://attacker.test'},
-      {'registration_context_hash': '00' * 32},
+      {'context_hash': '00' * 32},
       {'protocol_version': 2},
       {'cid_number': 'premature'},
       {'is_ok': false},

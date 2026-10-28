@@ -1,3 +1,7 @@
+import 'package:citizenapp/storage/wallet_isar.dart'
+    as wallet_store
+    show Balance;
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -5,7 +9,7 @@ import 'package:flutter/foundation.dart';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizenapp/citizen/account_derivation.dart';
-import 'package:citizenapp/storage/wallet_isar.dart';
+import 'package:citizenapp/storage/wallet_isar.dart' hide Group;
 import 'package:citizenapp/transaction/offchain/offchain_clearing_rpc.dart';
 
 /// 钱包各入口共享同一加载和展示状态；失败保留成功值，未知值始终为 null。
@@ -97,7 +101,7 @@ class AccountBalanceSnapshotStore {
 
   WalletBalanceState<BigInt> clearingState({
     required String accountId,
-    required String ss58Address,
+    required String accountAddress,
     required String wssUrl,
   }) {
     _requireAccountId(accountId);
@@ -106,7 +110,7 @@ class AccountBalanceSnapshotStore {
       () => WalletBalanceState(
         (force) => getClearingBalance(
           accountId: accountId,
-          ss58Address: ss58Address,
+          accountAddress: accountAddress,
           wssUrl: wssUrl,
           forceRefresh: force,
         ),
@@ -273,10 +277,10 @@ class AccountBalanceSnapshotStore {
     final running = _localReads[accountId];
     if (running != null) return running;
     final reading = WalletIsar.instance.read((isar) async {
-      final row = await isar.walletAccountBalanceSnapshotEntitys.getByAccountId(
+      final row = await isar.collection<wallet_store.Balance>().getByAccountId(
         accountId,
       );
-      return _decodeChain(_decodeRecord(row?.payloadJson)['chain'], accountId);
+      return _decodeChain(_decodeRecord(row?.bodyData)['chain'], accountId);
     });
     _localReads[accountId] = reading;
     try {
@@ -292,12 +296,12 @@ class AccountBalanceSnapshotStore {
 
   Future<CitizenAccountBalance> _put(CitizenAccountBalance value) async {
     return WalletIsar.instance.writeTxn((isar) async {
-      final existing = await isar.walletAccountBalanceSnapshotEntitys
+      final existing = await isar
+          .collection<wallet_store.Balance>()
           .getByAccountId(value.accountId);
       final row =
-          existing ??
-          (WalletAccountBalanceSnapshotEntity()..accountId = value.accountId);
-      final record = _decodeRecord(existing?.payloadJson);
+          existing ?? (wallet_store.Balance()..accountId = value.accountId);
+      final record = _decodeRecord(existing?.bodyData);
       final previous = _decodeChain(record['chain'], value.accountId);
       if (previous != null) {
         if (previous.block.number > value.block.number) return previous;
@@ -306,20 +310,14 @@ class AccountBalanceSnapshotStore {
           throw StateError('同高度 finalized 余额证明冲突');
         }
       }
-      final now = DateTime.now().millisecondsSinceEpoch;
       record['chain'] = {
-        'account_id': value.accountId,
         'block_hash': value.block.hash,
         'block_number': value.block.number.toString(),
         'free_fen': value.freeFen.toString(),
         'reserved_fen': value.reservedFen.toString(),
-        'total_fen': value.totalFen.toString(),
-        'updated_at_millis': now,
       };
-      row
-        ..payloadJson = jsonEncode(record)
-        ..updatedAtMillis = now;
-      await isar.walletAccountBalanceSnapshotEntitys.putByAccountId(row);
+      row.bodyData = jsonEncode(record);
+      await isar.collection<wallet_store.Balance>().putByAccountId(row);
       return value;
     });
   }
@@ -327,7 +325,7 @@ class AccountBalanceSnapshotStore {
   /// 清算行可用余额也由 wallet 拥有；WSS 端点参与键控，切换绑定不能复用另一行余额。
   Future<BigInt> getClearingBalance({
     required String accountId,
-    required String ss58Address,
+    required String accountAddress,
     required String wssUrl,
     bool forceRefresh = false,
   }) async {
@@ -339,15 +337,16 @@ class AccountBalanceSnapshotStore {
     final key = (accountId, wssUrl);
     final state = clearingState(
       accountId: accountId,
-      ss58Address: ss58Address,
+      accountAddress: accountAddress,
       wssUrl: wssUrl,
     );
     if (!forceRefresh) {
       if (state.value != null) return state.value!;
       final local = await WalletIsar.instance.read((isar) async {
-        final row = await isar.walletAccountBalanceSnapshotEntitys
+        final row = await isar
+            .collection<wallet_store.Balance>()
             .getByAccountId(accountId);
-        final values = _decodeRecord(row?.payloadJson)['clearing_balances'];
+        final values = _decodeRecord(row?.bodyData)['clearing_balances'];
         final raw = values is Map ? values[wssUrl] : null;
         return raw is String ? BigInt.tryParse(raw) : null;
       });
@@ -358,7 +357,7 @@ class AccountBalanceSnapshotStore {
     }
     final concurrent = _clearingInflight[key];
     if (concurrent != null) return concurrent;
-    final result = _refreshClearing(accountId, ss58Address, wssUrl);
+    final result = _refreshClearing(accountId, accountAddress, wssUrl);
     _clearingInflight[key] = result;
     try {
       final value = await result;
@@ -374,11 +373,11 @@ class AccountBalanceSnapshotStore {
 
   Future<BigInt> _refreshClearing(
     String accountId,
-    String ss58Address,
+    String accountAddress,
     String wssUrl,
   ) async {
     final raw = await OffchainClearingBankRpc(wssUrl)
-        .call('offchain_queryBalance', [ss58Address]);
+        .call('offchain_queryBalance', [accountAddress]);
     final value = (raw is int || raw is String)
         ? BigInt.tryParse(raw.toString())
         : null;
@@ -386,21 +385,18 @@ class AccountBalanceSnapshotStore {
       throw const FormatException('清算行余额必须为非负整数分');
     }
     await WalletIsar.instance.writeTxn((isar) async {
-      final existing = await isar.walletAccountBalanceSnapshotEntitys
+      final existing = await isar
+          .collection<wallet_store.Balance>()
           .getByAccountId(accountId);
-      final record = _decodeRecord(existing?.payloadJson);
+      final record = _decodeRecord(existing?.bodyData);
       final values = Map<String, dynamic>.from(
         record['clearing_balances'] as Map? ?? const {},
       );
       values[wssUrl] = value.toString();
       record['clearing_balances'] = values;
-      final row =
-          existing ??
-          (WalletAccountBalanceSnapshotEntity()..accountId = accountId);
-      row
-        ..payloadJson = jsonEncode(record)
-        ..updatedAtMillis = DateTime.now().millisecondsSinceEpoch;
-      await isar.walletAccountBalanceSnapshotEntitys.putByAccountId(row);
+      final row = existing ?? (wallet_store.Balance()..accountId = accountId);
+      row.bodyData = jsonEncode(record);
+      await isar.collection<wallet_store.Balance>().putByAccountId(row);
     });
     _changes.add(accountId);
     return value;
@@ -423,18 +419,25 @@ class AccountBalanceSnapshotStore {
   }
 
   static CitizenAccountBalance? _decodeChain(Object? raw, String accountId) {
-    if (raw is! Map) return null;
+    const fields = {'block_hash', 'block_number', 'free_fen', 'reserved_fen'};
+    if (raw is! Map ||
+        raw.length != fields.length ||
+        !raw.keys.every(fields.contains)) {
+      return null;
+    }
     try {
+      final free = BigInt.parse(raw['free_fen'] as String);
+      final reserved = BigInt.parse(raw['reserved_fen'] as String);
       final value = CitizenAccountBalance(
-        accountId: raw['account_id'] as String,
+        accountId: accountId,
         block: CitizenBlockRef(
           hash: raw['block_hash'] as String,
           number: BigInt.parse(raw['block_number'] as String),
           finality: CitizenBlockFinality.finalized,
         ),
-        freeFen: BigInt.parse(raw['free_fen'] as String),
-        reservedFen: BigInt.parse(raw['reserved_fen'] as String),
-        totalFen: BigInt.parse(raw['total_fen'] as String),
+        freeFen: free,
+        reservedFen: reserved,
+        totalFen: free + reserved,
       );
       _validate(value, accountId);
       return value;

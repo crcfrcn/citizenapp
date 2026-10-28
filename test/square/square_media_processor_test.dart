@@ -102,50 +102,50 @@ void main() {
 
   group('SquareMediaPolicy', () {
     test('三个会员档位使用唯一确定的图片与视频规则', () {
-      expect(SquareMediaPolicy.maxLocalImageBytes, 4 * 1024 * 1024);
-      expect(SquareMediaPolicy.maxLocalPlaybackBytes, 3 * 1024 * 1024 * 1024);
+      expect(SquareMediaPolicy.localImageBytes, 4 * 1024 * 1024);
+      expect(SquareMediaPolicy.playbackBytes, 3 * 1024 * 1024 * 1024);
       expect(
         (
-          SquareMediaPolicy.forPlan(_plan('freedom')).imageMaxEdge,
+          SquareMediaPolicy.forPlan(_plan('freedom')).imageDimension,
           SquareMediaPolicy.forPlan(_plan('freedom')).imageQuality,
-          SquareMediaPolicy.forPlan(_plan('freedom')).imageMaxBytes,
-          SquareMediaPolicy.forPlan(_plan('freedom')).videoShortSide,
+          SquareMediaPolicy.forPlan(_plan('freedom')).imageBytes,
+          SquareMediaPolicy.forPlan(_plan('freedom')).videoHeight,
           SquareMediaPolicy.forPlan(_plan('freedom')).videoTotalBitrate,
-          SquareMediaPolicy.forPlan(_plan('freedom')).maxVideoSeconds,
-          SquareMediaPolicy.forPlan(_plan('freedom')).maxVideoBytes,
+          SquareMediaPolicy.forPlan(_plan('freedom')).videoMaxSeconds,
+          SquareMediaPolicy.forPlan(_plan('freedom')).videoMaxBytes,
         ),
         (1280, 65, 400 * 1024, 480, 450000, 180, 12 * 1024 * 1024),
       );
       expect(
         (
-          SquareMediaPolicy.forPlan(_plan('democracy')).imageMaxEdge,
+          SquareMediaPolicy.forPlan(_plan('democracy')).imageDimension,
           SquareMediaPolicy.forPlan(_plan('democracy')).imageQuality,
-          SquareMediaPolicy.forPlan(_plan('democracy')).imageMaxBytes,
-          SquareMediaPolicy.forPlan(_plan('democracy')).videoShortSide,
+          SquareMediaPolicy.forPlan(_plan('democracy')).imageBytes,
+          SquareMediaPolicy.forPlan(_plan('democracy')).videoHeight,
           SquareMediaPolicy.forPlan(_plan('democracy')).videoTotalBitrate,
-          SquareMediaPolicy.forPlan(_plan('democracy')).maxVideoSeconds,
-          SquareMediaPolicy.forPlan(_plan('democracy')).maxVideoBytes,
+          SquareMediaPolicy.forPlan(_plan('democracy')).videoMaxSeconds,
+          SquareMediaPolicy.forPlan(_plan('democracy')).videoMaxBytes,
         ),
         (1600, 72, 800 * 1024, 720, 800000, 1800, 200 * 1024 * 1024),
       );
       expect(
         (
-          SquareMediaPolicy.forPlan(_plan('spark')).imageMaxEdge,
+          SquareMediaPolicy.forPlan(_plan('spark')).imageDimension,
           SquareMediaPolicy.forPlan(_plan('spark')).imageQuality,
-          SquareMediaPolicy.forPlan(_plan('spark')).imageMaxBytes,
-          SquareMediaPolicy.forPlan(_plan('spark')).videoShortSide,
+          SquareMediaPolicy.forPlan(_plan('spark')).imageBytes,
+          SquareMediaPolicy.forPlan(_plan('spark')).videoHeight,
           SquareMediaPolicy.forPlan(_plan('spark')).videoTotalBitrate,
-          SquareMediaPolicy.forPlan(_plan('spark')).maxVideoSeconds,
-          SquareMediaPolicy.forPlan(_plan('spark')).maxVideoBytes,
+          SquareMediaPolicy.forPlan(_plan('spark')).videoMaxSeconds,
+          SquareMediaPolicy.forPlan(_plan('spark')).videoMaxBytes,
         ),
         (1920, 78, 1200 * 1024, 1080, 1200000, 10800, 1800 * 1024 * 1024),
       );
       expect(
-        SquareMediaPolicy.forPlan(_plan('freedom')).imageThumbnailMaxEdge,
+        SquareMediaPolicy.forPlan(_plan('freedom')).thumbnailDimension,
         360,
       );
       expect(
-        SquareMediaPolicy.forPlan(_plan('freedom')).videoCoverMaxBytes,
+        SquareMediaPolicy.forPlan(_plan('freedom')).coverBytes,
         120 * 1024,
       );
       expect(
@@ -231,8 +231,8 @@ void main() {
       ]);
       expect(batch.mediaDrafts.single.contentType, 'image/webp');
       expect(batch.mediaDrafts.single.fileName, 'source.webp');
-      expect(batch.mediaDrafts.single.width, 1280);
-      expect(batch.mediaDrafts.single.height, 640);
+      expect(batch.mediaDrafts.single.pixelWidth, 1280);
+      expect(batch.mediaDrafts.single.pixelHeight, 640);
       expect(
         batch.derivatives.single.derivativeKind,
         SquareMediaDerivativeKind.thumbnail,
@@ -275,15 +275,15 @@ void main() {
             fileName: 'source.mov',
             contentType: 'video/quicktime',
             byteSize: 1,
-            durationSeconds: 120,
+            videoSecs: 120,
           ),
         ],
       );
 
-      expect(bridge.lastRequest?.policy.membershipLevel, 'freedom');
+      expect(bridge.lastRequest?.policy.memberLevel, 'freedom');
       expect(
-        bridge.lastRequest?.policy.maxVideoBytes,
-        SquareMediaPolicy.forPlan(_plan('freedom')).maxVideoBytes,
+        bridge.lastRequest?.policy.videoMaxBytes,
+        SquareMediaPolicy.forPlan(_plan('freedom')).videoMaxBytes,
       );
       expect(batch.mediaDrafts.single.contentType, 'video/mp4');
       expect(batch.mediaDrafts.single.fileName, 'source.mp4');
@@ -320,7 +320,7 @@ void main() {
                 fileName: 'source.mov',
                 contentType: 'video/quicktime',
                 byteSize: 1,
-                durationSeconds: 30,
+                videoSecs: 30,
               ),
             ],
           ),
@@ -357,12 +357,12 @@ final class _FakeVideoBridge implements SquareVideoBridge {
     final cover = img.encodePng(img.Image(width: 1280, height: 720));
     await File(request.coverPath).writeAsBytes(cover);
     return SquareVideoTranscodeResult(
-      durationSeconds: 120,
-      width: 854,
-      height: 480,
-      frameRate: 30,
-      totalAverageBitrate: request.policy.videoTotalBitrate - 20000,
-      totalPeakBitrate: request.policy.videoPeakBitrate - 50000,
+      videoSecs: 120,
+      pixelWidth: 854,
+      pixelHeight: 480,
+      videoFrameRate: 30,
+      videoAverageBitrate: request.policy.videoTotalBitrate - 20000,
+      videoPeakBitrate: request.policy.videoPeakBitrate - 50000,
       byteSize: 4,
       coverByteSize: cover.length,
       videoCodec: 'hevc',
@@ -377,20 +377,20 @@ final class _FakeVideoBridge implements SquareVideoBridge {
 SquareMembershipPlan _plan(String level) {
   final plans = membergatePlansFixture();
   if (level != 'unknown') {
-    return plans.firstWhere((p) => p.membershipLevel == level);
+    return plans.firstWhere((p) => p.memberLevel == level);
   }
   final p = plans.first;
   return SquareMembershipPlan(
-    membershipLevel: level,
+    memberLevel: level,
     displayName: p.displayName,
-    chatFileMaxBytes: p.chatFileMaxBytes,
+    fileLimit: p.fileLimit,
     chat: p.chat,
     document: p.document,
     video: p.video,
     article: p.article,
     usage: p.usage,
-    imageMaxBytes: p.imageMaxBytes,
-    imageMaxEdge: p.imageMaxEdge,
+    imageBytes: p.imageBytes,
+    imageDimension: p.imageDimension,
     media: p.media,
     resources: p.resources,
     dailyLimits: p.dailyLimits,

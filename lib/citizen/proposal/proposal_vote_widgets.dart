@@ -27,8 +27,9 @@ class ProposalVoteProgress extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final progress =
-        threshold > 0 ? (yesCount / threshold).clamp(0.0, 1.0) : 0.0;
+    final progress = threshold > 0
+        ? (yesCount / threshold).clamp(0.0, 1.0)
+        : 0.0;
 
     return Card(
       elevation: 0,
@@ -57,8 +58,9 @@ class ProposalVoteProgress extends StatelessWidget {
                 value: progress,
                 minHeight: AppLayout.scaled(context, 10),
                 backgroundColor: AppTheme.border,
-                valueColor:
-                    const AlwaysStoppedAnimation<Color>(AppTheme.primaryDark),
+                valueColor: const AlwaysStoppedAnimation<Color>(
+                  AppTheme.primaryDark,
+                ),
               ),
             ),
             SizedBox(height: AppLayout.scaled(context, 8)),
@@ -144,77 +146,85 @@ class ProposalAdminVoteList extends StatelessWidget {
             ),
             const Divider(),
             ...List.generate(
-                voterTickets.isEmpty ? admins.length : voterTickets.length,
-                (index) {
-              final ticket = voterTickets.isEmpty ? null : voterTickets[index];
-              final accountId = ticket?.voterAccountId ?? admins[index];
-              final vote = adminVotes[ticket?.ticketKey ?? accountId];
-              final ss58 = _publicKeyToSS58(accountId);
-              final isProposer = proposerSs58 != null && proposerSs58 == ss58;
+              voterTickets.isEmpty ? admins.length : voterTickets.length,
+              (index) {
+                final ticket = voterTickets.isEmpty
+                    ? null
+                    : voterTickets[index];
+                final accountId = ticket?.voterAccountId ?? admins[index];
+                final vote = adminVotes[ticket?.ticketKey ?? accountId];
+                final ss58 = _publicKeyToSS58(accountId);
+                final isProposer = proposerSs58 != null && proposerSs58 == ss58;
 
-              return ListTile(
-                dense: true,
-                leading: CircleAvatar(
-                  radius: AppLayout.scaled(context, 16),
-                  backgroundColor: AppTheme.primaryDark.withValues(alpha: 0.08),
-                  child: Text(
-                    '${index + 1}',
-                    style: TextStyle(
-                      fontSize: AppLayout.scaled(context, 12),
-                      fontWeight: FontWeight.w600,
-                      color: AppTheme.primaryDark,
+                return ListTile(
+                  dense: true,
+                  leading: CircleAvatar(
+                    radius: AppLayout.scaled(context, 16),
+                    backgroundColor: AppTheme.primaryDark.withValues(
+                      alpha: 0.08,
+                    ),
+                    child: Text(
+                      '${index + 1}',
+                      style: TextStyle(
+                        fontSize: AppLayout.scaled(context, 12),
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.primaryDark,
+                      ),
                     ),
                   ),
-                ),
-                title: Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        _truncateAddress(ss58),
-                        style:
-                            TextStyle(fontSize: AppLayout.scaled(context, 13)),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    if (ticket?.voterRoleCode != null) ...[
-                      SizedBox(width: AppLayout.scaled(context, 6)),
-                      Text(
-                        ticket!.voterRoleCode!,
-                        style: TextStyle(
-                          fontSize: AppLayout.scaled(context, 10),
-                          color: AppTheme.textTertiary,
-                        ),
-                      ),
-                    ],
-                    if (isProposer) ...[
-                      SizedBox(width: AppLayout.scaled(context, 6)),
-                      Container(
-                        padding: EdgeInsets.symmetric(
-                            horizontal: AppLayout.scaled(context, 6),
-                            vertical: 1),
-                        decoration: BoxDecoration(
-                          color: AppTheme.warning.withValues(alpha: 0.1),
-                          borderRadius:
-                              BorderRadius.circular(AppLayout.scaledValue(8)),
-                        ),
+                  title: Row(
+                    children: [
+                      Flexible(
                         child: Text(
-                          '发起人',
+                          _truncateAddress(ss58),
+                          style: TextStyle(
+                            fontSize: AppLayout.scaled(context, 13),
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (ticket?.voterRoleCode != null) ...[
+                        SizedBox(width: AppLayout.scaled(context, 6)),
+                        Text(
+                          ticket!.voterRoleCode!,
                           style: TextStyle(
                             fontSize: AppLayout.scaled(context, 10),
-                            fontWeight: FontWeight.w600,
-                            color: AppTheme.warning,
+                            color: AppTheme.textTertiary,
                           ),
                         ),
-                      ),
+                      ],
+                      if (isProposer) ...[
+                        SizedBox(width: AppLayout.scaled(context, 6)),
+                        Container(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: AppLayout.scaled(context, 6),
+                            vertical: 1,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppTheme.warning.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(
+                              AppLayout.scaledValue(8),
+                            ),
+                          ),
+                          child: Text(
+                            '发起人',
+                            style: TextStyle(
+                              fontSize: AppLayout.scaled(context, 10),
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.warning,
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
-                ),
-                trailing: _buildVoteStatusChip(
-                  vote,
-                  ticket?.ticketKey ?? accountId,
-                ),
-              );
-            }),
+                  ),
+                  trailing: _buildVoteStatusChip(
+                    vote,
+                    ticket?.ticketKey ?? accountId,
+                  ),
+                );
+              },
+            ),
           ],
         ),
       ),
@@ -225,8 +235,9 @@ class ProposalAdminVoteList extends StatelessWidget {
     if (vote == true) {
       return Container(
         padding: EdgeInsets.symmetric(
-            horizontal: AppLayout.scaledValue(8),
-            vertical: AppLayout.scaledValue(2)),
+          horizontal: AppLayout.scaledValue(8),
+          vertical: AppLayout.scaledValue(2),
+        ),
         decoration: BoxDecoration(
           color: AppTheme.success.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(AppLayout.scaledValue(10)),
@@ -243,8 +254,9 @@ class ProposalAdminVoteList extends StatelessWidget {
     } else if (vote == false) {
       return Container(
         padding: EdgeInsets.symmetric(
-            horizontal: AppLayout.scaledValue(8),
-            vertical: AppLayout.scaledValue(2)),
+          horizontal: AppLayout.scaledValue(8),
+          vertical: AppLayout.scaledValue(2),
+        ),
         decoration: BoxDecoration(
           color: AppTheme.danger.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(AppLayout.scaledValue(10)),
@@ -261,8 +273,9 @@ class ProposalAdminVoteList extends StatelessWidget {
     } else if (pendingPublicKeys.contains(publicKey)) {
       return Container(
         padding: EdgeInsets.symmetric(
-            horizontal: AppLayout.scaledValue(8),
-            vertical: AppLayout.scaledValue(2)),
+          horizontal: AppLayout.scaledValue(8),
+          vertical: AppLayout.scaledValue(2),
+        ),
         decoration: BoxDecoration(
           color: AppTheme.warning.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(AppLayout.scaledValue(10)),
@@ -293,8 +306,9 @@ class ProposalAdminVoteList extends StatelessWidget {
     } else {
       return Container(
         padding: EdgeInsets.symmetric(
-            horizontal: AppLayout.scaledValue(8),
-            vertical: AppLayout.scaledValue(2)),
+          horizontal: AppLayout.scaledValue(8),
+          vertical: AppLayout.scaledValue(2),
+        ),
         decoration: BoxDecoration(
           color: AppTheme.textTertiary.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(AppLayout.scaledValue(10)),
@@ -343,7 +357,11 @@ class ProposalVoteActions extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: EdgeInsets.fromLTRB(
-          16, 12, 16, MediaQuery.of(context).padding.bottom + 12),
+        16,
+        12,
+        16,
+        MediaQuery.of(context).padding.bottom + 12,
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
@@ -363,27 +381,33 @@ class ProposalVoteActions extends StatelessWidget {
               padding: EdgeInsets.only(bottom: AppLayout.scaled(context, 10)),
               child: Container(
                 padding: EdgeInsets.symmetric(
-                    horizontal: AppLayout.scaled(context, 12)),
+                  horizontal: AppLayout.scaled(context, 12),
+                ),
                 decoration: BoxDecoration(
                   color: AppTheme.success.withValues(alpha: 0.05),
                   borderRadius: BorderRadius.circular(AppLayout.scaledValue(8)),
                   border: Border.all(
-                      color: AppTheme.success.withValues(alpha: 0.2)),
+                    color: AppTheme.success.withValues(alpha: 0.2),
+                  ),
                 ),
                 child: DropdownButtonHideUnderline(
                   child: DropdownButton<int>(
                     value: selectedWallet?.walletIndex,
                     isExpanded: true,
-                    icon: const Icon(Icons.arrow_drop_down,
-                        color: AppTheme.primaryDark),
+                    icon: const Icon(
+                      Icons.arrow_drop_down,
+                      color: AppTheme.primaryDark,
+                    ),
                     items: votableWallets.map((w) {
                       return DropdownMenuItem<int>(
                         value: w.walletIndex,
                         child: Row(
                           children: [
-                            Icon(Icons.verified_user,
-                                size: AppLayout.scaled(context, 14),
-                                color: AppTheme.success),
+                            Icon(
+                              Icons.verified_user,
+                              size: AppLayout.scaled(context, 14),
+                              color: AppTheme.success,
+                            ),
                             SizedBox(width: AppLayout.scaled(context, 6)),
                             Expanded(
                               child: Text(
@@ -401,8 +425,9 @@ class ProposalVoteActions extends StatelessWidget {
                     }).toList(),
                     onChanged: (index) {
                       if (index == null) return;
-                      final wallet = votableWallets
-                          .firstWhere((w) => w.walletIndex == index);
+                      final wallet = votableWallets.firstWhere(
+                        (w) => w.walletIndex == index,
+                      );
                       onWalletChanged(wallet);
                     },
                   ),
@@ -415,8 +440,9 @@ class ProposalVoteActions extends StatelessWidget {
               child: Text(
                 '你已导入的合格投票钱包均已投票',
                 style: TextStyle(
-                    fontSize: AppLayout.scaled(context, 13),
-                    color: AppTheme.textTertiary),
+                  fontSize: AppLayout.scaled(context, 13),
+                  color: AppTheme.textTertiary,
+                ),
                 textAlign: TextAlign.center,
               ),
             ),
@@ -424,17 +450,21 @@ class ProposalVoteActions extends StatelessWidget {
             children: [
               Expanded(
                 child: ElevatedButton(
-                  onPressed:
-                      (submitting || !canVote) ? null : () => onVote(false),
+                  onPressed: (submitting || !canVote)
+                      ? null
+                      : () => onVote(false),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor:
-                        canVote ? AppTheme.danger : AppTheme.border,
+                    backgroundColor: canVote
+                        ? AppTheme.danger
+                        : AppTheme.border,
                     foregroundColor: Colors.white,
                     padding: EdgeInsets.symmetric(
-                        vertical: AppLayout.scaled(context, 14)),
+                      vertical: AppLayout.scaled(context, 14),
+                    ),
                     shape: RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.circular(AppLayout.scaledValue(10)),
+                      borderRadius: BorderRadius.circular(
+                        AppLayout.scaledValue(10),
+                      ),
                     ),
                     elevation: 0,
                   ),
@@ -450,26 +480,31 @@ class ProposalVoteActions extends StatelessWidget {
                       : Text(
                           '反对',
                           style: TextStyle(
-                              fontSize: AppLayout.scaled(context, 16),
-                              fontWeight: FontWeight.w600),
+                            fontSize: AppLayout.scaled(context, 16),
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                 ),
               ),
               SizedBox(width: AppLayout.scaled(context, 16)),
               Expanded(
                 child: ElevatedButton(
-                  onPressed:
-                      (submitting || !canVote) ? null : () => onVote(true),
+                  onPressed: (submitting || !canVote)
+                      ? null
+                      : () => onVote(true),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.success,
                     foregroundColor: Colors.white,
-                    disabledBackgroundColor:
-                        AppTheme.success.withValues(alpha: 0.25),
+                    disabledBackgroundColor: AppTheme.success.withValues(
+                      alpha: 0.25,
+                    ),
                     padding: EdgeInsets.symmetric(
-                        vertical: AppLayout.scaled(context, 14)),
+                      vertical: AppLayout.scaled(context, 14),
+                    ),
                     shape: RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.circular(AppLayout.scaledValue(10)),
+                      borderRadius: BorderRadius.circular(
+                        AppLayout.scaledValue(10),
+                      ),
                     ),
                     elevation: 0,
                   ),
@@ -485,8 +520,9 @@ class ProposalVoteActions extends StatelessWidget {
                       : Text(
                           '赞成',
                           style: TextStyle(
-                              fontSize: AppLayout.scaled(context, 16),
-                              fontWeight: FontWeight.w600),
+                            fontSize: AppLayout.scaled(context, 16),
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                 ),
               ),
@@ -525,8 +561,9 @@ class ProposalStatusBadge extends StatelessWidget {
       children: [
         Container(
           padding: EdgeInsets.symmetric(
-              horizontal: AppLayout.scaled(context, 12),
-              vertical: AppLayout.scaled(context, 6)),
+            horizontal: AppLayout.scaled(context, 12),
+            vertical: AppLayout.scaled(context, 6),
+          ),
           decoration: BoxDecoration(
             color: color.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(AppLayout.scaledValue(20)),
@@ -539,14 +576,14 @@ class ProposalStatusBadge extends StatelessWidget {
                 status == 0
                     ? Icons.how_to_vote
                     : status == 1
-                        ? Icons.check_circle
-                        : status == 2
-                            ? Icons.cancel
-                            : status == 3
-                                ? Icons.check_circle
-                                : status == 4
-                                    ? Icons.error_outline
-                                    : Icons.error,
+                    ? Icons.check_circle
+                    : status == 2
+                    ? Icons.cancel
+                    : status == 3
+                    ? Icons.check_circle
+                    : status == 4
+                    ? Icons.error_outline
+                    : Icons.error,
                 size: AppLayout.scaled(context, 16),
                 color: color,
               ),
@@ -566,8 +603,9 @@ class ProposalStatusBadge extends StatelessWidget {
         Text(
           '提案 #$proposalId',
           style: TextStyle(
-              fontSize: AppLayout.scaled(context, 13),
-              color: AppTheme.textTertiary),
+            fontSize: AppLayout.scaled(context, 13),
+            color: AppTheme.textTertiary,
+          ),
         ),
       ],
     );

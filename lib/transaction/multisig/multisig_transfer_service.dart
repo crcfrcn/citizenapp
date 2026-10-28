@@ -139,7 +139,7 @@ class MultisigTransferService {
     );
     final proposalId = await _confirmTransferProposedEvent(
       finalizedBlock: submitResult.block,
-      institutionCode: institution.adminAccountCode ?? 'PMUL',
+      orgCode: institution.adminCode ?? 'PMUL',
       actorCidNumber: actorCidNumber,
       proposerPublicKey: signerPublicKey,
       fromPublicKey: fromPublicKey,
@@ -1411,7 +1411,7 @@ class MultisigTransferService {
 
   Future<int> _confirmTransferProposedEvent({
     required CitizenBlockRef finalizedBlock,
-    required String institutionCode,
+    required String orgCode,
     required String? actorCidNumber,
     required Uint8List proposerPublicKey,
     required Uint8List fromPublicKey,
@@ -1425,7 +1425,7 @@ class MultisigTransferService {
       decode: (data, offset) => _decodeTransferProposedEvent(
         data,
         offset,
-        institutionCode: institutionCode,
+        orgCode: orgCode,
         actorCidNumber: actorCidNumber,
         proposerPublicKey: proposerPublicKey,
         fromPublicKey: fromPublicKey,
@@ -1506,7 +1506,7 @@ class MultisigTransferService {
   ({int proposalId, bool matches})? _decodeTransferProposedEvent(
     Uint8List data,
     int offset, {
-    required String institutionCode,
+    required String orgCode,
     required String? actorCidNumber,
     required Uint8List proposerPublicKey,
     required Uint8List fromPublicKey,
@@ -1557,7 +1557,7 @@ class MultisigTransferService {
 
     if (_skipTopics(data, pos) == null) return null;
     final matches =
-        eventCode == institutionCode &&
+        eventCode == orgCode &&
         eventActorCidNumber == actorCidNumber &&
         _bytesEqual(eventProposer, proposerPublicKey) &&
         _bytesEqual(eventFrom, fromPublicKey) &&

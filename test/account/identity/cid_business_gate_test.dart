@@ -35,14 +35,14 @@ CitizenWalletStateAccount account(String id) => CitizenWalletStateAccount(
 const binding = IdentityBinding(
   genesisHash: genesisHash,
   cidNumber: cidNumber,
-  bindingRevision: 1,
+  bindRev: 1,
   accountId: accountId,
 );
 
 CitizenIdentityChainSnapshot snapshot() => CitizenIdentityChainSnapshot(
   cidNumber: cidNumber,
   accountId: Uint8List.fromList(List<int>.filled(32, 0xaa)),
-  bindingRevision: 1,
+  bindRev: 1,
   votingIdentity: null,
   candidateIdentity: null,
 );
@@ -231,7 +231,7 @@ void main() {
     resolver.pending!.complete(
       FinalizedIdentity(
         accountId: accountId,
-        ss58Address: account(accountId).ss58Address,
+        accountAddress: account(accountId).ss58Address,
         snapshot: null,
       ),
     );
@@ -259,7 +259,7 @@ void main() {
     resolver.pending!.complete(
       FinalizedIdentity(
         accountId: accountId,
-        ss58Address: account(accountId).ss58Address,
+        accountAddress: account(accountId).ss58Address,
         snapshot: null,
       ),
     );
@@ -287,7 +287,7 @@ void main() {
     resolver.pending!.complete(
       FinalizedIdentity(
         accountId: accountId,
-        ss58Address: account(accountId).ss58Address,
+        accountAddress: account(accountId).ss58Address,
         snapshot: null,
       ),
     );
@@ -301,7 +301,7 @@ void main() {
     final resolver = _Resolver(
       FinalizedIdentity(
         accountId: accountId,
-        ss58Address: account(accountId).ss58Address,
+        accountAddress: account(accountId).ss58Address,
         snapshot: null,
       ),
     );
@@ -325,7 +325,7 @@ void main() {
     final resolver = _Resolver(
       FinalizedIdentity(
         accountId: accountId,
-        ss58Address: account(accountId).ss58Address,
+        accountAddress: account(accountId).ss58Address,
         snapshot: snapshot(),
       ),
     );
@@ -356,7 +356,7 @@ void main() {
     final resolver = _Resolver(
       FinalizedIdentity(
         accountId: accountId,
-        ss58Address: account(accountId).ss58Address,
+        accountAddress: account(accountId).ss58Address,
         snapshot: snapshot(),
       ),
     )..fails = true;

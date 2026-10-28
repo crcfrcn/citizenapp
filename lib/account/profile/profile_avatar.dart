@@ -20,9 +20,9 @@ class ProfileAvatar extends StatelessWidget {
 
     this.imageProvider,
     this.userImageSet,
-    this.identityLevel,
-    this.membershipLevel,
-    this.membershipActive = false,
+    this.cidLevel,
+    this.memberLevel,
+    this.membergateActive = false,
     this.borderColor,
     this.borderWidth = 0,
     this.borderRadius,
@@ -41,9 +41,9 @@ class ProfileAvatar extends StatelessWidget {
   /// null 时按 imagePath/imageUrl/imageProvider 推导。明确为 true 表示用户已经设置图片；即使本机
   /// 缓存和网络暂不可用，也只能显示中性占位，不能冒充“从未设置”回退内置随机图。
   final bool? userImageSet;
-  final String? identityLevel;
-  final String? membershipLevel;
-  final bool membershipActive;
+  final String? cidLevel;
+  final String? memberLevel;
+  final bool membergateActive;
   final Color? borderColor;
   final double borderWidth;
   final double? borderRadius;
@@ -57,9 +57,9 @@ class ProfileAvatar extends StatelessWidget {
   Widget build(BuildContext context) {
     final radius = borderRadius ?? size * 0.22;
     final badge = identityBadgeStyle(
-      identityLevel: identityLevel,
-      membershipLevel: membershipLevel,
-      membershipActive: membershipActive,
+      cidLevel: cidLevel,
+      memberLevel: memberLevel,
+      membergateActive: membergateActive,
     );
     final path = imagePath?.trim();
     final file = path == null || path.isEmpty ? null : File(path);
@@ -127,8 +127,8 @@ class ProfileAvatar extends StatelessWidget {
               style: badge,
               size: (size * 0.34).clamp(18, 28),
               tooltip: identityBadgeLabel(
-                identityLevel: identityLevel,
-                membershipLevel: membershipLevel,
+                cidLevel: cidLevel,
+                memberLevel: memberLevel,
                 checked: badge.checked,
               ),
             ),

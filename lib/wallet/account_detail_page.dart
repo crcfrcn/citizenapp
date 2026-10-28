@@ -1,3 +1,4 @@
+import 'package:citizenapp/storage/wallet_isar.dart' as wallet_store show Entry;
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:async';
@@ -5,7 +6,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:citizenapp/storage/wallet_isar.dart';
 import 'package:citizenapp/app_log.dart';
 import 'package:citizenapp/system/security/screenshot_guard.dart';
 import 'package:citizenapp/transaction/history/local_tx_store.dart';
@@ -49,7 +49,7 @@ class _AccountDetailPageState extends State<AccountDetailPage>
       GlobalKey<WalletActionCardState>();
 
   /// 该账户最近交易记录(最多 5 条),按 `account_id` 查询。
-  List<LocalTxEntity> _recentRecords = const [];
+  List<wallet_store.Entry> _recentRecords = const [];
 
   @override
   void initState() {
@@ -370,7 +370,7 @@ class _AccountDetailPageState extends State<AccountDetailPage>
               child: WalletActionCard(
                 key: _actionCardKey,
                 accountId: account.accountId,
-                ss58Address: account.ss58Address,
+                accountAddress: account.ss58Address,
               ),
             ),
             SizedBox(height: AppLayout.scaled(context, 12)),
@@ -516,7 +516,7 @@ class _AccountDetailPageState extends State<AccountDetailPage>
           Navigator.of(context).push(
             MaterialPageRoute(
               builder: (_) => TransactionHistoryPage(
-                ss58Address: widget.account.ss58Address,
+                accountAddress: widget.account.ss58Address,
                 accountId: widget.account.accountId,
               ),
             ),

@@ -24,7 +24,7 @@ const _binding = IdentityBinding(
   genesisHash:
       '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
   cidNumber: _owner,
-  bindingRevision: 1,
+  bindRev: 1,
   accountId: _account,
 );
 
@@ -98,7 +98,7 @@ class _Sessions implements SquareSessionProvider {
       deviceId: '11' * 32,
       sessionToken: 'token',
       cidNumber: _owner,
-      bindingRevision: 1,
+      bindRev: 1,
       accountId: _account,
       expiresAt: 4102444800000,
     );
@@ -178,7 +178,7 @@ void main() {
         if (withPending) {
           await service.addContact(
             cidNumber: 'CID-B',
-            ss58Address: ss58FromAccountIdText('0x${'22' * 32}'),
+            accountAddress: ss58FromAccountIdText('0x${'22' * 32}'),
             contactRemark: '合成备注',
           );
         }
@@ -224,7 +224,7 @@ void main() {
     );
     final contact = await service.addContact(
       cidNumber: 'CID-B',
-      ss58Address: ss58FromAccountIdText('0x${'22' * 32}'),
+      accountAddress: ss58FromAccountIdText('0x${'22' * 32}'),
       contactRemark: '备注',
     );
     final old = utf8.encode(

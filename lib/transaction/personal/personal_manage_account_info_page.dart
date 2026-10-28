@@ -1,3 +1,6 @@
+import 'package:citizenapp/storage/wallet_isar.dart'
+    as wallet_store
+    show Account, Action;
 import 'package:citizenapp/wallet/account_balance_snapshot_store.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
@@ -10,7 +13,7 @@ import 'package:flutter/services.dart';
 import 'package:isar_community/isar.dart';
 import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 import 'package:citizenapp/citizen/account_derivation.dart';
-import 'package:citizenapp/storage/wallet_isar.dart';
+import 'package:citizenapp/storage/wallet_isar.dart' hide Group;
 import 'package:citizenapp/transaction/multisig/multisig_transfer_entry.dart';
 import 'package:citizenapp/citizen/institution/institution_info.dart';
 import 'package:citizenapp/citizen/administrators/admin_account.dart';
@@ -61,7 +64,7 @@ class _PersonalManageAccountInfoPageState
   bool _isClosed = false;
 
   /// 账户余额(元):Active 来自链上 freeFen,Pending 来自本机 Isar
-  /// PersonalAccountProposalEntity.snapshotJson.amount_fen(发起人承诺入金)。
+  /// action.snapshot_data.amount_fen(发起人承诺入金)。
   double? _balanceYuan;
 
   @override
@@ -99,38 +102,39 @@ class _PersonalManageAccountInfoPageState
   Future<void> _loadFromLocal() async {
     try {
       final local = await WalletIsar.instance.read((isar) async {
-        final entity = await isar.personalAccountEntitys
+        final entity = await isar
+            .collection<wallet_store.Account>()
             .filter()
-            .accountIdEqualTo(widget.institution.personalAccountId)
+            .accountIdEqualTo(widget.institution.accountId)
             .findFirst();
         final statuses = await PersonalMultisigLocalState.readStatusSnapshots(
           isar,
-          [widget.institution.personalAccountId],
+          [widget.institution.accountId],
         );
         final detail = await PersonalMultisigLocalState.readDetail(
           isar,
-          widget.institution.personalAccountId,
+          widget.institution.accountId,
         );
         final pendingBalance = await _readPendingBalanceFromIsar(isar);
         return (
           entity: entity,
-          status: statuses[widget.institution.personalAccountId],
+          status: statuses[widget.institution.accountId],
           detail: detail,
           pendingBalance: pendingBalance,
         );
       });
 
       final status =
-          local.status?.status ??
-          local.detail?.status ??
+          local.status?.groupState ??
+          local.detail?.groupState ??
           widget.initialLocalStatus ??
           PersonalMultisigLocalState.statusPending;
       final isClosed = status == PersonalMultisigLocalState.statusClosed;
       final normalizedAdmins = local.detail?.admins.isNotEmpty == true
           ? _normalizeAdmins(local.detail!.admins)
           : _adminsFromAccounts(
-              local.entity?.matchedAdminAccountIds.isNotEmpty == true
-                  ? local.entity!.matchedAdminAccountIds
+              local.entity?.adminAccounts.isNotEmpty == true
+                  ? local.entity!.adminAccounts
                   : widget.initialAdminAccountIds,
             );
       final statusEnum = _statusEnumFromLocal(status);
@@ -143,7 +147,7 @@ class _PersonalManageAccountInfoPageState
               status: statusEnum,
             );
       final balanceSnapshot = await AccountBalanceSnapshotStore.forChain(_chain)
-          .read(widget.institution.personalAccountId);
+          .read(widget.institution.accountId);
       final balance = isClosed
           ? null
           : statusEnum == MultisigStatus.active
@@ -163,8 +167,7 @@ class _PersonalManageAccountInfoPageState
         _isClosed = isClosed;
         _balanceYuan = balance;
         _lastDetailRefreshAtMillis =
-            local.detail?.lastChainRefreshAtMillis ??
-            local.status?.lastSyncAtMillis;
+            local.detail?.syncedAt ?? local.status?.syncedAt;
       });
     } catch (_) {
       // 本地读取失败也不能让详情页进入全屏错误；保留入口传入的
@@ -188,10 +191,7 @@ class _PersonalManageAccountInfoPageState
     if (_localStatus != PersonalMultisigLocalState.statusActive) return;
     try {
       final snapshot = await AccountBalanceSnapshotStore.forChain(_chain)
-          .getAccountBalance(
-            widget.institution.personalAccountId,
-            forceRefresh: force,
-          );
+          .getAccountBalance(widget.institution.accountId, forceRefresh: force);
       if (mounted) {
         setState(() => _balanceYuan = snapshot.freeFen.toDouble() / 100);
       }
@@ -204,9 +204,9 @@ class _PersonalManageAccountInfoPageState
     if (!force && !_shouldRefreshDetail()) return;
     try {
       final infos = await _personalManageService.fetchPersonalAccountsBatch([
-        widget.institution.personalAccountId,
+        widget.institution.accountId,
       ]);
-      final info = infos[widget.institution.personalAccountId];
+      final info = infos[widget.institution.accountId];
       final status = info == null
           ? PersonalMultisigLocalState.statusClosed
           : _localStatusFromInfo(info.status);
@@ -218,24 +218,23 @@ class _PersonalManageAccountInfoPageState
       await WalletIsar.instance.writeTxn((isar) async {
         await PersonalMultisigLocalState.putStatusInTxn(
           isar,
-          widget.institution.personalAccountId,
+          widget.institution.accountId,
           status,
         );
         if (info == null) {
           await PersonalMultisigLocalState.deleteDetailInTxn(
             isar,
-            widget.institution.personalAccountId,
+            widget.institution.accountId,
           );
         } else {
           await PersonalMultisigLocalState.putDetailInTxn(
             isar,
-            widget.institution.personalAccountId,
+            widget.institution.accountId,
             MultisigLocalDetailSnapshot(
-              status: status,
+              groupState: status,
               admins: info.admins,
               threshold: info.threshold,
-              lastChainRefreshAtMillis: now,
-              updatedAtMillis: now,
+              syncedAt: now,
             ),
           );
         }
@@ -261,11 +260,9 @@ class _PersonalManageAccountInfoPageState
   }) async {
     if (status == MultisigStatus.active) {
       try {
-        final snapshot = await AccountBalanceSnapshotStore.forChain(_chain)
-            .getAccountBalance(
-              widget.institution.personalAccountId,
-              forceRefresh: force,
-            );
+        final snapshot = await AccountBalanceSnapshotStore.forChain(
+          _chain,
+        ).getAccountBalance(widget.institution.accountId, forceRefresh: force);
         return snapshot.freeFen.toDouble() / 100;
       } catch (_) {
         return null;
@@ -275,18 +272,19 @@ class _PersonalManageAccountInfoPageState
   }
 
   Future<double?> _readPendingBalanceFromIsar(Isar isar) async {
-    // Pending 态:从本机 Isar PersonalAccountProposalEntity 取
+    // Pending 态:从本机 Isar action 取
     // (该 multisig 的 create 提案 snapshot 含 amount_fen)。
     try {
-      final entity = await isar.personalAccountProposalEntitys
+      final entity = await isar
+          .collection<wallet_store.Action>()
           .filter()
-          .personalAccountIdEqualTo(widget.institution.personalAccountId)
-          .actionEqualTo('create')
+          .accountIdEqualTo(widget.institution.accountId)
+          .actionKindEqualTo('create')
           .findFirst();
-      if (entity?.snapshotJson == null || entity!.snapshotJson!.isEmpty) {
+      if (entity?.snapshotData == null || entity!.snapshotData!.isEmpty) {
         return null;
       }
-      final snapshot = jsonDecode(entity.snapshotJson!) as Map<String, dynamic>;
+      final snapshot = jsonDecode(entity.snapshotData!) as Map<String, dynamic>;
       final amountFenStr = snapshot['amount_fen']?.toString();
       if (amountFenStr == null) return null;
       final fen = BigInt.tryParse(amountFenStr);
@@ -314,9 +312,9 @@ class _PersonalManageAccountInfoPageState
     return admins
         .map(
           (admin) =>
-              admin.copyWith(account_id: _requireAccountId(admin.account_id)),
+              admin.copyWith(accountId: _requireAccountId(admin.accountId)),
         )
-        .where((admin) => admin.account_id.isNotEmpty)
+        .where((admin) => admin.accountId.isNotEmpty)
         .toList(growable: false);
   }
 
@@ -324,11 +322,8 @@ class _PersonalManageAccountInfoPageState
       .map(_requireAccountId)
       .where((accountId) => accountId.isNotEmpty)
       .map(
-        (accountId) => AdminPerson(
-          account_id: accountId,
-          family_name: '管理',
-          given_name: '员',
-        ),
+        (accountId) =>
+            AdminPerson(accountId: accountId, familyName: '管理', givenName: '员'),
       )
       .toList(growable: false);
 
@@ -406,7 +401,7 @@ class _PersonalManageAccountInfoPageState
   Future<List<CitizenWalletStateAccount>> _getAdminWallets() async {
     final wallets =
         (await context.read<CitizenSdk>().wallet.getState().result).accounts;
-    final adminSet = _admins.map((admin) => admin.account_id).toSet();
+    final adminSet = _admins.map((admin) => admin.accountId).toSet();
     return wallets.where((w) {
       return adminSet.contains(w.accountId);
     }).toList();
@@ -414,23 +409,25 @@ class _PersonalManageAccountInfoPageState
 
   Future<void> _removeFromLocal() async {
     await WalletIsar.instance.writeTxn((isar) async {
-      await isar.personalAccountEntitys
+      await isar
+          .collection<wallet_store.Account>()
           .where()
-          .accountIdEqualTo(widget.institution.personalAccountId)
+          .accountIdEqualTo(widget.institution.accountId)
           .deleteAll();
       // 个人多签 create/transfer/close 提案 snapshot 一并清掉,否则
       // [PersonalProposalHistoryService] 下次会把它们再拉回详情页。
-      await isar.personalAccountProposalEntitys
+      await isar
+          .collection<wallet_store.Action>()
           .filter()
-          .personalAccountIdEqualTo(widget.institution.personalAccountId)
+          .accountIdEqualTo(widget.institution.accountId)
           .deleteAll();
       await PersonalMultisigLocalState.deleteStatusInTxn(
         isar,
-        widget.institution.personalAccountId,
+        widget.institution.accountId,
       );
       await PersonalMultisigLocalState.deleteDetailInTxn(
         isar,
-        widget.institution.personalAccountId,
+        widget.institution.accountId,
       );
     });
   }
@@ -498,7 +495,7 @@ class _PersonalManageAccountInfoPageState
     }
 
     final pid = await PersonalPendingCreateLookup().findActiveCreate(
-      widget.institution.personalAccountId,
+      widget.institution.accountId,
     );
     if (!mounted) return;
     if (pid == null) {
@@ -650,7 +647,7 @@ class _PersonalManageAccountInfoPageState
   }
 
   Widget _buildContent() {
-    final accountSs58 = _hexToSs58(widget.institution.personalAccountId);
+    final accountSs58 = _hexToSs58(widget.institution.accountId);
     final info = _accountInfo;
     final statusLabel = _isClosed
         ? '已注销'
@@ -692,7 +689,7 @@ class _PersonalManageAccountInfoPageState
                     ),
                   ),
                   SizedBox(height: AppLayout.scaledValue(12)),
-                  _buildInfoRow('账户简称', widget.institution.cidShortName),
+                  _buildInfoRow('账户简称', widget.institution.shortName),
                   Divider(height: AppLayout.scaledValue(20)),
                   _buildInfoRow(
                     '多签账户',
@@ -852,7 +849,7 @@ class _PersonalManageAccountInfoPageState
           multisigStatus: _statusEnumFromLocal(_localStatus),
           admins: _admins,
           adminWallets: wallets,
-          creatorAccountId: creator,
+          creatorAccount: creator,
         ),
       ),
     );
@@ -861,18 +858,19 @@ class _PersonalManageAccountInfoPageState
   }
 
   /// 从本机 Isar 读取个人多签创建者账户 ID。
-  /// req 3 未实现时,只有创建者本机有此记录;非创建者打开子页 creatorAccountId 为 null
+  /// req 3 未实现时,只有创建者本机有此记录;非创建者打开子页 creator_account 为 null
   /// (届时所有 admin 都按"非创建者"渲染,语义略损但不阻塞主流程)。
   Future<String?> _resolvePersonalCreatorAccountId() async {
     try {
       final entity = await WalletIsar.instance.read((isar) {
-        return isar.personalAccountEntitys
+        return isar
+            .collection<wallet_store.Account>()
             .filter()
-            .accountIdEqualTo(widget.institution.personalAccountId)
+            .accountIdEqualTo(widget.institution.accountId)
             .findFirst();
       });
       if (entity == null) return null;
-      return entity.creatorAccountId;
+      return entity.creatorAccount;
     } catch (_) {
       return null;
     }

@@ -1,5 +1,6 @@
 import 'dart:ui' as ui;
 import 'dart:async';
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:provider/provider.dart';
 
@@ -21,7 +22,7 @@ class QrDisplayScaffold extends StatefulWidget {
     super.key,
     required this.headline,
     required this.qrData,
-    required this.ss58Address,
+    required this.accountAddress,
     required this.footerText,
     this.title = '二维码',
   });
@@ -35,8 +36,8 @@ class QrDisplayScaffold extends StatefulWidget {
   /// 已序列化的 QR_V1 载荷。
   final String qrData;
 
-  /// 展示态 SS58 地址(可复制);accountId 才是授权真源。
-  final String ss58Address;
+  /// 展示态 SS58 地址(可复制);account_id 才是授权真源。
+  final String accountAddress;
 
   /// 底部说明,必须如实覆盖该码的全部合法扫码场景。
   final String footerText;
@@ -50,10 +51,9 @@ class _QrDisplayScaffoldState extends State<QrDisplayScaffold> {
   bool _saving = false;
 
   void _copyAddress() {
-    Clipboard.setData(ClipboardData(text: widget.ss58Address));
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('SS58 地址已复制')));
+    Clipboard.setData(ClipboardData(text: widget.accountAddress));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('SS58 地址已复制')));
   }
 
   Future<void> _saveQr() async {
@@ -78,9 +78,8 @@ class _QrDisplayScaffoldState extends State<QrDisplayScaffold> {
       );
     } on Exception catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('保存失败：$e')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('保存失败：$e')));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -140,7 +139,7 @@ class _QrDisplayScaffoldState extends State<QrDisplayScaffold> {
                 child: GestureDetector(
                   onTap: _copyAddress,
                   child: Text(
-                    widget.ss58Address,
+                    widget.accountAddress,
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: AppLayout.scaled(context, 13),
@@ -183,17 +182,23 @@ class _QrDisplayScaffoldState extends State<QrDisplayScaffold> {
   }
 }
 
-
 /// 只显示SDK生成的像素；沿用原方形码、尺寸、颜色和10px内边距，不在App编码QR。
 class AppQrImage extends StatefulWidget {
-  const AppQrImage({super.key, required this.data, required this.size,
-    this.color = Colors.black, this.errorStateBuilder, this.qr});
+  const AppQrImage({
+    super.key,
+    required this.data,
+    required this.size,
+    this.color = Colors.black,
+    this.errorStateBuilder,
+    this.qr,
+  });
   final String data;
   final double size;
   final Color color;
   final Widget Function(BuildContext, Object?)? errorStateBuilder;
   final CitizenQr? qr;
-  @override State<AppQrImage> createState() => _AppQrImageState();
+  @override
+  State<AppQrImage> createState() => _AppQrImageState();
 }
 
 class _AppQrImageState extends State<AppQrImage> {
@@ -202,13 +207,18 @@ class _AppQrImageState extends State<AppQrImage> {
   CitizenQr? _qr;
   int _generation = 0;
 
-  @override void didChangeDependencies() {
+  @override
+  void didChangeDependencies() {
     super.didChangeDependencies();
     final qr = widget.qr ?? context.read<CitizenSdk>().qr;
-    if (!identical(qr, _qr)) { _qr = qr; unawaited(_load(qr)); }
+    if (!identical(qr, _qr)) {
+      _qr = qr;
+      unawaited(_load(qr));
+    }
   }
 
-  @override void didUpdateWidget(covariant AppQrImage oldWidget) {
+  @override
+  void didUpdateWidget(covariant AppQrImage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.data != widget.data || !identical(oldWidget.qr, widget.qr)) {
       _qr = widget.qr ?? context.read<CitizenSdk>().qr;
@@ -224,9 +234,14 @@ class _AppQrImageState extends State<AppQrImage> {
     try {
       final pixels = await qr.encode(widget.data, scale: 1);
       if (!mounted || generation != _generation) return;
-      if (pixels.width <= 8 || pixels.height <= 8 ||
-          pixels.width != pixels.height || pixels.luminance.length != pixels.width * pixels.height) {
-        throw const CitizenSdkException(code: CitizenSdkErrorCode.integrity, message: '二维码图像尺寸无效');
+      if (pixels.width <= 8 ||
+          pixels.height <= 8 ||
+          pixels.width != pixels.height ||
+          pixels.luminance.length != pixels.width * pixels.height) {
+        throw const CitizenSdkException(
+          code: CitizenSdkErrorCode.integrity,
+          message: '二维码图像尺寸无效',
+        );
       }
       // 灰度只转换成显示透明度；模块选择、纠错、掩码与协议均已由SDK完成。
       final rgba = Uint8List(pixels.width * pixels.height * 4);
@@ -234,29 +249,43 @@ class _AppQrImageState extends State<AppQrImage> {
         rgba[i * 4 + 3] = 255 - pixels.luminance[i];
       }
       final decoded = Completer<ui.Image>();
-      ui.decodeImageFromPixels(rgba, pixels.width, pixels.height, ui.PixelFormat.rgba8888, decoded.complete);
+      ui.decodeImageFromPixels(
+        rgba,
+        pixels.width,
+        pixels.height,
+        ui.PixelFormat.rgba8888,
+        decoded.complete,
+      );
       final image = await decoded.future;
-      if (!mounted || generation != _generation) { image.dispose(); return; }
+      if (!mounted || generation != _generation) {
+        image.dispose();
+        return;
+      }
       setState(() => _image = image);
     } catch (error) {
       if (mounted && generation == _generation) setState(() => _error = error);
     }
   }
 
-  @override void dispose() {
+  @override
+  void dispose() {
     ++_generation;
     _image?.dispose();
     super.dispose();
   }
 
-  @override Widget build(BuildContext context) {
+  @override
+  Widget build(BuildContext context) {
     if (_error != null && widget.errorStateBuilder != null) {
       return widget.errorStateBuilder!(context, _error);
     }
     return SizedBox(
-      width: widget.size, height: widget.size,
-      child: Padding(padding: const EdgeInsets.all(10),
-        child: _image == null ? const SizedBox.expand()
+      width: widget.size,
+      height: widget.size,
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: _image == null
+            ? const SizedBox.expand()
             : CustomPaint(painter: _SdkQrPixels(_image!, widget.color)),
       ),
     );
@@ -267,15 +296,20 @@ class _SdkQrPixels extends CustomPainter {
   const _SdkQrPixels(this.image, this.color);
   final ui.Image image;
   final Color color;
-  @override void paint(Canvas canvas, Size size) {
+  @override
+  void paint(Canvas canvas, Size size) {
     // SDK scale=1图像包含标准4模块静区；原控件的10px内边距保留在外层。
     canvas.drawImageRect(
-      image, Rect.fromLTWH(4, 4, image.width - 8.0, image.height - 8.0),
+      image,
+      Rect.fromLTWH(4, 4, image.width - 8.0, image.height - 8.0),
       Offset.zero & size,
-      Paint()..filterQuality = FilterQuality.none
+      Paint()
+        ..filterQuality = FilterQuality.none
         ..colorFilter = ColorFilter.mode(color, BlendMode.srcIn),
     );
   }
-  @override bool shouldRepaint(covariant _SdkQrPixels oldDelegate) =>
+
+  @override
+  bool shouldRepaint(covariant _SdkQrPixels oldDelegate) =>
       oldDelegate.image != image || oldDelegate.color != color;
 }

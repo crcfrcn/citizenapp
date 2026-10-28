@@ -25,24 +25,24 @@ class AdminSetValidation {
     if (!account.isActive) {
       throw StateError('管理员账户不是已激活状态');
     }
-    if (account.kind != 2 || account.institutionCode != 'PMUL') {
+    if (account.kind != 2 || account.orgCode != 'PMUL') {
       throw StateError('机构管理员由 entity 任职结果管理；本流程只允许个人多签');
     }
     final proposer = _requireAccountId(proposerAccountId);
-    if (!account.admins.any((admin) => admin.account_id == proposer)) {
+    if (!account.admins.any((admin) => admin.accountId == proposer)) {
       throw StateError('当前签名钱包不是该主体管理员');
     }
     final normalized = admins
         .map(
           (admin) => AdminPerson(
-            account_id: _requireAccountId(admin.account_id),
-            family_name: _normalizeName(admin.family_name, '管理', '姓'),
-            given_name: _normalizeName(admin.given_name, '员', '名'),
+            accountId: _requireAccountId(admin.accountId),
+            familyName: _normalizeName(admin.familyName, '管理', '姓'),
+            givenName: _normalizeName(admin.givenName, '员', '名'),
           ),
         )
         .toList(growable: false);
-    _validateCount(account.kind, account.institutionCode, normalized.length);
-    final nextAccountIds = normalized.map((admin) => admin.account_id).toSet();
+    _validateCount(account.kind, account.orgCode, normalized.length);
+    final nextAccountIds = normalized.map((admin) => admin.accountId).toSet();
     if (nextAccountIds.length != normalized.length) {
       throw StateError('新管理员列表存在重复公钥');
     }
@@ -50,9 +50,15 @@ class AdminSetValidation {
       throw StateError('新管理员集合与当前集合没有变化');
     }
     _validateThreshold(
-        account.kind, account.institutionCode, normalized.length, newThreshold);
+      account.kind,
+      account.orgCode,
+      normalized.length,
+      newThreshold,
+    );
     return AdminSetValidationResult(
-        admins: normalized, threshold: newThreshold);
+      admins: normalized,
+      threshold: newThreshold,
+    );
   }
 
   static int minimumDynamicThreshold(int adminsLen) {
@@ -73,14 +79,12 @@ class AdminSetValidation {
 
   static bool _sameAdmins(List<AdminPerson> left, List<AdminPerson> right) {
     if (left.length != right.length) return false;
-    final leftByAccountId = {
-      for (final admin in left) admin.account_id: admin,
-    };
+    final leftByAccountId = {for (final admin in left) admin.accountId: admin};
     for (final admin in right) {
-      final current = leftByAccountId[admin.account_id];
+      final current = leftByAccountId[admin.accountId];
       if (current == null ||
-          current.family_name != admin.family_name ||
-          current.given_name != admin.given_name) {
+          current.familyName != admin.familyName ||
+          current.givenName != admin.givenName) {
         return false;
       }
     }

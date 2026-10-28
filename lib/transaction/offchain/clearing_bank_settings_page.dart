@@ -18,7 +18,7 @@ class ClearingBankSettingsPage extends StatefulWidget {
   const ClearingBankSettingsPage({
     super.key,
     required this.accountId,
-    required this.ss58Address,
+    required this.accountAddress,
     this.directory,
   });
 
@@ -26,7 +26,7 @@ class ClearingBankSettingsPage extends StatefulWidget {
   final String accountId;
 
   /// 该账户 SS58 地址(绑定/切换 extrinsic 来源地址)。
-  final String ss58Address;
+  final String accountAddress;
   final ClearingBankDirectory? directory;
 
   @override
@@ -60,9 +60,7 @@ class _ClearingBankSettingsPageState extends State<ClearingBankSettingsPage> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_dependenciesReady) return;
-    _directory = ClearingBankDirectory(
-      chain: context.read<CitizenSdk>().chain,
-    );
+    _directory = ClearingBankDirectory(chain: context.read<CitizenSdk>().chain);
     _dependenciesReady = true;
     _loadCurrent();
   }
@@ -107,7 +105,7 @@ class _ClearingBankSettingsPageState extends State<ClearingBankSettingsPage> {
       MaterialPageRoute(
         builder: (_) => BindClearingBankPage(
           accountId: widget.accountId,
-          ss58Address: widget.ss58Address,
+          accountAddress: widget.accountAddress,
           bank: item,
           switchMode: isSwitch,
         ),
@@ -121,10 +119,7 @@ class _ClearingBankSettingsPageState extends State<ClearingBankSettingsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('设置清算行'),
-        centerTitle: true,
-      ),
+      appBar: AppBar(title: const Text('设置清算行'), centerTitle: true),
       body: RefreshIndicator(
         onRefresh: _loadCurrent,
         child: ListView(
@@ -199,8 +194,9 @@ class _ClearingBankSettingsPageState extends State<ClearingBankSettingsPage> {
               prefixIcon: const Icon(Icons.search),
               isDense: true,
               border: OutlineInputBorder(
-                borderRadius:
-                    BorderRadius.all(Radius.circular(AppLayout.scaledValue(8))),
+                borderRadius: BorderRadius.all(
+                  Radius.circular(AppLayout.scaledValue(8)),
+                ),
               ),
             ),
             textInputAction: TextInputAction.search,
@@ -225,14 +221,9 @@ class _ClearingBankSettingsPageState extends State<ClearingBankSettingsPage> {
     final buttonText = isCurrent ? '已绑定' : (current == null ? '绑定' : '切换');
 
     return ListTile(
-      leading: const Icon(
-        Icons.verified_outlined,
-        color: Colors.green,
-      ),
+      leading: const Icon(Icons.verified_outlined, color: Colors.green),
       title: Text(title),
-      subtitle: Text(
-        '${item.cidNumber}\n${endpoint.wssUrl}',
-      ),
+      subtitle: Text('${item.cidNumber}\n${endpoint.wssUrl}'),
       isThreeLine: true,
       trailing: FilledButton(
         onPressed: !isCurrent ? () => _openBind(item) : null,

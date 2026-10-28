@@ -20,13 +20,13 @@ void main() {
     expect(id.length, 32);
     expect(id, List<int>.filled(32, 0x11));
     final institution = InstitutionInfo(
-      cidFullName: '机构',
-      cidShortName: '机构',
+      fullName: '机构',
+      shortName: '机构',
       cidFullNameEn: 'Institution',
       cidShortNameEn: 'Institution',
       cidNumber: cidNumber,
       orgType: OrgType.institution,
-      adminAccountCode: 'CGOV',
+      adminCode: 'CGOV',
       accounts: InstitutionAccounts(
         mainAccountId: address,
         feeAccountId: '0x${'12' * 32}',
@@ -43,24 +43,26 @@ void main() {
 
     expect(id.length, 32);
     expect(id, List<int>.filled(32, 0x22));
-    expect(personalMultisigFromAccountId(id)?.cidNumber,
-        'personal-account:$address');
+    expect(
+      personalMultisigFromAccountId(id)?.cidNumber,
+      'personal-account:$address',
+    );
   });
 
   test('FRG/NJD 是固定治理机构且使用制度阈值，不误判为注册机构', () {
     InstitutionInfo fixed(String code) => InstitutionInfo(
-          cidFullName: code,
-          cidShortName: code,
-          cidFullNameEn: code,
-          cidShortNameEn: code,
-          cidNumber: 'ZS001-${code}00-123456789-2026',
-          orgType: OrgType.institution,
-          adminAccountCode: code,
-          accounts: InstitutionAccounts(
-            mainAccountId: '0x${'31' * 32}',
-            feeAccountId: '0x${'32' * 32}',
-          ),
-        );
+      fullName: code,
+      shortName: code,
+      cidFullNameEn: code,
+      cidShortNameEn: code,
+      cidNumber: 'ZS001-${code}00-123456789-2026',
+      orgType: OrgType.institution,
+      adminCode: code,
+      accounts: InstitutionAccounts(
+        mainAccountId: '0x${'31' * 32}',
+        feeAccountId: '0x${'32' * 32}',
+      ),
+    );
 
     final frg = fixed('FRG');
     final njd = fixed('NJD');
@@ -79,20 +81,20 @@ void main() {
     }) {
       final personal = code == 'PMUL';
       return InstitutionInfo(
-        cidFullName: code,
-        cidShortName: code,
+        fullName: code,
+        shortName: code,
         cidFullNameEn: code,
         cidShortNameEn: code,
         cidNumber: cidNumber ?? 'GD001-${code}0-123456789-2026',
         orgType: orgType,
-        adminAccountCode: code,
+        adminCode: code,
         accounts: personal
             ? null
             : InstitutionAccounts(
                 mainAccountId: accountId,
                 feeAccountId: '0x${'fe' * 32}',
               ),
-        personalAccountId: personal ? accountId : null,
+        accountId: personal ? accountId : null,
       );
     }
 
@@ -110,11 +112,11 @@ void main() {
           orgType: OrgType.nrc,
           cidNumber: 'LN001-NRC0G-944805165-2026',
         ),
-        institutionCode: 'NRC',
+        orgCode: 'NRC',
       );
       final result = kinds(subject);
       expect(subject.cidNumber, 'LN001-NRC0G-944805165-2026');
-      expect(subject.personalAccountId, isNull);
+      expect(subject.accountId, isNull);
       expect(result, contains(ProposalKind.transfer));
       expect(result, contains(ProposalKind.feeTransfer));
       expect(result, contains(ProposalKind.safetyFundTransfer));
@@ -126,30 +128,32 @@ void main() {
     test('city registry is public institution, not governance', () {
       final subject = ProposalSubject.fromInstitution(
         institution: info(code: 'CREG', accountId: '0x${'44' * 32}'),
-        institutionCode: 'CREG',
+        orgCode: 'CREG',
       );
       final result = kinds(subject);
       expect(subject.cidNumber, 'GD001-CREG0-123456789-2026');
-      expect(subject.personalAccountId, isNull);
+      expect(subject.accountId, isNull);
       expect(result, contains(ProposalKind.transfer));
       expect(result, isNot(contains(ProposalKind.adminsChange)));
       expect(result, isNot(contains(ProposalKind.feeTransfer)));
       expect(result, isNot(contains(ProposalKind.runtimeUpgrade)));
     });
 
-    test('private institution gets only generic active-account capabilities',
-        () {
-      final subject = ProposalSubject.fromInstitution(
-        institution: info(code: 'SFGQ', accountId: '0x${'55' * 32}'),
-        institutionCode: 'SFGQ',
-      );
-      final result = kinds(subject);
-      expect(subject.cidNumber, 'GD001-SFGQ0-123456789-2026');
-      expect(subject.personalAccountId, isNull);
-      expect(result, contains(ProposalKind.transfer));
-      expect(result, isNot(contains(ProposalKind.adminsChange)));
-      expect(result, isNot(contains(ProposalKind.resolutionIssuance)));
-    });
+    test(
+      'private institution gets only generic active-account capabilities',
+      () {
+        final subject = ProposalSubject.fromInstitution(
+          institution: info(code: 'SFGQ', accountId: '0x${'55' * 32}'),
+          orgCode: 'SFGQ',
+        );
+        final result = kinds(subject);
+        expect(subject.cidNumber, 'GD001-SFGQ0-123456789-2026');
+        expect(subject.accountId, isNull);
+        expect(result, contains(ProposalKind.transfer));
+        expect(result, isNot(contains(ProposalKind.adminsChange)));
+        expect(result, isNot(contains(ProposalKind.resolutionIssuance)));
+      },
+    );
 
     test('personal multisig exposes admins change capability', () {
       final accountId = '77' * 32;
@@ -159,11 +163,11 @@ void main() {
           accountId: accountId,
           cidNumber: 'personal-account:$accountId',
         ),
-        institutionCode: 'PMUL',
+        orgCode: 'PMUL',
       );
       final result = kinds(subject);
       expect(subject.cidNumber, isNull);
-      expect(subject.personalAccountId, accountId);
+      expect(subject.accountId, accountId);
       expect(result, contains(ProposalKind.transfer));
       expect(result, contains(ProposalKind.adminsChange));
     });
@@ -171,7 +175,7 @@ void main() {
     test('unincorporated code does not auto-enable admins change', () {
       final subject = ProposalSubject.fromInstitution(
         institution: info(code: 'UNIN', accountId: '0x${'66' * 32}'),
-        institutionCode: 'UNIN',
+        orgCode: 'UNIN',
       );
       final result = kinds(subject);
       expect(result, contains(ProposalKind.transfer));

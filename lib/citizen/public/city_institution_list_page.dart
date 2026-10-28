@@ -1,9 +1,9 @@
+import 'package:citizenapp/storage/app_isar.dart' as app_store show Entity;
 import 'package:flutter/material.dart';
 
 import 'package:citizenapp/citizen/institution/institution_detail_page.dart';
 import 'package:citizenapp/citizen/institution/institution_repository.dart';
 import 'package:citizenapp/citizen/public/public_institution_repository.dart';
-import 'package:citizenapp/storage/app_isar.dart';
 import 'package:citizenapp/system/theme/app_theme.dart';
 import 'package:citizenapp/system/theme/app_layout.dart';
 
@@ -32,7 +32,7 @@ class CityInstitutionListPage extends StatefulWidget {
 }
 
 class _CityInstitutionListPageState extends State<CityInstitutionListPage> {
-  List<PublicInstitutionEntity> _items = const [];
+  List<app_store.Entity> _items = const [];
   bool _loading = true;
   String? _error;
 
@@ -48,8 +48,10 @@ class _CityInstitutionListPageState extends State<CityInstitutionListPage> {
       _error = null;
     });
     try {
-      final items = await widget.repository
-          .listInstitutionsByCity(widget.provinceCode, widget.cityCode);
+      final items = await widget.repository.listInstitutionsByCity(
+        widget.provinceCode,
+        widget.cityCode,
+      );
       if (!mounted) return;
       setState(() {
         _items = items;
@@ -90,10 +92,7 @@ class _CityInstitutionListPageState extends State<CityInstitutionListPage> {
   Widget _buildBody() {
     if (_loading) {
       return const Center(
-        child: Text(
-          '正在读取公权机构',
-          style: TextStyle(color: AppTheme.textTertiary),
-        ),
+        child: Text('正在读取公权机构', style: TextStyle(color: AppTheme.textTertiary)),
       );
     }
     if (_error != null) {
@@ -101,10 +100,7 @@ class _CityInstitutionListPageState extends State<CityInstitutionListPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              _error!,
-              style: const TextStyle(color: AppTheme.textTertiary),
-            ),
+            Text(_error!, style: const TextStyle(color: AppTheme.textTertiary)),
             SizedBox(height: AppLayout.scaledValue(8)),
             TextButton(onPressed: _load, child: const Text('重试')),
           ],
@@ -126,9 +122,9 @@ class _CityInstitutionListPageState extends State<CityInstitutionListPage> {
           const Divider(height: 1, color: AppTheme.divider),
       itemBuilder: (context, i) {
         final inst = _items[i];
-        final title = inst.cidShortName?.isNotEmpty == true
-            ? inst.cidShortName!
-            : inst.cidFullName;
+        final title = inst.shortName?.isNotEmpty == true
+            ? inst.shortName!
+            : inst.fullName;
         return ListTile(
           title: Text(
             title,
@@ -141,12 +137,15 @@ class _CityInstitutionListPageState extends State<CityInstitutionListPage> {
           subtitle: Text(
             '身份ID ${inst.cidNumber}',
             style: TextStyle(
-                fontSize: AppLayout.scaled(context, 12.5),
-                color: AppTheme.textTertiary),
-          ),
-          trailing: Icon(Icons.chevron_right,
+              fontSize: AppLayout.scaled(context, 12.5),
               color: AppTheme.textTertiary,
-              size: AppLayout.scaled(context, 20)),
+            ),
+          ),
+          trailing: Icon(
+            Icons.chevron_right,
+            color: AppTheme.textTertiary,
+            size: AppLayout.scaled(context, 20),
+          ),
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
               builder: (_) => InstitutionDetailPage(

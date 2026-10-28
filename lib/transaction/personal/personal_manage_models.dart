@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+
 import 'package:citizenapp/citizen/administrators/admin_account.dart';
 import 'package:citizenapp/citizen/account_derivation.dart';
 
@@ -13,7 +14,7 @@ class CreateProposalInfo {
     required this.accountId,
     required this.proposerSs58Address,
     required this.amountFen,
-    required this.feeFen,
+    required this.feeAmount,
     this.status,
   });
 
@@ -29,13 +30,13 @@ class CreateProposalInfo {
   final BigInt amountFen;
 
   /// 创建手续费快照（分）。
-  final BigInt feeFen;
+  final BigInt feeAmount;
 
   /// 0=voting, 1=passed, 2=rejected, null=unknown。
   final int? status;
 
   double get amountYuan => amountFen.toDouble() / 100;
-  double get feeYuan => feeFen.toDouble() / 100;
+  double get feeYuan => feeAmount.toDouble() / 100;
 
   /// 个人多签治理 AccountId。
   Uint8List get institutionBytes {
@@ -48,7 +49,7 @@ class CreateProposalInfo {
       accountId: accountId,
       proposerSs58Address: proposerSs58Address,
       amountFen: amountFen,
-      feeFen: feeFen,
+      feeAmount: feeAmount,
       status: newStatus,
     );
   }

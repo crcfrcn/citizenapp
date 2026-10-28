@@ -21,7 +21,7 @@ class BindClearingBankPage extends StatefulWidget {
   const BindClearingBankPage({
     super.key,
     required this.accountId,
-    required this.ss58Address,
+    required this.accountAddress,
     required this.bank,
     this.switchMode = false,
   });
@@ -30,7 +30,7 @@ class BindClearingBankPage extends StatefulWidget {
   final String accountId;
 
   /// L3 用户 SS58 地址(绑定/切换 extrinsic 来源地址)。
-  final String ss58Address;
+  final String accountAddress;
   final ClearingBankCandidate bank;
   final bool switchMode;
 
@@ -50,10 +50,7 @@ class _BindClearingBankPageState extends State<BindClearingBankPage> {
       body: ListView(
         padding: EdgeInsets.all(AppLayout.scaled(context, 16)),
         children: [
-          ListTile(
-            title: const Text('清算行'),
-            subtitle: Text(title),
-          ),
+          ListTile(title: const Text('清算行'), subtitle: Text(title)),
           ListTile(
             title: const Text('所在地'),
             subtitle: Text(b.areaPath.isEmpty ? '-' : b.areaPath),
@@ -77,8 +74,9 @@ class _BindClearingBankPageState extends State<BindClearingBankPage> {
                 '· 同一时间只能绑定一家清算行\n'
                 '· 切换前需把当前清算行存款全部提现',
                 style: TextStyle(
-                    fontSize: AppLayout.scaled(context, 13),
-                    color: Colors.grey),
+                  fontSize: AppLayout.scaled(context, 13),
+                  color: Colors.grey,
+                ),
               ),
             ),
           ),
@@ -146,8 +144,8 @@ class _BindClearingBankPageState extends State<BindClearingBankPage> {
         widget.accountId,
         ClearingBankBindingSnapshot(
           cidNumber: widget.bank.cidNumber,
-          cidFullName: widget.bank.cidFullName,
-          cidShortName: widget.bank.cidShortName ?? '',
+          fullName: widget.bank.fullName,
+          shortName: widget.bank.shortName ?? '',
           mainAccountId: _normalizeHex(widget.bank.mainAccountId),
           feeAccountId: _normalizeHex(widget.bank.feeAccountId),
           peerId: endpoint.peerId,

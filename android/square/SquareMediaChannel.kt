@@ -191,30 +191,30 @@ data class SquareVideoRequest(
     val inputPath: String,
     val outputPath: String,
     val coverPath: String,
-    val maxWidth: Int,
-    val maxHeight: Int,
+    val videoWidth: Int,
+    val videoHeight: Int,
     val videoBitrate: Int,
-    val totalPeakBitrate: Int,
+    val videoPeakBitrate: Int,
     val audioBitrate: Int,
     val audioSampleRate: Int,
-    val maxFrameRate: Int,
-    val keyFrameIntervalSeconds: Int,
-    val maxDurationSeconds: Int,
-    val maxBytes: Long,
-    val coverMaxEdge: Int,
+    val videoFrameRate: Int,
+    val keyframeSecs: Int,
+    val videoMaxSeconds: Int,
+    val videoMaxBytes: Long,
+    val coverDimension: Int,
     val coverQuality: Int,
-    val coverMaxBytes: Int,
+    val coverBytes: Int,
 ) {
     init {
         require(inputPath.isNotBlank() && outputPath.isNotBlank() && coverPath.isNotBlank()) {
             "媒体路径不能为空"
         }
-        require(maxWidth in 2..1920 && maxHeight in 2..1080) { "视频尺寸不合法" }
-        require(videoBitrate > 0 && audioBitrate > 0 && totalPeakBitrate > 0) { "视频码率不合法" }
+        require(videoWidth in 2..1920 && videoHeight in 2..1080) { "视频尺寸不合法" }
+        require(videoBitrate > 0 && audioBitrate > 0 && videoPeakBitrate > 0) { "视频码率不合法" }
         require(audioSampleRate == 48_000) { "音频采样率必须为 48kHz" }
-        require(maxFrameRate in 1..30 && keyFrameIntervalSeconds == 2) { "帧率或关键帧间隔不合法" }
-        require(maxDurationSeconds in 1..10_800 && maxBytes in 1..MAX_MEDIA_BYTES) { "视频上限不合法" }
-        require(coverMaxEdge in 2..720 && coverQuality in 1..100 && coverMaxBytes in 1..512 * 1024) {
+        require(videoFrameRate in 1..30 && keyframeSecs == 2) { "帧率或关键帧间隔不合法" }
+        require(videoMaxSeconds in 1..10_800 && videoMaxBytes in 1..MAX_MEDIA_BYTES) { "视频上限不合法" }
+        require(coverDimension in 2..720 && coverQuality in 1..100 && coverBytes in 1..512 * 1024) {
             "视频封面规则不合法"
         }
     }
@@ -224,19 +224,19 @@ data class SquareVideoRequest(
             inputPath = call.requiredString("input_path"),
             outputPath = call.requiredString("output_path"),
             coverPath = call.requiredString("cover_path"),
-            maxWidth = call.requiredInt("max_width"),
-            maxHeight = call.requiredInt("max_height"),
+            videoWidth = call.requiredInt("video_width"),
+            videoHeight = call.requiredInt("video_height"),
             videoBitrate = call.requiredInt("video_bitrate"),
-            totalPeakBitrate = call.requiredInt("total_peak_bitrate"),
+            videoPeakBitrate = call.requiredInt("video_peak_bitrate"),
             audioBitrate = call.requiredInt("audio_bitrate"),
             audioSampleRate = call.requiredInt("audio_sample_rate"),
-            maxFrameRate = call.requiredInt("max_frame_rate"),
-            keyFrameIntervalSeconds = call.requiredInt("key_frame_interval_seconds"),
-            maxDurationSeconds = call.requiredInt("max_duration_seconds"),
-            maxBytes = call.requiredLong("max_bytes"),
-            coverMaxEdge = call.requiredInt("cover_max_edge"),
+            videoFrameRate = call.requiredInt("video_frame_rate"),
+            keyframeSecs = call.requiredInt("keyframe_secs"),
+            videoMaxSeconds = call.requiredInt("video_max_seconds"),
+            videoMaxBytes = call.requiredLong("video_max_bytes"),
+            coverDimension = call.requiredInt("cover_dimension"),
             coverQuality = call.requiredInt("cover_quality"),
-            coverMaxBytes = call.requiredInt("cover_max_bytes"),
+            coverBytes = call.requiredInt("cover_bytes"),
         )
     }
 }

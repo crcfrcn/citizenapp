@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 
 import 'institution_models.dart';
+
 import 'package:citizenapp/citizen/account_derivation.dart';
 
 /// 机构管理提案解码服务（公权/私权共用）。
@@ -43,7 +44,8 @@ class InstitutionChainService {
 
       // 公权/私权机构管理提案各自 MODULE_TAG(8 字节)。
       const tagLen = 8;
-      final tag = _startsWith(data, _publicManageTag) ||
+      final tag =
+          _startsWith(data, _publicManageTag) ||
           _startsWith(data, _privateManageTag);
       if (!tag) return null;
       final actionType = data[tagLen];
@@ -71,18 +73,23 @@ class InstitutionChainService {
     );
     offset += cidLen;
 
-    final accountId =
-        _hexEncode(Uint8List.fromList(data.sublist(offset, offset + 32)));
+    final accountId = _hexEncode(
+      Uint8List.fromList(data.sublist(offset, offset + 32)),
+    );
     offset += 32;
 
     final beneficiaryBytes = data.sublist(offset, offset + 32);
-    final beneficiarySs58 =
-        Keyring().encodeAddress(Uint8List.fromList(beneficiaryBytes), kGmbSs58Prefix);
+    final beneficiarySs58 = Keyring().encodeAddress(
+      Uint8List.fromList(beneficiaryBytes),
+      kGmbSs58Prefix,
+    );
     offset += 32;
 
     final proposerBytes = data.sublist(offset, offset + 32);
-    final proposerSs58 =
-        Keyring().encodeAddress(Uint8List.fromList(proposerBytes), kGmbSs58Prefix);
+    final proposerSs58 = Keyring().encodeAddress(
+      Uint8List.fromList(proposerBytes),
+      kGmbSs58Prefix,
+    );
 
     return CloseProposalInfo(
       proposalId: proposalId,
@@ -112,7 +119,8 @@ class InstitutionChainService {
       final val = (data[offset] | (data[offset + 1] << 8)) >> 2;
       return (val, 2);
     } else if (mode == 2) {
-      final val = (data[offset] |
+      final val =
+          (data[offset] |
               (data[offset + 1] << 8) |
               (data[offset + 2] << 16) |
               (data[offset + 3] << 24)) >>

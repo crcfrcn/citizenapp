@@ -38,16 +38,16 @@ InstitutionInfo? findInstitutionByCidNumber(String cidNumber) {
 InstitutionInfo? personalMultisigFromAccountId(List<int> accountIdBytes) {
   if (accountIdBytes.length != 32) return null;
   final accountId = '0x${_hexEncode(accountIdBytes)}';
-  final cidFullName = '个人多签 ${accountId.substring(2, 10)}';
+  final fullName = '个人多签 ${accountId.substring(2, 10)}';
   final cidFullNameEn = 'Personal Multisig ${accountId.substring(2, 10)}';
   return InstitutionInfo(
-    cidFullName: cidFullName,
-    cidShortName: cidFullName,
+    fullName: fullName,
+    shortName: fullName,
     cidFullNameEn: cidFullNameEn,
     cidShortNameEn: cidFullNameEn,
     cidNumber: 'personal-account:$accountId',
     orgType: OrgType.personalMultisig,
-    personalAccountId: accountId,
+    accountId: accountId,
   );
 }
 

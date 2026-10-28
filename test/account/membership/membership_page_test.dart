@@ -1,3 +1,6 @@
+import 'package:citizenapp/storage/wallet_isar.dart'
+    as wallet_store
+    show Member;
 import 'package:tatachat_sdk/tatachat_sdk.dart' as chat_sdk;
 
 import '../../square/mls_authentication_fixture.dart';
@@ -25,7 +28,7 @@ import 'package:citizenapp/account/identity/current_user_context.dart';
 import 'package:citizenapp/account/identity/identity_binding.dart';
 import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
 import 'package:citizenapp/system/theme/app_theme.dart';
-import 'package:citizenapp/storage/wallet_isar.dart';
+import 'package:citizenapp/storage/wallet_isar.dart' hide Group;
 import 'package:citizenapp/account/identity/identity_badge.dart';
 
 import '../../support/isar_test_env.dart';
@@ -50,7 +53,7 @@ class _FakeSessionProvider implements SquareSessionProvider {
     deviceId: testMlsDeviceId,
     sessionToken: 'tok',
     cidNumber: "CN220-CTZN2-198805200-2026",
-    bindingRevision: 1,
+    bindRev: 1,
     accountId: _owner,
     expiresAt: DateTime.now().millisecondsSinceEpoch + 600000,
     authenticateRequest: fakeMlsRequestHeaders,
@@ -230,8 +233,8 @@ class _RecordingSubscriptionService implements SubscriptionService {
       prices: serverPrices.isNotEmpty
           ? serverPrices
           : previous?.prices ?? const <String, int>{},
-      subscriptionFetchedAtMs: DateTime.now().millisecondsSinceEpoch,
-      pricesFetchedAtMs: previous?.pricesFetchedAtMs ?? 0,
+      memberAt: DateTime.now().millisecondsSinceEpoch,
+      priceAt: previous?.priceAt ?? 0,
     );
     return state;
   }
@@ -281,19 +284,17 @@ class _RecordingSubscriptionService implements SubscriptionService {
 /// 三档额度通过服务端合同夹具注入，不依赖产品内置套餐。
 SquareMembershipState _state({
   bool active = false,
-  bool subscriptionActive = false,
-  String? membershipLevel,
-  String? subscriptionStatus,
-  int lastChargedAt = 0,
+  String? memberLevel,
+  String? subState,
+  int chargeAt = 0,
 }) {
   return SquareMembershipState(
     active: active,
     paidUntil: active ? DateTime.now().millisecondsSinceEpoch + 600000 : 0,
-    membershipLevel: membershipLevel,
-    subscriptionStatus:
-        subscriptionStatus ?? (subscriptionActive ? 'active' : null),
-    subscriptionActive: subscriptionActive,
-    lastChargedAt: lastChargedAt,
+    memberLevel: memberLevel,
+    subState: subState ?? (active ? 'active' : null),
+
+    chargeAt: chargeAt,
     plans: membergatePlansFixture(),
   );
 }
@@ -305,13 +306,13 @@ SquareMembershipState _priced(
 ) => SquareMembershipState(
   active: state.active,
   paidUntil: state.paidUntil,
-  membershipLevel: state.membershipLevel,
-  subscriptionStatus: state.subscriptionStatus,
-  subscriptionActive: state.subscriptionActive,
-  lastChargedAt: state.lastChargedAt,
+  memberLevel: state.memberLevel,
+  subState: state.subState,
+
+  chargeAt: state.chargeAt,
   plans: SquareApiClient.decodeMembershipPlans([
     for (final plan in state.plans)
-      {...plan.toJson(), 'price_fen': prices[plan.membershipLevel]},
+      {...plan.toJson(), 'price_fen': prices[plan.memberLevel]},
   ]),
   usageState: state.usageState,
 );
@@ -384,11 +385,11 @@ Map<String, dynamic> membergatePlanFixture(String level, {int? price}) {
     ),
   };
   return {
-    'membergate_level': level,
+    'member_level': level,
     'price_fen': price,
     'plan': {
-      'membergate_level': level,
-      'chat_file_max_bytes': v.$13,
+      'member_level': level,
+      'file_limit': v.$13,
       'video_max_seconds': v.$9,
       'video_max_bytes': v.$10,
       'article_max_images': v.$18,
@@ -411,7 +412,7 @@ Map<String, dynamic> membergatePlanFixture(String level, {int? price}) {
       'video_peak_bitrate': v.$7,
       'audio_bitrate': v.$8,
       'video_frame_rate': 30,
-      'video_key_frame_seconds': 2,
+      'keyframe_secs': 2,
       'audio_sample_rate': 48000,
     },
     'resources': {'attachment_bytes': v.$14},
@@ -432,7 +433,7 @@ List<SquareMembershipPlan> membergatePlansFixture([
 ]);
 SquareMembershipPlan _plan(String level, int? price) =>
     membergatePlansFixture(price == null ? const {} : {level: price})
-        .firstWhere((p) => p.membershipLevel == level);
+        .firstWhere((p) => p.memberLevel == level);
 Map<String, dynamic> membergateUsageFixture() => {
   'used_bytes': 0,
   'reserved_bytes': 0,
@@ -450,10 +451,10 @@ final _membershipJson = jsonEncode({
   'is_ok': true,
   'membergate_active': true,
   'membergate': {
-    'membergate_level': 'democracy',
+    'member_level': 'democracy',
     'paid_until': 9999999999999,
-    'subscription_status': 'active',
-    'last_charged_at': 1000,
+    'sub_state': 'active',
+    'charge_at': 1000,
   },
   'plans': [for (final plan in membergatePlansFixture()) plan.toJson()],
   'usage': membergateUsageFixture(),
@@ -480,7 +481,7 @@ SquareSession _cacheSession({
 }) => SquareSession(
   cidNumber: cid,
   accountId: account,
-  bindingRevision: revision,
+  bindRev: revision,
   deviceId: device,
   sessionToken: token,
   expiresAt: expires,
@@ -490,9 +491,9 @@ SquareMembershipState _cacheState(int until, {bool active = true}) =>
     SquareMembershipState(
       active: active,
       paidUntil: until,
-      membershipLevel: 'freedom',
-      subscriptionActive: active,
-      subscriptionStatus: 'active',
+      memberLevel: 'freedom',
+
+      subState: 'active',
       plans: [_plan('freedom', 29900)],
     );
 
@@ -552,7 +553,7 @@ class _CachedCurrentUser implements CurrentUserContext {
             genesisHash: '0x1111111111111111111111111111111111111111111111111111111111111111',
             cidNumber: 'CN220-CTZN2-198805200-2026',
             accountId: _identityAccountId,
-            bindingRevision: 1,
+            bindRev: 1,
           ),
   );
   @override
@@ -570,12 +571,12 @@ class _RegisteredFinalizedIdentity implements FinalizedIdentityResolver {
   @override
   Future<FinalizedIdentity?> resolve() async => FinalizedIdentity(
     accountId: _identityAccountId,
-    ss58Address: 'ss58-demo',
+    accountAddress: 'ss58-demo',
     snapshot: CitizenIdentityChainSnapshot(
       // 与_FakeSessionProvider、_CachedCurrentUser使用相同CID/账户/版本。
       cidNumber: 'CN220-CTZN2-198805200-2026',
       accountId: Uint8List.fromList(List<int>.filled(32, 0x11)),
-      bindingRevision: 1,
+      bindRev: 1,
       votingIdentity: null,
     ),
   );
@@ -634,6 +635,89 @@ void main() {
   tearDown(() {
     SubscriptionService.invalidateCitizenAccount(_owner);
     SubscriptionService.nowForTesting = null;
+  });
+
+  test('交易证明单份保存，待同步种类和CID隔离，确认不清除历史', () async {
+    const cid = testMlsCidNumber;
+    final member = {'tx_hash': 'member', 'block_hash': 'member-block'};
+    final creator = {'tx_hash': 'creator', 'block_hash': 'creator-block'};
+    await wallet_store.Member.storeProof(cid, member, pendingKind: 'member');
+    await wallet_store.Member.storeProof(cid, creator, pendingKind: 'creator');
+    await wallet_store.Member.storeProof(
+      'other',
+      member,
+      pendingKind: 'member',
+    );
+    expect(await wallet_store.Member.readProofs(cid, pendingKind: 'member'), [
+      member,
+    ]);
+    expect(await wallet_store.Member.readProofs(cid, pendingKind: 'creator'), [
+      creator,
+    ]);
+    await wallet_store.Member.finishProof(cid, 'member', 'creator');
+    expect(await wallet_store.Member.readProofs(cid, pendingKind: 'member'), [
+      member,
+    ]);
+    await wallet_store.Member.finishProof(cid, 'member', 'member');
+    expect(
+      await wallet_store.Member.readProofs(cid, pendingKind: 'member'),
+      isEmpty,
+    );
+    expect(await wallet_store.Member.readProofs(cid), [member, creator]);
+    expect(
+      await wallet_store.Member.readProofs('other', pendingKind: 'member'),
+      [member],
+    );
+    final row = await WalletIsar.instance.read(
+      (db) => db.collection<wallet_store.Member>().getByCidNumberStateKind(
+        cid,
+        'proof',
+      ),
+    );
+    expect((jsonDecode(row!.bodyData) as List), hasLength(2));
+  });
+
+  test('历史限50仍保留所有待同步证明，替换计划不清除其它种类', () async {
+    const cid = testMlsCidNumber;
+    await wallet_store.Member.storeProof(cid, {
+      'tx_hash': 'pending',
+    }, pendingKind: 'member');
+    await wallet_store.Member.storeProof(
+      cid,
+      {'tx_hash': 'old-plan'},
+      pendingKind: 'plan',
+      replacePending: true,
+    );
+    await wallet_store.Member.storeProof(
+      cid,
+      {'tx_hash': 'new-plan'},
+      pendingKind: 'plan',
+      replacePending: true,
+    );
+    for (var i = 0; i < 51; i++) {
+      await wallet_store.Member.storeProof(cid, {'tx_hash': 'complete-$i'});
+    }
+    expect(await wallet_store.Member.readProofs(cid), hasLength(50));
+    expect(await wallet_store.Member.readProofs(cid, pendingKind: 'member'), [
+      {'tx_hash': 'pending'},
+    ]);
+    expect(await wallet_store.Member.readProofs(cid, pendingKind: 'plan'), [
+      {'tx_hash': 'new-plan'},
+    ]);
+    await wallet_store.Member.finishProof(cid, 'old-plan', 'plan');
+    expect(await wallet_store.Member.readProofs(cid, pendingKind: 'plan'), [
+      {'tx_hash': 'new-plan'},
+    ]);
+    await wallet_store.Member.finishProof(cid, 'pending', 'member');
+    expect(
+      await wallet_store.Member.readProofs(cid, pendingKind: 'member'),
+      isEmpty,
+    );
+    await expectLater(
+      wallet_store.Member.storeProof(cid, {'block_hash': 'missing'}),
+      throwsFormatException,
+    );
+    expect(await wallet_store.Member.readProofs(cid), hasLength(50));
   });
 
   test('强刷合并在途请求；广播前安装唯一缓存，附件重复准备不再GET', () async {
@@ -815,7 +899,7 @@ void main() {
         SubscriptionService.cachedAttachmentAuthorized(
           cidNumber: session.cidNumber,
           accountId: session.accountId,
-          bindingRevision: revision ?? session.bindingRevision,
+          bindRev: revision ?? session.bindRev,
           expectedDeviceId: device ?? session.deviceId,
         );
     expect(await cached(), isFalse);
@@ -836,7 +920,7 @@ void main() {
     final session = SquareSession(
       cidNumber: base.cidNumber,
       accountId: base.accountId,
-      bindingRevision: base.bindingRevision,
+      bindRev: base.bindRev,
       deviceId: base.deviceId,
       sessionToken: base.sessionToken,
       expiresAt: base.expiresAt,
@@ -853,7 +937,7 @@ void main() {
     final pending = SubscriptionService.cachedAttachmentAuthorized(
       cidNumber: session.cidNumber,
       accountId: session.accountId,
-      bindingRevision: 1,
+      bindRev: 1,
       expectedDeviceId: session.deviceId,
     );
     await Future<void>.delayed(Duration.zero);
@@ -893,10 +977,10 @@ void main() {
     '活跃但无会员': (jsonDecode(_membershipJson) as Map<String, dynamic>)
       ..['membergate'] = null,
     for (final field in [
-      'membergate_level',
+      'member_level',
       'paid_until',
-      'subscription_status',
-      'last_charged_at',
+      'sub_state',
+      'charge_at',
     ])
       '会员缺$field': (jsonDecode(_membershipJson) as Map<String, dynamic>)
         ..['membergate'].remove(field),
@@ -1010,28 +1094,25 @@ void main() {
     );
     final kept = (await service.readDisplaySnapshot(session.cidNumber))!.state;
     expect(kept.active, original.active);
-    expect(kept.membershipLevel, original.membershipLevel);
+    expect(kept.memberLevel, original.memberLevel);
     expect(kept.paidUntil, original.paidUntil);
-    expect(kept.lastChargedAt, original.lastChargedAt);
+    expect(kept.chargeAt, original.chargeAt);
     expect(calls, 2);
   });
 
   test('确认损坏保留原finalized证明，零成功广播及额外GET', () async {
     final provider = _FakeSessionProvider();
     final session = provider.value;
-    final key =
-        'platform_subscription_mirror_pending_by_cid:${session.cidNumber}';
+    final cidNumber = session.cidNumber;
     final tx = '0x${'a' * 64}', block = '0x${'b' * 64}';
     final proof = jsonEncode([
       {'tx_hash': tx, 'block_hash': block},
     ]);
-    await WalletIsar.instance.writeTxn((isar) async {
-      await isar.walletMembershipStateEntitys.put(
-        WalletMembershipStateEntity()
-          ..stateKey = key
-          ..payloadJson = proof,
-      );
-    });
+    await wallet_store.Member.storeProof(
+      cidNumber,
+      (jsonDecode(proof) as List).single as Map<String, dynamic>,
+      pendingKind: 'member',
+    );
     var calls = 0, broadcasts = 0;
     void changed() => broadcasts++;
     MembershipRevision.instance.listenable.addListener(changed);
@@ -1066,9 +1147,9 @@ void main() {
     }
     expect(service.mirrorSyncPending, isTrue);
     expect(
-      (await WalletIsar.instance.read(
-        (isar) => isar.walletMembershipStateEntitys.getByStateKey(key),
-      ))?.payloadJson,
+      jsonEncode(
+        await wallet_store.Member.readProofs(cidNumber, pendingKind: 'member'),
+      ),
       proof,
     );
     expect(calls, 1);
@@ -1079,7 +1160,7 @@ void main() {
     var deviceSignCount = 0;
     final sent = <http.Request>[];
     final txHash = '0x${'a' * 64}';
-    final blockHash = '0x${'b' * 64}';
+    final chainHash = '0x${'b' * 64}';
     final api = SquareApiClient(
       baseUrl: 'https://membergate.test/api',
       httpClient: MockClient((request) async {
@@ -1090,14 +1171,14 @@ void main() {
           expect(request.url.path, '/api/membergate/confirm');
           expect(jsonDecode(request.body), {
             'tx_hash': txHash,
-            'block_hash': blockHash,
+            'block_hash': chainHash,
             'include_state': true,
           });
           return http.Response(
             jsonEncode({
               'is_ok': true,
               'tx_hash': txHash,
-              'block_hash': blockHash,
+              'block_hash': chainHash,
               'membergate_state': jsonDecode(_membershipJson),
             }),
             200,
@@ -1113,7 +1194,7 @@ void main() {
       deviceId: testMlsDeviceId,
       sessionToken: 'tok',
       cidNumber: testMlsCidNumber,
-      bindingRevision: 1,
+      bindRev: 1,
       accountId: _identityAccountId,
       expiresAt: 9999999999999,
       authenticateRequest:
@@ -1135,13 +1216,13 @@ void main() {
     final confirmed = await api.confirmPlatformSubscription(
       session: session,
       txHash: txHash,
-      blockHashHex: blockHash,
+      blockHashHex: chainHash,
     );
     expect(sent.map((request) => request.method), ['POST']);
     expect(deviceSignCount, 1);
     expect(confirmed.active, isTrue);
-    expect(confirmed.subscriptionActive, isTrue);
-    expect(confirmed.membershipLevel, 'democracy');
+    expect(confirmed.active, isTrue);
+    expect(confirmed.memberLevel, 'democracy');
   });
 
   for (final damagedField in [
@@ -1153,11 +1234,11 @@ void main() {
   ]) {
     test('会员确认拒绝损坏回执字段$damagedField，不能读取快照或冒认确认成功', () async {
       var calls = 0;
-      final txHash = '0x${'a' * 64}', blockHash = '0x${'b' * 64}';
+      final txHash = '0x${'a' * 64}', chainHash = '0x${'b' * 64}';
       final receipt = <String, Object>{
         'is_ok': true,
         'tx_hash': txHash,
-        'block_hash': blockHash,
+        'block_hash': chainHash,
         'membergate_state': jsonDecode(_membershipJson),
       };
       receipt[damagedField] = damagedField == 'is_ok' ? false : '0x${'c' * 64}';
@@ -1174,7 +1255,7 @@ void main() {
         api.confirmPlatformSubscription(
           session: _FakeSessionProvider()._session(),
           txHash: txHash,
-          blockHashHex: blockHash,
+          blockHashHex: chainHash,
         ),
         throwsA(isA<SquareApiException>()),
       );
@@ -1184,7 +1265,7 @@ void main() {
 
   test('确认快照暂不可用传播503并且不补GET，不将回执转成未激活会员', () async {
     var confirmations = 0, reads = 0;
-    final txHash = '0x${'a' * 64}', blockHash = '0x${'b' * 64}';
+    final txHash = '0x${'a' * 64}', chainHash = '0x${'b' * 64}';
     final api = SquareApiClient(
       baseUrl: 'https://membergate.test/api',
       httpClient: MockClient((request) async {
@@ -1201,7 +1282,7 @@ void main() {
       api.confirmPlatformSubscription(
         session: _FakeSessionProvider()._session(),
         txHash: txHash,
-        blockHashHex: blockHash,
+        blockHashHex: chainHash,
       ),
       throwsA(
         isA<SquareApiException>().having(
@@ -1287,18 +1368,15 @@ void main() {
 
   test('聊天关闭构造期恢复时有真实待同步证明也零会话/确认/GET且保留证明', () async {
     final provider = _FakeSessionProvider(), session = _cacheSession();
-    final key =
-        'platform_subscription_mirror_pending_by_cid:${provider.value.cidNumber}';
+    final cidNumber = provider.value.cidNumber;
     final proof = jsonEncode([
       {'tx_hash': '0x${'a' * 64}', 'block_hash': '0x${'b' * 64}'},
     ]);
-    await WalletIsar.instance.writeTxn((isar) async {
-      await isar.walletMembershipStateEntitys.put(
-        WalletMembershipStateEntity()
-          ..stateKey = key
-          ..payloadJson = proof,
-      );
-    });
+    await wallet_store.Member.storeProof(
+      cidNumber,
+      (jsonDecode(proof) as List).single as Map<String, dynamic>,
+      pendingKind: 'member',
+    );
     var calls = 0;
     final api = SquareApiClient(
       baseUrl: 'https://membergate.test/api',
@@ -1319,29 +1397,22 @@ void main() {
     expect(provider.calls, 0);
     expect(calls, 0);
     expect(
-      (await WalletIsar.instance.read(
-        (isar) => isar.walletMembershipStateEntitys.getByStateKey(key),
-      ))?.payloadJson,
+      jsonEncode(
+        await wallet_store.Member.readProofs(cidNumber, pendingKind: 'member'),
+      ),
       proof,
     );
   });
 
-  test('待同步证明确认先装唯一缓存再广播，后续消费者零GET且删除原证明', () async {
+  test('待同步证明确认先装唯一缓存再广播，后续消费者零GET且只清待同步状态', () async {
     final provider = _FakeSessionProvider(),
         session = await _FakeSessionProvider().ensureSession();
-    final tx = '0x${'a' * 64}',
-        block = '0x${'b' * 64}',
-        key =
-            'platform_subscription_mirror_pending_by_cid:${session!.cidNumber}';
-    await WalletIsar.instance.writeTxn((isar) async {
-      await isar.walletMembershipStateEntitys.put(
-        WalletMembershipStateEntity()
-          ..stateKey = key
-          ..payloadJson = jsonEncode([
-            {'tx_hash': tx, 'block_hash': block},
-          ]),
-      );
-    });
+    final tx = '0x${'a' * 64}', block = '0x${'b' * 64}';
+    final cidNumber = session!.cidNumber;
+    await wallet_store.Member.storeProof(cidNumber, {
+      'tx_hash': tx,
+      'block_hash': block,
+    }, pendingKind: 'member');
     final sent = <String>[], changed = Completer<void>();
     void listener() {
       if (!changed.isCompleted) changed.complete();
@@ -1376,20 +1447,22 @@ void main() {
       isTrue,
     );
     expect(sent, ['POST']);
-    // 广播早于原证明清除，排空同一数据库队列后核对幂等恢复已完成。
+    // 广播早于待同步状态清除，排空同一数据库队列后核对证明仍保留且恢复已完成。
     for (var i = 0; i < 10; i++) {
-      final row = await WalletIsar.instance.read(
-        (isar) => isar.walletMembershipStateEntitys.getByStateKey(key),
+      final pending = await wallet_store.Member.readProofs(
+        cidNumber,
+        pendingKind: 'member',
       );
-      if (row == null) break;
+      if (pending.isEmpty) break;
       await Future<void>.delayed(Duration.zero);
     }
     expect(
-      await WalletIsar.instance.read(
-        (isar) => isar.walletMembershipStateEntitys.getByStateKey(key),
-      ),
-      isNull,
+      await wallet_store.Member.readProofs(cidNumber, pendingKind: 'member'),
+      isEmpty,
     );
+    expect(await wallet_store.Member.readProofs(cidNumber), [
+      {'tx_hash': tx, 'block_hash': block},
+    ]);
   });
 
   test('同一 CitizenServe 身份会话跨页面服务实例只读取一次会员', () async {
@@ -1409,7 +1482,7 @@ void main() {
       deviceId: testMlsDeviceId,
       sessionToken: 'membership-session-once',
       cidNumber: 'CN220-CTZN2-198805299-2026',
-      bindingRevision: 9,
+      bindRev: 9,
       accountId:
           '0x9999999999999999999999999999999999999999999999999999999999999999',
       expiresAt: 9999999999999,
@@ -1594,14 +1667,10 @@ void main() {
     final now = DateTime.now().millisecondsSinceEpoch;
     final service = _RecordingSubscriptionService()
       ..cachedSnapshot = MembershipDisplaySnapshot(
-        state: _state(
-          active: true,
-          subscriptionActive: true,
-          membershipLevel: 'democracy',
-        ),
+        state: _state(active: true, memberLevel: 'democracy'),
         prices: const {'democracy': 99900},
-        subscriptionFetchedAtMs: now,
-        pricesFetchedAtMs: now,
+        memberAt: now,
+        priceAt: now,
       );
     await _pump(
       tester,
@@ -1620,14 +1689,10 @@ void main() {
     final now = DateTime.now().millisecondsSinceEpoch;
     final service = _RecordingSubscriptionService()
       ..cachedSnapshot = MembershipDisplaySnapshot(
-        state: _state(
-          active: true,
-          subscriptionActive: true,
-          membershipLevel: 'democracy',
-        ),
+        state: _state(active: true, memberLevel: 'democracy'),
         prices: const {'democracy': 99900},
-        subscriptionFetchedAtMs: now,
-        pricesFetchedAtMs: now,
+        memberAt: now,
+        priceAt: now,
       );
     await _pump(
       tester,
@@ -1644,14 +1709,10 @@ void main() {
     final now = DateTime.now().millisecondsSinceEpoch;
     final service = _RecordingSubscriptionService()
       ..cachedSnapshot = MembershipDisplaySnapshot(
-        state: _state(
-          active: true,
-          subscriptionActive: true,
-          membershipLevel: 'democracy',
-        ),
+        state: _state(active: true, memberLevel: 'democracy'),
         prices: const {'freedom': 29900, 'democracy': 99900, 'spark': 199900},
-        subscriptionFetchedAtMs: now,
-        pricesFetchedAtMs: now,
+        memberAt: now,
+        priceAt: now,
       );
     final chain = _FakeChainService(const {
       'freedom': 1,
@@ -1674,8 +1735,8 @@ void main() {
       ..cachedSnapshot = MembershipDisplaySnapshot(
         state: _state(),
         prices: const {'freedom': 29900},
-        subscriptionFetchedAtMs: now,
-        pricesFetchedAtMs: now,
+        memberAt: now,
+        priceAt: now,
       );
     final chain = _FakeChainService(const {'freedom': 39900});
 
@@ -1699,8 +1760,8 @@ void main() {
       ..cachedSnapshot = MembershipDisplaySnapshot(
         state: _state(),
         prices: const {'freedom': 29900},
-        subscriptionFetchedAtMs: stale,
-        pricesFetchedAtMs: stale,
+        memberAt: stale,
+        priceAt: stale,
       );
     final chain = _FailingChainService();
 
@@ -1731,10 +1792,7 @@ void main() {
   testWidgets('fronts the current membership tier card + 当前会员 marker', (
     tester,
   ) async {
-    await _pump(
-      tester,
-      _state(active: true, subscriptionActive: true, membershipLevel: 'spark'),
-    );
+    await _pump(tester, _state(active: true, memberLevel: 'spark'));
 
     expect(_frontCard('薪火会员'), findsOneWidget);
     expect(find.text('当前会员'), findsOneWidget);
@@ -1764,11 +1822,7 @@ void main() {
   ) async {
     await _pump(
       tester,
-      _state(
-        active: true,
-        subscriptionActive: true,
-        membershipLevel: 'freedom',
-      ),
+      _state(active: true, memberLevel: 'freedom'),
       prices: const {'freedom': 1, 'democracy': 2, 'spark': 3},
     );
 
@@ -1932,12 +1986,7 @@ void main() {
     final service = _RecordingSubscriptionService();
     await _pump(
       tester,
-      _state(
-        active: true,
-        subscriptionActive: true,
-        membershipLevel: 'freedom',
-        subscriptionStatus: 'active',
-      ),
+      _state(active: true, memberLevel: 'freedom', subState: 'active'),
       prices: const {'freedom': 1, 'democracy': 2, 'spark': 3},
       service: service,
     );
@@ -1959,11 +2008,7 @@ void main() {
     final service = _RecordingSubscriptionService();
     await _pump(
       tester,
-      _state(
-        active: true,
-        subscriptionActive: true,
-        membershipLevel: 'freedom',
-      ),
+      _state(active: true, memberLevel: 'freedom'),
       service: service,
     );
 
@@ -1982,10 +2027,9 @@ void main() {
       tester,
       _state(
         active: true,
-        subscriptionActive: true,
-        membershipLevel: 'freedom',
-        subscriptionStatus: 'active',
-        lastChargedAt: DateTime.now().millisecondsSinceEpoch,
+        memberLevel: 'freedom',
+        subState: 'active',
+        chargeAt: DateTime.now().millisecondsSinceEpoch,
       ),
     );
 
@@ -2016,10 +2060,9 @@ void main() {
       tester,
       _state(
         active: true,
-        subscriptionActive: true,
-        membershipLevel: 'freedom',
-        subscriptionStatus: 'cancelled',
-        lastChargedAt: DateTime.now().millisecondsSinceEpoch,
+        memberLevel: 'freedom',
+        subState: 'cancelled',
+        chargeAt: DateTime.now().millisecondsSinceEpoch,
       ),
     );
 
@@ -2031,17 +2074,13 @@ void main() {
     const withWindow = SquareMembershipState(
       active: true,
       paidUntil: 2000,
-      subscriptionActive: true,
-      lastChargedAt: 1000,
+
+      chargeAt: 1000,
     );
     expect(withWindow.hasSubscriptionWindow, isTrue);
 
-    const noWindow = SquareMembershipState(
-      active: true,
-      paidUntil: 2000,
-      subscriptionActive: true,
-    );
-    // 缺 last_charged_at（=0）→ 无可展示窗口。
+    const noWindow = SquareMembershipState(active: true, paidUntil: 2000);
+    // 缺 charge_at（=0）→ 无可展示窗口。
     expect(noWindow.hasSubscriptionWindow, isFalse);
   });
 
@@ -2059,8 +2098,8 @@ void main() {
     final snapshot = MembershipDisplaySnapshot(
       state: SquareApiClient.decodeMembership(raw),
       prices: const {'freedom': 29900, 'democracy': 99900, 'spark': 199900},
-      subscriptionFetchedAtMs: 3000,
-      pricesFetchedAtMs: 4000,
+      memberAt: 3000,
+      priceAt: 4000,
     );
     await service.writeDisplaySnapshot(cidNumber, snapshot);
     SubscriptionService.setChatAuthorizationForTesting(cidNumber, null);
@@ -2080,8 +2119,8 @@ void main() {
     expect(restored.state.usageState!.daily['media_requests'], 123);
     expect(restored.state.usageState!.publishedCount, 4);
     expect(restored.prices['spark'], 199900);
-    expect(restored.subscriptionFetchedAtMs, 3000);
-    expect(restored.pricesFetchedAtMs, 4000);
+    expect(restored.memberAt, 3000);
+    expect(restored.priceAt, 4000);
   });
 
   testWidgets('同一档位服务端额度变化直接展示，不被本地定义覆盖', (tester) async {
@@ -2103,8 +2142,8 @@ void main() {
       ..cachedSnapshot = MembershipDisplaySnapshot(
         state: _state(),
         prices: const {'freedom': 299, 'democracy': 999, 'spark': 9999},
-        subscriptionFetchedAtMs: 1000,
-        pricesFetchedAtMs: 1000,
+        memberAt: 1000,
+        priceAt: 1000,
       );
     await _pump(
       tester,
@@ -2185,7 +2224,7 @@ Map<String, dynamic> preflightGateFixture(
     'version': 2,
     'cid_number': s.cidNumber,
     'account_id': s.accountId,
-    'binding_revision': s.bindingRevision,
+    'bind_rev': s.bindRev,
     'device_id': s.deviceId,
     'server_time': time,
     'valid_until': time + 60000,
@@ -2235,7 +2274,7 @@ void _resourcePreflightTests() {
     SquareSession session() => SquareSession(
       sessionToken: 'synthetic',
       cidNumber: '1001',
-      bindingRevision: 1,
+      bindRev: 1,
       accountId: 'test-account',
       deviceId: 'test-device',
       expiresAt: DateTime.now().millisecondsSinceEpoch + 120000,
@@ -2253,7 +2292,8 @@ void _resourcePreflightTests() {
       final gate = MembershipResourceGate(),
           s = session(),
           rules = preflightGateFixture(session(), limit: 0);
-      (rules['resource_actions'] as Map)['chat_connect'] = <Map<String,String>>[];
+      (rules['resource_actions'] as Map)['chat_connect'] =
+          <Map<String, String>>[];
       gate.observe(origin, s, {'gate': rules});
       (await gate.reserve(
         origin: origin,
@@ -2265,7 +2305,7 @@ void _resourcePreflightTests() {
     Map<String, dynamic> stockSnapshot(SquareSession s, {int period = 1000}) {
       final data = jsonDecode(_membershipJson) as Map<String, dynamic>;
       data['gate'] = preflightGateFixture(s, limit: 1);
-      data['membergate']['last_charged_at'] = period;
+      data['membergate']['charge_at'] = period;
       data['plans'][1]['limits']['storage_bytes'] = 1;
       data['plans'][1]['daily_limits']['media_requests'] = 1;
       data['usage']['attachment'] = {
@@ -2297,6 +2337,10 @@ void _resourcePreflightTests() {
         throwsA(isA<SquarePreflightException>()),
       );
       old.finish();
+      // 已结束的变更使存量失效，下一次由新采样或服务端裁定，不盲加旧快照。
+      final next = stockSnapshot(s);
+      next['usage']['used_bytes'] = 1;
+      gate.observe(origin, s, next);
       await expectLater(
         gate.reserve(
           origin: origin,
@@ -2338,7 +2382,7 @@ void _resourcePreflightTests() {
       final next = SquareSession(
         sessionToken: 'new-synthetic',
         cidNumber: s.cidNumber,
-        bindingRevision: s.bindingRevision,
+        bindRev: s.bindRev,
         accountId: s.accountId,
         deviceId: s.deviceId,
         expiresAt: s.expiresAt,
@@ -2384,7 +2428,7 @@ void _resourcePreflightTests() {
       Map<String, dynamic> receipt(String device) => {
         'user_id': s.cidNumber,
         'account_id': s.accountId,
-        'binding_revision': s.bindingRevision,
+        'binding_revision': s.bindRev,
         'device_id': device,
         'server_time_millis': now,
         'counters': [
@@ -2411,6 +2455,240 @@ void _resourcePreflightTests() {
         'gate': preflightGateFixture(s, now: now + 86400000, limit: 1),
       });
       (await reserve(gate, s)).cancel();
+    });
+    test('存量在途快照不能重复相加，完成后迟到旧采样失效', () async {
+      final gate = MembershipResourceGate(), s = session();
+      final before = stockSnapshot(s);
+      before['plans'][1]['limits']['storage_bytes'] = 3;
+      gate.observe(origin, s, before);
+      final sample = gate.sample(origin, s);
+      final first = await gate.reserve(
+        origin: origin,
+        session: s,
+        operation: 'chat',
+        costs: {'storage_bytes': 1},
+      );
+      first.sent();
+      final during = stockSnapshot(s);
+      during['plans'][1]['limits']['storage_bytes'] = 3;
+      during['usage']['reserved_bytes'] = 1;
+      gate.observe(origin, s, during);
+      (await gate.reserve(
+        origin: origin,
+        session: s,
+        operation: 'chat',
+        costs: {'storage_bytes': 2},
+      )).cancel();
+      first.finish();
+      gate.observe(origin, s, before, sample: sample);
+      (await gate.reserve(
+        origin: origin,
+        session: s,
+        operation: 'chat',
+        costs: {'storage_bytes': 3},
+      )).cancel();
+    });
+    test('缺回执未知失败保留日消耗；明确拒绝及幂等零扣量释放', () async {
+      final gate = MembershipResourceGate(), s = session();
+      gate.observe(origin, s, {'gate': preflightGateFixture(s, limit: 1)});
+      final denied = (await reserve(gate, s))..sent();
+      denied.finish(headers: {}, accepted: false);
+      final unchanged = (await reserve(gate, s))..sent();
+      unchanged.finish(headers: {}, accepted: true);
+      final unknown = (await reserve(gate, s))..sent();
+      unknown.finish(headers: {}, accepted: false, uncertain: true);
+      await expectLater(
+        reserve(gate, s),
+        throwsA(isA<SquarePreflightException>()),
+      );
+    });
+    test('同一附件未知许可重试复用预留，真实回执只结算一次', () async {
+      final gate = MembershipResourceGate(), s = session();
+      final rules = preflightGateFixture(s, limit: 1);
+      rules['daily_limits'] = {'attachment_begins': 1};
+      rules['resource_actions'] = {
+        'chat_command': [
+          {
+            'metric': 'attachment_begins',
+            'amount': 'one',
+            'when': 'begin_attachment',
+          },
+        ],
+      };
+      gate.observe(origin, s, {'gate': rules});
+      Future<SquareResourceLease> begin(String id) => gate.reserve(
+        origin: origin,
+        session: s,
+        operation: 'chat',
+        operationId: id,
+        actions: {
+          'chat_command': {'begin_attachment': 1},
+        },
+      );
+      final first = (await begin('same'))..sent();
+      first.cancel();
+      await expectLater(
+        begin('different'),
+        throwsA(isA<SquarePreflightException>()),
+      );
+      final retry = (await begin('same'))..sent();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      retry.finish(
+        receipt: {
+          'user_id': s.cidNumber,
+          'device_id': s.deviceId,
+          'account_id': s.accountId,
+          'binding_revision': s.bindRev,
+          'server_time_millis': now,
+          'counters': [
+            {
+              'metric': 'attachment_begins',
+              'window_start_millis': now ~/ 86400000 * 86400000,
+              'charged': 0,
+              'used': 1,
+            },
+          ],
+        },
+      );
+      (await begin('same')).cancel();
+      await expectLater(
+        begin('different'),
+        throwsA(isA<SquarePreflightException>()),
+      );
+    });
+    test('同身份换会话后重试可以结算旧令牌的未知许可', () async {
+      final gate = MembershipResourceGate(), old = session();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      Map<String, dynamic> rules(SquareSession s, int time) {
+        final r = preflightGateFixture(s, now: time, limit: 1);
+        r['daily_limits'] = {'attachment_begins': 2};
+        r['resource_actions'] = {
+          'chat_command': [
+            {
+              'metric': 'attachment_begins',
+              'amount': 'one',
+              'when': 'begin_attachment',
+            },
+          ],
+        };
+        return r;
+      }
+
+      Future<SquareResourceLease> begin(SquareSession s, String id) =>
+          gate.reserve(
+            origin: origin,
+            session: s,
+            operation: 'chat',
+            operationId: id,
+            actions: {
+              'chat_command': {'begin_attachment': 1},
+            },
+          );
+      gate.observe(origin, old, {'gate': rules(old, now)});
+      (await begin(old, 'same'))
+        ..sent()
+        ..cancel();
+      final next = SquareSession(
+        sessionToken: 'renewed',
+        cidNumber: old.cidNumber,
+        bindRev: old.bindRev,
+        accountId: old.accountId,
+        deviceId: old.deviceId,
+        expiresAt: old.expiresAt,
+      );
+      gate.observe(origin, next, {'gate': rules(next, now + 1)});
+      final retry = (await begin(next, 'same'))..sent();
+      retry.finish(
+        receipt: {
+          'user_id': next.cidNumber,
+          'device_id': next.deviceId,
+          'account_id': next.accountId,
+          'binding_revision': next.bindRev,
+          'server_time_millis': now + 1,
+          'counters': [
+            {
+              'metric': 'attachment_begins',
+              'window_start_millis': now ~/ 86400000 * 86400000,
+              'charged': 0,
+              'used': 1,
+            },
+          ],
+        },
+      );
+      (await begin(next, 'new')).cancel();
+    });
+    test('未知失败的部分回执仅保留没有确认的成本', () async {
+      final gate = MembershipResourceGate(), s = session();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final rules = preflightGateFixture(s, now: now, limit: 2);
+      rules['daily_limits'] = {'media_requests': 2, 'delivery_bytes': 2};
+      gate.observe(origin, s, {'gate': rules});
+      final first = (await gate.reserve(
+        origin: origin,
+        session: s,
+        operation: 'chat',
+        costs: {'media_requests': 1, 'delivery_bytes': 1},
+      ))..sent();
+      first.finish(
+        accepted: false,
+        uncertain: true,
+        receipt: {
+          'user_id': s.cidNumber,
+          'device_id': s.deviceId,
+          'account_id': s.accountId,
+          'binding_revision': s.bindRev,
+          'server_time_millis': now,
+          'counters': [
+            {
+              'metric': 'media_requests',
+              'window_start_millis': now ~/ 86400000 * 86400000,
+              'charged': 1,
+              'used': 1,
+            },
+          ],
+        },
+      );
+      (await reserve(gate, s)).cancel();
+      await expectLater(
+        gate.reserve(
+          origin: origin,
+          session: s,
+          operation: 'chat',
+          costs: {'delivery_bytes': 2},
+        ),
+        throwsA(isA<SquarePreflightException>()),
+      );
+    });
+    test('未发送许可取消后不能留下免费幂等入口', () async {
+      final gate = MembershipResourceGate(), s = session();
+      final rules = preflightGateFixture(s, limit: 1);
+      rules['daily_limits'] = {'attachment_begins': 1};
+      rules['resource_actions'] = {
+        'chat_command': [
+          {
+            'metric': 'attachment_begins',
+            'amount': 'one',
+            'when': 'begin_attachment',
+          },
+        ],
+      };
+      gate.observe(origin, s, {'gate': rules});
+      Future<SquareResourceLease> begin(String id) => gate.reserve(
+        origin: origin,
+        session: s,
+        operation: 'chat',
+        operationId: id,
+        actions: {
+          'chat_command': {'begin_attachment': 1},
+        },
+      );
+      (await begin('same')).cancel();
+      final first = await begin('other');
+      await expectLater(
+        begin('same'),
+        throwsA(isA<SquarePreflightException>()),
+      );
+      first.cancel();
     });
     test('旧账户预留不能在失效后发送；未知规则不伪造HTTP拒绝', () async {
       final gate = MembershipResourceGate(), s = session();

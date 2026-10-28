@@ -36,30 +36,30 @@ enum ProposalSubjectType {
 class ProposalSubject {
   const ProposalSubject({
     required this.subjectType,
-    required this.institutionCode,
+    required this.orgCode,
     required this.adminModule,
     this.cidNumber,
-    this.personalAccountId,
+    this.accountId,
   });
 
   factory ProposalSubject.fromInstitution({
     required InstitutionInfo institution,
-    required String institutionCode,
+    required String orgCode,
   }) {
-    final code = institutionCode.toUpperCase();
+    final code = orgCode.toUpperCase();
     if (isPersonalAccountIdentity(institution.cidNumber) ||
         InstitutionCodeLabel.isPersonal(code)) {
       return ProposalSubject(
         subjectType: ProposalSubjectType.personalMultisig,
-        institutionCode: 'PMUL',
+        orgCode: 'PMUL',
         adminModule: 'PersonalAdmins',
-        personalAccountId: institution.personalAccountId,
+        accountId: institution.accountId,
       );
     }
     if (InstitutionCodeLabel.isFixedGovernance(code)) {
       return ProposalSubject(
         subjectType: ProposalSubjectType.fixedGovernanceInstitution,
-        institutionCode: code,
+        orgCode: code,
         adminModule: 'PublicAdmins',
         cidNumber: institution.cidNumber,
       );
@@ -67,7 +67,7 @@ class ProposalSubject {
     if (InstitutionCodeLabel.isPublicAdminCode(code)) {
       return ProposalSubject(
         subjectType: ProposalSubjectType.publicInstitution,
-        institutionCode: code,
+        orgCode: code,
         adminModule: 'PublicAdmins',
         cidNumber: institution.cidNumber,
       );
@@ -75,7 +75,7 @@ class ProposalSubject {
     if (InstitutionCodeLabel.isPrivateAdminCode(code)) {
       return ProposalSubject(
         subjectType: ProposalSubjectType.privateInstitution,
-        institutionCode: code,
+        orgCode: code,
         adminModule: 'PrivateAdmins',
         cidNumber: institution.cidNumber,
       );
@@ -83,7 +83,7 @@ class ProposalSubject {
     if (InstitutionCodeLabel.isUnincorporated(code)) {
       return ProposalSubject(
         subjectType: ProposalSubjectType.unincorporatedInstitution,
-        institutionCode: code,
+        orgCode: code,
         // 非法人机构码本身不能决定 public/private 管理员模块。
         adminModule: 'Unresolved',
         cidNumber: institution.cidNumber,
@@ -91,21 +91,21 @@ class ProposalSubject {
     }
     return ProposalSubject(
       subjectType: ProposalSubjectType.publicInstitution,
-      institutionCode: code,
+      orgCode: code,
       adminModule: 'PublicAdmins',
       cidNumber: institution.cidNumber,
     );
   }
 
   final ProposalSubjectType subjectType;
-  final String institutionCode;
+  final String orgCode;
   final String adminModule;
 
   /// 机构主体唯一主键；个人多签严格为空。
   final String? cidNumber;
 
   /// 个人多签账户；机构主体严格不使用该字段。
-  final String? personalAccountId;
+  final String? accountId;
 
   bool get isFixedGovernance =>
       subjectType == ProposalSubjectType.fixedGovernanceInstitution;
@@ -163,7 +163,7 @@ class ProposalCapabilityRegistry {
       pallet: 'MultisigTransfer',
       call: 'propose_sweep_to_main',
       voteEngine: 'InternalVote',
-      allows: (subject) => _sweepCodes.contains(subject.institutionCode),
+      allows: (subject) => _sweepCodes.contains(subject.orgCode),
     ),
     ProposalCapability(
       kind: ProposalKind.adminsChange,
@@ -171,7 +171,7 @@ class ProposalCapabilityRegistry {
       pallet: 'PersonalAdmins',
       call: 'propose_admin_set_change',
       voteEngine: 'InternalVote',
-      allows: (subject) => subject.institutionCode == 'PMUL',
+      allows: (subject) => subject.orgCode == 'PMUL',
     ),
     ProposalCapability(
       kind: ProposalKind.safetyFundTransfer,
@@ -179,7 +179,7 @@ class ProposalCapabilityRegistry {
       pallet: 'MultisigTransfer',
       call: 'propose_safety_fund_transfer',
       voteEngine: 'InternalVote',
-      allows: (subject) => subject.institutionCode == 'NRC',
+      allows: (subject) => subject.orgCode == 'NRC',
     ),
     ProposalCapability(
       kind: ProposalKind.resolutionIssuance,
@@ -187,8 +187,7 @@ class ProposalCapabilityRegistry {
       pallet: 'ResolutionIssuance',
       call: 'propose_issuance',
       voteEngine: 'JointVote',
-      allows: (subject) =>
-          _jointGovernanceCodes.contains(subject.institutionCode),
+      allows: (subject) => _jointGovernanceCodes.contains(subject.orgCode),
     ),
     ProposalCapability(
       kind: ProposalKind.resolutionDestroy,
@@ -196,8 +195,7 @@ class ProposalCapabilityRegistry {
       pallet: 'ResolutionDestroy',
       call: 'propose_destroy',
       voteEngine: 'InternalVote',
-      allows: (subject) =>
-          _destroyGovernanceCodes.contains(subject.institutionCode),
+      allows: (subject) => _destroyGovernanceCodes.contains(subject.orgCode),
     ),
     ProposalCapability(
       kind: ProposalKind.runtimeUpgrade,
@@ -205,18 +203,15 @@ class ProposalCapabilityRegistry {
       pallet: 'RuntimeUpgrade',
       call: 'propose_runtime_upgrade',
       voteEngine: 'JointVote',
-      allows: (subject) =>
-          _jointGovernanceCodes.contains(subject.institutionCode),
+      allows: (subject) => _jointGovernanceCodes.contains(subject.orgCode),
     ),
     ProposalCapability(
       kind: ProposalKind.grandpaKey,
       enabled: true,
       pallet: 'GrandpaKeyChange',
-      call:
-          'schedule_grandpa_key_rotation/propose_emergency_grandpa_key_recovery',
+      call: 'schedule_grandpa_key_rotation/propose_emergency_grandpa_key_recovery',
       voteEngine: 'Normal=None;Emergency=InternalVote',
-      allows: (subject) =>
-          _jointGovernanceCodes.contains(subject.institutionCode),
+      allows: (subject) => _jointGovernanceCodes.contains(subject.orgCode),
     ),
     ProposalCapability(
       kind: ProposalKind.legislation,
@@ -224,8 +219,7 @@ class ProposalCapabilityRegistry {
       pallet: 'LegislationYuan',
       call: 'propose_enact_law/propose_amend_law/propose_repeal_law',
       voteEngine: 'LegislationVote',
-      allows: (subject) =>
-          _legislationProposerCodes.contains(subject.institutionCode),
+      allows: (subject) => _legislationProposerCodes.contains(subject.orgCode),
     ),
     ProposalCapability(
       kind: ProposalKind.election,

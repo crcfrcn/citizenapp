@@ -50,9 +50,8 @@ class SquarePostSyncService {
           !{'image', 'video'}.contains(value['media_kind']) ||
           value['byte_size'] is! int ||
           (value['byte_size'] as int) <= 0 ||
-          value['sha256'] is! String ||
-          !RegExp(r'^[0-9a-f]{64}$').hasMatch(value['sha256']) ||
-          value['content_type'] is! String) {
+          value['body_hash'] is! String ||
+          !RegExp(r'^[0-9a-f]{64}$').hasMatch(value['body_hash'])) {
         throw StateError('媒体声明损坏');
       }
       return value;
@@ -81,14 +80,13 @@ class SquarePostSyncService {
         if (matching.length != 1) return null;
         final stored = await _media.get(
           cidNumber: post.cidNumber,
-          mediaId: matching.single.mediaId,
+          bodyHash: matching.single.bodyHash,
         );
-        if (stored == null || !stored.complete) return null;
+        if (stored == null || !stored.isComplete) return null;
         if (role != 'main' && stored.mediaKind != 'image') return null;
         if (role == 'main' &&
-            (stored.sha256 != item['sha256'] ||
+            (stored.bodyHash != item['body_hash'] ||
                 stored.byteSize != item['byte_size'] ||
-                stored.contentType != item['content_type'] ||
                 stored.mediaKind != item['media_kind'])) {
           return null;
         }
@@ -114,34 +112,28 @@ class SquarePostSyncService {
       check();
       final item = declarations[i];
       final source = remote[i];
-      for (final field in [
-        'media_kind',
-        'byte_size',
-        'sha256',
-        'content_type',
-      ]) {
+      for (final field in ['media_kind', 'byte_size', 'body_hash']) {
         if (source[field] != item[field]) throw StateError('远端媒体与正文声明不一致');
       }
-      if (source['asset_state'] != 'ready') throw StateError('远端媒体尚未就绪');
       final descriptor = SquareStoredMedia(
         cidNumber: post.cidNumber,
-        mediaId: item['sha256'] as String,
+
         mediaKind: item['media_kind'] as String,
-        contentType: item['content_type'] as String,
+        contentType: item['media_kind'] == 'video' ? 'video/mp4' : 'image/webp',
         byteSize: item['byte_size'] as int,
-        sha256: item['sha256'] as String,
+        bodyHash: item['body_hash'] as String,
       );
       final stored = await _media.get(
         cidNumber: post.cidNumber,
-        mediaId: descriptor.mediaId,
+        bodyHash: descriptor.bodyHash,
       );
-      if (stored?.complete != true) {
+      if (stored?.isComplete != true) {
         // 上轮下载可能留下错误字节；本次显式重试只重建未完成、无引用的媒体。
         // 完成的本地原件永远不因此删除，引用检查由仓库原子执行。
         if (stored != null) {
           await _media.deleteUnused(
             cidNumber: post.cidNumber,
-            mediaId: descriptor.mediaId,
+            bodyHash: descriptor.bodyHash,
           );
         }
         final response = await _api.openPostMedia(
@@ -163,12 +155,11 @@ class SquarePostSyncService {
         );
       }
       final role = descriptor.mediaKind == 'video' ? 'cover' : 'thumbnail';
-      if (source['derivative_kind'] != role ||
-          source['thumbnail_url'] is! String) {
+      if (source['preview_url'] is! String) {
         throw StateError('衍生图声明不一致');
       }
       final preview = await _api.openPostMedia(
-        source['thumbnail_url'] as String,
+        source['preview_url'] as String,
         session: session,
       );
       const limit = 4 * 1024 * 1024;
@@ -214,18 +205,18 @@ class SquarePostSyncService {
       await _media.saveStream(
         SquareStoredMedia(
           cidNumber: post.cidNumber,
-          mediaId: digest,
+
           mediaKind: 'image',
           contentType: type!,
           byteSize: data.length,
-          sha256: digest,
+          bodyHash: digest,
         ),
         Stream.value(data),
       );
       refs.addAll([
         SquareMediaReference(
           cidNumber: post.cidNumber,
-          mediaId: descriptor.mediaId,
+          bodyHash: descriptor.bodyHash,
           contentKind: 'post',
           contentId: post.postId,
           mediaIndex: i,
@@ -233,7 +224,7 @@ class SquarePostSyncService {
         ),
         SquareMediaReference(
           cidNumber: post.cidNumber,
-          mediaId: digest,
+          bodyHash: digest,
           contentKind: 'post',
           contentId: post.postId,
           mediaIndex: i,
@@ -260,7 +251,7 @@ class SquarePostSyncService {
     bool Function()? isCurrent,
   }) {
     if (!userInitiated) throw StateError('普通加载不得启动本人内容同步');
-    final binding = '${session.accountId}:${session.bindingRevision}';
+    final binding = '${session.accountId}:${session.bindRev}';
     void check() {
       if (!session.isUsable || !(isCurrent?.call() ?? true)) {
         throw StateError('同步身份已变化');
@@ -329,8 +320,8 @@ class SquarePostSyncService {
         }
         final previous = previousItem;
         if (previous != null &&
-            (item.createdAt > previous.createdAt ||
-                (item.createdAt == previous.createdAt &&
+            (item.publishedAt > previous.publishedAt ||
+                (item.publishedAt == previous.publishedAt &&
                     item.postId.compareTo(previous.postId) >= 0))) {
           throw const SquarePostStoreException('本人副本回灌顺序不稳定');
         }
@@ -351,11 +342,11 @@ class SquarePostSyncService {
       await _store.saveSyncedPage(page.items, references);
 
       final reachedCheckpoint =
-          checkpoint?.newestPostId != null &&
+          checkpoint?.postId != null &&
           page.items.any(
             (item) =>
-                item.postId == checkpoint!.newestPostId &&
-                item.createdAt == checkpoint.newestCreatedAt,
+                item.postId == checkpoint!.postId &&
+                item.publishedAt == checkpoint.publishedAt,
           );
       if ((!repairMedia && reachedCheckpoint) || page.nextCursor == null) {
         break;
@@ -372,8 +363,8 @@ class SquarePostSyncService {
     await _store.writeSyncCheckpoint(
       cidNumber: session.cidNumber,
       checkpoint: SquarePostSyncCheckpoint(
-        newestPostId: remoteNewest?.postId,
-        newestCreatedAt: remoteNewest?.createdAt ?? 0,
+        postId: remoteNewest?.postId,
+        publishedAt: remoteNewest?.publishedAt ?? 0,
       ),
     );
   }

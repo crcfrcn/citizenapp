@@ -26,7 +26,7 @@ class InstitutionAdminState {
 /// 管理员查询门面。
 ///
 /// 调用方必须传入明确的 `AdminAccountIdentity`，不再把
-/// `cidNumber` 当作个人多签、机构账户和治理机构共用的模糊参数。
+/// `cid_number` 当作个人多签、机构账户和治理机构共用的模糊参数。
 class InstitutionAdminService {
   InstitutionAdminService({required CitizenChain chain})
     : _chain = chain,
@@ -54,7 +54,7 @@ class InstitutionAdminService {
     // 岗位展示只依赖人员名册；治理阈值仍由完整状态/权限入口核验。
     final admins = await fetchAdmins(identity);
     if (admins.isEmpty) return const [];
-    final adminSet = admins.map((admin) => admin.account_id).toSet();
+    final adminSet = admins.map((admin) => admin.accountId).toSet();
     // 非法人机构码本身不能推断公权/私权，必须按链上管理员类型路由。
     final entityPallet = identity.kind == 1 ? 'PrivateManage' : 'PublicManage';
     // 岗位目录、任职及其全部分页/批取固定到同一个 finalized 块。
@@ -91,7 +91,7 @@ class InstitutionAdminService {
         final role = roles[assignment.roleCode];
         if (assignment.cidNumber == cidNumber &&
             role != null &&
-            adminSet.contains(assignment.account_id)) {
+            adminSet.contains(assignment.accountId)) {
           final effective = assignment.withRole(role);
           if (effective.isEffectiveOnDay(currentDay)) out.add(effective);
         }
@@ -130,7 +130,7 @@ class InstitutionAdminService {
   }) {
     final byAccount = <String, List<InstitutionAdminAssignment>>{};
     for (final assignment in assignments) {
-      byAccount.putIfAbsent(assignment.account_id, () => []).add(assignment);
+      byAccount.putIfAbsent(assignment.accountId, () => []).add(assignment);
     }
     return admins
         .map(
@@ -138,7 +138,7 @@ class InstitutionAdminService {
             admin: admin,
             assignmentsLoaded: assignmentsLoaded,
             assignments: List.unmodifiable(
-              byAccount[admin.account_id] ?? const [],
+              byAccount[admin.accountId] ?? const [],
             ),
           ),
         )

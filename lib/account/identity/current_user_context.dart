@@ -2,6 +2,7 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'package:citizenapp/account/identity/account_security_service.dart';
 import 'package:citizenapp/account/identity/identity_binding.dart';
+
 import 'identity_badge_snapshot_store.dart';
 
 /// 普通业务的当前用户快照；账户直接使用 CitizenSDK 公开模型。
@@ -19,9 +20,9 @@ final class CurrentUser {
   final bool verifiedUnregistered;
 
   String get accountId => account.accountId;
-  String get ss58Address => account.ss58Address;
+  String get accountAddress => account.ss58Address;
   String get cidNumber => binding?.cidNumber ?? '';
-  int get bindingRevision => binding?.bindingRevision ?? 0;
+  int get bindRev => binding?.bindRev ?? 0;
   bool get isRegistered => binding != null;
   bool get isUnregistered => binding == null && verifiedUnregistered;
 }
@@ -84,8 +85,9 @@ interface class CurrentUserContext {
             ));
     IdentityBadgeSnapshot? saved;
     try {
-      saved = await (_identityReader?.call(account.accountId) ??
-          IdentityBadgeSnapshotStore().readForAccountId(account.accountId));
+      saved =
+          await (_identityReader?.call(account.accountId) ??
+              IdentityBadgeSnapshotStore().readForAccountId(account.accountId));
     } on Object {
       // 展示库不可读不能触发查链，也不能把缓存缺失认作未注册。
     }

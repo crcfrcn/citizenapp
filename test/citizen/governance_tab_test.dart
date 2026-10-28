@@ -43,12 +43,8 @@ class _UnavailableDetailRepository extends InstitutionRepository {
 }
 
 /// 构造统一机构(helper 纯函数测试用)。
-Institution _inst(String name, String cid, String code) => Institution(
-  cidNumber: cid,
-  cidFullName: name,
-  cidShortName: name,
-  institutionCode: code,
-);
+Institution _inst(String name, String cid, String code) =>
+    Institution(cidNumber: cid, fullName: name, shortName: name, orgCode: code);
 
 PublicInstitutionDto _dto(String name, String cid, String code) =>
     PublicInstitutionDto.fromJson(<String, dynamic>{
@@ -106,7 +102,7 @@ Future<InstitutionRepository> _buildRepo({
     _dto('国家储备委员会', 'nrc', 'NRC'),
     for (final c in councils) _dto(c.name, c.cid, 'PRC'),
     for (final b in banks) _dto(b.name, b.cid, 'PRB'),
-  ], catalogVersion: 'v');
+  ]);
   return InstitutionRepository(
     directory: PublicInstitutionRepository(store: store),
   );

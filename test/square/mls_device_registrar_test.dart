@@ -30,7 +30,7 @@ const _binding = IdentityBinding(
   genesisHash:
       "0xabababababababababababababababababababababababababababababababab",
   cidNumber: testMlsCidNumber,
-  bindingRevision: 1,
+  bindRev: 1,
   accountId: _accountId,
 );
 
@@ -89,7 +89,7 @@ class _SessionWalletManager implements AccountSecurityService {
   Future<void> activateIdentityBinding({
     required String genesisHash,
     required String cidNumber,
-    required int bindingRevision,
+    required int bindRev,
     required String accountId,
   }) async {}
 
@@ -177,7 +177,7 @@ class _ProofStore implements PublicIdentityRecordStore {
 Map<String, Object> _receipt() => {
   'is_ok': true,
   'cid_number': testMlsCidNumber,
-  'binding_revision': 1,
+  'bind_rev': 1,
   'device_id': testMlsDeviceId,
 };
 
@@ -186,7 +186,7 @@ Future<void> _register(
   DeviceBindingSigner? signer,
 }) => registrar.register(
   cidNumber: testMlsCidNumber,
-  bindingRevision: 1,
+  bindRev: 1,
   accountId: testMlsAccountId,
   issuedAtMillis: 1700000000000,
   signBinding:
@@ -346,7 +346,7 @@ void main() {
       mlsDeviceRegistrar:
           ({
             required cidNumber,
-            required bindingRevision,
+            required bindRev,
             required accountId,
             required signBinding,
           }) async {
@@ -376,7 +376,7 @@ void main() {
     await service.activateIdentityBinding(
       genesisHash: _binding.genesisHash,
       cidNumber: _binding.cidNumber,
-      bindingRevision: 1,
+      bindRev: 1,
       accountId: _accountId,
     );
     return service;
@@ -397,7 +397,7 @@ void main() {
           testMlsAccountId,
         )] = jsonEncode({
           'cid_number': testMlsCidNumber,
-          'binding_revision': 1,
+          'bind_rev': 1,
           'account_id': testMlsAccountId,
           'public_key': '0x${receiptKey * 32}',
           'issued_at': 1,
@@ -614,7 +614,7 @@ void main() {
         expect(store.entries, hasLength(1));
         if (request.url.path.endsWith('/challenges')) {
           final body = jsonDecode(request.body) as Map<String, dynamic>;
-          expect(body['purpose'], 'registration');
+          expect(body['token_purpose'], 'registration');
           expect(body['public_key'], source.identity.publicKey);
           return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
         }
@@ -658,7 +658,7 @@ void main() {
       'public_key',
       'issued_at',
       'binding_signature',
-      'enrollment_id',
+      'reg_id',
       'recovery_token',
     });
     expect(requests.single['public_key'], source.identity.publicKey);
@@ -707,7 +707,7 @@ void main() {
       await _register(factory(), signer: signer);
       expect(wallets, 1);
       expect(capabilityReads, 2);
-      expect(bodies[1]['enrollment_id'], 'enrollment');
+      expect(bodies[1]['reg_id'], 'enrollment');
       expect(bodies[1].containsKey('turnstile_token'), false);
       expect(
         bodies.last['binding_signature'],
@@ -761,7 +761,7 @@ void main() {
     );
     store.entries[key] = jsonEncode({
       'cid_number': testMlsCidNumber,
-      'binding_revision': 1,
+      'bind_rev': 1,
       'account_id': testMlsAccountId,
       'public_key': '0x${'bc' * 32}',
       'issued_at': 1700000000000,
@@ -851,8 +851,8 @@ void main() {
         apiClient: api,
       ),
     );
-    expect(body!.containsKey('enrollment_id'), true);
-    expect(body!['enrollment_id'], isNull);
+    expect(body!.containsKey('reg_id'), true);
+    expect(body!['reg_id'], isNull);
     expect(body!.containsKey('recovery_token'), true);
     expect(body!['recovery_token'], isNull);
     expect(body!.containsKey('turnstile_token'), false);

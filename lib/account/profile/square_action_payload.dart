@@ -6,8 +6,8 @@ import 'package:citizenapp/citizen/account_derivation.dart';
 /// 广场账户动作签名 payload（两色内容核对用）。
 ///
 /// 布局须与 Worker `account/action_challenge.buildActionScalePayload` 逐字节一致：
-///   scaleString(action) ‖ scaleString(accountId) ‖ scaleString(challengeId)
-///   [‖ scaleString(context/level)] ‖ u64_le(expiresAt)
+///   scaleString(action) ‖ scaleString(account_id) ‖ scaleString(challengeId)
+///   [‖ scaleString(context/level)] ‖ u64_le(expires_at)
 /// 其中 context 仅在 action == 'subscribe_membership' 时存在（= 会员等级）。
 class SquareActionPayload {
   const SquareActionPayload({
@@ -147,7 +147,8 @@ String _formatExpiresAt(int value) {
     return (value, offset + 2);
   }
   if (mode == 2) {
-    final raw = first |
+    final raw =
+        first |
         (bytes[offset + 1] << 8) |
         (bytes[offset + 2] << 16) |
         (bytes[offset + 3] << 24);

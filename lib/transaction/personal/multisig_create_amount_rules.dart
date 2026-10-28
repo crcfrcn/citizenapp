@@ -17,7 +17,8 @@ class MultisigCreateAmountRules {
   /// 创建多签复用链上 onchain_transaction 手续费公式：
   /// `max(amount_fen * 0.1%, 10 fen)`，half-up 到分。
   static BigInt calculateOnchainFeeFen(BigInt amountFen) {
-    final byRate = (amountFen * BigInt.from(_perbillParts) +
+    final byRate =
+        (amountFen * BigInt.from(_perbillParts) +
             BigInt.from(_perbillDenominator ~/ 2)) ~/
         BigInt.from(_perbillDenominator);
     return byRate < minOnchainFeeFen ? minOnchainFeeFen : byRate;
@@ -40,13 +41,13 @@ class MultisigCreateAmountRules {
     required double balanceYuan,
     required BigInt initialAmountFen,
   }) {
-    final feeFen = calculateOnchainFeeFen(initialAmountFen);
-    final requiredFen = initialAmountFen + feeFen + existentialDepositFen;
+    final feeAmount = calculateOnchainFeeFen(initialAmountFen);
+    final requiredFen = initialAmountFen + feeAmount + existentialDepositFen;
     return '发起钱包余额不足，不能$actionLabel。当前余额 '
         '${AmountFormat.format(balanceYuan, symbol: '')} 元，至少需要 '
         '${AmountFormat.format(fenToYuan(requiredFen), symbol: '')} 元'
         '（初始资金 ${AmountFormat.format(fenToYuan(initialAmountFen), symbol: '')} 元'
-        ' + 创建手续费 ${AmountFormat.format(fenToYuan(feeFen), symbol: '')} 元'
+        ' + 创建手续费 ${AmountFormat.format(fenToYuan(feeAmount), symbol: '')} 元'
         ' + ED ${AmountFormat.format(fenToYuan(existentialDepositFen), symbol: '')} 元）。';
   }
 }

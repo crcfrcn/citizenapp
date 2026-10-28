@@ -1,3 +1,4 @@
+import 'package:citizenapp/storage/app_isar.dart' as app_store show Entity;
 // 统一机构详情页(ADR-028)widget 测试 —— 公权路径(信息卡/账户/提案占位/管理员/
 // 提案列表/订阅)+ 统一账户行派生。替代旧 public_institution_detail_test。
 
@@ -28,7 +29,6 @@ import 'package:citizenapp/citizen/institution/institution_role_models.dart';
 import 'package:citizenapp/citizen/administrators/admin_account.dart';
 import 'package:citizenapp/citizen/account_derivation.dart';
 import 'package:citizenapp/citizen/reserved_account_names.dart';
-import 'package:citizenapp/storage/app_isar.dart';
 
 import '../public/public_nav_harness.dart';
 
@@ -66,14 +66,14 @@ class _FakeChainState implements InstitutionChainState {
         .map(
           (account) => InstitutionAdminView(
             admin: AdminPerson(
-              account_id: account,
-              family_name: '管理',
-              given_name: '员',
+              accountId: account,
+              familyName: '管理',
+              givenName: '员',
             ),
             assignments: [
               InstitutionAdminAssignment(
                 cidNumber: institution.cidNumber,
-                account_id: account,
+                accountId: account,
                 roleCode: 'MEMBER',
                 roleName: '委员',
                 termStart: 0,
@@ -97,18 +97,17 @@ class _FakeChainState implements InstitutionChainState {
   }
 }
 
-PublicInstitutionEntity _entity() =>
-    PublicInstitutionDto.fromJson(<String, dynamic>{
-      'cid_number': _cid,
-      'cid_full_name': '辽宁省身份注册局',
-      'province_code': 'LN',
-      'city_code': '001',
-      'institution_code': 'CREG',
-      'account_count': 4,
-      'custom_account_names': ['业务专户'],
-    }).toEntity(catalogVersion: 'v', updatedAtMillis: 0);
+app_store.Entity _entity() => PublicInstitutionDto.fromJson(<String, dynamic>{
+  'cid_number': _cid,
+  'cid_full_name': '辽宁省身份注册局',
+  'province_code': 'LN',
+  'city_code': '001',
+  'institution_code': 'CREG',
+  'account_count': 4,
+  'custom_account_names': ['业务专户'],
+}).toEntity();
 
-PublicInstitutionEntity _fscEntity() =>
+app_store.Entity _fscEntity() =>
     PublicInstitutionDto.fromJson(<String, dynamic>{
       'cid_number': _fscCid,
       'cid_full_name': '总统府联邦安全局',
@@ -118,7 +117,7 @@ PublicInstitutionEntity _fscEntity() =>
       'institution_code': 'FSC',
       'account_count': 3,
       'custom_account_names': [kReservedNameFcsf],
-    }).toEntity(catalogVersion: 'v', updatedAtMillis: 0);
+    }).toEntity();
 
 Widget _wrap(Widget child) => MaterialApp(home: child);
 
@@ -127,9 +126,9 @@ List<InstitutionAdminView> _rows(int count, {bool loaded = true}) => [
   for (var i = 0; i < count; i++)
     InstitutionAdminView(
       admin: AdminPerson(
-        account_id: i == 0 ? _adminAccountId : '0x${'bb' * 32}',
-        family_name: '合成',
-        given_name: '管理员$i',
+        accountId: i == 0 ? _adminAccountId : '0x${'bb' * 32}',
+        familyName: '合成',
+        givenName: '管理员$i',
       ),
       assignmentsLoaded: loaded,
     ),
@@ -404,7 +403,7 @@ void main() {
     final admin = _rows(1).single.admin;
     const stale = InstitutionAdminAssignment(
       cidNumber: _cid,
-      account_id: _adminAccountId,
+      accountId: _adminAccountId,
       roleCode: 'STALE',
       roleName: '旧岗位',
       termStart: 0,
@@ -442,7 +441,7 @@ void main() {
       for (final code in ['A', 'B'])
         InstitutionAdminAssignment(
           cidNumber: _cid,
-          account_id: _adminAccountId,
+          accountId: _adminAccountId,
           roleCode: code,
           roleName: '合成岗位$code',
           termStart: 10,

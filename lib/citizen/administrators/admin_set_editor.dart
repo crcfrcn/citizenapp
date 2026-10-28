@@ -93,7 +93,7 @@ class _AdminSetEditorState extends State<AdminSetEditor> {
             children: [
               Text('${index + 1}'),
               SizedBox(width: AppLayout.scaledValue(8)),
-              Expanded(child: Text(ss58FromAccountIdText(admin.account_id))),
+              Expanded(child: Text(ss58FromAccountIdText(admin.accountId))),
               IconButton(
                 padding: EdgeInsets.zero,
                 tooltip: '移除',
@@ -106,32 +106,28 @@ class _AdminSetEditorState extends State<AdminSetEditor> {
             ],
           ),
           Text(
-            '余额：${AmountFormat.formatThousands(widget.balances[AdminAccountIdCodec.requireAccountId(admin.account_id)])} 元',
+            '余额：${AmountFormat.formatThousands(widget.balances[AdminAccountIdCodec.requireAccountId(admin.accountId)])} 元',
           ),
           SizedBox(height: AppLayout.scaledValue(8)),
           Row(
             children: [
               Expanded(
                 child: TextFormField(
-                  key: ValueKey('${admin.account_id}-$index-family'),
-                  initialValue: admin.family_name,
+                  key: ValueKey('${admin.accountId}-$index-family'),
+                  initialValue: admin.familyName,
                   decoration: const InputDecoration(labelText: '姓'),
-                  onChanged: (value) => _updateName(
-                    index,
-                    admin.copyWith(family_name: value),
-                  ),
+                  onChanged: (value) =>
+                      _updateName(index, admin.copyWith(familyName: value)),
                 ),
               ),
               SizedBox(width: AppLayout.scaledValue(8)),
               Expanded(
                 child: TextFormField(
-                  key: ValueKey('${admin.account_id}-$index-given'),
-                  initialValue: admin.given_name,
+                  key: ValueKey('${admin.accountId}-$index-given'),
+                  initialValue: admin.givenName,
                   decoration: const InputDecoration(labelText: '名'),
-                  onChanged: (value) => _updateName(
-                    index,
-                    admin.copyWith(given_name: value),
-                  ),
+                  onChanged: (value) =>
+                      _updateName(index, admin.copyWith(givenName: value)),
                 ),
               ),
             ],
@@ -151,17 +147,17 @@ class _AdminSetEditorState extends State<AdminSetEditor> {
   void _add() {
     final clean = AdminAccountIdCodec.requireAccountId(_accountController.text);
     if (clean.length != 64 ||
-        widget.admins.any((admin) => admin.account_id == clean)) {
+        widget.admins.any((admin) => admin.accountId == clean)) {
       return;
     }
     widget.onChanged([
       ...widget.admins,
       AdminPerson(
-        account_id: clean,
-        family_name: _familyNameController.text.trim().isEmpty
+        accountId: clean,
+        familyName: _familyNameController.text.trim().isEmpty
             ? '管理'
             : _familyNameController.text.trim(),
-        given_name: _givenNameController.text.trim().isEmpty
+        givenName: _givenNameController.text.trim().isEmpty
             ? '员'
             : _givenNameController.text.trim(),
       ),

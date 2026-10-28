@@ -74,16 +74,16 @@ class RunnerTests: XCTestCase {
 
   func testSquareVideoRequestAcceptsOnlyCanonicalEnvelope() throws {
     let request = try SquareVideoRequest(arguments: squareVideoArguments())
-    XCTAssertEqual(request.maxWidth, 854)
+    XCTAssertEqual(request.videoWidth, 854)
     XCTAssertEqual(request.audioSampleRate, 48_000)
-    XCTAssertEqual(request.keyFrameIntervalSeconds, 2)
-    XCTAssertEqual(request.maxBytes, 12 * 1024 * 1024)
-    XCTAssertEqual(request.coverMaxBytes, 120 * 1024)
+    XCTAssertEqual(request.keyframeSecs, 2)
+    XCTAssertEqual(request.videoMaxBytes, 12 * 1024 * 1024)
+    XCTAssertEqual(request.coverBytes, 120 * 1024)
 
     var boundary = squareVideoArguments()
-    boundary["max_bytes"] = Int64(3) * 1024 * 1024 * 1024
-    XCTAssertEqual(try SquareVideoRequest(arguments: boundary).maxBytes, Int64(3) * 1024 * 1024 * 1024)
-    boundary["max_bytes"] = Int64(3) * 1024 * 1024 * 1024 + 1
+    boundary["video_max_bytes"] = Int64(3) * 1024 * 1024 * 1024
+    XCTAssertEqual(try SquareVideoRequest(arguments: boundary).videoMaxBytes, Int64(3) * 1024 * 1024 * 1024)
+    boundary["video_max_bytes"] = Int64(3) * 1024 * 1024 * 1024 + 1
     XCTAssertThrowsError(try SquareVideoRequest(arguments: boundary))
 
     var invalid = squareVideoArguments()
@@ -168,19 +168,19 @@ class RunnerTests: XCTestCase {
       "input_path": "/tmp/input.mov",
       "output_path": "/tmp/output.mp4",
       "cover_path": "/tmp/cover.png",
-      "max_width": 854,
-      "max_height": 480,
+      "video_width": 854,
+      "video_height": 480,
       "video_bitrate": 386_000,
-      "total_peak_bitrate": 675_000,
+      "video_peak_bitrate": 675_000,
       "audio_bitrate": 64_000,
       "audio_sample_rate": 48_000,
-      "max_frame_rate": 30,
-      "key_frame_interval_seconds": 2,
-      "max_duration_seconds": 180,
-      "max_bytes": 12 * 1024 * 1024,
-      "cover_max_edge": 540,
+      "video_frame_rate": 30,
+      "keyframe_secs": 2,
+      "video_max_seconds": 180,
+      "video_max_bytes": 12 * 1024 * 1024,
+      "cover_dimension": 540,
       "cover_quality": 70,
-      "cover_max_bytes": 120 * 1024,
+      "cover_bytes": 120 * 1024,
     ]
   }
 

@@ -37,7 +37,7 @@ class UserQrPage extends StatelessWidget {
   /// 本人用户码显式标记“我的”；他人页面不得冒充本人。
   final bool isSelf;
 
-  /// 展示态 SS58 地址(accountId 为授权真源,ss58 仅用于展示与二维码载荷)。
+  /// 展示态 SS58 地址(account_id 为授权真源,ss58 仅用于展示与二维码载荷)。
   String get _ss58Address => ss58FromAccountIdText(accountId);
 
   @override
@@ -46,7 +46,7 @@ class UserQrPage extends StatelessWidget {
       title: isSelf ? '我的用户码' : '用户码',
       headline: displayName,
       qrData: qrData,
-      ss58Address: _ss58Address,
+      accountAddress: _ss58Address,
       footerText: '扫描此二维码可加为联系人，或向其转账',
     );
   }

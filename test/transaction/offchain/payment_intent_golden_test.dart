@@ -3,7 +3,9 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
+
 import '../../support/fake_citizen_sdk.dart';
+
 import 'package:citizenapp/transaction/offchain/payment_intent.dart';
 
 /// 扫码支付跨端 golden vectors。
@@ -106,10 +108,12 @@ void main() {
         nonce: BigInt.from(1),
         expiresAt: 100,
       );
-      final viaPrimitive = (await CitizenSigning.encodePayload(CitizenSigningPayload.message(
-        opTag: kOpSignL3Pay,
-        scalePayload: intent.scaleEncode(),
-      )));
+      final viaPrimitive = (await CitizenSigning.encodePayload(
+        CitizenSigningPayload.message(
+          opTag: kOpSignL3Pay,
+          scalePayload: intent.scaleEncode(),
+        ),
+      ));
       expect(_hexLower(await intent.signingHash()), _hexLower(viaPrimitive));
     });
 
@@ -125,10 +129,12 @@ void main() {
         nonce: BigInt.from(1),
         expiresAt: 100,
       );
-      final batchOperationMessage = (await CitizenSigning.encodePayload(CitizenSigningPayload.message(
-        opTag: kOpSignOffchainBatch,
-        scalePayload: intent.scaleEncode(),
-      )));
+      final batchOperationMessage = (await CitizenSigning.encodePayload(
+        CitizenSigningPayload.message(
+          opTag: kOpSignOffchainBatch,
+          scalePayload: intent.scaleEncode(),
+        ),
+      ));
       expect(
         _hexLower(await intent.signingHash()),
         isNot(_hexLower(batchOperationMessage)),
@@ -149,8 +155,10 @@ void main() {
         expiresAt: 0,
       );
       // 32(tx)+32(payer)+(1+26)+32(recipient)+(1+26)+16+16+8+4 = 194。
-      expect(intent.scaleEncode().length,
-          32 + 32 + (1 + 26) + 32 + (1 + 26) + 16 + 16 + 8 + 4);
+      expect(
+        intent.scaleEncode().length,
+        32 + 32 + (1 + 26) + 32 + (1 + 26) + 16 + 16 + 8 + 4,
+      );
     });
   });
 }

@@ -1,3 +1,5 @@
+import 'package:citizenapp/storage/user_isar.dart' as user_store show Identity;
+
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -12,16 +14,16 @@ import 'citizen_identity_chain_reader.dart';
 class IdentityBadgeSnapshot {
   const IdentityBadgeSnapshot({
     required this.cidNumber,
-    required this.identityLevel,
-    required this.updatedAtMillis,
+    required this.cidLevel,
+    required this.updatedAt,
     this.accountId,
     this.identity,
     this.verified = false,
   });
 
   final String cidNumber;
-  final String identityLevel;
-  final int updatedAtMillis;
+  final String cidLevel;
+  final int updatedAt;
   final String? accountId;
   final CitizenIdentityChainSnapshot? identity;
 
@@ -42,10 +44,11 @@ class IdentityBadgeSnapshotStore {
     final cid = cidNumber.trim();
     if (cid.isEmpty) return null;
     final row = await UserIsar.instance.read(
-      (isar) async => isar.userIdentityBadgeSnapshotEntitys
+      (isar) async => isar
+          .collection<user_store.Identity>()
           .filter()
           .cidNumberEqualTo(cid)
-          .sortByUpdatedAtMillisDesc()
+          .sortByUpdatedAtDesc()
           .findFirst(),
     );
     return _decode(row);
@@ -53,37 +56,49 @@ class IdentityBadgeSnapshotStore {
 
   Future<IdentityBadgeSnapshot?> readForAccountId(String accountId) async {
     final row = await UserIsar.instance.read(
-      (isar) async => isar.userIdentityBadgeSnapshotEntitys
+      (isar) async => isar
+          .collection<user_store.Identity>()
           .filter()
           .accountIdEqualTo(accountId)
-          .sortByUpdatedAtMillisDesc()
+          .sortByUpdatedAtDesc()
           .findFirst(),
     );
     return _decode(row);
   }
 
-  IdentityBadgeSnapshot? _decode(UserIdentityBadgeSnapshotEntity? row) {
-    if (row == null ||
-        !_allowedLevels.contains(row.identityLevel) ||
-        row.updatedAtMillis < 0) {
+  IdentityBadgeSnapshot? _decode(user_store.Identity? row) {
+    if (row == null || row.updatedAt < 0 || row.identityData == null) {
       return null;
     }
     CitizenIdentityChainSnapshot? identity;
-    final raw = row.identitySnapshotJson;
+    late String cidLevel;
+    final raw = row.identityData;
     try {
-      if (raw != null) {
+      final value = jsonDecode(raw!);
+      if (row.accountId == null) {
+        if (value is! Map<String, dynamic> ||
+            value.length != 1 ||
+            !_allowedLevels.contains(value['cid_level']) ||
+            row.cidNumber.isEmpty) {
+          return null;
+        }
+        cidLevel = value['cid_level'] as String;
+      } else {
         final account = row.accountId;
         if (account == null || !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(account)) {
           return null;
         }
-        final value = jsonDecode(raw);
         if (value == null) {
           if (row.cidNumber.isNotEmpty) return null;
         } else {
-          if (value is! Map<String, dynamic> || row.cidNumber.isEmpty) {
+          const fields = {'bind_rev', 'voting_identity', 'candidate_identity'};
+          if (value is! Map<String, dynamic> ||
+              row.cidNumber.isEmpty ||
+              value.length != fields.length ||
+              !value.keys.every(fields.contains)) {
             return null;
           }
-          final version = value['binding_revision'];
+          final version = value['bind_rev'];
           if (version is! int || version <= 0) return null;
           Uint8List? bytes(String field) {
             final input = value[field];
@@ -114,19 +129,24 @@ class IdentityBadgeSnapshotStore {
               for (var i = 2; i < account.length; i += 2)
                 int.parse(account.substring(i, i + 2), radix: 16),
             ]),
-            bindingRevision: version,
+            bindRev: version,
             votingIdentity: voting,
             candidateIdentity: candidate,
           );
         }
+        cidLevel = identity?.votingIdentity == null
+            ? 'visitor'
+            : identity?.candidateIdentity == null
+            ? 'voting'
+            : 'candidate';
       }
       return IdentityBadgeSnapshot(
         cidNumber: row.cidNumber,
-        identityLevel: row.identityLevel,
-        updatedAtMillis: row.updatedAtMillis,
+        cidLevel: cidLevel,
+        updatedAt: row.updatedAt,
         accountId: row.accountId,
         identity: identity,
-        verified: raw != null,
+        verified: row.accountId != null,
       );
     } on FormatException {
       // 缓存损坏只表示未知，读取不得清库、查链或冒充未注册。
@@ -137,24 +157,24 @@ class IdentityBadgeSnapshotStore {
   /// 徽章生产者写入同一行；已有完整身份不能被局部徽章覆盖。
   Future<void> write({
     required String cidNumber,
-    required String identityLevel,
+    required String cidLevel,
   }) async {
     final cid = cidNumber.trim();
-    if (cid.isEmpty || !_allowedLevels.contains(identityLevel)) {
+    if (cid.isEmpty || !_allowedLevels.contains(cidLevel)) {
       throw ArgumentError('公民号或身份档无效');
     }
     await UserIsar.instance.writeTxn((isar) async {
-      final collection = isar.userIdentityBadgeSnapshotEntitys;
+      final collection = isar.collection<user_store.Identity>();
       final existing = await collection
           .filter()
           .cidNumberEqualTo(cid)
           .findFirst();
-      if (existing?.identitySnapshotJson != null) return;
-      final row = existing ?? UserIdentityBadgeSnapshotEntity();
+      if (existing?.accountId != null) return;
+      final row = existing ?? user_store.Identity();
       row
         ..cidNumber = cid
-        ..identityLevel = identityLevel
-        ..updatedAtMillis = _nowProvider().millisecondsSinceEpoch;
+        ..identityData = jsonEncode({'cid_level': cidLevel})
+        ..updatedAt = _nowProvider().millisecondsSinceEpoch;
       await collection.put(row);
     });
     revision.value++;
@@ -175,10 +195,10 @@ class IdentityBadgeSnapshotStore {
     }
     await UserIsar.instance.writeTxn((isar) async {
       if (!isCurrent()) throw StateError('身份上下文已变化');
-      final rows = isar.userIdentityBadgeSnapshotEntitys;
+      final rows = isar.collection<user_store.Identity>();
       final row =
           await rows.filter().accountIdEqualTo(accountId).findFirst() ??
-          UserIdentityBadgeSnapshotEntity();
+          user_store.Identity();
       // 同一个CID的旧账户或旧徽章一并收敛；保留旧账户已失去绑定的事实，禁止双重归属。
       if (identity != null) {
         final previous = await rows
@@ -188,20 +208,19 @@ class IdentityBadgeSnapshotStore {
         for (final old in previous) {
           final known = _decode(old)?.identity;
           if (known != null &&
-              (known.bindingRevision > identity.bindingRevision ||
-                  (known.bindingRevision == identity.bindingRevision &&
+              (known.bindRev > identity.bindRev ||
+                  (known.bindRev == identity.bindRev &&
                       old.accountId != accountId))) {
             throw StateError('身份绑定版本禁止回退或改写');
           }
-          if (old.id == row.id) continue;
+          if (old.rowId == row.rowId) continue;
           if (old.accountId == null) {
-            await rows.delete(old.id);
+            await rows.delete(old.rowId);
           } else {
             old
               ..cidNumber = ''
-              ..identityLevel = 'visitor'
-              ..identitySnapshotJson = 'null'
-              ..updatedAtMillis = _nowProvider().millisecondsSinceEpoch;
+              ..identityData = 'null'
+              ..updatedAt = _nowProvider().millisecondsSinceEpoch;
             await rows.put(old);
           }
         }
@@ -209,21 +228,16 @@ class IdentityBadgeSnapshotStore {
       row
         ..accountId = accountId
         ..cidNumber = identity?.cidNumber ?? ''
-        ..identityLevel = identity?.votingIdentity == null
-            ? 'visitor'
-            : identity?.candidateIdentity == null
-            ? 'voting'
-            : 'candidate'
-        ..identitySnapshotJson = jsonEncode(
+        ..identityData = jsonEncode(
           identity == null
               ? null
               : {
-                  'binding_revision': identity.bindingRevision,
+                  'bind_rev': identity.bindRev,
                   'voting_identity': identity.votingIdentity?.toList(),
                   'candidate_identity': identity.candidateIdentity?.toList(),
                 },
         )
-        ..updatedAtMillis = _nowProvider().millisecondsSinceEpoch;
+        ..updatedAt = _nowProvider().millisecondsSinceEpoch;
       if (!isCurrent()) throw StateError('身份上下文已变化');
       await rows.put(row);
     });
@@ -234,7 +248,8 @@ class IdentityBadgeSnapshotStore {
     final cid = cidNumber.trim();
     if (cid.isEmpty) return;
     await UserIsar.instance.writeTxn((isar) async {
-      await isar.userIdentityBadgeSnapshotEntitys
+      await isar
+          .collection<user_store.Identity>()
           .filter()
           .cidNumberEqualTo(cid)
           .deleteAll();

@@ -270,7 +270,7 @@ class _ProfilePostsTabState extends State<ProfilePostsTab> {
 
   String? _sessionKey(SquareSession? session) => session == null
       ? null
-      : '${session.accountId}:${session.cidNumber}:${session.bindingRevision}:${session.sessionToken}';
+      : '${session.accountId}:${session.cidNumber}:${session.bindRev}:${session.sessionToken}';
 
   bool _matchesLocalFilters(SquareLocalPostPresentation presentation) {
     final post = presentation.post;
@@ -295,7 +295,7 @@ class _ProfilePostsTabState extends State<ProfilePostsTab> {
     }
     final merged = byPostId.values.toList()
       ..sort((left, right) {
-        final byCreatedAt = right.createdAt.compareTo(left.createdAt);
+        final byCreatedAt = right.publishedAt.compareTo(left.publishedAt);
         if (byCreatedAt != 0) return byCreatedAt;
         return right.postId.compareTo(left.postId);
       });
@@ -365,7 +365,7 @@ class _ProfilePostsTabState extends State<ProfilePostsTab> {
               SizedBox(height: AppLayout.scaledValue(10)),
           itemBuilder: (context, index) {
             final post = _posts[index];
-            final avatarKey = post.author.avatarObjectKey;
+            final avatarKey = post.author.avatarKey;
             final session = widget.session;
             final avatarImage =
                 post.isLocal || avatarKey == null || session == null

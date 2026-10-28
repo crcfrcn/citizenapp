@@ -144,15 +144,15 @@ class SquareMediaChannelInstrumentedTest {
     @Test
     fun requestAcceptsOnlyThePublishedCodecEnvelope() {
         val request = SquareVideoRequest.from(MethodCall("transcode_video", validArguments()))
-        assertEquals(854, request.maxWidth)
+        assertEquals(854, request.videoWidth)
         assertEquals(48_000, request.audioSampleRate)
-        assertEquals(2, request.keyFrameIntervalSeconds)
-        assertEquals(12L * 1024 * 1024, request.maxBytes)
-        assertEquals(120 * 1024, request.coverMaxBytes)
+        assertEquals(2, request.keyframeSecs)
+        assertEquals(12L * 1024 * 1024, request.videoMaxBytes)
+        assertEquals(120 * 1024, request.coverBytes)
 
-        val boundary = validArguments().toMutableMap().apply { this["max_bytes"] = 3L * 1024 * 1024 * 1024 }
-        assertEquals(3L * 1024 * 1024 * 1024, SquareVideoRequest.from(MethodCall("transcode_video", boundary)).maxBytes)
-        boundary["max_bytes"] = 3L * 1024 * 1024 * 1024 + 1
+        val boundary = validArguments().toMutableMap().apply { this["video_max_bytes"] = 3L * 1024 * 1024 * 1024 }
+        assertEquals(3L * 1024 * 1024 * 1024, SquareVideoRequest.from(MethodCall("transcode_video", boundary)).videoMaxBytes)
+        boundary["video_max_bytes"] = 3L * 1024 * 1024 * 1024 + 1
         assertThrows(IllegalArgumentException::class.java) {
             SquareVideoRequest.from(MethodCall("transcode_video", boundary))
         }
@@ -208,19 +208,19 @@ class SquareMediaChannelInstrumentedTest {
         "input_path" to "/tmp/input.mov",
         "output_path" to "/tmp/output.mp4",
         "cover_path" to "/tmp/cover.png",
-        "max_width" to 854,
-        "max_height" to 480,
+        "video_width" to 854,
+        "video_height" to 480,
         "video_bitrate" to 386_000,
-        "total_peak_bitrate" to 675_000,
+        "video_peak_bitrate" to 675_000,
         "audio_bitrate" to 64_000,
         "audio_sample_rate" to 48_000,
-        "max_frame_rate" to 30,
-        "key_frame_interval_seconds" to 2,
-        "max_duration_seconds" to 180,
-        "max_bytes" to 12L * 1024 * 1024,
-        "cover_max_edge" to 540,
+        "video_frame_rate" to 30,
+        "keyframe_secs" to 2,
+        "video_max_seconds" to 180,
+        "video_max_bytes" to 12L * 1024 * 1024,
+        "cover_dimension" to 540,
         "cover_quality" to 70,
-        "cover_max_bytes" to 120 * 1024,
+        "cover_bytes" to 120 * 1024,
     )
 
     private fun atom(type: String, payload: ByteArray): ByteArray = ByteArrayOutputStream().use { output ->

@@ -1,10 +1,11 @@
+import 'package:citizenapp/storage/wallet_isar.dart' as wallet_store show Entry;
+
 import 'dart:async';
 
 import 'package:citizenapp/transaction/onchain/onchain_payment_models.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:citizenapp/storage/wallet_isar.dart';
 import 'package:citizenapp/account/contacts/contact_book_page.dart';
 import 'package:citizenapp/system/theme/app_theme.dart';
 import 'package:citizenapp/transaction/onchain/onchain_payment_page.dart';
@@ -36,26 +37,25 @@ CitizenWalletStateAccount _wallet({
   );
 }
 
-LocalTxEntity _tx({
-  required String recordKey,
-  required String ss58Address,
+wallet_store.Entry _tx({
+  required int eventIndex,
+  required String fromAddress,
   required String accountId,
-  required String amountDeltaFen,
+  required String amountDelta,
   required String status,
 }) {
-  return LocalTxEntity()
-    ..recordKey = recordKey
-    ..ss58Address = ss58Address
+  return wallet_store.Entry()
     ..accountId = LocalTxStore.requireAccountId(accountId)
-    ..type = 'transfer'
-    ..amountDeltaFen = amountDeltaFen
-    ..transferAmountFen = amountDeltaFen.replaceFirst('-', '')
-    ..counterpartySs58Address = 'counterparty'
-    ..fromSs58Address = ss58Address
-    ..toSs58Address = 'counterparty'
-    ..status = status
-    ..source = 'test'
-    ..createdAtMillis = recordKey.hashCode;
+    ..entryKind = 'transfer'
+    ..amountDelta = amountDelta
+    ..transferAmount = amountDelta.replaceFirst('-', '')
+    ..fromAddress = fromAddress
+    ..toAddress = 'counterparty'
+    ..entryState = status
+    ..entrySource = 'test'
+    ..createdAt = eventIndex
+    ..chainHash = '0x11'
+    ..eventIndex = eventIndex;
 }
 
 Future<void> _pumpUntilFound(WidgetTester tester, Finder finder) async {
@@ -213,38 +213,38 @@ void main() {
     var currentWallet = walletA;
     final records = [
       _tx(
-        recordKey: 'a:pending',
-        ss58Address: 'wallet_a',
+        eventIndex: 1,
+        fromAddress: 'wallet_a',
         accountId: _walletAAccountId,
-        amountDeltaFen: '-101',
+        amountDelta: '-101',
         status: LocalTxStore.statusPending,
       ),
       _tx(
-        recordKey: 'a:inBlock',
-        ss58Address: 'wallet_a',
+        eventIndex: 2,
+        fromAddress: 'wallet_a',
         accountId: _walletAAccountId,
-        amountDeltaFen: '-202',
+        amountDelta: '-202',
         status: LocalTxStore.statusInBlock,
       ),
       _tx(
-        recordKey: 'a:finalized',
-        ss58Address: 'wallet_a',
+        eventIndex: 3,
+        fromAddress: 'wallet_a',
         accountId: _walletAAccountId,
-        amountDeltaFen: '-303',
+        amountDelta: '-303',
         status: LocalTxStore.statusFinalized,
       ),
       _tx(
-        recordKey: 'a:failed',
-        ss58Address: 'wallet_a',
+        eventIndex: 4,
+        fromAddress: 'wallet_a',
         accountId: _walletAAccountId,
-        amountDeltaFen: '-404',
+        amountDelta: '-404',
         status: LocalTxStore.statusFailed,
       ),
       _tx(
-        recordKey: 'b:incoming',
-        ss58Address: 'wallet_b',
+        eventIndex: 5,
+        fromAddress: 'wallet_b',
         accountId: _walletBAccountId,
-        amountDeltaFen: '404',
+        amountDelta: '404',
         status: LocalTxStore.statusFinalized,
       ),
     ];

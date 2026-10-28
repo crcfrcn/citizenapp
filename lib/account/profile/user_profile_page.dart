@@ -404,7 +404,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
           mounted &&
           _session?.cidNumber == session.cidNumber &&
           _session?.accountId == session.accountId &&
-          _session?.bindingRevision == session.bindingRevision;
+          _session?.bindRev == session.bindRev;
       await Future.wait<void>([
         _api
             .refreshProfile(
@@ -440,7 +440,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
       final local = await _mediaCache.read(profile);
       if (mounted &&
           _profile?.cidNumber == profile.cidNumber &&
-          _profile?.updatedAt == profile.updatedAt) {
+          _profile?.profileAt == profile.profileAt) {
         setState(() => _profileMedia = local);
       }
     } catch (_) {
@@ -641,7 +641,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
         if (current == null ||
             current.cidNumber != binding.cidNumber ||
             current.accountId != binding.accountId ||
-            current.bindingRevision != binding.bindingRevision ||
+            current.bindRev != binding.bindRev ||
             current.genesisHash != binding.genesisHash) {
           throw const SquareApiException('当前身份已变化，请重新打开本人主页');
         }
@@ -761,7 +761,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
       ProfilePresentation.forIdentityKey(widget.cidNumber).bannerAsset,
       fit: BoxFit.cover,
     );
-    final objectKey = _profile?.bannerObjectKey?.trim();
+    final objectKey = _profile?.bannerKey?.trim();
     if (objectKey == null || objectKey.isEmpty) return fallback;
     final path = _profileMedia.bannerPath;
     if (path != null && File(path).existsSync()) {
@@ -774,7 +774,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
       image: _api.mediaImage(
         objectKey,
         session: session,
-        updatedAt: _profile?.updatedAt,
+        updatedAt: _profile?.profileAt,
       ),
       fit: BoxFit.cover,
       frameBuilder: (context, child, frame, syncLoaded) =>
@@ -972,15 +972,15 @@ class _UserProfilePageState extends State<UserProfilePage> {
                           avatarImage:
                               widget.isSelf ||
                                   _session == null ||
-                                  _profile?.avatarObjectKey == null
+                                  _profile?.avatarKey == null
                               ? null
                               : _api.mediaImage(
-                                  _profile!.avatarObjectKey!,
+                                  _profile!.avatarKey!,
                                   session: _session!,
-                                  updatedAt: _profile?.updatedAt,
+                                  updatedAt: _profile?.profileAt,
                                 ),
                           confirmedMembershipLevel:
-                              _membershipState?.membershipLevel,
+                              _membershipState?.memberLevel,
                           confirmedMembershipActive: _confirmedMembershipActive,
                           onFollowing: () =>
                               _openFollows(FollowsType.following),

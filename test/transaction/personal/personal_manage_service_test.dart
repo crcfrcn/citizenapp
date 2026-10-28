@@ -16,16 +16,13 @@ class FakeChain extends TestCitizenChain {
 
   @override
   Future<CitizenBlockRef> getFinalizedHead() async => CitizenBlockRef(
-        hash: '0x${'11' * 32}',
-        number: BigInt.one,
-        finality: CitizenBlockFinality.finalized,
-      );
+    hash: '0x${'11' * 32}',
+    number: BigInt.one,
+    finality: CitizenBlockFinality.finalized,
+  );
 
   @override
-  Future<Uint8List?> getStorage(
-    CitizenBlockRef block,
-    Uint8List key,
-  ) async {
+  Future<Uint8List?> getStorage(CitizenBlockRef block, Uint8List key) async {
     final storageKeyHex = _hex(key);
     requestedKeys.add(storageKeyHex);
     return responses[storageKeyHex];
@@ -77,31 +74,29 @@ void main() {
     List<int> account, {
     String familyName = '管理',
     String givenName = '员',
-  }) =>
-      [
-        ...account,
-        0, // 空公民 CID（统一 Admin 恒带 cid，Compact(0)）
-        ...compactVec(familyName),
-        ...compactVec(givenName),
-      ];
+  }) => [
+    ...account,
+    0, // 空公民 CID（统一 Admin 恒带 cid，Compact(0)）
+    ...compactVec(familyName),
+    ...compactVec(givenName),
+  ];
 
   AdminPerson adminPerson(
     List<int> account, {
     String familyName = '管理',
     String givenName = '员',
-  }) =>
-      AdminPerson(
-        account_id: '0x${hexOf(account)}',
-        family_name: familyName,
-        given_name: givenName,
-      );
+  }) => AdminPerson(
+    accountId: '0x${hexOf(account)}',
+    familyName: familyName,
+    givenName: givenName,
+  );
 
   List<int> u32Le(int value) => [
-        value & 0xff,
-        (value >> 8) & 0xff,
-        (value >> 16) & 0xff,
-        (value >> 24) & 0xff,
-      ];
+    value & 0xff,
+    (value >> 8) & 0xff,
+    (value >> 16) & 0xff,
+    (value >> 24) & 0xff,
+  ];
 
   List<int> u128Le(BigInt value) {
     final out = List<int>.filled(16, 0);
@@ -200,10 +195,7 @@ void main() {
         ...u128Le(BigInt.from(111)),
         ...u128Le(BigInt.from(10)),
       ];
-      final raw = Uint8List.fromList([
-        ...compactU32(inner.length),
-        ...inner,
-      ]);
+      final raw = Uint8List.fromList([...compactU32(inner.length), ...inner]);
 
       final decoded = service.decodePersonalProposalData(7, raw);
 
@@ -212,22 +204,22 @@ void main() {
       expect(info.proposalId, 7);
       expect(info.accountId, '0x${'33' * 32}');
       expect(info.amountFen, BigInt.from(111));
-      expect(info.feeFen, BigInt.from(10));
+      expect(info.feeAmount, BigInt.from(10));
     });
 
     test('fetchPersonalAccount reads PersonalManage current storage', () async {
       final rpc = FakeChain();
-      final service = PersonalManageService(chain: rpc, transactions: TestCitizenTransactions());
+      final service = PersonalManageService(
+        chain: rpc,
+        transactions: TestCitizenTransactions(),
+      );
       final accountId = '0x${'22' * 32}';
       final personalKey =
           '0x${hexOf(PersonalManageStorageCodec.personalAccountsKey(accountId))}';
-      final adminKey = '0x${hexOf(PersonalManageStorageCodec.adminAccountKey(
-        PersonalManageStorageCodec.accountIdBytes(accountId),
-      ))}';
+      final adminKey =
+          '0x${hexOf(PersonalManageStorageCodec.adminAccountKey(PersonalManageStorageCodec.accountIdBytes(accountId)))}';
       final thresholdKey =
-          '0x${hexOf(PersonalManageStorageCodec.activePersonalThresholdKey(
-        PersonalManageStorageCodec.accountIdBytes(accountId),
-      ))}';
+          '0x${hexOf(PersonalManageStorageCodec.activePersonalThresholdKey(PersonalManageStorageCodec.accountIdBytes(accountId)))}';
       rpc.responses[personalKey] = personalAccountBytes();
       rpc.responses[adminKey] = adminAccountBytes(
         admin1: List<int>.filled(32, 0xcc),
@@ -238,31 +230,29 @@ void main() {
       final info = await service.fetchPersonalAccount(accountId);
 
       expect(info, isNotNull);
-      expect(
-        info!.admins.map((admin) => admin.account_id),
-        ['0x${'cc' * 32}', '0x${'dd' * 32}'],
-      );
+      expect(info!.admins.map((admin) => admin.accountId), [
+        '0x${'cc' * 32}',
+        '0x${'dd' * 32}',
+      ]);
       expect(info.threshold, 2);
       expect(info.status, MultisigStatus.active);
       expect(rpc.requestedKeys, [personalKey, adminKey, thresholdKey]);
     });
 
-    test('fetchPersonalAccountsBatch reads accounts in staged storage batches',
-        () async {
+    test('fetchPersonalAccountsBatch reads accounts in staged storage batches', () async {
       final rpc = FakeChain();
-      final service = PersonalManageService(chain: rpc, transactions: TestCitizenTransactions());
+      final service = PersonalManageService(
+        chain: rpc,
+        transactions: TestCitizenTransactions(),
+      );
       final firstAccountId = '0x${'22' * 32}';
       final secondAccountId = '0x${'33' * 32}';
       String personalKey(String accountId) =>
           '0x${hexOf(PersonalManageStorageCodec.personalAccountsKey(accountId))}';
       String adminKey(String accountId) =>
-          '0x${hexOf(PersonalManageStorageCodec.adminAccountKey(
-            PersonalManageStorageCodec.accountIdBytes(accountId),
-          ))}';
+          '0x${hexOf(PersonalManageStorageCodec.adminAccountKey(PersonalManageStorageCodec.accountIdBytes(accountId)))}';
       String thresholdKey(String accountId) =>
-          '0x${hexOf(PersonalManageStorageCodec.activePersonalThresholdKey(
-            PersonalManageStorageCodec.accountIdBytes(accountId),
-          ))}';
+          '0x${hexOf(PersonalManageStorageCodec.activePersonalThresholdKey(PersonalManageStorageCodec.accountIdBytes(accountId)))}';
 
       rpc.responses[personalKey(firstAccountId)] = personalAccountBytes();
       rpc.responses[personalKey(secondAccountId)] = personalAccountBytes();
@@ -274,22 +264,23 @@ void main() {
         admin1: List<int>.filled(32, 0xcc),
         admin2: List<int>.filled(32, 0xdd),
       );
-      rpc.responses[thresholdKey(firstAccountId)] =
-          Uint8List.fromList(u32Le(2));
+      rpc.responses[thresholdKey(firstAccountId)] = Uint8List.fromList(
+        u32Le(2),
+      );
 
       final infos = await service.fetchPersonalAccountsBatch([
         firstAccountId,
         secondAccountId,
       ]);
 
-      expect(
-        infos[firstAccountId]!.admins.map((admin) => admin.account_id),
-        ['0x${'aa' * 32}', '0x${'bb' * 32}'],
-      );
-      expect(
-        infos[secondAccountId]!.admins.map((admin) => admin.account_id),
-        ['0x${'cc' * 32}', '0x${'dd' * 32}'],
-      );
+      expect(infos[firstAccountId]!.admins.map((admin) => admin.accountId), [
+        '0x${'aa' * 32}',
+        '0x${'bb' * 32}',
+      ]);
+      expect(infos[secondAccountId]!.admins.map((admin) => admin.accountId), [
+        '0x${'cc' * 32}',
+        '0x${'dd' * 32}',
+      ]);
       expect(infos[firstAccountId]!.threshold, 2);
       expect(infos[secondAccountId]!.threshold, isNull);
       expect(rpc.requestedKeys, [
@@ -301,6 +292,5 @@ void main() {
         thresholdKey(secondAccountId),
       ]);
     });
-
   });
 }

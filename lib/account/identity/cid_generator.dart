@@ -2,7 +2,7 @@
 //
 // 逐字节镜像 citizenchain `runtime/primitives/cid/generator.rs` 的**人主体码分支**
 // (`is_person_code`:公民 CTZN / 居民 NATP)。人主体去地域化:
-//   input  = "{accountId}|{institution}|{year}"        // 竖线字面量连接
+//   input  = "{account_id}|{institution}|{year}"        // 竖线字面量连接
 //   n      = u64::from_le_bytes(blake2_256(input)[..8]) // 前 8 字节小端 → 无符号 u64
 //   number = n % 1e12                                   // 12 位十进制号段(1e12/年)
 //   high3  = number / 1e9  (0..=999)  → R5 = "CN" + high3(3 位补零)

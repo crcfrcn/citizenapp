@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:citizenapp/citizen/pallet_registry.dart';
+
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -16,18 +17,19 @@ import 'package:citizenapp/account/membership/subscription_chain.dart'
 class SquareChainPublishedResult {
   const SquareChainPublishedResult({
     required this.txHash,
-    required this.usedNonce,
+
     required this.blockHashHex,
   });
 
   final String txHash;
-  final int usedNonce;
   final String blockHashHex;
 }
 
 class SquareChainPublishException implements Exception {
-  const SquareChainPublishException(this.message,
-      {required this.canAbortUpload});
+  const SquareChainPublishException(
+    this.message, {
+    required this.canAbortUpload,
+  });
 
   final String message;
 
@@ -44,10 +46,11 @@ abstract class SquarePostChainPublisher {
     required String postId,
     required SquarePostType postType,
     required String contentHashHex,
-    required String storageReceiptId,
+    required String receiptId,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
+    )
+    externalSigning,
   });
 }
 
@@ -56,10 +59,10 @@ class SquareChainService implements SquarePostChainPublisher {
     required CitizenChain chain,
     required CitizenTransactions transactions,
     CitizenIdentityChainReader? identityChainReader,
-  })  : _chain = chain,
-        _transactions = transactions,
-        _identityChainReader = identityChainReader ??
-            CitizenIdentityChainReader(chain: chain);
+  }) : _chain = chain,
+       _transactions = transactions,
+       _identityChainReader =
+           identityChainReader ?? CitizenIdentityChainReader(chain: chain);
 
   final CitizenChain _chain;
   final CitizenTransactions _transactions;
@@ -76,16 +79,17 @@ class SquareChainService implements SquarePostChainPublisher {
     required String postId,
     required SquarePostType postType,
     required String contentHashHex,
-    required String storageReceiptId,
+    required String receiptId,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
+    )
+    externalSigning,
   }) async {
     final callData = buildPublishPostCallData(
       postId: postId,
       postType: postType,
       contentHashHex: contentHashHex,
-      storageReceiptId: storageReceiptId,
+      receiptId: receiptId,
     );
     final prepared = await _transactions.prepareTransaction(
       signerPublicKey,
@@ -113,8 +117,7 @@ class SquareChainService implements SquarePostChainPublisher {
     } else {
       completed = started as CitizenTransactionExecutionCompleted;
     }
-    if (completed.resolution !=
-            CitizenTransactionResolution.finalizedSuccess ||
+    if (completed.resolution != CitizenTransactionResolution.finalizedSuccess ||
         completed.execution == null) {
       throw const SquareChainPublishException(
         '广场发布交易执行失败',
@@ -125,7 +128,7 @@ class SquareChainService implements SquarePostChainPublisher {
 
     return SquareChainPublishedResult(
       txHash: '0x${hexEncode(completed.transactionHash)}',
-      usedNonce: prepared.nonce.toInt(),
+
       blockHashHex: execution.block.hash,
     );
   }
@@ -137,7 +140,7 @@ class SquareChainService implements SquarePostChainPublisher {
   }
 
   /// 读链上身份档：有效投票身份的 cid + 是否竞选公民。
-  /// identityLevel = visitor（无有效投票身份）/ voting / candidate（另有候选记录）。
+  /// cid_level = visitor（无有效投票身份）/ voting / candidate（另有候选记录）。
   Future<({String? cidNumber, String identityLevel})> fetchIdentity(
     String accountId,
   ) async {
@@ -145,15 +148,13 @@ class SquareChainService implements SquarePostChainPublisher {
     // 匿名已注册仍暴露 CID 作为帖子归属，但不升级投票/竞选身份徽章。
     final voting = identity?.votingIdentity;
     if (voting == null || !votingIdentityIsActive(voting)) {
-      return (
-        cidNumber: identity?.cidNumber,
-        identityLevel: 'visitor',
-      );
+      return (cidNumber: identity?.cidNumber, identityLevel: 'visitor');
     }
     return (
       cidNumber: identity!.cidNumber,
-      identityLevel:
-          identity.candidateIdentity != null ? 'candidate' : 'voting',
+      identityLevel: identity.candidateIdentity != null
+          ? 'candidate'
+          : 'voting',
     );
   }
 
@@ -175,12 +176,13 @@ class SquareChainService implements SquarePostChainPublisher {
     const levels = ['freedom', 'democracy', 'spark'];
     final keys = <String, Uint8List>{
       for (final level in levels)
-        level: _platformPriceKey(
-          SubscriptionChain.membershipLevelByte(level),
-        ),
+        level: _platformPriceKey(SubscriptionChain.membershipLevelByte(level)),
     };
     final finalized = await _chain.getFinalizedHead();
-    final values = await _chain.getStorageBatch(finalized, keys.values.toList());
+    final values = await _chain.getStorageBatch(
+      finalized,
+      keys.values.toList(),
+    );
     final prices = <String, int>{};
     for (var index = 0; index < levels.length; index++) {
       final level = levels[index];
@@ -231,19 +233,19 @@ class SquareChainService implements SquarePostChainPublisher {
     required String postId,
     required SquarePostType postType,
     required String contentHashHex,
-    required String storageReceiptId,
+    required String receiptId,
   }) {
     final postIdBytes = Uint8List.fromList(utf8.encode(postId.trim()));
     if (postIdBytes.isEmpty || postIdBytes.length > maxPostIdBytes) {
       throw ArgumentError('post_id 长度需在 1..=$maxPostIdBytes 字节');
     }
 
-    final receiptBytes =
-        Uint8List.fromList(utf8.encode(storageReceiptId.trim()));
+    final receiptBytes = Uint8List.fromList(utf8.encode(receiptId.trim()));
     if (receiptBytes.isEmpty ||
         receiptBytes.length > maxStorageReceiptIdBytes) {
       throw ArgumentError(
-          'storage_receipt_id 长度需在 1..=$maxStorageReceiptIdBytes 字节');
+        'storage_receipt_id 长度需在 1..=$maxStorageReceiptIdBytes 字节',
+      );
     }
 
     final contentHash = hexDecode(contentHashHex);
@@ -274,7 +276,8 @@ class SquareChainService implements SquarePostChainPublisher {
       final citizenStatus = data[offset];
       if (citizenStatus != 0) return false;
       final beijingNow = DateTime.now().toUtc().add(const Duration(hours: 8));
-      final currentDate = today ??
+      final currentDate =
+          today ??
           beijingNow.year * 10000 + beijingNow.month * 100 + beijingNow.day;
       return currentDate >= validFrom && currentDate <= validUntil;
     } catch (_) {

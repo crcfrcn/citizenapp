@@ -148,7 +148,7 @@ class ComposeDraftMedia {
     return _enqueueMutation(
       () async {
         const store = SquareMediaStore();
-        final stored = media.mediaId == null
+        final stored = media.bodyHash == null
             ? await store.saveFile(
                 cidNumber: cidNumber,
                 path: media.path,
@@ -156,9 +156,9 @@ class ComposeDraftMedia {
                 contentType: media.contentType,
                 byteSize: media.byteSize,
               )
-            : await store.get(cidNumber: cidNumber, mediaId: media.mediaId!);
+            : await store.get(cidNumber: cidNumber, bodyHash: media.bodyHash!);
         if (stored == null ||
-            !stored.complete ||
+            !stored.isComplete ||
             stored.byteSize != media.byteSize ||
             stored.mediaKind != media.mediaKind.workerValue ||
             stored.contentType != media.contentType) {
@@ -174,7 +174,7 @@ class ComposeDraftMedia {
         final ext = RegExp(r'^[a-zA-Z0-9]{1,10}$').hasMatch(media.fileExt)
             ? media.fileExt
             : 'bin';
-        final target = File('${dir.path}/${stored.mediaId}.$ext');
+        final target = File('${dir.path}/${stored.bodyHash}.$ext');
         if (await FileSystemEntity.type(target.path, followLinks: false) ==
             FileSystemEntityType.link) {
           throw StateError('媒体临时文件不能是符号链接');
@@ -189,7 +189,7 @@ class ComposeDraftMedia {
             output.add(
               await store.readRange(
                 cidNumber: cidNumber,
-                mediaId: stored.mediaId,
+                bodyHash: stored.bodyHash,
                 offset: offset,
                 length: math.min(
                   SquareMediaStore.chunkSize,
@@ -205,14 +205,14 @@ class ComposeDraftMedia {
         return SquareLocalMediaDraft(
           mediaKind: media.mediaKind,
           path: target.path,
-          mediaId: stored.mediaId,
+          bodyHash: stored.bodyHash,
           fileName: media.fileName,
           contentType: media.contentType,
           byteSize: media.byteSize,
-          durationSeconds: media.durationSeconds,
-          width: media.width,
-          height: media.height,
-          photoManagerAssetId: media.photoManagerAssetId,
+          videoSecs: media.videoSecs,
+          pixelWidth: media.pixelWidth,
+          pixelHeight: media.pixelHeight,
+          assetId: media.assetId,
         );
       },
       onInvalidated: () async {

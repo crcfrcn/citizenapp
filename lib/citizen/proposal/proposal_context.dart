@@ -69,9 +69,9 @@ class ProposalContextResolver {
     required CitizenSdkWallet wallet,
     required InstitutionAdminService adminService,
     required ActivationService activationService,
-  })  : _adminService = adminService,
-        _wallet = wallet,
-        _activationService = activationService;
+  }) : _adminService = adminService,
+       _wallet = wallet,
+       _activationService = activationService;
 
   final InstitutionAdminService _adminService;
   final CitizenSdkWallet _wallet;
@@ -80,10 +80,10 @@ class ProposalContextResolver {
   /// 已缓存的钱包列表（同一次会话内复用）。
   List<CitizenWalletStateAccount>? _wallets;
 
-  /// 静态缓存：用户已确认为管理员的机构 cidNumber 集合。
+  /// 静态缓存：用户已确认为管理员的机构 cid_number 集合。
   ///
   /// 当用户浏览某个机构详情页后，如果匹配到管理员身份，
-  /// 该机构 cidNumber 会被加入此集合。机构列表页据此渲染绿色卡片和排序。
+  /// 该机构 cid_number 会被加入此集合。机构列表页据此渲染绿色卡片和排序。
   static final Set<String> _institutionAdminIds = {};
 
   /// 记录某机构的管理员状态。
@@ -96,7 +96,7 @@ class ProposalContextResolver {
     return _institutionAdminIds.contains(cidNumber);
   }
 
-  /// 获取所有已确认的管理员机构 cidNumber 集合。
+  /// 获取所有已确认的管理员机构 cid_number 集合。
   static Set<String> get institutionAdminIds =>
       Set.unmodifiable(_institutionAdminIds);
 
@@ -147,9 +147,7 @@ class ProposalContextResolver {
     try {
       identity = AdminAccountIdentity.fromInstitution(institution);
       if (institution.isRegisteredInstitution) {
-        final threshold = await _adminService.fetchThreshold(
-          identity,
-        );
+        final threshold = await _adminService.fetchThreshold(identity);
         if (threshold != null) {
           institution = institution.copyWith(
             internalThresholdOverride: threshold,
@@ -187,19 +185,21 @@ class ProposalContextResolver {
     return ProposalContext(
       institution: institution,
       adminWallets: matchedWallets,
-      role:
-          matchedWallets.isNotEmpty ? ProposalRole.admin : ProposalRole.viewer,
+      role: matchedWallets.isNotEmpty
+          ? ProposalRole.admin
+          : ProposalRole.viewer,
     );
   }
 
   /// 批量解析多个提案的上下文（用于列表页）。
   ///
   /// 返回 Map<提案索引, ProposalContext>，与传入列表一一对应。
-  Future<List<ProposalContext>> resolveBatch(List<String?> actorCidNumbers,
-      {List<List<int>?>? executionAccountIds,
-      List<String?>? internalCodeList,
-      Map<String, InstitutionInfo> knownInstitutionsByCidNumber =
-          const {}}) async {
+  Future<List<ProposalContext>> resolveBatch(
+    List<String?> actorCidNumbers, {
+    List<List<int>?>? executionAccountIds,
+    List<String?>? internalCodeList,
+    Map<String, InstitutionInfo> knownInstitutionsByCidNumber = const {},
+  }) async {
     final wallets = await _getWallets();
     final results = <ProposalContext>[];
     final knownInstitutions = {
@@ -211,12 +211,12 @@ class ProposalContextResolver {
       final actorCidNumber = actorCidNumbers[i];
       final executionAccountId =
           executionAccountIds != null && i < executionAccountIds.length
-              ? executionAccountIds[i]
-              : null;
+          ? executionAccountIds[i]
+          : null;
       final internalCode =
           internalCodeList != null && i < internalCodeList.length
-              ? internalCodeList[i]
-              : null;
+          ? internalCodeList[i]
+          : null;
       InstitutionInfo? institution;
       final actorCid = actorCidNumber?.trim();
       final code = internalCode?.toUpperCase();
@@ -237,9 +237,7 @@ class ProposalContextResolver {
       try {
         identity = AdminAccountIdentity.fromInstitution(institution);
         if (institution.isRegisteredInstitution) {
-          final threshold = await _adminService.fetchThreshold(
-            identity,
-          );
+          final threshold = await _adminService.fetchThreshold(identity);
           if (threshold != null) {
             institution = institution.copyWith(
               internalThresholdOverride: threshold,
@@ -268,13 +266,15 @@ class ProposalContextResolver {
         }
       }
 
-      results.add(ProposalContext(
-        institution: institution,
-        adminWallets: matchedWallets,
-        role: matchedWallets.isNotEmpty
-            ? ProposalRole.admin
-            : ProposalRole.viewer,
-      ));
+      results.add(
+        ProposalContext(
+          institution: institution,
+          adminWallets: matchedWallets,
+          role: matchedWallets.isNotEmpty
+              ? ProposalRole.admin
+              : ProposalRole.viewer,
+        ),
+      );
     }
 
     return results;
@@ -319,9 +319,9 @@ class VoteChecker {
     required InternalVoteQueryService internalVoteService,
     required RuntimeUpgradeService runtimeService,
     required ProposalQueryService proposalQueryService,
-  })  : _internalVoteService = internalVoteService,
-        _runtimeService = runtimeService,
-        _proposalQueryService = proposalQueryService;
+  }) : _internalVoteService = internalVoteService,
+       _runtimeService = runtimeService,
+       _proposalQueryService = proposalQueryService;
 
   final InternalVoteQueryService _internalVoteService;
   final RuntimeUpgradeService _runtimeService;
@@ -333,16 +333,20 @@ class VoteChecker {
   /// 这里把同类提案(内部/联合)的投票 key 各自一次性拼齐批量读取,P 次往返
   /// 降为最多 2 次。只统计 status==0(投票中)且本机有管理员钱包的提案。
   Future<Set<int>> proposalsNeedingVote(List<VoteCheckTarget> targets) async {
-    final active =
-        targets.where((t) => t.status == 0 && t.adminWallets.isNotEmpty);
+    final active = targets.where(
+      (t) => t.status == 0 && t.adminWallets.isNotEmpty,
+    );
 
     final internalByPid = <int, List<EligibleVoterTicket>>{};
-    final jointByPid = <int,
-        ({
-      String actorCidNumber,
-      String voterRoleCode,
-      List<String> accountIds
-    })>{};
+    final jointByPid =
+        <
+          int,
+          ({
+            String actorCidNumber,
+            String voterRoleCode,
+            List<String> accountIds,
+          })
+        >{};
     for (final t in active) {
       final accountIds = t.adminWallets.map((w) => w.accountId).toList();
       if (t.kind == 0 && t.institution != null) {
@@ -367,8 +371,9 @@ class VoteChecker {
 
     final needs = <int>{};
     if (internalByPid.isNotEmpty) {
-      final votes = await _internalVoteService
-          .fetchTicketVotesForProposals(internalByPid);
+      final votes = await _internalVoteService.fetchTicketVotesForProposals(
+        internalByPid,
+      );
       internalByPid.forEach((pid, tickets) {
         final m = votes[pid] ?? const <String, bool?>{};
         if (tickets.any((ticket) => m[ticket.ticketKey] == null)) {
@@ -377,8 +382,9 @@ class VoteChecker {
       });
     }
     if (jointByPid.isNotEmpty) {
-      final votes =
-          await _runtimeService.fetchJointTicketVotesForProposals(jointByPid);
+      final votes = await _runtimeService.fetchJointTicketVotesForProposals(
+        jointByPid,
+      );
       jointByPid.forEach((pid, v) {
         final m = votes[pid] ?? const <String, bool?>{};
         if (v.accountIds.any(

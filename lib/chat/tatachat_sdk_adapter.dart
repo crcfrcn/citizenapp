@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:crypto/crypto.dart' as crypto;
+
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart' as sdk;
 import 'package:citizenapp/account/identity/square_session_provider.dart';
@@ -98,7 +100,7 @@ final class CitizenChatRuntimeHost
       return SubscriptionService.cachedAttachmentAuthorized(
         cidNumber: account.userId,
         accountId: account.accountId,
-        bindingRevision: account.bindingRevision,
+        bindRev: account.bindingRevision,
         expectedDeviceId: expectedDeviceId,
       );
     }
@@ -106,7 +108,7 @@ final class CitizenChatRuntimeHost
     if (session == null ||
         session.cidNumber != account.userId ||
         session.accountId != account.accountId ||
-        session.bindingRevision != account.bindingRevision ||
+        session.bindRev != account.bindingRevision ||
         (expectedDeviceId != null && session.deviceId != expectedDeviceId)) {
       throw const SquareApiException(
         '附件会话与当前账户或设备不一致',
@@ -140,7 +142,7 @@ final class CitizenChatRuntimeHost
       hostIndex: defaultAccount.walletIndex,
       bindingScope: binding.genesisHash,
       userId: binding.cidNumber,
-      bindingRevision: binding.bindingRevision,
+      bindingRevision: binding.bindRev,
       accountId: binding.accountId,
       displayName: defaultAccount.name,
     );
@@ -163,7 +165,7 @@ final class CitizenChatRuntimeHost
     final access = sdk.ChatAccess(
       realtimeUrl: response.realtimeUrl,
       accessToken: response.accessToken,
-      expiresAtMillis: response.expiresAtMillis,
+      expiresAtMillis: response.expiresAt,
       resources: _CitizenChatResources(
         squareSessionProvider,
         account,
@@ -284,7 +286,7 @@ final class _CitizenChatResources implements sdk.ChatResourceGate {
     if (session == null ||
         session.accountId != account.accountId ||
         session.cidNumber != account.userId ||
-        session.bindingRevision != account.bindingRevision ||
+        session.bindRev != account.bindingRevision ||
         session.deviceId != device) {
       throw const SquarePreflightException('聊天用户已变化', 'identity_changed');
     }
@@ -300,8 +302,7 @@ final class _CitizenChatResources implements sdk.ChatResourceGate {
     if (control != null) {
       final value = control;
       // 明文单文件限制已由SDK注入的mediaLimits在加密前检查，不能用明文上限再拒绝合法MLS密文。
-      input['begin_attachment'] = value.hasBeginAttachment() &&
-          _knownAttachments[value.beginAttachment.attachment.attachmentId] != true ? 1 : 0;
+      input['begin_attachment'] = value.hasBeginAttachment() ? 1 : 0;
       costs.addAll({'device_frames': 1, 'device_frame_bytes': frame.length});
       if (value.hasBeginAttachment() || value.hasCompleteAttachment()) {
         operation = 'attachment';
@@ -320,6 +321,11 @@ final class _CitizenChatResources implements sdk.ChatResourceGate {
       origin: url.replace(scheme: 'https').origin,
       session: session,
       operation: operation,
+      operationId: control?.hasBeginAttachment() == true
+          ? crypto.sha256
+                .convert(control!.beginAttachment.attachment.writeToBuffer())
+                .toString()
+          : null,
       costs: costs,
       actions: {action: input},
     );
@@ -336,9 +342,7 @@ final class _CitizenChatResources implements sdk.ChatResourceGate {
             _knownAttachments[control!.completeAttachment.attachmentId] = true;
           } else if (errorCode == 'not_found') {
             _knownAttachments[control!.completeAttachment.attachmentId] = false;
-          } else {
-            _knownAttachments.remove(control!.completeAttachment.attachmentId);
-          }
+          } // 未完成或未知不抹掉已确认存在的附件；只有not_found证明不存在。
         }
         if (control?.hasBeginAttachment() == true && accepted) {
           _knownAttachments[control!.beginAttachment.attachment.attachmentId] =
@@ -371,6 +375,9 @@ final class _CitizenChatResourceLease implements sdk.ChatResourceLease {
     lease.finish(
       headers: headers,
       accepted: accepted,
+      uncertain:
+          !accepted &&
+          (errorCode == 'storage_unavailable' || errorCode == 'server_failure'),
       receipt: receipt == null
           ? null
           : {

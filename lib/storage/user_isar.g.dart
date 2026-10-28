@@ -1,76 +1,71 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
-// 由 user_isar.dart 生成用户域集合、序列化与查询；身份展示缓存不得作为授权真源。
 
 part of 'user_isar.dart';
 
-// **************************************************************************
-// IsarCollectionGenerator
-// **************************************************************************
+// ignore_for_file: experimental_member_use
 
 // coverage:ignore-file
-// 原锁生成器调用带实验性标记的索引API，仅在本生成文件确认该类告警。
-// ignore_for_file: experimental_member_use, duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
+// ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
 
-extension GetUserProfileUpdateEntityCollection on Isar {
-  IsarCollection<UserProfileUpdateEntity> get userProfileUpdateEntitys =>
-      this.collection();
+extension GetEditCollection on Isar {
+  IsarCollection<Edit> get edits => this.collection();
 }
 
-const UserProfileUpdateEntitySchema = CollectionSchema(
-  name: r'UserProfileUpdateEntity',
-  id: -7886526432364645722,
+const EditSchema = CollectionSchema(
+  name: r'edit',
+  id: 6580256518399030560,
   properties: {
-    r'avatarBytes': PropertySchema(
+    r'avatar_bytes': PropertySchema(
       id: 0,
-      name: r'avatarBytes',
+      name: r'avatar_bytes',
       type: IsarType.byteList,
     ),
-    r'bannerBytes': PropertySchema(
+    r'banner_bytes': PropertySchema(
       id: 1,
-      name: r'bannerBytes',
+      name: r'banner_bytes',
       type: IsarType.byteList,
     ),
-    r'cidNumber': PropertySchema(
+    r'cid_number': PropertySchema(
       id: 2,
-      name: r'cidNumber',
+      name: r'cid_number',
       type: IsarType.string,
     ),
-    r'contentHash': PropertySchema(
+    r'content_hash': PropertySchema(
       id: 3,
-      name: r'contentHash',
+      name: r'content_hash',
       type: IsarType.string,
     ),
-    r'operationState': PropertySchema(
+    r'job_state': PropertySchema(
       id: 4,
-      name: r'operationState',
+      name: r'job_state',
       type: IsarType.string,
     ),
-    r'requestJson': PropertySchema(
+    r'request_data': PropertySchema(
       id: 5,
-      name: r'requestJson',
+      name: r'request_data',
       type: IsarType.string,
     ),
-    r'responseJson': PropertySchema(
+    r'response_data': PropertySchema(
       id: 6,
-      name: r'responseJson',
+      name: r'response_data',
       type: IsarType.string,
     ),
   },
 
-  estimateSize: _userProfileUpdateEntityEstimateSize,
-  serialize: _userProfileUpdateEntitySerialize,
-  deserialize: _userProfileUpdateEntityDeserialize,
-  deserializeProp: _userProfileUpdateEntityDeserializeProp,
-  idName: r'id',
+  estimateSize: _editEstimateSize,
+  serialize: _editSerialize,
+  deserialize: _editDeserialize,
+  deserializeProp: _editDeserializeProp,
+  idName: r'row_id',
   indexes: {
-    r'cidNumber': IndexSchema(
-      id: -8947736671869741624,
-      name: r'cidNumber',
+    r'cid_number': IndexSchema(
+      id: 5073804840546792610,
+      name: r'cid_number',
       unique: true,
       replace: false,
       properties: [
         IndexPropertySchema(
-          name: r'cidNumber',
+          name: r'cid_number',
           type: IndexType.hash,
           caseSensitive: true,
         ),
@@ -80,14 +75,14 @@ const UserProfileUpdateEntitySchema = CollectionSchema(
   links: {},
   embeddedSchemas: {},
 
-  getId: _userProfileUpdateEntityGetId,
-  getLinks: _userProfileUpdateEntityGetLinks,
-  attach: _userProfileUpdateEntityAttach,
+  getId: _editGetId,
+  getLinks: _editGetLinks,
+  attach: _editAttach,
   version: '3.3.2',
 );
 
-int _userProfileUpdateEntityEstimateSize(
-  UserProfileUpdateEntity object,
+int _editEstimateSize(
+  Edit object,
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
@@ -96,10 +91,10 @@ int _userProfileUpdateEntityEstimateSize(
   bytesCount += 3 + object.bannerBytes.length;
   bytesCount += 3 + object.cidNumber.length * 3;
   bytesCount += 3 + object.contentHash.length * 3;
-  bytesCount += 3 + object.operationState.length * 3;
-  bytesCount += 3 + object.requestJson.length * 3;
+  bytesCount += 3 + object.jobState.length * 3;
+  bytesCount += 3 + object.requestData.length * 3;
   {
-    final value = object.responseJson;
+    final value = object.responseData;
     if (value != null) {
       bytesCount += 3 + value.length * 3;
     }
@@ -107,8 +102,8 @@ int _userProfileUpdateEntityEstimateSize(
   return bytesCount;
 }
 
-void _userProfileUpdateEntitySerialize(
-  UserProfileUpdateEntity object,
+void _editSerialize(
+  Edit object,
   IsarWriter writer,
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
@@ -117,30 +112,30 @@ void _userProfileUpdateEntitySerialize(
   writer.writeByteList(offsets[1], object.bannerBytes);
   writer.writeString(offsets[2], object.cidNumber);
   writer.writeString(offsets[3], object.contentHash);
-  writer.writeString(offsets[4], object.operationState);
-  writer.writeString(offsets[5], object.requestJson);
-  writer.writeString(offsets[6], object.responseJson);
+  writer.writeString(offsets[4], object.jobState);
+  writer.writeString(offsets[5], object.requestData);
+  writer.writeString(offsets[6], object.responseData);
 }
 
-UserProfileUpdateEntity _userProfileUpdateEntityDeserialize(
+Edit _editDeserialize(
   Id id,
   IsarReader reader,
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
-  final object = UserProfileUpdateEntity();
+  final object = Edit();
   object.avatarBytes = reader.readByteList(offsets[0]) ?? [];
   object.bannerBytes = reader.readByteList(offsets[1]) ?? [];
   object.cidNumber = reader.readString(offsets[2]);
   object.contentHash = reader.readString(offsets[3]);
-  object.id = id;
-  object.operationState = reader.readString(offsets[4]);
-  object.requestJson = reader.readString(offsets[5]);
-  object.responseJson = reader.readStringOrNull(offsets[6]);
+  object.jobState = reader.readString(offsets[4]);
+  object.requestData = reader.readString(offsets[5]);
+  object.responseData = reader.readStringOrNull(offsets[6]);
+  object.rowId = id;
   return object;
 }
 
-P _userProfileUpdateEntityDeserializeProp<P>(
+P _editDeserializeProp<P>(
   IsarReader reader,
   int propertyId,
   int offset,
@@ -166,218 +161,170 @@ P _userProfileUpdateEntityDeserializeProp<P>(
   }
 }
 
-Id _userProfileUpdateEntityGetId(UserProfileUpdateEntity object) {
-  return object.id;
+Id _editGetId(Edit object) {
+  return object.rowId;
 }
 
-List<IsarLinkBase<dynamic>> _userProfileUpdateEntityGetLinks(
-  UserProfileUpdateEntity object,
-) {
+List<IsarLinkBase<dynamic>> _editGetLinks(Edit object) {
   return [];
 }
 
-void _userProfileUpdateEntityAttach(
-  IsarCollection<dynamic> col,
-  Id id,
-  UserProfileUpdateEntity object,
-) {
-  object.id = id;
+void _editAttach(IsarCollection<dynamic> col, Id id, Edit object) {
+  object.rowId = id;
 }
 
-extension UserProfileUpdateEntityByIndex
-    on IsarCollection<UserProfileUpdateEntity> {
-  Future<UserProfileUpdateEntity?> getByCidNumber(String cidNumber) {
-    return getByIndex(r'cidNumber', [cidNumber]);
+extension EditByIndex on IsarCollection<Edit> {
+  Future<Edit?> getByCidNumber(String cidNumber) {
+    return getByIndex(r'cid_number', [cidNumber]);
   }
 
-  UserProfileUpdateEntity? getByCidNumberSync(String cidNumber) {
-    return getByIndexSync(r'cidNumber', [cidNumber]);
+  Edit? getByCidNumberSync(String cidNumber) {
+    return getByIndexSync(r'cid_number', [cidNumber]);
   }
 
   Future<bool> deleteByCidNumber(String cidNumber) {
-    return deleteByIndex(r'cidNumber', [cidNumber]);
+    return deleteByIndex(r'cid_number', [cidNumber]);
   }
 
   bool deleteByCidNumberSync(String cidNumber) {
-    return deleteByIndexSync(r'cidNumber', [cidNumber]);
+    return deleteByIndexSync(r'cid_number', [cidNumber]);
   }
 
-  Future<List<UserProfileUpdateEntity?>> getAllByCidNumber(
-    List<String> cidNumberValues,
-  ) {
+  Future<List<Edit?>> getAllByCidNumber(List<String> cidNumberValues) {
     final values = cidNumberValues.map((e) => [e]).toList();
-    return getAllByIndex(r'cidNumber', values);
+    return getAllByIndex(r'cid_number', values);
   }
 
-  List<UserProfileUpdateEntity?> getAllByCidNumberSync(
-    List<String> cidNumberValues,
-  ) {
+  List<Edit?> getAllByCidNumberSync(List<String> cidNumberValues) {
     final values = cidNumberValues.map((e) => [e]).toList();
-    return getAllByIndexSync(r'cidNumber', values);
+    return getAllByIndexSync(r'cid_number', values);
   }
 
   Future<int> deleteAllByCidNumber(List<String> cidNumberValues) {
     final values = cidNumberValues.map((e) => [e]).toList();
-    return deleteAllByIndex(r'cidNumber', values);
+    return deleteAllByIndex(r'cid_number', values);
   }
 
   int deleteAllByCidNumberSync(List<String> cidNumberValues) {
     final values = cidNumberValues.map((e) => [e]).toList();
-    return deleteAllByIndexSync(r'cidNumber', values);
+    return deleteAllByIndexSync(r'cid_number', values);
   }
 
-  Future<Id> putByCidNumber(UserProfileUpdateEntity object) {
-    return putByIndex(r'cidNumber', object);
+  Future<Id> putByCidNumber(Edit object) {
+    return putByIndex(r'cid_number', object);
   }
 
-  Id putByCidNumberSync(
-    UserProfileUpdateEntity object, {
-    bool saveLinks = true,
-  }) {
-    return putByIndexSync(r'cidNumber', object, saveLinks: saveLinks);
+  Id putByCidNumberSync(Edit object, {bool saveLinks = true}) {
+    return putByIndexSync(r'cid_number', object, saveLinks: saveLinks);
   }
 
-  Future<List<Id>> putAllByCidNumber(List<UserProfileUpdateEntity> objects) {
-    return putAllByIndex(r'cidNumber', objects);
+  Future<List<Id>> putAllByCidNumber(List<Edit> objects) {
+    return putAllByIndex(r'cid_number', objects);
   }
 
-  List<Id> putAllByCidNumberSync(
-    List<UserProfileUpdateEntity> objects, {
-    bool saveLinks = true,
-  }) {
-    return putAllByIndexSync(r'cidNumber', objects, saveLinks: saveLinks);
+  List<Id> putAllByCidNumberSync(List<Edit> objects, {bool saveLinks = true}) {
+    return putAllByIndexSync(r'cid_number', objects, saveLinks: saveLinks);
   }
 }
 
-extension UserProfileUpdateEntityQueryWhereSort
-    on QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QWhere> {
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QAfterWhere>
-  anyId() {
+extension EditQueryWhereSort on QueryBuilder<Edit, Edit, QWhere> {
+  QueryBuilder<Edit, Edit, QAfterWhere> anyRowId() {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(const IdWhereClause.any());
     });
   }
 }
 
-extension UserProfileUpdateEntityQueryWhere
-    on
-        QueryBuilder<
-          UserProfileUpdateEntity,
-          UserProfileUpdateEntity,
-          QWhereClause
-        > {
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterWhereClause
-  >
-  idEqualTo(Id id) {
+extension EditQueryWhere on QueryBuilder<Edit, Edit, QWhereClause> {
+  QueryBuilder<Edit, Edit, QAfterWhereClause> rowIdEqualTo(Id rowId) {
     return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IdWhereClause.between(lower: id, upper: id));
+      return query.addWhereClause(
+        IdWhereClause.between(lower: rowId, upper: rowId),
+      );
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterWhereClause
-  >
-  idNotEqualTo(Id id) {
+  QueryBuilder<Edit, Edit, QAfterWhereClause> rowIdNotEqualTo(Id rowId) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(
-              IdWhereClause.lessThan(upper: id, includeUpper: false),
+              IdWhereClause.lessThan(upper: rowId, includeUpper: false),
             )
             .addWhereClause(
-              IdWhereClause.greaterThan(lower: id, includeLower: false),
+              IdWhereClause.greaterThan(lower: rowId, includeLower: false),
             );
       } else {
         return query
             .addWhereClause(
-              IdWhereClause.greaterThan(lower: id, includeLower: false),
+              IdWhereClause.greaterThan(lower: rowId, includeLower: false),
             )
             .addWhereClause(
-              IdWhereClause.lessThan(upper: id, includeUpper: false),
+              IdWhereClause.lessThan(upper: rowId, includeUpper: false),
             );
       }
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterWhereClause
-  >
-  idGreaterThan(Id id, {bool include = false}) {
+  QueryBuilder<Edit, Edit, QAfterWhereClause> rowIdGreaterThan(
+    Id rowId, {
+    bool include = false,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
-        IdWhereClause.greaterThan(lower: id, includeLower: include),
+        IdWhereClause.greaterThan(lower: rowId, includeLower: include),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterWhereClause
-  >
-  idLessThan(Id id, {bool include = false}) {
+  QueryBuilder<Edit, Edit, QAfterWhereClause> rowIdLessThan(
+    Id rowId, {
+    bool include = false,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
-        IdWhereClause.lessThan(upper: id, includeUpper: include),
+        IdWhereClause.lessThan(upper: rowId, includeUpper: include),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterWhereClause
-  >
-  idBetween(
-    Id lowerId,
-    Id upperId, {
+  QueryBuilder<Edit, Edit, QAfterWhereClause> rowIdBetween(
+    Id lowerRowId,
+    Id upperRowId, {
     bool includeLower = true,
     bool includeUpper = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
         IdWhereClause.between(
-          lower: lowerId,
+          lower: lowerRowId,
           includeLower: includeLower,
-          upper: upperId,
+          upper: upperRowId,
           includeUpper: includeUpper,
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterWhereClause
-  >
-  cidNumberEqualTo(String cidNumber) {
+  QueryBuilder<Edit, Edit, QAfterWhereClause> cidNumberEqualTo(
+    String cidNumber,
+  ) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
-        IndexWhereClause.equalTo(indexName: r'cidNumber', value: [cidNumber]),
+        IndexWhereClause.equalTo(indexName: r'cid_number', value: [cidNumber]),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterWhereClause
-  >
-  cidNumberNotEqualTo(String cidNumber) {
+  QueryBuilder<Edit, Edit, QAfterWhereClause> cidNumberNotEqualTo(
+    String cidNumber,
+  ) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cidNumber',
+                indexName: r'cid_number',
                 lower: [],
                 upper: [cidNumber],
                 includeUpper: false,
@@ -385,7 +332,7 @@ extension UserProfileUpdateEntityQueryWhere
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cidNumber',
+                indexName: r'cid_number',
                 lower: [cidNumber],
                 includeLower: false,
                 upper: [],
@@ -395,7 +342,7 @@ extension UserProfileUpdateEntityQueryWhere
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cidNumber',
+                indexName: r'cid_number',
                 lower: [cidNumber],
                 includeLower: false,
                 upper: [],
@@ -403,7 +350,7 @@ extension UserProfileUpdateEntityQueryWhere
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cidNumber',
+                indexName: r'cid_number',
                 lower: [],
                 upper: [cidNumber],
                 includeUpper: false,
@@ -414,66 +361,48 @@ extension UserProfileUpdateEntityQueryWhere
   }
 }
 
-extension UserProfileUpdateEntityQueryFilter
-    on
-        QueryBuilder<
-          UserProfileUpdateEntity,
-          UserProfileUpdateEntity,
-          QFilterCondition
-        > {
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  avatarBytesElementEqualTo(int value) {
+extension EditQueryFilter on QueryBuilder<Edit, Edit, QFilterCondition> {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> avatarBytesElementEqualTo(
+    int value,
+  ) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'avatarBytes', value: value),
+        FilterCondition.equalTo(property: r'avatar_bytes', value: value),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  avatarBytesElementGreaterThan(int value, {bool include = false}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> avatarBytesElementGreaterThan(
+    int value, {
+    bool include = false,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'avatarBytes',
+          property: r'avatar_bytes',
           value: value,
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  avatarBytesElementLessThan(int value, {bool include = false}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> avatarBytesElementLessThan(
+    int value, {
+    bool include = false,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'avatarBytes',
+          property: r'avatar_bytes',
           value: value,
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  avatarBytesElementBetween(
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> avatarBytesElementBetween(
     int lower,
     int upper, {
     bool includeLower = true,
@@ -482,7 +411,7 @@ extension UserProfileUpdateEntityQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'avatarBytes',
+          property: r'avatar_bytes',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -492,67 +421,45 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  avatarBytesLengthEqualTo(int length) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> avatarBytesLengthEqualTo(
+    int length,
+  ) {
     return QueryBuilder.apply(this, (query) {
-      return query.listLength(r'avatarBytes', length, true, length, true);
+      return query.listLength(r'avatar_bytes', length, true, length, true);
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  avatarBytesIsEmpty() {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> avatarBytesIsEmpty() {
     return QueryBuilder.apply(this, (query) {
-      return query.listLength(r'avatarBytes', 0, true, 0, true);
+      return query.listLength(r'avatar_bytes', 0, true, 0, true);
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  avatarBytesIsNotEmpty() {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> avatarBytesIsNotEmpty() {
     return QueryBuilder.apply(this, (query) {
-      return query.listLength(r'avatarBytes', 0, false, 999999, true);
+      return query.listLength(r'avatar_bytes', 0, false, 999999, true);
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  avatarBytesLengthLessThan(int length, {bool include = false}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> avatarBytesLengthLessThan(
+    int length, {
+    bool include = false,
+  }) {
     return QueryBuilder.apply(this, (query) {
-      return query.listLength(r'avatarBytes', 0, true, length, include);
+      return query.listLength(r'avatar_bytes', 0, true, length, include);
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  avatarBytesLengthGreaterThan(int length, {bool include = false}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> avatarBytesLengthGreaterThan(
+    int length, {
+    bool include = false,
+  }) {
     return QueryBuilder.apply(this, (query) {
-      return query.listLength(r'avatarBytes', length, include, 999999, true);
+      return query.listLength(r'avatar_bytes', length, include, 999999, true);
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  avatarBytesLengthBetween(
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> avatarBytesLengthBetween(
     int lower,
     int upper, {
     bool includeLower = true,
@@ -560,7 +467,7 @@ extension UserProfileUpdateEntityQueryFilter
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.listLength(
-        r'avatarBytes',
+        r'avatar_bytes',
         lower,
         includeLower,
         upper,
@@ -569,59 +476,47 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  bannerBytesElementEqualTo(int value) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> bannerBytesElementEqualTo(
+    int value,
+  ) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'bannerBytes', value: value),
+        FilterCondition.equalTo(property: r'banner_bytes', value: value),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  bannerBytesElementGreaterThan(int value, {bool include = false}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> bannerBytesElementGreaterThan(
+    int value, {
+    bool include = false,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'bannerBytes',
+          property: r'banner_bytes',
           value: value,
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  bannerBytesElementLessThan(int value, {bool include = false}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> bannerBytesElementLessThan(
+    int value, {
+    bool include = false,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'bannerBytes',
+          property: r'banner_bytes',
           value: value,
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  bannerBytesElementBetween(
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> bannerBytesElementBetween(
     int lower,
     int upper, {
     bool includeLower = true,
@@ -630,7 +525,7 @@ extension UserProfileUpdateEntityQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'bannerBytes',
+          property: r'banner_bytes',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -640,67 +535,45 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  bannerBytesLengthEqualTo(int length) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> bannerBytesLengthEqualTo(
+    int length,
+  ) {
     return QueryBuilder.apply(this, (query) {
-      return query.listLength(r'bannerBytes', length, true, length, true);
+      return query.listLength(r'banner_bytes', length, true, length, true);
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  bannerBytesIsEmpty() {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> bannerBytesIsEmpty() {
     return QueryBuilder.apply(this, (query) {
-      return query.listLength(r'bannerBytes', 0, true, 0, true);
+      return query.listLength(r'banner_bytes', 0, true, 0, true);
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  bannerBytesIsNotEmpty() {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> bannerBytesIsNotEmpty() {
     return QueryBuilder.apply(this, (query) {
-      return query.listLength(r'bannerBytes', 0, false, 999999, true);
+      return query.listLength(r'banner_bytes', 0, false, 999999, true);
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  bannerBytesLengthLessThan(int length, {bool include = false}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> bannerBytesLengthLessThan(
+    int length, {
+    bool include = false,
+  }) {
     return QueryBuilder.apply(this, (query) {
-      return query.listLength(r'bannerBytes', 0, true, length, include);
+      return query.listLength(r'banner_bytes', 0, true, length, include);
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  bannerBytesLengthGreaterThan(int length, {bool include = false}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> bannerBytesLengthGreaterThan(
+    int length, {
+    bool include = false,
+  }) {
     return QueryBuilder.apply(this, (query) {
-      return query.listLength(r'bannerBytes', length, include, 999999, true);
+      return query.listLength(r'banner_bytes', length, include, 999999, true);
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  bannerBytesLengthBetween(
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> bannerBytesLengthBetween(
     int lower,
     int upper, {
     bool includeLower = true,
@@ -708,7 +581,7 @@ extension UserProfileUpdateEntityQueryFilter
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.listLength(
-        r'bannerBytes',
+        r'banner_bytes',
         lower,
         includeLower,
         upper,
@@ -717,16 +590,14 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  cidNumberEqualTo(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> cidNumberEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.equalTo(
-          property: r'cidNumber',
+          property: r'cid_number',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -734,12 +605,7 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  cidNumberGreaterThan(
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> cidNumberGreaterThan(
     String value, {
     bool include = false,
     bool caseSensitive = true,
@@ -748,7 +614,7 @@ extension UserProfileUpdateEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'cidNumber',
+          property: r'cid_number',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -756,12 +622,7 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  cidNumberLessThan(
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> cidNumberLessThan(
     String value, {
     bool include = false,
     bool caseSensitive = true,
@@ -770,7 +631,7 @@ extension UserProfileUpdateEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'cidNumber',
+          property: r'cid_number',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -778,12 +639,7 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  cidNumberBetween(
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> cidNumberBetween(
     String lower,
     String upper, {
     bool includeLower = true,
@@ -793,7 +649,7 @@ extension UserProfileUpdateEntityQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'cidNumber',
+          property: r'cid_number',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -804,16 +660,14 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  cidNumberStartsWith(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> cidNumberStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.startsWith(
-          property: r'cidNumber',
+          property: r'cid_number',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -821,16 +675,14 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  cidNumberEndsWith(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> cidNumberEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.endsWith(
-          property: r'cidNumber',
+          property: r'cid_number',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -838,16 +690,14 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  cidNumberContains(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> cidNumberContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.contains(
-          property: r'cidNumber',
+          property: r'cid_number',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -855,16 +705,14 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  cidNumberMatches(String pattern, {bool caseSensitive = true}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> cidNumberMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.matches(
-          property: r'cidNumber',
+          property: r'cid_number',
           wildcard: pattern,
           caseSensitive: caseSensitive,
         ),
@@ -872,42 +720,30 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  cidNumberIsEmpty() {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> cidNumberIsEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'cidNumber', value: ''),
+        FilterCondition.equalTo(property: r'cid_number', value: ''),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  cidNumberIsNotEmpty() {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> cidNumberIsNotEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'cidNumber', value: ''),
+        FilterCondition.greaterThan(property: r'cid_number', value: ''),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  contentHashEqualTo(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> contentHashEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.equalTo(
-          property: r'contentHash',
+          property: r'content_hash',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -915,12 +751,7 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  contentHashGreaterThan(
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> contentHashGreaterThan(
     String value, {
     bool include = false,
     bool caseSensitive = true,
@@ -929,7 +760,7 @@ extension UserProfileUpdateEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'contentHash',
+          property: r'content_hash',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -937,12 +768,7 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  contentHashLessThan(
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> contentHashLessThan(
     String value, {
     bool include = false,
     bool caseSensitive = true,
@@ -951,7 +777,7 @@ extension UserProfileUpdateEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'contentHash',
+          property: r'content_hash',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -959,12 +785,7 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  contentHashBetween(
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> contentHashBetween(
     String lower,
     String upper, {
     bool includeLower = true,
@@ -974,7 +795,7 @@ extension UserProfileUpdateEntityQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'contentHash',
+          property: r'content_hash',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -985,16 +806,14 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  contentHashStartsWith(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> contentHashStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.startsWith(
-          property: r'contentHash',
+          property: r'content_hash',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -1002,16 +821,14 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  contentHashEndsWith(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> contentHashEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.endsWith(
-          property: r'contentHash',
+          property: r'content_hash',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -1019,16 +836,14 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  contentHashContains(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> contentHashContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.contains(
-          property: r'contentHash',
+          property: r'content_hash',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -1036,16 +851,14 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  contentHashMatches(String pattern, {bool caseSensitive = true}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> contentHashMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.matches(
-          property: r'contentHash',
+          property: r'content_hash',
           wildcard: pattern,
           caseSensitive: caseSensitive,
         ),
@@ -1053,113 +866,30 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  contentHashIsEmpty() {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> contentHashIsEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'contentHash', value: ''),
+        FilterCondition.equalTo(property: r'content_hash', value: ''),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  contentHashIsNotEmpty() {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> contentHashIsNotEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'contentHash', value: ''),
+        FilterCondition.greaterThan(property: r'content_hash', value: ''),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  idEqualTo(Id value) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'id', value: value),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  idGreaterThan(Id value, {bool include = false}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'id',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  idLessThan(Id value, {bool include = false}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'id',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  idBetween(
-    Id lower,
-    Id upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> jobStateEqualTo(
+    String value, {
+    bool caseSensitive = true,
   }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'id',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  operationStateEqualTo(String value, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.equalTo(
-          property: r'operationState',
+          property: r'job_state',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -1167,12 +897,7 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  operationStateGreaterThan(
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> jobStateGreaterThan(
     String value, {
     bool include = false,
     bool caseSensitive = true,
@@ -1181,7 +906,7 @@ extension UserProfileUpdateEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'operationState',
+          property: r'job_state',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -1189,12 +914,7 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  operationStateLessThan(
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> jobStateLessThan(
     String value, {
     bool include = false,
     bool caseSensitive = true,
@@ -1203,7 +923,7 @@ extension UserProfileUpdateEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'operationState',
+          property: r'job_state',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -1211,12 +931,7 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  operationStateBetween(
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> jobStateBetween(
     String lower,
     String upper, {
     bool includeLower = true,
@@ -1226,7 +941,7 @@ extension UserProfileUpdateEntityQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'operationState',
+          property: r'job_state',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -1237,16 +952,14 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  operationStateStartsWith(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> jobStateStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.startsWith(
-          property: r'operationState',
+          property: r'job_state',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -1254,16 +967,14 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  operationStateEndsWith(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> jobStateEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.endsWith(
-          property: r'operationState',
+          property: r'job_state',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -1271,16 +982,14 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  operationStateContains(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> jobStateContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.contains(
-          property: r'operationState',
+          property: r'job_state',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -1288,16 +997,14 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  operationStateMatches(String pattern, {bool caseSensitive = true}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> jobStateMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.matches(
-          property: r'operationState',
+          property: r'job_state',
           wildcard: pattern,
           caseSensitive: caseSensitive,
         ),
@@ -1305,42 +1012,30 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  operationStateIsEmpty() {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> jobStateIsEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'operationState', value: ''),
+        FilterCondition.equalTo(property: r'job_state', value: ''),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  operationStateIsNotEmpty() {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> jobStateIsNotEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'operationState', value: ''),
+        FilterCondition.greaterThan(property: r'job_state', value: ''),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  requestJsonEqualTo(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> requestDataEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.equalTo(
-          property: r'requestJson',
+          property: r'request_data',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -1348,12 +1043,7 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  requestJsonGreaterThan(
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> requestDataGreaterThan(
     String value, {
     bool include = false,
     bool caseSensitive = true,
@@ -1362,7 +1052,7 @@ extension UserProfileUpdateEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'requestJson',
+          property: r'request_data',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -1370,12 +1060,7 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  requestJsonLessThan(
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> requestDataLessThan(
     String value, {
     bool include = false,
     bool caseSensitive = true,
@@ -1384,7 +1069,7 @@ extension UserProfileUpdateEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'requestJson',
+          property: r'request_data',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -1392,12 +1077,7 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  requestJsonBetween(
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> requestDataBetween(
     String lower,
     String upper, {
     bool includeLower = true,
@@ -1407,7 +1087,7 @@ extension UserProfileUpdateEntityQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'requestJson',
+          property: r'request_data',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -1418,16 +1098,14 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  requestJsonStartsWith(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> requestDataStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.startsWith(
-          property: r'requestJson',
+          property: r'request_data',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -1435,16 +1113,14 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  requestJsonEndsWith(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> requestDataEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.endsWith(
-          property: r'requestJson',
+          property: r'request_data',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -1452,16 +1128,14 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  requestJsonContains(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> requestDataContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.contains(
-          property: r'requestJson',
+          property: r'request_data',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -1469,16 +1143,14 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  requestJsonMatches(String pattern, {bool caseSensitive = true}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> requestDataMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.matches(
-          property: r'requestJson',
+          property: r'request_data',
           wildcard: pattern,
           caseSensitive: caseSensitive,
         ),
@@ -1486,68 +1158,46 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  requestJsonIsEmpty() {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> requestDataIsEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'requestJson', value: ''),
+        FilterCondition.equalTo(property: r'request_data', value: ''),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  requestJsonIsNotEmpty() {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> requestDataIsNotEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'requestJson', value: ''),
+        FilterCondition.greaterThan(property: r'request_data', value: ''),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  responseJsonIsNull() {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> responseDataIsNull() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        const FilterCondition.isNull(property: r'responseJson'),
+        const FilterCondition.isNull(property: r'response_data'),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  responseJsonIsNotNull() {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> responseDataIsNotNull() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        const FilterCondition.isNotNull(property: r'responseJson'),
+        const FilterCondition.isNotNull(property: r'response_data'),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  responseJsonEqualTo(String? value, {bool caseSensitive = true}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> responseDataEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.equalTo(
-          property: r'responseJson',
+          property: r'response_data',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -1555,12 +1205,7 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  responseJsonGreaterThan(
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> responseDataGreaterThan(
     String? value, {
     bool include = false,
     bool caseSensitive = true,
@@ -1569,7 +1214,7 @@ extension UserProfileUpdateEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'responseJson',
+          property: r'response_data',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -1577,12 +1222,7 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  responseJsonLessThan(
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> responseDataLessThan(
     String? value, {
     bool include = false,
     bool caseSensitive = true,
@@ -1591,7 +1231,7 @@ extension UserProfileUpdateEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'responseJson',
+          property: r'response_data',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -1599,12 +1239,7 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  responseJsonBetween(
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> responseDataBetween(
     String? lower,
     String? upper, {
     bool includeLower = true,
@@ -1614,7 +1249,7 @@ extension UserProfileUpdateEntityQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'responseJson',
+          property: r'response_data',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -1625,16 +1260,14 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  responseJsonStartsWith(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> responseDataStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.startsWith(
-          property: r'responseJson',
+          property: r'response_data',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -1642,16 +1275,14 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  responseJsonEndsWith(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> responseDataEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.endsWith(
-          property: r'responseJson',
+          property: r'response_data',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -1659,16 +1290,14 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  responseJsonContains(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> responseDataContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.contains(
-          property: r'responseJson',
+          property: r'response_data',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -1676,16 +1305,14 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  responseJsonMatches(String pattern, {bool caseSensitive = true}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> responseDataMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.matches(
-          property: r'responseJson',
+          property: r'response_data',
           wildcard: pattern,
           caseSensitive: caseSensitive,
         ),
@@ -1693,940 +1320,61 @@ extension UserProfileUpdateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  responseJsonIsEmpty() {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> responseDataIsEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'responseJson', value: ''),
+        FilterCondition.equalTo(property: r'response_data', value: ''),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileUpdateEntity,
-    UserProfileUpdateEntity,
-    QAfterFilterCondition
-  >
-  responseJsonIsNotEmpty() {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> responseDataIsNotEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'responseJson', value: ''),
-      );
-    });
-  }
-}
-
-extension UserProfileUpdateEntityQueryObject
-    on
-        QueryBuilder<
-          UserProfileUpdateEntity,
-          UserProfileUpdateEntity,
-          QFilterCondition
-        > {}
-
-extension UserProfileUpdateEntityQueryLinks
-    on
-        QueryBuilder<
-          UserProfileUpdateEntity,
-          UserProfileUpdateEntity,
-          QFilterCondition
-        > {}
-
-extension UserProfileUpdateEntityQuerySortBy
-    on QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QSortBy> {
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QAfterSortBy>
-  sortByCidNumber() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'cidNumber', Sort.asc);
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QAfterSortBy>
-  sortByCidNumberDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'cidNumber', Sort.desc);
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QAfterSortBy>
-  sortByContentHash() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'contentHash', Sort.asc);
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QAfterSortBy>
-  sortByContentHashDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'contentHash', Sort.desc);
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QAfterSortBy>
-  sortByOperationState() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'operationState', Sort.asc);
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QAfterSortBy>
-  sortByOperationStateDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'operationState', Sort.desc);
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QAfterSortBy>
-  sortByRequestJson() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'requestJson', Sort.asc);
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QAfterSortBy>
-  sortByRequestJsonDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'requestJson', Sort.desc);
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QAfterSortBy>
-  sortByResponseJson() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'responseJson', Sort.asc);
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QAfterSortBy>
-  sortByResponseJsonDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'responseJson', Sort.desc);
-    });
-  }
-}
-
-extension UserProfileUpdateEntityQuerySortThenBy
-    on
-        QueryBuilder<
-          UserProfileUpdateEntity,
-          UserProfileUpdateEntity,
-          QSortThenBy
-        > {
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QAfterSortBy>
-  thenByCidNumber() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'cidNumber', Sort.asc);
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QAfterSortBy>
-  thenByCidNumberDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'cidNumber', Sort.desc);
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QAfterSortBy>
-  thenByContentHash() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'contentHash', Sort.asc);
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QAfterSortBy>
-  thenByContentHashDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'contentHash', Sort.desc);
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QAfterSortBy>
-  thenById() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'id', Sort.asc);
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QAfterSortBy>
-  thenByIdDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'id', Sort.desc);
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QAfterSortBy>
-  thenByOperationState() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'operationState', Sort.asc);
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QAfterSortBy>
-  thenByOperationStateDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'operationState', Sort.desc);
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QAfterSortBy>
-  thenByRequestJson() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'requestJson', Sort.asc);
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QAfterSortBy>
-  thenByRequestJsonDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'requestJson', Sort.desc);
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QAfterSortBy>
-  thenByResponseJson() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'responseJson', Sort.asc);
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QAfterSortBy>
-  thenByResponseJsonDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'responseJson', Sort.desc);
-    });
-  }
-}
-
-extension UserProfileUpdateEntityQueryWhereDistinct
-    on
-        QueryBuilder<
-          UserProfileUpdateEntity,
-          UserProfileUpdateEntity,
-          QDistinct
-        > {
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QDistinct>
-  distinctByAvatarBytes() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'avatarBytes');
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QDistinct>
-  distinctByBannerBytes() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'bannerBytes');
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QDistinct>
-  distinctByCidNumber({bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'cidNumber', caseSensitive: caseSensitive);
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QDistinct>
-  distinctByContentHash({bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'contentHash', caseSensitive: caseSensitive);
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QDistinct>
-  distinctByOperationState({bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(
-        r'operationState',
-        caseSensitive: caseSensitive,
+        FilterCondition.greaterThan(property: r'response_data', value: ''),
       );
     });
   }
 
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QDistinct>
-  distinctByRequestJson({bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'requestJson', caseSensitive: caseSensitive);
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, UserProfileUpdateEntity, QDistinct>
-  distinctByResponseJson({bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'responseJson', caseSensitive: caseSensitive);
-    });
-  }
-}
-
-extension UserProfileUpdateEntityQueryProperty
-    on
-        QueryBuilder<
-          UserProfileUpdateEntity,
-          UserProfileUpdateEntity,
-          QQueryProperty
-        > {
-  QueryBuilder<UserProfileUpdateEntity, int, QQueryOperations> idProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'id');
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, List<int>, QQueryOperations>
-  avatarBytesProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'avatarBytes');
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, List<int>, QQueryOperations>
-  bannerBytesProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'bannerBytes');
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, String, QQueryOperations>
-  cidNumberProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'cidNumber');
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, String, QQueryOperations>
-  contentHashProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'contentHash');
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, String, QQueryOperations>
-  operationStateProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'operationState');
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, String, QQueryOperations>
-  requestJsonProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'requestJson');
-    });
-  }
-
-  QueryBuilder<UserProfileUpdateEntity, String?, QQueryOperations>
-  responseJsonProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'responseJson');
-    });
-  }
-}
-
-// coverage:ignore-file
-// ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
-
-extension GetUserPublicProfileCacheEntityCollection on Isar {
-  IsarCollection<UserPublicProfileCacheEntity>
-  get userPublicProfileCacheEntitys => this.collection();
-}
-
-const UserPublicProfileCacheEntitySchema = CollectionSchema(
-  name: r'UserPublicProfileCacheEntity',
-  id: 8159616370897781851,
-  properties: {
-    r'cidNumber': PropertySchema(
-      id: 0,
-      name: r'cidNumber',
-      type: IsarType.string,
-    ),
-    r'profileJson': PropertySchema(
-      id: 1,
-      name: r'profileJson',
-      type: IsarType.string,
-    ),
-  },
-
-  estimateSize: _userPublicProfileCacheEntityEstimateSize,
-  serialize: _userPublicProfileCacheEntitySerialize,
-  deserialize: _userPublicProfileCacheEntityDeserialize,
-  deserializeProp: _userPublicProfileCacheEntityDeserializeProp,
-  idName: r'id',
-  indexes: {
-    r'cidNumber': IndexSchema(
-      id: -8947736671869741624,
-      name: r'cidNumber',
-      unique: true,
-      replace: true,
-      properties: [
-        IndexPropertySchema(
-          name: r'cidNumber',
-          type: IndexType.hash,
-          caseSensitive: true,
-        ),
-      ],
-    ),
-  },
-  links: {},
-  embeddedSchemas: {},
-
-  getId: _userPublicProfileCacheEntityGetId,
-  getLinks: _userPublicProfileCacheEntityGetLinks,
-  attach: _userPublicProfileCacheEntityAttach,
-  version: '3.3.2',
-);
-
-int _userPublicProfileCacheEntityEstimateSize(
-  UserPublicProfileCacheEntity object,
-  List<int> offsets,
-  Map<Type, List<int>> allOffsets,
-) {
-  var bytesCount = offsets.last;
-  bytesCount += 3 + object.cidNumber.length * 3;
-  bytesCount += 3 + object.profileJson.length * 3;
-  return bytesCount;
-}
-
-void _userPublicProfileCacheEntitySerialize(
-  UserPublicProfileCacheEntity object,
-  IsarWriter writer,
-  List<int> offsets,
-  Map<Type, List<int>> allOffsets,
-) {
-  writer.writeString(offsets[0], object.cidNumber);
-  writer.writeString(offsets[1], object.profileJson);
-}
-
-UserPublicProfileCacheEntity _userPublicProfileCacheEntityDeserialize(
-  Id id,
-  IsarReader reader,
-  List<int> offsets,
-  Map<Type, List<int>> allOffsets,
-) {
-  final object = UserPublicProfileCacheEntity();
-  object.cidNumber = reader.readString(offsets[0]);
-  object.id = id;
-  object.profileJson = reader.readString(offsets[1]);
-  return object;
-}
-
-P _userPublicProfileCacheEntityDeserializeProp<P>(
-  IsarReader reader,
-  int propertyId,
-  int offset,
-  Map<Type, List<int>> allOffsets,
-) {
-  switch (propertyId) {
-    case 0:
-      return (reader.readString(offset)) as P;
-    case 1:
-      return (reader.readString(offset)) as P;
-    default:
-      throw IsarError('Unknown property with id $propertyId');
-  }
-}
-
-Id _userPublicProfileCacheEntityGetId(UserPublicProfileCacheEntity object) {
-  return object.id;
-}
-
-List<IsarLinkBase<dynamic>> _userPublicProfileCacheEntityGetLinks(
-  UserPublicProfileCacheEntity object,
-) {
-  return [];
-}
-
-void _userPublicProfileCacheEntityAttach(
-  IsarCollection<dynamic> col,
-  Id id,
-  UserPublicProfileCacheEntity object,
-) {
-  object.id = id;
-}
-
-extension UserPublicProfileCacheEntityByIndex
-    on IsarCollection<UserPublicProfileCacheEntity> {
-  Future<UserPublicProfileCacheEntity?> getByCidNumber(String cidNumber) {
-    return getByIndex(r'cidNumber', [cidNumber]);
-  }
-
-  UserPublicProfileCacheEntity? getByCidNumberSync(String cidNumber) {
-    return getByIndexSync(r'cidNumber', [cidNumber]);
-  }
-
-  Future<bool> deleteByCidNumber(String cidNumber) {
-    return deleteByIndex(r'cidNumber', [cidNumber]);
-  }
-
-  bool deleteByCidNumberSync(String cidNumber) {
-    return deleteByIndexSync(r'cidNumber', [cidNumber]);
-  }
-
-  Future<List<UserPublicProfileCacheEntity?>> getAllByCidNumber(
-    List<String> cidNumberValues,
-  ) {
-    final values = cidNumberValues.map((e) => [e]).toList();
-    return getAllByIndex(r'cidNumber', values);
-  }
-
-  List<UserPublicProfileCacheEntity?> getAllByCidNumberSync(
-    List<String> cidNumberValues,
-  ) {
-    final values = cidNumberValues.map((e) => [e]).toList();
-    return getAllByIndexSync(r'cidNumber', values);
-  }
-
-  Future<int> deleteAllByCidNumber(List<String> cidNumberValues) {
-    final values = cidNumberValues.map((e) => [e]).toList();
-    return deleteAllByIndex(r'cidNumber', values);
-  }
-
-  int deleteAllByCidNumberSync(List<String> cidNumberValues) {
-    final values = cidNumberValues.map((e) => [e]).toList();
-    return deleteAllByIndexSync(r'cidNumber', values);
-  }
-
-  Future<Id> putByCidNumber(UserPublicProfileCacheEntity object) {
-    return putByIndex(r'cidNumber', object);
-  }
-
-  Id putByCidNumberSync(
-    UserPublicProfileCacheEntity object, {
-    bool saveLinks = true,
-  }) {
-    return putByIndexSync(r'cidNumber', object, saveLinks: saveLinks);
-  }
-
-  Future<List<Id>> putAllByCidNumber(
-    List<UserPublicProfileCacheEntity> objects,
-  ) {
-    return putAllByIndex(r'cidNumber', objects);
-  }
-
-  List<Id> putAllByCidNumberSync(
-    List<UserPublicProfileCacheEntity> objects, {
-    bool saveLinks = true,
-  }) {
-    return putAllByIndexSync(r'cidNumber', objects, saveLinks: saveLinks);
-  }
-}
-
-extension UserPublicProfileCacheEntityQueryWhereSort
-    on
-        QueryBuilder<
-          UserPublicProfileCacheEntity,
-          UserPublicProfileCacheEntity,
-          QWhere
-        > {
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterWhere
-  >
-  anyId() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(const IdWhereClause.any());
-    });
-  }
-}
-
-extension UserPublicProfileCacheEntityQueryWhere
-    on
-        QueryBuilder<
-          UserPublicProfileCacheEntity,
-          UserPublicProfileCacheEntity,
-          QWhereClause
-        > {
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterWhereClause
-  >
-  idEqualTo(Id id) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IdWhereClause.between(lower: id, upper: id));
-    });
-  }
-
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterWhereClause
-  >
-  idNotEqualTo(Id id) {
-    return QueryBuilder.apply(this, (query) {
-      if (query.whereSort == Sort.asc) {
-        return query
-            .addWhereClause(
-              IdWhereClause.lessThan(upper: id, includeUpper: false),
-            )
-            .addWhereClause(
-              IdWhereClause.greaterThan(lower: id, includeLower: false),
-            );
-      } else {
-        return query
-            .addWhereClause(
-              IdWhereClause.greaterThan(lower: id, includeLower: false),
-            )
-            .addWhereClause(
-              IdWhereClause.lessThan(upper: id, includeUpper: false),
-            );
-      }
-    });
-  }
-
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterWhereClause
-  >
-  idGreaterThan(Id id, {bool include = false}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(
-        IdWhereClause.greaterThan(lower: id, includeLower: include),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterWhereClause
-  >
-  idLessThan(Id id, {bool include = false}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(
-        IdWhereClause.lessThan(upper: id, includeUpper: include),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterWhereClause
-  >
-  idBetween(
-    Id lowerId,
-    Id upperId, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(
-        IdWhereClause.between(
-          lower: lowerId,
-          includeLower: includeLower,
-          upper: upperId,
-          includeUpper: includeUpper,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterWhereClause
-  >
-  cidNumberEqualTo(String cidNumber) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(
-        IndexWhereClause.equalTo(indexName: r'cidNumber', value: [cidNumber]),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterWhereClause
-  >
-  cidNumberNotEqualTo(String cidNumber) {
-    return QueryBuilder.apply(this, (query) {
-      if (query.whereSort == Sort.asc) {
-        return query
-            .addWhereClause(
-              IndexWhereClause.between(
-                indexName: r'cidNumber',
-                lower: [],
-                upper: [cidNumber],
-                includeUpper: false,
-              ),
-            )
-            .addWhereClause(
-              IndexWhereClause.between(
-                indexName: r'cidNumber',
-                lower: [cidNumber],
-                includeLower: false,
-                upper: [],
-              ),
-            );
-      } else {
-        return query
-            .addWhereClause(
-              IndexWhereClause.between(
-                indexName: r'cidNumber',
-                lower: [cidNumber],
-                includeLower: false,
-                upper: [],
-              ),
-            )
-            .addWhereClause(
-              IndexWhereClause.between(
-                indexName: r'cidNumber',
-                lower: [],
-                upper: [cidNumber],
-                includeUpper: false,
-              ),
-            );
-      }
-    });
-  }
-}
-
-extension UserPublicProfileCacheEntityQueryFilter
-    on
-        QueryBuilder<
-          UserPublicProfileCacheEntity,
-          UserPublicProfileCacheEntity,
-          QFilterCondition
-        > {
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterFilterCondition
-  >
-  cidNumberEqualTo(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> rowIdEqualTo(Id value) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(
-          property: r'cidNumber',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
+        FilterCondition.equalTo(property: r'row_id', value: value),
       );
     });
   }
 
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterFilterCondition
-  >
-  cidNumberGreaterThan(
-    String value, {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> rowIdGreaterThan(
+    Id value, {
     bool include = false,
-    bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'cidNumber',
+          property: r'row_id',
           value: value,
-          caseSensitive: caseSensitive,
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterFilterCondition
-  >
-  cidNumberLessThan(
-    String value, {
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> rowIdLessThan(
+    Id value, {
     bool include = false,
-    bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'cidNumber',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterFilterCondition
-  >
-  cidNumberBetween(
-    String lower,
-    String upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'cidNumber',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterFilterCondition
-  >
-  cidNumberStartsWith(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.startsWith(
-          property: r'cidNumber',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterFilterCondition
-  >
-  cidNumberEndsWith(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.endsWith(
-          property: r'cidNumber',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterFilterCondition
-  >
-  cidNumberContains(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.contains(
-          property: r'cidNumber',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterFilterCondition
-  >
-  cidNumberMatches(String pattern, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.matches(
-          property: r'cidNumber',
-          wildcard: pattern,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterFilterCondition
-  >
-  cidNumberIsEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'cidNumber', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterFilterCondition
-  >
-  cidNumberIsNotEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'cidNumber', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterFilterCondition
-  >
-  idEqualTo(Id value) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'id', value: value),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterFilterCondition
-  >
-  idGreaterThan(Id value, {bool include = false}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'id',
+          property: r'row_id',
           value: value,
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterFilterCondition
-  >
-  idLessThan(Id value, {bool include = false}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'id',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterFilterCondition
-  >
-  idBetween(
+  QueryBuilder<Edit, Edit, QAfterFilterCondition> rowIdBetween(
     Id lower,
     Id upper, {
     bool includeLower = true,
@@ -2635,7 +1383,7 @@ extension UserPublicProfileCacheEntityQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'id',
+          property: r'row_id',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -2644,461 +1392,291 @@ extension UserPublicProfileCacheEntityQueryFilter
       );
     });
   }
+}
 
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterFilterCondition
-  >
-  profileJsonEqualTo(String value, {bool caseSensitive = true}) {
+extension EditQueryObject on QueryBuilder<Edit, Edit, QFilterCondition> {}
+
+extension EditQueryLinks on QueryBuilder<Edit, Edit, QFilterCondition> {}
+
+extension EditQuerySortBy on QueryBuilder<Edit, Edit, QSortBy> {
+  QueryBuilder<Edit, Edit, QAfterSortBy> sortByCidNumber() {
     return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(
-          property: r'profileJson',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
+      return query.addSortBy(r'cid_number', Sort.asc);
     });
   }
 
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterFilterCondition
-  >
-  profileJsonGreaterThan(
-    String value, {
-    bool include = false,
+  QueryBuilder<Edit, Edit, QAfterSortBy> sortByCidNumberDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'cid_number', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Edit, Edit, QAfterSortBy> sortByContentHash() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'content_hash', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Edit, Edit, QAfterSortBy> sortByContentHashDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'content_hash', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Edit, Edit, QAfterSortBy> sortByJobState() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'job_state', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Edit, Edit, QAfterSortBy> sortByJobStateDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'job_state', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Edit, Edit, QAfterSortBy> sortByRequestData() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'request_data', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Edit, Edit, QAfterSortBy> sortByRequestDataDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'request_data', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Edit, Edit, QAfterSortBy> sortByResponseData() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'response_data', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Edit, Edit, QAfterSortBy> sortByResponseDataDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'response_data', Sort.desc);
+    });
+  }
+}
+
+extension EditQuerySortThenBy on QueryBuilder<Edit, Edit, QSortThenBy> {
+  QueryBuilder<Edit, Edit, QAfterSortBy> thenByCidNumber() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'cid_number', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Edit, Edit, QAfterSortBy> thenByCidNumberDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'cid_number', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Edit, Edit, QAfterSortBy> thenByContentHash() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'content_hash', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Edit, Edit, QAfterSortBy> thenByContentHashDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'content_hash', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Edit, Edit, QAfterSortBy> thenByJobState() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'job_state', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Edit, Edit, QAfterSortBy> thenByJobStateDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'job_state', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Edit, Edit, QAfterSortBy> thenByRequestData() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'request_data', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Edit, Edit, QAfterSortBy> thenByRequestDataDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'request_data', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Edit, Edit, QAfterSortBy> thenByResponseData() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'response_data', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Edit, Edit, QAfterSortBy> thenByResponseDataDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'response_data', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Edit, Edit, QAfterSortBy> thenByRowId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'row_id', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Edit, Edit, QAfterSortBy> thenByRowIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'row_id', Sort.desc);
+    });
+  }
+}
+
+extension EditQueryWhereDistinct on QueryBuilder<Edit, Edit, QDistinct> {
+  QueryBuilder<Edit, Edit, QDistinct> distinctByAvatarBytes() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'avatar_bytes');
+    });
+  }
+
+  QueryBuilder<Edit, Edit, QDistinct> distinctByBannerBytes() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'banner_bytes');
+    });
+  }
+
+  QueryBuilder<Edit, Edit, QDistinct> distinctByCidNumber({
     bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'profileJson',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
+      return query.addDistinctBy(r'cid_number', caseSensitive: caseSensitive);
     });
   }
 
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterFilterCondition
-  >
-  profileJsonLessThan(
-    String value, {
-    bool include = false,
+  QueryBuilder<Edit, Edit, QDistinct> distinctByContentHash({
     bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'profileJson',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
+      return query.addDistinctBy(r'content_hash', caseSensitive: caseSensitive);
     });
   }
 
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterFilterCondition
-  >
-  profileJsonBetween(
-    String lower,
-    String upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
+  QueryBuilder<Edit, Edit, QDistinct> distinctByJobState({
     bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'profileJson',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-          caseSensitive: caseSensitive,
-        ),
-      );
+      return query.addDistinctBy(r'job_state', caseSensitive: caseSensitive);
     });
   }
 
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterFilterCondition
-  >
-  profileJsonStartsWith(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Edit, Edit, QDistinct> distinctByRequestData({
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.startsWith(
-          property: r'profileJson',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
+      return query.addDistinctBy(r'request_data', caseSensitive: caseSensitive);
     });
   }
 
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterFilterCondition
-  >
-  profileJsonEndsWith(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Edit, Edit, QDistinct> distinctByResponseData({
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.endsWith(
-          property: r'profileJson',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterFilterCondition
-  >
-  profileJsonContains(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.contains(
-          property: r'profileJson',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterFilterCondition
-  >
-  profileJsonMatches(String pattern, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.matches(
-          property: r'profileJson',
-          wildcard: pattern,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterFilterCondition
-  >
-  profileJsonIsEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'profileJson', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterFilterCondition
-  >
-  profileJsonIsNotEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'profileJson', value: ''),
+      return query.addDistinctBy(
+        r'response_data',
+        caseSensitive: caseSensitive,
       );
     });
   }
 }
 
-extension UserPublicProfileCacheEntityQueryObject
-    on
-        QueryBuilder<
-          UserPublicProfileCacheEntity,
-          UserPublicProfileCacheEntity,
-          QFilterCondition
-        > {}
-
-extension UserPublicProfileCacheEntityQueryLinks
-    on
-        QueryBuilder<
-          UserPublicProfileCacheEntity,
-          UserPublicProfileCacheEntity,
-          QFilterCondition
-        > {}
-
-extension UserPublicProfileCacheEntityQuerySortBy
-    on
-        QueryBuilder<
-          UserPublicProfileCacheEntity,
-          UserPublicProfileCacheEntity,
-          QSortBy
-        > {
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterSortBy
-  >
-  sortByCidNumber() {
+extension EditQueryProperty on QueryBuilder<Edit, Edit, QQueryProperty> {
+  QueryBuilder<Edit, int, QQueryOperations> rowIdProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'cidNumber', Sort.asc);
+      return query.addPropertyName(r'row_id');
     });
   }
 
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterSortBy
-  >
-  sortByCidNumberDesc() {
+  QueryBuilder<Edit, List<int>, QQueryOperations> avatarBytesProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'cidNumber', Sort.desc);
+      return query.addPropertyName(r'avatar_bytes');
     });
   }
 
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterSortBy
-  >
-  sortByProfileJson() {
+  QueryBuilder<Edit, List<int>, QQueryOperations> bannerBytesProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'profileJson', Sort.asc);
+      return query.addPropertyName(r'banner_bytes');
     });
   }
 
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterSortBy
-  >
-  sortByProfileJsonDesc() {
+  QueryBuilder<Edit, String, QQueryOperations> cidNumberProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'profileJson', Sort.desc);
+      return query.addPropertyName(r'cid_number');
+    });
+  }
+
+  QueryBuilder<Edit, String, QQueryOperations> contentHashProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'content_hash');
+    });
+  }
+
+  QueryBuilder<Edit, String, QQueryOperations> jobStateProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'job_state');
+    });
+  }
+
+  QueryBuilder<Edit, String, QQueryOperations> requestDataProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'request_data');
+    });
+  }
+
+  QueryBuilder<Edit, String?, QQueryOperations> responseDataProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'response_data');
     });
   }
 }
-
-extension UserPublicProfileCacheEntityQuerySortThenBy
-    on
-        QueryBuilder<
-          UserPublicProfileCacheEntity,
-          UserPublicProfileCacheEntity,
-          QSortThenBy
-        > {
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterSortBy
-  >
-  thenByCidNumber() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'cidNumber', Sort.asc);
-    });
-  }
-
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterSortBy
-  >
-  thenByCidNumberDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'cidNumber', Sort.desc);
-    });
-  }
-
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterSortBy
-  >
-  thenById() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'id', Sort.asc);
-    });
-  }
-
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterSortBy
-  >
-  thenByIdDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'id', Sort.desc);
-    });
-  }
-
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterSortBy
-  >
-  thenByProfileJson() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'profileJson', Sort.asc);
-    });
-  }
-
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QAfterSortBy
-  >
-  thenByProfileJsonDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'profileJson', Sort.desc);
-    });
-  }
-}
-
-extension UserPublicProfileCacheEntityQueryWhereDistinct
-    on
-        QueryBuilder<
-          UserPublicProfileCacheEntity,
-          UserPublicProfileCacheEntity,
-          QDistinct
-        > {
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QDistinct
-  >
-  distinctByCidNumber({bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'cidNumber', caseSensitive: caseSensitive);
-    });
-  }
-
-  QueryBuilder<
-    UserPublicProfileCacheEntity,
-    UserPublicProfileCacheEntity,
-    QDistinct
-  >
-  distinctByProfileJson({bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'profileJson', caseSensitive: caseSensitive);
-    });
-  }
-}
-
-extension UserPublicProfileCacheEntityQueryProperty
-    on
-        QueryBuilder<
-          UserPublicProfileCacheEntity,
-          UserPublicProfileCacheEntity,
-          QQueryProperty
-        > {
-  QueryBuilder<UserPublicProfileCacheEntity, int, QQueryOperations>
-  idProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'id');
-    });
-  }
-
-  QueryBuilder<UserPublicProfileCacheEntity, String, QQueryOperations>
-  cidNumberProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'cidNumber');
-    });
-  }
-
-  QueryBuilder<UserPublicProfileCacheEntity, String, QQueryOperations>
-  profileJsonProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'profileJson');
-    });
-  }
-}
-
 // coverage:ignore-file
 // ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
 
-extension GetUserProfileMediaEntityCollection on Isar {
-  IsarCollection<UserProfileMediaEntity> get userProfileMediaEntitys =>
-      this.collection();
+extension GetProfileCollection on Isar {
+  IsarCollection<Profile> get profiles => this.collection();
 }
 
-const UserProfileMediaEntitySchema = CollectionSchema(
-  name: r'UserProfileMediaEntity',
-  id: 4603463054903740297,
+const ProfileSchema = CollectionSchema(
+  name: r'profile',
+  id: -2659518370872103978,
   properties: {
-    r'byteSize': PropertySchema(id: 0, name: r'byteSize', type: IsarType.long),
-    r'cidNumber': PropertySchema(
+    r'cid_number': PropertySchema(
+      id: 0,
+      name: r'cid_number',
+      type: IsarType.string,
+    ),
+    r'profile_data': PropertySchema(
       id: 1,
-      name: r'cidNumber',
+      name: r'profile_data',
       type: IsarType.string,
-    ),
-    r'contentType': PropertySchema(
-      id: 2,
-      name: r'contentType',
-      type: IsarType.string,
-    ),
-    r'mediaBytes': PropertySchema(
-      id: 3,
-      name: r'mediaBytes',
-      type: IsarType.byteList,
-    ),
-    r'mediaId': PropertySchema(id: 4, name: r'mediaId', type: IsarType.string),
-    r'mediaRole': PropertySchema(
-      id: 5,
-      name: r'mediaRole',
-      type: IsarType.string,
-    ),
-    r'objectKey': PropertySchema(
-      id: 6,
-      name: r'objectKey',
-      type: IsarType.string,
-    ),
-    r'sha256': PropertySchema(id: 7, name: r'sha256', type: IsarType.string),
-    r'updatedAt': PropertySchema(
-      id: 8,
-      name: r'updatedAt',
-      type: IsarType.long,
     ),
   },
 
-  estimateSize: _userProfileMediaEntityEstimateSize,
-  serialize: _userProfileMediaEntitySerialize,
-  deserialize: _userProfileMediaEntityDeserialize,
-  deserializeProp: _userProfileMediaEntityDeserializeProp,
-  idName: r'id',
+  estimateSize: _profileEstimateSize,
+  serialize: _profileSerialize,
+  deserialize: _profileDeserialize,
+  deserializeProp: _profileDeserializeProp,
+  idName: r'row_id',
   indexes: {
-    r'cidNumber_mediaRole_mediaId': IndexSchema(
-      id: -1866850773190635932,
-      name: r'cidNumber_mediaRole_mediaId',
+    r'cid_number': IndexSchema(
+      id: 5073804840546792610,
+      name: r'cid_number',
       unique: true,
-      replace: false,
+      replace: true,
       properties: [
         IndexPropertySchema(
-          name: r'cidNumber',
-          type: IndexType.hash,
-          caseSensitive: true,
-        ),
-        IndexPropertySchema(
-          name: r'mediaRole',
-          type: IndexType.hash,
-          caseSensitive: true,
-        ),
-        IndexPropertySchema(
-          name: r'mediaId',
+          name: r'cid_number',
           type: IndexType.hash,
           caseSensitive: true,
         ),
@@ -3108,66 +1686,47 @@ const UserProfileMediaEntitySchema = CollectionSchema(
   links: {},
   embeddedSchemas: {},
 
-  getId: _userProfileMediaEntityGetId,
-  getLinks: _userProfileMediaEntityGetLinks,
-  attach: _userProfileMediaEntityAttach,
+  getId: _profileGetId,
+  getLinks: _profileGetLinks,
+  attach: _profileAttach,
   version: '3.3.2',
 );
 
-int _userProfileMediaEntityEstimateSize(
-  UserProfileMediaEntity object,
+int _profileEstimateSize(
+  Profile object,
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
   var bytesCount = offsets.last;
   bytesCount += 3 + object.cidNumber.length * 3;
-  bytesCount += 3 + object.contentType.length * 3;
-  bytesCount += 3 + object.mediaBytes.length;
-  bytesCount += 3 + object.mediaId.length * 3;
-  bytesCount += 3 + object.mediaRole.length * 3;
-  bytesCount += 3 + object.objectKey.length * 3;
-  bytesCount += 3 + object.sha256.length * 3;
+  bytesCount += 3 + object.profileData.length * 3;
   return bytesCount;
 }
 
-void _userProfileMediaEntitySerialize(
-  UserProfileMediaEntity object,
+void _profileSerialize(
+  Profile object,
   IsarWriter writer,
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
-  writer.writeLong(offsets[0], object.byteSize);
-  writer.writeString(offsets[1], object.cidNumber);
-  writer.writeString(offsets[2], object.contentType);
-  writer.writeByteList(offsets[3], object.mediaBytes);
-  writer.writeString(offsets[4], object.mediaId);
-  writer.writeString(offsets[5], object.mediaRole);
-  writer.writeString(offsets[6], object.objectKey);
-  writer.writeString(offsets[7], object.sha256);
-  writer.writeLong(offsets[8], object.updatedAt);
+  writer.writeString(offsets[0], object.cidNumber);
+  writer.writeString(offsets[1], object.profileData);
 }
 
-UserProfileMediaEntity _userProfileMediaEntityDeserialize(
+Profile _profileDeserialize(
   Id id,
   IsarReader reader,
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
-  final object = UserProfileMediaEntity();
-  object.byteSize = reader.readLong(offsets[0]);
-  object.cidNumber = reader.readString(offsets[1]);
-  object.contentType = reader.readString(offsets[2]);
-  object.id = id;
-  object.mediaBytes = reader.readByteList(offsets[3]) ?? [];
-  object.mediaId = reader.readString(offsets[4]);
-  object.mediaRole = reader.readString(offsets[5]);
-  object.objectKey = reader.readString(offsets[6]);
-  object.sha256 = reader.readString(offsets[7]);
-  object.updatedAt = reader.readLong(offsets[8]);
+  final object = Profile();
+  object.cidNumber = reader.readString(offsets[0]);
+  object.profileData = reader.readString(offsets[1]);
+  object.rowId = id;
   return object;
 }
 
-P _userProfileMediaEntityDeserializeProp<P>(
+P _profileDeserializeProp<P>(
   IsarReader reader,
   int propertyId,
   int offset,
@@ -3175,333 +1734,1106 @@ P _userProfileMediaEntityDeserializeProp<P>(
 ) {
   switch (propertyId) {
     case 0:
-      return (reader.readLong(offset)) as P;
+      return (reader.readString(offset)) as P;
+    case 1:
+      return (reader.readString(offset)) as P;
+    default:
+      throw IsarError('Unknown property with id $propertyId');
+  }
+}
+
+Id _profileGetId(Profile object) {
+  return object.rowId;
+}
+
+List<IsarLinkBase<dynamic>> _profileGetLinks(Profile object) {
+  return [];
+}
+
+void _profileAttach(IsarCollection<dynamic> col, Id id, Profile object) {
+  object.rowId = id;
+}
+
+extension ProfileByIndex on IsarCollection<Profile> {
+  Future<Profile?> getByCidNumber(String cidNumber) {
+    return getByIndex(r'cid_number', [cidNumber]);
+  }
+
+  Profile? getByCidNumberSync(String cidNumber) {
+    return getByIndexSync(r'cid_number', [cidNumber]);
+  }
+
+  Future<bool> deleteByCidNumber(String cidNumber) {
+    return deleteByIndex(r'cid_number', [cidNumber]);
+  }
+
+  bool deleteByCidNumberSync(String cidNumber) {
+    return deleteByIndexSync(r'cid_number', [cidNumber]);
+  }
+
+  Future<List<Profile?>> getAllByCidNumber(List<String> cidNumberValues) {
+    final values = cidNumberValues.map((e) => [e]).toList();
+    return getAllByIndex(r'cid_number', values);
+  }
+
+  List<Profile?> getAllByCidNumberSync(List<String> cidNumberValues) {
+    final values = cidNumberValues.map((e) => [e]).toList();
+    return getAllByIndexSync(r'cid_number', values);
+  }
+
+  Future<int> deleteAllByCidNumber(List<String> cidNumberValues) {
+    final values = cidNumberValues.map((e) => [e]).toList();
+    return deleteAllByIndex(r'cid_number', values);
+  }
+
+  int deleteAllByCidNumberSync(List<String> cidNumberValues) {
+    final values = cidNumberValues.map((e) => [e]).toList();
+    return deleteAllByIndexSync(r'cid_number', values);
+  }
+
+  Future<Id> putByCidNumber(Profile object) {
+    return putByIndex(r'cid_number', object);
+  }
+
+  Id putByCidNumberSync(Profile object, {bool saveLinks = true}) {
+    return putByIndexSync(r'cid_number', object, saveLinks: saveLinks);
+  }
+
+  Future<List<Id>> putAllByCidNumber(List<Profile> objects) {
+    return putAllByIndex(r'cid_number', objects);
+  }
+
+  List<Id> putAllByCidNumberSync(
+    List<Profile> objects, {
+    bool saveLinks = true,
+  }) {
+    return putAllByIndexSync(r'cid_number', objects, saveLinks: saveLinks);
+  }
+}
+
+extension ProfileQueryWhereSort on QueryBuilder<Profile, Profile, QWhere> {
+  QueryBuilder<Profile, Profile, QAfterWhere> anyRowId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(const IdWhereClause.any());
+    });
+  }
+}
+
+extension ProfileQueryWhere on QueryBuilder<Profile, Profile, QWhereClause> {
+  QueryBuilder<Profile, Profile, QAfterWhereClause> rowIdEqualTo(Id rowId) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IdWhereClause.between(lower: rowId, upper: rowId),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterWhereClause> rowIdNotEqualTo(Id rowId) {
+    return QueryBuilder.apply(this, (query) {
+      if (query.whereSort == Sort.asc) {
+        return query
+            .addWhereClause(
+              IdWhereClause.lessThan(upper: rowId, includeUpper: false),
+            )
+            .addWhereClause(
+              IdWhereClause.greaterThan(lower: rowId, includeLower: false),
+            );
+      } else {
+        return query
+            .addWhereClause(
+              IdWhereClause.greaterThan(lower: rowId, includeLower: false),
+            )
+            .addWhereClause(
+              IdWhereClause.lessThan(upper: rowId, includeUpper: false),
+            );
+      }
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterWhereClause> rowIdGreaterThan(
+    Id rowId, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IdWhereClause.greaterThan(lower: rowId, includeLower: include),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterWhereClause> rowIdLessThan(
+    Id rowId, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IdWhereClause.lessThan(upper: rowId, includeUpper: include),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterWhereClause> rowIdBetween(
+    Id lowerRowId,
+    Id upperRowId, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IdWhereClause.between(
+          lower: lowerRowId,
+          includeLower: includeLower,
+          upper: upperRowId,
+          includeUpper: includeUpper,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterWhereClause> cidNumberEqualTo(
+    String cidNumber,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IndexWhereClause.equalTo(indexName: r'cid_number', value: [cidNumber]),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterWhereClause> cidNumberNotEqualTo(
+    String cidNumber,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      if (query.whereSort == Sort.asc) {
+        return query
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'cid_number',
+                lower: [],
+                upper: [cidNumber],
+                includeUpper: false,
+              ),
+            )
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'cid_number',
+                lower: [cidNumber],
+                includeLower: false,
+                upper: [],
+              ),
+            );
+      } else {
+        return query
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'cid_number',
+                lower: [cidNumber],
+                includeLower: false,
+                upper: [],
+              ),
+            )
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'cid_number',
+                lower: [],
+                upper: [cidNumber],
+                includeUpper: false,
+              ),
+            );
+      }
+    });
+  }
+}
+
+extension ProfileQueryFilter
+    on QueryBuilder<Profile, Profile, QFilterCondition> {
+  QueryBuilder<Profile, Profile, QAfterFilterCondition> cidNumberEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'cid_number',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterFilterCondition> cidNumberGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'cid_number',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterFilterCondition> cidNumberLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'cid_number',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterFilterCondition> cidNumberBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'cid_number',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterFilterCondition> cidNumberStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'cid_number',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterFilterCondition> cidNumberEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'cid_number',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterFilterCondition> cidNumberContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'cid_number',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterFilterCondition> cidNumberMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'cid_number',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterFilterCondition> cidNumberIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'cid_number', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterFilterCondition> cidNumberIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'cid_number', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterFilterCondition> profileDataEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'profile_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterFilterCondition> profileDataGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'profile_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterFilterCondition> profileDataLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'profile_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterFilterCondition> profileDataBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'profile_data',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterFilterCondition> profileDataStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'profile_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterFilterCondition> profileDataEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'profile_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterFilterCondition> profileDataContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'profile_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterFilterCondition> profileDataMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'profile_data',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterFilterCondition> profileDataIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'profile_data', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterFilterCondition>
+  profileDataIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'profile_data', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterFilterCondition> rowIdEqualTo(Id value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'row_id', value: value),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterFilterCondition> rowIdGreaterThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'row_id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterFilterCondition> rowIdLessThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'row_id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterFilterCondition> rowIdBetween(
+    Id lower,
+    Id upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'row_id',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+        ),
+      );
+    });
+  }
+}
+
+extension ProfileQueryObject
+    on QueryBuilder<Profile, Profile, QFilterCondition> {}
+
+extension ProfileQueryLinks
+    on QueryBuilder<Profile, Profile, QFilterCondition> {}
+
+extension ProfileQuerySortBy on QueryBuilder<Profile, Profile, QSortBy> {
+  QueryBuilder<Profile, Profile, QAfterSortBy> sortByCidNumber() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'cid_number', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterSortBy> sortByCidNumberDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'cid_number', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterSortBy> sortByProfileData() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'profile_data', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterSortBy> sortByProfileDataDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'profile_data', Sort.desc);
+    });
+  }
+}
+
+extension ProfileQuerySortThenBy
+    on QueryBuilder<Profile, Profile, QSortThenBy> {
+  QueryBuilder<Profile, Profile, QAfterSortBy> thenByCidNumber() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'cid_number', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterSortBy> thenByCidNumberDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'cid_number', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterSortBy> thenByProfileData() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'profile_data', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterSortBy> thenByProfileDataDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'profile_data', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterSortBy> thenByRowId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'row_id', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QAfterSortBy> thenByRowIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'row_id', Sort.desc);
+    });
+  }
+}
+
+extension ProfileQueryWhereDistinct
+    on QueryBuilder<Profile, Profile, QDistinct> {
+  QueryBuilder<Profile, Profile, QDistinct> distinctByCidNumber({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'cid_number', caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<Profile, Profile, QDistinct> distinctByProfileData({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'profile_data', caseSensitive: caseSensitive);
+    });
+  }
+}
+
+extension ProfileQueryProperty
+    on QueryBuilder<Profile, Profile, QQueryProperty> {
+  QueryBuilder<Profile, int, QQueryOperations> rowIdProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'row_id');
+    });
+  }
+
+  QueryBuilder<Profile, String, QQueryOperations> cidNumberProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'cid_number');
+    });
+  }
+
+  QueryBuilder<Profile, String, QQueryOperations> profileDataProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'profile_data');
+    });
+  }
+}
+// coverage:ignore-file
+// ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
+
+extension GetProfileMediaCollection on Isar {
+  IsarCollection<ProfileMedia> get profileMedias => this.collection();
+}
+
+const ProfileMediaSchema = CollectionSchema(
+  name: r'media',
+  id: -460020576612860404,
+  properties: {
+    r'body_hash': PropertySchema(
+      id: 0,
+      name: r'body_hash',
+      type: IsarType.string,
+    ),
+    r'cid_number': PropertySchema(
+      id: 1,
+      name: r'cid_number',
+      type: IsarType.string,
+    ),
+    r'media_bytes': PropertySchema(
+      id: 2,
+      name: r'media_bytes',
+      type: IsarType.byteList,
+    ),
+    r'media_role': PropertySchema(
+      id: 3,
+      name: r'media_role',
+      type: IsarType.string,
+    ),
+    r'object_key': PropertySchema(
+      id: 4,
+      name: r'object_key',
+      type: IsarType.string,
+    ),
+    r'profile_at': PropertySchema(
+      id: 5,
+      name: r'profile_at',
+      type: IsarType.long,
+    ),
+  },
+
+  estimateSize: _profileMediaEstimateSize,
+  serialize: _profileMediaSerialize,
+  deserialize: _profileMediaDeserialize,
+  deserializeProp: _profileMediaDeserializeProp,
+  idName: r'row_id',
+  indexes: {
+    r'cid_number_media_role_profile_at': IndexSchema(
+      id: 3106397547773676457,
+      name: r'cid_number_media_role_profile_at',
+      unique: true,
+      replace: false,
+      properties: [
+        IndexPropertySchema(
+          name: r'cid_number',
+          type: IndexType.hash,
+          caseSensitive: true,
+        ),
+        IndexPropertySchema(
+          name: r'media_role',
+          type: IndexType.hash,
+          caseSensitive: true,
+        ),
+        IndexPropertySchema(
+          name: r'profile_at',
+          type: IndexType.value,
+          caseSensitive: false,
+        ),
+      ],
+    ),
+  },
+  links: {},
+  embeddedSchemas: {},
+
+  getId: _profileMediaGetId,
+  getLinks: _profileMediaGetLinks,
+  attach: _profileMediaAttach,
+  version: '3.3.2',
+);
+
+int _profileMediaEstimateSize(
+  ProfileMedia object,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  var bytesCount = offsets.last;
+  bytesCount += 3 + object.bodyHash.length * 3;
+  bytesCount += 3 + object.cidNumber.length * 3;
+  bytesCount += 3 + object.mediaBytes.length;
+  bytesCount += 3 + object.mediaRole.length * 3;
+  bytesCount += 3 + object.objectKey.length * 3;
+  return bytesCount;
+}
+
+void _profileMediaSerialize(
+  ProfileMedia object,
+  IsarWriter writer,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  writer.writeString(offsets[0], object.bodyHash);
+  writer.writeString(offsets[1], object.cidNumber);
+  writer.writeByteList(offsets[2], object.mediaBytes);
+  writer.writeString(offsets[3], object.mediaRole);
+  writer.writeString(offsets[4], object.objectKey);
+  writer.writeLong(offsets[5], object.profileAt);
+}
+
+ProfileMedia _profileMediaDeserialize(
+  Id id,
+  IsarReader reader,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  final object = ProfileMedia();
+  object.bodyHash = reader.readString(offsets[0]);
+  object.cidNumber = reader.readString(offsets[1]);
+  object.mediaBytes = reader.readByteList(offsets[2]) ?? [];
+  object.mediaRole = reader.readString(offsets[3]);
+  object.objectKey = reader.readString(offsets[4]);
+  object.profileAt = reader.readLong(offsets[5]);
+  object.rowId = id;
+  return object;
+}
+
+P _profileMediaDeserializeProp<P>(
+  IsarReader reader,
+  int propertyId,
+  int offset,
+  Map<Type, List<int>> allOffsets,
+) {
+  switch (propertyId) {
+    case 0:
+      return (reader.readString(offset)) as P;
     case 1:
       return (reader.readString(offset)) as P;
     case 2:
-      return (reader.readString(offset)) as P;
-    case 3:
       return (reader.readByteList(offset) ?? []) as P;
+    case 3:
+      return (reader.readString(offset)) as P;
     case 4:
       return (reader.readString(offset)) as P;
     case 5:
-      return (reader.readString(offset)) as P;
-    case 6:
-      return (reader.readString(offset)) as P;
-    case 7:
-      return (reader.readString(offset)) as P;
-    case 8:
       return (reader.readLong(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
   }
 }
 
-Id _userProfileMediaEntityGetId(UserProfileMediaEntity object) {
-  return object.id;
+Id _profileMediaGetId(ProfileMedia object) {
+  return object.rowId;
 }
 
-List<IsarLinkBase<dynamic>> _userProfileMediaEntityGetLinks(
-  UserProfileMediaEntity object,
-) {
+List<IsarLinkBase<dynamic>> _profileMediaGetLinks(ProfileMedia object) {
   return [];
 }
 
-void _userProfileMediaEntityAttach(
+void _profileMediaAttach(
   IsarCollection<dynamic> col,
   Id id,
-  UserProfileMediaEntity object,
+  ProfileMedia object,
 ) {
-  object.id = id;
+  object.rowId = id;
 }
 
-extension UserProfileMediaEntityByIndex
-    on IsarCollection<UserProfileMediaEntity> {
-  Future<UserProfileMediaEntity?> getByCidNumberMediaRoleMediaId(
+extension ProfileMediaByIndex on IsarCollection<ProfileMedia> {
+  Future<ProfileMedia?> getByCidNumberMediaRoleProfileAt(
     String cidNumber,
     String mediaRole,
-    String mediaId,
+    int profileAt,
   ) {
-    return getByIndex(r'cidNumber_mediaRole_mediaId', [
+    return getByIndex(r'cid_number_media_role_profile_at', [
       cidNumber,
       mediaRole,
-      mediaId,
+      profileAt,
     ]);
   }
 
-  UserProfileMediaEntity? getByCidNumberMediaRoleMediaIdSync(
+  ProfileMedia? getByCidNumberMediaRoleProfileAtSync(
     String cidNumber,
     String mediaRole,
-    String mediaId,
+    int profileAt,
   ) {
-    return getByIndexSync(r'cidNumber_mediaRole_mediaId', [
+    return getByIndexSync(r'cid_number_media_role_profile_at', [
       cidNumber,
       mediaRole,
-      mediaId,
+      profileAt,
     ]);
   }
 
-  Future<bool> deleteByCidNumberMediaRoleMediaId(
+  Future<bool> deleteByCidNumberMediaRoleProfileAt(
     String cidNumber,
     String mediaRole,
-    String mediaId,
+    int profileAt,
   ) {
-    return deleteByIndex(r'cidNumber_mediaRole_mediaId', [
+    return deleteByIndex(r'cid_number_media_role_profile_at', [
       cidNumber,
       mediaRole,
-      mediaId,
+      profileAt,
     ]);
   }
 
-  bool deleteByCidNumberMediaRoleMediaIdSync(
+  bool deleteByCidNumberMediaRoleProfileAtSync(
     String cidNumber,
     String mediaRole,
-    String mediaId,
+    int profileAt,
   ) {
-    return deleteByIndexSync(r'cidNumber_mediaRole_mediaId', [
+    return deleteByIndexSync(r'cid_number_media_role_profile_at', [
       cidNumber,
       mediaRole,
-      mediaId,
+      profileAt,
     ]);
   }
 
-  Future<List<UserProfileMediaEntity?>> getAllByCidNumberMediaRoleMediaId(
+  Future<List<ProfileMedia?>> getAllByCidNumberMediaRoleProfileAt(
     List<String> cidNumberValues,
     List<String> mediaRoleValues,
-    List<String> mediaIdValues,
+    List<int> profileAtValues,
   ) {
     final len = cidNumberValues.length;
     assert(
-      mediaRoleValues.length == len && mediaIdValues.length == len,
+      mediaRoleValues.length == len && profileAtValues.length == len,
       'All index values must have the same length',
     );
     final values = <List<dynamic>>[];
     for (var i = 0; i < len; i++) {
-      values.add([cidNumberValues[i], mediaRoleValues[i], mediaIdValues[i]]);
+      values.add([cidNumberValues[i], mediaRoleValues[i], profileAtValues[i]]);
     }
 
-    return getAllByIndex(r'cidNumber_mediaRole_mediaId', values);
+    return getAllByIndex(r'cid_number_media_role_profile_at', values);
   }
 
-  List<UserProfileMediaEntity?> getAllByCidNumberMediaRoleMediaIdSync(
+  List<ProfileMedia?> getAllByCidNumberMediaRoleProfileAtSync(
     List<String> cidNumberValues,
     List<String> mediaRoleValues,
-    List<String> mediaIdValues,
+    List<int> profileAtValues,
   ) {
     final len = cidNumberValues.length;
     assert(
-      mediaRoleValues.length == len && mediaIdValues.length == len,
+      mediaRoleValues.length == len && profileAtValues.length == len,
       'All index values must have the same length',
     );
     final values = <List<dynamic>>[];
     for (var i = 0; i < len; i++) {
-      values.add([cidNumberValues[i], mediaRoleValues[i], mediaIdValues[i]]);
+      values.add([cidNumberValues[i], mediaRoleValues[i], profileAtValues[i]]);
     }
 
-    return getAllByIndexSync(r'cidNumber_mediaRole_mediaId', values);
+    return getAllByIndexSync(r'cid_number_media_role_profile_at', values);
   }
 
-  Future<int> deleteAllByCidNumberMediaRoleMediaId(
+  Future<int> deleteAllByCidNumberMediaRoleProfileAt(
     List<String> cidNumberValues,
     List<String> mediaRoleValues,
-    List<String> mediaIdValues,
+    List<int> profileAtValues,
   ) {
     final len = cidNumberValues.length;
     assert(
-      mediaRoleValues.length == len && mediaIdValues.length == len,
+      mediaRoleValues.length == len && profileAtValues.length == len,
       'All index values must have the same length',
     );
     final values = <List<dynamic>>[];
     for (var i = 0; i < len; i++) {
-      values.add([cidNumberValues[i], mediaRoleValues[i], mediaIdValues[i]]);
+      values.add([cidNumberValues[i], mediaRoleValues[i], profileAtValues[i]]);
     }
 
-    return deleteAllByIndex(r'cidNumber_mediaRole_mediaId', values);
+    return deleteAllByIndex(r'cid_number_media_role_profile_at', values);
   }
 
-  int deleteAllByCidNumberMediaRoleMediaIdSync(
+  int deleteAllByCidNumberMediaRoleProfileAtSync(
     List<String> cidNumberValues,
     List<String> mediaRoleValues,
-    List<String> mediaIdValues,
+    List<int> profileAtValues,
   ) {
     final len = cidNumberValues.length;
     assert(
-      mediaRoleValues.length == len && mediaIdValues.length == len,
+      mediaRoleValues.length == len && profileAtValues.length == len,
       'All index values must have the same length',
     );
     final values = <List<dynamic>>[];
     for (var i = 0; i < len; i++) {
-      values.add([cidNumberValues[i], mediaRoleValues[i], mediaIdValues[i]]);
+      values.add([cidNumberValues[i], mediaRoleValues[i], profileAtValues[i]]);
     }
 
-    return deleteAllByIndexSync(r'cidNumber_mediaRole_mediaId', values);
+    return deleteAllByIndexSync(r'cid_number_media_role_profile_at', values);
   }
 
-  Future<Id> putByCidNumberMediaRoleMediaId(UserProfileMediaEntity object) {
-    return putByIndex(r'cidNumber_mediaRole_mediaId', object);
+  Future<Id> putByCidNumberMediaRoleProfileAt(ProfileMedia object) {
+    return putByIndex(r'cid_number_media_role_profile_at', object);
   }
 
-  Id putByCidNumberMediaRoleMediaIdSync(
-    UserProfileMediaEntity object, {
+  Id putByCidNumberMediaRoleProfileAtSync(
+    ProfileMedia object, {
     bool saveLinks = true,
   }) {
     return putByIndexSync(
-      r'cidNumber_mediaRole_mediaId',
+      r'cid_number_media_role_profile_at',
       object,
       saveLinks: saveLinks,
     );
   }
 
-  Future<List<Id>> putAllByCidNumberMediaRoleMediaId(
-    List<UserProfileMediaEntity> objects,
+  Future<List<Id>> putAllByCidNumberMediaRoleProfileAt(
+    List<ProfileMedia> objects,
   ) {
-    return putAllByIndex(r'cidNumber_mediaRole_mediaId', objects);
+    return putAllByIndex(r'cid_number_media_role_profile_at', objects);
   }
 
-  List<Id> putAllByCidNumberMediaRoleMediaIdSync(
-    List<UserProfileMediaEntity> objects, {
+  List<Id> putAllByCidNumberMediaRoleProfileAtSync(
+    List<ProfileMedia> objects, {
     bool saveLinks = true,
   }) {
     return putAllByIndexSync(
-      r'cidNumber_mediaRole_mediaId',
+      r'cid_number_media_role_profile_at',
       objects,
       saveLinks: saveLinks,
     );
   }
 }
 
-extension UserProfileMediaEntityQueryWhereSort
-    on QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QWhere> {
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterWhere>
-  anyId() {
+extension ProfileMediaQueryWhereSort
+    on QueryBuilder<ProfileMedia, ProfileMedia, QWhere> {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterWhere> anyRowId() {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(const IdWhereClause.any());
     });
   }
 }
 
-extension UserProfileMediaEntityQueryWhere
-    on
-        QueryBuilder<
-          UserProfileMediaEntity,
-          UserProfileMediaEntity,
-          QWhereClause
-        > {
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterWhereClause
-  >
-  idEqualTo(Id id) {
+extension ProfileMediaQueryWhere
+    on QueryBuilder<ProfileMedia, ProfileMedia, QWhereClause> {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterWhereClause> rowIdEqualTo(
+    Id rowId,
+  ) {
     return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IdWhereClause.between(lower: id, upper: id));
+      return query.addWhereClause(
+        IdWhereClause.between(lower: rowId, upper: rowId),
+      );
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterWhereClause
-  >
-  idNotEqualTo(Id id) {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterWhereClause> rowIdNotEqualTo(
+    Id rowId,
+  ) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(
-              IdWhereClause.lessThan(upper: id, includeUpper: false),
+              IdWhereClause.lessThan(upper: rowId, includeUpper: false),
             )
             .addWhereClause(
-              IdWhereClause.greaterThan(lower: id, includeLower: false),
+              IdWhereClause.greaterThan(lower: rowId, includeLower: false),
             );
       } else {
         return query
             .addWhereClause(
-              IdWhereClause.greaterThan(lower: id, includeLower: false),
+              IdWhereClause.greaterThan(lower: rowId, includeLower: false),
             )
             .addWhereClause(
-              IdWhereClause.lessThan(upper: id, includeUpper: false),
+              IdWhereClause.lessThan(upper: rowId, includeUpper: false),
             );
       }
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterWhereClause
-  >
-  idGreaterThan(Id id, {bool include = false}) {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterWhereClause> rowIdGreaterThan(
+    Id rowId, {
+    bool include = false,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
-        IdWhereClause.greaterThan(lower: id, includeLower: include),
+        IdWhereClause.greaterThan(lower: rowId, includeLower: include),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterWhereClause
-  >
-  idLessThan(Id id, {bool include = false}) {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterWhereClause> rowIdLessThan(
+    Id rowId, {
+    bool include = false,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
-        IdWhereClause.lessThan(upper: id, includeUpper: include),
+        IdWhereClause.lessThan(upper: rowId, includeUpper: include),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterWhereClause
-  >
-  idBetween(
-    Id lowerId,
-    Id upperId, {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterWhereClause> rowIdBetween(
+    Id lowerRowId,
+    Id upperRowId, {
     bool includeLower = true,
     bool includeUpper = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
         IdWhereClause.between(
-          lower: lowerId,
+          lower: lowerRowId,
           includeLower: includeLower,
-          upper: upperId,
+          upper: upperRowId,
           includeUpper: includeUpper,
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterWhereClause
-  >
-  cidNumberEqualToAnyMediaRoleMediaId(String cidNumber) {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterWhereClause>
+  cidNumberEqualToAnyMediaRoleProfileAt(String cidNumber) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
         IndexWhereClause.equalTo(
-          indexName: r'cidNumber_mediaRole_mediaId',
+          indexName: r'cid_number_media_role_profile_at',
           value: [cidNumber],
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterWhereClause
-  >
-  cidNumberNotEqualToAnyMediaRoleMediaId(String cidNumber) {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterWhereClause>
+  cidNumberNotEqualToAnyMediaRoleProfileAt(String cidNumber) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cidNumber_mediaRole_mediaId',
+                indexName: r'cid_number_media_role_profile_at',
                 lower: [],
                 upper: [cidNumber],
                 includeUpper: false,
@@ -3509,7 +2841,7 @@ extension UserProfileMediaEntityQueryWhere
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cidNumber_mediaRole_mediaId',
+                indexName: r'cid_number_media_role_profile_at',
                 lower: [cidNumber],
                 includeLower: false,
                 upper: [],
@@ -3519,7 +2851,7 @@ extension UserProfileMediaEntityQueryWhere
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cidNumber_mediaRole_mediaId',
+                indexName: r'cid_number_media_role_profile_at',
                 lower: [cidNumber],
                 includeLower: false,
                 upper: [],
@@ -3527,7 +2859,7 @@ extension UserProfileMediaEntityQueryWhere
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cidNumber_mediaRole_mediaId',
+                indexName: r'cid_number_media_role_profile_at',
                 lower: [],
                 upper: [cidNumber],
                 includeUpper: false,
@@ -3537,28 +2869,20 @@ extension UserProfileMediaEntityQueryWhere
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterWhereClause
-  >
-  cidNumberMediaRoleEqualToAnyMediaId(String cidNumber, String mediaRole) {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterWhereClause>
+  cidNumberMediaRoleEqualToAnyProfileAt(String cidNumber, String mediaRole) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
         IndexWhereClause.equalTo(
-          indexName: r'cidNumber_mediaRole_mediaId',
+          indexName: r'cid_number_media_role_profile_at',
           value: [cidNumber, mediaRole],
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterWhereClause
-  >
-  cidNumberEqualToMediaRoleNotEqualToAnyMediaId(
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterWhereClause>
+  cidNumberEqualToMediaRoleNotEqualToAnyProfileAt(
     String cidNumber,
     String mediaRole,
   ) {
@@ -3567,7 +2891,7 @@ extension UserProfileMediaEntityQueryWhere
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cidNumber_mediaRole_mediaId',
+                indexName: r'cid_number_media_role_profile_at',
                 lower: [cidNumber],
                 upper: [cidNumber, mediaRole],
                 includeUpper: false,
@@ -3575,7 +2899,7 @@ extension UserProfileMediaEntityQueryWhere
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cidNumber_mediaRole_mediaId',
+                indexName: r'cid_number_media_role_profile_at',
                 lower: [cidNumber, mediaRole],
                 includeLower: false,
                 upper: [cidNumber],
@@ -3585,7 +2909,7 @@ extension UserProfileMediaEntityQueryWhere
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cidNumber_mediaRole_mediaId',
+                indexName: r'cid_number_media_role_profile_at',
                 lower: [cidNumber, mediaRole],
                 includeLower: false,
                 upper: [cidNumber],
@@ -3593,7 +2917,7 @@ extension UserProfileMediaEntityQueryWhere
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cidNumber_mediaRole_mediaId',
+                indexName: r'cid_number_media_role_profile_at',
                 lower: [cidNumber],
                 upper: [cidNumber, mediaRole],
                 includeUpper: false,
@@ -3603,51 +2927,43 @@ extension UserProfileMediaEntityQueryWhere
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterWhereClause
-  >
-  cidNumberMediaRoleMediaIdEqualTo(
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterWhereClause>
+  cidNumberMediaRoleProfileAtEqualTo(
     String cidNumber,
     String mediaRole,
-    String mediaId,
+    int profileAt,
   ) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
         IndexWhereClause.equalTo(
-          indexName: r'cidNumber_mediaRole_mediaId',
-          value: [cidNumber, mediaRole, mediaId],
+          indexName: r'cid_number_media_role_profile_at',
+          value: [cidNumber, mediaRole, profileAt],
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterWhereClause
-  >
-  cidNumberMediaRoleEqualToMediaIdNotEqualTo(
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterWhereClause>
+  cidNumberMediaRoleEqualToProfileAtNotEqualTo(
     String cidNumber,
     String mediaRole,
-    String mediaId,
+    int profileAt,
   ) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cidNumber_mediaRole_mediaId',
+                indexName: r'cid_number_media_role_profile_at',
                 lower: [cidNumber, mediaRole],
-                upper: [cidNumber, mediaRole, mediaId],
+                upper: [cidNumber, mediaRole, profileAt],
                 includeUpper: false,
               ),
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cidNumber_mediaRole_mediaId',
-                lower: [cidNumber, mediaRole, mediaId],
+                indexName: r'cid_number_media_role_profile_at',
+                lower: [cidNumber, mediaRole, profileAt],
                 includeLower: false,
                 upper: [cidNumber, mediaRole],
               ),
@@ -3656,113 +2972,93 @@ extension UserProfileMediaEntityQueryWhere
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cidNumber_mediaRole_mediaId',
-                lower: [cidNumber, mediaRole, mediaId],
+                indexName: r'cid_number_media_role_profile_at',
+                lower: [cidNumber, mediaRole, profileAt],
                 includeLower: false,
                 upper: [cidNumber, mediaRole],
               ),
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cidNumber_mediaRole_mediaId',
+                indexName: r'cid_number_media_role_profile_at',
                 lower: [cidNumber, mediaRole],
-                upper: [cidNumber, mediaRole, mediaId],
+                upper: [cidNumber, mediaRole, profileAt],
                 includeUpper: false,
               ),
             );
       }
     });
   }
-}
 
-extension UserProfileMediaEntityQueryFilter
-    on
-        QueryBuilder<
-          UserProfileMediaEntity,
-          UserProfileMediaEntity,
-          QFilterCondition
-        > {
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  byteSizeEqualTo(int value) {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterWhereClause>
+  cidNumberMediaRoleEqualToProfileAtGreaterThan(
+    String cidNumber,
+    String mediaRole,
+    int profileAt, {
+    bool include = false,
+  }) {
     return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'byteSize', value: value),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  byteSizeGreaterThan(int value, {bool include = false}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'byteSize',
-          value: value,
+      return query.addWhereClause(
+        IndexWhereClause.between(
+          indexName: r'cid_number_media_role_profile_at',
+          lower: [cidNumber, mediaRole, profileAt],
+          includeLower: include,
+          upper: [cidNumber, mediaRole],
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  byteSizeLessThan(int value, {bool include = false}) {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterWhereClause>
+  cidNumberMediaRoleEqualToProfileAtLessThan(
+    String cidNumber,
+    String mediaRole,
+    int profileAt, {
+    bool include = false,
+  }) {
     return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'byteSize',
-          value: value,
+      return query.addWhereClause(
+        IndexWhereClause.between(
+          indexName: r'cid_number_media_role_profile_at',
+          lower: [cidNumber, mediaRole],
+          upper: [cidNumber, mediaRole, profileAt],
+          includeUpper: include,
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  byteSizeBetween(
-    int lower,
-    int upper, {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterWhereClause>
+  cidNumberMediaRoleEqualToProfileAtBetween(
+    String cidNumber,
+    String mediaRole,
+    int lowerProfileAt,
+    int upperProfileAt, {
     bool includeLower = true,
     bool includeUpper = true,
   }) {
     return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'byteSize',
-          lower: lower,
+      return query.addWhereClause(
+        IndexWhereClause.between(
+          indexName: r'cid_number_media_role_profile_at',
+          lower: [cidNumber, mediaRole, lowerProfileAt],
           includeLower: includeLower,
-          upper: upper,
+          upper: [cidNumber, mediaRole, upperProfileAt],
           includeUpper: includeUpper,
         ),
       );
     });
   }
+}
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  cidNumberEqualTo(String value, {bool caseSensitive = true}) {
+extension ProfileMediaQueryFilter
+    on QueryBuilder<ProfileMedia, ProfileMedia, QFilterCondition> {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
+  bodyHashEqualTo(String value, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.equalTo(
-          property: r'cidNumber',
+          property: r'body_hash',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -3770,11 +3066,148 @@ extension UserProfileMediaEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
+  bodyHashGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'body_hash',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
+  bodyHashLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'body_hash',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
+  bodyHashBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'body_hash',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
+  bodyHashStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'body_hash',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
+  bodyHashEndsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'body_hash',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
+  bodyHashContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'body_hash',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
+  bodyHashMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'body_hash',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
+  bodyHashIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'body_hash', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
+  bodyHashIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'body_hash', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
+  cidNumberEqualTo(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'cid_number',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   cidNumberGreaterThan(
     String value, {
     bool include = false,
@@ -3784,7 +3217,7 @@ extension UserProfileMediaEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'cidNumber',
+          property: r'cid_number',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -3792,11 +3225,7 @@ extension UserProfileMediaEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   cidNumberLessThan(
     String value, {
     bool include = false,
@@ -3806,7 +3235,7 @@ extension UserProfileMediaEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'cidNumber',
+          property: r'cid_number',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -3814,11 +3243,7 @@ extension UserProfileMediaEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   cidNumberBetween(
     String lower,
     String upper, {
@@ -3829,7 +3254,7 @@ extension UserProfileMediaEntityQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'cidNumber',
+          property: r'cid_number',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -3840,16 +3265,12 @@ extension UserProfileMediaEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   cidNumberStartsWith(String value, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.startsWith(
-          property: r'cidNumber',
+          property: r'cid_number',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -3857,16 +3278,12 @@ extension UserProfileMediaEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   cidNumberEndsWith(String value, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.endsWith(
-          property: r'cidNumber',
+          property: r'cid_number',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -3874,16 +3291,12 @@ extension UserProfileMediaEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   cidNumberContains(String value, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.contains(
-          property: r'cidNumber',
+          property: r'cid_number',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -3891,16 +3304,12 @@ extension UserProfileMediaEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   cidNumberMatches(String pattern, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.matches(
-          property: r'cidNumber',
+          property: r'cid_number',
           wildcard: pattern,
           caseSensitive: caseSensitive,
         ),
@@ -3908,336 +3317,60 @@ extension UserProfileMediaEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   cidNumberIsEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'cidNumber', value: ''),
+        FilterCondition.equalTo(property: r'cid_number', value: ''),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   cidNumberIsNotEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'cidNumber', value: ''),
+        FilterCondition.greaterThan(property: r'cid_number', value: ''),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  contentTypeEqualTo(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(
-          property: r'contentType',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  contentTypeGreaterThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'contentType',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  contentTypeLessThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'contentType',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  contentTypeBetween(
-    String lower,
-    String upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'contentType',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  contentTypeStartsWith(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.startsWith(
-          property: r'contentType',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  contentTypeEndsWith(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.endsWith(
-          property: r'contentType',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  contentTypeContains(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.contains(
-          property: r'contentType',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  contentTypeMatches(String pattern, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.matches(
-          property: r'contentType',
-          wildcard: pattern,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  contentTypeIsEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'contentType', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  contentTypeIsNotEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'contentType', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  idEqualTo(Id value) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'id', value: value),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  idGreaterThan(Id value, {bool include = false}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'id',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  idLessThan(Id value, {bool include = false}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'id',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  idBetween(
-    Id lower,
-    Id upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'id',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   mediaBytesElementEqualTo(int value) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'mediaBytes', value: value),
+        FilterCondition.equalTo(property: r'media_bytes', value: value),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   mediaBytesElementGreaterThan(int value, {bool include = false}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'mediaBytes',
+          property: r'media_bytes',
           value: value,
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   mediaBytesElementLessThan(int value, {bool include = false}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'mediaBytes',
+          property: r'media_bytes',
           value: value,
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   mediaBytesElementBetween(
     int lower,
     int upper, {
@@ -4247,7 +3380,7 @@ extension UserProfileMediaEntityQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'mediaBytes',
+          property: r'media_bytes',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -4257,66 +3390,42 @@ extension UserProfileMediaEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   mediaBytesLengthEqualTo(int length) {
     return QueryBuilder.apply(this, (query) {
-      return query.listLength(r'mediaBytes', length, true, length, true);
+      return query.listLength(r'media_bytes', length, true, length, true);
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   mediaBytesIsEmpty() {
     return QueryBuilder.apply(this, (query) {
-      return query.listLength(r'mediaBytes', 0, true, 0, true);
+      return query.listLength(r'media_bytes', 0, true, 0, true);
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   mediaBytesIsNotEmpty() {
     return QueryBuilder.apply(this, (query) {
-      return query.listLength(r'mediaBytes', 0, false, 999999, true);
+      return query.listLength(r'media_bytes', 0, false, 999999, true);
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   mediaBytesLengthLessThan(int length, {bool include = false}) {
     return QueryBuilder.apply(this, (query) {
-      return query.listLength(r'mediaBytes', 0, true, length, include);
+      return query.listLength(r'media_bytes', 0, true, length, include);
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   mediaBytesLengthGreaterThan(int length, {bool include = false}) {
     return QueryBuilder.apply(this, (query) {
-      return query.listLength(r'mediaBytes', length, include, 999999, true);
+      return query.listLength(r'media_bytes', length, include, 999999, true);
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   mediaBytesLengthBetween(
     int lower,
     int upper, {
@@ -4325,7 +3434,7 @@ extension UserProfileMediaEntityQueryFilter
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.listLength(
-        r'mediaBytes',
+        r'media_bytes',
         lower,
         includeLower,
         upper,
@@ -4334,197 +3443,12 @@ extension UserProfileMediaEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  mediaIdEqualTo(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(
-          property: r'mediaId',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  mediaIdGreaterThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'mediaId',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  mediaIdLessThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'mediaId',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  mediaIdBetween(
-    String lower,
-    String upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'mediaId',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  mediaIdStartsWith(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.startsWith(
-          property: r'mediaId',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  mediaIdEndsWith(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.endsWith(
-          property: r'mediaId',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  mediaIdContains(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.contains(
-          property: r'mediaId',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  mediaIdMatches(String pattern, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.matches(
-          property: r'mediaId',
-          wildcard: pattern,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  mediaIdIsEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'mediaId', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  mediaIdIsNotEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'mediaId', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   mediaRoleEqualTo(String value, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.equalTo(
-          property: r'mediaRole',
+          property: r'media_role',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -4532,11 +3456,7 @@ extension UserProfileMediaEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   mediaRoleGreaterThan(
     String value, {
     bool include = false,
@@ -4546,7 +3466,7 @@ extension UserProfileMediaEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'mediaRole',
+          property: r'media_role',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -4554,11 +3474,7 @@ extension UserProfileMediaEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   mediaRoleLessThan(
     String value, {
     bool include = false,
@@ -4568,7 +3484,7 @@ extension UserProfileMediaEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'mediaRole',
+          property: r'media_role',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -4576,11 +3492,7 @@ extension UserProfileMediaEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   mediaRoleBetween(
     String lower,
     String upper, {
@@ -4591,7 +3503,7 @@ extension UserProfileMediaEntityQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'mediaRole',
+          property: r'media_role',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -4602,16 +3514,12 @@ extension UserProfileMediaEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   mediaRoleStartsWith(String value, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.startsWith(
-          property: r'mediaRole',
+          property: r'media_role',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -4619,16 +3527,12 @@ extension UserProfileMediaEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   mediaRoleEndsWith(String value, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.endsWith(
-          property: r'mediaRole',
+          property: r'media_role',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -4636,16 +3540,12 @@ extension UserProfileMediaEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   mediaRoleContains(String value, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.contains(
-          property: r'mediaRole',
+          property: r'media_role',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -4653,16 +3553,12 @@ extension UserProfileMediaEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   mediaRoleMatches(String pattern, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.matches(
-          property: r'mediaRole',
+          property: r'media_role',
           wildcard: pattern,
           caseSensitive: caseSensitive,
         ),
@@ -4670,42 +3566,30 @@ extension UserProfileMediaEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   mediaRoleIsEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'mediaRole', value: ''),
+        FilterCondition.equalTo(property: r'media_role', value: ''),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   mediaRoleIsNotEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'mediaRole', value: ''),
+        FilterCondition.greaterThan(property: r'media_role', value: ''),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   objectKeyEqualTo(String value, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.equalTo(
-          property: r'objectKey',
+          property: r'object_key',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -4713,11 +3597,7 @@ extension UserProfileMediaEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   objectKeyGreaterThan(
     String value, {
     bool include = false,
@@ -4727,7 +3607,7 @@ extension UserProfileMediaEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'objectKey',
+          property: r'object_key',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -4735,11 +3615,7 @@ extension UserProfileMediaEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   objectKeyLessThan(
     String value, {
     bool include = false,
@@ -4749,7 +3625,7 @@ extension UserProfileMediaEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'objectKey',
+          property: r'object_key',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -4757,11 +3633,7 @@ extension UserProfileMediaEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   objectKeyBetween(
     String lower,
     String upper, {
@@ -4772,7 +3644,7 @@ extension UserProfileMediaEntityQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'objectKey',
+          property: r'object_key',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -4783,16 +3655,12 @@ extension UserProfileMediaEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   objectKeyStartsWith(String value, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.startsWith(
-          property: r'objectKey',
+          property: r'object_key',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -4800,16 +3668,12 @@ extension UserProfileMediaEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   objectKeyEndsWith(String value, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.endsWith(
-          property: r'objectKey',
+          property: r'object_key',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -4817,16 +3681,12 @@ extension UserProfileMediaEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   objectKeyContains(String value, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.contains(
-          property: r'objectKey',
+          property: r'object_key',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -4834,16 +3694,12 @@ extension UserProfileMediaEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   objectKeyMatches(String pattern, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.matches(
-          property: r'objectKey',
+          property: r'object_key',
           wildcard: pattern,
           caseSensitive: caseSensitive,
         ),
@@ -4851,266 +3707,61 @@ extension UserProfileMediaEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   objectKeyIsEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'objectKey', value: ''),
+        FilterCondition.equalTo(property: r'object_key', value: ''),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
   objectKeyIsNotEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'objectKey', value: ''),
+        FilterCondition.greaterThan(property: r'object_key', value: ''),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  sha256EqualTo(String value, {bool caseSensitive = true}) {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
+  profileAtEqualTo(int value) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(
-          property: r'sha256',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
+        FilterCondition.equalTo(property: r'profile_at', value: value),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  sha256GreaterThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
+  profileAtGreaterThan(int value, {bool include = false}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'sha256',
+          property: r'profile_at',
           value: value,
-          caseSensitive: caseSensitive,
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  sha256LessThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
+  profileAtLessThan(int value, {bool include = false}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'sha256',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  sha256Between(
-    String lower,
-    String upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'sha256',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  sha256StartsWith(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.startsWith(
-          property: r'sha256',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  sha256EndsWith(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.endsWith(
-          property: r'sha256',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  sha256Contains(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.contains(
-          property: r'sha256',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  sha256Matches(String pattern, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.matches(
-          property: r'sha256',
-          wildcard: pattern,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  sha256IsEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'sha256', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  sha256IsNotEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'sha256', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  updatedAtEqualTo(int value) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'updatedAt', value: value),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  updatedAtGreaterThan(int value, {bool include = false}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'updatedAt',
+          property: r'profile_at',
           value: value,
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  updatedAtLessThan(int value, {bool include = false}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'updatedAt',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserProfileMediaEntity,
-    UserProfileMediaEntity,
-    QAfterFilterCondition
-  >
-  updatedAtBetween(
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
+  profileAtBetween(
     int lower,
     int upper, {
     bool includeLower = true,
@@ -5119,7 +3770,64 @@ extension UserProfileMediaEntityQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'updatedAt',
+          property: r'profile_at',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition> rowIdEqualTo(
+    Id value,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'row_id', value: value),
+      );
+    });
+  }
+
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition>
+  rowIdGreaterThan(Id value, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'row_id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition> rowIdLessThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'row_id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterFilterCondition> rowIdBetween(
+    Id lower,
+    Id upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'row_id',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -5130,480 +3838,301 @@ extension UserProfileMediaEntityQueryFilter
   }
 }
 
-extension UserProfileMediaEntityQueryObject
-    on
-        QueryBuilder<
-          UserProfileMediaEntity,
-          UserProfileMediaEntity,
-          QFilterCondition
-        > {}
+extension ProfileMediaQueryObject
+    on QueryBuilder<ProfileMedia, ProfileMedia, QFilterCondition> {}
 
-extension UserProfileMediaEntityQueryLinks
-    on
-        QueryBuilder<
-          UserProfileMediaEntity,
-          UserProfileMediaEntity,
-          QFilterCondition
-        > {}
+extension ProfileMediaQueryLinks
+    on QueryBuilder<ProfileMedia, ProfileMedia, QFilterCondition> {}
 
-extension UserProfileMediaEntityQuerySortBy
-    on QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QSortBy> {
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  sortByByteSize() {
+extension ProfileMediaQuerySortBy
+    on QueryBuilder<ProfileMedia, ProfileMedia, QSortBy> {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterSortBy> sortByBodyHash() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'byteSize', Sort.asc);
+      return query.addSortBy(r'body_hash', Sort.asc);
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  sortByByteSizeDesc() {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterSortBy> sortByBodyHashDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'byteSize', Sort.desc);
+      return query.addSortBy(r'body_hash', Sort.desc);
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  sortByCidNumber() {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterSortBy> sortByCidNumber() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'cidNumber', Sort.asc);
+      return query.addSortBy(r'cid_number', Sort.asc);
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  sortByCidNumberDesc() {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterSortBy> sortByCidNumberDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'cidNumber', Sort.desc);
+      return query.addSortBy(r'cid_number', Sort.desc);
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  sortByContentType() {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterSortBy> sortByMediaRole() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'contentType', Sort.asc);
+      return query.addSortBy(r'media_role', Sort.asc);
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  sortByContentTypeDesc() {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterSortBy> sortByMediaRoleDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'contentType', Sort.desc);
+      return query.addSortBy(r'media_role', Sort.desc);
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  sortByMediaId() {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterSortBy> sortByObjectKey() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'mediaId', Sort.asc);
+      return query.addSortBy(r'object_key', Sort.asc);
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  sortByMediaIdDesc() {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterSortBy> sortByObjectKeyDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'mediaId', Sort.desc);
+      return query.addSortBy(r'object_key', Sort.desc);
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  sortByMediaRole() {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterSortBy> sortByProfileAt() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'mediaRole', Sort.asc);
+      return query.addSortBy(r'profile_at', Sort.asc);
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  sortByMediaRoleDesc() {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterSortBy> sortByProfileAtDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'mediaRole', Sort.desc);
-    });
-  }
-
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  sortByObjectKey() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'objectKey', Sort.asc);
-    });
-  }
-
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  sortByObjectKeyDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'objectKey', Sort.desc);
-    });
-  }
-
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  sortBySha256() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'sha256', Sort.asc);
-    });
-  }
-
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  sortBySha256Desc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'sha256', Sort.desc);
-    });
-  }
-
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  sortByUpdatedAt() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'updatedAt', Sort.asc);
-    });
-  }
-
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  sortByUpdatedAtDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'updatedAt', Sort.desc);
+      return query.addSortBy(r'profile_at', Sort.desc);
     });
   }
 }
 
-extension UserProfileMediaEntityQuerySortThenBy
-    on
-        QueryBuilder<
-          UserProfileMediaEntity,
-          UserProfileMediaEntity,
-          QSortThenBy
-        > {
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  thenByByteSize() {
+extension ProfileMediaQuerySortThenBy
+    on QueryBuilder<ProfileMedia, ProfileMedia, QSortThenBy> {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterSortBy> thenByBodyHash() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'byteSize', Sort.asc);
+      return query.addSortBy(r'body_hash', Sort.asc);
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  thenByByteSizeDesc() {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterSortBy> thenByBodyHashDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'byteSize', Sort.desc);
+      return query.addSortBy(r'body_hash', Sort.desc);
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  thenByCidNumber() {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterSortBy> thenByCidNumber() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'cidNumber', Sort.asc);
+      return query.addSortBy(r'cid_number', Sort.asc);
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  thenByCidNumberDesc() {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterSortBy> thenByCidNumberDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'cidNumber', Sort.desc);
+      return query.addSortBy(r'cid_number', Sort.desc);
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  thenByContentType() {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterSortBy> thenByMediaRole() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'contentType', Sort.asc);
+      return query.addSortBy(r'media_role', Sort.asc);
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  thenByContentTypeDesc() {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterSortBy> thenByMediaRoleDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'contentType', Sort.desc);
+      return query.addSortBy(r'media_role', Sort.desc);
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  thenById() {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterSortBy> thenByObjectKey() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'id', Sort.asc);
+      return query.addSortBy(r'object_key', Sort.asc);
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  thenByIdDesc() {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterSortBy> thenByObjectKeyDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'id', Sort.desc);
+      return query.addSortBy(r'object_key', Sort.desc);
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  thenByMediaId() {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterSortBy> thenByProfileAt() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'mediaId', Sort.asc);
+      return query.addSortBy(r'profile_at', Sort.asc);
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  thenByMediaIdDesc() {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterSortBy> thenByProfileAtDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'mediaId', Sort.desc);
+      return query.addSortBy(r'profile_at', Sort.desc);
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  thenByMediaRole() {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterSortBy> thenByRowId() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'mediaRole', Sort.asc);
+      return query.addSortBy(r'row_id', Sort.asc);
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  thenByMediaRoleDesc() {
+  QueryBuilder<ProfileMedia, ProfileMedia, QAfterSortBy> thenByRowIdDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'mediaRole', Sort.desc);
-    });
-  }
-
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  thenByObjectKey() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'objectKey', Sort.asc);
-    });
-  }
-
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  thenByObjectKeyDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'objectKey', Sort.desc);
-    });
-  }
-
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  thenBySha256() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'sha256', Sort.asc);
-    });
-  }
-
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  thenBySha256Desc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'sha256', Sort.desc);
-    });
-  }
-
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  thenByUpdatedAt() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'updatedAt', Sort.asc);
-    });
-  }
-
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QAfterSortBy>
-  thenByUpdatedAtDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'updatedAt', Sort.desc);
+      return query.addSortBy(r'row_id', Sort.desc);
     });
   }
 }
 
-extension UserProfileMediaEntityQueryWhereDistinct
-    on QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QDistinct> {
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QDistinct>
-  distinctByByteSize() {
+extension ProfileMediaQueryWhereDistinct
+    on QueryBuilder<ProfileMedia, ProfileMedia, QDistinct> {
+  QueryBuilder<ProfileMedia, ProfileMedia, QDistinct> distinctByBodyHash({
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'byteSize');
+      return query.addDistinctBy(r'body_hash', caseSensitive: caseSensitive);
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QDistinct>
-  distinctByCidNumber({bool caseSensitive = true}) {
+  QueryBuilder<ProfileMedia, ProfileMedia, QDistinct> distinctByCidNumber({
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'cidNumber', caseSensitive: caseSensitive);
+      return query.addDistinctBy(r'cid_number', caseSensitive: caseSensitive);
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QDistinct>
-  distinctByContentType({bool caseSensitive = true}) {
+  QueryBuilder<ProfileMedia, ProfileMedia, QDistinct> distinctByMediaBytes() {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'contentType', caseSensitive: caseSensitive);
+      return query.addDistinctBy(r'media_bytes');
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QDistinct>
-  distinctByMediaBytes() {
+  QueryBuilder<ProfileMedia, ProfileMedia, QDistinct> distinctByMediaRole({
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'mediaBytes');
+      return query.addDistinctBy(r'media_role', caseSensitive: caseSensitive);
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QDistinct>
-  distinctByMediaId({bool caseSensitive = true}) {
+  QueryBuilder<ProfileMedia, ProfileMedia, QDistinct> distinctByObjectKey({
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'mediaId', caseSensitive: caseSensitive);
+      return query.addDistinctBy(r'object_key', caseSensitive: caseSensitive);
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QDistinct>
-  distinctByMediaRole({bool caseSensitive = true}) {
+  QueryBuilder<ProfileMedia, ProfileMedia, QDistinct> distinctByProfileAt() {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'mediaRole', caseSensitive: caseSensitive);
-    });
-  }
-
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QDistinct>
-  distinctByObjectKey({bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'objectKey', caseSensitive: caseSensitive);
-    });
-  }
-
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QDistinct>
-  distinctBySha256({bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'sha256', caseSensitive: caseSensitive);
-    });
-  }
-
-  QueryBuilder<UserProfileMediaEntity, UserProfileMediaEntity, QDistinct>
-  distinctByUpdatedAt() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'updatedAt');
+      return query.addDistinctBy(r'profile_at');
     });
   }
 }
 
-extension UserProfileMediaEntityQueryProperty
-    on
-        QueryBuilder<
-          UserProfileMediaEntity,
-          UserProfileMediaEntity,
-          QQueryProperty
-        > {
-  QueryBuilder<UserProfileMediaEntity, int, QQueryOperations> idProperty() {
+extension ProfileMediaQueryProperty
+    on QueryBuilder<ProfileMedia, ProfileMedia, QQueryProperty> {
+  QueryBuilder<ProfileMedia, int, QQueryOperations> rowIdProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'id');
+      return query.addPropertyName(r'row_id');
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, int, QQueryOperations>
-  byteSizeProperty() {
+  QueryBuilder<ProfileMedia, String, QQueryOperations> bodyHashProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'byteSize');
+      return query.addPropertyName(r'body_hash');
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, String, QQueryOperations>
-  cidNumberProperty() {
+  QueryBuilder<ProfileMedia, String, QQueryOperations> cidNumberProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'cidNumber');
+      return query.addPropertyName(r'cid_number');
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, String, QQueryOperations>
-  contentTypeProperty() {
+  QueryBuilder<ProfileMedia, List<int>, QQueryOperations> mediaBytesProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'contentType');
+      return query.addPropertyName(r'media_bytes');
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, List<int>, QQueryOperations>
-  mediaBytesProperty() {
+  QueryBuilder<ProfileMedia, String, QQueryOperations> mediaRoleProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'mediaBytes');
+      return query.addPropertyName(r'media_role');
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, String, QQueryOperations>
-  mediaIdProperty() {
+  QueryBuilder<ProfileMedia, String, QQueryOperations> objectKeyProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'mediaId');
+      return query.addPropertyName(r'object_key');
     });
   }
 
-  QueryBuilder<UserProfileMediaEntity, String, QQueryOperations>
-  mediaRoleProperty() {
+  QueryBuilder<ProfileMedia, int, QQueryOperations> profileAtProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'mediaRole');
-    });
-  }
-
-  QueryBuilder<UserProfileMediaEntity, String, QQueryOperations>
-  objectKeyProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'objectKey');
-    });
-  }
-
-  QueryBuilder<UserProfileMediaEntity, String, QQueryOperations>
-  sha256Property() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'sha256');
-    });
-  }
-
-  QueryBuilder<UserProfileMediaEntity, int, QQueryOperations>
-  updatedAtProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'updatedAt');
+      return query.addPropertyName(r'profile_at');
     });
   }
 }
-
 // coverage:ignore-file
 // ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
 
-extension GetUserIdentityBadgeSnapshotEntityCollection on Isar {
-  IsarCollection<UserIdentityBadgeSnapshotEntity>
-  get userIdentityBadgeSnapshotEntitys => this.collection();
+extension GetIdentityCollection on Isar {
+  IsarCollection<Identity> get identitys => this.collection();
 }
 
-const UserIdentityBadgeSnapshotEntitySchema = CollectionSchema(
-  name: r'UserIdentityBadgeSnapshotEntity',
-  id: 5558258433434776581,
+const IdentitySchema = CollectionSchema(
+  name: r'identity',
+  id: -4484375294813923678,
   properties: {
-    r'accountId': PropertySchema(
+    r'account_id': PropertySchema(
       id: 0,
-      name: r'accountId',
+      name: r'account_id',
       type: IsarType.string,
     ),
-    r'cidNumber': PropertySchema(
+    r'cid_number': PropertySchema(
       id: 1,
-      name: r'cidNumber',
+      name: r'cid_number',
       type: IsarType.string,
     ),
-    r'identityLevel': PropertySchema(
+    r'identity_data': PropertySchema(
       id: 2,
-      name: r'identityLevel',
+      name: r'identity_data',
       type: IsarType.string,
     ),
-    r'identitySnapshotJson': PropertySchema(
+    r'updated_at': PropertySchema(
       id: 3,
-      name: r'identitySnapshotJson',
-      type: IsarType.string,
-    ),
-    r'updatedAtMillis': PropertySchema(
-      id: 4,
-      name: r'updatedAtMillis',
+      name: r'updated_at',
       type: IsarType.long,
     ),
   },
 
-  estimateSize: _userIdentityBadgeSnapshotEntityEstimateSize,
-  serialize: _userIdentityBadgeSnapshotEntitySerialize,
-  deserialize: _userIdentityBadgeSnapshotEntityDeserialize,
-  deserializeProp: _userIdentityBadgeSnapshotEntityDeserializeProp,
-  idName: r'id',
+  estimateSize: _identityEstimateSize,
+  serialize: _identitySerialize,
+  deserialize: _identityDeserialize,
+  deserializeProp: _identityDeserializeProp,
+  idName: r'row_id',
   indexes: {
-    r'cidNumber': IndexSchema(
-      id: -8947736671869741624,
-      name: r'cidNumber',
+    r'cid_number': IndexSchema(
+      id: 5073804840546792610,
+      name: r'cid_number',
       unique: false,
       replace: false,
       properties: [
         IndexPropertySchema(
-          name: r'cidNumber',
+          name: r'cid_number',
           type: IndexType.hash,
           caseSensitive: true,
         ),
       ],
     ),
-    r'accountId': IndexSchema(
-      id: -1591555361937770434,
-      name: r'accountId',
+    r'account_id': IndexSchema(
+      id: 3848080515527097000,
+      name: r'account_id',
       unique: false,
       replace: false,
       properties: [
         IndexPropertySchema(
-          name: r'accountId',
+          name: r'account_id',
           type: IndexType.hash,
           caseSensitive: true,
         ),
@@ -5613,14 +4142,14 @@ const UserIdentityBadgeSnapshotEntitySchema = CollectionSchema(
   links: {},
   embeddedSchemas: {},
 
-  getId: _userIdentityBadgeSnapshotEntityGetId,
-  getLinks: _userIdentityBadgeSnapshotEntityGetLinks,
-  attach: _userIdentityBadgeSnapshotEntityAttach,
+  getId: _identityGetId,
+  getLinks: _identityGetLinks,
+  attach: _identityAttach,
   version: '3.3.2',
 );
 
-int _userIdentityBadgeSnapshotEntityEstimateSize(
-  UserIdentityBadgeSnapshotEntity object,
+int _identityEstimateSize(
+  Identity object,
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
@@ -5632,9 +4161,8 @@ int _userIdentityBadgeSnapshotEntityEstimateSize(
     }
   }
   bytesCount += 3 + object.cidNumber.length * 3;
-  bytesCount += 3 + object.identityLevel.length * 3;
   {
-    final value = object.identitySnapshotJson;
+    final value = object.identityData;
     if (value != null) {
       bytesCount += 3 + value.length * 3;
     }
@@ -5642,36 +4170,34 @@ int _userIdentityBadgeSnapshotEntityEstimateSize(
   return bytesCount;
 }
 
-void _userIdentityBadgeSnapshotEntitySerialize(
-  UserIdentityBadgeSnapshotEntity object,
+void _identitySerialize(
+  Identity object,
   IsarWriter writer,
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
   writer.writeString(offsets[0], object.accountId);
   writer.writeString(offsets[1], object.cidNumber);
-  writer.writeString(offsets[2], object.identityLevel);
-  writer.writeString(offsets[3], object.identitySnapshotJson);
-  writer.writeLong(offsets[4], object.updatedAtMillis);
+  writer.writeString(offsets[2], object.identityData);
+  writer.writeLong(offsets[3], object.updatedAt);
 }
 
-UserIdentityBadgeSnapshotEntity _userIdentityBadgeSnapshotEntityDeserialize(
+Identity _identityDeserialize(
   Id id,
   IsarReader reader,
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
-  final object = UserIdentityBadgeSnapshotEntity();
+  final object = Identity();
   object.accountId = reader.readStringOrNull(offsets[0]);
   object.cidNumber = reader.readString(offsets[1]);
-  object.id = id;
-  object.identityLevel = reader.readString(offsets[2]);
-  object.identitySnapshotJson = reader.readStringOrNull(offsets[3]);
-  object.updatedAtMillis = reader.readLong(offsets[4]);
+  object.identityData = reader.readStringOrNull(offsets[2]);
+  object.rowId = id;
+  object.updatedAt = reader.readLong(offsets[3]);
   return object;
 }
 
-P _userIdentityBadgeSnapshotEntityDeserializeProp<P>(
+P _identityDeserializeProp<P>(
   IsarReader reader,
   int propertyId,
   int offset,
@@ -5683,174 +4209,126 @@ P _userIdentityBadgeSnapshotEntityDeserializeProp<P>(
     case 1:
       return (reader.readString(offset)) as P;
     case 2:
-      return (reader.readString(offset)) as P;
-    case 3:
       return (reader.readStringOrNull(offset)) as P;
-    case 4:
+    case 3:
       return (reader.readLong(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
   }
 }
 
-Id _userIdentityBadgeSnapshotEntityGetId(
-  UserIdentityBadgeSnapshotEntity object,
-) {
-  return object.id;
+Id _identityGetId(Identity object) {
+  return object.rowId;
 }
 
-List<IsarLinkBase<dynamic>> _userIdentityBadgeSnapshotEntityGetLinks(
-  UserIdentityBadgeSnapshotEntity object,
-) {
+List<IsarLinkBase<dynamic>> _identityGetLinks(Identity object) {
   return [];
 }
 
-void _userIdentityBadgeSnapshotEntityAttach(
-  IsarCollection<dynamic> col,
-  Id id,
-  UserIdentityBadgeSnapshotEntity object,
-) {
-  object.id = id;
+void _identityAttach(IsarCollection<dynamic> col, Id id, Identity object) {
+  object.rowId = id;
 }
 
-extension UserIdentityBadgeSnapshotEntityQueryWhereSort
-    on
-        QueryBuilder<
-          UserIdentityBadgeSnapshotEntity,
-          UserIdentityBadgeSnapshotEntity,
-          QWhere
-        > {
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterWhere
-  >
-  anyId() {
+extension IdentityQueryWhereSort on QueryBuilder<Identity, Identity, QWhere> {
+  QueryBuilder<Identity, Identity, QAfterWhere> anyRowId() {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(const IdWhereClause.any());
     });
   }
 }
 
-extension UserIdentityBadgeSnapshotEntityQueryWhere
-    on
-        QueryBuilder<
-          UserIdentityBadgeSnapshotEntity,
-          UserIdentityBadgeSnapshotEntity,
-          QWhereClause
-        > {
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterWhereClause
-  >
-  idEqualTo(Id id) {
+extension IdentityQueryWhere on QueryBuilder<Identity, Identity, QWhereClause> {
+  QueryBuilder<Identity, Identity, QAfterWhereClause> rowIdEqualTo(Id rowId) {
     return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IdWhereClause.between(lower: id, upper: id));
+      return query.addWhereClause(
+        IdWhereClause.between(lower: rowId, upper: rowId),
+      );
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterWhereClause
-  >
-  idNotEqualTo(Id id) {
+  QueryBuilder<Identity, Identity, QAfterWhereClause> rowIdNotEqualTo(
+    Id rowId,
+  ) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(
-              IdWhereClause.lessThan(upper: id, includeUpper: false),
+              IdWhereClause.lessThan(upper: rowId, includeUpper: false),
             )
             .addWhereClause(
-              IdWhereClause.greaterThan(lower: id, includeLower: false),
+              IdWhereClause.greaterThan(lower: rowId, includeLower: false),
             );
       } else {
         return query
             .addWhereClause(
-              IdWhereClause.greaterThan(lower: id, includeLower: false),
+              IdWhereClause.greaterThan(lower: rowId, includeLower: false),
             )
             .addWhereClause(
-              IdWhereClause.lessThan(upper: id, includeUpper: false),
+              IdWhereClause.lessThan(upper: rowId, includeUpper: false),
             );
       }
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterWhereClause
-  >
-  idGreaterThan(Id id, {bool include = false}) {
+  QueryBuilder<Identity, Identity, QAfterWhereClause> rowIdGreaterThan(
+    Id rowId, {
+    bool include = false,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
-        IdWhereClause.greaterThan(lower: id, includeLower: include),
+        IdWhereClause.greaterThan(lower: rowId, includeLower: include),
       );
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterWhereClause
-  >
-  idLessThan(Id id, {bool include = false}) {
+  QueryBuilder<Identity, Identity, QAfterWhereClause> rowIdLessThan(
+    Id rowId, {
+    bool include = false,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
-        IdWhereClause.lessThan(upper: id, includeUpper: include),
+        IdWhereClause.lessThan(upper: rowId, includeUpper: include),
       );
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterWhereClause
-  >
-  idBetween(
-    Id lowerId,
-    Id upperId, {
+  QueryBuilder<Identity, Identity, QAfterWhereClause> rowIdBetween(
+    Id lowerRowId,
+    Id upperRowId, {
     bool includeLower = true,
     bool includeUpper = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
         IdWhereClause.between(
-          lower: lowerId,
+          lower: lowerRowId,
           includeLower: includeLower,
-          upper: upperId,
+          upper: upperRowId,
           includeUpper: includeUpper,
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterWhereClause
-  >
-  cidNumberEqualTo(String cidNumber) {
+  QueryBuilder<Identity, Identity, QAfterWhereClause> cidNumberEqualTo(
+    String cidNumber,
+  ) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
-        IndexWhereClause.equalTo(indexName: r'cidNumber', value: [cidNumber]),
+        IndexWhereClause.equalTo(indexName: r'cid_number', value: [cidNumber]),
       );
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterWhereClause
-  >
-  cidNumberNotEqualTo(String cidNumber) {
+  QueryBuilder<Identity, Identity, QAfterWhereClause> cidNumberNotEqualTo(
+    String cidNumber,
+  ) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cidNumber',
+                indexName: r'cid_number',
                 lower: [],
                 upper: [cidNumber],
                 includeUpper: false,
@@ -5858,7 +4336,7 @@ extension UserIdentityBadgeSnapshotEntityQueryWhere
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cidNumber',
+                indexName: r'cid_number',
                 lower: [cidNumber],
                 includeLower: false,
                 upper: [],
@@ -5868,7 +4346,7 @@ extension UserIdentityBadgeSnapshotEntityQueryWhere
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cidNumber',
+                indexName: r'cid_number',
                 lower: [cidNumber],
                 includeLower: false,
                 upper: [],
@@ -5876,7 +4354,7 @@ extension UserIdentityBadgeSnapshotEntityQueryWhere
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cidNumber',
+                indexName: r'cid_number',
                 lower: [],
                 upper: [cidNumber],
                 includeUpper: false,
@@ -5886,29 +4364,19 @@ extension UserIdentityBadgeSnapshotEntityQueryWhere
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterWhereClause
-  >
-  accountIdIsNull() {
+  QueryBuilder<Identity, Identity, QAfterWhereClause> accountIdIsNull() {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
-        IndexWhereClause.equalTo(indexName: r'accountId', value: [null]),
+        IndexWhereClause.equalTo(indexName: r'account_id', value: [null]),
       );
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterWhereClause
-  >
-  accountIdIsNotNull() {
+  QueryBuilder<Identity, Identity, QAfterWhereClause> accountIdIsNotNull() {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
         IndexWhereClause.between(
-          indexName: r'accountId',
+          indexName: r'account_id',
           lower: [null],
           includeLower: false,
           upper: [],
@@ -5917,31 +4385,25 @@ extension UserIdentityBadgeSnapshotEntityQueryWhere
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterWhereClause
-  >
-  accountIdEqualTo(String? accountId) {
+  QueryBuilder<Identity, Identity, QAfterWhereClause> accountIdEqualTo(
+    String? accountId,
+  ) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
-        IndexWhereClause.equalTo(indexName: r'accountId', value: [accountId]),
+        IndexWhereClause.equalTo(indexName: r'account_id', value: [accountId]),
       );
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterWhereClause
-  >
-  accountIdNotEqualTo(String? accountId) {
+  QueryBuilder<Identity, Identity, QAfterWhereClause> accountIdNotEqualTo(
+    String? accountId,
+  ) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'accountId',
+                indexName: r'account_id',
                 lower: [],
                 upper: [accountId],
                 includeUpper: false,
@@ -5949,7 +4411,7 @@ extension UserIdentityBadgeSnapshotEntityQueryWhere
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'accountId',
+                indexName: r'account_id',
                 lower: [accountId],
                 includeLower: false,
                 upper: [],
@@ -5959,7 +4421,7 @@ extension UserIdentityBadgeSnapshotEntityQueryWhere
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'accountId',
+                indexName: r'account_id',
                 lower: [accountId],
                 includeLower: false,
                 upper: [],
@@ -5967,7 +4429,7 @@ extension UserIdentityBadgeSnapshotEntityQueryWhere
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'accountId',
+                indexName: r'account_id',
                 lower: [],
                 upper: [accountId],
                 includeUpper: false,
@@ -5978,49 +4440,32 @@ extension UserIdentityBadgeSnapshotEntityQueryWhere
   }
 }
 
-extension UserIdentityBadgeSnapshotEntityQueryFilter
-    on
-        QueryBuilder<
-          UserIdentityBadgeSnapshotEntity,
-          UserIdentityBadgeSnapshotEntity,
-          QFilterCondition
-        > {
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  accountIdIsNull() {
+extension IdentityQueryFilter
+    on QueryBuilder<Identity, Identity, QFilterCondition> {
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> accountIdIsNull() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        const FilterCondition.isNull(property: r'accountId'),
+        const FilterCondition.isNull(property: r'account_id'),
       );
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  accountIdIsNotNull() {
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> accountIdIsNotNull() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        const FilterCondition.isNotNull(property: r'accountId'),
+        const FilterCondition.isNotNull(property: r'account_id'),
       );
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  accountIdEqualTo(String? value, {bool caseSensitive = true}) {
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> accountIdEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.equalTo(
-          property: r'accountId',
+          property: r'account_id',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -6028,12 +4473,7 @@ extension UserIdentityBadgeSnapshotEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  accountIdGreaterThan(
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> accountIdGreaterThan(
     String? value, {
     bool include = false,
     bool caseSensitive = true,
@@ -6042,7 +4482,7 @@ extension UserIdentityBadgeSnapshotEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'accountId',
+          property: r'account_id',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -6050,12 +4490,7 @@ extension UserIdentityBadgeSnapshotEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  accountIdLessThan(
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> accountIdLessThan(
     String? value, {
     bool include = false,
     bool caseSensitive = true,
@@ -6064,7 +4499,7 @@ extension UserIdentityBadgeSnapshotEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'accountId',
+          property: r'account_id',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -6072,12 +4507,7 @@ extension UserIdentityBadgeSnapshotEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  accountIdBetween(
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> accountIdBetween(
     String? lower,
     String? upper, {
     bool includeLower = true,
@@ -6087,7 +4517,7 @@ extension UserIdentityBadgeSnapshotEntityQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'accountId',
+          property: r'account_id',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -6098,16 +4528,14 @@ extension UserIdentityBadgeSnapshotEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  accountIdStartsWith(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> accountIdStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.startsWith(
-          property: r'accountId',
+          property: r'account_id',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -6115,16 +4543,14 @@ extension UserIdentityBadgeSnapshotEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  accountIdEndsWith(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> accountIdEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.endsWith(
-          property: r'accountId',
+          property: r'account_id',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -6132,16 +4558,14 @@ extension UserIdentityBadgeSnapshotEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  accountIdContains(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> accountIdContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.contains(
-          property: r'accountId',
+          property: r'account_id',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -6149,16 +4573,14 @@ extension UserIdentityBadgeSnapshotEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  accountIdMatches(String pattern, {bool caseSensitive = true}) {
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> accountIdMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.matches(
-          property: r'accountId',
+          property: r'account_id',
           wildcard: pattern,
           caseSensitive: caseSensitive,
         ),
@@ -6166,42 +4588,31 @@ extension UserIdentityBadgeSnapshotEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  accountIdIsEmpty() {
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> accountIdIsEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'accountId', value: ''),
+        FilterCondition.equalTo(property: r'account_id', value: ''),
       );
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<Identity, Identity, QAfterFilterCondition>
   accountIdIsNotEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'accountId', value: ''),
+        FilterCondition.greaterThan(property: r'account_id', value: ''),
       );
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  cidNumberEqualTo(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> cidNumberEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.equalTo(
-          property: r'cidNumber',
+          property: r'cid_number',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -6209,12 +4620,7 @@ extension UserIdentityBadgeSnapshotEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  cidNumberGreaterThan(
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> cidNumberGreaterThan(
     String value, {
     bool include = false,
     bool caseSensitive = true,
@@ -6223,7 +4629,7 @@ extension UserIdentityBadgeSnapshotEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'cidNumber',
+          property: r'cid_number',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -6231,12 +4637,7 @@ extension UserIdentityBadgeSnapshotEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  cidNumberLessThan(
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> cidNumberLessThan(
     String value, {
     bool include = false,
     bool caseSensitive = true,
@@ -6245,7 +4646,7 @@ extension UserIdentityBadgeSnapshotEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'cidNumber',
+          property: r'cid_number',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -6253,12 +4654,7 @@ extension UserIdentityBadgeSnapshotEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  cidNumberBetween(
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> cidNumberBetween(
     String lower,
     String upper, {
     bool includeLower = true,
@@ -6268,7 +4664,7 @@ extension UserIdentityBadgeSnapshotEntityQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'cidNumber',
+          property: r'cid_number',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -6279,16 +4675,14 @@ extension UserIdentityBadgeSnapshotEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  cidNumberStartsWith(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> cidNumberStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.startsWith(
-          property: r'cidNumber',
+          property: r'cid_number',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -6296,16 +4690,14 @@ extension UserIdentityBadgeSnapshotEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  cidNumberEndsWith(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> cidNumberEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.endsWith(
-          property: r'cidNumber',
+          property: r'cid_number',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -6313,16 +4705,14 @@ extension UserIdentityBadgeSnapshotEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  cidNumberContains(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> cidNumberContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.contains(
-          property: r'cidNumber',
+          property: r'cid_number',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -6330,16 +4720,14 @@ extension UserIdentityBadgeSnapshotEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  cidNumberMatches(String pattern, {bool caseSensitive = true}) {
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> cidNumberMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.matches(
-          property: r'cidNumber',
+          property: r'cid_number',
           wildcard: pattern,
           caseSensitive: caseSensitive,
         ),
@@ -6347,85 +4735,228 @@ extension UserIdentityBadgeSnapshotEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  cidNumberIsEmpty() {
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> cidNumberIsEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'cidNumber', value: ''),
+        FilterCondition.equalTo(property: r'cid_number', value: ''),
       );
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
+  QueryBuilder<Identity, Identity, QAfterFilterCondition>
   cidNumberIsNotEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'cidNumber', value: ''),
+        FilterCondition.greaterThan(property: r'cid_number', value: ''),
       );
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  idEqualTo(Id value) {
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> identityDataIsNull() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'id', value: value),
+        const FilterCondition.isNull(property: r'identity_data'),
       );
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  idGreaterThan(Id value, {bool include = false}) {
+  QueryBuilder<Identity, Identity, QAfterFilterCondition>
+  identityDataIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'identity_data'),
+      );
+    });
+  }
+
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> identityDataEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'identity_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Identity, Identity, QAfterFilterCondition>
+  identityDataGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'id',
+          property: r'identity_data',
           value: value,
+          caseSensitive: caseSensitive,
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  idLessThan(Id value, {bool include = false}) {
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> identityDataLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'id',
+          property: r'identity_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> identityDataBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'identity_data',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Identity, Identity, QAfterFilterCondition>
+  identityDataStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'identity_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> identityDataEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'identity_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> identityDataContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'identity_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> identityDataMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'identity_data',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Identity, Identity, QAfterFilterCondition>
+  identityDataIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'identity_data', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Identity, Identity, QAfterFilterCondition>
+  identityDataIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'identity_data', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> rowIdEqualTo(
+    Id value,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'row_id', value: value),
+      );
+    });
+  }
+
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> rowIdGreaterThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'row_id',
           value: value,
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  idBetween(
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> rowIdLessThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'row_id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> rowIdBetween(
     Id lower,
     Id upper, {
     bool includeLower = true,
@@ -6434,7 +4965,7 @@ extension UserIdentityBadgeSnapshotEntityQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'id',
+          property: r'row_id',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -6444,450 +4975,47 @@ extension UserIdentityBadgeSnapshotEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  identityLevelEqualTo(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> updatedAtEqualTo(
+    int value,
+  ) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(
-          property: r'identityLevel',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
+        FilterCondition.equalTo(property: r'updated_at', value: value),
       );
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  identityLevelGreaterThan(
-    String value, {
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> updatedAtGreaterThan(
+    int value, {
     bool include = false,
-    bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'identityLevel',
+          property: r'updated_at',
           value: value,
-          caseSensitive: caseSensitive,
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  identityLevelLessThan(
-    String value, {
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> updatedAtLessThan(
+    int value, {
     bool include = false,
-    bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'identityLevel',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  identityLevelBetween(
-    String lower,
-    String upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'identityLevel',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  identityLevelStartsWith(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.startsWith(
-          property: r'identityLevel',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  identityLevelEndsWith(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.endsWith(
-          property: r'identityLevel',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  identityLevelContains(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.contains(
-          property: r'identityLevel',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  identityLevelMatches(String pattern, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.matches(
-          property: r'identityLevel',
-          wildcard: pattern,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  identityLevelIsEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'identityLevel', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  identityLevelIsNotEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'identityLevel', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  identitySnapshotJsonIsNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        const FilterCondition.isNull(property: r'identitySnapshotJson'),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  identitySnapshotJsonIsNotNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        const FilterCondition.isNotNull(property: r'identitySnapshotJson'),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  identitySnapshotJsonEqualTo(String? value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(
-          property: r'identitySnapshotJson',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  identitySnapshotJsonGreaterThan(
-    String? value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'identitySnapshotJson',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  identitySnapshotJsonLessThan(
-    String? value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'identitySnapshotJson',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  identitySnapshotJsonBetween(
-    String? lower,
-    String? upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'identitySnapshotJson',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  identitySnapshotJsonStartsWith(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.startsWith(
-          property: r'identitySnapshotJson',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  identitySnapshotJsonEndsWith(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.endsWith(
-          property: r'identitySnapshotJson',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  identitySnapshotJsonContains(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.contains(
-          property: r'identitySnapshotJson',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  identitySnapshotJsonMatches(String pattern, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.matches(
-          property: r'identitySnapshotJson',
-          wildcard: pattern,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  identitySnapshotJsonIsEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'identitySnapshotJson', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  identitySnapshotJsonIsNotEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          property: r'identitySnapshotJson',
-          value: '',
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  updatedAtMillisEqualTo(int value) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'updatedAtMillis', value: value),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  updatedAtMillisGreaterThan(int value, {bool include = false}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'updatedAtMillis',
+          property: r'updated_at',
           value: value,
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  updatedAtMillisLessThan(int value, {bool include = false}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'updatedAtMillis',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterFilterCondition
-  >
-  updatedAtMillisBetween(
+  QueryBuilder<Identity, Identity, QAfterFilterCondition> updatedAtBetween(
     int lower,
     int upper, {
     bool includeLower = true,
@@ -6896,7 +5024,7 @@ extension UserIdentityBadgeSnapshotEntityQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'updatedAtMillis',
+          property: r'updated_at',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -6907,473 +5035,240 @@ extension UserIdentityBadgeSnapshotEntityQueryFilter
   }
 }
 
-extension UserIdentityBadgeSnapshotEntityQueryObject
-    on
-        QueryBuilder<
-          UserIdentityBadgeSnapshotEntity,
-          UserIdentityBadgeSnapshotEntity,
-          QFilterCondition
-        > {}
+extension IdentityQueryObject
+    on QueryBuilder<Identity, Identity, QFilterCondition> {}
 
-extension UserIdentityBadgeSnapshotEntityQueryLinks
-    on
-        QueryBuilder<
-          UserIdentityBadgeSnapshotEntity,
-          UserIdentityBadgeSnapshotEntity,
-          QFilterCondition
-        > {}
+extension IdentityQueryLinks
+    on QueryBuilder<Identity, Identity, QFilterCondition> {}
 
-extension UserIdentityBadgeSnapshotEntityQuerySortBy
-    on
-        QueryBuilder<
-          UserIdentityBadgeSnapshotEntity,
-          UserIdentityBadgeSnapshotEntity,
-          QSortBy
-        > {
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterSortBy
-  >
-  sortByAccountId() {
+extension IdentityQuerySortBy on QueryBuilder<Identity, Identity, QSortBy> {
+  QueryBuilder<Identity, Identity, QAfterSortBy> sortByAccountId() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'accountId', Sort.asc);
+      return query.addSortBy(r'account_id', Sort.asc);
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterSortBy
-  >
-  sortByAccountIdDesc() {
+  QueryBuilder<Identity, Identity, QAfterSortBy> sortByAccountIdDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'accountId', Sort.desc);
+      return query.addSortBy(r'account_id', Sort.desc);
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterSortBy
-  >
-  sortByCidNumber() {
+  QueryBuilder<Identity, Identity, QAfterSortBy> sortByCidNumber() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'cidNumber', Sort.asc);
+      return query.addSortBy(r'cid_number', Sort.asc);
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterSortBy
-  >
-  sortByCidNumberDesc() {
+  QueryBuilder<Identity, Identity, QAfterSortBy> sortByCidNumberDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'cidNumber', Sort.desc);
+      return query.addSortBy(r'cid_number', Sort.desc);
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterSortBy
-  >
-  sortByIdentityLevel() {
+  QueryBuilder<Identity, Identity, QAfterSortBy> sortByIdentityData() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'identityLevel', Sort.asc);
+      return query.addSortBy(r'identity_data', Sort.asc);
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterSortBy
-  >
-  sortByIdentityLevelDesc() {
+  QueryBuilder<Identity, Identity, QAfterSortBy> sortByIdentityDataDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'identityLevel', Sort.desc);
+      return query.addSortBy(r'identity_data', Sort.desc);
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterSortBy
-  >
-  sortByIdentitySnapshotJson() {
+  QueryBuilder<Identity, Identity, QAfterSortBy> sortByUpdatedAt() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'identitySnapshotJson', Sort.asc);
+      return query.addSortBy(r'updated_at', Sort.asc);
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterSortBy
-  >
-  sortByIdentitySnapshotJsonDesc() {
+  QueryBuilder<Identity, Identity, QAfterSortBy> sortByUpdatedAtDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'identitySnapshotJson', Sort.desc);
-    });
-  }
-
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterSortBy
-  >
-  sortByUpdatedAtMillis() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'updatedAtMillis', Sort.asc);
-    });
-  }
-
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterSortBy
-  >
-  sortByUpdatedAtMillisDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'updatedAtMillis', Sort.desc);
+      return query.addSortBy(r'updated_at', Sort.desc);
     });
   }
 }
 
-extension UserIdentityBadgeSnapshotEntityQuerySortThenBy
-    on
-        QueryBuilder<
-          UserIdentityBadgeSnapshotEntity,
-          UserIdentityBadgeSnapshotEntity,
-          QSortThenBy
-        > {
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterSortBy
-  >
-  thenByAccountId() {
+extension IdentityQuerySortThenBy
+    on QueryBuilder<Identity, Identity, QSortThenBy> {
+  QueryBuilder<Identity, Identity, QAfterSortBy> thenByAccountId() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'accountId', Sort.asc);
+      return query.addSortBy(r'account_id', Sort.asc);
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterSortBy
-  >
-  thenByAccountIdDesc() {
+  QueryBuilder<Identity, Identity, QAfterSortBy> thenByAccountIdDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'accountId', Sort.desc);
+      return query.addSortBy(r'account_id', Sort.desc);
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterSortBy
-  >
-  thenByCidNumber() {
+  QueryBuilder<Identity, Identity, QAfterSortBy> thenByCidNumber() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'cidNumber', Sort.asc);
+      return query.addSortBy(r'cid_number', Sort.asc);
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterSortBy
-  >
-  thenByCidNumberDesc() {
+  QueryBuilder<Identity, Identity, QAfterSortBy> thenByCidNumberDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'cidNumber', Sort.desc);
+      return query.addSortBy(r'cid_number', Sort.desc);
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterSortBy
-  >
-  thenById() {
+  QueryBuilder<Identity, Identity, QAfterSortBy> thenByIdentityData() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'id', Sort.asc);
+      return query.addSortBy(r'identity_data', Sort.asc);
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterSortBy
-  >
-  thenByIdDesc() {
+  QueryBuilder<Identity, Identity, QAfterSortBy> thenByIdentityDataDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'id', Sort.desc);
+      return query.addSortBy(r'identity_data', Sort.desc);
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterSortBy
-  >
-  thenByIdentityLevel() {
+  QueryBuilder<Identity, Identity, QAfterSortBy> thenByRowId() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'identityLevel', Sort.asc);
+      return query.addSortBy(r'row_id', Sort.asc);
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterSortBy
-  >
-  thenByIdentityLevelDesc() {
+  QueryBuilder<Identity, Identity, QAfterSortBy> thenByRowIdDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'identityLevel', Sort.desc);
+      return query.addSortBy(r'row_id', Sort.desc);
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterSortBy
-  >
-  thenByIdentitySnapshotJson() {
+  QueryBuilder<Identity, Identity, QAfterSortBy> thenByUpdatedAt() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'identitySnapshotJson', Sort.asc);
+      return query.addSortBy(r'updated_at', Sort.asc);
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterSortBy
-  >
-  thenByIdentitySnapshotJsonDesc() {
+  QueryBuilder<Identity, Identity, QAfterSortBy> thenByUpdatedAtDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'identitySnapshotJson', Sort.desc);
-    });
-  }
-
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterSortBy
-  >
-  thenByUpdatedAtMillis() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'updatedAtMillis', Sort.asc);
-    });
-  }
-
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QAfterSortBy
-  >
-  thenByUpdatedAtMillisDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'updatedAtMillis', Sort.desc);
+      return query.addSortBy(r'updated_at', Sort.desc);
     });
   }
 }
 
-extension UserIdentityBadgeSnapshotEntityQueryWhereDistinct
-    on
-        QueryBuilder<
-          UserIdentityBadgeSnapshotEntity,
-          UserIdentityBadgeSnapshotEntity,
-          QDistinct
-        > {
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QDistinct
-  >
-  distinctByAccountId({bool caseSensitive = true}) {
+extension IdentityQueryWhereDistinct
+    on QueryBuilder<Identity, Identity, QDistinct> {
+  QueryBuilder<Identity, Identity, QDistinct> distinctByAccountId({
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'accountId', caseSensitive: caseSensitive);
+      return query.addDistinctBy(r'account_id', caseSensitive: caseSensitive);
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QDistinct
-  >
-  distinctByCidNumber({bool caseSensitive = true}) {
+  QueryBuilder<Identity, Identity, QDistinct> distinctByCidNumber({
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'cidNumber', caseSensitive: caseSensitive);
+      return query.addDistinctBy(r'cid_number', caseSensitive: caseSensitive);
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QDistinct
-  >
-  distinctByIdentityLevel({bool caseSensitive = true}) {
+  QueryBuilder<Identity, Identity, QDistinct> distinctByIdentityData({
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(
-        r'identityLevel',
+        r'identity_data',
         caseSensitive: caseSensitive,
       );
     });
   }
 
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QDistinct
-  >
-  distinctByIdentitySnapshotJson({bool caseSensitive = true}) {
+  QueryBuilder<Identity, Identity, QDistinct> distinctByUpdatedAt() {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(
-        r'identitySnapshotJson',
-        caseSensitive: caseSensitive,
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserIdentityBadgeSnapshotEntity,
-    UserIdentityBadgeSnapshotEntity,
-    QDistinct
-  >
-  distinctByUpdatedAtMillis() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'updatedAtMillis');
+      return query.addDistinctBy(r'updated_at');
     });
   }
 }
 
-extension UserIdentityBadgeSnapshotEntityQueryProperty
-    on
-        QueryBuilder<
-          UserIdentityBadgeSnapshotEntity,
-          UserIdentityBadgeSnapshotEntity,
-          QQueryProperty
-        > {
-  QueryBuilder<UserIdentityBadgeSnapshotEntity, int, QQueryOperations>
-  idProperty() {
+extension IdentityQueryProperty
+    on QueryBuilder<Identity, Identity, QQueryProperty> {
+  QueryBuilder<Identity, int, QQueryOperations> rowIdProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'id');
+      return query.addPropertyName(r'row_id');
     });
   }
 
-  QueryBuilder<UserIdentityBadgeSnapshotEntity, String?, QQueryOperations>
-  accountIdProperty() {
+  QueryBuilder<Identity, String?, QQueryOperations> accountIdProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'accountId');
+      return query.addPropertyName(r'account_id');
     });
   }
 
-  QueryBuilder<UserIdentityBadgeSnapshotEntity, String, QQueryOperations>
-  cidNumberProperty() {
+  QueryBuilder<Identity, String, QQueryOperations> cidNumberProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'cidNumber');
+      return query.addPropertyName(r'cid_number');
     });
   }
 
-  QueryBuilder<UserIdentityBadgeSnapshotEntity, String, QQueryOperations>
-  identityLevelProperty() {
+  QueryBuilder<Identity, String?, QQueryOperations> identityDataProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'identityLevel');
+      return query.addPropertyName(r'identity_data');
     });
   }
 
-  QueryBuilder<UserIdentityBadgeSnapshotEntity, String?, QQueryOperations>
-  identitySnapshotJsonProperty() {
+  QueryBuilder<Identity, int, QQueryOperations> updatedAtProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'identitySnapshotJson');
-    });
-  }
-
-  QueryBuilder<UserIdentityBadgeSnapshotEntity, int, QQueryOperations>
-  updatedAtMillisProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'updatedAtMillis');
+      return query.addPropertyName(r'updated_at');
     });
   }
 }
-
 // coverage:ignore-file
 // ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
 
-extension GetUserContactStateEntityCollection on Isar {
-  IsarCollection<UserContactStateEntity> get userContactStateEntitys =>
-      this.collection();
+extension GetContactCollection on Isar {
+  IsarCollection<Contact> get contacts => this.collection();
 }
 
-const UserContactStateEntitySchema = CollectionSchema(
-  name: r'UserContactStateEntity',
-  id: 4018788771566803176,
+const ContactSchema = CollectionSchema(
+  name: r'contact',
+  id: 213978983763356937,
   properties: {
-    r'ownerCidNumber': PropertySchema(
+    r'body_data': PropertySchema(
       id: 0,
-      name: r'ownerCidNumber',
+      name: r'body_data',
       type: IsarType.string,
     ),
-    r'payloadJson': PropertySchema(
+    r'cid_number': PropertySchema(
       id: 1,
-      name: r'payloadJson',
+      name: r'cid_number',
       type: IsarType.string,
     ),
-    r'stateKey': PropertySchema(
+    r'state_kind': PropertySchema(
       id: 2,
-      name: r'stateKey',
-      type: IsarType.string,
-    ),
-    r'stateKind': PropertySchema(
-      id: 3,
-      name: r'stateKind',
+      name: r'state_kind',
       type: IsarType.string,
     ),
   },
 
-  estimateSize: _userContactStateEntityEstimateSize,
-  serialize: _userContactStateEntitySerialize,
-  deserialize: _userContactStateEntityDeserialize,
-  deserializeProp: _userContactStateEntityDeserializeProp,
-  idName: r'id',
+  estimateSize: _contactEstimateSize,
+  serialize: _contactSerialize,
+  deserialize: _contactDeserialize,
+  deserializeProp: _contactDeserializeProp,
+  idName: r'row_id',
   indexes: {
-    r'stateKey': IndexSchema(
-      id: 535423888346486579,
-      name: r'stateKey',
+    r'cid_number_state_kind': IndexSchema(
+      id: 5180110874569567356,
+      name: r'cid_number_state_kind',
       unique: true,
       replace: true,
       properties: [
         IndexPropertySchema(
-          name: r'stateKey',
+          name: r'cid_number',
           type: IndexType.hash,
           caseSensitive: true,
         ),
-      ],
-    ),
-    r'ownerCidNumber': IndexSchema(
-      id: -7703291541778452577,
-      name: r'ownerCidNumber',
-      unique: false,
-      replace: false,
-      properties: [
         IndexPropertySchema(
-          name: r'ownerCidNumber',
-          type: IndexType.hash,
-          caseSensitive: true,
-        ),
-      ],
-    ),
-    r'stateKind': IndexSchema(
-      id: 5233811905841789300,
-      name: r'stateKind',
-      unique: false,
-      replace: false,
-      properties: [
-        IndexPropertySchema(
-          name: r'stateKind',
+          name: r'state_kind',
           type: IndexType.hash,
           caseSensitive: true,
         ),
@@ -7383,53 +5278,50 @@ const UserContactStateEntitySchema = CollectionSchema(
   links: {},
   embeddedSchemas: {},
 
-  getId: _userContactStateEntityGetId,
-  getLinks: _userContactStateEntityGetLinks,
-  attach: _userContactStateEntityAttach,
+  getId: _contactGetId,
+  getLinks: _contactGetLinks,
+  attach: _contactAttach,
   version: '3.3.2',
 );
 
-int _userContactStateEntityEstimateSize(
-  UserContactStateEntity object,
+int _contactEstimateSize(
+  Contact object,
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
   var bytesCount = offsets.last;
-  bytesCount += 3 + object.ownerCidNumber.length * 3;
-  bytesCount += 3 + object.payloadJson.length * 3;
-  bytesCount += 3 + object.stateKey.length * 3;
+  bytesCount += 3 + object.bodyData.length * 3;
+  bytesCount += 3 + object.cidNumber.length * 3;
   bytesCount += 3 + object.stateKind.length * 3;
   return bytesCount;
 }
 
-void _userContactStateEntitySerialize(
-  UserContactStateEntity object,
+void _contactSerialize(
+  Contact object,
   IsarWriter writer,
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
-  writer.writeString(offsets[0], object.ownerCidNumber);
-  writer.writeString(offsets[1], object.payloadJson);
-  writer.writeString(offsets[2], object.stateKey);
-  writer.writeString(offsets[3], object.stateKind);
+  writer.writeString(offsets[0], object.bodyData);
+  writer.writeString(offsets[1], object.cidNumber);
+  writer.writeString(offsets[2], object.stateKind);
 }
 
-UserContactStateEntity _userContactStateEntityDeserialize(
+Contact _contactDeserialize(
   Id id,
   IsarReader reader,
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
-  final object = UserContactStateEntity();
-  object.id = id;
-  object.ownerCidNumber = reader.readString(offsets[0]);
-  object.payloadJson = reader.readString(offsets[1]);
-  object.stateKey = reader.readString(offsets[2]);
-  object.stateKind = reader.readString(offsets[3]);
+  final object = Contact();
+  object.bodyData = reader.readString(offsets[0]);
+  object.cidNumber = reader.readString(offsets[1]);
+  object.rowId = id;
+  object.stateKind = reader.readString(offsets[2]);
   return object;
 }
 
-P _userContactStateEntityDeserializeProp<P>(
+P _contactDeserializeProp<P>(
   IsarReader reader,
   int propertyId,
   int offset,
@@ -7442,294 +5334,244 @@ P _userContactStateEntityDeserializeProp<P>(
       return (reader.readString(offset)) as P;
     case 2:
       return (reader.readString(offset)) as P;
-    case 3:
-      return (reader.readString(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
   }
 }
 
-Id _userContactStateEntityGetId(UserContactStateEntity object) {
-  return object.id;
+Id _contactGetId(Contact object) {
+  return object.rowId;
 }
 
-List<IsarLinkBase<dynamic>> _userContactStateEntityGetLinks(
-  UserContactStateEntity object,
-) {
+List<IsarLinkBase<dynamic>> _contactGetLinks(Contact object) {
   return [];
 }
 
-void _userContactStateEntityAttach(
-  IsarCollection<dynamic> col,
-  Id id,
-  UserContactStateEntity object,
-) {
-  object.id = id;
+void _contactAttach(IsarCollection<dynamic> col, Id id, Contact object) {
+  object.rowId = id;
 }
 
-extension UserContactStateEntityByIndex
-    on IsarCollection<UserContactStateEntity> {
-  Future<UserContactStateEntity?> getByStateKey(String stateKey) {
-    return getByIndex(r'stateKey', [stateKey]);
+extension ContactByIndex on IsarCollection<Contact> {
+  Future<Contact?> getByCidNumberStateKind(String cidNumber, String stateKind) {
+    return getByIndex(r'cid_number_state_kind', [cidNumber, stateKind]);
   }
 
-  UserContactStateEntity? getByStateKeySync(String stateKey) {
-    return getByIndexSync(r'stateKey', [stateKey]);
+  Contact? getByCidNumberStateKindSync(String cidNumber, String stateKind) {
+    return getByIndexSync(r'cid_number_state_kind', [cidNumber, stateKind]);
   }
 
-  Future<bool> deleteByStateKey(String stateKey) {
-    return deleteByIndex(r'stateKey', [stateKey]);
+  Future<bool> deleteByCidNumberStateKind(String cidNumber, String stateKind) {
+    return deleteByIndex(r'cid_number_state_kind', [cidNumber, stateKind]);
   }
 
-  bool deleteByStateKeySync(String stateKey) {
-    return deleteByIndexSync(r'stateKey', [stateKey]);
+  bool deleteByCidNumberStateKindSync(String cidNumber, String stateKind) {
+    return deleteByIndexSync(r'cid_number_state_kind', [cidNumber, stateKind]);
   }
 
-  Future<List<UserContactStateEntity?>> getAllByStateKey(
-    List<String> stateKeyValues,
+  Future<List<Contact?>> getAllByCidNumberStateKind(
+    List<String> cidNumberValues,
+    List<String> stateKindValues,
   ) {
-    final values = stateKeyValues.map((e) => [e]).toList();
-    return getAllByIndex(r'stateKey', values);
+    final len = cidNumberValues.length;
+    assert(
+      stateKindValues.length == len,
+      'All index values must have the same length',
+    );
+    final values = <List<dynamic>>[];
+    for (var i = 0; i < len; i++) {
+      values.add([cidNumberValues[i], stateKindValues[i]]);
+    }
+
+    return getAllByIndex(r'cid_number_state_kind', values);
   }
 
-  List<UserContactStateEntity?> getAllByStateKeySync(
-    List<String> stateKeyValues,
+  List<Contact?> getAllByCidNumberStateKindSync(
+    List<String> cidNumberValues,
+    List<String> stateKindValues,
   ) {
-    final values = stateKeyValues.map((e) => [e]).toList();
-    return getAllByIndexSync(r'stateKey', values);
+    final len = cidNumberValues.length;
+    assert(
+      stateKindValues.length == len,
+      'All index values must have the same length',
+    );
+    final values = <List<dynamic>>[];
+    for (var i = 0; i < len; i++) {
+      values.add([cidNumberValues[i], stateKindValues[i]]);
+    }
+
+    return getAllByIndexSync(r'cid_number_state_kind', values);
   }
 
-  Future<int> deleteAllByStateKey(List<String> stateKeyValues) {
-    final values = stateKeyValues.map((e) => [e]).toList();
-    return deleteAllByIndex(r'stateKey', values);
+  Future<int> deleteAllByCidNumberStateKind(
+    List<String> cidNumberValues,
+    List<String> stateKindValues,
+  ) {
+    final len = cidNumberValues.length;
+    assert(
+      stateKindValues.length == len,
+      'All index values must have the same length',
+    );
+    final values = <List<dynamic>>[];
+    for (var i = 0; i < len; i++) {
+      values.add([cidNumberValues[i], stateKindValues[i]]);
+    }
+
+    return deleteAllByIndex(r'cid_number_state_kind', values);
   }
 
-  int deleteAllByStateKeySync(List<String> stateKeyValues) {
-    final values = stateKeyValues.map((e) => [e]).toList();
-    return deleteAllByIndexSync(r'stateKey', values);
+  int deleteAllByCidNumberStateKindSync(
+    List<String> cidNumberValues,
+    List<String> stateKindValues,
+  ) {
+    final len = cidNumberValues.length;
+    assert(
+      stateKindValues.length == len,
+      'All index values must have the same length',
+    );
+    final values = <List<dynamic>>[];
+    for (var i = 0; i < len; i++) {
+      values.add([cidNumberValues[i], stateKindValues[i]]);
+    }
+
+    return deleteAllByIndexSync(r'cid_number_state_kind', values);
   }
 
-  Future<Id> putByStateKey(UserContactStateEntity object) {
-    return putByIndex(r'stateKey', object);
+  Future<Id> putByCidNumberStateKind(Contact object) {
+    return putByIndex(r'cid_number_state_kind', object);
   }
 
-  Id putByStateKeySync(UserContactStateEntity object, {bool saveLinks = true}) {
-    return putByIndexSync(r'stateKey', object, saveLinks: saveLinks);
+  Id putByCidNumberStateKindSync(Contact object, {bool saveLinks = true}) {
+    return putByIndexSync(
+      r'cid_number_state_kind',
+      object,
+      saveLinks: saveLinks,
+    );
   }
 
-  Future<List<Id>> putAllByStateKey(List<UserContactStateEntity> objects) {
-    return putAllByIndex(r'stateKey', objects);
+  Future<List<Id>> putAllByCidNumberStateKind(List<Contact> objects) {
+    return putAllByIndex(r'cid_number_state_kind', objects);
   }
 
-  List<Id> putAllByStateKeySync(
-    List<UserContactStateEntity> objects, {
+  List<Id> putAllByCidNumberStateKindSync(
+    List<Contact> objects, {
     bool saveLinks = true,
   }) {
-    return putAllByIndexSync(r'stateKey', objects, saveLinks: saveLinks);
+    return putAllByIndexSync(
+      r'cid_number_state_kind',
+      objects,
+      saveLinks: saveLinks,
+    );
   }
 }
 
-extension UserContactStateEntityQueryWhereSort
-    on QueryBuilder<UserContactStateEntity, UserContactStateEntity, QWhere> {
-  QueryBuilder<UserContactStateEntity, UserContactStateEntity, QAfterWhere>
-  anyId() {
+extension ContactQueryWhereSort on QueryBuilder<Contact, Contact, QWhere> {
+  QueryBuilder<Contact, Contact, QAfterWhere> anyRowId() {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(const IdWhereClause.any());
     });
   }
 }
 
-extension UserContactStateEntityQueryWhere
-    on
-        QueryBuilder<
-          UserContactStateEntity,
-          UserContactStateEntity,
-          QWhereClause
-        > {
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterWhereClause
-  >
-  idEqualTo(Id id) {
+extension ContactQueryWhere on QueryBuilder<Contact, Contact, QWhereClause> {
+  QueryBuilder<Contact, Contact, QAfterWhereClause> rowIdEqualTo(Id rowId) {
     return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IdWhereClause.between(lower: id, upper: id));
+      return query.addWhereClause(
+        IdWhereClause.between(lower: rowId, upper: rowId),
+      );
     });
   }
 
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterWhereClause
-  >
-  idNotEqualTo(Id id) {
+  QueryBuilder<Contact, Contact, QAfterWhereClause> rowIdNotEqualTo(Id rowId) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(
-              IdWhereClause.lessThan(upper: id, includeUpper: false),
+              IdWhereClause.lessThan(upper: rowId, includeUpper: false),
             )
             .addWhereClause(
-              IdWhereClause.greaterThan(lower: id, includeLower: false),
+              IdWhereClause.greaterThan(lower: rowId, includeLower: false),
             );
       } else {
         return query
             .addWhereClause(
-              IdWhereClause.greaterThan(lower: id, includeLower: false),
+              IdWhereClause.greaterThan(lower: rowId, includeLower: false),
             )
             .addWhereClause(
-              IdWhereClause.lessThan(upper: id, includeUpper: false),
+              IdWhereClause.lessThan(upper: rowId, includeUpper: false),
             );
       }
     });
   }
 
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterWhereClause
-  >
-  idGreaterThan(Id id, {bool include = false}) {
+  QueryBuilder<Contact, Contact, QAfterWhereClause> rowIdGreaterThan(
+    Id rowId, {
+    bool include = false,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
-        IdWhereClause.greaterThan(lower: id, includeLower: include),
+        IdWhereClause.greaterThan(lower: rowId, includeLower: include),
       );
     });
   }
 
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterWhereClause
-  >
-  idLessThan(Id id, {bool include = false}) {
+  QueryBuilder<Contact, Contact, QAfterWhereClause> rowIdLessThan(
+    Id rowId, {
+    bool include = false,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
-        IdWhereClause.lessThan(upper: id, includeUpper: include),
+        IdWhereClause.lessThan(upper: rowId, includeUpper: include),
       );
     });
   }
 
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterWhereClause
-  >
-  idBetween(
-    Id lowerId,
-    Id upperId, {
+  QueryBuilder<Contact, Contact, QAfterWhereClause> rowIdBetween(
+    Id lowerRowId,
+    Id upperRowId, {
     bool includeLower = true,
     bool includeUpper = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
         IdWhereClause.between(
-          lower: lowerId,
+          lower: lowerRowId,
           includeLower: includeLower,
-          upper: upperId,
+          upper: upperRowId,
           includeUpper: includeUpper,
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterWhereClause
-  >
-  stateKeyEqualTo(String stateKey) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(
-        IndexWhereClause.equalTo(indexName: r'stateKey', value: [stateKey]),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterWhereClause
-  >
-  stateKeyNotEqualTo(String stateKey) {
-    return QueryBuilder.apply(this, (query) {
-      if (query.whereSort == Sort.asc) {
-        return query
-            .addWhereClause(
-              IndexWhereClause.between(
-                indexName: r'stateKey',
-                lower: [],
-                upper: [stateKey],
-                includeUpper: false,
-              ),
-            )
-            .addWhereClause(
-              IndexWhereClause.between(
-                indexName: r'stateKey',
-                lower: [stateKey],
-                includeLower: false,
-                upper: [],
-              ),
-            );
-      } else {
-        return query
-            .addWhereClause(
-              IndexWhereClause.between(
-                indexName: r'stateKey',
-                lower: [stateKey],
-                includeLower: false,
-                upper: [],
-              ),
-            )
-            .addWhereClause(
-              IndexWhereClause.between(
-                indexName: r'stateKey',
-                lower: [],
-                upper: [stateKey],
-                includeUpper: false,
-              ),
-            );
-      }
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterWhereClause
-  >
-  ownerCidNumberEqualTo(String ownerCidNumber) {
+  QueryBuilder<Contact, Contact, QAfterWhereClause>
+  cidNumberEqualToAnyStateKind(String cidNumber) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
         IndexWhereClause.equalTo(
-          indexName: r'ownerCidNumber',
-          value: [ownerCidNumber],
+          indexName: r'cid_number_state_kind',
+          value: [cidNumber],
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterWhereClause
-  >
-  ownerCidNumberNotEqualTo(String ownerCidNumber) {
+  QueryBuilder<Contact, Contact, QAfterWhereClause>
+  cidNumberNotEqualToAnyStateKind(String cidNumber) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'ownerCidNumber',
+                indexName: r'cid_number_state_kind',
                 lower: [],
-                upper: [ownerCidNumber],
+                upper: [cidNumber],
                 includeUpper: false,
               ),
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'ownerCidNumber',
-                lower: [ownerCidNumber],
+                indexName: r'cid_number_state_kind',
+                lower: [cidNumber],
                 includeLower: false,
                 upper: [],
               ),
@@ -7738,17 +5580,17 @@ extension UserContactStateEntityQueryWhere
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'ownerCidNumber',
-                lower: [ownerCidNumber],
+                indexName: r'cid_number_state_kind',
+                lower: [cidNumber],
                 includeLower: false,
                 upper: [],
               ),
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'ownerCidNumber',
+                indexName: r'cid_number_state_kind',
                 lower: [],
-                upper: [ownerCidNumber],
+                upper: [cidNumber],
                 includeUpper: false,
               ),
             );
@@ -7756,59 +5598,56 @@ extension UserContactStateEntityQueryWhere
     });
   }
 
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterWhereClause
-  >
-  stateKindEqualTo(String stateKind) {
+  QueryBuilder<Contact, Contact, QAfterWhereClause> cidNumberStateKindEqualTo(
+    String cidNumber,
+    String stateKind,
+  ) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
-        IndexWhereClause.equalTo(indexName: r'stateKind', value: [stateKind]),
+        IndexWhereClause.equalTo(
+          indexName: r'cid_number_state_kind',
+          value: [cidNumber, stateKind],
+        ),
       );
     });
   }
 
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterWhereClause
-  >
-  stateKindNotEqualTo(String stateKind) {
+  QueryBuilder<Contact, Contact, QAfterWhereClause>
+  cidNumberEqualToStateKindNotEqualTo(String cidNumber, String stateKind) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'stateKind',
-                lower: [],
-                upper: [stateKind],
+                indexName: r'cid_number_state_kind',
+                lower: [cidNumber],
+                upper: [cidNumber, stateKind],
                 includeUpper: false,
               ),
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'stateKind',
-                lower: [stateKind],
+                indexName: r'cid_number_state_kind',
+                lower: [cidNumber, stateKind],
                 includeLower: false,
-                upper: [],
+                upper: [cidNumber],
               ),
             );
       } else {
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'stateKind',
-                lower: [stateKind],
+                indexName: r'cid_number_state_kind',
+                lower: [cidNumber, stateKind],
                 includeLower: false,
-                upper: [],
+                upper: [cidNumber],
               ),
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'stateKind',
-                lower: [],
-                upper: [stateKind],
+                indexName: r'cid_number_state_kind',
+                lower: [cidNumber],
+                upper: [cidNumber, stateKind],
                 includeUpper: false,
               ),
             );
@@ -7817,66 +5656,339 @@ extension UserContactStateEntityQueryWhere
   }
 }
 
-extension UserContactStateEntityQueryFilter
-    on
-        QueryBuilder<
-          UserContactStateEntity,
-          UserContactStateEntity,
-          QFilterCondition
-        > {
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  idEqualTo(Id value) {
+extension ContactQueryFilter
+    on QueryBuilder<Contact, Contact, QFilterCondition> {
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> bodyDataEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'id', value: value),
+        FilterCondition.equalTo(
+          property: r'body_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
       );
     });
   }
 
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  idGreaterThan(Id value, {bool include = false}) {
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> bodyDataGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'id',
+          property: r'body_data',
           value: value,
+          caseSensitive: caseSensitive,
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  idLessThan(Id value, {bool include = false}) {
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> bodyDataLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'id',
+          property: r'body_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> bodyDataBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'body_data',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> bodyDataStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'body_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> bodyDataEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'body_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> bodyDataContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'body_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> bodyDataMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'body_data',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> bodyDataIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'body_data', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> bodyDataIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'body_data', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> cidNumberEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'cid_number',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> cidNumberGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'cid_number',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> cidNumberLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'cid_number',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> cidNumberBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'cid_number',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> cidNumberStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'cid_number',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> cidNumberEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'cid_number',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> cidNumberContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'cid_number',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> cidNumberMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'cid_number',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> cidNumberIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'cid_number', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> cidNumberIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'cid_number', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> rowIdEqualTo(Id value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'row_id', value: value),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> rowIdGreaterThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'row_id',
           value: value,
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  idBetween(
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> rowIdLessThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'row_id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> rowIdBetween(
     Id lower,
     Id upper, {
     bool includeLower = true,
@@ -7885,7 +5997,7 @@ extension UserContactStateEntityQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'id',
+          property: r'row_id',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -7895,16 +6007,14 @@ extension UserContactStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  ownerCidNumberEqualTo(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> stateKindEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.equalTo(
-          property: r'ownerCidNumber',
+          property: r'state_kind',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -7912,12 +6022,7 @@ extension UserContactStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  ownerCidNumberGreaterThan(
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> stateKindGreaterThan(
     String value, {
     bool include = false,
     bool caseSensitive = true,
@@ -7926,7 +6031,7 @@ extension UserContactStateEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'ownerCidNumber',
+          property: r'state_kind',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -7934,12 +6039,7 @@ extension UserContactStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  ownerCidNumberLessThan(
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> stateKindLessThan(
     String value, {
     bool include = false,
     bool caseSensitive = true,
@@ -7948,7 +6048,7 @@ extension UserContactStateEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'ownerCidNumber',
+          property: r'state_kind',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -7956,12 +6056,7 @@ extension UserContactStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  ownerCidNumberBetween(
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> stateKindBetween(
     String lower,
     String upper, {
     bool includeLower = true,
@@ -7971,7 +6066,7 @@ extension UserContactStateEntityQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'ownerCidNumber',
+          property: r'state_kind',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -7982,16 +6077,14 @@ extension UserContactStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  ownerCidNumberStartsWith(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> stateKindStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.startsWith(
-          property: r'ownerCidNumber',
+          property: r'state_kind',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -7999,16 +6092,14 @@ extension UserContactStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  ownerCidNumberEndsWith(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> stateKindEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.endsWith(
-          property: r'ownerCidNumber',
+          property: r'state_kind',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -8016,16 +6107,14 @@ extension UserContactStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  ownerCidNumberContains(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> stateKindContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.contains(
-          property: r'ownerCidNumber',
+          property: r'state_kind',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -8033,16 +6122,14 @@ extension UserContactStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  ownerCidNumberMatches(String pattern, {bool caseSensitive = true}) {
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> stateKindMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.matches(
-          property: r'ownerCidNumber',
+          property: r'state_kind',
           wildcard: pattern,
           caseSensitive: caseSensitive,
         ),
@@ -8050,848 +6137,213 @@ extension UserContactStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  ownerCidNumberIsEmpty() {
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> stateKindIsEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'ownerCidNumber', value: ''),
+        FilterCondition.equalTo(property: r'state_kind', value: ''),
       );
     });
   }
 
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  ownerCidNumberIsNotEmpty() {
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> stateKindIsNotEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'ownerCidNumber', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  payloadJsonEqualTo(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(
-          property: r'payloadJson',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  payloadJsonGreaterThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'payloadJson',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  payloadJsonLessThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'payloadJson',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  payloadJsonBetween(
-    String lower,
-    String upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'payloadJson',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  payloadJsonStartsWith(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.startsWith(
-          property: r'payloadJson',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  payloadJsonEndsWith(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.endsWith(
-          property: r'payloadJson',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  payloadJsonContains(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.contains(
-          property: r'payloadJson',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  payloadJsonMatches(String pattern, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.matches(
-          property: r'payloadJson',
-          wildcard: pattern,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  payloadJsonIsEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'payloadJson', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  payloadJsonIsNotEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'payloadJson', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  stateKeyEqualTo(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(
-          property: r'stateKey',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  stateKeyGreaterThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'stateKey',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  stateKeyLessThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'stateKey',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  stateKeyBetween(
-    String lower,
-    String upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'stateKey',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  stateKeyStartsWith(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.startsWith(
-          property: r'stateKey',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  stateKeyEndsWith(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.endsWith(
-          property: r'stateKey',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  stateKeyContains(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.contains(
-          property: r'stateKey',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  stateKeyMatches(String pattern, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.matches(
-          property: r'stateKey',
-          wildcard: pattern,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  stateKeyIsEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'stateKey', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  stateKeyIsNotEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'stateKey', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  stateKindEqualTo(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(
-          property: r'stateKind',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  stateKindGreaterThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'stateKind',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  stateKindLessThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'stateKind',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  stateKindBetween(
-    String lower,
-    String upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'stateKind',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  stateKindStartsWith(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.startsWith(
-          property: r'stateKind',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  stateKindEndsWith(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.endsWith(
-          property: r'stateKind',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  stateKindContains(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.contains(
-          property: r'stateKind',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  stateKindMatches(String pattern, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.matches(
-          property: r'stateKind',
-          wildcard: pattern,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  stateKindIsEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'stateKind', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserContactStateEntity,
-    UserContactStateEntity,
-    QAfterFilterCondition
-  >
-  stateKindIsNotEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'stateKind', value: ''),
+        FilterCondition.greaterThan(property: r'state_kind', value: ''),
       );
     });
   }
 }
 
-extension UserContactStateEntityQueryObject
-    on
-        QueryBuilder<
-          UserContactStateEntity,
-          UserContactStateEntity,
-          QFilterCondition
-        > {}
+extension ContactQueryObject
+    on QueryBuilder<Contact, Contact, QFilterCondition> {}
 
-extension UserContactStateEntityQueryLinks
-    on
-        QueryBuilder<
-          UserContactStateEntity,
-          UserContactStateEntity,
-          QFilterCondition
-        > {}
+extension ContactQueryLinks
+    on QueryBuilder<Contact, Contact, QFilterCondition> {}
 
-extension UserContactStateEntityQuerySortBy
-    on QueryBuilder<UserContactStateEntity, UserContactStateEntity, QSortBy> {
-  QueryBuilder<UserContactStateEntity, UserContactStateEntity, QAfterSortBy>
-  sortByOwnerCidNumber() {
+extension ContactQuerySortBy on QueryBuilder<Contact, Contact, QSortBy> {
+  QueryBuilder<Contact, Contact, QAfterSortBy> sortByBodyData() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'ownerCidNumber', Sort.asc);
+      return query.addSortBy(r'body_data', Sort.asc);
     });
   }
 
-  QueryBuilder<UserContactStateEntity, UserContactStateEntity, QAfterSortBy>
-  sortByOwnerCidNumberDesc() {
+  QueryBuilder<Contact, Contact, QAfterSortBy> sortByBodyDataDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'ownerCidNumber', Sort.desc);
+      return query.addSortBy(r'body_data', Sort.desc);
     });
   }
 
-  QueryBuilder<UserContactStateEntity, UserContactStateEntity, QAfterSortBy>
-  sortByPayloadJson() {
+  QueryBuilder<Contact, Contact, QAfterSortBy> sortByCidNumber() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'payloadJson', Sort.asc);
+      return query.addSortBy(r'cid_number', Sort.asc);
     });
   }
 
-  QueryBuilder<UserContactStateEntity, UserContactStateEntity, QAfterSortBy>
-  sortByPayloadJsonDesc() {
+  QueryBuilder<Contact, Contact, QAfterSortBy> sortByCidNumberDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'payloadJson', Sort.desc);
+      return query.addSortBy(r'cid_number', Sort.desc);
     });
   }
 
-  QueryBuilder<UserContactStateEntity, UserContactStateEntity, QAfterSortBy>
-  sortByStateKey() {
+  QueryBuilder<Contact, Contact, QAfterSortBy> sortByStateKind() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'stateKey', Sort.asc);
+      return query.addSortBy(r'state_kind', Sort.asc);
     });
   }
 
-  QueryBuilder<UserContactStateEntity, UserContactStateEntity, QAfterSortBy>
-  sortByStateKeyDesc() {
+  QueryBuilder<Contact, Contact, QAfterSortBy> sortByStateKindDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'stateKey', Sort.desc);
-    });
-  }
-
-  QueryBuilder<UserContactStateEntity, UserContactStateEntity, QAfterSortBy>
-  sortByStateKind() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'stateKind', Sort.asc);
-    });
-  }
-
-  QueryBuilder<UserContactStateEntity, UserContactStateEntity, QAfterSortBy>
-  sortByStateKindDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'stateKind', Sort.desc);
+      return query.addSortBy(r'state_kind', Sort.desc);
     });
   }
 }
 
-extension UserContactStateEntityQuerySortThenBy
-    on
-        QueryBuilder<
-          UserContactStateEntity,
-          UserContactStateEntity,
-          QSortThenBy
-        > {
-  QueryBuilder<UserContactStateEntity, UserContactStateEntity, QAfterSortBy>
-  thenById() {
+extension ContactQuerySortThenBy
+    on QueryBuilder<Contact, Contact, QSortThenBy> {
+  QueryBuilder<Contact, Contact, QAfterSortBy> thenByBodyData() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'id', Sort.asc);
+      return query.addSortBy(r'body_data', Sort.asc);
     });
   }
 
-  QueryBuilder<UserContactStateEntity, UserContactStateEntity, QAfterSortBy>
-  thenByIdDesc() {
+  QueryBuilder<Contact, Contact, QAfterSortBy> thenByBodyDataDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'id', Sort.desc);
+      return query.addSortBy(r'body_data', Sort.desc);
     });
   }
 
-  QueryBuilder<UserContactStateEntity, UserContactStateEntity, QAfterSortBy>
-  thenByOwnerCidNumber() {
+  QueryBuilder<Contact, Contact, QAfterSortBy> thenByCidNumber() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'ownerCidNumber', Sort.asc);
+      return query.addSortBy(r'cid_number', Sort.asc);
     });
   }
 
-  QueryBuilder<UserContactStateEntity, UserContactStateEntity, QAfterSortBy>
-  thenByOwnerCidNumberDesc() {
+  QueryBuilder<Contact, Contact, QAfterSortBy> thenByCidNumberDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'ownerCidNumber', Sort.desc);
+      return query.addSortBy(r'cid_number', Sort.desc);
     });
   }
 
-  QueryBuilder<UserContactStateEntity, UserContactStateEntity, QAfterSortBy>
-  thenByPayloadJson() {
+  QueryBuilder<Contact, Contact, QAfterSortBy> thenByRowId() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'payloadJson', Sort.asc);
+      return query.addSortBy(r'row_id', Sort.asc);
     });
   }
 
-  QueryBuilder<UserContactStateEntity, UserContactStateEntity, QAfterSortBy>
-  thenByPayloadJsonDesc() {
+  QueryBuilder<Contact, Contact, QAfterSortBy> thenByRowIdDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'payloadJson', Sort.desc);
+      return query.addSortBy(r'row_id', Sort.desc);
     });
   }
 
-  QueryBuilder<UserContactStateEntity, UserContactStateEntity, QAfterSortBy>
-  thenByStateKey() {
+  QueryBuilder<Contact, Contact, QAfterSortBy> thenByStateKind() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'stateKey', Sort.asc);
+      return query.addSortBy(r'state_kind', Sort.asc);
     });
   }
 
-  QueryBuilder<UserContactStateEntity, UserContactStateEntity, QAfterSortBy>
-  thenByStateKeyDesc() {
+  QueryBuilder<Contact, Contact, QAfterSortBy> thenByStateKindDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'stateKey', Sort.desc);
-    });
-  }
-
-  QueryBuilder<UserContactStateEntity, UserContactStateEntity, QAfterSortBy>
-  thenByStateKind() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'stateKind', Sort.asc);
-    });
-  }
-
-  QueryBuilder<UserContactStateEntity, UserContactStateEntity, QAfterSortBy>
-  thenByStateKindDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'stateKind', Sort.desc);
+      return query.addSortBy(r'state_kind', Sort.desc);
     });
   }
 }
 
-extension UserContactStateEntityQueryWhereDistinct
-    on QueryBuilder<UserContactStateEntity, UserContactStateEntity, QDistinct> {
-  QueryBuilder<UserContactStateEntity, UserContactStateEntity, QDistinct>
-  distinctByOwnerCidNumber({bool caseSensitive = true}) {
+extension ContactQueryWhereDistinct
+    on QueryBuilder<Contact, Contact, QDistinct> {
+  QueryBuilder<Contact, Contact, QDistinct> distinctByBodyData({
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(
-        r'ownerCidNumber',
-        caseSensitive: caseSensitive,
-      );
+      return query.addDistinctBy(r'body_data', caseSensitive: caseSensitive);
     });
   }
 
-  QueryBuilder<UserContactStateEntity, UserContactStateEntity, QDistinct>
-  distinctByPayloadJson({bool caseSensitive = true}) {
+  QueryBuilder<Contact, Contact, QDistinct> distinctByCidNumber({
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'payloadJson', caseSensitive: caseSensitive);
+      return query.addDistinctBy(r'cid_number', caseSensitive: caseSensitive);
     });
   }
 
-  QueryBuilder<UserContactStateEntity, UserContactStateEntity, QDistinct>
-  distinctByStateKey({bool caseSensitive = true}) {
+  QueryBuilder<Contact, Contact, QDistinct> distinctByStateKind({
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'stateKey', caseSensitive: caseSensitive);
-    });
-  }
-
-  QueryBuilder<UserContactStateEntity, UserContactStateEntity, QDistinct>
-  distinctByStateKind({bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'stateKind', caseSensitive: caseSensitive);
+      return query.addDistinctBy(r'state_kind', caseSensitive: caseSensitive);
     });
   }
 }
 
-extension UserContactStateEntityQueryProperty
-    on
-        QueryBuilder<
-          UserContactStateEntity,
-          UserContactStateEntity,
-          QQueryProperty
-        > {
-  QueryBuilder<UserContactStateEntity, int, QQueryOperations> idProperty() {
+extension ContactQueryProperty
+    on QueryBuilder<Contact, Contact, QQueryProperty> {
+  QueryBuilder<Contact, int, QQueryOperations> rowIdProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'id');
+      return query.addPropertyName(r'row_id');
     });
   }
 
-  QueryBuilder<UserContactStateEntity, String, QQueryOperations>
-  ownerCidNumberProperty() {
+  QueryBuilder<Contact, String, QQueryOperations> bodyDataProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'ownerCidNumber');
+      return query.addPropertyName(r'body_data');
     });
   }
 
-  QueryBuilder<UserContactStateEntity, String, QQueryOperations>
-  payloadJsonProperty() {
+  QueryBuilder<Contact, String, QQueryOperations> cidNumberProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'payloadJson');
+      return query.addPropertyName(r'cid_number');
     });
   }
 
-  QueryBuilder<UserContactStateEntity, String, QQueryOperations>
-  stateKeyProperty() {
+  QueryBuilder<Contact, String, QQueryOperations> stateKindProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'stateKey');
-    });
-  }
-
-  QueryBuilder<UserContactStateEntity, String, QQueryOperations>
-  stateKindProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'stateKind');
+      return query.addPropertyName(r'state_kind');
     });
   }
 }
-
 // coverage:ignore-file
 // ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
 
-extension GetUserNotificationStateEntityCollection on Isar {
-  IsarCollection<UserNotificationStateEntity>
-  get userNotificationStateEntitys => this.collection();
+extension GetNoticeCollection on Isar {
+  IsarCollection<Notice> get notices => this.collection();
 }
 
-const UserNotificationStateEntitySchema = CollectionSchema(
-  name: r'UserNotificationStateEntity',
-  id: 755258303635496517,
+const NoticeSchema = CollectionSchema(
+  name: r'notice',
+  id: 8554081893797905452,
   properties: {
-    r'cidNumber': PropertySchema(
+    r'cid_number': PropertySchema(
       id: 0,
-      name: r'cidNumber',
+      name: r'cid_number',
       type: IsarType.string,
     ),
-    r'pendingJson': PropertySchema(
+    r'pending_data': PropertySchema(
       id: 1,
-      name: r'pendingJson',
+      name: r'pending_data',
       type: IsarType.string,
     ),
-    r'stateJson': PropertySchema(
+    r'state_data': PropertySchema(
       id: 2,
-      name: r'stateJson',
+      name: r'state_data',
       type: IsarType.string,
     ),
   },
 
-  estimateSize: _userNotificationStateEntityEstimateSize,
-  serialize: _userNotificationStateEntitySerialize,
-  deserialize: _userNotificationStateEntityDeserialize,
-  deserializeProp: _userNotificationStateEntityDeserializeProp,
-  idName: r'id',
+  estimateSize: _noticeEstimateSize,
+  serialize: _noticeSerialize,
+  deserialize: _noticeDeserialize,
+  deserializeProp: _noticeDeserializeProp,
+  idName: r'row_id',
   indexes: {
-    r'cidNumber': IndexSchema(
-      id: -8947736671869741624,
-      name: r'cidNumber',
+    r'cid_number': IndexSchema(
+      id: 5073804840546792610,
+      name: r'cid_number',
       unique: true,
       replace: true,
       properties: [
         IndexPropertySchema(
-          name: r'cidNumber',
+          name: r'cid_number',
           type: IndexType.hash,
           caseSensitive: true,
         ),
@@ -8901,55 +6353,55 @@ const UserNotificationStateEntitySchema = CollectionSchema(
   links: {},
   embeddedSchemas: {},
 
-  getId: _userNotificationStateEntityGetId,
-  getLinks: _userNotificationStateEntityGetLinks,
-  attach: _userNotificationStateEntityAttach,
+  getId: _noticeGetId,
+  getLinks: _noticeGetLinks,
+  attach: _noticeAttach,
   version: '3.3.2',
 );
 
-int _userNotificationStateEntityEstimateSize(
-  UserNotificationStateEntity object,
+int _noticeEstimateSize(
+  Notice object,
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
   var bytesCount = offsets.last;
   bytesCount += 3 + object.cidNumber.length * 3;
   {
-    final value = object.pendingJson;
+    final value = object.pendingData;
     if (value != null) {
       bytesCount += 3 + value.length * 3;
     }
   }
-  bytesCount += 3 + object.stateJson.length * 3;
+  bytesCount += 3 + object.stateData.length * 3;
   return bytesCount;
 }
 
-void _userNotificationStateEntitySerialize(
-  UserNotificationStateEntity object,
+void _noticeSerialize(
+  Notice object,
   IsarWriter writer,
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
   writer.writeString(offsets[0], object.cidNumber);
-  writer.writeString(offsets[1], object.pendingJson);
-  writer.writeString(offsets[2], object.stateJson);
+  writer.writeString(offsets[1], object.pendingData);
+  writer.writeString(offsets[2], object.stateData);
 }
 
-UserNotificationStateEntity _userNotificationStateEntityDeserialize(
+Notice _noticeDeserialize(
   Id id,
   IsarReader reader,
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
-  final object = UserNotificationStateEntity();
+  final object = Notice();
   object.cidNumber = reader.readString(offsets[0]);
-  object.id = id;
-  object.pendingJson = reader.readStringOrNull(offsets[1]);
-  object.stateJson = reader.readString(offsets[2]);
+  object.pendingData = reader.readStringOrNull(offsets[1]);
+  object.rowId = id;
+  object.stateData = reader.readString(offsets[2]);
   return object;
 }
 
-P _userNotificationStateEntityDeserializeProp<P>(
+P _noticeDeserializeProp<P>(
   IsarReader reader,
   int propertyId,
   int offset,
@@ -8967,229 +6419,173 @@ P _userNotificationStateEntityDeserializeProp<P>(
   }
 }
 
-Id _userNotificationStateEntityGetId(UserNotificationStateEntity object) {
-  return object.id;
+Id _noticeGetId(Notice object) {
+  return object.rowId;
 }
 
-List<IsarLinkBase<dynamic>> _userNotificationStateEntityGetLinks(
-  UserNotificationStateEntity object,
-) {
+List<IsarLinkBase<dynamic>> _noticeGetLinks(Notice object) {
   return [];
 }
 
-void _userNotificationStateEntityAttach(
-  IsarCollection<dynamic> col,
-  Id id,
-  UserNotificationStateEntity object,
-) {
-  object.id = id;
+void _noticeAttach(IsarCollection<dynamic> col, Id id, Notice object) {
+  object.rowId = id;
 }
 
-extension UserNotificationStateEntityByIndex
-    on IsarCollection<UserNotificationStateEntity> {
-  Future<UserNotificationStateEntity?> getByCidNumber(String cidNumber) {
-    return getByIndex(r'cidNumber', [cidNumber]);
+extension NoticeByIndex on IsarCollection<Notice> {
+  Future<Notice?> getByCidNumber(String cidNumber) {
+    return getByIndex(r'cid_number', [cidNumber]);
   }
 
-  UserNotificationStateEntity? getByCidNumberSync(String cidNumber) {
-    return getByIndexSync(r'cidNumber', [cidNumber]);
+  Notice? getByCidNumberSync(String cidNumber) {
+    return getByIndexSync(r'cid_number', [cidNumber]);
   }
 
   Future<bool> deleteByCidNumber(String cidNumber) {
-    return deleteByIndex(r'cidNumber', [cidNumber]);
+    return deleteByIndex(r'cid_number', [cidNumber]);
   }
 
   bool deleteByCidNumberSync(String cidNumber) {
-    return deleteByIndexSync(r'cidNumber', [cidNumber]);
+    return deleteByIndexSync(r'cid_number', [cidNumber]);
   }
 
-  Future<List<UserNotificationStateEntity?>> getAllByCidNumber(
-    List<String> cidNumberValues,
-  ) {
+  Future<List<Notice?>> getAllByCidNumber(List<String> cidNumberValues) {
     final values = cidNumberValues.map((e) => [e]).toList();
-    return getAllByIndex(r'cidNumber', values);
+    return getAllByIndex(r'cid_number', values);
   }
 
-  List<UserNotificationStateEntity?> getAllByCidNumberSync(
-    List<String> cidNumberValues,
-  ) {
+  List<Notice?> getAllByCidNumberSync(List<String> cidNumberValues) {
     final values = cidNumberValues.map((e) => [e]).toList();
-    return getAllByIndexSync(r'cidNumber', values);
+    return getAllByIndexSync(r'cid_number', values);
   }
 
   Future<int> deleteAllByCidNumber(List<String> cidNumberValues) {
     final values = cidNumberValues.map((e) => [e]).toList();
-    return deleteAllByIndex(r'cidNumber', values);
+    return deleteAllByIndex(r'cid_number', values);
   }
 
   int deleteAllByCidNumberSync(List<String> cidNumberValues) {
     final values = cidNumberValues.map((e) => [e]).toList();
-    return deleteAllByIndexSync(r'cidNumber', values);
+    return deleteAllByIndexSync(r'cid_number', values);
   }
 
-  Future<Id> putByCidNumber(UserNotificationStateEntity object) {
-    return putByIndex(r'cidNumber', object);
+  Future<Id> putByCidNumber(Notice object) {
+    return putByIndex(r'cid_number', object);
   }
 
-  Id putByCidNumberSync(
-    UserNotificationStateEntity object, {
-    bool saveLinks = true,
-  }) {
-    return putByIndexSync(r'cidNumber', object, saveLinks: saveLinks);
+  Id putByCidNumberSync(Notice object, {bool saveLinks = true}) {
+    return putByIndexSync(r'cid_number', object, saveLinks: saveLinks);
   }
 
-  Future<List<Id>> putAllByCidNumber(
-    List<UserNotificationStateEntity> objects,
-  ) {
-    return putAllByIndex(r'cidNumber', objects);
+  Future<List<Id>> putAllByCidNumber(List<Notice> objects) {
+    return putAllByIndex(r'cid_number', objects);
   }
 
   List<Id> putAllByCidNumberSync(
-    List<UserNotificationStateEntity> objects, {
+    List<Notice> objects, {
     bool saveLinks = true,
   }) {
-    return putAllByIndexSync(r'cidNumber', objects, saveLinks: saveLinks);
+    return putAllByIndexSync(r'cid_number', objects, saveLinks: saveLinks);
   }
 }
 
-extension UserNotificationStateEntityQueryWhereSort
-    on
-        QueryBuilder<
-          UserNotificationStateEntity,
-          UserNotificationStateEntity,
-          QWhere
-        > {
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterWhere
-  >
-  anyId() {
+extension NoticeQueryWhereSort on QueryBuilder<Notice, Notice, QWhere> {
+  QueryBuilder<Notice, Notice, QAfterWhere> anyRowId() {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(const IdWhereClause.any());
     });
   }
 }
 
-extension UserNotificationStateEntityQueryWhere
-    on
-        QueryBuilder<
-          UserNotificationStateEntity,
-          UserNotificationStateEntity,
-          QWhereClause
-        > {
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterWhereClause
-  >
-  idEqualTo(Id id) {
+extension NoticeQueryWhere on QueryBuilder<Notice, Notice, QWhereClause> {
+  QueryBuilder<Notice, Notice, QAfterWhereClause> rowIdEqualTo(Id rowId) {
     return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IdWhereClause.between(lower: id, upper: id));
+      return query.addWhereClause(
+        IdWhereClause.between(lower: rowId, upper: rowId),
+      );
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterWhereClause
-  >
-  idNotEqualTo(Id id) {
+  QueryBuilder<Notice, Notice, QAfterWhereClause> rowIdNotEqualTo(Id rowId) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(
-              IdWhereClause.lessThan(upper: id, includeUpper: false),
+              IdWhereClause.lessThan(upper: rowId, includeUpper: false),
             )
             .addWhereClause(
-              IdWhereClause.greaterThan(lower: id, includeLower: false),
+              IdWhereClause.greaterThan(lower: rowId, includeLower: false),
             );
       } else {
         return query
             .addWhereClause(
-              IdWhereClause.greaterThan(lower: id, includeLower: false),
+              IdWhereClause.greaterThan(lower: rowId, includeLower: false),
             )
             .addWhereClause(
-              IdWhereClause.lessThan(upper: id, includeUpper: false),
+              IdWhereClause.lessThan(upper: rowId, includeUpper: false),
             );
       }
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterWhereClause
-  >
-  idGreaterThan(Id id, {bool include = false}) {
+  QueryBuilder<Notice, Notice, QAfterWhereClause> rowIdGreaterThan(
+    Id rowId, {
+    bool include = false,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
-        IdWhereClause.greaterThan(lower: id, includeLower: include),
+        IdWhereClause.greaterThan(lower: rowId, includeLower: include),
       );
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterWhereClause
-  >
-  idLessThan(Id id, {bool include = false}) {
+  QueryBuilder<Notice, Notice, QAfterWhereClause> rowIdLessThan(
+    Id rowId, {
+    bool include = false,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
-        IdWhereClause.lessThan(upper: id, includeUpper: include),
+        IdWhereClause.lessThan(upper: rowId, includeUpper: include),
       );
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterWhereClause
-  >
-  idBetween(
-    Id lowerId,
-    Id upperId, {
+  QueryBuilder<Notice, Notice, QAfterWhereClause> rowIdBetween(
+    Id lowerRowId,
+    Id upperRowId, {
     bool includeLower = true,
     bool includeUpper = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
         IdWhereClause.between(
-          lower: lowerId,
+          lower: lowerRowId,
           includeLower: includeLower,
-          upper: upperId,
+          upper: upperRowId,
           includeUpper: includeUpper,
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterWhereClause
-  >
-  cidNumberEqualTo(String cidNumber) {
+  QueryBuilder<Notice, Notice, QAfterWhereClause> cidNumberEqualTo(
+    String cidNumber,
+  ) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
-        IndexWhereClause.equalTo(indexName: r'cidNumber', value: [cidNumber]),
+        IndexWhereClause.equalTo(indexName: r'cid_number', value: [cidNumber]),
       );
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterWhereClause
-  >
-  cidNumberNotEqualTo(String cidNumber) {
+  QueryBuilder<Notice, Notice, QAfterWhereClause> cidNumberNotEqualTo(
+    String cidNumber,
+  ) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cidNumber',
+                indexName: r'cid_number',
                 lower: [],
                 upper: [cidNumber],
                 includeUpper: false,
@@ -9197,7 +6593,7 @@ extension UserNotificationStateEntityQueryWhere
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cidNumber',
+                indexName: r'cid_number',
                 lower: [cidNumber],
                 includeLower: false,
                 upper: [],
@@ -9207,7 +6603,7 @@ extension UserNotificationStateEntityQueryWhere
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cidNumber',
+                indexName: r'cid_number',
                 lower: [cidNumber],
                 includeLower: false,
                 upper: [],
@@ -9215,7 +6611,7 @@ extension UserNotificationStateEntityQueryWhere
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cidNumber',
+                indexName: r'cid_number',
                 lower: [],
                 upper: [cidNumber],
                 includeUpper: false,
@@ -9226,23 +6622,15 @@ extension UserNotificationStateEntityQueryWhere
   }
 }
 
-extension UserNotificationStateEntityQueryFilter
-    on
-        QueryBuilder<
-          UserNotificationStateEntity,
-          UserNotificationStateEntity,
-          QFilterCondition
-        > {
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  cidNumberEqualTo(String value, {bool caseSensitive = true}) {
+extension NoticeQueryFilter on QueryBuilder<Notice, Notice, QFilterCondition> {
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> cidNumberEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.equalTo(
-          property: r'cidNumber',
+          property: r'cid_number',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -9250,12 +6638,7 @@ extension UserNotificationStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  cidNumberGreaterThan(
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> cidNumberGreaterThan(
     String value, {
     bool include = false,
     bool caseSensitive = true,
@@ -9264,7 +6647,7 @@ extension UserNotificationStateEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'cidNumber',
+          property: r'cid_number',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -9272,12 +6655,7 @@ extension UserNotificationStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  cidNumberLessThan(
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> cidNumberLessThan(
     String value, {
     bool include = false,
     bool caseSensitive = true,
@@ -9286,7 +6664,7 @@ extension UserNotificationStateEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'cidNumber',
+          property: r'cid_number',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -9294,12 +6672,7 @@ extension UserNotificationStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  cidNumberBetween(
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> cidNumberBetween(
     String lower,
     String upper, {
     bool includeLower = true,
@@ -9309,7 +6682,7 @@ extension UserNotificationStateEntityQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'cidNumber',
+          property: r'cid_number',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -9320,16 +6693,14 @@ extension UserNotificationStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  cidNumberStartsWith(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> cidNumberStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.startsWith(
-          property: r'cidNumber',
+          property: r'cid_number',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -9337,16 +6708,14 @@ extension UserNotificationStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  cidNumberEndsWith(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> cidNumberEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.endsWith(
-          property: r'cidNumber',
+          property: r'cid_number',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -9354,16 +6723,14 @@ extension UserNotificationStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  cidNumberContains(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> cidNumberContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.contains(
-          property: r'cidNumber',
+          property: r'cid_number',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -9371,16 +6738,14 @@ extension UserNotificationStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  cidNumberMatches(String pattern, {bool caseSensitive = true}) {
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> cidNumberMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.matches(
-          property: r'cidNumber',
+          property: r'cid_number',
           wildcard: pattern,
           caseSensitive: caseSensitive,
         ),
@@ -9388,139 +6753,46 @@ extension UserNotificationStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  cidNumberIsEmpty() {
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> cidNumberIsEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'cidNumber', value: ''),
+        FilterCondition.equalTo(property: r'cid_number', value: ''),
       );
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  cidNumberIsNotEmpty() {
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> cidNumberIsNotEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'cidNumber', value: ''),
+        FilterCondition.greaterThan(property: r'cid_number', value: ''),
       );
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  idEqualTo(Id value) {
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> pendingDataIsNull() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'id', value: value),
+        const FilterCondition.isNull(property: r'pending_data'),
       );
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  idGreaterThan(Id value, {bool include = false}) {
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> pendingDataIsNotNull() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'id',
-          value: value,
-        ),
+        const FilterCondition.isNotNull(property: r'pending_data'),
       );
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  idLessThan(Id value, {bool include = false}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'id',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  idBetween(
-    Id lower,
-    Id upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> pendingDataEqualTo(
+    String? value, {
+    bool caseSensitive = true,
   }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'id',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  pendingJsonIsNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        const FilterCondition.isNull(property: r'pendingJson'),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  pendingJsonIsNotNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        const FilterCondition.isNotNull(property: r'pendingJson'),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  pendingJsonEqualTo(String? value, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.equalTo(
-          property: r'pendingJson',
+          property: r'pending_data',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -9528,12 +6800,7 @@ extension UserNotificationStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  pendingJsonGreaterThan(
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> pendingDataGreaterThan(
     String? value, {
     bool include = false,
     bool caseSensitive = true,
@@ -9542,7 +6809,7 @@ extension UserNotificationStateEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'pendingJson',
+          property: r'pending_data',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -9550,12 +6817,7 @@ extension UserNotificationStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  pendingJsonLessThan(
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> pendingDataLessThan(
     String? value, {
     bool include = false,
     bool caseSensitive = true,
@@ -9564,7 +6826,7 @@ extension UserNotificationStateEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'pendingJson',
+          property: r'pending_data',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -9572,12 +6834,7 @@ extension UserNotificationStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  pendingJsonBetween(
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> pendingDataBetween(
     String? lower,
     String? upper, {
     bool includeLower = true,
@@ -9587,7 +6844,7 @@ extension UserNotificationStateEntityQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'pendingJson',
+          property: r'pending_data',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -9598,16 +6855,14 @@ extension UserNotificationStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  pendingJsonStartsWith(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> pendingDataStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.startsWith(
-          property: r'pendingJson',
+          property: r'pending_data',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -9615,16 +6870,14 @@ extension UserNotificationStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  pendingJsonEndsWith(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> pendingDataEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.endsWith(
-          property: r'pendingJson',
+          property: r'pending_data',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -9632,16 +6885,14 @@ extension UserNotificationStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  pendingJsonContains(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> pendingDataContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.contains(
-          property: r'pendingJson',
+          property: r'pending_data',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -9649,16 +6900,14 @@ extension UserNotificationStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  pendingJsonMatches(String pattern, {bool caseSensitive = true}) {
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> pendingDataMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.matches(
-          property: r'pendingJson',
+          property: r'pending_data',
           wildcard: pattern,
           caseSensitive: caseSensitive,
         ),
@@ -9666,42 +6915,87 @@ extension UserNotificationStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  pendingJsonIsEmpty() {
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> pendingDataIsEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'pendingJson', value: ''),
+        FilterCondition.equalTo(property: r'pending_data', value: ''),
       );
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  pendingJsonIsNotEmpty() {
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> pendingDataIsNotEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'pendingJson', value: ''),
+        FilterCondition.greaterThan(property: r'pending_data', value: ''),
       );
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  stateJsonEqualTo(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> rowIdEqualTo(Id value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'row_id', value: value),
+      );
+    });
+  }
+
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> rowIdGreaterThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'row_id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> rowIdLessThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'row_id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> rowIdBetween(
+    Id lower,
+    Id upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'row_id',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> stateDataEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.equalTo(
-          property: r'stateJson',
+          property: r'state_data',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -9709,12 +7003,7 @@ extension UserNotificationStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  stateJsonGreaterThan(
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> stateDataGreaterThan(
     String value, {
     bool include = false,
     bool caseSensitive = true,
@@ -9723,7 +7012,7 @@ extension UserNotificationStateEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'stateJson',
+          property: r'state_data',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -9731,12 +7020,7 @@ extension UserNotificationStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  stateJsonLessThan(
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> stateDataLessThan(
     String value, {
     bool include = false,
     bool caseSensitive = true,
@@ -9745,7 +7029,7 @@ extension UserNotificationStateEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'stateJson',
+          property: r'state_data',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -9753,12 +7037,7 @@ extension UserNotificationStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  stateJsonBetween(
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> stateDataBetween(
     String lower,
     String upper, {
     bool includeLower = true,
@@ -9768,7 +7047,7 @@ extension UserNotificationStateEntityQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'stateJson',
+          property: r'state_data',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -9779,16 +7058,14 @@ extension UserNotificationStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  stateJsonStartsWith(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> stateDataStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.startsWith(
-          property: r'stateJson',
+          property: r'state_data',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -9796,16 +7073,14 @@ extension UserNotificationStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  stateJsonEndsWith(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> stateDataEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.endsWith(
-          property: r'stateJson',
+          property: r'state_data',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -9813,16 +7088,14 @@ extension UserNotificationStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  stateJsonContains(String value, {bool caseSensitive = true}) {
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> stateDataContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.contains(
-          property: r'stateJson',
+          property: r'state_data',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -9830,16 +7103,14 @@ extension UserNotificationStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  stateJsonMatches(String pattern, {bool caseSensitive = true}) {
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> stateDataMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.matches(
-          property: r'stateJson',
+          property: r'state_data',
           wildcard: pattern,
           caseSensitive: caseSensitive,
         ),
@@ -9847,405 +7118,265 @@ extension UserNotificationStateEntityQueryFilter
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  stateJsonIsEmpty() {
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> stateDataIsEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'stateJson', value: ''),
+        FilterCondition.equalTo(property: r'state_data', value: ''),
       );
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterFilterCondition
-  >
-  stateJsonIsNotEmpty() {
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> stateDataIsNotEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'stateJson', value: ''),
+        FilterCondition.greaterThan(property: r'state_data', value: ''),
       );
     });
   }
 }
 
-extension UserNotificationStateEntityQueryObject
-    on
-        QueryBuilder<
-          UserNotificationStateEntity,
-          UserNotificationStateEntity,
-          QFilterCondition
-        > {}
+extension NoticeQueryObject on QueryBuilder<Notice, Notice, QFilterCondition> {}
 
-extension UserNotificationStateEntityQueryLinks
-    on
-        QueryBuilder<
-          UserNotificationStateEntity,
-          UserNotificationStateEntity,
-          QFilterCondition
-        > {}
+extension NoticeQueryLinks on QueryBuilder<Notice, Notice, QFilterCondition> {}
 
-extension UserNotificationStateEntityQuerySortBy
-    on
-        QueryBuilder<
-          UserNotificationStateEntity,
-          UserNotificationStateEntity,
-          QSortBy
-        > {
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterSortBy
-  >
-  sortByCidNumber() {
+extension NoticeQuerySortBy on QueryBuilder<Notice, Notice, QSortBy> {
+  QueryBuilder<Notice, Notice, QAfterSortBy> sortByCidNumber() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'cidNumber', Sort.asc);
+      return query.addSortBy(r'cid_number', Sort.asc);
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterSortBy
-  >
-  sortByCidNumberDesc() {
+  QueryBuilder<Notice, Notice, QAfterSortBy> sortByCidNumberDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'cidNumber', Sort.desc);
+      return query.addSortBy(r'cid_number', Sort.desc);
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterSortBy
-  >
-  sortByPendingJson() {
+  QueryBuilder<Notice, Notice, QAfterSortBy> sortByPendingData() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'pendingJson', Sort.asc);
+      return query.addSortBy(r'pending_data', Sort.asc);
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterSortBy
-  >
-  sortByPendingJsonDesc() {
+  QueryBuilder<Notice, Notice, QAfterSortBy> sortByPendingDataDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'pendingJson', Sort.desc);
+      return query.addSortBy(r'pending_data', Sort.desc);
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterSortBy
-  >
-  sortByStateJson() {
+  QueryBuilder<Notice, Notice, QAfterSortBy> sortByStateData() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'stateJson', Sort.asc);
+      return query.addSortBy(r'state_data', Sort.asc);
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterSortBy
-  >
-  sortByStateJsonDesc() {
+  QueryBuilder<Notice, Notice, QAfterSortBy> sortByStateDataDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'stateJson', Sort.desc);
+      return query.addSortBy(r'state_data', Sort.desc);
     });
   }
 }
 
-extension UserNotificationStateEntityQuerySortThenBy
-    on
-        QueryBuilder<
-          UserNotificationStateEntity,
-          UserNotificationStateEntity,
-          QSortThenBy
-        > {
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterSortBy
-  >
-  thenByCidNumber() {
+extension NoticeQuerySortThenBy on QueryBuilder<Notice, Notice, QSortThenBy> {
+  QueryBuilder<Notice, Notice, QAfterSortBy> thenByCidNumber() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'cidNumber', Sort.asc);
+      return query.addSortBy(r'cid_number', Sort.asc);
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterSortBy
-  >
-  thenByCidNumberDesc() {
+  QueryBuilder<Notice, Notice, QAfterSortBy> thenByCidNumberDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'cidNumber', Sort.desc);
+      return query.addSortBy(r'cid_number', Sort.desc);
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterSortBy
-  >
-  thenById() {
+  QueryBuilder<Notice, Notice, QAfterSortBy> thenByPendingData() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'id', Sort.asc);
+      return query.addSortBy(r'pending_data', Sort.asc);
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterSortBy
-  >
-  thenByIdDesc() {
+  QueryBuilder<Notice, Notice, QAfterSortBy> thenByPendingDataDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'id', Sort.desc);
+      return query.addSortBy(r'pending_data', Sort.desc);
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterSortBy
-  >
-  thenByPendingJson() {
+  QueryBuilder<Notice, Notice, QAfterSortBy> thenByRowId() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'pendingJson', Sort.asc);
+      return query.addSortBy(r'row_id', Sort.asc);
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterSortBy
-  >
-  thenByPendingJsonDesc() {
+  QueryBuilder<Notice, Notice, QAfterSortBy> thenByRowIdDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'pendingJson', Sort.desc);
+      return query.addSortBy(r'row_id', Sort.desc);
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterSortBy
-  >
-  thenByStateJson() {
+  QueryBuilder<Notice, Notice, QAfterSortBy> thenByStateData() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'stateJson', Sort.asc);
+      return query.addSortBy(r'state_data', Sort.asc);
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QAfterSortBy
-  >
-  thenByStateJsonDesc() {
+  QueryBuilder<Notice, Notice, QAfterSortBy> thenByStateDataDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'stateJson', Sort.desc);
+      return query.addSortBy(r'state_data', Sort.desc);
     });
   }
 }
 
-extension UserNotificationStateEntityQueryWhereDistinct
-    on
-        QueryBuilder<
-          UserNotificationStateEntity,
-          UserNotificationStateEntity,
-          QDistinct
-        > {
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QDistinct
-  >
-  distinctByCidNumber({bool caseSensitive = true}) {
+extension NoticeQueryWhereDistinct on QueryBuilder<Notice, Notice, QDistinct> {
+  QueryBuilder<Notice, Notice, QDistinct> distinctByCidNumber({
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'cidNumber', caseSensitive: caseSensitive);
+      return query.addDistinctBy(r'cid_number', caseSensitive: caseSensitive);
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QDistinct
-  >
-  distinctByPendingJson({bool caseSensitive = true}) {
+  QueryBuilder<Notice, Notice, QDistinct> distinctByPendingData({
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'pendingJson', caseSensitive: caseSensitive);
+      return query.addDistinctBy(r'pending_data', caseSensitive: caseSensitive);
     });
   }
 
-  QueryBuilder<
-    UserNotificationStateEntity,
-    UserNotificationStateEntity,
-    QDistinct
-  >
-  distinctByStateJson({bool caseSensitive = true}) {
+  QueryBuilder<Notice, Notice, QDistinct> distinctByStateData({
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'stateJson', caseSensitive: caseSensitive);
+      return query.addDistinctBy(r'state_data', caseSensitive: caseSensitive);
     });
   }
 }
 
-extension UserNotificationStateEntityQueryProperty
-    on
-        QueryBuilder<
-          UserNotificationStateEntity,
-          UserNotificationStateEntity,
-          QQueryProperty
-        > {
-  QueryBuilder<UserNotificationStateEntity, int, QQueryOperations>
-  idProperty() {
+extension NoticeQueryProperty on QueryBuilder<Notice, Notice, QQueryProperty> {
+  QueryBuilder<Notice, int, QQueryOperations> rowIdProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'id');
+      return query.addPropertyName(r'row_id');
     });
   }
 
-  QueryBuilder<UserNotificationStateEntity, String, QQueryOperations>
-  cidNumberProperty() {
+  QueryBuilder<Notice, String, QQueryOperations> cidNumberProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'cidNumber');
+      return query.addPropertyName(r'cid_number');
     });
   }
 
-  QueryBuilder<UserNotificationStateEntity, String?, QQueryOperations>
-  pendingJsonProperty() {
+  QueryBuilder<Notice, String?, QQueryOperations> pendingDataProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'pendingJson');
+      return query.addPropertyName(r'pending_data');
     });
   }
 
-  QueryBuilder<UserNotificationStateEntity, String, QQueryOperations>
-  stateJsonProperty() {
+  QueryBuilder<Notice, String, QQueryOperations> stateDataProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'stateJson');
+      return query.addPropertyName(r'state_data');
     });
   }
 }
-
 // coverage:ignore-file
 // ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
 
-extension GetUserSettingsEntityCollection on Isar {
-  IsarCollection<UserSettingsEntity> get userSettingsEntitys =>
-      this.collection();
+extension GetSettingCollection on Isar {
+  IsarCollection<Setting> get settings => this.collection();
 }
 
-const UserSettingsEntitySchema = CollectionSchema(
-  name: r'UserSettingsEntity',
-  id: 5073917152494840320,
+const SettingSchema = CollectionSchema(
+  name: r'setting',
+  id: -823090073715780110,
   properties: {
-    r'governanceProvincialBankOrder': PropertySchema(
+    r'bank_order': PropertySchema(
       id: 0,
-      name: r'governanceProvincialBankOrder',
+      name: r'bank_order',
       type: IsarType.stringList,
     ),
-    r'governanceProvincialCouncilOrder': PropertySchema(
+    r'chat_home': PropertySchema(
       id: 1,
-      name: r'governanceProvincialCouncilOrder',
+      name: r'chat_home',
+      type: IsarType.bool,
+    ),
+    r'council_order': PropertySchema(
+      id: 2,
+      name: r'council_order',
       type: IsarType.stringList,
     ),
-    r'openChatOnLaunch': PropertySchema(
-      id: 2,
-      name: r'openChatOnLaunch',
-      type: IsarType.bool,
-    ),
-    r'permissionGuideSeen': PropertySchema(
+    r'guide_seen': PropertySchema(
       id: 3,
-      name: r'permissionGuideSeen',
+      name: r'guide_seen',
       type: IsarType.bool,
-    ),
-    r'updatedAtMillis': PropertySchema(
-      id: 4,
-      name: r'updatedAtMillis',
-      type: IsarType.long,
     ),
   },
 
-  estimateSize: _userSettingsEntityEstimateSize,
-  serialize: _userSettingsEntitySerialize,
-  deserialize: _userSettingsEntityDeserialize,
-  deserializeProp: _userSettingsEntityDeserializeProp,
-  idName: r'id',
+  estimateSize: _settingEstimateSize,
+  serialize: _settingSerialize,
+  deserialize: _settingDeserialize,
+  deserializeProp: _settingDeserializeProp,
+  idName: r'row_id',
   indexes: {},
   links: {},
   embeddedSchemas: {},
 
-  getId: _userSettingsEntityGetId,
-  getLinks: _userSettingsEntityGetLinks,
-  attach: _userSettingsEntityAttach,
+  getId: _settingGetId,
+  getLinks: _settingGetLinks,
+  attach: _settingAttach,
   version: '3.3.2',
 );
 
-int _userSettingsEntityEstimateSize(
-  UserSettingsEntity object,
+int _settingEstimateSize(
+  Setting object,
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
   var bytesCount = offsets.last;
-  bytesCount += 3 + object.governanceProvincialBankOrder.length * 3;
+  bytesCount += 3 + object.bankOrder.length * 3;
   {
-    for (var i = 0; i < object.governanceProvincialBankOrder.length; i++) {
-      final value = object.governanceProvincialBankOrder[i];
+    for (var i = 0; i < object.bankOrder.length; i++) {
+      final value = object.bankOrder[i];
       bytesCount += value.length * 3;
     }
   }
-  bytesCount += 3 + object.governanceProvincialCouncilOrder.length * 3;
+  bytesCount += 3 + object.councilOrder.length * 3;
   {
-    for (var i = 0; i < object.governanceProvincialCouncilOrder.length; i++) {
-      final value = object.governanceProvincialCouncilOrder[i];
+    for (var i = 0; i < object.councilOrder.length; i++) {
+      final value = object.councilOrder[i];
       bytesCount += value.length * 3;
     }
   }
   return bytesCount;
 }
 
-void _userSettingsEntitySerialize(
-  UserSettingsEntity object,
+void _settingSerialize(
+  Setting object,
   IsarWriter writer,
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
-  writer.writeStringList(offsets[0], object.governanceProvincialBankOrder);
-  writer.writeStringList(offsets[1], object.governanceProvincialCouncilOrder);
-  writer.writeBool(offsets[2], object.openChatOnLaunch);
-  writer.writeBool(offsets[3], object.permissionGuideSeen);
-  writer.writeLong(offsets[4], object.updatedAtMillis);
+  writer.writeStringList(offsets[0], object.bankOrder);
+  writer.writeBool(offsets[1], object.chatHome);
+  writer.writeStringList(offsets[2], object.councilOrder);
+  writer.writeBool(offsets[3], object.guideSeen);
 }
 
-UserSettingsEntity _userSettingsEntityDeserialize(
+Setting _settingDeserialize(
   Id id,
   IsarReader reader,
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
-  final object = UserSettingsEntity();
-  object.governanceProvincialBankOrder =
-      reader.readStringList(offsets[0]) ?? [];
-  object.governanceProvincialCouncilOrder =
-      reader.readStringList(offsets[1]) ?? [];
-  object.id = id;
-  object.openChatOnLaunch = reader.readBool(offsets[2]);
-  object.permissionGuideSeen = reader.readBool(offsets[3]);
-  object.updatedAtMillis = reader.readLong(offsets[4]);
+  final object = Setting();
+  object.bankOrder = reader.readStringList(offsets[0]) ?? [];
+  object.chatHome = reader.readBool(offsets[1]);
+  object.councilOrder = reader.readStringList(offsets[2]) ?? [];
+  object.guideSeen = reader.readBool(offsets[3]);
+  object.rowId = id;
   return object;
 }
 
-P _userSettingsEntityDeserializeProp<P>(
+P _settingDeserializeProp<P>(
   IsarReader reader,
   int propertyId,
   int offset,
@@ -10255,108 +7386,101 @@ P _userSettingsEntityDeserializeProp<P>(
     case 0:
       return (reader.readStringList(offset) ?? []) as P;
     case 1:
-      return (reader.readStringList(offset) ?? []) as P;
-    case 2:
       return (reader.readBool(offset)) as P;
+    case 2:
+      return (reader.readStringList(offset) ?? []) as P;
     case 3:
       return (reader.readBool(offset)) as P;
-    case 4:
-      return (reader.readLong(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
   }
 }
 
-Id _userSettingsEntityGetId(UserSettingsEntity object) {
-  return object.id;
+Id _settingGetId(Setting object) {
+  return object.rowId;
 }
 
-List<IsarLinkBase<dynamic>> _userSettingsEntityGetLinks(
-  UserSettingsEntity object,
-) {
+List<IsarLinkBase<dynamic>> _settingGetLinks(Setting object) {
   return [];
 }
 
-void _userSettingsEntityAttach(
-  IsarCollection<dynamic> col,
-  Id id,
-  UserSettingsEntity object,
-) {
-  object.id = id;
+void _settingAttach(IsarCollection<dynamic> col, Id id, Setting object) {
+  object.rowId = id;
 }
 
-extension UserSettingsEntityQueryWhereSort
-    on QueryBuilder<UserSettingsEntity, UserSettingsEntity, QWhere> {
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterWhere> anyId() {
+extension SettingQueryWhereSort on QueryBuilder<Setting, Setting, QWhere> {
+  QueryBuilder<Setting, Setting, QAfterWhere> anyRowId() {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(const IdWhereClause.any());
     });
   }
 }
 
-extension UserSettingsEntityQueryWhere
-    on QueryBuilder<UserSettingsEntity, UserSettingsEntity, QWhereClause> {
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterWhereClause>
-  idEqualTo(Id id) {
+extension SettingQueryWhere on QueryBuilder<Setting, Setting, QWhereClause> {
+  QueryBuilder<Setting, Setting, QAfterWhereClause> rowIdEqualTo(Id rowId) {
     return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IdWhereClause.between(lower: id, upper: id));
+      return query.addWhereClause(
+        IdWhereClause.between(lower: rowId, upper: rowId),
+      );
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterWhereClause>
-  idNotEqualTo(Id id) {
+  QueryBuilder<Setting, Setting, QAfterWhereClause> rowIdNotEqualTo(Id rowId) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(
-              IdWhereClause.lessThan(upper: id, includeUpper: false),
+              IdWhereClause.lessThan(upper: rowId, includeUpper: false),
             )
             .addWhereClause(
-              IdWhereClause.greaterThan(lower: id, includeLower: false),
+              IdWhereClause.greaterThan(lower: rowId, includeLower: false),
             );
       } else {
         return query
             .addWhereClause(
-              IdWhereClause.greaterThan(lower: id, includeLower: false),
+              IdWhereClause.greaterThan(lower: rowId, includeLower: false),
             )
             .addWhereClause(
-              IdWhereClause.lessThan(upper: id, includeUpper: false),
+              IdWhereClause.lessThan(upper: rowId, includeUpper: false),
             );
       }
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterWhereClause>
-  idGreaterThan(Id id, {bool include = false}) {
+  QueryBuilder<Setting, Setting, QAfterWhereClause> rowIdGreaterThan(
+    Id rowId, {
+    bool include = false,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
-        IdWhereClause.greaterThan(lower: id, includeLower: include),
+        IdWhereClause.greaterThan(lower: rowId, includeLower: include),
       );
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterWhereClause>
-  idLessThan(Id id, {bool include = false}) {
+  QueryBuilder<Setting, Setting, QAfterWhereClause> rowIdLessThan(
+    Id rowId, {
+    bool include = false,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
-        IdWhereClause.lessThan(upper: id, includeUpper: include),
+        IdWhereClause.lessThan(upper: rowId, includeUpper: include),
       );
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterWhereClause>
-  idBetween(
-    Id lowerId,
-    Id upperId, {
+  QueryBuilder<Setting, Setting, QAfterWhereClause> rowIdBetween(
+    Id lowerRowId,
+    Id upperRowId, {
     bool includeLower = true,
     bool includeUpper = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
         IdWhereClause.between(
-          lower: lowerId,
+          lower: lowerRowId,
           includeLower: includeLower,
-          upper: upperId,
+          upper: upperRowId,
           includeUpper: includeUpper,
         ),
       );
@@ -10364,17 +7488,16 @@ extension UserSettingsEntityQueryWhere
   }
 }
 
-extension UserSettingsEntityQueryFilter
-    on QueryBuilder<UserSettingsEntity, UserSettingsEntity, QFilterCondition> {
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialBankOrderElementEqualTo(
+extension SettingQueryFilter
+    on QueryBuilder<Setting, Setting, QFilterCondition> {
+  QueryBuilder<Setting, Setting, QAfterFilterCondition> bankOrderElementEqualTo(
     String value, {
     bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.equalTo(
-          property: r'governanceProvincialBankOrder',
+          property: r'bank_order',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -10382,8 +7505,8 @@ extension UserSettingsEntityQueryFilter
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialBankOrderElementGreaterThan(
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  bankOrderElementGreaterThan(
     String value, {
     bool include = false,
     bool caseSensitive = true,
@@ -10392,7 +7515,7 @@ extension UserSettingsEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'governanceProvincialBankOrder',
+          property: r'bank_order',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -10400,8 +7523,8 @@ extension UserSettingsEntityQueryFilter
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialBankOrderElementLessThan(
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  bankOrderElementLessThan(
     String value, {
     bool include = false,
     bool caseSensitive = true,
@@ -10410,7 +7533,7 @@ extension UserSettingsEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'governanceProvincialBankOrder',
+          property: r'bank_order',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -10418,8 +7541,7 @@ extension UserSettingsEntityQueryFilter
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialBankOrderElementBetween(
+  QueryBuilder<Setting, Setting, QAfterFilterCondition> bankOrderElementBetween(
     String lower,
     String upper, {
     bool includeLower = true,
@@ -10429,7 +7551,7 @@ extension UserSettingsEntityQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'governanceProvincialBankOrder',
+          property: r'bank_order',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -10440,15 +7562,12 @@ extension UserSettingsEntityQueryFilter
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialBankOrderElementStartsWith(
-    String value, {
-    bool caseSensitive = true,
-  }) {
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  bankOrderElementStartsWith(String value, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.startsWith(
-          property: r'governanceProvincialBankOrder',
+          property: r'bank_order',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -10456,15 +7575,12 @@ extension UserSettingsEntityQueryFilter
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialBankOrderElementEndsWith(
-    String value, {
-    bool caseSensitive = true,
-  }) {
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  bankOrderElementEndsWith(String value, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.endsWith(
-          property: r'governanceProvincialBankOrder',
+          property: r'bank_order',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -10472,15 +7588,12 @@ extension UserSettingsEntityQueryFilter
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialBankOrderElementContains(
-    String value, {
-    bool caseSensitive = true,
-  }) {
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  bankOrderElementContains(String value, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.contains(
-          property: r'governanceProvincialBankOrder',
+          property: r'bank_order',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -10488,15 +7601,14 @@ extension UserSettingsEntityQueryFilter
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialBankOrderElementMatches(
+  QueryBuilder<Setting, Setting, QAfterFilterCondition> bankOrderElementMatches(
     String pattern, {
     bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.matches(
-          property: r'governanceProvincialBankOrder',
+          property: r'bank_order',
           wildcard: pattern,
           caseSensitive: caseSensitive,
         ),
@@ -10504,103 +7616,61 @@ extension UserSettingsEntityQueryFilter
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialBankOrderElementIsEmpty() {
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  bankOrderElementIsEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(
-          property: r'governanceProvincialBankOrder',
-          value: '',
-        ),
+        FilterCondition.equalTo(property: r'bank_order', value: ''),
       );
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialBankOrderElementIsNotEmpty() {
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  bankOrderElementIsNotEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          property: r'governanceProvincialBankOrder',
-          value: '',
-        ),
+        FilterCondition.greaterThan(property: r'bank_order', value: ''),
       );
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialBankOrderLengthEqualTo(int length) {
+  QueryBuilder<Setting, Setting, QAfterFilterCondition> bankOrderLengthEqualTo(
+    int length,
+  ) {
     return QueryBuilder.apply(this, (query) {
-      return query.listLength(
-        r'governanceProvincialBankOrder',
-        length,
-        true,
-        length,
-        true,
-      );
+      return query.listLength(r'bank_order', length, true, length, true);
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialBankOrderIsEmpty() {
+  QueryBuilder<Setting, Setting, QAfterFilterCondition> bankOrderIsEmpty() {
     return QueryBuilder.apply(this, (query) {
-      return query.listLength(
-        r'governanceProvincialBankOrder',
-        0,
-        true,
-        0,
-        true,
-      );
+      return query.listLength(r'bank_order', 0, true, 0, true);
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialBankOrderIsNotEmpty() {
+  QueryBuilder<Setting, Setting, QAfterFilterCondition> bankOrderIsNotEmpty() {
     return QueryBuilder.apply(this, (query) {
-      return query.listLength(
-        r'governanceProvincialBankOrder',
-        0,
-        false,
-        999999,
-        true,
-      );
+      return query.listLength(r'bank_order', 0, false, 999999, true);
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialBankOrderLengthLessThan(
+  QueryBuilder<Setting, Setting, QAfterFilterCondition> bankOrderLengthLessThan(
     int length, {
     bool include = false,
   }) {
     return QueryBuilder.apply(this, (query) {
-      return query.listLength(
-        r'governanceProvincialBankOrder',
-        0,
-        true,
-        length,
-        include,
-      );
+      return query.listLength(r'bank_order', 0, true, length, include);
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialBankOrderLengthGreaterThan(
-    int length, {
-    bool include = false,
-  }) {
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  bankOrderLengthGreaterThan(int length, {bool include = false}) {
     return QueryBuilder.apply(this, (query) {
-      return query.listLength(
-        r'governanceProvincialBankOrder',
-        length,
-        include,
-        999999,
-        true,
-      );
+      return query.listLength(r'bank_order', length, include, 999999, true);
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialBankOrderLengthBetween(
+  QueryBuilder<Setting, Setting, QAfterFilterCondition> bankOrderLengthBetween(
     int lower,
     int upper, {
     bool includeLower = true,
@@ -10608,7 +7678,7 @@ extension UserSettingsEntityQueryFilter
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.listLength(
-        r'governanceProvincialBankOrder',
+        r'bank_order',
         lower,
         includeLower,
         upper,
@@ -10617,15 +7687,22 @@ extension UserSettingsEntityQueryFilter
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialCouncilOrderElementEqualTo(
-    String value, {
-    bool caseSensitive = true,
-  }) {
+  QueryBuilder<Setting, Setting, QAfterFilterCondition> chatHomeEqualTo(
+    bool value,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'chat_home', value: value),
+      );
+    });
+  }
+
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  councilOrderElementEqualTo(String value, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.equalTo(
-          property: r'governanceProvincialCouncilOrder',
+          property: r'council_order',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -10633,8 +7710,8 @@ extension UserSettingsEntityQueryFilter
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialCouncilOrderElementGreaterThan(
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  councilOrderElementGreaterThan(
     String value, {
     bool include = false,
     bool caseSensitive = true,
@@ -10643,7 +7720,7 @@ extension UserSettingsEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'governanceProvincialCouncilOrder',
+          property: r'council_order',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -10651,8 +7728,8 @@ extension UserSettingsEntityQueryFilter
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialCouncilOrderElementLessThan(
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  councilOrderElementLessThan(
     String value, {
     bool include = false,
     bool caseSensitive = true,
@@ -10661,7 +7738,7 @@ extension UserSettingsEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'governanceProvincialCouncilOrder',
+          property: r'council_order',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -10669,8 +7746,8 @@ extension UserSettingsEntityQueryFilter
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialCouncilOrderElementBetween(
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  councilOrderElementBetween(
     String lower,
     String upper, {
     bool includeLower = true,
@@ -10680,7 +7757,7 @@ extension UserSettingsEntityQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'governanceProvincialCouncilOrder',
+          property: r'council_order',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -10691,15 +7768,12 @@ extension UserSettingsEntityQueryFilter
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialCouncilOrderElementStartsWith(
-    String value, {
-    bool caseSensitive = true,
-  }) {
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  councilOrderElementStartsWith(String value, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.startsWith(
-          property: r'governanceProvincialCouncilOrder',
+          property: r'council_order',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -10707,15 +7781,12 @@ extension UserSettingsEntityQueryFilter
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialCouncilOrderElementEndsWith(
-    String value, {
-    bool caseSensitive = true,
-  }) {
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  councilOrderElementEndsWith(String value, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.endsWith(
-          property: r'governanceProvincialCouncilOrder',
+          property: r'council_order',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -10723,15 +7794,12 @@ extension UserSettingsEntityQueryFilter
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialCouncilOrderElementContains(
-    String value, {
-    bool caseSensitive = true,
-  }) {
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  councilOrderElementContains(String value, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.contains(
-          property: r'governanceProvincialCouncilOrder',
+          property: r'council_order',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -10739,15 +7807,12 @@ extension UserSettingsEntityQueryFilter
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialCouncilOrderElementMatches(
-    String pattern, {
-    bool caseSensitive = true,
-  }) {
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  councilOrderElementMatches(String pattern, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.matches(
-          property: r'governanceProvincialCouncilOrder',
+          property: r'council_order',
           wildcard: pattern,
           caseSensitive: caseSensitive,
         ),
@@ -10755,103 +7820,60 @@ extension UserSettingsEntityQueryFilter
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialCouncilOrderElementIsEmpty() {
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  councilOrderElementIsEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(
-          property: r'governanceProvincialCouncilOrder',
-          value: '',
-        ),
+        FilterCondition.equalTo(property: r'council_order', value: ''),
       );
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialCouncilOrderElementIsNotEmpty() {
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  councilOrderElementIsNotEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          property: r'governanceProvincialCouncilOrder',
-          value: '',
-        ),
+        FilterCondition.greaterThan(property: r'council_order', value: ''),
       );
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialCouncilOrderLengthEqualTo(int length) {
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  councilOrderLengthEqualTo(int length) {
     return QueryBuilder.apply(this, (query) {
-      return query.listLength(
-        r'governanceProvincialCouncilOrder',
-        length,
-        true,
-        length,
-        true,
-      );
+      return query.listLength(r'council_order', length, true, length, true);
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialCouncilOrderIsEmpty() {
+  QueryBuilder<Setting, Setting, QAfterFilterCondition> councilOrderIsEmpty() {
     return QueryBuilder.apply(this, (query) {
-      return query.listLength(
-        r'governanceProvincialCouncilOrder',
-        0,
-        true,
-        0,
-        true,
-      );
+      return query.listLength(r'council_order', 0, true, 0, true);
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialCouncilOrderIsNotEmpty() {
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  councilOrderIsNotEmpty() {
     return QueryBuilder.apply(this, (query) {
-      return query.listLength(
-        r'governanceProvincialCouncilOrder',
-        0,
-        false,
-        999999,
-        true,
-      );
+      return query.listLength(r'council_order', 0, false, 999999, true);
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialCouncilOrderLengthLessThan(
-    int length, {
-    bool include = false,
-  }) {
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  councilOrderLengthLessThan(int length, {bool include = false}) {
     return QueryBuilder.apply(this, (query) {
-      return query.listLength(
-        r'governanceProvincialCouncilOrder',
-        0,
-        true,
-        length,
-        include,
-      );
+      return query.listLength(r'council_order', 0, true, length, include);
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialCouncilOrderLengthGreaterThan(
-    int length, {
-    bool include = false,
-  }) {
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  councilOrderLengthGreaterThan(int length, {bool include = false}) {
     return QueryBuilder.apply(this, (query) {
-      return query.listLength(
-        r'governanceProvincialCouncilOrder',
-        length,
-        include,
-        999999,
-        true,
-      );
+      return query.listLength(r'council_order', length, include, 999999, true);
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  governanceProvincialCouncilOrderLengthBetween(
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  councilOrderLengthBetween(
     int lower,
     int upper, {
     bool includeLower = true,
@@ -10859,7 +7881,7 @@ extension UserSettingsEntityQueryFilter
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.listLength(
-        r'governanceProvincialCouncilOrder',
+        r'council_order',
         lower,
         includeLower,
         upper,
@@ -10868,43 +7890,55 @@ extension UserSettingsEntityQueryFilter
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  idEqualTo(Id value) {
+  QueryBuilder<Setting, Setting, QAfterFilterCondition> guideSeenEqualTo(
+    bool value,
+  ) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'id', value: value),
+        FilterCondition.equalTo(property: r'guide_seen', value: value),
       );
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  idGreaterThan(Id value, {bool include = false}) {
+  QueryBuilder<Setting, Setting, QAfterFilterCondition> rowIdEqualTo(Id value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'row_id', value: value),
+      );
+    });
+  }
+
+  QueryBuilder<Setting, Setting, QAfterFilterCondition> rowIdGreaterThan(
+    Id value, {
+    bool include = false,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'id',
+          property: r'row_id',
           value: value,
         ),
       );
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  idLessThan(Id value, {bool include = false}) {
+  QueryBuilder<Setting, Setting, QAfterFilterCondition> rowIdLessThan(
+    Id value, {
+    bool include = false,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'id',
+          property: r'row_id',
           value: value,
         ),
       );
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  idBetween(
+  QueryBuilder<Setting, Setting, QAfterFilterCondition> rowIdBetween(
     Id lower,
     Id upper, {
     bool includeLower = true,
@@ -10913,80 +7947,7 @@ extension UserSettingsEntityQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'id',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  openChatOnLaunchEqualTo(bool value) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'openChatOnLaunch', value: value),
-      );
-    });
-  }
-
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  permissionGuideSeenEqualTo(bool value) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'permissionGuideSeen', value: value),
-      );
-    });
-  }
-
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  updatedAtMillisEqualTo(int value) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'updatedAtMillis', value: value),
-      );
-    });
-  }
-
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  updatedAtMillisGreaterThan(int value, {bool include = false}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'updatedAtMillis',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  updatedAtMillisLessThan(int value, {bool include = false}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'updatedAtMillis',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterFilterCondition>
-  updatedAtMillisBetween(
-    int lower,
-    int upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'updatedAtMillis',
+          property: r'row_id',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -10997,259 +7958,178 @@ extension UserSettingsEntityQueryFilter
   }
 }
 
-extension UserSettingsEntityQueryObject
-    on QueryBuilder<UserSettingsEntity, UserSettingsEntity, QFilterCondition> {}
+extension SettingQueryObject
+    on QueryBuilder<Setting, Setting, QFilterCondition> {}
 
-extension UserSettingsEntityQueryLinks
-    on QueryBuilder<UserSettingsEntity, UserSettingsEntity, QFilterCondition> {}
+extension SettingQueryLinks
+    on QueryBuilder<Setting, Setting, QFilterCondition> {}
 
-extension UserSettingsEntityQuerySortBy
-    on QueryBuilder<UserSettingsEntity, UserSettingsEntity, QSortBy> {
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterSortBy>
-  sortByOpenChatOnLaunch() {
+extension SettingQuerySortBy on QueryBuilder<Setting, Setting, QSortBy> {
+  QueryBuilder<Setting, Setting, QAfterSortBy> sortByChatHome() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'openChatOnLaunch', Sort.asc);
+      return query.addSortBy(r'chat_home', Sort.asc);
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterSortBy>
-  sortByOpenChatOnLaunchDesc() {
+  QueryBuilder<Setting, Setting, QAfterSortBy> sortByChatHomeDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'openChatOnLaunch', Sort.desc);
+      return query.addSortBy(r'chat_home', Sort.desc);
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterSortBy>
-  sortByPermissionGuideSeen() {
+  QueryBuilder<Setting, Setting, QAfterSortBy> sortByGuideSeen() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'permissionGuideSeen', Sort.asc);
+      return query.addSortBy(r'guide_seen', Sort.asc);
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterSortBy>
-  sortByPermissionGuideSeenDesc() {
+  QueryBuilder<Setting, Setting, QAfterSortBy> sortByGuideSeenDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'permissionGuideSeen', Sort.desc);
-    });
-  }
-
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterSortBy>
-  sortByUpdatedAtMillis() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'updatedAtMillis', Sort.asc);
-    });
-  }
-
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterSortBy>
-  sortByUpdatedAtMillisDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'updatedAtMillis', Sort.desc);
+      return query.addSortBy(r'guide_seen', Sort.desc);
     });
   }
 }
 
-extension UserSettingsEntityQuerySortThenBy
-    on QueryBuilder<UserSettingsEntity, UserSettingsEntity, QSortThenBy> {
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterSortBy>
-  thenById() {
+extension SettingQuerySortThenBy
+    on QueryBuilder<Setting, Setting, QSortThenBy> {
+  QueryBuilder<Setting, Setting, QAfterSortBy> thenByChatHome() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'id', Sort.asc);
+      return query.addSortBy(r'chat_home', Sort.asc);
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterSortBy>
-  thenByIdDesc() {
+  QueryBuilder<Setting, Setting, QAfterSortBy> thenByChatHomeDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'id', Sort.desc);
+      return query.addSortBy(r'chat_home', Sort.desc);
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterSortBy>
-  thenByOpenChatOnLaunch() {
+  QueryBuilder<Setting, Setting, QAfterSortBy> thenByGuideSeen() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'openChatOnLaunch', Sort.asc);
+      return query.addSortBy(r'guide_seen', Sort.asc);
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterSortBy>
-  thenByOpenChatOnLaunchDesc() {
+  QueryBuilder<Setting, Setting, QAfterSortBy> thenByGuideSeenDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'openChatOnLaunch', Sort.desc);
+      return query.addSortBy(r'guide_seen', Sort.desc);
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterSortBy>
-  thenByPermissionGuideSeen() {
+  QueryBuilder<Setting, Setting, QAfterSortBy> thenByRowId() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'permissionGuideSeen', Sort.asc);
+      return query.addSortBy(r'row_id', Sort.asc);
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterSortBy>
-  thenByPermissionGuideSeenDesc() {
+  QueryBuilder<Setting, Setting, QAfterSortBy> thenByRowIdDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'permissionGuideSeen', Sort.desc);
-    });
-  }
-
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterSortBy>
-  thenByUpdatedAtMillis() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'updatedAtMillis', Sort.asc);
-    });
-  }
-
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QAfterSortBy>
-  thenByUpdatedAtMillisDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'updatedAtMillis', Sort.desc);
+      return query.addSortBy(r'row_id', Sort.desc);
     });
   }
 }
 
-extension UserSettingsEntityQueryWhereDistinct
-    on QueryBuilder<UserSettingsEntity, UserSettingsEntity, QDistinct> {
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QDistinct>
-  distinctByGovernanceProvincialBankOrder() {
+extension SettingQueryWhereDistinct
+    on QueryBuilder<Setting, Setting, QDistinct> {
+  QueryBuilder<Setting, Setting, QDistinct> distinctByBankOrder() {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'governanceProvincialBankOrder');
+      return query.addDistinctBy(r'bank_order');
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QDistinct>
-  distinctByGovernanceProvincialCouncilOrder() {
+  QueryBuilder<Setting, Setting, QDistinct> distinctByChatHome() {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'governanceProvincialCouncilOrder');
+      return query.addDistinctBy(r'chat_home');
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QDistinct>
-  distinctByOpenChatOnLaunch() {
+  QueryBuilder<Setting, Setting, QDistinct> distinctByCouncilOrder() {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'openChatOnLaunch');
+      return query.addDistinctBy(r'council_order');
     });
   }
 
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QDistinct>
-  distinctByPermissionGuideSeen() {
+  QueryBuilder<Setting, Setting, QDistinct> distinctByGuideSeen() {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'permissionGuideSeen');
-    });
-  }
-
-  QueryBuilder<UserSettingsEntity, UserSettingsEntity, QDistinct>
-  distinctByUpdatedAtMillis() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'updatedAtMillis');
+      return query.addDistinctBy(r'guide_seen');
     });
   }
 }
 
-extension UserSettingsEntityQueryProperty
-    on QueryBuilder<UserSettingsEntity, UserSettingsEntity, QQueryProperty> {
-  QueryBuilder<UserSettingsEntity, int, QQueryOperations> idProperty() {
+extension SettingQueryProperty
+    on QueryBuilder<Setting, Setting, QQueryProperty> {
+  QueryBuilder<Setting, int, QQueryOperations> rowIdProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'id');
+      return query.addPropertyName(r'row_id');
     });
   }
 
-  QueryBuilder<UserSettingsEntity, List<String>, QQueryOperations>
-  governanceProvincialBankOrderProperty() {
+  QueryBuilder<Setting, List<String>, QQueryOperations> bankOrderProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'governanceProvincialBankOrder');
+      return query.addPropertyName(r'bank_order');
     });
   }
 
-  QueryBuilder<UserSettingsEntity, List<String>, QQueryOperations>
-  governanceProvincialCouncilOrderProperty() {
+  QueryBuilder<Setting, bool, QQueryOperations> chatHomeProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'governanceProvincialCouncilOrder');
+      return query.addPropertyName(r'chat_home');
     });
   }
 
-  QueryBuilder<UserSettingsEntity, bool, QQueryOperations>
-  openChatOnLaunchProperty() {
+  QueryBuilder<Setting, List<String>, QQueryOperations> councilOrderProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'openChatOnLaunch');
+      return query.addPropertyName(r'council_order');
     });
   }
 
-  QueryBuilder<UserSettingsEntity, bool, QQueryOperations>
-  permissionGuideSeenProperty() {
+  QueryBuilder<Setting, bool, QQueryOperations> guideSeenProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'permissionGuideSeen');
-    });
-  }
-
-  QueryBuilder<UserSettingsEntity, int, QQueryOperations>
-  updatedAtMillisProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'updatedAtMillis');
+      return query.addPropertyName(r'guide_seen');
     });
   }
 }
-
 // coverage:ignore-file
 // ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
 
-extension GetUserPublicInstitutionSubscriptionEntityCollection on Isar {
-  IsarCollection<UserPublicInstitutionSubscriptionEntity>
-  get userPublicInstitutionSubscriptionEntitys => this.collection();
+extension GetFollowCollection on Isar {
+  IsarCollection<Follow> get follows => this.collection();
 }
 
-const UserPublicInstitutionSubscriptionEntitySchema = CollectionSchema(
-  name: r'UserPublicInstitutionSubscriptionEntity',
-  id: 3567225888220971213,
+const FollowSchema = CollectionSchema(
+  name: r'follow',
+  id: -6022719189966030500,
   properties: {
-    r'institutionCidNumber': PropertySchema(
+    r'cid_number': PropertySchema(
       id: 0,
-      name: r'institutionCidNumber',
+      name: r'cid_number',
       type: IsarType.string,
     ),
-    r'subscribedAtMillis': PropertySchema(
+    r'peer_cid': PropertySchema(
       id: 1,
-      name: r'subscribedAtMillis',
-      type: IsarType.long,
-    ),
-    r'subscriberCidNumber': PropertySchema(
-      id: 2,
-      name: r'subscriberCidNumber',
-      type: IsarType.string,
-    ),
-    r'subscriptionKey': PropertySchema(
-      id: 3,
-      name: r'subscriptionKey',
+      name: r'peer_cid',
       type: IsarType.string,
     ),
   },
 
-  estimateSize: _userPublicInstitutionSubscriptionEntityEstimateSize,
-  serialize: _userPublicInstitutionSubscriptionEntitySerialize,
-  deserialize: _userPublicInstitutionSubscriptionEntityDeserialize,
-  deserializeProp: _userPublicInstitutionSubscriptionEntityDeserializeProp,
-  idName: r'id',
+  estimateSize: _followEstimateSize,
+  serialize: _followSerialize,
+  deserialize: _followDeserialize,
+  deserializeProp: _followDeserializeProp,
+  idName: r'row_id',
   indexes: {
-    r'subscriptionKey': IndexSchema(
-      id: -3021161140690889130,
-      name: r'subscriptionKey',
+    r'cid_number_peer_cid': IndexSchema(
+      id: 5724213696030659010,
+      name: r'cid_number_peer_cid',
       unique: true,
-      replace: true,
-      properties: [
-        IndexPropertySchema(
-          name: r'subscriptionKey',
-          type: IndexType.hash,
-          caseSensitive: true,
-        ),
-      ],
-    ),
-    r'subscriberCidNumber': IndexSchema(
-      id: -7606147423943542076,
-      name: r'subscriberCidNumber',
-      unique: false,
       replace: false,
       properties: [
         IndexPropertySchema(
-          name: r'subscriberCidNumber',
+          name: r'cid_number',
+          type: IndexType.hash,
+          caseSensitive: true,
+        ),
+        IndexPropertySchema(
+          name: r'peer_cid',
           type: IndexType.hash,
           caseSensitive: true,
         ),
@@ -11259,53 +8139,47 @@ const UserPublicInstitutionSubscriptionEntitySchema = CollectionSchema(
   links: {},
   embeddedSchemas: {},
 
-  getId: _userPublicInstitutionSubscriptionEntityGetId,
-  getLinks: _userPublicInstitutionSubscriptionEntityGetLinks,
-  attach: _userPublicInstitutionSubscriptionEntityAttach,
+  getId: _followGetId,
+  getLinks: _followGetLinks,
+  attach: _followAttach,
   version: '3.3.2',
 );
 
-int _userPublicInstitutionSubscriptionEntityEstimateSize(
-  UserPublicInstitutionSubscriptionEntity object,
+int _followEstimateSize(
+  Follow object,
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
   var bytesCount = offsets.last;
-  bytesCount += 3 + object.institutionCidNumber.length * 3;
-  bytesCount += 3 + object.subscriberCidNumber.length * 3;
-  bytesCount += 3 + object.subscriptionKey.length * 3;
+  bytesCount += 3 + object.cidNumber.length * 3;
+  bytesCount += 3 + object.peerCid.length * 3;
   return bytesCount;
 }
 
-void _userPublicInstitutionSubscriptionEntitySerialize(
-  UserPublicInstitutionSubscriptionEntity object,
+void _followSerialize(
+  Follow object,
   IsarWriter writer,
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
-  writer.writeString(offsets[0], object.institutionCidNumber);
-  writer.writeLong(offsets[1], object.subscribedAtMillis);
-  writer.writeString(offsets[2], object.subscriberCidNumber);
-  writer.writeString(offsets[3], object.subscriptionKey);
+  writer.writeString(offsets[0], object.cidNumber);
+  writer.writeString(offsets[1], object.peerCid);
 }
 
-UserPublicInstitutionSubscriptionEntity
-_userPublicInstitutionSubscriptionEntityDeserialize(
+Follow _followDeserialize(
   Id id,
   IsarReader reader,
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
-  final object = UserPublicInstitutionSubscriptionEntity();
-  object.id = id;
-  object.institutionCidNumber = reader.readString(offsets[0]);
-  object.subscribedAtMillis = reader.readLong(offsets[1]);
-  object.subscriberCidNumber = reader.readString(offsets[2]);
-  object.subscriptionKey = reader.readString(offsets[3]);
+  final object = Follow();
+  object.cidNumber = reader.readString(offsets[0]);
+  object.peerCid = reader.readString(offsets[1]);
+  object.rowId = id;
   return object;
 }
 
-P _userPublicInstitutionSubscriptionEntityDeserializeProp<P>(
+P _followDeserializeProp<P>(
   IsarReader reader,
   int propertyId,
   int offset,
@@ -11315,258 +8189,243 @@ P _userPublicInstitutionSubscriptionEntityDeserializeProp<P>(
     case 0:
       return (reader.readString(offset)) as P;
     case 1:
-      return (reader.readLong(offset)) as P;
-    case 2:
-      return (reader.readString(offset)) as P;
-    case 3:
       return (reader.readString(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
   }
 }
 
-Id _userPublicInstitutionSubscriptionEntityGetId(
-  UserPublicInstitutionSubscriptionEntity object,
-) {
-  return object.id;
+Id _followGetId(Follow object) {
+  return object.rowId;
 }
 
-List<IsarLinkBase<dynamic>> _userPublicInstitutionSubscriptionEntityGetLinks(
-  UserPublicInstitutionSubscriptionEntity object,
-) {
+List<IsarLinkBase<dynamic>> _followGetLinks(Follow object) {
   return [];
 }
 
-void _userPublicInstitutionSubscriptionEntityAttach(
-  IsarCollection<dynamic> col,
-  Id id,
-  UserPublicInstitutionSubscriptionEntity object,
-) {
-  object.id = id;
+void _followAttach(IsarCollection<dynamic> col, Id id, Follow object) {
+  object.rowId = id;
 }
 
-extension UserPublicInstitutionSubscriptionEntityByIndex
-    on IsarCollection<UserPublicInstitutionSubscriptionEntity> {
-  Future<UserPublicInstitutionSubscriptionEntity?> getBySubscriptionKey(
-    String subscriptionKey,
+extension FollowByIndex on IsarCollection<Follow> {
+  Future<Follow?> getByCidNumberPeerCid(String cidNumber, String peerCid) {
+    return getByIndex(r'cid_number_peer_cid', [cidNumber, peerCid]);
+  }
+
+  Follow? getByCidNumberPeerCidSync(String cidNumber, String peerCid) {
+    return getByIndexSync(r'cid_number_peer_cid', [cidNumber, peerCid]);
+  }
+
+  Future<bool> deleteByCidNumberPeerCid(String cidNumber, String peerCid) {
+    return deleteByIndex(r'cid_number_peer_cid', [cidNumber, peerCid]);
+  }
+
+  bool deleteByCidNumberPeerCidSync(String cidNumber, String peerCid) {
+    return deleteByIndexSync(r'cid_number_peer_cid', [cidNumber, peerCid]);
+  }
+
+  Future<List<Follow?>> getAllByCidNumberPeerCid(
+    List<String> cidNumberValues,
+    List<String> peerCidValues,
   ) {
-    return getByIndex(r'subscriptionKey', [subscriptionKey]);
+    final len = cidNumberValues.length;
+    assert(
+      peerCidValues.length == len,
+      'All index values must have the same length',
+    );
+    final values = <List<dynamic>>[];
+    for (var i = 0; i < len; i++) {
+      values.add([cidNumberValues[i], peerCidValues[i]]);
+    }
+
+    return getAllByIndex(r'cid_number_peer_cid', values);
   }
 
-  UserPublicInstitutionSubscriptionEntity? getBySubscriptionKeySync(
-    String subscriptionKey,
+  List<Follow?> getAllByCidNumberPeerCidSync(
+    List<String> cidNumberValues,
+    List<String> peerCidValues,
   ) {
-    return getByIndexSync(r'subscriptionKey', [subscriptionKey]);
+    final len = cidNumberValues.length;
+    assert(
+      peerCidValues.length == len,
+      'All index values must have the same length',
+    );
+    final values = <List<dynamic>>[];
+    for (var i = 0; i < len; i++) {
+      values.add([cidNumberValues[i], peerCidValues[i]]);
+    }
+
+    return getAllByIndexSync(r'cid_number_peer_cid', values);
   }
 
-  Future<bool> deleteBySubscriptionKey(String subscriptionKey) {
-    return deleteByIndex(r'subscriptionKey', [subscriptionKey]);
-  }
-
-  bool deleteBySubscriptionKeySync(String subscriptionKey) {
-    return deleteByIndexSync(r'subscriptionKey', [subscriptionKey]);
-  }
-
-  Future<List<UserPublicInstitutionSubscriptionEntity?>>
-  getAllBySubscriptionKey(List<String> subscriptionKeyValues) {
-    final values = subscriptionKeyValues.map((e) => [e]).toList();
-    return getAllByIndex(r'subscriptionKey', values);
-  }
-
-  List<UserPublicInstitutionSubscriptionEntity?> getAllBySubscriptionKeySync(
-    List<String> subscriptionKeyValues,
+  Future<int> deleteAllByCidNumberPeerCid(
+    List<String> cidNumberValues,
+    List<String> peerCidValues,
   ) {
-    final values = subscriptionKeyValues.map((e) => [e]).toList();
-    return getAllByIndexSync(r'subscriptionKey', values);
+    final len = cidNumberValues.length;
+    assert(
+      peerCidValues.length == len,
+      'All index values must have the same length',
+    );
+    final values = <List<dynamic>>[];
+    for (var i = 0; i < len; i++) {
+      values.add([cidNumberValues[i], peerCidValues[i]]);
+    }
+
+    return deleteAllByIndex(r'cid_number_peer_cid', values);
   }
 
-  Future<int> deleteAllBySubscriptionKey(List<String> subscriptionKeyValues) {
-    final values = subscriptionKeyValues.map((e) => [e]).toList();
-    return deleteAllByIndex(r'subscriptionKey', values);
-  }
-
-  int deleteAllBySubscriptionKeySync(List<String> subscriptionKeyValues) {
-    final values = subscriptionKeyValues.map((e) => [e]).toList();
-    return deleteAllByIndexSync(r'subscriptionKey', values);
-  }
-
-  Future<Id> putBySubscriptionKey(
-    UserPublicInstitutionSubscriptionEntity object,
+  int deleteAllByCidNumberPeerCidSync(
+    List<String> cidNumberValues,
+    List<String> peerCidValues,
   ) {
-    return putByIndex(r'subscriptionKey', object);
+    final len = cidNumberValues.length;
+    assert(
+      peerCidValues.length == len,
+      'All index values must have the same length',
+    );
+    final values = <List<dynamic>>[];
+    for (var i = 0; i < len; i++) {
+      values.add([cidNumberValues[i], peerCidValues[i]]);
+    }
+
+    return deleteAllByIndexSync(r'cid_number_peer_cid', values);
   }
 
-  Id putBySubscriptionKeySync(
-    UserPublicInstitutionSubscriptionEntity object, {
+  Future<Id> putByCidNumberPeerCid(Follow object) {
+    return putByIndex(r'cid_number_peer_cid', object);
+  }
+
+  Id putByCidNumberPeerCidSync(Follow object, {bool saveLinks = true}) {
+    return putByIndexSync(r'cid_number_peer_cid', object, saveLinks: saveLinks);
+  }
+
+  Future<List<Id>> putAllByCidNumberPeerCid(List<Follow> objects) {
+    return putAllByIndex(r'cid_number_peer_cid', objects);
+  }
+
+  List<Id> putAllByCidNumberPeerCidSync(
+    List<Follow> objects, {
     bool saveLinks = true,
   }) {
-    return putByIndexSync(r'subscriptionKey', object, saveLinks: saveLinks);
-  }
-
-  Future<List<Id>> putAllBySubscriptionKey(
-    List<UserPublicInstitutionSubscriptionEntity> objects,
-  ) {
-    return putAllByIndex(r'subscriptionKey', objects);
-  }
-
-  List<Id> putAllBySubscriptionKeySync(
-    List<UserPublicInstitutionSubscriptionEntity> objects, {
-    bool saveLinks = true,
-  }) {
-    return putAllByIndexSync(r'subscriptionKey', objects, saveLinks: saveLinks);
+    return putAllByIndexSync(
+      r'cid_number_peer_cid',
+      objects,
+      saveLinks: saveLinks,
+    );
   }
 }
 
-extension UserPublicInstitutionSubscriptionEntityQueryWhereSort
-    on
-        QueryBuilder<
-          UserPublicInstitutionSubscriptionEntity,
-          UserPublicInstitutionSubscriptionEntity,
-          QWhere
-        > {
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterWhere
-  >
-  anyId() {
+extension FollowQueryWhereSort on QueryBuilder<Follow, Follow, QWhere> {
+  QueryBuilder<Follow, Follow, QAfterWhere> anyRowId() {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(const IdWhereClause.any());
     });
   }
 }
 
-extension UserPublicInstitutionSubscriptionEntityQueryWhere
-    on
-        QueryBuilder<
-          UserPublicInstitutionSubscriptionEntity,
-          UserPublicInstitutionSubscriptionEntity,
-          QWhereClause
-        > {
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterWhereClause
-  >
-  idEqualTo(Id id) {
+extension FollowQueryWhere on QueryBuilder<Follow, Follow, QWhereClause> {
+  QueryBuilder<Follow, Follow, QAfterWhereClause> rowIdEqualTo(Id rowId) {
     return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IdWhereClause.between(lower: id, upper: id));
+      return query.addWhereClause(
+        IdWhereClause.between(lower: rowId, upper: rowId),
+      );
     });
   }
 
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterWhereClause
-  >
-  idNotEqualTo(Id id) {
+  QueryBuilder<Follow, Follow, QAfterWhereClause> rowIdNotEqualTo(Id rowId) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(
-              IdWhereClause.lessThan(upper: id, includeUpper: false),
+              IdWhereClause.lessThan(upper: rowId, includeUpper: false),
             )
             .addWhereClause(
-              IdWhereClause.greaterThan(lower: id, includeLower: false),
+              IdWhereClause.greaterThan(lower: rowId, includeLower: false),
             );
       } else {
         return query
             .addWhereClause(
-              IdWhereClause.greaterThan(lower: id, includeLower: false),
+              IdWhereClause.greaterThan(lower: rowId, includeLower: false),
             )
             .addWhereClause(
-              IdWhereClause.lessThan(upper: id, includeUpper: false),
+              IdWhereClause.lessThan(upper: rowId, includeUpper: false),
             );
       }
     });
   }
 
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterWhereClause
-  >
-  idGreaterThan(Id id, {bool include = false}) {
+  QueryBuilder<Follow, Follow, QAfterWhereClause> rowIdGreaterThan(
+    Id rowId, {
+    bool include = false,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
-        IdWhereClause.greaterThan(lower: id, includeLower: include),
+        IdWhereClause.greaterThan(lower: rowId, includeLower: include),
       );
     });
   }
 
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterWhereClause
-  >
-  idLessThan(Id id, {bool include = false}) {
+  QueryBuilder<Follow, Follow, QAfterWhereClause> rowIdLessThan(
+    Id rowId, {
+    bool include = false,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
-        IdWhereClause.lessThan(upper: id, includeUpper: include),
+        IdWhereClause.lessThan(upper: rowId, includeUpper: include),
       );
     });
   }
 
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterWhereClause
-  >
-  idBetween(
-    Id lowerId,
-    Id upperId, {
+  QueryBuilder<Follow, Follow, QAfterWhereClause> rowIdBetween(
+    Id lowerRowId,
+    Id upperRowId, {
     bool includeLower = true,
     bool includeUpper = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
         IdWhereClause.between(
-          lower: lowerId,
+          lower: lowerRowId,
           includeLower: includeLower,
-          upper: upperId,
+          upper: upperRowId,
           includeUpper: includeUpper,
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterWhereClause
-  >
-  subscriptionKeyEqualTo(String subscriptionKey) {
+  QueryBuilder<Follow, Follow, QAfterWhereClause> cidNumberEqualToAnyPeerCid(
+    String cidNumber,
+  ) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
         IndexWhereClause.equalTo(
-          indexName: r'subscriptionKey',
-          value: [subscriptionKey],
+          indexName: r'cid_number_peer_cid',
+          value: [cidNumber],
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterWhereClause
-  >
-  subscriptionKeyNotEqualTo(String subscriptionKey) {
+  QueryBuilder<Follow, Follow, QAfterWhereClause> cidNumberNotEqualToAnyPeerCid(
+    String cidNumber,
+  ) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'subscriptionKey',
+                indexName: r'cid_number_peer_cid',
                 lower: [],
-                upper: [subscriptionKey],
+                upper: [cidNumber],
                 includeUpper: false,
               ),
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'subscriptionKey',
-                lower: [subscriptionKey],
+                indexName: r'cid_number_peer_cid',
+                lower: [cidNumber],
                 includeLower: false,
                 upper: [],
               ),
@@ -11575,17 +8434,17 @@ extension UserPublicInstitutionSubscriptionEntityQueryWhere
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'subscriptionKey',
-                lower: [subscriptionKey],
+                indexName: r'cid_number_peer_cid',
+                lower: [cidNumber],
                 includeLower: false,
                 upper: [],
               ),
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'subscriptionKey',
+                indexName: r'cid_number_peer_cid',
                 lower: [],
-                upper: [subscriptionKey],
+                upper: [cidNumber],
                 includeUpper: false,
               ),
             );
@@ -11593,62 +8452,56 @@ extension UserPublicInstitutionSubscriptionEntityQueryWhere
     });
   }
 
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterWhereClause
-  >
-  subscriberCidNumberEqualTo(String subscriberCidNumber) {
+  QueryBuilder<Follow, Follow, QAfterWhereClause> cidNumberPeerCidEqualTo(
+    String cidNumber,
+    String peerCid,
+  ) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
         IndexWhereClause.equalTo(
-          indexName: r'subscriberCidNumber',
-          value: [subscriberCidNumber],
+          indexName: r'cid_number_peer_cid',
+          value: [cidNumber, peerCid],
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterWhereClause
-  >
-  subscriberCidNumberNotEqualTo(String subscriberCidNumber) {
+  QueryBuilder<Follow, Follow, QAfterWhereClause>
+  cidNumberEqualToPeerCidNotEqualTo(String cidNumber, String peerCid) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'subscriberCidNumber',
-                lower: [],
-                upper: [subscriberCidNumber],
+                indexName: r'cid_number_peer_cid',
+                lower: [cidNumber],
+                upper: [cidNumber, peerCid],
                 includeUpper: false,
               ),
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'subscriberCidNumber',
-                lower: [subscriberCidNumber],
+                indexName: r'cid_number_peer_cid',
+                lower: [cidNumber, peerCid],
                 includeLower: false,
-                upper: [],
+                upper: [cidNumber],
               ),
             );
       } else {
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'subscriberCidNumber',
-                lower: [subscriberCidNumber],
+                indexName: r'cid_number_peer_cid',
+                lower: [cidNumber, peerCid],
                 includeLower: false,
-                upper: [],
+                upper: [cidNumber],
               ),
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'subscriberCidNumber',
-                lower: [],
-                upper: [subscriberCidNumber],
+                indexName: r'cid_number_peer_cid',
+                lower: [cidNumber],
+                upper: [cidNumber, peerCid],
                 includeUpper: false,
               ),
             );
@@ -11657,66 +8510,338 @@ extension UserPublicInstitutionSubscriptionEntityQueryWhere
   }
 }
 
-extension UserPublicInstitutionSubscriptionEntityQueryFilter
-    on
-        QueryBuilder<
-          UserPublicInstitutionSubscriptionEntity,
-          UserPublicInstitutionSubscriptionEntity,
-          QFilterCondition
-        > {
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  idEqualTo(Id value) {
+extension FollowQueryFilter on QueryBuilder<Follow, Follow, QFilterCondition> {
+  QueryBuilder<Follow, Follow, QAfterFilterCondition> cidNumberEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'id', value: value),
+        FilterCondition.equalTo(
+          property: r'cid_number',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
       );
     });
   }
 
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  idGreaterThan(Id value, {bool include = false}) {
+  QueryBuilder<Follow, Follow, QAfterFilterCondition> cidNumberGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'id',
+          property: r'cid_number',
           value: value,
+          caseSensitive: caseSensitive,
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  idLessThan(Id value, {bool include = false}) {
+  QueryBuilder<Follow, Follow, QAfterFilterCondition> cidNumberLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'id',
+          property: r'cid_number',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Follow, Follow, QAfterFilterCondition> cidNumberBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'cid_number',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Follow, Follow, QAfterFilterCondition> cidNumberStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'cid_number',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Follow, Follow, QAfterFilterCondition> cidNumberEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'cid_number',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Follow, Follow, QAfterFilterCondition> cidNumberContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'cid_number',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Follow, Follow, QAfterFilterCondition> cidNumberMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'cid_number',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Follow, Follow, QAfterFilterCondition> cidNumberIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'cid_number', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Follow, Follow, QAfterFilterCondition> cidNumberIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'cid_number', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Follow, Follow, QAfterFilterCondition> peerCidEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'peer_cid',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Follow, Follow, QAfterFilterCondition> peerCidGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'peer_cid',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Follow, Follow, QAfterFilterCondition> peerCidLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'peer_cid',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Follow, Follow, QAfterFilterCondition> peerCidBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'peer_cid',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Follow, Follow, QAfterFilterCondition> peerCidStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'peer_cid',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Follow, Follow, QAfterFilterCondition> peerCidEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'peer_cid',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Follow, Follow, QAfterFilterCondition> peerCidContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'peer_cid',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Follow, Follow, QAfterFilterCondition> peerCidMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'peer_cid',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Follow, Follow, QAfterFilterCondition> peerCidIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'peer_cid', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Follow, Follow, QAfterFilterCondition> peerCidIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'peer_cid', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Follow, Follow, QAfterFilterCondition> rowIdEqualTo(Id value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'row_id', value: value),
+      );
+    });
+  }
+
+  QueryBuilder<Follow, Follow, QAfterFilterCondition> rowIdGreaterThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'row_id',
           value: value,
         ),
       );
     });
   }
 
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  idBetween(
+  QueryBuilder<Follow, Follow, QAfterFilterCondition> rowIdLessThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'row_id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Follow, Follow, QAfterFilterCondition> rowIdBetween(
     Id lower,
     Id upper, {
     bool includeLower = true,
@@ -11725,979 +8850,119 @@ extension UserPublicInstitutionSubscriptionEntityQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'id',
+          property: r'row_id',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
           includeUpper: includeUpper,
         ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  institutionCidNumberEqualTo(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(
-          property: r'institutionCidNumber',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  institutionCidNumberGreaterThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'institutionCidNumber',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  institutionCidNumberLessThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'institutionCidNumber',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  institutionCidNumberBetween(
-    String lower,
-    String upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'institutionCidNumber',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  institutionCidNumberStartsWith(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.startsWith(
-          property: r'institutionCidNumber',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  institutionCidNumberEndsWith(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.endsWith(
-          property: r'institutionCidNumber',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  institutionCidNumberContains(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.contains(
-          property: r'institutionCidNumber',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  institutionCidNumberMatches(String pattern, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.matches(
-          property: r'institutionCidNumber',
-          wildcard: pattern,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  institutionCidNumberIsEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'institutionCidNumber', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  institutionCidNumberIsNotEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          property: r'institutionCidNumber',
-          value: '',
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  subscribedAtMillisEqualTo(int value) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'subscribedAtMillis', value: value),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  subscribedAtMillisGreaterThan(int value, {bool include = false}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'subscribedAtMillis',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  subscribedAtMillisLessThan(int value, {bool include = false}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'subscribedAtMillis',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  subscribedAtMillisBetween(
-    int lower,
-    int upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'subscribedAtMillis',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  subscriberCidNumberEqualTo(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(
-          property: r'subscriberCidNumber',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  subscriberCidNumberGreaterThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'subscriberCidNumber',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  subscriberCidNumberLessThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'subscriberCidNumber',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  subscriberCidNumberBetween(
-    String lower,
-    String upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'subscriberCidNumber',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  subscriberCidNumberStartsWith(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.startsWith(
-          property: r'subscriberCidNumber',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  subscriberCidNumberEndsWith(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.endsWith(
-          property: r'subscriberCidNumber',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  subscriberCidNumberContains(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.contains(
-          property: r'subscriberCidNumber',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  subscriberCidNumberMatches(String pattern, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.matches(
-          property: r'subscriberCidNumber',
-          wildcard: pattern,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  subscriberCidNumberIsEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'subscriberCidNumber', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  subscriberCidNumberIsNotEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          property: r'subscriberCidNumber',
-          value: '',
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  subscriptionKeyEqualTo(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(
-          property: r'subscriptionKey',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  subscriptionKeyGreaterThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'subscriptionKey',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  subscriptionKeyLessThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'subscriptionKey',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  subscriptionKeyBetween(
-    String lower,
-    String upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'subscriptionKey',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  subscriptionKeyStartsWith(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.startsWith(
-          property: r'subscriptionKey',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  subscriptionKeyEndsWith(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.endsWith(
-          property: r'subscriptionKey',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  subscriptionKeyContains(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.contains(
-          property: r'subscriptionKey',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  subscriptionKeyMatches(String pattern, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.matches(
-          property: r'subscriptionKey',
-          wildcard: pattern,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  subscriptionKeyIsEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'subscriptionKey', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterFilterCondition
-  >
-  subscriptionKeyIsNotEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'subscriptionKey', value: ''),
       );
     });
   }
 }
 
-extension UserPublicInstitutionSubscriptionEntityQueryObject
-    on
-        QueryBuilder<
-          UserPublicInstitutionSubscriptionEntity,
-          UserPublicInstitutionSubscriptionEntity,
-          QFilterCondition
-        > {}
+extension FollowQueryObject on QueryBuilder<Follow, Follow, QFilterCondition> {}
 
-extension UserPublicInstitutionSubscriptionEntityQueryLinks
-    on
-        QueryBuilder<
-          UserPublicInstitutionSubscriptionEntity,
-          UserPublicInstitutionSubscriptionEntity,
-          QFilterCondition
-        > {}
+extension FollowQueryLinks on QueryBuilder<Follow, Follow, QFilterCondition> {}
 
-extension UserPublicInstitutionSubscriptionEntityQuerySortBy
-    on
-        QueryBuilder<
-          UserPublicInstitutionSubscriptionEntity,
-          UserPublicInstitutionSubscriptionEntity,
-          QSortBy
-        > {
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterSortBy
-  >
-  sortByInstitutionCidNumber() {
+extension FollowQuerySortBy on QueryBuilder<Follow, Follow, QSortBy> {
+  QueryBuilder<Follow, Follow, QAfterSortBy> sortByCidNumber() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'institutionCidNumber', Sort.asc);
+      return query.addSortBy(r'cid_number', Sort.asc);
     });
   }
 
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterSortBy
-  >
-  sortByInstitutionCidNumberDesc() {
+  QueryBuilder<Follow, Follow, QAfterSortBy> sortByCidNumberDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'institutionCidNumber', Sort.desc);
+      return query.addSortBy(r'cid_number', Sort.desc);
     });
   }
 
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterSortBy
-  >
-  sortBySubscribedAtMillis() {
+  QueryBuilder<Follow, Follow, QAfterSortBy> sortByPeerCid() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'subscribedAtMillis', Sort.asc);
+      return query.addSortBy(r'peer_cid', Sort.asc);
     });
   }
 
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterSortBy
-  >
-  sortBySubscribedAtMillisDesc() {
+  QueryBuilder<Follow, Follow, QAfterSortBy> sortByPeerCidDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'subscribedAtMillis', Sort.desc);
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterSortBy
-  >
-  sortBySubscriberCidNumber() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'subscriberCidNumber', Sort.asc);
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterSortBy
-  >
-  sortBySubscriberCidNumberDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'subscriberCidNumber', Sort.desc);
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterSortBy
-  >
-  sortBySubscriptionKey() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'subscriptionKey', Sort.asc);
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterSortBy
-  >
-  sortBySubscriptionKeyDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'subscriptionKey', Sort.desc);
+      return query.addSortBy(r'peer_cid', Sort.desc);
     });
   }
 }
 
-extension UserPublicInstitutionSubscriptionEntityQuerySortThenBy
-    on
-        QueryBuilder<
-          UserPublicInstitutionSubscriptionEntity,
-          UserPublicInstitutionSubscriptionEntity,
-          QSortThenBy
-        > {
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterSortBy
-  >
-  thenById() {
+extension FollowQuerySortThenBy on QueryBuilder<Follow, Follow, QSortThenBy> {
+  QueryBuilder<Follow, Follow, QAfterSortBy> thenByCidNumber() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'id', Sort.asc);
+      return query.addSortBy(r'cid_number', Sort.asc);
     });
   }
 
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterSortBy
-  >
-  thenByIdDesc() {
+  QueryBuilder<Follow, Follow, QAfterSortBy> thenByCidNumberDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'id', Sort.desc);
+      return query.addSortBy(r'cid_number', Sort.desc);
     });
   }
 
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterSortBy
-  >
-  thenByInstitutionCidNumber() {
+  QueryBuilder<Follow, Follow, QAfterSortBy> thenByPeerCid() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'institutionCidNumber', Sort.asc);
+      return query.addSortBy(r'peer_cid', Sort.asc);
     });
   }
 
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterSortBy
-  >
-  thenByInstitutionCidNumberDesc() {
+  QueryBuilder<Follow, Follow, QAfterSortBy> thenByPeerCidDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'institutionCidNumber', Sort.desc);
+      return query.addSortBy(r'peer_cid', Sort.desc);
     });
   }
 
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterSortBy
-  >
-  thenBySubscribedAtMillis() {
+  QueryBuilder<Follow, Follow, QAfterSortBy> thenByRowId() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'subscribedAtMillis', Sort.asc);
+      return query.addSortBy(r'row_id', Sort.asc);
     });
   }
 
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterSortBy
-  >
-  thenBySubscribedAtMillisDesc() {
+  QueryBuilder<Follow, Follow, QAfterSortBy> thenByRowIdDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'subscribedAtMillis', Sort.desc);
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterSortBy
-  >
-  thenBySubscriberCidNumber() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'subscriberCidNumber', Sort.asc);
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterSortBy
-  >
-  thenBySubscriberCidNumberDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'subscriberCidNumber', Sort.desc);
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterSortBy
-  >
-  thenBySubscriptionKey() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'subscriptionKey', Sort.asc);
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QAfterSortBy
-  >
-  thenBySubscriptionKeyDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'subscriptionKey', Sort.desc);
+      return query.addSortBy(r'row_id', Sort.desc);
     });
   }
 }
 
-extension UserPublicInstitutionSubscriptionEntityQueryWhereDistinct
-    on
-        QueryBuilder<
-          UserPublicInstitutionSubscriptionEntity,
-          UserPublicInstitutionSubscriptionEntity,
-          QDistinct
-        > {
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QDistinct
-  >
-  distinctByInstitutionCidNumber({bool caseSensitive = true}) {
+extension FollowQueryWhereDistinct on QueryBuilder<Follow, Follow, QDistinct> {
+  QueryBuilder<Follow, Follow, QDistinct> distinctByCidNumber({
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(
-        r'institutionCidNumber',
-        caseSensitive: caseSensitive,
-      );
+      return query.addDistinctBy(r'cid_number', caseSensitive: caseSensitive);
     });
   }
 
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QDistinct
-  >
-  distinctBySubscribedAtMillis() {
+  QueryBuilder<Follow, Follow, QDistinct> distinctByPeerCid({
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'subscribedAtMillis');
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QDistinct
-  >
-  distinctBySubscriberCidNumber({bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(
-        r'subscriberCidNumber',
-        caseSensitive: caseSensitive,
-      );
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    UserPublicInstitutionSubscriptionEntity,
-    QDistinct
-  >
-  distinctBySubscriptionKey({bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(
-        r'subscriptionKey',
-        caseSensitive: caseSensitive,
-      );
+      return query.addDistinctBy(r'peer_cid', caseSensitive: caseSensitive);
     });
   }
 }
 
-extension UserPublicInstitutionSubscriptionEntityQueryProperty
-    on
-        QueryBuilder<
-          UserPublicInstitutionSubscriptionEntity,
-          UserPublicInstitutionSubscriptionEntity,
-          QQueryProperty
-        > {
-  QueryBuilder<UserPublicInstitutionSubscriptionEntity, int, QQueryOperations>
-  idProperty() {
+extension FollowQueryProperty on QueryBuilder<Follow, Follow, QQueryProperty> {
+  QueryBuilder<Follow, int, QQueryOperations> rowIdProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'id');
+      return query.addPropertyName(r'row_id');
     });
   }
 
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    String,
-    QQueryOperations
-  >
-  institutionCidNumberProperty() {
+  QueryBuilder<Follow, String, QQueryOperations> cidNumberProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'institutionCidNumber');
+      return query.addPropertyName(r'cid_number');
     });
   }
 
-  QueryBuilder<UserPublicInstitutionSubscriptionEntity, int, QQueryOperations>
-  subscribedAtMillisProperty() {
+  QueryBuilder<Follow, String, QQueryOperations> peerCidProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'subscribedAtMillis');
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    String,
-    QQueryOperations
-  >
-  subscriberCidNumberProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'subscriberCidNumber');
-    });
-  }
-
-  QueryBuilder<
-    UserPublicInstitutionSubscriptionEntity,
-    String,
-    QQueryOperations
-  >
-  subscriptionKeyProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'subscriptionKey');
+      return query.addPropertyName(r'peer_cid');
     });
   }
 }

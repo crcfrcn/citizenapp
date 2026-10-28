@@ -14,12 +14,12 @@ import 'package:citizenapp/citizen/institution/institution_code_label.dart';
 
 class AdminAccountStorageDecoded {
   const AdminAccountStorageDecoded({
-    required this.institutionCode,
+    required this.orgCode,
     required this.kind,
     required this.admins,
   });
 
-  final String institutionCode;
+  final String orgCode;
   final int kind;
   final List<AdminPerson> admins;
 }
@@ -41,7 +41,7 @@ class AdminAccountStorageCodec {
         final decoded = InstitutionRoleStorageCodec.decodeAdmins(bytes);
         if (decoded == null) return null;
         return AdminAccountStorageDecoded(
-          institutionCode: decoded.institutionCode,
+          orgCode: decoded.orgCode,
           kind: kind,
           admins: decoded.admins,
         );
@@ -51,22 +51,24 @@ class AdminAccountStorageCodec {
       final (cidLen, cidLenBytes) = _decodeCompactU32(bytes, offset);
       offset += cidLenBytes + cidLen;
       if (offset + 5 > bytes.length) return null;
-      final institutionCode = InstitutionCodeLabel.codeToString(
+      final orgCode = InstitutionCodeLabel.codeToString(
         bytes.sublist(offset, offset + 4),
       );
       offset += 4;
       final storedKind = bytes[offset++];
       if (storedKind != kindPersonal) return null;
 
-      final decodedAdmins =
-          InstitutionRoleStorageCodec.decodeAdminVector(bytes, offset);
+      final decodedAdmins = InstitutionRoleStorageCodec.decodeAdminVector(
+        bytes,
+        offset,
+      );
       if (decodedAdmins == null) return null;
       final admins = decodedAdmins.$1;
       offset = decodedAdmins.$2;
       // 个人多签 value 后续仍有 creator/区块号/status；扫描只消费 admins。
       if (offset + 32 + 4 + 4 + 1 != bytes.length) return null;
       return AdminAccountStorageDecoded(
-        institutionCode: institutionCode,
+        orgCode: orgCode,
         kind: kindPersonal,
         admins: admins,
       );

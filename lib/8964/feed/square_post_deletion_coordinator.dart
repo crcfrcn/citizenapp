@@ -52,7 +52,7 @@ class SquarePostDeletionCoordinator implements SquarePostDeleteCoordinator {
 
     await _journal.recordDeletion(cidNumber, postId);
     final record = await _journal.readDeletion(cidNumber, postId);
-    if (record!.operationState != 'confirmed') {
+    if (record!.jobState != 'confirmed') {
       try {
         await _remoteDeletion.deletePost(session: session, postId: postId);
       } on SquareApiException catch (error) {

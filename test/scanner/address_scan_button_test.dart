@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
+
 import '../support/fake_citizen_sdk.dart';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:citizenapp/scanner/qr_scan_page.dart';
@@ -23,17 +25,23 @@ void main() {
     });
     sdk = await transport.open();
   });
-  tearDown(() async { await sdk.close(); await transport.dispose(); });
+  tearDown(() async {
+    await sdk.close();
+    await transport.dispose();
+  });
   Widget host({required ValueChanged<String> onAddressScanned}) {
-    return Provider<CitizenSdk>.value(value: sdk, child: MaterialApp(
-      home: Scaffold(
-        body: TextField(
-          decoration: InputDecoration(
-            suffixIcon: AddressScanButton(onAddressScanned: onAddressScanned),
+    return Provider<CitizenSdk>.value(
+      value: sdk,
+      child: MaterialApp(
+        home: Scaffold(
+          body: TextField(
+            decoration: InputDecoration(
+              suffixIcon: AddressScanButton(onAddressScanned: onAddressScanned),
+            ),
           ),
         ),
       ),
-    ));
+    );
   }
 
   testWidgets('渲染为带扫码提示的按钮', (tester) async {
@@ -59,25 +67,26 @@ void main() {
     final navigatorKey = GlobalKey<NavigatorState>();
     final scanned = <String>[];
     await tester.pumpWidget(
-      Provider<CitizenSdk>.value(value: sdk, child: MaterialApp(
-        navigatorKey: navigatorKey,
-        home: Scaffold(
-          body: TextField(
-            decoration: InputDecoration(
-              suffixIcon: AddressScanButton(
-                onAddressScanned: scanned.add,
+      Provider<CitizenSdk>.value(
+        value: sdk,
+        child: MaterialApp(
+          navigatorKey: navigatorKey,
+          home: Scaffold(
+            body: TextField(
+              decoration: InputDecoration(
+                suffixIcon: AddressScanButton(onAddressScanned: scanned.add),
               ),
             ),
           ),
         ),
-      )),
+      ),
     );
 
     await tester.tap(find.byType(IconButton));
     await tester.pumpAndSettle();
     navigatorKey.currentState!.pop(
       const QrScanTransferResult(
-        toSs58Address: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+        toAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
         amount: '100.50',
         symbol: 'GMB',
         memo: '房租',
@@ -94,18 +103,21 @@ void main() {
     final navigatorKey = GlobalKey<NavigatorState>();
     var callCount = 0;
     await tester.pumpWidget(
-      Provider<CitizenSdk>.value(value: sdk, child: MaterialApp(
-        navigatorKey: navigatorKey,
-        home: Scaffold(
-          body: TextField(
-            decoration: InputDecoration(
-              suffixIcon: AddressScanButton(
-                onAddressScanned: (_) => callCount += 1,
+      Provider<CitizenSdk>.value(
+        value: sdk,
+        child: MaterialApp(
+          navigatorKey: navigatorKey,
+          home: Scaffold(
+            body: TextField(
+              decoration: InputDecoration(
+                suffixIcon: AddressScanButton(
+                  onAddressScanned: (_) => callCount += 1,
+                ),
               ),
             ),
           ),
         ),
-      )),
+      ),
     );
 
     await tester.tap(find.byType(IconButton));

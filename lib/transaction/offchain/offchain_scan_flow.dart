@@ -17,9 +17,8 @@ Future<void> proceedOffchainPayment({
   required QrScanTransferResult result,
 }) async {
   if (result.bank == null || result.bank!.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('该收款码不支持扫码支付(未绑定清算行)')),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('该收款码不支持扫码支付(未绑定清算行)')));
     return;
   }
 
@@ -29,9 +28,8 @@ Future<void> proceedOffchainPayment({
   final endpoint = await directory.fetchEndpoint(result.bank!);
   if (!context.mounted) return;
   if (endpoint == null) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('收款方清算行尚未声明节点,无法扫码支付')),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('收款方清算行尚未声明节点,无法扫码支付')));
     return;
   }
 
@@ -39,7 +37,7 @@ Future<void> proceedOffchainPayment({
     MaterialPageRoute(
       builder: (_) => OffchainClearingPayPage(
         wallet: wallet,
-        toSs58Address: result.toSs58Address,
+        toAddress: result.toAddress,
         recipientBankCidNumber: result.bank!,
         clearingNodeWssUrl: endpoint.wssUrl,
         initialAmountYuan: result.amount,

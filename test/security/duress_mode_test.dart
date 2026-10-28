@@ -64,7 +64,7 @@ void main() {
       signing: _StorageOnlySigning(),
       mlsDeviceRegistrar: ({
         required cidNumber,
-        required bindingRevision,
+        required bindRev,
         required accountId,
         required signBinding,
       }) async => throw StateError('unexpected device registration'),

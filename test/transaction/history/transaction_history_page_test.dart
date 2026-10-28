@@ -1,27 +1,24 @@
+import 'package:citizenapp/storage/wallet_isar.dart' as wallet_store show Entry;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:citizenapp/storage/wallet_isar.dart';
 import 'package:citizenapp/transaction/history/local_tx_store.dart';
 import 'package:citizenapp/transaction/history/transaction_history_page.dart';
 
-LocalTxEntity _record({String status = LocalTxStore.statusFinalized}) {
-  return LocalTxEntity()
-    ..recordKey = '0x${'aa' * 32}:0x${'bb' * 32}:1'
-    ..ss58Address = 'wallet_addr'
+wallet_store.Entry _record({String status = LocalTxStore.statusFinalized}) {
+  return wallet_store.Entry()
     ..accountId = '0x${'aa' * 32}'
-    ..type = 'transfer'
-    ..amountDeltaFen = '120'
-    ..transferAmountFen = '120'
-    ..counterpartySs58Address = 'from_addr'
-    ..fromSs58Address = 'from_addr'
-    ..toSs58Address = 'wallet_addr'
-    ..status = status
-    ..source = 'chain_event'
+    ..entryKind = 'transfer'
+    ..amountDelta = '120'
+    ..transferAmount = '120'
+    ..fromAddress = 'from_addr'
+    ..toAddress = 'wallet_addr'
+    ..entryState = status
+    ..entrySource = 'chain_event'
     ..blockNumber = 10
-    ..blockHash = '0xblock'
+    ..chainHash = '0xblock'
     ..eventIndex = 1
-    ..createdAtMillis = DateTime(2026, 5, 20, 12).millisecondsSinceEpoch
-    ..confirmedAtMillis = status == LocalTxStore.statusFinalized
+    ..createdAt = DateTime(2026, 5, 20, 12).millisecondsSinceEpoch
+    ..confirmedAt = status == LocalTxStore.statusFinalized
         ? DateTime(2026, 5, 20, 12, 1).millisecondsSinceEpoch
         : null;
 }
@@ -29,17 +26,17 @@ LocalTxEntity _record({String status = LocalTxStore.statusFinalized}) {
 void main() {
   testWidgets('u128真实费用逐分显示，最佳链与预估费用明确标注', (tester) async {
     final pending = _record(status: LocalTxStore.statusInBlock)
-      ..source = 'local_submit'
+      ..entrySource = 'local_submit'
       ..eventIndex = null
-      ..feeFen = '10';
+      ..feeAmount = '10';
     await tester.pumpWidget(
       MaterialApp(home: LocalTxRecordDetailPage(record: pending)),
     );
     expect(find.text('预估手续费'), findsOneWidget);
     expect(find.text('最佳链已打包，等待最终确认'), findsOneWidget);
     final actual = _record()
-      ..source = 'sdk_finalized_event'
-      ..feeFen = '340282366920938463463374607431768211455';
+      ..entrySource = 'sdk_finalized_event'
+      ..feeAmount = '340282366920938463463374607431768211455';
     await tester.pumpWidget(
       MaterialApp(home: LocalTxRecordDetailPage(record: actual)),
     );
@@ -52,8 +49,8 @@ void main() {
   });
 
   testWidgets('收到和发出记录共用条目，SDK业务事件显示中文来源', (tester) async {
-    final income = _record()..source = 'sdk_finalized_event';
-    final expense = _record()..amountDeltaFen = '-120';
+    final income = _record()..entrySource = 'sdk_finalized_event';
+    final expense = _record()..amountDelta = '-120';
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(

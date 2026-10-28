@@ -40,7 +40,10 @@ class CitizenIdentitySignService {
   }) async {
     final CitizenQrDocument request;
     try {
-      request = (await _qr.parseForPurpose(raw, CitizenQrScanPurpose.signingRequest)).document;
+      request = (await _qr.parseForPurpose(
+        raw,
+        CitizenQrScanPurpose.signingRequest,
+      )).document;
     } on CitizenSdkException catch (error) {
       throw CitizenIdentitySignException(error.message);
     }
@@ -59,7 +62,8 @@ class CitizenIdentitySignService {
     if (_normalizeHex(decoded.accountId) != requestPublicKey) {
       throw const CitizenIdentitySignException('身份载荷钱包与签名请求不一致');
     }
-    final account = requiredAccount ??
+    final account =
+        requiredAccount ??
         _findAccount(
           await wallet.getState().result,
           request.signerAccountId!.toLowerCase(),
@@ -81,9 +85,12 @@ class CitizenIdentitySignService {
     CitizenSigning signing,
     BuildContext? context,
   ) async {
-    final bytes = await CitizenSigning.encodePayload(CitizenSigningPayload.message(
-      opTag: kOpSignCitizenIdentity, scalePayload: prep.request.reviewPayload!,
-    ));
+    final bytes = await CitizenSigning.encodePayload(
+      CitizenSigningPayload.message(
+        opTag: kOpSignCitizenIdentity,
+        scalePayload: prep.request.reviewPayload!,
+      ),
+    );
     if (context != null && !context.mounted) {
       throw const CitizenIdentitySignException('当前签名页面已经关闭');
     }
@@ -94,12 +101,14 @@ class CitizenIdentitySignService {
       payload: bytes,
       action: prep.request.action!,
     );
-    return (await _qr.encodeDocument(CitizenQrContent.signResponse(
-      requestId: prep.request.requestId!,
-      expiresAt: BigInt.from(prep.request.expiresAt!),
-      signerAccountId: prep.account.accountId,
-      signature: signature,
-    ))).canonicalText;
+    return (await _qr.encodeDocument(
+      CitizenQrContent.signResponse(
+        requestId: prep.request.requestId!,
+        expiresAt: BigInt.from(prep.request.expiresAt!),
+        signerAccountId: prep.account.accountId,
+        signature: signature,
+      ),
+    )).canonicalText;
   }
 
   static String _normalizeHex(String value) {

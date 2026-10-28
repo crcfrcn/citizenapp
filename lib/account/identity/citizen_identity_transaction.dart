@@ -72,7 +72,7 @@ class CitizenIdentityTransaction {
   ///
   /// [cidNumber] 由 [generateCitizenCid] 生成的首选候选号(CTZN/NATP)。
   /// [accountId] 占号并绑定的账户(= origin = 签名者,小写 `0x` + 64 hex);其私钥经
-  /// `signForAccountId` 按 accountId 精确取用(**不走** interim 账户0 入口,占任意本地账户皆准)。
+  /// `signForAccountId` 按 account_id 精确取用(**不走** interim 账户0 入口,占任意本地账户皆准)。
   /// [externalSigning] 只负责向用户展示 SDK 已生成的 QR_V1 请求并返回扫码原文。
   Future<({String txHash, int usedNonce, String blockHashHex})> selfOccupyCid({
     required String cidNumber,

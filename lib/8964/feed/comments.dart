@@ -1,3 +1,5 @@
+import 'package:citizenapp/storage/social_isar.dart' as social_store show Reply;
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
@@ -130,7 +132,7 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
       }
       final restored = await Notifications.instance.restore();
       if (!mounted || generation != _generation) return;
-      if (!restored || Notifications.instance.scope?.cid != owner) {
+      if (!restored || Notifications.instance.scope?.cidNumber != owner) {
         // 旧详情的ownerCid不能把新身份切换回旧草稿或继续发送。
         setState(() {
           _cid = '';
@@ -145,17 +147,16 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
       _ownerScope = scope;
       _notice = Notifications.instance.interactionSequence;
       final saved = await SocialIsar.instance.read(
-        (db) async => await db.squareCommentsEntitys.getByCidNumberPostId(
-          owner,
-          widget.postId,
-        ),
+        (db) async => await db
+            .collection<social_store.Reply>()
+            .getByCidNumberPostId(owner, widget.postId),
       );
       if (!mounted ||
           generation != _generation ||
           !Notifications.instance.isCurrent(scope)) {
         return;
       }
-      // 完整缓存校验及升级提交后才安装CID，失败不能留下可继续操作的旧快照。
+      // 完整缓存校验后才安装CID；失败保留原记录并阻断操作。
       _ownerScope = scope;
       if (owner == previousCid) {
         _reloadPending = _reloadPending || reload;
@@ -163,37 +164,22 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
         _text.text = pending?['reply_text'] as String? ?? draft;
       }
       if (saved != null) {
-        final page = jsonDecode(saved.pageJson) as Map<String, dynamic>;
-        var upgraded = false;
-        void move(Map<String, dynamic> value, String old, String current) {
-          if (!value.containsKey(old)) return;
-          if (value.containsKey(current)) throw StateError('评论旧记录字段冲突');
-          value[current] = value.remove(old);
-          upgraded = true;
-        }
-
-        if (page['comments'] is List) {
-          for (final raw in page['comments'] as List) {
-            final value = (raw as Map).cast<String, dynamic>();
-            move(value, 'sequence', 'reply_seq');
-            move(value, 'body', 'reply_text');
-            move(value, 'state', 'reply_state');
-          }
-        }
+        final page = jsonDecode(saved.pageData) as Map<String, dynamic>;
         _rows = _decode(page);
         _next = page['next_cursor'] as int?;
-        if (saved.pendingJson != null) {
-          _pending = (jsonDecode(saved.pendingJson!) as Map)
+        if (saved.pendingData != null) {
+          _pending = (jsonDecode(saved.pendingData!) as Map)
               .cast<String, dynamic>();
-          move(_pending!, 'body', 'reply_text');
+          const fields = {'operation_id', 'reply_text', 'reply_to'};
+          if (_pending!.length != fields.length ||
+              !_pending!.keys.every(fields.contains) ||
+              _pending!['operation_id'] is! String ||
+              _pending!['reply_text'] is! String ||
+              (_pending!['reply_to'] != null &&
+                  _pending!['reply_to'] is! String)) {
+            throw const FormatException('评论待发记录无效');
+          }
           _text.text = _pending!['reply_text'] as String;
-        }
-        if (upgraded) {
-          await _save(
-            ownerCid: owner,
-            priorPage: saved.pageJson,
-            priorPending: saved.pendingJson,
-          );
         }
         _afterLayout();
       }
@@ -213,7 +199,7 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
     } on Object {
       if (mounted && generation == _generation) {
         setState(() {
-          // 升级未确认时撤销内存操作入口；原记录保留，刷新须重新读取完整快照。
+          // 校验失败撤销内存操作入口；刷新须重新读取完整快照。
           _cid = '';
           _ownerScope = null;
           _rows = [];
@@ -326,13 +312,8 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _save({
-    bool completed = false,
-    String? ownerCid,
-    String? priorPage,
-    String? priorPending,
-  }) async {
-    final generation = _generation, cid = ownerCid ?? _cid;
+  Future<void> _save({bool completed = false}) async {
+    final generation = _generation, cid = _cid;
     final page = jsonEncode({
       'comments': _rows.take(50).map((r) => r.toJson()).toList(),
       'next_cursor': _rows.length > 50 ? _rows[49].replySeq : _next,
@@ -351,22 +332,18 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
     await SocialIsar.instance.writeTxn((db) async {
       if (generation != _generation || cid.isEmpty) return;
       final row =
-          await db.squareCommentsEntitys.getByCidNumberPostId(
+          await db.collection<social_store.Reply>().getByCidNumberPostId(
             cid,
             widget.postId,
           ) ??
-          SquareCommentsEntity();
-      if (priorPage != null &&
-          (row.pageJson != priorPage || row.pendingJson != priorPending)) {
-        throw StateError('评论旧记录已变化，升级未提交');
-      }
+          social_store.Reply();
       if (!mounted || generation != _generation) return;
       row
         ..cidNumber = cid
         ..postId = widget.postId
-        ..pageJson = page
-        ..pendingJson = pending;
-      await db.squareCommentsEntitys.put(row);
+        ..pageData = page
+        ..pendingData = pending;
+      await db.collection<social_store.Reply>().put(row);
     });
   }
 

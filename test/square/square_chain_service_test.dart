@@ -8,19 +8,21 @@ import 'package:polkadart/scale_codec.dart' show CompactBigIntCodec;
 import 'package:citizenapp/8964/compose/square_chain_service.dart';
 import 'package:citizenapp/8964/feed/square_models.dart';
 import 'package:citizenapp/account/identity/citizen_identity_chain_reader.dart';
+
 import '../support/fake_citizen_sdk.dart';
 
 void main() {
   test('publish_post call_data 与 runtime 下标和字段顺序一致', () {
-    final hashHex = List<int>.generate(32, (index) => index + 1)
-        .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
-        .join();
+    final hashHex = List<int>.generate(
+      32,
+      (index) => index + 1,
+    ).map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
 
     final callData = SquareChainService.buildPublishPostCallData(
       postId: 'sqp_abc',
       postType: SquarePostType.video,
       contentHashHex: hashHex,
-      storageReceiptId: 'sqr_receipt',
+      receiptId: 'sqr_receipt',
     );
 
     final expected = <int>[
@@ -42,19 +44,15 @@ void main() {
         postId: 'sqp_abc',
         postType: SquarePostType.document,
         contentHashHex: '00' * 32,
-        storageReceiptId: 'sqr_receipt',
+        receiptId: 'sqr_receipt',
       ),
       throwsArgumentError,
     );
   });
 
   test('只把护照有效且状态正常的投票身份视为有效', () {
-    final normal = _votingIdentityBytes(
-      citizenStatus: 0,
-    );
-    final revoked = _votingIdentityBytes(
-      citizenStatus: 1,
-    );
+    final normal = _votingIdentityBytes(citizenStatus: 0);
+    final revoked = _votingIdentityBytes(citizenStatus: 1);
 
     expect(
       SquareChainService.votingIdentityIsActive(normal, today: 20260722),
@@ -85,7 +83,7 @@ void main() {
         CitizenIdentityChainSnapshot(
           cidNumber: 'CN001-CTZN-000000001-2026',
           accountId: Uint8List(32),
-          bindingRevision: 1,
+          bindRev: 1,
           votingIdentity: _votingIdentityBytes(citizenStatus: 0),
           candidateIdentity: _candidateIdentityBytes(),
         ),
@@ -105,7 +103,7 @@ void main() {
         CitizenIdentityChainSnapshot(
           cidNumber: 'CN001-CTZN-000000002-2026',
           accountId: Uint8List(32),
-          bindingRevision: 1,
+          bindRev: 1,
           votingIdentity: null,
         ),
       ),
@@ -152,9 +150,7 @@ Uint8List _candidateIdentityBytes() {
   return out.toBytes();
 }
 
-Uint8List _votingIdentityBytes({
-  required int citizenStatus,
-}) {
+Uint8List _votingIdentityBytes({required int citizenStatus}) {
   final out = BytesBuilder();
   out.add(_u32(20260101));
   out.add(_u32(20360101));
@@ -175,8 +171,8 @@ class _FakeIdentityReader extends CitizenIdentityChainReader {
 
   @override
   Future<CitizenIdentityChainSnapshot?> readByAccountId(
-          String ss58Address) async =>
-      snapshot;
+    String accountAddress,
+  ) async => snapshot;
 }
 
 class _BatchPriceChain extends TestCitizenChain {
@@ -185,10 +181,10 @@ class _BatchPriceChain extends TestCitizenChain {
 
   @override
   Future<CitizenBlockRef> getFinalizedHead() async => CitizenBlockRef(
-        hash: '0x${'11' * 32}',
-        number: BigInt.one,
-        finality: CitizenBlockFinality.finalized,
-      );
+    hash: '0x${'11' * 32}',
+    number: BigInt.one,
+    finality: CitizenBlockFinality.finalized,
+  );
 
   @override
   Future<List<Uint8List?>> getStorageBatch(

@@ -1,4 +1,5 @@
 import '../mls_authentication_fixture.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -15,7 +16,7 @@ class _PendingFollowsApi extends FakeProfileApi {
   _PendingFollowsApi() : super(sampleProfile());
 
   final Completer<({List<SquareFollowEntry> entries, int? nextCursor})>
-      completer = Completer();
+  completer = Completer();
 
   @override
   Future<({List<SquareFollowEntry> entries, int? nextCursor})> fetchFollows(
@@ -24,8 +25,7 @@ class _PendingFollowsApi extends FakeProfileApi {
     int limit = 20,
     int? cursor,
     SquareSession? session,
-  }) =>
-      completer.future;
+  }) => completer.future;
 }
 
 void main() {
@@ -33,7 +33,7 @@ void main() {
     deviceId: testMlsDeviceId,
     sessionToken: 'test-session',
     cidNumber: "CN220-CTZN2-198805200-2026",
-    bindingRevision: 1,
+    bindRev: 1,
     accountId:
         '0x6666666666666666666666666666666666666666666666666666666666666666',
     expiresAt: 9999999999999,

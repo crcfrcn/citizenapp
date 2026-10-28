@@ -1,3 +1,4 @@
+import 'package:citizenapp/storage/social_isar.dart' as social_store show Chunk;
 import 'package:citizenapp/account/profile/citizen_profile_api.dart'
     show CitizenRemoteImage;
 import 'package:flutter/material.dart';
@@ -30,16 +31,16 @@ SquareMediaItem _img({int? w, int? h}) => SquareMediaItem(
   mediaKind: SquareMediaKind.image,
   // 空 url → tile 走占位图标，测试不触网。
   url: '',
-  width: w,
-  height: h,
+  pixelWidth: w,
+  pixelHeight: h,
 );
 
 SquareMediaItem _video({int? w, int? h}) => SquareMediaItem(
   mediaKind: SquareMediaKind.video,
   url: '',
-  coverUrl: '',
-  width: w,
-  height: h,
+  previewUrl: '',
+  pixelWidth: w,
+  pixelHeight: h,
 );
 
 SquarePost _post({
@@ -49,7 +50,7 @@ SquarePost _post({
   String text = '正文',
   List<SquareMediaItem> media = const [],
   String? campaignPosition,
-  String? identityLevel = 'voting',
+  String? cidLevel = 'voting',
   bool isLocal = false,
 }) {
   return SquarePost(
@@ -60,13 +61,13 @@ SquarePost _post({
           '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
       displayName: '林正华',
       cidNumber: isLocal ? profile_fixtures.sampleProfile().cidNumber : null,
-      identityLevel: identityLevel,
+      cidLevel: cidLevel,
     ),
     postCategory: category,
     postType: postType,
     title: title,
     text: text,
-    createdAt: DateTime.fromMillisecondsSinceEpoch(1000),
+    publishedAt: DateTime.fromMillisecondsSinceEpoch(1000),
     mediaItems: media,
     campaignPosition: campaignPosition,
   );
@@ -162,18 +163,18 @@ void main() {
     await store.saveStream(
       SquareStoredMedia(
         cidNumber: cid,
-        mediaId: hash,
+
         mediaKind: video ? 'video' : 'image',
         contentType: video ? 'video/mp4' : 'image/png',
         byteSize: bytes.length,
-        sha256: hash,
+        bodyHash: hash,
       ),
       Stream.value(bytes),
     );
     await store.attach(
       SquareMediaReference(
         cidNumber: cid,
-        mediaId: hash,
+        bodyHash: hash,
         contentKind: 'post',
         contentId: 'post',
         mediaIndex: 0,
@@ -286,14 +287,15 @@ void main() {
     final bytes = Uint8List.fromList([1, 2, 3]);
     final item = await saveMedia(bytes);
     await SocialIsar.instance.writeTxn((db) async {
-      final row = await db.squareMediaChunkEntitys
-          .getByCidNumberMediaIdChunkIndex(
+      final row = await db
+          .collection<social_store.Chunk>()
+          .getByCidNumberBodyHashPartIndex(
             item.cidNumber!,
             sha256.convert(bytes).toString(),
             0,
           );
-      row!.chunkBytes = [9, 2, 3];
-      await db.squareMediaChunkEntitys.put(row);
+      row!.partBytes = [9, 2, 3];
+      await db.collection<social_store.Chunk>().put(row);
     });
     await expectLater(
       SquareLocalVideoSource.open(item),
@@ -582,7 +584,7 @@ void main() {
         SquarePostCard(
           post: _post(
             category: SquarePostCategory.campaign,
-            identityLevel: 'candidate',
+            cidLevel: 'candidate',
             campaignPosition: '市长候选人',
           ),
         ),
@@ -592,7 +594,7 @@ void main() {
     });
 
     testWidgets('非竞选帖不显示竞选药丸', (tester) async {
-      await _pump(tester, SquarePostCard(post: _post(identityLevel: 'voting')));
+      await _pump(tester, SquarePostCard(post: _post(cidLevel: 'voting')));
       expect(find.text('竞选'), findsNothing);
     });
 
@@ -729,8 +731,8 @@ void main() {
               SquareMediaItem(
                 mediaKind: SquareMediaKind.image,
                 url: 'https://example.com/cover.jpg',
-                width: 1080,
-                height: 1920,
+                pixelWidth: 1080,
+                pixelHeight: 1920,
               ),
             ],
           ),

@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:citizenapp/citizen/pallet_registry.dart';
+
 import 'dart:typed_data';
 
 import 'package:polkadart/scale_codec.dart' show ByteOutput, CompactBigIntCodec;
@@ -11,12 +12,13 @@ import 'package:citizenapp/citizen/institution/institution_code_label.dart';
 class PersonalAdminsChangeCallCodec {
   PersonalAdminsChangeCallCodec._();
 
-  static const int personalAdminsPalletIndex = PalletRegistry.personalAdminsPallet;
+  static const int personalAdminsPalletIndex =
+      PalletRegistry.personalAdminsPallet;
   static const int proposePersonalAdminsChangeCallIndex =
       PalletRegistry.proposePersonalAdminSetChangeCall;
 
   static Uint8List build({
-    required String institutionCode,
+    required String orgCode,
     required int adminKind,
     required Uint8List accountId,
     required List<AdminPerson> admins,
@@ -25,7 +27,7 @@ class PersonalAdminsChangeCallCodec {
     if (accountId.length != 32) {
       throw ArgumentError('accountId 必须为 32 字节');
     }
-    if (institutionCode != 'PMUL' || adminKind != 2) {
+    if (orgCode != 'PMUL' || adminKind != 2) {
       throw ArgumentError('机构管理员由 entity 任职结果管理；本调用只允许个人多签');
     }
     if (newThreshold <= 0) {
@@ -35,23 +37,23 @@ class PersonalAdminsChangeCallCodec {
     output.pushByte(personalAdminsPalletIndex);
     output.pushByte(proposePersonalAdminsChangeCallIndex);
     // institution_code: [u8;4]
-    output.write(
-        Uint8List.fromList(InstitutionCodeLabel.codeBytes(institutionCode)));
+    output.write(Uint8List.fromList(InstitutionCodeLabel.codeBytes(orgCode)));
     output.write(accountId);
     output.write(CompactBigIntCodec.codec.encode(BigInt.from(admins.length)));
     for (final admin in admins) {
-      final bytes = AdminAccountIdCodec.fromAccountIdText(admin.account_id);
+      final bytes = AdminAccountIdCodec.fromAccountIdText(admin.accountId);
       if (bytes.length != 32) {
         throw ArgumentError('管理员公钥必须为 32 字节');
       }
       output.write(bytes);
       // 统一 Admin 恒带公民 CID（个人多签为空 → Compact(0)）。
-      final cidBytes = utf8.encode(admin.cid_number);
-      output
-          .write(CompactBigIntCodec.codec.encode(BigInt.from(cidBytes.length)));
+      final cidBytes = utf8.encode(admin.cidNumber);
+      output.write(
+        CompactBigIntCodec.codec.encode(BigInt.from(cidBytes.length)),
+      );
       output.write(Uint8List.fromList(cidBytes));
-      _writeName(output, admin.family_name, 'family_name');
-      _writeName(output, admin.given_name, 'given_name');
+      _writeName(output, admin.familyName, 'family_name');
+      _writeName(output, admin.givenName, 'given_name');
     }
     final thresholdBytes = Uint8List(4);
     ByteData.sublistView(thresholdBytes)

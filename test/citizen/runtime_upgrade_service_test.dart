@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizenapp/citizen/runtime/runtime_upgrade_service.dart';
+
 import '../support/fake_citizen_sdk.dart';
 
 void main() {
@@ -26,29 +27,33 @@ void main() {
   }
 
   List<int> u32le(int value) => [
-        value & 0xff,
-        (value >> 8) & 0xff,
-        (value >> 16) & 0xff,
-        (value >> 24) & 0xff,
-      ];
+    value & 0xff,
+    (value >> 8) & 0xff,
+    (value >> 16) & 0xff,
+    (value >> 24) & 0xff,
+  ];
 
   List<int> u64le(int value) => [...u32le(value), ...u32le(value >> 32)];
 
   List<int> powParams() => [
-        ...u32le(1),
-        1,
-        0,
-        ...u64le(360000),
-        ...u32le(600),
-        ...u64le(4),
-        ...u64le(4),
-      ];
+    ...u32le(1),
+    1,
+    0,
+    ...u64le(360000),
+    ...u32le(600),
+    ...u64le(4),
+    ...u64le(4),
+  ];
 
   group('RuntimeUpgradeService 协议升级详情解码', () {
     test('解码带 rt-upg 前缀的协议升级提案摘要', () {
-      final service = RuntimeUpgradeService(chain: TestCitizenChain(), transactions: TestCitizenTransactions());
-      final actorCid =
-          Uint8List.fromList(utf8.encode('ZS001-NRC0G-944805165-2026'));
+      final service = RuntimeUpgradeService(
+        chain: TestCitizenChain(),
+        transactions: TestCitizenTransactions(),
+      );
+      final actorCid = Uint8List.fromList(
+        utf8.encode('ZS001-NRC0G-944805165-2026'),
+      );
       final proposer = Uint8List.fromList(List<int>.generate(32, (i) => i));
       final reason = Uint8List.fromList(utf8.encode('升级协议参数'));
       final codeHash = Uint8List.fromList(List<int>.filled(32, 0xab));
@@ -79,10 +84,14 @@ void main() {
     });
 
     test('非 rt-upg 提案摘要不按协议升级解码', () {
-      final service = RuntimeUpgradeService(chain: TestCitizenChain(), transactions: TestCitizenTransactions());
+      final service = RuntimeUpgradeService(
+        chain: TestCitizenChain(),
+        transactions: TestCitizenTransactions(),
+      );
       final proposer = Uint8List.fromList(List<int>.filled(32, 1));
-      final actorCid =
-          Uint8List.fromList(utf8.encode('ZS001-NRC0G-944805165-2026'));
+      final actorCid = Uint8List.fromList(
+        utf8.encode('ZS001-NRC0G-944805165-2026'),
+      );
       final reason = Uint8List.fromList(utf8.encode('其他提案'));
       final codeHash = Uint8List.fromList(List<int>.filled(32, 0xcd));
       final proposalData = Uint8List.fromList([
@@ -104,10 +113,14 @@ void main() {
     });
 
     test('带旧业务状态字段的协议升级摘要不再兼容', () {
-      final service = RuntimeUpgradeService(chain: TestCitizenChain(), transactions: TestCitizenTransactions());
+      final service = RuntimeUpgradeService(
+        chain: TestCitizenChain(),
+        transactions: TestCitizenTransactions(),
+      );
       final proposer = Uint8List.fromList(List<int>.generate(32, (i) => i));
-      final actorCid =
-          Uint8List.fromList(utf8.encode('ZS001-NRC0G-944805165-2026'));
+      final actorCid = Uint8List.fromList(
+        utf8.encode('ZS001-NRC0G-944805165-2026'),
+      );
       final reason = Uint8List.fromList(utf8.encode('旧摘要'));
       final codeHash = Uint8List.fromList(List<int>.filled(32, 0xef));
       final proposalData = Uint8List.fromList([

@@ -138,7 +138,9 @@ Future<void> _selectVersion(WidgetTester tester, int version) async {
   tester
       .widget<PopupMenuButton<int>>(find.byType(PopupMenuButton<int>))
       .onSelected!(version);
-  for (var i = 0; i < 4; i++) { await tester.pump(); }
+  for (var i = 0; i < 4; i++) {
+    await tester.pump();
+  }
 }
 
 void main() {
@@ -326,9 +328,7 @@ void main() {
 
   testWidgets('法律正文未返回时直接显示阅读壳且不使用整页转圈', (tester) async {
     await tester.pumpWidget(
-      MaterialApp(
-        home: LawReaderPage(lawId: 0, api: _PendingLawReaderApi()),
-      ),
+      MaterialApp(home: LawReaderPage(lawId: 0, api: _PendingLawReaderApi())),
     );
     await tester.pump();
 

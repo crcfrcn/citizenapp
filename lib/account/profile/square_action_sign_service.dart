@@ -33,8 +33,8 @@ class SquareActionSignPrep {
 
 /// 广场账户动作「签名响应方」（官网无私钥，CitizenApp 扫一扫代签）。
 ///
-/// 流程：扫 signRequest → 解析/两色解码 → 按 QR `u` 定位 accountId 钱包（拒本机没有的账户）
-/// → 用户核对动作 → **accountId 主钥**对 signing_message(0x1D) 签名（生物识别）→ 出 signResponse。
+/// 流程：扫 signRequest → 解析/两色解码 → 按 QR `u` 定位 account_id 钱包（拒本机没有的账户）
+/// → 用户核对动作 → **account_id 主钥**对 signing_message(0x1D) 签名（生物识别）→ 出 signResponse。
 class SquareActionSignService {
   SquareActionSignService({required CitizenQr qr}) : _qr = qr;
 
@@ -48,7 +48,10 @@ class SquareActionSignService {
   }) async {
     final CitizenQrDocument request;
     try {
-      request = (await _qr.parseForPurpose(raw, CitizenQrScanPurpose.signingRequest)).document;
+      request = (await _qr.parseForPurpose(
+        raw,
+        CitizenQrScanPurpose.signingRequest,
+      )).document;
     } on CitizenSdkException catch (e) {
       throw SquareActionSignException(
         SquareActionSignError.invalidRequest,
@@ -57,7 +60,8 @@ class SquareActionSignService {
     }
     if (request.action != CitizenQrActions.squareAccountAction) {
       throw const SquareActionSignException(
-        SquareActionSignError.invalidRequest, '该动作不属于 CitizenApp 业务二维码',
+        SquareActionSignError.invalidRequest,
+        '该动作不属于 CitizenApp 业务二维码',
       );
     }
     const actionLabel = '广场账户动作签名';
@@ -96,12 +100,16 @@ class SquareActionSignService {
     CitizenSigning signing,
     BuildContext? context,
   ) async {
-    final signBytes = await CitizenSigning.encodePayload(CitizenSigningPayload.message(
-      opTag: kOpSignSquareAction, scalePayload: prep.request.reviewPayload!,
-    ));
+    final signBytes = await CitizenSigning.encodePayload(
+      CitizenSigningPayload.message(
+        opTag: kOpSignSquareAction,
+        scalePayload: prep.request.reviewPayload!,
+      ),
+    );
     if (context != null && !context.mounted) {
       throw const SquareActionSignException(
-        SquareActionSignError.invalidRequest, '当前签名页面已经关闭',
+        SquareActionSignError.invalidRequest,
+        '当前签名页面已经关闭',
       );
     }
     final signature = await signCitizenPayload(
@@ -111,12 +119,14 @@ class SquareActionSignService {
       payload: signBytes,
       action: prep.request.action!,
     );
-    return (await _qr.encodeDocument(CitizenQrContent.signResponse(
-      requestId: prep.request.requestId!,
-      expiresAt: BigInt.from(prep.request.expiresAt!),
-      signerAccountId: prep.account.accountId,
-      signature: signature,
-    ))).canonicalText;
+    return (await _qr.encodeDocument(
+      CitizenQrContent.signResponse(
+        requestId: prep.request.requestId!,
+        expiresAt: BigInt.from(prep.request.expiresAt!),
+        signerAccountId: prep.account.accountId,
+        signature: signature,
+      ),
+    )).canonicalText;
   }
 
   static String _normalizeHex(String hex) {

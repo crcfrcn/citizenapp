@@ -1,6 +1,8 @@
+import 'package:citizenapp/storage/social_isar.dart'
+    as social_store
+    show Publish;
 import 'package:citizenapp/wallet/account_balance_snapshot_store.dart';
 
-import 'package:citizenapp/storage/social_isar.dart';
 import 'package:citizenapp/8964/compose/compose_draft_store.dart';
 import 'package:citizenapp/8964/feed/square_local_post_presenter.dart';
 
@@ -56,9 +58,8 @@ class SquareChainBalanceReader implements SquarePublishBalanceReader {
 
   @override
   Future<double> fetchFreshFinalizedBalanceYuan(String accountId) async {
-    final balance = await AccountBalanceSnapshotStore.forChain(
-      _chain,
-    ).getAccountBalance(accountId, forceRefresh: true);
+    final balance = await AccountBalanceSnapshotStore.forChain(_chain)
+        .getAccountBalance(accountId, forceRefresh: true);
     return balance.freeFen.toDouble() / 100;
   }
 
@@ -122,11 +123,11 @@ class SquarePublishService {
     externalSigning,
     String? title,
     List<Map<String, Object?>>? contentSections,
-    String? replacePostId,
+    String? replaceId,
     void Function(SquarePublishStage stage)? onStage,
   }) async {
     final trimmedText = text.trim();
-    if (!identity.hasWallet || identity.ss58Address == null) {
+    if (!identity.hasWallet || identity.accountAddress == null) {
       throw const SquarePublishException('请先创建或选择钱包');
     }
     if (trimmedText.isEmpty && mediaDrafts.isEmpty) {
@@ -137,17 +138,16 @@ class SquarePublishService {
     final pending = cid == null
         ? null
         : await _postStore.readPublication(cid, draftId);
-    if (pending?.publicationState == 'confirmed') {
+    if (pending?.jobState == 'confirmed') {
       // 远端成功事实已在本机：仅恢复本地事务，不再验真、上传或发起交易。
       final local = SquarePostStore.confirmedPublication(pending!);
       final warning = await _finishLocal(pending);
       return SquarePublishResult(
         post: const SquareLocalPostPresenter().present(local).post,
-        txHash: pending.transactionHash!,
-        blockHashHex: pending.blockHash!,
+        txHash: pending.txHash!,
+        blockHashHex: pending.chainHash!,
         completionWarning:
-            warning ??
-            (pending.replacePostId == null ? null : '本地副本已恢复，请检查原帖删除状态'),
+            warning ?? (pending.replaceId == null ? null : '本地副本已恢复，请检查原帖删除状态'),
       );
     }
 
@@ -165,11 +165,11 @@ class SquarePublishService {
     identity = SquareIdentityState(
       accountId: verified.accountId,
       cidNumber: snapshot.cidNumber,
-      ss58Address: verified.ss58Address,
+      accountAddress: verified.accountAddress,
       displayName: identity.displayName,
       walletIndex: identity.walletIndex,
       signMode: identity.signMode,
-      identityLevel: snapshot.votingIdentity == null
+      cidLevel: snapshot.votingIdentity == null
           ? 'visitor'
           : snapshot.candidateIdentity == null
           ? 'voting'
@@ -186,7 +186,7 @@ class SquarePublishService {
           session.accountId != pending.accountId) {
         throw const SquarePublishException('发布恢复会话与原发布归属不一致');
       }
-      if (pending.publicationState == 'submitting') {
+      if (pending.jobState == 'submitting') {
         // 进程可能在交易提交后退出。只查询已有发布证明，绝不再次签名或提交。
         final proof = await _publicationConfirmer.readPublishedProof(
           session: session,
@@ -194,11 +194,11 @@ class SquarePublishService {
         );
         _recordConfirmation(pending, proof.post);
         pending
-          ..blockHash = proof.blockHash
-          ..transactionHash = proof.transactionHash
-          ..publicationState = 'finalized';
+          ..chainHash = proof.blockHash
+          ..txHash = proof.transactionHash
+          ..jobState = 'finalized';
         await _postStore.savePublication(pending);
-        pending.publicationState = 'confirmed';
+        pending.jobState = 'confirmed';
         await _postStore.savePublication(pending);
         final warning = await _finishLocal(pending);
         return SquarePublishResult(
@@ -208,20 +208,20 @@ class SquarePublishService {
           completionWarning: warning,
         );
       }
-      if (pending.publicationState == 'finalized') {
+      if (pending.jobState == 'finalized') {
         final post = await _publicationConfirmer.confirmPublishedPost(
           session: session,
           postId: pending.postId,
-          blockHashHex: pending.blockHash!,
-          txHash: pending.transactionHash!,
+          blockHashHex: pending.chainHash!,
+          txHash: pending.txHash!,
         );
         _recordConfirmation(pending, post);
         await _postStore.savePublication(pending);
         final warning = await _finishLocal(pending);
         return SquarePublishResult(
           post: post,
-          txHash: pending.transactionHash!,
-          blockHashHex: pending.blockHash!,
+          txHash: pending.txHash!,
+          blockHashHex: pending.chainHash!,
           completionWarning: warning,
         );
       }
@@ -237,7 +237,7 @@ class SquarePublishService {
       );
     }
 
-    SquarePublicationEntity? publication;
+    social_store.Publish? publication;
     SquarePreparedContent? prepared;
     SquareUploadedContent? uploaded;
     SquareChainPublishedResult? chainResult;
@@ -256,21 +256,21 @@ class SquarePublishService {
 
       if (prepared.session.accountId != verified.accountId ||
           prepared.session.cidNumber != snapshot.cidNumber ||
-          prepared.session.bindingRevision != snapshot.bindingRevision) {
+          prepared.session.bindRev != snapshot.bindRev) {
         throw const SquarePublishException('发布会话与已验证身份不一致，请重新操作');
       }
-      publication = SquarePublicationEntity()
+      publication = social_store.Publish()
         ..cidNumber = prepared.session.cidNumber
         ..draftId = draftId
         ..accountId = identity.accountId
         ..postId = prepared.postId
         ..postType = postType.workerValue
         ..contentHash = prepared.contentHash
-        ..storageReceiptId = prepared.storageReceiptId
+        ..receiptId = prepared.receiptId
         ..uploadId = prepared.preparedUpload.uploadId
         ..manifestBytes = prepared.manifestBytes
-        ..publicationState = 'prepared'
-        ..replacePostId = replacePostId;
+        ..jobState = 'prepared'
+        ..replaceId = replaceId;
       await _postStore.savePublication(
         publication,
         references: prepared.mediaReferences,
@@ -286,7 +286,7 @@ class SquarePublishService {
       await _ensurePublishBalance(identity.accountId);
       onStage?.call(SquarePublishStage.submittingChain);
       await _identityResolver.assertCurrent(verified);
-      publication.publicationState = 'submitting';
+      publication.jobState = 'submitting';
       await _postStore.savePublication(publication);
       chainExecutionStarted = true;
       final chainFuture = _chainService.publishPost(
@@ -294,7 +294,7 @@ class SquarePublishService {
         postId: prepared.postId,
         postType: postType,
         contentHashHex: prepared.contentHash,
-        storageReceiptId: prepared.storageReceiptId,
+        receiptId: prepared.receiptId,
         externalSigning: externalSigning,
       );
       // CitizenSDK 接管交易观察并只在 Runtime finalized 终态返回；App 不再
@@ -302,9 +302,9 @@ class SquarePublishService {
       onStage?.call(SquarePublishStage.waitingInBlock);
       chainResult = await chainFuture;
       publication
-        ..publicationState = 'finalized'
-        ..transactionHash = chainResult.txHash
-        ..blockHash = chainResult.blockHashHex;
+        ..jobState = 'finalized'
+        ..txHash = chainResult.txHash
+        ..chainHash = chainResult.blockHashHex;
       await _postStore.savePublication(publication);
 
       onStage?.call(SquarePublishStage.confirmingPost);
@@ -326,7 +326,7 @@ class SquarePublishService {
       final cleanupWarning = await _deleteReplacedPostAfterSuccess(
         session: uploaded.session,
         newPostId: uploaded.postId,
-        replacePostId: replacePostId,
+        replaceId: replaceId,
       );
       final completionWarning = <String>[
         ?localCopyWarning,
@@ -382,7 +382,7 @@ class SquarePublishService {
   }
 
   Future<String?> _saveLocalCopyAfterSuccess({
-    required SquarePublicationEntity publication,
+    required social_store.Publish publication,
     required SquareIdentityState identity,
     required SquareSession session,
     required SquarePreparedContent prepared,
@@ -396,7 +396,7 @@ class SquarePublishService {
           session.accountId != identity.accountId ||
           confirmedPost.postType != postType ||
           confirmedPost.contentHash != prepared.contentHash ||
-          confirmedPost.storageReceiptId != prepared.storageReceiptId) {
+          confirmedPost.receiptId != prepared.receiptId) {
         throw const SquarePostStoreException('发布确认字段与本地 manifest 不一致');
       }
       _recordConfirmation(publication, confirmedPost);
@@ -410,7 +410,7 @@ class SquarePublishService {
     }
   }
 
-  Future<String?> _finishLocal(SquarePublicationEntity row) async {
+  Future<String?> _finishLocal(social_store.Publish row) async {
     try {
       await _localPostWriter.save(
         SquarePostStore.confirmedPublication(row),
@@ -429,31 +429,28 @@ class SquarePublishService {
     }
   }
 
-  static void _recordConfirmation(
-    SquarePublicationEntity row,
-    SquarePost post,
-  ) {
+  static void _recordConfirmation(social_store.Publish row, SquarePost post) {
     if (post.postId != row.postId ||
         post.author.cidNumber != row.cidNumber ||
         post.author.accountId != row.accountId ||
         post.contentHash != row.contentHash ||
-        post.storageReceiptId != row.storageReceiptId ||
+        post.receiptId != row.receiptId ||
         post.postType.workerValue != row.postType) {
       throw const SquarePublishException('远端确认与本机发布记录不一致');
     }
     row
-      ..publicationState = 'confirmed'
+      ..jobState = 'confirmed'
       ..postCategory = post.postCategory.workerValue
       ..chainBlock = post.chainBlock
-      ..createdAt = post.createdAt.millisecondsSinceEpoch;
+      ..publishedAt = post.publishedAt.millisecondsSinceEpoch;
   }
 
   Future<String?> _deleteReplacedPostAfterSuccess({
     required SquareSession session,
     required String newPostId,
-    required String? replacePostId,
+    required String? replaceId,
   }) async {
-    final oldPostId = replacePostId?.trim();
+    final oldPostId = replaceId?.trim();
     if (oldPostId == null || oldPostId.isEmpty || oldPostId == newPostId) {
       return null;
     }

@@ -26,8 +26,11 @@ void main() {
     WidgetTester tester,
     void Function(RegisterChoice) sink, {
     List<CitizenWalletStateAccount>? accounts,
-    RegistrationSubmitOutcome outcome = const RegistrationSubmitOutcome.success('已注册'),
-    Future<RegistrationSubmitOutcome> Function(BuildContext, RegisterChoice)? submit,
+    RegistrationSubmitOutcome outcome = const RegistrationSubmitOutcome.success(
+      '已注册',
+    ),
+    Future<RegistrationSubmitOutcome> Function(BuildContext, RegisterChoice)?
+    submit,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -117,8 +120,12 @@ void main() {
     await tester.tapAt(const Offset(8, 8));
     await tester.pump();
     expect(find.byType(RegisterIdentitySheet), findsOneWidget);
-    expect(tester.widget<TextButton>(find.widgetWithText(TextButton, '取消')).onPressed,
-        isNull);
+    expect(
+      tester
+          .widget<TextButton>(find.widgetWithText(TextButton, '取消'))
+          .onPressed,
+      isNull,
+    );
 
     pending.complete(const RegistrationSubmitOutcome.failure('注册服务超时，请重试'));
     await tester.pumpAndSettle();
@@ -143,7 +150,9 @@ void main() {
     await tester.pump();
     await tester.tap(find.text('确认注册'));
     await tester.pump();
-    final topup = tester.widget<OnchainTopupPage>(find.byType(OnchainTopupPage));
+    final topup = tester.widget<OnchainTopupPage>(
+      find.byType(OnchainTopupPage),
+    );
     expect(topup.accountId, target.accountId);
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();

@@ -7,51 +7,75 @@ import 'isar_core_bootstrap.dart';
 part 'social_isar.g.dart';
 
 /// 按浏览者CID和帖子保存已读取评论与待重试操作；公开内容不写入聊天历史。
+@Name('reply')
 @collection
-class SquareCommentsEntity {
-  Id id = Isar.autoIncrement;
+class Reply {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
+  @Name('cid_number')
   @Index(composite: [CompositeIndex('postId')], unique: true, replace: true)
   late String cidNumber;
+  @Name('post_id')
   late String postId;
-  late String pageJson;
-  String? pendingJson;
+  @Name('page_data')
+  late String pageData;
+  @Name('pending_data')
+  String? pendingData;
 }
 
 /// 用户明确删除的持久事实；确认后保留以阻止迟到同步复活帖子。
+@Name('erase')
 @collection
-class SquarePostDeletionEntity {
-  Id id = Isar.autoIncrement;
+class Erase {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
+  @Name('cid_number')
   @Index(composite: [CompositeIndex('postId')], unique: true)
   late String cidNumber;
+  @Name('post_id')
   late String postId;
-  late String operationState;
+  @Name('job_state')
+  late String jobState;
 }
 
 /// 本人已发布广场内容的设备本地副本。
 ///
 /// [cidNumber] 是内容归属真源，[accountId] 只记录发布时的链上签名账户事实。
 /// 正文与媒体声明只保存已经由内容哈希确认的原始 manifest 字节。
+@Name('post')
 @collection
-class SquareLocalPostEntity {
-  Id id = Isar.autoIncrement;
+class Post {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 
+  @Name('post_id')
   @Index(unique: true, replace: true)
   late String postId;
 
+  @Name('cid_number')
   @Index()
   late String cidNumber;
 
+  @Name('account_id')
   late String accountId;
+  @Name('post_category')
   late String postCategory;
+  @Name('post_type')
   late String postType;
+  @Name('manifest_bytes')
   late List<byte> manifestBytes;
+  @Name('content_hash')
   late String contentHash;
-  late String storageReceiptId;
+  @Name('receipt_id')
+  late String receiptId;
+  @Name('chain_block')
   int? chainBlock;
 
+  @Name('published_at')
   @Index()
-  late int createdAt;
+  late int publishedAt;
 
+  @Name('post_state')
   late String postState;
 }
 
@@ -60,151 +84,204 @@ class SquareLocalPostEntity {
 /// 草稿属于 Social 域，不得借用 WalletIsar 或通用数据库。媒体与文章块使用规范 JSON 保存
 /// 是因为它们本身是有序嵌套结构；主键、类型、正文和时间均为显式字段，禁止再把整条
 /// 草稿塞进通用 KV。
+@Name('draft')
 @collection
-class SquareComposeDraftEntity {
-  Id id = Isar.autoIncrement;
+class Draft {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 
-  /// `cidNumber|draftId` 的唯一键，只用于本地集合唯一性。
-  @Index(unique: true, replace: true)
-  late String draftKey;
-
-  @Index()
+  @Name('cid_number')
+  @Index(composite: [CompositeIndex('draftId')], unique: true, replace: true)
   late String cidNumber;
 
+  @Name('draft_id')
   late String draftId;
+  @Name('post_type')
   late String postType;
+  @Name('post_title')
   String? title;
+  @Name('post_text')
   late String text;
-  late String mediaJson;
-  String? contentSectionsJson;
+  @Name('media_data')
+  late String mediaData;
+  @Name('section_data')
+  String? sectionData;
 
+  @Name('updated_at')
   @Index()
-  late int updatedAtMillis;
+  late int updatedAt;
 }
 
 /// 本人广场副本的远端同步检查点。
 ///
 /// 它只记录一次完整回灌结束时的远端事实，不保存设备当前时间。
+@Name('cursor')
 @collection
-class SquarePostSyncCheckpointEntity {
-  Id id = Isar.autoIncrement;
+class PostCursor {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 
+  @Name('cid_number')
   @Index(unique: true, replace: true)
   late String cidNumber;
 
-  String? newestPostId;
-  late int newestCreatedAt;
+  @Name('post_id')
+  String? postId;
+  @Name('published_at')
+  late int publishedAt;
 }
 
 /// 用户明确删除草稿或发布成功后留下的文件清理事实。
 ///
 /// 数据库事务先删除草稿并写入本行，事务外再删除媒体目录；文件系统失败时保留本行，
 /// 后续显式重试仍能精确定位。禁止持久化应用容器绝对路径。
+@Name('cleanup')
 @collection
-class SquareFileCleanupEntity {
-  Id id = Isar.autoIncrement;
+class Cleanup {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 
-  @Index(unique: true, replace: true)
-  late String cleanupKey;
-
-  @Index()
+  @Name('cid_number')
+  @Index(composite: [CompositeIndex('draftId')], unique: true, replace: true)
   late String cidNumber;
 
+  @Name('draft_id')
   late String draftId;
+  @Name('cleanup_kind')
   late String cleanupKind;
-  late int createdAtMillis;
-  late int attemptCount;
+  @Name('created_at')
+  late int createdAt;
+  @Name('try_count')
+  late int tryCount;
+  @Name('last_error')
   String? lastError;
 }
 
 /// 广场媒体描述；实际内容位于分块集合，不在列表查询中加载。
 ///
-/// 同一媒体标识可以属于不同 CID。complete 只由完整长度和 SHA-256 校验推进，
+/// 同一媒体标识可以属于不同 CID。isComplete 只由完整长度和 SHA-256 校验推进，
 /// 不代表上传状态；未完成记录允许显式续写，不允许展示或绑定内容。
+@Name('media')
 @collection
-class SquareMediaEntity {
-  Id id = Isar.autoIncrement;
+class Media {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 
-  @Index(composite: [CompositeIndex('mediaId')], unique: true)
+  @Name('cid_number')
+  @Index(composite: [CompositeIndex('bodyHash')], unique: true)
   late String cidNumber;
 
-  late String mediaId;
+  @Name('media_kind')
   late String mediaKind;
+  @Name('content_type')
   late String contentType;
+  @Name('byte_size')
   late int byteSize;
-  late String sha256;
-  bool complete = false;
+  @Name('body_hash')
+  late String bodyHash;
+  @Name('is_complete')
+  bool isComplete = false;
 }
 
-/// 一个媒体字节块，最多 1 MiB；chunkIndex 从零开始。
+/// 一个媒体字节块，最多 1 MiB；part_index 从零开始。
 ///
 /// 唯一索引禁止不同用户或不同块互相覆盖。末块长度由媒体描述确定；分块哈希
 /// 用于范围读取校验，不能替代媒体完成前的整体哈希校验。
+@Name('chunk')
 @collection
-class SquareMediaChunkEntity {
-  Id id = Isar.autoIncrement;
+class Chunk {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 
+  @Name('cid_number')
   @Index(
-    composite: [CompositeIndex('mediaId'), CompositeIndex('chunkIndex')],
+    composite: [CompositeIndex('bodyHash'), CompositeIndex('partIndex')],
     unique: true,
   )
   late String cidNumber;
 
-  late String mediaId;
-  late int chunkIndex;
-  late List<byte> chunkBytes;
-  late String chunkSha256;
+  @Name('body_hash')
+  late String bodyHash;
+  @Name('part_index')
+  late int partIndex;
+  @Name('part_bytes')
+  late List<byte> partBytes;
+  @Name('part_hash')
+  late String partHash;
 }
 
 /// 草稿或帖子内的媒体槽位；主图、缩略图、视频封面分别关联。
 ///
-/// referenceKey 是内容类型、内容标识、媒体序号、用途的有序 JSON 数组。
+/// 槽位由CID、内容类型、内容标识、媒体序号及用途的自然字段唯一确定。
 /// 删除槽位不删除媒体；仅无引用的媒体才允许显式删除。
+@Name('link')
 @collection
-class SquareMediaReferenceEntity {
-  Id id = Isar.autoIncrement;
+class MediaLink {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 
-  @Index(composite: [CompositeIndex('referenceKey')], unique: true)
+  @Name('cid_number')
   late String cidNumber;
 
-  late String referenceKey;
-
+  @Name('body_hash')
   @Index(composite: [CompositeIndex('cidNumber')])
-  late String mediaId;
+  late String bodyHash;
 
+  @Name('content_id')
   @Index(
     composite: [CompositeIndex('cidNumber'), CompositeIndex('contentKind')],
   )
   late String contentId;
 
+  @Name('content_kind')
   late String contentKind;
+  @Name('media_index')
   late int mediaIndex;
+  @Name('media_role')
   late String mediaRole;
 }
 
 /// 一次发布的持久恢复事实，不保存会话凭据；交易提交后禁止重新发起同一草稿。
 /// 远端确认后与帖子、媒体关联及草稿删除在同一事务中收尾。
+@Name('publish')
 @collection
-class SquarePublicationEntity {
-  Id id = Isar.autoIncrement;
+class Publish {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 
+  @Name('cid_number')
   @Index(composite: [CompositeIndex('draftId')], unique: true)
   late String cidNumber;
+  @Name('draft_id')
   late String draftId;
+  @Name('account_id')
   late String accountId;
+  @Name('post_id')
   late String postId;
+  @Name('post_type')
   late String postType;
+  @Name('content_hash')
   late String contentHash;
-  late String storageReceiptId;
+  @Name('receipt_id')
+  late String receiptId;
+  @Name('upload_id')
   late String uploadId;
+  @Name('manifest_bytes')
   late List<byte> manifestBytes;
-  late String publicationState;
-  String? replacePostId;
-  String? blockHash;
-  String? transactionHash;
+  @Name('job_state')
+  late String jobState;
+  @Name('replace_id')
+  String? replaceId;
+  @Name('chain_hash')
+  String? chainHash;
+  @Name('tx_hash')
+  String? txHash;
+  @Name('post_category')
   String? postCategory;
+  @Name('chain_block')
   int? chainBlock;
-  int? createdAt;
+  @Name('published_at')
+  int? publishedAt;
 }
 
 enum _SocialIsarLifecycle { active, closing, closed }
@@ -254,16 +331,16 @@ class SocialIsar {
   /// Social 域的唯一 schema 清单。
   static const List<CollectionSchema<dynamic>> _schemas =
       <CollectionSchema<dynamic>>[
-        SquareLocalPostEntitySchema,
-        SquarePostDeletionEntitySchema,
-        SquareComposeDraftEntitySchema,
-        SquarePostSyncCheckpointEntitySchema,
-        SquareFileCleanupEntitySchema,
-        SquareMediaEntitySchema,
-        SquareMediaChunkEntitySchema,
-        SquareMediaReferenceEntitySchema,
-        SquarePublicationEntitySchema,
-        SquareCommentsEntitySchema,
+        PostSchema,
+        EraseSchema,
+        DraftSchema,
+        PostCursorSchema,
+        CleanupSchema,
+        MediaSchema,
+        ChunkSchema,
+        MediaLinkSchema,
+        PublishSchema,
+        ReplySchema,
       ];
 
   bool get hasActiveOperation => _operationActive;
@@ -413,16 +490,16 @@ class SocialIsar {
     final existing = Isar.getInstance('citizenapp_social');
     if (existing != null && existing.isOpen) {
       try {
-        existing.squareLocalPostEntitys;
-        existing.squarePostDeletionEntitys;
-        existing.squareComposeDraftEntitys;
-        existing.squarePostSyncCheckpointEntitys;
-        existing.squareFileCleanupEntitys;
-        existing.squareMediaEntitys;
-        existing.squareMediaChunkEntitys;
-        existing.squareMediaReferenceEntitys;
-        existing.squarePublicationEntitys;
-        existing.squareCommentsEntitys;
+        existing.posts;
+        existing.erases;
+        existing.drafts;
+        existing.postCursors;
+        existing.cleanups;
+        existing.medias;
+        existing.chunks;
+        existing.mediaLinks;
+        existing.publishs;
+        existing.replys;
       } catch (error) {
         throw StateError('已打开的 SocialIsar 不是当前完整 schema：$error');
       }

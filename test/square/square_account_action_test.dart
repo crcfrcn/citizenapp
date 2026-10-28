@@ -22,7 +22,7 @@ const _binding = IdentityBinding(
   genesisHash:
       '0x3333333333333333333333333333333333333333333333333333333333333333',
   cidNumber: _cidNumber,
-  bindingRevision: 1,
+  bindRev: 1,
   accountId: _accountId,
 );
 const _nonce =
@@ -54,15 +54,15 @@ Map<String, dynamic> challenge(String purpose) {
   u64(expiry);
   return {
     'is_ok': true,
-    'purpose': purpose,
-    'challenge_id': _nonce,
+    'token_purpose': purpose,
+    'nonce_id': _nonce,
     'cid_number': _cidNumber,
     'account_id': _accountId,
-    'binding_revision': 1,
+    'bind_rev': 1,
     'chain_scope': _binding.genesisHash,
     'service_origin': 'https://square.test',
     'expires_at': expiry,
-    'signing_payload_hex': '0x${bytesToHex(out.takeBytes())}',
+    'sign_hex': '0x${bytesToHex(out.takeBytes())}',
   };
 }
 
@@ -70,7 +70,7 @@ Map<String, Object?> receipt(String state) => {
   'is_ok': true,
   'cid_number': _cidNumber,
   'account_id': _accountId,
-  'binding_revision': 1,
+  'bind_rev': 1,
   'deletion_id': state == 'absent' ? null : _nonce,
   'state': state,
 };
@@ -115,7 +115,7 @@ void main() {
   setUp(() async {
     SquareApiClient.activateFinalizedBinding(
       cidNumber: _cidNumber,
-      bindingRevision: 1,
+      bindRev: 1,
       accountId: _accountId,
     );
     transport = TestCitizenSdkTransport({}, useCore: true);
@@ -137,13 +137,13 @@ void main() {
         expect(request.headers['x-mls-proof'], isNotNull);
         expect(jsonDecode(request.body), {});
         final c = challenge('delete');
-        payloads.add(c['signing_payload_hex'] as String);
+        payloads.add(c['sign_hex'] as String);
         return json(c);
       }
       if (request.url.path == '/api/user/deletion') {
         expect(request.headers['x-mls-proof'], isNotNull);
         expect(jsonDecode(request.body), {
-          'challenge_id': _nonce,
+          'nonce_id': _nonce,
           'signature': '0xSIG',
         });
         return json(receipt('pending'), 202);
@@ -156,7 +156,7 @@ void main() {
           'account_id': _accountId,
         });
         final c = challenge('status');
-        payloads.add(c['signing_payload_hex'] as String);
+        payloads.add(c['sign_hex'] as String);
         return json(c);
       }
       if (request.url.path == '/api/user/deletion/status') {
@@ -241,14 +241,14 @@ void main() {
     final changes = <Map<String, Object?>>[
       {'cid_number': 'OTHER-CID'},
       {'account_id': '0x${List.filled(32, '22').join()}'},
-      {'binding_revision': 2},
+      {'bind_rev': 2},
       {'chain_scope': '0x${List.filled(32, '44').join()}'},
       {'service_origin': 'https://other.test'},
-      {'purpose': 'delete'},
+      {'token_purpose': 'delete'},
       {'expires_at': 1},
-      {'signing_payload_hex': '0x00'},
+      {'sign_hex': '0x00'},
       {'op_tag': 0x99},
-      {'challenge_id': '../other'},
+      {'nonce_id': '../other'},
     ];
     for (final change in changes) {
       var signed = false;
@@ -286,7 +286,7 @@ void main() {
           signAction: (_) async {
             SquareApiClient.activateFinalizedBinding(
               cidNumber: _cidNumber,
-              bindingRevision: 2,
+              bindRev: 2,
               accountId: _accountId,
             );
             return '0xSIG';
@@ -322,7 +322,7 @@ void main() {
         '0x2222222222222222222222222222222222222222222222222222222222222222';
     SquareApiClient.activateFinalizedBinding(
       cidNumber: _cidNumber,
-      bindingRevision: 1,
+      bindRev: 1,
       accountId: _accountId,
     );
     final cachedClient = SquareApiClient(
@@ -384,7 +384,7 @@ void main() {
 
     SquareApiClient.activateFinalizedBinding(
       cidNumber: _cidNumber,
-      bindingRevision: 2,
+      bindRev: 2,
       accountId: newAccountId,
     );
     sessionResponse.complete(

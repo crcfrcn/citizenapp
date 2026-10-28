@@ -1,3 +1,4 @@
+import 'package:citizenapp/storage/app_isar.dart' as app_store show Entity;
 // 公权机构 finalized 链快照缓存 repo 门面。
 //
 // card B/C 的统一入口。**读全部走本地 store(零链读零网络、秒开)**;
@@ -5,9 +6,6 @@
 // 链快照更新；涉及身份、绑定、付款或权限的操作必须再读取 finalized 链状态，不能把
 // 本地目录当作授权真源。
 
-import 'package:citizenapp/storage/app_isar.dart';
-
-import 'admin_division_dto.dart';
 import 'admin_division_store.dart';
 import 'area_path_formatter.dart';
 import 'isar_admin_division_store.dart';
@@ -22,10 +20,11 @@ class PublicInstitutionRepository {
     AdminDivisionStore? divisionStore,
     PublicInstitutionBundleLoader? loader,
     Duration? syncTtl,
-  })  : store = store ?? IsarPublicInstitutionStore(),
-        divisionStore = divisionStore ?? IsarAdminDivisionStore(),
-        _syncTtl = syncTtl ?? const Duration(minutes: 2) {
-    this.loader = loader ??
+  }) : store = store ?? IsarPublicInstitutionStore(),
+       divisionStore = divisionStore ?? IsarAdminDivisionStore(),
+       _syncTtl = syncTtl ?? const Duration(minutes: 2) {
+    this.loader =
+        loader ??
         PublicInstitutionBundleLoader(
           store: this.store,
           divisionStore: this.divisionStore,
@@ -45,39 +44,31 @@ class PublicInstitutionRepository {
   Future<List<String>> listProvinces() => store.listProvinces();
   Future<List<String>> listCities(String provinceCode) =>
       store.listCities(provinceCode);
-  Future<List<PublicInstitutionEntity>> listInstitutionsByCity(
+  Future<List<app_store.Entity>> listInstitutionsByCity(
     String provinceCode,
     String cityCode,
-  ) =>
-      store.listInstitutionsByCity(provinceCode, cityCode);
-  Future<PublicInstitutionEntity?> getByCid(String cidNumber) =>
+  ) => store.listInstitutionsByCity(provinceCode, cityCode);
+  Future<app_store.Entity?> getByCid(String cidNumber) =>
       store.getByCid(cidNumber);
 
   /// 按机构码集合取全部机构(治理/立法 tab 过滤入口,ADR-028 P2)。
-  Future<List<PublicInstitutionEntity>> listByInstitutionCodes(
+  Future<List<app_store.Entity>> listByInstitutionCodes(
     Set<String> institutionCodes,
-  ) =>
-      store.listByInstitutionCodes(institutionCodes);
+  ) => store.listByInstitutionCodes(institutionCodes);
 
   /// 某省内按机构码集合取机构(立法 tab 省导航,ADR-028 P3)。
-  Future<List<PublicInstitutionEntity>> listByProvinceAndCodes(
+  Future<List<app_store.Entity>> listByProvinceAndCodes(
     String provinceCode,
     Set<String> institutionCodes,
-  ) =>
-      store.listByProvinceAndCodes(provinceCode, institutionCodes);
+  ) => store.listByProvinceAndCodes(provinceCode, institutionCodes);
 
   // ── 行政区字典 join(ADR-021;UI 显示名唯一来自字典/链上常量省名)──
 
   /// 某市 code → 市名(查字典;未命中回退 code 本身,绝不崩)。
   Future<String> cityName(String provinceCode, String cityCode) {
-    final scope = scopeKeyOf(
-      level: AdminDivisionLevel.city,
+    return divisionStore.regionName(
       provinceCode: provinceCode,
-    );
-    return divisionStore.divisionName(
-      AdminDivisionLevel.city,
-      scope,
-      cityCode,
+      cityCode: cityCode,
     );
   }
 
@@ -86,18 +77,11 @@ class PublicInstitutionRepository {
   /// (ADR-018 R2 禁 N+1):市列表渲染必须用本方法一次取全省市名,
   /// **禁止**对每个市逐个调 [cityName](那是 N+1,省份市多时会转圈)。
   Future<Map<String, String>> cityNameMap(String provinceCode) async {
-    final scope = scopeKeyOf(
-      level: AdminDivisionLevel.city,
-      provinceCode: provinceCode,
-    );
-    final divisions = await divisionStore.divisionsByLevel(
-      AdminDivisionLevel.city,
-      scope,
-    );
-    return {for (final d in divisions) d.code: d.divisionName};
+    final divisions = await divisionStore.cities(provinceCode);
+    return {for (final d in divisions) d.cityCode: d.regionName};
   }
 
-  /// (provinceCode, cityCode, townCode) → 「省名·市名[·镇名]」显示路径。
+  /// (province_code, city_code, town_code) → 「省名·市名[·镇名]」显示路径。
   ///
   /// 省名走链上常量(认可的省名源);空 town 只显到市;字典缺失回退 code。
   /// **不在 widget build 里调**:在 repository / state 层预 join 成 view-model。
@@ -116,7 +100,7 @@ class PublicInstitutionRepository {
   }
 
   /// 机构所属地显示路径(详情页 所属地行用;省名带"省"全名)。
-  Future<String> institutionAreaPath(PublicInstitutionEntity inst) {
+  Future<String> institutionAreaPath(app_store.Entity inst) {
     return formatAreaPath(
       divisionStore,
       provinceName: provinceFullNameByCode(inst.provinceCode),
@@ -127,25 +111,14 @@ class PublicInstitutionRepository {
   }
 
   // ── 订阅("关注")──
-  Future<void> subscribe(
-    String subscriberCidNumber,
-    String institutionCidNumber,
-  ) =>
-      store.subscribe(subscriberCidNumber, institutionCidNumber);
-  Future<void> unsubscribe(
-    String subscriberCidNumber,
-    String institutionCidNumber,
-  ) =>
-      store.unsubscribe(subscriberCidNumber, institutionCidNumber);
-  Future<bool> isSubscribed(
-    String subscriberCidNumber,
-    String institutionCidNumber,
-  ) =>
-      store.isSubscribed(subscriberCidNumber, institutionCidNumber);
-  Future<List<PublicInstitutionEntity>> listSubscribed(
-    String subscriberCidNumber,
-  ) =>
-      store.listSubscribed(subscriberCidNumber);
+  Future<void> subscribe(String cidNumber, String peerCid) =>
+      store.subscribe(cidNumber, peerCid);
+  Future<void> unsubscribe(String cidNumber, String peerCid) =>
+      store.unsubscribe(cidNumber, peerCid);
+  Future<bool> isSubscribed(String cidNumber, String peerCid) =>
+      store.isSubscribed(cidNumber, peerCid);
+  Future<List<app_store.Entity>> listSubscribed(String cidNumber) =>
+      store.listSubscribed(cidNumber);
 
   /// 后台导入/对账内置创世快照包。返回机构部分是否发生写入。
   /// 非阻塞调用方:UI 先读本地缓存再调本方法。

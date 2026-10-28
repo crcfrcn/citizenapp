@@ -17,7 +17,7 @@ void main() {
         deviceId: "synthetic-device",
         sessionToken: "synthetic-session",
         cidNumber: _cidNumber,
-        bindingRevision: 1,
+        bindRev: 1,
         accountId: "synthetic-account",
         expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
       ),

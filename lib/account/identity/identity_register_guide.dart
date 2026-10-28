@@ -65,8 +65,10 @@ class _IdentityRegisterGuideState extends State<IdentityRegisterGuide> {
                 'assets/icons/file-user.svg',
                 width: AppLayout.scaled(context, 40),
                 height: AppLayout.scaled(context, 40),
-                colorFilter:
-                    const ColorFilter.mode(AppTheme.primary, BlendMode.srcIn),
+                colorFilter: const ColorFilter.mode(
+                  AppTheme.primary,
+                  BlendMode.srcIn,
+                ),
               ),
             ),
             SizedBox(height: AppLayout.scaled(context, 18)),
@@ -95,7 +97,8 @@ class _IdentityRegisterGuideState extends State<IdentityRegisterGuide> {
                 onPressed: _registering ? null : _onRegister,
                 child: Padding(
                   padding: EdgeInsets.symmetric(
-                      horizontal: AppLayout.scaled(context, 22)),
+                    horizontal: AppLayout.scaled(context, 22),
+                  ),
                   child: const Text('注册'),
                 ),
               ),

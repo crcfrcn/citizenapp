@@ -30,11 +30,11 @@ class RegistrationApi {
   Future<RegistrationResponse> verify(
     RegistrationContext context,
     RegistrationCapabilities cap, {
-    required String verificationId,
+    required String checkId,
     required String token,
   }) => _post(context, '/user/registration/verify', {
     ...cap.toJson(),
-    'verification_id': verificationId,
+    'check_id': checkId,
     'turnstile_token': token,
   }, cap: cap);
   Future<RegistrationResponse> _post(

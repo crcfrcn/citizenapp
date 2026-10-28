@@ -1,15 +1,18 @@
+import 'package:citizenapp/storage/wallet_isar.dart'
+    as wallet_store
+    show Account;
 // 个人多签反向索引发现:后处理(ADR-018 §九)。
 //
 // 从 AdminAccounts 单次扫描结果(AdminAccountsScanService)里筛出个人多签
 // (kind=Personal,且管理员含本地钱包),反查发起人 / 账户名后 upsert
-// `PersonalAccountEntity`。机构账户登记与展示不走本服务。
+// `account`。机构账户登记与展示不走本服务。
 
 import 'package:citizenapp/app_log.dart';
 import 'package:isar_community/isar.dart';
 import 'package:citizenapp/citizen/account_derivation.dart';
 import 'package:citizenapp/citizen/administrators/admin_account_storage_codec.dart';
 import 'package:citizenapp/citizen/administrators/admin_accounts_scan_service.dart';
-import 'package:citizenapp/storage/wallet_isar.dart';
+import 'package:citizenapp/storage/wallet_isar.dart' hide Group;
 
 import 'personal_manage_service.dart';
 
@@ -65,7 +68,7 @@ class PersonalManageDiscoveryService {
     Map<String, ({String creatorAccountId, String accountName})?> metas;
     try {
       metas = await _personalManage.fetchPersonalMetasBatch(
-        mine.map((a) => a.personalAccountId!),
+        mine.map((a) => a.accountId!),
       );
     } catch (e) {
       AppLog.d('[PersonalManageDiscovery] 批量反查个人多签元数据失败: $e');
@@ -84,16 +87,16 @@ class PersonalManageDiscoveryService {
     var newlyAdded = 0;
 
     for (final acc in mine) {
-      final personalAccountId = acc.personalAccountId!;
-      final meta = metas[personalAccountId];
+      final accountId = acc.accountId!;
+      final meta = metas[accountId];
       if (meta == null) continue;
-      scannedAccountIds.add(personalAccountId);
+      scannedAccountIds.add(accountId);
       final added = await _upsertPersonal(
-        accountId: personalAccountId,
+        accountId: accountId,
         name: meta.accountName,
-        creatorAccountId: meta.creatorAccountId,
-        matchedAdminAccountIds: acc.admins
-            .map((admin) => admin.account_id)
+        creatorAccount: meta.creatorAccountId,
+        adminAccounts: acc.admins
+            .map((admin) => admin.accountId)
             .where(myAccountIds.contains)
             .toList(growable: false),
       );
@@ -115,22 +118,23 @@ class PersonalManageDiscoveryService {
   Future<bool> _upsertPersonal({
     required String accountId,
     required String name,
-    required String creatorAccountId,
-    required List<String> matchedAdminAccountIds,
+    required String creatorAccount,
+    required List<String> adminAccounts,
   }) async {
-    final normalizedCreatorAccountId = _requireAccountId(creatorAccountId);
-    final personalAccountId = _requireAccountId(accountId);
+    final normalizedCreatorAccountId = _requireAccountId(creatorAccount);
+    _requireAccountId(accountId);
 
     return WalletIsar.instance.writeTxn((isar) async {
-      final exists = await isar.personalAccountEntitys
+      final exists = await isar
+          .collection<wallet_store.Account>()
           .filter()
-          .accountIdEqualTo(personalAccountId)
+          .accountIdEqualTo(accountId)
           .findFirst();
 
       if (exists != null) {
-        if (!exists.discoveredViaAdmin) return false;
-        exists.matchedAdminAccountIds = matchedAdminAccountIds;
-        await isar.personalAccountEntitys.put(exists);
+        if (!exists.isFound) return false;
+        exists.adminAccounts = adminAccounts;
+        await isar.collection<wallet_store.Account>().put(exists);
         await PersonalMultisigLocalState.putStatusInTxn(
           isar,
           accountId,
@@ -139,14 +143,14 @@ class PersonalManageDiscoveryService {
         return false;
       }
 
-      final entity = PersonalAccountEntity()
-        ..accountId = personalAccountId
+      final entity = wallet_store.Account()
+        ..accountId = accountId
         ..accountName = name
-        ..creatorAccountId = normalizedCreatorAccountId
-        ..addedAtMillis = DateTime.now().millisecondsSinceEpoch
-        ..discoveredViaAdmin = true
-        ..matchedAdminAccountIds = matchedAdminAccountIds;
-      await isar.personalAccountEntitys.put(entity);
+        ..creatorAccount = normalizedCreatorAccountId
+        ..addedAt = DateTime.now().millisecondsSinceEpoch
+        ..isFound = true
+        ..adminAccounts = adminAccounts;
+      await isar.collection<wallet_store.Account>().put(entity);
       await PersonalMultisigLocalState.putStatusInTxn(
         isar,
         accountId,
@@ -159,9 +163,10 @@ class PersonalManageDiscoveryService {
   Future<int> _reverseValidateAndDelete(Set<String> scannedAccountIds) async {
     var closed = 0;
     await WalletIsar.instance.writeTxn((isar) async {
-      final stalePersonals = await isar.personalAccountEntitys
+      final stalePersonals = await isar
+          .collection<wallet_store.Account>()
           .filter()
-          .discoveredViaAdminEqualTo(true)
+          .isFoundEqualTo(true)
           .findAll();
       for (final p in stalePersonals) {
         if (!scannedAccountIds.contains(_requireAccountId(p.accountId))) {

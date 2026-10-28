@@ -123,9 +123,9 @@ class _SquareArticleDetailPageState extends State<SquareArticleDetailPage> {
       final notificationOwner = Notifications.instance.scope;
       await session.validateCurrent();
       if (notificationOwner != null &&
-          (notificationOwner.cid != session.cidNumber ||
-              notificationOwner.binding != session.bindingRevision ||
-              notificationOwner.account != session.accountId)) {
+          (notificationOwner.cidNumber != session.cidNumber ||
+              notificationOwner.bindRev != session.bindRev ||
+              notificationOwner.accountId != session.accountId)) {
         throw StateError('内容详情身份已变化');
       }
       final detail = widget.initialDetailLoaded && !refresh
@@ -306,7 +306,7 @@ class _SquareArticleDetailPageState extends State<SquareArticleDetailPage> {
         child: SquareVideo(
           url: item.url,
 
-          thumbnailUrl: item.coverUrl,
+          thumbnailUrl: item.previewUrl,
           item: item,
         ),
       ),
@@ -334,7 +334,7 @@ class _SquareArticleDetailPageState extends State<SquareArticleDetailPage> {
             postType: SquarePostType.article,
             initialTitle: post.title,
             initialText: post.text,
-            replacePostId: post.postId,
+            replaceId: post.postId,
           ),
         ),
       ),

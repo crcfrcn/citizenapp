@@ -47,7 +47,7 @@ void main() {
   test('CitizenSDK Blake2Domain 输入与设备绑定逐字节共用 0x1C', () async {
     final payload = await encodeMlsDeviceBindingPayload(
       cidNumber: _cidNumber,
-      bindingRevision: _bindingRevision,
+      bindRev: _bindingRevision,
       accountId: _accountId,
       publicKey: _publicKey,
       issuedAtMillis: _issuedAt,

@@ -14,28 +14,28 @@ class SquareIdentityState {
     this.displayName,
     this.cidNumber,
     this.walletIndex,
-    this.ss58Address,
+    this.accountAddress,
     this.signMode,
-    this.identityLevel,
+    this.cidLevel,
   });
 
   final String accountId;
   final String? displayName;
   final String? cidNumber;
   final int? walletIndex;
-  final String? ss58Address;
+  final String? accountAddress;
 
   /// 当前身份账户的钱包签名模式；有账户却缺失模式时，所有钱包签名入口必须拒绝。
   final CitizenWalletSignMode? signMode;
 
   /// 链上身份档（徽章分色）：visitor/voting/candidate。
-  final String? identityLevel;
+  final String? cidLevel;
 
   bool get hasWallet => accountId.isNotEmpty;
   bool get isCertified => cidNumber != null && cidNumber!.isNotEmpty;
 
   /// 竞选身份（candidate）：发布竞选内容的资格（用户 2026-07-16：发帖分类按身份档）。
-  bool get isCandidate => identityLevel == 'candidate';
+  bool get isCandidate => cidLevel == 'candidate';
 
   /// 发帖页展示公开昵称；资料尚未缓存时按 CID（无 CID 才按账户）稳定兜底。
   String get resolvedDisplayName =>
@@ -83,7 +83,7 @@ class SquareIdentityService {
         : cidNumber == null
         ? null
         : await snapshotStore.read(cidNumber);
-    final identityLevel = badge?.identityLevel ?? 'visitor';
+    final cidLevel = badge?.cidLevel ?? 'visitor';
 
     String? displayName;
     final profileCid = cidNumber?.trim() ?? '';
@@ -102,9 +102,9 @@ class SquareIdentityService {
       displayName: displayName,
       cidNumber: cidNumber,
       walletIndex: defaultAccount.walletIndex,
-      ss58Address: identitySs58,
+      accountAddress: identitySs58,
       signMode: defaultAccount.signMode,
-      identityLevel: identityLevel,
+      cidLevel: cidLevel,
     );
   }
 }

@@ -55,14 +55,14 @@ class CreatorSubscriptionState {
   const CreatorSubscriptionState({
     required this.tierId,
     required this.billingPeriod,
-    required this.subscriptionStatus,
+    required this.subState,
     required this.paidUntil,
     required this.active,
   });
 
   final String tierId;
   final String billingPeriod;
-  final String subscriptionStatus;
+  final String subState;
   final int paidUntil;
   final bool active;
 
@@ -70,7 +70,7 @@ class CreatorSubscriptionState {
     return CreatorSubscriptionState(
       tierId: json['tier_id']?.toString() ?? '',
       billingPeriod: json['billing_period']?.toString() ?? '',
-      subscriptionStatus: json['subscription_status']?.toString() ?? '',
+      subState: json['sub_state']?.toString() ?? '',
       paidUntil: json['paid_until'] is int ? json['paid_until'] as int : 0,
       active: json['active'] == true,
     );
@@ -180,10 +180,7 @@ class CreatorApiHttp implements CreatorApi {
         ].any((key) => overview[key] is! int || (overview[key] as int) < 0)) {
       throw const CreatorApiException("创作者概览响应不完整");
     }
-    return CreatorOverview.fromJson({
-      ...overview,
-      "month_income_fen": overview["monthly_income_fen"],
-    });
+    return CreatorOverview.fromJson(overview);
   }
 
   @override
@@ -356,7 +353,7 @@ class FakeCreatorApi implements CreatorApi {
       _overview ??
       CreatorOverview(
         subscriberCount: 0,
-        monthIncomeFen: 0,
+        monthlyIncomeFen: 0,
         tierCount: _plan?.tiers.length ?? 0,
       );
 

@@ -1,3 +1,5 @@
+import 'package:citizenapp/storage/user_isar.dart' as user_store show Notice;
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -12,9 +14,9 @@ import 'app_push_service.dart';
 
 /// 通知动作固定发起时的身份与代次，不能在异步结束时改归当前账号。
 typedef NotificationScope = ({
-  String cid,
-  String account,
-  int binding,
+  String cidNumber,
+  String accountId,
+  int bindRev,
   int generation,
 });
 typedef NotificationCacheWriter = Future<void> Function(
@@ -24,7 +26,7 @@ typedef NotificationCacheWriter = Future<void> Function(
   required bool Function() isCurrent,
 });
 typedef NotificationMemberWriter = Future<void> Function(
-  String cid,
+  String cidNumber,
   Map<String, dynamic> data, {
   required int receivedAt,
   required bool Function() isCurrent,
@@ -61,23 +63,23 @@ class Notifications extends ChangeNotifier {
   int _applyingMember = 0, _appliedMember = 0;
   final List<Map<String, dynamic>> _pending = [];
   Map<String, dynamic> _state = {};
-  String _cid = '', _account = '';
-  int _binding = 0,
+  String _cidNumber = '', _accountId = '';
+  int _bindRev = 0,
       _generation = 0,
       _identityEpoch = 0,
       _resolving = 0,
       _resolved = 0;
   int get interactionSequence => (_state['interaction_sequence'] as int?) ?? 0;
-  NotificationScope? get scope => _cid.isEmpty
+  NotificationScope? get scope => _cidNumber.isEmpty
       ? null
       : (
-          cid: _cid,
-          account: _account,
-          binding: _binding,
+          cidNumber: _cidNumber,
+          accountId: _accountId,
+          bindRev: _bindRev,
           generation: _generation,
         );
   bool isCurrent(NotificationScope? owner) => owner != null && owner == scope;
-  String get cidNumber => _cid;
+  String get cidNumber => _cidNumber;
   int get receivedAt => (_state['_received_at'] as int?) ?? 0;
   int get memberReceivedAt =>
       (_state['_member_received_at'] as int?) ?? receivedAt;
@@ -85,9 +87,9 @@ class Notifications extends ChangeNotifier {
       (_state['_creator_received_at'] as int?) ?? receivedAt;
   int get unread => (_state['square_unread'] as int?) ?? 0;
   int get followingUnread => (_state['following_unread'] as int?) ?? 0;
-  int get noticeRevision => (_state['notice_revision'] as int?) ?? 0;
-  Map<String, dynamic>? creatorFor(String cid) =>
-      cid == _cid && _state['creator'] is Map<String, dynamic>
+  int get noticeRev => (_state['notice_rev'] as int?) ?? 0;
+  Map<String, dynamic>? creatorFor(String cidNumber) =>
+      cidNumber == _cidNumber && _state['creator'] is Map<String, dynamic>
       ? _state['creator'] as Map<String, dynamic>
       : null;
   void configure({
@@ -135,9 +137,9 @@ class Notifications extends ChangeNotifier {
   void invalidate() {
     _identityEpoch++;
     _clear();
-    _cid = '';
-    _account = '';
-    _binding = 0;
+    _cidNumber = '';
+    _accountId = '';
+    _bindRev = 0;
     notifyListeners();
   }
 
@@ -145,20 +147,23 @@ class Notifications extends ChangeNotifier {
     final epoch = _identityEpoch, sequence = ++_resolving;
     final user = await _user?.resolve();
     if (epoch != _identityEpoch) return false;
-    final cid = user?.cidNumber ?? '',
-        account = user?.accountId ?? '',
-        binding = user?.bindingRevision ?? 0;
-    final changed = cid != _cid || account != _account || binding != _binding;
+    final cidNumber = user?.cidNumber ?? '',
+        accountId = user?.accountId ?? '',
+        bindRev = user?.bindRev ?? 0;
+    final changed =
+        cidNumber != _cidNumber ||
+        accountId != _accountId ||
+        bindRev != _bindRev;
     if (sequence < _resolved && changed) return false;
     if (sequence > _resolved) _resolved = sequence;
     if (changed) {
       _clear();
-      _cid = cid;
-      _account = account;
-      _binding = binding;
+      _cidNumber = cidNumber;
+      _accountId = accountId;
+      _bindRev = bindRev;
       notifyListeners();
     }
-    if (cid.isEmpty) return false;
+    if (cidNumber.isEmpty) return false;
     final owner = scope!;
     if (!_restored) {
       var pending = _restoring;
@@ -179,46 +184,27 @@ class Notifications extends ChangeNotifier {
 
   Future<void> _restoreLocal(NotificationScope owner) async {
     final row = await UserIsar.instance.read(
-      (db) => db.userNotificationStateEntitys.getByCidNumber(owner.cid),
+      (db) =>
+          db.collection<user_store.Notice>().getByCidNumber(owner.cidNumber),
     );
     if (!isCurrent(owner)) return;
-    if (row?.stateJson != null) {
+    if (row?.stateData != null) {
       try {
-        final raw = row!.stateJson;
+        final raw = row!.stateData;
         final value = jsonDecode(raw);
-        if (value is Map<String, dynamic> && value.containsKey('revision')) {
-          if (value.containsKey('notice_revision') ||
-              value.containsKey('is_ok')) {
-            throw const FormatException('通知旧记录字段冲突');
-          }
-          value['notice_revision'] = value.remove('revision');
-          if (value.containsKey('ok')) value['is_ok'] = value.remove('ok');
-          if (!valid(value, owner.cid) ||
-              value['binding_revision'] != owner.binding) {
-            throw const FormatException('通知旧记录归属或计数无效');
-          }
-          final upgraded = jsonEncode(value);
-          await UserIsar.instance.writeTxn((db) async {
-            if (!isCurrent(owner)) throw StateError('通知身份已变化');
-            final current = await db.userNotificationStateEntitys
-                .getByCidNumber(owner.cid);
-            if (current == null || current.stateJson != raw) {
-              throw StateError('通知旧记录已变化');
-            }
-            current.stateJson = upgraded;
-            await db.userNotificationStateEntitys.put(current);
-          });
-          if (!isCurrent(owner)) return;
+        if (value is Map<String, dynamic> && value.containsKey('cid_number')) {
+          throw const FormatException('通知缓存归属重复');
         }
+        if (value is Map<String, dynamic>) value['cid_number'] = row.cidNumber;
         if (value is Map<String, dynamic> &&
-            value['cid_number'] == owner.cid &&
-            value['binding_revision'] == owner.binding) {
-          final baseline = valid(value, owner.cid);
+            value['cid_number'] == owner.cidNumber &&
+            value['bind_rev'] == owner.bindRev) {
+          final baseline = valid(value, owner.cidNumber);
           final partial =
-              !value.containsKey('notice_revision') &&
+              !value.containsKey('notice_rev') &&
               value['creator'] is Map<String, dynamic> &&
-              value['creator_revision'] is int &&
-              (value['creator_revision'] as int) > 0;
+              value['creator_rev'] is int &&
+              (value['creator_rev'] as int) > 0;
           if (baseline || partial) {
             _state = value;
             _known = baseline;
@@ -228,9 +214,9 @@ class Notifications extends ChangeNotifier {
         /* 坏展示不安装；下次明确事件校准。 */
       }
     }
-    if (row?.pendingJson != null) {
+    if (row?.pendingData != null) {
       try {
-        final values = jsonDecode(row!.pendingJson!);
+        final values = jsonDecode(row!.pendingData!);
         if (values is List) {
           _pending.addAll(
             values
@@ -253,7 +239,7 @@ class Notifications extends ChangeNotifier {
   }
 
   Future<void> _applyMember(NotificationScope owner) async {
-    final version = (_state['membergate_revision'] as int?) ?? 0,
+    final version = (_state['member_rev'] as int?) ?? 0,
         data = _state['membergate'];
     if (!isCurrent(owner) ||
         data is! Map<String, dynamic> ||
@@ -268,10 +254,9 @@ class Notifications extends ChangeNotifier {
     late final Future<void> task;
     task = Future<void>.microtask(() async {
       try {
-        bool current() =>
-            isCurrent(owner) && _state['membergate_revision'] == version;
+        bool current() => isCurrent(owner) && _state['member_rev'] == version;
         await _memberWriter(
-          owner.cid,
+          owner.cidNumber,
           data,
           receivedAt: memberReceivedAt,
           isCurrent: current,
@@ -287,10 +272,10 @@ class Notifications extends ChangeNotifier {
     await task;
   }
 
-  static bool valid(Map<String, dynamic> value, String cid) {
-    if (value['cid_number'] != cid) return false;
+  static bool valid(Map<String, dynamic> value, String cidNumber) {
+    if (value['cid_number'] != cidNumber) return false;
     for (final key in [
-      'notice_revision',
+      'notice_rev',
       'square_unread',
       'following_unread',
       'interaction_unread',
@@ -300,14 +285,24 @@ class Notifications extends ChangeNotifier {
       final n = value[key];
       if (n is! int || n < 0 || n > 9007199254740991) return false;
     }
-    for (final section in ['membergate', 'creator']) {
-      final version = value['${section}_revision'];
-      if (value.containsKey('${section}_revision') &&
+    for (final (section, version, present) in [
+      (
+        value['membergate'],
+        value['member_rev'],
+        value.containsKey('member_rev'),
+      ),
+      (
+        value['creator'],
+        value['creator_rev'],
+        value.containsKey('creator_rev'),
+      ),
+    ]) {
+      if (present &&
           (version is! int || version < 0 || version > 9007199254740991)) {
         return false;
       }
-      if (value[section] != null &&
-          (value[section] is! Map<String, dynamic> ||
+      if (section != null &&
+          (section is! Map<String, dynamic> ||
               version is! int ||
               version <= 0)) {
         return false;
@@ -330,8 +325,8 @@ class Notifications extends ChangeNotifier {
           value = payload['state'],
           owner = scope!;
       if (value is! Map<String, dynamic> ||
-          !valid(value, owner.cid) ||
-          value['binding_revision'] != owner.binding) {
+          !valid(value, owner.cidNumber) ||
+          value['bind_rev'] != owner.bindRev) {
         return;
       }
       await accept(value);
@@ -342,23 +337,22 @@ class Notifications extends ChangeNotifier {
 
   Future<bool> accept(Map<String, dynamic> value) async {
     if (!await restore() ||
-        !valid(value, _cid) ||
-        value['binding_revision'] != _binding) {
+        !valid(value, _cidNumber) ||
+        value['bind_rev'] != _bindRev) {
       return false;
     }
     final owner = scope!;
-    final counter =
-        (value['notice_revision'] as int) > noticeRevision || !_known;
+    final counter = (value['notice_rev'] as int) > noticeRev || !_known;
     final interaction =
         (value['interaction_sequence'] as int) > interactionSequence;
     final creator =
         value['creator'] is Map &&
-        ((value['creator_revision'] as int?) ?? 0) >
-            ((_state['creator_revision'] as int?) ?? 0);
+        ((value['creator_rev'] as int?) ?? 0) >
+            ((_state['creator_rev'] as int?) ?? 0);
     final member =
         value['membergate'] is Map &&
-        ((value['membergate_revision'] as int?) ?? 0) >
-            ((_state['membergate_revision'] as int?) ?? 0);
+        ((value['member_rev'] as int?) ?? 0) >
+            ((_state['member_rev'] as int?) ?? 0);
     if (!counter && !creator && !member && !interaction) {
       // 保存失败不能把内存版本当作已落盘版本；同版本允许补存并更新页面。
       if (_cacheDirty &&
@@ -376,8 +370,8 @@ class Notifications extends ChangeNotifier {
       for (final key in [
         'is_ok',
         'cid_number',
-        'binding_revision',
-        'notice_revision',
+        'bind_rev',
+        'notice_rev',
         'square_unread',
         'following_unread',
         'interaction_unread',
@@ -389,12 +383,12 @@ class Notifications extends ChangeNotifier {
     }
     if (creator) {
       merged['creator'] = value['creator'];
-      merged['creator_revision'] = value['creator_revision'];
+      merged['creator_rev'] = value['creator_rev'];
       merged['_creator_received_at'] = now;
     }
     if (member) {
       merged['membergate'] = value['membergate'];
-      merged['membergate_revision'] = value['membergate_revision'];
+      merged['member_rev'] = value['member_rev'];
       merged['_member_received_at'] = now;
     }
     merged['interaction_sequence'] = interaction
@@ -414,7 +408,7 @@ class Notifications extends ChangeNotifier {
   }
 
   Future<void> acceptCreator(
-    String cid,
+    String cidNumber,
     int version,
     Map<String, dynamic> creator, {
     required SquareSession session,
@@ -423,13 +417,13 @@ class Notifications extends ChangeNotifier {
     final owner = scope!;
     await session.validateCurrent();
     if (!isCurrent(owner) ||
-        cid != owner.cid ||
-        session.cidNumber != cid ||
-        session.bindingRevision != owner.binding ||
-        session.accountId != owner.account) {
+        cidNumber != owner.cidNumber ||
+        session.cidNumber != cidNumber ||
+        session.bindRev != owner.bindRev ||
+        session.accountId != owner.accountId) {
       return;
     }
-    if (version <= ((_state['creator_revision'] as int?) ?? 0)) {
+    if (version <= ((_state['creator_rev'] as int?) ?? 0)) {
       if (_cacheDirty &&
           await _persist(owner) &&
           isCurrent(owner) &&
@@ -438,9 +432,9 @@ class Notifications extends ChangeNotifier {
       }
       return;
     }
-    _state['cid_number'] = cid;
-    _state['binding_revision'] = owner.binding;
-    _state['creator_revision'] = version;
+    _state['cid_number'] = cidNumber;
+    _state['bind_rev'] = owner.bindRev;
+    _state['creator_rev'] = version;
     _state['creator'] = creator;
     _state['_creator_received_at'] = DateTime.now().millisecondsSinceEpoch;
     if (await _persist(owner) && isCurrent(owner) && !_cacheDirty) {
@@ -454,7 +448,7 @@ class Notifications extends ChangeNotifier {
     bool current() => isCurrent(owner);
     await _cacheWriter(
       owner,
-      jsonEncode(_state),
+      jsonEncode(Map<String, dynamic>.of(_state)..remove('cid_number')),
       jsonEncode(_pending),
       isCurrent: current,
     );
@@ -471,14 +465,16 @@ class Notifications extends ChangeNotifier {
   }) => UserIsar.instance.writeTxn((db) async {
     if (!isCurrent()) return;
     final row =
-        await db.userNotificationStateEntitys.getByCidNumber(owner.cid) ??
-        UserNotificationStateEntity();
+        await db.collection<user_store.Notice>().getByCidNumber(
+          owner.cidNumber,
+        ) ??
+        user_store.Notice();
     if (!isCurrent()) return;
     row
-      ..cidNumber = owner.cid
-      ..stateJson = state
-      ..pendingJson = pending;
-    await db.userNotificationStateEntitys.put(row);
+      ..cidNumber = owner.cidNumber
+      ..stateData = state
+      ..pendingData = pending;
+    await db.collection<user_store.Notice>().put(row);
     if (!isCurrent()) throw StateError('通知状态已更新');
   });
 
@@ -536,8 +532,8 @@ class Notifications extends ChangeNotifier {
           if (!isCurrent(owner) ||
               session == null ||
               api == null ||
-              session.cidNumber != owner.cid ||
-              session.bindingRevision != owner.binding) {
+              session.cidNumber != owner.cidNumber ||
+              session.bindRev != owner.bindRev) {
             return;
           }
           if (_pending.isNotEmpty) {
@@ -547,8 +543,8 @@ class Notifications extends ChangeNotifier {
           final value = await api.fetchNotificationState(session: session);
           await session.validateCurrent();
           if (!isCurrent(owner) ||
-              !valid(value, owner.cid) ||
-              value['binding_revision'] != owner.binding) {
+              !valid(value, owner.cidNumber) ||
+              value['bind_rev'] != owner.bindRev) {
             return;
           }
           await accept(value);
@@ -575,7 +571,7 @@ class Notifications extends ChangeNotifier {
     if (!isCurrent(owner) ||
         session == null ||
         api == null ||
-        session.cidNumber != owner.cid) {
+        session.cidNumber != owner.cidNumber) {
       throw StateError('通知会话不可用');
     }
     final value = await api.fetchNotifications(
@@ -641,8 +637,8 @@ class Notifications extends ChangeNotifier {
           if (!isCurrent(owner) ||
               session == null ||
               api == null ||
-              session.cidNumber != owner.cid ||
-              session.bindingRevision != owner.binding) {
+              session.cidNumber != owner.cidNumber ||
+              session.bindRev != owner.bindRev) {
             return;
           }
           final value = await api.markNotifyRead(
@@ -654,8 +650,8 @@ class Notifications extends ChangeNotifier {
           );
           await session.validateCurrent();
           if (!isCurrent(owner)) return;
-          if (!valid(value, owner.cid) ||
-              value['binding_revision'] != owner.binding) {
+          if (!valid(value, owner.cidNumber) ||
+              value['bind_rev'] != owner.bindRev) {
             throw const FormatException('已读回执状态无效');
           }
           await accept(value);
@@ -692,9 +688,9 @@ class Notifications extends ChangeNotifier {
   void stop() {
     _identityEpoch++;
     _clear();
-    _cid = '';
-    _account = '';
-    _binding = 0;
+    _cidNumber = '';
+    _accountId = '';
+    _bindRev = 0;
     unawaited(_messages?.cancel());
     unawaited(_network?.cancel());
     _messages = null;

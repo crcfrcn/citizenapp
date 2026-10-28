@@ -23,7 +23,7 @@ SquareSession _session() => SquareSession(
   deviceId: testMlsDeviceId,
   sessionToken: 'tok',
   cidNumber: "CN220-CTZN2-198805200-2026",
-  bindingRevision: 1,
+  bindRev: 1,
   accountId:
       '0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
   expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
@@ -44,16 +44,26 @@ void main() {
         requests++;
         if (request.method == 'POST') {
           final value = jsonDecode(request.body) as Map;
+          expect(
+            value.keys,
+            unorderedEquals([
+              'upload_kind',
+              'content_type',
+              'byte_size',
+              'content_hash',
+            ]),
+          );
+          expect(value['upload_kind'], 'avatar');
           expect(value['content_type'], 'image/webp');
           expect(value['byte_size'], 100);
-          expect(value['sha256'], sha256.convert(compressed).toString());
+          expect(value['content_hash'], sha256.convert(compressed).toString());
           return http.Response(
             jsonEncode({
               'is_ok': true,
               'object_key': 'profile/acct/avatar',
               'upload_id': 'spa_test',
               'expires_at': DateTime.now().millisecondsSinceEpoch + 60000,
-              'method': 'PUT',
+              'http_method': 'PUT',
               'upload_url': '/api/user/profile/assets/spa_test',
             }),
             200,
@@ -80,7 +90,7 @@ void main() {
     );
     final result = await service.upload(
       session: session,
-      kind: 'avatar',
+      uploadKind: 'avatar',
       bytes: Uint8List(1000),
       contentType: 'image/jpeg',
     );
@@ -115,7 +125,7 @@ void main() {
               'object_key': 'profile/acct/avatar',
               'upload_id': 'spa_test',
               'expires_at': DateTime.now().millisecondsSinceEpoch + 60000,
-              'method': 'PUT',
+              'http_method': 'PUT',
               'upload_url': '/api/user/profile/assets/spa_test',
             }),
             200,
@@ -134,14 +144,14 @@ void main() {
 
     final result = await ProfileAssetService(client: client).upload(
       session: _session(),
-      kind: 'avatar',
+      uploadKind: 'avatar',
       bytes: bytes,
       contentType: 'image/webp',
     );
 
     expect(result.objectKey, 'profile/acct/avatar');
     expect(result.contentHash, sha);
-    expect(prepareBody!['sha256'], sha);
+    expect(prepareBody!['content_hash'], sha);
     expect(prepareBody!['content_type'], 'image/webp');
     expect(prepareBody!['byte_size'], 5);
     expect(putBody, bytes);
@@ -159,7 +169,7 @@ void main() {
               'object_key': 'profile/a/avatar',
               'upload_id': 'spa_failure',
               'expires_at': DateTime.now().millisecondsSinceEpoch + 60000,
-              'method': 'PUT',
+              'http_method': 'PUT',
               'upload_url': '/api/user/profile/assets/spa_failure',
             }),
             200,
@@ -175,7 +185,7 @@ void main() {
     await expectLater(
       ProfileAssetService(client: client).upload(
         session: _session(),
-        kind: 'avatar',
+        uploadKind: 'avatar',
         bytes: Uint8List.fromList([1]),
         contentType: 'image/webp',
       ),

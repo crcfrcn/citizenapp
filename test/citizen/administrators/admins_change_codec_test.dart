@@ -9,35 +9,38 @@ import 'package:citizenapp/citizen/administrators/admin_set_validation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  List<int> bytes(String text) =>
-      [(utf8.encode(text).length << 2), ...utf8.encode(text)];
-  List<int> code(String value) =>
-      [...value.codeUnits, ...List.filled(4 - value.length, 0)];
+  List<int> bytes(String text) => [
+    (utf8.encode(text).length << 2),
+    ...utf8.encode(text),
+  ];
+  List<int> code(String value) => [
+    ...value.codeUnits,
+    ...List.filled(4 - value.length, 0),
+  ];
   List<int> u32(int value) => [value, 0, 0, 0];
   List<int> admin(String familyName, String givenName, int accountByte) => [
-        ...List.filled(32, accountByte),
-        0, // 空公民 CID（统一 Admin 恒带 cid，Compact(0)）
-        ...bytes(familyName),
-        ...bytes(givenName),
-      ];
+    ...List.filled(32, accountByte),
+    0, // 空公民 CID（统一 Admin 恒带 cid，Compact(0)）
+    ...bytes(familyName),
+    ...bytes(givenName),
+  ];
   List<int> publicAdmin(
     String citizenCid,
     String familyName,
     String givenName,
     int accountByte,
-  ) =>
-      [
-        ...List.filled(32, accountByte),
-        ...bytes(citizenCid),
-        ...bytes(familyName),
-        ...bytes(givenName),
-      ];
+  ) => [
+    ...List.filled(32, accountByte),
+    ...bytes(citizenCid),
+    ...bytes(familyName),
+    ...bytes(givenName),
+  ];
 
   AdminPerson person(String accountId, String familyName, String givenName) =>
       AdminPerson(
-        account_id: accountId,
-        family_name: familyName,
-        given_name: givenName,
+        accountId: accountId,
+        familyName: familyName,
+        givenName: givenName,
       );
 
   test('公权机构 AdminAccounts 严格解码管理员四字段', () {
@@ -52,15 +55,15 @@ void main() {
       data: value,
       institutionKind: 0,
     )!;
-    expect(
-      decoded.admins.map((admin) => admin.account_id),
-      ['0x${'01' * 32}', '0x${'02' * 32}'],
-    );
+    expect(decoded.admins.map((admin) => admin.accountId), [
+      '0x${'01' * 32}',
+      '0x${'02' * 32}',
+    ]);
     expect(decoded.cidNumber, 'CID-1');
     expect(decoded.isActive, isTrue);
-    expect(decoded.admins.first.cid_number, 'CN220-CTZN2-198805200-2026');
-    expect(decoded.admins.last.cid_number, isEmpty);
-    expect(decoded.admins.last.family_name, isEmpty);
+    expect(decoded.admins.first.cidNumber, 'CN220-CTZN2-198805200-2026');
+    expect(decoded.admins.last.cidNumber, isEmpty);
+    expect(decoded.admins.last.familyName, isEmpty);
   });
 
   test('个人多签继续解码独立账户布局', () {
@@ -78,17 +81,17 @@ void main() {
       1,
     ]);
     final decoded = AdminAccountCodec.decodePersonal(accountId, value)!;
-    expect(
-      decoded.admins.map((admin) => admin.account_id),
-      ['0x${'01' * 32}', '0x${'02' * 32}'],
-    );
+    expect(decoded.admins.map((admin) => admin.accountId), [
+      '0x${'01' * 32}',
+      '0x${'02' * 32}',
+    ]);
     expect(decoded.personalCreatorAccountId, '0x${'03' * 32}');
   });
 
   test('个人多签管理员集合校验仍按钱包账户运行', () {
     final account = AdminAccountState(
-      personalAccountId: '0x${'11' * 32}',
-      institutionCode: 'PMUL',
+      accountId: '0x${'11' * 32}',
+      orgCode: 'PMUL',
       kind: 2,
       admins: [
         person('0x${'aa' * 32}', '张', '三'),
@@ -109,16 +112,16 @@ void main() {
       ],
       newThreshold: 2,
     );
-    expect(
-      normalized.admins.map((admin) => admin.account_id),
-      ['0x${'aa' * 32}', '0x${'cc' * 32}'],
-    );
+    expect(normalized.admins.map((admin) => admin.accountId), [
+      '0x${'aa' * 32}',
+      '0x${'cc' * 32}',
+    ]);
   });
 
   test('个人多签管理员更换载荷逐字段编码账户、姓、名', () {
     final accountId = Uint8List.fromList(List.filled(32, 9));
     final callData = PersonalAdminsChangeCallCodec.build(
-      institutionCode: 'PMUL',
+      orgCode: 'PMUL',
       adminKind: 2,
       accountId: accountId,
       admins: [
@@ -147,7 +150,7 @@ void main() {
     const cidNumber = 'GD001-CGOV0-123456789-2026';
     final key = AdminAccountIdCodec.institutionAdminStorageKey(
       cidNumber,
-      institutionCode: 'CGOV',
+      orgCode: 'CGOV',
     );
     expect(key.length, 32 + 16 + 1 + utf8.encode(cidNumber).length);
     expect(key.sublist(49), utf8.encode(cidNumber));

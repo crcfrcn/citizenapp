@@ -19,9 +19,9 @@ class RuntimeUpgradeService {
   RuntimeUpgradeService({
     required CitizenChain chain,
     required CitizenTransactions transactions,
-  })  : _chain = chain,
-        _transactions = transactions,
-        _proposalQuery = ProposalQueryService(chain: chain);
+  }) : _chain = chain,
+       _transactions = transactions,
+       _proposalQuery = ProposalQueryService(chain: chain);
 
   final CitizenChain _chain;
   final CitizenTransactions _transactions;
@@ -43,9 +43,9 @@ class RuntimeUpgradeService {
   /// 提交机构岗位有效选民的联合投票。
   ///
   /// 联合投票必须等待入块，并回读 runtime JointVote storage。
-  /// txHash 只代表交易提交，不能代表投票已经生效。
+  /// tx_hash 只代表交易提交，不能代表投票已经生效。
   Future<({String txHash, int usedNonce, String blockHashHex})>
-      submitJointVote({
+  submitJointVote({
     required int proposalId,
     required String actorCidNumber,
     required String voterRoleCode,
@@ -53,7 +53,8 @@ class RuntimeUpgradeService {
     required Uint8List signerPublicKey,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
+    )
+    externalSigning,
   }) async {
     final callData = _buildJointVoteCall(
       proposalId: proposalId,
@@ -87,7 +88,8 @@ class RuntimeUpgradeService {
   ///   + code_hash: [u8;32] + expected_pow_params_hash: [u8;32]
   ///   + PowDifficultyParams 固定字段。真实状态只读取 VotingEngine::Proposals.status。
   Future<RuntimeUpgradeProposalInfo?> fetchRuntimeUpgradeProposal(
-      int proposalId) async {
+    int proposalId,
+  ) async {
     final key = _buildStorageKey(
       'VotingEngine',
       'ProposalData',
@@ -103,7 +105,9 @@ class RuntimeUpgradeService {
   /// 分页列表会批量读取 ProposalData，随后在内存里按提案类型解码；
   /// 这里提供公共入口，避免不同页面各自复制一套 runtime 提案解码逻辑。
   RuntimeUpgradeProposalInfo? decodeRuntimeUpgradeStorageValue(
-      int proposalId, Uint8List raw) {
+    int proposalId,
+    Uint8List raw,
+  ) {
     try {
       int offset = 0;
       final (vecLen, lenBytes) = _decodeCompact(raw, offset);
@@ -138,7 +142,9 @@ class RuntimeUpgradeService {
   /// 双 map：blake2_128_concat(u64_le) + blake2_128_concat(CidNumber)。
   /// Value: `Option<bool>` — null=未投票，true=赞成，false=反对。
   Future<bool?> fetchJointVoteByInstitution(
-      int proposalId, String actorCidNumber) async {
+    int proposalId,
+    String actorCidNumber,
+  ) async {
     final fullKey = _buildDoubleStorageKey(
       'JointVote',
       'JointVotesByInstitution',
@@ -151,7 +157,9 @@ class RuntimeUpgradeService {
 
   /// 查询某机构在联合投票阶段的岗位选民票数统计。
   Future<({int yes, int no})> fetchJointInstitutionTally(
-      int proposalId, String actorCidNumber) async {
+    int proposalId,
+    String actorCidNumber,
+  ) async {
     final fullKey = _buildDoubleStorageKey(
       'JointVote',
       'JointInstitutionTallies',
@@ -211,20 +219,17 @@ class RuntimeUpgradeService {
     };
   }
 
-  /// 跨提案批量查询联合投票：输入 `{proposalId: (机构 CID, [account_id])}`，
-  /// 一次链查返回 `{proposalId: {account_id: vote?}}`。
+  /// 跨提案批量查询联合投票：输入 `{proposal_id: (机构 CID, [account_id])}`，
+  /// 一次链查返回 `{proposal_id: {account_id: vote?}}`。
   ///
   /// (ADR-018 R2):与内部投票同理,广场上多个联合投票提案合并成单次
   /// 分块读取,避免每提案一次 RPC。
   Future<Map<int, Map<String, bool?>>> fetchJointTicketVotesForProposals(
     Map<
-            int,
-            ({
-              String actorCidNumber,
-              String voterRoleCode,
-              List<String> accountIds
-            })>
-        byProposal,
+      int,
+      ({String actorCidNumber, String voterRoleCode, List<String> accountIds})
+    >
+    byProposal,
   ) async {
     final keyToCoord = <String, ({int pid, String accountId})>{};
     for (final entry in byProposal.entries) {
@@ -237,10 +242,7 @@ class RuntimeUpgradeService {
           normalizedAccountId,
         );
         if (key == null) continue;
-        keyToCoord[key] = (
-          pid: entry.key,
-          accountId: normalizedAccountId,
-        );
+        keyToCoord[key] = (pid: entry.key, accountId: normalizedAccountId);
       }
     }
     if (keyToCoord.isEmpty) return const {};
@@ -259,8 +261,9 @@ class RuntimeUpgradeService {
     String voterRoleCode,
     String accountId,
   ) {
-    final accountBytes =
-        Uint8List.fromList(_hexDecode(_requireAccountId(accountId)));
+    final accountBytes = Uint8List.fromList(
+      _hexDecode(_requireAccountId(accountId)),
+    );
     if (accountBytes.length != 32) {
       return null;
     }
@@ -320,7 +323,9 @@ class RuntimeUpgradeService {
 
   /// 解码协议升级提案摘要 SCALE 数据。
   RuntimeUpgradeProposalInfo? _decodeRuntimeUpgradeAction(
-      int proposalId, Uint8List data) {
+    int proposalId,
+    Uint8List data,
+  ) {
     try {
       if (!_startsWith(data, _moduleTag)) return null;
       var offset = _moduleTag.length;
@@ -366,8 +371,10 @@ class RuntimeUpgradeService {
       // 协议升级摘要不保存业务状态，避免与投票引擎终态脱节。
       if (offset != data.length) return null;
 
-      final proposerSs58 =
-          Keyring().encodeAddress(Uint8List.fromList(proposerBytes), kGmbSs58Prefix);
+      final proposerSs58 = Keyring().encodeAddress(
+        Uint8List.fromList(proposerBytes),
+        kGmbSs58Prefix,
+      );
       final codeHashHex = _hexEncode(Uint8List.fromList(codeHashBytes));
 
       return RuntimeUpgradeProposalInfo(
@@ -376,8 +383,9 @@ class RuntimeUpgradeService {
         proposer: proposerSs58,
         reason: reason,
         codeHashHex: codeHashHex,
-        expectedPowParamsHashHex:
-            _hexEncode(Uint8List.fromList(expectedPowParamsHashBytes)),
+        expectedPowParamsHashHex: _hexEncode(
+          Uint8List.fromList(expectedPowParamsHashBytes),
+        ),
         paramsVersion: paramsVersion,
         algorithmVersion: algorithmVersion,
         targetBlockTimeMs: targetBlockTimeMs,
@@ -420,12 +428,14 @@ class RuntimeUpgradeService {
   /// 签名、提交并等待交易进入区块。
   ///
   /// 返回交易哈希、runtime nonce 和入块哈希。
-  Future<({String txHash, int usedNonce, String blockHashHex})> _executeFinalized({
+  Future<({String txHash, int usedNonce, String blockHashHex})>
+  _executeFinalized({
     required Uint8List callData,
     required Uint8List signerPublicKey,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
+    )
+    externalSigning,
   }) async {
     final prepared = await _transactions.prepareTransaction(
       signerPublicKey,
@@ -450,8 +460,7 @@ class RuntimeUpgradeService {
     } else {
       completed = started as CitizenTransactionExecutionCompleted;
     }
-    if (completed.resolution !=
-            CitizenTransactionResolution.finalizedSuccess ||
+    if (completed.resolution != CitizenTransactionResolution.finalizedSuccess ||
         completed.execution == null) {
       throw StateError(completed.poolRejectionReason ?? '联合投票交易执行失败');
     }
@@ -492,10 +501,7 @@ class RuntimeUpgradeService {
 
   Future<Uint8List?> _fetchStorage(String keyHex) async {
     final finalized = await _chain.getFinalizedHead();
-    return _chain.getStorage(
-      finalized,
-      Uint8List.fromList(_hexDecode(keyHex)),
-    );
+    return _chain.getStorage(finalized, Uint8List.fromList(_hexDecode(keyHex)));
   }
 
   Future<Map<String, Uint8List?>> _fetchStorageBatchChunked(
@@ -534,8 +540,9 @@ class RuntimeUpgradeService {
     final storageHash = _twoxx128String(storageName);
     final keyHash = _blake2128Concat(keyData);
 
-    final result =
-        Uint8List(palletHash.length + storageHash.length + keyHash.length);
+    final result = Uint8List(
+      palletHash.length + storageHash.length + keyHash.length,
+    );
     var offset = 0;
     result.setAll(offset, palletHash);
     offset += palletHash.length;
@@ -558,10 +565,12 @@ class RuntimeUpgradeService {
     final key1Hash = _blake2128Concat(key1Data);
     final key2Hash = _blake2128Concat(key2Data);
 
-    final result = Uint8List(palletHash.length +
-        storageHash.length +
-        key1Hash.length +
-        key2Hash.length);
+    final result = Uint8List(
+      palletHash.length +
+          storageHash.length +
+          key1Hash.length +
+          key2Hash.length,
+    );
     var offset = 0;
     result.setAll(offset, palletHash);
     offset += palletHash.length;
@@ -599,10 +608,7 @@ class RuntimeUpgradeService {
     if (length == 0 || length > 32 || end > data.length) {
       throw const FormatException('CidNumber SCALE 编码无效');
     }
-    return (
-      utf8.decode(data.sublist(start, end), allowMalformed: false),
-      end,
-    );
+    return (utf8.decode(data.sublist(start, end), allowMalformed: false), end);
   }
 
   Uint8List _encodeCidNumber(String cidNumber) {
@@ -635,7 +641,8 @@ class RuntimeUpgradeService {
       final val = (data[offset] | (data[offset + 1] << 8)) >> 2;
       return (val, 2);
     } else if (mode == 2) {
-      final val = (data[offset] |
+      final val =
+          (data[offset] |
               (data[offset + 1] << 8) |
               (data[offset + 2] << 16) |
               (data[offset + 3] << 24)) >>

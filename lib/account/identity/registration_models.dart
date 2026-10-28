@@ -47,34 +47,33 @@ int registrationInt(Map<String, dynamic> json, String key) {
 class RegistrationContext {
   RegistrationContext({
     required this.accountId,
-    required this.institution,
+    required this.orgCode,
     required this.chainScope,
     String? baseUrl,
-    this.registrationScope = CitizenServeApiConfig.registrationScope,
+    this.regScope = CitizenServeApiConfig.registrationScope,
   }) : baseUrl = CitizenServeApiConfig.normalize(
          baseUrl ?? CitizenServeApiConfig.baseUrl,
        ) {
     if (!RegExp(r'^0x[0-9a-f]{64}$').hasMatch(accountId) ||
         !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(chainScope) ||
-        !{'CTZN', 'NATP'}.contains(institution) ||
-        !RegExp(r'^citizenserve:[a-z][a-z0-9-]{0,31}$')
-            .hasMatch(registrationScope)) {
+        !{'CTZN', 'NATP'}.contains(orgCode) ||
+        !RegExp(r'^citizenserve:[a-z][a-z0-9-]{0,31}$').hasMatch(regScope)) {
       throw const FormatException('登记上下文无效');
     }
   }
-  final String accountId, institution, chainScope, baseUrl, registrationScope;
-  String get origin => Uri.parse(baseUrl).origin;
-  String get hash => sha256
+  final String accountId, orgCode, chainScope, baseUrl, regScope;
+  String get serviceOrigin => Uri.parse(baseUrl).origin;
+  String get contextHash => sha256
       .convert(
         utf8.encode(
           jsonEncode([
             1,
             'CitizenCidRegistration',
-            registrationScope,
-            origin,
+            regScope,
+            serviceOrigin,
             chainScope,
             accountId,
-            institution,
+            orgCode,
           ]),
         ),
       )
@@ -83,48 +82,52 @@ class RegistrationContext {
     'protocol_version': 1,
     'chain_scope': chainScope,
     'account_id': accountId,
-    'institution': institution,
+    'org_code': orgCode,
   };
   Map<String, Object?> toRecord() => {
     ...toJson(),
     'base_url': baseUrl,
-    'registration_scope': registrationScope,
+    'reg_scope': regScope,
   };
   factory RegistrationContext.fromRecord(Map<String, dynamic> value) {
     registrationFields(value, {
       'protocol_version',
       'chain_scope',
       'account_id',
-      'institution',
+      'org_code',
       'base_url',
-      'registration_scope',
+      'reg_scope',
     });
     if (value['protocol_version'] != 1) throw const FormatException('登记协议版本无效');
     return RegistrationContext(
       accountId: registrationText(value, 'account_id'),
-      institution: registrationText(value, 'institution'),
+      orgCode: registrationText(value, 'org_code'),
       chainScope: registrationText(value, 'chain_scope'),
       baseUrl: registrationText(value, 'base_url'),
-      registrationScope: registrationText(value, 'registration_scope'),
+      regScope: registrationText(value, 'reg_scope'),
     );
   }
 }
 
 class RegistrationCapabilities {
-  const RegistrationCapabilities(this.enrollmentId, this.recoveryToken);
-  final String enrollmentId, recoveryToken;
+  const RegistrationCapabilities(this.regId, this.recoveryToken);
+  final String regId, recoveryToken;
   Map<String, Object?> toJson() => {
     'protocol_version': 1,
-    'enrollment_id': enrollmentId,
+    'reg_id': regId,
     'recovery_token': recoveryToken,
   };
 }
 
 class RegistrationVerification {
-  const RegistrationVerification(this.id, this.page, this.expiresAt);
-  final String id;
-  final Uri page;
-  final int expiresAt;
+  const RegistrationVerification(
+    this.checkId,
+    this.pageUrl,
+    this.pageExpiresAt,
+  );
+  final String checkId;
+  final Uri pageUrl;
+  final int pageExpiresAt;
 }
 
 enum RegistrationState {
@@ -149,7 +152,7 @@ class RegistrationResponse {
   final Map<String, dynamic> json;
   final RegistrationState jobState;
   final RegistrationVerification? verification;
-  String get enrollmentId => registrationText(json, 'enrollment_id');
+  String get regId => registrationText(json, 'reg_id');
   factory RegistrationResponse.parse(
     Map<String, dynamic> json,
     RegistrationContext context, {
@@ -159,28 +162,27 @@ class RegistrationResponse {
     registrationFields(json, {
       'is_ok',
       'protocol_version',
-      'enrollment_id',
-      'registration_scope',
+      'reg_id',
+      'reg_scope',
       'service_origin',
-      'registration_context_hash',
+      'context_hash',
       'job_state',
       'created_at',
       'expires_at',
-      'human_verified_at',
+      'human_at',
       'activation',
       'verification',
       if (initial) 'recovery_token',
     });
     if (json['is_ok'] != true ||
         json['protocol_version'] != 1 ||
-        json['registration_scope'] != context.registrationScope ||
-        json['service_origin'] != context.origin ||
-        json['registration_context_hash'] != '0x${context.hash}' ||
-        (capabilities != null &&
-            json['enrollment_id'] != capabilities.enrollmentId)) {
+        json['reg_scope'] != context.regScope ||
+        json['service_origin'] != context.serviceOrigin ||
+        json['context_hash'] != '0x${context.contextHash}' ||
+        (capabilities != null && json['reg_id'] != capabilities.regId)) {
       throw const FormatException('登记响应上下文不一致');
     }
-    registrationText(json, 'enrollment_id');
+    registrationText(json, 'reg_id');
     if (initial) registrationText(json, 'recovery_token');
     final jobState = switch (json['job_state']) {
       'prepared' => RegistrationState.prepared,
@@ -194,7 +196,7 @@ class RegistrationResponse {
     if (registrationInt(json, 'expires_at') <= created) {
       throw const FormatException('登记期限无效');
     }
-    final verified = json['human_verified_at'];
+    final verified = json['human_at'];
     if ((jobState == RegistrationState.humanVerified ||
             jobState == RegistrationState.activated) &&
         (verified is! int || verified < created)) {
@@ -211,7 +213,7 @@ class RegistrationResponse {
     if (raw != null) {
       if (raw is! Map<String, dynamic>) throw const FormatException('登记页面无效');
       registrationFields(raw, {
-        'verification_id',
+        'check_id',
         'page_url',
         'page_expires_at',
         'action',
@@ -223,12 +225,12 @@ class RegistrationResponse {
         '/user/registration/page',
         query: true,
       );
-      final id = registrationText(raw, 'verification_id');
+      final id = registrationText(raw, 'check_id');
       if (raw['action'] != 'cid_register' ||
           raw['hostname'] != page.host ||
           page.queryParametersAll.length != 2 ||
           page.queryParametersAll.values.any((v) => v.length != 1) ||
-          page.queryParameters['verification_id'] != id ||
+          page.queryParameters['check_id'] != id ||
           (page.queryParameters['page_token'] ?? '').isEmpty) {
         throw const FormatException('登记页面能力无效');
       }
@@ -246,7 +248,7 @@ class RegistrationResponse {
       registrationFields(activation, {
         'cid_number',
         'account_id',
-        'binding_revision',
+        'bind_rev',
         'device_id',
         'public_key',
       });
@@ -258,7 +260,7 @@ class RegistrationResponse {
         throw const FormatException('登记激活设备无效');
       }
       registrationText(activation, 'cid_number');
-      registrationInt(activation, 'binding_revision');
+      registrationInt(activation, 'bind_rev');
     } else if (activation != null) {
       throw const FormatException('登记激活状态不一致');
     }
@@ -276,15 +278,15 @@ class RegistrationResponse {
 class FinalizedRegistration {
   const FinalizedRegistration({
     required this.binding,
-    required this.blockHash,
+    required this.chainHash,
     this.txHash,
   });
   final IdentityBinding binding;
-  final String blockHash;
+  final String chainHash;
   final String? txHash;
   Map<String, Object?> toJson() => {
     'binding': binding.toJson(),
-    'block_hash': blockHash,
+    'block_hash': chainHash,
     'tx_hash': txHash,
   };
   factory FinalizedRegistration.fromJson(Map<String, dynamic> json) {
@@ -300,7 +302,7 @@ class FinalizedRegistration {
       binding:
           (IdentityBinding.fromJson(jsonEncode(json['binding'])) ??
           (throw const FormatException('finalized绑定无效'))),
-      blockHash: block,
+      chainHash: block,
       txHash: json['tx_hash'] as String?,
     );
   }
@@ -334,92 +336,37 @@ class RegistrationRecord {
     finalized: finalized ?? this.finalized,
     checkpoint: checkpoint ?? this.checkpoint,
   );
-  String encode() => jsonEncode({
-    'record_version': 3,
-    'context': context.toRecord(),
-    'capabilities': capabilities.toJson(),
-    'response': {...response.json}..remove('recovery_token'),
-    'phase': phase.name,
-    'finalized': finalized?.toJson(),
-    'checkpoint': checkpoint,
-  });
-
-  /// 只用于原存储的单次版本升级；HTTP解析器始终只接受当前字段。
-  static String upgrade(String text) {
-    final raw = jsonDecode(text) as Map<String, dynamic>;
-    if (raw['record_version'] == 3) return text;
-    final version = raw['record_version'];
-    if (raw.containsKey('record_version') && version != 2) {
-      throw const FormatException('登记恢复记录版本无效');
+  String encode() {
+    if (capabilities.regId != response.regId) {
+      throw const FormatException('登记恢复能力归属不一致');
     }
-    registrationFields(raw, {
-      if (version == 2) 'record_version',
-      'context',
-      'capabilities',
-      'response',
-      'phase',
-      'finalized',
-      'checkpoint',
+    return jsonEncode({
+      'context': context.toRecord(),
+      'recovery_token': capabilities.recoveryToken,
+      'response': {...response.json}..remove('recovery_token'),
+      'phase': phase.name,
+      'finalized': finalized?.toJson(),
+      'checkpoint': checkpoint,
     });
-    final response = (raw['response'] as Map).cast<String, dynamic>();
-    void move(Map<String, dynamic> value, String old, String current) {
-      if (!value.containsKey(old) || value.containsKey(current)) {
-        throw const FormatException('登记旧记录字段冲突');
-      }
-      value[current] = value.remove(old);
-    }
-
-    move(response, 'state', 'job_state');
-    if (version == null) {
-      move(response, 'ok', 'is_ok');
-      move(response, 'created_at_millis', 'created_at');
-      move(response, 'expires_at_millis', 'expires_at');
-      move(response, 'human_verified_at_millis', 'human_verified_at');
-      if (response['verification'] != null) {
-        final verification = (response['verification'] as Map)
-            .cast<String, dynamic>();
-        move(verification, 'page_expires_at_millis', 'page_expires_at');
-        response['verification'] = verification;
-      }
-    }
-    // 本地记录定位键仍是原摘要文本；HTTP H256沿服务端原0x表示，不移动恢复键。
-    final context = RegistrationContext.fromRecord(
-      (raw['context'] as Map).cast<String, dynamic>(),
-    );
-    if (response['registration_context_hash'] == context.hash) {
-      response['registration_context_hash'] = '0x${context.hash}';
-    }
-    raw['response'] = response;
-    raw['record_version'] = 3;
-    final result = jsonEncode(raw);
-    return RegistrationRecord.decode(result).encode();
   }
 
   factory RegistrationRecord.decode(String text) {
     final raw = jsonDecode(text) as Map<String, dynamic>;
     registrationFields(raw, {
-      'record_version',
       'context',
-      'capabilities',
+      'recovery_token',
       'response',
       'phase',
       'finalized',
       'checkpoint',
     });
-    if (raw['record_version'] != 3) throw const FormatException('登记恢复记录版本无效');
     final context = RegistrationContext.fromRecord(
       raw['context'] as Map<String, dynamic>,
     );
-    final cap = raw['capabilities'] as Map<String, dynamic>;
-    registrationFields(cap, {
-      'protocol_version',
-      'enrollment_id',
-      'recovery_token',
-    });
-    if (cap['protocol_version'] != 1) throw const FormatException('登记恢复版本无效');
+    final response = raw['response'] as Map<String, dynamic>;
     final capabilities = RegistrationCapabilities(
-      registrationText(cap, 'enrollment_id'),
-      registrationText(cap, 'recovery_token'),
+      registrationText(response, 'reg_id'),
+      registrationText(raw, 'recovery_token'),
     );
     final finalized = raw['finalized'] == null
         ? null
@@ -464,7 +411,7 @@ class RegistrationRecord {
       context: context,
       capabilities: capabilities,
       response: RegistrationResponse.parse(
-        raw['response'] as Map<String, dynamic>,
+        response,
         context,
         capabilities: capabilities,
       ),

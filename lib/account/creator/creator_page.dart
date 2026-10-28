@@ -62,7 +62,7 @@ class _CreatorPageState extends State<CreatorPage> {
   bool _unregistered = false;
   String? _error;
   String _cidNumber = '';
-  int _membershipFetchedAtMs = 0;
+  int _memberAt = 0;
   int _loadGeneration = 0;
 
   @override
@@ -209,7 +209,7 @@ class _CreatorPageState extends State<CreatorPage> {
       if (snapshot != null) {
         setState(() {
           _data = snapshot.data;
-          _membershipFetchedAtMs = snapshot.membershipFetchedAtMs;
+          _memberAt = snapshot.memberAt;
           _scheduleDisplayExpiry();
           _error = null;
         });
@@ -244,7 +244,7 @@ class _CreatorPageState extends State<CreatorPage> {
       }
       setState(() {
         _data = data;
-        _membershipFetchedAtMs = DateTime.now().millisecondsSinceEpoch;
+        _memberAt = DateTime.now().millisecondsSinceEpoch;
         _scheduleDisplayExpiry();
         _error = null;
       });
@@ -601,8 +601,8 @@ class _CreatorPageState extends State<CreatorPage> {
         _service.rememberDisplayData(
           cidNumber: _cidNumber,
           data: data,
-          membershipFetchedAtMs: _membershipFetchedAtMs,
-          creatorFetchedAtMs: DateTime.now().millisecondsSinceEpoch,
+          memberAt: _memberAt,
+          creatorAt: DateTime.now().millisecondsSinceEpoch,
         ),
       );
     }

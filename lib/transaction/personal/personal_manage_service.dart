@@ -22,8 +22,8 @@ class PersonalManageService {
   const PersonalManageService({
     required CitizenChain chain,
     required CitizenTransactions transactions,
-  })  : _chain = chain,
-        _transactions = transactions;
+  }) : _chain = chain,
+       _transactions = transactions;
 
   final CitizenChain _chain;
   final CitizenTransactions _transactions;
@@ -52,18 +52,20 @@ class PersonalManageService {
     0x6d,
     0x67,
     0x6d,
-    0x74
+    0x74,
   ]; // "per-mgmt"
 
   /// 提交 PersonalManage::propose_create extrinsic（个人多签，无需 CID）。
   Future<
-      ({
-        String txHash,
-        int usedNonce,
-        int proposalId,
-        String accountId,
-        String blockHashHex,
-      })> submitProposeCreatePersonal({
+    ({
+      String txHash,
+      int usedNonce,
+      int proposalId,
+      String accountId,
+      String blockHashHex,
+    })
+  >
+  submitProposeCreatePersonal({
     required Uint8List accountName,
     required List<AdminPerson> admins,
     required int regularThreshold,
@@ -71,7 +73,8 @@ class PersonalManageService {
     required Uint8List signerPublicKey,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
+    )
+    externalSigning,
   }) async {
     final callData = buildProposeCreatePersonalCallData(
       accountName: accountName,
@@ -118,11 +121,12 @@ class PersonalManageService {
     final minThreshold = minimumRegularThreshold(admins.length);
     if (regularThreshold < minThreshold || regularThreshold > admins.length) {
       throw ArgumentError(
-          'regular_threshold 范围必须在 $minThreshold..=${admins.length}');
+        'regular_threshold 范围必须在 $minThreshold..=${admins.length}',
+      );
     }
     final seen = <String>{};
     for (final admin in admins) {
-      final publicKey = AdminAccountIdCodec.fromAccountIdText(admin.account_id);
+      final publicKey = AdminAccountIdCodec.fromAccountIdText(admin.accountId);
       if (publicKey.length != 32) {
         throw ArgumentError('admins 每项必须为 32 字节');
       }
@@ -130,8 +134,8 @@ class PersonalManageService {
       if (!seen.add(hex)) {
         throw ArgumentError('admins 不允许重复');
       }
-      _validateAdminName(admin.family_name, 'family_name');
-      _validateAdminName(admin.given_name, 'given_name');
+      _validateAdminName(admin.familyName, 'family_name');
+      _validateAdminName(admin.givenName, 'given_name');
     }
     if (amountFen <= BigInt.zero) {
       throw ArgumentError('amount 必须大于 0');
@@ -143,20 +147,22 @@ class PersonalManageService {
 
     // account_name: BoundedVec<u8> = Compact<u32> length + bytes
     output.write(
-        CompactBigIntCodec.codec.encode(BigInt.from(accountName.length)));
+      CompactBigIntCodec.codec.encode(BigInt.from(accountName.length)),
+    );
     output.write(accountName);
 
     // admins: BoundedVec<Admin(account_id + cid_number + family_name + given_name)>
     output.write(CompactBigIntCodec.codec.encode(BigInt.from(admins.length)));
     for (final admin in admins) {
-      output.write(AdminAccountIdCodec.fromAccountIdText(admin.account_id));
+      output.write(AdminAccountIdCodec.fromAccountIdText(admin.accountId));
       // 统一 Admin 恒带公民 CID（个人多签为空 → Compact(0)）。
-      final cidBytes = utf8.encode(admin.cid_number);
-      output
-          .write(CompactBigIntCodec.codec.encode(BigInt.from(cidBytes.length)));
+      final cidBytes = utf8.encode(admin.cidNumber);
+      output.write(
+        CompactBigIntCodec.codec.encode(BigInt.from(cidBytes.length)),
+      );
       output.write(Uint8List.fromList(cidBytes));
-      _writeAdminName(output, admin.family_name);
-      _writeAdminName(output, admin.given_name);
+      _writeAdminName(output, admin.familyName);
+      _writeAdminName(output, admin.givenName);
     }
 
     // regular_threshold: u32 little-endian。注册提案阈值仍由链端固定为全员通过。
@@ -188,7 +194,8 @@ class PersonalManageService {
     required Uint8List signerPublicKey,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
+    )
+    externalSigning,
   }) async {
     final output = ByteOutput();
     output.pushByte(_palletIndex);
@@ -208,7 +215,7 @@ class PersonalManageService {
   /// 返回以入参地址原样为键的 map;未注册或解码失败的地址值为 null。
   /// 个人多签发现的唯一反查入口(ADR-018 R2:多 key 一律批量,杜绝循环内逐条)。
   Future<Map<String, ({String creatorAccountId, String accountName})?>>
-      fetchPersonalMetasBatch(
+  fetchPersonalMetasBatch(
     Iterable<String> personalAccountIdList, {
     int chunkSize = 100,
   }) async {
@@ -238,28 +245,23 @@ class PersonalManageService {
       result[entry.key] = meta == null
           ? null
           : (
-              creatorAccountId: meta.creatorAccountId,
-              accountName:
-                  PersonalManageStorageCodec.accountNameText(meta.accountName),
+              creatorAccountId: meta.creatorAccount,
+              accountName: PersonalManageStorageCodec.accountNameText(
+                meta.accountName,
+              ),
             );
     }
     return result;
   }
 
   /// 查询个人多签账户信息。
-  Future<AccountInfo?> fetchPersonalAccount(
-    String accountId,
-  ) async {
-    final key = PersonalManageStorageCodec.personalAccountsKey(
-      accountId,
-    );
+  Future<AccountInfo?> fetchPersonalAccount(String accountId) async {
+    final key = PersonalManageStorageCodec.personalAccountsKey(accountId);
     final data = await _fetchStorage('0x${_hexEncode(key)}');
     if (data == null) return null;
     final personal = PersonalManageStorageCodec.decodePersonalAccount(data);
     if (personal == null) return null;
-    final accountIdBytes = PersonalManageStorageCodec.accountIdBytes(
-      accountId,
-    );
+    final accountIdBytes = PersonalManageStorageCodec.accountIdBytes(accountId);
     final adminKey = PersonalManageStorageCodec.adminAccountKey(accountIdBytes);
     final adminData = await _fetchStorage('0x${_hexEncode(adminKey)}');
     if (adminData == null) return null;
@@ -295,9 +297,7 @@ class PersonalManageService {
     final firstRoundKeys = <String>[];
 
     for (final address in addresses) {
-      final accountId = PersonalManageStorageCodec.accountIdBytes(
-        address,
-      );
+      final accountId = PersonalManageStorageCodec.accountIdBytes(address);
       final personalKey =
           '0x${_hexEncode(PersonalManageStorageCodec.personalAccountsKey(address))}';
       final adminKey =
@@ -325,8 +325,9 @@ class PersonalManageService {
         result[address] = null;
         continue;
       }
-      final personal =
-          PersonalManageStorageCodec.decodePersonalAccount(personalData);
+      final personal = PersonalManageStorageCodec.decodePersonalAccount(
+        personalData,
+      );
       final admin = PersonalManageStorageCodec.decodeAdminAccount(adminData);
       if (personal == null || admin == null) {
         result[address] = null;
@@ -402,10 +403,7 @@ class PersonalManageService {
     }
   }
 
-  CreateProposalInfo? _decodeCreateAction(
-    int proposalId,
-    Uint8List data,
-  ) {
+  CreateProposalInfo? _decodeCreateAction(int proposalId, Uint8List data) {
     if (data.length != 32 + 32 + 16 + 16) return null;
     var offset = 0;
 
@@ -414,28 +412,27 @@ class PersonalManageService {
     offset += 32;
 
     final proposerBytes = data.sublist(offset, offset + 32);
-    final proposerSs58 =
-        Keyring().encodeAddress(Uint8List.fromList(proposerBytes), kGmbSs58Prefix);
+    final proposerSs58 = Keyring().encodeAddress(
+      Uint8List.fromList(proposerBytes),
+      kGmbSs58Prefix,
+    );
     offset += 32;
 
     final amountFen = _readU128Le(data.sublist(offset, offset + 16));
     offset += 16;
 
-    final feeFen = _readU128Le(data.sublist(offset, offset + 16));
+    final feeAmount = _readU128Le(data.sublist(offset, offset + 16));
 
     return CreateProposalInfo(
       proposalId: proposalId,
       accountId: accountId,
       proposerSs58Address: proposerSs58,
       amountFen: amountFen,
-      feeFen: feeFen,
+      feeAmount: feeAmount,
     );
   }
 
-  CloseProposalInfo? _decodeCloseAction(
-    int proposalId,
-    Uint8List data,
-  ) {
+  CloseProposalInfo? _decodeCloseAction(int proposalId, Uint8List data) {
     if (data.length != 32 + 32 + 32) return null;
     var offset = 0;
 
@@ -444,13 +441,17 @@ class PersonalManageService {
     offset += 32;
 
     final beneficiaryBytes = data.sublist(offset, offset + 32);
-    final beneficiarySs58 =
-        Keyring().encodeAddress(Uint8List.fromList(beneficiaryBytes), kGmbSs58Prefix);
+    final beneficiarySs58 = Keyring().encodeAddress(
+      Uint8List.fromList(beneficiaryBytes),
+      kGmbSs58Prefix,
+    );
     offset += 32;
 
     final proposerBytes = data.sublist(offset, offset + 32);
-    final proposerSs58 =
-        Keyring().encodeAddress(Uint8List.fromList(proposerBytes), kGmbSs58Prefix);
+    final proposerSs58 = Keyring().encodeAddress(
+      Uint8List.fromList(proposerBytes),
+      kGmbSs58Prefix,
+    );
 
     return CloseProposalInfo(
       proposalId: proposalId,
@@ -461,7 +462,7 @@ class PersonalManageService {
   }
 
   Future<({int proposalId, String accountId})>
-      _confirmPersonalAccountProposedEvent({
+  _confirmPersonalAccountProposedEvent({
     required CitizenBlockRef finalizedBlock,
     required Uint8List accountName,
     required List<AdminPerson> admins,
@@ -557,8 +558,10 @@ class PersonalManageService {
       final nameRead = _readCompactBytes(data, pos);
       if (nameRead == null) return null;
       pos = nameRead.nextOffset;
-      final decodedAdmins =
-          InstitutionRoleStorageCodec.decodeAdminVector(data, pos);
+      final decodedAdmins = InstitutionRoleStorageCodec.decodeAdminVector(
+        data,
+        pos,
+      );
       if (decodedAdmins == null) return null;
       final eventAdmins = decodedAdmins.$1;
       pos = decodedAdmins.$2;
@@ -569,17 +572,15 @@ class PersonalManageService {
       pos += 4;
       final eventAmount = _readU128Le(data.sublist(pos, pos + 16));
 
-      final matches = _bytesEqual(proposer, proposerPublicKey) &&
+      final matches =
+          _bytesEqual(proposer, proposerPublicKey) &&
           _bytesEqual(nameRead.bytes, accountName) &&
           eventAdminsLen == admins.length &&
           eventThreshold == regularThreshold &&
           eventAmount == amountFen &&
           _adminListsEqual(eventAdmins, admins);
       if (!matches) return null;
-      return (
-        proposalId: proposalId,
-        accountId: _hexEncode(account),
-      );
+      return (proposalId: proposalId, accountId: _hexEncode(account));
     } catch (_) {
       return null;
     }
@@ -590,7 +591,8 @@ class PersonalManageService {
     required Uint8List signerPublicKey,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
+    )
+    externalSigning,
   }) async {
     final result = await _execute(
       callData: callData,
@@ -601,12 +603,13 @@ class PersonalManageService {
   }
 
   Future<({String txHash, int usedNonce, CitizenBlockRef block})>
-      _executeFinalized({
+  _executeFinalized({
     required Uint8List callData,
     required Uint8List signerPublicKey,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
+    )
+    externalSigning,
   }) async {
     return _execute(
       callData: callData,
@@ -620,7 +623,8 @@ class PersonalManageService {
     required Uint8List signerPublicKey,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
+    )
+    externalSigning,
   }) async {
     final prepared = await _transactions.prepareTransaction(
       signerPublicKey,
@@ -645,8 +649,7 @@ class PersonalManageService {
     } else {
       completed = started as CitizenTransactionExecutionCompleted;
     }
-    if (completed.resolution !=
-            CitizenTransactionResolution.finalizedSuccess ||
+    if (completed.resolution != CitizenTransactionResolution.finalizedSuccess ||
         completed.execution == null) {
       throw StateError(completed.poolRejectionReason ?? '个人多签交易执行失败');
     }
@@ -757,9 +760,9 @@ class PersonalManageService {
   ) {
     if (left.length != right.length) return false;
     for (var i = 0; i < left.length; i++) {
-      if (left[i].account_id != right[i].account_id ||
-          left[i].family_name != right[i].family_name ||
-          left[i].given_name != right[i].given_name) {
+      if (left[i].accountId != right[i].accountId ||
+          left[i].familyName != right[i].familyName ||
+          left[i].givenName != right[i].givenName) {
         return false;
       }
     }
@@ -791,7 +794,8 @@ class PersonalManageService {
       final val = (data[offset] | (data[offset + 1] << 8)) >> 2;
       return (val, 2);
     } else if (mode == 2) {
-      final val = (data[offset] |
+      final val =
+          (data[offset] |
               (data[offset + 1] << 8) |
               (data[offset + 2] << 16) |
               (data[offset + 3] << 24)) >>

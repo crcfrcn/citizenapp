@@ -70,7 +70,7 @@ class ContactBookPage extends StatefulWidget {
   /// 测试可替换页面打开器；正式运行始终进入现有链上支付页面。
   final Future<void> Function(
     BuildContext context, {
-    required String toSs58Address,
+    required String toAddress,
     required String cidNumber,
   })?
   transferOpener;
@@ -351,7 +351,7 @@ class _ContactBookPageState extends State<ContactBookPage> {
             _resolvedProfileCidNumbers.add(cidNumber);
             _profileMedia[cidNumber] = await _profileMediaCache.read(profile);
             await _profileCache.write(profile);
-            final key = profile.avatarObjectKey?.trim();
+            final key = profile.avatarKey?.trim();
             if (key != null && key.isNotEmpty) {
               final session = _session;
               if (session == null) return;
@@ -360,7 +360,7 @@ class _ContactBookPageState extends State<ContactBookPage> {
                 session: session,
                 cache: _profileMediaCache,
               );
-              if (_profiles[cidNumber]?.updatedAt == profile.updatedAt) {
+              if (_profiles[cidNumber]?.profileAt == profile.profileAt) {
                 _profileMedia[cidNumber] = refreshed;
               }
             }
@@ -431,7 +431,7 @@ class _ContactBookPageState extends State<ContactBookPage> {
     if (opener != null) {
       await opener(
         context,
-        toSs58Address: current.ss58Address,
+        toAddress: current.accountAddress,
         cidNumber: current.cidNumber,
       );
       return;
@@ -439,7 +439,7 @@ class _ContactBookPageState extends State<ContactBookPage> {
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (_) => OnchainPaymentPage(
-          initialToAddress: current.ss58Address,
+          initialToAddress: current.accountAddress,
           initialRecipientCid: current.cidNumber,
         ),
       ),
@@ -651,10 +651,10 @@ class _ContactBookPageState extends State<ContactBookPage> {
   }
 
   String? _avatarUrl(CitizenProfile? profile) {
-    final key = profile?.avatarObjectKey;
+    final key = profile?.avatarKey;
     return key == null
         ? null
-        : _profileApi.cardMediaUrl(key, updatedAt: profile?.updatedAt);
+        : _profileApi.cardMediaUrl(key, updatedAt: profile?.profileAt);
   }
 
   String _contactDisplayName(UserContact contact) {
@@ -719,11 +719,11 @@ class _ContactCard extends StatelessWidget {
                   imageUrl: avatarUrl,
 
                   userImageSet: profileResolved
-                      ? profile?.avatarObjectKey?.trim().isNotEmpty == true
+                      ? profile?.avatarKey?.trim().isNotEmpty == true
                       : true,
-                  identityLevel: profile?.identityLevel,
-                  membershipLevel: profile?.membershipLevel,
-                  membershipActive: profile?.membershipActive ?? false,
+                  cidLevel: profile?.cidLevel,
+                  memberLevel: profile?.memberLevel,
+                  membergateActive: profile?.membergateActive ?? false,
                   showBadge: profileResolved,
                   borderRadius: 14,
                 ),

@@ -147,7 +147,7 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
     setState(() => _saving = true);
     try {
       final pending = await _cache.readUpdate(widget.cidNumber);
-      if (pending?.operationState == 'confirmed') {
+      if (pending?.jobState == 'confirmed') {
         await _saveLocal();
         return;
       }
@@ -190,7 +190,7 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
         );
         if (resume != true) return;
         final request = Map<String, String>.from(
-          jsonDecode(pending.requestJson) as Map,
+          jsonDecode(pending.requestData) as Map,
         );
         final updated = await _sendUpdate(session, request);
         await _cache.confirmUpdate(updated);
@@ -204,7 +204,7 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
       if (_pendingAvatar != null) {
         final result = await _assetService.upload(
           session: session,
-          kind: 'avatar',
+          uploadKind: 'avatar',
           bytes: _pendingAvatar!.bytes,
           contentType: _pendingAvatar!.contentType,
         );
@@ -221,7 +221,7 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
       if (_pendingBanner != null) {
         final result = await _assetService.upload(
           session: session,
-          kind: 'banner',
+          uploadKind: 'banner',
           bytes: _pendingBanner!.bytes,
           contentType: _pendingBanner!.contentType,
         );
@@ -237,10 +237,10 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
       final request = <String, String>{
         'display_name': nickname,
         'profile_bio': _bioController.text.trim(),
-        'avatar_object_key': ?avatarKey,
-        'avatar_content_hash': ?avatarHash,
-        'banner_object_key': ?bannerKey,
-        'banner_content_hash': ?bannerHash,
+        'avatar_key': ?avatarKey,
+        'avatar_hash': ?avatarHash,
+        'banner_key': ?bannerKey,
+        'banner_hash': ?bannerHash,
       };
       await _cache.prepareUpdate(
         widget.cidNumber,
@@ -279,10 +279,10 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
     session: session,
     displayName: request['display_name'],
     profileBio: request['profile_bio'],
-    avatarObjectKey: request['avatar_object_key'],
-    avatarContentHash: request['avatar_content_hash'],
-    bannerObjectKey: request['banner_object_key'],
-    bannerContentHash: request['banner_content_hash'],
+    avatarKey: request['avatar_key'],
+    avatarHash: request['avatar_hash'],
+    bannerKey: request['banner_key'],
+    bannerHash: request['banner_hash'],
   );
 
   Future<void> _saveLocal() async {
@@ -304,8 +304,8 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
 
   @override
   Widget build(BuildContext context) {
-    final avatarKey = widget.initialProfile?.avatarObjectKey;
-    final bannerKey = widget.initialProfile?.bannerObjectKey;
+    final avatarKey = widget.initialProfile?.avatarKey;
+    final bannerKey = widget.initialProfile?.bannerKey;
     final defaults = ProfilePresentation.forIdentityKey(widget.cidNumber);
     return Scaffold(
       appBar: AppBar(

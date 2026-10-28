@@ -13,13 +13,13 @@ import 'package:citizenapp/citizen/institution/institution_code_label.dart';
 /// 管理员真源在 `PersonalAdmins::AdminAccounts`，动态阈值真源在 `InternalVote`。
 class PersonalManageAccountSnapshot {
   const PersonalManageAccountSnapshot({
-    required this.creatorAccountId,
+    required this.creatorAccount,
     required this.accountName,
     required this.createdAt,
     required this.statusByte,
   });
 
-  final String creatorAccountId;
+  final String creatorAccount;
   final Uint8List accountName;
   final int createdAt;
   final int statusByte;
@@ -28,12 +28,12 @@ class PersonalManageAccountSnapshot {
 /// 管理员与阈值快照。
 class PersonalManageAdminSnapshot {
   const PersonalManageAdminSnapshot({
-    required this.institutionCode,
+    required this.orgCode,
     required this.adminsLen,
     required this.admins,
   });
 
-  final String institutionCode;
+  final String orgCode;
   final int adminsLen;
   final List<AdminPerson> admins;
 }
@@ -42,11 +42,11 @@ class PersonalManageAdminSnapshot {
 class PersonalManageStorageCodec {
   PersonalManageStorageCodec._();
 
-  static Uint8List personalAccountsKey(String personalAccountId) {
+  static Uint8List personalAccountsKey(String accountId) {
     return storageMapKey(
       'PersonalManage',
       'PersonalAccounts',
-      accountIdBytes(personalAccountId),
+      accountIdBytes(accountId),
     );
   }
 
@@ -69,13 +69,10 @@ class PersonalManageStorageCodec {
     );
   }
 
-  static PersonalManageAccountSnapshot? decodePersonalAccount(
-    Uint8List data,
-  ) {
+  static PersonalManageAccountSnapshot? decodePersonalAccount(Uint8List data) {
     if (data.length < 32 + 1 + 4 + 1) return null;
     var offset = 0;
-    final creatorAccountId =
-        '0x${hexEncode(data.sublist(offset, offset + 32))}';
+    final creatorAccount = '0x${hexEncode(data.sublist(offset, offset + 32))}';
     offset += 32;
     final accountName = readBoundedBytes(data, offset);
     if (accountName == null) return null;
@@ -85,7 +82,7 @@ class PersonalManageStorageCodec {
     offset += 4;
     final statusByte = data[offset];
     return PersonalManageAccountSnapshot(
-      creatorAccountId: creatorAccountId,
+      creatorAccount: creatorAccount,
       accountName: accountName.value,
       createdAt: createdAt,
       statusByte: statusByte,
@@ -101,12 +98,15 @@ class PersonalManageStorageCodec {
     final (cidLen, cidLenSize) = readCompactU32(data, offset);
     offset += cidLenSize + cidLen;
     if (offset + 5 > data.length) return null;
-    final institutionCode =
-        InstitutionCodeLabel.codeToString(data.sublist(offset, offset + 4));
+    final orgCode = InstitutionCodeLabel.codeToString(
+      data.sublist(offset, offset + 4),
+    );
     offset += 4;
     offset++; // AdminAccountKind
-    final decodedAdmins =
-        InstitutionRoleStorageCodec.decodeAdminVector(data, offset);
+    final decodedAdmins = InstitutionRoleStorageCodec.decodeAdminVector(
+      data,
+      offset,
+    );
     if (decodedAdmins == null) return null;
     final admins = decodedAdmins.$1;
     offset = decodedAdmins.$2;
@@ -114,7 +114,7 @@ class PersonalManageStorageCodec {
     // 后续字段是 creator/created_at/updated_at/status，阈值必须另查 InternalVote。
     if (offset + 32 + 4 + 4 + 1 != data.length) return null;
     return PersonalManageAdminSnapshot(
-      institutionCode: institutionCode,
+      orgCode: orgCode,
       adminsLen: admins.length,
       admins: admins,
     );
@@ -133,8 +133,9 @@ class PersonalManageStorageCodec {
     final palletHash = Hasher.twoxx128.hashString(palletName);
     final storageHash = Hasher.twoxx128.hashString(storageName);
     final keyHash = blake2128Concat(keyData);
-    final result =
-        Uint8List(palletHash.length + storageHash.length + keyHash.length);
+    final result = Uint8List(
+      palletHash.length + storageHash.length + keyHash.length,
+    );
     var offset = 0;
     result.setAll(offset, palletHash);
     offset += palletHash.length;

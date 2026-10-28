@@ -75,31 +75,31 @@ class SquareAuthor {
     required this.accountId,
     this.cidNumber,
     this.displayName,
-    this.avatarObjectKey,
-    this.identityLevel,
-    this.membershipLevel,
-    this.membershipActive = false,
+    this.avatarKey,
+    this.cidLevel,
+    this.memberLevel,
+    this.membergateActive = false,
   });
 
   final String accountId;
   final String? cidNumber;
   final String? displayName;
 
-  /// 作者头像对象键（profile.json 的 avatar_object_key）；缺失或读取失败时由
+  /// 作者头像对象键（profile.json 的 avatar_key）；缺失或读取失败时由
   /// ProfileAvatar 优先按永久 CID 稳定选择本地默认照片；纯访客才按账户兜底。
-  final String? avatarObjectKey;
+  final String? avatarKey;
 
   /// 作者链上身份档：visitor/voting/candidate/null；无有效会员时用于徽章颜色。
-  final String? identityLevel;
+  final String? cidLevel;
 
   /// 作者已购买会员档：freedom/democracy/spark/null；会员有效时用于徽章颜色。
-  final String? membershipLevel;
+  final String? memberLevel;
 
   /// 作者会员是否有效。
-  final bool membershipActive;
+  final bool membergateActive;
 
   bool get isCertified {
-    final level = identityLevel;
+    final level = cidLevel;
     if (level != null) return level != 'visitor';
     return cidNumber != null && cidNumber!.isNotEmpty;
   }
@@ -115,11 +115,10 @@ class SquareMediaItem {
   const SquareMediaItem({
     required this.mediaKind,
     required this.url,
-    this.coverUrl,
+    this.previewUrl,
     this.byteSize,
-    this.assetState,
-    this.width,
-    this.height,
+    this.pixelWidth,
+    this.pixelHeight,
     this.cidNumber,
     this.postId,
     this.mediaIndex,
@@ -127,9 +126,8 @@ class SquareMediaItem {
 
   final SquareMediaKind mediaKind;
   final String url;
-  final String? coverUrl;
+  final String? previewUrl;
   final int? byteSize;
-  final String? assetState;
 
   /// 本地展示以内容槽位寻址数据库；不把数据库标识拼成远端URL。
   final String? cidNumber;
@@ -139,13 +137,13 @@ class SquareMediaItem {
 
   /// 媒体原始像素宽/高（Worker LimitTicket 上传时落库并随 feed 回传）。
   /// 广场卡片据此判横竖屏；缺失时按横屏兜底。
-  final int? width;
-  final int? height;
+  final int? pixelWidth;
+  final int? pixelHeight;
 
   /// 竖屏 = 高严格大于宽；宽高缺失或非正数时按横屏处理。
   bool get isPortrait {
-    final w = width;
-    final h = height;
+    final w = pixelWidth;
+    final h = pixelHeight;
     if (w == null || h == null || w <= 0 || h <= 0) return false;
     return h > w;
   }
@@ -158,41 +156,40 @@ class SquareLocalMediaDraft {
     required this.fileName,
     required this.contentType,
     required this.byteSize,
-    this.durationSeconds,
-    this.width,
-    this.height,
-    this.photoManagerAssetId,
-    this.mediaId,
+    this.videoSecs,
+    this.pixelWidth,
+    this.pixelHeight,
+    this.assetId,
+    this.bodyHash,
   });
 
   final SquareMediaKind mediaKind;
   final String path;
 
   /// 持久化媒体的数据库标识；path 只允许作为本次处理/预览的可再生文件。
-  final String? mediaId;
+  final String? bodyHash;
   final String fileName;
   final String contentType;
   final int byteSize;
-  final int? durationSeconds;
-  final int? width;
-  final int? height;
+  final int? videoSecs;
+  final int? pixelWidth;
+  final int? pixelHeight;
 
   /// 设备相册 Photo Manager 的 `AssetEntity.id`；只用于本机重新选择时恢复勾选。
-  final String? photoManagerAssetId;
+  final String? assetId;
 
-  SquareLocalMediaDraft copyWith({String? photoManagerAssetId}) =>
-      SquareLocalMediaDraft(
-        mediaKind: mediaKind,
-        path: path,
-        mediaId: mediaId,
-        fileName: fileName,
-        contentType: contentType,
-        byteSize: byteSize,
-        durationSeconds: durationSeconds,
-        width: width,
-        height: height,
-        photoManagerAssetId: photoManagerAssetId ?? this.photoManagerAssetId,
-      );
+  SquareLocalMediaDraft copyWith({String? assetId}) => SquareLocalMediaDraft(
+    mediaKind: mediaKind,
+    path: path,
+    bodyHash: bodyHash,
+    fileName: fileName,
+    contentType: contentType,
+    byteSize: byteSize,
+    videoSecs: videoSecs,
+    pixelWidth: pixelWidth,
+    pixelHeight: pixelHeight,
+    assetId: assetId ?? this.assetId,
+  );
 
   String get fileExt {
     final dot = fileName.lastIndexOf('.');
@@ -282,12 +279,12 @@ class SquarePost {
     required this.postCategory,
     required this.postType,
     required this.text,
-    required this.createdAt,
+    required this.publishedAt,
     this.title,
     this.contentSections = const <ArticleContentSection>[],
     this.mediaItems = const <SquareMediaItem>[],
     this.contentHash,
-    this.storageReceiptId,
+    this.receiptId,
     this.chainBlock,
     this.campaignInstitutionCid,
     this.campaignPosition,
@@ -311,14 +308,14 @@ class SquarePost {
   final List<ArticleContentSection> contentSections;
 
   final String text;
-  final DateTime createdAt;
+  final DateTime publishedAt;
   final List<SquareMediaItem> mediaItems;
   final String? contentHash;
-  final String? storageReceiptId;
+  final String? receiptId;
   final int? chainBlock;
 
   // 竞选目标（待公民身份上链完成后由 Worker 回填与校验）：竞选哪个机构的哪个岗位。
-  // 公民 CID 复用 author.cidNumber。
+  // 公民 CID 复用 author.cid_number。
 
   /// 竞选目标机构 CID（预留，暂不入 UI）。
   final String? campaignInstitutionCid;
@@ -347,7 +344,7 @@ class SquareComment {
     for (final key in [
       'comment_id',
       'post_id',
-      'author_cid_number',
+      'author_cid',
       'reply_text',
       'reply_state',
     ]) {
@@ -365,7 +362,7 @@ class SquareComment {
       replySeq: value['reply_seq'] as int,
       commentId: value['comment_id'] as String,
       postId: value['post_id'] as String,
-      authorCid: value['author_cid_number'] as String,
+      authorCid: value['author_cid'] as String,
       replyText: value['reply_text'] as String,
       replyState: value['reply_state'] as String,
       displayName: (value['display_name'] as String?) ?? '',
@@ -377,7 +374,7 @@ class SquareComment {
     'reply_seq': replySeq,
     'comment_id': commentId,
     'post_id': postId,
-    'author_cid_number': authorCid,
+    'author_cid': authorCid,
     'reply_text': replyText,
     'reply_state': replyState,
     'display_name': displayName,

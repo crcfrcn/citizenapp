@@ -23,7 +23,7 @@ const _session = SquareSession(
   deviceId: testMlsDeviceId,
   sessionToken: 'sqs_sync',
   cidNumber: _cid,
-  bindingRevision: 1,
+  bindRev: 1,
   accountId: _account,
   expiresAt: 1900000000000,
 );
@@ -53,9 +53,9 @@ SquareLocalPost _post(
     postType: 'document',
     manifestBytes: bytes,
     contentHash: sha256.convert(bytes).toString(),
-    storageReceiptId: 'sqr_$postId',
+    receiptId: 'sqr_$postId',
     chainBlock: createdAt,
-    createdAt: createdAt,
+    publishedAt: createdAt,
     postState: SquarePostStore.publishedState,
   );
 }
@@ -77,12 +77,8 @@ class _MediaApi extends SquareApiClient {
         .map(
           (item) => <String, dynamic>{
             ...Map<String, dynamic>.from(item as Map),
-            'asset_state': 'ready',
             'url': 'https://example.com/main',
-            'derivative_kind': item['media_kind'] == 'video'
-                ? 'cover'
-                : 'thumbnail',
-            'thumbnail_url': 'https://example.com/preview',
+            'preview_url': 'https://example.com/preview',
           },
         )
         .toList();
@@ -151,8 +147,7 @@ void main() {
             'media_kind': kind,
             'file_name': kind == 'image' ? 'photo.png' : 'video.mp4',
             'byte_size': bytes.length,
-            'sha256': hash,
-            'content_type': kind == 'image' ? 'image/png' : 'video/mp4',
+            'body_hash': hash,
           },
         ],
       );
@@ -176,7 +171,7 @@ void main() {
       expect(
         await media.readRange(
           cidNumber: _cid,
-          mediaId: hash,
+          bodyHash: hash,
           offset: 0,
           length: bytes.length,
         ),
@@ -227,8 +222,8 @@ void main() {
     final firstCheckpoint = await const SquarePostStore().readSyncCheckpoint(
       _cid,
     );
-    expect(firstCheckpoint?.newestPostId, 'sqp_3');
-    expect(firstCheckpoint?.newestCreatedAt, 3000);
+    expect(firstCheckpoint?.postId, 'sqp_3');
+    expect(firstCheckpoint?.publishedAt, 3000);
 
     var secondPageCalls = 0;
     final incrementalSync = SquarePostSyncService(
@@ -252,8 +247,8 @@ void main() {
     final nextCheckpoint = await const SquarePostStore().readSyncCheckpoint(
       _cid,
     );
-    expect(nextCheckpoint?.newestPostId, 'sqp_4');
-    expect(nextCheckpoint?.newestCreatedAt, 4000);
+    expect(nextCheckpoint?.postId, 'sqp_4');
+    expect(nextCheckpoint?.publishedAt, 4000);
   });
 
   test('一页任一条归属错误时整页不落盘且不推进检查点', () async {
@@ -288,8 +283,8 @@ void main() {
 
     expect((await store.listByCid(_cid)).single.postId, 'sqp_local');
     final checkpoint = await store.readSyncCheckpoint(_cid);
-    expect(checkpoint?.newestPostId, isNull);
-    expect(checkpoint?.newestCreatedAt, 0);
+    expect(checkpoint?.postId, isNull);
+    expect(checkpoint?.publishedAt, 0);
   });
 
   test('注销清理同时删除本人副本和同步检查点', () async {
@@ -298,8 +293,8 @@ void main() {
     await store.writeSyncCheckpoint(
       cidNumber: _cid,
       checkpoint: const SquarePostSyncCheckpoint(
-        newestPostId: 'sqp_local',
-        newestCreatedAt: 1000,
+        postId: 'sqp_local',
+        publishedAt: 1000,
       ),
     );
 

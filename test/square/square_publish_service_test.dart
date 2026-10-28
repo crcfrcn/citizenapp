@@ -66,7 +66,7 @@ void main() {
       (await const SquarePostStore().readPublication(
         'CN001-CTZN-000000001-2026',
         'recover',
-      ))!.publicationState,
+      ))!.jobState,
       'finalized',
     );
     await (await SocialIsar.instance.db()).close();
@@ -261,11 +261,11 @@ void main() {
     expect(upload.called, isTrue);
     expect(chain.called, isTrue);
     expect(chain.postId, 'sqp_test');
-    expect(chain.storageReceiptId, 'sqr_test');
+    expect(chain.receiptId, 'sqr_test');
     expect(result.post.contentHash, sha256.convert(_testManifest()).toString());
     expect(localWriter.saved?.postId, 'sqp_test');
     expect(localWriter.saved?.cidNumber, 'CN001-CTZN-000000001-2026');
-    expect(localWriter.saved?.createdAt, 1800000000000);
+    expect(localWriter.saved?.publishedAt, 1800000000000);
     expect(order, ['prepare', 'upload', 'balance', 'chain', 'confirm']);
     expect(
       stages,
@@ -305,7 +305,7 @@ void main() {
       mediaDrafts: [_media()],
       sessionForAccount: (accountId) async => fakeSquareSession(accountId),
       externalSigning: (_) async => 'QR_V1',
-      replacePostId: 'sqp_old',
+      replaceId: 'sqp_old',
     );
 
     expect(result.completionWarning, isNull);
@@ -452,7 +452,7 @@ void main() {
       'CN001-CTZN-000000001-2026',
       'draft-test',
     );
-    expect(pending!.publicationState, 'confirmed');
+    expect(pending!.jobState, 'confirmed');
     order.clear();
     localWriter.throwOnSave = false;
     await service.publish(
@@ -510,7 +510,7 @@ void main() {
     );
     expect(saved?.manifestBytes, orderedEquals(manifestBytes));
     expect(saved?.contentHash, contentHash);
-    expect(saved?.createdAt, 1800000000000);
+    expect(saved?.publishedAt, 1800000000000);
   });
 }
 
@@ -521,7 +521,7 @@ SquareIdentityState _identity({required String? cidNumber}) {
     displayName: '公开昵称',
     cidNumber: cidNumber,
     walletIndex: 1,
-    ss58Address: 'citizen_test_signer_ss58_address',
+    accountAddress: 'citizen_test_signer_ss58_address',
     signMode: CitizenWalletSignMode.hot,
   );
 }
@@ -554,7 +554,7 @@ class _FakeUploader implements SquareContentUploader {
       deviceId: testMlsDeviceId,
       sessionToken: 'sqs_test',
       cidNumber: 'CN001-CTZN-000000001-2026',
-      bindingRevision: 1,
+      bindRev: 1,
       accountId: accountId,
       expiresAt: 1800000000000,
     );
@@ -583,45 +583,42 @@ class _FakeUploader implements SquareContentUploader {
         deviceId: testMlsDeviceId,
         sessionToken: 'sqs_test',
         cidNumber: "CN001-CTZN-000000001-2026",
-        bindingRevision: 1,
+        bindRev: 1,
         accountId: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         expiresAt: 1800000000000,
       ),
       preparedUpload: const SquarePreparedUpload(
         uploadId: 'squ_test',
         postId: 'sqp_test',
-        storageReceiptId: 'sqr_test',
+        receiptId: 'sqr_test',
         expiresAt: 1800000000000,
-        estimatedBytes: 1024,
+        byteSize: 1024,
         manifestObjectKey: 'square/test/manifest.json',
         manifestUploadUrl: 'https://media.example.invalid/manifest',
-        mediaItems: [
+        mediaUploads: [
           SquarePreparedMediaUpload(
-            mediaKind: SquareMediaKind.image,
-            contentType: 'image/webp',
-            byteSize: 1024,
+            mediaIndex: 0,
+            objectRole: 'source',
             objectKey: 'square/cid/posts/sqp_test/media/0/source.webp',
-            uploadMethod: 'r2_put',
-            uploadUrl: 'https://127.0.0.1/media',
-            uploadHeaders: {
-              'content-type': 'image/webp',
-              'content-length': '1024',
-            },
-            derivativeKind: 'thumbnail',
-            derivativeByteSize: 256,
-            derivativeObjectKey:
-                'square/cid/posts/sqp_test/media/0/thumbnail.webp',
-            derivativeUploadUrl: 'https://127.0.0.1/thumbnail',
-            derivativeUploadHeaders: {
-              'content-type': 'image/webp',
-              'content-length': '256',
-            },
+            httpMethod: 'PUT',
+            url: 'https://127.0.0.1/media',
+            expiresAt: 1800000000000,
+            headers: {'content-type': 'image/webp', 'content-length': '1024'},
+          ),
+          SquarePreparedMediaUpload(
+            mediaIndex: 0,
+            objectRole: 'thumbnail',
+            objectKey: 'square/cid/posts/sqp_test/media/0/thumbnail.webp',
+            httpMethod: 'PUT',
+            url: 'https://127.0.0.1/thumbnail',
+            expiresAt: 1800000000000,
+            headers: {'content-type': 'image/webp', 'content-length': '256'},
           ),
         ],
       ),
       postId: 'sqp_test',
       contentHash: contentHash,
-      storageReceiptId: 'sqr_test',
+      receiptId: 'sqr_test',
       manifestBytes: bytes,
       mediaDrafts: mediaDrafts,
     );
@@ -640,7 +637,7 @@ class _FakeUploader implements SquareContentUploader {
       session: prepared.session,
       postId: prepared.postId,
       contentHash: prepared.contentHash,
-      storageReceiptId: prepared.storageReceiptId,
+      receiptId: prepared.receiptId,
     );
   }
 }
@@ -673,9 +670,9 @@ class _FakePublicationConfirmer implements SquarePublicationConfirmer {
       postCategory: SquarePostCategory.normal,
       postType: SquarePostType.document,
       text: '公文',
-      createdAt: DateTime.fromMillisecondsSinceEpoch(1800000000000),
+      publishedAt: DateTime.fromMillisecondsSinceEpoch(1800000000000),
       contentHash: contentHash,
-      storageReceiptId: 'sqr_test',
+      receiptId: 'sqr_test',
       chainBlock: 88,
     );
     return (
@@ -711,9 +708,9 @@ class _FakePublicationConfirmer implements SquarePublicationConfirmer {
       postCategory: SquarePostCategory.normal,
       postType: SquarePostType.document,
       text: '公文',
-      createdAt: DateTime.fromMillisecondsSinceEpoch(1800000000000),
+      publishedAt: DateTime.fromMillisecondsSinceEpoch(1800000000000),
       contentHash: contentHash,
-      storageReceiptId: 'sqr_test',
+      receiptId: 'sqr_test',
       chainBlock: 88,
     );
   }
@@ -755,7 +752,7 @@ class _FakeChainPublisher implements SquarePostChainPublisher {
   final List<String> order;
   bool called = false;
   String? postId;
-  String? storageReceiptId;
+  String? receiptId;
   bool throwOnPublish = false;
   bool throwAfterSign = false;
 
@@ -765,7 +762,7 @@ class _FakeChainPublisher implements SquarePostChainPublisher {
     required String postId,
     required SquarePostType postType,
     required String contentHashHex,
-    required String storageReceiptId,
+    required String receiptId,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
     )
@@ -774,7 +771,7 @@ class _FakeChainPublisher implements SquarePostChainPublisher {
     called = true;
     order.add('chain');
     this.postId = postId;
-    this.storageReceiptId = storageReceiptId;
+    this.receiptId = receiptId;
     if (throwOnPublish) {
       throw const SquareChainPublishException(
         '交易执行已确定失败',
@@ -789,7 +786,7 @@ class _FakeChainPublisher implements SquarePostChainPublisher {
     }
     return const SquareChainPublishedResult(
       txHash: '0xtest',
-      usedNonce: 1,
+
       blockHashHex: '0xblock',
     );
   }
@@ -831,12 +828,12 @@ class _PublishIdentityResolver implements FinalizedIdentityResolver {
     return FinalizedIdentity(
       accountId:
           '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-      ss58Address: 'citizen_test_signer_ss58_address',
+      accountAddress: 'citizen_test_signer_ss58_address',
       snapshot: registered
           ? CitizenIdentityChainSnapshot(
               cidNumber: 'CN001-CTZN-000000001-2026',
               accountId: Uint8List.fromList(List.filled(32, 0xaa)),
-              bindingRevision: 1,
+              bindRev: 1,
               votingIdentity: null,
             )
           : null,

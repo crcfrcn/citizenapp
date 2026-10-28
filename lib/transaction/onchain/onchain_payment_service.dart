@@ -36,14 +36,14 @@ class OnchainPaymentService {
     if (binding == null ||
         binding.block?.finality != CitizenBlockFinality.finalized ||
         binding.cidNumber != cidNumber ||
-        binding.bindingRevision <= 0) {
+        binding.bindRev <= 0) {
       throw StateError('收款人CID当前没有有效钱包绑定');
     }
     return OnchainRecipient(
       address: ss58FromAccountIdText(binding.accountIdText),
       cidNumber: cidNumber,
-      bindingRevision: binding.bindingRevision,
-      blockHash: binding.block!.hash,
+      bindRev: binding.bindRev,
+      chainHash: binding.block!.hash,
     );
   }
 
@@ -67,8 +67,8 @@ class OnchainPaymentService {
   Future<CitizenPreparedTransaction> prepareTransfer(
     OnchainPaymentDraft draft,
   ) async {
-    final toSs58Address = draft.toSs58Address.trim();
-    if (draft.recipient != null && draft.recipient!.address != toSs58Address) {
+    final toAddress = draft.toAddress.trim();
+    if (draft.recipient != null && draft.recipient!.address != toAddress) {
       throw const OnchainPaymentException(
         OnchainPaymentErrorCode.invalidDraft,
         '收款账户与已确认目标不一致',
@@ -77,7 +77,7 @@ class OnchainPaymentService {
     final symbol = draft.symbol.trim().toUpperCase();
     final remarkBytes = utf8.encode(draft.remark).length;
     if (!RegExp(r'^0x[0-9a-f]{64}$').hasMatch(draft.sourceAccountId) ||
-        toSs58Address.isEmpty ||
+        toAddress.isEmpty ||
         symbol.isEmpty ||
         !draft.amount.isFinite ||
         !(draft.amount * 100).isFinite ||
@@ -107,7 +107,7 @@ class OnchainPaymentService {
     late final Uint8List callData;
     try {
       callData = OnchainTransferCall.encode(
-        destinationSs58Address: toSs58Address,
+        destinationSs58Address: toAddress,
         amountYuan: draft.amount,
         remark: draft.remark,
       );

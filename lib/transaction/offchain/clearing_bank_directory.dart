@@ -37,23 +37,23 @@ class ClearingBankNodeEndpoint {
 class ClearingBankCandidate {
   const ClearingBankCandidate({
     required this.cidNumber,
-    required this.cidFullName,
-    required this.cidShortName,
+    required this.fullName,
+    required this.shortName,
     required this.areaPath,
     required this.endpoint,
   });
 
   final String cidNumber;
-  final String cidFullName;
-  final String? cidShortName;
+  final String fullName;
+  final String? shortName;
   final String areaPath;
   final ClearingBankNodeEndpoint endpoint;
 
   String get displayTitle {
-    final shortName = cidShortName?.trim() ?? '';
-    if (shortName.isNotEmpty) return shortName;
-    final fullName = cidFullName.trim();
-    return fullName.isEmpty ? cidNumber : fullName;
+    final shortLabel = shortName?.trim() ?? '';
+    if (shortLabel.isNotEmpty) return shortLabel;
+    final fullLabel = fullName.trim();
+    return fullLabel.isEmpty ? cidNumber : fullLabel;
   }
 
   /// 机构账户由链统一派生规则确定。
@@ -95,8 +95,8 @@ class ClearingBankDirectory {
       final candidate = await _candidate(endpoint, institution);
       if (keyword.isEmpty ||
           candidate.cidNumber.toLowerCase().contains(keyword) ||
-          candidate.cidFullName.toLowerCase().contains(keyword) ||
-          (candidate.cidShortName?.toLowerCase().contains(keyword) ?? false)) {
+          candidate.fullName.toLowerCase().contains(keyword) ||
+          (candidate.shortName?.toLowerCase().contains(keyword) ?? false)) {
         candidates.add(candidate);
       }
     }
@@ -121,8 +121,8 @@ class ClearingBankDirectory {
     }
     return ClearingBankCandidate(
       cidNumber: endpoint.cidNumber,
-      cidFullName: institution?.cidFullName ?? endpoint.cidNumber,
-      cidShortName: institution?.cidShortName,
+      fullName: institution?.fullName ?? endpoint.cidNumber,
+      shortName: institution?.shortName,
       areaPath: areaPath,
       endpoint: endpoint,
     );

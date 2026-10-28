@@ -21,7 +21,7 @@ class PettyWalletPage extends StatefulWidget {
   const PettyWalletPage({
     super.key,
     required this.accountId,
-    required this.ss58Address,
+    required this.accountAddress,
     required this.wssUrl,
     required this.displayTitle,
   });
@@ -30,7 +30,7 @@ class PettyWalletPage extends StatefulWidget {
   final String accountId;
 
   /// 该账户 SS58 地址,用于查询零钱包余额。
-  final String ss58Address;
+  final String accountAddress;
   final String wssUrl;
   final String displayTitle;
 
@@ -56,7 +56,7 @@ class _PettyWalletPageState extends State<PettyWalletPage> {
         AccountBalanceSnapshotStore.forChain(context.read<CitizenSdk>().chain)
             .clearingState(
               accountId: widget.accountId,
-              ss58Address: widget.ss58Address,
+              accountAddress: widget.accountAddress,
               wssUrl: widget.wssUrl,
             )
           ..addListener(_changed);
@@ -146,7 +146,7 @@ class _PettyWalletPageState extends State<PettyWalletPage> {
       MaterialPageRoute(
         builder: (_) => DepositPage(
           accountId: widget.accountId,
-          ss58Address: widget.ss58Address,
+          accountAddress: widget.accountAddress,
         ),
       ),
     );
@@ -159,7 +159,7 @@ class _PettyWalletPageState extends State<PettyWalletPage> {
       MaterialPageRoute(
         builder: (_) => WithdrawPage(
           accountId: widget.accountId,
-          ss58Address: widget.ss58Address,
+          accountAddress: widget.accountAddress,
           wssUrl: widget.wssUrl,
         ),
       ),

@@ -244,19 +244,19 @@ struct SquareVideoRequest {
   let inputPath: String
   let outputPath: String
   let coverPath: String
-  let maxWidth: Int
-  let maxHeight: Int
+  let videoWidth: Int
+  let videoHeight: Int
   let videoBitrate: Int
-  let totalPeakBitrate: Int
+  let videoPeakBitrate: Int
   let audioBitrate: Int
   let audioSampleRate: Int
-  let maxFrameRate: Int
-  let keyFrameIntervalSeconds: Int
-  let maxDurationSeconds: Int
-  let maxBytes: Int64
-  let coverMaxEdge: Int
+  let videoFrameRate: Int
+  let keyframeSecs: Int
+  let videoMaxSeconds: Int
+  let videoMaxBytes: Int64
+  let coverDimension: Int
   let coverQuality: Int
-  let coverMaxBytes: Int
+  let coverBytes: Int
 
   init(arguments: Any?) throws {
     guard let values = arguments as? [String: Any] else {
@@ -265,31 +265,31 @@ struct SquareVideoRequest {
     inputPath = try values.requiredString("input_path")
     outputPath = try values.requiredString("output_path")
     coverPath = try values.requiredString("cover_path")
-    maxWidth = try values.requiredInt("max_width")
-    maxHeight = try values.requiredInt("max_height")
+    videoWidth = try values.requiredInt("video_width")
+    videoHeight = try values.requiredInt("video_height")
     videoBitrate = try values.requiredInt("video_bitrate")
-    totalPeakBitrate = try values.requiredInt("total_peak_bitrate")
+    videoPeakBitrate = try values.requiredInt("video_peak_bitrate")
     audioBitrate = try values.requiredInt("audio_bitrate")
     audioSampleRate = try values.requiredInt("audio_sample_rate")
-    maxFrameRate = try values.requiredInt("max_frame_rate")
-    keyFrameIntervalSeconds = try values.requiredInt("key_frame_interval_seconds")
-    maxDurationSeconds = try values.requiredInt("max_duration_seconds")
-    maxBytes = try values.requiredInt64("max_bytes")
-    coverMaxEdge = try values.requiredInt("cover_max_edge")
+    videoFrameRate = try values.requiredInt("video_frame_rate")
+    keyframeSecs = try values.requiredInt("keyframe_secs")
+    videoMaxSeconds = try values.requiredInt("video_max_seconds")
+    videoMaxBytes = try values.requiredInt64("video_max_bytes")
+    coverDimension = try values.requiredInt("cover_dimension")
     coverQuality = try values.requiredInt("cover_quality")
-    coverMaxBytes = try values.requiredInt("cover_max_bytes")
+    coverBytes = try values.requiredInt("cover_bytes")
 
-    guard maxWidth >= 2, maxWidth <= 1920,
-          maxHeight >= 2, maxHeight <= 1080,
-          videoBitrate > 0, audioBitrate > 0, totalPeakBitrate > 0,
+    guard videoWidth >= 2, videoWidth <= 1920,
+          videoHeight >= 2, videoHeight <= 1080,
+          videoBitrate > 0, audioBitrate > 0, videoPeakBitrate > 0,
           audioSampleRate == 48_000,
-          maxFrameRate > 0, maxFrameRate <= 30,
-          keyFrameIntervalSeconds == 2,
-          maxDurationSeconds > 0, maxDurationSeconds <= 10_800,
-          maxBytes > 0, maxBytes <= maxMediaBytes,
-          coverMaxEdge > 0, coverMaxEdge <= 720,
+          videoFrameRate > 0, videoFrameRate <= 30,
+          keyframeSecs == 2,
+          videoMaxSeconds > 0, videoMaxSeconds <= 10_800,
+          videoMaxBytes > 0, videoMaxBytes <= maxMediaBytes,
+          coverDimension > 0, coverDimension <= 720,
           coverQuality > 0, coverQuality <= 100,
-          coverMaxBytes > 0, coverMaxBytes <= 512 * 1024
+          coverBytes > 0, coverBytes <= 512 * 1024
     else {
       throw SquareMediaError.invalidRequest("视频参数超出允许范围")
     }

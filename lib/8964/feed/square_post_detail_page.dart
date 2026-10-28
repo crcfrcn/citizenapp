@@ -127,9 +127,9 @@ class _SquarePostDetailPageState extends State<SquarePostDetailPage> {
       final notificationOwner = Notifications.instance.scope;
       await session.validateCurrent();
       if (notificationOwner != null &&
-          (notificationOwner.cid != session.cidNumber ||
-              notificationOwner.binding != session.bindingRevision ||
-              notificationOwner.account != session.accountId)) {
+          (notificationOwner.cidNumber != session.cidNumber ||
+              notificationOwner.bindRev != session.bindRev ||
+              notificationOwner.accountId != session.accountId)) {
         throw StateError('内容详情身份已变化');
       }
       final detail = widget.initialDetailLoaded && !refresh
@@ -254,7 +254,7 @@ class _SquarePostDetailPageState extends State<SquarePostDetailPage> {
                         ),
                         _DetailRow(
                           label: 'storage_receipt_id',
-                          value: post.storageReceiptId ?? '',
+                          value: post.receiptId ?? '',
                         ),
                       ],
                     ),
@@ -286,7 +286,7 @@ class _SquarePostDetailPageState extends State<SquarePostDetailPage> {
             postType: post.postType,
             initialTitle: post.title,
             initialText: post.text,
-            replacePostId: post.postId,
+            replaceId: post.postId,
           ),
         ),
       ),

@@ -1,32 +1,32 @@
-// 公权机构 finalized 链快照 DTO。
+import 'package:citizenapp/storage/app_isar.dart' as app_store show Entity;
 
-import 'package:citizenapp/storage/app_isar.dart';
+// 公权机构 finalized 链快照 DTO。
 
 /// 公权机构目录行；只解析发布期从 finalized 链状态生成的数据包。
 class PublicInstitutionDto {
   const PublicInstitutionDto({
     required this.cidNumber,
-    required this.status,
+    required this.cidState,
     required this.provinceCode,
     required this.cityCode,
-    required this.institutionCode,
+    required this.orgCode,
     required this.accountCount,
-    this.cidFullName,
-    this.cidShortName,
+    this.fullName,
+    this.shortName,
     this.townCode = '',
-    this.parentCidNumber,
-    this.hasLegalPersonality,
+    this.parentCid,
+    this.isLegal,
     this.familyName,
     this.givenName,
-    this.legalRepresentativeCidNumber,
-    this.legalRepresentativeAccountId,
-    this.customAccountNames = const [],
+    this.legalCid,
+    this.legalAccount,
+    this.accountNames = const [],
   });
 
   final String cidNumber;
-  final String? cidFullName;
-  final String? cidShortName;
-  final String status;
+  final String? fullName;
+  final String? shortName;
+  final String cidState;
 
   /// 所属省 code(行政区唯一真源键;名字由字典 join,见 ADR-021)。
   final String provinceCode;
@@ -36,70 +36,63 @@ class PublicInstitutionDto {
 
   /// 所属镇 code(空串=只定位到市级)。
   final String townCode;
-  final String institutionCode;
-  final String? parentCidNumber;
-  final bool? hasLegalPersonality;
+  final String orgCode;
+  final String? parentCid;
+  final bool? isLegal;
 
   /// 法定代表人的姓、名；当前链快照没有任免信息时为 null。
   final String? familyName;
   final String? givenName;
-  final String? legalRepresentativeCidNumber;
-  final String? legalRepresentativeAccountId;
+  final String? legalCid;
+  final String? legalAccount;
   final int accountCount;
-  final List<String> customAccountNames;
+  final List<String> accountNames;
 
   static PublicInstitutionDto fromJson(Map<String, dynamic> json) {
     final legalRepresentative =
         json['legal_representative'] as Map<String, dynamic>?;
     return PublicInstitutionDto(
       cidNumber: json['cid_number'] as String,
-      cidFullName: json['cid_full_name'] as String?,
-      cidShortName: json['cid_short_name'] as String?,
-      status: json['status'] as String? ?? 'ACTIVE',
+      fullName: json['cid_full_name'] as String?,
+      shortName: json['cid_short_name'] as String?,
+      cidState: json['status'] as String? ?? 'ACTIVE',
       // 行政区只吃 code(province_code/city_code/town_code);无名字 fallback
       // (ADR-021 死规则:名字唯一来自字典,不留旧方案)。
       provinceCode: json['province_code'] as String? ?? '',
       cityCode: json['city_code'] as String? ?? '',
       townCode: json['town_code'] as String? ?? '',
-      institutionCode: json['institution_code'] as String? ?? '',
-      parentCidNumber: json['parent_cid_number'] as String?,
-      hasLegalPersonality: json['has_legal_personality'] as bool?,
+      orgCode: json['institution_code'] as String? ?? '',
+      parentCid: json['parent_cid_number'] as String?,
+      isLegal: json['has_legal_personality'] as bool?,
       familyName: legalRepresentative?['family_name'] as String?,
       givenName: legalRepresentative?['given_name'] as String?,
-      legalRepresentativeCidNumber:
-          legalRepresentative?['cid_number'] as String?,
-      legalRepresentativeAccountId: legalRepresentative?['account'] as String?,
+      legalCid: legalRepresentative?['cid_number'] as String?,
+      legalAccount: legalRepresentative?['account'] as String?,
       accountCount: (json['account_count'] as num?)?.toInt() ?? 0,
-      customAccountNames:
-          (json['custom_account_names'] as List<dynamic>? ?? const [])
-              .map((e) => e as String)
-              .toList(growable: false),
+      accountNames: (json['custom_account_names'] as List<dynamic>? ?? const [])
+          .map((e) => e as String)
+          .toList(growable: false),
     );
   }
 
-  /// 映射为 Isar 实体(catalogVersion / updatedAtMillis 由 repo 在落库时补)。
-  PublicInstitutionEntity toEntity({
-    required String catalogVersion,
-    required int updatedAtMillis,
-  }) {
-    return PublicInstitutionEntity()
+  /// 目录只保存实际展示事实；省级版本由province集合拥有。
+  app_store.Entity toEntity() {
+    return app_store.Entity()
       ..cidNumber = cidNumber
-      ..cidFullName = cidFullName ?? cidNumber
-      ..cidShortName = cidShortName
-      ..status = status
+      ..fullName = fullName ?? cidNumber
+      ..shortName = shortName
+      ..cidState = cidState
       ..provinceCode = provinceCode
       ..cityCode = cityCode
       ..townCode = townCode
-      ..institutionCode = institutionCode
-      ..parentCidNumber = parentCidNumber
-      ..hasLegalPersonality = hasLegalPersonality
+      ..orgCode = orgCode
+      ..parentCid = parentCid
+      ..isLegal = isLegal
       ..familyName = familyName
       ..givenName = givenName
-      ..legalRepresentativeCidNumber = legalRepresentativeCidNumber
-      ..legalRepresentativeAccountId = legalRepresentativeAccountId
+      ..legalCid = legalCid
+      ..legalAccount = legalAccount
       ..accountCount = accountCount
-      ..customAccountNames = customAccountNames
-      ..catalogVersion = catalogVersion
-      ..updatedAtMillis = updatedAtMillis;
+      ..accountNames = accountNames;
   }
 }

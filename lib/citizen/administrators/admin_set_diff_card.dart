@@ -22,11 +22,11 @@ class AdminSetDiffCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final current = {
       for (final admin in currentAdmins)
-        AdminAccountIdCodec.requireAccountId(admin.account_id): admin,
+        AdminAccountIdCodec.requireAccountId(admin.accountId): admin,
     };
     final next = {
       for (final admin in admins)
-        AdminAccountIdCodec.requireAccountId(admin.account_id): admin,
+        AdminAccountIdCodec.requireAccountId(admin.accountId): admin,
     };
     final added = next.entries
         .where((entry) => !current.containsKey(entry.key))
@@ -40,8 +40,8 @@ class AdminSetDiffCard extends StatelessWidget {
         .where((entry) {
           final old = current[entry.key];
           return old != null &&
-              (old.family_name != entry.value.family_name ||
-                  old.given_name != entry.value.given_name);
+              (old.familyName != entry.value.familyName ||
+                  old.givenName != entry.value.givenName);
         })
         .map((entry) => entry.value)
         .toList();
@@ -53,10 +53,13 @@ class AdminSetDiffCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('变更差异',
-                style: TextStyle(
-                    fontSize: AppLayout.scaled(context, 15),
-                    fontWeight: FontWeight.w700)),
+            Text(
+              '变更差异',
+              style: TextStyle(
+                fontSize: AppLayout.scaled(context, 15),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
             SizedBox(height: AppLayout.scaled(context, 8)),
             _buildAccountList('新增', added),
             SizedBox(height: AppLayout.scaled(context, 8)),
@@ -79,10 +82,10 @@ class AdminSetDiffCard extends StatelessWidget {
         for (final admin in admins) ...[
           ListTile(
             dense: true,
-            title: Text('${admin.family_name}${admin.given_name}'),
+            title: Text('${admin.familyName}${admin.givenName}'),
             subtitle: Text(
-              '${ss58FromAccountIdText(admin.account_id)}\n'
-              '余额：${AmountFormat.formatThousands(balances[AdminAccountIdCodec.requireAccountId(admin.account_id)])} 元',
+              '${ss58FromAccountIdText(admin.accountId)}\n'
+              '余额：${AmountFormat.formatThousands(balances[AdminAccountIdCodec.requireAccountId(admin.accountId)])} 元',
             ),
           ),
           SizedBox(height: AppLayout.scaledValue(6)),

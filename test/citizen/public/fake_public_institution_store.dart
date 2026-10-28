@@ -1,31 +1,25 @@
+import 'package:citizenapp/storage/app_isar.dart' as app_store show Entity;
 // 内存 fake store —— 测同步/载入/订阅逻辑,不依赖 Isar 真库。
 
 import 'package:citizenapp/citizen/public/public_institution_dto.dart';
 import 'package:citizenapp/citizen/public/public_institution_store.dart';
-import 'package:citizenapp/storage/app_isar.dart';
 
 class FakePublicInstitutionStore implements PublicInstitutionStore {
   final Map<String, PublicInstitutionDto> byId = {};
   final Map<String, String> provinceVersions = {};
-  final Set<String> subs = {};
+  final Set<(String, String)> subs = {};
   List<String> provinceOrder = [];
   int upsertCalls = 0;
   int upsertItemCount = 0;
   int deleteCalls = 0;
-  String? lastCatalogVersion;
   List<String> lastUpsertCids = const [];
 
-  PublicInstitutionEntity _entity(PublicInstitutionDto d) =>
-      d.toEntity(catalogVersion: 'fake', updatedAtMillis: 0);
+  app_store.Entity _entity(PublicInstitutionDto d) => d.toEntity();
 
   @override
-  Future<void> upsertInstitutions(
-    List<PublicInstitutionDto> items, {
-    required String catalogVersion,
-  }) async {
+  Future<void> upsertInstitutions(List<PublicInstitutionDto> items) async {
     upsertCalls++;
     upsertItemCount += items.length;
-    lastCatalogVersion = catalogVersion;
     lastUpsertCids = items.map((d) => d.cidNumber).toList(growable: false);
     for (final d in items) {
       byId[d.cidNumber] = d;
@@ -51,51 +45,48 @@ class FakePublicInstitutionStore implements PublicInstitutionStore {
       .toList();
 
   @override
-  Future<List<PublicInstitutionEntity>> listInstitutionsByCity(
+  Future<List<app_store.Entity>> listInstitutionsByCity(
     String provinceCode,
     String cityCode,
-  ) async =>
-      byId.values
-          .where(
-              (e) => e.provinceCode == provinceCode && e.cityCode == cityCode)
-          .map(_entity)
-          .toList();
+  ) async => byId.values
+      .where((e) => e.provinceCode == provinceCode && e.cityCode == cityCode)
+      .map(_entity)
+      .toList();
 
   @override
-  Future<PublicInstitutionEntity?> getByCid(String cidNumber) async {
+  Future<app_store.Entity?> getByCid(String cidNumber) async {
     final d = byId[cidNumber];
     return d == null ? null : _entity(d);
   }
 
   @override
-  Future<List<PublicInstitutionEntity>> listByInstitutionCodes(
+  Future<List<app_store.Entity>> listByInstitutionCodes(
     Set<String> institutionCodes,
-  ) async =>
-      byId.values
-          .where((e) => institutionCodes.contains(e.institutionCode))
-          .map(_entity)
-          .toList(growable: false);
+  ) async => byId.values
+      .where((e) => institutionCodes.contains(e.orgCode))
+      .map(_entity)
+      .toList(growable: false);
 
   @override
-  Future<List<PublicInstitutionEntity>> listByProvinceAndCodes(
+  Future<List<app_store.Entity>> listByProvinceAndCodes(
     String provinceCode,
     Set<String> institutionCodes,
-  ) async =>
-      byId.values
-          .where((e) =>
-              e.provinceCode == provinceCode &&
-              institutionCodes.contains(e.institutionCode))
-          .map(_entity)
-          .toList(growable: false);
+  ) async => byId.values
+      .where(
+        (e) =>
+            e.provinceCode == provinceCode &&
+            institutionCodes.contains(e.orgCode),
+      )
+      .map(_entity)
+      .toList(growable: false);
 
   @override
-  Future<List<PublicInstitutionEntity>> institutionsOfProvince(
+  Future<List<app_store.Entity>> institutionsOfProvince(
     String provinceCode,
-  ) async =>
-      byId.values
-          .where((e) => e.provinceCode == provinceCode)
-          .map(_entity)
-          .toList(growable: false);
+  ) async => byId.values
+      .where((e) => e.provinceCode == provinceCode)
+      .map(_entity)
+      .toList(growable: false);
 
   @override
   Future<List<String>> cidsOfProvince(String provinceCode) async => byId.values
@@ -124,38 +115,25 @@ class FakePublicInstitutionStore implements PublicInstitutionStore {
   }
 
   @override
-  Future<void> subscribe(
-    String subscriberCidNumber,
-    String institutionCidNumber,
-  ) async {
-    subs.add(subscriptionKeyOf(subscriberCidNumber, institutionCidNumber));
+  Future<void> subscribe(String cidNumber, String peerCid) async {
+    subs.add((cidNumber, peerCid));
   }
 
   @override
-  Future<void> unsubscribe(
-    String subscriberCidNumber,
-    String institutionCidNumber,
-  ) async {
-    subs.remove(subscriptionKeyOf(subscriberCidNumber, institutionCidNumber));
+  Future<void> unsubscribe(String cidNumber, String peerCid) async {
+    subs.remove((cidNumber, peerCid));
   }
 
   @override
-  Future<bool> isSubscribed(
-    String subscriberCidNumber,
-    String institutionCidNumber,
-  ) async =>
-      subs.contains(
-        subscriptionKeyOf(subscriberCidNumber, institutionCidNumber),
-      );
+  Future<bool> isSubscribed(String cidNumber, String peerCid) async =>
+      subs.contains((cidNumber, peerCid));
 
   @override
-  Future<List<PublicInstitutionEntity>> listSubscribed(
-    String subscriberCidNumber,
-  ) async {
-    final out = <PublicInstitutionEntity>[];
+  Future<List<app_store.Entity>> listSubscribed(String cidNumber) async {
+    final out = <app_store.Entity>[];
     for (final key in subs) {
-      if (!key.startsWith('$subscriberCidNumber|')) continue;
-      final cid = key.substring(subscriberCidNumber.length + 1);
+      if (key.$1 != cidNumber) continue;
+      final cid = key.$2;
       final d = byId[cid];
       if (d != null) out.add(_entity(d));
     }

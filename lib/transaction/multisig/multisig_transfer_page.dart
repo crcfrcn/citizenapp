@@ -1,3 +1,6 @@
+import 'package:citizenapp/storage/wallet_isar.dart'
+    as wallet_store
+    show Account;
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:convert';
@@ -11,7 +14,7 @@ import 'package:flutter/services.dart';
 import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 
 import 'package:isar_community/isar.dart';
-import 'package:citizenapp/storage/wallet_isar.dart';
+import 'package:citizenapp/storage/wallet_isar.dart' hide Group;
 import 'package:citizenapp/transaction/personal/personal_proposal_history_service.dart';
 import 'package:citizenapp/transaction/amount_format.dart';
 import 'package:citizenapp/citizen/institution/institution_info.dart';
@@ -301,7 +304,7 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
   }
 
   /// 仅当 [widget.institution] 是个人多签时,把转账提案写入 Isar 历史
-  /// (`PersonalAccountProposalEntity`),让详情页"提案列表"区域立即看到。
+  /// (`action`),让详情页"提案列表"区域立即看到。
   /// 机构多签的提案历史由其他模块负责,这里 silent skip。
   Future<void> _maybeRecordPersonalProposal({
     required int proposalId,
@@ -313,24 +316,25 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
       if (!isPersonalAccountIdentity(widget.institution.cidNumber)) {
         return;
       }
-      final personalAccountId = widget.institution.personalAccountId;
+      final accountId = widget.institution.accountId;
       final personal = await WalletIsar.instance.read((isar) {
-        return isar.personalAccountEntitys
+        return isar
+            .collection<wallet_store.Account>()
             .filter()
             .accountIdEqualTo(
-              '0x${personalAccountId.toLowerCase().replaceFirst('0x', '')}',
+              '0x${accountId.toLowerCase().replaceFirst('0x', '')}',
             )
             .findFirst();
       });
       if (personal == null) return;
 
       await PersonalProposalHistoryService(chain: chain).recordOrUpdate(
-        personalAccountId: personalAccountId,
+        accountId: accountId,
         proposalId: proposalId,
-        action: PersonalProposalAction.transfer,
+        actionKind: PersonalProposalAction.transfer,
         status: PersonalProposalStatus.voting,
-        yesVotes: 0,
-        noVotes: 0,
+        yesCount: 0,
+        noCount: 0,
         snapshot: {'beneficiary': beneficiary, 'amount_yuan': amountYuan},
       );
     } catch (e) {
@@ -473,8 +477,8 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
                   ),
                   errorText: _addressError,
                   suffixIcon: AddressScanButton(
-                    onAddressScanned: (ss58Address) => setState(
-                      () => _beneficiaryController.text = ss58Address,
+                    onAddressScanned: (accountAddress) => setState(
+                      () => _beneficiaryController.text = accountAddress,
                     ),
                   ),
                 ),
@@ -747,7 +751,7 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
         SizedBox(width: AppLayout.scaledValue(10)),
         Expanded(
           child: Text(
-            widget.institution.cidShortName,
+            widget.institution.shortName,
             style: TextStyle(
               fontSize: AppLayout.scaledValue(15),
               fontWeight: FontWeight.w600,

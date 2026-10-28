@@ -57,19 +57,19 @@ class OnchainRecipient {
   const OnchainRecipient({
     required this.address,
     this.cidNumber,
-    this.bindingRevision,
-    this.blockHash,
+    this.bindRev,
+    this.chainHash,
   });
   final String address;
   final String? cidNumber;
-  final int? bindingRevision;
-  final String? blockHash;
+  final int? bindRev;
+  final String? chainHash;
 }
 
 class OnchainPaymentDraft {
   const OnchainPaymentDraft({
     required this.sourceAccountId,
-    required this.toSs58Address,
+    required this.toAddress,
     required this.amount,
     required this.symbol,
     required this.remark,
@@ -77,7 +77,7 @@ class OnchainPaymentDraft {
   });
 
   final String sourceAccountId;
-  final String toSs58Address;
+  final String toAddress;
   final double amount;
   final String symbol;
   final String remark;

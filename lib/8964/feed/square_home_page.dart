@@ -254,7 +254,9 @@ class _SquareHomePageState extends State<SquareHomePage> {
                         final item = items[index];
                         return ListTile(
                           title: Text(
-                            item['notice_kind'] == 'post' ? '关注的人发布了帖子' : '新的评论或回复',
+                            item['notice_kind'] == 'post'
+                                ? '关注的人发布了帖子'
+                                : '新的评论或回复',
                           ),
                           subtitle: Text((item['title'] as String?) ?? ''),
                           trailing: item['read_at'] == 0
@@ -713,7 +715,7 @@ class _FeedBody extends StatelessWidget {
   final ImageProvider? Function(String objectKey) avatarImageOf;
 
   ImageProvider? _avatarImage(SquareAuthor author) {
-    final key = author.avatarObjectKey;
+    final key = author.avatarKey;
     return key == null ? null : avatarImageOf(key);
   }
 

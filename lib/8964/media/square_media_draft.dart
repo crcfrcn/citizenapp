@@ -7,11 +7,10 @@ import 'package:video_player/video_player.dart';
 import 'package:citizenapp/8964/feed/square_models.dart';
 
 /// 媒体草稿构造器类型；发布编辑器可在测试中注入稳定实现，生产环境统一使用下方实现。
-typedef SquareMediaDraftBuilder =
-    Future<SquareLocalMediaDraft> Function(
-      XFile file,
-      SquareMediaKind mediaKind,
-    );
+typedef SquareMediaDraftBuilder = Future<SquareLocalMediaDraft> Function(
+  XFile file,
+  SquareMediaKind mediaKind,
+);
 
 /// 从相册 [XFile] 构造公文、文章或视频发布共用的本地媒体草稿。
 Future<SquareLocalMediaDraft> buildSquareMediaDraft(
@@ -41,7 +40,7 @@ Future<SquareLocalMediaDraft> buildSquareMediaDraft(
     fileName: name,
     contentType: contentType,
     byteSize: await file.length(),
-    durationSeconds: durationSeconds,
+    videoSecs: durationSeconds,
   );
 }
 

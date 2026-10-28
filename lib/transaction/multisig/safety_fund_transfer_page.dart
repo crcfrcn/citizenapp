@@ -242,7 +242,7 @@ class _SafetyFundTransferPageState extends State<SafetyFundTransferPage> {
         chain: sdk.chain,
         transactions: sdk.transactions,
       );
-      // 提案类交易等真正入块并核对事件后才返回，proposalId 来自
+      // 提案类交易等真正入块并核对事件后才返回，proposal_id 来自
       // 链上 SafetyFundTransferProposed 事件，是业务成功的唯一凭据。
       final result = await service.submitProposeSafetyFund(
         institution: widget.institution,
@@ -402,8 +402,8 @@ class _SafetyFundTransferPageState extends State<SafetyFundTransferPage> {
                   ),
                   errorText: _addressError,
                   suffixIcon: AddressScanButton(
-                    onAddressScanned: (ss58Address) => setState(
-                      () => _beneficiaryController.text = ss58Address,
+                    onAddressScanned: (accountAddress) => setState(
+                      () => _beneficiaryController.text = accountAddress,
                     ),
                   ),
                 ),
@@ -662,7 +662,7 @@ class _SafetyFundTransferPageState extends State<SafetyFundTransferPage> {
         SizedBox(width: AppLayout.scaledValue(10)),
         Expanded(
           child: Text(
-            '${widget.institution.cidShortName}（安全基金）',
+            '${widget.institution.shortName}（安全基金）',
             style: TextStyle(
               fontSize: AppLayout.scaledValue(15),
               fontWeight: FontWeight.w600,

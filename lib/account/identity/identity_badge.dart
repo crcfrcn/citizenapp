@@ -25,29 +25,30 @@ class IdentityBadgeStyle {
 
 /// 链上身份档位对应颜色。
 Color _identityTierColor(String? level) => switch (level) {
-      'candidate' => AppTheme.identityCandidate,
-      'voting' => AppTheme.identityVoting,
-      _ => AppTheme.identityVisitor,
-    };
+  'candidate' => AppTheme.identityCandidate,
+  'voting' => AppTheme.identityVoting,
+  _ => AppTheme.identityVisitor,
+};
 
 /// 有效会员档位对应颜色；未知档位返回 null，避免把异常数据误展示为有效会员。
 Color? _membershipTierColor(String? level) => switch (level) {
-      'freedom' => AppTheme.identityVisitor,
-      'democracy' => AppTheme.identityVoting,
-      'spark' => AppTheme.identityCandidate,
-      _ => null,
-    };
+  'freedom' => AppTheme.identityVisitor,
+  'democracy' => AppTheme.identityVoting,
+  'spark' => AppTheme.identityCandidate,
+  _ => null,
+};
 
 /// 计算徽章样式。会员必须同时满足有效态和合法档位才显示会员徽章，否则回落身份徽章。
 IdentityBadgeStyle? identityBadgeStyle({
-  required String? identityLevel,
-  required String? membershipLevel,
-  required bool membershipActive,
+  required String? cidLevel,
+  required String? memberLevel,
+  required bool membergateActive,
 }) {
-  final membershipColor =
-      membershipActive ? _membershipTierColor(membershipLevel) : null;
+  final membershipColor = membergateActive
+      ? _membershipTierColor(memberLevel)
+      : null;
   return IdentityBadgeStyle(
-    color: membershipColor ?? _identityTierColor(identityLevel),
+    color: membershipColor ?? _identityTierColor(cidLevel),
     checked: membershipColor != null,
     checkColor: Colors.white,
   );
@@ -55,16 +56,16 @@ IdentityBadgeStyle? identityBadgeStyle({
 
 /// 徽章无障碍/提示文案。
 String identityBadgeLabel({
-  required String? identityLevel,
-  required String? membershipLevel,
+  required String? cidLevel,
+  required String? memberLevel,
   required bool checked,
 }) {
-  final base = switch (identityLevel) {
+  final base = switch (cidLevel) {
     'candidate' => '竞选公民',
     'voting' => '投票公民',
     _ => '访客',
   };
-  final membership = switch (membershipLevel) {
+  final membership = switch (memberLevel) {
     'freedom' => '自由会员',
     'democracy' => '民主会员',
     'spark' => '薪火会员',
@@ -163,10 +164,22 @@ class _RosetteBadgePainter extends CustomPainter {
       canvas.drawCircle(p(12, 9.7), 2.3 * scale, white);
       final shoulders = Path()
         ..moveTo(7.7 * scale, 16.4 * scale)
-        ..cubicTo(7.7 * scale, 14.0 * scale, 9.6 * scale, 12.7 * scale,
-            12 * scale, 12.7 * scale)
-        ..cubicTo(14.4 * scale, 12.7 * scale, 16.3 * scale, 14.0 * scale,
-            16.3 * scale, 16.4 * scale)
+        ..cubicTo(
+          7.7 * scale,
+          14.0 * scale,
+          9.6 * scale,
+          12.7 * scale,
+          12 * scale,
+          12.7 * scale,
+        )
+        ..cubicTo(
+          14.4 * scale,
+          12.7 * scale,
+          16.3 * scale,
+          14.0 * scale,
+          16.3 * scale,
+          16.4 * scale,
+        )
         ..close();
       canvas.drawPath(shoulders, white);
     }

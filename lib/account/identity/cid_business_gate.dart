@@ -1,5 +1,6 @@
 import 'current_user_context.dart';
 import 'finalized_identity_resolver.dart';
+
 import 'package:flutter/foundation.dart';
 
 /// 公民服务业务入口的唯一前置结果；此阶段绝不读取或创建 MLS 身份。
@@ -58,7 +59,10 @@ interface class CidBusinessGate {
     return pending;
   }
 
-  Future<CidBusinessDecision> _resolve(CurrentUser current, int expectedRevision) async {
+  Future<CidBusinessDecision> _resolve(
+    CurrentUser current,
+    int expectedRevision,
+  ) async {
     try {
       if (current.isUnregistered) {
         return const CidBusinessDecision(CidBusinessStatus.unregistered);
@@ -97,7 +101,7 @@ interface class CidBusinessGate {
       final binding = restored?.binding;
       if (restored?.accountId != verified.accountId ||
           binding?.cidNumber != snapshot.cidNumber ||
-          binding?.bindingRevision != snapshot.bindingRevision ||
+          binding?.bindRev != snapshot.bindRev ||
           binding?.accountId != verified.accountId) {
         return const CidBusinessDecision(CidBusinessStatus.unavailable);
       }

@@ -9,128 +9,161 @@ import 'isar_core_bootstrap.dart';
 part 'user_isar.g.dart';
 
 /// 资料修改的跨进程恢复记录，完整字节与请求同事务保存，不保存会话凭据。
+@Name('edit')
 @collection
-class UserProfileUpdateEntity {
-  Id id = Isar.autoIncrement;
+class Edit {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
+  @Name('cid_number')
   @Index(unique: true)
   late String cidNumber;
-  late String operationState;
-  late String requestJson;
-  String? responseJson;
+  @Name('job_state')
+  late String jobState;
+  @Name('request_data')
+  late String requestData;
+  @Name('response_data')
+  String? responseData;
+  @Name('content_hash')
   late String contentHash;
+  @Name('avatar_bytes')
   late List<byte> avatarBytes;
+  @Name('banner_bytes')
   late List<byte> bannerBytes;
 }
 
 /// 按永久 CID 保存的公开资料；持久记录不按时间或数量淘汰。
+@Name('profile')
 @collection
-class UserPublicProfileCacheEntity {
-  Id id = Isar.autoIncrement;
+class Profile {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 
+  @Name('cid_number')
   @Index(unique: true, replace: true)
   late String cidNumber;
 
-  late String profileJson;
+  @Name('profile_data')
+  late String profileData;
 }
 
 /// 资料图片本体，与广场媒体分库；CID、用途及准确资料版本共同隔离。
 /// 头像和背景上限分别为512KiB和1536KiB，可在一条记录内原子保存完整字节。
+@Name('media')
 @collection
-class UserProfileMediaEntity {
-  Id id = Isar.autoIncrement;
+class ProfileMedia {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 
+  @Name('cid_number')
   @Index(
-    composite: [CompositeIndex('mediaRole'), CompositeIndex('mediaId')],
+    composite: [CompositeIndex('mediaRole'), CompositeIndex('profileAt')],
     unique: true,
   )
   late String cidNumber;
 
+  @Name('media_role')
   late String mediaRole;
-  late String mediaId;
+  @Name('object_key')
   late String objectKey;
-  late int updatedAt;
-  late String contentType;
-  late int byteSize;
-  late String sha256;
+  @Name('profile_at')
+  late int profileAt;
+  @Name('body_hash')
+  late String bodyHash;
+  @Name('media_bytes')
   late List<byte> mediaBytes;
 }
 
 /// 身份展示唯一快照；CID 供徽章读取，账户用于恢复完整身份及已验证未注册状态。
 ///
 /// 本行只服务离线展示，不能作为发布、投票或其它授权判断依据。
+@Name('identity')
 @collection
-class UserIdentityBadgeSnapshotEntity {
-  Id id = Isar.autoIncrement;
+class Identity {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 
+  @Name('cid_number')
   @Index()
   late String cidNumber;
 
   /// 尚未完整验真的既有徽章没有账户归属，不能作为当前账户的完整身份。
+  @Name('account_id')
   @Index()
   String? accountId;
 
-  /// null 表示仅有徽章；JSON null 表示该账户已经验真为未注册。
-  String? identitySnapshotJson;
+  /// 无账户时只保存徽章级别；完整身份保存原布局，JSON null表示已验真未注册。
+  @Name('identity_data')
+  String? identityData;
 
-  late String identityLevel;
-  late int updatedAtMillis;
+  @Name('updated_at')
+  late int updatedAt;
 }
 
-/// 通讯录系统保护记录；状态种类仅为联系人、待同步操作、同步状态和合并记录。
-/// 永久属主 CID 与状态键必须一致；本集合不能承载其他 User 数据。
+/// 通讯录系统保护记录；只保存待同步操作、同步状态和含删除墓碑的联系人记录。
+/// CID与状态种类构成自然唯一索引，不保存派生状态键。
+@Name('contact')
 @collection
-class UserContactStateEntity {
-  Id id = Isar.autoIncrement;
+class Contact {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 
-  @Index(unique: true, replace: true)
-  late String stateKey;
+  @Name('cid_number')
+  @Index(composite: [CompositeIndex('stateKind')], unique: true, replace: true)
+  late String cidNumber;
 
-  @Index()
-  late String ownerCidNumber;
-
-  @Index()
+  @Name('state_kind')
   late String stateKind;
 
-  late String payloadJson;
+  @Name('body_data')
+  late String bodyData;
 }
 
 /// 当前CID的通知展示缓存；不承载会话凭据，不作为会员执行许可。
+@Name('notice')
 @collection
-class UserNotificationStateEntity {
-  Id id = Isar.autoIncrement;
+class Notice {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
+  @Name('cid_number')
   @Index(unique: true, replace: true)
   late String cidNumber;
-  late String stateJson;
-  String? pendingJson;
+  @Name('state_data')
+  late String stateData;
+  @Name('pending_data')
+  String? pendingData;
 }
 
 /// 通用用户设置和 App 展示状态。
 ///
 /// 钱包排序、活动钱包、设备锁和安全失败计数不属于本行。
+@Name('setting')
 @collection
-class UserSettingsEntity {
-  Id id = 0;
+class Setting {
+  @Name('row_id')
+  Id rowId = 0;
 
-  bool permissionGuideSeen = false;
-  bool openChatOnLaunch = false;
-  List<String> governanceProvincialCouncilOrder = const [];
-  List<String> governanceProvincialBankOrder = const [];
-  int updatedAtMillis = 0;
+  @Name('guide_seen')
+  bool guideSeen = false;
+  @Name('chat_home')
+  bool chatHome = false;
+  @Name('council_order')
+  List<String> councilOrder = const [];
+  @Name('bank_order')
+  List<String> bankOrder = const [];
 }
 
 /// 按订阅者永久 CID 隔离的公权机构关注关系。
+@Name('follow')
 @collection
-class UserPublicInstitutionSubscriptionEntity {
-  Id id = Isar.autoIncrement;
+class Follow {
+  @Name('row_id')
+  Id rowId = Isar.autoIncrement;
 
-  @Index(unique: true, replace: true)
-  late String subscriptionKey;
-
-  @Index()
-  late String subscriberCidNumber;
-
-  late String institutionCidNumber;
-  late int subscribedAtMillis;
+  @Name('cid_number')
+  @Index(composite: [CompositeIndex('peerCid')], unique: true)
+  late String cidNumber;
+  @Name('peer_cid')
+  late String peerCid;
 }
 
 enum _UserIsarLifecycle { active, closing, closed }
@@ -179,14 +212,14 @@ class UserIsar {
   /// User 域唯一 schema 清单。
   static const List<CollectionSchema<dynamic>> _schemas =
       <CollectionSchema<dynamic>>[
-        UserPublicProfileCacheEntitySchema,
-        UserProfileUpdateEntitySchema,
-        UserProfileMediaEntitySchema,
-        UserIdentityBadgeSnapshotEntitySchema,
-        UserContactStateEntitySchema,
-        UserNotificationStateEntitySchema,
-        UserSettingsEntitySchema,
-        UserPublicInstitutionSubscriptionEntitySchema,
+        ProfileSchema,
+        EditSchema,
+        ProfileMediaSchema,
+        IdentitySchema,
+        ContactSchema,
+        NoticeSchema,
+        SettingSchema,
+        FollowSchema,
       ];
 
   bool get hasActiveOperation => _operationActive;
@@ -194,21 +227,19 @@ class UserIsar {
   /// 读取用户选择的 App 首页；缺省值固定为广场，不从其它存储推断。
   Future<bool> readOpenChatOnLaunch() {
     return read((isar) async {
-      final settings = await isar.userSettingsEntitys.get(0);
-      return settings?.openChatOnLaunch ?? false;
+      final settings = await isar.settings.get(0);
+      return settings?.chatHome ?? false;
     });
   }
 
   /// 原子保存首页选择；本偏好只属于 UserIsar，不进入平台安全存储。
   Future<void> writeOpenChatOnLaunch(bool value) {
     return writeTxn((isar) async {
-      final settings =
-          await isar.userSettingsEntitys.get(0) ?? UserSettingsEntity();
+      final settings = await isar.settings.get(0) ?? Setting();
       settings
-        ..id = 0
-        ..openChatOnLaunch = value
-        ..updatedAtMillis = DateTime.now().millisecondsSinceEpoch;
-      await isar.userSettingsEntitys.put(settings);
+        ..rowId = 0
+        ..chatHome = value;
+      await isar.settings.put(settings);
     });
   }
 
@@ -373,18 +404,17 @@ class UserIsar {
     final existing = Isar.getInstance('citizenapp_user');
     if (existing != null && existing.isOpen) {
       try {
-        existing.userPublicProfileCacheEntitys;
-        existing.userProfileUpdateEntitys;
-        existing.userProfileMediaEntitys;
-        existing.userIdentityBadgeSnapshotEntitys;
-        existing.userContactStateEntitys;
-        existing.userNotificationStateEntitys;
-        existing.userSettingsEntitys;
-        existing.userPublicInstitutionSubscriptionEntitys;
+        existing.profiles;
+        existing.edits;
+        existing.profileMedias;
+        existing.identitys;
+        existing.contacts;
+        existing.notices;
+        existing.settings;
+        existing.follows;
       } catch (error) {
         throw StateError('已打开的 UserIsar 不是当前完整 schema：$error');
       }
-      await _eraseObsoleteContacts(existing);
       return existing;
     }
 
@@ -399,33 +429,10 @@ class UserIsar {
       if (!IsarCoreBootstrap.isFlutterTest) {
         await SystemProtectedStorage.protectUserDatabase(directory);
       }
-      await _eraseObsoleteContacts(opened);
       return opened;
     } catch (_) {
       await opened.close();
       rethrow;
-    }
-  }
-
-  /// 初次暴露库实例前精确删除废弃通讯录行；不读取内容，也不触及其他集合。
-  Future<void> _eraseObsoleteContacts(Isar isar) async {
-    await isar.writeTxn(() async {
-      await isar.userContactStateEntitys
-          .filter()
-          .stateKeyStartsWith('user.contact.')
-          .deleteAll();
-      if (await isar.userContactStateEntitys
-              .filter()
-              .stateKeyStartsWith('user.contact.')
-              .count() !=
-          0) {
-        throw StateError('废弃通讯录记录仍存在');
-      }
-    });
-    if (!IsarCoreBootstrap.isFlutterTest) {
-      await SystemProtectedStorage.protectUserDatabase(
-        await IsarCoreBootstrap.resolveDirectory(),
-      );
     }
   }
 

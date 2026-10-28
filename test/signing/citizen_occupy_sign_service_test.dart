@@ -1,4 +1,5 @@
 import '../support/fake_citizen_sdk.dart';
+
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -26,13 +27,17 @@ class _FakeWallet implements CitizenSdkWallet {
   final CitizenWalletStateAccount? currentAccount;
 
   @override
-  CitizenSdkOperation<CitizenWalletState> getState() => testCitizenOperation(() async => CitizenWalletState(
-        initializationState: currentAccount == null ? CitizenWalletInitializationState.empty : CitizenWalletInitializationState.ready,
-        cleanupPending: false,
-        revision: BigInt.one,
-        hotProfile: null,
-        accounts: currentAccount == null ? const [] : [currentAccount!],
-      ));
+  CitizenSdkOperation<CitizenWalletState> getState() => testCitizenOperation(
+    () async => CitizenWalletState(
+      initializationState: currentAccount == null
+          ? CitizenWalletInitializationState.empty
+          : CitizenWalletInitializationState.ready,
+      cleanupPending: false,
+      revision: BigInt.one,
+      hotProfile: null,
+      accounts: currentAccount == null ? const [] : [currentAccount!],
+    ),
+  );
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -45,7 +50,9 @@ class _FakeSigning implements CitizenSigning {
   final List<Uint8List> signedPayloads = <Uint8List>[];
 
   @override
-  CitizenSdkOperation<CitizenSigningOutcome> begin(CitizenSigningIntent intent) => testCitizenOperation(() async {
+  CitizenSdkOperation<CitizenSigningOutcome> begin(
+    CitizenSigningIntent intent,
+  ) => testCitizenOperation(() async {
     signedAccountId = intent.accountId;
     signedPayload = Uint8List.fromList(intent.payload);
     signedAccountIds.add(intent.accountId);
@@ -67,37 +74,45 @@ List<int> _u64Le(int value) =>
     List<int>.generate(8, (index) => (value >> (index * 8)) & 0xff);
 
 List<int> _occupyTemplate({int revision = 0, int expiresAt = _expiresAt}) => [
-      ...List<int>.filled(32, 0x44),
-      _cid.length << 2,
-      ..._cid.codeUnits,
-      ...List<int>.filled(32, 0),
-      ..._u64Le(revision),
-      ..._u64Le(expiresAt),
-    ];
+  ...List<int>.filled(32, 0x44),
+  _cid.length << 2,
+  ..._cid.codeUnits,
+  ...List<int>.filled(32, 0),
+  ..._u64Le(revision),
+  ..._u64Le(expiresAt),
+];
 
 List<int> _rebindTemplate({int revision = 7, int expiresAt = _expiresAt}) => [
-      ...List<int>.filled(32, 0x44),
-      _cid.length << 2,
-      ..._cid.codeUnits,
-      ...List<int>.filled(32, 0x55),
-      ...List<int>.filled(32, 0),
-      ..._u64Le(revision),
-      ..._u64Le(expiresAt),
-    ];
+  ...List<int>.filled(32, 0x44),
+  _cid.length << 2,
+  ..._cid.codeUnits,
+  ...List<int>.filled(32, 0x55),
+  ...List<int>.filled(32, 0),
+  ..._u64Le(revision),
+  ..._u64Le(expiresAt),
+];
 
 /// 合成授权模板交由真实SDK编码；测试不持有App协议实现。
-Future<String> _domainRaw(CitizenQr qr, {
+Future<String> _domainRaw(
+  CitizenQr qr, {
   int? action,
   List<int>? payload,
   int outerExpiresAt = _expiresAt,
 }) async {
   final actualAction = action ?? CitizenQrActions.citizenOccupy;
-  final authorization = payload ?? (actualAction == CitizenQrActions.citizenOccupy
-      ? _occupyTemplate() : _rebindTemplate());
-  return (await qr.encodeDocument(CitizenQrContent.signRequest(
-    requestId: 'citizen-occupy-req-000001', expiresAt: BigInt.from(outerExpiresAt),
-    action: actualAction, reviewPayload: Uint8List.fromList(authorization),
-  ))).canonicalText;
+  final authorization =
+      payload ??
+      (actualAction == CitizenQrActions.citizenOccupy
+          ? _occupyTemplate()
+          : _rebindTemplate());
+  return (await qr.encodeDocument(
+    CitizenQrContent.signRequest(
+      requestId: 'citizen-occupy-req-000001',
+      expiresAt: BigInt.from(outerExpiresAt),
+      action: actualAction,
+      reviewPayload: Uint8List.fromList(authorization),
+    ),
+  )).canonicalText;
 }
 
 void main() {
@@ -114,7 +129,9 @@ void main() {
   });
 
   late CitizenOccupySignService service;
-  setUp(() { service = CitizenOccupySignService(qr: encodingSdk.qr); });
+  setUp(() {
+    service = CitizenOccupySignService(qr: encodingSdk.qr);
+  });
 
   test('SDK占号与换绑公开动作保留原QR_V1数值', () {
     expect(CitizenQrActions.citizenOccupy, 10);
@@ -122,7 +139,10 @@ void main() {
   });
 
   test('prepare 严格解出占号完整授权模板并展示全部防重放字段', () async {
-    final prep = await service.prepare(await _domainRaw(encodingSdk.qr), _account());
+    final prep = await service.prepare(
+      await _domainRaw(encodingSdk.qr),
+      _account(),
+    );
     expect(prep.cidNumber, _cid);
     expect(prep.isOccupy, isTrue);
     expect(prep.genesisHash, '0x${'44' * 32}');
@@ -134,7 +154,9 @@ void main() {
 
   test('prepare 严格解出换绑当前账户、非零 revision 与 expires', () async {
     final prep = await service.prepare(
-        await _domainRaw(encodingSdk.qr, action: CitizenQrActions.citizenRebind), _account());
+      await _domainRaw(encodingSdk.qr, action: CitizenQrActions.citizenRebind),
+      _account(),
+    );
     expect(prep.isOccupy, isFalse);
     expect(prep.cidNumber, _cid);
     expect(prep.genesisHash, '0x${'44' * 32}');
@@ -144,11 +166,15 @@ void main() {
   });
 
   test('非占号/换绑动作即拒', () async {
-    final raw = (await encodingSdk.qr.encodeDocument(CitizenQrContent.signRequest(
-      requestId: 'citizen-identity-req-0001', signerAccountId: '0x${'11' * 32}',
-      reviewPayload: Uint8List.fromList([1, 2, 3, 4]),
-      action: CitizenQrActions.citizenIdentity, expiresAt: BigInt.from(_expiresAt),
-    ))).canonicalText;
+    final raw = (await encodingSdk.qr.encodeDocument(
+      CitizenQrContent.signRequest(
+        requestId: 'citizen-identity-req-0001',
+        signerAccountId: '0x${'11' * 32}',
+        reviewPayload: Uint8List.fromList([1, 2, 3, 4]),
+        action: CitizenQrActions.citizenIdentity,
+        expiresAt: BigInt.from(_expiresAt),
+      ),
+    )).canonicalText;
     await expectLater(
       service.prepare(raw, _account()),
       throwsA(isA<CitizenOccupySignException>()),
@@ -158,7 +184,10 @@ void main() {
   test('旧 CID-only 载荷即拒，不恢复末尾追加账户协议', () async {
     await expectLater(
       service.prepare(
-        await _domainRaw(encodingSdk.qr, payload: [_cid.length << 2, ..._cid.codeUnits]),
+        await _domainRaw(
+          encodingSdk.qr,
+          payload: [_cid.length << 2, ..._cid.codeUnits],
+        ),
         _account(),
       ),
       throwsA(isA<CitizenOccupySignException>()),
@@ -193,7 +222,8 @@ void main() {
     for (var index = 0; index < malformed.length; index++) {
       await expectLater(
         service.prepare(
-          await _domainRaw(encodingSdk.qr,
+          await _domainRaw(
+            encodingSdk.qr,
             action: index == malformed.length - 1
                 ? CitizenQrActions.citizenRebind
                 : CitizenQrActions.citizenOccupy,
@@ -210,7 +240,10 @@ void main() {
   test('换绑选择账户与 current_account_id 相同即拒', () async {
     await expectLater(
       service.prepare(
-        await _domainRaw(encodingSdk.qr, action: CitizenQrActions.citizenRebind),
+        await _domainRaw(
+          encodingSdk.qr,
+          action: CitizenQrActions.citizenRebind,
+        ),
         _account(accountByte: 0x55),
       ),
       throwsA(
@@ -226,7 +259,10 @@ void main() {
   test('账户卡锁定的子账户原位填入占号零槽后签名', () async {
     final account = _account(index: 5);
     final signing = _FakeSigning();
-    final prep = await service.prepare(await _domainRaw(encodingSdk.qr), account);
+    final prep = await service.prepare(
+      await _domainRaw(encodingSdk.qr),
+      account,
+    );
     await service.sign(prep, signing, null);
     expect(prep.account.accountIndex, 5);
     expect(signing.signedAccountId, account.accountId);
@@ -238,10 +274,12 @@ void main() {
       );
     expect(
       signing.signedPayload,
-      (await CitizenSigning.encodePayload(CitizenSigningPayload.message(
-        opTag: kOpSignCidOccupy,
-        scalePayload: Uint8List.fromList(exactAuthorization),
-      ))),
+      (await CitizenSigning.encodePayload(
+        CitizenSigningPayload.message(
+          opTag: kOpSignCidOccupy,
+          scalePayload: Uint8List.fromList(exactAuthorization),
+        ),
+      )),
     );
   });
 
@@ -271,17 +309,21 @@ void main() {
       );
     expect(
       signing.signedPayloads[0],
-      (await CitizenSigning.encodePayload(CitizenSigningPayload.message(
-        opTag: kOpSignCidAdminRebind,
-        scalePayload: Uint8List.fromList(exactAuthorization),
-      ))),
+      (await CitizenSigning.encodePayload(
+        CitizenSigningPayload.message(
+          opTag: kOpSignCidAdminRebind,
+          scalePayload: Uint8List.fromList(exactAuthorization),
+        ),
+      )),
     );
     expect(
       signing.signedPayloads[1],
-      (await CitizenSigning.encodePayload(CitizenSigningPayload.message(
-        opTag: kOpSignCidRebind,
-        scalePayload: Uint8List.fromList(exactAuthorization),
-      ))),
+      (await CitizenSigning.encodePayload(
+        CitizenSigningPayload.message(
+          opTag: kOpSignCidRebind,
+          scalePayload: Uint8List.fromList(exactAuthorization),
+        ),
+      )),
     );
 
     final response = await encodingSdk.qr.parse(raw);
@@ -300,7 +342,9 @@ void main() {
     );
     expect(prep.currentAccount, isNull);
 
-    final response = await encodingSdk.qr.parse(await service.sign(prep, signing, null));
+    final response = await encodingSdk.qr.parse(
+      await service.sign(prep, signing, null),
+    );
     expect(signing.signedAccountIds, <String>['0x${'ab' * 32}']);
     expect(response.currentAccountId, isNull);
     expect(response.currentAccountSignature, isNull);

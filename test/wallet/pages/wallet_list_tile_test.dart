@@ -75,18 +75,47 @@ void main() {
   });
 
   testWidgets('异常事实仍复用原卡片，按SDK原模式保留配色而不构造正常账户', (tester) async {
-    for (final mode in <CitizenWalletSignMode?>[CitizenWalletSignMode.hot, CitizenWalletSignMode.cold, null]) {
-      final diagnostic = CitizenWalletDiagnostic(walletIndex: 0, walletName: '原异常钱包',
-        accountId: account().accountId, ss58Address: null,
-        diagnosticReason: CitizenWalletDiagnosticReason.invalidStructure, signMode: mode, cleanupTargets: null);
-      await tester.pumpWidget(MaterialApp(home: Scaffold(body: WalletListTile(
-        wallet: null, diagnostic: diagnostic, walletName: diagnostic.walletName, balance: 0,
-        showActions: true, isBroken: true, onTap: () {}, onRename: () {}, onDelete: () {},
-      ))));
+    for (final mode in <CitizenWalletSignMode?>[
+      CitizenWalletSignMode.hot,
+      CitizenWalletSignMode.cold,
+      null,
+    ]) {
+      final diagnostic = CitizenWalletDiagnostic(
+        walletIndex: 0,
+        walletName: '原异常钱包',
+        accountId: account().accountId,
+        ss58Address: null,
+        diagnosticReason: CitizenWalletDiagnosticReason.invalidStructure,
+        signMode: mode,
+        cleanupTargets: null,
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: WalletListTile(
+              wallet: null,
+              diagnostic: diagnostic,
+              walletName: diagnostic.walletName,
+              balance: 0,
+              showActions: true,
+              isBroken: true,
+              onTap: () {},
+              onRename: () {},
+              onDelete: () {},
+            ),
+          ),
+        ),
+      );
       expect(find.text('钱包数据异常，请验证热钱包或重新导入冷钱包'), findsOneWidget);
       expect(find.text('0'), findsNothing);
-      expect(tester.widget<Icon>(find.byIcon(Icons.account_balance_wallet_rounded)).color,
-        mode == CitizenWalletSignMode.hot ? AppTheme.primaryDark : AppTheme.info);
+      expect(
+        tester
+            .widget<Icon>(find.byIcon(Icons.account_balance_wallet_rounded))
+            .color,
+        mode == CitizenWalletSignMode.hot
+            ? AppTheme.primaryDark
+            : AppTheme.info,
+      );
     }
   });
 

@@ -322,8 +322,8 @@ class _MultisigProposalDetailPageState
   }) {
     return ProposalDetailSnapshot(
       proposalId: widget.proposalId,
-      typeKey: 'institution_multisig',
-      updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
+      proposalKind: 'institution_multisig',
+      updatedAt: DateTime.now().millisecondsSinceEpoch,
       status: status,
       yesCount: tally.yes,
       noCount: tally.no,
@@ -351,7 +351,7 @@ class _MultisigProposalDetailPageState
       'account_id': info.accountId,
       'proposer_ss58_address': info.proposerSs58Address,
       'amount_fen': info.amountFen.toString(),
-      'fee_fen': info.feeFen.toString(),
+      'fee_fen': info.feeAmount.toString(),
       'status': info.status,
     };
   }
@@ -388,9 +388,9 @@ class _MultisigProposalDetailPageState
     final detail = snapshot.detail;
     if (detail['kind'] != 'create') return null;
     final amountFen = BigInt.tryParse(detail['amount_fen']?.toString() ?? '');
-    final feeFen = BigInt.tryParse(detail['fee_fen']?.toString() ?? '');
+    final feeAmount = BigInt.tryParse(detail['fee_fen']?.toString() ?? '');
     final accountId = detail['account_id']?.toString();
-    if (amountFen == null || feeFen == null || accountId == null) {
+    if (amountFen == null || feeAmount == null || accountId == null) {
       return null;
     }
     return personal_models.CreateProposalInfo(
@@ -398,7 +398,7 @@ class _MultisigProposalDetailPageState
       accountId: accountId,
       proposerSs58Address: detail['proposer_ss58_address']?.toString() ?? '',
       amountFen: amountFen,
-      feeFen: feeFen,
+      feeAmount: feeAmount,
       status: snapshot.status,
     );
   }
@@ -601,7 +601,7 @@ class _MultisigProposalDetailPageState
 
       _adminService.clearCache(_accountIdentity);
       // 服务层已经等待入块并回读 InternalVote storage；这里
-      // 只后台刷新展示状态，不能再把 txHash 当作投票成功依据。
+      // 只后台刷新展示状态，不能再把 tx_hash 当作投票成功依据。
       AppLog.d('[VoteDetail] fire-and-forget 调 _load 后台刷新');
       unawaited(_load());
     } catch (e, st) {

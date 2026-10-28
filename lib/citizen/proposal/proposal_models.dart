@@ -46,7 +46,7 @@ class ProposalMeta {
   /// 链上 Proposal.subject_cid_numbers，仅表示受影响机构，不替代发起机构 CID。
   final List<String> subjectCidNumbers;
 
-  /// 展示号(双层 ID:主键 `proposalId` 单调,展示号年份+序号通过 `ProposalDisplayId` 反查)。
+  /// 展示号(双层 ID:主键 `proposal_id` 单调,展示号年份+序号通过 `ProposalDisplayId` 反查)。
   /// 列表页 batch fetch 后填充;详情页解码 ProposalMeta 时同步查询。
   final ProposalDisplayMeta? displayMeta;
 }

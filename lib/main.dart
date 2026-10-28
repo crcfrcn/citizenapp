@@ -83,7 +83,7 @@ Future<void> main() async {
         return (
           cidNumber: registering.cidNumber,
           accountId: registering.accountId,
-          bindingRevision: registering.bindingRevision,
+          bindRev: registering.bindRev,
         );
       }
       final current = await currentUserContext.resolve();
@@ -99,7 +99,7 @@ Future<void> main() async {
       return (
         cidNumber: binding.cidNumber,
         accountId: binding.accountId,
-        bindingRevision: binding.bindingRevision,
+        bindRev: binding.bindRev,
       );
     },
   );

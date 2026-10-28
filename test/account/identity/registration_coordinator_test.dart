@@ -53,7 +53,7 @@ class Api extends RegistrationApi {
   Future<RegistrationResponse> verify(
     RegistrationContext c,
     RegistrationCapabilities cap, {
-    required String verificationId,
+    required String checkId,
     required String token,
   }) async {
     events.add('verify');
@@ -93,10 +93,10 @@ void main() {
       binding: IdentityBinding(
         genesisHash: registrationContext().chainScope,
         cidNumber: 'CN220-CTZN2-100000001-2026',
-        bindingRevision: 1,
+        bindRev: 1,
         accountId: registrationContext().accountId,
       ),
-      blockHash: '0x${'aa' * 32}',
+      chainHash: '0x${'aa' * 32}',
     );
     chain = null;
     cancel = false;
@@ -297,11 +297,11 @@ void main() {
     await expectLater(run(), throwsA(isA<RegistrationException>()));
     chain = FinalizedRegistration(
       binding: finalized.binding,
-      blockHash: '0x${'99' * 32}',
+      chainHash: '0x${'99' * 32}',
     );
     activateFail = false;
     await run();
-    expect(store.value?.finalized?.blockHash, finalized.blockHash);
+    expect(store.value?.finalized?.chainHash, finalized.chainHash);
     expect(wallets, 1);
   });
   test('未知广播和网络未知都禁止重发', () async {

@@ -18,14 +18,14 @@ class DepositPage extends StatefulWidget {
   const DepositPage({
     super.key,
     required this.accountId,
-    required this.ss58Address,
+    required this.accountAddress,
   });
 
   /// L3 用户链账户主键(0x+64hex):清算行绑定缓存键、按账户签名、构造 signerPublicKey。
   final String accountId;
 
   /// L3 用户 SS58 地址(充值 extrinsic 来源地址)。
-  final String ss58Address;
+  final String accountAddress;
 
   @override
   State<DepositPage> createState() => _DepositPageState();
@@ -72,8 +72,9 @@ class _DepositPageState extends State<DepositPage> {
             SizedBox(height: AppLayout.scaled(context, 16)),
             TextField(
               controller: _amountCtrl,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               decoration: const InputDecoration(
                 labelText: '充值金额(元)',
                 hintText: '例如 100.00',
@@ -94,7 +95,9 @@ class _DepositPageState extends State<DepositPage> {
             Text(
               '链上费:金额 × 0.1%(最低 0.1 元)',
               style: TextStyle(
-                  fontSize: AppLayout.scaled(context, 12), color: Colors.grey),
+                fontSize: AppLayout.scaled(context, 12),
+                color: Colors.grey,
+              ),
             ),
           ],
         ),
@@ -105,16 +108,14 @@ class _DepositPageState extends State<DepositPage> {
   Future<void> _submit() async {
     final amountFen = _parseAmountToFen(_amountCtrl.text);
     if (amountFen == null || amountFen <= BigInt.zero) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请输入有效的充值金额(元)')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('请输入有效的充值金额(元)')));
       return;
     }
 
     if (_binding == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请先绑定清算行')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('请先绑定清算行')));
       return;
     }
 

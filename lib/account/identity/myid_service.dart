@@ -33,9 +33,9 @@ import 'identity_badge_snapshot_store.dart';
 /// 绑定账户切换(换绑)即跟随;链上一人一 CID 一账户一身份,故无多身份冲突。
 enum MyIdTier {
   /// 访客(默认匿名)。含两子态,均用同一张访客卡、同一枚访客徽章:
-  /// - **纯访客**:账户从未占号(`cidNumber` 为空)。
+  /// - **纯访客**:账户从未占号(`cid_number` 为空)。
   /// - **匿名已注册**:账户自助占了一个 CID 并双向绑定,但链上无 `VotingIdentityByCid`
-  ///   (`cidNumber` 非空,见 [MyIdState.isAnonymousRegistered])。仅在第 1 卡展示该 CID 号,
+  ///   (`cid_number` 非空,见 [MyIdState.isAnonymousRegistered])。仅在第 1 卡展示该 CID 号,
   ///   不升级徽章色/卡片(投票/竞选身份只能经注册局线下升级)。
   visitor,
 
@@ -104,7 +104,7 @@ class MyIdState {
       tier == MyIdTier.visitor && (cidNumber?.trim().isNotEmpty ?? false);
 
   /// 徽章分色信号:visitor/voting/candidate,与 [IdentityBadgeSnapshotStore] 契约一致。
-  String get identityLevel => switch (tier) {
+  String get cidLevel => switch (tier) {
     MyIdTier.candidate => 'candidate',
     MyIdTier.voting => 'voting',
     MyIdTier.visitor => 'visitor',
@@ -209,7 +209,7 @@ class MyIdService {
     }
     final badge = await _badgeSnapshotStore.read(cid);
     return MyIdState(
-      tier: switch (badge?.identityLevel) {
+      tier: switch (badge?.cidLevel) {
         'candidate' => MyIdTier.candidate,
         'voting' => MyIdTier.voting,
         _ => MyIdTier.visitor,
@@ -370,7 +370,7 @@ class MyIdService {
   ///
   /// 身份主键 = CID 号;绑定账户是用户自选的鉴权凭证(可任意 `//n`,私钥泄漏可换绑)。
   /// [institution] 取 [kCidInstitutionCitizen](公民)/ [kCidInstitutionResident](居民)。
-  /// 年份取 UTC 当前年;CID = f(绑定 accountId, institution, year),撞号由链端 registry
+  /// 年份取 UTC 当前年;CID = f(绑定 account_id, institution, year),撞号由链端 registry
   /// 兜底吸收。提交经 `self_occupy_cid` 由绑定账户自签自付费(触发一次生物识别);成功后
   /// 广播身份绑定变化,常驻页重读身份。
   Future<String> registerAnonymousCid({
@@ -418,7 +418,7 @@ class MyIdService {
     );
     _registrationFinalized[resolvedBindAccountId] = FinalizedRegistration(
       binding: await _bindingForFinalizedIdentity(finalized),
-      blockHash: transaction.blockHashHex,
+      chainHash: transaction.blockHashHex,
       txHash: transaction.txHash,
     );
     // CID注册finalized后只推进公开绑定及同CID数据上下文；MLS首次设备登记
@@ -473,13 +473,13 @@ class MyIdService {
     final source = IdentityBinding(
       genesisHash: '0x${_bytesToHex(context.genesisHash)}',
       cidNumber: cidNumber,
-      bindingRevision: context.expectedBindingRevision.toInt(),
+      bindRev: context.expectedBindingRevision.toInt(),
       accountId: currentAccountId,
     );
     final target = IdentityBinding(
       genesisHash: source.genesisHash,
       cidNumber: cidNumber,
-      bindingRevision: source.bindingRevision + 1,
+      bindRev: source.bindRev + 1,
       accountId: newAccount.accountId,
     );
     final currentAccountDigest =
@@ -552,7 +552,7 @@ class MyIdService {
     return IdentityBinding(
       genesisHash: genesisHash,
       cidNumber: snapshot.cidNumber,
-      bindingRevision: snapshot.bindingRevision,
+      bindRev: snapshot.bindRev,
       accountId: resolved.accountId,
     );
   }
@@ -626,7 +626,7 @@ class MyIdService {
       final display =
           identity ??
           (known?.cidNumber == current.cidNumber &&
-                  known?.bindingRevision == current.bindingRevision
+                  known?.bindRev == current.bindRev
               ? known
               : null) ??
           CitizenIdentityChainSnapshot(
@@ -635,7 +635,7 @@ class MyIdService {
               for (var i = 2; i < current.accountId.length; i += 2)
                 int.parse(current.accountId.substring(i, i + 2), radix: 16),
             ]),
-            bindingRevision: current.bindingRevision,
+            bindRev: current.bindRev,
             votingIdentity: null,
           );
       final revision = _accountSecurity.revision.value;
@@ -652,7 +652,7 @@ class MyIdService {
       await _accountSecurity.activateIdentityBinding(
         genesisHash: current.genesisHash,
         cidNumber: current.cidNumber,
-        bindingRevision: current.bindingRevision,
+        bindRev: current.bindRev,
         accountId: current.accountId,
       );
       await requireCurrent?.call();
@@ -662,7 +662,7 @@ class MyIdService {
       }
       SquareApiClient.activateFinalizedBinding(
         cidNumber: current.cidNumber,
-        bindingRevision: current.bindingRevision,
+        bindRev: current.bindRev,
         accountId: current.accountId,
       );
       // 公开同步只通知已经存在的聊天实例，不能为刷新身份创建MLS运行态。
@@ -673,7 +673,7 @@ class MyIdService {
         ChatBinding(
           bindingScope: current.genesisHash,
           userId: current.cidNumber,
-          bindingRevision: current.bindingRevision,
+          bindingRevision: current.bindRev,
           accountId: current.accountId,
         ),
       );
@@ -708,7 +708,7 @@ class MyIdService {
         ? await _identityResolver.resolve()
         : FinalizedIdentity(
             accountId: accountId,
-            ss58Address: account.ss58Address,
+            accountAddress: account.ss58Address,
             snapshot: await CitizenIdentityChainReader(chain: _chain)
                 .readByAccountId(accountId),
           );
@@ -756,15 +756,15 @@ class MyIdService {
     final binding = await _bindingForFinalizedIdentity(
       FinalizedIdentity(
         accountId: accountId,
-        ss58Address: account.ss58Address,
+        accountAddress: account.ss58Address,
         snapshot: snapshot,
       ),
     );
     final saved = _registrationFinalized[accountId];
     return FinalizedRegistration(
       binding: binding,
-      blockHash: saved?.binding.cidNumber == binding.cidNumber
-          ? saved!.blockHash
+      chainHash: saved?.binding.cidNumber == binding.cidNumber
+          ? saved!.chainHash
           : (await _chain.getFinalizedHead()).hash,
       txHash: saved?.binding.cidNumber == binding.cidNumber
           ? saved?.txHash
@@ -846,7 +846,7 @@ class MyIdService {
       );
     }
     await guard();
-    await _sessionProvider.projectFinalizedIdentity(finalized.blockHash);
+    await _sessionProvider.projectFinalizedIdentity(finalized.chainHash);
     await guard();
     await _finishFinalizedBinding(finalized.binding);
     await guard();
@@ -862,13 +862,13 @@ class MyIdService {
     if (session == null ||
         session.accountId != finalized.binding.accountId ||
         session.cidNumber != finalized.binding.cidNumber ||
-        session.bindingRevision != finalized.binding.bindingRevision ||
+        session.bindRev != finalized.binding.bindRev ||
         !session.isUsable) {
       throw const AccountSecurityException('注册普通会话与finalized身份不一致');
     }
     await session.validateCurrent();
     await guard();
-    // 会话deviceId已由实际MLS证明核对；已有CID可用普通凭据准备，不要求新真人记录。
+    // 会话device_id已由实际MLS证明核对；已有CID可用普通凭据准备，不要求新真人记录。
     return session.deviceId;
   }
 

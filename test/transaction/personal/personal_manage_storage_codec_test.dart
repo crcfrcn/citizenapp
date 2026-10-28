@@ -20,28 +20,28 @@ void main() {
   }
 
   List<int> u32Le(int value) => [
-        value & 0xff,
-        (value >> 8) & 0xff,
-        (value >> 16) & 0xff,
-        (value >> 24) & 0xff,
-      ];
+    value & 0xff,
+    (value >> 8) & 0xff,
+    (value >> 16) & 0xff,
+    (value >> 24) & 0xff,
+  ];
 
   List<int> adminBytes(
     List<int> account,
     String familyName,
     String givenName,
-  ) =>
-      [
-        ...account,
-        0, // 个人多签管理员没有公民 CID，但统一 Admin 仍保留空字段。
-        ...compactVec(familyName),
-        ...compactVec(givenName),
-      ];
+  ) => [
+    ...account,
+    0, // 个人多签管理员没有公民 CID，但统一 Admin 仍保留空字段。
+    ...compactVec(familyName),
+    ...compactVec(givenName),
+  ];
 
   group('PersonalManageStorageCodec', () {
     test('builds personal account id', () {
-      final personal =
-          PersonalManageStorageCodec.accountIdBytes('0x${'11' * 32}');
+      final personal = PersonalManageStorageCodec.accountIdBytes(
+        '0x${'11' * 32}',
+      );
 
       expect(personal.length, 32);
       expect(personal, List<int>.filled(32, 0x11));
@@ -56,7 +56,7 @@ void main() {
       ]);
 
       final decoded = PersonalManageStorageCodec.decodePersonalAccount(data)!;
-      expect(decoded.creatorAccountId, '0x${'66' * 32}');
+      expect(decoded.creatorAccount, '0x${'66' * 32}');
       expect(utf8.decode(decoded.accountName), '家庭基金');
       expect(decoded.createdAt, 101);
       expect(decoded.statusByte, 1);
@@ -80,14 +80,14 @@ void main() {
 
       final decoded = PersonalManageStorageCodec.decodeAdminAccount(data)!;
 
-      expect(decoded.institutionCode, 'PMUL');
+      expect(decoded.orgCode, 'PMUL');
       expect(decoded.adminsLen, 2);
-      expect(
-        decoded.admins.map((admin) => admin.account_id),
-        ['0x${'aa' * 32}', '0x${'bb' * 32}'],
-      );
-      expect(decoded.admins.map((admin) => admin.family_name), ['张', '李']);
-      expect(decoded.admins.map((admin) => admin.given_name), ['三', '四']);
+      expect(decoded.admins.map((admin) => admin.accountId), [
+        '0x${'aa' * 32}',
+        '0x${'bb' * 32}',
+      ]);
+      expect(decoded.admins.map((admin) => admin.familyName), ['张', '李']);
+      expect(decoded.admins.map((admin) => admin.givenName), ['三', '四']);
     });
   });
 }

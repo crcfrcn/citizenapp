@@ -281,13 +281,13 @@ class SquareSessionProvider {
     return (
       cidNumber: binding.cidNumber,
       accountId: binding.accountId,
-      bindingRevision: binding.bindingRevision,
+      bindRev: binding.bindRev,
     );
   }
 
   /// 身份主键是CID；所有普通请求使用同一MLS设备身份。
-  Future<void> projectFinalizedIdentity(String blockHash) =>
-      _client.projectFinalizedIdentity(blockHash);
+  Future<void> projectFinalizedIdentity(String chainHash) =>
+      _client.projectFinalizedIdentity(chainHash);
 
   Future<String?> currentCitizenId() async {
     final current = await _currentUser.resolve();
@@ -392,7 +392,7 @@ class SquareSessionProvider {
       if (_accountSecurity.revision.value != revision ||
           latest?.accountId != binding.accountId ||
           latest?.binding?.cidNumber != binding.cidNumber ||
-          latest?.binding?.bindingRevision != binding.bindingRevision ||
+          latest?.binding?.bindRev != binding.bindRev ||
           latest?.binding?.genesisHash != binding.genesisHash) {
         throw const AccountSecurityException(
           '当前用户已变化，请重试',
@@ -409,17 +409,13 @@ class SquareSessionProvider {
         await requireCurrent();
         if (context.accountId != binding.accountId ||
             context.cidNumber != binding.cidNumber ||
-            context.bindingRevision != binding.bindingRevision) {
+            context.bindRev != binding.bindRev) {
           throw const MlsAuthenticationException(
             '当前用户已变化',
             code: 'identityChanged',
           );
         }
-        final owner = (
-          binding.cidNumber,
-          binding.accountId,
-          binding.bindingRevision,
-        );
+        final owner = (binding.cidNumber, binding.accountId, binding.bindRev);
         if (userInitiated) _blockedAuthorization.remove(owner);
         if (_blockedAuthorization.contains(owner)) {
           throw const AccountSecurityException(
@@ -445,7 +441,7 @@ class SquareSessionProvider {
     await requireCurrent();
     if (session.accountId != binding.accountId ||
         session.cidNumber != binding.cidNumber ||
-        session.bindingRevision != binding.bindingRevision ||
+        session.bindRev != binding.bindRev ||
         !session.isUsable) {
       throw const MlsAuthenticationException(
         '目标会话期间身份已变化',
@@ -465,7 +461,7 @@ class SquareSessionProvider {
     final session = await ensureSession();
     final identity = await _authentication.readIdentity();
     if (identity.cidNumber != expectedCidNumber ||
-        identity.bindingRevision != expectedBindingRevision ||
+        identity.bindRev != expectedBindingRevision ||
         identity.accountId != expectedAccountId ||
         identity.deviceId != deviceId) {
       throw const MlsAuthenticationException(
@@ -475,7 +471,7 @@ class SquareSessionProvider {
     }
     if (session == null ||
         session.cidNumber != expectedCidNumber ||
-        session.bindingRevision != expectedBindingRevision ||
+        session.bindRev != expectedBindingRevision ||
         session.accountId != expectedAccountId ||
         session.deviceId != deviceId) {
       throw const SquareApiException('聊天会话与当前用户绑定不一致');

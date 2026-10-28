@@ -10,23 +10,23 @@ class ComposePickedMedia {
   const ComposePickedMedia({
     required this.file,
     required this.mediaKind,
-    this.photoManagerAssetId,
+    this.assetId,
   });
 
   final XFile file;
   final SquareMediaKind mediaKind;
-  final String? photoManagerAssetId;
+  final String? assetId;
 }
 
 /// 已确认的纯图片选择；无法在相册恢复的既有资源由调用方继续保留。
 class ComposeImageSelection {
   const ComposeImageSelection({
     required this.selected,
-    this.unavailablePhotoManagerAssetIds = const <String>[],
+    this.missingAssetIds = const <String>[],
   });
 
   final List<ComposePickedMedia> selected;
-  final List<String> unavailablePhotoManagerAssetIds;
+  final List<String> missingAssetIds;
 }
 
 /// 公文与文章共用的设备相册边界，测试可注入假实现而不唤起系统权限。
@@ -47,10 +47,7 @@ abstract class ComposeMediaPicker {
     return ComposeImageSelection(
       selected: [
         for (final file in files)
-          ComposePickedMedia(
-            file: file,
-            mediaKind: SquareMediaKind.image,
-          ),
+          ComposePickedMedia(file: file, mediaKind: SquareMediaKind.image),
       ],
     );
   }
@@ -65,10 +62,7 @@ class DeviceComposeMediaPicker extends ComposeMediaPicker {
   const DeviceComposeMediaPicker();
 
   @override
-  Future<List<XFile>> pickImages(
-    BuildContext context,
-    int maxImages,
-  ) async {
+  Future<List<XFile>> pickImages(BuildContext context, int maxImages) async {
     if (maxImages <= 0) return const <XFile>[];
     final assets = await AssetPicker.pickAssets(
       context,
@@ -130,13 +124,13 @@ class DeviceComposeMediaPicker extends ComposeMediaPicker {
         ComposePickedMedia(
           file: await _toXFile(asset, file.path),
           mediaKind: SquareMediaKind.image,
-          photoManagerAssetId: asset.id,
+          assetId: asset.id,
         ),
       );
     }
     return ComposeImageSelection(
       selected: selected,
-      unavailablePhotoManagerAssetIds: unavailableIds,
+      missingAssetIds: unavailableIds,
     );
   }
 
@@ -177,7 +171,7 @@ class DeviceComposeMediaPicker extends ComposeMediaPicker {
           mediaKind: asset.type == AssetType.video
               ? SquareMediaKind.video
               : SquareMediaKind.image,
-          photoManagerAssetId: asset.id,
+          assetId: asset.id,
         ),
       );
     }

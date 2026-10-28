@@ -1,3 +1,6 @@
+import 'package:citizenapp/storage/wallet_isar.dart'
+    as wallet_store
+    show Account, Action, Scan;
 // 个人多签账户列表页。
 //
 // 设计边界：
@@ -18,7 +21,7 @@ import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 import 'package:citizenapp/citizen/account_derivation.dart';
 import 'package:citizenapp/citizen/administrators/admin_accounts_scan_service.dart';
 import 'package:citizenapp/citizen/institution/institution_info.dart';
-import 'package:citizenapp/storage/wallet_isar.dart';
+import 'package:citizenapp/storage/wallet_isar.dart' hide Group;
 import 'package:citizenapp/system/theme/app_theme.dart';
 
 import 'personal_account_create_page.dart';
@@ -45,7 +48,7 @@ class _PersonalAccountListPageState extends State<PersonalAccountListPage> {
   late final PersonalManageDiscoveryService _discoveryService;
   bool _dependenciesReady = false;
 
-  List<PersonalAccountEntity> _items = [];
+  List<wallet_store.Account> _items = [];
   Map<String, String?> _statuses = const {};
   bool _loading = true;
   bool _scanning = false;
@@ -96,7 +99,10 @@ class _PersonalAccountListPageState extends State<PersonalAccountListPage> {
 
   Future<void> _readFromIsar() async {
     final snapshot = await WalletIsar.instance.read((isar) async {
-      final personals = await isar.personalAccountEntitys.where().findAll();
+      final personals = await isar
+          .collection<wallet_store.Account>()
+          .where()
+          .findAll();
       final statuses = await PersonalMultisigLocalState.readStatuses(
         isar,
         personals.map((p) => p.accountId),
@@ -105,7 +111,7 @@ class _PersonalAccountListPageState extends State<PersonalAccountListPage> {
     });
 
     final sorted = [...snapshot.personals]
-      ..sort((a, b) => b.addedAtMillis.compareTo(a.addedAtMillis));
+      ..sort((a, b) => b.addedAt.compareTo(a.addedAt));
     if (!mounted) return;
     setState(() {
       _items = sorted;
@@ -123,7 +129,10 @@ class _PersonalAccountListPageState extends State<PersonalAccountListPage> {
     Set<String>? personalAccounts,
   }) async {
     final snapshot = await WalletIsar.instance.read((isar) async {
-      final personals = await isar.personalAccountEntitys.where().findAll();
+      final personals = await isar
+          .collection<wallet_store.Account>()
+          .where()
+          .findAll();
       final statuses = await PersonalMultisigLocalState.readStatusSnapshots(
         isar,
         personals.map((p) => p.accountId),
@@ -146,18 +155,16 @@ class _PersonalAccountListPageState extends State<PersonalAccountListPage> {
   }
 
   bool _shouldRefreshStatus(MultisigLocalStatusSnapshot? snapshot) {
-    if (snapshot?.lastSyncAtMillis == null) return true;
-    final lastSyncAt = DateTime.fromMillisecondsSinceEpoch(
-      snapshot!.lastSyncAtMillis!,
-    );
-    final ttl = snapshot.status == PersonalMultisigLocalState.statusActive
+    if (snapshot?.syncedAt == null) return true;
+    final lastSyncAt = DateTime.fromMillisecondsSinceEpoch(snapshot!.syncedAt!);
+    final ttl = snapshot.groupState == PersonalMultisigLocalState.statusActive
         ? _activeStatusTtl
         : _inactiveStatusTtl;
     return DateTime.now().difference(lastSyncAt) >= ttl;
   }
 
   Future<void> _syncPersonalStatuses(
-    List<PersonalAccountEntity> personals,
+    List<wallet_store.Account> personals,
   ) async {
     if (personals.isEmpty) return;
     Map<String, AccountInfo?> infos;
@@ -200,11 +207,10 @@ class _PersonalAccountListPageState extends State<PersonalAccountListPage> {
               isar,
               personal.accountId,
               MultisigLocalDetailSnapshot(
-                status: status,
+                groupState: status,
                 admins: info.admins,
                 threshold: info.threshold,
-                updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
-                lastChainRefreshAtMillis: DateTime.now().millisecondsSinceEpoch,
+                syncedAt: DateTime.now().millisecondsSinceEpoch,
               ),
             );
           }
@@ -215,26 +221,22 @@ class _PersonalAccountListPageState extends State<PersonalAccountListPage> {
     }
   }
 
-  Future<void> _deletePersonalGhost(String personalAccountId) async {
+  Future<void> _deletePersonalGhost(String accountId) async {
     await WalletIsar.instance.writeTxn((isar) async {
-      // 旧版本曾在 txHash 返回后提前写入本地多签；若链上没有账户
+      // 旧版本曾在 tx_hash 返回后提前写入本地多签；若链上没有账户
       // 且创建提案也不存在，说明它从未上链，不能展示为“已注销”。
-      await isar.personalAccountEntitys
+      await isar
+          .collection<wallet_store.Account>()
           .where()
-          .accountIdEqualTo(_requireAccountId(personalAccountId))
+          .accountIdEqualTo(_requireAccountId(accountId))
           .deleteAll();
-      await isar.personalAccountProposalEntitys
+      await isar
+          .collection<wallet_store.Action>()
           .filter()
-          .personalAccountIdEqualTo(personalAccountId)
+          .accountIdEqualTo(accountId)
           .deleteAll();
-      await PersonalMultisigLocalState.deleteStatusInTxn(
-        isar,
-        personalAccountId,
-      );
-      await PersonalMultisigLocalState.deleteDetailInTxn(
-        isar,
-        personalAccountId,
-      );
+      await PersonalMultisigLocalState.deleteStatusInTxn(isar, accountId);
+      await PersonalMultisigLocalState.deleteDetailInTxn(isar, accountId);
     });
   }
 
@@ -317,25 +319,25 @@ class _PersonalAccountListPageState extends State<PersonalAccountListPage> {
     }
   }
 
-  void _onCardTap(PersonalAccountEntity item) {
+  void _onCardTap(wallet_store.Account item) {
     final localStatus = _statuses[_requireAccountId(item.accountId)];
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => PersonalManageAccountInfoPage(
           institution: InstitutionInfo(
-            cidFullName: item.accountName,
-            cidShortName: item.accountName,
+            fullName: item.accountName,
+            shortName: item.accountName,
             cidFullNameEn:
                 'Personal Multisig ${item.accountId.substring(0, 8)}',
             cidShortNameEn:
                 'Personal Multisig ${item.accountId.substring(0, 8)}',
             cidNumber: 'personal-account:${item.accountId}',
             orgType: OrgType.personalMultisig,
-            personalAccountId: item.accountId,
+            accountId: item.accountId,
           ),
           initialLocalStatus: localStatus,
-          initialAdminAccountIds: item.matchedAdminAccountIds,
+          initialAdminAccountIds: item.adminAccounts,
         ),
       ),
     ).then((_) {
@@ -465,14 +467,13 @@ class _PersonalAccountListPageState extends State<PersonalAccountListPage> {
     );
   }
 
-  Widget _buildCard(PersonalAccountEntity item) {
+  Widget _buildCard(wallet_store.Account item) {
     final ss58 = _accountAddressLabel(item.accountId);
     final localStatus = _statuses[_requireAccountId(item.accountId)];
     final isClosed = localStatus == PersonalMultisigLocalState.statusClosed;
     final subtitleParts = <String>[
       _truncateAddress(ss58),
-      if (item.discoveredViaAdmin)
-        '我作为 ${item.matchedAdminAccountIds.length} 位管理员之一参与',
+      if (item.isFound) '我作为 ${item.adminAccounts.length} 位管理员之一参与',
     ];
     return Card(
       elevation: 0,
@@ -637,18 +638,16 @@ class _PersonalAccountListPageState extends State<PersonalAccountListPage> {
 
   Future<String?> _readDiscoveryWalletFingerprint() {
     return WalletIsar.instance.read((isar) async {
-      return (await isar.walletPersonalMultisigDiscoveryEntitys.get(0))
-          ?.walletFingerprint;
+      return (await isar.collection<wallet_store.Scan>().get(0))?.walletHash;
     });
   }
 
   Future<void> _writeDiscoveryWalletFingerprint(String fingerprint) {
     return WalletIsar.instance.writeTxn((isar) async {
-      await isar.walletPersonalMultisigDiscoveryEntitys.put(
-        WalletPersonalMultisigDiscoveryEntity()
-          ..id = 0
-          ..walletFingerprint = fingerprint
-          ..updatedAtMillis = DateTime.now().millisecondsSinceEpoch,
+      await isar.collection<wallet_store.Scan>().put(
+        wallet_store.Scan()
+          ..rowId = 0
+          ..walletHash = fingerprint,
       );
     });
   }

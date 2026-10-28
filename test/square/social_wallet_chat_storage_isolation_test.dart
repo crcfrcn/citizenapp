@@ -1,3 +1,8 @@
+import 'package:citizenapp/storage/wallet_isar.dart' as wallet_store show Scan;
+import 'package:citizenapp/storage/social_isar.dart'
+    as social_store
+    show PostCursor;
+
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -5,7 +10,7 @@ import 'package:isar_community/isar.dart';
 
 import 'package:citizenapp/storage/social_isar.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart';
-import 'package:citizenapp/storage/wallet_isar.dart';
+import 'package:citizenapp/storage/wallet_isar.dart' hide Group;
 
 import '../support/isar_test_env.dart';
 
@@ -29,37 +34,44 @@ void main() {
     await entered.future.timeout(const Duration(seconds: 1));
 
     try {
-      await WalletIsar.instance.writeTxn<void>((isar) async {
-        await isar.walletAttestationEntitys.put(
-          WalletAttestationEntity()
-            ..id = 0
-            ..lastRequestPayload = 'wallet-ok',
-        );
-      }).timeout(const Duration(seconds: 1));
+      await WalletIsar.instance
+          .writeTxn<void>((isar) async {
+            await isar.collection<wallet_store.Scan>().put(
+              wallet_store.Scan()
+                ..rowId = 0
+                ..walletHash = 'wallet-ok',
+            );
+          })
+          .timeout(const Duration(seconds: 1));
 
-      await ChatIsar.instance.writeTxn<void>((isar) async {
-        final route = ChatRouteCacheEntity()
-          ..ownerUserId = 'R5-K3P1C1-N9-D4'
-          ..peerUserId = 'R5-K3P1C1-N8-D5'
-          ..routeDisplayName = '隔离测试联系人'
-          ..deviceId = 'device-a'
-          ..safetyNumber = '1234'
-          ..createdAtMillis = 1
-          ..updatedAtMillis = 1;
-        await isar.chatRouteCacheEntitys.put(route);
-      }).timeout(const Duration(seconds: 1));
+      await ChatIsar.instance
+          .writeTxn<void>((isar) async {
+            final route = ChatRouteCacheEntity()
+              ..ownerUserId = 'R5-K3P1C1-N9-D4'
+              ..peerUserId = 'R5-K3P1C1-N8-D5'
+              ..routeDisplayName = '隔离测试联系人'
+              ..deviceId = 'device-a'
+              ..safetyNumber = '1234'
+              ..createdAtMillis = 1
+              ..updatedAtMillis = 1;
+            await isar.chatRouteCacheEntitys.put(route);
+          })
+          .timeout(const Duration(seconds: 1));
 
-      final walletValue = await WalletIsar.instance.read<String?>((isar) async {
-        return (await isar.walletAttestationEntitys.get(0))?.lastRequestPayload;
-      }).timeout(const Duration(seconds: 1));
-      final chatValue = await ChatIsar.instance.read<String?>((isar) async {
-        return (await isar.chatRouteCacheEntitys
-                .getByOwnerUserIdPeerUserId(
-          'R5-K3P1C1-N9-D4',
-          'R5-K3P1C1-N8-D5',
-        ))
-            ?.routeDisplayName;
-      }).timeout(const Duration(seconds: 1));
+      final walletValue = await WalletIsar.instance
+          .read<String?>((isar) async {
+            return (await isar.collection<wallet_store.Scan>().get(0))
+                ?.walletHash;
+          })
+          .timeout(const Duration(seconds: 1));
+      final chatValue = await ChatIsar.instance
+          .read<String?>((isar) async {
+            return (await isar.chatRouteCacheEntitys.getByOwnerUserIdPeerUserId(
+              'R5-K3P1C1-N9-D4',
+              'R5-K3P1C1-N8-D5',
+            ))?.routeDisplayName;
+          })
+          .timeout(const Duration(seconds: 1));
 
       expect(walletValue, 'wallet-ok');
       expect(chatValue, '隔离测试联系人');
@@ -93,9 +105,9 @@ void main() {
     });
     await entered.future.timeout(const Duration(seconds: 1));
 
-    await SocialIsar.instance
-        .closeAndDeleteFromDisk()
-        .timeout(const Duration(seconds: 3));
+    await SocialIsar.instance.closeAndDeleteFromDisk().timeout(
+      const Duration(seconds: 3),
+    );
     await expectLater(SocialIsar.instance.db(), throwsA(isA<StateError>()));
 
     release.complete();
@@ -108,17 +120,19 @@ void main() {
 
   test('关闭 SocialIsar 只删除广场数据库，钱包与聊天事实保持可用', () async {
     await SocialIsar.instance.writeTxn<void>((isar) async {
-      final checkpoint = SquarePostSyncCheckpointEntity()
+      final checkpoint = social_store.PostCursor()
         ..cidNumber = 'R5-K3P1C1-N9-D4'
-        ..newestPostId = 'sqp_a'
-        ..newestCreatedAt = 1;
-      await isar.squarePostSyncCheckpointEntitys.putByCidNumber(checkpoint);
+        ..postId = 'sqp_a'
+        ..publishedAt = 1;
+      await isar.collection<social_store.PostCursor>().putByCidNumber(
+        checkpoint,
+      );
     });
     await WalletIsar.instance.writeTxn<void>((isar) async {
-      await isar.walletAttestationEntitys.put(
-        WalletAttestationEntity()
-          ..id = 0
-          ..lastRequestPayload = 'wallet',
+      await isar.collection<wallet_store.Scan>().put(
+        wallet_store.Scan()
+          ..rowId = 0
+          ..walletHash = 'wallet',
       );
     });
     await ChatIsar.instance.writeTxn<void>((isar) async {
@@ -137,21 +151,20 @@ void main() {
     await expectLater(SocialIsar.instance.db(), throwsA(isA<StateError>()));
 
     final wallet = await WalletIsar.instance.read<String?>((isar) async {
-      return (await isar.walletAttestationEntitys.get(0))?.lastRequestPayload;
+      return (await isar.collection<wallet_store.Scan>().get(0))?.walletHash;
     });
     final chat = await ChatIsar.instance.read<String?>((isar) async {
       return (await isar.chatRouteCacheEntitys.getByOwnerUserIdPeerUserId(
         'R5-K3P1C1-N9-D4',
         'R5-K3P1C1-N8-D5',
-      ))
-          ?.routeDisplayName;
+      ))?.routeDisplayName;
     });
     expect(wallet, 'wallet');
     expect(chat, 'chat');
 
     await SocialIsar.instance.resetForTest();
     final checkpointCount = await SocialIsar.instance.read(
-      (isar) => isar.squarePostSyncCheckpointEntitys.where().count(),
+      (isar) => isar.collection<social_store.PostCursor>().where().count(),
     );
     expect(checkpointCount, 0);
   });

@@ -1,3 +1,4 @@
+import 'package:citizenapp/storage/user_isar.dart' as user_store show Notice;
 import 'package:flutter/services.dart';
 
 import 'dart:async';
@@ -21,7 +22,7 @@ const _cid = 'CN220-CTZN2-100000008-2026';
 
 class _User implements CurrentUserContext {
   String cid = _cid;
-  int revision = 1;
+  int bindRev = 1;
   @override
   Future<CurrentUser?> resolve() async {
     final account = '0x${'11' * 32}';
@@ -40,7 +41,7 @@ class _User implements CurrentUserContext {
         genesisHash: '0x${'22' * 32}',
         cidNumber: cid,
         accountId: account,
-        bindingRevision: revision,
+        bindRev: bindRev,
       ),
     );
   }
@@ -59,7 +60,7 @@ class _Sessions implements SquareSessionProvider {
     sessionToken: 'synthetic',
     cidNumber: user.cid,
     accountId: '0x${'11' * 32}',
-    bindingRevision: user.revision,
+    bindRev: user.bindRev,
     expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
   );
   @override
@@ -68,22 +69,22 @@ class _Sessions implements SquareSessionProvider {
 }
 
 Map<String, dynamic> _state(
-  int revision,
+  int noticeRev,
   int unread, {
   String cid = _cid,
-  int binding = 1,
+  int bindRev = 1,
 }) => {
   'is_ok': true,
   'cid_number': cid,
-  'binding_revision': binding,
-  'notice_revision': revision,
+  'bind_rev': bindRev,
+  'notice_rev': noticeRev,
   'square_unread': unread,
   'following_unread': unread,
   'interaction_unread': 0,
   'interaction_sequence': 0,
   'through': 10,
-  'membergate_revision': 0,
-  'creator_revision': 0,
+  'member_rev': 0,
+  'creator_rev': 0,
   'membergate': null,
   'creator': null,
 };
@@ -151,10 +152,11 @@ void main() {
     service.dispose();
     api.close();
   });
-  test('旧通知快照原子升级，同一身份计数与待回执保留', () async {
+  test('旧通知快照拒绝展示且原样保留，读取不升级或删除待回执', () async {
     final old = _state(7, 4);
-    old['revision'] = old.remove('notice_revision');
+    old['revision'] = old.remove('notice_rev');
     old['ok'] = old.remove('is_ok');
+    old.remove('cid_number');
     final pending = jsonEncode([
       {
         'scope': 'square',
@@ -165,24 +167,36 @@ void main() {
       },
     ]);
     await UserIsar.instance.writeTxn((db) async {
-      await db.userNotificationStateEntitys.put(
-        UserNotificationStateEntity()
+      await db.collection<user_store.Notice>().put(
+        user_store.Notice()
           ..cidNumber = _cid
-          ..stateJson = jsonEncode(old)
-          ..pendingJson = pending,
+          ..stateData = jsonEncode(old)
+          ..pendingData = pending,
       );
     });
     expect(await service.restore(), true);
-    expect(service.noticeRevision, 7);
-    expect(service.unread, 4);
+    expect(service.noticeRev, 0);
+    expect(service.unread, 0);
     expect(api.reads, 0);
     final saved = await UserIsar.instance.read(
-      (db) => db.userNotificationStateEntitys.getByCidNumber(_cid),
+      (db) => db.collection<user_store.Notice>().getByCidNumber(_cid),
     );
-    final value = jsonDecode(saved!.stateJson) as Map<String, dynamic>;
-    expect(value.containsKey('revision'), false);
-    expect(value['notice_revision'], 7);
-    expect(saved.pendingJson, pending);
+    expect(saved!.stateData, jsonEncode(old));
+    expect(saved.pendingData, pending);
+  });
+  test('缓存只在自然索引保存CID，重开恢复计数而不联网', () async {
+    await service.accept(_state(7, 3));
+    final row = (await UserIsar.instance.read(
+      (db) => db.collection<user_store.Notice>().getByCidNumber(_cid),
+    ))!;
+    expect(row.cidNumber, _cid);
+    expect((jsonDecode(row.stateData) as Map).containsKey('cid_number'), false);
+    final restored = Notifications(api: api, sessions: sessions, user: user);
+    addTearDown(restored.dispose);
+    expect(await restored.restore(), true);
+    expect(restored.unread, 3);
+    expect(restored.noticeRev, 7);
+    expect(api.reads, 0);
   });
   test('绝对计数按新版本覆盖，重复、乱序和错误身份不累加', () async {
     await service.accept(_state(3, 5));
@@ -191,7 +205,7 @@ void main() {
     await service.accept(_state(4, 9, cid: 'CN220-CTZN2-100000009-2026'));
     await service.accept({..._state(4, 9), 'interaction_unread': -1});
     expect(service.unread, 5);
-    expect(service.noticeRevision, 3);
+    expect(service.noticeRev, 3);
     expect(api.reads, 0);
   });
   test('并发校准只读取一次，已有成功基线不因普通准备重复读取', () async {
@@ -209,7 +223,7 @@ void main() {
     final creator = {'gated': true};
     await service.accept({
       ..._state(3, 5),
-      'creator_revision': 2,
+      'creator_rev': 2,
       'creator': creator,
     });
     expect(service.creatorFor(_cid), creator);
@@ -218,14 +232,14 @@ void main() {
     }, session: (await sessions.ensureSession())!);
     await service.accept({
       ..._state(5, 1),
-      'creator_revision': 3,
+      'creator_rev': 3,
       'creator': creator,
     });
     expect(service.unread, 1);
     expect(service.creatorFor(_cid), {'gated': false});
     await service.accept({
       ..._state(6, 9),
-      'creator_revision': 'bad',
+      'creator_rev': 'bad',
       'creator': creator,
     });
     expect(service.unread, 1);
@@ -245,12 +259,12 @@ void main() {
     await restored.restore();
     expect(restored.unread, 5);
     expect(api.reads, 0);
-    user.revision = 2;
+    user.bindRev = 2;
     await restored.restore();
     expect(restored.unread, 0);
     await restored.accept(_state(4, 9));
     expect(restored.unread, 0);
-    await restored.accept(_state(5, 1, binding: 2));
+    await restored.accept(_state(5, 1, bindRev: 2));
     expect(restored.unread, 1);
   });
   test('离线已读持久保存，恢复重放原意图并使用POST回执校准', () async {
@@ -271,10 +285,13 @@ void main() {
   });
   test('损坏展示缓存不装入计数并可通过一次校准修复', () async {
     await UserIsar.instance.writeTxn((db) async {
-      await db.userNotificationStateEntitys.put(
-        UserNotificationStateEntity()
+      await db.collection<user_store.Notice>().put(
+        user_store.Notice()
           ..cidNumber = _cid
-          ..stateJson = jsonEncode({..._state(8, 9), 'square_unread': 'bad'}),
+          ..stateData = jsonEncode({
+            ...(_state(8, 9)..remove('cid_number')),
+            'square_unread': 'bad',
+          }),
       );
     });
     await service.restore();
@@ -285,11 +302,11 @@ void main() {
   });
   test('并发冷恢复和推送不能回退版本，也不重复装入离线意图', () async {
     await UserIsar.instance.writeTxn((db) async {
-      await db.userNotificationStateEntitys.put(
-        UserNotificationStateEntity()
+      await db.collection<user_store.Notice>().put(
+        user_store.Notice()
           ..cidNumber = _cid
-          ..stateJson = jsonEncode(_state(1, 2))
-          ..pendingJson = jsonEncode([
+          ..stateData = jsonEncode(_state(1, 2)..remove('cid_number'))
+          ..pendingData = jsonEncode([
             {
               'ids': [1],
               'through': null,
@@ -304,7 +321,7 @@ void main() {
       service.accept(_state(3, 9)),
       service.restore(),
     ]);
-    expect(service.noticeRevision, 5);
+    expect(service.noticeRev, 5);
     expect(service.unread, 3);
     api.value = _state(6, 1);
     await service.calibrate(force: true);
@@ -363,12 +380,12 @@ void main() {
     final value = {
       ..._state(3, 0),
       '_member_received_at': 123456,
-      'membergate_revision': 3,
+      'member_rev': 3,
       'membergate': {
         'active': true,
         'paid_until': 9999999999999,
-        'membergate_level': 'freedom',
-        'subscription_status': 'active',
+        'member_level': 'freedom',
+        'sub_state': 'active',
         'prices': {'freedom': 1, 'democracy': 2, 'spark': 3},
       },
     };
@@ -405,7 +422,7 @@ void main() {
     await recovered.accept(value);
     await recovered.accept({
       ...value,
-      'notice_revision': 4,
+      'notice_rev': 4,
       'square_unread': 1,
       'following_unread': 1,
     });
@@ -460,18 +477,18 @@ void main() {
     expect(notifications, 0);
     await cache.accept(_state(7, 4));
     expect(attempts, 2);
-    expect(saved?['notice_revision'], 7);
+    expect(saved?['notice_rev'], 7);
     expect(notifications, 1);
     await cache.accept(_state(7, 4));
     expect(attempts, 2);
   });
   test('坏待发已读不阻断有效意图和首次状态校准', () async {
     await UserIsar.instance.writeTxn((db) async {
-      await db.userNotificationStateEntitys.put(
-        UserNotificationStateEntity()
+      await db.collection<user_store.Notice>().put(
+        user_store.Notice()
           ..cidNumber = _cid
-          ..stateJson = jsonEncode(_state(1, 2))
-          ..pendingJson = jsonEncode([
+          ..stateData = jsonEncode(_state(1, 2)..remove('cid_number'))
+          ..pendingData = jsonEncode([
             {'ids': 'bad'},
             {
               'ids': [],
@@ -486,13 +503,15 @@ void main() {
     expect(api.reads, 1);
     expect(api.writes, 0);
     final cleaned = await UserIsar.instance.read(
-      (db) => db.userNotificationStateEntitys.getByCidNumber(_cid),
+      (db) => db.collection<user_store.Notice>().getByCidNumber(_cid),
     );
-    expect(cleaned?.pendingJson, '[]');
+    expect(cleaned?.pendingData, '[]');
     service.invalidate();
     await UserIsar.instance.writeTxn((db) async {
-      final row = (await db.userNotificationStateEntitys.getByCidNumber(_cid))!;
-      row.pendingJson = jsonEncode([
+      final row = (await db.collection<user_store.Notice>().getByCidNumber(
+        _cid,
+      ))!;
+      row.pendingData = jsonEncode([
         {'ids': 'bad'},
         {
           'ids': [1],
@@ -501,7 +520,7 @@ void main() {
           'comment_ids': [],
         },
       ]);
-      await db.userNotificationStateEntitys.put(row);
+      await db.collection<user_store.Notice>().put(row);
     });
     await service.calibrate();
     expect(api.writes, 1);

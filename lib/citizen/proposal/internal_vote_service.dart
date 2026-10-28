@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:citizenapp/citizen/pallet_registry.dart';
+
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -25,8 +26,8 @@ class InternalVoteService {
   const InternalVoteService({
     required CitizenChain chain,
     required CitizenTransactions transactions,
-  })  : _chain = chain,
-        _transactions = transactions;
+  }) : _chain = chain,
+       _transactions = transactions;
 
   final CitizenChain _chain;
   final CitizenTransactions _transactions;
@@ -43,7 +44,7 @@ class InternalVoteService {
 
   /// 提交 `InternalVote::cast(proposal_id, approve)` extrinsic(pallet 20.0)。
   ///
-  /// 投票提交必须等待交易进入区块。txHash 只代表交易已提交，
+  /// 投票提交必须等待交易进入区块。tx_hash 只代表交易已提交，
   /// 不能代表 runtime 已执行 `InternalVote::cast`。
   ///
   /// 返回交易哈希、runtime nonce 和入块哈希。业务模块无需感知提案所属
@@ -57,7 +58,8 @@ class InternalVoteService {
     required Uint8List signerPublicKey,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
+    )
+    externalSigning,
   }) async {
     final callData = buildCallData(
       proposalId: proposalId,
@@ -109,12 +111,14 @@ class InternalVoteService {
 
   // ──── 内部：签名提交 ────
 
-  Future<({String txHash, int usedNonce, String blockHashHex})> _executeFinalized({
+  Future<({String txHash, int usedNonce, String blockHashHex})>
+  _executeFinalized({
     required Uint8List callData,
     required Uint8List signerPublicKey,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
-    ) externalSigning,
+    )
+    externalSigning,
   }) async {
     final prepared = await _transactions.prepareTransaction(
       signerPublicKey,
@@ -139,8 +143,7 @@ class InternalVoteService {
     } else {
       completed = started as CitizenTransactionExecutionCompleted;
     }
-    if (completed.resolution !=
-            CitizenTransactionResolution.finalizedSuccess ||
+    if (completed.resolution != CitizenTransactionResolution.finalizedSuccess ||
         completed.execution == null) {
       throw StateError(completed.poolRejectionReason ?? '投票交易执行失败');
     }
@@ -154,7 +157,7 @@ class InternalVoteService {
   /// SDK finalized execution 成功后回读 runtime 投票引擎 storage，
   /// 确认管理员投票已经真正写入。
   ///
-  /// 这里是 citizenapp 的投票确认边界。txHash、交易池状态和
+  /// 这里是 citizenapp 的投票确认边界。tx_hash、交易池状态和
   /// 客户端 pending 记录都不能替代 runtime `InternalVotesByTicket`。
   Future<void> _confirmRuntimeVote({
     required int proposalId,

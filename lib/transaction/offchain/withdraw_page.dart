@@ -21,7 +21,7 @@ class WithdrawPage extends StatefulWidget {
   const WithdrawPage({
     super.key,
     required this.accountId,
-    required this.ss58Address,
+    required this.accountAddress,
     this.wssUrl,
   });
 
@@ -29,7 +29,7 @@ class WithdrawPage extends StatefulWidget {
   final String accountId;
 
   /// L3 用户 SS58 地址(查询清算行存款余额、构造提现 extrinsic 的来源地址)。
-  final String ss58Address;
+  final String accountAddress;
 
   /// 清算行节点的 WebSocket URL(用于查询当前可用存款余额)。可选。
   final String? wssUrl;
@@ -52,7 +52,7 @@ class _WithdrawPageState extends State<WithdrawPage> {
           AccountBalanceSnapshotStore.forChain(context.read<CitizenSdk>().chain)
               .clearingState(
                 accountId: widget.accountId,
-                ss58Address: widget.ss58Address,
+                accountAddress: widget.accountAddress,
                 wssUrl: wssUrl,
               )
             ..addListener(_changed);
@@ -160,7 +160,7 @@ class _WithdrawPageState extends State<WithdrawPage> {
       final balance = await AccountBalanceSnapshotStore.forChain(sdk.chain)
           .getClearingBalance(
             accountId: widget.accountId,
-            ss58Address: widget.ss58Address,
+            accountAddress: widget.accountAddress,
             wssUrl: widget.wssUrl!,
             forceRefresh: true,
           );

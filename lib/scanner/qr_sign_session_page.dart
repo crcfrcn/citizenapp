@@ -31,7 +31,7 @@ Future<String?> showCitizenSdkQrResponse(
     MaterialPageRoute(
       builder: (_) => QrSignSessionPage(
         request: document,
-        requestJson: document.canonicalText,
+        requestData: document.canonicalText,
         qr: qr,
       ),
     ),
@@ -112,7 +112,7 @@ class QrSignSessionPage extends StatefulWidget {
   const QrSignSessionPage({
     super.key,
     required this.request,
-    required this.requestJson,
+    required this.requestData,
     this.qr,
     this.scanResponse,
   });
@@ -125,7 +125,7 @@ class QrSignSessionPage extends StatefulWidget {
   final CitizenQrDocument request;
 
   /// 编码后的 JSON 字符串,直接用于二维码展示。
-  final String requestJson;
+  final String requestData;
 
   @override
   State<QrSignSessionPage> createState() => _QrSignSessionPageState();
@@ -258,7 +258,7 @@ class _QrSignSessionPageState extends State<QrSignSessionPage> {
           // 请求二维码
           Center(
             child: AppQrImage(
-              data: widget.requestJson,
+              data: widget.requestData,
               qr: widget.qr,
               size: AppLayout.scaled(context, 240),
               errorStateBuilder: (cxt, err) {

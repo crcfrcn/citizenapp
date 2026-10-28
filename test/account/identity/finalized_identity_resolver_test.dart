@@ -66,7 +66,7 @@ final _default5 = CitizenWalletStateAccount(
 CitizenIdentityChainSnapshot _anonSnapshot() => CitizenIdentityChainSnapshot(
   cidNumber: 'CID-TEST-0001',
   accountId: Uint8List(32),
-  bindingRevision: 1,
+  bindRev: 1,
   votingIdentity: null,
   candidateIdentity: null,
 );
@@ -220,7 +220,7 @@ void main() {
 
     expect(result, isNotNull);
     expect(result!.accountIdText, _accountIdText(accountId));
-    expect(result.bindingRevision, 2);
+    expect(result.bindRev, 2);
     expect(chainRpc.blockHashes.toSet(), {
       '0x${List<String>.filled(32, '00').join()}',
     });
@@ -367,7 +367,7 @@ void main() {
 
       expect(snapshot, isNotNull);
       expect(snapshot!.cidNumber, _genesisCid);
-      expect(snapshot.bindingRevision, 1);
+      expect(snapshot.bindRev, 1);
       expect(snapshot.isAnonymous, isTrue);
     });
 

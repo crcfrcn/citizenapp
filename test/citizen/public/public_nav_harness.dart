@@ -1,7 +1,7 @@
 // 卡B widget 测试脚手架:构造无网络/无 Isar 的 repo(seeded fake store)。
 //
 // ADR-021:机构只存 code,行政区名字来自字典。harness 同时 seed 机构 fake store +
-// 行政区字典 fake store(市名 join 用),并按 provinceCode 落库/查询。
+// 行政区字典 fake store(市名 join 用),并按 province_code 落库/查询。
 
 import 'package:flutter/services.dart';
 import 'package:citizenapp/citizen/public/admin_division_bundle_loader.dart';
@@ -31,22 +31,21 @@ PublicInstitutionDto seedDto(
   String? name,
   String code = 'ZF',
   String townCode = '',
-}) =>
-    PublicInstitutionDto.fromJson(<String, dynamic>{
-      'cid_number': cid,
-      'cid_full_name': name ?? '$cityCode$code机构',
-      'province_code': provinceCode,
-      'city_code': cityCode,
-      'town_code': townCode,
-      'institution_code': code,
-      'account_count': 2,
-    });
+}) => PublicInstitutionDto.fromJson(<String, dynamic>{
+  'cid_number': cid,
+  'cid_full_name': name ?? '$cityCode$code机构',
+  'province_code': provinceCode,
+  'city_code': cityCode,
+  'town_code': townCode,
+  'institution_code': code,
+  'account_count': 2,
+});
 
 /// 构造 seeded 仓库:省顺序(省 code)+ 机构 + 各省链快照版本戳+
 /// 行政区字典(市/镇名 join)。
 ///
-/// [provinceOrder] 传省 code(如 ['ZS']);[cityNames] = `cityCode -> 市名`,
-/// [townNames] = `"<cityCode>|<townCode>" -> 镇名`,按需 seed 字典。
+/// [provinceOrder] 传省 code(如 ['ZS']);[cityNames] = `city_code -> 市名`,
+/// [townNames] = `"<city_code>|<town_code>" -> 镇名`,按需 seed 字典。
 Future<PublicInstitutionRepository> buildSeededRepo({
   required List<String> provinceOrder,
   required List<PublicInstitutionDto> institutions,
@@ -57,32 +56,32 @@ Future<PublicInstitutionRepository> buildSeededRepo({
   final store = FakePublicInstitutionStore();
   final divisionStore = FakeAdminDivisionStore();
   await store.setProvinceOrder(provinceOrder);
-  await store.upsertInstitutions(institutions, catalogVersion: 'seed');
+  await store.upsertInstitutions(institutions);
   for (final p in provinceOrder) {
     await store.setProvinceVersion(p, 'seed');
   }
   // seed 市名字典。
   cityNames?.forEach((key, name) {
     final parts = key.split('|');
-    divisionStore.seed(AdminDivisionDto(
-      level: AdminDivisionLevel.city,
-      provinceCode: parts[0],
-      cityCode: parts.length > 1 ? parts[1] : '',
-      code: parts.length > 1 ? parts[1] : '',
-      divisionName: name,
-    ));
+    divisionStore.seed(
+      AdminDivisionDto(
+        provinceCode: parts[0],
+        cityCode: parts.length > 1 ? parts[1] : '',
+        regionName: name,
+      ),
+    );
   });
   // seed 镇名字典。
   townNames?.forEach((key, name) {
     final parts = key.split('|');
-    divisionStore.seed(AdminDivisionDto(
-      level: AdminDivisionLevel.town,
-      provinceCode: parts[0],
-      cityCode: parts.length > 1 ? parts[1] : '',
-      townCode: parts.length > 2 ? parts[2] : '',
-      code: parts.length > 2 ? parts[2] : '',
-      divisionName: name,
-    ));
+    divisionStore.seed(
+      AdminDivisionDto(
+        provinceCode: parts[0],
+        cityCode: parts.length > 1 ? parts[1] : '',
+        townCode: parts.length > 2 ? parts[2] : '',
+        regionName: name,
+      ),
+    );
   });
   if (subscriptions != null) {
     for (final entry in subscriptions.entries) {
@@ -133,13 +132,13 @@ class LateDictRepo extends PublicInstitutionRepository {
     await gate;
     lateCityNames.forEach((key, name) {
       final parts = key.split('|');
-      _ds.seed(AdminDivisionDto(
-        level: AdminDivisionLevel.city,
-        provinceCode: parts[0],
-        cityCode: parts.length > 1 ? parts[1] : '',
-        code: parts.length > 1 ? parts[1] : '',
-        divisionName: name,
-      ));
+      _ds.seed(
+        AdminDivisionDto(
+          provinceCode: parts[0],
+          cityCode: parts.length > 1 ? parts[1] : '',
+          regionName: name,
+        ),
+      );
     });
     return true;
   }
@@ -155,7 +154,7 @@ Future<LateDictRepo> buildLateDictRepo({
   final store = FakePublicInstitutionStore();
   final divisionStore = FakeAdminDivisionStore();
   await store.setProvinceOrder(provinceOrder);
-  await store.upsertInstitutions(institutions, catalogVersion: 'seed');
+  await store.upsertInstitutions(institutions);
   for (final p in provinceOrder) {
     await store.setProvinceVersion(p, 'seed');
   }

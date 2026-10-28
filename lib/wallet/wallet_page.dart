@@ -1,3 +1,4 @@
+import 'package:citizenapp/storage/wallet_isar.dart' as wallet_store show Entry;
 import 'package:citizenapp/wallet/account_balance_snapshot_store.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
@@ -8,7 +9,6 @@ import 'package:provider/provider.dart';
 import 'package:citizenapp/app_log.dart';
 import 'package:citizenapp/system/security/screenshot_guard.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:citizenapp/storage/wallet_isar.dart';
 import 'package:citizenapp/scanner/qr_sign_session_page.dart';
 import 'package:citizenapp/scanner/scan_dispatch_flow.dart';
 import 'package:citizenapp/transaction/history/local_tx_store.dart';
@@ -1458,7 +1458,7 @@ class WalletListTile extends StatelessWidget {
   /// 账户级统一顺序第一项；它等于本机当前默认用户。
   final bool isDefault;
 
-  /// accountId、SS58 或签名模式损坏：不显示余额，改显警示，点击进入严格重标确认。
+  /// account_id、SS58 或签名模式损坏：不显示余额，改显警示，点击进入严格重标确认。
   final bool isBroken;
 
   /// 删除/默认账户变更期间禁用菜单，禁止第二条写路径并发启动。
@@ -1906,7 +1906,7 @@ class _WalletDetailPageState extends State<WalletDetailPage>
   CitizenSdkPrivateKey? _privateKeyResource;
   DialogRoute<void>? _privateKeyRoute;
   VoidCallback? _clearPrivateText;
-  List<LocalTxEntity> _recentRecords = const [];
+  List<wallet_store.Entry> _recentRecords = const [];
 
   /// 外层下拉刷新通过此 key 触发链上余额卡的 refresh()。
   final GlobalKey<WalletOnchainBalanceCardState> _balanceCardKey =
@@ -2237,7 +2237,7 @@ class _WalletDetailPageState extends State<WalletDetailPage>
             WalletActionCard(
               key: _actionCardKey,
               accountId: widget.wallet.accountId,
-              ss58Address: widget.wallet.ss58Address,
+              accountAddress: widget.wallet.ss58Address,
             ),
             SizedBox(height: AppLayout.scaled(context, 24)),
             // 交易区使用一张完整白色卡片；标题和单条记录入口保持不变。
@@ -2267,7 +2267,7 @@ class _WalletDetailPageState extends State<WalletDetailPage>
           Navigator.of(context).push(
             MaterialPageRoute(
               builder: (_) => TransactionHistoryPage(
-                ss58Address: widget.wallet.ss58Address,
+                accountAddress: widget.wallet.ss58Address,
                 accountId: widget.wallet.accountId,
               ),
             ),

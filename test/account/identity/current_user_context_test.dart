@@ -52,9 +52,14 @@ void main() {
         wallet: _FakeWallet(_account(_hotId, CitizenWalletSignMode.hot)),
         accountSecurity: security,
         bindingReader: (_) async => null,
-        identityReader: (_) async => verified ? const IdentityBadgeSnapshot(
-          cidNumber: '', identityLevel: 'visitor', updatedAtMillis: 1, verified: true,
-        ) : null,
+        identityReader: (_) async => verified
+            ? const IdentityBadgeSnapshot(
+                cidNumber: '',
+                cidLevel: 'visitor',
+                updatedAt: 1,
+                verified: true,
+              )
+            : null,
       );
       final current = (await context.resolve())!;
       expect(current.isRegistered, isFalse);
@@ -68,7 +73,10 @@ void main() {
       accountSecurity: security,
       bindingReader: (_) async => _binding(_hotId, 'CID-OLD'),
       identityReader: (_) async => const IdentityBadgeSnapshot(
-        cidNumber: '', identityLevel: 'visitor', updatedAtMillis: 1, verified: true,
+        cidNumber: '',
+        cidLevel: 'visitor',
+        updatedAt: 1,
+        verified: true,
       ),
     );
     final current = (await context.resolve())!;
@@ -129,7 +137,7 @@ void main() {
     Future<void> activate() => security.activateIdentityBinding(
       genesisHash: binding.genesisHash,
       cidNumber: binding.cidNumber,
-      bindingRevision: binding.bindingRevision,
+      bindRev: binding.bindRev,
       accountId: binding.accountId,
     );
     await activate();
@@ -177,7 +185,7 @@ CitizenWalletStateAccount _account(
 IdentityBinding _binding(String accountId, String cid) => IdentityBinding(
   genesisHash: '0x${'11' * 32}',
   cidNumber: cid,
-  bindingRevision: 1,
+  bindRev: 1,
   accountId: accountId,
 );
 
@@ -209,7 +217,7 @@ final class _UnusedSigning implements CitizenSigning {
 
 Future<void> _registerNothing({
   required String cidNumber,
-  required int bindingRevision,
+  required int bindRev,
   required String accountId,
   required Future<String> Function({
     required Uint8List payload,

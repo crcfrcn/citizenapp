@@ -25,15 +25,15 @@ void main() {
     final chain = _HistoryChain()..height = 1;
     chain.encodedEvents[1] = _transferEvents(
       twice: true,
-      feeFen: BigInt.from(10),
+      feeAmount: BigInt.from(10),
     );
     final service = _service(chain, _HistoryWallet(createdAt: 1000));
     await service.start();
     await service.sync();
     final records = await LocalTxStore.queryByAccountId(_accountId);
     expect(records, hasLength(2));
-    expect(records.map((r) => r.amountDeltaFen).toSet(), {'-110', '-100'});
-    expect(records.where((r) => r.feeFen != null).single.feeFen, '10');
+    expect(records.map((r) => r.amountDelta).toSet(), {'-110', '-100'});
+    expect(records.where((r) => r.feeAmount != null).single.feeAmount, '10');
     await service.sync();
     expect(await LocalTxStore.countByAccountId(_accountId), 2);
     await service.stop();
@@ -43,22 +43,22 @@ void main() {
     final chain = _HistoryChain()..height = 1;
     chain.encodedEvents[1] = _transferEvents(
       failed: true,
-      feeFen: BigInt.from(10),
+      feeAmount: BigInt.from(10),
     );
     final service = _service(chain, _HistoryWallet(createdAt: 1000));
     await service.start();
     await service.sync();
     final row = (await LocalTxStore.queryByAccountId(_accountId)).single;
-    expect(row.type, 'fee');
-    expect(row.amountDeltaFen, '-10');
-    expect(row.feeFen, '10');
-    expect(row.failureReason, '链上执行失败');
+    expect(row.entryKind, 'fee');
+    expect(row.amountDelta, '-10');
+    expect(row.feeAmount, '10');
+    expect(row.failReason, '链上执行失败');
     await service.stop();
 
     expect(
       () => const CitizenChainTransactionEventDecoder().decode(
         eventsBytes: _transferEvents(
-          feeFen: BigInt.from(10),
+          feeAmount: BigInt.from(10),
           duplicateFee: true,
         ),
         metadataBytes: _eventMetadata(),
@@ -67,7 +67,7 @@ void main() {
     );
     expect(
       () => const CitizenChainTransactionEventDecoder().decode(
-        eventsBytes: _transferEvents(feeFen: BigInt.zero),
+        eventsBytes: _transferEvents(feeAmount: BigInt.zero),
         metadataBytes: _eventMetadata(),
       ),
       throwsFormatException,
@@ -77,25 +77,19 @@ void main() {
   test('重复费用不写入流水或推进游标，修正后从原块恢复', () async {
     final chain = _HistoryChain()..height = 1;
     chain.encodedEvents[1] = _transferEvents(
-      feeFen: BigInt.from(10),
+      feeAmount: BigInt.from(10),
       duplicateFee: true,
     );
     final service = _service(chain, _HistoryWallet(createdAt: 1000));
     await service.start();
     await expectLater(service.sync(), throwsFormatException);
-    expect(
-      (await LocalTxStore.historyCursor(_accountId))!.cursorBlockNumber,
-      0,
-    );
+    expect((await LocalTxStore.historyCursor(_accountId))!.cursorBlock, 0);
     expect(await LocalTxStore.countByAccountId(_accountId), 0);
-    chain.encodedEvents[1] = _transferEvents(feeFen: BigInt.from(10));
+    chain.encodedEvents[1] = _transferEvents(feeAmount: BigInt.from(10));
     await service.sync();
+    expect((await LocalTxStore.historyCursor(_accountId))!.cursorBlock, 1);
     expect(
-      (await LocalTxStore.historyCursor(_accountId))!.cursorBlockNumber,
-      1,
-    );
-    expect(
-      (await LocalTxStore.queryByAccountId(_accountId)).single.feeFen,
+      (await LocalTxStore.queryByAccountId(_accountId)).single.feeAmount,
       '10',
     );
     await service.stop();
@@ -152,20 +146,14 @@ void main() {
     final service = _service(chain, _HistoryWallet(createdAt: 1000));
     await service.start();
     await expectLater(service.sync(), throwsFormatException);
-    expect(
-      (await LocalTxStore.historyCursor(_accountId))!.cursorBlockNumber,
-      0,
-    );
+    expect((await LocalTxStore.historyCursor(_accountId))!.cursorBlock, 0);
     expect(await LocalTxStore.countByAccountId(_accountId), 0);
     chain.metadataBytes = _eventMetadata(accountWrapperDepth: 3);
     await service.sync();
-    expect(
-      (await LocalTxStore.historyCursor(_accountId))!.cursorBlockNumber,
-      1,
-    );
+    expect((await LocalTxStore.historyCursor(_accountId))!.cursorBlock, 1);
     final records = await LocalTxStore.queryByAccountId(_accountId);
     expect(records, hasLength(1));
-    expect(records.single.amountDeltaFen, '100');
+    expect(records.single.amountDelta, '100');
     await service.sync();
     expect(await LocalTxStore.countByAccountId(_accountId), 1);
     await service.stop();
@@ -187,9 +175,9 @@ void main() {
 
     final records = await LocalTxStore.queryByAccountId(_accountId);
     final byHash = {for (final record in records) record.txHash: record};
-    expect(byHash['0x01']?.status, LocalTxStore.statusInBlock);
-    expect(byHash['0x01']?.blockHash, '0x${'11' * 32}');
-    expect(byHash['0x02']?.status, LocalTxStore.statusFinalized);
+    expect(byHash['0x01']?.entryState, LocalTxStore.statusInBlock);
+    expect(byHash['0x01']?.chainHash, '0x${'11' * 32}');
+    expect(byHash['0x02']?.entryState, LocalTxStore.statusFinalized);
     expect(byHash['0x02']?.blockNumber, 8);
     expect(byHash['0x02']?.extrinsicIndex, 3);
 
@@ -204,8 +192,8 @@ void main() {
     await service.sync();
     expect(chain.eventBlocks, [4, 5, 6, 7, 8, 9, 10]);
     final cursor = (await LocalTxStore.historyCursor(_accountId))!;
-    expect(cursor.startBlockNumber, 4);
-    expect(cursor.cursorBlockNumber, 10);
+    expect(cursor.startBlock, 4);
+    expect(cursor.cursorBlock, 10);
     await service.stop();
 
     chain.eventBlocks.clear();
@@ -225,10 +213,7 @@ void main() {
     await service.start();
     await service.sync();
     expect(chain.eventBlocks, List.generate(32, (i) => i + 1));
-    expect(
-      (await LocalTxStore.historyCursor(_accountId))!.cursorBlockNumber,
-      32,
-    );
+    expect((await LocalTxStore.historyCursor(_accountId))!.cursorBlock, 32);
     await service.sync();
     expect(chain.eventBlocks, List.generate(40, (i) => i + 1));
     await service.stop();
@@ -239,10 +224,7 @@ void main() {
     final service = _service(chain, _HistoryWallet(createdAt: 4000));
     await service.start();
     await expectLater(service.sync(), throwsStateError);
-    expect(
-      (await LocalTxStore.historyCursor(_accountId))!.cursorBlockNumber,
-      5,
-    );
+    expect((await LocalTxStore.historyCursor(_accountId))!.cursorBlock, 5);
     chain.failEventsAt = null;
     chain.eventBlocks.clear();
     await service.sync();
@@ -266,17 +248,11 @@ void main() {
     await service.start();
     await service.sync();
     expect(chain.eventBlocks, isEmpty);
-    expect(
-      (await LocalTxStore.historyCursor(_accountId))!.startBlockNumber,
-      11,
-    );
+    expect((await LocalTxStore.historyCursor(_accountId))!.startBlock, 11);
     chain.height = 12;
     await service.sync();
     expect(chain.eventBlocks, [12]);
-    expect(
-      (await LocalTxStore.historyCursor(_accountId))!.cursorBlockNumber,
-      12,
-    );
+    expect((await LocalTxStore.historyCursor(_accountId))!.cursorBlock, 12);
     await service.stop();
   });
 
@@ -294,10 +270,7 @@ void main() {
     chain.eventBarrier!.complete(null);
     await stopping;
     expect(chain.eventBlocks, [1]);
-    expect(
-      (await LocalTxStore.historyCursor(_accountId))!.cursorBlockNumber,
-      0,
-    );
+    expect((await LocalTxStore.historyCursor(_accountId))!.cursorBlock, 0);
   });
 
   test('退后台使在途块失效，返回前台后继续同一进度', () async {
@@ -311,17 +284,11 @@ void main() {
     service.setForeground(false);
     chain.eventBarrier!.complete(null);
     await waiting;
-    expect(
-      (await LocalTxStore.historyCursor(_accountId))!.cursorBlockNumber,
-      0,
-    );
+    expect((await LocalTxStore.historyCursor(_accountId))!.cursorBlock, 0);
     chain.eventBarrier = null;
     service.setForeground(true);
     await service.sync();
-    expect(
-      (await LocalTxStore.historyCursor(_accountId))!.cursorBlockNumber,
-      1,
-    );
+    expect((await LocalTxStore.historyCursor(_accountId))!.cursorBlock, 1);
     await service.stop();
   });
 
@@ -374,16 +341,13 @@ void main() {
     await service.sync();
     final rows = await LocalTxStore.queryByAccountId(_accountId);
     expect(rows, hasLength(1));
-    expect(rows.single.amountDeltaFen, '100');
-    expect(rows.single.source, 'sdk_finalized_event');
-    expect(rows.single.remark, '合成备注');
+    expect(rows.single.amountDelta, '100');
+    expect(rows.single.entrySource, 'sdk_finalized_event');
+    expect(rows.single.txNote, '合成备注');
     expect(rows.single.blockNumber, 1);
     await service.sync();
     expect(await LocalTxStore.countByAccountId(_accountId), 1);
-    expect(
-      (await LocalTxStore.historyCursor(_accountId))!.cursorBlockNumber,
-      2,
-    );
+    expect((await LocalTxStore.historyCursor(_accountId))!.cursorBlock, 2);
     await service.stop();
   });
 
@@ -393,18 +357,12 @@ void main() {
     final service = _service(chain, _HistoryWallet(createdAt: 1000));
     await service.start();
     await expectLater(service.sync(), throwsFormatException);
-    expect(
-      (await LocalTxStore.historyCursor(_accountId))!.cursorBlockNumber,
-      0,
-    );
+    expect((await LocalTxStore.historyCursor(_accountId))!.cursorBlock, 0);
     chain.encodedEvents[1] = _transferEvents(incoming: true);
     chain.wrongBodyAnchor = true;
     await expectLater(service.sync(), throwsStateError);
     expect(await LocalTxStore.countByAccountId(_accountId), 0);
-    expect(
-      (await LocalTxStore.historyCursor(_accountId))!.cursorBlockNumber,
-      0,
-    );
+    expect((await LocalTxStore.historyCursor(_accountId))!.cursorBlock, 0);
     chain.wrongBodyAnchor = false;
     await service.sync();
     expect(await LocalTxStore.countByAccountId(_accountId), 1);
@@ -414,19 +372,17 @@ void main() {
 
 Future<void> _insert({required String txHash, required String executionId}) {
   return LocalTxStore.upsertLocalSubmitTransfer(
-    ss58Address: 'sender',
     accountId: _accountId,
     txHash: txHash,
     executionId: executionId,
-    callDataHash: '0x${'22' * 32}',
-    amountDeltaFen: '-101',
-    transferAmountFen: '100',
-    feeFen: '1',
-    counterpartySs58Address: 'recipient',
-    fromSs58Address: 'sender',
-    toSs58Address: 'recipient',
-    usedNonce: 1,
-    createdAtMillis: 1,
+    callHash: '0x${'22' * 32}',
+    amountDelta: '-101',
+    transferAmount: '100',
+    feeAmount: '1',
+    fromAddress: 'sender',
+    toAddress: 'recipient',
+
+    createdAt: 1,
   );
 }
 
@@ -772,7 +728,7 @@ Uint8List _transferEvents({
   bool remarkOnly = false,
   bool withTopics = false,
   bool recursiveEvent = false,
-  BigInt? feeFen,
+  BigInt? feeAmount,
   bool duplicateFee = false,
 }) {
   final from = List.filled(32, incoming ? 0xbb : 0xaa);
@@ -792,10 +748,10 @@ Uint8List _transferEvents({
     ...scale.CompactCodec.codec.encode(topics ? 1 : 0),
     if (topics) ...List.filled(32, 0xcc),
   ];
-  if (feeFen != null) {
+  if (feeAmount != null) {
     final fee = record(4, 7, [
       ...List.filled(32, 0xaa),
-      ...scale.U128Codec.codec.encode(feeFen),
+      ...scale.U128Codec.codec.encode(feeAmount),
     ]);
     events.add(fee);
     if (duplicateFee) events.add(fee);

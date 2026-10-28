@@ -72,12 +72,12 @@ void main() {
           expect(body.keys.toSet(), {
             'account_id',
             'public_key',
-            'purpose',
-            'method',
+            'token_purpose',
+            'http_method',
             'request_target',
-            'body_sha256',
+            'body_hash',
           });
-          if (body['purpose'] == 'request') {
+          if (body['token_purpose'] == 'request') {
             expect(request.headers['authorization'], 'Bearer tok');
           }
           return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
@@ -117,7 +117,7 @@ void main() {
     expect(pushBody!.keys.toSet(), {
       'push_provider',
       'push_token',
-      'apns_environment',
+      'apns_env',
       'expires_at',
     });
     expect(pushBody!['push_token'], 'fcm-token-1234567890');
@@ -136,15 +136,15 @@ void main() {
     expect(requests, 4);
   });
   for (final field in [
-    'user_id',
+    'cid_number',
     'device_id',
     'public_key',
     'account_id',
-    'binding_revision',
+    'bind_rev',
     'service_origin',
-    'method',
+    'http_method',
     'request_target',
-    'body_sha256',
+    'body_hash',
     'extra',
   ]) {
     test('挑战$field被改动时不进入签名和会话提交', () async {
@@ -155,7 +155,7 @@ void main() {
         httpClient: MockClient((request) async {
           if (request.url.path.endsWith('/challenges')) {
             final challenge = fakeMlsChallenge(request)
-              ..[field] = field == 'binding_revision' ? 2 : 'tampered';
+              ..[field] = field == 'bind_rev' ? 2 : 'tampered';
             return http.Response(jsonEncode(challenge), 200);
           }
           submits++;
@@ -283,7 +283,7 @@ void main() {
       httpClient: MockClient((request) async {
         if (request.url.path.endsWith('/challenges')) {
           final value = fakeMlsChallenge(request)
-            ..['expires_at_millis'] = DateTime.now().millisecondsSinceEpoch - 1;
+            ..['expires_at'] = DateTime.now().millisecondsSinceEpoch - 1;
           return http.Response(jsonEncode(value), 200);
         }
         submits++;
@@ -299,12 +299,7 @@ void main() {
     expect(submits, 0);
   });
 
-  for (final field in [
-    'device_id',
-    'extra',
-    'account_id',
-    'binding_revision',
-  ]) {
+  for (final field in ['device_id', 'extra', 'account_id', 'bind_rev']) {
     test('会话响应$field与当前公开身份不符或多字段时拒绝缓存', () async {
       final source = FakeMlsAuthentication();
       var calls = 0;
@@ -316,7 +311,7 @@ void main() {
           }
           calls++;
           final response = fakeMlsSession()
-            ..[field] = field == 'binding_revision' ? 2 : 'tampered';
+            ..[field] = field == 'bind_rev' ? 2 : 'tampered';
           return http.Response(jsonEncode(response), 200);
         }),
       );

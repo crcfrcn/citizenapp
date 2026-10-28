@@ -1,7 +1,5 @@
-// 行政区字典本地存储 —— Isar 实现(ADR-021 行政区唯一真源)。
-//
-// 全国 5 万条(省43/市3185/镇47574),分块写避免巨型事务卡 UI;
-// 查询走唯一索引 divisionKey / scopeKey,UI 显示名零现查。
+import 'package:citizenapp/storage/app_isar.dart' as app_store show Region;
+// 行政区自然三元索引由原Isar维护；按省分片与有界事务增量更新。
 
 import 'package:isar_community/isar.dart';
 import 'package:citizenapp/storage/app_isar.dart';
@@ -28,19 +26,18 @@ class IsarAdminDivisionStore implements AdminDivisionStore {
   }
 
   @override
-  Future<void> upsertDivisions(
-    List<AdminDivisionDto> items, {
-    String? dictVersion,
-  }) async {
+  Future<void> upsertDivisions(List<AdminDivisionDto> items) async {
     if (items.isEmpty) return;
     for (var start = 0; start < items.length; start += _upsertChunk) {
       final end = (start + _upsertChunk).clamp(0, items.length);
       final entities = items
           .sublist(start, end)
-          .map((dto) => dto.toEntity(dictVersion: dictVersion))
+          .map((dto) => dto.toEntity())
           .toList(growable: false);
       await _write((isar) async {
-        await isar.adminDivisionEntitys.putAllByDivisionKey(entities);
+        await isar
+            .collection<app_store.Region>()
+            .putAllByProvinceCodeCityCodeTownCode(entities);
       });
     }
   }
@@ -48,102 +45,60 @@ class IsarAdminDivisionStore implements AdminDivisionStore {
   @override
   Future<int> divisionCount() async {
     final isar = await _db();
-    return isar.adminDivisionEntitys.count();
+    return isar.collection<app_store.Region>().count();
   }
 
   @override
-  Future<String> divisionName(
-    String level,
-    String scopeKey,
-    String code,
-  ) async {
-    // 缺级回退:空 code 没有名字可查,直接回退空(调用方自行决定是否拼段)。
+  Future<String> regionName({
+    required String provinceCode,
+    String cityCode = '',
+    String townCode = '',
+  }) async {
+    final code = townCode.isNotEmpty
+        ? townCode
+        : cityCode.isNotEmpty
+        ? cityCode
+        : provinceCode;
     if (code.isEmpty) return code;
     final isar = await _db();
-    // 由 (level, scopeKey, code) 反推完整 divisionKey 唯一命中。
-    final key = _divisionKeyFor(level, scopeKey, code);
-    final hit = await isar.adminDivisionEntitys
-        .filter()
-        .divisionKeyEqualTo(key)
-        .findFirst();
-    // 未命中回退返回 code 本身(绝不崩、绝不空)。
-    return hit?.divisionName ?? code;
+    final row = await isar
+        .collection<app_store.Region>()
+        .getByProvinceCodeCityCodeTownCode(provinceCode, cityCode, townCode);
+    return row?.regionName ?? code;
   }
 
   @override
-  Future<List<AdminDivisionEntity>> divisionsByLevel(
-    String level,
-    String scopeKey,
-  ) async {
+  Future<List<app_store.Region>> cities(String provinceCode) async {
     final isar = await _db();
-    return isar.adminDivisionEntitys
+    return isar
+        .collection<app_store.Region>()
         .filter()
-        .levelEqualTo(level)
-        .and()
-        .scopeKeyEqualTo(scopeKey)
+        .provinceCodeEqualTo(provinceCode)
+        .cityCodeIsNotEmpty()
+        .townCodeEqualTo('')
         .findAll();
   }
 
   @override
-  Future<List<AdminDivisionEntity>> divisionsOfProvince(
+  Future<List<app_store.Region>> divisionsOfProvince(
     String provinceCode,
   ) async {
     final isar = await _db();
-    // 三段前缀并起来:每段以 `|` 收口,保证 `GZ` 不会误命中 `GZA`(code 不含 `|`)。
-    return isar.adminDivisionEntitys
+    return isar
+        .collection<app_store.Region>()
         .filter()
-        .divisionKeyStartsWith('${AdminDivisionLevel.province}|$provinceCode|')
-        .or()
-        .divisionKeyStartsWith('${AdminDivisionLevel.city}|$provinceCode|')
-        .or()
-        .divisionKeyStartsWith('${AdminDivisionLevel.town}|$provinceCode|')
+        .provinceCodeEqualTo(provinceCode)
         .findAll();
   }
 
   @override
-  Future<List<String>> divisionKeysOfProvince(String provinceCode) async {
-    final rows = await divisionsOfProvince(provinceCode);
-    return rows.map((e) => e.divisionKey).toList(growable: false);
-  }
-
-  @override
-  Future<void> deleteByKeys(List<String> divisionKeys) async {
-    if (divisionKeys.isEmpty) return;
-    for (var start = 0; start < divisionKeys.length; start += _upsertChunk) {
-      final end = (start + _upsertChunk).clamp(0, divisionKeys.length);
-      final chunk = divisionKeys.sublist(start, end);
-      await _write((isar) async {
-        await isar.adminDivisionEntitys.deleteAllByDivisionKey(chunk);
-      });
-    }
-  }
-
-  /// 由 (level, scopeKey, code) 还原 divisionKey:
-  /// - province: scopeKey 空 → `province|<code>||`
-  /// - city: scopeKey=pcode → `city|<pcode>|<code>|`
-  /// - town: scopeKey=`pc|cc` → `town|<pc>|<cc>|<code>`
-  static String _divisionKeyFor(String level, String scopeKey, String code) {
-    switch (level) {
-      case AdminDivisionLevel.province:
-        return divisionKeyOf(level: level, provinceCode: code);
-      case AdminDivisionLevel.city:
-        return divisionKeyOf(
-          level: level,
-          provinceCode: scopeKey,
-          cityCode: code,
-        );
-      case AdminDivisionLevel.town:
-        final parts = scopeKey.split('|');
-        final pc = parts.isNotEmpty ? parts[0] : '';
-        final cc = parts.length > 1 ? parts[1] : '';
-        return divisionKeyOf(
-          level: level,
-          provinceCode: pc,
-          cityCode: cc,
-          townCode: code,
-        );
-      default:
-        return divisionKeyOf(level: level, provinceCode: code);
+  Future<void> deleteRows(List<int> rowIds) async {
+    for (var start = 0; start < rowIds.length; start += _upsertChunk) {
+      final end = (start + _upsertChunk).clamp(0, rowIds.length);
+      final chunk = rowIds.sublist(start, end);
+      await _write(
+        (isar) => isar.collection<app_store.Region>().deleteAll(chunk),
+      );
     }
   }
 }

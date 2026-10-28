@@ -43,7 +43,7 @@ final _groupPreview = ChatConversationPreview(
 const _contact = UserContact(
   cidNumber: _peerUserId,
   accountId: _peerAccountId,
-  ss58Address: _contactAddress,
+  accountAddress: _contactAddress,
   contactRemark: '张三',
   createdAt: 1,
   updatedAt: 2,
@@ -91,9 +91,9 @@ class _FakeChatStore extends ChatStore {
     return messages
         .where((item) {
           try {
-            return ChatPayloadCodec.decode(
-              item.plaintext ?? '',
-            ).summary.toLowerCase().contains(needle);
+            return ChatPayloadCodec.decode(item.plaintext ?? '').summary
+                .toLowerCase()
+                .contains(needle);
           } on FormatException {
             return false;
           }
@@ -264,10 +264,9 @@ void main() {
     await pumpPage(
       tester,
       conversations: [_dmPreview, _groupPreview],
-      directChatOpener:
-          (context, {required peerUserId, required title}) async {
-            openedPeer = peerUserId;
-          },
+      directChatOpener: (context, {required peerUserId, required title}) async {
+        openedPeer = peerUserId;
+      },
       groupChatOpener: (context, {required groupId, required title}) async {
         openedGroupId = groupId;
       },
@@ -294,17 +293,14 @@ void main() {
     await pumpPage(
       tester,
       contacts: const [_contact],
-      directChatOpener:
-          (context, {required peerUserId, required title}) async {
-            openedPeer = peerUserId;
-            openedTitle = title;
-          },
+      directChatOpener: (context, {required peerUserId, required title}) async {
+        openedPeer = peerUserId;
+        openedTitle = title;
+      },
     );
 
     await search(tester, '张');
-    await tester.tap(
-      find.byKey(const ValueKey('search-contact-$_peerUserId')),
-    );
+    await tester.tap(find.byKey(const ValueKey('search-contact-$_peerUserId')));
     await tester.pump();
 
     expect(openedPeer, _peerUserId);
@@ -317,10 +313,9 @@ void main() {
       tester,
       conversations: [_dmPreview],
       messages: [_message],
-      directChatOpener:
-          (context, {required peerUserId, required title}) async {
-            openedPeer = peerUserId;
-          },
+      directChatOpener: (context, {required peerUserId, required title}) async {
+        openedPeer = peerUserId;
+      },
     );
 
     await search(tester, '材料');

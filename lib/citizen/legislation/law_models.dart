@@ -12,21 +12,21 @@ enum LawTier {
   municipal; // 3 市
 
   static LawTier fromIndex(int i) => switch (i) {
-        0 => LawTier.constitution,
-        1 => LawTier.national,
-        2 => LawTier.provincial,
-        3 => LawTier.municipal,
-        _ => throw FormatException('未知法律层级: $i'),
-      };
+    0 => LawTier.constitution,
+    1 => LawTier.national,
+    2 => LawTier.provincial,
+    3 => LawTier.municipal,
+    _ => throw FormatException('未知法律层级: $i'),
+  };
 
   int get index0 => index;
 
   String get label => switch (this) {
-        LawTier.constitution => '宪法',
-        LawTier.national => '国家',
-        LawTier.provincial => '省',
-        LawTier.municipal => '市',
-      };
+    LawTier.constitution => '宪法',
+    LawTier.national => '国家',
+    LawTier.provincial => '省',
+    LawTier.municipal => '市',
+  };
 }
 
 /// 法律地域：省码永久保留两位大写字母，市号为原省内三位编号的数值。
@@ -44,18 +44,22 @@ class LawRegion {
     if (tier == LawTier.municipal && !RegExp(r'^[0-9]{3}$').hasMatch(city)) {
       throw const FormatException('法律市号必须沿用省内三位编号');
     }
-    final region = LawRegion(provinceCode: province,
-        cityNumber: tier == LawTier.municipal ? int.parse(city) : 0);
+    final region = LawRegion(
+      provinceCode: province,
+      cityNumber: tier == LawTier.municipal ? int.parse(city) : 0,
+    );
     region.validate(tier);
     return region;
   }
 
   void validate(LawTier tier) {
     final nationwide = tier == LawTier.constitution || tier == LawTier.national;
-    if (nationwide ? provinceCode.isNotEmpty || cityNumber != 0
+    if (nationwide
+        ? provinceCode.isNotEmpty || cityNumber != 0
         : !RegExp(r'^[A-Z]{2}$').hasMatch(provinceCode) ||
-          cityNumber < 0 || cityNumber > 999 ||
-          (tier == LawTier.provincial && cityNumber != 0)) {
+              cityNumber < 0 ||
+              cityNumber > 999 ||
+              (tier == LawTier.provincial && cityNumber != 0)) {
       throw const FormatException('法律地域与层级不符');
     }
   }
@@ -68,17 +72,17 @@ enum LawStatus {
   repealed; // 2 废止
 
   static LawStatus fromIndex(int i) => switch (i) {
-        0 => LawStatus.pending,
-        1 => LawStatus.effective,
-        2 => LawStatus.repealed,
-        _ => throw FormatException('未知法律状态: $i'),
-      };
+    0 => LawStatus.pending,
+    1 => LawStatus.effective,
+    2 => LawStatus.repealed,
+    _ => throw FormatException('未知法律状态: $i'),
+  };
 
   String get label => switch (this) {
-        LawStatus.pending => '待生效',
-        LawStatus.effective => '生效中',
-        LawStatus.repealed => '已废止',
-      };
+    LawStatus.pending => '待生效',
+    LawStatus.effective => '生效中',
+    LawStatus.repealed => '已废止',
+  };
 }
 
 /// 表决类型(链端 VoteType,1 字节枚举索引;ADR-027 当前五类立法表决)。
@@ -94,24 +98,24 @@ enum VoteType {
   special; // 4 特别案
 
   static VoteType fromIndex(int i) => switch (i) {
-        0 => VoteType.regular,
-        1 => VoteType.regularEducation,
-        2 => VoteType.major,
-        3 => VoteType.majorEducation,
-        4 => VoteType.special,
-        _ => throw FormatException('未知立法表决类型: $i'),
-      };
+    0 => VoteType.regular,
+    1 => VoteType.regularEducation,
+    2 => VoteType.major,
+    3 => VoteType.majorEducation,
+    4 => VoteType.special,
+    _ => throw FormatException('未知立法表决类型: $i'),
+  };
 
   bool get isEducation =>
       this == VoteType.regularEducation || this == VoteType.majorEducation;
 
   String get label => switch (this) {
-        VoteType.regular => '常规案',
-        VoteType.regularEducation => '常规教育案',
-        VoteType.major => '重要案',
-        VoteType.majorEducation => '重要教育案',
-        VoteType.special => '特别案',
-      };
+    VoteType.regular => '常规案',
+    VoteType.regularEducation => '常规教育案',
+    VoteType.major => '重要案',
+    VoteType.majorEducation => '重要教育案',
+    VoteType.special => '特别案',
+  };
 }
 
 /// 条下的「款」。

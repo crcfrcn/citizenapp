@@ -1,3 +1,7 @@
+import 'package:citizenapp/storage/social_isar.dart'
+    as social_store
+    show Chunk, CleanupSchema, PostCursorSchema, Draft, DraftSchema, PostSchema;
+
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -22,47 +26,44 @@ Uint8List _bytes(int size) => Uint8List.fromList(
   List<int>.generate(size, (index) => (index * 17 + 3) % 251),
 );
 
+String _hash(List<int> bytes) => sha256.convert(bytes).toString();
+
 SquareStoredMedia _media(
   Uint8List bytes, {
   String cid = _cidA,
-  String id = 'media-a',
   String? digest,
 }) => SquareStoredMedia(
   cidNumber: cid,
-  mediaId: id,
   mediaKind: 'image',
   contentType: 'image/webp',
   byteSize: bytes.length,
-  sha256: digest ?? sha256.convert(bytes).toString(),
+  bodyHash: digest ?? _hash(bytes),
 );
 
 SquareMediaReference _reference({
+  required String bodyHash,
   String cid = _cidA,
-  String mediaId = 'media-a',
   String contentKind = 'post',
   String contentId = 'post-a',
   int index = 0,
   String role = 'main',
 }) => SquareMediaReference(
   cidNumber: cid,
-  mediaId: mediaId,
+  bodyHash: bodyHash,
   contentKind: contentKind,
   contentId: contentId,
   mediaIndex: index,
   mediaRole: role,
 );
 
-Future<void> _save(
-  Uint8List bytes, {
-  String cid = _cidA,
-  String id = 'media-a',
-}) async {
-  await _store.begin(_media(bytes, cid: cid, id: id));
+Future<void> _save(Uint8List bytes, {String cid = _cidA}) async {
+  final bodyHash = _hash(bytes);
+  await _store.begin(_media(bytes, cid: cid));
   for (var offset = 0; offset < bytes.length; offset += _chunkSize) {
     await _store.writeChunk(
       cidNumber: cid,
-      mediaId: id,
-      chunkIndex: offset ~/ _chunkSize,
+      bodyHash: bodyHash,
+      partIndex: offset ~/ _chunkSize,
       bytes: Uint8List.sublistView(
         bytes,
         offset,
@@ -70,15 +71,17 @@ Future<void> _save(
       ),
     );
   }
-  await _store.finish(cidNumber: cid, mediaId: id);
+  await _store.finish(cidNumber: cid, bodyHash: bodyHash);
 }
 
 Future<void> _changeChunk(
-  Future<void> Function(Isar, SquareMediaChunkEntity) change,
+  String bodyHash,
+  Future<void> Function(Isar, social_store.Chunk) change,
 ) {
   return SocialIsar.instance.writeTxn((db) async {
-    final chunk = await db.squareMediaChunkEntitys
-        .getByCidNumberMediaIdChunkIndex(_cidA, 'media-a', 0);
+    final chunk = await db
+        .collection<social_store.Chunk>()
+        .getByCidNumberBodyHashPartIndex(_cidA, bodyHash, 0);
     await change(db, chunk!);
   });
 }
@@ -88,22 +91,43 @@ void main() {
   useIsolatedIsar();
 
   test('媒体关联组合进业务事务时，后续失败回滚引用替换和字节回收', () async {
+    final bodyHash = _hash(_bytes(3));
+    final bodyHashB = _hash(_bytes(4));
     await _save(_bytes(3));
-    await _save(_bytes(4), id: 'media-b');
-    await _store.attach(_reference(contentKind: 'draft'));
-    await expectLater(SocialIsar.instance.writeTxn((db) async {
-      await SquareMediaStore.replaceReferencesInTransaction(db,
-          cidNumber: _cidA, contentKind: 'draft', contentId: 'post-a',
-          references: [_reference(mediaId: 'media-b', contentKind: 'draft')]);
-      throw StateError('模拟同一事务后续业务保存失败');
-    }), throwsStateError);
-    final refs = await _store.referencesForContent(cidNumber: _cidA,
-        contentKind: 'draft', contentId: 'post-a');
-    expect(refs.single.mediaId, 'media-a');
-    expect(await _store.readRange(cidNumber: _cidA, mediaId: 'media-a', offset: 0, length: 3), _bytes(3));
+    await _save(_bytes(4));
+    await _store.attach(_reference(bodyHash: bodyHash, contentKind: 'draft'));
+    await expectLater(
+      SocialIsar.instance.writeTxn((db) async {
+        await SquareMediaStore.replaceReferencesInTransaction(
+          db,
+          cidNumber: _cidA,
+          contentKind: 'draft',
+          contentId: 'post-a',
+          references: [_reference(bodyHash: bodyHashB, contentKind: 'draft')],
+        );
+        throw StateError('模拟同一事务后续业务保存失败');
+      }),
+      throwsStateError,
+    );
+    final refs = await _store.referencesForContent(
+      cidNumber: _cidA,
+      contentKind: 'draft',
+      contentId: 'post-a',
+    );
+    expect(refs.single.bodyHash, bodyHash);
+    expect(
+      await _store.readRange(
+        cidNumber: _cidA,
+        bodyHash: bodyHash,
+        offset: 0,
+        length: 3,
+      ),
+      _bytes(3),
+    );
   });
 
   test('媒体流按固定块入库，输入分片不必与数据库块对齐', () async {
+    final bodyHash = _hash(_bytes(_chunkSize + 11));
     final bytes = _bytes(_chunkSize + 11);
     await _store.saveStream(
       _media(bytes),
@@ -116,7 +140,7 @@ void main() {
     expect(
       await _store.readRange(
         cidNumber: _cidA,
-        mediaId: 'media-a',
+        bodyHash: bodyHash,
         offset: _chunkSize - 2,
         length: 13,
       ),
@@ -125,8 +149,9 @@ void main() {
   });
 
   test('短流或超长流不能标记完成，已有媒体字节保持不变', () async {
+    final bodyHash = _hash(_bytes(5));
     for (final size in [4, 6]) {
-      final descriptor = _media(_bytes(5), id: 'size-$size');
+      final descriptor = _media(_bytes(5));
       await expectLater(
         _store.saveStream(descriptor, Stream.value(_bytes(size))),
         throwsA(_storeError),
@@ -134,8 +159,8 @@ void main() {
       expect(
         (await _store.get(
           cidNumber: _cidA,
-          mediaId: descriptor.mediaId,
-        ))!.complete,
+          bodyHash: descriptor.bodyHash,
+        ))!.isComplete,
         isFalse,
       );
     }
@@ -147,7 +172,7 @@ void main() {
     expect(
       await _store.readRange(
         cidNumber: _cidA,
-        mediaId: 'media-a',
+        bodyHash: bodyHash,
         offset: 0,
         length: 5,
       ),
@@ -155,56 +180,59 @@ void main() {
     );
   });
 
-  test('旧Social库增加媒体集合后保留原草稿事实', () async {
+  test('同名Social库补充媒体集合后保留已有草稿事实', () async {
     final old = await Isar.open(
       [
-        SquareLocalPostEntitySchema,
-        SquareComposeDraftEntitySchema,
-        SquarePostSyncCheckpointEntitySchema,
-        SquareFileCleanupEntitySchema,
+        social_store.PostSchema,
+        social_store.DraftSchema,
+        social_store.PostCursorSchema,
+        social_store.CleanupSchema,
       ],
       name: 'citizenapp_social',
       directory: await IsarCoreBootstrap.resolveDirectory(),
     );
     await old.writeTxn(() async {
-      await old.squareComposeDraftEntitys.put(
-        SquareComposeDraftEntity()
-          ..draftKey = '$_cidA|draft-old'
+      await old.collection<social_store.Draft>().put(
+        social_store.Draft()
           ..cidNumber = _cidA
           ..draftId = 'draft-old'
           ..postType = 'document'
           ..text = '未发布草稿必须保留'
-          ..mediaJson = '[]'
-          ..updatedAtMillis = 123,
+          ..mediaData = '[]'
+          ..updatedAt = 123,
       );
     });
     await old.close();
     await _save(_bytes(5));
     final draft = await SocialIsar.instance.read(
-      (db) => db.squareComposeDraftEntitys.getByDraftKey('$_cidA|draft-old'),
+      (db) => db.collection<social_store.Draft>().getByCidNumberDraftId(
+        _cidA,
+        'draft-old',
+      ),
     );
     expect(draft!.text, '未发布草稿必须保留');
     expect(draft.cidNumber, _cidA);
-    expect(draft.updatedAtMillis, 123);
+    expect(draft.updatedAt, 123);
   });
 
   test('描述、实际字节和关联分别持久化；跨块、尾块及EOF读取准确', () async {
+    final bodyHash = _hash(_bytes(_chunkSize + 37));
     final bytes = _bytes(_chunkSize + 37);
     await _save(bytes);
-    final reference = _reference();
+    final reference = _reference(bodyHash: bodyHash);
     await _store.attach(reference);
 
     // 关闭但不删除数据库，再以新的入口实例读取，排除仅存在于内存的实现。
     await (await SocialIsar.instance.db()).close();
     const reopened = SquareMediaStore();
-    final media = await reopened.get(cidNumber: _cidA, mediaId: 'media-a');
-    expect(media!.complete, isTrue);
+    final media = await reopened.get(cidNumber: _cidA, bodyHash: bodyHash);
+    expect(media!.isComplete, isTrue);
     expect(media.byteSize, bytes.length);
-    expect(media.sha256, sha256.convert(bytes).toString());
+    expect(media.bodyHash, sha256.convert(bytes).toString());
     expect(
       await reopened.readRange(
         cidNumber: _cidA,
-        mediaId: 'media-a',
+        bodyHash: bodyHash,
         offset: 0,
         length: _chunkSize,
       ),
@@ -213,7 +241,7 @@ void main() {
     expect(
       await reopened.readRange(
         cidNumber: _cidA,
-        mediaId: 'media-a',
+        bodyHash: bodyHash,
         offset: _chunkSize - 5,
         length: 42,
       ),
@@ -222,7 +250,7 @@ void main() {
     expect(
       await reopened.readRange(
         cidNumber: _cidA,
-        mediaId: 'media-a',
+        bodyHash: bodyHash,
         offset: bytes.length,
         length: 0,
       ),
@@ -233,64 +261,75 @@ void main() {
         cidNumber: _cidA,
         contentKind: 'post',
         contentId: 'post-a',
-      )).single.mediaId,
-      reference.mediaId,
+      )).single.bodyHash,
+      reference.bodyHash,
     );
-    expect((await reopened.listByCid(_cidA)).single.mediaId, 'media-a');
+    expect((await reopened.listByCid(_cidA)).single.bodyHash, bodyHash);
   });
 
   test('整块整数长度不要求空尾块，单字节媒体同样校验', () async {
     for (final size in [1, _chunkSize, _chunkSize * 2]) {
-      await _save(_bytes(size), id: 'size-$size');
+      await _save(_bytes(size));
       expect(
-        (await _store.get(cidNumber: _cidA, mediaId: 'size-$size'))!.complete,
+        (await _store.get(
+          cidNumber: _cidA,
+          bodyHash: _hash(_bytes(size)),
+        ))!.isComplete,
         isTrue,
       );
     }
   });
 
   test('写入中断后不可读不可关联，重开数据库后能显式续写', () async {
+    final bodyHash = _hash(_bytes(_chunkSize + 7));
     final bytes = _bytes(_chunkSize + 7);
     await _store.begin(_media(bytes));
     await _store.writeChunk(
       cidNumber: _cidA,
-      mediaId: 'media-a',
-      chunkIndex: 0,
+      bodyHash: bodyHash,
+      partIndex: 0,
       bytes: Uint8List.sublistView(bytes, 0, _chunkSize),
     );
     await (await SocialIsar.instance.db()).close();
     await expectLater(
-      _store.finish(cidNumber: _cidA, mediaId: 'media-a'),
+      _store.finish(cidNumber: _cidA, bodyHash: bodyHash),
       throwsA(_storeError),
     );
     await expectLater(
       _store.readRange(
         cidNumber: _cidA,
-        mediaId: 'media-a',
+        bodyHash: bodyHash,
         offset: 0,
         length: 1,
       ),
       throwsA(_storeError),
     );
-    await expectLater(_store.attach(_reference()), throwsA(_storeError));
-    expect((await _store.listByCid(_cidA)).single.complete, isFalse);
+    await expectLater(
+      _store.attach(_reference(bodyHash: bodyHash)),
+      throwsA(_storeError),
+    );
+    expect((await _store.listByCid(_cidA)).single.isComplete, isFalse);
     await _save(bytes);
     expect(
-      (await _store.get(cidNumber: _cidA, mediaId: 'media-a'))!.complete,
+      (await _store.get(cidNumber: _cidA, bodyHash: bodyHash))!.isComplete,
       isTrue,
     );
   });
 
   test('重复块、描述和完成幂等，不允许覆盖不同内容', () async {
+    final bodyHash = _hash(_bytes(23));
     final bytes = _bytes(23);
     await _save(bytes);
     await _save(bytes);
-    await expectLater(_store.begin(_media(_bytes(24))), throwsA(_storeError));
+    await expectLater(
+      _store.begin(_media(_bytes(24), digest: bodyHash)),
+      throwsA(_storeError),
+    );
     await expectLater(
       _store.writeChunk(
         cidNumber: _cidA,
-        mediaId: 'media-a',
-        chunkIndex: 0,
+        bodyHash: bodyHash,
+        partIndex: 0,
         bytes: Uint8List(23),
       ),
       throwsA(_storeError),
@@ -298,7 +337,7 @@ void main() {
     expect(
       await _store.readRange(
         cidNumber: _cidA,
-        mediaId: 'media-a',
+        bodyHash: bodyHash,
         offset: 0,
         length: 23,
       ),
@@ -307,28 +346,29 @@ void main() {
   });
 
   test('乱序分块最终按序校验，排队前复制调用方缓冲区', () async {
+    final bodyHash = _hash(_bytes(_chunkSize + 2));
     final bytes = _bytes(_chunkSize + 2);
     await _store.begin(_media(bytes));
     final input = Uint8List.fromList(bytes.sublist(_chunkSize));
     final writing = _store.writeChunk(
       cidNumber: _cidA,
-      mediaId: 'media-a',
-      chunkIndex: 1,
+      bodyHash: bodyHash,
+      partIndex: 1,
       bytes: input,
     );
     input.fillRange(0, input.length, 0);
     await writing;
     await _store.writeChunk(
       cidNumber: _cidA,
-      mediaId: 'media-a',
-      chunkIndex: 0,
+      bodyHash: bodyHash,
+      partIndex: 0,
       bytes: Uint8List.sublistView(bytes, 0, _chunkSize),
     );
-    await _store.finish(cidNumber: _cidA, mediaId: 'media-a');
+    await _store.finish(cidNumber: _cidA, bodyHash: bodyHash);
     expect(
       await _store.readRange(
         cidNumber: _cidA,
-        mediaId: 'media-a',
+        bodyHash: bodyHash,
         offset: _chunkSize,
         length: 2,
       ),
@@ -337,94 +377,97 @@ void main() {
   });
 
   test('完整长度但整体哈希错误仍不可标记完成，失败后队列可继续', () async {
+    final bodyHash = _hash([0]);
     final bytes = _bytes(19);
     await _store.begin(_media(bytes, digest: sha256.convert([0]).toString()));
     await _store.writeChunk(
       cidNumber: _cidA,
-      mediaId: 'media-a',
-      chunkIndex: 0,
+      bodyHash: bodyHash,
+      partIndex: 0,
       bytes: bytes,
     );
     await expectLater(
-      _store.finish(cidNumber: _cidA, mediaId: 'media-a'),
+      _store.finish(cidNumber: _cidA, bodyHash: bodyHash),
       throwsA(_storeError),
     );
     expect(
-      (await _store.get(cidNumber: _cidA, mediaId: 'media-a'))!.complete,
+      (await _store.get(cidNumber: _cidA, bodyHash: bodyHash))!.isComplete,
       isFalse,
     );
     expect(
-      await _store.deleteUnused(cidNumber: _cidA, mediaId: 'media-a'),
+      await _store.deleteUnused(cidNumber: _cidA, bodyHash: bodyHash),
       isTrue,
     );
     await _save(bytes);
   });
 
   test('缺失、额外、损坏分块均拒绝完成', () async {
+    final bodyHash = _hash(_bytes(11));
     final bytes = _bytes(11);
     await _store.begin(_media(bytes));
     await expectLater(
-      _store.finish(cidNumber: _cidA, mediaId: 'media-a'),
+      _store.finish(cidNumber: _cidA, bodyHash: bodyHash),
       throwsA(_storeError),
     );
     await _store.writeChunk(
       cidNumber: _cidA,
-      mediaId: 'media-a',
-      chunkIndex: 0,
+      bodyHash: bodyHash,
+      partIndex: 0,
       bytes: bytes,
     );
-    await _changeChunk((db, chunk) async {
-      chunk.chunkBytes = [0, ...chunk.chunkBytes.skip(1)];
-      await db.squareMediaChunkEntitys.put(chunk);
+    await _changeChunk(bodyHash, (db, chunk) async {
+      chunk.partBytes = [0, ...chunk.partBytes.skip(1)];
+      await db.collection<social_store.Chunk>().put(chunk);
     });
     await expectLater(
-      _store.finish(cidNumber: _cidA, mediaId: 'media-a'),
+      _store.finish(cidNumber: _cidA, bodyHash: bodyHash),
       throwsA(_storeError),
     );
-    await _changeChunk((db, chunk) async {
-      chunk.chunkBytes = bytes;
-      await db.squareMediaChunkEntitys.put(chunk);
-      await db.squareMediaChunkEntitys.put(
-        SquareMediaChunkEntity()
+    await _changeChunk(bodyHash, (db, chunk) async {
+      chunk.partBytes = bytes;
+      await db.collection<social_store.Chunk>().put(chunk);
+      await db.collection<social_store.Chunk>().put(
+        social_store.Chunk()
           ..cidNumber = _cidA
-          ..mediaId = 'media-a'
-          ..chunkIndex = 1
-          ..chunkBytes = [1]
-          ..chunkSha256 = sha256.convert([1]).toString(),
+          ..bodyHash = bodyHash
+          ..partIndex = 1
+          ..partBytes = [1]
+          ..partHash = sha256.convert([1]).toString(),
       );
     });
     await expectLater(
-      _store.finish(cidNumber: _cidA, mediaId: 'media-a'),
+      _store.finish(cidNumber: _cidA, bodyHash: bodyHash),
       throwsA(_storeError),
     );
     expect(
-      (await _store.get(cidNumber: _cidA, mediaId: 'media-a'))!.complete,
+      (await _store.get(cidNumber: _cidA, bodyHash: bodyHash))!.isComplete,
       isFalse,
     );
   });
 
   test('完成后磁盘分块损坏或缺失，范围读取明确失败', () async {
+    final bodyHash = _hash(_bytes(13));
     await _save(_bytes(13));
-    await _changeChunk((db, chunk) async {
-      chunk.chunkBytes = List<int>.filled(13, 0);
-      await db.squareMediaChunkEntitys.put(chunk);
+    await _changeChunk(bodyHash, (db, chunk) async {
+      chunk.partBytes = List<int>.filled(13, 0);
+      await db.collection<social_store.Chunk>().put(chunk);
     });
     await expectLater(
       _store.readRange(
         cidNumber: _cidA,
-        mediaId: 'media-a',
+        bodyHash: bodyHash,
         offset: 0,
         length: 1,
       ),
       throwsA(_storeError),
     );
-    await _changeChunk((db, chunk) async {
-      await db.squareMediaChunkEntitys.delete(chunk.id);
+    await _changeChunk(bodyHash, (db, chunk) async {
+      await db.collection<social_store.Chunk>().delete(chunk.rowId);
     });
     await expectLater(
       _store.readRange(
         cidNumber: _cidA,
-        mediaId: 'media-a',
+        bodyHash: bodyHash,
         offset: 0,
         length: 1,
       ),
@@ -433,6 +476,7 @@ void main() {
   });
 
   test('分块序号、零块、超长块及不准确尾块全部拒绝', () async {
+    final bodyHash = _hash(_bytes(_chunkSize + 7));
     await _store.begin(_media(_bytes(_chunkSize + 7)));
     for (final input in [
       (-1, _bytes(1)),
@@ -446,8 +490,8 @@ void main() {
       await expectLater(
         _store.writeChunk(
           cidNumber: _cidA,
-          mediaId: 'media-a',
-          chunkIndex: input.$1,
+          bodyHash: bodyHash,
+          partIndex: input.$1,
           bytes: input.$2,
         ),
         throwsA(_storeError),
@@ -456,6 +500,7 @@ void main() {
   });
 
   test('范围不能负数、越界或一次加载超过1MiB', () async {
+    final bodyHash = _hash(_bytes(9));
     await _save(_bytes(9));
     for (final range in [
       (-1, 1),
@@ -467,7 +512,7 @@ void main() {
       await expectLater(
         _store.readRange(
           cidNumber: _cidA,
-          mediaId: 'media-a',
+          bodyHash: bodyHash,
           offset: range.$1,
           length: range.$2,
         ),
@@ -476,16 +521,17 @@ void main() {
     }
   });
 
-  test('同名媒体按CID完全隔离，跨用户不能读写、关联或删除', () async {
+  test('同摘要媒体按CID完全隔离，跨用户不能读写、关联或删除', () async {
+    final bodyHash = _hash(_bytes(9));
     final bytesA = _bytes(9);
-    final bytesB = _bytes(10);
+    final bytesB = _bytes(9);
     await _save(bytesA);
-    expect(await _store.get(cidNumber: _cidB, mediaId: 'media-a'), isNull);
+    expect(await _store.get(cidNumber: _cidB, bodyHash: bodyHash), isNull);
     expect(await _store.listByCid(_cidB), isEmpty);
     await expectLater(
       _store.readRange(
         cidNumber: _cidB,
-        mediaId: 'media-a',
+        bodyHash: bodyHash,
         offset: 0,
         length: 1,
       ),
@@ -494,33 +540,39 @@ void main() {
     await expectLater(
       _store.writeChunk(
         cidNumber: _cidB,
-        mediaId: 'media-a',
-        chunkIndex: 0,
+        bodyHash: bodyHash,
+        partIndex: 0,
         bytes: bytesA,
       ),
       throwsA(_storeError),
     );
     await expectLater(
-      _store.attach(_reference(cid: _cidB)),
+      _store.attach(_reference(bodyHash: bodyHash, cid: _cidB)),
       throwsA(_storeError),
     );
     expect(
-      await _store.deleteUnused(cidNumber: _cidB, mediaId: 'media-a'),
+      await _store.deleteUnused(cidNumber: _cidB, bodyHash: bodyHash),
       isFalse,
     );
-    expect(await _store.detach(_reference(cid: _cidB)), isFalse);
-    await _save(bytesB, cid: _cidB);
-    await _store.attach(_reference());
-    await _store.attach(_reference(cid: _cidB));
-    expect(await _store.detach(_reference(cid: _cidB)), isTrue);
     expect(
-      await _store.deleteUnused(cidNumber: _cidB, mediaId: 'media-a'),
+      await _store.detach(_reference(bodyHash: bodyHash, cid: _cidB)),
+      isFalse,
+    );
+    await _save(bytesB, cid: _cidB);
+    await _store.attach(_reference(bodyHash: bodyHash));
+    await _store.attach(_reference(bodyHash: bodyHash, cid: _cidB));
+    expect(
+      await _store.detach(_reference(bodyHash: bodyHash, cid: _cidB)),
+      isTrue,
+    );
+    expect(
+      await _store.deleteUnused(cidNumber: _cidB, bodyHash: bodyHash),
       isTrue,
     );
     expect(
       await _store.readRange(
         cidNumber: _cidA,
-        mediaId: 'media-a',
+        bodyHash: bodyHash,
         offset: 0,
         length: 9,
       ),
@@ -537,12 +589,13 @@ void main() {
   });
 
   test('关联分类型、顺序和用途；移除一个引用不删除共享媒体', () async {
+    final bodyHash = _hash(_bytes(17));
     await _save(_bytes(17));
     final refs = [
-      _reference(contentKind: 'draft'),
-      _reference(index: 2),
-      _reference(index: 1, role: 'cover'),
-      _reference(index: 1),
+      _reference(bodyHash: bodyHash, contentKind: 'draft'),
+      _reference(bodyHash: bodyHash, index: 2),
+      _reference(bodyHash: bodyHash, index: 1, role: 'cover'),
+      _reference(bodyHash: bodyHash, index: 1),
     ];
     for (final reference in refs) {
       await _store.attach(reference);
@@ -558,47 +611,50 @@ void main() {
     expect(await _store.detach(refs.first), isTrue);
     expect(await _store.detach(refs.first), isFalse);
     await expectLater(
-      _store.deleteUnused(cidNumber: _cidA, mediaId: 'media-a'),
+      _store.deleteUnused(cidNumber: _cidA, bodyHash: bodyHash),
       throwsA(_storeError),
     );
     for (final reference in refs.skip(1)) {
       await _store.detach(reference);
     }
     expect(
-      await _store.deleteUnused(cidNumber: _cidA, mediaId: 'media-a'),
+      await _store.deleteUnused(cidNumber: _cidA, bodyHash: bodyHash),
       isTrue,
     );
-    expect(await _store.get(cidNumber: _cidA, mediaId: 'media-a'), isNull);
+    expect(await _store.get(cidNumber: _cidA, bodyHash: bodyHash), isNull);
     expect(
       await SocialIsar.instance.read(
-        (db) => db.squareMediaChunkEntitys.count(),
+        (db) => db.collection<social_store.Chunk>().count(),
       ),
       0,
     );
   });
 
   test('槽位冲突和迟到的解绑不能覆盖或移除新内容', () async {
+    final bodyHash = _hash(_bytes(17));
+    final bodyHashB = _hash(_bytes(18));
     await _save(_bytes(17));
-    await _save(_bytes(18), id: 'media-b');
-    await _store.attach(_reference());
+    await _save(_bytes(18));
+    await _store.attach(_reference(bodyHash: bodyHash));
     await expectLater(
-      _store.attach(_reference(mediaId: 'media-b')),
+      _store.attach(_reference(bodyHash: bodyHashB)),
       throwsA(_storeError),
     );
-    await _store.detach(_reference());
-    await _store.attach(_reference(mediaId: 'media-b'));
-    expect(await _store.detach(_reference()), isFalse);
+    await _store.detach(_reference(bodyHash: bodyHash));
+    await _store.attach(_reference(bodyHash: bodyHashB));
+    expect(await _store.detach(_reference(bodyHash: bodyHash)), isFalse);
     expect(
       (await _store.referencesForContent(
         cidNumber: _cidA,
         contentKind: 'post',
         contentId: 'post-a',
-      )).single.mediaId,
-      'media-b',
+      )).single.bodyHash,
+      bodyHashB,
     );
   });
 
   test('多个入口并发重试不会重复建行，绑定先于删除时删除必须失败', () async {
+    final bodyHash = _hash(_bytes(23));
     final bytes = _bytes(23);
     const other = SquareMediaStore();
     await Future.wait([
@@ -608,35 +664,36 @@ void main() {
     await Future.wait([
       _store.writeChunk(
         cidNumber: _cidA,
-        mediaId: 'media-a',
-        chunkIndex: 0,
+        bodyHash: bodyHash,
+        partIndex: 0,
         bytes: bytes,
       ),
       other.writeChunk(
         cidNumber: _cidA,
-        mediaId: 'media-a',
-        chunkIndex: 0,
+        bodyHash: bodyHash,
+        partIndex: 0,
         bytes: bytes,
       ),
     ]);
     await Future.wait([
-      _store.finish(cidNumber: _cidA, mediaId: 'media-a'),
-      other.finish(cidNumber: _cidA, mediaId: 'media-a'),
+      _store.finish(cidNumber: _cidA, bodyHash: bodyHash),
+      other.finish(cidNumber: _cidA, bodyHash: bodyHash),
     ]);
-    final binding = _store.attach(_reference());
-    final deleting = other.deleteUnused(cidNumber: _cidA, mediaId: 'media-a');
+    final binding = _store.attach(_reference(bodyHash: bodyHash));
+    final deleting = other.deleteUnused(cidNumber: _cidA, bodyHash: bodyHash);
     await expectLater(deleting, throwsA(_storeError));
     await binding;
     expect(await _store.listByCid(_cidA), hasLength(1));
     expect(
       await SocialIsar.instance.read(
-        (db) => db.squareMediaChunkEntitys.count(),
+        (db) => db.collection<social_store.Chunk>().count(),
       ),
       1,
     );
   });
 
   test('非法CID、空媒体及未知关联值拒绝，不能伪造完成标记', () async {
+    final bodyHash = _hash(_bytes(1));
     await expectLater(_store.begin(_media(Uint8List(0))), throwsA(_storeError));
     await expectLater(
       _store.begin(_media(_bytes(1), digest: 'bad')),
@@ -654,21 +711,21 @@ void main() {
       _store.begin(
         SquareStoredMedia(
           cidNumber: media.cidNumber,
-          mediaId: media.mediaId,
+
           mediaKind: media.mediaKind,
           contentType: media.contentType,
           byteSize: media.byteSize,
-          sha256: media.sha256,
-          complete: true,
+          bodyHash: media.bodyHash,
+          isComplete: true,
         ),
       ),
       throwsA(_storeError),
     );
     for (final reference in [
-      _reference(index: -1),
-      _reference(role: 'unknown'),
-      _reference(contentKind: 'unknown'),
-      _reference(contentId: ''),
+      _reference(bodyHash: bodyHash, index: -1),
+      _reference(bodyHash: bodyHash, role: 'unknown'),
+      _reference(bodyHash: bodyHash, contentKind: 'unknown'),
+      _reference(bodyHash: bodyHash, contentId: ''),
     ]) {
       await expectLater(_store.attach(reference), throwsA(_storeError));
     }

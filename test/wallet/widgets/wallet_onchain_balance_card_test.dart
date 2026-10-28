@@ -34,8 +34,10 @@ void main() {
     await failed;
     expect(state.value, isNotNull);
     expect(store.accountState(other).hasError, isTrue);
-    expect(AccountBalanceSnapshotStore.formatFen(state.value!.freeFen),
-      '900,719,925,474,099,312.34');
+    expect(
+      AccountBalanceSnapshotStore.formatFen(state.value!.freeFen),
+      '900,719,925,474,099,312.34',
+    );
   });
 
   test('显示状态合并刷新，失败保留旧值，已确认删除排空并清掉内存', () async {
@@ -44,7 +46,9 @@ void main() {
     final state = store.accountState(_balanceAccount);
     await state.load();
     final first = state.value;
-    chain..gate = Completer<void>()..fail = true;
+    chain
+      ..gate = Completer<void>()
+      ..fail = true;
     final refresh = state.load(forceRefresh: true);
     expect(identical(refresh, state.load(forceRefresh: true)), isTrue);
     expect(state.value, first);
@@ -211,7 +215,7 @@ void main() {
     await expectLater(
       store.getClearingBalance(
         accountId: _balanceAccount,
-        ss58Address: 'synthetic',
+        accountAddress: 'synthetic',
         wssUrl: 'ws://example.invalid',
       ),
       throwsFormatException,

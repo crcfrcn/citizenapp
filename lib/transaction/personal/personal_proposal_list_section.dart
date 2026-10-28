@@ -22,6 +22,7 @@ import 'package:citizenapp/transaction/multisig/multisig_transfer_detail_page.da
 import 'package:citizenapp/system/theme/app_theme.dart';
 
 import 'personal_proposal_history_service.dart';
+
 import 'package:citizenapp/system/theme/app_layout.dart';
 
 class PersonalProposalListSection extends StatefulWidget {
@@ -65,7 +66,7 @@ class _PersonalProposalListSectionState
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    final list = await _service.fetchAll(widget.institution.personalAccountId);
+    final list = await _service.fetchAll(widget.institution.accountId);
     if (!mounted) return;
     setState(() {
       _loading = false;
@@ -88,7 +89,7 @@ class _PersonalProposalListSectionState
           : ProposalRole.admin,
     );
     final Widget page;
-    if (view.action == PersonalProposalAction.transfer) {
+    if (view.actionKind == PersonalProposalAction.transfer) {
       page = MultisigTransferDetailPage(
         institution: widget.institution,
         proposalId: view.proposalId,
@@ -152,15 +153,18 @@ class _PersonalProposalListSectionState
             ),
             child: Column(
               children: [
-                Icon(Icons.ballot_outlined,
-                    size: AppLayout.scaled(context, 40),
-                    color: AppTheme.textTertiary),
+                Icon(
+                  Icons.ballot_outlined,
+                  size: AppLayout.scaled(context, 40),
+                  color: AppTheme.textTertiary,
+                ),
                 SizedBox(height: AppLayout.scaled(context, 8)),
                 Text(
                   '暂无提案',
                   style: TextStyle(
-                      fontSize: AppLayout.scaled(context, 14),
-                      color: AppTheme.textSecondary),
+                    fontSize: AppLayout.scaled(context, 14),
+                    color: AppTheme.textSecondary,
+                  ),
                 ),
               ],
             ),
@@ -168,19 +172,21 @@ class _PersonalProposalListSectionState
         else ...[
           if (activeItems.isNotEmpty) ...[
             _buildSubheader('进行中'),
-            ...activeItems.map((v) => Padding(
-                  padding:
-                      EdgeInsets.only(bottom: AppLayout.scaled(context, 8)),
-                  child: _buildProposalCard(v),
-                )),
+            ...activeItems.map(
+              (v) => Padding(
+                padding: EdgeInsets.only(bottom: AppLayout.scaled(context, 8)),
+                child: _buildProposalCard(v),
+              ),
+            ),
           ],
           if (historyItems.isNotEmpty) ...[
             _buildSubheader('历史'),
-            ...historyItems.map((v) => Padding(
-                  padding:
-                      EdgeInsets.only(bottom: AppLayout.scaled(context, 8)),
-                  child: _buildProposalCard(v),
-                )),
+            ...historyItems.map(
+              (v) => Padding(
+                padding: EdgeInsets.only(bottom: AppLayout.scaled(context, 8)),
+                child: _buildProposalCard(v),
+              ),
+            ),
           ],
         ],
       ],
@@ -205,7 +211,7 @@ class _PersonalProposalListSectionState
   /// Card with statusColor border(alpha 0.2) + 36×36 statusColor icon container +
   /// 标题/子标题 + 右侧状态徽章。
   Widget _buildProposalCard(PersonalAccountProposalView view) {
-    final statusColor = _statusColor(view.status);
+    final statusColor = _statusColor(view.proposalState);
     return Card(
       elevation: 0,
       margin: EdgeInsets.zero,
@@ -218,8 +224,9 @@ class _PersonalProposalListSectionState
         borderRadius: BorderRadius.circular(AppLayout.scaledValue(12)),
         child: Padding(
           padding: EdgeInsets.symmetric(
-              horizontal: AppLayout.scaledValue(14),
-              vertical: AppLayout.scaledValue(12)),
+            horizontal: AppLayout.scaledValue(14),
+            vertical: AppLayout.scaledValue(12),
+          ),
           child: Row(
             children: [
               Container(
@@ -227,11 +234,15 @@ class _PersonalProposalListSectionState
                 height: AppLayout.scaledValue(36),
                 decoration: BoxDecoration(
                   color: statusColor.withValues(alpha: 0.10),
-                  borderRadius:
-                      BorderRadius.circular(AppLayout.scaledValue(10)),
+                  borderRadius: BorderRadius.circular(
+                    AppLayout.scaledValue(10),
+                  ),
                 ),
-                child: Icon(_actionIcon(view.action),
-                    size: AppLayout.scaledValue(18), color: statusColor),
+                child: Icon(
+                  _actionIcon(view.actionKind),
+                  size: AppLayout.scaledValue(18),
+                  color: statusColor,
+                ),
               ),
               SizedBox(width: AppLayout.scaledValue(12)),
               Expanded(
@@ -239,7 +250,7 @@ class _PersonalProposalListSectionState
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '${_actionLabel(view.action)} · #${view.proposalId}',
+                      '${_actionLabel(view.actionKind)} · #${view.proposalId}',
                       style: TextStyle(
                         fontSize: AppLayout.scaledValue(15),
                         fontWeight: FontWeight.w600,
@@ -248,25 +259,28 @@ class _PersonalProposalListSectionState
                     ),
                     SizedBox(height: AppLayout.scaledValue(2)),
                     Text(
-                      '赞成 ${view.yesVotes} · 反对 ${view.noVotes}',
+                      '赞成 ${view.yesCount} · 反对 ${view.noCount}',
                       style: TextStyle(
-                          fontSize: AppLayout.scaledValue(12),
-                          color: AppTheme.textTertiary),
+                        fontSize: AppLayout.scaledValue(12),
+                        color: AppTheme.textTertiary,
+                      ),
                     ),
                   ],
                 ),
               ),
               Container(
                 padding: EdgeInsets.symmetric(
-                    horizontal: AppLayout.scaledValue(8),
-                    vertical: AppLayout.scaledValue(2)),
+                  horizontal: AppLayout.scaledValue(8),
+                  vertical: AppLayout.scaledValue(2),
+                ),
                 decoration: BoxDecoration(
                   color: statusColor.withValues(alpha: 0.1),
-                  borderRadius:
-                      BorderRadius.circular(AppLayout.scaledValue(10)),
+                  borderRadius: BorderRadius.circular(
+                    AppLayout.scaledValue(10),
+                  ),
                 ),
                 child: Text(
-                  _statusLabel(view.status),
+                  _statusLabel(view.proposalState),
                   style: TextStyle(
                     fontSize: AppLayout.scaledValue(11),
                     fontWeight: FontWeight.w600,

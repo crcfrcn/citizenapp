@@ -78,30 +78,30 @@ final class SquareVideoTranscodeRequest {
     'input_path': inputPath,
     'output_path': outputPath,
     'cover_path': coverPath,
-    'max_width': policy.videoLongSide,
-    'max_height': policy.videoShortSide,
+    'video_width': policy.videoWidth,
+    'video_height': policy.videoHeight,
     'video_bitrate': policy.videoBitrate,
-    'total_peak_bitrate': policy.videoPeakBitrate,
+    'video_peak_bitrate': policy.videoPeakBitrate,
     'audio_bitrate': policy.audioBitrate,
     'audio_sample_rate': policy.audioSampleRate,
-    'max_frame_rate': policy.videoMaxFrameRate,
-    'key_frame_interval_seconds': policy.videoKeyFrameIntervalSeconds,
-    'max_duration_seconds': policy.maxVideoSeconds,
-    'max_bytes': policy.maxVideoBytes,
-    'cover_max_edge': policy.videoCoverMaxEdge,
-    'cover_quality': policy.videoCoverQuality,
-    'cover_max_bytes': policy.videoCoverMaxBytes,
+    'video_frame_rate': policy.videoFrameRate,
+    'keyframe_secs': policy.keyframeSecs,
+    'video_max_seconds': policy.videoMaxSeconds,
+    'video_max_bytes': policy.videoMaxBytes,
+    'cover_dimension': policy.coverDimension,
+    'cover_quality': policy.coverQuality,
+    'cover_bytes': policy.coverBytes,
   };
 }
 
 final class SquareVideoTranscodeResult {
   const SquareVideoTranscodeResult({
-    required this.durationSeconds,
-    required this.width,
-    required this.height,
-    required this.frameRate,
-    required this.totalAverageBitrate,
-    required this.totalPeakBitrate,
+    required this.videoSecs,
+    required this.pixelWidth,
+    required this.pixelHeight,
+    required this.videoFrameRate,
+    required this.videoAverageBitrate,
+    required this.videoPeakBitrate,
     required this.byteSize,
     required this.coverByteSize,
     required this.videoCodec,
@@ -110,12 +110,12 @@ final class SquareVideoTranscodeResult {
     required this.isSdr,
   });
 
-  final int durationSeconds;
-  final int width;
-  final int height;
-  final double frameRate;
-  final int totalAverageBitrate;
-  final int totalPeakBitrate;
+  final int videoSecs;
+  final int pixelWidth;
+  final int pixelHeight;
+  final double videoFrameRate;
+  final int videoAverageBitrate;
+  final int videoPeakBitrate;
   final int byteSize;
   final int coverByteSize;
   final String videoCodec;
@@ -138,12 +138,12 @@ final class SquareVideoTranscodeResult {
     }
 
     return SquareVideoTranscodeResult(
-      durationSeconds: intValue('duration_seconds'),
-      width: intValue('width'),
-      height: intValue('height'),
-      frameRate: doubleValue('frame_rate'),
-      totalAverageBitrate: intValue('total_average_bitrate'),
-      totalPeakBitrate: intValue('total_peak_bitrate'),
+      videoSecs: intValue('video_secs'),
+      pixelWidth: intValue('pixel_width'),
+      pixelHeight: intValue('pixel_height'),
+      videoFrameRate: doubleValue('video_frame_rate'),
+      videoAverageBitrate: intValue('video_average_bitrate'),
+      videoPeakBitrate: intValue('video_peak_bitrate'),
       byteSize: intValue('byte_size'),
       coverByteSize: intValue('cover_byte_size'),
       videoCodec: value['video_codec']?.toString() ?? '',
@@ -169,7 +169,7 @@ final class MethodChannelSquareVideoBridge implements SquareVideoBridge {
 
   /// 原生先建立文件保护，再允许写入媒体；没有平台实现时直接失败。
   Future<File> preparePlaybackFile(int byteSize) async {
-    if (byteSize <= 0 || byteSize > SquareMediaPolicy.maxLocalPlaybackBytes) {
+    if (byteSize <= 0 || byteSize > SquareMediaPolicy.playbackBytes) {
       throw const FormatException('本地视频大小无效');
     }
     final path = await _channel.invokeMethod<String>('prepare_playback_file', {
@@ -316,7 +316,7 @@ final class SquareMediaProcessor {
     final primarySize = _fitLongestEdge(
       sourceSize.width,
       sourceSize.height,
-      policy.imageMaxEdge,
+      policy.imageDimension,
     );
     final primaryPath = path.join(temporaryDirectory.path, '$mediaIndex.webp');
     final primary = await _compressImageWithinLimit(
@@ -325,14 +325,14 @@ final class SquareMediaProcessor {
       width: primarySize.width,
       height: primarySize.height,
       quality: policy.imageQuality,
-      maxBytes: policy.imageMaxBytes,
+      maxBytes: policy.imageBytes,
     );
     final primaryOutputSize = _readImageSize(primary.path);
 
     final thumbnailSize = _fitLongestEdge(
       primaryOutputSize.width,
       primaryOutputSize.height,
-      policy.imageThumbnailMaxEdge,
+      policy.thumbnailDimension,
     );
     final thumbnailPath = path.join(
       temporaryDirectory.path,
@@ -343,8 +343,8 @@ final class SquareMediaProcessor {
       outputPath: thumbnailPath,
       width: thumbnailSize.width,
       height: thumbnailSize.height,
-      quality: policy.imageThumbnailQuality,
-      maxBytes: policy.imageThumbnailMaxBytes,
+      quality: policy.thumbnailQuality,
+      maxBytes: policy.thumbnailBytes,
     );
     return (
       SquareLocalMediaDraft(
@@ -353,9 +353,9 @@ final class SquareMediaProcessor {
         fileName: '${path.basenameWithoutExtension(draft.fileName)}.webp',
         contentType: 'image/webp',
         byteSize: primary.byteSize,
-        width: primaryOutputSize.width,
-        height: primaryOutputSize.height,
-        photoManagerAssetId: draft.photoManagerAssetId,
+        pixelWidth: primaryOutputSize.width,
+        pixelHeight: primaryOutputSize.height,
+        assetId: draft.assetId,
       ),
       SquareMediaDerivative(
         mediaIndex: mediaIndex,
@@ -373,8 +373,8 @@ final class SquareMediaProcessor {
     required SquareMediaPolicy policy,
     required Directory temporaryDirectory,
   }) async {
-    final duration = draft.durationSeconds ?? 0;
-    if (duration <= 0 || duration > policy.maxVideoSeconds) {
+    final duration = draft.videoSecs ?? 0;
+    if (duration <= 0 || duration > policy.videoMaxSeconds) {
       throw const FormatException('视频时长超出当前会员档位上限');
     }
     final capability = await _videoBridge.capabilities();
@@ -412,7 +412,7 @@ final class SquareMediaProcessor {
     final coverSize = _fitLongestEdge(
       coverSourceSize.width,
       coverSourceSize.height,
-      policy.videoCoverMaxEdge,
+      policy.coverDimension,
     );
     final coverPath = path.join(
       temporaryDirectory.path,
@@ -423,8 +423,8 @@ final class SquareMediaProcessor {
       outputPath: coverPath,
       width: coverSize.width,
       height: coverSize.height,
-      quality: policy.videoCoverQuality,
-      maxBytes: policy.videoCoverMaxBytes,
+      quality: policy.coverQuality,
+      maxBytes: policy.coverBytes,
     );
     await File(coverSourcePath).delete();
     return (
@@ -434,10 +434,10 @@ final class SquareMediaProcessor {
         fileName: '${path.basenameWithoutExtension(draft.fileName)}.mp4',
         contentType: 'video/mp4',
         byteSize: actualBytes,
-        durationSeconds: result.durationSeconds,
-        width: result.width,
-        height: result.height,
-        photoManagerAssetId: draft.photoManagerAssetId,
+        videoSecs: result.videoSecs,
+        pixelWidth: result.pixelWidth,
+        pixelHeight: result.pixelHeight,
+        assetId: draft.assetId,
       ),
       SquareMediaDerivative(
         mediaIndex: mediaIndex,
@@ -459,20 +459,20 @@ final class SquareMediaProcessor {
     if (!result.fastStart || !result.isSdr) {
       throw const FormatException('视频成品不满足 SDR 或快速起播要求');
     }
-    if (result.durationSeconds <= 0 ||
-        result.durationSeconds > policy.maxVideoSeconds ||
-        result.width <= 0 ||
-        result.height <= 0 ||
-        result.width > policy.videoLongSide ||
-        result.height > policy.videoLongSide ||
-        result.width > policy.videoShortSide &&
-            result.height > policy.videoShortSide ||
-        result.frameRate <= 0 ||
-        result.frameRate > policy.videoMaxFrameRate + 0.01 ||
-        result.totalAverageBitrate > policy.videoTotalBitrate * 1.08 ||
-        result.totalPeakBitrate > policy.videoPeakBitrate ||
+    if (result.videoSecs <= 0 ||
+        result.videoSecs > policy.videoMaxSeconds ||
+        result.pixelWidth <= 0 ||
+        result.pixelHeight <= 0 ||
+        result.pixelWidth > policy.videoWidth ||
+        result.pixelHeight > policy.videoWidth ||
+        result.pixelWidth > policy.videoHeight &&
+            result.pixelHeight > policy.videoHeight ||
+        result.videoFrameRate <= 0 ||
+        result.videoFrameRate > policy.videoFrameRate + 0.01 ||
+        result.videoAverageBitrate > policy.videoTotalBitrate * 1.08 ||
+        result.videoPeakBitrate > policy.videoPeakBitrate ||
         result.byteSize <= 0 ||
-        result.byteSize > policy.maxVideoBytes ||
+        result.byteSize > policy.videoMaxBytes ||
         result.coverByteSize <= 0) {
       throw const FormatException('视频成品参数超出当前会员档位');
     }

@@ -298,19 +298,19 @@ class _CitizenChatHeaderState extends State<_CitizenChatHeader> {
             seed: widget.peerUserId,
             size: AppLayout.scaled(context, 36),
             imagePath: _media.avatarPath,
-            imageUrl: _profile?.avatarObjectKey?.trim().isNotEmpty == true
+            imageUrl: _profile?.avatarKey?.trim().isNotEmpty == true
                 ? _profileApi.cardMediaUrl(
-                    _profile!.avatarObjectKey!,
-                    updatedAt: _profile!.updatedAt,
+                    _profile!.avatarKey!,
+                    updatedAt: _profile!.profileAt,
                   )
                 : null,
 
             userImageSet: _resolved
-                ? _profile?.avatarObjectKey?.trim().isNotEmpty == true
+                ? _profile?.avatarKey?.trim().isNotEmpty == true
                 : true,
-            identityLevel: _profile?.identityLevel,
-            membershipLevel: _profile?.membershipLevel,
-            membershipActive: _profile?.membershipActive ?? false,
+            cidLevel: _profile?.cidLevel,
+            memberLevel: _profile?.memberLevel,
+            membergateActive: _profile?.membergateActive ?? false,
             showBadge: _resolved,
           ),
           SizedBox(width: AppLayout.scaled(context, 9)),
@@ -855,7 +855,7 @@ class _ChatTabState extends State<ChatTab> {
               profile,
             );
             await _profileCache.write(profile);
-            final avatarKey = profile.avatarObjectKey?.trim();
+            final avatarKey = profile.avatarKey?.trim();
             if (avatarKey == null ||
                 avatarKey.isEmpty ||
                 _profileSession == null) {
@@ -866,7 +866,7 @@ class _ChatTabState extends State<ChatTab> {
               session: _profileSession!,
               cache: _profileMediaCache,
             );
-            if (_peerProfiles[cidNumber]?.updatedAt == profile.updatedAt) {
+            if (_peerProfiles[cidNumber]?.profileAt == profile.profileAt) {
               _peerProfileMedia[cidNumber] = media;
             }
           } on Exception {
@@ -1195,19 +1195,19 @@ class _ChatTabState extends State<ChatTab> {
             size: AppLayout.scaled(context, 44),
             seed: preview.peerUserId,
             imagePath: media?.avatarPath,
-            imageUrl: profile?.avatarObjectKey?.trim().isNotEmpty == true
+            imageUrl: profile?.avatarKey?.trim().isNotEmpty == true
                 ? _profileApi.cardMediaUrl(
-                    profile!.avatarObjectKey!,
-                    updatedAt: profile.updatedAt,
+                    profile!.avatarKey!,
+                    updatedAt: profile.profileAt,
                   )
                 : null,
 
             userImageSet: resolved
-                ? profile?.avatarObjectKey?.trim().isNotEmpty == true
+                ? profile?.avatarKey?.trim().isNotEmpty == true
                 : true,
-            identityLevel: profile?.identityLevel,
-            membershipLevel: profile?.membershipLevel,
-            membershipActive: profile?.membershipActive ?? false,
+            cidLevel: profile?.cidLevel,
+            memberLevel: profile?.memberLevel,
+            membergateActive: profile?.membergateActive ?? false,
             showBadge: resolved,
           );
     return ChatConversationListItem(

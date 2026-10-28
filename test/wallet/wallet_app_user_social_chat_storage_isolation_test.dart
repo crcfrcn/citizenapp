@@ -1,10 +1,19 @@
+import 'package:citizenapp/storage/app_isar.dart'
+    as app_store
+    show Region, Version;
+import 'package:citizenapp/storage/social_isar.dart'
+    as social_store
+    show PostCursor;
+import 'package:citizenapp/storage/user_isar.dart' as user_store show Profile;
+import 'package:citizenapp/storage/wallet_isar.dart' as wallet_store show Scan;
+
 import 'dart:async';
 
 import 'package:citizenapp/storage/social_isar.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart';
 import 'package:citizenapp/storage/app_isar.dart';
 import 'package:citizenapp/storage/user_isar.dart';
-import 'package:citizenapp/storage/wallet_isar.dart';
+import 'package:citizenapp/storage/wallet_isar.dart' hide Group;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:isar_community/isar.dart';
 
@@ -49,11 +58,13 @@ void main() {
         expect(Isar.getInstance(isar.name), same(isar));
       }
       final counts = await Future.wait<int>(<Future<int>>[
-        byName['citizenapp_app']!.adminDivisionEntitys.count(),
-        byName['citizenapp_social']!.squarePostSyncCheckpointEntitys.count(),
+        byName['citizenapp_app']!.collection<app_store.Region>().count(),
+        byName['citizenapp_social']!
+            .collection<social_store.PostCursor>()
+            .count(),
         byName['tatachat_sdk_chat']!.chatRouteCacheEntitys.count(),
-        byName['citizenapp_user']!.userPublicProfileCacheEntitys.count(),
-        byName['citizenapp_wallet']!.walletAttestationEntitys.count(),
+        byName['citizenapp_user']!.collection<user_store.Profile>().count(),
+        byName['citizenapp_wallet']!.collection<wallet_store.Scan>().count(),
       ]);
       expect(counts, everyElement(0), reason: '第 $round 轮集合必须属于各自的新库');
     }
@@ -71,25 +82,25 @@ void main() {
     try {
       await Future.wait<void>(<Future<void>>[
         WalletIsar.instance.writeTxn<void>((isar) async {
-          await isar.walletAttestationEntitys.put(
-            WalletAttestationEntity()
-              ..id = 0
-              ..lastRequestPayload = 'wallet',
+          await isar.collection<wallet_store.Scan>().put(
+            wallet_store.Scan()
+              ..rowId = 0
+              ..walletHash = 'wallet',
           );
         }),
         UserIsar.instance.writeTxn<void>((isar) async {
-          await isar.userPublicProfileCacheEntitys.putByCidNumber(
-            UserPublicProfileCacheEntity()
+          await isar.collection<user_store.Profile>().putByCidNumber(
+            user_store.Profile()
               ..cidNumber = _ownerUserId
-              ..profileJson = '{"display_name":"用户资料"}',
+              ..profileData = '{"display_name":"用户资料"}',
           );
         }),
         SocialIsar.instance.writeTxn<void>((isar) async {
-          await isar.squarePostSyncCheckpointEntitys.putByCidNumber(
-            SquarePostSyncCheckpointEntity()
+          await isar.collection<social_store.PostCursor>().putByCidNumber(
+            social_store.PostCursor()
               ..cidNumber = _ownerUserId
-              ..newestPostId = 'post'
-              ..newestCreatedAt = 1,
+              ..postId = 'post'
+              ..publishedAt = 1,
           );
         }),
         ChatIsar.instance.writeTxn<void>((isar) async {
@@ -129,17 +140,16 @@ void main() {
     try {
       await AppIsar.instance
           .writeTxn<void>((isar) async {
-            await isar.appDataVersionEntitys.putByNamespace(
-              AppDataVersionEntity()
-                ..namespace = 'storage-isolation'
-                ..globalVersion = 'app-ready'
-                ..updatedAtMillis = 1,
+            await isar.collection<app_store.Version>().putByDataKind(
+              app_store.Version()
+                ..dataKind = 'storage-isolation'
+                ..globalVersion = 'app-ready',
             );
           })
           .timeout(_timeout);
       final value = await AppIsar.instance
           .read<String?>((isar) async {
-            return (await isar.appDataVersionEntitys.getByNamespace(
+            return (await isar.collection<app_store.Version>().getByDataKind(
               'storage-isolation',
             ))?.globalVersion;
           })
@@ -156,33 +166,32 @@ void main() {
 
   test('关闭 AppIsar 只删除通用数据库，其余四域事实保持可用', () async {
     await AppIsar.instance.writeTxn<void>((isar) async {
-      await isar.appDataVersionEntitys.putByNamespace(
-        AppDataVersionEntity()
-          ..namespace = 'delete-boundary'
-          ..globalVersion = 'app'
-          ..updatedAtMillis = 1,
+      await isar.collection<app_store.Version>().putByDataKind(
+        app_store.Version()
+          ..dataKind = 'delete-boundary'
+          ..globalVersion = 'app',
       );
     });
     await WalletIsar.instance.writeTxn<void>((isar) async {
-      await isar.walletAttestationEntitys.put(
-        WalletAttestationEntity()
-          ..id = 0
-          ..lastRequestPayload = 'wallet',
+      await isar.collection<wallet_store.Scan>().put(
+        wallet_store.Scan()
+          ..rowId = 0
+          ..walletHash = 'wallet',
       );
     });
     await UserIsar.instance.writeTxn<void>((isar) async {
-      await isar.userPublicProfileCacheEntitys.putByCidNumber(
-        UserPublicProfileCacheEntity()
+      await isar.collection<user_store.Profile>().putByCidNumber(
+        user_store.Profile()
           ..cidNumber = _ownerUserId
-          ..profileJson = '{"display_name":"保留用户资料"}',
+          ..profileData = '{"display_name":"保留用户资料"}',
       );
     });
     await SocialIsar.instance.writeTxn<void>((isar) async {
-      await isar.squarePostSyncCheckpointEntitys.putByCidNumber(
-        SquarePostSyncCheckpointEntity()
+      await isar.collection<social_store.PostCursor>().putByCidNumber(
+        social_store.PostCursor()
           ..cidNumber = _ownerUserId
-          ..newestPostId = 'social'
-          ..newestCreatedAt = 1,
+          ..postId = 'social'
+          ..publishedAt = 1,
       );
     });
     await ChatIsar.instance.writeTxn<void>((isar) async {
@@ -204,25 +213,25 @@ void main() {
     expect(
       await WalletIsar.instance.read(
         (isar) async =>
-            (await isar.walletAttestationEntitys.get(0))?.lastRequestPayload,
+            (await isar.collection<wallet_store.Scan>().get(0))?.walletHash,
       ),
       'wallet',
     );
     expect(
       await UserIsar.instance.read(
         (isar) async =>
-            (await isar.userPublicProfileCacheEntitys.getByCidNumber(
+            (await isar.collection<user_store.Profile>().getByCidNumber(
               _ownerUserId,
-            ))?.profileJson,
+            ))?.profileData,
       ),
       '{"display_name":"保留用户资料"}',
     );
     expect(
       await SocialIsar.instance.read(
         (isar) async =>
-            (await isar.squarePostSyncCheckpointEntitys.getByCidNumber(
+            (await isar.collection<social_store.PostCursor>().getByCidNumber(
               _ownerUserId,
-            ))?.newestPostId,
+            ))?.postId,
       ),
       'social',
     );

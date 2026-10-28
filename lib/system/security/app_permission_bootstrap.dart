@@ -1,3 +1,4 @@
+import 'package:citizenapp/storage/user_isar.dart' as user_store show Setting;
 import 'package:flutter/services.dart';
 import 'package:citizenapp/storage/user_isar.dart';
 
@@ -14,27 +15,28 @@ class AppPermissionBootstrap {
 
   static Future<bool> shouldShowGuide() async {
     return UserIsar.instance.read((isar) async {
-      final settings = await isar.userSettingsEntitys.get(0);
-      return !(settings?.permissionGuideSeen ?? false);
+      final settings = await isar.collection<user_store.Setting>().get(0);
+      return !(settings?.guideSeen ?? false);
     });
   }
 
   static Future<void> markGuideSeen() async {
     await UserIsar.instance.writeTxn((isar) async {
       final settings =
-          await isar.userSettingsEntitys.get(0) ?? UserSettingsEntity();
+          await isar.collection<user_store.Setting>().get(0) ??
+          user_store.Setting();
       settings
-        ..id = 0
-        ..permissionGuideSeen = true
-        ..updatedAtMillis = DateTime.now().millisecondsSinceEpoch;
-      await isar.userSettingsEntitys.put(settings);
+        ..rowId = 0
+        ..guideSeen = true;
+      await isar.collection<user_store.Setting>().put(settings);
     });
   }
 
   static Future<bool> requestNotificationPermission() async {
     try {
-      final granted =
-          await _channel.invokeMethod<bool>('requestNotificationPermission');
+      final granted = await _channel.invokeMethod<bool>(
+        'requestNotificationPermission',
+      );
       return granted ?? false;
     } on MissingPluginException {
       // 测试环境或不支持的平台没有原生通道时，不把权限申请失败当成启动失败。

@@ -7,7 +7,7 @@ SquareLocalMediaDraft _media(SquareMediaKind kind, String name) =>
     SquareLocalMediaDraft(
       mediaKind: kind,
       path: '/temporary/$name',
-      mediaId: 'stored-$name',
+      bodyHash: 'stored-$name',
       fileName: name,
       contentType: kind == SquareMediaKind.video ? 'video/mp4' : 'image/jpeg',
       byteSize: 100,
@@ -27,7 +27,7 @@ void main() {
           _media(
             SquareMediaKind.image,
             'inline.jpg',
-          ).copyWith(photoManagerAssetId: 'ios-or-android-photo-asset-id'),
+          ).copyWith(assetId: 'ios-or-android-photo-asset-id'),
         ],
         contentSections: const [
           {
@@ -38,7 +38,7 @@ void main() {
             'gallery_media_indices': [1],
           },
         ],
-        updatedAtMillis: 1800000000000,
+        updatedAt: 1800000000000,
       );
       final restored = SquareComposeDraft.fromJsonString(draft.toJsonString())!;
       expect(restored.draftId, 'd1');
@@ -46,16 +46,13 @@ void main() {
       expect(restored.title, '论社区自治');
       expect(restored.media.length, 2);
       expect(restored.media[1].fileName, 'inline.jpg');
-      expect(restored.media[1].mediaId, 'stored-inline.jpg');
+      expect(restored.media[1].bodyHash, 'stored-inline.jpg');
       expect(restored.media[1].path, isEmpty);
       expect(draft.toJsonString(), isNot(contains('/temporary/')));
-      expect(
-        restored.media[1].photoManagerAssetId,
-        'ios-or-android-photo-asset-id',
-      );
+      expect(restored.media[1].assetId, 'ios-or-android-photo-asset-id');
       expect(restored.contentSections!.length, 1);
       expect(restored.contentSections!.first['gallery_media_indices'], [1]);
-      expect(restored.updatedAtMillis, 1800000000000);
+      expect(restored.updatedAt, 1800000000000);
     });
 
     test('损坏字符串返回 null', () {
@@ -75,7 +72,7 @@ void main() {
         postType: postType,
         text: 't',
         media: media,
-        updatedAtMillis: 1,
+        updatedAt: 1,
       );
 
       expect(
@@ -103,7 +100,7 @@ void main() {
         title: '标题',
         text: '正文',
         media: [],
-        updatedAtMillis: 1,
+        updatedAt: 1,
       );
       expect(article.summary, '标题');
 
@@ -113,7 +110,7 @@ void main() {
         postType: SquarePostType.document,
         text: '  ',
         media: [],
-        updatedAtMillis: 1,
+        updatedAt: 1,
       );
       expect(empty.isEmpty, isTrue);
     });

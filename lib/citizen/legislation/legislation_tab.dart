@@ -41,13 +41,19 @@ class _CardIcon {
 }
 
 // 公民宪法卡:书本 + 翠绿。
-const _CardIcon _constitutionIcon =
-    _CardIcon(Icons.menu_book, Color(0xFFE1F5EE), Color(0xFF0F6E56));
+const _CardIcon _constitutionIcon = _CardIcon(
+  Icons.menu_book,
+  Color(0xFFE1F5EE),
+  Color(0xFF0F6E56),
+);
 
 // 四院卡:机构码 → 图标 chip,颜色按机构固定(与展示位置解耦)。
 const Map<String, _CardIcon> _nationalIcons = {
-  _codeNlg:
-      _CardIcon(Icons.account_balance, Color(0xFFFAEEDA), Color(0xFF854F0B)),
+  _codeNlg: _CardIcon(
+    Icons.account_balance,
+    Color(0xFFFAEEDA),
+    Color(0xFF854F0B),
+  ),
   _codeNed: _CardIcon(Icons.school, Color(0xFFE6F1FB), Color(0xFF185FA5)),
   _codeNsn: _CardIcon(Icons.gavel, Color(0xFFEEEDFE), Color(0xFF3C3489)),
   _codeNrp: _CardIcon(Icons.groups, Color(0xFFEAF3DE), Color(0xFF3B6D11)),
@@ -63,12 +69,13 @@ const Set<String> _provinceCodes = {'PLG', 'PRP', 'PSN', 'CLEG'};
 @visibleForTesting
 List<Institution> sortProvinceLegislationRows(List<Institution> rows) {
   return [...rows]..sort((a, b) {
-      final oa = _provinceCodeOrder.indexOf(a.institutionCode);
-      final ob = _provinceCodeOrder.indexOf(b.institutionCode);
-      if (oa != ob) return oa.compareTo(ob);
-      return (int.tryParse(a.cityCode) ?? 0)
-          .compareTo(int.tryParse(b.cityCode) ?? 0);
-    });
+    final oa = _provinceCodeOrder.indexOf(a.orgCode);
+    final ob = _provinceCodeOrder.indexOf(b.orgCode);
+    if (oa != ob) return oa.compareTo(ob);
+    return (int.tryParse(a.cityCode) ?? 0).compareTo(
+      int.tryParse(b.cityCode) ?? 0,
+    );
+  });
 }
 
 class _LegislationTabState extends State<LegislationTab> {
@@ -93,10 +100,14 @@ class _LegislationTabState extends State<LegislationTab> {
   Future<void> _bootstrap() async {
     _provinces = publicProvinceItems();
     try {
-      final nationals =
-          await _repo.listByCodes({_codeNlg, _codeNed, _codeNrp, _codeNsn});
+      final nationals = await _repo.listByCodes({
+        _codeNlg,
+        _codeNed,
+        _codeNrp,
+        _codeNsn,
+      });
       for (final inst in nationals) {
-        _national[inst.institutionCode] = inst;
+        _national[inst.orgCode] = inst;
       }
     } on Object {
       // 国家机构卡保持禁用占位；省市目录仍继续读取，不以单组失败阻塞整个页面。
@@ -117,8 +128,10 @@ class _LegislationTabState extends State<LegislationTab> {
       _contentError = null;
     });
     try {
-      final rows =
-          await _repo.listByProvinceAndCodes(provinceCode, _provinceCodes);
+      final rows = await _repo.listByProvinceAndCodes(
+        provinceCode,
+        _provinceCodes,
+      );
       final sorted = sortProvinceLegislationRows(rows);
       if (!mounted || _selectedProvince != provinceCode) return;
       setState(() {
@@ -176,25 +189,32 @@ class _LegislationTabState extends State<LegislationTab> {
                     child: _constitutionCard(),
                   ),
                   SizedBox(height: AppLayout.scaled(context, 8)),
-                  Row(children: [
-                    Expanded(child: _nationalCard(_codeNlg, '国家立法院')),
-                    SizedBox(width: AppLayout.scaled(context, 8)),
-                    Expanded(child: _nationalCard(_codeNed, '国家教委会')),
-                  ]),
+                  Row(
+                    children: [
+                      Expanded(child: _nationalCard(_codeNlg, '国家立法院')),
+                      SizedBox(width: AppLayout.scaled(context, 8)),
+                      Expanded(child: _nationalCard(_codeNed, '国家教委会')),
+                    ],
+                  ),
                   SizedBox(height: AppLayout.scaled(context, 8)),
-                  Row(children: [
-                    Expanded(child: _nationalCard(_codeNsn, '国家参议会')),
-                    SizedBox(width: AppLayout.scaled(context, 8)),
-                    Expanded(child: _nationalCard(_codeNrp, '国家众议会')),
-                  ]),
+                  Row(
+                    children: [
+                      Expanded(child: _nationalCard(_codeNsn, '国家参议会')),
+                      SizedBox(width: AppLayout.scaled(context, 8)),
+                      Expanded(child: _nationalCard(_codeNrp, '国家众议会')),
+                    ],
+                  ),
                   SizedBox(height: AppLayout.scaled(context, 14)),
                   Align(
                     alignment: Alignment.centerLeft,
-                    child: Text('省市立法机构',
-                        style: TextStyle(
-                            fontSize: AppLayout.scaled(context, 15),
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.textPrimary)),
+                    child: Text(
+                      '省市立法机构',
+                      style: TextStyle(
+                        fontSize: AppLayout.scaled(context, 15),
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.textPrimary,
+                      ),
+                    ),
                   ),
                   SizedBox(height: AppLayout.scaled(context, 6)),
                 ],
@@ -236,22 +256,21 @@ class _LegislationTabState extends State<LegislationTab> {
         decoration: BoxDecoration(
           color: AppTheme.surfaceCard,
           borderRadius: BorderRadius.circular(AppLayout.scaledValue(12)),
-          border:
-              Border.all(color: AppTheme.primaryDark.withValues(alpha: 0.22)),
+          border: Border.all(
+            color: AppTheme.primaryDark.withValues(alpha: 0.22),
+          ),
         ),
         padding: EdgeInsets.symmetric(
-            horizontal: AppLayout.scaledValue(12),
-            vertical: AppLayout.scaledValue(12)),
+          horizontal: AppLayout.scaledValue(12),
+          vertical: AppLayout.scaledValue(12),
+        ),
         child: Stack(
           alignment: Alignment.center,
           children: [
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _iconChip(
-                  _constitutionIcon,
-                  size: AppLayout.scaledValue(38),
-                ),
+                _iconChip(_constitutionIcon, size: AppLayout.scaledValue(38)),
                 Icon(
                   Icons.chevron_right,
                   size: AppLayout.scaledValue(20),
@@ -290,30 +309,31 @@ class _LegislationTabState extends State<LegislationTab> {
           border: Border.all(color: AppTheme.border),
         ),
         padding: EdgeInsets.symmetric(
-            horizontal: AppLayout.scaledValue(12),
-            vertical: AppLayout.scaledValue(12)),
+          horizontal: AppLayout.scaledValue(12),
+          vertical: AppLayout.scaledValue(12),
+        ),
         child: Row(
           children: [
-            _iconChip(
-              spec,
-              size: AppLayout.scaledValue(34),
-              enabled: enabled,
-            ),
+            _iconChip(spec, size: AppLayout.scaledValue(34), enabled: enabled),
             SizedBox(width: AppLayout.scaledValue(10)),
             Expanded(
-              child: Text(label,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      fontSize: AppLayout.scaledValue(13),
-                      height: 1.15,
-                      fontWeight: FontWeight.w600,
-                      color: enabled
-                          ? AppTheme.textPrimary
-                          : AppTheme.textTertiary)),
+              child: Text(
+                label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: AppLayout.scaledValue(13),
+                  height: 1.15,
+                  fontWeight: FontWeight.w600,
+                  color: enabled ? AppTheme.textPrimary : AppTheme.textTertiary,
+                ),
+              ),
             ),
-            Icon(Icons.chevron_right,
-                size: AppLayout.scaledValue(18), color: AppTheme.textTertiary),
+            Icon(
+              Icons.chevron_right,
+              size: AppLayout.scaledValue(18),
+              color: AppTheme.textTertiary,
+            ),
           ],
         ),
       ),
@@ -330,8 +350,11 @@ class _LegislationTabState extends State<LegislationTab> {
         color: enabled ? spec.bg : AppTheme.surfaceElevated,
         borderRadius: BorderRadius.circular(AppLayout.scaledValue(10)),
       ),
-      child: Icon(spec.icon,
-          size: size * 0.52, color: enabled ? spec.fg : AppTheme.textTertiary),
+      child: Icon(
+        spec.icon,
+        size: size * 0.52,
+        color: enabled ? spec.fg : AppTheme.textTertiary,
+      ),
     );
   }
 
@@ -353,21 +376,24 @@ class _LegislationTabState extends State<LegislationTab> {
                 duration: const Duration(milliseconds: 150),
                 width: double.infinity,
                 padding: EdgeInsets.symmetric(
-                    vertical: AppLayout.scaled(context, 11),
-                    horizontal: AppLayout.scaled(context, 6)),
+                  vertical: AppLayout.scaled(context, 11),
+                  horizontal: AppLayout.scaled(context, 6),
+                ),
                 decoration: BoxDecoration(
                   color: active ? AppTheme.surfaceElevated : Colors.transparent,
-                  borderRadius:
-                      BorderRadius.circular(AppLayout.scaledValue(10)),
+                  borderRadius: BorderRadius.circular(
+                    AppLayout.scaledValue(10),
+                  ),
                 ),
-                child: Text(p.provinceDisplayName,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                        fontSize: AppLayout.scaledValue(active ? 16 : 15),
-                        fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                        color: active
-                            ? AppTheme.primary
-                            : AppTheme.textSecondary)),
+                child: Text(
+                  p.provinceDisplayName,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: AppLayout.scaledValue(active ? 16 : 15),
+                    fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                    color: active ? AppTheme.primary : AppTheme.textSecondary,
+                  ),
+                ),
               ),
             ),
           );
@@ -379,10 +405,7 @@ class _LegislationTabState extends State<LegislationTab> {
   Widget _provinceContentView() {
     if (_contentLoading) {
       return const Center(
-        child: Text(
-          '正在读取立法机构',
-          style: TextStyle(color: AppTheme.textTertiary),
-        ),
+        child: Text('正在读取立法机构', style: TextStyle(color: AppTheme.textTertiary)),
       );
     }
     if (_contentError != null) {
@@ -407,10 +430,13 @@ class _LegislationTabState extends State<LegislationTab> {
     }
     if (_provinceContent.isEmpty) {
       return Center(
-        child: Text('该省暂无立法机构数据',
-            style: TextStyle(
-                fontSize: AppLayout.scaledValue(13),
-                color: AppTheme.textTertiary)),
+        child: Text(
+          '该省暂无立法机构数据',
+          style: TextStyle(
+            fontSize: AppLayout.scaledValue(13),
+            color: AppTheme.textTertiary,
+          ),
+        ),
       );
     }
     return ListView.separated(
@@ -422,14 +448,19 @@ class _LegislationTabState extends State<LegislationTab> {
         final inst = _provinceContent[i];
         return ListTile(
           dense: true,
-          title: Text(inst.cidShortNameOrFullName,
-              style: TextStyle(
-                  fontSize: AppLayout.scaled(context, 14),
-                  fontWeight: FontWeight.w600,
-                  color: AppTheme.textPrimary)),
-          trailing: Icon(Icons.chevron_right,
-              color: AppTheme.textTertiary,
-              size: AppLayout.scaled(context, 20)),
+          title: Text(
+            inst.cidShortNameOrFullName,
+            style: TextStyle(
+              fontSize: AppLayout.scaled(context, 14),
+              fontWeight: FontWeight.w600,
+              color: AppTheme.textPrimary,
+            ),
+          ),
+          trailing: Icon(
+            Icons.chevron_right,
+            color: AppTheme.textTertiary,
+            size: AppLayout.scaled(context, 20),
+          ),
           onTap: () => _openDetail(inst.cidNumber),
         );
       },

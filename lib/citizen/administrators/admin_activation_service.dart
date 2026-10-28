@@ -1,4 +1,6 @@
+import 'package:citizenapp/storage/wallet_isar.dart' as wallet_store show Admin;
 import 'package:citizen_sdk/citizen_sdk.dart';
+
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
@@ -7,14 +9,14 @@ import 'package:citizenapp/citizen/administrators/admin_account.dart';
 import 'package:citizenapp/citizen/administrators/institution_admin_service.dart';
 import 'package:citizenapp/citizen/account_derivation.dart';
 import 'package:citizenapp/citizen/institution/institution_code_label.dart';
-import 'package:citizenapp/storage/wallet_isar.dart';
+import 'package:citizenapp/storage/wallet_isar.dart' hide Group;
 
 /// 管理员激活记录。
 class ActivatedAdmin {
   const ActivatedAdmin({
     required this.accountId,
     required this.cidNumber,
-    required this.institutionCode,
+    required this.orgCode,
     required this.kind,
     required this.activatedAtMs,
   });
@@ -26,7 +28,7 @@ class ActivatedAdmin {
   final String cidNumber;
 
   /// 链上 institution_code（4 字节机构码字符串，如 "NRC"/"PMUL"/"CGOV"）。
-  final String institutionCode;
+  final String orgCode;
 
   /// 链上 AdminAccountKind 编码。
   final int kind;
@@ -37,7 +39,7 @@ class ActivatedAdmin {
   Map<String, dynamic> toJson() => {
     'account_id': accountId,
     'cid_number': cidNumber,
-    'institution_code': institutionCode,
+    'institution_code': orgCode,
     'kind': kind,
     'activated_at_ms': activatedAtMs,
   };
@@ -45,7 +47,7 @@ class ActivatedAdmin {
   factory ActivatedAdmin.fromJson(Map<String, dynamic> json) => ActivatedAdmin(
     accountId: json['account_id'] as String,
     cidNumber: json['cid_number'] as String,
-    institutionCode: json['institution_code'] as String,
+    orgCode: json['institution_code'] as String,
     kind: json['kind'] as int,
     activatedAtMs: json['activated_at_ms'] as int,
   );
@@ -72,7 +74,7 @@ class ActivationService {
   /// 加载所有激活记录。
   Future<List<ActivatedAdmin>> loadAll() async {
     final raw = await WalletIsar.instance.read((isar) async {
-      return (await isar.walletAdminActivationStateEntitys.get(0))?.payloadJson;
+      return (await isar.collection<wallet_store.Admin>().get(0))?.bodyData;
     });
     if (raw == null || raw.isEmpty) return [];
     try {
@@ -100,7 +102,7 @@ class ActivationService {
     try {
       final chainAdmins = await _adminService.fetchAdmins(identity);
       final validAccountIds = chainAdmins
-          .map((admin) => admin.account_id)
+          .map((admin) => admin.accountId)
           .toSet();
       final before = all.length;
       all.removeWhere(
@@ -154,7 +156,7 @@ class ActivationService {
 
     // 验证是链上管理员
     final admins = await _adminService.fetchAdmins(identity);
-    if (!admins.any((admin) => admin.account_id == normalizedAccountId)) {
+    if (!admins.any((admin) => admin.accountId == normalizedAccountId)) {
       throw Exception('该账户 ID 不在此管理员账户的链上管理员列表中');
     }
 
@@ -163,7 +165,7 @@ class ActivationService {
     final activation = ActivatedAdmin(
       accountId: normalizedAccountId,
       cidNumber: cidNumber,
-      institutionCode: identity.institutionCode,
+      orgCode: identity.orgCode,
       kind: identity.kind,
       activatedAtMs: now,
     );
@@ -202,18 +204,24 @@ class ActivationService {
     final signerPublicKey = _hexToBytes(accountId);
     final timestamp = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final random = Random.secure();
-    return CitizenSigning.encodePayload(CitizenSigningPayload.activateAdmin(
-      cidNumber: _requireInstitutionCid(identity),
-      institutionCode: Uint8List.fromList(InstitutionCodeLabel.codeBytes(identity.institutionCode)),
-      kind: identity.kind,
-      signerPublicKey: signerPublicKey,
-      timestamp: BigInt.from(timestamp),
-      nonce: Uint8List.fromList(List<int>.generate(
-        kAdminNonceLength,
-        (_) => random.nextInt(256),
-        growable: false,
-      )),
-    ));
+    return CitizenSigning.encodePayload(
+      CitizenSigningPayload.activateAdmin(
+        cidNumber: _requireInstitutionCid(identity),
+        institutionCode: Uint8List.fromList(
+          InstitutionCodeLabel.codeBytes(identity.orgCode),
+        ),
+        kind: identity.kind,
+        signerPublicKey: signerPublicKey,
+        timestamp: BigInt.from(timestamp),
+        nonce: Uint8List.fromList(
+          List<int>.generate(
+            kAdminNonceLength,
+            (_) => random.nextInt(256),
+            growable: false,
+          ),
+        ),
+      ),
+    );
   }
 
   static String _requireInstitutionCid(AdminAccountIdentity identity) {
@@ -226,10 +234,10 @@ class ActivationService {
   Future<void> _saveAll(List<ActivatedAdmin> all) async {
     final raw = jsonEncode(all.map((a) => a.toJson()).toList());
     await WalletIsar.instance.writeTxn((isar) async {
-      await isar.walletAdminActivationStateEntitys.put(
-        WalletAdminActivationStateEntity()
-          ..id = 0
-          ..payloadJson = raw,
+      await isar.collection<wallet_store.Admin>().put(
+        wallet_store.Admin()
+          ..rowId = 0
+          ..bodyData = raw,
       );
     });
   }

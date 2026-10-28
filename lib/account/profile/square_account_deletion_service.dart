@@ -45,7 +45,11 @@ class SquareAccountDeletionService {
     required SquareActionSigner signAction,
   }) async {
     // 1. 服务端完成确认（失败或pending上抛 → 本地一律不动，UI/数据保持一致）。
-    await _api.deleteAccount(binding: binding, signAction: signAction, requireCurrent: requireCurrent);
+    await _api.deleteAccount(
+      binding: binding,
+      signAction: signAction,
+      requireCurrent: requireCurrent,
+    );
     final cidNumber = binding.cidNumber;
     final accountId = binding.accountId;
     // 2. 服务端确认后逐项清本地。单项失败不能阻断后续项，否则会制造更多残留。

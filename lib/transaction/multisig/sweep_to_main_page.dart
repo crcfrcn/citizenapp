@@ -195,7 +195,7 @@ class _SweepToMainPageState extends State<SweepToMainPage> {
         chain: sdk.chain,
         transactions: sdk.transactions,
       );
-      // 提案类交易等真正入块并核对事件后才返回，proposalId 来自
+      // 提案类交易等真正入块并核对事件后才返回，proposal_id 来自
       // 链上 SweepToMainProposed 事件，是业务成功的唯一凭据。
       final result = await service.submitProposeSweep(
         institution: widget.institution,
@@ -542,7 +542,7 @@ class _SweepToMainPageState extends State<SweepToMainPage> {
         SizedBox(width: AppLayout.scaledValue(10)),
         Expanded(
           child: Text(
-            '${widget.institution.cidShortName}（手续费划转）',
+            '${widget.institution.shortName}（手续费划转）',
             style: TextStyle(
               fontSize: AppLayout.scaledValue(15),
               fontWeight: FontWeight.w600,

@@ -45,13 +45,13 @@ String deviceRegistrationProofKey(
 Map<String, dynamic> decodeDeviceRegistrationProof(
   String raw, {
   required String cidNumber,
-  required int bindingRevision,
+  required int bindRev,
   required String accountId,
 }) {
   final proof = jsonDecode(raw);
   const fields = {
     'cid_number',
-    'binding_revision',
+    'bind_rev',
     'account_id',
     'public_key',
     'issued_at',
@@ -61,7 +61,7 @@ Map<String, dynamic> decodeDeviceRegistrationProof(
       proof.length != fields.length ||
       !proof.keys.every(fields.contains) ||
       proof['cid_number'] != cidNumber ||
-      proof['binding_revision'] != bindingRevision ||
+      proof['bind_rev'] != bindRev ||
       proof['account_id'] != accountId ||
       proof['public_key'] is! String ||
       !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(proof['public_key']) ||
@@ -75,26 +75,28 @@ Map<String, dynamic> decodeDeviceRegistrationProof(
   return proof;
 }
 
-/// 所有CID公开绑定在同一个原子记录中提交，版本不回退且不借用活动钱包指针。
+/// 所有CID公开绑定在同一个原子数组中提交；CID不再同时出现在对象键和正文。
 final class PublicIdentityStore {
   PublicIdentityStore(this._records);
   final PublicIdentityRecordStore _records;
   static const _bindings = 'identity.bindings';
-  Future<Map<String, IdentityBinding>> _read() async {
-    final raw = await _records.read(_bindings);
+  static Map<String, IdentityBinding> _decode(String? raw) {
     if (raw == null) return {};
     final value = jsonDecode(raw);
-    if (value is! Map<String, dynamic>) throw const FormatException('公开绑定记录损坏');
+    if (value is! List) throw const FormatException('公开绑定记录损坏');
     final result = <String, IdentityBinding>{};
-    for (final entry in value.entries) {
-      final binding = IdentityBinding.fromJson(jsonEncode(entry.value));
-      if (binding == null || entry.key != binding.cidNumber) {
+    for (final item in value) {
+      final binding = IdentityBinding.fromJson(jsonEncode(item));
+      if (binding == null || result.containsKey(binding.cidNumber)) {
         throw const FormatException('公开绑定属主不一致');
       }
-      result[entry.key] = binding;
+      result[binding.cidNumber] = binding;
     }
     return result;
   }
+
+  Future<Map<String, IdentityBinding>> _read() async =>
+      _decode(await _records.read(_bindings));
 
   Future<IdentityBinding?> readForCid(String cid) async => (await _read())[cid];
   Future<IdentityBinding?> readForAccountId(String accountId) async {
@@ -107,24 +109,17 @@ final class PublicIdentityStore {
 
   Future<List<IdentityBinding>> readAll() async =>
       (await _read()).values.toList(growable: false);
-  Future<void> _update(void Function(Map<String, dynamic>) mutate) async {
+  Future<void> _update(
+    void Function(Map<String, IdentityBinding>) mutate,
+  ) async {
     for (var attempt = 0; attempt < 16; attempt++) {
       final raw = await _records.read(_bindings);
-      final decoded = raw == null ? <String, dynamic>{} : jsonDecode(raw);
-      if (decoded is! Map<String, dynamic>) {
-        throw const FormatException('公开绑定记录损坏');
-      }
-      for (final e in decoded.entries) {
-        final b = IdentityBinding.fromJson(jsonEncode(e.value));
-        if (b == null || b.cidNumber != e.key) {
-          throw const FormatException('公开绑定记录损坏');
-        }
-      }
+      final decoded = _decode(raw);
       mutate(decoded);
       if (await _records.compareAndSet(
         _bindings,
         expected: raw,
-        next: jsonEncode(decoded),
+        next: jsonEncode(decoded.values.map((b) => b.toJson()).toList()),
       )) {
         return;
       }
@@ -135,17 +130,16 @@ final class PublicIdentityStore {
   Future<void> activate(IdentityBinding next) async {
     next.validate();
     await _update((values) {
-      final value = values[next.cidNumber];
-      if (value != null) {
-        final current = IdentityBinding.fromJson(jsonEncode(value))!;
+      final current = values[next.cidNumber];
+      if (current != null) {
         if (current.genesisHash != next.genesisHash ||
-            current.bindingRevision > next.bindingRevision ||
-            (current.bindingRevision == next.bindingRevision &&
+            current.bindRev > next.bindRev ||
+            (current.bindRev == next.bindRev &&
                 current.accountId != next.accountId)) {
           throw StateError('公开绑定版本或链不一致');
         }
       }
-      values[next.cidNumber] = next.toJson();
+      values[next.cidNumber] = next;
     });
   }
 

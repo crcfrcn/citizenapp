@@ -17,7 +17,7 @@ void main() {
 
   const accountId =
       '0x0000000000000000000000000000000000000000000000000000000000000000';
-  const ss58Address = '5DummyAddress';
+  const accountAddress = '5DummyAddress';
 
   Future<void> pumpCard(WidgetTester tester) async {
     await tester.pumpWidget(
@@ -25,7 +25,7 @@ void main() {
         home: Scaffold(
           body: WalletActionCard(
             accountId: accountId,
-            ss58Address: ss58Address,
+            accountAddress: accountAddress,
             finalizedBalanceLoader: (_) async => 1280.35,
           ),
         ),
@@ -34,8 +34,9 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('renders 充值 / 提现 / 零钱包 three columns with expected icons',
-      (tester) async {
+  testWidgets('renders 充值 / 提现 / 零钱包 three columns with expected icons', (
+    tester,
+  ) async {
     await pumpCard(tester);
     expect(find.text('充值'), findsOneWidget);
     expect(find.text('提现'), findsOneWidget);
@@ -55,16 +56,18 @@ void main() {
     expect(find.text('1,280.35 元'), findsOneWidget);
   });
 
-  testWidgets('tapping 提现 unbound asks user to bind clearing bank',
-      (tester) async {
+  testWidgets('tapping 提现 unbound asks user to bind clearing bank', (
+    tester,
+  ) async {
     await pumpCard(tester);
     await tester.tap(find.byIcon(Icons.arrow_circle_up_outlined));
     await tester.pump();
     expect(find.text('请先在“清算行”页面绑定清算行'), findsOneWidget);
   });
 
-  testWidgets('tapping 零钱包 unbound asks user to bind clearing bank',
-      (tester) async {
+  testWidgets('tapping 零钱包 unbound asks user to bind clearing bank', (
+    tester,
+  ) async {
     await pumpCard(tester);
     // 零钱包现在可点击:未绑定时进入前提示先绑定(不再是静态展示)。
     await tester.tap(find.byIcon(Icons.account_balance_wallet_outlined));
@@ -72,8 +75,9 @@ void main() {
     expect(find.text('请先在“清算行”页面绑定清算行'), findsOneWidget);
   });
 
-  testWidgets('all three columns are clickable: exactly 3 InkWells in card',
-      (tester) async {
+  testWidgets('all three columns are clickable: exactly 3 InkWells in card', (
+    tester,
+  ) async {
     await pumpCard(tester);
     // 步骤 4:零钱包改为可点击进详情页,整卡 3 个 InkWell(充值 + 提现 + 零钱包)。
     // 充值不再弹「请先绑定」(它是链上充值,与清算行无关),故此处只做结构断言。

@@ -18,14 +18,14 @@ import 'package:citizenapp/system/theme/app_layout.dart';
 /// 扫码结果：收款码预填数据。
 class QrScanTransferResult {
   const QrScanTransferResult({
-    required this.toSs58Address,
+    required this.toAddress,
     this.amount,
     this.symbol,
     this.memo,
     this.bank,
   });
 
-  final String toSs58Address;
+  final String toAddress;
   final String? amount;
   final String? symbol;
   final String? memo;
@@ -295,7 +295,7 @@ class _QrScanPageState extends State<QrScanPage> {
         case QrScanMode.transfer || QrScanMode.dispatch:
           _popPage(
             QrScanTransferResult(
-              toSs58Address: ss58FromAccountIdText(document.accountId!),
+              toAddress: ss58FromAccountIdText(document.accountId!),
             ),
           );
           return true;
@@ -360,7 +360,7 @@ class _QrScanPageState extends State<QrScanPage> {
     final body = result.document!;
     _popPage(
       QrScanTransferResult(
-        toSs58Address: ss58FromAccountIdText(body.accountId!),
+        toAddress: ss58FromAccountIdText(body.accountId!),
         amount: body.amount!.isEmpty ? null : body.amount,
         symbol: body.symbol!.isEmpty ? null : body.symbol,
         memo: body.memo!.isEmpty ? null : body.memo,
@@ -374,9 +374,7 @@ class _QrScanPageState extends State<QrScanPage> {
     final body = result.document!;
     // 用户码只声明账户,展示地址在本机由 account_id 派生。
     _popPage(
-      QrScanTransferResult(
-        toSs58Address: ss58FromAccountIdText(body.accountId!),
-      ),
+      QrScanTransferResult(toAddress: ss58FromAccountIdText(body.accountId!)),
     );
   }
 

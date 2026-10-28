@@ -68,7 +68,7 @@ void main() {
       fixtureBytes(fixture, 'authorization_personal_multisig'),
     )!;
     expect(personal.isInstitution, isFalse);
-    expect(personal.personalAccountId, '07' * 32);
+    expect(personal.accountId, '07' * 32);
 
     final plan = InstitutionRoleStorageCodec.decodeVotePlan(
       fixtureBytes(fixture, 'vote_plan_resolution_issuance_joint'),
@@ -125,11 +125,11 @@ void main() {
       ...bytes('员'),
     ]);
     final decoded = InstitutionRoleStorageCodec.decodeAdmins(value)!;
-    expect(decoded.institutionCode, 'CGOV');
+    expect(decoded.orgCode, 'CGOV');
     expect(decoded.admins, hasLength(2));
-    expect(decoded.admins.map((admin) => admin.family_name), ['张', '管理']);
-    expect(decoded.admins.map((admin) => admin.given_name), ['三', '员']);
-    expect(decoded.admins.map((admin) => admin.account_id), [
+    expect(decoded.admins.map((admin) => admin.familyName), ['张', '管理']);
+    expect(decoded.admins.map((admin) => admin.givenName), ['三', '员']);
+    expect(decoded.admins.map((admin) => admin.accountId), [
       '0x${'01' * 32}',
       '0x${'02' * 32}',
     ]);
@@ -181,10 +181,10 @@ void main() {
       ...bytes(''),
     ]);
     final decoded = InstitutionRoleStorageCodec.decodeAdmins(value)!;
-    expect(decoded.admins.single.account_id, '0x${'03' * 32}');
-    expect(decoded.admins.single.cid_number, 'CN220-CTZN2-198805200-2026');
-    expect(decoded.admins.single.family_name, isEmpty);
-    expect(decoded.admins.single.given_name, isEmpty);
+    expect(decoded.admins.single.accountId, '0x${'03' * 32}');
+    expect(decoded.admins.single.cidNumber, 'CN220-CTZN2-198805200-2026');
+    expect(decoded.admins.single.familyName, isEmpty);
+    expect(decoded.admins.single.givenName, isEmpty);
   });
 
   test('岗位和任职分别按 entity 布局解码', () {
@@ -220,7 +220,7 @@ void main() {
       ]),
     )!.single;
     expect(assignment.source, InstitutionAssignmentSource.registry);
-    expect(assignment.account_id, '0x${'07' * 32}');
+    expect(assignment.accountId, '0x${'07' * 32}');
   });
 
   test('任职向量允许已核实空集，截断或尾随字节必须拒绝', () {
@@ -254,7 +254,7 @@ void main() {
       isNull,
     );
     expect(
-      InstitutionRoleStorageCodec.decodeAssignments(encoded)!.single.account_id,
+      InstitutionRoleStorageCodec.decodeAssignments(encoded)!.single.accountId,
       '0x${'07' * 32}',
     );
   });
@@ -262,7 +262,7 @@ void main() {
   test('任期窗口包含起止日且无任期岗位只接受零值', () {
     final base = InstitutionAdminAssignment(
       cidNumber: 'CID-1',
-      account_id: '0x${'07' * 32}',
+      accountId: '0x${'07' * 32}',
       roleCode: 'ROLE-1',
       termStart: 10,
       termEnd: 20,
@@ -276,7 +276,7 @@ void main() {
     expect(base.isEffectiveOnDay(21), isFalse);
     final nonTerm = InstitutionAdminAssignment(
       cidNumber: 'CID-1',
-      account_id: '0x${'07' * 32}',
+      accountId: '0x${'07' * 32}',
       roleCode: 'ROLE-2',
       termStart: 0,
       termEnd: 0,
