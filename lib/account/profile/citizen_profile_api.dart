@@ -180,34 +180,28 @@ class CitizenProfileApi {
   /// 关注一个身份（目标身份主键 cid_number）。
   Future<void> followUser({
     required SquareSession session,
-    required String followedCidNumber,
+    required String peerCid,
   }) {
-    return _client.followUser(
-      session: session,
-      followedCidNumber: followedCidNumber,
-    );
+    return _client.followUser(session: session, peerCid: peerCid);
   }
 
   /// 取消关注一个身份（目标身份主键 cid_number）。
   Future<void> unfollowUser({
     required SquareSession session,
-    required String followedCidNumber,
+    required String peerCid,
   }) {
-    return _client.unfollowUser(
-      session: session,
-      followedCidNumber: followedCidNumber,
-    );
+    return _client.unfollowUser(session: session, peerCid: peerCid);
   }
 
   /// 开/关对某关注的发帖通知（须已关注；目标身份主键 cid_number）。
   Future<void> setNotify({
     required SquareSession session,
-    required String followedCidNumber,
+    required String peerCid,
     required bool enabled,
   }) {
     return _client.setNotify(
       session: session,
-      followedCidNumber: followedCidNumber,
+      peerCid: peerCid,
       enabled: enabled,
     );
   }

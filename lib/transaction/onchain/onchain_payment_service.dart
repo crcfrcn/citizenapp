@@ -43,7 +43,7 @@ class OnchainPaymentService {
       address: ss58FromAccountIdText(binding.accountIdText),
       cidNumber: cidNumber,
       bindRev: binding.bindRev,
-      chainHash: binding.block!.hash,
+      blockHash: binding.block!.hash,
     );
   }
 

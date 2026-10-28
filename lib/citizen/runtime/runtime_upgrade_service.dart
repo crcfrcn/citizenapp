@@ -44,8 +44,7 @@ class RuntimeUpgradeService {
   ///
   /// 联合投票必须等待入块，并回读 runtime JointVote storage。
   /// tx_hash 只代表交易提交，不能代表投票已经生效。
-  Future<({String txHash, int usedNonce, String blockHashHex})>
-  submitJointVote({
+  Future<({String txHash, int usedNonce, String blockHash})> submitJointVote({
     required int proposalId,
     required String actorCidNumber,
     required String voterRoleCode,
@@ -428,8 +427,7 @@ class RuntimeUpgradeService {
   /// 签名、提交并等待交易进入区块。
   ///
   /// 返回交易哈希、runtime nonce 和入块哈希。
-  Future<({String txHash, int usedNonce, String blockHashHex})>
-  _executeFinalized({
+  Future<({String txHash, int usedNonce, String blockHash})> _executeFinalized({
     required Uint8List callData,
     required Uint8List signerPublicKey,
     required Future<String?> Function(
@@ -467,7 +465,7 @@ class RuntimeUpgradeService {
     return (
       txHash: '0x${_hexEncode(completed.transactionHash)}',
       usedNonce: prepared.nonce.toInt(),
-      blockHashHex: completed.execution!.block.hash,
+      blockHash: completed.execution!.block.hash,
     );
   }
 

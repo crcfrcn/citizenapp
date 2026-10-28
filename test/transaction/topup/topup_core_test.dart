@@ -539,7 +539,6 @@ void main() {
           jsonEncode({
             'is_ok': true,
             'order_id': i.orderId,
-            'status': 'pending',
             'order_state': 'verifying',
             'coin_fen': i.coinFen,
             'payment_txid': '0x${'09' * 32}',
@@ -590,11 +589,10 @@ void main() {
     );
     api.close();
     for (final j in [
-      {'is_ok': true, 'status': 'paid', 'order_state': 'broadcast'},
-      {'is_ok': true, 'status': 'other', 'order_state': 'paid'},
+      {'is_ok': true, 'order_state': 'broadcast'},
+      {'is_ok': true, 'order_state': 'other'},
       {
         'is_ok': true,
-        'status': 'paid',
         'order_state': 'paid',
         'order_id': i.orderId,
         'coin_fen': i.coinFen,
@@ -685,7 +683,6 @@ void main() {
             jsonEncode({
               'is_ok': true,
               'order_id': i.orderId,
-              'status': 'pending',
               'order_state': 'awaiting',
               'coin_fen': i.coinFen,
               'payment_txid': null,
@@ -730,7 +727,6 @@ void main() {
                 : {
                     'is_ok': true,
                     'order_id': i.orderId,
-                    'status': 'pending',
                     'order_state': 'verifying',
                     'coin_fen': i.coinFen,
                     'payment_txid': '0x${'09' * 32}',
@@ -882,11 +878,6 @@ void main() {
                   : {
                       'is_ok': true,
                       'order_id': i.orderId,
-                      'status': state == 'paid'
-                          ? 'paid'
-                          : state == 'exception'
-                          ? 'exception'
-                          : 'pending',
                       'order_state': state,
                       'coin_fen': i.coinFen,
                       'payment_txid': state == 'awaiting' ? null : tx,

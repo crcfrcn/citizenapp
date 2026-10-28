@@ -463,8 +463,6 @@ class TopupPaymentIntent {
   }
 }
 
-enum TopupOrderStatus { pending, paid, exception }
-
 enum TopupPhase {
   awaiting,
   verifying,
@@ -478,7 +476,6 @@ enum TopupPhase {
 class TopupOrder {
   const TopupOrder({
     required this.orderId,
-    required this.status,
     required this.orderState,
     required this.coinFen,
     this.paymentTxid,
@@ -486,10 +483,10 @@ class TopupOrder {
     this.exceptionReason,
   });
   final String orderId, coinFen;
-  final TopupOrderStatus status;
   final TopupPhase orderState;
   final String? paymentTxid, gmbTxHash, exceptionReason;
-  bool get terminal => status != TopupOrderStatus.pending;
+  bool get terminal =>
+      orderState == TopupPhase.paid || orderState == TopupPhase.exception;
   String get message => switch (orderState) {
     TopupPhase.awaiting => '付款回执待核实，请勿重复付款',
     TopupPhase.verifying => '正在确认稳定币付款',
@@ -504,7 +501,6 @@ class TopupOrder {
   Map<String, dynamic> toJson() => {
     'is_ok': true,
     'order_id': orderId,
-    'status': status.name,
     'order_state': orderState.name,
     'coin_fen': coinFen,
     'payment_txid': paymentTxid,
@@ -512,21 +508,18 @@ class TopupOrder {
     'exception_reason': exceptionReason,
   };
   factory TopupOrder.fromJson(Map<String, dynamic> j) {
-    if (j['is_ok'] != true) throw const FormatException('订单响应无效');
-    final status = TopupOrderStatus.values.firstWhere(
-      (v) => v.name == j['status'],
-      orElse: () => throw const FormatException('未知订单状态'),
-    );
+    if (j['is_ok'] != true ||
+        j['order_id'] is! String ||
+        (j['payment_txid'] != null && j['payment_txid'] is! String) ||
+        (j['gmb_tx_hash'] != null && j['gmb_tx_hash'] is! String) ||
+        (j['exception_reason'] != null && j['exception_reason'] is! String)) {
+      throw const FormatException('订单响应无效');
+    }
     final orderState = TopupPhase.values.firstWhere(
       (v) => v.name == j['order_state'],
       orElse: () => throw const FormatException('未知订单阶段'),
     );
-    if ((status == TopupOrderStatus.paid) != (orderState == TopupPhase.paid) ||
-        (status == TopupOrderStatus.exception) !=
-            (orderState == TopupPhase.exception)) {
-      throw const FormatException('订单状态不一致');
-    }
-    if (status == TopupOrderStatus.paid &&
+    if (orderState == TopupPhase.paid &&
         (j['gmb_tx_hash'] is! String ||
             !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(j['gmb_tx_hash'] as String) ||
             j['payment_txid'] is! String)) {
@@ -534,7 +527,6 @@ class TopupOrder {
     }
     return TopupOrder(
       orderId: validateOrderId(j['order_id'] as String),
-      status: status,
       orderState: orderState,
       coinFen: decimal(j['coin_fen']),
       paymentTxid: j['payment_txid'] as String?,

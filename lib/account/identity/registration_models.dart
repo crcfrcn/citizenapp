@@ -278,15 +278,15 @@ class RegistrationResponse {
 class FinalizedRegistration {
   const FinalizedRegistration({
     required this.binding,
-    required this.chainHash,
+    required this.blockHash,
     this.txHash,
   });
   final IdentityBinding binding;
-  final String chainHash;
+  final String blockHash;
   final String? txHash;
   Map<String, Object?> toJson() => {
     'binding': binding.toJson(),
-    'block_hash': chainHash,
+    'block_hash': blockHash,
     'tx_hash': txHash,
   };
   factory FinalizedRegistration.fromJson(Map<String, dynamic> json) {
@@ -302,7 +302,7 @@ class FinalizedRegistration {
       binding:
           (IdentityBinding.fromJson(jsonEncode(json['binding'])) ??
           (throw const FormatException('finalized绑定无效'))),
-      chainHash: block,
+      blockHash: block,
       txHash: json['tx_hash'] as String?,
     );
   }

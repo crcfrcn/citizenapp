@@ -654,7 +654,7 @@ class _FakePublicationConfirmer implements SquarePublicationConfirmer {
   bool proofAvailable = false;
 
   @override
-  Future<({SquarePost post, String blockHash, String transactionHash})>
+  Future<({SquarePost post, String blockHash, String txHash})>
   readPublishedProof({
     required SquareSession session,
     required String postId,
@@ -678,7 +678,7 @@ class _FakePublicationConfirmer implements SquarePublicationConfirmer {
     return (
       post: post,
       blockHash: '0x${List.filled(64, 'a').join()}',
-      transactionHash: '0x${List.filled(64, 'b').join()}',
+      txHash: '0x${List.filled(64, 'b').join()}',
     );
   }
 
@@ -694,7 +694,7 @@ class _FakePublicationConfirmer implements SquarePublicationConfirmer {
   Future<SquarePost> confirmPublishedPost({
     required SquareSession session,
     required String postId,
-    required String blockHashHex,
+    required String blockHash,
     required String txHash,
   }) async {
     order?.add('confirm');
@@ -787,7 +787,7 @@ class _FakeChainPublisher implements SquarePostChainPublisher {
     return const SquareChainPublishedResult(
       txHash: '0xtest',
 
-      blockHashHex: '0xblock',
+      blockHash: '0xblock',
     );
   }
 }

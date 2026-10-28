@@ -26,10 +26,10 @@ class LocalTxStore {
     return accountId;
   }
 
-  static String normalizeBlockHash(String chainHash) {
-    return chainHash.startsWith('0x')
-        ? chainHash.toLowerCase()
-        : '0x${chainHash.toLowerCase()}';
+  static String normalizeBlockHash(String blockHash) {
+    return blockHash.startsWith('0x')
+        ? blockHash.toLowerCase()
+        : '0x${blockHash.toLowerCase()}';
   }
 
   static String fenFromYuan(double amountYuan) {
@@ -55,7 +55,7 @@ class LocalTxStore {
           : await _event(
               isar,
               entity.accountId,
-              entity.chainHash,
+              entity.blockHash,
               entity.eventIndex,
             );
       if (existing != null) entity.rowId = existing.rowId;
@@ -121,11 +121,11 @@ class LocalTxStore {
   static Future<wallet_store.Entry?> _event(
     Isar isar,
     String accountId,
-    String? chainHash,
+    String? blockHash,
     int? eventIndex,
   ) {
-    if (chainHash == null ||
-        chainHash.isEmpty ||
+    if (blockHash == null ||
+        blockHash.isEmpty ||
         eventIndex == null ||
         eventIndex < 0) {
       throw const FormatException('交易事件缺少真实区块和事件定位');
@@ -136,7 +136,7 @@ class LocalTxStore {
           .where()
           .accountIdEqualTo(requireAccountId(accountId))
           .filter()
-          .chainHashEqualTo(normalizeBlockHash(chainHash))
+          .blockHashEqualTo(normalizeBlockHash(blockHash))
           .eventIndexEqualTo(eventIndex),
     );
   }
@@ -159,7 +159,7 @@ class LocalTxStore {
 
     required int createdAt,
     String? txNote,
-    String? chainHash,
+    String? blockHash,
   }) async {
     final normalizedAccountId = requireAccountId(accountId);
     final normalizedTxHash = txHash.toLowerCase();
@@ -235,8 +235,8 @@ class LocalTxStore {
         ..createdAt = existingEvent?.createdAt ?? createdAt
         ..confirmedAt = null
         ..failReason = null;
-      if (chainHash != null && chainHash.isNotEmpty) {
-        entity.chainHash = normalizeBlockHash(chainHash);
+      if (blockHash != null && blockHash.isNotEmpty) {
+        entity.blockHash = normalizeBlockHash(blockHash);
       }
       await isar.collection<wallet_store.Entry>().put(entity);
     });
@@ -252,7 +252,7 @@ class LocalTxStore {
     required String fromAddress,
     required String toAddress,
     required int blockNumber,
-    required String chainHash,
+    required String blockHash,
     required int eventIndex,
     int? extrinsicIndex,
     int? confirmedAt,
@@ -273,7 +273,7 @@ class LocalTxStore {
       ..fromAddress = fromAddress
       ..toAddress = toAddress
       ..blockNumber = blockNumber
-      ..chainHash = normalizeBlockHash(chainHash)
+      ..blockHash = normalizeBlockHash(blockHash)
       ..eventIndex = eventIndex
       ..extrinsicIndex = extrinsicIndex
       ..txNote = txNote
@@ -292,7 +292,7 @@ class LocalTxStore {
     final existing = await _event(
       isar,
       incoming.accountId,
-      incoming.chainHash,
+      incoming.blockHash,
       incoming.eventIndex,
     );
     final hash = incoming.txHash;
@@ -305,16 +305,16 @@ class LocalTxStore {
         submitted.entrySource == 'local_submit' &&
         submitted.executionId?.isNotEmpty == true &&
         submitted.callHash?.isNotEmpty == true) {
-      if (submitted.chainHash != null &&
+      if (submitted.blockHash != null &&
           submitted.eventIndex != null &&
-          (submitted.chainHash != incoming.chainHash ||
+          (submitted.blockHash != incoming.blockHash ||
               submitted.eventIndex != incoming.eventIndex)) {
         throw StateError('收费事实与本机提交已绑定的事件不一致');
       }
       submitted
         ..feeAmount = incoming.feeAmount
         ..blockNumber = incoming.blockNumber
-        ..chainHash = incoming.chainHash
+        ..blockHash = incoming.blockHash
         ..eventIndex = incoming.eventIndex
         ..extrinsicIndex = incoming.extrinsicIndex;
       if (incoming.failReason != null) {
@@ -337,11 +337,11 @@ class LocalTxStore {
         submitted.transferAmount == incoming.transferAmount &&
         (submitted.eventIndex == null ||
             (submitted.eventIndex == incoming.eventIndex &&
-                submitted.chainHash == incoming.chainHash));
+                submitted.blockHash == incoming.blockHash));
     if (matchesSubmit) {
       submitted
         ..blockNumber = incoming.blockNumber
-        ..chainHash = incoming.chainHash
+        ..blockHash = incoming.blockHash
         ..eventIndex = incoming.eventIndex
         ..extrinsicIndex = incoming.extrinsicIndex
         ..feeAmount = incoming.feeAmount
@@ -434,7 +434,7 @@ class LocalTxStore {
     required String txHash,
     required String executionId,
     required String callHash,
-    String? chainHash,
+    String? blockHash,
   }) async {
     await WalletIsar.instance.writeTxn((isar) async {
       final entity = await _submit(isar, accountId, txHash);
@@ -445,8 +445,8 @@ class LocalTxStore {
         return;
       }
       entity.entryState = statusInBlock;
-      if (chainHash != null && chainHash.isNotEmpty) {
-        entity.chainHash = normalizeBlockHash(chainHash);
+      if (blockHash != null && blockHash.isNotEmpty) {
+        entity.blockHash = normalizeBlockHash(blockHash);
       }
       entity.failReason = null;
       await isar.collection<wallet_store.Entry>().put(entity);
@@ -471,7 +471,7 @@ class LocalTxStore {
           entity.entryState == statusFailed) {
         return;
       }
-      // 不清 chain_hash：它是 SDK 已公开的 inBlock 进度事实。
+      // 不清 block_hash：它是 SDK 已公开的 inBlock 进度事实。
       entity
         ..entryState = statusPending
         ..failReason = null;
@@ -509,7 +509,7 @@ class LocalTxStore {
     required String txHash,
     required String executionId,
     required String callHash,
-    String? chainHash,
+    String? blockHash,
     int? blockNumber,
     int? extrinsicIndex,
     int? confirmedAt,
@@ -527,8 +527,8 @@ class LocalTxStore {
         ..extrinsicIndex = extrinsicIndex ?? entity.extrinsicIndex
         ..confirmedAt = confirmedAt ?? now
         ..failReason = null;
-      if (chainHash != null && chainHash.isNotEmpty) {
-        entity.chainHash = normalizeBlockHash(chainHash);
+      if (blockHash != null && blockHash.isNotEmpty) {
+        entity.blockHash = normalizeBlockHash(blockHash);
       }
       if (blockNumber != null) {
         entity.blockNumber = blockNumber;

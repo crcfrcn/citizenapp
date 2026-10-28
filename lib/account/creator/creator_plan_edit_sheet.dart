@@ -253,24 +253,21 @@ class _CreatorPlanEditSheetState extends State<CreatorPlanEditSheet> {
     final tier = CreatorTier(
       tierId: widget.editing?.tierId ?? _newTierId(),
       tierName: tierName,
-      pricesFen: prices,
+      monthFen: prices[BillingPeriod.monthly],
+      quarterFen: prices[BillingPeriod.quarterly],
+      yearFen: prices[BillingPeriod.yearly],
     );
     final editing = widget.editing;
     if (editing != null &&
         editing.tierName != tierName &&
-        _pricesEqual(editing.pricesFen, prices)) {
+        BillingPeriod.values.every(
+          (period) => editing.priceFenOf(period) == prices[period],
+        )) {
       await _commitTierName(tier);
       return;
     }
     await _commit(_mergeTiers(tier));
   }
-
-  bool _pricesEqual(
-    Map<BillingPeriod, int> left,
-    Map<BillingPeriod, int> right,
-  ) =>
-      left.length == right.length &&
-      left.entries.every((entry) => right[entry.key] == entry.value);
 
   /// 只有名称变化时走独立链上改名，不重写价格或改变订阅授权。
   Future<void> _commitTierName(CreatorTier tier) async {
@@ -345,8 +342,7 @@ class _CreatorPlanEditSheetState extends State<CreatorPlanEditSheet> {
   String _newTierId() => 't_${DateTime.now().microsecondsSinceEpoch}';
 
   void _toast(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 }

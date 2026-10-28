@@ -418,7 +418,7 @@ class MyIdService {
     );
     _registrationFinalized[resolvedBindAccountId] = FinalizedRegistration(
       binding: await _bindingForFinalizedIdentity(finalized),
-      chainHash: transaction.blockHashHex,
+      blockHash: transaction.blockHash,
       txHash: transaction.txHash,
     );
     // CID注册finalized后只推进公开绑定及同CID数据上下文；MLS首次设备登记
@@ -763,8 +763,8 @@ class MyIdService {
     final saved = _registrationFinalized[accountId];
     return FinalizedRegistration(
       binding: binding,
-      chainHash: saved?.binding.cidNumber == binding.cidNumber
-          ? saved!.chainHash
+      blockHash: saved?.binding.cidNumber == binding.cidNumber
+          ? saved!.blockHash
           : (await _chain.getFinalizedHead()).hash,
       txHash: saved?.binding.cidNumber == binding.cidNumber
           ? saved?.txHash
@@ -846,7 +846,7 @@ class MyIdService {
       );
     }
     await guard();
-    await _sessionProvider.projectFinalizedIdentity(finalized.chainHash);
+    await _sessionProvider.projectFinalizedIdentity(finalized.blockHash);
     await guard();
     await _finishFinalizedBinding(finalized.binding);
     await guard();

@@ -19,14 +19,14 @@ import 'package:citizenapp/system/theme/app_layout.dart';
 class CreatorSubscribeButton extends StatefulWidget {
   const CreatorSubscribeButton({
     super.key,
-    required this.creatorCidNumber,
+    required this.creatorCid,
     this.enabled = true,
     CreatorSubscribeService? service,
     SquareSessionProvider? sessionProvider,
   }) : _service = service,
        _sessionProvider = sessionProvider;
 
-  final String creatorCidNumber;
+  final String creatorCid;
 
   /// false=置灰不可点（以他人视角看自己时，订阅自己无意义）。
   final bool enabled;
@@ -108,7 +108,7 @@ class _CreatorSubscribeButtonState extends State<CreatorSubscribeButton> {
         if (mounted) setState(() => _loading = false);
         return;
       }
-      final view = await service.fetchView(session, widget.creatorCidNumber);
+      final view = await service.fetchView(session, widget.creatorCid);
       if (!mounted) return;
       setState(() {
         _plan = view.plan;
@@ -212,14 +212,14 @@ class _CreatorSubscribeButtonState extends State<CreatorSubscribeButton> {
       () => shouldChange
           ? service.changePlan(
               context: context,
-              creatorCidNumber: widget.creatorCidNumber,
+              creatorCid: widget.creatorCid,
               tierId: selection.tierId,
               period: selection.period.key,
               priceFen: selection.priceFen,
             )
           : service.subscribe(
               context: context,
-              creatorCidNumber: widget.creatorCidNumber,
+              creatorCid: widget.creatorCid,
               tierId: selection.tierId,
               period: selection.period.key,
               priceFen: selection.priceFen,
@@ -250,10 +250,7 @@ class _CreatorSubscribeButtonState extends State<CreatorSubscribeButton> {
     final service = _service;
     if (service == null) return;
     await _run(
-      () => service.cancel(
-        context: context,
-        creatorCidNumber: widget.creatorCidNumber,
-      ),
+      () => service.cancel(context: context, creatorCid: widget.creatorCid),
     );
   }
 

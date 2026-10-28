@@ -70,8 +70,8 @@ void main() {
     final api = FakeProfileApi(
       sampleProfile(),
       follows: const [
-        SquareFollowEntry(cidNumber: cidA, createdAt: 200),
-        SquareFollowEntry(cidNumber: cidB, createdAt: 100),
+        SquareFollowEntry(peerCid: cidA, createdAt: 200),
+        SquareFollowEntry(peerCid: cidB, createdAt: 100),
       ],
       throwOnProfile: true,
     );

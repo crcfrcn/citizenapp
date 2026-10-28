@@ -127,11 +127,11 @@ class _Api extends SquareApiClient {
   Future<Map<String, dynamic>> createComment({
     required SquareSession session,
     required String postId,
-    required String operationId,
+    required String opId,
     required String replyText,
     String? replyTo,
   }) async {
-    operations.add(operationId);
+    operations.add(opId);
     replies.add(replyTo);
     if (failSend) throw StateError('synthetic offline');
     return {
@@ -313,7 +313,7 @@ void main() {
           'next_cursor': null,
         });
         final pending = jsonEncode({
-          'operation_id': '11' * 16,
+          'op_id': '11' * 16,
           if (mode == 'page' || mode == 'mixed') 'reply_text': '旧待发',
           if (mode != 'page') 'body': '旧待发',
           'reply_to': null,
@@ -378,7 +378,7 @@ void main() {
         expect(api.reads, 0);
         expect(writes, 0);
         final newPending = jsonEncode({
-          'operation_id': '22' * 16,
+          'op_id': '22' * 16,
           'reply_text': '新待发',
           'reply_to': null,
         });

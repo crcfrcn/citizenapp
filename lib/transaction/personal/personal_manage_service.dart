@@ -62,7 +62,7 @@ class PersonalManageService {
       int usedNonce,
       int proposalId,
       String accountId,
-      String blockHashHex,
+      String blockHash,
     })
   >
   submitProposeCreatePersonal({
@@ -100,7 +100,7 @@ class PersonalManageService {
       usedNonce: submitResult.usedNonce,
       proposalId: event.proposalId,
       accountId: event.accountId,
-      blockHashHex: submitResult.block.hash,
+      blockHash: submitResult.block.hash,
     );
   }
 

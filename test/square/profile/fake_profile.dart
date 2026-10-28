@@ -214,7 +214,7 @@ class FakeProfileApi extends CitizenProfileApi {
   @override
   Future<void> followUser({
     required SquareSession session,
-    required String followedCidNumber,
+    required String peerCid,
   }) async {
     followCalls++;
     if (throwOnFollow) {
@@ -225,7 +225,7 @@ class FakeProfileApi extends CitizenProfileApi {
   @override
   Future<void> unfollowUser({
     required SquareSession session,
-    required String followedCidNumber,
+    required String peerCid,
   }) async {
     unfollowCalls++;
     if (throwOnFollow) {
@@ -236,7 +236,7 @@ class FakeProfileApi extends CitizenProfileApi {
   @override
   Future<void> setNotify({
     required SquareSession session,
-    required String followedCidNumber,
+    required String peerCid,
     required bool enabled,
   }) async {
     notifyCalls++;

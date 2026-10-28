@@ -74,7 +74,7 @@ class CitizenIdentityTransaction {
   /// [accountId] 占号并绑定的账户(= origin = 签名者,小写 `0x` + 64 hex);其私钥经
   /// `signForAccountId` 按 account_id 精确取用(**不走** interim 账户0 入口,占任意本地账户皆准)。
   /// [externalSigning] 只负责向用户展示 SDK 已生成的 QR_V1 请求并返回扫码原文。
-  Future<({String txHash, int usedNonce, String blockHashHex})> selfOccupyCid({
+  Future<({String txHash, int usedNonce, String blockHash})> selfOccupyCid({
     required String cidNumber,
     required String accountId,
     required Future<String?> Function(
@@ -99,7 +99,7 @@ class CitizenIdentityTransaction {
     return (
       txHash: _hex(execution.completed.transactionHash),
       usedNonce: execution.nonce.toInt(),
-      blockHashHex: execution.completed.execution!.block.hash,
+      blockHash: execution.completed.execution!.block.hash,
     );
   }
 
@@ -109,7 +109,7 @@ class CitizenIdentityTransaction {
   /// 并读取 block 0 创世哈希；只有读出的链上账户仍等于 [currentAccountId] 才签名。当前
   /// 账户签 `CidRebindAuthorization`，新账户作为 origin 自签提交。修订号、当前账户、
   /// 创世与过期时间共同阻断此前授权在后续 A→B→A 或跨链场景重放。
-  Future<({String txHash, int usedNonce, String blockHashHex})>
+  Future<({String txHash, int usedNonce, String blockHash})>
   selfRebindCidAccount({
     required String cidNumber,
     required String newAccountId,
@@ -151,7 +151,7 @@ class CitizenIdentityTransaction {
     return (
       txHash: _hex(execution.completed.transactionHash),
       usedNonce: execution.nonce.toInt(),
-      blockHashHex: execution.completed.execution!.block.hash,
+      blockHash: execution.completed.execution!.block.hash,
     );
   }
 

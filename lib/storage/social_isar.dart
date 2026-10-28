@@ -272,8 +272,8 @@ class Publish {
   late String jobState;
   @Name('replace_id')
   String? replaceId;
-  @Name('chain_hash')
-  String? chainHash;
+  @Name('block_hash')
+  String? blockHash;
   @Name('tx_hash')
   String? txHash;
   @Name('post_category')

@@ -378,25 +378,7 @@ final class _CitizenChatResourceLease implements sdk.ChatResourceLease {
       uncertain:
           !accepted &&
           (errorCode == 'storage_unavailable' || errorCode == 'server_failure'),
-      receipt: receipt == null
-          ? null
-          : {
-              'user_id': receipt.userId,
-              'device_id': receipt.deviceId,
-              'account_id': receipt.accountId,
-              'binding_revision': receipt.bindingRevision.toInt(),
-              'server_time_millis': receipt.serverTimeMillis.toInt(),
-              'counters': [
-                for (final c in receipt.counters)
-                  {
-                    'metric': c.metric,
-                    'window_start_millis': c.windowStartMillis.toInt(),
-                    'charged': c.charged.toInt(),
-                    'used': c.used.toInt(),
-                    'limit': c.hasLimit() ? c.limit.toInt() : null,
-                  },
-              ],
-            },
+      receipt: receipt,
     );
   }
 }

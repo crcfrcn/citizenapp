@@ -632,7 +632,7 @@ void main() {
 
     creatorService.refresh.complete(
       CreatorPageData.active(
-        plan: CreatorPlan.empty(_cidNumber),
+        plan: CreatorPlan.empty(),
         overview: CreatorOverview.zero,
       ),
     );

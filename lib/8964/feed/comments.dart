@@ -170,10 +170,10 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
         if (saved.pendingData != null) {
           _pending = (jsonDecode(saved.pendingData!) as Map)
               .cast<String, dynamic>();
-          const fields = {'operation_id', 'reply_text', 'reply_to'};
+          const fields = {'op_id', 'reply_text', 'reply_to'};
           if (_pending!.length != fields.length ||
               !_pending!.keys.every(fields.contains) ||
-              _pending!['operation_id'] is! String ||
+              _pending!['op_id'] is! String ||
               _pending!['reply_text'] is! String ||
               (_pending!['reply_to'] != null &&
                   _pending!['reply_to'] is! String)) {
@@ -358,7 +358,7 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
     final generation = _generation;
     var submitted = false;
     _pending ??= {
-      'operation_id': List.generate(
+      'op_id': List.generate(
         16,
         (_) => _random.nextInt(256).toRadixString(16).padLeft(2, '0'),
       ).join(),
@@ -378,7 +378,7 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
       final result = await _api.createComment(
         session: session,
         postId: widget.postId,
-        operationId: pending['operation_id'] as String,
+        opId: pending['op_id'] as String,
         replyText: pending['reply_text'] as String,
         replyTo: pending['reply_to'] as String?,
       );

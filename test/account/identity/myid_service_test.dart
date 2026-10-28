@@ -1095,7 +1095,7 @@ class _FakeIdentityTransaction extends CitizenIdentityTransaction {
   int fetchRebindContextCalls = 0;
 
   @override
-  Future<({String txHash, int usedNonce, String blockHashHex})> selfOccupyCid({
+  Future<({String txHash, int usedNonce, String blockHash})> selfOccupyCid({
     required String cidNumber,
     required String accountId,
     required Future<String?> Function(
@@ -1105,11 +1105,11 @@ class _FakeIdentityTransaction extends CitizenIdentityTransaction {
   }) async {
     occupiedCid = cidNumber;
     occupiedAccountId = accountId;
-    return (txHash: '0xtx', usedNonce: 0, blockHashHex: '0xblk');
+    return (txHash: '0xtx', usedNonce: 0, blockHash: '0xblk');
   }
 
   @override
-  Future<({String txHash, int usedNonce, String blockHashHex})>
+  Future<({String txHash, int usedNonce, String blockHash})>
   selfRebindCidAccount({
     required String cidNumber,
     required String newAccountId,
@@ -1127,7 +1127,7 @@ class _FakeIdentityTransaction extends CitizenIdentityTransaction {
     reboundNew = newAccountId;
     reboundOld = currentAccountId;
     onRebound?.call();
-    return (txHash: '0xtx', usedNonce: 0, blockHashHex: '0xblk');
+    return (txHash: '0xtx', usedNonce: 0, blockHash: '0xblk');
   }
 
   @override

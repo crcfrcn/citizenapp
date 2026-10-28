@@ -286,8 +286,8 @@ class SquareSessionProvider {
   }
 
   /// 身份主键是CID；所有普通请求使用同一MLS设备身份。
-  Future<void> projectFinalizedIdentity(String chainHash) =>
-      _client.projectFinalizedIdentity(chainHash);
+  Future<void> projectFinalizedIdentity(String blockHash) =>
+      _client.projectFinalizedIdentity(blockHash);
 
   Future<String?> currentCitizenId() async {
     final current = await _currentUser.resolve();

@@ -176,7 +176,7 @@ void main() {
     final records = await LocalTxStore.queryByAccountId(_accountId);
     final byHash = {for (final record in records) record.txHash: record};
     expect(byHash['0x01']?.entryState, LocalTxStore.statusInBlock);
-    expect(byHash['0x01']?.chainHash, '0x${'11' * 32}');
+    expect(byHash['0x01']?.blockHash, '0x${'11' * 32}');
     expect(byHash['0x02']?.entryState, LocalTxStore.statusFinalized);
     expect(byHash['0x02']?.blockNumber, 8);
     expect(byHash['0x02']?.extrinsicIndex, 3);

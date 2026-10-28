@@ -1034,7 +1034,7 @@ void main() {
         api.confirmPlatformSubscription(
           session: _cacheSession(),
           txHash: tx,
-          blockHashHex: block,
+          blockHash: block,
         ),
         throwsA(isA<SquareApiException>()),
       );
@@ -1160,7 +1160,7 @@ void main() {
     var deviceSignCount = 0;
     final sent = <http.Request>[];
     final txHash = '0x${'a' * 64}';
-    final chainHash = '0x${'b' * 64}';
+    final blockHash = '0x${'b' * 64}';
     final api = SquareApiClient(
       baseUrl: 'https://membergate.test/api',
       httpClient: MockClient((request) async {
@@ -1171,14 +1171,14 @@ void main() {
           expect(request.url.path, '/api/membergate/confirm');
           expect(jsonDecode(request.body), {
             'tx_hash': txHash,
-            'block_hash': chainHash,
+            'block_hash': blockHash,
             'include_state': true,
           });
           return http.Response(
             jsonEncode({
               'is_ok': true,
               'tx_hash': txHash,
-              'block_hash': chainHash,
+              'block_hash': blockHash,
               'membergate_state': jsonDecode(_membershipJson),
             }),
             200,
@@ -1216,7 +1216,7 @@ void main() {
     final confirmed = await api.confirmPlatformSubscription(
       session: session,
       txHash: txHash,
-      blockHashHex: chainHash,
+      blockHash: blockHash,
     );
     expect(sent.map((request) => request.method), ['POST']);
     expect(deviceSignCount, 1);
@@ -1234,11 +1234,11 @@ void main() {
   ]) {
     test('会员确认拒绝损坏回执字段$damagedField，不能读取快照或冒认确认成功', () async {
       var calls = 0;
-      final txHash = '0x${'a' * 64}', chainHash = '0x${'b' * 64}';
+      final txHash = '0x${'a' * 64}', blockHash = '0x${'b' * 64}';
       final receipt = <String, Object>{
         'is_ok': true,
         'tx_hash': txHash,
-        'block_hash': chainHash,
+        'block_hash': blockHash,
         'membergate_state': jsonDecode(_membershipJson),
       };
       receipt[damagedField] = damagedField == 'is_ok' ? false : '0x${'c' * 64}';
@@ -1255,7 +1255,7 @@ void main() {
         api.confirmPlatformSubscription(
           session: _FakeSessionProvider()._session(),
           txHash: txHash,
-          blockHashHex: chainHash,
+          blockHash: blockHash,
         ),
         throwsA(isA<SquareApiException>()),
       );
@@ -1265,7 +1265,7 @@ void main() {
 
   test('确认快照暂不可用传播503并且不补GET，不将回执转成未激活会员', () async {
     var confirmations = 0, reads = 0;
-    final txHash = '0x${'a' * 64}', chainHash = '0x${'b' * 64}';
+    final txHash = '0x${'a' * 64}', blockHash = '0x${'b' * 64}';
     final api = SquareApiClient(
       baseUrl: 'https://membergate.test/api',
       httpClient: MockClient((request) async {
@@ -1282,7 +1282,7 @@ void main() {
       api.confirmPlatformSubscription(
         session: _FakeSessionProvider()._session(),
         txHash: txHash,
-        blockHashHex: chainHash,
+        blockHash: blockHash,
       ),
       throwsA(
         isA<SquareApiException>().having(
@@ -1328,7 +1328,7 @@ void main() {
         api.confirmPlatformSubscription(
           session: _cacheSession(),
           txHash: tx,
-          blockHashHex: block,
+          blockHash: block,
         ),
         throwsA(isA<SquareApiException>()),
       );
@@ -1350,7 +1350,7 @@ void main() {
         api.confirmPlatformSubscription(
           session: _FakeSessionProvider()._session(),
           txHash: value,
-          blockHashHex: '0x${'b' * 64}',
+          blockHash: '0x${'b' * 64}',
         ),
         throwsA(isA<SquareApiException>()),
       );
@@ -1358,7 +1358,7 @@ void main() {
         api.confirmPlatformSubscription(
           session: _FakeSessionProvider()._session(),
           txHash: '0x${'a' * 64}',
-          blockHashHex: value,
+          blockHash: value,
         ),
         throwsA(isA<SquareApiException>()),
       );
@@ -2425,22 +2425,23 @@ void _resourcePreflightTests() {
         'gate': preflightGateFixture(s, now: now, limit: 1),
       });
       final lease = (await reserve(gate, s))..sent();
-      Map<String, dynamic> receipt(String device) => {
-        'user_id': s.cidNumber,
-        'account_id': s.accountId,
-        'binding_revision': s.bindRev,
-        'device_id': device,
-        'server_time_millis': now,
-        'counters': [
-          {
-            'metric': 'media_requests',
-            'window_start_millis': now ~/ 86400000 * 86400000,
-            'charged': 1,
-            'used': 1,
-            'limit': 1,
-          },
-        ],
-      };
+      chat_sdk.ResourceUsage receipt(String device) =>
+          chat_sdk.ResourceUsage()..mergeFromProto3Json({
+            'user_id': s.cidNumber,
+            'account_id': s.accountId,
+            'binding_revision': s.bindRev,
+            'device_id': device,
+            'server_time_millis': now,
+            'counters': [
+              {
+                'metric': 'media_requests',
+                'window_start_millis': now ~/ 86400000 * 86400000,
+                'charged': 1,
+                'used': 1,
+                'limit': 1,
+              },
+            ],
+          });
       lease.finish(receipt: receipt('other-device'));
       await expectLater(
         reserve(gate, s),
@@ -2534,21 +2535,22 @@ void _resourcePreflightTests() {
       final retry = (await begin('same'))..sent();
       final now = DateTime.now().millisecondsSinceEpoch;
       retry.finish(
-        receipt: {
-          'user_id': s.cidNumber,
-          'device_id': s.deviceId,
-          'account_id': s.accountId,
-          'binding_revision': s.bindRev,
-          'server_time_millis': now,
-          'counters': [
-            {
-              'metric': 'attachment_begins',
-              'window_start_millis': now ~/ 86400000 * 86400000,
-              'charged': 0,
-              'used': 1,
-            },
-          ],
-        },
+        receipt: (chat_sdk.ResourceUsage()
+          ..mergeFromProto3Json({
+            'user_id': s.cidNumber,
+            'device_id': s.deviceId,
+            'account_id': s.accountId,
+            'binding_revision': s.bindRev,
+            'server_time_millis': now,
+            'counters': [
+              {
+                'metric': 'attachment_begins',
+                'window_start_millis': now ~/ 86400000 * 86400000,
+                'charged': 0,
+                'used': 1,
+              },
+            ],
+          })),
       );
       (await begin('same')).cancel();
       await expectLater(
@@ -2599,21 +2601,22 @@ void _resourcePreflightTests() {
       gate.observe(origin, next, {'gate': rules(next, now + 1)});
       final retry = (await begin(next, 'same'))..sent();
       retry.finish(
-        receipt: {
-          'user_id': next.cidNumber,
-          'device_id': next.deviceId,
-          'account_id': next.accountId,
-          'binding_revision': next.bindRev,
-          'server_time_millis': now + 1,
-          'counters': [
-            {
-              'metric': 'attachment_begins',
-              'window_start_millis': now ~/ 86400000 * 86400000,
-              'charged': 0,
-              'used': 1,
-            },
-          ],
-        },
+        receipt: (chat_sdk.ResourceUsage()
+          ..mergeFromProto3Json({
+            'user_id': next.cidNumber,
+            'device_id': next.deviceId,
+            'account_id': next.accountId,
+            'binding_revision': next.bindRev,
+            'server_time_millis': now + 1,
+            'counters': [
+              {
+                'metric': 'attachment_begins',
+                'window_start_millis': now ~/ 86400000 * 86400000,
+                'charged': 0,
+                'used': 1,
+              },
+            ],
+          })),
       );
       (await begin(next, 'new')).cancel();
     });
@@ -2632,21 +2635,22 @@ void _resourcePreflightTests() {
       first.finish(
         accepted: false,
         uncertain: true,
-        receipt: {
-          'user_id': s.cidNumber,
-          'device_id': s.deviceId,
-          'account_id': s.accountId,
-          'binding_revision': s.bindRev,
-          'server_time_millis': now,
-          'counters': [
-            {
-              'metric': 'media_requests',
-              'window_start_millis': now ~/ 86400000 * 86400000,
-              'charged': 1,
-              'used': 1,
-            },
-          ],
-        },
+        receipt: (chat_sdk.ResourceUsage()
+          ..mergeFromProto3Json({
+            'user_id': s.cidNumber,
+            'device_id': s.deviceId,
+            'account_id': s.accountId,
+            'binding_revision': s.bindRev,
+            'server_time_millis': now,
+            'counters': [
+              {
+                'metric': 'media_requests',
+                'window_start_millis': now ~/ 86400000 * 86400000,
+                'charged': 1,
+                'used': 1,
+              },
+            ],
+          })),
       );
       (await reserve(gate, s)).cancel();
       await expectLater(

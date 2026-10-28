@@ -54,7 +54,7 @@ wallet_store.Entry _tx({
     ..entryState = status
     ..entrySource = 'test'
     ..createdAt = eventIndex
-    ..chainHash = '0x11'
+    ..blockHash = '0x11'
     ..eventIndex = eventIndex;
 }
 

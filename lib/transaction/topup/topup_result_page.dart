@@ -117,9 +117,9 @@ class _TopupResultPageState extends State<TopupResultPage>
   void _showOrder(TopupOrder order) {
     setState(() {
       _message = order.message;
-      _phase = order.status == TopupOrderStatus.paid
+      _phase = order.orderState == TopupPhase.paid
           ? _Phase.success
-          : order.status == TopupOrderStatus.exception
+          : order.orderState == TopupPhase.exception
           ? _Phase.failure
           : _record.txid == null
           ? _Phase.unresolved

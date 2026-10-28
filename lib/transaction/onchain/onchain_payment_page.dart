@@ -743,7 +743,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
           callHash: '0x${_toHex(completed.callDataHash)}',
 
           createdAt: DateTime.now().millisecondsSinceEpoch,
-          chainHash: completed.execution?.block.hash,
+          blockHash: completed.execution?.block.hash,
         );
         await _applyExecutionToLocalRecord(wallet, completed);
         if (mounted) await _loadLocalRecords();
@@ -822,7 +822,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
           txHash: txHash,
           executionId: completed.executionId,
           callHash: '0x${_toHex(completed.callDataHash)}',
-          chainHash: execution?.block.hash,
+          blockHash: execution?.block.hash,
           blockNumber: execution?.block.number.toInt(),
           extrinsicIndex: execution?.extrinsicIndex,
         );

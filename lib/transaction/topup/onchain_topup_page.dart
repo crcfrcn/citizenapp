@@ -169,7 +169,7 @@ class _OnchainTopupPageState extends State<OnchainTopupPage> {
               (r) => ListTile(
                 title: Text(
                   r.terminal
-                      ? '充值订单 · ${r.order!.status == TopupOrderStatus.paid ? '已到账' : '待核查'}'
+                      ? '充值订单 · ${r.order!.orderState == TopupPhase.paid ? '已到账' : '待核查'}'
                       : '恢复充值订单',
                 ),
                 subtitle: Text(

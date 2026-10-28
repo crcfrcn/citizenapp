@@ -50,7 +50,7 @@ class InternalVoteService {
   /// 返回交易哈希、runtime nonce 和入块哈希。业务模块无需感知提案所属
   /// pallet/MODULE_TAG，投票引擎会按 ProposalData 前缀自动分派到对应
   /// `InternalVoteExecutor`；最终投票状态仍以投票引擎 storage 为准。
-  Future<({String txHash, int usedNonce, String blockHashHex})> submit({
+  Future<({String txHash, int usedNonce, String blockHash})> submit({
     required int proposalId,
     required bool approve,
     String? actorCidNumber,
@@ -111,8 +111,7 @@ class InternalVoteService {
 
   // ──── 内部：签名提交 ────
 
-  Future<({String txHash, int usedNonce, String blockHashHex})>
-  _executeFinalized({
+  Future<({String txHash, int usedNonce, String blockHash})> _executeFinalized({
     required Uint8List callData,
     required Uint8List signerPublicKey,
     required Future<String?> Function(
@@ -150,7 +149,7 @@ class InternalVoteService {
     return (
       txHash: '0x${_hexEncode(completed.transactionHash)}',
       usedNonce: prepared.nonce.toInt(),
-      blockHashHex: completed.execution!.block.hash,
+      blockHash: completed.execution!.block.hash,
     );
   }
 

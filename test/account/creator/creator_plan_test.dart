@@ -300,7 +300,7 @@ void main() {
 
     service.completer.complete(
       CreatorPageData.active(
-        plan: CreatorPlan.empty(cidNumber),
+        plan: CreatorPlan.empty(),
         overview: CreatorOverview.zero,
       ),
     );
@@ -327,7 +327,7 @@ void main() {
 
     service.completer.complete(
       CreatorPageData.active(
-        plan: CreatorPlan.empty(cidNumber),
+        plan: CreatorPlan.empty(),
         overview: CreatorOverview.zero,
       ),
     );
@@ -338,9 +338,9 @@ void main() {
       final tier = CreatorTier.fromJson({
         'tier_id': 'a',
         'tier_name': '支持者',
-        'monthly_price_fen': 500,
-        'quarterly_price_fen': null,
-        'yearly_price_fen': 5000,
+        'month_fen': 500,
+        'quarter_fen': null,
+        'year_fen': 5000,
       });
       expect(tier.priceFenOf(BillingPeriod.monthly), 500);
       expect(tier.priceFenOf(BillingPeriod.yearly), 5000);
@@ -350,7 +350,6 @@ void main() {
       );
       expect(
         () => CreatorPlan.fromJson({
-          'creator_cid_number': 'cid',
           'tiers': [false],
         }),
         throwsFormatException,
@@ -360,10 +359,18 @@ void main() {
       const tier = CreatorTier(
         tierId: 't1',
         tierName: '铁杆粉丝',
-        pricesFen: {BillingPeriod.monthly: 990, BillingPeriod.yearly: 9900},
+        monthFen: 990,
+        quarterFen: null,
+        yearFen: 9900,
       );
       final json = tier.toJson();
-      expect(json['prices_fen'], {'monthly': 990, 'yearly': 9900});
+      expect(json, {
+        'tier_id': 't1',
+        'tier_name': '铁杆粉丝',
+        'month_fen': 990,
+        'quarter_fen': null,
+        'year_fen': 9900,
+      });
 
       final back = CreatorTier.fromJson(json);
       expect(back.tierId, 't1');
@@ -373,39 +380,50 @@ void main() {
       expect(back.hasPeriod(BillingPeriod.quarterly), isFalse);
     });
 
-    test('fromJson 丢弃非法/非正价格', () {
-      final tier = CreatorTier.fromJson({
-        'tier_id': 't2',
-        'tier_name': 'x',
-        'prices_fen': {'monthly': 0, 'quarterly': -5, 'yearly': 100, 'bad': 9},
-      });
-      expect(tier.hasPeriod(BillingPeriod.monthly), isFalse);
-      expect(tier.hasPeriod(BillingPeriod.quarterly), isFalse);
-      expect(tier.priceFenOf(BillingPeriod.yearly), 100);
+    test('fromJson拒绝非正、越界和旧价格结构', () {
+      for (final value in [0, -5, 9007199254740992, '100', 1.5]) {
+        expect(
+          () => CreatorTier.fromJson({
+            'tier_id': 't2',
+            'tier_name': 'x',
+            'month_fen': value,
+            'quarter_fen': null,
+            'year_fen': 100,
+          }),
+          throwsFormatException,
+        );
+      }
+      expect(
+        () => CreatorTier.fromJson({
+          'tier_id': 't2',
+          'tier_name': 'x',
+          'prices_fen': {'monthly': 100},
+        }),
+        throwsFormatException,
+      );
     });
   });
 
   group('CreatorPlan', () {
     test('fromJson 解析档位列表', () {
       final plan = CreatorPlan.fromJson({
-        'creator_cid_number': 'acc',
-        'updated_at': 123,
         'tiers': [
           {
             'tier_id': 'a',
             'tier_name': '基础',
-            'prices_fen': {'monthly': 500},
+            'month_fen': 500,
+            'quarter_fen': null,
+            'year_fen': null,
           },
         ],
       });
-      expect(plan.creatorCidNumber, 'acc');
-      expect(plan.updatedAt, 123);
+      expect(plan.toJson().keys, ['tiers']);
       expect(plan.tiers, hasLength(1));
       expect(plan.tiers.first.priceFenOf(BillingPeriod.monthly), 500);
     });
 
     test('empty 构造无档位', () {
-      final plan = CreatorPlan.empty('acc');
+      final plan = CreatorPlan.empty();
       expect(plan.isEmpty, isTrue);
       expect(CreatorPlan.maxTiers, 10);
     });
@@ -424,7 +442,7 @@ void main() {
     final active = CreatorDisplaySnapshot(
       cidNumber: cidNumber,
       data: CreatorPageData.active(
-        plan: CreatorPlan.empty(cidNumber),
+        plan: CreatorPlan.empty(),
         overview: CreatorOverview.zero,
       ),
       memberAt: nowMs - 1000,
@@ -465,15 +483,15 @@ void main() {
         cidNumber: cidNumber,
         data: CreatorPageData.active(
           plan: const CreatorPlan(
-            creatorCidNumber: cidNumber,
             tiers: [
               CreatorTier(
                 tierId: 'local',
                 tierName: '本地会员档',
-                pricesFen: {BillingPeriod.monthly: 990},
+                monthFen: 990,
+                quarterFen: null,
+                yearFen: null,
               ),
             ],
-            updatedAt: 1,
           ),
           overview: const CreatorOverview(
             subscriberCount: 7,

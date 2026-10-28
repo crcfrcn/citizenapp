@@ -96,7 +96,7 @@ void main() {
         bindRev: 1,
         accountId: registrationContext().accountId,
       ),
-      chainHash: '0x${'aa' * 32}',
+      blockHash: '0x${'aa' * 32}',
     );
     chain = null;
     cancel = false;
@@ -297,11 +297,11 @@ void main() {
     await expectLater(run(), throwsA(isA<RegistrationException>()));
     chain = FinalizedRegistration(
       binding: finalized.binding,
-      chainHash: '0x${'99' * 32}',
+      blockHash: '0x${'99' * 32}',
     );
     activateFail = false;
     await run();
-    expect(store.value?.finalized?.chainHash, finalized.chainHash);
+    expect(store.value?.finalized?.blockHash, finalized.blockHash);
     expect(wallets, 1);
   });
   test('未知广播和网络未知都禁止重发', () async {

@@ -51,7 +51,7 @@ void main() {
     expect(target.address, ss58FromAccountIdText(binding.accountIdText));
     expect(target.cidNumber, _cid);
     expect(target.bindRev, 2);
-    expect(target.chainHash, binding.block!.hash);
+    expect(target.blockHash, binding.block!.hash);
   });
   test('无有效绑定时拒绝，禁止回退联系人缓存地址', () async {
     final reader = _Reader(null);

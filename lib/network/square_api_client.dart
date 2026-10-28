@@ -93,7 +93,7 @@ abstract interface class SquareResourceLease {
   void sent();
   void finish({
     Map<String, String>? headers,
-    Map<String, dynamic>? receipt,
+    sdk.ResourceUsage? receipt,
     bool accepted = true,
     bool uncertain = false,
   });
@@ -536,12 +536,12 @@ abstract class SquareFeedSource {
 
 abstract class SquarePublicationConfirmer {
   /// 仅查询已发布事实；未知结果必须保留本机恢复记录，不得重新发交易。
-  Future<({SquarePost post, String blockHash, String transactionHash})>
+  Future<({SquarePost post, String blockHash, String txHash})>
   readPublishedProof({required SquareSession session, required String postId});
   Future<SquarePost> confirmPublishedPost({
     required SquareSession session,
     required String postId,
-    required String blockHashHex,
+    required String blockHash,
     required String txHash,
   });
 
@@ -775,9 +775,9 @@ class SquareApiClient
       }
       final request = sdk.MlsAuthenticationRequest(
         serviceOrigin: uri.origin,
-        challenge: nonce,
-        expiresAtMillis: expiry,
-        method: method,
+        nonceId: nonce,
+        expiresAt: expiry,
+        httpMethod: method,
         requestTarget: uri.path + (uri.hasQuery ? '?${uri.query}' : ''),
         bodyBytes: bytes,
       );
@@ -1249,11 +1249,11 @@ class SquareApiClient
   }
 
   /// finalized投影是公开链证据，不接收客户端自报CID或账户。
-  Future<void> projectFinalizedIdentity(String chainHash) async {
-    if (!RegExp(r'^0x[0-9a-f]{64}$').hasMatch(chainHash)) {
+  Future<void> projectFinalizedIdentity(String blockHash) async {
+    if (!RegExp(r'^0x[0-9a-f]{64}$').hasMatch(blockHash)) {
       throw const SquareApiException('finalized块无效');
     }
-    final data = await _postJson('/user/identity', {'block_hash': chainHash});
+    final data = await _postJson('/user/identity', {'block_hash': blockHash});
     if (data['is_ok'] != true) throw const SquareApiException('身份投影尚未完成');
   }
 
@@ -1339,21 +1339,21 @@ class SquareApiClient
   Future<SquareMembershipState> confirmPlatformSubscription({
     required SquareSession session,
     required String txHash,
-    required String blockHashHex,
+    required String blockHash,
   }) async {
     final hash = RegExp(r'^0x[0-9a-f]{64}$');
-    if (!hash.hasMatch(txHash) || !hash.hasMatch(blockHashHex)) {
+    if (!hash.hasMatch(txHash) || !hash.hasMatch(blockHash)) {
       throw const SquareApiException('会员确认交易或块无效');
     }
     final data = await _postJson('/membergate/confirm', {
       'tx_hash': txHash,
-      'block_hash': blockHashHex,
+      'block_hash': blockHash,
       'include_state': true,
     }, session: session);
     if (data.length != 4 ||
         data['is_ok'] != true ||
         data['tx_hash'] != txHash ||
-        data['block_hash'] != blockHashHex) {
+        data['block_hash'] != blockHash) {
       throw const SquareApiException('会员确认回执与本次交易不一致');
     }
     final snapshot = data['membergate_state'];
@@ -1498,12 +1498,12 @@ class SquareApiClient
   Future<SquarePost> confirmPublishedPost({
     required SquareSession session,
     required String postId,
-    required String blockHashHex,
+    required String blockHash,
     required String txHash,
   }) async {
     final data = await _postJson('/8964/posts/confirm', {
       'post_id': postId,
-      'block_hash': blockHashHex,
+      'block_hash': blockHash,
       'tx_hash': txHash,
     }, session: session);
     final hash = data['content_hash'];
@@ -1517,8 +1517,8 @@ class SquareApiClient
     }
     // 原确认只返回事实回执；沿既有详情入口读回一次，不猜造旧post结构或重发链交易。
     final proof = await readPublishedProof(session: session, postId: postId);
-    if (proof.blockHash != blockHashHex ||
-        proof.transactionHash != txHash ||
+    if (proof.blockHash != blockHash ||
+        proof.txHash != txHash ||
         proof.post.contentHash != hash ||
         proof.post.postCategory.name != postCategory) {
       throw const SquareApiException('发布确认与实际证明不一致');
@@ -1664,7 +1664,7 @@ class SquareApiClient
 
   /// 显式恢复读取服务器已确认的发布证明，不签名、不重新提交交易。
   @override
-  Future<({SquarePost post, String blockHash, String transactionHash})>
+  Future<({SquarePost post, String blockHash, String txHash})>
   readPublishedProof({
     required SquareSession session,
     required String postId,
@@ -1680,7 +1680,7 @@ class SquareApiClient
         raw['post_state'] != 'published') {
       throw const SquareApiException('发布证明归属或状态不一致');
     }
-    final block = raw['chain_hash'];
+    final block = raw['block_hash'];
     final tx = raw['tx_hash'];
     if (block is! String ||
         tx is! String ||
@@ -1695,7 +1695,7 @@ class SquareApiClient
     return (
       post: _parsePost(raw, manifest: manifest),
       blockHash: block,
-      transactionHash: tx,
+      txHash: tx,
     );
   }
 
@@ -2012,23 +2012,21 @@ class SquareApiClient
   }
 
   /// 关注一个身份（写接口带 session；关注者 cid 由 Worker 从 session 派生，
-  /// 请求体只带目标身份主键 followed_cid_number）。
+  /// 请求体只带目标身份主键 peer_cid）。
   Future<void> followUser({
     required SquareSession session,
-    required String followedCidNumber,
+    required String peerCid,
   }) async {
-    await _postJson('/8964/follows', {
-      'followed_cid_number': followedCidNumber,
-    }, session: session);
+    await _postJson('/8964/follows', {'peer_cid': peerCid}, session: session);
   }
 
   /// 取消关注一个身份（路径末段 = 目标身份主键 cid_number）。
   Future<void> unfollowUser({
     required SquareSession session,
-    required String followedCidNumber,
+    required String peerCid,
   }) async {
     await _deleteJson(
-      '/8964/follows/${Uri.encodeComponent(followedCidNumber)}',
+      '/8964/follows/${Uri.encodeComponent(peerCid)}',
       session: session,
     );
   }
@@ -2037,11 +2035,11 @@ class SquareApiClient
   /// 路径前段 = 目标身份主键 cid_number。
   Future<void> setNotify({
     required SquareSession session,
-    required String followedCidNumber,
+    required String peerCid,
     required bool enabled,
   }) async {
     await _putJson(
-      '/8964/follows/${Uri.encodeComponent(followedCidNumber)}/notifications',
+      '/8964/follows/${Uri.encodeComponent(peerCid)}/notifications',
       {'enabled': enabled},
       session: session,
     );
@@ -2084,11 +2082,11 @@ class SquareApiClient
   Future<Map<String, dynamic>> createComment({
     required SquareSession session,
     required String postId,
-    required String operationId,
+    required String opId,
     required String replyText,
     String? replyTo,
   }) => _postJson('/8964/posts/${Uri.encodeComponent(postId)}/comments', {
-    'operation_id': operationId,
+    'op_id': opId,
     'reply_text': replyText,
     'reply_to': replyTo,
   }, session: session);
@@ -2109,7 +2107,7 @@ class SquareApiClient
   }
 
   /// 拉取关注、关注者或互关列表（路由末段 = 目标身份主键 cid_number；列表项为
-  /// 身份主键 cid_number）。
+  /// 目标身份主键 peer_cid）。
   Future<({List<SquareFollowEntry> entries, int? nextCursor})> fetchFollows({
     required String cidNumber,
     required String type,

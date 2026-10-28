@@ -32,13 +32,13 @@ class SquarePublishResult {
   const SquarePublishResult({
     required this.post,
     required this.txHash,
-    required this.blockHashHex,
+    required this.blockHash,
     this.completionWarning,
   });
 
   final SquarePost post;
   final String txHash;
-  final String blockHashHex;
+  final String blockHash;
 
   /// 远端已发布、本地收尾或原帖删除仍待显式恢复时的成功告警。
   final String? completionWarning;
@@ -145,7 +145,7 @@ class SquarePublishService {
       return SquarePublishResult(
         post: const SquareLocalPostPresenter().present(local).post,
         txHash: pending.txHash!,
-        blockHashHex: pending.chainHash!,
+        blockHash: pending.blockHash!,
         completionWarning:
             warning ?? (pending.replaceId == null ? null : '本地副本已恢复，请检查原帖删除状态'),
       );
@@ -194,8 +194,8 @@ class SquarePublishService {
         );
         _recordConfirmation(pending, proof.post);
         pending
-          ..chainHash = proof.blockHash
-          ..txHash = proof.transactionHash
+          ..blockHash = proof.blockHash
+          ..txHash = proof.txHash
           ..jobState = 'finalized';
         await _postStore.savePublication(pending);
         pending.jobState = 'confirmed';
@@ -203,8 +203,8 @@ class SquarePublishService {
         final warning = await _finishLocal(pending);
         return SquarePublishResult(
           post: proof.post,
-          txHash: proof.transactionHash,
-          blockHashHex: proof.blockHash,
+          txHash: proof.txHash,
+          blockHash: proof.blockHash,
           completionWarning: warning,
         );
       }
@@ -212,7 +212,7 @@ class SquarePublishService {
         final post = await _publicationConfirmer.confirmPublishedPost(
           session: session,
           postId: pending.postId,
-          blockHashHex: pending.chainHash!,
+          blockHash: pending.blockHash!,
           txHash: pending.txHash!,
         );
         _recordConfirmation(pending, post);
@@ -221,7 +221,7 @@ class SquarePublishService {
         return SquarePublishResult(
           post: post,
           txHash: pending.txHash!,
-          blockHashHex: pending.chainHash!,
+          blockHash: pending.blockHash!,
           completionWarning: warning,
         );
       }
@@ -304,14 +304,14 @@ class SquarePublishService {
       publication
         ..jobState = 'finalized'
         ..txHash = chainResult.txHash
-        ..chainHash = chainResult.blockHashHex;
+        ..blockHash = chainResult.blockHash;
       await _postStore.savePublication(publication);
 
       onStage?.call(SquarePublishStage.confirmingPost);
       final confirmedPost = await _publicationConfirmer.confirmPublishedPost(
         session: uploaded.session,
         postId: uploaded.postId,
-        blockHashHex: chainResult.blockHashHex,
+        blockHash: chainResult.blockHash,
         txHash: chainResult.txHash,
       );
 
@@ -336,7 +336,7 @@ class SquarePublishService {
       return SquarePublishResult(
         post: confirmedPost,
         txHash: chainResult.txHash,
-        blockHashHex: chainResult.blockHashHex,
+        blockHash: chainResult.blockHash,
         completionWarning: completionWarning.isEmpty ? null : completionWarning,
       );
     } catch (e) {

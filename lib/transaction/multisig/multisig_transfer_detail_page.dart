@@ -626,7 +626,7 @@ class _MultisigTransferDetailPageState
             ),
           );
       AppLog.d(
-        '[MultisigTransferVote] submit 已入块 txHash=${result.txHash} nonce=${result.usedNonce} block=${result.blockHashHex}',
+        '[MultisigTransferVote] submit 已入块 txHash=${result.txHash} nonce=${result.usedNonce} block=${result.blockHash}',
       );
 
       if (!mounted) return;

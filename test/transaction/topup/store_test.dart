@@ -32,6 +32,43 @@ void main() {
   tearDown(() async {
     await dir.delete(recursive: true);
   });
+  test('订单七阶段只保存order_state，缺定位和非法类型拒绝', () {
+    final tx = '0x${'09' * 32}';
+    final base = <String, dynamic>{
+      'is_ok': true,
+      'order_id': record.intent.orderId,
+      'coin_fen': record.intent.coinFen,
+      'payment_txid': tx,
+      'gmb_tx_hash': tx,
+      'exception_reason': null,
+    };
+    for (final phase in TopupPhase.values) {
+      final order = TopupOrder.fromJson({...base, 'order_state': phase.name});
+      expect(order.orderState, phase);
+      expect(
+        order.terminal,
+        phase == TopupPhase.paid || phase == TopupPhase.exception,
+      );
+      expect(order.toJson().keys.toSet(), {
+        'is_ok',
+        'order_id',
+        'order_state',
+        'coin_fen',
+        'payment_txid',
+        'gmb_tx_hash',
+        'exception_reason',
+      });
+    }
+    for (final bad in [
+      {...base, 'order_state': 'unknown'},
+      {...base, 'order_state': 'paid', 'gmb_tx_hash': null},
+      {...base, 'order_state': 'paid', 'payment_txid': null},
+      {...base, 'order_state': 'broadcast', 'order_id': null},
+      {...base, 'order_state': 'awaiting', 'payment_txid': 1},
+    ]) {
+      expect(() => TopupOrder.fromJson(bad), throwsFormatException);
+    }
+  });
   test('原子记录重开恢复，按origin与目标账户隔离', () async {
     await store.save(record);
     final reopened = TopupStore(
@@ -123,7 +160,6 @@ void main() {
     );
     final order = TopupOrder(
       orderId: record.intent.orderId,
-      status: TopupOrderStatus.pending,
       orderState: TopupPhase.verifying,
       coinFen: record.intent.coinFen,
       paymentTxid: '0x${'08' * 32}',
@@ -218,7 +254,6 @@ void main() {
       final original = record.update(
         order: TopupOrder(
           orderId: record.intent.orderId,
-          status: TopupOrderStatus.pending,
           orderState: TopupPhase.awaiting,
           coinFen: record.intent.coinFen,
         ),

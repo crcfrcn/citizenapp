@@ -254,7 +254,7 @@ class SquarePostStore
             current.replaceId != row.replaceId ||
             (old >= 2 &&
                 (current.txHash != row.txHash ||
-                    current.chainHash != row.chainHash)) ||
+                    current.blockHash != row.blockHash)) ||
             (old >= 3 &&
                 (current.publishedAt != row.publishedAt ||
                     current.postCategory != row.postCategory ||
@@ -316,7 +316,7 @@ class SquarePostStore
     const states = ['prepared', 'submitting', 'finalized', 'confirmed'];
     final next = states.indexOf(row.jobState);
     if (next < 0 ||
-        (next >= 2 && (row.txHash == null || row.chainHash == null)) ||
+        (next >= 2 && (row.txHash == null || row.blockHash == null)) ||
         (next == 3 && (row.publishedAt == null || row.postCategory == null))) {
       throw const SquarePostStoreException('发布恢复阶段缺少确认事实');
     }

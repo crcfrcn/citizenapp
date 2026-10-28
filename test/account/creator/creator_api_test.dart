@@ -23,6 +23,86 @@ import '../../support/isar_test_env.dart';
 import '../../support/fake_citizen_sdk.dart';
 
 void main() {
+  test('本人概览creator_rev条件读取与他人真实平面价格报文一致，不回填属主', () async {
+    var ownReads = 0;
+    var target = testMlsCidNumber;
+    final row = {
+      'tier_id': 't',
+      'tier_name': '支持者',
+      'month_fen': 101,
+      'quarter_fen': 8,
+      'year_fen': 25,
+    };
+    final api = CreatorApiHttp(
+      baseUrl: 'https://creator.test/api',
+      httpClient: MockClient((request) async {
+        expect(request.headers['x-mls-proof'], isNotEmpty);
+        final Map<String, Object?> body;
+        if (request.url.path.endsWith('/overview')) {
+          ownReads++;
+          if (ownReads == 1) {
+            body = {
+              'is_ok': true,
+              'creator_rev': 7,
+              'plan': {
+                'tiers': [row],
+              },
+              'overview': {
+                'subscriber_count': 1,
+                'monthly_income_fen': 101,
+                'tier_count': 1,
+              },
+            };
+          } else {
+            expect(request.url.queryParameters, {'creator_rev': '7'});
+            body = {'is_ok': true, 'unchanged': true, 'creator_rev': 7};
+          }
+        } else {
+          body = {
+            'is_ok': true,
+            'creator_cid': target,
+            'tiers': [row],
+            'membergate_active': true,
+            'subscription': {
+              'tier_id': 't',
+              'billing_period': 'monthly',
+              'sub_state': 'active',
+              'paid_until': 9999999999999,
+            },
+          };
+        }
+        return http.Response(
+          jsonEncode(body),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }),
+    );
+    final current = SquareSession(
+      deviceId: testMlsDeviceId,
+      sessionToken: 't',
+      cidNumber: testMlsCidNumber,
+      bindRev: 1,
+      accountId: testMlsAccountId,
+      expiresAt: 9999999999999,
+      authenticateRequest: fakeMlsRequestHeaders,
+    );
+    final own = await api.fetchMyPlan(current);
+    await api.fetchOverview(current);
+    final other = await api.fetchViewOf(current, target);
+    expect(own!.toJson(), {
+      'tiers': [row],
+    });
+    expect(other.plan!.toJson(), own.toJson());
+    expect(other.subscription!.subState, 'active');
+    expect(other.plan!.tiers.single.priceFenOf(BillingPeriod.quarterly), 8);
+    target = 'CN220-CTZN2-100000002-2026';
+    await expectLater(
+      api.fetchViewOf(current, testMlsCidNumber),
+      throwsA(isA<CreatorApiException>()),
+    );
+  });
+
   useIsolatedIsar();
   const session = SquareSession(
     deviceId: testMlsDeviceId,
@@ -37,7 +117,9 @@ void main() {
   const tier = CreatorTier(
     tierId: 't1',
     tierName: '铁杆粉丝',
-    pricesFen: {BillingPeriod.monthly: 990},
+    monthFen: 990,
+    quarterFen: null,
+    yearFen: null,
   );
 
   test('FakeCreatorApi 只接收已 finalized 交易哈希，不再触发第二次业务签名', () async {
@@ -46,11 +128,11 @@ void main() {
     final plan = await api.saveMyPlan(
       session: session,
       txHash: '0x${List.filled(64, 'a').join()}',
-      blockHashHex: '0x${List.filled(64, 'b').join()}',
+      blockHash: '0x${List.filled(64, 'b').join()}',
     );
 
     expect(api.lastSaveTxHash, '0x${List.filled(64, 'a').join()}');
-    expect(plan.creatorCidNumber, session.cidNumber);
+    expect(plan.toJson(), {'tiers': []});
     expect(plan.tiers, isEmpty);
     expect(await api.fetchMyPlan(session), isNotNull);
   });
@@ -76,16 +158,15 @@ void main() {
         return http.Response(
           jsonEncode({
             'is_ok': true,
-            'revision': 1,
+            'creator_rev': 1,
             'plan': {
-              'creator_cid_number': session.cidNumber,
-              'updated_at': 0,
               'tiers': [
                 {
                   'tier_id': 't1',
                   'tier_name': '铁杆粉丝',
-                  'tier_order': 0,
-                  'prices_fen': {'monthly': 990},
+                  'month_fen': 990,
+                  'quarter_fen': null,
+                  'year_fen': null,
                 },
               ],
             },
@@ -112,7 +193,7 @@ void main() {
     final plan = await api.saveMyPlan(
       session: authorized,
       txHash: tx,
-      blockHashHex: block,
+      blockHash: block,
     );
     expect(plan.tiers.single.priceFenOf(BillingPeriod.monthly), 990);
     expect(requests.map((r) => r.url.path), [
@@ -121,9 +202,9 @@ void main() {
     ]);
     await api.confirmCreatorSubscription(
       session: authorized,
-      creatorCidNumber: 'CN220-CTZN2-100000001-2026',
+      creatorCid: 'CN220-CTZN2-100000001-2026',
       txHash: tx,
-      blockHashHex: block,
+      blockHash: block,
     );
     expect(
       requests.last.url.path,
@@ -132,13 +213,7 @@ void main() {
   });
 
   test('FakeCreatorApi 概览默认按档位数', () async {
-    final api = FakeCreatorApi(
-      initialPlan: const CreatorPlan(
-        creatorCidNumber: 'CN220-CTZN2-198805200-2026',
-        tiers: [tier],
-        updatedAt: 0,
-      ),
-    );
+    final api = FakeCreatorApi(initialPlan: const CreatorPlan(tiers: [tier]));
     final overview = await api.fetchOverview(session);
     expect(overview.tierCount, 1);
     expect(overview.subscriberCount, 0);
@@ -156,11 +231,7 @@ void main() {
       subscriptionService: _ActiveMembershipService(),
     );
     final display = CreatorPageData.active(
-      plan: const CreatorPlan(
-        creatorCidNumber: _creatorCidNumber,
-        tiers: [tier],
-        updatedAt: 123,
-      ),
+      plan: const CreatorPlan(tiers: [tier]),
       overview: const CreatorOverview(
         subscriberCount: 7,
         monthlyIncomeFen: 8800,
@@ -168,15 +239,15 @@ void main() {
       ),
     );
     await service.rememberDisplayData(
-      cidNumber: _creatorCidNumber,
+      cidNumber: _creatorCid,
       data: display,
       memberAt: 1000,
       creatorAt: 2000,
     );
 
-    final snapshot = await service.readDisplaySnapshot(_creatorCidNumber);
+    final snapshot = await service.readDisplaySnapshot(_creatorCid);
     expect(snapshot, isNotNull);
-    expect(snapshot!.cidNumber, _creatorCidNumber);
+    expect(snapshot!.cidNumber, _creatorCid);
     expect(snapshot.data.gated, isFalse);
     expect(snapshot.data.plan!.tiers.single.tierName, '铁杆粉丝');
     expect(snapshot.data.overview!.subscriberCount, 7);
@@ -227,7 +298,7 @@ void main() {
       subscriptionService: _ActiveMembershipService(),
     );
 
-    final data = await service.load(expectedCidNumber: _creatorCidNumber);
+    final data = await service.load(expectedCidNumber: _creatorCid);
 
     expect(data.gated, isFalse);
     expect(rpc.lastPlansBlockHash, isNull, reason: '页面展示不得再直接读取链上创作者档位');
@@ -236,11 +307,7 @@ void main() {
   test('仅改档位名只提交 call_index 6，不重写价格计划', () async {
     final rpc = _FakeSubscriptionChain();
     final api = FakeCreatorApi(
-      initialPlan: CreatorPlan(
-        creatorCidNumber: _creatorCidNumber,
-        tiers: [tier.copyWith(tierName: '核心支持者')],
-        updatedAt: 1,
-      ),
+      initialPlan: CreatorPlan(tiers: [tier.copyWith(tierName: '核心支持者')]),
     );
     final service = CreatorService(
       chain: TestCitizenChain(),
@@ -273,7 +340,7 @@ const _accountId =
     '0x0000000000000000000000000000000000000000000000000000000000000000';
 const _reboundAccountId =
     '0x1111111111111111111111111111111111111111111111111111111111111111';
-const _creatorCidNumber = 'CN220-CTZN2-198805200-2026';
+const _creatorCid = 'CN220-CTZN2-198805200-2026';
 
 class _FakeSessionProvider implements SquareSessionProvider {
   String accountId = _accountId;
@@ -282,7 +349,7 @@ class _FakeSessionProvider implements SquareSessionProvider {
   Future<SquareSession?> ensureSession() async => SquareSession(
     deviceId: testMlsDeviceId,
     sessionToken: 'creator-session',
-    cidNumber: _creatorCidNumber,
+    cidNumber: _creatorCid,
     bindRev: 1,
     accountId: accountId,
     expiresAt: 9999999999999,
@@ -305,7 +372,7 @@ class _FakeIdentityCache implements FinalizedIdentityResolver {
     accountId: _accountId,
     accountAddress: _signerSs58Address,
     snapshot: CitizenIdentityChainSnapshot(
-      cidNumber: _creatorCidNumber,
+      cidNumber: _creatorCid,
       accountId: Uint8List(32),
       bindRev: 1,
       votingIdentity: null,
@@ -377,7 +444,7 @@ class _FakeSubscriptionChain extends SubscriptionChain {
   @override
   Future<FinalizedSubscriptionSnapshot> fetchSubscriptionSnapshot({
     required String cidNumber,
-    String? creatorCidNumber,
+    String? creatorCid,
   }) async => FinalizedSubscriptionSnapshot(
     state: ChainSubscriptionState(
       plan: const ChainSubscriptionPlan.platform('freedom'),
@@ -411,7 +478,7 @@ class _FakeSubscriptionChain extends SubscriptionChain {
     return (
       txHash: '0x${List.filled(64, 'c').join()}',
       usedNonce: 1,
-      blockHashHex: '0x${List.filled(64, 'd').join()}',
+      blockHash: '0x${List.filled(64, 'd').join()}',
     );
   }
 
@@ -431,14 +498,12 @@ class _FakeSubscriptionChain extends SubscriptionChain {
     return (
       txHash: '0x${List.filled(64, 'e').join()}',
       usedNonce: 2,
-      blockHashHex: '0x${List.filled(64, 'f').join()}',
+      blockHash: '0x${List.filled(64, 'f').join()}',
     );
   }
 
   @override
-  Future<List<ChainCreatorTier>> fetchCreatorPlans(
-    String creatorCidNumber,
-  ) async => [
+  Future<List<ChainCreatorTier>> fetchCreatorPlans(String creatorCid) async => [
     ChainCreatorTier(
       tierId: 't1',
       tierName: currentTierName,
@@ -448,11 +513,11 @@ class _FakeSubscriptionChain extends SubscriptionChain {
 
   @override
   Future<List<ChainCreatorTier>> fetchCreatorPlansAtBlock(
-    String creatorCidNumber,
+    String creatorCid,
     CitizenBlockRef block,
   ) {
     lastPlansBlockHash = block.hash;
-    return fetchCreatorPlans(creatorCidNumber);
+    return fetchCreatorPlans(creatorCid);
   }
 }
 
@@ -464,14 +529,14 @@ class _FlakyCreatorApi extends FakeCreatorApi {
   Future<CreatorPlan> saveMyPlan({
     required SquareSession session,
     required String txHash,
-    required String blockHashHex,
+    required String blockHash,
   }) async {
     saveCount++;
     if (failSave) throw const CreatorApiException('temporary');
     return super.saveMyPlan(
       session: session,
       txHash: txHash,
-      blockHashHex: blockHashHex,
+      blockHash: blockHash,
     );
   }
 }

@@ -160,9 +160,9 @@ void validateMlsChallenge(
       challenge['account_id'] != identity.accountId ||
       challenge['bind_rev'] != identity.bindRev ||
       challenge['service_origin'] != request.serviceOrigin ||
-      challenge['nonce_id'] != request.challenge ||
-      challenge['expires_at'] != request.expiresAtMillis ||
-      challenge['http_method'] != request.method ||
+      challenge['nonce_id'] != request.nonceId ||
+      challenge['expires_at'] != request.expiresAt ||
+      challenge['http_method'] != request.httpMethod ||
       challenge['request_target'] != request.requestTarget ||
       challenge['body_hash'] != '0x${sha256.convert(request.bodyBytes)}') {
     throw const MlsAuthenticationException('MLS挑战与实际请求或当前身份不一致');
@@ -176,26 +176,26 @@ void validateMlsProofMatches(
   sdk.MlsAuthenticationProof proof,
 ) {
   validateMlsChallenge(identity, request, challenge);
-  // 依赖的证明字段与序列化由SDK拥有；用其公开构造器/编码器核对实际输出，
-  // 不把SDK字段改拼成另一套业务字段，也不复制其编码或签名实现。
+  // 直接验证SDK原生字段集；宿主不再构造第二份证明或翻译字段名。
   final fields = proof.toJson();
-  final expected = sdk.MlsAuthenticationProof(
-    userId: identity.cidNumber,
-    deviceId: identity.deviceId,
-    publicKey: identity.publicKey,
-    accountId: identity.accountId,
-    bindingRevision: identity.bindRev,
-    serviceOrigin: request.serviceOrigin,
-    challenge: request.challenge,
-    expiresAtMillis: request.expiresAtMillis,
-    method: request.method,
-    requestTarget: request.requestTarget,
-    bodySha256: challenge['body_hash'] as String,
-    signature: proof.signature,
-  ).toJson();
-  if (fields.length != 12 ||
-      !RegExp(r'^0x[0-9a-f]{128}$').hasMatch(proof.signature) ||
-      !fields.entries.every((entry) => expected[entry.key] == entry.value)) {
+  final expected = <String, Object>{
+    'user_id': identity.cidNumber,
+    'device_id': identity.deviceId,
+    'public_key': identity.publicKey,
+    'account_id': identity.accountId,
+    'bind_rev': identity.bindRev,
+    'service_origin': request.serviceOrigin,
+    'nonce_id': request.nonceId,
+    'expires_at': request.expiresAt,
+    'http_method': request.httpMethod,
+    'request_target': request.requestTarget,
+    'body_hash': challenge['body_hash'] as String,
+  };
+  final signature = fields['signature'];
+  if (fields.length != expected.length + 1 ||
+      signature is! String ||
+      !RegExp(r'^0x[0-9a-f]{128}$').hasMatch(signature) ||
+      !expected.entries.every((entry) => fields[entry.key] == entry.value)) {
     throw const MlsAuthenticationException('MLS证明与固定挑战不一致');
   }
 }

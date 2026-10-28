@@ -90,7 +90,7 @@ void main() {
           bindRev: 1,
           accountId: c.accountId,
         ),
-        chainHash: '0x${'44' * 32}',
+        blockHash: '0x${'44' * 32}',
       ),
     );
     await store().save(null, value);
@@ -140,7 +140,7 @@ void main() {
           bindRev: 1,
           accountId: c.accountId,
         ),
-        chainHash: '0x${'44' * 32}',
+        blockHash: '0x${'44' * 32}',
       ),
     );
     await store().save(null, value);

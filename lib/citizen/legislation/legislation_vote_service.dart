@@ -41,7 +41,7 @@ class LegislationVoteService {
   // ──── 公开 API ────
 
   /// 当前代表机构表决；同一钱包在不同机构的席位分别记票。
-  Future<({String txHash, int usedNonce, String blockHashHex})>
+  Future<({String txHash, int usedNonce, String blockHash})>
   castRepresentativeVote({
     required int proposalId,
     required String voterRoleCode,
@@ -70,13 +70,13 @@ class LegislationVoteService {
       voterRoleCode,
       approve,
       signerPublicKey,
-      result.blockHashHex,
+      result.blockHash,
     );
     return result;
   }
 
   /// 行政首长(机构法定代表人)签署或否决。
-  Future<({String txHash, int usedNonce, String blockHashHex})> executiveSign({
+  Future<({String txHash, int usedNonce, String blockHash})> executiveSign({
     required int proposalId,
     required bool approve,
     required Uint8List signerPublicKey,
@@ -93,12 +93,12 @@ class LegislationVoteService {
       externalSigning: externalSigning,
     );
     // 行政签署无 per-signer 账本:确认提案已离开签署阶段(进会签/已生效/已否决)。
-    await _confirmStageAdvanced(proposalId, LegStage.sign, result.blockHashHex);
+    await _confirmStageAdvanced(proposalId, LegStage.sign, result.blockHash);
     return result;
   }
 
   /// 三人会签(立法院院长 + 参议长 + 众议长)签署或否决。
-  Future<({String txHash, int usedNonce, String blockHashHex})> overrideSign({
+  Future<({String txHash, int usedNonce, String blockHash})> overrideSign({
     required int proposalId,
     required bool approve,
     required Uint8List signerPublicKey,
@@ -117,14 +117,14 @@ class LegislationVoteService {
     await _confirmSignRecorded(
       proposalId,
       signerPublicKey,
-      result.blockHashHex,
+      result.blockHash,
       _query.fetchOverrideSigns,
     );
     return result;
   }
 
   /// 护宪大法官终审表决(修宪)。
-  Future<({String txHash, int usedNonce, String blockHashHex})> guardVote({
+  Future<({String txHash, int usedNonce, String blockHash})> guardVote({
     required int proposalId,
     required bool approve,
     required Uint8List signerPublicKey,
@@ -143,7 +143,7 @@ class LegislationVoteService {
     await _confirmSignRecorded(
       proposalId,
       signerPublicKey,
-      result.blockHashHex,
+      result.blockHash,
       _query.fetchGuardSigns,
     );
     return result;
@@ -178,8 +178,7 @@ class LegislationVoteService {
 
   // ──── 内部:签名提交 ────
 
-  Future<({String txHash, int usedNonce, String blockHashHex})>
-  _executeFinalized({
+  Future<({String txHash, int usedNonce, String blockHash})> _executeFinalized({
     required int callIndex,
     required int proposalId,
     String? voterRoleCode,
@@ -226,7 +225,7 @@ class LegislationVoteService {
     return (
       txHash: '0x${_hexEncode(completed.transactionHash)}',
       usedNonce: prepared.nonce.toInt(),
-      blockHashHex: completed.execution!.block.hash,
+      blockHash: completed.execution!.block.hash,
     );
   }
 
@@ -239,7 +238,7 @@ class LegislationVoteService {
     String voterRoleCode,
     bool approve,
     Uint8List signerPublicKey,
-    String blockHashHex,
+    String blockHash,
   ) async {
     final publicKey = _hexEncode(signerPublicKey);
     for (var attempt = 0; attempt < 6; attempt++) {
@@ -264,7 +263,7 @@ class LegislationVoteService {
   Future<void> _confirmSignRecorded(
     int proposalId,
     Uint8List signerPublicKey,
-    String blockHashHex,
+    String blockHash,
     Future<List<({String accountId, bool approve})>> Function(int) fetchSigns,
   ) async {
     final accountId = '0x${_hexEncode(signerPublicKey)}';
@@ -284,7 +283,7 @@ class LegislationVoteService {
   Future<void> _confirmStageAdvanced(
     int proposalId,
     int fromStage,
-    String blockHashHex,
+    String blockHash,
   ) async {
     for (var attempt = 0; attempt < 6; attempt++) {
       final state = await _query.fetchProposalState(proposalId);

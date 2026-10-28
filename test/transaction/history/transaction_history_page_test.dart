@@ -15,7 +15,7 @@ wallet_store.Entry _record({String status = LocalTxStore.statusFinalized}) {
     ..entryState = status
     ..entrySource = 'chain_event'
     ..blockNumber = 10
-    ..chainHash = '0xblock'
+    ..blockHash = '0xblock'
     ..eventIndex = 1
     ..createdAt = DateTime(2026, 5, 20, 12).millisecondsSinceEpoch
     ..confirmedAt = status == LocalTxStore.statusFinalized

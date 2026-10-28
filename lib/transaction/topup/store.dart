@@ -89,7 +89,6 @@ class TopupRecord {
       _fields(j['order'] as Map<String, dynamic>, const {
         'is_ok',
         'order_id',
-        'status',
         'order_state',
         'coin_fen',
         'payment_txid',

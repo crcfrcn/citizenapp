@@ -50,16 +50,16 @@ class CreatorSubscribeService {
 
   Future<CreatorView> fetchView(
     SquareSession session,
-    String creatorCidNumber,
+    String creatorCid,
   ) async {
     await _retryPendingMirrors();
-    return _api.fetchViewOf(session, creatorCidNumber);
+    return _api.fetchViewOf(session, creatorCid);
   }
 
   /// 订阅创作者某档某周期（priceFen=该档该周期价，分）。
   Future<void> subscribe({
     BuildContext? context,
-    required String creatorCidNumber,
+    required String creatorCid,
     required String tierId,
     required String period,
     required int priceFen,
@@ -67,13 +67,13 @@ class CreatorSubscribeService {
     final identity = await _requireIdentity();
     await _requireSigningAccount(identity.accountId);
     final session = await _requireCurrentSession(identity.accountId);
-    if (session.cidNumber == creatorCidNumber) {
+    if (session.cidNumber == creatorCid) {
       throw const CreatorSubscribeException('不能订阅自己');
     }
     try {
       final result = await _subscriptionChain.subscribeCreator(
         signerPublicKey: Uint8List.fromList(hexToBytes(identity.accountId)),
-        creatorCidNumber: creatorCidNumber,
+        creatorCid: creatorCid,
         tierId: tierId,
         billingPeriod: period,
         expectedPriceFen: BigInt.from(priceFen),
@@ -81,9 +81,9 @@ class CreatorSubscribeService {
       );
       await _confirm(
         cidNumber: session.cidNumber,
-        creatorCidNumber: creatorCidNumber,
+        creatorCid: creatorCid,
         txHash: result.txHash,
-        blockHashHex: result.blockHashHex,
+        blockHash: result.blockHash,
       );
     } on Exception catch (e) {
       throw CreatorSubscribeException('订阅失败：$e');
@@ -93,7 +93,7 @@ class CreatorSubscribeService {
   /// 取消对某创作者的订阅（撤销按月扣款授权）。
   Future<void> cancel({
     BuildContext? context,
-    required String creatorCidNumber,
+    required String creatorCid,
   }) async {
     final identity = await _requireIdentity();
     await _requireSigningAccount(identity.accountId);
@@ -101,14 +101,14 @@ class CreatorSubscribeService {
     try {
       final result = await _subscriptionChain.cancelCreator(
         signerPublicKey: Uint8List.fromList(hexToBytes(identity.accountId)),
-        creatorCidNumber: creatorCidNumber,
+        creatorCid: creatorCid,
         externalSigning: (pending) => _showExternalSigning(context, pending),
       );
       await _confirm(
         cidNumber: session.cidNumber,
-        creatorCidNumber: creatorCidNumber,
+        creatorCid: creatorCid,
         txHash: result.txHash,
-        blockHashHex: result.blockHashHex,
+        blockHash: result.blockHash,
       );
     } on Exception catch (e) {
       throw CreatorSubscribeException('取消失败：$e');
@@ -118,7 +118,7 @@ class CreatorSubscribeService {
   /// 更换创作者档位或周期；同一换档业务只提交这一笔账户签名交易。
   Future<void> changePlan({
     BuildContext? context,
-    required String creatorCidNumber,
+    required String creatorCid,
     required String tierId,
     required String period,
     required int priceFen,
@@ -126,13 +126,13 @@ class CreatorSubscribeService {
     final identity = await _requireIdentity();
     await _requireSigningAccount(identity.accountId);
     final session = await _requireCurrentSession(identity.accountId);
-    if (session.cidNumber == creatorCidNumber) {
+    if (session.cidNumber == creatorCid) {
       throw const CreatorSubscribeException('不能订阅自己');
     }
     try {
       final result = await _subscriptionChain.changeCreatorPlan(
         signerPublicKey: Uint8List.fromList(hexToBytes(identity.accountId)),
-        creatorCidNumber: creatorCidNumber,
+        creatorCid: creatorCid,
         tierId: tierId,
         billingPeriod: period,
         expectedPriceFen: BigInt.from(priceFen),
@@ -140,9 +140,9 @@ class CreatorSubscribeService {
       );
       await _confirm(
         cidNumber: session.cidNumber,
-        creatorCidNumber: creatorCidNumber,
+        creatorCid: creatorCid,
         txHash: result.txHash,
-        blockHashHex: result.blockHashHex,
+        blockHash: result.blockHash,
       );
     } on Exception catch (e) {
       throw CreatorSubscribeException('更换订阅失败：$e');
@@ -194,14 +194,14 @@ class CreatorSubscribeService {
   /// HTTP 失败只重放同一交易证明，不要求第二次签名。
   Future<void> _confirm({
     required String cidNumber,
-    required String creatorCidNumber,
+    required String creatorCid,
     required String txHash,
-    required String blockHashHex,
+    required String blockHash,
   }) async {
     final proof = <String, dynamic>{
-      'creator_cid_number': creatorCidNumber,
+      'creator_cid': creatorCid,
       'tx_hash': txHash,
-      'block_hash': blockHashHex,
+      'block_hash': blockHash,
     };
     try {
       await Member.storeProof(cidNumber, proof, pendingKind: 'creator');
@@ -213,9 +213,9 @@ class CreatorSubscribeService {
       if (session == null || session.cidNumber != cidNumber) return;
       await _api.confirmCreatorSubscription(
         session: session,
-        creatorCidNumber: creatorCidNumber,
+        creatorCid: creatorCid,
         txHash: txHash,
-        blockHashHex: blockHashHex,
+        blockHash: blockHash,
       );
       await Member.finishProof(cidNumber, txHash, 'creator');
     } on Exception {
@@ -234,18 +234,18 @@ class CreatorSubscribeService {
       );
       for (final proof in List<Map<String, dynamic>>.from(pending)) {
         final txHash = proof['tx_hash'];
-        final blockHashHex = proof['block_hash'];
-        final creatorCid = proof['creator_cid_number'];
+        final blockHash = proof['block_hash'];
+        final creatorCid = proof['creator_cid'];
         if (txHash is! String ||
-            blockHashHex is! String ||
+            blockHash is! String ||
             creatorCid is! String) {
           continue;
         }
         await _api.confirmCreatorSubscription(
           session: session,
-          creatorCidNumber: creatorCid,
+          creatorCid: creatorCid,
           txHash: txHash,
-          blockHashHex: blockHashHex,
+          blockHash: blockHash,
         );
         await Member.finishProof(cidNumber, txHash, 'creator');
       }

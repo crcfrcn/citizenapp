@@ -73,7 +73,7 @@ class _FollowsListPageState extends State<FollowsListPage> {
     final event = MembershipRevision.instance.listenable.value;
     if (!mounted || event == null) return;
     final matching = _entries
-        .where((entry) => entry.cidNumber == event.cidNumber)
+        .where((entry) => entry.peerCid == event.cidNumber)
         .toList(growable: false);
     if (matching.isEmpty) return;
     _profiles.remove(event.cidNumber);
@@ -144,18 +144,18 @@ class _FollowsListPageState extends State<FollowsListPage> {
     return false;
   }
 
-  /// 关注关系接口只返回身份主键 cid_number；公开资料按当前分页并行补齐（按 cid 拉、
+  /// 关注关系接口只返回目标身份主键 peer_cid；公开资料按当前分页并行补齐（按 cid 拉、
   /// 按 cid 去重）。单个资料失败时保留稳定本地默认展示，不阻塞列表及其他用户。
   Future<void> _loadProfiles(List<SquareFollowEntry> entries) async {
     await Future.wait(
       entries.map((entry) async {
-        if (_profiles.containsKey(entry.cidNumber)) return;
+        if (_profiles.containsKey(entry.peerCid)) return;
         try {
           final profile = await _api.fetchCard(
-            entry.cidNumber,
+            entry.peerCid,
             session: widget.session,
           );
-          _profiles[entry.cidNumber] = profile;
+          _profiles[entry.peerCid] = profile;
         } on Exception {
           // 公开资料不可用时由 ProfilePresentation 稳定兜底。
         }
@@ -243,14 +243,14 @@ class _FollowsListPageState extends State<FollowsListPage> {
             );
           }
           final entry = _entries[index];
-          final profile = _profiles[entry.cidNumber];
+          final profile = _profiles[entry.peerCid];
           final presentation = ProfilePresentation.forIdentityKey(
-            entry.cidNumber,
+            entry.peerCid,
           );
           final avatarKey = profile?.avatarKey;
           return ListTile(
             leading: ProfileAvatar(
-              seed: entry.cidNumber,
+              seed: entry.peerCid,
               size: AppLayout.scaled(context, 42),
               imageUrl: avatarKey == null ? null : _api.cardMediaUrl(avatarKey),
 
@@ -264,7 +264,7 @@ class _FollowsListPageState extends State<FollowsListPage> {
               overflow: TextOverflow.ellipsis,
             ),
             subtitle: Text(
-              entry.cidNumber,
+              entry.peerCid,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -272,7 +272,7 @@ class _FollowsListPageState extends State<FollowsListPage> {
               Icons.chevron_right,
               size: AppLayout.scaled(context, 20),
             ),
-            onTap: () => _openProfile(entry.cidNumber),
+            onTap: () => _openProfile(entry.peerCid),
           );
         },
       ),

@@ -94,7 +94,7 @@ class MultisigTransferService {
   /// 提交 propose_transfer extrinsic。
   ///
   /// 返回真实创建出的 proposal_id、交易哈希、nonce 和入块哈希。
-  Future<({String txHash, int usedNonce, int proposalId, String blockHashHex})>
+  Future<({String txHash, int usedNonce, int proposalId, String blockHash})>
   submitProposeTransfer({
     required InstitutionInfo institution,
     required String? proposerRoleCode,
@@ -150,7 +150,7 @@ class MultisigTransferService {
       txHash: submitResult.txHash,
       usedNonce: submitResult.usedNonce,
       proposalId: proposalId,
-      blockHashHex: submitResult.block.hash,
+      blockHash: submitResult.block.hash,
     );
   }
 
@@ -160,7 +160,7 @@ class MultisigTransferService {
   /// （与 submitProposeTransfer 同标准），返回事件中的 proposal_id
   /// 供后续投票跟踪；submit-only 给不出 proposal_id，也无法区分
   /// "已接受"与"已上链"。
-  Future<({String txHash, int usedNonce, int proposalId, String blockHashHex})>
+  Future<({String txHash, int usedNonce, int proposalId, String blockHash})>
   submitProposeSafetyFund({
     required InstitutionInfo institution,
     required String proposerRoleCode,
@@ -216,14 +216,14 @@ class MultisigTransferService {
       txHash: submitResult.txHash,
       usedNonce: submitResult.usedNonce,
       proposalId: proposalId,
-      blockHashHex: submitResult.block.hash,
+      blockHash: submitResult.block.hash,
     );
   }
 
   /// 提交 propose_sweep_to_main extrinsic（手续费划转提案）。
   ///
   /// 同 submitProposeSafetyFund，提案类必须入块+核对事件。
-  Future<({String txHash, int usedNonce, int proposalId, String blockHashHex})>
+  Future<({String txHash, int usedNonce, int proposalId, String blockHash})>
   submitProposeSweep({
     required InstitutionInfo institution,
     required String proposerRoleCode,
@@ -273,7 +273,7 @@ class MultisigTransferService {
       txHash: submitResult.txHash,
       usedNonce: submitResult.usedNonce,
       proposalId: proposalId,
-      blockHashHex: submitResult.block.hash,
+      blockHash: submitResult.block.hash,
     );
   }
 

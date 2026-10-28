@@ -215,7 +215,6 @@ void main() {
       txid: '0x${'09' * 32}',
       order: TopupOrder(
         orderId: r.intent.orderId,
-        status: TopupOrderStatus.paid,
         orderState: TopupPhase.paid,
         coinFen: r.intent.coinFen,
         paymentTxid: '0x${'09' * 32}',
@@ -231,7 +230,6 @@ void main() {
     final r = original(), api = FakeApi();
     api.order = TopupOrder(
       orderId: r.intent.orderId,
-      status: TopupOrderStatus.pending,
       orderState: TopupPhase.received,
       coinFen: r.intent.coinFen,
       paymentTxid: '0x${'09' * 32}',

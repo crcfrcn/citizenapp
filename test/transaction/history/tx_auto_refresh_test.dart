@@ -59,7 +59,7 @@ void main() {
         txHash: '0xfeed',
         executionId: 'execution-refresh',
         callHash: '0x${'11' * 32}',
-        chainHash: '0x22',
+        blockHash: '0x22',
         blockNumber: 9,
       );
       await Future<void>.delayed(const Duration(milliseconds: 200)); // 通知送达

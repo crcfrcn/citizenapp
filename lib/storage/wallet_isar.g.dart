@@ -13279,19 +13279,19 @@ const EntrySchema = CollectionSchema(
       name: r'amount_delta',
       type: IsarType.string,
     ),
-    r'block_number': PropertySchema(
+    r'block_hash': PropertySchema(
       id: 2,
+      name: r'block_hash',
+      type: IsarType.string,
+    ),
+    r'block_number': PropertySchema(
+      id: 3,
       name: r'block_number',
       type: IsarType.long,
     ),
     r'call_hash': PropertySchema(
-      id: 3,
-      name: r'call_hash',
-      type: IsarType.string,
-    ),
-    r'chain_hash': PropertySchema(
       id: 4,
-      name: r'chain_hash',
+      name: r'call_hash',
       type: IsarType.string,
     ),
     r'confirmed_at': PropertySchema(
@@ -13414,13 +13414,13 @@ int _entryEstimateSize(
   bytesCount += 3 + object.accountId.length * 3;
   bytesCount += 3 + object.amountDelta.length * 3;
   {
-    final value = object.callHash;
+    final value = object.blockHash;
     if (value != null) {
       bytesCount += 3 + value.length * 3;
     }
   }
   {
-    final value = object.chainHash;
+    final value = object.callHash;
     if (value != null) {
       bytesCount += 3 + value.length * 3;
     }
@@ -13487,9 +13487,9 @@ void _entrySerialize(
 ) {
   writer.writeString(offsets[0], object.accountId);
   writer.writeString(offsets[1], object.amountDelta);
-  writer.writeLong(offsets[2], object.blockNumber);
-  writer.writeString(offsets[3], object.callHash);
-  writer.writeString(offsets[4], object.chainHash);
+  writer.writeString(offsets[2], object.blockHash);
+  writer.writeLong(offsets[3], object.blockNumber);
+  writer.writeString(offsets[4], object.callHash);
   writer.writeLong(offsets[5], object.confirmedAt);
   writer.writeLong(offsets[6], object.createdAt);
   writer.writeString(offsets[7], object.entryKind);
@@ -13516,9 +13516,9 @@ Entry _entryDeserialize(
   final object = Entry();
   object.accountId = reader.readString(offsets[0]);
   object.amountDelta = reader.readString(offsets[1]);
-  object.blockNumber = reader.readLongOrNull(offsets[2]);
-  object.callHash = reader.readStringOrNull(offsets[3]);
-  object.chainHash = reader.readStringOrNull(offsets[4]);
+  object.blockHash = reader.readStringOrNull(offsets[2]);
+  object.blockNumber = reader.readLongOrNull(offsets[3]);
+  object.callHash = reader.readStringOrNull(offsets[4]);
   object.confirmedAt = reader.readLongOrNull(offsets[5]);
   object.createdAt = reader.readLong(offsets[6]);
   object.entryKind = reader.readString(offsets[7]);
@@ -13550,9 +13550,9 @@ P _entryDeserializeProp<P>(
     case 1:
       return (reader.readString(offset)) as P;
     case 2:
-      return (reader.readLongOrNull(offset)) as P;
-    case 3:
       return (reader.readStringOrNull(offset)) as P;
+    case 3:
+      return (reader.readLongOrNull(offset)) as P;
     case 4:
       return (reader.readStringOrNull(offset)) as P;
     case 5:
@@ -14142,6 +14142,168 @@ extension EntryQueryFilter on QueryBuilder<Entry, Entry, QFilterCondition> {
     });
   }
 
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> blockHashIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'block_hash'),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> blockHashIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'block_hash'),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> blockHashEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'block_hash',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> blockHashGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'block_hash',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> blockHashLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'block_hash',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> blockHashBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'block_hash',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> blockHashStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'block_hash',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> blockHashEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'block_hash',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> blockHashContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'block_hash',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> blockHashMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'block_hash',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> blockHashIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'block_hash', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> blockHashIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'block_hash', value: ''),
+      );
+    });
+  }
+
   QueryBuilder<Entry, Entry, QAfterFilterCondition> blockNumberIsNull() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
@@ -14375,168 +14537,6 @@ extension EntryQueryFilter on QueryBuilder<Entry, Entry, QFilterCondition> {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.greaterThan(property: r'call_hash', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<Entry, Entry, QAfterFilterCondition> chainHashIsNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        const FilterCondition.isNull(property: r'chain_hash'),
-      );
-    });
-  }
-
-  QueryBuilder<Entry, Entry, QAfterFilterCondition> chainHashIsNotNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        const FilterCondition.isNotNull(property: r'chain_hash'),
-      );
-    });
-  }
-
-  QueryBuilder<Entry, Entry, QAfterFilterCondition> chainHashEqualTo(
-    String? value, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(
-          property: r'chain_hash',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Entry, Entry, QAfterFilterCondition> chainHashGreaterThan(
-    String? value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'chain_hash',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Entry, Entry, QAfterFilterCondition> chainHashLessThan(
-    String? value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'chain_hash',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Entry, Entry, QAfterFilterCondition> chainHashBetween(
-    String? lower,
-    String? upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'chain_hash',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Entry, Entry, QAfterFilterCondition> chainHashStartsWith(
-    String value, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.startsWith(
-          property: r'chain_hash',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Entry, Entry, QAfterFilterCondition> chainHashEndsWith(
-    String value, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.endsWith(
-          property: r'chain_hash',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Entry, Entry, QAfterFilterCondition> chainHashContains(
-    String value, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.contains(
-          property: r'chain_hash',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Entry, Entry, QAfterFilterCondition> chainHashMatches(
-    String pattern, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.matches(
-          property: r'chain_hash',
-          wildcard: pattern,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Entry, Entry, QAfterFilterCondition> chainHashIsEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'chain_hash', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<Entry, Entry, QAfterFilterCondition> chainHashIsNotEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'chain_hash', value: ''),
       );
     });
   }
@@ -16646,6 +16646,18 @@ extension EntryQuerySortBy on QueryBuilder<Entry, Entry, QSortBy> {
     });
   }
 
+  QueryBuilder<Entry, Entry, QAfterSortBy> sortByBlockHash() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'block_hash', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterSortBy> sortByBlockHashDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'block_hash', Sort.desc);
+    });
+  }
+
   QueryBuilder<Entry, Entry, QAfterSortBy> sortByBlockNumber() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'block_number', Sort.asc);
@@ -16667,18 +16679,6 @@ extension EntryQuerySortBy on QueryBuilder<Entry, Entry, QSortBy> {
   QueryBuilder<Entry, Entry, QAfterSortBy> sortByCallHashDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'call_hash', Sort.desc);
-    });
-  }
-
-  QueryBuilder<Entry, Entry, QAfterSortBy> sortByChainHash() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'chain_hash', Sort.asc);
-    });
-  }
-
-  QueryBuilder<Entry, Entry, QAfterSortBy> sortByChainHashDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'chain_hash', Sort.desc);
     });
   }
 
@@ -16888,6 +16888,18 @@ extension EntryQuerySortThenBy on QueryBuilder<Entry, Entry, QSortThenBy> {
     });
   }
 
+  QueryBuilder<Entry, Entry, QAfterSortBy> thenByBlockHash() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'block_hash', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterSortBy> thenByBlockHashDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'block_hash', Sort.desc);
+    });
+  }
+
   QueryBuilder<Entry, Entry, QAfterSortBy> thenByBlockNumber() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'block_number', Sort.asc);
@@ -16909,18 +16921,6 @@ extension EntryQuerySortThenBy on QueryBuilder<Entry, Entry, QSortThenBy> {
   QueryBuilder<Entry, Entry, QAfterSortBy> thenByCallHashDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'call_hash', Sort.desc);
-    });
-  }
-
-  QueryBuilder<Entry, Entry, QAfterSortBy> thenByChainHash() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'chain_hash', Sort.asc);
-    });
-  }
-
-  QueryBuilder<Entry, Entry, QAfterSortBy> thenByChainHashDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'chain_hash', Sort.desc);
     });
   }
 
@@ -17134,6 +17134,14 @@ extension EntryQueryWhereDistinct on QueryBuilder<Entry, Entry, QDistinct> {
     });
   }
 
+  QueryBuilder<Entry, Entry, QDistinct> distinctByBlockHash({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'block_hash', caseSensitive: caseSensitive);
+    });
+  }
+
   QueryBuilder<Entry, Entry, QDistinct> distinctByBlockNumber() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'block_number');
@@ -17145,14 +17153,6 @@ extension EntryQueryWhereDistinct on QueryBuilder<Entry, Entry, QDistinct> {
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'call_hash', caseSensitive: caseSensitive);
-    });
-  }
-
-  QueryBuilder<Entry, Entry, QDistinct> distinctByChainHash({
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'chain_hash', caseSensitive: caseSensitive);
     });
   }
 
@@ -17291,6 +17291,12 @@ extension EntryQueryProperty on QueryBuilder<Entry, Entry, QQueryProperty> {
     });
   }
 
+  QueryBuilder<Entry, String?, QQueryOperations> blockHashProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'block_hash');
+    });
+  }
+
   QueryBuilder<Entry, int?, QQueryOperations> blockNumberProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'block_number');
@@ -17300,12 +17306,6 @@ extension EntryQueryProperty on QueryBuilder<Entry, Entry, QQueryProperty> {
   QueryBuilder<Entry, String?, QQueryOperations> callHashProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'call_hash');
-    });
-  }
-
-  QueryBuilder<Entry, String?, QQueryOperations> chainHashProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'chain_hash');
     });
   }
 

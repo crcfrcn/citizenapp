@@ -73,7 +73,7 @@ class _CreatorPageState extends State<CreatorPage> {
     _data = switch (widget.initialMembershipDecision) {
       MembershipDisplayDecision.inactiveConfirmed => CreatorPageData.gated(),
       MembershipDisplayDecision.activeConfirmed => CreatorPageData.active(
-        plan: CreatorPlan.empty(initialCidNumber),
+        plan: CreatorPlan.empty(),
         overview: CreatorOverview.zero,
       ),
     };
@@ -299,7 +299,7 @@ class _CreatorPageState extends State<CreatorPage> {
     } else if (data == null) {
       // 极短的本地快照读取窗口只显示稳定结构，不出现等待文案或进度条。
       content = _activeView(
-        CreatorPlan.empty(_cidNumber),
+        CreatorPlan.empty(),
         CreatorOverview.zero,
         resolved: false,
       );

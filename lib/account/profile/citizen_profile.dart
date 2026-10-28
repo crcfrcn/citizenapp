@@ -3,7 +3,7 @@ import 'package:citizenapp/account/profile/profile_presentation.dart';
 /// 用户主页公开资料模型（对应 Worker `UserProfileResponse`）。
 ///
 /// 头像/背景/签名/展示名是链下 R2 资料；计数与认证是 D1/链上派生。
-/// App 侧只读展示，写入走 `PUT /square/profile`。
+/// App 侧只读展示，写入走 `PUT /api/user/profile`。
 class CitizenProfile {
   const CitizenProfile({
     required this.accountId,
@@ -184,18 +184,23 @@ class CitizenProfile {
 }
 
 /// 关注、关注者或互关列表的一行（对应 Worker follows 列表项 `entries`，项 = 身份主键
-/// cid_number + created_at）。
+/// peer_cid + created_at）。
 class SquareFollowEntry {
-  const SquareFollowEntry({required this.cidNumber, required this.createdAt});
+  const SquareFollowEntry({required this.peerCid, required this.createdAt});
 
-  final String cidNumber;
+  final String peerCid;
   final int createdAt;
 
   factory SquareFollowEntry.fromJson(Map<String, dynamic> json) {
-    return SquareFollowEntry(
-      cidNumber: _asString(json['cid_number']),
-      createdAt: _asInt(json['created_at']),
-    );
+    final peerCid = json['peer_cid'];
+    final createdAt = json['created_at'];
+    if (peerCid is! String ||
+        peerCid.isEmpty ||
+        createdAt is! int ||
+        createdAt < 0) {
+      throw const FormatException('关注列表字段无效');
+    }
+    return SquareFollowEntry(peerCid: peerCid, createdAt: createdAt);
   }
 }
 

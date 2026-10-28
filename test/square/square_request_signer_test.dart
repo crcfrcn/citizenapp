@@ -55,9 +55,9 @@ void main() {
     expect(captured, snapshot);
     expect(() => captured![0] = 0, throwsUnsupportedError);
     final proof = _proof(headers);
-    expect(proof['method'], 'DELETE');
+    expect(proof['http_method'], 'DELETE');
     expect(proof['request_target'], '/api/8964/search?cursor=a%2Fb');
-    expect(proof['body_sha256'], '0x${sha256.convert(snapshot)}');
+    expect(proof['body_hash'], '0x${sha256.convert(snapshot)}');
   });
   test('会话与推送请求绑定实际正文和同一MLS设备，挑战带会话Bearer', () async {
     final source = FakeMlsAuthentication();
@@ -86,7 +86,7 @@ void main() {
         expect(proof['device_id'], source.identity.deviceId);
         expect(proof['public_key'], source.identity.publicKey);
         expect(proof['request_target'], request.url.path);
-        expect(proof['body_sha256'], '0x${sha256.convert(request.bodyBytes)}');
+        expect(proof['body_hash'], '0x${sha256.convert(request.bodyBytes)}');
         if (request.url.path == '/api/user/sessions') {
           expect(jsonDecode(request.body), {'account_id': testMlsAccountId});
           return http.Response(jsonEncode(fakeMlsSession()), 200);

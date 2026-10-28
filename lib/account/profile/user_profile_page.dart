@@ -519,15 +519,9 @@ class _UserProfilePageState extends State<UserProfilePage> {
     });
     try {
       if (wasFollowing) {
-        await _api.unfollowUser(
-          session: session,
-          followedCidNumber: widget.cidNumber,
-        );
+        await _api.unfollowUser(session: session, peerCid: widget.cidNumber);
       } else {
-        await _api.followUser(
-          session: session,
-          followedCidNumber: widget.cidNumber,
-        );
+        await _api.followUser(session: session, peerCid: widget.cidNumber);
       }
     } on Exception {
       if (!mounted) return;
@@ -559,7 +553,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
     try {
       await _api.setNotify(
         session: session,
-        followedCidNumber: widget.cidNumber,
+        peerCid: widget.cidNumber,
         enabled: !wasNotifying,
       );
     } on Exception {
@@ -789,11 +783,11 @@ class _UserProfilePageState extends State<UserProfilePage> {
   /// 本人主页不显示；CID 不因换绑改变，因此换绑不会重建或丢失订阅态。
   Widget? _creatorSubscribeButton() {
     if (widget.isSelf) return null;
-    final creatorCidNumber = widget.cidNumber.trim();
-    if (creatorCidNumber.isEmpty) return null;
+    final creatorCid = widget.cidNumber.trim();
+    if (creatorCid.isEmpty) return null;
     return CreatorSubscribeButton(
-      key: ValueKey<String>('creator-subscribe:$creatorCidNumber'),
-      creatorCidNumber: creatorCidNumber,
+      key: ValueKey<String>('creator-subscribe:$creatorCid'),
+      creatorCid: creatorCid,
       enabled: !_isOwnAccount,
       sessionProvider: _sessionProvider,
     );

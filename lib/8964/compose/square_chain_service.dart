@@ -18,11 +18,11 @@ class SquareChainPublishedResult {
   const SquareChainPublishedResult({
     required this.txHash,
 
-    required this.blockHashHex,
+    required this.blockHash,
   });
 
   final String txHash;
-  final String blockHashHex;
+  final String blockHash;
 }
 
 class SquareChainPublishException implements Exception {
@@ -129,7 +129,7 @@ class SquareChainService implements SquarePostChainPublisher {
     return SquareChainPublishedResult(
       txHash: '0x${hexEncode(completed.transactionHash)}',
 
-      blockHashHex: execution.block.hash,
+      blockHash: execution.block.hash,
     );
   }
 

@@ -641,7 +641,7 @@ CitizenApp 的总目标是 `5+2`：
 6. `chunk`：最多 1 MiB 的实际字节、连续分块序号及块哈希。
 7. `link`：草稿、发布恢复或帖子中的媒体顺序与主媒体/缩略图/封面关联。
 8. `publish`：按 CID/草稿隔离的发布阶段、原始 manifest、不可变发布标识及确认事实，不保存会话凭据。
-9. `delete`：按CID/post_id保存pending/confirmed删除意图；确认事实保留，防止迟到同步重新保存已删除帖子。
+9. `erase`：按CID/post_id保存pending/confirmed删除意图；确认事实保留，防止迟到同步重新保存已删除帖子。
 
 10. `reply`：按CID/帖子保存真实评论分页缓存与待发送操作；失败重试复用原操作ID，已删除正文清空。
 
@@ -651,9 +651,9 @@ CitizenApp 的总目标是 `5+2`：
 
 - 唯一业务入口：`lib/8964/media/square_media_store.dart`；图片、视频、封面均以字节
   分块存入数据库，不将 URL、应用缓存或外部文件当成已持久保存的媒体。
-- 描述唯一键为 `(cid_number, media_id)`；分块唯一键为
-  `(cid_number, media_id, chunk_index)`；内容槽位唯一键为 CID 加有序 JSON 编码的
-  `(content_kind, content_id, media_index, media_role)`。三个集合的索引均包含用户归属。
+- 描述唯一键为 `(cid_number, body_hash)`；分块唯一键为
+  `(cid_number, body_hash, part_index)`。内容槽位使用真实内容、顺序及用途字段，
+  沿原事务查询和筛选，不持久化拼接键。三个集合均按用户归属隔离。
   引用查询同时匹配内容类型、内容标识与 CID，不允许跨用户读取、写入、关联或删除。
 - `begin` 创建不可变描述；`writeChunk` 每块单独写事务，长度严格匹配对应块，乱序到达
   可保存，重复块必须字节相同。输入缓冲区先复制，调用方后续修改不能改变落盘数据。
@@ -2759,9 +2759,9 @@ B 必须先走完步骤 4 的链上清算行绑定。收款码中的 `bank` 必�
 ##### 3.1 CID 公开资料与媒体持久化
 
 公开资料唯一模型是按永久 `cid_number` 寻址的 `CitizenProfile`：昵称、签名、
-`avatar_object_key`、`banner_object_key` 和 `updated_at` 由公开资料接口返回；
+`avatar_key`、`banner_key` 和 `profile_at` 由公开资料接口返回；
 `profile` 按CID保存完整资料JSON；`media`在同一
-UserIsar中独立保存图片实际字节、用途、版本、类型、长度和SHA-256。图片的绝对路径不入库，
+UserIsar中独立保存图片实际字节、用途、对象位置、资料版本和完整性摘要；类型和长度按字节读取，不另存副本。图片的绝对路径不入库，
 临时展示文件由数据库重建；身份仍复用`identity`及唯一展示存储。
 
 展示规则：
@@ -2786,7 +2786,7 @@ UserIsar中独立保存图片实际字节、用途、版本、类型、长度和
 - “我的”、本人主页、本人帖子详情与资料编辑页的普通读取只查本地，不创建远端会话。主动刷新调用refreshProfile及本人帖子同步；保存、删除等写操作继续在操作时建立会话并执行必要验真。此边界不取消其他用户公开内容的访问请求。
 - 公开头像和背景上传Cloudflare R2；PUT前由prepareUpdate将请求和本次选图字节存入edit，按CID唯一。成功响应经confirmUpdate保存后，finishUpdate在同一事务提交资料/图片并删除恢复行，随后广播CID revision。
   重启后confirmed只做本地收尾；pending先读远端并逐字段核对，已成功则本地收尾。远端内容不同必须由用户明确选择继续保存上次修改才再次PUT，失败保留请求及原件。
-- 只有 `avatar_object_key` / `banner_object_key` 从未设置时，才从
+- 只有 `avatar_key` / `banner_key` 从未设置时，才从
   `assets/profiles/` 按永久 CID 稳定选择内置头像和背景。用户一旦设置，网络或本机
   文件暂不可用时只显示中性占位并保留上一张用户图，禁止退回内置随机图。
 
@@ -2794,19 +2794,18 @@ UserIsar中独立保存图片实际字节、用途、版本、类型、长度和
 
 - 头像上限512KiB，背景上限1536KiB，均可单条原子保存；识别PNG/JPEG/WebP文件头，
   完整字节复制后在事务外计算SHA-256。文件头检测只确定内容类型，不替代图片解码验收。
-- 媒体主键为(CID, media_role, media_id)。用途只接受avatar/banner，media_id为CID、用途、
-  object_key和updated_at的NUL分隔UTF-8摘要；同一版本再次写入必须逐字节一致，冲突拒绝。
-  本地资料主键与JSON内CID必须一致，较旧updated_at不能覆盖已保存的新资料。
+- 媒体按(cid_number, media_role)自然键定位，用途只接受avatar/banner。
+  同一profile_at版本的object_key、body_hash与media_bytes必须一致，冲突拒绝；
+  资料JSON不重复保存索引CID，较旧profile_at不能覆盖已保存的新资料。
 - UserIsar关闭relaxedDurability，数据库提交成功后才通知常驻页面重读。查询、写入与删除
   强制CID，哈希、网络、平台通道和文件I/O均在数据库回调之外。普通身份读取仍只供展示，
   使用现有IdentityBadgeSnapshotStore，不新增身份副本或将展示状态用作操作授权。
 - 现有路径型图片组件使用可再生临时文件，文件不存在或损坏时从校验后的数据库字节原子重建。
-  旧Application Support文件仅允许当前CID、用途、准确版本的普通文件入库；链接和异常路径
-  拒绝。成功提交并回读后删除准确来源，无法证实版本的旧文件保留，不猜测归属或批量删除。
+  普通读取只消费当前数据库字节，不导入或删除旧文件，不增加旧结构桥接。
 - refresh是明确的远端下载入口，仅接受HTTPS，拒绝重定向，流式限制长度；已有准确版本时
   复用数据库。失败保留已有图片，不将本地缺失表述为远端删除。页面端自动调用收拢尚待后续步骤。
 - 本轮补充数据库关闭重开、临时文件丢失重建、事务回滚、CID隔离、格式及长度边界、版本回退、
-  损坏保全、旧文件准确导入/链接拒绝、迟到下载拒绝和编辑页本地重试测试代码；均未运行。
+  损坏保全、旧结构拒绝且原样保留、迟到下载拒绝和编辑页本地重试；实际验收记录归唯一任务卡。
 
 ##### 3.2 用户码
 
@@ -2844,16 +2843,7 @@ Android 与 iOS 均显示竖向三点，不依赖平台自适应默认图标。
 - 事务约束：回调内只做 UserIsar 查询/原子写，不等待钱包、密码学、网络、
   平台通道、文件或其它数据库
 
-当前 7 个类型化 collection：
-
-1. `profile`：按永久CID隔离的完整公开资料持久记录，无TTL和自动淘汰。
-2. `identity`：只供离线展示的完整身份及徽章快照；记录账户、公民号、身份档、更新时间及 `identity_snapshot_json`。JSON保存绑定版本和投票/竞选SCALE数据；JSON null明确表示该账户已验证未注册，字段缺失表示只有徽章资料。CID索引不再唯一，空CID的不同未注册账户互不覆盖；唯一存储服务事务维护账户归属与CID换绑收敛。
-3. `contact`：按CID隔离的系统保护通讯录、待同步操作、同步状态和合并记录。
-4. `setting`：权限引导、首页 Tab 与治理机构展示顺序等纯用户设置；
-   `chat_home=false` 默认广场，打开后下次主界面第一帧直接进入聊天。
-5. `follow`：按订阅者 CID 隔离的公权机构关注关系。
-6. `media`：按CID、media_role、media_id唯一；头像/背景实际media_bytes、object_key、updated_at、content_type、byte_size和sha256同条保存。
-7. `edit`：按CID唯一的资料修改恢复事实；request_json、response_json、operation_state及所选avatar_bytes/banner_bytes持久保存，content_hash保护请求和原件一致性，不含会话凭据。
+当前UserIsar保留8个集合。逐列清单与职责统一见本文“第一方存储与字段收敛”，这里不再维护第二份列定义；identity只保存账户/CID索引、完整identity_data和updated_at，media使用自然归属及当前资料版本，edit使用job_state/request_data/response_data，notice保存通知状态及待提交已读意图。
 
 会员、创作者和管理员激活都是链上授权、支付或治理状态，固定进入
 `WalletIsar` 的 `member`、`creator` 和
@@ -3152,7 +3142,7 @@ Release合同核验正式锁定SDK公开QR方法的准确返回类型、参数�
 
 唯一顺序为：点击确认注册→Cloudflare验证→CitizenServe保存通过结果→原钱包签名/上链/finalized完成CID注册→同一SDK的MLS设备授权激活→普通会话就绪后开放账户服务。没有候选CID，原MyIdService中的CID计算与钱包交易位置保持。原函数目前在finalized后本机收敛失败仍返回CID；新编排须分别报告链完成和服务激活，不能重复上链或凭返回字符串宣称账户已就绪。
 
-本次实际源码的API根已是https://www.crcfrcn.com/api，旧客户端仍追加/square路径。新服务端唯一功能路径需要同步客户端方法、正文和响应，而不仅更换前缀：验证页面加载受信page_url并解析JSON {verification_id,token}；四个登记接口持有独立能力；六字段设备登记删除turnstile_token，取消旧登记器二次弹窗；所有普通请求的MLS证明继续覆盖真实/api路径、原始查询和实际字节。
+本次实际源码的API根已是https://www.crcfrcn.com/api，旧客户端仍追加/square路径。新服务端唯一功能路径需要同步客户端方法、正文和响应，而不仅更换前缀：验证页面加载受信page_url并解析JSON {check_id,token}；四个登记接口持有独立能力；六字段设备登记删除turnstile_token，取消旧登记器二次弹窗；所有普通请求的MLS证明继续覆盖真实/api路径、原始查询和实际字节。
 
 新恢复记录拟使用 /Users/rhett/citizenapp/lib/account/identity/registration_store.dart，委托SystemProtectedRecordStore的registration.json类型及原生CAS/保护。实际运行绝对根由既有prepareRecords返回；iOS /Users/rhett/citizenapp/ios/source/SystemProtectedDataChannel.swift 与Android /Users/rhett/citizenapp/android/app/MainActivity.kt同步白名单，/Users/rhett/citizenapp/lib/system/security/app_lock_service.dart同步擦除读回。恢复秘密不放公开identity.json；钱包/MLS私钥、原始Turnstile token和过期挑战不进入恢复记录。finalized恢复不重复CID交易、不重置MLS身份，不把断网当成未注册。
 
@@ -3192,7 +3182,7 @@ App的SDK来源沿当前构建合同：声明ref为main，锁记录基线，本�
 
 ## 统一联调：会员确认回执与旧聊天服务退役收口
 
-平台会员finalized确认携带include_state:true，只接受ok、tx_hash、block_hash、membergate_state四字段回执。先核对规范交易和块及本次回执，再按GET同一规则校验内嵌真实快照，不补第二次GET。确认、回执或快照失败保留原交易证明，不重新签名或付款。
+平台会员finalized确认携带include_state:true，只接受is_ok、tx_hash、block_hash、membergate_state四字段回执。先核对规范交易和块及本次回执，再按GET同一规则校验内嵌真实快照，不补第二次GET。确认、回执或快照失败保留原交易证明，不重新签名或付款。
 
 会员用例使用/api根、单次MLS请求及四字段回执，覆盖错回执、完整/损坏快照、无效交易/块零请求、原展示和finalized证明保留；推送接口仍为PUT /api/notifications/endpoint。各轮实际验证归唯一任务卡，局部结果不代表全部普通业务回归或真机通过。
 
@@ -3318,7 +3308,7 @@ SubscriptionService仅保留原_authorizations作为会员请求与权限缓存�
 
 会员页已注册价格来自同一个CitizenServe响应plans.price_fen，未知不伪造成0，也不再并行查链价格。公开展示和用户签名交易的原链验真保持。上传预处理复用统一缓存，不再逐次forceRefresh。
 
-平台确认POST /api/membergate/confirm加签正文include_state:true。成功精确四字段ok、tx_hash、block_hash、membergate_state；验证回执及完整真实快照后直接安装，不再补GET。App不接受旧字段别名；失败保留原交易回执及已finalized证明，沿原队列重试确认，不重新签名或付款。
+平台确认POST /api/membergate/confirm加签正文include_state:true。成功精确四字段is_ok、tx_hash、block_hash、membergate_state；验证回执及完整真实快照后直接安装，不再补GET。App不接受旧字段别名；失败保留原交易回执及已finalized证明，沿原队列重试确认，不重新签名或付款。
 
 两项SDK沿当前构建合同的main声明和本轮冻结提交，不要求声明ref等于锁中历史resolved-ref。前者提供安全诊断及正式入口，后者提供UI/运行时附件宿主能力和符合原协议的附件ID；实际消费提交与验收过程只记录原任务卡。
 
@@ -3564,7 +3554,7 @@ App四库保留39个集合，264列收敛为227列。Dart类型、成员遵循�
 | social.link | row_id, cid_number, body_hash, content_id, content_kind, media_index, media_role | 内容槽位到唯一媒体摘要的自然关联 |
 | social.media | row_id, cid_number, media_kind, content_type, byte_size, body_hash, is_complete | 按CID/内容摘要保存一次不可变描述 |
 | social.post | row_id, post_id, cid_number, account_id, post_category, post_type, manifest_bytes, content_hash, receipt_id, chain_block, published_at, post_state | 发布时索引和不可变原始manifest |
-| social.publish | row_id, cid_number, draft_id, account_id, post_id, post_type, content_hash, receipt_id, upload_id, manifest_bytes, job_state, replace_id, chain_hash, tx_hash, post_category, chain_block, published_at | 一次发布的跨阶段恢复事实 |
+| social.publish | row_id, cid_number, draft_id, account_id, post_id, post_type, content_hash, receipt_id, upload_id, manifest_bytes, job_state, replace_id, block_hash, tx_hash, post_category, chain_block, published_at | 一次发布的跨阶段恢复事实 |
 | social.reply | row_id, cid_number, post_id, page_data, pending_data | 浏览者与帖子下的分页及待发意图 |
 | wallet.account | row_id, account_id, account_name, creator_account, added_at, is_found, admin_accounts | 用户本机多签账户及发现事实 |
 | wallet.action | row_id, account_id, proposal_id, action_kind, proposal_state, yes_count, no_count, created_at, final_at, snapshot_data | 个人多签提案历史与投票事实 |
@@ -3573,7 +3563,7 @@ App四库保留39个集合，264列收敛为227列。Dart类型、成员遵循�
 | wallet.body | row_id | 保留集合；移除全部无生产消费者的6列 |
 | wallet.creator | row_id, cid_number, body_data | 创作者展示，正文不重复索引CID |
 | wallet.cursor | row_id, account_id, created_at, genesis_hash, start_block, cursor_block | 账户导入、链及整块流水进度 |
-| wallet.entry | row_id, account_id, entry_kind, amount_delta, transfer_amount, fee_amount, from_address, to_address, tx_note, entry_state, entry_source, tx_hash, execution_id, call_hash, block_number, chain_hash, event_index, extrinsic_index, created_at, confirmed_at, fail_reason | 实际提交/事件及本金、费用、SDK执行状态 |
+| wallet.entry | row_id, account_id, entry_kind, amount_delta, transfer_amount, fee_amount, from_address, to_address, tx_note, entry_state, entry_source, tx_hash, execution_id, call_hash, block_number, block_hash, event_index, extrinsic_index, created_at, confirmed_at, fail_reason | 实际提交/事件及本金、费用、SDK执行状态 |
 | wallet.group | row_id, account_id, group_state, synced_at, detail_data | 本机多签生命周期和独立链详情快照 |
 | wallet.law | row_id, state_key, state_hex | SDK读取的原始链存储键与十六进制值 |
 | wallet.list | row_id, cid_number, proposal_ids, synced_at | 机构提案索引与同步时间 |
@@ -3589,10 +3579,22 @@ member的每笔finalized证明只保存一次，pending_kind记录尚待确认�
 
 身份局部徽章只保存级别，完整验真只保存原布局与bind_rev；级别由布局得出，局部写入不能覆盖完整事实。公开绑定以同一受保护数组保存，CID仅在每份绑定出现一次；读取与CAS复用同一严格解码，重复CID与旧对象索引拒绝。余额只持久化区块、free_fen/reserved_fen，总额以整数分相加，进入存储前仍校验SDK的finalized与总额一致性。
 
-entry以账户/准确tx_hash或账户/chain_hash/event_index在原事务定位；SDK execution_id、call_hash和真实来源仍约束状态推进，事件不能替SDK宣布终态。对方地址只由真实收发双方和账户ID计算，净额包含手续费，不能据正负猜测。原整块事务和游标回滚保持。
+entry以账户/准确tx_hash或账户/block_hash/event_index在原事务定位；SDK execution_id、call_hash和真实来源仍约束状态推进，事件不能替SDK宣布终态。对方地址只由真实收发双方和账户ID计算，净额包含手续费，不能据正负猜测。原整块事务和游标回滚保持。
 
 媒体成品与自有通道使用body_hash/pixel_width/pixel_height/video_secs/keyframe_secs/file_limit；平台API原名保持。每媒体主文件与预览是两个独立上传目标，按media_index/object_role定位，共用原PUT与重试入口。目标不回抄请求大小/类型，仍校验实际长度、HTTPS、时效、方法、headers与当前会话。本人回灌只消费Serve posts数组及manifest_bytes_base64url，网络与存储共用SquarePostStore.validate；媒体使用body_hash/preview_url，不要求不存在的状态或类型字段。原manifest字节不重编码。
 
 资料图片准备使用upload_kind/content_type/byte_size/content_hash，授权读取http_method；请求摘要不再回抄为返回模型字段。PUT保留真实MIME头并校验实际成品摘要回执。资料图片由字节识别类型和长度，临时文件可再生；显式安全擦除覆盖原媒体目录，普通读取不迁移或清理旧结构。
 
 通知使用notice_rev/member_rev/creator_rev/bind_rev；scope只有cidNumber/accountId/bindRev与原generation。独立接收时刻、跨域补写恢复、同版本补存和已读意图保持，推送端点发送apns_env。ResourceUsage与MLS证明属于当前固定SDK公开合同，按真实接口消费；后续所有者变更时须同步跨端合同并重新联调，不能在App添加兼容映射。
+
+MLS认证证明统一归聊天SDK原生Serde编码：user_id/device_id/public_key/account_id/bind_rev/service_origin/nonce_id/expires_at/http_method/request_target/body_hash/signature。user_id在公民服务边界直接核对当前CID；原签名域、字段顺序、毫秒单位和签名字节保持。Dart证明只持有原生唯一字段集，宿主验证而不回抄另一份证明。ResourceUsage/ResourceCounter沿原Proto编号与类型，HTTP直接序列化生成类型，不维护另一套计量模型。
+
+## 关注、评论、创作者与订单合同
+
+关注目标在请求、列表、模型及自然关系中使用peer_cid/peerCid；列表缺失目标或时间非法必须失败，不能形成空身份。评论的唯一幂等操作标识为op_id/opId，待发送恢复与重试使用同一原值；正文、回复目标及操作ID都由实际HTTP字节参加认证。
+
+创作者档位只有tiers，属主由已认证本人请求、目标路径或本地自然键持有；他人响应creator_cid必须匹配所请求目标。档位保留tier_id、tier_name、month_fen、quarter_fen、year_fen，未开通周期为null；金额为正整数分且不超过9007199254740991。自有Dart成员按同一词根使用monthFen/quarterFen/yearFen。API、通知及本地缓存不保存价格Map、属主副本或占位更新时间；固定链协议的周期数组仅在原SCALE边界编码。概览条件读取使用creator_rev，原会话及通知身份围栏保持。
+
+充值订单仅保存order_state/orderState，覆盖awaiting、verifying、received、signed、broadcast、paid、exception七阶段。终态与展示从该字段计算，不传输或缓存第二份派生状态。旧恢复格式失败时保留原记录，不自动改写、删除或再次付款。
+
+第一方区块事实统一block_hash/blockHash，覆盖帖子、发布恢复、登记及钱包流水；自有发布证明使用tx_hash/txHash。SDK和官方链接口的原成员由所属产品拥有，不借改名改变其协议。物理表列清单保持39表227列；旧真实数据的升级处置不在普通读取路径中执行。

@@ -19,7 +19,7 @@ class _FakeSubscribeService implements CreatorSubscribeService {
   @override
   Future<CreatorView> fetchView(
     SquareSession session,
-    String creatorCidNumber,
+    String creatorCid,
   ) async {
     if (throwView) throw const CreatorApiException('service unavailable');
     return view;
@@ -30,15 +30,15 @@ class _FakeSubscribeService implements CreatorSubscribeService {
 }
 
 final _plan = CreatorPlan.fromJson({
-  'creator_cid_number': 'CN001-CTZN-000000001-2026',
   'tiers': [
     {
       'tier_id': 't1',
       'tier_name': '支持者',
-      'prices_fen': {'monthly': 299},
+      'month_fen': 299,
+      'quarter_fen': null,
+      'year_fen': null,
     },
   ],
-  'updated_at': 1,
 });
 
 CreatorSubscriptionState _activeCreatorSubscription() =>
@@ -47,7 +47,6 @@ CreatorSubscriptionState _activeCreatorSubscription() =>
       billingPeriod: 'monthly',
       subState: 'active',
       paidUntil: 9999999999999,
-      active: true,
     );
 
 void main() {
@@ -62,7 +61,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: CreatorSubscribeButton(
-            creatorCidNumber: 'CN001-CTZN-000000001-2026',
+            creatorCid: 'CN001-CTZN-000000001-2026',
             service: _FakeSubscribeService(
               view: CreatorView(
                 plan: creatorActive && hasTiers ? _plan : null,

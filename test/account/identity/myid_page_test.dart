@@ -675,7 +675,7 @@ class _RegisterFlowService implements MyIdService {
         bindRev: 1,
         accountId: accountId,
       ),
-      chainHash: '0x${'aa' * 32}',
+      blockHash: '0x${'aa' * 32}',
     );
   }
 

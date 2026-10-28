@@ -254,7 +254,7 @@ void main() {
       row
         ..jobState = 'finalized'
         ..txHash = 'synthetic-transaction'
-        ..chainHash = 'synthetic-block';
+        ..blockHash = 'synthetic-block';
       await store.savePublication(row);
       row
         ..jobState = 'confirmed'

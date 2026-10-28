@@ -614,11 +614,11 @@ class LocalTxRecordDetailPage extends StatelessWidget {
             ),
           if (record.blockNumber != null)
             _buildRow(context, label: '区块号', value: '${record.blockNumber}'),
-          if (record.chainHash != null)
+          if (record.blockHash != null)
             _buildRow(
               context,
               label: '区块哈希',
-              value: record.chainHash!,
+              value: record.blockHash!,
               copyable: true,
             ),
           if (record.eventIndex != null)

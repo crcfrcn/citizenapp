@@ -70,20 +70,20 @@ class FakeMlsAuthentication implements MlsAuthenticationSource {
 sdk.MlsAuthenticationProof _fakeProof(
   MlsAuthenticationIdentity identity,
   sdk.MlsAuthenticationRequest request,
-) => sdk.MlsAuthenticationProof(
-  userId: identity.cidNumber,
-  deviceId: identity.deviceId,
-  publicKey: identity.publicKey,
-  accountId: identity.accountId,
-  bindingRevision: identity.bindRev,
-  serviceOrigin: request.serviceOrigin,
-  challenge: request.challenge,
-  expiresAtMillis: request.expiresAtMillis,
-  method: request.method,
-  requestTarget: request.requestTarget,
-  bodySha256: '0x${sha256.convert(request.bodyBytes)}',
-  signature: '0x${List.filled(64, 'ab').join()}',
-);
+) => sdk.MlsAuthenticationProof.fromJson({
+  'user_id': identity.cidNumber,
+  'device_id': identity.deviceId,
+  'public_key': identity.publicKey,
+  'account_id': identity.accountId,
+  'bind_rev': identity.bindRev,
+  'service_origin': request.serviceOrigin,
+  'nonce_id': request.nonceId,
+  'expires_at': request.expiresAt,
+  'http_method': request.httpMethod,
+  'request_target': request.requestTarget,
+  'body_hash': '0x${sha256.convert(request.bodyBytes)}',
+  'signature': '0x${List.filled(64, 'ab').join()}',
+});
 
 Map<String, Object> fakeMlsChallenge(
   http.Request request, {
@@ -133,11 +133,11 @@ Future<Map<String, String>> fakeMlsRequestHeaders({
   final source = FakeMlsAuthentication();
   final request = sdk.MlsAuthenticationRequest(
     serviceOrigin: uri.origin,
-    method: method,
+    httpMethod: method,
     requestTarget: uri.path + (uri.hasQuery ? '?${uri.query}' : ''),
     bodyBytes: body,
-    challenge: '0x${List.filled(32, 'cd').join()}',
-    expiresAtMillis: DateTime.now().millisecondsSinceEpoch + 240000,
+    nonceId: '0x${List.filled(32, 'cd').join()}',
+    expiresAt: DateTime.now().millisecondsSinceEpoch + 240000,
   );
   final identity = source.identity;
   identity.validate();

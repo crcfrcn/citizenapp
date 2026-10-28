@@ -686,8 +686,8 @@ class Entry {
   int? blockNumber;
 
   /// 链上区块哈希。
-  @Name('chain_hash')
-  String? chainHash;
+  @Name('block_hash')
+  String? blockHash;
 
   /// 区块内事件序号。
   @Name('event_index')

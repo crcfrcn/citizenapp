@@ -26,21 +26,18 @@ abstract interface class CreatorApi {
   Future<CreatorPlan> saveMyPlan({
     required SquareSession session,
     required String txHash,
-    required String blockHashHex,
+    required String blockHash,
   });
 
   /// 读某创作者档位及当前会话对其订阅状态；两者均来自 CitizenServe finalized 投影。
-  Future<CreatorView> fetchViewOf(
-    SquareSession session,
-    String creatorCidNumber,
-  );
+  Future<CreatorView> fetchViewOf(SquareSession session, String creatorCid);
 
   /// 订阅/取消创作者会员上链后确认查询投影（best-effort，链上已是真源）。
   Future<void> confirmCreatorSubscription({
-    required String creatorCidNumber,
+    required String creatorCid,
     required SquareSession session,
     required String txHash,
-    required String blockHashHex,
+    required String blockHash,
   });
 }
 
@@ -57,14 +54,12 @@ class CreatorSubscriptionState {
     required this.billingPeriod,
     required this.subState,
     required this.paidUntil,
-    required this.active,
   });
 
   final String tierId;
   final String billingPeriod;
   final String subState;
   final int paidUntil;
-  final bool active;
 
   factory CreatorSubscriptionState.fromJson(Map<String, dynamic> json) {
     return CreatorSubscriptionState(
@@ -72,7 +67,6 @@ class CreatorSubscriptionState {
       billingPeriod: json['billing_period']?.toString() ?? '',
       subState: json['sub_state']?.toString() ?? '',
       paidUntil: json['paid_until'] is int ? json['paid_until'] as int : 0,
-      active: json['active'] == true,
     );
   }
 }
@@ -88,7 +82,7 @@ class CreatorApiException implements Exception {
 
 /// 生产实现：直连 Cloudflare Worker，复用会话与设备级请求认证。
 ///
-/// 依赖 BFF 端点（另立 Cloudflare 卡实现）：
+/// 使用CitizenServe现有公开端点：
 ///   GET  /membergate/creators/{cid}/plans
 ///   GET  /membergate/creator/overview
 ///   POST /membergate/creators/plans             （校验 finalized 链状态后覆盖查询投影）
@@ -106,14 +100,14 @@ class CreatorApiHttp implements CreatorApi {
 
   Future<Map<String, dynamic>> _ownSnapshot(SquareSession session) async {
     final cached = _ownSnapshots[session];
-    final revision = cached?['revision'];
+    final creatorRev = cached?['creator_rev'];
     final raw = await _getJson(
-      '/membergate/creator/overview${revision is int && revision > 0 ? '?revision=$revision' : ''}',
+      '/membergate/creator/overview${creatorRev is int && creatorRev > 0 ? '?creator_rev=$creatorRev' : ''}',
       session,
     );
     final Map<String, dynamic> data;
     if (raw['unchanged'] == true) {
-      if (cached == null || raw['revision'] != revision) {
+      if (cached == null || raw['creator_rev'] != creatorRev) {
         throw const CreatorApiException('创作者版本基线缺失');
       }
       data = cached;
@@ -123,13 +117,10 @@ class CreatorApiHttp implements CreatorApi {
     final plan = data['plan'], overview = data['overview'];
     if (plan is! Map<String, dynamic> ||
         overview is! Map<String, dynamic> ||
-        data['revision'] is! int) {
+        data['creator_rev'] is! int) {
       throw const CreatorApiException('创作者快照不完整');
     }
-    final parsed = CreatorPlan.fromJson(plan);
-    if (parsed.creatorCidNumber != session.cidNumber) {
-      throw const CreatorApiException('创作者身份不一致');
-    }
+    CreatorPlan.fromJson(plan);
     for (final key in [
       'subscriber_count',
       'monthly_income_fen',
@@ -151,7 +142,7 @@ class CreatorApiHttp implements CreatorApi {
     _ownSnapshots[session] = data;
     await Notifications.instance.acceptCreator(
       session.cidNumber,
-      data['revision'] as int,
+      data['creator_rev'] as int,
       {'gated': false, 'plan': plan, 'overview': overview},
       session: session,
     );
@@ -187,31 +178,32 @@ class CreatorApiHttp implements CreatorApi {
   Future<CreatorPlan> saveMyPlan({
     required SquareSession session,
     required String txHash,
-    required String blockHashHex,
+    required String blockHash,
   }) async {
     final saved = await _postFinalizedProjectionJson(
       '/membergate/creators/plans',
-      {'tx_hash': txHash, 'block_hash': blockHashHex},
+      {'tx_hash': txHash, 'block_hash': blockHash},
       session,
     );
     if (saved['is_ok'] != true ||
         saved['tx_hash'] != txHash ||
-        saved['block_hash'] != blockHashHex) {
+        saved['block_hash'] != blockHash) {
       throw const CreatorApiException('创作者档位确认回执不一致');
     }
-    return await fetchMyPlan(session) ?? CreatorPlan.empty(session.cidNumber);
+    return await fetchMyPlan(session) ?? CreatorPlan.empty();
   }
 
   @override
   Future<CreatorView> fetchViewOf(
     SquareSession session,
-    String creatorCidNumber,
+    String creatorCid,
   ) async {
     final data = await _getJson(
-      '/membergate/creators/${Uri.encodeComponent(creatorCidNumber)}/plans',
+      '/membergate/creators/${Uri.encodeComponent(creatorCid)}/plans',
       session,
     );
     if (data['is_ok'] != true ||
+        data['creator_cid'] != creatorCid ||
         data['tiers'] is! List ||
         data['membergate_active'] is! bool) {
       throw const CreatorApiException('创作者档位响应不完整');
@@ -221,10 +213,7 @@ class CreatorApiHttp implements CreatorApi {
       throw const CreatorApiException('订阅响应无效');
     }
     return CreatorView(
-      plan: CreatorPlan.fromJson({
-        ...data,
-        'creator_cid_number': creatorCidNumber,
-      }),
+      plan: CreatorPlan.fromJson(data),
       subscription: subscription == null
           ? null
           : CreatorSubscriptionState.fromJson(
@@ -235,14 +224,14 @@ class CreatorApiHttp implements CreatorApi {
 
   @override
   Future<void> confirmCreatorSubscription({
-    required String creatorCidNumber,
+    required String creatorCid,
     required SquareSession session,
     required String txHash,
-    required String blockHashHex,
+    required String blockHash,
   }) async {
     await _postFinalizedProjectionJson(
-      '/membergate/creators/${Uri.encodeComponent(creatorCidNumber)}/subscription/confirm',
-      {'tx_hash': txHash, 'block_hash': blockHashHex},
+      '/membergate/creators/${Uri.encodeComponent(creatorCid)}/subscription/confirm',
+      {'tx_hash': txHash, 'block_hash': blockHash},
       session,
     );
   }
@@ -361,24 +350,24 @@ class FakeCreatorApi implements CreatorApi {
   Future<CreatorPlan> saveMyPlan({
     required SquareSession session,
     required String txHash,
-    required String blockHashHex,
+    required String blockHash,
   }) async {
     lastSaveTxHash = txHash;
-    _plan ??= CreatorPlan.empty(session.cidNumber);
+    _plan ??= CreatorPlan.empty();
     return _plan!;
   }
 
   @override
   Future<CreatorView> fetchViewOf(
     SquareSession session,
-    String creatorCidNumber,
+    String creatorCid,
   ) async => CreatorView(plan: _plan, subscription: null);
 
   @override
   Future<void> confirmCreatorSubscription({
-    required String creatorCidNumber,
+    required String creatorCid,
     required SquareSession session,
     required String txHash,
-    required String blockHashHex,
+    required String blockHash,
   }) async {}
 }

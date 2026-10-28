@@ -108,6 +108,37 @@ SquareSession _session() => SquareSession(
 );
 
 void main() {
+  test('非空关注报文按peer_cid解析；旧键、缺失目标和坏时间拒绝', () async {
+    final client = _client(
+      MockClient(
+        (request) async => _ok({
+          'is_ok': true,
+          'entries': [
+            {'peer_cid': _profileCid, 'created_at': 123},
+          ],
+          'next_cursor': 123,
+        }),
+      ),
+    );
+    addTearDown(client.close);
+    final page = await client.fetchFollows(
+      cidNumber: _profileCid,
+      type: 'following',
+      session: _session(),
+    );
+    expect(page.entries.single.peerCid, _profileCid);
+    expect(page.entries.single.createdAt, 123);
+    expect(page.nextCursor, 123);
+    for (final row in [
+      {'cid_number': _profileCid, 'created_at': 123},
+      {'peer_cid': '', 'created_at': 123},
+      {'peer_cid': _profileCid, 'created_at': -1},
+      {'peer_cid': _profileCid, 'created_at': '123'},
+    ]) {
+      expect(() => SquareFollowEntry.fromJson(row), throwsFormatException);
+    }
+  });
+
   TestCitizenSdkHarness();
   useIsolatedIsar();
 

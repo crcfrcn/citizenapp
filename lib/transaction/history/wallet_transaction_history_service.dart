@@ -173,7 +173,7 @@ final class WalletTransactionHistoryService {
             txHash: txHash,
             executionId: executionId,
             callHash: callHash,
-            chainHash: block.hash,
+            blockHash: block.hash,
           );
         }
         break;
@@ -198,7 +198,7 @@ final class WalletTransactionHistoryService {
           txHash: txHash,
           executionId: executionId,
           callHash: callHash,
-          chainHash: block?.hash,
+          blockHash: block?.hash,
           blockNumber: block?.number.toInt(),
           extrinsicIndex: record.execution?.extrinsicIndex,
           confirmedAt: record.updatedAtMillis.toInt(),
@@ -436,7 +436,7 @@ final class WalletTransactionHistoryService {
             ..entrySource = 'sdk_finalized_event'
             ..txHash = hash
             ..blockNumber = block.number.toInt()
-            ..chainHash = block.hash
+            ..blockHash = block.hash
             ..eventIndex = transfer.eventRecordIndex
             ..extrinsicIndex = index
             ..createdAt = time
@@ -462,7 +462,7 @@ final class WalletTransactionHistoryService {
           ..entrySource = 'sdk_finalized_event'
           ..txHash = '0x${_hex(Hasher.blake2b256.hash(body.extrinsics[index]))}'
           ..blockNumber = block.number.toInt()
-          ..chainHash = block.hash
+          ..blockHash = block.hash
           ..eventIndex = fee.eventRecordIndex
           ..extrinsicIndex = index
           ..failReason = outcome.succeeded ? null : outcome.failureDescription

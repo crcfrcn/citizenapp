@@ -17,6 +17,68 @@ import 'package:citizenapp/8964/feed/square_models.dart';
 import 'mls_authentication_fixture.dart';
 
 void main() {
+  test('关注和评论真实HTTP正文直接使用peer_cid及op_id，认证覆盖同一字节', () async {
+    final signed = <List<int>>[];
+    final sent = <http.Request>[];
+    final session = SquareSession(
+      sessionToken: 'ordinary',
+      cidNumber: testMlsCidNumber,
+      bindRev: 1,
+      accountId: testMlsAccountId,
+      deviceId: testMlsDeviceId,
+      expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
+      authenticateRequest:
+          ({
+            required method,
+            required uri,
+            required body,
+            required sessionToken,
+          }) async {
+            signed.add(List.of(body));
+            return fakeMlsRequestHeaders(
+              method: method,
+              uri: uri,
+              body: body,
+              sessionToken: sessionToken,
+            );
+          },
+    );
+    final api = SquareApiClient(
+      baseUrl: 'https://square.test/api',
+      httpClient: MockClient((request) async {
+        sent.add(request);
+        expect(request.method, 'POST');
+        expect(request.headers['x-mls-proof'], isNotEmpty);
+        return http.Response(jsonEncode({'is_ok': true}), 200);
+      }),
+    );
+    addTearDown(api.close);
+    await api.followUser(
+      session: session,
+      peerCid: 'CN220-CTZN2-100000002-2026',
+    );
+    await api.createComment(
+      session: session,
+      postId: 'p',
+      opId: '01' * 16,
+      replyText: '评论',
+      replyTo: 'parent',
+    );
+    expect(sent.map((request) => request.url.path), [
+      '/api/8964/follows',
+      '/api/8964/posts/p/comments',
+    ]);
+    expect(jsonDecode(sent[0].body), {
+      'peer_cid': 'CN220-CTZN2-100000002-2026',
+    });
+    expect(jsonDecode(sent[1].body), {
+      'op_id': '01' * 16,
+      'reply_text': '评论',
+      'reply_to': 'parent',
+    });
+    expect(signed, sent.map((request) => request.bodyBytes).toList());
+  });
+
   test('HTTP计时标签及数字严格闭集，出口故障不影响调用', () async {
     const canary = 'synthetic-private-http-detail';
     final lines = <String>[];
@@ -78,7 +140,7 @@ void main() {
       'content_hash': hash,
       'receipt_id': 'receipt',
       'chain_block': 1,
-      'chain_hash': block,
+      'block_hash': block,
       'tx_hash': tx,
       'created_at': 1000,
       'post_state': 'published',
@@ -115,7 +177,7 @@ void main() {
     final post = await api.confirmPublishedPost(
       session: session,
       postId: 'post',
-      blockHashHex: block,
+      blockHash: block,
       txHash: tx,
     );
     expect(post.text, '真实清单正文');
@@ -136,7 +198,7 @@ void main() {
       final invalidManifest = {...manifest};
       switch (bad) {
         case 'block':
-          invalidIndex['chain_hash'] = '0x${'44' * 32}';
+          invalidIndex['block_hash'] = '0x${'44' * 32}';
         case 'tx':
           invalidIndex['tx_hash'] = '0x${'44' * 32}';
         case 'hash':
@@ -179,7 +241,7 @@ void main() {
           invalid.confirmPublishedPost(
             session: session,
             postId: 'post',
-            blockHashHex: block,
+            blockHash: block,
             txHash: tx,
           ),
           throwsA(isA<SquareApiException>()),
@@ -365,7 +427,7 @@ void main() {
     );
     await api.setNotify(
       session: session,
-      followedCidNumber: testMlsCidNumber,
+      peerCid: testMlsCidNumber,
       enabled: true,
     );
     await api.fetchNotificationState(session: session);
@@ -1088,11 +1150,7 @@ void _readCoalescingTests() {
     addTearDown(api.close);
     await Future.wait([
       for (var i = 0; i < 2; i++)
-        api.setNotify(
-          session: owner,
-          followedCidNumber: testMlsCidNumber,
-          enabled: true,
-        ),
+        api.setNotify(session: owner, peerCid: testMlsCidNumber, enabled: true),
     ]);
     expect(requests, 2);
     expect(signed, 2);

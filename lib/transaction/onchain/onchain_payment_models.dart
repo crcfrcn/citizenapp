@@ -58,12 +58,12 @@ class OnchainRecipient {
     required this.address,
     this.cidNumber,
     this.bindRev,
-    this.chainHash,
+    this.blockHash,
   });
   final String address;
   final String? cidNumber;
   final int? bindRev;
-  final String? chainHash;
+  final String? blockHash;
 }
 
 class OnchainPaymentDraft {

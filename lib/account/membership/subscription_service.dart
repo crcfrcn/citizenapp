@@ -9,6 +9,7 @@ import 'dart:typed_data';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:tatachat_sdk/tatachat_sdk.dart' as chat_sdk;
 import 'package:citizenapp/account/identity/account_security_service.dart';
 import 'package:citizenapp/account/identity/square_session_provider.dart';
 import 'package:citizenapp/account/identity/identity_register_guide.dart';
@@ -718,7 +719,7 @@ class SubscriptionService {
       await _confirm(
         cidNumber: cidNumber,
         txHash: result.txHash,
-        blockHashHex: result.blockHashHex,
+        blockHash: result.blockHash,
       );
     } on Exception catch (e) {
       throw SubscriptionException('订阅失败：$e');
@@ -738,7 +739,7 @@ class SubscriptionService {
       await _confirm(
         cidNumber: cidNumber,
         txHash: result.txHash,
-        blockHashHex: result.blockHashHex,
+        blockHash: result.blockHash,
       );
     } on Exception catch (e) {
       throw SubscriptionException('取消失败：$e');
@@ -764,7 +765,7 @@ class SubscriptionService {
       await _confirm(
         cidNumber: cidNumber,
         txHash: result.txHash,
-        blockHashHex: result.blockHashHex,
+        blockHash: result.blockHash,
       );
     } on Exception catch (e) {
       throw SubscriptionException('更换订阅失败：$e');
@@ -807,12 +808,9 @@ class SubscriptionService {
   Future<void> _confirm({
     required String cidNumber,
     required String txHash,
-    required String blockHashHex,
+    required String blockHash,
   }) async {
-    final proof = <String, dynamic>{
-      'tx_hash': txHash,
-      'block_hash': blockHashHex,
-    };
+    final proof = <String, dynamic>{'tx_hash': txHash, 'block_hash': blockHash};
     try {
       await wallet_store.Member.storeProof(
         cidNumber,
@@ -853,8 +851,8 @@ class SubscriptionService {
     required Map<String, dynamic> proof,
   }) async {
     final txHash = proof['tx_hash'];
-    final blockHashHex = proof['block_hash'];
-    if (txHash is! String || blockHashHex is! String) {
+    final blockHash = proof['block_hash'];
+    if (txHash is! String || blockHash is! String) {
       return false;
     }
 
@@ -874,7 +872,7 @@ class SubscriptionService {
       final confirmed = await _api.confirmPlatformSubscription(
         session: session,
         txHash: txHash,
-        blockHashHex: blockHashHex,
+        blockHash: blockHash,
       );
       await _validateSession(session);
       final current = _citizenSessions[cidNumber];
@@ -1497,7 +1495,7 @@ final class _LocalResourceLease implements SquareResourceLease {
   @override
   void finish({
     Map<String, String>? headers,
-    Map<String, dynamic>? receipt,
+    chat_sdk.ResourceUsage? receipt,
     bool accepted = true,
     bool uncertain = false,
   }) {
@@ -1508,8 +1506,19 @@ final class _LocalResourceLease implements SquareResourceLease {
     if (receipt == null && raw != null && raw.length <= 8192) {
       try {
         final v = jsonDecode(raw);
-        if (v is Map<String, dynamic>) {
-          receipt = v;
+        if (v is Map<String, dynamic> &&
+            MembershipResourceGate._number(v['server_time_millis']) &&
+            v['counters'] is List &&
+            (v['counters'] as List).every(
+              (c) =>
+                  c is Map &&
+                  c['metric'] is String &&
+                  MembershipResourceGate._number(c['window_start_millis']) &&
+                  MembershipResourceGate._number(c['used']) &&
+                  MembershipResourceGate._number(c['charged']),
+            )) {
+          // 官方Proto解析直接进入WSS使用的同一类型，不逐字段回抄。
+          receipt = chat_sdk.ResourceUsage()..mergeFromProto3Json(v);
         }
       } on FormatException {
         /* 损坏回执不退款。 */
@@ -1517,37 +1526,31 @@ final class _LocalResourceLease implements SquareResourceLease {
     }
     final s = scope;
     if (s != null && receipt != null) {
-      if (receipt['user_id'] != s.session.cidNumber ||
-          receipt['device_id'] != s.session.deviceId ||
-          receipt['account_id'] != s.session.accountId ||
-          receipt['binding_revision'] != s.session.bindRev ||
-          !MembershipResourceGate._number(receipt['server_time_millis']) ||
-          receipt['counters'] is! List) {
+      if (receipt.userId != s.session.cidNumber ||
+          receipt.deviceId != s.session.deviceId ||
+          receipt.accountId != s.session.accountId ||
+          receipt.bindingRevision.toInt() != s.session.bindRev ||
+          !MembershipResourceGate._number(receipt.serverTimeMillis.toInt())) {
         return;
       }
-      for (final c in receipt['counters'] as List) {
-        if (c is! Map ||
-            c['metric'] is! String ||
-            !MembershipResourceGate._number(c['window_start_millis']) ||
-            !MembershipResourceGate._number(c['used']) ||
-            !MembershipResourceGate._number(c['charged']) ||
-            c['charged'] > c['used']) {
+      for (final c in receipt.counters) {
+        if (c.metric.isEmpty ||
+            !MembershipResourceGate._number(c.windowStartMillis.toInt()) ||
+            !MembershipResourceGate._number(c.used.toInt()) ||
+            !MembershipResourceGate._number(c.charged.toInt()) ||
+            c.charged > c.used) {
           return;
         }
       }
-      final counters = receipt['counters'] as List;
+      final counters = receipt.counters;
       for (final c in counters) {
-        s.confirm(
-          c['metric'] as String,
-          c['window_start_millis'] as int,
-          c['used'] as int,
-        );
+        s.confirm(c.metric, c.windowStartMillis.toInt(), c.used.toInt());
       }
       if (uncertain) {
         // 部分回执只结算其准确窗口；未知剩余继续预留，不重复累计已确认成本。
         amounts.removeWhere(
           (key, _) => counters.any(
-            (c) => c['metric'] == key.$1 && c['window_start_millis'] == key.$2,
+            (c) => c.metric == key.$1 && c.windowStartMillis.toInt() == key.$2,
           ),
         );
         _unknownStock();
@@ -1561,9 +1564,7 @@ final class _LocalResourceLease implements SquareResourceLease {
     final licensed =
         accepted ||
         receipt != null &&
-            (receipt['counters'] as List).any(
-              (c) => c['metric'] == 'attachment_begins',
-            );
+            receipt.counters.any((c) => c.metric == 'attachment_begins');
     final prior = previous;
     if (licensed &&
         prior != null &&

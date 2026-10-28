@@ -138,9 +138,6 @@ class CreatorService {
         final plan = CreatorPlan.fromJson(
           (pushed['plan'] as Map).cast<String, dynamic>(),
         );
-        if (plan.creatorCidNumber != normalized) {
-          throw const FormatException('创作者快照身份不一致');
-        }
         final overview = (pushed['overview'] as Map).cast<String, dynamic>();
         data = CreatorPageData.active(
           plan: plan,
@@ -183,12 +180,8 @@ class CreatorService {
           overviewRaw is! Map<String, dynamic>) {
         return null;
       }
-      if (planRaw.containsKey('creator_cid_number')) return null;
-      final plan = CreatorPlan.fromJson({
-        'creator_cid_number': normalized,
-        ...planRaw,
-      });
-      if (plan.creatorCidNumber != normalized) return null;
+      if (planRaw.length != 1 || !planRaw.containsKey('tiers')) return null;
+      final plan = CreatorPlan.fromJson(planRaw);
       return CreatorDisplaySnapshot(
         cidNumber: normalized,
         data: CreatorPageData.active(
@@ -220,8 +213,7 @@ class CreatorService {
         'gated': data.gated,
         'member_at': memberAt,
         'creator_at': creatorAt,
-        if (plan != null)
-          'plan': {'tiers': plan.tiersJson(), 'updated_at': plan.updatedAt},
+        if (plan != null) 'plan': plan.toJson(),
         if (overview != null)
           'overview': {
             'subscriber_count': overview.subscriberCount,
@@ -290,7 +282,7 @@ class CreatorService {
     }
     await session.validateCurrent();
     final data = CreatorPageData.active(
-      plan: results[0] as CreatorPlan? ?? CreatorPlan.empty(session.cidNumber),
+      plan: results[0] as CreatorPlan? ?? CreatorPlan.empty(),
       overview: results[1] as CreatorOverview,
     );
     await rememberDisplayData(
@@ -334,11 +326,12 @@ class CreatorService {
               (tier) => CreatorTierInput(
                 tierId: tier.tierId,
                 tierName: tier.tierName,
-                pricesFen: tier.pricesFen.entries
+                pricesFen: BillingPeriod.values
+                    .where(tier.hasPeriod)
                     .map(
-                      (entry) => CreatorPeriodPriceInput(
-                        billingPeriod: entry.key.key,
-                        priceFen: BigInt.from(entry.value),
+                      (period) => CreatorPeriodPriceInput(
+                        billingPeriod: period.key,
+                        priceFen: BigInt.from(tier.priceFenOf(period)!),
                       ),
                     )
                     .toList(growable: false),
@@ -350,9 +343,9 @@ class CreatorService {
       return await _completeFinalizedSave(
         session: session,
         accountId: identity.accountId,
-        creatorCidNumber: session.cidNumber,
+        creatorCid: session.cidNumber,
         txHash: result.txHash,
-        blockHashHex: result.blockHashHex,
+        blockHash: result.blockHash,
         tiers: tiers,
       );
     } on CreatorApiException catch (e) {
@@ -386,11 +379,11 @@ class CreatorService {
       );
       try {
         await _appendLocalTransaction(
-          creatorCidNumber: session.cidNumber,
+          creatorCid: session.cidNumber,
           accountId: identity.accountId,
           action: 'update_creator_tier_name',
           txHash: result.txHash,
-          blockHashHex: result.blockHashHex,
+          blockHash: result.blockHash,
         );
       } on Exception {
         // 链上已经 finalized；本地审计缓存失败不得诱导用户再次签名。
@@ -400,7 +393,7 @@ class CreatorService {
         projectedPlan = await _api.saveMyPlan(
           session: session,
           txHash: result.txHash,
-          blockHashHex: result.blockHashHex,
+          blockHash: result.blockHash,
         );
         await wallet_store.Member.finishProof(
           session.cidNumber,
@@ -412,15 +405,7 @@ class CreatorService {
       }
       final localTiers = List<CreatorTier>.from(currentTiers);
       localTiers[index] = localTiers[index].copyWith(tierName: tierName);
-      final localPlan = CreatorPlan(
-        creatorCidNumber: session.cidNumber,
-        tiers: List.unmodifiable(localTiers),
-        updatedAt: 0,
-      );
-      if (projectedPlan != null &&
-          projectedPlan.creatorCidNumber != session.cidNumber) {
-        throw const CreatorApiException('创作者投影属主已变化');
-      }
+      final localPlan = CreatorPlan(tiers: List.unmodifiable(localTiers));
       return projectedPlan ?? localPlan;
     } on Exception catch (e) {
       throw CreatorException('改名失败：$e');
@@ -468,14 +453,14 @@ class CreatorService {
       if (pending.isEmpty) return;
       final decoded = pending.single;
       final txHash = decoded['tx_hash'];
-      final blockHashHex = decoded['block_hash'];
-      if (txHash is! String || blockHashHex is! String) {
+      final blockHash = decoded['block_hash'];
+      if (txHash is! String || blockHash is! String) {
         return;
       }
       await _api.saveMyPlan(
         session: session,
         txHash: txHash,
-        blockHashHex: blockHashHex,
+        blockHash: blockHash,
       );
       await wallet_store.Member.finishProof(session.cidNumber, txHash, 'plan');
     } on Exception {
@@ -487,23 +472,19 @@ class CreatorService {
   Future<CreatorPlan> _completeFinalizedSave({
     required SquareSession session,
     required String accountId,
-    required String creatorCidNumber,
+    required String creatorCid,
     required String txHash,
-    required String blockHashHex,
+    required String blockHash,
     required List<CreatorTier> tiers,
   }) async {
-    final localPlan = CreatorPlan(
-      creatorCidNumber: creatorCidNumber,
-      tiers: tiers,
-      updatedAt: 0,
-    );
+    final localPlan = CreatorPlan(tiers: tiers);
     try {
       await _appendLocalTransaction(
-        creatorCidNumber: creatorCidNumber,
+        creatorCid: creatorCid,
         accountId: accountId,
         action: 'set_creator_plans',
         txHash: txHash,
-        blockHashHex: blockHashHex,
+        blockHash: blockHash,
       );
     } on Exception {
       // 继续立即提交 Cloudflare；链上已成功，禁止把本地缓存异常变成第二次签名。
@@ -514,9 +495,9 @@ class CreatorService {
       displayPlan = await _api.saveMyPlan(
         session: session,
         txHash: txHash,
-        blockHashHex: blockHashHex,
+        blockHash: blockHash,
       );
-      await wallet_store.Member.finishProof(creatorCidNumber, txHash, 'plan');
+      await wallet_store.Member.finishProof(creatorCid, txHash, 'plan');
     } on Exception {
       // 保留待同步记录；下次进入创作者页只重试 HTTP。
     }
@@ -527,18 +508,18 @@ class CreatorService {
   /// 本地按永久 CID 保留有限条 finalized 交易证明；签名账户留在证明内部作为
   /// 不可变交易事实，Cloudflare 成功后也不删除链上交易记录。
   Future<void> _appendLocalTransaction({
-    required String creatorCidNumber,
+    required String creatorCid,
     required String accountId,
     required String action,
     required String txHash,
-    required String blockHashHex,
+    required String blockHash,
   }) async {
     await wallet_store.Member.storeProof(
-      creatorCidNumber,
+      creatorCid,
       {
         'action': action,
         'tx_hash': txHash,
-        'block_hash': blockHashHex,
+        'block_hash': blockHash,
         'signer_account_id': accountId,
       },
       pendingKind: 'plan',

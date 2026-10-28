@@ -13,7 +13,7 @@ Uint8List _bytes(String hex) => Uint8List.fromList([
 ]);
 
 void main() {
-  const creatorCidNumber = 'CN220-CTZN2-900000001-2026';
+  const creatorCid = 'CN220-CTZN2-900000001-2026';
   const creatorCidScale =
       '68434e3232302d43545a4e322d3930303030303030312d32303236';
 
@@ -28,7 +28,7 @@ void main() {
 
     test('创作者订阅只携带 CID、tier_id、自然周期和当前签名价', () {
       final call = SubscriptionChain.buildSubscribeCreatorCall(
-        creatorCidNumber,
+        creatorCid,
         'supporter',
         'monthly',
         BigInt.from(50),
@@ -102,7 +102,7 @@ void main() {
       expect(
         _hex(
           SubscriptionChain.buildChangeCreatorPlanCall(
-            creatorCidNumber,
+            creatorCid,
             'supporter',
             'yearly',
             BigInt.from(500),
@@ -120,7 +120,7 @@ void main() {
       );
       expect(
         () => SubscriptionChain.buildSubscribeCreatorCall(
-          creatorCidNumber,
+          creatorCid,
           '',
           'monthly',
           BigInt.one,
@@ -228,11 +228,11 @@ void main() {
 
     test('Subscriptions 与 CreatorPlans storage key 使用不同真源项', () {
       final subscriptionKey = SubscriptionChain.buildSubscriptionStorageKey(
-        creatorCidNumber,
+        creatorCid,
         null,
       );
       final creatorPlansKey = SubscriptionChain.buildCreatorPlansStorageKey(
-        creatorCidNumber,
+        creatorCid,
       );
       expect(subscriptionKey.length, 76);
       expect(creatorPlansKey.length, 75);

@@ -570,7 +570,7 @@ class _MultisigProposalDetailPageState
             ),
           );
       AppLog.d(
-        '[VoteDetail] submit 已入块 txHash=${result.txHash} nonce=${result.usedNonce} block=${result.blockHashHex}',
+        '[VoteDetail] submit 已入块 txHash=${result.txHash} nonce=${result.usedNonce} block=${result.blockHash}',
       );
 
       if (!mounted) return;

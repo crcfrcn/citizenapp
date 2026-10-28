@@ -95,7 +95,6 @@ class FinalizedSubscriptionSnapshot {
   final int chainNowMs;
   final CitizenBlockRef block;
 
-  String get blockHashHex => block.hash;
 }
 
 /// finalized `CreatorPlans` 中的单个链上付款档位。
@@ -117,7 +116,7 @@ class ChainCreatorTier {
 typedef FinalizedSubscriptionTransaction = ({
   String txHash,
   int usedNonce,
-  String blockHashHex,
+  String blockHash,
 });
 
 /// SquarePost 订阅 SCALE 与标准热钱包 extrinsic 入口。
@@ -182,7 +181,7 @@ class SubscriptionChain {
 
   Future<FinalizedSubscriptionTransaction> subscribeCreator({
     required Uint8List signerPublicKey,
-    required String creatorCidNumber,
+    required String creatorCid,
     required String tierId,
     required String billingPeriod,
     required BigInt expectedPriceFen,
@@ -192,7 +191,7 @@ class SubscriptionChain {
     externalSigning,
   }) => _submitFinalized(
     callData: buildSubscribeCreatorCall(
-      creatorCidNumber,
+      creatorCid,
       tierId,
       billingPeriod,
       expectedPriceFen,
@@ -215,13 +214,13 @@ class SubscriptionChain {
 
   Future<FinalizedSubscriptionTransaction> cancelCreator({
     required Uint8List signerPublicKey,
-    required String creatorCidNumber,
+    required String creatorCid,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
     )
     externalSigning,
   }) => _submitFinalized(
-    callData: buildCancelCreatorCall(creatorCidNumber),
+    callData: buildCancelCreatorCall(creatorCid),
     signerPublicKey: signerPublicKey,
     externalSigning: externalSigning,
   );
@@ -245,7 +244,7 @@ class SubscriptionChain {
 
   Future<FinalizedSubscriptionTransaction> changeCreatorPlan({
     required Uint8List signerPublicKey,
-    required String creatorCidNumber,
+    required String creatorCid,
     required String tierId,
     required String billingPeriod,
     required BigInt expectedPriceFen,
@@ -255,7 +254,7 @@ class SubscriptionChain {
     externalSigning,
   }) => _submitFinalized(
     callData: buildChangeCreatorPlanCall(
-      creatorCidNumber,
+      creatorCid,
       tierId,
       billingPeriod,
       expectedPriceFen,
@@ -296,13 +295,10 @@ class SubscriptionChain {
   /// 在同一个 finalized 区块读取订阅真态与 `Timestamp.Now`。
   Future<FinalizedSubscriptionSnapshot> fetchSubscriptionSnapshot({
     required String cidNumber,
-    String? creatorCidNumber,
+    String? creatorCid,
   }) async {
     final block = await _chain.getFinalizedHead();
-    final subscriptionKey = buildSubscriptionStorageKey(
-      cidNumber,
-      creatorCidNumber,
-    );
+    final subscriptionKey = buildSubscriptionStorageKey(cidNumber, creatorCid);
     final timestampKey = buildStorageValueKey('Timestamp', 'Now');
     final values = await _chain.getStorageBatch(block, <Uint8List>[
       subscriptionKey,
@@ -320,11 +316,9 @@ class SubscriptionChain {
   }
 
   /// 在同一个 finalized 区块读取创作者付款档位及其链上名称。
-  Future<List<ChainCreatorTier>> fetchCreatorPlans(
-    String creatorCidNumber,
-  ) async {
+  Future<List<ChainCreatorTier>> fetchCreatorPlans(String creatorCid) async {
     final block = await _chain.getFinalizedHead();
-    return fetchCreatorPlansAtBlock(creatorCidNumber, block);
+    return fetchCreatorPlansAtBlock(creatorCid, block);
   }
 
   /// 在调用方已经确认的 finalized 区块读取创作者档位。
@@ -332,16 +326,16 @@ class SubscriptionChain {
   /// 创作者页先在某一 finalized 区块读取会员资格，再把同一区块哈希传入本方法，避免
   /// 页面刷新期间重复取区块头，或把两个不同高度的会员态和创作者档位拼成一个快照。
   Future<List<ChainCreatorTier>> fetchCreatorPlansAtBlock(
-    String creatorCidNumber,
+    String creatorCid,
     CitizenBlockRef block,
   ) async {
-    final key = buildCreatorPlansStorageKey(creatorCidNumber);
+    final key = buildCreatorPlansStorageKey(creatorCid);
     final data = await _chain.getStorage(block, key);
     if (data == null) return const <ChainCreatorTier>[];
     final priceTiers = decodeCreatorPlans(data);
     final encodedNames = await _chain.getStorageBatch(block, <Uint8List>[
       for (final tier in priceTiers)
-        buildCreatorTierNameStorageKey(creatorCidNumber, tier.tierId),
+        buildCreatorTierNameStorageKey(creatorCid, tier.tierId),
     ]);
     return List.unmodifiable([
       for (var index = 0; index < priceTiers.length; index++)
@@ -393,7 +387,7 @@ class SubscriptionChain {
     return (
       txHash: _hexPrefixed(completed.transactionHash),
       usedNonce: prepared.nonce.toInt(),
-      blockHashHex: completed.execution!.block.hash,
+      blockHash: completed.execution!.block.hash,
     );
   }
 
@@ -410,13 +404,13 @@ class SubscriptionChain {
   }
 
   static Uint8List buildSubscribeCreatorCall(
-    String creatorCidNumber,
+    String creatorCid,
     String tierId,
     String billingPeriod,
     BigInt expectedPriceFen,
   ) {
     final output = _call(_subscribeCallIndex);
-    _writeCreatorIssuerAndPlan(output, creatorCidNumber, tierId, billingPeriod);
+    _writeCreatorIssuerAndPlan(output, creatorCid, tierId, billingPeriod);
     output.write(_u128LittleEndian(expectedPriceFen));
     return output.toBytes();
   }
@@ -424,9 +418,9 @@ class SubscriptionChain {
   static Uint8List buildCancelPlatformCall() =>
       (_call(_cancelCallIndex)..pushByte(_issuerPlatformTag)).toBytes();
 
-  static Uint8List buildCancelCreatorCall(String creatorCidNumber) {
+  static Uint8List buildCancelCreatorCall(String creatorCid) {
     final output = _call(_cancelCallIndex)..pushByte(_issuerCreatorTag);
-    _writeCidNumber(output, creatorCidNumber);
+    _writeCidNumber(output, creatorCid);
     return output.toBytes();
   }
 
@@ -442,13 +436,13 @@ class SubscriptionChain {
           .toBytes();
 
   static Uint8List buildChangeCreatorPlanCall(
-    String creatorCidNumber,
+    String creatorCid,
     String tierId,
     String billingPeriod,
     BigInt expectedPriceFen,
   ) {
     final output = _call(_changePlanCallIndex);
-    _writeCreatorIssuerAndPlan(output, creatorCidNumber, tierId, billingPeriod);
+    _writeCreatorIssuerAndPlan(output, creatorCid, tierId, billingPeriod);
     output.write(_u128LittleEndian(expectedPriceFen));
     return output.toBytes();
   }
@@ -485,12 +479,12 @@ class SubscriptionChain {
 
   static void _writeCreatorIssuerAndPlan(
     ByteOutput output,
-    String creatorCidNumber,
+    String creatorCid,
     String tierId,
     String billingPeriod,
   ) {
     output.pushByte(_issuerCreatorTag);
-    _writeCidNumber(output, creatorCidNumber);
+    _writeCidNumber(output, creatorCid);
     output.pushByte(_planCreatorTag);
     _writeBytes(output, Uint8List.fromList(tierId.codeUnits));
     output.pushByte(billingPeriodByte(billingPeriod));
@@ -582,32 +576,30 @@ class SubscriptionChain {
   @visibleForTesting
   static Uint8List buildSubscriptionStorageKey(
     String cidNumber,
-    String? creatorCidNumber,
+    String? creatorCid,
   ) {
     final raw = BytesBuilder(copy: false)
       ..add(_encodedCidNumber(cidNumber))
-      ..addByte(
-        creatorCidNumber == null ? _issuerPlatformTag : _issuerCreatorTag,
-      );
-    if (creatorCidNumber != null) {
-      raw.add(_encodedCidNumber(creatorCidNumber));
+      ..addByte(creatorCid == null ? _issuerPlatformTag : _issuerCreatorTag);
+    if (creatorCid != null) {
+      raw.add(_encodedCidNumber(creatorCid));
     }
     return _storageMapKey('SquarePost', 'Subscriptions', raw.takeBytes());
   }
 
   /// `CreatorPlans[creator_cid_number]` 的 Blake2_128Concat 单键布局。
   @visibleForTesting
-  static Uint8List buildCreatorPlansStorageKey(String creatorCidNumber) =>
+  static Uint8List buildCreatorPlansStorageKey(String creatorCid) =>
       _storageMapKey(
         'SquarePost',
         'CreatorPlans',
-        _encodedCidNumber(creatorCidNumber),
+        _encodedCidNumber(creatorCid),
       );
 
   /// `CreatorTierNames[creator_cid_number][tier_id]` 的双 Blake2_128Concat 布局。
   @visibleForTesting
   static Uint8List buildCreatorTierNameStorageKey(
-    String creatorCidNumber,
+    String creatorCid,
     String tierId,
   ) {
     final encodedTierId = ByteOutput();
@@ -615,7 +607,7 @@ class SubscriptionChain {
     return _storageDoubleMapKey(
       'SquarePost',
       'CreatorTierNames',
-      _encodedCidNumber(creatorCidNumber),
+      _encodedCidNumber(creatorCid),
       encodedTierId.toBytes(),
     );
   }

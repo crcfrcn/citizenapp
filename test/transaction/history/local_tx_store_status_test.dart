@@ -39,7 +39,7 @@ void main() {
     final owner = accountId ?? fromAccountId;
     return wallet_store.Entry()
       ..accountId = owner
-      ..chainHash = '0x11'
+      ..blockHash = '0x11'
       ..eventIndex = timestamp
       ..entryKind = 'transfer'
       ..amountDelta = '100'
@@ -150,7 +150,7 @@ void main() {
       txHash: '0xabc',
       executionId: 'execution-1',
       callHash: '0x${'11' * 32}',
-      chainHash: '0x${'22' * 32}',
+      blockHash: '0x${'22' * 32}',
     );
     expect(
       (await LocalTxStore.queryByAccountId(fromAccountId)).single.entryState,
@@ -162,7 +162,7 @@ void main() {
       txHash: '0xabc',
       executionId: 'execution-1',
       callHash: '0x${'11' * 32}',
-      chainHash: '0x${'22' * 32}',
+      blockHash: '0x${'22' * 32}',
       blockNumber: 9,
       extrinsicIndex: 2,
     );
@@ -227,7 +227,7 @@ void main() {
       fromAddress: fromAddress,
       toAddress: toAddress,
       blockNumber: 10,
-      chainHash: '0x${'33' * 32}',
+      blockHash: '0x${'33' * 32}',
       eventIndex: 4,
       extrinsicIndex: 2,
       txHash: '0xabc',
@@ -244,7 +244,7 @@ void main() {
       txHash: '0xabc',
       executionId: 'execution-1',
       callHash: '0x${'11' * 32}',
-      chainHash: '0x${'33' * 32}',
+      blockHash: '0x${'33' * 32}',
       blockNumber: 10,
       extrinsicIndex: 2,
     );
@@ -265,7 +265,7 @@ void main() {
         fromAddress: fromAddress,
         toAddress: toAddress,
         blockNumber: 10,
-        chainHash: '0x33',
+        blockHash: '0x33',
         eventIndex: index,
         extrinsicIndex: 2,
       );
@@ -384,7 +384,7 @@ void main() {
       ..amountDelta = '-10'
       ..feeAmount = '10'
       ..blockNumber = 10
-      ..chainHash = '0x${'33' * 32}'
+      ..blockHash = '0x${'33' * 32}'
       ..eventIndex = 4
       ..extrinsicIndex = 2
       ..failReason = '链上执行失败'
