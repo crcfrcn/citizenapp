@@ -1,5 +1,5 @@
 import 'package:citizenapp/network/square_api_client.dart';
-import 'package:citizenapp/8964/feed/square_post_store.dart';
+import 'package:citizenapp/8964/post/square_post_store.dart';
 
 /// 帖子删除的统一生命周期边界，供详情页和“编辑后替换旧帖”共同使用。
 abstract class SquarePostDeleteCoordinator {

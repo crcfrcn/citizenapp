@@ -7,7 +7,7 @@ import 'package:citizenapp/8964/media/square_media_store.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
-import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
 
 enum _ComposeDraftMediaLifecycle { active, closing, closed }
 

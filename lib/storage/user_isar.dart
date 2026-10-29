@@ -150,6 +150,8 @@ class Setting {
   List<String> councilOrder = const [];
   @Name('bank_order')
   List<String> bankOrder = const [];
+  @Name('square_tab_order')
+  List<String> squareTabOrder = const [];
 }
 
 /// 按订阅者永久 CID 隔离的公权机构关注关系。

@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 
 import 'package:citizenapp/8964/compose/compose_media_picker.dart';
 import 'package:citizenapp/8964/compose/compose_payload.dart';
-import 'package:citizenapp/8964/compose/compose_draft.dart';
+import 'package:citizenapp/8964/draft/compose_draft.dart';
 import 'package:citizenapp/8964/compose/compose_media_widgets.dart';
-import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
 import 'package:citizenapp/8964/media/square_media_draft.dart';
 import 'package:citizenapp/system/theme/app_layout.dart';
 import 'package:citizenapp/system/theme/app_theme.dart';

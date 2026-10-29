@@ -6,13 +6,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 import 'package:image_picker/image_picker.dart';
 
-import 'package:citizenapp/8964/compose/article_blocks.dart';
-import 'package:citizenapp/8964/compose/article_section_editor.dart';
+import 'package:citizenapp/8964/article/article_blocks.dart';
+import 'package:citizenapp/8964/article/article_section_editor.dart';
 import 'package:citizenapp/8964/compose/compose_media_picker.dart';
 import 'package:citizenapp/8964/compose/compose_payload.dart';
-import 'package:citizenapp/8964/compose/compose_draft.dart';
+import 'package:citizenapp/8964/draft/compose_draft.dart';
 import 'package:citizenapp/8964/compose/compose_media_widgets.dart';
-import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
 import 'package:citizenapp/8964/media/square_media_draft.dart';
 import 'package:citizenapp/8964/media/square_media_carousel.dart';
 import 'package:citizenapp/system/theme/app_layout.dart';

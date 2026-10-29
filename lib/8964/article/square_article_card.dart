@@ -1,9 +1,9 @@
 import 'package:citizenapp/8964/media/square_media_grid.dart';
 import 'package:flutter/material.dart';
 
-import 'package:citizenapp/8964/feed/square_models.dart';
-import 'package:citizenapp/8964/feed/square_post_actions.dart';
-import 'package:citizenapp/8964/feed/square_post_header.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
+import 'package:citizenapp/8964/post/square_post_actions.dart';
+import 'package:citizenapp/8964/post/square_post_header.dart';
 import 'package:citizenapp/system/theme/app_theme.dart';
 import 'package:citizenapp/system/theme/app_layout.dart';
 
@@ -92,7 +92,12 @@ class SquareArticleCard extends StatelessWidget {
                 ),
               ],
               SizedBox(height: AppLayout.scaled(context, 12)),
-              SquarePostActions(onComment: onTap),
+              SquarePostActions(
+                postId: post.chainBlock != null || !post.isLocal
+                    ? post.postId
+                    : null,
+                onComment: onTap,
+              ),
             ],
           ),
         ),

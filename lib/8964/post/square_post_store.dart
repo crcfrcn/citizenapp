@@ -12,7 +12,7 @@ import 'package:isar_community/isar.dart';
 import 'package:citizenapp/storage/social_isar.dart';
 import 'package:citizenapp/citizen/account_derivation.dart';
 import 'package:citizenapp/8964/media/square_media_store.dart';
-import 'package:citizenapp/8964/compose/compose_draft_store.dart';
+import 'package:citizenapp/8964/draft/compose_draft_store.dart';
 
 /// 本人已发布广场内容的只读值对象。
 ///

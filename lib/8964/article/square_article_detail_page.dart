@@ -1,8 +1,10 @@
-import 'package:citizenapp/8964/feed/comments.dart';
+import 'package:citizenapp/8964/like/square_likes_strip.dart';
+import 'package:citizenapp/8964/post/square_interaction_service.dart';
+import 'package:citizenapp/8964/comment/comments.dart';
 import 'package:citizenapp/system/notifications/notifications.dart';
-import 'package:citizenapp/8964/feed/square_post_store.dart';
-import 'package:citizenapp/8964/feed/square_local_post_presenter.dart';
-import 'package:citizenapp/8964/feed/square_post_sync_service.dart';
+import 'package:citizenapp/8964/post/square_post_store.dart';
+import 'package:citizenapp/8964/post/square_local_post_presenter.dart';
+import 'package:citizenapp/8964/post/square_post_sync_service.dart';
 
 import 'dart:async';
 
@@ -10,29 +12,22 @@ import 'package:flutter/material.dart';
 import 'package:citizenapp/account/membership/subscription_service.dart';
 import 'package:provider/provider.dart';
 
-import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
 import 'package:citizenapp/8964/compose/compose_page.dart';
 import 'package:citizenapp/account/identity/identity_register_guide.dart';
+import 'package:citizenapp/8964/post/square_post_detail_page.dart';
 import 'package:citizenapp/account/identity/square_session_provider.dart';
 import 'package:citizenapp/network/square_api_client.dart';
-import 'package:citizenapp/8964/feed/square_post_deletion_coordinator.dart';
-import 'package:citizenapp/8964/feed/square_post_card.dart';
+import 'package:citizenapp/8964/post/square_post_deletion_coordinator.dart';
+import 'package:citizenapp/8964/media/square_media_carousel.dart';
+import 'package:citizenapp/8964/media/square_media_grid.dart';
+import 'package:citizenapp/8964/article/article_rich_text_view.dart';
 import 'package:citizenapp/system/theme/app_theme.dart';
 import 'package:citizenapp/system/theme/app_layout.dart';
 
-/// 本页面编排广场帖子详情加载、链上索引展示以及编辑和删除入口；
-/// 正文与媒体操作仍经 Square API 协调，钱包会话和区块链底层不在页面内实现。
-class SquarePostDetailResult {
-  const SquarePostDetailResult({this.deleted = false, this.replacement});
-
-  final bool deleted;
-  final SquarePost? replacement;
-}
-
-enum _PostDetailAction { edit, delete }
-
-class SquarePostDetailPage extends StatefulWidget {
-  const SquarePostDetailPage({
+/// 文章详情：首图、标题、作者及保持图集/视频块关系的完整正文。
+class SquareArticleDetailPage extends StatefulWidget {
+  const SquareArticleDetailPage({
     super.key,
     required this.post,
     this.api,
@@ -40,20 +35,25 @@ class SquarePostDetailPage extends StatefulWidget {
     this.deletionCoordinator,
     this.initialDetailLoaded = false,
     this.initialCommentId,
+    this.notificationThrough,
   });
 
   final SquarePost post;
   final bool initialDetailLoaded;
   final String? initialCommentId;
+  final int? notificationThrough;
   final SquareApiClient? api;
   final SquareSessionProvider? sessionProvider;
   final SquarePostDeleteCoordinator? deletionCoordinator;
 
   @override
-  State<SquarePostDetailPage> createState() => _SquarePostDetailPageState();
+  State<SquareArticleDetailPage> createState() =>
+      _SquareArticleDetailPageState();
 }
 
-class _SquarePostDetailPageState extends State<SquarePostDetailPage> {
+enum _ArticleDetailAction { edit, delete }
+
+class _SquareArticleDetailPageState extends State<SquareArticleDetailPage> {
   late final SquareApiClient _api;
   late final SquareSessionProvider _sessionProvider;
   late final SquarePostDeleteCoordinator _deletionCoordinator;
@@ -132,6 +132,7 @@ class _SquarePostDetailPageState extends State<SquarePostDetailPage> {
               notificationOwner.accountId != session.accountId)) {
         throw StateError('内容详情身份已变化');
       }
+      final readThrough = Notifications.instance.through;
       final detail = widget.initialDetailLoaded && !refresh
           ? _post
           : await _api.fetchPostDetail(session: session, summary: _post);
@@ -147,6 +148,12 @@ class _SquarePostDetailPageState extends State<SquarePostDetailPage> {
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && ModalRoute.of(context)?.isCurrent == true) {
+          unawaited(
+            SquareInteractionService.instance.viewed(
+              post.postId,
+              through: readThrough,
+            ),
+          );
           unawaited(
             Notifications.instance.read(
               owner: notificationOwner,
@@ -170,32 +177,37 @@ class _SquarePostDetailPageState extends State<SquarePostDetailPage> {
 
   @override
   Widget build(BuildContext context) {
+    final media = post.mediaItems;
+    final cover = media.isNotEmpty ? media.first : null;
+    final title = post.title?.trim();
+
     return MembershipBusinessGate(
       localContent: post.isLocal,
       sessionProvider: _sessionProvider,
       client: _api,
       child: Scaffold(
         appBar: AppBar(
-          title: Text(post.postType.label),
+          title: const Text('文章'),
+          centerTitle: true,
           actions: [
             IconButton(
               tooltip: '刷新',
               icon: const Icon(Icons.refresh),
               onPressed: _loading ? null : () => _loadDetail(refresh: true),
             ),
-            PopupMenuButton<_PostDetailAction>(
+            PopupMenuButton<_ArticleDetailAction>(
               enabled: !_deleting,
               onSelected: _handleAction,
               itemBuilder: (context) => const [
                 PopupMenuItem(
-                  value: _PostDetailAction.edit,
+                  value: _ArticleDetailAction.edit,
                   child: ListTile(
                     leading: Icon(Icons.edit_outlined),
                     title: Text('修改'),
                   ),
                 ),
                 PopupMenuItem(
-                  value: _PostDetailAction.delete,
+                  value: _ArticleDetailAction.delete,
                   child: ListTile(
                     leading: Icon(Icons.delete_outline),
                     title: Text('删除'),
@@ -208,54 +220,57 @@ class _SquarePostDetailPageState extends State<SquarePostDetailPage> {
         body: _loading
             ? const Center(child: CircularProgressIndicator())
             : _loadError != null
-            ? _PostDetailLoadError(
+            ? _DetailLoadError(
                 error: _loadError!,
                 onRetry: () => _loadDetail(refresh: true),
               )
             : ListView(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                 children: [
-                  SquarePostCard(
-                    post: post,
-
-                    displayMode: SquarePostCardDisplayMode.detail,
-                  ),
-                  if (!post.isLocal || post.chainBlock != null)
-                    Comments(
-                      postId: post.postId,
-                      api: _api,
-                      sessionProvider: _sessionProvider,
-                      initialCommentId: widget.initialCommentId,
-                    ),
-                  SizedBox(height: AppLayout.scaled(context, 12)),
-                  Container(
-                    padding: EdgeInsets.all(AppLayout.scaled(context, 14)),
-                    decoration: BoxDecoration(
-                      color: AppTheme.surfaceCard,
-                      borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-                      border: Border.all(color: AppTheme.border),
-                    ),
+                  if (cover != null && (cover.isLocal || cover.url.isNotEmpty))
+                    SquareMediaImage(item: cover),
+                  Padding(
+                    padding: EdgeInsets.all(AppLayout.scaled(context, 16)),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        if (title != null && title.isNotEmpty)
+                          Text(
+                            title,
+                            style: TextStyle(
+                              color: AppTheme.textPrimary,
+                              fontSize: AppLayout.scaled(context, 22),
+                              fontWeight: FontWeight.w700,
+                              height: 1.35,
+                            ),
+                          ),
+                        SizedBox(height: AppLayout.scaled(context, 8)),
                         Text(
-                          '链上索引',
+                          post.author.title,
                           style: TextStyle(
-                            color: AppTheme.textPrimary,
-                            fontSize: AppLayout.scaled(context, 15),
-                            fontWeight: FontWeight.w700,
+                            color: AppTheme.textTertiary,
+                            fontSize: AppLayout.scaled(context, 13),
                           ),
                         ),
-                        SizedBox(height: AppLayout.scaled(context, 10)),
-                        _DetailRow(label: 'post_id', value: post.postId),
-                        _DetailRow(
-                          label: 'content_hash',
-                          value: post.contentHash ?? '',
-                        ),
-                        _DetailRow(
-                          label: 'storage_receipt_id',
-                          value: post.receiptId ?? '',
-                        ),
+                        SizedBox(height: AppLayout.scaled(context, 16)),
+                        ..._buildBody(media),
+                        if (!post.isLocal || post.chainBlock != null)
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              SquareLikesStrip(
+                                postId: post.postId,
+                                api: _api,
+                                sessions: _sessionProvider,
+                              ),
+                              Comments(
+                                postId: post.postId,
+                                api: _api,
+                                sessionProvider: _sessionProvider,
+                                initialCommentId: widget.initialCommentId,
+                                notificationThrough: widget.notificationThrough,
+                              ),
+                            ],
+                          ),
                       ],
                     ),
                   ),
@@ -265,25 +280,80 @@ class _SquarePostDetailPageState extends State<SquarePostDetailPage> {
     );
   }
 
-  Future<void> _handleAction(_PostDetailAction action) async {
+  /// 每个规范段落先渲染富文本，再渲染该段落的可选媒体。
+  List<Widget> _buildBody(List<SquareMediaItem> media) {
+    final sections = post.contentSections;
+    if (sections.isEmpty) return const <Widget>[];
+    final widgets = <Widget>[];
+    for (final section in sections) {
+      widgets.add(ArticleRichTextView(delta: section.textDelta));
+      final mediaIndices = section.galleryMediaIndices;
+      if (mediaIndices != null) {
+        final gallery = <SquareMediaItem>[];
+        for (final mediaIndex in mediaIndices) {
+          if (mediaIndex >= 0 && mediaIndex < media.length) {
+            final item = media[mediaIndex];
+            if (item.mediaKind == SquareMediaKind.image &&
+                (item.isLocal || item.url.isNotEmpty)) {
+              gallery.add(item);
+            }
+          }
+        }
+        if (gallery.isNotEmpty) widgets.add(_bodyGallery(gallery));
+      } else if (section.videoMediaIndex case final mediaIndex?) {
+        if (mediaIndex >= 0 && mediaIndex < media.length) {
+          widgets.add(_bodyVideo(media[mediaIndex]));
+        }
+      }
+    }
+    return widgets;
+  }
+
+  Widget _bodyGallery(List<SquareMediaItem> items) => Padding(
+    padding: EdgeInsets.symmetric(vertical: AppLayout.scaledValue(8)),
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+      child: SquareMediaCarousel(
+        children: [for (final item in items) SquareMediaImage(item: item)],
+      ),
+    ),
+  );
+
+  Widget _bodyVideo(SquareMediaItem item) => Padding(
+    padding: EdgeInsets.symmetric(vertical: AppLayout.scaledValue(8)),
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+      child: AspectRatio(
+        aspectRatio: 16 / 9,
+        child: SquareVideo(
+          url: item.url,
+
+          thumbnailUrl: item.previewUrl,
+          item: item,
+        ),
+      ),
+    ),
+  );
+
+  Future<void> _handleAction(_ArticleDetailAction action) async {
     switch (action) {
-      case _PostDetailAction.edit:
-        await _editPost();
+      case _ArticleDetailAction.edit:
+        await _editArticle();
         break;
-      case _PostDetailAction.delete:
-        await _deletePost();
+      case _ArticleDetailAction.delete:
+        await _deleteArticle();
         break;
     }
   }
 
-  Future<void> _editPost() async {
+  Future<void> _editArticle() async {
     final replacement = await Navigator.of(context).push<SquarePost>(
       MaterialPageRoute<SquarePost>(
         builder: (_) => CitizenServiceGate(
           title: '编辑内容',
           description: '注册后即可编辑广场内容。',
           child: SquareComposePage(
-            postType: post.postType,
+            postType: SquarePostType.article,
             initialTitle: post.title,
             initialText: post.text,
             replaceId: post.postId,
@@ -295,11 +365,11 @@ class _SquarePostDetailPageState extends State<SquarePostDetailPage> {
     Navigator.of(context).pop(SquarePostDetailResult(replacement: replacement));
   }
 
-  Future<void> _deletePost() async {
+  Future<void> _deleteArticle() async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('删除内容'),
+        title: const Text('删除文章'),
         content: const Text('删除后将清理本地及远端的正文和媒体。链上发布记录保持不变。'),
         actions: [
           TextButton(
@@ -324,7 +394,7 @@ class _SquarePostDetailPageState extends State<SquarePostDetailPage> {
       }
       final authorCidNumber = post.author.cidNumber;
       if (authorCidNumber == null || authorCidNumber.isEmpty) {
-        throw const SquareApiException('只能删除本人内容');
+        throw const SquareApiException('只能删除本人文章');
       }
       await _deletionCoordinator.delete(
         session: session,
@@ -355,46 +425,8 @@ class _SquarePostDetailPageState extends State<SquarePostDetailPage> {
   }
 }
 
-class _DetailRow extends StatelessWidget {
-  const _DetailRow({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.only(bottom: AppLayout.scaled(context, 8)),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: AppLayout.scaled(context, 120),
-            child: Text(
-              label,
-              style: TextStyle(
-                color: AppTheme.textSecondary,
-                fontSize: AppLayout.scaled(context, 12),
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value.isEmpty ? '-' : value,
-              style: TextStyle(
-                color: AppTheme.textPrimary,
-                fontSize: AppLayout.scaled(context, 12),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PostDetailLoadError extends StatelessWidget {
-  const _PostDetailLoadError({required this.error, required this.onRetry});
+class _DetailLoadError extends StatelessWidget {
+  const _DetailLoadError({required this.error, required this.onRetry});
 
   final Object error;
   final VoidCallback onRetry;
@@ -406,7 +438,7 @@ class _PostDetailLoadError extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text('内容加载失败：$error', textAlign: TextAlign.center),
+          Text('文章加载失败：$error', textAlign: TextAlign.center),
           const SizedBox(height: 12),
           FilledButton(onPressed: onRetry, child: const Text('重试')),
         ],

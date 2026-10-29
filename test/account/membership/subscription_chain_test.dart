@@ -137,7 +137,7 @@ void main() {
   group('SquarePost finalized storage 解码', () {
     test('严格解码平台订阅真态与时间戳', () {
       // 与 runtime 金标 state_platform 逐字节一致（无延迟生效套餐字段，
-      // 末尾含 authorized_price_fen + suspend_reason）。
+      // 末尾含 price_fen + suspend_reason）。
       const stateHex =
           '00020068e5cf8b0100000068e5cf8b0100001c8d5b0000000000000000000000000000fc1a478c010000001c8d5b0000000000000000000000000000';
       final state = SubscriptionChain.decodeSubscriptionState(_bytes(stateHex));

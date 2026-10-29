@@ -8,9 +8,9 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:citizenapp/8964/feed/square_models.dart';
-import 'package:citizenapp/8964/feed/square_local_post_presenter.dart';
-import 'package:citizenapp/8964/feed/square_post_store.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
+import 'package:citizenapp/8964/post/square_local_post_presenter.dart';
+import 'package:citizenapp/8964/post/square_post_store.dart';
 import 'package:citizenapp/storage/social_isar.dart';
 import 'package:citizenapp/8964/media/square_media_store.dart';
 

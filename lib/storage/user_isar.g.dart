@@ -7309,6 +7309,11 @@ const SettingSchema = CollectionSchema(
       name: r'guide_seen',
       type: IsarType.bool,
     ),
+    r'square_tab_order': PropertySchema(
+      id: 4,
+      name: r'square_tab_order',
+      type: IsarType.stringList,
+    ),
   },
 
   estimateSize: _settingEstimateSize,
@@ -7346,6 +7351,13 @@ int _settingEstimateSize(
       bytesCount += value.length * 3;
     }
   }
+  bytesCount += 3 + object.squareTabOrder.length * 3;
+  {
+    for (var i = 0; i < object.squareTabOrder.length; i++) {
+      final value = object.squareTabOrder[i];
+      bytesCount += value.length * 3;
+    }
+  }
   return bytesCount;
 }
 
@@ -7359,6 +7371,7 @@ void _settingSerialize(
   writer.writeBool(offsets[1], object.chatHome);
   writer.writeStringList(offsets[2], object.councilOrder);
   writer.writeBool(offsets[3], object.guideSeen);
+  writer.writeStringList(offsets[4], object.squareTabOrder);
 }
 
 Setting _settingDeserialize(
@@ -7373,6 +7386,7 @@ Setting _settingDeserialize(
   object.councilOrder = reader.readStringList(offsets[2]) ?? [];
   object.guideSeen = reader.readBool(offsets[3]);
   object.rowId = id;
+  object.squareTabOrder = reader.readStringList(offsets[4]) ?? [];
   return object;
 }
 
@@ -7391,6 +7405,8 @@ P _settingDeserializeProp<P>(
       return (reader.readStringList(offset) ?? []) as P;
     case 3:
       return (reader.readBool(offset)) as P;
+    case 4:
+      return (reader.readStringList(offset) ?? []) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
   }
@@ -7956,6 +7972,206 @@ extension SettingQueryFilter
       );
     });
   }
+
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  squareTabOrderElementEqualTo(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'square_tab_order',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  squareTabOrderElementGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'square_tab_order',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  squareTabOrderElementLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'square_tab_order',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  squareTabOrderElementBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'square_tab_order',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  squareTabOrderElementStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'square_tab_order',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  squareTabOrderElementEndsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'square_tab_order',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  squareTabOrderElementContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'square_tab_order',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  squareTabOrderElementMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'square_tab_order',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  squareTabOrderElementIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'square_tab_order', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  squareTabOrderElementIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'square_tab_order', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  squareTabOrderLengthEqualTo(int length) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(r'square_tab_order', length, true, length, true);
+    });
+  }
+
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  squareTabOrderIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(r'square_tab_order', 0, true, 0, true);
+    });
+  }
+
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  squareTabOrderIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(r'square_tab_order', 0, false, 999999, true);
+    });
+  }
+
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  squareTabOrderLengthLessThan(int length, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(r'square_tab_order', 0, true, length, include);
+    });
+  }
+
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  squareTabOrderLengthGreaterThan(int length, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'square_tab_order',
+        length,
+        include,
+        999999,
+        true,
+      );
+    });
+  }
+
+  QueryBuilder<Setting, Setting, QAfterFilterCondition>
+  squareTabOrderLengthBetween(
+    int lower,
+    int upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'square_tab_order',
+        lower,
+        includeLower,
+        upper,
+        includeUpper,
+      );
+    });
+  }
 }
 
 extension SettingQueryObject
@@ -8054,6 +8270,12 @@ extension SettingQueryWhereDistinct
       return query.addDistinctBy(r'guide_seen');
     });
   }
+
+  QueryBuilder<Setting, Setting, QDistinct> distinctBySquareTabOrder() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'square_tab_order');
+    });
+  }
 }
 
 extension SettingQueryProperty
@@ -8087,9 +8309,14 @@ extension SettingQueryProperty
       return query.addPropertyName(r'guide_seen');
     });
   }
+
+  QueryBuilder<Setting, List<String>, QQueryOperations>
+  squareTabOrderProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'square_tab_order');
+    });
+  }
 }
-// coverage:ignore-file
-// ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
 
 extension GetFollowCollection on Isar {
   IsarCollection<Follow> get follows => this.collection();

@@ -5,11 +5,13 @@ import 'package:citizenapp/account/profile/profile_presentation.dart';
 /// 广场正文和媒体最终统一进入 R2；链上只记录发布索引、内容哈希和存储回执。
 enum SquareFeedKind {
   recommended('推荐', 'recommended'),
+  circle('公民圈', 'circle'),
   following('关注', 'following'),
   campaign('竞选', 'campaign'),
   // 内容型分类：服务端仍取推荐流（workerValue=recommended），前端按明确发布类型过滤。
   article('文章', 'recommended'),
-  videos('视频', 'recommended');
+  videos('视频', 'recommended'),
+  notifications('通知', 'notifications');
 
   const SquareFeedKind(this.label, this.workerValue);
 

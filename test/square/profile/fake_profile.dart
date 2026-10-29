@@ -1,12 +1,12 @@
 import '../mls_authentication_fixture.dart';
 
-import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
 import 'package:citizenapp/account/profile/citizen_profile.dart';
 import 'package:citizenapp/account/profile/citizen_profile_api.dart';
 import 'package:citizenapp/account/profile/citizen_profile_cache.dart';
 import 'package:citizenapp/account/identity/square_session_provider.dart';
 import 'package:citizenapp/network/square_api_client.dart';
-import 'package:citizenapp/8964/feed/square_post_store.dart';
+import 'package:citizenapp/8964/post/square_post_store.dart';
 
 const String kOwner =
     '0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d';

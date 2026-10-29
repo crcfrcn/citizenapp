@@ -3,8 +3,8 @@ import 'package:citizenapp/storage/social_isar.dart'
     show Publish;
 import 'package:citizenapp/wallet/account_balance_snapshot_store.dart';
 
-import 'package:citizenapp/8964/compose/compose_draft_store.dart';
-import 'package:citizenapp/8964/feed/square_local_post_presenter.dart';
+import 'package:citizenapp/8964/draft/compose_draft_store.dart';
+import 'package:citizenapp/8964/post/square_local_post_presenter.dart';
 
 import 'package:citizenapp/account/identity/finalized_identity_resolver.dart';
 
@@ -12,11 +12,11 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizenapp/app_log.dart';
 
 import 'package:citizenapp/8964/compose/square_chain_service.dart';
-import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
 import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/account/identity/square_identity_state.dart';
-import 'package:citizenapp/8964/feed/square_post_deletion_coordinator.dart';
-import 'package:citizenapp/8964/feed/square_post_store.dart';
+import 'package:citizenapp/8964/post/square_post_deletion_coordinator.dart';
+import 'package:citizenapp/8964/post/square_post_store.dart';
 import 'package:citizenapp/8964/media/square_upload_service.dart';
 
 class SquarePublishException implements Exception {

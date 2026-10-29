@@ -1,3 +1,5 @@
+import 'package:citizenapp/8964/feed/square_notifications_page.dart';
+import 'package:citizenapp/8964/post/square_interaction_service.dart';
 import 'package:citizenapp/system/notifications/notifications.dart';
 import 'package:provider/provider.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -10,19 +12,20 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:citizenapp/app_log.dart';
 
-import 'package:citizenapp/8964/feed/square_models.dart';
-import 'package:citizenapp/8964/feed/square_article_detail_page.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
+import 'package:citizenapp/8964/article/square_article_detail_page.dart';
 import 'package:citizenapp/8964/compose/compose_page.dart';
-import 'package:citizenapp/8964/feed/square_post_detail_page.dart';
+import 'package:citizenapp/8964/post/square_post_detail_page.dart';
 import 'package:citizenapp/account/profile/user_profile_page.dart';
 import 'package:citizenapp/account/profile/citizen_profile_api.dart';
 import 'package:citizenapp/account/identity/square_session_provider.dart';
 import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/account/identity/square_identity_state.dart';
-import 'package:citizenapp/8964/feed/square_post_sync_service.dart';
+import 'package:citizenapp/8964/post/square_post_sync_service.dart';
 import 'package:citizenapp/8964/feed/square_feed_tabs.dart';
-import 'package:citizenapp/8964/feed/square_article_card.dart';
-import 'package:citizenapp/8964/feed/square_post_card.dart';
+import 'package:citizenapp/8964/feed/square_tab_order_store.dart';
+import 'package:citizenapp/8964/article/square_article_card.dart';
+import 'package:citizenapp/8964/post/square_post_card.dart';
 import 'package:citizenapp/account/identity/current_user_context.dart';
 import 'package:citizenapp/account/membership/membership_revision.dart';
 import 'package:citizenapp/system/theme/app_theme.dart';
@@ -35,7 +38,8 @@ class SquareHomePage extends StatefulWidget {
     super.key,
     this.identityService,
     this.feedSource,
-    this.initialFeed = SquareFeedKind.recommended,
+    this.initialFeed,
+    this.tabOrderStore,
     this.seedPosts = const <SquarePost>[],
     this.sessionProvider,
     this.onSquareUnreadChanged,
@@ -45,14 +49,15 @@ class SquareHomePage extends StatefulWidget {
 
   final SquareIdentityService? identityService;
   final SquareFeedSource? feedSource;
-  final SquareFeedKind initialFeed;
+  final SquareFeedKind? initialFeed;
+  final SquareTabOrderStore? tabOrderStore;
   final List<SquarePost> seedPosts;
   final SquareSessionProvider? sessionProvider;
 
   /// 广场底部 tab 红点计数回调（上抛给 AppShell 挂 Badge）。
   final ValueChanged<int>? onSquareUnreadChanged;
 
-  /// 底部导航当前活动 tab 广播；值 == [tabIndex] 时视为「进广场」，清广场红点。
+  /// 底部导航当前活动 tab 广播；值 == [tabIndex] 时显示保存顺序中的第一项。
   final ValueNotifier<int>? selectedTab;
   final int tabIndex;
 
@@ -61,7 +66,13 @@ class SquareHomePage extends StatefulWidget {
 }
 
 class _SquareHomePageState extends State<SquareHomePage> {
-  late SquareFeedKind _selectedFeed = widget.initialFeed;
+  late SquareFeedKind _selectedFeed =
+      widget.initialFeed ?? SquareFeedKind.recommended;
+  late final SquareTabOrderStore _tabOrderStore =
+      widget.tabOrderStore ?? const SquareTabOrderStore();
+  List<SquareFeedKind> _tabOrder = List.of(SquareFeedKind.values);
+  Future<void>? _orderLoad;
+  bool _tabOrderReady = false;
   late Future<SquareIdentityState> _identityFuture;
   int _identityLoadGeneration = 0;
   late final SquareIdentityService _identityService;
@@ -88,16 +99,19 @@ class _SquareHomePageState extends State<SquareHomePage> {
   /// 关注子 tab 红点数（服务端 following_unread）。广场底部 tab 数经回调上抛。
   int _followingUnread = 0;
 
-  /// 红点只消费App级本地通知状态；页面没有定时器或进入即清读。
+  /// 三级阅读分别提交；只有当前实际显示的广场页面消费广场层角标。
   bool _publishMenuOpen = false;
-  bool _openingNotifications = false;
-  int _notificationRequest = 0;
-  NotificationScope? _notificationOwner;
-  ModalRoute<dynamic>? _notificationRoute;
+  bool _squareReadFlight = false;
+  bool _squareReadPending = false, _squareReadScheduled = false;
+  int _squareReadGeneration = 0;
+  NotificationScope? _squareReadOwner;
+  final _notificationsKey = GlobalKey<SquareNotificationsPageState>();
+  final Set<String> _interactionPosts = {};
 
   @override
   void initState() {
     super.initState();
+    widget.selectedTab?.addListener(_onSquareSelected);
     _feedSource = widget.feedSource ?? SquareApiClient();
     _profileApi = CitizenProfileApi(
       client: _feedSource is SquareApiClient ? _feedSource : _squareApi,
@@ -109,7 +123,10 @@ class _SquareHomePageState extends State<SquareHomePage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_dependenciesReady) return;
+    if (_dependenciesReady) {
+      _scheduleSquareRead();
+      return;
+    }
     _sessionProvider = widget.sessionProvider;
     final injectedIdentity = widget.identityService;
     if (injectedIdentity != null) {
@@ -135,12 +152,13 @@ class _SquareHomePageState extends State<SquareHomePage> {
     Notifications.instance.addListener(_onNotificationChanged);
     _followingUnread = Notifications.instance.followingUnread;
     _dependenciesReady = true;
+    _scheduleSquareRead();
   }
 
   @override
   void dispose() {
     _identityLoadGeneration++;
-    _notificationRequest++;
+    widget.selectedTab?.removeListener(_onSquareSelected);
     _accountSecurity?.revision.removeListener(_onWalletsChanged);
     MembershipRevision.instance.listenable.removeListener(_onMembershipChanged);
     IdentityBadgeSnapshotStore.revision.removeListener(
@@ -177,140 +195,139 @@ class _SquareHomePageState extends State<SquareHomePage> {
 
   void _onNotificationChanged() {
     if (!mounted) return;
-    if (_openingNotifications &&
-        (Notifications.instance.scope == null ||
-            (_notificationOwner != null &&
-                !Notifications.instance.isCurrent(_notificationOwner)))) {
-      final route = _notificationRoute;
-      // 旧请求可以仍在网络中，新账号立即获得自己的抽屉入口。
-      _notificationRequest++;
-      _openingNotifications = false;
-      _notificationOwner = null;
-      _notificationRoute = null;
-      if (route?.isActive == true) route!.navigator?.removeRoute(route);
-    }
     widget.onSquareUnreadChanged?.call(Notifications.instance.unread);
     setState(() => _followingUnread = Notifications.instance.followingUnread);
-  }
-
-  Future<void> _openNotifications({int? cursor}) async {
-    if (_openingNotifications) return;
-    _openingNotifications = true;
-    final request = ++_notificationRequest;
-    NotificationScope? owner;
-    int? next;
-    try {
-      if (!await Notifications.instance.restore() ||
-          !mounted ||
-          request != _notificationRequest) {
-        return;
-      }
-      owner = Notifications.instance.scope!;
-      _notificationOwner = owner;
-      final page = await Notifications.instance.page(
-        owner: owner,
-        cursor: cursor,
-      );
-      if (!mounted ||
-          request != _notificationRequest ||
-          !Notifications.instance.isCurrent(owner)) {
-        return;
-      }
-      final through = (page['state'] as Map)['through'] as int;
-      final items = (page['items'] as List)
-          .whereType<Map>()
-          .map((v) => v.cast<String, dynamic>())
-          .toList();
-      await showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        builder: (sheet) {
-          _notificationRoute = ModalRoute.of(sheet);
-          return SafeArea(
-            child: SizedBox(
-              height: MediaQuery.sizeOf(sheet).height * 0.65,
-              child: Column(
-                children: [
-                  ListTile(
-                    title: const Text('通知'),
-                    trailing: TextButton(
-                      onPressed: () async {
-                        await Notifications.instance.readAll(
-                          owner: owner!,
-                          through: through,
-                        );
-                        if (sheet.mounted &&
-                            Notifications.instance.isCurrent(owner)) {
-                          Navigator.pop(sheet);
-                        }
-                      },
-                      child: const Text('全部已读'),
-                    ),
-                  ),
-                  Expanded(
-                    child: ListView.builder(
-                      itemCount: items.length,
-                      itemBuilder: (context, index) {
-                        final item = items[index];
-                        return ListTile(
-                          title: Text(
-                            item['notice_kind'] == 'post'
-                                ? '关注的人发布了帖子'
-                                : '新的评论或回复',
-                          ),
-                          subtitle: Text((item['title'] as String?) ?? ''),
-                          trailing: item['read_at'] == 0
-                              ? const Icon(Icons.circle, size: 8)
-                              : null,
-                          onTap: () async {
-                            if (!Notifications.instance.isCurrent(owner)) {
-                              return;
-                            }
-                            Navigator.pop(sheet);
-                            await openSquareNotification(
-                              this.context,
-                              postId: item['post_id'] as String,
-                              commentId: item['comment_id'] as String?,
-                            );
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                  if (page['next_cursor'] != null)
-                    TextButton(
-                      onPressed: () {
-                        if (!Notifications.instance.isCurrent(owner)) return;
-                        next = page['next_cursor'] as int;
-                        Navigator.pop(sheet);
-                      },
-                      child: const Text('更早通知'),
-                    ),
-                ],
-              ),
-            ),
-          );
-        },
-      );
-    } on Object {
-      if (mounted &&
-          request == _notificationRequest &&
-          (owner == null || Notifications.instance.isCurrent(owner))) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('通知暂时不可用，请稍后重试')));
-      }
-    } finally {
-      if (request == _notificationRequest) {
-        _openingNotifications = false;
-        _notificationOwner = null;
-        _notificationRoute = null;
+    _scheduleSquareRead();
+    if (_squareVisible && _sessionProvider != null) {
+      for (final id in _interactionPosts) {
+        unawaited(
+          SquareInteractionService.instance.load(
+            id,
+            _squareApi,
+            _sessionProvider!,
+          ),
+        );
       }
     }
-    if (next != null &&
-        mounted &&
-        request == _notificationRequest &&
-        Notifications.instance.isCurrent(owner)) {
-      await _openNotifications(cursor: next);
+  }
+
+  bool get _squareVisible =>
+      mounted &&
+      ModalRoute.isCurrentOf(context) != false &&
+      (widget.selectedTab == null ||
+          widget.selectedTab!.value == widget.tabIndex) &&
+      (WidgetsBinding.instance.lifecycleState == null ||
+          WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed);
+  void _scheduleSquareRead() {
+    _squareReadPending = true;
+    if (_squareReadScheduled) return;
+    _squareReadScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _squareReadScheduled = false;
+      unawaited(_readSquare());
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  Future<void> _readSquare() async {
+    if (!_squareVisible ||
+        !_squareReadPending ||
+        (_squareReadFlight &&
+            _squareReadOwner == Notifications.instance.scope)) {
+      return;
+    }
+    final generation = ++_squareReadGeneration;
+    _squareReadFlight = true;
+    _squareReadOwner = Notifications.instance.scope;
+    _squareReadPending = false;
+    try {
+      if (!await Notifications.instance.restore() ||
+          !_squareVisible ||
+          generation != _squareReadGeneration) {
+        return;
+      }
+      final owner = Notifications.instance.scope!;
+      _squareReadOwner = owner;
+      final through = Notifications.instance.through;
+      if (through > 0 && Notifications.instance.unread > 0) {
+        await Notifications.instance.read(
+          owner: owner,
+          scope: 'square',
+          through: through,
+        );
+      }
+    } on Object catch (error) {
+      AppLog.d('square notification read failed: $error');
+    } finally {
+      if (generation == _squareReadGeneration) {
+        _squareReadFlight = false;
+        _squareReadOwner = null;
+        // 同身份的新事件保留补清意图；切身份后旧请求不能结束新身份的任务。
+        if (_squareReadPending && _squareVisible) _scheduleSquareRead();
+      }
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant SquareHomePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.selectedTab != widget.selectedTab) {
+      oldWidget.selectedTab?.removeListener(_onSquareSelected);
+      widget.selectedTab?.addListener(_onSquareSelected);
+    }
+  }
+
+  void _onSquareSelected() {
+    _scheduleSquareRead();
+    if (!mounted ||
+        !_tabOrderReady ||
+        widget.selectedTab?.value != widget.tabIndex ||
+        _selectedFeed == _tabOrder.first) {
+      return;
+    }
+    setState(() {
+      _selectedFeed = _tabOrder.first;
+      _feedFuture = _beginFeedLoad();
+    });
+  }
+
+  Future<void> _ensureTabOrder() async {
+    if (_tabOrderReady) return;
+    final pending = _orderLoad;
+    if (pending != null) return pending;
+    final future = _restoreTabOrder();
+    _orderLoad = future;
+    try {
+      await future;
+    } finally {
+      _orderLoad = null;
+    }
+  }
+
+  Future<void> _restoreTabOrder() async {
+    final order = await _tabOrderStore.read();
+    if (!mounted) return;
+    setState(() {
+      _tabOrder = order;
+      _selectedFeed = widget.initialFeed ?? order.first;
+      _tabOrderReady = true;
+    });
+  }
+
+  Future<void> _reorderTabs(int from, int to) async {
+    if (!_tabOrderReady || from == to) return;
+    final next = List<SquareFeedKind>.of(_tabOrder);
+    next.insert(to, next.removeAt(from));
+    setState(() => _tabOrder = next);
+    try {
+      await _tabOrderStore.write(next);
+    } on Object catch (error) {
+      AppLog.d('square tab order save failed: $error');
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('子 tab 顺序保存失败，请重新拖动保存')));
+      }
     }
   }
 
@@ -344,6 +361,8 @@ class _SquareHomePageState extends State<SquareHomePage> {
       return;
     }
     setState(() {
+      _identityAddress = identityAccountId;
+      _identityCidNumber = identityCidNumber;
       _identityFuture = _loadIdentity();
       _feedFuture = _beginFeedLoad();
     });
@@ -432,26 +451,27 @@ class _SquareHomePageState extends State<SquareHomePage> {
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                   child: SizedBox(
                     width: double.infinity,
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: SquareFeedTabs(
-                            selected: _selectedFeed,
-                            followingUnread: _followingUnread,
-                            onChanged: (feed) {
-                              setState(() {
-                                _selectedFeed = feed;
-                                _feedFuture = _beginFeedLoad();
-                              });
-                            },
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: '通知',
-                          onPressed: _openNotifications,
-                          icon: const Icon(Icons.notifications_outlined),
-                        ),
-                      ],
+                    child: SquareFeedTabs(
+                      selected: _selectedFeed,
+                      order: _tabOrder,
+                      followingUnread: _followingUnread,
+                      notificationsUnread:
+                          Notifications.instance.notificationUnread,
+                      onReorder: _tabOrderReady
+                          ? (from, to) => unawaited(_reorderTabs(from, to))
+                          : null,
+                      onChanged: (feed) {
+                        if (!_tabOrderReady) return;
+                        if (feed == SquareFeedKind.notifications &&
+                            _selectedFeed == feed) {
+                          unawaited(_notificationsKey.currentState?.refresh());
+                          return;
+                        }
+                        setState(() {
+                          _selectedFeed = feed;
+                          _feedFuture = _beginFeedLoad();
+                        });
+                      },
                     ),
                   ),
                 ),
@@ -491,66 +511,90 @@ class _SquareHomePageState extends State<SquareHomePage> {
                           ),
                         ),
                       ),
-                      FutureBuilder<List<SquarePost>>(
-                        future: _feedFuture,
-                        builder: (context, snapshot) {
-                          final error = snapshot.error;
-                          if (error is SquareApiException &&
-                              error.errorCode == 'identity_unregistered') {
-                            // 当前本地身份已存在时，服务端缺项只能显示同步状态。
-                            if (_identityCidNumber?.isNotEmpty == true) {
-                              return const Center(child: Text('身份同步中，请稍后重试'));
+                      if (_selectedFeed == SquareFeedKind.notifications)
+                        SquareNotificationsPage(
+                          key: _notificationsKey,
+                          selectedTab: widget.selectedTab,
+                          tabIndex: widget.tabIndex,
+                          api: _feedSource is SquareApiClient
+                              ? _feedSource
+                              : _squareApi,
+                          sessions: _sessionProvider,
+                          onOpenPost: (post, through) => openSquareNotification(
+                            context,
+                            postId: post,
+                            notificationThrough: through,
+                          ),
+                        )
+                      else
+                        FutureBuilder<List<SquarePost>>(
+                          key: ValueKey(
+                            _selectedFeed == SquareFeedKind.circle
+                                ? _feedLoadGeneration
+                                : -1,
+                          ),
+                          future: _feedFuture,
+                          builder: (context, snapshot) {
+                            final error = snapshot.error;
+                            if (error is SquareApiException &&
+                                error.errorCode == 'identity_unregistered') {
+                              // 当前本地身份已存在时，服务端缺项只能显示同步状态。
+                              if (_identityCidNumber?.isNotEmpty == true) {
+                                return const Center(child: Text('身份同步中，请稍后重试'));
+                              }
+                              return IdentityRegisterGuide(
+                                description: '注册后即可浏览广场、发布内容。',
+                                onRegistered: _onRegisteredFromGuide,
+                              );
                             }
-                            return IdentityRegisterGuide(
-                              description: '注册后即可浏览广场、发布内容。',
-                              onRegistered: _onRegisteredFromGuide,
+                            if (error is SquareApiException &&
+                                (error.errorCode == 'device_not_registered' ||
+                                    error.errorCode == 'invalid_signature')) {
+                              return const Center(child: Text('公民服务准备未完成，请重试'));
+                            }
+                            final posts = _composeFeed(
+                              snapshot.data ?? const <SquarePost>[],
                             );
-                          }
-                          if (error is SquareApiException &&
-                              (error.errorCode == 'device_not_registered' ||
-                                  error.errorCode == 'invalid_signature')) {
-                            return const Center(child: Text('公民服务准备未完成，请重试'));
-                          }
-                          final posts = _composeFeed(
-                            snapshot.data ?? const <SquarePost>[],
-                          );
-                          final errorMessage = error is SquareApiException
-                              ? SquareSessionResolution.fromError(error).message
-                              : snapshot.hasError
-                              ? '广场内容加载失败'
-                              : null;
-                          return Stack(
-                            children: [
-                              RefreshIndicator(
-                                onRefresh: _refreshFeed,
-                                child: _FeedBody(
-                                  posts: posts,
-                                  errorMessage: errorMessage,
-                                  onOpenPost: _openDetail,
-                                  onOpenAuthor: _openAuthor,
-                                  avatarImageOf: (key) => _feedSession == null
-                                      ? null
-                                      : _profileApi.mediaImage(
-                                          key,
-                                          session: _feedSession!,
-                                        ),
-                                ),
-                              ),
-                              if (snapshot.connectionState !=
-                                  ConnectionState.done)
-                                Positioned(
-                                  top: 0,
-                                  left: 0,
-                                  right: 0,
-                                  child: LinearProgressIndicator(
-                                    key: const ValueKey('square-feed-progress'),
-                                    minHeight: AppLayout.scaled(context, 2),
+                            final errorMessage = error is SquareApiException
+                                ? SquareSessionResolution.fromError(error)
+                                      .message
+                                : snapshot.hasError
+                                ? '广场内容加载失败'
+                                : null;
+                            return Stack(
+                              children: [
+                                RefreshIndicator(
+                                  onRefresh: _refreshFeed,
+                                  child: _FeedBody(
+                                    posts: posts,
+                                    errorMessage: errorMessage,
+                                    onOpenPost: _openDetail,
+                                    onOpenAuthor: _openAuthor,
+                                    avatarImageOf: (key) => _feedSession == null
+                                        ? null
+                                        : _profileApi.mediaImage(
+                                            key,
+                                            session: _feedSession!,
+                                          ),
                                   ),
                                 ),
-                            ],
-                          );
-                        },
-                      ),
+                                if (snapshot.connectionState !=
+                                    ConnectionState.done)
+                                  Positioned(
+                                    top: 0,
+                                    left: 0,
+                                    right: 0,
+                                    child: LinearProgressIndicator(
+                                      key: const ValueKey(
+                                        'square-feed-progress',
+                                      ),
+                                      minHeight: AppLayout.scaled(context, 2),
+                                    ),
+                                  ),
+                              ],
+                            );
+                          },
+                        ),
                     ],
                   ),
                 ),
@@ -576,6 +620,7 @@ class _SquareHomePageState extends State<SquareHomePage> {
     int generation, {
     bool syncSelf = false,
   }) async {
+    if (feedKind == SquareFeedKind.notifications) return const [];
     SquareSession? session;
     SquareSessionProvider? sessionProvider;
     if (_feedSource is SquareApiClient) {
@@ -608,6 +653,21 @@ class _SquareHomePageState extends State<SquareHomePage> {
     // 保存完整会话供头像逐次现签；卸载或迟到旧分类请求不能覆盖当前媒体身份。
     if (mounted && generation == _feedLoadGeneration) {
       _feedSession = session;
+      _interactionPosts
+        ..clear()
+        ..addAll(posts.map((p) => p.postId));
+      if (sessionProvider != null && _squareVisible) {
+        for (final id in _interactionPosts) {
+          unawaited(
+            SquareInteractionService.instance.load(
+              id,
+              _feedSource is SquareApiClient ? _feedSource : _squareApi,
+              sessionProvider,
+            ),
+          );
+        }
+      }
+      _scheduleSquareRead();
     }
     if (syncSelf && session != null) {
       await _postSyncService.sync(
@@ -621,8 +681,12 @@ class _SquareHomePageState extends State<SquareHomePage> {
 
   Future<List<SquarePost>> _beginFeedLoad({bool syncSelf = false}) {
     final generation = ++_feedLoadGeneration;
-    final feedKind = _selectedFeed;
-    final future = _loadFeed(feedKind, generation, syncSelf: syncSelf);
+    final future = () async {
+      await _ensureTabOrder();
+      if (!mounted || generation != _feedLoadGeneration) return <SquarePost>[];
+      final feedKind = _selectedFeed;
+      return _loadFeed(feedKind, generation, syncSelf: syncSelf);
+    }();
     // initState 和分类切换会先创建 Future、随后才由下一帧 FutureBuilder 挂监听。
     // Worker 快速失败时必须立刻观察错误，消除这段未处理时间窗；原 Future
     // 不做转换，页面仍能通过 snapshot.hasError 展示真实前台失败态。
@@ -657,9 +721,7 @@ class _SquareHomePageState extends State<SquareHomePage> {
     });
   }
 
-  /// 按当前 feed 组装最终列表。[serverPosts] 是 `_loadFeed` 已按所选 feed 从
-  /// Worker 拉回的结果。关注流由服务端 `square_posts JOIN square_follows` 过滤，
-  /// 直接渲染服务端结果——本地草稿与种子帖不属于关注流，只在其余分类混入。
+  /// 关注和公民圈由服务端按当前 CID 筛选；公民圈只合并本人的即时发布结果。
   List<SquarePost> _composeFeed(List<SquarePost> serverPosts) {
     // 写操作已有确定结果，直接更新当前展示，返回页面不再次请求远端。
     final visibleServer = serverPosts
@@ -679,6 +741,25 @@ class _SquareHomePageState extends State<SquareHomePage> {
     switch (_selectedFeed) {
       case SquareFeedKind.recommended:
         return merged;
+      case SquareFeedKind.circle:
+        final selfCid = _identityCidNumber;
+        final circle = <String, SquarePost>{
+          for (final post in visibleServer) post.postId: post,
+        };
+        if (selfCid != null && selfCid.isNotEmpty) {
+          for (final post in _localPosts) {
+            if (post.author.cidNumber == selfCid &&
+                !_removedPostIds.contains(post.postId)) {
+              circle[post.postId] = post;
+            }
+          }
+        }
+        return circle.values.toList()..sort((a, b) {
+          final byTime = b.publishedAt.compareTo(a.publishedAt);
+          return byTime != 0 ? byTime : b.postId.compareTo(a.postId);
+        });
+      case SquareFeedKind.notifications:
+        return const [];
       case SquareFeedKind.following:
         return visibleServer;
       case SquareFeedKind.campaign:
@@ -981,6 +1062,7 @@ Future<void> openSquareNotification(
   BuildContext context, {
   required String postId,
   String? commentId,
+  int? notificationThrough,
 }) async {
   try {
     final api = context.read<SquareApiClient>();
@@ -996,11 +1078,13 @@ Future<void> openSquareNotification(
                 post: post,
                 initialDetailLoaded: true,
                 initialCommentId: commentId,
+                notificationThrough: notificationThrough,
               )
             : SquarePostDetailPage(
                 post: post,
                 initialDetailLoaded: true,
                 initialCommentId: commentId,
+                notificationThrough: notificationThrough,
               ),
       ),
     );

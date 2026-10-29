@@ -19,10 +19,10 @@ import '../../support/isar_test_env.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:video_player/video_player.dart';
 
-import 'package:citizenapp/8964/feed/square_models.dart';
-import 'package:citizenapp/8964/feed/square_article_card.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
+import 'package:citizenapp/8964/article/square_article_card.dart';
 import 'package:citizenapp/8964/media/square_media_grid.dart';
-import 'package:citizenapp/8964/feed/square_post_card.dart';
+import 'package:citizenapp/8964/post/square_post_card.dart';
 import 'package:citizenapp/network/citizen_serve_api_config.dart';
 
 import '../../support/platform_input.dart';

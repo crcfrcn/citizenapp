@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:polkadart/scale_codec.dart' show CompactBigIntCodec;
 
 import 'package:citizenapp/8964/compose/square_chain_service.dart';
-import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
 import 'package:citizenapp/account/identity/citizen_identity_chain_reader.dart';
 
 import '../support/fake_citizen_sdk.dart';

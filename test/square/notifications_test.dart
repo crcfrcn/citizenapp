@@ -79,6 +79,7 @@ Map<String, dynamic> _state(
   'bind_rev': bindRev,
   'notice_rev': noticeRev,
   'square_unread': unread,
+  'notifications_unread': 0,
   'following_unread': unread,
   'interaction_unread': 0,
   'interaction_sequence': 0,
@@ -93,7 +94,6 @@ class _Api extends SquareApiClient {
   _Api() : super(baseUrl: 'https://notifications.test/api');
   int reads = 0, writes = 0;
   final readThrough = <int?>[];
-  Future<Map<String, dynamic>> Function(SquareSession)? onPage;
   bool offline = false;
   Completer<Map<String, dynamic>>? pending;
   Future<Map<String, dynamic>> Function(SquareSession)? onRead;
@@ -108,21 +108,10 @@ class _Api extends SquareApiClient {
   }
 
   @override
-  Future<Map<String, dynamic>> fetchNotifications({
-    required SquareSession session,
-    int? cursor,
-  }) async => onPage == null
-      ? {
-          'is_ok': true,
-          'items': <Object>[],
-          'state': value,
-          'next_cursor': null,
-        }
-      : await onPage!(session);
-  @override
   Future<Map<String, dynamic>> markNotifyRead({
     required SquareSession session,
     String scope = 'square',
+    String? postId,
     List<int> ids = const [],
     int? through,
     List<String> postIds = const [],
@@ -204,8 +193,28 @@ void main() {
     await service.accept(_state(2, 9));
     await service.accept(_state(4, 9, cid: 'CN220-CTZN2-100000009-2026'));
     await service.accept({..._state(4, 9), 'interaction_unread': -1});
+    await service.accept({..._state(4, 9), 'notifications_unread': -1});
     expect(service.unread, 5);
     expect(service.noticeRev, 3);
+    expect(api.reads, 0);
+  });
+  test('独立通知子tab计数按版本持久恢复，不从内容未读或关注计数推算', () async {
+    await service.accept({
+      ..._state(3, 5),
+      'notifications_unread': 2,
+      'interaction_unread': 7,
+    });
+    expect(
+      [service.unread, service.notificationUnread, service.followingUnread],
+      [5, 2, 5],
+    );
+    final restored = Notifications(api: api, sessions: sessions, user: user);
+    addTearDown(restored.dispose);
+    await restored.restore();
+    expect(
+      [restored.unread, restored.notificationUnread, restored.followingUnread],
+      [5, 2, 5],
+    );
     expect(api.reads, 0);
   });
   test('并发校准只读取一次，已有成功基线不因普通准备重复读取', () async {
@@ -345,34 +354,18 @@ void main() {
     expect(service.cidNumber, user.cid);
     expect(service.unread, 4);
     expect(await service.read(owner: previous, ids: [1]), false);
-    expect(await service.readAll(owner: previous, through: 10000), false);
-    await expectLater(service.page(owner: previous), throwsStateError);
     old.complete(_state(9, 9));
     await first;
     expect(service.unread, 4);
     expect(api.writes, 0);
   });
-  test('列表迟到响应被丢弃，全部已读使用列表捕获上界而非后来的推送上界', () async {
+  test('明确广场范围使用捕获上界，不使用后来的推送上界', () async {
     await service.accept(_state(1, 2));
     final owner = service.scope!;
-    final response = Completer<Map<String, dynamic>>();
-    api.onPage = (_) => response.future;
-    final oldPage = service.page(owner: owner);
-    await Future<void>.delayed(const Duration(milliseconds: 10));
-    user.cid = 'CN220-CTZN2-100000009-2026';
-    service.invalidate();
-    await service.restore();
-    final rejected = expectLater(oldPage, throwsStateError);
-    response.complete({
-      'is_ok': true,
-      'state': _state(1, 2),
-      'items': <Object>[],
-      'next_cursor': null,
-    });
-    await rejected;
+    final through = service.through;
     await service.accept({..._state(2, 3, cid: user.cid), 'through': 20});
     api.value = {..._state(3, 1, cid: user.cid), 'through': 20};
-    await service.readAll(owner: service.scope!, through: 10);
+    await service.read(owner: owner, scope: 'square', through: through);
     expect(api.readThrough.single, 10);
     expect(service.unread, 1);
   });

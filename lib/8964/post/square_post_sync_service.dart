@@ -8,7 +8,7 @@ import '../media/square_media_store.dart';
 import 'square_post_deletion_coordinator.dart';
 
 import 'package:citizenapp/network/square_api_client.dart';
-import 'package:citizenapp/8964/feed/square_post_store.dart';
+import 'package:citizenapp/8964/post/square_post_store.dart';
 
 typedef SquareSelfPostPageLoader = Future<SquareLocalPostPage> Function({
   required SquareSession session,

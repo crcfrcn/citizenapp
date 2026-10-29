@@ -1,35 +1,41 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
-import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
 import 'package:citizenapp/system/theme/app_theme.dart';
 import 'package:citizenapp/system/theme/app_layout.dart';
 
-/// 广场分类分段控件（推荐 / 关注 / 竞选）。
-///
-/// 青色主题圆角分段 pill：选中段=白底青字带图标，未选=灰字。图标语义与各分类原空态
-/// 一致（推荐=罗盘、关注=人群、竞选=喇叭）。对外 API 与 [SquareFeedKind] 与旧版保持一致，
-/// 仅替换视觉。
+/// 广场分类栏：全部分类均支持长按拖动，松手后由页面持久保存顺序。
 class SquareFeedTabs extends StatelessWidget {
   const SquareFeedTabs({
     super.key,
     required this.selected,
     required this.onChanged,
     this.followingUnread = 0,
+    this.notificationsUnread = 0,
+    this.order = SquareFeedKind.values,
+    this.onReorder,
   });
 
   final SquareFeedKind selected;
   final ValueChanged<SquareFeedKind> onChanged;
+  final List<SquareFeedKind> order;
+  final void Function(int from, int to)? onReorder;
 
   /// 关注子 tab 红点数（我未静音关注在关注游标之后的新帖数）；0=不显示。
   final int followingUnread;
+  final int notificationsUnread;
 
   static IconData iconFor(SquareFeedKind kind) => switch (kind) {
-        SquareFeedKind.recommended => Icons.explore_outlined,
-        SquareFeedKind.following => Icons.people_alt_outlined,
-        SquareFeedKind.campaign => Icons.campaign_outlined,
-        SquareFeedKind.article => Icons.article_outlined,
-        SquareFeedKind.videos => Icons.videocam_outlined,
-      };
+    SquareFeedKind.recommended => Icons.explore_outlined,
+    SquareFeedKind.circle => Icons.diversity_3_outlined,
+    SquareFeedKind.notifications => Icons.notifications_outlined,
+    SquareFeedKind.following => Icons.people_alt_outlined,
+    SquareFeedKind.campaign => Icons.campaign_outlined,
+    SquareFeedKind.article => Icons.article_outlined,
+    SquareFeedKind.videos => Icons.videocam_outlined,
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -39,20 +45,80 @@ class SquareFeedTabs extends StatelessWidget {
         color: AppTheme.primary.withAlpha(12),
         borderRadius: BorderRadius.circular(AppLayout.scaledValue(13)),
       ),
-      child: Row(
-        children: SquareFeedKind.values
-            .map(
-              (kind) => Expanded(
-                child: _SquareFeedTab(
-                  kind: kind,
-                  selected: kind == selected,
-                  unread:
-                      kind == SquareFeedKind.following ? followingUnread : 0,
-                  onTap: () => onChanged(kind),
-                ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final text = TextPainter(
+            text: TextSpan(
+              text: '公民圈',
+              style: TextStyle(
+                fontSize: AppLayout.scaled(context, 12),
+                fontWeight: FontWeight.w700,
               ),
-            )
-            .toList(growable: false),
+            ),
+            textDirection: Directionality.of(context),
+            textScaler: MediaQuery.textScalerOf(context),
+          )..layout();
+          final width = math.max(
+            constraints.maxWidth / order.length,
+            text.width + 8,
+          );
+          text.dispose();
+          return SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (var index = 0; index < order.length; index++)
+                  SizedBox(
+                    key: ValueKey('square-tab-${order[index].name}'),
+                    width: width,
+                    child: DragTarget<SquareFeedKind>(
+                      onWillAcceptWithDetails: (details) =>
+                          onReorder != null && details.data != order[index],
+                      onAcceptWithDetails: (details) =>
+                          onReorder?.call(order.indexOf(details.data), index),
+                      builder: (context, candidates, rejected) {
+                        final kind = order[index];
+                        final child = _SquareFeedTab(
+                          kind: kind,
+                          selected: kind == selected,
+                          unread: kind == SquareFeedKind.following
+                              ? followingUnread
+                              : kind == SquareFeedKind.notifications
+                              ? notificationsUnread
+                              : 0,
+                          onTap: () => onChanged(kind),
+                        );
+                        return DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: candidates.isEmpty
+                                ? Colors.transparent
+                                : AppTheme.primary.withAlpha(30),
+                            borderRadius: BorderRadius.circular(
+                              AppLayout.scaledValue(10),
+                            ),
+                          ),
+                          child: LongPressDraggable<SquareFeedKind>(
+                            data: kind,
+                            axis: Axis.horizontal,
+                            maxSimultaneousDrags: onReorder == null ? 0 : 1,
+                            feedback: Material(
+                              color: Colors.transparent,
+                              child: SizedBox(width: width, child: child),
+                            ),
+                            childWhenDragging: Opacity(
+                              opacity: 0.3,
+                              child: child,
+                            ),
+                            child: child,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
@@ -85,11 +151,12 @@ class _SquareFeedTab extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppLayout.scaledValue(10)),
           // 选中/未选都保留 1px 边框（未选透明），避免切换时因边框有无产生宽高抖动。
           border: Border.all(
-            color:
-                selected ? AppTheme.primary.withAlpha(40) : Colors.transparent,
+            color: selected
+                ? AppTheme.primary.withAlpha(40)
+                : Colors.transparent,
           ),
         ),
-        // 五段等宽：图标在上、文字在下的竖排，横排图标+文字在 320px 窄屏会溢出。
+        // 图标与文字竖排；大字体超出可用宽度时分类栏可横向滚动。
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -99,8 +166,11 @@ class _SquareFeedTab extends StatelessWidget {
                 unread > 99 ? '99+' : '$unread',
                 style: TextStyle(fontSize: AppLayout.scaled(context, 9)),
               ),
-              child: Icon(SquareFeedTabs.iconFor(kind),
-                  size: AppLayout.scaled(context, 17), color: color),
+              child: Icon(
+                SquareFeedTabs.iconFor(kind),
+                size: AppLayout.scaled(context, 17),
+                color: color,
+              ),
             ),
             SizedBox(height: AppLayout.scaled(context, 3)),
             Text(

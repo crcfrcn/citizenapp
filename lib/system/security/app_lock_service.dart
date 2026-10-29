@@ -11,7 +11,7 @@ import 'package:pointycastle/key_derivators/pbkdf2.dart';
 import 'package:pointycastle/macs/hmac.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../8964/compose/compose_draft_media.dart';
+import '../../8964/draft/compose_draft_media.dart';
 import '../../account/profile/citizen_profile_cache.dart';
 import '../../storage/social_isar.dart';
 

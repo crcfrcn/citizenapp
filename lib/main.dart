@@ -1113,6 +1113,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     super.initState();
     _currentIndex = widget.initialTabIndex;
     _selectedTab = ValueNotifier<int>(_currentIndex);
+    Notifications.instance.addListener(_onSquareNotificationState);
+    _squareNotifyCount = Notifications.instance.unread;
     _updateController.addListener(_handleUpdateStateChanged);
     _checkRootStatus();
     // 启动后异步检查 Release 更新，只更新设置页状态，不阻塞主界面进入。
@@ -1268,8 +1270,15 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     _updateController.removeListener(_handleUpdateStateChanged);
     unawaited(_pushOpenSub?.cancel());
     unawaited(_pushTokenSub?.cancel());
+    Notifications.instance.removeListener(_onSquareNotificationState);
     _selectedTab.dispose();
     super.dispose();
+  }
+
+  void _onSquareNotificationState() {
+    if (mounted && _squareNotifyCount != Notifications.instance.unread) {
+      setState(() => _squareNotifyCount = Notifications.instance.unread);
+    }
   }
 
   void _handleUpdateStateChanged() {

@@ -23,7 +23,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'
     show MethodChannel, MissingPluginException;
 
-import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
 import 'package:citizenapp/account/profile/citizen_profile.dart';
 import 'package:citizenapp/account/profile/profile_presentation.dart';
 import 'package:citizenapp/account/profile/citizen_profile_cache.dart';

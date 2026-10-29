@@ -4,7 +4,7 @@ import 'package:image_picker/image_picker.dart';
 
 import 'package:citizenapp/8964/compose/video_compose_body.dart';
 import 'package:citizenapp/8964/compose/compose_media_widgets.dart';
-import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
 
 const _video = SquareLocalMediaDraft(
   mediaKind: SquareMediaKind.video,

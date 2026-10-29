@@ -9,8 +9,8 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:citizenapp/account/identity/square_session_provider.dart';
-import 'package:citizenapp/8964/feed/comments.dart';
-import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/comment/comments.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
 import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/storage/social_isar.dart';
 import 'package:flutter/material.dart';
@@ -89,6 +89,7 @@ Map<String, dynamic> _notice(int revision) => {
   'bind_rev': 1,
   'notice_rev': revision,
   'square_unread': 0,
+  'notifications_unread': 0,
   'following_unread': 0,
   'interaction_unread': 0,
   'interaction_sequence': 0,
@@ -114,6 +115,11 @@ class _Api extends SquareApiClient {
     required String postId,
     int? cursor,
     String? target,
+
+    String? mode,
+    String? thread,
+    int? through,
+    String? after,
   }) async {
     reads++;
     if (onRead != null) return onRead!(reads);
@@ -148,6 +154,8 @@ class _Api extends SquareApiClient {
     int? through,
     List<String> postIds = const [],
     List<String> commentIds = const [],
+
+    String? postId,
   }) async => _notice(5);
   @override
   Future<void> deleteComment({

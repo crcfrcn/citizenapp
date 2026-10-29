@@ -12,7 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:citizenapp/network/square_api_client.dart';
-import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
 
 import 'mls_authentication_fixture.dart';
 
@@ -397,7 +397,9 @@ void main() {
             'posts': [],
             'entries': [],
             'square_unread': 0,
+            'notifications_unread': 0,
             'following_unread': 0,
+            'interaction_unread': 0,
           }),
           200,
         );

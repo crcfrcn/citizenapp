@@ -359,13 +359,13 @@ test('SDK自动选择最新成功正式版，本机与自动化使用独立消�
         git_commit_sha:'a'.repeat(40),producer_run_id:8,producer_run_attempt:1};
     const release = {id:8,tag_name:'公民SDK·SDK·v1.0.1',draft:false,prerelease:false,
         published_at:'2026-10-22',body:JSON.stringify(proof)};
-    const run = {status:'completed',conclusion:'success',head_sha:proof.git_commit_sha,run_attempt:1};
+    const run = {id:8,status:'completed',conclusion:'success',head_sha:proof.git_commit_sha,run_attempt:1};
     const rows = [release,{...release,id:9,draft:true,body:JSON.stringify({...proof,software_version:'1.0.9'})}];
     const read = async path => path.startsWith('releases?') ? rows : run;
     assert.equal((await selectSDKRelease('citizensdk',read)).release.id,8);
     await assert.rejects(selectSDKRelease('citizensdk',async () => []),/没有可用/);
     await assert.rejects(selectSDKRelease('citizensdk',async path =>
-        path.startsWith('releases?') ? rows : {...run,conclusion:'failure'}),/未成功/);
+        path.startsWith('releases?') ? rows : {...run,conclusion:'failure'}),/没有可用/);
     const action = await describeAction({flow:'release',platform:'android'});
     assert.deepEqual(action,{repository:'crcfrcn/citizenapp',workflow:'android.yml',ref:'main',inputs:{}});
     // 仅定位现有工具；版本、引擎或目录门禁不得重新进入编译入口。
@@ -376,6 +376,78 @@ test('SDK自动选择最新成功正式版，本机与自动化使用独立消�
     assert.doesNotMatch(builder,/requireAutomationBuild|sandbox-exec|CITIZENAPP_OFFLINE|CARGO_NET_OFFLINE|缺少SDK声明的现有ZXing/);
 
 });
+
+// 两种SDK共用相同正式回执；读取替身只返回GitHub公开记录，不访问网络或下载组件。
+function sdkVersion(product, version, id, attempt = 1) {
+    const proof = {product_id:product,platform:'sdk',software_version:version,
+        git_commit_sha:id.toString(16).padStart(40,'0'),producer_run_id:id,producer_run_attempt:attempt};
+    return {
+        release:{id,tag_name:product + '-v' + version,draft:false,prerelease:false,
+            published_at:'2026-10-28',body:JSON.stringify(proof)},
+        run:{id,status:'completed',conclusion:'success',head_sha:proof.git_commit_sha,run_attempt:attempt}
+    };
+}
+for (const product of ['citizensdk', 'tatachatsdk']) {
+    test(product + '分页后按数值版本选择最新成功正式包，忽略不合格Release', async () => {
+        const failed = sdkVersion(product,'2.0.0',30), latest = sdkVersion(product,'1.0.10',10,2);
+        const older = sdkVersion(product,'1.0.2',200), calls = [];
+        const invalid = sdkVersion(product,'9.0.0',40).release;
+        const pages = [
+            [failed.release,...Array.from({length:99},() => ({...invalid,body:'null'}))],
+            [older.release, latest.release, {...invalid,draft:true}, {...invalid,prerelease:true},
+                {...invalid,published_at:null}, {...invalid,body:'invalid JSON'},
+                sdkVersion('other','9.0.0',41).release, sdkVersion(product,'invalid',42).release,
+                {...invalid,body:JSON.stringify({product_id:product,platform:'sdk',software_version:'9.0.0'})}]
+        ];
+        const selected = await selectSDKRelease(product, async path => {
+            calls.push(path);
+            if (path === 'releases?per_page=100&page=1') return pages[0];
+            if (path === 'releases?per_page=100&page=2') return pages[1];
+            if (path === 'actions/runs/30/attempts/1') return {...failed.run,conclusion:'failure'};
+            assert.equal(path,'actions/runs/10/attempts/2');
+            return latest.run;
+        });
+        assert.equal(selected.release,latest.release);
+        assert.equal(selected.proof.git_commit_sha,latest.run.head_sha);
+        assert.deepEqual(calls,['releases?per_page=100&page=1','releases?per_page=100&page=2',
+            'actions/runs/30/attempts/1','actions/runs/10/attempts/2']);
+    });
+    test(product + '只承认准确Run和attempt成功且源码一致的正式版本', async () => {
+        const latest = sdkVersion(product,'1.0.2',20,2), older = sdkVersion(product,'1.0.1',10);
+        for (const change of [
+            {status:'in_progress',conclusion:null}, {conclusion:'failure'}, {conclusion:'cancelled'},
+            {id:21}, {run_attempt:1}, {head_sha:'f'.repeat(40)}
+        ]) {
+            const selected = await selectSDKRelease(product, async path => {
+                if (path.startsWith('releases?')) return [older.release,latest.release];
+                if (path === 'actions/runs/20/attempts/2') return {...latest.run,...change};
+                assert.equal(path,'actions/runs/10/attempts/1');
+                return older.run;
+            });
+            assert.equal(selected.release,older.release);
+        }
+        assert.equal((await selectSDKRelease(product,async path => {
+            if (path.startsWith('releases?')) return [latest.release];
+            assert.equal(path,'actions/runs/20/attempts/2','不能读取整个Run的最新attempt冒充生产来源');
+            return latest.run;
+        })).release,latest.release);
+    });
+    test(product + '无成功正式版或真实读取失败就停止，不以旧包掩盖错误', async () => {
+        const latest = sdkVersion(product,'1.0.2',20), older = sdkVersion(product,'1.0.1',10);
+        await assert.rejects(selectSDKRelease(product,async () => []),/没有可用/);
+        await assert.rejects(selectSDKRelease(product,async path =>
+            path.startsWith('releases?') ? [latest.release] : {...latest.run,conclusion:'failure'}),/没有可用/);
+        for (const stage of ['releases', 'attempt']) {
+            const failure = new Error('合成GitHub读取失败'), calls = [];
+            await assert.rejects(selectSDKRelease(product,async path => {
+                calls.push(path);
+                if (path.startsWith('releases?') && stage !== 'releases') return [older.release,latest.release];
+                throw failure;
+            }),error => error === failure);
+            assert.equal(calls.includes('actions/runs/10/attempts/1'),false);
+        }
+    });
+}
 
 // 直接执行App装配函数中的真实资源正文，不另建功能构建入口或复制实现。
 test('App普通装配生成随包资源，库或资源工具失败不得继续', async () => {
@@ -412,50 +484,188 @@ test('App普通装配生成随包资源，库或资源工具失败不得继续',
     assert.equal(declaration.citizenapp.tools.esbuild, '0.28.1');
 });
 
-// 执行所属YAML的实际Shell正文，合成端口只记录读取/删除，绝不访问GitHub。
-for (const [platform, label] of [['ios', 'iOS'], ['android', 'Android']]) {
-    test(platform + '孤立Tag仅按完整版本名和准确提交删除，运行编号仍可清理', () => {
-        const workflow = readFileSync(join(root, '.github/workflows/' + platform + '.yml'), 'utf8');
-        const start = workflow.indexOf('            # 仅准确版本名称才可能认领孤立Tag；');
-        const end = workflow.indexOf('            artifacts=', start);
-        assert.ok(start >= 0 && end > start);
-        const body = workflow.slice(start, end);
-        const sha = 'a'.repeat(40), tag = '公民·' + label + '·v1.2.3';
-        const execute = (name, options = {}) => spawnSync('/bin/bash', ['-c', `
-set -euo pipefail
-optional() {
-    printf 'read:%s\n' "$1" >&2
-    case "$1" in releases/tags/*) printf '%s' "$ATTACHED" ;; git/ref/tags/*) printf '%s' "$REF" ;; *) exit 91 ;; esac
+// 直接执行所属Workflow的清理正文；gh替身只操作本轮JSON现场，不访问网络。
+function cleanupGithub() {
+    const fs = require('node:fs');
+    const path = process.env.CLEANUP_STATE;
+    const state = JSON.parse(fs.readFileSync(path, 'utf8'));
+    const args = process.argv.slice(2);
+    fs.appendFileSync(process.env.CLEANUP_CALLS, JSON.stringify(args) + '\n');
+    const missing = (status = 404) => {
+        process.stdout.write('HTTP/2.0 ' + status + '\n');
+        process.exit(status === 404 ? 4 : 7);
+    };
+    const save = () => fs.writeFileSync(path, JSON.stringify(state));
+    if (args[0] === 'run' && args[1] === 'delete') {
+        const id = Number(args[2]);
+        state.runs = state.runs.filter(run => run.id !== id);
+        if (!state.keepArtifacts) state.artifacts = state.artifacts.filter(a => a.workflow_run.id !== id);
+        save();
+        return;
+    }
+    if (args[0] !== 'api') process.exit(90);
+    const request = args.at(-1).replace('repos/crcfrcn/citizenapp/', '').split('?')[0];
+    const method = args.includes('--method') ? args[args.indexOf('--method') + 1] : 'GET';
+    if (method === 'GET' && state.denied?.[request]) missing(state.denied[request]);
+    let value;
+    if (request.startsWith('actions/workflows/')) value = {workflow_runs: state.runs};
+    else if (request === 'releases') value = state.releases;
+    else if (request === 'actions/caches') value = {actions_caches: state.caches};
+    else if (request === 'actions/artifacts') value = {artifacts: state.artifacts};
+    else if (request.startsWith('git/matching-refs/tags/')) {
+        const prefix = decodeURIComponent(request.slice('git/matching-refs/tags/'.length));
+        value = Object.entries(state.tags).filter(([tag]) => tag.startsWith(prefix))
+            .map(([tag, object]) => ({ref:'refs/tags/' + tag, object}));
+    } else if (/^git\/refs?\/tags\//u.test(request)) {
+        const tag = decodeURIComponent(request.replace(/^git\/refs?\/tags\//u, ''));
+        if (!state.tags[tag]) missing();
+        if (method === 'DELETE') delete state.tags[tag];
+        else value = {object:state.tags[tag]};
+    } else if (/^releases\/[0-9]+$/u.test(request)) {
+        const id = Number(request.split('/')[1]);
+        value = state.releases.find(release => release.id === id);
+        if (!value) missing();
+        if (method === 'DELETE' && state.undeletedRelease !== id) state.releases = state.releases.filter(r => r.id !== id);
+    } else if (/^actions\/runs\/[0-9]+(?:\/logs)?$/u.test(request)) {
+        const id = Number(request.split('/')[2]);
+        value = [...state.runs, ...(state.foreignRuns ?? [])].find(run => run.id === id);
+        if (!value) missing();
+    } else if (/^actions\/caches\/[0-9]+$/u.test(request)) {
+        const id = Number(request.split('/')[2]);
+        if (method !== 'DELETE') process.exit(91);
+        if (!state.keepCaches) state.caches = state.caches.filter(cache => cache.id !== id);
+    } else process.exit(92);
+    if (method === 'DELETE') { save(); return; }
+    if (args.includes('--silent')) process.stdout.write('HTTP/2.0 200\n');
+    else process.stdout.write(JSON.stringify(args.includes('--slurp') ? [value] : value));
 }
-remove() { printf 'remove:%s\n' "$1" >&2; }
-${body}
-`], {encoding:'utf8', env:{...process.env, name, label, sha,
-            protected:JSON.stringify(options.protected ?? []), ATTACHED:options.attached ?? 'null',
-            REF:options.ref ? JSON.stringify(options.ref) : 'null'}});
-        for (const name of ['公民·' + label + '·38', tag + '-extra', tag.replace('1.2.3', '1.2.x'),
-            '公民·' + (label === 'iOS' ? 'Android' : 'iOS') + '·v1.2.3']) {
-            const result = execute(name);
-            assert.equal(result.status, 0, result.stderr);
-            assert.equal(result.stderr, '');
+function cleanupCase(t, platform) {
+    const base = join(root, 'target/test');
+    mkdirSync(base, {recursive:true});
+    const directory = mkdtempSync(join(base, 'cleanup-'));
+    t.after(() => rmSync(directory, {recursive:true, force:true}));
+    mkdirSync(join(directory, 'bin'));
+    writeFileSync(join(directory, 'bin/gh'), '#!' + process.execPath + '\n(' + cleanupGithub.toString() + ')();\n', {mode:0o700});
+    const label = platform === 'ios' ? 'iOS' : 'Android';
+    const sha = id => id.toString(16).padStart(2, '0').repeat(20);
+    const run = (id, status, conclusion) => ({id,status,conclusion,run_number:id,head_sha:sha(id),run_attempt:1,
+        display_title:'公民·' + label + '·' + id});
+    const release = id => ({id:id + 100,tag_name:'公民·' + label + '·v1.0.' + id,target_commitish:sha(id),
+        body:JSON.stringify({product_id:'citizenapp',platform,version:'1.0.' + id,source_sha:sha(id),run_id:id,run_attempt:1})});
+    const state = {runs:[run(20,'in_progress',null),run(19,'in_progress',null),run(18,'completed','failure'),
+        run(11,'completed','failure'),run(10,'completed','success')],
+        releases:[20,19,18,11,10].map(release), tags:{},
+        caches:[10,20].map(id => ({id,key:'citizenapp-' + platform + '-source-' + id + '-1',ref:'refs/heads/main'})),
+        artifacts:[10,20].map(id => ({id,workflow_run:{id}}))};
+    for (const value of state.releases) state.tags[value.tag_name] = {type:'commit',sha:value.target_commitish};
+    state.releases.push({id:999,tag_name:'另一个产品·v1.0.0',body:'not-owned'});
+    state.tags['另一个产品·v1.0.0'] = {type:'commit',sha:sha(99)};
+    state.caches.push({id:99,key:'citizenapp-other-source-99-1',ref:'refs/heads/main'});
+    const file = join(directory, 'state.json'), calls = join(directory, 'calls.jsonl');
+    const workflow = readFileSync(join(root, '.github/workflows/' + platform + '.yml'), 'utf8');
+    assert.equal(workflow.includes('删除本平台旧记录及附属数据并回查'), false);
+    const section = workflow.slice(workflow.indexOf('  cleanup:\n'));
+    const body = section.split('        run: |\n')[1].split('\n')
+        .map(line => line.startsWith('          ') ? line.slice(10) : line).join('\n');
+    return {state,release,sha,execute(result='success') {
+        writeFileSync(file, JSON.stringify(state));
+        writeFileSync(calls, '');
+        const completed = spawnSync('/bin/bash', ['-euo','pipefail','-c',body], {cwd:directory,encoding:'utf8',
+            env:{...process.env,PATH:join(directory,'bin') + ':/usr/bin:/bin',GH_TOKEN:'',GITHUB_TOKEN:'',
+                GITHUB_REPOSITORY:'crcfrcn/citizenapp',GITHUB_RUN_ID:'20',PLATFORM:platform,RESULT:result,
+                CLEANUP_STATE:file,CLEANUP_CALLS:calls}});
+        return {...completed,state:JSON.parse(readFileSync(file,'utf8')),
+            calls:readFileSync(calls,'utf8').trim().split('\n').filter(Boolean).map(JSON.parse)};
+    }};
+}
+for (const platform of ['ios', 'android']) {
+    test(platform + '清理按Run回执保护当前Release，编号显示名不作为Tag', t => {
+        const f = cleanupCase(t,platform), r = f.execute();
+        assert.equal(r.status,0,r.stderr);
+        assert.deepEqual(r.state.runs.map(v => v.id),[20,19,18]);
+        assert.deepEqual(r.state.releases.map(v => v.id),[120,119,118,999]);
+        assert.deepEqual(r.state.caches.map(v => v.id),[20,99]);
+        assert.deepEqual(r.state.artifacts.map(v => v.id),[20]);
+        assert.ok(r.state.tags['另一个产品·v1.0.0']);
+        Object.assign(f.state,r.state);
+        const repeated = f.execute();
+        assert.equal(repeated.status,0,repeated.stderr);
+        assert.ok(repeated.calls.every(args => !args.includes('DELETE') && args[0] !== 'run'));
+    });
+    test(platform + '失败或取消保留上一成功、当前失败及活动Run', t => {
+        const f = cleanupCase(t,platform), r = f.execute('failure');
+        assert.equal(r.status,0,r.stderr);
+        assert.deepEqual(r.state.runs.map(v => v.id),[20,19,10]);
+        assert.deepEqual(r.state.releases.map(v => v.id),[120,119,110,999]);
+    });
+    test(platform + '最新终态按官方run_number选择，不依赖列表顺序或ID大小', t => {
+        const f = cleanupCase(t,platform);
+        f.state.runs.find(run => run.id === 11).run_number = 99;
+        f.state.runs.reverse();
+        const r = f.execute();
+        assert.equal(r.status,0,r.stderr);
+        assert.deepEqual(r.state.runs.map(v => v.id).sort((a,b) => a-b),[11,19,20]);
+    });
+    test(platform + 'Run已真实404的旧Release按原回执清理', t => {
+        const f = cleanupCase(t,platform), release = f.release(6);
+        f.state.releases.unshift(release);
+        f.state.tags[release.tag_name] = {type:'commit',sha:f.sha(6)};
+        const r = f.execute();
+        assert.equal(r.status,0,r.stderr);
+        assert.ok(!r.state.releases.some(v => v.id === release.id));
+        assert.equal(r.state.tags[release.tag_name],undefined);
+    });
+    test(platform + '旧Release的Tag已404仍能清理且回查', t => {
+        const f = cleanupCase(t,platform), release = f.release(6);
+        f.state.releases.unshift(release);
+        const r = f.execute();
+        assert.equal(r.status,0,r.stderr);
+        assert.ok(!r.state.releases.some(v => v.id === release.id));
+    });
+    for (const status of [403,500]) test(platform + '来源读取HTTP' + status + '不能冒充404', t => {
+        const f = cleanupCase(t,platform), release = f.release(6);
+        f.state.releases.unshift(release);
+        f.state.tags[release.tag_name] = {type:'commit',sha:f.sha(6)};
+        f.state.denied = {'actions/runs/6':status};
+        const r = f.execute();
+        assert.notEqual(r.status,0);
+        assert.ok(r.state.releases.some(v => v.id === release.id));
+        assert.ok(r.calls.every(args => !args.includes('DELETE') && args[0] !== 'run'));
+    });
+    test(platform + '仍存在但不属于当前Workflow的来源禁止认领', t => {
+        const f = cleanupCase(t,platform), release = f.release(6);
+        f.state.releases.unshift(release);
+        f.state.foreignRuns = [{id:6}];
+        const r = f.execute();
+        assert.notEqual(r.status,0);
+        assert.ok(r.state.releases.some(v => v.id === release.id));
+    });
+    for (const kind of ['receipt','source','tag']) test(platform + kind + '归属错误保留目标对象', t => {
+        const f = cleanupCase(t,platform), release = f.state.releases[0];
+        if (kind === 'receipt') release.body = '{}';
+        if (kind === 'source') release.target_commitish = f.sha(99);
+        if (kind === 'tag') {
+            const old = f.state.releases.find(v => v.id === 110);
+            f.state.tags[old.tag_name].sha = f.sha(99);
         }
-        const protectedTag = execute(tag, {protected:[tag]});
-        assert.equal(protectedTag.status, 0, protectedTag.stderr);
-        assert.equal(protectedTag.stderr, '');
-        const missing = execute(tag);
-        assert.equal(missing.status, 0, missing.stderr);
-        assert.equal(missing.stderr.split('\n').filter(line => line.startsWith('read:')).length, 2);
-        assert.doesNotMatch(missing.stderr, /remove:/);
-        const owned = execute(tag, {ref:{object:{type:'commit', sha}}});
-        assert.equal(owned.status, 0, owned.stderr);
-        assert.equal(owned.stderr.split('\n').filter(line => line.startsWith('remove:')).length, 1);
-        assert.match(owned.stderr, /remove:git\/refs\/tags\//);
-        for (const ref of [{object:{type:'commit', sha:'b'.repeat(40)}}, {object:{type:'tag', sha}}]) {
-            const result = execute(tag, {ref});
-            assert.notEqual(result.status, 0);
-            assert.doesNotMatch(result.stderr, /remove:/);
-        }
-        const attached = execute(tag, {attached:'{"id":1}', ref:{object:{type:'commit', sha}}});
-        assert.notEqual(attached.status, 0);
-        assert.doesNotMatch(attached.stderr, /remove:|read:git\/ref/);
+        const r = f.execute();
+        assert.notEqual(r.status,0);
+        assert.ok(r.state.releases.some(v => v.id === (kind === 'tag' ? 110 : 120)));
+    });
+    test(platform + '无回执孤立Tag不按显示名猜归属', t => {
+        const f = cleanupCase(t,platform), tag = f.release(6).tag_name;
+        f.state.tags[tag] = {type:'commit',sha:f.sha(6)};
+        const r = f.execute();
+        assert.notEqual(r.status,0);
+        assert.ok(r.state.tags[tag]);
+        assert.ok(!r.calls.some(args => args.includes('DELETE') && args.at(-1).includes(encodeURIComponent(tag))));
+    });
+    for (const remaining of ['release','cache','artifact']) test(platform + remaining + '删除未实际完成必须失败', t => {
+        const f = cleanupCase(t,platform);
+        if (remaining === 'release') f.state.undeletedRelease = 111;
+        if (remaining === 'cache') f.state.keepCaches = true;
+        if (remaining === 'artifact') f.state.keepArtifacts = true;
+        const r = f.execute();
+        assert.notEqual(r.status,0);
     });
 }

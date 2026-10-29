@@ -1,4 +1,4 @@
-import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
 
 /// 选中媒体后把临时文件持久化到当前 CID 草稿目录；null 时沿用原路径。
 typedef ComposeMediaPersistor = Future<SquareLocalMediaDraft> Function(
@@ -15,10 +15,10 @@ class ComposePayload {
   }) : error = null;
 
   const ComposePayload.invalid(this.error)
-      : text = '',
-        title = null,
-        mediaDrafts = const <SquareLocalMediaDraft>[],
-        contentSections = null;
+    : text = '',
+      title = null,
+      mediaDrafts = const <SquareLocalMediaDraft>[],
+      contentSections = null;
 
   /// 校验错误文案；null 表示通过。
   final String? error;

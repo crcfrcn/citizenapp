@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:citizenapp/account/profile/citizen_profile.dart';
 import 'package:citizenapp/account/profile/citizen_profile_cache.dart';
 
-import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
 import 'package:citizenapp/account/profile/profile_avatar.dart';
 import 'package:citizenapp/system/theme/app_theme.dart';
 import 'package:citizenapp/system/theme/app_layout.dart';

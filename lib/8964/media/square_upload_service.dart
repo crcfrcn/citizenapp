@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 
-import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
 import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/8964/media/square_media_processor.dart';
 import 'package:citizenapp/8964/media/square_media_store.dart';

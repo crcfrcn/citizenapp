@@ -86,6 +86,11 @@ class Notifications extends ChangeNotifier {
   int get creatorReceivedAt =>
       (_state['_creator_received_at'] as int?) ?? receivedAt;
   int get unread => (_state['square_unread'] as int?) ?? 0;
+  int get notificationUnread =>
+      (_state['notifications_unread'] as int?) ??
+      (_state['interaction_unread'] as int?) ??
+      0;
+  int get through => (_state['through'] as int?) ?? 0;
   int get followingUnread => (_state['following_unread'] as int?) ?? 0;
   int get noticeRev => (_state['notice_rev'] as int?) ?? 0;
   Map<String, dynamic>? creatorFor(String cidNumber) =>
@@ -221,7 +226,7 @@ class Notifications extends ChangeNotifier {
           _pending.addAll(
             values
                 .whereType<Map>()
-                .map((e) => e.cast<String, dynamic>())
+                .map((e) => _canonicalRead(e.cast<String, dynamic>()))
                 .where(_validRead),
           );
           if (_pending.length != values.length) _cacheDirty = true;
@@ -310,9 +315,10 @@ class Notifications extends ChangeNotifier {
     }
     return (value['interaction_sequence'] as int) <=
             (value['through'] as int) &&
-        value['square_unread'] ==
-            (value['following_unread'] as int) +
-                (value['interaction_unread'] as int);
+        (value['notifications_unread'] == null ||
+            (value['notifications_unread'] is int &&
+                (value['notifications_unread'] as int) >= 0 &&
+                (value['notifications_unread'] as int) <= 9007199254740991));
   }
 
   Future<void> receive(Map<String, dynamic> data) async {
@@ -379,6 +385,8 @@ class Notifications extends ChangeNotifier {
       ]) {
         merged[key] = value[key];
       }
+      merged['notifications_unread'] =
+          value['notifications_unread'] ?? value['interaction_unread'];
       _known = true;
     }
     if (creator) {
@@ -478,23 +486,49 @@ class Notifications extends ChangeNotifier {
     if (!isCurrent()) throw StateError('通知状态已更新');
   });
 
-  // 与服务端单目标、50项及安全整数边界相同；坏本机意图不阻断后续校准。
+  // 旧待提交记录在内存中明确归类；不会把逐评论阅读重放成父层全部已读。
+  static Map<String, dynamic> _canonicalRead(Map<String, dynamic> value) {
+    final result = Map<String, dynamic>.from(value);
+    final selector =
+        (value['ids'] is List && (value['ids'] as List).isNotEmpty) ||
+        (value['comment_ids'] is List &&
+            (value['comment_ids'] as List).isNotEmpty);
+    final posts =
+        value['post_ids'] is List && (value['post_ids'] as List).isNotEmpty;
+    if (value['scope'] == null ||
+        (value['scope'] == 'square' && value['through'] == null)) {
+      result['scope'] = selector
+          ? 'interaction'
+          : posts
+          ? 'following'
+          : 'square';
+    }
+    return result;
+  }
+
   static bool _validRead(Map<String, dynamic> value) {
+    final scope = value['scope'];
+    if (scope != null &&
+        ![
+          'square',
+          'notifications',
+          'post',
+          'following',
+          'interaction',
+        ].contains(scope)) {
+      return false;
+    }
     final ids = value['ids'],
         posts = value['post_ids'],
         comments = value['comment_ids'],
         through = value['through'];
     bool number(dynamic n) => n is int && n > 0 && n <= 9007199254740991;
-    bool names(dynamic values) =>
-        values is List &&
-        values.length <= 50 &&
-        values.every(
-          (v) =>
-              v is String &&
-              v != 'self' &&
-              v != 'confirm' &&
-              RegExp(r'^[A-Za-z0-9_-]{1,64}$').hasMatch(v),
-        );
+    bool name(dynamic v) =>
+        v is String &&
+        v != 'self' &&
+        v != 'confirm' &&
+        RegExp(r'^[A-Za-z0-9_-]{1,64}$').hasMatch(v);
+    bool names(dynamic v) => v is List && v.length <= 50 && v.every(name);
     if (ids is! List ||
         ids.length > 50 ||
         !ids.every(number) ||
@@ -502,6 +536,20 @@ class Notifications extends ChangeNotifier {
         !names(comments) ||
         (through != null && !number(through))) {
       return false;
+    }
+    if (scope == 'post') {
+      return name(value['post_id']) &&
+          number(through) &&
+          ids.isEmpty &&
+          (posts as List).isEmpty &&
+          (comments as List).isEmpty;
+    }
+    if (value['post_id'] != null) return false;
+    if (scope == 'square' || scope == 'notifications') {
+      return number(through) &&
+          ids.isEmpty &&
+          (posts as List).isEmpty &&
+          (comments as List).isEmpty;
     }
     return [
           ids.isNotEmpty,
@@ -562,32 +610,10 @@ class Notifications extends ChangeNotifier {
     }
   }
 
-  Future<Map<String, dynamic>> page({
-    required NotificationScope owner,
-    int? cursor,
-  }) async {
-    if (!await restore() || !isCurrent(owner)) throw StateError('通知身份已变化');
-    final session = await _sessions?.ensureSession(), api = _api;
-    if (!isCurrent(owner) ||
-        session == null ||
-        api == null ||
-        session.cidNumber != owner.cidNumber) {
-      throw StateError('通知会话不可用');
-    }
-    final value = await api.fetchNotifications(
-      session: session,
-      cursor: cursor,
-    );
-    await session.validateCurrent();
-    if (!isCurrent(owner)) throw StateError('通知身份已变化');
-    final state = value['state'];
-    if (state is Map<String, dynamic>) await accept(state);
-    if (!isCurrent(owner)) throw StateError('通知身份已变化');
-    return value;
-  }
-
   Future<bool> read({
     required NotificationScope? owner,
+    String? scope,
+    String? postId,
     List<int> ids = const [],
     int? through,
     List<String> postIds = const [],
@@ -604,6 +630,14 @@ class Notifications extends ChangeNotifier {
         return false;
       }
       final intent = <String, dynamic>{
+        'scope':
+            scope ??
+            (commentIds.isNotEmpty || ids.isNotEmpty
+                ? 'interaction'
+                : postIds.isNotEmpty
+                ? 'following'
+                : 'square'),
+        'post_id': postId,
         'ids': List<int>.of(ids),
         'through': through,
         'post_ids': List<String>.of(postIds),
@@ -643,6 +677,15 @@ class Notifications extends ChangeNotifier {
           }
           final value = await api.markNotifyRead(
             session: session,
+            scope:
+                intent['scope'] as String? ??
+                ((intent['comment_ids'] as List).isNotEmpty ||
+                        (intent['ids'] as List).isNotEmpty
+                    ? 'interaction'
+                    : (intent['post_ids'] as List).isNotEmpty
+                    ? 'following'
+                    : 'square'),
+            postId: intent['post_id'] as String?,
             ids: (intent['ids'] as List).cast<int>(),
             through: intent['through'] as int?,
             postIds: (intent['post_ids'] as List).cast<String>(),
@@ -680,11 +723,6 @@ class Notifications extends ChangeNotifier {
     await task;
   }
 
-  Future<bool> readAll({
-    required NotificationScope owner,
-    required int through,
-  }) =>
-      through > 0 ? read(owner: owner, through: through) : Future.value(false);
   void stop() {
     _identityEpoch++;
     _clear();

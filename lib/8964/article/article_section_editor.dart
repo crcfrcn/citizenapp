@@ -63,7 +63,10 @@ List<Map<String, Object?>> normalizeArticleDelta(Object? raw) {
       if (insert.codeUnitAt(index) != 10) continue;
       if (index > start) {
         _appendArticleOperation(
-            normalized, insert.substring(start, index), inline);
+          normalized,
+          insert.substring(start, index),
+          inline,
+        );
       }
       _appendArticleOperation(normalized, '\n', block);
       start = index + 1;
@@ -152,11 +155,11 @@ String articleDeltaPlainText(Object? raw) {
 }
 
 QuillController articleQuillController([Object? delta]) => QuillController(
-      document: Document.fromJson(
-        normalizeArticleDelta(delta).map(_protocolToQuillOperation).toList(),
-      ),
-      selection: const TextSelection.collapsed(offset: 0),
-    );
+  document: Document.fromJson(
+    normalizeArticleDelta(delta).map(_protocolToQuillOperation).toList(),
+  ),
+  selection: const TextSelection.collapsed(offset: 0),
+);
 
 List<Map<String, Object?>> articleControllerDelta(QuillController controller) =>
     normalizeArticleDelta(
@@ -200,49 +203,59 @@ const _backgroundToQuill = <String, String>{
 };
 
 Map<String, Object?> _protocolToQuillOperation(
-        Map<String, Object?> operation) =>
-    _mapOperationAttributes(
-        operation,
-        (key, value) => switch (key) {
-              'font' => _fontToQuill[value] ?? value,
-              'size' => _sizeToQuill[value] ?? value,
-              'color' => _colorToQuill[value] ?? value,
-              'background' => _backgroundToQuill[value] ?? value,
-              _ => value,
-            });
+  Map<String, Object?> operation,
+) => _mapOperationAttributes(
+  operation,
+  (key, value) => switch (key) {
+    'font' => _fontToQuill[value] ?? value,
+    'size' => _sizeToQuill[value] ?? value,
+    'color' => _colorToQuill[value] ?? value,
+    'background' => _backgroundToQuill[value] ?? value,
+    _ => value,
+  },
+);
 
 Map<String, Object?> _quillToProtocolOperation(Object? raw) {
   if (raw is! Map) return const {'insert': '\n'};
   final operation = raw.map((key, value) => MapEntry(key.toString(), value));
   return _mapOperationAttributes(
-      operation,
-      (key, value) => switch (key) {
-            'font' => _fontToQuill.entries
-                    .where((entry) => entry.value == value)
-                    .map((entry) => entry.key)
-                    .firstOrNull ??
-                value,
-            'size' => _sizeToQuill.entries
-                    .where((entry) => entry.value == value.toString())
-                    .map((entry) => entry.key)
-                    .firstOrNull ??
-                value,
-            'color' => _colorToQuill.entries
-                    .where((entry) =>
-                        entry.value.toLowerCase() ==
-                        value.toString().toLowerCase())
-                    .map((entry) => entry.key)
-                    .firstOrNull ??
-                value,
-            'background' => _backgroundToQuill.entries
-                    .where((entry) =>
-                        entry.value.toLowerCase() ==
-                        value.toString().toLowerCase())
-                    .map((entry) => entry.key)
-                    .firstOrNull ??
-                value,
-            _ => value,
-          });
+    operation,
+    (key, value) => switch (key) {
+      'font' =>
+        _fontToQuill.entries
+                .where((entry) => entry.value == value)
+                .map((entry) => entry.key)
+                .firstOrNull ??
+            value,
+      'size' =>
+        _sizeToQuill.entries
+                .where((entry) => entry.value == value.toString())
+                .map((entry) => entry.key)
+                .firstOrNull ??
+            value,
+      'color' =>
+        _colorToQuill.entries
+                .where(
+                  (entry) =>
+                      entry.value.toLowerCase() ==
+                      value.toString().toLowerCase(),
+                )
+                .map((entry) => entry.key)
+                .firstOrNull ??
+            value,
+      'background' =>
+        _backgroundToQuill.entries
+                .where(
+                  (entry) =>
+                      entry.value.toLowerCase() ==
+                      value.toString().toLowerCase(),
+                )
+                .map((entry) => entry.key)
+                .firstOrNull ??
+            value,
+      _ => value,
+    },
+  );
 }
 
 Map<String, Object?> _mapOperationAttributes(
@@ -302,8 +315,9 @@ class ArticleSectionEditor extends StatelessWidget {
         decoration: BoxDecoration(
           color: AppTheme.surfaceCard,
           borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-          border:
-              Border.all(color: invalid ? AppTheme.danger : AppTheme.border),
+          border: Border.all(
+            color: invalid ? AppTheme.danger : AppTheme.border,
+          ),
         ),
         // 右、下边距统一为 0，使媒体入口与首图、添加图文框共享同一内容右边界。
         padding: const EdgeInsets.fromLTRB(12, 8, 0, 0),
@@ -420,48 +434,42 @@ class _ArticleRichTextToolbarState extends State<ArticleRichTextToolbar> {
         scrollDirection: Axis.horizontal,
         children: [
           _history(
-              Icons.undo, widget.controller.hasUndo, widget.controller.undo),
+            Icons.undo,
+            widget.controller.hasUndo,
+            widget.controller.undo,
+          ),
           _history(
-              Icons.redo, widget.controller.hasRedo, widget.controller.redo),
+            Icons.redo,
+            widget.controller.hasRedo,
+            widget.controller.redo,
+          ),
           _toggleButton(Icons.format_bold, Attribute.bold),
           _toggleButton(Icons.format_italic, Attribute.italic),
           _toggleButton(Icons.format_underlined, Attribute.underline),
           _toggleButton(Icons.strikethrough_s, Attribute.strikeThrough),
-          _menu(
-            Icons.font_download_outlined,
-            const {
-              '黑体': 'heiti',
-              '宋体': 'songti',
-              '楷体': 'kaiti',
-              '等宽': 'monospace',
-              '静蕾体': 'jinglei',
-            },
-            (value) => _formatToken(Attribute.font, value),
-          ),
-          _menu(
-            Icons.format_size,
-            const {
-              '小': 'small',
-              '正文': 'body',
-              '大': 'large',
-              '副标题': 'subtitle',
-              '标题': 'title'
-            },
-            (value) => _formatToken(Attribute.size, value),
-          ),
-          _menu(
-            Icons.format_color_text,
-            const {
-              '默认': 'default',
-              '次要': 'secondary',
-              '主题': 'primary',
-              '蓝': 'info',
-              '绿': 'success',
-              '橙': 'warning',
-              '红': 'danger'
-            },
-            (value) => _formatToken(Attribute.color, value),
-          ),
+          _menu(Icons.font_download_outlined, const {
+            '黑体': 'heiti',
+            '宋体': 'songti',
+            '楷体': 'kaiti',
+            '等宽': 'monospace',
+            '静蕾体': 'jinglei',
+          }, (value) => _formatToken(Attribute.font, value)),
+          _menu(Icons.format_size, const {
+            '小': 'small',
+            '正文': 'body',
+            '大': 'large',
+            '副标题': 'subtitle',
+            '标题': 'title',
+          }, (value) => _formatToken(Attribute.size, value)),
+          _menu(Icons.format_color_text, const {
+            '默认': 'default',
+            '次要': 'secondary',
+            '主题': 'primary',
+            '蓝': 'info',
+            '绿': 'success',
+            '橙': 'warning',
+            '红': 'danger',
+          }, (value) => _formatToken(Attribute.color, value)),
           _menu(
             Icons.format_color_fill,
             const {
@@ -471,10 +479,12 @@ class _ArticleRichTextToolbarState extends State<ArticleRichTextToolbar> {
               '浅蓝': 'info_soft',
               '浅绿': 'success_soft',
               '浅橙': 'warning_soft',
-              '浅红': 'danger_soft'
+              '浅红': 'danger_soft',
             },
             (value) => _formatToken(
-                Attribute.background, value.isEmpty ? null : value),
+              Attribute.background,
+              value.isEmpty ? null : value,
+            ),
           ),
           _toggleButton(Icons.format_align_left, Attribute.leftAlignment),
           _toggleButton(Icons.format_align_center, Attribute.centerAlignment),
@@ -504,29 +514,25 @@ class _ArticleRichTextToolbarState extends State<ArticleRichTextToolbar> {
   }
 
   Widget _history(IconData icon, bool enabled, VoidCallback action) =>
-      IconButton(
-        onPressed: enabled ? action : null,
-        icon: Icon(icon),
-      );
+      IconButton(onPressed: enabled ? action : null, icon: Icon(icon));
 
   Widget _toggleButton(IconData icon, Attribute attribute) => IconButton(
-        onPressed: () => _toggle(attribute),
-        color: _selected(attribute) ? AppTheme.primary : AppTheme.textSecondary,
-        icon: Icon(icon),
-      );
+    onPressed: () => _toggle(attribute),
+    color: _selected(attribute) ? AppTheme.primary : AppTheme.textSecondary,
+    icon: Icon(icon),
+  );
 
   Widget _menu(
     IconData icon,
     Map<String, String> values,
     ValueChanged<String> onSelected,
-  ) =>
-      PopupMenuButton<String>(
-        tooltip: '选择格式',
-        onSelected: onSelected,
-        itemBuilder: (_) => [
-          for (final entry in values.entries)
-            PopupMenuItem(value: entry.value, child: Text(entry.key)),
-        ],
-        icon: Icon(icon, color: AppTheme.textSecondary),
-      );
+  ) => PopupMenuButton<String>(
+    tooltip: '选择格式',
+    onSelected: onSelected,
+    itemBuilder: (_) => [
+      for (final entry in values.entries)
+        PopupMenuItem(value: entry.value, child: Text(entry.key)),
+    ],
+    icon: Icon(icon, color: AppTheme.textSecondary),
+  );
 }

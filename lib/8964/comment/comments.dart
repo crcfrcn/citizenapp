@@ -1,3 +1,8 @@
+import 'package:citizenapp/8964/post/square_interaction_service.dart';
+
+import 'square_comment_service.dart';
+import 'square_comment_thread_page.dart';
+
 import 'package:citizenapp/storage/social_isar.dart' as social_store show Reply;
 
 import 'dart:async';
@@ -12,7 +17,7 @@ import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/storage/social_isar.dart';
 import 'package:citizenapp/system/notifications/notifications.dart';
 
-import 'square_models.dart';
+import '../post/square_models.dart';
 
 typedef CommentCacheWriter = Future<void> Function(
   String cid,
@@ -32,6 +37,8 @@ class Comments extends StatefulWidget {
     this.ownerCid,
     this.initialCommentId,
     this.cacheWriter,
+    this.threadId,
+    this.notificationThrough,
   });
   final String postId;
   final SquareApiClient? api;
@@ -39,6 +46,8 @@ class Comments extends StatefulWidget {
   final String? ownerCid;
   final String? initialCommentId;
   final CommentCacheWriter? cacheWriter;
+  final String? threadId;
+  final int? notificationThrough;
   @override
   State<Comments> createState() => _CommentsState();
 }
@@ -48,16 +57,17 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
   late final SquareSessionProvider _sessions;
   final _text = TextEditingController();
   final _keys = <String, GlobalKey>{};
-  final _seen = <String>{};
-  final _reading = <String>{};
   final _random = Random.secure();
-  ScrollPosition? _position;
   List<SquareComment> _rows = [];
   Map<String, dynamic>? _pending;
   SquareComment? _reply;
   String _cid = '';
   int? _next;
+  String? _after, _notifiedAfter;
+  int? _loadedThrough;
+  final Set<String> _pinned = {};
   int _generation = 0, _notice = 0, _revision = 0;
+  int _noticeRevision = 0;
   bool _ready = false, _loading = false, _sending = false;
   String? _error;
   NotificationScope? _ownerScope;
@@ -70,12 +80,6 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final position = Scrollable.maybeOf(context)?.position;
-    if (!identical(position, _position)) {
-      _position?.removeListener(_markVisible);
-      _position = position;
-      _position?.addListener(_markVisible);
-    }
     if (_ready) {
       if (_reloadPending && _visible) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -111,9 +115,10 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
       _abandoning = false;
       _error = null;
       _text.clear();
-      _seen.clear();
-      _reading.clear();
       _keys.clear();
+      _pinned.clear();
+      _after = null;
+      _notifiedAfter = null;
       _notice = 0;
       _reloadPending = false;
     });
@@ -165,7 +170,7 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
       }
       if (saved != null) {
         final page = jsonDecode(saved.pageData) as Map<String, dynamic>;
-        _rows = _decode(page);
+        _rows = widget.threadId == null ? _decode(page) : [];
         _next = page['next_cursor'] as int?;
         if (saved.pendingData != null) {
           _pending = (jsonDecode(saved.pendingData!) as Map)
@@ -191,6 +196,8 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
       _cid = owner;
       setState(() => _loading = false);
       if (_reloadPending ||
+          widget.threadId != null ||
+          widget.notificationThrough != null ||
           saved == null ||
           (widget.initialCommentId != null &&
               !_rows.any((r) => r.commentId == widget.initialCommentId))) {
@@ -261,11 +268,19 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
         _reloadPending = true;
         return;
       }
+      final readThrough = Notifications.instance.through;
       final page = await _api.fetchComments(
         session: session,
         postId: widget.postId,
-        cursor: reset ? null : _next,
-        target: target,
+        cursor: widget.threadId != null
+            ? null
+            : reset
+            ? null
+            : _next,
+        target: widget.threadId != null ? null : target,
+        mode: widget.threadId == null ? null : 'thread',
+        thread: widget.threadId,
+        after: widget.threadId == null || reset ? null : _after,
       );
       await session.validateCurrent();
       if (!mounted || generation != _generation) return;
@@ -283,8 +298,29 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
       for (final row in incoming) {
         merged[row.commentId] = row;
       }
-      _rows = merged.values.toList()
-        ..sort((a, b) => b.replySeq.compareTo(a.replySeq));
+      if (widget.threadId == null &&
+          (widget.notificationThrough ?? 0) > 0 &&
+          reset) {
+        final notified = await _api.fetchComments(
+          session: session,
+          postId: widget.postId,
+          mode: 'notified',
+          through: widget.notificationThrough,
+        );
+        await session.validateCurrent();
+        if (!mounted || generation != _generation || revision != _revision) {
+          return;
+        }
+        _pinned.clear();
+        for (final row in _decode(notified)) {
+          _pinned.add(row.commentId);
+          merged[row.commentId] = row;
+        }
+        _notifiedAfter = notified['next_after'] as String?;
+      }
+      _loadedThrough = readThrough;
+      _rows = merged.values.toList()..sort(_compareRows);
+      _after = page['next_after'] as String?;
       _next = page['next_cursor'] as int?;
       setState(() {});
       await _save();
@@ -331,23 +367,35 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
     }
     await SocialIsar.instance.writeTxn((db) async {
       if (generation != _generation || cid.isEmpty) return;
+      final saved = await db
+          .collection<social_store.Reply>()
+          .getByCidNumberPostId(cid, widget.postId);
       final row =
-          await db.collection<social_store.Reply>().getByCidNumberPostId(
-            cid,
-            widget.postId,
-          ) ??
-          social_store.Reply();
+          saved ??
+          (social_store.Reply()
+            ..pageData = jsonEncode({'comments': [], 'next_cursor': null}));
       if (!mounted || generation != _generation) return;
       row
         ..cidNumber = cid
         ..postId = widget.postId
-        ..pageData = page
         ..pendingData = pending;
+      if (widget.threadId == null && widget.notificationThrough == null) {
+        row.pageData = page;
+      }
+
       await db.collection<social_store.Reply>().put(row);
     });
   }
 
   Future<void> _send() async {
+    try {
+      await SquareCommentService.run(_cid, widget.postId, _sendUnlocked);
+    } on Object {
+      if (mounted) setState(() => _error = '评论操作正在提交，请稍后重试');
+    }
+  }
+
+  Future<void> _sendUnlocked() async {
     if (_sending || _cid.isEmpty) return;
     final body = _text.text.trim();
     if (body.isEmpty ||
@@ -363,7 +411,7 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
         (_) => _random.nextInt(256).toRadixString(16).padLeft(2, '0'),
       ).join(),
       'reply_text': body,
-      'reply_to': _reply?.commentId,
+      'reply_to': _reply?.commentId ?? widget.threadId,
     };
     setState(() {
       _sending = true;
@@ -392,7 +440,8 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
       }
       submitted = true;
       _revision++;
-      _rows = [row, ..._rows.where((r) => r.commentId != row.commentId)];
+      _rows = [row, ..._rows.where((r) => r.commentId != row.commentId)]
+        ..sort(_compareRows);
       // 原操作保留到完成状态落盘；失败仍按同一ID核对服务端结果。
       await _save(completed: true);
       if (!mounted || generation != _generation) return;
@@ -450,6 +499,18 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
   }
 
   Future<void> _delete(SquareComment row) async {
+    try {
+      await SquareCommentService.run(
+        _cid,
+        widget.postId,
+        () => _deleteUnlocked(row),
+      );
+    } on Object {
+      if (mounted) setState(() => _error = '评论操作正在提交，请稍后重试');
+    }
+  }
+
+  Future<void> _deleteUnlocked(SquareComment row) async {
     if (row.authorCid != _cid || _sending) return;
     final generation = _generation;
     try {
@@ -487,18 +548,17 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
     if ((_ownerScope != null && !notifications.isCurrent(_ownerScope)) ||
         (_cid.isNotEmpty && notifications.cidNumber != _cid)) {
       _rows = [];
-      _seen.clear();
       unawaited(_restore());
       return;
     }
     if (_ownerScope != notifications.scope && notifications.cidNumber == _cid) {
       _ownerScope = notifications.scope;
-      _reading.clear();
-      _seen.clear();
       _afterLayout();
     }
     // 统一互动序号覆盖同批多帖；当前可见区补取一次，隐藏页面只记意图。
-    if (notifications.interactionSequence > _notice) {
+    if (notifications.interactionSequence > _notice ||
+        notifications.noticeRev > _noticeRevision) {
+      _noticeRevision = notifications.noticeRev;
       _notice = notifications.interactionSequence;
       _reloadPending = true;
       if (_visible) {
@@ -512,53 +572,59 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
       if (!mounted) return;
       final target = _keys[widget.initialCommentId]?.currentContext;
       if (target != null) unawaited(Scrollable.ensureVisible(target));
-      _markVisible();
+      if (_visible && _cid.isNotEmpty) {
+        unawaited(
+          SquareInteractionService.instance.viewed(
+            widget.postId,
+            through: _loadedThrough,
+          ),
+        );
+      }
     });
   }
 
-  void _markVisible() {
-    if (!mounted ||
-        ModalRoute.of(context)?.isCurrent != true ||
-        (WidgetsBinding.instance.lifecycleState != null &&
-            WidgetsBinding.instance.lifecycleState !=
-                AppLifecycleState.resumed)) {
-      return;
+  int _compareRows(SquareComment a, SquareComment b) {
+    if (widget.threadId != null ||
+        (_pinned.contains(a.commentId) && _pinned.contains(b.commentId))) {
+      final time = a.createdAt.compareTo(b.createdAt);
+      return time != 0 ? time : a.replySeq.compareTo(b.replySeq);
     }
-    final size = MediaQuery.sizeOf(context),
-        padding = MediaQuery.paddingOf(context),
-        insets = MediaQuery.viewInsetsOf(context);
-    final viewport = Rect.fromLTRB(
-      0,
-      padding.top + kToolbarHeight,
-      size.width,
-      size.height - insets.bottom - padding.bottom,
-    );
-    final ids = <String>[];
-    for (final row in _rows) {
-      if (_seen.contains(row.commentId) || _reading.contains(row.commentId)) {
-        continue;
-      }
-      final box = _keys[row.commentId]?.currentContext?.findRenderObject();
-      if (box is RenderBox &&
-          box.attached &&
-          box.hasSize &&
-          (box.localToGlobal(Offset.zero) & box.size).overlaps(viewport)) {
-        ids.add(row.commentId);
-      }
+    if (_pinned.contains(a.commentId) != _pinned.contains(b.commentId)) {
+      return _pinned.contains(a.commentId) ? -1 : 1;
     }
-    if (ids.isNotEmpty) {
-      final owner = _ownerScope, visible = ids.take(50).toList();
-      _reading.addAll(visible);
-      unawaited(
-        Notifications.instance.read(owner: owner, commentIds: visible).then((
-          queued,
-        ) {
-          if (mounted && owner == _ownerScope) {
-            _reading.removeAll(visible);
-            if (queued) _seen.addAll(visible);
-          }
-        }),
+    return b.replySeq.compareTo(a.replySeq);
+  }
+
+  Future<void> _moreNotified() async {
+    if (_notifiedAfter == null || _loading || _sending) return;
+    final generation = _generation, revision = _revision;
+    setState(() => _loading = true);
+    try {
+      final session = await _session();
+      final page = await _api.fetchComments(
+        session: session,
+        postId: widget.postId,
+        mode: 'notified',
+        through: widget.notificationThrough,
+        after: _notifiedAfter,
       );
+      await session.validateCurrent();
+      if (!mounted || generation != _generation || revision != _revision) {
+        return;
+      }
+      final merged = {for (final row in _rows) row.commentId: row};
+      for (final row in _decode(page)) {
+        _pinned.add(row.commentId);
+        merged[row.commentId] = row;
+      }
+      setState(() {
+        _rows = merged.values.toList()..sort(_compareRows);
+        _notifiedAfter = page['next_after'] as String?;
+      });
+    } on Object {
+      if (mounted) setState(() => _error = '通知评论读取失败，请重试');
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -575,7 +641,6 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
   @override
   void dispose() {
     _generation++;
-    _position?.removeListener(_markVisible);
     Notifications.instance.removeListener(_onNotice);
     WidgetsBinding.instance.removeObserver(this);
     _text.dispose();
@@ -602,9 +667,27 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
       if (_loading) const LinearProgressIndicator(),
       if (_error != null) Text(_error!),
       if (_rows.isEmpty && !_loading && _error == null) const Text('暂无评论'),
+      if (_notifiedAfter != null)
+        TextButton(
+          onPressed: _loading ? null : _moreNotified,
+          child: const Text('更多收到的评论'),
+        ),
       for (final row in _rows)
         ListTile(
           key: _keys.putIfAbsent(row.commentId, GlobalKey.new),
+          onTap: widget.threadId != null
+              ? null
+              : () => Navigator.of(context).push<void>(
+                  MaterialPageRoute(
+                    builder: (_) => SquareCommentThreadPage(
+                      postId: widget.postId,
+                      commentId: row.commentId,
+                      api: _api,
+                      sessions: _sessions,
+                      ownerCid: _cid,
+                    ),
+                  ),
+                ),
           title: Text(row.displayName.trim().isEmpty ? '公民' : row.displayName),
           subtitle: Text(row.replyState == 'deleted' ? '评论已删除' : row.replyText),
           trailing: row.replyState == 'active'
@@ -624,10 +707,10 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
                 )
               : null,
         ),
-      if (_next != null)
+      if (widget.threadId != null ? _after != null : _next != null)
         TextButton(
           onPressed: _loading ? null : () => unawaited(_load()),
-          child: const Text('更早评论'),
+          child: Text(widget.threadId == null ? '更早评论' : '更多对话'),
         ),
       if (_reply != null)
         Row(

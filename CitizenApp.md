@@ -9,18 +9,18 @@
 公民App的编译与依赖装配唯一归scripts/build.mjs。本机由塔塔控制台既有塔塔安装器调用compile ios/android，签名、安装和回读归控制台；GitHub由本产品两份既有Workflow调用同一工程装配与App编译入口。scripts/config.mjs按统一五字段声明APP_KEY、IOS_KEY、CITIZENAPP_PROFILE等配置需求，不放任务执行或版本算法。不新增模块，不恢复已删除的平台输入模块。
 
 
-每个平台一次执行只有一个本机自动化任务和一个GitHub Run。产品所属.github/workflows/ios.yml与android.yml分别公开workflow_dispatch，唯一输入为version；固定Workflow名称为公民·iOS、公民·Android，每次Run、Job、Artifact、Tag、Release使用公民·平台·vX.Y.Z。没有prepare/settle/cancel操作、父子Run、管理Run或递归派发。iOS与Android独立任务、授权、现场和并发组，可以同时执行；同平台重复点击、恢复和取消都不创建新Run。
+每个平台一次执行只有一个本机自动化任务和一个GitHub Run。产品所属.github/workflows/ios.yml与android.yml分别公开workflow_dispatch，版本由Workflow自行计算，无须手填SDK版本或Run；固定Workflow名称为公民·iOS、公民·Android，每次Run、Job、Artifact、Tag、Release使用公民·平台·vX.Y.Z。没有prepare/settle/cancel操作、父子Run、管理Run或递归派发。iOS与Android独立任务、授权、现场和并发组，可以同时执行；同平台重复点击、恢复和取消都不创建新Run。
 
 
 共用的原生动作授权、Touch ID、密钥权限及签名保护保持，安装功能正文保持。接入始终调用固定公民App仓库和所选平台Workflow；本机同平台活动任务去重、官方已有活动Run续接、派发回执持久化和不明派发不重复POST属于任务管理，保持一个平台一次执行一个任务/Run。恢复只读取已保存原Run，展示官方返回状态和字段；取消直接请求原Run，等待官方真实终态，不另建管理Run。只读5xx有限退避，变更请求不自动重试，官方错误如实报告。
 
-原Run结束后按平台只保留最新成功与最新失败，活动Run保留；按旧Run名称定位不再被保留记录使用的旧Release/Tag，实际删除旧正式对象、Run和关联日志/Artifact，再查询官方记录确认删除结果。正式交付是否完整由产品Workflow决定，控制台不另加Release证明或摘要门禁。清理失败如实记为任务失败并保留原Run供显式恢复，但不再作为下一次产品启动的前置条件；新的产品启动按当前官方Run状态继续，结束后再次清理旧同类记录。共用状态接口仅保存本平台返回记录，其它产品及其它平台保持。
+原Run结束后按平台只保留最新成功与最新失败，活动Run保留；按准确Run编号和Release原回执确认本平台对象归属，实际删除旧正式对象、Run和关联日志/Artifact，再查询官方记录确认删除结果。正式交付是否完整由产品Workflow决定，控制台不另加Release证明或摘要门禁。历史清理只归现有独立cleanup Job，编译Job不重复清理；清理失败如实记为任务失败并保留原Run供显式恢复，但不再作为下一次产品启动的前置条件；新的产品启动按当前官方Run状态继续，结束后再次清理旧同类记录。共用状态接口仅保存本平台返回记录，其它产品及其它平台保持。
 
 所属Workflow在单一Run中依次计算版本、准备官方工具和正式SDK组件、执行既有Node/Flutter完整回归与严格分析、准备签名输入、调用同一build.mjs编译IPA或APK+AAB、核验完整包、上传Artifact、生成正式Tag/Release并逐件下载cmp回读。任一真实依赖、测试、编译、签名或交付失败必须失败。正式Release属于自动化交付。验证与正式交付通过后，同一Run上传同一份IPA到App Store Connect并等待处理；Android使用Google官方auth Action固定提交取得androidpublisher短期令牌，再通过官方Edits/Bundles/Tracks API上传同一份AAB、保存internal内部测试轨道草稿并以新edit回查后删除观察edit。只替换内部轨道旧草稿，保留已分发版本，不提交审核或上架；失败如实令本端Run失败，不影响另一端。
 
 平台工程只生成在target/build/<Run>-<attempt>/project：Flutter官方create --no-pub生成普通Android/iOS模板，复制本产品既有原生源码、工程、测试及唯一assets/logo资源，Podfile、Gradle根工程、启动页、主题和桥接头沿用本机现有Flutter的官方模板，不在脚本重复保存正文；产品既有assembleProject只复制本仓原生输入，并应用编译所需插件版本、iOS最低版本、Isar静态库输出及产品资源名称等差异。权限、网络安全和签名请求保持原产品配置。create即使使用--no-pub也会重写工程锁，因此双端在模板命令成功后写回只映射两个SDK路径的完整派生pubspec.lock，再由既有pub get --enforce-lockfile严格消费；不改源码原锁、依赖版本或校验选项。AppFrameworkInfo.plist保留原锁官方模板，不改写其中不存在的MinimumOSVersion；iOS最低16.0由既有Xcode工程与Podfile声明。只排除原产品没有的模板示例test/widget_test.dart，产品原有同名测试保留。正式仓库不恢复平台包装模块，不生成业务数据、不改Flutter/Pub包源码。test/support/platform_input.dart直接回读当前本轮工程里的真实平台文件，不解析脚本文本或模块源码；现有业务测试预期保持。
 
-工具使用官方渠道和原锁：Node25.2.1、Flutter3.47.2、Rust1.97.1、Temurin17.0.20.1+1、Gradle9.1.0、AGP9.0.1、KGP2.2.20、NDK28.2.13676358、BuildTools36.0.0、CMake3.31.6和CocoaPods1.17.0。setup-java固定官方v6提交b843ebf9b913146b38da2eaa7aeddf76074ae1ad。显式交付官方运行机Android SDK完整路径；Rust准备iOS真机/模拟器或Android交叉目标。两项SDK的Git来源保持在pubspec.yaml/pubspec.lock，ref统一为main，仓库锁的resolved-ref只记录基线，不再要求人工跟随SDK更新。塔塔安装器每轮读取本机两个SDK main的最新已提交SHA，在独立现场冻结源码，并调用SDK既有编译入口；自动化每轮自动选择各SDK最新非草稿、非预发布且来源自动化成功的正式Release，冻结其准确Git提交并下载正式组件，不重复编译SDK。只在本轮临时工程改写两个SDK路径与锁；其余依赖不主动升级。无可用正式版或真实获取、编译失败直接失败，不回退旧版本、不手填Run、不要求预置交付目录。普通工程视图与原生实现仍归SDK，控制台不参与版本选择。
+工具使用官方渠道和原锁：Node25.2.1、Flutter3.47.2、Rust1.97.1、Temurin17.0.20.1+1、Gradle9.1.0、AGP9.0.1、KGP2.2.20、NDK28.2.13676358、BuildTools36.0.0、CMake3.31.6和CocoaPods1.17.0。setup-java固定官方v6提交b843ebf9b913146b38da2eaa7aeddf76074ae1ad。显式交付官方运行机Android SDK完整路径；Rust准备iOS真机/模拟器或Android交叉目标。两项SDK的Git来源保持在pubspec.yaml/pubspec.lock，ref统一为main，仓库锁的resolved-ref只记录基线，不再要求人工跟随SDK更新。塔塔安装器每轮读取本机两个SDK main的最新已提交SHA，在独立现场冻结源码，并调用SDK既有编译入口；自动化每轮从非草稿、非预发布且已发布的SDK Release中按语义版本从高到低选择，原回执定位的准确Run/attempt必须完成且成功，Run编号、attempt及源码SHA必须与回执一致；取得首个合格正式版本后冻结其准确Git提交并下载正式组件，不重复编译SDK。来源未成功或不符的Release不计入合格版本；GitHub真实读取错误立即失败，不以更旧包掩盖错误。只在本轮临时工程改写两个SDK路径与锁；其余依赖不主动升级。无可用正式版或真实获取、编译失败直接失败，不回退旧版本、不手填Run、不要求预置交付目录。普通工程视图与原生实现仍归SDK，控制台不参与版本选择。
 
 iOS所属Workflow在核对原锁Flutter版本后，通过官方precache --ios --macos准备原锁CitizenSDK Apple入口需要的iOS和macOS引擎，工程装配前完成，不改变工具版本。准备失败即停止，不以已有缓存存在代替本轮官方命令的成功结果。
 
@@ -499,8 +499,8 @@ D1   (Worker)        user / post / link / 计数聚合
 - 发布及上传消费Worker当前D1授权快照与统一Permit；缺失、撤销、到期或同步未就绪均返回真实错误，普通请求不补查链、不重建投影。独立最终状态同步和用户明确交易确认负责链事实更新。
 - 会员读取与确认只接受同一现行快照；失败不伪造未订阅，不清空已保存事实。缓存仅作显示，不能授予发布、订阅或附件权限。
 - 轻节点连接状态变化不触发身份查询；广场只订阅统一身份快照的本地变更通知。
-- 广场首页第一帧直接显示推荐、关注、竞选、文章、视频五项分类栏、水印、信息流区域和发布按钮，并立即在后台启动首个 feed
-  Future；未完成时只显示顶部细进度，禁止用全屏身份门或圆形转圈替换页面。信息流 Future
+- 广场首页显示推荐、公民圈、关注、竞选、文章、视频、通知七项分类栏、水印、信息流区域和发布按钮。七项均可长按拖动，松手后事务保存稳定分类名到 UserIsar.setting.square_tab_order；重启后保留已保存顺序，首次及重新进入广场默认显示第一项。首个 feed 等本机顺序读取完成后按默认项加载；通知子 tab 按内容聚合评论和回复通知，并使用独立阅读层级。公民圈通过 `/8964/feed/circle` 读取本人及双向关注作者的已发布内容，本地即时发布结果只合并当前 CID 本人的内容，切换时不沿用其他分类的旧结果。
+  未完成时只显示顶部细进度，禁止用全屏身份门或圆形转圈替换页面。信息流 Future
   创建时立即挂只读错误观察器，随后仍由 `FutureBuilder` 接收同一个原始 Future；请求固定
   创建时的分类与加载代际，旧分类迟到结果不得覆盖新状态。Worker 返回 401 时清理当前身份
   Session 并只重试一次，不会把前台错误转换成成功或空列表。发布动作才严格读取真实链上
@@ -515,8 +515,8 @@ D1   (Worker)        user / post / link / 计数聚合
   “广场内容加载失败”。
 
 #### 边界 / 待续
-- 文章长文分类已落地（发布/文章 Tab/详情，链端零改动，见任务卡 20260706-citizenapp-square-article）；广场推荐流暂仍按普通卡显示文章，feed 识别文章卡为后续增强。
-- 当前通知只覆盖广场/关注红点游标；完整通知中心不在本模块范围。
+- 文章的发布、分类、详情及信息流卡片已实现；信息流按内容类型分发文章卡片，公民圈继续按本人和互关关系筛选。
+- 通知子 tab 按内容聚合评论与回复，三级角标独立清除；评论对话和点赞使用下文“广场目录与通知、评论、点赞”的现行契约。
 
 #### 关联
 - 任务卡：`历史实施记录《公民推特式用户主页我的用户资料改造》（卡已删除，规范以本文为准）`
@@ -645,7 +645,7 @@ CitizenApp 的总目标是 `5+2`：
 
 10. `reply`：按CID/帖子保存真实评论分页缓存与待发送操作；失败重试复用原操作ID，已删除正文清空。
 
-点赞、转发尚无持久化需求，不建立占位collection。
+点赞事实持久化在服务端post_like，本地SocialIsar不新增点赞collection；转发尚未实现，不建立占位collection。
 
 ##### 2.1 媒体数据库基础（第一步）
 
@@ -714,7 +714,7 @@ CitizenApp 的总目标是 `5+2`：
 
 - `SquarePostStore` 只访问 SocialIsar。
 - `cid_number` 是归属主键；`account_id` 只记录发布时签名账户事实。
-- 原始 manifest 字节、SHA-256、发布回执、链区块和 Worker `created_at` 逐字段保存。
+- 原始 manifest 字节、SHA-256、发布回执、链区块和 Worker `published_at` 逐字段保存。
 - 同一 `post_id` 只允许完全相同的不可变发布事实幂等重放。
 - 读取磁盘行时重新执行完整性校验；损坏数据 fail-closed，不降级为空白内容。
 - 同步检查点是 SocialIsar 类型化实体，不使用通用 KV 或自定义 key 前缀。
@@ -725,13 +725,12 @@ CitizenApp 的总目标是 `5+2`：
   不删除媒体。损坏行明确报错并原样保留。
 - 草稿不设数量淘汰；明确删除时，草稿、引用及无引用媒体在同一事务处理，并写入
   `cleanup`，事务外再清理处理文件。发布成功使用同一个清理事实入口。
-- 文件删除失败时草稿事实已经删除，但清理行保留 `attempt_count/last_error`；UI 显示
+- 文件删除失败时草稿事实已经删除，但清理行保留 `try_count/last_error`；UI 显示
   “本地媒体仍待清理”及“重试清理”，不得伪报全部完成。
 - `ComposeDraftMedia` 使用独立文件操作队列、generation 和关闭终态；AppLock 进入终态后
   拒绝新写，晚到 copy 必须清除自己创建的目录。
-- 新处理文件只在系统临时目录的 `square_media_work/` 中产生，可从数据库再生；旧文件导入
-  仅接受 Documents 的 `square_drafts/<CID>/<draft_id>/` 下普通文件，解析真实路径并拒绝越界
-  和符号链接。CID 和草稿标识均编码为单一路径段；新写入不再持久保存媒体路径。
+- 新处理文件只在系统临时目录的 `square_media_work/` 中产生，可从数据库再生；
+  普通读取不导入或转换旧文件。CID 和草稿标识均编码为单一路径段，持久媒体只归SocialIsar。
 
 ##### 4.1 文章编辑器布局边界
 
@@ -3206,15 +3205,15 @@ App的SDK来源沿当前构建合同：声明ref为main，锁记录基线，本�
 
 钱包签名固定为signing_message(0x1d)=blake2_256(GMB‖0x1d‖SCALE)。SCALE依次包含字符串citizenserve.account_deletion、服务HTTPS origin、32字节chain_scope、CID字符串、32字节account_id、u64小端bind_rev、用途字节（delete=0/status=1）、32字节nonce_id、u64小端expires_at。挑战有效期300000毫秒；App用本机可信IdentityBinding和实际服务origin独立构造完整字节，再比对服务下发sign_hex。未知字段、错用途/域/链/绑定、期限、非规范nonce及任意不透明签名正文均拒绝，不直接签服务下发的任意内容。
 
-主库增加account_deletion_challenges、account_deletions和约束断言表，最终schema源码为39表；本节不表示云DDL已经执行。提交在同一D1事务再次核对当前MLS授权、钱包挑战与准入，消费nonce、保存任务、撤销会话和设备并冻结该CID业务写入。已有profile writing、未完成/删除中的广场上传或其他维护对象定位使提交回滚，保留原会话、nonce及上传定位；不能凭过期/HEAD缺失认定在途写入已结束。准入、设备、会话、MLS挑战、维护定位与通知收件方的数据库断言共同防止绕过冻结。
+注销挑战、任务及事务约束由CitizenServe所属DDL和公开接口持有，App不另存服务端表清单；本节不表示云DDL已经执行。提交在同一D1事务再次核对当前MLS授权、钱包挑战与准入，消费nonce、保存任务、撤销会话和设备并冻结该CID业务写入。已有profile writing、未完成/删除中的广场上传或其他维护对象定位使提交回滚，保留原会话、nonce及上传定位；不能凭过期/HEAD缺失认定在途写入已结束。准入、设备、会话、MLS挑战、维护定位与通知收件方的数据库断言共同防止绕过冻结。
 
 后台复用既有Storage维护事件和同一资源绑定，每次仅执行一个有界批次：私有square/{cid}/与profile/{cid}/前缀、公开媒体、聊天，然后固定非金融白名单每次最多100行。公开对象先保存全部已分配键，再分页覆盖为零字节、无原内容或自定义元数据的空对象并刷新CDN；不物理移除这些空对象，使旧If-None-Match:*直传无法在删除后重建内容。普通公开媒体删除共用这一封堵方式，后续维护不能删掉封堵对象。私有对象每批最多8件；对象端口明确成功后才解除IO屏障，CDN刷新失败继续保留键并安全重试。每次外部对象操作前持久保存键与独占IO屏障，结果未知时保留pending及定位，不通过租约过期自动重发或标记完成。恢复查询始终能区分pending与complete；未知IO须取得明确结束证据后才可处理，不能承诺仅按超时自动收敛。
 
 聊天清理仍使用同一附件one-shot尝试账本，每批只处理一个对象；writing且HEAD缺失继续保留定位。持久用户冻结拒绝旧Access写入、迟到收件消息、尚未开始的附件上传与收件关系。只删该CID收件箱，保留其他接收者的消息与共享幂等回执；所属附件对象明确删除后才移除代际定位。新真人准入必须晚于完成回执；旧激活重放不能清掉完成任务或解除聊天冻结。
 
-钱包、链身份users及finalized身份/会员/创作者投影、topup_orders、chain_transaction_confirmations、chain_extrinsic_relays和永久结算/广播claim均保留。最终移除该CID云资料、通讯录、推送、动态、上传与资源用量，再移除原真人准入/激活凭据，提交complete回执。App严格校验六字段回执及当前绑定，pending保留本地资料、帖子与私信；complete后逐项尝试全部本地清理，单项失败仍继续其余项并显示本机清理未完成。
+注销保留钱包与链身份；服务端身份、付费权益、金融及交易证据的保留范围归CitizenServe唯一合同。最终移除该CID云资料、通讯录、推送、动态、上传与资源用量，再移除原真人准入/激活凭据，提交complete回执。App严格校验六字段回执及当前绑定，pending保留本地资料、帖子与私信；complete后逐项尝试全部本地清理，单项失败仍继续其余项并显示本机清理未完成。
 
-正常、失败、边界和回归用例已在既有App账户测试、Serve路由/真实SQLite和本地Worker测试，以及user/deletion.rs末尾同步准备。覆盖真实钱包签名分域、MLS提交、无会话恢复、丢失受理响应、坏挑战/回执、换绑迟到结果、未知写入与租约、持久清理、空对象阻止迟到PUT、其他收件箱和金融记录保留。本轮未执行测试、语法、门禁、编译或云操作；这些源码改动不等于运行态验收通过。
+正常、失败、边界和回归用例已在既有App账户测试、Serve路由/真实SQLite和本地Worker测试，以及user/deletion.rs末尾同步准备。覆盖真实钱包签名分域、MLS提交、无会话恢复、丢失受理响应、坏挑战/回执、换绑迟到结果、未知写入与租约、持久清理、空对象阻止迟到PUT、其他收件箱和金融记录保留。本节规定注销合同；实际测试、编译和云操作结果只记唯一任务卡，不能由源码接线推断运行态验收。
 
 旧独立TataChatServer部署范围：用户已明确确认没有其它部署；本轮退役剩余证据仅为数据保护钥匙串的准确元数据核验。该范围确认不冒充远程主机运行核验。
 
@@ -3247,7 +3246,7 @@ Android、iOS平台输入均不保存PNG副本。原生构建通过所属Workflo
 
 `lib/account/profile/user_profile_page.dart`依据`SquareSessionProvider.currentCitizenId()`取得的本地当前身份CID判断本人；`isSelf`只沿用原UI布局参数，不能提供会员豁免。页面存活、账户revision、门禁代际及原请求版本共同约束异步结果；账户变化先隐藏旧资料，再重新核对。会员未知、会话或网络故障保留“内容加载失败，请下拉刷新”，不能冒充已确认非会员。
 
-广场Tab使用`CitizenServiceGate`核对CID事实；`MembershipBusinessGate`继续用于`lib/8964/feed/square_post_detail_page.dart`及`lib/8964/feed/square_article_detail_page.dart`。远端详情实际请求前同样验证会员，不因初始帖子、缓存或通知直达路径跳过；本人本地副本保留原离线阅读。本人资料刷新与广场云端同步分开，未订阅不阻断本人资料。除指定门禁提示外，原布局、按钮、菜单、导航、播放器及媒体选择交互保持。
+广场Tab使用`CitizenServiceGate`核对CID事实；`MembershipBusinessGate`继续用于`lib/8964/post/square_post_detail_page.dart`及`lib/8964/article/square_article_detail_page.dart`。远端详情实际请求前同样验证会员，不因初始帖子、缓存或通知直达路径跳过；本人本地副本保留原离线阅读。本人资料刷新与广场云端同步分开，未订阅不阻断本人资料。除指定门禁提示外，原布局、按钮、菜单、导航、播放器及媒体选择交互保持。
 
 ### 最小聊天资料卡
 
@@ -3545,7 +3544,7 @@ App四库保留39个集合，264列收敛为227列。Dart类型、成员遵循�
 | user.media | row_id, cid_number, media_role, object_key, profile_at, body_hash, media_bytes | 资料版本下的唯一图片字节及完整性依据 |
 | user.notice | row_id, cid_number, state_data, pending_data | 通知展示及待提交已读意图 |
 | user.profile | row_id, cid_number, profile_data | 公开资料；正文不重复索引CID |
-| user.setting | row_id, guide_seen, chat_home, council_order, bank_order | 用户本机偏好 |
+| user.setting | row_id, guide_seen, chat_home, council_order, bank_order, square_tab_order | 用户本机偏好 |
 | social.chunk | row_id, cid_number, body_hash, part_index, part_bytes, part_hash | 摘要下的有序字节分块及范围读取哈希 |
 | social.cleanup | row_id, cid_number, draft_id, cleanup_kind, created_at, try_count, last_error | 草稿删除后独立文件清理事实与重试状态 |
 | social.cursor | row_id, cid_number, post_id, published_at | 本人发布内容完整回灌的远端检查点 |
@@ -3598,3 +3597,18 @@ MLS认证证明统一归聊天SDK原生Serde编码：user_id/device_id/public_ke
 充值订单仅保存order_state/orderState，覆盖awaiting、verifying、received、signed、broadcast、paid、exception七阶段。终态与展示从该字段计算，不传输或缓存第二份派生状态。旧恢复格式失败时保留原记录，不自动改写、删除或再次付款。
 
 第一方区块事实统一block_hash/blockHash，覆盖帖子、发布恢复、登记及钱包流水；自有发布证明使用tx_hash/txHash。SDK和官方链接口的原成员由所属产品拥有，不借改名改变其协议。物理表列清单保持39表227列；旧真实数据的升级处置不在普通读取路径中执行。
+
+
+### 广场目录与通知、评论、点赞
+
+`lib/8964/`按feed、post、compose、draft、article、media、comment、like八个目录归属。feed负责广场入口、分类顺序和通知列表；post拥有通用内容模型/卡片/详情/存储/同步及浏览者互动状态；文章编辑和阅读归article，草稿归draft。通知子tab页面归feed，禁止为单个文件另建目录；原系统推送与会员快照状态继续由system/notifications负责，网络与数据库结构仍在network、storage。
+
+三级角标以服务端事件的square_read_at、notifications_read_at、read_at分别计算，互不级联。广场实际显示清广场层，通知子tab取得并显示快照后清通知层，内容详情显示后按读取上界清该内容评论层。清读意图携带scope、内容ID和through，先在UserIsar.Notice.pending_data落盘，失败保留原范围重试；旧请求和旧CID不能修改新账号状态。通知页同时核对底部活动tab、当前路由和前后台状态；后台或隐藏页面不请求通知列表、不清读；加载失败不清读，回到可见状态再补刷；没有定时轮询。square_unread不再等于following_unread与interaction_unread之和。
+
+广场层清读在途的新事件保留补清意图，前一请求结束后只在页面实际可见时按新through补清；隐藏时保留角标，返回后再消费。任务按通知身份与代次隔离，新账号不等待旧账号HTTP，旧任务不能释放或覆盖新账号任务。通知列表只由feed中的页面加载，三级阅读统一使用明确scope的read入口。
+
+通知页面每条内容一行，已读记录保留，最后一条有效通知被撤销则移除。列表版本只取对应响应的notice_rev，不能借全局更新或清读回执冒充列表版本；在途变化及手动刷新保留补刷意图。CID/绑定代次切换立即失效旧请求并允许新账号加载，不以两个账号版本数字相等跳过请求。通知入口以through固定收到的评论范围，置顶评论按created_at/reply_seq升序分页，普通评论保持原排列并去重。评论对话从reply_to寻找根评论，仅显示该根的所有参与者与后代；删除保留位置。两处评论入口共用每CID/内容的写操作围栏与原op_id重试记录。
+
+点赞以每CID/内容唯一关系保存。PUT确保已赞、DELETE确保未赞，回执返回绝对数量；不增加评论通知。详情正文下方、评论上方显示点赞总数和单行头像，更多页分页显示全部点赞用户。互动状态按当前浏览者CID隔离，旧读取不得覆盖较新的点赞或阅读操作，也不写入正文manifest。
+
+重复点击当前内容子tab重新加载，重复点击通知子tab刷新通知列表。公民圈的本人/互关筛选，以及setting.square_tab_order的稳定标识和持久化逻辑保持原契约。

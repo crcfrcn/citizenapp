@@ -1,5 +1,5 @@
-import 'package:citizenapp/8964/compose/article_section_editor.dart';
-import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/article/article_section_editor.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
 
 const int articleTitleMin = 10;
 const int articleTitleMax = 50;
@@ -31,7 +31,7 @@ sealed class ArticleDraftSectionMedia {
 
 final class ArticleDraftGallery extends ArticleDraftSectionMedia {
   ArticleDraftGallery(List<SquareLocalMediaDraft> drafts)
-      : drafts = List<SquareLocalMediaDraft>.unmodifiable(drafts);
+    : drafts = List<SquareLocalMediaDraft>.unmodifiable(drafts);
 
   final List<SquareLocalMediaDraft> drafts;
 }
@@ -44,9 +44,9 @@ final class ArticleDraftVideo extends ArticleDraftSectionMedia {
 /// 一个文章段落始终包含富文本；媒体是该段落的可选附属内容。
 final class ArticleDraftSection {
   ArticleDraftSection({required Object delta, this.media})
-      : delta = List<Map<String, Object?>>.unmodifiable(
-          normalizeArticleDelta(delta),
-        );
+    : delta = List<Map<String, Object?>>.unmodifiable(
+        normalizeArticleDelta(delta),
+      );
 
   final List<Map<String, Object?>> delta;
   final ArticleDraftSectionMedia? media;

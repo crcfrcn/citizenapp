@@ -13,8 +13,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
-import 'package:citizenapp/8964/feed/square_post_detail_page.dart';
-import 'package:citizenapp/8964/feed/square_post_card.dart';
+import 'package:citizenapp/8964/post/square_post_detail_page.dart';
+import 'package:citizenapp/8964/post/square_post_card.dart';
 
 import '../support/fake_citizen_sdk.dart';
 import '../support/isar_test_env.dart';
@@ -25,13 +25,15 @@ import 'package:citizenapp/account/identity/identity_badge_snapshot_store.dart';
 import 'package:citizenapp/account/identity/citizen_identity_chain_reader.dart';
 import 'package:citizenapp/8964/compose/compose_page.dart';
 import 'package:citizenapp/8964/compose/document_compose_body.dart';
-import 'package:citizenapp/8964/compose/compose_draft.dart';
-import 'package:citizenapp/8964/compose/compose_draft_store.dart';
+import 'package:citizenapp/8964/draft/compose_draft.dart';
+import 'package:citizenapp/8964/draft/compose_draft_store.dart';
 import 'package:citizenapp/8964/compose/video_compose_body.dart';
 import 'package:citizenapp/8964/compose/compose_media_widgets.dart';
-import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
 import 'package:citizenapp/8964/feed/square_home_page.dart';
 import 'package:citizenapp/8964/feed/square_tab_page.dart';
+import 'package:citizenapp/8964/feed/square_tab_order_store.dart';
+import 'package:citizenapp/8964/feed/square_feed_tabs.dart';
 import 'package:citizenapp/account/profile/citizen_profile.dart';
 import 'package:citizenapp/account/profile/citizen_profile_cache.dart';
 import 'package:citizenapp/account/identity/square_session_provider.dart';
@@ -46,7 +48,6 @@ import 'package:citizenapp/system/theme/app_theme.dart';
 import 'package:citizenapp/account/identity/identity_badge.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:citizenapp/storage/user_isar.dart';
-import 'package:citizenapp/system/notifications/notifications.dart';
 
 import 'profile/fake_profile.dart';
 
@@ -493,7 +494,7 @@ class _GateMlsSessions implements SquareSessionProvider {
 
 void main() {
   _squareTabGateTests();
-  _notificationOwnerTests();
+  _squareOrderPersistenceTests();
   testWidgets('真实广场门禁只显示固定MLS原因，下拉重试成功后挂载内容且不增加按钮', (tester) async {
     final sessions = _GateMlsSessions();
     await tester.pumpWidget(
@@ -576,6 +577,7 @@ void main() {
       await tester.pumpWidget(
         _wrap(
           SquareHomePage(
+            tabOrderStore: const _MemoryTabOrderStore(),
             identityService: const _StaticComposeIdentityService(),
             feedSource: source,
             sessionProvider: _FeedOnlySessionProvider(session),
@@ -617,6 +619,7 @@ void main() {
           value: session,
           child: _wrap(
             SquareHomePage(
+              tabOrderStore: const _MemoryTabOrderStore(),
               identityService: const _StaticComposeIdentityService(),
               feedSource: source,
               sessionProvider: session,
@@ -739,7 +742,12 @@ void main() {
         Provider<SquareSessionProvider>.value(value: FakeSessionProvider(null)),
       ],
       // 不注入identityService，必须经过真实账户监听和SquareIdentityService创建分支。
-      child: _wrap(SquareHomePage(feedSource: feed)),
+      child: _wrap(
+        SquareHomePage(
+          tabOrderStore: const _MemoryTabOrderStore(),
+          feedSource: feed,
+        ),
+      ),
     );
 
     testWidgets('账户revision变化但新请求未启动时，旧身份不能提交且新结果可恢复', (tester) async {
@@ -814,7 +822,13 @@ void main() {
     final identity = _DelayedComposeIdentityService();
     final feed = _PendingFeedSource();
     await tester.pumpWidget(
-      _wrap(SquareHomePage(identityService: identity, feedSource: feed)),
+      _wrap(
+        SquareHomePage(
+          tabOrderStore: const _MemoryTabOrderStore(),
+          identityService: identity,
+          feedSource: feed,
+        ),
+      ),
     );
     await tester.pump();
     expect(find.byTooltip('发布'), findsNothing);
@@ -844,6 +858,7 @@ void main() {
       await tester.pumpWidget(
         _wrap(
           SquareHomePage(
+            tabOrderStore: const _MemoryTabOrderStore(),
             identityService: identity,
             feedSource: const _FakeFeedSource(),
           ),
@@ -862,7 +877,13 @@ void main() {
       final identity = _QueuedHomeIdentityService();
       final feed = _PendingFeedSource();
       await tester.pumpWidget(
-        _wrap(SquareHomePage(identityService: identity, feedSource: feed)),
+        _wrap(
+          SquareHomePage(
+            tabOrderStore: const _MemoryTabOrderStore(),
+            identityService: identity,
+            feedSource: feed,
+          ),
+        ),
       );
       await tester.pump();
       expect(identity.requests, hasLength(1));
@@ -900,7 +921,13 @@ void main() {
     final identity = _DelayedComposeIdentityService();
     final feed = _PendingFeedSource();
     await tester.pumpWidget(
-      _wrap(SquareHomePage(identityService: identity, feedSource: feed)),
+      _wrap(
+        SquareHomePage(
+          tabOrderStore: const _MemoryTabOrderStore(),
+          identityService: identity,
+          feedSource: feed,
+        ),
+      ),
     );
     await tester.pump();
     await tester.pumpWidget(const SizedBox.shrink());
@@ -918,6 +945,7 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         SquareHomePage(
+          tabOrderStore: const _MemoryTabOrderStore(),
           identityService: const _StaticComposeIdentityService(),
           feedSource: feedSource,
         ),
@@ -951,6 +979,7 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         SquareHomePage(
+          tabOrderStore: const _MemoryTabOrderStore(),
           identityService: identityService,
           feedSource: feedSource,
         ),
@@ -1025,6 +1054,7 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         SquareHomePage(
+          tabOrderStore: const _MemoryTabOrderStore(),
           identityService: _emptyIdentityService(),
           feedSource: feedSource,
         ),
@@ -1062,6 +1092,7 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         SquareHomePage(
+          tabOrderStore: const _MemoryTabOrderStore(),
           identityService: _emptyIdentityService(),
           feedSource: _RecordingFeedSource(),
           seedPosts: seed,
@@ -1095,6 +1126,7 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         SquareHomePage(
+          tabOrderStore: const _MemoryTabOrderStore(),
           identityService: identityService,
           feedSource: const _FakeFeedSource(),
         ),
@@ -1442,6 +1474,7 @@ void main() {
       await tester.pumpWidget(
         _wrap(
           SquareHomePage(
+            tabOrderStore: const _MemoryTabOrderStore(),
             identityService: _emptyIdentityService(),
             feedSource: feedSource,
             seedPosts: [_seedPost(id: 's1', text: '种子SS')],
@@ -1466,6 +1499,7 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         SquareHomePage(
+          tabOrderStore: const _MemoryTabOrderStore(),
           identityService: _emptyIdentityService(),
           feedSource: _FakeSquareApiClient(),
           sessionProvider: _ThrowingSessionProvider(),
@@ -1487,6 +1521,7 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         SquareHomePage(
+          tabOrderStore: const _MemoryTabOrderStore(),
           identityService: _emptyIdentityService(),
           feedSource: _FakeSquareApiClient(),
           sessionProvider: provider,
@@ -1506,6 +1541,7 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         SquareHomePage(
+          tabOrderStore: const _MemoryTabOrderStore(),
           identityService: _unregisteredIdentityService(),
           feedSource: _FakeSquareApiClient(),
           sessionProvider: _CidNotBoundSessionProvider(
@@ -1528,6 +1564,7 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         SquareHomePage(
+          tabOrderStore: const _MemoryTabOrderStore(),
           identityService: _emptyIdentityService(),
           feedSource: _FakeSquareApiClient(),
           sessionProvider: _CidNotBoundSessionProvider(),
@@ -1546,6 +1583,7 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         SquareHomePage(
+          tabOrderStore: const _MemoryTabOrderStore(),
           identityService: const _StaticComposeIdentityService(),
           feedSource: _FakeSquareApiClient(),
           sessionProvider: _CidNotBoundSessionProvider(),
@@ -1559,140 +1597,111 @@ void main() {
   });
 }
 
-/// 通知请求保留原CID；旧HTTP未完成时仍能打开新账号的列表。
-class _NotificationUser implements CurrentUserContext {
-  String cid = testMlsCidNumber;
+/// 控制公民圈响应时机，验证分类切换时不混入推荐或种子内容。
+class _CirclePendingFeedSource implements SquareFeedSource {
+  final pending = Completer<List<SquarePost>>();
   @override
-  Future<CurrentUser?> resolve() async => CurrentUser(
-    account: _registeredWallet,
-    binding: IdentityBinding(
-      genesisHash: '0x${'22' * 32}',
-      cidNumber: cid,
-      accountId: _registeredWallet.accountId,
-      bindRev: 1,
-    ),
-  );
-  @override
-  dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError();
-}
-
-class _NotificationSessions implements SquareSessionProvider {
-  _NotificationSessions(this.user);
-  final _NotificationUser user;
-  @override
-  Future<SquareSession?> ensureSession() async => SquareSession(
-    deviceId: testMlsDeviceId,
-    sessionToken: 'synthetic',
-    cidNumber: user.cid,
-    accountId: _registeredWallet.accountId,
-    bindRev: 1,
-    expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
-  );
-  @override
-  dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError();
-}
-
-class _NotificationPages extends SquareApiClient {
-  final first = Completer<Map<String, dynamic>>();
-  final cids = <String>[];
-  Map<String, dynamic> page(String cid) => {
-    'is_ok': true,
-    'state': {
-      'is_ok': true,
-      'cid_number': cid,
-      'bind_rev': 1,
-      'revision': 1,
-      'square_unread': 1,
-      'following_unread': 1,
-      'interaction_unread': 0,
-      'interaction_sequence': 0,
-      'through': 1,
-      'member_rev': 0,
-      'creator_rev': 0,
-      'membergate': null,
-      'creator': null,
-    },
-    'items': [
-      {'kind': 'post', 'title': cid, 'read_at': 0, 'post_id': 'post'},
-    ],
-    'next_cursor': null,
-  };
-  @override
-  Future<Map<String, dynamic>> fetchNotifications({
-    required SquareSession session,
-    int? cursor,
+  Future<List<SquarePost>> fetchFeed({
+    required SquareFeedKind feedKind,
+    int limit = 20,
+    SquareSession? session,
   }) async {
-    cids.add(session.cidNumber);
-    return cids.length == 1 ? first.future : page(session.cidNumber);
+    if (feedKind == SquareFeedKind.circle) return pending.future;
+    return [_seedPost(id: 'stranger', text: '推荐陌生用户内容')];
   }
 }
 
-void _notificationOwnerTests() {
-  group('通知抽屉属主隔离', () {
+void _squareOrderPersistenceTests() {
+  group('广场真实顺序持久化接线', () {
     useIsolatedIsar();
     setUp(() async => UserIsar.instance.db());
-    testWidgets('旧列表在途不阻塞新账号，迟到结果不覆盖或解除新抽屉围栏', (tester) async {
-      final user = _NotificationUser();
-      final oldCid = user.cid;
-      final api = _NotificationPages();
-      final sessions = _NotificationSessions(user);
-      Notifications.instance.configure(
-        api: api,
-        sessions: sessions,
-        user: user,
+    testWidgets('松手落库、重新创建页面保留顺序并请求首项，重新进广场也选首项', (tester) async {
+      final feed = _RecordingFeedSource();
+      final selected = ValueNotifier<int>(0);
+      addTearDown(selected.dispose);
+      Widget page() => _wrap(
+        SquareHomePage(
+          identityService: _walletIdentityService(),
+          feedSource: feed,
+          selectedTab: selected,
+        ),
       );
-      Future<void> until(bool Function() done) async {
-        for (var i = 0; i < 100 && !done(); i++) {
-          await tester.runAsync(
-            () => Future<void>.delayed(const Duration(milliseconds: 10)),
-          );
-          await tester.pump();
-        }
-        expect(done(), isTrue);
-      }
-
-      try {
-        await tester.pumpWidget(
-          _wrap(
-            SquareHomePage(
-              feedSource: const _FakeFeedSource(),
-              identityService: _walletIdentityService(),
-              sessionProvider: sessions,
-            ),
-          ),
-        );
-        await _drainHomeIdentityReads(tester);
-        await tester.tap(find.byTooltip('通知'));
-        await until(() => api.cids.length == 1);
-        user.cid = 'CN220-CTZN2-100000098-2026';
-        Notifications.instance.invalidate();
-        var restored = false;
-        unawaited(
-          Notifications.instance.restore().then((_) => restored = true),
-        );
-        await until(() => restored);
-        await tester.tap(find.byTooltip('通知'));
-        await until(() => find.text(user.cid).evaluate().isNotEmpty);
-        await tester.pumpAndSettle();
-        expect(api.cids, [oldCid, user.cid]);
-        api.first.complete(api.page(oldCid));
-        await _drainHomeIdentityReads(tester);
-        expect(find.text(user.cid), findsOneWidget);
-        expect(find.text(oldCid), findsNothing);
-        Notifications.instance.invalidate();
-        await tester.pumpAndSettle();
-        expect(find.text(user.cid), findsNothing);
-        expect(tester.takeException(), isNull);
-      } finally {
-        if (!api.first.isCompleted) api.first.complete(api.page(oldCid));
-        Notifications.instance.stop();
-        await tester.pumpWidget(const SizedBox.shrink());
-        await _drainHomeIdentityReads(tester);
-        await tester.runAsync(() => UserIsar.instance.resetForTest());
-        api.close();
-      }
+      await tester.pumpWidget(page());
+      await _drainHomeIdentityReads(tester);
+      await tester.pumpAndSettle();
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(const ValueKey('square-tab-circle'))),
+      );
+      await tester.pump(const Duration(milliseconds: 600));
+      await gesture.moveTo(
+        tester.getCenter(find.byKey(const ValueKey('square-tab-recommended'))),
+      );
+      await tester.pump();
+      await gesture.up();
+      await _drainHomeIdentityReads(tester);
+      await tester.pumpAndSettle();
+      var tabs = tester.widget<SquareFeedTabs>(find.byType(SquareFeedTabs));
+      expect(tabs.order.first, SquareFeedKind.circle);
+      expect(tabs.selected, SquareFeedKind.recommended);
+      expect(
+        (await tester.runAsync(() => const SquareTabOrderStore().read()))!
+            .first,
+        SquareFeedKind.circle,
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+      final before = feed.calls;
+      await tester.pumpWidget(page());
+      await _drainHomeIdentityReads(tester);
+      await tester.pumpAndSettle();
+      tabs = tester.widget<SquareFeedTabs>(find.byType(SquareFeedTabs));
+      expect(tabs.order.first, SquareFeedKind.circle);
+      expect(tabs.selected, SquareFeedKind.circle);
+      expect(feed.calls, before + 1);
+      expect(feed.lastFeedKind, SquareFeedKind.circle);
+      await tester.tap(find.text('视频'));
+      await tester.pumpAndSettle();
+      selected.value = 1;
+      selected.value = 0;
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<SquareFeedTabs>(find.byType(SquareFeedTabs)).selected,
+        SquareFeedKind.circle,
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+      await _drainHomeIdentityReads(tester);
     });
   });
+
+  testWidgets('公民圈等待返回期间不显示推荐流或种子中的陌生用户内容', (tester) async {
+    final feed = _CirclePendingFeedSource();
+    await tester.pumpWidget(
+      _wrap(
+        SquareHomePage(
+          tabOrderStore: const _MemoryTabOrderStore(),
+          identityService: _walletIdentityService(),
+          feedSource: feed,
+          seedPosts: [_seedPost(id: 'seed', text: '种子陌生内容')],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('推荐陌生用户内容'), findsOneWidget);
+    await tester.tap(find.text('公民圈'));
+    await tester.pump();
+    expect(find.text('推荐陌生用户内容'), findsNothing);
+    expect(find.text('种子陌生内容'), findsNothing);
+    feed.pending.complete([_seedPost(id: 'mutual', text: '互关用户内容')]);
+    await tester.pumpAndSettle();
+    expect(find.text('互关用户内容'), findsOneWidget);
+  });
+}
+
+class _MemoryTabOrderStore extends SquareTabOrderStore {
+  const _MemoryTabOrderStore();
+  @override
+  Future<List<SquareFeedKind>> read() async => List.of(SquareFeedKind.values);
+  @override
+  Future<void> write(List<SquareFeedKind> order) async {}
 }
 
 // 真实SquareTab不注入页面替身；只在公开CID/SDK/会话边界提供合成事实。

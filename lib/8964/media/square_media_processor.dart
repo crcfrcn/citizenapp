@@ -10,7 +10,7 @@ import 'package:image_size_getter/image_size_getter.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 
-import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
 import 'package:citizenapp/8964/media/square_media_policy.dart';
 
 enum SquareMediaDerivativeKind { thumbnail, cover }

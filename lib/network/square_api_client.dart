@@ -11,9 +11,9 @@ import 'package:citizenapp/app_log.dart';
 import 'package:citizenapp/network/chain_bootstrap_api.dart'
     show HttpsOnlyClient;
 
-import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
 import 'package:citizenapp/account/profile/citizen_profile.dart';
-import 'package:citizenapp/8964/feed/square_post_store.dart';
+import 'package:citizenapp/8964/post/square_post_store.dart';
 import 'package:citizenapp/network/hex_codec.dart' show bytesToHex, hexToBytes;
 import 'package:citizenapp/account/identity/mls_authentication.dart';
 import 'package:citizenapp/account/identity/identity_binding.dart';
@@ -2052,19 +2052,23 @@ class SquareApiClient
   Future<Map<String, dynamic>> fetchNotifications({
     required SquareSession session,
     int? cursor,
+    bool groupByPost = false,
+    int? through,
   }) => _getJson(
-    '/notifications?limit=20${cursor == null ? '' : '&cursor=$cursor'}',
+    '/notifications?limit=20${cursor == null ? '' : '&cursor=$cursor'}${groupByPost ? '&group=post' : ''}${through == null || through == 0 ? '' : '&through=$through'}',
     session: session,
   );
   Future<Map<String, dynamic>> markNotifyRead({
     required SquareSession session,
     String scope = 'square',
+    String? postId,
     List<int> ids = const [],
     int? through,
     List<String> postIds = const [],
     List<String> commentIds = const [],
   }) => _postJson('/notifications/read', {
     'scope': scope,
+    'post_id': postId,
     'ids': ids,
     'through': through,
     'post_ids': postIds,
@@ -2075,10 +2079,56 @@ class SquareApiClient
     required String postId,
     int? cursor,
     String? target,
+    String? mode,
+    String? thread,
+    int? through,
+    String? after,
+  }) {
+    final params = <String, String>{
+      'limit': '20',
+      if (cursor != null) 'cursor': '$cursor',
+      'target': ?target,
+      'mode': ?mode,
+      'thread': ?thread,
+      if (through != null) 'through': '$through',
+      'after': ?after,
+    };
+    return _getJson(
+      '/8964/posts/${Uri.encodeComponent(postId)}/comments?${Uri(queryParameters: params).query}',
+      session: session,
+    );
+  }
+
+  Future<Map<String, dynamic>> fetchPostInteractions({
+    required SquareSession session,
+    required List<String> postIds,
+  }) => _postJson('/8964/posts/interactions', {
+    'post_ids': postIds,
+  }, session: session);
+  Future<Map<String, dynamic>> fetchLikes({
+    required SquareSession session,
+    required String postId,
+    int? cursor,
+    int limit = 20,
   }) => _getJson(
-    '/8964/posts/${Uri.encodeComponent(postId)}/comments?limit=20${cursor == null ? '' : '&cursor=$cursor'}${target == null ? '' : '&target=${Uri.encodeComponent(target)}'}',
+    '/8964/posts/${Uri.encodeComponent(postId)}/likes?limit=$limit${cursor == null ? '' : '&cursor=$cursor'}',
     session: session,
   );
+  Future<Map<String, dynamic>> setLike({
+    required SquareSession session,
+    required String postId,
+    required bool liked,
+  }) async {
+    final path = '/8964/posts/${Uri.encodeComponent(postId)}/like';
+    if (liked) return _putJson(path, {}, session: session);
+    final response = await _protectedJsonRequest(
+      http.Request('DELETE', _uri(path)),
+      session,
+    );
+    await session.validateCurrent();
+    return _decodeResponse(response);
+  }
+
   Future<Map<String, dynamic>> createComment({
     required SquareSession session,
     required String postId,

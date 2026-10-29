@@ -4,13 +4,13 @@ import 'package:citizenapp/storage/social_isar.dart'
 
 import 'dart:convert';
 
-import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
 import 'package:citizenapp/8964/media/square_media_store.dart';
 
 import 'package:isar_community/isar.dart';
 
-import 'package:citizenapp/8964/compose/compose_draft.dart';
-import 'package:citizenapp/8964/compose/compose_draft_media.dart';
+import 'package:citizenapp/8964/draft/compose_draft.dart';
+import 'package:citizenapp/8964/draft/compose_draft_media.dart';
 import 'package:citizenapp/storage/social_isar.dart';
 
 /// 广场草稿箱存储契约（便于测试注入）。

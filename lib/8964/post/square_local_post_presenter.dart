@@ -2,8 +2,8 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 
-import 'package:citizenapp/8964/feed/square_models.dart';
-import 'package:citizenapp/8964/feed/square_post_store.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
+import 'package:citizenapp/8964/post/square_post_store.dart';
 
 class SquareLocalPostPresenterException implements Exception {
   const SquareLocalPostPresenterException(this.message);

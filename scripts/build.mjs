@@ -109,7 +109,7 @@ export async function build(platform, phase = 'app', options={}) {
 // 为保留现有自动化功能暂留必要接口；配置文件仅同名导出，不扩展职责。
 
 
-// 只在本轮选择一次正式版本；不用GitHub的latest标记或手填Run代替真实成功来源。
+// 每轮按版本从高到低选择来源准确且成功的正式包，不用latest标记或手填Run。
 export async function selectSDKRelease(product, read) {
     const releases = [];
     for (let page = 1; ; page++) {
@@ -121,7 +121,10 @@ export async function selectSDKRelease(product, read) {
         if (release.draft || release.prerelease || !release.published_at) return [];
         let proof;
         try { proof = JSON.parse(release.body); } catch { return []; }
-        if (proof.product_id !== product || proof.platform !== 'sdk') return [];
+        if (proof?.product_id !== product || proof.platform !== 'sdk'
+            || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u.test(proof.software_version)
+            || !/^[a-f0-9]{40}$/u.test(proof.git_commit_sha)
+            || ![proof.producer_run_id, proof.producer_run_attempt].every(value => Number.isSafeInteger(value) && value > 0)) return [];
         return [{release, proof}];
     }).sort((a, b) => {
         const left = a.proof.software_version.split('.').map(BigInt);
@@ -129,13 +132,14 @@ export async function selectSDKRelease(product, read) {
         for (let i = 0; i < 3; i++) if (left[i] !== right[i]) return left[i] > right[i] ? -1 : 1;
         return b.release.id - a.release.id;
     });
-    const selected = candidates[0];
-    if (!selected) throw Error(product + '没有可用的正式SDK版本');
-    const run = await read('actions/runs/' + selected.proof.producer_run_id);
-    if (run.status !== 'completed' || run.conclusion !== 'success') {
-        throw Error(product + '最新正式SDK的来源自动化未成功');
+    for (const selected of candidates) {
+        const proof = selected.proof;
+        const run = await read('actions/runs/' + proof.producer_run_id + '/attempts/' + proof.producer_run_attempt);
+        if (run.status === 'completed' && run.conclusion === 'success'
+            && run.id === proof.producer_run_id && run.run_attempt === proof.producer_run_attempt
+            && run.head_sha === proof.git_commit_sha) return selected;
     }
-    return selected;
+    throw Error(product + '没有可用的成功正式SDK版本');
 }
 
 // 两个平台及本机共用产品自己的工程装配，公开IO注入仅供既有合成回归。

@@ -8,19 +8,19 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
-import 'package:citizenapp/8964/feed/square_post_store.dart';
-import 'package:citizenapp/8964/feed/square_local_post_presenter.dart';
-import 'package:citizenapp/8964/feed/square_post_detail_page.dart';
+import 'package:citizenapp/8964/post/square_post_store.dart';
+import 'package:citizenapp/8964/post/square_local_post_presenter.dart';
+import 'package:citizenapp/8964/post/square_post_detail_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-import 'package:citizenapp/8964/feed/square_models.dart';
-import 'package:citizenapp/8964/feed/square_article_detail_page.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
+import 'package:citizenapp/8964/article/square_article_detail_page.dart';
 import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/8964/media/square_media_carousel.dart';
-import 'package:citizenapp/8964/feed/article_rich_text_view.dart';
+import 'package:citizenapp/8964/article/article_rich_text_view.dart';
 
 import 'profile/fake_profile.dart';
 

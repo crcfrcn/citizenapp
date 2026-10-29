@@ -1,15 +1,15 @@
-import 'package:citizenapp/8964/feed/square_post_store.dart';
+import 'package:citizenapp/8964/post/square_post_store.dart';
 
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
 import 'package:citizenapp/account/profile/citizen_profile_api.dart';
 import 'package:citizenapp/network/square_api_client.dart';
-import 'package:citizenapp/8964/feed/square_local_post_presenter.dart';
-import 'package:citizenapp/8964/feed/square_article_card.dart';
-import 'package:citizenapp/8964/feed/square_post_card.dart';
+import 'package:citizenapp/8964/post/square_local_post_presenter.dart';
+import 'package:citizenapp/8964/article/square_article_card.dart';
+import 'package:citizenapp/8964/post/square_post_card.dart';
 import 'package:citizenapp/8964/media/square_media_grid.dart';
 import 'package:citizenapp/system/theme/app_theme.dart';
 import 'package:citizenapp/system/theme/app_layout.dart';

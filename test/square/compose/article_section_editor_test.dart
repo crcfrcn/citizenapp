@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 
-import 'package:citizenapp/8964/compose/article_section_editor.dart';
+import 'package:citizenapp/8964/article/article_section_editor.dart';
 
 void main() {
   group('文章 Delta 规范化', () {

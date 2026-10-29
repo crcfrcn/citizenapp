@@ -12,11 +12,11 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:image_picker/image_picker.dart';
 
-import 'package:citizenapp/8964/compose/article_blocks.dart';
-import 'package:citizenapp/8964/compose/article_compose_body.dart';
+import 'package:citizenapp/8964/article/article_blocks.dart';
+import 'package:citizenapp/8964/article/article_compose_body.dart';
 import 'package:citizenapp/8964/compose/compose_media_picker.dart';
 import 'package:citizenapp/8964/compose/compose_media_widgets.dart';
-import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
 import 'package:citizenapp/network/square_api_client.dart';
 import 'package:citizenapp/8964/media/square_upload_service.dart';
 import 'package:citizenapp/8964/media/square_media_carousel.dart';

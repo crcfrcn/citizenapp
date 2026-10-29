@@ -1,9 +1,9 @@
 import 'dart:async';
 
-import 'package:citizenapp/8964/compose/compose_draft.dart';
-import 'package:citizenapp/8964/compose/compose_draft_store.dart';
-import 'package:citizenapp/8964/compose/drafts_page.dart';
-import 'package:citizenapp/8964/feed/square_models.dart';
+import 'package:citizenapp/8964/draft/compose_draft.dart';
+import 'package:citizenapp/8964/draft/compose_draft_store.dart';
+import 'package:citizenapp/8964/draft/drafts_page.dart';
+import 'package:citizenapp/8964/post/square_models.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

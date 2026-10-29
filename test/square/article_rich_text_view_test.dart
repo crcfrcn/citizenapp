@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 
-import 'package:citizenapp/8964/feed/article_rich_text_view.dart';
+import 'package:citizenapp/8964/article/article_rich_text_view.dart';
 
 void main() {
   testWidgets('只读文章富文本渲染规范 Delta', (tester) async {
