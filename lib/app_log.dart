@@ -29,6 +29,114 @@ class AppLog {
   /// 供网络层决定是否执行只读诊断预检；正式 Release 默认恒为 false。
   static bool get diagnosticsEnabled => !kReleaseMode || _explicitDiagnostics;
 
+  /// 钱包门禁失败只记录SDK枚举和精确命中的固定原因；未知文本绝不回显。
+  /// 同一安全行供设备日志及门禁诊断页使用，不读取或保存钱包记录。
+  static String walletFailure(Object error) {
+    const reasons = <(CitizenSdkErrorCode, String), String>{
+      (
+        CitizenSdkErrorCode.integrity,
+        'integrity: SQLite resource operation failed',
+      ): 'sqlite_operation',
+      (
+        CitizenSdkErrorCode.integrity,
+        'integrity: SQLite job was not executed',
+      ): 'sqlite_job',
+      (
+        CitizenSdkErrorCode.integrity,
+        'integrity: host wallet profile load failed',
+      ): 'host_wallet_load',
+      (
+        CitizenSdkErrorCode.integrity,
+        'integrity: host encrypted blob load failed',
+      ): 'host_secret_load',
+      (
+        CitizenSdkErrorCode.integrity,
+        'integrity: wallet profile revision disagrees with its typed payload',
+      ): 'wallet_revision',
+      (
+        CitizenSdkErrorCode.integrity,
+        'CitizenSDK native operation failed',
+      ): 'native_unspecified',
+      (
+        CitizenSdkErrorCode.integrity,
+        'integrity: public database schema version differs',
+      ): 'schema_version',
+      (
+        CitizenSdkErrorCode.integrity,
+        'integrity: public database object set differs',
+      ): 'schema_objects',
+      (
+        CitizenSdkErrorCode.integrity,
+        'integrity: public database schema differs',
+      ): 'schema_definition',
+      (
+        CitizenSdkErrorCode.integrity,
+        'integrity: public database auto-vacuum differs',
+      ): 'schema_vacuum',
+      (
+        CitizenSdkErrorCode.integrity,
+        'integrity: public database durability setting differs',
+      ): 'schema_durability',
+      (
+        CitizenSdkErrorCode.integrity,
+        'integrity: public database trusted-schema setting differs',
+      ): 'schema_trust',
+      (
+        CitizenSdkErrorCode.integrity,
+        'integrity: embedded public schema is invalid',
+      ): 'schema_embedded',
+      (
+        CitizenSdkErrorCode.integrity,
+        'integrity: host record corruption digest does not match',
+      ): 'record_digest',
+      (
+        CitizenSdkErrorCode.integrity,
+        'integrity: host record belongs to a different typed store',
+      ): 'record_domain',
+      (
+        CitizenSdkErrorCode.integrity,
+        'integrity: persisted wallet identity is invalid',
+      ): 'wallet_identity',
+      (
+        CitizenSdkErrorCode.integrity,
+        'integrity: persisted cold identity is invalid',
+      ): 'cold_identity',
+      (
+        CitizenSdkErrorCode.integrity,
+        'integrity: persisted wallet order is duplicated',
+      ): 'wallet_order',
+      (
+        CitizenSdkErrorCode.integrity,
+        'integrity: persisted wallet state is invalid',
+      ): 'wallet_state',
+      (
+        CitizenSdkErrorCode.integrity,
+        'integrity: persisted wallet profile is invalid',
+      ): 'wallet_profile',
+      (CitizenSdkErrorCode.busy, 'wallet read is draining'): 'read_pending',
+    };
+    final String code, stage, reason;
+    if (error is CitizenSdkException) {
+      code = error.code.name;
+      stage = error.stage.name;
+      reason = reasons[(error.code, error.message)] ?? 'other';
+    } else if (error is TimeoutException) {
+      code = 'timeout';
+      stage = 'provider';
+      reason = 'read_timeout';
+    } else {
+      code = stage = reason = 'other';
+    }
+    final line =
+        '[CitizenWallet] method=getWalletState code=$code stage=$stage reason=$reason';
+    try {
+      debugPrintSynchronously(line);
+    } on Object {
+      // 观察出口失败不能替换钱包读取错误，也不能改变原重试状态。
+    }
+    return line;
+  }
+
   /// 正式包可用的安全失败事件；未知输入归other，不落自由文本诊断文件。
   /// 白名单必须精确匹配，不能靠截断、前缀或异常toString清洗秘密。
   static void failure({required String stage, int? statusCode, String? code}) {

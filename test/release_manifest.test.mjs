@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import {spawn, spawnSync} from 'node:child_process';
 import {chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, lstatSync, rmSync, symlinkSync, writeFileSync} from 'node:fs';
 import {dirname, join} from 'node:path';
-import {fileURLToPath} from 'node:url';
-import {assembleProject,selectSDKRelease,existingFlutter} from '../scripts/build.mjs';
+import {fileURLToPath,pathToFileURL} from 'node:url';
+import {assembleProject,selectSDKRelease,existingFlutter,build} from '../scripts/build.mjs';
 import {describeAction} from '../scripts/config.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -98,6 +98,32 @@ test('准确任务现场被占用时拒绝第二次编译', t => {
     assert.match(result.stderr, /占用/);
     assert.equal(readFileSync(marker, 'utf8'), '{"pid":42,"groups":[]}');
     assert.equal(existsSync(value.env.CALLS), false);
+});
+
+test('本机编译使用本地构建号并保留Flutter的Release插件刷新', async t => {
+    const value=fixture(t);
+    await build('android','app',{local:true,work:value.env.WORK,
+        environment:{...value.env,CITIZENAPP_BUILD_NUMBER:'40'}});
+    const calls=readFileSync(value.env.CALLS,'utf8').trim().split('\n').map(JSON.parse);
+    assert.equal(calls.length,1);
+    assert.equal(calls[0][calls[0].indexOf('--build-number')+1],'40');
+    assert.equal(calls[0].includes('--no-pub'),false);
+    assert.equal(value.env.GITHUB_RUN_NUMBER,'9');
+});
+
+test('本机公开入口在GitHub完全不可用时仍先读取本地SDK', t => {
+    const value=fixture(t);
+    writeFileSync(join(value.directory,'pubspec.yaml'),pubspec);
+    writeFileSync(join(value.directory,'pubspec.lock'),pubLock);
+    // 合成git不创建SDK模块；到达本地模块加载后终止，禁止实际工具和网络。
+    const code=`globalThis.fetch=()=>{throw Error('合成GitHub禁止调用')};
+        const {compile}=await import(${JSON.stringify(pathToFileURL(value.script).href)});
+        try{await compile('android')}catch(error){console.error(error.message);process.exitCode=17}`;
+    const result=spawnSync(process.execPath,['--input-type=module','-e',code],{env:value.env,encoding:'utf8'});
+    assert.equal(result.status,17);
+    assert.match(result.stderr,/Cannot find module/);
+    assert.doesNotMatch(result.stderr,/合成GitHub禁止调用|读取GitHub Run失败/);
+    assert.equal(existsSync(value.env.CALLS),false);
 });
 
 for (const phase of ['app']) {
@@ -368,12 +394,12 @@ test('SDK自动选择最新成功正式版，本机与自动化使用独立消�
         path.startsWith('releases?') ? rows : {...run,conclusion:'failure'}),/没有可用/);
     const action = await describeAction({flow:'release',platform:'android'});
     assert.deepEqual(action,{repository:'crcfrcn/citizenapp',workflow:'android.yml',ref:'main',inputs:{}});
-    // 仅定位现有工具；版本、引擎或目录门禁不得重新进入编译入口。
+    // 仅定位现有工具；不新增目录门禁，本机可使用标准工具的离线参数。
     const value = fixture(t), tool = join(value.directory, 'flutter');
     mkdirSync(join(tool,'bin'),{recursive:true});writeFileSync(join(tool,'bin/flutter'),'fixture');
     assert.equal(existingFlutter('android',{},[tool]),tool);
     assert.equal(existingFlutter('ios',{},[tool]),tool);
-    assert.doesNotMatch(builder,/requireAutomationBuild|sandbox-exec|CITIZENAPP_OFFLINE|CARGO_NET_OFFLINE|缺少SDK声明的现有ZXing/);
+    assert.doesNotMatch(builder,/requireAutomationBuild|sandbox-exec|CITIZENAPP_OFFLINE|缺少SDK声明的现有ZXing/);
 
 });
 

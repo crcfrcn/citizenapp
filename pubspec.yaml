@@ -1,7 +1,7 @@
 name: citizenapp
 description: CitizenApp mobile client using CitizenSDK blockchain capabilities.
 publish_to: "none"
-version: 1.0.0
+version: 1.0.0+40
 
 environment:
   sdk: ">=3.8.0 <4.0.0"
@@ -105,6 +105,7 @@ flutter:
     - assets/icons/government-line.svg
     - assets/icons/bank.svg
     - assets/logo/mark256.png
+    - assets/logo/icon180.png
     - assets/icons/usdc.svg
     - assets/icons/usdt.svg
     - assets/icons/icons8-96.png

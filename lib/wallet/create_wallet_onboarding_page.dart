@@ -10,7 +10,7 @@ import 'package:citizenapp/system/theme/app_layout.dart';
 import 'package:citizenapp/wallet/wallet_password.dart';
 
 /// 首次没有冷热账户时承载原初始化UI；SDK负责真实状态与输入、持久化规则。
-/// 原创建/导入布局保留，只增加已批准的18词与冷账户入口；冷入口不依赖本机热金库。
+/// 顶部复用公民Logo，助记词与冷钱包导入入口同排；冷入口不依赖本机热金库。
 class CreateWalletOnboardingPage extends StatefulWidget {
   const CreateWalletOnboardingPage({
     super.key,
@@ -179,18 +179,13 @@ class _CreateWalletOnboardingPageState extends State<CreateWalletOnboardingPage>
                 padding: const EdgeInsets.fromLTRB(24, 40, 24, 24),
                 children: [
                   Center(
-                    child: Container(
-                      width: AppLayout.scaled(context, 56),
-                      height: AppLayout.scaled(context, 56),
-                      decoration: BoxDecoration(
-                        gradient: AppTheme.primaryGradient,
-                        borderRadius:
-                            BorderRadius.circular(AppLayout.scaledValue(14)),
-                      ),
-                      child: Icon(
-                        Icons.account_balance_wallet_outlined,
-                        color: Colors.white,
-                        size: AppLayout.scaled(context, 26),
+                    child: ClipRRect(
+                      borderRadius:
+                          BorderRadius.circular(AppLayout.scaledValue(14)),
+                      child: Image.asset(
+                        'assets/logo/icon180.png',
+                        width: AppLayout.scaled(context, 56),
+                        height: AppLayout.scaled(context, 56),
                       ),
                     ),
                   ),
@@ -286,23 +281,39 @@ class _CreateWalletOnboardingPageState extends State<CreateWalletOnboardingPage>
                       child: Text(_creating ? '创建中…' : '创建钱包'),
                     ),
                   ),
-                  SizedBox(height: AppLayout.scaled(context, 10)),
-                  Text(
-                    _deviceSecure == false ? '开启系统锁屏后可创建' : '创建完成后进入公民广场',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: AppLayout.scaled(context, 11),
-                      color: AppTheme.textTertiary,
+                  if (_deviceSecure == false) ...[
+                    SizedBox(height: AppLayout.scaled(context, 10)),
+                    Text(
+                      '开启系统锁屏后可创建',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: AppLayout.scaled(context, 11),
+                        color: AppTheme.textTertiary,
+                      ),
                     ),
-                  ),
+                  ],
                   SizedBox(height: AppLayout.scaled(context, 8)),
-                  TextButton(
-                    onPressed: canCreate ? _openImport : null,
-                    child: const Text('已有钱包？导入助记词'),
-                  ),
-                  TextButton(
-                    onPressed: _creating ? null : _openColdImport,
-                    child: const Text('导入冷钱包'),
+                  // 等宽入口两侧各收两个字宽，使按钮中心各向中间移动一个字宽。
+                  Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: AppLayout.scaled(context, 28),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextButton(
+                            onPressed: canCreate ? _openImport : null,
+                            child: const Text('导入助记词'),
+                          ),
+                        ),
+                        Expanded(
+                          child: TextButton(
+                            onPressed: _creating ? null : _openColdImport,
+                            child: const Text('导入冷钱包'),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
