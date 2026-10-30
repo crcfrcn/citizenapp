@@ -1,0 +1,29 @@
+name: citizen_system
+description: 公民Appsystem包。
+publish_to: none
+version: 1.0.0
+resolution: workspace
+environment:
+  sdk: ">=3.8.0 <4.0.0"
+
+# 本包公开接口的真实依赖；上游约束沿用产品原锁。
+dependencies:
+  citizen_sdk:
+    git:
+      url: https://github.com/crcfrcn/citizensdk.git
+      path: .
+      ref: main
+  crypto: 3.0.7
+  firebase_core: ^4.11.0
+  firebase_messaging: ^16.4.1
+  flutter:
+    sdk: flutter
+  http: 1.6.0
+  local_auth_android: 2.0.9
+  local_auth_darwin: ^2.0.0
+  path_provider: ^2.1.6
+
+dev_dependencies:
+  citizen_testing: any
+  flutter_test:
+    sdk: flutter

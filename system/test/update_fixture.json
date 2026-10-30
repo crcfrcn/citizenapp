@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "product_id": "citizenapp",
+  "platform": "android",
+  "package_name": "com.crcfrcn.citizenapp",
+  "version": "1.2.3",
+  "version_code": 9,
+  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "run_id": 21,
+  "run_attempt": 1,
+  "chain_test_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "assets": [
+    {
+      "name": "公民·Android·v1.2.3.aab",
+      "size": 25,
+      "sha256": "c40f2e294e3944dbb871468b723ce2a2bb556f0e5384869a0c01ff7a7e8ff168"
+    },
+    {
+      "name": "公民·Android·v1.2.3.apk",
+      "size": 25,
+      "sha256": "c40f2e294e3944dbb871468b723ce2a2bb556f0e5384869a0c01ff7a7e8ff168"
+    }
+  ]
+}

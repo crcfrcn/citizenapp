@@ -16,10 +16,12 @@ class RunnerTests: XCTestCase {
   }
 
 
-  func testNativeResourceLoaderReadsValidatedVideo() async throws {
+  private func videoFixture() async throws -> URL {
     let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
-    defer { try? FileManager.default.removeItem(at:file) }
+    var completed = false
+    defer { if !completed { try? FileManager.default.removeItem(at: file) } }
     let writer = try AVAssetWriter(outputURL:file,fileType:.mp4)
+    defer { if !completed { writer.cancelWriting() } }
     let input = AVAssetWriterInput(mediaType:.video,outputSettings:[AVVideoCodecKey:AVVideoCodecType.h264,
       AVVideoWidthKey:64,AVVideoHeightKey:64])
     let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput:input,
@@ -34,13 +36,27 @@ class RunnerTests: XCTestCase {
     CVPixelBufferLockBaseAddress(buffer,[])
     memset(CVPixelBufferGetBaseAddress(buffer),0,CVPixelBufferGetDataSize(buffer))
     CVPixelBufferUnlockBaseAddress(buffer,[])
+    let deadline = Date().addingTimeInterval(10)
     for index in 0..<2 {
-      while !input.isReadyForMoreMediaData { try await Task.sleep(nanoseconds:1_000_000) }
+      while !input.isReadyForMoreMediaData {
+        guard writer.status == .writing, Date() < deadline else {
+          throw NSError(domain: "NativeVideoFixture", code: 1)
+        }
+        try await Task.sleep(nanoseconds:1_000_000)
+      }
       XCTAssertTrue(adaptor.append(buffer,withPresentationTime:CMTime(value:Int64(index),timescale:5)))
     }
     input.markAsFinished()
     await writer.finishWriting()
     XCTAssertEqual(writer.status,.completed)
+    guard writer.status == .completed else { throw NSError(domain: "NativeVideoFixture", code: 2) }
+    completed = true
+    return file
+  }
+
+  func testNativeResourceLoaderReadsValidatedVideo() async throws {
+    let file = try await videoFixture()
+    defer { try? FileManager.default.removeItem(at:file) }
     let bytes = try Data(contentsOf:file)
     var reads = 0
     let loader = SquareRangeLoader(total:Int64(bytes.count)) { offset,count,reply in
@@ -57,6 +73,53 @@ class RunnerTests: XCTestCase {
     XCTAssertGreaterThan(reads,0)
     asset.cancelLoading()
     loader.close()
+  }
+
+  func testWalletConnectCallbackMatchesOnlyOwnedSchemeAndHost() {
+    for text in ["citizenapp://walletconnect", "CITIZENAPP://WALLETCONNECT?request=public"] {
+      XCTAssertTrue(AppDelegate.isWalletConnectCallback(URL(string: text)!))
+    }
+    for text in ["https://walletconnect", "citizenapp://walletconnect.example", "other://walletconnect", "citizenapp:walletconnect"] {
+      XCTAssertFalse(AppDelegate.isWalletConnectCallback(URL(string: text)!))
+    }
+  }
+
+  func testPackageInfoRejectsMalformedVersionTypes() {
+    let info = AppDelegate.packageInfo(infoDictionary: ["CFBundleShortVersionString": 3, "CFBundleVersion": "invalid"], bundleIdentifier: "test.public")
+    XCTAssertEqual(info["versionName"] as? String, "")
+    XCTAssertEqual(info["versionCode"] as? Int, 0)
+    XCTAssertEqual(info["packageName"] as? String, "test.public")
+  }
+
+  /// 真实硬件HEVC转码、封面和成品检查；合成视频与输出只存在本测试临时目录。
+  func testPerformanceMediaTranscode() async throws {
+    let transcoder = SquareVideoTranscoder()
+    guard transcoder.capabilities().values.allSatisfy({ $0 }) else { throw XCTSkip("须具备真实HEVC硬件编解码能力") }
+    let input = try await videoFixture()
+    defer { try? FileManager.default.removeItem(at: input) }
+    measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
+      let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      do {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { transcoder.cancel(); try? FileManager.default.removeItem(at: directory) }
+        let output = directory.appendingPathComponent("output.mp4")
+        let cover = directory.appendingPathComponent("cover.jpg")
+        var arguments = squareVideoArguments()
+        arguments["input_path"] = input.path; arguments["output_path"] = output.path; arguments["cover_path"] = cover.path
+        let request = try SquareVideoRequest(arguments: arguments)
+        let finished = expectation(description: "真实媒体转码结束")
+        transcoder.transcode(request) { result in
+          switch result {
+          case .success:
+            XCTAssertTrue(FileManager.default.fileExists(atPath: output.path))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: cover.path))
+          case .failure: XCTFail("真实媒体转码失败")
+          }
+          finished.fulfill()
+        }
+        wait(for: [finished], timeout: 180)
+      } catch { XCTFail("合成媒体转码准备失败") }
+    }
   }
 
   func testPackageInfoUsesInstalledBundleVersion() {

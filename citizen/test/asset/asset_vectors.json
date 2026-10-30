@@ -1,0 +1,284 @@
+{
+  "source": [
+    "citizenchain/runtime/issuance/onchainissue/src/types.rs",
+    "citizenchain/runtime/issuance/onchainissue/src/lib.rs",
+    "citizenchain/runtime/issuance/onchainissue/src/proposal.rs"
+  ],
+  "contract": {
+    "pallet_index": 23,
+    "assets_pallet_index": 24,
+    "storage": "AssetMetas",
+    "module_tag": "onc-iss",
+    "min_decimals": 0,
+    "max_decimals": 18,
+    "calls": [
+      {
+        "action": "OAIS",
+        "call_index": 0
+      },
+      {
+        "action": "OAMT",
+        "call_index": 1
+      },
+      {
+        "action": "OABN",
+        "call_index": 2
+      },
+      {
+        "action": "OACL",
+        "call_index": 3
+      },
+      {
+        "action": "OATR",
+        "call_index": 4
+      },
+      {
+        "action": "OMFZ",
+        "call_index": 10
+      },
+      {
+        "action": "OMUF",
+        "call_index": 11
+      },
+      {
+        "action": "OMCF",
+        "call_index": 12
+      },
+      {
+        "action": "OMFT",
+        "call_index": 13
+      },
+      {
+        "action": "OMFC",
+        "call_index": 14
+      }
+    ]
+  },
+  "id_vectors": [
+    {
+      "asset_id": 0,
+      "scale_hex": "00000000"
+    },
+    {
+      "asset_id": 1,
+      "scale_hex": "01000000"
+    },
+    {
+      "asset_id": 255,
+      "scale_hex": "ff000000"
+    },
+    {
+      "asset_id": 256,
+      "scale_hex": "00010000"
+    },
+    {
+      "asset_id": 2147483648,
+      "scale_hex": "00000080"
+    },
+    {
+      "asset_id": 4294967295,
+      "scale_hex": "ffffffff"
+    }
+  ],
+  "meta_vectors": [
+    {
+      "name": "plain_active_min",
+      "asset_id": 0,
+      "actor_cid_number": "A",
+      "execution_account_id": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "asset_class": "plain",
+      "decimals": 0,
+      "state": "active",
+      "close_block": null,
+      "scale_hex": "0441000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000000"
+    },
+    {
+      "name": "plain_closed_utf8",
+      "asset_id": 1,
+      "actor_cid_number": "机构",
+      "execution_account_id": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "asset_class": "plain",
+      "decimals": 18,
+      "state": "closed",
+      "close_block": null,
+      "scale_hex": "18e69cbae69e84ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff001201"
+    },
+    {
+      "name": "reserved_pegged_force_closed_max",
+      "asset_id": 4294967295,
+      "actor_cid_number": "你你你你你你你你你你ab",
+      "execution_account_id": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "asset_class": "pegged",
+      "decimals": 8,
+      "state": "force_closed",
+      "close_block": 4294967295,
+      "scale_hex": "80e4bda0e4bda0e4bda0e4bda0e4bda0e4bda0e4bda0e4bda0e4bda0e4bda06162000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f010802ffffffff"
+    },
+    {
+      "name": "force_closed_zero_block",
+      "asset_id": 256,
+      "actor_cid_number": "CID-A",
+      "execution_account_id": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "asset_class": "plain",
+      "decimals": 8,
+      "state": "force_closed",
+      "close_block": 0,
+      "scale_hex": "144349442d41ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff00080200000000"
+    }
+  ],
+  "issued_vectors": [
+    {
+      "name": "issued_0",
+      "asset_id": 0,
+      "actor_cid_number": "A",
+      "execution_account_id": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "scale_hex": "000000000441000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+    },
+    {
+      "name": "issued_1",
+      "asset_id": 1,
+      "actor_cid_number": "机构",
+      "execution_account_id": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "scale_hex": "0100000018e69cbae69e84ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+      "name": "issued_4294967295",
+      "asset_id": 4294967295,
+      "actor_cid_number": "你你你你你你你你你你ab",
+      "execution_account_id": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "scale_hex": "ffffffff80e4bda0e4bda0e4bda0e4bda0e4bda0e4bda0e4bda0e4bda0e4bda0e4bda06162000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+    }
+  ],
+  "invalid_vectors": [
+    {
+      "name": "empty",
+      "target": "meta",
+      "scale_hex": ""
+    },
+    {
+      "name": "empty_cid",
+      "target": "meta",
+      "scale_hex": "00000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000800"
+    },
+    {
+      "name": "cid_33_bytes",
+      "target": "meta",
+      "scale_hex": "84616161616161616161616161616161616161616161616161616161616161616161000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000800"
+    },
+    {
+      "name": "cid_33_utf8_bytes",
+      "target": "meta",
+      "scale_hex": "84e4bda0e4bda0e4bda0e4bda0e4bda0e4bda0e4bda0e4bda0e4bda0e4bda0e4bda0000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000800"
+    },
+    {
+      "name": "bad_utf8",
+      "target": "meta",
+      "scale_hex": "04ff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000800"
+    },
+    {
+      "name": "bad_class",
+      "target": "meta",
+      "scale_hex": "0441000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f020800"
+    },
+    {
+      "name": "decimals_19",
+      "target": "meta",
+      "scale_hex": "0441000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f001300"
+    },
+    {
+      "name": "decimals_255",
+      "target": "meta",
+      "scale_hex": "0441000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00ff00"
+    },
+    {
+      "name": "bad_state",
+      "target": "meta",
+      "scale_hex": "0441000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000803"
+    },
+    {
+      "name": "force_closed_missing_block",
+      "target": "meta",
+      "scale_hex": "0441000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000802"
+    },
+    {
+      "name": "closed_has_extra_block",
+      "target": "meta",
+      "scale_hex": "0441000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00080109000000"
+    },
+    {
+      "name": "account_31_bytes",
+      "target": "meta",
+      "scale_hex": "0441000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e000800"
+    },
+    {
+      "name": "account_33_bytes",
+      "target": "meta",
+      "scale_hex": "0441000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00000800"
+    },
+    {
+      "name": "compact_mode1_truncated",
+      "target": "meta",
+      "scale_hex": "01"
+    },
+    {
+      "name": "compact_mode2_truncated",
+      "target": "meta",
+      "scale_hex": "020000"
+    },
+    {
+      "name": "compact_big_integer_mode",
+      "target": "meta",
+      "scale_hex": "030100000041000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000800"
+    },
+    {
+      "name": "compact_nonminimal_mode1",
+      "target": "meta",
+      "scale_hex": "050041000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000800"
+    },
+    {
+      "name": "compact_nonminimal_mode2",
+      "target": "meta",
+      "scale_hex": "0600000041000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000800"
+    },
+    {
+      "name": "legacy_account_identity",
+      "target": "meta",
+      "scale_hex": "0101010101010101010101010101010101010101010101010101010101010101000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000800"
+    },
+    {
+      "name": "event_empty",
+      "target": "issued",
+      "scale_hex": ""
+    },
+    {
+      "name": "event_empty_cid",
+      "target": "issued",
+      "scale_hex": "0100000000000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+    },
+    {
+      "name": "event_account_short",
+      "target": "issued",
+      "scale_hex": "010000000441000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e"
+    },
+    {
+      "name": "event_bad_utf8",
+      "target": "issued",
+      "scale_hex": "0100000004ff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+    },
+    {
+      "name": "event_compact_nonminimal_mode1",
+      "target": "issued",
+      "scale_hex": "01000000050041000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+    },
+    {
+      "name": "event_compact_nonminimal_mode2",
+      "target": "issued",
+      "scale_hex": "010000000600000041000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+    },
+    {
+      "name": "event_legacy_account_identity",
+      "target": "issued",
+      "scale_hex": "010000000101010101010101010101010101010101010101010101010101010101010101000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+    }
+  ]
+}

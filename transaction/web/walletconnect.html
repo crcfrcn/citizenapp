@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN" data-topup-document="{{TOPUP_NONCE}}">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+    <!-- 钱包图标复用官方目录图片；脚本仅允许App本次装配的随包资源nonce。 -->
+    <meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'nonce-{{TOPUP_NONCE}}'; style-src 'unsafe-inline'; img-src 'self' data: blob: https:; font-src https://fonts.reown.com; connect-src https: wss:; frame-src https:; child-src https:; base-uri 'none'; form-action 'none'" />
+    <title>连接钱包支付</title>
+    <style>
+      :root { color-scheme: light; }
+      html, body { margin: 0; height: 100%; background: #F7F9FC; color: #1A2B3C;
+        font-family: -apple-system, "PingFang SC", "Segoe UI", Roboto, sans-serif; }
+      .wrap { min-height: 100%; display: flex; flex-direction: column; align-items: center;
+        justify-content: center; text-align: center; padding: 24px; box-sizing: border-box; }
+      .spinner { width: 44px; height: 44px; border: 3px solid rgba(0,122,116,.18);
+        border-top-color: #007A74; border-radius: 50%; animation: spin 1s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .title { margin: 18px 0 4px; font-size: 16px; }
+      .sub { max-width: 100%; margin: 0; font-size: 13px; color: #5A6B7C; }
+      .amount { margin-top: 10px; font-size: 15px; font-weight: 600; color: #007A74; }
+      [hidden] { display: none !important; }
+      .wallets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 20px 12px; width: 100%; max-width: 380px; margin: 24px 0; }
+      .wallet { border: 0; background: transparent; color: inherit; padding: 8px 0;
+        display: flex; flex-direction: column; align-items: center; gap: 8px; font: inherit;
+        cursor: pointer; min-width: 0; }
+      .wallet img { border-radius: 12px; object-fit: contain; }
+      .wallet span { font-size: 13px; overflow-wrap: anywhere; }
+      .wallet small { font-size: 11px; color: #5A6B7C; }
+      .wallet:disabled { opacity: .45; cursor: default; }
+      .wallet:focus-visible, .cancel:focus-visible { outline: 2px solid #007A74; }
+      .cancel { margin-top: 20px; padding: 10px 24px; border: 1px solid #007A74;
+        border-radius: 8px; color: #007A74; background: transparent; font: inherit; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="spinner" id="spinner" hidden></div>
+      <p class="title" id="title">选择钱包</p>
+      <p class="sub" id="sub">目前仅开放MetaMask，其他钱包逐个接入后开放</p>
+      <p class="amount" id="amount"></p>
+      <div class="wallets" id="wallets" aria-label="选择钱包"></div>
+      <button class="cancel" id="cancel" type="button" hidden>取消连接</button>
+    </div>
+    <!-- 本产品源码按原锁在工作工程构建，所有协议均由同一随包入口提供。 -->
+    <script nonce="{{TOPUP_NONCE}}" src="data:application/javascript;base64,{{TOPUP_SCRIPT}}"></script>
+    <!-- 由同一随包脚本的实际完成状态触发启动，不把平台历史URL回调当成文档就绪。 -->
+    <script nonce="{{TOPUP_NONCE}}">
+      window.TopupBridge.postMessage(JSON.stringify({
+        kind: 'document_ready',
+        nonce: document.documentElement.getAttribute('data-topup-document'),
+        ready: typeof window.CitizenTopup?.start === 'function'
+      }));
+    </script>
+  </body>
+</html>

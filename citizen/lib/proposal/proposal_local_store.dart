@@ -1,0 +1,434 @@
+import 'package:citizen_storage/wallet_isar.dart'
+    as wallet_store
+    show ProposalList, Summary;
+
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:citizen_citizen/institution/institution_info.dart';
+import 'package:citizen_citizen/proposal/proposal_models.dart';
+import 'package:citizen_citizen/account_derivation.dart';
+import 'package:citizen_storage/wallet_isar.dart' hide Group;
+import 'package:citizen_transaction/amount_format.dart';
+import 'package:citizen_transaction/multisig/multisig_transfer_models.dart';
+
+/// 提案列表本地持久化读库。
+///
+/// typed collection 只服务治理机构详情页和公民-提案列表展示；投票、执行、提交前
+/// 仍必须重查链上真值。
+class ProposalLocalStore {
+  ProposalLocalStore._();
+
+  static final ProposalLocalStore instance = ProposalLocalStore._();
+
+  static const Duration institutionIndexTtl = Duration(minutes: 5);
+
+  Future<ProposalLocalIndex?> readInstitutionIndex(String cidNumber) {
+    return _readIndex(cidNumber);
+  }
+
+  Future<bool> isInstitutionIndexFresh(String cidNumber) async {
+    final index = await readInstitutionIndex(cidNumber);
+    return index != null && index.isFresh(institutionIndexTtl);
+  }
+
+  Future<List<LocalProposalSummary>> readInstitutionSummaries(
+    String cidNumber,
+  ) async {
+    final index = await readInstitutionIndex(cidNumber);
+    if (index == null || index.ids.isEmpty) return const [];
+    return readSummariesForIds(index.ids);
+  }
+
+  Future<List<LocalProposalSummary>> readSummariesForIds(List<int> ids) {
+    if (ids.isEmpty) return Future.value(const []);
+    return WalletIsar.instance.read((isar) async {
+      final result = <LocalProposalSummary>[];
+      for (final id in ids) {
+        final entity = await isar
+            .collection<wallet_store.Summary>()
+            .getByProposalId(id);
+        final summary = entity == null
+            ? null
+            : LocalProposalSummary.fromJsonString(
+                entity.bodyData,
+                proposalId: entity.proposalId,
+              );
+        if (summary != null) {
+          result.add(summary);
+        }
+      }
+      return result;
+    });
+  }
+
+  Future<void> putInstitutionIndex(String cidNumber, List<int> ids) {
+    return _putIndex(cidNumber, ids);
+  }
+
+  Future<void> upsertSummaries(List<LocalProposalSummary> summaries) async {
+    if (summaries.isEmpty) return;
+    await WalletIsar.instance.writeTxn((isar) async {
+      for (final summary in summaries) {
+        final entity =
+            await isar.collection<wallet_store.Summary>().getByProposalId(
+              summary.proposalId,
+            ) ??
+            (wallet_store.Summary()..proposalId = summary.proposalId);
+        entity.bodyData = jsonEncode(summary.toJson());
+        await isar.collection<wallet_store.Summary>().putByProposalId(entity);
+      }
+    });
+  }
+
+  Future<void> clearAllForTest() async {
+    await WalletIsar.instance.writeTxn((isar) async {
+      await isar.collection<wallet_store.Summary>().clear();
+      await isar.collection<wallet_store.ProposalList>().clear();
+    });
+  }
+
+  Future<ProposalLocalIndex?> _readIndex(String cidNumber) {
+    return WalletIsar.instance.read((isar) async {
+      final entity = await isar
+          .collection<wallet_store.ProposalList>()
+          .getByCidNumber(cidNumber);
+      return entity == null
+          ? null
+          : ProposalLocalIndex(
+              ids: List<int>.unmodifiable(entity.proposalIds),
+              syncedAt: entity.syncedAt,
+            );
+    });
+  }
+
+  Future<void> _putIndex(String cidNumber, List<int> ids) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final proposalIds = List<int>.unmodifiable(ids);
+    await WalletIsar.instance.writeTxn((isar) async {
+      final entity =
+          await isar.collection<wallet_store.ProposalList>().getByCidNumber(
+            cidNumber,
+          ) ??
+          (wallet_store.ProposalList()..cidNumber = cidNumber);
+      entity
+        ..proposalIds = proposalIds
+        ..syncedAt = now;
+      await isar.collection<wallet_store.ProposalList>().putByCidNumber(entity);
+    });
+  }
+}
+
+class ProposalLocalIndex {
+  const ProposalLocalIndex({required this.ids, required this.syncedAt});
+
+  final List<int> ids;
+  final int syncedAt;
+
+  bool isFresh(Duration ttl) {
+    final age = DateTime.now().millisecondsSinceEpoch - syncedAt;
+    return age >= 0 && age < ttl.inMilliseconds;
+  }
+}
+
+class LocalProposalSummary {
+  const LocalProposalSummary({
+    required this.proposalId,
+    required this.kind,
+    required this.stage,
+    required this.status,
+    required this.title,
+    required this.subtitle,
+    required this.listSubtitle,
+    required this.iconKind,
+    required this.updatedAt,
+    this.internalCode,
+    this.actorCidNumber,
+    this.executionAccountId,
+    this.subjectCidNumbers = const [],
+    this.displayYear,
+    this.displaySeqInYear,
+    this.cidNumber,
+    this.fullName,
+  });
+
+  final int proposalId;
+  final int kind;
+  final int stage;
+  final int status;
+  final String? internalCode;
+  final String? actorCidNumber;
+  final String? executionAccountId;
+  final List<String> subjectCidNumbers;
+  final int? displayYear;
+  final int? displaySeqInYear;
+  final String? cidNumber;
+  final String? fullName;
+  final String title;
+  final String subtitle;
+  final String listSubtitle;
+  final String iconKind;
+  final int updatedAt;
+
+  ProposalDisplayMeta? get displayMeta {
+    final year = displayYear;
+    final seq = displaySeqInYear;
+    if (year == null || seq == null) return null;
+    return ProposalDisplayMeta(year: year, seqInYear: seq);
+  }
+
+  String get displayId => formatProposalId(displayMeta);
+
+  ProposalMeta get meta => ProposalMeta(
+    proposalId: proposalId,
+    kind: kind,
+    stage: stage,
+    status: status,
+    internalCode: internalCode,
+    actorCidNumber: actorCidNumber,
+    executionAccountId: _hexToBytes(executionAccountId),
+    subjectCidNumbers: subjectCidNumbers,
+    displayMeta: displayMeta,
+  );
+
+  static LocalProposalSummary fromProposal(
+    ProposalWithDetail proposal, {
+    InstitutionInfo? institution,
+    int? nowMillis,
+  }) {
+    final meta = proposal.meta;
+    final displayId = formatProposalId(meta.displayMeta);
+    final status = _statusLabel(meta.status);
+    final transfer =
+        proposal.businessDetails[MultisigTransferProposalDetailKeys.transfer];
+    final safetyFund =
+        proposal.businessDetails[MultisigTransferProposalDetailKeys.safetyFund];
+    final sweep =
+        proposal.businessDetails[MultisigTransferProposalDetailKeys.sweep];
+
+    String title;
+    String subtitle;
+    String listSubtitle;
+    String iconKind;
+
+    if (transfer is TransferProposalInfo) {
+      title = '转账提案 $displayId';
+      listSubtitle =
+          '转账 ${AmountFormat.format(transfer.amountYuan, symbol: '')} 元';
+      subtitle = '$listSubtitle · $status';
+      iconKind = 'transfer';
+    } else if (safetyFund is SafetyFundProposalInfo) {
+      title = '安全基金转账 $displayId';
+      listSubtitle =
+          '安全基金转账 ${AmountFormat.format(safetyFund.amountYuan, symbol: '')} 元';
+      subtitle = '$listSubtitle · $status';
+      iconKind = 'safety_fund';
+    } else if (sweep is SweepProposalInfo) {
+      title = '手续费划转 $displayId';
+      listSubtitle =
+          '手续费划转 ${AmountFormat.format(sweep.amountYuan, symbol: '')} 元';
+      subtitle = '$listSubtitle · $status';
+      iconKind = 'sweep';
+    } else if (proposal.createMultisigDetail != null) {
+      title = '创建多签 $displayId';
+      listSubtitle = '创建个人多签';
+      subtitle = '创建个人多签账户 · $status';
+      iconKind = 'create_multisig';
+    } else if (proposal.closeMultisigDetail != null) {
+      title = '关闭多签 $displayId';
+      listSubtitle = '关闭多签';
+      subtitle = '关闭多签账户 · $status';
+      iconKind = 'close_multisig';
+    } else if (proposal.runtimeUpgradeDetail != null) {
+      title = '协议升级 $displayId';
+      listSubtitle = '协议升级';
+      subtitle = '协议升级 · $status';
+      iconKind = 'runtime_upgrade';
+    } else if (proposal.resolutionIssuanceSummary != null) {
+      title = '联合投票提案 $displayId';
+      listSubtitle = '决议发行';
+      subtitle = '决议发行 · $status';
+      iconKind = 'resolution_issuance';
+    } else if (proposal.resolutionDestroySummary != null) {
+      title = '联合投票提案 $displayId';
+      listSubtitle = '决议销毁';
+      subtitle = '决议销毁 · $status';
+      iconKind = 'resolution_destroy';
+    } else if (meta.kind == 1) {
+      title = '联合投票提案 $displayId';
+      listSubtitle = '联合投票提案';
+      subtitle = '联合投票 · $status';
+      iconKind = 'joint';
+    } else {
+      title = '提案 $displayId';
+      listSubtitle = '提案 ${_kindLabel(meta.kind)}';
+      subtitle = '提案事件 · $status';
+      iconKind = 'proposal';
+    }
+
+    return LocalProposalSummary(
+      proposalId: meta.proposalId,
+      kind: meta.kind,
+      stage: meta.stage,
+      status: meta.status,
+      internalCode: meta.internalCode,
+      actorCidNumber: meta.actorCidNumber,
+      executionAccountId: _bytesToHex(meta.executionAccountId),
+      subjectCidNumbers: meta.subjectCidNumbers,
+      displayYear: meta.displayMeta?.year,
+      displaySeqInYear: meta.displayMeta?.seqInYear,
+      cidNumber: institution?.cidNumber,
+      fullName: institution?.fullName,
+      title: title,
+      subtitle: subtitle,
+      listSubtitle: listSubtitle,
+      iconKind: iconKind,
+      updatedAt: nowMillis ?? DateTime.now().millisecondsSinceEpoch,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'kind': kind,
+    'stage': stage,
+    'status': status,
+    'internal_code': internalCode,
+    'actor_cid_number': actorCidNumber,
+    'execution_account_id': executionAccountId,
+    'subject_cid_numbers': subjectCidNumbers,
+    'display_year': displayYear,
+    'display_seq_in_year': displaySeqInYear,
+    'cid_number': cidNumber,
+    'cid_full_name': fullName,
+    'title': title,
+    'subtitle': subtitle,
+    'list_subtitle': listSubtitle,
+    'icon_kind': iconKind,
+    'updated_at': updatedAt,
+  };
+
+  static LocalProposalSummary? fromJsonString(
+    String? raw, {
+    required int proposalId,
+  }) {
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) return null;
+      final kind = _toInt(decoded['kind']);
+      final stage = _toInt(decoded['stage']);
+      final status = _toInt(decoded['status']);
+      final title = decoded['title']?.toString();
+      final subtitle = decoded['subtitle']?.toString();
+      final listSubtitle = decoded['list_subtitle']?.toString();
+      final iconKind = decoded['icon_kind']?.toString();
+      final updatedAt = _toInt(decoded['updated_at']);
+      if (decoded.containsKey('proposal_id') ||
+          kind == null ||
+          stage == null ||
+          status == null ||
+          title == null ||
+          subtitle == null ||
+          listSubtitle == null ||
+          iconKind == null ||
+          updatedAt == null) {
+        return null;
+      }
+      return LocalProposalSummary(
+        proposalId: proposalId,
+        kind: kind,
+        stage: stage,
+        status: status,
+        internalCode: _toNullableString(decoded['internal_code']),
+        actorCidNumber: _toNullableString(decoded['actor_cid_number']),
+        executionAccountId: _toNullableString(decoded['execution_account_id']),
+        subjectCidNumbers: _toStringList(decoded['subject_cid_numbers']),
+        displayYear: _toInt(decoded['display_year']),
+        displaySeqInYear: _toInt(decoded['display_seq_in_year']),
+        cidNumber: _toNullableString(decoded['cid_number']),
+        fullName: _toNullableString(decoded['cid_full_name']),
+        title: title,
+        subtitle: subtitle,
+        listSubtitle: listSubtitle,
+        iconKind: iconKind,
+        updatedAt: updatedAt,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+String _statusLabel(int status) {
+  switch (status) {
+    case 0:
+      return '投票中';
+    case 1:
+      return '已通过';
+    case 2:
+      return '已拒绝';
+    case 3:
+      return '已执行';
+    case 4:
+      return '执行失败';
+    default:
+      return '未知';
+  }
+}
+
+String _kindLabel(int kind) {
+  switch (kind) {
+    case 0:
+      return '内部投票';
+    case 1:
+      return '联合投票';
+    default:
+      return '';
+  }
+}
+
+String? _bytesToHex(Uint8List? bytes) {
+  if (bytes == null) return null;
+  if (bytes.length != 32) {
+    throw const FormatException('execution_account_id 必须为 32 字节');
+  }
+  final buffer = StringBuffer();
+  for (final byte in bytes) {
+    buffer.write(byte.toRadixString(16).padLeft(2, '0'));
+  }
+  return '0x$buffer';
+}
+
+/// 唯一调用方传的是 `executionAccountId`，故按账户语义校验（走单源校验器）。
+Uint8List? _hexToBytes(String? hex) {
+  if (hex == null || hex.isEmpty) return null;
+  if (!isAccountIdText(hex)) return null;
+  final clean = hex.substring(2);
+  final result = Uint8List(clean.length ~/ 2);
+  for (var i = 0; i < result.length; i++) {
+    final value = int.tryParse(clean.substring(i * 2, i * 2 + 2), radix: 16);
+    if (value == null) return null;
+    result[i] = value;
+  }
+  return result;
+}
+
+int? _toInt(Object? value) {
+  if (value == null) return null;
+  if (value is int) return value;
+  return int.tryParse(value.toString());
+}
+
+String? _toNullableString(Object? value) {
+  final text = value?.toString();
+  if (text == null || text.isEmpty || text == 'null') return null;
+  return text;
+}
+
+List<String> _toStringList(Object? value) {
+  if (value is! List) return const [];
+  return value
+      .map((item) => item?.toString())
+      .whereType<String>()
+      .where((item) => item.isNotEmpty)
+      .toList(growable: false);
+}

@@ -1,0 +1,41 @@
+name: citizen_chat
+description: 公民Appchat包。
+publish_to: none
+version: 1.0.0
+resolution: workspace
+environment:
+  sdk: ">=3.8.0 <4.0.0"
+
+# 本包公开接口的真实依赖；上游约束沿用产品原锁。
+dependencies:
+  citizen_account: any
+  citizen_assets: any
+  citizen_scanner: any
+  citizen_sdk:
+    git:
+      url: https://github.com/crcfrcn/citizensdk.git
+      path: .
+      ref: main
+  citizen_system: any
+  citizen_transaction: any
+  citizen_wallet: any
+  crypto: 3.0.7
+  firebase_messaging: ^16.4.1
+  flutter:
+    sdk: flutter
+  flutter_chat_core: ^2.9.0
+  flutter_chat_ui: ^2.11.1
+  flutter_svg: ^2.3.0
+  provider: ^6.1.5+1
+  shared_preferences: ^2.5.5
+  tatachat_sdk:
+    git:
+      url: https://github.com/tuyutata/tatachatsdk.git
+      path: .
+      ref: main
+
+dev_dependencies:
+  citizen_testing: any
+  flutter_test:
+    sdk: flutter
+  http: 1.6.0

@@ -1,0 +1,52 @@
+name: citizen_assets
+description: 公民Appassets包。
+publish_to: none
+version: 1.0.0
+resolution: workspace
+environment:
+  sdk: ">=3.8.0 <4.0.0"
+
+# 本包公开接口的真实依赖；上游约束沿用产品原锁。
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  assets:
+    - profiles/
+    - icons/institution_private.svg
+    - icons/institution_public.svg
+    - institutions/
+    - divisions/
+    - divisions/cities/
+    - divisions/towns/
+    - icons/scan-line.svg
+    - icons/wallet.svg
+    - icons/copy.svg
+    - icons/arrow-right-left.svg
+    - icons/file-user.svg
+    - icons/message-square-text.svg
+    - icons/scale.svg
+    - icons/tank.svg
+    - icons/square-person-tank-watermark.png
+    - icons/contact-round.svg
+    - icons/download.svg
+    - icons/government-line.svg
+    - icons/bank.svg
+    - logo/mark256.png
+    - logo/icon180.png
+    - icons/usdc.svg
+    - icons/usdt.svg
+    - icons/icons8-96.png
+    - icons/icons8-64.png
+  fonts:
+    - family: LXGWWenKaiLite
+      fonts:
+        - asset: fonts/LXGWWenKaiLite-Regular.ttf
+    - family: FZJingLeiS
+      fonts:
+        - asset: fonts/FZJingLeiS-R-GB.ttf

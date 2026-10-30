@@ -20,7 +20,7 @@
 
 所属Workflow在单一Run中依次计算版本、准备官方工具和正式SDK组件、执行既有Node/Flutter完整回归与严格分析、准备签名输入、调用同一build.mjs编译IPA或APK+AAB、核验完整包、上传Artifact、生成正式Tag/Release并逐件下载cmp回读。任一真实依赖、测试、编译、签名或交付失败必须失败。正式Release属于自动化交付。验证与正式交付通过后，同一Run上传同一份IPA到App Store Connect并等待处理；Android使用Google官方auth Action固定提交取得androidpublisher短期令牌，再通过官方Edits/Bundles/Tracks API上传同一份AAB、保存internal内部测试轨道草稿并以新edit回查后删除观察edit。只替换内部轨道旧草稿，保留已分发版本，不提交审核或上架；失败如实令本端Run失败，不影响另一端。
 
-自动化平台工程生成在target/build/<Run>-<attempt>/project，本机工程生成在本轮target/build/local-*独立目录：Flutter官方create --no-pub生成普通Android/iOS模板，复制本产品既有原生源码、工程、测试及唯一assets/logo资源，Podfile、Gradle根工程、启动页、主题和桥接头沿用本机现有Flutter的官方模板，不在脚本重复保存正文；产品既有assembleProject只复制本仓原生输入，并应用编译所需插件版本、iOS最低版本、Isar静态库输出及产品资源名称等差异。权限、网络安全和签名请求保持原产品配置。create即使使用--no-pub也会重写工程锁，因此双端在模板命令成功后写回只映射两个SDK路径的完整派生pubspec.lock，再由既有pub get --enforce-lockfile严格消费；不改源码原锁、依赖版本或校验选项。AppFrameworkInfo.plist保留原锁官方模板，不改写其中不存在的MinimumOSVersion；iOS最低16.0由既有Xcode工程与Podfile声明。只排除原产品没有的模板示例test/widget_test.dart，产品原有同名测试保留。正式仓库不恢复平台包装模块，不生成业务数据、不改Flutter/Pub包源码。test/support/platform_input.dart直接回读当前本轮工程里的真实平台文件，不解析脚本文本或模块源码；现有业务测试预期保持。
+自动化平台工程生成在target/build/<Run>-<attempt>/project，本机工程生成在本轮target/build/local-*独立目录：Flutter官方create --no-pub生成普通Android/iOS模板，复制本产品既有原生源码、工程、测试及唯一assets/logo资源，Podfile、Gradle根工程、启动页、主题和桥接头沿用本机现有Flutter的官方模板，不在脚本重复保存正文；产品既有assembleProject只复制本仓原生输入，并应用编译所需插件版本、iOS最低版本、Isar静态库输出及产品资源名称等差异。权限、网络安全和签名请求保持原产品配置。create即使使用--no-pub也会重写工程锁，因此双端在模板命令成功后写回只映射两个SDK路径的完整派生pubspec.lock，再由既有pub get --enforce-lockfile严格消费；不改源码原锁、依赖版本或校验选项。AppFrameworkInfo.plist保留原锁官方模板，不改写其中不存在的MinimumOSVersion；iOS最低16.0由既有Xcode工程与Podfile声明。普通工程先移除Flutter根test模板，再将正式lib/test的Dart测试装配到官方test目录并调整相对导入；正文、断言及开发依赖保持，Node入口仍归lib/test。正式仓库不恢复平台包装模块，不生成业务数据、不改Flutter/Pub包源码。testing/lib/platform_input.dart直接回读当前本轮工程里的真实平台文件，不解析脚本文本或模块源码；现有业务测试预期保持。
 
 工具使用官方渠道和原锁：Node25.2.1、Flutter3.47.2、Rust1.97.1、Temurin17.0.20.1+1、Gradle9.1.0、AGP9.0.1、KGP2.2.20、NDK28.2.13676358、BuildTools36.0.0、CMake3.31.6和CocoaPods1.17.0。setup-java固定官方v6提交b843ebf9b913146b38da2eaa7aeddf76074ae1ad。显式交付官方运行机Android SDK完整路径；Rust准备iOS真机/模拟器或Android交叉目标。两项SDK的Git来源保持在pubspec.yaml/pubspec.lock，ref统一为main，仓库锁的resolved-ref只记录基线，不再要求人工跟随SDK更新。塔塔安装器每轮读取本机两个SDK main的最新已提交SHA，在独立现场冻结源码，并调用SDK既有编译入口；自动化每轮从非草稿、非预发布且已发布的SDK Release中按语义版本从高到低选择，原回执定位的准确Run/attempt必须完成且成功，Run编号、attempt及源码SHA必须与回执一致；取得首个合格正式版本后冻结其准确Git提交并下载正式组件，不重复编译SDK。来源未成功或不符的Release不计入合格版本；GitHub真实读取错误立即失败，不以更旧包掩盖错误。只在本轮临时工程改写两个SDK路径与锁；其余依赖不主动升级。无可用正式版或真实获取、编译失败直接失败，不回退旧版本、不手填Run、不要求预置交付目录。普通工程视图与原生实现仍归SDK，控制台不参与版本选择。
 
@@ -54,131 +54,40 @@ GitHub官方缓存只保存Flutter、Pub、Cargo和Gradle可再生内容，不�
 
 iOS 与 Android 的受控源码目录只保留一级子目录：`ios/project`、`ios/source`、`ios/square`、`ios/tests`、`android/app` 和 `android/square`。平台工具仍要求分开的 Podfile、Gradle 配置、Storyboard、资源 XML、entitlements 与 scheme；这些输入由所属Workflow在本轮普通工程中直接装配，工具标准模板与本产品必要配置共同交付准确消费路径。正式仓库不保留生成文件，也不保留被替代的短配置目录及二级子目录。
 
-Android 主 Manifest、应用入口和合并设备测试直属 `android/app`，广场专属 Kotlin 源码直属 `android/square`；三组设备测试在同一 `InstrumentedTests.kt` 中保留原测试类和隔离边界。主 Manifest 已声明 `INTERNET`，因此不再生成内容重复的 debug/profile Manifest；普通启动图资源覆盖全部支持的 API，圆形与普通自适应图标分别输出但共用唯一内容。iOS 钱包回跳 `SceneDelegate` 与 `AppDelegate` 同文件，Xcode 项目不再引用单独的场景源文件。四份只含 IDE 警告或预览状态的 workspace 文件不进入产品输入。
+Android 主 Manifest、应用入口和Gradle声明直属 `android/app`，广场专属 Kotlin 源码直属 `android/square`；三个原生测试类分别归 `android/tests`，原测试断言和隔离边界保持。主 Manifest 已声明 `INTERNET`，因此不再生成内容重复的 debug/profile Manifest；普通启动图资源覆盖全部支持的 API，圆形与普通自适应图标分别输出但共用唯一内容。iOS 钱包回跳 `SceneDelegate` 与 `AppDelegate` 同文件，Xcode 项目不再引用单独的场景源文件。四份只含 IDE 警告或预览状态的 workspace 文件不进入产品输入。
 
 平台目录原有 Git 忽略规则合入仓库根 `.gitignore`；Logo 唯一来源仍是 `assets/logo`，集中后的图标目录声明从平台输入还原。构建映射、源视图、静态测试和文档均使用新位置。此目录整理的测试与双端编译结果以随后塔塔控制台记录为准，当前未据此声明编译成功。
 
-## 当前源码目录与脚本入口（2026-10-16）
+## 当前包、源码与测试入口
 
-本轮按已确认方案完成目录整理，产品根为第0级，源码目录最多到第3级。目录采用小写单词，每个目录至少有两个直属子项；平台固定名称与`.github`保持工具约定，`lib/8964`是用户指定保留的数字目录例外，内部子目录仍压平到三级。广场回归位置按方案为`test/square/`。
-
-`lib` 按功能归属组织；更新、推送、主题与应用安全统一位于 `lib/system/`。广场只保留内容流、发布编辑与媒体，公共用户资料、身份认证和创作者订阅分别归入 `account` 对应目录；治理投票归入提案和立法。目录迁移只调整源码位置与引用路径，文件名、类、方法、UI、交互、数据库结构及测试断言含义保持。
-
-当前`scripts/`只包含自动化编译与公开配置入口；`.github/`包含自动化目录和`tatalulu.yml`仓库身份声明。源码目录最深3级。页面布局、业务功能、网络合同、SDK来源、依赖版本、应用身份和资源内容沿用整理前原件；流程入口、调用方和维护资料随脚本归属同步。
-
-下面列出源码目录；平台目录展示当前实际层级，其它目录沿用直属文件计数。
+产品根是App包及Dart workspace管理入口，唯一pubspec.lock集中解析各Dart包。源码目录最深三级；每个保留目录至少两个真实直接子项，不设空壳或兼容转发。
 
 ```text
-citizenapp/  # 第0级
-├── .github/
-│   ├── tatalulu.yml  # 本仓身份与main分支
-│   └── workflows/  # 两个平台各一份YAML
-├── android/  # 既有App与广场原生源码
-│   ├── app/  # Gradle应用配置、主Manifest、应用入口与合并设备测试
-│   └── square/  # 广场媒体通道、视频转码与MP4 faststart
-├── assets/
-│   ├── divisions/  # 直属2个文件
-│   │   ├── cities/  # 直属43个文件
-│   │   └── towns/  # 直属43个文件
-│   ├── fonts/  # 直属3个文件
-│   ├── icons/  # 直属22个文件
-│   ├── institutions/  # 直属44个文件
-│   ├── logo/  # 直属31个文件
-│   ├── profiles/  # 直属11个文件
-│   └── topup/  # HTML、JS源码和npm声明/原锁
-├── ios/  # 原Podfile锁、工程与原生源码
-│   ├── project/  # Xcode项目与主scheme
-│   ├── source/  # 应用入口、设备保护与应用声明
-│   ├── square/  # 广场媒体通道与视频转码
-│   └── tests/  # 两份XCTest源码
-├── lib/  # 直属2个文件
-│   ├── 8964/  # 广场，共37个文件
-│   │   ├── compose/  # 15：发布编辑、草稿与链上发布编排
-│   │   ├── feed/  # 16：内容流、详情、评论、卡片与帖子同步删除
-│   │   └── media/  # 7：媒体处理、存储、上传与展示
-│   ├── account/  # 直属user.dart，承载“我的”与现有设置入口
-│   │   ├── contacts/  # 2：通讯录页面与同步服务
-│   │   ├── creator/  # 12：创作者管理、收益与创作者订阅
-│   │   ├── identity/  # 30：CID、注册、验证、门禁、身份签名与MLS认证
-│   │   ├── membership/  # 5：平台会员与订阅状态
-│   │   └── profile/  # 19：用户主页、资料、关注、用户码与注销
-│   ├── chat/  # 直属4个文件
-│   ├── citizen/  # 直属4个文件
-│   │   ├── administrators/  # 18：管理员查询、激活、集合变更与记录解码
-│   │   ├── asset/  # 4：链上资产模型、编码与查询
-│   │   ├── governance/  # 3：治理入口、选举入口与白皮书
-│   │   ├── institution/  # 17：机构模型、目录、账户与详情
-│   │   ├── legislation/  # 9：法律阅读、查询与立法投票
-│   │   ├── proposal/  # 20：提案列表、发起、详情、缓存与内部投票
-│   │   ├── public/  # 16：行政区与公权机构目录
-│   │   └── runtime/  # 3：协议升级页面与链上服务
-│   ├── network/  # 5：公共HTTPS客户端、接口配置、链启动清单与请求证明
-│   ├── scanner/  # 直属10个文件
-│   ├── storage/  # 直属9个文件
-│   ├── system/  # 系统能力统一归属，共19个文件
-│   │   ├── notifications/  # 3：系统推送、设备端点和CID通知状态
-│   │   ├── security/  # 8：应用锁、权限、PIN、截屏保护、擦除与系统保护存储
-│   │   ├── theme/  # 3：主题、布局尺度与页面过渡
-│   │   └── update/  # 6：版本检查、更新清单、安装与提示
-│   ├── transaction/  # 直属交易入口与金额格式化，共58个文件
-│   │   ├── contract/  # 直属3个文件
-│   │   ├── history/  # 直属5个文件
-│   │   ├── multisig/  # 直属10个文件
-│   │   ├── offchain/  # 直属12个文件
-│   │   ├── onchain/  # 直属5个文件
-│   │   ├── personal/  # 14：个人多签管理与创建金额规则
-│   │   └── topup/  # 三协议付款、HTTP合同、恢复和原UI
-│   ├── wallet/  # 14：钱包页面、账户组件、助记词与密码输入
-│   └── widgets/  # 3：通用链状态栏、按压卡片与加载效果
-├── scripts/  # 自动化编译与纯配置声明
-│   ├── build.mjs
-│   └── config.mjs
-├── test/  # 直属4个文件
-│   ├── account/  # 直属4个文件
-│   │   ├── creator/  # 直属3个文件
-│   │   ├── identity/  # 直属15个文件
-│   │   ├── membership/  # 直属2个文件
-│   │   └── user/  # 直属3个文件
-│   ├── chat/  # 直属6个文件
-│   │   ├── group/  # 直属2个文件
-│   │   └── storage/  # 直属2个文件
-│   ├── citizen/  # 直属4个文件
-│   │   ├── administrators/  # 直属2个文件
-│   │   ├── institution/  # 直属2个文件
-│   │   ├── legislation/  # 直属3个文件
-│   │   ├── public/  # 直属12个文件
-│   │   └── shared/  # 直属8个文件
-│   ├── scanner/  # 直属6个文件
-│   ├── security/  # 直属5个文件
-│   ├── signing/  # 直属9个文件
-│   │   └── fixtures/  # 直属2个文件
-│   ├── square/  # 直属20个文件
-│   │   ├── compose/  # 直属7个文件
-│   │   ├── profile/  # 直属12个文件
-│   │   └── widgets/  # 直属3个文件
-│   ├── support/  # 直属3个文件
-│   ├── theme/  # 直属5个文件
-│   ├── transaction/  # 直属2个文件
-│   │   ├── contract/  # 直属2个文件
-│   │   ├── history/  # 直属4个文件
-│   │   ├── offchain/  # 直属3个文件
-│   │   ├── onchain/  # 直属2个文件
-│   │   ├── personal/  # 直属6个文件
-│   │   └── topup/  # 合同夹具、页面/存储与JS回归
-│   └── wallet/  # 直属2个文件
-│       ├── pages/  # 直属4个文件
-│       └── widgets/  # 直属4个文件
-├── .gitignore
-├── CitizenApp.md
-├── LICENSE
-├── README.md
-├── pubspec.lock
-└── pubspec.yaml
+citizenapp/
+├── pubspec.yaml、pubspec.lock、CitizenApp.md
+├── lib/                 # 启动、App生命周期、组合页；test收纳本App全部测试与测试入口
+├── account/             # pubspec.yaml + lib + test：身份、门禁、会员、资料、通知、业务客户端
+├── wallet/              # pubspec.yaml + lib + test：钱包UI与账户操作
+├── transaction/         # pubspec.yaml + lib + test + web：支付、清算、多签、充值与流水
+├── citizen/             # pubspec.yaml + lib + test：机构、提案、立法、管理员与升级
+├── 8964/                # pubspec.yaml + lib + test：广场内容与媒体
+├── chat/                # pubspec.yaml + lib + test：聊天产品接线
+├── network/             # pubspec.yaml + lib + test：公共传输、配置与编码
+├── scanner/             # pubspec.yaml + lib + test：扫码界面与公开导航端口
+├── storage/             # pubspec.yaml + lib + test：数据库实体与基础操作
+├── system/              # pubspec.yaml + lib + test：系统保护、主题、推送与更新
+├── widgets/             # pubspec.yaml + lib + test：通用组件
+├── assets/              # pubspec.yaml + test + 原资源目录：唯一资源包
+├── testing/             # pubspec.yaml + lib + test：仅开发依赖的公共测试设施
+├── ios/                 # project、source、square、tests及Podfile.lock
+├── android/             # app、square及tests
+├── scripts/             # 唯一build.mjs与config.mjs
+└── .github/             # 仓库声明及双端Workflow
 ```
 
-所属Workflow直接将既有原生源码复制到本轮target工程的工具标准路径，不再依赖平台输入模块。Logo只读取本仓assets/logo，源码、图标和已提交业务数据不在编译时生成。
+每包唯一test收纳该包各类测试、辅助与固定金标，不按类别创建空目录。lib/test/run.mjs读取真实workspace，调用Node回归、严格分析和全部包的Flutter测试；执行报告必须包含每个真实测试文件且无失败、跳过或缺失。lib/test/simulator_test.dart仅在显式设备组输入时调用所属测试的公开main入口，不复制用例，默认宿主运行不重复登记这些用例。Swift及Kotlin测试仍由各自平台tests拥有，设备执行结果单列。
 
-.github/tatalulu.yml只声明本仓身份；塔塔鹿鹿的保存、推送和远端main回查归控制台。产品编译与自动化仍须由各自入口实际执行。
+Flutter资源通过citizen_assets包限定键消费，原生图标由本仓assets/logo原件交付。充值HTML、JS及原npm声明/锁属于transaction/web，生成bundle只进入本轮工程。平台工程继续由产品唯一scripts/build.mjs装配到工具标准路径，不另建安装器或业务构建入口。
 
 ## 图标来源
 
@@ -236,7 +145,7 @@ SDK返回初始化需求及真实状态；App按该状态显示原页面。任�
 | E4 | 冷导入扫码只允许账户码；扫码、签名协议处理改由SDK | 恢复旧用户码/转账码冷导入分支，或删除其他用途原有码型 |
 | E5 | 钱包、轻节点必要SDK结果映射，不包括App业务迁出 | 把旧算法/金库/钱包核心随UI恢复，或以修复底层为由改UI |
 
-原创建页、导入页、create_wallet_flow、追加面板、BIP39输入直接取历史原件；旧wallet-password文件中的UI提取到现有lib/wallet/wallet_password.dart，不恢复旧package、pubspec或派生算法。第2步只使用任务卡逐项已批准的13个新增/恢复路径，不另建UI或协议实现文件。
+原创建页、导入页、create_wallet_flow、追加面板、BIP39输入直接取历史原件；旧wallet-password文件中的UI提取到现有wallet/lib/wallet_password.dart，不恢复旧package、pubspec或派生算法。第2步只使用任务卡逐项已批准的13个新增/恢复路径，不另建UI或协议实现文件。
 
 原创建成功后显示备份的顺序已确认保留：SDK准备、取得受控副本、真实commit成功后显示原弹窗，关闭后释放。原AlertDialog正文、按钮和布局不重写；后台/锁屏、页面退出或SDK目录归属变化清屏并拒绝迟到显示，提交成功后清屏不删除钱包。系统认证尚未显示秘密时的短暂inactive不误报退出。普通签名仍不向App交私钥。
 
@@ -277,7 +186,7 @@ SDK返回初始化需求及真实状态；App按该状态显示原页面。任�
 原多账户UI测试在获准同一路径恢复菜单顺序、六句点地址、默认标记几何、冷热同行、加载/重试和迟到刷新交错断言；旧WalletManager/金库/三段仓储夹具不恢复，改用严格SDK通道夹具及合成公开事实。纯UI断言与底层安全测试分属各自所有者，删除/清理/详情及本轮SDK接线回归已纳入原产品入口；运行结果只记录唯一任务卡，不能替代原生平台或后续真机验收。
 
 App的严格SDK测试通道按实际session/requestSequence关联预设错误；冲突、读取失败等原交互测试仍经过SDK生产错误验证，不用未关联异常冒充正确平台响应。夹具不访问设备、金库或真实钱包。
-既有HTTP、身份和请求证明回归共用test/support内的SDK测试生命周期接线，每用例独立初始化与归还；请求摘要仍来自当前真实Core，原接口/失败/重试/字段断言不变。用户码和扫码导航测试显式提供CitizenSdk Provider；像素/摄像若为UI替身必须逐用例声明，不能冒充真实二维码图像或设备验收。文章详情回归等待实际正文Widget加载，而不是对持续加载动画无限pumpAndSettle。源码边界回归同时要求原UI文件存在并调用SDK、旧钱包/金库/本机签名核心不存在，不能把恢复原页面误判为残留。
+既有HTTP、身份和请求证明回归共用testing/lib内的SDK测试生命周期接线，每用例独立初始化与归还；请求摘要仍来自当前真实Core，原接口/失败/重试/字段断言不变。用户码和扫码导航测试显式提供CitizenSdk Provider；像素/摄像若为UI替身必须逐用例声明，不能冒充真实二维码图像或设备验收。文章详情回归等待实际正文Widget加载，而不是对持续加载动画无限pumpAndSettle。源码边界回归同时要求原UI文件存在并调用SDK、旧钱包/金库/本机签名核心不存在，不能把恢复原页面误判为残留。
 
 原创建页惰性ListView的回归通过真实滚动找到底部按钮。钱包与账户重命名均应保留原showDialog及Widget，并等弹窗真实退场后释放文本控制器；这一要求必须分别验证两个分支，不能以冷钱包分支通过替代账户分支。扫码预览退出时同步发起订阅撤销与SDK关闭并等待全部完成，不能因串行取消监听延后设备关闭。地址按钮测试显式注入同一SDK能力，不恢复App扫码后台。
 滚动测试必须明确选择原ListView所属的外层Scrollable，不能把密码输入框自己的滚动节点也当作页面滚动；摄像资源更换回归须等待旧资源排空和新预览接管后的页面帧再检查退出归还，所有关闭/迟到断言仍保留。
@@ -339,7 +248,7 @@ iOS 正式包的扫码回归分别从交易页地址栏、我的钱包冷导入�
 
 ### wallet 余额唯一所有者
 
-`lib/wallet/account_balance_snapshot_store.dart` 统一公民 App 钱包余额的查询、校验、持久化、内存状态、并发合并、订阅和显示状态。本轮钱包范围为冷热钱包列表与详情、充值列、交易付款钱包与选择列表、零钱包及提现余额；多签、机构和其他业务账户不是本轮钱包改造对象。底层链证明仍由 CitizenSDK 负责。充值 total、交易 free 和 reserved 从同一 finalized 整数分快照读取，持久化和显示均保留整数分精度；清算行余额按 `account_id` 与 WSS 端点隔离。
+`wallet/lib/account_balance_snapshot_store.dart` 统一公民 App 钱包余额的查询、校验、持久化、内存状态、并发合并、订阅和显示状态。本轮钱包范围为冷热钱包列表与详情、充值列、交易付款钱包与选择列表、零钱包及提现余额；多签、机构和其他业务账户不是本轮钱包改造对象。底层链证明仍由 CitizenSDK 负责。充值 total、交易 free 和 reserved 从同一 finalized 整数分快照读取，持久化和显示均保留整数分精度；清算行余额按 `account_id` 与 WSS 端点隔离。
 
 普通进入页面先恢复持久快照，卡片出现即绑定同一账户内存状态，没有展示 TTL；首次缺失、主动刷新和交易前校验才发起查询。身份链查询和其它缺失账户的联网等待不阻塞已有余额。各钱包页面不另存金额、错误及刷新标志，未知显示占位而非零；刷新失败保留原成功值。并发同账户请求合并，迟到旧块不得覆盖新块，同高度不同 finalized 哈希拒绝写入。交易 finalized 后只更新落后快照，旧历史重放不重复查询。钱包删除已确认后先排空该账户在途读取并清理内存，持久数据仍由原账户清理流程删除。
 
@@ -428,7 +337,7 @@ D1   (Worker)        user / post / link / 计数聚合
 
 #### Worker接口
 
-请求及响应的唯一服务端合同见 /Users/rhett/citizenserve/CitizenServe.md；App由 /Users/rhett/citizenapp/lib/network/square_api_client.dart消费实际/api路径：
+请求及响应的唯一服务端合同见 /Users/rhett/citizenserve/CitizenServe.md；App由 /Users/rhett/citizenapp/account/lib/square_api_client.dart消费实际/api路径：
 
 - GET /api/8964/posts/self：本人已发布内容的原始manifest与链锚，用于本地同步，不读取媒体字节或增加浏览量。
 - GET /api/user/profiles/{cid_number}：完整资料与关系/内容计数；GET /api/user/cards/{cid_number}：最小名片。会员展示使用membergate_level和membergate_active。
@@ -437,11 +346,11 @@ D1   (Worker)        user / post / link / 计数聚合
 - 完整资料媒体使用 /api/user/profiles/{cid_number}/assets/{kind}，每次GET含Range/条件读取和失败重试均现签实际MLS证明。仅 /api/user/cards/{cid_number}/avatar 的名片头像沿普通Bearer会话例外，仍核验当前身份、设备及交付围栏。
 - GET /api/membergate返回当前会员快照；POST /api/membergate/confirm仅提交真实交易锚，可用include_state取得同合同快照。解析只接受现行membergate/membergate_active字段，读取失败保留原事实并报告错误，不接受旧字段别名。
 
-#### 前端结构（lib/account/profile）
+#### 前端结构（account/lib/profile）
 - `user_profile_page.dart`：`NestedScrollView + SliverAppBar(pinned) + CollapsibleHeader 直接作为 flexibleSpace + bottom:分类TabBar + TabBarView`；本人首屏只读持久资料与媒体，显式刷新复用资料和帖子同步入口。其他用户访问及主动操作仍由单个in-flight Future取得Session；远端帖子请求等待`sessionReady`，本人本地内容不依赖它。展开高度由头图、分类栏及`ProfileHeaderCard.requiredHeight`共同计算；固定区域按真实文字样式测量，不为异步会话预留纵向空间。
 - `collapsible_header.dart`：展开阶段由 `ImageFiltered` 对头图单图层渐进虚化（非全屏 `BackdropFilter`）并让资料主体淡出；完全折叠态另有一个固定覆盖“状态栏安全区 + 工具栏”的真实背景层，直接复用同一用户图片或稳定默认照片（本人图片由数据库重建临时展示文件），不参与强模糊、不依赖透明 Material 透出页面。折叠比例的最小高度必须包含 36px 分类栏，确保完全折叠时固定背景不透明度精确达到 1。分类栏继续为白底，返回和三点按钮保持既有深色圆形底衬。
 - `profile_header_card.dart`：圆角方形头像（用户图片优先；仅从未设置时显示稳定内置照片；已设置但暂不可读时显示中性占位）+ 身份徽章 + 公开昵称 + 独立“公民号”行 + 签名 + “互关、关注、关注者”三项关系计数 + 右上操作槽。三项统计按内容宽度紧凑连续排列，相邻项固定 18px；极窄大字体时整组保持一行并允许横向查看，不等比缩小、不拆列。互关点击进入互关列表；关注/取关仅在 `is_followed_by=true` 时同步增减互关数量，失败与关注者数量一起回滚。分类栏高 36px，显示“公文{数量}、竞选{数量}、视频{数量}、文章{数量}”，名称 16px/w700，花括号数量 11px/w400/次级色；按复合文字实宽计算左外侧、三段内部、右外侧共五段相等空隙。统计文字到分类文字的实际视觉间距始终为 15px。主页不展示 SS58、AccountId 或地址复制入口；公民号使用页面路由身份真源且不提供复制按钮。资料模型仍保留规范 `account_id`，供签名、授权和用户码使用。
-- `profile_action_icons.dart` + `lib/account/creator/creator_subscribe_button.dart`：本人主页不显示关系操作；他人主页操作顺序固定为“可选订阅、通知、私信、关注”。创作者有有效计划才显示一个 34px 高的紧凑“订阅”入口，固定在通知左侧；无计划、加载中或链读失败完全不占位。已订阅的更换档位和取消操作收进二级面板，不能在主页展开成两枚按钮或改变纵向高度。
+- `profile_action_icons.dart` + `account/lib/creator/creator_subscribe_button.dart`：本人主页不显示关系操作；他人主页操作顺序固定为“可选订阅、通知、私信、关注”。创作者有有效计划才显示一个 34px 高的紧凑“订阅”入口，固定在通知左侧；无计划、加载中或链读失败完全不占位。已订阅的更换档位和取消操作收进二级面板，不能在主页展开成两枚按钮或改变纵向高度。
 - `profile_kebab_menu.dart`：`⋮` 用户码（→ `user_qr_page.dart`）/编辑资料(self-only)/注销用户(self-only)；产品不提供举报功能。
 - `user_qr_page.dart`：用户主页 `⋮ → 用户码` 与“我的”背景图右上角图标复用同一页，传入当前
   `cid_number + display_name + account_id`，生成严格
@@ -452,7 +361,7 @@ D1   (Worker)        user / post / link / 计数聚合
   系统文字倍率和图标内边距共同计算，必须满足“可见二维码顶部 ≥ 标题文字底部”。横向中心
   继续与下方资料卡右箭头对齐。
 - `profile_category_tabs.dart` + `profile_posts_list.dart`：公文/竞选/视频/文章四个互斥 Tab；“公文”是产品展示名称，底层仍使用 `posts`、normal + normal + `has_video=false`，包含纯文字和图片动态。视频传 normal + normal + `has_video=true` 并从返回动态派生视频网格，文章传 normal + article，竞选传 campaign。本人Tab始终按页面CID和分类读取本地副本，会话变化不触发远端补查；当前内容在读取失败时保留。主动下拉先调用同步协调器，成功提交后重读本地。其他用户Tab不访问本人私有副本，远端请求等待会话解析完成。内容请求未完成时保留主页头部、分类栏与当前内容区域，仅在顶部显示细进度和“正在读取内容”，禁止用圆形转圈替换当前 Tab。`didUpdateWidget` 统一监听 Session、CID 与过滤契约变化并重置分页；加载代际阻止旧响应覆盖新状态，401 最多刷新一次 Session，空态/失败态可下拉重试。
-- 广场发布已合并为**统一发布页** `lib/8964/compose/`（home `_openCompose` 直进，不再底部分流）：
+- 广场发布已合并为**统一发布页** `8964/lib/compose/`（home `_openCompose` 直进，不再底部分流）：
   - `compose_page.dart` 壳：顶栏 取消/草稿/发布（去中间标题）、头像+**类型下拉**（普通 2 项动态/文章、
     认证公民 4 项加竞选动态/竞选文章）、IndexedStack 挂 动态/文章子编辑区、底部会员额度、发布协调
     （按类型取 `collect()` 载荷→门禁→`SquarePublishService.publish`；编辑经 initial* + replace_id 预填）。
@@ -462,11 +371,11 @@ D1   (Worker)        user / post / link / 计数聚合
     插入横屏图片块；紧凑首图（计数右侧小加号→小缩略✕），不显示大封面。校验/常量/拍平在
     `article_blocks.dart`（`buildArticleManifest`：内联图追加到首图后、块以 media_index 引用）。
   - 链上仍发 normal/campaign；manifest 标 `content_format=article`+`title`+**`content_blocks`**（文章正文图文块）。
-    发布编排与媒体草稿构造分别归 `lib/8964/compose/square_publish_service.dart`、`lib/8964/media/square_media_draft.dart`。
+    发布编排与媒体草稿构造分别归 `8964/lib/compose/square_publish_service.dart`、`8964/lib/media/square_media_draft.dart`。
   - **内联图文全链路**：manifest `content_blocks` → Worker `posts/confirm.ts`（`buildFeedPostItem` 从 manifest
     读出回传，无 DB 迁移）→ Flutter `SquarePost.contentBlocks`（`parseArticleContentBlocks`）→ 文章详情
     `square_article_detail_page` 按块渲染（内联图恒横屏），旧文章无块降级纯文本+扁平配图。
-  - **草稿箱** `lib/8964/compose/`：正文、文章结构与媒体数据库标识持久化，媒体实际字节属于
+  - **草稿箱** `8964/lib/compose/`：正文、文章结构与媒体数据库标识持久化，媒体实际字节属于
     SocialIsar。选中即完整入库，处理/编辑预览使用可再生临时文件；JSON 不保存文件路径。
     列表按更新时间倒序纯读，未发布草稿不按数量淘汰；用户恢复旧文件草稿时逐条验证归属和
     完整性，入库提交后才清理旧文件。发布前保存快照，发布中及恢复中的快照禁止覆盖；发布成功
@@ -477,11 +386,11 @@ D1   (Worker)        user / post / link / 计数聚合
   稳定本地昵称和头像，副标题只显示完整公民号。
 - `profile_edit_page.dart`：`CitizenProfileEditPage` 公开昵称/签名/头像/背景编辑；保存上传 R2 + `PUT /profile`，不得读取或重命名本机钱包；旧格式读取失败保留原记录，显式安全擦除仍处理原目录。
 - `profile_presentation.dart`：唯一展示解析器；公开昵称只接受 `display_name`，优先以 `cid_number` 做 FNV-1a 稳定分桶，从内置词库与 `assets/profiles/` 11 张照片中选择默认昵称、头像和背景。头像与背景使用不同盐值且避免同图；任何钱包名、完整或截断账户都不能成为公开昵称。
-- `citizen_profile.dart`、`citizen_profile_api.dart`、`citizen_profile_cache.dart`、`profile_asset_service.dart`；会话协调归 `lib/account/identity/square_session_provider.dart`。
-- 私聊入口统一使用 `lib/chat/chat_entry.dart` 的 `openDirectChat()`。通讯录、聊天、广场作者、关注/关注者/互关列表全部进入同一个 `UserProfilePage`；联系人只保存私人名称和账户，不再维护联系人详情或公开资料副本。
+- `citizen_profile.dart`、`citizen_profile_api.dart`、`citizen_profile_cache.dart`、`profile_asset_service.dart`；会话协调归 `account/lib/identity/square_session_provider.dart`。
+- 私聊入口统一使用 `chat/lib/chat_entry.dart` 的 `openDirectChat()`。通讯录、聊天、广场作者、关注/关注者/互关列表全部进入同一个 `UserProfilePage`；联系人只保存私人名称和账户，不再维护联系人详情或公开资料副本。
 - `profile_avatar.dart` 是用户主页、“我的”、通讯录、广场、聊天和关注列表共用的圆角方形头像、用户图片状态和身份徽章唯一 UI 实现，禁止各入口复制一套头像规则。“我的”头部头像与用户主页统一为 80 逻辑像素；由于“我的”头像没有主页的 4 像素边框，调用时用可配置外溢量补偿边框占位，使徽章同样明确超出头像右下边界，而不改变其它入口的默认位置。
 
-#### 广场 feed 卡片（lib/8964/feed；媒体组件归lib/8964/media）
+#### 广场 feed 卡片（8964/lib/feed；媒体组件归8964/lib/media）
 - 六类（图片/视频/文章 × 普通/竞选）共用统一版式；竞选与普通**媒体布局一致**，只靠身份表达区分。
 - `square_post_header.dart`（图文/文章卡共用作者头部）：**圆角方形头像（真实图片优先、缺失/失败回落稳定本地照片）+ 右下角扇贝徽章**（复用 `ProfileAvatar`；无有效会员时按竞选红/投票蓝/访客金显示身份小人，有效会员按自由金/民主蓝/薪火红显示白色对勾，布局同主页头像）；昵称后**只有竞选公民**显示红色"竞选"药丸；副标题**只有竞选公民**显示岗位（`post.campaignPosition` 有值时 `岗位 · 时间`，否则只时间）；右上更多按钮 `CrossAxisAlignment.start` 贴上边缘。
 - `square_media_grid.dart`（`SquareMediaGrid` + 共享 `SquareMediaTile`）：横竖屏由 `mediaItems.first.isPortrait`（媒体原始pixelWidth/pixelHeight，缺失按横屏兜底）决定。1图/视频=横屏 16:9 / 竖屏 3:4 单块；2图/3图以上=只出前两张、左右各半、**外侧圆角+中缝直角+2px 缝**（容器比例横 2:1、竖 3:2 使左右图为 1:1/3:4），3图以上第二张**右下角 `+N`**（N=总数-2）；视频叠播放键、冷归档态占位。
@@ -536,7 +445,7 @@ D1   (Worker)        user / post / link / 计数聚合
 
 唯一入口保持startCidRegistrationFlow和同一showRegisterIdentitySheet，所有注册引导复用它。点击「确认注册」后先弹出Cloudflare验证，登记使用已有账户、公民/居民类型和链环境；不在验证前计算或提交CID，不新增CID准备阶段或冻结CID年份。CitizenServe保存human_verified后，继续现有费用检查，并调用原有MyIdService.registerAnonymousCid执行既有注册；载荷准备、钱包签名、上链和finalized核验保持原位。真实CID以原注册完成后的finalized结果为准。
 
-目标顺序：点击「确认注册」→Cloudflare验证→CitizenServe保存通过结果→执行现有钱包签名、上链和最终性确认，完成原有CID注册→MLS设备授权和激活→开放账户服务。原入口为`/Users/rhett/citizenapp/lib/account/identity/register_identity_flow.dart`；原注册内部实现为`/Users/rhett/citizenapp/lib/account/identity/myid_service.dart`和`/Users/rhett/citizenapp/lib/account/identity/citizen_identity_transaction.dart`。本任务只在原注册前增加验证门槛，不将原有CID计算前移或拆成新步骤。
+目标顺序：点击「确认注册」→Cloudflare验证→CitizenServe保存通过结果→执行现有钱包签名、上链和最终性确认，完成原有CID注册→MLS设备授权和激活→开放账户服务。原入口为`/Users/rhett/citizenapp/account/lib/identity/register_identity_flow.dart`；原注册内部实现为`/Users/rhett/citizenapp/account/lib/identity/myid_service.dart`和`/Users/rhett/citizenapp/account/lib/identity/citizen_identity_transaction.dart`。本任务只在原注册前增加验证门槛，不将原有CID计算前移或拆成新步骤。
 
 | 本机阶段 | 动作与呈现 | 失败后的续办 |
 |---|---|---|
@@ -627,7 +536,7 @@ CitizenApp 的总目标是 `5+2`：
 #### 2. SocialIsar
 
 - 文件名：`citizenapp_social`
-- 源码：`citizenapp/lib/storage/social_isar.dart`
+- 源码：`citizenapp/storage/lib/social_isar.dart`
 - 生命周期：`active → closing → closed`
 - 独立资源：数据库文件、schema、打开任务、generation、串行操作队列和关闭终态
 - 同域重入：SocialIsar 回调内再次进入 SocialIsar 立即抛错，禁止形成同域自锁
@@ -651,7 +560,7 @@ CitizenApp 的总目标是 `5+2`：
 
 ##### 2.1 媒体数据库基础（第一步）
 
-- 唯一业务入口：`lib/8964/media/square_media_store.dart`；图片、视频、封面均以字节
+- 唯一业务入口：`8964/lib/media/square_media_store.dart`；图片、视频、封面均以字节
   分块存入数据库，不将 URL、应用缓存或外部文件当成已持久保存的媒体。
 - 描述唯一键为 `(cid_number, body_hash)`；分块唯一键为
   `(cid_number, body_hash, part_index)`。内容槽位使用真实内容、顺序及用途字段，
@@ -673,7 +582,7 @@ CitizenApp 的总目标是 `5+2`：
   尚未持久落盘的成功返回作为后续清理媒体来源的依据。
 - 第二步通过流式来源导入、草稿事务引用及发布收尾复用本入口；第四步接入显式远端历史媒体恢复，
   第五步接入图片和受保护临时文件视频播放。已有帖子与草稿集合不改名、不清表，不把没有媒体字节的旧帖伪标为完整。
-- 新增 `test/square/square_media_store_test.dart` 覆盖重开数据库、断点恢复、跨块与尾块、
+- 新增 `8964/test/square_media_store_test.dart` 覆盖重开数据库、断点恢复、跨块与尾块、
   幂等、描述冲突、块损坏/缺失/额外、整体哈希错误、非法范围、按 CID 隔离、引用保护及并发。
   按分步约定，测试代码先同步，所有步骤修改完成后统一运行回归与真机验收。
 
@@ -791,7 +700,7 @@ CitizenApp 的总目标是 `5+2`：
   签名时绑定精确字节数、内容类型、不可变缓存头和 SHA-256，complete 阶段从
   R2 HEAD 回读整对象 checksum、元数据与大小后才保存就绪状态。
 
-本地规则、批次、上传和发布契约由 `test/square` 持续验收；正式双端安装、
+本地规则、批次、上传和发布契约由 `8964/test` 持续验收；正式双端安装、
 硬件 HEVC 与真机媒体行为必须以当次签名 Release 真机回读为准，不得复用历史编译
 或历史设备结果冒充当前验收。
 
@@ -821,7 +730,7 @@ CitizenApp 的总目标是 `5+2`：
   预签名 PUT 走独立 S3 端点，不受该公开读取规则影响。
 
 当前验收口径：Worker 必须通过生成类型零差异、TypeScript 检查、全量测试、
-真实本地 D1/R2/KV Worker 验收和 D1 查询计划检查；Flutter 必须通过 `test/square`
+真实本地 D1/R2/KV Worker 验收和 D1 查询计划检查；Flutter 必须通过 `8964/test`
 与静态分析。生产 D1 已按用户确认直接删除重建，WAF、媒体缓存规则、TLS 与 R2 令牌桶范围
 已收敛；当前仍未获准提交、推送或正式发布，生产 Worker 短配置名切换与新 schema 业务验收
 必须等待后续发布，不得以健康端点 200 冒充完整业务验收。
@@ -840,18 +749,18 @@ Worker 的 Cloudflare 绑定类型只允许由项目锁定的 Wrangler 生成：
 `citizenapp` 是 Flutter 客户端，不区分传统前端 / 后端，不新建 `backend/`。个人多签管理员更换作为一级业务模块放在：
 
 ```text
-<本仓根>/lib/citizen/administrators/
+<本仓根>/citizen/lib/administrators/
 ```
 
 边界：
 
 - 不新建 `citizenapp/backend/`。
-- 需要从统一提案入口跳转时，只在入口处引用 `lib/citizen/administrators/admin_set_change_page.dart`。
+- 需要从统一提案入口跳转时，只在入口处引用 `citizen/lib/administrators/admin_set_change_page.dart`。
 
 #### 目录结构
 
 ```text
-citizenapp/lib/citizen/administrators/
+citizenapp/citizen/lib/administrators/
 ├── account_id_codec.dart
 ├── admin_account.dart
 ├── admin_account_card.dart
@@ -875,7 +784,7 @@ citizenapp/lib/citizen/administrators/
 测试目录：
 
 ```text
-citizenapp/test/citizen/administrators/
+citizenapp/citizen/test/administrators/
 ├── admins_change_codec_test.dart
 └── institution_admin_service_test.dart
 ```
@@ -893,12 +802,12 @@ citizenapp/test/citizen/administrators/
 
 #### 主体身份与查询门面
 
-`<本仓根>/lib/citizen/administrators/admin_account.dart` 定义 `AdminAccountIdentity`；`AdminAccountIdentityType` 包含两种主体，调用方通过对应工厂或 `fromInstitution` 显式构造：
+`<本仓根>/citizen/lib/administrators/admin_account.dart` 定义 `AdminAccountIdentity`；`AdminAccountIdentityType` 包含两种主体，调用方通过对应工厂或 `fromInstitution` 显式构造：
 
 - `institution`：固定治理、公权、私权及非法人机构统一使用机构主体，以 `cid_number` 标识。公权 `kind=0`，私权 `kind=1`；非法人机构须显式传入所属法人的 `kind=0` 或 `kind=1`。
 - `personalAccount`：个人多签主体，以 `account_id` 标识，个人多签码（PMUL），`kind=2`。
 
-`<本仓根>/lib/citizen/administrators/institution_admin_service.dart` 是查询门面，但不接收模糊字符串身份；所有 `fetchAdmins / fetchThreshold / isAdmin / clearCache` 调用都必须传 `AdminAccountIdentity`。按单一字符串混用个人、机构、治理主体的入口不存在。
+`<本仓根>/citizen/lib/administrators/institution_admin_service.dart` 是查询门面，但不接收模糊字符串身份；所有 `fetchAdmins / fetchThreshold / isAdmin / clearCache` 调用都必须传 `AdminAccountIdentity`。按单一字符串混用个人、机构、治理主体的入口不存在。
 
 非法人机构码（`SFGT/SFGP/UNIN`）不是私权同义词。调用方必须从 CID 注册归属或链上 `AdminAccount.kind` 显式传入 `kind=0`（公权）或 `kind=1`（私权）；不得只凭机构码自动归入 `PrivateAdmins`。`OrganizationManage.propose_create_institution` 当前只直接创建公权法人或私权法人机构账户，裸非法人创建会被端上和链端拒绝。
 
@@ -924,7 +833,7 @@ Admin = [account_id:AccountId32][family_name:Compact<Vec<u8>>][given_name:Compac
 
 #### 管理员激活
 
-管理员激活服务位于 `<本仓根>/lib/citizen/administrators/admin_activation_service.dart`。机构管理员列表和提案上下文只引用该服务，不再从 `lib/institution/` 承载激活逻辑。
+管理员激活服务位于 `<本仓根>/citizen/lib/administrators/admin_activation_service.dart`。机构管理员列表和提案上下文只引用该服务，不再从 `lib/institution/` 承载激活逻辑。
 
 激活记录使用 `activated_institution_admins`，只保存
 `cid_number / institution_code / kind / account_id / activated_at_ms`；查询、去重和清理统一按
@@ -940,7 +849,7 @@ Admin = [account_id:AccountId32][family_name:Compact<Vec<u8>>][given_name:Compac
 - 机构详情的管理员名册、当前钱包角色/激活、余额和提案独立加载；名册仅有一个写入入口，首次加载/失败不显示0人，完整成功的空集合才显示0。失败保留旧名单，重新进入沿唯一入口重读；不增加管理员或岗位刷新、重试按钮，旧请求不得覆盖新结果。权限重查或失败时撤销旧操作状态，人员展示不授予业务权限。
 - `InstitutionAdminService` 将管理员人员真源与 entity 岗位任职做左连接；人员与任职的 `account_id` 统一为小写 `0x` 加64位十六进制。岗位展示只依赖人员名册，不等待治理阈值；岗位目录、任职的全部分页与批取固定到同一个 finalized 块。管理员可以没有岗位，同一管理员也可展示多个岗位；完整权限入口仍要求阈值读取成功。
 - 岗位读取失败保留人员，内部保留资料未核实事实；共用人员卡不显示“岗位信息暂不可用”、刷新或重试控件，也不把失败显示为“暂无岗位”。只有完整读取后的空任职集合才显示“岗位：暂无岗位”；未核实的旧任职不展示。非法主体及人员读取失败不伪造空集合。
-- 机构管理员列表和公开机构管理员列表统一使用 `<本仓根>/lib/citizen/institution/institution_assignment_card.dart`；姓名只在 UI 中按中文顺序合并显示，同时展示账户、岗位、任期、来源和余额。
+- 机构管理员列表和公开机构管理员列表统一使用 `<本仓根>/citizen/lib/institution/institution_assignment_card.dart`；姓名只在 UI 中按中文顺序合并显示，同时展示账户、岗位、任期、来源和余额。
 - 个人多签仍由独立 `AdminAccount` 布局和个人管理员集合页面处理；`PersonalAdmins.propose_admin_set_change` 是 CitizenApp 唯一保留的管理员集合变更调用，公权/私权机构不得从客户端直接改写管理员集合。
 
 #### 2026-05-10 修复记录
@@ -966,7 +875,7 @@ CitizenApp 只依赖一个聊天客户端产品 tatachat_sdk。消息链路固�
 
 #### CitizenApp 所有权
 
-现有 `lib/chat/` 就是 CitizenApp 的聊天模块，不是第二个产品或另建的“聊天集成模块”。该目录只
+现有 `chat/lib/` 就是 CitizenApp 的聊天模块，不是第二个产品或另建的“聊天集成模块”。该目录只
 保留四个聊天文件：
 
 - chat_entry.dart：拥有聊天 Tab、入口和公民资料标题、联系人、转账、扫码等聊天页面内的产品展示与动作；私聊、群聊直接走 SDK 路由。
@@ -975,10 +884,10 @@ CitizenApp 只依赖一个聊天客户端产品 tatachat_sdk。消息链路固�
 - chat_product_configuration.dart：只把通用应用推送映射为 TataChatSDK `ChatPushBridge`，保存无内容
   聊天唤醒并清理当前会话通知；不拥有 Firebase 配置或非聊天通知。
 
-CID、当前用户、公开身份绑定与CitizenServe登录会话由 `lib/account/identity/` 拥有，会员与聊天附件权益事实由 `lib/account/membership/` 拥有，
-App系统保护记录由 `lib/system/security/` 拥有，请求证明和公共 HTTP 客户端由
-`lib/network/` 拥有。聊天模块只能调用这些公开接口，禁止复制状态或把它们
-放回 `lib/chat/`。
+CID、当前用户、公开身份绑定与CitizenServe登录会话由 `account/lib/identity/` 拥有，会员与聊天附件权益事实由 `account/lib/membership/` 拥有，
+App系统保护记录由 `system/lib/security/` 拥有，请求证明和公共 HTTP 客户端由
+`network/lib/` 拥有。聊天模块只能调用这些公开接口，禁止复制状态或把它们
+放回 `chat/lib/`。
 
 iOS 与 Android 原生代码只保留产品平台桥接：App自有系统文件保护、通知展示和清除及独立 TataChatSDK 二进制接入；聊天备份排除由SDK插件实现。它们不得实现聊天协议、OpenMLS、消息存储、邮箱或传输。
 
@@ -1037,14 +946,14 @@ CitizenApp 聊天域 analyze 为零问题、140 项通过。唯一旧包装断�
 > 机构分类唯一真源 = CID 机构码（institution_code），见 [[ADR-025]]。
 
 > 当前目录归属：机构模块按机构管理与交易业务分工——
-> ① 机构身份/账户/管理员**只读**链访问 + ADR-028 统一机构模型 = `lib/citizen/institution/`(原 `lib/transaction/organization-manage/` 已删,服务改名 `InstitutionChainService`,storage 前缀经 `InstitutionPalletRouter` 路由 PublicManage(30)/PrivateManage(31),取代 OrganizationManage);
-> ② 多签转账(公私个共用)= `lib/transaction/multisig/`(原 `lib/citizen/transaction/`);
-> ③ 机构(公权+私权)创建/关闭已收归 onchina 塔塔控制台 + 冷钱包,citizenapp 不再发起;个人多签管理留 `lib/transaction/personal/`。
+> ① 机构身份/账户/管理员**只读**链访问 + ADR-028 统一机构模型 = `citizen/lib/institution/`(原 `lib/transaction/organization-manage/` 已删,服务改名 `InstitutionChainService`,storage 前缀经 `InstitutionPalletRouter` 路由 PublicManage(30)/PrivateManage(31),取代 OrganizationManage);
+> ② 多签转账(公私个共用)= `transaction/lib/multisig/`(原 `lib/citizen/transaction/`);
+> ③ 机构(公权+私权)创建/关闭已收归 onchina 塔塔控制台 + 冷钱包,citizenapp 不再发起;个人多签管理留 `transaction/lib/personal/`。
 > 下方带日期的旧机构创建、关闭及 OrganizationManage 记录属于历史阶段；当前入口与文件以本节当前归属及文首清单为准。
 
 #### 1. 模块目标
 
-`lib/citizen/` 负责 CitizenApp 底部“公民”Tab 及链上治理能力，覆盖：
+`citizen/lib/` 负责 CitizenApp 底部“公民”Tab 及链上治理能力，覆盖：
 
 - 提案（proposal）发起
 - 投票（vote）提交
@@ -1055,9 +964,9 @@ CitizenApp 聊天域 analyze 为零问题、140 项通过。唯一旧包装断�
 - 本文档定义的是“链上字段/格式/标准/流程”。
 - 当前 App 已接入 runtime 升级、转账等主要治理路径，本文同时作为现有实现与后续扩展的对齐基线。
 
-当前治理实现位于`lib/citizen/`：`governance`负责治理入口，`institution`负责机构模型与链访问，`proposal`负责统一提案入口及内部投票，`legislation`负责法律阅读与立法投票，`administrators`和`runtime`分别承载管理员变更与运行时升级。个人、多签及其它交易入口归`lib/transaction/`。完整当前目录见本文开头的三级目录清单。
+当前治理实现位于`citizen/lib/`：`governance`负责治理入口，`institution`负责机构模型与链访问，`proposal`负责统一提案入口及内部投票，`legislation`负责法律阅读与立法投票，`administrators`和`runtime`分别承载管理员变更与运行时升级。个人、多签及其它交易入口归`transaction/lib/`。完整当前目录见本文开头的三级目录清单。
 
-机构管理能力归`lib/citizen/institution/`，个人多签管理归`lib/transaction/personal/`，公私个共用多签转账归`lib/transaction/multisig/`。统一发起提案入口仍在`lib/citizen/proposal/`，按`ProposalSubject + ProposalCapabilityRegistry`判断展示能力。
+机构管理能力归`citizen/lib/institution/`，个人多签管理归`transaction/lib/personal/`，公私个共用多签转账归`transaction/lib/multisig/`。统一发起提案入口仍在`citizen/lib/proposal/`，按`ProposalSubject + ProposalCapabilityRegistry`判断展示能力。
 
 治理页本地状态边界：
 
@@ -1364,7 +1273,7 @@ propose_sweep_to_main / propose_relay_submitters` 四项治理 Call。新清算�
 
 ##### 7.1.1 个人多签管理员更换协议
 
-- 目录边界：`lib/citizen/administrators/` 只承接个人多签管理员集合变更；机构创建、注销和个人多签生命周期仍归各自 entity 业务。
+- 目录边界：`citizen/lib/administrators/` 只承接个人多签管理员集合变更；机构创建、注销和个人多签生命周期仍归各自 entity 业务。
 - 主体规则：只接受 `PersonalAccount + PMUL`；公权、私权、固定治理和非法人机构一律拒绝进入该流程。
 - call data：`[PersonalAdmins pallet][propose_admin_set_change call][institution_code=PMUL][account_id:32][admins:Compact<Vec<Admin>>][new_threshold:u32_le]`，每个 `Admin` 按 `account_id + family_name + given_name` 编码。
 - 个人多签动态阈值校验为 `threshold * 2 > admins_len && threshold <= admins_len`。
@@ -1442,11 +1351,11 @@ updated_at`。这些字段只用于列表展示和首屏恢复，不作为链上
 
 | 层 | 说明 | 文件 |
 | --- | --- | --- |
-| 新区块通知 | 消费 `CitizenSdkFinalizedBlockChanged`，对提案索引检查做 60 秒节流 | `lib/citizen/proposal/proposal_tab.dart` |
-| 本地持久化读库 | `LocalProposalSummary` + 机构索引持久化，App 重启后可复用摘要；公民-提案可见范围实时过滤 | `lib/citizen/proposal/proposal_local_store.dart` |
-| 本地内存缓存 | ProposalMeta / TransferProposalInfo / RuntimeUpgradeProposalInfo 缓存，避免同一会话重复 RPC | `lib/citizen/proposal/proposal_cache.dart` |
+| 新区块通知 | 消费 `CitizenSdkFinalizedBlockChanged`，对提案索引检查做 60 秒节流 | `citizen/lib/proposal/proposal_tab.dart` |
+| 本地持久化读库 | `LocalProposalSummary` + 机构索引持久化，App 重启后可复用摘要；公民-提案可见范围实时过滤 | `citizen/lib/proposal/proposal_local_store.dart` |
+| 本地内存缓存 | ProposalMeta / TransferProposalInfo / RuntimeUpgradeProposalInfo 缓存，避免同一会话重复 RPC | `citizen/lib/proposal/proposal_cache.dart` |
 | 批量查询 | `state_queryStorageAt` 一次 RPC 查多个 key，减少网络往返 | `chain_rpc.dart::fetchStorageBatch` |
-| 分页加载 | 首屏 10 个，ScrollController 滚动触底加载更多 | `lib/citizen/proposal/proposal_tab.dart` |
+| 分页加载 | 首屏 10 个，ScrollController 滚动触底加载更多 | `citizen/lib/proposal/proposal_tab.dart` |
 
 **数据流**：读取当前钱包订阅机构 CID → 从当前年提案缓存中过滤默认机构码和 `subject_cid_numbers` 命中的提案 → 首屏 10 条批量查询详情和上下文 → 写回本地摘要和内存缓存 → 新区块后台节流检查，有新提案再插入顶部。
 
@@ -1472,7 +1381,7 @@ updated_at`。这些字段只用于列表展示和首屏恢复，不作为链上
 | 联合公投 | 钱包具备链上投票资格 | ⏭️ 后期 |
 | 机构联合投票 | 钱包属于当前机构的岗位有效选民快照，且尚未对本机构投票 | ✅ 已实现 |
 
-关键文件：`lib/citizen/proposal/proposal_tab.dart`
+关键文件：`citizen/lib/proposal/proposal_tab.dart`
 
 ##### 7.3 权限控制规则
 
@@ -1533,7 +1442,7 @@ governance 侧只允许保留通用提案列表、机构详情页挂载点、投
 通过 `Keyring().encodeAddress(bytes, 2027)` 转为 SS58 地址展示。
 
 
-治理机构列表页（`lib/citizen/governance/governance_tab.dart`）只负责本机展示顺序：
+治理机构列表页（`citizen/lib/governance/governance_tab.dart`）只负责本机展示顺序：
 页面不重复显示“治理机构”标题；顶部固定一行两列等宽、等高卡片，左侧入口显示
 《公民链白皮书》，标题固定单行且空间不足时等比缩小，不得换行或截断；入口使用缩小后的
 书本图标和标题，右侧国家储委会把机构图标放在卡片内部左侧，视觉结构参照
@@ -1589,27 +1498,27 @@ governance 侧只允许保留通用提案列表、机构详情页挂载点、投
 
 | 文件 | 说明 |
 | --- | --- |
-| `lib/citizen/citizen_tab_page.dart` | 公民 Tab 二级导航入口（投票 / 治理 / 机构） |
-| `lib/citizen/proposal/proposal_tab.dart` | 投票二级页，全局治理提案列表与待投票红点 |
+| `citizen/lib/citizen_tab_page.dart` | 公民 Tab 二级导航入口（投票 / 治理 / 机构） |
+| `citizen/lib/proposal/proposal_tab.dart` | 投票二级页，全局治理提案列表与待投票红点 |
 | `CitizenSdk.events` | SDK 已验证 finalized block 事件；App 不建立节点重连器 |
-| `lib/citizen/institution/institution_info.dart + lib/citizen/institution/governance_registry.dart` | 治理机构静态注册表 + `findInstitutionByCidNumber` 反查 + `formatProposalId` 格式化 |
-| `lib/citizen/institution/governance_registry.generated.dart` | 从 runtime primitives 生成的治理机构身份 ID 与制度账户 |
-| `lib/citizen/reserved_account_names.dart + account_derivation.dart` | 七个机构保留账户名与名称到协议 `op_tag` 的统一派生路由 |
-| `lib/citizen/institution/institution_accounts.dart` | 统一构造固定治理账户、协议附加账户和普通命名账户的展示行 |
-| `lib/citizen/administrators/institution_admin_service.dart` | 机构管理员只读门面：联合读取 admins 钱包集合与 entity 岗位任职 |
-| `lib/citizen/institution/institution_detail_page.dart` | 统一机构详情页（管理员检测 + 账户信息内联展开 + 条件 UI + 投票事件列表） |
-| `lib/citizen/proposal/proposal_context.dart` | 用户与提案关系解析（管理员 / 公民 / 查看者） |
-| `lib/citizen/proposal/proposal_models.dart` | 多提案共用模型（ProposalMeta / ProposalWithDetail 等） |
-| `lib/citizen/proposal/internal_vote_service.dart` | 多提案共用内部投票提交服务 |
-| `lib/citizen/proposal/proposal_vote_widgets.dart` | 多提案共用投票 UI 组件 |
-| `lib/citizen/proposal/institution_manage_detail_page.dart` | 跨个人/机构的多签管理提案详情页 |
-| `lib/citizen/proposal/proposal_entry_page.dart` | 统一提案类型选择页 |
-| `lib/citizen/runtime/runtime_upgrade_page.dart` | 协议升级说明页（不发起提案、不选择 WASM、不获取人口快照） |
-| `lib/citizen/runtime/runtime_upgrade_detail_page.dart` | 协议升级提案详情页（联合投票/联合公投进度） |
-| `lib/citizen/runtime/runtime_upgrade_service.dart` | 协议升级提案链上交互服务 |
-| `lib/citizen/institution/institution_admin_list_page.dart` | 机构管理员列表页：按钱包聚合岗位、任期、来源和余额 |
-| `lib/citizen/institution/` | 当前机构只读身份、账户、岗位与详情；机构创建、关闭不由本端发起 |
-| `lib/transaction/personal/` | 个人多签层（个人列表、详情、发现、创建、关闭、管理员激活、提案历史、PersonalAdmins 链上编解码） |
+| `citizen/lib/institution/institution_info.dart + citizen/lib/institution/governance_registry.dart` | 治理机构静态注册表 + `findInstitutionByCidNumber` 反查 + `formatProposalId` 格式化 |
+| `citizen/lib/institution/governance_registry.generated.dart` | 从 runtime primitives 生成的治理机构身份 ID 与制度账户 |
+| `citizen/lib/reserved_account_names.dart + account_derivation.dart` | 七个机构保留账户名与名称到协议 `op_tag` 的统一派生路由 |
+| `citizen/lib/institution/institution_accounts.dart` | 统一构造固定治理账户、协议附加账户和普通命名账户的展示行 |
+| `citizen/lib/administrators/institution_admin_service.dart` | 机构管理员只读门面：联合读取 admins 钱包集合与 entity 岗位任职 |
+| `citizen/lib/institution/institution_detail_page.dart` | 统一机构详情页（管理员检测 + 账户信息内联展开 + 条件 UI + 投票事件列表） |
+| `citizen/lib/proposal/proposal_context.dart` | 用户与提案关系解析（管理员 / 公民 / 查看者） |
+| `citizen/lib/proposal/proposal_models.dart` | 多提案共用模型（ProposalMeta / ProposalWithDetail 等） |
+| `citizen/lib/proposal/internal_vote_service.dart` | 多提案共用内部投票提交服务 |
+| `citizen/lib/proposal/proposal_vote_widgets.dart` | 多提案共用投票 UI 组件 |
+| `citizen/lib/proposal/institution_manage_detail_page.dart` | 跨个人/机构的多签管理提案详情页 |
+| `citizen/lib/proposal/proposal_entry_page.dart` | 统一提案类型选择页 |
+| `citizen/lib/runtime/runtime_upgrade_page.dart` | 协议升级说明页（不发起提案、不选择 WASM、不获取人口快照） |
+| `citizen/lib/runtime/runtime_upgrade_detail_page.dart` | 协议升级提案详情页（联合投票/联合公投进度） |
+| `citizen/lib/runtime/runtime_upgrade_service.dart` | 协议升级提案链上交互服务 |
+| `citizen/lib/institution/institution_admin_list_page.dart` | 机构管理员列表页：按钱包聚合岗位、任期、来源和余额 |
+| `citizen/lib/institution/` | 当前机构只读身份、账户、岗位与详情；机构创建、关闭不由本端发起 |
+| `transaction/lib/personal/` | 个人多签层（个人列表、详情、发现、创建、关闭、管理员激活、提案历史、PersonalAdmins 链上编解码） |
 | `CitizenChain` | 类型化 finalized 链读取，不开放任意 RPC |
 | `lib/main.dart` | App 壳、应用锁与底部导航；不再内联公民 Tab 业务页面 |
 
@@ -1670,10 +1579,10 @@ governance 侧只允许保留通用提案列表、机构详情页挂载点、投
 
 多签账户管理目录只负责账户注册、创建、关闭、状态展示和管理员管理。
 发起转账、转账详情、投票进度、余额提示、列表适配与详情跳转均由
-`lib/transaction/multisig/` 实现。
+`transaction/lib/multisig/` 实现。
 
-`lib/citizen/institution/` 不实现多签转账逻辑；账户详情页如需展示转账入口，
-只允许挂载 `lib/transaction/multisig/multisig_transfer_entry.dart` 提供的入口组件。
+`citizen/lib/institution/` 不实现多签转账逻辑；账户详情页如需展示转账入口，
+只允许挂载 `transaction/lib/multisig/multisig_transfer_entry.dart` 提供的入口组件。
 
 ##### 8.8 手机端入口分流
 
@@ -1681,7 +1590,7 @@ governance 侧只允许保留通用提案列表、机构详情页挂载点、投
 
 - 交易 Tab 在链上支付表单上方显示一行双入口：左侧“扫码支付”，右侧“多签账户”。
 - “扫码支付”保持现有扫码支付流程，不显示右箭头。
-- “多签账户”进入 `lib/transaction/personal/personal_account_list_page.dart`，顶部标题为“多签账户”。
+- “多签账户”进入 `transaction/lib/personal/personal_account_list_page.dart`，顶部标题为“多签账户”。
 - 个人多签账户列表只读取 `account` 和 `PersonalAccountLocalState`，不读取或展示机构账户。
 - 个人多签 discovery 只扫描 `PersonalAdmins.AdminAccounts`，并按 `kind=Personal`、`institution_code=PMUL`、本机管理员钱包过滤。
 - 机构(公权/私权)注册、创建、关闭由 OnChina 注册局塔塔控制台 + 冷钱包处理；CitizenApp 不再提供机构多签注册、发现或列表展示入口。
@@ -1700,14 +1609,14 @@ governance 侧只允许保留通用提案列表、机构详情页挂载点、投
 - 个人多签账户列表右上角加号直接进入 `personal_account_create_page.dart`，不再弹出个人/机构选择。
 
 发起转账提案不删除，
-入口由 `lib/transaction/multisig/multisig_transfer_entry.dart` 提供，
-具体页面和链上构造仍归 `lib/transaction/multisig/`。
+入口由 `transaction/lib/multisig/multisig_transfer_entry.dart` 提供，
+具体页面和链上构造仍归 `transaction/lib/multisig/`。
 
 2026-04-30 第二轮收口只迁移纯多签文件：账户管理模型/服务、账户详情、创建、
 关闭、账户列表、账户详情和机构发现归入 `lib/organization-manage`；跨个人/机构的
-多签管理提案详情当前收口到 `lib/citizen/proposal/institution_manage_detail_page.dart`。
+多签管理提案详情当前收口到 `citizen/lib/proposal/institution_manage_detail_page.dart`。
 QR 协议、Isar schema、钱包流水、治理聚合页、机构通用服务和内部投票通用服务仍留在原模块目录；
-多签转账相关文件统一归 `lib/transaction/multisig/`。
+多签转账相关文件统一归 `transaction/lib/multisig/`。
 
 2026-04-30 第三轮收口删除治理提案类型页中的“创建多签/关闭多签”入口。多签创建
 只能从 `机构多签` 或 `个人多签` 列表右上角进入；多签关闭只能从具体多签账户详情
@@ -1716,8 +1625,8 @@ QR 协议、Isar schema、钱包流水、治理聚合页、机构通用服务和
 2026-06-26 起，CitizenApp 个人多签主业务与 runtime `personal-admins` 对齐：
 个人创建、关闭、管理员更换、管理员激活、待创建提案反查、提案历史、PersonalAdmins call data、
 PersonalAdmins ProposalData 解码、`PersonalAdmins::PersonalAccounts` storage codec
-统一放入 `lib/transaction/personal/`；机构账户能力归入 `lib/citizen/institution/` 和 `lib/citizen/administrators/`。
-个人/机构共用的提案详情与上下文归 `lib/citizen/proposal/`，账户与机构模型归 `lib/citizen/institution/`，链上管理员读取归 `lib/citizen/administrators/`。
+统一放入 `transaction/lib/personal/`；机构账户能力归入 `citizen/lib/institution/` 和 `citizen/lib/administrators/`。
+个人/机构共用的提案详情与上下文归 `citizen/lib/proposal/`，账户与机构模型归 `citizen/lib/institution/`，链上管理员读取归 `citizen/lib/administrators/`。
 
 2026-05-17 起，个人/机构多签创建类交易在入块后统一检查 `System.Events`：
 先解析 `System.ExtrinsicFailed` 的 runtime 模块错误，再确认对应成功事件。
@@ -1728,20 +1637,20 @@ PersonalAdmins ProposalData 解码、`PersonalAdmins::PersonalAccounts` storage 
 
 | 文件 | 说明 |
 | --- | --- |
-| `lib/8964/feed/square_tab_page.dart` | 底部广场 Tab 当前入口页 |
-| `lib/citizen/proposal/proposal_tab.dart` | 公民 Tab 内“提案”统一列表页：默认公共机构 + 当前钱包订阅公权机构 |
-| `lib/transaction/transaction_tab_page.dart` | 交易 Tab 双入口编排：扫码支付 / 多签账户 |
-| `lib/transaction/personal/personal_account_list_page.dart` | 个人多签账户列表页 |
-| `lib/citizen/proposal/institution_manage_detail_page.dart` | 个人/机构多签管理提案共用投票详情页；业务解码委托对应 manage 服务 |
-| `lib/transaction/personal/personal_account_create_page.dart` | 个人多签创建表单 |
-| `lib/transaction/personal/personal_account_close_page.dart` | 个人多签关闭表单 |
-| `lib/transaction/personal/personal_admin_list_page.dart` | 个人多签管理员激活列表 |
-| `lib/transaction/personal/personal_manage_account_info_page.dart` | 个人多签账户详情页 |
-| `lib/transaction/personal/personal_manage_discovery_service.dart` | 个人多签反向索引发现服务 |
-| `lib/transaction/personal/personal_manage_service.dart` | PersonalAdmins 个人多签链上交互服务 |
-| `lib/transaction/personal/personal_manage_storage_codec.dart` | PersonalAdmins storage key 与 SCALE 解码 |
-| `lib/transaction/personal/personal_proposal_history_service.dart` | 个人多签提案历史聚合与 Isar 持久化 |
-| `lib/storage/wallet_isar.dart` | WalletIsar 类型化保存多签本地状态、发现状态和最近链上同步时间 |
+| `8964/lib/feed/square_tab_page.dart` | 底部广场 Tab 当前入口页 |
+| `citizen/lib/proposal/proposal_tab.dart` | 公民 Tab 内“提案”统一列表页：默认公共机构 + 当前钱包订阅公权机构 |
+| `transaction/lib/transaction_tab_page.dart` | 交易 Tab 双入口编排：扫码支付 / 多签账户 |
+| `transaction/lib/personal/personal_account_list_page.dart` | 个人多签账户列表页 |
+| `citizen/lib/proposal/institution_manage_detail_page.dart` | 个人/机构多签管理提案共用投票详情页；业务解码委托对应 manage 服务 |
+| `transaction/lib/personal/personal_account_create_page.dart` | 个人多签创建表单 |
+| `transaction/lib/personal/personal_account_close_page.dart` | 个人多签关闭表单 |
+| `transaction/lib/personal/personal_admin_list_page.dart` | 个人多签管理员激活列表 |
+| `transaction/lib/personal/personal_manage_account_info_page.dart` | 个人多签账户详情页 |
+| `transaction/lib/personal/personal_manage_discovery_service.dart` | 个人多签反向索引发现服务 |
+| `transaction/lib/personal/personal_manage_service.dart` | PersonalAdmins 个人多签链上交互服务 |
+| `transaction/lib/personal/personal_manage_storage_codec.dart` | PersonalAdmins storage key 与 SCALE 解码 |
+| `transaction/lib/personal/personal_proposal_history_service.dart` | 个人多签提案历史聚合与 Isar 持久化 |
+| `storage/lib/wallet_isar.dart` | WalletIsar 类型化保存多签本地状态、发现状态和最近链上同步时间 |
 | `CitizenChain.getStorageBatch` | 在同一已验证 finalized block 批量读取 storage |
 | `organization-manage/src/lib.rs` | CID 注册机构多签登记、创建、关闭业务逻辑 |
 | `personal-admins/src/lib.rs` | 个人多签创建、关闭、管理员更换业务逻辑 |
@@ -1752,22 +1661,22 @@ PersonalAdmins ProposalData 解码、`PersonalAdmins::PersonalAccounts` storage 
 
 #### 9. 源码对齐基线
 
-- `lib/citizen/institution/institution_info.dart + lib/citizen/institution/governance_registry.dart`
-- `lib/citizen/administrators/institution_admin_service.dart`
-- `lib/citizen/institution/institution_detail_page.dart`
-- `lib/citizen/proposal/proposal_entry_page.dart`
-- `lib/citizen/institution/institution_admin_list_page.dart`
-- `lib/citizen/proposal/institution_manage_detail_page.dart`
-- `lib/transaction/transaction_tab_page.dart`
-- `lib/transaction/personal/personal_account_list_page.dart`
-- `lib/transaction/personal/personal_account_create_page.dart`
-- `lib/transaction/personal/personal_account_close_page.dart`
-- `lib/transaction/personal/personal_admin_list_page.dart`
-- `lib/transaction/personal/personal_manage_account_info_page.dart`
-- `lib/transaction/personal/personal_manage_discovery_service.dart`
-- `lib/transaction/personal/personal_manage_service.dart`
-- `lib/transaction/personal/personal_manage_storage_codec.dart`
-- `lib/transaction/personal/personal_proposal_history_service.dart`
+- `citizen/lib/institution/institution_info.dart + citizen/lib/institution/governance_registry.dart`
+- `citizen/lib/administrators/institution_admin_service.dart`
+- `citizen/lib/institution/institution_detail_page.dart`
+- `citizen/lib/proposal/proposal_entry_page.dart`
+- `citizen/lib/institution/institution_admin_list_page.dart`
+- `citizen/lib/proposal/institution_manage_detail_page.dart`
+- `transaction/lib/transaction_tab_page.dart`
+- `transaction/lib/personal/personal_account_list_page.dart`
+- `transaction/lib/personal/personal_account_create_page.dart`
+- `transaction/lib/personal/personal_account_close_page.dart`
+- `transaction/lib/personal/personal_admin_list_page.dart`
+- `transaction/lib/personal/personal_manage_account_info_page.dart`
+- `transaction/lib/personal/personal_manage_discovery_service.dart`
+- `transaction/lib/personal/personal_manage_service.dart`
+- `transaction/lib/personal/personal_manage_storage_codec.dart`
+- `transaction/lib/personal/personal_proposal_history_service.dart`
 - `CitizenChain` 公开类型化读取合同
 - `citizenchain/runtime/transaction/multisig-transfer/src/lib.rs`
 - `citizenchain/runtime/private/organization-manage/src/lib.rs`
@@ -1790,7 +1699,7 @@ PersonalAdmins ProposalData 解码、`PersonalAdmins::PersonalAccounts` storage 
 
 #### 1. 模块定位
 
-`citizenapp/lib/transaction/personal/` 是 citizenapp 端个人多签主业务目录，对齐 runtime `citizenchain/runtime/admins/personal-admins/`。
+`citizenapp/transaction/lib/personal/` 是 citizenapp 端个人多签主业务目录，对齐 runtime `citizenchain/runtime/admins/personal-admins/`。
 
 本目录只处理个人多签，不承载机构多签、机构 CID 账户、多签转账业务。
 
@@ -1811,12 +1720,12 @@ PersonalAdmins ProposalData 解码、`PersonalAdmins::PersonalAccounts` storage 
 
 ##### 不负责
 
-- 机构身份/账户查询(只读)由 `citizenapp/lib/citizen/institution/` 处理;机构创建/关闭已收归 onchina 塔塔控制台+冷钱包。
-- 多签转账:唯一实现目录 `citizenapp/lib/transaction/multisig/`。
-- Isar schema 定义：仍在 `citizenapp/lib/storage/`，本模块只使用既有实体。
-- Isar 读写队列：由 `citizenapp/lib/storage/wallet_isar.dart` 的 WalletIsar 统一提供，
+- 机构身份/账户查询(只读)由 `citizenapp/citizen/lib/institution/` 处理;机构创建/关闭已收归 onchina 塔塔控制台+冷钱包。
+- 多签转账:唯一实现目录 `citizenapp/transaction/lib/multisig/`。
+- Isar schema 定义：仍在 `citizenapp/storage/lib/`，本模块只使用既有实体。
+- Isar 读写队列：由 `citizenapp/storage/lib/wallet_isar.dart` 的 WalletIsar 统一提供，
   本模块不得直接打开 DB 实例。
-- 通用投票、签名、RPC：仍使用 `lib/citizen/proposal/`、`lib/scanner/` 与 CitizenSDK 公开接口等共用能力。
+- 通用投票、签名、RPC：仍使用 `citizen/lib/proposal/`、`scanner/lib/` 与 CitizenSDK 公开接口等共用能力。
 - 个人/机构多签管理提案投票详情页由 `transaction/multisig-transfer` 的提案聚合和各管理模块解码服务共同支撑；本模块只提供 `PersonalAdmins` 解码服务。
 
 #### 3. 链上契约
@@ -1912,31 +1821,31 @@ PersonalAdmins storage：
 - 扫码添加管理员使用 `assets/icons/scan-line.svg`，不使用二维码图标；入口固定显示在
   “管理员列表（x/64）”标题行最右侧，不再使用占据列表纵向空间的独立文字按钮。
 - 注销个人多签页“受益人地址”的扫码按钮在**输入框内**（`suffixIcon`），复用全仓唯一的
-  `lib/scanner/address_scan_button.dart`；原先框外独立 `IconButton` 的写法已删除。
+  `scanner/lib/address_scan_button.dart`；原先框外独立 `IconButton` 的写法已删除。
   该页不得再就地写 `QrScanPage(mode: QrScanMode.transfer)`。
 - 账户列表右上角加号直接进入 `personal_account_create_page.dart`，不再弹出个人/机构选择。
 
 #### 4. 与 citizen/institution 目录关系
 
-`citizenapp/lib/citizen/institution/` 不承载 `PersonalAdmins` 主业务。它保留:
+`citizenapp/citizen/lib/institution/` 不承载 `PersonalAdmins` 主业务。它保留:
 
 - 机构管理 InstitutionChainService(只读)与机构 storage codec(按机构码路由 PublicManage/PrivateManage)。
 - `AdminInstitutionCodec` 等跨个人/机构都需要读取的底层 Subject 解码能力。
 
 个人账户列表、详情、反向索引发现、创建、关闭、管理员激活和提案历史均不得回流到 `citizen/institution`。
-个人多签列表入口只允许通过交易 Tab 的 `lib/transaction/personal/personal_account_list_page.dart` 呈现。
+个人多签列表入口只允许通过交易 Tab 的 `transaction/lib/personal/personal_account_list_page.dart` 呈现。
 `AdminInstitutionCodec` 只属于底层 Subject 解码能力，不承载 `PersonalAdmins` 主业务。
 
 #### 5. 测试
 
 个人多签测试集中在：
 
-- `citizenapp/test/transaction/personal/personal_manage_service_test.dart`
-- `citizenapp/test/transaction/personal/personal_manage_storage_codec_test.dart`
-- `citizenapp/test/transaction/personal/personal_account_create_page_test.dart`
-- `citizenapp/test/transaction/personal/personal_manage_discovery_service_test.dart`
-- `citizenapp/test/transaction/personal/personal_pending_create_lookup_test.dart`
-- `citizenapp/test/transaction/personal/personal_proposal_history_service_test.dart`
+- `citizenapp/transaction/test/personal/personal_manage_service_test.dart`
+- `citizenapp/transaction/test/personal/personal_manage_storage_codec_test.dart`
+- `citizenapp/transaction/test/personal/personal_account_create_page_test.dart`
+- `citizenapp/transaction/test/personal/personal_account_entry_test.dart`
+- `citizenapp/transaction/test/personal/personal_pending_create_lookup_test.dart`
+- `citizenapp/transaction/test/personal/personal_proposal_history_service_test.dart`
 
 个人账户业务测试归本仓既有Flutter用例，现行自动化统一执行，开发机不通过编译脚本启动测试。
 
@@ -1945,7 +1854,7 @@ PersonalAdmins storage：
 ```bash
 cd citizenapp
 flutter analyze
-flutter test test/transaction/personal
+flutter test transaction/test/personal
 ```
 
 2026-07-19 管理员三字段验收：CitizenApp `flutter analyze --no-fatal-infos`
@@ -1966,19 +1875,19 @@ CitizenSDK 运行态验收由统一产品流程执行；专项测试覆盖三字
 - 公开昵称仅由产品资料接口取得。账户地址仅用于页面展示和边界输入输出，账户授权与关系仍使用SDK给出的规范账户标识。
 - CitizenApp不处理管理员扫码登录；该业务入口归OnChina与CitizenWallet。
 
-二维码展示使用本产品AppQrImage消费SDK图像能力并完整绘制，禁止中心挖空或覆盖控件；用户码保存入口位于AppBar。账户码复用lib/wallet/wallet_qr_dialog.dart弹窗，顺序为名称、二维码、居中地址、等宽关闭与复制按钮。页面布局不因协议归位改变。
+二维码展示使用本产品AppQrImage消费SDK图像能力并完整绘制，禁止中心挖空或覆盖控件；用户码保存入口位于AppBar。账户码复用wallet/lib/wallet_qr_dialog.dart弹窗，顺序为名称、二维码、居中地址、等宽关闭与复制按钮。页面布局不因协议归位改变。
 
 #### 实际公开接口与产品入口
 
 通用接口由CitizenSDK的lib/api/citizen_qr.dart、lib/api/citizen_sdk.dart、lib/api/citizen_transactions.dart和lib/account_codec.dart承载；本产品按声明与锁消费该SDK来源。账户码调用CitizenQr.encodeAccountId；用户码通过CitizenQrContent.userContact与CitizenQr.encodeDocument生成；扫码调用CitizenQr.parseForPurpose并只读取公开解析结果。
 
-本产品的lib/scanner/scanner.dart、scanner_view.dart承载原页面接入与展示，qr_router.dart只映射SDK解析结果，qr_sign_session_page.dart承载原请求展示及响应回扫。页面不得另行解析QR_V1或直接建立mobile_scanner后端。
+本产品的scanner/lib/scanner.dart、scanner_view.dart承载原页面接入与展示，qr_router.dart只映射SDK解析结果，qr_sign_session_page.dart承载原请求展示及响应回扫。页面不得另行解析QR_V1或直接建立mobile_scanner后端。
 
 个人多签创建、管理员更换及机构链交易继续由App构造所属业务review_payload，管理员字段顺序固定为account_id + family_name + given_name；姓名仅用于确认展示，不构成授权。同一次业务操作只发起一个请求并消费一个响应。
 
 #### 集成验收职责
 
-本产品保留test/scanner/qr_router_test.dart、qr_scan_page_sign_hint_test.dart、qr_sign_session_page_test.dart、test/signing/app_business_qr_codec_test.dart及账户码、用户码页面用例，验收实际入口、身份闭环、用途拒绝、业务载荷和请求响应接线。通用字段往返、会话期限、验签及单次消费由SDK所属测试验收；SDK用例不能替代App集成及真实页面验收。
+本产品保留scanner/test/qr_router_test.dart、qr_scan_page_sign_hint_test.dart、qr_sign_session_page_test.dart、scanner/test/app_business_qr_codec_test.dart及账户码、用户码页面用例，验收实际入口、身份闭环、用途拒绝、业务载荷和请求响应接线。通用字段往返、会话期限、验签及单次消费由SDK所属测试验收；SDK用例不能替代App集成及真实页面验收。
 
 ## CitizenSDK 链、交易与历史
 
@@ -2005,11 +1914,11 @@ CitizenApp 只打开一个 CitizenSdkModules.full session。安全擦除门禁�
 
 CitizenApp 只构造业务 payload、domain、challenge 和审阅内容。热签、冷签分流、sr25519 和通用 QR_V1 全部调用 CitizenSigning 与 CitizenQr。链交易禁止调用通用 payload 签名绕开 CitizenTransactions。
 
-`lib/account/identity/citizen_identity_sign_service.dart`、`citizen_occupy_sign_service.dart` 与 `square_action_sign_service.dart` 分别处理身份确认、注册局占号与换绑、广场账户动作；二维码封装与校验消费 CitizenSDK 的公开接口。宿主不恢复独立 QR codec，不实现链交易签名或保存钱包秘密。
+`account/lib/identity/citizen_identity_sign_service.dart`、`citizen_occupy_sign_service.dart` 与 `square_action_sign_service.dart` 分别处理身份确认、注册局占号与换绑、广场账户动作；二维码封装与校验消费 CitizenSDK 的公开接口。宿主不恢复独立 QR codec，不实现链交易签名或保存钱包秘密。
 
 #### 模块边界
 
-`citizenapp/lib/transaction/multisig/` 是 CitizenApp 端多签转账唯一实现目录。
+`citizenapp/transaction/lib/multisig/` 是 CitizenApp 端多签转账唯一实现目录。
 
 - `multisig_transfer_page.dart`：创建多签转账提案。
 - `multisig_transfer_detail_page.dart`：展示多签转账详情、投票状态和投票操作。
@@ -2019,11 +1928,11 @@ CitizenApp 只构造业务 payload、domain、challenge 和审阅内容。热签
 - `multisig_transfer_entry.dart`：多签转账入口卡片和页面跳转。
 - `multisig_transfer_proposal_adapter.dart`：给机构页、投票页和账户页使用的列表展示、详情跳转、缓存清理和数据源适配。
 
-提案通用元数据、上下文、缓存、前端提案能力注册表和内部投票共享能力放在 `citizenapp/lib/citizen/proposal/`。多签转账业务详情通过 `ProposalWithDetail.businessDetails` 的不透明键值挂载，键名由本模块定义。
+提案通用元数据、上下文、缓存、前端提案能力注册表和内部投票共享能力放在 `citizenapp/citizen/lib/proposal/`。多签转账业务详情通过 `ProposalWithDetail.businessDetails` 的不透明键值挂载，键名由本模块定义。
 
-`citizenapp/lib/citizen/institution/`(机构管理只读)不实现多签转账按钮和跳转；多签账户详情页只允许挂载 `multisig-transfer` 提供的 `MultisigTransferEntryCard`，入口自身逻辑在 `multisig-transfer` 内部。
+`citizenapp/citizen/lib/institution/`(机构管理只读)不实现多签转账按钮和跳转；多签账户详情页只允许挂载 `multisig-transfer` 提供的 `MultisigTransferEntryCard`，入口自身逻辑在 `multisig-transfer` 内部。
 
-治理入口与内部、立法投票适配文件分别位于 `citizenapp/lib/citizen/governance/`、`citizenapp/lib/citizen/proposal/` 和 `citizenapp/lib/citizen/legislation/`；这些原调用方仍只允许调用 `MultisigTransferProposalAdapter` / `MultisigTransferProposalFeed`，不得直接判断 `TransferProposalInfo`、`SafetyFundProposalInfo`、`SweepProposalInfo`，也不得直接打开 `MultisigTransferDetailPage`。
+治理入口与内部、立法投票适配文件分别位于 `citizenapp/citizen/lib/governance/`、`citizenapp/citizen/lib/proposal/` 和 `citizenapp/citizen/lib/legislation/`；这些原调用方仍只允许调用 `MultisigTransferProposalAdapter` / `MultisigTransferProposalFeed`，不得直接判断 `TransferProposalInfo`、`SafetyFundProposalInfo`、`SweepProposalInfo`，也不得直接打开 `MultisigTransferDetailPage`。
 
 #### 费用规则
 
@@ -2076,638 +1985,33 @@ CitizenApp 只构造业务 payload、domain、challenge 和审阅内容。热签
 
 投票提交和确认：
 
-- 投票成功真源是 `InternalVote::InternalVotesByTicket(proposal_id, ticket)`，不是 tx_hash、
-  App 本地状态或 nonce。机构 ticket 必须包含 CID、岗位码和钱包。
-- `InternalVoteService.submit()` 必须等待 CitizenSDK finalized execution 成功，随后回读
-  `InternalVote::InternalVotesByTicket`，确认该岗位票据已经写入 runtime。
+- 投票展示状态读取 `InternalVote::InternalVotesByTicket(proposal_id, ticket)`；机构ticket包含CID、岗位码和canonical票据账户，不用当前签名人推定历史票据主键。
+- `InternalVoteService.submit()` 等待CitizenSDK finalized execution成功，按执行块metadata、同一extrinsicIndex及完整业务字段确认唯一InternalVoteCast事件，并核对提案所属机构。
 - CitizenApp 不读取、不缓存、不预占、不回滚交易 nonce；CitizenSDK 在准备交易时读取并绑定。
 - 新成功流程不再写本地 pending；确认成功后只清理旧残留 pending，并立即把该管理员显示为已投票。
 - SDK `poolRejected/finalizedFailed` 直接返回失败；SDK 未给出终态时 App 不猜测失败，也不维护账户级
   pending 状态机。
-- SDK `finalizedSuccess` 仍必须以 `InternalVotesByTicket` 回读结果为准。
+- SDK `finalizedSuccess` 后仍须匹配本次投票事件，不能用同块其他交易或仅有交易哈希代替确认。
 - 服务层完成 SDK finalized execution 和 runtime 投票记录确认后，按钮 `submitting` 结束；详情页
   `_load(showSpinner: false)` 只负责后台同步最新展示状态。
 
-### citizenapp offchain 目录收口说明
+### 链下扫码支付与清算确认
 
-- **日期**:2026-04-30
-- **范围**:`citizenapp/lib/transaction/offchain/`
-- **任务卡**:`tasks/`
+链下扫码支付、清算行目录、绑定、充值、提现和所属RPC统一归`transaction/lib/offchain/`，测试归`transaction/test/offchain/`。交易Tab只负责编排入口，钱包页只挂载所属功能页面，不维护第二份清算协议、存储或金标。
 
-#### 1. 结论
+扫码流程从商户码取得收款账户及收款方清算行CID，精确读取finalized `ClearingBankNodes`取得WSS端点。付款页重新确认机构声明；付款方绑定清算行由`offchain_queryUserBank`返回CID，手续费使用收款方清算行费率。CID不是机构主账户SS58或固定32字节账户。
 
-链下扫码支付是一个独立业务域,统一收口到:
+`NodePaymentIntent`按链端`runtime/transaction/offchain/src/batch_item.rs`字段顺序编码：tx_id(32)、payer(32)、payer_bank_cid(Vec<u8>)、recipient(32)、recipient_bank_cid(Vec<u8>)、amount(u128 LE)、fee(u128 LE)、nonce(u64 LE)、expires_at(u32 LE)。两份CID均为1..32个UTF-8字节，向量采用最短Compact长度前缀，整体变长，不存在固定204字节断言。金额及手续费以分为单位；expires_at只按块高判断，当前取最新块高加100，不换算成确定墙钟有效期。
 
-```text
-citizenapp/lib/transaction/offchain/
-├── bind_clearing_bank_page.dart
-├── clearing_bank_directory.dart
-├── clearing_bank_prefs.dart
-├── clearing_bank_settings_page.dart
-├── deposit_page.dart
-├── offchain_clearing_rpc.dart
-├── offchain_pay_page.dart
-├── offchain_scan_flow.dart
-├── onchain_clearing_bank_chain.dart
-├── payment_intent.dart
-├── petty_wallet_page.dart
-└── withdraw_page.dart
-```
+付款签名原文经`CitizenSigning.encodePayload`及`kOpSignL3Pay`构造，由SDK公开签名入口完成。当前只支持本机热账户；32字节摘要不足以让独立冷钱包审阅完整付款事实，不能据此开放冷签。跨语言固定金标唯一保存在各自所有者测试中：本端为`transaction/test/offchain/payment_intent_golden_test.dart`，链端为`runtime/transaction/offchain/tests/cases.rs`。技术文档不另存摘要常量或第二份金标。
 
-顶层交易 Tab 位于 `citizenapp/lib/transaction/transaction_tab_page.dart`。扫码、清算行端点解析、PaymentIntent 构造、签名与提交均由
-`lib/transaction/offchain/` 负责。
+付款页状态为loading、ready、submitting、unverified、error。发送前准备或签名失败进入error；开始调用`offchain_submitPayment`后，不论响应丢失、远端失败、回执损坏或收到格式正确的回执，均不得推定付款未发生而自动重发。本笔本地tx_id保持不变，RPC回执必须匹配该标识；目前统一进入“付款结果未核实，请勿重复付款”，保留该笔标识供核对。
 
-扫码付款当前只允许本机热钱包签名。付款签名原文是 32 字节
-`NodePaymentIntent.signing_hash`;冷钱包无法从 hash 独立还原 PaymentIntent 业务字段，
-因此不得生成 `offchain_clearing_pay` 离线签名二维码。
+完整ACK签名原文由链端`node/offchain/src/rpc.rs`定义：`OP_SIGN_L2_ACK`覆盖SCALE(bank_cid)、SCALE(intent)、payer_sig及accepted_at LE。当前公开清算行节点声明没有可信ACK签名身份，登记审计账户不能替代签名授权，因此App尚未宣称ACK已验签或支付已受理。后续须先由所属产品明确公开签名身份与权限合同，再复用SDK公开签名原语验签；不得在App复制密码学实现。
 
-钱包页同理只保留充值 / 提现 / 余额的入口展示,真正的充值、提现、清算行余额
-查询与清算行绑定缓存均从 `lib/transaction/offchain/` 引入。
+清算行功能尚未完善，完整ACK验签属于该功能的待完成项；签名账户与岗位、ACK授权范围、授权核验区块及换绑撤权规则尚待上游确定。本轮仅记录现状，不扩展链端合同或清算功能；保留现有交易绑定和结果未核实处理，继续包与测试重构任务的塔塔鹿鹿及塔塔安装器流程。上述待完成项不作为本轮已修复或已验收内容。
 
-#### 2. 当前文件归属
-
-| 目录 | 职责 |
-|---|---|
-| `lib/transaction/offchain/` 内页面文件 | 扫码付款页、清算行设置、绑定 / 切换、充值、提现 |
-| `lib/transaction/offchain/payment_intent.dart` | `NodePaymentIntent` 等链下支付专属模型 |
-| `lib/transaction/offchain/offchain_clearing_rpc.dart` 与 `onchain_clearing_bank_chain.dart` | 清算行节点 WSS RPC 与清算行链上 extrinsic 构造 |
-| `lib/transaction/offchain/` 内目录、快照与流程文件 | 清算行目录、绑定快照、扫码付款入口流程 |
-#### 3. 保留边界
-
-- `lib/scanner/` 仍是通用二维码协议底座,继续服务联系人、多签、公民钱包签名等场景。
-- `lib/wallet/` 只保留钱包页入口 UI,不得重新放入链下支付业务实现。
-- `lib/transaction/history/` 保存交易记录、解码与刷新能力，不承载扫码支付、多签或链上支付入口。
-
-#### 4. 新入口
-
-扫码支付入口应直接调用:
-
-```text
-lib/transaction/offchain/offchain_scan_flow.dart
-```
-
-该流程负责:
-
-1. 打开通用 `QrScanPage`
-2. 校验收款码必须包含 `UserTransferBody.bank`
-3. 读取链上 `ClearingBankNodes[cid_number]`
-4. 跳转 `lib/transaction/offchain/offchain_pay_page.dart`
-
----
-
-### 扫码支付 PaymentIntent 跨端 Golden Vectors
-
-- **日期**:2026-04-20
-- **范围**:Rust 运行时 + Dart 客户端两端互锁的 `PaymentIntent` SCALE 字节与 `signing_hash`
-  golden 测试(E2E 冒烟第一层 · 协议字节对齐)
-- **上层 ADR**:`../citizenchain/CitizenChainRuntime.md`
-- **前置**:`STEP2C_I_PAY_PAGE.md`(Dart `NodePaymentIntent`)+ `batch_item.rs`
-  (Rust `PaymentIntent`)
-- **后续**:E2E 冒烟第二层 · 节点进程端到端 smoke
-
----
-
-#### 1. 目标
-
-Step 2c-i 打通付款端后,**最大静默失败风险** = 跨端 SCALE 字节顺序 / 字节序 /
-签名域前缀 / 哈希算法对不齐:提交成功但节点 `sr25519_verify` 失败,整个批次
-revert,用户 L3 付款看似成功实则全挂。
-
-本步用**同一组 fixture,两端分别断言同一串 hex**,任一端实现漂移立即两端 CI
-同时红,作为跨端契约的硬锁。
-
----
-
-#### 2. Fixtures
-
-3 组 fixture,覆盖同行 / 跨行 / 边界:
-
-| # | 语义 | 关键字段 |
-|---|---|---|
-| 1 | 简单同行支付 | tx_id=0 / payer=[1;32] / payer_bank=recipient_bank=[2;32] / amount=10000 / fee=5 / nonce=1 / expires_at=100 |
-| 2 | 跨行 + 极值 | tx_id=[0xFF;32] / payer_bank=[0xAA;32] / recipient_bank=[0xBB;32] / u128::MAX / u64::MAX / u32::MAX |
-| 3 | 零金额 + tx_id 递增 | tx_id=[0x00..0x1F] / payer_bank=recipient_bank=[0x77;32] / amount=fee=nonce=expires_at=0 |
-
-每组 fixture 锁两个 hex 期望:
-- `encoded_hex`:SCALE 编码 204 字节(5×32 + 16+16 + 8 + 4)的 hex
-- `signing_hash_hex`:`signing_message(OP_SIGN_L3_PAY, encoded)` 的 hex(32 字节 → 64 hex 字符)
-
-#### 3. 锁定的 signing hashes
-
-| Fixture | signing_hash hex (小写) |
-|---|---|
-| 1 | `f50eeb66b681e445ee6fcffa318288b915fdea9791eae1d094645d4eb5f7008f` |
-| 2 | `d6f381b931ad0f2c7f7fba5d83bdd24892ccbd0e063d831ebc00d2e6d21c9bd8` |
-| 3 | `8e99dbc826503544b240ed3e113f999bc3928048aa69989118f517309286a1b2` |
-
-运行时 `PaymentIntent::signing_hash` 或 Dart `NodePaymentIntent.signingHash()`
-的实现一旦改动,这 3 条 hex 必须同步重新捕获(Rust 跑一遍 → 读断言失败输出 →
-同步到 Dart 测试)。
-
-##### 4.1 Rust 端
-
-`citizenchain/runtime/transaction/offchain-transaction/src/batch_item.rs`
-内部 `tests` 模块追加 3 个单测 + 2 个工具(`hex_lower` / `assert_hex_eq`):
-- `golden_fixture1_simple_same_bank`
-- `golden_fixture2_cross_bank_big_values`
-- `golden_fixture3_zero_amount_incrementing_tx`
-
-##### 4.2 Dart 端
-
-`citizenapp/test/transaction/offchain/payment_intent_golden_test.dart` 新建,5 个 test:
-- fixture 1 / 2 / 3(与 Rust 同 fixture 同期望 hex)
-- `signing domain bytes match Rust L3_PAY_SIGNING_DOMAIN`(锁 13 字节 ASCII)
-- `scaleEncode length is always 204 bytes`
-
----
-
-##### 5.1 `lib.rs:2406` mock `Test` 测试 runtime 补 `MaxAdminsPerInstitution`
-
-`votingengine::Config for Test` 缺少新近引入的
-`type MaxAdminsPerInstitution`,导致整个 pallet 测试二进制编译失败。补
-`ConstU32<32>` 后编译恢复,golden 测试可运行。
-
-##### 5.2 发现的 3 个**预存在失败**(非本步引入,已单独登记任务)
-
-mock 修好后暴露出 3 个之前因编译失败而根本无法运行的业务测试:
-- `tests::enqueue_offchain_batch_validates_admin_and_signature`(`NoPermission`)
-- `tests::rate_update_requires_internal_vote_pass`
-- `tests::submit_batch_executes_real_settlement_and_marks_processed`
-
-不属于 Step 2c-ii-a 范围,已通过 spawn_task 登记独立修复。
-
----
-
-#### 6. 验证
-
-```
-$ cd citizenchain && cargo test --package offchain-transaction --lib 'batch_item::tests'
-test result: ok. 5 passed; 0 failed  # 3 个 golden + 2 个 signing_hash 基础测试
-
-$ cd citizenapp && flutter test test/transaction/offchain/payment_intent_golden_test.dart
-All tests passed!  # 5 个
-
-$ flutter analyze
-No issues found!
-```
-
----
-
-#### 7. 为什么不跑更高层冒烟
-
-E2E 冒烟第二层(启 dev chain + 走真实 bind/deposit/pay)需要:
-- `chain_spec.rs` dev preset 预置清算行 + 费率
-- 真实本地链节点或可重现的链 storage fixture
-- 进程管理 test harness
-
-工作量 1-2 天。本步**先不做**,第一层协议字节锁定已经覆盖当前付款页引入的
-最大风险(字节对齐)。第二层在 Step 3 前视需要再做。
-
----
-
-#### 8. 变更记录
-
-- 2026-04-20:Rust 侧 3 个 golden fixture 断言 + Dart 侧 5 个对应测试落地。
-  顺带修复 `lib.rs` 测试 mock `MaxAdminsPerInstitution` 缺失(pallet 测试二进制
-  重新可编译),暴露的 3 个预存在业务测试失败已 spawn_task 登记独立修复。
-
----
-
-### 扫码支付 Step 2c-i 技术说明 · CitizenApp 付款端新版
-
-- **日期**:2026-04-20；2026-04-29 补齐 Step 3 跨行与清算行目录
-- **目录更新**:2026-04-30 起,CitizenApp 链下扫码支付业务统一收口到
-  `citizenapp/lib/transaction/offchain/`。
-- **范围**:CitizenApp 扫码付款页重写;对接清算行节点
-  `offchain_submitPayment` RPC、清算行目录查询、绑定缓存与跨行收款方主导支付。
-- **上层 ADR**:`../citizenchain/CitizenChainRuntime.md`
-- **前置**:`STEP2B_IV_A_CLEANUP.md`(老节点代码 + CitizenApp 老入口下架)
-
----
-
-#### 1. 本步目标
-
-Step 2b-iv-a 把老省储行清算代码从节点和 CitizenApp 的 onchain 入口下架后,用户扫
-商户收款码只会看到"暂不可用"提示。本步接通新清算行体系:**CitizenApp 付款端**
-经扫码 → 构造 `NodePaymentIntent` → 本地 sr25519 签名 → 调清算行节点
-`offchain_submitPayment` → 显示 tx_id;runtime + node 链路(Step 2b-iii-b 已
-落地)自动把这笔支付打包上链并清理 pending。
-
-2026-04-29 Step 3 补齐后,付款页不再强制同行。扫码得到收款方 `bank`
-后,CitizenApp 先从链上 `ClearingBankNodes[cid_number]` 读取收款方清算节点端点,
-再把支付意图提交给**收款方清算节点**;页面同时展示付款方清算行、收款方
-清算行与同行/跨行状态。清算行支付当前只支持热钱包；冷钱包若要接入，必须另行设计可独立验证的 PaymentIntent 原文签名协议，不能对 32 字节 signing_hash 直接放行。
-
----
-
-##### 2.1 节点侧(`citizenchain/node/src/transaction/offchain_transaction/rpc.rs`)
-
-新增 2 个只读 RPC + 2 个 storage key helper:
-
-| RPC | 入参 | 返回 | 数据源 |
-|---|---|---|---|
-| `offchain_queryUserBank` | `user: AccountId32` | `Option<AccountId32>` | 链上 `OffchainTransaction::UserBank[user]` |
-| `offchain_queryFeeRate` | `bank: AccountId32` | `FeeRateResp { rate_bp: u32, min_fee_fen: u128 }` | 链上 `OffchainTransaction::L2FeeRateBp[bank]` + 节点常量 `MIN_FEE_FEN=1` |
-
-`OffchainClearingRpcImpl` 新增 `client: Arc<FullClient>` 字段(通过
-`start_clearing_bank_components` 额外参数注入)用于 `client.storage()` 单点读。
-`rate_bp == 0` 时上报给调用方"费率未配置",节点不代为补缺省。单元测试 5 个:
-storage key 布局稳定性 + 不同 bank 不同 key + hex 编解码 roundtrip + 奇数长度
-拒绝(功能回归留 dev-chain 集成测试覆盖)。
-
-##### 2.2 节点侧(`citizenchain/node/src/transaction/offchain_transaction/mod.rs` + `service.rs`)
-
-- `start_clearing_bank_components` 参数追加 `client: Arc<FullClient>`,转交给
-  `OffchainClearingRpcImpl::new`。`start_clearing_bank_components_with_noop`
-  同步追加。
-- `service.rs::new_full` 清算行启动块调用处加 `client.clone()`,无新 CLI
-  参数。对非清算行节点无影响(整个分支不进入)。
-
-###### 新建
-
-| 文件 | 内容 |
-|---|---|
-| `lib/transaction/offchain/payment_intent.dart` | `NodePaymentIntent` 数据类 + SCALE 编码(固定 204 字节)+ `signingHash()` + 随机 tx_id + `calcFeeFen` 本地费用计算(与 runtime 四舍五入对齐)+ hex 编解码 |
-| `lib/transaction/offchain/offchain_pay_page.dart` | **新付款确认页**。5 阶段状态机:loading → ready → submitting → done/error。流程见第 3 节 |
-| `lib/transaction/offchain/offchain_scan_flow.dart` | 2026-04-30 迁移后新增:扫码支付独立入口调用本流程,扫码、校验 `bank`、查收款方清算节点并跳转付款页 |
-
-###### 修改
-
-| 文件 | 变更 |
-|---|---|
-| `lib/transaction/offchain/offchain_clearing_rpc.dart` | 追加 `queryUserBank` / `queryFeeRate` / `submitPayment` 3 个方法(WSS over JSON-RPC 的 record 返回值) |
-| `lib/transaction/offchain/clearing_bank_directory.dart` | 清算行目录服务：枚举 finalized `ClearingBankNodes`，结合链快照机构名称，精确读取 `UserBank` 绑定；全部端点仅生成WSS |
-| `lib/transaction/offchain/offchain_scan_flow.dart` | 扫码后按收款方 `bank` 查询链上端点,跳转到新付款页;不再依赖固定启动参数配置清算节点 |
-| `lib/transaction/offchain/clearing_bank_settings_page.dart` | 设置页从占位页变成真实搜索/当前绑定/绑定或切换入口 |
-| `lib/transaction/offchain/clearing_bank_prefs.dart` | 本地缓存从单一 cid 字符串升级为 `ClearingBankBindingSnapshot`,记录 cid、机构名、主/费用账户与节点端点；端点统一使用WSS，包括本机和局域网，禁止按主机名明文降级 |
-| `lib/wallet/wallet_action_card.dart` | 钱包卡读取清算行缓存并查询节点余额;未绑定时充值/提现提示先绑定 |
-
-###### 删除(老省储行清算遗留)
-
-| 文件 | 原因 |
-|---|---|
-| CitizenApp 通用链 RPC | 不存在；链读与链交易直接使用 CitizenSDK |
-
----
-
-#### 3. 付款页运行时流程
-
-```
-用户扫商户 QR → offchain_scan_flow.openOffchainScanPaymentFlow
-  ├─ 校验:未选钱包 / 无 bank 字段 / 收款方未声明节点 → SnackBar 并返回
-  └─ 跳转 OffchainClearingPayPage
-
-OffchainClearingPayPage 初始化(_loadPrerequisites):
-  1. node.queryUserBank(user)       → payer_bank SS58
-     └─ null:"请先绑定清算行" + pop
-  2. chain.fetchEndpoint(qrBank)    → finalized 清算节点端点
-     └─ 未声明节点:错误态
-     recipient_bank = deriveInstitutionMainAccountId(qrBank)
-  3. node.queryFeeRate(recipient_bank) → rate_bp / min_fee_fen
-     └─ rate_bp == 0:"费率未配置"
-  4. CitizenChain.getBestHead()      → currentBlockNumber (for expires_at)
-
-UI(ready):
-  金额输入框(或 QR 预填)+ 自动显示手续费 + 合计 + 收款地址 + 付款方/收款方清算行 + 备注
-
-用户点"确认并签名付款":
-  5. node.queryNextNonce(user)
-  6. intent = NodePaymentIntent{
-       tx_id = Random.secure 32B,
-       payer = wallet.account_id,
-       payer_bank = ss58ToBytes(payer_bank),
-       recipient = _decodeAccount(qr.to_address),    // 统一解析为 32B AccountId
-       recipient_bank = hexToBytes(recipient_bank_hex),
-       amount = amount_fen,
-       fee = calcFeeFen(amount, rate_bp, min_fee_fen),
-       nonce,
-       expires_at = currentBlockNumber + 100,        // ~10 分钟缓冲
-     }
-  7. digest = signingMessage(OP_SIGN_L3_PAY, scaleEncode(intent))
-  8. CitizenSigning.begin(intent) 完成安全认证与签名 → 64B sig
-  9. node.submitPayment(intentHex, sigHex) → { tx_id, l2_ack_sig, accepted_at }
-  10. 显示完成态 + 可复制 tx_id + "完成"按钮
-```
-
----
-
-#### 4. PaymentIntent 跨端字节一致性(最重要的回归风险)
-
-`NodePaymentIntent` 的 SCALE 布局与 Dart 侧 `scaleEncode()` **必须逐字节对齐**,
-否则节点 `sr25519_verify` 必败。本步以**定长 204 字节**锁死:
-
-```
-[0..32)   tx_id          H256,            raw
-[32..64)  payer          AccountId32,     raw
-[64..96)  payer_bank     AccountId32,     raw
-[96..128) recipient      AccountId32,     raw
-[128..160) recipient_bank AccountId32,    raw
-[160..176) amount         u128 little-endian
-[176..192) fee            u128 little-endian
-[192..200) nonce          u64  little-endian
-[200..204) expires_at     u32  little-endian
-```
-
-签名消息统一调用 `signingMessage(OP_SIGN_L3_PAY, scaleEncode(intent))`，
-`OP_SIGN_L3_PAY` 与 runtime `primitives::sign` 注册值一致。
-
-**若 runtime 侧新增/删除 `NodePaymentIntent` 字段**:必须同改 node `ledger.rs`、
-Dart `payment_intent.dart` 布局注释 + 长度 assert 常量、本文档第 4 节表格。
-任何一处疏漏,端到端签名立刻失败。
-
----
-
-#### 5. 编译验证
-
-```
-$ cd citizenchain && WASM_FILE="$PWD/target/wasm/test/dummy_wasm.wasm" cargo check -p node --tests
-(仅 Tauri `frontend/dist` proc macro 门禁;其他零 error)
-
-$ cd citizenapp && flutter analyze
-No issues found!  (全项目)
-```
-
----
-
-#### 6. 已知风险与缓解
-
-| 风险 | 等级 | 缓解 |
-|---|---|---|
-| `NodePaymentIntent` 字段变动 → 跨端布局错位 → 签名失败 | **P0** | 本文档第 4 节与 `payment_intent.dart` 注释双处锁布局;`scaleEncode` 末尾 `assert(bytes.length == 204)` 立即抛 |
-| `expires_at` 使用固定区块高度，真实墙钟时间随 PoW 波动 | **P2** | 当前 `+100` 块按六分钟平均目标约 10 小时，但没有最晚出块保证；协议只认区块高度，不再查询已删除的动态出块时间 API |
-| 费率查询 / 提交走独立 WSS 连接,RTT 叠加 | **P2** | 每次方法连→发→收首帧→断开,确认流程总 5 次 RTT;Step 2c-ii 考虑复用长连接 |
-| 跨行支付提交到收款方节点后,付款方余额/nonce 不在收款方本地 ledger | **已修复** | node RPC 会读链上 `DepositBalance[payer_bank][payer]` 与 `L3PaymentNonce[payer]`,并叠加本节点 pending 做早拒,不创建付款方 ghost 账户 |
-| `offchain_queryFeeRate` 返回 `rate_bp==0` 时 UI 仅显示错误,用户体验欠缺 | **P3** | 本步先 hard-fail 提示联系运维,后续可引导到"查看清算行详情"页面 |
-| 冷钱包 `isHotWallet==false` 直接 SnackBar 拒绝 | **当前目标状态** | 当前 payload 是 32 字节 signing_hash，冷钱包不能独立还原 PaymentIntent 业务字段，必须拒绝 |
-| 清算行身份来源分叉 | **已修复** | 清算行目录直接枚举 finalized `ClearingBankNodes`；主账户按统一链派生原语计算，付款前重新精确读链 |
-
----
-
-#### 7. 不做(留后续)
-
-- **Step 2c-ii**:`receive_qr_page` 实时余额推送 + QR_V1 协议规范化(统一
-  商户码格式)
-- **冷钱包支付**:必须先改为可独立验证的 PaymentIntent 原文签名协议，再接入 QR 签名
-- **清算行支付本地历史**：不写入链上转账 `LocalTxStore`；清算行业务属于独立业务，后续只能按
-  `PaymentSettled` 业务事件建立自己的展示记录，不能复用或污染 CitizenSDK execution history。
-
----
-
-#### 8. 变更记录
-
-- 2026-04-20:Step 2c-i 完整落地。节点侧新增 2 个只读 RPC(`queryUserBank` /
-  `queryFeeRate`)+ `OffchainClearingRpcImpl` 持 `client`;CitizenApp 新增
-  `payment_intent.dart`(SCALE 编码 + 签名哈希)+ `offchain_pay_page.dart`
-  (5 阶段状态机)+ `offchain_clearing_rpc.dart` 业务方法；链上调用使用 CitizenTransactions；
-  扫码支付入口通过 offchain 独立流程跳转。`cargo check -p node --tests` 零 error;`flutter analyze` 零 issue。
-- 2026-04-29:Step 3 补齐收款方主导跨行支付。新增
-  `clearing_bank_directory.dart`,设置页真实搜索并缓存节点端点;扫码付款按收款方
-  `ClearingBankNodes` 选择节点,付款页放开跨行并按收款方费率计费;钱包卡接入
-  绑定余额、充值、提现入口。`flutter analyze` 与清算行相关 widget/prefs 测试通过。
-- 2026-04-30:目录收口。CitizenApp 链下扫码支付完整业务域迁入
-  `lib/transaction/offchain/`,包括付款页、PaymentIntent、清算行设置、绑定、充值、提现、
-  清算行 RPC、链上清算行 extrinsic、清算行目录与绑定快照。扫码支付不再依赖
-  错误聚合页,由独立入口通过 `offchain_scan_flow.dart` 调用 offchain 业务流程。
-
----
-
-### 扫码支付(清算行)手工 E2E 冒烟测试 SOP
-
-- **日期**:2026-04-20
-- **范围**:同行 MVP 付款 + 收款的**可复现验证步骤**。目的是:(1) Layer A 协议字节对齐之上再验证真实 CitizenApp ↔ 清算行节点 ↔ runtime 全链路;(2) 作为 demo 脚本。
-- **上层 ADR**:`../citizenchain/CitizenChainRuntime.md`
-- **前置技术文档**:
-  - `STEP2C_I_PAY_PAGE.md`(付款端)
-  - `STEP2C_GOLDEN_VECTORS.md`(协议字节锁)
-  - `../citizenchain/CitizenChainNode.md`(清算行节点启动)
-
----
-
-#### 0. 前置条件(不在本 SOP 范围内,由运维准备)
-
-- citizenchain 链已在运行,能通过 WSS 访问
-- 至少 1 家清算行已在链上完成机构身份和 `ClearingBankNodes` 声明:
-  - `main_account`(主账户 SS58)已提交 `register_cid_institution`
-  - 至少 1 名管理员签名密钥已通过节点 `offchain_keystore` 加密落盘
-  - 链上 `L2FeeRateBp[bank_main]` 已通过 `propose_l2_fee_rate`(等 7 天 `on_initialize` 激活)或 `set_max_l2_fee_rate` (Root) 配置为 `> 0`(推荐 5 bp)
-- 2 个有余额的 L3 账户(各 ≥ 200 元,用于绑定付费 + 充值测试)
-
-若以上任一不满足,先回到运维或链上治理流程,不要在本 SOP 内尝试解决。
-
----
-
-#### 1. 启动清算行节点(无头 CLI 模式)
-
-节点编译与启动使用链所有者自己的产品流程；公民App编译入口不承载节点操作。
-
-##### 期望日志关键字
-
-```
-[ClearingBank] 签名密钥已解锁
-[ClearingBank] 清算行组件已启动,bank_main=<SS58>
-[ReserveMonitor] 启动主账对账 interval=60s bank=...
-[EventListener] 开始订阅 offchain_transaction 事件
-```
-
-**故障排查**
-- `签名密钥未加载(密码或密钥文件缺失)` → `--clearing-bank-password` 错 or keystore 文件未落盘 → 回运维
-- 启动后立即 `[ReserveMonitor] 对账偏差!` → 本地 ledger 持久化文件与链上 `BankTotalDeposits` 不一致 → 删除 `<base-path>/offchain_step1/ledger.enc` 重启(会重新从事件恢复)
-
----
-
-#### 2. 编译安装 CitizenApp
-
-App只消费所属塔塔自动化生成并核验的正式包；本机不编译，也不由编译入口自动安装。
-
-##### 期望
-
-- App 正常启动,钱包页可见
-- 清算行节点端点来自链上 `ClearingBankNodes`;如收款方清算行未声明节点,
-  扫码付款页会提示"收款方清算行尚未声明节点"。
-
----
-
-#### 3. 准备两个钱包(付款方 A / 收款方 B)
-
-步骤:**钱包页 → 创建钱包**。创建两次,分别命名 `A` / `B`。
-
-##### 前置金额(由运维向钱包转账)
-
-- A:≥ 200 元(本 SOP 会扣 1 元绑定 + 100 元充值 + 10 元付款)
-- B:无需预置(收款后自然有余额)
-
-##### 观察点
-
-- 钱包页能看到两个钱包,切换时地址不同。
-- A/B 各自 `Balance` 字段显示链上余额。
-
----
-
-#### 4. A 绑定清算行(K1=S/F 主账户)
-
-步骤:**A 钱包详情 → 扫码支付(清算行) → 选择/绑定清算行 → 搜索对应机构 → 确认绑定**。
-
-##### 期望观察
-
-- 屏幕 SnackBar:`绑定已提交,tx=0x...,等待链上确认`
-- 清算行节点日志:
-  - `[EventListener] ... BankBound { account_id: <A 的 AccountId>, bank: ... }`
-- A 钱包 `Balance` 减少约 0.1 元（`RuntimeFeeRouter` 将 `bind_clearing_bank` 路由为签名者付款的最低链上费）。
-- 链上查询 `OffchainTransaction::UserBank[A]` = `<bank_main>` 主账户
-- `SharedPreferences` 写入 `clearing_bank_cid_number_<A.walletIndex>` = 机构 `cid_number`
-
-**故障排查**
-- `该清算行主账户尚未上链` → 运维先把 `main_account` 上链
-- 长时间 `tx=0x...,等待链上确认` 后无反应 → 检查节点 import 日志,可能是 `CheckNonce` 拒绝
-
----
-
-#### 5. A 充值 100 元
-
-步骤:**A 钱包 → 扫码支付(清算行) → 充值 → 输入 100 → 确认**。
-
-##### 期望观察
-
-- 屏幕提示:`充值已提交`
-- 链上 `pallet_balances::Transfer` 事件:A → `<bank_main>` 10000 分(= 100 元)+ 手续费(按 `0.1%` min 10 分)
-- 清算行节点日志:
-  - `[EventListener] ... Deposited { user: <A>, bank: <bank_main>, amount: 10000 }`
-- 链上 `DepositBalance[<bank_main>, A]` = 10000
-- 链上 `BankTotalDeposits[<bank_main>]` 增量 += 10000
-- RPC:`offchain_queryBalance(A)` 返回 `10000`
-- `ReserveMonitor` tick 应打 `ok local=chain` debug 日志
-
-**故障排查**
-- `offchain_queryBalance(A)` 返回 `0` 但链上 `DepositBalance` 有值 → listener 漏事件 → 重启节点(ledger 会从事件流重建)
-- `ReserveMonitor 对账偏差!` → 同上
-
----
-
-#### 6. 准备 B 的收款码(10 元)
-
-使用兼容 `QR_V1 kind=user_transfer` 的已实现收款端或测试工具,为 B 生成收款码。CitizenApp 当前仅承担扫码付款,本 SOP 不宣称 App 内存在收款码生成页。
-
-##### 先决条件
-
-B 必须先走完步骤 4 的链上清算行绑定。收款码中的 `bank` 必须是 B 绑定的清算行 `cid_number`。
-
-同行 MVP 中 B 绑定的清算行必须与 A 相同。
-
-##### 期望观察
-
-- 页面顶部显示 `收款地址`(B 的 SS58)与 `清算行`(B 的 `cid_number`)
-- 输入金额 `10`(元)
-- QR 码即时渲染,扫出来是 JSON,含:
-  - `p=QR_V1`, `k=4`
-  - `b.ss58_address` = B 的 SS58
-  - `b.bank` = B 绑定的清算行 `cid_number`
-  - `b.amount` = `"10"`
-- 页面底部 `可用余额(清算行,每 5s 刷新)` 显示 `0.00 元`(B 还没被转过钱)
-
----
-
-#### 7. A 扫码付款
-
-步骤:**A 钱包 → 主页"扫码支付" → 扫 B 的收款码**。
-
-##### 期望观察(页面)
-
-- 跳转到 `OffchainClearingPayPage`
-- loading → ready:
-  - `收款方地址` = B 的 SS58
-  - `收款方清算行` = B 的 `cid_number`
-  - `金额` 字段自动填 `10`(由 QR 预填,不可再编辑)
-  - `费率` 显示 `<L2FeeRateBp>` bp
-  - `手续费` = `0.01 元`(5 bp × 10 元 = 0.005 元 → 四舍五入不足 1 分 → 兜底 `MIN_FEE_FEN=1` = 0.01 元)
-  - `合计扣款` = `10.01 元`
-- 点"确认并签名付款"
-- 进入 submitting → done:
-  - ✅ 绿色图标 + `支付已受理,清算行会在下一批次上链`
-  - 显示 `tx_id: 0x...`
-
-##### 期望观察(节点 log)
-
-立即(RPC 接受):
-```
-无特殊日志(ledger.accept_payment 是内存操作,不打印)
-```
-
-30 秒内(packer tick):
-```
-[ClearingPacker] batch ok tx=0x<批次 tx_id>
-```
-
-出块后(listener):
-```
-[EventListener] ... PaymentSettled { tx_id=0x<本笔 tx_id>, payer=A, recipient=B, ... }
-```
-
----
-
-##### 链上查询
-
-- `DepositBalance[<bank_main>, A]` = `10000 - 1000 - 1` = `8999` 分(90.00 - 10.01 = 79.99? 这里算 100 - 10 - 0.01 = 89.99 元 = 8999 分 ✓)
-- `DepositBalance[<bank_main>, B]` = `1000` 分(10.00 元)
-- `BankTotalDeposits[<bank_main>]` 比付款前减少 `1` 分(= fee,因为同行 fee 流出到 fee_account)
-- `pallet_balances::Balance[bank_main]` 减 `1` 分(同行 fee 转出)
-- `pallet_balances::Balance[fee_account]` 加 `1` 分
-
-##### CitizenApp
-
-- A 的收款页或充值页余额查询:`89.99 元`
-- B 的收款页:`10.00 元`(5 秒轮询内刷新)
-
-##### 节点对账
-
-- `ReserveMonitor` 应打 `ok local=chain=<new_total>` debug
-- 偏差日志绝对不应该出现
-
----
-
-#### 9. 常见故障排查
-
-| 现象 | 原因 | 处置 |
-|---|---|---|
-| 扫码付款页 `请先绑定清算行` | `UserBank[A]` 空 / 本地绑定缓存缺失 | 回步骤 4 确认绑定成功;重新进入清算行设置页刷新缓存 |
-| `收款方清算行尚未声明节点` | QR 的 `bank` 在 finalized `ClearingBankNodes` 中不存在 | 收款方清算行管理员先在链上声明清算节点 |
-| `收款方清算行尚未声明节点` | 链上 `ClearingBankNodes[bank]` 不存在 | 收款方清算行管理员先在节点端声明清算节点 |
-| `清算行费率未配置(rate_bp=0)` | `L2FeeRateBp[bank_main]` = 0 | 由清算行管理员 `propose_l2_fee_rate(bank, 5)` → 等 7 天或 Root `set_max_l2_fee_rate` 后再提 |
-| 提交后 30 秒过了 packer 无反应 | keystore 密码不对 → `sign_batch` Err 回滚 | 查节点 `[ClearingPacker]` 日志是否有 rollback;重启节点传正确密码 |
-| packer 反复 `TxPool full / Invalid nonce` | 清算行管理员账户 nonce 不对齐(有其他提交在排队) | 等当前队列清空,或用 `system_accountNextIndex` 强制拉一次 |
-| `PaymentSettled` 事件到了但 CitizenApp 余额不刷新 | CitizenApp 5s 轮询失败(WSS 断开) | 检查 WSS 连通;CitizenApp 自动下一 tick 恢复 |
-| `[ReserveMonitor] 对账偏差!` | listener 漏事件 / ledger 持久化损坏 | 删 `<base-path>/offchain_step1/ledger.enc` 重启(从事件流重建) |
-
----
-
-#### 10. 执行 checklist(建议每次 demo 前核对)
-
-```
-[ ] 清算行节点启动日志三件套全有
-    · ClearingBank 组件已启动
-    · ReserveMonitor 启动
-    · EventListener 订阅开始
-[ ] CitizenApp 启动唯一 CitizenSDK session，能读取 finalized 链状态
-[ ] `ClearingBankNodes` 能枚举到目标清算行
-[ ] 两个钱包 A/B 都已绑定到同一家清算行
-[ ] A 余额 ≥ 110 元(绑定 1 元 + 充值 100 + 手续费冗余)
-[ ] packer interval 按默认 30s(或 tick 频率调过)
-[ ] reserve_monitor 首次 tick 前不报偏差(启动刚完成跳过)
-[ ] 全流程走完 step 8 的链上查询全部与期望一致
-```
-
----
-
-#### 11. 后续
-
-- **Layer B 自动化**(1-2 天):把本 SOP 的步骤 4-8 编成 Rust 集成测试(需 `chain_spec.rs` 加 dev preset + CID mock + 清算行机构 seed)。本 SOP 可作为测试 case 清单。
-- **Demo 脚本衍生**:用本 SOP 第 4-8 步录屏,作为产品演示素材;步骤 9 常见故障可直接用于产品侧话术。
-- 失败 case 补充:实际执行中遇到但本文未覆盖的故障,追加到第 9 节。
-
----
-
-#### 12. 变更记录
-
-- 2026-04-20:首版落地。基于 Step 2c-ii-a 完成点写就。范围聚焦 CitizenApp ↔ 清算行节点 ↔ runtime 的付款/收款交互;创建清算行机构 / 配置费率 / 注册 CID 等前置环境准备明确列为 out-of-scope。
+付款受理、最终清算上链与收款余额是不同事实；清算支付不写入链上转账LocalTxStore或SDK execution history。真实付款、注册、充值、节点操作及设备验收另列范围，不能从本轮宿主回归或无签名编译推定通过，也不能沿用旧手工SOP删除持久账本或准备真实资金。
 
 ## transaction / onchain transaction
 
@@ -2722,7 +2026,7 @@ B 必须先走完步骤 4 的链上清算行绑定。收款码中的 `bank` 必�
 #### 1. 模块目标
 
 `isar_user` 是 CitizenApp `5+2` 架构中唯一的用户/身份业务库。
-`lib/account/user.dart` 负责“我的 / 用户”页面，`lib/account/contacts/` 负责通讯录；“我的”只是 UI 入口，
+`lib/user.dart` 负责“我的 / 用户”页面，`account/lib/contacts/` 负责通讯录；“我的”只是 UI 入口，
 不是数据库。其中钱包与全部区块链事实归 `isar_wallet`，身份、用户资料、联系人和
 纯用户偏好归 `isar_user`。当前覆盖：
 
@@ -2735,24 +2039,24 @@ B 必须先走完步骤 4 的链上清算行绑定。收款码中的 `bank` 必�
 
 #### 2. 文件结构
 
-- `lib/storage/user_isar.dart`
+- `storage/lib/user_isar.dart`
   - `UserIsar(citizenapp_user)` 唯一 schema 清单、独立操作队列与关闭终态
-- `lib/storage/user_isar.g.dart`
+- `storage/lib/user_isar.g.dart`
   - User 域 Isar 生成物
 
-- `lib/account/user.dart`
+- `lib/user.dart`
   - “我的”页 `MyTab`
-- `lib/account/contacts/contact_service.dart`
+- `account/lib/contacts/contact_service.dart`
   - 通讯录模型、按属主 CID 隔离的 Isar 缓存、端侧加解密、Cloudflare 同步和待同步操作
-- `lib/account/contacts/contact_book_page.dart`
+- `account/lib/contacts/contact_book_page.dart`
   - 通讯录页面、搜索、同步状态和单条联系人卡片
 
 相关协作模块：
 
-- `lib/wallet/wallet_page.dart`
+- `wallet/lib/wallet_page.dart`
   - 管理热钱包档案和当前默认账户
   - `walletName` 只作为本机钱包标签，不读写公开昵称
-- `lib/account/identity/`
+- `account/lib/identity/`
   - 电子护照本地展示及主动 finalized 身份验真服务
   - `identity_badge_snapshot_store.dart` 是身份卡片和徽章的唯一持久展示存储；账户定位当前完整快照，CID定位徽章
   - “我的”页面只提供入口和头像认证角标，不承载电子护照设置流程
@@ -2871,7 +2175,7 @@ Android 与 iOS 均显示竖向三点，不依赖平台自适应默认图标。
 
 ##### 4.3 电子护照
 
-电子护照状态归属 `lib/account/identity/MyIdService`，用户模块不直接读写电子护照状态。
+电子护照状态归属 `account/lib/identity/myid_service.dart`，用户模块不直接读写电子护照状态。
 `MyIdState.status` 使用既有 `MyIdStatus` 枚举，仅表达页面展示状态；字段与值集由实际 `MyIdStatus` 定义。已知访客为 `null`，缺快照与读取失败按既有状态区分；页面状态不作为操作授权。
 电子护照页始终展示“匿名访客”“公民 · 投票身份”“公民 · 竞选身份”三张卡。当前身份卡排在首位并唯一标记“当前身份”；只有当前投票或竞选身份卡展示真实值，非当前公民卡只展示字段名称，不展示占位值、示例值或当前用户数据。匿名访客卡固定显示“没有公民身份信息”。
 仅主动刷新或实际身份授权时，由账户顺序第一项的默认账户反查永久 CID（热、冷账户同权），校验
@@ -2926,7 +2230,7 @@ Android 与 iOS 均显示竖向三点，不依赖平台自适应默认图标。
 ##### 5.4 电子护照入口
 
 1. “我的”页面点击电子护照入口
-2. 跳转 `lib/account/identity/MyIdPage`
+2. 跳转 `account/lib/identity/myid_page.dart`
 3. `MyIdService.getState()` 只取默认账户的本地快照；已有本地绑定可直接显示公民号，
    缺完整数据不自动查链，完全未知显示“身份尚未获取，请下拉刷新”。`refreshState()`
    仅供主动刷新，调用统一finalized解析器读取CID双向绑定及投票/竞选身份。
@@ -2967,7 +2271,7 @@ Android 与 iOS 均显示竖向三点，不依赖平台自适应默认图标。
 #### 6. 依赖
 
 - `image_picker`、`isar_community`；二维码与钱包能力分别由实际锁定SDK提供
-- 协作：`CitizenSdkWallet`、`lib/account/identity/MyIdPage`
+- 协作：`CitizenSdkWallet`、`account/lib/identity/myid_page.dart`
 
 #### 7. 未注册身份统一引导(2026-10-16)
 
@@ -3038,18 +2342,18 @@ CitizenApp 不保存助记词、私钥、wallet profile、加密秘密信封或 
   不再把公民端宿主适配符号解释或命名为另一套 SDK。2026-09-11 第 2.2 步已删除
   历史伪 SDK 子类，改为产品工厂直接返回 `tatachat_sdk.ChatSdk`。
 - 完整会话页、输入面板、表情、贴纸、相册、拍摄、文件、录音、媒体下载、消息删除和渲染均直接使用 TataChatSDK。
-- CitizenApp 只通过 ChatConversationHost 提供公民资料标题、会员发送门禁和公民转账动作；聊天 Tab、联系人、扫码和产品导航继续归现有 `lib/chat/`。
+- CitizenApp 只通过 ChatConversationHost 提供公民资料标题、会员发送门禁和公民转账动作；聊天 Tab、联系人、扫码和产品导航继续归现有 `chat/lib/`。
 - 具体聊天服务连接由 TataChatSDK 内部持有，CitizenApp 不再引用或公开具体连接类型。
 
 ## 聊天清理第 1 步：现有聊天模块直连唯一 SDK（2026-09-13）
 
-- 物理目录继续只有现有 `lib/chat/`，没有创建 CitizenApp 子产品或第二个聊天集成目录。
+- 物理目录继续只有现有 `chat/lib/`，没有创建 CitizenApp 子产品或第二个聊天集成目录。
 - 聊天 Tab 直接接收唯一 `ChatSdk`；私聊和群聊统一进入 SDK `ChatConversationRoutes`。完整会话页
   直接持有该 SDK，列表控制器也在 SDK 内部完成待发重试、WSS 订阅和轮询降级。产品端已删除
   `CitizenChatPage` 以及发送、媒体、下载、同步和实时连接工厂，不再重复组装通用聊天链路。
-- 会员状态、授权结果和附件额度已收回 `lib/account/membership/SubscriptionService`；
-  `chat_product_policy.dart` 只做无状态读取。CID/当前账户继续归 `lib/account/identity/`，公开绑定继续归
-  `lib/account/identity/`，CitizenServe 聊天短期授权的 HTTP 客户端归 `lib/network/`，会话校验归 `lib/account/identity/`。
+- 会员状态、授权结果和附件额度已收回 `account/lib/membership/subscription_service.dart`；
+  `chat_product_policy.dart` 只做无状态读取。CID/当前账户继续归 `account/lib/identity/`，公开绑定继续归
+  `account/lib/identity/`，CitizenServe 聊天短期授权的 HTTP 客户端归 `network/lib/`，会话校验归 `account/lib/identity/`。
 - 第3步已同步删除旧 CitizenServe 聊天数据面代码和测试；原服务端消息、信令、附件、推送端点不再作为当前实现。
 ### 产品流程物理归属
 
@@ -3078,7 +2382,7 @@ Widget真库测试在真实setUp预开所用数据库；资料保存必须推进
 
 本机MLS设备登记的钱包授权在签署成功后、任何网络请求和Turnstile展示前持久保存，并读回核验。登记断网、超过原窗口或回执丢失后复用已存钱包授权，每次提交使用同一MLS身份的新鲜registration挑战。完全相同已登记行可不重复Turnstile；未落库或更新收到turnstile_required后获取新token，再用新鲜MLS挑战提交。授权损坏或当前MLS公钥变化失败关闭，不重新请求钱包认证。服务故障和迟到身份快照不能冒充无钱包或未注册。
 
-本次虚拟测试按用户最新要求使用Android Emulator与Xcode Simulator各两台独立设备，正常App以lib/main.dart构建、安装并保留在设备中，由黑盒UI测试核对实际页面。SDK官方integration_test开发依赖与flutter drive执行test/simulator_test.dart，只证明十一组软件回归夹具；必须指定虚拟设备和SIMULATOR_SUITE。flutter drive结束会卸载测试入口包，这些结果不能替代正常App安装、主导航或真实账户业务验收。虚拟环境不证明真实硬件保护、真实生物识别、硬件钥永久失效或生产账户成功恢复；这些项目由用户真机验证。测试入口不修改生产钥来源或安全开关，普通宿主测试发现该文件时跳过设备入口。
+本次虚拟测试按用户最新要求使用Android Emulator与Xcode Simulator各两台独立设备，正常App以lib/main.dart构建、安装并保留在设备中，由黑盒UI测试核对实际页面。SDK官方integration_test开发依赖与flutter drive执行lib/test/simulator_test.dart，只证明十一组软件回归夹具；必须指定虚拟设备和SIMULATOR_SUITE。flutter drive结束会卸载测试入口包，这些结果不能替代正常App安装、主导航或真实账户业务验收。虚拟环境不证明真实硬件保护、真实生物识别、硬件钥永久失效或生产账户成功恢复；这些项目由用户真机验证。测试入口不修改生产钥来源或安全开关，普通宿主测试发现该文件时跳过设备入口。
 
 iOS正常入口黑盒回归先核对App自己的12/18/24词创建页；模拟器无硬件保护时创建与热导入必须禁用，冷导入空地址必须失败并可返回。之后仅在模拟器通过正常冷导入表单保存公开开发账户Bob的CitizenChain地址（SS58前缀2027），拒绝系统通知提示并从首次身份引导页返回，再检查五主导航切换与进程重启。测试不输入助记词、密码或私钥，不交易，不改生产安全保护；公开冷账户的正常页面证据不等同硬件热钱包或生产账户业务验收。正常App和其账户数据在测试结束后保留。
 
@@ -3145,9 +2449,9 @@ Release合同核验正式锁定SDK公开QR方法的准确返回类型、参数�
 
 本次实际源码的API根已是https://www.crcfrcn.com/api，旧客户端仍追加/square路径。新服务端唯一功能路径需要同步客户端方法、正文和响应，而不仅更换前缀：验证页面加载受信page_url并解析JSON {check_id,token}；四个登记接口持有独立能力；六字段设备登记删除turnstile_token，取消旧登记器二次弹窗；所有普通请求的MLS证明继续覆盖真实/api路径、原始查询和实际字节。
 
-新恢复记录拟使用 /Users/rhett/citizenapp/lib/account/identity/registration_store.dart，委托SystemProtectedRecordStore的registration.json类型及原生CAS/保护。实际运行绝对根由既有prepareRecords返回；iOS /Users/rhett/citizenapp/ios/source/SystemProtectedDataChannel.swift 与Android /Users/rhett/citizenapp/android/app/MainActivity.kt同步白名单，/Users/rhett/citizenapp/lib/system/security/app_lock_service.dart同步擦除读回。恢复秘密不放公开identity.json；钱包/MLS私钥、原始Turnstile token和过期挑战不进入恢复记录。finalized恢复不重复CID交易、不重置MLS身份，不把断网当成未注册。
+新恢复记录拟使用 /Users/rhett/citizenapp/account/lib/identity/registration_store.dart，委托SystemProtectedRecordStore的registration.json类型及原生CAS/保护。实际运行绝对根由既有prepareRecords返回；iOS /Users/rhett/citizenapp/ios/source/SystemProtectedDataChannel.swift 与Android /Users/rhett/citizenapp/android/app/MainActivity.kt同步白名单，/Users/rhett/citizenapp/lib/security/app_lock_service.dart同步擦除读回。恢复秘密不放公开identity.json；钱包/MLS私钥、原始Turnstile token和过期挑战不进入恢复记录。finalized恢复不重复CID交易、不重置MLS身份，不把断网当成未注册。
 
-普通账户服务门槛不能只看链上CID。现有 /Users/rhett/citizenapp/lib/account/identity/register_identity_flow.dart 和 /Users/rhett/citizenapp/lib/account/identity/square_session_provider.dart将共用真实身份/准入/设备/会话判断；广场、聊天、通讯录、订阅及资料服务都消费现有普通会话和新鲜MLS证明。公共钱包/链引导/代充值继续其明确公共合同；App门槛不声称改造了公链共识。
+普通账户服务门槛不能只看链上CID。现有 /Users/rhett/citizenapp/account/lib/identity/register_identity_flow.dart 和 /Users/rhett/citizenapp/account/lib/identity/square_session_provider.dart将共用真实身份/准入/设备/会话判断；广场、聊天、通讯录、订阅及资料服务都消费现有普通会话和新鲜MLS证明。公共钱包/链引导/代充值继续其明确公共合同；App门槛不声称改造了公链共识。
 
 其余已核实适配：上传prepare新manifest/media_uploads结构、complete路径中upload_id不再重复正文；资料上传相对能力地址及PUT回执哈希；创作者tiers/subscription与确认后重读，现有Bearer-only投影POST补普通请求MLS证明；充值意图中的付款消息/期限及confirm的payer_signature，固定付款授权失败不继续转账；引导清单relay路径由旧/chain/extrinsics/relay改为真实/api/chain/extrinsics。原冷签、充值、发布检查点与本地数据模型生命周期保留。
 
@@ -3155,7 +2459,7 @@ Release合同核验正式锁定SDK公开QR方法的准确返回类型、参数�
 
 用户已确认8.1—8.4及8.6。注册顺序为：确认注册 → Cloudflare验证 → CitizenServe保存通过结果 → 原余额检查/钱包签名/CID上链/finalized → 同一TataChatSDK的MLS设备登记 → 普通会话。原CID生成保留在MyIdService.registerAnonymousCid内部；验证前只有账户、机构、genesis、服务范围，没有CID或年份。
 
-新增编排位于 /Users/rhett/citizenapp/lib/account/identity/registration_coordinator.dart，能力API/严格模型/页面/保护记录同目录。统一根在 /Users/rhett/citizenapp/lib/network/citizen_serve_api_config.dart。registration.json经原生白名单、锁/CAS、原子提交及读回保存；身份公开记录和恢复能力分开，全量/胁迫擦除包含新记录。MLS私钥仍由SDK持有。
+新增编排位于 /Users/rhett/citizenapp/account/lib/identity/registration_coordinator.dart，能力API/严格模型/页面/保护记录同目录。统一根在 /Users/rhett/citizenapp/network/lib/citizen_serve_api_config.dart。registration.json经原生白名单、锁/CAS、原子提交及读回保存；身份公开记录和恢复能力分开，全量/胁迫擦除包含新记录。MLS私钥仍由SDK持有。
 
 恢复先读取服务器status，再查所选账户finalized双向绑定及SDK公开检查点。未知广播不重发；finalized后只恢复投影、设备和普通会话；余额不足保留验证结果。设备登记只有六字段 account_id/public_key/issued_at/binding_signature/reg_id/recovery_token，已准入登记两个能力字段明确为null。原独立设备Turnstile页面删除。
 
@@ -3233,7 +2537,7 @@ Android、iOS平台输入均不保存PNG副本。原生构建通过所属Workflo
 
 ## 统一会员业务资格
 
-客户端先经现有CID注册门禁，再由`lib/account/membership/subscription_service.dart`统一处理业务会员资格；服务端仍独立最终裁决。没有钱包继续由既有根门禁返回初始化页，未注册继续使用统一注册引导，真人验证、注册、MLS激活顺序保持。
+客户端先经现有CID注册门禁，再由`account/lib/membership/subscription_service.dart`统一处理业务会员资格；服务端仍独立最终裁决。没有钱包继续由既有根门禁返回初始化页，未注册继续使用统一注册引导，真人验证、注册、MLS激活顺序保持。
 
 | 场景 | 当前规则 |
 |---|---|
@@ -3246,9 +2550,9 @@ Android、iOS平台输入均不保存PNG副本。原生构建通过所属Workflo
 
 ### 主页与深链
 
-`lib/account/profile/user_profile_page.dart`依据`SquareSessionProvider.currentCitizenId()`取得的本地当前身份CID判断本人；`isSelf`只沿用原UI布局参数，不能提供会员豁免。页面存活、账户revision、门禁代际及原请求版本共同约束异步结果；账户变化先隐藏旧资料，再重新核对。会员未知、会话或网络故障保留“内容加载失败，请下拉刷新”，不能冒充已确认非会员。
+`account/lib/profile/user_profile_page.dart`依据`SquareSessionProvider.currentCitizenId()`取得的本地当前身份CID判断本人；`isSelf`只沿用原UI布局参数，不能提供会员豁免。页面存活、账户revision、门禁代际及原请求版本共同约束异步结果；账户变化先隐藏旧资料，再重新核对。会员未知、会话或网络故障保留“内容加载失败，请下拉刷新”，不能冒充已确认非会员。
 
-广场Tab使用`CitizenServiceGate`核对CID事实；`MembershipBusinessGate`继续用于`lib/8964/post/square_post_detail_page.dart`及`lib/8964/article/square_article_detail_page.dart`。远端详情实际请求前同样验证会员，不因初始帖子、缓存或通知直达路径跳过；本人本地副本保留原离线阅读。本人资料刷新与广场云端同步分开，未订阅不阻断本人资料。除指定门禁提示外，原布局、按钮、菜单、导航、播放器及媒体选择交互保持。
+广场Tab使用`CitizenServiceGate`核对CID事实；`MembershipBusinessGate`继续用于`8964/lib/post/square_post_detail_page.dart`及`8964/lib/article/square_article_detail_page.dart`。远端详情实际请求前同样验证会员，不因初始帖子、缓存或通知直达路径跳过；本人本地副本保留原离线阅读。本人资料刷新与广场云端同步分开，未订阅不阻断本人资料。除指定门禁提示外，原布局、按钮、菜单、导航、播放器及媒体选择交互保持。
 
 ### 最小聊天资料卡
 
@@ -3380,7 +2684,7 @@ TronWeb公开HttpProvider只传输付款所需的三个POST接口，使用HTTPS�
 
 两个套餐固定为15U兑换10,000GMB、1400U兑换1,000,000GMB。EVM交易同时传准确chainId；Tron/Solana原签名交易先保存再广播。未决提交优先恢复，套餐弹窗防重复打开；已保存paid在离线时仍保留准确到账展示。
 
-两平台在现有“准备官方工具和本轮目录”步骤中，按assets/topup/package.json的唯一esbuild0.28.1声明准备工具；不新增充值专用步骤。本机复用ESBUILD_BIN或PATH交付的既有工具，缺件沿原工具错误失败。
+两平台在现有“准备官方工具和本轮目录”步骤中，按transaction/web/package.json的唯一esbuild0.28.1声明准备工具；不新增充值专用步骤。本机复用ESBUILD_BIN或PATH交付的既有工具，缺件沿原工具错误失败。
 
 
 ## 广场、通讯录、会员的MLS故障与明确动作
@@ -3453,7 +2757,7 @@ RunnerUITests的创作者、钱包与充值复用准确主“我的”Tab和实�
 提案首批、刷新、翻页及区块更新读取前共用同一SDK的chainRead公开能力；先订阅能力/生命周期/最终块事件，再核对快照。查询快照期间若有新事件，必须重新核对，旧ready不得覆盖最新未就绪事实。启动或未同步时沿原加载态等待事件，就绪后只执行最新请求代次的原读取路径；实例停止、启动失败或能力不可用仍走原错误处理。禁止另启节点、固定睡眠/轮询、把真实decode/network失败吞掉或触发身份注册/Turnstile。刷新作废旧等待，页面销毁撤销等待和订阅。宪法测试允许不可修改标记与条文合并语义，要求完整标记词边界、实际可见标记及新增非空条文；仅在当前阅读器最多向上滚动三次，不用任意容器或元数据代替条文。
 
 
-原充值配置/套餐用例继续不点击网络入口。独立的iOS钱包唤起用例仅在取得准确授权后，通过原USDC首档Ethereum入口选择已安装MetaMask或OKX，分别记录选择器、Open控件存在/可用、准确品牌的系统打开提示及外部钱包前台状态。WebKit可合并品牌与辅助文字，钱包选择只取当前连接页中带准确品牌且实际可点击的按钮、链接、文本或图像叶节点，排除整页容器；只记录品牌存在、WebView归属、原静态等待文案/连接标题及文本子树是否可读的布尔值，不输出其他标签。只允许连接页内的Open和SpringBoard明确品牌的打开提示；不批准钱包连接、签名或付款，不读取URI、二维码、账户或金额。选择器和连接阶段各最多观察180秒，以覆盖实际长时间转圈和失败；失败/超时保持未通过，原订单存在则跳过新连接。使用原同标识UITest运行器和宿主、USB、keepNever/never；新增用例不改变正式App或服务合同，不能以Android观察代替iOS结果。
+原充值配置/套餐用例继续不点击网络入口。独立的iOS钱包唤起用例仅在取得准确授权后，通过原USDC首档Ethereum入口选择已安装MetaMask，记录六宫格按钮存在/可用、准确品牌的系统打开提示及外部钱包前台状态。WebKit可合并品牌与辅助文字，钱包选择只取当前连接页中带准确品牌且实际可点击的按钮、链接、文本或图像叶节点，排除整页容器；只记录品牌存在、WebView归属、原静态等待文案/连接标题及文本子树是否可读的布尔值，不输出其他标签。仅点击已启用MetaMask及SpringBoard明确品牌的打开提示；不批准钱包连接、签名或付款，不读取URI、二维码、账户或金额。选择器和连接阶段各最多观察180秒，以覆盖实际长时间转圈和失败；失败/超时保持未通过，原订单存在则跳过新连接。使用原同标识UITest运行器和宿主、USB、keepNever/never；新增用例不改变正式App或服务合同，不能以Android观察代替iOS结果。
 
 钱包唤起用例整体执行上限480秒，选择器和连接两阶段各180秒的观察上限之外只用于原导航及清理，不延长或放宽实际钱包前台成功条件。
 
@@ -3463,7 +2767,7 @@ RunnerUITests的创作者、钱包与充值复用准确主“我的”Tab和实�
 
 桥接沿本次装配文档、实际HTTPS来源及原会话守卫接收观察，使用独立递增顺序，不能抢占原付款消息。AppLog只接受精确阶段/布尔字段，输出CitizenTopup闭集行，不保存URI、二维码、会话、账户、异常正文或诊断文件，不启用全局自由文本诊断。原生打开只输出requested/busy/opened/rejected固定结果；opened仍需外部钱包前台证据，不能冒充付款成功。连接入口回归必须核对监听先于open及connect、结束撤销监听、出口故障保留业务结果，并禁止额外调用ready。
 
-真机仅在准确签名/覆盖安装授权后独立检查两端USDC首档Ethereum到MetaMask，iOS补OKX；复用原USB UITest运行器/宿主，原订单存在则停止新连接，钱包前台即止，不批准连接或签名付款。只有完整start/connect/end且监听成功、complete=true、baseline=false的回执才允许用未产生事件及provider_uri=false认定本次观察期间URI未生成；emitted=true且matched始终false才定位产生至弹窗接收；缺少回执不依据沉默下结论。弹窗已接收时继续联合原生请求和设备前台核对后续边界；SDK连接调用顺序及服务端合同保持。
+真机仅在准确签名/覆盖安装授权后独立检查两端USDC首档Ethereum到MetaMask；其余五个钱包保持禁用，逐项接入后再扩展检查；复用原USB UITest运行器/宿主，原订单存在则停止新连接，钱包前台即止，不批准连接或签名付款。只有完整start/connect/end且监听成功、complete=true、baseline=false的回执才允许用未产生事件及provider_uri=false认定本次观察期间URI未生成；emitted=true且matched始终false才定位产生至弹窗接收；缺少回执不依据沉默下结论。弹窗已接收时继续联合原生请求和设备前台核对后续边界；SDK连接调用顺序及服务端合同保持。
 
 上述产生边界指UniversalProvider公开连接接口实际产出可用URI；布尔快照不提供SignClient/Relay内部的具体失败原因，也不能据此认定项目权限、来源白名单、网络或ready等待是唯一根因。真实安装/用例与三阶段回执必须分别核验，故障复现不能改记为钱包唤起成功。
 
@@ -3475,16 +2779,16 @@ RunnerUITests的创作者、钱包与充值复用准确主“我的”Tab和实�
 
 subscribed字段只表示本次公开subscription_created事件；SignClient的pairing.create使用skipSubscribe时，也会创建本地订阅状态，该布尔值不能单独当作远端订阅确认。来源条件验证须使用真实SDK认证和公开Relay协议实际订阅结果/关闭原因；101升级成功不能替代后续授权结果。
 
-连接文档由原HTML模板及同一原锁构建的随包JS在内存装配，loadHtmlString固定使用https://www.crcfrcn.com/基址；不请求远端网页或脚本。JS字节经Base64嵌入script src，CSP仅允许本次独立随机nonce，不开放脚本unsafe-inline/unsafe-eval或整个HTTPS/data来源。模板文档标记、CSP和脚本nonce一致；缺资源、非法标记或模板不完整在加载前失败。SDK版本、原Promise、钱包列表/时序及付款合同保持。
+连接文档由原HTML模板及同一原锁构建的随包JS在内存装配，loadHtmlString固定使用https://www.crcfrcn.com/基址；不请求远端网页或脚本。JS字节经Base64嵌入script src，CSP仅允许本次独立随机nonce，不开放脚本unsafe-inline/unsafe-eval或整个HTTPS/data来源。模板文档标记、CSP和脚本nonce一致；缺资源、非法标记或模板不完整在加载前失败。SDK版本、原Promise及付款合同保持；钱包选择以本节当前六宫格为准。
 
 先等待WebView的JavaScript模式、桥接通道及导航委托实际设置完成，再载入内存文档。同nonce的随包启动脚本在原bundle之后发送精确三字段document_ready消息：本次nonce、固定kind及真实ready布尔；原生只以此就绪入口核对文档，不保留平台历史URL完成通知的双路启动。准入必须实际核对主框架、本次随机文档标记、window.origin精确为https://www.crcfrcn.com及CitizenTopup.start存在，并以检查前后稳定的真实当前URL绑定文档；初始化只认可基址或about:blank形态。重复就绪、旧文档、外部地址或证明缺失不得重新启动。完成后阻止所有主框架导航；桥接和回复继续核对当前精确地址、实际来源/标记及原会话。启动和回复在同次JS执行中再次核对文档，避免原生异步检查后导航提交的竞态；域名相同本身不授予网站桥接权限。随机标记、URI、会话及业务内容不进入日志或诊断文件；不清理原订单或钱包数据，来源隔离变化可能需要重新连接WalletConnect。
 
 真实验收必须两端实际通过上述来源检查，原取证观察本轮display_uri产生且wcUri匹配接收、Relay发布成功，并由对应钱包真实前台证明唤起；不能以系统打开回执或桌面来源对照代替。钱包连接确认页即停，不批准连接、签名或付款；取消后能返回原页面。iOS使用原USB UITest运行器/宿主，Android用原USB设备，均经塔塔控制台发起。
 
 
-充值继续使用原WalletConnect/AppKit选择弹窗，总名单固定15个官方目录ID，顺序为MetaMask、Trust Wallet、OKX Wallet、Binance Wallet、Bitget Wallet、TokenPocket、imToken、SafePal、OneKey、Ledger Wallet、Trezor Suite、Rabby、Rainbow、Zerion、Gem Wallet。同品牌只保留一个ID，不按展示名称猜ID；前六个优先顺序固定，其余沿该序列显示。
+充值钱包固定两行三列，第一行MetaMask、imToken、Trust Wallet，第二行Binance Wallet、OKX Wallet、Coinbase Wallet；唯一冻结数组的enabled同时控制按钮及连接入口。目前仅MetaMask启用，其余五项标注“暂未开放”，禁用和伪造点击均不能初始化SDK、连接、唤起、签名或付款。选择页不等待网络与SDK，重复点击只选择一次；不保留搜索、所有钱包、最近项及原15项名单。
 
-同一数组同时传入includeWalletIds与featuredWalletIds；“所有钱包”和搜索仍限定此名单。关闭额外自定义钱包、EIP6963发现、邮箱和社交入口，保留原所选网络及必要方法核验，不自动换链、不承诺每款钱包都支持全部五链。原锁AppKit公开common接口仅清除RECENT_WALLETS和RECENT_WALLET两项选择器展示偏好，避免历史条目或去重排序破坏名单；不清空localStorage，不读写账户、会话凭据、充值订单或签名原字节。连接成功或取消后沿原关闭收尾，不建立新的付款或广播流程。
+连接仍复用原锁UniversalProvider/AppKit公开接口和原提案、链/付款人校验及付款流程；AppKit headless且disableAppend，不挂载其选择UI。display_uri由当前已选钱包适配调用原SDK公开格式化方法构造专属链接，连接与后续请求均经同一原生桥接等待系统回执；失败或取消立即停止，不提取通用wc链接、不改投其他品牌。原SDK的display_uri/wcUri与Relay观察保持，不手工setUri或修改SDK。六个图标复用官方目录图片，st/sv参数由原锁公开PACKAGE_VERSION构造，不复制版本；不新增图像文件或依赖、构建入口。原单续播显示核实状态，跳过钱包选择。连接取消只关闭本次流程，不清空会话、账户、订单和签名记录。MetaMask完成实机调试后，再按imToken、Trust Wallet、Binance Wallet、OKX Wallet、Coinbase Wallet顺序逐个接入，测试成功后才启用；当前不引入Coinbase独立SDK。
 
 换绑授权上下文在唯一finalized锚点以一次getStorageBatch读取账户、绑定revision及链时间；交易后置核验在实际finalized包含块一次批读账户与revision。两个阶段的SCALE、缺失、期限与目标精确一致性判断保持。
 
@@ -3603,7 +2907,7 @@ MLS认证证明统一归聊天SDK原生Serde编码：user_id/device_id/public_ke
 
 ### 广场目录与通知、评论、点赞
 
-`lib/8964/`按feed、post、compose、draft、article、media、comment、like八个目录归属。feed负责广场入口、分类顺序和通知列表；post拥有通用内容模型/卡片/详情/存储/同步及浏览者互动状态；文章编辑和阅读归article，草稿归draft。通知子tab页面归feed，禁止为单个文件另建目录；原系统推送与会员快照状态继续由system/notifications负责，网络与数据库结构仍在network、storage。
+`8964/lib/`按feed、post、compose、draft、article、media、comment、like八个目录归属。feed负责广场入口、分类顺序和通知列表；post拥有通用内容模型/卡片/详情/存储/同步及浏览者互动状态；文章编辑和阅读归article，草稿归draft。通知子tab页面归feed，禁止为单个文件另建目录；原系统推送与会员快照状态继续由system/notifications负责，网络与数据库结构仍在network、storage。
 
 三级角标以服务端事件的square_read_at、notifications_read_at、read_at分别计算，互不级联。广场实际显示清广场层，通知子tab取得并显示快照后清通知层，内容详情显示后按读取上界清该内容评论层。清读意图携带scope、内容ID和through，先在UserIsar.Notice.pending_data落盘，失败保留原范围重试；旧请求和旧CID不能修改新账号状态。通知页同时核对底部活动tab、当前路由和前后台状态；后台或隐藏页面不请求通知列表、不清读；加载失败不清读，回到可见状态再补刷；没有定时轮询。square_unread不再等于following_unread与interaction_unread之和。
 
@@ -3629,3 +2933,95 @@ SDK补传同次job实际产生的固定内部原因时，App按同一白名单�
 ## 本机编译资源与版本来源
 
 本机compile只读取pubspec.yaml的版本与数字构建号，当前1.0.0+40用于保留数据覆盖已装39/40；不查询GitHub Run，也不把控制台任务号作为产品输入。SDK仍取两个本机main提交，使用原锁和现有缓存；先以Pub与npm离线装配原锁，随后正常build由Flutter按Release刷新原生插件注册；不使用build --no-pub跳过该步骤。Git仅允许本地资源，Cargo沿标准离线参数执行。塔塔自动化继续使用所属Workflow提供的Run构建号和正式SDK选择。
+
+
+## 包与测试归属重构
+
+根App只拥有启动、导航、跨包装配与lib/test测试。account、wallet、transaction、citizen、8964、chat、network、scanner、storage、system、widgets分别拥有pubspec.yaml、lib和唯一test。assets拥有资源声明与资源test；testing提供仅供开发依赖的公共SDK测试桥与隔离设施。Dart包使用官方workspace统一解析和根锁，不复制依赖库存。iOS与Android分别使用既有平台工程声明，各自拥有唯一tests；Android原三个真实测试类分文件归位。充值HTML、JS和npm原锁属于transaction/web，生成bundle只写临时工程。
+
+此步骤只调整包边界、测试归属与执行挂载，原功能、协议、数据库及断言含义保持；更新合同修复见本文Android更新发布证明合同；其余业务覆盖缺口仍单列，不能将目录重构当成功能修复。通过塔塔控制台分别执行静态与适用回归，未执行的原生或真机场景不得计为通过。
+
+根App另外拥有我的组合页、首次权限及全App擦除编排；用户通知与认证业务客户端归account。个人多签本地快照与业务写入由transaction拥有，原数据库实体与生成序列化不变。network公共传输直接消费SDK公开链地址格式，不反向引用治理。
+
+测试唯一发现入口为lib/test/run.mjs，读取真实workspace包清单，遍历各包唯一test并逐件核对Flutter执行报告；根App脚本、发现器及交易桥接Node测试各运行一次。原生tests仍分别归平台，设备执行结果单列。
+
+scanner只负责采集、QR界面与结果，联系人导入由account提供回调，扫码后跨业务跳转通过ScanDispatch公开端口交给根App。原异常类型归system唯一实现，原文案、状态和签名流程保持。
+
+账户页的私聊与联系人转账动作经AccountNavigation公开回调交给根App，账户包不导入聊天页面或链上支付页面；聊天实现仍调用同一TataChatSDK路由。
+
+编译与测试通过build.mjs的packageRoots读取同一workspace声明。冻结两个SDK后，mapSdkSource同步映射根与所有实际消费者的SDK来源，不能只改根声明而让成员继续使用Git来源；其它上游版本和锁保持。
+
+钱包、治理和交易页面通过WalletNavigation、GovernanceNavigation、TransactionNavigation公开工厂在根App的lib/navigation.dart组合。原Navigator调用、门禁、参数和结果处理保留，工厂只构造原有页面，不存业务状态。
+
+流水列表项与页面分离为transaction/history的record_tile、record_format和原history页面；钱包只消费公开列表组件，详情页继续由根App工厂构造。原格式化算法与整数金额不变。
+
+根App推送装配合同测试归lib/test/app_push_contract_test.dart；它读取实际App组合源码lib/app.dart和系统平台原件，系统包测试不承担根App接线断言。
+
+
+### 六钱包独立适配
+
+适配接口固定为connect(runtime)，由品牌文件选择实际协议工厂。共用WalletConnect工厂提供context、request、signMessage、signTransaction、observe、close；品牌文件不接触套餐、报价、收款地址或订单存储。MetaMask额外提供connectionUrl与accepts，专属scheme仅在其文件定义；其余五件在真实适配与测试完成前不提供connect。五个禁用品牌在原bridge.test.mjs各有按品牌命名的独立门禁用例；接入某品牌时只替换该品牌适配和用例，所有已启用钱包及共用付款回归必须继续通过。
+
+
+transaction/web直接使用metamask.js、imtoken.js、trust.js、binance.js、okx.js、coinbase.js六个品牌文件，互不导入；walletconnect.js只登记固定顺序及共用WalletConnect/付款流程。只启用MetaMask，其他五件仅保存真实品牌资料且禁用，不提供假成功连接。MetaMask自己定义协议工厂选择、专属链接准入和原SDK非秘密跳转偏好；共用代码不写死品牌scheme，六个文件共用原npm声明/锁与App唯一build.mjs。每轮只运行所选适配，原生离页经同一来源/nonce检查调用本轮cancel，关闭后不再接受旧请求唤起；新增钱包须逐项接入、验证后才修改其enabled。
+连接完成后直接核验已批准的目标CAIP-2账户与方法，不再因钱包支持切链而额外等待wallet_switchEthereumChain。付款仍明确指定CAIP-2链和EVM交易chainId，原金额/收款/签名及原单守卫保持。SDK后续window.open与首次连接共用当前品牌的原生桥接；等待回前台后发请求，唤起失败、取消与超时停止当前等待，不改投其他钱包，不自动重签重付。连接观察继续区分原Promise结果，Relay闭集观察延续到整轮付款结束；错误阶段使用固定枚举，不输出链接、会话或异常正文。原生收到本轮失败后立即停止接收后续业务消息，迟到意图/回执不再落盘；错误界面区分连接、账户、订单、授权、交易和回执阶段。CitizenTopup失败日志仅输出固定step/error，提交后仍优先提示回执待核实与勿重复付款。
+
+## Android更新发布证明合同
+
+更新只消费Android塔塔自动化生成的公民·Android·v版本.json；package_name由已验证APK的apkanalyzer实读，product_id、platform、version、version_code和assets沿同一证明。客户端要求准确Release名称/Tag及原附件label，不猜GitHub规范化文件名；完整分页后选择高于本机构建号的最高version_code。证明版本与Tag一致，附件唯一且上传完成，APK大小与同一证明一致；无效证明或真实读取失败明确报错，不回退旧清单。
+
+下载及每次重定向仅允许HTTPS，网络错误不输出临时签名地址。每次下载使用独占临时文件，按证明大小及SHA-256验真，异常、长度或摘要不符清理该次现场；只有成功返回的文件才进入控制器原安装确认流程。本机版本、徽标、iOS平台门禁和原生安装通道保持。固定金标及系统更新测试归system/test；lib/test/update_delivery.test.mjs执行真实Workflow证明正文，并将产物交给真实Dart消费者。依赖声明和锁不变。
+
+## 治理提交与执行块确认
+
+治理业务参数在SDK准备交易前校验，机构CID与岗位码必须成对且长度合法，空岗位不得降为个人票据。投票确认绑定SDK成功finalized执行块，使用完整票据与严格SCALE bool；真实缺失与损坏编码分别返回缺失或抛错，不轮询不可变块，也不追随新链头。
+
+立法确认逐条解码执行块完整System.Events，按该块metadata确定事件，按extrinsicIndex、提案、签署人、岗位和赞成/反对方向匹配；行政签署没有独立账本，终态清理也不替代本次事件。代表票、会签和终审的存储若仍存在，方向必须一致。LegislationMeta沿链端executive/override_signers/needs_guard/guard岗位主体布局，旧CID二字段布局删除。SDK外签取消及回调异常取消仍pending的执行，未知广播结果只传播，不自动重签或重播。所有测试及金标归所属包test，临时工程和执行证据仅归本轮现场及唯一任务卡。
+
+多签提案同样按执行块完整metadata、extrinsicIndex及完整业务字段确认事件，删除原扫描字节实现；转账备注也必须匹配。联合投票以SDK原执行块metadata及extrinsicIndex核对唯一JointInstitutionTicketVoteCast事件、提案、机构CID、当前签名人、岗位和方向；查询展示仍按canonical票据键。清算RPC只接受WSS及当前snake_case响应，nonce、费率和ACK缺失或损坏抛错，不生成默认成功数据；每次响应须匹配JSON-RPC版本及ID，所有已建立连接的成功、错误和超时出口关闭连接。公共SDK生命周期替身仅在testing既有公开设施中提供，测试必须显式注入结果。
+
+## 资产协议与解码边界
+
+资产编号仅为u32；发行机构身份唯一来自actor_cid_number，execution_account_id为AccountId32，只承担执行，不能用于替代机构、管理员或权限寻址。元数据唯一存储为OnchainIssuance.AssetMetas[asset_id]，value依次为CID、执行账户、AssetClass、decimals和AssetState；AssetIssued事件依次为asset_id、CID及执行账户。CID按UTF-8字节计1..32，精度0..18，状态ForceClosed额外携带u32 close_block，全部解码完整消费输入并拒绝未知枚举、非最短Compact、截断、畸形UTF-8和尾随字节。
+
+AssetClass.Pegged为保留协议位，可解码不代表允许发行。当前链端调用过滤及FeeRoute拒绝OnchainIssuance公开调用；App只有查询接口、协议模型和未持久化的提案数据类，没有实际资产查询实现、页面或Isar schema。本步不开放发行、转账、查询或治理。提案主键仍是投票引擎全局u64，展示年份/序号是独立元数据。固定SCALE金标唯一归citizen/test/asset/asset_vectors.json，正常、边界和损坏输入由该包两个资产测试文件负责。
+
+
+### 原生、端到端与性能测试入口
+
+各原生包继续唯一拥有 `ios/tests/`、`android/tests/`，不另建测试框架。`scripts/config.mjs` 的 `testSuites` 是设备用例闭集，`describeAction({flow:'test',platform,inputs})` 与本机 `lib/test/run.mjs` 使用同一声明。外部调度必须显式交付 `inputs.work` 与字符串映射 `inputs.environment`，描述器不继承控制台环境。默认 `host` 仍执行所有包的 Node、严格分析和 Flutter 测试；原生设备用例不混入宿主通过数。
+
+调用方交付独占 `WORK` 和由既有 `assembleProject` 装配的 `WORK/project`。`node lib/test/run.mjs compile ios --scope ui|unit|all` 编译 Release XCTest；ui使用模拟器SDK且只依赖已有隔离宿主，unit/all使用真机SDK只编译完整 Runner，要求已准备原锁 Pods及Flutter Release引擎，不连接设备。全部测试编译禁用签名、包更新和自动包解析。`node lib/test/run.mjs compile android` 先由Flutter官方config-only Release流程刷新插件登记，再使用显式已安装 `GRADLE_BIN` 离线编译Release androidTest Kotlin/Java类，不生成或签署APK。产物只能写本轮普通工程；缺工具或依赖直接失败，不下载、升级或用替身模块补齐。
+
+设备验收单列：`native|e2e|performance ios --device <id> --artifact <已编译.xctestrun>`；Android对应 `--device <id> --component <已安装测试包/runner>`。运行入口不编译或签名；Android要求已安装测试组件。iOS test-without-building仍会由Xcode部署测试runner及所选测试宿主，因此执行时须另具对应隔离设备和测试宿主安装授权。iOS按每个 `-only-testing` 坐标选择，Android按精确class#method选择，禁止整类执行历史注册、发送或付款用例。两个设备结果分别核对实际用例、唯一结束和运行器终态；失败、跳过、零用例及漏跑均不通过。
+
+端到端闭集覆盖启动门禁/重启（Android为Activity重建）、已有交易付款源选择及返回空表单、扫码返回、创作者页读取与聊天前后台界面恢复。付款源选择不是SDK默认身份切换；聊天界面恢复不是服务端重连或消息送达证明。真实服务、默认身份认证、注册、消息和交易留在独立隔离设备验收中。测试不创建账户、输入金额或提交业务。
+
+性能测试记录真实启动、创作者页、已有至少20账户的长列表滚动、原生硬件HEVC媒体转码及内存。Android每项5次采样，记录目标进程PSS与纳秒耗时；媒体要求显式 `--fixture <缓存内合成.mp4>`，不自动读取用户媒体。iOS使用XCTest指标，媒体由现有原生写入器生成合成视频，页面内存明确指向被测App。缺既有数据/硬件能力按跳过报告，不能通过；缺指标也失败。只保留既有创作者首帧1秒要求，其余采样 `assessment:unassessed`，待固定设备建立基线后再判性能达标。
+
+编译、宿主回归与隔离设备验收分别记录结果；不能以编译通过代替设备验收。
+
+测试入口取消后终止本轮子进程组，等待退出才释放现场；宿主组拒绝设备参数，重复开始或结束事件不能形成通过。
+
+设备标识与Android媒体夹具名在调用工具前校验；夹具只接受缓存内合成MP4的文件名，不能作为adb shell表达式。合成视频准备超时/失败清理本测试文件；准备超时不是性能阈值。
+
+编译输入未准备标记为 `not_ready`，工具实际执行失败标记为 `failed`；两者均不是编译通过。聊天恢复须等真实列表“新建”结构出现，再核对读取/错误状态；列表采样只观察可见语义。
+
+Android页面匹配遵循锁定Flutter官方Accessibility桥：普通控件读contentDescription，输入框读text/hintText，Tab提示按官方逗号合并边界匹配；列表只收集与窗口相交的实际语义节点，并按公开账户序号去重。空交易表单通过实际编辑控件空值核对，不依赖旧Android缺失的hintText。
+
+
+## 复审后的确认边界
+
+内部及联合投票提交保留SDK完整finalized执行，以同块metadata解码并核对同一交易索引、提案、实际签名人、岗位与方向的唯一事件；内部机构票另核对提案所属CID。当前钱包换绑后不能充当历史票据canonical存储主键，查询接口仍按原票据主键读取展示状态。iOS完整原生测试编译消费CocoaPods workspace，独立UI宿主消费project；只编译不签名安装或启动设备。夹具通过Pub实际包配置定位所属包test目录，支持仓库根与包目录运行。文章字体在Quill消费侧使用citizen_assets包限定名称，持久内容协议值保持kaiti/jinglei。创作者既定1秒从点击前至内容就绪以单调时钟断言，等待条件迟到成立不能视为按时完成。
+
+交易页钱包按钮向辅助技术提供当前本地付款账户序号；双端测试点选后核对该值及空表单，防止只验证选择页关闭。清算付款发送前失败与发送后结果未知分开呈现；ACK的tx_id须绑定本次intent。当前公开清算行声明只有登记审计账户，未声明可信ACK签名身份，因此格式正确的ACK也仅显示“付款结果未核实”，不宣称已受理、不提供自动重发。完整验签待所属上游公开身份合同确定后实施。
+
+Android运行器只接受唯一成功终态，终态后的矛盾/重复状态及未结束状态帧立即失败。iOS性能场景逐轮核对声明的启动或时钟/峰值内存指标、单位和有效采样，缺项不能算采样完成；设备基线与性能达标仍独立验收。
+
+iOS原生锁包含Flutter已声明的integration_test0.0.1；第一方Podspec与本轮选定SDK一致，其余Pods沿原版本。完整测试编译要求Pods/Manifest.lock与交付Podfile.lock相同；部署模式的依赖准备成功后再消费workspace，不用一次自动更新锁的安装冒充原锁验收。system测试显式开发依赖既有citizen_testing夹具设施，不新增第三方依赖。
+
+根App测试唯一归lib/test，包含Dart场景及Node统一入口；产品根禁止test目录或同名文件。测试发现只对根App读取lib/test，其余workspace包继续读取各自test，原生仍读取ios/tests和android/tests。Flutter官方create产生的根test模板先移除，再由同一assembleProject调用prepareTests将本产品Dart测试装配到WORK/project/test；正式源目录始终为lib/test。双端Workflow、测试描述器和设备软件入口均使用lib/test新路径。
+
+正式源码的测试发现拒绝根test目录或文件；普通工程的发现必须显式使用assembled模式，根App读取工具test，其余包读取原test，不做路径回退。开发依赖和@visibleForTesting检查沿官方语义在普通工程执行；不新增测试包、不排除诊断、不把测试依赖移入生产依赖。模拟器软件组的正式源为lib/test/simulator_test.dart，工具临时入口为WORK/project/test/simulator_test.dart。
+
+Android原生测试编译前先离线enforce-lockfile，再用Flutter官方config-only Release准备普通工程插件登记，并核对交付锁全部非空记录保持不变（只允许Pub规范化空行），保持integration_test为开发依赖；不手工改GeneratedPluginRegistrant、插件清单或Pub缓存，也不把开发插件加入生产Release类路径。该入口要求调用方已交付原锁工具、Pub及引擎缓存；不签署或安装APK。

@@ -1,0 +1,28 @@
+name: citizen_scanner
+description: 公民Appscanner包。
+publish_to: none
+version: 1.0.0
+resolution: workspace
+environment:
+  sdk: ">=3.8.0 <4.0.0"
+
+# 本包公开接口的真实依赖；上游约束沿用产品原锁。
+dependencies:
+  citizen_assets: any
+  citizen_sdk:
+    git:
+      url: https://github.com/crcfrcn/citizensdk.git
+      path: .
+      ref: main
+  citizen_system: any
+  flutter:
+    sdk: flutter
+  flutter_svg: ^2.3.0
+  image_picker: ^1.2.3
+  provider: ^6.1.5+1
+  saver_gallery: 5.1.0
+
+dev_dependencies:
+  citizen_testing: any
+  flutter_test:
+    sdk: flutter

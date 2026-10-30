@@ -6,7 +6,34 @@ version: 1.0.0+40
 environment:
   sdk: ">=3.8.0 <4.0.0"
 
+workspace:
+  - account
+  - wallet
+  - transaction
+  - citizen
+  - '8964'
+  - chat
+  - network
+  - scanner
+  - storage
+  - system
+  - widgets
+  - assets
+  - testing
+
 dependencies:
+  citizen_account: any
+  citizen_wallet: any
+  citizen_transaction: any
+  citizen_citizen: any
+  citizen_square: any
+  citizen_chat: any
+  citizen_network: any
+  citizen_scanner: any
+  citizen_storage: any
+  citizen_system: any
+  citizen_widgets: any
+  citizen_assets: any
   flutter:
     sdk: flutter
   # 钱包、签名、唯一 QR_V1、轻节点、链读取、交易与 execution history
@@ -67,6 +94,7 @@ dependencies:
       path: .
       ref: main
 dev_dependencies:
+  citizen_testing: any
   integration_test:
     sdk: flutter
   flutter_test:
@@ -81,39 +109,3 @@ flutter:
   config:
     enable-swift-package-manager: false
   uses-material-design: true
-  assets:
-    - assets/profiles/
-    - assets/icons/institution_private.svg
-    - assets/icons/institution_public.svg
-    - assets/topup/walletconnect.html
-    - assets/topup/walletconnect.bundle.js
-    - assets/institutions/
-    - assets/divisions/
-    - assets/divisions/cities/
-    - assets/divisions/towns/
-    - assets/icons/scan-line.svg
-    - assets/icons/wallet.svg
-    - assets/icons/copy.svg
-    - assets/icons/arrow-right-left.svg
-    - assets/icons/file-user.svg
-    - assets/icons/message-square-text.svg
-    - assets/icons/scale.svg
-    - assets/icons/tank.svg
-    - assets/icons/square-person-tank-watermark.png
-    - assets/icons/contact-round.svg
-    - assets/icons/download.svg
-    - assets/icons/government-line.svg
-    - assets/icons/bank.svg
-    - assets/logo/mark256.png
-    - assets/logo/icon180.png
-    - assets/icons/usdc.svg
-    - assets/icons/usdt.svg
-    - assets/icons/icons8-96.png
-    - assets/icons/icons8-64.png
-  fonts:
-    - family: LXGWWenKaiLite
-      fonts:
-        - asset: assets/fonts/LXGWWenKaiLite-Regular.ttf
-    - family: FZJingLeiS
-      fonts:
-        - asset: assets/fonts/FZJingLeiS-R-GB.ttf

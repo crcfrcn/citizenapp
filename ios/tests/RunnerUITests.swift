@@ -35,6 +35,110 @@ final class RunnerUITests: XCTestCase {
   private let targetBundleIdentifier = "ios.citizenapp"
 
 
+  /// 仅验证既有启动门禁及重启恢复；不建立钱包或提交首次设备登记。
+  func testStartupGateSurvivesRelaunch() throws {
+    let app = XCUIApplication(bundleIdentifier: targetBundleIdentifier)
+    app.launch()
+    let gate = walletGateCreate(in: app).waitForExistence(timeout: 3)
+    if !gate { try requireMainNavigation(in: app) }
+    app.terminate(); app.launch()
+    if gate { XCTAssertTrue(walletGateCreate(in: app).waitForExistence(timeout: 10)) }
+    else { try requireMainNavigation(in: app) }
+  }
+
+  /// 只切换交易页本地付款源；不改变SDK默认身份，不填写或提交交易。
+  func testTradeWalletSelectionReturnsToEmptyForm() throws {
+    let app = try openExistingAccountServices()
+    let trade = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "交易", "Tab ")).firstMatch
+    XCTAssertTrue(trade.waitForExistence(timeout: 10)); trade.tap()
+    for index in [0, 1, 0] {
+      let picker = app.buttons["选择交易钱包"]
+      XCTAssertTrue(picker.waitForExistence(timeout: 10)); picker.tap()
+      XCTAssertTrue(hotAccountBadges(in: app).firstMatch.waitForExistence(timeout: 10))
+      let rows = hotAccountBadges(in: app).allElementsBoundByIndex.filter { $0.isHittable }
+      guard rows.count >= 2 else { throw XCTSkip("须预置两个可见热账户") }
+      let selectedIndex = rows[index].label.split(whereSeparator: { $0.isWhitespace }).first!
+      rows[index].tap()
+      let source = app.buttons["选择交易钱包"]
+      let sourceMatches = NSPredicate { _, _ in (source.value as? String) == "当前付款账户：\(selectedIndex)" }
+      XCTAssertTrue(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: sourceMatches, object: nil)], timeout: 10) == .completed,
+        "交易页实际付款源须与点选账户一致")
+      XCTAssertTrue(app.textFields["请输入账户"].waitForExistence(timeout: 10))
+      XCTAssertTrue(app.textFields["请输入金额"].exists)
+      for label in ["请输入账户", "请输入金额"] {
+        let field = app.textFields[label]
+        let value = field.value as? String ?? ""
+        XCTAssertTrue(value.isEmpty || value == field.placeholderValue, "交易输入必须为空")
+      }
+    }
+  }
+
+  func testScannerReturnsToEmptyForm() throws {
+    let app = try openExistingAccountServices()
+    let trade = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "交易", "Tab ")).firstMatch
+    XCTAssertTrue(trade.waitForExistence(timeout: 10)); trade.tap()
+    let scanner = app.buttons["扫码填入收款地址"]
+    XCTAssertTrue(scanner.waitForExistence(timeout: 10)); scanner.tap()
+    let back = app.buttons.matching(NSPredicate(format: "label IN %@", ["返回", "Back"])).firstMatch
+    XCTAssertTrue(back.waitForExistence(timeout: 10), "须预置相机权限；测试不自动授权")
+    back.tap()
+    XCTAssertTrue(app.textFields["请输入账户"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.textFields["请输入金额"].exists)
+  }
+
+  /// 验证聊天前后台恢复界面；不把本地页面出现当作服务端连接或消息送达证明。
+  func testChatResumesWithoutSending() throws {
+    let app = try openExistingAccountServices()
+    chatTab(in: app).tap()
+    func ready() {
+      XCTAssertTrue(app.buttons["新建"].waitForExistence(timeout: 30), "聊天列表实际结构未就绪")
+      let loading = app.staticTexts["正在读取本地会话"]
+      XCTAssertTrue(loading.waitForNonExistence(timeout: 30))
+      XCTAssertFalse(app.staticTexts["聊天暂时无法使用，请稍后重试"].exists)
+      XCTAssertFalse(app.staticTexts["验证并准备聊天与通讯录密钥"].exists)
+    }
+    ready(); XCUIDevice.shared.press(.home); app.activate()
+    XCTAssertTrue(chatTab(in: app).waitForExistence(timeout: 10)); ready()
+  }
+
+  /// XCTest负责记录原始指标；本轮没有固定设备基线，不设任意回归阈值。
+  func testPerformanceLaunch() {
+    let app = XCUIApplication(bundleIdentifier: targetBundleIdentifier)
+    measure(metrics: [XCTApplicationLaunchMetric(waitUntilResponsive: true)]) {
+      app.launch(); XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30)); app.terminate()
+    }
+  }
+
+  func testPerformanceCreatorEntry() throws {
+    let app = try openExistingAccountServices()
+    let options = XCTMeasureOptions(); options.invocationOptions = [.manuallyStart, .manuallyStop]
+    measure(metrics: [XCTClockMetric(), XCTMemoryMetric(application: app)], options: options) {
+      app.terminate()
+      do { _ = try openExistingAccountServices() } catch { XCTFail("须预置既有隔离账户"); return }
+      let entry = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "创作者")).firstMatch
+      XCTAssertTrue(entry.waitForExistence(timeout: 10))
+      startMeasuring(); let started = ProcessInfo.processInfo.systemUptime; entry.tap()
+      let surface = app.descendants(matching: .any).matching(NSPredicate(format:
+        "label CONTAINS %@ OR label CONTAINS %@", "我的创作者会员", "去订阅平台会员")).firstMatch
+      XCTAssertTrue(surface.waitForExistence(timeout: 1), "创作者内容未就绪")
+      XCTAssertLessThanOrEqual(ProcessInfo.processInfo.systemUptime - started, 1, "点击至内容就绪须在1秒内")
+      stopMeasuring()
+    }
+  }
+
+  func testPerformanceWalletScroll() throws {
+    let app = try openExistingWallet()
+    guard observedHotAccountIndices(in: app).count >= 20 else { throw XCTSkip("须预置至少20个已有账户的长列表") }
+    let options = XCTMeasureOptions(); options.invocationOptions = [.manuallyStart, .manuallyStop]
+    measure(metrics: [XCTClockMetric(), XCTMemoryMetric(application: app)], options: options) {
+      app.terminate()
+      do { _ = try openExistingWallet() } catch { XCTFail("既有钱包不可用"); return }
+      XCTAssertTrue(hotAccountBadges(in: app).firstMatch.waitForExistence(timeout: 10))
+      startMeasuring(); app.swipeUp(); stopMeasuring()
+      XCTAssertTrue(hotAccountBadges(in: app).firstMatch.exists)
+    }
+  }
+
   /// 测试只打开空输入面板并结束；真实助记词和设备认证由用户在测试结束后填写。
   func testOpenAddNextAccount() throws { try openAddAccount("添加下一个账户", stage: "next") }
   func testOpenAddSpecifiedAccount() throws { try openAddAccount("添加指定账户", stage: "specified") }
@@ -1845,13 +1949,15 @@ final class RunnerUITests: XCTestCase {
     ).firstMatch
     XCTAssertTrue(creatorEntry.waitForExistence(timeout: 10), "我的页缺少创作者入口")
 
+    let started = ProcessInfo.processInfo.systemUptime
     creatorEntry.tap()
     // Flutter将卡片标题、说明和动作合并为语义节点；仍须确认已离开“我的”。
     let creatorSurface = app.descendants(matching: .any).matching(NSPredicate(
       format: "label CONTAINS %@ OR label CONTAINS %@", "我的创作者会员", "去订阅平台会员")).firstMatch
     let creatorTitle = app.staticTexts["创作者"]
     // 单一内容节点承担1秒要求；标题/页面归属随后独立核对，不混入多次IPC查询。
-    let immediate = creatorSurface.waitForExistence(timeout: 1)
+    let ready = creatorSurface.waitForExistence(timeout: 1)
+    let immediate = ready && ProcessInfo.processInfo.systemUptime - started <= 1
     NSLog("CREATOR_UI immediate=%d page=%d structure=%d",
       immediate ? 1 : 0, creatorTitle.exists ? 1 : 0, creatorSurface.exists ? 1 : 0)
     XCTAssertTrue(

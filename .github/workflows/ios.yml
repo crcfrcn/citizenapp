@@ -123,7 +123,7 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "cmake;3.31.6"
           echo "$ANDROID_HOME/cmake/3.31.6/bin" >> "$GITHUB_PATH"
           # App资源工具与其他官方工具在同一步准备，不增加功能构建步骤。
-          version=$(node --input-type=module -e "import fs from 'node:fs'; console.log(JSON.parse(fs.readFileSync('assets/topup/package.json')).citizenapp.tools.esbuild)")
+          version=$(node --input-type=module -e "import fs from 'node:fs'; console.log(JSON.parse(fs.readFileSync('transaction/web/package.json')).citizenapp.tools.esbuild)")
           npm install --prefix "$work/tools" --ignore-scripts --no-audit --no-fund "esbuild@$version"
           echo "ESBUILD_BIN=$work/tools/node_modules/.bin/esbuild" >> "$GITHUB_ENV"
       - name: 按本产品原锁装配普通工程
@@ -160,26 +160,8 @@ jobs:
       - name: AI代码回归、严格分析及完整Flutter测试
         run: |
           set -euo pipefail
-          node --test test/release_manifest.test.mjs test/transaction/topup/bridge.test.mjs
-          cd "$WORK/project"
-          flutter analyze --fatal-infos --fatal-warnings --no-pub
-          flutter test --no-pub --concurrency=1 --fail-fast \
-            --file-reporter "json:$WORK/flutter-report.jsonl"
-          node --input-type=module <<'JS'
-          import {readFileSync, readdirSync} from 'node:fs';
-          const events = readFileSync(process.env.WORK + '/flutter-report.jsonl', 'utf8').trim().split('\n').map(JSON.parse);
-          const starts = new Set(events.filter(row => row.type === 'testStart').map(row => row.test.id));
-          const ended = events.filter(row => row.type === 'testDone');
-          const done = events.filter(row => row.type === 'done');
-          const walk = path => readdirSync(path, {withFileTypes: true}).flatMap(entry =>
-              entry.isDirectory() ? walk(path + '/' + entry.name) : [path + '/' + entry.name]);
-          const expected = walk(process.cwd() + '/test').filter(path => path.endsWith('_test.dart'));
-          const loaded = events.filter(row => row.type === 'suite').map(row => row.suite.path);
-          if (!starts.size || done.length !== 1 || done[0].success !== true || ended.length !== starts.size ||
-              ended.some(row => row.skipped || row.result !== 'success') || expected.some(path => !loaded.includes(path))) {
-              throw Error('Flutter全量回归失败、跳过或不完整');
-          }
-          JS
+          export CITIZENAPP_TEST_ROOT="$WORK/project"
+          node lib/test/run.mjs
       - name: 准备本轮Apple签名输入
         env:
           IOS_KEY: ${{ secrets.IOS_KEY }}

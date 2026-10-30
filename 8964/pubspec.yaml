@@ -1,0 +1,50 @@
+name: citizen_square
+description: 公民App8964包。
+publish_to: none
+version: 1.0.0
+resolution: workspace
+environment:
+  sdk: ">=3.8.0 <4.0.0"
+
+# 本包公开接口的真实依赖；上游约束沿用产品原锁。
+dependencies:
+  citizen_account: any
+  citizen_assets: any
+  citizen_citizen: any
+  citizen_scanner: any
+  citizen_sdk:
+    git:
+      url: https://github.com/crcfrcn/citizensdk.git
+      path: .
+      ref: main
+  citizen_storage: any
+  citizen_system: any
+  citizen_wallet: any
+  crypto: 3.0.7
+  flutter:
+    sdk: flutter
+  flutter_image_compress: 2.4.0
+  flutter_quill: 11.5.1
+  image_picker: ^1.2.3
+  image_size_getter: ^2.4.1
+  isar_community: ^3.3.2
+  path: ^1.9.1
+  path_provider: ^2.1.6
+  polkadart: 0.7.3
+  provider: ^6.1.5+1
+  video_player: 2.11.1
+  wechat_assets_picker: ^10.1.2
+
+dev_dependencies:
+  citizen_network: any
+  citizen_testing: any
+  flutter_test:
+    sdk: flutter
+  http: 1.6.0
+  image: 4.9.1
+  shared_preferences: ^2.5.5
+  tatachat_sdk:
+    git:
+      url: https://github.com/tuyutata/tatachatsdk.git
+      path: .
+      ref: main

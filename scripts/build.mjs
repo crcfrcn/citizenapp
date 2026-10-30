@@ -1,9 +1,9 @@
-// 按官方要求或推荐实现；必需的工具依赖有就复用，没有就下载；使用最简单的实现方式；本脚本只允许放编译构建代码和注释，禁止增加无关内容，禁止增加复杂的校验阻断。
+// 本脚本消费产品声明的工具和原锁依赖，只负责普通工程装配、编译构建和必要注释。
 // config.mjs：只负责配置声明；build.mjs：只负责编译构建实现和必要注释；*.yml：负责全部GitHub流程，包括版本、作业编排、发布及历史清理。
 import {spawn, execFileSync} from 'node:child_process';
 import {appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync,
     lstatSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync} from 'node:fs';
-import {join, resolve, dirname} from 'node:path';
+import {join, resolve, dirname, relative, sep} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -143,6 +143,49 @@ export async function selectSDKRelease(product, read) {
     throw Error(product + '没有可用的成功正式SDK版本');
 }
 
+// 编译与测试都从产品唯一workspace声明取得包路径，不另建包清单。
+export function packageRoots(root){
+ const text=readFileSync(join(root,'pubspec.yaml'),'utf8');
+ const block=/^workspace:\n((?:  - .*\n)+)/m.exec(text)?.[1];
+ if(!block)throw Error('产品workspace声明缺失');
+ const members=block.trimEnd().split('\n').map(line=>line.slice(4).trim().replace(/^(['"])(.*)\1$/,'$2'));
+ if(new Set(members).size!==members.length||members.some(path=>!path||path.includes('/')||path==='..'))throw Error('workspace包目录无效或重复');
+ return [root,...members.map(path=>join(root,path))];
+}
+
+// 同一SDK在所有成员声明中映射到本轮同一源码视图，避免Git与path形成双来源。
+export function mapSdkSource(root,name,output){
+ let changed=0;
+ for(const member of packageRoots(root)){
+  const file=join(member,'pubspec.yaml'),source=readFileSync(file,'utf8');
+  const mapped=source.replace(new RegExp('  '+name+':\\n(?:    .*\\n)+'), '  '+name+':\n    path: '+output+'\n');
+  if(mapped!==source){writeFileSync(file,mapped);changed++;}
+ }
+ if(!changed)throw Error('workspace没有声明SDK：'+name);
+ return changed;
+}
+
+// 正式App测试唯一归lib/test；普通工程按Dart官方test布局装配，保留开发依赖及测试注解语义。
+// 只改文件位置和相对URI，不复制测试实现，不在正式主仓生成根test。
+export function prepareTests(project){
+ const source=join(project,'lib/test'),destination=join(project,'test');
+ if(realpathSync(project)===realpathSync(root)||existsSync(destination))throw Error('测试装配只能写尚未生成test的普通工程');
+ const visit=directory=>{for(const entry of readdirSync(directory,{withFileTypes:true})){
+  const from=join(directory,entry.name);
+  if(entry.isDirectory()){visit(from);if(!readdirSync(from).length)rmSync(from,{recursive:true});continue;}
+  if(!entry.isFile()||!entry.name.endsWith('.dart'))continue;
+  const to=join(destination,relative(source,from));
+  const text=readFileSync(from,'utf8').replace(/^((?:import|export|part)\s+)(['"])(\.\.?\/[^'"]+)\2/gm,(_,prefix,quote,uri)=>{
+   const target=resolve(dirname(from),uri);
+   const mapped=target.startsWith(source+sep)?join(destination,relative(source,target)):target;
+   let path=relative(dirname(to),mapped).split(sep).join('/');if(!path.startsWith('.'))path='./'+path;
+   return prefix+quote+path+quote;
+  });
+  mkdirSync(dirname(to),{recursive:true});writeFileSync(to,text);rmSync(from);
+ }};
+ visit(source);
+}
+
 // 两个平台及本机共用产品自己的工程装配，公开IO注入仅供既有合成回归。
 export async function assembleProject(environment,io={}){
  const process={env:environment,pid:globalThis.process.pid};
@@ -219,7 +262,8 @@ for (const name of ['citizen_sdk', 'tatachat_sdk']) {
             cpSync(result.output, output, {recursive: true});
         }
     }
-    declaration = declaration.replace(new RegExp('  ' + name + ':\\n(?:    .*\\n)+'), '  ' + name + ':\n    path: ' + output + '\n');
+    mapSdkSource(project,name,output);
+    declaration=readFileSync(join(project,'pubspec.yaml'),'utf8');
     lock = lock.replace(new RegExp('  ' + name + ':\\n(?:    .*\\n)+'), entry => {
         const version = '    version: ' + JSON.stringify(/^version: (\S+)$/m.exec(readFileSync(join(output,'pubspec.yaml'),'utf8'))[1]);
         return '  ' + name + ':\n    dependency: "direct main"\n    description:\n      path: "' + output +
@@ -232,8 +276,9 @@ const flutter = join(process.env.FLUTTER_ROOT, 'bin/flutter');
 execute(flutter, ['create', '--no-pub', '--platforms=android,ios', '--org=com.crcfrcn', '--project-name=citizenapp', project], {stdio: 'inherit'});
 // create即使不执行Pub也会重写锁；完成后写回只映射SDK路径的完整原锁。
 writeFileSync(join(project, 'pubspec.lock'), lock);
-// 只排除模板新增的示例；产品原有同名测试必须保留。
-if (!readdirSync(join(root, 'test')).includes('widget_test.dart')) rmSync(join(project, 'test/widget_test.dart'), {force: true});
+// 先移除官方模板示例，再把本产品lib/test装配为工具要求的唯一test目录。
+rmSync(join(project, 'test'), {recursive: true, force: true});
+prepareTests(project);
 const write = (path, text) => {
     mkdirSync(dirname(join(project, path)), {recursive: true});
     writeFileSync(join(project, path), text);
@@ -249,7 +294,7 @@ for (const name of ['MainActivity', 'SquareMediaChannel', 'SquareMp4FastStart', 
     copy('android/' + source + '/' + name + '.kt', 'android/app/src/main/' + name + '.kt');
 }
 copy('android/app/AndroidManifest.xml', 'android/app/src/main/AndroidManifest.xml');
-copy('android/app/InstrumentedTests.kt', 'android/app/src/androidTest/InstrumentedTests.kt');
+for (const file of readdirSync(join(root, 'android/tests'))) copy('android/tests/' + file, 'android/app/src/androidTest/' + file);
 copy('ios/project/Runner.pbxproj', 'ios/Runner.xcodeproj/project.pbxproj');
 copy('ios/project/Runner.xcscheme', 'ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme');
 for (const name of ['AppDelegate.swift', 'SystemProtectedDataChannel.swift', 'Info.plist', 'InfoPlist.xcstrings']) {
@@ -406,7 +451,7 @@ if (existsSync(testCore)) {
 Object.assign(environment,values);
 if(environment.GITHUB_ENV)for (const [key, value] of Object.entries(values)) appendFileSync(environment.GITHUB_ENV, key + '=' + value + '\n');
 // App随包资源随普通工程一起准备，不增加功能构建入口。
-const assets = join(project, 'assets/topup');
+const assets = join(project, 'transaction/web');
 const resourceEnvironment = {...environment, npm_config_ignore_scripts: 'true',
     ...(environment.GITHUB_ACTIONS === 'true' ? {} : {npm_config_offline: 'true'})};
 await run('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], assets, false, resourceEnvironment, 'App资源准备');
@@ -424,6 +469,68 @@ export function existingFlutter(platform, environment = process.env, candidates)
    .filter(entry => entry.isDirectory() && join(dirname(root), entry.name) !== resolve(root))
    .map(entry => join(dirname(root), entry.name, 'target/cache/flutter'))]);
  return paths.find(path => existsSync(join(path, 'bin/flutter')));
+}
+
+const testInputError=message=>Object.assign(Error(message),{code:'TEST_INPUT'});
+
+// 只编译本轮已装配工程的测试；不签名、安装或启动设备。
+// ui在模拟器SDK编译隔离宿主；unit/all用真机SDK只编译完整Runner，不连接设备。
+export async function buildTests(platform,{work=process.env.WORK,scope='all',environment=process.env,execute=run}={}){
+ if(!['ios','android'].includes(platform)||!['all','ui','unit'].includes(scope))throw Error('未知测试编译目标');
+ if(!work||!existsSync(work))throw testInputError('测试编译需要独占WORK');
+ work=realpathSync(work);
+ const project=join(work,'project');
+ if(!existsSync(project)||realpathSync(project)===realpathSync(root))throw Error('测试编译只能写本轮普通工程');
+ if(environment.GITHUB_ACTIONS==='true')throw Error('测试编译入口不消费正式签名环境');
+ const marker=join(work,'tests-active.json');
+ writeFileSync(marker,JSON.stringify({pid:process.pid}),{flag:'wx',mode:0o600});
+ const cancel=()=>controller.abort();
+ for(const signal of ['SIGINT','SIGTERM'])process.once(signal,cancel);
+ try{
+  if(platform==='android'){
+   if(scope!=='all')throw Error('Android测试统一编译Release androidTest');
+   if(!environment.GRADLE_BIN)throw testInputError('须交付已安装GRADLE_BIN，禁止wrapper隐式下载');
+   if(!environment.FLUTTER_ROOT)throw testInputError('须交付已准备Flutter工具及原锁Pub输入');
+   const flutter=join(environment.FLUTTER_ROOT,'bin/flutter');
+   // 先按原锁离线解析；官方config-only只更新Release插件登记与配置，不构建或签署APK。
+   await execute(flutter,['pub','get','--offline','--enforce-lockfile'],project,false,environment,'Android原锁确认');
+   const lock=readFileSync(join(project,'pubspec.lock'));
+   await execute(flutter,['build','apk','--config-only','--release','--target-platform','android-arm64'],
+    project,false,environment,'Android Release配置准备');
+   // Pub会规范化空行；所有版本、来源、摘要和路径记录必须保持逐行一致。
+   const records=bytes=>bytes.toString('utf8').split(/\r?\n/).filter(line=>line.trim().length).join('\n');
+   if(records(lock)!==records(readFileSync(join(project,'pubspec.lock'))))throw Error('Android配置准备改变了交付原锁记录');
+   await execute(environment.GRADLE_BIN,['--offline','--no-daemon','--console=plain',
+    ':app:compileReleaseAndroidTestKotlin',':app:compileReleaseAndroidTestJavaWithJavac'],
+    join(project,'android'),false,environment,'Android测试编译');
+   return {platform,scope,status:'compiled',kind:'classes',output:join(project,'build/app')};
+  }
+  const simulator=scope==='ui';
+  if(!simulator&&!existsSync(join(project,'ios/Pods/Manifest.lock')))throw testInputError('iOS完整原生测试缺少原锁Pods输入');
+  if(!simulator&&(!existsSync(join(project,'ios/Podfile.lock'))||!readFileSync(join(project,'ios/Podfile.lock')).equals(readFileSync(join(project,'ios/Pods/Manifest.lock')))))throw testInputError('iOS Pods与交付锁不一致');
+  if(!simulator&&!existsSync(join(environment.FLUTTER_ROOT||'','bin/cache/artifacts/engine/ios-release/Flutter.xcframework')))throw testInputError('iOS完整原生测试缺少已准备Flutter Release引擎');
+  const container=simulator?['-project',join(project,'ios/Runner.xcodeproj')]:['-workspace',join(project,'ios/Runner.xcworkspace')];
+  if(!existsSync(container[1]))throw testInputError('iOS测试缺少对应工程入口');
+  const sdk=simulator?'iphonesimulator':'iphoneos';
+  const targets=[];
+  if(scope!=='ui')targets.push(['331C8080294A63A400263BE5','RunnerTests']);
+  if(scope!=='unit')targets.push(['A81100060000000000000000','RunnerUITests']);
+  const reference=([id,name])=>'<BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="'+id+'" BuildableName="'+name+'.xctest" BlueprintName="'+name+'" ReferencedContainer="container:Runner.xcodeproj"/>';
+  const scheme=join(project,'ios/Runner.xcodeproj/xcshareddata/xcschemes/CitizenTests.xcscheme');
+  mkdirSync(dirname(scheme),{recursive:true});
+  writeFileSync(scheme,'<?xml version="1.0" encoding="UTF-8"?><Scheme version="1.3"><BuildAction parallelizeBuildables="YES" buildImplicitDependencies="YES"><BuildActionEntries>'+targets.map(t=>'<BuildActionEntry buildForTesting="YES" buildForRunning="NO" buildForProfiling="NO" buildForArchiving="NO" buildForAnalyzing="NO">'+reference(t)+'</BuildActionEntry>').join('')+'</BuildActionEntries></BuildAction><TestAction buildConfiguration="Release" shouldUseLaunchSchemeArgsEnv="YES"><Testables>'+targets.map(t=>'<TestableReference skipped="NO">'+reference(t)+'</TestableReference>').join('')+'</Testables></TestAction></Scheme>');
+  const output=join(work,'ios-tests');
+  await execute('/usr/bin/xcrun',['xcodebuild',...container,
+   '-scheme','CitizenTests','-configuration','Release','-sdk',sdk,
+   '-destination',simulator?'generic/platform=iOS Simulator':'generic/platform=iOS','-derivedDataPath',output,
+   '-disableAutomaticPackageResolution','-skipPackageUpdates','build-for-testing',
+   'SUPPORTED_PLATFORMS='+sdk,'ENABLE_TESTABILITY=YES','CODE_SIGNING_ALLOWED=NO','CODE_SIGNING_REQUIRED=NO','CODE_SIGN_IDENTITY='],
+   project,false,environment,'iOS测试编译');
+  return {platform,scope,status:'compiled',kind:'xctestrun',output:join(output,'Build/Products')};
+ }finally{
+  for(const signal of ['SIGINT','SIGTERM'])process.removeListener(signal,cancel);
+  if(!groups.size)rmSync(marker,{force:true});
+ }
 }
 
 export async function compile(platform){
@@ -463,7 +570,8 @@ export async function compile(platform){
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
     for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => controller.abort());
     try {
-        if (process.argv[2] === 'compile') await compile(process.argv[3]);
+        if (process.argv[2] === 'tests') console.log(JSON.stringify(await buildTests(process.argv[3],{scope:process.argv[4]||'all'})));
+        else if (process.argv[2] === 'compile') await compile(process.argv[3]);
         else await build(process.argv[2], process.argv[3]);
     } catch (error) {
         console.error(error.message);

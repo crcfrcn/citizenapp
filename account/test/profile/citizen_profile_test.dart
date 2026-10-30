@@ -1,0 +1,1585 @@
+import 'package:citizen_storage/user_isar.dart'
+    as user_store
+    show Edit, ProfileMedia, Profile;
+
+import 'package:citizen_testing/mls_authentication_fixture.dart';
+
+import 'dart:async';
+
+import 'package:crypto/crypto.dart';
+import 'package:isar_community/isar.dart';
+
+import 'package:citizen_testing/fake_citizen_sdk.dart';
+
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:http/retry.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'
+    show MethodChannel, MissingPluginException;
+
+import 'package:citizen_square/post/square_models.dart';
+import 'package:citizen_account/profile/citizen_profile.dart';
+import 'package:citizen_account/profile/profile_presentation.dart';
+import 'package:citizen_account/profile/citizen_profile_cache.dart';
+import 'package:citizen_account/profile/citizen_profile_api.dart';
+import 'package:citizen_account/square_api_client.dart';
+import 'package:citizen_storage/user_isar.dart';
+
+import 'package:citizen_testing/isar_test_env.dart';
+
+// 固定1×1 PNG测试素材，不来自用户图片。
+final Uint8List _png = base64Decode(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWQAAAABJRU5ErkJggg==',
+);
+
+const String _owner =
+    '0x1111111111111111111111111111111111111111111111111111111111111111';
+const String _profileCid = 'CN001-CTZN-000000001-2026';
+
+Map<String, dynamic> _profileJson({
+  String displayName = '轻节点',
+  String? cidNumber = 'CN001-CTZN-000000001-2026',
+  bool isFollowing = false,
+  bool isFollowedBy = false,
+  int following = 2,
+  int followers = 128,
+  int mutualFollowing = 8,
+  int posts = 36,
+  int campaigns = 6,
+  int videos = 4,
+  int articles = 12,
+  String cidLevel = 'voting',
+  String? memberLevel = 'democracy',
+  bool membergateActive = true,
+}) {
+  return <String, dynamic>{
+    'account_id': _owner,
+    'display_name': displayName,
+    'profile_bio': '链上公民',
+    'avatar_key': cidNumber == null ? null : 'profile/$cidNumber/avatar',
+    'banner_key': null,
+    'cid_number': cidNumber,
+    'is_certified': cidNumber != null,
+    'cid_level': cidLevel,
+    'member_level': memberLevel,
+    'membergate_active': membergateActive,
+    'counts': {
+      'following': following,
+      'followers': followers,
+      'mutual_following': mutualFollowing,
+      'posts': posts,
+      'campaigns': campaigns,
+      'videos': videos,
+      'articles': articles,
+    },
+    'is_following': isFollowing,
+    'is_followed_by': isFollowedBy,
+    'profile_at': 123,
+  };
+}
+
+SquareApiClient _client(MockClient mock) =>
+    SquareApiClient(baseUrl: 'https://example.com/api', httpClient: mock);
+
+/// http.Response(String) 默认按 Latin1 编码，中文会抛异常；显式声明 utf-8。
+http.Response _ok(Map<String, dynamic> body) => http.Response(
+  jsonEncode(body),
+  200,
+  headers: {'content-type': 'application/json; charset=utf-8'},
+);
+
+// 资料普通请求与媒体GET均通过原MLS认证器；每次实际网络读取单独调用，证明不缓存。
+// `_headers` 对带 session 的请求强制要求设备请求签名器（发布会员体系后新增硬校验）；
+// 测试用固定假签名占位，MockClient 不校验签名头。
+SquareSession _session() => SquareSession(
+  deviceId: testMlsDeviceId,
+  sessionToken: 'tok',
+  cidNumber: "CN220-CTZN2-198805200-2026",
+  bindRev: 1,
+  accountId: _owner,
+  expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
+  authenticateRequest: fakeMlsRequestHeaders,
+);
+
+void main() {
+  test('非空关注报文按peer_cid解析；旧键、缺失目标和坏时间拒绝', () async {
+    final client = _client(
+      MockClient(
+        (request) async => _ok({
+          'is_ok': true,
+          'entries': [
+            {'peer_cid': _profileCid, 'created_at': 123},
+          ],
+          'next_cursor': 123,
+        }),
+      ),
+    );
+    addTearDown(client.close);
+    final page = await client.fetchFollows(
+      cidNumber: _profileCid,
+      type: 'following',
+      session: _session(),
+    );
+    expect(page.entries.single.peerCid, _profileCid);
+    expect(page.entries.single.createdAt, 123);
+    expect(page.nextCursor, 123);
+    for (final row in [
+      {'cid_number': _profileCid, 'created_at': 123},
+      {'peer_cid': '', 'created_at': 123},
+      {'peer_cid': _profileCid, 'created_at': -1},
+      {'peer_cid': _profileCid, 'created_at': '123'},
+    ]) {
+      expect(() => SquareFollowEntry.fromJson(row), throwsFormatException);
+    }
+  });
+
+  TestCitizenSdkHarness();
+  useIsolatedIsar();
+
+  test('恢复记录拒绝旧字段且不改写，完整性损坏同样拒绝', () async {
+    const cache = CitizenProfileCache();
+    await cache.prepareUpdate(_profileCid, request: {'profile_bio': '保留待恢复资料'});
+    await UserIsar.instance.writeTxn((db) async {
+      final row = (await db.collection<user_store.Edit>().getByCidNumber(
+        _profileCid,
+      ))!;
+      row.requestData = jsonEncode({'bio': '保留待恢复资料'});
+      row.contentHash = sha256
+          .convert(
+            utf8.encode(
+              jsonEncode([
+                row.cidNumber,
+                row.requestData,
+                sha256.convert(row.avatarBytes).toString(),
+                sha256.convert(row.bannerBytes).toString(),
+              ]),
+            ),
+          )
+          .toString();
+      await db.collection<user_store.Edit>().put(row);
+    });
+    await expectLater(cache.readUpdate(_profileCid), throwsStateError);
+    final saved = await UserIsar.instance.read(
+      (db) => db.collection<user_store.Edit>().getByCidNumber(_profileCid),
+    );
+    expect(jsonDecode(saved!.requestData), {'bio': '保留待恢复资料'});
+    expect(saved.jobState, 'pending');
+    expect(saved.avatarBytes, isEmpty);
+    expect(saved.bannerBytes, isEmpty);
+    await UserIsar.instance.writeTxn((db) async {
+      final current = (await db.collection<user_store.Edit>().getByCidNumber(
+        _profileCid,
+      ))!;
+      current.contentHash = 'bad';
+      await db.collection<user_store.Edit>().put(current);
+    });
+    await expectLater(cache.readUpdate(_profileCid), throwsStateError);
+  });
+
+  test('旧资料缓存拒绝展示且原样保留，读取不升级或删除', () async {
+    final old = _profileJson();
+    old['bio'] = old.remove('profile_bio');
+    expect(() => CitizenProfile.fromJson(old), throwsFormatException);
+    final raw = jsonEncode(old);
+    await UserIsar.instance.writeTxn((db) async {
+      await db.collection<user_store.Profile>().put(
+        user_store.Profile()
+          ..cidNumber = _profileCid
+          ..profileData = raw,
+      );
+    });
+    expect(await const CitizenProfileCache().read(_profileCid), isNull);
+    final saved = await UserIsar.instance.read(
+      (db) => db.collection<user_store.Profile>().getByCidNumber(_profileCid),
+    );
+    expect(saved!.profileData, raw);
+  });
+
+  test('最小名片使用独立路径并保留昵称徽标，不覆盖完整主页缓存', () async {
+    final full = CitizenProfile.fromJson(_profileJson());
+    await const CitizenProfileCache().write(full);
+    final client = _client(
+      MockClient((request) async {
+        expect(request.url.path, '/api/user/cards/$_profileCid');
+        expect(request.headers['authorization'], 'Bearer tok');
+        final card = Map<String, dynamic>.from(_profileJson())
+          ..remove('profile_bio')
+          ..remove('counts')
+          ..remove('banner_key');
+        return _ok({'is_ok': true, 'card': card});
+      }),
+    );
+    final card = await client.fetchUserCard(
+      cidNumber: _profileCid,
+      session: _session(),
+    );
+    expect(card, isA<CitizenProfileCard>());
+    expect(card.displayName, full.displayName);
+    expect(card.cidLevel, full.cidLevel);
+    expect(card.memberLevel, full.memberLevel);
+    expect(card.profileBio, isEmpty);
+    expect(card.posts, 0);
+    expect(card.bannerKey, isNull);
+    await const CitizenProfileCache().write(card);
+    expect(
+      (await const CitizenProfileCache().read(_profileCid))?.profileBio,
+      full.profileBio,
+    );
+    expect(
+      client.cardAvatarUrl(_profileCid),
+      'https://example.com/api/user/cards/$_profileCid/avatar',
+    );
+    expect(
+      () =>
+          CitizenProfileApi(client: client)
+              .cardMediaUrl('profile/$_profileCid/banner'),
+      throwsA(isA<SquareApiException>()),
+    );
+  });
+  test('最小名片的CID错配和缺字段不能作为公开资料返回', () async {
+    for (final card in [
+      {'cid_number': 'OTHER'},
+      {'cid_number': _profileCid, 'account_id': _owner, 'display_name': 'name'},
+    ]) {
+      final client = _client(
+        MockClient((_) async => _ok({'is_ok': true, 'card': card})),
+      );
+      await expectLater(
+        client.fetchUserCard(cidNumber: _profileCid, session: _session()),
+        throwsA(isA<SquareApiException>()),
+      );
+    }
+  });
+
+  group('完整资料媒体逐请求MLS传输', () {
+    final url =
+        'https://example.com/api/user/profiles/$_profileCid/assets/avatar';
+    SquareSession authorized(
+      Future<Map<String, String>> Function({
+        required String method,
+        required Uri uri,
+        required List<int> body,
+        required String sessionToken,
+      })
+      sign, {
+      Future<void> Function()? current,
+      int? expiry,
+    }) => SquareSession(
+      deviceId: testMlsDeviceId,
+      sessionToken: 'tok',
+      cidNumber: _profileCid,
+      bindRev: 1,
+      accountId: _owner,
+      expiresAt: expiry ?? DateTime.now().millisecondsSinceEpoch + 60000,
+      authenticateRequest: sign,
+      requireCurrent: current,
+    );
+    test('相同请求对象的GET、Range与条件读取每次现签，旧证明不透传', () async {
+      var signed = 0;
+      final requests = <http.Request>[];
+      final api = _client(
+        MockClient((request) async {
+          requests.add(request);
+          return http.Response.bytes(
+            request.headers.containsKey('if-none-match') ? [] : _png,
+            request.headers.containsKey('if-none-match')
+                ? 304
+                : request.headers.containsKey('range')
+                ? 206
+                : 200,
+            headers: {
+              'content-type': 'image/png',
+              if (request.headers.containsKey('range'))
+                'content-range': 'bytes 0-1/2',
+            },
+          );
+        }),
+      );
+      final session = authorized(({
+        required method,
+        required uri,
+        required body,
+        required sessionToken,
+      }) async {
+        expect(method, 'GET');
+        expect(uri.toString(), url);
+        expect(body, isEmpty);
+        expect(sessionToken, 'tok');
+        return {'x-mls-proof': 'fresh-${++signed}'};
+      });
+      final reader = api.profileMediaClient(session);
+      final request = http.Request('GET', Uri.parse(url))
+        ..headers.addAll({
+          'x-mls-proof': 'stale',
+          'authorization': 'Bearer old',
+        });
+      await (await reader.send(request)).stream.drain<void>();
+      request.headers.addAll({'range': 'bytes=0-1', 'if-range': '"original"'});
+      final partial = await reader.send(request);
+      expect(partial.statusCode, 206);
+      await partial.stream.drain<void>();
+      await (await reader.send(request)).stream.drain<void>();
+      request.headers['if-none-match'] = '"original"';
+      final unchanged = await reader.send(request);
+      expect(unchanged.statusCode, 304);
+      await unchanged.stream.drain<void>();
+      expect(signed, 4);
+      expect(requests.map((r) => r.headers['x-mls-proof']), [
+        'fresh-1',
+        'fresh-2',
+        'fresh-3',
+        'fresh-4',
+      ]);
+      expect(
+        requests.every(
+          (r) =>
+              r.headers['authorization'] == 'Bearer tok' && r.bodyBytes.isEmpty,
+        ),
+        isTrue,
+      );
+      expect(requests[1].headers['range'], 'bytes=0-1');
+      expect(requests[1].headers['if-range'], '"original"');
+      expect(requests[3].headers['if-none-match'], '"original"');
+      reader.close();
+      await expectLater(
+        reader.get(Uri.parse(url)),
+        throwsA(isA<http.ClientException>()),
+      );
+    });
+    test('真实RetryClient每次失败重试都调用新的认证器，拒绝重定向跟随', () async {
+      var signed = 0;
+      final proofs = <String?>[];
+      var attempts = 0;
+      final api = _client(
+        MockClient((request) async {
+          expect(request.followRedirects, isFalse);
+          proofs.add(request.headers['x-mls-proof']);
+          attempts++;
+          return http.Response.bytes(_png, attempts == 1 ? 503 : 200);
+        }),
+      );
+      final session = authorized(
+        ({
+          required method,
+          required uri,
+          required body,
+          required sessionToken,
+        }) async => {'x-mls-proof': 'attempt-${++signed}'},
+      );
+      final retry = RetryClient(
+        api.profileMediaClient(session),
+        retries: 1,
+        delay: (_) => Duration.zero,
+      );
+      expect((await retry.get(Uri.parse(url))).statusCode, 200);
+      expect(proofs, ['attempt-1', 'attempt-2']);
+      expect(signed, 2);
+      retry.close();
+      final redirectApi = _client(
+        MockClient((request) async {
+          expect(request.followRedirects, isFalse);
+          return http.Response(
+            '',
+            302,
+            headers: {'location': 'https://other.test/resource'},
+          );
+        }),
+      );
+      final response = await redirectApi.openProfileMedia(
+        url,
+        session: session,
+      );
+      expect(response.statusCode, 302);
+      await response.stream.drain<void>();
+    });
+    test('错源、路径别名、能力查询、非GET或正文在签名/HTTP前拒绝', () async {
+      var signed = 0, requests = 0;
+      final api = _client(
+        MockClient((_) async {
+          requests++;
+          return http.Response('', 200);
+        }),
+      );
+      final session = authorized(({
+        required method,
+        required uri,
+        required body,
+        required sessionToken,
+      }) async {
+        signed++;
+        return {'x-mls-proof': 'unused'};
+      });
+      for (final bad in [
+        'http://example.com/api/user/profiles/$_profileCid/assets/avatar',
+        url.replaceFirst('example.com', 'other.test'),
+        '$url?token=forbidden',
+        '$url#fragment',
+        url.replaceFirst('https://', 'https://user@'),
+        url.replaceFirst('/profiles/', '/cards/'),
+        url.replaceFirst('/assets/avatar', '/assets/other'),
+        url.replaceFirst('/api/', '/api/%75ser/'),
+        url.replaceFirst('example.com', 'example.com:444'),
+      ]) {
+        await expectLater(
+          api.openProfileMedia(bad, session: session),
+          throwsA(isA<SquareApiException>()),
+        );
+      }
+      final reader = api.profileMediaClient(session);
+      await expectLater(
+        reader.post(Uri.parse(url)),
+        throwsA(isA<http.ClientException>()),
+      );
+      final withBody = http.Request('GET', Uri.parse(url))..body = 'not empty';
+      expect(() => reader.send(withBody), throwsA(isA<http.ClientException>()));
+      expect(signed, 0);
+      expect(requests, 0);
+      reader.close();
+    });
+    test('签名期间账户改变及过期会话均不发出媒体请求', () async {
+      var requests = 0;
+      var current = true;
+      final entered = Completer<void>();
+      final proof = Completer<Map<String, String>>();
+      final api = _client(
+        MockClient((_) async {
+          requests++;
+          return http.Response.bytes(_png, 200);
+        }),
+      );
+      final session = authorized(
+        ({
+          required method,
+          required uri,
+          required body,
+          required sessionToken,
+        }) {
+          entered.complete();
+          return proof.future;
+        },
+        current: () async {
+          if (!current) throw StateError('synthetic account changed');
+        },
+      );
+      final pending = api.openProfileMedia(url, session: session);
+      final rejected = expectLater(pending, throwsStateError);
+      await entered.future;
+      current = false;
+      proof.complete({'x-mls-proof': 'late'});
+      await rejected;
+      expect(requests, 0);
+      final expired = authorized(
+        ({
+          required method,
+          required uri,
+          required body,
+          required sessionToken,
+        }) async => throw StateError('不得为过期会话签名'),
+        expiry: 0,
+      );
+      await expectLater(
+        api.openProfileMedia(url, session: expired),
+        throwsA(isA<SquareApiException>()),
+      );
+      expect(requests, 0);
+      final missing = SquareSession(
+        deviceId: testMlsDeviceId,
+        sessionToken: 'tok',
+        cidNumber: _profileCid,
+        bindRev: 1,
+        accountId: _owner,
+        expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
+      );
+      await expectLater(
+        api.openProfileMedia(url, session: missing),
+        throwsA(isA<SquareApiException>()),
+      );
+      expect(requests, 0);
+    });
+    test('正文到达期间失效不交付后续字节，读取器不输出证明或令牌诊断', () async {
+      var current = true;
+      final stream = StreamController<List<int>>();
+      final api = SquareApiClient(
+        baseUrl: 'https://example.com/api',
+        httpClient: _ProfileStreamClient(stream.stream),
+      );
+      final session = authorized(
+        ({
+          required method,
+          required uri,
+          required body,
+          required sessionToken,
+        }) async => {'x-mls-proof': 'synthetic-proof'},
+        current: () async {
+          if (!current) throw StateError('synthetic account changed');
+        },
+      );
+      final response = await api.openProfileMedia(url, session: session);
+      final bytes = response.stream.toBytes();
+      final rejected = expectLater(bytes, throwsStateError);
+      current = false;
+      stream.add(_png);
+      await stream.close();
+      await rejected;
+      final image = CitizenProfileApi(client: api)
+          .mediaImage('profile/$_profileCid/avatar', session: session);
+      expect(image.toString(), isNot(contains('synthetic-proof')));
+      expect(image.toString(), isNot(contains('tok')));
+    });
+  });
+
+  testWidgets('同会话同版本图片跨客户端复用一次GET，不同会话和版本隔离', (tester) async {
+    final png = await tester.runAsync(
+      () => File('assets/logo/mark256.png').readAsBytes(),
+    );
+    var requests = 0, signed = 0;
+    SquareApiClient client() => _client(
+      MockClient((_) async {
+        requests++;
+        return http.Response.bytes(
+          png!,
+          200,
+          headers: {'content-type': 'image/png'},
+        );
+      }),
+    );
+    final firstClient = client(), secondClient = client();
+    addTearDown(firstClient.close);
+    addTearDown(secondClient.close);
+    final session = SquareSession(
+      deviceId: testMlsDeviceId,
+      sessionToken: 'synthetic-shared-image',
+      cidNumber: _profileCid,
+      bindRev: 1,
+      accountId: _owner,
+      expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
+      authenticateRequest: ({
+        required method,
+        required uri,
+        required body,
+        required sessionToken,
+      }) async => {'x-mls-proof': 'shared-image-${++signed}'},
+    );
+    final a = CitizenProfileApi(client: firstClient),
+        b = CitizenProfileApi(client: secondClient);
+    final first = a.mediaImage(
+      'profile/$_profileCid/avatar',
+      session: session,
+      updatedAt: 606,
+    );
+    final second = b.mediaImage(
+      'profile/$_profileCid/avatar',
+      session: session,
+      updatedAt: 606,
+    );
+    expect(second, first);
+    expect(second.hashCode, first.hashCode);
+    expect(
+      b.mediaImage(
+        'profile/$_profileCid/avatar',
+        session: _session(),
+        updatedAt: 606,
+      ),
+      isNot(first),
+    );
+    expect(
+      b.mediaImage(
+        'profile/$_profileCid/avatar',
+        session: session,
+        updatedAt: 607,
+      ),
+      isNot(first),
+    );
+    expect(
+      b.mediaImage(
+        'profile/$_profileCid/banner',
+        session: session,
+        updatedAt: 606,
+      ),
+      isNot(first),
+    );
+    Future<void> decode(ImageProvider image) async {
+      final received = Completer<ImageInfo>();
+      final stream = image.resolve(ImageConfiguration.empty);
+      final listener = ImageStreamListener(
+        (info, _) => received.complete(info),
+        onError: (Object e, StackTrace? st) => received.completeError(e, st),
+      );
+      stream.addListener(listener);
+      try {
+        (await received.future.timeout(const Duration(seconds: 10))).dispose();
+      } finally {
+        stream.removeListener(listener);
+      }
+    }
+
+    await tester.runAsync(() => Future.wait([decode(first), decode(second)]));
+    expect(requests, 1);
+    expect(signed, 1);
+    await tester.runAsync(() => decode(second));
+    expect(requests, 1);
+    expect(signed, 1);
+    await first.evict();
+  });
+
+  testWidgets('图片读取器失败后重试现签，命中图片缓存不产生新GET或保存证明', (tester) async {
+    final png = await tester.runAsync(
+      () => File('assets/logo/mark256.png').readAsBytes(),
+    );
+    var signed = 0;
+    var requests = 0;
+    final proofs = <String?>[];
+    final client = _client(
+      MockClient((request) async {
+        proofs.add(request.headers['x-mls-proof']);
+        requests++;
+        return http.Response.bytes(
+          png!,
+          requests == 1 ? 503 : 200,
+          headers: {'content-type': 'image/png'},
+        );
+      }),
+    );
+    final session = SquareSession(
+      deviceId: testMlsDeviceId,
+      sessionToken: 'synthetic-image-token',
+      cidNumber: _profileCid,
+      bindRev: 1,
+      accountId: _owner,
+      expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
+      authenticateRequest: ({
+        required method,
+        required uri,
+        required body,
+        required sessionToken,
+      }) async => {'x-mls-proof': 'image-${++signed}'},
+    );
+    final api = CitizenProfileApi(client: client);
+    final image = api.mediaImage(
+      'profile/$_profileCid/avatar',
+      session: session,
+      updatedAt: 1,
+    );
+    expect(
+      image,
+      api.mediaImage(
+        'profile/$_profileCid/avatar',
+        session: session,
+        updatedAt: 1,
+      ),
+    );
+    expect(
+      image,
+      isNot(
+        api.mediaImage(
+          'profile/$_profileCid/avatar',
+          session: _session(),
+          updatedAt: 1,
+        ),
+      ),
+    );
+    Future<Object?> decode() async {
+      final result = Completer<ImageInfo>();
+      final stream = image.resolve(ImageConfiguration.empty);
+      final listener = ImageStreamListener(
+        (info, _) => result.complete(info),
+        onError: (Object e, StackTrace? st) => result.completeError(e, st),
+      );
+      stream.addListener(listener);
+      try {
+        final info = await result.future.timeout(const Duration(seconds: 10));
+        info.dispose();
+        return null;
+      } catch (error) {
+        return error;
+      } finally {
+        stream.removeListener(listener);
+      }
+    }
+
+    expect(await tester.runAsync(decode), isA<SquareApiException>());
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    expect(await tester.runAsync(decode), isNull);
+    expect(await tester.runAsync(decode), isNull);
+    expect(proofs, ['image-1', 'image-2']);
+    expect(requests, 2);
+    expect(signed, 2);
+    expect(image.toString(), isNot(contains('synthetic-image-token')));
+    await image.evict();
+  });
+  test('显式资料刷新逐张签名并复用原持久图片校验', () async {
+    // 使用本测试独占目录提供真实图片缓存所需的平台路径，不访问应用或用户目录。
+    final directory = Directory.systemTemp.createTempSync('signed-profile-');
+    const channel = MethodChannel('plugins.flutter.io/path_provider');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'getApplicationSupportDirectory' ||
+              call.method == 'getTemporaryDirectory') {
+            return directory.path;
+          }
+          throw MissingPluginException();
+        });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+      directory.deleteSync(recursive: true);
+    });
+    var signed = 0;
+    final paths = <String>[];
+    final proofs = <String?>[];
+    final json = _profileJson()..['banner_key'] = 'profile/$_profileCid/banner';
+    final client = _client(
+      MockClient((request) async {
+        paths.add(request.url.path);
+        proofs.add(request.headers['x-mls-proof']);
+        if (request.url.path == '/api/user/profiles/$_profileCid') {
+          return _ok({'profile': json});
+        }
+        return http.Response.bytes(
+          _png,
+          200,
+          headers: {'content-type': 'image/png'},
+        );
+      }),
+    );
+    final session = SquareSession(
+      deviceId: testMlsDeviceId,
+      sessionToken: 'tok',
+      cidNumber: _profileCid,
+      bindRev: 1,
+      accountId: _owner,
+      expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
+      authenticateRequest:
+          ({
+            required method,
+            required uri,
+            required body,
+            required sessionToken,
+          }) async {
+            expect(method, 'GET');
+            expect(body, isEmpty);
+            return {'x-mls-proof': 'refresh-${++signed}'};
+          },
+    );
+    final profile = await CitizenProfileApi(client: client)
+        .refreshProfile(_profileCid, session: session, userInitiated: true);
+    final saved = await CitizenProfileMediaCache().read(profile);
+    expect(paths, [
+      '/api/user/profiles/$_profileCid',
+      '/api/user/profiles/$_profileCid/assets/avatar',
+      '/api/user/profiles/$_profileCid/assets/banner',
+    ]);
+    expect(proofs, ['refresh-1', 'refresh-2', 'refresh-3']);
+    expect(await File(saved.avatarPath!).readAsBytes(), _png);
+    expect(await File(saved.bannerPath!).readAsBytes(), _png);
+  });
+
+  test('公开资料显式刷新跨实例合并，普通读取不发请求', () async {
+    final gate = Completer<http.Response>();
+    var requests = 0;
+    final client = _client(
+      MockClient((_) {
+        requests++;
+        return gate.future;
+      }),
+    );
+    final firstApi = CitizenProfileApi(client: client),
+        secondApi = CitizenProfileApi(client: client);
+    const cid = 'CN001-CTZN-000000001-2026';
+    expect(
+      () => firstApi.refreshProfile(
+        cid,
+        session: _session(),
+        userInitiated: false,
+      ),
+      throwsStateError,
+    );
+    expect(await const CitizenProfileCache().read(cid), isNull);
+    expect(requests, 0);
+    final first = firstApi.refreshProfile(
+      cid,
+      session: _session(),
+      userInitiated: true,
+    );
+    final second = secondApi.refreshProfile(
+      cid,
+      session: _session(),
+      userInitiated: true,
+    );
+    expect(identical(first, second), isTrue);
+    final json = _profileJson()..['avatar_key'] = null;
+    gate.complete(_ok({'profile': json}));
+    await first;
+    expect(requests, 1);
+    expect((await const CitizenProfileCache().read(cid))!.displayName, '轻节点');
+  });
+  test('资料修改原件跨重启保留，已确认恢复原子保存资料和图片并清除操作行', () async {
+    const cache = CitizenProfileCache();
+    final profile = CitizenProfile.fromJson(_profileJson(displayName: '新名'));
+    final cid = profile.cidNumber!;
+    final request = {
+      'display_name': '新名',
+      'avatar_key': profile.avatarKey!,
+      'avatar_hash': sha256.convert(_png).toString(),
+    };
+    await cache.prepareUpdate(cid, request: request, avatarBytes: _png);
+    await (await UserIsar.instance.db()).close();
+    final pending = await cache.readUpdate(cid);
+    expect(pending!.avatarBytes, _png);
+    expect(pending.jobState, 'pending');
+    await expectLater(
+      cache.prepareUpdate(cid, request: {'display_name': '另一修改'}),
+      throwsStateError,
+    );
+    expect(cache.updateMatches(pending, profile), isTrue);
+    await cache.confirmUpdate(profile);
+    await (await UserIsar.instance.db()).close();
+    await cache.finishUpdate(cid);
+    expect((await cache.read(cid))!.displayName, '新名');
+    expect(await cache.readUpdate(cid), isNull);
+    final rows = await UserIsar.instance.read(
+      (db) => db.collection<user_store.ProfileMedia>().where().findAll(),
+    );
+    expect(rows.single.mediaBytes, _png);
+  });
+
+  test('清除指定CID同时清除待修改原件，不波及其他CID', () async {
+    const cache = CitizenProfileCache();
+    const a = 'CN001-CTZN-000000001-2026', b = 'CN002-CTZN-000000002-2026';
+    await cache.prepareUpdate(a, request: {'display_name': 'A'});
+    await cache.prepareUpdate(b, request: {'display_name': 'B'});
+    await cache.clear(a);
+    expect(await cache.readUpdate(a), isNull);
+    expect(await cache.readUpdate(b), isNotNull);
+  });
+  group('CitizenProfile model', () {
+    test('maps counts, certification and follow state from json', () {
+      final profile = CitizenProfile.fromJson(
+        _profileJson(isFollowing: true, isFollowedBy: true),
+      );
+
+      expect(profile.accountId, _owner);
+      expect(profile.isCertified, isTrue);
+      expect(profile.cidNumber, 'CN001-CTZN-000000001-2026');
+      expect(profile.isFollowing, isTrue);
+      expect(profile.isFollowedBy, isTrue);
+      expect(profile.following, 2);
+      expect(profile.followers, 128);
+      expect(profile.mutualFollowing, 8);
+      expect(profile.posts, 36);
+      expect(profile.campaigns, 6);
+      expect(profile.videos, 4);
+      expect(profile.articles, 12);
+    });
+
+    test('resolvedDisplayName uses public truth then stable local name', () {
+      final named = CitizenProfile.fromJson(_profileJson(displayName: '张三'));
+      expect(named.resolvedDisplayName, '张三');
+
+      final unnamed = CitizenProfile.fromJson(_profileJson(displayName: ''));
+      final fallback = ProfilePresentation.forIdentityKey(
+        'CN001-CTZN-000000001-2026',
+      ).fallbackName;
+      expect(unnamed.resolvedDisplayName, fallback);
+      expect(fallback, isNot(contains(_owner.substring(0, 6))));
+    });
+
+    test('local defaults are stable and reject account-derived nicknames', () {
+      const cidNumber = 'CN001-CTZN-000000001-2026';
+      final first = ProfilePresentation.forIdentityKey(cidNumber);
+      final second = ProfilePresentation.forIdentityKey(cidNumber);
+      final short =
+          '${cidNumber.substring(0, 6)}...${cidNumber.substring(cidNumber.length - 6)}';
+      const accountId =
+          '0x2222222222222222222222222222222222222222222222222222222222222222';
+
+      expect(second.fallbackName, first.fallbackName);
+      expect(second.avatarAsset, first.avatarAsset);
+      expect(second.bannerAsset, first.bannerAsset);
+      expect(first.avatarAsset, isNot(first.bannerAsset));
+      expect(
+        first.resolveDisplayName(publicName: accountId),
+        first.fallbackName,
+      );
+      expect(first.resolveDisplayName(publicName: _owner), first.fallbackName);
+      expect(
+        first.resolveDisplayName(publicName: cidNumber),
+        first.fallbackName,
+      );
+      expect(first.resolveDisplayName(publicName: short), first.fallbackName);
+      expect(ProfilePresentation.assets, hasLength(11));
+    });
+
+    test('SquareAuthor never falls back to its wallet account', () {
+      const author = SquareAuthor(
+        accountId: _owner,
+        cidNumber: 'CN001-CTZN-000000001-2026',
+        displayName: '',
+      );
+      expect(
+        author.title,
+        ProfilePresentation.forIdentityKey(author.cidNumber!).fallbackName,
+      );
+      expect(author.title, isNot(_owner));
+    });
+
+    test('survives a json round-trip', () {
+      final original = CitizenProfile.fromJson(_profileJson());
+      final restored = CitizenProfile.fromJson(
+        jsonDecode(jsonEncode(original.toJson())),
+      );
+      expect(restored.displayName, original.displayName);
+      expect(restored.followers, original.followers);
+      expect(restored.mutualFollowing, original.mutualFollowing);
+      expect(restored.campaigns, original.campaigns);
+      expect(restored.videos, original.videos);
+      expect(restored.articles, original.articles);
+      expect(restored.avatarKey, original.avatarKey);
+    });
+  });
+
+  group('CitizenProfileCache', () {
+    setUp(TestWidgetsFlutterBinding.ensureInitialized);
+
+    // 缓存主键 = 身份主键 cid_number（_profileJson 的 cid_number）。
+    const cid = 'CN001-CTZN-000000001-2026';
+
+    test('round-trips a profile through local storage', () async {
+      const cache = CitizenProfileCache();
+      final profile = CitizenProfile.fromJson(_profileJson());
+
+      expect(await cache.read(cid), isNull);
+      await cache.write(profile);
+      final loaded = await cache.read(cid);
+
+      expect(loaded, isNotNull);
+      expect(loaded!.displayName, '轻节点');
+      expect(loaded.followers, 128);
+      expect(CitizenProfileCache.revision.value?.cidNumber, cid);
+      final row = await UserIsar.instance.read(
+        (db) => db.collection<user_store.Profile>().getByCidNumber(cid),
+      );
+      expect(
+        (jsonDecode(row!.profileData) as Map).containsKey('cid_number'),
+        false,
+      );
+    });
+
+    test('clear removes the cached profile', () async {
+      const cache = CitizenProfileCache();
+      await cache.write(CitizenProfile.fromJson(_profileJson()));
+      final before = CitizenProfileCache.revision.value!.revision;
+      await cache.clear(cid);
+      expect(await cache.read(cid), isNull);
+      expect(CitizenProfileCache.revision.value?.cidNumber, cid);
+      expect(CitizenProfileCache.revision.value!.revision, greaterThan(before));
+    });
+
+    test('较旧资料不能覆盖新版本，正文重复CID拒绝展示且不删除', () async {
+      const cache = CitizenProfileCache();
+      final profile = CitizenProfile.fromJson(_profileJson());
+      await cache.write(profile.copyWith(profileAt: 200));
+      await expectLater(cache.write(profile), throwsStateError);
+      expect((await cache.read(cid))!.profileAt, 200);
+      await UserIsar.instance.writeTxn((db) async {
+        await db.collection<user_store.Profile>().putByCidNumber(
+          user_store.Profile()
+            ..cidNumber = cid
+            ..profileData = jsonEncode(
+              _profileJson(cidNumber: 'CN001-CTZN-000000002-2026'),
+            ),
+        );
+      });
+      expect(await cache.read(cid), isNull);
+      expect(
+        await UserIsar.instance.read(
+          (db) => db.collection<user_store.Profile>().count(),
+        ),
+        1,
+      );
+    });
+
+    test(
+      'old cache without complete relation and content counts is rejected',
+      () async {
+        await UserIsar.instance.writeTxn((isar) async {
+          await isar.collection<user_store.Profile>().putByCidNumber(
+            user_store.Profile()
+              ..cidNumber = cid
+              ..profileData = jsonEncode({
+                ...(_profileJson()..remove('cid_number')),
+                'counts': {'following': 2, 'followers': 128, 'posts': 48},
+              }),
+          );
+        });
+        expect(await const CitizenProfileCache().read(cid), isNull);
+        final retained = await UserIsar.instance.read(
+          (isar) async =>
+              isar.collection<user_store.Profile>().getByCidNumber(cid),
+        );
+        expect(retained, isNotNull, reason: '损坏缓存读取不得隐式删除事实');
+      },
+    );
+  });
+
+  group('CitizenProfileMediaCache', () {
+    late Directory root;
+
+    setUp(() async {
+      root = await Directory.systemTemp.createTemp('citizen-profile-media-');
+    });
+
+    tearDown(() async {
+      if (await root.exists()) await root.delete(recursive: true);
+    });
+
+    test('重开数据库并删除临时文件后两种图片仍可恢复，普通读取不联网', () async {
+      var requests = 0;
+      final reader = MockClient((_) async {
+        requests++;
+        throw StateError('普通读取不能联网');
+      });
+      final cache = CitizenProfileMediaCache(
+        supportDirectoryProvider: () async => root,
+      );
+      final profile = CitizenProfile.fromJson(_profileJson())
+          .copyWith(bannerKey: 'profile/banner');
+      final saved = await cache.rememberSelected(
+        profile: profile,
+        avatarBytes: _png,
+        bannerBytes: _png,
+      );
+      expect(
+        (await const CitizenProfileCache().read(profile.cidNumber!))?.bannerKey,
+        'profile/banner',
+      );
+      final rows = await UserIsar.instance.read(
+        (db) => db.collection<user_store.ProfileMedia>().where().findAll(),
+      );
+      expect(rows, hasLength(2));
+      expect(rows.map((r) => r.mediaRole).toSet(), {'avatar', 'banner'});
+      for (final row in rows) {
+        expect(row.mediaBytes, _png);
+      }
+      await File(saved.avatarPath!).delete();
+      await File(saved.bannerPath!).delete();
+      await (await UserIsar.instance.db()).close();
+      final restored = await cache.read(profile);
+      expect(await File(restored.avatarPath!).readAsBytes(), _png);
+      expect(await File(restored.bannerPath!).readAsBytes(), _png);
+      await cache.refresh(
+        client: reader,
+        profile: profile,
+        avatarUrl: 'https://example.com/avatar',
+        bannerUrl: 'https://example.com/banner',
+      );
+      expect(requests, 0);
+    });
+
+    test('同版本媒体冲突整笔回滚，资料和已有图片不被半更新', () async {
+      const profiles = CitizenProfileCache();
+      final profile = CitizenProfile.fromJson(_profileJson())
+          .copyWith(bannerKey: 'profile/banner');
+      await profiles.writeWithMedia(
+        profile,
+        avatarBytes: _png,
+        bannerBytes: _png,
+      );
+      await expectLater(
+        profiles.writeWithMedia(
+          profile.copyWith(displayName: '不得提交'),
+          avatarBytes: _png,
+          bannerBytes: Uint8List.fromList([..._png, 0]),
+        ),
+        throwsStateError,
+      );
+      expect(
+        (await profiles.read(profile.cidNumber!))!.displayName,
+        profile.displayName,
+      );
+      final rows = await UserIsar.instance.read(
+        (db) => db.collection<user_store.ProfileMedia>().where().findAll(),
+      );
+      for (final row in rows) {
+        expect(row.mediaBytes, _png);
+      }
+    });
+
+    test('图片损坏拒绝读取且保留记录，不自动下载或清空', () async {
+      final cache = CitizenProfileMediaCache(
+        supportDirectoryProvider: () async => root,
+      );
+      final profile = CitizenProfile.fromJson(_profileJson());
+      await cache.rememberSelected(profile: profile, avatarBytes: _png);
+      await UserIsar.instance.writeTxn((db) async {
+        final row =
+            (await db.collection<user_store.ProfileMedia>().where().findAll())
+                .single;
+        row.mediaBytes = [...row.mediaBytes]..[0] = 0;
+        await db.collection<user_store.ProfileMedia>().put(row);
+      });
+      await expectLater(cache.read(profile), throwsStateError);
+      expect(
+        await UserIsar.instance.read(
+          (db) => db.collection<user_store.ProfileMedia>().count(),
+        ),
+        1,
+      );
+    });
+
+    test('图片大小边界和格式错误不改变已有资料', () async {
+      const profiles = CitizenProfileCache();
+      final profile = CitizenProfile.fromJson(_profileJson());
+      await profiles.write(profile);
+      for (final input in [
+        Uint8List(0),
+        Uint8List(512 * 1024 + 1),
+        Uint8List.fromList([1, 2, 3]),
+      ]) {
+        await expectLater(
+          profiles.writeWithMedia(
+            profile.copyWith(displayName: '不得提交'),
+            avatarBytes: input,
+          ),
+          throwsFormatException,
+        );
+      }
+      expect(
+        (await profiles.read(profile.cidNumber!))!.displayName,
+        profile.displayName,
+      );
+      final atLimit = Uint8List(512 * 1024)..setRange(0, _png.length, _png);
+      await profiles.writeWithMedia(profile, avatarBytes: atLimit);
+      expect(
+        await UserIsar.instance.read(
+          (db) => db.collection<user_store.ProfileMedia>().count(),
+        ),
+        1,
+      );
+    });
+
+    test('普通读取不导入或删除旧文件，显式清除才擦除所属目录', () async {
+      final profile = CitizenProfile.fromJson(_profileJson());
+      final cid = profile.cidNumber!;
+      final hash = sha256.convert(utf8.encode(cid)).toString();
+      final revision = sha256
+          .convert(
+            utf8.encode(
+              '$cid\u0000avatar\u0000${profile.avatarKey}\u0000${profile.profileAt}',
+            ),
+          )
+          .toString();
+      final dir = Directory('${root.path}/user/profile_media/$hash');
+      await dir.create(recursive: true);
+      final old = File('${dir.path}/avatar_$revision');
+      final unknown = File('${dir.path}/avatar_unknown');
+      await old.writeAsBytes(_png);
+      await unknown.writeAsBytes(_png);
+      final cache = CitizenProfileMediaCache(
+        supportDirectoryProvider: () async => root,
+      );
+      final result = await cache.read(profile);
+      expect(result.avatarPath, isNull);
+      expect(await old.readAsBytes(), _png);
+      expect(await unknown.exists(), isTrue);
+      expect(
+        await UserIsar.instance.read(
+          (db) => db.collection<user_store.ProfileMedia>().count(),
+        ),
+        0,
+      );
+      await cache.clearCid(cid);
+      expect(await dir.exists(), false);
+    });
+
+    test('旧文件为符号链接或损坏时保留来源且不入库', () async {
+      final profile = CitizenProfile.fromJson(_profileJson());
+      final cid = profile.cidNumber!;
+      final hash = sha256.convert(utf8.encode(cid)).toString();
+      final revision = sha256
+          .convert(
+            utf8.encode(
+              '$cid\u0000avatar\u0000${profile.avatarKey}\u0000${profile.profileAt}',
+            ),
+          )
+          .toString();
+      final dir = Directory('${root.path}/user/profile_media/$hash');
+      await dir.create(recursive: true);
+      final outside = File('${root.path}/outside');
+      await outside.writeAsBytes(_png);
+      final link = Link('${dir.path}/avatar_$revision');
+      await link.create(outside.path);
+      final cache = CitizenProfileMediaCache(
+        supportDirectoryProvider: () async => root,
+      );
+      expect((await cache.read(profile)).avatarPath, isNull);
+      expect(await link.exists(), isTrue);
+      await link.delete();
+      final broken = File(link.path);
+      await broken.writeAsBytes([1, 2, 3]);
+      expect((await cache.read(profile)).avatarPath, isNull);
+      expect(await broken.readAsBytes(), [1, 2, 3]);
+      await cache.clearCid(cid);
+      expect(await outside.readAsBytes(), _png);
+      expect(await dir.exists(), false);
+      expect(
+        await UserIsar.instance.read(
+          (db) => db.collection<user_store.ProfileMedia>().count(),
+        ),
+        0,
+      );
+    });
+
+    test('清除CID后迟到下载不得写回', () async {
+      final entered = Completer<void>();
+      final response = Completer<http.Response>();
+      final reader = MockClient((_) {
+        entered.complete();
+        return response.future;
+      });
+      final cache = CitizenProfileMediaCache(
+        supportDirectoryProvider: () async => root,
+      );
+      final profile = CitizenProfile.fromJson(_profileJson());
+      final pending = cache.refresh(
+        profile: profile,
+        avatarUrl: 'https://example.com/avatar',
+        bannerUrl: null,
+        client: reader,
+      );
+      final rejected = expectLater(pending, throwsStateError);
+      await entered.future;
+      await cache.clearCid(profile.cidNumber!);
+      response.complete(http.Response.bytes(_png, 200));
+      await rejected;
+      expect(
+        await UserIsar.instance.read(
+          (db) => db.collection<user_store.ProfileMedia>().count(),
+        ),
+        0,
+      );
+    });
+
+    test('显式下载入库后后续刷新复用本地，拒绝非HTTPS地址', () async {
+      var requests = 0;
+      final reader = MockClient((_) async {
+        requests++;
+        return http.Response.bytes(_png, 200);
+      });
+      final cache = CitizenProfileMediaCache(
+        supportDirectoryProvider: () async => root,
+      );
+      final profile = CitizenProfile.fromJson(_profileJson());
+      await expectLater(
+        cache.refresh(
+          profile: profile,
+          avatarUrl: 'file:///image',
+          bannerUrl: null,
+          client: reader,
+        ),
+        throwsArgumentError,
+      );
+      for (var i = 0; i < 2; i++) {
+        final result = await cache.refresh(
+          profile: profile,
+          avatarUrl: 'https://example.com/avatar',
+          bannerUrl: null,
+          client: reader,
+        );
+        expect(await File(result.avatarPath!).readAsBytes(), _png);
+      }
+      expect(requests, 1);
+    });
+
+    test('用户设置图片后首帧读取本机副本，未设置才返回空让页面使用内置图', () async {
+      final cache = CitizenProfileMediaCache(
+        supportDirectoryProvider: () async => root,
+      );
+      final profile = CitizenProfile.fromJson(_profileJson());
+      final remembered = await cache.rememberSelected(
+        profile: profile,
+        avatarBytes: Uint8List.fromList(_png),
+      );
+
+      expect(remembered.avatarPath, isNotNull);
+      expect(await File(remembered.avatarPath!).readAsBytes(), _png);
+
+      final unset = profile.copyWith(
+        avatarKey: null,
+        profileAt: profile.profileAt + 1,
+      );
+      expect((await cache.read(unset)).avatarPath, isNull);
+    });
+
+    test('新图片下载失败时保留上一张用户图片且不回退内置随机图', () async {
+      final profile = CitizenProfile.fromJson(_profileJson());
+      final reader = MockClient((_) async => http.Response('failed', 503));
+      final cache = CitizenProfileMediaCache(
+        supportDirectoryProvider: () async => root,
+      );
+      final previous = await cache.rememberSelected(
+        profile: profile,
+        avatarBytes: Uint8List.fromList(_png),
+      );
+      final changed = profile.copyWith(profileAt: profile.profileAt + 1);
+
+      final refreshed = await cache.refresh(
+        profile: changed,
+        avatarUrl: 'https://example.com/avatar',
+        bannerUrl: null,
+        client: reader,
+      );
+
+      expect(refreshed.avatarPath, previous.avatarPath);
+      expect(await File(refreshed.avatarPath!).readAsBytes(), _png);
+    });
+
+    test('按 CID 清理不影响其它用户，全量安全擦除删除整个资料媒体域', () async {
+      final cache = CitizenProfileMediaCache(
+        supportDirectoryProvider: () async => root,
+      );
+      final first = CitizenProfile.fromJson({
+        ..._profileJson(),
+        'cid_number': 'CN001-CTZN-000000001-2026',
+      });
+      final second = CitizenProfile.fromJson({
+        ..._profileJson(),
+        'cid_number': 'CN001-CTZN-000000002-2026',
+      });
+      final firstMedia = await cache.rememberSelected(
+        profile: first,
+        avatarBytes: Uint8List.fromList(_png),
+      );
+      final secondMedia = await cache.rememberSelected(
+        profile: second,
+        avatarBytes: Uint8List.fromList(_png),
+      );
+
+      await cache.clearCid(first.cidNumber!);
+      expect(await File(firstMedia.avatarPath!).exists(), isFalse);
+      expect(await File(secondMedia.avatarPath!).exists(), isTrue);
+
+      await UserIsar.instance.closeAndDeleteFromDisk();
+      await cache.closeAndDeleteAll();
+      expect(await File(secondMedia.avatarPath!).exists(), isFalse);
+    });
+  });
+
+  group('SquareApiClient profile endpoints', () {
+    test(
+      'fetchUserProfile parses the profile and forwards the session',
+      () async {
+        String? authHeader;
+        final client = _client(
+          MockClient((request) async {
+            authHeader = request.headers['authorization'];
+            expect(request.method, 'GET');
+            expect(request.url.path, '/api/user/profiles/$_profileCid');
+            expect(request.headers['x-mls-proof'], isNotEmpty);
+            return _ok({
+              'is_ok': true,
+              'profile': _profileJson(isFollowing: true),
+            });
+          }),
+        );
+
+        final profile = await client.fetchUserProfile(
+          cidNumber: _profileCid,
+          session: _session(),
+        );
+
+        expect(authHeader, 'Bearer tok');
+        expect(profile.isFollowing, isTrue);
+        expect(profile.followers, 128);
+        expect(profile.mutualFollowing, 8);
+        expect(profile.campaigns, 6);
+        expect(profile.videos, 4);
+        expect(profile.articles, 12);
+      },
+    );
+
+    test(
+      'fetchAuthorPosts filters by category and returns the cursor',
+      () async {
+        Uri? seen;
+        final client = _client(
+          MockClient((request) async {
+            seen = request.url;
+            expect(request.method, 'GET');
+            expect(request.headers['authorization'], 'Bearer tok');
+            expect(request.headers['x-mls-proof'], isNotEmpty);
+            return _ok({
+              'is_ok': true,
+              'posts': [
+                {
+                  'post_id': 'c1',
+                  'account_id': _owner,
+                  'post_category': 'campaign',
+                  'post_type': 'document',
+                  'post_excerpt': '竞选宣言',
+                  'created_at': 300,
+                },
+              ],
+              'next_cursor': 300,
+            });
+          }),
+        );
+
+        final page = await client.fetchAuthorPosts(
+          cidNumber: _profileCid,
+          postCategory: SquarePostCategory.campaign,
+          limit: 2,
+          session: _session(),
+        );
+
+        expect(seen!.path, '/api/8964/posts');
+        expect(seen!.queryParameters['cid_number'], _profileCid);
+        expect(seen!.queryParameters['post_category'], 'campaign');
+        expect(seen!.queryParameters['limit'], '2');
+        expect(page.posts.single.postId, 'c1');
+        expect(page.posts.single.postCategory, SquarePostCategory.campaign);
+        expect(page.nextCursor, 300);
+      },
+    );
+
+    test('fetchAuthorPosts parses post_type and title for articles', () async {
+      final client = _client(
+        MockClient((request) async {
+          return _ok({
+            'is_ok': true,
+            'posts': [
+              {
+                'post_id': 'a1',
+                'account_id': _owner,
+                'post_category': 'normal',
+                'post_type': 'article',
+                'post_title': '我的文章',
+                'post_excerpt': '正文摘要',
+                'created_at': 100,
+                'media_items': [
+                  {
+                    'media_kind': 'image',
+                    'url': 'https://media.test/cover.jpg',
+                  },
+                ],
+              },
+            ],
+            'next_cursor': null,
+          });
+        }),
+      );
+
+      final page = await client.fetchAuthorPosts(
+        cidNumber: _profileCid,
+        session: _session(),
+      );
+      final post = page.posts.single;
+
+      expect(post.postType, SquarePostType.article);
+      expect(post.title, '我的文章');
+    });
+
+    test('fetchAuthorPosts sends post_type query', () async {
+      Uri? seen;
+      final client = _client(
+        MockClient((request) async {
+          seen = request.url;
+          expect(request.method, 'GET');
+          expect(request.headers['authorization'], 'Bearer tok');
+          expect(request.headers['x-mls-proof'], isNotEmpty);
+          return _ok({'is_ok': true, 'posts': [], 'next_cursor': null});
+        }),
+      );
+
+      await client.fetchAuthorPosts(
+        cidNumber: _profileCid,
+        postType: SquarePostType.article,
+        session: _session(),
+      );
+
+      expect(seen!.queryParameters['post_type'], 'article');
+    });
+
+    test('fetchFollows sends the mutual_following query without local intersection', () async {
+      Uri? seen;
+      final client = _client(
+        MockClient((request) async {
+          seen = request.url;
+          expect(request.method, 'GET');
+          expect(request.headers['authorization'], 'Bearer tok');
+          expect(request.headers['x-mls-proof'], isNotEmpty);
+          return _ok({'is_ok': true, 'entries': [], 'next_cursor': null});
+        }),
+      );
+
+      await client.fetchFollows(
+        cidNumber: 'CN001-CTZN-000000001-2026',
+        type: 'mutual_following',
+        session: _session(),
+      );
+
+      expect(seen!.queryParameters['type'], 'mutual_following');
+    });
+
+    test('mediaUrl使用同源CID资料资源路径并拒绝越界对象', () {
+      final client = _client(MockClient((_) async => http.Response('', 200)));
+      expect(
+        client.mediaUrl('profile/$_profileCid/avatar'),
+        'https://example.com/api/user/profiles/$_profileCid/assets/avatar',
+      );
+      for (final objectKey in [
+        'profile/$_owner/avatar',
+        'profile/$_profileCid/other',
+        'profile/../avatar',
+        'profile/$_profileCid/avatar/extra',
+      ]) {
+        expect(
+          () => client.mediaUrl(objectKey),
+          throwsA(isA<SquareApiException>()),
+        );
+      }
+    });
+
+    test('updateProfile PUTs only the provided fields', () async {
+      String? method;
+      Map<String, dynamic>? body;
+      final client = _client(
+        MockClient((request) async {
+          method = request.method;
+          expect(request.url.path, '/api/user/profile');
+          expect(request.headers['authorization'], 'Bearer tok');
+          expect(request.headers['x-mls-proof'], isNotEmpty);
+          body = jsonDecode(request.body) as Map<String, dynamic>;
+          return _ok({
+            'is_ok': true,
+            'profile': _profileJson(displayName: '新名字'),
+          });
+        }),
+      );
+
+      final updated = await client.updateProfile(
+        session: _session(),
+        displayName: '新名字',
+      );
+
+      expect(method, 'PUT');
+      expect(body, {'display_name': '新名字'});
+      expect(updated.displayName, '新名字');
+    });
+  });
+}
+
+// 真实StreamedResponse用于观察签名完成后正文迟到，不把它退化为已聚合Response。
+final class _ProfileStreamClient extends http.BaseClient {
+  _ProfileStreamClient(this.body);
+  final Stream<List<int>> body;
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async =>
+      http.StreamedResponse(body, 200, headers: {'content-type': 'image/png'});
+}
