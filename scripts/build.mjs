@@ -165,6 +165,32 @@ export function mapSdkSource(root,name,output){
  return changed;
 }
 
+// 仅在普通工程离线解析冻结SDK的新内部包；原有锁记录不变，不手写SDK包清单。
+// 新包必须由官方Pub配置指向本轮SDK源码，第三方新增、漂移或缺件直接失败。
+export async function preparePackages(project,{sources,environment=process.env,execute=run}){
+ if(realpathSync(project)===realpathSync(root))throw Error('依赖装配禁止修改正式源码锁');
+ const file=join(project,'pubspec.lock');
+ const records=text=>new Map([...text.matchAll(/^  ([a-z][a-z0-9_]*):\n((?:    .*\n|\n)+)/gm)]
+  .map(([,name,body])=>[name,body.split('\n').filter(line=>line.trim()).join('\n')]));
+ const before=records(readFileSync(file,'utf8'));
+ if(!before.size)throw Error('依赖装配缺少原锁记录');
+ const roots=sources.map(source=>realpathSync(source));
+ const flutter=join(environment.FLUTTER_ROOT,'bin/flutter');
+ await execute(flutter,['pub','get','--offline'],project,false,environment,'依赖装配');
+ const after=records(readFileSync(file,'utf8'));
+ for(const [name,record]of before)if(after.get(name)!==record)throw Error('依赖装配改变原锁记录：'+name);
+ const configFile=join(project,'.dart_tool/package_config.json');
+ const packages=JSON.parse(readFileSync(configFile,'utf8')).packages;
+ for(const [name,record]of after){
+  if(before.has(name))continue;
+  const entry=packages.find(entry=>entry.name===name);
+  if(!/^    source: path$/m.test(record)||!entry)throw Error('依赖装配新增非SDK内部包：'+name);
+  const path=realpathSync(fileURLToPath(new URL(entry.rootUri,pathToFileURL(configFile))));
+  if(!roots.some(source=>path===source||path.startsWith(source+sep)))throw Error('依赖装配新增非SDK内部包：'+name);
+ }
+ await execute(flutter,['pub','get','--offline','--enforce-lockfile'],project,false,environment,'依赖锁验收');
+}
+
 // 正式App测试唯一归lib/test；普通工程按Dart官方test布局装配，保留开发依赖及测试注解语义。
 // 只改文件位置和相对URI，不复制测试实现，不在正式主仓生成根test。
 export function prepareTests(project){
@@ -199,6 +225,7 @@ for (const entry of readdirSync(root)) {
 }
 let declaration = readFileSync(join(project, 'pubspec.yaml'), 'utf8');
 let lock = readFileSync(join(project, 'pubspec.lock'), 'utf8');
+const sources=[];
 for (const name of ['citizen_sdk', 'tatachat_sdk']) {
     const record = lock.split('\n  ' + name + ':\n')[1]?.split(/\n  \S/)[0];
     const url = /url: "?(https:\/\/github.com\/[^"\s]+\.git)"?/.exec(record || '')?.[1];
@@ -263,6 +290,7 @@ for (const name of ['citizen_sdk', 'tatachat_sdk']) {
         }
     }
     mapSdkSource(project,name,output);
+    sources.push(output);
     declaration=readFileSync(join(project,'pubspec.yaml'),'utf8');
     lock = lock.replace(new RegExp('  ' + name + ':\\n(?:    .*\\n)+'), entry => {
         const version = '    version: ' + JSON.stringify(/^version: (\S+)$/m.exec(readFileSync(join(output,'pubspec.yaml'),'utf8'))[1]);
@@ -450,6 +478,7 @@ if (existsSync(testCore)) {
 }
 Object.assign(environment,values);
 if(environment.GITHUB_ENV)for (const [key, value] of Object.entries(values)) appendFileSync(environment.GITHUB_ENV, key + '=' + value + '\n');
+await preparePackages(project,{sources,environment});
 // App随包资源随普通工程一起准备，不增加功能构建入口。
 const assets = join(project, 'transaction/web');
 const resourceEnvironment = {...environment, npm_config_ignore_scripts: 'true',
