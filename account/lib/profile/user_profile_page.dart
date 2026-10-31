@@ -116,12 +116,13 @@ class _UserProfilePageState extends State<UserProfilePage> {
   bool _sessionResolved = false;
   int _postsRevision = 0;
   bool _refreshing = false;
+  bool _followBusy = false;
   bool _contentRefreshFailed = false;
   int _profileLoadGeneration = 0;
   late MembershipDisplayDecision _membershipDecision;
   SquareMembershipState? _membershipState;
 
-  /// 「他人视角」下看的是不是自己账户；true → 关注/私信/通知/订阅按钮置灰不可点。
+  /// 「他人视角」下识别本人；本人只开放通用关注操作。
   bool _isOwnAccount = false;
   bool _accessReady = false;
   bool _accessAllowed = false;
@@ -140,7 +141,11 @@ class _UserProfilePageState extends State<UserProfilePage> {
     _mediaCache = widget.mediaCache ?? CitizenProfileMediaCache();
     _membershipDecision = widget.initialMembershipDecision;
     _membershipState = widget.initialMembershipState;
-    _directChat = widget.onOpenDirectChat ?? (context, {required peerUserId, required title}) => context.read<AccountNavigation>().openDirectChat(context, peerUserId: peerUserId, title: title);
+    _directChat =
+        widget.onOpenDirectChat ??
+        (context, {required peerUserId, required title}) => context
+            .read<AccountNavigation>()
+            .openDirectChat(context, peerUserId: peerUserId, title: title);
     _profile = widget.initialProfile?.cidNumber == widget.cidNumber
         ? widget.initialProfile
         : null;
@@ -306,7 +311,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
   /// 判定「他人视角看的其实是自己账户」：浏览者身份账户 == 目标当前绑定钱包账户
   /// （[targetAccountId] = profile.account_id）。身份主键是 cid，但浏览者手上只有
   /// 自己的当前用户上下文，故用「账户是否一致」判定同一身份。
-  /// 本人视角（isSelf）按钮本就隐藏，无需判定；判定失败按非本人处理，不阻塞主页。
+  /// 本人视角无需重复判定；他人视角仍识别本人以隐藏私信等入口。
   Future<void> _resolveOwnAccount(String? targetAccountId) async {
     if (widget.isSelf || _isOwnAccount) return;
     final target = targetAccountId?.trim() ?? '';
@@ -386,7 +391,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
   }
 
   Future<void> _refresh() async {
-    if (_refreshing) return;
+    // 资料刷新与关系写入互斥，避免复用写入前已发出的旧资料请求。
+    if (_refreshing || _followBusy) return;
     setState(() {
       _refreshing = true;
       _contentRefreshFailed = false;
@@ -489,44 +495,63 @@ class _UserProfilePageState extends State<UserProfilePage> {
       _ensureSession(refresh: true);
 
   Future<void> _toggleFollow() async {
-    final current = _profile;
-    if (current == null) return;
-    final session = _session ?? await _ensureSession();
-    if (!mounted) return;
-    if (session == null) {
-      _snack(_sessionStatus?.message ?? '公民服务暂时不可用，请稍后重试');
-      return;
-    }
-    final wasFollowing = current.isFollowing;
-    final nextFollowers = wasFollowing
-        ? (current.followers > 0 ? current.followers - 1 : 0)
-        : current.followers + 1;
-    final nextMutualFollowing = current.isFollowedBy
-        ? (wasFollowing
-              ? (current.mutualFollowing > 0 ? current.mutualFollowing - 1 : 0)
-              : current.mutualFollowing + 1)
-        : current.mutualFollowing;
-    // 乐观更新。
-    setState(() {
-      _profile = current.copyWith(
-        isFollowing: !wasFollowing,
-        // 关注即默认开通知，取关即无通知；与 Worker（关注写入默认 notify_enabled=1、
-        // 取关删记录）保持一致，铃铛态随关注态即时联动。
-        isNotifying: !wasFollowing,
-        followers: nextFollowers,
-        mutualFollowing: nextMutualFollowing,
-      );
-    });
+    final before = _profile;
+    if (before == null || _followBusy || _refreshing) return;
+    final target = widget.cidNumber;
+    setState(() => _followBusy = true);
     try {
-      if (wasFollowing) {
-        await _api.unfollowUser(session: session, peerCid: widget.cidNumber);
-      } else {
-        await _api.followUser(session: session, peerCid: widget.cidNumber);
-      }
-    } on Exception {
+      final session = _session ?? await _ensureSession();
       if (!mounted) return;
-      setState(() => _profile = current); // 失败回滚。
-      _snack('操作失败，请重试');
+      if (session == null) {
+        _snack(_sessionStatus?.message ?? '公民服务暂时不可用，请稍后重试');
+        return;
+      }
+      if (widget.isSelf && session.cidNumber != target) {
+        _snack('当前用户已变化，请重新进入主页');
+        return;
+      }
+      bool current() =>
+          mounted &&
+          widget.cidNumber == target &&
+          _session?.cidNumber == session.cidNumber &&
+          _session?.accountId == session.accountId &&
+          _session?.bindRev == session.bindRev;
+      if (!current()) return;
+      final wasFollowing = before.isFollowing;
+      // 只即时切换关系图标；三项计数不手算，等待同一次服务端资料确认。
+      setState(
+        () => _profile = before.copyWith(
+          isFollowing: !wasFollowing,
+          isNotifying: !wasFollowing,
+        ),
+      );
+      try {
+        if (wasFollowing) {
+          await _api.unfollowUser(session: session, peerCid: target);
+        } else {
+          await _api.followUser(session: session, peerCid: target);
+        }
+      } on Exception {
+        if (current()) {
+          setState(() => _profile = before);
+          _snack('操作失败，请重试');
+        }
+        return;
+      }
+      try {
+        final fresh = await _api.refreshProfile(
+          target,
+          session: session,
+          userInitiated: true,
+          isCurrent: current,
+        );
+        if (current()) setState(() => _profile = fresh);
+      } on Exception {
+        // 写入已经成功，资料回读失败不能反向撤销用户的关注/取关。
+        if (current()) _snack('关注已更新，资料刷新失败，请下拉刷新');
+      }
+    } finally {
+      if (mounted) setState(() => _followBusy = false);
     }
   }
 
@@ -738,14 +763,16 @@ class _UserProfilePageState extends State<UserProfilePage> {
   }
 
   void _snack(String message) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   /// 公开昵称只取后端 `display_name`；缺失时按 CID 稳定生成本地占位昵称。
   String get _displayName {
-    return ProfilePresentation.forIdentityKey(widget.cidNumber)
-        .resolveDisplayName(publicName: _profile?.displayName);
+    return ProfilePresentation.forIdentityKey(
+      widget.cidNumber,
+    ).resolveDisplayName(publicName: _profile?.displayName);
   }
 
   String get _title => _displayName;
@@ -983,16 +1010,17 @@ class _UserProfilePageState extends State<UserProfilePage> {
                           onMutualFollowing: () =>
                               _openFollows(FollowsType.mutualFollowing),
                           actions: ProfileActionIcons(
-                            isSelf: widget.isSelf,
+                            isSelf: widget.isSelf || _isOwnAccount,
                             isFollowing: _profile?.isFollowing ?? false,
                             isNotifying: _profile?.isNotifying ?? false,
-                            // 他人视角看的是自己账户时置灰（不能关注/私信/通知自己）。
-                            enabled: !_isOwnAccount,
                             // 有有效创作者计划时在通知左侧就地出现；不存在时完全不占位。
                             leading: _creatorSubscribeButton(),
                             onNotify: _toggleNotify,
                             onChat: _openChatWithUser,
-                            onToggleFollow: _toggleFollow,
+                            onToggleFollow:
+                                _followBusy || _refreshing || _profile == null
+                                ? null
+                                : _toggleFollow,
                           ),
                         ),
                       ),

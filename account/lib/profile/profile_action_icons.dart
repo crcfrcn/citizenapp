@@ -3,11 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
-/// 头像行右上角的动作图标——**对主页主人的操作**，只在看**别人**主页时出现。
+/// 头像行右上角对主页主人的操作；本人仅显示通用关注/取关入口。
 ///
 /// 通知 = 关注后收其发帖通知（红点+声音）、聊天 = 给该用户发消息、关注 = 关注/取关该用户。
 /// 通知归属挂在关注关系上：关注即默认开通知，铃铛按用户静音/取消静音；未关注时点铃铛提示先关注。
-/// 看自己主页时不显示任何图标（给自己发消息/关注自己无意义；编辑资料在右上 ⋮ 菜单）。
+/// 本人不显示通知、私信和订阅入口；编辑资料仍在右上 ⋮ 菜单。
 class ProfileActionIcons extends StatelessWidget {
   const ProfileActionIcons({
     super.key,
@@ -27,7 +27,7 @@ class ProfileActionIcons extends StatelessWidget {
   /// 是否已开启该用户的发帖通知（= 已关注且未静音）；铃铛据此高亮/实心。
   final bool isNotifying;
 
-  /// false=置灰不可点（从广场头像以他人视角看自己时，给自己关注/私信/通知无意义）。
+  /// false=操作暂不可用；本人关系由isSelf控制，不禁止自关注。
   final bool enabled;
 
   /// 可选的创作者订阅入口；有有效创作者计划才构建，固定在通知图标左侧。
@@ -45,23 +45,22 @@ class ProfileActionIcons extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 自己的主页不显示这些操作。
-    if (isSelf) return const SizedBox.shrink();
-
     final buttons = <Widget>[
-      _CircleIcon(
-        icon: isNotifying
-            ? Icons.notifications_active
-            : Icons.notifications_outlined,
-        tooltip: isNotifying ? '已开启通知' : '通知',
-        active: enabled && isNotifying,
-        onTap: enabled ? onNotify : null,
-      ),
-      _CircleIcon(
-        icon: Icons.chat_bubble_outline,
-        tooltip: '发消息',
-        onTap: enabled ? onChat : null,
-      ),
+      if (!isSelf)
+        _CircleIcon(
+          icon: isNotifying
+              ? Icons.notifications_active
+              : Icons.notifications_outlined,
+          tooltip: isNotifying ? '已开启通知' : '通知',
+          active: enabled && isNotifying,
+          onTap: enabled ? onNotify : null,
+        ),
+      if (!isSelf)
+        _CircleIcon(
+          icon: Icons.chat_bubble_outline,
+          tooltip: '发消息',
+          onTap: enabled ? onChat : null,
+        ),
       _CircleIcon(
         icon: isFollowing ? Icons.how_to_reg : Icons.person_add_alt,
         tooltip: isFollowing ? '已关注' : '关注',
@@ -72,7 +71,7 @@ class ProfileActionIcons extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        ?leading,
+        if (!isSelf) ?leading,
         for (final button in buttons)
           Padding(
             padding: EdgeInsets.only(left: AppLayout.scaled(context, 8)),

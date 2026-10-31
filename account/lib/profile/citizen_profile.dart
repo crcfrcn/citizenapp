@@ -57,18 +57,19 @@ class CitizenProfile {
   final int articles;
   final bool isFollowing;
 
-  /// 主页用户是否关注当前登录者；只用于准确计算当前操作是否形成或解除互关。
+  /// 主页用户是否关注当前登录者；关系与三项计数均沿用服务端确认结果。
   final bool isFollowedBy;
 
-  /// 当前登录者是否对该账户开启发帖通知（= 已关注且未静音）。本人视角恒为 false。
+  /// 当前登录者是否对该账户开启发帖通知（= 已关注且未静音）；本人不展示通知按钮。
   final bool isNotifying;
   final int profileAt;
 
   /// `display_name` 是公开昵称唯一真源；缺失时按 CID（无 CID 才按账户）
   /// 生成稳定默认昵称，绝不把钱包名、完整账户或截断账户当昵称。
   String get resolvedDisplayName {
-    return ProfilePresentation.forIdentityKey(cidNumber ?? accountId)
-        .resolveDisplayName(publicName: displayName);
+    return ProfilePresentation.forIdentityKey(
+      cidNumber ?? accountId,
+    ).resolveDisplayName(publicName: displayName);
   }
 
   factory CitizenProfile.fromJson(Map<String, dynamic> json) {

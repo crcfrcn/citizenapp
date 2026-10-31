@@ -350,7 +350,7 @@ D1   (Worker)        user / post / link / 计数聚合
 - `user_profile_page.dart`：`NestedScrollView + SliverAppBar(pinned) + CollapsibleHeader 直接作为 flexibleSpace + bottom:分类TabBar + TabBarView`；本人首屏只读持久资料与媒体，显式刷新复用资料和帖子同步入口。其他用户访问及主动操作仍由单个in-flight Future取得Session；远端帖子请求等待`sessionReady`，本人本地内容不依赖它。展开高度由头图、分类栏及`ProfileHeaderCard.requiredHeight`共同计算；固定区域按真实文字样式测量，不为异步会话预留纵向空间。
 - `collapsible_header.dart`：展开阶段由 `ImageFiltered` 对头图单图层渐进虚化（非全屏 `BackdropFilter`）并让资料主体淡出；完全折叠态另有一个固定覆盖“状态栏安全区 + 工具栏”的真实背景层，直接复用同一用户图片或稳定默认照片（本人图片由数据库重建临时展示文件），不参与强模糊、不依赖透明 Material 透出页面。折叠比例的最小高度必须包含 36px 分类栏，确保完全折叠时固定背景不透明度精确达到 1。分类栏继续为白底，返回和三点按钮保持既有深色圆形底衬。
 - `profile_header_card.dart`：圆角方形头像（用户图片优先；仅从未设置时显示稳定内置照片；已设置但暂不可读时显示中性占位）+ 身份徽章 + 公开昵称 + 独立“公民号”行 + 签名 + “互关、关注、关注者”三项关系计数 + 右上操作槽。三项统计按内容宽度紧凑连续排列，相邻项固定 18px；极窄大字体时整组保持一行并允许横向查看，不等比缩小、不拆列。互关点击进入互关列表；关注/取关仅在 `is_followed_by=true` 时同步增减互关数量，失败与关注者数量一起回滚。分类栏高 36px，显示“公文{数量}、竞选{数量}、视频{数量}、文章{数量}”，名称 16px/w700，花括号数量 11px/w400/次级色；按复合文字实宽计算左外侧、三段内部、右外侧共五段相等空隙。统计文字到分类文字的实际视觉间距始终为 15px。主页不展示 SS58、AccountId 或地址复制入口；公民号使用页面路由身份真源且不提供复制按钮。资料模型仍保留规范 `account_id`，供签名、授权和用户码使用。
-- `profile_action_icons.dart` + `account/lib/creator/creator_subscribe_button.dart`：本人主页不显示关系操作；他人主页操作顺序固定为“可选订阅、通知、私信、关注”。创作者有有效计划才显示一个 34px 高的紧凑“订阅”入口，固定在通知左侧；无计划、加载中或链读失败完全不占位。已订阅的更换档位和取消操作收进二级面板，不能在主页展开成两枚按钮或改变纵向高度。
+- `profile_action_icons.dart` + `account/lib/creator/creator_subscribe_button.dart`：本人主页显示通用关注/取关入口，隐藏通知、私信和订阅；他人主页操作顺序固定为“可选订阅、通知、私信、关注”。创作者有有效计划才显示一个 34px 高的紧凑“订阅”入口，固定在通知左侧；无计划、加载中或链读失败完全不占位。已订阅的更换档位和取消操作收进二级面板，不能在主页展开成两枚按钮或改变纵向高度。
 - `profile_kebab_menu.dart`：`⋮` 用户码（→ `user_qr_page.dart`）/编辑资料(self-only)/注销用户(self-only)；产品不提供举报功能。
 - `user_qr_page.dart`：用户主页 `⋮ → 用户码` 与“我的”背景图右上角图标复用同一页，传入当前
   `cid_number + display_name + account_id`，生成严格
@@ -3077,3 +3077,5 @@ Android本地及自动化构建共用scripts/build.mjs；Release APK生成后、
 ### iOS通讯录同步协议与安全诊断
 
 本地通讯录继续由统一用户库读取；同CID云同步复用SDK MLS，实际HTTP字段使用服务端唯一规范is_ok/group_rev/op_id/op_kind/member_devices/target_devices/creator_device/sender_device，App不另做字段翻译。SDK正式修复后才更新消费锁，保留原联系人、待发项和MLS身份。同步失败仅记录contacts_session、contacts_mls或contacts_apply固定阶段、HTTP状态及SDK公开诊断码/操作枚举；不记录异常原文、路径、身份、二维码和联系人正文。日志失败不改变原业务结果；下拉仍沿原重试与账户代次合同，界面布局及其它三步功能不随本步修改。
+
+通用关注使用CID关系，任意用户均可关注/取关自己。本人识别不再禁用关注；一次操作完成前不重复提交。操作成功后复用现有refreshProfile读取完整关系和三个计数并写入原缓存，不在客户端手算计数。写入失败恢复原关系；写入已成功而资料回读失败则保留成功关系并提示主动刷新，不伪造或清零计数。

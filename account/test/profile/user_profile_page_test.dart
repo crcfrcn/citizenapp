@@ -37,20 +37,21 @@ class _NullMembershipSnapshotService implements SubscriptionService {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-Widget _wrap({required bool isSelf}) => MaterialApp(
-  home: UserProfilePage(
-    cidNumber: sampleProfile().cidNumber!,
-    isSelf: isSelf,
-    api: FakeProfileApi(sampleProfile()),
-    cache: FakeProfileCache(sampleProfile()),
-    sessionProvider: FakeSessionProvider(
-      fakeSession(),
-      citizenId: isSelf ? sampleProfile().cidNumber : null,
-    ),
-    subscriptionService: _NullMembershipSnapshotService(),
-    viewerAccountLoader: () async => null,
-  ),
-);
+Widget _wrap({required bool isSelf, CitizenProfile? localProfile}) =>
+    MaterialApp(
+      home: UserProfilePage(
+        cidNumber: sampleProfile().cidNumber!,
+        isSelf: isSelf,
+        api: FakeProfileApi(sampleProfile()),
+        cache: FakeProfileCache(localProfile ?? sampleProfile()),
+        sessionProvider: FakeSessionProvider(
+          fakeSession(),
+          citizenId: isSelf ? sampleProfile().cidNumber : null,
+        ),
+        subscriptionService: _NullMembershipSnapshotService(),
+        viewerAccountLoader: () async => null,
+      ),
+    );
 
 class _PendingRefreshSession extends FakeSessionProvider {
   _PendingRefreshSession()
@@ -122,6 +123,25 @@ class _PendingProfile extends FakeProfileApi {
 }
 
 void main() {
+  testWidgets('本人缓存的零计数完整显示且保留自关注入口', (tester) async {
+    final old = sampleProfile();
+    final profile = CitizenProfile.fromJson({
+      ...old.toJson(),
+      'counts': {
+        ...(old.toJson()['counts'] as Map<String, dynamic>),
+        'following': 0,
+        'followers': 0,
+        'mutual_following': 0,
+      },
+    });
+    await tester.pumpWidget(_wrap(isSelf: true, localProfile: profile));
+    await tester.pumpAndSettle();
+    for (final label in ['0 关注', '0 关注者', '0 互关']) {
+      expect(find.text(label), findsOneWidget);
+    }
+    expect(find.byIcon(Icons.person_add_alt), findsOneWidget);
+  });
+
   testWidgets('他人主页直接请求业务接口，服务端拒绝后清除展示且不前置会员GET', (tester) async {
     final api = _ServerDeniedProfile();
     final denied = _DeniedMembership();

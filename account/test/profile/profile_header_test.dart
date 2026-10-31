@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
@@ -11,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:citizen_account/profile/citizen_profile_api.dart';
+import 'package:citizen_account/profile/citizen_profile.dart';
 import 'package:citizen_account/profile/citizen_profile_cache.dart';
 import 'package:citizen_account/identity/square_session_provider.dart';
 import 'package:citizen_account/profile/profile_presentation.dart';
@@ -68,8 +70,9 @@ Widget _wrap({
     child: MaterialApp(
       theme: ThemeData(platform: platform),
       builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(context)
-            .copyWith(textScaler: textScaler, padding: padding),
+        data: MediaQuery.of(
+          context,
+        ).copyWith(textScaler: textScaler, padding: padding),
         child: child!,
       ),
       home: UserProfilePage(
@@ -97,6 +100,41 @@ Widget _wrap({
   );
 }
 
+// 通过App公开资料接口交付确认结果，不替代SDK状态或本机身份资源。
+class _FollowApi extends FakeProfileApi {
+  _FollowApi(
+    super.result,
+    this.confirmed, {
+    this.cache,
+    this.failRead = false,
+    this.pending,
+  });
+  final CitizenProfile confirmed;
+  final FakeProfileCache? cache;
+  final bool failRead;
+  final Future<CitizenProfile>? pending;
+  int refreshes = 0;
+  @override
+  Future<CitizenProfile> refreshProfile(
+    String cidNumber, {
+    required SquareSession session,
+    required bool userInitiated,
+    bool Function()? isCurrent,
+  }) async {
+    refreshes++;
+    expect(userInitiated, isTrue);
+    if (failRead) {
+      throw const SquareApiException('fixture profile refresh failed');
+    }
+    final fresh = await (pending ?? Future.value(confirmed));
+    if (!(isCurrent?.call() ?? true)) {
+      throw StateError('fixture session changed');
+    }
+    await cache?.write(fresh);
+    return fresh;
+  }
+}
+
 void main() {
   _sdkHarness = TestCitizenSdkHarness();
   testWidgets('公开昵称、公民号、三项关系和四类内容计数按身份语义展示', (tester) async {
@@ -109,8 +147,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final fallback = ProfilePresentation.forIdentityKey(_profileCidNumber)
-        .fallbackName;
+    final fallback = ProfilePresentation.forIdentityKey(
+      _profileCidNumber,
+    ).fallbackName;
     expect(find.text(fallback), findsWidgets);
     expect(find.text('公民号：$_profileCidNumber'), findsOneWidget);
     expect(find.textContaining('SS58：'), findsNothing);
@@ -437,17 +476,17 @@ void main() {
   }
 
   testWidgets(
-    'self profile hides accountId-directed action icons, edit in kebab',
+    'self profile exposes follow and retains edit menu without private messaging',
     (tester) async {
       await tester.pumpWidget(
         _wrap(isSelf: true, api: FakeProfileApi(sampleProfile())),
       );
       await tester.pumpAndSettle();
 
-      // 自己看自己：通知/聊天/关注是对主页主人的操作，一律不显示。
+      // 本人可关注自己，通知和私信仍隐藏。
       expect(find.byIcon(Icons.notifications_outlined), findsNothing);
       expect(find.byIcon(Icons.chat_bubble_outline), findsNothing);
-      expect(find.byIcon(Icons.person_add_alt), findsNothing);
+      expect(find.byIcon(Icons.person_add_alt), findsOneWidget);
       expect(find.byIcon(Icons.how_to_reg), findsNothing);
       // 认证以头像角的公民徽章呈现；无会员显示身份档，会员显示对应会员档位。
       expect(find.byType(IdentityBadge), findsOneWidget);
@@ -621,8 +660,10 @@ void main() {
   });
 
   testWidgets('following a user optimistically flips the icon', (tester) async {
-    final api = FakeProfileApi(
-      sampleProfile(following: false, followedBy: true),
+    final before = sampleProfile(following: false, followedBy: true);
+    final api = _FollowApi(
+      before,
+      before.copyWith(isFollowing: true, followers: 129, mutualFollowing: 9),
     );
     await tester.pumpWidget(
       _wrap(
@@ -646,8 +687,10 @@ void main() {
   testWidgets(
     'unfollowing a mutual user decrements followers and mutual count',
     (tester) async {
-      final api = FakeProfileApi(
-        sampleProfile(following: true, followedBy: true),
+      final before = sampleProfile(following: true, followedBy: true);
+      final api = _FollowApi(
+        before,
+        before.copyWith(isFollowing: false, followers: 127, mutualFollowing: 7),
       );
       await tester.pumpWidget(
         _wrap(
@@ -743,7 +786,7 @@ void main() {
     expect(chatTitle, '轻节点');
   });
 
-  testWidgets('从他人视角看的是自己账户时私信按钮置灰不触发', (tester) async {
+  testWidgets('他人视角识别本人后只保留通用关注入口', (tester) async {
     String? peer;
     await tester.pumpWidget(
       Provider<CitizenSdk>.value(
@@ -756,7 +799,7 @@ void main() {
             cache: FakeProfileCache(),
             sessionProvider: FakeSessionProvider(fakeSession()),
             subscriptionService: _NullMembershipSnapshotService(),
-            // 浏览者账户 == 主页账户 = 他人视角看自己 → 按钮应置灰。
+            // 浏览者账户相同，依然允许关注，隐藏私信等本人操作。
             viewerAccountLoader: () async => kOwner,
             onOpenDirectChat: (context, {required peerUserId, required title}) {
               peer = peerUserId;
@@ -768,10 +811,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // 按钮仍显示（保留他人视角版式）但禁用：点了不触发私信。
-    expect(find.byIcon(Icons.chat_bubble_outline), findsOneWidget);
-    await tester.tap(find.byIcon(Icons.chat_bubble_outline));
-    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.chat_bubble_outline), findsNothing);
+    expect(find.byIcon(Icons.person_add_alt), findsOneWidget);
     expect(peer, isNull);
   });
 
@@ -821,5 +862,82 @@ void main() {
 
     expect(find.byType(UserQrPage), findsOneWidget);
     expect(find.widgetWithText(AppBar, '我的用户码'), findsOneWidget);
+  });
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    testWidgets('$platform本人关注回读三项权威计数并重入缓存', (tester) async {
+      final before = sampleProfile();
+      final confirmed = CitizenProfile.fromJson({
+        ...before.toJson(),
+        'is_following': true, 'is_followed_by': true,
+        // 故意不同于旧数值加一，验证不在客户端推算服务端计数。
+        'counts': {
+          ...(before.toJson()['counts'] as Map<String, dynamic>),
+          'following': 13,
+          'followers': 77,
+          'mutual_following': 6,
+        },
+      });
+      final cache = FakeProfileCache(before);
+      final api = _FollowApi(before, confirmed, cache: cache);
+      await tester.pumpWidget(
+        _wrap(
+          isSelf: true,
+          api: api,
+          cache: cache,
+          platform: platform,
+          sessionProvider: FakeSessionProvider(
+            fakeSession(cidNumber: _profileCidNumber),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.person_add_alt));
+      await tester.pumpAndSettle();
+      expect(api.followCalls, 1);
+      expect(api.refreshes, 1);
+      expect(cache.wrote, isTrue);
+      for (final label in ['13 关注', '77 关注者', '6 互关']) {
+        expect(find.textContaining(label), findsOneWidget);
+      }
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        _wrap(isSelf: true, api: api, cache: cache, platform: platform),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('13 关注'), findsOneWidget);
+      expect(find.byIcon(Icons.how_to_reg), findsOneWidget);
+    });
+  }
+  testWidgets('关注成功后资料回读失败不撤销关系或编造计数', (tester) async {
+    final before = sampleProfile();
+    final api = _FollowApi(before, before, failRead: true);
+    await tester.pumpWidget(_wrap(isSelf: false, api: api));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.person_add_alt));
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.how_to_reg), findsOneWidget);
+    expect(find.textContaining('128 关注者'), findsOneWidget);
+    expect(find.text('关注已更新，资料刷新失败，请下拉刷新'), findsOneWidget);
+    expect(api.followCalls, 1);
+  });
+  testWidgets('资料确认前重复点击不会重复关注或取关', (tester) async {
+    final before = sampleProfile();
+    final done = Completer<CitizenProfile>();
+    final api = _FollowApi(
+      before,
+      before.copyWith(isFollowing: true),
+      pending: done.future,
+    );
+    await tester.pumpWidget(_wrap(isSelf: false, api: api));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.person_add_alt));
+    await tester.pump();
+    await tester.tap(find.byIcon(Icons.how_to_reg));
+    await tester.pump();
+    expect(api.followCalls, 1);
+    expect(api.unfollowCalls, 0);
+    done.complete(before.copyWith(isFollowing: true));
+    await tester.pumpAndSettle();
   });
 }
