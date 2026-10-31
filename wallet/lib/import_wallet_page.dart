@@ -17,7 +17,14 @@ import 'package:citizen_wallet/wallet_password.dart';
 /// 本页、助记词保留在输入框（仅成功路径 clear），用户可直接重试。MLS设备不在导入时
 /// 登记；普通认证复用已有MLS身份，实际业务确认未登记时才进入获准登记，不增加页面授权流程。
 class ImportWalletPage extends StatefulWidget {
-  const ImportWalletPage({super.key});
+  const ImportWalletPage({super.key, this.importWallet});
+
+  /// 业务操作边界；缺省使用SDK实际导入并保留其取消与终态。
+  final CitizenSdkOperation<CitizenWalletProfile> Function({
+    required String mnemonic,
+    String password,
+  })?
+  importWallet;
 
   @override
   State<ImportWalletPage> createState() => _ImportWalletPageState();
@@ -50,10 +57,11 @@ class _ImportWalletPageState extends State<ImportWalletPage> {
         return;
       }
       final mnemonic = _mnemonicController.text;
-      final operation = context.read<CitizenSdk>().wallet.importWallet(
-        mnemonic: mnemonic,
-        password: password,
-      );
+      final operation =
+          (widget.importWallet ?? context.read<CitizenSdk>().importWallet)(
+            mnemonic: mnemonic,
+            password: password,
+          );
       _operation = operation;
       await operation.result;
       if (!mounted) return;
@@ -98,7 +106,13 @@ class _ImportWalletPageState extends State<ImportWalletPage> {
   @override
   void dispose() {
     final operation = _operation;
-    if (operation != null) unawaited(operation.cancel().then<void>((_) {}, onError: (Object _, StackTrace _) {}));
+    if (operation != null)
+      unawaited(
+        operation.cancel().then<void>(
+          (_) {},
+          onError: (Object _, StackTrace _) {},
+        ),
+      );
     unawaited(ScreenshotGuard.disable());
     _mnemonicController.clear();
     _passwordController.clear();
@@ -119,10 +133,7 @@ class _ImportWalletPageState extends State<ImportWalletPage> {
           WalletPasswordField(controller: _passwordController),
           SizedBox(height: AppLayout.scaled(context, 12)),
           if (_error != null)
-            Text(
-              _error!,
-              style: const TextStyle(color: AppTheme.danger),
-            ),
+            Text(_error!, style: const TextStyle(color: AppTheme.danger)),
           FilledButton(
             onPressed: _isImporting ? null : _import,
             child: Text(_isImporting ? '导入中...' : '确认导入'),

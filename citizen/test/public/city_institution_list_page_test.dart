@@ -1,4 +1,4 @@
-import 'package:citizen_storage/app_isar.dart' as app_store show Entity;
+import 'package:citizen_storage/user_isar.dart' as app_store show Entity;
 
 import 'dart:async';
 

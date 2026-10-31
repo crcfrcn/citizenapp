@@ -20,18 +20,38 @@ import 'package:citizen_transaction/topup/solana.dart';
 import 'package:citizen_transaction/topup/store.dart';
 import 'package:citizen_transaction/topup/wallet_link_dispatcher.dart';
 
+/// 新付款与原单恢复共用这一底部弹窗，不再压入独立的“连接钱包支付”整页。
+Future<TopupRecord?> showTopupSheet(
+  BuildContext context, {
+  required Widget child,
+}) => showModalBottomSheet<TopupRecord>(
+  context: context,
+  isScrollControlled: true,
+  useSafeArea: true,
+  showDragHandle: true,
+  backgroundColor: AppTheme.surfaceCard,
+  clipBehavior: Clip.antiAlias,
+  shape: const RoundedRectangleBorder(
+    borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+  ),
+  builder: (context) => SizedBox(
+    height: min(MediaQuery.sizeOf(context).height * .72, 440.0),
+    child: child,
+  ),
+);
+
 /// 只展示本产品固定阶段与错误类别；未知输入不回显，异常正文与钱包资料不进入UI。
 String topupFailure(Object? stage, Object? code) {
-  if (code == 'user_rejected') return '你已拒绝本次钱包请求，可返回原充值页面';
+  if (code == 'user_rejected') return '你已拒绝本次钱包请求，可关闭后重新选择';
   if (code == 'user_closed' || code == 'cancelled') {
-    return '本次钱包操作已取消，可返回原充值页面';
+    return '本次钱包操作已取消，可关闭后重新选择';
   }
-  if (code == 'wallet_open_failed') return '未能打开所选钱包，可返回原充值页面';
+  if (code == 'wallet_open_failed') return '未能打开所选钱包，可关闭后重新选择';
   if (code == 'wallet_mismatch') return '钱包链接与所选钱包不一致，本次操作已停止';
   if (code == 'connect_timeout') return '钱包连接等待超时，未发起付款';
   if (code == 'request_timeout') return '钱包请求等待超时，请返回核实原订单';
   return switch (stage) {
-    'connection' => '钱包连接未完成，可返回原充值页面',
+    'connection' => '钱包连接未完成，可关闭后重新选择',
     'account' => '钱包账户或所选网络未通过核验，未发起付款',
     'intent' => '充值订单准备未完成，未发起付款',
     'authorization' => '付款授权未完成，未发起转账',
@@ -99,7 +119,7 @@ class TopupDocument {
       value['ready'] is bool;
 }
 
-/// 保留原连接钱包页；App只接收签名和公开交易，公民币由服务端转账。
+/// 钱包选择弹窗；App只接收签名和公开交易，公民币由服务端转账。
 class TopupWebviewPage extends StatefulWidget {
   const TopupWebviewPage({
     super.key,
@@ -153,9 +173,11 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
     final document = _document;
     if (document != null && document.started) {
       // 离页即结束原文档的连接和等待；同次JS核对来源/nonce，旧回调不能带到下一钱包。
-      unawaited(_controller.runJavaScript(
-        'if (${document.check}) CitizenTopup.cancel()',
-      ).catchError((Object _) {}));
+      unawaited(
+        _controller
+            .runJavaScript('if (${document.check}) CitizenTopup.cancel()')
+            .catchError((Object _) {}),
+      );
     }
     super.dispose();
   }
@@ -163,6 +185,7 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
   Future<void> _loadDocument() async {
     try {
       // 就绪消息可能紧随内存文档执行；必须先等待系统模式、通道及委托实际注册完成。
+      await _controller.setBackgroundColor(AppTheme.surfaceCard);
       await _controller.setJavaScriptMode(JavaScriptMode.unrestricted);
       await _controller.addJavaScriptChannel(
         'TopupBridge',
@@ -201,7 +224,7 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
         baseUrl: TopupDocument.baseUrl,
       );
     } on Object {
-      if (_active) setState(() => _error = '连接页面初始化失败，可返回原充值页面');
+      if (_active) setState(() => _error = '连接页面初始化失败，可关闭后重新选择');
     }
   }
 
@@ -246,7 +269,7 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
         return;
       }
     } on Object {
-      if (_active) setState(() => _error = '连接页面初始化失败，可返回原充值页面');
+      if (_active) setState(() => _error = '连接页面初始化失败，可关闭后重新选择');
       return;
     }
     if (widget.replay) {
@@ -332,7 +355,7 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
         return;
       }
       if (data['ready'] != true) {
-        setState(() => _error = '连接页面初始化失败，可返回原充值页面');
+        setState(() => _error = '连接页面初始化失败，可关闭后重新选择');
         return;
       }
       await _start();
@@ -415,7 +438,7 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
           throw const FormatException('请先核实原付款订单');
         }
         if (!mounted) return;
-        final genesis = await context.read<CitizenSdk>().chain.getGenesisHash();
+        final genesis = await context.read<CitizenSdk>().getGenesisHash();
         if (!_active) return;
         final prepared = await widget.api.preparePayment(
           selection: widget.selection,
@@ -627,27 +650,30 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('连接钱包支付'), centerTitle: true),
-    body: _error == null
+  Widget build(BuildContext context) => ColoredBox(
+    color: AppTheme.surfaceCard,
+    // 拖动、遮罩与系统返回沿原弹窗退出；不再占一行放关闭叉号。
+    child: _error == null
         ? WebViewWidget(controller: _controller)
         : Center(
             child: Padding(
               padding: EdgeInsets.all(AppLayout.scaled(context, 24)),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    _error!,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: AppTheme.danger),
-                  ),
-                  const SizedBox(height: 16),
-                  OutlinedButton(
-                    onPressed: () => Navigator.of(context).pop(_record),
-                    child: const Text('返回原订单'),
-                  ),
-                ],
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _error!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: AppTheme.danger),
+                    ),
+                    const SizedBox(height: 16),
+                    OutlinedButton(
+                      onPressed: () => Navigator.of(context).pop(_record),
+                      child: const Text('返回原订单'),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

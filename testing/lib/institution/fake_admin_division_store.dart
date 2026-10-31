@@ -1,4 +1,4 @@
-import 'package:citizen_storage/app_isar.dart' as app_store show Region;
+import 'package:citizen_storage/user_isar.dart' as app_store show Region;
 import 'package:citizen_citizen/public/admin_division_dto.dart';
 import 'package:citizen_citizen/public/admin_division_store.dart';
 

@@ -1,4 +1,4 @@
-import 'package:citizen_storage/wallet_isar.dart' as wallet_store show Scan;
+import 'package:citizen_storage/user_isar.dart' as wallet_store show Scan;
 import 'package:citizen_storage/social_isar.dart'
     as social_store
     show PostCursor;
@@ -10,7 +10,7 @@ import 'package:isar_community/isar.dart';
 
 import 'package:citizen_storage/social_isar.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart';
-import 'package:citizen_storage/wallet_isar.dart' hide Group;
+import 'package:citizen_storage/user_isar.dart' hide Group;
 
 import 'package:citizen_testing/isar_test_env.dart';
 
@@ -18,10 +18,10 @@ void main() {
   useIsolatedIsar();
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('SocialIsar 队列挂起时 WalletIsar 与 ChatIsar 读写仍独立完成', () async {
+  test('SocialIsar 队列挂起时 UserIsar 与 ChatIsar 读写仍独立完成', () async {
     await Future.wait<void>(<Future<void>>[
       SocialIsar.instance.db().then<void>((_) {}),
-      WalletIsar.instance.db().then<void>((_) {}),
+      UserIsar.instance.db().then<void>((_) {}),
       ChatIsar.instance.db().then<void>((_) {}),
     ]);
 
@@ -34,7 +34,7 @@ void main() {
     await entered.future.timeout(const Duration(seconds: 1));
 
     try {
-      await WalletIsar.instance
+      await UserIsar.instance
           .writeTxn<void>((isar) async {
             await isar.collection<wallet_store.Scan>().put(
               wallet_store.Scan()
@@ -58,7 +58,7 @@ void main() {
           })
           .timeout(const Duration(seconds: 1));
 
-      final walletValue = await WalletIsar.instance
+      final walletValue = await UserIsar.instance
           .read<String?>((isar) async {
             return (await isar.collection<wallet_store.Scan>().get(0))
                 ?.walletHash;
@@ -76,7 +76,7 @@ void main() {
       expect(walletValue, 'wallet-ok');
       expect(chatValue, '隔离测试联系人');
       expect(SocialIsar.instance.hasActiveOperation, isTrue);
-      expect(WalletIsar.instance.hasActiveOperation, isFalse);
+      expect(UserIsar.instance.hasActiveOperation, isFalse);
       expect(ChatIsar.instance.hasActiveOperation, isFalse);
     } finally {
       if (!release.isCompleted) release.complete();
@@ -128,7 +128,7 @@ void main() {
         checkpoint,
       );
     });
-    await WalletIsar.instance.writeTxn<void>((isar) async {
+    await UserIsar.instance.writeTxn<void>((isar) async {
       await isar.collection<wallet_store.Scan>().put(
         wallet_store.Scan()
           ..rowId = 0
@@ -150,7 +150,7 @@ void main() {
     await SocialIsar.instance.closeAndDeleteFromDisk();
     await expectLater(SocialIsar.instance.db(), throwsA(isA<StateError>()));
 
-    final wallet = await WalletIsar.instance.read<String?>((isar) async {
+    final wallet = await UserIsar.instance.read<String?>((isar) async {
       return (await isar.collection<wallet_store.Scan>().get(0))?.walletHash;
     });
     final chat = await ChatIsar.instance.read<String?>((isar) async {

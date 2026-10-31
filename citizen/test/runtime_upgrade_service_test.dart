@@ -67,7 +67,7 @@ TestCitizenTransactionFlow flow({
   ..consume = ((_, _) async => result ?? completed())
   ..cancel = ((_) async {});
 
-class VoteChain extends TestCitizenChain {
+class VoteChain extends TestChainReads {
   int heads = 0;
   Uint8List? events = voteEvents(joint: true);
   final reads = <CitizenBlockRef>[];
@@ -138,8 +138,20 @@ void main() {
   for (final cold in [true, false]) {
     test('联合投票冷热签确认绑定执行块，不重新选链头：$cold', () async {
       final tx = flow(cold: cold), chain = VoteChain();
-      final result = await RuntimeUpgradeService(chain: chain, transactions: tx)
-          .submitJointVote(
+      final result =
+          await RuntimeUpgradeService(
+            getFinalizedHead: chain.getFinalizedHead,
+            getStorage: chain.getStorage,
+            getStorageBatch: chain.getStorageBatch,
+            prepareTransaction: tx.prepareTransaction,
+            executePreparedTransaction: tx.executePreparedTransaction,
+            cancelPreparedTransactionExecution:
+                tx.cancelPreparedTransactionExecution,
+            consumePreparedTransactionQrResponse:
+                tx.consumePreparedTransactionQrResponse,
+            getSystemEvents: chain.getSystemEvents,
+            getRuntimeContext: chain.getRuntimeContext,
+          ).submitJointVote(
             proposalId: 7,
             actorCidNumber: 'CID-A',
             voterRoleCode: 'DIRECTOR',
@@ -179,10 +191,22 @@ void main() {
                 twice: bad == 'twice',
               );
       await expectLater(
-        RuntimeUpgradeService(
-          chain: chain,
-          transactions: flow(),
-        ).submitJointVote(
+        (() {
+          final reads0 = flow();
+          return RuntimeUpgradeService(
+            getFinalizedHead: chain.getFinalizedHead,
+            getStorage: chain.getStorage,
+            getStorageBatch: chain.getStorageBatch,
+            prepareTransaction: reads0.prepareTransaction,
+            executePreparedTransaction: reads0.executePreparedTransaction,
+            cancelPreparedTransactionExecution:
+                reads0.cancelPreparedTransactionExecution,
+            consumePreparedTransactionQrResponse:
+                reads0.consumePreparedTransactionQrResponse,
+            getSystemEvents: chain.getSystemEvents,
+            getRuntimeContext: chain.getRuntimeContext,
+          );
+        })().submitJointVote(
           proposalId: 7,
           actorCidNumber: 'CID-A',
           voterRoleCode: 'DIRECTOR',
@@ -201,10 +225,22 @@ void main() {
         tx.execute = (_) async => throw StateError('合成未知结果');
       }
       await expectLater(
-        RuntimeUpgradeService(
-          chain: VoteChain(),
-          transactions: tx,
-        ).submitJointVote(
+        (() {
+          final reads0 = VoteChain();
+          return RuntimeUpgradeService(
+            getFinalizedHead: reads0.getFinalizedHead,
+            getStorage: reads0.getStorage,
+            getStorageBatch: reads0.getStorageBatch,
+            prepareTransaction: tx.prepareTransaction,
+            executePreparedTransaction: tx.executePreparedTransaction,
+            cancelPreparedTransactionExecution:
+                tx.cancelPreparedTransactionExecution,
+            consumePreparedTransactionQrResponse:
+                tx.consumePreparedTransactionQrResponse,
+            getSystemEvents: reads0.getSystemEvents,
+            getRuntimeContext: reads0.getRuntimeContext,
+          );
+        })().submitJointVote(
           proposalId: 7,
           actorCidNumber: 'CID-A',
           voterRoleCode: fail == 'role' ? '' : 'DIRECTOR',
@@ -220,10 +256,23 @@ void main() {
   });
   group('RuntimeUpgradeService 协议升级详情解码', () {
     test('解码带 rt-upg 前缀的协议升级提案摘要', () {
-      final service = RuntimeUpgradeService(
-        chain: TestCitizenChain(),
-        transactions: TestCitizenTransactions(),
-      );
+      final service = (() {
+        final reads0 = TestChainReads();
+        final reads1 = TestTransactionCalls();
+        return RuntimeUpgradeService(
+          getFinalizedHead: reads0.getFinalizedHead,
+          getStorage: reads0.getStorage,
+          getStorageBatch: reads0.getStorageBatch,
+          prepareTransaction: reads1.prepareTransaction,
+          executePreparedTransaction: reads1.executePreparedTransaction,
+          cancelPreparedTransactionExecution:
+              reads1.cancelPreparedTransactionExecution,
+          consumePreparedTransactionQrResponse:
+              reads1.consumePreparedTransactionQrResponse,
+          getSystemEvents: reads0.getSystemEvents,
+          getRuntimeContext: reads0.getRuntimeContext,
+        );
+      })();
       final actorCid = Uint8List.fromList(
         utf8.encode('ZS001-NRC0G-944805165-2026'),
       );
@@ -257,10 +306,23 @@ void main() {
     });
 
     test('非 rt-upg 提案摘要不按协议升级解码', () {
-      final service = RuntimeUpgradeService(
-        chain: TestCitizenChain(),
-        transactions: TestCitizenTransactions(),
-      );
+      final service = (() {
+        final reads0 = TestChainReads();
+        final reads1 = TestTransactionCalls();
+        return RuntimeUpgradeService(
+          getFinalizedHead: reads0.getFinalizedHead,
+          getStorage: reads0.getStorage,
+          getStorageBatch: reads0.getStorageBatch,
+          prepareTransaction: reads1.prepareTransaction,
+          executePreparedTransaction: reads1.executePreparedTransaction,
+          cancelPreparedTransactionExecution:
+              reads1.cancelPreparedTransactionExecution,
+          consumePreparedTransactionQrResponse:
+              reads1.consumePreparedTransactionQrResponse,
+          getSystemEvents: reads0.getSystemEvents,
+          getRuntimeContext: reads0.getRuntimeContext,
+        );
+      })();
       final proposer = Uint8List.fromList(List<int>.filled(32, 1));
       final actorCid = Uint8List.fromList(
         utf8.encode('ZS001-NRC0G-944805165-2026'),
@@ -286,10 +348,23 @@ void main() {
     });
 
     test('带旧业务状态字段的协议升级摘要不再兼容', () {
-      final service = RuntimeUpgradeService(
-        chain: TestCitizenChain(),
-        transactions: TestCitizenTransactions(),
-      );
+      final service = (() {
+        final reads0 = TestChainReads();
+        final reads1 = TestTransactionCalls();
+        return RuntimeUpgradeService(
+          getFinalizedHead: reads0.getFinalizedHead,
+          getStorage: reads0.getStorage,
+          getStorageBatch: reads0.getStorageBatch,
+          prepareTransaction: reads1.prepareTransaction,
+          executePreparedTransaction: reads1.executePreparedTransaction,
+          cancelPreparedTransactionExecution:
+              reads1.cancelPreparedTransactionExecution,
+          consumePreparedTransactionQrResponse:
+              reads1.consumePreparedTransactionQrResponse,
+          getSystemEvents: reads0.getSystemEvents,
+          getRuntimeContext: reads0.getRuntimeContext,
+        );
+      })();
       final proposer = Uint8List.fromList(List<int>.generate(32, (i) => i));
       final actorCid = Uint8List.fromList(
         utf8.encode('ZS001-NRC0G-944805165-2026'),

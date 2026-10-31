@@ -78,7 +78,7 @@ mixin TxAutoRefreshMixin<T extends StatefulWidget> on State<T> {
 
   /// 停止监听并释放定时器；返回值在原生 watcher 真正释放后完成。
   ///
-  /// Flutter 的 `dispose` 无法 `await`，可直接发起本方法；WalletIsar 全量擦除会通过
+  /// Flutter 的 `dispose` 无法 `await`，可直接发起本方法；UserIsar 全量擦除会通过
   /// 已登记的 lease 再次取得同一个取消 Future 并确定性等待。
   Future<void> stopTxAutoRefresh() {
     _txAutoDebounce?.cancel();

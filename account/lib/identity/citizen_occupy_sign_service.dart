@@ -53,14 +53,15 @@ class CitizenOccupySignPrep {
 /// 完整 Runtime 授权模板。服务严格解码、核对外层 `e == 内层 expires_at`，再把用户选择
 /// 的本机账户原位填入零槽签名；响应 `b.u` 用该账户带回。
 class CitizenOccupySignService {
-  CitizenOccupySignService({required CitizenQr qr}) : _qr = qr;
-  final CitizenQr _qr;
+  CitizenOccupySignService({required CitizenSdk qr}) : _qr = qr;
+  final CitizenSdk _qr;
 
   /// [selectedAccount] = 用户自选或账户卡扫码入口锁定的绑定账户(占即绑一账户)。
   Future<CitizenOccupySignPrep> prepare(
     String raw,
     CitizenWalletStateAccount selectedAccount, [
-    CitizenSdkWallet? wallet,
+    CitizenSdk? wallet,
+    CitizenSdkOperation<CitizenWalletState> Function()? getWalletState,
   ]) async {
     final CitizenQrDocument request;
     try {
@@ -101,10 +102,11 @@ class CitizenOccupySignService {
     final materializedPayload = authorization.materializedPayload!;
     // 只有当前账户私钥在本机可用时才附加旧账户签名；缺失时不伪造、不回退。
     final currentAccount =
-        authorization.currentAccountId == null || wallet == null
+        authorization.currentAccountId == null ||
+            (wallet == null && getWalletState == null)
         ? null
         : _findAccount(
-            await wallet.getState().result,
+            await (getWalletState ?? wallet!.getWalletState)().result,
             authorization.currentAccountId!,
           );
     return CitizenOccupySignPrep(
@@ -124,10 +126,11 @@ class CitizenOccupySignService {
 
   Future<String> sign(
     CitizenOccupySignPrep prep,
-    CitizenSigning signing,
-    BuildContext? context,
-  ) async {
-    final bytes = await CitizenSigning.encodePayload(
+    CitizenSdk? signing,
+    BuildContext? context, {
+    PayloadSigner? payloadSigner,
+  }) async {
+    final bytes = await CitizenSdk.encodePayload(
       CitizenSigningPayload.message(
         opTag: prep.isOccupy ? kOpSignCidOccupy : kOpSignCidAdminRebind,
         scalePayload: prep.materializedPayload,
@@ -136,13 +139,15 @@ class CitizenOccupySignService {
     if (context != null && !context.mounted) {
       throw const CitizenOccupySignException('当前签名页面已经关闭');
     }
-    final signature = await signCitizenPayload(
-      signing: signing,
-      context: context,
-      accountId: prep.account.accountId,
-      payload: bytes,
-      action: prep.request.action!,
-    );
+    final signature =
+        await (payloadSigner ??
+            ((id, payload, action, ctx) => signCitizenPayload(
+              signing: signing!,
+              context: ctx,
+              accountId: id,
+              payload: payload,
+              action: action,
+            )))(prep.account.accountId, bytes, prep.request.action!, context);
     Uint8List? currentAccountSignature;
     final currentAccount = prep.currentAccount;
     if (!prep.isOccupy && currentAccount != null) {
@@ -150,7 +155,7 @@ class CitizenOccupySignService {
         throw const CitizenOccupySignException('当前签名页面已经关闭');
       }
       // 同一次换绑扫码内，当前账户和新账户共同绑定同一份 materialized payload。
-      final currentAccountDigest = await CitizenSigning.encodePayload(
+      final currentAccountDigest = await CitizenSdk.encodePayload(
         CitizenSigningPayload.message(
           opTag: kOpSignCidRebind,
           scalePayload: prep.materializedPayload,
@@ -159,13 +164,20 @@ class CitizenOccupySignService {
       if (context != null && !context.mounted) {
         throw const CitizenOccupySignException('当前签名页面已经关闭');
       }
-      currentAccountSignature = await signCitizenPayload(
-        signing: signing,
-        context: context,
-        accountId: currentAccount.accountId,
-        payload: currentAccountDigest,
-        action: kOpSignCidRebind,
-      );
+      currentAccountSignature =
+          await (payloadSigner ??
+              ((id, payload, action, ctx) => signCitizenPayload(
+                signing: signing!,
+                context: ctx,
+                accountId: id,
+                payload: payload,
+                action: action,
+              )))(
+            currentAccount.accountId,
+            currentAccountDigest,
+            kOpSignCidRebind,
+            context,
+          );
     }
     return (await _qr.encodeDocument(
       CitizenQrContent.signResponse(

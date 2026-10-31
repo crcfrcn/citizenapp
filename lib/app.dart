@@ -7,6 +7,8 @@ class CitizenApp extends StatefulWidget {
     this.registrationCoordinator,
     this.identityService,
     this.startChain,
+    this.stopSdk,
+    this.closeSdk,
     required this.sdk,
     required this.accountSecurity,
     required this.currentUserContext,
@@ -22,6 +24,10 @@ class CitizenApp extends StatefulWidget {
 
   final MyIdService? identityService;
   final Future<void> Function()? startChain;
+
+  /// 根关闭的动作边界；缺省仍遵守同一SDK停止/检查点及关闭顺序。
+  final Future<void> Function()? stopSdk;
+  final Future<void> Function()? closeSdk;
   final RegistrationCoordinator? registrationCoordinator;
   final CitizenSdk sdk;
   final AccountSecurityService accountSecurity;
@@ -64,7 +70,7 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
       _identityRequested = false;
       try {
         final account =
-            (await widget.sdk.wallet.getState().result).defaultAccount;
+            (await widget.sdk.getWalletState().result).defaultAccount;
         if (_closing) return;
         if (account == null) {
           _identityAccount = null;
@@ -115,7 +121,12 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
     }
     await _chainStartup;
     await _identitySync;
-    await _closeCitizenSdk(widget.sdk, widget.transactionHistory);
+    await _closeCitizenSdk(
+      widget.sdk,
+      widget.transactionHistory,
+      stop: widget.stopSdk,
+      close: widget.closeSdk,
+    );
   }
 
   late final _registrationCoordinator =
@@ -167,14 +178,22 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
         Provider<WalletNavigation>.value(value: walletNavigation),
         Provider<GovernanceNavigation>.value(value: governanceNavigation),
         Provider<TransactionNavigation>.value(value: transactionNavigation),
-        Provider<AccountNavigation>.value(value: AccountNavigation(
-          openDirectChat: openDirectChat,
-          openTransfer: (context, {required toAddress, required cidNumber}) async {
-            await Navigator.of(context).push<void>(MaterialPageRoute<void>(
-              builder: (_) => OnchainPaymentPage(initialToAddress: toAddress, initialRecipientCid: cidNumber),
-            ));
-          },
-        )),
+        Provider<AccountNavigation>.value(
+          value: AccountNavigation(
+            openDirectChat: openDirectChat,
+            openTransfer:
+                (context, {required toAddress, required cidNumber}) async {
+                  await Navigator.of(context).push<void>(
+                    MaterialPageRoute<void>(
+                      builder: (_) => OnchainPaymentPage(
+                        initialToAddress: toAddress,
+                        initialRecipientCid: cidNumber,
+                      ),
+                    ),
+                  );
+                },
+          ),
+        ),
         Provider<ScanDispatch>.value(value: const AppScanDispatch()),
         Provider<RegistrationCoordinator>.value(
           value: _registrationCoordinator,
@@ -218,8 +237,10 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
 /// 本函数内仍保证 stop 与 close 顺序，不用 close 绕过节点持久化。
 Future<void> _closeCitizenSdk(
   CitizenSdk sdk,
-  WalletTransactionHistoryService transactionHistory,
-) async {
+  WalletTransactionHistoryService transactionHistory, {
+  Future<void> Function()? stop,
+  Future<void> Function()? close,
+}) async {
   try {
     await transactionHistory.stop();
   } on Object catch (error, stackTrace) {
@@ -228,14 +249,14 @@ Future<void> _closeCitizenSdk(
   }
   try {
     if (sdk.lifecycle == CitizenSdkLifecycle.running) {
-      await sdk.stop();
+      await (stop ?? sdk.stop)();
     }
   } on Object catch (error, stackTrace) {
     AppLog.d('[CitizenSDK] 轻节点停止失败: $error\n$stackTrace');
     return;
   }
   try {
-    await sdk.close();
+    await (close ?? sdk.close)();
   } on Object catch (error, stackTrace) {
     AppLog.d('[CitizenSDK] session 关闭失败: $error\n$stackTrace');
   }

@@ -101,7 +101,7 @@ class _PersonalAdminListPageState extends State<PersonalAdminListPage> {
     super.didChangeDependencies();
     if (_dependenciesReady) return;
     _proposalService = ProposalQueryService(
-      chain: context.read<CitizenSdk>().chain,
+      chain: context.read<CitizenSdk>(),
     );
     _dependenciesReady = true;
     _load();

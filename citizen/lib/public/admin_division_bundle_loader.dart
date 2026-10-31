@@ -4,7 +4,7 @@
 // 生成静态数据包。客户端无服务端,数据靠 assets 包分发;包版本变了就增量刷新——
 // 变的换、删的清、没变的不动,零旧数据残留(只读派生数据,无用户数据)。
 // 数据包结构:
-//   assets/divisions/manifest.json      = { version, provinces:[{code,ver}], ... }
+//   assets/divisions/manifest.json      = { version, province_count, city_count, town_count, provinces:[{code,ver}] }
 //   assets/divisions/provinces.json      = [{code,name}]
 //   assets/divisions/cities/<pcode>.json = [{code,name}]
 //   assets/divisions/towns/<pcode>.json  = [{city_code,code,name}]
@@ -39,111 +39,73 @@ class AdminDivisionBundleLoader {
 
   /// 版本驱动增量 reconcile:包版本变了就增量刷新,变的换、删的清、没变的不动。
   ///
-  /// 每次先看省级 ver 表,只 reconcile ver 变了或本地缺游标的省;
+  /// 每次核对清单总数量；不完整时重新对账，完整时只处理版本变化或缺游标的省。
   /// 没变的省连分片都不读。全局 version 只作最终完成标记,不能短路省级检查。
   /// manifest 缺省级版本表时视为无效数据包,直接拒绝写库。
   /// 返回是否发生了写入。
-  Future<bool> ensureSynced() async {
+  Future<bool> ensureSynced() => _sync();
+
+  /// 强制按清单对账；没有提供数据包时保留本地数据。
+  Future<bool> loadFromBundle() => _sync(force: true);
+
+  Future<bool> _sync({bool force = false}) async {
     final manifest = await _readManifest();
-    if (manifest == null) {
-      // 无 manifest:库空才全量兜底(loadFromBundle 内部自判数据包是否存在)。
-      if (await store.divisionCount() > 0) return false;
-      return loadFromBundle();
+    if (manifest == null) return false;
+    final versions = _parseProvinceVersions(manifest['provinces']);
+    if (versions.isEmpty) throw const FormatException('行政区清单缺少省级版本表');
+    final expected =
+        _count(manifest, 'province_count') +
+        _count(manifest, 'city_count') +
+        _count(manifest, 'town_count');
+    if (_count(manifest, 'province_count') != versions.length) {
+      throw const FormatException('行政区省份数量与清单不一致');
     }
-
-    final globalVersion = manifest['version'] as String?;
-    final provinceVers = _parseProvinceVersions(manifest['provinces']);
-
-    // 当前数据包必须提供省级版本表;缺失时不猜测、不回退。
-    if (provinceVers.isEmpty) {
-      return false;
+    final raw = await _required(_provincesPath);
+    final provinces = (jsonDecode(raw) as List)
+        .map((e) => AdminDivisionDto.province(e as Map<String, dynamic>))
+        .toList();
+    final byCode = {for (final p in provinces) p.provinceCode: p};
+    if (byCode.length != provinces.length ||
+        !versions.keys.every(byCode.containsKey)) {
+      throw const FormatException('行政区省级记录不完整');
     }
-
-    final hasData = await store.divisionCount() > 0;
-    final storedProvVers = await versionKv.readProvinceVersions();
-    final nextProvVers = Map<String, String>.of(storedProvVers);
+    final complete = await store.divisionCount() == expected;
+    final stored = await versionKv.readProvinceVersions();
+    final next = Map<String, String>.of(stored);
     var changed = false;
-
-    for (final entry in provinceVers.entries) {
-      final code = entry.key;
-      final ver = entry.value;
-      // 没变的省（ver 相同且本地有数据）不读分片、不碰库。
-      // 行政区 schema 或内置分片结构变更时，必须同步更新对应省版本；
-      // 运行时不扫描、不删除、不重灌所谓旧 schema 数据。
-      if (hasData && storedProvVers[code] == ver) continue;
-
-      final provinceChanged = await _reconcileProvince(code);
-      changed = changed || provinceChanged;
-
-      // 逐省落 ver,中断可续(下次启动从这里继续 reconcile 剩余省)。
-      nextProvVers[code] = ver;
-      await versionKv.writeProvinceVersions(nextProvVers);
+    for (final entry in versions.entries) {
+      if (!force && complete && stored[entry.key] == entry.value) continue;
+      final updated = await _reconcileProvince(byCode[entry.key]!);
+      changed = changed || updated;
+      next[entry.key] = entry.value;
+      await versionKv.writeProvinceVersions(next);
     }
-
-    if (globalVersion != null) {
-      await versionKv.writeGlobalVersion(globalVersion);
+    if (await store.divisionCount() != expected) {
+      throw const FormatException('行政区数量与清单不一致');
     }
+    final version = manifest['version'] as String?;
+    if (version != null) await versionKv.writeGlobalVersion(version);
     return changed;
   }
 
-  /// 强制按数据包 reconcile 字典。无数据包时返回 false。
-  ///
-  /// 首装时逐省 reconcile;只写新增/变更行,并删包内已无的旧键。
-  Future<bool> loadFromBundle() async {
-    final provincesRaw = await _tryLoadString(_provincesPath);
-    if (provincesRaw == null) return false;
-
-    final manifest = await _readManifest();
-    final version = manifest?['version'] as String?;
-    final provinceVers = _parseProvinceVersions(manifest?['provinces']);
-    if (provinceVers.isEmpty) return false;
-
-    final provinceJson = jsonDecode(provincesRaw) as List<dynamic>;
-    final provinces = provinceJson
-        .map((e) => AdminDivisionDto.province(e as Map<String, dynamic>))
-        .where((dto) => provinceVers.containsKey(dto.provinceCode))
-        .toList(growable: false);
-
-    var changed = false;
-    for (final p in provinces) {
-      final provinceChanged = await _reconcileProvince(p.provinceCode);
-      changed = changed || provinceChanged;
-    }
-
-    // 全量灌完落版本游标:同步省级 ver 表 + 全局 version,后续走增量。
-    await versionKv.writeProvinceVersions(provinceVers);
-    if (version != null) {
-      await versionKv.writeGlobalVersion(version);
-    }
-    return changed;
+  static int _count(Map<String, dynamic> manifest, String key) {
+    final n = manifest[key];
+    if (n is! int || n < 0) throw const FormatException('行政区清单计数不合法');
+    return n;
   }
 
   /// reconcile 单省:读该省分片 → 只 upsert 变化行 → 删包里已没有的废键。
-  Future<bool> _reconcileProvince(String provinceCode) async {
-    final newDtos = <AdminDivisionDto>[];
-
-    // 省级:从全量 provinces.json 取该省一条(分片不带省级记录)。
-    final provincesRaw = await _tryLoadString(_provincesPath);
-    if (provincesRaw != null) {
-      final provinceJson = jsonDecode(provincesRaw) as List<dynamic>;
-      for (final e in provinceJson) {
-        final dto = AdminDivisionDto.province(e as Map<String, dynamic>);
-        if (dto.provinceCode == provinceCode) {
-          newDtos.add(dto);
-          break;
-        }
-      }
-    }
-
+  Future<bool> _reconcileProvince(AdminDivisionDto province) async {
+    final provinceCode = province.provinceCode;
+    // 所有必需分片都读取并解析后，才允许对该省做增量写入或删除。
     final shard = await _loadProvinceShards(provinceCode);
-    newDtos
-      ..addAll(shard.cities)
-      ..addAll(shard.towns);
-    if (newDtos.isEmpty) return false;
-
+    final newDtos = [province, ...shard.cities, ...shard.towns];
     final newCodes = {
       for (final d in newDtos) (d.provinceCode, d.cityCode, d.townCode),
     };
+    if (newCodes.length != newDtos.length) {
+      throw const FormatException('行政区分片自然键重复');
+    }
     final oldRows = await store.divisionsOfProvince(provinceCode);
     final oldByCode = {
       for (final e in oldRows) (e.provinceCode, e.cityCode, e.townCode): e,
@@ -167,50 +129,49 @@ class AdminDivisionBundleLoader {
   }
 
   Future<_ProvinceShards> _loadProvinceShards(String provinceCode) async {
-    final cities = <AdminDivisionDto>[];
-    final towns = <AdminDivisionDto>[];
-
-    final citiesRaw = await _tryLoadString('$_dir/cities/$provinceCode.json');
-    if (citiesRaw != null) {
-      cities.addAll(
-        (jsonDecode(citiesRaw) as List<dynamic>).map(
+    final citiesRaw = await _required('$_dir/cities/$provinceCode.json');
+    final townsRaw = await _required('$_dir/towns/$provinceCode.json');
+    final cities = (jsonDecode(citiesRaw) as List)
+        .map(
           (e) => AdminDivisionDto.city(provinceCode, e as Map<String, dynamic>),
-        ),
-      );
-    }
-
-    final townsRaw = await _tryLoadString('$_dir/towns/$provinceCode.json');
-    if (townsRaw != null) {
-      towns.addAll(
-        (jsonDecode(townsRaw) as List<dynamic>).map(
+        )
+        .toList();
+    final towns = (jsonDecode(townsRaw) as List)
+        .map(
           (e) => AdminDivisionDto.town(provinceCode, e as Map<String, dynamic>),
-        ),
-      );
-    }
+        )
+        .toList();
     return _ProvinceShards(cities: cities, towns: towns);
+  }
+
+  Future<String> _required(String path) async {
+    final raw = await _tryLoadString(path);
+    if (raw == null) throw const FormatException('行政区必需分片不可读取');
+    return raw;
   }
 
   Future<Map<String, dynamic>?> _readManifest() async {
     final manifestRaw = await _tryLoadString(_manifestPath);
     if (manifestRaw == null) return null;
-    try {
-      return jsonDecode(manifestRaw) as Map<String, dynamic>;
-    } on FormatException {
-      return null;
-    }
+    return jsonDecode(manifestRaw) as Map<String, dynamic>;
   }
 
   /// 解析当前 manifest `provinces:[{code,ver}]` → `{code: ver}`。
   static Map<String, String> _parseProvinceVersions(Object? raw) {
-    if (raw is! List) return <String, String>{};
+    if (raw is! List) throw const FormatException('行政区省级版本表不合法');
     final out = <String, String>{};
     for (final e in raw) {
-      if (e is! Map) continue;
+      if (e is! Map) throw const FormatException('行政区省条目不合法');
       final code = e['code']?.toString();
       final ver = e['ver']?.toString();
-      if (code != null && code.isNotEmpty && ver != null) {
-        out[code] = ver;
+      if (code == null ||
+          code.isEmpty ||
+          ver == null ||
+          ver.isEmpty ||
+          out.containsKey(code)) {
+        throw const FormatException('行政区省级版本不合法');
       }
+      out[code] = ver;
     }
     return out;
   }
@@ -219,7 +180,7 @@ class AdminDivisionBundleLoader {
     try {
       return await bundle.loadString(path);
     } on FlutterError {
-      // 资源不存在(rootBundle 抛 FlutterError)——返回 null 走空,不崩。
+      // 缺失或读取失败由调用方区分可选清单与必需分片；必需分片必须拒绝同步。
       return null;
     } on Exception {
       return null;

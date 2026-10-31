@@ -7,7 +7,7 @@ import 'package:citizen_citizen/proposal/proposal_query_service.dart';
 /// 主体编码、存储键和 SCALE 解码统一委托给 [ProposalQueryService]，
 /// 本类型只保留入口页面使用的限制语义。
 class ProposalLimitService {
-  ProposalLimitService({required CitizenChain chain})
+  ProposalLimitService({required CitizenSdk chain})
       : _queryService = ProposalQueryService(chain: chain);
 
   final ProposalQueryService _queryService;

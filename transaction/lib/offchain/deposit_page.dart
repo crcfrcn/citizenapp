@@ -126,7 +126,7 @@ class _DepositPageState extends State<DepositPage> {
         throw Exception('账户公钥必须是 32 字节');
       }
       final sdk = context.read<CitizenSdk>();
-      final chain = OnchainClearingBankChain(transactions: sdk.transactions);
+      final chain = OnchainClearingBankChain(transactions: sdk);
       final result = await chain.deposit(
         signerPublicKey: Uint8List.fromList(publicKeyBytes),
         amountFen: amountFen,

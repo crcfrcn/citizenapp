@@ -10,7 +10,7 @@ import 'package:citizen_citizen/administrators/admin_account.dart';
 
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 
-class FakeChain extends TestCitizenChain {
+class FakeChain extends TestChainReads {
   final Map<String, Uint8List?> responses = {};
   final List<String> requestedKeys = [];
 
@@ -183,10 +183,22 @@ void main() {
     });
 
     test('decodes current PersonalManage create ProposalData', () {
-      final service = PersonalManageService(
-        chain: TestCitizenChain(),
-        transactions: TestCitizenTransactions(),
-      );
+      final service = (() {
+        final reads0 = TestChainReads();
+        final reads1 = TestTransactionCalls();
+        return PersonalManageService(
+          getSystemEvents: reads0.getSystemEvents,
+          getFinalizedHead: reads0.getFinalizedHead,
+          getStorage: reads0.getStorage,
+          getStorageBatch: reads0.getStorageBatch,
+          prepareTransaction: reads1.prepareTransaction,
+          executePreparedTransaction: reads1.executePreparedTransaction,
+          cancelPreparedTransactionExecution:
+              reads1.cancelPreparedTransactionExecution,
+          consumePreparedTransactionQrResponse:
+              reads1.consumePreparedTransactionQrResponse,
+        );
+      })();
       final inner = <int>[
         ...utf8.encode('per-mgmt'),
         0x00,
@@ -209,10 +221,21 @@ void main() {
 
     test('fetchPersonalAccount reads PersonalManage current storage', () async {
       final rpc = FakeChain();
-      final service = PersonalManageService(
-        chain: rpc,
-        transactions: TestCitizenTransactions(),
-      );
+      final service = (() {
+        final reads0 = TestTransactionCalls();
+        return PersonalManageService(
+          getSystemEvents: rpc.getSystemEvents,
+          getFinalizedHead: rpc.getFinalizedHead,
+          getStorage: rpc.getStorage,
+          getStorageBatch: rpc.getStorageBatch,
+          prepareTransaction: reads0.prepareTransaction,
+          executePreparedTransaction: reads0.executePreparedTransaction,
+          cancelPreparedTransactionExecution:
+              reads0.cancelPreparedTransactionExecution,
+          consumePreparedTransactionQrResponse:
+              reads0.consumePreparedTransactionQrResponse,
+        );
+      })();
       final accountId = '0x${'22' * 32}';
       final personalKey =
           '0x${hexOf(PersonalManageStorageCodec.personalAccountsKey(accountId))}';
@@ -241,10 +264,21 @@ void main() {
 
     test('fetchPersonalAccountsBatch reads accounts in staged storage batches', () async {
       final rpc = FakeChain();
-      final service = PersonalManageService(
-        chain: rpc,
-        transactions: TestCitizenTransactions(),
-      );
+      final service = (() {
+        final reads0 = TestTransactionCalls();
+        return PersonalManageService(
+          getSystemEvents: rpc.getSystemEvents,
+          getFinalizedHead: rpc.getFinalizedHead,
+          getStorage: rpc.getStorage,
+          getStorageBatch: rpc.getStorageBatch,
+          prepareTransaction: reads0.prepareTransaction,
+          executePreparedTransaction: reads0.executePreparedTransaction,
+          cancelPreparedTransactionExecution:
+              reads0.cancelPreparedTransactionExecution,
+          consumePreparedTransactionQrResponse:
+              reads0.consumePreparedTransactionQrResponse,
+        );
+      })();
       final firstAccountId = '0x${'22' * 32}';
       final secondAccountId = '0x${'33' * 32}';
       String personalKey(String accountId) =>

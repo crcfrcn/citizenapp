@@ -1,5 +1,5 @@
 import 'package:citizen_transaction/personal/personal_local_store.dart';
-import 'package:citizen_storage/wallet_isar.dart'
+import 'package:citizen_storage/user_isar.dart'
     as wallet_store
     show Account;
 // 个人多签反向索引发现:后处理(ADR-018 §九)。
@@ -13,7 +13,7 @@ import 'package:isar_community/isar.dart';
 import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_citizen/administrators/admin_account_storage_codec.dart';
 import 'package:citizen_citizen/administrators/admin_accounts_scan_service.dart';
-import 'package:citizen_storage/wallet_isar.dart' hide Group;
+import 'package:citizen_storage/user_isar.dart' hide Group;
 
 import 'package:citizen_transaction/personal/personal_manage_service.dart';
 
@@ -125,7 +125,7 @@ class PersonalManageDiscoveryService {
     final normalizedCreatorAccountId = _requireAccountId(creatorAccount);
     _requireAccountId(accountId);
 
-    return WalletIsar.instance.writeTxn((isar) async {
+    return UserIsar.instance.writeTxn((isar) async {
       final exists = await isar
           .collection<wallet_store.Account>()
           .filter()
@@ -163,7 +163,7 @@ class PersonalManageDiscoveryService {
 
   Future<int> _reverseValidateAndDelete(Set<String> scannedAccountIds) async {
     var closed = 0;
-    await WalletIsar.instance.writeTxn((isar) async {
+    await UserIsar.instance.writeTxn((isar) async {
       final stalePersonals = await isar
           .collection<wallet_store.Account>()
           .filter()

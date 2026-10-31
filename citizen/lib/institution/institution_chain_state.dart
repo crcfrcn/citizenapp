@@ -52,8 +52,8 @@ abstract interface class InstitutionChainState {
 /// 生产实现:复用既有链读基础设施。链读需联网,真机验证。
 class LiveInstitutionChainState implements InstitutionChainState {
   LiveInstitutionChainState({
-    required CitizenChain chain,
-    required CitizenTransactions transactions,
+    required CitizenSdk chain,
+    required CitizenSdk transactions,
     InstitutionAdminService? adminService,
     MultisigTransferProposalFeed? feed,
   }) : _chain = chain,
@@ -67,7 +67,7 @@ class LiveInstitutionChainState implements InstitutionChainState {
              ),
            );
 
-  final CitizenChain _chain;
+  final CitizenSdk _chain;
   final InstitutionAdminService _adminService;
   final MultisigTransferProposalFeed _feed;
 

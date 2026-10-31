@@ -95,7 +95,7 @@ class _SweepToMainPageState extends State<SweepToMainPage> {
     if (forceRefresh && mounted) setState(() => _loadingBalance = true);
     try {
       final snapshot = await AccountBalanceSnapshotStore.forChain(
-        context.read<CitizenSdk>().chain,
+        context.read<CitizenSdk>(),
       ).getAccountBalance(_feeAccountId, forceRefresh: forceRefresh);
       if (!mounted) return false;
       setState(() {
@@ -177,7 +177,7 @@ class _SweepToMainPageState extends State<SweepToMainPage> {
           additionalDebitYuan:
               amountYuan +
               OnchainTransferCall.estimateTransferFeeYuan(amountYuan),
-          chain: sdk.chain,
+          chain: sdk,
         );
     if (balanceBlockedReason != null) {
       if (!mounted) return;
@@ -192,8 +192,8 @@ class _SweepToMainPageState extends State<SweepToMainPage> {
       final signerPublicKey = Uint8List.fromList(_hexToBytes(wallet.accountId));
 
       final service = MultisigTransferService(
-        chain: sdk.chain,
-        transactions: sdk.transactions,
+        chain: sdk,
+        transactions: sdk,
       );
       // 提案类交易等真正入块并核对事件后才返回，proposal_id 来自
       // 链上 SweepToMainProposed 事件，是业务成功的唯一凭据。

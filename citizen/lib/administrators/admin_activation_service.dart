@@ -1,4 +1,4 @@
-import 'package:citizen_storage/wallet_isar.dart' as wallet_store show Admin;
+import 'package:citizen_storage/user_isar.dart' as wallet_store show Admin;
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:convert';
@@ -9,7 +9,7 @@ import 'package:citizen_citizen/administrators/admin_account.dart';
 import 'package:citizen_citizen/administrators/institution_admin_service.dart';
 import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_citizen/institution/institution_code_label.dart';
-import 'package:citizen_storage/wallet_isar.dart' hide Group;
+import 'package:citizen_storage/user_isar.dart' hide Group;
 
 /// 管理员激活记录。
 class ActivatedAdmin {
@@ -73,7 +73,7 @@ class ActivationService {
   // 读取
   /// 加载所有激活记录。
   Future<List<ActivatedAdmin>> loadAll() async {
-    final raw = await WalletIsar.instance.read((isar) async {
+    final raw = await UserIsar.instance.read((isar) async {
       return (await isar.collection<wallet_store.Admin>().get(0))?.bodyData;
     });
     if (raw == null || raw.isEmpty) return [];
@@ -204,7 +204,7 @@ class ActivationService {
     final signerPublicKey = _hexToBytes(accountId);
     final timestamp = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final random = Random.secure();
-    return CitizenSigning.encodePayload(
+    return CitizenSdk.encodePayload(
       CitizenSigningPayload.activateAdmin(
         cidNumber: _requireInstitutionCid(identity),
         institutionCode: Uint8List.fromList(
@@ -233,7 +233,7 @@ class ActivationService {
 
   Future<void> _saveAll(List<ActivatedAdmin> all) async {
     final raw = jsonEncode(all.map((a) => a.toJson()).toList());
-    await WalletIsar.instance.writeTxn((isar) async {
+    await UserIsar.instance.writeTxn((isar) async {
       await isar.collection<wallet_store.Admin>().put(
         wallet_store.Admin()
           ..rowId = 0

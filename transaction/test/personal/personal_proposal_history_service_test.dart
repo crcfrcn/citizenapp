@@ -18,7 +18,7 @@ import 'package:citizen_testing/fake_citizen_sdk.dart';
 /// 离线 CitizenChain：本单测只验证 Isar 持久层，注入它切断真链依赖。
 /// 可达探针为 false(等价「链不可达 → 仅返回本机 Isar」)。避免本机是否连着真链
 /// 造成 flaky;配合服务端「链不可达不删幽灵」的容错回退,写入的历史必被完整读回。
-class _OfflineChain extends TestCitizenChain {
+class _OfflineChain extends TestChainReads {
   @override
   Future<CitizenChainSyncStatus> getSyncStatus() async {
     final finalized = CitizenBlockRef(
@@ -39,8 +39,19 @@ class _OfflineChain extends TestCitizenChain {
 PersonalProposalHistoryService _service() {
   final chain = _OfflineChain();
   return PersonalProposalHistoryService(
-    chain: chain,
-    proposalService: ProposalQueryService(chain: chain),
+    getSyncStatus: chain.getSyncStatus,
+    getFinalizedHead: chain.getFinalizedHead,
+    getStorage: chain.getStorage,
+    proposalService: ProposalQueryService(
+      getFinalizedHead: chain.getFinalizedHead,
+      getStorage: chain.getStorage,
+      getStorageBatch: chain.getStorageBatch,
+      getRuntimeContext: chain.getRuntimeContext,
+      getSystemEvents: chain.getSystemEvents,
+    ),
+    getSystemEvents: chain.getSystemEvents,
+    getRuntimeContext: chain.getRuntimeContext,
+    getStorageBatch: chain.getStorageBatch,
   );
 }
 

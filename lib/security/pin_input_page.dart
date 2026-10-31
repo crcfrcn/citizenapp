@@ -322,7 +322,7 @@ class _PinInputPageState extends State<PinInputPage> {
   Future<void> _handleVerify() async {
     final result = await AppLockService.verifyPin(
       _pin,
-      wallet: context.read<CitizenSdk?>()?.wallet,
+      wallet: context.read<CitizenSdk?>(),
       accountSecurity: context.read<AccountSecurityService?>(),
     );
     if (!mounted) return;
@@ -346,7 +346,7 @@ class _PinInputPageState extends State<PinInputPage> {
   Future<void> _handleRemove() async {
     final result = await AppLockService.verifyNormalPin(
       _pin,
-      wallet: context.read<CitizenSdk?>()?.wallet,
+      wallet: context.read<CitizenSdk?>(),
       accountSecurity: context.read<AccountSecurityService?>(),
     );
     if (!mounted) return;
@@ -369,7 +369,7 @@ class _PinInputPageState extends State<PinInputPage> {
   }
 
   Future<void> _triggerDuressModeWipe() async {
-    final wallet = context.read<CitizenSdk?>()?.wallet;
+    final wallet = context.read<CitizenSdk?>();
     final accountSecurity = context.read<AccountSecurityService?>();
     // 必须先持久化擦除意图；只有门闩落盘成功才允许隐藏真实界面。
     await AppLockService.latchPersistentWipe();
@@ -495,7 +495,7 @@ class _PinInputPageState extends State<PinInputPage> {
       setState(() => _submitting = true);
       try {
         await AppLockService.wipeAllData(
-          wallet: context.read<CitizenSdk?>()?.wallet,
+          wallet: context.read<CitizenSdk?>(),
           accountSecurity: context.read<AccountSecurityService?>(),
         );
         if (!mounted) return;

@@ -15,8 +15,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_citizen/account_derivation.dart';
 
-const _fixturePath =
-    'citizen/test/shared/account_derive_vectors.json';
+const _fixturePath = 'citizen/test/shared/account_derive_vectors.json';
 
 void main() {
   final file = File(_fixturePath);
@@ -36,8 +35,9 @@ void main() {
     for (final v in vectors) {
       final kind = v['kind'] as String;
       final expectedHex = v['account_id'] as String;
-      final label =
-          v['account_name'] != null ? '$kind / ${v['account_name']}' : kind;
+      final label = v['account_name'] != null
+          ? '$kind / ${v['account_name']}'
+          : kind;
 
       test('$label → $expectedHex', () {
         final actual = _deriveForVector(v, ss58);

@@ -19,7 +19,7 @@ import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 
 import 'package:citizen_citizen/account_derivation.dart';
 
-/// CitizenChain SS58 前缀。
+/// CitizenSdk SS58 前缀。
 
 enum CitizenIdentityConsentLevel { voting, candidate }
 

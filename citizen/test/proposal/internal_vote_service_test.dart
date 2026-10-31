@@ -1,3 +1,5 @@
+import 'package:citizen_citizen/proposal/proposal_query_service.dart';
+
 import 'dart:convert';
 
 import 'package:polkadart/polkadart.dart' show Hasher;
@@ -105,7 +107,7 @@ Uint8List voteEvents({
   return Uint8List.fromList([twice ? 8 : 4, ...row, if (twice) ...row]);
 }
 
-class Chain extends TestCitizenChain {
+class Chain extends TestChainReads {
   Uint8List? events;
   String? cid = 'CID-A';
   int heads = 0;
@@ -159,8 +161,23 @@ void main() {
         final tx = flow(cold: cold),
             chain = Chain()
               ..events = voteEvents(role: institutional ? 'DIRECTOR' : null);
-        final result = await InternalVoteService(chain: chain, transactions: tx)
-            .submit(
+        final result =
+            await InternalVoteService(
+              queryFactory: (block) => ProposalQueryService(
+                block: block,
+                getSystemEvents: chain.getSystemEvents,
+                getRuntimeContext: chain.getRuntimeContext,
+                getFinalizedHead: chain.getFinalizedHead,
+                getStorage: chain.getStorage,
+                getStorageBatch: chain.getStorageBatch,
+              ),
+              prepareTransaction: tx.prepareTransaction,
+              executePreparedTransaction: tx.executePreparedTransaction,
+              cancelPreparedTransactionExecution:
+                  tx.cancelPreparedTransactionExecution,
+              consumePreparedTransactionQrResponse:
+                  tx.consumePreparedTransactionQrResponse,
+            ).submit(
               proposalId: 7,
               approve: true,
               actorCidNumber: institutional ? 'CID-A' : null,
@@ -188,7 +205,25 @@ void main() {
       test('机构参数$fields在SDK准备前失败', () async {
         final tx = flow();
         await expectLater(
-          InternalVoteService(chain: Chain(), transactions: tx).submit(
+          (() {
+            final reads0 = Chain();
+            return InternalVoteService(
+              queryFactory: (block) => ProposalQueryService(
+                block: block,
+                getSystemEvents: reads0.getSystemEvents,
+                getRuntimeContext: reads0.getRuntimeContext,
+                getFinalizedHead: reads0.getFinalizedHead,
+                getStorage: reads0.getStorage,
+                getStorageBatch: reads0.getStorageBatch,
+              ),
+              prepareTransaction: tx.prepareTransaction,
+              executePreparedTransaction: tx.executePreparedTransaction,
+              cancelPreparedTransactionExecution:
+                  tx.cancelPreparedTransactionExecution,
+              consumePreparedTransactionQrResponse:
+                  tx.consumePreparedTransactionQrResponse,
+            );
+          })().submit(
             proposalId: 7,
             approve: true,
             actorCidNumber: fields.$1,
@@ -235,10 +270,25 @@ void main() {
           );
         }
         await expectLater(
-          InternalVoteService(
-            chain: chain,
-            transactions: flow(cold: cold),
-          ).submit(
+          (() {
+            final reads0 = flow(cold: cold);
+            return InternalVoteService(
+              queryFactory: (block) => ProposalQueryService(
+                block: block,
+                getSystemEvents: chain.getSystemEvents,
+                getRuntimeContext: chain.getRuntimeContext,
+                getFinalizedHead: chain.getFinalizedHead,
+                getStorage: chain.getStorage,
+                getStorageBatch: chain.getStorageBatch,
+              ),
+              prepareTransaction: reads0.prepareTransaction,
+              executePreparedTransaction: reads0.executePreparedTransaction,
+              cancelPreparedTransactionExecution:
+                  reads0.cancelPreparedTransactionExecution,
+              consumePreparedTransactionQrResponse:
+                  reads0.consumePreparedTransactionQrResponse,
+            );
+          })().submit(
             proposalId: 7,
             actorCidNumber: 'CID-A',
             voterRoleCode: 'DIRECTOR',
@@ -254,7 +304,25 @@ void main() {
       test('冷签取消或回调异常取消pending且不重播：$cancel', () async {
         final tx = flow(cold: true);
         await expectLater(
-          InternalVoteService(chain: Chain(), transactions: tx).submit(
+          (() {
+            final reads0 = Chain();
+            return InternalVoteService(
+              queryFactory: (block) => ProposalQueryService(
+                block: block,
+                getSystemEvents: reads0.getSystemEvents,
+                getRuntimeContext: reads0.getRuntimeContext,
+                getFinalizedHead: reads0.getFinalizedHead,
+                getStorage: reads0.getStorage,
+                getStorageBatch: reads0.getStorageBatch,
+              ),
+              prepareTransaction: tx.prepareTransaction,
+              executePreparedTransaction: tx.executePreparedTransaction,
+              cancelPreparedTransactionExecution:
+                  tx.cancelPreparedTransactionExecution,
+              consumePreparedTransactionQrResponse:
+                  tx.consumePreparedTransactionQrResponse,
+            );
+          })().submit(
             proposalId: 7,
             approve: false,
             signerPublicKey: signer,
@@ -277,10 +345,25 @@ void main() {
     test('执行非成功终态不查询业务记录：$resolution', () async {
       final chain = Chain();
       await expectLater(
-        InternalVoteService(
-          chain: chain,
-          transactions: flow(result: completed(resolution: resolution)),
-        ).submit(
+        (() {
+          final reads0 = flow(result: completed(resolution: resolution));
+          return InternalVoteService(
+            queryFactory: (block) => ProposalQueryService(
+              block: block,
+              getSystemEvents: chain.getSystemEvents,
+              getRuntimeContext: chain.getRuntimeContext,
+              getFinalizedHead: chain.getFinalizedHead,
+              getStorage: chain.getStorage,
+              getStorageBatch: chain.getStorageBatch,
+            ),
+            prepareTransaction: reads0.prepareTransaction,
+            executePreparedTransaction: reads0.executePreparedTransaction,
+            cancelPreparedTransactionExecution:
+                reads0.cancelPreparedTransactionExecution,
+            consumePreparedTransactionQrResponse:
+                reads0.consumePreparedTransactionQrResponse,
+          );
+        })().submit(
           proposalId: 7,
           approve: true,
           signerPublicKey: signer,
@@ -300,7 +383,25 @@ void main() {
         tx.execute = (_) async => throw failure;
       }
       await expectLater(
-        InternalVoteService(chain: Chain(), transactions: tx).submit(
+        (() {
+          final reads0 = Chain();
+          return InternalVoteService(
+            queryFactory: (block) => ProposalQueryService(
+              block: block,
+              getSystemEvents: reads0.getSystemEvents,
+              getRuntimeContext: reads0.getRuntimeContext,
+              getFinalizedHead: reads0.getFinalizedHead,
+              getStorage: reads0.getStorage,
+              getStorageBatch: reads0.getStorageBatch,
+            ),
+            prepareTransaction: tx.prepareTransaction,
+            executePreparedTransaction: tx.executePreparedTransaction,
+            cancelPreparedTransactionExecution:
+                tx.cancelPreparedTransactionExecution,
+            consumePreparedTransactionQrResponse:
+                tx.consumePreparedTransactionQrResponse,
+          );
+        })().submit(
           proposalId: 7,
           approve: true,
           signerPublicKey: signer,

@@ -13,11 +13,20 @@ import 'package:citizen_testing/fake_citizen_sdk.dart';
 import 'package:citizen_account/identity/citizen_identity_transaction.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-CitizenIdentityTransaction _transaction(CitizenChain chain) =>
-    CitizenIdentityTransaction(
-      chain: chain,
-      transactions: TestCitizenTransactions(),
-    );
+CitizenIdentityTransaction _transaction(TestChainReads chain) => (() {
+  final reads0 = TestTransactionCalls();
+  return CitizenIdentityTransaction(
+    getFinalizedHead: chain.getFinalizedHead,
+    getGenesisHash: chain.getGenesisHash,
+    getStorageBatch: chain.getStorageBatch,
+    prepareTransaction: reads0.prepareTransaction,
+    executePreparedTransaction: reads0.executePreparedTransaction,
+    cancelPreparedTransactionExecution:
+        reads0.cancelPreparedTransactionExecution,
+    consumePreparedTransactionQrResponse:
+        reads0.consumePreparedTransactionQrResponse,
+  );
+})();
 
 CitizenBlockRef _finalized(String hash, [int number = 88]) => CitizenBlockRef(
   hash: hash,
@@ -27,16 +36,7 @@ CitizenBlockRef _finalized(String hash, [int number = 88]) => CitizenBlockRef(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  late TestCitizenSdkTransport encodingTransport;
-  late CitizenSdk encodingSdk;
-  setUp(() async {
-    encodingTransport = TestCitizenSdkTransport({}, useCore: true);
-    encodingSdk = await encodingTransport.open();
-  });
-  tearDown(() async {
-    await encodingSdk.close();
-    await encodingTransport.dispose();
-  });
+  TestCitizenSdkHarness();
 
   // 采用链端 CTZN 金标号做样本(26 字节 ASCII)。
   const cid = 'CN951-CTZN1-539598435-2026';
@@ -178,7 +178,7 @@ void main() {
         0,
         0,
       ];
-      final expected = (await CitizenSigning.encodePayload(
+      final expected = (await CitizenSdk.encodePayload(
         CitizenSigningPayload.message(
           opTag: kOpSignCidRebind,
           scalePayload: Uint8List.fromList(payload),
@@ -319,7 +319,7 @@ void main() {
   });
 }
 
-class _RebindContextChain extends TestCitizenChain {
+class _RebindContextChain extends TestChainReads {
   _RebindContextChain({BigInt? revision})
     : revision = revision ?? BigInt.from(7);
 
@@ -374,7 +374,7 @@ class _RebindContextChain extends TestCitizenChain {
       '0x${bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join()}';
 }
 
-class _FinalizedBindingChain extends TestCitizenChain {
+class _FinalizedBindingChain extends TestChainReads {
   _FinalizedBindingChain({required this.accountByte, required this.revision});
 
   final int accountByte;

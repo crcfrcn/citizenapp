@@ -23,7 +23,7 @@ Future<void> proceedOffchainPayment({
   }
 
   final directory = ClearingBankDirectory(
-    chain: context.read<CitizenSdk>().chain,
+    chain: context.read<CitizenSdk>(),
   );
   final endpoint = await directory.fetchEndpoint(result.bank!);
   if (!context.mounted) return;

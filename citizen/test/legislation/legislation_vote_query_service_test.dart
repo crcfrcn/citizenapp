@@ -11,7 +11,7 @@ final block = CitizenBlockRef(
   finality: CitizenBlockFinality.finalized,
 );
 
-class Chain extends TestCitizenChain {
+class Chain extends TestChainReads {
   Uint8List? value;
   int heads = 0;
   @override
@@ -30,7 +30,14 @@ class Chain extends TestCitizenChain {
 void main() {
   test('真实缺失返回null、零计票或空签署，绑定块不选择链头', () async {
     final chain = Chain(),
-        query = LegislationVoteQueryService(chain: chain, block: block);
+        query = LegislationVoteQueryService(
+          getFinalizedHead: chain.getFinalizedHead,
+          getStorage: chain.getStorage,
+          block: block,
+          getSystemEvents: chain.getSystemEvents,
+          getRuntimeContext: chain.getRuntimeContext,
+          getStorageBatch: chain.getStorageBatch,
+        );
     expect(await query.fetchRepresentativeMeta(7), null);
     expect(await query.fetchLegislationMeta(7), null);
     expect(await query.fetchRepresentativeTally(7, 0), (yes: 0, no: 0));
@@ -44,10 +51,17 @@ void main() {
     <int>[0, 0],
   ]) {
     test('元数据损坏$bytes不得伪装不存在', () async {
-      final query = LegislationVoteQueryService(
-        chain: Chain()..value = Uint8List.fromList(bytes),
-        block: block,
-      );
+      final query = (() {
+        final reads0 = Chain()..value = Uint8List.fromList(bytes);
+        return LegislationVoteQueryService(
+          getFinalizedHead: reads0.getFinalizedHead,
+          getStorage: reads0.getStorage,
+          block: block,
+          getSystemEvents: reads0.getSystemEvents,
+          getRuntimeContext: reads0.getRuntimeContext,
+          getStorageBatch: reads0.getStorageBatch,
+        );
+      })();
       await expectLater(
         query.fetchRepresentativeMeta(7),
         throwsFormatException,
@@ -63,10 +77,17 @@ void main() {
       [8, ...List.filled(32, 1), 1, ...List.filled(32, 1), 1],
       [32],
     ]) {
-      final query = LegislationVoteQueryService(
-        chain: Chain()..value = Uint8List.fromList(bytes),
-        block: block,
-      );
+      final query = (() {
+        final reads0 = Chain()..value = Uint8List.fromList(bytes);
+        return LegislationVoteQueryService(
+          getFinalizedHead: reads0.getFinalizedHead,
+          getStorage: reads0.getStorage,
+          block: block,
+          getSystemEvents: reads0.getSystemEvents,
+          getRuntimeContext: reads0.getRuntimeContext,
+          getStorageBatch: reads0.getStorageBatch,
+        );
+      })();
       await expectLater(query.fetchOverrideSigns(7), throwsFormatException);
       await expectLater(query.fetchGuardSigns(7), throwsFormatException);
     }
@@ -74,7 +95,14 @@ void main() {
   test('账本准确保留反对方向，损坏计票与票据失败关闭', () async {
     final chain = Chain()
       ..value = Uint8List.fromList([4, ...List.filled(32, 1), 0]);
-    final query = LegislationVoteQueryService(chain: chain, block: block);
+    final query = LegislationVoteQueryService(
+      getFinalizedHead: chain.getFinalizedHead,
+      getStorage: chain.getStorage,
+      block: block,
+      getSystemEvents: chain.getSystemEvents,
+      getRuntimeContext: chain.getRuntimeContext,
+      getStorageBatch: chain.getStorageBatch,
+    );
     expect((await query.fetchOverrideSigns(7)).single.approve, false);
     chain.value = Uint8List.fromList([2]);
     await expectLater(

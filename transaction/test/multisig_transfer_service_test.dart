@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
-import 'package:citizen_sdk/account_codec.dart';
 import 'package:citizen_transaction/multisig/multisig_transfer_service.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 
@@ -113,7 +112,7 @@ Uint8List eventMetadata() => base64Decode(
   'bWV0YQ5AAAAABQMABAAABQUACAAABQYADAAABQAAEAAAAyAAAAAAABQAAAIAABgAAAEMOEFwcGx5RXh0cmluc2ljBAAEARhzaGFyZWQAAAAwRmluYWxpemF0aW9uAAEAOEluaXRpYWxpemF0aW9uAAIAABwAAAEMQFRyYW5zZmVyUHJvcG9zZWQkASxwcm9wb3NhbF9pZAgBGHNoYXJlZAABQGluc3RpdHV0aW9uX2NvZGU4ARhzaGFyZWQAAUBhY3Rvcl9jaWRfbnVtYmVyPAEYc2hhcmVkAAFMcHJvcG9zZXJfYWNjb3VudF9pZBABGHNoYXJlZAABSGZ1bmRpbmdfYWNjb3VudF9pZBABGHNoYXJlZAABWGJlbmVmaWNpYXJ5X2FjY291bnRfaWQQARhzaGFyZWQAARhhbW91bnQ0ARhzaGFyZWQAARhyZW1hcmsUARhzaGFyZWQAAShleHBpcmVzX2F0BAEYc2hhcmVkAAAAaFNhZmV0eUZ1bmRUcmFuc2ZlclByb3Bvc2VkIAEscHJvcG9zYWxfaWQIARhzaGFyZWQAAUBhY3Rvcl9jaWRfbnVtYmVyFAEYc2hhcmVkAAFMcHJvcG9zZXJfYWNjb3VudF9pZBABGHNoYXJlZAABWGluc3RpdHV0aW9uX2FjY291bnRfaWQQARhzaGFyZWQAAVhiZW5lZmljaWFyeV9hY2NvdW50X2lkEAEYc2hhcmVkAAEYYW1vdW50NAEYc2hhcmVkAAEYcmVtYXJrFAEYc2hhcmVkAAEoZXhwaXJlc19hdAQBGHNoYXJlZAADAExTd2VlcFRvTWFpblByb3Bvc2VkHAEscHJvcG9zYWxfaWQIARhzaGFyZWQAAUBhY3Rvcl9jaWRfbnVtYmVyFAEYc2hhcmVkAAFMcHJvcG9zZXJfYWNjb3VudF9pZBABGHNoYXJlZAABWGluc3RpdHV0aW9uX2FjY291bnRfaWQQARhzaGFyZWQAATBtYWluX2FjY291bnQQARhzaGFyZWQAARhhbW91bnQ0ARhzaGFyZWQAAShleHBpcmVzX2F0BAEYc2hhcmVkAAYAACAAAAEEQE11bHRpc2lnVHJhbnNmZXIEABwBGHNoYXJlZAARAAAkAAACEAAoAAAADAEUcGhhc2UYARhzaGFyZWQAARRldmVudCABGHNoYXJlZAABGHRvcGljcyQBGHNoYXJlZAAALAAAAigAMAAABAAANAAABQcAOAAAAwQAAAAAADwAAAEIEE5vbmUAAAAQU29tZQQAFAEYc2hhcmVkAAEAAAQYU3lzdGVtARhTeXN0ZW0EGEV2ZW50cwEALAQAAAAAAAAAMAQAMA==',
 );
 
-class Chain extends TestCitizenChain {
+class Chain extends TestChainReads {
   Uint8List? events = eventBytes();
   @override
   Future<CitizenRuntimeContext> getRuntimeContext(CitizenBlockRef ref) async =>
@@ -167,10 +166,25 @@ void main() {
       ...bytes.skip(21),
     ]);
     final tx = flow(),
-        service = MultisigTransferService(
-          chain: Chain()..events = payload,
-          transactions: tx,
-        );
+        service = (() {
+          final reads0 = Chain()..events = payload;
+          return MultisigTransferService(
+            getFinalizedHead: reads0.getFinalizedHead,
+            getStorageKeysPaged: reads0.getStorageKeysPaged,
+            getStorage: reads0.getStorage,
+            getStorageBatch: reads0.getStorageBatch,
+            getAccountBalance: reads0.getAccountBalance,
+            getAccountBalances: reads0.getAccountBalances,
+            getSystemEvents: reads0.getSystemEvents,
+            getRuntimeContext: reads0.getRuntimeContext,
+            prepareTransaction: tx.prepareTransaction,
+            executePreparedTransaction: tx.executePreparedTransaction,
+            cancelPreparedTransactionExecution:
+                tx.cancelPreparedTransactionExecution,
+            consumePreparedTransactionQrResponse:
+                tx.consumePreparedTransactionQrResponse,
+          );
+        })();
     Future<Object> run(String? role) => service.submitProposeTransfer(
       institution: institution,
       proposerRoleCode: role,
@@ -236,7 +250,22 @@ void main() {
             0,
           ]);
         final tx = flow(cold: cold),
-            service = MultisigTransferService(chain: chain, transactions: tx);
+            service = MultisigTransferService(
+              getFinalizedHead: chain.getFinalizedHead,
+              getStorageKeysPaged: chain.getStorageKeysPaged,
+              getStorage: chain.getStorage,
+              getStorageBatch: chain.getStorageBatch,
+              getAccountBalance: chain.getAccountBalance,
+              getAccountBalances: chain.getAccountBalances,
+              getSystemEvents: chain.getSystemEvents,
+              getRuntimeContext: chain.getRuntimeContext,
+              prepareTransaction: tx.prepareTransaction,
+              executePreparedTransaction: tx.executePreparedTransaction,
+              cancelPreparedTransactionExecution:
+                  tx.cancelPreparedTransactionExecution,
+              consumePreparedTransactionQrResponse:
+                  tx.consumePreparedTransactionQrResponse,
+            );
         final result = kind == 3
             ? await service.submitProposeSafetyFund(
                 institution: institution,
@@ -263,7 +292,25 @@ void main() {
   test('多签外签回调异常取消pending，未知消费不重播', () async {
     for (final stage in ['callback', 'consume']) {
       final tx = flow(cold: true),
-          service = MultisigTransferService(chain: Chain(), transactions: tx);
+          service = (() {
+            final reads0 = Chain();
+            return MultisigTransferService(
+              getFinalizedHead: reads0.getFinalizedHead,
+              getStorageKeysPaged: reads0.getStorageKeysPaged,
+              getStorage: reads0.getStorage,
+              getStorageBatch: reads0.getStorageBatch,
+              getAccountBalance: reads0.getAccountBalance,
+              getAccountBalances: reads0.getAccountBalances,
+              getSystemEvents: reads0.getSystemEvents,
+              getRuntimeContext: reads0.getRuntimeContext,
+              prepareTransaction: tx.prepareTransaction,
+              executePreparedTransaction: tx.executePreparedTransaction,
+              cancelPreparedTransactionExecution:
+                  tx.cancelPreparedTransactionExecution,
+              consumePreparedTransactionQrResponse:
+                  tx.consumePreparedTransactionQrResponse,
+            );
+          })();
       if (stage == 'consume') {
         tx.consume = (_, _) async => throw StateError('合成未知消费');
       }
@@ -293,7 +340,22 @@ void main() {
     test('多签提案冷热签按实际执行块确认事件：$cold', () async {
       final tx = flow(cold: cold), chain = Chain();
       final result = await submit(
-        MultisigTransferService(chain: chain, transactions: tx),
+        MultisigTransferService(
+          getFinalizedHead: chain.getFinalizedHead,
+          getStorageKeysPaged: chain.getStorageKeysPaged,
+          getStorage: chain.getStorage,
+          getStorageBatch: chain.getStorageBatch,
+          getAccountBalance: chain.getAccountBalance,
+          getAccountBalances: chain.getAccountBalances,
+          getSystemEvents: chain.getSystemEvents,
+          getRuntimeContext: chain.getRuntimeContext,
+          prepareTransaction: tx.prepareTransaction,
+          executePreparedTransaction: tx.executePreparedTransaction,
+          cancelPreparedTransactionExecution:
+              tx.cancelPreparedTransactionExecution,
+          consumePreparedTransactionQrResponse:
+              tx.consumePreparedTransactionQrResponse,
+        ),
       );
       expect((result as dynamic).proposalId, 7);
       expect(tx.prepareCount, 1);
@@ -310,7 +372,27 @@ void main() {
           ? Uint8List.fromList([0, ...eventBytes().skip(1)])
           : Uint8List.fromList([4, 2, 99, 99, ...eventBytes()]);
       await expectLater(
-        submit(MultisigTransferService(chain: chain, transactions: flow())),
+        submit(
+          (() {
+            final reads0 = flow();
+            return MultisigTransferService(
+              getFinalizedHead: chain.getFinalizedHead,
+              getStorageKeysPaged: chain.getStorageKeysPaged,
+              getStorage: chain.getStorage,
+              getStorageBatch: chain.getStorageBatch,
+              getAccountBalance: chain.getAccountBalance,
+              getAccountBalances: chain.getAccountBalances,
+              getSystemEvents: chain.getSystemEvents,
+              getRuntimeContext: chain.getRuntimeContext,
+              prepareTransaction: reads0.prepareTransaction,
+              executePreparedTransaction: reads0.executePreparedTransaction,
+              cancelPreparedTransactionExecution:
+                  reads0.cancelPreparedTransactionExecution,
+              consumePreparedTransactionQrResponse:
+                  reads0.consumePreparedTransactionQrResponse,
+            );
+          })(),
+        ),
         throwsA(anything),
       );
     });
@@ -327,7 +409,22 @@ void main() {
       if (bad == 'execute') {
         tx.execute = (_) async => throw StateError('合成未知执行');
       }
-      final service = MultisigTransferService(chain: chain, transactions: tx);
+      final service = MultisigTransferService(
+        getFinalizedHead: chain.getFinalizedHead,
+        getStorageKeysPaged: chain.getStorageKeysPaged,
+        getStorage: chain.getStorage,
+        getStorageBatch: chain.getStorageBatch,
+        getAccountBalance: chain.getAccountBalance,
+        getAccountBalances: chain.getAccountBalances,
+        getSystemEvents: chain.getSystemEvents,
+        getRuntimeContext: chain.getRuntimeContext,
+        prepareTransaction: tx.prepareTransaction,
+        executePreparedTransaction: tx.executePreparedTransaction,
+        cancelPreparedTransactionExecution:
+            tx.cancelPreparedTransactionExecution,
+        consumePreparedTransactionQrResponse:
+            tx.consumePreparedTransactionQrResponse,
+      );
       if (bad == 'cancel') {
         await expectLater(
           service.submitProposeTransfer(

@@ -14,14 +14,28 @@ import 'package:citizen_citizen/administrators/admin_account.dart';
 /// `InstitutionGovernanceThresholds[cid_number]`；个人多签严格读取
 /// `AdminAccounts[personal_account]` 与 `ActivePersonalThresholds[personal_account]`。
 class AdminAccountService {
-  const AdminAccountService({required CitizenChain chain}) : _chain = chain;
+  AdminAccountService({
+    CitizenSdk? chain,
+    Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
+    getStorage,
+  }) : _getFinalizedHead =
+           getFinalizedHead ??
+           chain?.getFinalizedHead ??
+           (() => throw StateError('未配置getFinalizedHead')),
+       _getStorage =
+           getStorage ??
+           chain?.getStorage ??
+           ((CitizenBlockRef block, Uint8List key) =>
+               throw StateError('未配置getStorage'));
+  final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)
+  _getStorage;
 
   static const Duration _cacheTtl = Duration(seconds: 30);
   static final Map<String, _AdminAccountCacheEntry> _cache = {};
   static final Map<String, Future<AdminAccountState?>> _inFlight = {};
   static final Map<String, Future<_AdminAccountCacheEntry?>> _accountReads = {};
-
-  final CitizenChain _chain;
 
   Future<AdminAccountState?> fetchByIdentity(
     AdminAccountIdentity identity,
@@ -81,7 +95,7 @@ class AdminAccountService {
   Future<_AdminAccountCacheEntry?> _readAccount(
     AdminAccountIdentity identity,
   ) async {
-    final finalized = await _chain.getFinalizedHead();
+    final finalized = await _getFinalizedHead();
     final Uint8List key;
     if (identity.type == AdminAccountIdentityType.institution) {
       key = AdminAccountIdCodec.institutionAdminStorageKey(
@@ -94,7 +108,7 @@ class AdminAccountService {
         AdminAccountIdCodec.fromAccountIdText(identity.accountId!),
       );
     }
-    final data = await _chain.getStorage(finalized, key);
+    final data = await _getStorage(finalized, key);
     if (data == null) return null;
     final decoded = identity.type == AdminAccountIdentityType.institution
         ? AdminAccountCodec.decodeInstitution(
@@ -173,7 +187,7 @@ class AdminAccountService {
     required CitizenBlockRef finalized,
   }) async {
     final key = _storageMapKey(palletName, storageName, keyData);
-    final data = await _chain.getStorage(finalized, key);
+    final data = await _getStorage(finalized, key);
     if (data == null || data.length != 4) return null;
     return ByteData.sublistView(data).getUint32(0, Endian.little);
   }

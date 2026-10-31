@@ -1,4 +1,4 @@
-import 'package:citizen_storage/wallet_isar.dart' as wallet_store show Admin;
+import 'package:citizen_storage/user_isar.dart' as wallet_store show Admin;
 
 import 'dart:async';
 import 'dart:convert';
@@ -12,14 +12,14 @@ import 'package:citizen_citizen/administrators/admin_activation_service.dart';
 import 'package:citizen_citizen/administrators/institution_admin_service.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/institution/institution_role_models.dart';
-import 'package:citizen_storage/wallet_isar.dart' hide Group;
+import 'package:citizen_storage/user_isar.dart' hide Group;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:polkadart/polkadart.dart' show Hasher;
 
 import 'package:citizen_testing/isar_test_env.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 
-class FakeChain extends TestCitizenChain {
+class FakeChain extends TestChainReads {
   final Map<String, Uint8List?> responses = {};
   final List<String> requestedKeys = [];
   final Set<String> failedKeys = {};
@@ -100,7 +100,7 @@ class FakeChain extends TestCitizenChain {
 }
 
 class FakeAdminService extends InstitutionAdminService {
-  FakeAdminService({required this.admins}) : super(chain: TestCitizenChain());
+  FakeAdminService({required this.admins}) : super();
 
   final List<AdminPerson> admins;
 
@@ -111,7 +111,7 @@ class FakeAdminService extends InstitutionAdminService {
 
 /// 合成只读人员和岗位结果，不构造钱包签名或真实管理员授权。
 class _ViewService extends InstitutionAdminService {
-  _ViewService(this.people) : super(chain: TestCitizenChain());
+  _ViewService(this.people) : super();
   final List<AdminPerson> people;
   List<InstitutionAdminAssignment> assignments = [];
   bool peopleFailure = false, assignmentFailure = false;
@@ -135,7 +135,15 @@ class _ViewService extends InstitutionAdminService {
 
 void main() {
   useIsolatedIsar();
-  setUp(() => AdminAccountService(chain: TestCitizenChain()).clearCache());
+  setUp(
+    () => (() {
+      final reads0 = TestChainReads();
+      return AdminAccountService(
+        getFinalizedHead: reads0.getFinalizedHead,
+        getStorage: reads0.getStorage,
+      );
+    })().clearCache(),
+  );
   String hexOf(Iterable<int> bytes) =>
       bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
 
@@ -378,7 +386,12 @@ void main() {
         orgCode: code,
         admin: List.filled(32, 0xaa),
       );
-      final service = InstitutionAdminService(chain: rpc);
+      final service = InstitutionAdminService(
+        getFinalizedHead: rpc.getFinalizedHead,
+        getStorageKeysPaged: rpc.getStorageKeysPaged,
+        getStorageBatch: rpc.getStorageBatch,
+        getStorage: rpc.getStorage,
+      );
       final views = await service.fetchAdminViews(
         identity,
         identity.cidNumber!,
@@ -418,8 +431,12 @@ void main() {
       if (malformed) {
         rpc.responses['0x${hexOf(roleKey)}'] = Uint8List.fromList([255]);
       }
-      final views = await InstitutionAdminService(chain: rpc)
-          .fetchAdminViews(identity, identity.cidNumber!);
+      final views = await InstitutionAdminService(
+        getFinalizedHead: rpc.getFinalizedHead,
+        getStorageKeysPaged: rpc.getStorageKeysPaged,
+        getStorageBatch: rpc.getStorageBatch,
+        getStorage: rpc.getStorage,
+      ).fetchAdminViews(identity, identity.cidNumber!);
       expect(views.single.assignmentsLoaded, isFalse);
     });
   }
@@ -439,8 +456,12 @@ void main() {
         ).skip(5),
     ]);
     seedAssignments(rpc, identity, count: 19, firstByte: 1);
-    final views = await InstitutionAdminService(chain: rpc)
-        .fetchAdminViews(identity, identity.cidNumber!);
+    final views = await InstitutionAdminService(
+      getFinalizedHead: rpc.getFinalizedHead,
+      getStorageKeysPaged: rpc.getStorageKeysPaged,
+      getStorageBatch: rpc.getStorageBatch,
+      getStorage: rpc.getStorage,
+    ).fetchAdminViews(identity, identity.cidNumber!);
     expect(views, hasLength(19));
     for (final view in views) {
       expect(view.assignmentsLoaded, isTrue);
@@ -486,8 +507,12 @@ void main() {
         code,
       );
     }
-    final views = await InstitutionAdminService(chain: rpc)
-        .fetchAdminViews(identity, identity.cidNumber!);
+    final views = await InstitutionAdminService(
+      getFinalizedHead: rpc.getFinalizedHead,
+      getStorageKeysPaged: rpc.getStorageKeysPaged,
+      getStorageBatch: rpc.getStorageBatch,
+      getStorage: rpc.getStorage,
+    ).fetchAdminViews(identity, identity.cidNumber!);
     expect(views.single.assignments.single.roleCode, 'MEMBER');
     expect(rpc.scans, 3); // 岗位满页后的终止页，加任职页。
     expect(rpc.batchSizes, [100, 100, 56, 1]);
@@ -522,7 +547,12 @@ void main() {
         final badKey = rpc.scanKeys['0x${hexOf(prefix)}']!.single;
         rpc.responses['0x${hexOf(badKey)}'] = Uint8List.fromList([255]);
       }
-      final service = InstitutionAdminService(chain: rpc);
+      final service = InstitutionAdminService(
+        getFinalizedHead: rpc.getFinalizedHead,
+        getStorageKeysPaged: rpc.getStorageKeysPaged,
+        getStorageBatch: rpc.getStorageBatch,
+        getStorage: rpc.getStorage,
+      );
       final failed = await service.fetchAdminViews(
         identity,
         identity.cidNumber!,
@@ -562,8 +592,16 @@ void main() {
     rpc.responses[threshold] = Uint8List.fromList(u32Le(2));
     rpc.failedKeys.add(threshold);
     seedAssignments(rpc, identity);
-    final source = AdminAccountService(chain: rpc);
-    final service = InstitutionAdminService(chain: rpc);
+    final source = AdminAccountService(
+      getFinalizedHead: rpc.getFinalizedHead,
+      getStorage: rpc.getStorage,
+    );
+    final service = InstitutionAdminService(
+      getFinalizedHead: rpc.getFinalizedHead,
+      getStorageKeysPaged: rpc.getStorageKeysPaged,
+      getStorageBatch: rpc.getStorageBatch,
+      getStorage: rpc.getStorage,
+    );
     final views = await service.fetchAdminViews(identity, identity.cidNumber!);
     expect(views.single.admin.accountId, '0x${'aa' * 32}');
     expect(views.single.assignmentsLoaded, isTrue);
@@ -604,8 +642,12 @@ void main() {
     final key =
         '0x${hexOf(AdminAccountIdCodec.institutionAdminStorageKey(identity.cidNumber!, orgCode: 'NRC', adminKind: 0))}';
     rpc.responses[key] = Uint8List.fromList([...codeBytes('NRC'), 0]);
-    final views = await InstitutionAdminService(chain: rpc)
-        .fetchAdminViews(identity, identity.cidNumber!);
+    final views = await InstitutionAdminService(
+      getFinalizedHead: rpc.getFinalizedHead,
+      getStorageKeysPaged: rpc.getStorageKeysPaged,
+      getStorageBatch: rpc.getStorageBatch,
+      getStorage: rpc.getStorage,
+    ).fetchAdminViews(identity, identity.cidNumber!);
     expect(views, isEmpty);
     expect(rpc.requestedKeys, [key]);
     expect(rpc.scans, 0);
@@ -616,7 +658,12 @@ void main() {
     final key =
         '0x${hexOf(AdminAccountIdCodec.institutionAdminStorageKey(identity.cidNumber!, orgCode: 'NRC', adminKind: 0))}';
     rpc.responses[key] = Uint8List.fromList([255]);
-    final service = InstitutionAdminService(chain: rpc);
+    final service = InstitutionAdminService(
+      getFinalizedHead: rpc.getFinalizedHead,
+      getStorageKeysPaged: rpc.getStorageKeysPaged,
+      getStorageBatch: rpc.getStorageBatch,
+      getStorage: rpc.getStorage,
+    );
     await expectLater(
       service.fetchAdminViews(identity, identity.cidNumber!),
       throwsFormatException,
@@ -644,7 +691,10 @@ void main() {
     final delayed = Completer<Uint8List?>();
     rpc.queued[key] = [() => delayed.future];
     rpc.responses[threshold] = Uint8List.fromList(u32Le(3));
-    final source = AdminAccountService(chain: rpc);
+    final source = AdminAccountService(
+      getFinalizedHead: rpc.getFinalizedHead,
+      getStorage: rpc.getStorage,
+    );
     final peopleRead = source.fetchAdmins(identity),
         fullRead = source.fetchByIdentity(identity);
     await Future<void>.delayed(Duration.zero);
@@ -669,7 +719,10 @@ void main() {
       orgCode: 'NRC',
       admin: List.filled(32, 0xbb),
     );
-    final source = AdminAccountService(chain: rpc);
+    final source = AdminAccountService(
+      getFinalizedHead: rpc.getFinalizedHead,
+      getStorage: rpc.getStorage,
+    );
     final old = source.fetchAdmins(identity);
     await Future<void>.delayed(Duration.zero);
     source.clearCache(identity);
@@ -691,7 +744,12 @@ void main() {
   test('私权非法人机构按 CID 与显式 kind 路由', () async {
     const cidNumber = 'GD001-UNIN0-123456789-2026';
     final rpc = FakeChain();
-    final service = InstitutionAdminService(chain: rpc);
+    final service = InstitutionAdminService(
+      getFinalizedHead: rpc.getFinalizedHead,
+      getStorageKeysPaged: rpc.getStorageKeysPaged,
+      getStorageBatch: rpc.getStorageBatch,
+      getStorage: rpc.getStorage,
+    );
     final accountKey =
         '0x${hexOf(AdminAccountIdCodec.institutionAdminStorageKey(cidNumber, orgCode: 'UNIN', adminKind: 1))}';
     final thresholdStorageKey = thresholdKey(
@@ -721,7 +779,12 @@ void main() {
 
   test('个人多签严格按 personal_account_id 路由', () async {
     final rpc = FakeChain();
-    final service = InstitutionAdminService(chain: rpc);
+    final service = InstitutionAdminService(
+      getFinalizedHead: rpc.getFinalizedHead,
+      getStorageKeysPaged: rpc.getStorageKeysPaged,
+      getStorageBatch: rpc.getStorageBatch,
+      getStorage: rpc.getStorage,
+    );
     final accountId = '0x${'22' * 32}';
     final accountIdBytes = AdminAccountIdCodec.fromAccountIdText(accountId);
     final accountKey =
@@ -752,7 +815,10 @@ void main() {
     for (final entry in const {'FRG': 3, 'NJD': 8}.entries) {
       final cidNumber = 'ZS001-${entry.key}00-123456789-2026';
       final rpc = FakeChain();
-      final service = AdminAccountService(chain: rpc);
+      final service = AdminAccountService(
+        getFinalizedHead: rpc.getFinalizedHead,
+        getStorage: rpc.getStorage,
+      );
       final identity = AdminAccountIdentity.institution(
         cidNumber: cidNumber,
         orgCode: entry.key,
@@ -786,7 +852,10 @@ void main() {
 
   test('管理员缓存按明确 identity key 隔离并可清除', () async {
     final rpc = FakeChain();
-    final service = AdminAccountService(chain: rpc);
+    final service = AdminAccountService(
+      getFinalizedHead: rpc.getFinalizedHead,
+      getStorage: rpc.getStorage,
+    );
     final accountId = '0x${'33' * 32}';
     final accountIdBytes = AdminAccountIdCodec.fromAccountIdText(accountId);
     final identity = AdminAccountIdentity.personalAccount(
@@ -917,7 +986,7 @@ void main() {
       activatedAtMs: 3,
     );
 
-    await WalletIsar.instance.writeTxn((isar) async {
+    await UserIsar.instance.writeTxn((isar) async {
       await isar.collection<wallet_store.Admin>().put(
         wallet_store.Admin()
           ..rowId = 0

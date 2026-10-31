@@ -23,14 +23,63 @@ import 'package:citizen_citizen/proposal/proposal_query_service.dart';
 /// Runtime 位置: `pallet_index=20, call_index=0`(InternalVote sub-pallet)。
 /// Call 编码: `[0x14][0x00][proposal_id:u64_le][ticket_claim][approve:bool]`。
 class InternalVoteService {
-  const InternalVoteService({
-    required CitizenChain chain,
-    required CitizenTransactions transactions,
-  }) : _chain = chain,
-       _transactions = transactions;
+  InternalVoteService({
+    CitizenSdk? chain,
+    ProposalQueryService Function(CitizenBlockRef block)? queryFactory,
+    CitizenSdk? transactions,
+    Future<CitizenPreparedTransaction> Function(
+      Uint8List sourceAccountId,
+      Uint8List callData,
+    )?
+    prepareTransaction,
+    Future<CitizenTransactionExecution> Function(String preparationId)?
+    executePreparedTransaction,
+    Future<void> Function(String executionId)?
+    cancelPreparedTransactionExecution,
+    Future<CitizenTransactionExecutionCompleted> Function(
+      String executionId,
+      String response,
+    )?
+    consumePreparedTransactionQrResponse,
+  }) : _queryFactory =
+           queryFactory ??
+           ((block) => ProposalQueryService(chain: chain, block: block)),
+       _prepareTransaction =
+           prepareTransaction ??
+           transactions?.prepareTransaction ??
+           ((Uint8List sourceAccountId, Uint8List callData) =>
+               throw StateError('未配置prepareTransaction')),
+       _executePreparedTransaction =
+           executePreparedTransaction ??
+           transactions?.executePreparedTransaction ??
+           ((String preparationId) =>
+               throw StateError('未配置executePreparedTransaction')),
+       _cancelPreparedTransactionExecution =
+           cancelPreparedTransactionExecution ??
+           transactions?.cancelPreparedTransactionExecution ??
+           ((String executionId) =>
+               throw StateError('未配置cancelPreparedTransactionExecution')),
+       _consumePreparedTransactionQrResponse =
+           consumePreparedTransactionQrResponse ??
+           transactions?.consumePreparedTransactionQrResponse ??
+           ((String executionId, String response) =>
+               throw StateError('未配置consumePreparedTransactionQrResponse'));
+  final Future<CitizenPreparedTransaction> Function(
+    Uint8List sourceAccountId,
+    Uint8List callData,
+  )
+  _prepareTransaction;
+  final Future<CitizenTransactionExecution> Function(String preparationId)
+  _executePreparedTransaction;
+  final Future<void> Function(String executionId)
+  _cancelPreparedTransactionExecution;
+  final Future<CitizenTransactionExecutionCompleted> Function(
+    String executionId,
+    String response,
+  )
+  _consumePreparedTransactionQrResponse;
 
-  final CitizenChain _chain;
-  final CitizenTransactions _transactions;
+  final ProposalQueryService Function(CitizenBlockRef block) _queryFactory;
 
   // ──── 常量 ────
 
@@ -137,31 +186,22 @@ class InternalVoteService {
     )
     externalSigning,
   }) async {
-    final prepared = await _transactions.prepareTransaction(
-      signerPublicKey,
-      callData,
-    );
-    final started = await _transactions.executePreparedTransaction(
-      prepared.preparationId,
-    );
+    final prepared = await _prepareTransaction(signerPublicKey, callData);
+    final started = await _executePreparedTransaction(prepared.preparationId);
     CitizenTransactionExecutionCompleted completed;
     if (started is CitizenTransactionExternalSigningPending) {
       final String? response;
       try {
         response = await externalSigning(started);
       } catch (_) {
-        await _transactions.cancelPreparedTransactionExecution(
-          started.executionId,
-        );
+        await _cancelPreparedTransactionExecution(started.executionId);
         rethrow;
       }
       if (response == null) {
-        await _transactions.cancelPreparedTransactionExecution(
-          started.executionId,
-        );
+        await _cancelPreparedTransactionExecution(started.executionId);
         throw StateError('投票签名已取消');
       }
-      completed = await _transactions.consumePreparedTransactionQrResponse(
+      completed = await _consumePreparedTransactionQrResponse(
         started.executionId,
         response,
       );
@@ -191,7 +231,7 @@ class InternalVoteService {
     required bool approve,
     required Uint8List signerPublicKey,
   }) async {
-    final query = ProposalQueryService(chain: _chain, block: execution.block);
+    final query = _queryFactory(execution.block);
     final events = await query.fetchExecutionEvents(execution);
     final matches = events
         .where(

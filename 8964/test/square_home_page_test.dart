@@ -60,29 +60,27 @@ class _NullIdentityCache implements CurrentUserContext {
   Future<String?> accountId() async => null;
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
-class _FakeWallet implements CitizenSdkWallet {
+class _FakeWallet extends TestWalletReads {
   _FakeWallet(this.wallet);
 
   final CitizenWalletStateAccount? wallet;
 
   @override
-  CitizenSdkOperation<CitizenWalletState> getState() => testCitizenOperation(
-    () async => CitizenWalletState(
-      initializationState: wallet == null
-          ? CitizenWalletInitializationState.empty
-          : CitizenWalletInitializationState.ready,
-      cleanupPending: false,
-      revision: BigInt.one,
-      hotProfile: null,
-      accounts: wallet == null ? const [] : [wallet!],
-    ),
-  );
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  CitizenSdkOperation<CitizenWalletState> getWalletState() =>
+      testCitizenOperation(
+        () async => CitizenWalletState(
+          initializationState: wallet == null
+              ? CitizenWalletInitializationState.empty
+              : CitizenWalletInitializationState.ready,
+          cleanupPending: false,
+          revision: BigInt.one,
+          hotProfile: null,
+          accounts: wallet == null ? const [] : [wallet!],
+        ),
+      );
 }
 
 class _StaticProfileMediaCache extends CitizenProfileMediaCache {
@@ -104,24 +102,33 @@ final _registeredWallet = CitizenWalletStateAccount(
 );
 
 SquareIdentityService _walletIdentityService({_LocalSnapshots? snapshots}) =>
-    SquareIdentityService(
-      wallet: _FakeWallet(_registeredWallet),
-      currentUserContext: _NullIdentityCache(),
-      badgeSnapshotStore: snapshots ?? _LocalSnapshots(),
-      profileCache: FakeProfileCache(),
-    );
+    (() {
+      final reads0 = _FakeWallet(_registeredWallet);
+      return SquareIdentityService(
+        getWalletState: reads0.getWalletState,
+        currentUserContext: _NullIdentityCache(),
+        badgeSnapshotStore: snapshots ?? _LocalSnapshots(),
+        profileCache: FakeProfileCache(),
+      );
+    })();
 
-SquareIdentityService _emptyIdentityService() => SquareIdentityService(
-  wallet: _FakeWallet(null),
-  currentUserContext: _NullIdentityCache(),
-  badgeSnapshotStore: _LocalSnapshots(),
-);
+SquareIdentityService _emptyIdentityService() => (() {
+  final reads0 = _FakeWallet(null);
+  return SquareIdentityService(
+    getWalletState: reads0.getWalletState,
+    currentUserContext: _NullIdentityCache(),
+    badgeSnapshotStore: _LocalSnapshots(),
+  );
+})();
 
-SquareIdentityService _unregisteredIdentityService() => SquareIdentityService(
-  wallet: _FakeWallet(_registeredWallet),
-  currentUserContext: _UnregisteredIdentityCache(),
-  badgeSnapshotStore: _LocalSnapshots(),
-);
+SquareIdentityService _unregisteredIdentityService() => (() {
+  final reads0 = _FakeWallet(_registeredWallet);
+  return SquareIdentityService(
+    getWalletState: reads0.getWalletState,
+    currentUserContext: _UnregisteredIdentityCache(),
+    badgeSnapshotStore: _LocalSnapshots(),
+  );
+})();
 
 /// 显示服务只依赖本地事实；测试记录本地读取，不提供链服务。
 class _LocalSnapshots extends IdentityBadgeSnapshotStore {
@@ -166,7 +173,7 @@ class _StaticComposeIdentityService implements SquareIdentityService {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _DelayedComposeIdentityService implements SquareIdentityService {
@@ -177,7 +184,7 @@ class _DelayedComposeIdentityService implements SquareIdentityService {
   Future<SquareIdentityState> loadCurrent() => completer.future;
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 /// 每次身份revision生成独立请求，验证旧账户迟到不会覆盖最新展示。
@@ -192,7 +199,7 @@ class _QueuedHomeIdentityService implements SquareIdentityService {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 /// 保留主页自行创建身份服务的生产接线，只控制公开当前用户解析的完成顺序。
@@ -273,7 +280,7 @@ class _ThrowingSessionProvider implements SquareSessionProvider {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _DeviceMissingSessionProvider implements SquareSessionProvider {
@@ -305,7 +312,7 @@ class _DeviceMissingSessionProvider implements SquareSessionProvider {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 /// 保持生产路径类型判断成立，但不访问真实 Worker。
@@ -353,7 +360,7 @@ class _UnregisteredIdentityCache implements CurrentUserContext {
   );
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 /// Worker 真源判定:登录挑战对未绑定账户回 403 cid_not_bound。
@@ -366,7 +373,7 @@ class _CidNotBoundSessionProvider implements SquareSessionProvider {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 /// 记录最近一次请求的分类，用于断言分类切换真的按 feedKind 重新拉流。
@@ -455,8 +462,6 @@ class _ReadyBusinessGate implements CidBusinessGate {
     CidBusinessStatus.ready,
     cidNumber: testMlsCidNumber,
   );
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 Widget _wrap(Widget child) {
@@ -489,7 +494,7 @@ class _GateMlsSessions implements SquareSessionProvider {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 void main() {
@@ -652,7 +657,6 @@ void main() {
 
   group('主页真实账户revision接线', () {
     useIsolatedIsar();
-    late TestCitizenSdkTransport transport;
     late CitizenSdk sdk;
     late AccountSecurityService security;
     late _QueuedHomeCurrentUser current;
@@ -661,36 +665,33 @@ void main() {
     late int badgeRevision;
     var walletReads = 0;
     var walletPresent = true;
+    CitizenSdkOperation<CitizenWalletState> readWallet() {
+      walletReads++;
+      return testCitizenOperation(
+        () => walletPresent
+            ? testCitizenWalletState()
+            : CitizenWalletState(
+                revision: BigInt.two,
+                hotProfile: null,
+                accounts: [],
+                initializationState: CitizenWalletInitializationState.empty,
+                cleanupPending: false,
+              ),
+      );
+    }
 
     setUp(() async {
       badgeRevision = IdentityBadgeSnapshotStore.revision.value;
       walletPresent = true;
-      transport = TestCitizenSdkTransport({
-        'getWalletState': (_) {
-          walletReads++;
-          return [
-            walletPresent
-                ? testCitizenWalletState()
-                : <Object?>[
-                    '2',
-                    null,
-                    <Object?>[],
-                    0,
-                    false,
-                    null,
-                    <Object?>[],
-                  ],
-          ];
-        },
-      });
-      sdk = await transport.open();
-      final account = (await sdk.wallet.getState().result).defaultAccount!;
+      final core = await openTestSdk();
+      sdk = core.sdk;
+      final account = testCitizenWalletState().defaultAccount!;
       walletReads = 0;
       current = _QueuedHomeCurrentUser();
       feed = _RecordingFeedSource();
       security = AccountSecurityService(
-        wallet: sdk.wallet,
-        signing: sdk.signing,
+        getWalletState: readWallet,
+        signing: sdk,
         mlsDeviceRegistrar: ({
           required cidNumber,
           required bindRev,
@@ -730,7 +731,7 @@ void main() {
     tearDown(() async {
       security.dispose();
       await sdk.close();
-      await transport.dispose();
+
       IdentityBadgeSnapshotStore.revision.value = badgeRevision;
     });
 
@@ -745,6 +746,7 @@ void main() {
       child: _wrap(
         SquareHomePage(
           tabOrderStore: const _MemoryTabOrderStore(),
+          walletStateReader: readWallet,
           feedSource: feed,
         ),
       ),
@@ -1760,7 +1762,6 @@ class _UnavailableTabSessions implements SquareSessionProvider {
 void _squareTabGateTests() {
   group('广场真实Tab事实门禁', () {
     useIsolatedIsar();
-    late TestCitizenSdkTransport transport;
     late CitizenSdk sdk;
     late AccountSecurityService security;
     late _TabGate gate;
@@ -1769,13 +1770,14 @@ void _squareTabGateTests() {
     setUp(() async {
       // 与既有真实主页回归相同，在真实异步区打开库，避免原生回调绑定到测试虚拟时钟。
       await UserIsar.instance.db();
-      transport = TestCitizenSdkTransport({
-        'getWalletState': (_) => [testCitizenWalletState()],
-      });
-      sdk = await transport.open();
+      final core = await openTestSdk(
+        modules: CitizenSdkModules.wallet | CitizenSdkModules.qr,
+      );
+      sdk = core.sdk;
+      await sdk.importColdAccount(accountId: testCitizenAccountId).result;
       security = AccountSecurityService(
-        wallet: sdk.wallet,
-        signing: sdk.signing,
+        getWalletState: sdk.getWalletState,
+        signing: sdk,
         mlsDeviceRegistrar: ({
           required cidNumber,
           required bindRev,
@@ -1793,7 +1795,7 @@ void _squareTabGateTests() {
       gate = _TabGate(CidBusinessStatus.ready);
       sessions = _UnavailableTabSessions();
       current = CurrentUserContext(
-        wallet: sdk.wallet,
+        getWalletState: sdk.getWalletState,
         accountSecurity: security,
         bindingReader: (accountId) async => IdentityBinding(
           genesisHash: '0x${'11' * 32}',
@@ -1808,7 +1810,6 @@ void _squareTabGateTests() {
       security.dispose();
       gate.revision.dispose();
       await sdk.close();
-      await transport.dispose();
     });
     Future<void> open(WidgetTester tester) async {
       await tester.pumpWidget(

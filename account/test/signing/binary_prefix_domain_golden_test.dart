@@ -11,16 +11,7 @@ const _fixturePath = 'account/test/signing/binary_prefix_domain_vectors.json';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  late TestCitizenSdkTransport encodingTransport;
-  late CitizenSdk encodingSdk;
-  setUp(() async {
-    encodingTransport = TestCitizenSdkTransport({}, useCore: true);
-    encodingSdk = await encodingTransport.open();
-  });
-  tearDown(() async {
-    await encodingSdk.close();
-    await encodingTransport.dispose();
-  });
+  TestCitizenSdkHarness();
   final file = File(_fixturePath);
   if (!file.existsSync()) {
     throw StateError('缺少原金标$_fixturePath');
@@ -41,7 +32,11 @@ void main() {
       final v = byName['ACTIVATE_ADMIN']!;
       expect(kOpSignActivateAdmin, 0x18);
       expect(
-        _hexLower((await CitizenSigning.encodePayload(CitizenSigningPayload.binaryPrefix(kOpSignActivateAdmin)))),
+        _hexLower(
+          (await CitizenSdk.encodePayload(
+            CitizenSigningPayload.binaryPrefix(kOpSignActivateAdmin),
+          )),
+        ),
         (v['prefix_hex'] as String).toLowerCase(),
       );
     });
@@ -50,7 +45,11 @@ void main() {
       final v = byName['DECRYPT']!;
       expect(kOpSignDecrypt, 0x19);
       expect(
-        _hexLower((await CitizenSigning.encodePayload(CitizenSigningPayload.binaryPrefix(kOpSignDecrypt)))),
+        _hexLower(
+          (await CitizenSdk.encodePayload(
+            CitizenSigningPayload.binaryPrefix(kOpSignDecrypt),
+          )),
+        ),
         (v['prefix_hex'] as String).toLowerCase(),
       );
     });
@@ -58,14 +57,20 @@ void main() {
     test('ACTIVATE_ADMIN payload 逐字节 == fixture == Rust', () async {
       final v = byName['ACTIVATE_ADMIN']!;
       final inputs = v['sample_inputs'] as Map<String, dynamic>;
-      final payload = (await CitizenSigning.encodePayload(CitizenSigningPayload.activateAdmin(
-        cidNumber: inputs['cid_number'] as String,
-        institutionCode: _hexToBytes(inputs['institution_code_hex'] as String),
-        kind: inputs['kind'] as int,
-        signerPublicKey: _hexToBytes(inputs['signer_public_key_hex'] as String),
-        timestamp: BigInt.from(inputs['timestamp'] as int),
-        nonce: _hexToBytes(inputs['nonce_hex'] as String),
-      )));
+      final payload = (await CitizenSdk.encodePayload(
+        CitizenSigningPayload.activateAdmin(
+          cidNumber: inputs['cid_number'] as String,
+          institutionCode: _hexToBytes(
+            inputs['institution_code_hex'] as String,
+          ),
+          kind: inputs['kind'] as int,
+          signerPublicKey: _hexToBytes(
+            inputs['signer_public_key_hex'] as String,
+          ),
+          timestamp: BigInt.from(inputs['timestamp'] as int),
+          nonce: _hexToBytes(inputs['nonce_hex'] as String),
+        ),
+      ));
       expect(payload.length, v['total_len'] as int);
       expect(_hexLower(payload), (v['payload_hex'] as String).toLowerCase());
     });
@@ -73,12 +78,16 @@ void main() {
     test('DECRYPT challenge 逐字节 == fixture == Rust', () async {
       final v = byName['DECRYPT']!;
       final inputs = v['sample_inputs'] as Map<String, dynamic>;
-      final payload = (await CitizenSigning.encodePayload(CitizenSigningPayload.decryptAdmin(
-        cidNumber: inputs['cid_number'] as String,
-        signerPublicKey: _hexToBytes(inputs['signer_public_key_hex'] as String),
-        timestamp: BigInt.from(inputs['timestamp'] as int),
-        nonce: _hexToBytes(inputs['nonce_hex'] as String),
-      )));
+      final payload = (await CitizenSdk.encodePayload(
+        CitizenSigningPayload.decryptAdmin(
+          cidNumber: inputs['cid_number'] as String,
+          signerPublicKey: _hexToBytes(
+            inputs['signer_public_key_hex'] as String,
+          ),
+          timestamp: BigInt.from(inputs['timestamp'] as int),
+          nonce: _hexToBytes(inputs['nonce_hex'] as String),
+        ),
+      ));
       expect(payload.length, v['total_len'] as int);
       expect(_hexLower(payload), (v['payload_hex'] as String).toLowerCase());
     });

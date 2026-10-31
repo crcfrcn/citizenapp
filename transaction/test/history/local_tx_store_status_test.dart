@@ -1,4 +1,4 @@
-import 'package:citizen_storage/wallet_isar.dart'
+import 'package:citizen_storage/user_isar.dart'
     as wallet_store
     show WalletCursor, Entry;
 import 'package:citizen_transaction/history/local_tx_store.dart';

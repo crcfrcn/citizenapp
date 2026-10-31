@@ -20,12 +20,14 @@ const _coldId =
     '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 
 void main() {
+  final core = TestCitizenSdkHarness();
   late AccountSecurityService security;
 
   setUp(() {
     security = AccountSecurityService(
-      wallet: _FakeWallet(_account(_hotId, CitizenWalletSignMode.hot)),
-      signing: _UnusedSigning(),
+      getWalletState: _FakeWallet(_account(_hotId, CitizenWalletSignMode.hot))
+          .getWalletState,
+      signing: core.sdk,
       blobStore: _MemoryStore(),
       mlsDeviceRegistrar: _registerNothing,
       coldMlsDeviceBindingSigner: _rejectColdBinding,
@@ -35,33 +37,39 @@ void main() {
 
   test('只读取 SDK 顺序第一账户的精确绑定', () async {
     final requested = <String>[];
-    final context = CurrentUserContext(
-      wallet: _FakeWallet(_account(_hotId, CitizenWalletSignMode.hot)),
-      accountSecurity: security,
-      bindingReader: (accountId) async {
-        requested.add(accountId);
-        return null;
-      },
-    );
+    final context = (() {
+      final reads0 = _FakeWallet(_account(_hotId, CitizenWalletSignMode.hot));
+      return CurrentUserContext(
+        getWalletState: reads0.getWalletState,
+        accountSecurity: security,
+        bindingReader: (accountId) async {
+          requested.add(accountId);
+          return null;
+        },
+      );
+    })();
     expect((await context.resolve())!.accountId, _hotId);
     expect(requested, [_hotId]);
   });
 
   test('缺绑定是未知，只有已核实空身份才是未注册', () async {
     for (final verified in [false, true]) {
-      final context = CurrentUserContext(
-        wallet: _FakeWallet(_account(_hotId, CitizenWalletSignMode.hot)),
-        accountSecurity: security,
-        bindingReader: (_) async => null,
-        identityReader: (_) async => verified
-            ? const IdentityBadgeSnapshot(
-                cidNumber: '',
-                cidLevel: 'visitor',
-                updatedAt: 1,
-                verified: true,
-              )
-            : null,
-      );
+      final context = (() {
+        final reads0 = _FakeWallet(_account(_hotId, CitizenWalletSignMode.hot));
+        return CurrentUserContext(
+          getWalletState: reads0.getWalletState,
+          accountSecurity: security,
+          bindingReader: (_) async => null,
+          identityReader: (_) async => verified
+              ? const IdentityBadgeSnapshot(
+                  cidNumber: '',
+                  cidLevel: 'visitor',
+                  updatedAt: 1,
+                  verified: true,
+                )
+              : null,
+        );
+      })();
       final current = (await context.resolve())!;
       expect(current.isRegistered, isFalse);
       expect(current.isUnregistered, verified);
@@ -69,28 +77,34 @@ void main() {
   });
 
   test('已核实未注册不会继续使用旧公开绑定', () async {
-    final context = CurrentUserContext(
-      wallet: _FakeWallet(_account(_hotId, CitizenWalletSignMode.hot)),
-      accountSecurity: security,
-      bindingReader: (_) async => _binding(_hotId, 'CID-OLD'),
-      identityReader: (_) async => const IdentityBadgeSnapshot(
-        cidNumber: '',
-        cidLevel: 'visitor',
-        updatedAt: 1,
-        verified: true,
-      ),
-    );
+    final context = (() {
+      final reads0 = _FakeWallet(_account(_hotId, CitizenWalletSignMode.hot));
+      return CurrentUserContext(
+        getWalletState: reads0.getWalletState,
+        accountSecurity: security,
+        bindingReader: (_) async => _binding(_hotId, 'CID-OLD'),
+        identityReader: (_) async => const IdentityBadgeSnapshot(
+          cidNumber: '',
+          cidLevel: 'visitor',
+          updatedAt: 1,
+          verified: true,
+        ),
+      );
+    })();
     final current = (await context.resolve())!;
     expect(current.binding, isNull);
     expect(current.isUnregistered, isTrue);
   });
 
   test('冷账户可以成为当前默认用户', () async {
-    final context = CurrentUserContext(
-      wallet: _FakeWallet(_account(_coldId, CitizenWalletSignMode.cold)),
-      accountSecurity: security,
-      bindingReader: (_) async => _binding(_coldId, 'CID-COLD'),
-    );
+    final context = (() {
+      final reads0 = _FakeWallet(_account(_coldId, CitizenWalletSignMode.cold));
+      return CurrentUserContext(
+        getWalletState: reads0.getWalletState,
+        accountSecurity: security,
+        bindingReader: (_) async => _binding(_coldId, 'CID-COLD'),
+      );
+    })();
     final current = await context.resolve();
     expect(current!.account.signMode, CitizenWalletSignMode.cold);
     expect(current.cidNumber, 'CID-COLD');
@@ -99,16 +113,19 @@ void main() {
   test('并发读取合并，显式失效后重新精确读取', () async {
     var calls = 0;
     final completer = Completer<IdentityBinding?>();
-    final context = CurrentUserContext(
-      wallet: _FakeWallet(_account(_hotId, CitizenWalletSignMode.hot)),
-      accountSecurity: security,
-      bindingReader: (_) {
-        calls += 1;
-        return calls == 1
-            ? completer.future
-            : Future.value(_binding(_hotId, 'CID-HOT'));
-      },
-    );
+    final context = (() {
+      final reads0 = _FakeWallet(_account(_hotId, CitizenWalletSignMode.hot));
+      return CurrentUserContext(
+        getWalletState: reads0.getWalletState,
+        accountSecurity: security,
+        bindingReader: (_) {
+          calls += 1;
+          return calls == 1
+              ? completer.future
+              : Future.value(_binding(_hotId, 'CID-HOT'));
+        },
+      );
+    })();
     final reads = [context.resolve(), context.resolve(), context.resolve()];
     completer.complete(_binding(_hotId, 'CID-HOT'));
     await Future.wait(reads);
@@ -121,11 +138,14 @@ void main() {
 
   test('账户上下文失效后拒绝迟到绑定，不返回旧账户数据', () async {
     final completion = Completer<IdentityBinding?>();
-    final context = CurrentUserContext(
-      wallet: _FakeWallet(_account(_hotId, CitizenWalletSignMode.hot)),
-      accountSecurity: security,
-      bindingReader: (_) => completion.future,
-    );
+    final context = (() {
+      final reads0 = _FakeWallet(_account(_hotId, CitizenWalletSignMode.hot));
+      return CurrentUserContext(
+        getWalletState: reads0.getWalletState,
+        accountSecurity: security,
+        bindingReader: (_) => completion.future,
+      );
+    })();
     final pending = context.resolve();
     await Future<void>.delayed(Duration.zero);
     context.invalidate();
@@ -144,11 +164,14 @@ void main() {
     await activate();
     final revision = security.revision.value;
     final completion = Completer<IdentityBinding?>();
-    final context = CurrentUserContext(
-      wallet: _FakeWallet(_account(_hotId, CitizenWalletSignMode.hot)),
-      accountSecurity: security,
-      bindingReader: (_) => completion.future,
-    );
+    final context = (() {
+      final reads0 = _FakeWallet(_account(_hotId, CitizenWalletSignMode.hot));
+      return CurrentUserContext(
+        getWalletState: reads0.getWalletState,
+        accountSecurity: security,
+        bindingReader: (_) => completion.future,
+      );
+    })();
     final pending = context.resolve();
     await Future<void>.delayed(Duration.zero);
     await activate();
@@ -160,11 +183,14 @@ void main() {
   });
 
   test('SDK 账户目录为空时返回 null', () async {
-    final context = CurrentUserContext(
-      wallet: _FakeWallet(null),
-      accountSecurity: security,
-      bindingReader: (_) async => throw StateError('不应读取绑定'),
-    );
+    final context = (() {
+      final reads0 = _FakeWallet(null);
+      return CurrentUserContext(
+        getWalletState: reads0.getWalletState,
+        accountSecurity: security,
+        bindingReader: (_) async => throw StateError('不应读取绑定'),
+      );
+    })();
     expect(await context.resolve(), isNull);
   });
 }
@@ -190,30 +216,23 @@ IdentityBinding _binding(String accountId, String cid) => IdentityBinding(
   accountId: accountId,
 );
 
-final class _FakeWallet implements CitizenSdkWallet {
+final class _FakeWallet extends TestWalletReads {
   _FakeWallet(this.account);
   final CitizenWalletStateAccount? account;
 
   @override
-  CitizenSdkOperation<CitizenWalletState> getState() => testCitizenOperation(
-    () async => CitizenWalletState(
-      initializationState: account == null
-          ? CitizenWalletInitializationState.empty
-          : CitizenWalletInitializationState.ready,
-      cleanupPending: false,
-      revision: BigInt.one,
-      hotProfile: null,
-      accounts: account == null ? const [] : [account!],
-    ),
-  );
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
-final class _UnusedSigning implements CitizenSigning {
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  CitizenSdkOperation<CitizenWalletState> getWalletState() =>
+      testCitizenOperation(
+        () async => CitizenWalletState(
+          initializationState: account == null
+              ? CitizenWalletInitializationState.empty
+              : CitizenWalletInitializationState.ready,
+          cleanupPending: false,
+          revision: BigInt.one,
+          hotProfile: null,
+          accounts: account == null ? const [] : [account!],
+        ),
+      );
 }
 
 Future<void> _registerNothing({

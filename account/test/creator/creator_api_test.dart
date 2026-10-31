@@ -220,16 +220,17 @@ void main() {
   });
 
   test('创作者展示快照按 CID 持久化并完整往返', () async {
-    final service = CreatorService(
-      chain: TestCitizenChain(),
-      transactions: TestCitizenTransactions(),
-      api: FakeCreatorApi(),
-      subscriptionChain: _FakeSubscriptionChain(),
-      wallet: _FakeWallet(),
-      identityResolver: _FakeIdentityCache(),
-      sessionProvider: _FakeSessionProvider(),
-      subscriptionService: _ActiveMembershipService(),
-    );
+    final service = (() {
+      final reads0 = _FakeWallet();
+      return CreatorService(
+        api: FakeCreatorApi(),
+        subscriptionChain: _FakeSubscriptionChain(),
+        getWalletState: reads0.getWalletState,
+        identityResolver: _FakeIdentityCache(),
+        sessionProvider: _FakeSessionProvider(),
+        subscriptionService: _ActiveMembershipService(),
+      );
+    })();
     final display = CreatorPageData.active(
       plan: const CreatorPlan(tiers: [tier]),
       overview: const CreatorOverview(
@@ -259,16 +260,17 @@ void main() {
     final api = _FlakyCreatorApi()..failSave = true;
     final rpc = _FakeSubscriptionChain();
     final sessionProvider = _FakeSessionProvider();
-    final service = CreatorService(
-      chain: TestCitizenChain(),
-      transactions: TestCitizenTransactions(),
-      api: api,
-      subscriptionChain: rpc,
-      wallet: _FakeWallet(),
-      identityResolver: _FakeIdentityCache(),
-      sessionProvider: sessionProvider,
-      subscriptionService: _ActiveMembershipService(),
-    );
+    final service = (() {
+      final reads0 = _FakeWallet();
+      return CreatorService(
+        api: api,
+        subscriptionChain: rpc,
+        getWalletState: reads0.getWalletState,
+        identityResolver: _FakeIdentityCache(),
+        sessionProvider: sessionProvider,
+        subscriptionService: _ActiveMembershipService(),
+      );
+    })();
 
     final saved = await service.saveTiers(const [tier]);
     expect(saved.tiers.single.tierName, '铁杆粉丝');
@@ -287,16 +289,17 @@ void main() {
 
   test('创作者刷新只使用 CitizenServe 会员与档位投影', () async {
     final rpc = _FakeSubscriptionChain();
-    final service = CreatorService(
-      chain: TestCitizenChain(),
-      transactions: TestCitizenTransactions(),
-      api: FakeCreatorApi(),
-      subscriptionChain: rpc,
-      wallet: _FakeWallet(),
-      identityResolver: _FakeIdentityCache(),
-      sessionProvider: _FakeSessionProvider(),
-      subscriptionService: _ActiveMembershipService(),
-    );
+    final service = (() {
+      final reads0 = _FakeWallet();
+      return CreatorService(
+        api: FakeCreatorApi(),
+        subscriptionChain: rpc,
+        getWalletState: reads0.getWalletState,
+        identityResolver: _FakeIdentityCache(),
+        sessionProvider: _FakeSessionProvider(),
+        subscriptionService: _ActiveMembershipService(),
+      );
+    })();
 
     final data = await service.load(expectedCidNumber: _creatorCid);
 
@@ -309,16 +312,17 @@ void main() {
     final api = FakeCreatorApi(
       initialPlan: CreatorPlan(tiers: [tier.copyWith(tierName: '核心支持者')]),
     );
-    final service = CreatorService(
-      chain: TestCitizenChain(),
-      transactions: TestCitizenTransactions(),
-      api: api,
-      subscriptionChain: rpc,
-      wallet: _FakeWallet(),
-      identityResolver: _FakeIdentityCache(),
-      sessionProvider: _FakeSessionProvider(),
-      subscriptionService: _ActiveMembershipService(),
-    );
+    final service = (() {
+      final reads0 = _FakeWallet();
+      return CreatorService(
+        api: api,
+        subscriptionChain: rpc,
+        getWalletState: reads0.getWalletState,
+        identityResolver: _FakeIdentityCache(),
+        sessionProvider: _FakeSessionProvider(),
+        subscriptionService: _ActiveMembershipService(),
+      );
+    })();
 
     final plan = await service.updateTierName(
       currentTiers: const [tier],
@@ -362,7 +366,7 @@ class _FakeSessionProvider implements SquareSessionProvider {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 /// 身份账户单源 fake：身份=账户0（与钱包/会话同账户），offline、不链读。
@@ -380,34 +384,32 @@ class _FakeIdentityCache implements FinalizedIdentityResolver {
   );
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
-class _FakeWallet implements CitizenSdkWallet {
+class _FakeWallet extends TestWalletReads {
   @override
-  CitizenSdkOperation<CitizenWalletState> getState() => testCitizenOperation(
-    () async => CitizenWalletState(
-      initializationState: CitizenWalletInitializationState.ready,
-      cleanupPending: false,
-      revision: BigInt.one,
-      hotProfile: null,
-      accounts: [
-        CitizenWalletStateAccount(
-          signMode: CitizenWalletSignMode.hot,
-          walletIndex: 1,
-          accountIndex: 0,
-          name: 'creator',
-          ss58Address: _signerSs58Address,
-          accountId: _accountId,
-          createdAtMillis: BigInt.zero,
-          isDefault: true,
+  CitizenSdkOperation<CitizenWalletState> getWalletState() =>
+      testCitizenOperation(
+        () async => CitizenWalletState(
+          initializationState: CitizenWalletInitializationState.ready,
+          cleanupPending: false,
+          revision: BigInt.one,
+          hotProfile: null,
+          accounts: [
+            CitizenWalletStateAccount(
+              signMode: CitizenWalletSignMode.hot,
+              walletIndex: 1,
+              accountIndex: 0,
+              name: 'creator',
+              ss58Address: _signerSs58Address,
+              accountId: _accountId,
+              createdAtMillis: BigInt.zero,
+              isDefault: true,
+            ),
+          ],
         ),
-      ],
-    ),
-  );
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+      );
 }
 
 class _ActiveMembershipService implements SubscriptionService {
@@ -428,12 +430,11 @@ class _ActiveMembershipService implements SubscriptionService {
   );
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _FakeSubscriptionChain extends SubscriptionChain {
-  _FakeSubscriptionChain()
-    : super(chain: TestCitizenChain(), transactions: TestCitizenTransactions());
+  _FakeSubscriptionChain() : super();
 
   int setPlansCount = 0;
   int renameCount = 0;

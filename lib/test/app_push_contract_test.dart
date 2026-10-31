@@ -79,8 +79,7 @@ void main() {
   });
 
   test('CitizenApp 双端只展示并清理固定聊天通知', () {
-    final android = File('android/app/MainActivity.kt')
-        .readAsStringSync();
+    final android = File('android/app/MainActivity.kt').readAsStringSync();
     final appPush = File('system/lib/notifications/app_push_service.dart')
         .readAsStringSync();
 

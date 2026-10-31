@@ -37,6 +37,7 @@ class SquareHomePage extends StatefulWidget {
   const SquareHomePage({
     super.key,
     this.identityService,
+    this.walletStateReader,
     this.feedSource,
     this.initialFeed,
     this.tabOrderStore,
@@ -48,6 +49,9 @@ class SquareHomePage extends StatefulWidget {
   });
 
   final SquareIdentityService? identityService;
+
+  /// 身份服务的公开钱包读取边界；缺省仍由同一SDK会话提供。
+  final CitizenSdkOperation<CitizenWalletState> Function()? walletStateReader;
   final SquareFeedSource? feedSource;
   final SquareFeedKind? initialFeed;
   final SquareTabOrderStore? tabOrderStore;
@@ -136,7 +140,8 @@ class _SquareHomePageState extends State<SquareHomePage> {
       final accountSecurity = context.read<AccountSecurityService>();
       _sessionProvider ??= context.read<SquareSessionProvider>();
       _identityService = SquareIdentityService(
-        wallet: sdk.wallet,
+        wallet: sdk,
+        getWalletState: widget.walletStateReader,
         currentUserContext: context.read<CurrentUserContext>(),
       );
       _accountSecurity = accountSecurity;

@@ -13,7 +13,7 @@ const box={Uint8Array,Uint16Array,Uint32Array,ArrayBuffer,DataView,TextEncoder,T
 box.self=box;vm.createContext(box);vm.runInContext(source,box);const api=box.CitizenTopup;
 const chains={ethereum:'eip155:1',base:'eip155:8453',bnb:'eip155:56',tron:'tron:0x2b6653dc',solana:'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp'};
 function session(network){const chain=chains[network],ns=chain.split(':')[0];return {namespaces:{[ns]:{accounts:[chain+':payer'],methods:ns==='eip155'?['personal_sign','eth_sendTransaction']:ns==='tron'?['tron_signMessage','tron_signTransaction']:['solana_signMessage','solana_signTransaction']}}};}
-function scenario(network,token=network==='solana'||network==='base'?'USDC':'USDT',package_id='pkg_15'){
+function scenario(network,token=network==='solana'||network==='base'?'USDC':'USDT',package_id='pkg_10'){
  let sent=0,signatures=0;const stages=[];const c={network,chain:chains[network],payer:'payer'};let current=c;
  const wallet={context:async()=>current,signMessage:async()=>{signatures++;return 'signature';},signTransaction:async()=>({raw:'signed'}),request:async()=>{sent++;return 'tx';}};
  const builder={prepare:async()=>({}),freeze:async()=>network==='tron'||network==='solana'?{txid:'tx',wire:'same-signed-bytes'}:{},broadcast:async()=>{sent++;return 'tx';}};
@@ -21,7 +21,7 @@ function scenario(network,token=network==='solana'||network==='base'?'USDC':'USD
  const ask=async(kind,value)=>{stages.push(kind);if(kind==='connected')return {context:c,selection:chosen,message:'CitizenServe Topup v1\n',expiresAt:2000};if(kind==='submitting')assert.equal(sent,0);return null;};
  return {wallet,builder,ask,now:()=>1000,selection:chosen,stages,get sent(){return sent;},get signatures(){return signatures;},change(){current={...c,payer:'changed'};}};
 }
-const choose=(token,network,package_id='pkg_15')=>({token,network,package_id});
+const choose=(token,network,package_id='pkg_10')=>({token,network,package_id});
 function tracePorts(){
  const relay=new EventEmitter();relay.connected=false;relay.connecting=true;relay.subscriber=new EventEmitter();relay.provider={connection:new EventEmitter()};
  const pairing=new EventEmitter(),provider=new EventEmitter();provider.client={core:{relayer:relay,pairing:{events:pairing}}};return {relay,pairing,provider};
@@ -86,7 +86,7 @@ test('六币轨由明确选择定位，多授权只使用所选链，缺失选�
  for(const [n,t] of [['ethereum','USDC'],['ethereum','USDT'],['base','USDC'],['bnb','USDT'],['tron','USDT'],['solana','USDC']])assert.equal(api.context(session(n),choose(t,n)).network,n);
  assert.throws(()=>api.context(session('base'),choose('USDT','base')));assert.throws(()=>api.context(session('tron'),choose('USDC','tron')));
  const s=session('ethereum');s.namespaces.eip155.accounts.push(chains.base+':payer');assert.equal(api.context(s,choose('USDC','base')).network,'base');
- assert.throws(()=>api.context(s,{token:'USDC',package_id:'pkg_15'}));assert.throws(()=>api.context(s,choose('USDC','base'),chains.ethereum));
+ assert.throws(()=>api.context(s,{token:'USDC',package_id:'pkg_10'}));assert.throws(()=>api.context(s,choose('USDC','base'),chains.ethereum));
  s.namespaces.eip155.accounts.push(chains.base+':other');assert.throws(()=>api.context(s,choose('USDC','base')));
  delete s.namespaces.eip155.methods;assert.throws(()=>api.context(s,choose('USDC','ethereum')));
 });
@@ -98,7 +98,7 @@ test('UniversalProvider公开连接参数只有所选主网与必要方法',()=>
  }
 });
 test('三协议同一流程严格按授权、提交前持久化、提交回执顺序',async()=>{
- for(const [n,t] of [['ethereum','USDC'],['ethereum','USDT'],['base','USDC'],['bnb','USDT'],['tron','USDT'],['solana','USDC']])for(const pkg of ['pkg_15','pkg_1400']){const s=scenario(n,t,pkg);assert.equal(await api.paymentFlow(s),'tx');assert.equal(s.sent,1);assert.equal(s.signatures,1);assert.deepEqual(s.stages,['connected','authorization','submitting','submitted']);}
+ for(const [n,t] of [['ethereum','USDC'],['ethereum','USDT'],['base','USDC'],['bnb','USDT'],['tron','USDT'],['solana','USDC']])for(const pkg of ['pkg_10','pkg_900']){const s=scenario(n,t,pkg);assert.equal(await api.paymentFlow(s),'tx');assert.equal(s.sent,1);assert.equal(s.signatures,1);assert.deepEqual(s.stages,['connected','authorization','submitting','submitted']);}
 });
 test('意图/授权/提交前落盘任一步失败均零付款，未知广播不重签重付',async()=>{
  for(const fail of ['connected','authorization','submitting']){const s=scenario('base'),original=s.ask;s.ask=async(k,v)=>{if(k===fail)throw Error('synthetic storage failure');return original(k,v);};await assert.rejects(api.paymentFlow(s));assert.equal(s.sent,0);}
@@ -143,7 +143,7 @@ test('实际Solana库构造ATA与TransferChecked，冻结验签拒绝改收款�
   assert.equal(context.network,'solana');assert.equal(context.payer,c.payer);calls.push(method);
   if(method==='sendTransaction'){assert.equal(params[0],expectedWire);assert.equal(params[1].skipPreflight,false);return expectedTx;}
   return method==='getGenesisHash'?'5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d':{value:{blockhash:new web3.PublicKey(new Uint8Array(32).fill(4)).toBase58(),lastValidBlockHeight:100}};
- });const p={rpc:'https://api.mainnet.solana.com',mint,receiver:fixture.config.rails.find(r=>r.network==='solana').recv_address,amount:'15000000',decimals:6};
+ });const p={rpc:'https://api.mainnet.solana.com',mint,receiver:fixture.config.rails.find(r=>r.network==='solana').recv_address,amount:'10000000',decimals:6};
  const built=await builder.prepare(c,p);assert.equal(built.raw.instructions.length,2);assert.equal(built.raw.instructions[1].data[0],12);assert.equal(built.raw.instructions[1].data[9],6);
  const signed=web3.Transaction.from(Buffer.from(built.raw.serialize({requireAllSignatures:false,verifySignatures:false})));signed.sign(signer);
  const frozen=await builder.freeze(c,built,{transaction:signed.serialize().toString('base64')});assert.equal(frozen.wire,signed.serialize().toString('base64'));await builder.validate(c,frozen);expectedWire=frozen.wire;expectedTx=frozen.txid;assert.equal(await builder.broadcast(c,frozen),frozen.txid);
@@ -151,7 +151,7 @@ test('实际Solana库构造ATA与TransferChecked，冻结验签拒绝改收款�
  assert.deepEqual(calls,['getGenesisHash','getLatestBlockhash','getGenesisHash','sendTransaction']);
 });
 test('实际Tron库构造整数合约付款与原签名冻结，改raw_data或签名拒绝',async()=>{
- const {TronWeb}=require('tronweb');const p={rpc:'https://tron.example.test',asset:fixture.native.tron.intent_data.asset,receiver:fixture.native.tron.intent_data.recv_address,amount:'15000000'};
+ const {TronWeb}=require('tronweb');const p={rpc:'https://tron.example.test',asset:fixture.native.tron.intent_data.asset,receiver:fixture.native.tron.intent_data.recv_address,amount:'10000000'};
  const web=new TronWeb({fullHost:p.rpc});const publicVector='01'.padStart(64,'0');const payer=TronWeb.address.fromPrivateKey(publicVector);
  class LocalTron extends TronWeb {constructor(){super({fullHost:p.rpc});this.trx={getBlock:async()=>({blockID:'00000000000000001ebf88508a03865c71d452e25f4d51194196a1d22b6653dc'})};this.transactionBuilder={triggerSmartContract:async(asset,selector,options,parameters,owner)=>{
   assert.equal(asset,p.asset);assert.equal(selector,'transfer(address,uint256)');assert.equal(options.callValue,0);assert.equal(parameters[1].value,p.amount);assert.equal(owner,payer);
@@ -205,7 +205,7 @@ test('不支持切链方法的钱包仍只能按批准的目标链请求，其�
 });
 test('付款选择或报价元组被更换时在签名和广播前停止',async()=>{
  const wrong=scenario('base');wrong.selection=choose('USDC','ethereum');await assert.rejects(api.paymentFlow(wrong));assert.equal(wrong.signatures,0);assert.equal(wrong.sent,0);
- const changed=scenario('base'),ask=changed.ask;changed.ask=async(k,v)=>{const p=await ask(k,v);return k==='connected'?{...p,selection:choose('USDC','base','pkg_1400')}:p;};await assert.rejects(api.paymentFlow(changed));assert.equal(changed.signatures,0);assert.equal(changed.sent,0);
+ const changed=scenario('base'),ask=changed.ask;changed.ask=async(k,v)=>{const p=await ask(k,v);return k==='connected'?{...p,selection:choose('USDC','base','pkg_900')}:p;};await assert.rejects(api.paymentFlow(changed));assert.equal(changed.signatures,0);assert.equal(changed.sent,0);
  const delayed=scenario('base'),original=delayed.ask;delayed.ask=async(k,v)=>{const p=await original(k,v);if(k==='connected')delayed.change();return p;};await assert.rejects(api.paymentFlow(delayed));assert.equal(delayed.signatures,0);assert.equal(delayed.sent,0);
 });
 
@@ -227,7 +227,7 @@ test('实际start经原生桥接恢复Solana原字节，跨域fetch零调用且�
  const rail=fixture.config.rails.find(r=>r.network==='solana');
  const genesis='5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d';
  const builder=await api.defaultBuilder(async()=>({}));
- const raw=await api.buildSolana(signer.publicKey.toBase58(),{mint:rail.asset,receiver:rail.recv_address,amount:'15000000',decimals:6},web3,require('@solana/spl-token'),async method=>method==='getGenesisHash'?genesis:{value:{blockhash:new web3.PublicKey(new Uint8Array(32).fill(7)).toBase58(),lastValidBlockHeight:100}});
+ const raw=await api.buildSolana(signer.publicKey.toBase58(),{mint:rail.asset,receiver:rail.recv_address,amount:'10000000',decimals:6},web3,require('@solana/spl-token'),async method=>method==='getGenesisHash'?genesis:{value:{blockhash:new web3.PublicKey(new Uint8Array(32).fill(7)).toBase58(),lastValidBlockHeight:100}});
  raw.sign(signer);const c={network:'solana',chain:chains.solana,payer:signer.publicKey.toBase58()};
  const frozen=await builder.freeze(c,{raw,web3,rpc:'https://api.mainnet.solana.com'},{transaction:raw.serialize().toString('base64')});
  const cfg={session:'synthetic-session',selection:choose('USDC','solana'),replay:{...frozen,context:c,expiresAt:Date.now()+60000}};
@@ -266,7 +266,7 @@ function pickerDocument(){
 function assertPicker(options){
  const ids=Array.from(api.wallets,w=>w.id);
  assert.equal(ids.length,6);assert.equal(new Set(ids).size,6);for(const id of ids)assert.match(id,/^[a-f0-9]{64}$/);
- assert.deepEqual(Array.from(api.wallets,w=>w.name),['MetaMask','imToken','Trust Wallet','Binance Wallet','OKX Wallet','Coinbase Wallet']);
+ assert.deepEqual(Array.from(api.wallets,w=>w.name),['MetaMask','imToken','Trust Wallet','币安钱包','欧易钱包','Coinbase Wallet']);
  assert.deepEqual(Array.from(api.wallets,w=>w.enabled),[true,false,false,false,false,false]);
  assert.ok(Object.isFrozen(api.wallets));for(const wallet of api.wallets)assert.ok(Object.isFrozen(wallet));
  assert.deepEqual(Array.from(options.includeWalletIds),[ids[0]]);assert.deepEqual(Array.from(options.featuredWalletIds),[ids[0]]);
@@ -278,16 +278,23 @@ function connectMetaMask(provider,chosen,options,createAppKit,report,trace,links
  return api.connectWallet(provider,chosen,options,createAppKit,report,trace,{walletId:api.wallets[0].id,...links});
 }
 function modalPort(){return {open:async()=>{},subscribeState:()=>()=>{},close:async()=>{}};}
+test('钱包HTML适配底部弹窗，保留六钱包网格规则且不提供独立支付标题',()=>{
+ const html=readFileSync(new URL('../../../transaction/web/walletconnect.html',import.meta.url),'utf8');
+ assert.match(html,/<title>选择钱包<\/title>/);assert.ok(!html.includes('连接钱包支付'));
+ assert.match(html,/justify-content: flex-start/);
+ assert.match(html,/background: #FFFFFF/);
+ assert.match(html,/grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
+});
 test('六宫格顺序、禁用标记和伪造点击围栏；重复MetaMask点击只选择一次',async()=>{
  const document=pickerDocument();let selected=0;
  const pending=api.pickWallet(document,'synthetic-project').then(id=>{selected++;return id;});
  const grid=document.getElementById('wallets');assert.equal(grid.children.length,6);
- assert.deepEqual(grid.children.map(b=>b.children[1].textContent),['MetaMask','imToken','Trust Wallet','Binance Wallet','OKX Wallet','Coinbase Wallet']);
+ assert.deepEqual(grid.children.map(b=>b.children[1].textContent),['MetaMask','imToken','Trust Wallet','币安钱包','欧易钱包','Coinbase Wallet']);
  for(const button of grid.children.slice(1)){assert.equal(button.disabled,true);assert.equal(button.attributes.get('aria-disabled'),'true');assert.equal(button.children[2].textContent,'暂未开放');button.click();}
  await Promise.resolve();assert.equal(selected,0);assert.equal(grid.hidden,false);
  grid.children[0].click();grid.children[0].click();assert.equal(await pending,api.wallets[0].id);assert.equal(selected,1);
  assert.equal(grid.hidden,true);assert.equal(document.getElementById('spinner').hidden,false);assert.ok(grid.children.every(b=>b.disabled));
- for(const button of grid.children){const src=new URL(button.children[0].src);assert.equal(src.hostname,'api.web3modal.org');assert.equal(src.searchParams.get('projectId'),'synthetic-project');assert.equal(src.searchParams.get('st'),'appkit');assert.equal(src.searchParams.get('sv'),'html-core-'+require('@reown/appkit/constants').PACKAGE_VERSION);}
+ for(const button of grid.children){const icon=button.children[0];assert.equal(icon.width,64);assert.equal(icon.height,64);const src=new URL(icon.src);assert.equal(src.hostname,'api.web3modal.org');assert.equal(src.searchParams.get('projectId'),'synthetic-project');assert.equal(src.searchParams.get('st'),'appkit');assert.equal(src.searchParams.get('sv'),'html-core-'+require('@reown/appkit/constants').PACKAGE_VERSION);}
  const html=readFileSync(new URL('../../../transaction/web/walletconnect.html',import.meta.url),'utf8');
  assert.match(html,/grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);assert.match(html,/\[hidden\] \{ display: none !important/);
  assert.ok(!html.includes('w3m-modal'));assert.match(html,/id="spinner" hidden/);

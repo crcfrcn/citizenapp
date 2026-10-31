@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 
 import 'dart:typed_data';
@@ -17,22 +18,22 @@ final String _pubHex = _pubBytes
     .join();
 
 Future<Uint8List> _payloadBytes() async => Uint8List.fromList(<int>[
-  ...(await CitizenSigning.encodePayload(
+  ...(await CitizenSdk.encodePayload(
     CitizenSigningPayload.scaleString('cancel_membership'),
   )),
-  ...(await CitizenSigning.encodePayload(
+  ...(await CitizenSdk.encodePayload(
     CitizenSigningPayload.scaleString(_accountId),
   )),
-  ...(await CitizenSigning.encodePayload(
+  ...(await CitizenSdk.encodePayload(
     CitizenSigningPayload.scaleString('sqa_1'),
   )),
-  ...(await CitizenSigning.encodePayload(
+  ...(await CitizenSdk.encodePayload(
     CitizenSigningPayload.u64Le(BigInt.from(1700000000000)),
   )),
 ]);
 
 Future<String> _signRequestRaw(
-  CitizenQr qr, {
+  CitizenSdk qr, {
   int action = CitizenQrActions.squareAccountAction,
 }) async {
   return (await qr.encodeDocument(
@@ -59,72 +60,58 @@ CitizenWalletStateAccount _account({required String accountId, int index = 3}) {
   );
 }
 
-class _FakeWallet implements CitizenSdkWallet {
+class _FakeWallet extends TestWalletReads {
   _FakeWallet(this._accounts);
   final List<CitizenWalletStateAccount> _accounts;
 
   @override
-  CitizenSdkOperation<CitizenWalletState> getState() => testCitizenOperation(
-    () async => CitizenWalletState(
-      initializationState: _accounts.isEmpty
-          ? CitizenWalletInitializationState.empty
-          : CitizenWalletInitializationState.ready,
-      cleanupPending: false,
-      revision: BigInt.one,
-      hotProfile: null,
-      accounts: _accounts,
-    ),
-  );
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  CitizenSdkOperation<CitizenWalletState> getWalletState() =>
+      testCitizenOperation(
+        () async => CitizenWalletState(
+          initializationState: _accounts.isEmpty
+              ? CitizenWalletInitializationState.empty
+              : CitizenWalletInitializationState.ready,
+          cleanupPending: false,
+          revision: BigInt.one,
+          hotProfile: null,
+          accounts: _accounts,
+        ),
+      );
 }
 
-class _FakeSigning implements CitizenSigning {
+// 仅提供业务所假定的外部签名结果，协议编码与解析仍经真实Core。
+class _FakeSigning {
   Uint8List signature = Uint8List(64)..fillRange(0, 64, 0x5a);
   Uint8List? signedPayload;
   String? signedAccountId;
 
-  @override
-  CitizenSdkOperation<CitizenSigningOutcome> begin(
-    CitizenSigningIntent intent,
-  ) => testCitizenOperation(() async {
-    signedAccountId = intent.accountId;
-    signedPayload = intent.payload;
-    return CitizenSigningCompleted(
-      accountId: intent.accountId,
-      payloadHash: '0x${'00' * 32}',
-      signature: signature,
-    );
-  });
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  Future<Uint8List> sign(
+    String accountId,
+    Uint8List payload,
+    int action,
+    BuildContext? context,
+  ) async {
+    signedAccountId = accountId;
+    signedPayload = Uint8List.fromList(payload);
+    return signature;
+  }
 }
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  late TestCitizenSdkTransport encodingTransport;
-  late CitizenSdk encodingSdk;
-  setUp(() async {
-    encodingTransport = TestCitizenSdkTransport({}, useCore: true);
-    encodingSdk = await encodingTransport.open();
-  });
-  tearDown(() async {
-    await encodingSdk.close();
-    await encodingTransport.dispose();
-  });
+  final encoding = TestCitizenSdkHarness();
 
   late SquareActionSignService service;
   setUp(() {
-    service = SquareActionSignService(qr: encodingSdk.qr);
+    service = SquareActionSignService(qr: encoding.sdk);
   });
 
   test('prepare resolves accountId wallet by QR u signer public key + decodes action', () async {
     final wm = _FakeWallet([_account(accountId: '0x$_pubHex')]);
     final prep = await service.prepare(
-      await _signRequestRaw(encodingSdk.qr),
-      wm,
+      await _signRequestRaw(encoding.sdk),
+      null,
+      getWalletState: (wm).getWalletState,
     );
     expect(prep.account.accountIndex, 3);
     expect(prep.actionLabel, '广场账户动作签名');
@@ -137,8 +124,9 @@ void main() {
     final wm = _FakeWallet([_account(accountId: '0x$_pubHex')]);
     await expectLater(
       service.prepare(
-        await _signRequestRaw(encodingSdk.qr, action: 0x7fff),
-        wm,
+        await _signRequestRaw(encoding.sdk, action: 0x7fff),
+        null,
+        getWalletState: (wm).getWalletState,
       ),
       throwsA(
         isA<SquareActionSignException>()
@@ -160,8 +148,9 @@ void main() {
     final wm = _FakeWallet([_account(accountId: '0x$_pubHex')]);
     await expectLater(
       service.prepare(
-        await _signRequestRaw(encodingSdk.qr, action: CitizenQrActions.login),
-        wm,
+        await _signRequestRaw(encoding.sdk, action: CitizenQrActions.login),
+        null,
+        getWalletState: (wm).getWalletState,
       ),
       throwsA(
         isA<SquareActionSignException>()
@@ -182,7 +171,11 @@ void main() {
   test('prepare throws accountNotLocal when no wallet matches u', () async {
     final wm = _FakeWallet([_account(accountId: '0x${'aa' * 32}')]);
     await expectLater(
-      service.prepare(await _signRequestRaw(encodingSdk.qr), wm),
+      service.prepare(
+        await _signRequestRaw(encoding.sdk),
+        null,
+        getWalletState: (wm).getWalletState,
+      ),
       throwsA(
         isA<SquareActionSignException>().having(
           (e) => e.error,
@@ -199,9 +192,10 @@ void main() {
       final wm = _FakeWallet([_account(accountId: '0x$_pubHex')]);
       await expectLater(
         service.prepare(
-          await _signRequestRaw(encodingSdk.qr),
-          wm,
+          await _signRequestRaw(encoding.sdk),
+          null,
           requiredAccount: _account(accountId: '0x${'aa' * 32}'),
+          getWalletState: (wm).getWalletState,
         ),
         throwsA(
           isA<SquareActionSignException>().having(
@@ -217,16 +211,22 @@ void main() {
   test('sign signs signing_message(0x1D) with accountId wallet and builds signResponse', () async {
     final wm = _FakeWallet([_account(accountId: '0x$_pubHex')]);
     final prep = await service.prepare(
-      await _signRequestRaw(encodingSdk.qr),
-      wm,
+      await _signRequestRaw(encoding.sdk),
+      null,
+      getWalletState: (wm).getWalletState,
     );
     final signing = _FakeSigning();
 
-    final responseData = await service.sign(prep, signing, null);
+    final responseData = await service.sign(
+      prep,
+      null,
+      null,
+      payloadSigner: (signing).sign,
+    );
 
     // 用 QR 指定的 account_id 对 signing_message(0x1D, payload) 签名。
     expect(signing.signedAccountId, '0x$_pubHex');
-    final expected = await CitizenSigning.encodePayload(
+    final expected = await CitizenSdk.encodePayload(
       CitizenSigningPayload.message(
         opTag: kOpSignSquareAction,
         scalePayload: await _payloadBytes(),
@@ -235,7 +235,7 @@ void main() {
     expect(signing.signedPayload, expected);
 
     // 响应由同一SDK解码；保留签名、请求标识及有效期绑定断言。
-    final response = await encodingSdk.qr.parse(responseData);
+    final response = await encoding.sdk.parseQr(responseData);
     expect(response.kind, CitizenQrKind.signResponse);
     expect(response.signature, hasLength(64));
     expect(response.signature, signing.signature);

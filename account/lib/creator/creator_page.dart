@@ -95,9 +95,9 @@ class _CreatorPageState extends State<CreatorPage> {
     final sdk = context.read<CitizenSdk>();
     final accountSecurity = context.read<AccountSecurityService>();
     _service = CreatorService(
-      wallet: sdk.wallet,
-      chain: sdk.chain,
-      transactions: sdk.transactions,
+      wallet: sdk,
+      chain: sdk,
+      transactions: sdk,
       identityResolver: context.read<FinalizedIdentityResolver>(),
       sessionProvider: context.read<SquareSessionProvider>(),
     );

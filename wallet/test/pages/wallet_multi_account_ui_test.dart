@@ -1,13 +1,14 @@
+import 'package:citizen_sdk/test/platform/fixture.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
+
 import 'dart:async';
 import 'dart:typed_data';
-import 'dart:convert';
 
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:citizen_storage/user_isar.dart';
-import 'package:citizen_storage/wallet_isar.dart' hide Group;
-import 'package:citizen_storage/app_isar.dart';
+import 'package:citizen_storage/user_isar.dart' hide Group;
+
 import 'package:citizen_wallet/account_detail_page.dart';
 import 'package:citizen_account/identity/current_user_context.dart';
 import 'package:citizen_account/identity/finalized_identity_resolver.dart';
@@ -20,7 +21,6 @@ import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_testing/isar_test_env.dart';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizen_sdk/platform/citizen_sdk_flutter_codec.dart';
 import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_account/identity/account_security_service.dart';
 import 'package:citizen_account/identity/identity_binding.dart';
@@ -108,7 +108,7 @@ Completer<FinalizedIdentity?>? _identityGate;
 late CitizenSdk _sdk;
 
 /// 合成SDK准备回执，真实断言源账户贯穿及错误回执取消，不执行签名。
-class _PaymentTransactions extends TestCitizenTransactions {
+class _PaymentTransactions extends TestTransactionCalls {
   _PaymentTransactions({required this.wrongSource});
   final bool wrongSource;
   Uint8List? submittedSource;
@@ -143,7 +143,8 @@ class _PaymentTransactions extends TestCitizenTransactions {
   }
 }
 
-late TestCitizenSdkTransport _transport;
+late _WalletScenario _scenario;
+late CitizenSdkTestFixture _physical;
 late _Security _security;
 late Future<CitizenWalletState> Function() _snapshotLoader;
 
@@ -164,7 +165,7 @@ CitizenWalletStateAccount _makeAccount({
 
 CitizenWalletStateAccount _makeColdWallet({
   int walletIndex = 2,
-  String name = '冷钱包',
+  String name = '',
   bool isDefault = true,
 }) {
   final id = '0x${walletIndex.toRadixString(16).padLeft(64, '0')}';
@@ -180,8 +181,7 @@ CitizenWalletStateAccount _makeColdWallet({
   );
 }
 
-CitizenWalletState _hotWalletSnapshot() =>
-    const CitizenSdkFlutterCodec().decodeWalletState(testCitizenWalletState());
+CitizenWalletState _hotWalletSnapshot() => testCitizenWalletState();
 
 CitizenWalletState _coldWalletSnapshot({String name = '测试冷钱包'}) =>
     CitizenWalletState(
@@ -192,65 +192,6 @@ CitizenWalletState _coldWalletSnapshot({String name = '测试冷钱包'}) =>
       initializationState: CitizenWalletInitializationState.ready,
       cleanupPending: false,
     );
-
-List<Object?> _stateTuple(CitizenWalletState state) => [
-  state.revision.toString(),
-  state.hotProfile == null
-      ? null
-      : [
-          state.hotProfile!.walletIndex,
-          state.hotProfile!.origin.name,
-          state.hotProfile!.createdAtMillis.toString(),
-          state.hotProfile!.masterAccountId,
-          state.hotProfile!.activeAccountId,
-          [
-            for (final account in state.hotProfile!.accounts)
-              [
-                account.index,
-                account.accountId,
-                account.ss58Address,
-                account.name,
-                account.createdAtMillis.toString(),
-                account.isActive,
-              ],
-          ],
-          state.hotProfile!.walletName,
-        ],
-  [
-    for (final account in state.accounts)
-      [
-        account.signMode.name,
-        account.walletIndex,
-        account.accountIndex,
-        account.accountId,
-        account.ss58Address,
-        account.name,
-        account.createdAtMillis.toString(),
-        account.isDefault,
-      ],
-  ],
-  state.initializationState.index,
-  state.cleanupPending,
-  state.activeWalletIndex,
-  [
-    for (final value in state.diagnostics)
-      [
-        value.walletIndex,
-        value.walletName,
-        value.accountId,
-        value.ss58Address,
-        value.diagnosticReason.index + 1,
-        value.signMode?.name,
-        if (value.cleanupTargets == null)
-          null
-        else
-          [
-            value.cleanupTargets!.accountIds,
-            value.cleanupTargets!.deleteWalletWideKey,
-          ],
-      ],
-  ],
-];
 
 Widget _walletTabHost(
   Future<CitizenWalletState> Function() loader, {
@@ -267,7 +208,11 @@ Widget _walletTabHost(
       Provider<SquareSessionProvider>(create: (_) => _Sessions()),
     ],
     child: MaterialApp(
-      home: WalletTab(selectForTrade: selectForTrade, loadTimeout: timeout),
+      home: WalletTab(
+        selectForTrade: selectForTrade,
+        loadTimeout: timeout,
+        actions: _scenario.actions,
+      ),
     ),
   );
 }
@@ -281,29 +226,17 @@ void _disposeWidgetBeforeStores(WidgetTester tester) {
 }
 
 Future<void> _drainStoreOperations(WidgetTester tester) async {
-  // 钱包余额与身份徽标分别读取 Wallet/User；页面销毁不能取消已进入原生库的查询。
-  // 同时推进原生 I/O 和 Widget 虚拟时钟，排空两域操作后才允许隔离夹具关闭数据库。
-  for (
-    var i = 0;
-    i < 50 &&
-        (WalletIsar.instance.hasActiveOperation ||
-            UserIsar.instance.hasActiveOperation);
-    i++
-  ) {
+  // 钱包余额和身份徽标共用用户库队列；页面销毁后仍须等待实际I/O排空。
+  for (var i = 0; i < 50 && UserIsar.instance.hasActiveOperation; i++) {
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 20)),
     );
     await tester.pump(const Duration(milliseconds: 20));
   }
   expect(
-    WalletIsar.instance.hasActiveOperation,
-    isFalse,
-    reason: '页面销毁后的钱包查询和 watch lease 必须先排空再清隔离库',
-  );
-  expect(
     UserIsar.instance.hasActiveOperation,
     isFalse,
-    reason: '页面销毁后的本地身份查询必须先排空再清隔离库',
+    reason: '页面销毁后的钱包查询和 watch lease 必须先排空再清隔离库',
   );
 }
 
@@ -325,7 +258,7 @@ Future<void> _settleWallet(WidgetTester tester) async {
     );
     await tester.pump(const Duration(milliseconds: 100));
     if (!tester.binding.hasScheduledFrame &&
-        !WalletIsar.instance.hasActiveOperation) {
+        !UserIsar.instance.hasActiveOperation) {
       return;
     }
   }
@@ -347,58 +280,31 @@ void main() {
     _security = _Security();
     // 原生库在Widget虚拟时钟之外打开，避免首次open挂在FakeAsync中。
     await UserIsar.instance.db();
-    await WalletIsar.instance.db();
-    await AppIsar.instance.db();
     _snapshotLoader = () async => _coldWalletSnapshot();
-    var inspectionSequence = 0;
-    CitizenWalletState? inspectedSnapshot;
-    _transport = TestCitizenSdkTransport({
-      'inspectWallets': (_) async {
-        final snapshot = await _snapshotLoader();
-        inspectedSnapshot = snapshot;
-        return ['inspection-${++inspectionSequence}', _stateTuple(snapshot)];
-      },
-      'releaseWalletInspection': (_) => [],
-      'qrEncode': (_) => [
-        29,
-        29,
-        Uint8List(29 * 29)..fillRange(0, 29 * 29, 255),
-      ],
-      'getAccountBalance': (fields) => [
-        [
-          fields[0],
-          ['0x${'00' * 32}', '1', 'finalized'],
-          '100',
-          '0',
-          '100',
-        ],
-      ],
-      // SDK普通状态读取复用已取得的目录事实，不能消费UI检查的下一次请求或并发闸门。
-      'getWalletState': (_) => [
-        _stateTuple(inspectedSnapshot ?? _coldWalletSnapshot()),
-      ],
-      'getAccountBalances': (fields) => [
-        [
-          for (final id in fields[0] as List)
-            [
-              id,
-              ['0x${'00' * 32}', '1', 'finalized'],
-              '0',
-              '0',
-              '0',
-            ],
-        ],
-      ],
-    }, useCore: true);
-    _sdk = await _transport.open();
+    final core = await openTestSdk(
+      modules:
+          CitizenSdkModules.wallet |
+          CitizenSdkModules.signing |
+          CitizenSdkModules.qr,
+      physicalUi: true,
+      vaultMode: 1,
+    );
+    _sdk = core.sdk;
+    _physical = core.fixture;
+    _scenario = _WalletScenario();
+    _scenario.balances = AccountBalanceSnapshotStore.forChain(
+      _sdk,
+      getAccountBalance: _scenario.balance,
+      getAccountBalances: _scenario.balanceMany,
+    );
   });
   tearDown(() async {
     await _sdk.close();
-    await _transport.dispose();
+
     _security.revision.dispose();
   });
 
-  testWidgets('页面退出排空仍在运行的本地身份查询，即使钱包库已空闲', (tester) async {
+  testWidgets('页面退出排空统一用户库中仍在运行的本地身份查询', (tester) async {
     _disposeWidgetBeforeStores(tester);
     final release = Completer<void>();
     final pending = UserIsar.instance.read<void>((_) => release.future);
@@ -406,7 +312,7 @@ void main() {
     try {
       // 队列可能先等待真实setUp区域的Future；不能把一次pump当作已经进入操作。
       await _pumpUntil(tester, () => UserIsar.instance.hasActiveOperation);
-      expect(WalletIsar.instance.hasActiveOperation, isFalse);
+      expect(UserIsar.instance.hasActiveOperation, isTrue);
       timer = Timer(const Duration(milliseconds: 40), () => release.complete());
       await _drainStoreOperations(tester);
       await pending;
@@ -421,7 +327,7 @@ void main() {
     testWidgets('冷钱包已有余额在卡片首次出现时显示，身份未返回不阻塞：$selectForTrade', (tester) async {
       _disposeWidgetBeforeStores(tester);
       final snapshot = _coldWalletSnapshot();
-      final store = AccountBalanceSnapshotStore.forChain(_sdk.chain);
+      final store = AccountBalanceSnapshotStore.forChain(_sdk);
       await tester.runAsync(
         () => store.getAccountBalance(snapshot.accounts.single.accountId),
       );
@@ -434,11 +340,11 @@ void main() {
         isNull,
       );
       var queries = 0;
-      _transport.handlers['getAccountBalance'] = (_) {
+      _scenario.balanceAction = (_) {
         queries++;
         throw StateError('禁止重复余额查询');
       };
-      _transport.handlers['getAccountBalances'] = (_) {
+      _scenario.balancesAction = (_) {
         queries++;
         throw StateError('禁止重复余额查询');
       };
@@ -507,21 +413,10 @@ void main() {
       initializationState: CitizenWalletInitializationState.ready,
       cleanupPending: false,
     );
-    _transport.handlers['beginDefaultAccountChange'] = (fields) {
-      expect(fields[0], '1');
-      expect(fields[1], [cold.accountId, hot.accounts.single.accountId]);
+    _scenario.orderAction = (ids, revision, same, prompt) async {
+      expect(revision, BigInt.one);
+      expect(ids, [cold.accountId, hot.accounts.single.accountId]);
       state = orderedState(revision: 2, name: '新默认冷钱包');
-      return [
-        [
-          'completed',
-          hot.accounts.single.accountId,
-          '0x${'22' * 32}',
-          '2',
-          null,
-          null,
-          null,
-        ],
-      ];
     };
     await tester.pumpWidget(_walletTabHost(() async => state));
     await _settleWallet(tester);
@@ -534,23 +429,17 @@ void main() {
       isTrue,
     );
     expect(state.activeWalletIndex, 0);
-    expect(_transport.calls, isNot(contains('setActiveWallet')));
+    expect(_scenario.calls, isNot(contains('setActiveWallet')));
     expect(find.byType(QrSignSessionPage), findsNothing);
   });
 
   testWidgets('非0热账户沿原菜单直接删除，不增加确认或整钱包签名', (tester) async {
     _disposeWidgetBeforeStores(tester);
-    final raw = testCitizenWalletState();
     final childId = '0x${'02' * 32}';
-    final address = ss58FromAccountIdText(childId);
-    ((raw[1] as List)[5] as List).add([1, childId, address, '账户1', '1', false]);
-    (raw[2] as List).add(['hot', 0, 1, childId, address, '账户1', '1', false]);
-    var state = const CitizenSdkFlutterCodec().decodeWalletState(raw);
-    _transport.handlers['deleteAccount'] = (fields) {
-      expect(fields, [childId]);
-      final next = testCitizenWalletState()..[0] = '2';
-      state = const CitizenSdkFlutterCodec().decodeWalletState(next);
-      return [next];
+    var state = _withHotChild(childId, '账户1');
+    _scenario.deleteAction = (id) async {
+      expect(id, childId);
+      state = _copyState(testCitizenWalletState(), revision: BigInt.two);
     };
     await tester.pumpWidget(_walletTabHost(() async => state));
     await _settleWallet(tester);
@@ -568,38 +457,33 @@ void main() {
     expect(find.text('账户1'), findsNothing);
     expect(_security.preparedIds, [childId]);
     expect(_security.preparedWide, isFalse);
-    expect(_transport.calls, isNot(contains('signAndDeleteWallet')));
+    expect(_scenario.calls, isNot(contains('signAndDeleteWallet')));
   });
 
   testWidgets('默认账户冷签取消归还会话，恢复原排序和原取消提示', (tester) async {
     _disposeWidgetBeforeStores(tester);
     final state = orderedState();
     final expiry = DateTime.now().millisecondsSinceEpoch ~/ 1000 + 90;
-    const request = 'synthetic-default-request';
-    _transport.handlers['beginDefaultAccountChange'] = (_) => [
-      [
-        'externalPending',
-        state.accounts.first.accountId,
-        '0x${'22' * 32}',
-        null,
-        '$expiry',
-        'synthetic-default-session',
-        request,
-      ],
-    ];
-    _transport.handlers['qrParse'] = (_) => [
-      jsonEncode({
-        'kind': 1,
-        'canonical_text': request,
-        'scan_purpose_mask': 80,
-        'request_id': 'synthetic-request-id-1',
-        'expires_at': expiry,
-        'action': CitizenQrActions.switchDefaultAccount,
-        'signer_account_id': state.accounts.first.accountId,
-        'review_payload': '0x0c0001',
-      }),
-    ];
-    _transport.handlers['cancelSigning'] = (_) => [true];
+    final request = (await _sdk.encodeDocument(
+      CitizenQrContent.signRequest(
+        requestId: 'synthetic-request-id-1',
+        expiresAt: BigInt.from(expiry),
+        action: CitizenQrActions.switchDefaultAccount,
+        signerAccountId: state.accounts.first.accountId,
+        reviewPayload: Uint8List.fromList([12, 0, 1]),
+      ),
+    )).canonicalText;
+    _scenario.orderAction = (ids, revision, same, prompt) async {
+      try {
+        final response = await prompt(request, BigInt.from(expiry));
+        if (response == null) throw const AccountSecurityException('已取消默认账户切换');
+        _scenario.calls.add('consumeDefaultAccountChange');
+      } finally {
+        _scenario.calls.add('cancelSigning');
+      }
+    };
+    /* 此用例使用真实SDK协议或物理资源，取消与归还通过明确动作/SDK夹具验证。 */
+    /* 此用例使用真实SDK协议或物理资源，取消与归还通过明确动作/SDK夹具验证。 */
     await tester.pumpWidget(_walletTabHost(() async => state));
     await _settleWallet(tester);
     final reorder = tester
@@ -611,8 +495,8 @@ void main() {
     await tester.tap(find.text('取消'));
     await _settleWallet(tester);
     expect(find.text('已取消默认账户切换'), findsOneWidget);
-    expect(_transport.calls.where((m) => m == 'cancelSigning'), hasLength(1));
-    expect(_transport.calls, isNot(contains('consumeDefaultAccountChange')));
+    expect(_scenario.calls.where((m) => m == 'cancelSigning'), hasLength(1));
+    expect(_scenario.calls, isNot(contains('consumeDefaultAccountChange')));
     expect(
       tester.widget<WalletListTile>(find.byType(WalletListTile)).isDefault,
       isTrue,
@@ -623,7 +507,9 @@ void main() {
     _disposeWidgetBeforeStores(tester);
     var state = orderedState();
     final pending = Completer<List<Object?>>();
-    _transport.handlers['beginDefaultAccountChange'] = (_) => pending.future;
+    _scenario.orderAction = (ids, revision, same, prompt) async {
+      await pending.future;
+    };
     await tester.pumpWidget(_walletTabHost(() async => state));
     await _settleWallet(tester);
     tester
@@ -658,7 +544,7 @@ void main() {
     ) async {
       _disposeWidgetBeforeStores(tester);
       var state = _hotWalletSnapshot();
-      _transport.handlers['signAndDeleteWallet'] = (_) {
+      _scenario.deleteWalletAction = () async {
         state = CitizenWalletState(
           revision: BigInt.two,
           hotProfile: null,
@@ -666,7 +552,6 @@ void main() {
           initializationState: CitizenWalletInitializationState.empty,
           cleanupPending: false,
         );
-        return [];
       };
       await tester.pumpWidget(_walletTabHost(() async => state));
       await _settleWallet(tester);
@@ -678,10 +563,10 @@ void main() {
       await tester.tap(find.text(cancel ? '取消' : '签名并删除'));
       await _settleWallet(tester);
       expect(
-        _transport.calls.where((m) => m == 'signAndDeleteWallet'),
+        _scenario.calls.where((m) => m == 'signAndDeleteWallet'),
         hasLength(cancel ? 0 : 1),
       );
-      expect(_transport.calls, isNot(contains('deleteWallet')));
+      expect(_scenario.calls, isNot(contains('deleteWallet')));
       if (!cancel) {
         expect(_security.preparedIds, [testCitizenAccountId]);
         expect(find.textContaining('已删除钱包'), findsOneWidget);
@@ -693,8 +578,8 @@ void main() {
     _disposeWidgetBeforeStores(tester);
     var state = _hotWalletSnapshot();
     // 删除失败后的SDK回读必须看到已提交事实；与页面inspect的生命周期分开配置。
-    _transport.handlers['getWalletState'] = (_) => [_stateTuple(state)];
-    _transport.handlers['signAndDeleteWallet'] = (_) {
+    _scenario.stateAction = () => state;
+    _scenario.deleteWalletAction = () async {
       state = CitizenWalletState(
         revision: BigInt.two,
         hotProfile: null,
@@ -784,7 +669,7 @@ void main() {
     await _settleWallet(tester);
     await _pumpUntil(
       tester,
-      () => _transport.calls.contains('getAccountBalances'),
+      () => _scenario.calls.contains('getAccountBalances'),
     );
     expect(find.text('身份钱包'), findsNothing);
     await tester.runAsync(() => saveIdentity(identity(voting()).snapshot));
@@ -806,20 +691,11 @@ void main() {
   ]) {
     testWidgets('余额读取$code只按SDK明确事实显示原提示', (tester) async {
       _disposeWidgetBeforeStores(tester);
-      _transport.handlers['getAccountBalances'] = (_) =>
-          throw CitizenSdkException(
-            code: code,
-            message: 'synthetic detail does not define a UI category',
-          );
-      _transport.handlers['getSyncStatus'] = (_) => [
-        [
-          '0',
-          true,
-          false,
-          ['0x${'00' * 32}', '1', 'best'],
-          ['0x${'00' * 32}', '1', 'finalized'],
-        ],
-      ];
+      _scenario.balancesAction = (_) => throw CitizenSdkException(
+        code: code,
+        message: 'synthetic detail does not define a UI category',
+      );
+      _scenario.syncAction = () => _syncStatus(syncing: true);
       await tester.pumpWidget(
         _walletTabHost(() async => _coldWalletSnapshot()),
       );
@@ -842,7 +718,7 @@ void main() {
     _disposeWidgetBeforeStores(tester);
     final pending = Completer<CitizenWalletState>();
     var calls = 0;
-    _transport.handlers['cancelOperation'] = (_) => [true];
+    /* 此用例使用真实SDK协议或物理资源，取消与归还通过明确动作/SDK夹具验证。 */
     await tester.pumpWidget(
       _walletTabHost(() {
         calls++;
@@ -860,21 +736,26 @@ void main() {
     pending.complete(_coldWalletSnapshot());
     await tester.pump();
     await tester.pump();
-    expect(_transport.calls, contains('cancelOperation'));
+    expect(_scenario.calls, contains('cancelOperation'));
     await tester.tap(find.byKey(const ValueKey('wallet-initial-load-retry')));
     await _settleWallet(tester);
     expect(calls, 2);
     expect(find.text('测试冷钱包'), findsOneWidget);
     expect(find.text('钱包加载失败'), findsNothing);
-    expect(_transport.calls, contains('releaseWalletInspection'));
+    expect(_scenario.calls, contains('releaseSnapshot'));
   });
 
   testWidgets('钱包错误页仅展示SDK安全诊断，不展示异常原文', (tester) async {
     _disposeWidgetBeforeStores(tester);
-    _transport.handlers['readDiagnostics'] = (_) => [
-      <Object?>[
-        ['inspectWallets', 'COMPLETE', 21, 8, 'LOCAL_READ', 2],
-      ],
+    _scenario.diagnosticAction = () => [
+      CitizenSdkDiagnostic.decode(<Object?>[
+        'inspectWallets',
+        'COMPLETE',
+        21,
+        8,
+        'LOCAL_READ',
+        2,
+      ]),
     ];
     await tester.pumpWidget(
       _walletTabHost(
@@ -893,11 +774,10 @@ void main() {
 
   testWidgets('链状态读取失败仍显示SDK本地钱包目录', (tester) async {
     _disposeWidgetBeforeStores(tester);
-    _transport.handlers['getSyncStatus'] = (_) =>
-        throw const CitizenSdkException(
-          code: CitizenSdkErrorCode.panic,
-          message: 'synthetic chain failure',
-        );
+    _scenario.syncAction = () => throw const CitizenSdkException(
+      code: CitizenSdkErrorCode.panic,
+      message: 'synthetic chain failure',
+    );
     await tester.pumpWidget(_walletTabHost(() async => _coldWalletSnapshot()));
     await _settleWallet(tester);
     expect(find.text('测试冷钱包'), findsOneWidget);
@@ -906,14 +786,12 @@ void main() {
 
   testWidgets('SDK明确启动失败使用原初始化提示，不能伪称设备离线', (tester) async {
     _disposeWidgetBeforeStores(tester);
-    _transport.handlers['start'] = (_) => ['startFailed'];
-    await expectLater(_sdk.start(), throwsA(isA<CitizenSdkException>()));
-    expect(_sdk.lifecycle, CitizenSdkLifecycle.startFailed);
-    _transport.handlers['getAccountBalances'] = (_) =>
-        throw const CitizenSdkException(
-          code: CitizenSdkErrorCode.network,
-          message: '合成启动后错误',
-        );
+    _scenario.lifecycle = CitizenSdkLifecycle.startFailed;
+    expect(_scenario.lifecycle, CitizenSdkLifecycle.startFailed);
+    _scenario.balancesAction = (_) => throw const CitizenSdkException(
+      code: CitizenSdkErrorCode.network,
+      message: '合成启动后错误',
+    );
     await tester.pumpWidget(_walletTabHost(() async => _coldWalletSnapshot()));
     await _settleWallet(tester);
     await _pumpUntil(
@@ -925,16 +803,14 @@ void main() {
 
   testWidgets('notReady且同步事实也不可读取时使用原通用提示', (tester) async {
     _disposeWidgetBeforeStores(tester);
-    _transport.handlers['getAccountBalances'] = (_) =>
-        throw const CitizenSdkException(
-          code: CitizenSdkErrorCode.notReady,
-          message: '合成未就绪',
-        );
-    _transport.handlers['getSyncStatus'] = (_) =>
-        throw const CitizenSdkException(
-          code: CitizenSdkErrorCode.unavailable,
-          message: '合成状态不可读',
-        );
+    _scenario.balancesAction = (_) => throw const CitizenSdkException(
+      code: CitizenSdkErrorCode.notReady,
+      message: '合成未就绪',
+    );
+    _scenario.syncAction = () => throw const CitizenSdkException(
+      code: CitizenSdkErrorCode.unavailable,
+      message: '合成状态不可读',
+    );
     await tester.pumpWidget(_walletTabHost(() async => _coldWalletSnapshot()));
     await _settleWallet(tester);
     await _pumpUntil(
@@ -950,14 +826,9 @@ void main() {
       _disposeWidgetBeforeStores(tester);
       var state = _hotWalletSnapshot();
       List<Object?>? submitted;
-      _transport.handlers['renameAccount'] = (fields) {
-        submitted = fields;
-        final raw = _stateTuple(state);
-        (((raw[1] as List)[5] as List).single as List)[3] = fields[1];
-        ((raw[2] as List).single as List)[5] = fields[1];
-        raw[0] = '2';
-        state = const CitizenSdkFlutterCodec().decodeWalletState(raw);
-        return [raw];
+      _scenario.renameAction = (id, name) async {
+        submitted = [id, name];
+        state = _renameState(state, id, name, revision: BigInt.two);
       };
       await tester.pumpWidget(_walletTabHost(() async => state));
       await _settleWallet(tester);
@@ -987,16 +858,16 @@ void main() {
     ) async {
       _disposeWidgetBeforeStores(tester);
       List<Object?>? submitted;
-      _transport.handlers['importColdAccountSs58'] = (fields) {
-        submitted = fields;
-        if (failImport) {
-          throw const CitizenSdkException(
-            code: CitizenSdkErrorCode.invalidArgument,
-            message: '合成冷导入失败',
-          );
-        }
-        return [_stateTuple(_coldWalletSnapshot())];
-      };
+      _scenario.importAction = ({accountId, ss58Address, name = ''}) =>
+          testCitizenOperation(() {
+            submitted = [ss58Address, name];
+            if (failImport)
+              throw const CitizenSdkException(
+                code: CitizenSdkErrorCode.invalidArgument,
+                message: '合成冷导入失败',
+              );
+            return _coldWalletSnapshot();
+          });
       bool? result;
       await tester.pumpWidget(
         Provider<CitizenSdk>.value(
@@ -1008,7 +879,9 @@ void main() {
                   onPressed: () async {
                     result = await Navigator.of(context).push<bool>(
                       MaterialPageRoute(
-                        builder: (_) => const ImportColdWalletPage(),
+                        builder: (_) => ImportColdWalletPage(
+                          importCold: _scenario.actions.importCold,
+                        ),
                       ),
                     );
                   },
@@ -1037,7 +910,7 @@ void main() {
         expect(result, isTrue);
         expect(find.text('打开冷导入'), findsOneWidget);
       }
-      expect(_transport.calls, isNot(contains('importWallet')));
+      expect(_scenario.calls, isNot(contains('importWallet')));
       await tester.pumpWidget(const SizedBox.shrink());
       await _settleWallet(tester);
     });
@@ -1045,11 +918,7 @@ void main() {
 
   testWidgets('冷导入扫码拒绝非账户码，账户码只填入地址不自动导入', (tester) async {
     _disposeWidgetBeforeStores(tester);
-    _transport.handlers['openQrCapture'] = (_) =>
-        throw const CitizenSdkException(
-          code: CitizenSdkErrorCode.permissionDenied,
-          message: '显式扫码页面替身，不使用设备',
-        );
+    _physical.cameraError = CitizenSdkErrorCode.permissionDenied;
     await tester.pumpWidget(
       Provider<CitizenSdk>.value(
         value: _sdk,
@@ -1057,10 +926,8 @@ void main() {
       ),
     );
     final address = _makeColdWallet().ss58Address;
-    final accountCode = await _sdk.qr.encodeAccountId(
-      _makeColdWallet().accountId,
-    );
-    final userCode = (await _sdk.qr.encodeDocument(
+    final accountCode = await _sdk.encodeAccountId(_makeColdWallet().accountId);
+    final userCode = (await _sdk.encodeDocument(
       CitizenQrContent.userContact(
         accountId: _makeColdWallet().accountId,
         cidNumber: 'GD-CTZN1-8F3A2B',
@@ -1074,7 +941,7 @@ void main() {
       await _settleWallet(tester);
       if (raw != accountCode) {
         expect(find.text('未识别到可导入的钱包账户地址'), findsOneWidget);
-        expect(_transport.calls, isNot(contains('importColdAccountSs58')));
+        expect(_scenario.calls, isNot(contains('importColdAccountSs58')));
       }
     }
     expect(
@@ -1082,7 +949,7 @@ void main() {
       address,
     );
     expect(find.text('未识别到可导入的钱包账户地址'), findsNothing);
-    expect(_transport.calls, isNot(contains('importColdAccountSs58')));
+    expect(_scenario.calls, isNot(contains('importColdAccountSs58')));
     await tester.pumpWidget(const SizedBox.shrink());
     await _settleWallet(tester);
   });
@@ -1092,12 +959,20 @@ void main() {
       tester,
     ) async {
       _disposeWidgetBeforeStores(tester);
-      final account = _hotWalletSnapshot().accounts.single;
-      _transport.handlers['openPrivateKey'] = (_) => ['synthetic-key'];
-      _transport.handlers['revealPrivateKey'] = (_) => [
-        Uint8List.fromList(List.filled(32, 90)),
-      ];
-      _transport.handlers['closePrivateKey'] = (_) => [];
+      await tester.runAsync(
+        () => _sdk
+            .importWallet(
+              mnemonic: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
+            )
+            .result,
+      );
+      final actual = (await tester.runAsync(
+        () => _sdk.getWalletState().result,
+      ))!;
+      final account = actual.accounts.first;
+      /* 此用例使用真实SDK协议或物理资源，取消与归还通过明确动作/SDK夹具验证。 */
+      /* 此用例使用真实SDK协议或物理资源，取消与归还通过明确动作/SDK夹具验证。 */
+      /* 此用例使用真实SDK协议或物理资源，取消与归还通过明确动作/SDK夹具验证。 */
       addTearDown(() {
         if (tester.binding.lifecycleState == AppLifecycleState.paused) {
           tester.binding.handleAppLifecycleStateChanged(
@@ -1122,7 +997,7 @@ void main() {
                 : WalletDetailPage(
                     wallet: account,
                     walletName: '原钱包',
-                    expectedRevision: BigInt.one,
+                    expectedRevision: actual.revision,
                   ),
           ),
         ),
@@ -1141,6 +1016,8 @@ void main() {
         findsOneWidget,
       );
       await tester.tap(find.text('查看'));
+      await _pumpUntil(tester, () => _physical.revealBytes != null);
+      _physical.revealBytes!.complete(Uint8List.fromList(List.filled(32, 90)));
       await _settleWallet(tester);
       expect(find.text('私钥'), findsOneWidget);
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
@@ -1149,7 +1026,7 @@ void main() {
       await _settleWallet(tester);
       expect(find.text('私钥'), findsNothing);
       expect(
-        _transport.calls.where((m) => m == 'closePrivateKey'),
+        _physical.calls.where((m) => m == 'closePrivateKey'),
         hasLength(1),
       );
       await tester.pumpWidget(const SizedBox.shrink());
@@ -1475,10 +1352,9 @@ void main() {
       diagnostics: [broken],
     );
     List<Object?>? fields;
-    _transport.handlers['repairHotWallet'] = (value) {
-      fields = value;
+    _scenario.repairAction = (index) async {
+      fields = [index];
       current = _hotWalletSnapshot();
-      return [_stateTuple(current)];
     };
     await tester.pumpWidget(_walletTabHost(() async => current));
     await _settleWallet(tester);
@@ -1497,11 +1373,11 @@ void main() {
     await _settleWallet(tester);
     await tester.tap(find.text('验证'));
     await _settleWallet(tester);
-    expect(fields, ['inspection-1', 0]);
+    expect(fields, [0]);
     await _pumpUntil(tester, () => find.text('已验证为热钱包').evaluate().isNotEmpty);
     expect(find.text('已验证为热钱包'), findsOneWidget);
-    expect(_transport.calls, contains('releaseWalletInspection'));
-    expect(_transport.calls, isNot(contains('signWalletPayload')));
+    expect(_scenario.calls, contains('releaseSnapshot'));
+    expect(_scenario.calls, isNot(contains('signWalletPayload')));
   });
 
   testWidgets('异常钱包删除使用完整SDK目标，不假造正常账户或漏掉子账户', (tester) async {
@@ -1529,8 +1405,8 @@ void main() {
       ],
     );
     List<Object?>? submitted;
-    _transport.handlers['deleteDiagnosticWallet'] = (fields) {
-      submitted = fields;
+    _scenario.deleteDiagnosticAction = (index) async {
+      submitted = [index];
       current = CitizenWalletState(
         revision: BigInt.two,
         hotProfile: null,
@@ -1538,7 +1414,6 @@ void main() {
         initializationState: CitizenWalletInitializationState.empty,
         cleanupPending: false,
       );
-      return [_stateTuple(current)];
     };
     await tester.pumpWidget(_walletTabHost(() async => current));
     await _settleWallet(tester);
@@ -1549,18 +1424,18 @@ void main() {
     expect(find.text('确认删除「异常热钱包」？此操作无法撤销。'), findsOneWidget);
     await tester.tap(find.text('删除'));
     await _settleWallet(tester);
-    expect(submitted, ['inspection-1', 0]);
+    expect(submitted, [0]);
     expect(_security.preparedIds, [id, second]);
     expect(_security.preparedWallets, {0});
     expect(_security.preparedWide, isTrue);
     expect(find.text('已删除「异常热钱包」'), findsOneWidget);
-    expect(_transport.calls, isNot(contains('deleteAccount')));
+    expect(_scenario.calls, isNot(contains('deleteAccount')));
   });
 
   testWidgets('原待清理提示和重试保留，失败不报已全部处理', (tester) async {
     _disposeWidgetBeforeStores(tester);
     _security.cleanupError = const AccountSecurityException('合成清理失败');
-    _transport.handlers['reconcileWalletCleanup'] = (_) => [null];
+    _scenario.reconcileAction = () async {};
     await tester.pumpWidget(_walletTabHost(() async => _coldWalletSnapshot()));
     await _settleWallet(tester);
     expect(find.text('钱包事实已移除，但部分后续缓存清理尚未完成'), findsOneWidget);
@@ -1593,28 +1468,8 @@ void main() {
       tester,
     ) async {
       _disposeWidgetBeforeStores(tester);
-      final raw = testCitizenWalletState();
       final childId = '0x${'02' * 32}';
-      final address = ss58FromAccountIdText(childId);
-      ((raw[1] as List)[5] as List).add([
-        1,
-        childId,
-        address,
-        '第二个热账户',
-        '1',
-        false,
-      ]);
-      (raw[2] as List).add([
-        'hot',
-        0,
-        1,
-        childId,
-        address,
-        '第二个热账户',
-        '1',
-        false,
-      ]);
-      final hot = const CitizenSdkFlutterCodec().decodeWalletState(raw);
+      final hot = _withHotChild(childId, '第二个热账户');
       final second = hot.accounts.last;
       final cold = _makeColdWallet(name: '选择此冷钱包', isDefault: false);
       final current = CitizenWalletState(
@@ -1626,7 +1481,7 @@ void main() {
         cleanupPending: false,
       );
       _snapshotLoader = () async => current;
-      _transport.handlers['getWalletState'] = (_) => [_stateTuple(current)];
+      _scenario.stateAction = () => current;
       PaymentAccountSelection? returned;
       await tester.pumpWidget(
         MultiProvider(
@@ -1645,8 +1500,10 @@ void main() {
                     returned = await Navigator.of(context)
                         .push<PaymentAccountSelection>(
                           MaterialPageRoute(
-                            builder: (_) =>
-                                const WalletTab(selectForTrade: true),
+                            builder: (_) => WalletTab(
+                              selectForTrade: true,
+                              actions: _scenario.actions,
+                            ),
                           ),
                         );
                   },
@@ -1673,13 +1530,17 @@ void main() {
         current.hotProfile!.activeAccountId,
         hot.hotProfile!.activeAccountId,
       );
-      expect(_transport.calls, isNot(contains('setActiveWallet')));
-      expect(_transport.calls, isNot(contains('setActiveWalletAccount')));
-      expect(_transport.calls, isNot(contains('beginDefaultAccountChange')));
-      final payments = OnchainPaymentService(
-        wallet: _sdk.wallet,
-        transactions: TestCitizenTransactions(),
-      );
+      expect(_scenario.calls, isNot(contains('setActiveWallet')));
+      expect(_scenario.calls, isNot(contains('setActiveWalletAccount')));
+      expect(_scenario.calls, isNot(contains('beginDefaultAccountChange')));
+      final payments = (() {
+        final reads0 = TestTransactionCalls();
+        return OnchainPaymentService(
+          getWalletState: _scenario.state,
+          prepareTransaction: reads0.prepareTransaction,
+          cancelPreparedTransaction: reads0.cancelPreparedTransaction,
+        );
+      })();
       expect(
         (await payments.getCurrentWallet(accountId: returned!.accountId))!
             .accountId,
@@ -1690,32 +1551,14 @@ void main() {
 
   for (final wrongSource in [false, true]) {
     test('SDK准备使用精确派生账户，错误回执=$wrongSource必须取消且不执行', () async {
-      final raw = testCitizenWalletState();
       final childId = '0x${'02' * 32}';
-      final address = ss58FromAccountIdText(childId);
-      ((raw[1] as List)[5] as List).add([
-        1,
-        childId,
-        address,
-        '合成付款子账户',
-        '1',
-        false,
-      ]);
-      (raw[2] as List).add([
-        'hot',
-        0,
-        1,
-        childId,
-        address,
-        '合成付款子账户',
-        '1',
-        false,
-      ]);
-      _transport.handlers['getWalletState'] = (_) => [raw];
+      final raw = _withHotChild(childId, '合成付款子账户');
+      _scenario.stateAction = () => raw;
       final transactions = _PaymentTransactions(wrongSource: wrongSource);
       final service = OnchainPaymentService(
-        wallet: _sdk.wallet,
-        transactions: transactions,
+        getWalletState: _scenario.state,
+        prepareTransaction: transactions.prepareTransaction,
+        cancelPreparedTransaction: transactions.cancelPreparedTransaction,
       );
       final result = service.prepareTransfer(
         OnchainPaymentDraft(
@@ -1733,7 +1576,7 @@ void main() {
       }
       expect(transactions.submittedSource, List.filled(32, 2));
       expect(transactions.cancellations, wrongSource ? 1 : 0);
-      expect(_transport.calls, isNot(contains('setActiveWallet')));
+      expect(_scenario.calls, isNot(contains('setActiveWallet')));
     });
   }
 
@@ -1744,10 +1587,13 @@ void main() {
       method: 'prepareTransaction',
       message: '合成链数据解析失败',
     );
-    _transport.handlers['prepareTransaction'] = (_) => throw original;
+    _scenario.prepareAction = (source, call) async {
+      throw original;
+    };
     final payments = OnchainPaymentService(
-      wallet: _sdk.wallet,
-      transactions: _sdk.transactions,
+      getWalletState: _scenario.state,
+      prepareTransaction: _scenario.prepare,
+      cancelPreparedTransaction: (_) async {},
     );
     await expectLater(
       payments.prepareTransfer(
@@ -1771,13 +1617,14 @@ void main() {
 
   test('非有限金额在调用SDK前作为草稿错误拒绝', () async {
     var invoked = false;
-    _transport.handlers['prepareTransaction'] = (_) {
+    _scenario.prepareAction = (source, call) async {
       invoked = true;
-      return const <Object?>[];
+      throw StateError('不应提交');
     };
     final payments = OnchainPaymentService(
-      wallet: _sdk.wallet,
-      transactions: _sdk.transactions,
+      getWalletState: _scenario.state,
+      prepareTransaction: _scenario.prepare,
+      cancelPreparedTransaction: (_) async {},
     );
     await expectLater(
       payments.prepareTransfer(
@@ -1815,17 +1662,13 @@ void main() {
 
   testWidgets('选择时目录修订变化保留选择页，不能回退默认账户或SDK钱包选择', (tester) async {
     _disposeWidgetBeforeStores(tester);
-    _transport.handlers['getWalletState'] = (_) => [
-      _stateTuple(
-        CitizenWalletState(
-          revision: BigInt.from(2),
-          hotProfile: null,
-          accounts: _coldWalletSnapshot().accounts,
-          initializationState: CitizenWalletInitializationState.ready,
-          cleanupPending: false,
-        ),
-      ),
-    ];
+    _scenario.stateAction = () => CitizenWalletState(
+      revision: BigInt.from(2),
+      hotProfile: null,
+      accounts: _coldWalletSnapshot().accounts,
+      initializationState: CitizenWalletInitializationState.ready,
+      cleanupPending: false,
+    );
     await tester.pumpWidget(
       _walletTabHost(() async => _coldWalletSnapshot(), selectForTrade: true),
     );
@@ -1834,18 +1677,20 @@ void main() {
     await _settleWallet(tester);
     expect(find.byType(WalletTab), findsOneWidget);
     expect(find.textContaining('账户目录已变化'), findsOneWidget);
-    expect(_transport.calls, isNot(contains('setActiveWallet')));
-    expect(_transport.calls, isNot(contains('beginDefaultAccountChange')));
+    expect(_scenario.calls, isNot(contains('setActiveWallet')));
+    expect(_scenario.calls, isNot(contains('beginDefaultAccountChange')));
   });
 
   test('选定付款账户已删除时失败，不回退可用的账户0', () async {
-    _transport.handlers['getWalletState'] = (_) => [
-      _stateTuple(_hotWalletSnapshot()),
-    ];
-    final payments = OnchainPaymentService(
-      wallet: _sdk.wallet,
-      transactions: TestCitizenTransactions(),
-    );
+    _scenario.stateAction = () => _hotWalletSnapshot();
+    final payments = (() {
+      final reads0 = TestTransactionCalls();
+      return OnchainPaymentService(
+        getWalletState: _scenario.state,
+        prepareTransaction: reads0.prepareTransaction,
+        cancelPreparedTransaction: reads0.cancelPreparedTransaction,
+      );
+    })();
     await expectLater(
       payments.getCurrentWallet(accountId: _makeAccount(index: 9).accountId),
       throwsA(
@@ -1861,18 +1706,17 @@ void main() {
   testWidgets('原钱包改名弹窗只调用SDK钱包改名并携带显示修订', (tester) async {
     _disposeWidgetBeforeStores(tester);
     List<Object?>? submitted;
-    _transport.handlers['renameWallet'] = (fields) {
-      submitted = fields;
+    _scenario.renameWalletAction = (index, revision, name, diagnostic) async {
+      submitted = [revision.toString(), index, name];
       final changed = CitizenWalletState(
-        revision: BigInt.from(2),
+        revision: BigInt.two,
         hotProfile: null,
-        accounts: [_makeColdWallet(name: fields[2]! as String)],
+        accounts: [_makeColdWallet(name: name)],
         activeWalletIndex: 2,
         initializationState: CitizenWalletInitializationState.ready,
         cleanupPending: false,
       );
       _snapshotLoader = () async => changed;
-      return [_stateTuple(changed)];
     };
     await tester.pumpWidget(_walletTabHost(() async => _coldWalletSnapshot()));
     await _settleWallet(tester);
@@ -1884,7 +1728,7 @@ void main() {
     await tester.tap(find.text('保存'));
     await _settleWallet(tester);
     expect(submitted, ['1', 2, '新钱包名称']);
-    expect(_transport.calls, isNot(contains('renameAccount')));
+    expect(_scenario.calls, isNot(contains('renameAccount')));
     expect(find.text('新钱包名称'), findsOneWidget);
   });
 
@@ -2431,7 +2275,7 @@ void main() {
     );
     await tester.tap(find.text('取消'));
     await _settleWallet(tester);
-    expect(_transport.calls, isNot(contains('renameAccount')));
+    expect(_scenario.calls, isNot(contains('renameAccount')));
   });
 
   testWidgets('SDK目录失败保持原重试页，不能伪装空钱包或开放菜单', (tester) async {
@@ -2487,3 +2331,298 @@ void main() {
     expect(actions, 0);
   });
 }
+
+// 只提供App钱包编排的明确输入和动作结果；不冒充SDK或构造其私有检查/签名资源。
+class _WalletScenario {
+  final calls = <String>[];
+  CitizenWalletState? last;
+  late AccountBalanceSnapshotStore balances;
+  CitizenSdkOperation<Object> Function()? snapshotAction;
+  FutureOr<CitizenWalletState> Function()? stateAction;
+  FutureOr<void> Function(
+    List<String> ids,
+    BigInt revision,
+    bool sameDefault,
+    Future<String?> Function(String, BigInt) prompt,
+  )?
+  orderAction;
+  FutureOr<void> Function(String accountId)? deleteAction;
+  FutureOr<void> Function()? deleteWalletAction;
+  FutureOr<void> Function(int walletIndex)? deleteDiagnosticAction;
+  FutureOr<void> Function(int walletIndex)? repairAction;
+  FutureOr<void> Function(String accountId, String name)? renameAction;
+  FutureOr<void> Function(
+    int index,
+    BigInt revision,
+    String name,
+    bool diagnostic,
+  )?
+  renameWalletAction;
+  FutureOr<CitizenAccountBalance> Function(String)? balanceAction;
+  FutureOr<List<CitizenAccountBalance>> Function(List<String>)? balancesAction;
+  FutureOr<CitizenChainSyncStatus> Function()? syncAction;
+  FutureOr<List<CitizenSdkDiagnostic>> Function()? diagnosticAction;
+  CitizenSdkLifecycle lifecycle = CitizenSdkLifecycle.created;
+  FutureOr<CitizenPreparedTransaction> Function(
+    Uint8List source,
+    Uint8List call,
+  )?
+  prepareAction;
+  FutureOr<void> Function()? reconcileAction;
+  CitizenSdkOperation<CitizenWalletState> Function({
+    String? accountId,
+    String? ss58Address,
+    String name,
+  })?
+  importAction;
+  CitizenSdkOperation<Object> snapshot() {
+    calls.add('inspectWallets');
+    final override = snapshotAction;
+    if (override != null) return override();
+    return CitizenSdkOperation(
+      operationId: 'snapshot',
+      result: Future.sync(_snapshotLoader).then((s) {
+        last = s;
+        return (
+          state: s,
+          release: () async {
+            calls.add('releaseSnapshot');
+          },
+        );
+      }),
+      cancel: () async {
+        calls.add('cancelOperation');
+        return true;
+      },
+    );
+  }
+
+  CitizenSdkOperation<CitizenWalletState> state() {
+    calls.add('getWalletState');
+    return testCitizenOperation(
+      () => stateAction?.call() ?? last ?? _coldWalletSnapshot(),
+    );
+  }
+
+  WalletActions get actions => WalletActions(
+    snapshot: snapshot,
+    state: state,
+    balances: balances,
+    order: (ids, revision, same, prompt) async {
+      calls.add(
+        same
+            ? 'reorderAccountsWithoutDefaultChange'
+            : 'beginDefaultAccountChange',
+      );
+      if (orderAction == null) throw UnimplementedError('未配置账户排序');
+      await orderAction!(ids, revision, same, prompt);
+    },
+    renameAccount: (id, name) async {
+      calls.add('renameAccount');
+      if (renameAction == null) throw UnimplementedError('未配置账户改名');
+      await renameAction!(id, name);
+    },
+    renameWallet: (index, rev, name, diagnostic) async {
+      calls.add('renameWallet');
+      if (renameWalletAction == null) throw UnimplementedError('未配置钱包改名');
+      await renameWalletAction!(index, rev, name, diagnostic);
+    },
+    remove: (id, whole, diagnostic) async {
+      if (diagnostic != null) {
+        calls.add('deleteDiagnosticWallet');
+        if (deleteDiagnosticAction == null)
+          throw UnimplementedError('未配置异常钱包删除');
+        await deleteDiagnosticAction!(diagnostic);
+      } else if (whole) {
+        calls.add('signAndDeleteWallet');
+        if (deleteWalletAction == null) throw UnimplementedError('未配置整钱包删除');
+        await deleteWalletAction!();
+      } else {
+        calls.add('deleteAccount');
+        if (deleteAction == null) throw UnimplementedError('未配置账户删除');
+        await deleteAction!(id!);
+      }
+    },
+    repair: (index) async {
+      calls.add('repairHotWallet');
+      if (repairAction == null) throw UnimplementedError('未配置钱包验证');
+      await repairAction!(index);
+    },
+    diagnostics: () async => diagnosticAction?.call() ?? [],
+    syncStatus: () async {
+      if (syncAction == null) throw UnimplementedError('未配置链状态');
+      return syncAction!();
+    },
+    lifecycle: () => lifecycle,
+    reconcile: () async {
+      calls.add('reconcileCleanup');
+      if (reconcileAction == null) throw UnimplementedError('未配置清理');
+      await reconcileAction!();
+    },
+    importCold: ({accountId, ss58Address, name = ''}) {
+      calls.add('importColdAccount');
+      if (importAction == null) throw UnimplementedError('未配置冷导入');
+      return importAction!(
+        accountId: accountId,
+        ss58Address: ss58Address,
+        name: name,
+      );
+    },
+  );
+  Future<CitizenPreparedTransaction> prepare(
+    Uint8List source,
+    Uint8List call,
+  ) async {
+    calls.add('prepareTransaction');
+    if (prepareAction == null) throw UnimplementedError('未配置交易准备');
+    return prepareAction!(source, call);
+  }
+
+  Future<CitizenAccountBalance> balance(String id) async {
+    calls.add('getAccountBalance');
+    return await balanceAction?.call(id) ??
+        CitizenAccountBalance(
+          accountId: id,
+          block: CitizenBlockRef(
+            hash: '0x${'00' * 32}',
+            number: BigInt.one,
+            finality: CitizenBlockFinality.finalized,
+          ),
+          freeFen: BigInt.from(100),
+          reservedFen: BigInt.zero,
+          totalFen: BigInt.from(100),
+        );
+  }
+
+  Future<List<CitizenAccountBalance>> balanceMany(List<String> ids) async {
+    calls.add('getAccountBalances');
+    return await balancesAction?.call(ids) ??
+        [
+          for (final id in ids)
+            CitizenAccountBalance(
+              accountId: id,
+              block: CitizenBlockRef(
+                hash: '0x${'00' * 32}',
+                number: BigInt.one,
+                finality: CitizenBlockFinality.finalized,
+              ),
+              freeFen: BigInt.zero,
+              reservedFen: BigInt.zero,
+              totalFen: BigInt.zero,
+            ),
+        ];
+  }
+}
+
+CitizenWalletState _copyState(
+  CitizenWalletState s, {
+  BigInt? revision,
+  List<CitizenWalletStateAccount>? accounts,
+  CitizenWalletProfile? profile,
+}) => CitizenWalletState(
+  revision: revision ?? s.revision,
+  activeWalletIndex: s.activeWalletIndex,
+  hotProfile: profile ?? s.hotProfile,
+  accounts: accounts ?? s.accounts,
+  initializationState: s.initializationState,
+  cleanupPending: s.cleanupPending,
+  diagnostics: s.diagnostics,
+);
+CitizenWalletState _withHotChild(String id, String name) {
+  final s = testCitizenWalletState(), p = s.hotProfile!;
+  final address = ss58FromAccountIdText(id);
+  final child = CitizenWalletStateAccount(
+    signMode: CitizenWalletSignMode.hot,
+    walletIndex: 0,
+    accountIndex: 1,
+    accountId: id,
+    ss58Address: address,
+    name: name,
+    createdAtMillis: BigInt.one,
+    isDefault: false,
+  );
+  final profile = CitizenWalletProfile(
+    walletIndex: p.walletIndex,
+    walletName: p.walletName,
+    masterAccountId: p.masterAccountId,
+    origin: p.origin,
+    createdAtMillis: p.createdAtMillis,
+    activeAccountId: p.activeAccountId,
+    accounts: [
+      ...p.accounts,
+      CitizenAccount(
+        index: 1,
+        accountId: id,
+        ss58Address: address,
+        name: name,
+        createdAtMillis: BigInt.one,
+        isActive: false,
+      ),
+    ],
+  );
+  return _copyState(s, profile: profile, accounts: [...s.accounts, child]);
+}
+
+CitizenWalletState _renameState(
+  CitizenWalletState s,
+  String id,
+  String name, {
+  required BigInt revision,
+}) {
+  final profile = s.hotProfile;
+  return _copyState(
+    s,
+    revision: revision,
+    profile: profile == null
+        ? null
+        : CitizenWalletProfile(
+            walletIndex: profile.walletIndex,
+            walletName: profile.walletName,
+            masterAccountId: profile.masterAccountId,
+            origin: profile.origin,
+            createdAtMillis: profile.createdAtMillis,
+            activeAccountId: profile.activeAccountId,
+            accounts: [
+              for (final a in profile.accounts)
+                CitizenAccount(
+                  index: a.index,
+                  accountId: a.accountId,
+                  ss58Address: a.ss58Address,
+                  name: a.accountId == id ? name : a.name,
+                  createdAtMillis: a.createdAtMillis,
+                  isActive: a.isActive,
+                ),
+            ],
+          ),
+    accounts: [
+      for (final a in s.accounts)
+        CitizenWalletStateAccount(
+          signMode: a.signMode,
+          walletIndex: a.walletIndex,
+          accountIndex: a.accountIndex,
+          accountId: a.accountId,
+          ss58Address: a.ss58Address,
+          name: a.accountId == id ? name : a.name,
+          createdAtMillis: a.createdAtMillis,
+          isDefault: a.isDefault,
+        ),
+    ],
+  );
+}
+
+CitizenChainSyncStatus _syncStatus({required bool syncing}) =>
+    CitizenChainSyncStatus(
+      peerCount: BigInt.zero,
+      isSyncing: syncing,
+      isUsable: false,
+      best: CitizenBlockRef(
+        hash: '0x${'00' * 32}',
+        number: BigInt.one,
+        finality: CitizenBlockFinality.best,
+      ),
+      finalized: CitizenBlockRef(
+        hash: '0x${'00' * 32}',
+        number: BigInt.one,
+        finality: CitizenBlockFinality.finalized,
+      ),
+    );

@@ -24,14 +24,15 @@ import 'package:citizen_citizen/public/public_institution_dto.dart';
 import 'package:citizen_citizen/public/public_institution_repository.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
-import 'package:citizen_testing/institution/fake_public_institution_store.dart';
+import 'package:citizen_testing/institution/public_nav_harness.dart';
 import 'package:citizen_testing/isar_test_env.dart';
 
 class _GuestUserContext implements CurrentUserContext {
   @override
   Future<CurrentUser?> resolve() async => null;
+
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 /// 导航专用的目录失败夹具仍使用真实机构详情与生产路由，不开启另一套Isar。
@@ -97,15 +98,15 @@ Future<InstitutionRepository> _buildRepo({
   required List<({String name, String cid})> councils,
   required List<({String name, String cid})> banks,
 }) async {
-  final store = FakePublicInstitutionStore();
-  await store.upsertInstitutions([
-    _dto('国家储备委员会', 'nrc', 'NRC'),
-    for (final c in councils) _dto(c.name, c.cid, 'PRC'),
-    for (final b in banks) _dto(b.name, b.cid, 'PRB'),
-  ]);
-  return InstitutionRepository(
-    directory: PublicInstitutionRepository(store: store),
+  final directory = await buildSeededRepo(
+    provinceOrder: const [],
+    institutions: [
+      _dto('国家储备委员会', 'nrc', 'NRC'),
+      for (final c in councils) _dto(c.name, c.cid, 'PRC'),
+      for (final b in banks) _dto(b.name, b.cid, 'PRB'),
+    ],
   );
+  return InstitutionRepository(directory: directory);
 }
 
 Future<void> _pumpPage(
@@ -221,7 +222,7 @@ void main() {
 
   testWidgets('目录未返回时直接显示治理结构且不使用整页转圈', (tester) async {
     final repository = _PendingInstitutionRepository(
-      PublicInstitutionRepository(store: FakePublicInstitutionStore()),
+      await buildSeededRepo(provinceOrder: const [], institutions: const []),
     );
     await tester.pumpWidget(
       MaterialApp(
@@ -296,14 +297,11 @@ void main() {
   });
 
   testWidgets('iOS机构详情目录不可用时侧滑取消保留详情、完成返回治理列表', (tester) async {
-    final transport = TestCitizenSdkTransport({
-      'getWalletState': (_) => [testCitizenWalletState()],
-    });
-    final sdk = await transport.open();
+    final core = await openTestSdk();
+    final sdk = core.sdk;
     addTearDown(() async {
       await tester.pumpWidget(const SizedBox.shrink());
       await sdk.close();
-      await transport.dispose();
     });
     await _pumpPage(
       tester,

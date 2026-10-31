@@ -35,8 +35,9 @@ class _Security implements AccountSecurityService {
   @override
   Future<IdentityBinding?> readIdentityBindingForCid(String cid) async =>
       _binding;
+
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _Current implements CurrentUserContext {
@@ -55,13 +56,14 @@ class _Current implements CurrentUserContext {
     ),
     binding: changed ? null : _binding,
   );
+
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _Host implements ChatRuntimeHost {
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _Runtime extends ChatSdk {
@@ -106,7 +108,7 @@ class _Sessions implements SquareSessionProvider {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 void main() {

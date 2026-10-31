@@ -1,6 +1,6 @@
 import 'package:citizen_transaction/history/record_tile.dart';
 import 'package:citizen_wallet/navigation.dart';
-import 'package:citizen_storage/wallet_isar.dart' as wallet_store show Entry;
+import 'package:citizen_storage/user_isar.dart' as wallet_store show Entry;
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:async';
@@ -20,7 +20,7 @@ import 'package:citizen_system/theme/app_layout.dart';
 /// 账户详情（Lv3）：单个 `//index` 账户 = 单钱包多账户下「以前的钱包详情」。
 ///
 /// 承载该账户的全部钱包功能，一律按 `account_id` 键控：
-/// - 充值 / 提现 / 零钱包（[WalletActionCard]，链下清算行零钱包按账户独立绑定）；
+/// - USDT充值 / USDC充值 / 零钱包（[WalletActionCard]，链下清算行零钱包按账户独立绑定）；
 /// - 清算行菜单当前只显示“暂未上线，敬请期待”，不进入尚未完成的设置页；
 /// - 交易记录（[TransactionHistoryPage]，按账户 `account_id` 查询）；
 /// - 顶部完整 SS58 地址与该账户的账户码（`k=5`，只声明账户；身份码在用户主页）；
@@ -45,7 +45,7 @@ class _AccountDetailPageState extends State<AccountDetailPage>
   DialogRoute<void>? _privateKeyRoute;
   VoidCallback? _clearPrivateText;
 
-  /// 充值/提现/零钱包动作卡:下拉刷新时通过此 key 触发清算行余额重查。
+  /// 双币充值/零钱包动作卡:下拉刷新时通过此 key 触发清算行余额重查。
   final GlobalKey<WalletActionCardState> _actionCardKey =
       GlobalKey<WalletActionCardState>();
 
@@ -137,7 +137,7 @@ class _AccountDetailPageState extends State<AccountDetailPage>
     CitizenSdkPrivateKey? resource;
     String? key;
     try {
-      resource = await context.read<CitizenSdk>().wallet.openPrivateKey(
+      resource = await context.read<CitizenSdk>().openPrivateKey(
         widget.account.accountId,
       );
       final owned = resource;
@@ -364,12 +364,13 @@ class _AccountDetailPageState extends State<AccountDetailPage>
           children: [
             _buildHeader(),
             SizedBox(height: AppLayout.scaled(context, 16)),
-            // 充值 / 提现 / 零钱包(按 account_id,链下清算行零钱包按账户独立绑定)。
+            // 双币充值 / 零钱包(按 account_id,链下清算行零钱包按账户独立绑定)。
             Container(
               clipBehavior: Clip.antiAlias,
               decoration: AppTheme.cardDecoration(radius: AppTheme.radiusLg),
               child: WalletActionCard(
                 key: _actionCardKey,
+                hasOuterCard: true,
                 accountId: account.accountId,
                 accountAddress: account.ss58Address,
               ),
@@ -566,7 +567,9 @@ class _AccountDetailPageState extends State<AccountDetailPage>
                 onTap: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(
-                      builder: (_) => context.read<WalletNavigation>().recordDetail(record: record),
+                      builder: (_) => context
+                          .read<WalletNavigation>()
+                          .recordDetail(record: record),
                     ),
                   );
                 },

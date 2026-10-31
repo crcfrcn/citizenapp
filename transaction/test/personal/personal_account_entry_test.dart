@@ -10,9 +10,9 @@ void main() {
     tester.view.physicalSize = const Size(411, 914);
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(const MaterialApp(
-      home: Scaffold(body: PersonalAccountEntryCard()),
-    ));
+    await tester.pumpWidget(
+      const MaterialApp(home: Scaffold(body: PersonalAccountEntryCard())),
+    );
 
     expect(find.text('多签账户'), findsOneWidget);
     expect(find.text('扫一扫'), findsNothing);
@@ -25,11 +25,11 @@ void main() {
 
   testWidgets('整张卡片是点击区', (tester) async {
     var taps = 0;
-    await tester.pumpWidget(MaterialApp(
-      home: Scaffold(
-        body: PersonalAccountEntryCard(onTap: () => taps += 1),
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: PersonalAccountEntryCard(onTap: () => taps += 1)),
       ),
-    ));
+    );
 
     // 点标题与点箭头都应命中同一个点击区(箭头只作指示,不单独包 InkWell)。
     await tester.tap(find.text('多签账户'));

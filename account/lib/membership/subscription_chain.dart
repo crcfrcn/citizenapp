@@ -94,7 +94,6 @@ class FinalizedSubscriptionSnapshot {
   final ChainSubscriptionState? state;
   final int chainNowMs;
   final CitizenBlockRef block;
-
 }
 
 /// finalized `CreatorPlans` 中的单个链上付款档位。
@@ -124,14 +123,87 @@ typedef FinalizedSubscriptionTransaction = ({
 /// CitizenApp 只提交需要账户签名的订阅、取消、换档和创作者档位管理。首次扣款后的
 /// 真实公历到期时间及后续自动扣款全部由 runtime 根据共识时间戳完成。
 class SubscriptionChain {
-  const SubscriptionChain({
-    required CitizenChain chain,
-    required CitizenTransactions transactions,
-  }) : _chain = chain,
-       _transactions = transactions;
-
-  final CitizenChain _chain;
-  final CitizenTransactions _transactions;
+  SubscriptionChain({
+    CitizenSdk? chain,
+    CitizenSdk? transactions,
+    Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<List<Uint8List?>> Function(
+      CitizenBlockRef block,
+      List<Uint8List> keys,
+    )?
+    getStorageBatch,
+    Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
+    getStorage,
+    Future<CitizenPreparedTransaction> Function(
+      Uint8List sourceAccountId,
+      Uint8List callData,
+    )?
+    prepareTransaction,
+    Future<CitizenTransactionExecution> Function(String preparationId)?
+    executePreparedTransaction,
+    Future<void> Function(String executionId)?
+    cancelPreparedTransactionExecution,
+    Future<CitizenTransactionExecutionCompleted> Function(
+      String executionId,
+      String response,
+    )?
+    consumePreparedTransactionQrResponse,
+  }) : _getFinalizedHead =
+           getFinalizedHead ??
+           chain?.getFinalizedHead ??
+           (() => throw StateError('未配置getFinalizedHead')),
+       _getStorageBatch =
+           getStorageBatch ??
+           chain?.getStorageBatch ??
+           ((CitizenBlockRef block, List<Uint8List> keys) =>
+               throw StateError('未配置getStorageBatch')),
+       _getStorage =
+           getStorage ??
+           chain?.getStorage ??
+           ((CitizenBlockRef block, Uint8List key) =>
+               throw StateError('未配置getStorage')),
+       _prepareTransaction =
+           prepareTransaction ??
+           transactions?.prepareTransaction ??
+           ((Uint8List sourceAccountId, Uint8List callData) =>
+               throw StateError('未配置prepareTransaction')),
+       _executePreparedTransaction =
+           executePreparedTransaction ??
+           transactions?.executePreparedTransaction ??
+           ((String preparationId) =>
+               throw StateError('未配置executePreparedTransaction')),
+       _cancelPreparedTransactionExecution =
+           cancelPreparedTransactionExecution ??
+           transactions?.cancelPreparedTransactionExecution ??
+           ((String executionId) =>
+               throw StateError('未配置cancelPreparedTransactionExecution')),
+       _consumePreparedTransactionQrResponse =
+           consumePreparedTransactionQrResponse ??
+           transactions?.consumePreparedTransactionQrResponse ??
+           ((String executionId, String response) =>
+               throw StateError('未配置consumePreparedTransactionQrResponse'));
+  final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<List<Uint8List?>> Function(
+    CitizenBlockRef block,
+    List<Uint8List> keys,
+  )
+  _getStorageBatch;
+  final Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)
+  _getStorage;
+  final Future<CitizenPreparedTransaction> Function(
+    Uint8List sourceAccountId,
+    Uint8List callData,
+  )
+  _prepareTransaction;
+  final Future<CitizenTransactionExecution> Function(String preparationId)
+  _executePreparedTransaction;
+  final Future<void> Function(String executionId)
+  _cancelPreparedTransactionExecution;
+  final Future<CitizenTransactionExecutionCompleted> Function(
+    String executionId,
+    String response,
+  )
+  _consumePreparedTransactionQrResponse;
 
   static const int _squarePostPalletIndex = PalletRegistry.squarePostPallet;
   static const int _subscribeCallIndex = PalletRegistry.subscribeCall;
@@ -297,10 +369,10 @@ class SubscriptionChain {
     required String cidNumber,
     String? creatorCid,
   }) async {
-    final block = await _chain.getFinalizedHead();
+    final block = await _getFinalizedHead();
     final subscriptionKey = buildSubscriptionStorageKey(cidNumber, creatorCid);
     final timestampKey = buildStorageValueKey('Timestamp', 'Now');
-    final values = await _chain.getStorageBatch(block, <Uint8List>[
+    final values = await _getStorageBatch(block, <Uint8List>[
       subscriptionKey,
       timestampKey,
     ]);
@@ -317,7 +389,7 @@ class SubscriptionChain {
 
   /// 在同一个 finalized 区块读取创作者付款档位及其链上名称。
   Future<List<ChainCreatorTier>> fetchCreatorPlans(String creatorCid) async {
-    final block = await _chain.getFinalizedHead();
+    final block = await _getFinalizedHead();
     return fetchCreatorPlansAtBlock(creatorCid, block);
   }
 
@@ -330,10 +402,10 @@ class SubscriptionChain {
     CitizenBlockRef block,
   ) async {
     final key = buildCreatorPlansStorageKey(creatorCid);
-    final data = await _chain.getStorage(block, key);
+    final data = await _getStorage(block, key);
     if (data == null) return const <ChainCreatorTier>[];
     final priceTiers = decodeCreatorPlans(data);
-    final encodedNames = await _chain.getStorageBatch(block, <Uint8List>[
+    final encodedNames = await _getStorageBatch(block, <Uint8List>[
       for (final tier in priceTiers)
         buildCreatorTierNameStorageKey(creatorCid, tier.tierId),
     ]);
@@ -357,23 +429,16 @@ class SubscriptionChain {
     )
     externalSigning,
   }) async {
-    final prepared = await _transactions.prepareTransaction(
-      signerPublicKey,
-      callData,
-    );
-    final started = await _transactions.executePreparedTransaction(
-      prepared.preparationId,
-    );
+    final prepared = await _prepareTransaction(signerPublicKey, callData);
+    final started = await _executePreparedTransaction(prepared.preparationId);
     CitizenTransactionExecutionCompleted completed;
     if (started is CitizenTransactionExternalSigningPending) {
       final response = await externalSigning(started);
       if (response == null) {
-        await _transactions.cancelPreparedTransactionExecution(
-          started.executionId,
-        );
+        await _cancelPreparedTransactionExecution(started.executionId);
         throw StateError('订阅交易签名已取消');
       }
-      completed = await _transactions.consumePreparedTransactionQrResponse(
+      completed = await _consumePreparedTransactionQrResponse(
         started.executionId,
         response,
       );

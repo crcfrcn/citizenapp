@@ -1,7 +1,7 @@
 import 'package:citizen_transaction/history/record_tile.dart';
 import 'package:citizen_wallet/navigation.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
-import 'package:citizen_storage/wallet_isar.dart' as wallet_store show Entry;
+import 'package:citizen_storage/user_isar.dart' as wallet_store show Entry;
 import 'package:citizen_wallet/account_balance_snapshot_store.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
@@ -35,16 +35,79 @@ import 'package:citizen_wallet/wallet_identity_card.dart';
 import 'package:citizen_wallet/wallet_onchain_balance_card.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
+/// App只保留公开目录与本次读取的归还动作；SDK私有资源仍由默认读取器持有。
+typedef WalletSnapshot = ({
+  CitizenWalletState state,
+  Future<void> Function() release,
+});
+
+/// App钱包页面实际使用的读取和动作函数；不实现SDK接口，也不创建SDK私有资源。
+/// 缺省字段沿用原SDK路径，资源的取得、提交和归还仍由SDK完成。
+final class WalletActions {
+  const WalletActions({
+    this.snapshot,
+    this.state,
+    this.order,
+    this.renameAccount,
+    this.renameWallet,
+    this.remove,
+    this.repair,
+    this.diagnostics,
+    this.balances,
+    this.syncStatus,
+    this.lifecycle,
+    this.importCold,
+    this.reconcile,
+  });
+  final CitizenSdkOperation<Object> Function()? snapshot;
+  final CitizenSdkOperation<CitizenWalletState> Function()? state;
+  final Future<void> Function(
+    List<String> ids,
+    BigInt revision,
+    bool sameDefault,
+    Future<String?> Function(String request, BigInt expiresAt) prompt,
+  )?
+  order;
+  final Future<void> Function(String accountId, String name)? renameAccount;
+  final Future<void> Function(
+    int walletIndex,
+    BigInt revision,
+    String name,
+    bool diagnostic,
+  )?
+  renameWallet;
+  final Future<void> Function(
+    String? accountId,
+    bool wholeWallet,
+    int? diagnosticIndex,
+  )?
+  remove;
+  final Future<void> Function(int walletIndex)? repair;
+  final Future<void> Function()? reconcile;
+  final Future<List<CitizenSdkDiagnostic>> Function()? diagnostics;
+  final AccountBalanceSnapshotStore? balances;
+  final Future<CitizenChainSyncStatus> Function()? syncStatus;
+  final CitizenSdkLifecycle Function()? lifecycle;
+  final CitizenSdkOperation<CitizenWalletState> Function({
+    String? accountId,
+    String? ss58Address,
+    String name,
+  })?
+  importCold;
+}
+
 class WalletTab extends StatefulWidget {
   const WalletTab({
     super.key,
     this.selectForTrade = false,
+    this.actions,
     this.loadTimeout = const Duration(seconds: 5),
   });
 
   final Duration loadTimeout;
 
   final bool selectForTrade;
+  final WalletActions? actions;
 
   @override
   State<WalletTab> createState() => _WalletTabState();
@@ -67,6 +130,7 @@ enum _WalletLoadState {
 class _WalletTabState extends State<WalletTab> {
   CitizenWalletState? _state;
   CitizenWalletInspection? _inspection;
+  Object? _readOwner;
   Object? _cleanupError;
   bool _pendingAccountCleanup = false;
   bool _pendingWalletCleanupInProgress = false;
@@ -74,18 +138,19 @@ class _WalletTabState extends State<WalletTab> {
   _WalletLoadState _loadState = _WalletLoadState.initialLoading;
   Object? _loadError;
   AccountBalanceSnapshotStore get _balanceStore =>
-      AccountBalanceSnapshotStore.forChain(context.read<CitizenSdk>().chain);
+      widget.actions?.balances ??
+      AccountBalanceSnapshotStore.forChain(context.read<CitizenSdk>());
   String? _identityAccountId;
   DateTime? _lastWalletStoreSnackAt;
   bool _mutationInProgress = false;
   int _loadGeneration = 0;
   Future<void>? _directoryFlight;
-  CitizenSdkOperation<CitizenWalletInspection>? _directoryRead;
+  CitizenSdkOperation<Object>? _directoryRead;
   CitizenSdk? _observedSdk;
   StreamSubscription<CitizenSdkEvent>? _walletEvents;
 
   bool get _isSelectionMode => widget.selectForTrade;
-  CitizenSdkWallet get _wallet => context.read<CitizenSdk>().wallet;
+  CitizenSdk get _wallet => context.read<CitizenSdk>();
   AccountSecurityService get _accountSecurity =>
       context.read<AccountSecurityService>();
   List<CitizenWalletStateAccount> get _accounts =>
@@ -145,7 +210,8 @@ class _WalletTabState extends State<WalletTab> {
     _loadGeneration += 1;
     final read = _directoryRead;
     if (read != null) unawaited(read.cancel().catchError((Object _) => false));
-    unawaited(_releaseInspection(_inspection));
+    unawaited(_releaseRead(_readOwner));
+    _readOwner = null;
     _inspection = null;
     super.dispose();
   }
@@ -157,6 +223,14 @@ class _WalletTabState extends State<WalletTab> {
       await inspection.release();
     } catch (error) {
       AppLog.d('wallet inspection release failed: $error');
+    }
+  }
+
+  Future<void> _releaseRead(Object? read) async {
+    if (read is CitizenWalletInspection) {
+      await _releaseInspection(read);
+    } else if (read is WalletSnapshot) {
+      await read.release();
     }
   }
 
@@ -190,19 +264,20 @@ class _WalletTabState extends State<WalletTab> {
           message: 'previous catalog read is draining',
         );
       }
-      final read = _wallet.inspect();
+      final CitizenSdkOperation<Object> read =
+          widget.actions?.snapshot?.call() ?? _wallet.inspectWallets();
       _directoryRead = read;
       var expired = false;
       unawaited(
         read.result
             .then((late) async {
-              if (expired) await _releaseInspection(late);
+              if (expired) await _releaseRead(late);
             }, onError: (Object _) {})
             .whenComplete(() {
               if (identical(_directoryRead, read)) _directoryRead = null;
             }),
       );
-      final inspection = await read.result.timeout(
+      final result = await read.result.timeout(
         widget.loadTimeout,
         onTimeout: () {
           expired = true;
@@ -210,11 +285,16 @@ class _WalletTabState extends State<WalletTab> {
           throw TimeoutException('wallet catalog display deadline');
         },
       );
+      final inspection = result is CitizenWalletInspection ? result : null;
       if (!mounted || generation != _loadGeneration) {
-        await _releaseInspection(inspection);
+        await _releaseRead(result);
         return;
       }
-      final state = inspection.state;
+      final state = result is WalletSnapshot
+          ? result.state
+          : result is CitizenWalletState
+          ? result
+          : inspection!.state;
       // 首卡先恢复已有本地余额；缓存失败不改变SDK目录事实，也不等待身份或联网。
       try {
         await _balanceStore.restore(
@@ -224,17 +304,18 @@ class _WalletTabState extends State<WalletTab> {
         AppLog.d('wallet_balance_cache_restore_failed');
       }
       if (!mounted || generation != _loadGeneration) {
-        await _releaseInspection(inspection);
+        await _releaseRead(result);
         return;
       }
-      final previous = _inspection;
+      final previous = _readOwner;
       setState(() {
         _inspection = inspection;
+        _readOwner = result;
         _state = state;
         _loadState = _WalletLoadState.success;
         _loadError = null;
       });
-      await _releaseInspection(previous);
+      await _releaseRead(previous);
       await _refreshWalletDisplay(state, generation, forceBalance);
     } catch (error) {
       if (!mounted || generation != _loadGeneration) return;
@@ -279,7 +360,7 @@ class _WalletTabState extends State<WalletTab> {
     final sdk = context.read<CitizenSdk>();
     String text;
     try {
-      final rows = await sdk.readDiagnostics();
+      final rows = await (widget.actions?.diagnostics ?? sdk.readDiagnostics)();
       text = rows.isEmpty
           ? '暂无安全诊断记录'
           : rows.map((row) => row.toString()).join('\n');
@@ -304,10 +385,11 @@ class _WalletTabState extends State<WalletTab> {
       // 只复用身份业务的原公开结果，不把本地绑定存在等同于公民资格。
       // Chat回调保持惰性；读取钱包徽标不创建聊天运行态。
       final identity = await MyIdService(
-        wallet: sdk.wallet,
-        signing: sdk.signing,
-        chain: sdk.chain,
-        transactions: sdk.transactions,
+        wallet: sdk,
+        getWalletState: widget.actions?.state,
+        signing: sdk,
+        chain: sdk,
+        transactions: sdk,
         accountSecurity: _accountSecurity,
         currentUserContext: context.read<CurrentUserContext>(),
         identityResolver: context.read<FinalizedIdentityResolver>(),
@@ -350,7 +432,7 @@ class _WalletTabState extends State<WalletTab> {
     }
     final sdk = context.read<CitizenSdk>();
     try {
-      await AccountBalanceSnapshotStore.forChain(sdk.chain).getAccountBalances(
+      await _balanceStore.getAccountBalances(
         state.accounts.map((account) => account.accountId).toList(),
         forceRefresh: forceRefresh,
       );
@@ -358,7 +440,8 @@ class _WalletTabState extends State<WalletTab> {
       if (!mounted || generation != _loadGeneration) return;
       // SDK没有设备离线/同步超时的细分事实，不能从peer数或自由文本猜原因。
       var message = '区块链读取失败，请稍后再试';
-      if (sdk.lifecycle == CitizenSdkLifecycle.startFailed) {
+      if ((widget.actions?.lifecycle?.call() ?? sdk.lifecycle) ==
+          CitizenSdkLifecycle.startFailed) {
         message = '轻节点初始化失败，请检查网络后重试';
       } else if (error is CitizenSdkException) {
         if (error.code == CitizenSdkErrorCode.unavailable ||
@@ -366,7 +449,8 @@ class _WalletTabState extends State<WalletTab> {
           message = '区块链暂不可用，请检查网络连接后重试';
         } else if (error.code == CitizenSdkErrorCode.notReady) {
           try {
-            final status = await sdk.chain.getSyncStatus();
+            final status =
+                await (widget.actions?.syncStatus ?? sdk.getSyncStatus)();
             if (status.isSyncing) {
               message = '轻节点正在同步链状态，请稍后再试';
             }
@@ -433,7 +517,21 @@ class _WalletTabState extends State<WalletTab> {
     BigInt revision,
   ) async {
     final ids = target.map((account) => account.accountId).toList();
-    final signing = context.read<CitizenSdk>().signing;
+    final action = widget.actions?.order;
+    if (action != null) {
+      await action(
+        ids,
+        revision,
+        before.first.accountId == target.first.accountId,
+        (request, expiresAt) => showCitizenSdkQrResponse(
+          context,
+          request: request,
+          expiresAt: expiresAt,
+        ),
+      );
+      return;
+    }
+    final signing = context.read<CitizenSdk>();
     if (before.first.accountId == target.first.accountId) {
       await _wallet
           .reorderAccountsWithoutDefaultChange(
@@ -472,7 +570,7 @@ class _WalletTabState extends State<WalletTab> {
           .result;
     } finally {
       // 原UI退出后不遗留默认账户授权会话，成功消费后的取消为幂等空操作。
-      await signing.cancel(pending.sessionId);
+      await signing.cancelSigning(pending.sessionId);
     }
   }
 
@@ -524,7 +622,14 @@ class _WalletTabState extends State<WalletTab> {
     }
     try {
       // 钱包名是纯本机标签，不发布为公开昵称，也不读取资料服务。
-      if (diagnostic != null) {
+      if (widget.actions?.renameWallet != null) {
+        await widget.actions!.renameWallet!(
+          diagnostic?.walletIndex ?? wallet!.walletIndex,
+          state.revision,
+          newName,
+          diagnostic != null,
+        );
+      } else if (diagnostic != null) {
         if (inspection == null) {
           throw const CitizenSdkException(
             code: CitizenSdkErrorCode.invalidState,
@@ -557,7 +662,7 @@ class _WalletTabState extends State<WalletTab> {
   Future<void> _repairBrokenWallet(CitizenWalletDiagnostic wallet) async {
     if (_mutationInProgress) return;
     final inspection = _inspection;
-    if (inspection == null) return;
+    if (inspection == null && widget.actions?.repair == null) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -582,7 +687,11 @@ class _WalletTabState extends State<WalletTab> {
     _loadGeneration += 1;
     setState(() => _mutationInProgress = true);
     try {
-      await inspection.repairHot(wallet.walletIndex).result;
+      if (widget.actions?.repair != null) {
+        await widget.actions!.repair!(wallet.walletIndex);
+      } else {
+        await inspection!.repairHot(wallet.walletIndex).result;
+      }
       await _reload();
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -607,7 +716,11 @@ class _WalletTabState extends State<WalletTab> {
     });
     Object? error;
     try {
-      await _wallet.reconcileCleanup().result;
+      if (widget.actions?.reconcile != null) {
+        await widget.actions!.reconcile!();
+      } else {
+        await _wallet.reconcileCleanup().result;
+      }
       await _accountSecurity.reconcileAccountCleanup();
       await _reload();
       error = _cleanupError;
@@ -667,9 +780,13 @@ class _WalletTabState extends State<WalletTab> {
       return;
     }
     try {
-      await _wallet
-          .renameAccount(accountId: account.accountId, name: name)
-          .result;
+      if (widget.actions?.renameAccount != null) {
+        await widget.actions!.renameAccount!(account.accountId, name);
+      } else {
+        await _wallet
+            .renameAccount(accountId: account.accountId, name: name)
+            .result;
+      }
       await _reload();
     } catch (error) {
       if (!mounted) return;
@@ -769,7 +886,13 @@ class _WalletTabState extends State<WalletTab> {
         deleteWalletWideKey: cleanupWide,
       );
       try {
-        if (diagnostic != null) {
+        if (widget.actions?.remove != null) {
+          await widget.actions!.remove!(
+            account?.accountId,
+            deletingWholeWallet,
+            diagnostic?.walletIndex,
+          );
+        } else if (diagnostic != null) {
           if (inspection == null) {
             throw const CitizenSdkException(
               code: CitizenSdkErrorCode.invalidState,
@@ -778,7 +901,7 @@ class _WalletTabState extends State<WalletTab> {
           }
           await inspection.delete(diagnostic.walletIndex).result;
         } else if (deletingWholeWallet) {
-          await sdkWallet.signAndDelete().result;
+          await sdkWallet.signAndDeleteWallet().result;
         } else {
           await sdkWallet.deleteAccount(account!.accountId).result;
         }
@@ -786,7 +909,10 @@ class _WalletTabState extends State<WalletTab> {
       } catch (failure) {
         error = failure;
         try {
-          final state = await sdkWallet.getState().result;
+          final state =
+              await (widget.actions?.state?.call() ??
+                      sdkWallet.getWalletState())
+                  .result;
           final ids = state.accounts.map((value) => value.accountId).toSet();
           removed =
               accountIds.every((id) => !ids.contains(id)) &&
@@ -885,14 +1011,20 @@ class _WalletTabState extends State<WalletTab> {
   }
 
   Future<void> _scanSignForAccount(CitizenWalletStateAccount account) async {
-    await context.read<ScanDispatch>().openAccountScanSignFlow(context: context, account: account);
+    await context.read<ScanDispatch>().openAccountScanSignFlow(
+      context: context,
+      account: account,
+    );
   }
 
   Future<void> _openImportColdWalletPage() async {
     if (_mutationInProgress) return;
     try {
       final imported = await Navigator.of(context).push<bool>(
-        MaterialPageRoute(builder: (_) => const ImportColdWalletPage()),
+        MaterialPageRoute(
+          builder: (_) =>
+              ImportColdWalletPage(importCold: widget.actions?.importCold),
+        ),
       );
       if (imported != true) return;
       if (!mounted) return;
@@ -910,7 +1042,9 @@ class _WalletTabState extends State<WalletTab> {
     if (snapshot == null || _mutationInProgress) return;
     setState(() => _mutationInProgress = true);
     try {
-      final current = await _wallet.getState().result;
+      final current =
+          await (widget.actions?.state?.call() ?? _wallet.getWalletState())
+              .result;
       if (current.revision != snapshot.revision ||
           !current.accounts.any(
             (account) =>
@@ -2029,7 +2163,7 @@ class _WalletDetailPageState extends State<WalletDetailPage>
     String? value;
 
     try {
-      resource = await context.read<CitizenSdk>().wallet.openPrivateKey(
+      resource = await context.read<CitizenSdk>().openPrivateKey(
         widget.wallet.accountId,
       );
       final owned = resource;
@@ -2163,7 +2297,6 @@ class _WalletDetailPageState extends State<WalletDetailPage>
     try {
       final state = await context
           .read<CitizenSdk>()
-          .wallet
           .renameWallet(
             expectedRevision: _walletRevision,
             walletIndex: widget.wallet.walletIndex,
@@ -2235,7 +2368,7 @@ class _WalletDetailPageState extends State<WalletDetailPage>
                 ],
               ),
             ),
-            // 三项操作紧接主视觉，保留原跳转和清算行绑定状态。
+            // 双币充值与零钱包共用操作组件；零钱包沿原清算行绑定。
             WalletActionCard(
               key: _actionCardKey,
               accountId: widget.wallet.accountId,
@@ -2319,7 +2452,9 @@ class _WalletDetailPageState extends State<WalletDetailPage>
                 onTap: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(
-                      builder: (_) => context.read<WalletNavigation>().recordDetail(record: record),
+                      builder: (_) => context
+                          .read<WalletNavigation>()
+                          .recordDetail(record: record),
                     ),
                   );
                 },
@@ -2374,7 +2509,13 @@ class WalletIconRegistry {
 
 /// 导入冷钱包页面：只接受本链 SS58 展示地址，不导入私钥。
 class ImportColdWalletPage extends StatefulWidget {
-  const ImportColdWalletPage({super.key});
+  const ImportColdWalletPage({super.key, this.importCold});
+  final CitizenSdkOperation<CitizenWalletState> Function({
+    String? accountId,
+    String? ss58Address,
+    String name,
+  })?
+  importCold;
 
   @override
   State<ImportColdWalletPage> createState() => _ImportColdWalletPageState();
@@ -2400,7 +2541,7 @@ class _ImportColdWalletPageState extends State<ImportColdWalletPage> {
 
     String? address;
     try {
-      final result = await context.read<CitizenSdk>().qr.parseForPurpose(
+      final result = await context.read<CitizenSdk>().parseForPurpose(
         raw,
         CitizenQrScanPurpose.coldAccountImport,
       );
@@ -2432,11 +2573,9 @@ class _ImportColdWalletPageState extends State<ImportColdWalletPage> {
       _isImporting = true;
     });
     try {
-      await context
-          .read<CitizenSdk>()
-          .wallet
-          .importColdAccount(ss58Address: _addressController.text)
-          .result;
+      await (widget.importCold ?? context.read<CitizenSdk>().importColdAccount)(
+        ss58Address: _addressController.text,
+      ).result;
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (e) {

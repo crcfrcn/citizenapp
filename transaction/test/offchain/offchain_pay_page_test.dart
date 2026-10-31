@@ -1,3 +1,5 @@
+import 'package:citizen_transaction/offchain/clearing_bank_directory.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -43,47 +45,29 @@ class Rpc extends OffchainClearingBankRpc {
 
 void main() {
   var signFails = false;
-  final harness = TestCitizenSdkHarness(
-    handlers: {
-      'getFinalizedHead': (_) => [
-        ['0x${'ab' * 32}', '50', 'finalized'],
-      ],
-      'getBestHead': (_) => [
-        ['0x${'ab' * 32}', '50', 'best'],
-      ],
-      'getStorage': (_) {
-        List<int> text(String value) => [
-          utf8.encode(value).length << 2,
-          ...utf8.encode(value),
-        ];
-        return [
-          Uint8List.fromList([
-            ...text('peer'),
-            ...text('clearing.example'),
-            216,
-            38,
-            1,
-            0,
-            0,
-            0,
-            ...List.filled(32, 3),
-          ]),
-        ];
-      },
-      'beginSigning': (fields) {
-        if (signFails) throw StateError('合成签名取消');
-        return [
-          [
-            'completed',
-            fields[0],
-            '0x${'00' * 32}',
-            Uint8List(64),
-            null,
-            null,
-            null,
-          ],
-        ];
-      },
+  final harness = TestCitizenSdkHarness();
+  final directory = ClearingBankDirectory(
+    getFinalizedHead: () async => CitizenBlockRef(
+      hash: '0x${'ab' * 32}',
+      number: BigInt.from(50),
+      finality: CitizenBlockFinality.finalized,
+    ),
+    getStorage: (block, key) async {
+      List<int> text(String value) => [
+        utf8.encode(value).length << 2,
+        ...utf8.encode(value),
+      ];
+      return Uint8List.fromList([
+        ...text('peer'),
+        ...text('clearing.example'),
+        216,
+        38,
+        1,
+        0,
+        0,
+        0,
+        ...List.filled(32, 3),
+      ]);
     },
   );
   setUp(() {
@@ -112,6 +96,11 @@ void main() {
             clearingNodeWssUrl: rpc.wssUrl,
             initialAmountYuan: '1',
             nodeRpc: rpc,
+            directory: directory,
+            payloadSigner: (id, payload, action, context) async {
+              if (signFails) throw StateError('合成签名取消');
+              return Uint8List(64);
+            },
           ),
         ),
       ),

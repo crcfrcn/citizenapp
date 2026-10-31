@@ -13,7 +13,7 @@ import 'package:citizen_storage/user_isar.dart'
         ProfileSchema,
         Setting,
         SettingSchema;
-import 'package:citizen_storage/app_isar.dart' as app_store show Entity;
+import 'package:citizen_storage/user_isar.dart' as app_store show Entity;
 import 'package:citizen_citizen/account_derivation.dart';
 import 'package:flutter/foundation.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -24,9 +24,9 @@ import 'package:citizen_account/square_api_client.dart';
 import 'package:citizen_account/profile/citizen_profile.dart';
 import 'package:citizen_citizen/public/isar_public_institution_store.dart';
 import 'package:citizen_citizen/public/public_institution_dto.dart';
-import 'package:citizen_storage/app_isar.dart';
-import 'package:citizen_account/identity/current_user_context.dart';
 import 'package:citizen_storage/user_isar.dart';
+import 'package:citizen_account/identity/current_user_context.dart';
+
 import 'package:citizen_storage/isar_core_bootstrap.dart';
 import 'package:citizen_account/contacts/contact_service.dart';
 import 'package:isar_community/isar.dart';
@@ -34,7 +34,8 @@ import 'package:citizen_account/identity/identity_binding.dart';
 import 'package:citizen_account/identity/account_security_service.dart';
 
 import 'package:citizen_testing/isar_test_env.dart';
-import 'package:citizen_testing/mls_authentication_fixture.dart' show testMlsDeviceId;
+import 'package:citizen_testing/mls_authentication_fixture.dart'
+    show testMlsDeviceId;
 
 const _owner = 'w5BekTimvtfYZvFpkDzy7ypqUntPgTbjRFCt9weR8vMgf7o8E';
 final _accountId = UserContactService.accountIdFromSs58(_owner);
@@ -50,8 +51,9 @@ class _FakeWalletManager implements AccountSecurityService {
   @override
   Future<IdentityBinding?> readIdentityBindingForCid(String cid) async =>
       (await (current ?? _FakeIdentityCache()).resolve())!.binding;
+
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 /// 身份缓存 fake：恒返回已注册 CID 及其当前绑定账户。
@@ -86,7 +88,7 @@ class _FakeIdentityCache implements CurrentUserContext {
   Future<String?> accountId() async => _accountId;
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _FakeSessionProvider implements SquareSessionProvider {
@@ -101,7 +103,7 @@ class _FakeSessionProvider implements SquareSessionProvider {
   );
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _FakeApi extends SquareApiClient {
@@ -337,7 +339,7 @@ void main() {
   });
   test('公权机构关注按订阅者 CID 持久化，钱包换绑不产生新分区', () async {
     const peerCid = 'GD001-CGOV0-000000001-2026';
-    final isar = await AppIsar.instance.db();
+    final isar = await UserIsar.instance.db();
     await isar.writeTxn(() async {
       await isar.collection<app_store.Entity>().clear();
     });

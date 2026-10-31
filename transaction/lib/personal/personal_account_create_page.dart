@@ -1,5 +1,5 @@
 import 'package:citizen_transaction/personal/personal_local_store.dart';
-import 'package:citizen_storage/wallet_isar.dart'
+import 'package:citizen_storage/user_isar.dart'
     as wallet_store
     show Account;
 import 'package:citizen_wallet/account_balance_snapshot_store.dart';
@@ -12,7 +12,7 @@ import 'package:provider/provider.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
-import 'package:citizen_storage/wallet_isar.dart' hide Group;
+import 'package:citizen_storage/user_isar.dart' hide Group;
 import 'package:citizen_transaction/personal/multisig_create_amount_rules.dart';
 import 'package:citizen_scanner/qr_scan_page.dart'
     show QrScanMode, QrScanPage;
@@ -79,10 +79,10 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
       return;
     }
     final sdk = context.read<CitizenSdk>();
-    _walletStateLoader = () => sdk.wallet.getState().result;
+    _walletStateLoader = () => sdk.getWalletState().result;
     _manageService =
         widget.manageService ??
-        PersonalManageService(chain: sdk.chain, transactions: sdk.transactions);
+        PersonalManageService(chain: sdk, transactions: sdk);
     _dependenciesReady = true;
     _loadWallets();
   }
@@ -158,7 +158,7 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
 
     // 原管理员入口只接受用户码；直接使用SDK事实，不再解析body或使用动态字段。
     try {
-      final document = await context.read<CitizenSdk>().qr.parse(result.trim());
+      final document = await context.read<CitizenSdk>().parseQr(result.trim());
       if (document.kind != CitizenQrKind.userContact) {
         if (!mounted) return;
         ScaffoldMessenger.of(context)
@@ -339,7 +339,7 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
     required BigInt initialAmountFen,
   }) async {
     final balance = await AccountBalanceSnapshotStore.forChain(
-      context.read<CitizenSdk>().chain,
+      context.read<CitizenSdk>(),
     ).getAccountBalance(wallet.accountId, forceRefresh: true);
     final balanceYuan = balance.freeFen.toDouble() / 100;
     final balanceFen = MultisigCreateAmountRules.yuanToFen(balanceYuan);
@@ -355,7 +355,7 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
   }
 
   Future<void> _submit() async {
-    final chain = context.read<CitizenSdk>().chain;
+    final chain = context.read<CitizenSdk>();
     final error = _validate();
     if (error != null) {
       ScaffoldMessenger.of(context)
@@ -410,7 +410,7 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
       );
 
       final addrHex = result.accountId;
-      await WalletIsar.instance.writeTxn((isar) async {
+      await UserIsar.instance.writeTxn((isar) async {
         final entity = wallet_store.Account()
           ..accountId = '0x$addrHex'
           ..accountName = nameText

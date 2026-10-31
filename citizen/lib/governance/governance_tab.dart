@@ -198,6 +198,8 @@ class _GovernanceTabState extends State<GovernanceTab> {
       });
     }
     try {
+      await _repo.directory.ensureSynced();
+      if (!mounted) return;
       final all = await _repo.listByCodes(_governanceCodes);
       final national = all
           .where((i) => i.orgType == OrgType.nrc)

@@ -3,8 +3,6 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-import 'dart:typed_data';
-
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -49,7 +47,7 @@ class _NullMembershipSnapshotService implements SubscriptionService {
   Future<void> requireSquareAccess(SquareSession session) async {}
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 Widget _wrap({
@@ -100,16 +98,7 @@ Widget _wrap({
 }
 
 void main() {
-  _sdkHarness = TestCitizenSdkHarness(
-    handlers: {
-      // UI导航只需要合成像素；用户码协议编码仍调用当前真实Core。
-      'qrEncode': (_) => [
-        1,
-        1,
-        Uint8List.fromList([0]),
-      ],
-    },
-  );
+  _sdkHarness = TestCitizenSdkHarness();
   testWidgets('公开昵称、公民号、三项关系和四类内容计数按身份语义展示', (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(411, 914);

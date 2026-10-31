@@ -1,6 +1,6 @@
 import 'record_format.dart';
 import 'record_tile.dart';
-import 'package:citizen_storage/wallet_isar.dart' as wallet_store show Entry;
+import 'package:citizen_storage/user_isar.dart' as wallet_store show Entry;
 
 import 'dart:async';
 

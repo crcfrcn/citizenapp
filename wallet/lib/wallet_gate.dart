@@ -1,4 +1,5 @@
 import 'package:citizen_wallet/navigation.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -17,6 +18,8 @@ class WalletGate extends StatefulWidget {
     super.key,
     required this.child,
     this.walletStateLoader,
+    this.walletOperation,
+    this.diagnosticsLoader,
     this.onInitialized,
     this.loadTimeout = const Duration(seconds: 5),
   });
@@ -25,6 +28,12 @@ class WalletGate extends StatefulWidget {
 
   /// SDK状态加载测试接线，不复制钱包状态或判定规则。
   final Future<CitizenWalletState> Function()? walletStateLoader;
+
+  /// 可取消的本地读取边界；缺省仍使用同一SDK真实操作。
+  final CitizenSdkOperation<CitizenWalletState> Function()? walletOperation;
+
+  /// 只读诊断边界，与钱包读取、初始化及修复分离。
+  final Future<List<CitizenSdkDiagnostic>> Function()? diagnosticsLoader;
 
   /// 首次初始化(本次会话从 onboarding 新建/导入钱包)后的一次性引导,测试注入用;默认把
   /// 用户带到身份页 [MyIdPage] 去注册身份(决策③:不改动主界面 5-tab 结构,返回即回落)。
@@ -81,7 +90,8 @@ class _WalletGateState extends State<WalletGate> {
     }
     final loader = widget.walletStateLoader;
     final operation = loader == null
-        ? context.read<CitizenSdk>().wallet.getState()
+        ? (widget.walletOperation ??
+              context.read<CitizenSdk>().getWalletState)()
         : null;
     final read = loader == null
         ? operation!.result
@@ -221,7 +231,9 @@ class _WalletGateState extends State<WalletGate> {
     setState(() => _diagnosticsLoading = true);
     String details;
     try {
-      final rows = await context.read<CitizenSdk>().readDiagnostics();
+      final rows =
+          await (widget.diagnosticsLoader ??
+              context.read<CitizenSdk>().readDiagnostics)();
       details = rows.isEmpty
           ? '暂无安全诊断记录'
           : rows.map((row) => row.toString()).join('\n');
@@ -236,9 +248,7 @@ class _WalletGateState extends State<WalletGate> {
       builder: (context) => SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(20),
-          child: SelectableText(
-            [?failure, details].join('\n'),
-          ),
+          child: SelectableText([?failure, details].join('\n')),
         ),
       ),
     );
@@ -246,8 +256,11 @@ class _WalletGateState extends State<WalletGate> {
 
   /// 默认初始化引导:一次性 push 身份页(返回即回落主界面,不改动 5-tab 结构)。
   void _introduceIdentity(BuildContext context) {
-    Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => context.read<WalletNavigation>().identity()));
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => context.read<WalletNavigation>().identity(),
+      ),
+    );
   }
 
   @override

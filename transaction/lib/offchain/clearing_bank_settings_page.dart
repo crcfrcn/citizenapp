@@ -60,7 +60,7 @@ class _ClearingBankSettingsPageState extends State<ClearingBankSettingsPage> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_dependenciesReady) return;
-    _directory = ClearingBankDirectory(chain: context.read<CitizenSdk>().chain);
+    _directory = ClearingBankDirectory(chain: context.read<CitizenSdk>());
     _dependenciesReady = true;
     _loadCurrent();
   }

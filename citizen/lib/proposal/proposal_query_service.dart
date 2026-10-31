@@ -17,12 +17,53 @@ import 'package:citizen_citizen/proposal/internal_vote_query_service.dart';
 /// 提案状态、投票计数、快照和 NextProposalId 都是投票引擎
 /// 通用状态，不能借用具体业务 service 暴露给其他模块。
 class ProposalQueryService {
-  ProposalQueryService({required CitizenChain chain, CitizenBlockRef? block})
-    : _chain = chain,
-      _block = block,
-      _internalVoteQuery = InternalVoteQueryService(chain: chain, block: block);
+  ProposalQueryService({
+    CitizenSdk? chain,
+    CitizenBlockRef? block,
+    Future<Uint8List?> Function(CitizenBlockRef block)? getSystemEvents,
+    Future<CitizenRuntimeContext> Function(CitizenBlockRef block)?
+    getRuntimeContext,
+    Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
+    getStorage,
+    Future<List<Uint8List?>> Function(
+      CitizenBlockRef block,
+      List<Uint8List> keys,
+    )?
+    getStorageBatch,
+  }) : _block = block,
+       _internalVoteQuery = InternalVoteQueryService(
+         chain: chain,
+         block: block,
+         getFinalizedHead: getFinalizedHead,
+         getStorage: getStorage,
+         getStorageBatch: getStorageBatch,
+       ),
+       _getSystemEvents =
+           getSystemEvents ??
+           chain?.getSystemEvents ??
+           ((CitizenBlockRef block) => throw StateError('未配置getSystemEvents')),
+       _getRuntimeContext =
+           getRuntimeContext ??
+           chain?.getRuntimeContext ??
+           ((CitizenBlockRef block) =>
+               throw StateError('未配置getRuntimeContext')),
+       _getFinalizedHead =
+           getFinalizedHead ??
+           chain?.getFinalizedHead ??
+           (() => throw StateError('未配置getFinalizedHead')),
+       _getStorage =
+           getStorage ??
+           chain?.getStorage ??
+           ((CitizenBlockRef block, Uint8List key) =>
+               throw StateError('未配置getStorage'));
+  final Future<Uint8List?> Function(CitizenBlockRef block) _getSystemEvents;
+  final Future<CitizenRuntimeContext> Function(CitizenBlockRef block)
+  _getRuntimeContext;
+  final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)
+  _getStorage;
 
-  final CitizenChain _chain;
   final CitizenBlockRef? _block;
   final InternalVoteQueryService _internalVoteQuery;
 
@@ -38,11 +79,11 @@ class ProposalQueryService {
         execution.status != CitizenExecutionStatus.success) {
       throw StateError('事件确认需要成功的finalized执行');
     }
-    final bytes = await _chain.getSystemEvents(block);
+    final bytes = await _getSystemEvents(block);
     if (bytes == null || bytes.isEmpty) {
       throw const FormatException('执行块缺少System.Events');
     }
-    final context = await _chain.getRuntimeContext(block);
+    final context = await _getRuntimeContext(block);
     if (context.block.hash != block.hash ||
         context.block.number != block.number ||
         context.block.finality != block.finality) {
@@ -410,11 +451,11 @@ class ProposalQueryService {
   /// 每个公开查询都先锁定一个 SDK 验证的 finalized 块，业务 key 仍由
   /// VotingEngine 模块生成，不将 pallet 语义下沉到 CitizenSDK。
   Future<Uint8List?> _readStorage(Uint8List key) async {
-    final finalized = _block ?? await _chain.getFinalizedHead();
+    final finalized = _block ?? await _getFinalizedHead();
     if (finalized.finality != CitizenBlockFinality.finalized) {
       throw StateError('提案查询需要finalized块');
     }
-    return _chain.getStorage(finalized, key);
+    return _getStorage(finalized, key);
   }
 
   Uint8List _buildStorageValueKey(String palletName, String storageName) {

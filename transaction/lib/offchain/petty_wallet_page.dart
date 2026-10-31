@@ -53,7 +53,7 @@ class _PettyWalletPageState extends State<PettyWalletPage> {
   void initState() {
     super.initState();
     _balance =
-        AccountBalanceSnapshotStore.forChain(context.read<CitizenSdk>().chain)
+        AccountBalanceSnapshotStore.forChain(context.read<CitizenSdk>())
             .clearingState(
               accountId: widget.accountId,
               accountAddress: widget.accountAddress,

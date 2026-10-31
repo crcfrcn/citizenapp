@@ -105,7 +105,7 @@ class _SafetyFundTransferPageState extends State<SafetyFundTransferPage> {
     if (forceRefresh && mounted) setState(() => _loadingBalance = true);
     try {
       final snapshot = await AccountBalanceSnapshotStore.forChain(
-        context.read<CitizenSdk>().chain,
+        context.read<CitizenSdk>(),
       ).getAccountBalance(_safetyFundAccountId, forceRefresh: forceRefresh);
       if (!mounted) return false;
       setState(() {
@@ -224,7 +224,7 @@ class _SafetyFundTransferPageState extends State<SafetyFundTransferPage> {
           additionalDebitYuan: OnchainTransferCall.estimateTransferFeeYuan(
             amountYuan,
           ),
-          chain: sdk.chain,
+          chain: sdk,
         );
     if (balanceBlockedReason != null) {
       if (!mounted) return;
@@ -239,8 +239,8 @@ class _SafetyFundTransferPageState extends State<SafetyFundTransferPage> {
       final signerPublicKey = Uint8List.fromList(_hexToBytes(wallet.accountId));
 
       final service = MultisigTransferService(
-        chain: sdk.chain,
-        transactions: sdk.transactions,
+        chain: sdk,
+        transactions: sdk,
       );
       // 提案类交易等真正入块并核对事件后才返回，proposal_id 来自
       // 链上 SafetyFundTransferProposed 事件，是业务成功的唯一凭据。

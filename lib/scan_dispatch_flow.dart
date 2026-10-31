@@ -92,7 +92,7 @@ Future<void> _dispatchSignRequest(
 ) async {
   final int action;
   try {
-    action = (await context.read<CitizenSdk>().qr.parseForPurpose(
+    action = (await context.read<CitizenSdk>().parseForPurpose(
       raw,
       CitizenQrScanPurpose.signingRequest,
     )).document.action!;
@@ -116,13 +116,13 @@ Future<void> _handleSquareActionSignRequest(
   CitizenWalletStateAccount? requiredAccount,
 ) async {
   final sdk = context.read<CitizenSdk>();
-  final service = SquareActionSignService(qr: sdk.qr);
+  final service = SquareActionSignService(qr: sdk);
 
   final SquareActionSignPrep prep;
   try {
     prep = await service.prepare(
       raw,
-      sdk.wallet,
+      sdk,
       requiredAccount: requiredAccount,
     );
   } on SquareActionSignException catch (e) {
@@ -137,7 +137,7 @@ Future<void> _handleSquareActionSignRequest(
   final String responseData;
   try {
     // 动钱动权 → 读硬件金库、弹一次生物识别。
-    responseData = await service.sign(prep, sdk.signing, context);
+    responseData = await service.sign(prep, sdk, context);
   } on AccountSecurityException catch (e) {
     if (context.mounted) _snack(context, e.message);
     return;
@@ -167,11 +167,11 @@ Future<void> _handleCitizenIdentitySignRequest(
   CitizenWalletStateAccount? signingAccount,
 ) async {
   final sdk = context.read<CitizenSdk>();
-  final service = CitizenIdentitySignService(qr: sdk.qr);
+  final service = CitizenIdentitySignService(qr: sdk);
   try {
     final prep = await service.prepare(
       raw,
-      sdk.wallet,
+      sdk,
       requiredAccount: signingAccount,
     );
     if (!context.mounted) return;
@@ -196,7 +196,7 @@ Future<void> _handleCitizenIdentitySignRequest(
       ),
     );
     if (confirmed != true || !context.mounted) return;
-    final response = await service.sign(prep, sdk.signing, context);
+    final response = await service.sign(prep, sdk, context);
     if (!context.mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(
@@ -225,14 +225,14 @@ Future<void> _handleOccupySignRequest(
 ) async {
   final sdk = context.read<CitizenSdk>();
   final accountSecurity = context.read<AccountSecurityService>();
-  final service = CitizenOccupySignService(qr: sdk.qr);
+  final service = CitizenOccupySignService(qr: sdk);
 
   final selected =
-      requiredAccount ?? await _pickBindingAccount(context, sdk.wallet);
+      requiredAccount ?? await _pickBindingAccount(context, sdk);
   if (selected == null || !context.mounted) return;
 
   try {
-    final prep = await service.prepare(raw, selected, sdk.wallet);
+    final prep = await service.prepare(raw, selected, sdk);
     if (!context.mounted) return;
     final reviewEntries = <(String, String)>[
       ('创世哈希', prep.genesisHash),
@@ -269,10 +269,10 @@ Future<void> _handleOccupySignRequest(
       ),
     );
     if (confirmed != true || !context.mounted) return;
-    final response = await service.sign(prep, sdk.signing, context);
+    final response = await service.sign(prep, sdk, context);
     if (!prep.isOccupy && prep.currentAccount != null) {
       if (!context.mounted) return;
-      final chain = context.read<CitizenSdk>().chain;
+      final chain = context.read<CitizenSdk>();
       final chatRuntime = context.read<ChatSdk>();
       final target = IdentityBinding(
         genesisHash: prep.genesisHash,
@@ -311,7 +311,7 @@ Future<void> _handleOccupySignRequest(
 }
 
 Future<void> _completeRegistryBinding({
-  required CitizenChain chain,
+  required CitizenSdk chain,
   required AccountSecurityService accountSecurity,
   required ChatSdk chatRuntime,
   required IdentityBinding target,
@@ -354,9 +354,9 @@ Future<void> _completeRegistryBinding({
 /// 使用卡片账户，不进入本选择器。
 Future<CitizenWalletStateAccount?> _pickBindingAccount(
   BuildContext context,
-  CitizenSdkWallet wallet,
+  CitizenSdk wallet,
 ) async {
-  final accounts = (await wallet.getState().result).accounts;
+  final accounts = (await wallet.getWalletState().result).accounts;
   if (!context.mounted) return null;
   if (accounts.isEmpty) {
     _snack(context, '本机没有可绑定的钱包账户');

@@ -110,20 +110,13 @@ Future<void> login(SquareApiClient api) => api
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  late TestCitizenSdkTransport transport;
-  late CitizenSdk sdk;
+  final core = TestCitizenSdkHarness();
   setUp(() async {
     SquareApiClient.activateFinalizedBinding(
       cidNumber: _cidNumber,
       bindRev: 1,
       accountId: _accountId,
     );
-    transport = TestCitizenSdkTransport({}, useCore: true);
-    sdk = await transport.open();
-  });
-  tearDown(() async {
-    await sdk.close();
-    await transport.dispose();
   });
 
   test('submit requires MLS, returns pending, then wallet-only status recovers completion', () async {
@@ -183,7 +176,7 @@ void main() {
       '/api/user/deletion/status',
     ]);
     for (var i = 0; i < signed.length; i++) {
-      final expected = await CitizenSigning.encodePayload(
+      final expected = await CitizenSdk.encodePayload(
         CitizenSigningPayload.message(
           opTag: kOpSignSquareAction,
           scalePayload: hexToBytes(payloads[i]),

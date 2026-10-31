@@ -49,7 +49,7 @@ class WalletOnchainBalanceCardState extends State<WalletOnchainBalanceCard> {
   void _bind() {
     final loader = widget.balanceLoader;
     _balance = loader == null
-        ? AccountBalanceSnapshotStore.forChain(context.read<CitizenSdk>().chain)
+        ? AccountBalanceSnapshotStore.forChain(context.read<CitizenSdk>())
               .accountState(widget.wallet.accountId)
         : WalletBalanceState((_) => loader(widget.wallet.accountId));
     _balance.addListener(_changed);

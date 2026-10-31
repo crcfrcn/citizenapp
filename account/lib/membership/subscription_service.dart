@@ -1,6 +1,4 @@
-import 'package:citizen_storage/wallet_isar.dart'
-    as wallet_store
-    show Member;
+import 'package:citizen_storage/user_isar.dart' as wallet_store show Member;
 
 import 'dart:async';
 import 'dart:convert';
@@ -61,21 +59,59 @@ class MembershipDisplaySnapshot {
 /// 根据共识时间戳完成。CitizenApp 不提交续费或周期确认。
 class SubscriptionService {
   SubscriptionService({
-    required CitizenSdkWallet wallet,
-    required CitizenChain chain,
-    required CitizenTransactions transactions,
+    CitizenSdk? wallet,
+    CitizenSdk? chain,
+    CitizenSdk? transactions,
     required FinalizedIdentityResolver identityResolver,
     required SquareSessionProvider sessionProvider,
     SubscriptionChain? subscriptionChain,
     SquareApiClient? api,
     bool resumePendingTransactions = true,
+    CitizenSdkOperation<CitizenWalletState> Function()? getWalletState,
+    Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<List<Uint8List?>> Function(
+      CitizenBlockRef block,
+      List<Uint8List> keys,
+    )?
+    getStorageBatch,
+    Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
+    getStorage,
+    Future<CitizenPreparedTransaction> Function(
+      Uint8List sourceAccountId,
+      Uint8List callData,
+    )?
+    prepareTransaction,
+    Future<CitizenTransactionExecution> Function(String preparationId)?
+    executePreparedTransaction,
+    Future<void> Function(String executionId)?
+    cancelPreparedTransactionExecution,
+    Future<CitizenTransactionExecutionCompleted> Function(
+      String executionId,
+      String response,
+    )?
+    consumePreparedTransactionQrResponse,
   }) : _subscriptionChain =
            subscriptionChain ??
-           SubscriptionChain(chain: chain, transactions: transactions),
-       _wallet = wallet,
+           SubscriptionChain(
+             chain: chain,
+             transactions: transactions,
+             getFinalizedHead: getFinalizedHead,
+             getStorageBatch: getStorageBatch,
+             getStorage: getStorage,
+             prepareTransaction: prepareTransaction,
+             executePreparedTransaction: executePreparedTransaction,
+             cancelPreparedTransactionExecution:
+                 cancelPreparedTransactionExecution,
+             consumePreparedTransactionQrResponse:
+                 consumePreparedTransactionQrResponse,
+           ),
        _identityResolver = identityResolver,
        _session = sessionProvider,
-       _api = api ?? SquareApiClient() {
+       _api = api ?? SquareApiClient(),
+       _getWalletState =
+           getWalletState ??
+           wallet?.getWalletState ??
+           (() => throw StateError('未配置getWalletState')) {
     // 会员调用方保留原交易恢复；聊天明确关闭构造期补发，不能间接触发服务端查链。
     if (resumePendingTransactions) {
       // 获准的会员调用方建立服务时恢复finalized待同步交易；失败仍留在原tx_hash队列，
@@ -94,9 +130,10 @@ class SubscriptionService {
       );
     }
   }
+  final CitizenSdkOperation<CitizenWalletState> Function() _getWalletState;
 
   final SubscriptionChain _subscriptionChain;
-  final CitizenSdkWallet _wallet;
+
   final FinalizedIdentityResolver _identityResolver;
   final SquareSessionProvider _session;
   final SquareApiClient _api;
@@ -105,7 +142,7 @@ class SubscriptionService {
   static final MembershipResourceGate resourceGate = MembershipResourceGate();
   bool _mirrorSyncPending = false;
 
-  /// 全 App 按 CID 共享一份内存会员快照；WalletIsar 只是跨进程重启的持久化副本。
+  /// 全 App 按 CID 共享一份内存会员快照；UserIsar 只是跨进程重启的持久化副本。
   static final Map<String, MembershipDisplaySnapshot> _memorySnapshots =
       <String, MembershipDisplaySnapshot>{};
 
@@ -775,7 +812,7 @@ class SubscriptionService {
   Future<CitizenWalletStateAccount> _requireSigningAccount(
     String accountId,
   ) async {
-    final account = (await _wallet.getState().result).defaultAccount;
+    final account = (await _getWalletState().result).defaultAccount;
     if (account == null || account.accountId != accountId) {
       throw const SubscriptionException('当前身份与默认钱包账户不一致，已拒绝签名');
     }

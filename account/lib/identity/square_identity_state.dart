@@ -50,22 +50,26 @@ class SquareIdentityState {
 }
 
 class SquareIdentityService {
-  const SquareIdentityService({
-    required CitizenSdkWallet wallet,
+  SquareIdentityService({
+    CitizenSdk? wallet,
     required CurrentUserContext currentUserContext,
     this.badgeSnapshotStore,
     this.profileCache,
-  }) : _wallet = wallet,
-       _currentUserContext = currentUserContext;
+    CitizenSdkOperation<CitizenWalletState> Function()? getWalletState,
+  }) : _currentUserContext = currentUserContext,
+       _getWalletState =
+           getWalletState ??
+           wallet?.getWalletState ??
+           (() => throw StateError('未配置getWalletState'));
+  final CitizenSdkOperation<CitizenWalletState> Function() _getWalletState;
 
-  final CitizenSdkWallet _wallet;
   final IdentityBadgeSnapshotStore? badgeSnapshotStore;
   final CurrentUserContext _currentUserContext;
   final CitizenProfileCache? profileCache;
 
   /// 广场与编辑页只读取本地身份；实际发布在动作服务调用统一验真入口。
   Future<SquareIdentityState> loadCurrent() async {
-    final defaultAccount = (await _wallet.getState().result).defaultAccount;
+    final defaultAccount = (await _getWalletState().result).defaultAccount;
     if (defaultAccount == null) return const SquareIdentityState(accountId: '');
     final current = await _currentUserContext.resolve();
     final identityAccountId = defaultAccount.accountId;

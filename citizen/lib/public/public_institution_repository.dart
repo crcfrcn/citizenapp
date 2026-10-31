@@ -1,4 +1,4 @@
-import 'package:citizen_storage/app_isar.dart' as app_store show Entity;
+import 'package:citizen_storage/user_isar.dart' as app_store show Entity;
 // 公权机构 finalized 链快照缓存 repo 门面。
 //
 // card B/C 的统一入口。**读全部走本地 store(零链读零网络、秒开)**;
@@ -25,11 +25,20 @@ class PublicInstitutionRepository {
        _syncTtl = syncTtl ?? const Duration(minutes: 2) {
     this.loader =
         loader ??
-        PublicInstitutionBundleLoader(
-          store: this.store,
-          divisionStore: this.divisionStore,
-        );
+        (store == null && divisionStore == null
+            ? _defaultLoader
+            : PublicInstitutionBundleLoader(
+                store: this.store,
+                divisionStore: this.divisionStore,
+              ));
   }
+
+  // 默认仓库都访问同一 UserIsar；切换页面时共享正在进行的目录导入。
+  static final PublicInstitutionBundleLoader _defaultLoader =
+      PublicInstitutionBundleLoader(
+        store: IsarPublicInstitutionStore(),
+        divisionStore: IsarAdminDivisionStore(),
+      );
 
   final PublicInstitutionStore store;
 
@@ -133,6 +142,6 @@ class PublicInstitutionRepository {
     final last = _lastSyncMs[province];
     if (last != null && now - last < _syncTtl.inMilliseconds) return;
     _lastSyncMs[province] = now;
-    await loader.ensureSynced();
+    await ensureSynced();
   }
 }

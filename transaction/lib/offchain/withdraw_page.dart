@@ -49,7 +49,7 @@ class _WithdrawPageState extends State<WithdrawPage> {
     final wssUrl = widget.wssUrl;
     if (wssUrl != null && wssUrl.isNotEmpty) {
       _balance =
-          AccountBalanceSnapshotStore.forChain(context.read<CitizenSdk>().chain)
+          AccountBalanceSnapshotStore.forChain(context.read<CitizenSdk>())
               .clearingState(
                 accountId: widget.accountId,
                 accountAddress: widget.accountAddress,
@@ -157,7 +157,7 @@ class _WithdrawPageState extends State<WithdrawPage> {
         throw Exception('账户公钥必须是 32 字节');
       }
       final sdk = context.read<CitizenSdk>();
-      final balance = await AccountBalanceSnapshotStore.forChain(sdk.chain)
+      final balance = await AccountBalanceSnapshotStore.forChain(sdk)
           .getClearingBalance(
             accountId: widget.accountId,
             accountAddress: widget.accountAddress,
@@ -165,7 +165,7 @@ class _WithdrawPageState extends State<WithdrawPage> {
             forceRefresh: true,
           );
       if (amountFen > balance) throw StateError('零钱包余额不足');
-      final chain = OnchainClearingBankChain(transactions: sdk.transactions);
+      final chain = OnchainClearingBankChain(transactions: sdk);
       final result = await chain.withdraw(
         signerPublicKey: Uint8List.fromList(publicKeyBytes),
         amountFen: amountFen,

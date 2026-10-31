@@ -10,10 +10,56 @@ import 'package:citizen_citizen/administrators/admin_set_validation.dart';
 /// 本服务校验并编码管理员集合变更业务 RuntimeCall，再委托 CitizenSDK 准备和执行通用交易；
 /// 热签、QR_V1 冷签和链上终态观察均由 SDK 提供，不在 CitizenApp 业务层重复实现。
 class AdminsChangeService {
-  const AdminsChangeService({required CitizenTransactions transactions})
-    : _transactions = transactions;
-
-  final CitizenTransactions _transactions;
+  AdminsChangeService({
+    CitizenSdk? transactions,
+    Future<CitizenPreparedTransaction> Function(
+      Uint8List sourceAccountId,
+      Uint8List callData,
+    )?
+    prepareTransaction,
+    Future<CitizenTransactionExecution> Function(String preparationId)?
+    executePreparedTransaction,
+    Future<void> Function(String executionId)?
+    cancelPreparedTransactionExecution,
+    Future<CitizenTransactionExecutionCompleted> Function(
+      String executionId,
+      String response,
+    )?
+    consumePreparedTransactionQrResponse,
+  }) : _prepareTransaction =
+           prepareTransaction ??
+           transactions?.prepareTransaction ??
+           ((Uint8List sourceAccountId, Uint8List callData) =>
+               throw StateError('未配置prepareTransaction')),
+       _executePreparedTransaction =
+           executePreparedTransaction ??
+           transactions?.executePreparedTransaction ??
+           ((String preparationId) =>
+               throw StateError('未配置executePreparedTransaction')),
+       _cancelPreparedTransactionExecution =
+           cancelPreparedTransactionExecution ??
+           transactions?.cancelPreparedTransactionExecution ??
+           ((String executionId) =>
+               throw StateError('未配置cancelPreparedTransactionExecution')),
+       _consumePreparedTransactionQrResponse =
+           consumePreparedTransactionQrResponse ??
+           transactions?.consumePreparedTransactionQrResponse ??
+           ((String executionId, String response) =>
+               throw StateError('未配置consumePreparedTransactionQrResponse'));
+  final Future<CitizenPreparedTransaction> Function(
+    Uint8List sourceAccountId,
+    Uint8List callData,
+  )
+  _prepareTransaction;
+  final Future<CitizenTransactionExecution> Function(String preparationId)
+  _executePreparedTransaction;
+  final Future<void> Function(String executionId)
+  _cancelPreparedTransactionExecution;
+  final Future<CitizenTransactionExecutionCompleted> Function(
+    String executionId,
+    String response,
+  )
+  _consumePreparedTransactionQrResponse;
 
   Uint8List buildCallData({
     required AdminAccountState account,
@@ -53,31 +99,22 @@ class AdminsChangeService {
       admins: admins,
       newThreshold: newThreshold,
     );
-    final prepared = await _transactions.prepareTransaction(
-      signerPublicKey,
-      callData,
-    );
-    final started = await _transactions.executePreparedTransaction(
-      prepared.preparationId,
-    );
+    final prepared = await _prepareTransaction(signerPublicKey, callData);
+    final started = await _executePreparedTransaction(prepared.preparationId);
     CitizenTransactionExecutionCompleted completed;
     if (started is CitizenTransactionExternalSigningPending) {
       final String? response;
       try {
         response = await externalSigning(started);
       } catch (_) {
-        await _transactions.cancelPreparedTransactionExecution(
-          started.executionId,
-        );
+        await _cancelPreparedTransactionExecution(started.executionId);
         rethrow;
       }
       if (response == null) {
-        await _transactions.cancelPreparedTransactionExecution(
-          started.executionId,
-        );
+        await _cancelPreparedTransactionExecution(started.executionId);
         throw StateError('管理员更换签名已取消');
       }
-      completed = await _transactions.consumePreparedTransactionQrResponse(
+      completed = await _consumePreparedTransactionQrResponse(
         started.executionId,
         response,
       );

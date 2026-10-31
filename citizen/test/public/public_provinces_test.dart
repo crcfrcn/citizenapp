@@ -13,8 +13,11 @@ import 'package:citizen_citizen/public/public_provinces.dart';
 void main() {
   test('链上省名集合 == 字典 provinces.json 省名集合(逐字对齐守卫)', () {
     final file = File('assets/divisions/provinces.json');
-    expect(file.existsSync(), isTrue,
-        reason: 'packages/citizen_assets/divisions/provinces.json 必须存在(字典数据包)');
+    expect(
+      file.existsSync(),
+      isTrue,
+      reason: 'packages/citizen_assets/divisions/provinces.json 必须存在(字典数据包)',
+    );
 
     final dictNames = (jsonDecode(file.readAsStringSync()) as List<dynamic>)
         .map((e) => (e as Map<String, dynamic>)['name'] as String)
@@ -22,9 +25,13 @@ void main() {
     final chainNames = publicProvinceNamesSet();
 
     // 集合相等:链上常量与字典一一对应,零漂移。
-    expect(chainNames, equals(dictNames),
-        reason: '链上省名与 china.sqlite 派生字典省名不一致——'
-            '改名只改 china.sqlite,且需同步链上常量。');
+    expect(
+      chainNames,
+      equals(dictNames),
+      reason:
+          '链上省名与 china.sqlite 派生字典省名不一致——'
+          '改名只改 china.sqlite,且需同步链上常量。',
+    );
   });
 
   test('省 code → 全名/展示名映射来自链上常量(中枢省=ZS)', () {

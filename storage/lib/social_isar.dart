@@ -10,7 +10,7 @@ part 'social_isar.g.dart';
 @Name('reply')
 @collection
 class Reply {
-  @Name('row_id')
+  @Name('id')
   Id rowId = Isar.autoIncrement;
   @Name('cid_number')
   @Index(composite: [CompositeIndex('postId')], unique: true, replace: true)
@@ -19,7 +19,7 @@ class Reply {
   late String postId;
   @Name('page_data')
   late String pageData;
-  @Name('pending_data')
+  @Name('pending')
   String? pendingData;
 }
 
@@ -27,14 +27,14 @@ class Reply {
 @Name('erase')
 @collection
 class Erase {
-  @Name('row_id')
+  @Name('id')
   Id rowId = Isar.autoIncrement;
   @Name('cid_number')
   @Index(composite: [CompositeIndex('postId')], unique: true)
   late String cidNumber;
   @Name('post_id')
   late String postId;
-  @Name('job_state')
+  @Name('state')
   late String jobState;
 }
 
@@ -45,7 +45,7 @@ class Erase {
 @Name('post')
 @collection
 class Post {
-  @Name('row_id')
+  @Name('id')
   Id rowId = Isar.autoIncrement;
 
   @Name('post_id')
@@ -75,19 +75,19 @@ class Post {
   @Index()
   late int publishedAt;
 
-  @Name('post_state')
+  @Name('state')
   late String postState;
 }
 
 /// 广场发帖草稿。
 ///
-/// 草稿属于 Social 域，不得借用 WalletIsar 或通用数据库。媒体与文章块使用规范 JSON 保存
+/// 草稿属于 Social 域，不得借用 UserIsar 或通用数据库。媒体与文章块使用规范 JSON 保存
 /// 是因为它们本身是有序嵌套结构；主键、类型、正文和时间均为显式字段，禁止再把整条
 /// 草稿塞进通用 KV。
 @Name('draft')
 @collection
 class Draft {
-  @Name('row_id')
+  @Name('id')
   Id rowId = Isar.autoIncrement;
 
   @Name('cid_number')
@@ -118,7 +118,7 @@ class Draft {
 @Name('cursor')
 @collection
 class PostCursor {
-  @Name('row_id')
+  @Name('id')
   Id rowId = Isar.autoIncrement;
 
   @Name('cid_number')
@@ -138,7 +138,7 @@ class PostCursor {
 @Name('cleanup')
 @collection
 class Cleanup {
-  @Name('row_id')
+  @Name('id')
   Id rowId = Isar.autoIncrement;
 
   @Name('cid_number')
@@ -164,7 +164,7 @@ class Cleanup {
 @Name('media')
 @collection
 class Media {
-  @Name('row_id')
+  @Name('id')
   Id rowId = Isar.autoIncrement;
 
   @Name('cid_number')
@@ -190,7 +190,7 @@ class Media {
 @Name('chunk')
 @collection
 class Chunk {
-  @Name('row_id')
+  @Name('id')
   Id rowId = Isar.autoIncrement;
 
   @Name('cid_number')
@@ -217,7 +217,7 @@ class Chunk {
 @Name('link')
 @collection
 class MediaLink {
-  @Name('row_id')
+  @Name('id')
   Id rowId = Isar.autoIncrement;
 
   @Name('cid_number')
@@ -246,7 +246,7 @@ class MediaLink {
 @Name('publish')
 @collection
 class Publish {
-  @Name('row_id')
+  @Name('id')
   Id rowId = Isar.autoIncrement;
 
   @Name('cid_number')
@@ -268,7 +268,7 @@ class Publish {
   late String uploadId;
   @Name('manifest_bytes')
   late List<byte> manifestBytes;
-  @Name('job_state')
+  @Name('state')
   late String jobState;
   @Name('replace_id')
   String? replaceId;

@@ -70,13 +70,64 @@ class ClearingBankCandidate {
 /// 展示，不参与清算行资格判断。关键操作每次重新读链，不保留长 TTL 权限缓存。
 class ClearingBankDirectory {
   ClearingBankDirectory({
-    required CitizenChain chain,
+    CitizenSdk? chain,
     InstitutionRepository? institutionRepository,
-  }) : _chain = chain,
-       _institutionRepository =
-           institutionRepository ?? InstitutionRepository();
+    Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
+    getStorage,
+    Future<List<Uint8List>> Function(
+      CitizenBlockRef block,
+      Uint8List prefix, {
+      Uint8List? startKey,
+      int limit,
+    })?
+    getStorageKeysPaged,
+    Future<List<Uint8List?>> Function(
+      CitizenBlockRef block,
+      List<Uint8List> keys,
+    )?
+    getStorageBatch,
+  }) : _institutionRepository =
+           institutionRepository ?? InstitutionRepository(),
+       _getFinalizedHead =
+           getFinalizedHead ??
+           chain?.getFinalizedHead ??
+           (() => throw StateError('未配置getFinalizedHead')),
+       _getStorage =
+           getStorage ??
+           chain?.getStorage ??
+           ((CitizenBlockRef block, Uint8List key) =>
+               throw StateError('未配置getStorage')),
+       _getStorageKeysPaged =
+           getStorageKeysPaged ??
+           chain?.getStorageKeysPaged ??
+           ((
+             CitizenBlockRef block,
+             Uint8List prefix, {
+             Uint8List? startKey,
+             int limit = 1000,
+           }) => throw StateError('未配置getStorageKeysPaged')),
+       _getStorageBatch =
+           getStorageBatch ??
+           chain?.getStorageBatch ??
+           ((CitizenBlockRef block, List<Uint8List> keys) =>
+               throw StateError('未配置getStorageBatch'));
+  final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)
+  _getStorage;
+  final Future<List<Uint8List>> Function(
+    CitizenBlockRef block,
+    Uint8List prefix, {
+    Uint8List? startKey,
+    int limit,
+  })
+  _getStorageKeysPaged;
+  final Future<List<Uint8List?>> Function(
+    CitizenBlockRef block,
+    List<Uint8List> keys,
+  )
+  _getStorageBatch;
 
-  final CitizenChain _chain;
   final InstitutionRepository _institutionRepository;
 
   static const int _pageSize = 256;
@@ -130,11 +181,8 @@ class ClearingBankDirectory {
 
   /// 精确读取单个清算行声明。绑定和付款前调用本方法重新校验链状态。
   Future<ClearingBankNodeEndpoint?> fetchEndpoint(String cidNumber) async {
-    final finalized = await _chain.getFinalizedHead();
-    final raw = await _chain.getStorage(
-      finalized,
-      _clearingBankNodesKey(cidNumber),
-    );
+    final finalized = await _getFinalizedHead();
+    final raw = await _getStorage(finalized, _clearingBankNodesKey(cidNumber));
     if (raw == null || raw.isEmpty) return null;
     return _decodeEndpoint(cidNumber, raw);
   }
@@ -142,19 +190,19 @@ class ClearingBankDirectory {
   /// 查询 finalized `UserBank[user]`，返回当前绑定清算行主账户 SS58。
   Future<String?> fetchUserBank(String userAddress) async {
     final account = Uint8List.fromList(Keyring().decodeAddress(userAddress));
-    final finalized = await _chain.getFinalizedHead();
-    final raw = await _chain.getStorage(finalized, _userBankKey(account));
+    final finalized = await _getFinalizedHead();
+    final raw = await _getStorage(finalized, _userBankKey(account));
     if (raw == null || raw.length != 32) return null;
     return Keyring().encodeAddress(raw.toList(), kGmbSs58Prefix);
   }
 
   Future<List<ClearingBankNodeEndpoint>> _fetchAllEndpoints() async {
     final prefix = _storagePrefix('OffchainTransaction', 'ClearingBankNodes');
-    final finalized = await _chain.getFinalizedHead();
+    final finalized = await _getFinalizedHead();
     final keys = <Uint8List>[];
     Uint8List? startKey;
     while (true) {
-      final page = await _chain.getStorageKeysPaged(
+      final page = await _getStorageKeysPaged(
         finalized,
         prefix,
         startKey: startKey,
@@ -170,7 +218,7 @@ class ClearingBankDirectory {
     for (var offset = 0; offset < keys.length; offset += _batchSize) {
       final end = (offset + _batchSize).clamp(0, keys.length);
       values.addAll(
-        await _chain.getStorageBatch(finalized, keys.sublist(offset, end)),
+        await _getStorageBatch(finalized, keys.sublist(offset, end)),
       );
     }
     final out = <ClearingBankNodeEndpoint>[];

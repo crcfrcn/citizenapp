@@ -1,6 +1,4 @@
-import 'package:citizen_storage/wallet_isar.dart'
-    as wallet_store
-    show Action;
+import 'package:citizen_storage/user_isar.dart' as wallet_store show Action;
 // 个人多签提案历史聚合服务(req 5)。
 //
 // 双轨制数据源:
@@ -19,7 +17,7 @@ import 'package:flutter/foundation.dart';
 import 'package:isar_community/isar.dart';
 import 'package:polkadart/polkadart.dart' show Hasher;
 
-import 'package:citizen_storage/wallet_isar.dart' hide Group;
+import 'package:citizen_storage/user_isar.dart' hide Group;
 import 'package:citizen_citizen/proposal/proposal_query_service.dart';
 
 /// 提案动作类型常量(对齐 Isar entity action_kind 字段)。
@@ -84,12 +82,48 @@ class PersonalAccountProposalView {
 
 class PersonalProposalHistoryService {
   PersonalProposalHistoryService({
-    required CitizenChain chain,
+    CitizenSdk? chain,
     ProposalQueryService? proposalService,
-  }) : _chain = chain,
-       _proposalService = proposalService ?? ProposalQueryService(chain: chain);
+    Future<CitizenChainSyncStatus> Function()? getSyncStatus,
+    Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
+    getStorage,
+    Future<Uint8List?> Function(CitizenBlockRef block)? getSystemEvents,
+    Future<CitizenRuntimeContext> Function(CitizenBlockRef block)?
+    getRuntimeContext,
+    Future<List<Uint8List?>> Function(
+      CitizenBlockRef block,
+      List<Uint8List> keys,
+    )?
+    getStorageBatch,
+  }) : _proposalService =
+           proposalService ??
+           ProposalQueryService(
+             chain: chain,
+             getFinalizedHead: getFinalizedHead,
+             getStorage: getStorage,
+             getSystemEvents: getSystemEvents,
+             getRuntimeContext: getRuntimeContext,
+             getStorageBatch: getStorageBatch,
+           ),
+       _getSyncStatus =
+           getSyncStatus ??
+           chain?.getSyncStatus ??
+           (() => throw StateError('未配置getSyncStatus')),
+       _getFinalizedHead =
+           getFinalizedHead ??
+           chain?.getFinalizedHead ??
+           (() => throw StateError('未配置getFinalizedHead')),
+       _getStorage =
+           getStorage ??
+           chain?.getStorage ??
+           ((CitizenBlockRef block, Uint8List key) =>
+               throw StateError('未配置getStorage'));
+  final Future<CitizenChainSyncStatus> Function() _getSyncStatus;
+  final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)
+  _getStorage;
 
-  final CitizenChain _chain;
   final ProposalQueryService _proposalService;
 
   /// 拉取该多签的全部提案(活跃 + 历史),按 created_at desc 排序。
@@ -107,7 +141,7 @@ class PersonalProposalHistoryService {
 
     // 链可达性正向探针:只有确认链已同步可达时,才允许把「链上查不到」判为幽灵
     // 并清理本机记录;离线/未同步一律保留本机 Isar 历史(容错回退→仅返回 Isar)。
-    final chainReachable = (await _chain.getSyncStatus()).isUsable;
+    final chainReachable = (await _getSyncStatus()).isUsable;
 
     // Step 1: 链上活跃提案逐个同步到 Isar(防止其他设备发起的提案在本机无记录)。
     for (final pid in activeIds) {
@@ -128,8 +162,8 @@ class PersonalProposalHistoryService {
   Future<bool> hasUnchainedVotingCreateProposal(String accountId) async {
     try {
       // 离线/未同步无法确认提案是否真在链上,一律不判幽灵,避免误删本机记录。
-      if (!(await _chain.getSyncStatus()).isUsable) return false;
-      final entities = await WalletIsar.instance.read((isar) {
+      if (!(await _getSyncStatus()).isUsable) return false;
+      final entities = await UserIsar.instance.read((isar) {
         return isar
             .collection<wallet_store.Action>()
             .filter()
@@ -159,7 +193,7 @@ class PersonalProposalHistoryService {
     bool chainReachable,
   ) async {
     try {
-      final votingEntities = await WalletIsar.instance.read((isar) {
+      final votingEntities = await UserIsar.instance.read((isar) {
         return isar
             .collection<wallet_store.Action>()
             .filter()
@@ -207,7 +241,7 @@ class PersonalProposalHistoryService {
     required String accountId,
     required int proposalId,
   }) async {
-    await WalletIsar.instance.writeTxn((isar) async {
+    await UserIsar.instance.writeTxn((isar) async {
       await isar
           .collection<wallet_store.Action>()
           .filter()
@@ -231,7 +265,7 @@ class PersonalProposalHistoryService {
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    await WalletIsar.instance.writeTxn((isar) async {
+    await UserIsar.instance.writeTxn((isar) async {
       final existing = await isar
           .collection<wallet_store.Action>()
           .filter()
@@ -282,7 +316,7 @@ class PersonalProposalHistoryService {
       final tally = await _proposalService.fetchVoteTally(proposalId);
       final statusStr = mapChainStatus(chainStatus);
 
-      final existing = await WalletIsar.instance.read((isar) {
+      final existing = await UserIsar.instance.read((isar) {
         return isar
             .collection<wallet_store.Action>()
             .filter()
@@ -374,8 +408,8 @@ class PersonalProposalHistoryService {
         'ProposalData',
         _u64ToLeBytes(proposalId),
       );
-      final finalized = await _chain.getFinalizedHead();
-      return await _chain.getStorage(finalized, key);
+      final finalized = await _getFinalizedHead();
+      return await _getStorage(finalized, key);
     } catch (_) {
       return null;
     }
@@ -391,7 +425,7 @@ class PersonalProposalHistoryService {
     String accountId,
   ) async {
     try {
-      final entities = await WalletIsar.instance.read((isar) {
+      final entities = await UserIsar.instance.read((isar) {
         return isar
             .collection<wallet_store.Action>()
             .filter()

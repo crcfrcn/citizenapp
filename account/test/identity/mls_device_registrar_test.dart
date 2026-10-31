@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart' as chat_sdk;
 import 'package:citizen_account/identity/registration_models.dart';
@@ -9,8 +10,6 @@ import 'package:citizen_account/identity/square_session_provider.dart';
 
 import 'dart:convert';
 import 'dart:async';
-
-import 'package:citizen_sdk/account_codec.dart';
 
 import 'package:flutter/foundation.dart';
 
@@ -101,7 +100,7 @@ class _SessionWalletManager implements AccountSecurityService {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _SessionIdentityCache implements CurrentUserContext {
@@ -126,7 +125,7 @@ class _SessionIdentityCache implements CurrentUserContext {
   void invalidate() {}
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _FactGate implements CidBusinessGate {
@@ -201,7 +200,7 @@ Future<void> _register(
 );
 
 /// 只控制明确的签名取消/失败；不伪造成功签名，也不访问设备钱包或金库。
-class _AttemptWallet implements CitizenSdkWallet, CitizenSigning {
+class _AttemptWallet extends TestWalletReads {
   _AttemptWallet({
     this.cold = false,
     this.failure = CitizenSdkErrorCode.authenticationCancelled,
@@ -211,36 +210,40 @@ class _AttemptWallet implements CitizenSdkWallet, CitizenSigning {
   int signs = 0;
   Completer<void>? barrier;
   @override
-  CitizenSdkOperation<CitizenWalletState> getState() => testCitizenOperation(
-    () async => CitizenWalletState(
-      initializationState: CitizenWalletInitializationState.ready,
-      cleanupPending: false,
-      revision: BigInt.one,
-      hotProfile: null,
-      accounts: [
-        CitizenWalletStateAccount(
-          signMode: cold
-              ? CitizenWalletSignMode.cold
-              : CitizenWalletSignMode.hot,
-          walletIndex: 0,
-          accountIndex: cold ? null : 0,
-          accountId: _accountId,
-          ss58Address: citizenSs58FromAccountId(_accountId),
-          name: '合成账户',
-          createdAtMillis: BigInt.zero,
-          isDefault: true,
+  CitizenSdkOperation<CitizenWalletState> getWalletState() =>
+      testCitizenOperation(
+        () async => CitizenWalletState(
+          initializationState: CitizenWalletInitializationState.ready,
+          cleanupPending: false,
+          revision: BigInt.one,
+          hotProfile: null,
+          accounts: [
+            CitizenWalletStateAccount(
+              signMode: cold
+                  ? CitizenWalletSignMode.cold
+                  : CitizenWalletSignMode.hot,
+              walletIndex: 0,
+              accountIndex: cold ? null : 0,
+              accountId: _accountId,
+              ss58Address: citizenSs58FromAccountId(_accountId),
+              name: '合成账户',
+              createdAtMillis: BigInt.zero,
+              isDefault: true,
+            ),
+          ],
         ),
-      ],
-    ),
-  );
-  @override
-  CitizenSdkOperation<CitizenSigningOutcome> begin(
-    CitizenSigningIntent intent,
-  ) => testCitizenOperation(() async {
+      );
+  Future<Uint8List> sign(
+    String accountId,
+    Uint8List payload,
+    int action,
+    BuildContext? context,
+  ) async {
     signs++;
     await barrier?.future;
     throw CitizenSdkException(code: failure, message: '合成签名终态');
-  });
+  }
+
   @override
   dynamic noSuchMethod(Invocation invocation) => throw StateError('不应调用此钱包能力');
 }
@@ -341,8 +344,8 @@ void main() {
     void Function()? onCold,
   }) async {
     final service = AccountSecurityService(
-      wallet: wallet,
-      signing: wallet,
+      getWalletState: wallet.getWalletState,
+      payloadSigner: wallet.sign,
       blobStore: records,
       mlsDeviceRegistrar:
           ({

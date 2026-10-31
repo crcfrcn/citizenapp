@@ -64,7 +64,7 @@ class _NullSubscriptionService implements SubscriptionService {
   ) async => null;
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _DelayedSessionProvider implements SquareSessionProvider {
@@ -88,7 +88,7 @@ class _DelayedSessionProvider implements SquareSessionProvider {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _RefreshingSessionProvider implements SquareSessionProvider {
@@ -121,7 +121,7 @@ class _RefreshingSessionProvider implements SquareSessionProvider {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _IdentityUnavailableSessionProvider implements SquareSessionProvider {
@@ -134,7 +134,7 @@ class _IdentityUnavailableSessionProvider implements SquareSessionProvider {
       const SquareSessionResolution(SquareSessionStatus.identityUnavailable);
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _PendingAuthorPostsApi extends FakeProfileApi {

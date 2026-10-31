@@ -1,5 +1,6 @@
 package com.crcfrcn.citizenapp
 
+import org.citizen.sdk.CitizenSdkPlugin
 import android.Manifest
 import android.app.PendingIntent
 import android.app.NotificationChannel
@@ -59,6 +60,7 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        if (!flutterEngine.plugins.has(CitizenSdkPlugin::class.java)) flutterEngine.plugins.add(CitizenSdkPlugin())
 
         // 只监听系统网络事件；没有周期探测或服务器请求。
         val networkManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager

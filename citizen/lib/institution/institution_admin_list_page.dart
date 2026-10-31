@@ -88,7 +88,7 @@ class _AdminListPageState extends State<AdminListPage> {
     }
     try {
       final snapshots = await AccountBalanceSnapshotStore.forChain(
-        context.read<CitizenSdk>().chain,
+        context.read<CitizenSdk>(),
       ).getAccountBalances(accountIds);
       final balances = <String, double>{
         for (final snapshot in snapshots)
@@ -264,7 +264,7 @@ class _AdminTile extends StatelessWidget {
   Future<void> _startActivation(BuildContext context) async {
     // 检查是否为冷钱包（热钱包不允许激活）
     final wallets =
-        (await context.read<CitizenSdk>().wallet.getState().result).accounts;
+        (await context.read<CitizenSdk>().getWalletState().result).accounts;
     final wallet = wallets.where((w) {
       return w.accountId == accountId;
     }).firstOrNull;
@@ -287,7 +287,7 @@ class _AdminTile extends StatelessWidget {
 
     // SDK编码原业务字段并负责冷热账户签名与QR_V1会话。
     final activationService = ActivationService(
-      adminService: InstitutionAdminService(chain: sdk.chain),
+      adminService: InstitutionAdminService(chain: sdk),
     );
     final payload = await activationService.buildActivationPayload(
       accountId: accountId,
@@ -296,7 +296,7 @@ class _AdminTile extends StatelessWidget {
 
     if (!context.mounted) return;
     await signCitizenPayload(
-      signing: sdk.signing,
+      signing: sdk,
       context: context,
       accountId: accountId,
       payload: payload,

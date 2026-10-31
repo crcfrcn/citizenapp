@@ -13,19 +13,21 @@ import 'package:citizen_transaction/onchain/onchain_payment_page.dart'
 /// 一旦被后续调 padding 的改动打破,肉眼很难在真机上察觉,故由本测试钉住。
 void main() {
   Future<Size> fieldSize(WidgetTester tester, {Widget? suffixIcon}) async {
-    await tester.pumpWidget(MaterialApp(
-      home: Scaffold(
-        body: SizedBox(
-          width: 320,
-          child: TextField(
-            decoration: transactionFieldDecoration(
-              hintText: '请输入账户',
-              suffixIcon: suffixIcon,
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 320,
+            child: TextField(
+              decoration: transactionFieldDecoration(
+                hintText: '请输入账户',
+                suffixIcon: suffixIcon,
+              ),
             ),
           ),
         ),
       ),
-    ));
+    );
     await tester.pumpAndSettle();
     return tester.getSize(find.byType(TextField));
   }

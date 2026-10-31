@@ -1,5 +1,5 @@
 import 'package:citizen_transaction/personal/personal_local_store.dart';
-import 'package:citizen_storage/wallet_isar.dart'
+import 'package:citizen_storage/user_isar.dart'
     as wallet_store
     show Account, Action, Scan;
 // 个人多签账户列表页。
@@ -22,7 +22,7 @@ import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_citizen/administrators/admin_accounts_scan_service.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
-import 'package:citizen_storage/wallet_isar.dart' hide Group;
+import 'package:citizen_storage/user_isar.dart' hide Group;
 import 'package:citizen_system/theme/app_theme.dart';
 
 import 'package:citizen_transaction/personal/personal_account_create_page.dart';
@@ -69,13 +69,13 @@ class _PersonalAccountListPageState extends State<PersonalAccountListPage> {
     if (_dependenciesReady) return;
     final sdk = context.read<CitizenSdk>();
     _personalManageService = PersonalManageService(
-      chain: sdk.chain,
-      transactions: sdk.transactions,
+      chain: sdk,
+      transactions: sdk,
     );
     _personalProposalHistoryService = PersonalProposalHistoryService(
-      chain: sdk.chain,
+      chain: sdk,
     );
-    _scanService = AdminAccountsScanService(chain: sdk.chain);
+    _scanService = AdminAccountsScanService(chain: sdk);
     _discoveryService = PersonalManageDiscoveryService(
       personalManageService: _personalManageService,
     );
@@ -99,7 +99,7 @@ class _PersonalAccountListPageState extends State<PersonalAccountListPage> {
   }
 
   Future<void> _readFromIsar() async {
-    final snapshot = await WalletIsar.instance.read((isar) async {
+    final snapshot = await UserIsar.instance.read((isar) async {
       final personals = await isar
           .collection<wallet_store.Account>()
           .where()
@@ -129,7 +129,7 @@ class _PersonalAccountListPageState extends State<PersonalAccountListPage> {
     bool force = false,
     Set<String>? personalAccounts,
   }) async {
-    final snapshot = await WalletIsar.instance.read((isar) async {
+    final snapshot = await UserIsar.instance.read((isar) async {
       final personals = await isar
           .collection<wallet_store.Account>()
           .where()
@@ -192,7 +192,7 @@ class _PersonalAccountListPageState extends State<PersonalAccountListPage> {
             : info.status == MultisigStatus.active
             ? PersonalMultisigLocalState.statusActive
             : PersonalMultisigLocalState.statusPending;
-        await WalletIsar.instance.writeTxn((isar) async {
+        await UserIsar.instance.writeTxn((isar) async {
           await PersonalMultisigLocalState.putStatusInTxn(
             isar,
             personal.accountId,
@@ -223,7 +223,7 @@ class _PersonalAccountListPageState extends State<PersonalAccountListPage> {
   }
 
   Future<void> _deletePersonalGhost(String accountId) async {
-    await WalletIsar.instance.writeTxn((isar) async {
+    await UserIsar.instance.writeTxn((isar) async {
       // 旧版本曾在 tx_hash 返回后提前写入本地多签；若链上没有账户
       // 且创建提案也不存在，说明它从未上链，不能展示为“已注销”。
       await isar
@@ -628,7 +628,7 @@ class _PersonalAccountListPageState extends State<PersonalAccountListPage> {
 
   Future<Set<String>> _currentWalletAccountIds() async {
     final wallets =
-        (await context.read<CitizenSdk>().wallet.getState().result).accounts;
+        (await context.read<CitizenSdk>().getWalletState().result).accounts;
     return wallets.map((wallet) => wallet.accountId).toSet();
   }
 
@@ -638,13 +638,13 @@ class _PersonalAccountListPageState extends State<PersonalAccountListPage> {
   }
 
   Future<String?> _readDiscoveryWalletFingerprint() {
-    return WalletIsar.instance.read((isar) async {
+    return UserIsar.instance.read((isar) async {
       return (await isar.collection<wallet_store.Scan>().get(0))?.walletHash;
     });
   }
 
   Future<void> _writeDiscoveryWalletFingerprint(String fingerprint) {
-    return WalletIsar.instance.writeTxn((isar) async {
+    return UserIsar.instance.writeTxn((isar) async {
       await isar.collection<wallet_store.Scan>().put(
         wallet_store.Scan()
           ..rowId = 0

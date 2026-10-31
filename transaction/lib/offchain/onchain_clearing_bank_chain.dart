@@ -16,10 +16,56 @@ import 'package:polkadart/scale_codec.dart' show CompactBigIntCodec, ByteOutput;
 ///   extrinsic 和 finalized execution 全部由 CitizenSDK 负责。
 /// - 所有金额参数以**分**为单位的整数进入 SCALE 编码,与链上 `u128` 对齐。
 class OnchainClearingBankChain {
-  const OnchainClearingBankChain({required CitizenTransactions transactions})
-    : _transactions = transactions;
-
-  final CitizenTransactions _transactions;
+  OnchainClearingBankChain({
+    CitizenSdk? transactions,
+    Future<CitizenPreparedTransaction> Function(
+      Uint8List sourceAccountId,
+      Uint8List callData,
+    )?
+    prepareTransaction,
+    Future<CitizenTransactionExecution> Function(String preparationId)?
+    executePreparedTransaction,
+    Future<void> Function(String executionId)?
+    cancelPreparedTransactionExecution,
+    Future<CitizenTransactionExecutionCompleted> Function(
+      String executionId,
+      String response,
+    )?
+    consumePreparedTransactionQrResponse,
+  }) : _prepareTransaction =
+           prepareTransaction ??
+           transactions?.prepareTransaction ??
+           ((Uint8List sourceAccountId, Uint8List callData) =>
+               throw StateError('未配置prepareTransaction')),
+       _executePreparedTransaction =
+           executePreparedTransaction ??
+           transactions?.executePreparedTransaction ??
+           ((String preparationId) =>
+               throw StateError('未配置executePreparedTransaction')),
+       _cancelPreparedTransactionExecution =
+           cancelPreparedTransactionExecution ??
+           transactions?.cancelPreparedTransactionExecution ??
+           ((String executionId) =>
+               throw StateError('未配置cancelPreparedTransactionExecution')),
+       _consumePreparedTransactionQrResponse =
+           consumePreparedTransactionQrResponse ??
+           transactions?.consumePreparedTransactionQrResponse ??
+           ((String executionId, String response) =>
+               throw StateError('未配置consumePreparedTransactionQrResponse'));
+  final Future<CitizenPreparedTransaction> Function(
+    Uint8List sourceAccountId,
+    Uint8List callData,
+  )
+  _prepareTransaction;
+  final Future<CitizenTransactionExecution> Function(String preparationId)
+  _executePreparedTransaction;
+  final Future<void> Function(String executionId)
+  _cancelPreparedTransactionExecution;
+  final Future<CitizenTransactionExecutionCompleted> Function(
+    String executionId,
+    String response,
+  )
+  _consumePreparedTransactionQrResponse;
 
   /// `OffchainTransaction` pallet index(citizenchain runtime 定义)。
   static const int _palletIndex = PalletRegistry.offchainTransactionPallet;
@@ -155,23 +201,16 @@ class OnchainClearingBankChain {
     )
     externalSigning,
   }) async {
-    final prepared = await _transactions.prepareTransaction(
-      signerPublicKey,
-      callData,
-    );
-    final started = await _transactions.executePreparedTransaction(
-      prepared.preparationId,
-    );
+    final prepared = await _prepareTransaction(signerPublicKey, callData);
+    final started = await _executePreparedTransaction(prepared.preparationId);
     CitizenTransactionExecutionCompleted completed;
     if (started is CitizenTransactionExternalSigningPending) {
       final response = await externalSigning(started);
       if (response == null) {
-        await _transactions.cancelPreparedTransactionExecution(
-          started.executionId,
-        );
+        await _cancelPreparedTransactionExecution(started.executionId);
         throw StateError('清算行链上交易签名已取消');
       }
-      completed = await _transactions.consumePreparedTransactionQrResponse(
+      completed = await _consumePreparedTransactionQrResponse(
         started.executionId,
         response,
       );

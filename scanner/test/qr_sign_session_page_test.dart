@@ -1,3 +1,5 @@
+import 'package:citizen_testing/fake_citizen_sdk.dart';
+
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -11,17 +13,9 @@ const _account =
 const _requestId = 'synthetic-request-1';
 
 /// 页面用例只控制SDK验签事实；实际密码学校验由Core及公共ABI测试覆盖。
-class _Qr extends Fake implements CitizenQr {
-  @override
-  Future<CitizenQrImage> encode(String text, {int scale = 4}) async =>
-      CitizenQrImage(
-        width: 29,
-        height: 29,
-        luminance: Uint8List(29 * 29)..fillRange(0, 29 * 29, 255),
-      );
+class _Validation {
   final List<String> responses = [];
   bool reject = true;
-  @override
   Future<void> validateSignResponse({
     required String sessionId,
     required String response,
@@ -49,9 +43,10 @@ CitizenQrDocument _request({int? expiresAt}) => CitizenQrDocument(
 );
 
 void main() {
+  final core = TestCitizenSdkHarness();
   Future<void> open(
     WidgetTester tester,
-    _Qr qr, {
+    _Validation qr, {
     int? expiresAt,
     required ValueChanged<String?> completed,
     Future<String?> Function(BuildContext, CitizenQrKind)? scan,
@@ -70,7 +65,8 @@ void main() {
                       builder: (_) => QrSignSessionPage(
                         request: request,
                         requestData: request.canonicalText,
-                        qr: qr,
+                        qr: core.sdk,
+                        responseValidator: qr.validateSignResponse,
                         scanResponse:
                             scan ??
                             (_, kind) async {
@@ -93,7 +89,7 @@ void main() {
   }
 
   testWidgets('原标题、倒计时图标、提示文字和双按钮保留，错签名留页重扫', (tester) async {
-    final qr = _Qr();
+    final qr = _Validation();
     var completed = false;
     await open(tester, qr, completed: (_) => completed = true);
     expect(find.text('公民钱包签名'), findsOneWidget);
@@ -117,7 +113,7 @@ void main() {
   });
 
   testWidgets('预检成功后按原流程返回原文，不在页面提前消费或提交交易', (tester) async {
-    final qr = _Qr()..reject = false;
+    final qr = _Validation()..reject = false;
     String? result;
     await open(tester, qr, completed: (value) => result = value);
     await tester.tap(find.text('扫描响应'));
@@ -127,7 +123,7 @@ void main() {
   });
 
   testWidgets('原取消返回null，不调用预检', (tester) async {
-    final qr = _Qr();
+    final qr = _Validation();
     Object? result = Object();
     await open(tester, qr, completed: (value) => result = value);
     await tester.tap(find.text('取消'));
@@ -137,7 +133,7 @@ void main() {
   });
 
   testWidgets('扫码路由取消后留在原请求页', (tester) async {
-    final qr = _Qr();
+    final qr = _Validation();
     var completed = false;
     await open(
       tester,
@@ -155,7 +151,7 @@ void main() {
   });
 
   testWidgets('过期显示原提示和禁用按钮，不发起预检', (tester) async {
-    final qr = _Qr();
+    final qr = _Validation();
     await open(tester, qr, expiresAt: 1, completed: (_) {});
     expect(find.byIcon(Icons.timer_off), findsOneWidget);
     expect(find.text('签名请求已过期，请返回重新提交'), findsOneWidget);

@@ -28,11 +28,60 @@ class InstitutionAdminState {
 /// 调用方必须传入明确的 `AdminAccountIdentity`，不再把
 /// `cid_number` 当作个人多签、机构账户和治理机构共用的模糊参数。
 class InstitutionAdminService {
-  InstitutionAdminService({required CitizenChain chain})
-    : _chain = chain,
-      _accountService = AdminAccountService(chain: chain);
+  InstitutionAdminService({
+    CitizenSdk? chain,
+    Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<List<Uint8List>> Function(
+      CitizenBlockRef block,
+      Uint8List prefix, {
+      Uint8List? startKey,
+      int limit,
+    })?
+    getStorageKeysPaged,
+    Future<List<Uint8List?>> Function(
+      CitizenBlockRef block,
+      List<Uint8List> keys,
+    )?
+    getStorageBatch,
+    Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
+    getStorage,
+  }) : _accountService = AdminAccountService(
+         chain: chain,
+         getFinalizedHead: getFinalizedHead,
+         getStorage: getStorage,
+       ),
+       _getFinalizedHead =
+           getFinalizedHead ??
+           chain?.getFinalizedHead ??
+           (() => throw StateError('未配置getFinalizedHead')),
+       _getStorageKeysPaged =
+           getStorageKeysPaged ??
+           chain?.getStorageKeysPaged ??
+           ((
+             CitizenBlockRef block,
+             Uint8List prefix, {
+             Uint8List? startKey,
+             int limit = 1000,
+           }) => throw StateError('未配置getStorageKeysPaged')),
+       _getStorageBatch =
+           getStorageBatch ??
+           chain?.getStorageBatch ??
+           ((CitizenBlockRef block, List<Uint8List> keys) =>
+               throw StateError('未配置getStorageBatch'));
+  final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<List<Uint8List>> Function(
+    CitizenBlockRef block,
+    Uint8List prefix, {
+    Uint8List? startKey,
+    int limit,
+  })
+  _getStorageKeysPaged;
+  final Future<List<Uint8List?>> Function(
+    CitizenBlockRef block,
+    List<Uint8List> keys,
+  )
+  _getStorageBatch;
 
-  final CitizenChain _chain;
   final AdminAccountService _accountService;
 
   Future<List<AdminPerson>> fetchAdmins(AdminAccountIdentity identity) {
@@ -58,7 +107,7 @@ class InstitutionAdminService {
     // 非法人机构码本身不能推断公权/私权，必须按链上管理员类型路由。
     final entityPallet = identity.kind == 1 ? 'PrivateManage' : 'PublicManage';
     // 岗位目录、任职及其全部分页/批取固定到同一个 finalized 块。
-    final finalized = await _chain.getFinalizedHead();
+    final finalized = await _getFinalizedHead();
     final roleValues = await _scanValues(
       finalized,
       entityPallet,
@@ -186,7 +235,7 @@ class InstitutionAdminService {
     final keys = <Uint8List>[];
     Uint8List? startKey;
     while (true) {
-      final page = await _chain.getStorageKeysPaged(
+      final page = await _getStorageKeysPaged(
         finalized,
         prefix,
         startKey: startKey,
@@ -201,10 +250,7 @@ class InstitutionAdminService {
     final values = <Uint8List>[];
     for (var offset = 0; offset < keys.length; offset += 100) {
       final end = (offset + 100).clamp(0, keys.length);
-      final rows = await _chain.getStorageBatch(
-        finalized,
-        keys.sublist(offset, end),
-      );
+      final rows = await _getStorageBatch(finalized, keys.sublist(offset, end));
       if (rows.length != end - offset || rows.any((row) => row == null)) {
         throw StateError('机构岗位扫描结果不完整');
       }

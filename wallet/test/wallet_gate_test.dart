@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizen_sdk/platform/citizen_sdk_flutter_codec.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -12,20 +11,16 @@ import 'package:citizen_wallet/create_wallet_onboarding_page.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 
 void main() {
-  late CitizenSdk sdk;
-  late TestCitizenSdkTransport transport;
-  setUp(() async {
-    transport = TestCitizenSdkTransport({
-      'getCapabilities': (_) => throw const CitizenSdkException(
-        code: CitizenSdkErrorCode.unavailable,
-        message: '合成能力不可用',
-      ),
-    });
-    sdk = await transport.open();
-  });
-  tearDown(() async {
-    await sdk.close();
-    await transport.dispose();
+  final core = TestCitizenSdkHarness(
+    modules: CitizenSdkModules.wallet | CitizenSdkModules.qr,
+  );
+  CitizenSdkOperation<CitizenWalletState> Function()? readOperation;
+  Future<List<CitizenSdkDiagnostic>> Function()? diagnostics;
+  var diagnosticReads = 0;
+  setUp(() {
+    readOperation = null;
+    diagnostics = null;
+    diagnosticReads = 0;
   });
 
   Widget gate(
@@ -33,10 +28,15 @@ void main() {
     Duration timeout = const Duration(seconds: 5),
     VoidCallback? introduced,
   }) => Provider<CitizenSdk>.value(
-    value: sdk,
+    value: core.sdk,
     child: MaterialApp(
       home: WalletGate(
         walletStateLoader: loader,
+        walletOperation: readOperation,
+        diagnosticsLoader: () {
+          diagnosticReads++;
+          return (diagnostics ?? core.sdk.readDiagnostics)();
+        },
         loadTimeout: timeout,
         onInitialized: (_) => introduced?.call(),
         child: const Scaffold(body: Text('main-shell')),
@@ -50,7 +50,8 @@ void main() {
       'SQLite job was not executed': 'sqlite_job',
       'host wallet profile load failed': 'host_wallet_load',
       'host encrypted blob load failed': 'host_secret_load',
-      'wallet profile revision disagrees with its typed payload': 'wallet_revision',
+      'wallet profile revision disagrees with its typed payload':
+          'wallet_revision',
       'public database schema version differs': 'schema_version',
       'public database object set differs': 'schema_objects',
       'public database schema differs': 'schema_definition',
@@ -80,9 +81,15 @@ void main() {
             '[CitizenWallet] method=getWalletState code=integrity stage=verification reason=${entry.value}',
           );
         }
-        expect(AppLog.walletFailure(const CitizenSdkException(
-          code: CitizenSdkErrorCode.integrity, message: 'CitizenSDK native operation failed',
-        )), endsWith('reason=native_unspecified'));
+        expect(
+          AppLog.walletFailure(
+            const CitizenSdkException(
+              code: CitizenSdkErrorCode.integrity,
+              message: 'CitizenSDK native operation failed',
+            ),
+          ),
+          endsWith('reason=native_unspecified'),
+        );
         for (final error in [
           const CitizenSdkException(
             code: CitizenSdkErrorCode.integrity,
@@ -111,22 +118,33 @@ void main() {
   });
 
   testWidgets('门禁保留实际SDK失败分支，查看只调用已有诊断接口且不重读钱包', (tester) async {
-    transport.handlers['getWalletState'] = (_) =>
-        throw const CitizenSdkException(
-          code: CitizenSdkErrorCode.integrity,
-          message: 'integrity: public database schema differs',
-        );
-    transport.handlers['readDiagnostics'] = (_) => <Object?>[
-      <Object?>[
-        <Object?>['getWalletState', 'COMPLETE', 9, 6, 'NONE', 3],
-      ],
+    var reads = 0, fail = true;
+    readOperation = () {
+      reads++;
+      return testCitizenOperation(() {
+        if (fail)
+          throw const CitizenSdkException(
+            code: CitizenSdkErrorCode.integrity,
+            message: 'integrity: public database schema differs',
+          );
+        return testCitizenWalletState();
+      });
+    };
+    diagnostics = () async => [
+      CitizenSdkDiagnostic.decode(<Object?>[
+        'getWalletState',
+        'COMPLETE',
+        9,
+        6,
+        'NONE',
+        3,
+      ]),
     ];
     await tester.pumpWidget(gate(null));
     await tester.pumpAndSettle();
     expect(find.text('本地钱包记录校验失败，请查看诊断'), findsOneWidget);
     expect(find.text('main-shell'), findsNothing);
-    expect(transport.calls.where((v) => v == 'readDiagnostics'), isEmpty);
-    final before = List<String>.of(transport.calls);
+    expect(diagnosticReads, 0);
     await tester.tap(find.byKey(const ValueKey('wallet-gate-diagnostics')));
     await tester.pumpAndSettle();
     final text = tester
@@ -142,25 +160,24 @@ void main() {
         'method=getWalletState phase=COMPLETE code=9 stage=6 point=NONE elapsed_ms=3',
       ),
     );
-    expect(transport.calls.skip(before.length), ['readDiagnostics']);
+    expect(diagnosticReads, 1);
+    expect(reads, 1);
     Navigator.of(tester.element(find.byType(SelectableText))).pop();
     await tester.pumpAndSettle();
-    transport.handlers['getWalletState'] = (_) => <Object?>[
-      testCitizenWalletState(),
-    ];
+    fail = false;
     await tester.tap(find.text('重试'));
     await tester.pumpAndSettle();
     expect(find.text('main-shell'), findsOneWidget);
     expect(find.text('查看诊断'), findsNothing);
-    expect(transport.calls.where((v) => v == 'getWalletState'), hasLength(2));
+    expect(reads, 2);
   });
 
   testWidgets('诊断接口失败或返回空记录仍保留本次安全原因，不显示异常原文', (tester) async {
     for (final fails in [false, true]) {
       await tester.pumpWidget(const SizedBox.shrink());
-      transport.handlers['readDiagnostics'] = (_) {
+      diagnostics = () async {
         if (fails) throw StateError('synthetic-private-diagnostic');
-        return <Object?>[<Object?>[]];
+        return <CitizenSdkDiagnostic>[];
       };
       await tester.pumpWidget(
         gate(
@@ -185,8 +202,8 @@ void main() {
   });
 
   testWidgets('诊断请求在途合并重复点击，卸载后迟到记录不打开页面', (tester) async {
-    final pending = Completer<List<Object?>>();
-    transport.handlers['readDiagnostics'] = (_) => pending.future;
+    final pending = Completer<List<CitizenSdkDiagnostic>>();
+    diagnostics = () => pending.future;
     await tester.pumpWidget(
       gate(
         () async => throw const CitizenSdkException(
@@ -200,9 +217,9 @@ void main() {
     await tester.pump();
     await tester.tap(find.text('查看诊断'));
     await tester.pump();
-    expect(transport.calls.where((v) => v == 'readDiagnostics'), hasLength(1));
+    expect(diagnosticReads, 1);
     await tester.pumpWidget(const SizedBox.shrink());
-    pending.complete(<Object?>[<Object?>[]]);
+    pending.complete(<CitizenSdkDiagnostic>[]);
     await tester.pumpAndSettle();
     expect(find.byType(SelectableText), findsNothing);
     expect(tester.takeException(), isNull);
@@ -243,7 +260,9 @@ void main() {
     expect(find.text('导入助记词'), findsOneWidget);
     expect(find.byType(CreateWalletOnboardingPage), findsOneWidget);
     ready = true;
-    transport.walletChanged();
+    await tester.runAsync(
+      () => core.sdk.importColdAccount(accountId: testCitizenAccountId).result,
+    );
     await tester.pumpAndSettle();
     expect(find.text('main-shell'), findsNothing);
     tester
@@ -254,7 +273,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('main-shell'), findsOneWidget);
     expect(introduced, 1);
-    expect(transport.calls, isNot(contains('initializeWallet')));
+    expect(core.fixture.calls, isNot(contains('initializeWallet')));
   });
 
   testWidgets('热账户或冷账户任一存在都放行，不触发初始化', (tester) async {
@@ -315,11 +334,13 @@ void main() {
     await tester.pumpWidget(gate(() async => state));
     await tester.pumpAndSettle();
     state = _state([]);
-    transport.walletChanged();
+    await tester.runAsync(
+      () => core.sdk.importColdAccount(accountId: testCitizenAccountId).result,
+    );
     await tester.pumpAndSettle();
     expect(find.text('main-shell'), findsNothing);
     expect(find.byType(CreateWalletOnboardingPage), findsOneWidget);
-    expect(transport.calls, isNot(contains('initializeWallet')));
+    expect(core.fixture.calls, isNot(contains('initializeWallet')));
   });
 
   testWidgets('未收敛状态和超时保留原错误与重试，不启动初始化', (tester) async {
@@ -346,30 +367,36 @@ void main() {
     expect(find.byType(CreateWalletOnboardingPage), findsNothing);
   });
   testWidgets('门禁超时不等待取消确认，重试等真实请求排空后恢复', (tester) async {
-    final pending = Completer<List<Object?>>();
-    final cancellation = Completer<List<Object?>>();
+    final pending = Completer<CitizenWalletState>();
+    final cancellation = Completer<bool>();
     var reads = 0;
-    transport.handlers['getWalletState'] = (_) {
-      reads += 1;
-      return reads == 1 ? pending.future : <Object?>[testCitizenWalletState()];
+    var cancels = 0;
+    readOperation = () {
+      reads++;
+      return CitizenSdkOperation(
+        operationId: 'read-$reads',
+        result: reads == 1
+            ? pending.future
+            : Future.value(testCitizenWalletState()),
+        cancel: () {
+          cancels++;
+          return cancellation.future;
+        },
+      );
     };
-    transport.handlers['cancelOperation'] = (_) => cancellation.future;
     await tester.pumpWidget(
       gate(null, timeout: const Duration(milliseconds: 20)),
     );
     await tester.pump(const Duration(milliseconds: 25));
     await tester.pump();
     expect(find.text('本地钱包读取超时，请重试'), findsOneWidget);
-    expect(
-      transport.calls.where((value) => value == 'cancelOperation'),
-      hasLength(1),
-    );
+    expect(cancels, 1);
     await tester.tap(find.text('重试'));
     await tester.pumpAndSettle();
     expect(reads, 1);
     expect(find.text('本地钱包正忙，请稍后重试'), findsOneWidget);
-    cancellation.complete(<Object?>[true]);
-    pending.complete(<Object?>[testCitizenWalletState()]);
+    cancellation.complete(true);
+    pending.complete(testCitizenWalletState());
     await tester.pumpAndSettle();
     expect(find.text('main-shell'), findsNothing);
     await tester.tap(find.text('重试'));
@@ -384,9 +411,7 @@ CitizenWalletState _state(List<CitizenWalletStateAccount> accounts) =>
       revision: BigInt.one,
       hotProfile:
           accounts.any((value) => value.signMode == CitizenWalletSignMode.hot)
-          ? const CitizenSdkFlutterCodec().decodeWalletProfile(
-              testCitizenWalletProfile(),
-            )
+          ? testCitizenWalletProfile()
           : null,
       accounts: accounts,
       initializationState: accounts.isEmpty
@@ -396,10 +421,7 @@ CitizenWalletState _state(List<CitizenWalletStateAccount> accounts) =>
     );
 
 CitizenWalletStateAccount _account(CitizenWalletSignMode mode) {
-  final hot = const CitizenSdkFlutterCodec()
-      .decodeWalletState(testCitizenWalletState())
-      .accounts
-      .single;
+  final hot = testCitizenWalletState().accounts.single;
   return mode == CitizenWalletSignMode.hot
       ? hot
       : CitizenWalletStateAccount(

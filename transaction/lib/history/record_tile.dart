@@ -1,4 +1,4 @@
-import 'package:citizen_storage/wallet_isar.dart' as wallet_store show Entry;
+import 'package:citizen_storage/user_isar.dart' as wallet_store show Entry;
 import 'package:flutter/material.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_system/theme/app_layout.dart';

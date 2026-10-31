@@ -111,7 +111,7 @@ class _BindClearingBankPageState extends State<BindClearingBankPage> {
       }
 
       final sdk = context.read<CitizenSdk>();
-      final chain = OnchainClearingBankChain(transactions: sdk.transactions);
+      final chain = OnchainClearingBankChain(transactions: sdk);
       final result = widget.switchMode
           ? await chain.switchBank(
               signerPublicKey: Uint8List.fromList(publicKeyBytes),

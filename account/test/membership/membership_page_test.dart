@@ -1,7 +1,5 @@
 import 'package:citizen_testing/membergate_fixture.dart';
-import 'package:citizen_storage/wallet_isar.dart'
-    as wallet_store
-    show Member;
+import 'package:citizen_storage/user_isar.dart' as wallet_store show Member;
 import 'package:tatachat_sdk/tatachat_sdk.dart' as chat_sdk;
 
 import 'package:citizen_testing/mls_authentication_fixture.dart';
@@ -29,7 +27,7 @@ import 'package:citizen_account/identity/current_user_context.dart';
 import 'package:citizen_account/identity/identity_binding.dart';
 import 'package:citizen_account/identity/finalized_identity_resolver.dart';
 import 'package:citizen_system/theme/app_theme.dart';
-import 'package:citizen_storage/wallet_isar.dart' hide Group;
+import 'package:citizen_storage/user_isar.dart' hide Group;
 import 'package:citizen_account/identity/identity_badge.dart';
 
 import 'package:citizen_testing/isar_test_env.dart';
@@ -76,7 +74,7 @@ class _FakeSessionProvider implements SquareSessionProvider {
       SquareSessionResolution(SquareSessionStatus.ready, session: _session());
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _PreparingSessions extends _FakeSessionProvider {
@@ -122,7 +120,7 @@ class _CidNotBoundSessionProvider implements SquareSessionProvider {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 /// 会话建立即失败(如MLS身份不可用/网络故障):页面须给可见解释,不得留残缺骨架。
@@ -143,7 +141,7 @@ class _ThrowingSessionProvider implements SquareSessionProvider {
       const SquareSessionResolution(SquareSessionStatus.deviceUnavailable);
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _PendingSessionProvider implements SquareSessionProvider {
@@ -163,13 +161,12 @@ class _PendingSessionProvider implements SquareSessionProvider {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 /// 平台档价格链上单源（`PlatformPrice[level]`，分）；测试直接注入 mock 价表。
 class _FakeChainService extends SquareChainService {
-  _FakeChainService(this._prices)
-    : super(chain: TestCitizenChain(), transactions: TestCitizenTransactions());
+  _FakeChainService(this._prices) : super();
 
   final Map<String, int> _prices;
   int fetchCount = 0;
@@ -186,8 +183,7 @@ class _FakeChainService extends SquareChainService {
 }
 
 class _FailingChainService extends SquareChainService {
-  _FailingChainService()
-    : super(chain: TestCitizenChain(), transactions: TestCitizenTransactions());
+  _FailingChainService() : super();
 
   int fetchCount = 0;
 
@@ -213,9 +209,6 @@ class _RecordingSubscriptionService implements SubscriptionService {
   MembershipDisplaySnapshot? cachedSnapshot;
   bool mirrorPending = false;
   Map<String, int> serverPrices = const {};
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 
   @override
   bool get mirrorSyncPending => mirrorPending;
@@ -279,6 +272,9 @@ class _RecordingSubscriptionService implements SubscriptionService {
   }) async {
     changed.add('$level:$expectedPriceFen');
   }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 /// 会员与身份彻底解耦（ADR-037）：会员卡只描述订阅，不含任何身份字段。
@@ -430,15 +426,17 @@ class _CachedCurrentUser implements CurrentUserContext {
             bindRev: 1,
           ),
   );
+
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _UnavailableCurrentUser implements CurrentUserContext {
   @override
   Future<CurrentUser?> resolve() async => throw StateError('测试当前账户不可用');
+
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _RegisteredFinalizedIdentity implements FinalizedIdentityResolver {
@@ -456,38 +454,37 @@ class _RegisteredFinalizedIdentity implements FinalizedIdentityResolver {
   );
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
-class _FakeWallet implements CitizenSdkWallet {
+class _FakeWallet extends TestWalletReads {
   @override
-  CitizenSdkOperation<CitizenWalletState> getState() => testCitizenOperation(
-    () async => CitizenWalletState(
-      initializationState: CitizenWalletInitializationState.ready,
-      cleanupPending: false,
-      revision: BigInt.one,
-      hotProfile: null,
-      accounts: [_identityAccount],
-    ),
-  );
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  CitizenSdkOperation<CitizenWalletState> getWalletState() =>
+      testCitizenOperation(
+        () async => CitizenWalletState(
+          initializationState: CitizenWalletInitializationState.ready,
+          cleanupPending: false,
+          revision: BigInt.one,
+          hotProfile: null,
+          accounts: [_identityAccount],
+        ),
+      );
 }
 
 SubscriptionService _subscriptionService({
   SquareApiClient? api,
   SquareSessionProvider? sessionProvider,
   bool resumePendingTransactions = true,
-}) => SubscriptionService(
-  wallet: _FakeWallet(),
-  chain: TestCitizenChain(),
-  transactions: TestCitizenTransactions(),
-  identityResolver: _RegisteredFinalizedIdentity(),
-  sessionProvider: sessionProvider ?? _FakeSessionProvider(),
-  api: api,
-  resumePendingTransactions: resumePendingTransactions,
-);
+}) => (() {
+  final reads0 = _FakeWallet();
+  return SubscriptionService(
+    getWalletState: reads0.getWalletState,
+    identityResolver: _RegisteredFinalizedIdentity(),
+    sessionProvider: sessionProvider ?? _FakeSessionProvider(),
+    api: api,
+    resumePendingTransactions: resumePendingTransactions,
+  );
+})();
 
 void main() {
   _resourcePreflightTests();
@@ -542,7 +539,7 @@ void main() {
       await wallet_store.Member.readProofs('other', pendingKind: 'member'),
       [member],
     );
-    final row = await WalletIsar.instance.read(
+    final row = await UserIsar.instance.read(
       (db) => db.collection<wallet_store.Member>().getByCidNumberStateKind(
         cid,
         'proof',
@@ -1718,7 +1715,10 @@ void main() {
       final image = tester.widget<Image>(
         find.byKey(ValueKey('membership-price-gmb-mark-$level')),
       );
-      expect((image.image as AssetImage).assetName, 'packages/citizen_assets/logo/mark256.png');
+      expect(
+        (image.image as AssetImage).assetName,
+        'packages/citizen_assets/logo/mark256.png',
+      );
       expect(image.width, 18);
       expect(image.height, 18);
       expect(image.colorBlendMode, BlendMode.srcIn);
@@ -1741,7 +1741,10 @@ void main() {
     final image = tester.widget<Image>(
       find.byKey(const ValueKey('membership-detail-price-gmb-mark-freedom')),
     );
-    expect((image.image as AssetImage).assetName, 'packages/citizen_assets/logo/mark256.png');
+    expect(
+      (image.image as AssetImage).assetName,
+      'packages/citizen_assets/logo/mark256.png',
+    );
     expect(image.width, 18);
     expect(image.height, 18);
     expect(image.color, AppTheme.textPrimary);
@@ -2086,7 +2089,6 @@ void main() {
     expect(find.textContaining('2.99'), findsNothing);
   });
 }
-
 
 void _resourcePreflightTests() {
   group('本地资源预检', () {

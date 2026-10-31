@@ -6,7 +6,7 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'package:citizen_account/identity/cid_generator.dart';
 import 'package:citizen_account/identity/register_identity_sheet.dart';
-import 'package:citizen_transaction/topup/onchain_topup_page.dart';
+import 'package:citizen_transaction/topup/topup_sheet.dart';
 
 CitizenWalletStateAccount _account({int index = 0, String? id}) =>
     CitizenWalletStateAccount(
@@ -135,7 +135,7 @@ void main() {
     expect(find.byType(RegisterIdentitySheet), findsNothing);
   });
 
-  testWidgets('余额不足默认路由进入所选账户链上充值，返回仍保留注册面板', (tester) async {
+  testWidgets('余额不足打开所选账户充值弹窗，保留币种选择且返回注册面板', (tester) async {
     final target = _account(index: 5);
     await openSheet(
       tester,
@@ -150,10 +150,11 @@ void main() {
     await tester.pump();
     await tester.tap(find.text('确认注册'));
     await tester.pump();
-    final topup = tester.widget<OnchainTopupPage>(
-      find.byType(OnchainTopupPage),
-    );
+    final topup = tester.widget<TopupSheet>(find.byType(TopupSheet));
     expect(topup.accountId, target.accountId);
+    expect(topup.token, isNull);
+    expect(find.byType(BottomSheet), findsNWidgets(2));
+    expect(find.byType(Scaffold), findsOneWidget);
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
     expect(find.byType(RegisterIdentitySheet), findsOneWidget);

@@ -76,19 +76,30 @@ void main() {
   });
 
   test('广场身份使用永久 CID 闭环快照而不是旧 Account-keyed storage', () async {
-    final service = SquareChainService(
-      chain: TestCitizenChain(),
-      transactions: TestCitizenTransactions(),
-      identityChainReader: _FakeIdentityReader(
-        CitizenIdentityChainSnapshot(
-          cidNumber: 'CN001-CTZN-000000001-2026',
-          accountId: Uint8List(32),
-          bindRev: 1,
-          votingIdentity: _votingIdentityBytes(citizenStatus: 0),
-          candidateIdentity: _candidateIdentityBytes(),
+    final service = (() {
+      final reads0 = TestChainReads();
+      final reads1 = TestTransactionCalls();
+      return SquareChainService(
+        getFinalizedHead: reads0.getFinalizedHead,
+        getStorage: reads0.getStorage,
+        getStorageBatch: reads0.getStorageBatch,
+        prepareTransaction: reads1.prepareTransaction,
+        executePreparedTransaction: reads1.executePreparedTransaction,
+        cancelPreparedTransactionExecution:
+            reads1.cancelPreparedTransactionExecution,
+        consumePreparedTransactionQrResponse:
+            reads1.consumePreparedTransactionQrResponse,
+        identityChainReader: _FakeIdentityReader(
+          CitizenIdentityChainSnapshot(
+            cidNumber: 'CN001-CTZN-000000001-2026',
+            accountId: Uint8List(32),
+            bindRev: 1,
+            votingIdentity: _votingIdentityBytes(citizenStatus: 0),
+            candidateIdentity: _candidateIdentityBytes(),
+          ),
         ),
-      ),
-    );
+      );
+    })();
 
     final identity = await service.fetchIdentity('ignored-in-reader');
     expect(identity.cidNumber, 'CN001-CTZN-000000001-2026');
@@ -96,18 +107,29 @@ void main() {
   });
 
   test('匿名 active CID 保留帖子归属但不升级投票身份', () async {
-    final service = SquareChainService(
-      chain: TestCitizenChain(),
-      transactions: TestCitizenTransactions(),
-      identityChainReader: _FakeIdentityReader(
-        CitizenIdentityChainSnapshot(
-          cidNumber: 'CN001-CTZN-000000002-2026',
-          accountId: Uint8List(32),
-          bindRev: 1,
-          votingIdentity: null,
+    final service = (() {
+      final reads0 = TestChainReads();
+      final reads1 = TestTransactionCalls();
+      return SquareChainService(
+        getFinalizedHead: reads0.getFinalizedHead,
+        getStorage: reads0.getStorage,
+        getStorageBatch: reads0.getStorageBatch,
+        prepareTransaction: reads1.prepareTransaction,
+        executePreparedTransaction: reads1.executePreparedTransaction,
+        cancelPreparedTransactionExecution:
+            reads1.cancelPreparedTransactionExecution,
+        consumePreparedTransactionQrResponse:
+            reads1.consumePreparedTransactionQrResponse,
+        identityChainReader: _FakeIdentityReader(
+          CitizenIdentityChainSnapshot(
+            cidNumber: 'CN001-CTZN-000000002-2026',
+            accountId: Uint8List(32),
+            bindRev: 1,
+            votingIdentity: null,
+          ),
         ),
-      ),
-    );
+      );
+    })();
 
     final identity = await service.fetchIdentity('ignored-in-reader');
     expect(identity.cidNumber, 'CN001-CTZN-000000002-2026');
@@ -120,10 +142,20 @@ void main() {
 
   test('三档平台价格通过一次 finalized storage 批量读取', () async {
     final chain = _BatchPriceChain();
-    final service = SquareChainService(
-      chain: chain,
-      transactions: TestCitizenTransactions(),
-    );
+    final service = (() {
+      final reads0 = TestTransactionCalls();
+      return SquareChainService(
+        getFinalizedHead: chain.getFinalizedHead,
+        getStorage: chain.getStorage,
+        getStorageBatch: chain.getStorageBatch,
+        prepareTransaction: reads0.prepareTransaction,
+        executePreparedTransaction: reads0.executePreparedTransaction,
+        cancelPreparedTransactionExecution:
+            reads0.cancelPreparedTransactionExecution,
+        consumePreparedTransactionQrResponse:
+            reads0.consumePreparedTransactionQrResponse,
+      );
+    })();
 
     final prices = await service.fetchAllPlatformPrices(forceFresh: true);
 
@@ -165,7 +197,7 @@ Uint8List _votingIdentityBytes({required int citizenStatus}) {
 }
 
 class _FakeIdentityReader extends CitizenIdentityChainReader {
-  _FakeIdentityReader(this.snapshot) : super(chain: TestCitizenChain());
+  _FakeIdentityReader(this.snapshot) : super();
 
   final CitizenIdentityChainSnapshot? snapshot;
 
@@ -175,7 +207,7 @@ class _FakeIdentityReader extends CitizenIdentityChainReader {
   ) async => snapshot;
 }
 
-class _BatchPriceChain extends TestCitizenChain {
+class _BatchPriceChain extends TestChainReads {
   int fetchCount = 0;
   int requestedKeyCount = 0;
 

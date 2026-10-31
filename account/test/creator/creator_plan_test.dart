@@ -26,8 +26,6 @@ class _BusinessGate implements CidBusinessGate {
   final ValueNotifier<int> revision = ValueNotifier<int>(0);
   @override
   Future<CidBusinessDecision> resolve() => result;
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _CreatorSecurity extends Fake implements AccountSecurityService {
@@ -86,7 +84,7 @@ class _PendingCreatorService implements CreatorService {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 /// 主动刷新失败不能清掉已显示的本地数据。
@@ -104,7 +102,7 @@ class _FailingCreatorService implements CreatorService {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _SnapshotCreatorService extends _PendingCreatorService {
@@ -202,15 +200,15 @@ void main() {
     final security = _CreatorSecurity(),
         resolver = _CreatorResolver(),
         sessions = _CreatorSessions();
-    final transport = TestCitizenSdkTransport({
-      'getWalletState': (_) => [testCitizenWalletState()],
-    });
-    final sdk = await transport.open();
+    final core = await openTestSdk(
+      modules: CitizenSdkModules.wallet | CitizenSdkModules.qr,
+    );
+    final sdk = core.sdk;
+    await sdk.importColdAccount(accountId: testCitizenAccountId).result;
     addTearDown(() async {
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.runAsync(() async {
         await sdk.close();
-        await transport.dispose();
       });
       security.revision.dispose();
       gate.revision.dispose();
@@ -248,7 +246,7 @@ void main() {
     expect(find.text('已开通'), findsNothing);
     expect(resolver.calls, initialReads);
     expect(sessions.calls, initialSessions);
-    expect(transport.calls, isNot(contains('beginSigning')));
+    expect(core.fixture.calls, isNot(contains('beginSigning')));
   });
 
   testWidgets('无会员缺失快照直接显示门禁且不自动联网', (tester) async {

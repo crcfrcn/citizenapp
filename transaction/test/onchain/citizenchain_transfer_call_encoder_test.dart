@@ -8,20 +8,22 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   const encoder = CitizenChainTransferCallEncoder();
 
-  test('CitizenApp encodes destination amount and remark into opaque callData',
-      () {
-    final encoded = encoder.encode(
-      destinationAccountId: Uint8List.fromList(List<int>.filled(32, 0x11)),
-      amountFen: BigInt.from(0x1234),
-      remarkBytes: Uint8List.fromList([0x61, 0x62]),
-    );
+  test(
+    'CitizenApp encodes destination amount and remark into opaque callData',
+    () {
+      final encoded = encoder.encode(
+        destinationAccountId: Uint8List.fromList(List<int>.filled(32, 0x11)),
+        amountFen: BigInt.from(0x1234),
+        remarkBytes: Uint8List.fromList([0x61, 0x62]),
+      );
 
-    expect(encoded.take(2), [4, 0]);
-    expect(encoded.sublist(2, 34), List<int>.filled(32, 0x11));
-    expect(encoded[34], 0x34);
-    expect(encoded[35], 0x12);
-    expect(encoded.sublist(50), [0x08, 0x61, 0x62]);
-  });
+      expect(encoded.take(2), [4, 0]);
+      expect(encoded.sublist(2, 34), List<int>.filled(32, 0x11));
+      expect(encoded[34], 0x34);
+      expect(encoded[35], 0x12);
+      expect(encoded.sublist(50), [0x08, 0x61, 0x62]);
+    },
+  );
 
   test('encoder rejects invalid business fields before calling the SDK', () {
     expect(
@@ -51,17 +53,33 @@ void main() {
   });
 
   test('交易失败文案只使用真实步骤和一次原因，不包含SDK异常结构', () {
-    expect(onchainPaymentFailureText(
-      OnchainPaymentStep.preparation, CitizenSdkErrorCode.decode,
-    ), '交易准备失败：链上数据解析异常');
-    expect(onchainPaymentFailureText(
-      OnchainPaymentStep.execution, CitizenSdkErrorCode.network,
-    ), '交易执行失败：区块链暂不可用');
-    expect(onchainPaymentFailureText(
-      OnchainPaymentStep.externalSignature, CitizenSdkErrorCode.cancelled,
-    ), '交易签名失败：操作已取消');
-    expect(onchainPaymentFailureText(
-      OnchainPaymentStep.preparation, CitizenSdkErrorCode.internal,
-    ), '交易准备失败：请稍后重试');
+    expect(
+      onchainPaymentFailureText(
+        OnchainPaymentStep.preparation,
+        CitizenSdkErrorCode.decode,
+      ),
+      '交易准备失败：链上数据解析异常',
+    );
+    expect(
+      onchainPaymentFailureText(
+        OnchainPaymentStep.execution,
+        CitizenSdkErrorCode.network,
+      ),
+      '交易执行失败：区块链暂不可用',
+    );
+    expect(
+      onchainPaymentFailureText(
+        OnchainPaymentStep.externalSignature,
+        CitizenSdkErrorCode.cancelled,
+      ),
+      '交易签名失败：操作已取消',
+    );
+    expect(
+      onchainPaymentFailureText(
+        OnchainPaymentStep.preparation,
+        CitizenSdkErrorCode.internal,
+      ),
+      '交易准备失败：请稍后重试',
+    );
   });
 }

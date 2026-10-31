@@ -29,7 +29,7 @@ export function pickWallet(document,projectId){
   for(const wallet of wallets){
    const button=document.createElement('button');button.type='button';button.className='wallet';
    button.disabled=!wallet.enabled;button.setAttribute('aria-disabled',String(!wallet.enabled));
-   const icon=document.createElement('img');icon.src='https://api.web3modal.org/getWalletImage/'+wallet.image+'?'+imageParams.toString();icon.alt='';icon.width=48;icon.height=48;
+   const icon=document.createElement('img');icon.src='https://api.web3modal.org/getWalletImage/'+wallet.image+'?'+imageParams.toString();icon.alt='';icon.width=64;icon.height=64;
    const label=document.createElement('span');label.textContent=wallet.name;
    button.append(icon,label);
    if(!wallet.enabled){const state=document.createElement('small');state.textContent='暂未开放';button.append(state);}
@@ -243,7 +243,7 @@ export function connectTrace(report){
 }
 // 选择来自App的一次明确点击，不能从会话默认链补齐缺失字段。
 export function selection(value){
- if(!value||typeof value!=='object'||Object.keys(value).sort().join()!=='network,package_id,token'||!pairs[value.token]?.includes(value.network)||!['pkg_15','pkg_1400'].includes(value.package_id))throw Error('付款选择无效');
+ if(!value||typeof value!=='object'||Object.keys(value).sort().join()!=='network,package_id,token'||!pairs[value.token]?.includes(value.network)||!['pkg_10','pkg_900'].includes(value.package_id))throw Error('付款选择无效');
  return Object.freeze({token:value.token,package_id:value.package_id,network:value.network});
 }
 export function proposal(value){

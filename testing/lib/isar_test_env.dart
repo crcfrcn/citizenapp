@@ -8,10 +8,9 @@ import 'dart:io';
 
 import 'package:citizen_storage/social_isar.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart';
-import 'package:citizen_storage/app_isar.dart';
-import 'package:citizen_storage/isar_core_bootstrap.dart';
 import 'package:citizen_storage/user_isar.dart';
-import 'package:citizen_storage/wallet_isar.dart';
+import 'package:citizen_storage/isar_core_bootstrap.dart';
+
 import 'package:flutter_test/flutter_test.dart';
 
 /// 每个测试文件拥有真实隔离数据库，测试环境不注入应用数据密钥。
@@ -50,11 +49,7 @@ final class _TestDirectory extends IOOverrides {
 }
 
 Future<void> _resetAllIsar() async {
-  // libmdbx 的进程级实例注册表不保证多个不同 schema 同时 cold-open/delete；
-  // 测试复位按域顺序执行，业务运行时的数据库和操作队列仍完全独立。
-  await WalletIsar.instance.resetForTest();
+  await UserIsar.instance.resetForTest();
   await ChatIsar.instance.resetForTest();
   await SocialIsar.instance.resetForTest();
-  await UserIsar.instance.resetForTest();
-  await AppIsar.instance.resetForTest();
 }

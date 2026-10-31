@@ -1,4 +1,4 @@
-import 'package:citizen_storage/wallet_isar.dart'
+import 'package:citizen_storage/user_isar.dart'
     as wallet_store
     show WalletCursor, Entry;
 
@@ -7,7 +7,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:isar_community/isar.dart';
 import 'package:citizen_citizen/account_derivation.dart';
-import 'package:citizen_storage/wallet_isar.dart' hide Group;
+import 'package:citizen_storage/user_isar.dart' hide Group;
 
 /// 本机钱包交易流水存储服务。
 ///
@@ -48,7 +48,7 @@ class LocalTxStore {
   /// 写入或替换一条交易流水。
   static Future<void> upsert(wallet_store.Entry entity) async {
     entity.accountId = requireAccountId(entity.accountId);
-    await WalletIsar.instance.writeTxn((isar) async {
+    await UserIsar.instance.writeTxn((isar) async {
       final existing =
           entity.entrySource == 'local_submit' && entity.txHash != null
           ? await _submit(isar, entity.accountId, entity.txHash!)
@@ -71,7 +71,7 @@ class LocalTxStore {
     int offset = 0,
   }) async {
     final normalizedAccountId = requireAccountId(accountId);
-    return WalletIsar.instance.read((isar) async {
+    return UserIsar.instance.read((isar) async {
       return isar
           .collection<wallet_store.Entry>()
           .where()
@@ -92,7 +92,7 @@ class LocalTxStore {
   }
 
   /// 单条本机记录直接使用Isar原主键，不生成第二个业务标识。
-  static Future<wallet_store.Entry?> readEntry(int rowId) => WalletIsar.instance
+  static Future<wallet_store.Entry?> readEntry(int rowId) => UserIsar.instance
       .read((isar) => isar.collection<wallet_store.Entry>().get(rowId));
 
   static Future<wallet_store.Entry?> _single(
@@ -163,7 +163,7 @@ class LocalTxStore {
   }) async {
     final normalizedAccountId = requireAccountId(accountId);
     final normalizedTxHash = txHash.toLowerCase();
-    await WalletIsar.instance.writeTxn((isar) async {
+    await UserIsar.instance.writeTxn((isar) async {
       final existingPending = await _submit(
         isar,
         normalizedAccountId,
@@ -282,7 +282,7 @@ class LocalTxStore {
       ..entrySource = 'sdk_finalized_event'
       ..createdAt = time
       ..confirmedAt = time;
-    await WalletIsar.instance.writeTxn((isar) => _upsertEventInTxn(isar, row));
+    await UserIsar.instance.writeTxn((isar) => _upsertEventInTxn(isar, row));
   }
 
   static Future<void> _upsertEventInTxn(
@@ -363,7 +363,7 @@ class LocalTxStore {
 
   /// 读取账户进度；调用方必须再核对导入时间与链身份。
   static Future<wallet_store.WalletCursor?> historyCursor(String accountId) =>
-      WalletIsar.instance.read(
+      UserIsar.instance.read(
         (isar) => isar
             .collection<wallet_store.WalletCursor>()
             .where()
@@ -373,7 +373,7 @@ class LocalTxStore {
 
   /// 初始起点必须已由账户导入时间和 verified Timestamp.Now 确定。
   static Future<void> insertHistoryCursor(wallet_store.WalletCursor cursor) =>
-      WalletIsar.instance.writeTxn((isar) async {
+      UserIsar.instance.writeTxn((isar) async {
         final existing = await isar
             .collection<wallet_store.WalletCursor>()
             .where()
@@ -392,7 +392,7 @@ class LocalTxStore {
     required int blockNumber,
     required List<wallet_store.WalletCursor> cursors,
     required List<wallet_store.Entry> records,
-  }) => WalletIsar.instance.writeTxn((isar) async {
+  }) => UserIsar.instance.writeTxn((isar) async {
     final owners = <String>{};
     for (final cursor in cursors) {
       final current = await isar.collection<wallet_store.WalletCursor>().get(
@@ -436,7 +436,7 @@ class LocalTxStore {
     required String callHash,
     String? blockHash,
   }) async {
-    await WalletIsar.instance.writeTxn((isar) async {
+    await UserIsar.instance.writeTxn((isar) async {
       final entity = await _submit(isar, accountId, txHash);
       if (entity == null ||
           !_matchesSdkExecution(entity, executionId, callHash) ||
@@ -463,7 +463,7 @@ class LocalTxStore {
     required String executionId,
     required String callHash,
   }) async {
-    await WalletIsar.instance.writeTxn((isar) async {
+    await UserIsar.instance.writeTxn((isar) async {
       final entity = await _submit(isar, accountId, txHash);
       if (entity == null ||
           !_matchesSdkExecution(entity, executionId, callHash) ||
@@ -489,7 +489,7 @@ class LocalTxStore {
     required String callHash,
     required String failReason,
   }) async {
-    await WalletIsar.instance.writeTxn((isar) async {
+    await UserIsar.instance.writeTxn((isar) async {
       final entity = await _submit(isar, accountId, txHash);
       if (entity == null ||
           !_matchesSdkExecution(entity, executionId, callHash) ||
@@ -515,7 +515,7 @@ class LocalTxStore {
     int? confirmedAt,
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
-    await WalletIsar.instance.writeTxn((isar) async {
+    await UserIsar.instance.writeTxn((isar) async {
       final entity = await _submit(isar, accountId, txHash);
       if (entity == null ||
           !_matchesSdkExecution(entity, executionId, callHash) ||
@@ -541,7 +541,7 @@ class LocalTxStore {
   /// 写成 finalized 后即触发,供交易列表页响应式重刷(见 TxAutoRefreshMixin),
   /// 取代"提交后延时 N 秒盲刷"。
   ///
-  /// 返回的句柄已经在任何异步 `db()` / watcher 创建前同步登记到 [WalletIsar]；
+  /// 返回的句柄已经在任何异步 `db()` / watcher 创建前同步登记到 [UserIsar]；
   /// 应用锁擦除会主动取消并等待它真实释放，禁止原生 watcher 晚到挂回已关闭的库。
   static LocalTxAccountChangeSubscription listenAccountChanges(
     String accountId,
@@ -600,7 +600,7 @@ class LocalTxStore {
   /// SDK execution history 由 CitizenSDK 自己的删除和擦除合同管理。
   static Future<void> deleteWalletLocalHistory(String accountId) async {
     final normalizedAccountId = requireAccountId(accountId);
-    await WalletIsar.instance.writeTxn((isar) async {
+    await UserIsar.instance.writeTxn((isar) async {
       await isar
           .collection<wallet_store.Entry>()
           .filter()
@@ -616,7 +616,7 @@ class LocalTxStore {
 
   /// 清空所有 CitizenApp 业务交易记录。
   static Future<void> clearAllWalletLocalHistory() async {
-    await WalletIsar.instance.writeTxn((isar) async {
+    await UserIsar.instance.writeTxn((isar) async {
       await isar.collection<wallet_store.Entry>().clear();
       await isar.collection<wallet_store.WalletCursor>().clear();
     });
@@ -625,7 +625,7 @@ class LocalTxStore {
   /// 查询某个钱包的交易总数。
   static Future<int> countByAccountId(String accountId) async {
     final normalizedAccountId = requireAccountId(accountId);
-    return WalletIsar.instance.read((isar) async {
+    return UserIsar.instance.read((isar) async {
       return isar
           .collection<wallet_store.Entry>()
           .where()
@@ -637,13 +637,13 @@ class LocalTxStore {
 
 /// 交易流水 watcher 的可等待生命周期句柄。
 ///
-/// 取得 WalletIsar lease、启动 watcher、取消 subscription 和释放 lease 被收敛为一个
+/// 取得 UserIsar lease、启动 watcher、取消 subscription 和释放 lease 被收敛为一个
 /// 状态机。取消请求先同步落位，再等待尚未完成的启动；因此即使关闭发生在 `db()` 等待
 /// 期间，启动路径也不会在关闭请求之后重新挂上 watcher。
 class LocalTxAccountChangeSubscription {
   LocalTxAccountChangeSubscription._();
 
-  WalletIsarConsumerLease? _lease;
+  IsarConsumerLease? _lease;
   StreamSubscription<void>? _subscription;
   Future<void>? _startup;
   final Completer<void> _startupAssigned = Completer<void>();
@@ -663,7 +663,7 @@ class LocalTxAccountChangeSubscription {
     final callbackZone = Zone.current;
 
     // 必须先同步登记 lease；登记失败时尚未开始任何 db() 或 watcher 工作。
-    listener._lease = WalletIsar.instance.registerExternalConsumer(
+    listener._lease = UserIsar.instance.registerExternalConsumer(
       listener.cancel,
     );
     if (listener._cancelRequested) {
@@ -716,7 +716,7 @@ class LocalTxAccountChangeSubscription {
     required Zone callbackZone,
   }) async {
     try {
-      final isar = await WalletIsar.instance.db();
+      final isar = await UserIsar.instance.db();
       if (_cancelRequested) return;
 
       final subscription = isar
@@ -734,7 +734,7 @@ class LocalTxAccountChangeSubscription {
       }
     } catch (error, stackTrace) {
       try {
-        // 清理失败时故意保留 subscription 与 lease，让 WalletIsar 擦除可见失败并可重试。
+        // 清理失败时故意保留 subscription 与 lease，让 UserIsar 擦除可见失败并可重试。
         await _cancelSubscriptionAfterStartupFailure();
       } catch (cleanupError, cleanupStackTrace) {
         _reportError(cleanupError, cleanupStackTrace, onError, callbackZone);

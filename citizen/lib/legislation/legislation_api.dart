@@ -1,4 +1,4 @@
-import 'package:citizen_storage/wallet_isar.dart'
+import 'package:citizen_storage/user_isar.dart'
     as wallet_store
     show LawSnapshot;
 // LegislationApi 客户端(ADR-028 P3)——读链上法律 + 宪法不可修改条款 manifest。
@@ -14,12 +14,43 @@ import 'package:polkadart/polkadart.dart' show Hasher;
 
 import 'package:citizen_citizen/legislation/law_models.dart';
 import 'package:citizen_citizen/legislation/legislation_codec.dart';
-import 'package:citizen_storage/wallet_isar.dart' hide Group;
+import 'package:citizen_storage/user_isar.dart' hide Group;
 
 class LegislationApi {
-  LegislationApi({required CitizenChain chain}) : _chain = chain;
-
-  final CitizenChain _chain;
+  LegislationApi({
+    CitizenSdk? chain,
+    Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<Uint8List> Function(
+      CitizenBlockRef block,
+      String method,
+      Uint8List arguments,
+    )?
+    callRuntimeApi,
+    Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
+    getStorage,
+  }) : _getFinalizedHead =
+           getFinalizedHead ??
+           chain?.getFinalizedHead ??
+           (() => throw StateError('未配置getFinalizedHead')),
+       _callRuntimeApi =
+           callRuntimeApi ??
+           chain?.callRuntimeApi ??
+           ((CitizenBlockRef block, String method, Uint8List arguments) =>
+               throw StateError('未配置callRuntimeApi')),
+       _getStorage =
+           getStorage ??
+           chain?.getStorage ??
+           ((CitizenBlockRef block, Uint8List key) =>
+               throw StateError('未配置getStorage'));
+  final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<Uint8List> Function(
+    CitizenBlockRef block,
+    String method,
+    Uint8List arguments,
+  )
+  _callRuntimeApi;
+  final Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)
+  _getStorage;
 
   // 会话内内存缓存(法律体量大、改动稀;同实例复用避免重拉,尤其宪法 219KB)。
   // 本机持久快照只写 law；链上 finalized 仍是真源。
@@ -30,8 +61,8 @@ class LegislationApi {
 
   /// 某层级+行政区范围下的全部 law_id(`list_laws(tier, region)`)。
   Future<List<int>> listLaws(LawTier tier, LawRegion region) async {
-    final finalized = await _chain.getFinalizedHead();
-    final raw = await _chain.callRuntimeApi(
+    final finalized = await _getFinalizedHead();
+    final raw = await _callRuntimeApi(
       finalized,
       'LegislationApi_list_laws',
       Uint8List.fromList([tier.index, ...encodeLawRegion(tier, region)]),
@@ -177,8 +208,8 @@ class LegislationApi {
   }
 
   Future<Uint8List?> _readStorage(Uint8List key) async {
-    final finalized = await _chain.getFinalizedHead();
-    return _chain.getStorage(finalized, key);
+    final finalized = await _getFinalizedHead();
+    return _getStorage(finalized, key);
   }
 
   Uint8List _storageMapKey(String pallet, String item, Uint8List keyData) {
@@ -229,7 +260,7 @@ class LegislationApi {
 
   Future<Uint8List?> _readRaw(String key) async {
     try {
-      return await WalletIsar.instance.read((isar) async {
+      return await UserIsar.instance.read((isar) async {
         final row = await isar
             .collection<wallet_store.LawSnapshot>()
             .getByStateKey(key);
@@ -244,7 +275,7 @@ class LegislationApi {
 
   Future<void> _writeRaw(String key, Uint8List raw) async {
     try {
-      await WalletIsar.instance.writeTxn((isar) async {
+      await UserIsar.instance.writeTxn((isar) async {
         final stateHex = _hex(raw);
         final existing = await isar
             .collection<wallet_store.LawSnapshot>()

@@ -1,5 +1,5 @@
 import 'package:citizen_system/security/account_security_exception.dart';
-import 'package:citizen_storage/wallet_isar.dart' as wallet_store show Entry;
+import 'package:citizen_storage/user_isar.dart' as wallet_store show Entry;
 import 'package:citizen_wallet/account_balance_snapshot_store.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
@@ -19,7 +19,7 @@ import 'package:citizen_transaction/onchain/onchain_payment_service.dart';
 import 'package:citizen_transaction/onchain/onchain_transfer_call.dart';
 import 'package:citizen_transaction/history/local_tx_store.dart';
 import 'package:citizen_transaction/history/tx_auto_refresh_mixin.dart';
-import 'package:citizen_storage/wallet_isar.dart' hide Group;
+import 'package:citizen_storage/user_isar.dart' hide Group;
 import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_scanner/address_scan_button.dart';
 import 'package:citizen_account/navigation.dart';
@@ -230,9 +230,9 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     _paymentService =
         widget.paymentService ??
         OnchainPaymentService(
-          wallet: sdk.wallet,
-          transactions: sdk.transactions,
-          chain: sdk.chain,
+          wallet: sdk,
+          transactions: sdk,
+          chain: sdk,
         );
     _accountSecurity = accountSecurity;
     accountSecurity.revision.addListener(_onWalletsChanged);
@@ -307,7 +307,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
         });
       }
     } catch (e) {
-      if (WalletIsar.instance.isBusyError(e)) {
+      if (UserIsar.instance.isBusyError(e)) {
         return;
       }
       AppLog.d('[链上交易] 加载本地记录失败: $e');
@@ -376,7 +376,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
           testBalance = await injected(wallet.accountId);
         } else {
           final store = AccountBalanceSnapshotStore.forChain(
-            context.read<CitizenSdk>().chain,
+            context.read<CitizenSdk>(),
           );
           await store.restore([wallet.accountId]);
           balance = store.accountState(wallet.accountId);
@@ -384,7 +384,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
       }
     } catch (e, st) {
       if (!accountValidated) wallet = null;
-      if (!WalletIsar.instance.isBusyError(e)) {
+      if (!UserIsar.instance.isBusyError(e)) {
         AppLog.d('[链上交易] 当前钱包加载失败: $e\n$st');
       }
     }
@@ -415,7 +415,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     bool forceRefresh = false,
   }) async {
     final balance = await AccountBalanceSnapshotStore.forChain(
-      context.read<CitizenSdk>().chain,
+      context.read<CitizenSdk>(),
     ).getAccountBalance(accountId, forceRefresh: forceRefresh);
     return balance.freeFen.toDouble() / 100;
   }
@@ -675,7 +675,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
         ),
       );
       if (!mounted || _currentWallet?.accountId != balanceAccountId) {
-        await sdk.transactions.cancelPreparedTransaction(
+        await sdk.cancelPreparedTransaction(
           prepared.preparationId,
         );
         throw const OnchainPaymentException(
@@ -684,7 +684,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
         );
       }
       paymentStep = OnchainPaymentStep.execution;
-      final started = await sdk.transactions.executePreparedTransaction(
+      final started = await sdk.executePreparedTransaction(
         prepared.preparationId,
       );
       CitizenTransactionExecutionCompleted completed;
@@ -699,12 +699,12 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
           ),
         );
         if (response == null) {
-          await sdk.transactions.cancelPreparedTransactionExecution(
+          await sdk.cancelPreparedTransactionExecution(
             started.executionId,
           );
           throw const AccountSecurityException('交易签名已取消');
         }
-        completed = await sdk.transactions.consumePreparedTransactionQrResponse(
+        completed = await sdk.consumePreparedTransactionQrResponse(
           started.executionId,
           response,
         );

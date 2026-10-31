@@ -458,7 +458,7 @@ class _ProposalEntryPageState extends State<ProposalEntryPage> {
     }
     try {
       final service = ProposalLimitService(
-        chain: context.read<CitizenSdk>().chain,
+        chain: context.read<CitizenSdk>(),
       );
       final activeIds = await service.fetchActiveProposalIds(
         widget.institution,

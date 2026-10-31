@@ -41,6 +41,11 @@ flutter:
     - logo/icon180.png
     - icons/usdc.svg
     - icons/usdt.svg
+    - icons/ethereum.svg
+    - icons/base.svg
+    - icons/solana.svg
+    - icons/tron.svg
+    - icons/bnb.svg
     - icons/icons8-96.png
     - icons/icons8-64.png
   fonts:

@@ -16,7 +16,7 @@ class ScannerView extends StatefulWidget {
     this.onFailure,
     this.onCapture,
   });
-  final CitizenQr qr;
+  final CitizenSdk qr;
   final CitizenQrScanPurpose purpose;
   final ValueChanged<String> onRawValue;
   final ValueChanged<ScannerFailure>? onFailure;
@@ -56,7 +56,7 @@ class _ScannerViewState extends State<ScannerView> with WidgetsBindingObserver {
       await _release();
       if (!mounted || generation != _generation) return;
       try {
-        final capture = await qr.openCapture(purpose);
+        final capture = await qr.openQrCapture(purpose);
         if (!mounted || generation != _generation) {
           await capture.close();
           return;

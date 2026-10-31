@@ -1,8 +1,8 @@
-import 'package:citizen_storage/app_isar.dart' as app_store show Version;
+import 'package:citizen_storage/user_isar.dart' as app_store show Version;
 // 只读派生数据的版本游标存储(与 schemaVersion 解耦)。
 //
 // 行政区/公权机构是只读派生数据(无用户数据),数据新鲜度完全由本
-// helper 独立管理，并按 namespace 保存到 [version]：
+// helper 独立管理，并按 data_kind 自然键保存到 sync 表：
 //   - global_version = 全局包版本，相等即整体秒过
 //   - province_data = per-province 版本 map 的 JSON
 // 逐省 reconcile 后逐省落 prov_vers,中断可续;全部省过完才落 data_version。
@@ -13,11 +13,11 @@ import 'package:citizen_storage/app_isar.dart' as app_store show Version;
 import 'dart:convert';
 
 import 'package:isar_community/isar.dart';
-import 'package:citizen_storage/app_isar.dart';
+import 'package:citizen_storage/user_isar.dart';
 
 /// 版本游标读写接口。
 abstract interface class DataVersionKv {
-  /// 默认走全局 [AppIsar] 的 Isar 实现；`isar` 可注入供集成测试。
+  /// 默认走全局 [UserIsar] 的 Isar 实现；`isar` 可注入供集成测试。
   factory DataVersionKv({required String dataKind, Isar? isar}) =
       IsarDataVersionKv;
 
@@ -34,7 +34,7 @@ abstract interface class DataVersionKv {
   Future<void> writeProvinceVersions(Map<String, String> versions);
 }
 
-/// AppIsar 的 typed entity 实现。
+/// UserIsar 的 typed entity 实现。
 class IsarDataVersionKv implements DataVersionKv {
   IsarDataVersionKv({required this.dataKind, Isar? isar}) : _injected = isar;
 
@@ -42,25 +42,30 @@ class IsarDataVersionKv implements DataVersionKv {
   final String dataKind;
   final Isar? _injected;
 
-  Future<Isar> _db() async => _injected ?? await AppIsar.instance.db();
+  Future<T> _read<T>(Future<T> Function(Isar isar) action) {
+    final injected = _injected;
+    if (injected != null) return action(injected);
+    return UserIsar.instance.read(action);
+  }
 
   Future<T> _write<T>(Future<T> Function(Isar isar) action) async {
     final injected = _injected;
     if (injected != null) {
       return injected.writeTxn(() => action(injected));
     }
-    return AppIsar.instance.writeTxn(action);
+    return UserIsar.instance.writeTxn(action);
   }
 
   @override
   Future<String?> readGlobalVersion() async {
-    final isar = await _db();
-    final row = await isar
-        .collection<app_store.Version>()
-        .filter()
-        .dataKindEqualTo(dataKind)
-        .findFirst();
-    return row?.globalVersion;
+    return _read((isar) async {
+      final row = await isar
+          .collection<app_store.Version>()
+          .filter()
+          .dataKindEqualTo(dataKind)
+          .findFirst();
+      return row?.globalVersion;
+    });
   }
 
   @override
@@ -80,13 +85,14 @@ class IsarDataVersionKv implements DataVersionKv {
 
   @override
   Future<Map<String, String>> readProvinceVersions() async {
-    final isar = await _db();
-    final row = await isar
-        .collection<app_store.Version>()
-        .filter()
-        .dataKindEqualTo(dataKind)
-        .findFirst();
-    return decodeProvinceVersions(row?.provinceData);
+    return _read((isar) async {
+      final row = await isar
+          .collection<app_store.Version>()
+          .filter()
+          .dataKindEqualTo(dataKind)
+          .findFirst();
+      return decodeProvinceVersions(row?.provinceData);
+    });
   }
 
   @override

@@ -584,7 +584,7 @@ class _UnregisteredIdentity implements FinalizedIdentityResolver {
   );
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 /// 驱动注册前余额闸三分支的假 service：可配门槛、余额与链读失败。
@@ -690,7 +690,7 @@ class _RegisterFlowService implements MyIdService {
       false;
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _FakeMyIdService implements MyIdService {
@@ -718,7 +718,7 @@ class _FakeMyIdService implements MyIdService {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 /// 页面只核对本机账户，快照广播不能吞掉同账户失败，也不能触发链解析。
@@ -738,6 +738,7 @@ class _PageCurrentUser implements CurrentUserContext {
     ),
     binding: null,
   );
+
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }

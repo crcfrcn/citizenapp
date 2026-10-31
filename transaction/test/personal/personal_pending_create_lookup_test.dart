@@ -27,7 +27,17 @@ void main() {
   });
 
   test('仅有 executed/rejected entity → 不命中,返回 null', () async {
-    final service = PersonalProposalHistoryService(chain: TestCitizenChain());
+    final service = (() {
+      final reads0 = TestChainReads();
+      return PersonalProposalHistoryService(
+        getSyncStatus: reads0.getSyncStatus,
+        getFinalizedHead: reads0.getFinalizedHead,
+        getStorage: reads0.getStorage,
+        getSystemEvents: reads0.getSystemEvents,
+        getRuntimeContext: reads0.getRuntimeContext,
+        getStorageBatch: reads0.getStorageBatch,
+      );
+    })();
     await service.recordOrUpdate(
       accountId: personalAccount,
       proposalId: 5,
@@ -50,7 +60,17 @@ void main() {
   });
 
   test('voting 状态的 create entity 命中,返回 proposalId', () async {
-    final service = PersonalProposalHistoryService(chain: TestCitizenChain());
+    final service = (() {
+      final reads0 = TestChainReads();
+      return PersonalProposalHistoryService(
+        getSyncStatus: reads0.getSyncStatus,
+        getFinalizedHead: reads0.getFinalizedHead,
+        getStorage: reads0.getStorage,
+        getSystemEvents: reads0.getSystemEvents,
+        getRuntimeContext: reads0.getRuntimeContext,
+        getStorageBatch: reads0.getStorageBatch,
+      );
+    })();
     await service.recordOrUpdate(
       accountId: personalAccount,
       proposalId: 99,
@@ -65,7 +85,17 @@ void main() {
   });
 
   test('voting 但 action != create(如 transfer)不命中', () async {
-    final service = PersonalProposalHistoryService(chain: TestCitizenChain());
+    final service = (() {
+      final reads0 = TestChainReads();
+      return PersonalProposalHistoryService(
+        getSyncStatus: reads0.getSyncStatus,
+        getFinalizedHead: reads0.getFinalizedHead,
+        getStorage: reads0.getStorage,
+        getSystemEvents: reads0.getSystemEvents,
+        getRuntimeContext: reads0.getRuntimeContext,
+        getStorageBatch: reads0.getStorageBatch,
+      );
+    })();
     await service.recordOrUpdate(
       accountId: personalAccount,
       proposalId: 200,
@@ -80,7 +110,17 @@ void main() {
   });
 
   test('其他多签账户的 entity 不命中(filter 按地址过滤)', () async {
-    final service = PersonalProposalHistoryService(chain: TestCitizenChain());
+    final service = (() {
+      final reads0 = TestChainReads();
+      return PersonalProposalHistoryService(
+        getSyncStatus: reads0.getSyncStatus,
+        getFinalizedHead: reads0.getFinalizedHead,
+        getStorage: reads0.getStorage,
+        getSystemEvents: reads0.getSystemEvents,
+        getRuntimeContext: reads0.getRuntimeContext,
+        getStorageBatch: reads0.getStorageBatch,
+      );
+    })();
     const otherAccountId =
         '0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
     await service.recordOrUpdate(

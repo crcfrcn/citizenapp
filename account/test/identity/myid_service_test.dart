@@ -1,4 +1,6 @@
+import 'package:flutter/widgets.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -55,7 +57,7 @@ final _aliceWallet = _testAccount(
 );
 
 void main() {
-  TestCitizenSdkHarness();
+  final core = TestCitizenSdkHarness();
   TestWidgetsFlutterBinding.ensureInitialized();
   useIsolatedIsar();
 
@@ -81,28 +83,44 @@ void main() {
       cidStatus: cidStatus,
       hasCid: hasCid,
     );
-    return MyIdService(
-      wallet: walletManager,
-      signing: walletManager,
-      accountSecurity: walletManager,
-      currentUserContext: _InvalidationCountingIdentityCache(),
-      sessionProvider: _UnusedSessionProvider(),
-      chatRuntime: () => _BindingRuntime(),
-      chain: chainRpc,
-      transactions: TestCitizenTransactions(),
-      identityResolver: FinalizedIdentityResolver(
-        wallet: walletManager,
-        chain: chainRpc,
-      ),
-      divisionStore: _FakeDivisionStore(),
-      badgeSnapshotStore: _FakeBadgeStore(),
-      nowProvider: () => now ?? DateTime.utc(2026, 6, 1),
-    );
+    return (() {
+      final reads0 = TestTransactionCalls();
+      return MyIdService(
+        getWalletState: walletManager.getWalletState,
+        signing: core.sdk,
+        payloadSigner: walletManager.signPayload,
+        accountSecurity: walletManager,
+        currentUserContext: _InvalidationCountingIdentityCache(),
+        sessionProvider: _UnusedSessionProvider(),
+        chatRuntime: () => _BindingRuntime(),
+        getFeeSnapshot: chainRpc.getFeeSnapshot,
+        getGenesisHash: chainRpc.getGenesisHash,
+        getFinalizedHead: chainRpc.getFinalizedHead,
+        getAccountBalance: chainRpc.getAccountBalance,
+        getStorage: chainRpc.getStorage,
+        getStorageBatch: chainRpc.getStorageBatch,
+        prepareTransaction: reads0.prepareTransaction,
+        executePreparedTransaction: reads0.executePreparedTransaction,
+        cancelPreparedTransactionExecution:
+            reads0.cancelPreparedTransactionExecution,
+        consumePreparedTransactionQrResponse:
+            reads0.consumePreparedTransactionQrResponse,
+        identityResolver: FinalizedIdentityResolver(
+          getWalletState: walletManager.getWalletState,
+          getFinalizedHead: chainRpc.getFinalizedHead,
+          getStorage: chainRpc.getStorage,
+          getStorageBatch: chainRpc.getStorageBatch,
+        ),
+        divisionStore: _FakeDivisionStore(),
+        badgeSnapshotStore: _FakeBadgeStore(),
+        nowProvider: () => now ?? DateTime.utc(2026, 6, 1),
+      );
+    })();
   }
 
   MyIdService testService({
     _FakeWalletManager? wallet,
-    CitizenChain? chain,
+    TestChainReads? chain,
     FinalizedIdentityResolver? identityResolver,
     CitizenIdentityTransaction? identityTransaction,
     CurrentUserContext? currentUserContext,
@@ -115,29 +133,43 @@ void main() {
     final actualChain = chain ?? _FakeChain();
     final actualRuntime = runtime ?? _BindingRuntime();
     addTearDown(actualRuntime.close);
-    return MyIdService(
-      wallet: actualWallet,
-      signing: actualWallet,
-      accountSecurity: actualWallet,
-      currentUserContext:
-          currentUserContext ?? _InvalidationCountingIdentityCache(),
-      identityResolver: identityResolver ?? _FakeIdentityResolver(null),
-      sessionProvider: sessionProvider ?? _UnusedSessionProvider(),
-      chatRuntime: () => actualRuntime,
-      chain: actualChain,
-      transactions: TestCitizenTransactions(),
-      divisionStore: _FakeDivisionStore(),
-      badgeSnapshotStore: badgeSnapshotStore ?? _FakeBadgeStore(),
-      identityTransaction: identityTransaction,
-      cidYearProvider: cidYearProvider,
-    );
+    return (() {
+      final reads0 = TestTransactionCalls();
+      return MyIdService(
+        getWalletState: actualWallet.getWalletState,
+        signing: core.sdk,
+        payloadSigner: actualWallet.signPayload,
+        accountSecurity: actualWallet,
+        currentUserContext:
+            currentUserContext ?? _InvalidationCountingIdentityCache(),
+        identityResolver: identityResolver ?? _FakeIdentityResolver(null),
+        sessionProvider: sessionProvider ?? _UnusedSessionProvider(),
+        chatRuntime: () => actualRuntime,
+        getFeeSnapshot: actualChain.getFeeSnapshot,
+        getGenesisHash: actualChain.getGenesisHash,
+        getFinalizedHead: actualChain.getFinalizedHead,
+        getAccountBalance: actualChain.getAccountBalance,
+        getStorage: actualChain.getStorage,
+        getStorageBatch: actualChain.getStorageBatch,
+        prepareTransaction: reads0.prepareTransaction,
+        executePreparedTransaction: reads0.executePreparedTransaction,
+        cancelPreparedTransactionExecution:
+            reads0.cancelPreparedTransactionExecution,
+        consumePreparedTransactionQrResponse:
+            reads0.consumePreparedTransactionQrResponse,
+        divisionStore: _FakeDivisionStore(),
+        badgeSnapshotStore: badgeSnapshotStore ?? _FakeBadgeStore(),
+        identityTransaction: identityTransaction,
+        cidYearProvider: cidYearProvider,
+      );
+    })();
   }
 
   for (final result in ['registered', 'unregistered', 'network', 'changed']) {
     test('公开身份同步只验真一次且不登记设备，$result保持正确状态', () async {
       final wallet = _FakeWalletManager(_aliceWallet);
       final current = CurrentUserContext(
-        wallet: wallet,
+        getWalletState: wallet.getWalletState,
         accountSecurity: wallet,
       );
       final identity = _registeredIdentity(_validAccountId);
@@ -891,8 +923,8 @@ Uint8List _encodeCandidate({
 
 // ── Fakes ──
 
-class _FakeWalletManager
-    implements CitizenSdkWallet, CitizenSigning, AccountSecurityService {
+class _FakeWalletManager extends TestWalletReads
+    implements AccountSecurityService {
   _FakeWalletManager(
     this._wallet, {
     this.accounts = const <CitizenWalletStateAccount>[],
@@ -913,32 +945,33 @@ class _FakeWalletManager
   IdentityBinding? activeBinding;
 
   @override
-  CitizenSdkOperation<CitizenWalletState> getState() => testCitizenOperation(
-    () async => CitizenWalletState(
-      initializationState: _wallet == null && accounts.isEmpty
-          ? CitizenWalletInitializationState.empty
-          : CitizenWalletInitializationState.ready,
-      cleanupPending: false,
-      revision: BigInt.one,
-      hotProfile: null,
-      accounts: <CitizenWalletStateAccount>[
-        ?_wallet,
-        ...accounts.where((account) => account.accountId != _wallet?.accountId),
-      ],
-    ),
-  );
+  CitizenSdkOperation<CitizenWalletState> getWalletState() =>
+      testCitizenOperation(
+        () async => CitizenWalletState(
+          initializationState: _wallet == null && accounts.isEmpty
+              ? CitizenWalletInitializationState.empty
+              : CitizenWalletInitializationState.ready,
+          cleanupPending: false,
+          revision: BigInt.one,
+          hotProfile: null,
+          accounts: <CitizenWalletStateAccount>[
+            ?_wallet,
+            ...accounts.where(
+              (account) => account.accountId != _wallet?.accountId,
+            ),
+          ],
+        ),
+      );
 
-  @override
-  CitizenSdkOperation<CitizenSigningOutcome> begin(
-    CitizenSigningIntent intent,
-  ) => testCitizenOperation(() async {
+  Future<Uint8List> signPayload(
+    String accountId,
+    Uint8List payload,
+    int action,
+    BuildContext? context,
+  ) async {
     signCalls++;
-    return CitizenSigningCompleted(
-      accountId: intent.accountId,
-      payloadHash: '0x${'00' * 32}',
-      signature: Uint8List(64),
-    );
-  });
+    return Uint8List(64);
+  }
 
   @override
   Future<void> activateIdentityBinding({
@@ -981,21 +1014,19 @@ class _FakeWalletManager
     identityNotifications++;
     revision.value++;
   }
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _UnusedChatHost implements ChatRuntimeHost {
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _UnusedSessionProvider implements SquareSessionProvider {
   @override
   void invalidateAccount(String accountId) {}
+
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 /// 预设身份账户解析结果的假 resolver(换绑/列举目标测试用,绕开真链读序列)。
@@ -1010,7 +1041,7 @@ class _FakeIdentityResolver implements FinalizedIdentityResolver {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _InvalidationCountingIdentityCache implements CurrentUserContext {
@@ -1022,7 +1053,7 @@ class _InvalidationCountingIdentityCache implements CurrentUserContext {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _SequenceResolver implements FinalizedIdentityResolver {
@@ -1037,7 +1068,7 @@ class _SequenceResolver implements FinalizedIdentityResolver {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 /// 可变身份账户的假 resolver(对账测试:换绑前后链上身份账户切换)。
@@ -1056,7 +1087,7 @@ class _MutableResolver implements FinalizedIdentityResolver {
       _registeredIdentity(_accountId, bindRev: _bindingRevision);
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 /// 造一个「已注册(匿名)身份账户」解析结果:account_id 绑了 CID(snapshot 非空)。
@@ -1083,8 +1114,7 @@ FinalizedIdentity _registeredIdentity(
 
 /// 记录占号 / 换绑调用参数的假 RPC(不上链),验证 service 编排把账户与 CID 传对。
 class _FakeIdentityTransaction extends CitizenIdentityTransaction {
-  _FakeIdentityTransaction({this.rebindError, this.onRebound})
-    : super(chain: TestCitizenChain(), transactions: TestCitizenTransactions());
+  _FakeIdentityTransaction({this.rebindError, this.onRebound}) : super();
 
   final Object? rebindError;
   final void Function()? onRebound;
@@ -1145,7 +1175,7 @@ class _FakeIdentityTransaction extends CitizenIdentityTransaction {
   }
 }
 
-class _FakeChain extends TestCitizenChain {
+class _FakeChain extends TestChainReads {
   _FakeChain({
     this.voting,
     this.candidate,
@@ -1302,8 +1332,9 @@ class _LocalCurrentUser implements CurrentUserContext {
   final CurrentUser? current;
   @override
   Future<CurrentUser?> resolve() async => current;
+
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _BindingRuntime extends ChatSdk {
@@ -1336,9 +1367,6 @@ class _SyncResolver implements FinalizedIdentityResolver {
       throw const AccountSecurityException('当前用户已变化', code: 'identityChanged');
     }
   }
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _SyncSessions implements SquareSessionProvider {
@@ -1361,5 +1389,5 @@ class _SyncSessions implements SquareSessionProvider {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }

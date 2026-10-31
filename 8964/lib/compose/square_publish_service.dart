@@ -1,6 +1,6 @@
-import 'package:citizen_storage/social_isar.dart'
-    as social_store
-    show Publish;
+import 'dart:typed_data';
+
+import 'package:citizen_storage/social_isar.dart' as social_store show Publish;
 import 'package:citizen_wallet/account_balance_snapshot_store.dart';
 
 import 'package:citizen_square/draft/compose_draft_store.dart';
@@ -54,18 +54,18 @@ abstract class SquarePublishBalanceReader {
 class SquareChainBalanceReader implements SquarePublishBalanceReader {
   const SquareChainBalanceReader(this._chain);
 
-  final CitizenChain _chain;
+  final CitizenSdk? _chain;
 
   @override
   Future<double> fetchFreshFinalizedBalanceYuan(String accountId) async {
-    final balance = await AccountBalanceSnapshotStore.forChain(_chain)
+    final balance = await AccountBalanceSnapshotStore.forChain(_chain!)
         .getAccountBalance(accountId, forceRefresh: true);
     return balance.freeFen.toDouble() / 100;
   }
 
   @override
   Future<BigInt> fetchMinSelfPayBalanceFen() async {
-    final fees = await _chain.getFeeSnapshot();
+    final fees = await _chain!.getFeeSnapshot();
     return fees.minimumFeeFen + fees.existentialDepositFen;
   }
 }
@@ -74,18 +74,52 @@ class SquarePublishService {
   SquarePublishService({
     required SquareContentUploader uploadService,
     required FinalizedIdentityResolver identityResolver,
-    required CitizenChain chain,
-    required CitizenTransactions transactions,
+    CitizenSdk? chain,
+    CitizenSdk? transactions,
     SquarePostChainPublisher? chainService,
     SquarePublicationConfirmer? publicationConfirmer,
     SquarePostDeleteCoordinator? postDeletionCoordinator,
     SquarePublishBalanceReader? balanceReader,
     SquareLocalPostWriter? localPostWriter,
+    Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
+    getStorage,
+    Future<List<Uint8List?>> Function(
+      CitizenBlockRef block,
+      List<Uint8List> keys,
+    )?
+    getStorageBatch,
+    Future<CitizenPreparedTransaction> Function(
+      Uint8List sourceAccountId,
+      Uint8List callData,
+    )?
+    prepareTransaction,
+    Future<CitizenTransactionExecution> Function(String preparationId)?
+    executePreparedTransaction,
+    Future<void> Function(String executionId)?
+    cancelPreparedTransactionExecution,
+    Future<CitizenTransactionExecutionCompleted> Function(
+      String executionId,
+      String response,
+    )?
+    consumePreparedTransactionQrResponse,
   }) : _identityResolver = identityResolver,
        _uploadService = uploadService,
        _chainService =
            chainService ??
-           SquareChainService(chain: chain, transactions: transactions),
+           SquareChainService(
+             chain: chain,
+             transactions: transactions,
+             getFinalizedHead: getFinalizedHead,
+             getStorage: getStorage,
+             getStorageBatch: getStorageBatch,
+             prepareTransaction: prepareTransaction,
+             executePreparedTransaction: executePreparedTransaction,
+             cancelPreparedTransactionExecution:
+                 cancelPreparedTransactionExecution,
+             consumePreparedTransactionQrResponse:
+                 consumePreparedTransactionQrResponse,
+           ),
        _publicationConfirmer = publicationConfirmer ?? SquareApiClient(),
        _postDeletionCoordinator =
            postDeletionCoordinator ?? SquarePostDeletionCoordinator(),

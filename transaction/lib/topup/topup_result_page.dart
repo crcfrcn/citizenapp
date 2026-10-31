@@ -11,7 +11,7 @@ import 'package:citizen_transaction/topup/store.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
 /// 原签名/交易定位来自保护记录；只重提同一订单，不在结果页调用钱包重新付款。
-/// 支付结果页(第 3 屏)：用付款前意图确认交易 → 凭同一份意图轮询该订单到账。
+/// 支付结果页：用付款前意图确认交易 → 凭同一份意图轮询该订单到账。
 ///
 /// 只有服务端paid/exception是终态；处理中或无法核实时不会宣告到账或未收到U。
 /// 付款意图既是确认凭证也是查单凭证，不需要账户会话。

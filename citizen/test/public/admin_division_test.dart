@@ -10,7 +10,7 @@ import 'package:citizen_citizen/public/admin_division_bundle_loader.dart';
 import 'package:citizen_citizen/public/admin_division_dto.dart';
 import 'package:citizen_citizen/public/area_path_formatter.dart';
 import 'package:citizen_citizen/public/isar_admin_division_store.dart';
-import 'package:citizen_storage/app_isar.dart';
+import 'package:citizen_storage/user_isar.dart';
 
 import 'package:citizen_testing/isar_test_env.dart';
 
@@ -39,7 +39,7 @@ void main() {
     useIsolatedIsar();
 
     test('同号市镇按完整父级隔离，省筛选不会误命中代码前缀', () async {
-      final store = IsarAdminDivisionStore(isar: await AppIsar.instance.db());
+      final store = IsarAdminDivisionStore(isar: await UserIsar.instance.db());
       await store.upsertDivisions(const [
         AdminDivisionDto(provinceCode: 'LN', regionName: '省'),
         AdminDivisionDto(provinceCode: 'LN', cityCode: '001', regionName: '市一'),
@@ -91,7 +91,7 @@ void main() {
     });
 
     test('自然索引覆盖保持原主键，准确删除不会影响别省同号行', () async {
-      final store = IsarAdminDivisionStore(isar: await AppIsar.instance.db());
+      final store = IsarAdminDivisionStore(isar: await UserIsar.instance.db());
       await store.upsertDivisions(const [
         AdminDivisionDto(provinceCode: 'LN', cityCode: '001', regionName: '旧名'),
         AdminDivisionDto(
@@ -198,20 +198,132 @@ void main() {
       final files = <String, String>{
         'packages/citizen_assets/divisions/manifest.json': jsonEncode({
           'version': version,
+          'province_count': provinces.length,
+          'city_count': cities.values.fold<int>(
+            0,
+            (n, rows) => n + rows.length,
+          ),
+          'town_count': towns.values.fold<int>(0, (n, rows) => n + rows.length),
           'provinces': provinceVers.entries
               .map((e) => {'code': e.key, 'ver': e.value})
               .toList(),
         }),
-        'packages/citizen_assets/divisions/provinces.json': jsonEncode(provinces),
+        'packages/citizen_assets/divisions/provinces.json': jsonEncode(
+          provinces,
+        ),
       };
+      for (final pcode in provinceVers.keys) {
+        files['packages/citizen_assets/divisions/cities/$pcode.json'] = '[]';
+        files['packages/citizen_assets/divisions/towns/$pcode.json'] = '[]';
+      }
       cities.forEach((pcode, rows) {
-        files['packages/citizen_assets/divisions/cities/$pcode.json'] = jsonEncode(rows);
+        files['packages/citizen_assets/divisions/cities/$pcode.json'] =
+            jsonEncode(rows);
       });
       towns.forEach((pcode, rows) {
-        files['packages/citizen_assets/divisions/towns/$pcode.json'] = jsonEncode(rows);
+        files['packages/citizen_assets/divisions/towns/$pcode.json'] =
+            jsonEncode(rows);
       });
       return files;
     }
+
+    for (final missing in ['cities', 'towns']) {
+      test('行政区$missing分片缺失保留现存省市镇与游标，同版本恢复后可重试', () async {
+        final store = FakeAdminDivisionStore()
+          ..seed(const AdminDivisionDto(provinceCode: 'LN', regionName: '岭南省'))
+          ..seed(
+            const AdminDivisionDto(
+              provinceCode: 'LN',
+              cityCode: '001',
+              regionName: '旧市',
+            ),
+          )
+          ..seed(
+            const AdminDivisionDto(
+              provinceCode: 'LN',
+              cityCode: '001',
+              townCode: '001',
+              regionName: '旧镇',
+            ),
+          );
+        final kv = FakeDataVersionKv()
+          ..globalVersion = 'old'
+          ..provinceVersions = {'LN': 'old'};
+        final files = bundleFiles(
+          version: 'next',
+          provinceVers: {'LN': 'next'},
+          provinces: [
+            {'code': 'LN', 'name': '岭南省'},
+          ],
+          cities: {
+            'LN': [
+              {'code': '001', 'name': '新市'},
+            ],
+          },
+          towns: {
+            'LN': [
+              {'city_code': '001', 'code': '001', 'name': '新镇'},
+            ],
+          },
+        );
+        final path = 'packages/citizen_assets/divisions/$missing/LN.json';
+        final contents = files.remove(path)!;
+        final loader = AdminDivisionBundleLoader(
+          store: store,
+          bundle: _MapBundle(files),
+          versionKv: kv,
+        );
+        await expectLater(loader.ensureSynced(), throwsFormatException);
+        expect(await store.divisionCount(), 3);
+        expect(
+          await store.regionName(provinceCode: 'LN', cityCode: '001'),
+          '旧市',
+        );
+        expect(store.upsertCalls, 0);
+        expect(store.deleteCalls, 0);
+        expect(kv.provinceVersions, {'LN': 'old'});
+        expect(kv.globalVersion, 'old');
+        files[path] = contents;
+        expect(await loader.ensureSynced(), isTrue);
+        expect(kv.globalVersion, 'next');
+        expect(
+          await store.regionName(
+            provinceCode: 'LN',
+            cityCode: '001',
+            townCode: '001',
+          ),
+          '新镇',
+        );
+      });
+    }
+    test('旧版误推进行政区游标后以清单计数修复同版本缺失行', () async {
+      final store = FakeAdminDivisionStore()
+        ..seed(const AdminDivisionDto(provinceCode: 'LN', regionName: '岭南省'));
+      final kv = FakeDataVersionKv()
+        ..globalVersion = 'same'
+        ..provinceVersions = {'LN': 'same'};
+      final files = bundleFiles(
+        version: 'same',
+        provinceVers: {'LN': 'same'},
+        provinces: [
+          {'code': 'LN', 'name': '岭南省'},
+        ],
+        cities: {
+          'LN': [
+            {'code': '001', 'name': '恢复市'},
+          ],
+        },
+        towns: {},
+      );
+      final loader = AdminDivisionBundleLoader(
+        store: store,
+        bundle: _MapBundle(files),
+        versionKv: kv,
+      );
+      expect(await loader.ensureSynced(), isTrue);
+      expect(await store.divisionCount(), 2);
+      expect(await loader.ensureSynced(), isFalse);
+    });
 
     test('首装(库空,无 stored 版本)→ 全量灌入', () async {
       final bundle = _MapBundle(
@@ -310,6 +422,7 @@ void main() {
             regionName: '广州市',
           ),
         )
+        ..seed(const AdminDivisionDto(provinceCode: 'GZ', regionName: '广西省'))
         ..seed(
           const AdminDivisionDto(
             provinceCode: 'GZ',
@@ -329,6 +442,9 @@ void main() {
             {'code': 'GZ', 'name': '广西省'},
           ],
           cities: const {
+            'LN': [
+              {'code': '001', 'name': '广州市'},
+            ],
             'GZ': [
               {'code': '001', 'name': '南宁市改名'},
             ],
@@ -522,7 +638,9 @@ void main() {
 
     test('manifest 缺省级版本表 → 不写库、不删除本地数据', () async {
       final bundle = _MapBundle({
-        'packages/citizen_assets/divisions/manifest.json': jsonEncode({'version': 'invalid'}),
+        'packages/citizen_assets/divisions/manifest.json': jsonEncode({
+          'version': 'invalid',
+        }),
         'packages/citizen_assets/divisions/provinces.json': jsonEncode(const [
           {'code': 'LN', 'name': '岭南省'},
         ]),
@@ -553,8 +671,8 @@ void main() {
       final upsertBefore = store.upsertCalls;
       final deleteBefore = store.deleteCalls;
 
-      final changed = await loader.ensureSynced();
-      expect(changed, isFalse);
+      await expectLater(loader.ensureSynced(), throwsFormatException);
+
       expect(store.upsertCalls, upsertBefore);
       expect(store.deleteCalls, deleteBefore);
       expect(

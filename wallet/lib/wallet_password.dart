@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 
 /// 这里只映射原提示文案；密码校验、字符集和规范化均由SDK完成。
 Future<void> validateWalletPasswordInput(BuildContext context, String raw) async {
-  final result = await context.read<CitizenSdk>().wallet.validatePassword(raw);
+  final result = await context.read<CitizenSdk>().validatePassword(raw);
   if (result.isValid) return;
   final message = switch (result.reason) {
     CitizenWalletInputReason.passwordLength || CitizenWalletInputReason.inputTooLong => '密码长度必须为 6–30 位',

@@ -1,4 +1,4 @@
-import 'package:citizen_storage/app_isar.dart' as app_store show Entity;
+import 'package:citizen_storage/user_isar.dart' as app_store show Entity;
 // 统一机构实体(ADR-028 决策 2)——合并公权 `entity` 与治理
 // `InstitutionInfo` 两套并行模型为一套。
 //

@@ -78,9 +78,17 @@ AdminAccountState account({int status = 1}) => AdminAccountState(
 );
 void main() {
   test('管理员64人及严格多数边界，65人拒绝', () {
-    final service = AdminsChangeService(
-      transactions: TestCitizenTransactions(),
-    );
+    final service = (() {
+      final reads0 = TestTransactionCalls();
+      return AdminsChangeService(
+        prepareTransaction: reads0.prepareTransaction,
+        executePreparedTransaction: reads0.executePreparedTransaction,
+        cancelPreparedTransactionExecution:
+            reads0.cancelPreparedTransactionExecution,
+        consumePreparedTransactionQrResponse:
+            reads0.consumePreparedTransactionQrResponse,
+      );
+    })();
     expect(
       service.buildCallData(
         account: account(),
@@ -106,13 +114,21 @@ void main() {
   for (final cold in [false, true]) {
     test('管理员集合变更冷热签沿SDK唯一生命周期：$cold', () async {
       final tx = flow(cold: cold);
-      final result = await AdminsChangeService(transactions: tx).submit(
-        account: account(),
-        admins: [person(1), person(3)],
-        newThreshold: 2,
-        signerPublicKey: signer,
-        externalSigning: (_) async => 'synthetic-response',
-      );
+      final result =
+          await AdminsChangeService(
+            prepareTransaction: tx.prepareTransaction,
+            executePreparedTransaction: tx.executePreparedTransaction,
+            cancelPreparedTransactionExecution:
+                tx.cancelPreparedTransactionExecution,
+            consumePreparedTransactionQrResponse:
+                tx.consumePreparedTransactionQrResponse,
+          ).submit(
+            account: account(),
+            admins: [person(1), person(3)],
+            newThreshold: 2,
+            signerPublicKey: signer,
+            externalSigning: (_) async => 'synthetic-response',
+          );
       expect(result.txHash, '0x${'00' * 32}');
       expect(tx.callData!.take(2), [29, 0]);
       expect(tx.prepareCount, 1);
@@ -138,7 +154,14 @@ void main() {
           ? [person(1), person(2)]
           : [person(1), person(3)];
       await expectLater(
-        AdminsChangeService(transactions: tx).submit(
+        AdminsChangeService(
+          prepareTransaction: tx.prepareTransaction,
+          executePreparedTransaction: tx.executePreparedTransaction,
+          cancelPreparedTransactionExecution:
+              tx.cancelPreparedTransactionExecution,
+          consumePreparedTransactionQrResponse:
+              tx.consumePreparedTransactionQrResponse,
+        ).submit(
           account: account(status: kind == 'inactive' ? 0 : 1),
           admins: admins,
           newThreshold: kind == 'threshold' ? 1 : 2,
@@ -166,7 +189,14 @@ void main() {
         ),
       );
       await expectLater(
-        AdminsChangeService(transactions: tx).submit(
+        AdminsChangeService(
+          prepareTransaction: tx.prepareTransaction,
+          executePreparedTransaction: tx.executePreparedTransaction,
+          cancelPreparedTransactionExecution:
+              tx.cancelPreparedTransactionExecution,
+          consumePreparedTransactionQrResponse:
+              tx.consumePreparedTransactionQrResponse,
+        ).submit(
           account: account(),
           admins: [person(1), person(3)],
           newThreshold: 2,

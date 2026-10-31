@@ -35,7 +35,7 @@ class MultisigTransferBalanceGuard {
     required String feeAccountId,
     required String actionLabel,
     double additionalDebitYuan = 0,
-    required CitizenChain chain,
+    required CitizenSdk chain,
   }) async {
     final balance = await AccountBalanceSnapshotStore.forChain(chain)
         .getAccountBalance(feeAccountId, forceRefresh: true);
@@ -59,7 +59,7 @@ class MultisigTransferBalanceGuard {
     required CitizenWalletStateAccount wallet,
     required double requiredFeeYuan,
     required String actionLabel,
-    required CitizenChain chain,
+    required CitizenSdk chain,
   }) async {
     final balance = await AccountBalanceSnapshotStore.forChain(chain)
         .getAccountBalance(wallet.accountId, forceRefresh: true);

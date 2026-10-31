@@ -19,16 +19,7 @@ const _goldenHex =
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  late TestCitizenSdkTransport encodingTransport;
-  late CitizenSdk encodingSdk;
-  setUp(() async {
-    encodingTransport = TestCitizenSdkTransport({}, useCore: true);
-    encodingSdk = await encodingTransport.open();
-  });
-  tearDown(() async {
-    await encodingSdk.close();
-    await encodingTransport.dispose();
-  });
+  TestCitizenSdkHarness();
   test(
     'buildMlsDeviceBindingSigningMessage matches Worker golden (0x1C)',
     () async {
@@ -52,7 +43,7 @@ void main() {
       publicKey: _publicKey,
       issuedAtMillis: _issuedAt,
     );
-    final coldSigningMessage = (await CitizenSigning.encodePayload(
+    final coldSigningMessage = (await CitizenSdk.encodePayload(
       CitizenSigningPayload.message(
         opTag: kOpSignMlsDeviceBind,
         scalePayload: payload,

@@ -1015,7 +1015,7 @@ class SquareApiClient
     }
     await check();
     final payload = _accountDeletionPayload(challenge, binding, purpose);
-    final message = await CitizenSigning.encodePayload(
+    final message = await CitizenSdk.encodePayload(
       CitizenSigningPayload.message(
         opTag: kOpSignSquareAction,
         scalePayload: payload,

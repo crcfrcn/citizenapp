@@ -66,15 +66,20 @@ enum ProposalRole {
 /// 共用同一套代码，避免重复且保证一致性。
 class ProposalContextResolver {
   ProposalContextResolver({
-    required CitizenSdkWallet wallet,
+    CitizenSdk? wallet,
     required InstitutionAdminService adminService,
     required ActivationService activationService,
+    CitizenSdkOperation<CitizenWalletState> Function()? getWalletState,
   }) : _adminService = adminService,
-       _wallet = wallet,
-       _activationService = activationService;
+       _activationService = activationService,
+       _getWalletState =
+           getWalletState ??
+           wallet?.getWalletState ??
+           (() => throw StateError('未配置getWalletState'));
+  final CitizenSdkOperation<CitizenWalletState> Function() _getWalletState;
 
   final InstitutionAdminService _adminService;
-  final CitizenSdkWallet _wallet;
+
   final ActivationService _activationService;
 
   /// 已缓存的钱包列表（同一次会话内复用）。
@@ -285,7 +290,7 @@ class ProposalContextResolver {
   // 内部方法
   Future<List<CitizenWalletStateAccount>> _getWallets() async {
     try {
-      _wallets ??= (await _wallet.getState().result).accounts;
+      _wallets ??= (await _getWalletState().result).accounts;
     } catch (e, st) {
       // 治理页的链上内容不能因为钱包公开目录短暂不可用而整体加载失败。
       AppLog.d('[ProposalContext] SDK wallet load failed: $e\n$st');

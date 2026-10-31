@@ -1,4 +1,4 @@
-import 'package:citizen_storage/wallet_isar.dart'
+import 'package:citizen_storage/user_isar.dart'
     as wallet_store
     show WalletCursor, Entry;
 
@@ -9,7 +9,7 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:polkadart/polkadart.dart' show Hasher;
 import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 import 'package:citizen_citizen/account_derivation.dart';
-import 'package:citizen_storage/wallet_isar.dart' hide Group;
+import 'package:citizen_storage/user_isar.dart' hide Group;
 import 'package:citizen_system/app_log.dart';
 import 'package:citizen_transaction/history/citizenchain_transaction_event_decoder.dart';
 import 'package:citizen_transaction/history/local_tx_store.dart';
@@ -19,21 +19,105 @@ import 'package:citizen_wallet/account_balance_snapshot_store.dart';
 /// SDK history 决定本机提交状态，App 原子保存业务事件与逐账户进度。
 final class WalletTransactionHistoryService {
   WalletTransactionHistoryService({
-    required CitizenHistory history,
-    required CitizenChain chain,
-    required CitizenSdkWallet wallet,
+    CitizenSdk? history,
+    CitizenSdk? chain,
+    CitizenSdk? wallet,
     required Stream<CitizenSdkEvent> events,
-  }) : _history = history,
-       _chain = chain,
-       _wallet = wallet,
-       _sdkEvents = events;
+    AccountBalanceSnapshotStore? balances,
+    Future<CitizenAccountBalance> Function(String accountId)? getAccountBalance,
+    Future<List<CitizenAccountBalance>> Function(List<String> accountIds)?
+    getAccountBalances,
+    Future<CitizenTransactionHistoryPage> Function()? syncTransactionHistory,
+    Future<CitizenTransactionHistoryPage> Function({
+      String? beforeExecutionId,
+      int limit,
+    })?
+    getTransactionHistory,
+    Future<String> Function()? getGenesisHash,
+    Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<CitizenBlockRef> Function(BigInt number)? getFinalizedBlockAt,
+    Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
+    getStorage,
+    Future<Uint8List?> Function(CitizenBlockRef block)? getSystemEvents,
+    Future<CitizenRuntimeContext> Function(CitizenBlockRef block)?
+    getRuntimeContext,
+    Future<CitizenBlockBody> Function(CitizenBlockRef block)? getBlockBody,
+    CitizenSdkOperation<CitizenWalletState> Function()? getWalletState,
+  }) : _sdkEvents = events,
+       _balances =
+           balances ??
+           (chain != null
+               ? AccountBalanceSnapshotStore.forChain(chain)
+               : AccountBalanceSnapshotStore(
+                   getAccountBalance: getAccountBalance,
+                   getAccountBalances: getAccountBalances,
+                 )),
+       _syncTransactionHistory =
+           syncTransactionHistory ??
+           history?.syncTransactionHistory ??
+           (() => throw StateError('未配置syncTransactionHistory')),
+       _getTransactionHistory =
+           getTransactionHistory ??
+           history?.getTransactionHistory ??
+           (({String? beforeExecutionId, int limit = 100}) =>
+               throw StateError('未配置getTransactionHistory')),
+       _getGenesisHash =
+           getGenesisHash ??
+           chain?.getGenesisHash ??
+           (() => throw StateError('未配置getGenesisHash')),
+       _getFinalizedHead =
+           getFinalizedHead ??
+           chain?.getFinalizedHead ??
+           (() => throw StateError('未配置getFinalizedHead')),
+       _getFinalizedBlockAt =
+           getFinalizedBlockAt ??
+           chain?.getFinalizedBlockAt ??
+           ((BigInt number) => throw StateError('未配置getFinalizedBlockAt')),
+       _getStorage =
+           getStorage ??
+           chain?.getStorage ??
+           ((CitizenBlockRef block, Uint8List key) =>
+               throw StateError('未配置getStorage')),
+       _getSystemEvents =
+           getSystemEvents ??
+           chain?.getSystemEvents ??
+           ((CitizenBlockRef block) => throw StateError('未配置getSystemEvents')),
+       _getRuntimeContext =
+           getRuntimeContext ??
+           chain?.getRuntimeContext ??
+           ((CitizenBlockRef block) =>
+               throw StateError('未配置getRuntimeContext')),
+       _getBlockBody =
+           getBlockBody ??
+           chain?.getBlockBody ??
+           ((CitizenBlockRef block) => throw StateError('未配置getBlockBody')),
+       _getWalletState =
+           getWalletState ??
+           wallet?.getWalletState ??
+           (() => throw StateError('未配置getWalletState'));
+  final Future<CitizenTransactionHistoryPage> Function()
+  _syncTransactionHistory;
+  final Future<CitizenTransactionHistoryPage> Function({
+    String? beforeExecutionId,
+    int limit,
+  })
+  _getTransactionHistory;
+  final Future<String> Function() _getGenesisHash;
+  final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<CitizenBlockRef> Function(BigInt number) _getFinalizedBlockAt;
+  final Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)
+  _getStorage;
+  final Future<Uint8List?> Function(CitizenBlockRef block) _getSystemEvents;
+  final Future<CitizenRuntimeContext> Function(CitizenBlockRef block)
+  _getRuntimeContext;
+  final Future<CitizenBlockBody> Function(CitizenBlockRef block) _getBlockBody;
+  final CitizenSdkOperation<CitizenWalletState> Function() _getWalletState;
 
-  final CitizenHistory _history;
-  final CitizenChain _chain;
-  final CitizenSdkWallet _wallet;
+  final AccountBalanceSnapshotStore _balances;
+
   final Stream<CitizenSdkEvent> _sdkEvents;
   StreamSubscription<CitizenSdkEvent>? _events;
-  WalletIsarConsumerLease? _lease;
+  IsarConsumerLease? _lease;
   Future<void>? _flight;
   Timer? _retry;
   bool _active = false;
@@ -45,7 +129,7 @@ final class WalletTransactionHistoryService {
   /// 启动不等待网络补齐，离线不能阻塞钱包原页面。
   Future<void> start() async {
     if (_active) return;
-    _lease = WalletIsar.instance.registerExternalConsumer(stop);
+    _lease = UserIsar.instance.registerExternalConsumer(stop);
     _active = true;
     _events = _sdkEvents.listen((event) {
       if (event is CitizenSdkWalletChanged) _epoch++;
@@ -137,7 +221,7 @@ final class WalletTransactionHistoryService {
   }
 
   Future<void> _syncExecutionFacts(int epoch) async {
-    var page = await _history.syncTransactionHistory();
+    var page = await _syncTransactionHistory();
     final consumed = <String>{};
     while (true) {
       for (final record in page.records) {
@@ -147,7 +231,7 @@ final class WalletTransactionHistoryService {
       final cursor = page.nextBeforeExecutionId;
       if (cursor == null) return;
       if (!consumed.add(cursor)) throw StateError('SDK history 分页游标重复');
-      page = await _history.getTransactionHistory(beforeExecutionId: cursor);
+      page = await _getTransactionHistory(beforeExecutionId: cursor);
     }
   }
 
@@ -212,8 +296,7 @@ final class WalletTransactionHistoryService {
         (record.status == CitizenTransactionHistoryStatus.finalizedSuccess ||
             record.status == CitizenTransactionHistoryStatus.finalizedFailed)) {
       try {
-        await AccountBalanceSnapshotStore.forChain(_chain)
-            .afterFinalized(block, [accountId]);
+        await _balances.afterFinalized(block, [accountId]);
       } catch (_) {
         // 交易的链上结果已确认；余额刷新失败不得把结果降为失败或清空原快照。
       }
@@ -223,10 +306,10 @@ final class WalletTransactionHistoryService {
   Future<bool> _syncPass(int epoch) async {
     await _syncExecutionFacts(epoch);
     if (!_current(epoch)) return false;
-    final wallet = await _wallet.getState().result;
+    final wallet = await _getWalletState().result;
     if (!_current(epoch) || wallet.accounts.isEmpty) return false;
-    final genesis = await _chain.getGenesisHash();
-    final head = await _chain.getFinalizedHead();
+    final genesis = await _getGenesisHash();
+    final head = await _getFinalizedHead();
     if (head.number < BigInt.zero ||
         head.number >= BigInt.from(0x7fffffffffffffff)) {
       throw StateError('finalized 高度超出本机进度范围');
@@ -269,7 +352,7 @@ final class WalletTransactionHistoryService {
     final end = first + 31 < target ? first + 31 : target;
     for (var number = first; number <= end; number++) {
       if (!_current(epoch)) return false;
-      final block = await _chain.getFinalizedBlockAt(BigInt.from(number));
+      final block = await _getFinalizedBlockAt(BigInt.from(number));
       _requireBlock(block, number);
       final time = await _timestamp(block);
       final participants = cursors.values
@@ -293,8 +376,10 @@ final class WalletTransactionHistoryService {
       // 历史补齐不逐块刷新余额，只有最新块影响钱包时通知余额唯一入口。
       if (number == target && records.isNotEmpty && _current(epoch)) {
         try {
-          await AccountBalanceSnapshotStore.forChain(_chain)
-              .afterFinalized(block, records.map((r) => r.accountId).toSet());
+          await _balances.afterFinalized(
+            block,
+            records.map((r) => r.accountId).toSet(),
+          );
         } catch (_) {
           // 余额失败不撤销交易记录，也不清空原快照。
         }
@@ -319,7 +404,7 @@ final class WalletTransactionHistoryService {
     while (low < high) {
       if (!_current(epoch)) throw StateError('业务同步已取消');
       final middle = low + ((high - low) ~/ 2);
-      final block = await _chain.getFinalizedBlockAt(BigInt.from(middle));
+      final block = await _getFinalizedBlockAt(BigInt.from(middle));
       _requireBlock(block, middle);
       if (BigInt.from(await _timestamp(block)) < createdAt) {
         low = middle + 1;
@@ -331,7 +416,7 @@ final class WalletTransactionHistoryService {
   }
 
   Future<int> _timestamp(CitizenBlockRef block) async {
-    final bytes = await _chain.getStorage(
+    final bytes = await _getStorage(
       block,
       Uint8List.fromList([
         ...Hasher.twoxx128.hashString('Timestamp'),
@@ -360,10 +445,10 @@ final class WalletTransactionHistoryService {
     Map<String, String> addresses,
   ) async {
     if (addresses.isEmpty) return [];
-    final bytes = await _chain.getSystemEvents(block);
+    final bytes = await _getSystemEvents(block);
     if (bytes == null) return [];
     if (bytes.isEmpty) throw const FormatException('System.Events SCALE 内容为空');
-    final runtime = await _chain.getRuntimeContext(block);
+    final runtime = await _getRuntimeContext(block);
     if (runtime.block.hash != block.hash ||
         runtime.block.number != block.number) {
       throw StateError('Runtime metadata 与事件锚点不一致');
@@ -383,7 +468,7 @@ final class WalletTransactionHistoryService {
         .where((fee) => addresses.containsKey(fee.accountId))
         .toList();
     if (relevant.isEmpty && relevantFees.isEmpty) return [];
-    final body = await _chain.getBlockBody(block);
+    final body = await _getBlockBody(block);
     if (body.block.hash != block.hash || body.block.number != block.number) {
       throw StateError('区块正文与事件锚点不一致');
     }

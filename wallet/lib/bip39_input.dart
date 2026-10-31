@@ -51,7 +51,7 @@ class _Bip39InputFieldState extends State<Bip39InputField> {
     final prefix = currentWord.toLowerCase();
     List<String> matches;
     try {
-      matches = await context.read<CitizenSdk>().wallet.wordSuggestions(prefix);
+      matches = await context.read<CitizenSdk>().wordSuggestions(prefix);
     } catch (_) {
       matches = const [];
     }

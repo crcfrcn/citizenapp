@@ -11,13 +11,41 @@ import 'package:citizen_citizen/proposal/proposal_models.dart';
 /// 内部投票记录属于投票引擎通用状态，不放进具体业务模块，
 /// 避免 proposal 共享层依赖业务 service。
 class InternalVoteQueryService {
-  const InternalVoteQueryService({
-    required CitizenChain chain,
+  InternalVoteQueryService({
+    CitizenSdk? chain,
     CitizenBlockRef? block,
-  }) : _chain = chain,
-       _block = block;
+    Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
+    getStorage,
+    Future<List<Uint8List?>> Function(
+      CitizenBlockRef block,
+      List<Uint8List> keys,
+    )?
+    getStorageBatch,
+  }) : _block = block,
+       _getFinalizedHead =
+           getFinalizedHead ??
+           chain?.getFinalizedHead ??
+           (() => throw StateError('未配置getFinalizedHead')),
+       _getStorage =
+           getStorage ??
+           chain?.getStorage ??
+           ((CitizenBlockRef block, Uint8List key) =>
+               throw StateError('未配置getStorage')),
+       _getStorageBatch =
+           getStorageBatch ??
+           chain?.getStorageBatch ??
+           ((CitizenBlockRef block, List<Uint8List> keys) =>
+               throw StateError('未配置getStorageBatch'));
+  final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)
+  _getStorage;
+  final Future<List<Uint8List?>> Function(
+    CitizenBlockRef block,
+    List<Uint8List> keys,
+  )
+  _getStorageBatch;
 
-  final CitizenChain _chain;
   final CitizenBlockRef? _block;
 
   /// 查询某管理员对某提案的投票记录。null=未投票，true=赞成，false=反对。
@@ -189,23 +217,23 @@ class InternalVoteQueryService {
   }
 
   Future<Uint8List?> _readOne(Uint8List key) async {
-    final finalized = _block ?? await _chain.getFinalizedHead();
+    final finalized = _block ?? await _getFinalizedHead();
     if (finalized.finality != CitizenBlockFinality.finalized) {
       throw StateError('投票查询需要finalized块');
     }
-    return _chain.getStorage(finalized, key);
+    return _getStorage(finalized, key);
   }
 
   Future<List<Uint8List?>> _readBatch(List<Uint8List> keys) async {
     if (keys.isEmpty) return const <Uint8List?>[];
-    final finalized = _block ?? await _chain.getFinalizedHead();
+    final finalized = _block ?? await _getFinalizedHead();
     if (finalized.finality != CitizenBlockFinality.finalized) {
       throw StateError('投票查询需要finalized块');
     }
     final result = <Uint8List?>[];
     for (var offset = 0; offset < keys.length; offset += 100) {
       final end = (offset + 100).clamp(0, keys.length);
-      final values = await _chain.getStorageBatch(
+      final values = await _getStorageBatch(
         finalized,
         keys.sublist(offset, end),
       );

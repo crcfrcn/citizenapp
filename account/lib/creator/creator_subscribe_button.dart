@@ -84,9 +84,9 @@ class _CreatorSubscribeButtonState extends State<CreatorSubscribeButton> {
     _service =
         injectedService ??
         CreatorSubscribeService(
-          wallet: resolvedSdk.wallet,
-          chain: resolvedSdk.chain,
-          transactions: resolvedSdk.transactions,
+          wallet: resolvedSdk,
+          chain: resolvedSdk,
+          transactions: resolvedSdk,
           identityResolver: resolvedIdentity,
           sessionProvider: session,
         );

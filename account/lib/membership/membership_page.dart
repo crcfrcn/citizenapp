@@ -134,16 +134,16 @@ class _MembershipPageState extends State<MembershipPage>
     final sdk = context.read<CitizenSdk>();
     _chainService =
         widget._chainService ??
-        SquareChainService(chain: sdk.chain, transactions: sdk.transactions);
+        SquareChainService(chain: sdk, transactions: sdk);
     final accountSecurity = context.read<AccountSecurityService>();
     _sessionProvider =
         widget._sessionProvider ?? context.read<SquareSessionProvider>();
     _subscriptionService =
         widget._subscriptionService ??
         SubscriptionService(
-          wallet: sdk.wallet,
-          chain: sdk.chain,
-          transactions: sdk.transactions,
+          wallet: sdk,
+          chain: sdk,
+          transactions: sdk,
           identityResolver: context.read<FinalizedIdentityResolver>(),
           sessionProvider: _sessionProvider,
         );

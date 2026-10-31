@@ -1,4 +1,4 @@
-import 'package:citizen_storage/wallet_isar.dart'
+import 'package:citizen_storage/user_isar.dart'
     as wallet_store
     show ProposalList, Summary;
 
@@ -8,7 +8,7 @@ import 'dart:typed_data';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
 import 'package:citizen_citizen/account_derivation.dart';
-import 'package:citizen_storage/wallet_isar.dart' hide Group;
+import 'package:citizen_storage/user_isar.dart' hide Group;
 import 'package:citizen_transaction/amount_format.dart';
 import 'package:citizen_transaction/multisig/multisig_transfer_models.dart';
 
@@ -42,7 +42,7 @@ class ProposalLocalStore {
 
   Future<List<LocalProposalSummary>> readSummariesForIds(List<int> ids) {
     if (ids.isEmpty) return Future.value(const []);
-    return WalletIsar.instance.read((isar) async {
+    return UserIsar.instance.read((isar) async {
       final result = <LocalProposalSummary>[];
       for (final id in ids) {
         final entity = await isar
@@ -68,7 +68,7 @@ class ProposalLocalStore {
 
   Future<void> upsertSummaries(List<LocalProposalSummary> summaries) async {
     if (summaries.isEmpty) return;
-    await WalletIsar.instance.writeTxn((isar) async {
+    await UserIsar.instance.writeTxn((isar) async {
       for (final summary in summaries) {
         final entity =
             await isar.collection<wallet_store.Summary>().getByProposalId(
@@ -82,14 +82,14 @@ class ProposalLocalStore {
   }
 
   Future<void> clearAllForTest() async {
-    await WalletIsar.instance.writeTxn((isar) async {
+    await UserIsar.instance.writeTxn((isar) async {
       await isar.collection<wallet_store.Summary>().clear();
       await isar.collection<wallet_store.ProposalList>().clear();
     });
   }
 
   Future<ProposalLocalIndex?> _readIndex(String cidNumber) {
-    return WalletIsar.instance.read((isar) async {
+    return UserIsar.instance.read((isar) async {
       final entity = await isar
           .collection<wallet_store.ProposalList>()
           .getByCidNumber(cidNumber);
@@ -105,7 +105,7 @@ class ProposalLocalStore {
   Future<void> _putIndex(String cidNumber, List<int> ids) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     final proposalIds = List<int>.unmodifiable(ids);
-    await WalletIsar.instance.writeTxn((isar) async {
+    await UserIsar.instance.writeTxn((isar) async {
       final entity =
           await isar.collection<wallet_store.ProposalList>().getByCidNumber(
             cidNumber,

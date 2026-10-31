@@ -196,7 +196,7 @@ class AppQrImage extends StatefulWidget {
   final double size;
   final Color color;
   final Widget Function(BuildContext, Object?)? errorStateBuilder;
-  final CitizenQr? qr;
+  final CitizenSdk? qr;
   @override
   State<AppQrImage> createState() => _AppQrImageState();
 }
@@ -204,13 +204,13 @@ class AppQrImage extends StatefulWidget {
 class _AppQrImageState extends State<AppQrImage> {
   ui.Image? _image;
   Object? _error;
-  CitizenQr? _qr;
+  CitizenSdk? _qr;
   int _generation = 0;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final qr = widget.qr ?? context.read<CitizenSdk>().qr;
+    final qr = widget.qr ?? context.read<CitizenSdk>();
     if (!identical(qr, _qr)) {
       _qr = qr;
       unawaited(_load(qr));
@@ -221,18 +221,18 @@ class _AppQrImageState extends State<AppQrImage> {
   void didUpdateWidget(covariant AppQrImage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.data != widget.data || !identical(oldWidget.qr, widget.qr)) {
-      _qr = widget.qr ?? context.read<CitizenSdk>().qr;
+      _qr = widget.qr ?? context.read<CitizenSdk>();
       unawaited(_load(_qr!));
     }
   }
 
-  Future<void> _load(CitizenQr qr) async {
+  Future<void> _load(CitizenSdk qr) async {
     final generation = ++_generation;
     _image?.dispose();
     _image = null;
     _error = null;
     try {
-      final pixels = await qr.encode(widget.data, scale: 1);
+      final pixels = await qr.encodeQr(widget.data, scale: 1);
       if (!mounted || generation != _generation) return;
       if (pixels.width <= 8 ||
           pixels.height <= 8 ||

@@ -1,4 +1,4 @@
-import 'package:citizen_storage/app_isar.dart' as app_store show Entity;
+import 'package:citizen_storage/user_isar.dart' as app_store show Entity;
 // 统一机构详情页(ADR-028)widget 测试 —— 公权路径(信息卡/账户/提案占位/管理员/
 // 提案列表/订阅)+ 统一账户行派生。替代旧 public_institution_detail_test。
 
@@ -137,10 +137,23 @@ List<InstitutionAdminView> _rows(int count, {bool loaded = true}) => [
 class _RoleReader extends ProposalContextResolver {
   _RoleReader()
     : super(
-        wallet: TestCitizenSdkWallet(),
-        adminService: InstitutionAdminService(chain: TestCitizenChain()),
+        adminService: (() {
+          final reads0 = TestChainReads();
+          return InstitutionAdminService(
+            getFinalizedHead: reads0.getFinalizedHead,
+            getStorageKeysPaged: reads0.getStorageKeysPaged,
+            getStorageBatch: reads0.getStorageBatch,
+          );
+        })(),
         activationService: ActivationService(
-          adminService: InstitutionAdminService(chain: TestCitizenChain()),
+          adminService: (() {
+            final reads0 = TestChainReads();
+            return InstitutionAdminService(
+              getFinalizedHead: reads0.getFinalizedHead,
+              getStorageKeysPaged: reads0.getStorageKeysPaged,
+              getStorageBatch: reads0.getStorageBatch,
+            );
+          })(),
         ),
       );
   Future<ProposalContext> Function() read = () async => const ProposalContext();
@@ -160,7 +173,17 @@ class _RoleReader extends ProposalContextResolver {
 
 class _ActivationReader extends ActivationService {
   _ActivationReader()
-    : super(adminService: InstitutionAdminService(chain: TestCitizenChain()));
+    : super(
+        adminService: (() {
+          final reads0 = TestChainReads();
+          return InstitutionAdminService(
+            getFinalizedHead: reads0.getFinalizedHead,
+            getStorageKeysPaged: reads0.getStorageKeysPaged,
+            getStorageBatch: reads0.getStorageBatch,
+            getStorage: reads0.getStorage,
+          );
+        })(),
+      );
   bool failed = false;
   @override
   Future<List<ActivatedAdmin>> getActivatedAdmins(
@@ -207,14 +230,11 @@ Future<void> _openDetails(
     ),
   );
   if (roles != null || activation != null) {
-    final transport = TestCitizenSdkTransport({
-      'getWalletState': (_) => [testCitizenWalletState()],
-    });
-    final sdk = await transport.open();
+    final core = await openTestSdk();
+    final sdk = core.sdk;
     addTearDown(() async {
       await tester.pumpWidget(const SizedBox.shrink());
       await sdk.close();
-      await transport.dispose();
     });
     app = Provider<CitizenSdk>.value(value: sdk, child: app);
   }

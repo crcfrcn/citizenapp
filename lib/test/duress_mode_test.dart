@@ -1,6 +1,6 @@
+import 'package:citizen_testing/fake_citizen_sdk.dart';
 import 'package:citizenapp/security/app_lock_service.dart';
 import 'package:citizen_account/identity/account_security_service.dart';
-import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizenapp/security/pin_input_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,16 +11,10 @@ import 'package:citizen_system/security/system_protected_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // 本用例不调用钱包或签名接口；一旦发生意外调用立即失败。
-class _StorageOnlyWallet implements CitizenSdkWallet {
+class _StorageOnlyWallet extends TestWalletReads {
   @override
   dynamic noSuchMethod(Invocation call) =>
       throw UnimplementedError('unexpected wallet operation');
-}
-
-class _StorageOnlySigning implements CitizenSigning {
-  @override
-  dynamic noSuchMethod(Invocation call) =>
-      throw UnimplementedError('unexpected signing operation');
 }
 
 void main() {
@@ -59,23 +53,25 @@ void main() {
       'resume',
       'protected-capability',
     );
-    final service = AccountSecurityService(
-      wallet: _StorageOnlyWallet(),
-      signing: _StorageOnlySigning(),
-      mlsDeviceRegistrar: ({
-        required cidNumber,
-        required bindRev,
-        required accountId,
-        required signBinding,
-      }) async => throw StateError('unexpected device registration'),
-      coldMlsDeviceBindingSigner: ({
-        required binding,
-        required payload,
-        required signingMessage,
-        required publicKey,
-        required issuedAtMillis,
-      }) async => throw StateError('unexpected signing'),
-    );
+    final service = (() {
+      final reads0 = _StorageOnlyWallet();
+      return AccountSecurityService(
+        getWalletState: reads0.getWalletState,
+        mlsDeviceRegistrar: ({
+          required cidNumber,
+          required bindRev,
+          required accountId,
+          required signBinding,
+        }) async => throw StateError('unexpected device registration'),
+        coldMlsDeviceBindingSigner: ({
+          required binding,
+          required payload,
+          required signingMessage,
+          required publicKey,
+          required issuedAtMillis,
+        }) async => throw StateError('unexpected signing'),
+      );
+    })();
     await service.wipeAllDeviceMaterial(const []);
     expect(await SystemProtectedRecordStore.registration.readAll(), isEmpty);
     service.dispose();

@@ -1,20 +1,37 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-// 共享夹具必须让未配置调用失败，不能给业务回归提供隐式成功事实。
+// 公共夹具只交付明确业务函数；协议能力来自本轮真实Core。
 void main() {
+  final core = TestCitizenSdkHarness();
   test('未声明的链事实和交易调用立即失败', () {
-    expect(() => TestCitizenChain().getFinalizedHead(), throwsUnimplementedError);
-    expect(() => TestCitizenSdkWallet().getState(), throwsUnimplementedError);
+    expect(
+      () => const TestChainReads().getFinalizedHead(),
+      throwsUnimplementedError,
+    );
+    expect(
+      () => const TestWalletReads().getWalletState(),
+      throwsUnimplementedError,
+    );
+    expect(
+      () => const TestTransactionCalls().executePreparedTransaction('missing'),
+      throwsUnimplementedError,
+    );
   });
-  test('SDK原生绑定对损坏的合成钱包回执保持拒绝', () async {
-    final transport = TestCitizenSdkTransport({'getWalletState': (_) => ['invalid']});
-    final sdk = await transport.open();
-    try {
-      await expectLater(sdk.wallet.getState().result, throwsA(isA<Exception>()));
-    } finally {
-      await sdk.close();
-      await transport.dispose();
-    }
+  test('SDK原生绑定拒绝不支持的钱包读取，业务调用不走物理资源通道', () async {
+    await expectLater(
+      core.sdk.getWalletState().result,
+      throwsA(
+        isA<CitizenSdkException>().having(
+          (e) => e.code,
+          'code',
+          CitizenSdkErrorCode.unsupported,
+        ),
+      ),
+    );
+    expect(core.fixture.calls.where((m) => m != 'diagnose'), ['open']);
+    final text = await core.sdk.encodeAccountId(testCitizenAccountId);
+    expect((await core.sdk.parseQr(text)).accountId, testCitizenAccountId);
   });
 }

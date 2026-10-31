@@ -1,3 +1,4 @@
+import 'package:citizen_testing/fake_citizen_sdk.dart';
 import 'package:citizen_wallet/account_balance_snapshot_store.dart';
 
 import 'package:citizen_testing/isar_test_env.dart';
@@ -14,10 +15,19 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   useIsolatedIsar();
   test('恢复磁盘后各页面同步取同一状态，缺失账户失败不遮掉已有金额', () async {
-    final initial = AccountBalanceSnapshotStore.forChain(_BalanceChain());
+    final initial = (() {
+      final reads = _BalanceChain();
+      return AccountBalanceSnapshotStore(
+        getAccountBalance: reads.getAccountBalance,
+        getAccountBalances: reads.getAccountBalances,
+      );
+    })();
     await initial.getAccountBalance(_balanceAccount);
     final chain = _BalanceChain()..gate = Completer<void>();
-    final store = AccountBalanceSnapshotStore.forChain(chain);
+    final store = AccountBalanceSnapshotStore(
+      getAccountBalance: chain.getAccountBalance,
+      getAccountBalances: chain.getAccountBalances,
+    );
     final other = '0x${'bc' * 32}';
     await store.restore([_balanceAccount, other]);
     final state = store.accountState(_balanceAccount);
@@ -42,7 +52,10 @@ void main() {
 
   test('显示状态合并刷新，失败保留旧值，已确认删除排空并清掉内存', () async {
     final chain = _BalanceChain();
-    final store = AccountBalanceSnapshotStore.forChain(chain);
+    final store = AccountBalanceSnapshotStore(
+      getAccountBalance: chain.getAccountBalance,
+      getAccountBalances: chain.getAccountBalances,
+    );
     final state = store.accountState(_balanceAccount);
     await state.load();
     final first = state.value;
@@ -63,7 +76,10 @@ void main() {
   });
   test('跨页面和新SDK实例读取同一持久快照，展示没有TTL', () async {
     final chain = _BalanceChain();
-    final store = AccountBalanceSnapshotStore.forChain(chain);
+    final store = AccountBalanceSnapshotStore(
+      getAccountBalance: chain.getAccountBalance,
+      getAccountBalances: chain.getAccountBalances,
+    );
     final first = await store.getAccountBalance(_balanceAccount);
     final again = await store.getAccountBalances([
       _balanceAccount,
@@ -75,8 +91,10 @@ void main() {
       first.totalFen,
     ]);
     final nextChain = _BalanceChain();
-    final restored = await AccountBalanceSnapshotStore.forChain(nextChain)
-        .getAccountBalance(_balanceAccount);
+    final restored = await AccountBalanceSnapshotStore(
+      getAccountBalance: nextChain.getAccountBalance,
+      getAccountBalances: nextChain.getAccountBalances,
+    ).getAccountBalance(_balanceAccount);
     expect(nextChain.calls, 0);
     expect(restored.freeFen, BigInt.parse('90071992547409931234'));
     expect(restored.totalFen, restored.freeFen + restored.reservedFen);
@@ -84,7 +102,10 @@ void main() {
 
   test('主动刷新合并在途请求，成功后通知订阅者一次', () async {
     final chain = _BalanceChain()..gate = Completer<void>();
-    final store = AccountBalanceSnapshotStore.forChain(chain);
+    final store = AccountBalanceSnapshotStore(
+      getAccountBalance: chain.getAccountBalance,
+      getAccountBalances: chain.getAccountBalances,
+    );
     final notifications = <String>[];
     final subscription = store.changes.listen(notifications.add);
     final first = store.getAccountBalance(_balanceAccount, forceRefresh: true);
@@ -100,7 +121,10 @@ void main() {
 
   test('刷新失败保留持久成功余额，另一账户不能读到该余额', () async {
     final chain = _BalanceChain();
-    final store = AccountBalanceSnapshotStore.forChain(chain);
+    final store = AccountBalanceSnapshotStore(
+      getAccountBalance: chain.getAccountBalance,
+      getAccountBalances: chain.getAccountBalances,
+    );
     final first = await store.getAccountBalance(_balanceAccount);
     chain.fail = true;
     await expectLater(
@@ -118,7 +142,10 @@ void main() {
 
   test('展示读取不等待在途刷新；最终确认只刷新落后快照', () async {
     final chain = _BalanceChain();
-    final store = AccountBalanceSnapshotStore.forChain(chain);
+    final store = AccountBalanceSnapshotStore(
+      getAccountBalance: chain.getAccountBalance,
+      getAccountBalances: chain.getAccountBalances,
+    );
     final first = await store.getAccountBalance(_balanceAccount);
     chain.gate = Completer<void>();
     chain.height = 2;
@@ -148,7 +175,10 @@ void main() {
 
   test('未最终确认或总数不一致的余额不进入持久快照', () async {
     final chain = _BalanceChain()..invalidTotal = true;
-    final store = AccountBalanceSnapshotStore.forChain(chain);
+    final store = AccountBalanceSnapshotStore(
+      getAccountBalance: chain.getAccountBalance,
+      getAccountBalances: chain.getAccountBalances,
+    );
     await expectLater(
       store.getAccountBalance(_balanceAccount),
       throwsStateError,
@@ -166,7 +196,10 @@ void main() {
 
   test('旧块不能覆盖新块，同高度不同证明和错误账户被拒绝', () async {
     final chain = _BalanceChain()..height = 20;
-    final store = AccountBalanceSnapshotStore.forChain(chain);
+    final store = AccountBalanceSnapshotStore(
+      getAccountBalance: chain.getAccountBalance,
+      getAccountBalances: chain.getAccountBalances,
+    );
     await store.getAccountBalance(_balanceAccount);
     chain.height = 19;
     expect(
@@ -195,7 +228,10 @@ void main() {
 
   test('批量缺失一次读取且保留重复顺序，非法账户和明文端点先拒绝', () async {
     final chain = _BalanceChain();
-    final store = AccountBalanceSnapshotStore.forChain(chain);
+    final store = AccountBalanceSnapshotStore(
+      getAccountBalance: chain.getAccountBalance,
+      getAccountBalances: chain.getAccountBalances,
+    );
     final other = '0x${'bc' * 32}';
     final values = await store.getAccountBalances([
       other,
@@ -388,7 +424,7 @@ void main() {
 // 合成账户与余额仅用于验证隔离、精度和并发，不使用真机钱包数据。
 final _balanceAccount = '0x${'ab' * 32}';
 
-class _BalanceChain implements CitizenChain {
+class _BalanceChain extends TestChainReads {
   int calls = 0;
   int batchCalls = 0;
   int height = 1;

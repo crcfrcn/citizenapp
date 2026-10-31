@@ -345,7 +345,7 @@ void main() {
         selection.validate(c, TopupContext(network, 'payer'));
         expect(selection.toJson(), {
           'token': token,
-          'package_id': 'pkg_1400',
+          'package_id': 'pkg_900',
           'network': network.wire,
         });
         expect(
@@ -370,7 +370,7 @@ void main() {
     expect(c.rail('USDT', TopupNetwork.bnb).decimals, 18);
     expect(
       c.packages[1].amount(c.rail('USDT', TopupNetwork.bnb)),
-      '1400000000000000000000',
+      '900000000000000000000',
     );
     for (final n in TopupNetwork.values) {
       for (final t in ['USDC', 'USDT']) {
@@ -463,12 +463,12 @@ void main() {
   test('ERC20严格uint256整数字符串编码，负值/溢出/错误地址拒绝', () {
     final data = encodeErc20Transfer(
       '0x${'22' * 20}',
-      BigInt.parse('1400000000000000000000'),
+      BigInt.parse('900000000000000000000'),
     );
     expect(data.length, 138);
     expect(
       data.endsWith(
-        BigInt.parse('1400000000000000000000')
+        BigInt.parse('900000000000000000000')
             .toRadixString(16)
             .padLeft(64, '0'),
       ),
@@ -604,7 +604,7 @@ void main() {
     await api.fetchConfig();
     await api.createIntent(
       token: 'USDC',
-      packageId: 'pkg_15',
+      packageId: 'pkg_10',
       accountId: i.accountId,
       payer: TopupContext(TopupNetwork.base, i.payer),
     );
@@ -819,7 +819,7 @@ void main() {
     await expectLater(
       api.createIntent(
         token: 'USDC',
-        packageId: 'pkg_15',
+        packageId: 'pkg_10',
         accountId: i.accountId,
         payer: TopupContext(i.network, i.payer),
       ),
@@ -871,7 +871,7 @@ void main() {
           }
           final body = jsonDecode(request.body) as Map<String, dynamic>;
           expect(body['token'], 'USDC');
-          expect(body['package_id'], 'pkg_15');
+          expect(body['package_id'], 'pkg_10');
           expect(body['network'], network.wire);
           expect(body['account_id'], i.accountId);
           return http.Response(jsonEncode(f['intent_data']), 200);

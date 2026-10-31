@@ -1,4 +1,4 @@
-import 'package:citizen_storage/app_isar.dart' as app_store show Entity;
+import 'package:citizen_storage/user_isar.dart' as app_store show Entity;
 // 公权机构快照缓存本地存储抽象(ADR-018 §九)。
 //
 // 抽象出存储接口,使同步/载入服务的逻辑可用内存 fake 单测,

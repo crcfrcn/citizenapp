@@ -1,5 +1,5 @@
 import 'package:citizen_transaction/history/record_tile.dart';
-import 'package:citizen_storage/wallet_isar.dart' as wallet_store show Entry;
+import 'package:citizen_storage/user_isar.dart' as wallet_store show Entry;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_transaction/history/local_tx_store.dart';

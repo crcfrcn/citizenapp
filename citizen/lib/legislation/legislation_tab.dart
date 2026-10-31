@@ -99,21 +99,6 @@ class _LegislationTabState extends State<LegislationTab> {
 
   Future<void> _bootstrap() async {
     _provinces = publicProvinceItems();
-    try {
-      final nationals = await _repo.listByCodes({
-        _codeNlg,
-        _codeNed,
-        _codeNrp,
-        _codeNsn,
-      });
-      for (final inst in nationals) {
-        _national[inst.orgCode] = inst;
-      }
-    } on Object {
-      // 国家机构卡保持禁用占位；省市目录仍继续读取，不以单组失败阻塞整个页面。
-    }
-    if (!mounted) return;
-    setState(() {});
     if (_provinces.isNotEmpty) {
       await _selectProvince(_provinces.first.code);
     } else {
@@ -128,6 +113,24 @@ class _LegislationTabState extends State<LegislationTab> {
       _contentError = null;
     });
     try {
+      await _repo.directory.ensureSynced();
+      if (!mounted || _selectedProvince != provinceCode) return;
+      try {
+        final nationals = await _repo.listByCodes({
+          _codeNlg,
+          _codeNed,
+          _codeNrp,
+          _codeNsn,
+        });
+        if (!mounted || _selectedProvince != provinceCode) return;
+        setState(() {
+          _national
+            ..clear()
+            ..addEntries(nationals.map((inst) => MapEntry(inst.orgCode, inst)));
+        });
+      } on Object {
+        // 国家机构读取失败不阻断省市目录；重试或切省时重新读取。
+      }
       final rows = await _repo.listByProvinceAndCodes(
         provinceCode,
         _provinceCodes,

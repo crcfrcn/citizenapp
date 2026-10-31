@@ -16,6 +16,10 @@ class CreateWalletOnboardingPage extends StatefulWidget {
     super.key,
     required this.onCreated,
     this.deviceSecureProbe,
+    this.passwordValidator,
+    this.prepareWallet,
+    this.stateReader,
+    this.commitWallet,
   });
 
   /// 钱包就绪回调（创建或导入成功后触发，WalletGate 收到翻转到主界面）。
@@ -23,6 +27,19 @@ class CreateWalletOnboardingPage extends StatefulWidget {
 
   /// UI测试可注入探测；正式运行只读取SDK的系统安全能力事实。
   final Future<bool> Function()? deviceSecureProbe;
+
+  /// 页面只接收操作及读取边界；默认仍使用SDK真实准备资源与原备份流程。
+  final Future<void> Function(String password)? passwordValidator;
+  final CitizenSdkOperation<CitizenSdkPreparedWallet> Function({
+    required CitizenWalletWordCount wordCount,
+    String password,
+  })?
+  prepareWallet;
+  final Future<CitizenWalletState> Function()? stateReader;
+  final Future<CitizenWalletProfile> Function(
+    CitizenSdkPreparedWallet prepared,
+  )?
+  commitWallet;
 
   @override
   State<CreateWalletOnboardingPage> createState() =>
@@ -69,7 +86,8 @@ class _CreateWalletOnboardingPageState extends State<CreateWalletOnboardingPage>
         secure = await probe();
       } else {
         final capabilities = await context.read<CitizenSdk>().getCapabilities();
-        secure = capabilities[CitizenCapabilityName.hardwareVault].available &&
+        secure =
+            capabilities[CitizenCapabilityName.hardwareVault].available &&
             capabilities[CitizenCapabilityName.userAuthentication].available;
       }
     } catch (_) {
@@ -88,14 +106,16 @@ class _CreateWalletOnboardingPageState extends State<CreateWalletOnboardingPage>
       late final String password;
       try {
         password = _passwordController.text;
-        await validateWalletPasswordInput(context, password);
+        await (widget.passwordValidator ??
+            ((value) => validateWalletPasswordInput(context, value)))(password);
         if (!mounted) return;
       } catch (e) {
         if (!mounted) return;
         setState(() => _error = '$e');
         return;
       }
-      if (!await confirmWalletPasswordUse(context, password) || !mounted) return;
+      if (!await confirmWalletPasswordUse(context, password) || !mounted)
+        return;
       // 确认后立即清空可见输入；原始输入只交SDK校验和规范化，不把 password
       // 留在页面 controller、钱包数据库或安全存储。
       _passwordController.clear();
@@ -108,6 +128,9 @@ class _CreateWalletOnboardingPageState extends State<CreateWalletOnboardingPage>
           context,
           wordCount: _wordCount,
           password: password,
+          prepareWallet: widget.prepareWallet,
+          stateReader: widget.stateReader,
+          commitWallet: widget.commitWallet,
         );
         if (!mounted) return;
         widget.onCreated();
@@ -147,9 +170,9 @@ class _CreateWalletOnboardingPageState extends State<CreateWalletOnboardingPage>
     // pop(true)，失败弹窗并保留助记词）。导入不发起MLS设备登记；实际业务确认
     // 本机设备未登记时才进入获准登记，页面门禁不参与。
     // 返回 true 即钱包就绪，放行进 App。
-    final imported = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => const ImportWalletPage()),
-    );
+    final imported = await Navigator.of(
+      context,
+    ).push<bool>(MaterialPageRoute(builder: (_) => const ImportWalletPage()));
     if (!mounted) return;
     if (imported == true) {
       widget.onCreated();
@@ -173,15 +196,17 @@ class _CreateWalletOnboardingPageState extends State<CreateWalletOnboardingPage>
         body: SafeArea(
           child: Center(
             child: ConstrainedBox(
-              constraints:
-                  BoxConstraints(maxWidth: AppLayout.scaled(context, 420)),
+              constraints: BoxConstraints(
+                maxWidth: AppLayout.scaled(context, 420),
+              ),
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(24, 40, 24, 24),
                 children: [
                   Center(
                     child: ClipRRect(
-                      borderRadius:
-                          BorderRadius.circular(AppLayout.scaledValue(14)),
+                      borderRadius: BorderRadius.circular(
+                        AppLayout.scaledValue(14),
+                      ),
                       child: Image.asset(
                         'packages/citizen_assets/logo/icon180.png',
                         width: AppLayout.scaled(context, 56),
@@ -404,8 +429,9 @@ class _WordCountCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppTheme.radiusMd),
         child: Container(
           padding: EdgeInsets.symmetric(
-              horizontal: AppLayout.scaled(context, 14),
-              vertical: AppLayout.scaled(context, 12)),
+            horizontal: AppLayout.scaled(context, 14),
+            vertical: AppLayout.scaled(context, 12),
+          ),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(AppTheme.radiusMd),
             border: Border.all(
@@ -441,7 +467,8 @@ class _WordCountCard extends StatelessWidget {
                             decoration: BoxDecoration(
                               color: AppTheme.primary,
                               borderRadius: BorderRadius.circular(
-                                  AppLayout.scaledValue(8)),
+                                AppLayout.scaledValue(8),
+                              ),
                             ),
                             child: Text(
                               '推荐',
@@ -492,8 +519,11 @@ class _SecurityNoteRow extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon,
-            size: AppLayout.scaled(context, 15), color: AppTheme.primary),
+        Icon(
+          icon,
+          size: AppLayout.scaled(context, 15),
+          color: AppTheme.primary,
+        ),
         SizedBox(width: AppLayout.scaled(context, 8)),
         Expanded(
           child: Text(

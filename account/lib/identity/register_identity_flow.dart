@@ -37,11 +37,11 @@ Future<bool> startCidRegistrationFlow(
     service =
         context.read<MyIdService?>() ??
         MyIdService(
-          wallet: sdk.wallet,
-          signing: sdk.signing,
-          chain: sdk.chain,
-          transactions: sdk.transactions,
-          history: sdk.history,
+          wallet: sdk,
+          signing: sdk,
+          chain: sdk,
+          transactions: sdk,
+          history: sdk,
           accountSecurity: context.read<AccountSecurityService>(),
           currentUserContext: context.read<CurrentUserContext>(),
           identityResolver: context.read<FinalizedIdentityResolver>(),

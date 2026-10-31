@@ -114,24 +114,62 @@ class MyIdState {
 
 class MyIdService {
   MyIdService({
-    required CitizenSdkWallet wallet,
-    required CitizenSigning signing,
+    CitizenSdk? wallet,
+    CitizenSdk? signing,
+    PayloadSigner? payloadSigner,
     required AccountSecurityService accountSecurity,
     required CurrentUserContext currentUserContext,
     required FinalizedIdentityResolver identityResolver,
     required SquareSessionProvider sessionProvider,
     required ChatSdk Function() chatRuntime,
     ChatSdk? Function()? activeChatRuntime,
-    required CitizenChain chain,
-    required CitizenTransactions transactions,
+    CitizenSdk? chain,
+    CitizenSdk? transactions,
     AdminDivisionStore? divisionStore,
     IdentityBadgeSnapshotStore? badgeSnapshotStore,
     CitizenIdentityTransaction? identityTransaction,
     DateTime Function()? nowProvider,
     int Function()? cidYearProvider,
-    CitizenHistory? history,
-  }) : _wallet = wallet,
-       _signing = signing,
+    CitizenSdk? history,
+    CitizenSdkOperation<CitizenWalletState> Function()? getWalletState,
+    Future<CitizenFeeSnapshot> Function()? getFeeSnapshot,
+    Future<String> Function()? getGenesisHash,
+    Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<CitizenAccountBalance> Function(String accountId)? getAccountBalance,
+    Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
+    getStorage,
+    Future<List<Uint8List?>> Function(
+      CitizenBlockRef block,
+      List<Uint8List> keys,
+    )?
+    getStorageBatch,
+    Future<CitizenPreparedTransaction> Function(
+      Uint8List sourceAccountId,
+      Uint8List callData,
+    )?
+    prepareTransaction,
+    Future<CitizenTransactionExecution> Function(String preparationId)?
+    executePreparedTransaction,
+    Future<void> Function(String executionId)?
+    cancelPreparedTransactionExecution,
+    Future<CitizenTransactionExecutionCompleted> Function(
+      String executionId,
+      String response,
+    )?
+    consumePreparedTransactionQrResponse,
+  }) : _getWalletState =
+           getWalletState ??
+           wallet?.getWalletState ??
+           (() => throw StateError('未配置getWalletState')),
+       _payloadSigner =
+           payloadSigner ??
+           ((id, payload, action, context) => signCitizenPayload(
+             signing: signing ?? wallet!,
+             context: context,
+             accountId: id,
+             payload: payload,
+             action: action,
+           )),
        _accountSecurity = accountSecurity,
        _currentUserContext = currentUserContext,
        _sessionProvider = sessionProvider,
@@ -140,7 +178,29 @@ class MyIdService {
        _divisionStore = divisionStore ?? IsarAdminDivisionStore(),
        _badgeSnapshotStore = badgeSnapshotStore ?? IdentityBadgeSnapshotStore(),
        _identityResolver = identityResolver,
-       _chain = chain,
+       _chainReader = CitizenIdentityChainReader(
+         chain: chain,
+         getFinalizedHead: getFinalizedHead,
+         getStorage: getStorage,
+         getStorageBatch: getStorageBatch,
+       ),
+       _getFeeSnapshot =
+           getFeeSnapshot ??
+           chain?.getFeeSnapshot ??
+           (() => throw StateError('未配置getFeeSnapshot')),
+       _getGenesisHash =
+           getGenesisHash ??
+           chain?.getGenesisHash ??
+           (() => throw StateError('未配置getGenesisHash')),
+       _getFinalizedHead =
+           getFinalizedHead ??
+           chain?.getFinalizedHead ??
+           (() => throw StateError('未配置getFinalizedHead')),
+       _getAccountBalance =
+           getAccountBalance ??
+           ((id) =>
+               AccountBalanceSnapshotStore.forChain(chain!)
+                   .getAccountBalance(id, forceRefresh: true)),
        _nowProvider = nowProvider ?? _beijingNow,
        _cidYearProvider = cidYearProvider ?? _utcYear,
        _history = history {
@@ -148,16 +208,31 @@ class MyIdService {
         identityTransaction ??
         CitizenIdentityTransaction(
           chain: chain,
-          transactions: _RegistrationTransactions(transactions, (
-            checkpoint,
-          ) async {
-            await _registrationCheckpoint?.call(checkpoint);
-          }),
+          transactions: transactions,
+          getFinalizedHead: getFinalizedHead,
+          getGenesisHash: getGenesisHash,
+          getStorageBatch: getStorageBatch,
+          prepareTransaction: prepareTransaction,
+          executePreparedTransaction: executePreparedTransaction,
+          cancelPreparedTransactionExecution:
+              cancelPreparedTransactionExecution,
+          consumePreparedTransactionQrResponse:
+              consumePreparedTransactionQrResponse,
+
+          checkpoint: (record) async {
+            await _registrationCheckpoint?.call(record);
+          },
         );
   }
 
-  final CitizenSdkWallet _wallet;
-  final CitizenSigning _signing;
+  final CitizenSdkOperation<CitizenWalletState> Function() _getWalletState;
+  final Future<Uint8List> Function(
+    String accountId,
+    Uint8List payload,
+    int action,
+    BuildContext? context,
+  )
+  _payloadSigner;
   final AccountSecurityService _accountSecurity;
   final CurrentUserContext _currentUserContext;
   final SquareSessionProvider _sessionProvider;
@@ -167,10 +242,15 @@ class MyIdService {
   final IdentityBadgeSnapshotStore _badgeSnapshotStore;
   final FinalizedIdentityResolver _identityResolver;
   late final CitizenIdentityTransaction _identityTransaction;
-  final CitizenHistory? _history;
+  final CitizenSdk? _history;
   Future<void> Function(Map<String, dynamic>)? _registrationCheckpoint;
 
-  final CitizenChain _chain;
+  final CitizenIdentityChainReader _chainReader;
+  final Future<CitizenFeeSnapshot> Function() _getFeeSnapshot;
+  final Future<String> Function() _getGenesisHash;
+  final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<CitizenAccountBalance> Function(String accountId)
+  _getAccountBalance;
 
   final DateTime Function() _nowProvider;
   final int Function() _cidYearProvider;
@@ -188,7 +268,7 @@ class MyIdService {
   /// 身份主键 = CID 号；展示始终跟随账户顺序第一项。
   /// 不扫描其它账户。完整快照缺失时仅显示已保存的CID，未知状态由主动刷新补齐。
   Future<MyIdState> getState() async {
-    final account = (await _wallet.getState().result).defaultAccount;
+    final account = (await _getWalletState().result).defaultAccount;
     if (account == null) {
       return const MyIdState(tier: MyIdTier.visitor, errorMessage: '请先创建钱包');
     }
@@ -225,7 +305,7 @@ class MyIdService {
   /// 启动、账户变更和身份页共用一次公开同步；不登记设备或请求钱包签名。
   Future<MyIdState> refreshState() async {
     try {
-      final wallet = await _wallet.getState().result;
+      final wallet = await _getWalletState().result;
       final account = wallet.defaultAccount;
       if (account == null) {
         return const MyIdState(tier: MyIdTier.visitor, errorMessage: '请先创建钱包');
@@ -278,7 +358,7 @@ class MyIdService {
 
   /// 门禁和业务动作也加入同一完整同步，不能和启动刷新重复保存或广播。
   Future<void> synchronizeIdentity(FinalizedIdentity identity) async {
-    final wallet = await _wallet.getState().result;
+    final wallet = await _getWalletState().result;
     final key = (
       identity.accountId,
       identity.walletRevision ?? wallet.revision,
@@ -379,7 +459,7 @@ class MyIdService {
     required String institution,
     String? bindAccountId,
   }) async {
-    final state = await _wallet.getState().result;
+    final state = await _getWalletState().result;
     final defaultAccount = state.defaultAccount;
     if (defaultAccount == null) {
       throw const AccountSecurityException('无钱包账户,请先创建钱包');
@@ -457,7 +537,7 @@ class MyIdService {
       throw const AccountSecurityException('当前链上身份与待换绑 CID 不一致');
     }
     final newAccount = _findAccount(
-      await _wallet.getState().result,
+      await _getWalletState().result,
       newAccountId,
     );
     if (newAccount == null) {
@@ -495,12 +575,11 @@ class MyIdService {
     if (buildContext != null && !buildContext.mounted) {
       throw const AccountSecurityException('当前页面已经关闭');
     }
-    final currentAccountSignature = await signCitizenPayload(
-      signing: _signing,
-      context: buildContext,
-      accountId: currentAccountId,
-      payload: currentAccountDigest,
-      action: kOpSignCidRebind,
+    final currentAccountSignature = await _payloadSigner(
+      currentAccountId,
+      currentAccountDigest,
+      kOpSignCidRebind,
+      buildContext,
     );
     await _identityTransaction.selfRebindCidAccount(
       cidNumber: cidNumber,
@@ -532,10 +611,9 @@ class MyIdService {
   /// 链读失败**不吞**:上抛给调用方 fail-closed 处理,绝不静默当成「余额不足」或「充足」。
   Future<({BigInt requiredFen, BigInt balanceFen})>
   fetchRegistrationAffordability(String bindAccountId) async {
-    final fees = await _chain.getFeeSnapshot();
+    final fees = await _getFeeSnapshot();
     final requiredFen = fees.minimumFeeFen + fees.existentialDepositFen;
-    final balance = await AccountBalanceSnapshotStore.forChain(_chain)
-        .getAccountBalance(bindAccountId, forceRefresh: true);
+    final balance = await _getAccountBalance(bindAccountId);
     return (requiredFen: requiredFen, balanceFen: balance.freeFen);
   }
 
@@ -546,7 +624,7 @@ class MyIdService {
     if (snapshot == null) {
       throw const AccountSecurityException('当前无已注册身份，无法解析MLS设备绑定');
     }
-    final genesisHash = await _chain.getGenesisHash();
+    final genesisHash = await _getGenesisHash();
     if (!RegExp(r'^0x[0-9a-f]{64}$').hasMatch(genesisHash)) {
       throw const AccountSecurityException('创世哈希无效，禁止激活当前身份绑定');
     }
@@ -590,7 +668,7 @@ class MyIdService {
     await _identityResolver.assertCurrent(resolved);
     // 同步收尾每个异步边界继续核对原默认账户/钱包代次；本步骤自身会改变绑定代次。
     Future<void> requireWallet() async {
-      final state = await _wallet.getState().result;
+      final state = await _getWalletState().result;
       if (state.defaultAccount?.accountId != resolved.accountId ||
           (resolved.walletRevision != null &&
               state.revision != resolved.walletRevision)) {
@@ -702,7 +780,7 @@ class MyIdService {
     required String cidNumber,
     required String accountId,
   }) async {
-    final state = await _wallet.getState().result;
+    final state = await _getWalletState().result;
     final account = _findAccount(state, accountId);
     if (account == null) throw const AccountSecurityException('所选注册账户已变化');
     final resolved = state.defaultAccount?.accountId == accountId
@@ -710,8 +788,7 @@ class MyIdService {
         : FinalizedIdentity(
             accountId: accountId,
             accountAddress: account.ss58Address,
-            snapshot: await CitizenIdentityChainReader(chain: _chain)
-                .readByAccountId(accountId),
+            snapshot: await _chainReader.readByAccountId(accountId),
           );
     final snapshot = resolved?.snapshot;
     if (resolved == null ||
@@ -727,12 +804,12 @@ class MyIdService {
 
   /// 锁定钱包代际及默认账户；切换或移除账户后不借其他账户继续签名。
   Future<Future<void> Function()> registrationGuard(String accountId) async {
-    final initial = await _wallet.getState().result;
+    final initial = await _getWalletState().result;
     if (_findAccount(initial, accountId) == null) {
       throw const AccountSecurityException('注册账户不存在');
     }
     return () async {
-      final state = await _wallet.getState().result;
+      final state = await _getWalletState().result;
       if (state.revision != initial.revision ||
           state.defaultAccount?.accountId !=
               initial.defaultAccount?.accountId ||
@@ -742,17 +819,16 @@ class MyIdService {
     };
   }
 
-  Future<String> registrationChainScope() => _chain.getGenesisHash();
+  Future<String> registrationChainScope() => _getGenesisHash();
 
   /// 恢复只查询finalized双向绑定；链读失败直接上抛，不伪装未注册。
   Future<FinalizedRegistration?> readRegistrationIdentity(
     String accountId,
   ) async {
-    final state = await _wallet.getState().result;
+    final state = await _getWalletState().result;
     final account = _findAccount(state, accountId);
     if (account == null) throw const AccountSecurityException('注册账户已移除');
-    final snapshot = await CitizenIdentityChainReader(chain: _chain)
-        .readByAccountId(accountId);
+    final snapshot = await _chainReader.readByAccountId(accountId);
     if (snapshot == null) return null;
     final binding = await _bindingForFinalizedIdentity(
       FinalizedIdentity(
@@ -766,7 +842,7 @@ class MyIdService {
       binding: binding,
       blockHash: saved?.binding.cidNumber == binding.cidNumber
           ? saved!.blockHash
-          : (await _chain.getFinalizedHead()).hash,
+          : (await _getFinalizedHead()).hash,
       txHash: saved?.binding.cidNumber == binding.cidNumber
           ? saved?.txHash
           : null,
@@ -839,7 +915,7 @@ class MyIdService {
 
   Future<String> activateRegistration(FinalizedRegistration finalized) async {
     final guard = await registrationGuard(finalized.binding.accountId);
-    if ((await _wallet.getState().result).defaultAccount?.accountId !=
+    if ((await _getWalletState().result).defaultAccount?.accountId !=
         finalized.binding.accountId) {
       throw const AccountSecurityException(
         '注册期间默认账户已变化',
@@ -875,7 +951,7 @@ class MyIdService {
 
   /// 列出可作换绑目标的本地账户(当前身份账户以外的全部账户)。
   Future<List<CitizenWalletStateAccount>> listRebindTargets() async {
-    final state = await _wallet.getState().result;
+    final state = await _getWalletState().result;
     final defaultAccount = state.defaultAccount;
     if (defaultAccount == null) return const <CitizenWalletStateAccount>[];
     // 打开目标列表只读本机账户；实际提交换绑时才执行身份验真。
@@ -887,7 +963,7 @@ class MyIdService {
 
   /// 列出注册 CID 时可选的绑定账户(当前热钱包下全部本地账户,含账户0)。
   Future<List<CitizenWalletStateAccount>> listBindableAccounts() async {
-    return (await _wallet.getState().result).accounts;
+    return (await _getWalletState().result).accounts;
   }
 
   static CitizenWalletStateAccount? _findAccount(
@@ -1142,93 +1218,3 @@ class _CandidateIdentity {
 }
 
 enum _CitizenStatus { normal, revoked }
-
-/// 只观察原SDK公开检查点，原交易包装器仍是唯一RuntimeCall/签名/上链实现。
-/// 准备句柄不是重发许可；未知广播必须等待SDK持久执行记录和链事实。
-class _RegistrationTransactions implements CitizenTransactions {
-  _RegistrationTransactions(this.delegate, this.checkpoint);
-  final CitizenTransactions delegate;
-  final Future<void> Function(Map<String, dynamic>) checkpoint;
-  final Map<String, Map<String, dynamic>> prepared = {};
-  final Map<String, Map<String, dynamic>> executions = {};
-  String hex(Uint8List value) =>
-      '0x${value.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}';
-  @override
-  Future<CitizenPreparedTransaction> prepareTransaction(
-    Uint8List account,
-    Uint8List call,
-  ) async {
-    final result = await delegate.prepareTransaction(account, call);
-    final record = <String, dynamic>{
-      'preparation_id': result.preparationId,
-      'account_id': hex(result.sourceAccountId),
-      'call_data_hash': hex(result.callDataHash),
-      'state': 'prepared',
-    };
-    await checkpoint(record);
-    prepared[result.preparationId] = record;
-    return result;
-  }
-
-  @override
-  Future<CitizenTransactionExecution> executePreparedTransaction(
-    String id,
-  ) async {
-    final record = prepared[id] ?? (throw StateError('SDK注册准备检查点缺失'));
-    await checkpoint({...record, 'state': 'executing'});
-    try {
-      final result = await delegate.executePreparedTransaction(id);
-      await remember(result, record);
-      return result;
-    } on CitizenSdkException catch (error) {
-      if (error.code == CitizenSdkErrorCode.authenticationCancelled &&
-          error.stage == CitizenSdkFailureStage.authentication) {
-        await checkpoint({...record, 'state': 'cancelled_before_broadcast'});
-      }
-      rethrow;
-    }
-  }
-
-  Future<void> remember(
-    CitizenTransactionExecution result,
-    Map<String, dynamic> record,
-  ) async {
-    final next = {
-      ...record,
-      'execution_id': result.executionId,
-      'state': result is CitizenTransactionExecutionCompleted
-          ? result.resolution.name
-          : 'awaiting_qr',
-      if (result is CitizenTransactionExecutionCompleted)
-        'tx_hash': hex(result.transactionHash),
-    };
-    executions[result.executionId] = next;
-    await checkpoint(next);
-  }
-
-  @override
-  Future<CitizenTransactionExecutionCompleted>
-  consumePreparedTransactionQrResponse(String id, String response) async {
-    final result = await delegate.consumePreparedTransactionQrResponse(
-      id,
-      response,
-    );
-    await remember(
-      result,
-      executions[id] ?? (throw StateError('SDK注册执行检查点缺失')),
-    );
-    return result;
-  }
-
-  @override
-  Future<void> cancelPreparedTransaction(String id) =>
-      delegate.cancelPreparedTransaction(id);
-  @override
-  Future<void> cancelPreparedTransactionExecution(String id) async {
-    await delegate.cancelPreparedTransactionExecution(id);
-    await checkpoint({
-      ...?executions[id],
-      'state': 'cancelled_before_broadcast',
-    });
-  }
-}

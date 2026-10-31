@@ -88,13 +88,42 @@ class LegProposalState {
 /// VotingEngine.Proposals。
 class LegislationVoteQueryService {
   LegislationVoteQueryService({
-    required CitizenChain chain,
+    CitizenSdk? chain,
     CitizenBlockRef? block,
-  }) : _chain = chain,
-       _block = block,
-       _proposalQuery = ProposalQueryService(chain: chain, block: block);
+    Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
+    getStorage,
+    Future<Uint8List?> Function(CitizenBlockRef block)? getSystemEvents,
+    Future<CitizenRuntimeContext> Function(CitizenBlockRef block)?
+    getRuntimeContext,
+    Future<List<Uint8List?>> Function(
+      CitizenBlockRef block,
+      List<Uint8List> keys,
+    )?
+    getStorageBatch,
+  }) : _block = block,
+       _proposalQuery = ProposalQueryService(
+         chain: chain,
+         block: block,
+         getFinalizedHead: getFinalizedHead,
+         getStorage: getStorage,
+         getSystemEvents: getSystemEvents,
+         getRuntimeContext: getRuntimeContext,
+         getStorageBatch: getStorageBatch,
+       ),
+       _getFinalizedHead =
+           getFinalizedHead ??
+           chain?.getFinalizedHead ??
+           (() => throw StateError('未配置getFinalizedHead')),
+       _getStorage =
+           getStorage ??
+           chain?.getStorage ??
+           ((CitizenBlockRef block, Uint8List key) =>
+               throw StateError('未配置getStorage'));
+  final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)
+  _getStorage;
 
-  final CitizenChain _chain;
   final CitizenBlockRef? _block;
   final ProposalQueryService _proposalQuery;
 
@@ -299,11 +328,11 @@ class LegislationVoteQueryService {
   }
 
   Future<Uint8List?> _readStorage(Uint8List key) async {
-    final finalized = _block ?? await _chain.getFinalizedHead();
+    final finalized = _block ?? await _getFinalizedHead();
     if (finalized.finality != CitizenBlockFinality.finalized) {
       throw StateError('立法查询需要finalized块');
     }
-    return _chain.getStorage(finalized, key);
+    return _getStorage(finalized, key);
   }
 
   // ──── key 构造 ────

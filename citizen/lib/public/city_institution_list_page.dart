@@ -1,4 +1,4 @@
-import 'package:citizen_storage/app_isar.dart' as app_store show Entity;
+import 'package:citizen_storage/user_isar.dart' as app_store show Entity;
 import 'package:flutter/material.dart';
 
 import 'package:citizen_citizen/institution/institution_detail_page.dart';

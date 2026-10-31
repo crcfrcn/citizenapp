@@ -13,7 +13,7 @@ class _PendingContacts implements UserContactService {
   Future<List<UserContact>> getContacts() => completer.future;
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 void main() {

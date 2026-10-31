@@ -14,21 +14,9 @@ import 'package:citizen_scanner/address_scan_button.dart';
 /// 三处调用方(链上支付、多签转账、安全基金转账)都只经此组件扫码,所以这里钉住的
 /// 是全仓行为:只进 [QrScanMode.transfer](绝不进签名分支)、只回传 SS58、空结果不回调。
 void main() {
-  late TestCitizenSdkTransport transport;
+  final core = TestCitizenSdkHarness(physicalUi: true);
   late CitizenSdk sdk;
-  setUp(() async {
-    transport = TestCitizenSdkTransport({
-      'openQrCapture': (_) => ['capture-1', 42, 640, 480, 90],
-      'pauseQrCapture': (_) => [],
-      'resumeQrCapture': (_) => [],
-      'closeQrCapture': (_) => [],
-    });
-    sdk = await transport.open();
-  });
-  tearDown(() async {
-    await sdk.close();
-    await transport.dispose();
-  });
+  setUp(() => sdk = core.sdk);
   Widget host({required ValueChanged<String> onAddressScanned}) {
     return Provider<CitizenSdk>.value(
       value: sdk,

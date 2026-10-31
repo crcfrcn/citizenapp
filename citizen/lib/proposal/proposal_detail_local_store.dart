@@ -1,10 +1,10 @@
-import 'package:citizen_storage/wallet_isar.dart'
+import 'package:citizen_storage/user_isar.dart'
     as wallet_store
     show Proposal;
 
 import 'dart:convert';
 
-import 'package:citizen_storage/wallet_isar.dart' hide Group;
+import 'package:citizen_storage/user_isar.dart' hide Group;
 
 /// 提案详情本地持久化读库。
 ///
@@ -17,7 +17,7 @@ class ProposalDetailLocalStore {
 
   static const Duration activeTtl = Duration(seconds: 60);
   Future<ProposalDetailSnapshot?> read(String proposalKind, int proposalId) {
-    return WalletIsar.instance.read((isar) async {
+    return UserIsar.instance.read((isar) async {
       final entity = await isar
           .collection<wallet_store.Proposal>()
           .getByProposalKindProposalId(proposalKind, proposalId);
@@ -32,7 +32,7 @@ class ProposalDetailLocalStore {
   }
 
   Future<void> put(ProposalDetailSnapshot snapshot) async {
-    await WalletIsar.instance.writeTxn((isar) async {
+    await UserIsar.instance.writeTxn((isar) async {
       final entity = wallet_store.Proposal()
         ..proposalKind = snapshot.proposalKind
         ..proposalId = snapshot.proposalId
@@ -44,7 +44,7 @@ class ProposalDetailLocalStore {
   }
 
   Future<void> clearAllForTest() async {
-    await WalletIsar.instance.writeTxn((isar) async {
+    await UserIsar.instance.writeTxn((isar) async {
       await isar.collection<wallet_store.Proposal>().clear();
     });
   }

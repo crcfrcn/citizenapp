@@ -1,4 +1,4 @@
-import 'package:citizen_storage/app_isar.dart' as app_store show Entity;
+import 'package:citizen_storage/user_isar.dart' as app_store show Entity;
 // 卡B 公权机构导航 widget 测试。
 //
 // ADR-021:机构只存 code(中枢省=ZS,链上常量派生);省名走链上常量、市名走字典。

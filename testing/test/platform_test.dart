@@ -3,7 +3,12 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('平台夹具拒绝跨目录和非平台路径', () {
-    for (final path in ['ios/../outside', 'android/./file', 'lib/main.dart', 'ios//file']) {
+    for (final path in [
+      'ios/../outside',
+      'android/./file',
+      'lib/main.dart',
+      'ios//file',
+    ]) {
       expect(() => platformInput(path), throwsArgumentError, reason: path);
     }
   });

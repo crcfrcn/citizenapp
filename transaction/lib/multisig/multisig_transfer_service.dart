@@ -45,15 +45,170 @@ String defaultInstitutionProposerRoleCode(InstitutionInfo institution) {
 /// 负责 extrinsic 编码/提交 和 storage 查询。
 class MultisigTransferService {
   MultisigTransferService({
-    required CitizenChain chain,
-    required CitizenTransactions transactions,
-  }) : _chain = chain,
-       _transactions = transactions,
-       _internalVoteQuery = InternalVoteQueryService(chain: chain),
-       _proposalQuery = ProposalQueryService(chain: chain);
+    CitizenSdk? chain,
+    CitizenSdk? transactions,
+    AccountBalanceSnapshotStore? balances,
+    Future<CitizenAccountBalance> Function(String accountId)? getAccountBalance,
+    Future<List<CitizenAccountBalance>> Function(List<String> accountIds)?
+    getAccountBalances,
+    Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<List<Uint8List>> Function(
+      CitizenBlockRef block,
+      Uint8List prefix, {
+      Uint8List? startKey,
+      int limit,
+    })?
+    getStorageKeysPaged,
+    Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
+    getStorage,
+    Future<List<Uint8List?>> Function(
+      CitizenBlockRef block,
+      List<Uint8List> keys,
+    )?
+    getStorageBatch,
+    Future<CitizenPreparedTransaction> Function(
+      Uint8List sourceAccountId,
+      Uint8List callData,
+    )?
+    prepareTransaction,
+    Future<CitizenTransactionExecution> Function(String preparationId)?
+    executePreparedTransaction,
+    Future<void> Function(String executionId)?
+    cancelPreparedTransactionExecution,
+    Future<CitizenTransactionExecutionCompleted> Function(
+      String executionId,
+      String response,
+    )?
+    consumePreparedTransactionQrResponse,
+    Future<Uint8List?> Function(CitizenBlockRef block)? getSystemEvents,
+    Future<CitizenRuntimeContext> Function(CitizenBlockRef block)?
+    getRuntimeContext,
+  }) : _internalVoteQuery = InternalVoteQueryService(
+         chain: chain,
+         getFinalizedHead: getFinalizedHead,
+         getStorage: getStorage,
+         getStorageBatch: getStorageBatch,
+       ),
+       _proposalQuery = ProposalQueryService(
+         chain: chain,
+         getSystemEvents: getSystemEvents,
+         getRuntimeContext: getRuntimeContext,
+         getFinalizedHead: getFinalizedHead,
+         getStorage: getStorage,
+         getStorageBatch: getStorageBatch,
+       ),
+       _runtimeService = RuntimeUpgradeService(
+         chain: chain,
+         transactions: transactions,
+         getFinalizedHead: getFinalizedHead,
+         getStorage: getStorage,
+         getStorageBatch: getStorageBatch,
+         getSystemEvents: getSystemEvents,
+         getRuntimeContext: getRuntimeContext,
+         prepareTransaction: prepareTransaction,
+         executePreparedTransaction: executePreparedTransaction,
+         cancelPreparedTransactionExecution: cancelPreparedTransactionExecution,
+         consumePreparedTransactionQrResponse:
+             consumePreparedTransactionQrResponse,
+       ),
+       _personalService = PersonalManageService(
+         chain: chain,
+         transactions: transactions,
+         getSystemEvents: getSystemEvents,
+         getFinalizedHead: getFinalizedHead,
+         getStorage: getStorage,
+         getStorageBatch: getStorageBatch,
+         prepareTransaction: prepareTransaction,
+         executePreparedTransaction: executePreparedTransaction,
+         cancelPreparedTransactionExecution: cancelPreparedTransactionExecution,
+         consumePreparedTransactionQrResponse:
+             consumePreparedTransactionQrResponse,
+       ),
+       _balances =
+           balances ??
+           (chain != null
+               ? AccountBalanceSnapshotStore.forChain(chain)
+               : AccountBalanceSnapshotStore(
+                   getAccountBalance: getAccountBalance,
+                   getAccountBalances: getAccountBalances,
+                 )),
+       _getFinalizedHead =
+           getFinalizedHead ??
+           chain?.getFinalizedHead ??
+           (() => throw StateError('未配置getFinalizedHead')),
+       _getStorageKeysPaged =
+           getStorageKeysPaged ??
+           chain?.getStorageKeysPaged ??
+           ((
+             CitizenBlockRef block,
+             Uint8List prefix, {
+             Uint8List? startKey,
+             int limit = 1000,
+           }) => throw StateError('未配置getStorageKeysPaged')),
+       _getStorage =
+           getStorage ??
+           chain?.getStorage ??
+           ((CitizenBlockRef block, Uint8List key) =>
+               throw StateError('未配置getStorage')),
+       _getStorageBatch =
+           getStorageBatch ??
+           chain?.getStorageBatch ??
+           ((CitizenBlockRef block, List<Uint8List> keys) =>
+               throw StateError('未配置getStorageBatch')),
+       _prepareTransaction =
+           prepareTransaction ??
+           transactions?.prepareTransaction ??
+           ((Uint8List sourceAccountId, Uint8List callData) =>
+               throw StateError('未配置prepareTransaction')),
+       _executePreparedTransaction =
+           executePreparedTransaction ??
+           transactions?.executePreparedTransaction ??
+           ((String preparationId) =>
+               throw StateError('未配置executePreparedTransaction')),
+       _cancelPreparedTransactionExecution =
+           cancelPreparedTransactionExecution ??
+           transactions?.cancelPreparedTransactionExecution ??
+           ((String executionId) =>
+               throw StateError('未配置cancelPreparedTransactionExecution')),
+       _consumePreparedTransactionQrResponse =
+           consumePreparedTransactionQrResponse ??
+           transactions?.consumePreparedTransactionQrResponse ??
+           ((String executionId, String response) =>
+               throw StateError('未配置consumePreparedTransactionQrResponse'));
+  final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<List<Uint8List>> Function(
+    CitizenBlockRef block,
+    Uint8List prefix, {
+    Uint8List? startKey,
+    int limit,
+  })
+  _getStorageKeysPaged;
+  final Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)
+  _getStorage;
+  final Future<List<Uint8List?>> Function(
+    CitizenBlockRef block,
+    List<Uint8List> keys,
+  )
+  _getStorageBatch;
+  final Future<CitizenPreparedTransaction> Function(
+    Uint8List sourceAccountId,
+    Uint8List callData,
+  )
+  _prepareTransaction;
+  final Future<CitizenTransactionExecution> Function(String preparationId)
+  _executePreparedTransaction;
+  final Future<void> Function(String executionId)
+  _cancelPreparedTransactionExecution;
+  final Future<CitizenTransactionExecutionCompleted> Function(
+    String executionId,
+    String response,
+  )
+  _consumePreparedTransactionQrResponse;
 
-  final CitizenChain _chain;
-  final CitizenTransactions _transactions;
+  final RuntimeUpgradeService _runtimeService;
+  final PersonalManageService _personalService;
+  final AccountBalanceSnapshotStore _balances;
+
   final InternalVoteQueryService _internalVoteQuery;
   final ProposalQueryService _proposalQuery;
 
@@ -278,9 +433,10 @@ class MultisigTransferService {
     InstitutionInfo institution, {
     bool forceRefresh = false,
   }) async {
-    final balance = await AccountBalanceSnapshotStore.forChain(
-      _chain,
-    ).getAccountBalance(institution.mainAccountId, forceRefresh: forceRefresh);
+    final balance = await _balances.getAccountBalance(
+      institution.mainAccountId,
+      forceRefresh: forceRefresh,
+    );
     return balance.freeFen.toDouble() / 100;
   }
 
@@ -366,8 +522,8 @@ class MultisigTransferService {
     prefix.setAll(off, firstKeyHashed);
     off += firstKeyHashed.length;
     prefix.setAll(off, firstKeyRaw);
-    final finalized = await _chain.getFinalizedHead();
-    final keys = await _chain.getStorageKeysPaged(finalized, prefix);
+    final finalized = await _getFinalizedHead();
+    final keys = await _getStorageKeysPaged(finalized, prefix);
     if (keys.isEmpty) return const [];
 
     // 每条 key 末 8 字节 = proposal_id u64 LE(twox64_concat 的 raw 部分)
@@ -477,10 +633,7 @@ class MultisigTransferService {
     final uncachedMetaKeys = <String>[];
     final uncachedMetaIds = <int>[];
     final cachedMetas = <int, ProposalMeta>{};
-    final runtimeUpgradeService = RuntimeUpgradeService(
-      chain: _chain,
-      transactions: _transactions,
-    );
+    final runtimeUpgradeService = _runtimeService;
 
     for (final id in ids) {
       final cached = ProposalCache.getMeta(id);
@@ -584,10 +737,7 @@ class MultisigTransferService {
 
     if (uncachedDetailKeys.isNotEmpty) {
       final manageService = InstitutionChainService();
-      final personalManageService = PersonalManageService(
-        chain: _chain,
-        transactions: _transactions,
-      );
+      final personalManageService = _personalService;
       final batchResult = await _fetchStorageBatch(uncachedDetailKeys);
       for (var i = 0; i < uncachedDetailIds.length; i++) {
         final id = uncachedDetailIds[i];
@@ -1330,16 +1480,16 @@ class MultisigTransferService {
   }
 
   Future<Uint8List?> _fetchStorage(String keyHex) async {
-    final finalized = await _chain.getFinalizedHead();
-    return _chain.getStorage(finalized, _hexDecode(keyHex));
+    final finalized = await _getFinalizedHead();
+    return _getStorage(finalized, _hexDecode(keyHex));
   }
 
   Future<Map<String, Uint8List?>> _fetchStorageBatch(
     List<String> keyHexes,
   ) async {
     if (keyHexes.isEmpty) return const <String, Uint8List?>{};
-    final finalized = await _chain.getFinalizedHead();
-    final values = await _chain.getStorageBatch(
+    final finalized = await _getFinalizedHead();
+    final values = await _getStorageBatch(
       finalized,
       keyHexes.map(_hexDecode).toList(growable: false),
     );
@@ -1359,31 +1509,22 @@ class MultisigTransferService {
     externalSigning,
   }) async {
     if (signerPublicKey.length != 32) throw ArgumentError('签名公钥必须为32字节');
-    final prepared = await _transactions.prepareTransaction(
-      signerPublicKey,
-      callData,
-    );
-    final started = await _transactions.executePreparedTransaction(
-      prepared.preparationId,
-    );
+    final prepared = await _prepareTransaction(signerPublicKey, callData);
+    final started = await _executePreparedTransaction(prepared.preparationId);
     CitizenTransactionExecutionCompleted completed;
     if (started is CitizenTransactionExternalSigningPending) {
       final String? response;
       try {
         response = await externalSigning(started);
       } catch (_) {
-        await _transactions.cancelPreparedTransactionExecution(
-          started.executionId,
-        );
+        await _cancelPreparedTransactionExecution(started.executionId);
         rethrow;
       }
       if (response == null) {
-        await _transactions.cancelPreparedTransactionExecution(
-          started.executionId,
-        );
+        await _cancelPreparedTransactionExecution(started.executionId);
         throw StateError('多签提案交易签名已取消');
       }
-      completed = await _transactions.consumePreparedTransactionQrResponse(
+      completed = await _consumePreparedTransactionQrResponse(
         started.executionId,
         response,
       );

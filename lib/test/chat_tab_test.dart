@@ -1,7 +1,5 @@
 import 'package:citizen_system/security/account_security_exception.dart';
-import 'package:citizen_storage/wallet_isar.dart'
-    as wallet_store
-    show Member;
+import 'package:citizen_storage/user_isar.dart' as wallet_store show Member;
 import 'package:http/http.dart' as http;
 
 import 'package:citizen_testing/mls_authentication_fixture.dart';
@@ -197,12 +195,12 @@ void main() {
       final security = _UnusedSecurity(),
           sessions = _FakeProfileSessionProvider(),
           resolver = _NoChatChainRecovery();
-      final transport = TestCitizenSdkTransport({}),
-          network = _ChatNetworkCounter();
-      final sdk = await transport.open();
+      final core = await openTestSdk();
+      final sdk = core.sdk;
+      final network = _ChatNetworkCounter();
       addTearDown(() async {
         await sdk.close();
-        await transport.dispose();
+
         security.revision.dispose();
       });
       await HttpOverrides.runZoned(() async {
@@ -248,7 +246,7 @@ void main() {
         });
         expect(network.requests, 0);
         expect(resolver.reads, 0);
-        expect(transport.calls, ['open']);
+        expect(core.fixture.calls, ['open']);
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pump();
       }, createHttpClient: (_) => network);
@@ -441,11 +439,11 @@ void main() {
     final store = _FakeChatStore(), sessions = _FakeProfileSessionProvider();
     final memberships = _AttachmentOnlySubscription(),
         security = _UnusedSecurity();
-    final transport = TestCitizenSdkTransport({});
-    final sdk = await transport.open();
+    final core = await openTestSdk();
+    final sdk = core.sdk;
     addTearDown(() async {
       await sdk.close();
-      await transport.dispose();
+
       security.revision.dispose();
     });
     final resolver = _NoChatChainRecovery();
@@ -478,7 +476,7 @@ void main() {
     expect(sessions.calls, 0);
     expect(memberships.requests, 0);
     expect(resolver.reads, 0);
-    expect(transport.calls, ['open']);
+    expect(core.fixture.calls, ['open']);
     expect(store.readPreviewCount, 0);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
@@ -1339,7 +1337,7 @@ class _FakeContactService implements UserContactService {
   Future<List<UserContact>> getContacts() async => contacts;
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _MemoryProfileCache extends CitizenProfileCache {
@@ -1411,12 +1409,12 @@ class _FakeProfileSessionProvider implements SquareSessionProvider {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _UnusedChatHost implements ChatRuntimeHost {
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _FakeRuntime extends ChatSdk {
@@ -1530,19 +1528,20 @@ class _AttachmentOnlySubscription implements SubscriptionService {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _UnusedSecurity implements AccountSecurityService {
   @override
   final revision = ValueNotifier<int>(0);
+
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _UnusedCurrentUser implements CurrentUserContext {
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _LocalChatIdentity implements CurrentUserContext {
@@ -1569,8 +1568,9 @@ class _LocalChatIdentity implements CurrentUserContext {
           )
         : null,
   );
+
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _NoChatChainRecovery implements FinalizedIdentityResolver {
@@ -1582,7 +1582,7 @@ class _NoChatChainRecovery implements FinalizedIdentityResolver {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 /// 真实默认HTTP客户端的网络边界；构造服务本身不计请求，任何发送都立即失败并计数。
@@ -1596,6 +1596,7 @@ class _ChatNetworkCounter implements HttpClient {
 
   @override
   void close({bool force = false}) {}
+
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }

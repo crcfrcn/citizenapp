@@ -1,4 +1,4 @@
-import 'package:citizen_storage/wallet_isar.dart'
+import 'package:citizen_storage/user_isar.dart'
     as wallet_store
     show Creator, Member;
 import 'package:citizen_account/notifications.dart';
@@ -19,7 +19,7 @@ import 'package:citizen_account/identity/finalized_identity_resolver.dart';
 import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_account/membership/subscription_chain.dart';
 import 'package:citizen_network/hex_codec.dart' show hexToBytes;
-import 'package:citizen_storage/wallet_isar.dart' hide Group;
+import 'package:citizen_storage/user_isar.dart' hide Group;
 
 /// 创作者页展示态：无可用钱包账户会话 / 已开通（含计划与概览）。
 
@@ -83,34 +83,83 @@ class CreatorException implements Exception {
 /// - 保存档位只签一次 `set_creator_plans` 链上交易；名称与价格均由 finalized 链状态确认。
 class CreatorService {
   CreatorService({
-    required CitizenSdkWallet wallet,
-    required CitizenChain chain,
-    required CitizenTransactions transactions,
+    CitizenSdk? wallet,
+    CitizenSdk? chain,
+    CitizenSdk? transactions,
     required FinalizedIdentityResolver identityResolver,
     required SquareSessionProvider sessionProvider,
     CreatorApi? api,
     SubscriptionChain? subscriptionChain,
     SubscriptionService? subscriptionService,
+    CitizenSdkOperation<CitizenWalletState> Function()? getWalletState,
+    Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<List<Uint8List?>> Function(
+      CitizenBlockRef block,
+      List<Uint8List> keys,
+    )?
+    getStorageBatch,
+    Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
+    getStorage,
+    Future<CitizenPreparedTransaction> Function(
+      Uint8List sourceAccountId,
+      Uint8List callData,
+    )?
+    prepareTransaction,
+    Future<CitizenTransactionExecution> Function(String preparationId)?
+    executePreparedTransaction,
+    Future<void> Function(String executionId)?
+    cancelPreparedTransactionExecution,
+    Future<CitizenTransactionExecutionCompleted> Function(
+      String executionId,
+      String response,
+    )?
+    consumePreparedTransactionQrResponse,
   }) : _api = api ?? CreatorApiHttp(),
        _subscriptionChain =
            subscriptionChain ??
-           SubscriptionChain(chain: chain, transactions: transactions),
-       _wallet = wallet,
+           SubscriptionChain(
+             chain: chain,
+             transactions: transactions,
+             getFinalizedHead: getFinalizedHead,
+             getStorageBatch: getStorageBatch,
+             getStorage: getStorage,
+             prepareTransaction: prepareTransaction,
+             executePreparedTransaction: executePreparedTransaction,
+             cancelPreparedTransactionExecution:
+                 cancelPreparedTransactionExecution,
+             consumePreparedTransactionQrResponse:
+                 consumePreparedTransactionQrResponse,
+           ),
        _identityResolver = identityResolver,
        _session = sessionProvider,
        _subscriptionService =
            subscriptionService ??
            SubscriptionService(
              wallet: wallet,
+             getWalletState: getWalletState,
              chain: chain,
              transactions: transactions,
              identityResolver: identityResolver,
              sessionProvider: sessionProvider,
-           );
+             getFinalizedHead: getFinalizedHead,
+             getStorageBatch: getStorageBatch,
+             getStorage: getStorage,
+             prepareTransaction: prepareTransaction,
+             executePreparedTransaction: executePreparedTransaction,
+             cancelPreparedTransactionExecution:
+                 cancelPreparedTransactionExecution,
+             consumePreparedTransactionQrResponse:
+                 consumePreparedTransactionQrResponse,
+           ),
+       _getWalletState =
+           getWalletState ??
+           wallet?.getWalletState ??
+           (() => throw StateError('未配置getWalletState'));
+  final CitizenSdkOperation<CitizenWalletState> Function() _getWalletState;
 
   final CreatorApi _api;
   final SubscriptionChain _subscriptionChain;
-  final CitizenSdkWallet _wallet;
+
   final FinalizedIdentityResolver _identityResolver;
   final SquareSessionProvider _session;
   final Map<SquareSession, Future<CreatorPageData>> _loads = {};
@@ -437,7 +486,7 @@ class CreatorService {
   Future<CitizenWalletStateAccount> _requireSigningAccount(
     String accountId,
   ) async {
-    final account = (await _wallet.getState().result).defaultAccount;
+    final account = (await _getWalletState().result).defaultAccount;
     if (account == null || account.accountId != accountId) {
       throw const CreatorException('当前身份与默认钱包账户不一致，已拒绝签名');
     }
@@ -527,16 +576,14 @@ class CreatorService {
     );
   }
 
-  Future<String?> _readCreatorState(String cidNumber) =>
-      WalletIsar.instance.read(
-        (db) async =>
-            (await db.collection<wallet_store.Creator>().getByCidNumber(
-              cidNumber,
-            ))?.bodyData,
-      );
+  Future<String?> _readCreatorState(String cidNumber) => UserIsar.instance.read(
+    (db) async =>
+        (await db.collection<wallet_store.Creator>().getByCidNumber(cidNumber))
+            ?.bodyData,
+  );
 
   Future<void> _writeCreatorState(String cidNumber, String bodyData) =>
-      WalletIsar.instance.writeTxn((db) async {
+      UserIsar.instance.writeTxn((db) async {
         await db.collection<wallet_store.Creator>().putByCidNumber(
           wallet_store.Creator()
             ..cidNumber = cidNumber

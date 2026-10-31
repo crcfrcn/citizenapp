@@ -21,14 +21,72 @@ import 'package:citizen_citizen/proposal/proposal_query_service.dart';
 /// `[26][call_index][proposal_id:u64_le][approve:bool]`。
 class LegislationVoteService {
   LegislationVoteService({
-    required CitizenChain chain,
-    required CitizenTransactions transactions,
-  }) : _chain = chain,
-       _transactions = transactions,
-       _query = LegislationVoteQueryService(chain: chain);
+    CitizenSdk? chain,
+    LegislationVoteQueryService Function(CitizenBlockRef? block)? voteQuery,
+    ProposalQueryService Function(CitizenBlockRef? block)? eventQuery,
+    CitizenSdk? transactions,
+    Future<CitizenPreparedTransaction> Function(
+      Uint8List sourceAccountId,
+      Uint8List callData,
+    )?
+    prepareTransaction,
+    Future<CitizenTransactionExecution> Function(String preparationId)?
+    executePreparedTransaction,
+    Future<void> Function(String executionId)?
+    cancelPreparedTransactionExecution,
+    Future<CitizenTransactionExecutionCompleted> Function(
+      String executionId,
+      String response,
+    )?
+    consumePreparedTransactionQrResponse,
+  }) : _voteQuery =
+           voteQuery ??
+           ((block) => LegislationVoteQueryService(chain: chain, block: block)),
+       _eventQuery =
+           eventQuery ??
+           ((block) => ProposalQueryService(chain: chain, block: block)),
+       _query =
+           (voteQuery ??
+           ((block) =>
+               LegislationVoteQueryService(chain: chain, block: block)))(null),
+       _prepareTransaction =
+           prepareTransaction ??
+           transactions?.prepareTransaction ??
+           ((Uint8List sourceAccountId, Uint8List callData) =>
+               throw StateError('未配置prepareTransaction')),
+       _executePreparedTransaction =
+           executePreparedTransaction ??
+           transactions?.executePreparedTransaction ??
+           ((String preparationId) =>
+               throw StateError('未配置executePreparedTransaction')),
+       _cancelPreparedTransactionExecution =
+           cancelPreparedTransactionExecution ??
+           transactions?.cancelPreparedTransactionExecution ??
+           ((String executionId) =>
+               throw StateError('未配置cancelPreparedTransactionExecution')),
+       _consumePreparedTransactionQrResponse =
+           consumePreparedTransactionQrResponse ??
+           transactions?.consumePreparedTransactionQrResponse ??
+           ((String executionId, String response) =>
+               throw StateError('未配置consumePreparedTransactionQrResponse'));
+  final Future<CitizenPreparedTransaction> Function(
+    Uint8List sourceAccountId,
+    Uint8List callData,
+  )
+  _prepareTransaction;
+  final Future<CitizenTransactionExecution> Function(String preparationId)
+  _executePreparedTransaction;
+  final Future<void> Function(String executionId)
+  _cancelPreparedTransactionExecution;
+  final Future<CitizenTransactionExecutionCompleted> Function(
+    String executionId,
+    String response,
+  )
+  _consumePreparedTransactionQrResponse;
 
-  final CitizenChain _chain;
-  final CitizenTransactions _transactions;
+  final LegislationVoteQueryService Function(CitizenBlockRef? block) _voteQuery;
+  final ProposalQueryService Function(CitizenBlockRef? block) _eventQuery;
+
   final LegislationVoteQueryService _query;
 
   /// LegislationVote runtime pallet_index。
@@ -77,10 +135,7 @@ class LegislationVoteService {
       voterRoleCode: voterRoleCode,
       bodyIndex: bodyIndex,
     );
-    final query = LegislationVoteQueryService(
-      chain: _chain,
-      block: result.execution.block,
-    );
+    final query = _voteQuery(result.execution.block);
     final vote = await query.fetchRepresentativeVote(
       proposalId,
       bodyIndex,
@@ -151,10 +206,8 @@ class LegislationVoteService {
       approve,
       'LegislationOverrideSigned',
     );
-    final signs = await LegislationVoteQueryService(
-      chain: _chain,
-      block: result.execution.block,
-    ).fetchOverrideSigns(proposalId);
+    final signs = await _voteQuery(result.execution.block)
+        .fetchOverrideSigns(proposalId);
     final account = '0x${_hexEncode(signerPublicKey)}';
     if (signs.any((s) => s.accountId == account && s.approve != approve)) {
       throw StateError('执行块签署记录与本次方向不一致');
@@ -190,10 +243,8 @@ class LegislationVoteService {
       approve,
       'LegislationGuardVoted',
     );
-    final signs = await LegislationVoteQueryService(
-      chain: _chain,
-      block: result.execution.block,
-    ).fetchGuardSigns(proposalId);
+    final signs = await _voteQuery(result.execution.block)
+        .fetchGuardSigns(proposalId);
     final account = '0x${_hexEncode(signerPublicKey)}';
     if (signs.any((s) => s.accountId == account && s.approve != approve)) {
       throw StateError('执行块签署记录与本次方向不一致');
@@ -264,31 +315,22 @@ class LegislationVoteService {
       voterRoleCode: voterRoleCode,
       approve: approve,
     );
-    final prepared = await _transactions.prepareTransaction(
-      signerPublicKey,
-      callData,
-    );
-    final started = await _transactions.executePreparedTransaction(
-      prepared.preparationId,
-    );
+    final prepared = await _prepareTransaction(signerPublicKey, callData);
+    final started = await _executePreparedTransaction(prepared.preparationId);
     CitizenTransactionExecutionCompleted completed;
     if (started is CitizenTransactionExternalSigningPending) {
       final String? response;
       try {
         response = await externalSigning(started);
       } catch (_) {
-        await _transactions.cancelPreparedTransactionExecution(
-          started.executionId,
-        );
+        await _cancelPreparedTransactionExecution(started.executionId);
         rethrow;
       }
       if (response == null) {
-        await _transactions.cancelPreparedTransactionExecution(
-          started.executionId,
-        );
+        await _cancelPreparedTransactionExecution(started.executionId);
         throw StateError('立法投票签名已取消');
       }
-      completed = await _transactions.consumePreparedTransactionQrResponse(
+      completed = await _consumePreparedTransactionQrResponse(
         started.executionId,
         response,
       );
@@ -318,10 +360,8 @@ class LegislationVoteService {
     String? voterRoleCode,
     int? bodyIndex,
   }) async {
-    final events = await ProposalQueryService(
-      chain: _chain,
-      block: execution.block,
-    ).fetchExecutionEvents(execution);
+    final events = await _eventQuery(execution.block)
+        .fetchExecutionEvents(execution);
     final matches = events
         .where(
           (event) =>

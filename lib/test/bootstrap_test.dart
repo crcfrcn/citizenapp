@@ -52,7 +52,7 @@ class _Sessions extends Fake implements SquareSessionProvider {
   void closeAuthentication() {}
 }
 
-class _History extends TestCitizenHistory {
+class _History extends TestHistoryReads {
   @override
   Future<CitizenTransactionHistoryPage> syncTransactionHistory() async =>
       CitizenTransactionHistoryPage(
@@ -82,21 +82,26 @@ void main() {
             if (call.method == 'eraseObsoleteDataMaterial') return gate.future;
             throw StateError('未预期的系统保护记录方法');
           });
-      final transport = TestCitizenSdkTransport({
-        'start': (_) => ['running'],
-        'getWalletState': (_) => [testCitizenWalletState()],
-        'stop': (_) {
-          if (stopFails) {
-            throw const CitizenSdkException(
-              code: CitizenSdkErrorCode.timeout,
-              message: '合成checkpoint失败',
-            );
-          }
-          return ['stopped'];
-        },
-      });
-      final sdk = await transport.open();
-      await sdk.start();
+      final core = await openTestSdk(
+        modules: CitizenSdkModules.wallet | CitizenSdkModules.qr,
+      );
+      final sdk = core.sdk;
+      await tester.runAsync(()=>sdk.importColdAccount(accountId:testCitizenAccountId).result);
+      final calls = <String>[];
+      Future<void> stop() async {
+        calls.add('stop');
+        if (stopFails)
+          throw const CitizenSdkException(
+            code: CitizenSdkErrorCode.storage,
+            message: '合成checkpoint失败',
+          );
+      }
+
+      Future<void> close() async {
+        calls.add('close');
+        await sdk.close();
+      }
+
       var cancelled = false;
       final events = StreamController<CitizenSdkEvent>(
         onCancel: () async {
@@ -104,19 +109,35 @@ void main() {
           throw StateError('合成监听停止失败');
         },
       );
-      final history = WalletTransactionHistoryService(
-        history: _History(),
-        chain: TestCitizenChain(),
-        wallet: sdk.wallet,
-        events: events.stream,
-      );
-      await history.start();
+      final history = (() {
+        final reads0 = _History();
+        final reads1 = TestChainReads();
+        return WalletTransactionHistoryService(
+          syncTransactionHistory: reads0.syncTransactionHistory,
+          getTransactionHistory: reads0.getTransactionHistory,
+          getGenesisHash: reads1.getGenesisHash,
+          getFinalizedHead: reads1.getFinalizedHead,
+          getFinalizedBlockAt: reads1.getFinalizedBlockAt,
+          getStorage: reads1.getStorage,
+          getSystemEvents: reads1.getSystemEvents,
+          getRuntimeContext: reads1.getRuntimeContext,
+          getBlockBody: reads1.getBlockBody,
+          getAccountBalance: reads1.getAccountBalance,
+          getAccountBalances: reads1.getAccountBalances,
+          getWalletState: sdk.getWalletState,
+          events: events.stream,
+        );
+      })();
+      await tester.runAsync(history.start);
       final publicSync = _PublicSync();
       var runtimeCreations = 0;
       var runtimeCloses = 0;
       await tester.pumpWidget(
         CitizenApp(
           sdk: sdk,
+          startChain: () async {},
+          stopSdk: stop,
+          closeSdk: close,
           identityService: publicSync,
           accountSecurity: _Security(),
           currentUserContext: _Current(),
@@ -142,8 +163,18 @@ void main() {
       );
       await tester.pump();
       expect(publicSync.calls, 1);
-      transport.walletChanged();
-      transport.walletChanged();
+      await tester.runAsync(() async {
+        for (final name in ['first', 'second']) {
+          final state = await sdk.getWalletState().result;
+          await sdk
+              .renameWallet(
+                expectedRevision: state.revision,
+                walletIndex: 0,
+                name: name,
+              )
+              .result;
+        }
+      });
       await tester.pump();
       await tester.pump();
       expect(publicSync.calls, 1, reason: '同一默认账户事件不得重复查询身份');
@@ -151,7 +182,7 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
       // 新身份监听与交易监听均真实撤销后才停SDK，虚拟帧不能代替原生I/O。
       await tester.runAsync(() async {
-        for (var i = 0; i < 100 && !transport.calls.contains('stop'); i++) {
+        for (var i = 0; i < 100 && !calls.contains('stop'); i++) {
           await Future<void>.delayed(const Duration(milliseconds: 10));
         }
       });
@@ -159,25 +190,21 @@ void main() {
       expect(runtimeCreations, 0);
       expect(runtimeCloses, 1);
       expect(cancelled, isTrue);
-      expect(transport.calls.where((m) => m == 'stop'), hasLength(1));
+      expect(calls.where((m) => m == 'stop'), hasLength(1));
       if (stopFails) {
-        expect(transport.calls, isNot(contains('close')));
-        expect(sdk.lifecycle, CitizenSdkLifecycle.running);
-        transport.handlers['stop'] = (_) => ['stopped'];
+        expect(calls, isNot(contains('close')));
+        expect(sdk.lifecycle, CitizenSdkLifecycle.created);
+
         await tester.runAsync(() async {
-          await sdk.stop();
           await sdk.close();
         });
       } else {
         await tester.runAsync(() async {
-          for (var i = 0; i < 100 && !transport.calls.contains('close'); i++) {
+          for (var i = 0; i < 100 && !calls.contains('close'); i++) {
             await Future<void>.delayed(const Duration(milliseconds: 10));
           }
         });
-        expect(
-          transport.calls.indexOf('stop'),
-          lessThan(transport.calls.indexOf('close')),
-        );
+        expect(calls.indexOf('stop'), lessThan(calls.indexOf('close')));
         expect(sdk.lifecycle, CitizenSdkLifecycle.disposed);
       }
       gate.complete(null);
@@ -197,7 +224,7 @@ void main() {
         // 合成取消失败会保留历史服务租约；根关闭断言之后单独排空夹具。
         await history.stop();
         await events.close();
-        await transport.dispose();
+
         await records!.delete(recursive: true);
       });
     });

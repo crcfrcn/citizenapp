@@ -43,8 +43,6 @@ class _ReadyBusinessGate implements CidBusinessGate {
   @override
   Future<CidBusinessDecision> resolve() async =>
       const CidBusinessDecision(CidBusinessStatus.ready, cidNumber: _cidNumber);
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 CitizenProfile sampleProfile({
@@ -106,27 +104,25 @@ class _CachedIdentityCache implements CurrentUserContext {
       '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
-class _FakeWallet implements CitizenSdkWallet {
+class _FakeWallet extends TestWalletReads {
   _FakeWallet(this.wallet);
 
   final CitizenWalletStateAccount wallet;
 
   @override
-  CitizenSdkOperation<CitizenWalletState> getState() => testCitizenOperation(
-    () async => CitizenWalletState(
-      initializationState: CitizenWalletInitializationState.ready,
-      cleanupPending: false,
-      revision: BigInt.one,
-      hotProfile: null,
-      accounts: [wallet],
-    ),
-  );
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  CitizenSdkOperation<CitizenWalletState> getWalletState() =>
+      testCitizenOperation(
+        () async => CitizenWalletState(
+          initializationState: CitizenWalletInitializationState.ready,
+          cleanupPending: false,
+          revision: BigInt.one,
+          hotProfile: null,
+          accounts: [wallet],
+        ),
+      );
 }
 
 class _UnboundLocalUser extends _CachedIdentityCache {
@@ -278,7 +274,7 @@ class _ConfirmedMembershipSnapshotService implements SubscriptionService {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _DelayedMembershipSnapshotService implements SubscriptionService {
@@ -304,7 +300,7 @@ class _DelayedMembershipSnapshotService implements SubscriptionService {
       const SquareMembershipState(active: false, paidUntil: 0);
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _PendingCreatorService implements CreatorService {
@@ -318,20 +314,11 @@ class _PendingCreatorService implements CreatorService {
   Future<CreatorPageData> load({String? expectedCidNumber}) => refresh.future;
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 void main() {
-  _sdkHarness = TestCitizenSdkHarness(
-    handlers: {
-      // UI导航只需要合成像素；用户码协议编码仍调用当前真实Core。
-      'qrEncode': (_) => [
-        1,
-        1,
-        Uint8List.fromList([0]),
-      ],
-    },
-  );
+  _sdkHarness = TestCitizenSdkHarness();
   testWidgets('本地验真CID无需绑定会话即可点背景进入本人主页，分类和返回不联网', (tester) async {
     final session = _ForbiddenSessionProvider();
     final api = FakeProfileApi(
@@ -346,7 +333,7 @@ void main() {
           value: _sdkHarness.sdk,
           child: MaterialApp(
             home: MyTab(
-              wallet: _FakeWallet(_testWallet),
+              walletStateReader: _FakeWallet(_testWallet).getWalletState,
               currentUserContext: _UnboundLocalUser(),
               badgeSnapshotStore: _VerifiedLocalBadgeStore(),
               profileCache: FakeProfileCache(sampleProfile()),
@@ -389,7 +376,7 @@ void main() {
         child: MaterialApp(
           theme: AppTheme.lightTheme,
           home: MyTab(
-            wallet: _FakeWallet(wallet),
+            walletStateReader: _FakeWallet(wallet).getWalletState,
             currentUserContext: _CachedIdentityCache(),
             badgeSnapshotStore: snapshotStore,
             profileCache: FakeProfileCache(sampleProfile()),
@@ -477,7 +464,7 @@ void main() {
         value: _sdkHarness.sdk,
         child: MaterialApp(
           home: MyTab(
-            wallet: _FakeWallet(wallet),
+            walletStateReader: _FakeWallet(wallet).getWalletState,
             currentUserContext: _CachedIdentityCache(),
             badgeSnapshotStore: snapshotStore,
             profileApi: profileApi,
@@ -531,7 +518,7 @@ void main() {
         value: _sdkHarness.sdk,
         child: MaterialApp(
           home: MyTab(
-            wallet: _FakeWallet(wallet),
+            walletStateReader: _FakeWallet(wallet).getWalletState,
             currentUserContext: _CachedIdentityCache(),
             badgeSnapshotStore: _FakeIdentityBadgeSnapshotStore(),
             profileApi: FakeProfileApi(profile),
@@ -587,7 +574,7 @@ void main() {
           value: _sdkHarness.sdk,
           child: MaterialApp(
             home: MyTab(
-              wallet: _FakeWallet(wallet),
+              walletStateReader: _FakeWallet(wallet).getWalletState,
               currentUserContext: _CachedIdentityCache(),
               badgeSnapshotStore: _FakeIdentityBadgeSnapshotStore(),
               profileApi: FakeProfileApi(sampleProfile(displayName: '公开昵称')),

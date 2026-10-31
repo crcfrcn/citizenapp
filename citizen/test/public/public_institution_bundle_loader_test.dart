@@ -49,19 +49,172 @@ PublicInstitutionBundleLoader buildLoader({
   );
 }
 
-/// 新格式机构 manifest:provinces:[{province_name,manifest_version}]。
+/// 新格式机构 manifest:provinces:[{province_name,manifest_version,count}]。
 String _instManifest({
   required String version,
-  required List<Map<String, String>> provinces,
+  required List<Map<String, Object>> provinces,
 }) => jsonEncode({'version': version, 'provinces': provinces});
 
 void main() {
+  for (final badShard in <String?>[
+    null,
+    'not json',
+    '{}',
+    jsonEncode({
+      'province_name': '中枢省',
+      'manifest_version': 'next',
+      'institutions': [],
+    }),
+  ]) {
+    test('机构分片缺失或损坏不删除现存数据、不推进游标，原版本可重试：$badShard', () async {
+      final files = <String, String>{
+        'packages/citizen_assets/institutions/manifest.json': _instManifest(
+          version: 'next-global',
+          provinces: [
+            {'province_name': '中枢省', 'manifest_version': 'next', 'count': 1},
+          ],
+        ),
+      };
+      const shard = 'packages/citizen_assets/institutions/中枢省.json';
+      if (badShard != null) files[shard] = badShard;
+      final store = FakePublicInstitutionStore();
+      await store.upsertInstitutions([
+        PublicInstitutionDto.fromJson({
+          'cid_number': 'old',
+          'province_code': 'ZS',
+          'institution_code': 'PRC',
+          'account_count': 1,
+        }),
+      ]);
+      await store.setProvinceVersion('中枢省', 'old');
+      final kv = FakeDataVersionKv()
+        ..globalVersion = 'old-global'
+        ..provinceVersions = {'中枢省': 'old'};
+      final loader = buildLoader(
+        store: store,
+        bundle: _MapBundle(files),
+        institutionKv: kv,
+      );
+      await expectLater(loader.ensureSynced(), throwsFormatException);
+      expect(store.byId.keys, ['old']);
+      expect(store.deleteCalls, 0);
+      expect(kv.globalVersion, 'old-global');
+      expect(kv.provinceVersions, {'中枢省': 'old'});
+      expect(await store.provinceVersion('中枢省'), 'old');
+      files[shard] = jsonEncode({
+        'province_name': '中枢省',
+        'manifest_version': 'next',
+        'institutions': [
+          {
+            'cid_number': 'new',
+            'province_code': 'ZS',
+            'institution_code': 'PRC',
+            'account_count': 1,
+          },
+        ],
+      });
+      expect(await loader.ensureSynced(), isTrue);
+      expect(store.byId.keys, ['new']);
+      expect(kv.globalVersion, 'next-global');
+      expect(kv.provinceVersions, {'中枢省': 'next'});
+    });
+  }
+  test('旧版已误推进的机构游标靠省级成功记录在同版本恢复', () async {
+    final store = FakePublicInstitutionStore();
+    // 另一个省有数据，不能用全库非空判断失败省已完成。
+    await store.upsertInstitutions([
+      PublicInstitutionDto.fromJson({
+        'cid_number': 'LN-kept',
+        'province_code': 'LN',
+        'institution_code': 'PRC',
+        'account_count': 1,
+      }),
+    ]);
+    await store.setProvinceVersion('岭南省', 'same');
+    final kv = FakeDataVersionKv()
+      ..globalVersion = 'same'
+      ..provinceVersions = {'中枢省': 'same', '岭南省': 'same'};
+    final files = <String, String>{
+      'packages/citizen_assets/institutions/manifest.json': _instManifest(
+        version: 'same',
+        provinces: [
+          {'province_name': '中枢省', 'manifest_version': 'same', 'count': 1},
+          {'province_name': '岭南省', 'manifest_version': 'same', 'count': 1},
+        ],
+      ),
+    };
+    final loader = buildLoader(
+      store: store,
+      bundle: _MapBundle(files),
+      institutionKv: kv,
+    );
+    await expectLater(loader.ensureSynced(), throwsFormatException);
+    files['packages/citizen_assets/institutions/中枢省.json'] = jsonEncode({
+      'province_name': '中枢省',
+      'manifest_version': 'same',
+      'institutions': [
+        {
+          'cid_number': 'ZS-restored',
+          'province_code': 'ZS',
+          'institution_code': 'PRC',
+          'account_count': 1,
+        },
+      ],
+    });
+    files['packages/citizen_assets/institutions/岭南省.json'] = jsonEncode({
+      'province_name': '岭南省',
+      'manifest_version': 'same',
+      'institutions': [
+        {
+          'cid_number': 'LN-kept',
+          'province_code': 'LN',
+          'institution_code': 'PRC',
+          'account_count': 1,
+        },
+      ],
+    });
+    expect(await loader.ensureSynced(), isTrue);
+    expect(store.byId.keys.toSet(), {'LN-kept', 'ZS-restored'});
+  });
+  test('机构合法空分片清理本省旧记录后才记成功', () async {
+    final store = FakePublicInstitutionStore();
+    await store.upsertInstitutions([
+      PublicInstitutionDto.fromJson({
+        'cid_number': 'stale',
+        'province_code': 'ZS',
+        'institution_code': 'PRC',
+        'account_count': 1,
+      }),
+    ]);
+    final kv = FakeDataVersionKv();
+    final loader = buildLoader(
+      store: store,
+      institutionKv: kv,
+      bundle: _MapBundle({
+        'packages/citizen_assets/institutions/manifest.json': _instManifest(
+          version: 'empty',
+          provinces: [
+            {'province_name': '中枢省', 'manifest_version': 'empty', 'count': 0},
+          ],
+        ),
+        'packages/citizen_assets/institutions/中枢省.json': jsonEncode({
+          'province_name': '中枢省',
+          'manifest_version': 'empty',
+          'institutions': [],
+        }),
+      }),
+    );
+    expect(await loader.ensureSynced(), isTrue);
+    expect(store.byId, isEmpty);
+    expect(kv.globalVersion, 'empty');
+  });
+
   test('首装:载入 manifest(新格式)+ 省分片 → 写库 + 省顺序 + 版本戳', () async {
     final bundle = _MapBundle({
       'packages/citizen_assets/institutions/manifest.json': _instManifest(
         version: '1',
         provinces: const [
-          {'province_name': '中枢省', 'manifest_version': 'cz-1'},
+          {'province_name': '中枢省', 'manifest_version': 'cz-1', 'count': 1},
         ],
       ),
       'packages/citizen_assets/institutions/中枢省.json': jsonEncode({
@@ -114,7 +267,7 @@ void main() {
       'packages/citizen_assets/institutions/manifest.json': _instManifest(
         version: '1',
         provinces: const [
-          {'province_name': '中枢省', 'manifest_version': 'cz-new'},
+          {'province_name': '中枢省', 'manifest_version': 'cz-new', 'count': 1},
         ],
       ),
       'packages/citizen_assets/institutions/中枢省.json': jsonEncode({
@@ -172,6 +325,7 @@ void main() {
         'account_count': 1,
       }),
     ]);
+    await store.setProvinceVersion('岭南省', 'ln-1');
     final kv = FakeDataVersionKv()
       ..globalVersion = 'before'
       ..provinceVersions = {'中枢省': 'cz-1', '岭南省': 'ln-1'};
@@ -179,8 +333,16 @@ void main() {
       'packages/citizen_assets/institutions/manifest.json': _instManifest(
         version: 'after',
         provinces: const [
-          {'province_name': '中枢省', 'manifest_version': 'cz-2'}, // 变了
-          {'province_name': '岭南省', 'manifest_version': 'ln-1'}, // 不变
+          {
+            'province_name': '中枢省',
+            'manifest_version': 'cz-2',
+            'count': 2,
+          }, // 变了
+          {
+            'province_name': '岭南省',
+            'manifest_version': 'ln-1',
+            'count': 1,
+          }, // 不变
         ],
       ),
       'packages/citizen_assets/institutions/中枢省.json': jsonEncode({
@@ -233,6 +395,7 @@ void main() {
         'account_count': 1,
       }),
     ]);
+    await store.setProvinceVersion('岭南省', 'ln-1');
     final kv = FakeDataVersionKv()
       ..globalVersion = 'before'
       ..provinceVersions = {'岭南省': 'ln-1'};
@@ -241,7 +404,7 @@ void main() {
       'packages/citizen_assets/institutions/manifest.json': _instManifest(
         version: 'after',
         provinces: const [
-          {'province_name': '岭南省', 'manifest_version': 'ln-1'},
+          {'province_name': '岭南省', 'manifest_version': 'ln-1', 'count': 1},
         ],
       ),
     });
@@ -302,8 +465,7 @@ void main() {
     final upsertBefore = store.upsertCalls;
     final deleteBefore = store.deleteCalls;
 
-    final changed = await loader.ensureSynced();
-    expect(changed, isFalse);
+    await expectLater(loader.ensureSynced(), throwsFormatException);
     expect(store.upsertCalls, upsertBefore);
     expect(store.deleteCalls, deleteBefore);
     expect(store.byId.containsKey('ZS001'), isTrue);

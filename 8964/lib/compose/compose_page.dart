@@ -112,7 +112,7 @@ class _SquareComposePageState extends State<SquareComposePage>
     } else {
       final sdk = context.read<CitizenSdk>();
       _identityService = SquareIdentityService(
-        wallet: sdk.wallet,
+        wallet: sdk,
         currentUserContext: context.read<CurrentUserContext>(),
       );
     }
@@ -464,13 +464,13 @@ class _SquareComposePageState extends State<SquareComposePage>
     final sdk = context.read<CitizenSdk>();
     final created = SquarePublishService(
       identityResolver: context.read<FinalizedIdentityResolver>(),
-      chain: sdk.chain,
-      transactions: sdk.transactions,
+      chain: sdk,
+      transactions: sdk,
       uploadService: SquareUploadService(
         subscriptionService: SubscriptionService(
-          wallet: sdk.wallet,
-          chain: sdk.chain,
-          transactions: sdk.transactions,
+          wallet: sdk,
+          chain: sdk,
+          transactions: sdk,
           identityResolver: context.read<FinalizedIdentityResolver>(),
           sessionProvider: context.read<SquareSessionProvider>(),
         ),

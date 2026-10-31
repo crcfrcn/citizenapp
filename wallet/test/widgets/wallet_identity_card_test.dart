@@ -1,4 +1,3 @@
-import 'dart:typed_data';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,22 +11,19 @@ import 'package:citizen_testing/fake_citizen_sdk.dart';
 
 /// 几何和交互断言取自be75a90b原件；仅账户模型与QR底层改用现有SDK。
 void main() {
+  final core = TestCitizenSdkHarness();
   late CitizenSdk sdk;
-  late TestCitizenSdkTransport transport;
-  setUp(() async {
-    // 图像明确是UI替身；账户码编码/解析走本轮真实Core，不把白图当二维码验真。
-    transport = TestCitizenSdkTransport({
-      'qrEncode': (_) => [29, 29, Uint8List(29 * 29)..fillRange(0, 29 * 29, 255)],
-    }, useCore: true);
-    sdk = await transport.open();
-  });
-  tearDown(() async { await sdk.close(); await transport.dispose(); });
+  setUp(() => sdk = core.sdk);
   final wallet = CitizenWalletStateAccount(
-    signMode: CitizenWalletSignMode.hot, walletIndex: 0, accountIndex: 0,
+    signMode: CitizenWalletSignMode.hot,
+    walletIndex: 0,
+    accountIndex: 0,
     name: '账户名称与钱包名不同',
     ss58Address: '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty',
-    accountId: '0x0000000000000000000000000000000000000000000000000000000000000000',
-    createdAtMillis: BigInt.zero, isDefault: true,
+    accountId:
+        '0x0000000000000000000000000000000000000000000000000000000000000000',
+    createdAtMillis: BigInt.zero,
+    isDefault: true,
   );
 
   Future<void> pumpCard(
@@ -42,26 +38,29 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(
-      Provider<CitizenSdk>.value(value: sdk, child: MaterialApp(
-        theme: AppTheme.lightTheme,
-        builder: (context, child) => Theme(
-          data: AppTheme.lightThemeFor(context).copyWith(platform: platform),
-          child: child!,
-        ),
-        home: Scaffold(
-          body: Align(
-            alignment: Alignment.topCenter,
-            child: SizedBox(
-              width: 411,
-              child: WalletIdentityCard(
-                wallet: wallet,
-                walletName: '我的钱包',
-                onNameChanged: onNameChanged,
+      Provider<CitizenSdk>.value(
+        value: sdk,
+        child: MaterialApp(
+          theme: AppTheme.lightTheme,
+          builder: (context, child) => Theme(
+            data: AppTheme.lightThemeFor(context).copyWith(platform: platform),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.topCenter,
+              child: SizedBox(
+                width: 411,
+                child: WalletIdentityCard(
+                  wallet: wallet,
+                  walletName: '我的钱包',
+                  onNameChanged: onNameChanged,
+                ),
               ),
             ),
           ),
         ),
-      )),
+      ),
     );
   }
 
@@ -183,8 +182,11 @@ void main() {
   });
 
   test('二维码载荷固定为k5且不携带本机名称和SS58', () async {
-    final raw = await buildWalletAccountQrData(sdk.qr, wallet.accountId);
-    final parsed = await sdk.qr.parseForPurpose(raw, CitizenQrScanPurpose.coldAccountImport);
+    final raw = await buildWalletAccountQrData(sdk, wallet.accountId);
+    final parsed = await sdk.parseForPurpose(
+      raw,
+      CitizenQrScanPurpose.coldAccountImport,
+    );
     expect(parsed.document.kind, CitizenQrKind.accountId);
     expect(parsed.document.requestId, isNull);
     expect(parsed.document.expiresAt, isNull);

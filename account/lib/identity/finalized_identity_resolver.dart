@@ -41,17 +41,36 @@ class FinalizedIdentity {
 /// 私钥泄漏可换绑到新账户而 CID(及其通讯录/公文/文章/视频/粉丝)永不丢失。
 class FinalizedIdentityResolver {
   FinalizedIdentityResolver({
-    required CitizenSdkWallet wallet,
-    required CitizenChain chain,
+    CitizenSdk? wallet,
+    CitizenSdk? chain,
     CitizenIdentityChainReader? chainReader,
     IdentityBadgeSnapshotStore? snapshotStore,
     ValueListenable<int>? identityRevision,
-  }) : _wallet = wallet,
-       _snapshotStore = snapshotStore,
+    CitizenSdkOperation<CitizenWalletState> Function()? getWalletState,
+    Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<List<Uint8List?>> Function(
+      CitizenBlockRef block,
+      List<Uint8List> keys,
+    )?
+    getStorageBatch,
+    Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
+    getStorage,
+  }) : _snapshotStore = snapshotStore,
        _identityRevision = identityRevision,
-       _chainReader = chainReader ?? CitizenIdentityChainReader(chain: chain);
+       _chainReader =
+           chainReader ??
+           CitizenIdentityChainReader(
+             chain: chain,
+             getFinalizedHead: getFinalizedHead,
+             getStorageBatch: getStorageBatch,
+             getStorage: getStorage,
+           ),
+       _getWalletState =
+           getWalletState ??
+           wallet?.getWalletState ??
+           (() => throw StateError('未配置getWalletState'));
+  final CitizenSdkOperation<CitizenWalletState> Function() _getWalletState;
 
-  final CitizenSdkWallet _wallet;
   final CitizenIdentityChainReader _chainReader;
   final IdentityBadgeSnapshotStore? _snapshotStore;
   final ValueListenable<int>? _identityRevision;
@@ -63,7 +82,7 @@ class FinalizedIdentityResolver {
   ///
   /// 链读异常**不吞**(上抛给调用方 fail-closed,绝不静默降级成访客/未注册)。
   Future<FinalizedIdentity?> resolve() async {
-    final state = await _wallet.getState().result;
+    final state = await _getWalletState().result;
     final account = state.defaultAccount;
     if (account == null) {
       _context = null;
@@ -118,7 +137,7 @@ class FinalizedIdentityResolver {
 
   /// 仅比较本机版本；后续步骤复用本次验真结果，不再查询链。
   Future<void> assertCurrent(FinalizedIdentity identity) async {
-    final state = await _wallet.getState().result;
+    final state = await _getWalletState().result;
     if (state.defaultAccount?.accountId != identity.accountId ||
         (identity.walletRevision != null &&
             state.revision != identity.walletRevision) ||

@@ -1,3 +1,5 @@
+import 'package:citizen_sdk/test/platform/fixture.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -18,7 +20,7 @@ import 'package:citizen_transaction/multisig/multisig_transfer_proposal_adapter.
 
 import 'package:citizen_testing/isar_test_env.dart';
 
-import 'package:citizen_storage/wallet_isar.dart' hide Group;
+import 'package:citizen_storage/user_isar.dart' hide Group;
 
 import 'package:citizen_testing/institution/public_nav_harness.dart';
 
@@ -31,7 +33,7 @@ import 'package:citizen_transaction/multisig/multisig_transfer_service.dart';
 
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 
-class _RawStorageChain extends TestCitizenChain {
+class _RawStorageChain extends TestChainReads {
   _RawStorageChain(this.value);
 
   final Uint8List value;
@@ -122,10 +124,26 @@ class _FailingScopeRepository extends InstitutionRepository {
 class _PageFeed extends MultisigTransferProposalFeed {
   _PageFeed()
     : super(
-        service: MultisigTransferService(
-          chain: TestCitizenChain(),
-          transactions: TestCitizenTransactions(),
-        ),
+        service: (() {
+          final reads0 = TestChainReads();
+          final reads1 = TestTransactionCalls();
+          return MultisigTransferService(
+            getFinalizedHead: reads0.getFinalizedHead,
+            getStorageKeysPaged: reads0.getStorageKeysPaged,
+            getStorage: reads0.getStorage,
+            getStorageBatch: reads0.getStorageBatch,
+            getAccountBalance: reads0.getAccountBalance,
+            getAccountBalances: reads0.getAccountBalances,
+            getSystemEvents: reads0.getSystemEvents,
+            getRuntimeContext: reads0.getRuntimeContext,
+            prepareTransaction: reads1.prepareTransaction,
+            executePreparedTransaction: reads1.executePreparedTransaction,
+            cancelPreparedTransactionExecution:
+                reads1.cancelPreparedTransactionExecution,
+            consumePreparedTransactionQrResponse:
+                reads1.consumePreparedTransactionQrResponse,
+          );
+        })(),
       );
   List<int> ids = [1];
   final scopes = <FutureOr<List<int>> Function()>[];
@@ -163,10 +181,23 @@ class _PageFeed extends MultisigTransferProposalFeed {
 class _PageContext extends ProposalContextResolver {
   _PageContext()
     : super(
-        wallet: TestCitizenSdkWallet(),
-        adminService: InstitutionAdminService(chain: TestCitizenChain()),
+        adminService: (() {
+          final reads0 = TestChainReads();
+          return InstitutionAdminService(
+            getFinalizedHead: reads0.getFinalizedHead,
+            getStorageKeysPaged: reads0.getStorageKeysPaged,
+            getStorageBatch: reads0.getStorageBatch,
+          );
+        })(),
         activationService: ActivationService(
-          adminService: InstitutionAdminService(chain: TestCitizenChain()),
+          adminService: (() {
+            final reads0 = TestChainReads();
+            return InstitutionAdminService(
+              getFinalizedHead: reads0.getFinalizedHead,
+              getStorageKeysPaged: reads0.getStorageKeysPaged,
+              getStorageBatch: reads0.getStorageBatch,
+            );
+          })(),
         ),
       );
   Object? failure;
@@ -185,14 +216,41 @@ class _PageContext extends ProposalContextResolver {
 class _PageVotes extends VoteChecker {
   _PageVotes()
     : super(
-        internalVoteService: InternalVoteQueryService(
-          chain: TestCitizenChain(),
-        ),
-        runtimeService: RuntimeUpgradeService(
-          chain: TestCitizenChain(),
-          transactions: TestCitizenTransactions(),
-        ),
-        proposalQueryService: ProposalQueryService(chain: TestCitizenChain()),
+        internalVoteService: (() {
+          final reads0 = TestChainReads();
+          return InternalVoteQueryService(
+            getFinalizedHead: reads0.getFinalizedHead,
+            getStorage: reads0.getStorage,
+            getStorageBatch: reads0.getStorageBatch,
+          );
+        })(),
+        runtimeService: (() {
+          final reads0 = TestChainReads();
+          final reads1 = TestTransactionCalls();
+          return RuntimeUpgradeService(
+            getFinalizedHead: reads0.getFinalizedHead,
+            getStorage: reads0.getStorage,
+            getStorageBatch: reads0.getStorageBatch,
+            prepareTransaction: reads1.prepareTransaction,
+            executePreparedTransaction: reads1.executePreparedTransaction,
+            cancelPreparedTransactionExecution:
+                reads1.cancelPreparedTransactionExecution,
+            consumePreparedTransactionQrResponse:
+                reads1.consumePreparedTransactionQrResponse,
+            getSystemEvents: reads0.getSystemEvents,
+            getRuntimeContext: reads0.getRuntimeContext,
+          );
+        })(),
+        proposalQueryService: (() {
+          final reads0 = TestChainReads();
+          return ProposalQueryService(
+            getSystemEvents: reads0.getSystemEvents,
+            getRuntimeContext: reads0.getRuntimeContext,
+            getFinalizedHead: reads0.getFinalizedHead,
+            getStorage: reads0.getStorage,
+            getStorageBatch: reads0.getStorageBatch,
+          );
+        })(),
       );
   Object? failure;
   Future<void> Function()? beforeReturn;
@@ -207,31 +265,39 @@ class _PageVotes extends VoteChecker {
   }
 }
 
-class _PageTransport extends TestCitizenSdkTransport {
-  _PageTransport()
-    : super({'walletGetState': (_) => testCitizenWalletState()}) {
-    handlers['getCapabilities'] = (_) => [capabilities()];
-  }
-  final controller = StreamController<Object?>.broadcast();
-  int sequence = 1;
-  int revision = 1;
+// 业务只读事实夹具；SDK会话本身仍来自真实Core，不实现SDK平台接口。
+class _PageReads {
+  final physical = CitizenSdkTestFixture();
+  final controller = StreamController<CitizenSdkEvent>.broadcast();
+  int sequence = 1, revision = 1;
   bool ready = true;
   CitizenCapabilityReason reason = CitizenCapabilityReason.none;
-  // 完整公开能力元组，不绕过页面的就绪读取路径。
-  List<Object?> capabilities() => [
-    '$revision',
-    [
+  CitizenSdkLifecycle state = CitizenSdkLifecycle.created;
+  Future<CitizenCapabilitySnapshot> Function()? snapshotReader;
+  Future<CitizenSdk> open() async {
+    physical.install();
+    return CitizenSdk.open(modules: CitizenSdkModules.qr);
+  }
+
+  List<String> get calls => physical.calls;
+  Future<CitizenCapabilitySnapshot> read() =>
+      snapshotReader?.call() ?? Future.value(capabilities());
+  CitizenCapabilitySnapshot capabilities() => CitizenCapabilitySnapshot(
+    revision: BigInt.from(revision),
+    statuses: [
       for (final name in CitizenCapabilityName.values)
-        [
-          name.name,
-          true,
-          true,
-          true,
-          name == CitizenCapabilityName.chainRead ? ready : true,
-          name == CitizenCapabilityName.chainRead ? reason.name : 'none',
-        ],
+        CitizenCapabilityStatus(
+          name: name,
+          supported: true,
+          available: true,
+          enabled: true,
+          ready: name == CitizenCapabilityName.chainRead ? ready : true,
+          reason: name == CitizenCapabilityName.chainRead
+              ? reason
+              : CitizenCapabilityReason.none,
+        ),
     ],
-  ];
+  );
   void capability({
     required bool isReady,
     CitizenCapabilityReason why = CitizenCapabilityReason.none,
@@ -239,37 +305,34 @@ class _PageTransport extends TestCitizenSdkTransport {
     ready = isReady;
     reason = why;
     revision++;
-    controller.add([
-      2,
-      'synthetic-ui-session',
-      sequence++,
-      'capabilitiesChanged',
-      [capabilities()],
-    ]);
+    controller.add(
+      CitizenSdkCapabilitiesChanged(
+        sequence: sequence++,
+        snapshot: capabilities(),
+      ),
+    );
   }
 
-  void lifecycle(String value) => controller.add([
-    2,
-    'synthetic-ui-session',
-    sequence++,
-    'lifecycleChanged',
-    [value],
-  ]);
-  @override
-  Stream<Object?> get events => controller.stream;
-  void finalized() => controller.add([
-    2,
-    'synthetic-ui-session',
-    sequence++,
-    'finalizedBlockChanged',
-    [
-      ['0x${'11' * 32}', '1', 'finalized'],
-    ],
-  ]);
-  @override
+  void lifecycle(String value) {
+    state = CitizenSdkLifecycle.values.byName(value);
+    controller.add(
+      CitizenSdkLifecycleChanged(sequence: sequence++, lifecycle: state),
+    );
+  }
+
+  void finalized() => controller.add(
+    CitizenSdkFinalizedBlockChanged(
+      sequence: sequence++,
+      finalized: CitizenBlockRef(
+        hash: '0x${'11' * 32}',
+        number: BigInt.one,
+        finality: CitizenBlockFinality.finalized,
+      ),
+    ),
+  );
   Future<void> dispose() async {
     await controller.close();
-    await super.dispose();
+    await physical.dispose();
   }
 }
 
@@ -283,17 +346,17 @@ Future<void> _flush(WidgetTester tester) async {
   }
 }
 
-Future<_PageTransport> _openProposal(
+Future<_PageReads> _openProposal(
   WidgetTester tester,
   _PageFeed feed,
   List<int> counts, {
   ProposalContextResolver? resolver,
   VoteChecker? checker,
   InstitutionRepository? repository,
-  _PageTransport? transportOverride,
+  _PageReads? transportOverride,
   bool waitForTerminal = true,
 }) async {
-  final transport = transportOverride ?? _PageTransport();
+  final transport = transportOverride ?? _PageReads();
   final sdk = await transport.open();
   addTearDown(() async {
     await _flush(tester);
@@ -303,7 +366,7 @@ Future<_PageTransport> _openProposal(
       await transport.dispose();
     });
   });
-  await tester.runAsync(() => WalletIsar.instance.db());
+  await tester.runAsync(() => UserIsar.instance.db());
   final directory = await buildSeededRepo(
     provinceOrder: const [],
     institutions: const [],
@@ -315,6 +378,9 @@ Future<_PageTransport> _openProposal(
         home: Scaffold(
           body: ProposalTab(
             feed: feed,
+            capabilitiesReader: transport.read,
+            sdkEvents: transport.controller.stream,
+            lifecycleReader: () => transport.state,
             repository:
                 repository ?? InstitutionRepository(directory: directory),
             contextResolver: resolver ?? _PageContext(),
@@ -547,10 +613,26 @@ void main() {
     return [...compactU32(bytes.length), ...bytes];
   }
 
-  final service = MultisigTransferService(
-    chain: TestCitizenChain(),
-    transactions: TestCitizenTransactions(),
-  );
+  final service = (() {
+    final reads0 = TestChainReads();
+    final reads1 = TestTransactionCalls();
+    return MultisigTransferService(
+      getFinalizedHead: reads0.getFinalizedHead,
+      getStorageKeysPaged: reads0.getStorageKeysPaged,
+      getStorage: reads0.getStorage,
+      getStorageBatch: reads0.getStorageBatch,
+      getAccountBalance: reads0.getAccountBalance,
+      getAccountBalances: reads0.getAccountBalances,
+      getSystemEvents: reads0.getSystemEvents,
+      getRuntimeContext: reads0.getRuntimeContext,
+      prepareTransaction: reads1.prepareTransaction,
+      executePreparedTransaction: reads1.executePreparedTransaction,
+      cancelPreparedTransactionExecution:
+          reads1.cancelPreparedTransactionExecution,
+      consumePreparedTransactionQrResponse:
+          reads1.consumePreparedTransactionQrResponse,
+    );
+  })();
 
   test('机构 propose_transfer 当前 SCALE payload 的短备注必须可解码', () {
     final institutionAccountId = List<int>.filled(32, 0x11);
@@ -628,10 +710,26 @@ void main() {
       ...remark,
       ...proposer,
     ]);
-    final decoded = await MultisigTransferService(
-      chain: _RawStorageChain(raw),
-      transactions: TestCitizenTransactions(),
-    ).fetchSafetyFundAction(4);
+    final decoded = await (() {
+      final reads0 = _RawStorageChain(raw);
+      final reads1 = TestTransactionCalls();
+      return MultisigTransferService(
+        getFinalizedHead: reads0.getFinalizedHead,
+        getStorageKeysPaged: reads0.getStorageKeysPaged,
+        getStorage: reads0.getStorage,
+        getStorageBatch: reads0.getStorageBatch,
+        getAccountBalance: reads0.getAccountBalance,
+        getAccountBalances: reads0.getAccountBalances,
+        getSystemEvents: reads0.getSystemEvents,
+        getRuntimeContext: reads0.getRuntimeContext,
+        prepareTransaction: reads1.prepareTransaction,
+        executePreparedTransaction: reads1.executePreparedTransaction,
+        cancelPreparedTransactionExecution:
+            reads1.cancelPreparedTransactionExecution,
+        consumePreparedTransactionQrResponse:
+            reads1.consumePreparedTransactionQrResponse,
+      );
+    })().fetchSafetyFundAction(4);
 
     expect(decoded, isNotNull);
     expect(decoded!.actorCidNumber, actorCidNumber);
@@ -644,10 +742,26 @@ void main() {
 
     final trailing = Uint8List.fromList([...raw, 0]);
     expect(
-      await MultisigTransferService(
-        chain: _RawStorageChain(trailing),
-        transactions: TestCitizenTransactions(),
-      ).fetchSafetyFundAction(4),
+      await (() {
+        final reads0 = _RawStorageChain(trailing);
+        final reads1 = TestTransactionCalls();
+        return MultisigTransferService(
+          getFinalizedHead: reads0.getFinalizedHead,
+          getStorageKeysPaged: reads0.getStorageKeysPaged,
+          getStorage: reads0.getStorage,
+          getStorageBatch: reads0.getStorageBatch,
+          getAccountBalance: reads0.getAccountBalance,
+          getAccountBalances: reads0.getAccountBalances,
+          getSystemEvents: reads0.getSystemEvents,
+          getRuntimeContext: reads0.getRuntimeContext,
+          prepareTransaction: reads1.prepareTransaction,
+          executePreparedTransaction: reads1.executePreparedTransaction,
+          cancelPreparedTransactionExecution:
+              reads1.cancelPreparedTransactionExecution,
+          consumePreparedTransactionQrResponse:
+              reads1.consumePreparedTransactionQrResponse,
+        );
+      })().fetchSafetyFundAction(4),
       isNull,
     );
   });
@@ -662,10 +776,26 @@ void main() {
       ...u128Le(BigInt.from(800)),
       ...proposer,
     ]);
-    final decoded = await MultisigTransferService(
-      chain: _RawStorageChain(raw),
-      transactions: TestCitizenTransactions(),
-    ).fetchSweepAction(5);
+    final decoded = await (() {
+      final reads0 = _RawStorageChain(raw);
+      final reads1 = TestTransactionCalls();
+      return MultisigTransferService(
+        getFinalizedHead: reads0.getFinalizedHead,
+        getStorageKeysPaged: reads0.getStorageKeysPaged,
+        getStorage: reads0.getStorage,
+        getStorageBatch: reads0.getStorageBatch,
+        getAccountBalance: reads0.getAccountBalance,
+        getAccountBalances: reads0.getAccountBalances,
+        getSystemEvents: reads0.getSystemEvents,
+        getRuntimeContext: reads0.getRuntimeContext,
+        prepareTransaction: reads1.prepareTransaction,
+        executePreparedTransaction: reads1.executePreparedTransaction,
+        cancelPreparedTransactionExecution:
+            reads1.cancelPreparedTransactionExecution,
+        consumePreparedTransactionQrResponse:
+            reads1.consumePreparedTransactionQrResponse,
+      );
+    })().fetchSweepAction(5);
 
     expect(decoded, isNotNull);
     expect(decoded!.actorCidNumber, actorCidNumber);
@@ -678,10 +808,26 @@ void main() {
 
     final trailing = Uint8List.fromList([...raw, 0]);
     expect(
-      await MultisigTransferService(
-        chain: _RawStorageChain(trailing),
-        transactions: TestCitizenTransactions(),
-      ).fetchSweepAction(5),
+      await (() {
+        final reads0 = _RawStorageChain(trailing);
+        final reads1 = TestTransactionCalls();
+        return MultisigTransferService(
+          getFinalizedHead: reads0.getFinalizedHead,
+          getStorageKeysPaged: reads0.getStorageKeysPaged,
+          getStorage: reads0.getStorage,
+          getStorageBatch: reads0.getStorageBatch,
+          getAccountBalance: reads0.getAccountBalance,
+          getAccountBalances: reads0.getAccountBalances,
+          getSystemEvents: reads0.getSystemEvents,
+          getRuntimeContext: reads0.getRuntimeContext,
+          prepareTransaction: reads1.prepareTransaction,
+          executePreparedTransaction: reads1.executePreparedTransaction,
+          cancelPreparedTransactionExecution:
+              reads1.cancelPreparedTransactionExecution,
+          consumePreparedTransactionQrResponse:
+              reads1.consumePreparedTransactionQrResponse,
+        );
+      })().fetchSweepAction(5),
       isNull,
     );
   });
@@ -783,7 +929,13 @@ void main() {
       ...List.filled(32, 0x33),
     ]);
     final rpc = _RawStorageChain(raw);
-    final query = ProposalQueryService(chain: rpc);
+    final query = ProposalQueryService(
+      getSystemEvents: rpc.getSystemEvents,
+      getRuntimeContext: rpc.getRuntimeContext,
+      getFinalizedHead: rpc.getFinalizedHead,
+      getStorage: rpc.getStorage,
+      getStorageBatch: rpc.getStorageBatch,
+    );
     final institution = InstitutionInfo(
       fullName: '测试机构',
       shortName: '测试机构',
@@ -895,7 +1047,7 @@ void _proposalReadinessTests() {
     CitizenCapabilityReason.chainUnsynced,
   ]) {
     testWidgets('提案等待${reason.name}，就绪事件只触发一次原首读', (tester) async {
-      final transport = _PageTransport()
+      final transport = _PageReads()
         ..ready = false
         ..reason = reason;
       final feed = _PageFeed();
@@ -946,7 +1098,7 @@ void _proposalReadinessTests() {
     expect(counts, [1, 1]);
   });
   testWidgets('启动失败立即沿原错误页收尾，不永久等待或伪造空成功', (tester) async {
-    final transport = _PageTransport()
+    final transport = _PageReads()
       ..ready = false
       ..reason = CitizenCapabilityReason.chainStarting;
     final feed = _PageFeed();
@@ -966,7 +1118,7 @@ void _proposalReadinessTests() {
     expect(counts, isEmpty);
   });
   testWidgets('能力不可用不是启动等待，必须保留失败', (tester) async {
-    final transport = _PageTransport()
+    final transport = _PageReads()
       ..ready = false
       ..reason = CitizenCapabilityReason.storageUnavailable;
     final feed = _PageFeed();
@@ -995,7 +1147,7 @@ void _proposalReadinessTests() {
     });
   }
   testWidgets('销毁等待页后就绪事件不得复活旧读取', (tester) async {
-    final transport = _PageTransport()
+    final transport = _PageReads()
       ..ready = false
       ..reason = CitizenCapabilityReason.chainStarting;
     final feed = _PageFeed();
@@ -1016,18 +1168,18 @@ void _proposalReadinessTests() {
     expect(tester.takeException(), isNull);
   });
   testWidgets('能力事件先于旧快照返回也不会丢失就绪唤醒', (tester) async {
-    final transport = _PageTransport()
+    final transport = _PageReads()
       ..ready = false
       ..reason = CitizenCapabilityReason.chainStarting;
     final oldSnapshot = transport.capabilities();
-    final gate = Completer<List<Object?>>();
+    final gate = Completer<CitizenCapabilitySnapshot>();
     var first = true;
-    transport.handlers['getCapabilities'] = (_) {
+    transport.snapshotReader = () {
       if (first) {
         first = false;
         return gate.future;
       }
-      return [transport.capabilities()];
+      return Future.value(transport.capabilities());
     };
     final feed = _PageFeed();
     final counts = <int>[];
@@ -1040,22 +1192,22 @@ void _proposalReadinessTests() {
     );
     await _flush(tester);
     transport.capability(isReady: true);
-    gate.complete([oldSnapshot]);
+    gate.complete(oldSnapshot);
     await _flush(tester);
     expect(feed.forced, [false]);
     expect(counts, [1]);
   });
   testWidgets('旧ready快照迟到不得覆盖最新未同步事实', (tester) async {
-    final transport = _PageTransport();
+    final transport = _PageReads();
     final oldReady = transport.capabilities();
-    final gate = Completer<List<Object?>>();
+    final gate = Completer<CitizenCapabilitySnapshot>();
     var first = true;
-    transport.handlers['getCapabilities'] = (_) {
+    transport.snapshotReader = () {
       if (first) {
         first = false;
         return gate.future;
       }
-      return [transport.capabilities()];
+      return Future.value(transport.capabilities());
     };
     final feed = _PageFeed();
     final counts = <int>[];
@@ -1072,7 +1224,7 @@ void _proposalReadinessTests() {
       why: CitizenCapabilityReason.chainUnsynced,
     );
     await tester.pump();
-    gate.complete([oldReady]);
+    gate.complete(oldReady);
     await _flush(tester);
     expect(feed.forced, isEmpty);
     expect(counts, isEmpty);
@@ -1117,10 +1269,25 @@ void _proposalDiagnosticsTests() {
         hasIndex: true,
       );
       final feed = MultisigTransferProposalFeed(
-        service: MultisigTransferService(
-          chain: chain,
-          transactions: TestCitizenTransactions(),
-        ),
+        service: (() {
+          final reads0 = TestTransactionCalls();
+          return MultisigTransferService(
+            getFinalizedHead: chain.getFinalizedHead,
+            getStorageKeysPaged: chain.getStorageKeysPaged,
+            getStorage: chain.getStorage,
+            getStorageBatch: chain.getStorageBatch,
+            getAccountBalance: chain.getAccountBalance,
+            getAccountBalances: chain.getAccountBalances,
+            getSystemEvents: chain.getSystemEvents,
+            getRuntimeContext: chain.getRuntimeContext,
+            prepareTransaction: reads0.prepareTransaction,
+            executePreparedTransaction: reads0.executePreparedTransaction,
+            cancelPreparedTransactionExecution:
+                reads0.cancelPreparedTransactionExecution,
+            consumePreparedTransactionQrResponse:
+                reads0.consumePreparedTransactionQrResponse,
+          );
+        })(),
       );
       final lines = <String>[];
       await _captureProposal(lines, () async {
@@ -1154,10 +1321,25 @@ void _proposalDiagnosticsTests() {
       MultisigTransferProposalAdapter.clearCache();
       final chain = _ProposalChain(missingYear: missingYear);
       final feed = MultisigTransferProposalFeed(
-        service: MultisigTransferService(
-          chain: chain,
-          transactions: TestCitizenTransactions(),
-        ),
+        service: (() {
+          final reads0 = TestTransactionCalls();
+          return MultisigTransferService(
+            getFinalizedHead: chain.getFinalizedHead,
+            getStorageKeysPaged: chain.getStorageKeysPaged,
+            getStorage: chain.getStorage,
+            getStorageBatch: chain.getStorageBatch,
+            getAccountBalance: chain.getAccountBalance,
+            getAccountBalances: chain.getAccountBalances,
+            getSystemEvents: chain.getSystemEvents,
+            getRuntimeContext: chain.getRuntimeContext,
+            prepareTransaction: reads0.prepareTransaction,
+            executePreparedTransaction: reads0.executePreparedTransaction,
+            cancelPreparedTransactionExecution:
+                reads0.cancelPreparedTransactionExecution,
+            consumePreparedTransactionQrResponse:
+                reads0.consumePreparedTransactionQrResponse,
+          );
+        })(),
       );
       final lines = <String>[];
       final ids = await _captureProposal(
@@ -1176,10 +1358,26 @@ void _proposalDiagnosticsTests() {
   }
   test('日志出口抛错不替换原链读异常及堆栈', () async {
     final failure = StateError('synthetic private source');
-    final service = MultisigTransferService(
-      chain: _ProposalChain(failureAt: 'year', failure: failure),
-      transactions: TestCitizenTransactions(),
-    );
+    final service = (() {
+      final reads0 = _ProposalChain(failureAt: 'year', failure: failure);
+      final reads1 = TestTransactionCalls();
+      return MultisigTransferService(
+        getFinalizedHead: reads0.getFinalizedHead,
+        getStorageKeysPaged: reads0.getStorageKeysPaged,
+        getStorage: reads0.getStorage,
+        getStorageBatch: reads0.getStorageBatch,
+        getAccountBalance: reads0.getAccountBalance,
+        getAccountBalances: reads0.getAccountBalances,
+        getSystemEvents: reads0.getSystemEvents,
+        getRuntimeContext: reads0.getRuntimeContext,
+        prepareTransaction: reads1.prepareTransaction,
+        executePreparedTransaction: reads1.executePreparedTransaction,
+        cancelPreparedTransactionExecution:
+            reads1.cancelPreparedTransactionExecution,
+        consumePreparedTransactionQrResponse:
+            reads1.consumePreparedTransactionQrResponse,
+      );
+    })();
     await runZoned(
       () async {
         try {
@@ -1207,8 +1405,7 @@ void _proposalDiagnosticsTests() {
       if (stage == 'votes') checker.failure = failure;
       // 真实隔离数据库关闭后，原摘要写事务必须失败，不能注入新的生产接口。
       if (stage == 'summary') {
-        checker.beforeReturn = () =>
-            WalletIsar.instance.closeAndDeleteFromDisk();
+        checker.beforeReturn = () => UserIsar.instance.closeAndDeleteFromDisk();
       }
       final counts = <int>[];
       final lines = <String>[];
@@ -1317,7 +1514,7 @@ void _proposalReadResultTests() {
   testWidgets('等待读链只报waiting，就绪后沿原读取报完成', (tester) async {
     final lines = <String>[];
     await _captureReadResult(lines, () async {
-      final transport = _PageTransport()
+      final transport = _PageReads()
         ..ready = false
         ..reason = CitizenCapabilityReason.chainUnsynced;
       final feed = _PageFeed()..ids = [];
@@ -1397,7 +1594,7 @@ void _proposalReadResultTests() {
     testWidgets('提案${waiting ? '等待读链' : '读取中'}销毁后不报成功', (tester) async {
       final lines = <String>[];
       await _captureReadResult(lines, () async {
-        final transport = _PageTransport()
+        final transport = _PageReads()
           ..ready = !waiting
           ..reason = waiting
               ? CitizenCapabilityReason.chainStarting

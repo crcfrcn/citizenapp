@@ -21,7 +21,6 @@ import 'package:citizen_square/media/square_upload_service.dart';
 import 'package:citizen_storage/social_isar.dart';
 
 import 'package:citizen_testing/isar_test_env.dart';
-import 'package:citizen_testing/fake_citizen_sdk.dart';
 
 Uint8List _testManifest() => Uint8List.fromList(
   utf8.encode(
@@ -44,8 +43,6 @@ void main() {
     final confirmer = _FakePublicationConfirmer(order)..throwOnConfirm = true;
     final service = SquarePublishService(
       identityResolver: _PublishIdentityResolver(),
-      chain: TestCitizenChain(),
-      transactions: TestCitizenTransactions(),
       uploadService: _FakeUploader(order),
       chainService: _FakeChainPublisher(order),
       publicationConfirmer: confirmer,
@@ -82,8 +79,6 @@ void main() {
     final confirmer = _FakePublicationConfirmer(order);
     final service = SquarePublishService(
       identityResolver: _PublishIdentityResolver(),
-      chain: TestCitizenChain(),
-      transactions: TestCitizenTransactions(),
       uploadService: _FakeUploader(order),
       chainService: publisher,
       publicationConfirmer: confirmer,
@@ -115,8 +110,6 @@ void main() {
     final resolver = _PublishIdentityResolver();
     final service = SquarePublishService(
       identityResolver: resolver,
-      chain: TestCitizenChain(),
-      transactions: TestCitizenTransactions(),
       uploadService: _FakeUploader(order),
       chainService: _FakeChainPublisher(order),
       publicationConfirmer: _FakePublicationConfirmer(order),
@@ -141,8 +134,6 @@ void main() {
     final resolver = _PublishIdentityResolver(fail: true);
     final service = SquarePublishService(
       identityResolver: resolver,
-      chain: TestCitizenChain(),
-      transactions: TestCitizenTransactions(),
       uploadService: _FakeUploader(order),
       chainService: _FakeChainPublisher(order),
       publicationConfirmer: _FakePublicationConfirmer(order),
@@ -170,8 +161,6 @@ void main() {
     final resolver = _PublishIdentityResolver()..changed = true;
     final service = SquarePublishService(
       identityResolver: resolver,
-      chain: TestCitizenChain(),
-      transactions: TestCitizenTransactions(),
       uploadService: _FakeUploader(order),
       chainService: _FakeChainPublisher(order),
       publicationConfirmer: _FakePublicationConfirmer(order),
@@ -204,8 +193,6 @@ void main() {
     final chain = _FakeChainPublisher(order);
     final service = SquarePublishService(
       identityResolver: _PublishIdentityResolver(registered: false),
-      chain: TestCitizenChain(),
-      transactions: TestCitizenTransactions(),
       uploadService: upload,
       chainService: chain,
       publicationConfirmer: _FakePublicationConfirmer(),
@@ -238,8 +225,6 @@ void main() {
     final stages = <SquarePublishStage>[];
     final service = SquarePublishService(
       identityResolver: _PublishIdentityResolver(),
-      chain: TestCitizenChain(),
-      transactions: TestCitizenTransactions(),
       uploadService: upload,
       chainService: chain,
       publicationConfirmer: _FakePublicationConfirmer(order),
@@ -287,8 +272,6 @@ void main() {
     final oldPostDeleter = _FakePostDeleteCoordinator(order);
     final service = SquarePublishService(
       identityResolver: _PublishIdentityResolver(),
-      chain: TestCitizenChain(),
-      transactions: TestCitizenTransactions(),
       uploadService: _FakeUploader(order),
       chainService: _FakeChainPublisher(order),
       publicationConfirmer: _FakePublicationConfirmer(order),
@@ -326,8 +309,6 @@ void main() {
     final chain = _FakeChainPublisher(order);
     final service = SquarePublishService(
       identityResolver: _PublishIdentityResolver(),
-      chain: TestCitizenChain(),
-      transactions: TestCitizenTransactions(),
       uploadService: upload,
       chainService: chain,
       publicationConfirmer: _FakePublicationConfirmer(order),
@@ -360,8 +341,6 @@ void main() {
     final chain = _FakeChainPublisher(order)..throwOnPublish = true;
     final service = SquarePublishService(
       identityResolver: _PublishIdentityResolver(),
-      chain: TestCitizenChain(),
-      transactions: TestCitizenTransactions(),
       uploadService: upload,
       chainService: chain,
       publicationConfirmer: _FakePublicationConfirmer(order),
@@ -391,8 +370,6 @@ void main() {
     final chain = _FakeChainPublisher(order)..throwAfterSign = true;
     final service = SquarePublishService(
       identityResolver: _PublishIdentityResolver(),
-      chain: TestCitizenChain(),
-      transactions: TestCitizenTransactions(),
       uploadService: _FakeUploader(order),
       chainService: chain,
       publicationConfirmer: _FakePublicationConfirmer(order),
@@ -427,8 +404,6 @@ void main() {
     final localWriter = _FakeLocalPostWriter()..throwOnSave = true;
     final service = SquarePublishService(
       identityResolver: _PublishIdentityResolver(),
-      chain: TestCitizenChain(),
-      transactions: TestCitizenTransactions(),
       uploadService: _FakeUploader(order),
       chainService: _FakeChainPublisher(order),
       publicationConfirmer: _FakePublicationConfirmer(order),
@@ -483,8 +458,6 @@ void main() {
     final contentHash = sha256.convert(manifestBytes).toString();
     final service = SquarePublishService(
       identityResolver: _PublishIdentityResolver(),
-      chain: TestCitizenChain(),
-      transactions: TestCitizenTransactions(),
       uploadService: _FakeUploader(order, manifestBytes: manifestBytes),
       chainService: _FakeChainPublisher(order),
       publicationConfirmer: _FakePublicationConfirmer.withHash(
@@ -845,7 +818,4 @@ class _PublishIdentityResolver implements FinalizedIdentityResolver {
     checks++;
     if (changed) throw StateError('身份上下文已变化');
   }
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

@@ -42,7 +42,9 @@ void main() {
 
     test('亿级大数', () {
       expect(
-          AmountFormat.formatThousands(123456789012.34), '123,456,789,012.34');
+        AmountFormat.formatThousands(123456789012.34),
+        '123,456,789,012.34',
+      );
     });
   });
 }

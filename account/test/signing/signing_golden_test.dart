@@ -11,16 +11,7 @@ const _fixturePath = 'account/test/signing/signing_domain_vectors.json';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  late TestCitizenSdkTransport encodingTransport;
-  late CitizenSdk encodingSdk;
-  setUp(() async {
-    encodingTransport = TestCitizenSdkTransport({}, useCore: true);
-    encodingSdk = await encodingTransport.open();
-  });
-  tearDown(() async {
-    await encodingSdk.close();
-    await encodingTransport.dispose();
-  });
+  TestCitizenSdkHarness();
   final file = File(_fixturePath);
   if (!file.existsSync()) {
     throw StateError('缺少原金标$_fixturePath');
@@ -41,10 +32,18 @@ void main() {
       final scalePayload = _hexToBytes(v['scale_payload_hex'] as String);
       final expectedHex = (v['message_hex'] as String).toLowerCase();
 
-      test('$name (op_tag=0x${opTag.toRadixString(16)}) → $expectedHex', () async {
-        final actual = (await CitizenSigning.encodePayload(CitizenSigningPayload.message(opTag: opTag, scalePayload: scalePayload)));
-        expect(_hexLower(actual), expectedHex);
-      });
+      test(
+        '$name (op_tag=0x${opTag.toRadixString(16)}) → $expectedHex',
+        () async {
+          final actual = (await CitizenSdk.encodePayload(
+            CitizenSigningPayload.message(
+              opTag: opTag,
+              scalePayload: scalePayload,
+            ),
+          ));
+          expect(_hexLower(actual), expectedHex);
+        },
+      );
     }
   });
 }

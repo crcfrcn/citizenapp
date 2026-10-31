@@ -1,45 +1,30 @@
-import 'package:citizen_storage/app_isar.dart'
+import 'package:citizen_storage/user_isar.dart'
     as app_store
     show Catalog, Entity, Province;
 import 'package:citizen_storage/user_isar.dart' as user_store show Follow;
 // 公权机构目录本地存储 —— Isar 实现(ADR-018 §九)。
 //
-// 省份规范顺序、版本戳与机构目录属于通用业务库；按用户 CID 归属的关注关系只存
-// UserIsar。两个数据库的事务绝不互相嵌套。
+// 省份顺序、目录、同步状态与关注关系共用UserIsar；一次读取在同一回调中完成。
 
 import 'package:isar_community/isar.dart';
-import 'package:citizen_storage/app_isar.dart';
 import 'package:citizen_storage/user_isar.dart';
 
 import 'package:citizen_citizen/public/public_institution_dto.dart';
 import 'package:citizen_citizen/public/public_institution_store.dart';
 
 class IsarPublicInstitutionStore implements PublicInstitutionStore {
-  IsarPublicInstitutionStore({Isar? isar, Isar? userIsar})
-    : _injected = isar,
-      _injectedUser = userIsar;
+  IsarPublicInstitutionStore({Isar? isar}) : _injected = isar;
 
   final Isar? _injected;
-  final Isar? _injectedUser;
 
-  Future<Isar> _db() async => _injected ?? await AppIsar.instance.db();
-
-  Future<T> _write<T>(Future<T> Function(Isar isar) action) async {
+  Future<T> _read<T>(Future<T> Function(Isar isar) action) {
     final injected = _injected;
-    if (injected != null) {
-      return injected.writeTxn(() => action(injected));
-    }
-    return AppIsar.instance.writeTxn(action);
-  }
-
-  Future<T> _userRead<T>(Future<T> Function(Isar isar) action) async {
-    final injected = _injectedUser;
     if (injected != null) return action(injected);
     return UserIsar.instance.read(action);
   }
 
-  Future<T> _userWrite<T>(Future<T> Function(Isar isar) action) async {
-    final injected = _injectedUser;
+  Future<T> _write<T>(Future<T> Function(Isar isar) action) async {
+    final injected = _injected;
     if (injected != null) {
       return injected.writeTxn(() => action(injected));
     }
@@ -79,36 +64,38 @@ class IsarPublicInstitutionStore implements PublicInstitutionStore {
 
   @override
   Future<List<String>> listProvinces() async {
-    final isar = await _db();
-    final meta = await isar.collection<app_store.Catalog>().get(0);
-    if (meta != null && meta.provinceCodes.isNotEmpty) {
-      return List<String>.unmodifiable(meta.provinceCodes);
-    }
-    // 回退:无 manifest 时用已落库机构去重省 code(顺序不保证规范)。
-    final all = await isar.collection<app_store.Entity>().where().findAll();
-    final seen = <String>{};
-    final out = <String>[];
-    for (final e in all) {
-      if (seen.add(e.provinceCode)) out.add(e.provinceCode);
-    }
-    return out;
+    return _read((isar) async {
+      final meta = await isar.collection<app_store.Catalog>().get(0);
+      if (meta != null && meta.provinceCodes.isNotEmpty) {
+        return List<String>.unmodifiable(meta.provinceCodes);
+      }
+      // 回退:无 manifest 时用已落库机构去重省 code(顺序不保证规范)。
+      final all = await isar.collection<app_store.Entity>().where().findAll();
+      final seen = <String>{};
+      final out = <String>[];
+      for (final e in all) {
+        if (seen.add(e.provinceCode)) out.add(e.provinceCode);
+      }
+      return out;
+    });
   }
 
   @override
   Future<List<String>> listCities(String provinceCode) async {
-    final isar = await _db();
-    final rows = await isar
-        .collection<app_store.Entity>()
-        .filter()
-        .provinceCodeEqualTo(provinceCode)
-        .findAll();
-    // 按 city_code 去重(市 code 省内唯一);名字由调用方查字典 join。
-    final seen = <String>{};
-    final out = <String>[];
-    for (final e in rows) {
-      if (e.cityCode.isNotEmpty && seen.add(e.cityCode)) out.add(e.cityCode);
-    }
-    return out;
+    return _read((isar) async {
+      final rows = await isar
+          .collection<app_store.Entity>()
+          .filter()
+          .provinceCodeEqualTo(provinceCode)
+          .findAll();
+      // 按 city_code 去重(市 code 省内唯一);名字由调用方查字典 join。
+      final seen = <String>{};
+      final out = <String>[];
+      for (final e in rows) {
+        if (e.cityCode.isNotEmpty && seen.add(e.cityCode)) out.add(e.cityCode);
+      }
+      return out;
+    });
   }
 
   @override
@@ -116,24 +103,26 @@ class IsarPublicInstitutionStore implements PublicInstitutionStore {
     String provinceCode,
     String cityCode,
   ) async {
-    final isar = await _db();
-    return isar
-        .collection<app_store.Entity>()
-        .filter()
-        .provinceCodeEqualTo(provinceCode)
-        .and()
-        .cityCodeEqualTo(cityCode)
-        .findAll();
+    return _read((isar) async {
+      return isar
+          .collection<app_store.Entity>()
+          .filter()
+          .provinceCodeEqualTo(provinceCode)
+          .and()
+          .cityCodeEqualTo(cityCode)
+          .findAll();
+    });
   }
 
   @override
   Future<app_store.Entity?> getByCid(String cidNumber) async {
-    final isar = await _db();
-    return isar
-        .collection<app_store.Entity>()
-        .filter()
-        .cidNumberEqualTo(cidNumber)
-        .findFirst();
+    return _read((isar) async {
+      return isar
+          .collection<app_store.Entity>()
+          .filter()
+          .cidNumberEqualTo(cidNumber)
+          .findFirst();
+    });
   }
 
   @override
@@ -141,13 +130,14 @@ class IsarPublicInstitutionStore implements PublicInstitutionStore {
     Set<String> institutionCodes,
   ) async {
     if (institutionCodes.isEmpty) return const [];
-    final isar = await _db();
-    // org_code 已建索引(ADR-028 P2);anyOf 走索引匹配,非全表扫。
-    return isar
-        .collection<app_store.Entity>()
-        .filter()
-        .anyOf(institutionCodes, (q, code) => q.orgCodeEqualTo(code))
-        .findAll();
+    return _read((isar) async {
+      // org_code 已建索引(ADR-028 P2);anyOf 走索引匹配,非全表扫。
+      return isar
+          .collection<app_store.Entity>()
+          .filter()
+          .anyOf(institutionCodes, (q, code) => q.orgCodeEqualTo(code))
+          .findAll();
+    });
   }
 
   @override
@@ -156,27 +146,29 @@ class IsarPublicInstitutionStore implements PublicInstitutionStore {
     Set<String> institutionCodes,
   ) async {
     if (institutionCodes.isEmpty) return const [];
-    final isar = await _db();
-    // province_code + org_code 均有索引;省内按码 anyOf,高效(ADR-028 P3)。
-    return isar
-        .collection<app_store.Entity>()
-        .filter()
-        .provinceCodeEqualTo(provinceCode)
-        .and()
-        .anyOf(institutionCodes, (q, code) => q.orgCodeEqualTo(code))
-        .findAll();
+    return _read((isar) async {
+      // province_code + org_code 均有索引;省内按码 anyOf,高效(ADR-028 P3)。
+      return isar
+          .collection<app_store.Entity>()
+          .filter()
+          .provinceCodeEqualTo(provinceCode)
+          .and()
+          .anyOf(institutionCodes, (q, code) => q.orgCodeEqualTo(code))
+          .findAll();
+    });
   }
 
   @override
   Future<List<app_store.Entity>> institutionsOfProvince(
     String provinceCode,
   ) async {
-    final isar = await _db();
-    return isar
-        .collection<app_store.Entity>()
-        .filter()
-        .provinceCodeEqualTo(provinceCode)
-        .findAll();
+    return _read((isar) async {
+      return isar
+          .collection<app_store.Entity>()
+          .filter()
+          .provinceCodeEqualTo(provinceCode)
+          .findAll();
+    });
   }
 
   @override
@@ -199,19 +191,21 @@ class IsarPublicInstitutionStore implements PublicInstitutionStore {
 
   @override
   Future<int> institutionCount() async {
-    final isar = await _db();
-    return isar.collection<app_store.Entity>().count();
+    return _read((isar) async {
+      return isar.collection<app_store.Entity>().count();
+    });
   }
 
   @override
   Future<String?> provinceVersion(String province) async {
-    final isar = await _db();
-    final meta = await isar
-        .collection<app_store.Province>()
-        .filter()
-        .provinceCodeEqualTo(province)
-        .findFirst();
-    return meta?.dataVersion;
+    return _read((isar) async {
+      final meta = await isar
+          .collection<app_store.Province>()
+          .filter()
+          .provinceCodeEqualTo(province)
+          .findFirst();
+      return meta?.dataVersion;
+    });
   }
 
   @override
@@ -231,7 +225,7 @@ class IsarPublicInstitutionStore implements PublicInstitutionStore {
 
   @override
   Future<void> subscribe(String cidNumber, String peerCid) async {
-    await _userWrite((isar) async {
+    await _write((isar) async {
       final existing = await isar
           .collection<user_store.Follow>()
           .getByCidNumberPeerCid(cidNumber, peerCid);
@@ -245,7 +239,7 @@ class IsarPublicInstitutionStore implements PublicInstitutionStore {
 
   @override
   Future<void> unsubscribe(String cidNumber, String peerCid) async {
-    await _userWrite((isar) async {
+    await _write((isar) async {
       final existing = await isar
           .collection<user_store.Follow>()
           .getByCidNumberPeerCid(cidNumber, peerCid);
@@ -257,7 +251,7 @@ class IsarPublicInstitutionStore implements PublicInstitutionStore {
 
   @override
   Future<bool> isSubscribed(String cidNumber, String peerCid) async {
-    return _userRead((isar) async {
+    return _read((isar) async {
       final hit = await isar
           .collection<user_store.Follow>()
           .getByCidNumberPeerCid(cidNumber, peerCid);
@@ -266,24 +260,21 @@ class IsarPublicInstitutionStore implements PublicInstitutionStore {
   }
 
   @override
-  Future<List<app_store.Entity>> listSubscribed(String cidNumber) async {
-    final subs = await _userRead(
-      (isar) async => isar
+  Future<List<app_store.Entity>> listSubscribed(String cidNumber) {
+    return _read((isar) async {
+      final subs = await isar
           .collection<user_store.Follow>()
           .filter()
           .cidNumberEqualTo(cidNumber)
-          .findAll(),
-    );
-    final isar = await _db();
-    final out = <app_store.Entity>[];
-    for (final sub in subs) {
-      final inst = await isar
-          .collection<app_store.Entity>()
-          .filter()
-          .cidNumberEqualTo(sub.peerCid)
-          .findFirst();
-      if (inst != null) out.add(inst);
-    }
-    return out;
+          .findAll();
+      final out = <app_store.Entity>[];
+      for (final sub in subs) {
+        final inst = await isar.collection<app_store.Entity>().getByCidNumber(
+          sub.peerCid,
+        );
+        if (inst != null) out.add(inst);
+      }
+      return out;
+    });
   }
 }

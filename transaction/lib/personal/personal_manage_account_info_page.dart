@@ -1,5 +1,5 @@
 import 'package:citizen_transaction/personal/personal_local_store.dart';
-import 'package:citizen_storage/wallet_isar.dart'
+import 'package:citizen_storage/user_isar.dart'
     as wallet_store
     show Account, Action;
 import 'package:citizen_wallet/account_balance_snapshot_store.dart';
@@ -14,7 +14,7 @@ import 'package:flutter/services.dart';
 import 'package:isar_community/isar.dart';
 import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 import 'package:citizen_citizen/account_derivation.dart';
-import 'package:citizen_storage/wallet_isar.dart' hide Group;
+import 'package:citizen_storage/user_isar.dart' hide Group;
 import 'package:citizen_transaction/multisig/multisig_transfer_entry.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/administrators/admin_account.dart';
@@ -54,7 +54,7 @@ class PersonalManageAccountInfoPage extends StatefulWidget {
 
 class _PersonalManageAccountInfoPageState
     extends State<PersonalManageAccountInfoPage> {
-  late final CitizenChain _chain;
+  late final CitizenSdk _chain;
   late final PersonalManageService _personalManageService;
   bool _dependenciesReady = false;
 
@@ -82,10 +82,10 @@ class _PersonalManageAccountInfoPageState
     super.didChangeDependencies();
     if (_dependenciesReady) return;
     final sdk = context.read<CitizenSdk>();
-    _chain = sdk.chain;
+    _chain = sdk;
     _personalManageService = PersonalManageService(
       chain: _chain,
-      transactions: sdk.transactions,
+      transactions: sdk,
     );
     _dependenciesReady = true;
     _load();
@@ -102,7 +102,7 @@ class _PersonalManageAccountInfoPageState
 
   Future<void> _loadFromLocal() async {
     try {
-      final local = await WalletIsar.instance.read((isar) async {
+      final local = await UserIsar.instance.read((isar) async {
         final entity = await isar
             .collection<wallet_store.Account>()
             .filter()
@@ -216,7 +216,7 @@ class _PersonalManageAccountInfoPageState
           : await _resolveBalance(info.status, force: force);
       final now = DateTime.now().millisecondsSinceEpoch;
 
-      await WalletIsar.instance.writeTxn((isar) async {
+      await UserIsar.instance.writeTxn((isar) async {
         await PersonalMultisigLocalState.putStatusInTxn(
           isar,
           widget.institution.accountId,
@@ -269,7 +269,7 @@ class _PersonalManageAccountInfoPageState
         return null;
       }
     }
-    return WalletIsar.instance.read(_readPendingBalanceFromIsar);
+    return UserIsar.instance.read(_readPendingBalanceFromIsar);
   }
 
   Future<double?> _readPendingBalanceFromIsar(Isar isar) async {
@@ -401,7 +401,7 @@ class _PersonalManageAccountInfoPageState
 
   Future<List<CitizenWalletStateAccount>> _getAdminWallets() async {
     final wallets =
-        (await context.read<CitizenSdk>().wallet.getState().result).accounts;
+        (await context.read<CitizenSdk>().getWalletState().result).accounts;
     final adminSet = _admins.map((admin) => admin.accountId).toSet();
     return wallets.where((w) {
       return adminSet.contains(w.accountId);
@@ -409,7 +409,7 @@ class _PersonalManageAccountInfoPageState
   }
 
   Future<void> _removeFromLocal() async {
-    await WalletIsar.instance.writeTxn((isar) async {
+    await UserIsar.instance.writeTxn((isar) async {
       await isar
           .collection<wallet_store.Account>()
           .where()
@@ -533,8 +533,8 @@ class _PersonalManageAccountInfoPageState
       final publicKeyBytes = _hexDecode(hot.accountId);
       final sdk = context.read<CitizenSdk>();
       await InternalVoteService(
-        chain: sdk.chain,
-        transactions: sdk.transactions,
+        chain: sdk,
+        transactions: sdk,
       ).submit(
         proposalId: pid,
         approve: false,
@@ -863,7 +863,7 @@ class _PersonalManageAccountInfoPageState
   /// (届时所有 admin 都按"非创建者"渲染,语义略损但不阻塞主流程)。
   Future<String?> _resolvePersonalCreatorAccountId() async {
     try {
-      final entity = await WalletIsar.instance.read((isar) {
+      final entity = await UserIsar.instance.read((isar) {
         return isar
             .collection<wallet_store.Account>()
             .filter()

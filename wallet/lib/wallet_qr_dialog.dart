@@ -13,7 +13,7 @@ import 'package:citizen_system/theme/app_layout.dart';
 /// 本机账户名称和 SS58 地址只用于弹窗展示，绝不进入二维码载荷；账户授权与关系主键
 /// 始终是规范 `account_id`。
 @visibleForTesting
-Future<String> buildWalletAccountQrData(CitizenQr qr, String accountId) =>
+Future<String> buildWalletAccountQrData(CitizenSdk qr, String accountId) =>
     qr.encodeAccountId(accountId);
 
 /// 打开冷热钱包共用的账户二维码弹窗。
@@ -34,7 +34,7 @@ Future<void> showWalletQrDialog(
 
   final accountAddress = ss58FromAccountIdText(normalizedAccountId);
   final qrData = await buildWalletAccountQrData(
-    context.read<CitizenSdk>().qr,
+    context.read<CitizenSdk>(),
     normalizedAccountId,
   );
   if (!context.mounted) return;

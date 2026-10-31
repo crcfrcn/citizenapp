@@ -85,11 +85,11 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
     if (_dependenciesReady) return;
     final sdk = context.read<CitizenSdk>();
     _service = RuntimeUpgradeService(
-      chain: sdk.chain,
-      transactions: sdk.transactions,
+      chain: sdk,
+      transactions: sdk,
     );
-    _proposalQueryService = ProposalQueryService(chain: sdk.chain);
-    _adminService = InstitutionAdminService(chain: sdk.chain);
+    _proposalQueryService = ProposalQueryService(chain: sdk);
+    _adminService = InstitutionAdminService(chain: sdk);
     _dependenciesReady = true;
     _load();
   }

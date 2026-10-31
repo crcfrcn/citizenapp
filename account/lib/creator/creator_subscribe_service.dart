@@ -10,7 +10,7 @@ import 'package:citizen_account/identity/finalized_identity_resolver.dart';
 import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_account/membership/subscription_chain.dart';
 import 'package:citizen_network/hex_codec.dart' show hexToBytes;
-import 'package:citizen_storage/wallet_isar.dart' show Member;
+import 'package:citizen_storage/user_isar.dart' show Member;
 
 class CreatorSubscribeException implements Exception {
   const CreatorSubscribeException(this.message);
@@ -25,25 +25,64 @@ class CreatorSubscribeException implements Exception {
 /// runtime 根据共识时间戳完成，CitizenApp 不提交续费或周期确认。
 class CreatorSubscribeService {
   CreatorSubscribeService({
-    required CitizenSdkWallet wallet,
-    required CitizenChain chain,
-    required CitizenTransactions transactions,
+    CitizenSdk? wallet,
+    CitizenSdk? chain,
+    CitizenSdk? transactions,
     required FinalizedIdentityResolver identityResolver,
     required SquareSessionProvider sessionProvider,
     SubscriptionChain? subscriptionChain,
     CreatorApi? api,
+    CitizenSdkOperation<CitizenWalletState> Function()? getWalletState,
+    Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<List<Uint8List?>> Function(
+      CitizenBlockRef block,
+      List<Uint8List> keys,
+    )?
+    getStorageBatch,
+    Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
+    getStorage,
+    Future<CitizenPreparedTransaction> Function(
+      Uint8List sourceAccountId,
+      Uint8List callData,
+    )?
+    prepareTransaction,
+    Future<CitizenTransactionExecution> Function(String preparationId)?
+    executePreparedTransaction,
+    Future<void> Function(String executionId)?
+    cancelPreparedTransactionExecution,
+    Future<CitizenTransactionExecutionCompleted> Function(
+      String executionId,
+      String response,
+    )?
+    consumePreparedTransactionQrResponse,
   }) : _subscriptionChain =
            subscriptionChain ??
-           SubscriptionChain(chain: chain, transactions: transactions),
-       _wallet = wallet,
+           SubscriptionChain(
+             chain: chain,
+             transactions: transactions,
+             getFinalizedHead: getFinalizedHead,
+             getStorageBatch: getStorageBatch,
+             getStorage: getStorage,
+             prepareTransaction: prepareTransaction,
+             executePreparedTransaction: executePreparedTransaction,
+             cancelPreparedTransactionExecution:
+                 cancelPreparedTransactionExecution,
+             consumePreparedTransactionQrResponse:
+                 consumePreparedTransactionQrResponse,
+           ),
        _identityResolver = identityResolver,
        _session = sessionProvider,
-       _api = api ?? CreatorApiHttp() {
+       _api = api ?? CreatorApiHttp(),
+       _getWalletState =
+           getWalletState ??
+           wallet?.getWalletState ??
+           (() => throw StateError('未配置getWalletState')) {
     unawaited(_retryPendingMirrors());
   }
+  final CitizenSdkOperation<CitizenWalletState> Function() _getWalletState;
 
   final SubscriptionChain _subscriptionChain;
-  final CitizenSdkWallet _wallet;
+
   final FinalizedIdentityResolver _identityResolver;
   final SquareSessionProvider _session;
   final CreatorApi _api;
@@ -152,7 +191,7 @@ class CreatorSubscribeService {
   Future<CitizenWalletStateAccount> _requireSigningAccount(
     String accountId,
   ) async {
-    final account = (await _wallet.getState().result).defaultAccount;
+    final account = (await _getWalletState().result).defaultAccount;
     if (account == null || account.accountId != accountId) {
       throw const CreatorSubscribeException('当前身份与默认钱包账户不一致，已拒绝签名');
     }

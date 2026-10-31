@@ -35,7 +35,7 @@ class ChainProgressBanner extends StatefulWidget {
   final ValueChanged<CitizenChainSyncStatus?>? onProgressChanged;
   final ValueChanged<String?>? onErrorChanged;
 
-  /// 专项测试注入；生产直接读取 [CitizenChain.getSyncStatus]。
+  /// 专项测试注入；生产直接读取 [CitizenSdk.getSyncStatus]。
   final Future<CitizenChainSyncStatus> Function()? progressLoader;
 
   @override
@@ -97,7 +97,7 @@ class _ChainProgressBannerState extends State<ChainProgressBanner>
 
     try {
       final progress = await (widget.progressLoader?.call() ??
-          context.read<CitizenSdk>().chain.getSyncStatus());
+          context.read<CitizenSdk>().getSyncStatus());
       if (!mounted) return;
       _logProgressTransition(progress);
       setState(() {

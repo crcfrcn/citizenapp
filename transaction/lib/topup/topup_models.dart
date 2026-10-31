@@ -17,7 +17,7 @@ enum TopupNetwork {
   final int? evmId;
   String get label => switch (this) {
     ethereum => 'Ethereum/以太坊链',
-    base => 'Base/Base链',
+    base => 'Base/贝斯链',
     bnb => 'BNB/币安链',
     tron => 'Tron/波场链',
     solana => 'Solana/索拉纳链',
@@ -182,7 +182,7 @@ class TopupPackage {
       payments[rail.key] ?? (throw const FormatException('该套餐不支持当前币轨'));
   factory TopupPackage.fromJson(Map<String, dynamic> j) {
     final id = j['package_id'];
-    if (id != 'pkg_15' && id != 'pkg_1400') {
+    if (id != 'pkg_10' && id != 'pkg_900') {
       throw const FormatException('不支持自定义套餐');
     }
     final payment = j['payments'];
@@ -199,14 +199,14 @@ class TopupPackage {
       if (amounts.containsKey(key)) throw const FormatException('币轨报价重复');
       final a = decimal(raw['pay_amount']);
       final expected =
-          BigInt.from(id == 'pkg_15' ? 15 : 1400) *
+          BigInt.from(id == 'pkg_10' ? 10 : 900) *
           BigInt.from(10).pow(n == TopupNetwork.bnb ? 18 : 6);
       if (BigInt.parse(a) != expected) throw const FormatException('套餐金额无效');
       amounts[key] = a;
     }
     if (amounts.length != 6 ||
-        j['pay_display'] != (id == 'pkg_15' ? '15' : '1400') ||
-        j['coin_fen'] != (id == 'pkg_15' ? '1000000' : '100000000') ||
+        j['pay_display'] != (id == 'pkg_10' ? '10' : '900') ||
+        j['coin_fen'] != (id == 'pkg_10' ? '1000000' : '100000000') ||
         j['coin_display'] is! String) {
       throw const FormatException('套餐配置无效');
     }
@@ -265,7 +265,7 @@ class TopupConfig {
     packs.sort(
       (a, b) => a.packageId == b.packageId
           ? 0
-          : a.packageId == 'pkg_15'
+          : a.packageId == 'pkg_10'
           ? -1
           : 1,
     );

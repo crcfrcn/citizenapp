@@ -1,5 +1,5 @@
 import 'package:citizen_system/security/account_security_exception.dart';
-import 'package:citizen_storage/wallet_isar.dart'
+import 'package:citizen_storage/user_isar.dart'
     as wallet_store
     show Account;
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -15,7 +15,7 @@ import 'package:flutter/services.dart';
 import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 
 import 'package:isar_community/isar.dart';
-import 'package:citizen_storage/wallet_isar.dart' hide Group;
+import 'package:citizen_storage/user_isar.dart' hide Group;
 import 'package:citizen_transaction/personal/personal_proposal_history_service.dart';
 import 'package:citizen_transaction/amount_format.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
@@ -102,7 +102,7 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
     try {
       final snapshot =
           await AccountBalanceSnapshotStore.forChain(
-            context.read<CitizenSdk>().chain,
+            context.read<CitizenSdk>(),
           ).getAccountBalance(
             widget.institution.mainAccountId,
             forceRefresh: forceRefresh,
@@ -231,7 +231,7 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
             requiredFeeYuan:
                 MultisigTransferBalanceGuard.onchainOperationFeeYuan,
             actionLabel: '发起个人多签转账提案',
-            chain: sdk.chain,
+            chain: sdk,
           )
         : await MultisigTransferBalanceGuard.checkInstitutionFeeAccountBalance(
             feeAccountId: accounts.feeAccountId,
@@ -239,7 +239,7 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
             additionalDebitYuan: OnchainTransferCall.estimateTransferFeeYuan(
               amountYuan,
             ),
-            chain: sdk.chain,
+            chain: sdk,
           );
     if (balanceBlockedReason != null) {
       if (!mounted) return;
@@ -254,8 +254,8 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
       final signerPublicKey = Uint8List.fromList(_hexToBytes(wallet.accountId));
 
       final service = MultisigTransferService(
-        chain: sdk.chain,
-        transactions: sdk.transactions,
+        chain: sdk,
+        transactions: sdk,
       );
       final submitResult = await service.submitProposeTransfer(
         institution: widget.institution,
@@ -312,12 +312,12 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
     required double amountYuan,
   }) async {
     try {
-      final chain = context.read<CitizenSdk>().chain;
+      final chain = context.read<CitizenSdk>();
       if (!isPersonalAccountIdentity(widget.institution.cidNumber)) {
         return;
       }
       final accountId = widget.institution.accountId;
-      final personal = await WalletIsar.instance.read((isar) {
+      final personal = await UserIsar.instance.read((isar) {
         return isar
             .collection<wallet_store.Account>()
             .filter()

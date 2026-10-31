@@ -20,19 +20,19 @@ Future<Uint8List> encodeMlsDeviceBindingPayload({
     throw const FormatException('MLS设备登记载荷无效');
   }
   return Uint8List.fromList([
-    ...await CitizenSigning.encodePayload(
+    ...await CitizenSdk.encodePayload(
       CitizenSigningPayload.scaleString(cidNumber),
     ),
-    ...await CitizenSigning.encodePayload(
+    ...await CitizenSdk.encodePayload(
       CitizenSigningPayload.u64Le(BigInt.from(bindRev)),
     ),
-    ...await CitizenSigning.encodePayload(
+    ...await CitizenSdk.encodePayload(
       CitizenSigningPayload.scaleString(accountId),
     ),
-    ...await CitizenSigning.encodePayload(
+    ...await CitizenSdk.encodePayload(
       CitizenSigningPayload.scaleString(publicKey),
     ),
-    ...await CitizenSigning.encodePayload(
+    ...await CitizenSdk.encodePayload(
       CitizenSigningPayload.u64Le(BigInt.from(issuedAtMillis)),
     ),
   ]);
@@ -44,7 +44,7 @@ Future<Uint8List> buildMlsDeviceBindingSigningMessage(
   String accountId,
   String publicKey,
   int issuedAt,
-) async => CitizenSigning.encodePayload(
+) async => CitizenSdk.encodePayload(
   CitizenSigningPayload.message(
     opTag: kOpSignMlsDeviceBind,
     scalePayload: await encodeMlsDeviceBindingPayload(

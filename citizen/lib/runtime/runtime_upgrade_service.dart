@@ -17,14 +17,98 @@ import 'package:citizen_citizen/proposal/proposal_query_service.dart';
 /// 负责协议升级提案详情查询，并保留现有详情页投票提交能力。
 class RuntimeUpgradeService {
   RuntimeUpgradeService({
-    required CitizenChain chain,
-    required CitizenTransactions transactions,
-  }) : _chain = chain,
-       _transactions = transactions,
-       _proposalQuery = ProposalQueryService(chain: chain);
+    CitizenSdk? chain,
+    CitizenSdk? transactions,
+    Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
+    getStorage,
+    Future<List<Uint8List?>> Function(
+      CitizenBlockRef block,
+      List<Uint8List> keys,
+    )?
+    getStorageBatch,
+    Future<CitizenPreparedTransaction> Function(
+      Uint8List sourceAccountId,
+      Uint8List callData,
+    )?
+    prepareTransaction,
+    Future<CitizenTransactionExecution> Function(String preparationId)?
+    executePreparedTransaction,
+    Future<void> Function(String executionId)?
+    cancelPreparedTransactionExecution,
+    Future<CitizenTransactionExecutionCompleted> Function(
+      String executionId,
+      String response,
+    )?
+    consumePreparedTransactionQrResponse,
+    Future<Uint8List?> Function(CitizenBlockRef block)? getSystemEvents,
+    Future<CitizenRuntimeContext> Function(CitizenBlockRef block)?
+    getRuntimeContext,
+  }) : _proposalQuery = ProposalQueryService(
+         chain: chain,
+         getSystemEvents: getSystemEvents,
+         getRuntimeContext: getRuntimeContext,
+         getFinalizedHead: getFinalizedHead,
+         getStorage: getStorage,
+         getStorageBatch: getStorageBatch,
+       ),
+       _getFinalizedHead =
+           getFinalizedHead ??
+           chain?.getFinalizedHead ??
+           (() => throw StateError('未配置getFinalizedHead')),
+       _getStorage =
+           getStorage ??
+           chain?.getStorage ??
+           ((CitizenBlockRef block, Uint8List key) =>
+               throw StateError('未配置getStorage')),
+       _getStorageBatch =
+           getStorageBatch ??
+           chain?.getStorageBatch ??
+           ((CitizenBlockRef block, List<Uint8List> keys) =>
+               throw StateError('未配置getStorageBatch')),
+       _prepareTransaction =
+           prepareTransaction ??
+           transactions?.prepareTransaction ??
+           ((Uint8List sourceAccountId, Uint8List callData) =>
+               throw StateError('未配置prepareTransaction')),
+       _executePreparedTransaction =
+           executePreparedTransaction ??
+           transactions?.executePreparedTransaction ??
+           ((String preparationId) =>
+               throw StateError('未配置executePreparedTransaction')),
+       _cancelPreparedTransactionExecution =
+           cancelPreparedTransactionExecution ??
+           transactions?.cancelPreparedTransactionExecution ??
+           ((String executionId) =>
+               throw StateError('未配置cancelPreparedTransactionExecution')),
+       _consumePreparedTransactionQrResponse =
+           consumePreparedTransactionQrResponse ??
+           transactions?.consumePreparedTransactionQrResponse ??
+           ((String executionId, String response) =>
+               throw StateError('未配置consumePreparedTransactionQrResponse'));
+  final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)
+  _getStorage;
+  final Future<List<Uint8List?>> Function(
+    CitizenBlockRef block,
+    List<Uint8List> keys,
+  )
+  _getStorageBatch;
+  final Future<CitizenPreparedTransaction> Function(
+    Uint8List sourceAccountId,
+    Uint8List callData,
+  )
+  _prepareTransaction;
+  final Future<CitizenTransactionExecution> Function(String preparationId)
+  _executePreparedTransaction;
+  final Future<void> Function(String executionId)
+  _cancelPreparedTransactionExecution;
+  final Future<CitizenTransactionExecutionCompleted> Function(
+    String executionId,
+    String response,
+  )
+  _consumePreparedTransactionQrResponse;
 
-  final CitizenChain _chain;
-  final CitizenTransactions _transactions;
   final ProposalQueryService _proposalQuery;
 
   // ──── 常量 ────
@@ -443,31 +527,22 @@ class RuntimeUpgradeService {
     )
     externalSigning,
   }) async {
-    final prepared = await _transactions.prepareTransaction(
-      signerPublicKey,
-      callData,
-    );
-    final started = await _transactions.executePreparedTransaction(
-      prepared.preparationId,
-    );
+    final prepared = await _prepareTransaction(signerPublicKey, callData);
+    final started = await _executePreparedTransaction(prepared.preparationId);
     CitizenTransactionExecutionCompleted completed;
     if (started is CitizenTransactionExternalSigningPending) {
       final String? response;
       try {
         response = await externalSigning(started);
       } catch (_) {
-        await _transactions.cancelPreparedTransactionExecution(
-          started.executionId,
-        );
+        await _cancelPreparedTransactionExecution(started.executionId);
         rethrow;
       }
       if (response == null) {
-        await _transactions.cancelPreparedTransactionExecution(
-          started.executionId,
-        );
+        await _cancelPreparedTransactionExecution(started.executionId);
         throw StateError('联合投票签名已取消');
       }
-      completed = await _transactions.consumePreparedTransactionQrResponse(
+      completed = await _consumePreparedTransactionQrResponse(
         started.executionId,
         response,
       );
@@ -527,11 +602,11 @@ class RuntimeUpgradeService {
     String keyHex, {
     CitizenBlockRef? block,
   }) async {
-    final finalized = block ?? await _chain.getFinalizedHead();
+    final finalized = block ?? await _getFinalizedHead();
     if (finalized.finality != CitizenBlockFinality.finalized) {
       throw StateError('联合投票查询需要finalized块');
     }
-    return _chain.getStorage(finalized, Uint8List.fromList(_hexDecode(keyHex)));
+    return _getStorage(finalized, Uint8List.fromList(_hexDecode(keyHex)));
   }
 
   Future<Map<String, Uint8List?>> _fetchStorageBatchChunked(
@@ -540,12 +615,12 @@ class RuntimeUpgradeService {
   }) async {
     final keys = keyHexes.toSet().toList(growable: false);
     if (keys.isEmpty) return const <String, Uint8List?>{};
-    final finalized = await _chain.getFinalizedHead();
+    final finalized = await _getFinalizedHead();
     final result = <String, Uint8List?>{};
     for (var offset = 0; offset < keys.length; offset += chunkSize) {
       final end = (offset + chunkSize).clamp(0, keys.length);
       final chunk = keys.sublist(offset, end);
-      final values = await _chain.getStorageBatch(
+      final values = await _getStorageBatch(
         finalized,
         chunk
             .map((key) => Uint8List.fromList(_hexDecode(key)))

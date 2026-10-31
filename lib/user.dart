@@ -47,6 +47,7 @@ class MyTab extends StatefulWidget {
     super.key,
     this.showSettingsUpdateDot = false,
     this.wallet,
+    this.walletStateReader,
     this.badgeSnapshotStore,
     this.profileApi,
     this.profileCache,
@@ -59,7 +60,8 @@ class MyTab extends StatefulWidget {
   });
 
   final bool showSettingsUpdateDot;
-  final CitizenSdkWallet? wallet;
+  final CitizenSdk? wallet;
+  final CitizenSdkOperation<CitizenWalletState> Function()? walletStateReader;
   final IdentityBadgeSnapshotStore? badgeSnapshotStore;
   final CitizenProfileApi? profileApi;
   final CitizenProfileCache? profileCache;
@@ -75,7 +77,7 @@ class MyTab extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<MyTab> {
-  late final CitizenSdkWallet _wallet;
+  late final CitizenSdk _wallet;
   late final IdentityBadgeSnapshotStore _badgeSnapshotStore;
   late final CitizenProfileApi _profileApi;
   late final CitizenProfileCache _profileCache;
@@ -167,11 +169,11 @@ class _ProfilePageState extends State<MyTab> {
     final injectedSession = widget.sessionProvider;
     final injectedSubscription = widget.subscriptionService;
     final injectedCurrentUser = widget.currentUserContext;
-    if (injectedWallet != null &&
+    if ((injectedWallet != null || widget.walletStateReader != null) &&
         injectedSession != null &&
         injectedSubscription != null &&
         injectedCurrentUser != null) {
-      _wallet = injectedWallet;
+      _wallet = injectedWallet ?? context.read<CitizenSdk>();
       _sessionProvider = injectedSession;
       _subscriptionService = injectedSubscription;
       _currentUserContext = injectedCurrentUser;
@@ -181,7 +183,7 @@ class _ProfilePageState extends State<MyTab> {
     }
     final sdk = context.read<CitizenSdk>();
     final accountSecurity = context.read<AccountSecurityService>();
-    _wallet = widget.wallet ?? sdk.wallet;
+    _wallet = widget.wallet ?? sdk;
     _currentUserContext =
         widget.currentUserContext ?? context.read<CurrentUserContext>();
     _sessionProvider =
@@ -190,8 +192,8 @@ class _ProfilePageState extends State<MyTab> {
         widget.subscriptionService ??
         SubscriptionService(
           wallet: _wallet,
-          chain: sdk.chain,
-          transactions: sdk.transactions,
+          chain: sdk,
+          transactions: sdk,
           identityResolver: context.read<FinalizedIdentityResolver>(),
           sessionProvider: _sessionProvider,
           api: widget.squareApi ?? SquareApiClient(),
@@ -237,7 +239,10 @@ class _ProfilePageState extends State<MyTab> {
   Future<void> _onWalletsChanged() async {
     // revision 同时覆盖钱包列表与 finalized CID 绑定。注册前后默认账户可能完全相同，
     // 不能只比钱包 account_id；必须重读并比较 cid_number + 身份账户。
-    final wallet = (await _wallet.getState().result).defaultAccount;
+    final wallet =
+        (await (widget.walletStateReader?.call() ?? _wallet.getWalletState())
+                .result)
+            .defaultAccount;
     final identity = await _currentUserContext.resolve();
     if (!mounted) return;
     final identityAccountId = identity?.accountId ?? wallet?.accountId ?? '';
@@ -256,7 +261,10 @@ class _ProfilePageState extends State<MyTab> {
 
   Future<void> _loadState({bool refreshRemote = false}) async {
     final generation = ++_loadGeneration;
-    final defaultWallet = (await _wallet.getState().result).defaultAccount;
+    final defaultWallet =
+        (await (widget.walletStateReader?.call() ?? _wallet.getWalletState())
+                .result)
+            .defaultAccount;
     // CID 是快照归属主键；当前绑定账户只负责链读和签名。
     final identity = await _currentUserContext.resolve();
     final identityAccountId =
@@ -505,7 +513,7 @@ class _ProfilePageState extends State<MyTab> {
   Future<void> _openMyUserCode() async {
     final identity = await _resolveOwnedIdentity();
     if (!mounted || identity == null) return;
-    final document = await context.read<CitizenSdk>().qr.encodeDocument(
+    final document = await context.read<CitizenSdk>().encodeDocument(
       CitizenQrContent.userContact(
         cidNumber: identity.cidNumber.trim(),
         accountId: identity.accountId,

@@ -4,6 +4,10 @@ part of 'social_isar.dart';
 
 // ignore_for_file: experimental_member_use
 
+// **************************************************************************
+// IsarCollectionGenerator
+// **************************************************************************
+
 // coverage:ignore-file
 // ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
 
@@ -25,11 +29,7 @@ const ReplySchema = CollectionSchema(
       name: r'page_data',
       type: IsarType.string,
     ),
-    r'pending_data': PropertySchema(
-      id: 2,
-      name: r'pending_data',
-      type: IsarType.string,
-    ),
+    r'pending': PropertySchema(id: 2, name: r'pending', type: IsarType.string),
     r'post_id': PropertySchema(id: 3, name: r'post_id', type: IsarType.string),
   },
 
@@ -37,7 +37,7 @@ const ReplySchema = CollectionSchema(
   serialize: _replySerialize,
   deserialize: _replyDeserialize,
   deserializeProp: _replyDeserializeProp,
-  idName: r'row_id',
+  idName: r'id',
   indexes: {
     r'cid_number_post_id': IndexSchema(
       id: -8377155717331402316,
@@ -105,10 +105,10 @@ Reply _replyDeserialize(
 ) {
   final object = Reply();
   object.cidNumber = reader.readString(offsets[0]);
+  object.rowId = id;
   object.pageData = reader.readString(offsets[1]);
   object.pendingData = reader.readStringOrNull(offsets[2]);
   object.postId = reader.readString(offsets[3]);
-  object.rowId = id;
   return object;
 }
 
@@ -594,6 +594,63 @@ extension ReplyQueryFilter on QueryBuilder<Reply, Reply, QFilterCondition> {
     });
   }
 
+  QueryBuilder<Reply, Reply, QAfterFilterCondition> rowIdEqualTo(Id value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'id', value: value),
+      );
+    });
+  }
+
+  QueryBuilder<Reply, Reply, QAfterFilterCondition> rowIdGreaterThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Reply, Reply, QAfterFilterCondition> rowIdLessThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Reply, Reply, QAfterFilterCondition> rowIdBetween(
+    Id lower,
+    Id upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'id',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+        ),
+      );
+    });
+  }
+
   QueryBuilder<Reply, Reply, QAfterFilterCondition> pageDataEqualTo(
     String value, {
     bool caseSensitive = true,
@@ -743,7 +800,7 @@ extension ReplyQueryFilter on QueryBuilder<Reply, Reply, QFilterCondition> {
   QueryBuilder<Reply, Reply, QAfterFilterCondition> pendingDataIsNull() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        const FilterCondition.isNull(property: r'pending_data'),
+        const FilterCondition.isNull(property: r'pending'),
       );
     });
   }
@@ -751,7 +808,7 @@ extension ReplyQueryFilter on QueryBuilder<Reply, Reply, QFilterCondition> {
   QueryBuilder<Reply, Reply, QAfterFilterCondition> pendingDataIsNotNull() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        const FilterCondition.isNotNull(property: r'pending_data'),
+        const FilterCondition.isNotNull(property: r'pending'),
       );
     });
   }
@@ -763,7 +820,7 @@ extension ReplyQueryFilter on QueryBuilder<Reply, Reply, QFilterCondition> {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.equalTo(
-          property: r'pending_data',
+          property: r'pending',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -780,7 +837,7 @@ extension ReplyQueryFilter on QueryBuilder<Reply, Reply, QFilterCondition> {
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'pending_data',
+          property: r'pending',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -797,7 +854,7 @@ extension ReplyQueryFilter on QueryBuilder<Reply, Reply, QFilterCondition> {
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'pending_data',
+          property: r'pending',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -815,7 +872,7 @@ extension ReplyQueryFilter on QueryBuilder<Reply, Reply, QFilterCondition> {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'pending_data',
+          property: r'pending',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -833,7 +890,7 @@ extension ReplyQueryFilter on QueryBuilder<Reply, Reply, QFilterCondition> {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.startsWith(
-          property: r'pending_data',
+          property: r'pending',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -848,7 +905,7 @@ extension ReplyQueryFilter on QueryBuilder<Reply, Reply, QFilterCondition> {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.endsWith(
-          property: r'pending_data',
+          property: r'pending',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -863,7 +920,7 @@ extension ReplyQueryFilter on QueryBuilder<Reply, Reply, QFilterCondition> {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.contains(
-          property: r'pending_data',
+          property: r'pending',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -878,7 +935,7 @@ extension ReplyQueryFilter on QueryBuilder<Reply, Reply, QFilterCondition> {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.matches(
-          property: r'pending_data',
+          property: r'pending',
           wildcard: pattern,
           caseSensitive: caseSensitive,
         ),
@@ -889,7 +946,7 @@ extension ReplyQueryFilter on QueryBuilder<Reply, Reply, QFilterCondition> {
   QueryBuilder<Reply, Reply, QAfterFilterCondition> pendingDataIsEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'pending_data', value: ''),
+        FilterCondition.equalTo(property: r'pending', value: ''),
       );
     });
   }
@@ -897,7 +954,7 @@ extension ReplyQueryFilter on QueryBuilder<Reply, Reply, QFilterCondition> {
   QueryBuilder<Reply, Reply, QAfterFilterCondition> pendingDataIsNotEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'pending_data', value: ''),
+        FilterCondition.greaterThan(property: r'pending', value: ''),
       );
     });
   }
@@ -1047,63 +1104,6 @@ extension ReplyQueryFilter on QueryBuilder<Reply, Reply, QFilterCondition> {
       );
     });
   }
-
-  QueryBuilder<Reply, Reply, QAfterFilterCondition> rowIdEqualTo(Id value) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'row_id', value: value),
-      );
-    });
-  }
-
-  QueryBuilder<Reply, Reply, QAfterFilterCondition> rowIdGreaterThan(
-    Id value, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'row_id',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Reply, Reply, QAfterFilterCondition> rowIdLessThan(
-    Id value, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'row_id',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Reply, Reply, QAfterFilterCondition> rowIdBetween(
-    Id lower,
-    Id upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'row_id',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-        ),
-      );
-    });
-  }
 }
 
 extension ReplyQueryObject on QueryBuilder<Reply, Reply, QFilterCondition> {}
@@ -1137,13 +1137,13 @@ extension ReplyQuerySortBy on QueryBuilder<Reply, Reply, QSortBy> {
 
   QueryBuilder<Reply, Reply, QAfterSortBy> sortByPendingData() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'pending_data', Sort.asc);
+      return query.addSortBy(r'pending', Sort.asc);
     });
   }
 
   QueryBuilder<Reply, Reply, QAfterSortBy> sortByPendingDataDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'pending_data', Sort.desc);
+      return query.addSortBy(r'pending', Sort.desc);
     });
   }
 
@@ -1173,6 +1173,18 @@ extension ReplyQuerySortThenBy on QueryBuilder<Reply, Reply, QSortThenBy> {
     });
   }
 
+  QueryBuilder<Reply, Reply, QAfterSortBy> thenByRowId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'id', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Reply, Reply, QAfterSortBy> thenByRowIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'id', Sort.desc);
+    });
+  }
+
   QueryBuilder<Reply, Reply, QAfterSortBy> thenByPageData() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'page_data', Sort.asc);
@@ -1187,13 +1199,13 @@ extension ReplyQuerySortThenBy on QueryBuilder<Reply, Reply, QSortThenBy> {
 
   QueryBuilder<Reply, Reply, QAfterSortBy> thenByPendingData() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'pending_data', Sort.asc);
+      return query.addSortBy(r'pending', Sort.asc);
     });
   }
 
   QueryBuilder<Reply, Reply, QAfterSortBy> thenByPendingDataDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'pending_data', Sort.desc);
+      return query.addSortBy(r'pending', Sort.desc);
     });
   }
 
@@ -1206,18 +1218,6 @@ extension ReplyQuerySortThenBy on QueryBuilder<Reply, Reply, QSortThenBy> {
   QueryBuilder<Reply, Reply, QAfterSortBy> thenByPostIdDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'post_id', Sort.desc);
-    });
-  }
-
-  QueryBuilder<Reply, Reply, QAfterSortBy> thenByRowId() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'row_id', Sort.asc);
-    });
-  }
-
-  QueryBuilder<Reply, Reply, QAfterSortBy> thenByRowIdDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'row_id', Sort.desc);
     });
   }
 }
@@ -1243,7 +1243,7 @@ extension ReplyQueryWhereDistinct on QueryBuilder<Reply, Reply, QDistinct> {
     bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'pending_data', caseSensitive: caseSensitive);
+      return query.addDistinctBy(r'pending', caseSensitive: caseSensitive);
     });
   }
 
@@ -1259,7 +1259,7 @@ extension ReplyQueryWhereDistinct on QueryBuilder<Reply, Reply, QDistinct> {
 extension ReplyQueryProperty on QueryBuilder<Reply, Reply, QQueryProperty> {
   QueryBuilder<Reply, int, QQueryOperations> rowIdProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'row_id');
+      return query.addPropertyName(r'id');
     });
   }
 
@@ -1277,7 +1277,7 @@ extension ReplyQueryProperty on QueryBuilder<Reply, Reply, QQueryProperty> {
 
   QueryBuilder<Reply, String?, QQueryOperations> pendingDataProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'pending_data');
+      return query.addPropertyName(r'pending');
     });
   }
 
@@ -1287,6 +1287,7 @@ extension ReplyQueryProperty on QueryBuilder<Reply, Reply, QQueryProperty> {
     });
   }
 }
+
 // coverage:ignore-file
 // ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
 
@@ -1303,19 +1304,15 @@ const EraseSchema = CollectionSchema(
       name: r'cid_number',
       type: IsarType.string,
     ),
-    r'job_state': PropertySchema(
-      id: 1,
-      name: r'job_state',
-      type: IsarType.string,
-    ),
-    r'post_id': PropertySchema(id: 2, name: r'post_id', type: IsarType.string),
+    r'post_id': PropertySchema(id: 1, name: r'post_id', type: IsarType.string),
+    r'state': PropertySchema(id: 2, name: r'state', type: IsarType.string),
   },
 
   estimateSize: _eraseEstimateSize,
   serialize: _eraseSerialize,
   deserialize: _eraseDeserialize,
   deserializeProp: _eraseDeserializeProp,
-  idName: r'row_id',
+  idName: r'id',
   indexes: {
     r'cid_number_post_id': IndexSchema(
       id: -8377155717331402316,
@@ -1352,8 +1349,8 @@ int _eraseEstimateSize(
 ) {
   var bytesCount = offsets.last;
   bytesCount += 3 + object.cidNumber.length * 3;
-  bytesCount += 3 + object.jobState.length * 3;
   bytesCount += 3 + object.postId.length * 3;
+  bytesCount += 3 + object.jobState.length * 3;
   return bytesCount;
 }
 
@@ -1364,8 +1361,8 @@ void _eraseSerialize(
   Map<Type, List<int>> allOffsets,
 ) {
   writer.writeString(offsets[0], object.cidNumber);
-  writer.writeString(offsets[1], object.jobState);
-  writer.writeString(offsets[2], object.postId);
+  writer.writeString(offsets[1], object.postId);
+  writer.writeString(offsets[2], object.jobState);
 }
 
 Erase _eraseDeserialize(
@@ -1376,9 +1373,9 @@ Erase _eraseDeserialize(
 ) {
   final object = Erase();
   object.cidNumber = reader.readString(offsets[0]);
-  object.jobState = reader.readString(offsets[1]);
-  object.postId = reader.readString(offsets[2]);
   object.rowId = id;
+  object.postId = reader.readString(offsets[1]);
+  object.jobState = reader.readString(offsets[2]);
   return object;
 }
 
@@ -1862,148 +1859,59 @@ extension EraseQueryFilter on QueryBuilder<Erase, Erase, QFilterCondition> {
     });
   }
 
-  QueryBuilder<Erase, Erase, QAfterFilterCondition> jobStateEqualTo(
-    String value, {
-    bool caseSensitive = true,
-  }) {
+  QueryBuilder<Erase, Erase, QAfterFilterCondition> rowIdEqualTo(Id value) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(
-          property: r'job_state',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
+        FilterCondition.equalTo(property: r'id', value: value),
       );
     });
   }
 
-  QueryBuilder<Erase, Erase, QAfterFilterCondition> jobStateGreaterThan(
-    String value, {
+  QueryBuilder<Erase, Erase, QAfterFilterCondition> rowIdGreaterThan(
+    Id value, {
     bool include = false,
-    bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'job_state',
+          property: r'id',
           value: value,
-          caseSensitive: caseSensitive,
         ),
       );
     });
   }
 
-  QueryBuilder<Erase, Erase, QAfterFilterCondition> jobStateLessThan(
-    String value, {
+  QueryBuilder<Erase, Erase, QAfterFilterCondition> rowIdLessThan(
+    Id value, {
     bool include = false,
-    bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'job_state',
+          property: r'id',
           value: value,
-          caseSensitive: caseSensitive,
         ),
       );
     });
   }
 
-  QueryBuilder<Erase, Erase, QAfterFilterCondition> jobStateBetween(
-    String lower,
-    String upper, {
+  QueryBuilder<Erase, Erase, QAfterFilterCondition> rowIdBetween(
+    Id lower,
+    Id upper, {
     bool includeLower = true,
     bool includeUpper = true,
-    bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'job_state',
+          property: r'id',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
           includeUpper: includeUpper,
-          caseSensitive: caseSensitive,
         ),
-      );
-    });
-  }
-
-  QueryBuilder<Erase, Erase, QAfterFilterCondition> jobStateStartsWith(
-    String value, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.startsWith(
-          property: r'job_state',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Erase, Erase, QAfterFilterCondition> jobStateEndsWith(
-    String value, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.endsWith(
-          property: r'job_state',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Erase, Erase, QAfterFilterCondition> jobStateContains(
-    String value, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.contains(
-          property: r'job_state',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Erase, Erase, QAfterFilterCondition> jobStateMatches(
-    String pattern, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.matches(
-          property: r'job_state',
-          wildcard: pattern,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Erase, Erase, QAfterFilterCondition> jobStateIsEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'job_state', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<Erase, Erase, QAfterFilterCondition> jobStateIsNotEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'job_state', value: ''),
       );
     });
   }
@@ -2154,59 +2062,148 @@ extension EraseQueryFilter on QueryBuilder<Erase, Erase, QFilterCondition> {
     });
   }
 
-  QueryBuilder<Erase, Erase, QAfterFilterCondition> rowIdEqualTo(Id value) {
+  QueryBuilder<Erase, Erase, QAfterFilterCondition> jobStateEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'row_id', value: value),
+        FilterCondition.equalTo(
+          property: r'state',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
       );
     });
   }
 
-  QueryBuilder<Erase, Erase, QAfterFilterCondition> rowIdGreaterThan(
-    Id value, {
+  QueryBuilder<Erase, Erase, QAfterFilterCondition> jobStateGreaterThan(
+    String value, {
     bool include = false,
+    bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'row_id',
+          property: r'state',
           value: value,
+          caseSensitive: caseSensitive,
         ),
       );
     });
   }
 
-  QueryBuilder<Erase, Erase, QAfterFilterCondition> rowIdLessThan(
-    Id value, {
+  QueryBuilder<Erase, Erase, QAfterFilterCondition> jobStateLessThan(
+    String value, {
     bool include = false,
+    bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'row_id',
+          property: r'state',
           value: value,
+          caseSensitive: caseSensitive,
         ),
       );
     });
   }
 
-  QueryBuilder<Erase, Erase, QAfterFilterCondition> rowIdBetween(
-    Id lower,
-    Id upper, {
+  QueryBuilder<Erase, Erase, QAfterFilterCondition> jobStateBetween(
+    String lower,
+    String upper, {
     bool includeLower = true,
     bool includeUpper = true,
+    bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'row_id',
+          property: r'state',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
           includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
         ),
+      );
+    });
+  }
+
+  QueryBuilder<Erase, Erase, QAfterFilterCondition> jobStateStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'state',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Erase, Erase, QAfterFilterCondition> jobStateEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'state',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Erase, Erase, QAfterFilterCondition> jobStateContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'state',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Erase, Erase, QAfterFilterCondition> jobStateMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'state',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Erase, Erase, QAfterFilterCondition> jobStateIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'state', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Erase, Erase, QAfterFilterCondition> jobStateIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'state', value: ''),
       );
     });
   }
@@ -2229,18 +2226,6 @@ extension EraseQuerySortBy on QueryBuilder<Erase, Erase, QSortBy> {
     });
   }
 
-  QueryBuilder<Erase, Erase, QAfterSortBy> sortByJobState() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'job_state', Sort.asc);
-    });
-  }
-
-  QueryBuilder<Erase, Erase, QAfterSortBy> sortByJobStateDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'job_state', Sort.desc);
-    });
-  }
-
   QueryBuilder<Erase, Erase, QAfterSortBy> sortByPostId() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'post_id', Sort.asc);
@@ -2250,6 +2235,18 @@ extension EraseQuerySortBy on QueryBuilder<Erase, Erase, QSortBy> {
   QueryBuilder<Erase, Erase, QAfterSortBy> sortByPostIdDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'post_id', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Erase, Erase, QAfterSortBy> sortByJobState() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'state', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Erase, Erase, QAfterSortBy> sortByJobStateDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'state', Sort.desc);
     });
   }
 }
@@ -2267,15 +2264,15 @@ extension EraseQuerySortThenBy on QueryBuilder<Erase, Erase, QSortThenBy> {
     });
   }
 
-  QueryBuilder<Erase, Erase, QAfterSortBy> thenByJobState() {
+  QueryBuilder<Erase, Erase, QAfterSortBy> thenByRowId() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'job_state', Sort.asc);
+      return query.addSortBy(r'id', Sort.asc);
     });
   }
 
-  QueryBuilder<Erase, Erase, QAfterSortBy> thenByJobStateDesc() {
+  QueryBuilder<Erase, Erase, QAfterSortBy> thenByRowIdDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'job_state', Sort.desc);
+      return query.addSortBy(r'id', Sort.desc);
     });
   }
 
@@ -2291,15 +2288,15 @@ extension EraseQuerySortThenBy on QueryBuilder<Erase, Erase, QSortThenBy> {
     });
   }
 
-  QueryBuilder<Erase, Erase, QAfterSortBy> thenByRowId() {
+  QueryBuilder<Erase, Erase, QAfterSortBy> thenByJobState() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'row_id', Sort.asc);
+      return query.addSortBy(r'state', Sort.asc);
     });
   }
 
-  QueryBuilder<Erase, Erase, QAfterSortBy> thenByRowIdDesc() {
+  QueryBuilder<Erase, Erase, QAfterSortBy> thenByJobStateDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'row_id', Sort.desc);
+      return query.addSortBy(r'state', Sort.desc);
     });
   }
 }
@@ -2313,14 +2310,6 @@ extension EraseQueryWhereDistinct on QueryBuilder<Erase, Erase, QDistinct> {
     });
   }
 
-  QueryBuilder<Erase, Erase, QDistinct> distinctByJobState({
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'job_state', caseSensitive: caseSensitive);
-    });
-  }
-
   QueryBuilder<Erase, Erase, QDistinct> distinctByPostId({
     bool caseSensitive = true,
   }) {
@@ -2328,12 +2317,20 @@ extension EraseQueryWhereDistinct on QueryBuilder<Erase, Erase, QDistinct> {
       return query.addDistinctBy(r'post_id', caseSensitive: caseSensitive);
     });
   }
+
+  QueryBuilder<Erase, Erase, QDistinct> distinctByJobState({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'state', caseSensitive: caseSensitive);
+    });
+  }
 }
 
 extension EraseQueryProperty on QueryBuilder<Erase, Erase, QQueryProperty> {
   QueryBuilder<Erase, int, QQueryOperations> rowIdProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'row_id');
+      return query.addPropertyName(r'id');
     });
   }
 
@@ -2343,18 +2340,19 @@ extension EraseQueryProperty on QueryBuilder<Erase, Erase, QQueryProperty> {
     });
   }
 
-  QueryBuilder<Erase, String, QQueryOperations> jobStateProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'job_state');
-    });
-  }
-
   QueryBuilder<Erase, String, QQueryOperations> postIdProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'post_id');
     });
   }
+
+  QueryBuilder<Erase, String, QQueryOperations> jobStateProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'state');
+    });
+  }
 }
+
 // coverage:ignore-file
 // ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
 
@@ -2397,33 +2395,29 @@ const PostSchema = CollectionSchema(
       type: IsarType.string,
     ),
     r'post_id': PropertySchema(id: 6, name: r'post_id', type: IsarType.string),
-    r'post_state': PropertySchema(
-      id: 7,
-      name: r'post_state',
-      type: IsarType.string,
-    ),
     r'post_type': PropertySchema(
-      id: 8,
+      id: 7,
       name: r'post_type',
       type: IsarType.string,
     ),
     r'published_at': PropertySchema(
-      id: 9,
+      id: 8,
       name: r'published_at',
       type: IsarType.long,
     ),
     r'receipt_id': PropertySchema(
-      id: 10,
+      id: 9,
       name: r'receipt_id',
       type: IsarType.string,
     ),
+    r'state': PropertySchema(id: 10, name: r'state', type: IsarType.string),
   },
 
   estimateSize: _postEstimateSize,
   serialize: _postSerialize,
   deserialize: _postDeserialize,
   deserializeProp: _postDeserializeProp,
-  idName: r'row_id',
+  idName: r'id',
   indexes: {
     r'post_id': IndexSchema(
       id: 7337727291460660483,
@@ -2486,9 +2480,9 @@ int _postEstimateSize(
   bytesCount += 3 + object.manifestBytes.length;
   bytesCount += 3 + object.postCategory.length * 3;
   bytesCount += 3 + object.postId.length * 3;
-  bytesCount += 3 + object.postState.length * 3;
   bytesCount += 3 + object.postType.length * 3;
   bytesCount += 3 + object.receiptId.length * 3;
+  bytesCount += 3 + object.postState.length * 3;
   return bytesCount;
 }
 
@@ -2505,10 +2499,10 @@ void _postSerialize(
   writer.writeByteList(offsets[4], object.manifestBytes);
   writer.writeString(offsets[5], object.postCategory);
   writer.writeString(offsets[6], object.postId);
-  writer.writeString(offsets[7], object.postState);
-  writer.writeString(offsets[8], object.postType);
-  writer.writeLong(offsets[9], object.publishedAt);
-  writer.writeString(offsets[10], object.receiptId);
+  writer.writeString(offsets[7], object.postType);
+  writer.writeLong(offsets[8], object.publishedAt);
+  writer.writeString(offsets[9], object.receiptId);
+  writer.writeString(offsets[10], object.postState);
 }
 
 Post _postDeserialize(
@@ -2522,14 +2516,14 @@ Post _postDeserialize(
   object.chainBlock = reader.readLongOrNull(offsets[1]);
   object.cidNumber = reader.readString(offsets[2]);
   object.contentHash = reader.readString(offsets[3]);
+  object.rowId = id;
   object.manifestBytes = reader.readByteList(offsets[4]) ?? [];
   object.postCategory = reader.readString(offsets[5]);
   object.postId = reader.readString(offsets[6]);
-  object.postState = reader.readString(offsets[7]);
-  object.postType = reader.readString(offsets[8]);
-  object.publishedAt = reader.readLong(offsets[9]);
-  object.receiptId = reader.readString(offsets[10]);
-  object.rowId = id;
+  object.postType = reader.readString(offsets[7]);
+  object.publishedAt = reader.readLong(offsets[8]);
+  object.receiptId = reader.readString(offsets[9]);
+  object.postState = reader.readString(offsets[10]);
   return object;
 }
 
@@ -2557,9 +2551,9 @@ P _postDeserializeProp<P>(
     case 7:
       return (reader.readString(offset)) as P;
     case 8:
-      return (reader.readString(offset)) as P;
-    case 9:
       return (reader.readLong(offset)) as P;
+    case 9:
+      return (reader.readString(offset)) as P;
     case 10:
       return (reader.readString(offset)) as P;
     default:
@@ -3447,6 +3441,63 @@ extension PostQueryFilter on QueryBuilder<Post, Post, QFilterCondition> {
     });
   }
 
+  QueryBuilder<Post, Post, QAfterFilterCondition> rowIdEqualTo(Id value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'id', value: value),
+      );
+    });
+  }
+
+  QueryBuilder<Post, Post, QAfterFilterCondition> rowIdGreaterThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Post, Post, QAfterFilterCondition> rowIdLessThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Post, Post, QAfterFilterCondition> rowIdBetween(
+    Id lower,
+    Id upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'id',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+        ),
+      );
+    });
+  }
+
   QueryBuilder<Post, Post, QAfterFilterCondition> manifestBytesElementEqualTo(
     int value,
   ) {
@@ -3849,152 +3900,6 @@ extension PostQueryFilter on QueryBuilder<Post, Post, QFilterCondition> {
     });
   }
 
-  QueryBuilder<Post, Post, QAfterFilterCondition> postStateEqualTo(
-    String value, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(
-          property: r'post_state',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Post, Post, QAfterFilterCondition> postStateGreaterThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'post_state',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Post, Post, QAfterFilterCondition> postStateLessThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'post_state',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Post, Post, QAfterFilterCondition> postStateBetween(
-    String lower,
-    String upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'post_state',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Post, Post, QAfterFilterCondition> postStateStartsWith(
-    String value, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.startsWith(
-          property: r'post_state',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Post, Post, QAfterFilterCondition> postStateEndsWith(
-    String value, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.endsWith(
-          property: r'post_state',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Post, Post, QAfterFilterCondition> postStateContains(
-    String value, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.contains(
-          property: r'post_state',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Post, Post, QAfterFilterCondition> postStateMatches(
-    String pattern, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.matches(
-          property: r'post_state',
-          wildcard: pattern,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Post, Post, QAfterFilterCondition> postStateIsEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'post_state', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<Post, Post, QAfterFilterCondition> postStateIsNotEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'post_state', value: ''),
-      );
-    });
-  }
-
   QueryBuilder<Post, Post, QAfterFilterCondition> postTypeEqualTo(
     String value, {
     bool caseSensitive = true,
@@ -4346,59 +4251,148 @@ extension PostQueryFilter on QueryBuilder<Post, Post, QFilterCondition> {
     });
   }
 
-  QueryBuilder<Post, Post, QAfterFilterCondition> rowIdEqualTo(Id value) {
+  QueryBuilder<Post, Post, QAfterFilterCondition> postStateEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'row_id', value: value),
+        FilterCondition.equalTo(
+          property: r'state',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
       );
     });
   }
 
-  QueryBuilder<Post, Post, QAfterFilterCondition> rowIdGreaterThan(
-    Id value, {
+  QueryBuilder<Post, Post, QAfterFilterCondition> postStateGreaterThan(
+    String value, {
     bool include = false,
+    bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'row_id',
+          property: r'state',
           value: value,
+          caseSensitive: caseSensitive,
         ),
       );
     });
   }
 
-  QueryBuilder<Post, Post, QAfterFilterCondition> rowIdLessThan(
-    Id value, {
+  QueryBuilder<Post, Post, QAfterFilterCondition> postStateLessThan(
+    String value, {
     bool include = false,
+    bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'row_id',
+          property: r'state',
           value: value,
+          caseSensitive: caseSensitive,
         ),
       );
     });
   }
 
-  QueryBuilder<Post, Post, QAfterFilterCondition> rowIdBetween(
-    Id lower,
-    Id upper, {
+  QueryBuilder<Post, Post, QAfterFilterCondition> postStateBetween(
+    String lower,
+    String upper, {
     bool includeLower = true,
     bool includeUpper = true,
+    bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'row_id',
+          property: r'state',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
           includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
         ),
+      );
+    });
+  }
+
+  QueryBuilder<Post, Post, QAfterFilterCondition> postStateStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'state',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Post, Post, QAfterFilterCondition> postStateEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'state',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Post, Post, QAfterFilterCondition> postStateContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'state',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Post, Post, QAfterFilterCondition> postStateMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'state',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Post, Post, QAfterFilterCondition> postStateIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'state', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Post, Post, QAfterFilterCondition> postStateIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'state', value: ''),
       );
     });
   }
@@ -4481,18 +4475,6 @@ extension PostQuerySortBy on QueryBuilder<Post, Post, QSortBy> {
     });
   }
 
-  QueryBuilder<Post, Post, QAfterSortBy> sortByPostState() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'post_state', Sort.asc);
-    });
-  }
-
-  QueryBuilder<Post, Post, QAfterSortBy> sortByPostStateDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'post_state', Sort.desc);
-    });
-  }
-
   QueryBuilder<Post, Post, QAfterSortBy> sortByPostType() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'post_type', Sort.asc);
@@ -4526,6 +4508,18 @@ extension PostQuerySortBy on QueryBuilder<Post, Post, QSortBy> {
   QueryBuilder<Post, Post, QAfterSortBy> sortByReceiptIdDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'receipt_id', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Post, Post, QAfterSortBy> sortByPostState() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'state', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Post, Post, QAfterSortBy> sortByPostStateDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'state', Sort.desc);
     });
   }
 }
@@ -4579,6 +4573,18 @@ extension PostQuerySortThenBy on QueryBuilder<Post, Post, QSortThenBy> {
     });
   }
 
+  QueryBuilder<Post, Post, QAfterSortBy> thenByRowId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'id', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Post, Post, QAfterSortBy> thenByRowIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'id', Sort.desc);
+    });
+  }
+
   QueryBuilder<Post, Post, QAfterSortBy> thenByPostCategory() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'post_category', Sort.asc);
@@ -4600,18 +4606,6 @@ extension PostQuerySortThenBy on QueryBuilder<Post, Post, QSortThenBy> {
   QueryBuilder<Post, Post, QAfterSortBy> thenByPostIdDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'post_id', Sort.desc);
-    });
-  }
-
-  QueryBuilder<Post, Post, QAfterSortBy> thenByPostState() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'post_state', Sort.asc);
-    });
-  }
-
-  QueryBuilder<Post, Post, QAfterSortBy> thenByPostStateDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'post_state', Sort.desc);
     });
   }
 
@@ -4651,15 +4645,15 @@ extension PostQuerySortThenBy on QueryBuilder<Post, Post, QSortThenBy> {
     });
   }
 
-  QueryBuilder<Post, Post, QAfterSortBy> thenByRowId() {
+  QueryBuilder<Post, Post, QAfterSortBy> thenByPostState() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'row_id', Sort.asc);
+      return query.addSortBy(r'state', Sort.asc);
     });
   }
 
-  QueryBuilder<Post, Post, QAfterSortBy> thenByRowIdDesc() {
+  QueryBuilder<Post, Post, QAfterSortBy> thenByPostStateDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'row_id', Sort.desc);
+      return query.addSortBy(r'state', Sort.desc);
     });
   }
 }
@@ -4720,14 +4714,6 @@ extension PostQueryWhereDistinct on QueryBuilder<Post, Post, QDistinct> {
     });
   }
 
-  QueryBuilder<Post, Post, QDistinct> distinctByPostState({
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'post_state', caseSensitive: caseSensitive);
-    });
-  }
-
   QueryBuilder<Post, Post, QDistinct> distinctByPostType({
     bool caseSensitive = true,
   }) {
@@ -4749,12 +4735,20 @@ extension PostQueryWhereDistinct on QueryBuilder<Post, Post, QDistinct> {
       return query.addDistinctBy(r'receipt_id', caseSensitive: caseSensitive);
     });
   }
+
+  QueryBuilder<Post, Post, QDistinct> distinctByPostState({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'state', caseSensitive: caseSensitive);
+    });
+  }
 }
 
 extension PostQueryProperty on QueryBuilder<Post, Post, QQueryProperty> {
   QueryBuilder<Post, int, QQueryOperations> rowIdProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'row_id');
+      return query.addPropertyName(r'id');
     });
   }
 
@@ -4800,12 +4794,6 @@ extension PostQueryProperty on QueryBuilder<Post, Post, QQueryProperty> {
     });
   }
 
-  QueryBuilder<Post, String, QQueryOperations> postStateProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'post_state');
-    });
-  }
-
   QueryBuilder<Post, String, QQueryOperations> postTypeProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'post_type');
@@ -4823,7 +4811,14 @@ extension PostQueryProperty on QueryBuilder<Post, Post, QQueryProperty> {
       return query.addPropertyName(r'receipt_id');
     });
   }
+
+  QueryBuilder<Post, String, QQueryOperations> postStateProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'state');
+    });
+  }
 }
+
 // coverage:ignore-file
 // ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
 
@@ -4881,7 +4876,7 @@ const DraftSchema = CollectionSchema(
   serialize: _draftSerialize,
   deserialize: _draftDeserialize,
   deserializeProp: _draftDeserializeProp,
-  idName: r'row_id',
+  idName: r'id',
   indexes: {
     r'cid_number_draft_id': IndexSchema(
       id: -1510474736432074356,
@@ -4975,11 +4970,11 @@ Draft _draftDeserialize(
   final object = Draft();
   object.cidNumber = reader.readString(offsets[0]);
   object.draftId = reader.readString(offsets[1]);
+  object.rowId = id;
   object.mediaData = reader.readString(offsets[2]);
   object.text = reader.readString(offsets[3]);
   object.title = reader.readStringOrNull(offsets[4]);
   object.postType = reader.readString(offsets[5]);
-  object.rowId = id;
   object.sectionData = reader.readStringOrNull(offsets[6]);
   object.updatedAt = reader.readLong(offsets[7]);
   return object;
@@ -5734,6 +5729,63 @@ extension DraftQueryFilter on QueryBuilder<Draft, Draft, QFilterCondition> {
     });
   }
 
+  QueryBuilder<Draft, Draft, QAfterFilterCondition> rowIdEqualTo(Id value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'id', value: value),
+      );
+    });
+  }
+
+  QueryBuilder<Draft, Draft, QAfterFilterCondition> rowIdGreaterThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Draft, Draft, QAfterFilterCondition> rowIdLessThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Draft, Draft, QAfterFilterCondition> rowIdBetween(
+    Id lower,
+    Id upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'id',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+        ),
+      );
+    });
+  }
+
   QueryBuilder<Draft, Draft, QAfterFilterCondition> mediaDataEqualTo(
     String value, {
     bool caseSensitive = true,
@@ -6334,63 +6386,6 @@ extension DraftQueryFilter on QueryBuilder<Draft, Draft, QFilterCondition> {
     });
   }
 
-  QueryBuilder<Draft, Draft, QAfterFilterCondition> rowIdEqualTo(Id value) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'row_id', value: value),
-      );
-    });
-  }
-
-  QueryBuilder<Draft, Draft, QAfterFilterCondition> rowIdGreaterThan(
-    Id value, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'row_id',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Draft, Draft, QAfterFilterCondition> rowIdLessThan(
-    Id value, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'row_id',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Draft, Draft, QAfterFilterCondition> rowIdBetween(
-    Id lower,
-    Id upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'row_id',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-        ),
-      );
-    });
-  }
-
   QueryBuilder<Draft, Draft, QAfterFilterCondition> sectionDataIsNull() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
@@ -6740,6 +6735,18 @@ extension DraftQuerySortThenBy on QueryBuilder<Draft, Draft, QSortThenBy> {
     });
   }
 
+  QueryBuilder<Draft, Draft, QAfterSortBy> thenByRowId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'id', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Draft, Draft, QAfterSortBy> thenByRowIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'id', Sort.desc);
+    });
+  }
+
   QueryBuilder<Draft, Draft, QAfterSortBy> thenByMediaData() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'media_data', Sort.asc);
@@ -6785,18 +6792,6 @@ extension DraftQuerySortThenBy on QueryBuilder<Draft, Draft, QSortThenBy> {
   QueryBuilder<Draft, Draft, QAfterSortBy> thenByPostTypeDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'post_type', Sort.desc);
-    });
-  }
-
-  QueryBuilder<Draft, Draft, QAfterSortBy> thenByRowId() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'row_id', Sort.asc);
-    });
-  }
-
-  QueryBuilder<Draft, Draft, QAfterSortBy> thenByRowIdDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'row_id', Sort.desc);
     });
   }
 
@@ -6892,7 +6887,7 @@ extension DraftQueryWhereDistinct on QueryBuilder<Draft, Draft, QDistinct> {
 extension DraftQueryProperty on QueryBuilder<Draft, Draft, QQueryProperty> {
   QueryBuilder<Draft, int, QQueryOperations> rowIdProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'row_id');
+      return query.addPropertyName(r'id');
     });
   }
 
@@ -6944,6 +6939,7 @@ extension DraftQueryProperty on QueryBuilder<Draft, Draft, QQueryProperty> {
     });
   }
 }
+
 // coverage:ignore-file
 // ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
 
@@ -6972,7 +6968,7 @@ const PostCursorSchema = CollectionSchema(
   serialize: _postCursorSerialize,
   deserialize: _postCursorDeserialize,
   deserializeProp: _postCursorDeserializeProp,
-  idName: r'row_id',
+  idName: r'id',
   indexes: {
     r'cid_number': IndexSchema(
       id: 5073804840546792610,
@@ -7032,9 +7028,9 @@ PostCursor _postCursorDeserialize(
 ) {
   final object = PostCursor();
   object.cidNumber = reader.readString(offsets[0]);
+  object.rowId = id;
   object.postId = reader.readStringOrNull(offsets[1]);
   object.publishedAt = reader.readLong(offsets[2]);
-  object.rowId = id;
   return object;
 }
 
@@ -7414,6 +7410,65 @@ extension PostCursorQueryFilter
     });
   }
 
+  QueryBuilder<PostCursor, PostCursor, QAfterFilterCondition> rowIdEqualTo(
+    Id value,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'id', value: value),
+      );
+    });
+  }
+
+  QueryBuilder<PostCursor, PostCursor, QAfterFilterCondition> rowIdGreaterThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<PostCursor, PostCursor, QAfterFilterCondition> rowIdLessThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<PostCursor, PostCursor, QAfterFilterCondition> rowIdBetween(
+    Id lower,
+    Id upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'id',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+        ),
+      );
+    });
+  }
+
   QueryBuilder<PostCursor, PostCursor, QAfterFilterCondition> postIdIsNull() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
@@ -7632,65 +7687,6 @@ extension PostCursorQueryFilter
       );
     });
   }
-
-  QueryBuilder<PostCursor, PostCursor, QAfterFilterCondition> rowIdEqualTo(
-    Id value,
-  ) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'row_id', value: value),
-      );
-    });
-  }
-
-  QueryBuilder<PostCursor, PostCursor, QAfterFilterCondition> rowIdGreaterThan(
-    Id value, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'row_id',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<PostCursor, PostCursor, QAfterFilterCondition> rowIdLessThan(
-    Id value, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'row_id',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<PostCursor, PostCursor, QAfterFilterCondition> rowIdBetween(
-    Id lower,
-    Id upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'row_id',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-        ),
-      );
-    });
-  }
 }
 
 extension PostCursorQueryObject
@@ -7752,6 +7748,18 @@ extension PostCursorQuerySortThenBy
     });
   }
 
+  QueryBuilder<PostCursor, PostCursor, QAfterSortBy> thenByRowId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'id', Sort.asc);
+    });
+  }
+
+  QueryBuilder<PostCursor, PostCursor, QAfterSortBy> thenByRowIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'id', Sort.desc);
+    });
+  }
+
   QueryBuilder<PostCursor, PostCursor, QAfterSortBy> thenByPostId() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'post_id', Sort.asc);
@@ -7773,18 +7781,6 @@ extension PostCursorQuerySortThenBy
   QueryBuilder<PostCursor, PostCursor, QAfterSortBy> thenByPublishedAtDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'published_at', Sort.desc);
-    });
-  }
-
-  QueryBuilder<PostCursor, PostCursor, QAfterSortBy> thenByRowId() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'row_id', Sort.asc);
-    });
-  }
-
-  QueryBuilder<PostCursor, PostCursor, QAfterSortBy> thenByRowIdDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'row_id', Sort.desc);
     });
   }
 }
@@ -7818,7 +7814,7 @@ extension PostCursorQueryProperty
     on QueryBuilder<PostCursor, PostCursor, QQueryProperty> {
   QueryBuilder<PostCursor, int, QQueryOperations> rowIdProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'row_id');
+      return query.addPropertyName(r'id');
     });
   }
 
@@ -7840,6 +7836,7 @@ extension PostCursorQueryProperty
     });
   }
 }
+
 // coverage:ignore-file
 // ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
 
@@ -7887,7 +7884,7 @@ const CleanupSchema = CollectionSchema(
   serialize: _cleanupSerialize,
   deserialize: _cleanupDeserialize,
   deserializeProp: _cleanupDeserializeProp,
-  idName: r'row_id',
+  idName: r'id',
   indexes: {
     r'cid_number_draft_id': IndexSchema(
       id: -1510474736432074356,
@@ -7960,8 +7957,8 @@ Cleanup _cleanupDeserialize(
   object.cleanupKind = reader.readString(offsets[1]);
   object.createdAt = reader.readLong(offsets[2]);
   object.draftId = reader.readString(offsets[3]);
-  object.lastError = reader.readStringOrNull(offsets[4]);
   object.rowId = id;
+  object.lastError = reader.readStringOrNull(offsets[4]);
   object.tryCount = reader.readLong(offsets[5]);
   return object;
 }
@@ -8804,6 +8801,63 @@ extension CleanupQueryFilter
     });
   }
 
+  QueryBuilder<Cleanup, Cleanup, QAfterFilterCondition> rowIdEqualTo(Id value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'id', value: value),
+      );
+    });
+  }
+
+  QueryBuilder<Cleanup, Cleanup, QAfterFilterCondition> rowIdGreaterThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Cleanup, Cleanup, QAfterFilterCondition> rowIdLessThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Cleanup, Cleanup, QAfterFilterCondition> rowIdBetween(
+    Id lower,
+    Id upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'id',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+        ),
+      );
+    });
+  }
+
   QueryBuilder<Cleanup, Cleanup, QAfterFilterCondition> lastErrorIsNull() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
@@ -8962,63 +9016,6 @@ extension CleanupQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.greaterThan(property: r'last_error', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<Cleanup, Cleanup, QAfterFilterCondition> rowIdEqualTo(Id value) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'row_id', value: value),
-      );
-    });
-  }
-
-  QueryBuilder<Cleanup, Cleanup, QAfterFilterCondition> rowIdGreaterThan(
-    Id value, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'row_id',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Cleanup, Cleanup, QAfterFilterCondition> rowIdLessThan(
-    Id value, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'row_id',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Cleanup, Cleanup, QAfterFilterCondition> rowIdBetween(
-    Id lower,
-    Id upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'row_id',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-        ),
       );
     });
   }
@@ -9213,6 +9210,18 @@ extension CleanupQuerySortThenBy
     });
   }
 
+  QueryBuilder<Cleanup, Cleanup, QAfterSortBy> thenByRowId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'id', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Cleanup, Cleanup, QAfterSortBy> thenByRowIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'id', Sort.desc);
+    });
+  }
+
   QueryBuilder<Cleanup, Cleanup, QAfterSortBy> thenByLastError() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'last_error', Sort.asc);
@@ -9222,18 +9231,6 @@ extension CleanupQuerySortThenBy
   QueryBuilder<Cleanup, Cleanup, QAfterSortBy> thenByLastErrorDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'last_error', Sort.desc);
-    });
-  }
-
-  QueryBuilder<Cleanup, Cleanup, QAfterSortBy> thenByRowId() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'row_id', Sort.asc);
-    });
-  }
-
-  QueryBuilder<Cleanup, Cleanup, QAfterSortBy> thenByRowIdDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'row_id', Sort.desc);
     });
   }
 
@@ -9301,7 +9298,7 @@ extension CleanupQueryProperty
     on QueryBuilder<Cleanup, Cleanup, QQueryProperty> {
   QueryBuilder<Cleanup, int, QQueryOperations> rowIdProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'row_id');
+      return query.addPropertyName(r'id');
     });
   }
 
@@ -9341,6 +9338,7 @@ extension CleanupQueryProperty
     });
   }
 }
+
 // coverage:ignore-file
 // ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
 
@@ -9388,7 +9386,7 @@ const MediaSchema = CollectionSchema(
   serialize: _mediaSerialize,
   deserialize: _mediaDeserialize,
   deserializeProp: _mediaDeserializeProp,
-  idName: r'row_id',
+  idName: r'id',
   indexes: {
     r'cid_number_body_hash': IndexSchema(
       id: -8445791805654470301,
@@ -9456,9 +9454,9 @@ Media _mediaDeserialize(
   object.byteSize = reader.readLong(offsets[1]);
   object.cidNumber = reader.readString(offsets[2]);
   object.contentType = reader.readString(offsets[3]);
+  object.rowId = id;
   object.isComplete = reader.readBool(offsets[4]);
   object.mediaKind = reader.readString(offsets[5]);
-  object.rowId = id;
   return object;
 }
 
@@ -10301,6 +10299,63 @@ extension MediaQueryFilter on QueryBuilder<Media, Media, QFilterCondition> {
     });
   }
 
+  QueryBuilder<Media, Media, QAfterFilterCondition> rowIdEqualTo(Id value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'id', value: value),
+      );
+    });
+  }
+
+  QueryBuilder<Media, Media, QAfterFilterCondition> rowIdGreaterThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Media, Media, QAfterFilterCondition> rowIdLessThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Media, Media, QAfterFilterCondition> rowIdBetween(
+    Id lower,
+    Id upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'id',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+        ),
+      );
+    });
+  }
+
   QueryBuilder<Media, Media, QAfterFilterCondition> isCompleteEqualTo(
     bool value,
   ) {
@@ -10456,63 +10511,6 @@ extension MediaQueryFilter on QueryBuilder<Media, Media, QFilterCondition> {
       );
     });
   }
-
-  QueryBuilder<Media, Media, QAfterFilterCondition> rowIdEqualTo(Id value) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'row_id', value: value),
-      );
-    });
-  }
-
-  QueryBuilder<Media, Media, QAfterFilterCondition> rowIdGreaterThan(
-    Id value, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'row_id',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Media, Media, QAfterFilterCondition> rowIdLessThan(
-    Id value, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'row_id',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Media, Media, QAfterFilterCondition> rowIdBetween(
-    Id lower,
-    Id upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'row_id',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-        ),
-      );
-    });
-  }
 }
 
 extension MediaQueryObject on QueryBuilder<Media, Media, QFilterCondition> {}
@@ -10642,6 +10640,18 @@ extension MediaQuerySortThenBy on QueryBuilder<Media, Media, QSortThenBy> {
     });
   }
 
+  QueryBuilder<Media, Media, QAfterSortBy> thenByRowId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'id', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Media, Media, QAfterSortBy> thenByRowIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'id', Sort.desc);
+    });
+  }
+
   QueryBuilder<Media, Media, QAfterSortBy> thenByIsComplete() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'is_complete', Sort.asc);
@@ -10663,18 +10673,6 @@ extension MediaQuerySortThenBy on QueryBuilder<Media, Media, QSortThenBy> {
   QueryBuilder<Media, Media, QAfterSortBy> thenByMediaKindDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'media_kind', Sort.desc);
-    });
-  }
-
-  QueryBuilder<Media, Media, QAfterSortBy> thenByRowId() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'row_id', Sort.asc);
-    });
-  }
-
-  QueryBuilder<Media, Media, QAfterSortBy> thenByRowIdDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'row_id', Sort.desc);
     });
   }
 }
@@ -10728,7 +10726,7 @@ extension MediaQueryWhereDistinct on QueryBuilder<Media, Media, QDistinct> {
 extension MediaQueryProperty on QueryBuilder<Media, Media, QQueryProperty> {
   QueryBuilder<Media, int, QQueryOperations> rowIdProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'row_id');
+      return query.addPropertyName(r'id');
     });
   }
 
@@ -10768,6 +10766,7 @@ extension MediaQueryProperty on QueryBuilder<Media, Media, QQueryProperty> {
     });
   }
 }
+
 // coverage:ignore-file
 // ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
 
@@ -10810,7 +10809,7 @@ const ChunkSchema = CollectionSchema(
   serialize: _chunkSerialize,
   deserialize: _chunkDeserialize,
   deserializeProp: _chunkDeserializeProp,
-  idName: r'row_id',
+  idName: r'id',
   indexes: {
     r'cid_number_body_hash_part_index': IndexSchema(
       id: 4214752058065696176,
@@ -10880,10 +10879,10 @@ Chunk _chunkDeserialize(
   final object = Chunk();
   object.bodyHash = reader.readString(offsets[0]);
   object.cidNumber = reader.readString(offsets[1]);
+  object.rowId = id;
   object.partBytes = reader.readByteList(offsets[2]) ?? [];
   object.partHash = reader.readString(offsets[3]);
   object.partIndex = reader.readLong(offsets[4]);
-  object.rowId = id;
   return object;
 }
 
@@ -11682,6 +11681,63 @@ extension ChunkQueryFilter on QueryBuilder<Chunk, Chunk, QFilterCondition> {
     });
   }
 
+  QueryBuilder<Chunk, Chunk, QAfterFilterCondition> rowIdEqualTo(Id value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'id', value: value),
+      );
+    });
+  }
+
+  QueryBuilder<Chunk, Chunk, QAfterFilterCondition> rowIdGreaterThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Chunk, Chunk, QAfterFilterCondition> rowIdLessThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Chunk, Chunk, QAfterFilterCondition> rowIdBetween(
+    Id lower,
+    Id upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'id',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+        ),
+      );
+    });
+  }
+
   QueryBuilder<Chunk, Chunk, QAfterFilterCondition> partBytesElementEqualTo(
     int value,
   ) {
@@ -12000,63 +12056,6 @@ extension ChunkQueryFilter on QueryBuilder<Chunk, Chunk, QFilterCondition> {
       );
     });
   }
-
-  QueryBuilder<Chunk, Chunk, QAfterFilterCondition> rowIdEqualTo(Id value) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'row_id', value: value),
-      );
-    });
-  }
-
-  QueryBuilder<Chunk, Chunk, QAfterFilterCondition> rowIdGreaterThan(
-    Id value, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'row_id',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Chunk, Chunk, QAfterFilterCondition> rowIdLessThan(
-    Id value, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'row_id',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Chunk, Chunk, QAfterFilterCondition> rowIdBetween(
-    Id lower,
-    Id upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'row_id',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-        ),
-      );
-    });
-  }
 }
 
 extension ChunkQueryObject on QueryBuilder<Chunk, Chunk, QFilterCondition> {}
@@ -12138,6 +12137,18 @@ extension ChunkQuerySortThenBy on QueryBuilder<Chunk, Chunk, QSortThenBy> {
     });
   }
 
+  QueryBuilder<Chunk, Chunk, QAfterSortBy> thenByRowId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'id', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Chunk, Chunk, QAfterSortBy> thenByRowIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'id', Sort.desc);
+    });
+  }
+
   QueryBuilder<Chunk, Chunk, QAfterSortBy> thenByPartHash() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'part_hash', Sort.asc);
@@ -12159,18 +12170,6 @@ extension ChunkQuerySortThenBy on QueryBuilder<Chunk, Chunk, QSortThenBy> {
   QueryBuilder<Chunk, Chunk, QAfterSortBy> thenByPartIndexDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'part_index', Sort.desc);
-    });
-  }
-
-  QueryBuilder<Chunk, Chunk, QAfterSortBy> thenByRowId() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'row_id', Sort.asc);
-    });
-  }
-
-  QueryBuilder<Chunk, Chunk, QAfterSortBy> thenByRowIdDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'row_id', Sort.desc);
     });
   }
 }
@@ -12216,7 +12215,7 @@ extension ChunkQueryWhereDistinct on QueryBuilder<Chunk, Chunk, QDistinct> {
 extension ChunkQueryProperty on QueryBuilder<Chunk, Chunk, QQueryProperty> {
   QueryBuilder<Chunk, int, QQueryOperations> rowIdProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'row_id');
+      return query.addPropertyName(r'id');
     });
   }
 
@@ -12250,6 +12249,7 @@ extension ChunkQueryProperty on QueryBuilder<Chunk, Chunk, QQueryProperty> {
     });
   }
 }
+
 // coverage:ignore-file
 // ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
 
@@ -12297,7 +12297,7 @@ const MediaLinkSchema = CollectionSchema(
   serialize: _mediaLinkSerialize,
   deserialize: _mediaLinkDeserialize,
   deserializeProp: _mediaLinkDeserializeProp,
-  idName: r'row_id',
+  idName: r'id',
   indexes: {
     r'body_hash_cid_number': IndexSchema(
       id: 1442480815105803372,
@@ -12389,9 +12389,9 @@ MediaLink _mediaLinkDeserialize(
   object.cidNumber = reader.readString(offsets[1]);
   object.contentId = reader.readString(offsets[2]);
   object.contentKind = reader.readString(offsets[3]);
+  object.rowId = id;
   object.mediaIndex = reader.readLong(offsets[4]);
   object.mediaRole = reader.readString(offsets[5]);
-  object.rowId = id;
   return object;
 }
 
@@ -13393,6 +13393,65 @@ extension MediaLinkQueryFilter
     });
   }
 
+  QueryBuilder<MediaLink, MediaLink, QAfterFilterCondition> rowIdEqualTo(
+    Id value,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'id', value: value),
+      );
+    });
+  }
+
+  QueryBuilder<MediaLink, MediaLink, QAfterFilterCondition> rowIdGreaterThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<MediaLink, MediaLink, QAfterFilterCondition> rowIdLessThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<MediaLink, MediaLink, QAfterFilterCondition> rowIdBetween(
+    Id lower,
+    Id upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'id',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+        ),
+      );
+    });
+  }
+
   QueryBuilder<MediaLink, MediaLink, QAfterFilterCondition> mediaIndexEqualTo(
     int value,
   ) {
@@ -13597,65 +13656,6 @@ extension MediaLinkQueryFilter
       );
     });
   }
-
-  QueryBuilder<MediaLink, MediaLink, QAfterFilterCondition> rowIdEqualTo(
-    Id value,
-  ) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'row_id', value: value),
-      );
-    });
-  }
-
-  QueryBuilder<MediaLink, MediaLink, QAfterFilterCondition> rowIdGreaterThan(
-    Id value, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'row_id',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<MediaLink, MediaLink, QAfterFilterCondition> rowIdLessThan(
-    Id value, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'row_id',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<MediaLink, MediaLink, QAfterFilterCondition> rowIdBetween(
-    Id lower,
-    Id upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'row_id',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-        ),
-      );
-    });
-  }
 }
 
 extension MediaLinkQueryObject
@@ -13788,6 +13788,18 @@ extension MediaLinkQuerySortThenBy
     });
   }
 
+  QueryBuilder<MediaLink, MediaLink, QAfterSortBy> thenByRowId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'id', Sort.asc);
+    });
+  }
+
+  QueryBuilder<MediaLink, MediaLink, QAfterSortBy> thenByRowIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'id', Sort.desc);
+    });
+  }
+
   QueryBuilder<MediaLink, MediaLink, QAfterSortBy> thenByMediaIndex() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'media_index', Sort.asc);
@@ -13809,18 +13821,6 @@ extension MediaLinkQuerySortThenBy
   QueryBuilder<MediaLink, MediaLink, QAfterSortBy> thenByMediaRoleDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'media_role', Sort.desc);
-    });
-  }
-
-  QueryBuilder<MediaLink, MediaLink, QAfterSortBy> thenByRowId() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'row_id', Sort.asc);
-    });
-  }
-
-  QueryBuilder<MediaLink, MediaLink, QAfterSortBy> thenByRowIdDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'row_id', Sort.desc);
     });
   }
 }
@@ -13878,7 +13878,7 @@ extension MediaLinkQueryProperty
     on QueryBuilder<MediaLink, MediaLink, QQueryProperty> {
   QueryBuilder<MediaLink, int, QQueryOperations> rowIdProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'row_id');
+      return query.addPropertyName(r'id');
     });
   }
 
@@ -13918,6 +13918,7 @@ extension MediaLinkQueryProperty
     });
   }
 }
+
 // coverage:ignore-file
 // ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
 
@@ -13959,42 +13960,38 @@ const PublishSchema = CollectionSchema(
       name: r'draft_id',
       type: IsarType.string,
     ),
-    r'job_state': PropertySchema(
-      id: 6,
-      name: r'job_state',
-      type: IsarType.string,
-    ),
     r'manifest_bytes': PropertySchema(
-      id: 7,
+      id: 6,
       name: r'manifest_bytes',
       type: IsarType.byteList,
     ),
     r'post_category': PropertySchema(
-      id: 8,
+      id: 7,
       name: r'post_category',
       type: IsarType.string,
     ),
-    r'post_id': PropertySchema(id: 9, name: r'post_id', type: IsarType.string),
+    r'post_id': PropertySchema(id: 8, name: r'post_id', type: IsarType.string),
     r'post_type': PropertySchema(
-      id: 10,
+      id: 9,
       name: r'post_type',
       type: IsarType.string,
     ),
     r'published_at': PropertySchema(
-      id: 11,
+      id: 10,
       name: r'published_at',
       type: IsarType.long,
     ),
     r'receipt_id': PropertySchema(
-      id: 12,
+      id: 11,
       name: r'receipt_id',
       type: IsarType.string,
     ),
     r'replace_id': PropertySchema(
-      id: 13,
+      id: 12,
       name: r'replace_id',
       type: IsarType.string,
     ),
+    r'state': PropertySchema(id: 13, name: r'state', type: IsarType.string),
     r'tx_hash': PropertySchema(id: 14, name: r'tx_hash', type: IsarType.string),
     r'upload_id': PropertySchema(
       id: 15,
@@ -14007,7 +14004,7 @@ const PublishSchema = CollectionSchema(
   serialize: _publishSerialize,
   deserialize: _publishDeserialize,
   deserializeProp: _publishDeserializeProp,
-  idName: r'row_id',
+  idName: r'id',
   indexes: {
     r'cid_number_draft_id': IndexSchema(
       id: -1510474736432074356,
@@ -14053,7 +14050,6 @@ int _publishEstimateSize(
   bytesCount += 3 + object.cidNumber.length * 3;
   bytesCount += 3 + object.contentHash.length * 3;
   bytesCount += 3 + object.draftId.length * 3;
-  bytesCount += 3 + object.jobState.length * 3;
   bytesCount += 3 + object.manifestBytes.length;
   {
     final value = object.postCategory;
@@ -14070,6 +14066,7 @@ int _publishEstimateSize(
       bytesCount += 3 + value.length * 3;
     }
   }
+  bytesCount += 3 + object.jobState.length * 3;
   {
     final value = object.txHash;
     if (value != null) {
@@ -14092,14 +14089,14 @@ void _publishSerialize(
   writer.writeString(offsets[3], object.cidNumber);
   writer.writeString(offsets[4], object.contentHash);
   writer.writeString(offsets[5], object.draftId);
-  writer.writeString(offsets[6], object.jobState);
-  writer.writeByteList(offsets[7], object.manifestBytes);
-  writer.writeString(offsets[8], object.postCategory);
-  writer.writeString(offsets[9], object.postId);
-  writer.writeString(offsets[10], object.postType);
-  writer.writeLong(offsets[11], object.publishedAt);
-  writer.writeString(offsets[12], object.receiptId);
-  writer.writeString(offsets[13], object.replaceId);
+  writer.writeByteList(offsets[6], object.manifestBytes);
+  writer.writeString(offsets[7], object.postCategory);
+  writer.writeString(offsets[8], object.postId);
+  writer.writeString(offsets[9], object.postType);
+  writer.writeLong(offsets[10], object.publishedAt);
+  writer.writeString(offsets[11], object.receiptId);
+  writer.writeString(offsets[12], object.replaceId);
+  writer.writeString(offsets[13], object.jobState);
   writer.writeString(offsets[14], object.txHash);
   writer.writeString(offsets[15], object.uploadId);
 }
@@ -14117,15 +14114,15 @@ Publish _publishDeserialize(
   object.cidNumber = reader.readString(offsets[3]);
   object.contentHash = reader.readString(offsets[4]);
   object.draftId = reader.readString(offsets[5]);
-  object.jobState = reader.readString(offsets[6]);
-  object.manifestBytes = reader.readByteList(offsets[7]) ?? [];
-  object.postCategory = reader.readStringOrNull(offsets[8]);
-  object.postId = reader.readString(offsets[9]);
-  object.postType = reader.readString(offsets[10]);
-  object.publishedAt = reader.readLongOrNull(offsets[11]);
-  object.receiptId = reader.readString(offsets[12]);
-  object.replaceId = reader.readStringOrNull(offsets[13]);
   object.rowId = id;
+  object.manifestBytes = reader.readByteList(offsets[6]) ?? [];
+  object.postCategory = reader.readStringOrNull(offsets[7]);
+  object.postId = reader.readString(offsets[8]);
+  object.postType = reader.readString(offsets[9]);
+  object.publishedAt = reader.readLongOrNull(offsets[10]);
+  object.receiptId = reader.readString(offsets[11]);
+  object.replaceId = reader.readStringOrNull(offsets[12]);
+  object.jobState = reader.readString(offsets[13]);
   object.txHash = reader.readStringOrNull(offsets[14]);
   object.uploadId = reader.readString(offsets[15]);
   return object;
@@ -14151,21 +14148,21 @@ P _publishDeserializeProp<P>(
     case 5:
       return (reader.readString(offset)) as P;
     case 6:
-      return (reader.readString(offset)) as P;
-    case 7:
       return (reader.readByteList(offset) ?? []) as P;
-    case 8:
+    case 7:
       return (reader.readStringOrNull(offset)) as P;
+    case 8:
+      return (reader.readString(offset)) as P;
     case 9:
       return (reader.readString(offset)) as P;
     case 10:
-      return (reader.readString(offset)) as P;
-    case 11:
       return (reader.readLongOrNull(offset)) as P;
-    case 12:
+    case 11:
       return (reader.readString(offset)) as P;
-    case 13:
+    case 12:
       return (reader.readStringOrNull(offset)) as P;
+    case 13:
+      return (reader.readString(offset)) as P;
     case 14:
       return (reader.readStringOrNull(offset)) as P;
     case 15:
@@ -15313,148 +15310,59 @@ extension PublishQueryFilter
     });
   }
 
-  QueryBuilder<Publish, Publish, QAfterFilterCondition> jobStateEqualTo(
-    String value, {
-    bool caseSensitive = true,
-  }) {
+  QueryBuilder<Publish, Publish, QAfterFilterCondition> rowIdEqualTo(Id value) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(
-          property: r'job_state',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
+        FilterCondition.equalTo(property: r'id', value: value),
       );
     });
   }
 
-  QueryBuilder<Publish, Publish, QAfterFilterCondition> jobStateGreaterThan(
-    String value, {
+  QueryBuilder<Publish, Publish, QAfterFilterCondition> rowIdGreaterThan(
+    Id value, {
     bool include = false,
-    bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'job_state',
+          property: r'id',
           value: value,
-          caseSensitive: caseSensitive,
         ),
       );
     });
   }
 
-  QueryBuilder<Publish, Publish, QAfterFilterCondition> jobStateLessThan(
-    String value, {
+  QueryBuilder<Publish, Publish, QAfterFilterCondition> rowIdLessThan(
+    Id value, {
     bool include = false,
-    bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'job_state',
+          property: r'id',
           value: value,
-          caseSensitive: caseSensitive,
         ),
       );
     });
   }
 
-  QueryBuilder<Publish, Publish, QAfterFilterCondition> jobStateBetween(
-    String lower,
-    String upper, {
+  QueryBuilder<Publish, Publish, QAfterFilterCondition> rowIdBetween(
+    Id lower,
+    Id upper, {
     bool includeLower = true,
     bool includeUpper = true,
-    bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'job_state',
+          property: r'id',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
           includeUpper: includeUpper,
-          caseSensitive: caseSensitive,
         ),
-      );
-    });
-  }
-
-  QueryBuilder<Publish, Publish, QAfterFilterCondition> jobStateStartsWith(
-    String value, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.startsWith(
-          property: r'job_state',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Publish, Publish, QAfterFilterCondition> jobStateEndsWith(
-    String value, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.endsWith(
-          property: r'job_state',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Publish, Publish, QAfterFilterCondition> jobStateContains(
-    String value, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.contains(
-          property: r'job_state',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Publish, Publish, QAfterFilterCondition> jobStateMatches(
-    String pattern, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.matches(
-          property: r'job_state',
-          wildcard: pattern,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Publish, Publish, QAfterFilterCondition> jobStateIsEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'job_state', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<Publish, Publish, QAfterFilterCondition> jobStateIsNotEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'job_state', value: ''),
       );
     });
   }
@@ -16405,59 +16313,148 @@ extension PublishQueryFilter
     });
   }
 
-  QueryBuilder<Publish, Publish, QAfterFilterCondition> rowIdEqualTo(Id value) {
+  QueryBuilder<Publish, Publish, QAfterFilterCondition> jobStateEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'row_id', value: value),
+        FilterCondition.equalTo(
+          property: r'state',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
       );
     });
   }
 
-  QueryBuilder<Publish, Publish, QAfterFilterCondition> rowIdGreaterThan(
-    Id value, {
+  QueryBuilder<Publish, Publish, QAfterFilterCondition> jobStateGreaterThan(
+    String value, {
     bool include = false,
+    bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'row_id',
+          property: r'state',
           value: value,
+          caseSensitive: caseSensitive,
         ),
       );
     });
   }
 
-  QueryBuilder<Publish, Publish, QAfterFilterCondition> rowIdLessThan(
-    Id value, {
+  QueryBuilder<Publish, Publish, QAfterFilterCondition> jobStateLessThan(
+    String value, {
     bool include = false,
+    bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'row_id',
+          property: r'state',
           value: value,
+          caseSensitive: caseSensitive,
         ),
       );
     });
   }
 
-  QueryBuilder<Publish, Publish, QAfterFilterCondition> rowIdBetween(
-    Id lower,
-    Id upper, {
+  QueryBuilder<Publish, Publish, QAfterFilterCondition> jobStateBetween(
+    String lower,
+    String upper, {
     bool includeLower = true,
     bool includeUpper = true,
+    bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'row_id',
+          property: r'state',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
           includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
         ),
+      );
+    });
+  }
+
+  QueryBuilder<Publish, Publish, QAfterFilterCondition> jobStateStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'state',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Publish, Publish, QAfterFilterCondition> jobStateEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'state',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Publish, Publish, QAfterFilterCondition> jobStateContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'state',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Publish, Publish, QAfterFilterCondition> jobStateMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'state',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Publish, Publish, QAfterFilterCondition> jobStateIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'state', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Publish, Publish, QAfterFilterCondition> jobStateIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'state', value: ''),
       );
     });
   }
@@ -16850,18 +16847,6 @@ extension PublishQuerySortBy on QueryBuilder<Publish, Publish, QSortBy> {
     });
   }
 
-  QueryBuilder<Publish, Publish, QAfterSortBy> sortByJobState() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'job_state', Sort.asc);
-    });
-  }
-
-  QueryBuilder<Publish, Publish, QAfterSortBy> sortByJobStateDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'job_state', Sort.desc);
-    });
-  }
-
   QueryBuilder<Publish, Publish, QAfterSortBy> sortByPostCategory() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'post_category', Sort.asc);
@@ -16931,6 +16916,18 @@ extension PublishQuerySortBy on QueryBuilder<Publish, Publish, QSortBy> {
   QueryBuilder<Publish, Publish, QAfterSortBy> sortByReplaceIdDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'replace_id', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Publish, Publish, QAfterSortBy> sortByJobState() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'state', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Publish, Publish, QAfterSortBy> sortByJobStateDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'state', Sort.desc);
     });
   }
 
@@ -17033,15 +17030,15 @@ extension PublishQuerySortThenBy
     });
   }
 
-  QueryBuilder<Publish, Publish, QAfterSortBy> thenByJobState() {
+  QueryBuilder<Publish, Publish, QAfterSortBy> thenByRowId() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'job_state', Sort.asc);
+      return query.addSortBy(r'id', Sort.asc);
     });
   }
 
-  QueryBuilder<Publish, Publish, QAfterSortBy> thenByJobStateDesc() {
+  QueryBuilder<Publish, Publish, QAfterSortBy> thenByRowIdDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'job_state', Sort.desc);
+      return query.addSortBy(r'id', Sort.desc);
     });
   }
 
@@ -17117,15 +17114,15 @@ extension PublishQuerySortThenBy
     });
   }
 
-  QueryBuilder<Publish, Publish, QAfterSortBy> thenByRowId() {
+  QueryBuilder<Publish, Publish, QAfterSortBy> thenByJobState() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'row_id', Sort.asc);
+      return query.addSortBy(r'state', Sort.asc);
     });
   }
 
-  QueryBuilder<Publish, Publish, QAfterSortBy> thenByRowIdDesc() {
+  QueryBuilder<Publish, Publish, QAfterSortBy> thenByJobStateDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'row_id', Sort.desc);
+      return query.addSortBy(r'state', Sort.desc);
     });
   }
 
@@ -17202,14 +17199,6 @@ extension PublishQueryWhereDistinct
     });
   }
 
-  QueryBuilder<Publish, Publish, QDistinct> distinctByJobState({
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'job_state', caseSensitive: caseSensitive);
-    });
-  }
-
   QueryBuilder<Publish, Publish, QDistinct> distinctByManifestBytes() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'manifest_bytes');
@@ -17265,6 +17254,14 @@ extension PublishQueryWhereDistinct
     });
   }
 
+  QueryBuilder<Publish, Publish, QDistinct> distinctByJobState({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'state', caseSensitive: caseSensitive);
+    });
+  }
+
   QueryBuilder<Publish, Publish, QDistinct> distinctByTxHash({
     bool caseSensitive = true,
   }) {
@@ -17286,7 +17283,7 @@ extension PublishQueryProperty
     on QueryBuilder<Publish, Publish, QQueryProperty> {
   QueryBuilder<Publish, int, QQueryOperations> rowIdProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'row_id');
+      return query.addPropertyName(r'id');
     });
   }
 
@@ -17323,12 +17320,6 @@ extension PublishQueryProperty
   QueryBuilder<Publish, String, QQueryOperations> draftIdProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'draft_id');
-    });
-  }
-
-  QueryBuilder<Publish, String, QQueryOperations> jobStateProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'job_state');
     });
   }
 
@@ -17371,6 +17362,12 @@ extension PublishQueryProperty
   QueryBuilder<Publish, String?, QQueryOperations> replaceIdProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'replace_id');
+    });
+  }
+
+  QueryBuilder<Publish, String, QQueryOperations> jobStateProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'state');
     });
   }
 

@@ -29,7 +29,15 @@ void main() {
         home: ClearingBankSettingsPage(
           accountId: accountId,
           accountAddress: accountAddress,
-          directory: ClearingBankDirectory(chain: TestCitizenChain()),
+          directory: (() {
+            final reads0 = TestChainReads();
+            return ClearingBankDirectory(
+              getFinalizedHead: reads0.getFinalizedHead,
+              getStorage: reads0.getStorage,
+              getStorageKeysPaged: reads0.getStorageKeysPaged,
+              getStorageBatch: reads0.getStorageBatch,
+            );
+          })(),
         ),
       ),
     );

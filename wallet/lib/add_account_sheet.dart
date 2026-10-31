@@ -21,24 +21,58 @@ Future<bool?> showAddAccountSheet(
   BuildContext context, {
   required String masterId,
   required AddAccountMode mode,
+  CitizenSdkOperation<CitizenWalletState> Function()? getWalletState,
+  CitizenSdkOperation<CitizenWalletProfile> Function({
+    required String mnemonic,
+    String password,
+  })?
+  addNextAccount,
+  CitizenSdkOperation<CitizenWalletProfile> Function({
+    required String mnemonic,
+    String password,
+    required List<int> indices,
+  })?
+  addAccounts,
 }) {
   return showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
-    builder: (_) => AddAccountSheet(masterId: masterId, mode: mode),
+    builder: (_) => AddAccountSheet(
+      masterId: masterId,
+      mode: mode,
+      getWalletState: getWalletState,
+      addNextAccount: addNextAccount,
+      addAccounts: addAccounts,
+    ),
   );
 }
 
 /// 无根多账户追加面板：录入本钱包助记词与可选 password →（按固定 [mode]）添加账户。
 ///
-/// 无根设备不保存助记词或 password，追加账户须重新录入；[CitizenSdkWallet.addAccounts]
+/// 无根设备不保存助记词或 password，追加账户须重新录入；[CitizenSdk.addAccounts]
 /// SDK在真实操作门内核对输入归属当前唯一热钱包；[masterId]只标识原面板的展示上下文。
 class AddAccountSheet extends StatefulWidget {
   const AddAccountSheet({
     super.key,
     required this.masterId,
     required this.mode,
+    this.getWalletState,
+    this.addNextAccount,
+    this.addAccounts,
   });
+
+  final CitizenSdkOperation<CitizenWalletState> Function()? getWalletState;
+  final CitizenSdkOperation<CitizenWalletProfile> Function({
+    required String mnemonic,
+    String password,
+  })?
+  addNextAccount;
+  final CitizenSdkOperation<CitizenWalletProfile> Function({
+    required String mnemonic,
+    String password,
+    required List<int> indices,
+  })?
+  addAccounts;
 
   final String masterId;
 
@@ -50,7 +84,7 @@ class AddAccountSheet extends StatefulWidget {
 }
 
 class _AddAccountSheetState extends State<AddAccountSheet> {
-  CitizenSdkWallet get _wallet => context.read<CitizenSdk>().wallet;
+  CitizenSdk get _wallet => context.read<CitizenSdk>();
   final TextEditingController _mnemonicController = TextEditingController();
   final TextEditingController _indexController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
@@ -71,7 +105,13 @@ class _AddAccountSheetState extends State<AddAccountSheet> {
   @override
   void dispose() {
     final operation = _operation;
-    if (operation != null) unawaited(operation.cancel().then<void>((_) {}, onError: (Object _, StackTrace _) {}));
+    if (operation != null)
+      unawaited(
+        operation.cancel().then<void>(
+          (_) {},
+          onError: (Object _, StackTrace _) {},
+        ),
+      );
     unawaited(ScreenshotGuard.disable());
     _mnemonicController.clear();
     _indexController.clear();
@@ -84,7 +124,8 @@ class _AddAccountSheetState extends State<AddAccountSheet> {
 
   Future<void> _loadNextIndex() async {
     try {
-      final state = await _wallet.getState().result;
+      final state =
+          await (widget.getWalletState ?? _wallet.getWalletState)().result;
       if (!mounted) return;
       setState(() => _nextIndex = state.hotProfile?.nextAccountIndex);
     } catch (_) {
@@ -97,8 +138,10 @@ class _AddAccountSheetState extends State<AddAccountSheet> {
     if (error is CitizenSdkException) {
       return switch (error.code) {
         CitizenSdkErrorCode.keyInvalidated => '钱包安全密钥不可用，无法添加账户',
-        CitizenSdkErrorCode.authenticationCancelled || CitizenSdkErrorCode.cancelled => '已取消添加账户',
-        CitizenSdkErrorCode.authenticationRequired => '请完成设备认证，并确认助记词和钱包密码属于当前钱包',
+        CitizenSdkErrorCode.authenticationCancelled ||
+        CitizenSdkErrorCode.cancelled => '已取消添加账户',
+        CitizenSdkErrorCode.authenticationRequired =>
+          '请完成设备认证，并确认助记词和钱包密码属于当前钱包',
         CitizenSdkErrorCode.invalidArgument => '请检查助记词、钱包密码和账户序号',
         CitizenSdkErrorCode.conflict => '钱包状态已变化，请重新打开添加账户',
         CitizenSdkErrorCode.busy => '钱包正在处理其他操作，请稍后重试',
@@ -121,7 +164,7 @@ class _AddAccountSheetState extends State<AddAccountSheet> {
       await validateWalletPasswordInput(context, password);
       if (!mounted) return;
       if (widget.mode == AddAccountMode.next) {
-        final operation = _wallet.addNextAccount(
+        final operation = (widget.addNextAccount ?? _wallet.addNextAccount)(
           mnemonic: mnemonic,
           password: password,
         );
@@ -130,11 +173,14 @@ class _AddAccountSheetState extends State<AddAccountSheet> {
       } else {
         final parsed = CitizenWalletAccountIndices.parse(_indexController.text);
         if (parsed.indices == null || parsed.indices!.isEmpty) {
-          setState(() => _error = parsed.invalidToken == null
-              ? '请输入至少一个账户序号' : '序号必须是数字：${parsed.invalidToken}');
+          setState(
+            () => _error = parsed.invalidToken == null
+                ? '请输入至少一个账户序号'
+                : '序号必须是数字：${parsed.invalidToken}',
+          );
           return;
         }
-        final operation = _wallet.addAccounts(
+        final operation = (widget.addAccounts ?? _wallet.addAccounts)(
           mnemonic: mnemonic,
           indices: parsed.indices!,
           password: password,
@@ -170,12 +216,14 @@ class _AddAccountSheetState extends State<AddAccountSheet> {
                 child: Container(
                   width: AppLayout.scaled(context, 36),
                   height: AppLayout.scaled(context, 4),
-                  margin:
-                      EdgeInsets.only(bottom: AppLayout.scaled(context, 16)),
+                  margin: EdgeInsets.only(
+                    bottom: AppLayout.scaled(context, 16),
+                  ),
                   decoration: BoxDecoration(
                     color: AppTheme.textTertiary,
-                    borderRadius:
-                        BorderRadius.circular(AppLayout.scaledValue(2)),
+                    borderRadius: BorderRadius.circular(
+                      AppLayout.scaledValue(2),
+                    ),
                   ),
                 ),
               ),
@@ -191,8 +239,9 @@ class _AddAccountSheetState extends State<AddAccountSheet> {
               Text(
                 '无根设备不保存助记词或密码，追加账户需重新录入两者校验归属。',
                 style: TextStyle(
-                    fontSize: AppLayout.scaled(context, 12),
-                    color: AppTheme.textSecondary),
+                  fontSize: AppLayout.scaled(context, 12),
+                  color: AppTheme.textSecondary,
+                ),
               ),
               SizedBox(height: AppLayout.scaled(context, 12)),
               Bip39InputField(controller: _mnemonicController, wordCount: 0),
@@ -229,8 +278,9 @@ class _AddAccountSheetState extends State<AddAccountSheet> {
                 Text(
                   _error!,
                   style: TextStyle(
-                      color: AppTheme.danger,
-                      fontSize: AppLayout.scaled(context, 13)),
+                    color: AppTheme.danger,
+                    fontSize: AppLayout.scaled(context, 13),
+                  ),
                 ),
               ],
               SizedBox(height: AppLayout.scaled(context, 16)),

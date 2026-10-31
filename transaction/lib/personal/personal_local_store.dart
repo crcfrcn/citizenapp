@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:isar_community/isar.dart';
-import 'package:citizen_storage/wallet_isar.dart';
+import 'package:citizen_storage/user_isar.dart';
 import 'package:citizen_citizen/administrators/admin_account.dart';
 import 'package:citizen_citizen/account_derivation.dart';
 

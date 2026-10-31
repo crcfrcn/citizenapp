@@ -1,6 +1,4 @@
-import 'package:citizen_storage/wallet_isar.dart'
-    as wallet_store
-    show Balance;
+import 'package:citizen_storage/user_isar.dart' as wallet_store show Balance;
 
 import 'dart:async';
 import 'dart:convert';
@@ -9,7 +7,7 @@ import 'package:flutter/foundation.dart';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_citizen/account_derivation.dart';
-import 'package:citizen_storage/wallet_isar.dart' hide Group;
+import 'package:citizen_storage/user_isar.dart' hide Group;
 import 'package:citizen_transaction/offchain/offchain_clearing_rpc.dart';
 
 /// 钱包各入口共享同一加载和展示状态；失败保留成功值，未知值始终为 null。
@@ -72,15 +70,39 @@ class WalletBalanceState<T> extends ChangeNotifier {
 /// wallet 域唯一余额所有者。页面进入只读持久快照，不按时间自动失效；
 /// 首次缺失、用户刷新、交易前校验才查询。SDK 仍负责链上证明，缓存不授予交易权限。
 class AccountBalanceSnapshotStore {
-  AccountBalanceSnapshotStore._(this._chain);
+  AccountBalanceSnapshotStore({
+    CitizenSdk? chain,
+    Future<CitizenAccountBalance> Function(String accountId)? getAccountBalance,
+    Future<List<CitizenAccountBalance>> Function(List<String> accountIds)?
+    getAccountBalances,
+  }) : _getAccountBalance =
+           getAccountBalance ??
+           chain?.getAccountBalance ??
+           ((String accountId) => throw StateError('未配置getAccountBalance')),
+       _getAccountBalances =
+           getAccountBalances ??
+           chain?.getAccountBalances ??
+           ((List<String> accountIds) =>
+               throw StateError('未配置getAccountBalances'));
 
   static final Expando<AccountBalanceSnapshotStore> _stores = Expando();
 
   /// 每个 SDK 链实例只有一个余额所有者，避免不同实例和测试互相持有在途查询。
-  static AccountBalanceSnapshotStore forChain(CitizenChain chain) =>
-      _stores[chain] ??= AccountBalanceSnapshotStore._(chain);
+  static AccountBalanceSnapshotStore forChain(
+    CitizenSdk chain, {
+    Future<CitizenAccountBalance> Function(String accountId)? getAccountBalance,
+    Future<List<CitizenAccountBalance>> Function(List<String> accountIds)?
+    getAccountBalances,
+  }) => _stores[chain] ??= AccountBalanceSnapshotStore(
+    chain: chain,
+    getAccountBalance: getAccountBalance,
+    getAccountBalances: getAccountBalances,
+  );
 
-  final CitizenChain _chain;
+  final Future<CitizenAccountBalance> Function(String accountId)
+  _getAccountBalance;
+  final Future<List<CitizenAccountBalance>> Function(List<String> accountIds)
+  _getAccountBalances;
   final _inflight = <String, Future<CitizenAccountBalance>>{};
   final _clearingInflight = <(String, String), Future<BigInt>>{};
   final _changes = StreamController<String>.broadcast();
@@ -244,8 +266,8 @@ class AccountBalanceSnapshotStore {
     final ids = pending.keys.toList();
     try {
       final values = single
-          ? [await _chain.getAccountBalance(ids.single)]
-          : await _chain.getAccountBalances(ids);
+          ? [await _getAccountBalance(ids.single)]
+          : await _getAccountBalances(ids);
       if (values.length != ids.length) throw StateError('余额响应数量不一致');
       for (var i = 0; i < ids.length; i++) {
         _validate(values[i], ids[i]);
@@ -276,7 +298,7 @@ class AccountBalanceSnapshotStore {
     if (current != null) return current;
     final running = _localReads[accountId];
     if (running != null) return running;
-    final reading = WalletIsar.instance.read((isar) async {
+    final reading = UserIsar.instance.read((isar) async {
       final row = await isar.collection<wallet_store.Balance>().getByAccountId(
         accountId,
       );
@@ -295,7 +317,7 @@ class AccountBalanceSnapshotStore {
   }
 
   Future<CitizenAccountBalance> _put(CitizenAccountBalance value) async {
-    return WalletIsar.instance.writeTxn((isar) async {
+    return UserIsar.instance.writeTxn((isar) async {
       final existing = await isar
           .collection<wallet_store.Balance>()
           .getByAccountId(value.accountId);
@@ -342,7 +364,7 @@ class AccountBalanceSnapshotStore {
     );
     if (!forceRefresh) {
       if (state.value != null) return state.value!;
-      final local = await WalletIsar.instance.read((isar) async {
+      final local = await UserIsar.instance.read((isar) async {
         final row = await isar
             .collection<wallet_store.Balance>()
             .getByAccountId(accountId);
@@ -384,7 +406,7 @@ class AccountBalanceSnapshotStore {
     if (value == null || value < BigInt.zero) {
       throw const FormatException('清算行余额必须为非负整数分');
     }
-    await WalletIsar.instance.writeTxn((isar) async {
+    await UserIsar.instance.writeTxn((isar) async {
       final existing = await isar
           .collection<wallet_store.Balance>()
           .getByAccountId(accountId);

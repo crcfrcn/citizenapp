@@ -78,11 +78,11 @@ class _LegislationVotePageState extends State<LegislationVotePage> {
     _vote =
         widget.voteService ??
         LegislationVoteService(
-          chain: sdk.chain,
-          transactions: sdk.transactions,
+          chain: sdk,
+          transactions: sdk,
         );
     _query =
-        widget.queryService ?? LegislationVoteQueryService(chain: sdk.chain);
+        widget.queryService ?? LegislationVoteQueryService(chain: sdk);
     _dependenciesReady = true;
     _load();
   }
@@ -162,7 +162,7 @@ class _LegislationVotePageState extends State<LegislationVotePage> {
     try {
       final publicKeyBytes = _hexDecode(wallet.accountId);
       final balance = await AccountBalanceSnapshotStore.forChain(
-        context.read<CitizenSdk>().chain,
+        context.read<CitizenSdk>(),
       ).getAccountBalance(wallet.accountId, forceRefresh: true);
       if (balance.freeFen <= BigInt.zero) {
         throw StateError('当前钱包余额不足，无法支付链上手续费');

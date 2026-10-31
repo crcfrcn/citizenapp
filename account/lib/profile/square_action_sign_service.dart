@@ -36,14 +36,15 @@ class SquareActionSignPrep {
 /// 流程：扫 signRequest → 解析/两色解码 → 按 QR `u` 定位 account_id 钱包（拒本机没有的账户）
 /// → 用户核对动作 → **account_id 主钥**对 signing_message(0x1D) 签名（生物识别）→ 出 signResponse。
 class SquareActionSignService {
-  SquareActionSignService({required CitizenQr qr}) : _qr = qr;
+  SquareActionSignService({required CitizenSdk qr}) : _qr = qr;
 
-  final CitizenQr _qr;
+  final CitizenSdk _qr;
 
   /// 解析 + 两色解码 + 定位钱包（不签名、不弹生物识别）。失败抛 [SquareActionSignException]。
   Future<SquareActionSignPrep> prepare(
     String raw,
-    CitizenSdkWallet wallet, {
+    CitizenSdk? wallet, {
+    CitizenSdkOperation<CitizenWalletState> Function()? getWalletState,
     CitizenWalletStateAccount? requiredAccount,
   }) async {
     final CitizenQrDocument request;
@@ -78,7 +79,10 @@ class SquareActionSignService {
     final requestAccountId = request.signerAccountId!.toLowerCase();
     final account =
         requiredAccount ??
-        _findAccount(await wallet.getState().result, requestAccountId);
+        _findAccount(
+          await (getWalletState ?? wallet!.getWalletState)().result,
+          requestAccountId,
+        );
     if (account == null ||
         _normalizeHex(account.accountId) != _normalizeHex(requestAccountId)) {
       throw const SquareActionSignException(
@@ -97,10 +101,11 @@ class SquareActionSignService {
   /// 主钥签名（读硬件金库、弹生物识别）→ 构造 signResponse envelope JSON。
   Future<String> sign(
     SquareActionSignPrep prep,
-    CitizenSigning signing,
-    BuildContext? context,
-  ) async {
-    final signBytes = await CitizenSigning.encodePayload(
+    CitizenSdk? signing,
+    BuildContext? context, {
+    PayloadSigner? payloadSigner,
+  }) async {
+    final signBytes = await CitizenSdk.encodePayload(
       CitizenSigningPayload.message(
         opTag: kOpSignSquareAction,
         scalePayload: prep.request.reviewPayload!,
@@ -112,13 +117,20 @@ class SquareActionSignService {
         '当前签名页面已经关闭',
       );
     }
-    final signature = await signCitizenPayload(
-      signing: signing,
-      context: context,
-      accountId: prep.account.accountId,
-      payload: signBytes,
-      action: prep.request.action!,
-    );
+    final signature =
+        await (payloadSigner ??
+            ((id, payload, action, ctx) => signCitizenPayload(
+              signing: signing!,
+              context: ctx,
+              accountId: id,
+              payload: payload,
+              action: action,
+            )))(
+          prep.account.accountId,
+          signBytes,
+          prep.request.action!,
+          context,
+        );
     return (await _qr.encodeDocument(
       CitizenQrContent.signResponse(
         requestId: prep.request.requestId!,

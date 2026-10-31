@@ -1,4 +1,4 @@
-import 'package:citizen_storage/app_isar.dart' as app_store show Entity;
+import 'package:citizen_storage/user_isar.dart' as app_store show Entity;
 // 内存 fake store —— 测同步/载入/订阅逻辑,不依赖 Isar 真库。
 
 import 'package:citizen_citizen/public/public_institution_dto.dart';

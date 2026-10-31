@@ -68,10 +68,10 @@ class _PersonalAccountClosePageState extends State<PersonalAccountClosePage> {
     if (_dependenciesReady) return;
     final sdk = context.read<CitizenSdk>();
     _manageService = PersonalManageService(
-      chain: sdk.chain,
-      transactions: sdk.transactions,
+      chain: sdk,
+      transactions: sdk,
     );
-    _proposalQuery = ProposalQueryService(chain: sdk.chain);
+    _proposalQuery = ProposalQueryService(chain: sdk);
     _dependenciesReady = true;
     _fetchBalance();
   }
@@ -88,7 +88,7 @@ class _PersonalAccountClosePageState extends State<PersonalAccountClosePage> {
     try {
       final snapshot =
           await AccountBalanceSnapshotStore.forChain(
-            context.read<CitizenSdk>().chain,
+            context.read<CitizenSdk>(),
           ).getAccountBalance(
             widget.institution.accountId,
             forceRefresh: forceRefresh,
@@ -138,7 +138,7 @@ class _PersonalAccountClosePageState extends State<PersonalAccountClosePage> {
   // ──── 提交 ────
 
   Future<void> _submit() async {
-    final chain = context.read<CitizenSdk>().chain;
+    final chain = context.read<CitizenSdk>();
     final blockedReason = _submitBlockedReason;
     if (blockedReason != null) {
       ScaffoldMessenger.of(context)

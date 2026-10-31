@@ -13,7 +13,7 @@ final block = CitizenBlockRef(
 );
 final account = '0x${'01' * 32}';
 
-class Chain extends TestCitizenChain {
+class Chain extends TestChainReads {
   Uint8List? value;
   int heads = 0, batches = 0;
   bool short = false;
@@ -46,13 +46,23 @@ class Chain extends TestCitizenChain {
 void main() {
   test('缺失、赞成与反对严格按SCALE bool读取，确认查询不换链头', () async {
     final chain = Chain(),
-        query = InternalVoteQueryService(chain: Chain(), block: block);
+        query = (() {
+          final reads0 = Chain();
+          return InternalVoteQueryService(
+            getFinalizedHead: reads0.getFinalizedHead,
+            getStorage: reads0.getStorage,
+            getStorageBatch: reads0.getStorageBatch,
+            block: block,
+          );
+        })();
     expect(await query.fetchAdminVote(7, account), null);
     for (final value in [0, 1]) {
       chain.value = Uint8List.fromList([value]);
       expect(
         await InternalVoteQueryService(
-          chain: chain,
+          getFinalizedHead: chain.getFinalizedHead,
+          getStorage: chain.getStorage,
+          getStorageBatch: chain.getStorageBatch,
           block: block,
         ).fetchAdminVote(7, account),
         value == 1,
@@ -69,15 +79,22 @@ void main() {
     test('坏投票$bytes不会被当成未投票', () async {
       final chain = Chain()..value = Uint8List.fromList(bytes);
       await expectLater(
-        InternalVoteQueryService(chain: chain).fetchAdminVote(7, account),
+        InternalVoteQueryService(
+          getFinalizedHead: chain.getFinalizedHead,
+          getStorage: chain.getStorage,
+          getStorageBatch: chain.getStorageBatch,
+        ).fetchAdminVote(7, account),
         throwsFormatException,
       );
     });
   }
   test('机构票据CID、岗位及钱包都进入键，文本按UTF-8编码', () async {
     final chain = Chain();
-    await InternalVoteQueryService(chain: chain)
-        .fetchInstitutionTicketVote(7, '机构', '岗位', account);
+    await InternalVoteQueryService(
+      getFinalizedHead: chain.getFinalizedHead,
+      getStorage: chain.getStorage,
+      getStorageBatch: chain.getStorageBatch,
+    ).fetchInstitutionTicketVote(7, '机构', '岗位', account);
     final suffix = [
       1,
       utf8.encode('机构').length << 2,
@@ -94,8 +111,11 @@ void main() {
       201,
       (i) => '0x${i.toRadixString(16).padLeft(64, '0')}',
     );
-    final result = await InternalVoteQueryService(chain: chain)
-        .fetchAdminVotesBatch(7, [...accounts, accounts.first]);
+    final result = await InternalVoteQueryService(
+      getFinalizedHead: chain.getFinalizedHead,
+      getStorage: chain.getStorage,
+      getStorageBatch: chain.getStorageBatch,
+    ).fetchAdminVotesBatch(7, [...accounts, accounts.first]);
     expect(result.length, 201);
     expect(chain.batches, 3);
     expect(chain.heads, 1);
@@ -103,21 +123,42 @@ void main() {
   });
   test('批量响应缺件必须失败，不越界或制造null', () async {
     await expectLater(
-      InternalVoteQueryService(chain: Chain()..short = true)
-          .fetchAdminVotesBatch(7, [account]),
+      (() {
+        final reads0 = Chain()..short = true;
+        return InternalVoteQueryService(
+          getFinalizedHead: reads0.getFinalizedHead,
+          getStorage: reads0.getStorage,
+          getStorageBatch: reads0.getStorageBatch,
+        );
+      })().fetchAdminVotesBatch(7, [account]),
       throwsFormatException,
     );
   });
   test('坏账户、空岗位和负提案号在读取前拒绝', () async {
-    final chain = Chain(), query = InternalVoteQueryService(chain: Chain());
+    final chain = Chain(),
+        query = (() {
+          final reads0 = Chain();
+          return InternalVoteQueryService(
+            getFinalizedHead: reads0.getFinalizedHead,
+            getStorage: reads0.getStorage,
+            getStorageBatch: reads0.getStorageBatch,
+          );
+        })();
     await expectLater(query.fetchAdminVote(7, '01'), throwsFormatException);
     await expectLater(
-      InternalVoteQueryService(chain: chain)
-          .fetchInstitutionTicketVote(7, 'CID', '', account),
+      InternalVoteQueryService(
+        getFinalizedHead: chain.getFinalizedHead,
+        getStorage: chain.getStorage,
+        getStorageBatch: chain.getStorageBatch,
+      ).fetchInstitutionTicketVote(7, 'CID', '', account),
       throwsArgumentError,
     );
     await expectLater(
-      InternalVoteQueryService(chain: chain).fetchAdminVote(-1, account),
+      InternalVoteQueryService(
+        getFinalizedHead: chain.getFinalizedHead,
+        getStorage: chain.getStorage,
+        getStorageBatch: chain.getStorageBatch,
+      ).fetchAdminVote(-1, account),
       throwsArgumentError,
     );
     expect(chain.refs, isEmpty);

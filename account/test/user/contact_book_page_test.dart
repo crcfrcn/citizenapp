@@ -133,7 +133,7 @@ class _FakeContacts implements UserContactService {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _MlsFailedContacts extends _FakeContacts {
@@ -212,7 +212,7 @@ class _FakeSessionProvider implements SquareSessionProvider {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _MemoryProfileCache extends CitizenProfileCache {
@@ -300,8 +300,6 @@ class _ReadyBusinessGate implements CidBusinessGate {
     CidBusinessStatus.ready,
     cidNumber: _contactCidNumber,
   );
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// 身份账户缓存 fake:**已注册**。通讯录属主 = CID,页面对未注册身份整页显示注册
@@ -316,7 +314,7 @@ class _RegisteredIdentityCache implements CurrentUserContext {
   Future<String?> accountId() async => null;
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 /// 未注册：当前默认账户的本地绑定为空，不回退到其他账户。
@@ -329,7 +327,7 @@ class _UnregisteredIdentityCache implements CurrentUserContext {
   );
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _MutableIdentityCache implements CurrentUserContext {
@@ -343,7 +341,7 @@ class _MutableIdentityCache implements CurrentUserContext {
   );
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 void main() {

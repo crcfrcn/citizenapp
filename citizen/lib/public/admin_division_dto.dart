@@ -1,4 +1,4 @@
-import 'package:citizen_storage/app_isar.dart' as app_store show Region;
+import 'package:citizen_storage/user_isar.dart' as app_store show Region;
 
 /// 行政区只保存省、市、镇自然代码与名称，不持久化派生层级和拼接键。
 /// 资源包原始code/name结构由各工厂解析，镇代码必须保留完整父级。

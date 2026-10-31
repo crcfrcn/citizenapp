@@ -55,7 +55,7 @@ class _PublicInstitutionAdminListPageState
     }
     try {
       final snapshots = await AccountBalanceSnapshotStore.forChain(
-        context.read<CitizenSdk>().chain,
+        context.read<CitizenSdk>(),
       ).getAccountBalances(accountIds);
       final balances = <String, double>{
         for (final snapshot in snapshots)

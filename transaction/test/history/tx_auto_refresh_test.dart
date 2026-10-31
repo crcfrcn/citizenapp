@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:citizen_storage/wallet_isar.dart' hide Group;
+import 'package:citizen_storage/user_isar.dart' hide Group;
 import 'package:citizen_transaction/history/local_tx_store.dart';
 import 'package:citizen_transaction/history/tx_auto_refresh_mixin.dart';
 
@@ -69,16 +69,16 @@ void main() {
     });
   }, timeout: const Timeout(Duration(seconds: 40)));
 
-  testWidgets('WalletIsar 擦除会等待已登记 watcher 真实取消', (tester) async {
+  testWidgets('UserIsar 擦除会等待已登记 watcher 真实取消', (tester) async {
     await tester.runAsync(() async {
       final sub = LocalTxStore.listenAccountChanges(fromAccountId, () {});
       await Future<void>.delayed(const Duration(milliseconds: 100));
 
-      await WalletIsar.instance.closeAndDeleteFromDisk();
+      await UserIsar.instance.closeAndDeleteFromDisk();
 
       // close 已取得同一个 single-flight 取消任务，调用方随后重复取消仍应幂等完成。
       await sub.cancel();
-      expect(() => WalletIsar.instance.db(), throwsA(isA<StateError>()));
+      expect(() => UserIsar.instance.db(), throwsA(isA<StateError>()));
     });
   }, timeout: const Timeout(Duration(seconds: 40)));
 
@@ -87,10 +87,10 @@ void main() {
       final sub = LocalTxStore.listenAccountChanges(fromAccountId, () {});
 
       // 不等待 db() 和原生 subscription 建立，直接同步发出关闭意图。
-      await WalletIsar.instance.closeAndDeleteFromDisk();
+      await UserIsar.instance.closeAndDeleteFromDisk();
       await sub.cancel();
 
-      expect(WalletIsar.instance.db, throwsA(isA<StateError>()));
+      expect(UserIsar.instance.db, throwsA(isA<StateError>()));
     });
   }, timeout: const Timeout(Duration(seconds: 40)));
 
@@ -102,7 +102,7 @@ void main() {
 
     for (
       var attempt = 0;
-      attempt < 20 && WalletIsar.instance.hasActiveOperation;
+      attempt < 20 && UserIsar.instance.hasActiveOperation;
       attempt++
     ) {
       // 原生 Future 先在真实事件循环前进，再回 widget fake-async Zone 收尾；打开、
@@ -112,15 +112,15 @@ void main() {
       );
       await tester.pump();
     }
-    expect(WalletIsar.instance.hasActiveOperation, isFalse);
-    await tester.runAsync(WalletIsar.instance.closeAndDeleteFromDisk);
+    expect(UserIsar.instance.hasActiveOperation, isFalse);
+    await tester.runAsync(UserIsar.instance.closeAndDeleteFromDisk);
   }, timeout: const Timeout(Duration(seconds: 40)));
 
   testWidgets('外部消费者取消失败会使擦除可见失败并允许重试', (tester) async {
     await tester.runAsync(() async {
       var shouldFail = true;
-      late WalletIsarConsumerLease lease;
-      lease = WalletIsar.instance.registerExternalConsumer(() async {
+      late IsarConsumerLease lease;
+      lease = UserIsar.instance.registerExternalConsumer(() async {
         if (shouldFail) {
           throw StateError('模拟 watcher 取消失败');
         }
@@ -128,7 +128,7 @@ void main() {
       });
 
       await expectLater(
-        WalletIsar.instance.closeAndDeleteFromDisk(),
+        UserIsar.instance.closeAndDeleteFromDisk(),
         throwsA(
           isA<StateError>().having(
             (error) => error.toString(),
@@ -137,10 +137,10 @@ void main() {
           ),
         ),
       );
-      expect(WalletIsar.instance.db, throwsA(isA<StateError>()));
+      expect(UserIsar.instance.db, throwsA(isA<StateError>()));
 
       shouldFail = false;
-      await WalletIsar.instance.closeAndDeleteFromDisk();
+      await UserIsar.instance.closeAndDeleteFromDisk();
     });
   }, timeout: const Timeout(Duration(seconds: 40)));
 
@@ -173,7 +173,7 @@ void main() {
           // 失败保留 lease/subscription；同一句柄可在原生边界恢复后重试并真实释放。
           shouldFail = false;
           await sub.cancel();
-          await WalletIsar.instance.closeAndDeleteFromDisk();
+          await UserIsar.instance.closeAndDeleteFromDisk();
         },
         (error, _) {
           uncaught.add(error);

@@ -75,7 +75,7 @@ class InstitutionDetailPage extends StatefulWidget {
 class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
   late final InstitutionChainState _chainState;
   InstitutionAdminService? _adminService;
-  CitizenSdkWallet? _wallet;
+  CitizenSdk? _wallet;
   MultisigTransferProposalFeed? _multisigTransferFeed;
   ActivationService? _activationService;
   ProposalContextResolver? _contextResolver;
@@ -152,15 +152,15 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
       _load();
       return;
     }
-    final wallet = sdk.wallet;
+    final wallet = sdk;
     _wallet = wallet;
     final multisigService = MultisigTransferService(
-      chain: sdk.chain,
-      transactions: sdk.transactions,
+      chain: sdk,
+      transactions: sdk,
     );
     final multisigFeed = MultisigTransferProposalFeed(service: multisigService);
     _multisigTransferFeed = multisigFeed;
-    final adminService = InstitutionAdminService(chain: sdk.chain);
+    final adminService = InstitutionAdminService(chain: sdk);
     _adminService = adminService;
     final activationService =
         widget.activationService ??
@@ -169,8 +169,8 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
     _chainState =
         widget.chainState ??
         LiveInstitutionChainState(
-          chain: sdk.chain,
-          transactions: sdk.transactions,
+          chain: sdk,
+          transactions: sdk,
           adminService: adminService,
           feed: multisigFeed,
         );
@@ -362,7 +362,7 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
     if (wallet == null) return const {};
     // 只读本机冷账户集合；名单卡片仍按精确账户ID判断是否已导入。
     return {
-      for (final account in (await wallet.getState().result).accounts)
+      for (final account in (await wallet.getWalletState().result).accounts)
         if (account.signMode == CitizenWalletSignMode.cold) account.accountId,
     };
   }

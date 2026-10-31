@@ -1,4 +1,4 @@
-import 'package:citizen_storage/wallet_isar.dart'
+import 'package:citizen_storage/user_isar.dart'
     as wallet_store
     show Action;
 // 个人多签待激活创建提案反查(req 2 依赖)。
@@ -14,7 +14,7 @@ import 'package:citizen_storage/wallet_isar.dart'
 
 import 'package:isar_community/isar.dart';
 
-import 'package:citizen_storage/wallet_isar.dart' hide Group;
+import 'package:citizen_storage/user_isar.dart' hide Group;
 
 import 'package:citizen_transaction/personal/personal_proposal_history_service.dart';
 
@@ -26,7 +26,7 @@ class PersonalPendingCreateLookup {
   /// 2. 创建提案被否决(Account 已删除);
   /// 3. 详情页未触发过历史服务同步,Isar 尚未填充(异常态,管理员子页应回退提示)。
   Future<int?> findActiveCreate(String accountId) async {
-    final entity = await WalletIsar.instance.read((isar) {
+    final entity = await UserIsar.instance.read((isar) {
       return isar
           .collection<wallet_store.Action>()
           .filter()

@@ -17,9 +17,9 @@ import 'package:citizen_storage/social_isar.dart';
 
 import 'package:tatachat_sdk/tatachat_sdk.dart';
 
-import 'package:citizen_storage/app_isar.dart';
 import 'package:citizen_storage/user_isar.dart';
-import 'package:citizen_storage/wallet_isar.dart' hide Group;
+
+import 'package:citizen_storage/user_isar.dart' hide Group;
 import 'package:citizen_account/identity/account_security_service.dart';
 import 'package:citizen_system/security/system_protected_storage.dart';
 
@@ -134,7 +134,7 @@ class AppLockService {
   /// 锁定达到 [maxLockCount] 次时调用 [wipeAllData] 清空数据。
   static Future<AppPinVerificationResult> verifyPin(
     String pin, {
-    required CitizenSdkWallet? wallet,
+    required CitizenSdk? wallet,
     required AccountSecurityService? accountSecurity,
   }) async {
     final debugVerify = _debugVerifyPinForTest;
@@ -172,7 +172,7 @@ class AppLockService {
   /// 只验证普通应用锁密码，供关闭应用锁使用；该入口永不触发防共匪模式。
   static Future<AppPinVerificationResult> verifyNormalPin(
     String pin, {
-    required CitizenSdkWallet? wallet,
+    required CitizenSdk? wallet,
     required AccountSecurityService? accountSecurity,
   }) async {
     final debugVerify = _debugVerifyPinForTest;
@@ -190,7 +190,7 @@ class AppLockService {
 
   static Future<AppPinVerificationResult> _verifyNormalPin(
     String pin, {
-    required CitizenSdkWallet? wallet,
+    required CitizenSdk? wallet,
     required AccountSecurityService? accountSecurity,
   }) async {
     final storedHash = await SystemProtectedRecordStore.lock.read(_keyPinHash);
@@ -214,7 +214,7 @@ class AppLockService {
   }
 
   static Future<AppPinVerificationResult> _recordRejectedPin(
-    CitizenSdkWallet? wallet,
+    CitizenSdk? wallet,
     AccountSecurityService? accountSecurity,
   ) async {
     // 两类密码均未命中后，才累计一次普通应用锁错误。
@@ -372,7 +372,7 @@ class AppLockService {
   /// pending 会无 PIN 重试全量擦除；无论重试成功还是失败，当前
   /// 进程都只能显示擦除终态并退出，不得继续构造 ChatSdk。
   static Future<AppDataWipeStartupResult> recoverPersistentWipeAtStartup({
-    required CitizenSdkWallet? wallet,
+    required CitizenSdk? wallet,
     required AccountSecurityService? accountSecurity,
     Future<void> Function()? debugDeleteCitizenSdkWallet,
     Future<void> Function()? debugDeleteProtectedRecords,
@@ -468,7 +468,7 @@ class AppLockService {
   /// SDK系统保护域内的 `chat/` 子树，跨 isolate marker 保留到进程退出。
   /// 全部尝试结束后通过 [AppDataWipeException] 聚合暴露失败。
   static Future<void> wipeAllData({
-    required CitizenSdkWallet? wallet,
+    required CitizenSdk? wallet,
     required AccountSecurityService? accountSecurity,
     Future<void> Function()? debugDeleteCitizenSdkWallet,
     Future<void> Function()? debugDeleteProtectedRecords,
@@ -520,7 +520,7 @@ class AppLockService {
     var walletSecretsDeleted = _walletHardwareSecretsDeletedInProcess;
     if (!walletSecretsDeleted) {
       final walletFailureCountBefore = failures.length;
-      await _attemptWipe('CitizenSdkWallet', () async {
+      await _attemptWipe('CitizenSdk', () async {
         final debugDelete = debugDeleteCitizenSdkWallet;
         if (debugDelete != null) {
           _requireFlutterTest();
@@ -561,12 +561,12 @@ class AppLockService {
     }
     if (walletSecretsDeleted) {
       await _attemptWipe(
-        'WalletBusinessIsar',
-        WalletIsar.instance.closeAndDeleteFromDisk,
+        'UserIsar',
+        UserIsar.instance.closeAndDeleteFromDisk,
         failures,
       );
     } else {
-      failures.add('WalletIsar：硬件密钥未全部确认删除，已安全保留重试索引');
+      failures.add('UserIsar：硬件密钥未全部确认删除，已安全保留重试索引');
     }
     await _attemptWipe(
       'ChatIsar',
@@ -579,22 +579,12 @@ class AppLockService {
       failures,
     );
     await _attemptWipe(
-      'UserIsar',
-      UserIsar.instance.closeAndDeleteFromDisk,
-      failures,
-    );
-    await _attemptWipe(
       'UserProfileFiles',
       CitizenProfileMediaCache(
         // 测试复用同一临时根目录，避免调用未注册的平台 path_provider；生产为 null
         // 时分别清理旧 Application Support/user/profile_media 与临时展示目录；字节已由 UserIsar 擦除。
         supportDirectoryProvider: debugChatDocumentsDirectoryProvider,
       ).closeAndDeleteAll,
-      failures,
-    );
-    await _attemptWipe(
-      'AppIsar',
-      AppIsar.instance.closeAndDeleteFromDisk,
       failures,
     );
     await _attemptWipe(
@@ -627,19 +617,19 @@ class AppLockService {
   }
 
   static Future<void> _wipeCitizenSdkWallet(
-    CitizenSdkWallet wallet,
+    CitizenSdk wallet,
     AccountSecurityService accountSecurity,
   ) async {
-    final before = await wallet.getState().result;
+    final before = await wallet.getWalletState().result;
     final walletIndexes = before.accounts.map((account) => account.walletIndex);
     for (final account in before.accounts.where(
       (account) => account.signMode == CitizenWalletSignMode.cold,
     )) {
       await wallet.deleteAccount(account.accountId).result;
     }
-    await wallet.delete().result;
+    await wallet.deleteWallet().result;
     await wallet.reconcileCleanup().result;
-    final after = await wallet.getState().result;
+    final after = await wallet.getWalletState().result;
     if (after.accounts.isNotEmpty || after.hotProfile != null) {
       throw StateError('CitizenSDK 钱包擦除后仍存在账户');
     }

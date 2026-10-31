@@ -190,7 +190,7 @@ void main() {
     final selection = TopupSelection.fromIntent(restored.intent, config);
     expect(selection.toJson(), {
       'token': 'USDC',
-      'package_id': 'pkg_15',
+      'package_id': 'pkg_10',
       'network': 'base',
     });
     expect(jsonDecode(restored.encode()).containsKey('selection'), false);
@@ -200,7 +200,7 @@ void main() {
           ? 'USDT'
           : field == 'network'
           ? 'ethereum'
-          : 'pkg_1400';
+          : 'pkg_900';
       expect(
         () => TopupRecord.decode(jsonEncode(changed)),
         throwsFormatException,

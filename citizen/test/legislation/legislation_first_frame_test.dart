@@ -13,7 +13,6 @@ import 'package:citizen_citizen/legislation/legislation_tab.dart';
 import 'package:citizen_citizen/public/public_institution_repository.dart';
 
 import 'package:citizen_testing/institution/public_nav_harness.dart';
-import 'package:citizen_testing/fake_citizen_sdk.dart';
 
 class _PendingInstitutionRepository extends InstitutionRepository {
   _PendingInstitutionRepository(PublicInstitutionRepository directory)
@@ -27,7 +26,7 @@ class _PendingInstitutionRepository extends InstitutionRepository {
 }
 
 class _PendingLawListApi extends LegislationApi {
-  _PendingLawListApi() : super(chain: TestCitizenChain());
+  _PendingLawListApi() : super();
 
   final Completer<List<int>> completer = Completer<List<int>>();
 
@@ -37,7 +36,7 @@ class _PendingLawListApi extends LegislationApi {
 }
 
 class _PendingLawReaderApi extends LegislationApi {
-  _PendingLawReaderApi() : super(chain: TestCitizenChain());
+  _PendingLawReaderApi() : super();
 
   final Completer<Law?> completer = Completer<Law?>();
 
@@ -70,7 +69,7 @@ LawVersion _version(int value) => LawVersion(
 );
 
 class _ReaderApi extends LegislationApi {
-  _ReaderApi() : super(chain: TestCitizenChain());
+  _ReaderApi() : super();
   Law? local;
   Law? remote = _law();
   final localVersions = <int, LawVersion>{};

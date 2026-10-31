@@ -6,26 +6,26 @@
     <!-- 钱包图标复用官方目录图片；脚本仅允许App本次装配的随包资源nonce。 -->
     <meta http-equiv="Content-Security-Policy"
       content="default-src 'none'; script-src 'nonce-{{TOPUP_NONCE}}'; style-src 'unsafe-inline'; img-src 'self' data: blob: https:; font-src https://fonts.reown.com; connect-src https: wss:; frame-src https:; child-src https:; base-uri 'none'; form-action 'none'" />
-    <title>连接钱包支付</title>
+    <title>选择钱包</title>
     <style>
       :root { color-scheme: light; }
-      html, body { margin: 0; height: 100%; background: #F7F9FC; color: #1A2B3C;
+      html, body { margin: 0; height: 100%; background: #FFFFFF; color: #1A2B3C;
         font-family: -apple-system, "PingFang SC", "Segoe UI", Roboto, sans-serif; }
       .wrap { min-height: 100%; display: flex; flex-direction: column; align-items: center;
-        justify-content: center; text-align: center; padding: 24px; box-sizing: border-box; }
+        justify-content: flex-start; text-align: center; padding: 0 16px 16px; box-sizing: border-box; }
       .spinner { width: 44px; height: 44px; border: 3px solid rgba(0,122,116,.18);
         border-top-color: #007A74; border-radius: 50%; animation: spin 1s linear infinite; }
       @keyframes spin { to { transform: rotate(360deg); } }
-      .title { margin: 18px 0 4px; font-size: 16px; }
+      .title { margin: 4px 0 8px; font-size: 16px; }
       .sub { max-width: 100%; margin: 0; font-size: 13px; color: #5A6B7C; }
       .amount { margin-top: 10px; font-size: 15px; font-weight: 600; color: #007A74; }
       [hidden] { display: none !important; }
       .wallets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 20px 12px; width: 100%; max-width: 380px; margin: 24px 0; }
+        gap: 20px 12px; width: 100%; max-width: 380px; margin: 20px 0; }
       .wallet { border: 0; background: transparent; color: inherit; padding: 8px 0;
         display: flex; flex-direction: column; align-items: center; gap: 8px; font: inherit;
         cursor: pointer; min-width: 0; }
-      .wallet img { border-radius: 12px; object-fit: contain; }
+      .wallet img { width: 64px; height: 64px; border-radius: 16px; object-fit: contain; }
       .wallet span { font-size: 13px; overflow-wrap: anywhere; }
       .wallet small { font-size: 11px; color: #5A6B7C; }
       .wallet:disabled { opacity: .45; cursor: default; }

@@ -1,76 +1,96 @@
 import 'dart:async';
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_scanner/scanner.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 
-/// 原控制器的生命周期回归现在验证SDK资源接线；不再构造App扫码后台或影子识别器。
-Widget _view(TestCitizenQr qr, {ValueChanged<String>? value}) => Directionality(
+// 使用真实SDK采集资源；只控制物理相机打开、排空及会话归属。
+Widget _view(CitizenSdk sdk, {ValueChanged<String>? value}) => Directionality(
   textDirection: TextDirection.ltr,
-  child: ScannerView(qr: qr, purpose: CitizenQrScanPurpose.generalScan, onRawValue: value ?? (_) {}),
+  child: ScannerView(
+    qr: sdk,
+    purpose: CitizenQrScanPurpose.generalScan,
+    onRawValue: value ?? (_) {},
+  ),
 );
+Future<void> _until(WidgetTester tester, bool Function() done) async {
+  for (var i = 0; i < 100 && !done(); i++) {
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump(const Duration(milliseconds: 10));
+  }
+  expect(done(), isTrue);
+}
 
 void main() {
+  final core = TestCitizenSdkHarness(physicalUi: true);
   testWidgets('打开尚未完成便退出，迟到摄像资源必须关闭且不展示', (tester) async {
-    final opening = Completer<CitizenQrCapture>();
-    final capture = TestCitizenQrCapture();
-    final qr = TestCitizenQr()..captureFactory = (_) => opening.future;
+    final opening = Completer<void>();
+    core.fixture.cameraOpen = opening;
     final values = <String>[];
-    await tester.pumpWidget(_view(qr, value: values.add));
-    await tester.pump();
+    await tester.pumpWidget(_view(core.sdk, value: values.add));
+    await _until(tester, () => core.fixture.calls.contains('openQrCapture'));
     await tester.pumpWidget(const SizedBox());
-    opening.complete(capture);
-    await tester.pump();
-    expect(capture.closeCalls, 1);
-    expect(capture.closed, isTrue);
+    expect(core.fixture.nativeResources, isNotEmpty);
+    opening.complete();
+    await _until(tester, () => core.fixture.nativeResources.isEmpty);
+    expect(
+      core.fixture.calls.where((m) => m == 'closeQrCapture'),
+      hasLength(1),
+    );
     expect(values, isEmpty);
     expect(find.byType(Texture), findsNothing);
   });
-
   testWidgets('dispose不伪造SDK排空，close未完成时资源仍是未关闭', (tester) async {
-    final barrier = Completer<void>();
-    final capture = TestCitizenQrCapture()..closeBarrier = barrier;
-    final qr = TestCitizenQr()..captureFactory = (_) async => capture;
-    await tester.pumpWidget(_view(qr));
-    await tester.pump();
+    final drain = Completer<void>();
+    core.fixture.cameraDrain = drain;
+    await tester.pumpWidget(_view(core.sdk));
+    await _until(tester, () => find.byType(Texture).evaluate().isNotEmpty);
     await tester.pumpWidget(const SizedBox());
-    await tester.pump();
-    expect(capture.closeCalls, 1);
-    expect(capture.closed, isFalse);
-    barrier.complete();
-    await tester.pump();
-    expect(capture.closed, isTrue);
+    await _until(tester, () => core.fixture.calls.contains('closeQrCapture'));
+    expect(core.fixture.nativeResources, isNotEmpty);
+    drain.complete();
+    await _until(tester, () => core.fixture.nativeResources.isEmpty);
+    expect(
+      core.fixture.calls.where((m) => m == 'closeQrCapture'),
+      hasLength(1),
+    );
   });
-
   testWidgets('更换SDK前先关闭前一个预览，不向新页面交付旧流', (tester) async {
-    final first = TestCitizenQrCapture();
-    final second = TestCitizenQrCapture();
-    final oldQr = TestCitizenQr()..captureFactory = (_) async => first;
-    var secondOpened = false;
-    final newQr = TestCitizenQr()..captureFactory = (_) async {
-      expect(first.closed, isTrue);
-      secondOpened = true;
-      return second;
-    };
-    await tester.pumpWidget(_view(oldQr));
-    await tester.pump();
-    await tester.pumpWidget(_view(newQr));
-    // 等原资源排空与新资源接管后的页面帧，不把“旧close已发起”当作换绑完成。
-    await tester.pumpAndSettle();
-    for (var frame = 0; !secondOpened && frame < 50; frame++) {
-      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
-      await tester.pump(const Duration(milliseconds: 20));
+    final peer = await CitizenSdk.open(modules: CitizenSdkModules.qr);
+    final oldHost = core.fixture.handles.keys.first,
+        newHost = core.fixture.handles.keys.last;
+    final drain = Completer<void>();
+    try {
+      await tester.pumpWidget(_view(core.sdk));
+      await _until(tester, () => find.byType(Texture).evaluate().isNotEmpty);
+      core.fixture.cameraDrain = drain;
+      await tester.pumpWidget(_view(peer));
+      await _until(tester, () => core.fixture.calls.contains('closeQrCapture'));
+      expect(
+        core.fixture.calls.where((m) => m == 'openQrCapture'),
+        hasLength(1),
+      );
+      expect(core.fixture.nativeResources, contains('$oldHost:camera'));
+      drain.complete();
+      await _until(
+        tester,
+        () => core.fixture.calls.where((m) => m == 'openQrCapture').length == 2,
+      );
+      expect(core.fixture.nativeResources, isNot(contains('$oldHost:camera')));
+      expect(core.fixture.nativeResources, contains('$newHost:camera'));
+      await tester.pumpWidget(const SizedBox());
+      await _until(tester, () => core.fixture.nativeResources.isEmpty);
+      expect(
+        core.fixture.calls.where((m) => m == 'closeQrCapture'),
+        hasLength(2),
+      );
+    } finally {
+      if (!drain.isCompleted) drain.complete();
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      await peer.close();
     }
-    expect(secondOpened, isTrue, reason: '须真实接管新资源后再验证退出，不以未打开冒充未关闭');
-    expect(first.closeCalls, 1);
-    expect(second.closed, isFalse);
-    await tester.pumpWidget(const SizedBox());
-    await tester.pumpAndSettle();
-    for (var frame = 0; second.closeCalls == 0 && frame < 50; frame++) {
-      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
-      await tester.pump(const Duration(milliseconds: 20));
-    }
-    expect(second.closeCalls, 1);
   });
 }

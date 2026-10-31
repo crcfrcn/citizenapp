@@ -5,7 +5,7 @@
 // 产出已解码条目。调用方必须显式选择要扫描的分类管理员 pallet，个人多签只扫
 // `PersonalAdmins`，钱包管理员标签则扫描公权、私权和个人三类。
 //
-// 扫描直接调用 CitizenChain 的 finalized **短前缀分页**
+// 扫描直接调用 CitizenSdk 的 finalized **短前缀分页**
 // (prefix = twox128(pallet) || twox128(storage),
 // 无嵌长 K1)。
 
@@ -71,15 +71,56 @@ class AdminAccountsScanResult {
 /// 分类管理员 `AdminAccounts` 单次扫描服务。
 class AdminAccountsScanService {
   AdminAccountsScanService({
-    required CitizenChain chain,
+    CitizenSdk? chain,
     this.palletNames = const ['PersonalAdmins'],
-  }) : _chain = chain {
+    Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<List<Uint8List>> Function(
+      CitizenBlockRef block,
+      Uint8List prefix, {
+      Uint8List? startKey,
+      int limit,
+    })?
+    getStorageKeysPaged,
+    Future<List<Uint8List?>> Function(
+      CitizenBlockRef block,
+      List<Uint8List> keys,
+    )?
+    getStorageBatch,
+  }) : _getFinalizedHead =
+           getFinalizedHead ??
+           chain?.getFinalizedHead ??
+           (() => throw StateError('未配置getFinalizedHead')),
+       _getStorageKeysPaged =
+           getStorageKeysPaged ??
+           chain?.getStorageKeysPaged ??
+           ((
+             CitizenBlockRef block,
+             Uint8List prefix, {
+             Uint8List? startKey,
+             int limit = 1000,
+           }) => throw StateError('未配置getStorageKeysPaged')),
+       _getStorageBatch =
+           getStorageBatch ??
+           chain?.getStorageBatch ??
+           ((CitizenBlockRef block, List<Uint8List> keys) =>
+               throw StateError('未配置getStorageBatch')) {
     if (palletNames.isEmpty) {
       throw ArgumentError.value(palletNames, 'palletNames', '不能为空');
     }
   }
-
-  final CitizenChain _chain;
+  final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<List<Uint8List>> Function(
+    CitizenBlockRef block,
+    Uint8List prefix, {
+    Uint8List? startKey,
+    int limit,
+  })
+  _getStorageKeysPaged;
+  final Future<List<Uint8List?>> Function(
+    CitizenBlockRef block,
+    List<Uint8List> keys,
+  )
+  _getStorageBatch;
 
   /// 本次扫描的分类管理员 pallet；只允许当前链上三张管理员表。
   final List<String> palletNames;
@@ -102,7 +143,7 @@ class AdminAccountsScanService {
   Future<AdminAccountsScanResult> scanAll({
     void Function(int scanned, int? total, int decoded)? onProgress,
   }) async {
-    final finalized = await _chain.getFinalizedHead();
+    final finalized = await _getFinalizedHead();
     final allKeys = <Uint8List>[];
     final kinds = <int>[];
     var partialFailure = false;
@@ -112,7 +153,7 @@ class AdminAccountsScanService {
       while (true) {
         List<Uint8List> page;
         try {
-          page = await _chain.getStorageKeysPaged(
+          page = await _getStorageKeysPaged(
             finalized,
             entry.prefix,
             startKey: startKey,
@@ -139,7 +180,7 @@ class AdminAccountsScanService {
 
       List<Uint8List?> values;
       try {
-        values = await _chain.getStorageBatch(finalized, batchKeys);
+        values = await _getStorageBatch(finalized, batchKeys);
       } catch (e) {
         AppLog.d('[AdminAccountsScan] fetchStorageBatch 失败: $e');
         partialFailure = true;

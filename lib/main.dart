@@ -119,12 +119,12 @@ Future<void> main() async {
     registrationCapabilities: (identity) async =>
         registrationCoordinator.store.forDevice(
           identity,
-          chainScope: await citizenSdk.chain.getGenesisHash(),
+          chainScope: await citizenSdk.getGenesisHash(),
         ),
   );
   final accountSecurity = AccountSecurityService(
-    wallet: citizenSdk.wallet,
-    signing: citizenSdk.signing,
+    wallet: citizenSdk,
+    signing: citizenSdk,
     mlsDeviceRegistrar: registrar.register,
     coldMlsDeviceBindingSigner:
         ({
@@ -134,8 +134,8 @@ Future<void> main() async {
           required publicKey,
           required issuedAtMillis,
         }) => _signColdMlsDeviceBinding(
-          wallet: citizenSdk.wallet,
-          signing: citizenSdk.signing,
+          wallet: citizenSdk,
+          signing: citizenSdk,
           binding: binding,
           payload: payload,
           signingMessage: signingMessage,
@@ -144,12 +144,12 @@ Future<void> main() async {
         ),
   );
   currentUserContext = CurrentUserContext(
-    wallet: citizenSdk.wallet,
+    wallet: citizenSdk,
     accountSecurity: accountSecurity,
   );
   final finalizedIdentityResolver = FinalizedIdentityResolver(
-    wallet: citizenSdk.wallet,
-    chain: citizenSdk.chain,
+    wallet: citizenSdk,
+    chain: citizenSdk,
     snapshotStore: IdentityBadgeSnapshotStore(),
     identityRevision: accountSecurity.revision,
   );
@@ -175,11 +175,11 @@ Future<void> main() async {
   );
 
   identityService = MyIdService(
-    wallet: citizenSdk.wallet,
-    signing: citizenSdk.signing,
-    chain: citizenSdk.chain,
-    transactions: citizenSdk.transactions,
-    history: citizenSdk.history,
+    wallet: citizenSdk,
+    signing: citizenSdk,
+    chain: citizenSdk,
+    transactions: citizenSdk,
+    history: citizenSdk,
     accountSecurity: accountSecurity,
     currentUserContext: currentUserContext,
     identityResolver: finalizedIdentityResolver,
@@ -192,7 +192,7 @@ Future<void> main() async {
   // pending 不依赖已被平台阶段删除的 PIN，直接继续全量擦除；
   // 当前进程无论成败都只允许重试或退出，禁止恢复业务运行态。
   var wipeStartupResult = await AppLockService.recoverPersistentWipeAtStartup(
-    wallet: citizenSdk.wallet,
+    wallet: citizenSdk,
     accountSecurity: accountSecurity,
   );
   // Documents 暂时不可用时先在业务初始化前有界复查；只有连续失败才进入
@@ -205,7 +205,7 @@ Future<void> main() async {
     ]) {
       await Future<void>.delayed(delay);
       wipeStartupResult = await AppLockService.recoverPersistentWipeAtStartup(
-        wallet: citizenSdk.wallet,
+        wallet: citizenSdk,
         accountSecurity: accountSecurity,
       );
       if (wipeStartupResult != AppDataWipeStartupResult.preflightBlocked) {
@@ -235,9 +235,9 @@ Future<void> main() async {
 
   // 钱包仍由唯一SDK拥有；轻节点启动不再成为本地页面显示的前置等待。
   final transactionHistory = WalletTransactionHistoryService(
-    history: citizenSdk.history,
-    chain: citizenSdk.chain,
-    wallet: citizenSdk.wallet,
+    history: citizenSdk,
+    chain: citizenSdk,
+    wallet: citizenSdk,
     events: citizenSdk.events,
   );
   // 擦除恢复及原安全前置已完成，聊天仍惰性创建；后台入口不负责启动钱包或节点。
@@ -372,7 +372,7 @@ class _DataWipeRecoveryPageState extends State<_DataWipeRecoveryPage> {
     while (mounted) {
       try {
         await AppLockService.wipeAllData(
-          wallet: widget.sdk.wallet,
+          wallet: widget.sdk,
           accountSecurity: widget.accountSecurity,
         );
         if (!mounted) return;
@@ -436,15 +436,15 @@ class _DataWipeRecoveryPageState extends State<_DataWipeRecoveryPage> {
 
 /// 当前默认账户是冷账户时，用 CitizenWallet 扫码签署同一MLS公钥的0x1C登记摘要。
 Future<String> _signColdMlsDeviceBinding({
-  required CitizenSdkWallet wallet,
-  required CitizenSigning signing,
+  required CitizenSdk wallet,
+  required CitizenSdk signing,
   required IdentityBinding binding,
   required Uint8List payload,
   required Uint8List signingMessage,
   required String publicKey,
   required int issuedAtMillis,
 }) async {
-  final account = (await wallet.getState().result).defaultAccount;
+  final account = (await wallet.getWalletState().result).defaultAccount;
   if (account == null ||
       account.signMode != CitizenWalletSignMode.cold ||
       account.accountId != binding.accountId ||
@@ -468,11 +468,11 @@ Future<String> _signColdMlsDeviceBinding({
       Uint8List.fromList(<int>[...kGmbSignDomain, kOpSignMlsDeviceBind]),
     ),
   );
-  final current = (await wallet.getState().result).defaultAccount;
+  final current = (await wallet.getWalletState().result).defaultAccount;
   if (current == null ||
       current.signMode != CitizenWalletSignMode.cold ||
       current.accountId != binding.accountId ||
-      !await CitizenSigning.verify(
+      !await CitizenSdk.verify(
         accountId: binding.accountId,
         signature: signature,
         payload: signingMessage,

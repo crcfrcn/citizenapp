@@ -58,7 +58,7 @@ class _PersonalProposalListSectionState
     super.didChangeDependencies();
     if (_dependenciesReady) return;
     _service = PersonalProposalHistoryService(
-      chain: context.read<CitizenSdk>().chain,
+      chain: context.read<CitizenSdk>(),
     );
     _dependenciesReady = true;
     _load();

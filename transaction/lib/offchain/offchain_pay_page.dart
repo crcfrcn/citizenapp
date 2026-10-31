@@ -41,6 +41,8 @@ class OffchainClearingPayPage extends StatefulWidget {
     this.initialAmountYuan,
     this.memo,
     this.nodeRpc,
+    this.directory,
+    this.payloadSigner,
   });
 
   /// 付款方当前钱包(仅支持热钱包)。
@@ -62,6 +64,8 @@ class OffchainClearingPayPage extends StatefulWidget {
 
   /// 可由调用方交付同一公开清算RPC客户端；正式入口按已声明WSS创建。
   final OffchainClearingBankRpc? nodeRpc;
+  final ClearingBankDirectory? directory;
+  final PayloadSigner? payloadSigner;
 
   @override
   State<OffchainClearingPayPage> createState() =>
@@ -110,7 +114,7 @@ class _OffchainClearingPayPageState extends State<OffchainClearingPayPage> {
   }
 
   Future<void> _loadPrerequisites() async {
-    final chain = context.read<CitizenSdk>().chain;
+    final chain = context.read<CitizenSdk>();
     try {
       // 1. 付款方绑定的清算行
       final payerBank = await _nodeRpc.queryUserBank(widget.wallet.ss58Address);
@@ -120,8 +124,9 @@ class _OffchainClearingPayPageState extends State<OffchainClearingPayPage> {
       }
 
       // 2. 付款前重新确认收款方仍有链上清算行声明，主账户只按链统一原语派生。
-      final endpoint = await ClearingBankDirectory(chain: chain)
-          .fetchEndpoint(widget.recipientBankCidNumber);
+      final endpoint =
+          await (widget.directory ?? ClearingBankDirectory(chain: chain))
+              .fetchEndpoint(widget.recipientBankCidNumber);
       if (endpoint == null) {
         _setError('收款方清算行未在链上声明节点,无法付款');
         return;
@@ -437,13 +442,14 @@ class _OffchainClearingPayPageState extends State<OffchainClearingPayPage> {
   }) async {
     final wallet = widget.wallet;
     if (wallet.signMode == CitizenWalletSignMode.hot) {
-      return signCitizenPayload(
-        signing: context.read<CitizenSdk>().signing,
-        context: context,
-        accountId: wallet.accountId,
-        payload: signingHash,
-        action: kOpSignL3Pay,
-      );
+      return (widget.payloadSigner ??
+          ((id, payload, action, ctx) => signCitizenPayload(
+            signing: context.read<CitizenSdk>(),
+            context: ctx,
+            accountId: id,
+            payload: payload,
+            action: action,
+          )))(wallet.accountId, signingHash, kOpSignL3Pay, context);
     }
 
     throw Exception('清算行付款签名必须使用本机热钱包；冷钱包无法独立验证付款 hash');

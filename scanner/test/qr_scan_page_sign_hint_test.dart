@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -10,9 +12,26 @@ import 'package:citizen_scanner/qr_scan_page.dart';
 ///
 /// 签名请求(广场动作 / 公民身份 / 注册局占号换绑)统一在「聊天 → 扫一扫」处理;
 /// 交易页与多签各页的地址框扫码都走 [QrScanMode.transfer],共用这一条提示。
+late TestCitizenSdkHarness _core;
+
 void main() {
-  const signRequestCode = 'synthetic-sign-request';
-  const accountCode = 'synthetic-account-code';
+  _core = TestCitizenSdkHarness(physicalUi: true);
+  late String signRequestCode;
+  late String accountCode;
+  setUp(() async {
+    accountCode = await _core.sdk.encodeAccountId(testCitizenAccountId);
+    signRequestCode = (await _core.sdk.encodeDocument(
+      CitizenQrContent.signRequest(
+        requestId: 'hint-request-00001',
+        expiresAt: BigInt.from(
+          DateTime.now().millisecondsSinceEpoch ~/ 1000 + 120,
+        ),
+        signerAccountId: testCitizenAccountId,
+        action: CitizenQrActions.squareAccountAction,
+        reviewPayload: Uint8List.fromList([1]),
+      ),
+    )).canonicalText;
+  });
 
   testWidgets('transfer 模式扫到签名请求:指路聊天扫一扫,不回传结果', (tester) async {
     QrScanTransferResult? popped;
@@ -44,9 +63,13 @@ void main() {
       final navigatorKey = await pumpScannerHost(tester);
       unawaitedPushMode(navigatorKey, signRequestCode, mode);
       await tester.pumpAndSettle();
-      expect(find.text(mode == QrScanMode.contact ? '无法识别二维码' : '这不是用户码'), findsOneWidget);
+      expect(
+        find.text(mode == QrScanMode.contact ? '无法识别二维码' : '这不是用户码'),
+        findsOneWidget,
+      );
       expect(find.text('请扫描当前入口支持的二维码'), findsNothing);
-      await tester.tap(find.text('确定')); await tester.pumpAndSettle();
+      await tester.tap(find.text('确定'));
+      await tester.pumpAndSettle();
       expect(find.byType(QrScanPage), findsOneWidget);
       await tester.pumpWidget(const SizedBox.shrink());
     }
@@ -116,17 +139,5 @@ Future<QrScanTransferResult?> unawaitedPush(
   );
 }
 
-/// 页面只根据SDK事实选择原提示；协议有效性由SDK Core金标测试覆盖。
-TestCitizenQr _qrFor(String code) => TestCitizenQr()
-  ..captureFactory = (_) async { return TestCitizenQrCapture(); }
-  ..parseDocument = (text) async {
-    expect(text, code);
-    return CitizenQrDocument(
-      kind: code == 'synthetic-account-code' ? CitizenQrKind.accountId : CitizenQrKind.signRequest,
-      canonicalText: code,
-      scanPurposeMask: code == 'synthetic-account-code' ? 195 : 80,
-      accountId: code == 'synthetic-account-code' ? testCitizenAccountId : null,
-      signerAccountId: code == 'synthetic-sign-request' ? testCitizenAccountId : null,
-      action: code == 'synthetic-sign-request' ? CitizenQrActions.squareAccountAction : null,
-    );
-  };
+// 页面提示只读取真实Core的文档类别，不在App另写解析器。
+CitizenSdk _qrFor(String code) => _core.sdk;

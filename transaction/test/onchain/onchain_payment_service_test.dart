@@ -12,7 +12,7 @@ import 'package:citizen_testing/fake_citizen_sdk.dart';
 const _cid = 'CN220-CTZN2-100000001-2026';
 
 class _Reader extends CitizenIdentityChainReader {
-  _Reader(this.binding) : super(chain: TestCitizenChain());
+  _Reader(this.binding) : super();
   final CitizenBindingChainSnapshot? binding;
   int reads = 0;
   @override
@@ -26,11 +26,16 @@ class _Reader extends CitizenIdentityChainReader {
 }
 
 void main() {
-  OnchainPaymentService service(_Reader reader) => OnchainPaymentService(
-    wallet: TestCitizenSdkWallet(),
-    transactions: TestCitizenTransactions(),
-    bindingReader: reader,
-  );
+  OnchainPaymentService service(_Reader reader) => (() {
+    final reads0 = TestWalletReads();
+    final reads1 = TestTransactionCalls();
+    return OnchainPaymentService(
+      getWalletState: reads0.getWalletState,
+      prepareTransaction: reads1.prepareTransaction,
+      cancelPreparedTransaction: reads1.cancelPreparedTransaction,
+      bindingReader: reader,
+    );
+  })();
   test('CID签名前只解析一次，采用换绑后当前账户，不沿用联系人旧地址', () async {
     final binding = CitizenBindingChainSnapshot(
       cidNumber: _cid,

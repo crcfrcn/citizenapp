@@ -410,7 +410,7 @@ class ChatTab extends StatefulWidget {
 
   /// 生产固定使用同一 ChatSdk 的 Store；显式值只用于不启动原生运行时的组件测试。
   final ChatStore store;
-  final CitizenSdkWallet? wallet;
+  final CitizenSdk? wallet;
   final String? cidNumber;
   final String? accountId;
   final ChatSdk runtime;
@@ -444,7 +444,7 @@ class _ChatTabState extends State<ChatTab> {
   SquareSessionProvider? _sessionProvider;
   SubscriptionService? _subscriptionService;
   UserContactService? _contactService;
-  CitizenSdkWallet? _wallet;
+  CitizenSdk? _wallet;
   AccountSecurityService? _accountSecurity;
   CurrentUserContext? _currentUserContext;
   bool _dependenciesReady = false;
@@ -501,7 +501,7 @@ class _ChatTabState extends State<ChatTab> {
     final currentUserContext = context.read<CurrentUserContext>();
     _currentUserContext = currentUserContext;
     final identityResolver = context.read<FinalizedIdentityResolver>();
-    _wallet = widget.wallet ?? sdk.wallet;
+    _wallet = widget.wallet ?? sdk;
     _sessionProvider =
         widget.sessionProvider ?? context.read<SquareSessionProvider>();
     _subscriptionService =
@@ -509,8 +509,8 @@ class _ChatTabState extends State<ChatTab> {
         SubscriptionService(
           resumePendingTransactions: false,
           wallet: _wallet!,
-          chain: sdk.chain,
-          transactions: sdk.transactions,
+          chain: sdk,
+          transactions: sdk,
           identityResolver: identityResolver,
           sessionProvider: _sessionProvider!,
         );
@@ -1051,7 +1051,7 @@ class _ChatTabState extends State<ChatTab> {
       setState(() => _error = '请先在「我的 → 我的钱包」添加钱包账户');
       return;
     }
-    final wallet = (await walletPort.getState().result).defaultAccount;
+    final wallet = (await walletPort.getWalletState().result).defaultAccount;
     if (!mounted) return;
     await context.read<ScanDispatch>().openScanDispatchFlow(context: context, paymentWallet: wallet);
   }
@@ -1072,7 +1072,7 @@ class _ChatTabState extends State<ChatTab> {
       setState(() => _error = '请先在「我的 → 我的钱包」添加钱包账户');
       return;
     }
-    final wallet = (await walletPort.getState().result).defaultAccount;
+    final wallet = (await walletPort.getWalletState().result).defaultAccount;
     if (!mounted) return;
     if (wallet == null) {
       setState(() => _error = '请先在「我的 → 我的钱包」添加钱包账户');

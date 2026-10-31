@@ -101,12 +101,12 @@ class _MultisigProposalDetailPageState
     super.didChangeDependencies();
     if (_dependenciesReady) return;
     final sdk = context.read<CitizenSdk>();
-    _proposalService = ProposalQueryService(chain: sdk.chain);
+    _proposalService = ProposalQueryService(chain: sdk);
     _personalManageService = PersonalManageService(
-      chain: sdk.chain,
-      transactions: sdk.transactions,
+      chain: sdk,
+      transactions: sdk,
     );
-    _adminService = InstitutionAdminService(chain: sdk.chain);
+    _adminService = InstitutionAdminService(chain: sdk);
     _dependenciesReady = true;
     _load();
   }
@@ -542,7 +542,7 @@ class _MultisigProposalDetailPageState
       if (ticket == null) throw StateError('已取消选择投票岗位');
       if (!mounted) return;
       final sdk = context.read<CitizenSdk>();
-      final balance = await AccountBalanceSnapshotStore.forChain(sdk.chain)
+      final balance = await AccountBalanceSnapshotStore.forChain(sdk)
           .getAccountBalance(accountId, forceRefresh: true);
       if (balance.freeFen <= BigInt.zero) {
         throw StateError('当前投票钱包余额不足，无法支付链上投票手续费');
@@ -553,8 +553,8 @@ class _MultisigProposalDetailPageState
       AppLog.d('[VoteDetail] 调 InternalVoteService.submit');
       final result =
           await InternalVoteService(
-            chain: sdk.chain,
-            transactions: sdk.transactions,
+            chain: sdk,
+            transactions: sdk,
           ).submit(
             proposalId: widget.proposalId,
             approve: approve,

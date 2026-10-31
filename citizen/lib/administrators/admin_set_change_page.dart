@@ -61,8 +61,8 @@ class _AdminsChangePageState extends State<AdminsChangePage> {
     super.didChangeDependencies();
     if (_dependenciesReady) return;
     final sdk = context.read<CitizenSdk>();
-    _accountService = AdminAccountService(chain: sdk.chain);
-    _changeService = AdminsChangeService(transactions: sdk.transactions);
+    _accountService = AdminAccountService(chain: sdk);
+    _changeService = AdminsChangeService(transactions: sdk);
     _dependenciesReady = true;
     _load();
   }
@@ -180,7 +180,7 @@ class _AdminsChangePageState extends State<AdminsChangePage> {
     }
     try {
       final snapshots = await AccountBalanceSnapshotStore.forChain(
-        context.read<CitizenSdk>().chain,
+        context.read<CitizenSdk>(),
       ).getAccountBalances(accountIds);
       final balances = <String, double>{
         for (final snapshot in snapshots)

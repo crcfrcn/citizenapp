@@ -147,10 +147,10 @@ class _MultisigTransferDetailPageState
     if (_dependenciesReady) return;
     final sdk = context.read<CitizenSdk>();
     _proposalService = MultisigTransferService(
-      chain: sdk.chain,
-      transactions: sdk.transactions,
+      chain: sdk,
+      transactions: sdk,
     );
-    _adminService = InstitutionAdminService(chain: sdk.chain);
+    _adminService = InstitutionAdminService(chain: sdk);
     _dependenciesReady = true;
     _load();
   }
@@ -572,7 +572,7 @@ class _MultisigTransferDetailPageState
           wallet: wallet,
           requiredFeeYuan: MultisigTransferBalanceGuard.voteFeeYuan,
           actionLabel: '提交多签转账投票',
-          chain: context.read<CitizenSdk>().chain,
+          chain: context.read<CitizenSdk>(),
         );
     if (balanceBlockedReason != null) {
       if (!mounted) return;
@@ -609,8 +609,8 @@ class _MultisigTransferDetailPageState
       final sdk = context.read<CitizenSdk>();
       final result =
           await InternalVoteService(
-            chain: sdk.chain,
-            transactions: sdk.transactions,
+            chain: sdk,
+            transactions: sdk,
           ).submit(
             proposalId: widget.proposalId,
             approve: approve,

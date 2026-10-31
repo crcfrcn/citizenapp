@@ -163,12 +163,26 @@ void main() {
     await _insert(txHash: '0x01', executionId: 'execution-newer');
     await _insert(txHash: '0x02', executionId: 'execution-older');
     final events = StreamController<CitizenSdkEvent>();
-    final service = WalletTransactionHistoryService(
-      history: _PagedHistory(),
-      chain: TestCitizenChain(),
-      wallet: _HistoryWallet(),
-      events: events.stream,
-    );
+    final service = (() {
+      final reads0 = _PagedHistory();
+      final reads1 = TestChainReads();
+      final reads2 = _HistoryWallet();
+      return WalletTransactionHistoryService(
+        syncTransactionHistory: reads0.syncTransactionHistory,
+        getTransactionHistory: reads0.getTransactionHistory,
+        getGenesisHash: reads1.getGenesisHash,
+        getFinalizedHead: reads1.getFinalizedHead,
+        getFinalizedBlockAt: reads1.getFinalizedBlockAt,
+        getStorage: reads1.getStorage,
+        getSystemEvents: reads1.getSystemEvents,
+        getRuntimeContext: reads1.getRuntimeContext,
+        getBlockBody: reads1.getBlockBody,
+        getAccountBalance: reads1.getAccountBalance,
+        getAccountBalances: reads1.getAccountBalances,
+        getWalletState: reads2.getWalletState,
+        events: events.stream,
+      );
+    })();
 
     await service.start();
     await service.sync();
@@ -386,7 +400,7 @@ Future<void> _insert({required String txHash, required String executionId}) {
   );
 }
 
-final class _PagedHistory extends TestCitizenHistory {
+final class _PagedHistory extends TestHistoryReads {
   @override
   Future<CitizenTransactionHistoryPage> syncTransactionHistory() async {
     return CitizenTransactionHistoryPage(
@@ -452,14 +466,26 @@ final class _PagedHistory extends TestCitizenHistory {
 WalletTransactionHistoryService _service(
   _HistoryChain chain,
   _HistoryWallet wallet,
-) => WalletTransactionHistoryService(
-  history: _EmptyHistory(),
-  chain: chain,
-  wallet: wallet,
-  events: const Stream<CitizenSdkEvent>.empty(),
-);
+) => (() {
+  final reads0 = _EmptyHistory();
+  return WalletTransactionHistoryService(
+    syncTransactionHistory: reads0.syncTransactionHistory,
+    getTransactionHistory: reads0.getTransactionHistory,
+    getGenesisHash: chain.getGenesisHash,
+    getFinalizedHead: chain.getFinalizedHead,
+    getFinalizedBlockAt: chain.getFinalizedBlockAt,
+    getStorage: chain.getStorage,
+    getSystemEvents: chain.getSystemEvents,
+    getRuntimeContext: chain.getRuntimeContext,
+    getBlockBody: chain.getBlockBody,
+    getAccountBalance: chain.getAccountBalance,
+    getAccountBalances: chain.getAccountBalances,
+    getWalletState: wallet.getWalletState,
+    events: const Stream<CitizenSdkEvent>.empty(),
+  );
+})();
 
-final class _EmptyHistory extends TestCitizenHistory {
+final class _EmptyHistory extends TestHistoryReads {
   @override
   Future<CitizenTransactionHistoryPage> syncTransactionHistory() async =>
       CitizenTransactionHistoryPage(
@@ -469,36 +495,37 @@ final class _EmptyHistory extends TestCitizenHistory {
       );
 }
 
-final class _HistoryWallet extends TestCitizenSdkWallet {
+final class _HistoryWallet extends TestWalletReads {
   _HistoryWallet({this.createdAt});
   final int? createdAt;
   @override
-  CitizenSdkOperation<CitizenWalletState> getState() => testCitizenOperation(
-    () => CitizenWalletState(
-      revision: BigInt.one,
-      hotProfile: null,
-      cleanupPending: false,
-      initializationState: createdAt == null
-          ? CitizenWalletInitializationState.empty
-          : CitizenWalletInitializationState.ready,
-      accounts: [
-        if (createdAt != null)
-          CitizenWalletStateAccount(
-            signMode: CitizenWalletSignMode.cold,
-            walletIndex: 0,
-            accountIndex: null,
-            accountId: _accountId,
-            ss58Address: 'synthetic-wallet',
-            name: '测试钱包',
-            createdAtMillis: BigInt.from(createdAt!),
-            isDefault: true,
-          ),
-      ],
-    ),
-  );
+  CitizenSdkOperation<CitizenWalletState> getWalletState() =>
+      testCitizenOperation(
+        () => CitizenWalletState(
+          revision: BigInt.one,
+          hotProfile: null,
+          cleanupPending: false,
+          initializationState: createdAt == null
+              ? CitizenWalletInitializationState.empty
+              : CitizenWalletInitializationState.ready,
+          accounts: [
+            if (createdAt != null)
+              CitizenWalletStateAccount(
+                signMode: CitizenWalletSignMode.cold,
+                walletIndex: 0,
+                accountIndex: null,
+                accountId: _accountId,
+                ss58Address: 'synthetic-wallet',
+                name: '测试钱包',
+                createdAtMillis: BigInt.from(createdAt!),
+                isDefault: true,
+              ),
+          ],
+        ),
+      );
 }
 
-final class _HistoryChain extends TestCitizenChain {
+final class _HistoryChain extends TestChainReads {
   int height = 10;
   final encodedEvents = <int, Uint8List>{};
   bool wrongBodyAnchor = false;

@@ -37,16 +37,20 @@ typedef CurrentUserBindingReader = Future<IdentityBinding?> Function(
 /// 默认账户来自 CitizenSDK 全局顺序第一项；绑定是 CitizenApp 自己的 finalized 业务缓存。
 interface class CurrentUserContext {
   CurrentUserContext({
-    required CitizenSdkWallet wallet,
+    CitizenSdk? wallet,
     required AccountSecurityService accountSecurity,
     CurrentUserBindingReader? bindingReader,
     Future<IdentityBadgeSnapshot?> Function(String)? identityReader,
-  }) : _wallet = wallet,
-       _accountSecurity = accountSecurity,
+    CitizenSdkOperation<CitizenWalletState> Function()? getWalletState,
+  }) : _accountSecurity = accountSecurity,
        _bindingReader = bindingReader,
-       _identityReader = identityReader;
+       _identityReader = identityReader,
+       _getWalletState =
+           getWalletState ??
+           wallet?.getWalletState ??
+           (() => throw StateError('未配置getWalletState'));
+  final CitizenSdkOperation<CitizenWalletState> Function() _getWalletState;
 
-  final CitizenSdkWallet _wallet;
   final AccountSecurityService _accountSecurity;
   final CurrentUserBindingReader? _bindingReader;
   final Future<IdentityBadgeSnapshot?> Function(String)? _identityReader;
@@ -77,7 +81,7 @@ interface class CurrentUserContext {
   Future<IdentityBinding?> binding() async => (await resolve())?.binding;
 
   Future<CurrentUser?> _resolveFresh(int revision, int generation) async {
-    final account = (await _wallet.getState().result).defaultAccount;
+    final account = (await _getWalletState().result).defaultAccount;
     if (account == null) return null;
     var binding =
         await (_bindingReader?.call(account.accountId) ??

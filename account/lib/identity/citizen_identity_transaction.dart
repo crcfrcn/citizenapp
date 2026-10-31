@@ -6,8 +6,7 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:polkadart/polkadart.dart' show Hasher;
 import 'package:polkadart/scale_codec.dart' show CompactBigIntCodec, ByteOutput;
 
-import 'package:citizen_citizen/account_derivation.dart'
-    show isAccountIdText;
+import 'package:citizen_citizen/account_derivation.dart' show isAccountIdText;
 
 import 'package:citizen_citizen/pallet_registry.dart';
 
@@ -40,14 +39,88 @@ class SelfRebindAuthorizationContext {
 /// CID 编码为 `CidNumberBound = BoundedVec<u8, ConstU32<32>>`,签名编码为
 /// `SignatureOf = BoundedVec<u8>`(compact(len) ++ bytes)。
 class CitizenIdentityTransaction {
-  const CitizenIdentityTransaction({
-    required CitizenChain chain,
-    required CitizenTransactions transactions,
-  }) : _chain = chain,
-       _transactions = transactions;
+  CitizenIdentityTransaction({
+    CitizenSdk? chain,
+    CitizenSdk? transactions,
+    Future<void> Function(Map<String, dynamic>)? checkpoint,
+    Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<String> Function()? getGenesisHash,
+    Future<List<Uint8List?>> Function(
+      CitizenBlockRef block,
+      List<Uint8List> keys,
+    )?
+    getStorageBatch,
+    Future<CitizenPreparedTransaction> Function(
+      Uint8List sourceAccountId,
+      Uint8List callData,
+    )?
+    prepareTransaction,
+    Future<CitizenTransactionExecution> Function(String preparationId)?
+    executePreparedTransaction,
+    Future<void> Function(String executionId)?
+    cancelPreparedTransactionExecution,
+    Future<CitizenTransactionExecutionCompleted> Function(
+      String executionId,
+      String response,
+    )?
+    consumePreparedTransactionQrResponse,
+  }) : _checkpoint = checkpoint,
+       _getFinalizedHead =
+           getFinalizedHead ??
+           chain?.getFinalizedHead ??
+           (() => throw StateError('未配置getFinalizedHead')),
+       _getGenesisHash =
+           getGenesisHash ??
+           chain?.getGenesisHash ??
+           (() => throw StateError('未配置getGenesisHash')),
+       _getStorageBatch =
+           getStorageBatch ??
+           chain?.getStorageBatch ??
+           ((CitizenBlockRef block, List<Uint8List> keys) =>
+               throw StateError('未配置getStorageBatch')),
+       _prepareTransaction =
+           prepareTransaction ??
+           transactions?.prepareTransaction ??
+           ((Uint8List sourceAccountId, Uint8List callData) =>
+               throw StateError('未配置prepareTransaction')),
+       _executePreparedTransaction =
+           executePreparedTransaction ??
+           transactions?.executePreparedTransaction ??
+           ((String preparationId) =>
+               throw StateError('未配置executePreparedTransaction')),
+       _cancelPreparedTransactionExecution =
+           cancelPreparedTransactionExecution ??
+           transactions?.cancelPreparedTransactionExecution ??
+           ((String executionId) =>
+               throw StateError('未配置cancelPreparedTransactionExecution')),
+       _consumePreparedTransactionQrResponse =
+           consumePreparedTransactionQrResponse ??
+           transactions?.consumePreparedTransactionQrResponse ??
+           ((String executionId, String response) =>
+               throw StateError('未配置consumePreparedTransactionQrResponse'));
+  final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<String> Function() _getGenesisHash;
+  final Future<List<Uint8List?>> Function(
+    CitizenBlockRef block,
+    List<Uint8List> keys,
+  )
+  _getStorageBatch;
+  final Future<CitizenPreparedTransaction> Function(
+    Uint8List sourceAccountId,
+    Uint8List callData,
+  )
+  _prepareTransaction;
+  final Future<CitizenTransactionExecution> Function(String preparationId)
+  _executePreparedTransaction;
+  final Future<void> Function(String executionId)
+  _cancelPreparedTransactionExecution;
+  final Future<CitizenTransactionExecutionCompleted> Function(
+    String executionId,
+    String response,
+  )
+  _consumePreparedTransactionQrResponse;
 
-  final CitizenChain _chain;
-  final CitizenTransactions _transactions;
+  final Future<void> Function(Map<String, dynamic>)? _checkpoint;
 
   static const int _palletIndex = PalletRegistry.citizenIdentityPallet; // 10
   static const int _selfOccupyCidCallIndex =
@@ -162,7 +235,7 @@ class CitizenIdentityTransaction {
   Future<SelfRebindAuthorizationContext> fetchSelfRebindAuthorizationContext(
     String cidNumber,
   ) async {
-    final finalized = await _chain.getFinalizedHead();
+    final finalized = await _getFinalizedHead();
     final cidScale = _encodedCid(cidNumber);
     final accountKey = _storageMapKey(
       'CitizenIdentity',
@@ -176,12 +249,8 @@ class CitizenIdentityTransaction {
     );
     final timestampKey = _storageValueKey('Timestamp', 'Now');
     final rows = await Future.wait<Object?>([
-      _chain.getGenesisHash(),
-      _chain.getStorageBatch(finalized, [
-        accountKey,
-        revisionKey,
-        timestampKey,
-      ]),
+      _getGenesisHash(),
+      _getStorageBatch(finalized, [accountKey, revisionKey, timestampKey]),
     ]);
     final genesisHash = _decodeHex32(rows[0] as String, '创世块哈希');
     // 三项授权事实来自同一次准确块批读，不能混用本地时间或缓存绑定。
@@ -241,7 +310,7 @@ class CitizenIdentityTransaction {
       'BindingRevisionByCid',
       cidScale,
     );
-    final rows = await _chain.getStorageBatch(finalizedBlock, [
+    final rows = await _getStorageBatch(finalizedBlock, [
       accountKey,
       revisionKey,
     ]);
@@ -268,26 +337,58 @@ class CitizenIdentityTransaction {
     )
     externalSigning,
   }) async {
-    final prepared = await _transactions.prepareTransaction(
+    final prepared = await _prepareTransaction(
       _accountId32(accountId),
       callData,
     );
-    final started = await _transactions.executePreparedTransaction(
-      prepared.preparationId,
-    );
+    final record = <String, dynamic>{
+      'preparation_id': prepared.preparationId,
+      'account_id': _hex(prepared.sourceAccountId),
+      'call_data_hash': _hex(prepared.callDataHash),
+      'state': 'prepared',
+    };
+    await _checkpoint?.call(record);
+    await _checkpoint?.call({...record, 'state': 'executing'});
+    final CitizenTransactionExecution started;
+    try {
+      started = await _executePreparedTransaction(prepared.preparationId);
+    } on CitizenSdkException catch (error) {
+      if (error.code == CitizenSdkErrorCode.authenticationCancelled &&
+          error.stage == CitizenSdkFailureStage.authentication)
+        await _checkpoint?.call({
+          ...record,
+          'state': 'cancelled_before_broadcast',
+        });
+      rethrow;
+    }
+    Map<String, dynamic> executionRecord(CitizenTransactionExecution value) =>
+        <String, dynamic>{
+          ...record,
+          'execution_id': value.executionId,
+          'state': value is CitizenTransactionExecutionCompleted
+              ? value.resolution.name
+              : 'awaiting_qr',
+          if (value is CitizenTransactionExecutionCompleted)
+            'tx_hash': _hex(value.transactionHash),
+        };
+    final progress = executionRecord(started);
+    await _checkpoint?.call(progress);
     CitizenTransactionExecutionCompleted completed;
     if (started is CitizenTransactionExternalSigningPending) {
       final response = await externalSigning(started);
       if (response == null) {
-        await _transactions.cancelPreparedTransactionExecution(
-          started.executionId,
-        );
+        await _cancelPreparedTransactionExecution(started.executionId);
+        await _checkpoint?.call({
+          ...progress,
+          'state': 'cancelled_before_broadcast',
+        });
         throw StateError('身份交易签名已取消');
       }
-      completed = await _transactions.consumePreparedTransactionQrResponse(
+      completed = await _consumePreparedTransactionQrResponse(
         started.executionId,
         response,
       );
+      await _checkpoint?.call(executionRecord(completed));
     } else {
       completed = started as CitizenTransactionExecutionCompleted;
     }
@@ -368,7 +469,7 @@ class CitizenIdentityTransaction {
       ..._u64LittleEndian(expectedBindingRevision),
       ..._u64LittleEndian(expiresAt),
     ];
-    return CitizenSigning.encodePayload(
+    return CitizenSdk.encodePayload(
       CitizenSigningPayload.message(
         opTag: kOpSignCidRebind,
         scalePayload: Uint8List.fromList(payload),

@@ -85,9 +85,9 @@ class NodePaymentIntent {
 
   /// 待签名哈希:`blake2_256(GMB || OP_SIGN_L3_PAY(0x15) || scaleEncode())`。
   ///
-  /// 经全仓签名唯一原语 [CitizenSigning.encodePayload] 构造,逐字节对齐链端
+  /// 经全仓签名唯一原语 [CitizenSdk.encodePayload] 构造,逐字节对齐链端
   /// `primitives::sign::signing_message(OP_SIGN_L3_PAY, SCALE(intent))`。
-  Future<Uint8List> signingHash() => CitizenSigning.encodePayload(
+  Future<Uint8List> signingHash() => CitizenSdk.encodePayload(
     CitizenSigningPayload.message(
       opTag: kOpSignL3Pay,
       scalePayload: scaleEncode(),

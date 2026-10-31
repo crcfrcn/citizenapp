@@ -80,22 +80,26 @@ void main() {
   }) {
     final reader = _FakeReader(chain, throwFor: throwFor);
     return (
-      resolver: FinalizedIdentityResolver(
-        wallet: _FakeWallet(noAccount ? null : account ?? _default0),
-        chain: TestCitizenChain(),
-        chainReader: reader,
-      ),
+      resolver: (() {
+        final reads0 = _FakeWallet(noAccount ? null : account ?? _default0);
+        return FinalizedIdentityResolver(
+          getWalletState: reads0.getWalletState,
+          chainReader: reader,
+        );
+      })(),
       reader: reader,
     );
   }
 
   test('同账户同版本并发验真合并，完成后的新操作重新验真', () async {
     final reader = _DelayedReader();
-    final subject = FinalizedIdentityResolver(
-      wallet: _FakeWallet(_default0),
-      chain: TestCitizenChain(),
-      chainReader: reader,
-    );
+    final subject = (() {
+      final reads0 = _FakeWallet(_default0);
+      return FinalizedIdentityResolver(
+        getWalletState: reads0.getWalletState,
+        chainReader: reader,
+      );
+    })();
     final first = subject.resolve();
     final second = subject.resolve();
     await reader.started.future;
@@ -111,8 +115,7 @@ void main() {
     final wallet = _FakeWallet(_default0);
     final revision = ValueNotifier(0);
     final subject = FinalizedIdentityResolver(
-      wallet: wallet,
-      chain: TestCitizenChain(),
+      getWalletState: wallet.getWalletState,
       chainReader: reader,
       identityRevision: revision,
     );
@@ -129,11 +132,13 @@ void main() {
 
   test('身份验证失败不留下可复用的完成授权', () async {
     final reader = _DelayedReader();
-    final subject = FinalizedIdentityResolver(
-      wallet: _FakeWallet(_default0),
-      chain: TestCitizenChain(),
-      chainReader: reader,
-    );
+    final subject = (() {
+      final reads0 = _FakeWallet(_default0);
+      return FinalizedIdentityResolver(
+        getWalletState: reads0.getWalletState,
+        chainReader: reader,
+      );
+    })();
     final first = subject.resolve();
     final rejected = expectLater(first, throwsStateError);
     await reader.started.future;
@@ -215,8 +220,11 @@ void main() {
           CitizenIdentityChainReader.encodeBoundedBytes(cidNumber.codeUnits),
     });
 
-    final result = await CitizenIdentityChainReader(chain: chainRpc)
-        .readBindingByCidNumber(cidNumber);
+    final result = await CitizenIdentityChainReader(
+      getFinalizedHead: chainRpc.getFinalizedHead,
+      getStorageBatch: chainRpc.getStorageBatch,
+      getStorage: chainRpc.getStorage,
+    ).readBindingByCidNumber(cidNumber);
 
     expect(result, isNotNull);
     expect(result!.accountIdText, _accountIdText(accountId));
@@ -257,8 +265,11 @@ void main() {
           CitizenIdentityChainReader.encodeBoundedBytes('OTHER-CID'.codeUnits),
     });
 
-    final result = await CitizenIdentityChainReader(chain: chainRpc)
-        .readBindingByCidNumber(cidNumber);
+    final result = await CitizenIdentityChainReader(
+      getFinalizedHead: chainRpc.getFinalizedHead,
+      getStorageBatch: chainRpc.getStorageBatch,
+      getStorage: chainRpc.getStorage,
+    ).readBindingByCidNumber(cidNumber);
 
     expect(result, isNull);
   });
@@ -361,9 +372,14 @@ void main() {
     }
 
     test('readByAccountId 命中匿名快照', () async {
-      final snapshot = await CitizenIdentityChainReader(
-        chain: _BindingChain(genesisStorage()),
-      ).readByAccountId(_genesisAccountId);
+      final snapshot = await (() {
+        final reads0 = _BindingChain(genesisStorage());
+        return CitizenIdentityChainReader(
+          getFinalizedHead: reads0.getFinalizedHead,
+          getStorageBatch: reads0.getStorageBatch,
+          getStorage: reads0.getStorage,
+        );
+      })().readByAccountId(_genesisAccountId);
 
       expect(snapshot, isNotNull);
       expect(snapshot!.cidNumber, _genesisCid);
@@ -372,13 +388,20 @@ void main() {
     });
 
     test('门禁判据 isRegistered = true(不再误判未注册)', () async {
-      final r = await FinalizedIdentityResolver(
-        wallet: _FakeWallet(_genesisDefaultAccount),
-        chain: TestCitizenChain(),
-        chainReader: CitizenIdentityChainReader(
-          chain: _BindingChain(genesisStorage()),
-        ),
-      ).resolve();
+      final r = await (() {
+        final reads0 = _FakeWallet(_genesisDefaultAccount);
+        return FinalizedIdentityResolver(
+          getWalletState: reads0.getWalletState,
+          chainReader: (() {
+            final reads0 = _BindingChain(genesisStorage());
+            return CitizenIdentityChainReader(
+              getFinalizedHead: reads0.getFinalizedHead,
+              getStorageBatch: reads0.getStorageBatch,
+              getStorage: reads0.getStorage,
+            );
+          })(),
+        );
+      })().resolve();
 
       expect(r, isNotNull);
       expect(r!.accountId, _genesisAccountId);
@@ -413,30 +436,28 @@ Uint8List _bytes(String hex) => Uint8List.fromList([
 String _accountIdText(Uint8List bytes) =>
     CitizenIdentityChainReader.hexEncode(bytes);
 
-class _FakeWallet implements CitizenSdkWallet {
+class _FakeWallet extends TestWalletReads {
   _FakeWallet(this.account);
   CitizenWalletStateAccount? account;
   BigInt walletRevision = BigInt.one;
 
   @override
-  CitizenSdkOperation<CitizenWalletState> getState() => testCitizenOperation(
-    () async => CitizenWalletState(
-      initializationState: account == null
-          ? CitizenWalletInitializationState.empty
-          : CitizenWalletInitializationState.ready,
-      cleanupPending: false,
-      revision: walletRevision,
-      hotProfile: null,
-      accounts: account == null ? const [] : [account!],
-    ),
-  );
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  CitizenSdkOperation<CitizenWalletState> getWalletState() =>
+      testCitizenOperation(
+        () async => CitizenWalletState(
+          initializationState: account == null
+              ? CitizenWalletInitializationState.empty
+              : CitizenWalletInitializationState.ready,
+          cleanupPending: false,
+          revision: walletRevision,
+          hotProfile: null,
+          accounts: account == null ? const [] : [account!],
+        ),
+      );
 }
 
 class _FakeReader extends CitizenIdentityChainReader {
-  _FakeReader(this._chain, {this.throwFor}) : super(chain: TestCitizenChain());
+  _FakeReader(this._chain, {this.throwFor}) : super();
   final Map<String, CitizenIdentityChainSnapshot> _chain;
   final String? throwFor;
   final List<String> calls = <String>[];
@@ -451,7 +472,7 @@ class _FakeReader extends CitizenIdentityChainReader {
   }
 }
 
-class _BindingChain extends TestCitizenChain {
+class _BindingChain extends TestChainReads {
   _BindingChain(this.storage);
 
   final Map<String, Uint8List> storage;
@@ -484,7 +505,7 @@ class _BindingChain extends TestCitizenChain {
 }
 
 class _DelayedReader extends CitizenIdentityChainReader {
-  _DelayedReader() : super(chain: TestCitizenChain());
+  _DelayedReader() : super();
   final started = Completer<void>();
   final answer = Completer<CitizenIdentityChainSnapshot?>();
   int calls = 0;

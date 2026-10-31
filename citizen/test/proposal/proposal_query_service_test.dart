@@ -99,7 +99,7 @@ Uint8List eventBytes({
   0,
 ]);
 
-class Chain extends TestCitizenChain {
+class Chain extends TestChainReads {
   Uint8List? data;
   Uint8List? events;
   CitizenBlockRef? contextBlock;
@@ -131,7 +131,17 @@ class Chain extends TestCitizenChain {
 void main() {
   test('绑定块查询，缺失与损坏提案严格区分', () async {
     final chain = Chain(),
-        query = ProposalQueryService(chain: Chain(), block: block);
+        query = (() {
+          final reads0 = Chain();
+          return ProposalQueryService(
+            getSystemEvents: reads0.getSystemEvents,
+            getRuntimeContext: reads0.getRuntimeContext,
+            getFinalizedHead: reads0.getFinalizedHead,
+            getStorage: reads0.getStorage,
+            getStorageBatch: reads0.getStorageBatch,
+            block: block,
+          );
+        })();
     expect(await query.fetchProposalMeta(7), isNull);
     chain.data = Uint8List.fromList([
       0,
@@ -143,7 +153,14 @@ void main() {
       0,
       ...List.filled(8, 0),
     ]);
-    final anchored = ProposalQueryService(chain: chain, block: block);
+    final anchored = ProposalQueryService(
+      getSystemEvents: chain.getSystemEvents,
+      getRuntimeContext: chain.getRuntimeContext,
+      getFinalizedHead: chain.getFinalizedHead,
+      getStorage: chain.getStorage,
+      getStorageBatch: chain.getStorageBatch,
+      block: block,
+    );
     expect((await anchored.fetchProposalMeta(7))!.status, 0);
     expect(chain.reads.single, same(block));
     for (final value in [
@@ -158,9 +175,26 @@ void main() {
   });
   test('计票、阈值和NextProposalId损坏不伪装成零或缺失', () async {
     final chain = Chain()..data = Uint8List(1),
-        query = ProposalQueryService(chain: Chain(), block: block);
+        query = (() {
+          final reads0 = Chain();
+          return ProposalQueryService(
+            getSystemEvents: reads0.getSystemEvents,
+            getRuntimeContext: reads0.getRuntimeContext,
+            getFinalizedHead: reads0.getFinalizedHead,
+            getStorage: reads0.getStorage,
+            getStorageBatch: reads0.getStorageBatch,
+            block: block,
+          );
+        })();
     expect(await query.fetchNextProposalId(), 0);
-    final anchored = ProposalQueryService(chain: chain, block: block);
+    final anchored = ProposalQueryService(
+      getSystemEvents: chain.getSystemEvents,
+      getRuntimeContext: chain.getRuntimeContext,
+      getFinalizedHead: chain.getFinalizedHead,
+      getStorage: chain.getStorage,
+      getStorageBatch: chain.getStorageBatch,
+      block: block,
+    );
     await expectLater(anchored.fetchNextProposalId(), throwsFormatException);
     await expectLater(anchored.fetchVoteTally(7), throwsFormatException);
     await expectLater(
@@ -170,8 +204,13 @@ void main() {
   });
   test('真实metadata字段名、稀疏事件索引和交易索引完整保留', () async {
     final chain = Chain()..events = eventBytes();
-    final events = await ProposalQueryService(chain: chain)
-        .fetchExecutionEvents(completed().execution!);
+    final events = await ProposalQueryService(
+      getSystemEvents: chain.getSystemEvents,
+      getRuntimeContext: chain.getRuntimeContext,
+      getFinalizedHead: chain.getFinalizedHead,
+      getStorage: chain.getStorage,
+      getStorageBatch: chain.getStorageBatch,
+    ).fetchExecutionEvents(completed().execution!);
     expect(events.single.index, 2);
     expect(events.single.name, 'LegislationOverrideSigned');
     expect((events.single.fields as Map)['approve'], true);
@@ -185,8 +224,13 @@ void main() {
     ]) {
       final chain = Chain()..events = value;
       await expectLater(
-        ProposalQueryService(chain: chain)
-            .fetchExecutionEvents(completed().execution!),
+        ProposalQueryService(
+          getSystemEvents: chain.getSystemEvents,
+          getRuntimeContext: chain.getRuntimeContext,
+          getFinalizedHead: chain.getFinalizedHead,
+          getStorage: chain.getStorage,
+          getStorageBatch: chain.getStorageBatch,
+        ).fetchExecutionEvents(completed().execution!),
         throwsA(anything),
       );
     }
@@ -198,8 +242,13 @@ void main() {
         finality: CitizenBlockFinality.finalized,
       );
     await expectLater(
-      ProposalQueryService(chain: chain)
-          .fetchExecutionEvents(completed().execution!),
+      ProposalQueryService(
+        getSystemEvents: chain.getSystemEvents,
+        getRuntimeContext: chain.getRuntimeContext,
+        getFinalizedHead: chain.getFinalizedHead,
+        getStorage: chain.getStorage,
+        getStorageBatch: chain.getStorageBatch,
+      ).fetchExecutionEvents(completed().execution!),
       throwsStateError,
     );
   });

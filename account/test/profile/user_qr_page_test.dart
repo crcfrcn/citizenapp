@@ -1,13 +1,9 @@
-import 'dart:convert';
-
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'dart:typed_data';
 
 import 'package:provider/provider.dart';
 import 'package:citizen_scanner/qr_display_scaffold.dart' show AppQrImage;
@@ -29,22 +25,15 @@ void main() {
       '0x0000000000000000000000000000000000000000000000000000000000000000';
   const cidNumber = 'CN001-CTZN-000000001-2026';
   const displayName = '晨光寻路者';
-  const qrData = '{"p":"QR_V1","k":3,"b":{"c":"$cidNumber","n":"$accountId"}}';
+  const qrData = '{"b":{"c":"$cidNumber","n":"$accountId"},"k":3,"p":"QR_V1"}';
   final accountAddress = ss58FromAccountIdText(accountId);
 
   Future<void> openPage(WidgetTester tester, {bool isSelf = false}) async {
-    final transport = TestCitizenSdkTransport({
-      'qrEncode': (fields) => [
-        29,
-        29,
-        Uint8List(29 * 29)..fillRange(0, 29 * 29, 255),
-      ],
-    });
-    final sdk = await transport.open();
+    final core = await openTestSdk();
+    final sdk = core.sdk;
     addTearDown(() async {
       await tester.pumpWidget(const SizedBox());
       await sdk.close();
-      await transport.dispose();
     });
     await tester.pumpWidget(
       Provider<CitizenSdk>.value(
@@ -117,27 +106,10 @@ void main() {
   });
 
   test('用户码调用SDK编码，UI标签不进入协议输入', () async {
-    final transport = TestCitizenSdkTransport({
-      'qrEncodeDocument': (fields) {
-        expect(jsonDecode(fields.single! as String), {
-          'kind': 3,
-          'cid_number': cidNumber,
-          'account_id': accountId,
-        });
-        return [
-          jsonEncode({
-            'kind': 3,
-            'canonical_text': qrData,
-            'cid_number': cidNumber,
-            'account_id': accountId,
-            'scan_purpose_mask': 198,
-          }),
-        ];
-      },
-    });
-    final sdk = await transport.open();
+    final core = await openTestSdk();
+    final sdk = core.sdk;
     try {
-      final document = await sdk.qr.encodeDocument(
+      final document = await sdk.encodeDocument(
         CitizenQrContent.userContact(
           cidNumber: cidNumber,
           accountId: accountId,
@@ -151,7 +123,6 @@ void main() {
       expect(document.canonicalText, isNot(contains(accountAddress)));
     } finally {
       await sdk.close();
-      await transport.dispose();
     }
   });
 }

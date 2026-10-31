@@ -19,14 +19,93 @@ import 'package:citizen_transaction/personal/personal_manage_storage_codec.dart'
 /// 只负责个人多签的创建、关闭、查询和 PersonalManage ProposalData 解码；
 /// 机构多签链访问由 `citizen/institution` 的 InstitutionChainService 处理。
 class PersonalManageService {
-  const PersonalManageService({
-    required CitizenChain chain,
-    required CitizenTransactions transactions,
-  }) : _chain = chain,
-       _transactions = transactions;
-
-  final CitizenChain _chain;
-  final CitizenTransactions _transactions;
+  PersonalManageService({
+    CitizenSdk? chain,
+    CitizenSdk? transactions,
+    Future<Uint8List?> Function(CitizenBlockRef block)? getSystemEvents,
+    Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
+    getStorage,
+    Future<List<Uint8List?>> Function(
+      CitizenBlockRef block,
+      List<Uint8List> keys,
+    )?
+    getStorageBatch,
+    Future<CitizenPreparedTransaction> Function(
+      Uint8List sourceAccountId,
+      Uint8List callData,
+    )?
+    prepareTransaction,
+    Future<CitizenTransactionExecution> Function(String preparationId)?
+    executePreparedTransaction,
+    Future<void> Function(String executionId)?
+    cancelPreparedTransactionExecution,
+    Future<CitizenTransactionExecutionCompleted> Function(
+      String executionId,
+      String response,
+    )?
+    consumePreparedTransactionQrResponse,
+  }) : _getSystemEvents =
+           getSystemEvents ??
+           chain?.getSystemEvents ??
+           ((CitizenBlockRef block) => throw StateError('未配置getSystemEvents')),
+       _getFinalizedHead =
+           getFinalizedHead ??
+           chain?.getFinalizedHead ??
+           (() => throw StateError('未配置getFinalizedHead')),
+       _getStorage =
+           getStorage ??
+           chain?.getStorage ??
+           ((CitizenBlockRef block, Uint8List key) =>
+               throw StateError('未配置getStorage')),
+       _getStorageBatch =
+           getStorageBatch ??
+           chain?.getStorageBatch ??
+           ((CitizenBlockRef block, List<Uint8List> keys) =>
+               throw StateError('未配置getStorageBatch')),
+       _prepareTransaction =
+           prepareTransaction ??
+           transactions?.prepareTransaction ??
+           ((Uint8List sourceAccountId, Uint8List callData) =>
+               throw StateError('未配置prepareTransaction')),
+       _executePreparedTransaction =
+           executePreparedTransaction ??
+           transactions?.executePreparedTransaction ??
+           ((String preparationId) =>
+               throw StateError('未配置executePreparedTransaction')),
+       _cancelPreparedTransactionExecution =
+           cancelPreparedTransactionExecution ??
+           transactions?.cancelPreparedTransactionExecution ??
+           ((String executionId) =>
+               throw StateError('未配置cancelPreparedTransactionExecution')),
+       _consumePreparedTransactionQrResponse =
+           consumePreparedTransactionQrResponse ??
+           transactions?.consumePreparedTransactionQrResponse ??
+           ((String executionId, String response) =>
+               throw StateError('未配置consumePreparedTransactionQrResponse'));
+  final Future<Uint8List?> Function(CitizenBlockRef block) _getSystemEvents;
+  final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)
+  _getStorage;
+  final Future<List<Uint8List?>> Function(
+    CitizenBlockRef block,
+    List<Uint8List> keys,
+  )
+  _getStorageBatch;
+  final Future<CitizenPreparedTransaction> Function(
+    Uint8List sourceAccountId,
+    Uint8List callData,
+  )
+  _prepareTransaction;
+  final Future<CitizenTransactionExecution> Function(String preparationId)
+  _executePreparedTransaction;
+  final Future<void> Function(String executionId)
+  _cancelPreparedTransactionExecution;
+  final Future<CitizenTransactionExecutionCompleted> Function(
+    String executionId,
+    String response,
+  )
+  _consumePreparedTransactionQrResponse;
 
   /// PersonalManage pallet index(runtime pallet_index=7)。
   static const _palletIndex = PalletRegistry.personalManagePallet;
@@ -470,7 +549,7 @@ class PersonalManageService {
     required BigInt amountFen,
     required Uint8List proposerPublicKey,
   }) async {
-    final events = await _chain.getSystemEvents(finalizedBlock);
+    final events = await _getSystemEvents(finalizedBlock);
     if (events == null || events.isEmpty) {
       throw StateError('交易已入块，但未读取到 System.Events，不能确认个人多签创建提案');
     }
@@ -626,23 +705,16 @@ class PersonalManageService {
     )
     externalSigning,
   }) async {
-    final prepared = await _transactions.prepareTransaction(
-      signerPublicKey,
-      callData,
-    );
-    final started = await _transactions.executePreparedTransaction(
-      prepared.preparationId,
-    );
+    final prepared = await _prepareTransaction(signerPublicKey, callData);
+    final started = await _executePreparedTransaction(prepared.preparationId);
     CitizenTransactionExecutionCompleted completed;
     if (started is CitizenTransactionExternalSigningPending) {
       final response = await externalSigning(started);
       if (response == null) {
-        await _transactions.cancelPreparedTransactionExecution(
-          started.executionId,
-        );
+        await _cancelPreparedTransactionExecution(started.executionId);
         throw StateError('个人多签交易签名已取消');
       }
-      completed = await _transactions.consumePreparedTransactionQrResponse(
+      completed = await _consumePreparedTransactionQrResponse(
         started.executionId,
         response,
       );
@@ -661,8 +733,8 @@ class PersonalManageService {
   }
 
   Future<Uint8List?> _fetchStorage(String keyHex) async {
-    final finalized = await _chain.getFinalizedHead();
-    return _chain.getStorage(finalized, _hexDecode(keyHex));
+    final finalized = await _getFinalizedHead();
+    return _getStorage(finalized, _hexDecode(keyHex));
   }
 
   Future<Map<String, Uint8List?>> _fetchStorageBatchChunked(
@@ -671,12 +743,12 @@ class PersonalManageService {
   }) async {
     final keys = keyHexes.toSet().toList(growable: false);
     if (keys.isEmpty) return const <String, Uint8List?>{};
-    final finalized = await _chain.getFinalizedHead();
+    final finalized = await _getFinalizedHead();
     final result = <String, Uint8List?>{};
     for (var offset = 0; offset < keys.length; offset += chunkSize) {
       final end = (offset + chunkSize).clamp(0, keys.length);
       final chunk = keys.sublist(offset, end);
-      final values = await _chain.getStorageBatch(
+      final values = await _getStorageBatch(
         finalized,
         chunk.map(_hexDecode).toList(growable: false),
       );

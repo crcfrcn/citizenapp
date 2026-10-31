@@ -10,18 +10,42 @@ import 'package:citizen_transaction/onchain/onchain_transfer_call.dart';
 
 class OnchainPaymentService {
   OnchainPaymentService({
-    required CitizenSdkWallet wallet,
-    required CitizenTransactions transactions,
-    CitizenChain? chain,
+    CitizenSdk? wallet,
+    CitizenSdk? transactions,
+    CitizenSdk? chain,
     CitizenIdentityChainReader? bindingReader,
-  }) : _wallet = wallet,
-       _transactions = transactions,
-       _bindingReader =
+    CitizenSdkOperation<CitizenWalletState> Function()? getWalletState,
+    Future<CitizenPreparedTransaction> Function(
+      Uint8List sourceAccountId,
+      Uint8List callData,
+    )?
+    prepareTransaction,
+    Future<void> Function(String preparationId)? cancelPreparedTransaction,
+  }) : _bindingReader =
            bindingReader ??
-           (chain == null ? null : CitizenIdentityChainReader(chain: chain));
+           (chain == null ? null : CitizenIdentityChainReader(chain: chain)),
+       _getWalletState =
+           getWalletState ??
+           wallet?.getWalletState ??
+           (() => throw StateError('未配置getWalletState')),
+       _prepareTransaction =
+           prepareTransaction ??
+           transactions?.prepareTransaction ??
+           ((Uint8List sourceAccountId, Uint8List callData) =>
+               throw StateError('未配置prepareTransaction')),
+       _cancelPreparedTransaction =
+           cancelPreparedTransaction ??
+           transactions?.cancelPreparedTransaction ??
+           ((String preparationId) =>
+               throw StateError('未配置cancelPreparedTransaction'));
+  final CitizenSdkOperation<CitizenWalletState> Function() _getWalletState;
+  final Future<CitizenPreparedTransaction> Function(
+    Uint8List sourceAccountId,
+    Uint8List callData,
+  )
+  _prepareTransaction;
+  final Future<void> Function(String preparationId) _cancelPreparedTransaction;
 
-  final CitizenSdkWallet _wallet;
-  final CitizenTransactions _transactions;
   final CitizenIdentityChainReader? _bindingReader;
 
   /// 联系人列表不解析地址；用户发起签名时唯一一次核对CID当前有效绑定。
@@ -51,7 +75,7 @@ class OnchainPaymentService {
   Future<CitizenWalletStateAccount?> getCurrentWallet({
     String? accountId,
   }) async {
-    final state = await _wallet.getState().result;
+    final state = await _getWalletState().result;
     if (accountId == null) return state.defaultAccount;
     for (final account in state.accounts) {
       if (account.accountId == accountId) return account;
@@ -122,7 +146,7 @@ class OnchainPaymentService {
         '收款地址或金额超出允许范围',
       );
     }
-    final prepared = await _transactions.prepareTransaction(
+    final prepared = await _prepareTransaction(
       Uint8List.fromList(sourceAccountId),
       callData,
     );
@@ -130,7 +154,7 @@ class OnchainPaymentService {
         List.generate(sourceAccountId.length, (index) => index).any(
           (index) => prepared.sourceAccountId[index] != sourceAccountId[index],
         )) {
-      await _transactions.cancelPreparedTransaction(prepared.preparationId);
+      await _cancelPreparedTransaction(prepared.preparationId);
       throw const OnchainPaymentException(
         OnchainPaymentErrorCode.invalidDraft,
         '交易准备的付款账户不一致',

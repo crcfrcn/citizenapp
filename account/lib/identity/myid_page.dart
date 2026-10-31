@@ -31,7 +31,7 @@ class MyIdPage extends StatefulWidget {
 
   final MyIdService? myIdService;
 
-  /// 仅测试注入；正式流程始终打开所选账户的链上充值页。
+  /// 仅测试注入；正式流程始终打开所选账户的充值弹窗。
   final Future<void> Function(BuildContext, String)? openRegistrationTopup;
 
   @override
@@ -85,10 +85,10 @@ class _MyIdPageState extends State<MyIdPage> {
     _myIdService =
         context.read<MyIdService?>() ??
         MyIdService(
-          wallet: sdk.wallet,
-          signing: sdk.signing,
-          chain: sdk.chain,
-          transactions: sdk.transactions,
+          wallet: sdk,
+          signing: sdk,
+          chain: sdk,
+          transactions: sdk,
           accountSecurity: accountSecurity,
           currentUserContext: context.read<CurrentUserContext>(),
           identityResolver: context.read<FinalizedIdentityResolver>(),

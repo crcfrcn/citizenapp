@@ -57,19 +57,47 @@ class CitizenBindingChainSnapshot {
 
 /// `citizen-identity` 永久 CID 存储的统一读取器。
 class CitizenIdentityChainReader {
-  const CitizenIdentityChainReader({required CitizenChain chain})
-    : _chain = chain;
-
-  final CitizenChain _chain;
+  CitizenIdentityChainReader({
+    CitizenSdk? chain,
+    Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<List<Uint8List?>> Function(
+      CitizenBlockRef block,
+      List<Uint8List> keys,
+    )?
+    getStorageBatch,
+    Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
+    getStorage,
+  }) : _getFinalizedHead =
+           getFinalizedHead ??
+           chain?.getFinalizedHead ??
+           (() => throw StateError('未配置getFinalizedHead')),
+       _getStorageBatch =
+           getStorageBatch ??
+           chain?.getStorageBatch ??
+           ((CitizenBlockRef block, List<Uint8List> keys) =>
+               throw StateError('未配置getStorageBatch')),
+       _getStorage =
+           getStorage ??
+           chain?.getStorage ??
+           ((CitizenBlockRef block, Uint8List key) =>
+               throw StateError('未配置getStorage'));
+  final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<List<Uint8List?>> Function(
+    CitizenBlockRef block,
+    List<Uint8List> keys,
+  )
+  _getStorageBatch;
+  final Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)
+  _getStorage;
 
   /// 按需解析一个CID的当前绑定；注册/换绑核验和CID转账复用同一准确块闭环。
   Future<CitizenBindingChainSnapshot?> readBindingByCidNumber(
     String cidNumber,
   ) async {
     final cid = _normalizeCidNumber(cidNumber);
-    final block = await _chain.getFinalizedHead();
+    final block = await _getFinalizedHead();
     final key = encodeBoundedBytes(utf8.encode(cid));
-    final rows = await _chain.getStorageBatch(block, [
+    final rows = await _getStorageBatch(block, [
       storageMapKey('CitizenIdentity', 'AccountIdByCid', key),
       storageMapKey('CitizenIdentity', 'CidRegistry', key),
       storageMapKey('CitizenIdentity', 'BindingRevisionByCid', key),
@@ -81,7 +109,7 @@ class CitizenIdentityChainReader {
         revision <= 0) {
       return null;
     }
-    final reverse = await _chain.getStorage(
+    final reverse = await _getStorage(
       block,
       storageMapKey('CitizenIdentity', 'CidByAccountId', account),
     );
@@ -116,14 +144,14 @@ class CitizenIdentityChainReader {
     ]);
 
     // 同一次身份判断必须锚定同一个 finalized 区块，避免 CID 映射与身份值跨块混读。
-    final finalized = await _chain.getFinalizedHead();
+    final finalized = await _getFinalizedHead();
 
     final cidByAccountIdKey = storageMapKey(
       'CitizenIdentity',
       'CidByAccountId',
       accountId,
     );
-    final cidRaw = await _chain.getStorage(finalized, cidByAccountIdKey);
+    final cidRaw = await _getStorage(finalized, cidByAccountIdKey);
     final cidNumber = decodeCidNumber(cidRaw);
     if (cidNumber == null) return null;
 
@@ -160,7 +188,7 @@ class CitizenIdentityChainReader {
       candidateKey,
       bindingRevisionKey,
     ];
-    final rows = await _chain.getStorageBatch(finalized, keys);
+    final rows = await _getStorageBatch(finalized, keys);
     final boundAccountId = rows[0];
     final cidRecord = rows[1];
     final votingIdentity = rows[2];

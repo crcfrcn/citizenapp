@@ -167,9 +167,9 @@ class _UserProfilePageState extends State<UserProfilePage> {
       final identityResolver = context.read<FinalizedIdentityResolver?>();
       if (sdk != null && identityResolver != null) {
         _subscriptionService = SubscriptionService(
-          wallet: sdk.wallet,
-          chain: sdk.chain,
-          transactions: sdk.transactions,
+          wallet: sdk,
+          chain: sdk,
+          transactions: sdk,
           identityResolver: identityResolver,
           sessionProvider: _sessionProvider,
         );
@@ -591,7 +591,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
       return;
     }
     final sdk = context.read<CitizenSdk>();
-    final walletState = await sdk.wallet.getState().result;
+    final walletState = await sdk.getWalletState().result;
     if (!mounted) return;
     if (!walletState.accounts.any(
       (account) => account.accountId == selfAccountId,
@@ -649,7 +649,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
         // 账户注销签名统一交给 CitizenSDK，冷热模式不在页面分支。
         // SDK所属MLS状态按cid_number精确清理，不进入钱包签名模式。
         signAction: (message) async =>
-            '0x${bytesToHex(await signCitizenPayload(signing: sdk.signing, context: context, accountId: selfAccountId, payload: message, action: CitizenQrActions.squareAccountAction))}',
+            '0x${bytesToHex(await signCitizenPayload(signing: sdk, context: context, accountId: selfAccountId, payload: message, action: CitizenQrActions.squareAccountAction))}',
       );
     } on SquareAccountDeletionPendingException catch (e) {
       if (mounted) _snack(e.message);
@@ -685,7 +685,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
       _snack('资料尚未加载，请稍后再试');
       return;
     }
-    final document = await context.read<CitizenSdk>().qr.encodeDocument(
+    final document = await context.read<CitizenSdk>().encodeDocument(
       CitizenQrContent.userContact(
         cidNumber: widget.cidNumber,
         accountId: accountId,

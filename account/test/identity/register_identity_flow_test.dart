@@ -35,7 +35,7 @@ class _RegisteredCache implements FinalizedIdentityResolver {
   );
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 /// 未注册:resolve 命中缓存但快照为空(链读结论=全账户未占号,回退账户0)。
@@ -48,7 +48,7 @@ class _UnregisteredCache implements FinalizedIdentityResolver {
   );
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 /// 链读失败:fail-closed,绝不冒充"未注册"。
@@ -57,7 +57,7 @@ class _ThrowingCache implements FinalizedIdentityResolver {
   Future<FinalizedIdentity?> resolve() async => throw Exception('链读失败');
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 /// 注册流程 fake:余额充足,占号直接成功。与 myid_page_test 同款口径。
@@ -142,8 +142,9 @@ class _FlowService implements MyIdService {
   @override
   Future<bool> canRetryRegistration(Map<String, dynamic>? checkpoint) async =>
       false;
+
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 // Widget测试替换编排边界，真实验证/保存/取消/恢复顺序另由coordinator测试覆盖。
@@ -207,8 +208,9 @@ class _ReadySession implements SquareSessionProvider {
             expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
           ),
         );
+
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 /// 挂一个按钮驱动 [ensureCidRegisteredOrPrompt],把返回值收进 [results]。

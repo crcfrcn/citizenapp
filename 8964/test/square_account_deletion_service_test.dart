@@ -87,7 +87,7 @@ class _FakeChatRuntime extends ChatSdk {
 
 class _UnusedChatHost implements ChatRuntimeHost {
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _FakeLocalPostStore implements SquareLocalPostBulkDeletionStore {

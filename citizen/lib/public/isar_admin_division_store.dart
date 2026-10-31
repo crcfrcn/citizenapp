@@ -1,8 +1,8 @@
-import 'package:citizen_storage/app_isar.dart' as app_store show Region;
+import 'package:citizen_storage/user_isar.dart' as app_store show Region;
 // 行政区自然三元索引由原Isar维护；按省分片与有界事务增量更新。
 
 import 'package:isar_community/isar.dart';
-import 'package:citizen_storage/app_isar.dart';
+import 'package:citizen_storage/user_isar.dart';
 
 import 'package:citizen_citizen/public/admin_division_dto.dart';
 import 'package:citizen_citizen/public/admin_division_store.dart';
@@ -15,14 +15,18 @@ class IsarAdminDivisionStore implements AdminDivisionStore {
   /// 单事务批量上限:5 万条镇级数据分块写,避免巨型事务卡主线程 / 占内存。
   static const int _upsertChunk = 2000;
 
-  Future<Isar> _db() async => _injected ?? await AppIsar.instance.db();
+  Future<T> _read<T>(Future<T> Function(Isar isar) action) {
+    final injected = _injected;
+    if (injected != null) return action(injected);
+    return UserIsar.instance.read(action);
+  }
 
   Future<T> _write<T>(Future<T> Function(Isar isar) action) async {
     final injected = _injected;
     if (injected != null) {
       return injected.writeTxn(() => action(injected));
     }
-    return AppIsar.instance.writeTxn(action);
+    return UserIsar.instance.writeTxn(action);
   }
 
   @override
@@ -44,8 +48,9 @@ class IsarAdminDivisionStore implements AdminDivisionStore {
 
   @override
   Future<int> divisionCount() async {
-    final isar = await _db();
-    return isar.collection<app_store.Region>().count();
+    return _read((isar) async {
+      return isar.collection<app_store.Region>().count();
+    });
   }
 
   @override
@@ -60,35 +65,38 @@ class IsarAdminDivisionStore implements AdminDivisionStore {
         ? cityCode
         : provinceCode;
     if (code.isEmpty) return code;
-    final isar = await _db();
-    final row = await isar
-        .collection<app_store.Region>()
-        .getByProvinceCodeCityCodeTownCode(provinceCode, cityCode, townCode);
-    return row?.regionName ?? code;
+    return _read((isar) async {
+      final row = await isar
+          .collection<app_store.Region>()
+          .getByProvinceCodeCityCodeTownCode(provinceCode, cityCode, townCode);
+      return row?.regionName ?? code;
+    });
   }
 
   @override
   Future<List<app_store.Region>> cities(String provinceCode) async {
-    final isar = await _db();
-    return isar
-        .collection<app_store.Region>()
-        .filter()
-        .provinceCodeEqualTo(provinceCode)
-        .cityCodeIsNotEmpty()
-        .townCodeEqualTo('')
-        .findAll();
+    return _read((isar) async {
+      return isar
+          .collection<app_store.Region>()
+          .filter()
+          .provinceCodeEqualTo(provinceCode)
+          .cityCodeIsNotEmpty()
+          .townCodeEqualTo('')
+          .findAll();
+    });
   }
 
   @override
   Future<List<app_store.Region>> divisionsOfProvince(
     String provinceCode,
   ) async {
-    final isar = await _db();
-    return isar
-        .collection<app_store.Region>()
-        .filter()
-        .provinceCodeEqualTo(provinceCode)
-        .findAll();
+    return _read((isar) async {
+      return isar
+          .collection<app_store.Region>()
+          .filter()
+          .provinceCodeEqualTo(provinceCode)
+          .findAll();
+    });
   }
 
   @override

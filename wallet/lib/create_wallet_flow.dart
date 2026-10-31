@@ -15,11 +15,13 @@ String walletLocalStoreErrorMessage(Object? error) {
   if (error is TimeoutException) return '本地钱包读取超时，请重试';
   if (error is CitizenSdkException) {
     return switch (error.code) {
-      CitizenSdkErrorCode.busy || CitizenSdkErrorCode.queueFull => '本地钱包正忙，请稍后重试',
+      CitizenSdkErrorCode.busy ||
+      CitizenSdkErrorCode.queueFull => '本地钱包正忙，请稍后重试',
       CitizenSdkErrorCode.storage => '本地钱包存储读取失败，请重试',
       CitizenSdkErrorCode.timeout => '本地钱包读取超时，请重试',
       CitizenSdkErrorCode.integrity => '本地钱包记录校验失败，请查看诊断',
-      CitizenSdkErrorCode.panic || CitizenSdkErrorCode.internal => '本地钱包读取失败，请查看诊断后重试',
+      CitizenSdkErrorCode.panic ||
+      CitizenSdkErrorCode.internal => '本地钱包读取失败，请查看诊断后重试',
       CitizenSdkErrorCode.cancelled => '本地钱包读取已取消，请重试',
       _ => '本地钱包读取失败，请重试',
     };
@@ -28,7 +30,8 @@ String walletLocalStoreErrorMessage(Object? error) {
 }
 
 String walletOperationErrorMessage(Object error) {
-  if (isWalletLocalStoreError(error)) return walletLocalStoreErrorMessage(error);
+  if (isWalletLocalStoreError(error))
+    return walletLocalStoreErrorMessage(error);
   if (error is CitizenSdkException) return error.message;
   return '$error';
 }
@@ -52,9 +55,17 @@ Future<CitizenWalletProfile> runCreateWalletFlow(
   BuildContext context, {
   required int wordCount,
   String password = '',
+  CitizenSdkOperation<CitizenSdkPreparedWallet> Function({
+    required CitizenWalletWordCount wordCount,
+    String password,
+  })?
+  prepareWallet,
+  Future<CitizenWalletState> Function()? stateReader,
+  Future<CitizenWalletProfile> Function(CitizenSdkPreparedWallet prepared)?
+  commitWallet,
 }) async {
   final sdk = context.read<CitizenSdk>();
-  final wallet = sdk.wallet;
+  final wallet = sdk;
   CitizenSdkPreparedWallet? prepared;
   CitizenSdkRecoveryPhrase? phrase;
   var protected = false;
@@ -72,25 +83,32 @@ Future<CitizenWalletProfile> runCreateWalletFlow(
     final owned = phrase;
     if (owned != null) unawaited(owned.release().catchError((Object _) {}));
   }
+
   final lifecycle = _WalletBackupLifecycle(revoke, () => backupRoute != null);
   WidgetsBinding.instance.addObserver(lifecycle);
   try {
-    prepared = await wallet.prepareCreation(
-      wordCount: CitizenWalletWordCount.values.singleWhere((value) => value.value == wordCount),
+    prepared = await (prepareWallet ?? wallet.prepareWalletCreation)(
+      wordCount: CitizenWalletWordCount.values.singleWhere(
+        (value) => value.value == wordCount,
+      ),
       password: password,
     ).result;
     if (!context.mounted || revoked) {
       throw const CitizenSdkException(
-        code: CitizenSdkErrorCode.cancelled, message: '创建页面已关闭',
+        code: CitizenSdkErrorCode.cancelled,
+        message: '创建页面已关闭',
       );
     }
     phrase = await prepared.recoveryPhrase();
     if (!context.mounted || revoked) {
       throw const CitizenSdkException(
-        code: CitizenSdkErrorCode.cancelled, message: '创建页面已关闭',
+        code: CitizenSdkErrorCode.cancelled,
+        message: '创建页面已关闭',
       );
     }
-    final created = await prepared.commit().result;
+    final created = await (commitWallet ?? ((value) => value.commit().result))(
+      prepared,
+    );
     if (!context.mounted || revoked) return created;
     bool isOwner(CitizenWalletState state) =>
         state.hotProfile?.walletIndex == created.walletIndex &&
@@ -98,7 +116,8 @@ Future<CitizenWalletProfile> runCreateWalletFlow(
         state.hotProfile?.createdAtMillis == created.createdAtMillis;
     Future<void> checkOwner() async {
       try {
-        final state = await wallet.getState().result;
+        final state =
+            await (stateReader ?? (() => wallet.getWalletState().result))();
         if (revoked) return;
         if (observedRevision == null || state.revision > observedRevision!) {
           observedRevision = state.revision;
@@ -112,12 +131,13 @@ Future<CitizenWalletProfile> runCreateWalletFlow(
         revoke();
       }
     }
+
     walletEvents = sdk.events.listen((event) {
       if (event is CitizenSdkWalletChanged) unawaited(checkOwner());
     }, onError: (Object _) => revoke());
     final CitizenWalletState state;
     try {
-      state = await wallet.getState().result;
+      state = await (stateReader ?? (() => wallet.getWalletState().result))();
     } catch (_) {
       revoke();
       return created;

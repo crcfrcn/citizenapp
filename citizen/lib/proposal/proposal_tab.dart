@@ -45,6 +45,9 @@ class ProposalTab extends StatefulWidget {
     this.repository,
     this.contextResolver,
     this.voteChecker,
+    this.capabilitiesReader,
+    this.sdkEvents,
+    this.lifecycleReader,
   });
 
   /// 待投票数变化时的回调（用于底部 tab 红点数字）。
@@ -55,6 +58,11 @@ class ProposalTab extends StatefulWidget {
   final InstitutionRepository? repository;
   final ProposalContextResolver? contextResolver;
   final VoteChecker? voteChecker;
+
+  /// 公开SDK只读事实边界，生产缺省仍读取同一会话。
+  final Future<CitizenCapabilitySnapshot> Function()? capabilitiesReader;
+  final Stream<CitizenSdkEvent>? sdkEvents;
+  final CitizenSdkLifecycle Function()? lifecycleReader;
 
   @override
   State<ProposalTab> createState() => _ProposalViewState();
@@ -83,7 +91,7 @@ class _ProposalViewState extends State<ProposalTab> {
   late final VoteChecker _voteChecker;
   final ScrollController _scrollController = ScrollController();
   late final InstitutionRepository _institutionRepo;
-  late final CitizenSdkWallet _wallet;
+  late final CitizenSdk _wallet;
   late final CitizenSdk _sdk;
   Completer<void>? _chainChanged;
   bool _dependenciesReady = false;
@@ -132,15 +140,15 @@ class _ProposalViewState extends State<ProposalTab> {
     if (_dependenciesReady) return;
     final sdk = context.read<CitizenSdk>();
     _sdk = sdk;
-    _wallet = sdk.wallet;
+    _wallet = sdk;
     _institutionRepo = widget.repository ?? InstitutionRepository();
     final multisigService = MultisigTransferService(
-      chain: sdk.chain,
-      transactions: sdk.transactions,
+      chain: sdk,
+      transactions: sdk,
     );
     _multisigTransferFeed =
         widget.feed ?? MultisigTransferProposalFeed(service: multisigService);
-    _adminService = InstitutionAdminService(chain: sdk.chain);
+    _adminService = InstitutionAdminService(chain: sdk);
     final activationService = ActivationService(adminService: _adminService);
     _contextResolver =
         widget.contextResolver ??
@@ -149,15 +157,12 @@ class _ProposalViewState extends State<ProposalTab> {
           adminService: _adminService,
           activationService: activationService,
         );
-    final proposalQuery = ProposalQueryService(chain: sdk.chain);
+    final proposalQuery = ProposalQueryService(chain: sdk);
     _voteChecker =
         widget.voteChecker ??
         VoteChecker(
-          internalVoteService: InternalVoteQueryService(chain: sdk.chain),
-          runtimeService: RuntimeUpgradeService(
-            chain: sdk.chain,
-            transactions: sdk.transactions,
-          ),
+          internalVoteService: InternalVoteQueryService(chain: sdk),
+          runtimeService: RuntimeUpgradeService(chain: sdk, transactions: sdk),
           proposalQueryService: proposalQuery,
         );
     _dependenciesReady = true;
@@ -168,7 +173,7 @@ class _ProposalViewState extends State<ProposalTab> {
       return;
     }
     // 先订阅再读快照，不能漏掉订阅与首读之间发生的就绪变化。
-    _eventSub = sdk.events.listen((event) {
+    _eventSub = (widget.sdkEvents ?? sdk.events).listen((event) {
       if (event is CitizenSdkCapabilitiesChanged ||
           event is CitizenSdkLifecycleChanged ||
           event is CitizenSdkFinalizedBlockChanged) {
@@ -204,10 +209,11 @@ class _ProposalViewState extends State<ProposalTab> {
     var reportedWaiting = false;
     while (_isCurrent(generation)) {
       final changed = _chainChanged ??= Completer<void>();
-      final status = (await _sdk
-          .getCapabilities())[CitizenCapabilityName.chainRead];
+      final status =
+          (await (widget.capabilitiesReader ??
+              _sdk.getCapabilities)())[CitizenCapabilityName.chainRead];
       if (!_isCurrent(generation)) return false;
-      final lifecycle = _sdk.lifecycle;
+      final lifecycle = widget.lifecycleReader?.call() ?? _sdk.lifecycle;
       if (lifecycle == CitizenSdkLifecycle.startFailed ||
           lifecycle == CitizenSdkLifecycle.stopped ||
           lifecycle == CitizenSdkLifecycle.disposed) {
@@ -319,7 +325,7 @@ class _ProposalViewState extends State<ProposalTab> {
         .catchError((_) => <Institution>[]);
     CitizenWalletStateAccount? activeWallet;
     try {
-      activeWallet = (await _wallet.getState().result).defaultAccount;
+      activeWallet = (await _wallet.getWalletState().result).defaultAccount;
     } on Object {
       activeWallet = null;
     }

@@ -84,7 +84,7 @@ class QrScanPage extends StatefulWidget {
   /// 测试注入；正式运行通过链上双向绑定把二维码账户解析为永久 CID。
 
   /// CitizenSDK QR 公开端口；仅测试可注入，生产从根 Provider 读取同一实例。
-  final CitizenQr? qr;
+  final CitizenSdk? qr;
 
   @override
   State<QrScanPage> createState() => _QrScanPageState();
@@ -92,7 +92,7 @@ class QrScanPage extends StatefulWidget {
 
 class _QrScanPageState extends State<QrScanPage> {
   CitizenQrCapture? _capture;
-  CitizenQr get _qr => widget.qr ?? context.read<CitizenSdk>().qr;
+  CitizenSdk get _qr => widget.qr ?? context.read<CitizenSdk>();
   CitizenQrScanPurpose get _capturePurpose =>
       widget.mode == QrScanMode.coldAccountImport
       ? CitizenQrScanPurpose.coldAccountImport
@@ -167,7 +167,7 @@ class _QrScanPageState extends State<QrScanPage> {
       if (!mounted || _closing) return;
       if (widget.mode == QrScanMode.coldAccountImport) {
         try {
-          final result = await (widget.qr ?? context.read<CitizenSdk>().qr)
+          final result = await (widget.qr ?? context.read<CitizenSdk>())
               .parseForPurpose(raw, CitizenQrScanPurpose.coldAccountImport);
           if (mounted) _popPage(result.canonicalText);
         } on CitizenSdkException {
@@ -265,7 +265,7 @@ class _QrScanPageState extends State<QrScanPage> {
 
   Future<CitizenQrDocument?> _parseSdkDocument(String raw) async {
     try {
-      return await (widget.qr ?? context.read<CitizenSdk>().qr).parse(raw);
+      return await (widget.qr ?? context.read<CitizenSdk>()).parseQr(raw);
     } on CitizenSdkException {
       return null;
     }

@@ -114,7 +114,7 @@ class MultisigTransferEntryCard extends StatelessWidget {
     }
 
     final limitService = ProposalLimitService(
-      chain: context.read<CitizenSdk>().chain,
+      chain: context.read<CitizenSdk>(),
     );
     final activeIds = await limitService.fetchActiveProposalIds(institution);
     if (!context.mounted) return;

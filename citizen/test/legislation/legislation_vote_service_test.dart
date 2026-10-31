@@ -1,3 +1,6 @@
+import 'package:citizen_citizen/legislation/legislation_vote_query_service.dart';
+import 'package:citizen_citizen/proposal/proposal_query_service.dart';
+
 import 'dart:typed_data';
 import 'dart:convert';
 
@@ -68,7 +71,7 @@ TestCitizenTransactionFlow flow({
   ..consume = ((_, _) async => result ?? completed())
   ..cancel = ((_) async {});
 
-class Chain extends TestCitizenChain {
+class Chain extends TestChainReads {
   Uint8List? storage;
   Uint8List? route;
   Uint8List? events;
@@ -150,7 +153,30 @@ void main() {
       ..storage = Uint8List.fromList([0])
       ..events = eventBytes(event: 1, approve: false);
     final tx = flow(cold: true),
-        service = LegislationVoteService(chain: chain, transactions: tx);
+        service = LegislationVoteService(
+          eventQuery: (block) => ProposalQueryService(
+            block: block,
+            getSystemEvents: chain.getSystemEvents,
+            getRuntimeContext: chain.getRuntimeContext,
+            getFinalizedHead: chain.getFinalizedHead,
+            getStorage: chain.getStorage,
+            getStorageBatch: chain.getStorageBatch,
+          ),
+          voteQuery: (block) => LegislationVoteQueryService(
+            block: block,
+            getSystemEvents: chain.getSystemEvents,
+            getRuntimeContext: chain.getRuntimeContext,
+            getFinalizedHead: chain.getFinalizedHead,
+            getStorage: chain.getStorage,
+            getStorageBatch: chain.getStorageBatch,
+          ),
+          prepareTransaction: tx.prepareTransaction,
+          executePreparedTransaction: tx.executePreparedTransaction,
+          cancelPreparedTransactionExecution:
+              tx.cancelPreparedTransactionExecution,
+          consumePreparedTransactionQrResponse:
+              tx.consumePreparedTransactionQrResponse,
+        );
     final result = await service.castRepresentativeVote(
       proposalId: 7,
       voterRoleCode: 'DIRECTOR',
@@ -198,10 +224,33 @@ void main() {
             ? Uint8List.fromList([8, ...bytes.skip(1), ...bytes.skip(1)])
             : bytes;
       await expectLater(
-        LegislationVoteService(
-          chain: chain,
-          transactions: flow(),
-        ).castRepresentativeVote(
+        (() {
+          final reads0 = flow();
+          return LegislationVoteService(
+            eventQuery: (block) => ProposalQueryService(
+              block: block,
+              getSystemEvents: chain.getSystemEvents,
+              getRuntimeContext: chain.getRuntimeContext,
+              getFinalizedHead: chain.getFinalizedHead,
+              getStorage: chain.getStorage,
+              getStorageBatch: chain.getStorageBatch,
+            ),
+            voteQuery: (block) => LegislationVoteQueryService(
+              block: block,
+              getSystemEvents: chain.getSystemEvents,
+              getRuntimeContext: chain.getRuntimeContext,
+              getFinalizedHead: chain.getFinalizedHead,
+              getStorage: chain.getStorage,
+              getStorageBatch: chain.getStorageBatch,
+            ),
+            prepareTransaction: reads0.prepareTransaction,
+            executePreparedTransaction: reads0.executePreparedTransaction,
+            cancelPreparedTransactionExecution:
+                reads0.cancelPreparedTransactionExecution,
+            consumePreparedTransactionQrResponse:
+                reads0.consumePreparedTransactionQrResponse,
+          );
+        })().castRepresentativeVote(
           proposalId: 7,
           voterRoleCode: 'DIRECTOR',
           approve: true,
@@ -221,7 +270,30 @@ void main() {
                 ..events = eventBytes(event: event, approve: approve),
               tx = flow(cold: cold);
           await submit(
-            LegislationVoteService(chain: chain, transactions: tx),
+            LegislationVoteService(
+              eventQuery: (block) => ProposalQueryService(
+                block: block,
+                getSystemEvents: chain.getSystemEvents,
+                getRuntimeContext: chain.getRuntimeContext,
+                getFinalizedHead: chain.getFinalizedHead,
+                getStorage: chain.getStorage,
+                getStorageBatch: chain.getStorageBatch,
+              ),
+              voteQuery: (block) => LegislationVoteQueryService(
+                block: block,
+                getSystemEvents: chain.getSystemEvents,
+                getRuntimeContext: chain.getRuntimeContext,
+                getFinalizedHead: chain.getFinalizedHead,
+                getStorage: chain.getStorage,
+                getStorageBatch: chain.getStorageBatch,
+              ),
+              prepareTransaction: tx.prepareTransaction,
+              executePreparedTransaction: tx.executePreparedTransaction,
+              cancelPreparedTransactionExecution:
+                  tx.cancelPreparedTransactionExecution,
+              consumePreparedTransactionQrResponse:
+                  tx.consumePreparedTransactionQrResponse,
+            ),
             event,
             approve,
           );
@@ -257,7 +329,33 @@ void main() {
       }
       await expectLater(
         submit(
-          LegislationVoteService(chain: chain, transactions: flow()),
+          (() {
+            final reads0 = flow();
+            return LegislationVoteService(
+              eventQuery: (block) => ProposalQueryService(
+                block: block,
+                getSystemEvents: chain.getSystemEvents,
+                getRuntimeContext: chain.getRuntimeContext,
+                getFinalizedHead: chain.getFinalizedHead,
+                getStorage: chain.getStorage,
+                getStorageBatch: chain.getStorageBatch,
+              ),
+              voteQuery: (block) => LegislationVoteQueryService(
+                block: block,
+                getSystemEvents: chain.getSystemEvents,
+                getRuntimeContext: chain.getRuntimeContext,
+                getFinalizedHead: chain.getFinalizedHead,
+                getStorage: chain.getStorage,
+                getStorageBatch: chain.getStorageBatch,
+              ),
+              prepareTransaction: reads0.prepareTransaction,
+              executePreparedTransaction: reads0.executePreparedTransaction,
+              cancelPreparedTransactionExecution:
+                  reads0.cancelPreparedTransactionExecution,
+              consumePreparedTransactionQrResponse:
+                  reads0.consumePreparedTransactionQrResponse,
+            );
+          })(),
           8,
           true,
         ),
@@ -271,7 +369,33 @@ void main() {
       ..storage = Uint8List.fromList([2]);
     await expectLater(
       submit(
-        LegislationVoteService(chain: chain, transactions: flow()),
+        (() {
+          final reads0 = flow();
+          return LegislationVoteService(
+            eventQuery: (block) => ProposalQueryService(
+              block: block,
+              getSystemEvents: chain.getSystemEvents,
+              getRuntimeContext: chain.getRuntimeContext,
+              getFinalizedHead: chain.getFinalizedHead,
+              getStorage: chain.getStorage,
+              getStorageBatch: chain.getStorageBatch,
+            ),
+            voteQuery: (block) => LegislationVoteQueryService(
+              block: block,
+              getSystemEvents: chain.getSystemEvents,
+              getRuntimeContext: chain.getRuntimeContext,
+              getFinalizedHead: chain.getFinalizedHead,
+              getStorage: chain.getStorage,
+              getStorageBatch: chain.getStorageBatch,
+            ),
+            prepareTransaction: reads0.prepareTransaction,
+            executePreparedTransaction: reads0.executePreparedTransaction,
+            cancelPreparedTransactionExecution:
+                reads0.cancelPreparedTransactionExecution,
+            consumePreparedTransactionQrResponse:
+                reads0.consumePreparedTransactionQrResponse,
+          );
+        })(),
         8,
         true,
       ),
@@ -292,7 +416,30 @@ void main() {
         tx.consume = (_, _) async => throw StateError('合成未知消费');
       }
       await expectLater(
-        LegislationVoteService(chain: chain, transactions: tx).overrideSign(
+        LegislationVoteService(
+          eventQuery: (block) => ProposalQueryService(
+            block: block,
+            getSystemEvents: chain.getSystemEvents,
+            getRuntimeContext: chain.getRuntimeContext,
+            getFinalizedHead: chain.getFinalizedHead,
+            getStorage: chain.getStorage,
+            getStorageBatch: chain.getStorageBatch,
+          ),
+          voteQuery: (block) => LegislationVoteQueryService(
+            block: block,
+            getSystemEvents: chain.getSystemEvents,
+            getRuntimeContext: chain.getRuntimeContext,
+            getFinalizedHead: chain.getFinalizedHead,
+            getStorage: chain.getStorage,
+            getStorageBatch: chain.getStorageBatch,
+          ),
+          prepareTransaction: tx.prepareTransaction,
+          executePreparedTransaction: tx.executePreparedTransaction,
+          cancelPreparedTransactionExecution:
+              tx.cancelPreparedTransactionExecution,
+          consumePreparedTransactionQrResponse:
+              tx.consumePreparedTransactionQrResponse,
+        ).overrideSign(
           proposalId: 7,
           approve: true,
           signerPublicKey: signer,
@@ -325,7 +472,33 @@ void main() {
     }
     final tx = flow();
     await expectLater(
-      LegislationVoteService(chain: Chain(), transactions: tx).guardVote(
+      (() {
+        final reads0 = Chain();
+        return LegislationVoteService(
+          eventQuery: (block) => ProposalQueryService(
+            block: block,
+            getSystemEvents: reads0.getSystemEvents,
+            getRuntimeContext: reads0.getRuntimeContext,
+            getFinalizedHead: reads0.getFinalizedHead,
+            getStorage: reads0.getStorage,
+            getStorageBatch: reads0.getStorageBatch,
+          ),
+          voteQuery: (block) => LegislationVoteQueryService(
+            block: block,
+            getSystemEvents: reads0.getSystemEvents,
+            getRuntimeContext: reads0.getRuntimeContext,
+            getFinalizedHead: reads0.getFinalizedHead,
+            getStorage: reads0.getStorage,
+            getStorageBatch: reads0.getStorageBatch,
+          ),
+          prepareTransaction: tx.prepareTransaction,
+          executePreparedTransaction: tx.executePreparedTransaction,
+          cancelPreparedTransactionExecution:
+              tx.cancelPreparedTransactionExecution,
+          consumePreparedTransactionQrResponse:
+              tx.consumePreparedTransactionQrResponse,
+        );
+      })().guardVote(
         proposalId: 7,
         approve: true,
         signerPublicKey: Uint8List(31),

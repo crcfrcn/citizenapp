@@ -34,7 +34,7 @@ class _NullMembershipSnapshotService implements SubscriptionService {
   Future<void> requireSquareAccess(SquareSession session) async {}
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 Widget _wrap({required bool isSelf}) => MaterialApp(

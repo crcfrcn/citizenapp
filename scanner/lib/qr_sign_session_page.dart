@@ -19,8 +19,8 @@ Future<String?> showCitizenSdkQrResponse(
   required String request,
   required BigInt expiresAt,
 }) async {
-  final qr = context.read<CitizenSdk>().qr;
-  final document = await qr.parse(request);
+  final qr = context.read<CitizenSdk>();
+  final document = await qr.parseQr(request);
   if (!context.mounted) return null;
   if (document.kind != CitizenQrKind.signRequest ||
       document.expiresAt == null ||
@@ -42,8 +42,16 @@ Future<String?> showCitizenSdkQrResponse(
 ///
 /// 热账户由 CitizenSDK 在本机安全签名；冷账户只生成 QR_V1 请求并等待独立公民钱包回扫。
 /// 模式缺失、账户不完整或冷签取消都直接拒绝，不得降级到另一路径。
+/// App业务的外部签名结果边界；SDK协议、密钥及真实授权仍由默认实现处理。
+typedef PayloadSigner = Future<Uint8List> Function(
+  String accountId,
+  Uint8List payload,
+  int action,
+  BuildContext? context,
+);
+
 Future<Uint8List> signCitizenPayload({
-  required CitizenSigning signing,
+  required CitizenSdk signing,
   required BuildContext? context,
   required String accountId,
   required Uint8List payload,
@@ -56,7 +64,7 @@ Future<Uint8List> signCitizenPayload({
           ? CitizenSigningTransform.substrateSigningPayload()
           : CitizenSigningTransform.raw());
   final outcome = await signing
-      .begin(
+      .beginSigning(
         CitizenSigningIntent(
           accountId: accountId,
           payload: payload,
@@ -72,7 +80,7 @@ Future<Uint8List> signCitizenPayload({
   }
   final pending = outcome as CitizenExternalSigningPending;
   if (context == null || !context.mounted) {
-    await signing.cancel(pending.sessionId);
+    await signing.cancelSigning(pending.sessionId);
     throw const AccountSecurityException('冷签缺少扫码页面上下文，已拒绝签名');
   }
   try {
@@ -97,7 +105,7 @@ Future<Uint8List> signCitizenPayload({
     return Uint8List.fromList(completed.signature);
   } finally {
     // 页面取消、过期或消费失败均结束原外部会话；成功后取消是幂等空操作。
-    await signing.cancel(pending.sessionId);
+    await signing.cancelSigning(pending.sessionId);
   }
 }
 
@@ -115,11 +123,19 @@ class QrSignSessionPage extends StatefulWidget {
     required this.requestData,
     this.qr,
     this.scanResponse,
+    this.responseValidator,
   });
 
   /// 仅用于测试注入同一SDK端口和原扫码路由；生产仍使用根实例与原扫码页面。
-  final CitizenQr? qr;
+  final CitizenSdk? qr;
   final Future<String?> Function(BuildContext, CitizenQrKind)? scanResponse;
+
+  /// 只读响应预检；真实消费与授权仍由原SDK调用方负责。
+  final Future<void> Function({
+    required String sessionId,
+    required String response,
+  })?
+  responseValidator;
 
   /// SDK已解析的签名请求。
   final CitizenQrDocument request;
@@ -172,9 +188,9 @@ class _QrSignSessionPageState extends State<QrSignSessionPage> {
       if ((widget.request.expiresAt ?? 0) <= now) {
         throw const FormatException('当前请求已过期，请重新生成二维码');
       }
-      final qr = widget.qr ?? context.read<CitizenSdk>().qr;
+      final qr = widget.qr ?? context.read<CitizenSdk>();
       // 只预检同一外部签名会话的响应；真正消费仍由原钱包调用方执行。
-      await qr.validateSignResponse(
+      await (widget.responseValidator ?? qr.validateSignResponse)(
         sessionId: widget.request.requestId!,
         response: raw,
       );
@@ -324,7 +340,7 @@ class _SimpleScannerState extends State<_SimpleScanner> {
   static const double scanBoxOffsetY = -40;
 
   CitizenQrCapture? _capture;
-  CitizenQr get _qr => context.read<CitizenSdk>().qr;
+  CitizenSdk get _qr => context.read<CitizenSdk>();
   CitizenQrScanPurpose get _purpose => CitizenQrScanPurpose.externalSignature;
   bool _handled = false;
   bool _torchOn = false;
@@ -379,7 +395,7 @@ class _SimpleScannerState extends State<_SimpleScanner> {
       await _capture?.pause();
       if (!mounted || _closing) return;
       try {
-        await context.read<CitizenSdk>().qr.parseForPurpose(raw, _purpose);
+        await context.read<CitizenSdk>().parseForPurpose(raw, _purpose);
       } on CitizenSdkException {
         throw const FormatException('请扫描签名响应二维码');
       }

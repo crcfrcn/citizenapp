@@ -15,20 +15,20 @@ Future<String> _payloadHex({
   required int expiresAt,
 }) async {
   final bytes = <int>[
-    ...(await CitizenSigning.encodePayload(
+    ...(await CitizenSdk.encodePayload(
       CitizenSigningPayload.scaleString(action),
     )),
-    ...(await CitizenSigning.encodePayload(
+    ...(await CitizenSdk.encodePayload(
       CitizenSigningPayload.scaleString(accountId),
     )),
-    ...(await CitizenSigning.encodePayload(
+    ...(await CitizenSdk.encodePayload(
       CitizenSigningPayload.scaleString(challengeId),
     )),
     if (level != null)
-      ...(await CitizenSigning.encodePayload(
+      ...(await CitizenSdk.encodePayload(
         CitizenSigningPayload.scaleString(level),
       )),
-    ...(await CitizenSigning.encodePayload(
+    ...(await CitizenSdk.encodePayload(
       CitizenSigningPayload.u64Le(BigInt.from(expiresAt)),
     )),
   ];
@@ -39,16 +39,7 @@ Future<String> _payloadHex({
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  late TestCitizenSdkTransport encodingTransport;
-  late CitizenSdk encodingSdk;
-  setUp(() async {
-    encodingTransport = TestCitizenSdkTransport({}, useCore: true);
-    encodingSdk = await encodingTransport.open();
-  });
-  tearDown(() async {
-    await encodingSdk.close();
-    await encodingTransport.dispose();
-  });
+  TestCitizenSdkHarness();
 
   const accountId =
       '0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d';

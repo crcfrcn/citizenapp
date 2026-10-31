@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'package:citizen_account/identity/cid_generator.dart';
 import 'package:citizen_system/theme/app_theme.dart';
-import 'package:citizen_transaction/topup/onchain_topup_page.dart';
+import 'package:citizen_transaction/topup/topup_sheet.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
 /// 「注册身份」的选择结果:主体类型 + 绑定的钱包账户。
@@ -125,7 +125,7 @@ class _RegisterIdentitySheetState extends State<RegisterIdentitySheet> {
           await (widget.openTopup ?? _openTopup)(context, choice.bindAccountId);
         } on Object {
           if (mounted) {
-            setState(() => _error = '${outcome.message}；链上充值页面暂时无法打开');
+            setState(() => _error = '${outcome.message}；充值弹窗暂时无法打开');
           }
         }
       }
@@ -136,12 +136,10 @@ class _RegisterIdentitySheetState extends State<RegisterIdentitySheet> {
     }
   }
 
-  Future<void> _openTopup(BuildContext context, String accountId) =>
-      Navigator.of(context).push<void>(
-        MaterialPageRoute<void>(
-          builder: (_) => OnchainTopupPage(accountId: accountId),
-        ),
-      );
+  Future<void> _openTopup(BuildContext context, String accountId) async {
+    // 注册入口未指定币种，在同一弹窗内显式选择USDT/USDC，不预选付款币种。
+    await showTopup(context, accountId: accountId);
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -62,7 +62,7 @@ class _LawListPageState extends State<LawListPage> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_dependenciesReady) return;
-    _api = LegislationApi(chain: context.read<CitizenSdk>().chain);
+    _api = LegislationApi(chain: context.read<CitizenSdk>());
     _dependenciesReady = true;
     _load();
   }

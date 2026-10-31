@@ -1,4 +1,6 @@
+import 'package:citizen_scanner/qr_sign_session_page.dart' show PayloadSigner;
 import 'package:citizen_system/security/account_security_exception.dart';
+
 import 'dart:convert';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -33,20 +35,27 @@ typedef ColdMlsDeviceBindingSigner = Future<String> Function({
 /// 只协调公开身份、首次MLS登记授权与所属记录清理。钱包能力仍归CitizenSDK。
 interface class AccountSecurityService {
   AccountSecurityService({
-    required CitizenSdkWallet wallet,
-    required CitizenSigning signing,
+    CitizenSdk? wallet,
+    CitizenSdkOperation<CitizenWalletState> Function()? getWalletState,
+    CitizenSdk? signing,
+    PayloadSigner? payloadSigner,
     required AccountMlsDeviceRegistrar mlsDeviceRegistrar,
     required ColdMlsDeviceBindingSigner coldMlsDeviceBindingSigner,
     PublicIdentityRecordStore? blobStore,
-  }) : _wallet = wallet,
-       _signing = signing,
+  }) : _getWalletState =
+           getWalletState ??
+           wallet?.getWalletState ??
+           (() => throw StateError('未配置getWalletState')),
+       _signing = signing ?? wallet,
+       _payloadSigner = payloadSigner,
        _mlsDeviceRegistrar = mlsDeviceRegistrar,
        _coldMlsDeviceBindingSigner = coldMlsDeviceBindingSigner,
        _records = blobStore ?? SystemPublicIdentityRecordStore() {
     _bindings = PublicIdentityStore(_records);
   }
-  final CitizenSdkWallet _wallet;
-  final CitizenSigning _signing;
+  final CitizenSdkOperation<CitizenWalletState> Function() _getWalletState;
+  final CitizenSdk? _signing;
+  final PayloadSigner? _payloadSigner;
   final AccountMlsDeviceRegistrar _mlsDeviceRegistrar;
   final ColdMlsDeviceBindingSigner _coldMlsDeviceBindingSigner;
   final PublicIdentityRecordStore _records;
@@ -58,7 +67,7 @@ interface class AccountSecurityService {
   void notifyIdentityBindingChanged() => revision.value++;
   void notifyDefaultAccountChanged() => revision.value++;
   Future<CitizenWalletStateAccount?> _account(String accountId) async {
-    for (final account in (await _wallet.getState().result).accounts) {
+    for (final account in (await _getWalletState().result).accounts) {
       if (account.accountId == accountId) return account;
     }
     return null;
@@ -188,28 +197,45 @@ interface class AccountSecurityService {
               final String signature;
               if (account.signMode == CitizenWalletSignMode.hot) {
                 // 使用既有钱包签署接口完成已批准的0x1C MLS设备登记授权。
-                final result = await _signing
-                    .begin(
-                      CitizenSigningIntent(
-                        accountId: binding.accountId,
-                        payload: signingMessage,
-                        transform: CitizenSigningTransform.raw(),
-                      ),
-                    )
-                    .result;
-                if (result is! CitizenSigningCompleted ||
-                    result.accountId != binding.accountId ||
-                    !await CitizenSigning.verify(
-                      accountId: binding.accountId,
-                      signature: result.signature,
-                      payload: signingMessage,
-                    )) {
+                final Uint8List signed;
+                if (_payloadSigner != null) {
+                  signed = await _payloadSigner(
+                    binding.accountId,
+                    signingMessage,
+                    CitizenQrActions.mlsDeviceBind,
+                    null,
+                  );
+                } else {
+                  final result = await _signing!
+                      .beginSigning(
+                        CitizenSigningIntent(
+                          accountId: binding.accountId,
+                          payload: signingMessage,
+                          transform: CitizenSigningTransform.raw(),
+                        ),
+                      )
+                      .result;
+                  if (result is! CitizenSigningCompleted ||
+                      result.accountId != binding.accountId) {
+                    throw const AccountSecurityException(
+                      'MLS登记钱包授权无效',
+                      code: 'integrity',
+                    );
+                  }
+                  signed = result.signature;
+                }
+                // 无论结果来源，SDK仍核验签名；业务函数不能授予虚假成功权限。
+                if (!await CitizenSdk.verify(
+                  accountId: binding.accountId,
+                  signature: signed,
+                  payload: signingMessage,
+                )) {
                   throw const AccountSecurityException(
                     'MLS登记钱包授权无效',
                     code: 'integrity',
                   );
                 }
-                signature = '0x${bytesToHex(result.signature)}';
+                signature = '0x${bytesToHex(signed)}';
               } else {
                 signature = await _coldMlsDeviceBindingSigner(
                   binding: binding,
@@ -291,7 +317,7 @@ interface class AccountSecurityService {
     }
     final ids = (value['account_ids'] as List).cast<String>().toSet();
     final indexes = (value['wallet_indices'] as List).cast<int>().toSet();
-    final state = await _wallet.getState().result;
+    final state = await _getWalletState().result;
     if (state.cleanupPending ||
         state.accounts.any((a) => ids.contains(a.accountId)) ||
         state.diagnostics.any((r) => indexes.contains(r.walletIndex))) {

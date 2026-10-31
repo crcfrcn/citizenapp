@@ -30,12 +30,13 @@ class CitizenIdentitySignPrep {
 
 /// 公民签名统一服务：完整解码、请求/载荷/本机钱包三方公钥一致后才允许签名。
 class CitizenIdentitySignService {
-  CitizenIdentitySignService({required CitizenQr qr}) : _qr = qr;
-  final CitizenQr _qr;
+  CitizenIdentitySignService({required CitizenSdk qr}) : _qr = qr;
+  final CitizenSdk _qr;
 
   Future<CitizenIdentitySignPrep> prepare(
     String raw,
-    CitizenSdkWallet wallet, {
+    CitizenSdk? wallet, {
+    CitizenSdkOperation<CitizenWalletState> Function()? getWalletState,
     CitizenWalletStateAccount? requiredAccount,
   }) async {
     final CitizenQrDocument request;
@@ -65,7 +66,7 @@ class CitizenIdentitySignService {
     final account =
         requiredAccount ??
         _findAccount(
-          await wallet.getState().result,
+          await (getWalletState ?? wallet!.getWalletState)().result,
           request.signerAccountId!.toLowerCase(),
         );
     if (account == null ||
@@ -82,10 +83,11 @@ class CitizenIdentitySignService {
 
   Future<String> sign(
     CitizenIdentitySignPrep prep,
-    CitizenSigning signing,
-    BuildContext? context,
-  ) async {
-    final bytes = await CitizenSigning.encodePayload(
+    CitizenSdk? signing,
+    BuildContext? context, {
+    PayloadSigner? payloadSigner,
+  }) async {
+    final bytes = await CitizenSdk.encodePayload(
       CitizenSigningPayload.message(
         opTag: kOpSignCitizenIdentity,
         scalePayload: prep.request.reviewPayload!,
@@ -94,13 +96,15 @@ class CitizenIdentitySignService {
     if (context != null && !context.mounted) {
       throw const CitizenIdentitySignException('当前签名页面已经关闭');
     }
-    final signature = await signCitizenPayload(
-      signing: signing,
-      context: context,
-      accountId: prep.account.accountId,
-      payload: bytes,
-      action: prep.request.action!,
-    );
+    final signature =
+        await (payloadSigner ??
+            ((id, payload, action, ctx) => signCitizenPayload(
+              signing: signing!,
+              context: ctx,
+              accountId: id,
+              payload: payload,
+              action: action,
+            )))(prep.account.accountId, bytes, prep.request.action!, context);
     return (await _qr.encodeDocument(
       CitizenQrContent.signResponse(
         requestId: prep.request.requestId!,

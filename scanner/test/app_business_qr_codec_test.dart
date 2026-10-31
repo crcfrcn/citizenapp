@@ -8,22 +8,13 @@ import 'package:citizen_testing/fake_citizen_sdk.dart';
 // 原App协议实现已删除；这里通过SDK公开入口检验同一Core真实协议，不恢复App解析器。
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  late TestCitizenSdkTransport encodingTransport;
-  late CitizenSdk encodingSdk;
-  setUp(() async {
-    encodingTransport = TestCitizenSdkTransport({}, useCore: true);
-    encodingSdk = await encodingTransport.open();
-  });
-  tearDown(() async {
-    await encodingSdk.close();
-    await encodingTransport.dispose();
-  });
+  final encoding = TestCitizenSdkHarness();
 
   const accountId =
       '0x1111111111111111111111111111111111111111111111111111111111111111';
 
   test('通用SDK编码签名请求，冷导入用途仍只允许账户码', () async {
-    final request = await encodingSdk.qr.encodeDocument(
+    final request = await encoding.sdk.encodeDocument(
       CitizenQrContent.signRequest(
         requestId: 'business-request-000001',
         signerAccountId: accountId,
@@ -33,14 +24,14 @@ void main() {
       ),
     );
     expect(
-      (await encodingSdk.qr.parseForPurpose(
+      (await encoding.sdk.parseForPurpose(
         request.canonicalText,
         CitizenQrScanPurpose.signingRequest,
       )).document.action,
       CitizenQrActions.squareAccountAction,
     );
     await expectLater(
-      encodingSdk.qr.parseForPurpose(
+      encoding.sdk.parseForPurpose(
         request.canonicalText,
         CitizenQrScanPurpose.coldAccountImport,
       ),
@@ -50,13 +41,13 @@ void main() {
 
   test('公民身份与广场签名域由真实Core隔离，不生成App镜像算法', () async {
     final payload = Uint8List.fromList([1, 2, 3]);
-    final identity = await CitizenSigning.encodePayload(
+    final identity = await CitizenSdk.encodePayload(
       CitizenSigningPayload.message(
         opTag: kOpSignCitizenIdentity,
         scalePayload: payload,
       ),
     );
-    final square = await CitizenSigning.encodePayload(
+    final square = await CitizenSdk.encodePayload(
       CitizenSigningPayload.message(
         opTag: kOpSignSquareAction,
         scalePayload: payload,
@@ -78,7 +69,7 @@ void main() {
       1,
       ...List<int>.filled(7, 0),
     ]);
-    final result = await encodingSdk.qr.prepareAccountAuthorization(
+    final result = await encoding.sdk.prepareAccountAuthorization(
       action: CitizenQrActions.citizenOccupy,
       payload: payload,
       accountId: '0x${'aa' * 32}',
@@ -89,7 +80,7 @@ void main() {
       result.materializedPayload!.sublist(offset, offset + 32),
       List<int>.filled(32, 0xaa),
     );
-    final invalid = await encodingSdk.qr.prepareAccountAuthorization(
+    final invalid = await encoding.sdk.prepareAccountAuthorization(
       action: CitizenQrActions.citizenOccupy,
       payload: payload.sublist(1),
       accountId: accountId,
@@ -99,7 +90,7 @@ void main() {
   });
 
   test('业务请求和响应保持同一request id、期限及签名账户', () async {
-    final request = await encodingSdk.qr.encodeDocument(
+    final request = await encoding.sdk.encodeDocument(
       CitizenQrContent.signRequest(
         requestId: 'business-request-000002',
         signerAccountId: accountId,
@@ -108,7 +99,7 @@ void main() {
         expiresAt: BigInt.from(1900000000),
       ),
     );
-    final response = await encodingSdk.qr.encodeDocument(
+    final response = await encoding.sdk.encodeDocument(
       CitizenQrContent.signResponse(
         requestId: request.requestId!,
         expiresAt: BigInt.from(request.expiresAt!),

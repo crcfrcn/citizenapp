@@ -1,4 +1,4 @@
-import 'package:citizen_storage/app_isar.dart' as app_store show Entity;
+import 'package:citizen_storage/user_isar.dart' as app_store show Entity;
 // 统一机构仓库门面(ADR-028 决策 2)——finalized 链快照 + Isar 产出统一 [Institution];
 // 为创世治理机构附 china 固定账户。
 //

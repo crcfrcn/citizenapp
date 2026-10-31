@@ -23,16 +23,7 @@ import 'package:citizen_transaction/offchain/payment_intent.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  late TestCitizenSdkTransport encodingTransport;
-  late CitizenSdk encodingSdk;
-  setUp(() async {
-    encodingTransport = TestCitizenSdkTransport({}, useCore: true);
-    encodingSdk = await encodingTransport.open();
-  });
-  tearDown(() async {
-    await encodingSdk.close();
-    await encodingTransport.dispose();
-  });
+  TestCitizenSdkHarness();
 
   group('PaymentIntent golden vectors (cross-Rust, CID 主键)', () {
     test('fixture 1: simple same-bank payment', () async {
@@ -108,7 +99,7 @@ void main() {
         nonce: BigInt.from(1),
         expiresAt: 100,
       );
-      final viaPrimitive = (await CitizenSigning.encodePayload(
+      final viaPrimitive = (await CitizenSdk.encodePayload(
         CitizenSigningPayload.message(
           opTag: kOpSignL3Pay,
           scalePayload: intent.scaleEncode(),
@@ -129,7 +120,7 @@ void main() {
         nonce: BigInt.from(1),
         expiresAt: 100,
       );
-      final batchOperationMessage = (await CitizenSigning.encodePayload(
+      final batchOperationMessage = (await CitizenSdk.encodePayload(
         CitizenSigningPayload.message(
           opTag: kOpSignOffchainBatch,
           scalePayload: intent.scaleEncode(),

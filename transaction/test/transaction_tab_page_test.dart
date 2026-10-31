@@ -1,5 +1,5 @@
 import 'package:citizen_account/navigation.dart';
-import 'package:citizen_storage/wallet_isar.dart' as wallet_store show Entry;
+import 'package:citizen_storage/user_isar.dart' as wallet_store show Entry;
 
 import 'dart:async';
 

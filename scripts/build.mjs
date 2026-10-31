@@ -59,6 +59,18 @@ async function run(command, args, cwd, capture = false, environment = process.en
     });
 }
 
+// 最终R8产物必须保留JNI空结果回调需要的精确类和单例字段。
+export async function verifyAndroidRuntime(apk, environment, execute = run) {
+    if (!environment.ANDROID_HOME) throw Error('Android SDK工具根目录未提供');
+    const analyzer = join(environment.ANDROID_HOME, 'cmdline-tools/latest/bin/apkanalyzer');
+    const code = await execute(analyzer, ['dex', 'code', '--class', 'kotlin.Unit', apk],
+        dirname(apk), true, environment, 'Android JNI产物核验');
+    if (!/^\.class[^\n]* Lkotlin\/Unit;$/m.test(code) ||
+        !/^\.field[^\n]*\bstatic\b[^\n]* INSTANCE:Lkotlin\/Unit;$/m.test(code)) {
+        throw Error('Release APK缺少JNI需要的kotlin.Unit.INSTANCE');
+    }
+}
+
 export async function build(platform, phase = 'app', options={}) {
     const environment=options.environment||process.env;
     const work = options.work || environment.WORK ||
@@ -90,6 +102,7 @@ export async function build(platform, phase = 'app', options={}) {
         if (platform === 'android') {
             for (const [format, source] of (options.local?[['apk','flutter-apk/app-release.apk']]:[['apk', 'flutter-apk/app-release.apk'], ['appbundle', 'bundle/release/app-release.aab']])) {
                 await run(flutter, ['build', format, '--release', '--target-platform', 'android-arm64', ...version], project,false,environment);
+                if (format === 'apk') await verifyAndroidRuntime(join(project, 'build/app/outputs', source), environment);
                 copyFileSync(join(project, 'build/app/outputs', source), join(output, `${title}.${format === 'apk' ? 'apk' : 'aab'}`));
             }
         } else if(options.local){
