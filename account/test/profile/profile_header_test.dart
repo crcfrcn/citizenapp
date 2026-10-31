@@ -9,6 +9,7 @@ import 'package:citizen_testing/fake_citizen_sdk.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:citizen_account/profile/citizen_profile_api.dart';
@@ -21,6 +22,7 @@ import 'package:citizen_account/profile/user_qr_page.dart';
 import 'package:citizen_account/profile/profile_action_icons.dart';
 import 'package:citizen_account/profile/profile_category_tabs.dart';
 import 'package:citizen_account/profile/profile_header_card.dart';
+import 'package:citizen_account/profile/collapsible_header.dart';
 import 'package:citizen_account/square_api_client.dart';
 import 'package:citizen_account/membership/subscription_service.dart';
 import 'package:citizen_system/theme/app_theme.dart';
@@ -304,6 +306,125 @@ void main() {
     );
   });
 
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    for (final scale in [1.0, 1.5]) {
+      for (final entry in <String, String>{
+        '长中文': '${'签' * 159}尾',
+        '显式换行': '${'中文ABC\n' * 26}末尾四字',
+        '表情混排': '${'😀' * 79}尾巴',
+      }.entries) {
+        testWidgets('${platform.name}窄屏字体$scale完整显示160长度签名${entry.key}', (
+          tester,
+        ) async {
+          tester.view.physicalSize = const Size(320, 1600);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.reset);
+          expect(entry.value.length, 160);
+          await tester.pumpWidget(
+            _wrap(
+              isSelf: true,
+              api: FakeProfileApi(sampleProfile(profileBio: entry.value)),
+              platform: platform,
+              textScaler: TextScaler.linear(scale),
+              padding: platform == TargetPlatform.iOS
+                  ? const EdgeInsets.only(top: 44, bottom: 34)
+                  : const EdgeInsets.only(top: 24),
+            ),
+          );
+          await tester.pumpAndSettle();
+          final bio = find.text(entry.value);
+          final paragraph = tester.renderObject<RenderParagraph>(bio);
+          expect(paragraph.didExceedMaxLines, isFalse);
+          final tail = paragraph.getBoxesForSelection(
+            TextSelection(
+              baseOffset: entry.value.length - 1,
+              extentOffset: entry.value.length,
+            ),
+          );
+          expect(tail, isNotEmpty, reason: '末尾字符必须实际排版，不能只保留Text.data');
+          expect(
+            tail.last.bottom,
+            lessThanOrEqualTo(paragraph.size.height + 0.1),
+          );
+          final stats = find.textContaining('128 关注者');
+          expect(
+            tester.getRect(stats).top,
+            greaterThanOrEqualTo(tester.getRect(bio).bottom),
+          );
+          // 原合同按分类文字顶部计间距，bottom容器自身含顶部留白且有Sliver叠层。
+          final categoryLabel = find.descendant(
+            of: find.byType(ProfileCategoryTabs),
+            matching: find.byKey(const ValueKey<String>('profile-tab-posts')),
+          );
+          expect(
+            tester.getRect(categoryLabel).top,
+            greaterThanOrEqualTo(tester.getRect(stats).bottom),
+            reason: '完整签名下方的分类文字不能覆盖统计',
+          );
+          expect(tester.takeException(), isNull);
+        });
+      }
+    }
+  }
+
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    testWidgets('${platform.name}小屏大字体能通过原页面滚动读到长签名末尾', (tester) async {
+      tester.view.physicalSize = const Size(320, 700);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final padding = platform == TargetPlatform.iOS
+          ? const EdgeInsets.only(top: 44, bottom: 34)
+          : const EdgeInsets.only(top: 24);
+      final text = '${'中文ABC\n' * 26}末尾四字';
+      await tester.pumpWidget(
+        _wrap(
+          isSelf: true,
+          api: FakeProfileApi(sampleProfile(profileBio: text)),
+          platform: platform,
+          padding: padding,
+          textScaler: const TextScaler.linear(2),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final bio = find.text(text);
+      final paragraph = tester.renderObject<RenderParagraph>(bio);
+      var visible = false;
+      for (var attempt = 0; attempt < 80; attempt++) {
+        final tail = paragraph
+            .getBoxesForSelection(
+              TextSelection(
+                baseOffset: text.length - 1,
+                extentOffset: text.length,
+              ),
+            )
+            .last;
+        final bottom = paragraph
+            .localToGlobal(Offset(tail.left, tail.bottom))
+            .dy;
+        final top = paragraph.localToGlobal(Offset(tail.left, tail.top)).dy;
+        if (top >= kToolbarHeight + padding.top &&
+            bottom <= 700 - padding.bottom &&
+            bottom <= tester.getRect(find.byType(CollapsibleHeader)).bottom) {
+          visible = true;
+          for (final opacity in tester.widgetList<Opacity>(
+            find.ancestor(of: bio, matching: find.byType(Opacity)),
+          )) {
+            expect(opacity.opacity, greaterThan(0.99), reason: '超屏签名读完前不应已淡出');
+          }
+          break;
+        }
+        await tester.timedDrag(
+          find.byType(NestedScrollView),
+          const Offset(0, -40),
+          const Duration(seconds: 1),
+        );
+        await tester.pumpAndSettle();
+      }
+      expect(visible, isTrue, reason: '末尾必须能滚动进入手机可见区域且未被折叠容器裁切');
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('仅个性签名改变资料高度且分类文字顶部不产生额外留白', (tester) async {
     tester.view.physicalSize = const Size(320, 900);
     tester.view.devicePixelRatio = 1;
@@ -348,20 +469,20 @@ void main() {
         platform: platform,
         padding: padding,
       );
-      final twoLines = await layoutOf(
-        '这是一段需要在窄屏显示为两行的个性签名，用来验证只有签名实际高度会推动统计区',
+      final wrappedBio = await layoutOf(
+        '一段需要自动换行的个性签名，用来验证签名实际高度会推动统计区',
         platform: platform,
         padding: padding,
       );
 
-      for (final layout in [empty, oneLine, twoLines]) {
+      for (final layout in [empty, oneLine, wrappedBio]) {
         expect(
           layout.labelTopPadding,
           closeTo(ProfileCategoryTabs.labelTopPadding, 0.5),
         );
       }
       expect(oneLine.statsTop, greaterThan(empty.statsTop));
-      expect(twoLines.statsTop, greaterThan(oneLine.statsTop));
+      expect(wrappedBio.statsTop, greaterThan(oneLine.statsTop));
     }
     // WidgetTest 无法准确还原 SliverAppBar.bottom 与 flexibleSpace 的真机叠层
     // 坐标，因此在此锁定产品间距契约；真实视觉距离由双端页面验收覆盖。
@@ -450,7 +571,7 @@ void main() {
         _wrap(
           isSelf: false,
           api: FakeProfileApi(
-            sampleProfile(profileBio: '两行简介用于验证窄屏和不同平台字体度量下统计区仍完整可见'),
+            sampleProfile(profileBio: '完整简介用于验证窄屏和不同平台字体度量下统计区仍完整可见'),
           ),
           platform: platform,
           textScaler: const TextScaler.linear(1.3),

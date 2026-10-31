@@ -66,21 +66,29 @@ class ProfileHeaderCard extends StatelessWidget {
   ///
   /// SliverAppBar 不能从 FlexibleSpaceBar 的子项反向取得自然高度，因此这里按
   /// 与真实 Column 完全相同的文字样式测量。头像操作带、各段间距、统计与底部留白
-  /// 均固定，只有个性签名的有无及一/两行高度会改变结果。
+  /// 均固定，个性签名按完整文字的实际行数计算高度。
   static double requiredHeight(
     BuildContext context, {
     required String profileBio,
   }) {
     final textScaler = MediaQuery.textScalerOf(context);
     final textDirection = Directionality.of(context);
+    final baseStyle = Theme.of(context).textTheme.bodyMedium!;
     double textHeight(
       String text,
       TextStyle style, {
-      int maxLines = 1,
+      int? maxLines = 1,
       double maxWidth = double.infinity,
+      bool rich = false,
     }) {
       final painter = TextPainter(
-        text: TextSpan(text: text, style: style),
+        // 测量在Scaffold外调用，显式使用Material正文样式，并保持统计Text.rich的根样式。
+        text: rich
+            ? TextSpan(
+                style: baseStyle,
+                children: [TextSpan(text: text, style: style)],
+              )
+            : TextSpan(text: text, style: baseStyle.merge(style)),
         textDirection: textDirection,
         textScaler: textScaler,
         maxLines: maxLines,
@@ -108,7 +116,7 @@ class ProfileHeaderCard extends StatelessWidget {
               textHeight(
                 normalizedBio,
                 bioStyle,
-                maxLines: 2,
+                maxLines: null,
                 maxWidth: MediaQuery.sizeOf(context).width - 32,
               );
     // SliverAppBar.bottom 与 flexible space 叠层会吃掉约 2.5px；外部高度需同时
@@ -122,7 +130,7 @@ class ProfileHeaderCard extends StatelessWidget {
         textHeight('公民号', cidStyle) +
         bioHeight +
         12 +
-        textHeight('0 关注者', statStyle) +
+        textHeight('0 关注者', statStyle, rich: true) +
         statsToCategoryOuterGap;
   }
 
@@ -137,8 +145,9 @@ class ProfileHeaderCard extends StatelessWidget {
       confirmedMembershipActive ?? profile?.membergateActive ?? false;
 
   String get _name {
-    return ProfilePresentation.forIdentityKey(cidNumber)
-        .resolveDisplayName(publicName: profile?.displayName);
+    return ProfilePresentation.forIdentityKey(
+      cidNumber,
+    ).resolveDisplayName(publicName: profile?.displayName);
   }
 
   @override
@@ -185,8 +194,6 @@ class ProfileHeaderCard extends StatelessWidget {
                   SizedBox(height: AppLayout.scaled(context, 8)),
                   Text(
                     profileBio,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: AppTheme.textSecondary,
                       fontSize: AppLayout.scaled(context, 13),

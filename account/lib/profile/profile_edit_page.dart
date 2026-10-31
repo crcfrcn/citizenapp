@@ -57,6 +57,10 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
   static const int _displayNameMax = 40;
   static const int _bioMax = 160;
 
+  // 与现有服务端一致按UTF-16计长；只校验，不截断表情或改写输入法组合区。
+  String? _bioError(String bio) =>
+      bio.length > _bioMax ? '个性签名长度超过$_bioMax，请缩短后保存' : null;
+
   late final CitizenProfileApi _api;
   late final CitizenProfileCache _cache;
   late final SquareSessionProvider _sessionProvider;
@@ -150,6 +154,13 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
       if (pending?.jobState == 'confirmed') {
         await _saveLocal();
         return;
+      }
+      if (pending == null) {
+        final error = _bioError(_bioController.text);
+        if (error != null) {
+          _snack(error);
+          return;
+        }
       }
       final session = await _sessionProvider.ensureSession();
       if (session == null) {
@@ -275,15 +286,22 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
   Future<CitizenProfile> _sendUpdate(
     SquareSession session,
     Map<String, String> request,
-  ) => _api.updateProfile(
-    session: session,
-    displayName: request['display_name'],
-    profileBio: request['profile_bio'],
-    avatarKey: request['avatar_key'],
-    avatarHash: request['avatar_hash'],
-    bannerKey: request['banner_key'],
-    bannerHash: request['banner_hash'],
-  );
+  ) {
+    // 已准备请求的恢复也执行相同校验，不把超限正文再次发送给服务端。
+    final error = _bioError(request['profile_bio'] ?? '');
+    if (error != null) {
+      throw SquarePreflightException(error, 'profile_field_too_long');
+    }
+    return _api.updateProfile(
+      session: session,
+      displayName: request['display_name'],
+      profileBio: request['profile_bio'],
+      avatarKey: request['avatar_key'],
+      avatarHash: request['avatar_hash'],
+      bannerKey: request['banner_key'],
+      bannerHash: request['banner_hash'],
+    );
+  }
 
   Future<void> _saveLocal() async {
     final profile = await _cache.finishUpdate(widget.cidNumber);
@@ -291,8 +309,9 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
   }
 
   void _snack(String message) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   String _contentTypeForPath(String path) {
@@ -362,13 +381,17 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
               ),
             ),
             SizedBox(height: AppLayout.scaled(context, 16)),
-            TextField(
-              controller: _bioController,
-              maxLength: _bioMax,
-              maxLines: 4,
-              decoration: const InputDecoration(
-                labelText: '个性签名',
-                alignLabelWithHint: true,
+            ValueListenableBuilder<TextEditingValue>(
+              valueListenable: _bioController,
+              builder: (context, value, child) => TextField(
+                controller: _bioController,
+                maxLines: 4,
+                decoration: InputDecoration(
+                  labelText: '个性签名',
+                  alignLabelWithHint: true,
+                  counterText: '${value.text.length}/$_bioMax',
+                  errorText: _bioError(value.text),
+                ),
               ),
             ),
           ],

@@ -90,6 +90,86 @@ void main() {
   setUp(() async {
     await UserIsar.instance.db();
   });
+  for (final entry in <String, String>{
+    '中文': '中' * 160,
+    '英文': 'a' * 160,
+    '普通表情': '😀' * 80,
+    '组合字符': 'e\u0301' * 80,
+  }.entries) {
+    testWidgets('签名${entry.key}按UTF16到160完整保存', (tester) async {
+      final api = FakeProfileApi(sampleProfile());
+      await tester.pumpWidget(_wrap(api));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, entry.value);
+      await tester.pump();
+      expect(find.text('160/160'), findsOneWidget);
+      expect(
+        tester.widget<TextField>(find.byType(TextField).last).controller!.text,
+        entry.value,
+      );
+      await _save(tester);
+      expect(api.lastUpdate?['profile_bio'], entry.value);
+    });
+  }
+  for (final entry in <String, String>{
+    '中文粘贴': '中' * 161,
+    '普通表情': '😀' * 81,
+    '家庭组合表情': '👨‍👩‍👧‍👦' * 15,
+  }.entries) {
+    testWidgets('签名${entry.key}超限保留完整输入且零会话和写请求', (tester) async {
+      final sessions = _NoReadSession();
+      final api = FakeProfileApi(sampleProfile());
+      await tester.pumpWidget(_wrap(api, sessionProvider: sessions));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, entry.value);
+      await tester.pump();
+      final field = tester.widget<TextField>(find.byType(TextField).last);
+      expect(field.controller!.text, entry.value);
+      expect(find.text('${entry.value.length}/160'), findsOneWidget);
+      expect(field.decoration!.errorText, '个性签名长度超过160，请缩短后保存');
+      await _save(tester);
+      expect(sessions.calls, 0);
+      expect(api.lastUpdate, isNull);
+      await tester.enterText(find.byType(TextField).last, '恢复正常');
+      await tester.pump();
+      expect(
+        tester
+            .widget<TextField>(find.byType(TextField).last)
+            .decoration!
+            .errorText,
+        isNull,
+      );
+    });
+  }
+  testWidgets('签名中文输入法跨长度边界不改写组合区和光标', (tester) async {
+    final api = FakeProfileApi(sampleProfile());
+    final sessions = _NoReadSession();
+    await tester.pumpWidget(_wrap(api, sessionProvider: sessions));
+    await tester.pumpAndSettle();
+    final input = find.byType(TextField).last;
+    await tester.showKeyboard(input);
+    final composing = TextEditingValue(
+      text: '${'中' * 158}pin',
+      selection: const TextSelection.collapsed(offset: 161),
+      composing: const TextRange(start: 158, end: 161),
+    );
+    tester.testTextInput.updateEditingValue(composing);
+    await tester.pump();
+    expect(tester.widget<TextField>(input).controller!.value, composing);
+    expect(find.text('161/160'), findsOneWidget);
+    final committed = TextEditingValue(
+      text: '${'中' * 158}拼',
+      selection: const TextSelection.collapsed(offset: 159),
+    );
+    tester.testTextInput.updateEditingValue(committed);
+    await tester.pump();
+    expect(tester.widget<TextField>(input).controller!.value, committed);
+    expect(find.text('159/160'), findsOneWidget);
+    expect(tester.widget<TextField>(input).decoration!.errorText, isNull);
+    expect(sessions.calls, 0);
+    expect(api.lastUpdate, isNull);
+  });
+
   testWidgets('编辑页仅查看和输入不建立会话，点击保存才请求一次', (tester) async {
     final session = _NoReadSession();
     final api = FakeProfileApi(sampleProfile());
@@ -113,10 +193,40 @@ void main() {
     expect(find.text('远端已保存，本机收尾未完成，点击保存可恢复'), findsOneWidget);
     expect(cache.attempts, 1);
     api.lastUpdate = null;
+    // 已确认远端结果优先本机收尾，当前输入超限不能触发再次PUT或丢失原确认。
+    await tester.enterText(find.byType(TextField).last, '😀' * 81);
     await _save(tester);
     expect(cache.attempts, 2);
     expect(cache.wrote, isTrue);
     expect(api.lastUpdate, isNull);
+  });
+
+  testWidgets('准备请求恢复也在本地拒绝超限正文且不重放PUT', (tester) async {
+    final api = FakeProfileApi(sampleProfile());
+    final cache = _FakeProfileCache();
+    await tester.runAsync(
+      () => cache.prepareUpdate(
+        sampleProfile().cidNumber!,
+        request: {'display_name': '旧名', 'profile_bio': '😀' * 81},
+      ),
+    );
+    await tester.pumpWidget(_wrap(api, cache: cache));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('保存'));
+    for (var attempt = 0; attempt < 100; attempt++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump();
+      if (find.byType(AlertDialog).evaluate().isNotEmpty) break;
+    }
+    expect(find.byType(AlertDialog), findsOneWidget);
+    await tester.tap(find.text('继续保存'));
+    await tester.pumpAndSettle();
+    expect(find.text('个性签名长度超过160，请缩短后保存'), findsOneWidget);
+    expect(api.lastUpdate, isNull);
+    expect(cache.attempts, 0);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 
   testWidgets('prefills display name and bio from the profile', (tester) async {

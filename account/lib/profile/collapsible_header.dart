@@ -59,8 +59,16 @@ class CollapsibleHeader extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final span = (maxHeight - minHeight).clamp(1.0, double.infinity);
-        final collapse =
-            ((maxHeight - constraints.maxHeight) / span).clamp(0.0, 1.0);
+        final scroll = (maxHeight - constraints.maxHeight).clamp(0.0, span);
+        final collapse = scroll / span;
+        // 长资料先滚动完超屏部分，再按原规则淡出；普通高度的位移仍为0。
+        final viewport =
+            MediaQuery.sizeOf(context).height -
+            MediaQuery.paddingOf(context).bottom;
+        final overflow = (maxHeight - viewport).clamp(0.0, span - 1);
+        final offset = scroll.clamp(0.0, overflow);
+        final foregroundCollapse = ((scroll - overflow) / (span - overflow))
+            .clamp(0.0, 1.0);
         return Stack(
           fit: StackFit.expand,
           children: [
@@ -149,15 +157,15 @@ class CollapsibleHeader extends StatelessWidget {
                 ),
               ),
             ),
-            // 资料区：头图下方白底，头像跨压头图下缘；随折叠淡出。
+            // 资料区：超屏时先随原页面上移，读完后淡出；头像仍跨压头图下缘。
             Positioned(
-              top: bannerBottom,
+              top: bannerBottom - offset,
               left: 0,
               right: 0,
               child: Opacity(
-                opacity: (1 - collapse).clamp(0.0, 1.0),
+                opacity: 1 - foregroundCollapse,
                 child: IgnorePointer(
-                  ignoring: collapse > 0.5,
+                  ignoring: foregroundCollapse > 0.5,
                   child: foreground,
                 ),
               ),
