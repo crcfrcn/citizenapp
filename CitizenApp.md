@@ -2639,11 +2639,11 @@ Android平台组件交付包含App/SDK及Flutter默认的API36、音频/表情/I
 
 ## SDK消费与本机安装
 
-CitizenSDK与TataChatSDK的Git来源声明保持，ref统一为main。仓库原锁的resolved-ref保留历史基线，不作为两种流程选择SDK版本的门禁。每轮只解析一次准确SHA，并在公民App独立现场装配；本轮临时pubspec与锁映射为SDK公开工程视图，其余第三方依赖不主动升级。
+CitizenSDK与TataChatSDK的Git来源声明保持，ref统一为main。CitizenSDK原锁保留其已验证成功基线；TataChatSDK原锁的resolved-ref必须与最新成功正式Release的发布提交准确一致，不能只检查祖先关系。每轮只解析一次准确SHA，并在公民App独立现场装配；本轮临时pubspec与锁映射为SDK公开工程视图，其余第三方依赖不主动升级。iOS的两个SDK版本及校验由现有CocoaPods真实解析并同步Pod锁，不手写校验绕过。Git锁的包版本保持对应提交pubspec的真实声明；正式组件版本保持SDK发布包原件，由普通工程的Pub解析写入派生锁，不手工把Git包版本改成发布号。
 
-塔塔安装器使用本机两个SDK main的最新已提交源码，在本轮副本调用SDK既有公开编译入口；原生实现与内部原锁仍由SDK独立拥有。本机复用已有工具，Flutter按FLUTTER_ROOT、PATH及现有安装定位，Gradle复用官方wrapper已有安装。App不增加编译前置校验，不重复核验工具版本、组件完整性或SDK依赖目录，不全面断网；编译错误由实际工具和SDK返回。工具下载仍须遵守全局三次授权规则，App不自动下载工具，不要求预置完整包或填写SDK Run。App只编译自身，不复制SDK构建实现。SDK调用环境不携带GitHub令牌。
+塔塔安装器的CitizenSDK仍使用本机main的已提交源码及其公开编译入口；TataChatSDK与自动化共用最新正式Release，消费同版源码和已交付原生组件，不使用本机未发布main或未提交代码。原生实现与内部原锁仍由SDK独立拥有。本机复用已有工具，Flutter按FLUTTER_ROOT、PATH及现有安装定位，Gradle复用官方wrapper已有安装。App不增加工具前置校验，不重复核验工具版本、组件完整性或SDK依赖目录，不全面断网；编译错误由实际工具和SDK返回。工具下载仍须遵守全局三次授权规则，App不自动下载工具，不要求预置完整包或填写SDK Run。App只编译自身，不复制SDK构建实现。SDK调用环境不携带GitHub令牌。
 
-塔塔自动化按各SDK最新正式Release选择准确Git提交，确认来源自动化成功，并下载同版正式组件。CitizenSDK完整包继续由所属公开consume入口装配；TataChatSDK使用所属公开工程视图接口装配已交付组件。正式组件也供既有宿主测试使用，不在App自动化重复编译SDK。两份Workflow不要求调用方输入version；版本由YAML读取最近成功Run的完整Artifact递增，首次使用pubspec.yaml版本。没有sdk_run或手工交付目录；无有效正式版、缺件或真实执行失败直接失败，不回退到较旧版本。
+塔塔自动化的CitizenSDK按最新成功Run的完整Artifact消费；TataChatSDK按最新正式Release选择准确Git提交，确认来源Run/attempt成功，并下载同版正式组件。最新正式版来源失败时直接失败，不回退旧版。CitizenSDK完整包继续由所属公开consume入口装配；TataChatSDK使用所属公开工程视图接口装配已交付组件。正式组件也供既有宿主测试使用，不在App自动化重复编译SDK。两份Workflow不要求调用方输入version；版本由YAML读取最近成功Run的完整Artifact递增，首次使用pubspec.yaml版本。没有sdk_run或手工交付目录；无有效正式版、缺件或真实执行失败直接失败，不回退到较旧版本。
 
 本机签名、安装及回读唯一归控制台既有Installer.swift。本产品compile ios|android只交付本轮未签名产物，消费结束后清场；iOS与Android现场和失败结果独立。自动化仍保留原正式签名、商店上传及历史清理行为；启动该流程须有对应授权。
 
@@ -2923,7 +2923,7 @@ SDK补传同次job实际产生的固定内部原因时，App按同一白名单�
 
 ## 本机编译资源与版本来源
 
-本机compile只读取pubspec.yaml的版本与数字构建号，当前1.0.0+40用于保留数据覆盖已装39/40；不查询GitHub Run，也不把控制台任务号作为产品输入。SDK仍取两个本机main提交，使用原锁和现有缓存；先以Pub与npm离线装配原锁，随后正常build由Flutter按Release刷新原生插件注册；不使用build --no-pub跳过该步骤。Git仅允许本地资源，Cargo沿标准离线参数执行。塔塔自动化继续使用所属Workflow提供的Run构建号和正式SDK选择。
+本机compile只读取pubspec.yaml的版本与数字构建号，当前1.0.0+40用于保留数据覆盖已装39/40；不查询GitHub Run，也不把控制台任务号作为产品输入。CitizenSDK仍取本机main提交，聊天SDK取与原锁准确一致的最新正式Release，使用原锁和现有缓存；先以Pub与npm离线装配原锁，随后正常build由Flutter按Release刷新原生插件注册；不使用build --no-pub跳过该步骤。Git仅放行本地file与正式源码HTTPS，Cargo沿标准离线参数执行。塔塔自动化继续使用所属Workflow提供的Run构建号和正式SDK选择。
 
 
 ## 包与测试归属重构
@@ -2980,7 +2980,7 @@ AssetClass.Pegged为保留协议位，可解码不代表允许发行。当前链
 
 ### 原生、端到端与性能测试入口
 
-各原生包继续唯一拥有 `ios/tests/`、`android/tests/`，不另建测试框架。`scripts/config.mjs` 的 `testSuites` 是设备用例闭集，`describeAction({flow:'test',platform,inputs})` 与本机 `lib/test/run.mjs` 使用同一声明。外部调度必须显式交付 `inputs.work` 与字符串映射 `inputs.environment`，描述器不继承控制台环境。默认 `host` 仍执行所有包的 Node、严格分析和 Flutter 测试；原生设备用例不混入宿主通过数。
+各原生包继续唯一拥有 `ios/tests/`、`android/tests/`，不另建测试框架。`scripts/config.mjs` 的 `testSuites` 是设备用例闭集，`describeAction({flow:'test',platform,inputs})` 与本机 `lib/test/run.mjs` 使用同一声明。外部调度必须显式交付 `inputs.work` 与字符串映射 `inputs.environment`，描述器不继承控制台环境。默认 `host` 仍执行所有包的 Node、严格分析和 Flutter 测试；调用方显式交付既有FLUTTER_ROOT和SDK公开CITIZENSDK_TEST_LIBRARY测试库。同版Dart直接启动官方Flutter工具快照，macOS预载只传入Flutter测试进程，避免系统shell丢失SDK真实符号；原生设备用例不混入宿主通过数。
 
 调用方交付独占 `WORK` 和由既有 `assembleProject` 装配的 `WORK/project`。`node lib/test/run.mjs compile ios --scope ui|unit|all` 编译 Release XCTest；ui使用模拟器SDK且只依赖已有隔离宿主，unit/all使用真机SDK只编译完整 Runner，要求已准备原锁 Pods及Flutter Release引擎，不连接设备。全部测试编译禁用签名、包更新和自动包解析。`node lib/test/run.mjs compile android` 先由Flutter官方config-only Release流程刷新插件登记，再使用显式已安装 `GRADLE_BIN` 离线编译Release androidTest Kotlin/Java类，不生成或签署APK。产物只能写本轮普通工程；缺工具或依赖直接失败，不下载、升级或用替身模块补齐。
 

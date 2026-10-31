@@ -3,7 +3,7 @@ PODS:
     - Flutter
   - camera_avfoundation (0.0.1):
     - Flutter
-  - citizen_sdk (1.0.0):
+  - citizen_sdk (2.0.0):
     - Flutter
     - FlutterMacOS
   - emoji_picker_flutter (0.0.1):
@@ -127,7 +127,7 @@ PODS:
   - shared_preferences_foundation (0.0.1):
     - Flutter
     - FlutterMacOS
-  - tatachat_sdk (1.0.0):
+  - tatachat_sdk (1.1.15):
     - Flutter
   - url_launcher_ios (0.0.1):
     - Flutter
@@ -237,7 +237,7 @@ EXTERNAL SOURCES:
 SPEC CHECKSUMS:
   audio_session: 9bb7f6c970f21241b19f5a3658097ae459681ba0
   camera_avfoundation: 968a9a5323c79a99c166ad9d7866bfd2047b5a9b
-  citizen_sdk: 11f72a11d98d850179388f5673a73dd0c0c9df92
+  citizen_sdk: 6557dd1a6ec82758516d1baa36d29bf26d3a20af
   emoji_picker_flutter: ece213fc274bdddefb77d502d33080dc54e616cc
   Firebase: a8539b633d474fbeb654c7043f9c1649e274045b
   firebase_core: fc23178af8ea070194d09031ae4198a9608a3d22
@@ -268,7 +268,7 @@ SPEC CHECKSUMS:
   SDWebImage: e9fc87c1aab89a8ab1bbd74eba378c6f53be8abf
   SDWebImageWebPCoder: 0e06e365080397465cc73a7a9b472d8a3bd0f377
   shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
-  tatachat_sdk: daade5096305a4b04624eee1790fe006adc547a4
+  tatachat_sdk: 7f1336e64d17c24d09a4df6c9576123fcd4c12a3
   url_launcher_ios: 7a95fa5b60cc718a708b8f2966718e93db0cef1b
   video_player_avfoundation: 3453f792138786248960ca029747fcd9f318ef52
   WebRTC-SDK: e6006119cd730d6315d875e4a421b6cc8bb88833

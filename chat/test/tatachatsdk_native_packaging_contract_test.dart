@@ -16,7 +16,7 @@ void main() {
       r'^  tatachat_sdk:\n(?:    .*\n|\n)+',
       multiLine: true,
     ).firstMatch(manifest)!.group(0)!;
-    // 声明沿用main，锁只记录基线；本轮依赖由既有装配入口冻结。
+    // 声明沿用main；原锁必须准确对应最新正式发布，装配不接受本机未发布提交。
     expect(record, contains('ref: main'));
     final locked = RegExp(
       r'^  tatachat_sdk:\n(?:    .*\n|\n)+',

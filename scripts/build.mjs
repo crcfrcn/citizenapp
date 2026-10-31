@@ -81,16 +81,7 @@ export async function build(platform, phase = 'app', options={}) {
     writeFileSync(activeMarker, JSON.stringify({pid: process.pid}), {flag: 'wx', mode: 0o600});
     try {
         if (phase === 'dependencies') {
-            // 自动化已经消费正式SDK中的原生组件，不重复编译SDK。
-            if (!options.local) return;
-            const source=join(work,'sources/tatachat_sdk');
-            for(const target of [platform]){
-                const dependencyEnvironment={...environment};delete dependencyEnvironment.GH_TOKEN;delete dependencyEnvironment.GITHUB_TOKEN;
-                const result=await run(process.execPath,[join(source,'scripts/build.mjs'),'native',target,'--device'],source,true,dependencyEnvironment);
-                const output=JSON.parse(result).output;
-                const packagePath=target==='android'?'android/src/main/jniLibs':target==='ios'?'ios/TataChatSDK.xcframework':'native';
-                cpSync(target==='ios'?join(output,'TataChatSDK.xcframework'):output,join(work,'packages/tatachat_sdk',packagePath),{recursive:true});
-            }
+            // 聊天SDK已交付正式原生组件，本机与自动化均不重复编译。
             return;
         }
         const flutter = join(environment.FLUTTER_ROOT, 'bin/flutter');
@@ -146,7 +137,8 @@ export async function selectSDKRelease(product, read) {
         for (let i = 0; i < 3; i++) if (left[i] !== right[i]) return left[i] > right[i] ? -1 : 1;
         return b.release.id - a.release.id;
     });
-    for (const selected of candidates) {
+    const selected = candidates[0];
+    if (selected) {
         const proof = selected.proof;
         const run = await read('actions/runs/' + proof.producer_run_id + '/attempts/' + proof.producer_run_attempt);
         if (run.status === 'completed' && run.conclusion === 'success'
@@ -261,15 +253,22 @@ for (const name of ['citizen_sdk', 'tatachat_sdk']) {
     const local = resolve(root, '..', product);
     const read = path => JSON.parse(execute('gh', ['api', 'repos/' + repository + '/' + path],
         {encoding: 'utf8', env: environment}));
-    const selected = environment.GITHUB_ACTIONS === 'true' ?
-        await (name === 'citizen_sdk' ? selectSDKArtifact(read) : selectSDKRelease(product, read)) : null;
+    const selected = name === 'tatachat_sdk' ? await selectSDKRelease(product, read) :
+        environment.GITHUB_ACTIONS === 'true' ? await selectSDKArtifact(read) : null;
+    // 聊天SDK必须与最新正式发布准确一致，不以祖先关系或本机未发布main代替。
+    if (name === 'tatachat_sdk') {
+        const locked = /^[ \t]*resolved-ref: ("?)([a-f0-9]{40})\1[ \t]*$/m.exec(record || '')?.[2];
+        if (locked !== selected.proof.git_commit_sha) {
+            throw Error('tatachatsdk原锁与最新正式Release提交不一致，请更新消费锁');
+        }
+    }
     const ref = selected ? (name === 'citizen_sdk' ? selected.run.head_sha : selected.proof.git_commit_sha) :
-        execute('git', ['-C', local, 'rev-parse', 'refs/heads/main'], {encoding: 'utf8'}).trim();
+        execute('git', ['-C', local, 'rev-parse', 'refs/heads/main'], {encoding: 'utf8', env: environment}).trim();
     const source = join(work, 'sources', name), output = join(work, 'packages', name);
     mkdirSync(source, {recursive: true});
-    execute('git', ['init', source]);
-    execute('git', ['-C', source, 'fetch', '--depth=1', selected ? url : local, ref]);
-    execute('git', ['-C', source, 'checkout', '--detach', 'FETCH_HEAD']);
+    execute('git', ['init', source], {env: environment});
+    execute('git', ['-C', source, 'fetch', '--depth=1', selected ? url : local, ref], {env: environment});
+    execute('git', ['-C', source, 'checkout', '--detach', 'FETCH_HEAD'], {env: environment});
     mkdirSync(dirname(output), {recursive: true});
     const sdk = await import(pathToFileURL(join(source, 'scripts/build.mjs')));
     console.log(product + '：' + (selected ? (name === 'citizen_sdk' ? selected.artifact.name : selected.release.tag_name) : 'main') + ' ' + ref);
@@ -598,11 +597,11 @@ export async function compile(platform){
  if(realpathSync(parent)!==parent)throw Error('本机编译现场经过链接');
  const work=mkdtempSync(join(parent,'local-'));let safe=true;
  const cache=join(root,'target/cache');mkdirSync(cache,{recursive:true});
- // 本机只读取产品本地版本，SDK取本机提交；任务管理和安装仍归控制台。
+ // 本机构建号取本地声明；公民SDK用本机提交，聊天SDK用正式Release，安装仍归控制台。
  const version=/^version:\s*([^+\s]+)(?:\+(\d+))?/mu.exec(readFileSync(join(root,'pubspec.yaml'),'utf8'));
  const environment={...process.env,GITHUB_ACTIONS:'false',GITHUB_WORKSPACE:root,WORK:work,PLATFORM:platform,
   CITIZENAPP_VERSION:version[1],CITIZENAPP_BUILD_NUMBER:version[2]||'1',
-  CARGO_NET_OFFLINE:'true',GIT_ALLOW_PROTOCOL:'file',
+  CARGO_NET_OFFLINE:'true',GIT_ALLOW_PROTOCOL:'file:https',
   FLUTTER_ROOT:flutterRoot,PUB_CACHE:process.env.PUB_CACHE||join(process.env.HOME,'.pub-cache'),GRADLE_USER_HOME:process.env.GRADLE_USER_HOME||join(dirname(flutterRoot),'gradle'),
   CARGO_TARGET_DIR:process.env.CARGO_TARGET_DIR||join(cache,'rust'),RUSTUP_TOOLCHAIN:'1.97.1',
   PATH:process.env.HOME+'/.cargo/bin:'+process.env.HOME+'/.nvm/versions/node/v25.2.1/bin:/opt/homebrew/bin:'+(process.env.PATH||'/usr/bin:/bin'),
