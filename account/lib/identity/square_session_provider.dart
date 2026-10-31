@@ -78,6 +78,7 @@ class SquareSessionResolution {
         'identity_local_missing' => '身份信息暂不可用，请在身份页刷新后重试',
         'device_not_registered' => '公民服务准备未完成，请重试',
         'registration_required' => '公民服务准备未完成，请重试',
+        'chain_rpc_budget_exceeded' => '公共链查询次数已达服务端限额，请稍后重试',
         'mls_challenge_limit_reached' ||
         'request_rate_exceeded' => '请求过于频繁，请稍后重试',
         'authenticationRequired' => '首次设备登记授权尚未完成',
@@ -144,6 +145,7 @@ class SquareSessionResolution {
         'device_proof_storage',
         'mls_challenge_limit_reached',
         'request_rate_exceeded',
+        'chain_rpc_budget_exceeded',
       };
       return SquareSessionResolution(
         status,

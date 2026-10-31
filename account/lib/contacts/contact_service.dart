@@ -139,7 +139,8 @@ class ContactSyncState {
     ContactSyncPhase.synced => '云端已同步',
     ContactSyncPhase.pending => '待同步',
     ContactSyncPhase.offline => '离线，显示本地通讯录',
-    ContactSyncPhase.failed => '同步失败，点击重试',
+    ContactSyncPhase.failed =>
+      message?.trim().isNotEmpty == true ? message! : '同步失败，点击重试',
     ContactSyncPhase.idle => '本地通讯录',
   };
 }

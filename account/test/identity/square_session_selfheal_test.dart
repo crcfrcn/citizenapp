@@ -27,6 +27,19 @@ import 'package:citizen_testing/mls_authentication_fixture.dart';
 
 /// 只有明确未登记才编排一次登记；签名失败绝不触发钱包或重建MLS身份。
 void main() {
+  test('服务端公共RPC限额是固定可重试分类，不显示原始正文', () {
+    final result = SquareSessionResolution.fromError(
+      const SquareApiException(
+        '合成私有服务正文',
+        statusCode: 429,
+        errorCode: 'chain_rpc_budget_exceeded',
+        stage: SquareApiStage.registration,
+      ),
+    );
+    expect(result.status, SquareSessionStatus.serviceUnavailable);
+    expect(result.errorCode, 'chain_rpc_budget_exceeded');
+    expect(result.message, '公共链查询次数已达服务端限额，请稍后重试');
+  });
   _preparationDiagnosticsTests();
   _chatAccessSessionTests();
   test('明确取消保留取消分类，不变成服务故障或再次注册', () {
@@ -61,8 +74,9 @@ void main() {
       expect(result.message, isNot(contains('synthetic-private-path')));
     }
     expect(
-      SquareSessionResolution.fromError(StateError('synthetic internal error'))
-          .status,
+      SquareSessionResolution.fromError(
+        StateError('synthetic internal error'),
+      ).status,
       SquareSessionStatus.serviceUnavailable,
     );
   });

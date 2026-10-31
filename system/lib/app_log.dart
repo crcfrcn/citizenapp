@@ -182,6 +182,7 @@ class AppLog {
       'device_proof_storage',
       'mls_challenge_limit_reached',
       'request_rate_exceeded',
+      'chain_rpc_budget_exceeded',
       'identityChanged',
       'identityUnavailable',
       'authenticationRequired',

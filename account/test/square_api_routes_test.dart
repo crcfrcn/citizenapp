@@ -17,6 +17,29 @@ import 'package:citizen_square/post/square_models.dart';
 import 'package:citizen_testing/mls_authentication_fixture.dart';
 
 void main() {
+  test('真实429 RPC限额保留固定错误码且不自动重试', () async {
+    var calls = 0;
+    final api = SquareApiClient(
+      baseUrl: 'https://square.test/api',
+      httpClient: MockClient((_) async {
+        calls++;
+        return http.Response('{"error_code":"chain_rpc_budget_exceeded"}', 429);
+      }),
+    );
+    addTearDown(api.close);
+    await expectLater(
+      api.ensureSession(
+        accountId: testMlsAccountId,
+        authentication: FakeMlsAuthentication(),
+      ),
+      throwsA(
+        isA<SquareApiException>()
+            .having((e) => e.errorCode, 'code', 'chain_rpc_budget_exceeded')
+            .having((e) => e.statusCode, 'status', 429),
+      ),
+    );
+    expect(calls, 1);
+  });
   test('关注和评论真实HTTP正文直接使用peer_cid及op_id，认证覆盖同一字节', () async {
     final signed = <List<int>>[];
     final sent = <http.Request>[];

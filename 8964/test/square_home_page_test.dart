@@ -475,11 +475,22 @@ Widget _wrap(Widget child) {
 }
 
 class _GateMlsSessions implements SquareSessionProvider {
+  _GateMlsSessions({this.quotaExceeded = false});
+  final bool quotaExceeded;
   bool ready = false;
   int calls = 0;
   @override
   Future<SquareSessionResolution> resolveSession({bool refresh = false}) async {
     calls++;
+    if (!ready && quotaExceeded) {
+      return SquareSessionResolution.fromError(
+        const SquareApiException(
+          '合成私有正文',
+          statusCode: 429,
+          errorCode: 'chain_rpc_budget_exceeded',
+        ),
+      );
+    }
     return ready
         ? SquareSessionResolution(
             SquareSessionStatus.ready,
@@ -500,6 +511,27 @@ class _GateMlsSessions implements SquareSessionProvider {
 void main() {
   _squareTabGateTests();
   _squareOrderPersistenceTests();
+  testWidgets('广场RPC限额展示固定原因并沿用原下拉重试', (tester) async {
+    final sessions = _GateMlsSessions(quotaExceeded: true);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MembershipBusinessGate(
+          sessionProvider: sessions,
+          child: const Text('合成广场内容'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('公共链查询次数已达服务端限额，请稍后重试'), findsOneWidget);
+    expect(find.textContaining('合成私有正文'), findsNothing);
+    expect(find.byType(TextButton), findsNothing);
+    sessions.ready = true;
+    await tester.drag(find.byType(ListView), const Offset(0, 500));
+    await tester.pumpAndSettle();
+    expect(find.text('合成广场内容'), findsOneWidget);
+    expect(sessions.calls, 2);
+  });
+
   testWidgets('真实广场门禁只显示固定MLS原因，下拉重试成功后挂载内容且不增加按钮', (tester) async {
     final sessions = _GateMlsSessions();
     await tester.pumpWidget(
@@ -692,19 +724,21 @@ void main() {
       security = AccountSecurityService(
         getWalletState: readWallet,
         signing: sdk,
-        mlsDeviceRegistrar: ({
-          required cidNumber,
-          required bindRev,
-          required accountId,
-          required signBinding,
-        }) async => throw StateError('主页回归禁止登记MLS设备'),
-        coldMlsDeviceBindingSigner: ({
-          required binding,
-          required payload,
-          required signingMessage,
-          required publicKey,
-          required issuedAtMillis,
-        }) async => throw StateError('主页回归禁止钱包签名'),
+        mlsDeviceRegistrar:
+            ({
+              required cidNumber,
+              required bindRev,
+              required accountId,
+              required signBinding,
+            }) async => throw StateError('主页回归禁止登记MLS设备'),
+        coldMlsDeviceBindingSigner:
+            ({
+              required binding,
+              required payload,
+              required signingMessage,
+              required publicKey,
+              required issuedAtMillis,
+            }) async => throw StateError('主页回归禁止钱包签名'),
       );
       registered = CurrentUser(
         account: account,
@@ -895,7 +929,8 @@ void main() {
       identity.requests[1].complete(
         registered
             ? const SquareIdentityState(
-                accountId: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                accountId:
+                    '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
                 cidNumber: 'CN220-CTZN2-100000002-2026',
                 signMode: CitizenWalletSignMode.hot,
               )
@@ -1186,8 +1221,9 @@ void main() {
     expect(
       pageSize.height -
           documentBottom -
-          MediaQuery.paddingOf(tester.element(find.byType(SquareHomePage)))
-              .bottom,
+          MediaQuery.paddingOf(
+            tester.element(find.byType(SquareHomePage)),
+          ).bottom,
       closeTo(pageSize.width - videoRight, 1),
     );
 
@@ -1370,7 +1406,8 @@ void main() {
 
     identityService.completer.complete(
       const SquareIdentityState(
-        accountId: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        accountId:
+            '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         cidNumber: 'CN220-CTZN2-100000001-2026',
         signMode: CitizenWalletSignMode.hot,
       ),
@@ -1646,8 +1683,9 @@ void _squareOrderPersistenceTests() {
       expect(tabs.order.first, SquareFeedKind.circle);
       expect(tabs.selected, SquareFeedKind.recommended);
       expect(
-        (await tester.runAsync(() => const SquareTabOrderStore().read()))!
-            .first,
+        (await tester.runAsync(
+          () => const SquareTabOrderStore().read(),
+        ))!.first,
         SquareFeedKind.circle,
       );
       await tester.pumpWidget(const SizedBox.shrink());
@@ -1778,19 +1816,21 @@ void _squareTabGateTests() {
       security = AccountSecurityService(
         getWalletState: sdk.getWalletState,
         signing: sdk,
-        mlsDeviceRegistrar: ({
-          required cidNumber,
-          required bindRev,
-          required accountId,
-          required signBinding,
-        }) async => throw StateError('测试禁止登记设备'),
-        coldMlsDeviceBindingSigner: ({
-          required binding,
-          required payload,
-          required signingMessage,
-          required publicKey,
-          required issuedAtMillis,
-        }) async => throw StateError('测试禁止钱包签名'),
+        mlsDeviceRegistrar:
+            ({
+              required cidNumber,
+              required bindRev,
+              required accountId,
+              required signBinding,
+            }) async => throw StateError('测试禁止登记设备'),
+        coldMlsDeviceBindingSigner:
+            ({
+              required binding,
+              required payload,
+              required signingMessage,
+              required publicKey,
+              required issuedAtMillis,
+            }) async => throw StateError('测试禁止钱包签名'),
       );
       gate = _TabGate(CidBusinessStatus.ready);
       sessions = _UnavailableTabSessions();

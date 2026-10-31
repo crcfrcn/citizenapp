@@ -115,6 +115,19 @@ class _Sessions implements SquareSessionProvider {
 }
 
 void main() {
+  test('同步失败使用已分类原因，空原因保留通用提示', () {
+    expect(
+      const ContactSyncState(phase: ContactSyncPhase.failed).label,
+      '同步失败，点击重试',
+    );
+    expect(
+      const ContactSyncState(
+        phase: ContactSyncPhase.failed,
+        message: '  ',
+      ).label,
+      '同步失败，点击重试',
+    );
+  });
   useIsolatedIsar();
   test('闭集诊断拒绝任意阶段、错误及操作文本', () {
     final lines = <String>[];
@@ -207,6 +220,12 @@ void main() {
   // 同样的失败在有无待发记录时都必须保持真实类别；失败不能消费待同步操作。
   for (final withPending in [false, true]) {
     for (final failure in <Object>[
+      const SquareApiException(
+        '合成服务正文',
+        statusCode: 429,
+        errorCode: 'chain_rpc_budget_exceeded',
+        stage: SquareApiStage.registration,
+      ),
       const MlsNativeException(
         MlsNativeErrorCode.stateInvalid,
         'synthetic private detail',
@@ -260,6 +279,11 @@ void main() {
           network ? ContactSyncPhase.offline : ContactSyncPhase.failed,
         );
         expect(state.message, isNot(contains('合成服务正文')));
+        if (failure is SquareApiException &&
+            failure.errorCode == 'chain_rpc_budget_exceeded') {
+          expect(state.label, '公共链查询次数已达服务端限额，请稍后重试');
+          expect(state.errorCode, 'chain_rpc_budget_exceeded');
+        }
         if (failure is SquareApiException) {
           expect(state.statusCode, failure.statusCode);
           expect(state.stage, failure.stage);

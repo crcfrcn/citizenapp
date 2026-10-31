@@ -79,12 +79,25 @@ class _FakeSessionProvider implements SquareSessionProvider {
 }
 
 class _PreparingSessions extends _FakeSessionProvider {
-  _PreparingSessions({this.missingCommitted = false});
+  _PreparingSessions({
+    this.missingCommitted = false,
+    this.quotaExceeded = false,
+  });
   final bool missingCommitted;
+  final bool quotaExceeded;
   int preparations = 0;
   @override
   Future<SquareSessionResolution> resolveSession({bool refresh = false}) async {
     preparations++;
+    if (quotaExceeded) {
+      return SquareSessionResolution.fromError(
+        const SquareApiException(
+          '合成私有正文',
+          statusCode: 429,
+          errorCode: 'chain_rpc_budget_exceeded',
+        ),
+      );
+    }
     return missingCommitted
         ? SquareSessionResolution.fromError(
             const chat_sdk.MlsNativeException(
@@ -1391,6 +1404,22 @@ void main() {
     expect(find.text('尚未注册'), findsOneWidget);
     expect(find.byKey(const ValueKey('membership-front-card')), findsOneWidget);
     expect(find.textContaining('恢复服务'), findsNothing);
+  });
+
+  testWidgets('RPC限额仍展示三张原会员卡和明确原因', (tester) async {
+    final sessions = _PreparingSessions(quotaExceeded: true);
+    await _pump(
+      tester,
+      _state(active: false),
+      sessionProvider: sessions,
+      currentUserContext: _CachedCurrentUser(),
+    );
+    expect(find.text('公共链查询次数已达服务端限额，请稍后重试'), findsOneWidget);
+    for (final name in ['自由会员', '民主会员', '薪火会员']) {
+      expect(find.text(name), findsOneWidget);
+    }
+    expect(find.textContaining('合成私有正文'), findsNothing);
+    expect(sessions.preparations, 1);
   });
 
   testWidgets('会员普通进入自动准备，没有初始化弹窗或新增按钮', (tester) async {
