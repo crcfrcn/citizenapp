@@ -2,15 +2,172 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import 'package:citizen_storage/user_isar.dart' as wallet_store show Entry;
+import 'package:citizen_transaction/history/record_tile.dart';
+import 'package:citizen_wallet/navigation.dart';
+import 'package:citizen_wallet/wallet_action_card.dart';
+import 'package:citizen_wallet/wallet_onchain_balance_card.dart';
 
 import 'package:citizen_system/theme/app_layout.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_wallet/wallet_qr_dialog.dart';
 
+/// 冷热详情唯一展示布局；名称保存、余额刷新与私钥权限仍由原页面负责。
+class WalletDetailBody extends StatelessWidget {
+  const WalletDetailBody({
+    super.key,
+    required this.account,
+    required this.name,
+    required this.onNameChanged,
+    required this.onRefresh,
+    required this.balanceKey,
+    required this.actionKey,
+    required this.records,
+    this.balanceLoader,
+  });
+  final CitizenWalletStateAccount account;
+  final String name;
+  final Future<void> Function(String) onNameChanged;
+  final Future<void> Function() onRefresh;
+  final GlobalKey<WalletOnchainBalanceCardState> balanceKey;
+  final GlobalKey<WalletActionCardState> actionKey;
+  final List<wallet_store.Entry> records;
+  final Future<CitizenAccountBalance> Function(String)? balanceLoader;
+
+  @override
+  Widget build(BuildContext context) => RefreshIndicator(
+    onRefresh: onRefresh,
+    child: ListView(
+      padding: EdgeInsets.zero,
+      physics: const AlwaysScrollableScrollPhysics(),
+      children: [
+        Container(
+          key: const ValueKey('wallet-detail-header'),
+          color: AppTheme.primary,
+          child: Column(
+            children: [
+              WalletIdentityCard(
+                key: ValueKey(account.accountId),
+                wallet: account,
+                name: name,
+                onNameChanged: onNameChanged,
+              ),
+              Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: AppLayout.scaled(context, 20),
+                ),
+                child: Divider(height: 1, color: Colors.white.withAlpha(55)),
+              ),
+              WalletOnchainBalanceCard(
+                key: balanceKey,
+                wallet: account,
+                balanceLoader: balanceLoader,
+              ),
+            ],
+          ),
+        ),
+        WalletActionCard(
+          key: actionKey,
+          accountId: account.accountId,
+          accountAddress: account.ss58Address,
+          onTopupPaid: onRefresh,
+        ),
+        SizedBox(height: AppLayout.scaled(context, 24)),
+        Padding(
+          key: const ValueKey('wallet-transaction-section-padding'),
+          padding: EdgeInsets.symmetric(
+            horizontal: AppLayout.scaled(context, 4),
+          ),
+          child: Container(
+            key: const ValueKey('wallet-recent-records-card'),
+            clipBehavior: Clip.antiAlias,
+            decoration: AppTheme.cardDecoration(radius: AppTheme.radiusMd),
+            child: Column(children: _recordRows(context)),
+          ),
+        ),
+        SizedBox(height: AppLayout.scaled(context, 24)),
+      ],
+    ),
+  );
+
+  /// 交易记录区块:标题跳转 + 最近 5 条列表。
+  List<Widget> _recordRows(BuildContext context) {
+    return [
+      InkWell(
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => context.read<WalletNavigation>().history(
+                accountAddress: account.ss58Address,
+                accountId: account.accountId,
+              ),
+            ),
+          );
+        },
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+          child: Row(
+            children: [
+              Text(
+                '交易记录',
+                style: TextStyle(
+                  fontSize: AppLayout.scaledValue(16),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
+              Icon(
+                Icons.chevron_right,
+                size: AppLayout.scaledValue(20),
+                color: AppTheme.textTertiary,
+              ),
+            ],
+          ),
+        ),
+      ),
+      const Divider(height: 1),
+      if (records.isEmpty)
+        Padding(
+          padding: EdgeInsets.symmetric(vertical: AppLayout.scaledValue(36)),
+          child: const Center(
+            child: Text(
+              '暂无交易记录',
+              style: TextStyle(color: AppTheme.textTertiary),
+            ),
+          ),
+        )
+      else
+        ...List.generate(records.length, (index) {
+          final record = records[index];
+          return Column(
+            children: [
+              // 标题行进入完整列表；单条最近记录直接进入该笔交易详情。
+              LocalTxRecordTile(
+                record: record,
+                showChevron: true,
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => context
+                          .read<WalletNavigation>()
+                          .recordDetail(record: record),
+                    ),
+                  );
+                },
+              ),
+              if (index < records.length - 1) const Divider(height: 1),
+            ],
+          );
+        }),
+    ];
+  }
+}
+
 /// 钱包详情页主视觉中的身份区。
 ///
 /// - 与 [WalletOnchainBalanceCard] 共用外层纯色主视觉面板，本组件只负责身份内容。
-/// - 钱包名可点击进入编辑态;提交(回车 / onTapOutside)时通过 [onNameChanged]
+/// - 名称可点击进入编辑态;提交(回车 / onTapOutside)时通过 [onNameChanged]
 ///   回调让外层落盘。空字符串或与现值相同则回滚不报错,由编辑态自行处理。
 /// - 地址完整展示，空间不足时从第二行左对齐换行；复制按钮独立位于分隔线左侧。
 /// - 右侧 QR 入口打开账户二维码弹窗，内容为 QR_V1 `k=5` 账户码（只声明账户）。
@@ -19,16 +176,16 @@ class WalletIdentityCard extends StatefulWidget {
   const WalletIdentityCard({
     super.key,
     required this.wallet,
-    required this.walletName,
+    required this.name,
     required this.onNameChanged,
   });
 
   final CitizenWalletStateAccount wallet;
 
-  /// SDK目录的钱包级名称，不能用热账户0的name代替。
-  final String walletName;
+  /// 仅展示调用方提供的名称；账户/钱包级保存由onNameChanged的各自所有者负责。
+  final String name;
 
-  /// 钱包名提交回调。外层负责持久化,Widget 内部已做 trim 和空值回滚。
+  /// 名称提交回调。外层负责持久化,Widget 内部已做 trim 和空值回滚。
   final Future<void> Function(String) onNameChanged;
 
   @override
@@ -36,11 +193,12 @@ class WalletIdentityCard extends StatefulWidget {
 }
 
 class _WalletIdentityCardState extends State<WalletIdentityCard> {
-  /// 当前展示态的钱包名(与 widget.walletName 同步,编辑提交后更新)。
-  late String _walletName;
+  /// 当前展示态的名称(与 widget.name 同步,编辑提交后更新)。
+  late String _name;
 
   /// 是否处于编辑态。
   bool _isEditingName = false;
+  bool _savingName = false;
 
   /// 编辑态 TextField 的 controller。
   late final TextEditingController _nameController;
@@ -48,8 +206,8 @@ class _WalletIdentityCardState extends State<WalletIdentityCard> {
   @override
   void initState() {
     super.initState();
-    _walletName = widget.walletName;
-    _nameController = TextEditingController(text: _walletName);
+    _name = widget.name;
+    _nameController = TextEditingController(text: _name);
   }
 
   @override
@@ -58,21 +216,23 @@ class _WalletIdentityCardState extends State<WalletIdentityCard> {
     super.dispose();
   }
 
-  /// 提交钱包名。trim 后空或与当前相同则回滚编辑态,不调用回调。
+  /// 提交名称。trim 后空或与当前相同则回滚编辑态,不调用回调。
   Future<void> _submitName(String raw) async {
+    if (_savingName) return;
     final trimmed = raw.trim();
-    if (trimmed.isEmpty || trimmed == _walletName) {
+    if (trimmed.isEmpty || trimmed == _name) {
       setState(() {
         _isEditingName = false;
-        _nameController.text = _walletName;
+        _nameController.text = _name;
       });
       return;
     }
+    setState(() => _savingName = true);
     try {
       await widget.onNameChanged(trimmed);
       if (!mounted) return;
       setState(() {
-        _walletName = trimmed;
+        _name = trimmed;
         _isEditingName = false;
       });
     } catch (_) {
@@ -80,8 +240,19 @@ class _WalletIdentityCardState extends State<WalletIdentityCard> {
       if (!mounted) return;
       setState(() {
         _isEditingName = false;
-        _nameController.text = _walletName;
+        _nameController.text = _name;
       });
+    } finally {
+      if (mounted) setState(() => _savingName = false);
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant WalletIdentityCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.name != widget.name) {
+      _name = widget.name;
+      if (!_isEditingName && !_savingName) _nameController.text = _name;
     }
   }
 
@@ -151,6 +322,7 @@ class _WalletIdentityCardState extends State<WalletIdentityCard> {
                   height: AppLayout.scaled(context, 44),
                   child: _isEditingName
                       ? TextField(
+                          enabled: !_savingName,
                           controller: _nameController,
                           autofocus: true,
                           style: TextStyle(
@@ -194,14 +366,14 @@ class _WalletIdentityCardState extends State<WalletIdentityCard> {
                             onTap: () {
                               setState(() {
                                 _isEditingName = true;
-                                _nameController.text = _walletName;
+                                _nameController.text = _name;
                               });
                             },
                             child: Row(
                               children: [
                                 Flexible(
                                   child: Text(
-                                    _walletName,
+                                    _name,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
@@ -360,7 +532,7 @@ class _WalletIdentityCardState extends State<WalletIdentityCard> {
               onTap: () => showWalletQrDialog(
                 context,
                 accountId: widget.wallet.accountId,
-                accountName: _walletName,
+                accountName: _name,
               ),
               child: SizedBox(
                 width: AppLayout.scaled(context, 48),

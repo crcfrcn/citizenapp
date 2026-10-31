@@ -104,7 +104,7 @@ class _CachedIdentityCache implements CurrentUserContext {
       '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FakeWallet extends TestWalletReads {
@@ -274,7 +274,7 @@ class _ConfirmedMembershipSnapshotService implements SubscriptionService {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _DelayedMembershipSnapshotService implements SubscriptionService {
@@ -300,7 +300,7 @@ class _DelayedMembershipSnapshotService implements SubscriptionService {
       const SquareMembershipState(active: false, paidUntil: 0);
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _PendingCreatorService implements CreatorService {
@@ -314,7 +314,7 @@ class _PendingCreatorService implements CreatorService {
   Future<CreatorPageData> load({String? expectedCidNumber}) => refresh.future;
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 void main() {

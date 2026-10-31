@@ -11,6 +11,26 @@ void main() {
     home: Scaffold(body: child),
   );
 
+  testWidgets('互动入口使用讨论图标并保留通知计数及标识', (tester) async {
+    SquareFeedKind? selected;
+    await tester.pumpWidget(
+      wrap(
+        SquareFeedTabs(
+          selected: SquareFeedKind.recommended,
+          notificationsUnread: 7,
+          onChanged: (kind) => selected = kind,
+        ),
+      ),
+    );
+    expect(find.text('互动'), findsOneWidget);
+    expect(find.text('通知'), findsNothing);
+    expect(find.byIcon(Icons.forum_outlined), findsOneWidget);
+    expect(find.text('7'), findsOneWidget);
+    await tester.tap(find.text('互动'));
+    expect(selected, SquareFeedKind.notifications);
+    expect(selected!.workerValue, 'notifications');
+  });
+
   testWidgets('关注子 tab 有未读时显示红点数字', (tester) async {
     await tester.pumpWidget(
       wrap(

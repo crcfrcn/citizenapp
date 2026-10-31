@@ -1,4 +1,8 @@
 import 'dart:async';
+import 'dart:ui' as ui;
+
+import 'package:flutter/rendering.dart';
+import 'package:citizen_system/theme/app_theme.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -7,6 +11,9 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:citizen_wallet/wallet_action_card.dart';
 import 'package:citizen_wallet/navigation.dart';
+import 'package:citizen_wallet/wallet_identity_card.dart';
+import 'package:citizen_wallet/wallet_onchain_balance_card.dart';
+import 'package:citizen_sdk/citizen_sdk.dart';
 
 /// 验证双币入口、精确账户、共有余额及原零钱包绑定门禁，不调用真实付款。
 void main() {
@@ -16,10 +23,10 @@ void main() {
   const address = '5DummyAddress';
   final opened = <String>[];
   Completer<bool?>? waiting;
-  var balanceReads = 0;
-  Future<void> pumpCard(WidgetTester tester, {bool outer = false}) async {
+  var paidRefreshes = 0;
+  Future<void> pumpCard(WidgetTester tester) async {
     opened.clear();
-    balanceReads = 0;
+    paidRefreshes = 0;
     final navigation = WalletNavigation(
       history: ({required accountAddress, required accountId}) =>
           const SizedBox.shrink(),
@@ -46,10 +53,8 @@ void main() {
                 WalletActionCard(
                   accountId: accountId,
                   accountAddress: address,
-                  hasOuterCard: outer,
-                  finalizedBalanceLoader: (_) async {
-                    balanceReads++;
-                    return 1280.35;
+                  onTopupPaid: () async {
+                    paidRefreshes++;
                   },
                 ),
               ],
@@ -61,13 +66,28 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('复用USDT/USDC圆形SVG，两个入口为充值且零钱包保持原图标', (tester) async {
+  testWidgets('三个入口统一圆形图标，零钱包为实色圆底白图形', (tester) async {
     await pumpCard(tester);
     expect(find.text('充值/USDT'), findsOneWidget);
     expect(find.text('充值/USDC'), findsOneWidget);
     expect(find.text('提现'), findsNothing);
     expect(find.byType(SvgPicture), findsNWidgets(2));
     expect(find.byIcon(Icons.account_balance_wallet_outlined), findsOneWidget);
+    final icon = tester.widget<Container>(
+      find.byKey(const ValueKey('wallet-petty-icon')),
+    );
+    expect((icon.decoration! as BoxDecoration).shape, BoxShape.circle);
+    expect((icon.decoration! as BoxDecoration).color, AppTheme.primary);
+    expect(
+      tester
+          .widget<Icon>(find.byIcon(Icons.account_balance_wallet_outlined))
+          .color,
+      Colors.white,
+    );
+    expect(
+      tester.getSize(find.byKey(const ValueKey('wallet-petty-icon'))),
+      tester.getSize(find.byType(SvgPicture).first),
+    );
   });
   for (final token in ['USDT', 'USDC']) {
     testWidgets('$token充值不要求清算行绑定且传递准确目标账户', (tester) async {
@@ -91,53 +111,38 @@ void main() {
   testWidgets('到账后只刷新发起充值账户的链上余额', (tester) async {
     waiting = Completer<bool?>();
     await pumpCard(tester);
-    final before = balanceReads;
+    final before = paidRefreshes;
     await tester.tap(find.text('充值/USDC'));
     waiting!.complete(true);
     await tester.pumpAndSettle();
-    expect(balanceReads, before + 1);
+    expect(paidRefreshes, before + 1);
     expect(opened, ['$accountId:USDC']);
     waiting = null;
   });
-  testWidgets('金额跨两列居中，短竖线56且零钱包竖线仍88', (tester) async {
-    await pumpCard(tester, outer: true);
-    final first = tester.getCenter(find.text('充值/USDT'));
-    final second = tester.getCenter(find.text('充值/USDC'));
-    final balance = tester.getCenter(
-      find.byKey(const ValueKey('wallet-onchain-balance')),
+  testWidgets('充值区无重复链上金额，三图标与两条40短线居中', (tester) async {
+    await pumpCard(tester);
+    final first = tester.getCenter(find.byType(SvgPicture).first);
+    final second = tester.getCenter(find.byType(SvgPicture).last);
+    final petty = tester.getCenter(
+      find.byKey(const ValueKey('wallet-petty-icon')),
     );
-    expect(find.text('1,280.35 元'), findsOneWidget);
-    expect(balance.dx, closeTo((first.dx + second.dx) / 2, .1));
-    expect(balance.dy, greaterThan(first.dy));
-    final pettyCenter = tester.getCenter(
-      find.byIcon(Icons.account_balance_wallet_outlined),
+    final short = find.byKey(const ValueKey('wallet-topup-divider'));
+    final long = find.byKey(const ValueKey('wallet-petty-divider'));
+    expect(find.byKey(const ValueKey('wallet-onchain-balance')), findsNothing);
+    expect(find.text('1,280.35 元'), findsNothing);
+    expect(first.dy, closeTo(second.dy, .1));
+    expect(second.dy, closeTo(petty.dy, .1));
+    expect(tester.getCenter(short).dy, closeTo(first.dy, .1));
+    expect(tester.getCenter(long).dy, closeTo(petty.dy, .1));
+    expect(
+      tester.getSize(short).height,
+      closeTo(tester.getSize(long).height, .1),
     );
-    final dividerCenter = tester.getCenter(
-      find.byKey(const ValueKey('wallet-petty-divider')),
-    );
-    expect(second.dx - first.dx, closeTo(pettyCenter.dx - second.dx, .1));
-    expect(dividerCenter.dx, closeTo((second.dx + pettyCenter.dx) / 2, .1));
-    final shortHeight = tester
-        .getSize(find.byKey(const ValueKey('wallet-topup-divider')))
-        .height;
-    final longHeight = tester
-        .getSize(find.byKey(const ValueKey('wallet-petty-divider')))
-        .height;
     final iconHeight = tester.getSize(find.byType(SvgPicture).first).height;
-    expect(shortHeight, closeTo(longHeight * 56 / 88, .1));
-    expect(longHeight, closeTo(iconHeight * 88 / 48, .1));
-    final cardRect = tester.getRect(
-      find.byKey(const ValueKey('wallet-action-card')),
-    );
-    expect(cardRect.height, closeTo(iconHeight * 136 / 48, .1));
-    expect(dividerCenter.dy, closeTo(cardRect.top + iconHeight * 68 / 48, .1));
-  });
-  testWidgets('热账户已有外框时不重复画操作卡底边', (tester) async {
-    await pumpCard(tester, outer: true);
-    final card = tester.widget<Container>(
-      find.byKey(const ValueKey('wallet-action-card')),
-    );
-    expect((card.decoration! as BoxDecoration).border, isNull);
+    expect(tester.getSize(short).height, closeTo(iconHeight * 40 / 48, .1));
+    expect(tester.getSize(short).height, lessThan(iconHeight));
+    expect(tester.getCenter(long).dx, closeTo((second.dx + petty.dx) / 2, .1));
+    expect(second.dx - first.dx, closeTo(petty.dx - second.dx, .1));
   });
   testWidgets('零钱包未绑定仍显示原状态并提示绑定', (tester) async {
     await pumpCard(tester);
@@ -146,5 +151,120 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('请先在“清算行”页面绑定清算行'), findsOneWidget);
     expect(opened, isEmpty);
+  });
+
+  testWidgets('统一详情仅顶部显示链上余额，交易记录四角完整', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final boundaryKey = GlobalKey();
+    final account = CitizenWalletStateAccount(
+      signMode: CitizenWalletSignMode.hot,
+      walletIndex: 0,
+      accountIndex: 0,
+      accountId: accountId,
+      ss58Address: address,
+      name: '测试账户',
+      createdAtMillis: BigInt.zero,
+      isDefault: true,
+    );
+    Future<({List<int> pixels, int width, int height})> pixels() async {
+      final boundary =
+          boundaryKey.currentContext!.findRenderObject()!
+              as RenderRepaintBoundary;
+      return (await tester.runAsync(() async {
+        final image = await boundary.toImage(pixelRatio: 1);
+        final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+        final value = (
+          pixels: data!.buffer.asUint8List() as List<int>,
+          width: image.width,
+          height: image.height,
+        );
+        image.dispose();
+        return value;
+      }))!;
+    }
+
+    Widget host(Widget body) => RepaintBoundary(
+      key: boundaryKey,
+      child: MaterialApp(
+        theme: AppTheme.lightTheme,
+        home: Scaffold(body: body),
+      ),
+    );
+    await tester.pumpWidget(
+      host(
+        WalletDetailBody(
+          account: account,
+          name: account.name,
+          onNameChanged: (_) async {},
+          onRefresh: () async {},
+          balanceKey: GlobalKey<WalletOnchainBalanceCardState>(),
+          actionKey: GlobalKey<WalletActionCardState>(),
+          records: const [],
+          balanceLoader: (id) async => CitizenAccountBalance(
+            accountId: id,
+            block: CitizenBlockRef(
+              hash: '0x${'11' * 32}',
+              number: BigInt.one,
+              finality: CitizenBlockFinality.finalized,
+            ),
+            freeFen: BigInt.from(128035),
+            reservedFen: BigInt.zero,
+            totalFen: BigInt.from(128035),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('1,280.35'), findsOneWidget);
+    expect(find.byKey(const ValueKey('wallet-onchain-balance')), findsNothing);
+    expect(find.byIcon(Icons.edit_outlined), findsOneWidget);
+    final rect = tester.getRect(
+      find.byKey(const ValueKey('wallet-recent-records-card')),
+    );
+    final actual = await pixels();
+    await tester.pumpWidget(
+      host(
+        Stack(
+          children: [
+            Positioned(
+              left: rect.left,
+              top: rect.top,
+              width: rect.width,
+              height: rect.height,
+              child: Container(
+                clipBehavior: Clip.antiAlias,
+                decoration: AppTheme.cardDecoration(radius: AppTheme.radiusMd),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final expected = await pixels();
+    var differences = 0;
+    for (var x = 1; x < 12; x++) {
+      for (var y = 1; y < 12; y++) {
+        for (final p in [
+          (rect.left.round() + x, rect.top.round() + y),
+          (rect.right.round() - 1 - x, rect.top.round() + y),
+          (rect.left.round() + x, rect.bottom.round() - 1 - y),
+          (rect.right.round() - 1 - x, rect.bottom.round() - 1 - y),
+        ]) {
+          final index = (p.$2 * actual.width + p.$1) * 4;
+          if (List.generate(
+            4,
+            (c) =>
+                (actual.pixels[index + c] - expected.pixels[index + c]).abs(),
+          ).any((d) => d > 2)) {
+            differences++;
+          }
+        }
+      }
+    }
+    expect(differences, 0, reason: '共用交易记录卡四角边框完整');
   });
 }

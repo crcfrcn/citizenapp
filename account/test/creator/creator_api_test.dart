@@ -366,7 +366,7 @@ class _FakeSessionProvider implements SquareSessionProvider {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// 身份账户单源 fake：身份=账户0（与钱包/会话同账户），offline、不链读。
@@ -384,7 +384,7 @@ class _FakeIdentityCache implements FinalizedIdentityResolver {
   );
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FakeWallet extends TestWalletReads {
@@ -430,7 +430,7 @@ class _ActiveMembershipService implements SubscriptionService {
   );
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FakeSubscriptionChain extends SubscriptionChain {

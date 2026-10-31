@@ -1337,7 +1337,7 @@ class _FakeContactService implements UserContactService {
   Future<List<UserContact>> getContacts() async => contacts;
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _MemoryProfileCache extends CitizenProfileCache {
@@ -1409,12 +1409,12 @@ class _FakeProfileSessionProvider implements SquareSessionProvider {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _UnusedChatHost implements ChatRuntimeHost {
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FakeRuntime extends ChatSdk {
@@ -1528,7 +1528,7 @@ class _AttachmentOnlySubscription implements SubscriptionService {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _UnusedSecurity implements AccountSecurityService {
@@ -1536,12 +1536,12 @@ class _UnusedSecurity implements AccountSecurityService {
   final revision = ValueNotifier<int>(0);
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _UnusedCurrentUser implements CurrentUserContext {
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _LocalChatIdentity implements CurrentUserContext {
@@ -1570,7 +1570,7 @@ class _LocalChatIdentity implements CurrentUserContext {
   );
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _NoChatChainRecovery implements FinalizedIdentityResolver {
@@ -1582,7 +1582,7 @@ class _NoChatChainRecovery implements FinalizedIdentityResolver {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// 真实默认HTTP客户端的网络边界；构造服务本身不计请求，任何发送都立即失败并计数。
@@ -1598,5 +1598,5 @@ class _ChatNetworkCounter implements HttpClient {
   void close({bool force = false}) {}
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

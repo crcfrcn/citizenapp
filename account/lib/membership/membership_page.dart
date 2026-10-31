@@ -20,7 +20,6 @@ import 'package:citizen_account/identity/identity_badge.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_account/identity/account_security_service.dart';
 import 'package:citizen_system/theme/app_layout.dart';
-import 'package:citizen_account/identity/identity_register_guide.dart';
 
 /// 会员三档固定顺序（与价格升序一致，ADR-037，与身份彻底解耦）：
 /// 自由 freedom < 民主 democracy < 薪火 spark。
@@ -68,14 +67,14 @@ class _MembershipPageState extends State<MembershipPage>
   late final AnimationController _snapController;
   Animation<double>? _snapAnim;
 
-  /// 首屏复用上次服务端快照；没有快照时显示待获取，不制造默认权益。
+  /// 三档首屏始终存在；价格和权益复用真实快照，缺失值显示待获取。
   bool _refreshing = false;
   bool _identityReloadPending = false;
 
   /// 读取失败保留已有服务端快照，并给出可见的刷新入口。
   String? _loadFailure;
 
-  /// 当前钱包未注册 CID。主体只显示统一注册引导，不加载会员价格或业务状态。
+  /// 当前钱包未注册 CID；三档继续展示，注册引导置于卡片上方。
   bool _unregistered = false;
   SquareSessionStatus? _sessionStatus;
 
@@ -206,7 +205,7 @@ class _MembershipPageState extends State<MembershipPage>
     }());
   }
 
-  /// 未注册只显示统一注册页，不补取会员业务价格或启动 MLS。
+  /// 未注册展示紧凑引导和三卡，不补取会员业务价格或启动 MLS。
   void _enterUnregistered() {
     if (mounted) setState(() => _unregistered = true);
   }
@@ -467,8 +466,9 @@ class _MembershipPageState extends State<MembershipPage>
     if (_busy) return;
     if (_data.accountId.isEmpty) {
       final message = _sessionStatus?.message ?? '会员状态尚未就绪，请稍后重试';
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
       return;
     }
     // 动作仍复核当前 CID；未注册时返回页面内统一引导，不由动作直接弹面板。
@@ -516,13 +516,15 @@ class _MembershipPageState extends State<MembershipPage>
       await _load();
       if (!mounted) return;
       if (_subscriptionService.mirrorSyncPending) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('链上订阅已生效，会员权益正在同步')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('链上订阅已生效，会员权益正在同步')));
       }
     } on SubscriptionException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -530,11 +532,12 @@ class _MembershipPageState extends State<MembershipPage>
 
   /// 打开该档「会员详情页」（完整权益只读展示 + 订阅入口，订阅动作仍走本页 [_handleAction]）。
   void _openDetail(
-    SquareMembershipPlan plan,
+    String level,
+    SquareMembershipPlan? plan,
     int? priceFen,
     SquareMembershipState state,
   ) {
-    final action = _actionFor(state, plan.memberLevel);
+    final action = _actionFor(state, level);
     final noWallet = _sessionStatus == SquareSessionStatus.noWallet;
     // 缓存只提供展示，详情按钮与会员卡一样必须有当前可用会话。
     final sessionUnavailable =
@@ -553,18 +556,18 @@ class _MembershipPageState extends State<MembershipPage>
         !noWallet &&
         !sessionUnavailable &&
         !stateNotReady &&
+        plan != null &&
         (action == _SubscribeAction.cancel || priceFen != null);
     Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => MembershipDetailPage(
+          memberLevel: level,
           plan: plan,
-          usageState: state.memberLevel == plan.memberLevel
-              ? state.usageState
-              : null,
+          usageState: state.memberLevel == level ? state.usageState : null,
           priceFen: priceFen,
           actionLabel: label,
           subscribeEnabled: enabled,
-          onSubscribe: () => _handleAction(plan.memberLevel),
+          onSubscribe: () => _handleAction(level),
         ),
       ),
     );
@@ -600,7 +603,7 @@ class _MembershipPageState extends State<MembershipPage>
 
   @override
   Widget build(BuildContext context) {
-    // 已注册时三张套餐卡先用本地静态定义显示；未注册时主体改为统一注册引导。
+    // 三张套餐卡始终显示；未注册引导与真实数据的加载状态不替换卡片。
     // 会员、价格与钱包状态由 [_load] 后台补齐；真正订阅、
     // 换档或取消时由 [SubscriptionService] 核验钱包、CID 与 CitizenServe 会员真源，
     // 随后的链上交易继续执行最终状态校验。
@@ -622,50 +625,36 @@ class _MembershipPageState extends State<MembershipPage>
   }
 
   Widget _buildBody() {
-    if (_unregistered) {
-      return IdentityRegisterGuide(
-        description: '注册后即可使用会员服务。',
-        onRegistered: () => _load(forceRefresh: true),
-      );
-    }
     final data = _data;
     final state = data.state;
-    // 三档卡只消费当前服务端套餐或其缓存；顺序不改变额度。
-    final plans = _orderedPlans(state.plans);
-    _cardCount = plans.length;
-    if (plans.isEmpty) {
-      return Column(
-        children: [
-          if (_loadFailure != null && !_refreshing)
-            _LoadFailureBanner(
-              key: const ValueKey('membership-load-failure-banner'),
-              message: _loadFailure!,
-              onRetry: _retryLoad,
-            ),
-          Expanded(
-            child: Center(
-              child: _refreshing
-                  ? const CircularProgressIndicator()
-                  : const Text('会员额度尚未获取，请刷新'),
-            ),
-          ),
-        ],
-      );
-    }
-
+    // 卡片身份来自固定三档；服务端缺档只让该档权益未知，不能删除卡片。
+    _cardCount = _tierOrder.length;
     final size = MediaQuery.of(context).size;
     final cardWidth = (size.width * 0.8).clamp(280.0, 360.0);
     final bandHeight = (size.height * 0.60).clamp(430.0, 540.0);
     final peek = cardWidth * 0.40;
-    final frontIndex = _page.round().clamp(0, plans.length - 1);
-    final activeColor = _tierColor(plans[frontIndex].memberLevel);
+    final frontIndex = _page.round().clamp(0, _tierOrder.length - 1);
+    final activeColor = _tierColor(_tierOrder[frontIndex]);
 
     // 绘制顺序：离最上层越远越先画（在下层），当前卡最后画（压在最上层）。
-    final drawOrder = List<int>.generate(plans.length, (i) => i)
+    final drawOrder = List<int>.generate(_tierOrder.length, (i) => i)
       ..sort((a, b) => (b - _page).abs().compareTo((a - _page).abs()));
 
     return Column(
       children: [
+        if (_unregistered)
+          ListTile(
+            title: const Text('尚未注册'),
+            subtitle: const Text('注册后即可使用会员服务。'),
+            trailing: TextButton(
+              onPressed: () async {
+                if (await startCidRegistrationFlow(context) && mounted) {
+                  await _load(forceRefresh: true);
+                }
+              },
+              child: const Text('注册'),
+            ),
+          ),
         if (_loadFailure != null && !_refreshing)
           _LoadFailureBanner(
             key: const ValueKey('membership-load-failure-banner'),
@@ -690,14 +679,18 @@ class _MembershipPageState extends State<MembershipPage>
                     for (final index in drawOrder)
                       _buildStackedCard(
                         index: index,
-                        plan: plans[index],
+                        level: _tierOrder[index],
+                        plan: state.planForLevel(_tierOrder[index]),
                         state: state,
-                        priceFen: data.prices[plans[index].memberLevel],
+                        priceFen: data.prices[_tierOrder[index]],
                         canSubscribe:
                             _sessionStatus == SquareSessionStatus.ready &&
                             data.accountId.isNotEmpty &&
-                            data.subscriptionReady,
-                        unavailableLabel: data.accountId.isEmpty && !_refreshing
+                            data.subscriptionReady &&
+                            state.planForLevel(_tierOrder[index]) != null,
+                        unavailableLabel: _unregistered
+                            ? '注册后可订阅'
+                            : data.accountId.isEmpty && !_refreshing
                             ? _sessionStatus?.message ?? '会员状态同步中'
                             : '会员状态同步中',
                         cardWidth: cardWidth,
@@ -711,7 +704,7 @@ class _MembershipPageState extends State<MembershipPage>
           ),
         ),
         _PageDots(
-          count: plans.length,
+          count: _tierOrder.length,
           activeIndex: frontIndex,
           activeColor: activeColor,
         ),
@@ -730,7 +723,8 @@ class _MembershipPageState extends State<MembershipPage>
 
   Widget _buildStackedCard({
     required int index,
-    required SquareMembershipPlan plan,
+    required String level,
+    required SquareMembershipPlan? plan,
     required SquareMembershipState state,
     required int? priceFen,
     required bool canSubscribe,
@@ -755,14 +749,15 @@ class _MembershipPageState extends State<MembershipPage>
             width: cardWidth,
             height: cardHeight,
             child: _MembershipTierCard(
+              memberLevel: level,
               plan: plan,
               state: state,
               priceFen: priceFen,
               canSubscribe: canSubscribe,
               unavailableLabel: unavailableLabel,
               busy: _busy,
-              onTapAction: () => _handleAction(plan.memberLevel),
-              onViewDetail: () => _openDetail(plan, priceFen, state),
+              onTapAction: () => _handleAction(level),
+              onViewDetail: () => _openDetail(level, plan, priceFen, state),
               elevated: isFront,
             ),
           ),
@@ -823,6 +818,7 @@ class _MembershipViewData {
 /// + 会员权益（完整聊天矩阵 / 公文 / 文章 / 视频）+ 公民币月价 + 订阅按钮。无任何身份字段。
 class _MembershipTierCard extends StatelessWidget {
   const _MembershipTierCard({
+    required this.memberLevel,
     required this.plan,
     required this.state,
     required this.priceFen,
@@ -834,7 +830,8 @@ class _MembershipTierCard extends StatelessWidget {
     this.elevated = true,
   });
 
-  final SquareMembershipPlan plan;
+  final String memberLevel;
+  final SquareMembershipPlan? plan;
   final SquareMembershipState state;
 
   /// 本档链上月价（分）；null=链上未设该档价，价签显示占位「—」。
@@ -858,7 +855,8 @@ class _MembershipTierCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final level = plan.memberLevel;
+    final level = memberLevel;
+    final plan = this.plan;
     final tierColor = _tierColor(level);
     final onTier = _onTierColor(level);
     // 当前所购且有效的档：高亮边框 + 顶带「当前会员」标记。
@@ -909,51 +907,54 @@ class _MembershipTierCard extends StatelessWidget {
                             color: tierColor,
                           ),
                           SizedBox(height: AppLayout.scaled(context, 10)),
-                          // 卡片提炼短行（每条 1 行）；完整权益见「查看详细权益」详情页。
-                          _ParamLine(
-                            icon: Icons.chat_bubble_outline,
-                            color: tierColor,
-                            text: '聊天 文字/表情/贴纸/图片',
-                          ),
-                          SizedBox(height: AppLayout.scaled(context, 8)),
-                          _ParamLine(
-                            icon: Icons.mic_none_outlined,
-                            color: tierColor,
-                            text: '语音/视频消息 ${plan.chatVoiceLabel} · 语音/视频通话',
-                          ),
-                          SizedBox(height: AppLayout.scaled(context, 8)),
-                          _ParamLine(
-                            icon: Icons.attach_file_outlined,
-                            color: tierColor,
-                            text: '聊天附件 每个 ${plan.fileSizeLabel}',
-                          ),
-                          SizedBox(height: AppLayout.scaled(context, 8)),
-                          _ParamLine(
-                            icon: Icons.videocam_outlined,
-                            color: tierColor,
-                            text:
-                                '视频 ${plan.videoDurationLabel} · ${plan.videoQualityLabel} · ${plan.videoBytesLabel}',
-                          ),
-                          SizedBox(height: AppLayout.scaled(context, 8)),
-                          _ParamLine(
-                            icon: Icons.photo_outlined,
-                            color: tierColor,
-                            text:
-                                '公文图片 ${plan.document.maxImages} 张 · ${plan.documentImageLabel}',
-                          ),
-                          SizedBox(height: AppLayout.scaled(context, 8)),
-                          _ParamLine(
-                            icon: Icons.article_outlined,
-                            color: tierColor,
-                            text:
-                                '文章 ${_wanLabel(plan.article.bodyMaxChars)} · ${plan.article.maxImages} 图 · ${plan.article.maxVideos} 视频',
-                          ),
-                          SizedBox(height: AppLayout.scaled(context, 8)),
-                          _ParamLine(
-                            icon: Icons.storage_outlined,
-                            color: tierColor,
-                            text: '广场存储 ${plan.storageSizeLabel}',
-                          ),
+                          if (plan != null) ...[
+                            // 卡片提炼短行（每条 1 行）；完整权益见「查看详细权益」详情页。
+                            _ParamLine(
+                              icon: Icons.chat_bubble_outline,
+                              color: tierColor,
+                              text: '聊天 文字/表情/贴纸/图片',
+                            ),
+                            SizedBox(height: AppLayout.scaled(context, 8)),
+                            _ParamLine(
+                              icon: Icons.mic_none_outlined,
+                              color: tierColor,
+                              text: '语音/视频消息 ${plan.chatVoiceLabel} · 语音/视频通话',
+                            ),
+                            SizedBox(height: AppLayout.scaled(context, 8)),
+                            _ParamLine(
+                              icon: Icons.attach_file_outlined,
+                              color: tierColor,
+                              text: '聊天附件 每个 ${plan.fileSizeLabel}',
+                            ),
+                            SizedBox(height: AppLayout.scaled(context, 8)),
+                            _ParamLine(
+                              icon: Icons.videocam_outlined,
+                              color: tierColor,
+                              text:
+                                  '视频 ${plan.videoDurationLabel} · ${plan.videoQualityLabel} · ${plan.videoBytesLabel}',
+                            ),
+                            SizedBox(height: AppLayout.scaled(context, 8)),
+                            _ParamLine(
+                              icon: Icons.photo_outlined,
+                              color: tierColor,
+                              text:
+                                  '公文图片 ${plan.document.maxImages} 张 · ${plan.documentImageLabel}',
+                            ),
+                            SizedBox(height: AppLayout.scaled(context, 8)),
+                            _ParamLine(
+                              icon: Icons.article_outlined,
+                              color: tierColor,
+                              text:
+                                  '文章 ${_wanLabel(plan.article.bodyMaxChars)} · ${plan.article.maxImages} 图 · ${plan.article.maxVideos} 视频',
+                            ),
+                            SizedBox(height: AppLayout.scaled(context, 8)),
+                            _ParamLine(
+                              icon: Icons.storage_outlined,
+                              color: tierColor,
+                              text: '广场存储 ${plan.storageSizeLabel}',
+                            ),
+                          ] else
+                            const Text('权益待获取'),
                         ],
                       ),
                     ),
@@ -1057,12 +1058,12 @@ class _MembershipTierCard extends StatelessWidget {
                 key: ValueKey('membership-tier-badge-$level'),
                 style: badgeStyle,
                 size: AppLayout.scaledValue(22),
-                tooltip: plan.displayName,
+                tooltip: plan?.displayName ?? membershipTitle(level),
               ),
             ),
             SizedBox(width: AppLayout.scaledValue(8)),
             Text(
-              plan.displayName,
+              plan?.displayName ?? membershipTitle(level),
               style: TextStyle(
                 color: onTier,
                 fontSize: AppLayout.scaledValue(22),
@@ -1530,17 +1531,11 @@ String _formatYmd(int ms) {
   return '${d.year}-$mm-$dd';
 }
 
-// 缺少真实快照只表示未知；没有静态套餐、默认额度或本地授权。
+// 缺少真实快照只表示未知；三档UI不生成套餐额度或本地授权。
 const SquareMembershipState _emptyMembershipState = SquareMembershipState(
   active: false,
   paidUntil: 0,
 );
-List<SquareMembershipPlan> _orderedPlans(List<SquareMembershipPlan> plans) => [
-  for (final level in _tierOrder)
-    for (final plan in plans)
-      if (plan.memberLevel == level) plan,
-];
-
 Color _tierColor(String level) => switch (level) {
   'spark' => AppTheme.identityCandidate,
   'democracy' => AppTheme.identityVoting,

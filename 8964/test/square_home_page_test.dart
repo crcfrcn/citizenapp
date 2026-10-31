@@ -60,7 +60,7 @@ class _NullIdentityCache implements CurrentUserContext {
   Future<String?> accountId() async => null;
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FakeWallet extends TestWalletReads {
@@ -173,7 +173,7 @@ class _StaticComposeIdentityService implements SquareIdentityService {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _DelayedComposeIdentityService implements SquareIdentityService {
@@ -184,7 +184,7 @@ class _DelayedComposeIdentityService implements SquareIdentityService {
   Future<SquareIdentityState> loadCurrent() => completer.future;
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// 每次身份revision生成独立请求，验证旧账户迟到不会覆盖最新展示。
@@ -199,7 +199,7 @@ class _QueuedHomeIdentityService implements SquareIdentityService {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// 保留主页自行创建身份服务的生产接线，只控制公开当前用户解析的完成顺序。
@@ -280,7 +280,7 @@ class _ThrowingSessionProvider implements SquareSessionProvider {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _DeviceMissingSessionProvider implements SquareSessionProvider {
@@ -312,7 +312,7 @@ class _DeviceMissingSessionProvider implements SquareSessionProvider {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// 保持生产路径类型判断成立，但不访问真实 Worker。
@@ -360,7 +360,7 @@ class _UnregisteredIdentityCache implements CurrentUserContext {
   );
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// Worker 真源判定:登录挑战对未绑定账户回 403 cid_not_bound。
@@ -373,7 +373,7 @@ class _CidNotBoundSessionProvider implements SquareSessionProvider {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// 记录最近一次请求的分类，用于断言分类切换真的按 feedKind 重新拉流。
@@ -494,7 +494,7 @@ class _GateMlsSessions implements SquareSessionProvider {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 void main() {

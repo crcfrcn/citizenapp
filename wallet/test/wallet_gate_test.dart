@@ -122,11 +122,12 @@ void main() {
     readOperation = () {
       reads++;
       return testCitizenOperation(() {
-        if (fail)
+        if (fail) {
           throw const CitizenSdkException(
             code: CitizenSdkErrorCode.integrity,
             message: 'integrity: public database schema differs',
           );
+        }
         return testCitizenWalletState();
       });
     };

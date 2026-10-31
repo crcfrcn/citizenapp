@@ -16,15 +16,13 @@ import 'package:citizen_account/identity/current_user_context.dart';
 import 'package:citizen_testing/isar_test_env.dart';
 
 class _UnusedSecurity implements AccountSecurityService {
-
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _UnusedCurrentUserContext implements CurrentUserContext {
-
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _ChatAccessProvider extends SquareSessionProvider {

@@ -106,13 +106,14 @@ class _ImportWalletPageState extends State<ImportWalletPage> {
   @override
   void dispose() {
     final operation = _operation;
-    if (operation != null)
+    if (operation != null) {
       unawaited(
         operation.cancel().then<void>(
           (_) {},
           onError: (Object _, StackTrace _) {},
         ),
       );
+    }
     unawaited(ScreenshotGuard.disable());
     _mnemonicController.clear();
     _passwordController.clear();

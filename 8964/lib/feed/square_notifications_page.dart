@@ -155,7 +155,7 @@ class SquareNotificationsPageState extends State<SquareNotificationsPage>
       if (session == null ||
           session.cidNumber != owner.cidNumber ||
           session.bindRev != owner.bindRev) {
-        throw StateError('通知身份已变化');
+        throw StateError('互动身份已变化');
       }
       final page = await widget.api.fetchNotifications(
         session: session,
@@ -168,7 +168,7 @@ class SquareNotificationsPageState extends State<SquareNotificationsPage>
       final state = (page['state'] as Map).cast<String, dynamic>();
       if (!Notifications.valid(state, owner.cidNumber) ||
           state['bind_rev'] != owner.bindRev) {
-        throw const FormatException('通知列表状态无效');
+        throw const FormatException('互动列表状态无效');
       }
       final revision = state['notice_rev'] as int;
       await Notifications.instance.accept(state);
@@ -210,7 +210,7 @@ class SquareNotificationsPageState extends State<SquareNotificationsPage>
       if (mounted &&
           request == _request &&
           (owner == null || Notifications.instance.isCurrent(owner))) {
-        setState(() => _error = '通知读取失败，请下拉重试');
+        setState(() => _error = '互动读取失败，请下拉重试');
       }
     } finally {
       if (mounted && request == _request) {
@@ -240,7 +240,7 @@ class SquareNotificationsPageState extends State<SquareNotificationsPage>
         if (_loading) const LinearProgressIndicator(),
         if (_error != null) ListTile(title: Text(_error!), onTap: refresh),
         if ((_owner == null || _rows.isEmpty) && !_loading && _error == null)
-          const ListTile(title: Text('暂无评论通知')),
+          const ListTile(title: Text('暂无评论互动')),
         for (final row in _owner == null ? <Map<String, dynamic>>[] : _rows)
           Card(
             child: ListTile(
@@ -251,7 +251,7 @@ class SquareNotificationsPageState extends State<SquareNotificationsPage>
                 maxLines: 3,
                 overflow: TextOverflow.ellipsis,
               ),
-              subtitle: Text('收到 ${row['notice_count']} 条评论通知'),
+              subtitle: Text('收到 ${row['notice_count']} 条评论互动'),
               trailing: Badge(
                 isLabelVisible: (row['comment_unread'] as int) > 0,
                 label: Text(
@@ -268,7 +268,7 @@ class SquareNotificationsPageState extends State<SquareNotificationsPage>
         if (_next != null)
           TextButton(
             onPressed: _loading ? null : () => _load(),
-            child: const Text('更多通知'),
+            child: const Text('更多互动'),
           ),
       ],
     ),

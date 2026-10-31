@@ -26,7 +26,7 @@ class _FakeSubscribeService implements CreatorSubscribeService {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 final _plan = CreatorPlan.fromJson({

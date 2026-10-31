@@ -11,7 +11,7 @@ enum SquareFeedKind {
   // 内容型分类：服务端仍取推荐流（workerValue=recommended），前端按明确发布类型过滤。
   article('文章', 'recommended'),
   videos('视频', 'recommended'),
-  notifications('通知', 'notifications');
+  notifications('互动', 'notifications');
 
   const SquareFeedKind(this.label, this.workerValue);
 
@@ -108,8 +108,9 @@ class SquareAuthor {
 
   String get title {
     // 默认昵称稳定种子按身份主键 cid_number（与资料页/头像一致）；cid 缺失回落账户。
-    return ProfilePresentation.forIdentityKey(cidNumber ?? accountId)
-        .resolveDisplayName(publicName: displayName);
+    return ProfilePresentation.forIdentityKey(
+      cidNumber ?? accountId,
+    ).resolveDisplayName(publicName: displayName);
   }
 }
 

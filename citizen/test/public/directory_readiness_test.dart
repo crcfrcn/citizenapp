@@ -164,13 +164,13 @@ void main() {
         MaterialApp(home: Scaffold(body: page(directory))),
       );
       await tester.pump();
-      expect(find.text('正在读取${label}机构'), findsOneWidget);
+      expect(find.text('正在读取$label机构'), findsOneWidget);
       expect(find.text(governance ? '合成省储委会' : '合成省立法院'), findsNothing);
       bundle.release();
       await proposalSync;
       await tester.pumpAndSettle();
       expect(find.text(governance ? '合成省储委会' : '合成省立法院'), findsOneWidget);
-      expect(find.text('正在读取${label}机构'), findsNothing);
+      expect(find.text('正在读取$label机构'), findsNothing);
       expect(bundle.manifestReads, 1);
     });
 
@@ -182,7 +182,7 @@ void main() {
       await tester.pump();
       bundle.manifest.completeError(StateError('synthetic import failure'));
       await tester.pumpAndSettle();
-      expect(find.text('${label}机构读取失败，请重试'), findsOneWidget);
+      expect(find.text('$label机构读取失败，请重试'), findsOneWidget);
       bundle.manifest = Completer<String>();
       await tester.tap(find.text('重试'));
       await tester.pump();

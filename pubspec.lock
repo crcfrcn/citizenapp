@@ -142,7 +142,7 @@ packages:
     description:
       path: "."
       ref: main
-      resolved-ref: 7225693efd91362825c6af54b91e6f3d65749647
+      resolved-ref: "00fd54e4cb31d840c7c5623f393cc41160fa1afb"
       url: "https://github.com/crcfrcn/citizensdk.git"
     source: git
     version: "2.0.0"

@@ -32,6 +32,8 @@ import 'package:citizen_citizen/reserved_account_names.dart';
 
 import 'package:citizen_testing/institution/public_nav_harness.dart';
 
+late TestCitizenSdkHarness _core;
+
 const _cid = 'LN001-CREG0-944805165-2026';
 const _adminAccountId =
     '0xabababababababababababababababababababababababababababababababab';
@@ -226,15 +228,15 @@ Future<void> _openDetails(
       chainState: chain,
       contextResolver: roles,
       activationService: activation,
+      walletStateReader: () async => testCitizenWalletState(),
       subscriberCidNumberProvider: () async => null,
     ),
   );
   if (roles != null || activation != null) {
-    final core = await openTestSdk();
-    final sdk = core.sdk;
+    // 同一用例重新进入时继续使用该用例的真实Core会话。
+    final sdk = _core.sdk;
     addTearDown(() async {
       await tester.pumpWidget(const SizedBox.shrink());
-      await sdk.close();
     });
     app = Provider<CitizenSdk>.value(value: sdk, child: app);
   }
@@ -262,6 +264,7 @@ void _expectOriginalAdminCard() {
 }
 
 void main() {
+  _core = TestCitizenSdkHarness();
   testWidgets('名册加载中不显示0人，余额未完成也不阻塞人员', (tester) async {
     final people = Completer<List<InstitutionAdminView>>();
     final balance = Completer<Map<String, double>>();

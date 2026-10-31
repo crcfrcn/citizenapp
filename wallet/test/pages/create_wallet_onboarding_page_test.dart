@@ -31,10 +31,12 @@ void _background(WidgetTester t) {
 }
 
 void _foreground(WidgetTester t) {
-  if (t.binding.lifecycleState == AppLifecycleState.paused)
+  if (t.binding.lifecycleState == AppLifecycleState.paused) {
     t.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
-  if (t.binding.lifecycleState == AppLifecycleState.hidden)
+  }
+  if (t.binding.lifecycleState == AppLifecycleState.hidden) {
     t.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+  }
   t.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
 }
 

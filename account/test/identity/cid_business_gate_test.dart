@@ -59,7 +59,7 @@ class _Current implements CurrentUserContext {
   void invalidate() => invalidations++;
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _Resolver implements FinalizedIdentityResolver {
@@ -78,7 +78,7 @@ class _Resolver implements FinalizedIdentityResolver {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FixedGate implements CidBusinessGate {

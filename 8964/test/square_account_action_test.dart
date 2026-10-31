@@ -110,7 +110,7 @@ Future<void> login(SquareApiClient api) => api
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  final core = TestCitizenSdkHarness();
+  TestCitizenSdkHarness();
   setUp(() async {
     SquareApiClient.activateFinalizedBinding(
       cidNumber: _cidNumber,

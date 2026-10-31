@@ -97,6 +97,11 @@ void main() {
             initialAmountYuan: '1',
             nodeRpc: rpc,
             directory: directory,
+            bestHeadReader: () async => CitizenBlockRef(
+              hash: '0x${'ab' * 32}',
+              number: BigInt.from(50),
+              finality: CitizenBlockFinality.best,
+            ),
             payloadSigner: (id, payload, action, context) async {
               if (signFails) throw StateError('合成签名取消');
               return Uint8List(64);

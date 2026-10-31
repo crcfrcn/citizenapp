@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -53,7 +55,7 @@ void main() {
                 width: 411,
                 child: WalletIdentityCard(
                   wallet: wallet,
-                  walletName: '我的钱包',
+                  name: '我的钱包',
                   onNameChanged: onNameChanged,
                 ),
               ),
@@ -233,5 +235,26 @@ void main() {
     expect(callCount, 0);
     // 回滚后应该回到展示态显示原钱包名。
     expect(find.text('我的钱包'), findsOneWidget);
+  });
+  testWidgets('保存中只提交一次，失败回滚名称', (tester) async {
+    var calls = 0;
+    final pending = Completer<void>();
+    await pumpCard(tester, (_) {
+      calls++;
+      return pending.future;
+    });
+    await tester.tap(find.text('我的钱包'));
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), '新名称');
+    final field = tester.widget<TextField>(find.byType(TextField));
+    field.onSubmitted!('新名称');
+    field.onSubmitted!('新名称');
+    await tester.pump();
+    expect(calls, 1);
+    pending.completeError(StateError('synthetic-save-failure'));
+    await tester.pumpAndSettle();
+    expect(find.text('我的钱包'), findsOneWidget);
+    expect(find.text('新名称'), findsNothing);
+    expect(find.byType(TextField), findsNothing);
   });
 }

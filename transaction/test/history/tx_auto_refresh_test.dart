@@ -133,7 +133,7 @@ void main() {
           isA<StateError>().having(
             (error) => error.toString(),
             'message',
-            contains('取消 Wallet 外部消费者失败'),
+            contains('取消 用户库外部消费者失败'),
           ),
         ),
       );

@@ -4,7 +4,6 @@ import 'package:citizen_wallet/account_balance_snapshot_store.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart' show BuildContext;
@@ -112,6 +111,21 @@ class MyIdState {
   };
 }
 
+/// 完整公开同步的成功结果，仅用于当前页面收敛，不授予业务操作权限。
+class MyIdSync {
+  MyIdSync({
+    required this.accountId,
+    required this.walletRevision,
+    required this.identityRevision,
+    required this.state,
+  });
+
+  final String accountId;
+  final BigInt walletRevision;
+  final int identityRevision;
+  final MyIdState state;
+}
+
 class MyIdService {
   MyIdService({
     CitizenSdk? wallet,
@@ -198,9 +212,9 @@ class MyIdService {
            (() => throw StateError('未配置getFinalizedHead')),
        _getAccountBalance =
            getAccountBalance ??
-           ((id) =>
-               AccountBalanceSnapshotStore.forChain(chain!)
-                   .getAccountBalance(id, forceRefresh: true)),
+           ((id) => AccountBalanceSnapshotStore.forChain(
+             chain!,
+           ).getAccountBalance(id, forceRefresh: true)),
        _nowProvider = nowProvider ?? _beijingNow,
        _cidYearProvider = cidYearProvider ?? _utcYear,
        _history = history {
@@ -300,6 +314,19 @@ class MyIdService {
     );
   }
 
+  final _sync = ValueNotifier<MyIdSync?>(null);
+
+  /// 与启动共用实例；只发布完整同步成功，不把持久快照写入当成成功。
+  ValueListenable<MyIdSync?> get sync => _sync;
+
+  Future<bool> isCurrentSync(MyIdSync result) async {
+    final wallet = await _getWalletState().result;
+    return identical(_sync.value, result) &&
+        wallet.defaultAccount?.accountId == result.accountId &&
+        wallet.revision == result.walletRevision &&
+        _accountSecurity.revision.value == result.identityRevision;
+  }
+
   final _identityReads = <(String, BigInt, int), Future<MyIdState>>{};
 
   /// 启动、账户变更和身份页共用一次公开同步；不登记设备或请求钱包签名。
@@ -353,7 +380,28 @@ class MyIdService {
 
   Future<MyIdState> _applyIdentityState(FinalizedIdentity identity) async {
     await _applyVerifiedIdentity(identity);
-    return _stateForSnapshot(identity.accountId, identity.snapshot);
+    final state = await _stateForSnapshot(
+      identity.accountId,
+      identity.snapshot,
+    );
+    final wallet = await _getWalletState().result;
+    if (wallet.defaultAccount?.accountId != identity.accountId ||
+        (identity.walletRevision != null &&
+            wallet.revision != identity.walletRevision)) {
+      throw const AccountSecurityException(
+        '当前用户已变化，请重试',
+        code: 'identityChanged',
+      );
+    }
+    if (state.status != MyIdStatus.queryFailed) {
+      _sync.value = MyIdSync(
+        accountId: identity.accountId,
+        walletRevision: wallet.revision,
+        identityRevision: _accountSecurity.revision.value,
+        state: state,
+      );
+    }
+    return state;
   }
 
   /// 门禁和业务动作也加入同一完整同步，不能和启动刷新重复保存或广播。

@@ -114,8 +114,9 @@ class _CreateWalletOnboardingPageState extends State<CreateWalletOnboardingPage>
         setState(() => _error = '$e');
         return;
       }
-      if (!await confirmWalletPasswordUse(context, password) || !mounted)
+      if (!await confirmWalletPasswordUse(context, password) || !mounted) {
         return;
+      }
       // 确认后立即清空可见输入；原始输入只交SDK校验和规范化，不把 password
       // 留在页面 controller、钱包数据库或安全存储。
       _passwordController.clear();

@@ -74,7 +74,7 @@ class _FakeSessionProvider implements SquareSessionProvider {
       SquareSessionResolution(SquareSessionStatus.ready, session: _session());
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _PreparingSessions extends _FakeSessionProvider {
@@ -120,7 +120,7 @@ class _CidNotBoundSessionProvider implements SquareSessionProvider {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// 会话建立即失败(如MLS身份不可用/网络故障):页面须给可见解释,不得留残缺骨架。
@@ -141,7 +141,7 @@ class _ThrowingSessionProvider implements SquareSessionProvider {
       const SquareSessionResolution(SquareSessionStatus.deviceUnavailable);
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _PendingSessionProvider implements SquareSessionProvider {
@@ -161,7 +161,7 @@ class _PendingSessionProvider implements SquareSessionProvider {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// 平台档价格链上单源（`PlatformPrice[level]`，分）；测试直接注入 mock 价表。
@@ -274,7 +274,7 @@ class _RecordingSubscriptionService implements SubscriptionService {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// 会员与身份彻底解耦（ADR-037）：会员卡只描述订阅，不含任何身份字段。
@@ -314,9 +314,9 @@ SquareMembershipState _priced(
   usageState: state.usageState,
 );
 // 会员合同的公开测试夹具，供既有广场测试复用；不进入产品运行代码。
-SquareMembershipPlan _plan(String level, int? price) =>
-    membergatePlansFixture(price == null ? const {} : {level: price})
-        .firstWhere((p) => p.memberLevel == level);
+SquareMembershipPlan _plan(String level, int? price) => membergatePlansFixture(
+  price == null ? const {} : {level: price},
+).firstWhere((p) => p.memberLevel == level);
 final _membershipJson = jsonEncode({
   'is_ok': true,
   'membergate_active': true,
@@ -420,7 +420,8 @@ class _CachedCurrentUser implements CurrentUserContext {
     binding: unregistered
         ? null
         : const IdentityBinding(
-            genesisHash: '0x1111111111111111111111111111111111111111111111111111111111111111',
+            genesisHash:
+                '0x1111111111111111111111111111111111111111111111111111111111111111',
             cidNumber: 'CN220-CTZN2-198805200-2026',
             accountId: _identityAccountId,
             bindRev: 1,
@@ -428,7 +429,7 @@ class _CachedCurrentUser implements CurrentUserContext {
   );
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _UnavailableCurrentUser implements CurrentUserContext {
@@ -436,7 +437,7 @@ class _UnavailableCurrentUser implements CurrentUserContext {
   Future<CurrentUser?> resolve() async => throw StateError('测试当前账户不可用');
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _RegisteredFinalizedIdentity implements FinalizedIdentityResolver {
@@ -454,7 +455,7 @@ class _RegisteredFinalizedIdentity implements FinalizedIdentityResolver {
   );
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FakeWallet extends TestWalletReads {
@@ -1313,8 +1314,9 @@ void main() {
     final service = _subscriptionService(api: api, sessionProvider: provider);
     await changed.future.timeout(const Duration(seconds: 5));
     expect(
-      (await service.authorizeMembership((await provider.ensureSession())!))
-          .active,
+      (await service.authorizeMembership(
+        (await provider.ensureSession())!,
+      )).active,
       isTrue,
     );
     expect(sent, ['POST']);
@@ -1386,7 +1388,7 @@ void main() {
       currentUserContext: _CachedCurrentUser(unregistered: true),
     );
     expect(find.text('尚未注册'), findsOneWidget);
-    expect(find.byKey(const ValueKey('membership-front-card')), findsNothing);
+    expect(find.byKey(const ValueKey('membership-front-card')), findsOneWidget);
     expect(find.textContaining('恢复服务'), findsNothing);
   });
 
@@ -1512,7 +1514,66 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('没有缓存且会话未完成时显示待获取，不制造会员额度', (tester) async {
+  for (final status in [
+    SquareSessionStatus.networkUnavailable,
+    SquareSessionStatus.serviceUnavailable,
+    SquareSessionStatus.noWallet,
+  ]) {
+    testWidgets('无缓存$status三卡常显且未知权益详情不允许订阅', (tester) async {
+      final actions = _RecordingSubscriptionService();
+      await _pump(
+        tester,
+        const SquareMembershipState(active: false, paidUntil: 0),
+        service: actions,
+        sessionProvider: _CidNotBoundSessionProvider(status: status),
+      );
+      for (final level in ['freedom', 'democracy', 'spark']) {
+        expect(
+          find.byKey(ValueKey('membership-tier-card-$level')),
+          findsOneWidget,
+        );
+      }
+      expect(find.text('权益待获取'), findsWidgets);
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const ValueKey('membership-front-card')),
+          matching: find.text('查看详细权益'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('会员详情'), findsOneWidget);
+      expect(find.text('权益待获取'), findsOneWidget);
+      expect(actions.subscribed, isEmpty);
+      expect(actions.authorizationCount, 0);
+    });
+  }
+
+  testWidgets('部分展示快照保留三卡，缺档不复制已知额度', (tester) async {
+    final partial = SquareMembershipState(
+      active: false,
+      paidUntil: 0,
+      plans: membergatePlansFixture().take(1).toList(),
+    );
+    final service = _RecordingSubscriptionService()
+      ..cachedSnapshot = MembershipDisplaySnapshot(
+        state: partial,
+        prices: const {},
+        memberAt: 0,
+        priceAt: 0,
+      );
+    // 模拟展示快照不完整；真正服务解码仍拒绝缺档，不能生成授权。
+    await _pump(tester, partial, service: service);
+    for (final level in ['freedom', 'democracy', 'spark']) {
+      expect(
+        find.byKey(ValueKey('membership-tier-card-$level')),
+        findsOneWidget,
+      );
+    }
+    expect(find.text('权益待获取'), findsNWidgets(2));
+    expect(find.textContaining('聊天附件 每个'), findsOneWidget);
+  });
+
+  testWidgets('没有缓存且会话未完成时三卡常显，不制造会员额度', (tester) async {
     final pendingSession = Completer<SquareSession?>();
     await tester.pumpWidget(
       MaterialApp(
@@ -1526,12 +1587,23 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('自由会员'), findsNothing);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    for (final level in ['freedom', 'democracy', 'spark']) {
+      expect(
+        find.byKey(ValueKey('membership-tier-card-$level')),
+        findsOneWidget,
+      );
+    }
+    expect(find.text('权益待获取'), findsWidgets);
     pendingSession.complete(null);
     await tester.pumpAndSettle();
-    expect(find.text('请先添加钱包账户'), findsOneWidget);
-    expect(find.text('会员额度尚未获取，请刷新'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('membership-load-failure-banner')),
+        matching: find.text('请先添加钱包账户'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('权益待获取'), findsWidgets);
   });
 
   testWidgets('已有本地会员时会话未绑定仍显示会员和同步说明，不授权订阅', (tester) async {
@@ -1921,15 +1993,21 @@ void main() {
       sessionProvider: _ThrowingSessionProvider(),
     );
 
-    // 没有真实套餐时只显示读取错误和重试入口。
+    // 没有真实套餐仍展示三档，但不生成额度。
     expect(
       find.byKey(const ValueKey('membership-load-failure-banner')),
       findsOneWidget,
     );
-    expect(find.text('MLS设备认证暂时不可用，请稍后重试'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('membership-load-failure-banner')),
+        matching: find.text('MLS设备认证暂时不可用，请稍后重试'),
+      ),
+      findsOneWidget,
+    );
     expect(find.text('请先添加钱包账户'), findsNothing);
     expect(find.text('重试'), findsOneWidget);
-    expect(find.byKey(const ValueKey('membership-front-card')), findsNothing);
+    expect(find.byKey(const ValueKey('membership-front-card')), findsOneWidget);
   });
 
   testWidgets('已取消订阅 → 横幅标签「到期终止」且不再续费', (tester) async {
@@ -2069,8 +2147,8 @@ void main() {
     );
     expect(find.textContaining('会员数据加载失败'), findsNothing);
     expect(find.text('重试'), findsNothing);
-    // 未注册只显示与广场、聊天共用的注册页面，不保留卡片内第二注册入口。
-    expect(find.byKey(const ValueKey('membership-front-card')), findsNothing);
+    // 未注册引导与三档共存，动作仍不可订阅。
+    expect(find.byKey(const ValueKey('membership-front-card')), findsOneWidget);
     expect(find.text('尚未注册'), findsOneWidget);
     expect(find.text('注册'), findsOneWidget);
     expect(find.text('会员状态同步中'), findsNothing);

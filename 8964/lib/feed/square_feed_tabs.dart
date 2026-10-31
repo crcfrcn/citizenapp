@@ -30,7 +30,7 @@ class SquareFeedTabs extends StatelessWidget {
   static IconData iconFor(SquareFeedKind kind) => switch (kind) {
     SquareFeedKind.recommended => Icons.explore_outlined,
     SquareFeedKind.circle => Icons.diversity_3_outlined,
-    SquareFeedKind.notifications => Icons.notifications_outlined,
+    SquareFeedKind.notifications => Icons.forum_outlined,
     SquareFeedKind.following => Icons.people_alt_outlined,
     SquareFeedKind.campaign => Icons.campaign_outlined,
     SquareFeedKind.article => Icons.article_outlined,

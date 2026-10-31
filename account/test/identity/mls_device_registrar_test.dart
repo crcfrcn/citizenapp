@@ -100,7 +100,7 @@ class _SessionWalletManager implements AccountSecurityService {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _SessionIdentityCache implements CurrentUserContext {
@@ -125,7 +125,7 @@ class _SessionIdentityCache implements CurrentUserContext {
   void invalidate() {}
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FactGate implements CidBusinessGate {

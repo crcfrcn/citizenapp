@@ -123,7 +123,7 @@ export async function build(platform, phase = 'app', options={}) {
 // 为保留现有自动化功能暂留必要接口；配置文件仅同名导出，不扩展职责。
 
 
-// 每轮按版本从高到低选择来源准确且成功的正式包，不用latest标记或手填Run。
+// 聊天SDK沿用其正式Release交付。
 export async function selectSDKRelease(product, read) {
     const releases = [];
     for (let page = 1; ; page++) {
@@ -154,6 +154,20 @@ export async function selectSDKRelease(product, read) {
             && run.head_sha === proof.git_commit_sha) return selected;
     }
     throw Error(product + '没有可用的成功正式SDK版本');
+}
+
+// 公民SDK唯一工作流只保留最新成功Run；完整Artifact直接交给SDK自己的consume。
+export async function selectSDKArtifact(read) {
+    const {workflow_runs: runs} = await read('actions/workflows/sdk.yml/runs?branch=main&status=success&per_page=100');
+    const run = runs.find(row => row.status === 'completed' && row.conclusion === 'success'
+        && row.head_branch === 'main' && /^[a-f0-9]{40}$/u.test(row.head_sha)
+        && [row.id, row.run_attempt].every(value => Number.isSafeInteger(value) && value > 0));
+    if (!run) throw Error('citizensdk没有可用的成功自动化');
+    const {artifacts} = await read('actions/runs/' + run.id + '/artifacts?per_page=100');
+    const artifact = artifacts.find(row => !row.expired
+        && /^公民SDK·SDK·v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u.test(row.name));
+    if (!artifact) throw Error('citizensdk成功自动化缺少完整Artifact');
+    return {run, artifact};
 }
 
 // 编译与测试都从产品唯一workspace声明取得包路径，不另建包清单。
@@ -247,8 +261,9 @@ for (const name of ['citizen_sdk', 'tatachat_sdk']) {
     const local = resolve(root, '..', product);
     const read = path => JSON.parse(execute('gh', ['api', 'repos/' + repository + '/' + path],
         {encoding: 'utf8', env: environment}));
-    const selected = environment.GITHUB_ACTIONS === 'true' ? await selectSDKRelease(product, read) : null;
-    const ref = selected ? selected.proof.git_commit_sha :
+    const selected = environment.GITHUB_ACTIONS === 'true' ?
+        await (name === 'citizen_sdk' ? selectSDKArtifact(read) : selectSDKRelease(product, read)) : null;
+    const ref = selected ? (name === 'citizen_sdk' ? selected.run.head_sha : selected.proof.git_commit_sha) :
         execute('git', ['-C', local, 'rev-parse', 'refs/heads/main'], {encoding: 'utf8'}).trim();
     const source = join(work, 'sources', name), output = join(work, 'packages', name);
     mkdirSync(source, {recursive: true});
@@ -257,20 +272,22 @@ for (const name of ['citizen_sdk', 'tatachat_sdk']) {
     execute('git', ['-C', source, 'checkout', '--detach', 'FETCH_HEAD']);
     mkdirSync(dirname(output), {recursive: true});
     const sdk = await import(pathToFileURL(join(source, 'scripts/build.mjs')));
-    console.log(product + '：' + (selected ? selected.release.tag_name : 'main') + ' ' + ref);
+    console.log(product + '：' + (selected ? (name === 'citizen_sdk' ? selected.artifact.name : selected.release.tag_name) : 'main') + ' ' + ref);
     if (selected) {
         const directory = join(work, 'downloads', product);
         mkdirSync(directory, {recursive: true});
-        for (const extension of ['zip', 'json', 'sha256']) {
-            const label = selected.release.tag_name + '.' + extension;
-            const asset = selected.release.assets.find(asset => asset.label === label && asset.state === 'uploaded');
-            await run('gh', ['release', 'download', selected.release.tag_name, '--repo', repository,
-                '--pattern', asset.name, '--output', join(directory, label)], root, false, environment);
-        }
         if (name === 'citizen_sdk') {
-            await sdk.consume({directory, sourceSha: ref, sourceRun: selected.proof.producer_run_id,
-                sourceAttempt: selected.proof.producer_run_attempt, output, signal: controller.signal});
+            await run('gh', ['run', 'download', String(selected.run.id), '--repo', repository,
+                '--name', selected.artifact.name, '--dir', directory], root, false, environment);
+            await sdk.consume({directory, sourceSha: ref, sourceRun: selected.run.id,
+                sourceAttempt: selected.run.run_attempt, output, signal: controller.signal});
         } else {
+            for (const extension of ['zip', 'json', 'sha256']) {
+                const label = selected.release.tag_name + '.' + extension;
+                const asset = selected.release.assets.find(asset => asset.label === label && asset.state === 'uploaded');
+                await run('gh', ['release', 'download', selected.release.tag_name, '--repo', repository,
+                    '--pattern', asset.name, '--output', join(directory, label)], root, false, environment);
+            }
             const expanded = join(directory, 'expanded');
             await run('unzip', ['-q', join(directory, selected.release.tag_name + '.zip'), '-d', expanded], root, false, environment);
             sdk.createFlutterSourceView(join(expanded, 'project'), output);

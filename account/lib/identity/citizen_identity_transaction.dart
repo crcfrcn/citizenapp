@@ -354,11 +354,12 @@ class CitizenIdentityTransaction {
       started = await _executePreparedTransaction(prepared.preparationId);
     } on CitizenSdkException catch (error) {
       if (error.code == CitizenSdkErrorCode.authenticationCancelled &&
-          error.stage == CitizenSdkFailureStage.authentication)
+          error.stage == CitizenSdkFailureStage.authentication) {
         await _checkpoint?.call({
           ...record,
           'state': 'cancelled_before_broadcast',
         });
+      }
       rethrow;
     }
     Map<String, dynamic> executionRecord(CitizenTransactionExecution value) =>

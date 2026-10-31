@@ -30,8 +30,9 @@ String walletLocalStoreErrorMessage(Object? error) {
 }
 
 String walletOperationErrorMessage(Object error) {
-  if (isWalletLocalStoreError(error))
+  if (isWalletLocalStoreError(error)) {
     return walletLocalStoreErrorMessage(error);
+  }
   if (error is CitizenSdkException) return error.message;
   return '$error';
 }

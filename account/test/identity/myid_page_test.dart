@@ -568,6 +568,68 @@ void main() {
     expect(find.text('身份验证失败，请重试'), findsOneWidget);
   });
 
+  testWidgets('失败后旧缓存广播不消错，后台完整同步成功自动消错', (tester) async {
+    final service = _FakeMyIdService(_votingState)..refreshFails = true;
+    await tester.pumpWidget(MaterialApp(home: MyIdPage(myIdService: service)));
+    await tester.pumpAndSettle();
+    expect(find.text('身份验证失败，请重试'), findsOneWidget);
+    IdentityBadgeSnapshotStore.revision.value++;
+    await tester.pumpAndSettle();
+    expect(find.text('身份验证失败，请重试'), findsOneWidget);
+    service.publish(_votingState);
+    await tester.pumpAndSettle();
+    expect(find.text('身份验证失败，请重试'), findsNothing);
+    expect(service.refreshes, 1);
+    expect(find.text(_votingState.cidNumber!), findsOneWidget);
+  });
+
+  testWidgets('刷新期间后台成功不被旧失败覆盖，失效结果不交付', (tester) async {
+    final service = _FakeMyIdService(_votingState);
+    final pending = Completer<MyIdState>();
+    service.pending = pending.future;
+    await tester.pumpWidget(MaterialApp(home: MyIdPage(myIdService: service)));
+    await tester.pump();
+    service.publish(_candidateState);
+    pending.complete(
+      const MyIdState(tier: MyIdTier.visitor, status: MyIdStatus.queryFailed),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('身份验证失败，请重试'), findsNothing);
+    service.refreshFails = true;
+    await tester
+        .widget<RefreshIndicator>(find.byType(RefreshIndicator))
+        .onRefresh();
+    await tester.pumpAndSettle();
+    service.syncCurrent = false;
+    service.publish(_votingState);
+    await tester.pumpAndSettle();
+    expect(find.text('身份验证失败，请重试'), findsOneWidget);
+  });
+
+  testWidgets('空闲时切账户不带入旧账户错误，仍不触发额外链查询', (tester) async {
+    final service = _FakeMyIdService(_votingState)..refreshFails = true;
+    final current = _PageCurrentUser();
+    await tester.pumpWidget(
+      Provider<CurrentUserContext>.value(
+        value: current,
+        child: MaterialApp(home: MyIdPage(myIdService: service)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('身份验证失败，请重试'), findsOneWidget);
+    current.selectedAccountId = '0x${'22' * 32}';
+    service.state = const MyIdState(
+      tier: MyIdTier.visitor,
+      cidNumber: 'CID-NEW',
+    );
+    IdentityBadgeSnapshotStore.revision.value++;
+    await tester.pumpAndSettle();
+    expect(find.text('身份验证失败，请重试'), findsNothing);
+    expect(find.text('CID-NEW'), findsOneWidget);
+    expect(find.text(_votingState.cidNumber!), findsNothing);
+    expect(service.refreshes, 1);
+  });
+
   testWidgets('身份页支持下拉刷新', (tester) async {
     await pumpPage(tester, const MyIdState(tier: MyIdTier.visitor));
     expect(find.byType(RefreshIndicator), findsOneWidget);
@@ -584,12 +646,13 @@ class _UnregisteredIdentity implements FinalizedIdentityResolver {
   );
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// 驱动注册前余额闸三分支的假 service：可配门槛、余额与链读失败。
-class _RegisterFlowService implements MyIdService {
-  _RegisterFlowService({this.balanceFen = 0, this.affordabilityThrows = false});
+class _RegisterFlowService extends _FakeMyIdService {
+  _RegisterFlowService({this.balanceFen = 0, this.affordabilityThrows = false})
+    : super(const MyIdState(tier: MyIdTier.visitor));
 
   /// 门槛固定 121 分(链上最低费 10 + ED 111);本用例只驱动余额侧三分支。
   static const int requiredFen = 121;
@@ -688,13 +751,28 @@ class _RegisterFlowService implements MyIdService {
   @override
   Future<bool> canRetryRegistration(Map<String, dynamic>? checkpoint) async =>
       false;
-
-  @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
 }
 
 class _FakeMyIdService implements MyIdService {
   _FakeMyIdService(this.state);
+
+  @override
+  final ValueNotifier<MyIdSync?> sync = ValueNotifier<MyIdSync?>(null);
+
+  bool syncCurrent = true;
+  @override
+  Future<bool> isCurrentSync(MyIdSync result) async =>
+      syncCurrent && identical(sync.value, result);
+
+  void publish(MyIdState next) {
+    state = next;
+    sync.value = MyIdSync(
+      accountId: '0x${'11' * 32}',
+      walletRevision: BigInt.one,
+      identityRevision: 1,
+      state: next,
+    );
+  }
 
   MyIdState state;
 
@@ -718,7 +796,7 @@ class _FakeMyIdService implements MyIdService {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// 页面只核对本机账户，快照广播不能吞掉同账户失败，也不能触发链解析。
@@ -740,5 +818,5 @@ class _PageCurrentUser implements CurrentUserContext {
   );
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

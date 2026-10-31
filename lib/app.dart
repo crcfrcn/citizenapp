@@ -9,6 +9,7 @@ class CitizenApp extends StatefulWidget {
     this.startChain,
     this.stopSdk,
     this.closeSdk,
+    this.sdkLifecycle,
     required this.sdk,
     required this.accountSecurity,
     required this.currentUserContext,
@@ -28,6 +29,7 @@ class CitizenApp extends StatefulWidget {
   /// 根关闭的动作边界；缺省仍遵守同一SDK停止/检查点及关闭顺序。
   final Future<void> Function()? stopSdk;
   final Future<void> Function()? closeSdk;
+  final CitizenSdkLifecycle Function()? sdkLifecycle;
   final RegistrationCoordinator? registrationCoordinator;
   final CitizenSdk sdk;
   final AccountSecurityService accountSecurity;
@@ -126,6 +128,7 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
       widget.transactionHistory,
       stop: widget.stopSdk,
       close: widget.closeSdk,
+      lifecycle: widget.sdkLifecycle,
     );
   }
 
@@ -240,6 +243,7 @@ Future<void> _closeCitizenSdk(
   WalletTransactionHistoryService transactionHistory, {
   Future<void> Function()? stop,
   Future<void> Function()? close,
+  CitizenSdkLifecycle Function()? lifecycle,
 }) async {
   try {
     await transactionHistory.stop();
@@ -248,7 +252,7 @@ Future<void> _closeCitizenSdk(
     AppLog.d('[CitizenSDK] 交易监听停止失败: $error\n$stackTrace');
   }
   try {
-    if (sdk.lifecycle == CitizenSdkLifecycle.running) {
+    if ((lifecycle?.call() ?? sdk.lifecycle) == CitizenSdkLifecycle.running) {
       await (stop ?? sdk.stop)();
     }
   } on Object catch (error, stackTrace) {

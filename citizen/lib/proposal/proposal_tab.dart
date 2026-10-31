@@ -48,6 +48,7 @@ class ProposalTab extends StatefulWidget {
     this.capabilitiesReader,
     this.sdkEvents,
     this.lifecycleReader,
+    this.walletStateReader,
   });
 
   /// 待投票数变化时的回调（用于底部 tab 红点数字）。
@@ -63,6 +64,7 @@ class ProposalTab extends StatefulWidget {
   final Future<CitizenCapabilitySnapshot> Function()? capabilitiesReader;
   final Stream<CitizenSdkEvent>? sdkEvents;
   final CitizenSdkLifecycle Function()? lifecycleReader;
+  final CitizenSdkOperation<CitizenWalletState> Function()? walletStateReader;
 
   @override
   State<ProposalTab> createState() => _ProposalViewState();
@@ -325,7 +327,10 @@ class _ProposalViewState extends State<ProposalTab> {
         .catchError((_) => <Institution>[]);
     CitizenWalletStateAccount? activeWallet;
     try {
-      activeWallet = (await _wallet.getWalletState().result).defaultAccount;
+      activeWallet =
+          (await (widget.walletStateReader?.call() ?? _wallet.getWalletState())
+                  .result)
+              .defaultAccount;
     } on Object {
       activeWallet = null;
     }

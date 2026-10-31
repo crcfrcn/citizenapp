@@ -6,14 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _PendingContacts implements UserContactService {
-
   final Completer<List<UserContact>> completer = Completer<List<UserContact>>();
 
   @override
   Future<List<UserContact>> getContacts() => completer.future;
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 void main() {

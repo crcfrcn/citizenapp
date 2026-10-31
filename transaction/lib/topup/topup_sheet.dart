@@ -99,8 +99,9 @@ class _TopupSheetState extends State<TopupSheet> {
           );
           if (pending.isNotEmpty) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted && account == widget.accountId)
+              if (mounted && account == widget.accountId) {
                 _resume(config, pending.first);
+              }
             });
           }
         } on Object {
@@ -308,8 +309,9 @@ class _TopupSheetState extends State<TopupSheet> {
     if (_paymentOpen ||
         !_recordsLoaded ||
         _recoveryError != null ||
-        !config.ready)
+        !config.ready) {
       return;
+    }
     final pending = _records.where(
       (r) => !r.terminal && r.progress.index >= TopupProgress.submitting.index,
     );
@@ -356,8 +358,9 @@ class _TopupSheetState extends State<TopupSheet> {
     setState(() => _paymentOpen = true);
     try {
       if (record.origin != topupOrigin(_api.baseUrl) ||
-          record.intent.accountId != widget.accountId)
+          record.intent.accountId != widget.accountId) {
         return;
+      }
       final selection = TopupSelection.fromIntent(record.intent, config);
       if (record.progress.index < TopupProgress.submitting.index &&
           DateTime.now().millisecondsSinceEpoch < record.intent.expiresAt) {
@@ -371,9 +374,10 @@ class _TopupSheetState extends State<TopupSheet> {
         await _showResult(config, record, selection.package);
       }
     } on Object {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('原订单暂不可恢复，请稍后重试')));
+      }
     } finally {
       if (mounted) setState(() => _paymentOpen = false);
     }

@@ -13,6 +13,7 @@ import 'package:citizen_system/theme/app_layout.dart';
 class MembershipDetailPage extends StatelessWidget {
   const MembershipDetailPage({
     super.key,
+    required this.memberLevel,
     required this.plan,
     required this.priceFen,
     required this.actionLabel,
@@ -21,7 +22,8 @@ class MembershipDetailPage extends StatelessWidget {
     this.usageState,
   });
 
-  final SquareMembershipPlan plan;
+  final String memberLevel;
+  final SquareMembershipPlan? plan;
   final SquareMembershipUsageState? usageState;
 
   /// 本档链上月价（分）；null=链上未设该档价，显示占位「—」。
@@ -32,7 +34,8 @@ class MembershipDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final level = plan.memberLevel;
+    final level = memberLevel;
+    final plan = this.plan;
     final tierColor = _tierColor(level);
     final onTier = _onTierColor(level);
     return Scaffold(
@@ -42,112 +45,117 @@ class MembershipDetailPage extends StatelessWidget {
         children: [
           _header(level, tierColor, onTier),
           SizedBox(height: AppLayout.scaled(context, 16)),
-          _section(tierColor, Icons.chat_bubble_outline, '聊天', [
-            _row('消息', '文字、表情、贴纸、图片'),
-            _row('语音消息', '最长 ${plan.chatVoiceLabel}'),
-            _row('视频消息', '最长 ${plan.chatVideoLabel}'),
-            _row('单个附件', '最大 ${plan.fileSizeLabel}'),
-            _row('语音通话', plan.chat.voiceCallEnabled ? '支持' : '不支持'),
-            _row('视频通话', plan.chat.videoCallEnabled ? '支持' : '不支持'),
-          ]),
-          SizedBox(height: AppLayout.scaled(context, 12)),
-          _section(tierColor, Icons.description_outlined, '公文', [
-            _row('文字', '最多 ${plan.document.textMaxChars} 字'),
-            _row(
-              '图片',
-              '${plan.document.maxImages} 张 · ${plan.documentImageLabel}',
-            ),
-            _row('单图片体积', '最大 ${plan.imageBytesLabel}'),
-          ]),
-          SizedBox(height: AppLayout.scaled(context, 12)),
-          _section(tierColor, Icons.videocam_outlined, '视频', [
-            _row('配文', '最多 ${plan.video.textMaxChars} 字'),
-            _row(
-              '视频',
-              '1 个 · ${plan.videoDurationLabel} · ${plan.videoQualityLabel}',
-            ),
-            _row('单视频体积', '最大 ${plan.videoBytesLabel}'),
-          ]),
-          SizedBox(height: AppLayout.scaled(context, 12)),
-          _section(tierColor, Icons.article_outlined, '文章', [
-            _row('正文', '最多 ${_wan(plan.article.bodyMaxChars)}'),
-            _row(
-              '配图',
-              '${plan.article.maxImages} 张 · ${plan.articleImageLabel}',
-            ),
-            _row('视频', '最多 ${plan.article.maxVideos} 个'),
-            _row(
-              '首图 · 标题',
-              '${plan.articleCoverLabel} · ${plan.article.titleMinChars}–${plan.article.titleMaxChars} 字',
-            ),
-          ]),
-          SizedBox(height: AppLayout.scaled(context, 12)),
-          _section(tierColor, Icons.storage_outlined, '用量额度', [
-            _row('广场存储空间', plan.storageSizeLabel),
-            _row(
-              '聊天附件存储',
-              plan.resources['attachment_bytes'] == null
-                  ? '未知'
-                  : SquareMembershipPlan.formatBytes(
-                      plan.resources['attachment_bytes']!,
-                    ),
-            ),
-          ]),
-          if (plan.dailyLimits.isNotEmpty) ...[
-            SizedBox(height: AppLayout.scaled(context, 12)),
-            _section(tierColor, Icons.today_outlined, '每日资源额度（UTC）', [
-              for (final entry in plan.dailyLimits.entries.where(
-                (entry) => _dailyDisplay.containsKey(entry.key),
-              ))
-                _row(
-                  _dailyDisplay[entry.key]!,
-                  _meterValue(entry.key, entry.value),
-                ),
+          if (plan != null) ...[
+            _section(tierColor, Icons.chat_bubble_outline, '聊天', [
+              _row('消息', '文字、表情、贴纸、图片'),
+              _row('语音消息', '最长 ${plan.chatVoiceLabel}'),
+              _row('视频消息', '最长 ${plan.chatVideoLabel}'),
+              _row('单个附件', '最大 ${plan.fileSizeLabel}'),
+              _row('语音通话', plan.chat.voiceCallEnabled ? '支持' : '不支持'),
+              _row('视频通话', plan.chat.videoCallEnabled ? '支持' : '不支持'),
             ]),
-          ],
-          if (usageState case final usage?) ...[
             SizedBox(height: AppLayout.scaled(context, 12)),
-            _section(tierColor, Icons.data_usage_outlined, '服务端用量快照', [
-              _row('已用存储', _meterValue('delivery_bytes', usage.usedBytes)),
+            _section(tierColor, Icons.description_outlined, '公文', [
+              _row('文字', '最多 ${plan.document.textMaxChars} 字'),
               _row(
-                '上传预留存储',
-                _meterValue('delivery_bytes', usage.reservedBytes),
+                '图片',
+                '${plan.document.maxImages} 张 · ${plan.documentImageLabel}',
               ),
-              _row('周期发布', '${usage.publishedCount} 条'),
+              _row('单图片体积', '最大 ${plan.imageBytesLabel}'),
+            ]),
+            SizedBox(height: AppLayout.scaled(context, 12)),
+            _section(tierColor, Icons.videocam_outlined, '视频', [
+              _row('配文', '最多 ${plan.video.textMaxChars} 字'),
               _row(
-                '服务端采样时间',
-                usage.observedAt > 0
-                    ? DateTime.fromMillisecondsSinceEpoch(
-                        usage.observedAt,
-                        isUtc: true,
-                      ).toIso8601String()
-                    : '未知',
+                '视频',
+                '1 个 · ${plan.videoDurationLabel} · ${plan.videoQualityLabel}',
               ),
-              if (usage.attachment case final stock?) ...[
-                if (stock['status'] == 'available') ...[
+              _row('单视频体积', '最大 ${plan.videoBytesLabel}'),
+            ]),
+            SizedBox(height: AppLayout.scaled(context, 12)),
+            _section(tierColor, Icons.article_outlined, '文章', [
+              _row('正文', '最多 ${_wan(plan.article.bodyMaxChars)}'),
+              _row(
+                '配图',
+                '${plan.article.maxImages} 张 · ${plan.articleImageLabel}',
+              ),
+              _row('视频', '最多 ${plan.article.maxVideos} 个'),
+              _row(
+                '首图 · 标题',
+                '${plan.articleCoverLabel} · ${plan.article.titleMinChars}–${plan.article.titleMaxChars} 字',
+              ),
+            ]),
+            SizedBox(height: AppLayout.scaled(context, 12)),
+            _section(tierColor, Icons.storage_outlined, '用量额度', [
+              _row('广场存储空间', plan.storageSizeLabel),
+              _row(
+                '聊天附件存储',
+                plan.resources['attachment_bytes'] == null
+                    ? '未知'
+                    : SquareMembershipPlan.formatBytes(
+                        plan.resources['attachment_bytes']!,
+                      ),
+              ),
+            ]),
+            if (plan.dailyLimits.isNotEmpty) ...[
+              SizedBox(height: AppLayout.scaled(context, 12)),
+              _section(tierColor, Icons.today_outlined, '每日资源额度（UTC）', [
+                for (final entry in plan.dailyLimits.entries.where(
+                  (entry) => _dailyDisplay.containsKey(entry.key),
+                ))
                   _row(
-                    '聊天附件存储',
-                    _meterValue('delivery_bytes', stock['bytes'] as int),
+                    _dailyDisplay[entry.key]!,
+                    _meterValue(entry.key, entry.value),
                   ),
-                ] else
-                  _row('聊天附件存量', '暂不可用'),
-              ],
-              _row(
-                '统计日（UTC）',
-                DateTime.fromMillisecondsSinceEpoch(
-                  usage.dayStart,
-                  isUtc: true,
-                ).toIso8601String().substring(0, 10),
-              ),
-              for (final entry in usage.daily.entries.where(
-                (entry) => _dailyDisplay.containsKey(entry.key),
-              ))
+              ]),
+            ],
+            if (usageState case final usage?) ...[
+              SizedBox(height: AppLayout.scaled(context, 12)),
+              _section(tierColor, Icons.data_usage_outlined, '服务端用量快照', [
+                _row('已用存储', _meterValue('delivery_bytes', usage.usedBytes)),
                 _row(
-                  _dailyDisplay[entry.key]!,
-                  _meterValue(entry.key, entry.value),
+                  '上传预留存储',
+                  _meterValue('delivery_bytes', usage.reservedBytes),
                 ),
+                _row('周期发布', '${usage.publishedCount} 条'),
+                _row(
+                  '服务端采样时间',
+                  usage.observedAt > 0
+                      ? DateTime.fromMillisecondsSinceEpoch(
+                          usage.observedAt,
+                          isUtc: true,
+                        ).toIso8601String()
+                      : '未知',
+                ),
+                if (usage.attachment case final stock?) ...[
+                  if (stock['status'] == 'available') ...[
+                    _row(
+                      '聊天附件存储',
+                      _meterValue('delivery_bytes', stock['bytes'] as int),
+                    ),
+                  ] else
+                    _row('聊天附件存量', '暂不可用'),
+                ],
+                _row(
+                  '统计日（UTC）',
+                  DateTime.fromMillisecondsSinceEpoch(
+                    usage.dayStart,
+                    isUtc: true,
+                  ).toIso8601String().substring(0, 10),
+                ),
+                for (final entry in usage.daily.entries.where(
+                  (entry) => _dailyDisplay.containsKey(entry.key),
+                ))
+                  _row(
+                    _dailyDisplay[entry.key]!,
+                    _meterValue(entry.key, entry.value),
+                  ),
+              ]),
+            ],
+          ] else
+            _section(tierColor, Icons.workspace_premium_outlined, '会员权益', [
+              const Text('权益待获取'),
             ]),
-          ],
           SizedBox(height: AppLayout.scaled(context, 20)),
           _subscribeButton(context, tierColor, onTier),
         ],
@@ -183,7 +191,7 @@ class MembershipDetailPage extends StatelessWidget {
                 ),
                 SizedBox(height: AppLayout.scaledValue(4)),
                 Text(
-                  plan.displayName,
+                  plan?.displayName ?? membershipTitle(level),
                   style: TextStyle(
                     color: onTier,
                     fontSize: AppLayout.scaledValue(24),
@@ -316,7 +324,7 @@ class MembershipDetailPage extends StatelessWidget {
       borderRadius: BorderRadius.circular(AppLayout.scaledValue(12)),
       child: InkWell(
         borderRadius: BorderRadius.circular(AppLayout.scaledValue(12)),
-        onTap: subscribeEnabled
+        onTap: subscribeEnabled && plan != null
             ? () {
                 // 订阅流程在会员页：先返回,再触发原 _handleAction。
                 Navigator.of(context).pop();
@@ -376,3 +384,11 @@ String _thousands(int n) =>
 String _wan(int chars) => chars >= 10000 && chars % 10000 == 0
     ? '${chars ~/ 10000} 万字'
     : '${_thousands(chars)} 字';
+
+/// 固定档名仅用于无套餐时的UI，不包含价格、额度或授权信息。
+String membershipTitle(String level) => switch (level) {
+  'freedom' => '自由会员',
+  'democracy' => '民主会员',
+  'spark' => '薪火会员',
+  _ => throw ArgumentError.value(level, 'level', '会员档位未知'),
+};

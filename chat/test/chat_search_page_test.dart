@@ -1,4 +1,5 @@
 import 'package:citizen_account/navigation.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -123,7 +124,7 @@ class _FakeContacts implements UserContactService {
   Future<List<UserContact>> getContacts() async => contacts;
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 void main() {

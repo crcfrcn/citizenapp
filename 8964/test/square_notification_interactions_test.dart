@@ -578,7 +578,7 @@ void main() {
     await tester.tap(find.text('推荐'));
     await drain(tester);
     expect(api.feedCalls, calls + 1);
-    await tester.tap(find.text('通知'));
+    await tester.tap(find.text('互动'));
     await drain(tester);
     expect(api.tab, 0);
     expect(api.post, 3);
@@ -777,7 +777,7 @@ void main() {
       SquareFeedKind.notifications,
     );
     expect(find.text('有通知的内容'), findsOneWidget);
-    expect(find.byTooltip('通知'), findsNothing);
+    expect(find.byTooltip('互动'), findsNothing);
     expect(api.feedCalls, 0);
     expect(api.notificationRequests, isNotEmpty);
     expect([api.square, api.tab, api.post], [0, 0, 3]);
@@ -935,7 +935,7 @@ void main() {
       held.complete(old);
       await drain(tester);
       expect(find.text('有通知的内容'), findsNothing);
-      expect(find.text(deletion ? '暂无评论通知' : '新到的通知内容'), findsOneWidget);
+      expect(find.text(deletion ? '暂无评论互动' : '新到的通知内容'), findsOneWidget);
       expect(api.notificationRequests.length, greaterThan(2));
       if (!deletion) {
         expect(api.reads, isNotEmpty);
@@ -1054,7 +1054,7 @@ void main() {
       }
       await drain(tester);
       expect(find.text('新账号的通知'), findsOneWidget);
-      expect(find.text('通知读取失败，请下拉重试'), findsNothing);
+      expect(find.text('互动读取失败，请下拉重试'), findsNothing);
       expect(api.readOwners.last, user.currentCid);
       await tester.pumpWidget(const SizedBox.shrink());
       await drain(tester);
@@ -1073,10 +1073,10 @@ void main() {
       ),
     );
     await drain(tester);
-    expect(find.text('通知读取失败，请下拉重试'), findsOneWidget);
+    expect(find.text('互动读取失败，请下拉重试'), findsOneWidget);
     expect(api.reads, isEmpty);
     api.onNotifications = null;
-    await tester.tap(find.text('通知读取失败，请下拉重试'));
+    await tester.tap(find.text('互动读取失败，请下拉重试'));
     await drain(tester);
     expect(find.text('有通知的内容'), findsOneWidget);
     expect(api.tab, 0);

@@ -861,11 +861,12 @@ void main() {
       _scenario.importAction = ({accountId, ss58Address, name = ''}) =>
           testCitizenOperation(() {
             submitted = [ss58Address, name];
-            if (failImport)
+            if (failImport) {
               throw const CitizenSdkException(
                 code: CitizenSdkErrorCode.invalidArgument,
                 message: '合成冷导入失败',
               );
+            }
             return _coldWalletSnapshot();
           });
       bool? result;
@@ -1082,7 +1083,7 @@ void main() {
   });
 
   // 以下七项详情布局/菜单/返回断言从历史原件恢复，仅替换SDK模型与注入。
-  testWidgets('顶部完整地址和卡片右上角二维码，删除/私钥/清算行不残留在正文', (tester) async {
+  testWidgets('热账户复用冷钱包纯色主视觉、名称铅笔、地址二维码与顶部余额', (tester) async {
     _disposeWidgetBeforeStores(tester);
     addTearDown(() async {
       await tester.pumpWidget(const SizedBox.shrink());
@@ -1101,44 +1102,21 @@ void main() {
     await tester.pump();
     expect(find.text('账户详情'), findsOneWidget);
     expect(find.text(account.ss58Address), findsOneWidget);
-    expect(find.byTooltip('账户二维码'), findsOneWidget);
-    expect(find.byTooltip('复制 SS58 地址'), findsOneWidget);
-    final headerFinder = find.byWidgetPredicate(
-      (widget) =>
-          widget is Container &&
-          widget.decoration is BoxDecoration &&
-          (widget.decoration! as BoxDecoration).gradient != null,
-      description: '账户详情渐变资料卡',
-    );
-    final headerRect = tester.getRect(headerFinder);
-    final nameRect = tester.getRect(find.text(account.name));
-    final qrRect = tester.getRect(find.byTooltip('账户二维码'));
-    final copyRect = tester.getRect(find.byTooltip('复制 SS58 地址'));
+    expect(find.byKey(const ValueKey('wallet-detail-header')), findsOneWidget);
     expect(
-      qrRect.left,
-      greaterThanOrEqualTo(nameRect.right),
-      reason: '二维码必须位于账户名布局区之外，不能紧挨名称排版',
+      find.byKey(const ValueKey('wallet-identity-qr-button')),
+      findsOneWidget,
     );
     expect(
-      qrRect.top - headerRect.top,
-      lessThanOrEqualTo(12),
-      reason: '二维码触控区必须贴在账户卡顶部',
+      find.byKey(const ValueKey('wallet-onchain-balance-section')),
+      findsOneWidget,
     );
-    expect(
-      headerRect.right - qrRect.right,
-      lessThanOrEqualTo(12),
-      reason: '二维码触控区必须贴在账户卡右侧',
+    expect(find.byIcon(Icons.edit_outlined), findsOneWidget);
+    expect(find.byKey(const ValueKey('wallet-onchain-balance')), findsNothing);
+    final header = tester.widget<Container>(
+      find.byKey(const ValueKey('wallet-detail-header')),
     );
-    expect(
-      copyRect.top,
-      greaterThanOrEqualTo(qrRect.bottom),
-      reason: '复制按钮必须下移到独立地址行，不能继续占用二维码旁的地址宽度',
-    );
-    expect(
-      headerRect.right - copyRect.right,
-      lessThanOrEqualTo(24),
-      reason: '复制按钮必须靠齐账户卡内容右侧',
-    );
+    expect(header.color, AppTheme.primary);
     expect(find.text('点击查看私钥'), findsNothing);
     expect(find.text('删除账户'), findsNothing);
     expect(find.text('删除钱包'), findsNothing);
@@ -1182,7 +1160,7 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.tap(find.byTooltip('账户二维码'));
+    await tester.tap(find.byKey(const ValueKey('wallet-identity-qr-button')));
     await _settleWallet(tester);
     expect(find.byType(Dialog), findsOneWidget);
     expect(find.byType(AlertDialog), findsNothing);
@@ -2337,7 +2315,6 @@ class _WalletScenario {
   final calls = <String>[];
   CitizenWalletState? last;
   late AccountBalanceSnapshotStore balances;
-  CitizenSdkOperation<Object> Function()? snapshotAction;
   FutureOr<CitizenWalletState> Function()? stateAction;
   FutureOr<void> Function(
     List<String> ids,
@@ -2375,10 +2352,8 @@ class _WalletScenario {
     String name,
   })?
   importAction;
-  CitizenSdkOperation<Object> snapshot() {
+  CitizenSdkOperation<WalletSnapshot> snapshot() {
     calls.add('inspectWallets');
-    final override = snapshotAction;
-    if (override != null) return override();
     return CitizenSdkOperation(
       operationId: 'snapshot',
       result: Future.sync(_snapshotLoader).then((s) {
@@ -2430,8 +2405,9 @@ class _WalletScenario {
     remove: (id, whole, diagnostic) async {
       if (diagnostic != null) {
         calls.add('deleteDiagnosticWallet');
-        if (deleteDiagnosticAction == null)
+        if (deleteDiagnosticAction == null) {
           throw UnimplementedError('未配置异常钱包删除');
+        }
         await deleteDiagnosticAction!(diagnostic);
       } else if (whole) {
         calls.add('signAndDeleteWallet');

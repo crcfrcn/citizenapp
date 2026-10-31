@@ -1,7 +1,7 @@
 // 个人多签提案历史服务单元测试。
 //
 // 仅覆盖 Isar 持久层路径(`recordOrUpdate` 写 / `fetchAll` 读 / 状态字段映射 /
-// snapshot JSON 序列化反序列化)。链上拉取依赖 CitizenChain，测试走不可用分支，
+// snapshot JSON 序列化反序列化)。链上拉取通过 CitizenSdk，测试走不可用分支，
 // 等价于"链上失败 → 仅返回 Isar"路径。
 
 import 'dart:typed_data';
@@ -15,7 +15,7 @@ import 'package:citizen_transaction/personal/personal_proposal_history_service.d
 import 'package:citizen_testing/isar_test_env.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 
-/// 离线 CitizenChain：本单测只验证 Isar 持久层，注入它切断真链依赖。
+/// 离线链读取函数：本单测只验证 Isar 持久层，注入它切断真链依赖。
 /// 可达探针为 false(等价「链不可达 → 仅返回本机 Isar」)。避免本机是否连着真链
 /// 造成 flaky;配合服务端「链不可达不删幽灵」的容错回退,写入的历史必被完整读回。
 class _OfflineChain extends TestChainReads {

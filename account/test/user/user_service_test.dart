@@ -53,7 +53,7 @@ class _FakeWalletManager implements AccountSecurityService {
       (await (current ?? _FakeIdentityCache()).resolve())!.binding;
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// 身份缓存 fake：恒返回已注册 CID 及其当前绑定账户。
@@ -88,7 +88,7 @@ class _FakeIdentityCache implements CurrentUserContext {
   Future<String?> accountId() async => _accountId;
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FakeSessionProvider implements SquareSessionProvider {
@@ -103,7 +103,7 @@ class _FakeSessionProvider implements SquareSessionProvider {
   );
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FakeApi extends SquareApiClient {

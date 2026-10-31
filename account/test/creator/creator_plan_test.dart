@@ -84,7 +84,7 @@ class _PendingCreatorService implements CreatorService {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// 主动刷新失败不能清掉已显示的本地数据。
@@ -102,7 +102,7 @@ class _FailingCreatorService implements CreatorService {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _SnapshotCreatorService extends _PendingCreatorService {
@@ -204,7 +204,9 @@ void main() {
       modules: CitizenSdkModules.wallet | CitizenSdkModules.qr,
     );
     final sdk = core.sdk;
-    await sdk.importColdAccount(accountId: testCitizenAccountId).result;
+    await tester.runAsync(
+      () => sdk.importColdAccount(accountId: testCitizenAccountId).result,
+    );
     addTearDown(() async {
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.runAsync(() async {

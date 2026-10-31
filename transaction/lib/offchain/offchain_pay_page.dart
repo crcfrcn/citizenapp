@@ -43,6 +43,7 @@ class OffchainClearingPayPage extends StatefulWidget {
     this.nodeRpc,
     this.directory,
     this.payloadSigner,
+    this.bestHeadReader,
   });
 
   /// 付款方当前钱包(仅支持热钱包)。
@@ -66,6 +67,7 @@ class OffchainClearingPayPage extends StatefulWidget {
   final OffchainClearingBankRpc? nodeRpc;
   final ClearingBankDirectory? directory;
   final PayloadSigner? payloadSigner;
+  final Future<CitizenBlockRef> Function()? bestHeadReader;
 
   @override
   State<OffchainClearingPayPage> createState() =>
@@ -145,7 +147,7 @@ class _OffchainClearingPayPageState extends State<OffchainClearingPayPage> {
       _minFeeFen = rate.minFeeFen;
 
       // 5. 当前块高
-      final latest = await chain.getBestHead();
+      final latest = await (widget.bestHeadReader ?? chain.getBestHead)();
       _currentBlockNumber = latest.number.toInt();
 
       if (mounted) {

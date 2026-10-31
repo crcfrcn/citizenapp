@@ -86,15 +86,18 @@ void main() {
         modules: CitizenSdkModules.wallet | CitizenSdkModules.qr,
       );
       final sdk = core.sdk;
-      await tester.runAsync(()=>sdk.importColdAccount(accountId:testCitizenAccountId).result);
+      await tester.runAsync(
+        () => sdk.importColdAccount(accountId: testCitizenAccountId).result,
+      );
       final calls = <String>[];
       Future<void> stop() async {
         calls.add('stop');
-        if (stopFails)
+        if (stopFails) {
           throw const CitizenSdkException(
             code: CitizenSdkErrorCode.storage,
             message: '合成checkpoint失败',
           );
+        }
       }
 
       Future<void> close() async {
@@ -138,6 +141,7 @@ void main() {
           startChain: () async {},
           stopSdk: stop,
           closeSdk: close,
+          sdkLifecycle: () => CitizenSdkLifecycle.running,
           identityService: publicSync,
           accountSecurity: _Security(),
           currentUserContext: _Current(),
@@ -161,7 +165,12 @@ void main() {
           },
         ),
       );
-      await tester.pump();
+      for (var i = 0; i < 100 && publicSync.calls == 0; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 5)),
+        );
+        await tester.pump(const Duration(milliseconds: 10));
+      }
       expect(publicSync.calls, 1);
       await tester.runAsync(() async {
         for (final name in ['first', 'second']) {
@@ -169,7 +178,7 @@ void main() {
           await sdk
               .renameWallet(
                 expectedRevision: state.revision,
-                walletIndex: 0,
+                walletIndex: state.accounts.first.walletIndex,
                 name: name,
               )
               .result;

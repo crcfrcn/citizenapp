@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 import 'package:citizen_scanner/scanner.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:citizen_system/theme/app_theme.dart';
-import 'package:citizen_sdk/account_codec.dart' show citizenSs58FromAccountId;
 import 'package:citizen_scanner/qr_router.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 

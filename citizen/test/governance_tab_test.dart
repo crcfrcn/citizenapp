@@ -32,7 +32,7 @@ class _GuestUserContext implements CurrentUserContext {
   Future<CurrentUser?> resolve() async => null;
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// 导航专用的目录失败夹具仍使用真实机构详情与生产路由，不开启另一套Isar。

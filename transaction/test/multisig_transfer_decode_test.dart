@@ -379,6 +379,8 @@ Future<_PageReads> _openProposal(
           body: ProposalTab(
             feed: feed,
             capabilitiesReader: transport.read,
+            walletStateReader: () =>
+                testCitizenOperation(testCitizenWalletState),
             sdkEvents: transport.controller.stream,
             lifecycleReader: () => transport.state,
             repository:
@@ -1572,8 +1574,9 @@ void _proposalReadResultTests() {
         final first = _refreshProposal(tester);
         await _flush(tester);
         feed.ids = [];
-        await _refreshProposal(tester);
+        final second = _refreshProposal(tester);
         await _flush(tester);
+        await second;
         if (fail) {
           old.completeError(StateError('synthetic late failure'));
         } else {

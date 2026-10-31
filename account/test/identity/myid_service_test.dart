@@ -8,7 +8,6 @@ import 'package:flutter/foundation.dart';
 import 'package:citizen_account/square_api_client.dart';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizen_sdk/account_codec.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
@@ -194,6 +193,13 @@ void main() {
       if (result == 'registered') {
         final state = await service.refreshState();
         expect(state.status, isNot(MyIdStatus.queryFailed));
+        final synced = service.sync.value;
+        expect(synced, isNotNull);
+        expect(synced!.accountId, _validAccountId);
+        expect(identical(synced.state, state), isTrue);
+        expect(await service.isCurrentSync(synced), isTrue);
+        wallet.revision.value++;
+        expect(await service.isCurrentSync(synced), isFalse);
         expect(sessions.registrations, 0);
         expect(
           (await current.resolve())?.cidNumber,
@@ -208,6 +214,11 @@ void main() {
               : isNot(MyIdStatus.queryFailed),
         );
         expect(sessions.registrations, 0);
+        if (result == 'network' || result == 'changed') {
+          expect(service.sync.value, isNull);
+        } else {
+          expect(service.sync.value, isNotNull);
+        }
       }
       expect(resolver.reads, 1);
       expect(wallet.signCalls, 0);
@@ -398,7 +409,8 @@ void main() {
     final current = CurrentUser(
       account: _aliceWallet,
       binding: const IdentityBinding(
-        genesisHash: '0x0000000000000000000000000000000000000000000000000000000000000000',
+        genesisHash:
+            '0x0000000000000000000000000000000000000000000000000000000000000000',
         cidNumber: 'CID-LOCAL-TEST',
         bindRev: 1,
         accountId: _validAccountId,
@@ -550,8 +562,9 @@ void main() {
     ).refreshState();
     expect(expired.status, MyIdStatus.expired);
 
-    final revoked = await buildService(voting: voting(status: 1))
-        .refreshState();
+    final revoked = await buildService(
+      voting: voting(status: 1),
+    ).refreshState();
     expect(revoked.status, MyIdStatus.revoked);
   });
 
@@ -1018,7 +1031,7 @@ class _FakeWalletManager extends TestWalletReads
 
 class _UnusedChatHost implements ChatRuntimeHost {
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _UnusedSessionProvider implements SquareSessionProvider {
@@ -1026,7 +1039,7 @@ class _UnusedSessionProvider implements SquareSessionProvider {
   void invalidateAccount(String accountId) {}
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// 预设身份账户解析结果的假 resolver(换绑/列举目标测试用,绕开真链读序列)。
@@ -1041,7 +1054,7 @@ class _FakeIdentityResolver implements FinalizedIdentityResolver {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _InvalidationCountingIdentityCache implements CurrentUserContext {
@@ -1053,7 +1066,7 @@ class _InvalidationCountingIdentityCache implements CurrentUserContext {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _SequenceResolver implements FinalizedIdentityResolver {
@@ -1068,7 +1081,7 @@ class _SequenceResolver implements FinalizedIdentityResolver {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// 可变身份账户的假 resolver(对账测试:换绑前后链上身份账户切换)。
@@ -1087,7 +1100,7 @@ class _MutableResolver implements FinalizedIdentityResolver {
       _registeredIdentity(_accountId, bindRev: _bindingRevision);
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// 造一个「已注册(匿名)身份账户」解析结果:account_id 绑了 CID(snapshot 非空)。
@@ -1334,7 +1347,7 @@ class _LocalCurrentUser implements CurrentUserContext {
   Future<CurrentUser?> resolve() async => current;
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _BindingRuntime extends ChatSdk {
@@ -1389,5 +1402,5 @@ class _SyncSessions implements SquareSessionProvider {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation)=>super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

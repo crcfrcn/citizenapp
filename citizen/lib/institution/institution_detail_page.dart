@@ -51,6 +51,7 @@ class InstitutionDetailPage extends StatefulWidget {
     this.subscriberCidNumberProvider,
     this.contextResolver,
     this.activationService,
+    this.walletStateReader,
   });
 
   final String cidNumber;
@@ -62,6 +63,9 @@ class InstitutionDetailPage extends StatefulWidget {
   /// 可注入原角色/激活接口；测试与生产共用同一名册和权限加载路径。
   final ProposalContextResolver? contextResolver;
   final ActivationService? activationService;
+
+  /// 本机账户目录读取；缺省仍读取当前真实SDK会话。
+  final Future<CitizenWalletState> Function()? walletStateReader;
 
   /// 当前已注册公民的永久 CID（只用于本地关注关系归属）。
   ///
@@ -359,10 +363,12 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
 
   Future<Set<String>> _loadImportedColdAccountIds() async {
     final wallet = _wallet;
-    if (wallet == null) return const {};
+    final read = widget.walletStateReader;
+    if (wallet == null && read == null) return const {};
+    final state = await (read?.call() ?? wallet!.getWalletState().result);
     // 只读本机冷账户集合；名单卡片仍按精确账户ID判断是否已导入。
     return {
-      for (final account in (await wallet.getWalletState().result).accounts)
+      for (final account in state.accounts)
         if (account.signMode == CitizenWalletSignMode.cold) account.accountId,
     };
   }

@@ -5,6 +5,29 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_sdk/test/platform/fixture.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+// 同一用例可顺序打开多个真实SDK；物理通道只安装一次，最后一个会话关闭后归还。
+CitizenSdkTestFixture? _activeFixture;
+int _fixtureUsers = 0;
+CitizenSdkTestFixture _acquireFixture() {
+  final current = _activeFixture;
+  if (current != null) {
+    _fixtureUsers++;
+    return current;
+  }
+  final created = CitizenSdkTestFixture()..install();
+  _activeFixture = created;
+  _fixtureUsers = 1;
+  return created;
+}
+
+Future<void> _releaseFixture(CitizenSdkTestFixture fixture) async {
+  _fixtureUsers--;
+  if (_fixtureUsers == 0) {
+    await fixture.dispose();
+    _activeFixture = null;
+  }
+}
+
 /// 每例使用真实Core；只有明确选择的钱包、系统金库、显示和摄像资源才启用。
 /// 原生测试库由本轮正式SDK构建交付，不接受业务结果处理器或旧协议。
 class TestCitizenSdkHarness {
@@ -16,12 +39,12 @@ class TestCitizenSdkHarness {
   }) {
     TestWidgetsFlutterBinding.ensureInitialized();
     setUp(() async {
-      fixture = CitizenSdkTestFixture()..install();
-      fixture.physicalUi = physicalUi;
+      fixture = _acquireFixture();
+      fixture.physicalUi = fixture.physicalUi || physicalUi;
       sdk = await CitizenSdk.open(modules: modules);
       if ((modules & (CitizenSdkModules.wallet | CitizenSdkModules.signing)) !=
           0) {
-        expect(fixture.vault(fixture.handles.values.single, vaultMode), 0);
+        expect(fixture.vault(fixture.handles.values.last, vaultMode), 0);
       }
       await initialize?.call(sdk);
     });
@@ -29,7 +52,7 @@ class TestCitizenSdkHarness {
       try {
         await sdk.close();
       } finally {
-        await fixture.dispose();
+        await _releaseFixture(fixture);
       }
     });
   }
@@ -44,17 +67,17 @@ Future<({CitizenSdk sdk, CitizenSdkTestFixture fixture})> openTestSdk({
   bool physicalUi = false,
 }) async {
   TestWidgetsFlutterBinding.ensureInitialized();
-  final fixture = CitizenSdkTestFixture()..install();
-  fixture.physicalUi = physicalUi;
+  final fixture = _acquireFixture();
+  fixture.physicalUi = fixture.physicalUi || physicalUi;
   final sdk = await CitizenSdk.open(modules: modules);
   if ((modules & (CitizenSdkModules.wallet | CitizenSdkModules.signing)) != 0) {
-    expect(fixture.vault(fixture.handles.values.single, vaultMode), 0);
+    expect(fixture.vault(fixture.handles.values.last, vaultMode), 0);
   }
   addTearDown(() async {
     try {
       await sdk.close();
     } finally {
-      await fixture.dispose();
+      await _releaseFixture(fixture);
     }
   });
   return (sdk: sdk, fixture: fixture);
@@ -64,8 +87,8 @@ Future<({CitizenSdk sdk, CitizenSdkTestFixture fixture})> openTestSdk({
 class TestChainReads {
   const TestChainReads();
   @override
-  dynamic noSuchMethod(Invocation call) =>
-      throw UnimplementedError('未配置业务函数${call.memberName}');
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('未配置业务函数${invocation.memberName}');
   Future<CitizenCapabilitySnapshot> getCapabilities() =>
       noSuchMethod(Invocation.method(#getCapabilities, []))
           as Future<CitizenCapabilitySnapshot>;
@@ -151,8 +174,8 @@ class TestChainReads {
 class TestTransactionCalls {
   const TestTransactionCalls();
   @override
-  dynamic noSuchMethod(Invocation call) =>
-      throw UnimplementedError('未配置业务函数${call.memberName}');
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('未配置业务函数${invocation.memberName}');
   Future<CitizenPreparedTransaction> prepareTransaction(
     Uint8List sourceAccountId,
     Uint8List callData,
@@ -185,8 +208,8 @@ class TestTransactionCalls {
 class TestHistoryReads {
   const TestHistoryReads();
   @override
-  dynamic noSuchMethod(Invocation call) =>
-      throw UnimplementedError('未配置业务函数${call.memberName}');
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('未配置业务函数${invocation.memberName}');
   Future<CitizenTransactionHistoryPage> getTransactionHistory({
     String? beforeExecutionId,
     int limit = 100,
@@ -205,8 +228,8 @@ class TestHistoryReads {
 class TestWalletReads {
   const TestWalletReads();
   @override
-  dynamic noSuchMethod(Invocation call) =>
-      throw UnimplementedError('未配置业务函数${call.memberName}');
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('未配置业务函数${invocation.memberName}');
   CitizenSdkOperation<CitizenWalletState> getWalletState() =>
       noSuchMethod(Invocation.method(#getWalletState, []))
           as CitizenSdkOperation<CitizenWalletState>;

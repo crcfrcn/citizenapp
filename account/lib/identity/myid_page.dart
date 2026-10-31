@@ -52,6 +52,7 @@ class _MyIdPageState extends State<MyIdPage> {
   bool _submitting = false;
   int _loadGeneration = 0;
   String? _refreshError;
+  String? _errorAccount;
 
   bool get _isQueryFailed => _state.status == MyIdStatus.queryFailed;
 
@@ -71,6 +72,7 @@ class _MyIdPageState extends State<MyIdPage> {
     IdentityBadgeSnapshotStore.revision.addListener(_onSnapshotChanged);
     if (widget.myIdService != null) {
       _myIdService = widget.myIdService;
+      _myIdService!.sync.addListener(_onSyncChanged);
       _openIdentity();
     }
   }
@@ -97,6 +99,7 @@ class _MyIdPageState extends State<MyIdPage> {
         );
     // 身份账户切换必须让身份页立即重排，和广场、聊天共用同一身份版本号。
     accountSecurity.revision.addListener(_onIdentityChanged);
+    _myIdService!.sync.addListener(_onSyncChanged);
     _openIdentity();
   }
 
@@ -104,11 +107,46 @@ class _MyIdPageState extends State<MyIdPage> {
   void dispose() {
     IdentityBadgeSnapshotStore.revision.removeListener(_onSnapshotChanged);
     _accountSecurity?.revision.removeListener(_onIdentityChanged);
+    _myIdService?.sync.removeListener(_onSyncChanged);
     super.dispose();
   }
 
   void _onSnapshotChanged() {
-    if (_myIdService != null && !_refreshing) _loadState();
+    if (_myIdService != null && !_refreshing) {
+      _loadState(preserveError: true);
+    }
+  }
+
+  MyIdSync? _pendingSync;
+
+  void _onSyncChanged() {
+    final result = _myIdService!.sync.value;
+    if (result == null) return;
+    if (_refreshing) {
+      _pendingSync = result;
+    } else {
+      _applySync(result);
+    }
+  }
+
+  Future<void> _applySync(MyIdSync result) async {
+    final generation = _loadGeneration;
+    try {
+      if (!await _myIdService!.isCurrentSync(result) ||
+          !mounted ||
+          generation != _loadGeneration) {
+        return;
+      }
+      setState(() {
+        ++_loadGeneration;
+        _state = result.state;
+        _refreshError = null;
+        _errorAccount = null;
+        _loading = false;
+      });
+    } on Object {
+      // 本机上下文暂不可读不能把旧失败改为成功。
+    }
   }
 
   bool _refreshing = false;
@@ -123,7 +161,7 @@ class _MyIdPageState extends State<MyIdPage> {
     if (_refreshing) {
       _identityChanged = true;
     } else {
-      _loadState();
+      _loadState(preserveError: true);
     }
   }
 
@@ -136,6 +174,7 @@ class _MyIdPageState extends State<MyIdPage> {
     setState(() {
       _loading = true;
       _refreshError = null;
+      _errorAccount = null;
     });
     try {
       account = (await currentUser?.resolve())?.accountId;
@@ -150,13 +189,17 @@ class _MyIdPageState extends State<MyIdPage> {
       setState(() {
         if (result.status == MyIdStatus.queryFailed) {
           _refreshError = '身份验证失败，请重试';
+          _errorAccount = account;
         } else {
           _state = result;
         }
       });
     } catch (_) {
       if (mounted && generation == _loadGeneration) {
-        setState(() => _refreshError = '身份验证失败，请重试');
+        setState(() {
+          _refreshError = '身份验证失败，请重试';
+          _errorAccount = account;
+        });
       }
     } finally {
       _refreshing = false;
@@ -167,6 +210,9 @@ class _MyIdPageState extends State<MyIdPage> {
         _identityChanged = false;
         await _loadState(preserveError: true);
       }
+      final pending = _pendingSync;
+      _pendingSync = null;
+      if (pending != null && mounted) await _applySync(pending);
     }
   }
 
@@ -174,7 +220,14 @@ class _MyIdPageState extends State<MyIdPage> {
     final generation = ++_loadGeneration;
     if (mounted) setState(() => _loading = true);
     MyIdState nextState;
+    String? account;
+    var currentKnown = false;
     try {
+      final currentUser = context.read<CurrentUserContext?>();
+      if (currentUser != null) {
+        account = (await currentUser.resolve())?.accountId;
+        currentKnown = true;
+      }
       nextState = await _myIdService!.getState();
     } on Object {
       // 本地展示读取失败时保留错误状态，不能把未知误认成访客。
@@ -186,7 +239,12 @@ class _MyIdPageState extends State<MyIdPage> {
     }
     if (!mounted || generation != _loadGeneration) return;
     setState(() {
-      if (!preserveError) _refreshError = null;
+      // 同账户旧缓存不能消错；切账户则不能带入上个账户的失败。
+      if (!preserveError ||
+          (currentKnown && _errorAccount != null && account != _errorAccount)) {
+        _refreshError = null;
+        _errorAccount = null;
+      }
       _state = nextState;
       _loading = false;
     });
