@@ -1,4 +1,5 @@
 import 'package:citizen_system/security/account_security_exception.dart';
+import 'package:citizen_system/app_log.dart';
 import 'package:flutter/foundation.dart';
 
 import 'dart:convert';
@@ -71,12 +72,14 @@ class _Runtime extends ChatSdk {
   final incoming = <List<int>>[];
   final sent = <List<int>>[];
   Future<void> Function()? beforeApply;
+  Object? failure;
   @override
   Future<List<List<int>>> synchronizeContacts({
     required ContactMlsExchange exchange,
     required Future<List<List<int>>> Function() snapshots,
     required ContactMlsApply apply,
   }) async {
+    if (failure != null) throw failure!;
     for (final payload in incoming) {
       await beforeApply?.call();
       await apply(payload);
@@ -113,6 +116,67 @@ class _Sessions implements SquareSessionProvider {
 
 void main() {
   useIsolatedIsar();
+  test('闭集诊断拒绝任意阶段、错误及操作文本', () {
+    final lines = <String>[];
+    runZoned(
+      () => AppLog.failure(
+        stage: 'private-stage',
+        code: 'private-code',
+        operation: 'private-operation',
+        statusCode: 999,
+      ),
+      zoneSpecification: ZoneSpecification(
+        print: (_, _, _, line) => lines.add(line),
+      ),
+    );
+    expect(lines, [
+      '[CitizenFailure] stage=other http=none code=other op=other',
+    ]);
+  });
+  test('MLS失败输出固定阶段与操作并保留联系人和待发，恢复后原数据同步', () async {
+    final runtime = _Runtime()
+      ..failure = const MlsNativeException(
+        MlsNativeErrorCode.requestConflict,
+        '合成私密原文',
+        operation: MlsNativeOperation.keyPackage,
+      );
+    final service = UserContactService(
+      accountSecurity: _Security(),
+      currentUserContext: _Current(),
+      sessionProvider: _Sessions(runtime),
+      autoSync: false,
+    );
+    await service.addContact(
+      cidNumber: 'CID-B',
+      accountAddress: ss58FromAccountIdText('0x${'22' * 32}'),
+      contactRemark: '合成备注',
+    );
+    final lines = <String>[];
+    await runZoned(
+      () => service.sync(),
+      zoneSpecification: ZoneSpecification(
+        print: (_, _, _, line) => lines.add(line),
+      ),
+    );
+    expect(
+      lines,
+      contains(
+        '[CitizenFailure] stage=contacts_mls http=none code=mls_request_conflict op=key_package',
+      ),
+    );
+    expect(lines.join(), isNot(contains('合成私密原文')));
+    expect(await service.getContacts(), hasLength(1));
+    expect((await service.readSyncState()).errorCode, 'mls_request_conflict');
+    expect(runtime.sent, isEmpty);
+    runtime.failure = null;
+    await service.sync();
+    expect((await service.readSyncState()).phase, ContactSyncPhase.synced);
+    expect(
+      (jsonDecode(utf8.decode(runtime.sent.single)) as Map)['records'],
+      hasLength(1),
+    );
+    await runtime.close();
+  });
   test('身份未知时不握手或同步，身份更新后原服务可重试', () async {
     final current = _Current()..changed = true;
     final sessions = _Sessions(_Runtime());
@@ -209,9 +273,9 @@ void main() {
         sessions.failure = null;
         await service.sync();
         expect((await service.readSyncState()).phase, ContactSyncPhase.synced);
-        final snapshot = jsonDecode(
-          utf8.decode(sessions.runtime.sent.single),
-        ) as Map<String, dynamic>;
+        final snapshot =
+            jsonDecode(utf8.decode(sessions.runtime.sent.single))
+                as Map<String, dynamic>;
         expect(snapshot['records'], hasLength(withPending ? 1 : 0));
         await sessions.runtime.close();
       });

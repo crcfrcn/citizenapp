@@ -1584,7 +1584,7 @@ packages:
     description:
       path: "."
       ref: main
-      resolved-ref: afec40d5b33181a11db237ad1fcfc59851015a4f
+      resolved-ref: 4487a096792184c11a04465082fc7f1dea11c02f
       url: "https://github.com/tuyutata/tatachatsdk.git"
     source: git
     version: "1.0.0"

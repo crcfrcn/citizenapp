@@ -20,6 +20,7 @@ import 'package:citizen_square/compose/square_chain_service.dart';
 import 'package:citizen_account/identity/square_session_provider.dart';
 import 'package:citizen_account/square_api_client.dart';
 import 'package:citizen_account/membership/membership_page.dart';
+import 'package:citizen_account/membership/membership_detail_page.dart';
 import 'package:citizen_account/membership/membership_revision.dart';
 import 'package:citizen_account/membership/subscription_service.dart';
 import 'package:citizen_account/identity/citizen_identity_chain_reader.dart';
@@ -1519,7 +1520,7 @@ void main() {
     SquareSessionStatus.serviceUnavailable,
     SquareSessionStatus.noWallet,
   ]) {
-    testWidgets('无缓存$status三卡常显且未知权益详情不允许订阅', (tester) async {
+    testWidgets('无缓存$status三卡完整展示且无套餐详情不允许订阅', (tester) async {
       final actions = _RecordingSubscriptionService();
       await _pump(
         tester,
@@ -1533,7 +1534,10 @@ void main() {
           findsOneWidget,
         );
       }
-      expect(find.text('权益待获取'), findsWidgets);
+      expect(find.text('权益待获取'), findsNothing);
+      expect(find.text('聊天附件 每个 10 MiB'), findsOneWidget);
+      expect(find.text('聊天附件 每个 100 MiB'), findsOneWidget);
+      expect(find.text('聊天附件 每个 5 GiB'), findsOneWidget);
       await tester.tap(
         find.descendant(
           of: find.byKey(const ValueKey('membership-front-card')),
@@ -1542,13 +1546,14 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('会员详情'), findsOneWidget);
-      expect(find.text('权益待获取'), findsOneWidget);
+      expect(find.text('权益待获取'), findsNothing);
+      expect(find.text('最大 10 MiB'), findsOneWidget);
       expect(actions.subscribed, isEmpty);
       expect(actions.authorizationCount, 0);
     });
   }
 
-  testWidgets('部分展示快照保留三卡，缺档不复制已知额度', (tester) async {
+  testWidgets('部分展示快照保留三档介绍，缺档不复制已有套餐', (tester) async {
     final partial = SquareMembershipState(
       active: false,
       paidUntil: 0,
@@ -1569,11 +1574,13 @@ void main() {
         findsOneWidget,
       );
     }
-    expect(find.text('权益待获取'), findsNWidgets(2));
-    expect(find.textContaining('聊天附件 每个'), findsOneWidget);
+    expect(find.text('权益待获取'), findsNothing);
+    expect(find.text('聊天附件 每个 100 MiB'), findsOneWidget);
+    expect(find.text('聊天附件 每个 5 GiB'), findsOneWidget);
+    expect(partial.plans, hasLength(1));
   });
 
-  testWidgets('没有缓存且会话未完成时三卡常显，不制造会员额度', (tester) async {
+  testWidgets('没有缓存且会话未完成时展示三档介绍，不构造会员套餐', (tester) async {
     final pendingSession = Completer<SquareSession?>();
     await tester.pumpWidget(
       MaterialApp(
@@ -1593,7 +1600,10 @@ void main() {
         findsOneWidget,
       );
     }
-    expect(find.text('权益待获取'), findsWidgets);
+    expect(find.text('权益待获取'), findsNothing);
+    expect(find.text('聊天附件 每个 10 MiB'), findsOneWidget);
+    expect(find.text('聊天附件 每个 100 MiB'), findsOneWidget);
+    expect(find.text('聊天附件 每个 5 GiB'), findsOneWidget);
     pendingSession.complete(null);
     await tester.pumpAndSettle();
     expect(
@@ -1603,7 +1613,10 @@ void main() {
       ),
       findsOneWidget,
     );
-    expect(find.text('权益待获取'), findsWidgets);
+    expect(find.text('权益待获取'), findsNothing);
+    expect(find.text('聊天附件 每个 10 MiB'), findsOneWidget);
+    expect(find.text('聊天附件 每个 100 MiB'), findsOneWidget);
+    expect(find.text('聊天附件 每个 5 GiB'), findsOneWidget);
   });
 
   testWidgets('已有本地会员时会话未绑定仍显示会员和同步说明，不授权订阅', (tester) async {
@@ -1823,22 +1836,172 @@ void main() {
     expect(image.colorBlendMode, BlendMode.srcIn);
   });
 
-  testWidgets('会员卡片和详情展示最新自由会员用量标准', (tester) async {
+  // 逐档核对用户确认的完整文案；缺少套餐仍可浏览，但不能据此执行订阅。
+  for (final entry in <String, List<String>>{
+    'freedom': [
+      '最大 10 MiB',
+      '9 张 · 最长边 1280px',
+      '最大 400 KiB',
+      '1 个 · 3 分钟 · 480p',
+      '最大 12 MiB',
+      '最多 3 万字',
+      '20 张（含首图）· 最长边 1280px',
+      '最多 1 个',
+      '10–50 字',
+      '256 GiB',
+      '1 GiB',
+      '5,000 次',
+      '1 GiB',
+      '512 MiB',
+      '128 次',
+    ],
+    'democracy': [
+      '最大 100 MiB',
+      '9 张 · 最长边 1600px',
+      '最大 800 KiB',
+      '1 个 · 30 分钟 · 720p',
+      '最大 200 MiB',
+      '最多 3 万字',
+      '50 张（含首图）· 最长边 1600px',
+      '最多 3 个',
+      '10–50 字',
+      '1 TiB',
+      '5 GiB',
+      '15,000 次',
+      '5 GiB',
+      '2 GiB',
+      '256 次',
+    ],
+    'spark': [
+      '最大 5 GiB',
+      '9 张 · 最长边 1920px',
+      '最大 1200 KiB',
+      '1 个 · 3 小时 · 1080p',
+      '最大 1800 MiB',
+      '最多 3 万字',
+      '100 张（含首图）· 最长边 1920px',
+      '最多 10 个',
+      '10–50 字',
+      '10 TiB',
+      '12 GiB',
+      '50,000 次',
+      '50 GiB',
+      '10 GiB',
+      '1,024 次',
+    ],
+  }.entries) {
+    testWidgets('${entry.key}无套餐详情完整展示且不授予订阅资格', (tester) async {
+      var subscriptions = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MembershipDetailPage(
+            memberLevel: entry.key,
+            plan: null,
+            priceFen: null,
+            actionLabel: '会员状态同步中',
+            subscribeEnabled: false,
+            onSubscribe: () => subscriptions++,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(membershipTitle(entry.key)), findsOneWidget);
+      expect(find.text('/月'), findsNothing);
+      expect(find.text('最长 3 分钟'), findsNWidgets(2));
+      expect(find.text('支持'), findsNWidgets(2));
+      for (final text in entry.value) {
+        // ListView按需构建；先让目标进入构建范围，再选中同值中的一项定位。
+        for (
+          var moves = 0;
+          find.text(text).evaluate().isEmpty && moves < 80;
+          moves++
+        ) {
+          await tester.drag(
+            find.byType(Scrollable).first,
+            const Offset(0, -120),
+          );
+          await tester.pump();
+        }
+        expect(find.text(text), findsWidgets, reason: '${entry.key}缺少$text');
+        await tester.ensureVisible(find.text(text).first);
+      }
+      await tester.scrollUntilVisible(
+        find.text('会员状态同步中'),
+        120,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('会员状态同步中'));
+      expect(subscriptions, 0);
+      expect(find.text('服务端用量快照'), findsNothing);
+      expect(find.text('权益待获取'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('真实套餐覆盖介绍且缺失日额度不冒充当前额度', (tester) async {
+    final original = membergatePlansFixture().first;
+    final updated = SquareMembershipPlan(
+      memberLevel: original.memberLevel,
+      displayName: original.displayName,
+      fileLimit: 20 * 1024 * 1024,
+      chat: original.chat,
+      document: original.document,
+      video: original.video,
+      article: original.article,
+      usage: original.usage,
+      imageBytes: original.imageBytes,
+      imageDimension: original.imageDimension,
+      resources: const {},
+      dailyLimits: const {'media_requests': 7000},
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MembershipDetailPage(
+          memberLevel: 'freedom',
+          plan: updated,
+          priceFen: null,
+          actionLabel: '会员状态同步中',
+          subscribeEnabled: false,
+          onSubscribe: () => fail('只读展示不能发起订阅'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('最大 20 MiB'), findsOneWidget);
+    expect(find.text('最大 10 MiB'), findsNothing);
+    await tester.scrollUntilVisible(
+      find.text('每日会员额度'),
+      120,
+      scrollable: find.byType(Scrollable).first,
+      maxScrolls: 80,
+    );
+    await tester.scrollUntilVisible(
+      find.text('7,000 次'),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('5,000 次'), findsNothing);
+    expect(find.text('待获取'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('会员卡片只展示主要权益，详情展示完整最新规格', (tester) async {
     await _pump(tester, _state());
 
     expect(find.text('聊天 文字/表情/贴纸/图片'), findsNWidgets(3));
+    expect(find.textContaining('每日媒体访问'), findsNothing);
     expect(find.text('语音/视频消息 3 分钟 · 语音/视频通话'), findsNWidgets(3));
     expect(find.text('聊天附件 每个 10 MiB'), findsOneWidget);
     expect(find.text('视频 3 分钟 · 480p · 12 MiB'), findsOneWidget);
-    expect(find.text('文章 3 万字 · 20 图 · 1 视频'), findsOneWidget);
+    expect(find.text('文章 3 万字 · 20 张图 · 1 个视频'), findsOneWidget);
     expect(find.textContaining('本周期 图'), findsNothing);
     expect(find.text('广场存储 256 GiB'), findsOneWidget);
     expect(find.text('视频 30 分钟 · 720p · 200 MiB'), findsOneWidget);
-    expect(find.text('文章 3 万字 · 50 图 · 3 视频'), findsOneWidget);
+    expect(find.text('文章 3 万字 · 50 张图 · 3 个视频'), findsOneWidget);
     expect(find.textContaining('并发上传'), findsNothing);
     expect(find.text('广场存储 1 TiB'), findsOneWidget);
     expect(find.text('视频 3 小时 · 1080p · 1800 MiB'), findsOneWidget);
-    expect(find.text('文章 3 万字 · 100 图 · 10 视频'), findsOneWidget);
+    expect(find.text('文章 3 万字 · 100 张图 · 10 个视频'), findsOneWidget);
     expect(find.textContaining('周期视频'), findsNothing);
     expect(find.text('广场存储 10 TiB'), findsOneWidget);
 

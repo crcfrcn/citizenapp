@@ -1,4 +1,6 @@
 import 'package:citizen_system/security/account_security_exception.dart';
+import 'package:citizen_system/app_log.dart';
+import 'package:tatachat_sdk/tatachat_sdk.dart' as chat_sdk;
 import 'package:citizen_storage/user_isar.dart' as user_store show Contact;
 
 import 'dart:async';
@@ -354,6 +356,7 @@ class UserContactService {
 
   Future<List<UserContact>> _performSync(_ContactOwner owner) async {
     await _setSyncState(owner, ContactSyncPhase.syncing);
+    var diagnosticStage = 'contacts_session';
     try {
       final session = await _sessionProvider.ensureSession();
       if (session == null ||
@@ -362,12 +365,14 @@ class UserContactService {
           session.bindRev != owner.bindRev) {
         throw const SquareApiException('通讯录同步需要当前 CID 的精确 MLS 会话');
       }
+      diagnosticStage = 'contacts_mls';
       final sent = await _sessionProvider.mlsRuntime.synchronizeContacts(
         exchange: (request) =>
             _apiClient.exchangeContactMls(session: session, request: request),
         snapshots: () => _contactSnapshots(owner),
         apply: (payload) => _applyContactSnapshot(owner, payload),
       );
+      diagnosticStage = 'contacts_apply';
       for (final payload in sent) {
         final records = _decodeRecords(owner, payload);
         for (final record in records) {
@@ -387,6 +392,22 @@ class UserContactService {
     } catch (error) {
       await _assertOwner(owner);
       final failure = SquareSessionResolution.fromError(error);
+      // 仅闭集阶段与SDK诊断元数据，不输出异常原文、身份或联系人内容。
+      AppLog.failure(
+        stage: diagnosticStage,
+        statusCode: failure.statusCode,
+        code:
+            failure.errorCode ??
+            switch (error) {
+              FormatException() => 'format',
+              TypeError() => 'type',
+              StateError() => 'state',
+              _ => null,
+            },
+        operation: error is chat_sdk.MlsNativeException
+            ? error.diagnosticOperation
+            : null,
+      );
       await _setSyncState(
         owner,
         failure.status == SquareSessionStatus.networkUnavailable
@@ -536,8 +557,9 @@ class UserContactService {
         'updated_at': value['updated_at'],
         'contact': value['contact'] == null
             ? null
-            : UserContact.fromJson(value['contact'] as Map<String, dynamic>)
-                  .toJson(),
+            : UserContact.fromJson(
+                value['contact'] as Map<String, dynamic>,
+              ).toJson(),
       });
     });
   }

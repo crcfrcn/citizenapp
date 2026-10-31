@@ -857,6 +857,7 @@ class _MembershipTierCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final level = memberLevel;
     final plan = this.plan;
+    final benefits = membershipBenefits(level, plan);
     final tierColor = _tierColor(level);
     final onTier = _onTierColor(level);
     // 当前所购且有效的档：高亮边框 + 顶带「当前会员」标记。
@@ -907,54 +908,51 @@ class _MembershipTierCard extends StatelessWidget {
                             color: tierColor,
                           ),
                           SizedBox(height: AppLayout.scaled(context, 10)),
-                          if (plan != null) ...[
-                            // 卡片提炼短行（每条 1 行）；完整权益见「查看详细权益」详情页。
-                            _ParamLine(
-                              icon: Icons.chat_bubble_outline,
-                              color: tierColor,
-                              text: '聊天 文字/表情/贴纸/图片',
-                            ),
-                            SizedBox(height: AppLayout.scaled(context, 8)),
-                            _ParamLine(
-                              icon: Icons.mic_none_outlined,
-                              color: tierColor,
-                              text: '语音/视频消息 ${plan.chatVoiceLabel} · 语音/视频通话',
-                            ),
-                            SizedBox(height: AppLayout.scaled(context, 8)),
-                            _ParamLine(
-                              icon: Icons.attach_file_outlined,
-                              color: tierColor,
-                              text: '聊天附件 每个 ${plan.fileSizeLabel}',
-                            ),
-                            SizedBox(height: AppLayout.scaled(context, 8)),
-                            _ParamLine(
-                              icon: Icons.videocam_outlined,
-                              color: tierColor,
-                              text:
-                                  '视频 ${plan.videoDurationLabel} · ${plan.videoQualityLabel} · ${plan.videoBytesLabel}',
-                            ),
-                            SizedBox(height: AppLayout.scaled(context, 8)),
-                            _ParamLine(
-                              icon: Icons.photo_outlined,
-                              color: tierColor,
-                              text:
-                                  '公文图片 ${plan.document.maxImages} 张 · ${plan.documentImageLabel}',
-                            ),
-                            SizedBox(height: AppLayout.scaled(context, 8)),
-                            _ParamLine(
-                              icon: Icons.article_outlined,
-                              color: tierColor,
-                              text:
-                                  '文章 ${_wanLabel(plan.article.bodyMaxChars)} · ${plan.article.maxImages} 图 · ${plan.article.maxVideos} 视频',
-                            ),
-                            SizedBox(height: AppLayout.scaled(context, 8)),
-                            _ParamLine(
-                              icon: Icons.storage_outlined,
-                              color: tierColor,
-                              text: '广场存储 ${plan.storageSizeLabel}',
-                            ),
-                          ] else
-                            const Text('权益待获取'),
+                          // 原七行顺序、图标和排版保持；只更新文案，完整权益见详情。
+                          _ParamLine(
+                            icon: Icons.chat_bubble_outline,
+                            color: tierColor,
+                            text: '聊天 文字/表情/贴纸/图片',
+                          ),
+                          SizedBox(height: AppLayout.scaled(context, 8)),
+                          _ParamLine(
+                            icon: Icons.mic_none_outlined,
+                            color: tierColor,
+                            text: '语音/视频消息 ${benefits.voice} · 语音/视频通话',
+                          ),
+                          SizedBox(height: AppLayout.scaled(context, 8)),
+                          _ParamLine(
+                            icon: Icons.attach_file_outlined,
+                            color: tierColor,
+                            text: '聊天附件 每个 ${benefits.file}',
+                          ),
+                          SizedBox(height: AppLayout.scaled(context, 8)),
+                          _ParamLine(
+                            icon: Icons.videocam_outlined,
+                            color: tierColor,
+                            text:
+                                '视频 ${benefits.videoDuration} · ${benefits.videoQuality} · ${benefits.videoSize}',
+                          ),
+                          SizedBox(height: AppLayout.scaled(context, 8)),
+                          _ParamLine(
+                            icon: Icons.photo_outlined,
+                            color: tierColor,
+                            text:
+                                '公文 ${benefits.documentText} · ${benefits.documentImages}图',
+                          ),
+                          SizedBox(height: AppLayout.scaled(context, 8)),
+                          _ParamLine(
+                            icon: Icons.article_outlined,
+                            color: tierColor,
+                            text:
+                                '文章 ${benefits.articleBody} · ${benefits.articleImages}图 · ${benefits.articleVideos}视频',
+                          ),
+                          SizedBox(height: AppLayout.scaled(context, 8)),
+                          _ParamLine(
+                            icon: Icons.storage_outlined,
+                            color: tierColor,
+                            text: '广场存储 ${benefits.storage}',
+                          ),
                         ],
                       ),
                     ),
@@ -1233,15 +1231,6 @@ class _MembershipTierCard extends StatelessWidget {
     );
   }
 }
-
-/// 整数千分号：1500 → "1,500"。
-String _thousands(int n) =>
-    n.toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+$)'), (_) => ',');
-
-/// 字数「万」简写：20000 → "2 万字"；非整万回退千分号原值。
-String _wanLabel(int chars) => chars >= 10000 && chars % 10000 == 0
-    ? '${chars ~/ 10000} 万字'
-    : '${_thousands(chars)} 字';
 
 /// 同一业务操作只签一次：新订阅、取消当前订阅、换到另一档分别提交一笔链上交易。
 enum _SubscribeAction { subscribe, change, cancel }

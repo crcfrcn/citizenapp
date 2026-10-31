@@ -37,10 +37,8 @@ class AppLog {
         CitizenSdkErrorCode.integrity,
         'integrity: SQLite resource operation failed',
       ): 'sqlite_operation',
-      (
-        CitizenSdkErrorCode.integrity,
-        'integrity: SQLite job was not executed',
-      ): 'sqlite_job',
+      (CitizenSdkErrorCode.integrity, 'integrity: SQLite job was not executed'):
+          'sqlite_job',
       (
         CitizenSdkErrorCode.integrity,
         'integrity: host wallet profile load failed',
@@ -53,10 +51,8 @@ class AppLog {
         CitizenSdkErrorCode.integrity,
         'integrity: wallet profile revision disagrees with its typed payload',
       ): 'wallet_revision',
-      (
-        CitizenSdkErrorCode.integrity,
-        'CitizenSDK native operation failed',
-      ): 'native_unspecified',
+      (CitizenSdkErrorCode.integrity, 'CitizenSDK native operation failed'):
+          'native_unspecified',
       (
         CitizenSdkErrorCode.integrity,
         'integrity: public database schema version differs',
@@ -139,7 +135,12 @@ class AppLog {
 
   /// 正式包可用的安全失败事件；未知输入归other，不落自由文本诊断文件。
   /// 白名单必须精确匹配，不能靠截断、前缀或异常toString清洗秘密。
-  static void failure({required String stage, int? statusCode, String? code}) {
+  static void failure({
+    required String stage,
+    int? statusCode,
+    String? code,
+    String? operation,
+  }) {
     const stages = {
       'identity',
       'challenge',
@@ -148,6 +149,9 @@ class AppLog {
       'session',
       'request',
       'prepare',
+      'contacts_session',
+      'contacts_mls',
+      'contacts_apply',
       'topup_config',
       'proposal_institutions',
       'proposal_feed',
@@ -195,6 +199,9 @@ class AppLog {
       'mls_invalid_request',
       'mls_invalid_response',
       'mls_operation_failed',
+      'mls_request_conflict',
+      'mls_pending_full',
+      'mls_key_package_failed',
       'topup_unconfigured',
       'topup_network_unconfigured',
       'topup_intent_unconfigured',
@@ -231,12 +238,27 @@ class AppLog {
     };
     final safeStage = stages.contains(stage) ? stage : 'other';
     final safeCode = codes.contains(code) ? code : 'other';
+    // 操作只接受SDK公开固定名称，任意动态文本不能进入设备日志。
+    const operations = {
+      'unknown',
+      'identity',
+      'store',
+      'key_package',
+      'group_create',
+      'group_add',
+      'group_remove',
+      'group_message',
+      'group_process',
+      'group_state',
+    };
+    final safeOperation = operations.contains(operation) ? operation : 'other';
     final status = statusCode != null && statusCode >= 100 && statusCode <= 599
         ? '$statusCode'
         : 'none';
     try {
       debugPrintSynchronously(
-        '[CitizenFailure] stage=$safeStage http=$status code=$safeCode',
+        '[CitizenFailure] stage=$safeStage http=$status code=$safeCode'
+        '${operation == null ? '' : ' op=$safeOperation'}',
       );
     } on Object {
       // 诊断出口失败不能替换原业务异常或改变认证、付款结果。
@@ -310,7 +332,9 @@ class AppLog {
     const states = {'waiting', 'started', 'empty', 'nonempty'};
     final safeState = states.contains(state) ? state : 'other';
     try {
-      debugPrintSynchronously('[CitizenRead] stage=proposal_first state=$safeState');
+      debugPrintSynchronously(
+        '[CitizenRead] stage=proposal_first state=$safeState',
+      );
     } on Object {
       // 完成回执出口失败不得改变真实读取结果。
     }
@@ -321,8 +345,14 @@ class AppLog {
   static bool topupConnection(Object? value) {
     const stages = {'start', 'connect', 'uri', 'modal', 'end'};
     const flags = [
-      'listening', 'connecting', 'emitted', 'provider_uri',
-      'modal_uri', 'matched', 'baseline', 'complete',
+      'listening',
+      'connecting',
+      'emitted',
+      'provider_uri',
+      'modal_uri',
+      'matched',
+      'baseline',
+      'complete',
     ];
     if (value is! Map ||
         value.length != flags.length + 1 ||
@@ -342,22 +372,53 @@ class AppLog {
   }
 
   static const _topupErrors = {
-    'none', 'other', 'type', 'offline', 'socket_interrupted',
-    'subscribe_interrupted', 'socket_closed', 'socket_missing',
-    'proposal_expired', 'client_missing', 'publish_failed', 'http_401',
-    'http_403', 'http_429', 'http_503', 'socket_stalled', 'socket_failed',
-    'user_closed', 'origin_denied', 'invalid_key', 'project_missing',
-    'relay_unauthorized', 'wallet_open_failed', 'wallet_mismatch',
-    'connect_timeout', 'request_timeout', 'cancelled', 'user_rejected',
+    'none',
+    'other',
+    'type',
+    'offline',
+    'socket_interrupted',
+    'subscribe_interrupted',
+    'socket_closed',
+    'socket_missing',
+    'proposal_expired',
+    'client_missing',
+    'publish_failed',
+    'http_401',
+    'http_403',
+    'http_429',
+    'http_503',
+    'socket_stalled',
+    'socket_failed',
+    'user_closed',
+    'origin_denied',
+    'invalid_key',
+    'project_missing',
+    'relay_unauthorized',
+    'wallet_open_failed',
+    'wallet_mismatch',
+    'connect_timeout',
+    'request_timeout',
+    'cancelled',
+    'user_rejected',
   };
 
   /// 业务失败仅记录固定步骤和类别，未知输入拒绝，不回显钱包或服务器正文。
   static bool topupFailure(Object? step, Object? error) {
-    const steps = {'connection', 'account', 'intent', 'authorization',
-      'transaction', 'submitting', 'submitted', 'complete'};
+    const steps = {
+      'connection',
+      'account',
+      'intent',
+      'authorization',
+      'transaction',
+      'submitting',
+      'submitted',
+      'complete',
+    };
     if (!steps.contains(step) || !_topupErrors.contains(error)) return false;
     try {
-      debugPrintSynchronously('[CitizenTopup] stage=failure step=$step error=$error');
+      debugPrintSynchronously(
+        '[CitizenTopup] stage=failure step=$step error=$error',
+      );
     } on Object {
       // 日志失败不替换本次付款结果。
     }
@@ -367,38 +428,91 @@ class AppLog {
   /// SDK错误与连接竞赛只接收精确闭集，不接收message、topic、URI或原始日志参数。
   static bool topupConnectTrace(Object? value) {
     const events = {
-      'ready', 'connect', 'pairing', 'relay_open', 'relay_closed', 'relay_error',
-      'subscribed', 'published', 'attempt', 'sdk_error', 'socket_close', 'end',
-      'provider_resolved', 'provider_rejected', 'modal_closed',
-      'modal_open_failed', 'setup_rejected',
-      'account', 'intent', 'authorization', 'transaction', 'submitting',
-      'submitted', 'complete', 'failure',
+      'ready',
+      'connect',
+      'pairing',
+      'relay_open',
+      'relay_closed',
+      'relay_error',
+      'subscribed',
+      'published',
+      'attempt',
+      'sdk_error',
+      'socket_close',
+      'end',
+      'provider_resolved',
+      'provider_rejected',
+      'modal_closed',
+      'modal_open_failed',
+      'setup_rejected',
+      'account',
+      'intent',
+      'authorization',
+      'transaction',
+      'submitting',
+      'submitted',
+      'complete',
+      'failure',
     };
     const winners = {
-      'pending', 'provider_resolved', 'provider_rejected', 'modal_closed',
-      'modal_open_failed', 'setup_rejected',
+      'pending',
+      'provider_resolved',
+      'provider_rejected',
+      'modal_closed',
+      'modal_open_failed',
+      'setup_rejected',
     };
     const codes = {
-      'none', '0', '401', '403', '429', '503', '1000', '1001', '1006',
-      '1008', '1011', '1013', '3000', '4001', '-32600', '-32601', '-32602', '-32603',
+      'none',
+      '0',
+      '401',
+      '403',
+      '429',
+      '503',
+      '1000',
+      '1001',
+      '1006',
+      '1008',
+      '1011',
+      '1013',
+      '3000',
+      '4001',
+      '-32600',
+      '-32601',
+      '-32602',
+      '-32603',
     };
     const flags = [
-      'pairing', 'subscribed', 'published', 'relay_connected',
-      'relay_connecting', 'complete',
+      'pairing',
+      'subscribed',
+      'published',
+      'relay_connected',
+      'relay_connecting',
+      'complete',
     ];
-    if (value is! Map || value.length != 13 || value['stage'] != 'trace' ||
-        !events.contains(value['event']) || !winners.contains(value['winner']) ||
-        !_topupErrors.contains(value['error']) || !codes.contains(value['code']) ||
+    if (value is! Map ||
+        value.length != 13 ||
+        value['stage'] != 'trace' ||
+        !events.contains(value['event']) ||
+        !winners.contains(value['winner']) ||
+        !_topupErrors.contains(value['error']) ||
+        !codes.contains(value['code']) ||
         flags.any((key) => value[key] is! bool) ||
-        ['attempts', 'stalls'].any((key) => value[key] is! int ||
-            (value[key] as int) < 0 || (value[key] as int) > 20)) {
+        ['attempts', 'stalls'].any(
+          (key) =>
+              value[key] is! int ||
+              (value[key] as int) < 0 ||
+              (value[key] as int) > 20,
+        )) {
       return false;
     }
     try {
       final fields = flags.map((key) => '$key=${value[key] == true ? 1 : 0}');
-      debugPrintSynchronously('[CitizenTopup] stage=trace event=${value['event']} '
-          'winner=${value['winner']} error=${value['error']} code=${value['code']} '
-          '${fields.join(' ')} attempts=${value['attempts']} stalls=${value['stalls']}');
+      debugPrintSynchronously(
+        '[CitizenTopup] stage=trace event=${value['event']} '
+        'winner=${value['winner']} error=${value['error']} code=${value['code']} '
+        '${fields.join(' ')} attempts=${value['attempts']} stalls=${value['stalls']}',
+      );
     } on Object {
       // 取证失败不能改变原Promise或付款结果。
     }

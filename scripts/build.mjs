@@ -8,6 +8,18 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const controller = new AbortController();
+// Apple嵌套代码及权限由本产品交付，不让安装器猜测产品结构。
+export function appleSigning(app, entitlements = null) {
+ const targets=[];
+ const visit=directory=>{for(const name of readdirSync(directory).sort()){
+  const file=join(directory,name),info=lstatSync(file);
+  if(info.isSymbolicLink())continue;
+  if(info.isDirectory())visit(file);
+  if(name.endsWith('.framework')||name.endsWith('.dylib')||name.endsWith('.appex'))targets.push({path:relative(app,file).split(sep).join('/'),entitlements:null});
+ }};
+ visit(app);return [...targets,{path:'.',entitlements}];
+}
+
 const groups = new Set();
 let activeMarker;
 
@@ -81,7 +93,7 @@ export async function build(platform, phase = 'app', options={}) {
     writeFileSync(activeMarker, JSON.stringify({pid: process.pid}), {flag: 'wx', mode: 0o600});
     try {
         if (phase === 'dependencies') {
-            // 聊天SDK已交付正式原生组件，本机与自动化均不重复编译。
+            // SDK原生组件已由统一工程装配准备，依赖阶段不重复编译。
             return;
         }
         const flutter = join(environment.FLUTTER_ROOT, 'bin/flutter');
@@ -253,10 +265,11 @@ for (const name of ['citizen_sdk', 'tatachat_sdk']) {
     const local = resolve(root, '..', product);
     const read = path => JSON.parse(execute('gh', ['api', 'repos/' + repository + '/' + path],
         {encoding: 'utf8', env: environment}));
-    const selected = name === 'tatachat_sdk' ? await selectSDKRelease(product, read) :
-        environment.GITHUB_ACTIONS === 'true' ? await selectSDKArtifact(read) : null;
-    // 聊天SDK必须与最新正式发布准确一致，不以祖先关系或本机未发布main代替。
-    if (name === 'tatachat_sdk') {
+    // 本机读取两个SDK已保存的main；正式自动化消费各SDK原有正式交付。
+    const selected = environment.GITHUB_ACTIONS === 'true' ?
+        name === 'tatachat_sdk' ? await selectSDKRelease(product, read) : await selectSDKArtifact(read) : null;
+    // 正式发布仍与聊天SDK的原消费锁准确一致。
+    if (selected && name === 'tatachat_sdk') {
         const locked = /^[ \t]*resolved-ref: ("?)([a-f0-9]{40})\1[ \t]*$/m.exec(record || '')?.[2];
         if (locked !== selected.proof.git_commit_sha) {
             throw Error('tatachatsdk原锁与最新正式Release提交不一致，请更新消费锁');
@@ -291,9 +304,8 @@ for (const name of ['citizen_sdk', 'tatachat_sdk']) {
             await run('unzip', ['-q', join(directory, selected.release.tag_name + '.zip'), '-d', expanded], root, false, environment);
             sdk.createFlutterSourceView(join(expanded, 'project'), output);
         }
-    } else {
-        sdk.createFlutterSourceView(source, output);
-        if (name === 'citizen_sdk') {
+    } else if (name === 'citizen_sdk') {
+            sdk.createFlutterSourceView(source, output);
             const settings = await import(pathToFileURL(join(source, 'scripts/config.mjs')));
             const tools = settings.tools;
             const nativeEnvironment = {...environment,
@@ -316,7 +328,11 @@ for (const name of ['citizen_sdk', 'tatachat_sdk']) {
                 [join(source, 'scripts/build.mjs'), 'native', environment.PLATFORM === 'ios' ? 'Apple' : 'Android', '--device'],
                 source, true, nativeEnvironment));
             cpSync(result.output, output, {recursive: true});
-        }
+    } else {
+        // 聊天SDK完整构建归其公开入口，App只装配返回的普通工程。
+        const result = JSON.parse(await run(globalThis.process.execPath,
+            [join(source, 'scripts/build.mjs')], source, true, environment));
+        cpSync(result.output, output, {recursive: true});
     }
     mapSdkSource(project,name,output);
     sources.push(output);
@@ -597,7 +613,7 @@ export async function compile(platform){
  if(realpathSync(parent)!==parent)throw Error('本机编译现场经过链接');
  const work=mkdtempSync(join(parent,'local-'));let safe=true;
  const cache=join(root,'target/cache');mkdirSync(cache,{recursive:true});
- // 本机构建号取本地声明；公民SDK用本机提交，聊天SDK用正式Release，安装仍归控制台。
+ // 本机构建号取本地声明；两个SDK均用本机main已保存提交，安装仍归控制台。
  const version=/^version:\s*([^+\s]+)(?:\+(\d+))?/mu.exec(readFileSync(join(root,'pubspec.yaml'),'utf8'));
  const environment={...process.env,GITHUB_ACTIONS:'false',GITHUB_WORKSPACE:root,WORK:work,PLATFORM:platform,
   CITIZENAPP_VERSION:version[1],CITIZENAPP_BUILD_NUMBER:version[2]||'1',
@@ -617,7 +633,7 @@ export async function compile(platform){
   await build(platform,'app',{local:true,work,environment});
   const output=join(work,'artifact'),files=readdirSync(output).filter(name=>name.endsWith(platform==='ios'?'.app':'.apk'));
   const sdk=environment.ANDROID_HOME;
-  process.stdout.write('TATA_COMPILE '+JSON.stringify({schema:1,product_id:'citizenapp',platform,work,artifact:join(output,files[0]),
+  process.stdout.write('TATA_COMPILE '+JSON.stringify({schema:1,product_id:'citizenapp',platform,work,artifact:join(output,files[0]),signing:platform==='ios'?appleSigning(join(output,files[0]),join(work,'project/ios/Runner/Runner.entitlements')):[],
    tools:platform==='android'?{adb:join(sdk,'platform-tools/adb'),apksigner:join(sdk,'build-tools/36.0.0/apksigner'),apkanalyzer:join(sdk,'cmdline-tools/latest/bin/apkanalyzer')}:{},
    environment:platform==='android'?{JAVA_HOME:environment.JAVA_HOME,ANDROID_HOME:sdk}:{}})+'\n');
   for await(const part of process.stdin) {} // 消费结束后再释放本轮现场。
