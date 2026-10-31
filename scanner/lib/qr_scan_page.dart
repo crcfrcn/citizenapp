@@ -90,6 +90,9 @@ class QrScanPage extends StatefulWidget {
 }
 
 class _QrScanPageState extends State<QrScanPage> {
+  // 设备错误属于扫码页，不能排队到返回后的钱包/通讯录页面。
+  final _failureMessenger = GlobalKey<ScaffoldMessengerState>();
+  ScaffoldFeatureController<SnackBar, SnackBarClosedReason>? _failureNotice;
   CitizenQrCapture? _capture;
   CitizenSdk get _qr => widget.qr ?? context.read<CitizenSdk>();
   CitizenQrScanPurpose get _capturePurpose =>
@@ -160,6 +163,7 @@ class _QrScanPageState extends State<QrScanPage> {
       return;
     }
     _handled = true;
+    _clearScannerFailure();
 
     try {
       await _capture?.pause();
@@ -322,18 +326,33 @@ class _QrScanPageState extends State<QrScanPage> {
 
   /// 设备层只报告相机、权限或图片识别失败；码型错误仍由当前业务入口解释。
   void _showScannerFailure(ScannerFailure failure) {
-    if (!mounted || _closing) return;
+    if (!mounted || _closing || _failureNotice != null) return;
+    final messenger = _failureMessenger.currentState;
+    if (messenger == null) return;
     final message = failure.kind == ScannerFailureKind.noQrCode
         ? '未识别到二维码'
         : failure.message;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    final notice = messenger.showSnackBar(SnackBar(content: Text(message)));
+    _failureNotice = notice;
+    unawaited(
+      notice.closed.then((_) {
+        if (identical(_failureNotice, notice)) {
+          _failureNotice = null;
+        }
+      }),
+    );
+  }
+
+  void _clearScannerFailure() {
+    _failureMessenger.currentState?.removeCurrentSnackBar();
+    _failureNotice = null;
   }
 
   /// 页级返回：先置 _closing，让 _handleCode 的 finally 不再重启相机
   /// （本页正在 pop/dispose，重启相机会与 dispose 竞争抛错）。
   void _popPage([Object? result]) {
     _closing = true;
+    _clearScannerFailure();
     Navigator.of(context).pop(result);
   }
 
@@ -359,7 +378,9 @@ class _QrScanPageState extends State<QrScanPage> {
     final body = result.document!;
     // 用户码只声明账户,展示地址在本机由 account_id 派生。
     _popPage(
-      QrScanTransferResult(toAddress: citizenSs58FromAccountId(body.accountId!)),
+      QrScanTransferResult(
+        toAddress: citizenSs58FromAccountId(body.accountId!),
+      ),
     );
   }
 
@@ -376,9 +397,7 @@ class _QrScanPageState extends State<QrScanPage> {
         SnackBar(
           content: Text(
             // 码内不含昵称;这里只报 CID,真实昵称由通讯录按 CID 拉资料后展示。
-            created
-                ? '已加入通讯录：${body.cidNumber}'
-                : '已更新通讯录：${body.cidNumber}',
+            created ? '已加入通讯录：${body.cidNumber}' : '已更新通讯录：${body.cidNumber}',
           ),
         ),
       );
@@ -511,117 +530,123 @@ class _QrScanPageState extends State<QrScanPage> {
     // 扫描框偏移：向上移动 80 像素
     const double scanBoxOffsetY = -80;
 
-    return Scaffold(
-      appBar: AppBar(title: Text(_titleText), centerTitle: true),
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          // 摄像头画面
-          ScannerView(
-            qr: _qr,
-            purpose: _capturePurpose,
-            onCapture: (capture) {
-              _capture = capture;
-              if (_handled || _closing) unawaited(capture?.pause());
-            },
-            onRawValue: (raw) => unawaited(_handleCode(raw)),
-            onFailure: _showScannerFailure,
-          ),
-
-          // 扫描框 + 半透明遮罩
-          CustomPaint(
-            painter: _ScanOverlayPainter(
-              scanBoxSize: scanBoxSize,
-              offsetY: scanBoxOffsetY,
+    return ScaffoldMessenger(
+      key: _failureMessenger,
+      child: Scaffold(
+        appBar: AppBar(title: Text(_titleText), centerTitle: true),
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            // 摄像头画面
+            ScannerView(
+              qr: _qr,
+              purpose: _capturePurpose,
+              onCapture: (capture) {
+                _capture = capture;
+                if (_handled || _closing) unawaited(capture?.pause());
+              },
+              onRawValue: (raw) => unawaited(_handleCode(raw)),
+              // 已接收码后，设备的延迟错误不能覆盖当前业务处理结果。
+              onFailure: (failure) {
+                if (!_handled) _showScannerFailure(failure);
+              },
             ),
-            child: const SizedBox.expand(),
-          ),
 
-          // 扫描框四角装饰（与遮罩使用相同像素偏移）
-          Center(
-            child: Transform.translate(
-              offset: const Offset(0, scanBoxOffsetY),
-              child: SizedBox(
-                width: scanBoxSize,
-                height: scanBoxSize,
-                child: CustomPaint(painter: _ScanCornerPainter()),
+            // 扫描框 + 半透明遮罩
+            CustomPaint(
+              painter: _ScanOverlayPainter(
+                scanBoxSize: scanBoxSize,
+                offsetY: scanBoxOffsetY,
               ),
+              child: const SizedBox.expand(),
             ),
-          ),
 
-          // 提示文字（扫描框下方）
-          Center(
-            child: Transform.translate(
-              offset: const Offset(0, scanBoxOffsetY + scanBoxSize / 2 + 24),
-              child: Text(
-                _hintText,
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: AppLayout.scaled(context, 14),
+            // 扫描框四角装饰（与遮罩使用相同像素偏移）
+            Center(
+              child: Transform.translate(
+                offset: const Offset(0, scanBoxOffsetY),
+                child: SizedBox(
+                  width: scanBoxSize,
+                  height: scanBoxSize,
+                  child: CustomPaint(painter: _ScanCornerPainter()),
                 ),
               ),
             ),
-          ),
 
-          // 底部工具栏：相册 + 手电筒
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: Padding(
-              padding: EdgeInsets.only(
-                bottom: AppLayout.scaled(context, 60),
-                left: AppLayout.scaled(context, 48),
-                right: AppLayout.scaled(context, 48),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  // 相册图标
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        onPressed: _scanFromGallery,
-                        icon: const Icon(Icons.photo_library_outlined),
-                        iconSize: AppLayout.scaled(context, 32),
-                        color: Colors.white,
-                      ),
-                      Text(
-                        '相册',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: AppLayout.scaled(context, 12),
-                        ),
-                      ),
-                    ],
+            // 提示文字（扫描框下方）
+            Center(
+              child: Transform.translate(
+                offset: const Offset(0, scanBoxOffsetY + scanBoxSize / 2 + 24),
+                child: Text(
+                  _hintText,
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: AppLayout.scaled(context, 14),
                   ),
-                  // 手电筒图标
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        onPressed: _toggleTorch,
-                        icon: Icon(
-                          _torchOn
-                              ? Icons.flashlight_on
-                              : Icons.flashlight_off_outlined,
-                        ),
-                        iconSize: AppLayout.scaled(context, 32),
-                        color: _torchOn ? Colors.amber : Colors.white,
-                      ),
-                      Text(
-                        _torchOn ? '关闭' : '手电筒',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: AppLayout.scaled(context, 12),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                ),
               ),
             ),
-          ),
-        ],
+
+            // 底部工具栏：相册 + 手电筒
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: AppLayout.scaled(context, 60),
+                  left: AppLayout.scaled(context, 48),
+                  right: AppLayout.scaled(context, 48),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    // 相册图标
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          onPressed: _scanFromGallery,
+                          icon: const Icon(Icons.photo_library_outlined),
+                          iconSize: AppLayout.scaled(context, 32),
+                          color: Colors.white,
+                        ),
+                        Text(
+                          '相册',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: AppLayout.scaled(context, 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                    // 手电筒图标
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          onPressed: _toggleTorch,
+                          icon: Icon(
+                            _torchOn
+                                ? Icons.flashlight_on
+                                : Icons.flashlight_off_outlined,
+                          ),
+                          iconSize: AppLayout.scaled(context, 32),
+                          color: _torchOn ? Colors.amber : Colors.white,
+                        ),
+                        Text(
+                          _torchOn ? '关闭' : '手电筒',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: AppLayout.scaled(context, 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

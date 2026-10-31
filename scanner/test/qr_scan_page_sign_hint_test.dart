@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:citizen_testing/fake_citizen_sdk.dart';
@@ -98,6 +99,115 @@ void main() {
     expect(find.text('这不是用户码'), findsOneWidget);
     expect(find.textContaining('只有「用户主页」出示的用户码'), findsOneWidget);
   });
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    testWidgets('$platform冷钱包账户码返回后不残留排队错误且不清调用页成功提示', (tester) async {
+      final nav = GlobalKey<NavigatorState>();
+      final messenger = GlobalKey<ScaffoldMessengerState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: nav,
+          scaffoldMessengerKey: messenger,
+          theme: ThemeData(platform: platform),
+          home: const Scaffold(body: Text('钱包调用页')),
+        ),
+      );
+      Object? result;
+      var returns = 0;
+      unawaited(
+        nav.currentState!
+            .push<Object?>(
+              MaterialPageRoute(
+                builder: (_) => QrScanPage(
+                  mode: QrScanMode.coldAccountImport,
+                  qr: _core.sdk,
+                ),
+              ),
+            )
+            .then((value) {
+              result = value;
+              returns++;
+              messenger.currentState!.showSnackBar(
+                const SnackBar(content: Text('调用页成功提示')),
+              );
+            }),
+      );
+      await tester.pumpAndSettle();
+      await scannerUntil(
+        tester,
+        () => find.byType(Texture).evaluate().isNotEmpty,
+      );
+      for (var i = 0; i < 4; i++) {
+        _core.fixture.emit('qrCaptureError', [
+          'camera',
+          CitizenSdkErrorCode.unavailable.index + 1,
+          'synthetic camera failure',
+          CitizenSdkFailureStage.admission.index + 1,
+        ]);
+      }
+      await scannerUntil(tester, () => find.text('扫码失败').evaluate().isNotEmpty);
+      expect(find.text('扫码失败'), findsOneWidget);
+      _core.fixture.scanText(
+        accountCode,
+        CitizenQrScanPurpose.coldAccountImport,
+      );
+      _core.fixture.scanText(
+        accountCode,
+        CitizenQrScanPurpose.coldAccountImport,
+      );
+      await scannerUntil(tester, () => returns == 1);
+      await tester.pumpAndSettle();
+      expect(result, accountCode);
+      expect(returns, 1);
+      expect(find.text('调用页成功提示'), findsOneWidget);
+      expect(find.text('扫码失败'), findsNothing);
+      await tester.pump(const Duration(seconds: 12));
+      await tester.pumpAndSettle();
+      expect(find.text('扫码失败'), findsNothing);
+      await scannerUntil(tester, () => _core.fixture.nativeResources.isEmpty);
+    });
+  }
+  testWidgets('取消扫码只销毁本页错误提示，保留外层已有提示', (tester) async {
+    final nav = GlobalKey<NavigatorState>();
+    final messenger = GlobalKey<ScaffoldMessengerState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: nav,
+        scaffoldMessengerKey: messenger,
+        home: const Scaffold(body: Text('调用页')),
+      ),
+    );
+    messenger.currentState!.showSnackBar(
+      const SnackBar(content: Text('外层已有提示'), duration: Duration(minutes: 1)),
+    );
+    await tester.pumpAndSettle();
+    unawaited(
+      nav.currentState!.push<Object?>(
+        MaterialPageRoute(
+          builder: (_) =>
+              QrScanPage(mode: QrScanMode.coldAccountImport, qr: _core.sdk),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await scannerUntil(
+      tester,
+      () => find.byType(Texture).evaluate().isNotEmpty,
+    );
+    _core.fixture.emit('qrCaptureError', [
+      'camera',
+      CitizenSdkErrorCode.permissionDenied.index + 1,
+      'synthetic permission failure',
+      CitizenSdkFailureStage.admission.index + 1,
+    ]);
+    await scannerUntil(tester, () => find.text('扫码失败').evaluate().isNotEmpty);
+    nav.currentState!.pop();
+    await tester.pumpAndSettle();
+    expect(find.text('外层已有提示'), findsOneWidget);
+    expect(find.text('扫码失败'), findsNothing);
+    await scannerUntil(tester, () => _core.fixture.nativeResources.isEmpty);
+    messenger.currentState!.removeCurrentSnackBar();
+    await tester.pumpAndSettle();
+  });
 }
 
 Future<GlobalKey<NavigatorState>> pumpScannerHost(WidgetTester tester) async {
@@ -141,3 +251,11 @@ Future<QrScanTransferResult?> unawaitedPush(
 
 // 页面提示只读取真实Core的文档类别，不在App另写解析器。
 CitizenSdk _qrFor(String code) => _core.sdk;
+
+Future<void> scannerUntil(WidgetTester tester, bool Function() done) async {
+  for (var i = 0; i < 100 && !done(); i++) {
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump(const Duration(milliseconds: 10));
+  }
+  expect(done(), isTrue);
+}

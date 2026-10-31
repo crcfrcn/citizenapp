@@ -30,6 +30,7 @@ class _ScannerViewState extends State<ScannerView> with WidgetsBindingObserver {
   Future<void>? _opening;
   final List<StreamSubscription<dynamic>> _subscriptions = [];
   int _generation = 0;
+  int _lifecycle = 0;
 
   @override
   void initState() {
@@ -41,12 +42,14 @@ class _ScannerViewState extends State<ScannerView> with WidgetsBindingObserver {
   @override
   void didUpdateWidget(covariant ScannerView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.qr, widget.qr) || oldWidget.purpose != widget.purpose) {
+    if (!identical(oldWidget.qr, widget.qr) ||
+        oldWidget.purpose != widget.purpose) {
       _scheduleOpen();
     }
   }
 
   void _scheduleOpen() {
+    ++_lifecycle;
     final generation = ++_generation;
     final previous = _opening;
     final qr = widget.qr;
@@ -62,27 +65,43 @@ class _ScannerViewState extends State<ScannerView> with WidgetsBindingObserver {
           return;
         }
         _capture = capture;
-        _subscriptions.add(capture.results.listen((result) {
-          if (mounted && generation == _generation) widget.onRawValue(result.canonicalText);
-        }));
-        _subscriptions.add(capture.errors.listen(_failure));
-        _subscriptions.add(capture.previewChanges.listen((_) {
-          if (mounted && generation == _generation) setState(() {});
-        }));
+        _subscriptions.add(
+          capture.results.listen((result) {
+            if (mounted && generation == _generation) {
+              widget.onRawValue(result.canonicalText);
+            }
+          }, onError: (Object error) => _failure(error, generation)),
+        );
+        _subscriptions.add(
+          capture.errors.listen(
+            (error) => _failure(error, generation),
+            onError: (Object error) => _failure(error, generation),
+          ),
+        );
+        _subscriptions.add(
+          capture.previewChanges.listen((_) {
+            if (mounted && generation == _generation) setState(() {});
+          }, onError: (Object error) => _failure(error, generation)),
+        );
         widget.onCapture?.call(capture);
         if (WidgetsBinding.instance.lifecycleState != null &&
-            WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
-          await capture.pause();
+            WidgetsBinding.instance.lifecycleState !=
+                AppLifecycleState.resumed) {
+          await _updateLifecycle(
+            capture,
+            WidgetsBinding.instance.lifecycleState!,
+            generation,
+          );
         }
-        if (mounted) setState(() {});
+        if (mounted && generation == _generation) setState(() {});
       } catch (error) {
-        _failure(error);
+        _failure(error, generation);
       }
-    }().catchError((Object error) => _failure(error));
+    }().catchError((Object error) => _failure(error, generation));
   }
 
-  void _failure(Object error) {
-    if (mounted) {
+  void _failure(Object error, int generation) {
+    if (mounted && generation == _generation) {
       widget.onFailure?.call(
         ScannerFailure.fromDeviceError(error, operation: '扫码'),
       );
@@ -111,14 +130,35 @@ class _ScannerViewState extends State<ScannerView> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final capture = _capture;
-    if (capture == null) return;
-    unawaited((state == AppLifecycleState.resumed ? capture.resume() : capture.pause())
-        .catchError((Object error) => _failure(error)));
+    if (capture == null) {
+      ++_lifecycle;
+      return;
+    }
+    unawaited(_updateLifecycle(capture, state, _generation));
+  }
+
+  Future<void> _updateLifecycle(
+    CitizenQrCapture capture,
+    AppLifecycleState state,
+    int generation,
+  ) async {
+    final operation = ++_lifecycle;
+    try {
+      await (state == AppLifecycleState.resumed
+          ? capture.resume()
+          : capture.pause());
+    } on Object catch (error) {
+      // 同一资源的旧暂停/恢复失败，也不能污染后续已发起的生命周期操作。
+      if (operation == _lifecycle && identical(capture, _capture)) {
+        _failure(error, generation);
+      }
+    }
   }
 
   @override
   void dispose() {
     ++_generation;
+    ++_lifecycle;
     WidgetsBinding.instance.removeObserver(this);
     // Flutter dispose不能await；SDK仍拥有真实排空，绝不在此伪造资源已关闭。
     final opening = _opening;
@@ -127,10 +167,14 @@ class _ScannerViewState extends State<ScannerView> with WidgetsBindingObserver {
         if (opening != null) await opening;
         await _release();
       } catch (error, stack) {
-        FlutterError.reportError(FlutterErrorDetails(
-          exception: error, stack: stack, library: 'citizenapp QR preview',
-          context: ErrorDescription('关闭SDK摄像资源'),
-        ));
+        FlutterError.reportError(
+          FlutterErrorDetails(
+            exception: error,
+            stack: stack,
+            library: 'citizenapp QR preview',
+            context: ErrorDescription('关闭SDK摄像资源'),
+          ),
+        );
       }
     }());
     super.dispose();

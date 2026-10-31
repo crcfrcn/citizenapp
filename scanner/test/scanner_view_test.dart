@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,11 +9,12 @@ Widget _view(
   CitizenSdk sdk, {
   ValueChanged<String>? result,
   ValueChanged<ScannerFailure>? failure,
+  CitizenQrScanPurpose purpose = CitizenQrScanPurpose.generalScan,
 }) => Directionality(
   textDirection: TextDirection.ltr,
   child: ScannerView(
     qr: sdk,
-    purpose: CitizenQrScanPurpose.generalScan,
+    purpose: purpose,
     onRawValue: result ?? (_) {},
     onFailure: failure,
   ),
@@ -96,5 +98,62 @@ void main() {
       core.fixture.calls.where((m) => m == 'closeQrCapture'),
       hasLength(1),
     );
+  });
+  testWidgets('换轮排空旧资源时不投递旧错误，新轮真实错误仍投递', (tester) async {
+    final failures = <ScannerFailure>[];
+    await tester.pumpWidget(_view(core.sdk, failure: failures.add));
+    await _until(tester, () => find.byType(Texture).evaluate().isNotEmpty);
+    final drain = Completer<void>();
+    core.fixture.cameraDrain = drain;
+    await tester.pumpWidget(
+      _view(
+        core.sdk,
+        failure: failures.add,
+        purpose: CitizenQrScanPurpose.coldAccountImport,
+      ),
+    );
+    await tester.pump();
+    core.fixture.emit('qrCaptureError', [
+      'camera',
+      CitizenSdkErrorCode.unavailable.index + 1,
+      'synthetic stale frame',
+      CitizenSdkFailureStage.admission.index + 1,
+    ]);
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    expect(failures, isEmpty);
+    core.fixture.cameraDrain = null;
+    drain.complete();
+    await _until(
+      tester,
+      () => core.fixture.calls.where((x) => x == 'openQrCapture').length == 2,
+    );
+    await _until(tester, () => find.byType(Texture).evaluate().isNotEmpty);
+    core.fixture.emit('qrCaptureError', [
+      'camera',
+      CitizenSdkErrorCode.permissionDenied.index + 1,
+      'synthetic current error',
+      CitizenSdkFailureStage.admission.index + 1,
+    ]);
+    await _until(tester, () => failures.isNotEmpty);
+    expect(failures.single.kind, ScannerFailureKind.permissionDenied);
+    await tester.pumpWidget(const SizedBox());
+    await _until(tester, () => core.fixture.nativeResources.isEmpty);
+  });
+  testWidgets('离开预览后延迟采集错误不再进入已销毁页面', (tester) async {
+    final failures = <ScannerFailure>[];
+    await tester.pumpWidget(_view(core.sdk, failure: failures.add));
+    await _until(tester, () => find.byType(Texture).evaluate().isNotEmpty);
+    await tester.pumpWidget(const SizedBox());
+    await _until(tester, () => core.fixture.nativeResources.isEmpty);
+    core.fixture.emit('qrCaptureError', [
+      'camera',
+      CitizenSdkErrorCode.unavailable.index + 1,
+      'synthetic closed frame',
+      CitizenSdkFailureStage.admission.index + 1,
+    ]);
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    expect(failures, isEmpty);
   });
 }
