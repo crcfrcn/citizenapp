@@ -42,12 +42,23 @@ class _TopupResultPageState extends State<TopupResultPage>
   _Phase _phase = _Phase.processing;
   String _message = '正在核实原充值订单…';
   Timer? _timer;
-  bool _polling = false, _active = true;
+  StreamSubscription<TopupChange>? _recordChanges;
+  bool _polling = false, _active = true, _deleted = false;
   int _attempts = 0;
   @override
   void initState() {
     super.initState();
     _record = widget.record;
+    _recordChanges = TopupStore.changes.listen((change) {
+      if (change.record == null &&
+          change.orderId == _record.intent.orderId &&
+          change.origin == _record.origin) {
+        _deleted = true;
+        _active = false;
+        _timer?.cancel();
+        if (mounted) Navigator.of(context).pop();
+      }
+    });
     WidgetsBinding.instance.addObserver(this);
     _run();
   }
@@ -55,19 +66,21 @@ class _TopupResultPageState extends State<TopupResultPage>
   @override
   void dispose() {
     _timer?.cancel();
+    unawaited(_recordChanges?.cancel());
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    _active = state == AppLifecycleState.resumed;
+    _active = !_deleted && state == AppLifecycleState.resumed;
     _timer?.cancel();
     if (_active) _run();
   }
 
   Future<void> _save(TopupRecord next) async {
     await widget.store.save(next, before: _record);
+    if (_deleted) throw const TopupDeletedException();
     _record = next;
   }
 
@@ -89,15 +102,20 @@ class _TopupResultPageState extends State<TopupResultPage>
           paymentTxid: _record.txid!,
           payerSignature: _record.signature!,
         );
+        if (_deleted) return;
         await _save(
           _record.update(progress: TopupProgress.confirmed, order: order),
         );
       } else {
         order = await widget.api.status(_record.intent);
+        if (_deleted) return;
         await _save(_record.update(order: order));
       }
       if (!mounted) return;
       _showOrder(order);
+    } on TopupDeletedException {
+      _active = false;
+      return;
     } on Object {
       if (mounted) {
         setState(() {
@@ -160,8 +178,9 @@ class _TopupResultPageState extends State<TopupResultPage>
           : value.toLowerCase();
       if (_record.signature == null ||
           !_record.intent.network.transaction(canonical)) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('缺少原付款授权或交易编号无效')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('缺少原付款授权或交易编号无效')));
         return;
       }
       await _save(
@@ -169,8 +188,9 @@ class _TopupResultPageState extends State<TopupResultPage>
       );
     } on Object {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('原订单记录未更新，请稍后核实')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('原订单记录未更新，请稍后核实')));
       }
     } finally {
       field.dispose();

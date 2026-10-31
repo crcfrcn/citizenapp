@@ -1,3 +1,4 @@
+import 'package:citizen_transaction/topup/store.dart';
 import 'package:citizen_storage/user_isar.dart' as wallet_store show Entry;
 import 'package:citizen_sdk/citizen_sdk.dart';
 
@@ -80,6 +81,11 @@ class _AccountDetailPageState extends State<AccountDetailPage>
       }),
     );
     super.dispose();
+  }
+
+  @override
+  void onTopupRecordChanged(TopupChange change) {
+    setState(() => _recentRecords = change.apply(_recentRecords, limit: 5));
   }
 
   Future<void> _loadRecentRecords() async {

@@ -179,6 +179,21 @@ final class SystemProtectedRecordStore {
     return _commit(values, file, generation, expectedRecord);
   });
 
+  /// 一次性业务存储切换：只消费完整相同快照，旧写者变化时保留原件。
+  Future<bool> consumeSnapshot(Map<String, String> expected) => _transaction((
+    values,
+    file,
+    generation,
+    expectedRecord,
+  ) async {
+    if (values.length != expected.length ||
+        !expected.entries.every((entry) => values[entry.key] == entry.value)) {
+      return false;
+    }
+    values.clear();
+    return _commit(values, file, generation, expectedRecord);
+  });
+
   /// 普通清除保持记录服务可用；终态关闭会拒绝所有正在等待的旧操作。
   Future<void> deleteAll() =>
       _transaction((values, file, generation, expectedRecord) async {

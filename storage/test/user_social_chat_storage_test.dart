@@ -106,6 +106,9 @@ const _userColumns = <String, Set<String>>{
   },
   'entry': {
     'id',
+    'service_origin',
+    'order_id',
+    'order_data',
     'account_id',
     'kind',
     'amount_delta',
@@ -379,8 +382,9 @@ void main() {
     await Future.wait([first, second]).timeout(_timeout);
     final data = await user.UserIsar.instance.read(
       (db) async => (
-        profile: (await db.profiles.getByCidNumber('synthetic-owner'))
-            ?.profileData,
+        profile: (await db.profiles.getByCidNumber(
+          'synthetic-owner',
+        ))?.profileData,
         wallet: (await db.scans.get(0))?.walletHash,
       ),
     );

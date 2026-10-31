@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 import 'record_format.dart';
+import 'package:citizen_transaction/topup/store.dart';
 
 class LocalTxRecordTile extends StatelessWidget {
   const LocalTxRecordTile({
@@ -36,6 +37,8 @@ class LocalTxRecordTile extends StatelessWidget {
 
   IconData get _icon {
     switch (record.entryKind) {
+      case 'topup':
+        return Icons.account_balance_wallet_outlined;
       case 'reward':
         return Icons.token;
       case 'interest':
@@ -55,7 +58,17 @@ class LocalTxRecordTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final label = businessTypeLabel(record.entryKind);
+    TopupRecord? topup;
+    if (record.entryKind == 'topup') {
+      try {
+        topup = TopupStore.fromEntry(record);
+      } on Object {
+        /* 损坏明细保持可见，不能触发付款。 */
+      }
+    }
+    final label = topup == null
+        ? businessTypeLabel(record.entryKind)
+        : '充值 · ${topup.intent.intentData['token']}';
     final counterpartyPrefix = _isExpense ? '去向' : '来自';
     final counterparty = shortAddress(record.peerAddress);
     final timeStr = formatMillis(record.confirmedAt ?? record.createdAt);
@@ -91,7 +104,7 @@ class LocalTxRecordTile extends StatelessWidget {
               borderRadius: BorderRadius.circular(AppLayout.scaledValue(4)),
             ),
             child: Text(
-              statusLabel(record.entryState),
+              recordStatusLabel(record),
               style: TextStyle(
                 fontSize: AppLayout.scaled(context, 10),
                 color: statusColor(record.entryState),
@@ -102,7 +115,11 @@ class LocalTxRecordTile extends StatelessWidget {
         ],
       ),
       subtitle: Text(
-        '$counterpartyPrefix：$counterparty\n$timeStr',
+        record.entryKind == 'topup' && topup == null
+            ? '本地订单明细不可用\n$timeStr'
+            : topup == null
+            ? '$counterpartyPrefix：$counterparty\n$timeStr'
+            : '${topup.intent.network.label}\n$timeStr',
         style: TextStyle(fontSize: AppLayout.scaled(context, 12), height: 1.5),
       ),
       isThreeLine: true,
@@ -110,7 +127,11 @@ class LocalTxRecordTile extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            '${_isExpense ? "-" : "+"}${formatFen(record.amountDelta, symbol: '')}',
+            record.entryKind == 'topup' && topup == null
+                ? '-'
+                : topup == null
+                ? '${_isExpense ? "-" : "+"}${formatFen(record.amountDelta, symbol: '')}'
+                : topupPaymentLabel(topup),
             style: TextStyle(
               fontSize: AppLayout.scaled(context, 15),
               fontWeight: FontWeight.w700,
@@ -130,4 +151,3 @@ class LocalTxRecordTile extends StatelessWidget {
     );
   }
 }
-

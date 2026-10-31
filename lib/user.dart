@@ -344,8 +344,9 @@ class _ProfilePageState extends State<MyTab> {
       session = await _sessionProvider.ensureSession();
     } catch (_) {
       if (mounted && generation == _loadGeneration) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('刷新失败，已保留本地资料')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('刷新失败，已保留本地资料')));
       }
       return;
     }
@@ -359,8 +360,9 @@ class _ProfilePageState extends State<MyTab> {
       await _loadPublicProfile(session, generation);
     } catch (_) {
       if (mounted && generation == _loadGeneration) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('刷新失败，已保留本地资料')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('刷新失败，已保留本地资料')));
       }
       return;
     }
@@ -436,8 +438,9 @@ class _ProfilePageState extends State<MyTab> {
   }
 
   Future<void> _openContacts() async {
-    await Navigator.of(context)
-        .push<void>(MaterialPageRoute(builder: (_) => const ContactBookPage()));
+    await Navigator.of(
+      context,
+    ).push<void>(MaterialPageRoute(builder: (_) => const ContactBookPage()));
     await _loadState();
   }
 
@@ -447,8 +450,9 @@ class _ProfilePageState extends State<MyTab> {
   _resolveOwnedIdentity() async {
     final address = _communicationAccountId;
     if (address.isEmpty) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('请先在「我的 → 我的钱包」添加钱包账户')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请先在「我的 → 我的钱包」添加钱包账户')));
       return null;
     }
     try {
@@ -466,15 +470,17 @@ class _ProfilePageState extends State<MyTab> {
                   : identity.cidNumber)
               .trim();
       if (cidNumber.isEmpty) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('本地尚未保存公民号，请主动刷新身份')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('本地尚未保存公民号，请主动刷新身份')));
         return null;
       }
       return (accountId: identity.accountId, cidNumber: cidNumber);
     } catch (_) {
       if (!mounted) return null;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('本地用户资料读取失败，请重试')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('本地用户资料读取失败，请重试')));
       return null;
     }
   }
@@ -534,8 +540,9 @@ class _ProfilePageState extends State<MyTab> {
   }
 
   Future<void> _openMembership() async {
-    await Navigator.of(context)
-        .push<void>(MaterialPageRoute(builder: (_) => const MembershipPage()));
+    await Navigator.of(
+      context,
+    ).push<void>(MaterialPageRoute(builder: (_) => const MembershipPage()));
     await _loadState();
   }
 
@@ -1191,8 +1198,9 @@ class _SettingsPageState extends State<SettingsPage> {
       setState(() => _openChatOnLaunch = value);
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('首页设置保存失败，请重试')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('首页设置保存失败，请重试')));
     } finally {
       if (mounted) setState(() => _savingHomeTab = false);
     }
@@ -1224,8 +1232,9 @@ class _SettingsPageState extends State<SettingsPage> {
         if (!authenticated) return;
       } catch (e) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('身份验证失败：$e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('身份验证失败：$e')));
         return;
       }
     }
@@ -1278,19 +1287,23 @@ class _SettingsPageState extends State<SettingsPage> {
     if (saved && mounted) setState(() => _duressModeEnabled = true);
   }
 
-  Future<void> _installUpdate() async {
-    final started = await _updateController.downloadAndInstall();
+  Future<void> _openUpdateStore() async {
+    final started = await _updateController.openStore();
     if (!mounted) return;
 
     final error = _updateController.state.errorMessage;
-    if (!started && error != null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(error)));
+    if (!started) {
+      if (error != null) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error)));
+      }
       return;
     }
 
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('已打开系统安装器，请按系统提示完成更新')));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('已打开应用商店，请在商店中更新')));
   }
 
   @override
@@ -1609,31 +1622,14 @@ class _SettingsPageState extends State<SettingsPage> {
       return const SizedBox.shrink();
     }
 
-    final downloading = state.status == AppUpdateStatus.downloading;
-    final installing = state.status == AppUpdateStatus.installing;
-    final disabled = downloading || installing;
-    final progress = (state.progress * 100).clamp(0, 99).round();
-    final label = downloading
-        ? '$progress%'
-        : installing
-        ? '安装'
-        : '更新';
+    final opening = state.status == AppUpdateStatus.opening;
 
     return SizedBox(
       height: AppLayout.scaledValue(30),
       child: FilledButton.icon(
-        onPressed: disabled ? null : _installUpdate,
-        icon: downloading
-            ? SizedBox(
-                width: AppLayout.scaledValue(12),
-                height: AppLayout.scaledValue(12),
-                child: const CircularProgressIndicator(strokeWidth: 2),
-              )
-            : Icon(
-                Icons.system_update_alt_rounded,
-                size: AppLayout.scaledValue(14),
-              ),
-        label: Text(label),
+        onPressed: opening ? null : _openUpdateStore,
+        icon: const Icon(Icons.system_update_alt_rounded),
+        label: Text(opening ? '打开中' : '更新'),
         style: FilledButton.styleFrom(
           padding: EdgeInsets.symmetric(horizontal: AppLayout.scaledValue(10)),
           textStyle: TextStyle(

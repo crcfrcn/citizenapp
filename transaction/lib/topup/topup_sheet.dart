@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -70,11 +71,31 @@ class _TopupSheetState extends State<TopupSheet> {
   List<TopupRecord> _records = [];
   bool _recordsLoaded = false, _paymentOpen = false;
   String? _recoveryError;
+  StreamSubscription<TopupChange>? _recordChanges;
+  final Set<String> _removed = {};
 
   @override
   void initState() {
     super.initState();
     _configFuture = _api.fetchConfig();
+    _recordChanges = TopupStore.changes.listen((change) {
+      if (!mounted ||
+          change.accountId != widget.accountId ||
+          change.origin != topupOrigin(_api.baseUrl))
+        return;
+      final row = change.record;
+      final key = '${change.origin}|${change.orderId}';
+      if (row == null) _removed.add(key);
+      setState(() {
+        _records = _records.where((record) => record.key != key).toList();
+        if (row != null) _records.add(TopupStore.fromEntry(row));
+        _records.sort(
+          (a, b) => (b.intent.intentData['issued_at'] as int).compareTo(
+            a.intent.intentData['issued_at'] as int,
+          ),
+        );
+      });
+    });
     _loadRecords(restore: true);
   }
 
@@ -128,6 +149,7 @@ class _TopupSheetState extends State<TopupSheet> {
 
   @override
   void dispose() {
+    unawaited(_recordChanges?.cancel());
     if (widget.api == null) _api.close();
     super.dispose();
   }
@@ -223,11 +245,6 @@ class _TopupSheetState extends State<TopupSheet> {
             ),
           ],
           ..._records
-              .where(
-                (r) =>
-                    r.progress.index >= TopupProgress.submitting.index ||
-                    DateTime.now().millisecondsSinceEpoch < r.intent.expiresAt,
-              )
               .take(10)
               .map(
                 (r) => ListTile(
@@ -346,8 +363,8 @@ class _TopupSheetState extends State<TopupSheet> {
             ),
           );
     if (!mounted || account != widget.accountId) return;
-    await _loadRecords();
     if (record != null &&
+        !_removed.contains(record.key) &&
         record.progress.index >= TopupProgress.submitting.index) {
       await _showResult(config, record, selection.package);
     }
@@ -365,8 +382,9 @@ class _TopupSheetState extends State<TopupSheet> {
       if (record.progress.index < TopupProgress.submitting.index &&
           DateTime.now().millisecondsSinceEpoch < record.intent.expiresAt) {
         if (!config.ready) {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(const SnackBar(content: Text('充值暂未开放，未继续付款')));
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('充值暂未开放，未继续付款')));
           return;
         }
         await _startPayment(config, selection, resume: record);
@@ -375,8 +393,9 @@ class _TopupSheetState extends State<TopupSheet> {
       }
     } on Object {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('原订单暂不可恢复，请稍后重试')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('原订单暂不可恢复，请稍后重试')));
       }
     } finally {
       if (mounted) setState(() => _paymentOpen = false);

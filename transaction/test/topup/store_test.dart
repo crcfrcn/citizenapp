@@ -1,4 +1,7 @@
 import 'package:citizen_testing/fixture.dart';
+import 'package:citizen_testing/isar_test_env.dart';
+import 'package:citizen_storage/user_isar.dart' as storage;
+import 'package:citizen_transaction/history/local_tx_store.dart';
 
 import 'dart:convert';
 import 'dart:io';
@@ -10,6 +13,7 @@ import 'package:citizen_transaction/topup/topup_models.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  useIsolatedIsar();
   late Directory dir;
   late TopupStore store;
   late TopupRecord record;
@@ -21,12 +25,14 @@ void main() {
         directory: () => dir.resolveSymbolicLinks(),
       ),
     );
-    final f = jsonDecode(
-      fixtureFile(
-        'citizen_transaction',
-        'topup/contract.json',
-      ).readAsStringSync(),
-    ) as Map<String, dynamic>;
+    final f =
+        jsonDecode(
+              fixtureFile(
+                'citizen_transaction',
+                'topup/contract.json',
+              ).readAsStringSync(),
+            )
+            as Map<String, dynamic>;
     record = TopupRecord(
       origin: 'https://www.crcfrcn.com',
       intent: TopupPaymentIntent.fromJson(
@@ -74,6 +80,159 @@ void main() {
       expect(() => TopupOrder.fromJson(bad), throwsFormatException);
     }
   });
+  test('建单即进入同一交易表，重复保存无第二行且不重复通知', () async {
+    final changes = <TopupChange>[];
+    final subscription = TopupStore.changes.listen(changes.add);
+    await store.save(record);
+    await store.save(record);
+    final rows = await LocalTxStore.queryByAccountId(record.intent.accountId);
+    expect(rows, hasLength(1));
+    final row = rows.single;
+    expect(row.entryKind, 'topup');
+    expect(row.serviceOrigin, record.origin);
+    expect(row.orderId, record.intent.orderId);
+    expect(row.amountDelta, '0');
+    expect(TopupStore.fromEntry(row).encode(), record.encode());
+    expect(changes, hasLength(1));
+    expect(changes.single.record?.rowId, row.rowId);
+    final database = await storage.UserIsar.instance.db();
+    await database.close();
+    expect(
+      (await TopupStore().list(
+        record.origin,
+        record.intent.accountId,
+      )).single.encode(),
+      record.encode(),
+    );
+    await subscription.cancel();
+  });
+
+  test('订单变更直接发快照，不触发普通流水重新查库的watcher', () async {
+    var ordinaryChanges = 0;
+    final subscription = LocalTxStore.listenAccountChanges(
+      record.intent.accountId,
+      () => ordinaryChanges++,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    await store.save(record);
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    expect(ordinaryChanges, 0);
+    await subscription.cancel();
+  });
+
+  test('删除只影响指定本地订单，迟到更新和重复创建原单均拒绝', () async {
+    await store.save(record);
+    final row = (await LocalTxStore.queryByAccountId(
+      record.intent.accountId,
+    )).single;
+    final changes = <TopupChange>[];
+    final subscription = TopupStore.changes.listen(changes.add);
+    await store.delete(row);
+    expect(
+      await LocalTxStore.queryByAccountId(record.intent.accountId),
+      isEmpty,
+    );
+    expect(await store.list(record.origin, record.intent.accountId), isEmpty);
+    await expectLater(
+      store.save(
+        record.update(
+          progress: TopupProgress.authorized,
+          signature: '0x${'aa' * 65}',
+        ),
+        before: record,
+      ),
+      throwsA(isA<TopupDeletedException>()),
+    );
+    await expectLater(
+      store.save(record),
+      throwsA(isA<TopupDeletedException>()),
+    );
+    expect(changes, hasLength(1));
+    expect(changes.single.record, isNull);
+    await subscription.cancel();
+  });
+
+  test('原保护记录一次导入，保留原始凭据并消费同一旧快照', () async {
+    final legacy = SystemProtectedRecordStore(
+      'topup.json',
+      directory: () => dir.resolveSymbolicLinks(),
+    );
+    await legacy.write(record.key, record.encode());
+    final imported = (await store.list(
+      record.origin,
+      record.intent.accountId,
+    )).single;
+    expect(imported.encode(), record.encode());
+    expect(await legacy.readAll(), isEmpty);
+    expect(
+      (await LocalTxStore.queryByAccountId(
+        record.intent.accountId,
+      )).single.orderId,
+      record.intent.orderId,
+    );
+    expect(await legacy.consumeSnapshot({record.key: record.encode()}), false);
+  });
+
+  test('导入含一条坏记录时整个批次不写且旧文件保持', () async {
+    final legacy = SystemProtectedRecordStore(
+      'topup.json',
+      directory: () => dir.resolveSymbolicLinks(),
+    );
+    await legacy.write(record.key, record.encode());
+    await legacy.write('invalid', '{');
+    final before = await legacy.readAll();
+    await expectLater(store.prepare(), throwsFormatException);
+    expect(await legacy.readAll(), before);
+    expect(await LocalTxStore.countByAccountId(record.intent.accountId), 0);
+  });
+
+  test('到账事件先后两种顺序均关联原订单，保持原主键且只有一行', () async {
+    for (final eventFirst in [true, false]) {
+      final id = record.intent.accountId;
+      await store.save(record);
+      final originalId = (await LocalTxStore.queryByAccountId(id)).single.rowId;
+      final tx = '0x${'09' * 32}';
+      final paid = record.update(
+        progress: TopupProgress.confirmed,
+        signature: '0x${'aa' * 65}',
+        txid: '0x${'08' * 32}',
+        order: TopupOrder(
+          orderId: record.intent.orderId,
+          orderState: TopupPhase.paid,
+          coinFen: record.intent.coinFen,
+          paymentTxid: '0x${'08' * 32}',
+          gmbTxHash: tx,
+        ),
+      );
+      Future<void> event() => LocalTxStore.upsertBlockTransferEvent(
+        accountId: id,
+        entryState: LocalTxStore.statusFinalized,
+        amountDelta: record.intent.coinFen,
+        transferAmount: record.intent.coinFen,
+        fromAddress: 'payer',
+        toAddress: 'recipient',
+        blockNumber: 9,
+        blockHash: '0x${'07' * 32}',
+        eventIndex: 1,
+        txHash: tx,
+        confirmedAt: 12345,
+      );
+      if (eventFirst) await event();
+      await store.save(paid, before: record);
+      if (!eventFirst) await event();
+      await event();
+      final rows = await LocalTxStore.queryByAccountId(id);
+      expect(rows, hasLength(1));
+      expect(rows.single.rowId, originalId);
+      expect(rows.single.entryState, 'paid');
+      expect(rows.single.amountDelta, record.intent.coinFen);
+      expect(rows.single.confirmedAt, 12345);
+      expect(rows.single.eventIndex, 1);
+      // 本轮独立合成数据库，不操作真实记录；第二种顺序从空表验证。
+      await storage.UserIsar.instance.resetForTest();
+    }
+  });
+
   test('原子记录重开恢复，按origin与目标账户隔离', () async {
     await store.save(record);
     final reopened = TopupStore(
@@ -143,12 +302,34 @@ void main() {
       ),
       throwsStateError,
     );
-    await File('${dir.path}/topup.json').writeAsString('{');
+    final row = (await LocalTxStore.queryByAccountId(
+      record.intent.accountId,
+    )).single;
+    row.orderData = '{';
+    await storage.UserIsar.instance.writeTxn(
+      (isar) => isar.collection<storage.Entry>().put(row),
+    );
     await expectLater(
       store.list(record.origin, record.intent.accountId),
       throwsFormatException,
     );
   });
+  test('损坏的本地订单可按准确身份删除，不解析或使用付款凭据', () async {
+    await store.save(record);
+    final row = (await LocalTxStore.queryByAccountId(
+      record.intent.accountId,
+    )).single;
+    row.orderData = '{';
+    await storage.UserIsar.instance.writeTxn(
+      (isar) => isar.collection<storage.Entry>().put(row),
+    );
+    await store.delete(row);
+    expect(
+      await LocalTxStore.queryByAccountId(record.intent.accountId),
+      isEmpty,
+    );
+  });
+
   test('缺授权/交易的阶段和订单归属错误不落盘', () async {
     await expectLater(
       store.save(record.update(progress: TopupProgress.authorized)),
@@ -176,12 +357,14 @@ void main() {
   });
   test('恢复组合只取原意图，不增加字段或允许换币、换链、换套餐', () async {
     await store.save(record);
-    final f = jsonDecode(
-      fixtureFile(
-        'citizen_transaction',
-        'topup/contract.json',
-      ).readAsStringSync(),
-    ) as Map<String, dynamic>;
+    final f =
+        jsonDecode(
+              fixtureFile(
+                'citizen_transaction',
+                'topup/contract.json',
+              ).readAsStringSync(),
+            )
+            as Map<String, dynamic>;
     final config = TopupConfig.fromJson(f['config'] as Map<String, dynamic>);
     final restored = (await store.list(
       record.origin,

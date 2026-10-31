@@ -1,4 +1,5 @@
 import Flutter
+import StoreKit
 import Network
 import UIKit
 import UserNotifications
@@ -197,8 +198,27 @@ import UserNotifications
             bundleIdentifier: Bundle.main.bundleIdentifier ?? ""
           )
         )
+      case "getStoreInfo":
+        guard let id = Self.appStoreId(Bundle.main.infoDictionary ?? [:]) else {
+          result(FlutterError(code: "STORE_UNAVAILABLE", message: "App Store商品登记不可用", details: nil))
+          return
+        }
+        Task { @MainActor in
+          guard let code = await Storefront.current?.countryCode,
+                let country = Self.storeCountry(code) else {
+            result(FlutterError(code: "STORE_UNAVAILABLE", message: "App Store商店地区不可用", details: nil))
+            return
+          }
+          result(["appId": id, "country": country])
+        }
+      case "openStore":
+        guard let id = Self.appStoreId(Bundle.main.infoDictionary ?? [:]),
+              let url = URL(string: "https://apps.apple.com/app/id\(id)") else {
+          result(FlutterError(code: "STORE_UNAVAILABLE", message: "App Store商品登记不可用", details: nil))
+          return
+        }
+        UIApplication.shared.open(url, options: [:]) { opened in result(opened) }
       default:
-        // APK 安装只属于 Android；iOS 更新通道只公开本机版本。
         result(FlutterMethodNotImplemented)
       }
     }
@@ -367,6 +387,21 @@ import UserNotifications
   static func isWalletConnectCallback(_ url: URL) -> Bool {
     url.scheme?.lowercased() == "citizenapp" &&
       url.host?.lowercased() == "walletconnect"
+  }
+
+  /// 商品ID是正式登记的公开元数据，不能由Dart指定任意跳转目标。
+  static func appStoreId(_ info: [String: Any]) -> String? {
+    guard let id = info["AppStoreId"] as? String,
+          id.range(of: "^[0-9]+$", options: .regularExpression) != nil else { return nil }
+    return id
+  }
+
+  /// StoreKit使用三字母地区码，Foundation规范化为Apple公开查询所需的两字母码。
+  static func storeCountry(_ code: String) -> String? {
+    let locale = Locale(identifier: "und_" + code)
+    let country = locale.region?.identifier
+    guard let country, country.range(of: "^[A-Z]{2}$", options: .regularExpression) != nil else { return nil }
+    return country
   }
 
   /// 把 iOS 安装包版本整理成与 Android `getPackageInfo` 相同的跨端结构。

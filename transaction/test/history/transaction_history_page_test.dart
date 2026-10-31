@@ -1,3 +1,11 @@
+import 'dart:async';
+import 'package:citizen_transaction/topup/topup_api.dart';
+import 'package:citizen_transaction/topup/topup_result_page.dart';
+import 'dart:convert';
+import 'package:citizen_testing/fixture.dart';
+import 'package:citizen_testing/isar_test_env.dart';
+import 'package:citizen_transaction/topup/store.dart';
+import 'package:citizen_transaction/topup/topup_models.dart';
 import 'package:citizen_transaction/history/record_tile.dart';
 import 'package:citizen_storage/user_isar.dart' as wallet_store show Entry;
 import 'package:flutter/material.dart';
@@ -24,7 +32,166 @@ wallet_store.Entry _record({String status = LocalTxStore.statusFinalized}) {
         : null;
 }
 
+class _WaitingTopupApi extends TopupApi {
+  final response = Completer<TopupOrder>();
+  int calls = 0;
+  @override
+  Future<TopupOrder> status(TopupPaymentIntent intent) {
+    calls++;
+    return response.future;
+  }
+}
+
 void main() {
+  useIsolatedIsar();
+  TopupRecord order() => TopupRecord(
+    origin: 'https://www.crcfrcn.com',
+    intent: TopupPaymentIntent.fromJson(
+      (jsonDecode(
+                fixtureFile(
+                  'citizen_transaction',
+                  'topup/contract.json',
+                ).readAsStringSync(),
+              )
+              as Map<String, dynamic>)['intent_data']
+          as Map<String, dynamic>,
+    ),
+  );
+
+  testWidgets('充值详情复用本地快照，过期订单可见且不展示恢复秘密', (tester) async {
+    final value = order(), row = TopupStore.toEntry(order());
+    await tester.pumpWidget(
+      MaterialApp(home: LocalTxRecordDetailPage(record: row)),
+    );
+    expect(find.text('充值订单详情'), findsOneWidget);
+    expect(find.text('报价已过期'), findsOneWidget);
+    expect(find.text(value.intent.orderId), findsOneWidget);
+    expect(find.text('预计公民币'), findsOneWidget);
+    expect(find.text(value.intent.intentToken), findsNothing);
+    expect(find.text(value.intent.signMessage), findsNothing);
+    expect(find.text('+0.00'), findsNothing);
+  });
+
+  testWidgets('充值明细损坏时列表和详情显示固定错误且仍有删除入口', (tester) async {
+    final row = TopupStore.toEntry(order())..orderData = '{';
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: LocalTxRecordTile(record: row)),
+      ),
+    );
+    expect(find.text('记录损坏'), findsOneWidget);
+    await tester.pumpWidget(
+      MaterialApp(home: LocalTxRecordDetailPage(record: row)),
+    );
+    expect(find.text('本地充值记录损坏，不能继续付款'), findsOneWidget);
+    expect(find.byTooltip('删除本地记录'), findsOneWidget);
+  });
+
+  testWidgets('充值列表打开详情并删除，同一列表立即移除本地订单', (tester) async {
+    final store = TopupStore(), value = order();
+    await tester.runAsync(() => store.save(value));
+    try {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: TransactionHistoryPage(
+            accountAddress: 'synthetic',
+            accountId: value.intent.accountId,
+          ),
+        ),
+      );
+      for (
+        var i = 0;
+        i < 40 && find.text('充值 · USDC').evaluate().isEmpty;
+        i++
+      ) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump();
+      }
+      expect(find.text('充值 · USDC'), findsOneWidget);
+      await tester.tap(find.text('充值 · USDC'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('删除本地记录'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('删除'));
+      for (var i = 0; i < 40 && find.text('暂无交易记录').evaluate().isEmpty; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      await tester.pumpAndSettle();
+      expect(find.text('暂无交易记录'), findsOneWidget);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      for (var i = 0; i < 20; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump();
+      }
+    }
+  });
+
+  testWidgets('删除进行中订单立即停止结果页轮询，迟到响应不重新保存', (tester) async {
+    final store = TopupStore(), value = order(), api = _WaitingTopupApi();
+    await tester.runAsync(() => store.save(value));
+    final row = TopupStore.toEntry(value);
+    final saved = await tester.runAsync(
+      () => LocalTxStore.queryByAccountId(value.intent.accountId),
+    );
+    row.rowId = saved!.single.rowId;
+    final fixture =
+        jsonDecode(
+              fixtureFile(
+                'citizen_transaction',
+                'topup/contract.json',
+              ).readAsStringSync(),
+            )
+            as Map<String, dynamic>;
+    final package = TopupConfig.fromJson(
+      fixture['config'] as Map<String, dynamic>,
+    ).packageById(value.intent.intentData['package_id'] as String);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => TopupResultPage(
+                  api: api,
+                  store: store,
+                  record: value,
+                  package: package,
+                  onReplay: (_) async => null,
+                ),
+              ),
+            ),
+            child: const Text('打开原订单'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开原订单'));
+    await tester.pump();
+    expect(api.calls, 1);
+    await tester.runAsync(() => store.delete(row));
+    api.response.complete(
+      TopupOrder(
+        orderId: value.intent.orderId,
+        orderState: TopupPhase.awaiting,
+        coinFen: value.intent.coinFen,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 30));
+    expect(api.calls, 1);
+    expect(find.text('支付结果'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+    api.close();
+  });
+
   testWidgets('u128真实费用逐分显示，最佳链与预估费用明确标注', (tester) async {
     final pending = _record(status: LocalTxStore.statusInBlock)
       ..entrySource = 'local_submit'

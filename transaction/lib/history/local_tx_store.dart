@@ -7,6 +7,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:isar_community/isar.dart';
 import 'package:citizen_citizen/account_derivation.dart';
+import 'package:citizen_transaction/topup/store.dart';
 import 'package:citizen_storage/user_isar.dart' hide Group;
 
 /// 本机钱包交易流水存储服务。
@@ -71,6 +72,7 @@ class LocalTxStore {
     int offset = 0,
   }) async {
     final normalizedAccountId = requireAccountId(accountId);
+    await TopupStore.shared.prepare();
     return UserIsar.instance.read((isar) async {
       return isar
           .collection<wallet_store.Entry>()
@@ -282,20 +284,51 @@ class LocalTxStore {
       ..entrySource = 'sdk_finalized_event'
       ..createdAt = time
       ..confirmedAt = time;
-    await UserIsar.instance.writeTxn((isar) => _upsertEventInTxn(isar, row));
+    final changed = <wallet_store.Entry>[];
+    await UserIsar.instance.writeTxn(
+      (isar) => _upsertEventInTxn(isar, row, changed),
+    );
+    for (final order in changed) {
+      TopupStore.publish(order);
+    }
   }
 
   static Future<void> _upsertEventInTxn(
     Isar isar,
-    wallet_store.Entry incoming,
-  ) async {
+    wallet_store.Entry incoming, [
+    List<wallet_store.Entry>? changed,
+  ]) async {
+    final hash = incoming.txHash;
+    if (hash != null && incoming.entryKind == 'transfer') {
+      final orders = await isar
+          .collection<wallet_store.Entry>()
+          .where()
+          .accountIdEqualTo(incoming.accountId)
+          .filter()
+          .entryKindEqualTo('topup')
+          .txHashEqualTo(hash)
+          .limit(2)
+          .findAll();
+      if (orders.length > 1) throw StateError('到账交易匹配多个充值订单');
+      final order = orders.singleOrNull;
+      if (order != null) {
+        if (!TopupStore.matchesPayment(order, incoming))
+          throw StateError('充值到账事件与订单不一致');
+        if (order.blockHash != incoming.blockHash ||
+            order.eventIndex != incoming.eventIndex) {
+          TopupStore.attachPayment(order, incoming);
+          await isar.collection<wallet_store.Entry>().put(order);
+          changed?.add(order);
+        }
+        return;
+      }
+    }
     final existing = await _event(
       isar,
       incoming.accountId,
       incoming.blockHash,
       incoming.eventIndex,
     );
-    final hash = incoming.txHash;
     final submitted = hash == null
         ? null
         : await _submit(isar, incoming.accountId, hash);
@@ -392,38 +425,44 @@ class LocalTxStore {
     required int blockNumber,
     required List<wallet_store.WalletCursor> cursors,
     required List<wallet_store.Entry> records,
-  }) => UserIsar.instance.writeTxn((isar) async {
-    final owners = <String>{};
-    for (final cursor in cursors) {
-      final current = await isar.collection<wallet_store.WalletCursor>().get(
-        cursor.rowId,
-      );
-      if (current == null ||
-          current.accountId != cursor.accountId ||
-          current.createdAt != cursor.createdAt ||
-          current.genesisHash != cursor.genesisHash ||
-          current.cursorBlock != blockNumber - 1) {
-        throw StateError('账户进度已变化，拒绝过期投影');
+  }) async {
+    final changed = <wallet_store.Entry>[];
+    await UserIsar.instance.writeTxn((isar) async {
+      final owners = <String>{};
+      for (final cursor in cursors) {
+        final current = await isar.collection<wallet_store.WalletCursor>().get(
+          cursor.rowId,
+        );
+        if (current == null ||
+            current.accountId != cursor.accountId ||
+            current.createdAt != cursor.createdAt ||
+            current.genesisHash != cursor.genesisHash ||
+            current.cursorBlock != blockNumber - 1) {
+          throw StateError('账户进度已变化，拒绝过期投影');
+        }
+        owners.add(current.accountId);
       }
-      owners.add(current.accountId);
-    }
-    for (final record in records) {
-      if (!owners.contains(record.accountId) ||
-          record.blockNumber != blockNumber ||
-          record.entryState != statusFinalized) {
-        throw StateError('业务事件与提交范围不一致');
+      for (final record in records) {
+        if (!owners.contains(record.accountId) ||
+            record.blockNumber != blockNumber ||
+            record.entryState != statusFinalized) {
+          throw StateError('业务事件与提交范围不一致');
+        }
+        await _upsertEventInTxn(isar, record, changed);
       }
-      await _upsertEventInTxn(isar, record);
+      for (final cursor in cursors) {
+        // 只修改从事务中读取的新对象，回滚不能污染调用方内存中的游标。
+        final current = (await isar.collection<wallet_store.WalletCursor>().get(
+          cursor.rowId,
+        ))!;
+        current.cursorBlock = blockNumber;
+        await isar.collection<wallet_store.WalletCursor>().put(current);
+      }
+    });
+    for (final order in changed) {
+      TopupStore.publish(order);
     }
-    for (final cursor in cursors) {
-      // 只修改从事务中读取的新对象，回滚不能污染调用方内存中的游标。
-      final current = (await isar.collection<wallet_store.WalletCursor>().get(
-        cursor.rowId,
-      ))!;
-      current.cursorBlock = blockNumber;
-      await isar.collection<wallet_store.WalletCursor>().put(current);
-    }
-  });
+  }
 
   /// CitizenSDK history 显示交易已进入区块时，把本机 pending 记录升级为 inBlock。
   ///
@@ -723,6 +762,9 @@ class LocalTxAccountChangeSubscription {
           .collection<wallet_store.Entry>()
           .where()
           .accountIdEqualTo(accountId)
+          .filter()
+          .not()
+          .entryKindEqualTo('topup')
           .watchLazy()
           .listen((_) => callbackZone.runGuarded(onChanged));
       _subscription = subscription;

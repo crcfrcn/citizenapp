@@ -2643,7 +2643,7 @@ CitizenSDK与TataChatSDK的Git来源声明保持，ref统一为main。CitizenSDK
 
 塔塔安装器的CitizenSDK与TataChatSDK均使用本机main的已提交源码及其公开构建入口；塔塔鹿鹿保存推送后即可本机编译安装测试，无需先运行塔塔自动化或发布SDK。TataChatSDK完整普通工程与原生组件由其唯一scripts/build.mjs交付，App只装配返回工程。正式自动化继续消费所属SDK的正式交付。原生实现与内部原锁仍由SDK独立拥有。本机复用已有工具，Flutter按FLUTTER_ROOT、PATH及现有安装定位，Gradle复用官方wrapper已有安装。App不增加工具前置校验，不重复核验工具版本、组件完整性或SDK依赖目录，不全面断网；编译错误由实际工具和SDK返回。工具下载仍须遵守全局三次授权规则，App不自动下载工具，不要求预置完整包或填写SDK Run。App通过SDK所属公开入口准备原生组件，再编译自身，不复制SDK构建实现。SDK调用环境不携带GitHub令牌。
 
-塔塔自动化的CitizenSDK按最新成功Run的完整Artifact消费；TataChatSDK按最新正式Release选择准确Git提交，确认来源Run/attempt成功，并下载同版正式组件。最新正式版来源失败时直接失败，不回退旧版。CitizenSDK完整包继续由所属公开consume入口装配；TataChatSDK使用所属公开工程视图接口装配已交付组件。正式组件也供既有宿主测试使用，不在App自动化重复编译SDK。两份Workflow不要求调用方输入version；版本由YAML读取最近成功Run的完整Artifact递增，首次使用pubspec.yaml版本。没有sdk_run或手工交付目录；无有效正式版、缺件或真实执行失败直接失败，不回退到较旧版本。
+塔塔自动化的CitizenSDK按最新成功Run的完整Artifact消费；TataChatSDK按最新正式Release选择准确Git提交，确认来源Run/attempt成功，并下载同版正式组件。最新正式版来源失败时直接失败，不回退旧版。CitizenSDK完整包继续由所属公开consume入口装配；TataChatSDK使用所属公开工程视图接口装配已交付组件。正式组件也供既有宿主测试使用，不在App自动化重复编译SDK。两份Workflow不要求调用方输入version；版本由YAML读取本平台最新成功正式Release后递增，首次使用pubspec.yaml版本。没有sdk_run或手工交付目录；无有效正式版、缺件或真实执行失败直接失败，不回退到较旧版本。
 
 本机签名、安装及回读唯一归控制台既有Installer.swift。本产品compile ios|android只交付本轮未签名产物，消费结束后清场；iOS与Android现场和失败结果独立。自动化仍保留原正式签名、商店上传及历史清理行为；启动该流程须有对应授权。
 
@@ -2655,7 +2655,7 @@ CitizenSDK与TataChatSDK的Git来源声明保持，ref统一为main。CitizenSDK
 
 账户详情直接打开固定币种的套餐弹窗，注册入口在同一弹窗内显式选择币种；复用既有套餐和结果交互；USDC支持Ethereum/Base/Solana，USDT支持Ethereum/Tron/BNB；只允许两个原套餐，不提供自定义金额；每档下面的网络入口固定币种、套餐和网络，钱包按所选网络提供付款账户，服务端独立验款和发GMB，App不持有服务端发币私钥。实际开发验收及生产验收的范围和结果归唯一任务卡。
 
-充值合同改用network/asset和分币轨整数报价；意图必须匹配目标、付款人、资产、金额及原始授权文本。topup.json复用系统保护记录的原子CAS并按服务origin/目标账户隔离；付款定位、签名和阶段不可替换或倒退；充值仅增加自己的记录名，不改变其他业务的存储合同。
+充值合同改用network/asset和分币轨整数报价；意图必须匹配目标、付款人、资产、金额及原始授权文本。充值订单与恢复材料现统一保存在citizenapp_user的entry集合，按服务origin/订单号定位并按目标账户隔离；付款定位、签名和阶段不可替换或倒退。原topup.json只参与一次性存量切换，成功后不再作为运行时订单存储，具体合同见“充值本地订单交易记录（第1步）”。
 
 随包钱包改用UniversalProvider 2.23.10及AppKit 1.8.19；TronWeb 6.5.1、Solana web3.js 1.98.4/SPL Token 0.4.15只构造公开交易。钱包只签其所属协议；只申请所选主网；钱包额外授予其他链时也只使用所选链，目标链账户不明确时停止。生成bundle移出源码，在本轮工程内构建。
 
@@ -2923,7 +2923,7 @@ SDK补传同次job实际产生的固定内部原因时，App按同一白名单�
 
 ## 本机编译资源与版本来源
 
-本机compile只读取pubspec.yaml的版本与数字构建号，当前1.0.0+40用于保留数据覆盖已装39/40；不查询GitHub Run，也不把控制台任务号作为产品输入。CitizenSDK仍取本机main提交，聊天SDK同样读取本机main已保存提交并调用所属公开构建入口，使用原锁和现有缓存；先以Pub与npm离线装配原锁，随后正常build由Flutter按Release刷新原生插件注册；不使用build --no-pub跳过该步骤。Git仅放行本地file与正式源码HTTPS，Cargo沿标准离线参数执行。塔塔自动化继续使用所属Workflow提供的Run构建号和正式SDK选择。
+本机compile读取本平台最新成功正式Release的产品版本及对应构建号；首次没有正式记录时才使用pubspec.yaml初始值。控制台任务号不作为产品版本输入。CitizenSDK仍取本机main提交，聊天SDK同样读取本机main已保存提交并调用所属公开构建入口，使用原锁和现有缓存；先以Pub与npm离线装配原锁，随后正常build由Flutter按Release刷新原生插件注册；不使用build --no-pub跳过该步骤。Git仅放行本地file与正式源码HTTPS，Cargo沿标准离线参数执行。塔塔自动化继续使用所属Workflow提供的Run构建号和正式SDK选择。
 
 
 ## 包与测试归属重构
@@ -2956,12 +2956,6 @@ scanner只负责采集、QR界面与结果，联系人导入由account提供回�
 
 transaction/web直接使用metamask.js、imtoken.js、trust.js、binance.js、okx.js、coinbase.js六个品牌文件，互不导入；walletconnect.js只登记固定顺序及共用WalletConnect/付款流程。只启用MetaMask，其他五件仅保存真实品牌资料且禁用，不提供假成功连接。MetaMask自己定义协议工厂选择、专属链接准入和原SDK非秘密跳转偏好；共用代码不写死品牌scheme，六个文件共用原npm声明/锁与App唯一build.mjs。每轮只运行所选适配，原生离页经同一来源/nonce检查调用本轮cancel，关闭后不再接受旧请求唤起；新增钱包须逐项接入、验证后才修改其enabled。
 连接完成后直接核验已批准的目标CAIP-2账户与方法，不再因钱包支持切链而额外等待wallet_switchEthereumChain。付款仍明确指定CAIP-2链和EVM交易chainId，原金额/收款/签名及原单守卫保持。SDK后续window.open与首次连接共用当前品牌的原生桥接；等待回前台后发请求，唤起失败、取消与超时停止当前等待，不改投其他钱包，不自动重签重付。连接观察继续区分原Promise结果，Relay闭集观察延续到整轮付款结束；错误阶段使用固定枚举，不输出链接、会话或异常正文。原生收到本轮失败后立即停止接收后续业务消息，迟到意图/回执不再落盘；错误界面区分连接、账户、订单、授权、交易和回执阶段。CitizenTopup失败日志仅输出固定step/error，提交后仍优先提示回执待核实与勿重复付款。
-
-## Android更新发布证明合同
-
-更新只消费Android塔塔自动化生成的公民·Android·v版本.json；package_name由已验证APK的apkanalyzer实读，product_id、platform、version、version_code和assets沿同一证明。客户端要求准确Release名称/Tag及原附件label，不猜GitHub规范化文件名；完整分页后选择高于本机构建号的最高version_code。证明版本与Tag一致，附件唯一且上传完成，APK大小与同一证明一致；无效证明或真实读取失败明确报错，不回退旧清单。
-
-下载及每次重定向仅允许HTTPS，网络错误不输出临时签名地址。每次下载使用独占临时文件，按证明大小及SHA-256验真，异常、长度或摘要不符清理该次现场；只有成功返回的文件才进入控制器原安装确认流程。本机版本、徽标、iOS平台门禁和原生安装通道保持。固定金标及系统更新测试归system/test；lib/test/update_delivery.test.mjs执行真实Workflow证明正文，并将产物交给真实Dart消费者。依赖声明和锁不变。
 
 ## 治理提交与执行块确认
 
@@ -3082,6 +3076,20 @@ Android本地及自动化构建共用scripts/build.mjs；Release APK生成后、
 
 扫码设备错误只归扫码页自己的ScaffoldMessenger，同一提示显示或等待结束期间不重复入队；已接收码和退出时只清本页设备错误，不清调用页的成功通知。相机错误回调不覆盖已接收码的业务处理结果，图库/码型错误沿原业务提示。ScannerView结果、错误、预览及异步启停均校验当前采集代次；同资源旧生命周期操作的失败不得污染新操作。钱包导入/保存、页面视觉与交互保持原合同，旧摄像头错误不能被解释成钱包导入失败。
 
+
+### 公民App同平台版本与商店更新
+
+iOS、Android独立发行，软件版号由本平台最新成功正式Release确定下一候选补丁版，失败不增加正式版号；正式Flutter构建名称、安装包、Release和商店上传使用同一版号，系统构建号仅用于平台安装识别。本机安装沿用最新成功正式版本及对应构建号，无成功正式记录时使用pubspec初始值。设置页始终先读取设备真实安装版本；商店查询失败不改写本机版本。
+
+Android通过Google官方app-update2.1.0查询当前设备可用更新，点击更新只打开本包Google Play商品页。iOS依据Info.plist公开AppStoreId6800953222及StoreKit真实地区，读取Apple公开上架商品版本，点击打开对应App Store商品页。准备提交、商店草稿、GitHub交付完成均不视为当前设备已可安装新版。已移除App内GitHub APK下载、摘要校验、未知应用安装权限、更新FileProvider及直接安装通道；GitHub正式产物证明仍服务于自动化归档和商店上传，不作为手机侧载入口。不改动应用商店审核/上架设置，不改变公民钱包。
+
 服务端公共链共享额度由chain_rpc_budget_exceeded固定分类，会员与广场沿用原会话状态机展示“公共链查询次数已达服务端限额，请稍后重试”；通讯录失败标签优先使用已分类安全原因，无原因保留原通用提示，原本机联系人和待发操作不清除。诊断仅记录闭集码，不展示服务原始正文。额度失败不作为设备未登记，不自动重登记或换钥；会员三张静态卡、完整详情和原交互保持。设备登记复用原幂等/单飞/有效会话和设备证明，不新增客户端登记流程；服务端原有效身份缓存内可完成0次RPC登记，过期由原核验路径刷新。
 
 用户主页个性签名在公民号下按完整内容自动换行，不设两行上限或省略号；ProfileHeaderCard以相同样式、宽度与文字缩放测量全部签名行，父页复用原动态高度；资料超出手机可见高度时，原折叠头部先随页面滚动完超屏部分，再沿用原淡出/折叠，读到末尾前保持资料可见且避开底部安全区；普通高度位移为0，不增加展开按钮或独立滚动区。昵称/公民号/统计的原单行规则与字号、间距、菜单和会员页面交互保持。签名编辑沿用服务端现有160个UTF-16代码单元上限（Dart String.length），普通中文/英文160、普通非BMP表情80；计数实时更新，超限保留完整输入并提示，在准备新保存请求、建立会话与上传前本地拒绝，恢复请求提交前也校验。删除该输入的默认可见字符限长器，使用原生输入框与只读计数/校验，不截断表情、组合字符、粘贴或输入法组合区；已确认的资料更新继续原本机收尾流程。服务端、数据库、昵称长度合同、依赖和SDK不变。
+
+
+### 充值本地订单交易记录（第1步）
+充值订单、恢复材料、交易简要及详情统一使用citizenapp_user的既有entry集合，不新增集合。增加三个可空列service_origin、order_id、order_data，原服务来源和订单号共同定位，写事务校验唯一性；普通链上交易的SDK execution及事件身份保持原合同。order_data只保存原始intent_token/intent_data/sign_message、progress、payer_signature、payment_txid及signed_wire；订单状态、金额、目标账户、到账交易和异常原因分别使用既有state/transfer_amount/account_id/tx_hash/fail_reason，原始签名意图保持完整。未到账amount_delta为0，报价过期只改变展示，不隐藏原订单。
+TopupStore保存与更新在一个用户库事务内完成一次定位查询和原子提交；无变化不写、不发变更。事务成功后向所属账户交付同一entry快照，完整交易列表、冷热账户最近记录、详情及充值弹窗直接更新内存；普通流水watcher排除充值类型，避免同笔订单变化再查一次库。首次列表读取本地数据，详情直接使用列表快照；这些展示及删除操作不初始化钱包、不访问服务端或链。
+到账只按服务端给出的准确公民币交易哈希、目标账户及金额关联SDK已验证的finalized收入事件，不按金额或备注猜测。事件先到或订单状态先到均保留原订单主键并在同一事务中合并，不重复展示收入。单笔删除仅删除本机记录，停止该订单的页面轮询/监听，迟到更新不得重新插入；不撤销服务端处理或已提交付款。损坏明细保持固定错误展示并允许按准确本地身份删除，不能继续付款或输出恢复凭据。
+存量topup.json经完整校验后一次事务导入；只有数据库提交成功且旧文件仍是原完整快照时才消费旧记录，失败保留原文件并拒绝继续付款，不运行双写。实际存量切换随更新后的App首次读取执行，本轮开发验证只使用隔离合成数据库。CitizenSDK及CitizenServe不改，本步不改变建单HTTP/RPC次数、服务端限流或发币合同，第2步另行实施。

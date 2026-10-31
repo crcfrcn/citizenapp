@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 
 import 'package:citizen_system/app_log.dart';
+import 'package:citizen_transaction/topup/store.dart';
 import 'package:citizen_transaction/history/local_tx_store.dart';
 import 'package:citizen_transaction/history/wallet_transaction_history_service.dart';
 
@@ -32,11 +33,15 @@ mixin TxAutoRefreshMixin<T extends StatefulWidget> on State<T> {
   static const Duration _debounce = Duration(milliseconds: 200);
 
   LocalTxAccountChangeSubscription? _txAutoSub;
+  StreamSubscription<TopupChange>? _topupSub;
   Timer? _txAutoDebounce;
   String? _txAutoAccountId;
 
   /// 库变更时执行的重载(通常是页面现成的 `_loadXxx`)。
   Future<void> onTxRecordsChanged();
+
+  /// 充值写入返回完整行，列表与摘要直接应用，不为同一变化重新读库。
+  void onTopupRecordChanged(TopupChange change) {}
 
   /// 两处列表与钱包摘要的主动刷新共用后台同步；离线保留已有记录并继续重试。
   Future<void> refreshTxHistory() async {
@@ -66,7 +71,15 @@ mixin TxAutoRefreshMixin<T extends StatefulWidget> on State<T> {
     if (previous != null) {
       _observeTxAutoFuture(previous.cancel(), '切换账户取消 watcher');
     }
+    final previousTopup = _topupSub;
+    _topupSub = null;
+    if (previousTopup != null) unawaited(previousTopup.cancel());
     if (normalized == null) return;
+    _topupSub = TopupStore.changes.listen((change) {
+      if (mounted && change.accountId == _txAutoAccountId) {
+        onTopupRecordChanged(change);
+      }
+    });
     _txAutoSub = LocalTxStore.listenAccountChanges(normalized, () {
       _txAutoDebounce?.cancel();
       _txAutoDebounce = Timer(_debounce, () {
@@ -86,7 +99,12 @@ mixin TxAutoRefreshMixin<T extends StatefulWidget> on State<T> {
     final subscription = _txAutoSub;
     _txAutoSub = null;
     _txAutoAccountId = null;
-    return subscription?.cancel() ?? Future<void>.value();
+    final topup = _topupSub;
+    _topupSub = null;
+    return Future.wait<void>([
+      if (subscription != null) subscription.cancel(),
+      if (topup != null) topup.cancel(),
+    ]).then((_) {});
   }
 
   void _observeTxAutoFuture(Future<void> future, String action) {

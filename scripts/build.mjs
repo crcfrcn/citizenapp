@@ -126,6 +126,53 @@ export async function build(platform, phase = 'app', options={}) {
 // 为保留现有自动化功能暂留必要接口；配置文件仅同名导出，不扩展职责。
 
 
+// 本机安装沿用本平台最新成功正式版本及系统构建号，不自行增加版号。
+export async function selectAppRelease(platform, read) {
+    if (!['ios','android'].includes(platform)) throw Error('未知公民平台');
+    const display = platform === 'ios' ? 'iOS' : 'Android';
+    const workflow = '.github/workflows/' + platform + '.yml';
+    const prefix = '公民·' + display + '·v', releases = [];
+    for (let page = 1;; page++) {
+        const rows = await read('releases?per_page=100&page=' + page);
+        if (!Array.isArray(rows)) throw Error('公民正式Release列表无效');
+        releases.push(...rows);
+        if (rows.length < 100) break;
+    }
+    const candidates = releases.filter(row => row.draft === false && row.prerelease === false
+        && typeof row.tag_name === 'string' && row.tag_name.startsWith(prefix))
+        .sort((a,b) => String(b.published_at).localeCompare(String(a.published_at)) || b.id-a.id);
+    for (const release of candidates) {
+        let proof;
+        try { proof = JSON.parse(release.body); } catch { continue; }
+        if (proof?.product_id !== 'citizenapp' || proof.platform !== platform) continue;
+        if (proof.schema !== 1 || typeof proof.version !== 'string'
+            || !/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u.test(proof.version)
+            || release.tag_name !== prefix + proof.version
+            || !Number.isSafeInteger(proof.version_code) || proof.version_code <= 0
+            || !Number.isSafeInteger(proof.run_id) || proof.run_id <= 0) throw Error('公民正式版本记录无效');
+        const run = await read('actions/runs/' + proof.run_id);
+        if (run.status !== 'completed' || run.conclusion !== 'success') continue;
+        if (run.path !== workflow || run.head_branch !== 'main' || run.event !== 'workflow_dispatch'
+            || run.head_sha !== proof.source_sha || run.run_attempt !== proof.run_attempt) throw Error('公民版本与成功Run不符');
+        return {version: proof.version, buildNumber: String(proof.version_code)};
+    }
+    return null;
+}
+
+async function installedBuildVersion(platform) {
+    const selected = await selectAppRelease(platform, async path => {
+        const response = await fetch('https://api.github.com/repos/crcfrcn/citizenapp/' + path, {
+            redirect:'error', signal:AbortSignal.timeout(30000),
+            headers:{'User-Agent':'CitizenApp',Accept:'application/vnd.github+json'},
+        });
+        if (!response.ok) throw Error('读取公民正式版本失败：HTTP ' + response.status);
+        return response.json();
+    });
+    if (selected) return selected;
+    const initial = /^version:\s*([^+\s]+)(?:\+(\d+))?/mu.exec(readFileSync(join(root,'pubspec.yaml'),'utf8'));
+    return {version: initial[1], buildNumber: initial[2] || '1'};
+}
+
 // 聊天SDK沿用其正式Release交付。
 export async function selectSDKRelease(product, read) {
     const releases = [];
@@ -403,17 +450,10 @@ write('android/gradle/wrapper/gradle-wrapper.properties', readFileSync(wrapper, 
 write("android/app/src/main/res/xml/network_security_config.xml", `<?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
     <!-- 生产全部走 HTTPS / WSS（TLS）：cid、square/chain-bootstrap Worker、
-         GitHub 更新和 CitizenSDK 公民链节点。
+         官方商店查询和 CitizenSDK 公民链节点。
          默认阻断一切明文流量，防中间人（iOS 侧由默认 ATS 同等阻断）。 -->
     <base-config cleartextTrafficPermitted="false" />
 </network-security-config>
-`);
-write("android/app/src/main/res/xml/update_file_paths.xml", `<?xml version="1.0" encoding="utf-8"?>
-<paths xmlns:android="http://schemas.android.com/apk/res/android">
-    <cache-path
-        name="citizenapp_update_cache"
-        path="." />
-</paths>
 `);
 // Podfile和启动页正文沿用现有Flutter官方模板，不在脚本重复维护。
 const podfile = join(process.env.FLUTTER_ROOT, 'packages/flutter_tools/templates/cocoapods/Podfile-ios');
@@ -608,15 +648,15 @@ export async function buildTests(platform,{work=process.env.WORK,scope='all',env
 }
 
 export async function compile(platform){
+ const selected=await installedBuildVersion(platform);
  const flutterRoot=existingFlutter(platform);
  const parent=join(root,'target/build');mkdirSync(parent,{recursive:true});
  if(realpathSync(parent)!==parent)throw Error('本机编译现场经过链接');
  const work=mkdtempSync(join(parent,'local-'));let safe=true;
  const cache=join(root,'target/cache');mkdirSync(cache,{recursive:true});
- // 本机构建号取本地声明；两个SDK均用本机main已保存提交，安装仍归控制台。
- const version=/^version:\s*([^+\s]+)(?:\+(\d+))?/mu.exec(readFileSync(join(root,'pubspec.yaml'),'utf8'));
+ // 本机沿用本平台正式版本与构建号；两个SDK沿用既有源码，安装仍归控制台。
  const environment={...process.env,GITHUB_ACTIONS:'false',GITHUB_WORKSPACE:root,WORK:work,PLATFORM:platform,
-  CITIZENAPP_VERSION:version[1],CITIZENAPP_BUILD_NUMBER:version[2]||'1',
+  CITIZENAPP_VERSION:selected.version,CITIZENAPP_BUILD_NUMBER:selected.buildNumber,
   CARGO_NET_OFFLINE:'true',GIT_ALLOW_PROTOCOL:'file:https',
   FLUTTER_ROOT:flutterRoot,PUB_CACHE:process.env.PUB_CACHE||join(process.env.HOME,'.pub-cache'),GRADLE_USER_HOME:process.env.GRADLE_USER_HOME||join(dirname(flutterRoot),'gradle'),
   CARGO_TARGET_DIR:process.env.CARGO_TARGET_DIR||join(cache,'rust'),RUSTUP_TOOLCHAIN:'1.97.1',

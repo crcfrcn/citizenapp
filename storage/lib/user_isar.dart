@@ -668,6 +668,17 @@ class Entry {
   @Name('id')
   Id rowId = Isar.autoIncrement;
 
+  /// 充值订单复用交易表；服务来源与原订单号共同定位，不另存展示副本。
+  @Name('service_origin')
+  @Index(composite: [CompositeIndex('orderId')])
+  String? serviceOrigin;
+  @Name('order_id')
+  String? orderId;
+
+  /// 仅保存充值专用明细与原始付款凭据，共用列不重复作为可变状态保存。
+  @Name('order_data')
+  String? orderData;
+
   /// 单条钱包流水唯一键。
   ///
   /// 提交记录以账户/交易哈希定位，事件以账户/区块哈希/事件序号定位。
@@ -677,7 +688,7 @@ class Entry {
   @Index()
   late String accountId;
 
-  /// 业务类型：transfer / fee / reward / interest / issuance / burn / multisig_transfer。
+  /// 业务类型：transfer / fee / reward / interest / issuance / burn / multisig_transfer / topup。
   @Name('kind')
   late String entryKind;
 

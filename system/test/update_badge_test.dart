@@ -6,24 +6,22 @@ import 'package:citizen_system/update/app_update_service.dart';
 import 'package:citizen_system/update/update_badge.dart';
 
 class _FakeAppUpdateService extends AppUpdateService {
-  _FakeAppUpdateService({this.failAndroidCheck = false});
+  _FakeAppUpdateService({this.failStoreCheck = false});
 
-  final bool failAndroidCheck;
-  int androidCheckCount = 0;
+  final bool failStoreCheck;
+  int storeCheckCount = 0;
 
   @override
   Future<AppVersionInfo> readCurrentVersion() async => const AppVersionInfo(
-        packageName: 'com.crcfrcn.citizenapp',
-        versionName: '1.0.0',
-        versionCode: 7,
-      );
+    packageName: 'com.crcfrcn.citizenapp',
+    versionName: '1.0.0',
+    versionCode: 7,
+  );
 
   @override
-  Future<AppUpdateInfo?> checkAndroidUpdate(
-    AppVersionInfo currentVersion,
-  ) async {
-    androidCheckCount += 1;
-    if (failAndroidCheck) throw StateError('offline');
+  Future<AppUpdateInfo?> checkUpdate(AppVersionInfo currentVersion) async {
+    storeCheckCount += 1;
+    if (failStoreCheck) throw StateError('offline');
     return null;
   }
 }
@@ -61,32 +59,26 @@ void main() {
     expect(find.byKey(const Key('update-dot')), findsNothing);
   });
 
-  test('iOS 读取本机版本后不请求 Android APK 更新', () async {
+  test('读取本机版本后检查商店，不改变版本显示', () async {
     final service = _FakeAppUpdateService();
-    final controller = AppUpdateController.forTesting(
-      service: service,
-      isAndroid: false,
-    );
+    final controller = AppUpdateController.forTesting(service: service);
 
     await controller.check();
 
     expect(controller.state.status, AppUpdateStatus.idle);
     expect(controller.state.versionLabel, 'v1.0.0');
     expect(controller.state.hasUpdate, isFalse);
-    expect(service.androidCheckCount, 0);
+    expect(service.storeCheckCount, 1);
   });
 
   test('Android 联网检查失败仍保留已读取的本机版本', () async {
-    final service = _FakeAppUpdateService(failAndroidCheck: true);
-    final controller = AppUpdateController.forTesting(
-      service: service,
-      isAndroid: true,
-    );
+    final service = _FakeAppUpdateService(failStoreCheck: true);
+    final controller = AppUpdateController.forTesting(service: service);
 
     await controller.check();
 
     expect(controller.state.status, AppUpdateStatus.error);
     expect(controller.state.versionLabel, 'v1.0.0');
-    expect(service.androidCheckCount, 1);
+    expect(service.storeCheckCount, 1);
   });
 }

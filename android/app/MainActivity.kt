@@ -1,6 +1,8 @@
 package com.crcfrcn.citizenapp
 
 import org.citizen.sdk.CitizenSdkPlugin
+import com.google.android.play.core.appupdate.AppUpdateManagerFactory
+import com.google.android.play.core.install.model.UpdateAvailability
 import android.Manifest
 import android.app.PendingIntent
 import android.app.NotificationChannel
@@ -12,12 +14,10 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
-import android.provider.Settings
 import android.view.WindowManager
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import androidx.core.content.FileProvider
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -236,20 +236,27 @@ class MainActivity : FlutterFragmentActivity() {
                             )
                         )
                     }
-                    "installApk" -> {
-                        val apkPath = call.argument<String>("apkPath")
-                        if (apkPath.isNullOrBlank()) {
-                            result.error("INVALID_APK_PATH", "APK 路径为空", null)
-                            return@setMethodCallHandler
-                        }
+                    "checkStoreUpdate" -> {
+                        AppUpdateManagerFactory.create(this).appUpdateInfo
+                            .addOnSuccessListener { info ->
+                                result.success(mapOf(
+                                    "available" to (info.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE),
+                                    "versionCode" to info.availableVersionCode().toLong()
+                                ))
+                            }
+                            .addOnFailureListener {
+                                result.error("STORE_CHECK_FAILED", "无法读取Google Play更新状态", null)
+                            }
+                    }
+                    "openStore" -> {
                         try {
-                            result.success(installApk(File(apkPath)))
-                        } catch (error: Exception) {
-                            result.error(
-                                "INSTALL_APK_FAILED",
-                                error.message ?: "拉起系统安装器失败",
-                                null
-                            )
+                            // 只打开本应用的Google Play商品页，不交付APK或未知来源授权。
+                            startActivity(Intent(Intent.ACTION_VIEW,
+                                Uri.parse("https://play.google.com/store/apps/details?id=$packageName"))
+                                .setPackage("com.android.vending"))
+                            result.success(true)
+                        } catch (_: Exception) {
+                            result.error("STORE_UNAVAILABLE", "无法打开Google Play商店", null)
                         }
                     }
                     else -> result.notImplemented()
@@ -385,37 +392,6 @@ class MainActivity : FlutterFragmentActivity() {
             return
         }
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-    }
-
-    private fun installApk(apkFile: File): Boolean {
-        if (!apkFile.exists()) {
-            throw IllegalArgumentException("APK 文件不存在: ${apkFile.absolutePath}")
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-            !packageManager.canRequestPackageInstalls()
-        ) {
-            // Android 8+ 必须由用户授权“允许安装未知应用”，App 不能绕过系统确认。
-            val intent = Intent(
-                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                Uri.parse("package:$packageName")
-            )
-            startActivity(intent)
-            return false
-        }
-
-        val apkUri = FileProvider.getUriForFile(
-            this,
-            "$packageName.update_file_provider",
-            apkFile
-        )
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(apkUri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        startActivity(intent)
-        return true
     }
 
     private fun checkRoot(): Boolean {

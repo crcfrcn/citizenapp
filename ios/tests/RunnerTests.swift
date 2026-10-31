@@ -7,6 +7,17 @@ import XCTest
 @testable import Runner
 
 class RunnerTests: XCTestCase {
+  func testStoreRegistrationAndCountryUseOfficialIdentifiers() {
+    XCTAssertEqual(AppDelegate.appStoreId(["AppStoreId":"6800953222"]), "6800953222")
+    XCTAssertNil(AppDelegate.appStoreId([:]))
+    XCTAssertNil(AppDelegate.appStoreId(["AppStoreId":"https://example.invalid"]))
+    XCTAssertEqual(AppDelegate.storeCountry("USA"), "US")
+    XCTAssertEqual(AppDelegate.storeCountry("FRA"), "FR")
+    XCTAssertEqual(AppDelegate.storeCountry("CHN"), "CN")
+    XCTAssertEqual(AppDelegate.storeCountry("GBR"), "GB")
+    XCTAssertNil(AppDelegate.storeCountry("INVALID"))
+  }
+
   func testNativeRangeUsesBoundedLengthAndExactTail() {
     XCTAssertEqual(SquareRangeLoader.count(offset:0,requested:3_000_000_000,total:3_000_000_000),524288)
     XCTAssertEqual(SquareRangeLoader.count(offset:524288,requested:524288,total:600000),75712)

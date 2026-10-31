@@ -2,10 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_transaction/amount_format.dart';
 import 'local_tx_store.dart';
+import 'package:citizen_storage/user_isar.dart' show Entry;
+import 'package:citizen_transaction/topup/store.dart';
+import 'package:citizen_transaction/topup/topup_models.dart';
 
 // 流水列表与详情共用原格式化实现，资金仍使用整数分。
 String businessTypeLabel(String type) {
   switch (type) {
+    case 'topup':
+      return '充值';
     case 'transfer':
       return '转账';
     case 'fee':
@@ -27,6 +32,8 @@ String businessTypeLabel(String type) {
 
 String sourceLabel(String source) {
   switch (source) {
+    case 'topup_order':
+      return '本地充值订单';
     case 'local_submit':
       return '本机发起';
     case 'chain_event':
@@ -96,3 +103,40 @@ String formatFen(String fen, {String symbol = '元'}) {
 
 // ─── 交易记录列表项 ──────────────────────────────────────────
 
+/// 订单状态来自同一行；报价期限只影响未提交付款的展示，不隐藏订单。
+String recordStatusLabel(Entry row) {
+  if (row.entryKind != 'topup') return statusLabel(row.entryState);
+  final TopupRecord record;
+  try {
+    record = TopupStore.fromEntry(row);
+  } on Object {
+    return '记录损坏';
+  }
+  if (!record.terminal &&
+      record.progress.index < TopupProgress.submitting.index &&
+      DateTime.now().millisecondsSinceEpoch >= record.intent.expiresAt) {
+    return '报价已过期';
+  }
+  return switch (row.entryState) {
+    'quoted' || 'awaiting' => '待付款',
+    'authorized' => '已授权，待付款',
+    'submitting' => '付款回执待核实',
+    'submitted' || 'confirmed' || 'verifying' => '付款待确认',
+    'received' => '稳定币已收款',
+    'signed' || 'broadcast' => '公民币到账中',
+    'paid' => '已到账',
+    'exception' => '待核查',
+    _ => '状态未知',
+  };
+}
+
+String topupPaymentLabel(TopupRecord record) {
+  final decimals = record.intent.network == TopupNetwork.bnb ? 18 : 6;
+  final amount = BigInt.parse(record.intent.intentData['pay_amount'] as String);
+  final unit = BigInt.from(10).pow(decimals);
+  final fraction = (amount % unit)
+      .toString()
+      .padLeft(decimals, '0')
+      .replaceFirst(RegExp(r'0+$'), '');
+  return '${amount ~/ unit}${fraction.isEmpty ? '' : '.$fraction'} ${record.intent.intentData['token']}';
+}

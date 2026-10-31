@@ -13,7 +13,6 @@ dependencies:
       url: https://github.com/crcfrcn/citizensdk.git
       path: .
       ref: main
-  crypto: 3.0.7
   firebase_core: ^4.11.0
   firebase_messaging: ^16.4.1
   flutter:

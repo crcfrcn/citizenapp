@@ -1,3 +1,4 @@
+import 'package:citizen_transaction/topup/store.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:citizen_storage/user_isar.dart' as wallet_store show Entry;
 import 'package:citizen_wallet/account_balance_snapshot_store.dart';
@@ -2090,6 +2091,11 @@ class _WalletDetailPageState extends State<WalletDetailPage>
     _walletRevision = widget.expectedRevision;
     _loadRecentRecords();
     startTxAutoRefresh(widget.wallet.accountId);
+  }
+
+  @override
+  void onTopupRecordChanged(TopupChange change) {
+    setState(() => _recentRecords = change.apply(_recentRecords, limit: 5));
   }
 
   Future<void> _loadRecentRecords() async {

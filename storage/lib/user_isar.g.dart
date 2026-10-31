@@ -29210,19 +29210,34 @@ const EntrySchema = CollectionSchema(
       type: IsarType.string,
     ),
     r'kind': PropertySchema(id: 14, name: r'kind', type: IsarType.string),
-    r'state': PropertySchema(id: 15, name: r'state', type: IsarType.string),
-    r'to_address': PropertySchema(
+    r'order_data': PropertySchema(
+      id: 15,
+      name: r'order_data',
+      type: IsarType.string,
+    ),
+    r'order_id': PropertySchema(
       id: 16,
+      name: r'order_id',
+      type: IsarType.string,
+    ),
+    r'service_origin': PropertySchema(
+      id: 17,
+      name: r'service_origin',
+      type: IsarType.string,
+    ),
+    r'state': PropertySchema(id: 18, name: r'state', type: IsarType.string),
+    r'to_address': PropertySchema(
+      id: 19,
       name: r'to_address',
       type: IsarType.string,
     ),
     r'transfer_amount': PropertySchema(
-      id: 17,
+      id: 20,
       name: r'transfer_amount',
       type: IsarType.string,
     ),
-    r'tx_hash': PropertySchema(id: 18, name: r'tx_hash', type: IsarType.string),
-    r'tx_note': PropertySchema(id: 19, name: r'tx_note', type: IsarType.string),
+    r'tx_hash': PropertySchema(id: 21, name: r'tx_hash', type: IsarType.string),
+    r'tx_note': PropertySchema(id: 22, name: r'tx_note', type: IsarType.string),
   },
 
   estimateSize: _entryEstimateSize,
@@ -29231,6 +29246,24 @@ const EntrySchema = CollectionSchema(
   deserializeProp: _entryDeserializeProp,
   idName: r'id',
   indexes: {
+    r'service_origin_order_id': IndexSchema(
+      id: 4078330948453569823,
+      name: r'service_origin_order_id',
+      unique: false,
+      replace: false,
+      properties: [
+        IndexPropertySchema(
+          name: r'service_origin',
+          type: IndexType.hash,
+          caseSensitive: true,
+        ),
+        IndexPropertySchema(
+          name: r'order_id',
+          type: IndexType.hash,
+          caseSensitive: true,
+        ),
+      ],
+    ),
     r'account_id': IndexSchema(
       id: 3848080515527097000,
       name: r'account_id',
@@ -29313,6 +29346,24 @@ int _entryEstimateSize(
     }
   }
   bytesCount += 3 + object.entryKind.length * 3;
+  {
+    final value = object.orderData;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
+  {
+    final value = object.orderId;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
+  {
+    final value = object.serviceOrigin;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
   bytesCount += 3 + object.entryState.length * 3;
   {
     final value = object.toAddress;
@@ -29362,11 +29413,14 @@ void _entrySerialize(
   writer.writeString(offsets[12], object.feeAmount);
   writer.writeString(offsets[13], object.fromAddress);
   writer.writeString(offsets[14], object.entryKind);
-  writer.writeString(offsets[15], object.entryState);
-  writer.writeString(offsets[16], object.toAddress);
-  writer.writeString(offsets[17], object.transferAmount);
-  writer.writeString(offsets[18], object.txHash);
-  writer.writeString(offsets[19], object.txNote);
+  writer.writeString(offsets[15], object.orderData);
+  writer.writeString(offsets[16], object.orderId);
+  writer.writeString(offsets[17], object.serviceOrigin);
+  writer.writeString(offsets[18], object.entryState);
+  writer.writeString(offsets[19], object.toAddress);
+  writer.writeString(offsets[20], object.transferAmount);
+  writer.writeString(offsets[21], object.txHash);
+  writer.writeString(offsets[22], object.txNote);
 }
 
 Entry _entryDeserialize(
@@ -29392,11 +29446,14 @@ Entry _entryDeserialize(
   object.fromAddress = reader.readStringOrNull(offsets[13]);
   object.rowId = id;
   object.entryKind = reader.readString(offsets[14]);
-  object.entryState = reader.readString(offsets[15]);
-  object.toAddress = reader.readStringOrNull(offsets[16]);
-  object.transferAmount = reader.readStringOrNull(offsets[17]);
-  object.txHash = reader.readStringOrNull(offsets[18]);
-  object.txNote = reader.readStringOrNull(offsets[19]);
+  object.orderData = reader.readStringOrNull(offsets[15]);
+  object.orderId = reader.readStringOrNull(offsets[16]);
+  object.serviceOrigin = reader.readStringOrNull(offsets[17]);
+  object.entryState = reader.readString(offsets[18]);
+  object.toAddress = reader.readStringOrNull(offsets[19]);
+  object.transferAmount = reader.readStringOrNull(offsets[20]);
+  object.txHash = reader.readStringOrNull(offsets[21]);
+  object.txNote = reader.readStringOrNull(offsets[22]);
   return object;
 }
 
@@ -29438,14 +29495,20 @@ P _entryDeserializeProp<P>(
     case 14:
       return (reader.readString(offset)) as P;
     case 15:
-      return (reader.readString(offset)) as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 16:
       return (reader.readStringOrNull(offset)) as P;
     case 17:
       return (reader.readStringOrNull(offset)) as P;
     case 18:
-      return (reader.readStringOrNull(offset)) as P;
+      return (reader.readString(offset)) as P;
     case 19:
+      return (reader.readStringOrNull(offset)) as P;
+    case 20:
+      return (reader.readStringOrNull(offset)) as P;
+    case 21:
+      return (reader.readStringOrNull(offset)) as P;
+    case 22:
       return (reader.readStringOrNull(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -29548,6 +29611,174 @@ extension EntryQueryWhere on QueryBuilder<Entry, Entry, QWhereClause> {
           includeUpper: includeUpper,
         ),
       );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterWhereClause>
+  serviceOriginIsNullAnyOrderId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IndexWhereClause.equalTo(
+          indexName: r'service_origin_order_id',
+          value: [null],
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterWhereClause>
+  serviceOriginIsNotNullAnyOrderId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IndexWhereClause.between(
+          indexName: r'service_origin_order_id',
+          lower: [null],
+          includeLower: false,
+          upper: [],
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterWhereClause> serviceOriginEqualToAnyOrderId(
+    String? serviceOrigin,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IndexWhereClause.equalTo(
+          indexName: r'service_origin_order_id',
+          value: [serviceOrigin],
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterWhereClause>
+  serviceOriginNotEqualToAnyOrderId(String? serviceOrigin) {
+    return QueryBuilder.apply(this, (query) {
+      if (query.whereSort == Sort.asc) {
+        return query
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'service_origin_order_id',
+                lower: [],
+                upper: [serviceOrigin],
+                includeUpper: false,
+              ),
+            )
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'service_origin_order_id',
+                lower: [serviceOrigin],
+                includeLower: false,
+                upper: [],
+              ),
+            );
+      } else {
+        return query
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'service_origin_order_id',
+                lower: [serviceOrigin],
+                includeLower: false,
+                upper: [],
+              ),
+            )
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'service_origin_order_id',
+                lower: [],
+                upper: [serviceOrigin],
+                includeUpper: false,
+              ),
+            );
+      }
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterWhereClause>
+  serviceOriginEqualToOrderIdIsNull(String? serviceOrigin) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IndexWhereClause.equalTo(
+          indexName: r'service_origin_order_id',
+          value: [serviceOrigin, null],
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterWhereClause>
+  serviceOriginEqualToOrderIdIsNotNull(String? serviceOrigin) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IndexWhereClause.between(
+          indexName: r'service_origin_order_id',
+          lower: [serviceOrigin, null],
+          includeLower: false,
+          upper: [serviceOrigin],
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterWhereClause> serviceOriginOrderIdEqualTo(
+    String? serviceOrigin,
+    String? orderId,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IndexWhereClause.equalTo(
+          indexName: r'service_origin_order_id',
+          value: [serviceOrigin, orderId],
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterWhereClause>
+  serviceOriginEqualToOrderIdNotEqualTo(
+    String? serviceOrigin,
+    String? orderId,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      if (query.whereSort == Sort.asc) {
+        return query
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'service_origin_order_id',
+                lower: [serviceOrigin],
+                upper: [serviceOrigin, orderId],
+                includeUpper: false,
+              ),
+            )
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'service_origin_order_id',
+                lower: [serviceOrigin, orderId],
+                includeLower: false,
+                upper: [serviceOrigin],
+              ),
+            );
+      } else {
+        return query
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'service_origin_order_id',
+                lower: [serviceOrigin, orderId],
+                includeLower: false,
+                upper: [serviceOrigin],
+              ),
+            )
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'service_origin_order_id',
+                lower: [serviceOrigin],
+                upper: [serviceOrigin, orderId],
+                includeUpper: false,
+              ),
+            );
+      }
     });
   }
 
@@ -31684,6 +31915,492 @@ extension EntryQueryFilter on QueryBuilder<Entry, Entry, QFilterCondition> {
     });
   }
 
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> orderDataIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'order_data'),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> orderDataIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'order_data'),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> orderDataEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'order_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> orderDataGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'order_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> orderDataLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'order_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> orderDataBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'order_data',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> orderDataStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'order_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> orderDataEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'order_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> orderDataContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'order_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> orderDataMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'order_data',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> orderDataIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'order_data', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> orderDataIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'order_data', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> orderIdIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'order_id'),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> orderIdIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'order_id'),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> orderIdEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'order_id',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> orderIdGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'order_id',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> orderIdLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'order_id',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> orderIdBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'order_id',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> orderIdStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'order_id',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> orderIdEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'order_id',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> orderIdContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'order_id',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> orderIdMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'order_id',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> orderIdIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'order_id', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> orderIdIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'order_id', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> serviceOriginIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'service_origin'),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> serviceOriginIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'service_origin'),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> serviceOriginEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'service_origin',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> serviceOriginGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'service_origin',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> serviceOriginLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'service_origin',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> serviceOriginBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'service_origin',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> serviceOriginStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'service_origin',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> serviceOriginEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'service_origin',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> serviceOriginContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'service_origin',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> serviceOriginMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'service_origin',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> serviceOriginIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'service_origin', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterFilterCondition> serviceOriginIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'service_origin', value: ''),
+      );
+    });
+  }
+
   QueryBuilder<Entry, Entry, QAfterFilterCondition> entryStateEqualTo(
     String value, {
     bool caseSensitive = true,
@@ -32664,6 +33381,42 @@ extension EntryQuerySortBy on QueryBuilder<Entry, Entry, QSortBy> {
     });
   }
 
+  QueryBuilder<Entry, Entry, QAfterSortBy> sortByOrderData() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'order_data', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterSortBy> sortByOrderDataDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'order_data', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterSortBy> sortByOrderId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'order_id', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterSortBy> sortByOrderIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'order_id', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterSortBy> sortByServiceOrigin() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'service_origin', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterSortBy> sortByServiceOriginDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'service_origin', Sort.desc);
+    });
+  }
+
   QueryBuilder<Entry, Entry, QAfterSortBy> sortByEntryState() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'state', Sort.asc);
@@ -32918,6 +33671,42 @@ extension EntryQuerySortThenBy on QueryBuilder<Entry, Entry, QSortThenBy> {
     });
   }
 
+  QueryBuilder<Entry, Entry, QAfterSortBy> thenByOrderData() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'order_data', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterSortBy> thenByOrderDataDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'order_data', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterSortBy> thenByOrderId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'order_id', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterSortBy> thenByOrderIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'order_id', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterSortBy> thenByServiceOrigin() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'service_origin', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QAfterSortBy> thenByServiceOriginDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'service_origin', Sort.desc);
+    });
+  }
+
   QueryBuilder<Entry, Entry, QAfterSortBy> thenByEntryState() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'state', Sort.asc);
@@ -33090,6 +33879,33 @@ extension EntryQueryWhereDistinct on QueryBuilder<Entry, Entry, QDistinct> {
     });
   }
 
+  QueryBuilder<Entry, Entry, QDistinct> distinctByOrderData({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'order_data', caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QDistinct> distinctByOrderId({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'order_id', caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<Entry, Entry, QDistinct> distinctByServiceOrigin({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(
+        r'service_origin',
+        caseSensitive: caseSensitive,
+      );
+    });
+  }
+
   QueryBuilder<Entry, Entry, QDistinct> distinctByEntryState({
     bool caseSensitive = true,
   }) {
@@ -33228,6 +34044,24 @@ extension EntryQueryProperty on QueryBuilder<Entry, Entry, QQueryProperty> {
   QueryBuilder<Entry, String, QQueryOperations> entryKindProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'kind');
+    });
+  }
+
+  QueryBuilder<Entry, String?, QQueryOperations> orderDataProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'order_data');
+    });
+  }
+
+  QueryBuilder<Entry, String?, QQueryOperations> orderIdProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'order_id');
+    });
+  }
+
+  QueryBuilder<Entry, String?, QQueryOperations> serviceOriginProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'service_origin');
     });
   }
 

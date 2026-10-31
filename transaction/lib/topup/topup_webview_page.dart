@@ -156,10 +156,32 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
   int _last = 0;
   int _lastObservation = 0;
   TopupRecord? _record;
+  StreamSubscription<TopupChange>? _recordChanges;
   @override
   void initState() {
     super.initState();
     _record = widget.resume;
+    _recordChanges = TopupStore.changes.listen((change) {
+      final current = _record;
+      if (change.record == null &&
+          current != null &&
+          change.accountId == _accountId &&
+          change.orderId == current.intent.orderId &&
+          change.origin == current.origin) {
+        // 删除提交后结束原文档；在途响应只能更新原行，不能重新插入。
+        _stopped = true;
+        _record = null;
+        final document = _document;
+        if (document != null && document.started) {
+          unawaited(
+            _controller
+                .runJavaScript('if (${document.check}) CitizenTopup.cancel()')
+                .catchError((Object _) {}),
+          );
+        }
+        if (mounted) setState(() => _error = '本地充值订单已删除');
+      }
+    });
     _links = WalletLinkDispatcher(
       launcher: (uri) => launchUrl(uri, mode: LaunchMode.externalApplication),
     );
@@ -170,6 +192,7 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
   @override
   void dispose() {
     _stopped = true;
+    unawaited(_recordChanges?.cancel());
     final document = _document;
     if (document != null && document.started) {
       // 离页即结束原文档的连接和等待；同次JS核对来源/nonce，旧回调不能带到下一钱包。
@@ -336,6 +359,7 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
 
   Future<void> _save(TopupRecord next) async {
     await widget.store.save(next, before: _record);
+    if (!_active) throw const TopupDeletedException();
     _record = next;
   }
 
@@ -638,6 +662,10 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
             throw const FormatException('未知付款桥接阶段');
         }
       }
+    } on TopupDeletedException {
+      _stopped = true;
+      _record = null;
+      if (mounted) setState(() => _error = '本地充值订单已删除');
     } on TopupApiException catch (error) {
       await _reply(id, error: error.message);
       if (mounted) setState(() => _error = error.message);
