@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:citizen_system/theme/app_theme.dart';
-import 'package:citizen_transaction/amount_format.dart';
+import 'package:citizen_system/amount_format.dart';
 import 'local_tx_store.dart';
 import 'package:citizen_storage/user_isar.dart' show Entry;
 import 'package:citizen_transaction/topup/store.dart';

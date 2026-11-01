@@ -16,7 +16,7 @@ import 'package:citizen_scanner/scan_dispatch.dart';
 import 'package:citizen_transaction/history/local_tx_store.dart';
 import 'package:citizen_transaction/history/tx_auto_refresh_mixin.dart';
 import 'package:citizen_widgets/shimmer_loading.dart';
-import 'package:citizen_transaction/amount_format.dart';
+import 'package:citizen_system/amount_format.dart';
 import 'package:citizen_transaction/onchain/onchain_payment_models.dart';
 import 'package:citizen_account/identity/account_security_service.dart';
 import 'package:citizen_account/identity/myid_service.dart';

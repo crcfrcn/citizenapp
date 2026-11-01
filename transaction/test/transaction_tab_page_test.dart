@@ -11,7 +11,6 @@ import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_transaction/onchain/onchain_payment_page.dart';
 import 'package:citizen_transaction/personal/personal_account_entry.dart';
 import 'package:citizen_transaction/history/local_tx_store.dart';
-import 'package:citizen_transaction/transaction_tab_page.dart';
 import 'package:citizen_widgets/chain_progress_banner.dart';
 
 const _walletAAccountId =

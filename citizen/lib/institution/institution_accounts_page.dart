@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:citizen_citizen/institution/institution.dart';
 import 'package:citizen_citizen/institution/institution_accounts.dart';
 import 'package:citizen_citizen/institution/institution_chain_state.dart';
-import 'package:citizen_transaction/amount_format.dart';
+import 'package:citizen_system/amount_format.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 

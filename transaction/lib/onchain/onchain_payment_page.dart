@@ -13,8 +13,9 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_widgets/chain_progress_banner.dart';
 import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
-import 'package:citizen_transaction/amount_format.dart';
+import 'package:citizen_system/amount_format.dart';
 import 'package:citizen_transaction/onchain/onchain_payment_models.dart';
+import 'package:citizen_transaction/personal/personal_account_entry.dart';
 import 'package:citizen_transaction/onchain/onchain_payment_service.dart';
 import 'package:citizen_transaction/onchain/onchain_transfer_call.dart';
 import 'package:citizen_transaction/history/local_tx_store.dart';
@@ -26,13 +27,57 @@ import 'package:citizen_account/navigation.dart';
 import 'package:citizen_account/contacts/contact_service.dart' show UserContact;
 import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_account/identity/account_security_service.dart';
-import 'package:citizen_transaction/navigation.dart';
 import 'package:citizen_transaction/history/transaction_history_page.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
-typedef OnchainPaymentExtraEntriesBuilder = List<Widget> Function(
-  BuildContext context,
-);
+// 交易表单通过公开选择端口使用钱包和通讯录，不导入这两个包的页面。
+final class TransactionNavigation {
+  const TransactionNavigation({
+    required this.walletPicker,
+    required this.contactPicker,
+  });
+  final Widget Function() walletPicker;
+  final Widget Function(ContactPickMode mode) contactPicker;
+}
+
+/// 交易 Tab 页面。
+///
+/// 本页只负责交易页入口编排；链上支付主体仍由 onchain 模块渲染。
+/// 扫码收在收款地址输入框内（只填地址）；签名请求统一走「聊天 → 扫一扫」。
+class TransactionTabPage extends StatelessWidget {
+  const TransactionTabPage({
+    super.key,
+    this.currentWalletLoader,
+    this.localRecordsLoader,
+    this.balanceLoader,
+    this.contactPageBuilder,
+  });
+
+  /// 测试夹具可注入公开页面数据；正式 Tab 不传值并直接读取 CitizenSDK。
+  final OnchainCurrentWalletLoader? currentWalletLoader;
+  final OnchainLocalRecordsLoader? localRecordsLoader;
+  final Future<double> Function(String accountId)? balanceLoader;
+  final OnchainContactPageBuilder? contactPageBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    return OnchainPaymentPanel(
+      // 交易 Tab 的页面标题由真实公民链状态取代；独立链上支付页仍保留自己的标题。
+      chainStatusInHeader: true,
+      currentWalletLoader: currentWalletLoader,
+      localRecordsLoader: localRecordsLoader,
+      balanceLoader: balanceLoader,
+      contactPageBuilder: contactPageBuilder,
+      extraEntriesBuilder: (context) => [
+        const PersonalAccountEntryCard(),
+        SizedBox(height: AppLayout.scaled(context, 12)),
+      ],
+    );
+  }
+}
+
+typedef OnchainPaymentExtraEntriesBuilder =
+    List<Widget> Function(BuildContext context);
 
 /// 交易表单四个输入框(收款地址 / 金额 / 币种 / 备注)共用的装饰。
 ///
@@ -75,10 +120,8 @@ InputDecoration transactionFieldDecoration({
 typedef OnchainWalletPicker = Future<PaymentAccountSelection?> Function();
 typedef OnchainCurrentWalletLoader =
     Future<CitizenWalletStateAccount?> Function();
-typedef OnchainLocalRecordsLoader = Future<List<wallet_store.Entry>> Function(
-  String accountId, {
-  int limit,
-});
+typedef OnchainLocalRecordsLoader =
+    Future<List<wallet_store.Entry>> Function(String accountId, {int limit});
 typedef OnchainContactPageBuilder = Widget Function(ContactPickMode mode);
 
 class OnchainPaymentPage extends StatelessWidget {
@@ -229,11 +272,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     final accountSecurity = context.read<AccountSecurityService>();
     _paymentService =
         widget.paymentService ??
-        OnchainPaymentService(
-          wallet: sdk,
-          transactions: sdk,
-          chain: sdk,
-        );
+        OnchainPaymentService(wallet: sdk, transactions: sdk, chain: sdk);
     _accountSecurity = accountSecurity;
     accountSecurity.revision.addListener(_onWalletsChanged);
     _dependenciesReady = true;
@@ -477,8 +516,9 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     final blockedReason = _submitBlockedReason;
     if (blockedReason != null) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(blockedReason)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(blockedReason)));
       }
       return;
     }
@@ -486,8 +526,9 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
       return;
     }
     if (_currentWallet == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('请先创建或导入钱包')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请先创建或导入钱包')));
       await _openWalletTab();
       return;
     }
@@ -496,8 +537,9 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     final requestedAddress = toAddress, requestedCid = _recipientCid;
     final amountRaw = _amountController.text.trim();
     if (toAddress.isEmpty || amountRaw.isEmpty) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('请先填写完整的收款地址和金额')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请先填写完整的收款地址和金额')));
       return;
     }
     final amountText = AmountFormat.stripCommas(amountRaw);
@@ -528,8 +570,9 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
         !amount.isFinite ||
         !(amount * 100).isFinite ||
         amount <= 0) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('金额格式不正确')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('金额格式不正确')));
       return;
     }
     final remark = _remarkController.text;
@@ -557,8 +600,9 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
       if (widget.balanceLoader != null) setState(() => _testBalance = fresh);
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('余额校验失败，请刷新后重试')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('余额校验失败，请刷新后重试')));
       }
       return;
     } finally {
@@ -580,8 +624,9 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
       toAddress = recipient.address;
     } on Object {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('无法确认收款人当前账户，请重试')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('无法确认收款人当前账户，请重试')));
       }
       return;
     } finally {
@@ -652,8 +697,9 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     if (confirmed != true) return;
     if (!mounted) return;
     if (_currentWallet?.accountId != balanceAccountId) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('付款账户已变化，请重新确认')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('付款账户已变化，请重新确认')));
       return;
     }
 
@@ -675,9 +721,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
         ),
       );
       if (!mounted || _currentWallet?.accountId != balanceAccountId) {
-        await sdk.cancelPreparedTransaction(
-          prepared.preparationId,
-        );
+        await sdk.cancelPreparedTransaction(prepared.preparationId);
         throw const OnchainPaymentException(
           OnchainPaymentErrorCode.walletMissing,
           '付款账户已变化，请重新确认',
@@ -699,9 +743,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
           ),
         );
         if (response == null) {
-          await sdk.cancelPreparedTransactionExecution(
-            started.executionId,
-          );
+          await sdk.cancelPreparedTransactionExecution(started.executionId);
           throw const AccountSecurityException('交易签名已取消');
         }
         completed = await sdk.consumePreparedTransactionQrResponse(
@@ -755,14 +797,16 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
     } on OnchainPaymentException catch (e) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
     } on CitizenSdkException catch (e) {
       // 诊断仅含固定步骤和SDK枚举；不得记录错误描述、账户或交易载荷。
       final method = switch (e.method) {
@@ -786,8 +830,9 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
       }
       // 未分类异常不得把可能携带交易内容的原始描述写入日志或弹窗。
       AppLog.d('[链上交易] 未分类异常类型: ${e.runtimeType}');
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('交易异常，请稍后重试')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('交易异常，请稍后重试')));
     } finally {
       if (mounted) {
         setState(() {

@@ -1634,7 +1634,7 @@ PersonalAdmins ProposalData 解码、`PersonalAdmins::PersonalAccounts` storage 
 | --- | --- |
 | `8964/lib/feed/square_tab_page.dart` | 底部广场 Tab 当前入口页 |
 | `citizen/lib/proposal/proposal_tab.dart` | 公民 Tab 内“提案”统一列表页：默认公共机构 + 当前钱包订阅公权机构 |
-| `transaction/lib/transaction_tab_page.dart` | 交易 Tab 双入口编排：扫码支付 / 多签账户 |
+| `transaction/lib/onchain/onchain_payment_page.dart` | 交易 Tab 的付款面板、链状态、多签账户入口及导航选择端口 |
 | `transaction/lib/personal/personal_account_list_page.dart` | 个人多签账户列表页 |
 | `citizen/lib/proposal/institution_manage_detail_page.dart` | 个人/机构多签管理提案共用投票详情页；业务解码委托对应 manage 服务 |
 | `transaction/lib/personal/personal_account_create_page.dart` | 个人多签创建表单 |
@@ -1662,7 +1662,7 @@ PersonalAdmins ProposalData 解码、`PersonalAdmins::PersonalAccounts` storage 
 - `citizen/lib/proposal/proposal_entry_page.dart`
 - `citizen/lib/institution/institution_admin_list_page.dart`
 - `citizen/lib/proposal/institution_manage_detail_page.dart`
-- `transaction/lib/transaction_tab_page.dart`
+- `transaction/lib/onchain/onchain_payment_page.dart`
 - `transaction/lib/personal/personal_account_list_page.dart`
 - `transaction/lib/personal/personal_account_create_page.dart`
 - `transaction/lib/personal/personal_account_close_page.dart`
@@ -2910,7 +2910,7 @@ scanner只负责采集、QR界面与结果，联系人导入由account提供回�
 
 编译与测试通过build.mjs的packageRoots读取同一workspace声明。冻结两个SDK后，mapSdkSource同步映射根与所有实际消费者的SDK来源，不能只改根声明而让成员继续使用Git来源；其它上游版本和锁保持。
 
-钱包、治理和交易页面通过WalletNavigation、GovernanceNavigation、TransactionNavigation公开工厂在根App的lib/navigation.dart组合。原Navigator调用、门禁、参数和结果处理保留，工厂只构造原有页面，不存业务状态。
+钱包、治理和交易页面通过WalletNavigation、GovernanceNavigation、TransactionNavigation公开工厂在根App的lib/navigation.dart组合。原Navigator调用、门禁、参数和结果处理保留，工厂只构造原有页面，不存业务状态。交易包的TransactionNavigation与TransactionTabPage统一归transaction/lib/onchain/onchain_payment_page.dart，不设独立导航或Tab转发文件；前者仍只定义钱包/联系人选择回调，后者只编排原OnchainPaymentPanel及个人多签入口。公共AmountFormat与ThousandSeparatorFormatter统一归system/lib/amount_format.dart，金额边界和输入光标测试归system/test/amount_format_thousands_test.dart；账户、钱包、治理和交易均直接消费system公开路径，不保留交易包金额别名。
 
 流水列表项与页面分离为transaction/history的record_tile、record_format和原history页面；钱包只消费公开列表组件，详情页继续由根App工厂构造。原格式化算法与整数金额不变。
 

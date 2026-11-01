@@ -11,7 +11,7 @@ import 'package:citizen_citizen/institution/institution_accounts.dart';
 import 'package:citizen_citizen/institution/institution_accounts_page.dart';
 import 'package:citizen_citizen/institution/institution_chain_state.dart';
 import 'package:citizen_citizen/institution/institution_classification.dart';
-import 'package:citizen_transaction/amount_format.dart';
+import 'package:citizen_system/amount_format.dart';
 import 'package:citizen_citizen/institution/institution_repository.dart';
 import 'package:citizen_citizen/public/public_institution_admin_list_page.dart';
 import 'package:citizen_citizen/legislation/law_models.dart';

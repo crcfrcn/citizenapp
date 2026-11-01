@@ -17,7 +17,7 @@ import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 import 'package:isar_community/isar.dart';
 import 'package:citizen_storage/user_isar.dart' hide Group;
 import 'package:citizen_transaction/personal/personal_proposal_history_service.dart';
-import 'package:citizen_transaction/amount_format.dart';
+import 'package:citizen_system/amount_format.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_transaction/multisig/multisig_transfer_balance_guard.dart';
 import 'package:citizen_transaction/multisig/multisig_transfer_service.dart';

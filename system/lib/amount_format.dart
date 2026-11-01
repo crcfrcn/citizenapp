@@ -1,6 +1,6 @@
 import 'package:flutter/services.dart';
 
-/// 金额格式化工具。
+/// 跨业务共用的金额格式化工具。
 ///
 /// 提供千分位分隔符和标准化金额显示。
 class AmountFormat {
@@ -17,11 +17,7 @@ class AmountFormat {
   /// AmountFormat.format(100)              // "100.00 元"
   /// AmountFormat.format(100, symbol: '')  // "100.00"
   /// ```
-  static String format(
-    double amount, {
-    int decimals = 2,
-    String symbol = '元',
-  }) {
+  static String format(double amount, {int decimals = 2, String symbol = '元'}) {
     final fixed = amount.toStringAsFixed(decimals);
     final formatted = _addThousandSeparator(fixed);
     return symbol.isEmpty ? formatted : '$formatted $symbol';
@@ -136,8 +132,9 @@ class ThousandSeparatorFormatter extends TextInputFormatter {
     // 拆整数部分和小数部分
     final parts = cleaned.split('.');
     final intPart = parts[0];
-    final decPart =
-        parts.length > 1 ? '.${parts[1]}' : (text.endsWith('.') ? '.' : '');
+    final decPart = parts.length > 1
+        ? '.${parts[1]}'
+        : (text.endsWith('.') ? '.' : '');
 
     // 添加千分位
     final formattedInt = intPart.replaceAllMapped(

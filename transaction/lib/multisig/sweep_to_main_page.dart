@@ -14,7 +14,7 @@ import 'package:citizen_transaction/multisig/multisig_transfer_service.dart';
 import 'package:citizen_wallet/account_balance_snapshot_store.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_widgets/chain_progress_banner.dart';
-import 'package:citizen_transaction/amount_format.dart';
+import 'package:citizen_system/amount_format.dart';
 import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 

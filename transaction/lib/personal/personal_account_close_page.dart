@@ -12,7 +12,7 @@ import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_scanner/address_scan_button.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_widgets/chain_progress_banner.dart';
-import 'package:citizen_transaction/amount_format.dart';
+import 'package:citizen_system/amount_format.dart';
 import 'package:citizen_wallet/account_balance_snapshot_store.dart';
 
 import 'package:citizen_transaction/personal/personal_manage_service.dart';

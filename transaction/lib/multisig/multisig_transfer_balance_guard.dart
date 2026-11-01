@@ -1,6 +1,6 @@
 import 'package:citizen_wallet/account_balance_snapshot_store.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizen_transaction/amount_format.dart';
+import 'package:citizen_system/amount_format.dart';
 import 'package:citizen_transaction/personal/multisig_create_amount_rules.dart';
 
 /// 多签提案和实际投票的付款账户余额检查。

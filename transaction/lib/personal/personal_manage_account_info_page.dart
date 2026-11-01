@@ -21,7 +21,7 @@ import 'package:citizen_citizen/administrators/admin_account.dart';
 import 'package:citizen_citizen/proposal/internal_vote_service.dart';
 import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_system/theme/app_theme.dart';
-import 'package:citizen_transaction/amount_format.dart';
+import 'package:citizen_system/amount_format.dart';
 
 import 'package:citizen_transaction/personal/personal_admin_list_page.dart';
 import 'package:citizen_transaction/personal/personal_account_close_page.dart';

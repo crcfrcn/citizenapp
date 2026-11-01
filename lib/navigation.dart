@@ -1,6 +1,6 @@
 import 'package:citizen_wallet/navigation.dart';
 import 'package:citizen_wallet/wallet_page.dart';
-import 'package:citizen_transaction/navigation.dart';
+import 'package:citizen_transaction/onchain/onchain_payment_page.dart';
 import 'package:citizen_transaction/history/transaction_history_page.dart';
 import 'package:citizen_transaction/topup/topup_sheet.dart';
 import 'package:citizen_transaction/offchain/petty_wallet_page.dart';

@@ -7,7 +7,7 @@ import 'package:citizen_transaction/multisig/multisig_transfer_service.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/proposal/proposal_context.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
-import 'package:citizen_transaction/amount_format.dart';
+import 'package:citizen_system/amount_format.dart';
 
 /// 多签转账给外部列表页使用的只读适配器。
 ///

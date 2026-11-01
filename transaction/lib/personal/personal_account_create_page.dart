@@ -18,7 +18,7 @@ import 'package:citizen_scanner/qr_scan_page.dart'
     show QrScanMode, QrScanPage;
 import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_system/theme/app_theme.dart';
-import 'package:citizen_transaction/amount_format.dart';
+import 'package:citizen_system/amount_format.dart';
 import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_citizen/administrators/admin_account.dart';
 

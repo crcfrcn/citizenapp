@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:citizen_citizen/account_derivation.dart';
-import 'package:citizen_transaction/amount_format.dart';
+import 'package:citizen_system/amount_format.dart';
 
 import 'package:citizen_citizen/institution/institution_role_models.dart';
 

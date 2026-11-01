@@ -8,7 +8,7 @@ import 'package:citizen_system/app_log.dart';
 import 'package:flutter/services.dart';
 import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_system/theme/app_theme.dart';
-import 'package:citizen_transaction/amount_format.dart';
+import 'package:citizen_system/amount_format.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/administrators/admin_account.dart';
 import 'package:citizen_citizen/administrators/institution_admin_service.dart';
