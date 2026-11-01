@@ -373,9 +373,7 @@ class RunnerTests: XCTestCase {
     let record = root.appendingPathComponent("registration.json")
     XCTAssertEqual(try manager.attributesOfItem(atPath: record.path)[.posixPermissions] as? Int, 0o600)
     XCTAssertTrue(try record.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup == true)
-    XCTAssertTrue(try SystemProtectedDataChannel.compareRecordFile(root: root, name: "topup.json", expected: nil, next: "{\"order\":\"public-fixture\"}"))
-    XCTAssertFalse(try SystemProtectedDataChannel.compareRecordFile(root: root, name: "topup.json", expected: nil, next: "{}"))
-    XCTAssertThrowsError(try SystemProtectedDataChannel.compareRecordFile(root: root, name: "../topup.json", expected: nil, next: "{}"))
+    XCTAssertThrowsError(try SystemProtectedDataChannel.compareRecordFile(root: root, name: "unknown.json", expected: nil, next: "{}"))
     XCTAssertThrowsError(try SystemProtectedDataChannel.compareRecordFile(root: root, name: "registration.json.part", expected: nil, next: "{}"))
     XCTAssertThrowsError(try SystemProtectedDataChannel.compareRecordFile(root: root, name: "../registration.json", expected: nil, next: "{}"))
   }

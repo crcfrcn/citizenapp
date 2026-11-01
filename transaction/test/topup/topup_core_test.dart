@@ -1,9 +1,7 @@
 import 'package:citizen_testing/fixture.dart';
-
-import 'dart:convert';
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -11,950 +9,388 @@ import 'package:citizen_transaction/topup/topup_models.dart';
 import 'package:citizen_transaction/topup/topup_api.dart';
 import 'package:citizen_transaction/topup/topup_webview_page.dart';
 import 'package:citizen_transaction/topup/topup_erc20.dart';
-import 'package:citizen_transaction/topup/wallet_link_dispatcher.dart';
+import 'package:citizen_transaction/topup/tron.dart';
+import 'package:citizen_transaction/topup/solana.dart';
+import 'package:citizen_transaction/topup/store.dart';
 import 'package:citizen_system/app_log.dart';
 
-Map<String, dynamic> fixture() => jsonDecode(
-  fixtureFile('citizen_transaction', 'topup/contract.json').readAsStringSync(),
-) as Map<String, dynamic>;
+TopupPayment payment(TopupNetwork network, {String? token}) =>
+    TopupPayment.signed(
+      TopupDraft.create(
+        TopupSelection(
+          token:
+              token ??
+              (network == TopupNetwork.base || network == TopupNetwork.solana
+                  ? 'USDC'
+                  : 'USDT'),
+          package: TopupConfig.local().packages.first,
+          network: network,
+        ),
+        '0x${'04' * 32}',
+      ),
+      '0x${'01' * 64}',
+      now: 1000000,
+    );
+Map<String, dynamic> evmFacts(
+  TopupPayment p,
+  String payer,
+  String tx, {
+  String amount = '10000000',
+  bool finalized = true,
+}) {
+  final hash = '0x${'07' * 32}';
+  return {
+    'transaction': {
+      'hash': tx,
+      'from': payer,
+      'to': p.asset,
+      'value': '0x0',
+      'input': encodeErc20Transfer(
+        p.recvAddress,
+        BigInt.parse(amount),
+        '0b' * 32,
+      ),
+      'blockHash': hash,
+      'blockNumber': '0xa',
+      'transactionIndex': '0x0',
+    },
+    'receipt': {
+      'transactionHash': tx,
+      'status': '0x1',
+      'blockNumber': '0xa',
+      'blockHash': hash,
+      'transactionIndex': '0x0',
+      'logs': [
+        {
+          'address': p.asset,
+          'removed': false,
+          'topics': [
+            '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',
+            '0x${payer.substring(2).padLeft(64, '0')}',
+            '0x${p.recvAddress.substring(2).padLeft(64, '0')}',
+          ],
+          'data':
+              '0x${BigInt.parse(amount).toRadixString(16).padLeft(64, '0')}',
+          'transactionHash': tx,
+          'blockHash': hash,
+          'blockNumber': '0xa',
+          'transactionIndex': '0x0',
+          'logIndex': '0x0',
+        },
+      ],
+    },
+    'block': {
+      'hash': hash,
+      'number': '0xa',
+      'timestamp': '0x3e8',
+      'transactions': [tx],
+    },
+    'head': {'hash': hash, 'number': finalized ? '0xb' : '0x9'},
+  };
+}
+
 void main() {
-  test('充值失败日志只接受固定步骤和类型，未知正文拒绝', () {
+  _connectionDiagnosticsTests();
+  _documentTests();
+  _protocolTests();
+  test('失败日志仅保留新流程固定阶段，旧意图/授权及异常正文零输出', () {
     final lines = <String>[];
     runZoned(
       () {
-        expect(AppLog.topupFailure('authorization', 'user_rejected'), true);
-        expect(AppLog.topupFailure('connection', 'wallet_open_failed'), true);
-        expect(AppLog.topupFailure('synthetic-private', 'other'), false);
-        expect(AppLog.topupFailure('intent', 'synthetic-private'), false);
+        expect(AppLog.topupFailure('create_order', 'other'), true);
+        expect(AppLog.topupFailure('submitted', 'request_timeout'), true);
+        for (final step in ['intent', 'authorization', 'synthetic-private']) {
+          expect(AppLog.topupFailure(step, 'other'), false);
+        }
+        expect(AppLog.topupFailure('submitted', 'synthetic-private'), false);
       },
       zoneSpecification: ZoneSpecification(
         print: (_, _, _, line) => lines.add(line),
       ),
     );
     expect(lines.length, 2);
-    expect(lines.first, contains('step=authorization error=user_rejected'));
     expect(lines.join(), isNot(contains('synthetic-private')));
   });
-
-  test('充值错误只显示固定阶段，拒绝、超时与未知正文均不回显', () {
-    expect(topupFailure('account', 'other'), contains('账户或所选网络'));
-    expect(topupFailure('intent', 'other'), contains('订单准备'));
-    expect(topupFailure('authorization', 'user_rejected'), contains('拒绝'));
-    expect(topupFailure('transaction', 'wallet_open_failed'), contains('所选钱包'));
-    expect(topupFailure('connection', 'connect_timeout'), contains('连接等待超时'));
-    expect(topupFailure('authorization', 'request_timeout'), contains('核实原订单'));
-    expect(topupFailure('submitted', 'other'), contains('勿重复付款'));
-    expect(
-      topupFailure('synthetic-private', 'synthetic-private'),
-      isNot(contains('synthetic-private')),
+  test('配置指纹逐字匹配服务端公开21行规范，JSON/显示顺序不影响结果', () {
+    final fixture =
+        jsonDecode(
+              fixtureFile(
+                'citizen_transaction',
+                'topup/contract.json',
+              ).readAsStringSync(),
+            )
+            as Map<String, dynamic>;
+    final value = TopupConfig.fromJson(
+      fixture['config'] as Map<String, dynamic>,
     );
+    expect(value.hash, fixture['config_hash']);
+    expect(value.fingerprint.split('\n').length, 22);
+    expect(value.fingerprint.endsWith('\n'), true);
+    final reordered = TopupConfig(
+      ready: false,
+      rails: value.rails.reversed.toList(),
+      packages: value.packages.reversed.toList(),
+    );
+    expect(reordered.hash, value.hash);
   });
-
-  _configDiagnosticsTests();
-  _connectionDiagnosticsTests();
-  _documentTests();
-  TopupPaymentIntent solanaIntent() {
-    final value = fixture()['native']['solana'] as Map<String, dynamic>;
-    return TopupPaymentIntent.fromJson({
-      'is_ok': true,
-      'order_id':
-          'top_${(value['intent_data']['intent_id'] as String).substring(4)}',
-      'intent_token': value['token'],
-      'intent_data': value['intent_data'],
-      'sign_message': value['message'],
-    });
-  }
-
-  test('五条主网只有固定公开入口，不读取节点Key或环境地址', () {
-    expect(TopupNetwork.values.map(TopupRpcConfig.endpoint).toList(), [
-      'https://ethereum-rpc.publicnode.com',
-      'https://mainnet.base.org',
-      'https://bsc-dataseed.bnbchain.org',
-      'https://tron-rpc.publicnode.com',
-      'https://api.mainnet.solana.com',
-    ]);
-    for (final network in TopupNetwork.values) {
-      final url = Uri.parse(TopupRpcConfig.endpoint(network));
-      expect(url.scheme, 'https');
-      expect(url.path, '');
-      expect(url.hasQuery, false);
-      expect(url.userInfo, '');
+  test('本地六币轨与两套餐完整，任意金额或收款更换均拒绝', () {
+    final catalog = TopupConfig.local();
+    expect(catalog.rails.length, 6);
+    expect(catalog.packages.length, 2);
+    for (final rail in catalog.rails) {
+      for (final pack in catalog.packages) {
+        final p = TopupPayment.signed(
+          TopupDraft.create(
+            TopupSelection(
+              token: rail.token,
+              package: pack,
+              network: rail.network,
+            ),
+            '0x${'04' * 32}',
+          ),
+          '0x${'01' * 64}',
+          now: 1000000,
+        );
+        p.validateCatalog(catalog);
+        expect(TopupPayment.fromJson(p.toJson()).toJson(), p.toJson());
+        for (final field in ['pay_amount', 'coin_fen']) {
+          final j = Map<String, dynamic>.from(p.toJson())..[field] = '1';
+          expect(
+            () => TopupPayment.fromJson(j).validateCatalog(catalog),
+            throwsFormatException,
+          );
+        }
+      }
     }
   });
-  test('Solana只向固定官方入口发出必要请求，匿名且禁止重定向', () async {
-    final intent = solanaIntent(), methods = <String>[];
-    final api = TopupApi(
-      httpClient: MockClient((request) async {
-        expect(request.url.toString(), TopupRpcConfig.solana);
-        expect(request.followRedirects, false);
-        expect(
-          request.headers.keys.where(
-            (key) => key.toLowerCase() != 'content-type',
-          ),
-          isEmpty,
-        );
-        final input = jsonDecode(request.body) as Map<String, dynamic>;
-        methods.add(input['method'] as String);
-        return http.Response(
-          jsonEncode({
-            'jsonrpc': '2.0',
-            'id': 1,
-            'result': input['method'] == 'getGenesisHash'
-                ? 'mainnet'
-                : {
-                    'value': {
-                      'blockhash': 'block',
-                      'lastValidBlockHeight': 100,
-                    },
-                  },
-          }),
-          200,
-        );
-      }),
+  test('签后身份由摘要派生，无服务端意图，钱包必须在闭集', () {
+    final p = payment(TopupNetwork.base), q = payment(TopupNetwork.base);
+    expect(p.orderId, isNot(q.orderId));
+    final record = TopupRecord.signed(
+      TopupDraft.create(
+        TopupSelection.fromPayment(p, TopupConfig.local()),
+        p.accountId,
+      ),
+      TopupWallets.ids.first,
+      '0x${'01' * 64}',
+      now: 1000000,
     );
+    expect(record.progress, TopupProgress.pending);
+    expect(record.toJson().containsKey('intent'), false);
+    expect(() => record.request(), throwsStateError);
     expect(
-      await api.solanaRpc(
-        intent: intent,
-        method: 'getGenesisHash',
-        params: [],
-        now: intent.expiresAt - 1,
+      () => TopupRecord.signed(
+        TopupDraft.create(
+          TopupSelection.fromPayment(p, TopupConfig.local()),
+          p.accountId,
+        ),
+        'outside',
+        '0x${'01' * 64}',
       ),
-      'mainnet',
+      throwsFormatException,
     );
-    await api.solanaRpc(
-      intent: intent,
-      method: 'getLatestBlockhash',
-      params: [
-        {'commitment': 'finalized'},
-      ],
-      now: intent.expiresAt - 1,
-    );
-    expect(methods, ['getGenesisHash', 'getLatestBlockhash']);
-    api.close();
   });
-  test('Solana错链、过期、任意方法和未冻结广播在HTTP前拒绝', () async {
-    var calls = 0;
-    final api = TopupApi(
-      httpClient: MockClient((_) async {
-        calls++;
-        return http.Response('{}', 200);
-      }),
-    );
-    final intent = solanaIntent();
-    for (final request in [
-      ('requestAirdrop', <Object?>[]),
-      ('https://other.example.test', <Object?>[]),
-      ('getGenesisHash', <Object?>[1]),
-      (
-        'getLatestBlockhash',
-        <Object?>[
-          {'commitment': 'processed'},
-        ],
-      ),
-      (
-        'sendTransaction',
-        <Object?>[
-          'unsigned',
-          {'skipPreflight': true},
-        ],
-      ),
-    ]) {
+  for (final network in [
+    TopupNetwork.ethereum,
+    TopupNetwork.base,
+    TopupNetwork.bnb,
+  ]) {
+    test('${network.wire}一轮成功准确6次RPC，不读取服务端或公民链', () async {
+      final p = payment(network),
+          payer = '0x${'01' * 20}',
+          tx = '0x${'02' * 32}',
+          facts = evmFacts(
+            payment(network),
+            '0x${'01' * 20}',
+            '0x${'02' * 32}',
+            amount: network == TopupNetwork.bnb
+                ? '10000000000000000000'
+                : '10000000',
+          ),
+          calls = <String>[];
+      final proof = await verifyErc20Payment(
+        p,
+        payer,
+        tx,
+        (method, params) async {
+          calls.add(method);
+          return switch (method) {
+            'eth_chainId' => '0x${network.evmId!.toRadixString(16)}',
+            'eth_getTransactionReceipt' => facts['receipt'],
+            'eth_getTransactionByHash' => facts['transaction'],
+            _ => params.first == 'finalized' ? facts['head'] : facts['block'],
+          };
+        },
+        now: 1000000,
+        binding: '0b' * 32,
+      );
+      expect(proof.matches(p, payer, tx), true);
+      expect(calls, [
+        'eth_chainId',
+        'eth_getTransactionReceipt',
+        'eth_getTransactionByHash',
+        'eth_getBlockByNumber',
+        'eth_getBlockByNumber',
+        'eth_getBlockByNumber',
+      ]);
+    });
+  }
+  for (final kind in [
+    'pending',
+    'failed',
+    'amount',
+    'receiver',
+    'payer',
+    'asset',
+    'removed',
+    'duplicate',
+    'membership',
+    'reorg',
+    'time',
+    'network',
+    'binding',
+    'caller',
+    'call_to',
+    'native_value',
+  ]) {
+    test('EVM拒绝$kind，不补查不重试', () async {
+      final p = payment(TopupNetwork.base),
+          payer = '0x${'01' * 20}',
+          tx = '0x${'02' * 32}',
+          facts = evmFacts(
+            payment(TopupNetwork.base),
+            '0x${'01' * 20}',
+            '0x${'02' * 32}',
+          );
+      final receipt = facts['receipt'] as Map<String, dynamic>,
+          block = facts['block'] as Map<String, dynamic>,
+          log = (receipt['logs'] as List).first as Map<String, dynamic>;
+      switch (kind) {
+        case 'failed':
+          receipt['status'] = '0x0';
+        case 'amount':
+          log['data'] =
+              '0x${BigInt.from(10000001).toRadixString(16).padLeft(64, '0')}';
+        case 'receiver':
+          (log['topics'] as List)[2] = '0x${'0' * 64}';
+        case 'payer':
+          (log['topics'] as List)[1] = '0x${'0' * 64}';
+        case 'asset':
+          log['address'] = '0x${'03' * 20}';
+        case 'removed':
+          log['removed'] = true;
+        case 'duplicate':
+          (receipt['logs'] as List).add(log);
+        case 'membership':
+          block['transactions'] = [];
+        case 'time':
+          block['timestamp'] = '0x3e7';
+      }
+      final actual = facts['transaction'] as Map<String, dynamic>;
+      if (kind == 'binding') {
+        actual['input'] = encodeErc20Transfer(
+          p.recvAddress,
+          BigInt.parse(p.payAmount),
+          '0c' * 32,
+        );
+      }
+      if (kind == 'caller') actual['from'] = '0x${'06' * 20}';
+      if (kind == 'call_to') actual['to'] = '0x${'07' * 20}';
+      if (kind == 'native_value') actual['value'] = '0x1';
+      var count = 0;
       await expectLater(
-        api.solanaRpc(
-          intent: intent,
-          method: request.$1,
-          params: request.$2,
-          now: intent.expiresAt - 1,
+        verifyErc20Payment(
+          p,
+          payer,
+          tx,
+          (method, params) async {
+            count++;
+            if (method == 'eth_chainId') {
+              return kind == 'network' ? '0x1' : '0x2105';
+            }
+            if (method == 'eth_getTransactionReceipt') {
+              return kind == 'pending' ? null : receipt;
+            }
+            if (method == 'eth_getTransactionByHash') return actual;
+            if (params.first == 'finalized') return facts['head'];
+            if (kind == 'reorg' && count == 6) {
+              return {...block, 'hash': '0x${'08' * 32}'};
+            }
+            return block;
+          },
+          now: 1000000,
+          binding: '0b' * 32,
         ),
         throwsFormatException,
       );
-    }
-    await expectLater(
-      api.solanaRpc(
-        intent: intent,
-        method: 'getGenesisHash',
-        params: [],
-        now: intent.expiresAt,
-      ),
-      throwsFormatException,
+      expect(count, lessThanOrEqualTo(6));
+    });
+  }
+  test('付款回跳及网页paid布尔值不能构造已支付证据', () {
+    final p = payment(TopupNetwork.base);
+    final record = TopupRecord(
+      payment: p,
+      walletId: TopupWallets.ids.first,
+      accountSignature: '0x${'01' * 64}',
+      recoveryToken: randomTopupHex(32),
+      progress: TopupProgress.paid,
+      payer: '0x${'01' * 20}',
+      txid: '0x${'02' * 32}',
     );
-    final evm = TopupPaymentIntent.fromJson(
-      fixture()['intent_data'] as Map<String, dynamic>,
-    );
-    await expectLater(
-      api.solanaRpc(
-        intent: evm,
-        method: 'getGenesisHash',
-        params: [],
-        now: evm.expiresAt - 1,
-      ),
-      throwsFormatException,
-    );
-    expect(calls, 0);
-    api.close();
+    expect(() => TopupRecord.decode(record.encode()), throwsFormatException);
   });
-  test('Solana仅广播原字节，未知响应不重试或声称未付款', () async {
-    final intent = solanaIntent(),
-        txid = fixture()['native']['solana']['txid'] as String;
-    final wire = base64Encode(List<int>.filled(100, 1));
-    final options = {
-      'encoding': 'base64',
-      'skipPreflight': false,
-      'preflightCommitment': 'confirmed',
-      'maxRetries': 3,
-    };
-    for (final mode in [
-      'ok',
-      '429',
-      'redirect',
-      'bad-json',
-      'wrong-id',
-      'wrong-tx',
-      'rpc-error',
-    ]) {
-      var calls = 0;
-      final api = TopupApi(
-        httpClient: MockClient((request) async {
-          calls++;
-          final body = jsonDecode(request.body) as Map<String, dynamic>;
-          expect(body['params'], [wire, options]);
-          if (mode == '429') return http.Response('{}', 429);
-          if (mode == 'redirect') {
-            return http.Response(
-              '',
-              302,
-              headers: {'location': 'https://other.example.test'},
-            );
-          }
-          if (mode == 'bad-json') return http.Response('bad', 200);
-          return http.Response(
-            jsonEncode({
-              'jsonrpc': '2.0',
-              'id': mode == 'wrong-id' ? 2 : 1,
-              if (mode == 'rpc-error') 'error': {'code': -1},
-              'result': mode == 'wrong-tx' ? 'different' : txid,
-            }),
-            200,
-          );
-        }),
-      );
-      final future = api.solanaRpc(
-        intent: intent,
-        method: 'sendTransaction',
-        params: [wire, options],
-        wire: wire,
-        txid: txid,
-        now: intent.expiresAt - 1,
-      );
-      if (mode == 'ok') {
-        expect(await future, txid);
-      } else {
-        await expectLater(
-          future,
-          throwsA(
-            isA<TopupApiException>().having(
-              (e) => e.message,
-              '未知结果',
-              contains('待核实'),
-            ),
-          ),
-        );
-      }
-      expect(calls, 1);
-      api.close();
-    }
-    var calls = 0;
+  test('HTTP付款节点失败只一次，任意方法/非HTTPS服务地址在出站前拒绝', () async {
+    var requests = 0;
     final api = TopupApi(
-      httpClient: MockClient((_) async {
-        calls++;
-        return http.Response('{}', 200);
-      }),
-    );
-    await expectLater(
-      api.solanaRpc(
-        intent: intent,
-        method: 'sendTransaction',
-        params: [wire, options],
-        wire: base64Encode(List<int>.filled(100, 2)),
-        txid: txid,
-        now: intent.expiresAt - 1,
-      ),
-      throwsFormatException,
-    );
-    expect(calls, 0);
-    api.close();
-  });
-  test('Solana请求返回时付款已取消，不交付迟到结果', () async {
-    final intent = solanaIntent();
-    var active = true, calls = 0;
-    final api = TopupApi(
-      httpClient: MockClient((_) async {
-        calls++;
-        active = false;
-        return http.Response(
-          '{"jsonrpc":"2.0","id":1,"result":"mainnet"}',
-          200,
-        );
-      }),
-    );
-    await expectLater(
-      api.solanaRpc(
-        intent: intent,
-        method: 'getGenesisHash',
-        params: [],
-        now: intent.expiresAt - 1,
-        isActive: () => active,
-      ),
-      throwsA(
-        isA<TopupApiException>().having((e) => e.message, '取消', contains('取消')),
-      ),
-    );
-    expect(calls, 1);
-    api.close();
-  });
-  test('ready必须明确为布尔值，不接受旧响应或默认开放', () {
-    for (final value in [null, 'true', 1]) {
-      final j = fixture()['config'] as Map<String, dynamic>;
-      j['ready'] = value;
-      expect(() => TopupConfig.fromJson(j), throwsFormatException);
-    }
-    final j = fixture()['config'] as Map<String, dynamic>;
-    j['ready'] = false;
-    expect(TopupConfig.fromJson(j).ready, false);
-  });
-  test('组合选择绑定准确网络、套餐和整数金额，不能静默换链或价格', () {
-    final c = TopupConfig.fromJson(fixture()['config'] as Map<String, dynamic>);
-    for (final token in ['USDC', 'USDT']) {
-      for (final network in TopupNetwork.values) {
-        if (!allowedPair(token, network)) {
-          expect(
-            () => TopupSelection(
-              token: token,
-              package: c.packages.first,
-              network: network,
-            ),
-            throwsFormatException,
-          );
-          continue;
-        }
-        final selection = TopupSelection(
-          token: token,
-          package: c.packages.last,
-          network: network,
-        );
-        selection.validate(c, TopupContext(network, 'payer'));
-        expect(selection.toJson(), {
-          'token': token,
-          'package_id': 'pkg_900',
-          'network': network.wire,
-        });
-        expect(
-          () => selection.validate(
-            c,
-            TopupContext(
-              network == TopupNetwork.base
-                  ? TopupNetwork.ethereum
-                  : TopupNetwork.base,
-              'payer',
-            ),
-          ),
-          throwsFormatException,
-        );
-      }
-    }
-  });
-  test('六条准确币轨、两个套餐和18位金额不丢精度', () {
-    final c = TopupConfig.fromJson(fixture()['config'] as Map<String, dynamic>);
-    expect(c.rails.length, 6);
-    expect(c.packages.length, 2);
-    expect(c.rail('USDT', TopupNetwork.bnb).decimals, 18);
-    expect(
-      c.packages[1].amount(c.rail('USDT', TopupNetwork.bnb)),
-      '900000000000000000000',
-    );
-    for (final n in TopupNetwork.values) {
-      for (final t in ['USDC', 'USDT']) {
-        if (!allowedPair(t, n)) {
-          expect(() => c.rail(t, n), throwsFormatException);
-        }
-      }
-    }
-    final bad = fixture()['config'] as Map<String, dynamic>;
-    bad['packages'].add(bad['packages'][0]);
-    expect(() => TopupConfig.fromJson(bad), throwsFormatException);
-  });
-  test('缺失、假金额、错误精度、重复币轨和不支持的资产组合均拒绝', () {
-    for (var n = 0; n < 5; n++) {
-      final j = fixture()['config'] as Map<String, dynamic>;
-      switch (n) {
-        case 0:
-          j['rails'][0]['decimals'] = 18;
-        case 1:
-          j['rails'][0]['token'] = 'OTHER';
-        case 2:
-          j['packages'][0]['payments'][0]['pay_amount'] = '15.0';
-        case 3:
-          j['rails'][1] = j['rails'][0];
-        case 4:
-          j['packages'][0]['package_id'] = 'custom';
-      }
-      expect(() => TopupConfig.fromJson(j), throwsFormatException);
-    }
-  });
-  test('付款意图、HMAC原文及钱包消息逐字段对齐服务端金标', () {
-    final j = fixture();
-    final i = TopupPaymentIntent.fromJson(
-      j['intent_data'] as Map<String, dynamic>,
-    );
-    final c = TopupConfig.fromJson(j['config'] as Map<String, dynamic>);
-    i.validatePayment(
-      rail: c.rail('USDC', TopupNetwork.base),
-      package: c.packages[0],
-      accountId: i.accountId,
-      payerAddress: i.payer,
-      chainGenesisHash: '0x${'00' * 32}',
-      serviceOrigin: 'https://www.crcfrcn.com',
-      now: 1005000,
-    );
-    expect(
-      () => i.validatePayment(
-        rail: c.rail('USDC', TopupNetwork.base),
-        package: c.packages[0],
-        accountId: '0x${'05' * 32}',
-        payerAddress: i.payer,
-        chainGenesisHash: '0x${'00' * 32}',
-        serviceOrigin: 'https://www.crcfrcn.com',
-        now: 1005000,
-      ),
-      throwsFormatException,
-    );
-    expect(
-      () => i.validatePayment(
-        rail: c.rail('USDC', TopupNetwork.base),
-        package: c.packages[0],
-        accountId: i.accountId,
-        payerAddress: i.payer,
-        chainGenesisHash: '0x${'00' * 32}',
-        serviceOrigin: 'https://www.crcfrcn.com',
-        now: i.expiresAt,
-      ),
-      throwsFormatException,
-    );
-    final bad = fixture()['intent_data'] as Map<String, dynamic>;
-    bad['intent_data']['pay_amount'] = '16000000';
-    expect(() => TopupPaymentIntent.fromJson(bad), throwsFormatException);
-  });
-  test('三协议地址及交易格式独立，Solana大小写不能转小写', () {
-    final f = fixture();
-    for (final name in ['tron', 'solana']) {
-      final j = f['native'][name] as Map<String, dynamic>;
-      final n = TopupNetwork.parse(name);
-      expect(
-        n.address(j['intent_data']['payer_address'] as String),
-        j['intent_data']['payer_address'],
-      );
-      expect(n.transaction(j['txid'] as String), true);
-      n.signature(j['signature'] as String);
-    }
-    expect(TopupNetwork.solana.transaction('0x${'11' * 32}'), false);
-    expect(TopupNetwork.tron.transaction('0x${'11' * 32}'), false);
-    expect(TopupNetwork.base.transaction('11' * 32), false);
-  });
-  test('ERC20严格uint256整数字符串编码，负值/溢出/错误地址拒绝', () {
-    final data = encodeErc20Transfer(
-      '0x${'22' * 20}',
-      BigInt.parse('900000000000000000000'),
-    );
-    expect(data.length, 138);
-    expect(
-      data.endsWith(
-        BigInt.parse('900000000000000000000')
-            .toRadixString(16)
-            .padLeft(64, '0'),
-      ),
-      true,
-    );
-    expect(() => encodeErc20Transfer('bad', BigInt.one), throwsArgumentError);
-    expect(
-      () => encodeErc20Transfer('0x${'22' * 20}', BigInt.from(-1)),
-      throwsArgumentError,
-    );
-    expect(
-      () => encodeErc20Transfer('0x${'22' * 20}', BigInt.one << 256),
-      throwsArgumentError,
-    );
-  });
-  test('钱包唤起保留scheme和HTTPS桥接，远端主框架及危险协议拒绝', () async {
-    for (final s in [
-      'http://bad',
-      'javascript:alert(1)',
-      'data:text/html,bad',
-      'mailto:test@test',
-    ]) {
-      expect(
-        WalletLinkDispatcher.classify(
-          s,
-          source: WalletLinkSource.walletOpenBridge,
-        ).disposition,
-        WalletLinkDisposition.blocked,
-      );
-    }
-    expect(
-      WalletLinkDispatcher.classify(
-        'https://wallet.example/',
-        source: WalletLinkSource.webViewNavigation,
-      ).disposition,
-      WalletLinkDisposition.blocked,
-    );
-    expect(
-      WalletLinkDispatcher.classify(
-        'https://wallet.example/',
-        source: WalletLinkSource.walletOpenBridge,
-      ).disposition,
-      WalletLinkDisposition.openExternalWallet,
-    );
-    final called = <String>[];
-    final links = WalletLinkDispatcher(
-      launcher: (u) async {
-        called.add(u.toString());
-        return true;
-      },
-    );
-    expect(
-      await links.open(
-        'wallet://wc?uri=wc%3Atest',
-        source: WalletLinkSource.walletOpenBridge,
-      ),
-      WalletLinkOpenResult.opened,
-    );
-    expect(called.length, 1);
-    expect(
-      await WalletLinkDispatcher(launcher: (_) async => false)
-          .open('wallet://connect', source: WalletLinkSource.walletOpenBridge),
-      WalletLinkOpenResult.failed,
-    );
-    expect(
-      await WalletLinkDispatcher(
-        launcher: (_) async => throw StateError('test'),
-      ).open('wallet://connect', source: WalletLinkSource.walletOpenBridge),
-      WalletLinkOpenResult.failed,
-    );
-  });
-  test('所选钱包唤起失败或异常不提取wc兜底也不二次唤起', () async {
-    for (final throws in [false, true]) {
-      final called = <String>[];
-      final links = WalletLinkDispatcher(
-        launcher: (uri) async {
-          called.add(uri.toString());
-          if (throws) throw StateError('synthetic launch failure');
-          return false;
-        },
-      );
-      const original = 'metamask://wc?uri=wc%3Asynthetic-only';
-      expect(
-        await links.open(original, source: WalletLinkSource.walletOpenBridge),
-        WalletLinkOpenResult.failed,
-      );
-      expect(called, [original]);
-    }
-  });
-  test('API使用当前network和payment_txid合同，不带普通会话或把凭证放URL', () async {
-    final f = fixture();
-    final i = TopupPaymentIntent.fromJson(
-      f['intent_data'] as Map<String, dynamic>,
-    );
-    var calls = 0;
-    final api = TopupApi(
-      baseUrl: 'https://www.crcfrcn.com/api',
       httpClient: MockClient((r) async {
-        calls++;
-        expect(r.headers.containsKey('authorization'), false);
-        expect(r.url.query, isEmpty);
-        if (r.url.path.endsWith('/config')) {
-          return http.Response(jsonEncode(f['config']), 200);
-        }
-        final body = jsonDecode(r.body) as Map<String, dynamic>;
-        if (r.url.path.endsWith('/intent')) {
-          expect(body['network'], 'base');
-          expect(body.containsKey('cid_number'), false);
-          return http.Response(jsonEncode(f['intent_data']), 200);
-        }
-        if (r.url.path.endsWith('/confirm')) {
-          expect(body.keys.toSet(), {
-            'intent_token',
-            'payment_txid',
-            'payer_signature',
-          });
-          expect(body['payer_signature'], f['signature']);
-        }
-        return http.Response(
-          jsonEncode({
-            'is_ok': true,
-            'order_id': i.orderId,
-            'order_state': 'verifying',
-            'coin_fen': i.coinFen,
-            'payment_txid': '0x${'09' * 32}',
-            'gmb_tx_hash': null,
-            'exception_reason': null,
-          }),
-          200,
-        );
+        requests++;
+        expect(r.url.host, 'mainnet.base.org');
+        return http.Response('{}', 503);
       }),
     );
-    await api.fetchConfig();
-    await api.createIntent(
-      token: 'USDC',
-      packageId: 'pkg_10',
-      accountId: i.accountId,
-      payer: TopupContext(TopupNetwork.base, i.payer),
-    );
-    await api.confirm(
-      intent: i,
-      paymentTxid: '0x${'09' * 32}',
-      payerSignature: f['signature'] as String,
-    );
-    expect((await api.status(i)).orderState, TopupPhase.verifying);
-    expect(calls, 4);
-    api.close();
-  });
-  test('API准确读取error_code字段，未知/矛盾/缺证明的到账状态不能成功', () async {
-    final i = TopupPaymentIntent.fromJson(
-      fixture()['intent_data'] as Map<String, dynamic>,
-    );
-    final api = TopupApi(
-      httpClient: MockClient(
-        (_) async => http.Response(
-          '{"is_ok":false,"error_code":"topup_payment_conflict"}',
-          409,
-        ),
-      ),
-    );
     await expectLater(
-      api.status(i),
-      throwsA(
-        isA<TopupApiException>().having(
-          (e) => e.errorCode,
-          'error',
-          'topup_payment_conflict',
-        ),
-      ),
-    );
-    api.close();
-    for (final j in [
-      {'is_ok': true, 'order_state': 'broadcast'},
-      {'is_ok': true, 'order_state': 'other'},
-      {
-        'is_ok': true,
-        'order_state': 'paid',
-        'order_id': i.orderId,
-        'coin_fen': i.coinFen,
-      },
-    ]) {
-      expect(() => TopupOrder.fromJson(j), throwsFormatException);
-    }
-  });
-  test('新付款重新取配置，未就绪、所选错链及关闭页面均不能创建意图', () async {
-    final f = fixture(),
-        c = TopupConfig.fromJson(f['config'] as Map<String, dynamic>),
-        i = TopupPaymentIntent.fromJson(
-          f['intent_data'] as Map<String, dynamic>,
-        );
-    final choice = TopupSelection(
-      token: 'USDC',
-      package: c.packages.first,
-      network: TopupNetwork.base,
-    );
-    for (final mode in ['unready', 'wrong-network', 'closed']) {
-      var active = true, created = 0, calls = 0;
-      final api = TopupApi(
-        httpClient: MockClient((request) async {
-          calls++;
-          if (request.url.path.endsWith('/intent')) {
-            created++;
-            return http.Response(jsonEncode(f['intent_data']), 200);
-          }
-          final config = Map<String, dynamic>.from(f['config'] as Map);
-          if (mode == 'unready') config['ready'] = false;
-          if (mode == 'closed') active = false;
-          return http.Response(jsonEncode(config), 200);
-        }),
-      );
-      await expectLater(
-        api.preparePayment(
-          selection: choice,
-          accountId: i.accountId,
-          payer: TopupContext(
-            mode == 'wrong-network' ? TopupNetwork.ethereum : TopupNetwork.base,
-            i.payer,
-          ),
-          chainGenesisHash: '0x${'00' * 32}',
-          now: 1005000,
-          isActive: () => active,
-        ),
-        throwsA(anyOf(isA<TopupApiException>(), isA<FormatException>())),
-      );
-      expect(created, 0);
-      if (mode == 'wrong-network') expect(calls, 0);
-      api.close();
-    }
-  });
-  test('恢复先向服务端核验原凭据，地址更换只影响新订单且不重建原意图', () async {
-    final f = fixture(),
-        c = TopupConfig.fromJson(f['config'] as Map<String, dynamic>),
-        i = TopupPaymentIntent.fromJson(
-          f['intent_data'] as Map<String, dynamic>,
-        );
-    final choice = TopupSelection.fromIntent(i, c);
-    for (final accepted in [true, false]) {
-      final paths = <String>[];
-      final api = TopupApi(
-        httpClient: MockClient((request) async {
-          paths.add(request.url.path);
-          if (request.url.path.endsWith('/config')) {
-            final config =
-                jsonDecode(jsonEncode(f['config'])) as Map<String, dynamic>;
-            for (final r in config['rails'] as List) {
-              if (TopupNetwork.parse(r['network']).evmId != null) {
-                r['recv_address'] = '0x${'77' * 20}';
-              }
-            }
-            return http.Response(jsonEncode(config), 200);
-          }
-          expect(request.url.path.endsWith('/status'), true);
-          expect(
-            (jsonDecode(request.body) as Map)['intent_token'],
-            i.intentToken,
-          );
-          if (!accepted) {
-            return http.Response(
-              '{"is_ok":false,"error_code":"topup_order_not_found"}',
-              404,
-            );
-          }
-          return http.Response(
-            jsonEncode({
-              'is_ok': true,
-              'order_id': i.orderId,
-              'order_state': 'awaiting',
-              'coin_fen': i.coinFen,
-              'payment_txid': null,
-              'gmb_tx_hash': null,
-              'exception_reason': null,
-            }),
-            200,
-          );
-        }),
-      );
-      final result = api.preparePayment(
-        selection: choice,
-        accountId: i.accountId,
-        payer: TopupContext(i.network, i.payer),
-        chainGenesisHash: '0x${'00' * 32}',
-        original: i,
-        now: 1005000,
-      );
-      if (accepted) {
-        final prepared = await result;
-        expect(prepared.rail.recvAddress, i.intentData['recv_address']);
-        expect(prepared.intent.intentToken, i.intentToken);
-      } else {
-        await expectLater(result, throwsA(isA<TopupApiException>()));
-      }
-      expect(paths, ['/api/topup/config', '/api/topup/status']);
-      api.close();
-    }
-  });
-  test('已有付款定位或服务端已进入核验阶段时，不再恢复成一笔新付款', () async {
-    final f = fixture(),
-        c = TopupConfig.fromJson(f['config'] as Map<String, dynamic>),
-        i = TopupPaymentIntent.fromJson(
-          f['intent_data'] as Map<String, dynamic>,
-        );
-    final api = TopupApi(
-      httpClient: MockClient(
-        (request) async => http.Response(
-          jsonEncode(
-            request.url.path.endsWith('/config')
-                ? f['config']
-                : {
-                    'is_ok': true,
-                    'order_id': i.orderId,
-                    'order_state': 'verifying',
-                    'coin_fen': i.coinFen,
-                    'payment_txid': '0x${'09' * 32}',
-                    'gmb_tx_hash': null,
-                    'exception_reason': null,
-                  },
-          ),
-          200,
-        ),
-      ),
-    );
-    await expectLater(
-      api.preparePayment(
-        selection: TopupSelection.fromIntent(i, c),
-        accountId: i.accountId,
-        payer: TopupContext(i.network, i.payer),
-        chainGenesisHash: '0x${'00' * 32}',
-        original: i,
-        now: 1005000,
-      ),
+      api.paymentRpc(TopupNetwork.base, 'eth_getTransactionReceipt', [
+        '0x${'02' * 32}',
+      ]),
       throwsA(isA<TopupApiException>()),
     );
+    expect(requests, 1);
+    await expectLater(
+      api.paymentRpc(TopupNetwork.base, 'author_submitExtrinsic', []),
+      throwsFormatException,
+    );
+    expect(requests, 1);
     api.close();
+    expect(
+      () => TopupApi(baseUrl: 'http://example.test/api'),
+      throwsFormatException,
+    );
   });
-  test('网络尚未开放的服务端错误保留准确代码并显示未发起付款', () async {
-    final f = fixture(),
-        i = TopupPaymentIntent.fromJson(
-          f['intent_data'] as Map<String, dynamic>,
-        );
+  test('原生验款只接受已提交原付款，取消/创建/失败阶段零HTTP', () async {
+    var requests = 0;
     final api = TopupApi(
-      httpClient: MockClient(
-        (_) async => http.Response(
-          '{"is_ok":false,"error_code":"topup_network_unconfigured"}',
-          503,
-        ),
-      ),
+      httpClient: MockClient((r) async {
+        requests++;
+        throw StateError('unexpected');
+      }),
     );
-    await expectLater(
-      api.createIntent(
-        token: 'USDC',
-        packageId: 'pkg_10',
-        accountId: i.accountId,
-        payer: TopupContext(i.network, i.payer),
-      ),
-      throwsA(
-        isA<TopupApiException>()
-            .having((e) => e.message, 'message', '所选网络尚未开放，未发起付款')
-            .having((e) => e.errorCode, 'code', 'topup_network_unconfigured'),
-      ),
-    );
-    await expectLater(
-      api.status(i),
-      throwsA(
-        isA<TopupApiException>().having(
-          (e) => e.message,
-          'message',
-          '暂时无法核实原订单，请稍后重试，勿重复付款',
-        ),
-      ),
-    );
-    await expectLater(
-      api.confirm(
-        intent: i,
-        paymentTxid: '0x${'09' * 32}',
-        payerSignature: f['signature'] as String,
-      ),
-      throwsA(
-        isA<TopupApiException>().having(
-          (e) => e.message,
-          'message',
-          '暂时无法核实原订单，请稍后重试，勿重复付款',
-        ),
-      ),
-    );
-    api.close();
-  });
-  test('新付款按所选元组取得新报价，错误网络的服务端报价在签名前拒绝', () async {
-    final f = fixture(),
-        c = TopupConfig.fromJson(f['config'] as Map<String, dynamic>),
-        i = TopupPaymentIntent.fromJson(
-          f['intent_data'] as Map<String, dynamic>,
-        );
-    for (final network in [TopupNetwork.base, TopupNetwork.ethereum]) {
-      final paths = <String>[];
-      final api = TopupApi(
-        httpClient: MockClient((request) async {
-          paths.add(request.url.path);
-          if (request.url.path.endsWith('/config')) {
-            return http.Response(jsonEncode(f['config']), 200);
-          }
-          final body = jsonDecode(request.body) as Map<String, dynamic>;
-          expect(body['token'], 'USDC');
-          expect(body['package_id'], 'pkg_10');
-          expect(body['network'], network.wire);
-          expect(body['account_id'], i.accountId);
-          return http.Response(jsonEncode(f['intent_data']), 200);
-        }),
-      );
-      final future = api.preparePayment(
-        selection: TopupSelection(
-          token: 'USDC',
-          package: c.packages.first,
-          network: network,
-        ),
-        accountId: i.accountId,
-        payer: TopupContext(network, i.payer),
-        chainGenesisHash: '0x${'00' * 32}',
-        now: 1005000,
-      );
-      if (network == TopupNetwork.base) {
-        final payment = await future;
-        expect(payment.intent.intentToken, i.intentToken);
-        expect(payment.rail.network, network);
-      } else {
-        await expectLater(future, throwsFormatException);
-      }
-      expect(paths, ['/api/topup/config', '/api/topup/intent']);
-      api.close();
-    }
-  });
-  test('原字节续播只接受服务端仍等待同一交易的阶段，过期和终态拒绝', () async {
-    final f = fixture(),
-        c = TopupConfig.fromJson(f['config'] as Map<String, dynamic>),
-        n = f['native']['tron'] as Map<String, dynamic>;
-    final i = TopupPaymentIntent.fromJson({
-      'is_ok': true,
-      'order_id':
-          'top_${(n['intent_data']['intent_id'] as String).substring(4)}',
-      'intent_token': n['token'],
-      'sign_message': n['message'],
-      'intent_data': n['intent_data'],
-    });
-    final choice = TopupSelection.fromIntent(i, c), tx = n['txid'] as String;
-    for (final phase in [
-      'awaiting',
-      'verifying',
-      'received',
-      'paid',
-      'exception',
-      'expired',
-    ]) {
-      final state = phase == 'expired' ? 'verifying' : phase;
-      final api = TopupApi(
-        httpClient: MockClient(
-          (request) async => http.Response(
-            jsonEncode(
-              request.url.path.endsWith('/config')
-                  ? f['config']
-                  : {
-                      'is_ok': true,
-                      'order_id': i.orderId,
-                      'order_state': state,
-                      'coin_fen': i.coinFen,
-                      'payment_txid': state == 'awaiting' ? null : tx,
-                      'gmb_tx_hash': state == 'paid' ? '0x${'09' * 32}' : null,
-                      'exception_reason': null,
-                    },
-            ),
-            200,
+    final p = payment(TopupNetwork.base);
+    for (final reason in [null, 'payment_cancelled', 'payment_failed']) {
+      await expectLater(
+        api.verifyPayment(
+          TopupRecord(
+            payment: p,
+            walletId: TopupWallets.ids.first,
+            accountSignature: '0x${'01' * 64}',
+            recoveryToken: randomTopupHex(32),
+            failureCode: reason,
           ),
         ),
+        throwsStateError,
       );
-      final result = api.authorizeReplay(
-        intent: i,
-        txid: tx,
-        selection: choice,
-        accountId: i.accountId,
-        now: phase == 'expired' ? i.expiresAt : 1005000,
-      );
-      if (phase == 'awaiting' || phase == 'verifying') {
-        await result;
-      } else {
-        await expectLater(result, throwsA(isA<TopupApiException>()));
-      }
-      api.close();
     }
+    expect(requests, 0);
+    api.close();
   });
 }
 
@@ -990,8 +426,7 @@ void _connectionDiagnosticsTests() {
         );
         for (final phase in [
           'account',
-          'intent',
-          'authorization',
+          'create_order',
           'transaction',
           'submitting',
           'submitted',
@@ -1021,7 +456,7 @@ void _connectionDiagnosticsTests() {
         print: (_, _, _, line) => lines.add(line),
       ),
     );
-    expect(lines.length, 10);
+    expect(lines.length, 9);
     expect(
       lines.first,
       contains('winner=provider_rejected error=socket_stalled'),
@@ -1089,154 +524,6 @@ void _connectionDiagnosticsTests() {
   });
 }
 
-void _configDiagnosticsTests() {
-  const canary = 'synthetic-private-topup';
-  // HTTP计时与业务失败是不同固定事件；逐条校验计时格式，不以过滤掩盖泄漏或额外事件。
-  List<String> configEvents(List<String> lines, {required bool network}) {
-    final events = <String>[], phases = <String>[];
-    final pattern = RegExp(
-      r'^\[CitizenHttp\] stage=topup_config http=(200|none) headers_us=(none|[0-9]+) total_us=([0-9]+) phase=(headers|complete|error)$',
-    );
-    var previousTotal = 0;
-    for (final line in lines) {
-      if (!line.startsWith('[CitizenHttp]')) {
-        events.add(line);
-        continue;
-      }
-      final match = pattern.firstMatch(line);
-      expect(match, isNotNull);
-      final event = match!;
-      expect(event.group(1), network ? 'none' : '200');
-      final total = int.parse(event.group(3)!);
-      expect(total, inInclusiveRange(previousTotal, 9007199254740991));
-      previousTotal = total;
-      if (network) {
-        expect(event.group(2), 'none');
-      } else {
-        expect(int.parse(event.group(2)!), inInclusiveRange(0, total));
-      }
-      phases.add(event.group(4)!);
-    }
-    expect(phases, network ? ['error'] : ['headers', 'complete']);
-    return events;
-  }
-
-  for (final status in [401, 403, 404, 429, 503]) {
-    for (final known in [true, false]) {
-      test('充值配置HTTP$status/${known ? "已知" : "未知"}码安全分类且零付款请求', () async {
-        final lines = <String>[];
-        var calls = 0;
-        final code = known ? 'topup_unconfigured' : '$canary\nforged';
-        final api = TopupApi(
-          baseUrl: 'https://worker.test/api',
-          httpClient: MockClient((request) async {
-            calls++;
-            expect(request.method, 'GET');
-            expect(request.url.path, '/api/topup/config');
-            return http.Response(
-              jsonEncode({
-                'error_code': code,
-                'message': canary,
-                'amount': canary,
-              }),
-              status,
-            );
-          }),
-        );
-        addTearDown(api.close);
-        await runZoned(
-          () async {
-            await expectLater(
-              api.fetchConfig(),
-              throwsA(
-                isA<TopupApiException>()
-                    .having((e) => e.statusCode, 'HTTP', status)
-                    .having((e) => e.errorCode, '原码不改写', code),
-              ),
-            );
-          },
-          zoneSpecification: ZoneSpecification(
-            print: (_, _, _, line) => lines.add(line),
-          ),
-        );
-        expect(calls, 1);
-        expect(lines, [
-          '[CitizenFailure] stage=topup_config http=$status code=${known ? 'topup_unconfigured' : 'other'}',
-        ]);
-        expect(lines.join(), isNot(contains(canary)));
-      });
-    }
-  }
-  for (final shape in ['json', 'shape', 'schema', 'network']) {
-    test('充值配置$shape失败分类不读取异常正文或创建意图', () async {
-      final lines = <String>[];
-      var calls = 0;
-      final api = TopupApi(
-        httpClient: MockClient((request) async {
-          calls++;
-          expect(request.method, 'GET');
-          if (shape == 'network') throw http.ClientException(canary);
-          return http.Response(switch (shape) {
-            'json' => '{$canary',
-            'shape' => jsonEncode([canary]),
-            _ => jsonEncode({'ready': canary}),
-          }, 200);
-        }),
-      );
-      addTearDown(api.close);
-      await runZoned(
-        () async {
-          await expectLater(
-            api.fetchConfig(),
-            throwsA(
-              anyOf(
-                isA<TopupApiException>(),
-                isA<FormatException>(),
-                isA<http.ClientException>(),
-              ),
-            ),
-          );
-        },
-        zoneSpecification: ZoneSpecification(
-          print: (_, _, _, line) => lines.add(line),
-        ),
-      );
-      final code = shape == 'network'
-          ? 'network_unavailable'
-          : shape == 'schema'
-          ? 'format'
-          : 'response_invalid';
-      expect(calls, 1);
-      expect(configEvents(lines, network: shape == 'network'), [
-        '[CitizenFailure] stage=topup_config http=${shape == 'network' ? 'none' : '200'} code=$code',
-      ]);
-      expect(lines.join(), isNot(contains(canary)));
-    });
-  }
-  test('正常未开放配置保留ready=false且不产生失败事件或付款', () async {
-    final lines = <String>[];
-    var calls = 0;
-    final config = Map<String, dynamic>.from(fixture()['config'] as Map)
-      ..['ready'] = false;
-    final api = TopupApi(
-      httpClient: MockClient((request) async {
-        calls++;
-        expect(request.method, 'GET');
-        return http.Response(jsonEncode(config), 200);
-      }),
-    );
-    addTearDown(api.close);
-    await runZoned(
-      () async => expect((await api.fetchConfig()).ready, false),
-      zoneSpecification: ZoneSpecification(
-        print: (_, _, _, line) => lines.add(line),
-      ),
-    );
-    expect(calls, 1);
-    expect(configEvents(lines, network: false), isEmpty);
-  });
-}
-
 /// 只用合成标记和脚本；不保存或打印运行时文档nonce、URI或钱包资料。
 void _documentTests() {
   const nonce = 'syntheticDocumentNonce0001';
@@ -1265,8 +552,9 @@ void _documentTests() {
     expect(doc.check, contains('CitizenTopup?.start'));
   });
   test('实际构建JS完整装入文档，不访问网站同名脚本', () {
-    final script = File('transaction/web/walletconnect.bundle.js')
-        .readAsBytesSync();
+    final script = File(
+      'transaction/web/walletconnect.bundle.js',
+    ).readAsBytesSync();
     final doc = TopupDocument(template(), script, nonce);
     // 数MB的真实bundle不使用无界捕获正则，避免测试引擎递归栈溢出。
     const prefix = 'src="data:application/javascript;base64,';
@@ -1354,4 +642,208 @@ void _documentTests() {
       throwsFormatException,
     );
   });
+}
+
+// 固定公开结构的合成节点回执，不连接网络，不使用环境钱包。
+void _protocolTests() {
+  for (final mode in ['success', 'pending', 'failed', 'amount', 'reorg']) {
+    test('Tron固化验款$mode，一轮最多5次RPC', () async {
+      final p = payment(TopupNetwork.tron),
+          payer = 'TA9pkx4DFxrEw8JZzUtyDrh2uAat1LDuJL',
+          tx = '02' * 32;
+      String address(String a) => base58Bytes(
+        a,
+      ).take(21).map((x) => x.toRadixString(16).padLeft(2, '0')).join();
+      final transaction = {
+        'txID': tx,
+        'ret': [
+          {'contractRet': 'SUCCESS'},
+        ],
+        'raw_data': {
+          'data': utf8
+              .encode('topup:${'0b' * 32}')
+              .map((b) => b.toRadixString(16).padLeft(2, '0'))
+              .join(),
+          'contract': [
+            {
+              'type': 'TriggerSmartContract',
+              'parameter': {
+                'type_url': 'type.googleapis.com/protocol.TriggerSmartContract',
+                'value': {
+                  'owner_address': address(payer),
+                  'contract_address': address(p.asset),
+                },
+              },
+            },
+          ],
+        },
+      };
+      final receipt = {
+        'id': tx,
+        'receipt': {'result': mode == 'failed' ? 'FAILED' : 'SUCCESS'},
+        'blockNumber': 10,
+        'blockTimeStamp': 1000000,
+        'log': [
+          {
+            'address': address(p.asset).substring(2),
+            'topics': [
+              'ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',
+              address(payer).substring(2).padLeft(64, '0'),
+              address(p.recvAddress).substring(2).padLeft(64, '0'),
+            ],
+            'data': BigInt.parse(
+              mode == 'amount' ? '10000001' : p.payAmount,
+            ).toRadixString(16).padLeft(64, '0'),
+          },
+        ],
+      };
+      final block = {
+        'blockID': '03' * 32,
+        'block_header': {
+          'raw_data': {'number': 10, 'timestamp': 1000000},
+        },
+        'transactions': [transaction],
+      };
+      var count = 0;
+      final operation = verifyTronPayment(
+        p,
+        payer,
+        tx,
+        (method, params) async {
+          count++;
+          if (method.endsWith('gettransactionbyid')) {
+            return mode == 'pending' ? <String, dynamic>{} : transaction;
+          }
+          if (method.endsWith('gettransactioninfobyid')) return receipt;
+          if ((params.single as Map)['num'] == 0) {
+            return {
+              'blockID':
+                  '00000000000000001ebf88508a03865c71d452e25f4d51194196a1d22b6653dc',
+            };
+          }
+          if (mode == 'reorg' && count == 5) {
+            return {...block, 'blockID': '04' * 32};
+          }
+          return block;
+        },
+        now: 1000000,
+        binding: '0b' * 32,
+      );
+      if (mode == 'success') {
+        expect((await operation).matches(p, payer, tx), true);
+        expect(count, 5);
+      } else {
+        await expectLater(operation, throwsFormatException);
+        expect(count, lessThanOrEqualTo(5));
+      }
+    });
+  }
+  for (final mode in [
+    'success',
+    'pending',
+    'failed',
+    'amount',
+    'membership',
+    'owner',
+  ]) {
+    test('Solana最终验款$mode，一轮最多3次RPC', () async {
+      final p = payment(TopupNetwork.solana),
+          payer = '11111111111111111111111111111111',
+          tx = '1' * 64;
+      const program = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+      final balances = [
+        {
+          'accountIndex': 1,
+          'mint': p.asset,
+          'owner': payer,
+          'programId': program,
+          'uiTokenAmount': {'decimals': 6},
+        },
+        {
+          'accountIndex': 2,
+          'mint': p.asset,
+          'owner': mode == 'owner' ? payer : p.recvAddress,
+          'programId': program,
+          'uiTokenAmount': {'decimals': 6},
+        },
+      ];
+      final transaction = {
+        'version': 'legacy',
+        'slot': 10,
+        'blockTime': 1000,
+        'transaction': {
+          'signatures': [tx],
+          'message': {
+            'accountKeys': [
+              {'pubkey': payer, 'signer': true},
+              {'pubkey': p.asset},
+              {'pubkey': p.recvAddress},
+            ],
+            'instructions': [
+              {
+                'programId': 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr',
+                'parsed': 'topup:${'0b' * 32}',
+              },
+              {
+                'programId': program,
+                'parsed': {
+                  'type': 'transferChecked',
+                  'info': {
+                    'authority': payer,
+                    'source': p.asset,
+                    'destination': p.recvAddress,
+                    'mint': p.asset,
+                    'tokenAmount': {
+                      'amount': mode == 'amount' ? '10000001' : p.payAmount,
+                      'decimals': 6,
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        },
+        'meta': {
+          'err': mode == 'failed'
+              ? {
+                  'InstructionError': [
+                    1,
+                    {'Custom': 1},
+                  ],
+                }
+              : null,
+          'preTokenBalances': balances,
+          'postTokenBalances': balances,
+          'innerInstructions': [],
+        },
+      };
+      var count = 0;
+      final operation = verifySolanaPayment(
+        p,
+        payer,
+        tx,
+        (method, params) async {
+          count++;
+          return switch (method) {
+            'getGenesisHash' => '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d',
+            'getTransaction' => mode == 'pending' ? null : transaction,
+            _ => {
+              'blockTime': 1000,
+              'blockhash': '11111111111111111111111111111111',
+              'signatures': mode == 'membership' ? [] : [tx],
+            },
+          };
+        },
+        now: 1000000,
+        binding: '0b' * 32,
+      );
+      if (mode == 'success') {
+        expect((await operation).matches(p, payer, tx), true);
+        expect(count, 3);
+      } else {
+        await expectLater(operation, throwsFormatException);
+        expect(count, lessThanOrEqualTo(3));
+      }
+    });
+  }
 }

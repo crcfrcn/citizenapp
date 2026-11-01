@@ -2446,7 +2446,7 @@ Release合同核验正式锁定SDK公开QR方法的准确返回类型、参数�
 
 普通账户服务门槛不能只看链上CID。现有 /Users/rhett/citizenapp/account/lib/identity/register_identity_flow.dart 和 /Users/rhett/citizenapp/account/lib/identity/square_session_provider.dart将共用真实身份/准入/设备/会话判断；广场、聊天、通讯录、订阅及资料服务都消费现有普通会话和新鲜MLS证明。公共钱包/链引导/代充值继续其明确公共合同；App门槛不声称改造了公链共识。
 
-其余已核实适配：上传prepare新manifest/media_uploads结构、complete路径中upload_id不再重复正文；资料上传相对能力地址及PUT回执哈希；创作者tiers/subscription与确认后重读，现有Bearer-only投影POST补普通请求MLS证明；充值意图中的付款消息/期限及confirm的payer_signature，固定付款授权失败不继续转账；引导清单relay路径由旧/chain/extrinsics/relay改为真实/api/chain/extrinsics。原冷签、充值、发布检查点与本地数据模型生命周期保留。
+其余已核实适配：上传prepare新manifest/media_uploads结构、complete路径中upload_id不再重复正文；资料上传相对能力地址及PUT回执哈希；创作者tiers/subscription与确认后重读，现有Bearer-only投影POST补普通请求MLS证明；充值签名前仅内存准备、公民签名成功才创建三态订单、原付款交易完整摘要绑定及支付后account_signature提交；引导清单relay路径由旧/chain/extrinsics/relay改为真实/api/chain/extrinsics。原冷签、充值、发布检查点与本地数据模型生命周期保留。
 
 ## 第8步统一注册接入（2026-10-08，源码已落地，整体验收未完成）
 
@@ -2653,32 +2653,9 @@ CitizenSDK与TataChatSDK的Git来源声明保持，ref统一为main。CitizenSDK
 
 ## 三协议链上充值
 
-账户详情直接打开固定币种的套餐弹窗，注册入口在同一弹窗内显式选择币种；复用既有套餐和结果交互；USDC支持Ethereum/Base/Solana，USDT支持Ethereum/Tron/BNB；只允许两个原套餐，不提供自定义金额；每档下面的网络入口固定币种、套餐和网络，钱包按所选网络提供付款账户，服务端独立验款和发GMB，App不持有服务端发币私钥。实际开发验收及生产验收的范围和结果归唯一任务卡。
+账户详情直接打开固定币种的套餐弹窗；USDC支持Ethereum/Base/Solana，USDT支持Ethereum/Tron/BNB，只提供10和900两档。套餐内选链后选择付款钱包，当前仅MetaMask开放，其余五个钱包禁用，完成一个钱包验收后再逐个接入。具体签名、三状态、付款绑定和发币合同统一见“充值信息签名、原付款绑定与三状态”。
 
-充值合同改用network/asset和分币轨整数报价；意图必须匹配目标、付款人、资产、金额及原始授权文本。充值订单与恢复材料现统一保存在citizenapp_user的entry集合，按服务origin/订单号定位并按目标账户隔离；付款定位、签名和阶段不可替换或倒退。原topup.json只参与一次性存量切换，成功后不再作为运行时订单存储，具体合同见“充值本地订单交易记录（第1步）”。
-
-随包钱包改用UniversalProvider 2.23.10及AppKit 1.8.19；TronWeb 6.5.1、Solana web3.js 1.98.4/SPL Token 0.4.15只构造公开交易。钱包只签其所属协议；只申请所选主网；钱包额外授予其他链时也只使用所选链，目标链账户不明确时停止。生成bundle移出源码，在本轮工程内构建。
-
-公民App只有scripts/build.mjs一个构建脚本。充值随包JS作为普通工程资源，在同文件assembleProject中按原npm锁准备库并调用esbuild生成walletconnect.bundle.js；不设置功能专用脚本、导出函数或独立构建入口，生成物只写本轮工作工程。App与服务端自身请求统一五条主网的固定免费公开入口，不提供节点URL配置、编译注入、节点Key或收费替代入口。外部钱包内部RPC由钱包控制，目标链与原付款合同保持。
-
-充值只使用TopupSheet底部弹窗；账户详情的充值/USDT、充值/USDC入口直接打开TopupSheet，注册入口保留弹窗内双币选择；未完成记录按当前GMB账户恢复。桥接主框架固定本地随包页面，随机会话及递增请求号拦截旧回执；每阶段成功落盘后才放行下一操作。成功返回原钱包入口并通过原SDK刷新。
-
-结果页复用原视觉，按服务端完整阶段显示；前台逐步降频查单，后台停止页面计时器、回前台恢复，超时不判失败。回执丢失仅补交原交易与原签名，不再次请求付款；paid必须有原付款和GMB链定位。服务端允许原报价期付款离线补交。
-
-开发回归使用App原Flutter/Pub锁、公开服务响应及合成钱包端口，检查原UI两币两套餐、三协议格式、意图原文、精度、桥接来源和保护记录恢复。原生保护只增加准确文件名，其他资料记录仍拒绝任意路径。
-
-钱包只使用用户选定链的认证授权账户和明确CAIP-2请求，不把AppKit默认网络当作钱包选择；原两币种入口保持，选链位于套餐内。相同流程在隔离JS VM以合成钱包检验落盘顺序、错误和重复风险，不冒充真钱包付款。
-
-原付款进入提交阶段但结果未明时，币种卡片恢复原单；Tron/Solana保护记录中已有签名原字节的订单，可在原报价有效期内明确继续广播同一交易，不重新签名或生成付款。报价过期只查原单，禁止新广播。
-
-TronWeb公开HttpProvider只传输付款所需的三个POST接口，使用HTTPS且禁止重定向；Solana JSON-RPC也禁止重定向。HTML不允许内联或远端脚本。Tron钱包方法载荷按[Tron官方WalletConnect适配器](https://github.com/tronweb3/walletconnect-tron/blob/main/src/adapter.ts)的协商版本发送；金额与签名原文仍按CitizenServe合同独立核对。
-
-官方Solana JSON-RPC响应按上游error字段拒绝错误，不因第一方HTTP字段整理改写上游协议。
-
-两个套餐固定为15U兑换10,000GMB、1400U兑换1,000,000GMB。EVM交易同时传准确chainId；Tron/Solana原签名交易先保存再广播。未决提交优先恢复，套餐弹窗防重复打开；已保存paid在离线时仍保留准确到账展示。
-
-两平台在现有“准备官方工具和本轮目录”步骤中，按transaction/web/package.json的唯一esbuild0.28.1声明准备工具；不新增充值专用步骤。本机复用ESBUILD_BIN或PATH交付的既有工具，缺件沿原工具错误失败。
-
+随包资源使用UniversalProvider 2.23.10、AppKit 1.8.19、TronWeb 6.5.1、Solana web3.js 1.98.4与SPL Token 0.4.15。原锁及scripts/build.mjs的assembleProject是唯一装配入口，bundle仅生成到本轮工程。只申请所选主网，账户、网络或会话变化停止后续付款，不改投钱包或网络。App不持有服务端发币私钥，不自动重签、重付或重播付款。生产兼容性与真实资金验收独立记录在任务卡。
 
 ## 广场、通讯录、会员的MLS故障与明确动作
 
@@ -2705,26 +2682,17 @@ iOS路由Widget回归使用生产路由和真实详情页，SDK、当前用户�
 机构导航沿用治理页当前目录实例，不另开默认目录；手势回归以目录不可用场景验证真实详情页也能侧滑取消和返回，不为测试替换页面或全局路由。
 
 
-## 链上充值套餐内选链（2026年10月24日）
+## 链上充值套餐内选链
 
-保留USDC/USDT入口和两个套餐，金额只展示；每档三个网络按钮同时固定币种、套餐和网络。付款页只申请所选主网，拒绝静默改链、猜选账户或改套餐。配置严格要求ready布尔值；新付款创建意图前刷新配置，未开放或错误立即停止，不增加自定义金额。原保护记录格式与数据库不变；原单继续付款前先向服务端核对能力凭据，只有原单允许的阶段才使用原地址，配置更换不能改写已有付款。实际签名、付款与到账仍归钱包及服务端，本模块不持有发币秘密。
-
-原字节续播同样在服务端检查原能力凭据、当前账户就绪及允许阶段，过期、已到账或已经收款的订单不再次广播；已提交原单的结果查询不受新付款ready限制。
-
-锁定UniversalProvider 2.23.10的公开connect使用optionalNamespaces，仅提交所选链及必要方法；返回后本模块强制核对目标链和必要方法，缺失任一项即停止。EVM切链方法获批准时执行并等待确认。未提供该方法的钱包仍须按CAIP-2目标链处理请求或拒绝；不能用AppKit默认网络冒充实际付款链。会话和账户变更后停止后续签名/付款，不静默选另一条链。
-
-验证覆盖两币两档各三链共十二种点击组合、窄屏大字体、未就绪禁付、目标链授权、拒绝切链、会话变化、原能力远端核验及恢复字段不可变。测试只用明确合成端口和已锁SDK，不运行实际付款。
-
-错误提示区分新建意图与原单确认/查询：只有新意图拒绝可提示未发起付款；确认或查询失败始终提示核实原订单、勿重复付款，不把未知结果说成未付款。
-
+套餐下网络入口固定币种、套餐和网络，配置来自随包公开可信数据；选择和本地签名建单不访问服务端或公民链。UniversalProvider的optionalNamespaces只申请所选链及付款方法，连接后精确核对批准的CAIP-2账户和方法，缺少任一项即停止。不得用AppKit默认网络代替用户选择。
 
 ## 五链固定公开入口（2026年10月24日）
 
 每条链只有一个固定入口：Ethereum https://ethereum-rpc.publicnode.com；Base https://mainnet.base.org；BNB https://bsc-dataseed.bnbchain.org；Tron https://tron-rpc.publicnode.com；Solana https://api.mainnet.solana.com。AppKit所选主网元数据和App直接请求均使用同一准确入口，不保存节点Key或读取自定义节点环境变量；原发布和本机编译不再注入RPC地址。
 
-Solana官方公开入口不能放行当前本地WebView跨域请求，因此只把其HTTP交给现有JS→Dart桥接与HttpsOnlyClient，不新增服务端路由、签名器或付款状态机。原SDK仍构造ATA和TransferChecked，钱包签名和消息冻结保持；原字节保存后才能广播。桥接仅允许getGenesisHash、finalized的getLatestBlockhash和固定参数的sendTransaction；网络/付款人、原意图、期限及保存的原字节均须吻合，广播前再经原单状态检查。原生只访问固定地址、不接收URL/Key，未知广播不自动重试、重签或改付。
+Solana付款HTTP沿JS→Dart桥接和HttpsOnlyClient，构造只允许一次getLatestBlockhash，广播只允许保存后的原字节sendTransaction；无服务端前置建单或公民链请求。Tron付款构造与广播只走固定HTTPS POST，memo在签名前本地写入。付款后原生App独立验款，不能把广播回执当到账。
 
-既有两个套餐、六币轨、订单格式、安全存储、恢复和结果页保持。公共节点限流、归档或索引拒绝只能报待核实，不能冒充未付款或已到账；公开地址通过查询不等于生产可用性、钱包兼容性或真实付款已经验证。
+公共付款节点限流、索引延迟或网络故障不能冒充未付款或已到账；公开地址可访问不等于钱包及真实付款已验收。
 
 受保护只读GET仅合并同一SquareSession对象、同一完整URL的进行中HTTPS请求，跨客户端复用一次实际签名与发送；物理请求成功或失败即删除定位，不保存已消费证明或响应TTL缓存。每个等待者仍核验当前身份，关闭的客户端不能借其他在途请求交付结果；不同会话、URL及所有写操作不合并，各调用独立解析响应。完整资料图片的既有ImageProvider缓存键只由会话对象、准确URL和资料版本组成，客户端实例不构成媒体身份；不同会话、版本和用途保持隔离。原本地资料/媒体仓库、权限守卫、逐次实际网络读取现签及失败后重新现签保持。
 
@@ -2750,7 +2718,7 @@ RunnerUITests的创作者、钱包与充值复用准确主“我的”Tab和实�
 提案首批、刷新、翻页及区块更新读取前共用同一SDK的chainRead公开能力；先订阅能力/生命周期/最终块事件，再核对快照。查询快照期间若有新事件，必须重新核对，旧ready不得覆盖最新未就绪事实。启动或未同步时沿原加载态等待事件，就绪后只执行最新请求代次的原读取路径；实例停止、启动失败或能力不可用仍走原错误处理。禁止另启节点、固定睡眠/轮询、把真实decode/network失败吞掉或触发身份注册/Turnstile。刷新作废旧等待，页面销毁撤销等待和订阅。宪法测试允许不可修改标记与条文合并语义，要求完整标记词边界、实际可见标记及新增非空条文；仅在当前阅读器最多向上滚动三次，不用任意容器或元数据代替条文。
 
 
-原充值配置/套餐用例继续不点击网络入口。独立的iOS钱包唤起用例仅在取得准确授权后，通过原USDC首档Ethereum入口选择已安装MetaMask，记录六宫格按钮存在/可用、准确品牌的系统打开提示及外部钱包前台状态。WebKit可合并品牌与辅助文字，钱包选择只取当前连接页中带准确品牌且实际可点击的按钮、链接、文本或图像叶节点，排除整页容器；只记录品牌存在、WebView归属、原静态等待文案/连接标题及文本子树是否可读的布尔值，不输出其他标签。仅点击已启用MetaMask及SpringBoard明确品牌的打开提示；不批准钱包连接、签名或付款，不读取URI、二维码、账户或金额。选择器和连接阶段各最多观察180秒，以覆盖实际长时间转圈和失败；失败/超时保持未通过，原订单存在则跳过新连接。使用原同标识UITest运行器和宿主、USB、keepNever/never；新增用例不改变正式App或服务合同，不能以Android观察代替iOS结果。
+iOS充值只读UI验收只进入套餐及钱包选择页，核对六个品牌、MetaMask启用和其余五项禁用；不得点击钱包，因为该点击会签署公民账户充值信息并建单。真实外部钱包唤起、连接、交易签名与付款须另按用户准确授权验收，不能把只读选择页观察当作已接通。
 
 钱包唤起用例整体执行上限480秒，选择器和连接两阶段各180秒的观察上限之外只用于原导航及清理，不延长或放宽实际钱包前台成功条件。
 
@@ -2760,7 +2728,7 @@ RunnerUITests的创作者、钱包与充值复用准确主“我的”Tab和实�
 
 桥接沿本次装配文档、实际HTTPS来源及原会话守卫接收观察，使用独立递增顺序，不能抢占原付款消息。AppLog只接受精确阶段/布尔字段，输出CitizenTopup闭集行，不保存URI、二维码、会话、账户、异常正文或诊断文件，不启用全局自由文本诊断。原生打开只输出requested/busy/opened/rejected固定结果；opened仍需外部钱包前台证据，不能冒充付款成功。连接入口回归必须核对监听先于open及connect、结束撤销监听、出口故障保留业务结果，并禁止额外调用ready。
 
-真机仅在准确签名/覆盖安装授权后独立检查两端USDC首档Ethereum到MetaMask；其余五个钱包保持禁用，逐项接入后再扩展检查；复用原USB UITest运行器/宿主，原订单存在则停止新连接，钱包前台即止，不批准连接或签名付款。只有完整start/connect/end且监听成功、complete=true、baseline=false的回执才允许用未产生事件及provider_uri=false认定本次观察期间URI未生成；emitted=true且matched始终false才定位产生至弹窗接收；缺少回执不依据沉默下结论。弹窗已接收时继续联合原生请求和设备前台核对后续边界；SDK连接调用顺序及服务端合同保持。
+MetaMask实机验收须消费最新安装包和用户明确签名/付款授权；只读用例不启动外部钱包。其余五个钱包逐个接入后再扩展真实验收，源代码或合成测试不冒充设备端付款闭环。
 
 上述产生边界指UniversalProvider公开连接接口实际产出可用URI；布尔快照不提供SignClient/Relay内部的具体失败原因，也不能据此认定项目权限、来源白名单、网络或ready等待是唯一根因。真实安装/用例与三阶段回执必须分别核验，故障复现不能改记为钱包唤起成功。
 
@@ -2781,7 +2749,7 @@ subscribed字段只表示本次公开subscription_created事件；SignClient的p
 
 充值钱包固定两行三列，第一行MetaMask、imToken、Trust Wallet，第二行Binance Wallet、OKX Wallet、Coinbase Wallet；唯一冻结数组的enabled同时控制按钮及连接入口。目前仅MetaMask启用，其余五项标注“暂未开放”，禁用和伪造点击均不能初始化SDK、连接、唤起、签名或付款。选择页不等待网络与SDK，重复点击只选择一次；不保留搜索、所有钱包、最近项及原15项名单。
 
-连接仍复用原锁UniversalProvider/AppKit公开接口和原提案、链/付款人校验及付款流程；AppKit headless且disableAppend，不挂载其选择UI。display_uri由当前已选钱包适配调用原SDK公开格式化方法构造专属链接，连接与后续请求均经同一原生桥接等待系统回执；失败或取消立即停止，不提取通用wc链接、不改投其他品牌。原SDK的display_uri/wcUri与Relay观察保持，不手工setUri或修改SDK。六个图标复用官方目录图片，st/sv参数由原锁公开PACKAGE_VERSION构造，不复制版本；不新增图像文件或依赖、构建入口。原单续播显示核实状态，跳过钱包选择。连接取消只关闭本次流程，不清空会话、账户、订单和签名记录。MetaMask完成实机调试后，再按imToken、Trust Wallet、Binance Wallet、OKX Wallet、Coinbase Wallet顺序逐个接入，测试成功后才启用；当前不引入Coinbase独立SDK。
+连接仍复用原锁UniversalProvider/AppKit公开接口和原提案、链/付款人校验及付款流程；AppKit headless且disableAppend，不挂载其选择UI。display_uri由当前已选钱包适配调用原SDK公开格式化方法构造专属链接，连接与后续请求均经同一原生桥接等待系统回执；失败或取消立即停止，不提取通用wc链接、不改投其他品牌。原SDK的display_uri/wcUri与Relay观察保持，不手工setUri或修改SDK。六个图标复用官方目录图片，st/sv参数由原锁公开PACKAGE_VERSION构造，不复制版本；不新增图像文件或依赖、构建入口。连接取消只关闭本次流程，不清空会话、账户、订单和签名记录。MetaMask完成实机调试后，再按imToken、Trust Wallet、Binance Wallet、OKX Wallet、Coinbase Wallet顺序逐个接入，测试成功后才启用；当前不引入Coinbase独立SDK。
 
 换绑授权上下文在唯一finalized锚点以一次getStorageBatch读取账户、绑定revision及链时间；交易后置核验在实际finalized包含块一次批读账户与revision。两个阶段的SCALE、缺失、期限与目标精确一致性判断保持。
 
@@ -2891,7 +2859,7 @@ MLS认证证明统一归聊天SDK原生Serde编码：user_id/device_id/public_ke
 
 创作者档位只有tiers，属主由已认证本人请求、目标路径或本地自然键持有；他人响应creator_cid必须匹配所请求目标。档位保留tier_id、tier_name、month_fen、quarter_fen、year_fen，未开通周期为null；金额为正整数分且不超过9007199254740991。自有Dart成员按同一词根使用monthFen/quarterFen/yearFen。API、通知及本地缓存不保存价格Map、属主副本或占位更新时间；固定链协议的周期数组仅在原SCALE边界编码。概览条件读取使用creator_rev，原会话及通知身份围栏保持。
 
-充值订单仅保存order_state/orderState，覆盖awaiting、verifying、received、signed、broadcast、paid、exception七阶段。终态与展示从该字段计算，不传输或缓存第二份派生状态。旧恢复格式失败时保留原记录，不自动改写、删除或再次付款。
+充值订单只由TopupProgress表示pending、paid、completed；验款成功并保存才是已支付，发币请求和完成结果由App根层处理，页面关闭不能取消已支付后的请求。
 
 第一方区块事实统一block_hash/blockHash，覆盖帖子、发布恢复、登记及钱包流水；自有发布证明使用tx_hash/txHash。SDK和官方链接口的原成员由所属产品拥有，不借改名改变其协议。物理表列清单保持39表227列；旧真实数据的升级处置不在普通读取路径中执行。
 
@@ -2951,11 +2919,11 @@ scanner只负责采集、QR界面与结果，联系人导入由account提供回�
 
 ### 六钱包独立适配
 
-适配接口固定为connect(runtime)，由品牌文件选择实际协议工厂。共用WalletConnect工厂提供context、request、signMessage、signTransaction、observe、close；品牌文件不接触套餐、报价、收款地址或订单存储。MetaMask额外提供connectionUrl与accepts，专属scheme仅在其文件定义；其余五件在真实适配与测试完成前不提供connect。五个禁用品牌在原bridge.test.mjs各有按品牌命名的独立门禁用例；接入某品牌时只替换该品牌适配和用例，所有已启用钱包及共用付款回归必须继续通过。
+钱包适配接口固定为connect(runtime)，由品牌文件选择真实协议工厂。共用WalletConnect工厂只请求付款交易签名/发送，不要求personal_sign或额外付款授权。品牌文件不持有订单存储；创建与已支付门禁在原生App实现。
 
 
-transaction/web直接使用metamask.js、imtoken.js、trust.js、binance.js、okx.js、coinbase.js六个品牌文件，互不导入；walletconnect.js只登记固定顺序及共用WalletConnect/付款流程。只启用MetaMask，其他五件仅保存真实品牌资料且禁用，不提供假成功连接。MetaMask自己定义协议工厂选择、专属链接准入和原SDK非秘密跳转偏好；共用代码不写死品牌scheme，六个文件共用原npm声明/锁与App唯一build.mjs。每轮只运行所选适配，原生离页经同一来源/nonce检查调用本轮cancel，关闭后不再接受旧请求唤起；新增钱包须逐项接入、验证后才修改其enabled。
-连接完成后直接核验已批准的目标CAIP-2账户与方法，不再因钱包支持切链而额外等待wallet_switchEthereumChain。付款仍明确指定CAIP-2链和EVM交易chainId，原金额/收款/签名及原单守卫保持。SDK后续window.open与首次连接共用当前品牌的原生桥接；等待回前台后发请求，唤起失败、取消与超时停止当前等待，不改投其他钱包，不自动重签重付。连接观察继续区分原Promise结果，Relay闭集观察延续到整轮付款结束；错误阶段使用固定枚举，不输出链接、会话或异常正文。原生收到本轮失败后立即停止接收后续业务消息，迟到意图/回执不再落盘；错误界面区分连接、账户、订单、授权、交易和回执阶段。CitizenTopup失败日志仅输出固定step/error，提交后仍优先提示回执待核实与勿重复付款。
+transaction/web使用metamask.js、imtoken.js、trust.js、binance.js、okx.js、coinbase.js六个品牌文件；未接入项只保留展示资料，不保留连接或签名实现。当前仅MetaMask复用原锁WalletConnect与Reown公开品牌链接并开放入口，其余五项禁用。Coinbase原实现仍禁用：原锁HTML SDK明确不走普通WalletConnect移动深链，本机未发现独立Wallet SDK缓存，禁止伪造接入或自动下载。真实设备付款验证尚未完成。
+连接完成后核验已批准目标CAIP-2账户和付款方法，不调用额外切链或消息签名。付款前只允许Solana一次最新blockhash和Tron一次交易构造；原生App在付款后独立验证主网、最终成功、收款资产/地址/付款人与严格等额事实。未知不能当取消或失败；不重播原签名，不自动重签重付。连接观察仅输出固定闭集，不输出链接、会话或异常正文。
 
 ## 治理提交与执行块确认
 
@@ -3033,7 +3001,7 @@ Android本地及自动化构建共用scripts/build.mjs；Release APK生成后、
 
 ### 充值弹窗与链图标
 
-选择套餐内网络后在套餐弹窗上显示现有钱包底部弹窗，套餐弹窗持有原API和订单恢复状态；不再存在独立充值下级页或“连接钱包支付”页面。钱包正文高度不超过屏幕72%且上限440，返回恢复当前套餐。新付款、未提交订单恢复和原交易续播均调用同一showTopupSheet；同一WebView文档、来源/nonce及原会话在弹窗内保留，钱包回跳继续原弹窗，关闭仍触发本轮cancel并恢复原单检查。六钱包适配、排序及仅MetaMask启用保持。
+选择套餐内网络后显示钱包底部弹窗；点击可用品牌先保存本地订单，再连接和唤起对应钱包。弹窗内保留同次会话与nonce；关闭不恢复原单。处理结束关闭付款及套餐弹窗，返回原账户详情；不会自动跳结果页。
 每个套餐内的三条链固定等宽横排，官方Logo以36设计单位等比置于56设计单位的圆形底色内，Base中间蓝色方块为24；Tron只保留红色Logo，删除原SVG白色矩形，下方12号居中显示完整名称，使用单行等比缩放适应列宽，图标行不换列；整个图文区域可点。USDC顺序Ethereum、Base、Solana；USDT顺序Ethereum、Tron、BNB。Base名称统一显示Base/贝斯链。五个SVG仅存既有assets/icons并由citizen_assets声明；Base/TRON源SVG的CSS类填色等价展开为SVG属性以适配既有解析器，几何路径、比例和颜色不变；两币两档复用，不运行时下载或重绘品牌图形。两档固定价格为10 USDC或10 USDT购买10,000公民币、900 USDC或900 USDT购买1,000,000公民币；package_id为pkg_10、pkg_900，展示保留实际币种名称。链币映射、不可用与重复点击门禁保持原合同。
 
 
@@ -3045,9 +3013,9 @@ Android本地及自动化构建共用scripts/build.mjs；Release APK生成后、
 
 身份换绑及签名确认的业务编排可按明确的payloadSigner函数接收外部签名结果；正常路径仍调用原SDK签名及QR流程。SDK私有签名资源由真实会话创建，App不构造或模仿这些资源。MLS登记无论签名结果来源，都由CitizenSdk.verify校验账户、消息与签名，业务回调不能授予虚假授权。扫码组件的测试只控制SDK所有者夹具的物理相机打开、排空、权限及预览事件，识别文档使用Core原JSON；不实现SDK扫码器。
 
-钱包弹窗统一白色：原生底部弹窗、WebView背景和HTML正文均使用surfaceCard/#FFFFFF。删除关闭叉号及其占用行，保留原拖动、遮罩及系统返回退出路径和dispose取消。六个钱包图标为64px，前三位MetaMask、imToken、Trust Wallet，后三位币安钱包、欧易钱包、Coinbase Wallet；仅MetaMask启用，各品牌独立适配与付款校验不变。
+钱包弹窗统一白色：原生底部弹窗、WebView背景和HTML正文均使用surfaceCard/#FFFFFF。删除关闭叉号及其占用行，保留原拖动、遮罩及系统返回退出路径和dispose取消。六个钱包图标为64px，前三位MetaMask、imToken、Trust Wallet，后三位币安钱包、欧易钱包、Coinbase Wallet；当前仅MetaMask启用，其余五个禁用，逐个接入及验收；未声称六钱包全部实机通过。
 
-账户详情的WalletActionCard由冷热入口共用：左侧USDT/USDC两项直接复用既有圆形SVG，标签为充值/USDT及充值/USDC，充值区不再显示链上账户余额，金额仅在顶部链上余额区显示；两条竖线统一40设计单位，居于48高图标槽中轴且比图标更短，原三列宽度定位不变。冷热详情共用冷钱包的全宽纯色头部、平面操作区及完整圆角交易记录卡；零钱包仍使用原绑定、余额与内部提现。WalletNavigation.topup改为带context/accountId/token的异步弹窗意图，旧提现工厂因无调用移除，提现页面保留供零钱包使用。充值源码与测试统一使用topup_sheet命名，不增加目录、依赖或构建入口。到账结果仅关闭套餐弹窗并刷新原账户，取消/错误不改变原单；未知付款进入原单恢复，重复点击共享本轮门禁。
+账户详情的WalletActionCard由冷热入口共用：左侧USDT/USDC两项直接复用既有圆形SVG，标签为充值/USDT及充值/USDC，充值区不再显示链上账户余额，金额仅在顶部链上余额区显示；两条竖线统一40设计单位，居于48高图标槽中轴且比图标更短，原三列宽度定位不变。冷热详情共用冷钱包的全宽纯色头部、平面操作区及完整圆角交易记录卡；零钱包仍使用原绑定、余额与内部提现。WalletNavigation.topup改为带context/accountId/token的异步弹窗意图，旧提现工厂因无调用移除，提现页面保留供零钱包使用。充值源码与测试统一使用topup_sheet命名，不增加目录、依赖或构建入口。付款处理结束关闭两层弹窗回原账户；仅本地已支付不触发公民链余额刷新。原单未知仅保留本机，新点击创建新单，不恢复重付。
 
 
 钱包列表的WalletActions只声明页面实际需要的类型化读取和动作函数，不实现SDK接口。WalletSnapshot仅包含公开目录及本次归还函数，SDK默认路径继续持有并归还真实CitizenWalletInspection；App测试只交付自己的输入事实及租约，不虚报SDK私有句柄。默认账户切换的外部签名提示仍由原UI负责，生产会话的消费与取消仍由SDK完成；删除前的精确清理目标、安全擦除确认和失败后事实回读保持原顺序。根关闭同样允许明确的动作/生命周期读取输入，缺省仍先停止唯一SDK并完成其检查点合同，再关闭会话，停止失败不得绕过。
@@ -3089,7 +3057,20 @@ Android通过Google官方app-update2.1.0查询当前设备可用更新，点击�
 
 
 ### 充值本地订单交易记录（第1步）
-充值订单、恢复材料、交易简要及详情统一使用citizenapp_user的既有entry集合，不新增集合。增加三个可空列service_origin、order_id、order_data，原服务来源和订单号共同定位，写事务校验唯一性；普通链上交易的SDK execution及事件身份保持原合同。order_data只保存原始intent_token/intent_data/sign_message、progress、payer_signature、payment_txid及signed_wire；订单状态、金额、目标账户、到账交易和异常原因分别使用既有state/transfer_amount/account_id/tx_hash/fail_reason，原始签名意图保持完整。未到账amount_delta为0，报价过期只改变展示，不隐藏原订单。
-TopupStore保存与更新在一个用户库事务内完成一次定位查询和原子提交；无变化不写、不发变更。事务成功后向所属账户交付同一entry快照，完整交易列表、冷热账户最近记录、详情及充值弹窗直接更新内存；普通流水watcher排除充值类型，避免同笔订单变化再查一次库。首次列表读取本地数据，详情直接使用列表快照；这些展示及删除操作不初始化钱包、不访问服务端或链。
-到账只按服务端给出的准确公民币交易哈希、目标账户及金额关联SDK已验证的finalized收入事件，不按金额或备注猜测。事件先到或订单状态先到均保留原订单主键并在同一事务中合并，不重复展示收入。单笔删除仅删除本机记录，停止该订单的页面轮询/监听，迟到更新不得重新插入；不撤销服务端处理或已提交付款。损坏明细保持固定错误展示并允许按准确本地身份删除，不能继续付款或输出恢复凭据。
-存量topup.json经完整校验后一次事务导入；只有数据库提交成功且旧文件仍是原完整快照时才消费旧记录，失败保留原文件并拒绝继续付款，不运行双写。实际存量切换随更新后的App首次读取执行，本轮开发验证只使用隔离合成数据库。CitizenSDK及CitizenServe不改，本步不改变建单HTTP/RPC次数、服务端限流或发币合同，第2步另行实施。
+充值订单、付款证据和交易简要/详情统一使用citizenapp_user既有entry，不新增表列。沿用service_origin、order_id、order_data；order_data保存原payment、wallet_id、account_signature、payer、txid、wire、proof、recovery_token、check_count、check_at、request_at和receipt，不再生成服务端意图或消息授权。state仅为待支付/已支付/已完成；未确认公民币到账amount_delta保持0。
+TopupStore保存与更新在一个用户库事务内完成一次定位查询和原子提交；无变化不写、不发变更。事务成功后向所属账户交付同一entry快照，完整交易列表、冷热账户最近记录、详情及充值弹窗直接更新内存；普通流水watcher排除充值类型，避免同笔订单变化再查一次库。首次列表读取本地数据，详情直接使用列表快照；这些展示及删除操作不初始化钱包、不访问服务端或链。充值不使用保护JSON文件，Dart、iOS、Android保护记录白名单均只保留各自现行身份/锁/登记记录。
+已有公民币到账关联仅按准确交易哈希、目标和金额匹配SDK已验证事件，不按金额或备注猜测。新本地付款不会虚构公民币哈希或到账。删除仅删除本机记录，迟到更新不重新插入。损坏明细仍可按准确身份删除。
+
+### 充值信息签名、原付款绑定与三状态
+
+业务订单仅pending（待支付）、paid（已支付）、completed（已完成）。选择钱包之前只选套餐/链；点击某钱包后先内存准备冻结充值信息及随机恢复凭据，由页面指定的公民账户走现有signCitizenPayload/SDK beginSigning，热账户热签、冷账户QR冷签，显式CitizenSigningTransform.raw()、opaqueAction=权威topup动作18。签名失败/取消/离页不保存订单或恢复凭据、不连接所选外部付款钱包。成功后才派生短order_id并以实际Unix毫秒正式保存待支付订单，然后连接并唤起所选付款钱包。连接、构造、广播只是本次流程和事实字段，不另作订单业务状态；取消/失败/付款未知保持待支付并记录现有fail_reason，不自动续付。
+
+授权消费CitizenServe.md公开16字段合同：13行UTF8/LF原文末尾LF，首行CitizenServe Topup，其后service_origin、chain_genesis_hash、account_id、package_id、token、network、asset、recv_address、pay_amount、coin_fen、config_hash、recovery_hash。签前不含order_id/created_at/payer_address/payment_txid。recovery_hash为恢复凭据文本SHA256；公民签名是原始64B sr25519/substrate签名，不预hash，不套用其他动作。H=SHA256(原文UTF8字节||原始签名字节)，签后order_id=top_加H小写hex前32位。短ID仅定位，真实付款必须绑定完整32B H；不增加order_hash/sign_text请求字段。account_signature为0x加128小写hex，随原单保存并在已支付后请求发币。
+
+外部钱包只签原付款交易一次，不请求personal_sign/tron_signMessage/solana_signMessage。直接EVM ERC20 input严格100B：transfer选择器+收款地址ABI字+金额ABI字+完整H；Tron签前用原锁addUpdateData(...,'utf8',{txLocal:true})写raw_data.data为topup:<64hex H>并本地重算txID，不额外调用getsignweight；Solana同一交易在原SPL Token转账紧前加入既有Memo程序，内容相同，真实付款账户必须签整个message。钱包改变Tron/Solana原消息在广播前拒绝，EVM验款查询真实input；不部署新合约、不拆第二笔付款、不剥掉绑定退回普通转账。附加数据可能增加费用，由钱包确认。
+
+App根层在外部付款回执保存后立即验款1轮，未验真则按20、40、80、160、320、640、1280、2560、5120、10240秒的间隔再验10轮，总计最多11轮。每轮先在原entry.order_data持久消费check_count并预约check_at，失败返回后更新下一check_at，从返回时刻完整等待对应退避时长；每次更新只在同一事务定位一次，不为页面显示另查库，回前台不重置预算；系统暂停期间按绝对到期时间恢复，销毁付款页不停止App验款。任一轮金额、资产、付款人、收款、最终成功和完整H均相符，即保存已支付/证据/一次请求占位，并由App独立客户端立即POST一次/api/topup/confirm。11轮都未通过记录payment_failed并停止，不发送发币请求、不重签重付，不增加第四种订单状态。网页广播回执仅submitted=true，不能自报paid。每轮成功验款EVM6条RPC、Tron5条、Solana3条；最多分别66/55/33条，未确认可能提前返回，实际次数按真实执行计。Tron/Solana各有1次获准构造、1次广播；EVM对钱包发一次eth_sendTransaction，钱包内部RPC不属于App可计数范围。充值模块不读公民链，付款验真前不访问公民服务端；用户库物理表列、公开16字段、SDK和原依赖锁不变。
+
+付款后受理公钥固化，完整结果按服务端12行原文调用CitizenSdk.verify纯验签，付款块核实/GMB最终性由服务端完成。只有最终成功签名结果使App订单完成；异常保持已支付并记录原因，不新增人工/失败等业务状态。接收器位于CitizenApp最外层，独立于CID/会员/主Tab，初始事件共享查看且导航只消费一次。先结果落库再ACK精确修订；回前台续排未结束付款验证，并对已支付未完成单一次恢复，不再confirm，不触发服务端复验或发币，不用SSE或服务端定时轮询。原行快照直接更新列表，准确SDK到账事件同事务关联，保留原主键、不重复收入。根关闭立即停接收/断HTTP，保持SDK原停止/checkpoint顺序，之后等待充值收尾。
+
+钱包按顺序接入：当前仅MetaMask启用，保留EVM100B付款绑定并精确核验真实input；其余五个钱包禁用。不支持所选链或交易签名时停止，不静默换链或剥离绑定。未进行真实付款、安装、生产DDL或部署，未改变SDK Core；开发测试不代替实机验收。

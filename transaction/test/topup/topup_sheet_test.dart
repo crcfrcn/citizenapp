@@ -1,6 +1,3 @@
-import 'package:citizen_testing/fixture.dart';
-
-import 'dart:convert';
 import 'dart:async';
 import 'dart:ui' as ui;
 
@@ -16,29 +13,24 @@ import 'package:citizen_transaction/topup/topup_models.dart';
 import 'package:citizen_transaction/topup/store.dart';
 
 class FakeApi extends TopupApi {
-  int statusCalls = 0;
-  final bool ready;
-  TopupOrder? order;
+  int requests = 0;
   @override
-  Future<TopupOrder> status(TopupPaymentIntent intent) async {
-    statusCalls++;
-    if (order == null) throw StateError('synthetic unavailable');
-    return order!;
+  Future<Object?> paymentRpc(
+    TopupNetwork network,
+    String method,
+    List<Object?> params,
+  ) async {
+    requests++;
+    throw StateError('unexpected payment request');
   }
 
-  FakeApi({this.ready = true}) : super(baseUrl: 'https://www.crcfrcn.com/api');
   @override
-  Future<TopupConfig> fetchConfig() async {
-    final value =
-        (jsonDecode(
-              fixtureFile(
-                'citizen_transaction',
-                'topup/contract.json',
-              ).readAsStringSync(),
-            ) as Map<String, dynamic>)['config']
-            as Map<String, dynamic>;
-    value['ready'] = ready;
-    return TopupConfig.fromJson(value);
+  Future<TopupReceipt> requestIssuance(
+    PaidTopupOrder order, {
+    Map<String, Object?>? notify,
+  }) async {
+    requests++;
+    throw StateError('unexpected issuance request');
   }
 }
 
@@ -184,9 +176,8 @@ void main() {
                 accountId: '0x${'04' * 32}',
                 api: FakeApi(),
                 store: MemoryStore(),
-                paymentOpener: (choice, record) async {
+                paymentOpener: (choice) async {
                   opened.add(choice);
-                  expect(record, isNull);
                   return waiting.future;
                 },
               ),
@@ -275,29 +266,24 @@ void main() {
       }
     }
   });
-  testWidgets('未就绪仍显示两档和三链，但不能进入钱包', (tester) async {
-    var opened = 0;
+  testWidgets('套餐本地可用，不读服务端或付款链，也不提前创建订单', (tester) async {
+    final api = FakeApi(), store = MemoryStore();
     await tester.pumpWidget(
       MaterialApp(
         home: TopupSheet(
           token: 'USDT',
           accountId: '0x${'04' * 32}',
-          api: FakeApi(ready: false),
-          store: MemoryStore(),
-          paymentOpener: (_, _) async {
-            opened++;
-            return null;
-          },
+          api: api,
+          store: store,
         ),
       ),
     );
     await tester.pumpAndSettle();
-
-    final buttons = tester.widgetList<TextButton>(find.byType(TextButton));
-    expect(buttons.length, 6);
-    expect(buttons.every((b) => b.onPressed == null), true);
-    expect(find.text('充值暂未开放'), findsOneWidget);
-    expect(opened, 0);
+    expect(find.byType(TextButton), findsNWidgets(6));
+    expect(api.requests, 0);
+    await tester.pump(const Duration(seconds: 30));
+    expect(api.requests, 0);
+    api.close();
   });
   testWidgets('窄屏和大字体的套餐与完整网络名称不溢出，可滚动选择高档', (tester) async {
     tester.view.physicalSize = const Size(320, 568);
@@ -308,8 +294,9 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(context)
-              .copyWith(textScaler: const TextScaler.linear(1.6)),
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: const TextScaler.linear(1.6)),
           child: child!,
         ),
         home: TopupSheet(
@@ -317,7 +304,7 @@ void main() {
           accountId: '0x${'04' * 32}',
           api: FakeApi(),
           store: MemoryStore(),
-          paymentOpener: (choice, _) async {
+          paymentOpener: (choice) async {
             chosen = choice;
             return null;
           },
@@ -336,156 +323,41 @@ void main() {
     expect(chosen?.network, TopupNetwork.bnb);
     expect(tester.takeException(), isNull);
   });
-  TopupRecord original() {
-    final f = jsonDecode(
-      fixtureFile(
-        'citizen_transaction',
-        'topup/contract.json',
-      ).readAsStringSync(),
-    ) as Map<String, dynamic>;
-    return TopupRecord(
-      origin: 'https://www.crcfrcn.com',
-      intent: TopupPaymentIntent.fromJson(
-        f['intent_data'] as Map<String, dynamic>,
-      ),
-    );
-  }
-
-  Future<void> result(
-    WidgetTester tester,
-    TopupRecord record,
-    FakeApi api,
-  ) async {
-    final config = await api.fetchConfig();
-    await tester.pumpWidget(
-      MaterialApp(
-        home: TopupResultPage(
-          api: api,
-          store: MemoryStore(),
-          record: record,
-          package: config.packages.first,
-          onReplay: (_) async => null,
-        ),
-      ),
-    );
-    await tester.pump();
-  }
-
-  testWidgets('保护记录中已到账的订单离线仍显示到账，不再确认付款', (tester) async {
-    final r = original(), api = FakeApi();
-    final paid = r.update(
-      progress: TopupProgress.confirmed,
-      signature: '0x${'aa' * 65}',
-      txid: '0x${'09' * 32}',
-      order: TopupOrder(
-        orderId: r.intent.orderId,
-        orderState: TopupPhase.paid,
-        coinFen: r.intent.coinFen,
-        paymentTxid: '0x${'09' * 32}',
-        gmbTxHash: '0x${'08' * 32}',
-      ),
-    );
-    await result(tester, paid, api);
-    expect(find.text('已到账'), findsOneWidget);
-    expect(find.text('查看钱包'), findsOneWidget);
-    expect(api.statusCalls, 0);
-  });
-  testWidgets('服务端已收U等待发币与长等待均不显示失败或已到账', (tester) async {
-    final r = original(), api = FakeApi();
-    api.order = TopupOrder(
-      orderId: r.intent.orderId,
-      orderState: TopupPhase.received,
-      coinFen: r.intent.coinFen,
-      paymentTxid: '0x${'09' * 32}',
-    );
-    await result(
-      tester,
-      r.update(
-        progress: TopupProgress.confirmed,
-        signature: '0x${'aa' * 65}',
-        txid: '0x${'09' * 32}',
-      ),
-      api,
-    );
-    expect(find.text('稳定币已收款，等待发币'), findsOneWidget);
-    await tester.pump(const Duration(minutes: 3));
-    expect(find.text('已到账'), findsNothing);
-    expect(find.text('需要核查'), findsNothing);
-    await tester.pumpWidget(const SizedBox());
-  });
-  testWidgets('未知付款打开弹窗直接恢复原订单，不显示新套餐', (tester) async {
-    final r = original().update(
-      progress: TopupProgress.submitting,
-      signature: '0x${'aa' * 65}',
-    );
+  testWidgets('钱包处理结束回到原账户详情，不自动打开结果页', (tester) async {
     final api = FakeApi();
+    var opened = 0;
     await tester.pumpWidget(
       MaterialApp(
-        home: TopupSheet(
-          accountId: r.intent.accountId,
-          api: api,
-          store: MemoryStore([r]),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
-    expect(find.byType(TopupResultPage), findsOneWidget);
-    expect(find.text('选择充值套餐 · USDC'), findsNothing);
-    expect(find.text('暂时无法核实原订单，请稍后重试，勿重复付款'), findsOneWidget);
-    await tester.pumpWidget(const SizedBox());
-  });
-  testWidgets('到账结果只关闭套餐弹窗，账户详情保留并回传成功', (tester) async {
-    final r = original();
-    final paid = r.update(
-      progress: TopupProgress.confirmed,
-      signature: '0x${'aa' * 65}',
-      txid: '0x${'09' * 32}',
-      order: TopupOrder(
-        orderId: r.intent.orderId,
-        orderState: TopupPhase.paid,
-        coinFen: r.intent.coinFen,
-        paymentTxid: '0x${'09' * 32}',
-        gmbTxHash: '0x${'08' * 32}',
-      ),
-    );
-    final api = FakeApi();
-    bool? outcome;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          appBar: AppBar(title: const Text('账户详情')),
-          body: Builder(
-            builder: (context) => TextButton(
-              onPressed: () async {
-                outcome = await showTopup(
-                  context,
-                  accountId: r.intent.accountId,
-                  token: 'USDC',
-                  api: api,
-                  store: MemoryStore([paid]),
-                );
-              },
-              child: const Text('充值/USDC'),
+        home: Builder(
+          builder: (context) => Scaffold(
+            appBar: AppBar(title: const Text('原账户详情')),
+            body: TextButton(
+              onPressed: () => showTopup(
+                context,
+                accountId: '0x${'04' * 32}',
+                token: 'USDC',
+                api: api,
+                store: MemoryStore(),
+                paymentOpener: (choice) async {
+                  opened++;
+                  return null;
+                },
+              ),
+              child: const Text('充值入口'),
             ),
           ),
         ),
       ),
     );
-    await tester.tap(find.text('充值/USDC'));
+    await tester.tap(find.text('充值入口'));
     await tester.pumpAndSettle();
-    expect(find.byType(BottomSheet), findsOneWidget);
-    expect(find.byType(Scaffold), findsOneWidget);
-    expect(find.text('选择充值币种'), findsNothing);
-    await tester.tap(find.text('充值订单 · 已到账'));
+    await tester.tap(find.byKey(const ValueKey('pkg_10:base')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('查看钱包'));
-    await tester.pumpAndSettle();
-    expect(outcome, true);
-    expect(api.statusCalls, 0);
+    expect(opened, 1);
+    expect(find.text('原账户详情'), findsOneWidget);
     expect(find.byType(BottomSheet), findsNothing);
-    expect(find.text('账户详情'), findsOneWidget);
-    expect(find.byType(Scaffold), findsOneWidget);
+    expect(find.byType(TopupDetails), findsNothing);
+    expect(api.requests, 0);
+    api.close();
   });
 }

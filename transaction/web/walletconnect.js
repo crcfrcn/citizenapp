@@ -9,7 +9,7 @@ import {coinbase} from './coinbase.js';
 // 三协议付款只走一次冻结流程；所有阶段须等App原子落盘回执，不存或请求钱包私钥。
 export const chains={ethereum:'eip155:1',base:'eip155:8453',bnb:'eip155:56',tron:'tron:0x2b6653dc',solana:'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp'};
 const pairs={USDC:['ethereum','base','solana'],USDT:['ethereum','tron','bnb']};
-const required={eip155:['personal_sign','eth_sendTransaction'],tron:['tron_signMessage','tron_signTransaction'],solana:['solana_signMessage','solana_signTransaction']};
+const required={eip155:['eth_sendTransaction'],tron:['tron_signTransaction'],solana:['solana_signTransaction']};
 const walletTimeout=180000;
 const normalize=(n,a)=>n==='tron'||n==='solana'?a:a.toLowerCase();
 
@@ -21,26 +21,30 @@ function enabledWallet(id){
  return wallet;
 }
 // 原生来源核验通过后立即显示，不等待SDK、目录或Relay；重复点击只产生一次选择。
-export function pickWallet(document,projectId){
+export function pickWallet(document,projectId,createOrder,available=wallets.filter(w=>w.enabled).map(w=>w.id)){
  const grid=document.getElementById('wallets');
  const imageParams=new URLSearchParams({projectId,st:'appkit',sv:'html-core-'+PACKAGE_VERSION});
- return new Promise(resolve=>{
+ return new Promise((resolve,reject)=>{
   let selected=false;
   for(const wallet of wallets){
    const button=document.createElement('button');button.type='button';button.className='wallet';
-   button.disabled=!wallet.enabled;button.setAttribute('aria-disabled',String(!wallet.enabled));
+   const usable=wallet.enabled&&available.includes(wallet.id);button.disabled=!usable;button.setAttribute('aria-disabled',String(!usable));
    const icon=document.createElement('img');icon.src='https://api.web3modal.org/getWalletImage/'+wallet.image+'?'+imageParams.toString();icon.alt='';icon.width=64;icon.height=64;
    const label=document.createElement('span');label.textContent=wallet.name;
    button.append(icon,label);
-   if(!wallet.enabled){const state=document.createElement('small');state.textContent='暂未开放';button.append(state);}
-   button.addEventListener('click',()=>{
-    if(selected||!wallet.enabled)return;
+   if(!usable){const state=document.createElement('small');state.textContent='暂未开放';button.append(state);}
+   button.addEventListener('click',async()=>{
+    if(selected||!usable)return;
     enabledWallet(wallet.id);selected=true;
     for(const item of grid.children)item.disabled=true;
     grid.hidden=true;document.getElementById('spinner').hidden=false;
-    document.getElementById('title').textContent='正在连接 '+wallet.name;
-    document.getElementById('sub').textContent='请在钱包中确认连接';
-    resolve(wallet.id);
+    document.getElementById('title').textContent='请签署充值信息';
+    document.getElementById('sub').textContent='热账户本机签名，冷账户扫码签名';
+    try {
+     await createOrder(wallet.id);
+     resolve(wallet.id);
+    }catch(error){document.getElementById('spinner').hidden=true;document.getElementById('sub').textContent='充值签名或保存未完成，未创建订单，未启动付款钱包';reject(error);}
+
    });
    grid.append(button);
   }
@@ -85,7 +89,8 @@ export async function connectWallet(provider,chosen,options,createAppKit,report=
 }
 // 一个文档只绑定一个已选钱包。SDK后续window.open与首次连接共用原生桥接；
 // 请求有独立结束条件，旧回执和其它品牌链接不能唤起钱包或推进下一步。
-export function walletBridge(adapter,openWallet,host=window,{timeout=walletTimeout}={}){
+export function walletBridge(adapter,openWallet,host,{timeout=walletTimeout}={}){
+ enabledWallet(adapter?.id);host??=window;
  if(enabledWallet(adapter?.id)!==adapter)throw Error('该钱包暂未开放');
  let active=true,pending;const cancelHandlers=new Set();
  const launch=async url=>{
@@ -289,51 +294,34 @@ export async function bindSession(provider,value,send=request=>provider.client.r
  };
 }
 function unchanged(expected,current){if(expected.network!==current.network||expected.chain!==current.chain||expected.payer!==current.payer)throw Error('付款账户或网络已变化，未继续付款');}
-const unexpired=(p,now)=>{if(!Number.isSafeInteger(p.expiresAt)||now()>=p.expiresAt)throw Error('付款意图已过期，未发起转账');};
 /// 流程是唯一实现；测试注入的wallet/builder遵循同一公开方法，不绕过阶段落盘。
-export async function paymentFlow({wallet,builder,ask,selection:value,now=Date.now,progress=()=>{}}){
+export async function paymentFlow({wallet,builder,ask,selection:value,progress=()=>{}}){
  progress('account');const chosen=selection(value),original=await wallet.context();
- if(original.network!==chosen.network||original.chain!==chains[chosen.network])throw Error('钱包网络与所选网络不一致');
- progress('intent');const p=await ask('connected',{...original,token:chosen.token,package_id:chosen.package_id});
- const returned=selection(p.selection);if(JSON.stringify(returned)!==JSON.stringify(chosen))throw Error('付款选择已变化');
- unchanged(original,p.context);unexpired(p,now);
- if(typeof p.message!=='string'||!p.message.startsWith('CitizenServe Topup v1\n'))throw Error('付款授权无效');
- unchanged(original,await wallet.context());unexpired(p,now);
- progress('authorization');const signature=p.signature??await wallet.signMessage(original,p.message);
- unchanged(original,await wallet.context());unexpired(p,now);
- await ask('authorization',{...original,signature});
+ if(original.network!==chosen.network||original.chain!==chains[chosen.network])throw Error('钱包网络与本地订单不一致');
+ const p=await ask('connected',{...original,token:chosen.token,package_id:chosen.package_id});
+ unchanged(original,p.context);
+ if(JSON.stringify(selection(p.selection))!==JSON.stringify(chosen))throw Error('本地付款选择发生变化');
  progress('transaction');const transaction=await builder.prepare(original,p);
- unchanged(original,await wallet.context());unexpired(p,now);
- // EVM由钱包签名并广播；Tron/Solana先取得原字节，持久化后才广播。
+ unchanged(original,await wallet.context());
  const signed=await wallet.signTransaction(original,transaction);
- unchanged(original,await wallet.context());unexpired(p,now);
  const frozen=await builder.freeze(original,transaction,signed);
+ unchanged(original,await wallet.context());
  progress('submitting');await ask('submitting',{...original,...frozen});
- unexpired(p,now);unchanged(original,await wallet.context());
  const txid=await builder.broadcast(original,frozen,wallet);
- if(frozen.txid&&txid!==frozen.txid)throw Error('广播回执与原交易不一致，请核实原订单');
- progress('submitted');await ask('submitted',{...original,txid});progress('complete');return txid;
-}
-
-// 用户明确继续时仅广播保护记录中的原签名字节，不连接钱包、不重签或重建交易。
-export async function replayFlow({builder,ask,replay,selection:value,now=Date.now}){
- const chosen=selection(value),c=replay.context;
- if(c?.network!==chosen.network)throw Error('原交易网络与所选网络不一致');
- if(!['tron','solana'].includes(c?.network)||chains[c.network]!==c.chain||!replay.txid||!replay.wire)throw Error('缺少原签名交易');
- unexpired(replay,now);await builder.validate(c,replay);
- await ask('replay',{...c,wire:replay.wire,txid:replay.txid});unexpired(replay,now);
- const txid=await builder.broadcast(c,replay);
- if(txid!==replay.txid)throw Error('广播回执与原交易不一致');
- await ask('submitted',{...c,txid});return txid;
+ if(frozen.txid&&txid!==frozen.txid)throw Error('付款回执与原交易不一致');
+ // 只交付广播定位；App独立验款、保存已支付并请求发币，网页不自报支付成功。
+ progress('submitted');const saved=await ask('submitted',{...original,txid});
+ if(saved?.submitted!==true)throw Error('付款回执尚未保存');
+ progress('complete');return txid;
 }
 
 const https=value=>{const u=new URL(value);if(u.protocol!=='https:'||u.username||u.password||u.hash||u.search)throw Error('付款节点配置无效');return u.href;};
 export async function buildTron(payer,p,TronWeb){
  const web=tronClient(TronWeb,p.rpc);
- const genesis=await web.trx.getBlock(0);
- if(genesis.blockID!=='00000000000000001ebf88508a03865c71d452e25f4d51194196a1d22b6653dc')throw Error('付款节点不是Tron主网');
  const result=await web.transactionBuilder.triggerSmartContract(p.asset,'transfer(address,uint256)',{feeLimit:100000000,callValue:0},[{type:'address',value:p.receiver},{type:'uint256',value:p.amount}],payer);
- if(!result.result?.result||!result.transaction?.txID)throw Error('未能构造Tron付款');return result.transaction;
+ if(!result.result?.result||!result.transaction?.txID)throw Error('未能构造Tron付款');
+ if(!/^topup:[0-9a-f]{64}$/.test(p.memo))throw Error('充值绑定无效');
+ return web.transactionBuilder.addUpdateData(result.transaction,p.memo,'utf8',{txLocal:true});
 }
 // SDK负责协议构造；公开HTTP Provider仅收紧传输，禁止重定向降级或越出付款API。
 export function tronClient(TronWeb,url){
@@ -341,7 +329,7 @@ export function tronClient(TronWeb,url){
  const web=new TronWeb({fullHost:base});
  class HttpsProvider extends web.providers.HttpProvider {
   async request(path,payload={},method='get'){
-   if(method.toLowerCase()!=='post'||!['wallet/getblockbynum','wallet/triggersmartcontract','wallet/broadcasttransaction'].includes(path))throw Error('未允许的付款节点请求');
+   if(method.toLowerCase()!=='post'||!['wallet/triggersmartcontract','wallet/broadcasttransaction'].includes(path))throw Error('未允许的付款节点请求');
    const response=await fetch(base+'/'+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload),redirect:'error',signal:AbortSignal.timeout(15000)});
    if(!response.ok)throw Error('付款节点暂不可用');return response.json();
   }
@@ -349,12 +337,13 @@ export function tronClient(TronWeb,url){
  const node=new HttpsProvider(base);web.setFullNode(node);web.setSolidityNode(node);web.setEventServer(node);return web;
 }
 export async function buildSolana(payer,p,web3,spl,request){
- if(await request('getGenesisHash',[])!=='5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d')throw Error('付款节点不是Solana主网');
  const latest=await request('getLatestBlockhash',[{commitment:'finalized'}]);
  const owner=new web3.PublicKey(payer),mint=new web3.PublicKey(p.mint),recipient=new web3.PublicKey(p.receiver);
  const source=await spl.getAssociatedTokenAddress(mint,owner),destination=await spl.getAssociatedTokenAddress(mint,recipient);
  const tx=new web3.Transaction({feePayer:owner,blockhash:latest.value.blockhash,lastValidBlockHeight:latest.value.lastValidBlockHeight});
  tx.add(spl.createAssociatedTokenAccountIdempotentInstruction(owner,destination,recipient,mint));
+ if(!/^topup:[0-9a-f]{64}$/.test(p.memo))throw Error('充值绑定无效');
+ tx.add(new web3.TransactionInstruction({programId:new web3.PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr'),keys:[{pubkey:owner,isSigner:true,isWritable:false}],data:new TextEncoder().encode(p.memo)}));
  tx.add(spl.createTransferCheckedInstruction(source,mint,destination,owner,BigInt(p.amount),p.decimals));
  return tx;
 }
@@ -364,12 +353,12 @@ export async function defaultBuilder(solanaRpc){
   async prepare(c,p){
    if(c.network==='tron'){const {TronWeb}=await import('tronweb');return {raw:await buildTron(c.payer,p,TronWeb),rpc:p.rpc};}
    if(c.network==='solana'){const [web3,spl]=await Promise.all([import('@solana/web3.js'),import('@solana/spl-token')]);const raw=await buildSolana(c.payer,p,web3,spl,(method,params)=>solanaRpc(c,method,params));return {raw,web3,rpc:p.rpc};}
-   if(!/^0xa9059cbb[0-9a-f]{128}$/.test(p.data))throw Error('付款数据无效');return {raw:{from:c.payer,to:p.asset,data:p.data,value:'0x0',chainId:'0x'+Number(c.chain.split(':')[1]).toString(16)}};
+   if(!/^0xa9059cbb[0-9a-f]{192}$/.test(p.data))throw Error('付款数据无效');return {raw:{from:c.payer,to:p.asset,data:p.data,value:'0x0',chainId:'0x'+Number(c.chain.split(':')[1]).toString(16)}};
   },
   async freeze(c,tx,signed){
    if(c.network==='tron'){
     const {TronWeb}=await import('tronweb');
-    if(signed?.raw_data_hex!==tx.raw.raw_data_hex||signed?.txID!==tx.raw.txID||JSON.stringify(signed.raw_data)!==JSON.stringify(tx.raw.raw_data)||!Array.isArray(signed.signature)||signed.signature.length!==1||tronClient(TronWeb,tx.rpc).trx.ecRecover(signed)!==c.payer)throw Error('钱包修改了原付款交易');
+    if(signed?.raw_data_hex!==tx.raw.raw_data_hex||signed?.txID!==tx.raw.txID||JSON.stringify(signed.raw_data)!==JSON.stringify(tx.raw.raw_data)||!Array.isArray(signed.signature)||signed.signature.length!==1||await tronClient(TronWeb,tx.rpc).trx.ecRecover(signed)!==c.payer)throw Error('钱包修改了原付款交易');
     return {txid:signed.txID,wire:JSON.stringify(signed),rpc:tx.rpc};
    }
    if(c.network==='solana'){
@@ -383,20 +372,11 @@ export async function defaultBuilder(solanaRpc){
    }
    return {transaction:tx.raw};
   },
-  async validate(c,f){
-   if(c.network==='tron'){
-    const {TronWeb}=await import('tronweb');const web=tronClient(TronWeb,f.rpc),tx=JSON.parse(f.wire);
-    if(tx.txID!==f.txid||web.trx.ecRecover(tx)!==c.payer||(await web.trx.getBlock(0)).blockID!=='00000000000000001ebf88508a03865c71d452e25f4d51194196a1d22b6653dc')throw Error('原Tron交易无效');
-   }else{
-    const web3=await import('@solana/web3.js'),tx=web3.Transaction.from(Buffer.from(f.wire,'base64'));
-    if(!tx.verifySignatures()||tx.feePayer.toBase58()!==c.payer||bs58.encode(tx.signature)!==f.txid||await solanaRpc(c,'getGenesisHash',[])!=='5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d')throw Error('原Solana交易无效');
-   }
-  },
   async broadcast(c,f,wallet){
    if(c.network==='tron'){
     const {TronWeb}=await import('tronweb');const result=await tronClient(TronWeb,f.rpc).trx.sendRawTransaction(JSON.parse(f.wire));if(!result.result||result.txid!==f.txid)throw Error('付款广播回执待核实');return result.txid;
    }
-   if(c.network==='solana')return await solanaRpc(c,'sendTransaction',[f.wire,{encoding:'base64',skipPreflight:false,preflightCommitment:'confirmed',maxRetries:3}]);
+   if(c.network==='solana')return await solanaRpc(c,'sendTransaction',[f.wire,{encoding:'base64',skipPreflight:false,preflightCommitment:'confirmed',maxRetries:0}]);
    return await wallet.request(c,'eth_sendTransaction',[f.transaction]);
   }
  };
@@ -424,11 +404,6 @@ async function walletConnect(adapter,{cfg,report,bridge,progress}){
   context:channel.context,request,
   observe(stage,error){trace.event(stage,error);},
   close(){channel.close();trace.end();},
-  async signMessage(c,message){
-   if(c.network==='tron'){const r=await request(c,'tron_signMessage',{address:c.payer,message});const sig=r.signature;if(typeof sig!=='string')throw Error('付款授权无效');const {TronWeb}=await import('tronweb');if(await tronClient(TronWeb,cfg.rpc).trx.verifyMessageV2(message,sig)!==c.payer)throw Error('付款授权无效');return sig.startsWith('0x')?sig:'0x'+sig;}
-   if(c.network==='solana'){const r=await request(c,'solana_signMessage',{pubkey:c.payer,message:bs58.encode(new TextEncoder().encode(message))});return r.signature;}
-   const bytes=new TextEncoder().encode(message);return request(c,'personal_sign',['0x'+Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join(''),c.payer]);
-  },
   async signTransaction(c,tx){
    if(c.network==='tron'){
     const version=provider.session.sessionProperties?.tron_method_version;
@@ -452,15 +427,15 @@ export async function start(cfg){
  window.CitizenTopup.reply=(session,id,response)=>{if(stopped||session!==cfg.session)return;const p=pending.get(id);if(!p)return;pending.delete(id);clearTimeout(p.timer);response.ok?p.resolve(response.value):p.reject(Error(response.error??'付款流程已停止'));};
  let wallet,bridge,stage='connection';
  stop=()=>{if(stopped)return;stopped=true;bridge?.close();wallet?.close();for(const item of pending.values()){clearTimeout(item.timer);item.reject(Error('本次付款已结束'));}pending.clear();};
- const labels={connection:'正在连接钱包',account:'正在核对钱包账户',intent:'正在准备充值订单',authorization:'请在钱包中确认授权',transaction:'正在准备付款交易',submitting:'正在保存付款记录',submitted:'正在核实付款回执',complete:'付款已提交'};
+ const labels={connection:'正在连接钱包',account:'正在核对钱包账户',create_order:'请签署充值信息',transaction:'正在准备付款交易',submitting:'正在保存付款记录',submitted:'正在核实付款回执',complete:'付款已提交，正在验款'};
  const progress=value=>{stage=value;wallet?.observe(value);document.getElementById('title').textContent=labels[value];};
  try{
-  if(cfg.replay){document.getElementById('spinner').hidden=false;document.getElementById('title').textContent='正在核实原付款';document.getElementById('sub').textContent='请稍候，不会重新选择钱包或签名';stage='submitted';}
-  const walletId=cfg.replay?null:await pickWallet(document,cfg.projectId);
-  if(stopped)return;
+  document.getElementById('amount').textContent=cfg.summary;
+  if(Array.isArray(cfg.available_wallets)&&cfg.available_wallets.length===0)document.getElementById('sub').textContent='此网络充值暂未开放，可选择其他网络';
+  const walletId=await pickWallet(document,cfg.projectId,id=>{progress('create_order');return ask('create_order',{wallet_id:id});},cfg.available_wallets);
+  if(stopped)return;progress('connection');
   const builder=await defaultBuilder((c,method,params)=>ask('solana_rpc',{...c,method,params}));
-  if(cfg.replay)await replayFlow({builder,ask,replay:cfg.replay,selection:cfg.selection});
-  else {
+  {
    const adapter=enabledWallet(walletId);bridge=walletBridge(adapter,url=>ask('external_wallet',{url}));
    wallet=await adapter.connect({cfg,report,bridge,progress,walletConnect});
    await paymentFlow({wallet,builder,ask,selection:cfg.selection,progress});
@@ -468,8 +443,8 @@ export async function start(cfg){
  }catch(error){
   if(stopped)return;
   const code=connectFailure(error).error;wallet?.observe('failure',error);
-  document.getElementById('spinner').hidden=true;document.getElementById('title').textContent='本次付款已停止';
-  document.getElementById('sub').textContent='请返回充值页面核实本次订单';
+  document.getElementById('spinner').hidden=true;document.getElementById('title').textContent=stage==='create_order'?'充值签名未完成':'本次付款已停止';
+  document.getElementById('sub').textContent=stage==='create_order'?'未创建订单，未启动付款钱包':'请在交易记录核实原订单';
   window.TopupBridge.postMessage(JSON.stringify({session:cfg.session,id:++sequence,kind:'error',stage,code}));
  }finally{stop();}
 }

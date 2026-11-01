@@ -1,8 +1,3 @@
-import 'dart:async';
-import 'package:citizen_transaction/topup/topup_api.dart';
-import 'package:citizen_transaction/topup/topup_result_page.dart';
-import 'dart:convert';
-import 'package:citizen_testing/fixture.dart';
 import 'package:citizen_testing/isar_test_env.dart';
 import 'package:citizen_transaction/topup/store.dart';
 import 'package:citizen_transaction/topup/topup_models.dart';
@@ -32,46 +27,97 @@ wallet_store.Entry _record({String status = LocalTxStore.statusFinalized}) {
         : null;
 }
 
-class _WaitingTopupApi extends TopupApi {
-  final response = Completer<TopupOrder>();
-  int calls = 0;
-  @override
-  Future<TopupOrder> status(TopupPaymentIntent intent) {
-    calls++;
-    return response.future;
-  }
-}
-
 void main() {
   useIsolatedIsar();
-  TopupRecord order() => TopupRecord(
-    origin: 'https://www.crcfrcn.com',
-    intent: TopupPaymentIntent.fromJson(
-      (jsonDecode(
-                fixtureFile(
-                  'citizen_transaction',
-                  'topup/contract.json',
-                ).readAsStringSync(),
-              )
-              as Map<String, dynamic>)['intent_data']
-          as Map<String, dynamic>,
+  TopupRecord order() => TopupRecord.signed(
+    TopupDraft.create(
+      TopupSelection(
+        token: 'USDC',
+        package: TopupConfig.local().packages.first,
+        network: TopupNetwork.base,
+      ),
+      '0x${'04' * 32}',
     ),
+    TopupWallets.ids.first,
+    '0x${'01' * 64}',
+    now: 1000000,
   );
 
-  testWidgets('充值详情复用本地快照，过期订单可见且不展示恢复秘密', (tester) async {
-    final value = order(), row = TopupStore.toEntry(order());
+  testWidgets('充值详情复用本地快照，创建即显示待付款且不展示恢复秘密', (tester) async {
+    final value = order();
+    final row = TopupStore.toEntry(value);
     await tester.pumpWidget(
       MaterialApp(home: LocalTxRecordDetailPage(record: row)),
     );
     expect(find.text('充值订单详情'), findsOneWidget);
-    expect(find.text('报价已过期'), findsOneWidget);
-    expect(find.text(value.intent.orderId), findsOneWidget);
+    expect(find.text('待支付'), findsOneWidget);
+    expect(find.text(value.payment.orderId), findsOneWidget);
     expect(find.text('预计公民币'), findsOneWidget);
-    expect(find.text(value.intent.intentToken), findsNothing);
-    expect(find.text(value.intent.signMessage), findsNothing);
+    expect(find.text('recovery_token'), findsNothing);
+    expect(find.text(value.accountSignature), findsNothing);
     expect(find.text('+0.00'), findsNothing);
   });
 
+  testWidgets('付款验款通过显示已支付，金额不伪造为公民币收入', (tester) async {
+    final value = order(),
+        p = value.payment,
+        payer = '0x${'01' * 20}',
+        tx = '0x${'02' * 32}';
+    final proof = TopupProof.fromJson({
+      'network': p.network.wire,
+      'payment_txid': tx,
+      'payer_address': payer,
+      'asset': p.asset,
+      'recv_address': p.recvAddress,
+      'pay_amount': p.payAmount,
+      'binding_hash': value.binding,
+      'block_hash': '0x${'03' * 32}',
+      'block_number': 10,
+      'block_at': 1000000,
+      'transfer_index': 0,
+      'checked_at': 1000000,
+      'finalized': true,
+      'succeeded': true,
+    });
+    final row = TopupStore.toEntry(
+      value.update(
+        progress: TopupProgress.paid,
+        payer: payer,
+        txid: tx,
+        wire: 'synthetic original transaction',
+        proof: proof,
+        requestAt: 1000000,
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: LocalTxRecordTile(record: row)),
+      ),
+    );
+    expect(find.text('已支付'), findsOneWidget);
+    expect(find.text('已到账'), findsNothing);
+    expect(row.amountDelta, '0');
+    await tester.pumpWidget(
+      MaterialApp(home: LocalTxRecordDetailPage(record: row)),
+    );
+    expect(find.text('已支付'), findsOneWidget);
+    expect(find.text('预计公民币'), findsOneWidget);
+    expect(find.text('到账公民币'), findsNothing);
+  });
+  testWidgets('明确取消和失败不会在详情中误显示付款待核实', (tester) async {
+    for (final code in ['payment_cancelled', 'payment_failed']) {
+      final row = TopupStore.toEntry(order().update(failureCode: code));
+      await tester.pumpWidget(
+        MaterialApp(home: LocalTxRecordDetailPage(record: row)),
+      );
+      final reason = code == 'payment_cancelled'
+          ? '本次付款已取消，未上传服务端'
+          : '付款验证失败，未上传服务端';
+      await tester.ensureVisible(find.text(reason));
+      expect(find.text(reason), findsOneWidget);
+      expect(find.text('付款结果尚未核实，请保留原交易'), findsNothing);
+    }
+  });
   testWidgets('充值明细损坏时列表和详情显示固定错误且仍有删除入口', (tester) async {
     final row = TopupStore.toEntry(order())..orderData = '{';
     await tester.pumpWidget(
@@ -95,7 +141,7 @@ void main() {
         MaterialApp(
           home: TransactionHistoryPage(
             accountAddress: 'synthetic',
-            accountId: value.intent.accountId,
+            accountId: value.payment.accountId,
           ),
         ),
       );
@@ -134,38 +180,20 @@ void main() {
     }
   });
 
-  testWidgets('删除进行中订单立即停止结果页轮询，迟到响应不重新保存', (tester) async {
-    final store = TopupStore(), value = order(), api = _WaitingTopupApi();
+  testWidgets('原结果页仅展示本地详情，删除立即退出且不含恢复重付入口', (tester) async {
+    final store = TopupStore(), value = order();
     await tester.runAsync(() => store.save(value));
-    final row = TopupStore.toEntry(value);
-    final saved = await tester.runAsync(
-      () => LocalTxStore.queryByAccountId(value.intent.accountId),
+    final rows = await tester.runAsync(
+      () => LocalTxStore.queryByAccountId(value.payment.accountId),
     );
-    row.rowId = saved!.single.rowId;
-    final fixture =
-        jsonDecode(
-              fixtureFile(
-                'citizen_transaction',
-                'topup/contract.json',
-              ).readAsStringSync(),
-            )
-            as Map<String, dynamic>;
-    final package = TopupConfig.fromJson(
-      fixture['config'] as Map<String, dynamic>,
-    ).packageById(value.intent.intentData['package_id'] as String);
+    final row = rows!.single;
     await tester.pumpWidget(
       MaterialApp(
         home: Builder(
           builder: (context) => TextButton(
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) => TopupResultPage(
-                  api: api,
-                  store: store,
-                  record: value,
-                  package: package,
-                  onReplay: (_) async => null,
-                ),
+                builder: (_) => LocalTxRecordDetailPage(record: row),
               ),
             ),
             child: const Text('打开原订单'),
@@ -174,22 +202,14 @@ void main() {
       ),
     );
     await tester.tap(find.text('打开原订单'));
-    await tester.pump();
-    expect(api.calls, 1);
+    await tester.pumpAndSettle();
+    expect(find.text('待支付'), findsOneWidget);
+    expect(find.text('重新付款'), findsNothing);
     await tester.runAsync(() => store.delete(row));
-    api.response.complete(
-      TopupOrder(
-        orderId: value.intent.orderId,
-        orderState: TopupPhase.awaiting,
-        coinFen: value.intent.coinFen,
-      ),
-    );
     await tester.pumpAndSettle();
     await tester.pump(const Duration(seconds: 30));
-    expect(api.calls, 1);
-    expect(find.text('支付结果'), findsNothing);
+    expect(find.text('打开原订单'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
-    api.close();
   });
 
   testWidgets('u128真实费用逐分显示，最佳链与预估费用明确标注', (tester) async {

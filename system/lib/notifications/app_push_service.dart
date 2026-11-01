@@ -49,13 +49,18 @@ final class AppPushService {
   AppPushService({
     MethodChannel? permissionsChannel,
     EventChannel? networkChannel,
-  }) : _networkChannel = networkChannel,
+    Future<Map<String, dynamic>?> Function()? initialMessageLoader,
+  }) : _initialLoader = initialMessageLoader,
+       _networkChannel = networkChannel,
        _permissionsChannel =
            permissionsChannel ?? const MethodChannel('citizenapp/permissions');
 
   final EventChannel? _networkChannel;
+  final Future<Map<String, dynamic>?> Function()? _initialLoader;
   final MethodChannel _permissionsChannel;
   Future<AppPushToken>? _initialization;
+  Future<Map<String, dynamic>?>? _initialMessage;
+  bool _initialConsumed = false;
 
   /// 唯一原生网络事件通道；只报告可用性变化，业务决定是否在前台校准。
   late final Stream<bool> networkAvailability =
@@ -136,8 +141,25 @@ final class AppPushService {
     return AppPushToken(provider: 'fcm', token: token, apnsEnvironment: null);
   }
 
-  Future<Map<String, dynamic>?> initialMessage() async {
-    await ensureAppFirebaseReady();
-    return (await FirebaseMessaging.instance.getInitialMessage())?.data;
+  /// 根级业务可查看同一初始事件；默认导航仍只消费一次，不能丢失其他业务推送。
+  Future<Map<String, dynamic>?> initialMessage({bool consume = true}) async {
+    if (consume && _initialConsumed) return null;
+    final pending = _initialMessage ??= () async {
+      if (_initialLoader != null) return _initialLoader();
+      await ensureAppFirebaseReady();
+      return (await FirebaseMessaging.instance.getInitialMessage())?.data;
+    }();
+    final Map<String, dynamic>? data;
+    try {
+      data = await pending;
+    } on Object {
+      if (identical(_initialMessage, pending)) _initialMessage = null;
+      rethrow;
+    }
+    if (consume) {
+      if (_initialConsumed) return null;
+      _initialConsumed = true;
+    }
+    return data;
   }
 }

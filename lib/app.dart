@@ -55,6 +55,68 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
   bool _identityRetry = true;
   bool _identityRequested = false;
   Future<void>? _identitySync;
+  final _topupUpdates = TopupUpdates();
+  final _topupPushSubs = <StreamSubscription<Map<String, dynamic>>>[];
+  Future<void> _receiveTopupPush(Map<String, dynamic> data) async {
+    try {
+      final raw = data['citizen'] ?? data;
+      if (raw is String && utf8.encode(raw).length > 4096) return;
+      final payload = raw is String ? jsonDecode(raw) : raw;
+      if (payload is Map<String, dynamic>) await _topupUpdates.receive(payload);
+    } on Object {
+      AppLog.d('topup_push_unavailable');
+    }
+  }
+
+  /// 充值通知不要求CID；只读已有系统令牌，不新申请通知权限。
+  Future<void> _refreshTopupNotify() async {
+    try {
+      final endpoint = await widget.appPushService
+          .readToken(requestPermission: false)
+          .timeout(const Duration(seconds: 2));
+      if (_closing) return;
+      _topupUpdates.notify = {
+        'push_provider': endpoint.provider,
+        'push_token': endpoint.token,
+        'apns_env': endpoint.apnsEnvironment,
+        'expires_at': DateTime.now()
+            .add(const Duration(days: 7))
+            .millisecondsSinceEpoch,
+      };
+    } on Object {
+      AppLog.d('topup_push_unavailable');
+    }
+  }
+
+  void _startTopupUpdates() {
+    _topupUpdates.start();
+    unawaited(_refreshTopupNotify());
+    try {
+      for (final stream in [
+        widget.appPushService.foregroundMessages,
+        widget.appPushService.openedMessages,
+      ]) {
+        _topupPushSubs.add(
+          stream.listen((data) => unawaited(_receiveTopupPush(data))),
+        );
+      }
+      unawaited(
+        widget.appPushService
+            .initialMessage(consume: false)
+            .then((data) async {
+              if (data != null) await _receiveTopupPush(data);
+            })
+            .catchError((Object _) {
+              AppLog.d('topup_initial_push_unavailable');
+            }),
+      );
+    } on Object {
+      AppLog.d('topup_push_unavailable');
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_closing) unawaited(_topupUpdates.resume());
+    });
+  }
 
   /// 身份生命周期独立于聊天；只在账户变化或首次缺绑定时做公开同步。
   void _requestIdentitySync() {
@@ -115,6 +177,17 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
 
   Future<void> _stopSdk() async {
     _closing = true;
+    // 先停止接收；充值本地恢复不得成为SDK停止/checkpoint的前置门闩。
+    final topupClose = _topupUpdates.close().catchError((Object _) {
+      AppLog.d('topup_close_unavailable');
+    });
+    for (final sub in _topupPushSubs) {
+      unawaited(
+        sub.cancel().catchError((Object _) {
+          AppLog.d('topup_push_close_unavailable');
+        }),
+      );
+    }
     try {
       await _identityEvents?.cancel();
     } on Object {
@@ -123,13 +196,17 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
     }
     await _chainStartup;
     await _identitySync;
-    await _closeCitizenSdk(
-      widget.sdk,
-      widget.transactionHistory,
-      stop: widget.stopSdk,
-      close: widget.closeSdk,
-      lifecycle: widget.sdkLifecycle,
-    );
+    try {
+      await _closeCitizenSdk(
+        widget.sdk,
+        widget.transactionHistory,
+        stop: widget.stopSdk,
+        close: widget.closeSdk,
+        lifecycle: widget.sdkLifecycle,
+      );
+    } finally {
+      await topupClose;
+    }
   }
 
   late final _registrationCoordinator =
@@ -137,6 +214,7 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    _startTopupUpdates();
     WidgetsBinding.instance.addObserver(this);
     widget.squareSessionProvider.installRuntimeFactory(
       widget.chatRuntimeFactory,
@@ -156,6 +234,8 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // 系统授权造成的短暂 inactive 不终止同步；真正退后台才使迟到读取失效。
     if (state == AppLifecycleState.resumed) {
+      unawaited(_refreshTopupNotify());
+      unawaited(_topupUpdates.resume());
       widget.transactionHistory.setForeground(true);
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
@@ -215,6 +295,7 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
         ),
         Provider<SquareApiClient>.value(value: widget.squareApiClient),
         Provider<AppPushService>.value(value: widget.appPushService),
+        Provider<TopupUpdates>.value(value: _topupUpdates),
         Provider<WalletTransactionHistoryService>.value(
           value: widget.transactionHistory,
         ),
@@ -777,6 +858,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     } on Object {
       return;
     }
+    // 充值结果独立于广场CID认证，先验真并更新原行，不导航至广场。
+    if (payload['kind'] == 'topup_result') return;
     await Notifications.instance.receive(data);
     if (!mounted) return;
     if (payload['post_id'] is String &&
@@ -806,6 +889,14 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   }
 
   Future<void> _registerCitizenServePush(AppPushToken endpoint) async {
+    context.read<TopupUpdates?>()?.notify = {
+      'push_provider': endpoint.provider,
+      'push_token': endpoint.token,
+      'apns_env': endpoint.apnsEnvironment,
+      'expires_at': DateTime.now()
+          .add(const Duration(days: 7))
+          .millisecondsSinceEpoch,
+    };
     try {
       final sessionProvider = context.read<SquareSessionProvider>();
       final client = context.read<SquareApiClient>();

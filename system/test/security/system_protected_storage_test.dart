@@ -41,8 +41,9 @@ void main() {
       entered.complete();
       return reply.future;
     });
-    final writing = SystemProtectedRecordStore('identity.json')
-        .write('record', 'synthetic');
+    final writing = SystemProtectedRecordStore(
+      'identity.json',
+    ).write('record', 'synthetic');
     await entered.future.timeout(const Duration(seconds: 2));
     var scheduled = false;
     await Future<void>(() => scheduled = true);
@@ -136,12 +137,6 @@ void main() {
       throwsArgumentError,
     );
     expect(calls, 0);
-  });
-  test('topup准确主记录名可用，但任意路径和辅助文件不能充当主记录',() async {
-    var calls=0;messenger.setMockMethodCallHandler(SystemProtectedStorage.channel,(_) async {calls++;throw PlatformException(code:'fixture');});
-    await expectLater(SystemProtectedRecordStore('topup.json').read('order'),throwsA(isA<PlatformException>()));expect(calls,1);
-    for(final name in ['../topup.json','topup.json.part','topup.json.lock']){await expectLater(SystemProtectedRecordStore(name).read('order'),throwsArgumentError);}
-    expect(calls,1);
   });
   test('原生保护失败向上抛出，不能获得可用目录', () async {
     messenger.setMockMethodCallHandler(

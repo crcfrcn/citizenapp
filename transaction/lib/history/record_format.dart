@@ -103,7 +103,7 @@ String formatFen(String fen, {String symbol = '元'}) {
 
 // ─── 交易记录列表项 ──────────────────────────────────────────
 
-/// 订单状态来自同一行；报价期限只影响未提交付款的展示，不隐藏订单。
+/// 已支付是付款链验证结果，不等同于公民币已到账。
 String recordStatusLabel(Entry row) {
   if (row.entryKind != 'topup') return statusLabel(row.entryState);
   final TopupRecord record;
@@ -112,31 +112,20 @@ String recordStatusLabel(Entry row) {
   } on Object {
     return '记录损坏';
   }
-  if (!record.terminal &&
-      record.progress.index < TopupProgress.submitting.index &&
-      DateTime.now().millisecondsSinceEpoch >= record.intent.expiresAt) {
-    return '报价已过期';
-  }
-  return switch (row.entryState) {
-    'quoted' || 'awaiting' => '待付款',
-    'authorized' => '已授权，待付款',
-    'submitting' => '付款回执待核实',
-    'submitted' || 'confirmed' || 'verifying' => '付款待确认',
-    'received' => '稳定币已收款',
-    'signed' || 'broadcast' => '公民币到账中',
-    'paid' => '已到账',
-    'exception' => '待核查',
-    _ => '状态未知',
+  return switch (record.progress) {
+    TopupProgress.pending => '待支付',
+    TopupProgress.paid => '已支付',
+    TopupProgress.completed => '已完成',
   };
 }
 
 String topupPaymentLabel(TopupRecord record) {
-  final decimals = record.intent.network == TopupNetwork.bnb ? 18 : 6;
-  final amount = BigInt.parse(record.intent.intentData['pay_amount'] as String);
+  final decimals = record.payment.network == TopupNetwork.bnb ? 18 : 6;
+  final amount = BigInt.parse(record.payment.payAmount);
   final unit = BigInt.from(10).pow(decimals);
   final fraction = (amount % unit)
       .toString()
       .padLeft(decimals, '0')
       .replaceFirst(RegExp(r'0+$'), '');
-  return '${amount ~/ unit}${fraction.isEmpty ? '' : '.$fraction'} ${record.intent.intentData['token']}';
+  return '${amount ~/ unit}${fraction.isEmpty ? '' : '.$fraction'} ${record.payment.token}';
 }

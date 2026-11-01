@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -6,7 +5,6 @@ import 'package:citizen_system/theme/app_theme.dart';
 
 import 'package:citizen_transaction/topup/topup_api.dart';
 import 'package:citizen_transaction/topup/topup_models.dart';
-import 'package:citizen_transaction/topup/topup_result_page.dart';
 import 'package:citizen_transaction/topup/topup_webview_page.dart';
 import 'package:citizen_transaction/topup/store.dart';
 
@@ -19,7 +17,7 @@ Future<bool?> showTopup(
   String? token,
   TopupApi? api,
   TopupStore? store,
-  Future<TopupRecord?> Function(TopupSelection, TopupRecord?)? paymentOpener,
+  Future<TopupRecord?> Function(TopupSelection)? paymentOpener,
 }) {
   if (token != null && !const ['USDT', 'USDC'].contains(token)) {
     throw ArgumentError.value(token, 'token', '不支持的充值币种');
@@ -43,7 +41,7 @@ Future<bool?> showTopup(
   );
 }
 
-/// 同一弹窗持有API及恢复状态，付款/结果返回后不会丢失本轮订单或多退账户页。
+/// 套餐仅用本地可信配置，不因服务端不可用而请求报价或预建单。
 class TopupSheet extends StatefulWidget {
   const TopupSheet({
     super.key,
@@ -57,104 +55,27 @@ class TopupSheet extends StatefulWidget {
   final String? token;
   final TopupApi? api;
   final TopupStore? store;
-  final Future<TopupRecord?> Function(TopupSelection, TopupRecord?)?
-  paymentOpener;
+  final Future<TopupRecord?> Function(TopupSelection)? paymentOpener;
   @override
   State<TopupSheet> createState() => _TopupSheetState();
 }
 
 class _TopupSheetState extends State<TopupSheet> {
   late final TopupApi _api = widget.api ?? TopupApi();
-  late Future<TopupConfig> _configFuture;
-  late final TopupStore _store = widget.store ?? TopupStore();
+  late final TopupStore _store = widget.store ?? TopupStore.shared;
   late String? _token = widget.token;
-  List<TopupRecord> _records = [];
-  bool _recordsLoaded = false, _paymentOpen = false;
-  String? _recoveryError;
-  StreamSubscription<TopupChange>? _recordChanges;
-  final Set<String> _removed = {};
-
-  @override
-  void initState() {
-    super.initState();
-    _configFuture = _api.fetchConfig();
-    _recordChanges = TopupStore.changes.listen((change) {
-      if (!mounted ||
-          change.accountId != widget.accountId ||
-          change.origin != topupOrigin(_api.baseUrl))
-        return;
-      final row = change.record;
-      final key = '${change.origin}|${change.orderId}';
-      if (row == null) _removed.add(key);
-      setState(() {
-        _records = _records.where((record) => record.key != key).toList();
-        if (row != null) _records.add(TopupStore.fromEntry(row));
-        _records.sort(
-          (a, b) => (b.intent.intentData['issued_at'] as int).compareTo(
-            a.intent.intentData['issued_at'] as int,
-          ),
-        );
-      });
-    });
-    _loadRecords(restore: true);
-  }
-
-  Future<void> _loadRecords({bool restore = false}) async {
-    final account = widget.accountId;
-    try {
-      final records = await _store.list(topupOrigin(_api.baseUrl), account);
-      if (!mounted || account != widget.accountId) return;
-      setState(() {
-        _records = records;
-        _recordsLoaded = true;
-        _recoveryError = null;
-      });
-      if (restore) {
-        try {
-          final config = await _configFuture;
-          if (!mounted || account != widget.accountId) return;
-          final pending = records.where(
-            (r) =>
-                !r.terminal &&
-                r.progress.index >= TopupProgress.submitting.index,
-          );
-          if (pending.isNotEmpty) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted && account == widget.accountId) {
-                _resume(config, pending.first);
-              }
-            });
-          }
-        } on Object {
-          // 配置失败由同一弹窗展示；已有保护记录不清除，也不开始新付款。
-        }
-      }
-    } on Object {
-      if (mounted && account == widget.accountId) {
-        setState(() => _recoveryError = '订单恢复记录暂不可用，暂不能发起付款');
-      }
-    }
-  }
-
+  bool _paymentOpen = false;
   @override
   void didUpdateWidget(covariant TopupSheet oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.accountId != widget.accountId) {
-      _records = [];
-      _recordsLoaded = false;
-      _loadRecords(restore: true);
-    }
     if (oldWidget.token != widget.token) _token = widget.token;
   }
 
   @override
   void dispose() {
-    unawaited(_recordChanges?.cancel());
     if (widget.api == null) _api.close();
     super.dispose();
   }
-
-  void _reload() => setState(() => _configFuture = _api.fetchConfig());
 
   @override
   Widget build(BuildContext context) => Material(
@@ -163,21 +84,7 @@ class _TopupSheetState extends State<TopupSheet> {
       constraints: BoxConstraints(
         maxHeight: MediaQuery.sizeOf(context).height * .85,
       ),
-      child: FutureBuilder<TopupConfig>(
-        future: _configFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const SizedBox(
-              height: 220,
-              child: Center(child: CircularProgressIndicator()),
-            );
-          }
-          if (snapshot.hasError || snapshot.data == null) {
-            return SizedBox(height: 220, child: _ErrorState(onRetry: _reload));
-          }
-          return _buildLoaded(context, snapshot.data!);
-        },
-      ),
+      child: _buildLoaded(context, TopupConfig.local()),
     ),
   );
 
@@ -190,9 +97,6 @@ class _TopupSheetState extends State<TopupSheet> {
       TopupNetwork.tron,
       TopupNetwork.bnb,
     ];
-    final pending = _records.any(
-      (r) => !r.terminal && r.progress.index >= TopupProgress.submitting.index,
-    );
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       child: Column(
@@ -232,37 +136,6 @@ class _TopupSheetState extends State<TopupSheet> {
             ],
           ),
           const SizedBox(height: 14),
-          if (!_recordsLoaded && _recoveryError == null)
-            const LinearProgressIndicator(),
-          if (_recoveryError != null) ...[
-            Text(
-              _recoveryError!,
-              style: const TextStyle(color: AppTheme.danger),
-            ),
-            TextButton(
-              onPressed: () => _loadRecords(restore: true),
-              child: const Text('重试'),
-            ),
-          ],
-          ..._records
-              .take(10)
-              .map(
-                (r) => ListTile(
-                  title: Text(
-                    r.terminal
-                        ? '充值订单 · ${r.order!.orderState == TopupPhase.paid ? '已到账' : '待核查'}'
-                        : '恢复充值订单',
-                  ),
-                  subtitle: Text(
-                    r.order?.message ??
-                        (r.progress.index >= TopupProgress.submitting.index
-                            ? '付款回执待核实，请勿重复付款'
-                            : '付款尚未提交'),
-                  ),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: _paymentOpen ? null : () => _resume(config, r),
-                ),
-              ),
           if (token == null)
             ...config.tokens.map(
               (value) => Padding(
@@ -283,12 +156,7 @@ class _TopupSheetState extends State<TopupSheet> {
                   networks: order
                       .where((n) => allowedPair(token, n))
                       .toList(growable: false),
-                  enabled:
-                      config.ready &&
-                      _recordsLoaded &&
-                      _recoveryError == null &&
-                      !_paymentOpen &&
-                      !pending,
+                  enabled: config.ready && !_paymentOpen,
                   showBetterRate: package == config.packages.last,
                   onNetwork: (network) => _choose(
                     config,
@@ -307,7 +175,7 @@ class _TopupSheetState extends State<TopupSheet> {
                 style: TextStyle(color: AppTheme.textTertiary),
               ),
             const Text(
-              '选择网络后，将打开兼容钱包确认付款',
+              '选择付款钱包后，先签充值信息，再确认付款',
               textAlign: TextAlign.center,
               style: TextStyle(color: AppTheme.textTertiary),
             ),
@@ -323,117 +191,32 @@ class _TopupSheetState extends State<TopupSheet> {
   }
 
   Future<void> _choose(TopupConfig config, TopupSelection selection) async {
-    if (_paymentOpen ||
-        !_recordsLoaded ||
-        _recoveryError != null ||
-        !config.ready) {
-      return;
-    }
-    final pending = _records.where(
-      (r) => !r.terminal && r.progress.index >= TopupProgress.submitting.index,
-    );
-    if (pending.isNotEmpty) {
-      await _resume(config, pending.first);
-      return;
-    }
-    setState(() => _paymentOpen = true);
-    try {
-      await _startPayment(config, selection);
-    } finally {
-      if (mounted) setState(() => _paymentOpen = false);
-    }
-  }
-
-  Future<void> _startPayment(
-    TopupConfig config,
-    TopupSelection selection, {
-    TopupRecord? resume,
-  }) async {
-    final account = widget.accountId;
-    final record = widget.paymentOpener != null
-        ? await widget.paymentOpener!(selection, resume)
-        : await showTopupSheet(
-            context,
-            child: TopupWebviewPage(
-              selection: selection,
-              accountId: account,
-              api: _api,
-              store: _store,
-              resume: resume,
-            ),
-          );
-    if (!mounted || account != widget.accountId) return;
-    if (record != null &&
-        !_removed.contains(record.key) &&
-        record.progress.index >= TopupProgress.submitting.index) {
-      await _showResult(config, record, selection.package);
-    }
-  }
-
-  Future<void> _resume(TopupConfig config, TopupRecord record) async {
     if (_paymentOpen) return;
     setState(() => _paymentOpen = true);
+    final account = widget.accountId;
     try {
-      if (record.origin != topupOrigin(_api.baseUrl) ||
-          record.intent.accountId != widget.accountId) {
-        return;
-      }
-      final selection = TopupSelection.fromIntent(record.intent, config);
-      if (record.progress.index < TopupProgress.submitting.index &&
-          DateTime.now().millisecondsSinceEpoch < record.intent.expiresAt) {
-        if (!config.ready) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('充值暂未开放，未继续付款')));
-          return;
-        }
-        await _startPayment(config, selection, resume: record);
+      TopupRecord? outcome;
+      if (widget.paymentOpener != null) {
+        outcome = await widget.paymentOpener!(selection);
       } else {
-        await _showResult(config, record, selection.package);
-      }
-    } on Object {
-      if (mounted) {
-        ScaffoldMessenger.of(
+        outcome = await showTopupSheet(
           context,
-        ).showSnackBar(const SnackBar(content: Text('原订单暂不可恢复，请稍后重试')));
+          child: TopupWebviewPage(
+            selection: selection,
+            accountId: account,
+            api: _api,
+            store: _store,
+          ),
+        );
+      }
+      // 钱包付款结果均返回原账户详情；公民币到账由后续结果通知推进。
+      if (mounted &&
+          widget.accountId == account &&
+          Navigator.of(context).canPop()) {
+        Navigator.of(context).pop(outcome?.progress == TopupProgress.completed);
       }
     } finally {
       if (mounted) setState(() => _paymentOpen = false);
-    }
-  }
-
-  Future<void> _showResult(
-    TopupConfig config,
-    TopupRecord record,
-    TopupPackage package,
-  ) async {
-    final paid = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => TopupResultPage(
-          api: _api,
-          store: _store,
-          record: record,
-          package: package,
-          onReplay: (original) => showTopupSheet(
-            context,
-            child: TopupWebviewPage(
-              selection: TopupSelection.fromIntent(original.intent, config),
-              accountId: widget.accountId,
-              api: _api,
-              store: _store,
-              resume: original,
-              replay: true,
-            ),
-          ),
-        ),
-      ),
-    );
-    if (!mounted) return;
-    // 当前route是套餐弹窗；只关闭它并把到账结果交回账户详情，不再弹出账户页。
-    if (paid == true) {
-      Navigator.of(context).pop(true);
-    } else {
-      await _loadRecords();
     }
   }
 }
@@ -655,27 +438,4 @@ class _PackageOption extends StatelessWidget {
       ],
     ),
   );
-}
-
-class _ErrorState extends StatelessWidget {
-  const _ErrorState({required this.onRetry});
-
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Text(
-            '加载充值渠道失败',
-            style: TextStyle(color: AppTheme.textSecondary),
-          ),
-          SizedBox(height: AppLayout.scaled(context, 12)),
-          OutlinedButton(onPressed: onRetry, child: const Text('重试')),
-        ],
-      ),
-    );
-  }
 }

@@ -72,7 +72,6 @@ class LocalTxStore {
     int offset = 0,
   }) async {
     final normalizedAccountId = requireAccountId(accountId);
-    await TopupStore.shared.prepare();
     return UserIsar.instance.read((isar) async {
       return isar
           .collection<wallet_store.Entry>()
@@ -312,8 +311,9 @@ class LocalTxStore {
       if (orders.length > 1) throw StateError('到账交易匹配多个充值订单');
       final order = orders.singleOrNull;
       if (order != null) {
-        if (!TopupStore.matchesPayment(order, incoming))
+        if (!TopupStore.matchesPayment(order, incoming)) {
           throw StateError('充值到账事件与订单不一致');
+        }
         if (order.blockHash != incoming.blockHash ||
             order.eventIndex != incoming.eventIndex) {
           TopupStore.attachPayment(order, incoming);

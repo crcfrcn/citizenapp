@@ -71,7 +71,7 @@ final class SystemProtectedDataChannel {
     }
     try protect(target)
     for file in try manager.contentsOfDirectory(at: target, includingPropertiesForKeys: [.isSymbolicLinkKey]) {
-      guard ["topup.json", "topup.json.lock", "topup.json.part", "identity.json", "lock.json", "registration.json", "identity.json.lock", "lock.json.lock",
+      guard ["identity.json", "lock.json", "registration.json", "identity.json.lock", "lock.json.lock",
              "identity.json.part", "lock.json.part", "registration.json.lock", "registration.json.part"].contains(file.lastPathComponent) else {
         throw CocoaError(.fileReadInvalidFileName)
       }
@@ -85,7 +85,7 @@ final class SystemProtectedDataChannel {
   }
   /// 原生文件描述符锁覆盖完整比较与提交；Dart进程级锁不能隔离同进程的多个isolate。
   static func compareRecordFile(root: URL, name: String, expected: String?, next: String) throws -> Bool {
-    guard ["identity.json", "lock.json", "registration.json", "topup.json"].contains(name), next.utf8.count <= 262144,
+    guard ["identity.json", "lock.json", "registration.json"].contains(name), next.utf8.count <= 262144,
           let bytes = next.data(using: .utf8),
           let values = try JSONSerialization.jsonObject(with: bytes) as? [String: String] else {
       throw CocoaError(.fileReadInvalidFileName)

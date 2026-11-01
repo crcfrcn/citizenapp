@@ -36,7 +36,6 @@ final class SystemProtectedRecordStore {
   static final identity = SystemProtectedRecordStore('identity.json');
   static final lock = SystemProtectedRecordStore('lock.json');
   static final registration = SystemProtectedRecordStore('registration.json');
-  static final topup = SystemProtectedRecordStore('topup.json');
   final String name;
   final Future<String> Function()? _directory;
   static final Map<String, Future<void>> _tails = {};
@@ -49,8 +48,7 @@ final class SystemProtectedRecordStore {
   Future<String> _path() async {
     if (name != 'identity.json' &&
         name != 'lock.json' &&
-        name != 'registration.json' &&
-        name != 'topup.json') {
+        name != 'registration.json') {
       throw ArgumentError('记录名称无效');
     }
     if (_directory != null &&
@@ -176,21 +174,6 @@ final class SystemProtectedRecordStore {
     } else {
       values[key] = next;
     }
-    return _commit(values, file, generation, expectedRecord);
-  });
-
-  /// 一次性业务存储切换：只消费完整相同快照，旧写者变化时保留原件。
-  Future<bool> consumeSnapshot(Map<String, String> expected) => _transaction((
-    values,
-    file,
-    generation,
-    expectedRecord,
-  ) async {
-    if (values.length != expected.length ||
-        !expected.entries.every((entry) => values[entry.key] == entry.value)) {
-      return false;
-    }
-    values.clear();
     return _commit(values, file, generation, expectedRecord);
   });
 

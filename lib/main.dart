@@ -1,3 +1,4 @@
+import 'package:citizen_transaction/topup/topup_api.dart';
 import 'navigation.dart';
 import 'package:citizen_wallet/navigation.dart';
 import 'package:citizen_citizen/navigation.dart';
@@ -116,11 +117,8 @@ Future<void> main() async {
   );
   final registrar = MlsDeviceRegistrar(
     authentication: authentication,
-    registrationCapabilities: (identity) async =>
-        registrationCoordinator.store.forDevice(
-          identity,
-          chainScope: await citizenSdk.getGenesisHash(),
-        ),
+    registrationCapabilities: (identity) async => registrationCoordinator.store
+        .forDevice(identity, chainScope: await citizenSdk.getGenesisHash()),
   );
   final accountSecurity = AccountSecurityService(
     wallet: citizenSdk,

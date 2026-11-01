@@ -98,7 +98,7 @@ String? _httpStage(Uri uri) {
     '/user/sessions' => 'session',
     '/user/devices' => 'registration',
     '/user/contacts' => 'contacts',
-    '/topup/config' => 'topup_config',
+    '/topup/confirm' => 'topup_confirm',
     '/topup/status' => 'topup_status',
     _ when path.startsWith('/user/registration') => 'registration',
     _ when path.startsWith('/membergate/creator') => 'creator',

@@ -68,7 +68,7 @@ class LocalTxRecordTile extends StatelessWidget {
     }
     final label = topup == null
         ? businessTypeLabel(record.entryKind)
-        : '充值 · ${topup.intent.intentData['token']}';
+        : '充值 · ${topup.payment.token}';
     final counterpartyPrefix = _isExpense ? '去向' : '来自';
     final counterparty = shortAddress(record.peerAddress);
     final timeStr = formatMillis(record.confirmedAt ?? record.createdAt);
@@ -119,7 +119,7 @@ class LocalTxRecordTile extends StatelessWidget {
             ? '本地订单明细不可用\n$timeStr'
             : topup == null
             ? '$counterpartyPrefix：$counterparty\n$timeStr'
-            : '${topup.intent.network.label}\n$timeStr',
+            : '${topup.payment.network.label}\n$timeStr',
         style: TextStyle(fontSize: AppLayout.scaled(context, 12), height: 1.5),
       ),
       isThreeLine: true,

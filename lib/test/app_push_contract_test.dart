@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:convert';
+import 'package:citizen_system/notifications/app_push_service.dart';
 
 import 'package:citizen_chat/chat_product_configuration.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,13 +8,74 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:citizen_testing/platform_input.dart';
 
 void main() {
+  test('充值通知在CID通知前独立处理，前台恢复仅调用订单模块', () {
+    final source = File('lib/app.dart').readAsStringSync();
+    final shell = source.indexOf('class AppShell');
+    expect(source.indexOf('final _topupUpdates'), lessThan(shell));
+    expect(source, contains('widget.appPushService.foregroundMessages'));
+    expect(source, contains('widget.appPushService.openedMessages'));
+    expect(source, contains('initialMessage(consume: false)'));
+    expect(source, contains('_topupUpdates.resume()'));
+    expect(source, contains('_topupUpdates.close()'));
+    expect(
+      source.indexOf("if (payload['kind'] == 'topup_result') return;"),
+      lessThan(source.indexOf('await Notifications.instance.receive(data);')),
+    );
+    final topup = File(
+      'transaction/lib/topup/topup_api.dart',
+    ).readAsStringSync();
+    final recovery = topup.substring(
+      topup.indexOf('Future<TopupReceipt> recover('),
+      topup.indexOf('Future<TopupReceipt> _sendReceipt('),
+    );
+    expect(recovery, isNot(contains('Timer(')));
+    expect(recovery, isNot(contains('verifyPayment(')));
+    expect(recovery, isNot(contains('requestIssuance(')));
+    expect(topup, isNot(contains('getGenesisHash().result')));
+  });
+  test('初始推送查看不消耗导航事件且并发仅消费一次', () async {
+    var calls = 0;
+    final value = <String, dynamic>{
+      'kind': 'square_post',
+      'post_id': 'synthetic',
+    };
+    final push = AppPushService(
+      initialMessageLoader: () async {
+        calls++;
+        return value;
+      },
+    );
+    expect(await push.initialMessage(consume: false), value);
+    final results = await Future.wait([
+      push.initialMessage(),
+      push.initialMessage(),
+    ]);
+    expect(results.where((r) => r != null).length, 1);
+    expect(calls, 1);
+    expect(await push.initialMessage(), isNull);
+    expect(await push.initialMessage(consume: false), value);
+  });
+  test('初始推送失败不粘住缓存或消耗导航事件', () async {
+    var calls = 0;
+    final push = AppPushService(
+      initialMessageLoader: () async {
+        calls++;
+        if (calls == 1) throw StateError('synthetic');
+        return {'kind': 'topup_result'};
+      },
+    );
+    await expectLater(push.initialMessage(consume: false), throwsStateError);
+    expect(await push.initialMessage(), {'kind': 'topup_result'});
+    expect(calls, 2);
+    expect(await push.initialMessage(), isNull);
+  });
   test('新应用标识使用各自登记的唯一 Firebase App ID', () {
-    final source = File('system/lib/notifications/app_push_service.dart')
-        .readAsStringSync();
-    final appIds = RegExp(r"'(1:124593150477:(?:android|ios):[0-9a-f]+)'")
-        .allMatches(source)
-        .map((match) => match.group(1)!)
-        .toSet();
+    final source = File(
+      'system/lib/notifications/app_push_service.dart',
+    ).readAsStringSync();
+    final appIds = RegExp(
+      r"'(1:124593150477:(?:android|ios):[0-9a-f]+)'",
+    ).allMatches(source).map((match) => match.group(1)!).toSet();
 
     expect(
       source,
@@ -27,12 +89,12 @@ void main() {
   });
 
   test('Firebase 客户端 Key 按平台隔离且禁止共享回退', () {
-    final source = File('system/lib/notifications/app_push_service.dart')
-        .readAsStringSync();
-    final keys = RegExp(r"const _firebase(?:Android|Ios)ApiKey = '(AIza[^']+)'")
-        .allMatches(source)
-        .map((match) => match.group(1)!)
-        .toList();
+    final source = File(
+      'system/lib/notifications/app_push_service.dart',
+    ).readAsStringSync();
+    final keys = RegExp(
+      r"const _firebase(?:Android|Ios)ApiKey = '(AIza[^']+)'",
+    ).allMatches(source).map((match) => match.group(1)!).toList();
 
     expect(keys, hasLength(2));
     expect(keys.toSet(), hasLength(2));
@@ -80,8 +142,9 @@ void main() {
 
   test('CitizenApp 双端只展示并清理固定聊天通知', () {
     final android = File('android/app/MainActivity.kt').readAsStringSync();
-    final appPush = File('system/lib/notifications/app_push_service.dart')
-        .readAsStringSync();
+    final appPush = File(
+      'system/lib/notifications/app_push_service.dart',
+    ).readAsStringSync();
 
     expect(android, contains('CHAT_NOTIFICATION_CHANNEL_ID = "chat_messages"'));
     expect(android, contains('.setContentText("你有一条新消息")'));
@@ -94,8 +157,9 @@ void main() {
   });
 
   test('聊天桥不拥有Firebase配置或非聊天通知', () {
-    final source = File('chat/lib/chat_product_configuration.dart')
-        .readAsStringSync();
+    final source = File(
+      'chat/lib/chat_product_configuration.dart',
+    ).readAsStringSync();
     expect(source, isNot(contains('FirebaseOptions')));
     expect(source, isNot(contains('_firebaseAndroidApiKey')));
     expect(source, isNot(contains('square_post')));
@@ -103,8 +167,9 @@ void main() {
   });
 
   test('普通应用推送由CitizenServe会话登记且不使用聊天数据面', () {
-    final client = File('account/lib/square_api_client.dart')
-        .readAsStringSync();
+    final client = File(
+      'account/lib/square_api_client.dart',
+    ).readAsStringSync();
     final main = File('lib/app.dart').readAsStringSync();
     expect(client, contains("_putJson('/notifications/endpoint'"));
     expect(main, contains('registerPushEndpoint'));
@@ -138,8 +203,9 @@ void main() {
   });
 
   test('双端系统备份都排除设备侧聊天内容', () {
-    final androidManifest = File('android/app/AndroidManifest.xml')
-        .readAsStringSync();
+    final androidManifest = File(
+      'android/app/AndroidManifest.xml',
+    ).readAsStringSync();
     // 按当前锁定依赖定位SDK所有者实现，不读取邻仓或在App复制原生逻辑。
     final packageConfig = File('.dart_tool/package_config.json');
     final packages =
@@ -151,8 +217,9 @@ void main() {
         .where((value) => value['name'] == 'tatachat_sdk')
         .single;
     final sdkRoot = Uri.directory(
-      File.fromUri(packageConfig.absolute.uri.resolve(sdk['rootUri'] as String))
-          .path,
+      File.fromUri(
+        packageConfig.absolute.uri.resolve(sdk['rootUri'] as String),
+      ).path,
     );
     final iosPlugin = File.fromUri(
       sdkRoot.resolve('ios/TataChatSdkPlugin.swift'),

@@ -4,8 +4,11 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:citizen_sdk/citizen_sdk.dart'
+    show CitizenSdk, CitizenSigningTransform;
+import 'package:citizen_scanner/qr_sign_session_page.dart'
+    show signCitizenPayload;
 import 'package:provider/provider.dart';
-import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:citizen_system/theme/app_theme.dart';
@@ -20,7 +23,7 @@ import 'package:citizen_transaction/topup/solana.dart';
 import 'package:citizen_transaction/topup/store.dart';
 import 'package:citizen_transaction/topup/wallet_link_dispatcher.dart';
 
-/// 新付款与原单恢复共用这一底部弹窗，不再压入独立的“连接钱包支付”整页。
+/// 本次新付款使用这一底部弹窗，不再压入独立的“连接钱包支付”整页。
 Future<TopupRecord?> showTopupSheet(
   BuildContext context, {
   required Widget child,
@@ -53,10 +56,9 @@ String topupFailure(Object? stage, Object? code) {
   return switch (stage) {
     'connection' => '钱包连接未完成，可关闭后重新选择',
     'account' => '钱包账户或所选网络未通过核验，未发起付款',
-    'intent' => '充值订单准备未完成，未发起付款',
-    'authorization' => '付款授权未完成，未发起转账',
+    'create_order' => '本地充值订单保存失败，未发起付款',
     'transaction' => '付款交易准备未完成，请返回核实原订单',
-    'submitting' || 'submitted' => '付款回执待核实，请返回恢复原订单，勿重复付款',
+    'submitting' || 'submitted' => '付款回执待核实，请保留原订单，勿重复付款',
     _ => '充值流程已停止，请返回核实原订单',
   };
 }
@@ -127,15 +129,11 @@ class TopupWebviewPage extends StatefulWidget {
     required this.accountId,
     required this.api,
     required this.store,
-    this.resume,
-    this.replay = false,
   });
   final TopupSelection selection;
   final String accountId;
   final TopupApi api;
   final TopupStore store;
-  final TopupRecord? resume;
-  final bool replay;
   static const projectId = '8830074307d80484b839db4eb10b1f2c';
   @override
   State<TopupWebviewPage> createState() => _TopupWebviewPageState();
@@ -151,22 +149,30 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
   TopupDocument? _document;
   String? _error;
   bool _handling = false, _opening = false, _stopped = false;
+  bool _solanaPrepared = false, _solanaBroadcast = false;
   late final String _accountId = widget.accountId;
   bool get _active => mounted && !_stopped && widget.accountId == _accountId;
   int _last = 0;
   int _lastObservation = 0;
   TopupRecord? _record;
+  Future<void> _messages = Future<void>.value();
   StreamSubscription<TopupChange>? _recordChanges;
   @override
   void initState() {
     super.initState();
-    _record = widget.resume;
     _recordChanges = TopupStore.changes.listen((change) {
       final current = _record;
+      if (current != null &&
+          change.record != null &&
+          change.accountId == _accountId &&
+          change.orderId == current.payment.orderId &&
+          change.origin == current.origin) {
+        _record = TopupStore.fromEntry(change.record!);
+      }
       if (change.record == null &&
           current != null &&
           change.accountId == _accountId &&
-          change.orderId == current.intent.orderId &&
+          change.orderId == current.payment.orderId &&
           change.origin == current.origin) {
         // 删除提交后结束原文档；在途响应只能更新原行，不能重新插入。
         _stopped = true;
@@ -191,6 +197,7 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
 
   @override
   void dispose() {
+    final leftWithoutResult = !_stopped;
     _stopped = true;
     unawaited(_recordChanges?.cancel());
     final document = _document;
@@ -199,6 +206,24 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
       unawaited(
         _controller
             .runJavaScript('if (${document.check}) CitizenTopup.cancel()')
+            .catchError((Object _) {}),
+      );
+    }
+    final record = _record;
+    if (leftWithoutResult &&
+        record != null &&
+        !record.terminal &&
+        record.wire == null) {
+      final progress = record.progress;
+      unawaited(
+        widget.store
+            .save(
+              record.update(
+                progress: progress,
+                failureCode: 'wallet_view_closed',
+              ),
+              before: record,
+            )
             .catchError((Object _) {}),
       );
     }
@@ -212,7 +237,14 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
       await _controller.setJavaScriptMode(JavaScriptMode.unrestricted);
       await _controller.addJavaScriptChannel(
         'TopupBridge',
-        onMessageReceived: _message,
+        onMessageReceived: (message) {
+          // JS收到回执后可能在平台回执返回前发下一条；排队不能静默丢掉合法请求。
+          _messages = _messages.then((_) => _message(message)).catchError((
+            Object _,
+          ) {
+            AppLog.d('topup_bridge_stopped');
+          });
+        },
       );
       await _controller.setNavigationDelegate(
         NavigationDelegate(
@@ -295,53 +327,18 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
       if (_active) setState(() => _error = '连接页面初始化失败，可关闭后重新选择');
       return;
     }
-    if (widget.replay) {
-      try {
-        final record = _record;
-        if (record == null ||
-            record.origin != topupOrigin(widget.api.baseUrl) ||
-            record.wire == null ||
-            record.txid == null ||
-            record.signature == null ||
-            record.terminal) {
-          throw const FormatException('原交易不能继续广播');
-        }
-        await widget.api.authorizeReplay(
-          intent: record.intent,
-          txid: record.txid!,
-          selection: widget.selection,
-          accountId: _accountId,
-          isActive: () => _active,
-        );
-      } on Object catch (error) {
-        if (mounted) {
-          setState(
-            () => _error = error is TopupApiException
-                ? error.message
-                : '原交易不能继续广播，请返回查询原订单',
-          );
-        }
-        return;
-      }
-    }
     if (!_active) return;
     final cfg = {
       'session': _session,
       'projectId': TopupWebviewPage.projectId,
       'selection': widget.selection.toJson(),
       'rpc': TopupRpcConfig.endpoint(widget.selection.network),
-      if (widget.replay)
-        'replay': {
-          'context': {
-            'network': _record!.intent.network.wire,
-            'chain': _record!.intent.network.caip2,
-            'payer': _record!.intent.payer,
-          },
-          'txid': _record!.txid,
-          'wire': _record!.wire,
-          'expiresAt': _record!.intent.expiresAt,
-          'rpc': TopupRpcConfig.endpoint(_record!.intent.network),
-        },
+      'available_wallets': [
+        for (final id in TopupWallets.ids)
+          if (TopupWallets.paymentReady(id, widget.selection.network)) id,
+      ],
+      'summary':
+          '${widget.selection.package.payDisplay} ${widget.selection.token} → ${widget.selection.package.coinDisplay} 公民币',
     };
     // 在同一JS执行中再核对本次文档，避免异步原生检查后导航提交的竞态。
     await _controller.runJavaScript(
@@ -359,7 +356,20 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
 
   Future<void> _save(TopupRecord next) async {
     await widget.store.save(next, before: _record);
-    if (!_active) throw const TopupDeletedException();
+    if (!_active) {
+      if (!next.terminal) {
+        final progress = next.progress;
+        try {
+          await widget.store.save(
+            next.update(progress: progress, failureCode: 'wallet_view_closed'),
+            before: next,
+          );
+        } on Object {
+          /* 原行已更新/删除时不覆盖或重新插入。 */
+        }
+      }
+      throw const TopupDeletedException();
+    }
     _record = next;
   }
 
@@ -403,6 +413,10 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
     if (id <= _last) return;
     if (data['kind'] == 'external_wallet') {
       _last = id;
+      if (_record == null || _record!.progress != TopupProgress.pending) {
+        await _reply(id, error: '充值订单尚未签名保存，不能打开付款钱包');
+        return;
+      }
       AppLog.topupWallet('requested');
       if (_opening) {
         AppLog.topupWallet('busy');
@@ -430,251 +444,264 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
       return;
     }
     if (data['kind'] == 'error') {
-      _last = id;
-      _stopped = true;
       AppLog.topupFailure(data['stage'], data['code']);
-      setState(
-        () => _error ??=
-            _record != null &&
-                _record!.progress.index >= TopupProgress.submitting.index
-            ? '付款回执待核实，请返回恢复原订单，勿重复付款'
-            : topupFailure(data['stage'], data['code']),
-      );
+      final before = _record;
+      if (before != null && !before.terminal) {
+        final code = data['code'];
+        final progress = before.progress;
+        try {
+          await _save(
+            before.update(
+              progress: progress,
+              failureCode: before.isPaid
+                  ? 'issuance_request_unresolved'
+                  : code == 'user_rejected' || code == 'user_closed'
+                  ? 'payment_cancelled'
+                  : 'payment_unverified',
+            ),
+          );
+        } on Object {
+          /* 删除或离页不能复活原单。 */
+        }
+      }
+      _finish();
       return;
     }
     if (_handling) return;
     _handling = true;
     _last = id;
     try {
-      final contextValue = TopupContext.fromJson(data);
-      if (!_active || contextValue.network != widget.selection.network) {
-        throw const FormatException('钱包网络与所选网络不一致');
+      if (data['kind'] == 'create_order') {
+        if (_record != null) throw StateError('一次钱包点击只能创建一个订单');
+        final walletId = data['wallet_id'];
+        if (walletId is! String ||
+            !TopupWallets.paymentReady(walletId, widget.selection.network)) {
+          throw const FormatException('钱包选择无效');
+        }
+        final draft = TopupDraft.create(widget.selection, _accountId);
+        final created = await widget.store.signOrder(
+          draft,
+          walletId,
+          (payload) => signCitizenPayload(
+            signing: context.read<CitizenSdk>(),
+            context: context,
+            accountId: _accountId,
+            payload: payload,
+            action: TopupDraft.action,
+            transform: CitizenSigningTransform.raw(),
+          ),
+          active: () => _active,
+        );
+        if (!_active) return;
+        _record = created;
+        await _reply(id, value: {'order_id': created.payment.orderId});
+        return;
       }
-      if (data['kind'] == 'connected') {
-        if (data['token'] != widget.selection.token ||
-            data['package_id'] != widget.selection.package.packageId) {
-          throw const FormatException('付款选择发生变化');
-        }
-        if (_record != null &&
-            (_record!.progress.index >= TopupProgress.submitting.index ||
-                _record!.origin != topupOrigin(widget.api.baseUrl) ||
-                _record!.intent.accountId != _accountId)) {
-          throw const FormatException('请先核实原付款订单');
-        }
-        if (!mounted) return;
-        final genesis = await context.read<CitizenSdk>().getGenesisHash();
-        if (!_active) return;
-        final prepared = await widget.api.preparePayment(
-          selection: widget.selection,
-          accountId: _accountId,
-          payer: contextValue,
-          chainGenesisHash: genesis,
-          original: _record?.intent,
-          isActive: () => _active,
-        );
-        if (!_active) return;
-        final rail = prepared.rail, intent = prepared.intent;
-        if (rail.network == TopupNetwork.tron) {
-          TopupRpcConfig.url(TopupRpcConfig.tron);
-        }
-        if (rail.network == TopupNetwork.solana) {
-          TopupRpcConfig.url(TopupRpcConfig.solana);
-        }
-        if (_record == null) {
-          await _save(
-            TopupRecord(
-              origin: topupOrigin(widget.api.baseUrl),
-              intent: intent,
-            ),
+      final current = _record;
+      if (current != null &&
+          current.isPaid &&
+          data['kind'] == 'submitted' &&
+          data['txid'] == current.txid) {
+        await _reply(id, value: {'submitted': true});
+        _finish();
+        return;
+      }
+      if (current == null || current.terminal) throw StateError('本地订单不存在或已经结束');
+      final payer = TopupContext.fromJson(data);
+      if (payer.network != widget.selection.network ||
+          current.payer != null && payer.payer != current.payer) {
+        throw const FormatException('钱包上下文与订单不一致');
+      }
+      switch (data['kind']) {
+        case 'connected':
+          if (current.progress != TopupProgress.pending ||
+              current.payer != null ||
+              data['token'] != current.payment.token ||
+              data['package_id'] != current.payment.packageId) {
+            throw const FormatException('原订单选择已变化');
+          }
+          await _save(current.update(payer: payer.payer));
+          final rail = TopupConfig.local().rail(
+            current.payment.token,
+            current.payment.network,
           );
-        }
-        final details = rail.network == TopupNetwork.tron
-            ? tronPayment(rail, intent)
-            : rail.network == TopupNetwork.solana
-            ? solanaPayment(rail, intent)
-            : <String, Object>{
-                'asset': rail.asset,
-                'data': encodeErc20Transfer(
-                  rail.recvAddress,
-                  BigInt.parse(widget.selection.package.amount(rail)),
-                ),
-              };
-        await _reply(
-          id,
-          value: {
-            ...details,
-            'selection': widget.selection.toJson(),
-            'context': {
-              'network': contextValue.network.wire,
-              'chain': contextValue.network.caip2,
-              'payer': contextValue.payer,
+          final details = rail.network == TopupNetwork.tron
+              ? tronPayment(rail, current.payment)
+              : rail.network == TopupNetwork.solana
+              ? solanaPayment(rail, current.payment)
+              : <String, Object>{
+                  'asset': rail.asset,
+                  'data': encodeErc20Transfer(
+                    rail.recvAddress,
+                    BigInt.parse(current.payment.payAmount),
+                    current.binding,
+                  ),
+                };
+          await _reply(
+            id,
+            value: {
+              ...details,
+              'memo': current.memo,
+              'binding': current.binding,
+              'selection': widget.selection.toJson(),
+              'context': {
+                'network': payer.network.wire,
+                'chain': payer.network.caip2,
+                'payer': payer.payer,
+              },
             },
-            'message': intent.signMessage,
-            'expiresAt': intent.expiresAt,
-            'signature': _record!.signature,
-          },
-        );
-      } else {
-        final before = _record;
-        if (before == null ||
-            before.intent.payer != contextValue.payer ||
-            before.intent.network != contextValue.network) {
-          throw const FormatException('付款上下文已变化');
-        }
-        switch (data['kind']) {
-          case 'solana_rpc':
-            if (contextValue.network != TopupNetwork.solana ||
-                before.terminal ||
-                before.signature == null ||
-                data.keys.any(
-                  (key) => !const {
-                    'session',
-                    'id',
-                    'kind',
-                    'network',
-                    'chain',
-                    'payer',
-                    'method',
-                    'params',
-                  }.contains(key),
-                ) ||
-                data['method'] is! String ||
-                data['params'] is! List) {
-              throw const FormatException('Solana节点请求不属于当前付款');
-            }
-            final method = data['method'] as String;
-            final params = List<Object?>.from(data['params'] as List);
-            if (method == 'sendTransaction') {
-              if (before.progress.index < TopupProgress.submitting.index ||
-                  before.wire == null ||
-                  before.txid == null ||
+          );
+          break;
+        case 'solana_rpc':
+          if (payer.network != TopupNetwork.solana ||
+              data['method'] is! String ||
+              data['params'] is! List) {
+            throw const FormatException('付款节点请求无效');
+          }
+          final method = data['method'] as String,
+              params = List<Object?>.from(data['params'] as List);
+          if (!const {
+            'getGenesisHash',
+            'getLatestBlockhash',
+            'sendTransaction',
+          }.contains(method)) {
+            throw const FormatException('未允许的付款请求');
+          }
+          if (method == 'sendTransaction' &&
+              (current.progress != TopupProgress.pending ||
+                  current.wire == null ||
+                  current.wire == null ||
                   params.isEmpty ||
-                  params[0] != before.wire) {
-                throw const FormatException('必须先保存原Solana签名交易');
-              }
-              await widget.api.authorizeReplay(
-                intent: before.intent,
-                txid: before.txid!,
-                selection: widget.selection,
-                accountId: _accountId,
-                isActive: () => _active,
-              );
+                  params.first != current.wire)) {
+            throw const FormatException('原签名付款未保存');
+          }
+          if (method == 'getLatestBlockhash') {
+            final options = params.length == 1 ? params.single : null;
+            if (_solanaPrepared ||
+                current.progress != TopupProgress.pending ||
+                current.payer == null ||
+                options is! Map ||
+                options.length != 1 ||
+                options['commitment'] != 'finalized') {
+              throw StateError('只允许一次付款区块构造请求');
             }
-            final result = await widget.api.solanaRpc(
-              intent: before.intent,
-              method: method,
-              params: params,
-              wire: before.wire,
-              txid: before.txid,
-              isActive: () => _active,
-            );
-            if (!_active) return;
-            await _reply(id, value: result);
-            break;
-          case 'replay':
-            if (!widget.replay ||
-                before.terminal ||
-                before.wire == null ||
-                before.txid == null ||
-                before.signature == null ||
-                contextValue.network.evmId != null ||
-                data['wire'] != before.wire ||
-                data['txid'] != before.txid ||
-                DateTime.now().millisecondsSinceEpoch >=
-                    before.intent.expiresAt) {
-              throw const FormatException('原交易不能继续广播');
+            _solanaPrepared = true;
+          } else {
+            final options = params.length == 2 ? params[1] : null;
+            if (_solanaBroadcast ||
+                options is! Map ||
+                options.length != 4 ||
+                options['encoding'] != 'base64' ||
+                options['skipPreflight'] != false ||
+                options['preflightCommitment'] != 'confirmed' ||
+                options['maxRetries'] != 0) {
+              throw StateError('原付款只广播一次');
             }
-            await widget.api.authorizeReplay(
-              intent: before.intent,
-              txid: before.txid!,
-              selection: widget.selection,
-              accountId: _accountId,
-              isActive: () => _active,
-            );
-            await _reply(id);
-            break;
-          case 'authorization':
-            final signature = data['signature'] as String;
-            contextValue.network.signature(signature);
-            await _save(
-              before.update(
-                progress: TopupProgress.authorized,
-                signature: signature,
-              ),
-            );
-            await _reply(id);
-            break;
-          case 'submitting':
-            if (before.signature == null) throw const FormatException('缺少付款授权');
-            final txid = data['txid'] as String?;
-            final wire = data['wire'] as String?;
-            if (contextValue.network.evmId == null &&
-                (txid == null ||
-                    wire == null ||
-                    !contextValue.network.transaction(txid))) {
-              throw const FormatException('缺少原签名交易');
+            _solanaBroadcast = true;
+          }
+          final result = await widget.api.paymentRpc(
+            payer.network,
+            method,
+            params,
+          );
+          if (_active) await _reply(id, value: result);
+          break;
+        case 'submitting':
+          if (current.progress != TopupProgress.pending ||
+              current.payer == null) {
+            throw StateError('原订单不能重复付款');
+          }
+          if (current.wire != null) throw StateError('原订单不能重复付款');
+          String? tx = data['txid'] as String?, wire = data['wire'] as String?;
+          if (payer.network.evmId != null) {
+            final transaction = data['transaction'];
+            if (transaction is! Map ||
+                transaction.length != 5 ||
+                transaction['from'] != payer.payer ||
+                transaction['to'] != current.payment.asset ||
+                transaction['value'] != '0x0' ||
+                transaction['chainId'] !=
+                    '0x${payer.network.evmId!.toRadixString(16)}' ||
+                transaction['data'] !=
+                    encodeErc20Transfer(
+                      current.payment.recvAddress,
+                      BigInt.parse(current.payment.payAmount),
+                      current.binding,
+                    )) {
+              throw const FormatException('付款交易与已签订单不一致');
             }
-            if (DateTime.now().millisecondsSinceEpoch >=
-                before.intent.expiresAt) {
-              throw const FormatException('付款意图已过期');
-            }
-            await _save(
-              before.update(
-                progress: TopupProgress.submitting,
-                txid: txid,
-                wire: wire,
-              ),
-            );
-            if (txid != null) {
-              try {
-                final status = await widget.api.confirm(
-                  intent: before.intent,
-                  paymentTxid: txid,
-                  payerSignature: before.signature!,
-                );
-                await _save(_record!.update(order: status));
-              } on TopupApiException {
-                /* 已有原交易可恢复；网络未知不能促使重签。 */
-              }
-            }
-            await _reply(id);
-            break;
-          case 'submitted':
-            if (before.progress.index < TopupProgress.submitting.index) {
-              throw const FormatException('付款未持久提交');
-            }
-            final txid = data['txid'] as String;
-            if (!before.intent.network.transaction(txid)) {
-              throw const FormatException('付款回执无效');
-            }
-            await _save(
-              before.update(
-                progress: before.progress.index > TopupProgress.submitted.index
-                    ? before.progress
-                    : TopupProgress.submitted,
-                txid: txid,
-              ),
-            );
-            await _reply(id);
-            if (mounted) Navigator.of(context).pop(_record);
-            break;
-          default:
-            throw const FormatException('未知付款桥接阶段');
-        }
+            wire = jsonEncode(transaction);
+          } else if (tx == null ||
+              wire == null ||
+              !payer.network.transaction(tx)) {
+            throw const FormatException('原签名付款无效');
+          }
+          await _save(current.update(txid: tx, wire: wire));
+          await _reply(id);
+          break;
+        case 'submitted':
+          if (current.progress != TopupProgress.pending ||
+              current.wire == null ||
+              data['txid'] is! String) {
+            throw const FormatException('付款回执缺少定位');
+          }
+          final tx = data['txid'] as String;
+          if (!payer.network.transaction(tx) ||
+              current.txid != null && current.txid != tx) {
+            throw const FormatException('付款回执与原交易不一致');
+          }
+          if (!mounted) return;
+          final updates = context.read<TopupUpdates>();
+          final sent = current.update(txid: tx);
+          if (current.txid == null) {
+            await widget.store.save(sent, before: current);
+          }
+          _record = sent;
+          // 广播回执交给App后返回账户；关闭期间的落盘成功也必须交给App验款。
+          updates.verifyPayment(sent);
+          if (_active) await _reply(id, value: {'submitted': true});
+          _finish();
+          break;
+        default:
+          throw const FormatException('未知钱包操作');
       }
     } on TopupDeletedException {
-      _stopped = true;
       _record = null;
-      if (mounted) setState(() => _error = '本地充值订单已删除');
-    } on TopupApiException catch (error) {
-      await _reply(id, error: error.message);
-      if (mounted) setState(() => _error = error.message);
+      _finish();
     } on Object {
-      await _reply(id, error: '付款流程已停止，请返回核实原订单');
-      if (mounted) setState(() => _error = '付款未继续；如已在钱包确认，请恢复原订单，勿重复付款');
+      final before = _record;
+      if (before != null && !before.terminal) {
+        final progress = before.progress;
+        try {
+          await _save(
+            before.update(
+              progress: progress,
+              failureCode: before.isPaid
+                  ? 'issuance_request_unresolved'
+                  : 'client_payment_unverified',
+            ),
+          );
+        } on Object {
+          /* 原记录不覆盖或重建。 */
+        }
+      }
+      await _reply(
+        id,
+        error: before == null
+            ? '充值签名或保存未完成，未创建订单，未启动付款钱包'
+            : '本次操作未完成，请在交易记录核实付款，不会重新支付',
+      );
+      _finish();
     } finally {
       _handling = false;
     }
+  }
+
+  void _finish() {
+    if (!_active) return;
+    final record = _record;
+    _stopped = true;
+    if (mounted) Navigator.of(context).pop(record);
   }
 
   @override
@@ -698,7 +725,7 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
                     const SizedBox(height: 16),
                     OutlinedButton(
                       onPressed: () => Navigator.of(context).pop(_record),
-                      child: const Text('返回原订单'),
+                      child: const Text('返回'),
                     ),
                   ],
                 ),

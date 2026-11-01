@@ -1,6 +1,5 @@
+import 'package:citizen_transaction/topup/topup_result_page.dart';
 import 'package:citizen_transaction/topup/store.dart';
-import 'package:citizen_citizen/account_derivation.dart'
-    show ss58FromAccountIdText;
 import 'record_format.dart';
 import 'record_tile.dart';
 import 'package:citizen_storage/user_isar.dart' as wallet_store show Entry;
@@ -322,99 +321,6 @@ class _LocalTxRecordDetailPageState extends State<LocalTxRecordDetailPage> {
     }
   }
 
-  Widget _buildTopup(BuildContext context) {
-    final TopupRecord order;
-    try {
-      order = TopupStore.fromEntry(record);
-    } on Object {
-      return ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          const Text('本地充值记录损坏，不能继续付款'),
-          if (record.orderId != null)
-            _buildRow(context, label: '订单号', value: record.orderId!),
-        ],
-      );
-    }
-    final intent = order.intent;
-    return ListView(
-      padding: EdgeInsets.all(AppLayout.scaled(context, 16)),
-      children: [
-        Center(
-          child: Text(
-            topupPaymentLabel(order),
-            style: TextStyle(
-              fontSize: AppLayout.scaled(context, 28),
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Center(child: Text(recordStatusLabel(record))),
-        const SizedBox(height: 24),
-        const Divider(height: 1),
-        _buildRow(context, label: '订单号', value: intent.orderId, copyable: true),
-        _buildRow(
-          context,
-          label: '付款币种',
-          value: intent.intentData['token'] as String,
-        ),
-        _buildRow(context, label: '付款网络', value: intent.network.label),
-        _buildRow(context, label: '付款金额', value: topupPaymentLabel(order)),
-        _buildRow(
-          context,
-          label: record.entryState == 'paid' ? '到账公民币' : '预计公民币',
-          value: formatFen(intent.coinFen, symbol: '公民币'),
-        ),
-        _buildRow(
-          context,
-          label: '目标账户',
-          value: ss58FromAccountIdText(intent.accountId),
-          copyable: true,
-        ),
-        _buildRow(context, label: '付款地址', value: intent.payer, copyable: true),
-        _buildRow(
-          context,
-          label: '收款地址',
-          value: intent.intentData['recv_address'] as String,
-          copyable: true,
-        ),
-        _buildRow(context, label: '服务来源', value: order.origin),
-        _buildRow(
-          context,
-          label: '创建时间',
-          value: formatMillisFull(record.createdAt),
-        ),
-        _buildRow(
-          context,
-          label: '报价期限',
-          value: formatMillisFull(intent.expiresAt),
-        ),
-        if (order.txid != null)
-          _buildRow(context, label: '付款交易', value: order.txid!, copyable: true),
-        if (record.txHash != null)
-          _buildRow(
-            context,
-            label: '到账交易',
-            value: record.txHash!,
-            copyable: true,
-          ),
-        if (record.confirmedAt != null)
-          _buildRow(
-            context,
-            label: '到账时间',
-            value: formatMillisFull(record.confirmedAt!),
-          ),
-        if (record.failReason != null)
-          _buildRow(
-            context,
-            label: '异常原因',
-            value: order.order?.message ?? '订单需要核查',
-          ),
-      ],
-    );
-  }
-
   BigInt get _amountDeltaFen => BigInt.parse(record.amountDelta);
   bool get _isExpense => _amountDeltaFen < BigInt.zero;
   bool get _isIncome => _amountDeltaFen > BigInt.zero;
@@ -493,7 +399,7 @@ class _LocalTxRecordDetailPageState extends State<LocalTxRecordDetailPage> {
         ],
       ),
       body: record.entryKind == 'topup'
-          ? _buildTopup(context)
+          ? TopupDetails(record: record, row: _buildRow)
           : ListView(
               padding: EdgeInsets.all(AppLayout.scaled(context, 16)),
               children: [

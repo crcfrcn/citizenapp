@@ -93,12 +93,13 @@ class WalletActionCardState extends State<WalletActionCard> {
     _bindingLoaded = true;
     _clearing = binding == null
         ? null
-        : AccountBalanceSnapshotStore.forChain(context.read<CitizenSdk>())
-              .clearingState(
-                accountId: accountId,
-                accountAddress: widget.accountAddress,
-                wssUrl: binding.wssUrl,
-              );
+        : AccountBalanceSnapshotStore.forChain(
+            context.read<CitizenSdk>(),
+          ).clearingState(
+            accountId: accountId,
+            accountAddress: widget.accountAddress,
+            wssUrl: binding.wssUrl,
+          );
     _clearing?.addListener(_changed);
     setState(() {});
     await _clearing?.load(forceRefresh: forceRefresh);
@@ -157,8 +158,6 @@ class WalletActionCardState extends State<WalletActionCard> {
       if (mounted && widget.accountId == account) {
         if (paid == true) {
           await widget.onTopupPaid?.call();
-        } else {
-          await refresh(forceRefresh: false);
         }
       }
     } finally {

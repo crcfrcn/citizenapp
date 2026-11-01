@@ -12,13 +12,13 @@ const source=readFileSync(join(work,'project/transaction/web/walletconnect.bundl
 const box={Uint8Array,Uint16Array,Uint32Array,ArrayBuffer,DataView,TextEncoder,TextDecoder,URL,URLSearchParams,crypto:webcrypto,Buffer,AbortSignal,setTimeout,clearTimeout,setInterval,clearInterval,atob,btoa,console:{warn(){},error(){},log(){}}};
 box.self=box;vm.createContext(box);vm.runInContext(source,box);const api=box.CitizenTopup;
 const chains={ethereum:'eip155:1',base:'eip155:8453',bnb:'eip155:56',tron:'tron:0x2b6653dc',solana:'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp'};
-function session(network){const chain=chains[network],ns=chain.split(':')[0];return {namespaces:{[ns]:{accounts:[chain+':payer'],methods:ns==='eip155'?['personal_sign','eth_sendTransaction']:ns==='tron'?['tron_signMessage','tron_signTransaction']:['solana_signMessage','solana_signTransaction']}}};}
+function session(network){const chain=chains[network],ns=chain.split(':')[0];return {namespaces:{[ns]:{accounts:[chain+':payer'],methods:ns==='eip155'?['eth_sendTransaction']:ns==='tron'?['tron_signTransaction']:['solana_signTransaction']}}};}
 function scenario(network,token=network==='solana'||network==='base'?'USDC':'USDT',package_id='pkg_10'){
  let sent=0,signatures=0;const stages=[];const c={network,chain:chains[network],payer:'payer'};let current=c;
  const wallet={context:async()=>current,signMessage:async()=>{signatures++;return 'signature';},signTransaction:async()=>({raw:'signed'}),request:async()=>{sent++;return 'tx';}};
  const builder={prepare:async()=>({}),freeze:async()=>network==='tron'||network==='solana'?{txid:'tx',wire:'same-signed-bytes'}:{},broadcast:async()=>{sent++;return 'tx';}};
  const chosen={token,network,package_id};
- const ask=async(kind,value)=>{stages.push(kind);if(kind==='connected')return {context:c,selection:chosen,message:'CitizenServe Topup v1\n',expiresAt:2000};if(kind==='submitting')assert.equal(sent,0);return null;};
+ const ask=async(kind,value)=>{stages.push(kind);if(kind==='connected')return {context:c,selection:chosen};if(kind==='submitting')assert.equal(sent,0);if(kind==='submitted')return {submitted:true};return null;};
  return {wallet,builder,ask,now:()=>1000,selection:chosen,stages,get sent(){return sent;},get signatures(){return signatures;},change(){current={...c,payer:'changed'};}};
 }
 const choose=(token,network,package_id='pkg_10')=>({token,network,package_id});
@@ -97,16 +97,16 @@ test('UniversalProvider公开连接参数只有所选主网与必要方法',()=>
   assert.ok(p.optionalNamespaces[ns].methods.includes(ns==='eip155'?'eth_sendTransaction':ns==='tron'?'tron_signTransaction':'solana_signTransaction'));
  }
 });
-test('三协议同一流程严格按授权、提交前持久化、提交回执顺序',async()=>{
- for(const [n,t] of [['ethereum','USDC'],['ethereum','USDT'],['base','USDC'],['bnb','USDT'],['tron','USDT'],['solana','USDC']])for(const pkg of ['pkg_10','pkg_900']){const s=scenario(n,t,pkg);assert.equal(await api.paymentFlow(s),'tx');assert.equal(s.sent,1);assert.equal(s.signatures,1);assert.deepEqual(s.stages,['connected','authorization','submitting','submitted']);}
+test('三协议按本地连接、提交前持久化、回执原生验款顺序，无额外消息签名',async()=>{
+ for(const [n,t] of [['ethereum','USDC'],['ethereum','USDT'],['base','USDC'],['bnb','USDT'],['tron','USDT'],['solana','USDC']])for(const pkg of ['pkg_10','pkg_900']){const s=scenario(n,t,pkg);assert.equal(await api.paymentFlow(s),'tx');assert.equal(s.sent,1);assert.equal(s.signatures,0);assert.deepEqual(s.stages,['connected','submitting','submitted']);}
 });
-test('意图/授权/提交前落盘任一步失败均零付款，未知广播不重签重付',async()=>{
- for(const fail of ['connected','authorization','submitting']){const s=scenario('base'),original=s.ask;s.ask=async(k,v)=>{if(k===fail)throw Error('synthetic storage failure');return original(k,v);};await assert.rejects(api.paymentFlow(s));assert.equal(s.sent,0);}
- const s=scenario('base');let attempts=0;s.builder.broadcast=async()=>{attempts++;throw Error('unknown');};await assert.rejects(api.paymentFlow(s));assert.equal(attempts,1);assert.equal(s.signatures,1);
+test('本地连接或提交前落盘失败均零付款，未知广播不重签重付',async()=>{
+ for(const fail of ['connected','submitting']){const s=scenario('base'),original=s.ask;s.ask=async(k,v)=>{if(k===fail)throw Error('synthetic storage failure');return original(k,v);};await assert.rejects(api.paymentFlow(s));assert.equal(s.sent,0);}
+ const s=scenario('base');let attempts=0;s.builder.broadcast=async()=>{attempts++;throw Error('unknown');};await assert.rejects(api.paymentFlow(s));assert.equal(attempts,1);assert.equal(s.signatures,0);
 });
-test('签名后账户/网络变化、意图过期与回执冲突均停止',async()=>{
- const s=scenario('base');s.wallet.signMessage=async()=>{s.change();return 'sig';};await assert.rejects(api.paymentFlow(s));assert.equal(s.sent,0);
- const expired=scenario('tron');expired.now=()=>3000;await assert.rejects(api.paymentFlow(expired));assert.equal(expired.sent,0);
+test('交易签名后账户变化、广播定位未保存和回执冲突均停止',async()=>{
+ const s=scenario('base');s.wallet.signTransaction=async()=>{s.change();return {};};await assert.rejects(api.paymentFlow(s));assert.equal(s.sent,0);
+ const unknown=scenario('tron'),ask=unknown.ask;unknown.ask=async(k,v)=>k==='submitted'?{submitted:false}:ask(k,v);await assert.rejects(api.paymentFlow(unknown));assert.equal(unknown.sent,1);assert.equal(unknown.signatures,0);
  const conflict=scenario('solana');conflict.builder.broadcast=async()=> 'other';await assert.rejects(api.paymentFlow(conflict));assert.equal(conflict.stages.includes('submitted'),false);
 });
 test('HTTPS来源文档只执行本次nonce允许的随包脚本，不从网站加载JS',()=>{
@@ -121,14 +121,7 @@ test('HTTPS来源文档只执行本次nonce允许的随包脚本，不从网站�
  assert.doesNotMatch(source,/WalletConnectEthereumProvider[.]init/);
 });
 
-test('原字节续播只走原交易，过期、落盘拒绝和冲突回执停止',async()=>{
- const s=scenario('tron');s.builder.validate=async()=>{};
- const replay={context:{network:'tron',chain:chains.tron,payer:'payer'},txid:'tx',wire:'same-signed-bytes',expiresAt:2000};
- assert.equal(await api.replayFlow({...s,replay}),'tx');assert.equal(s.signatures,0);assert.equal(s.sent,1);assert.deepEqual(s.stages,['replay','submitted']);
- const expired=scenario('tron');expired.builder.validate=async()=>{};await assert.rejects(api.replayFlow({...expired,replay,now:()=>3000}));assert.equal(expired.sent,0);
- const fail=scenario('solana');fail.builder.validate=async()=>{};fail.ask=async()=>{throw Error('storage');};await assert.rejects(api.replayFlow({...fail,replay:{...replay,context:{network:'solana',chain:chains.solana,payer:'payer'}}}));assert.equal(fail.sent,0);
-});
-
+test('旧原单重播入口完全移除，不提供恢复付款别名',()=>{assert.equal(api.replayFlow,undefined);});
 const require=createRequire(join(work,'project/transaction/web/package.json'));
 const fixture=JSON.parse(readFileSync(new URL('./contract.json',import.meta.url),'utf8'));
 test('实际Solana库构造ATA与TransferChecked，冻结验签拒绝改收款消息',async()=>{
@@ -143,17 +136,17 @@ test('实际Solana库构造ATA与TransferChecked，冻结验签拒绝改收款�
   assert.equal(context.network,'solana');assert.equal(context.payer,c.payer);calls.push(method);
   if(method==='sendTransaction'){assert.equal(params[0],expectedWire);assert.equal(params[1].skipPreflight,false);return expectedTx;}
   return method==='getGenesisHash'?'5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d':{value:{blockhash:new web3.PublicKey(new Uint8Array(32).fill(4)).toBase58(),lastValidBlockHeight:100}};
- });const p={rpc:'https://api.mainnet.solana.com',mint,receiver:fixture.config.rails.find(r=>r.network==='solana').recv_address,amount:'10000000',decimals:6};
- const built=await builder.prepare(c,p);assert.equal(built.raw.instructions.length,2);assert.equal(built.raw.instructions[1].data[0],12);assert.equal(built.raw.instructions[1].data[9],6);
+ });const p={rpc:'https://api.mainnet.solana.com',mint,receiver:fixture.config.rails.find(r=>r.network==='solana').recv_address,amount:'10000000',decimals:6,memo:'topup:'+'0b'.repeat(32)};
+ const built=await builder.prepare(c,p);assert.equal(built.raw.instructions.length,3);assert.equal(built.raw.instructions[2].data[0],12);assert.equal(built.raw.instructions[2].data[9],6);
  const signed=web3.Transaction.from(Buffer.from(built.raw.serialize({requireAllSignatures:false,verifySignatures:false})));signed.sign(signer);
- const frozen=await builder.freeze(c,built,{transaction:signed.serialize().toString('base64')});assert.equal(frozen.wire,signed.serialize().toString('base64'));await builder.validate(c,frozen);expectedWire=frozen.wire;expectedTx=frozen.txid;assert.equal(await builder.broadcast(c,frozen),frozen.txid);
+ const frozen=await builder.freeze(c,built,{transaction:signed.serialize().toString('base64')});assert.equal(frozen.wire,signed.serialize().toString('base64'));expectedWire=frozen.wire;expectedTx=frozen.txid;assert.equal(await builder.broadcast(c,frozen),frozen.txid);
  signed.instructions[1].data[1]^=1;signed.sign(signer);await assert.rejects(builder.freeze(c,built,{transaction:signed.serialize().toString('base64')}));
- assert.deepEqual(calls,['getGenesisHash','getLatestBlockhash','getGenesisHash','sendTransaction']);
+ assert.deepEqual(calls,['getLatestBlockhash','sendTransaction']);
 });
 test('实际Tron库构造整数合约付款与原签名冻结，改raw_data或签名拒绝',async()=>{
- const {TronWeb}=require('tronweb');const p={rpc:'https://tron.example.test',asset:fixture.native.tron.intent_data.asset,receiver:fixture.native.tron.intent_data.recv_address,amount:'10000000'};
+ const {TronWeb}=require('tronweb');const p={rpc:'https://tron.example.test',asset:fixture.native.tron.payment.asset,receiver:fixture.native.tron.payment.recv_address,amount:'10000000',memo:'topup:'+'0b'.repeat(32)};
  const web=new TronWeb({fullHost:p.rpc});const publicVector='01'.padStart(64,'0');const payer=TronWeb.address.fromPrivateKey(publicVector);
- class LocalTron extends TronWeb {constructor(){super({fullHost:p.rpc});this.trx={getBlock:async()=>({blockID:'00000000000000001ebf88508a03865c71d452e25f4d51194196a1d22b6653dc'})};this.transactionBuilder={triggerSmartContract:async(asset,selector,options,parameters,owner)=>{
+ class LocalTron extends TronWeb {constructor(){super({fullHost:p.rpc});this.trx={getBlock:async()=>({blockID:'00000000000000001ebf88508a03865c71d452e25f4d51194196a1d22b6653dc'})};this.transactionBuilder={addUpdateData:(...args)=>web.transactionBuilder.addUpdateData(...args),triggerSmartContract:async(asset,selector,options,parameters,owner)=>{
   assert.equal(asset,p.asset);assert.equal(selector,'transfer(address,uint256)');assert.equal(options.callValue,0);assert.equal(parameters[1].value,p.amount);assert.equal(owner,payer);
   return web.transactionBuilder.triggerSmartContract(asset,selector,{...options,txLocal:true,blockHeader:{ref_block_bytes:'0001',ref_block_hash:'00'.repeat(8),timestamp:1000000,expiration:1060000}},parameters,owner);
  }};}}
@@ -165,15 +158,15 @@ test('实际Tron库构造整数合约付款与原签名冻结，改raw_data或�
 
 test('Tron公开Provider只接受HTTPS付款API，重定向不得交给SDK跟随',async()=>{
  const {TronWeb}=require('tronweb');let calls=0;
- box.fetch=async(url,options)=>{calls++;assert.equal(url,'https://tron.example.test/wallet/getblockbynum');assert.equal(options.redirect,'error');return {ok:true,json:async()=>({blockID:'mainnet'})};};
- const web=api.tronClient(TronWeb,'https://tron.example.test');assert.equal((await web.trx.getBlock(0)).blockID,'mainnet');assert.equal(calls,1);
+ box.fetch=async(url,options)=>{calls++;assert.equal(url,'https://tron.example.test/wallet/triggersmartcontract');assert.equal(options.redirect,'error');return {ok:true,json:async()=>({blockID:'mainnet'})};};
+ const web=api.tronClient(TronWeb,'https://tron.example.test');assert.equal((await web.fullNode.request('wallet/triggersmartcontract',{},'post')).blockID,'mainnet');assert.equal(calls,1);
  await assert.rejects(web.fullNode.request('https://other.example.test',{},'post'));assert.equal(calls,1);assert.throws(()=>api.tronClient(TronWeb,'http://tron.example.test'));
- box.fetch=async()=>{throw Error('synthetic redirect rejected');};await assert.rejects(web.trx.getBlock(0));
+ box.fetch=async()=>{throw Error('synthetic redirect rejected');};await assert.rejects(web.fullNode.request('wallet/triggersmartcontract',{},'post'));
 });
 
 test('EVM付款显式绑定实际chainId、资产与整数calldata，不包含原生币金额',async()=>{
  const builder=await api.defaultBuilder();for(const network of ['ethereum','base','bnb']){
-  const p={asset:'0x'+'11'.repeat(20),data:'0xa9059cbb'+'00'.repeat(64)},c={network,chain:chains[network],payer:'0x'+'22'.repeat(20)};
+  const p={asset:'0x'+'11'.repeat(20),data:'0xa9059cbb'+'00'.repeat(64)+'0b'.repeat(32)},c={network,chain:chains[network],payer:'0x'+'22'.repeat(20)};
   const tx=await builder.prepare(c,p);assert.equal(tx.raw.chainId,'0x'+Number(chains[network].split(':')[1]).toString(16));assert.equal(tx.raw.value,'0x0');assert.equal(tx.raw.data,p.data);assert.equal(tx.raw.to,p.asset);
  }
 });
@@ -222,35 +215,7 @@ test('锁定UniversalProvider真实connect转交给SignClient的网络和方法�
 });
 
 
-test('实际start经原生桥接恢复Solana原字节，跨域fetch零调用且广播在原单核准之后',async()=>{
- const web3=require('@solana/web3.js'),signer=web3.Keypair.fromSeed(new Uint8Array(32).fill(8));
- const rail=fixture.config.rails.find(r=>r.network==='solana');
- const genesis='5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d';
- const builder=await api.defaultBuilder(async()=>({}));
- const raw=await api.buildSolana(signer.publicKey.toBase58(),{mint:rail.asset,receiver:rail.recv_address,amount:'10000000',decimals:6},web3,require('@solana/spl-token'),async method=>method==='getGenesisHash'?genesis:{value:{blockhash:new web3.PublicKey(new Uint8Array(32).fill(7)).toBase58(),lastValidBlockHeight:100}});
- raw.sign(signer);const c={network:'solana',chain:chains.solana,payer:signer.publicKey.toBase58()};
- const frozen=await builder.freeze(c,{raw,web3,rpc:'https://api.mainnet.solana.com'},{transaction:raw.serialize().toString('base64')});
- const cfg={session:'synthetic-session',selection:choose('USDC','solana'),replay:{...frozen,context:c,expiresAt:Date.now()+60000}};
- const stages=[];let approved=false,httpCalls=0;
- box.document=pickerDocument();box.fetch=async()=>{httpCalls++;throw Error('不允许WebView HTTP');};box.window=box;
- box.TopupBridge={postMessage(encoded){const m=JSON.parse(encoded);stages.push(m.kind+(m.method?':'+m.method:''));assert.equal(m.session,cfg.session);assert.equal(m.payer,c.payer);
-  let value=null;
-  if(m.kind==='solana_rpc'){
-   assert.equal(m.url,undefined);assert.equal(m.method==='getGenesisHash'||m.method==='sendTransaction',true);
-   if(m.method==='getGenesisHash')value=genesis;
-   else{assert.equal(approved,true);assert.equal(m.params[0],frozen.wire);value=frozen.txid;}
-  }else if(m.kind==='replay'){assert.equal(m.wire,frozen.wire);approved=true;}
-  else if(m.kind==='submitted')assert.equal(m.txid,frozen.txid);
-  else assert.fail('未知桥接请求 '+m.kind);
-  api.reply(cfg.session,m.id,{ok:true,value});
- }};
- await api.start(cfg);
- assert.deepEqual(stages,['solana_rpc:getGenesisHash','replay','solana_rpc:sendTransaction','submitted']);assert.equal(httpCalls,0);
- assert.equal(box.document.getElementById('title').textContent,'正在核实原付款');assert.equal(box.document.getElementById('wallets').children.length,0);delete box.document;
-});
 
-
-// 选择页不依赖SDK或网络；合成DOM保留禁用按钮事件以验证绕过HTML禁用后的入口围栏。
 function pickerDocument(){
  class Element{
   children=[];handlers=new Map();hidden=false;disabled=false;attributes=new Map();
@@ -260,7 +225,7 @@ function pickerDocument(){
   removeEventListener(name,fn){if(this.handlers.get(name)===fn)this.handlers.delete(name);}
   click(){this.handlers.get('click')?.();}
  }
- const nodes=new Map(['wallets','spinner','title','sub','cancel'].map(id=>[id,new Element()]));
+ const nodes=new Map(['wallets','spinner','title','sub','cancel','amount'].map(id=>[id,new Element()]));
  return {getElementById:id=>nodes.get(id),createElement:()=>new Element()};
 }
 function assertPicker(options){
@@ -285,9 +250,9 @@ test('钱包HTML适配底部弹窗，保留六钱包网格规则且不提供独�
  assert.match(html,/background: #FFFFFF/);
  assert.match(html,/grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
 });
-test('六宫格顺序、禁用标记和伪造点击围栏；重复MetaMask点击只选择一次',async()=>{
+test('六宫格顺序与可用性准确，重复点击只创建一次本地订单',async()=>{
  const document=pickerDocument();let selected=0;
- const pending=api.pickWallet(document,'synthetic-project').then(id=>{selected++;return id;});
+ const pending=api.pickWallet(document,'synthetic-project',async()=>{}).then(id=>{selected++;return id;});
  const grid=document.getElementById('wallets');assert.equal(grid.children.length,6);
  assert.deepEqual(grid.children.map(b=>b.children[1].textContent),['MetaMask','imToken','Trust Wallet','币安钱包','欧易钱包','Coinbase Wallet']);
  for(const button of grid.children.slice(1)){assert.equal(button.disabled,true);assert.equal(button.attributes.get('aria-disabled'),'true');assert.equal(button.children[2].textContent,'暂未开放');button.click();}
@@ -299,7 +264,7 @@ test('六宫格顺序、禁用标记和伪造点击围栏；重复MetaMask点击
  assert.match(html,/grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);assert.match(html,/\[hidden\] \{ display: none !important/);
  assert.ok(!html.includes('w3m-modal'));assert.match(html,/id="spinner" hidden/);
 });
-test('真实start先显示六项且仅启动一次，五个禁用点击零桥接零网络',async()=>{
+test('真实start先显示六项且仅启动一次，禁用项零桥接零网络',async()=>{
  let posts=0,network=0;const isolated={...box,document:pickerDocument(),TopupBridge:{postMessage(){posts++;}},fetch:async()=>{network++;throw Error('选择前不能联网');}};
  isolated.self=isolated;isolated.window=isolated;vm.createContext(isolated);vm.runInContext(source,isolated);
  const first=isolated.CitizenTopup.start({projectId:'synthetic-project'});await isolated.CitizenTopup.start({projectId:'synthetic-project'});
@@ -325,7 +290,7 @@ test('原Promise成功、拒绝与取消有独立证据，保留原结果和异�
   if(mode==='resolved')assert.equal(await pending,'synthetic-result');
   else await assert.rejects(pending,error=>mode==='rejected'?error===failure:error.message==='钱包连接已取消');
   assert.equal(rows.at(-1).winner,mode==='closed'?'modal_closed':'provider_'+mode);
-  if(mode==='resolved'){trace.event('authorization');assert.equal(rows.at(-1).event,'authorization');}
+  if(mode==='resolved'){trace.event('transaction');assert.equal(rows.at(-1).event,'transaction');}
   trace.end();assert.equal(rows.at(-1).event,'end');assert.equal(rows.at(-1).complete,true);
   const count=rows.length;if(rejectLate){rejectLate(failure);await Promise.resolve();assert.equal(rows.length,count);}
   assert.equal(p.provider.listenerCount('display_uri'),0);
@@ -378,10 +343,10 @@ test('取消按钮和SDK初始化失败均收尾，不连接其他钱包或请�
 });
 
 function storagePort(){
- const values=new Map([['topup.json','synthetic-original-order'],['@appkit/connections','synthetic-session']]);
+ const values=new Map([['synthetic.local','synthetic-local-data'],['@appkit/connections','synthetic-session']]);
  return {values,getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,value),removeItem:key=>values.delete(key)};
 }
-test('六品牌文件互不导入，共用入口不含品牌scheme；禁用品牌没有假连接',()=>{
+test('六品牌文件互不导入，共用入口不含品牌scheme；使用公开品牌链接，未接入Coinbase没有假连接',()=>{
  for(const [index,name]of ['metamask','imtoken','trust','binance','okx','coinbase'].entries()){
   const text=readFileSync(new URL('../../../transaction/web/'+name+'.js',import.meta.url),'utf8');
   assert.ok(!/from ['"]\.\//.test(text));assert.equal(api.wallets[index].enabled,index===0);
@@ -394,7 +359,7 @@ test('MetaMask写当前SDK跳转偏好后才进公共工厂，保留原单及会
  try{
   const result=await api.wallets[0].connect({walletConnect(adapter,runtime){connected++;assert.equal(adapter,api.wallets[0]);assert.equal(typeof runtime.walletConnect,'function');return 'connected';}});
   assert.equal(result,'connected');assert.equal(connected,1);assert.deepEqual(JSON.parse(storage.getItem('WALLETCONNECT_DEEPLINK_CHOICE')),{name:'MetaMask',href:'metamask://'});
-  assert.equal(storage.getItem('topup.json'),'synthetic-original-order');assert.equal(storage.getItem('@appkit/connections'),'synthetic-session');
+  assert.equal(storage.getItem('synthetic.local'),'synthetic-local-data');assert.equal(storage.getItem('@appkit/connections'),'synthetic-session');
   storage.setItem=()=>{};storage.values.delete('WALLETCONNECT_DEEPLINK_CHOICE');await assert.rejects(api.wallets[0].connect({walletConnect(){connected++;}}),/唤起配置不可用/);assert.equal(connected,1);
  }finally{if(previous.window===undefined)delete box.window;else box.window=previous.window;if(previous.localStorage===undefined)delete box.localStorage;else box.localStorage=previous.localStorage;}
 });
@@ -406,11 +371,11 @@ function bridgeHost(){
   get listeners(){return events.size+documentEvents.size;}};
 }
 const requestTopic='a'.repeat(64),requestLink='metamask://wc?requestId=123&sessionTopic='+requestTopic;
-test('同钱包连接、授权与付款沿同一SDK window.open桥接，每次都等待原生回执',async()=>{
+test('小狐狸连接及每次付款唤起沿同一SDK桥接，分别等待原生回执',async()=>{
  const host=bridgeHost(),opened=[];let release;
  const bridge=api.walletBridge(api.wallets[0],url=>{opened.push(url);return new Promise(resolve=>{release=resolve;});},host);
  const initial=bridge.open('metamask://wc?uri=wc%3Asynthetic-pairing');await Promise.resolve();release();await initial;
- for(const method of ['personal_sign','eth_sendTransaction']){
+ for(const method of ['eth_sendTransaction','eth_sendTransaction']){
   let done=false;const provider={client:{request:async()=>{host.open(requestLink);return 'response';}}};
   const result=bridge.request(provider,{topic:requestTopic,request:{method}}).then(value=>{done=true;return value;});
   await new Promise(resolve=>setTimeout(resolve,5));assert.equal(done,false);release();assert.equal(await result,'response');
@@ -441,19 +406,19 @@ test('连接等待超时、会话监听收尾及错误阶段不泄漏异常正�
  for(const [message,code]of [['无法打开所选钱包','wallet_open_failed'],['钱包请求等待超时','request_timeout'],['钱包连接等待超时','connect_timeout']])assert.equal(api.connectFailure(Error(message)).error,code);
 });
 
-test('原锁浏览器SDK读取实际跳转偏好并经window.open唤起所选钱包，等待原生回执',async()=>{
+for(const adapter of api.wallets.filter(wallet=>wallet.enabled))test(adapter.name+'原锁浏览器SDK读取实际跳转偏好并等待原生回执',async()=>{
  const host=bridgeHost(),storage=storagePort(),opened=[];let bridge,result;
  const previous={window:box.window,localStorage:box.localStorage};box.window=box;box.localStorage=storage;
  try{
-  await api.wallets[0].connect({walletConnect:async()=>null});
+  await adapter.connect({walletConnect:async()=>null});
   const browser={...box,RangeError,window:host,document:host.document,localStorage:storage,navigator:{userAgent:'Mozilla/5.0 (Linux; Android 14)'}};browser.self=browser;host.navigator=browser.navigator;
   vm.createContext(browser);
   try{vm.runInContext(readFileSync(join(work,'project/transaction/web/node_modules/@walletconnect/utils/dist/index.umd.js'),'utf8'),browser,{filename:'walletconnect-utils.umd.js',displayErrors:false});}catch(error){throw Error('原锁浏览器SDK加载失败：'+error.message);}
   const utils=browser['@walletconnect/utils'];assert.equal(utils.getEnvironment(),'browser');
-  let release;bridge=api.walletBridge(api.wallets[0],url=>{opened.push(url);return new Promise(resolve=>{release=resolve;});},host,{timeout:100});
-  const choice=await utils.getDeepLink({getItem(){assert.fail('浏览器应读取选择偏好');}},'WALLETCONNECT_DEEPLINK_CHOICE');assert.equal(JSON.parse(choice).href,'metamask://');
+  let release;bridge=api.walletBridge(adapter,url=>{opened.push(url);return new Promise(resolve=>{release=resolve;});},host,{timeout:100});
+  const choice=await utils.getDeepLink({getItem(){assert.fail('浏览器应读取选择偏好');}},'WALLETCONNECT_DEEPLINK_CHOICE');assert.equal(JSON.parse(choice).href,adapter.href);
   const provider={client:{request:async()=>{await utils.handleDeeplinkRedirect({id:123,topic:requestTopic,wcDeepLink:choice});return 'sdk-response';}}};
-  let done=false;result=bridge.request(provider,{topic:requestTopic}).then(value=>{done=true;return value;});await new Promise(resolve=>setTimeout(resolve,5));assert.deepEqual(opened,[requestLink]);assert.equal(done,false);release();assert.equal(await result,'sdk-response');bridge.close();
+  let done=false;result=bridge.request(provider,{topic:requestTopic}).then(value=>{done=true;return value;});await new Promise(resolve=>setTimeout(resolve,5));assert.equal(opened.length,1);assert.equal(adapter.accepts(opened[0]),true);assert.equal(done,false);release();assert.equal(await result,'sdk-response');bridge.close();
  }finally{bridge?.close();await result?.catch(()=>{});if(previous.window===undefined)delete box.window;else box.window=previous.window;if(previous.localStorage===undefined)delete box.localStorage;else box.localStorage=previous.localStorage;}
 });
 
@@ -474,3 +439,18 @@ for(const adapter of api.wallets.slice(1)){
   assert.equal(created,0);assert.equal(connected,0);assert.equal(opened,0);
  });
 }
+
+test('选择钱包先等待本地保存完成，保存拒绝不触发后续连接',async()=>{
+ const document=pickerDocument();let saved=false,release,calls=0;
+ const pending=api.pickWallet(document,'synthetic-project',async()=>{calls++;await new Promise(r=>release=r);saved=true;});
+ const button=document.getElementById('wallets').children[0];button.click();button.click();assert.equal(calls,1);assert.equal(saved,false);release();await pending;assert.equal(saved,true);
+ const rejectedDocument=pickerDocument();const rejected=api.pickWallet(rejectedDocument,'synthetic-project',async()=>{throw Error('synthetic database failure');});rejectedDocument.getElementById('wallets').children[0].click();await assert.rejects(rejected);assert.equal(rejectedDocument.getElementById('sub').textContent,'充值签名或保存未完成，未创建订单，未启动付款钱包');
+});
+test('EVM选择只放行小狐狸，其余五项零建单',async()=>{
+ const document=pickerDocument();let calls=0;
+ const pending=api.pickWallet(document,'synthetic-project',async()=>{calls++;});
+ const grid=document.getElementById('wallets');assert.equal(grid.children[0].disabled,false);
+ for(const button of grid.children.slice(1)){assert.equal(button.disabled,true);button.click();}
+ await Promise.resolve();assert.equal(calls,0);
+ grid.children[0].click();assert.equal(await pending,api.wallets[0].id);assert.equal(calls,1);
+});

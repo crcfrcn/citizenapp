@@ -190,7 +190,7 @@ void _httpTimingTests() {
       '/api/8964/feed': 'feed',
       '/api/8964/posts/synthetic/comments': 'comments',
       '/api/notifications': 'notifications',
-      '/api/topup/config': 'topup_config',
+      '/api/topup/confirm': 'topup_confirm',
       '/api/topup/status': 'topup_status',
       '/api/tatachat/access': 'chat_access',
     };
@@ -284,8 +284,9 @@ void _httpTimingTests() {
     expect(lines.first, contains('stage=challenge http=206'));
     expect(lines.first, endsWith('phase=headers'));
     expect(lines.last, endsWith('phase=complete'));
-    final timing = RegExp(r'headers_us=(\d+) total_us=(\d+)')
-        .firstMatch(lines.last)!;
+    final timing = RegExp(
+      r'headers_us=(\d+) total_us=(\d+)',
+    ).firstMatch(lines.last)!;
     expect(int.parse(timing[2]!), greaterThanOrEqualTo(int.parse(timing[1]!)));
   });
   test('HTTP取消透传且不宣告正文完成', () async {

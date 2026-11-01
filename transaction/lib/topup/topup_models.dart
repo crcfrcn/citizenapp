@@ -1,4 +1,7 @@
 import 'dart:convert';
+import 'dart:math';
+import 'dart:typed_data';
+import 'package:citizen_sdk/citizen_sdk.dart' show CitizenSdk;
 
 import 'package:crypto/crypto.dart';
 import 'package:citizen_network/citizen_serve_api_config.dart';
@@ -52,18 +55,9 @@ enum TopupNetwork {
 
   bool transaction(String value) => this == solana
       ? value.length <= 88 && _base58Length(value, 64)
-      : RegExp(this == tron ? r'^[0-9a-f]{64}$' : r'^0x[0-9a-f]{64}$')
-            .hasMatch(value);
-  void signature(String value) {
-    final valid = this == solana
-        ? value.length <= 88 && _base58Length(value, 64)
-        : RegExp(
-            this == tron
-                ? r'^0x[0-9a-fA-F]{130}$'
-                : r'^0x(?:[0-9a-fA-F]{2}){1,4096}$',
-          ).hasMatch(value);
-    if (!valid) throw const FormatException('付款授权签名无效');
-  }
+      : RegExp(
+          this == tron ? r'^[0-9a-f]{64}$' : r'^0x[0-9a-f]{64}$',
+        ).hasMatch(value);
 }
 
 /// Base58是地址/签名编码，不承担任何签名或私钥功能。
@@ -238,6 +232,107 @@ class TopupConfig {
     (p) => p.packageId == id,
     orElse: () => throw const FormatException('充值套餐不存在'),
   );
+  static const origin = 'https://www.crcfrcn.com';
+  static const genesis =
+      '0x18847a5dfd263272f2e7727836fe6582f8c4463ff48609df7b96d5e4d9dd24dd';
+  factory TopupConfig.local() {
+    const evm = '0x5ce9b56b9d1812a7cf29841e21756f09ca7d223b';
+    final rails = [
+      const TopupRail(
+        token: 'USDC',
+        network: TopupNetwork.ethereum,
+        asset: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+        decimals: 6,
+        recvAddress: evm,
+      ),
+      const TopupRail(
+        token: 'USDC',
+        network: TopupNetwork.base,
+        asset: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+        decimals: 6,
+        recvAddress: evm,
+      ),
+      const TopupRail(
+        token: 'USDC',
+        network: TopupNetwork.solana,
+        asset: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+        decimals: 6,
+        recvAddress: 'ES4pPjXbsK8Q47PpeCSddNsomxFqDmR9tD7p6j1Crcyi',
+      ),
+      const TopupRail(
+        token: 'USDT',
+        network: TopupNetwork.ethereum,
+        asset: '0xdac17f958d2ee523a2206206994597c13d831ec7',
+        decimals: 6,
+        recvAddress: evm,
+      ),
+      const TopupRail(
+        token: 'USDT',
+        network: TopupNetwork.tron,
+        asset: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+        decimals: 6,
+        recvAddress: 'TB1JA2HBUmfAvRVm9TQvm7RbtkFRSmeuH3',
+      ),
+      const TopupRail(
+        token: 'USDT',
+        network: TopupNetwork.bnb,
+        asset: '0x55d398326f99059ff775485246999027b3197955',
+        decimals: 18,
+        recvAddress: evm,
+      ),
+    ];
+    return TopupConfig(
+      ready: true,
+      rails: List.unmodifiable(rails),
+      packages: List.unmodifiable([
+        for (final amount in [10, 900])
+          TopupPackage(
+            packageId: 'pkg_$amount',
+            payDisplay: '$amount',
+            coinDisplay: amount == 10 ? '10,000.00' : '1,000,000.00',
+            coinFen: amount == 10 ? '1000000' : '100000000',
+            payments: Map.unmodifiable({
+              for (final rail in rails)
+                rail.key:
+                    (BigInt.from(amount) * BigInt.from(10).pow(rail.decimals))
+                        .toString(),
+            }),
+          ),
+      ]),
+    );
+  }
+
+  /// 消费CitizenServe公开合同：固定21行UTF-8/LF，显示文字及JSON顺序不参与。
+  String get fingerprint {
+    final lines = [
+      'CitizenServe Topup Config',
+      'service_origin=$origin',
+      'chain_genesis_hash=$genesis',
+    ];
+    for (final token in const ['USDC', 'USDT']) {
+      for (final network in const [
+        TopupNetwork.ethereum,
+        TopupNetwork.base,
+        TopupNetwork.solana,
+        TopupNetwork.tron,
+        TopupNetwork.bnb,
+      ]) {
+        if (!allowedPair(token, network)) continue;
+        final value = rail(token, network);
+        lines.add(
+          'rail=${value.token}|${value.network.wire}|${value.asset}|${value.decimals}|${value.recvAddress}',
+        );
+        for (final id in const ['pkg_10', 'pkg_900']) {
+          final pack = packageById(id);
+          lines.add('package=$id|${pack.amount(value)}|${pack.coinFen}');
+        }
+      }
+    }
+    return '${lines.join('\n')}\n';
+  }
+
+  String get hash => sha256.convert(utf8.encode(fingerprint)).toString();
+
   factory TopupConfig.fromJson(Map<String, dynamic> j) {
     if (j['is_ok'] != true ||
         j['ready'] is! bool ||
@@ -277,7 +372,7 @@ class TopupConfig {
   }
 }
 
-/// 一次点击固定币种、套餐和主网；恢复时只从原意图重建，不另存第二份选择。
+/// 一次点击固定币种、套餐和主网；本地订单冻结本次选择，不恢复或重付旧单。
 class TopupSelection {
   factory TopupSelection({
     required String token,
@@ -291,13 +386,13 @@ class TopupSelection {
   final String token;
   final TopupPackage package;
   final TopupNetwork network;
-  factory TopupSelection.fromIntent(
-    TopupPaymentIntent intent,
+  factory TopupSelection.fromPayment(
+    TopupPayment payment,
     TopupConfig config,
   ) => TopupSelection(
-    token: intent.intentData['token'] as String,
-    package: config.packageById(intent.intentData['package_id'] as String),
-    network: intent.network,
+    token: payment.token,
+    package: config.packageById(payment.packageId),
+    network: payment.network,
   );
   Map<String, String> toJson() => {
     'token': token,
@@ -329,210 +424,306 @@ class TopupContext {
   }
 }
 
-class TopupPaymentIntent {
-  const TopupPaymentIntent({
-    required this.orderId,
-    required this.intentToken,
-    required this.intentData,
-    required this.signMessage,
-  });
-  final String orderId, intentToken, signMessage;
-  final Map<String, dynamic> intentData;
-  int get expiresAt => intentData['expires_at'] as int;
-  String get accountId => intentData['account_id'] as String;
-  String get payer => intentData['payer_address'] as String;
-  TopupNetwork get network => TopupNetwork.parse(intentData['network']);
-  String get coinFen => intentData['coin_fen'] as String;
-  Map<String, dynamic> toJson() => {
-    'is_ok': true,
-    'order_id': orderId,
-    'intent_token': intentToken,
-    'intent_data': intentData,
-    'sign_message': signMessage,
+/// 钱包点击创建的本地订单，付款前无服务端意图或链查询。
+abstract final class TopupWallets {
+  // 逐个接入钱包：本阶段只开放MetaMask，授权仍须严格匹配用户所选网络。
+  static bool paymentReady(String walletId, TopupNetwork network) =>
+      walletId == ids.first;
+  static const ids = {
+    'c57ca95b47569778a828d19178114f4db188b89b763c899ba0be274e97267d96',
+    'ef333840daf915aafdc4a004525502d6d49d77bd9c65e0642dbaefb3c2893bef',
+    '4622a2b2d6af1c9844944291e5e7351a6aa24cd7b23099efac1b2fd875da31a0',
+    '8a0ee50d1f22f6651afcae7eb4253e52a3310b90af5daef78a8c4929a9bb99d4',
+    '971e689d0a5be527bac79629b4ee9b925e82208e5168b733496a09c0faed0709',
+    'fd20dc426fb37566d803205b19bbc1d4096b248ac04548e3cfb6b3a38bd033aa',
   };
-  factory TopupPaymentIntent.fromJson(Map<String, dynamic> j) {
-    if (j.length != 5 ||
-        !j.keys.every(
-          const {
-            'is_ok',
-            'order_id',
-            'intent_token',
-            'sign_message',
-            'intent_data',
-          }.contains,
-        ) ||
-        j['is_ok'] != true ||
-        j['order_id'] is! String ||
-        j['intent_token'] is! String ||
-        j['sign_message'] is! String ||
-        j['intent_data'] is! Map<String, dynamic>) {
-      throw const FormatException('付款意图响应无效');
+}
+
+/// 签名前只持有内存报价和随机恢复凭据，不是数据库订单。
+class TopupDraft {
+  TopupDraft._(this.fields, this.recoveryToken);
+  final Map<String, Object?> fields;
+  final String recoveryToken;
+  static const action = 18; // qr-protocol registry/actions.yaml 的 topup 公共动作码。
+  factory TopupDraft.create(TopupSelection selection, String account) {
+    final config = TopupConfig.local(),
+        rail = config.rail(selection.token, selection.network),
+        pack = config.packageById(selection.package.packageId);
+    if (pack.coinFen != selection.package.coinFen ||
+        pack.amount(rail) != selection.package.amount(rail)) {
+      throw const FormatException('充值套餐与本地可信配置不一致');
     }
-    final i = Map<String, dynamic>.unmodifiable(
-      j['intent_data'] as Map<String, dynamic>,
+    return TopupDraft._(
+      Map.unmodifiable({
+        'account_id': targetAccount(account),
+        'package_id': pack.packageId,
+        'token': rail.token,
+        'network': rail.network.wire,
+        'asset': rail.asset,
+        'recv_address': rail.recvAddress,
+        'pay_amount': pack.amount(rail),
+        'coin_fen': pack.coinFen,
+        'config_hash': config.hash,
+      }),
+      randomTopupHex(32),
     );
-    const fields = {
-      'intent_id',
-      'cid_number',
+  }
+  String get signText => topupSignText(fields, recoveryToken);
+}
+
+String topupSignText(Map<String, Object?> fields, String recoveryToken) {
+  if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(recoveryToken)) {
+    throw const FormatException('恢复凭据格式无效');
+  }
+  return [
+    'CitizenServe Topup',
+    'service_origin=${TopupConfig.origin}',
+    'chain_genesis_hash=${TopupConfig.genesis}',
+    for (final key in const [
       'account_id',
-      'payer_address',
+      'package_id',
       'token',
       'network',
-      'package_id',
       'asset',
       'recv_address',
       'pay_amount',
       'coin_fen',
-      'issued_at',
-      'expires_at',
-    };
-    if (i.length != fields.length ||
-        !i.keys.every(fields.contains) ||
-        i['intent_id'] is! String ||
-        !RegExp(r'^tpi_[0-9a-f]{32}$').hasMatch(i['intent_id'] as String) ||
-        i['issued_at'] is! int ||
-        i['expires_at'] is! int ||
-        (i['issued_at'] as int) <= 0 ||
-        (i['expires_at'] as int) - (i['issued_at'] as int) != 600000) {
-      throw const FormatException('付款意图字段无效');
-    }
-    final o = validateOrderId(j['order_id'] as String);
-    if (o != 'top_${(i['intent_id'] as String).substring(4)}') {
-      throw const FormatException('订单与意图不一致');
-    }
-    targetAccount(i['account_id'] as String);
-    final n = TopupNetwork.parse(i['network']);
-    if (!allowedPair(i['token'] as String, n) ||
-        n.address(i['payer_address'] as String) != i['payer_address'] ||
-        n.address(i['asset'] as String) != i['asset'] ||
-        n.address(i['recv_address'] as String) != i['recv_address']) {
-      throw const FormatException('付款意图币轨无效');
-    }
-    decimal(i['pay_amount']);
-    decimal(i['coin_fen']);
-    final intentToken = j['intent_token'] as String;
-    final parts = intentToken.split('.');
-    if (intentToken.length > 8192 || parts.length != 2) {
-      throw const FormatException('付款凭证无效');
-    }
-    final decoded = base64Url.decode(base64Url.normalize(parts[0]));
-    final mac = base64Url.decode(base64Url.normalize(parts[1]));
-    if (base64Url.encode(decoded).replaceAll('=', '') != parts[0] ||
-        base64Url.encode(mac).replaceAll('=', '') != parts[1] ||
-        mac.length != 32 ||
-        jsonEncode(jsonDecode(utf8.decode(decoded))) != jsonEncode(i)) {
-      throw const FormatException('付款凭证与意图不一致');
-    }
-    return TopupPaymentIntent(
-      orderId: o,
-      intentToken: intentToken,
-      intentData: i,
-      signMessage: j['sign_message'] as String,
-    );
-  }
-  void validatePayment({
-    required TopupRail rail,
-    required TopupPackage package,
-    required String accountId,
-    required String payerAddress,
-    required String chainGenesisHash,
-    required String serviceOrigin,
-    int? now,
-  }) {
-    final time = now ?? DateTime.now().millisecondsSinceEpoch;
-    if (intentData['account_id'] != targetAccount(accountId) ||
-        intentData['payer_address'] != rail.network.address(payerAddress) ||
-        intentData['token'] != rail.token ||
-        intentData['network'] != rail.network.wire ||
-        intentData['asset'] != rail.asset ||
-        intentData['recv_address'] != rail.recvAddress ||
-        intentData['pay_amount'] != package.amount(rail) ||
-        intentData['coin_fen'] != package.coinFen ||
-        intentData['package_id'] != package.packageId ||
-        time < (intentData['issued_at'] as int) ||
-        time >= expiresAt ||
-        !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(chainGenesisHash) ||
-        Uri.parse(serviceOrigin).origin != serviceOrigin) {
-      throw const FormatException('付款意图与本次充值不一致或过期');
-    }
-    final expected =
-        'CitizenServe Topup v1\nservice_origin=$serviceOrigin\nchain_genesis_hash=$chainGenesisHash\nintent_id=${intentData['intent_id']}\nnetwork=${intentData['network']}\npayer_address=${intentData['payer_address']}\nasset=${intentData['asset']}\nrecv_address=${intentData['recv_address']}\npay_amount=${intentData['pay_amount']}\ncoin_fen=${intentData['coin_fen']}\naccount_id=${intentData['account_id']}\npackage_id=${intentData['package_id']}\nissued_at=${intentData['issued_at']}\nexpires_at=${intentData['expires_at']}\nintent_sha256=${sha256.convert(utf8.encode(intentToken))}\n';
-    if (signMessage != expected) {
-      throw const FormatException('付款授权原文不一致');
-    }
-  }
+      'config_hash',
+    ])
+      '$key=${fields[key]}',
+    'recovery_hash=${sha256.convert(utf8.encode(recoveryToken))}',
+    '',
+  ].join('\n');
 }
 
-enum TopupPhase {
-  awaiting,
-  verifying,
-  received,
-  signed,
-  broadcast,
-  paid,
-  exception,
+Uint8List topupSignatureBytes(String signature) {
+  if (!RegExp(r'^0x[0-9a-f]{128}$').hasMatch(signature)) {
+    throw const FormatException('公民账户签名必须是原始64字节');
+  }
+  return Uint8List.fromList(
+    List.generate(
+      64,
+      (i) => int.parse(signature.substring(2 + i * 2, 4 + i * 2), radix: 16),
+    ),
+  );
 }
 
-class TopupOrder {
-  const TopupOrder({
+String topupBinding(String text, String signature) => sha256.convert([
+  ...utf8.encode(text),
+  ...topupSignatureBytes(signature),
+]).toString();
+
+class TopupPayment {
+  const TopupPayment({
     required this.orderId,
-    required this.orderState,
+    required this.accountId,
+    required this.packageId,
+    required this.token,
+    required this.network,
+    required this.asset,
+    required this.recvAddress,
+    required this.payAmount,
     required this.coinFen,
-    this.paymentTxid,
-    this.gmbTxHash,
-    this.exceptionReason,
+    required this.createdAt,
+    required this.configHash,
   });
-  final String orderId, coinFen;
-  final TopupPhase orderState;
-  final String? paymentTxid, gmbTxHash, exceptionReason;
-  bool get terminal =>
-      orderState == TopupPhase.paid || orderState == TopupPhase.exception;
-  String get message => switch (orderState) {
-    TopupPhase.awaiting => '付款回执待核实，请勿重复付款',
-    TopupPhase.verifying => '正在确认稳定币付款',
-    TopupPhase.received =>
-      exceptionReason == 'topup_disburse_insufficient_balance'
-          ? '稳定币已收款，等待发币处理'
-          : '稳定币已收款，等待发币',
-    TopupPhase.signed || TopupPhase.broadcast => '稳定币已收款，公民币正在到账',
-    TopupPhase.paid => '公民币已转入本账户',
-    TopupPhase.exception => '订单需要核查，请保留原付款交易，勿重复付款',
-  };
-  Map<String, dynamic> toJson() => {
-    'is_ok': true,
+  final String orderId,
+      accountId,
+      packageId,
+      token,
+      asset,
+      recvAddress,
+      payAmount,
+      coinFen,
+      configHash;
+  final TopupNetwork network;
+  final int createdAt;
+  factory TopupPayment.signed(TopupDraft draft, String signature, {int? now}) {
+    final binding = topupBinding(draft.signText, signature);
+    final payment = TopupPayment.fromJson({
+      ...draft.fields,
+      'order_id': 'top_${binding.substring(0, 32)}',
+      'created_at': now ?? DateTime.now().millisecondsSinceEpoch,
+    });
+    payment.validateCatalog(TopupConfig.local());
+    return payment;
+  }
+  Map<String, Object?> toJson() => {
     'order_id': orderId,
-    'order_state': orderState.name,
+    'account_id': accountId,
+    'package_id': packageId,
+    'token': token,
+    'network': network.wire,
+    'asset': asset,
+    'recv_address': recvAddress,
+    'pay_amount': payAmount,
     'coin_fen': coinFen,
-    'payment_txid': paymentTxid,
-    'gmb_tx_hash': gmbTxHash,
-    'exception_reason': exceptionReason,
+    'created_at': createdAt,
+    'config_hash': configHash,
   };
-  factory TopupOrder.fromJson(Map<String, dynamic> j) {
-    if (j['is_ok'] != true ||
-        j['order_id'] is! String ||
-        (j['payment_txid'] != null && j['payment_txid'] is! String) ||
-        (j['gmb_tx_hash'] != null && j['gmb_tx_hash'] is! String) ||
-        (j['exception_reason'] != null && j['exception_reason'] is! String)) {
-      throw const FormatException('订单响应无效');
+  factory TopupPayment.fromJson(Map<String, dynamic> j) {
+    exactTopupFields(j, const {
+      'order_id',
+      'account_id',
+      'package_id',
+      'token',
+      'network',
+      'asset',
+      'recv_address',
+      'pay_amount',
+      'coin_fen',
+      'created_at',
+      'config_hash',
+    });
+    final n = TopupNetwork.parse(j['network']);
+    final token = j['token'];
+    if (token is! String ||
+        !allowedPair(token, n) ||
+        j['created_at'] is! int ||
+        (j['created_at'] as int) <= 0 ||
+        j['config_hash'] is! String ||
+        !RegExp(r'^[0-9a-f]{64}$').hasMatch(j['config_hash'] as String)) {
+      throw const FormatException('本地充值订单字段无效');
     }
-    final orderState = TopupPhase.values.firstWhere(
-      (v) => v.name == j['order_state'],
-      orElse: () => throw const FormatException('未知订单阶段'),
-    );
-    if (orderState == TopupPhase.paid &&
-        (j['gmb_tx_hash'] is! String ||
-            !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(j['gmb_tx_hash'] as String) ||
-            j['payment_txid'] is! String)) {
-      throw const FormatException('已到账回执缺少链上定位');
+    final asset = j['asset'] as String, recv = j['recv_address'] as String;
+    if (n.address(asset) != asset || n.address(recv) != recv) {
+      throw const FormatException('付款地址未规范化');
     }
-    return TopupOrder(
+    return TopupPayment(
       orderId: validateOrderId(j['order_id'] as String),
-      orderState: orderState,
+      accountId: targetAccount(j['account_id'] as String),
+      packageId: j['package_id'] as String,
+      token: token,
+      network: n,
+      asset: asset,
+      recvAddress: recv,
+      payAmount: decimal(j['pay_amount']),
       coinFen: decimal(j['coin_fen']),
-      paymentTxid: j['payment_txid'] as String?,
-      gmbTxHash: j['gmb_tx_hash'] as String?,
-      exceptionReason: j['exception_reason'] as String?,
+      createdAt: j['created_at'] as int,
+      configHash: j['config_hash'] as String,
     );
+  }
+  void validateCatalog(TopupConfig catalog) {
+    final rail = catalog.rail(token, network),
+        package = catalog.packageById(packageId);
+    if (catalog.hash != configHash ||
+        rail.asset != asset ||
+        rail.recvAddress != recvAddress ||
+        package.amount(rail) != payAmount ||
+        package.coinFen != coinFen) {
+      throw const FormatException('订单与可信付款配置不一致');
+    }
+  }
+}
+
+/// 仅由原生付款网络核验返回；回跳、JS布尔值和交易哈希不能替代证据。
+class TopupProof {
+  const TopupProof._(
+    this.network,
+    this.txid,
+    this.payer,
+    this.asset,
+    this.receiver,
+    this.amount,
+    this.blockHash,
+    this.blockNumber,
+    this.blockAt,
+    this.transferIndex,
+    this.checkedAt,
+    this.binding,
+  );
+  final TopupNetwork network;
+  final String txid, payer, asset, receiver, amount, blockHash, binding;
+  final int blockNumber, blockAt, transferIndex, checkedAt;
+  Map<String, Object?> toJson() => {
+    'binding_hash': binding,
+    'network': network.wire,
+    'payment_txid': txid,
+    'payer_address': payer,
+    'asset': asset,
+    'recv_address': receiver,
+    'pay_amount': amount,
+    'block_hash': blockHash,
+    'block_number': blockNumber,
+    'block_at': blockAt,
+    'transfer_index': transferIndex,
+    'checked_at': checkedAt,
+    'finalized': true,
+    'succeeded': true,
+  };
+  factory TopupProof.fromJson(Map<String, dynamic> j) {
+    exactTopupFields(j, const {
+      'binding_hash',
+      'network',
+      'payment_txid',
+      'payer_address',
+      'asset',
+      'recv_address',
+      'pay_amount',
+      'block_hash',
+      'block_number',
+      'block_at',
+      'transfer_index',
+      'checked_at',
+      'finalized',
+      'succeeded',
+    });
+    final n = TopupNetwork.parse(j['network']);
+    final tx = j['payment_txid'] as String, bh = j['block_hash'] as String;
+    if (j['binding_hash'] is! String ||
+        !RegExp(r'^[0-9a-f]{64}$').hasMatch(j['binding_hash'] as String) ||
+        !n.transaction(tx) ||
+        j['finalized'] != true ||
+        j['succeeded'] != true ||
+        j['block_number'] is! int ||
+        (j['block_number'] as int) < 0 ||
+        j['block_at'] is! int ||
+        (j['block_at'] as int) <= 0 ||
+        j['checked_at'] is! int ||
+        (j['checked_at'] as int) < (j['block_at'] as int) ||
+        j['transfer_index'] is! int ||
+        (j['transfer_index'] as int) < 0 ||
+        (n == TopupNetwork.solana
+            ? !_base58Length(bh, 32)
+            : !RegExp(
+                n == TopupNetwork.tron
+                    ? r'^[0-9a-f]{64}$'
+                    : r'^0x[0-9a-f]{64}$',
+              ).hasMatch(bh))) {
+      throw const FormatException('付款证据未最终成功或定位不完整');
+    }
+    return TopupProof._(
+      n,
+      tx,
+      n.address(j['payer_address'] as String),
+      n.address(j['asset'] as String),
+      n.address(j['recv_address'] as String),
+      decimal(j['pay_amount']),
+      bh,
+      j['block_number'] as int,
+      j['block_at'] as int,
+      j['transfer_index'] as int,
+      j['checked_at'] as int,
+      j['binding_hash'] as String,
+    );
+  }
+  bool matches(TopupPayment payment, String payer, String tx) =>
+      network == payment.network &&
+      txid == tx &&
+      this.payer == payer &&
+      asset == payment.asset &&
+      receiver == payment.recvAddress &&
+      amount == payment.payAmount &&
+      blockAt >= payment.createdAt ~/ 1000 * 1000;
+}
+
+String randomTopupHex(int length) => List.generate(
+  length,
+  (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
+).join();
+void exactTopupFields(Map<String, dynamic> value, Set<String> expected) {
+  if (value.length != expected.length || !value.keys.every(expected.contains)) {
+    throw const FormatException('充值字段不完整或包含未知字段');
   }
 }
 
@@ -565,5 +756,217 @@ abstract final class TopupRpcConfig {
   }
 }
 
-String topupOrigin(String base) =>
-    Uri.parse(CitizenServeApiConfig.normalize(base)).origin;
+String topupOrigin(String origin) =>
+    Uri.parse(CitizenServeApiConfig.normalize('$origin/api')).origin;
+
+/// 付款后的HTTPS受理快照；保存服务身份，不把未经签名验真的结果当到账。
+class TopupReceipt {
+  TopupReceipt._(this._data);
+  final Map<String, dynamic> _data;
+  String get orderId => _data['order_id'] as String;
+  String get paymentTxid => _data['payment_txid'] as String;
+  String get coinFen => _data['coin_fen'] as String;
+  String get publicKey => _data['result_publickey'] as String;
+  int get revision => _data['order_rev'] as int;
+  String get state => _data['order_state'] as String;
+  String? get reason => _data['exception_reason'] as String?;
+  Map<String, dynamic> toJson() =>
+      jsonDecode(jsonEncode(_data)) as Map<String, dynamic>;
+  factory TopupReceipt.fromJson(Map<String, dynamic> value) {
+    exactTopupFields(value, const {
+      'is_ok',
+      'order_id',
+      'order_rev',
+      'order_state',
+      'payment_txid',
+      'gmb_tx_hash',
+      'coin_fen',
+      'exception_reason',
+      'is_reused',
+      'auto_final',
+      'chain_state',
+      'result_ack',
+      'result_publickey',
+      'result',
+      'result_signature',
+    });
+    const states = {
+          'verifying',
+          'received',
+          'signed',
+          'broadcast',
+          'paid',
+          'exception',
+        },
+        chainStates = {'unverified', 'finalized_success', 'finalized_failed'};
+    final state = value['order_state'],
+        result = value['result'],
+        signature = value['result_signature'];
+    if (value['is_ok'] != true ||
+        !states.contains(state) ||
+        !chainStates.contains(value['chain_state']) ||
+        value['order_rev'] is! int ||
+        (value['order_rev'] as int) < 0 ||
+        value['is_reused'] is! bool ||
+        value['result_ack'] is! bool ||
+        value['auto_final'] != (state == 'paid' || state == 'exception') ||
+        value['result_publickey'] is! String ||
+        !RegExp(
+          r'^0x[0-9a-f]{64}$',
+        ).hasMatch(value['result_publickey'] as String) ||
+        value['payment_txid'] is! String ||
+        value['gmb_tx_hash'] != null &&
+            (value['gmb_tx_hash'] is! String ||
+                !RegExp(
+                  r'^0x[0-9a-f]{64}$',
+                ).hasMatch(value['gmb_tx_hash'] as String)) ||
+        value['exception_reason'] != null &&
+            value['exception_reason'] is! String ||
+        (result == null) != (signature == null)) {
+      throw const FormatException('发币受理快照无效');
+    }
+    validateOrderId(value['order_id'] as String);
+    decimal(value['coin_fen']);
+    if (result != null) {
+      if (result is! Map<String, dynamic> ||
+          signature is! String ||
+          !RegExp(r'^0x[0-9a-f]{128}$').hasMatch(signature)) {
+        throw const FormatException('服务端结果封存结构无效');
+      }
+      exactTopupFields(result, const {
+        'service_origin',
+        'order_id',
+        'result_rev',
+        'account_id',
+        'payment_txid',
+        'gmb_tx_hash',
+        'coin_fen',
+        'order_state',
+        'chain_state',
+        'exception_reason',
+        'finished_at',
+      });
+      if (result['service_origin'] != TopupConfig.origin ||
+          result['order_id'] != value['order_id'] ||
+          result['result_rev'] != value['order_rev'] ||
+          result['payment_txid'] != value['payment_txid'] ||
+          result['gmb_tx_hash'] != value['gmb_tx_hash'] ||
+          result['coin_fen'] != value['coin_fen'] ||
+          result['order_state'] != state ||
+          result['chain_state'] != value['chain_state'] ||
+          result['exception_reason'] != value['exception_reason'] ||
+          result['finished_at'] is! int ||
+          (result['finished_at'] as int) <= 0 ||
+          !const {'paid', 'exception'}.contains(state)) {
+        throw const FormatException('结果与原受理快照不一致');
+      }
+      targetAccount(result['account_id'] as String);
+    }
+    return TopupReceipt._(
+      jsonDecode(jsonEncode(value)) as Map<String, dynamic>,
+    );
+  }
+  void matches(TopupPayment payment, String txid) {
+    if (orderId != payment.orderId ||
+        paymentTxid != txid ||
+        coinFen != payment.coinFen ||
+        _data['result'] != null &&
+            (_data['result'] as Map)['account_id'] != payment.accountId) {
+      throw const FormatException('服务端回执不属于原已支付订单');
+    }
+  }
+
+  bool get sealed => _data['result'] != null;
+  bool get acknowledged => _data['result_ack'] == true;
+  String? get gmbTxHash => _data['gmb_tx_hash'] as String?;
+  String? get resultSignature => _data['result_signature'] as String?;
+  String get signedText {
+    if (!sealed) throw StateError('结果尚未封存');
+    final result = _data['result'] as Map;
+    return [
+      'CitizenServe Topup Result',
+      for (final key in const [
+        'service_origin',
+        'order_id',
+        'result_rev',
+        'account_id',
+        'payment_txid',
+        'gmb_tx_hash',
+        'coin_fen',
+        'order_state',
+        'chain_state',
+        'exception_reason',
+        'finished_at',
+      ])
+        '$key=${result[key] ?? ''}',
+      '',
+    ].join('\n');
+  }
+
+  bool sameResult(TopupReceipt other) =>
+      sealed &&
+      other.sealed &&
+      signedText == other.signedText &&
+      resultSignature == other.resultSignature;
+  Future<VerifiedTopupReceipt> verify(TopupPayment payment, String txid) async {
+    matches(payment, txid);
+    if (!sealed ||
+        state == 'paid' &&
+            (_data['chain_state'] != 'finalized_success' ||
+                gmbTxHash == null) ||
+        state == 'exception' && _data['chain_state'] == 'finalized_success') {
+      throw const FormatException('结果没有明确最终执行事实');
+    }
+    final signature = resultSignature!;
+    final valid = await CitizenSdk.verify(
+      accountId: publicKey,
+      signature: Uint8List.fromList(
+        List.generate(
+          64,
+          (i) =>
+              int.parse(signature.substring(2 + i * 2, 4 + i * 2), radix: 16),
+        ),
+      ),
+      payload: Uint8List.fromList(utf8.encode(signedText)),
+    );
+    if (!valid) throw const FormatException('服务端结果签名无效');
+    return VerifiedTopupReceipt._(this);
+  }
+
+  factory TopupReceipt.notification(
+    Map<String, dynamic> payload,
+    TopupReceipt prior,
+  ) {
+    exactTopupFields(payload, const {'kind', 'result', 'result_signature'});
+    if (payload['kind'] != 'topup_result' ||
+        payload['result'] is! Map<String, dynamic>) {
+      throw const FormatException('充值通知无效');
+    }
+    final result = payload['result'] as Map<String, dynamic>;
+    return TopupReceipt.fromJson({
+      ...prior.toJson(),
+      'order_rev': result['result_rev'],
+      'order_state': result['order_state'],
+      'payment_txid': result['payment_txid'],
+      'gmb_tx_hash': result['gmb_tx_hash'],
+      'coin_fen': result['coin_fen'],
+      'exception_reason': result['exception_reason'],
+      'auto_final': true,
+      'chain_state': result['chain_state'],
+      'result_ack': prior.acknowledged,
+      'result': result,
+      'result_signature': payload['result_signature'],
+    });
+  }
+  String get message => state == 'exception'
+      ? '充值处理异常，请核实原订单'
+      : state == 'paid'
+      ? '服务端已发回完成结果'
+      : '发币请求已受理，等待完成结果';
+}
+
+/// 只能由现有SDK纯验签生成，不能由推送布尔值或外部JSON构造。
+class VerifiedTopupReceipt {
+  const VerifiedTopupReceipt._(this.receipt);
+  final TopupReceipt receipt;
+}
