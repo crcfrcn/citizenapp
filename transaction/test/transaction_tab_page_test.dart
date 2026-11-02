@@ -4,6 +4,7 @@ import 'package:citizen_storage/user_isar.dart' as wallet_store show Entry;
 import 'dart:async';
 
 import 'package:citizen_transaction/onchain/onchain_payment_models.dart';
+import 'package:citizen_transaction/onchain/onchain_payment_service.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -17,6 +18,29 @@ const _walletAAccountId =
     '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const _walletBAccountId =
     '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+
+class _RecipientService extends OnchainPaymentService {
+  _RecipientService(this.recipient);
+  final String recipient;
+  String? input;
+  int preparations = 0;
+  @override
+  Future<OnchainRecipient> resolveRecipient({
+    required String address,
+    String? cidNumber,
+  }) async {
+    input = address;
+    return OnchainRecipient(address: recipient);
+  }
+
+  @override
+  Future<CitizenPreparedTransaction> prepareTransfer(
+    OnchainPaymentDraft draft,
+  ) async {
+    preparations++;
+    throw StateError('确认取消后不得准备交易');
+  }
+}
 
 CitizenWalletStateAccount _wallet({
   required int index,
@@ -68,6 +92,73 @@ Future<void> _pumpUntilFound(WidgetTester tester, Finder finder) async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('0x收款地址进入原确认弹窗，显示原始地址及解析账户，取消不准备交易', (tester) async {
+    const address = '0x6D66a0cB155051055F3FB3Cc73d9230D3Fb4D5B5';
+    const recipient = 'w5Bc7ma8qUcECfQDJmRyQM2wGmga5XSYtz7DvEengQ86xBWrT';
+    final service = _RecipientService(recipient);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        home: OnchainPaymentPanel(
+          title: '交易',
+          paymentService: service,
+          currentWalletLoader: () async => _wallet(
+            index: 0,
+            name: '测试钱包',
+            address: 'wallet_a',
+            accountId: _walletAAccountId,
+          ),
+          balanceLoader: (_) async => 100,
+          localRecordsLoader: (_, {limit = 100}) async => const [],
+        ),
+      ),
+    );
+    await _pumpUntilFound(tester, find.textContaining('钱包可用余额：100'));
+    final banner = tester.widget<ChainProgressBanner>(
+      find.byType(ChainProgressBanner),
+    );
+    final block = CitizenBlockRef(
+      hash: _walletAAccountId,
+      number: BigInt.one,
+      finality: CitizenBlockFinality.finalized,
+    );
+    banner.onProgressChanged?.call(
+      CitizenChainSyncStatus(
+        peerCount: BigInt.one,
+        isSyncing: false,
+        isUsable: true,
+        best: block,
+        finalized: block,
+      ),
+    );
+    await tester.pump();
+    await tester.enterText(
+      find.byWidgetPredicate(
+        (w) =>
+            w is TextField &&
+            w.decoration?.hintText == '请输入 公民链SS58地址 或 以太坊0x地址',
+      ),
+      address,
+    );
+    await tester.enterText(
+      find.byWidgetPredicate(
+        (w) => w is TextField && w.decoration?.hintText == '请输入金额',
+      ),
+      '2',
+    );
+    final submit = find.widgetWithText(FilledButton, '签名交易');
+    await tester.ensureVisible(submit);
+    await tester.tap(submit);
+    await _pumpUntilFound(tester, find.text('确认交易'));
+    expect(service.input, address);
+    expect(find.text('以太坊地址：$address'), findsOneWidget);
+    expect(find.text('收款账户：$recipient'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, '取消'));
+    await tester.pumpAndSettle();
+    expect(service.preparations, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 
   testWidgets('隐藏底层错误行但保留未就绪禁用与同步恢复', (tester) async {
     await tester.pumpWidget(
@@ -428,7 +519,8 @@ void main() {
     final addressField = tester.widget<TextField>(
       find.byWidgetPredicate(
         (widget) =>
-            widget is TextField && widget.decoration?.hintText == '请输入账户',
+            widget is TextField &&
+            widget.decoration?.hintText == '请输入 公民链SS58地址 或 以太坊0x地址',
       ),
     );
     expect(addressField.controller?.text, recipient);

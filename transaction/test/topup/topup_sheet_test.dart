@@ -48,17 +48,38 @@ class MemoryStore extends TopupStore {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   testWidgets('打开真实充值弹窗只预备一次本地宿主，不签名建单或访问接口', (tester) async {
-    final session = TopupWalletSession(), api = FakeApi(), store = MemoryStore();
-    var preparations = 0; session.addListener(() => preparations++);
-    Widget app() => ChangeNotifierProvider<TopupWalletSession>.value(value:session,
-      child:MaterialApp(home:Scaffold(body:TopupSheet(accountId:'0x${'04' * 32}',token:'USDT',api:api,store:store))));
-    await tester.pumpWidget(app()); await tester.pump();
-    expect(session.started, true); expect(preparations, 1); expect(api.requests, 0);
+    final session = TopupWalletSession(),
+        api = FakeApi(),
+        store = MemoryStore();
+    var preparations = 0;
+    session.addListener(() => preparations++);
+    Widget app() => ChangeNotifierProvider<TopupWalletSession>.value(
+      value: session,
+      child: MaterialApp(
+        home: Scaffold(
+          body: TopupSheet(
+            accountId: '0x${'04' * 32}',
+            token: 'USDT',
+            api: api,
+            store: store,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpWidget(app());
+    await tester.pump();
+    expect(session.started, true);
+    expect(preparations, 1);
+    expect(api.requests, 0);
     expect(find.byType(TopupWebviewPage), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pumpWidget(app()); await tester.pump();
-    expect(preparations, 1); expect(api.requests, 0);
-    await tester.pumpWidget(const SizedBox.shrink()); session.close(); session.dispose();
+    await tester.pumpWidget(app());
+    await tester.pump();
+    expect(preparations, 1);
+    expect(api.requests, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+    session.close();
+    session.dispose();
   });
   testWidgets('App付款宿主只请求创建一次，关闭会唤醒等待者且不访问充值接口', (tester) async {
     final session = TopupWalletSession(),
@@ -66,12 +87,10 @@ void main() {
         store = MemoryStore();
     var starts = 0;
     session.addListener(() => starts++);
-    late BuildContext context;
     await tester.pumpWidget(
       MaterialApp(
         home: Builder(
           builder: (value) {
-            context = value;
             return const SizedBox.shrink();
           },
         ),
@@ -82,14 +101,14 @@ void main() {
       package: TopupConfig.local().packages.first,
       network: TopupNetwork.ethereum,
     );
-    final first = session.pay(context, selection, '0x${'04' * 32}', api, store);
-    final second = session.pay(
-      context,
-      selection,
-      '0x${'04' * 32}',
-      api,
-      store,
+    final record = TopupRecord.signed(
+      TopupDraft.create(selection, '0x${'04' * 32}'),
+      TopupWallet.id,
+      '0x${'01' * 64}',
+      now: 1000000,
     );
+    final first = session.pay(record, store);
+    final second = session.pay(record, store);
     final firstError = expectLater(first, throwsStateError),
         secondError = expectLater(second, throwsStateError);
     expect(session.started, true);

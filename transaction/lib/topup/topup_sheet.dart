@@ -1,3 +1,8 @@
+import 'package:citizen_sdk/citizen_sdk.dart'
+    show CitizenSdk, CitizenSigningTransform, CitizenSdkException;
+import 'package:citizen_scanner/qr_sign_session_page.dart'
+    show signCitizenPayload;
+import 'package:citizen_system/app_log.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
@@ -57,24 +62,27 @@ class TopupSheet extends StatefulWidget {
 }
 
 class _TopupSheetState extends State<TopupSheet> {
-  late final TopupApi _api = widget.api ?? TopupApi();
   late final TopupStore _store = widget.store ?? TopupStore.shared;
   int _package = 0;
   bool _busy = false;
   TopupSelection? _selection;
   String? _error;
+  TopupWalletSession? _wallet;
+  String? _orderId;
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && widget.paymentOpener == null)
-        context.read<TopupWalletSession?>()?.prepare();
+      if (mounted && widget.paymentOpener == null) {
+        _wallet = context.read<TopupWalletSession?>();
+        _wallet?.prepare();
+      }
     });
   }
 
   @override
   void dispose() {
-    if (widget.api == null) _api.close();
+    if (_orderId != null) _wallet?.leave(_orderId!);
     super.dispose();
   }
 
@@ -282,6 +290,8 @@ class _TopupSheetState extends State<TopupSheet> {
 
   Future<void> _pay(TopupConfig config, TopupNetwork network) async {
     if (_busy) return;
+    final route = ModalRoute.of(context);
+    final accountId = widget.accountId;
     final selection = TopupSelection(
       token: widget.token,
       package: config.packages[_package],
@@ -293,22 +303,52 @@ class _TopupSheetState extends State<TopupSheet> {
       _error = null;
     });
     try {
-      final record = widget.paymentOpener == null
-          ? await context.read<TopupWalletSession>().pay(
-              context,
-              selection,
-              widget.accountId,
-              _api,
-              _store,
-            )
-          : await widget.paymentOpener!(selection);
+      TopupRecord? record;
+      if (widget.paymentOpener != null) {
+        record = await widget.paymentOpener!(selection);
+      } else {
+        AppLog.topupOrder('signing');
+        final created = await _store.signOrder(
+          TopupDraft.create(selection, accountId),
+          TopupWallet.id,
+          (payload) async {
+            final signature = await signCitizenPayload(
+              signing: context.read<CitizenSdk>(),
+              context: context,
+              accountId: accountId,
+              payload: payload,
+              action: TopupDraft.action,
+              transform: CitizenSigningTransform.raw(),
+            );
+            AppLog.topupOrder('signed');
+            return signature;
+          },
+          active: () =>
+              mounted &&
+              widget.accountId == accountId &&
+              widget.token == selection.token,
+        );
+        AppLog.topupOrder('saved');
+        if (!mounted) return;
+        _orderId = created.payment.orderId;
+        _wallet ??= context.read<TopupWalletSession>();
+        record = await _wallet!.pay(
+          created,
+          _store,
+          presenting: () => mounted && (route?.isCurrent ?? false),
+        );
+      }
       if (mounted) _finished(record, null);
     } on Object catch (error) {
+      if (_orderId == null)
+        AppLog.topupOrder(
+          'failed',
+          sdkCode: error is CitizenSdkException ? error.code : null,
+        );
       const reasons = {
         '付款组件初始化超时',
         '付款钱包初始化失败',
         '付款组件启动失败',
-        '上一笔付款尚未结束',
         '本次付款已结束',
         '付款通信已关闭',
         '充值签名或保存未完成，未创建订单',

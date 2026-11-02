@@ -12,7 +12,6 @@ import 'package:citizen_system/app_log.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_widgets/chain_progress_banner.dart';
-import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 import 'package:citizen_system/amount_format.dart';
 import 'package:citizen_transaction/onchain/onchain_payment_models.dart';
 import 'package:citizen_transaction/personal/personal_account_entry.dart';
@@ -25,7 +24,6 @@ import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_scanner/address_scan_button.dart';
 import 'package:citizen_account/navigation.dart';
 import 'package:citizen_account/contacts/contact_service.dart' show UserContact;
-import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_account/identity/account_security_service.dart';
 import 'package:citizen_transaction/history/transaction_history_page.dart';
 import 'package:citizen_system/theme/app_layout.dart';
@@ -544,27 +542,6 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     }
     final amountText = AmountFormat.stripCommas(amountRaw);
 
-    // SS58 地址校验（prefix 走 kGmbSs58Prefix 单源）
-    try {
-      if (requestedCid == null) {
-        final decoded = Keyring().decodeAddress(toAddress);
-        // 验证 prefix：重新编码后比对
-        final reEncoded = Keyring().encodeAddress(decoded, kGmbSs58Prefix);
-        if (reEncoded != toAddress) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('收款地址不是本链地址（SS58 前缀不匹配）')),
-          );
-          return;
-        }
-      }
-    } catch (e) {
-      AppLog.d('[OnchainPay] 收款地址 SS58 校验失败: $e');
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('收款地址格式错误，请输入有效的 SS58 地址')));
-      return;
-    }
-
     final amount = double.tryParse(amountText);
     if (amount == null ||
         !amount.isFinite ||
@@ -622,6 +599,13 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
         return;
       }
       toAddress = recipient.address;
+    } on FormatException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+      return;
     } on Object {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -663,6 +647,8 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
             Text('付款账户：$payerName'),
             if (recipient.cidNumber != null)
               Text('收款公民号：${recipient.cidNumber}'),
+            if (requestedCid == null && requestedAddress.startsWith('0x'))
+              Text('以太坊地址：$requestedAddress'),
             Text('收款账户：${recipient.address}'),
             Text(
               '转账金额：${AmountFormat.format(amount, symbol: _selectedSymbol)}',
@@ -975,7 +961,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
                 fontSize: AppLayout.scaledValue(14),
               ),
               decoration: transactionFieldDecoration(
-                hintText: '请输入账户',
+                hintText: '请输入 公民链SS58地址 或 以太坊0x地址',
                 suffixIcon: AddressScanButton(
                   onAddressScanned: (accountAddress) => setState(() {
                     _toController.text = accountAddress;

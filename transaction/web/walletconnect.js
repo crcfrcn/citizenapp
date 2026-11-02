@@ -12,11 +12,10 @@ export function paymentTransaction(value,chosen){
  if(!value||Object.keys(value).sort().join()!=='chainId,data,to,value'||value.chainId!==expected||value.value!=='0x0'||!/^0x[0-9a-f]{40}$/.test(value.to)||!/^0xa9059cbb[0-9a-f]{192}$/.test(value.data))throw Error('付款交易与所选网络不一致');
  return Object.freeze({...value});
 }
-// 真实流程和测试共用此入口；签名保存、交易准备均在首次钱包唤起之前完成。
-export async function paymentFlow({ask,selection:value,openWallet,active=()=>true,createSdk,wallet=metamask,storage,timeoutMs=walletTimeout}){
+// 调用方已签名保存订单；本层只执行其冻结交易并交付该订单回执。
+export async function paymentFlow({ask,selection:value,transaction:prepared,openWallet,active=()=>true,createSdk,wallet=metamask,storage,timeoutMs=walletTimeout}){
  const chosen=selection(value);
- const prepared=await ask('create_order');
- const transaction=paymentTransaction(prepared.transaction,chosen);
+ const transaction=paymentTransaction(prepared,chosen);
  let opened=false;
  const openOnce=async url=>{
   if(!active())throw Error('本次付款已结束');
@@ -43,12 +42,13 @@ export function connectFailure(error){
  return {error:outcome,rpc_code:known.includes(code)?code:null,detail};
 }
 
-// 文档和SDK跟随App；桥接序号全局递增，每笔订单以独立operation隔离迟到回执。
-let host,pending=new Map(),sequence=0,current;
-const ask=(kind,payload={},operation)=>new Promise((resolve,reject)=>{
+// 通信会话仅负责来源校验；每个实际签后order_id拥有自己的等待和取消。
+let host,sequence=0;
+const pending=new Map(),payments=new Map();
+const ask=(kind,payload={},orderId)=>new Promise((resolve,reject)=>{
  if(!host){reject(Error('付款通信已关闭'));return;}
  const id=++sequence,timer=setTimeout(()=>{pending.delete(id);reject(Error('付款回执等待超时'));},walletTimeout);
- pending.set(id,{resolve,reject,timer});window.TopupBridge.postMessage(JSON.stringify({session:host,id,kind,...(operation?{operation}:{}),...payload}));
+ pending.set(id,{resolve,reject,timer});window.TopupBridge.postMessage(JSON.stringify({session:host,id,kind,...(orderId?{order_id:orderId}:{}),...payload}));
 });
 const storage={
  getPersistedChannelConfig:async()=>{const value=await ask('wallet_storage',{key:'channel'});return value?JSON.parse(value):undefined;},
@@ -59,20 +59,25 @@ const storage={
  persistChainId:value=>ask('wallet_storage',{key:'chain',value}),
  terminate:()=>ask('wallet_storage',{key:'channel',value:null})
 };
-export function cancel(operation){if(current?.operation===operation)current.stopped=true;}
-export function close(){current&&(current.stopped=true);host=undefined;for(const item of pending.values()){clearTimeout(item.timer);item.reject(Error('付款通信已关闭'));}pending.clear();metamask.close();}
-export async function start(cfg){
- if(current&&!current.stopped||host&&host!==cfg.session)return;
- host=cfg.session;const operation={operation:cfg.operation,stopped:false};current=operation;
+export function cancel(orderId){const payment=payments.get(orderId);if(payment)payment.stopped=true;}
+export function close(){for(const payment of payments.values())payment.stopped=true;host=undefined;for(const item of pending.values()){clearTimeout(item.timer);item.reject(Error('付款通信已关闭'));}pending.clear();metamask.close();}
+export function start(cfg,{wallet=metamask,createSdk}={}){
+ if(!/^top_[0-9a-f]{32}$/.test(cfg.order_id))return Promise.reject(Error('充值订单身份无效'));
+ if(host&&host!==cfg.session)return Promise.reject(Error('付款通信会话不匹配'));
+ const existing=payments.get(cfg.order_id);if(existing)return existing.promise;
+ host=cfg.session;const payment={stopped:false,promise:undefined};payments.set(cfg.order_id,payment);
  window.CitizenTopup.reply=(session,id,response)=>{
   if(session!==host)return;
   const item=pending.get(id);if(!item)return;pending.delete(id);clearTimeout(item.timer);
   response.ok?item.resolve(response.value):item.reject(Error('付款流程已停止'));
  };
- try{
-  await paymentFlow({ask:(kind,payload)=>ask(kind,payload,operation.operation),selection:cfg.selection,storage,
-   active:()=>current===operation&&!operation.stopped,openWallet:(url,transaction)=>ask('external_wallet',{url,transaction},operation.operation)});
- }catch(error){
-  if(current===operation&&!operation.stopped&&host){const failure=connectFailure(error);window.TopupBridge.postMessage(JSON.stringify({session:host,operation:operation.operation,id:++sequence,kind:'error',stage:'submitted',code:failure.error,rpc_code:failure.rpc_code,detail:failure.detail}));}
- }finally{operation.stopped=true;}
+ payment.promise=(async()=>{
+  try{
+   await paymentFlow({ask:(kind,payload)=>ask(kind,payload,cfg.order_id),selection:cfg.selection,transaction:cfg.transaction,storage,wallet,createSdk,
+    active:()=>!payment.stopped,openWallet:(url,transaction)=>ask('external_wallet',{url,transaction},cfg.order_id)});
+  }catch(error){
+   if(!payment.stopped&&host){const failure=connectFailure(error);window.TopupBridge.postMessage(JSON.stringify({session:host,order_id:cfg.order_id,id:++sequence,kind:'error',stage:'submitted',code:failure.error,rpc_code:failure.rpc_code,detail:failure.detail}));}
+  }finally{payment.stopped=true;}
+ })();
+ return payment.promise;
 }

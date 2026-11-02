@@ -78,6 +78,43 @@ void main() {
       now: 1000000,
     );
   });
+  test('旧签名未返回不占用新订单：新签名成功后独立落库，旧签名失败不生成订单', () async {
+    final catalog = TopupConfig.local();
+    TopupDraft draft() => TopupDraft.create(
+      TopupSelection(
+        token: 'USDC',
+        package: catalog.packages.first,
+        network: TopupNetwork.base,
+      ),
+      '0x${'04' * 32}',
+    );
+    final firstSignature = Completer<Uint8List>();
+    final old = store.signOrder(
+      draft(),
+      TopupWallet.id,
+      (_) => firstSignature.future,
+    );
+    final failure = expectLater(old, throwsStateError);
+    final created = await store.signOrder(
+      draft(),
+      TopupWallet.id,
+      (_) async => Uint8List.fromList(List.filled(64, 1)),
+    );
+    expect(created.progress, TopupProgress.pending);
+    expect(
+      (await store.list(
+        created.origin,
+        created.payment.accountId,
+      )).map((value) => value.payment.orderId),
+      [created.payment.orderId],
+    );
+    firstSignature.completeError(StateError('synthetic signature rejection'));
+    await failure;
+    expect(
+      (await store.list(created.origin, created.payment.accountId)).length,
+      1,
+    );
+  });
   TopupProof proof(TopupRecord value) => TopupProof.fromJson({
     'network': value.payment.network.wire,
     'payment_txid': value.txid,

@@ -12,19 +12,20 @@ box.self=box;vm.createContext(box);vm.runInContext(source,box);const api=box.Cit
 const hash='0x'+'09'.repeat(32),payer='0x'+'03'.repeat(20),asset='0x'+'02'.repeat(20),data='0xa9059cbb'+'00'.repeat(96);
 const chosen={token:'USDC',network:'base',package_id:'pkg_10'};
 const transaction={to:asset,value:'0x0',chainId:'0x2105',data};
-function scenario({signFailure=false,saveFailure=false,receipt={txid:hash,payer},doubleOpen=false}={}){
+function scenario({receipt={txid:hash,payer},doubleOpen=false}={}){
  const events=[],wallet=api.createWalletSession();let opened=0,initialized=0,terminated=0,submitted=0;
- const ask=async(kind,value)=>{events.push(kind);if(kind==='create_order'){if(signFailure||saveFailure)throw Error('signature or storage rejected');return {transaction};}if(kind==='submitted'){submitted++;assert.equal(value.txid,hash);assert.equal(value.transaction.data,data);return {submitted:true};}};
+ const ask=async(kind,value)=>{events.push(kind);if(kind==='submitted'){submitted++;assert.equal(value.txid,hash);assert.equal(value.transaction.data,data);return {submitted:true};}};
  const createSdk=options=>{initialized++;events.push('sdk');assert.equal(options.checkInstallationImmediately,false);assert.equal(options.enableAnalytics,false);assert.equal(options.storage.enabled,true);
   return {async connect(){events.push('connect');options.openDeeplink('metamask://connect?channel=synthetic');return receipt.payer===undefined?[]:[receipt.payer];},getProvider(){return {getChainId:()=>transaction.chainId,request:async rpc=>{events.push('sendTransaction');assert.equal(rpc.method,'eth_sendTransaction');assert.deepEqual(JSON.parse(JSON.stringify(rpc.params)),[{...transaction,from:receipt.payer}]);if(doubleOpen)options.openDeeplink('metamask://connect?wake=synthetic');return receipt.txid;}};},async terminate(){terminated++;}};};
- return {events,wallet,ask,createSdk,openWallet:async()=>{opened++;events.push('open');},get counts(){return {opened,initialized,terminated,submitted};}};
+ return {events,wallet,transaction,ask,createSdk,openWallet:async()=>{opened++;events.push('open');},get counts(){return {opened,initialized,terminated,submitted};}};
 }
 test('签名保存后在同一钱包会话连接再支付，只唤起一次并保存回执',async()=>{
  const p=scenario();assert.equal(await api.paymentFlow({...p,selection:chosen}),hash);
- assert.deepEqual(p.events,['create_order','sdk','connect','open','sendTransaction','submitted']);assert.deepEqual(p.counts,{opened:1,initialized:1,terminated:0,submitted:1});
+ assert.deepEqual(p.events,['sdk','connect','open','sendTransaction','submitted']);assert.deepEqual(p.counts,{opened:1,initialized:1,terminated:0,submitted:1});
 });
-for(const reason of ['signFailure','saveFailure'])test(reason+'时不初始化SDK、不唤起、不发送付款',async()=>{
- const p=scenario({[reason]:true});await assert.rejects(api.paymentFlow({...p,selection:chosen}));assert.deepEqual(p.counts,{opened:0,initialized:0,terminated:0,submitted:0});
+test('未交付完整冻结交易时不初始化SDK或唤起钱包',async()=>{
+ const p=scenario();await assert.rejects(api.paymentFlow({...p,selection:chosen,transaction:undefined}));
+ assert.deepEqual(p.counts,{opened:0,initialized:0,terminated:0,submitted:0});
 });
 test('SDK交易唤醒回调不再打开已在前台的钱包，只提交同一付款回执',async()=>{
  const p=scenario({doubleOpen:true});await api.paymentFlow({...p,selection:chosen});assert.equal(p.counts.opened,1);assert.equal(p.counts.submitted,1);
@@ -52,11 +53,11 @@ test('SDK官方rejected事件按取消返回，明确未执行的RPC失败与未
   assert.equal(api.connectFailure(error).error,expected);assert.equal(p.counts.submitted,0);
  }
 });
-test('钱包无回执在上限后结束通信并保留未知，迟到结果不上传',async()=>{
+test('钱包无回执在上限后结束本单等待并保留未知，迟到结果不上传',async()=>{
  const p=scenario(),original=p.createSdk;let finish;
  p.createSdk=options=>{const sdk=original(options);sdk.getProvider=()=>({getChainId:()=>transaction.chainId,request:()=>new Promise(resolve=>{finish=resolve;})});return sdk;};
  await assert.rejects(api.paymentFlow({...p,selection:chosen,timeoutMs:5}),error=>api.connectFailure(error).error==='other');
- assert.deepEqual(p.counts,{opened:1,initialized:1,terminated:1,submitted:0});
+ assert.deepEqual(p.counts,{opened:1,initialized:1,terminated:0,submitted:0});
  finish(hash);await new Promise(resolve=>setTimeout(resolve,0));assert.equal(p.counts.submitted,0);
 });
 test('故障诊断只返回固定RPC码和SDK分类，不传异常正文',()=>{
@@ -79,7 +80,7 @@ test('两币种三网络两套餐只接受准确链号及完整100字节绑定',
  }
  assert.equal(count,12);
 });
-test('未知币种网络套餐及额外字段在签名前拒绝',()=>{
+test('未知币种网络套餐及额外字段在付款RPC前拒绝',()=>{
  for(const c of [{...chosen,token:'FAKE'},{...chosen,network:'unknown'},{...chosen,package_id:'free'},{...chosen,extra:true}])assert.throws(()=>api.selection(c));
 });
 test('网页只是随包通信载体，没有钱包选择器、连接按钮或外部脚本',()=>{
@@ -91,19 +92,24 @@ test('连续两笔订单复用同一SDK，每单只有一次唤起和一次回�
  const p=scenario();await api.paymentFlow({...p,selection:chosen});await api.paymentFlow({...p,selection:chosen});
  assert.deepEqual(p.counts,{opened:2,initialized:1,terminated:0,submitted:2});
 });
-test('同一SDK不能同时执行两笔订单，防止付款回执串单',async()=>{
- const p=scenario();let finish;
- p.createSdk=options=>({connect:async()=>{options.openDeeplink('metamask://connect?channel=synthetic');return [payer];},getProvider:()=>({getChainId:()=>transaction.chainId,request:()=>new Promise(resolve=>{finish=resolve;})}),terminate:async()=>{}});
- const first=api.paymentFlow({...p,selection:chosen});await new Promise(resolve=>setTimeout(resolve,0));
- await assert.rejects(api.paymentFlow({...p,selection:chosen}),/尚未结束/);
- finish(hash);await first;assert.equal(p.counts.opened,1);assert.equal(p.counts.submitted,1);
+test('旧单授权不返回，新单仍可完成，晚到旧回执不会更新新单',async()=>{
+ const wallet=api.createWalletSession(),first=scenario(),second=scenario();
+ const nextHash='0x'+'08'.repeat(32),nextTransaction={...transaction,data:'0xa9059cbb'+'01'.repeat(96)};
+ let authorize,connects=0;const results=[];
+ const createSdk=options=>({connect:()=>{options.openDeeplink('metamask://connect?channel=synthetic');connects++;return connects===1?new Promise(resolve=>{authorize=resolve;}):Promise.resolve([payer]);},getProvider:()=>({getChainId:()=>transaction.chainId,request:async rpc=>rpc.params[0].data===nextTransaction.data?nextHash:hash})});
+ const ask=label=>async(kind,value)=>{assert.equal(kind,'submitted');results.push([label,value.txid]);return {submitted:true};};
+ const old=api.paymentFlow({...first,wallet,createSdk,ask:ask('old'),selection:chosen});
+ await new Promise(resolve=>setTimeout(resolve,0));
+ assert.equal(await api.paymentFlow({...second,wallet,createSdk,ask:ask('new'),selection:chosen,transaction:nextTransaction}),nextHash);
+ assert.deepEqual(results,[['new',nextHash]]);authorize([payer]);assert.equal(await old,hash);
+ assert.deepEqual(results,[['new',nextHash],['old',hash]]);assert.equal(first.counts.opened,1);assert.equal(second.counts.opened,1);
 });
 test('App关闭拒绝在途操作；迟到结果及后续付款不能继续',async()=>{
  const p=scenario();let finish;
  p.createSdk=()=>({connect:()=>new Promise(resolve=>{finish=resolve;}),terminate:async()=>{}});
  const payment=api.paymentFlow({...p,selection:chosen});await new Promise(resolve=>setTimeout(resolve,0));
  p.wallet.close();await assert.rejects(payment,/已结束/);finish([payer]);
- await assert.rejects(api.paymentFlow({...p,selection:chosen}),/尚未结束/);assert.equal(p.counts.submitted,0);
+ await assert.rejects(api.paymentFlow({...p,selection:chosen}),/已关闭/);assert.equal(p.counts.submitted,0);
 });
 test('SDK收到原生提供的存储接口，不启用网页默认存储',async()=>{
  const p=scenario(),storage={getPersistedChannelConfig:async()=>undefined};const original=p.createSdk;
@@ -135,4 +141,29 @@ test('钱包拒绝切换支付网络，不能继续发起转账',async()=>{
  const p=scenario();let transactions=0;
  p.createSdk=()=>({connect:async()=>[payer],getProvider:()=>({getChainId:()=> '0x1',request:async rpc=>{if(rpc.method==='wallet_switchEthereumChain')throw {code:4001};transactions++;return hash;}}),terminate:async()=>{}});
  await assert.rejects(api.paymentFlow({...p,selection:chosen}),error=>error.code===4001);assert.equal(transactions,0);assert.equal(p.counts.submitted,0);
+});
+
+test('SDK唤醒链接不携带另一笔交易，保留同一频道和原有base64字节',async()=>{
+ const p=scenario();let url;
+ p.createSdk=options=>({connect:async()=>{options.openDeeplink('metamask://connect?channelId=synthetic&originatorInfo=abc+def=&rpc=opaque&v=2');return [payer];},getProvider:()=>({getChainId:()=>transaction.chainId,request:async()=>hash})});
+ p.openWallet=async value=>{url=value;};await api.paymentFlow({...p,selection:chosen});
+ assert.equal(url,'metamask://connect?channelId=synthetic&originatorInfo=abc+def=&v=2');
+});
+
+test('真实桥接按签后order_id处理：旧付款不返回，新付款完成且重复同单不再支付',async()=>{
+ box.window=box;
+ const session='synthetic-document-session',oldId='top_'+'01'.repeat(16),newId='top_'+'02'.repeat(16);
+ const nextHash='0x'+'08'.repeat(32),nextTransaction={...transaction,data:'0xa9059cbb'+'02'.repeat(96)};
+ const messages=[];let finishOld,calls=0;
+ box.TopupBridge={postMessage:raw=>{const message=JSON.parse(raw);messages.push(message);queueMicrotask(()=>api.reply(session,message.id,{ok:true,value:message.kind==='submitted'?{submitted:true}:null}));}};
+ const wallet={pay:async({transaction:value,openWallet})=>{calls++;await openWallet('metamask://connect?channelId=synthetic');return {txid:value.data===transaction.data?await new Promise(resolve=>{finishOld=resolve;}):nextHash,payer};}};
+ const cfg=id=>({session,order_id:id,selection:chosen,transaction:id===oldId?transaction:nextTransaction});
+ const old=api.start(cfg(oldId),{wallet});await new Promise(resolve=>setTimeout(resolve,0));
+ await api.start(cfg(newId),{wallet});
+ assert.deepEqual(messages.filter(m=>m.kind==='submitted').map(m=>[m.order_id,m.txid]),[[newId,nextHash]]);
+ await api.start(cfg(newId),{wallet});assert.equal(calls,2);
+ finishOld(hash);await old;
+ assert.deepEqual(messages.filter(m=>m.kind==='submitted').map(m=>[m.order_id,m.txid]),[[newId,nextHash],[oldId,hash]]);
+ assert.ok(messages.every(m=>m.kind!=='create_order'&&!Object.hasOwn(m,'operation')));
+ delete box.window;delete box.TopupBridge;
 });
