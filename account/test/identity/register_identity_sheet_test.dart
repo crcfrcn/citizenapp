@@ -21,6 +21,7 @@ CitizenWalletStateAccount _account({int index = 0, String? id}) =>
     );
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   // 面板提交回调读取选择；成功后才关闭，失败会留在当前面板。
   Future<void> openSheet(
     WidgetTester tester,
@@ -135,7 +136,7 @@ void main() {
     expect(find.byType(RegisterIdentitySheet), findsNothing);
   });
 
-  testWidgets('余额不足打开所选账户充值弹窗，保留币种选择且返回注册面板', (tester) async {
+  testWidgets('余额不足先显示两种U入口，所选币种进入同一两行弹窗并返回注册面板', (tester) async {
     final target = _account(index: 5);
     await openSheet(
       tester,
@@ -150,9 +151,12 @@ void main() {
     await tester.pump();
     await tester.tap(find.text('确认注册'));
     await tester.pump();
+    expect(find.byType(TopupSheet), findsNothing);
+    await tester.tap(find.text('充值/USDC'));
+    await tester.pumpAndSettle();
     final topup = tester.widget<TopupSheet>(find.byType(TopupSheet));
     expect(topup.accountId, target.accountId);
-    expect(topup.token, isNull);
+    expect(topup.token, 'USDC');
     expect(find.byType(BottomSheet), findsNWidgets(2));
     expect(find.byType(Scaffold), findsOneWidget);
     await tester.binding.handlePopRoute();

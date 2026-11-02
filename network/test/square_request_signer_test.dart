@@ -13,9 +13,13 @@ import 'package:citizen_system/notifications/app_push_token.dart';
 
 import 'package:citizen_testing/mls_authentication_fixture.dart';
 
-Map<String, dynamic> _proof(Map<String, String> headers) => jsonDecode(
-  utf8.decode(base64Url.decode(base64Url.normalize(headers['x-mls-proof']!))),
-) as Map<String, dynamic>;
+Map<String, dynamic> _proof(Map<String, String> headers) =>
+    jsonDecode(
+          utf8.decode(
+            base64Url.decode(base64Url.normalize(headers['x-mls-proof']!)),
+          ),
+        )
+        as Map<String, dynamic>;
 
 void main() {
   test('正文冻结并保留完整/api路径、查询和DELETE正文', () async {
@@ -122,7 +126,7 @@ void main() {
     });
     expect(pushBody!['push_token'], 'fcm-token-1234567890');
     expect(requests, 4);
-    expect(source.proofCalls, 2);
+    expect(source.proofCalls, 4);
     expect(
       identical(
         await client.ensureSession(
@@ -147,7 +151,7 @@ void main() {
     'body_hash',
     'extra',
   ]) {
-    test('挑战$field被改动时不进入签名和会话提交', () async {
+    test('挑战$field被改动后不签业务证明或提交会话', () async {
       final source = FakeMlsAuthentication();
       var submits = 0;
       final client = SquareApiClient(
@@ -170,7 +174,7 @@ void main() {
         ),
         throwsA(isA<MlsAuthenticationException>()),
       );
-      expect(source.proofCalls, 0);
+      expect(source.proofCalls, 1);
       expect(submits, 0);
     });
   }
@@ -275,7 +279,7 @@ void main() {
       throwsA(isA<MlsAuthenticationException>()),
     );
   });
-  test('过期挑战不能进入SDK签名或会话提交', () async {
+  test('过期业务挑战不能继续签名或提交会话', () async {
     final source = FakeMlsAuthentication();
     var submits = 0;
     final client = SquareApiClient(
@@ -295,7 +299,7 @@ void main() {
       client.ensureSession(accountId: testMlsAccountId, authentication: source),
       throwsArgumentError,
     );
-    expect(source.proofCalls, 0);
+    expect(source.proofCalls, 1);
     expect(submits, 0);
   });
 

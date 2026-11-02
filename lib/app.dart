@@ -56,6 +56,7 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
   bool _identityRequested = false;
   Future<void>? _identitySync;
   final _topupUpdates = TopupUpdates();
+  final _topupWallet = TopupWalletSession();
   final _topupPushSubs = <StreamSubscription<Map<String, dynamic>>>[];
   Future<void> _receiveTopupPush(Map<String, dynamic> data) async {
     try {
@@ -177,6 +178,7 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
 
   Future<void> _stopSdk() async {
     _closing = true;
+    _topupWallet.close();
     // 先停止接收；充值本地恢复不得成为SDK停止/checkpoint的前置门闩。
     final topupClose = _topupUpdates.close().catchError((Object _) {
       AppLog.d('topup_close_unavailable');
@@ -296,6 +298,7 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
         Provider<SquareApiClient>.value(value: widget.squareApiClient),
         Provider<AppPushService>.value(value: widget.appPushService),
         Provider<TopupUpdates>.value(value: _topupUpdates),
+        ChangeNotifierProvider<TopupWalletSession>.value(value: _topupWallet),
         Provider<WalletTransactionHistoryService>.value(
           value: widget.transactionHistory,
         ),
@@ -307,8 +310,31 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
         // 只根据完整逻辑视口注入动态 UI 主题；不覆盖 MediaQuery。
-        builder: (context, child) =>
-            Theme(data: AppTheme.lightThemeFor(context), child: child!),
+        builder: (context, child) => Theme(
+          data: AppTheme.lightThemeFor(context),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              child!,
+              Positioned(
+                left: 0,
+                bottom: 0,
+                width: 1,
+                height: 1,
+                child: ListenableBuilder(
+                  listenable: _topupWallet,
+                  builder: (context, _) => _topupWallet.started
+                      ? ExcludeSemantics(
+                          child: IgnorePointer(
+                            child: TopupWebviewPage(session: _topupWallet),
+                          ),
+                        )
+                      : const SizedBox.shrink(),
+                ),
+              ),
+            ],
+          ),
+        ),
         home: const _AppLockGate(),
       ),
     );

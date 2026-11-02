@@ -56,9 +56,9 @@ class FakeMlsAuthentication implements MlsAuthenticationSource {
   Future<sdk.MlsAuthenticationProof> createProof({
     required MlsAuthenticationIdentity identity,
     required sdk.MlsAuthenticationRequest request,
-    required Map<String, dynamic> challenge,
   }) async {
-    validateMlsChallenge(identity, request, challenge);
+    identity.validate();
+    request.validate();
     await requireCurrent(identity);
     await beforeProof?.call();
     await requireCurrent(identity);

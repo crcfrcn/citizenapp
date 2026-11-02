@@ -2039,68 +2039,38 @@ final class RunnerUITests: XCTestCase {
     NSLog("WALLET_PICKER_UI multiple_existing_hot_accounts=1")
   }
 
-  /// 只读取账户详情与本地套餐，不点击钱包、不签名或建单。
+  /// 只读取两行本地弹窗；链点击会开始签名，因此本用例不点击链。
   func testTopupConfigAndPackagesWithoutOpeningPayment() throws {
     let app = try openExistingWallet()
     let row = hotAccountBadges(in: app).firstMatch
-    XCTAssertTrue(row.waitForExistence(timeout: 10), "未取得原热账户卡片")
-    XCTAssertTrue(row.isHittable, "原热账户卡片不在可点击区域")
-    row.tap()
-    XCTAssertTrue(app.staticTexts["账户详情"].waitForExistence(timeout: 10))
-    XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "合约查询")).firstMatch.exists)
-    for (token, networks) in [
-      ("USDC", ["Ethereum/以太坊链", "Base/Base链", "Solana/索拉纳链"]),
-      ("USDT", ["Ethereum/以太坊链", "Tron/波场链", "BNB/币安链"])
-    ] {
-      let card = app.descendants(matching: .any).matching(NSPredicate(
-        format: "label CONTAINS %@ AND label CONTAINS %@", "充值", token)).firstMatch
-      XCTAssertTrue(card.waitForExistence(timeout: 10))
-      XCTAssertTrue(card.isHittable); card.tap()
-      XCTAssertTrue(app.staticTexts["选择充值套餐 · " + token].waitForExistence(timeout: 10))
-      // 两档各三链共十二个组合；此用例只读取套餐，不进入钱包选择。
-      for network in networks {
-        let buttons = app.buttons.matching(NSPredicate(format: "label == %@", network))
-        XCTAssertEqual(buttons.count, 2, "每个套餐必须各显示三个原网络入口")
+    XCTAssertTrue(row.waitForExistence(timeout: 10)); row.tap()
+    for token in ["USDC", "USDT"] {
+      let entry = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "充值", token)).firstMatch
+      XCTAssertTrue(entry.waitForExistence(timeout: 10)); entry.tap()
+      for label in ["充值金额", "支付网络"] {
+        XCTAssertTrue(app.staticTexts[label].waitForExistence(timeout: 10))
       }
-      XCTAssertTrue(app.staticTexts["选择付款钱包后，先签充值信息，再确认付款"].exists)
-      XCTAssertFalse(app.webViews.firstMatch.exists, "读取套餐不应打开付款WebView")
-      // 关闭原底部套餐弹窗，只在弹窗外、已观测卡片区域点击，不触碰网络按钮。
-      let sheet = app.staticTexts["选择充值套餐 · " + token].frame
-      XCTAssertGreaterThan(sheet.minY, app.frame.minY + 20)
-      app.coordinate(withNormalizedOffset: .zero)
-        .withOffset(CGVector(dx: app.frame.midX, dy: (app.frame.minY + sheet.minY) / 2)).tap()
-      XCTAssertFalse(app.staticTexts["选择充值套餐 · " + token].exists)
+      XCTAssertTrue(app.buttons["10,000.00 元"].exists)
+      XCTAssertTrue(app.buttons["1,000,000.00 元"].exists)
+      XCTAssertTrue(app.staticTexts["付款金额：10.00USD"].exists)
+      for network in ["Ethereum/以太坊链", "BNB/币安链", "Base/贝斯链"] {
+        XCTAssertTrue(app.buttons[network].exists)
+      }
+      XCTAssertFalse(app.webViews.firstMatch.exists)
+      app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.05)).tap()
     }
-    NSLog("TOPUP_UI config=1 package_sheet=1 payment_opened=0 contract_entry=0")
   }
 
-  /// 只读检查六钱包门禁；点击钱包会签署充值信息，所以不点击、不建单。
-  func testTopupWalletChoicesReadOnly() throws {
-    continueAfterFailure = false
+  /// 只检查固定MetaMask说明；不点击链，不签名、建单或打开钱包。
+  func testTopupMetaMaskNoticeReadOnly() throws {
     let app = try openExistingWallet()
     let account = hotAccountBadges(in: app).firstMatch
-    XCTAssertTrue(account.waitForExistence(timeout: 10))
-    XCTAssertTrue(account.isHittable)
-    account.tap()
-    XCTAssertTrue(app.staticTexts["账户详情"].waitForExistence(timeout: 10))
-    let recharge = app.descendants(matching: .any).matching(NSPredicate(
-      format: "label CONTAINS %@ AND label CONTAINS %@", "充值", "USDC")).firstMatch
-    XCTAssertTrue(recharge.waitForExistence(timeout: 10))
-    XCTAssertTrue(recharge.isHittable)
-    recharge.tap()
-    XCTAssertTrue(app.staticTexts["选择充值套餐 · USDC"].waitForExistence(timeout: 10))
-    let network = app.buttons.matching(NSPredicate(format: "label == %@", "Ethereum/以太坊链"))
-    XCTAssertEqual(network.count, 2)
-    XCTAssertTrue(network.firstMatch.isHittable)
-    network.firstMatch.tap()
-    let web = app.webViews.firstMatch
-    XCTAssertTrue(web.waitForExistence(timeout: 15))
-    for (index, name) in ["MetaMask", "imToken", "Trust Wallet", "币安钱包", "欧易钱包", "Coinbase Wallet"].enumerated() {
-      let wallet = web.buttons.matching(NSPredicate(format: "label CONTAINS %@", name)).firstMatch
-      XCTAssertTrue(wallet.waitForExistence(timeout: 15), "钱包品牌未展示")
-      XCTAssertEqual(wallet.isEnabled, index == 0, "只能开放MetaMask")
-    }
-    // 不触碰任何钱包按钮；只点击弹窗外部，沿原底部弹窗退出。
+    XCTAssertTrue(account.waitForExistence(timeout: 10)); account.tap()
+    let entry = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "充值", "USDC")).firstMatch
+    XCTAssertTrue(entry.waitForExistence(timeout: 10)); entry.tap()
+    XCTAssertTrue(app.staticTexts[" MetaMask 钱包支付"].waitForExistence(timeout: 10))
+    XCTAssertFalse(app.staticTexts["付款钱包"].exists)
+    XCTAssertFalse(app.webViews.firstMatch.exists)
     app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.05)).tap()
   }
 

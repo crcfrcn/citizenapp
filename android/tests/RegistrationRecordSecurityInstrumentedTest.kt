@@ -63,7 +63,7 @@ class RegistrationRecordSecurityInstrumentedTest {
                     try { block(); fail("必须拒绝越界或链接") }
                     catch (error: InvocationTargetException) { assertTrue(error.cause is Exception) }
                 }
-                val first = "{\"context\":\"recovery-capability\"}"
+                val first = "{\"context\":\"chain-execution-checkpoint\"}"
                 assertTrue(cas("registration.json", null, first))
                 assertFalse(cas("registration.json", null, "{}"))
                 val root = File(isolated, "citizenapp_records")

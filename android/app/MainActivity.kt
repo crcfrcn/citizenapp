@@ -43,23 +43,90 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     /**
-     * 已运行时的钱包回跳只把原 Activity 拉回前台。WalletConnect 响应仍由 WebView 中的
-     * provider 经 Relay 收取，不把 citizenapp://walletconnect 继续发送成 Flutter 路由。
+     * 已运行时的钱包回跳只把原 Activity 拉回前台。付款响应仍由 WebView 中的
+     * provider 经 Relay 收取，不把 citizenapp://topup 继续发送成 Flutter 路由。
      */
     override fun onNewIntent(intent: Intent) {
-        if (isWalletConnectCallback(intent.data)) {
+        if (isTopupCallback(intent.data)) {
             setIntent(intent)
             return
         }
         super.onNewIntent(intent)
     }
 
-    private fun isWalletConnectCallback(uri: Uri?): Boolean =
+    private fun walletSessionKey(): javax.crypto.SecretKey {
+        val store = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        val alias = "citizenapp.metamask"
+        val existing = store.getKey(alias, null)
+        if (existing != null) return existing as javax.crypto.SecretKey
+        return javax.crypto.KeyGenerator.getInstance("AES", "AndroidKeyStore").apply {
+            init(android.security.keystore.KeyGenParameterSpec.Builder(alias,
+                android.security.keystore.KeyProperties.PURPOSE_ENCRYPT or android.security.keystore.KeyProperties.PURPOSE_DECRYPT)
+                .setBlockModes(android.security.keystore.KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(android.security.keystore.KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setKeySize(256).build())
+        }.generateKey()
+    }
+
+    private fun readWalletSession(key: String): String? {
+        val encoded = getSharedPreferences("citizenapp.metamask", MODE_PRIVATE).getString(key, null) ?: return null
+        val bytes = android.util.Base64.decode(encoded, android.util.Base64.NO_WRAP)
+        require(bytes.size >= 28)
+        val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(javax.crypto.Cipher.DECRYPT_MODE, walletSessionKey(), javax.crypto.spec.GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
+        cipher.updateAAD(key.toByteArray(Charsets.UTF_8))
+        return String(cipher.doFinal(bytes.copyOfRange(12, bytes.size)), Charsets.UTF_8)
+    }
+
+    private fun writeWalletSession(key: String, value: String?) {
+        val preferences = getSharedPreferences("citizenapp.metamask", MODE_PRIVATE).edit()
+        if (value == null) {
+            check(preferences.remove(key).commit())
+            return
+        }
+        val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, walletSessionKey())
+        cipher.updateAAD(key.toByteArray(Charsets.UTF_8))
+        check(cipher.iv.size == 12)
+        val encoded = android.util.Base64.encodeToString(cipher.iv + cipher.doFinal(value.toByteArray(Charsets.UTF_8)), android.util.Base64.NO_WRAP)
+        check(preferences.putString(key, encoded).commit())
+    }
+
+    private fun isTopupCallback(uri: Uri?): Boolean =
         uri?.scheme.equals("citizenapp", ignoreCase = true) &&
-            uri?.host.equals("walletconnect", ignoreCase = true)
+            uri?.host.equals("topup", ignoreCase = true)
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        // 钱包SDK仅保存授权会话；密文在应用私有区，AES密钥只留Android Keystore。
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "citizenapp/metamask")
+            .setMethodCallHandler { call, result ->
+                try {
+                    if (call.method == "return") {
+                        // 目标固定为本应用已登记回跳，SDK真实结果后恢复原Activity。
+                        startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("citizenapp://topup"))
+                            .setPackage(packageName)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+                        result.success(true)
+                        return@setMethodCallHandler
+                    }
+                    val key = call.argument<String>("key")
+                    require(key in setOf("channel", "accounts", "chain"))
+                    when (call.method) {
+                        "read" -> result.success(readWalletSession(key!!))
+                        "write" -> {
+                            val value = call.argument<String>("value")
+                            require(value == null || value.length <= 16384)
+                            writeWalletSession(key!!, value)
+                            result.success(null)
+                        }
+                        else -> result.notImplemented()
+                    }
+                } catch (_: Exception) {
+                    result.error("wallet_storage", "钱包会话保存不可用", null)
+                }
+            }
+
         if (!flutterEngine.plugins.has(CitizenSdkPlugin::class.java)) flutterEngine.plugins.add(CitizenSdkPlugin())
 
         // 只监听系统网络事件；没有周期探测或服务器请求。

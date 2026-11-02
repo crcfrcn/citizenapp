@@ -168,11 +168,15 @@ class AppLog {
       'identity_unregistered',
       'identity_local_missing',
       'cid_not_bound',
-      'identity_projection_pending',
+      'identity_finalization_pending',
       'identity_projection_unavailable',
       'cid_binding_changed',
       'network_unavailable',
-      'registration_required',
+      'identity_not_reported',
+      'identity_not_finalized',
+      'identity_binding_conflict',
+      'identity_binding_mismatch',
+      'device_activation_conflict',
       'device_not_registered',
       'invalid_mls_signature',
       'invalid_mls_proof',
@@ -343,184 +347,93 @@ class AppLog {
 
   /// 充值只接受精确字段和固定阶段；URI、会话及异常内容不能进入日志门面。
   /// Release也可输出闭集行，不启用自由文本或诊断文件；出口失败不影响连接。
-  static bool topupConnection(Object? value) {
-    const stages = {'start', 'connect', 'uri', 'modal', 'end'};
-    const flags = [
-      'listening',
-      'connecting',
-      'emitted',
-      'provider_uri',
-      'modal_uri',
-      'matched',
-      'baseline',
-      'complete',
-    ];
-    if (value is! Map ||
-        value.length != flags.length + 1 ||
-        !stages.contains(value['stage']) ||
-        flags.any((key) => value[key] is! bool)) {
+  /// 付款只记录闭集阶段和错误类别，不输出钱包资料、交易或异常正文。
+  static bool topupFailure(
+    Object? step,
+    Object? error, {
+    Object? rpcCode,
+    Object? detail,
+  }) {
+    if (!const {'create_order', 'submitted'}.contains(step) ||
+        !const {'other', 'user_rejected', 'payment_failed'}.contains(error)) {
+      return false;
+    }
+    if (rpcCode != null &&
+        (rpcCode is! int ||
+            !const {
+              4001,
+              4200,
+              4900,
+              4901,
+              4902,
+              -32601,
+              -32602,
+              -32603,
+              -32000,
+              -32001,
+              -32002,
+              -32003,
+              -32004,
+              -32005,
+              -32006,
+            }.contains(rpcCode))) {
+      return false;
+    }
+    if (detail != null &&
+        !const {
+          'sdk_update_limit',
+          'wallet_timeout',
+          'receipt_invalid',
+        }.contains(detail)) {
       return false;
     }
     try {
-      final fields = flags.map((key) => '$key=${value[key] == true ? 1 : 0}');
       debugPrintSynchronously(
-        '[CitizenTopup] stage=${value['stage']} ${fields.join(' ')}',
+        '[CitizenTopup] stage=failure step=$step error=$error rpc=${rpcCode ?? 'none'} detail=${detail ?? 'none'}',
       );
     } on Object {
-      // 观察出口故障不得改变原连接或付款流程。
+      /* 日志故障不改变付款结果。 */
     }
     return true;
   }
 
-  static const _topupErrors = {
-    'none',
-    'other',
-    'type',
-    'offline',
-    'socket_interrupted',
-    'subscribe_interrupted',
-    'socket_closed',
-    'socket_missing',
-    'proposal_expired',
-    'client_missing',
-    'publish_failed',
-    'http_401',
-    'http_403',
-    'http_429',
-    'http_503',
-    'socket_stalled',
-    'socket_failed',
-    'user_closed',
-    'origin_denied',
-    'invalid_key',
-    'project_missing',
-    'relay_unauthorized',
-    'wallet_open_failed',
-    'wallet_mismatch',
-    'connect_timeout',
-    'request_timeout',
-    'cancelled',
-    'user_rejected',
-  };
-
-  /// 业务失败仅记录固定步骤和类别，未知输入拒绝，不回显钱包或服务器正文。
-  static bool topupFailure(Object? step, Object? error) {
-    const steps = {
-      'connection',
-      'account',
-      'create_order',
-      'transaction',
-      'submitting',
-      'submitted',
-      'complete',
-    };
-    if (!steps.contains(step) || !_topupErrors.contains(error)) return false;
-    try {
-      debugPrintSynchronously(
-        '[CitizenTopup] stage=failure step=$step error=$error',
-      );
-    } on Object {
-      // 日志失败不替换本次付款结果。
-    }
-    return true;
-  }
-
-  /// SDK错误与连接竞赛只接收精确闭集，不接收message、topic、URI或原始日志参数。
-  static bool topupConnectTrace(Object? value) {
-    const events = {
+  /// 只记录本地组件就绪阶段，不能接收文档地址、nonce或异常正文。
+  static bool topupReadiness(Object? state) {
+    if (!const {
+      'loading',
+      'loaded',
+      'script_ready',
       'ready',
-      'connect',
-      'pairing',
-      'relay_open',
-      'relay_closed',
-      'relay_error',
-      'subscribed',
-      'published',
-      'attempt',
-      'sdk_error',
-      'socket_close',
-      'end',
-      'provider_resolved',
-      'provider_rejected',
-      'modal_closed',
-      'modal_open_failed',
-      'setup_rejected',
-      'account',
-      'create_order',
-      'transaction',
-      'submitting',
-      'submitted',
-      'complete',
-      'failure',
-    };
-    const winners = {
-      'pending',
-      'provider_resolved',
-      'provider_rejected',
-      'modal_closed',
-      'modal_open_failed',
-      'setup_rejected',
-    };
-    const codes = {
-      'none',
-      '0',
-      '401',
-      '403',
-      '429',
-      '503',
-      '1000',
-      '1001',
-      '1006',
-      '1008',
-      '1011',
-      '1013',
-      '3000',
-      '4001',
-      '-32600',
-      '-32601',
-      '-32602',
-      '-32603',
-    };
-    const flags = [
-      'pairing',
-      'subscribed',
-      'published',
-      'relay_connected',
-      'relay_connecting',
-      'complete',
-    ];
-    if (value is! Map ||
-        value.length != 13 ||
-        value['stage'] != 'trace' ||
-        !events.contains(value['event']) ||
-        !winners.contains(value['winner']) ||
-        !_topupErrors.contains(value['error']) ||
-        !codes.contains(value['code']) ||
-        flags.any((key) => value[key] is! bool) ||
-        ['attempts', 'stalls'].any(
-          (key) =>
-              value[key] is! int ||
-              (value[key] as int) < 0 ||
-              (value[key] as int) > 20,
-        )) {
+      'failed',
+      'timeout',
+    }.contains(state))
       return false;
-    }
     try {
-      final fields = flags.map((key) => '$key=${value[key] == true ? 1 : 0}');
-      debugPrintSynchronously(
-        '[CitizenTopup] stage=trace event=${value['event']} '
-        'winner=${value['winner']} error=${value['error']} code=${value['code']} '
-        '${fields.join(' ')} attempts=${value['attempts']} stalls=${value['stalls']}',
-      );
+      debugPrintSynchronously('[CitizenTopup] stage=document state=$state');
     } on Object {
-      // 取证失败不能改变原Promise或付款结果。
+      /* 诊断不改变业务。 */
     }
     return true;
   }
 
-  /// 原生打开仅报告闭集结果，系统返回成功仍须独立验证钱包前台。
+  /// 签名建单只记录固定阶段与SDK公开错误枚举，不接收签名、账户或异常正文。
+  static bool topupOrder(Object? state, {Object? sdkCode}) {
+    if (!const {'signing', 'signed', 'saved', 'failed'}.contains(state) ||
+        sdkCode != null && sdkCode is! CitizenSdkErrorCode)
+      return false;
+    final code = sdkCode is CitizenSdkErrorCode ? sdkCode.name : 'none';
+    try {
+      debugPrintSynchronously(
+        '[CitizenTopup] stage=order state=$state sdk=$code',
+      );
+    } on Object {
+      /* 诊断不改变业务。 */
+    }
+    return true;
+  }
+
   static void topupWallet(String state) {
-    const states = {'requested', 'busy', 'opened', 'rejected'};
+    const states = {'requested', 'opened', 'rejected'};
     final safeState = states.contains(state) ? state : 'other';
     try {
       debugPrintSynchronously('[CitizenTopup] stage=native state=$safeState');

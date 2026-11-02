@@ -72,7 +72,7 @@ class TopupDetails extends StatelessWidget {
         row(
           context,
           label: '付款地址',
-          value: order.payer ?? '尚未连接钱包',
+          value: order.payer ?? '付款人尚未确认',
           copyable: true,
         ),
         row(context, label: '收款地址', value: payment.recvAddress, copyable: true),

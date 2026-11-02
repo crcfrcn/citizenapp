@@ -898,7 +898,7 @@ class MyIdService {
   }
 
   /// 原交易入口内部生成CID、签名和finalized；编排消费真实公开结果。
-  Future<FinalizedRegistration> registerEnrollmentCid({
+  Future<FinalizedRegistration> registerCid({
     required BuildContext? context,
     required String institution,
     required String accountId,
@@ -961,40 +961,15 @@ class MyIdService {
     return false;
   }
 
-  Future<String> activateRegistration(FinalizedRegistration finalized) async {
+  /// 链结果已由原SDK确认；这里只报告，不混入设备或会话授权。
+  Future<void> reportRegistration(FinalizedRegistration finalized) async {
     final guard = await registrationGuard(finalized.binding.accountId);
-    if ((await _getWalletState().result).defaultAccount?.accountId !=
-        finalized.binding.accountId) {
-      throw const AccountSecurityException(
-        '注册期间默认账户已变化',
-        code: 'identityChanged',
-      );
-    }
     await guard();
-    await _sessionProvider.projectFinalizedIdentity(finalized.blockHash);
+    await _sessionProvider.reportIdentity(
+      finalized.binding,
+      requireCurrent: guard,
+    );
     await guard();
-    await _finishFinalizedBinding(finalized.binding);
-    await guard();
-    final current = await _currentUserContext.resolve();
-    if (current?.accountId != finalized.binding.accountId) {
-      throw const AccountSecurityException(
-        '注册期间默认账户已变化',
-        code: 'identityChanged',
-      );
-    }
-    final session = await _sessionProvider.registerCurrentDevice();
-    await guard();
-    if (session == null ||
-        session.accountId != finalized.binding.accountId ||
-        session.cidNumber != finalized.binding.cidNumber ||
-        session.bindRev != finalized.binding.bindRev ||
-        !session.isUsable) {
-      throw const AccountSecurityException('注册普通会话与finalized身份不一致');
-    }
-    await session.validateCurrent();
-    await guard();
-    // 会话device_id已由实际MLS证明核对；已有CID可用普通凭据准备，不要求新真人记录。
-    return session.deviceId;
   }
 
   /// 列出可作换绑目标的本地账户(当前身份账户以外的全部账户)。

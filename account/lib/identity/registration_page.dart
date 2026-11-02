@@ -1,39 +1,30 @@
 import 'dart:convert';
-import 'dart:async';
+import 'package:citizen_account/identity/registration_api.dart';
 
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import 'package:citizen_account/identity/registration_models.dart';
 
-/// 主页面只能停留在本次服务器能力URL；子资源由服务器的CSP限定。
+/// 默认Cloudflare页面只交付本次瞬时令牌，服务端Siteverify通过前不允许注册。
 class RegistrationPage extends StatefulWidget {
-  const RegistrationPage({super.key, required this.verification});
-  final RegistrationVerification verification;
-  static String? tokenFromMessage(
-    String message,
-    RegistrationVerification verification, {
-    int? now,
-  }) {
-    if ((now ?? DateTime.now().millisecondsSinceEpoch) >=
-            verification.pageExpiresAt ||
-        message.length > 4096) {
-      return null;
-    }
+  const RegistrationPage({super.key});
+  static RegistrationVerification? verificationFromMessage(String message) {
+    if (message.length > 4096) return null;
     try {
       final raw = jsonDecode(message);
       if (raw is! Map<String, dynamic> ||
           raw.length != 2 ||
           !raw.keys.every({'check_id', 'token'}.contains) ||
-          raw['check_id'] != verification.checkId ||
+          raw['check_id'] is! String ||
           raw['token'] is! String) {
         return null;
       }
-      final token = raw['token'] as String;
-      return token.isNotEmpty && token.length <= 2048 && token.trim() == token
-          ? token
-          : null;
-    } catch (_) {
+      return RegistrationVerification(
+        checkId: raw['check_id'] as String,
+        token: raw['token'] as String,
+      );
+    } on Object {
       return null;
     }
   }
@@ -46,24 +37,16 @@ class _RegistrationPageState extends State<RegistrationPage> {
   late final WebViewController controller;
   bool returned = false;
   String? error;
-  Timer? expiry;
   @override
   void initState() {
     super.initState();
-    final remaining =
-        widget.verification.pageExpiresAt -
-        DateTime.now().millisecondsSinceEpoch;
-    expiry = Timer(Duration(milliseconds: remaining > 0 ? remaining : 0), () {
-      if (mounted && !returned) setState(() => error = '验证页面已过期，请返回后重试');
-    });
     controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..addJavaScriptChannel(
         'Turnstile',
         onMessageReceived: (message) {
-          final token = RegistrationPage.tokenFromMessage(
+          final token = RegistrationPage.verificationFromMessage(
             message.message,
-            widget.verification,
           );
           if (token != null && mounted && !returned) {
             returned = true;
@@ -75,7 +58,7 @@ class _RegistrationPageState extends State<RegistrationPage> {
         NavigationDelegate(
           onNavigationRequest: (request) =>
               !request.isMainFrame ||
-                  request.url == widget.verification.pageUrl.toString()
+                  request.url == RegistrationApi.pageUri().toString()
               ? NavigationDecision.navigate
               : NavigationDecision.prevent,
           onWebResourceError: (event) {
@@ -87,19 +70,13 @@ class _RegistrationPageState extends State<RegistrationPage> {
       );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        controller.loadRequest(widget.verification.pageUrl).catchError((
+        controller.loadRequest(RegistrationApi.pageUri()).catchError((
           Object _,
         ) {
           if (mounted && !returned) setState(() => error = '验证页面加载失败，请返回后重试');
         });
       }
     });
-  }
-
-  @override
-  void dispose() {
-    expiry?.cancel();
-    super.dispose();
   }
 
   @override

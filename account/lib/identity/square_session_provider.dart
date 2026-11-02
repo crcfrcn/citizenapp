@@ -77,7 +77,7 @@ class SquareSessionResolution {
       switch (errorCode) {
         'identity_local_missing' => '身份信息暂不可用，请在身份页刷新后重试',
         'device_not_registered' => '公民服务准备未完成，请重试',
-        'registration_required' => '公民服务准备未完成，请重试',
+        'identity_not_reported' => '链上身份已存在，服务同步尚未完成',
         'chain_rpc_budget_exceeded' => '公共链查询次数已达服务端限额，请稍后重试',
         'mls_challenge_limit_reached' ||
         'request_rate_exceeded' => '请求过于频繁，请稍后重试',
@@ -111,11 +111,9 @@ class SquareSessionResolution {
         'identity_unregistered' => SquareSessionStatus.identityUnbound,
         'identity_local_missing' ||
         'cid_not_bound' ||
-        'identity_projection_pending' =>
-          SquareSessionStatus.identityUnavailable,
+        'identity_not_reported' => SquareSessionStatus.identityUnavailable,
         'cid_binding_changed' => SquareSessionStatus.identityChanged,
         'network_unavailable' => SquareSessionStatus.networkUnavailable,
-        'registration_required' ||
         'device_not_registered' ||
         'invalid_mls_signature' ||
         'invalid_mls_proof' ||
@@ -130,11 +128,10 @@ class SquareSessionResolution {
         'identity_unregistered',
         'identity_local_missing',
         'cid_not_bound',
-        'identity_projection_pending',
+        'identity_not_reported',
         'identity_projection_unavailable',
         'cid_binding_changed',
         'network_unavailable',
-        'registration_required',
         'device_not_registered',
         'invalid_mls_signature',
         'invalid_mls_proof',
@@ -289,8 +286,14 @@ class SquareSessionProvider {
   }
 
   /// 身份主键是CID；所有普通请求使用同一MLS设备身份。
-  Future<void> projectFinalizedIdentity(String blockHash) =>
-      _client.projectFinalizedIdentity(blockHash);
+  Future<void> reportIdentity(
+    IdentityBinding binding, {
+    required Future<void> Function() requireCurrent,
+  }) => _client.reportIdentity(
+    cidNumber: binding.cidNumber,
+    accountId: binding.accountId,
+    requireCurrent: requireCurrent,
+  );
 
   Future<String?> currentCitizenId() async {
     final current = await _currentUser.resolve();
@@ -509,7 +512,7 @@ class SquareSessionProvider {
       );
     } on SquareApiException catch (error) {
       if (error.errorCode == 'cid_not_bound' ||
-          error.errorCode == 'identity_projection_pending') {
+          error.errorCode == 'identity_not_reported') {
         // 本机已有 finalized 绑定时，Worker 的 cid_not_bound 只能视为投影未同步。
         return SquareSessionResolution(
           SquareSessionStatus.identityUnavailable,

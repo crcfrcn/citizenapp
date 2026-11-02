@@ -6,6 +6,7 @@ import 'package:isar_community/isar.dart';
 import 'package:citizen_storage/user_isar.dart' as storage;
 
 import 'package:citizen_transaction/topup/topup_models.dart';
+import 'package:citizen_transaction/topup/topup_erc20.dart';
 
 /// 已支付只表示付款链验款成功；发币请求结果不改写真实付款事实。
 enum TopupProgress { pending, paid, completed }
@@ -39,7 +40,6 @@ class TopupRecord {
   String get key => '$origin|${payment.orderId}';
   String get signText => topupSignText(payment.toJson(), recoveryToken);
   String get binding => topupBinding(signText, accountSignature);
-  String get memo => 'topup:$binding';
   bool get terminal => progress != TopupProgress.pending || failureCode != null;
   bool get isPaid =>
       progress != TopupProgress.pending &&
@@ -54,7 +54,7 @@ class TopupRecord {
     String signature, {
     int? now,
   }) {
-    if (!TopupWallets.ids.contains(walletId)) {
+    if (walletId != TopupWallet.id) {
       throw const FormatException('钱包选择无效');
     }
     return TopupRecord(
@@ -156,7 +156,7 @@ class TopupRecord {
         record.checkCount > 11 ||
         (record.checkCount == 0) != (record.checkAt == null) ||
         record.checkAt != null && record.checkAt! < payment.createdAt ||
-        !TopupWallets.ids.contains(record.walletId) ||
+        record.walletId != TopupWallet.id ||
         record.origin != TopupConfig.origin ||
         record.payment.orderId != 'top_${record.binding.substring(0, 32)}' ||
         record.payer != null &&
@@ -166,7 +166,7 @@ class TopupRecord {
         record.proof != null && !record.isPaid ||
         record.requestAt != null &&
             (!record.isPaid || record.requestAt! < payment.createdAt) ||
-        record.wire != null && (record.payer == null || record.wire!.isEmpty) ||
+        record.wire != null && record.wire!.isEmpty ||
         record.txid != null && record.wire == null) {
       throw const FormatException('本地充值订单事实无效');
     }
@@ -341,7 +341,8 @@ class TopupStore {
     return [for (final row in rows) fromEntry(row)];
   }
 
-  /// 签名会话在内存完成；失败/离页均不保存订单或恢复凭据。
+  /// 签名会话在内存完成；签后订单、签名字节和完整付款请求仅保存一次。
+  /// 签名失败/会话失效不保存订单或恢复凭据。
   Future<TopupRecord> signOrder(
     TopupDraft draft,
     String walletId,
@@ -356,8 +357,11 @@ class TopupStore {
     final encoded =
         '0x${signature.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}';
     final record = TopupRecord.signed(draft, walletId, encoded, now: now);
-    await save(record);
-    return record;
+    final prepared = record.update(
+      wire: jsonEncode(erc20Transaction(record.payment, record.binding)),
+    );
+    await save(prepared);
+    return prepared;
   }
 
   Future<void> save(TopupRecord record, {TopupRecord? before}) =>
@@ -490,14 +494,15 @@ class TopupStore {
     if (submitted.progress != TopupProgress.pending ||
         submitted.failureCode != null ||
         submitted.wire == null ||
-        submitted.payer == null ||
         submitted.txid == null ||
-        (!proof.matches(submitted.payment, submitted.payer!, submitted.txid!) ||
-            proof.binding != submitted.binding)) {
+        (!proof.matches(submitted.payment, proof.payer, submitted.txid!) ||
+            proof.binding != submitted.binding ||
+            submitted.payer != null && submitted.payer != proof.payer)) {
       throw StateError('付款证据不属于原订单');
     }
     final paid = submitted.update(
       progress: TopupProgress.paid,
+      payer: proof.payer,
       proof: proof,
       requestAt: DateTime.now().millisecondsSinceEpoch,
     );

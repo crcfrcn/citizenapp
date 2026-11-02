@@ -29,18 +29,30 @@ String encodeErc20Transfer(String toEvmAddress, BigInt amount, String binding) {
   return '0x$_transferSelector$toWord$amountWord$binding';
 }
 
-/// 单轮EVM付款证据核验，逐条RPC计数；11轮与退避只由App根层调度。
+/// 与签名订单同时保存的唯一付款请求；钱包填入付款账户，不能改变四个付款字段。
+Map<String, Object> erc20Transaction(TopupPayment payment, String binding) => {
+  'to': payment.asset,
+  'value': '0x0',
+  'chainId': '0x${payment.network.evmId.toRadixString(16)}',
+  'data': encodeErc20Transfer(
+    payment.recvAddress,
+    BigInt.parse(payment.payAmount),
+    binding,
+  ),
+};
+
+/// 单轮EVM付款证据核验；钱包未返回付款地址时由真实交易取得，不额外读链。
+/// 逐条RPC计数，11轮与退避只由App根层调度。
 Future<TopupProof> verifyErc20Payment(
   TopupPayment payment,
-  String payer,
+  String? payer,
   String txid,
   Future<Object?> Function(String, List<Object?>) rpc, {
   required String binding,
   int? now,
 }) async {
-  if (payment.network.evmId == null ||
-      !payment.network.transaction(txid) ||
-      payment.network.address(payer) != payer) {
+  if (!payment.network.transaction(txid) ||
+      payer != null && payment.network.address(payer) != payer) {
     throw const FormatException('EVM付款定位无效');
   }
   int quantity(Object? value) {
@@ -78,8 +90,10 @@ Future<TopupProof> verifyErc20Payment(
     throw const FormatException('付款交易尚未执行成功');
   }
   final transaction = object(await rpc('eth_getTransactionByHash', [txid]));
+  final actualPayer = payment.network.address(transaction['from'] as String);
   if (hash(transaction['hash']) != txid ||
-      transaction['from'] != payer ||
+      actualPayer != transaction['from'] ||
+      payer != null && actualPayer != payer ||
       transaction['to'] != payment.asset ||
       quantity(transaction['value']) != 0 ||
       transaction['input'] !=
@@ -140,7 +154,7 @@ Future<TopupProof> verifyErc20Payment(
     if (topics.length != 3 || log['removed'] != false) {
       throw const FormatException('付款日志不可信');
     }
-    if (address(topics[1]) != payer ||
+    if (address(topics[1]) != actualPayer ||
         address(topics[2]) != payment.recvAddress) {
       continue;
     }
@@ -169,7 +183,7 @@ Future<TopupProof> verifyErc20Payment(
     'binding_hash': binding,
     'network': payment.network.wire,
     'payment_txid': txid,
-    'payer_address': payer,
+    'payer_address': actualPayer,
     'asset': payment.asset,
     'recv_address': payment.recvAddress,
     'pay_amount': payment.payAmount,

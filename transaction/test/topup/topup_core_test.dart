@@ -9,20 +9,16 @@ import 'package:citizen_transaction/topup/topup_models.dart';
 import 'package:citizen_transaction/topup/topup_api.dart';
 import 'package:citizen_transaction/topup/topup_webview_page.dart';
 import 'package:citizen_transaction/topup/topup_erc20.dart';
-import 'package:citizen_transaction/topup/tron.dart';
-import 'package:citizen_transaction/topup/solana.dart';
 import 'package:citizen_transaction/topup/store.dart';
+import 'package:citizen_transaction/topup/wallet_link_dispatcher.dart';
 import 'package:citizen_system/app_log.dart';
+import 'package:citizen_sdk/citizen_sdk.dart' show CitizenSdkErrorCode;
 
 TopupPayment payment(TopupNetwork network, {String? token}) =>
     TopupPayment.signed(
       TopupDraft.create(
         TopupSelection(
-          token:
-              token ??
-              (network == TopupNetwork.base || network == TopupNetwork.solana
-                  ? 'USDC'
-                  : 'USDT'),
+          token: token ?? (network == TopupNetwork.base ? 'USDC' : 'USDT'),
           package: TopupConfig.local().packages.first,
           network: network,
         ),
@@ -90,15 +86,34 @@ Map<String, dynamic> evmFacts(
 }
 
 void main() {
-  _connectionDiagnosticsTests();
   _documentTests();
-  _protocolTests();
   test('失败日志仅保留新流程固定阶段，旧意图/授权及异常正文零输出', () {
     final lines = <String>[];
     runZoned(
       () {
         expect(AppLog.topupFailure('create_order', 'other'), true);
-        expect(AppLog.topupFailure('submitted', 'request_timeout'), true);
+        expect(AppLog.topupFailure('submitted', 'user_rejected'), true);
+        expect(AppLog.topupFailure('submitted', 'payment_failed'), true);
+        expect(
+          AppLog.topupFailure('submitted', 'other', rpcCode: -32602),
+          true,
+        );
+        expect(
+          AppLog.topupFailure('submitted', 'other', detail: 'sdk_update_limit'),
+          true,
+        );
+        expect(
+          AppLog.topupFailure('submitted', 'other', rpcCode: 12345678),
+          false,
+        );
+        expect(
+          AppLog.topupFailure(
+            'submitted',
+            'other',
+            detail: 'synthetic-private',
+          ),
+          false,
+        );
         for (final step in ['intent', 'authorization', 'synthetic-private']) {
           expect(AppLog.topupFailure(step, 'other'), false);
         }
@@ -108,7 +123,7 @@ void main() {
         print: (_, _, _, line) => lines.add(line),
       ),
     );
-    expect(lines.length, 2);
+    expect(lines.length, 5);
     expect(lines.join(), isNot(contains('synthetic-private')));
   });
   test('配置指纹逐字匹配服务端公开21行规范，JSON/显示顺序不影响结果', () {
@@ -133,7 +148,7 @@ void main() {
     );
     expect(reordered.hash, value.hash);
   });
-  test('本地六币轨与两套餐完整，任意金额或收款更换均拒绝', () {
+  test('本地六条EVM币轨与两套餐完整，任意金额或收款更换均拒绝', () {
     final catalog = TopupConfig.local();
     expect(catalog.rails.length, 6);
     expect(catalog.packages.length, 2);
@@ -171,7 +186,7 @@ void main() {
         TopupSelection.fromPayment(p, TopupConfig.local()),
         p.accountId,
       ),
-      TopupWallets.ids.first,
+      TopupWallet.id,
       '0x${'01' * 64}',
       now: 1000000,
     );
@@ -215,7 +230,7 @@ void main() {
         (method, params) async {
           calls.add(method);
           return switch (method) {
-            'eth_chainId' => '0x${network.evmId!.toRadixString(16)}',
+            'eth_chainId' => '0x${network.evmId.toRadixString(16)}',
             'eth_getTransactionReceipt' => facts['receipt'],
             'eth_getTransactionByHash' => facts['transaction'],
             _ => params.first == 'finalized' ? facts['head'] : facts['block'],
@@ -235,6 +250,129 @@ void main() {
       ]);
     });
   }
+  test('六条币轨两套餐均可由真实付款交易确定付款人，仍准确6次RPC', () async {
+    final catalog = TopupConfig.local();
+    for (final rail in catalog.rails) {
+      for (final pack in catalog.packages) {
+        final p = TopupPayment.signed(
+          TopupDraft.create(
+            TopupSelection(
+              token: rail.token,
+              package: pack,
+              network: rail.network,
+            ),
+            '0x${'04' * 32}',
+          ),
+          '0x${'01' * 64}',
+          now: 1000000,
+        );
+        final payer = '0x${'01' * 20}',
+            tx = '0x${'02' * 32}',
+            facts = evmFacts(p, payer, tx, amount: p.payAmount);
+        var calls = 0;
+        final proof = await verifyErc20Payment(
+          p,
+          null,
+          tx,
+          (method, params) async {
+            calls++;
+            return switch (method) {
+              'eth_chainId' => '0x${rail.network.evmId.toRadixString(16)}',
+              'eth_getTransactionReceipt' => facts['receipt'],
+              'eth_getTransactionByHash' => facts['transaction'],
+              _ => params.first == 'finalized' ? facts['head'] : facts['block'],
+            };
+          },
+          binding: '0b' * 32,
+          now: 1000000,
+        );
+        expect(proof.payer, payer);
+        expect(proof.matches(p, payer, tx), true);
+        expect(calls, 6);
+      }
+    }
+  });
+  test('首次连接仅允许本产品元数据，不在链接中放明文交易', () async {
+    const channel = '00000000-0000-4000-8000-000000000001';
+    const base = 'metamask://connect?channelId=$channel&v=2&comm=socket';
+    var opened = 0;
+    final dispatcher = WalletLinkDispatcher(
+      launcher: (_) async {
+        opened++;
+        return true;
+      },
+    );
+    final info = {
+      'url': 'https://www.crcfrcn.com',
+      'title': 'CitizenApp',
+      'scheme': 'citizenapp://topup',
+    };
+    String link(Map<String, String> value) =>
+        '$base&originatorInfo=${Uri.encodeComponent(base64Encode(utf8.encode(jsonEncode(value))))}';
+    expect(await dispatcher.open(link(info)), false);
+    dispatcher.restore(
+      jsonEncode({
+        'channelId': channel,
+        'validUntil': DateTime.now().millisecondsSinceEpoch + 60000,
+      }),
+    );
+    expect(await dispatcher.open(link(info)), true);
+    for (final value in [
+      {...info, 'url': 'https://example.test'},
+      {...info, 'scheme': 'other://topup'},
+      {...info, 'title': 'Other'},
+    ]) {
+      expect(await dispatcher.open(link(value)), false);
+    }
+    expect(
+      await dispatcher.open(
+        '$base&rpc=${base64Encode(utf8.encode('{"method":"eth_sendTransaction"}'))}',
+      ),
+      false,
+    );
+    expect(opened, 1);
+  });
+  test('只接受保护区有效会话的SDK唤起；错误频道、重复参数、网站和明文任意RPC均拒绝', () async {
+    var opened = 0;
+    final dispatcher = WalletLinkDispatcher(
+      launcher: (_) async {
+        opened++;
+        return true;
+      },
+    );
+    const channel = '00000000-0000-4000-8000-000000000001';
+    const resume = 'metamask://connect?channelId=$channel&v=2&comm=socket&t=d';
+    expect(await dispatcher.open(resume), false);
+    dispatcher.restore(
+      jsonEncode({
+        'channelId': channel,
+        'validUntil': DateTime.now().millisecondsSinceEpoch + 60000,
+      }),
+    );
+    expect(await dispatcher.open(resume), true);
+    final cipher = base64Encode(
+      utf8.encode(base64Encode([4, ...List.filled(100, 0)])),
+    );
+    expect(
+      await dispatcher.open('$resume&rpc=${Uri.encodeComponent(cipher)}'),
+      true,
+    );
+    for (final bad in [
+      resume.replaceFirst(channel, '00000000-0000-4000-8000-000000000002'),
+      '$resume&channelId=duplicate',
+      '$resume&redirect=https://example.test',
+      '$resume&rpc=${Uri.encodeComponent(base64Encode(utf8.encode('{"method":"personal_sign"}')))}',
+      resume.replaceFirst('metamask:', 'other:'),
+      '$resume#fragment',
+    ]) {
+      expect(await dispatcher.open(bad), false);
+    }
+    dispatcher.restore(jsonEncode({'channelId': channel, 'validUntil': 0}));
+    expect(await dispatcher.open(resume), false);
+    dispatcher.restore('invalid');
+    expect(await dispatcher.open(resume), false);
+    expect(opened, 2);
+  });
   for (final kind in [
     'pending',
     'failed',
@@ -330,7 +468,7 @@ void main() {
     final p = payment(TopupNetwork.base);
     final record = TopupRecord(
       payment: p,
-      walletId: TopupWallets.ids.first,
+      walletId: TopupWallet.id,
       accountSignature: '0x${'01' * 64}',
       recoveryToken: randomTopupHex(32),
       progress: TopupProgress.paid,
@@ -380,7 +518,7 @@ void main() {
         api.verifyPayment(
           TopupRecord(
             payment: p,
-            walletId: TopupWallets.ids.first,
+            walletId: TopupWallet.id,
             accountSignature: '0x${'01' * 64}',
             recoveryToken: randomTopupHex(32),
             failureCode: reason,
@@ -394,143 +532,14 @@ void main() {
   });
 }
 
-void _connectionDiagnosticsTests() {
-  test('连接原因只接受完整闭集，URI/异常原文/未知码和计数越界均拒绝', () {
-    final lines = <String>[];
-    final value = <String, Object>{
-      'stage': 'trace',
-      'event': 'provider_rejected',
-      'winner': 'provider_rejected',
-      'error': 'socket_stalled',
-      'code': 'none',
-      'pairing': true,
-      'subscribed': false,
-      'published': false,
-      'relay_connected': false,
-      'relay_connecting': false,
-      'complete': true,
-      'attempts': 5,
-      'stalls': 5,
-    };
-    runZoned(
-      () {
-        expect(AppLog.topupConnectTrace(value), true);
-        expect(
-          AppLog.topupConnectTrace({
-            ...value,
-            'event': 'socket_close',
-            'error': 'origin_denied',
-            'code': '3000',
-          }),
-          true,
-        );
-        for (final phase in [
-          'account',
-          'create_order',
-          'transaction',
-          'submitting',
-          'submitted',
-          'complete',
-          'failure',
-        ]) {
-          expect(
-            AppLog.topupConnectTrace({
-              ...value,
-              'event': phase,
-              'error': 'request_timeout',
-            }),
-            true,
-          );
-        }
-        for (final invalid in [
-          {...value, 'uri': 'synthetic-private'},
-          {...value, 'error': 'synthetic-private'},
-          {...value, 'code': '987654'},
-          {...value, 'attempts': 21},
-          {...value, 'pairing': 'synthetic-private'},
-        ]) {
-          expect(AppLog.topupConnectTrace(invalid), false);
-        }
-      },
-      zoneSpecification: ZoneSpecification(
-        print: (_, _, _, line) => lines.add(line),
-      ),
-    );
-    expect(lines.length, 9);
-    expect(
-      lines.first,
-      contains('winner=provider_rejected error=socket_stalled'),
-    );
-    expect(lines[1], contains('error=origin_denied code=3000'));
-    expect(lines.last, contains('event=failure'));
-    expect(lines.last, contains('error=request_timeout'));
-    expect(lines.join(), isNot(contains('synthetic-private')));
-  });
-  Map<String, Object> observation(String stage) => {
-    'stage': stage,
-    'listening': true,
-    'connecting': true,
-    'emitted': false,
-    'provider_uri': false,
-    'modal_uri': false,
-    'matched': false,
-    'baseline': false,
-    'complete': true,
-  };
-  test('充值观察只输出固定阶段与布尔值，拒绝额外字段和非布尔输入', () {
-    final lines = <String>[];
-    runZoned(
-      () {
-        for (final stage in ['start', 'connect', 'uri', 'modal', 'end']) {
-          expect(AppLog.topupConnection(observation(stage)), true);
-        }
-        for (final value in [
-          null,
-          'synthetic-private-value',
-          observation('synthetic-private-value'),
-          {...observation('end'), 'uri': 'synthetic-private-value'},
-          {...observation('end'), 'emitted': 'synthetic-private-value'},
-          {...observation('end')}..remove('complete'),
-        ]) {
-          expect(AppLog.topupConnection(value), false);
-        }
-        for (final state in ['requested', 'busy', 'opened', 'rejected']) {
-          AppLog.topupWallet(state);
-        }
-        AppLog.topupWallet('synthetic-private-value');
-      },
-      zoneSpecification: ZoneSpecification(
-        print: (_, _, _, line) => lines.add(line),
-      ),
-    );
-    expect(lines.length, 10);
-    expect(
-      lines.first,
-      '[CitizenTopup] stage=start listening=1 connecting=1 emitted=0 provider_uri=0 modal_uri=0 matched=0 baseline=0 complete=1',
-    );
-    expect(lines.last, '[CitizenTopup] stage=native state=other');
-    expect(lines.join(), isNot(contains('synthetic-private-value')));
-  });
-  test('充值观察出口失败不改变原流程，也不启用自由文本诊断', () {
-    runZoned(
-      () {
-        expect(AppLog.topupConnection(observation('end')), true);
-        AppLog.topupWallet('opened');
-      },
-      zoneSpecification: ZoneSpecification(
-        print: (_, _, _, _) => throw StateError('synthetic outlet failure'),
-      ),
-    );
-  });
-}
-
-/// 只用合成标记和脚本；不保存或打印运行时文档nonce、URI或钱包资料。
 void _documentTests() {
   const nonce = 'syntheticDocumentNonce0001';
   String template() =>
       File('transaction/web/walletconnect.html').readAsStringSync();
   TopupDocument document() =>
-      TopupDocument(template(), utf8.encode('void 0;'), nonce);
+      TopupDocument(template(), utf8.encode('void 0;'), nonce)
+        ..loaded(TopupDocument.baseUrl)
+        ..ready({'kind': 'document_ready', 'nonce': nonce, 'ready': true});
 
   test('HTTPS文档仅嵌入原随包字节，脚本中的HTML结束符不会截断文档', () {
     final script = utf8.encode('/* </script><!-- 中文 */ void 0;');
@@ -550,6 +559,49 @@ void _documentTests() {
     expect(doc.check, contains('window === window.top'));
     expect(doc.check, contains('data-topup-document'));
     expect(doc.check, contains('CitizenTopup?.start'));
+  });
+  test('脚本和页面加载事件任意先后，只有两者到齐才开始，不在早到消息时静默丢失入口', () {
+    for (final scriptFirst in [false, true]) {
+      final doc = TopupDocument(template(), utf8.encode('void 0;'), nonce);
+      final ready = <String, dynamic>{
+        'kind': 'document_ready',
+        'nonce': nonce,
+        'ready': true,
+      };
+      expect(
+        doc.begin(TopupDocument.baseUrl, TopupDocument.baseUrl, true),
+        false,
+      );
+      if (scriptFirst) {
+        doc.ready(ready);
+      } else {
+        doc.loaded(TopupDocument.baseUrl);
+      }
+      expect(doc.canBegin, false);
+      if (scriptFirst) {
+        doc.loaded(TopupDocument.baseUrl);
+      } else {
+        doc.ready(ready);
+      }
+      expect(doc.canBegin, true);
+      expect(
+        doc.begin(TopupDocument.baseUrl, TopupDocument.baseUrl, true),
+        true,
+      );
+      expect(doc.canBegin, false);
+    }
+  });
+  test('本地组件阶段诊断不接受异常、地址或其他自由文本', () {
+    expect(AppLog.topupReadiness('ready'), true);
+    expect(AppLog.topupReadiness('synthetic-private'), false);
+    expect(AppLog.topupOrder('signing'), true);
+    expect(
+      AppLog.topupOrder('failed', sdkCode: CitizenSdkErrorCode.integrity),
+      true,
+    );
+    expect(AppLog.topupOrder('synthetic-private'), false);
+    expect(AppLog.topupOrder('failed', sdkCode: 'synthetic-private'), false);
+    expect(AppLog.topupReadiness({'nonce': 'synthetic-private'}), false);
   });
   test('实际构建JS完整装入文档，不访问网站同名脚本', () {
     final script = File(
@@ -642,208 +694,4 @@ void _documentTests() {
       throwsFormatException,
     );
   });
-}
-
-// 固定公开结构的合成节点回执，不连接网络，不使用环境钱包。
-void _protocolTests() {
-  for (final mode in ['success', 'pending', 'failed', 'amount', 'reorg']) {
-    test('Tron固化验款$mode，一轮最多5次RPC', () async {
-      final p = payment(TopupNetwork.tron),
-          payer = 'TA9pkx4DFxrEw8JZzUtyDrh2uAat1LDuJL',
-          tx = '02' * 32;
-      String address(String a) => base58Bytes(
-        a,
-      ).take(21).map((x) => x.toRadixString(16).padLeft(2, '0')).join();
-      final transaction = {
-        'txID': tx,
-        'ret': [
-          {'contractRet': 'SUCCESS'},
-        ],
-        'raw_data': {
-          'data': utf8
-              .encode('topup:${'0b' * 32}')
-              .map((b) => b.toRadixString(16).padLeft(2, '0'))
-              .join(),
-          'contract': [
-            {
-              'type': 'TriggerSmartContract',
-              'parameter': {
-                'type_url': 'type.googleapis.com/protocol.TriggerSmartContract',
-                'value': {
-                  'owner_address': address(payer),
-                  'contract_address': address(p.asset),
-                },
-              },
-            },
-          ],
-        },
-      };
-      final receipt = {
-        'id': tx,
-        'receipt': {'result': mode == 'failed' ? 'FAILED' : 'SUCCESS'},
-        'blockNumber': 10,
-        'blockTimeStamp': 1000000,
-        'log': [
-          {
-            'address': address(p.asset).substring(2),
-            'topics': [
-              'ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',
-              address(payer).substring(2).padLeft(64, '0'),
-              address(p.recvAddress).substring(2).padLeft(64, '0'),
-            ],
-            'data': BigInt.parse(
-              mode == 'amount' ? '10000001' : p.payAmount,
-            ).toRadixString(16).padLeft(64, '0'),
-          },
-        ],
-      };
-      final block = {
-        'blockID': '03' * 32,
-        'block_header': {
-          'raw_data': {'number': 10, 'timestamp': 1000000},
-        },
-        'transactions': [transaction],
-      };
-      var count = 0;
-      final operation = verifyTronPayment(
-        p,
-        payer,
-        tx,
-        (method, params) async {
-          count++;
-          if (method.endsWith('gettransactionbyid')) {
-            return mode == 'pending' ? <String, dynamic>{} : transaction;
-          }
-          if (method.endsWith('gettransactioninfobyid')) return receipt;
-          if ((params.single as Map)['num'] == 0) {
-            return {
-              'blockID':
-                  '00000000000000001ebf88508a03865c71d452e25f4d51194196a1d22b6653dc',
-            };
-          }
-          if (mode == 'reorg' && count == 5) {
-            return {...block, 'blockID': '04' * 32};
-          }
-          return block;
-        },
-        now: 1000000,
-        binding: '0b' * 32,
-      );
-      if (mode == 'success') {
-        expect((await operation).matches(p, payer, tx), true);
-        expect(count, 5);
-      } else {
-        await expectLater(operation, throwsFormatException);
-        expect(count, lessThanOrEqualTo(5));
-      }
-    });
-  }
-  for (final mode in [
-    'success',
-    'pending',
-    'failed',
-    'amount',
-    'membership',
-    'owner',
-  ]) {
-    test('Solana最终验款$mode，一轮最多3次RPC', () async {
-      final p = payment(TopupNetwork.solana),
-          payer = '11111111111111111111111111111111',
-          tx = '1' * 64;
-      const program = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
-      final balances = [
-        {
-          'accountIndex': 1,
-          'mint': p.asset,
-          'owner': payer,
-          'programId': program,
-          'uiTokenAmount': {'decimals': 6},
-        },
-        {
-          'accountIndex': 2,
-          'mint': p.asset,
-          'owner': mode == 'owner' ? payer : p.recvAddress,
-          'programId': program,
-          'uiTokenAmount': {'decimals': 6},
-        },
-      ];
-      final transaction = {
-        'version': 'legacy',
-        'slot': 10,
-        'blockTime': 1000,
-        'transaction': {
-          'signatures': [tx],
-          'message': {
-            'accountKeys': [
-              {'pubkey': payer, 'signer': true},
-              {'pubkey': p.asset},
-              {'pubkey': p.recvAddress},
-            ],
-            'instructions': [
-              {
-                'programId': 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr',
-                'parsed': 'topup:${'0b' * 32}',
-              },
-              {
-                'programId': program,
-                'parsed': {
-                  'type': 'transferChecked',
-                  'info': {
-                    'authority': payer,
-                    'source': p.asset,
-                    'destination': p.recvAddress,
-                    'mint': p.asset,
-                    'tokenAmount': {
-                      'amount': mode == 'amount' ? '10000001' : p.payAmount,
-                      'decimals': 6,
-                    },
-                  },
-                },
-              },
-            ],
-          },
-        },
-        'meta': {
-          'err': mode == 'failed'
-              ? {
-                  'InstructionError': [
-                    1,
-                    {'Custom': 1},
-                  ],
-                }
-              : null,
-          'preTokenBalances': balances,
-          'postTokenBalances': balances,
-          'innerInstructions': [],
-        },
-      };
-      var count = 0;
-      final operation = verifySolanaPayment(
-        p,
-        payer,
-        tx,
-        (method, params) async {
-          count++;
-          return switch (method) {
-            'getGenesisHash' => '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d',
-            'getTransaction' => mode == 'pending' ? null : transaction,
-            _ => {
-              'blockTime': 1000,
-              'blockhash': '11111111111111111111111111111111',
-              'signatures': mode == 'membership' ? [] : [tx],
-            },
-          };
-        },
-        now: 1000000,
-        binding: '0b' * 32,
-      );
-      if (mode == 'success') {
-        expect((await operation).matches(p, payer, tx), true);
-        expect(count, 3);
-      } else {
-        await expectLater(operation, throwsFormatException);
-        expect(count, lessThanOrEqualTo(3));
-      }
-    });
-  }
 }

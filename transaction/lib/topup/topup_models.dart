@@ -10,85 +10,29 @@ import 'package:citizen_network/citizen_serve_api_config.dart';
 enum TopupNetwork {
   ethereum('ethereum', 'eip155:1', 1),
   base('base', 'eip155:8453', 8453),
-  bnb('bnb', 'eip155:56', 56),
-  tron('tron', 'tron:0x2b6653dc', null),
-  solana('solana', 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp', null);
+  bnb('bnb', 'eip155:56', 56);
 
   const TopupNetwork(this.wire, this.caip2, this.evmId);
-  final String wire;
-  final String caip2;
-  final int? evmId;
+  final String wire, caip2;
+  final int evmId;
   String get label => switch (this) {
     ethereum => 'Ethereum/以太坊链',
     base => 'Base/贝斯链',
     bnb => 'BNB/币安链',
-    tron => 'Tron/波场链',
-    solana => 'Solana/索拉纳链',
   };
   static TopupNetwork parse(Object? value) => values.firstWhere(
     (n) => n.wire == value,
     orElse: () => throw const FormatException('不支持的付款网络'),
   );
   String address(String value) {
-    if (evmId != null) {
-      final v = value.toLowerCase();
-      if (!RegExp(r'^0x[0-9a-f]{40}$').hasMatch(v) || v == '0x${'0' * 40}') {
-        throw const FormatException('EVM地址无效');
-      }
-      return v;
+    final v = value.toLowerCase();
+    if (!RegExp(r'^0x[0-9a-f]{40}$').hasMatch(v) || v == '0x${'0' * 40}') {
+      throw const FormatException('EVM地址无效');
     }
-    final bytes = base58Bytes(value);
-    if (this == solana && bytes.length == 32) return value;
-    if (this == tron && bytes.length == 25 && bytes.first == 0x41) {
-      final checksum = sha256
-          .convert(sha256.convert(bytes.sublist(0, 21)).bytes)
-          .bytes;
-      if (List.generate(
-        4,
-        (i) => bytes[21 + i] == checksum[i],
-      ).every((v) => v)) {
-        return value;
-      }
-    }
-    throw const FormatException('付款地址无效');
+    return v;
   }
 
-  bool transaction(String value) => this == solana
-      ? value.length <= 88 && _base58Length(value, 64)
-      : RegExp(
-          this == tron ? r'^[0-9a-f]{64}$' : r'^0x[0-9a-f]{64}$',
-        ).hasMatch(value);
-}
-
-/// Base58是地址/签名编码，不承担任何签名或私钥功能。
-List<int> base58Bytes(String text) {
-  const alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-  if (text.isEmpty || text.length > 128) {
-    throw const FormatException('Base58编码无效');
-  }
-  var value = BigInt.zero;
-  for (final c in text.split('')) {
-    final digit = alphabet.indexOf(c);
-    if (digit < 0) throw const FormatException('Base58编码无效');
-    value = value * BigInt.from(58) + BigInt.from(digit);
-  }
-  final bytes = <int>[];
-  while (value > BigInt.zero) {
-    bytes.add((value & BigInt.from(255)).toInt());
-    value >>= 8;
-  }
-  return [
-    ...List<int>.filled(text.split('').takeWhile((c) => c == '1').length, 0),
-    ...bytes.reversed,
-  ];
-}
-
-bool _base58Length(String v, int length) {
-  try {
-    return base58Bytes(v).length == length;
-  } on FormatException {
-    return false;
-  }
+  bool transaction(String value) => RegExp(r'^0x[0-9a-f]{64}$').hasMatch(value);
 }
 
 String decimal(Object? value) {
@@ -112,18 +56,8 @@ String validateOrderId(String value) {
   return value;
 }
 
-bool allowedPair(String token, TopupNetwork n) => token == 'USDC'
-    ? const [
-        TopupNetwork.ethereum,
-        TopupNetwork.base,
-        TopupNetwork.solana,
-      ].contains(n)
-    : token == 'USDT' &&
-          const [
-            TopupNetwork.ethereum,
-            TopupNetwork.tron,
-            TopupNetwork.bnb,
-          ].contains(n);
+bool allowedPair(String token, TopupNetwork network) =>
+    const ['USDC', 'USDT'].contains(token);
 
 class TopupRail {
   const TopupRail({
@@ -254,10 +188,10 @@ class TopupConfig {
       ),
       const TopupRail(
         token: 'USDC',
-        network: TopupNetwork.solana,
-        asset: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-        decimals: 6,
-        recvAddress: 'ES4pPjXbsK8Q47PpeCSddNsomxFqDmR9tD7p6j1Crcyi',
+        network: TopupNetwork.bnb,
+        asset: '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d',
+        decimals: 18,
+        recvAddress: evm,
       ),
       const TopupRail(
         token: 'USDT',
@@ -268,10 +202,10 @@ class TopupConfig {
       ),
       const TopupRail(
         token: 'USDT',
-        network: TopupNetwork.tron,
-        asset: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+        network: TopupNetwork.base,
+        asset: '0xfde4c96c8593536e31f229ea8f37b2ada2699bb2',
         decimals: 6,
-        recvAddress: 'TB1JA2HBUmfAvRVm9TQvm7RbtkFRSmeuH3',
+        recvAddress: evm,
       ),
       const TopupRail(
         token: 'USDT',
@@ -313,8 +247,6 @@ class TopupConfig {
       for (final network in const [
         TopupNetwork.ethereum,
         TopupNetwork.base,
-        TopupNetwork.solana,
-        TopupNetwork.tron,
         TopupNetwork.bnb,
       ]) {
         if (!allowedPair(token, network)) continue;
@@ -352,10 +284,7 @@ class TopupConfig {
         packs.map((p) => p.packageId).toSet().length != 2) {
       throw const FormatException('充值配置缺项或重复');
     }
-    final evm = rails
-        .where((r) => r.network.evmId != null)
-        .map((r) => r.recvAddress)
-        .toSet();
+    final evm = rails.map((r) => r.recvAddress).toSet();
     if (evm.length != 1) throw const FormatException('EVM收款账户不一致');
     packs.sort(
       (a, b) => a.packageId == b.packageId
@@ -399,44 +328,37 @@ class TopupSelection {
     'package_id': package.packageId,
     'network': network.wire,
   };
-  void validate(TopupConfig config, TopupContext payer) {
-    if (payer.network != network) throw const FormatException('钱包网络与所选网络不一致');
-    final rail = config.rail(token, network),
-        current = config.packageById(package.packageId);
-    if (package.coinFen != current.coinFen ||
-        package.amount(rail) != current.amount(rail)) {
-      throw const FormatException('充值报价已更新，请重新选择');
-    }
-  }
 }
 
-class TopupContext {
-  const TopupContext(this.network, this.payer);
-  final TopupNetwork network;
-  final String payer;
-  factory TopupContext.fromJson(Map<String, dynamic> j) {
-    final n = TopupNetwork.parse(j['network']);
-    final p = j['payer'];
-    if (j['chain'] != n.caip2 || p is! String) {
-      throw const FormatException('钱包上下文无效');
-    }
-    return TopupContext(n, n.address(p));
-  }
-}
-
-/// 钱包点击创建的本地订单，付款前无服务端意图或链查询。
-abstract final class TopupWallets {
-  // 逐个接入钱包：本阶段只开放MetaMask，授权仍须严格匹配用户所选网络。
-  static bool paymentReady(String walletId, TopupNetwork network) =>
-      walletId == ids.first;
-  static const ids = {
-    'c57ca95b47569778a828d19178114f4db188b89b763c899ba0be274e97267d96',
-    'ef333840daf915aafdc4a004525502d6d49d77bd9c65e0642dbaefb3c2893bef',
-    '4622a2b2d6af1c9844944291e5e7351a6aa24cd7b23099efac1b2fd875da31a0',
-    '8a0ee50d1f22f6651afcae7eb4253e52a3310b90af5daef78a8c4929a9bb99d4',
-    '971e689d0a5be527bac79629b4ee9b925e82208e5168b733496a09c0faed0709',
-    'fd20dc426fb37566d803205b19bbc1d4096b248ac04548e3cfb6b3a38bd033aa',
-  };
+/// 充值固定使用MetaMask；标识只用于本地订单，图标不承担付款选择。
+abstract final class TopupWallet {
+  static const id = 'metamask';
+  // MetaMask官方扩展app/images/logo/metamask-fox.svg，随包绘制，不请求远程图片。
+  static const logo =
+      r'''<svg width="35" height="34" viewBox="0 0 35 34" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M32.7077 32.7522L25.1688 30.5174L19.4833 33.9008L15.5167 33.8991L9.82793 30.5174L2.29225 32.7522L0 25.0489L2.29225 16.4993L0 9.27094L2.29225 0.312256L14.0674 7.31554H20.9326L32.7077 0.312256L35 9.27094L32.7077 16.4993L35 25.0489L32.7077 32.7522Z" fill="#FF5C16"/>
+<path d="M2.29395 0.312256L14.0691 7.32047L13.6008 12.1301L2.29395 0.312256Z" fill="#FF5C16"/>
+<path d="M9.82959 25.0522L15.0106 28.9811L9.82959 30.5175V25.0522Z" fill="#FF5C16"/>
+<path d="M14.5966 18.5565L13.6009 12.1333L7.22692 16.5009L7.22363 16.4993V16.5025L7.24335 20.9983L9.82809 18.5565H9.82974H14.5966Z" fill="#FF5C16"/>
+<path d="M32.7077 0.312256L20.9326 7.32047L21.3993 12.1301L32.7077 0.312256Z" fill="#FF5C16"/>
+<path d="M25.1722 25.0522L19.9912 28.9811L25.1722 30.5175V25.0522Z" fill="#FF5C16"/>
+<path d="M27.7766 16.5025H27.7783H27.7766V16.4993L27.775 16.5009L21.401 12.1333L20.4053 18.5565H25.1722L27.7586 20.9983L27.7766 16.5025Z" fill="#FF5C16"/>
+<path d="M9.82793 30.5175L2.29225 32.7522L0 25.0522H9.82793V30.5175Z" fill="#E34807"/>
+<path d="M14.5947 18.5549L16.0341 27.8406L14.0393 22.6777L7.23975 20.9984L9.82613 18.5549H14.593H14.5947Z" fill="#E34807"/>
+<path d="M25.1721 30.5175L32.7078 32.7522L35.0001 25.0522H25.1721V30.5175Z" fill="#E34807"/>
+<path d="M20.4053 18.5549L18.9658 27.8406L20.9607 22.6777L27.7602 20.9984L25.1722 18.5549H20.4053Z" fill="#E34807"/>
+<path d="M0 25.0488L2.29225 16.4993H7.22183L7.23991 20.9967L14.0394 22.676L16.0343 27.8389L15.0089 28.976L9.82793 25.0472H0V25.0488Z" fill="#FF8D5D"/>
+<path d="M35.0001 25.0488L32.7078 16.4993H27.7783L27.7602 20.9967L20.9607 22.676L18.9658 27.8389L19.9912 28.976L25.1722 25.0472H35.0001V25.0488Z" fill="#FF8D5D"/>
+<path d="M20.9325 7.31543H17.4999H14.0673L13.6006 12.1251L16.0342 27.834H18.9656L21.4008 12.1251L20.9325 7.31543Z" fill="#FF8D5D"/>
+<path d="M2.29225 0.312256L0 9.27094L2.29225 16.4993H7.22183L13.5991 12.1301L2.29225 0.312256Z" fill="#661800"/>
+<path d="M13.17 20.4199H10.9369L9.72095 21.6062L14.0409 22.6727L13.17 20.4182V20.4199Z" fill="#661800"/>
+<path d="M32.7077 0.312256L34.9999 9.27094L32.7077 16.4993H27.7781L21.4009 12.1301L32.7077 0.312256Z" fill="#661800"/>
+<path d="M21.833 20.4199H24.0694L25.2853 21.6079L20.9604 22.676L21.833 20.4182V20.4199Z" fill="#661800"/>
+<path d="M19.4817 30.8362L19.9911 28.9794L18.9658 27.8423H16.0327L15.0073 28.9794L15.5167 30.8362" fill="#661800"/>
+<path d="M19.4816 30.8359V33.9021H15.5166V30.8359H19.4816Z" fill="#C0C4CD"/>
+<path d="M9.82959 30.5142L15.52 33.9008V30.8346L15.0106 28.9778L9.82959 30.5142Z" fill="#E7EBF6"/>
+<path d="M25.1721 30.5142L19.4817 33.9008V30.8346L19.9911 28.9778L25.1721 30.5142Z" fill="#E7EBF6"/>
+</svg>''';
 }
 
 /// 签名前只持有内存报价和随机恢复凭据，不是数据库订单。
@@ -683,13 +605,7 @@ class TopupProof {
         (j['checked_at'] as int) < (j['block_at'] as int) ||
         j['transfer_index'] is! int ||
         (j['transfer_index'] as int) < 0 ||
-        (n == TopupNetwork.solana
-            ? !_base58Length(bh, 32)
-            : !RegExp(
-                n == TopupNetwork.tron
-                    ? r'^[0-9a-f]{64}$'
-                    : r'^0x[0-9a-f]{64}$',
-              ).hasMatch(bh))) {
+        !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(bh)) {
       throw const FormatException('付款证据未最终成功或定位不完整');
     }
     return TopupProof._(
@@ -733,14 +649,10 @@ abstract final class TopupRpcConfig {
   static const ethereum = 'https://ethereum-rpc.publicnode.com';
   static const base = 'https://mainnet.base.org';
   static const bnb = 'https://bsc-dataseed.bnbchain.org';
-  static const tron = 'https://tron-rpc.publicnode.com';
-  static const solana = 'https://api.mainnet.solana.com';
   static String endpoint(TopupNetwork network) => switch (network) {
     TopupNetwork.ethereum => ethereum,
     TopupNetwork.base => base,
     TopupNetwork.bnb => bnb,
-    TopupNetwork.tron => tron,
-    TopupNetwork.solana => solana,
   };
   static String url(String value) {
     final u = Uri.tryParse(value);

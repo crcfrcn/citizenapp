@@ -38,7 +38,7 @@ void main() {
       ),
       '0x${'04' * 32}',
     ),
-    TopupWallets.ids.first,
+    TopupWallet.id,
     '0x${'01' * 64}',
     now: 1000000,
   );
@@ -56,6 +56,8 @@ void main() {
     expect(find.text('recovery_token'), findsNothing);
     expect(find.text(value.accountSignature), findsNothing);
     expect(find.text('+0.00'), findsNothing);
+    await tester.ensureVisible(find.text('付款人尚未确认'));
+    expect(find.text('付款人尚未确认'), findsOneWidget);
   });
 
   testWidgets('付款验款通过显示已支付，金额不伪造为公民币收入', (tester) async {
@@ -113,6 +115,11 @@ void main() {
       final reason = code == 'payment_cancelled'
           ? '本次付款已取消，未上传服务端'
           : '付款验证失败，未上传服务端';
+      expect(
+        find.text(code == 'payment_cancelled' ? '取消支付' : '支付失败'),
+        findsOneWidget,
+      );
+      expect(find.text('待支付'), findsNothing);
       await tester.ensureVisible(find.text(reason));
       expect(find.text(reason), findsOneWidget);
       expect(find.text('付款结果尚未核实，请保留原交易'), findsNothing);

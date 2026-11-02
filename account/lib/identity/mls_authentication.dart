@@ -51,7 +51,6 @@ abstract interface class MlsAuthenticationSource {
   Future<sdk.MlsAuthenticationProof> createProof({
     required MlsAuthenticationIdentity identity,
     required sdk.MlsAuthenticationRequest request,
-    required Map<String, dynamic> challenge,
   });
 }
 
@@ -118,13 +117,13 @@ class MlsAuthentication implements MlsAuthenticationSource {
   Future<sdk.MlsAuthenticationProof> createProof({
     required MlsAuthenticationIdentity identity,
     required sdk.MlsAuthenticationRequest request,
-    required Map<String, dynamic> challenge,
   }) async {
-    validateMlsChallenge(identity, request, challenge);
+    identity.validate();
+    request.validate();
     await requireCurrent(identity);
     final proof = await _runtime().createMlsAuthenticationProof(request);
     await requireCurrent(identity);
-    validateMlsProofMatches(identity, request, challenge, proof);
+    validateMlsProofMatches(identity, request, proof);
     return proof;
   }
 }
@@ -172,10 +171,10 @@ void validateMlsChallenge(
 void validateMlsProofMatches(
   MlsAuthenticationIdentity identity,
   sdk.MlsAuthenticationRequest request,
-  Map<String, dynamic> challenge,
   sdk.MlsAuthenticationProof proof,
 ) {
-  validateMlsChallenge(identity, request, challenge);
+  identity.validate();
+  request.validate();
   // 直接验证SDK原生字段集；宿主不再构造第二份证明或翻译字段名。
   final fields = proof.toJson();
   final expected = <String, Object>{
@@ -189,13 +188,13 @@ void validateMlsProofMatches(
     'expires_at': request.expiresAt,
     'http_method': request.httpMethod,
     'request_target': request.requestTarget,
-    'body_hash': challenge['body_hash'] as String,
+    'body_hash': '0x${sha256.convert(request.bodyBytes)}',
   };
   final signature = fields['signature'];
   if (fields.length != expected.length + 1 ||
       signature is! String ||
       !RegExp(r'^0x[0-9a-f]{128}$').hasMatch(signature) ||
       !expected.entries.every((entry) => fields[entry.key] == entry.value)) {
-    throw const MlsAuthenticationException('MLS证明与固定挑战不一致');
+    throw const MlsAuthenticationException('MLS证明与准确请求不一致');
   }
 }

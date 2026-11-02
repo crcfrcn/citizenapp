@@ -1,5 +1,6 @@
 import Flutter
 import StoreKit
+import Security
 import Network
 import UIKit
 import UserNotifications
@@ -43,14 +44,14 @@ import UserNotifications
 
 
 
-  /// 非 Scene 生命周期下接收钱包回跳。WalletConnect 的响应继续走 Relay，本 URL 只负责
+  /// 非 Scene 生命周期下接收钱包回跳。付款响应继续走 Relay，本 URL 只负责
   /// 把仍持有 WebView provider 会话的 CitizenApp 拉回前台，不能再推一张 Flutter 路由。
   override func application(
     _ app: UIApplication,
     open url: URL,
     options: [UIApplication.OpenURLOptionsKey: Any] = [:]
   ) -> Bool {
-    if Self.isWalletConnectCallback(url) {
+    if Self.isTopupCallback(url) {
       return true
     }
     return super.application(app, open: url, options: options)
@@ -68,6 +69,32 @@ import UserNotifications
 
   private func registerApplicationChannels(binaryMessenger: FlutterBinaryMessenger, registrar: FlutterApplicationRegistrar) {
     systemProtectedDataChannel = SystemProtectedDataChannel(binaryMessenger: binaryMessenger)
+    // 授权会话直接由系统Keychain保存，不进入网页localStorage或用户订单库。
+    let walletChannel = FlutterMethodChannel(name: "citizenapp/metamask", binaryMessenger: binaryMessenger)
+    walletChannel.setMethodCallHandler { call, result in
+      do {
+        if call.method == "return" {
+          // 固定恢复本应用；系统是否允许前台恢复由真实打开结果裁决。
+          UIApplication.shared.open(URL(string: "citizenapp://topup")!, options: [:]) { opened in result(opened) }
+          return
+        }
+        guard let args = call.arguments as? [String: Any],
+              let key = args["key"] as? String,
+              ["channel", "accounts", "chain"].contains(key) else { throw CocoaError(.coderInvalidValue) }
+        switch call.method {
+        case "read": result(try Self.readWalletSession(key))
+        case "write":
+          let raw = args["value"]
+          guard raw == nil || raw is NSNull || raw is String else { throw CocoaError(.coderInvalidValue) }
+          let value = raw as? String
+          guard (value?.utf8.count ?? 0) <= 65536 else { throw CocoaError(.coderInvalidValue) }
+          try Self.writeWalletSession(key, value: value)
+          result(nil)
+        default: result(FlutterMethodNotImplemented)
+        }
+      } catch { result(FlutterError(code: "wallet_storage", message: "钱包会话保存不可用", details: nil)) }
+    }
+
     squareMediaChannel = SquareMediaChannel(binaryMessenger: binaryMessenger, registrar: registrar)
 
     let securityChannel = FlutterMethodChannel(
@@ -384,9 +411,44 @@ import UserNotifications
     #endif
   }
 
-  static func isWalletConnectCallback(_ url: URL) -> Bool {
+  private static func walletSessionQuery(_ key: String) -> [String: Any] {
+    [kSecClass as String: kSecClassGenericPassword,
+     kSecAttrService as String: (Bundle.main.bundleIdentifier ?? "com.crcfrcn.citizenapp") + ".metamask",
+     kSecAttrAccount as String: key]
+  }
+
+  private static func readWalletSession(_ key: String) throws -> String? {
+    var query = walletSessionQuery(key)
+    query[kSecReturnData as String] = true
+    query[kSecMatchLimit as String] = kSecMatchLimitOne
+    var raw: CFTypeRef?
+    let status = SecItemCopyMatching(query as CFDictionary, &raw)
+    if status == errSecItemNotFound { return nil }
+    guard status == errSecSuccess, let data = raw as? Data,
+          let text = String(data: data, encoding: .utf8) else { throw CocoaError(.fileReadUnknown) }
+    return text
+  }
+
+  private static func writeWalletSession(_ key: String, value: String?) throws {
+    let query = walletSessionQuery(key)
+    guard let value else {
+      let status = SecItemDelete(query as CFDictionary)
+      guard status == errSecSuccess || status == errSecItemNotFound else { throw CocoaError(.fileWriteUnknown) }
+      return
+    }
+    let data = Data(value.utf8)
+    let status = SecItemUpdate(query as CFDictionary, [kSecValueData: data] as CFDictionary)
+    if status == errSecItemNotFound {
+      var item = query
+      item[kSecValueData as String] = data
+      item[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+      guard SecItemAdd(item as CFDictionary, nil) == errSecSuccess else { throw CocoaError(.fileWriteUnknown) }
+    } else if status != errSecSuccess { throw CocoaError(.fileWriteUnknown) }
+  }
+
+  static func isTopupCallback(_ url: URL) -> Bool {
     url.scheme?.lowercased() == "citizenapp" &&
-      url.host?.lowercased() == "walletconnect"
+      url.host?.lowercased() == "topup"
   }
 
   /// 商品ID是正式登记的公开元数据，不能由Dart指定任意跳转目标。
@@ -422,9 +484,9 @@ import UserNotifications
 // 钱包回跳的场景处理与应用入口同属一个原生源文件。
 class SceneDelegate: FlutterSceneDelegate {
   /// iOS 13+ 的钱包回跳进入 Scene。命中专用地址时只恢复当前界面；其他 URL 仍交给
-  /// FlutterSceneDelegate，避免 WalletConnect 回跳被 MaterialApp 当成页面路由。
+  /// FlutterSceneDelegate，避免 充值钱包回跳被 MaterialApp 当成页面路由。
   override func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
-    if URLContexts.contains(where: { AppDelegate.isWalletConnectCallback($0.url) }) {
+    if URLContexts.contains(where: { AppDelegate.isTopupCallback($0.url) }) {
       return
     }
     super.scene(scene, openURLContexts: URLContexts)

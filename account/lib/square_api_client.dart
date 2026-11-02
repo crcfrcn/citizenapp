@@ -4,12 +4,12 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' show Random;
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:citizen_system/app_log.dart';
-import 'package:citizen_network/chain_bootstrap_api.dart'
-    show HttpsOnlyClient;
+import 'package:citizen_network/chain_bootstrap_api.dart' show HttpsOnlyClient;
 
 import 'package:citizen_square/post/square_models.dart';
 import 'package:citizen_account/profile/citizen_profile.dart';
@@ -576,11 +576,16 @@ class SquareApiClient
         SquareFeedSource,
         SquarePublicationConfirmer,
         SquarePostDeletionService {
-  SquareApiClient({String? baseUrl, http.Client? httpClient})
-    : baseUrl = SquareApiConfig.normalizeBaseUrl(
-        baseUrl ?? SquareApiConfig.defaultBaseUrl,
-      ),
-      _http = HttpsOnlyClient(httpClient ?? http.Client()) {
+  SquareApiClient({
+    String? baseUrl,
+    http.Client? httpClient,
+    Future<void> Function(Duration)? reportDelay,
+  }) : baseUrl = SquareApiConfig.normalizeBaseUrl(
+         baseUrl ?? SquareApiConfig.defaultBaseUrl,
+       ),
+       _http = HttpsOnlyClient(httpClient ?? http.Client()),
+       _reportDelay =
+           reportDelay ?? ((duration) => Future<void>.delayed(duration)) {
     _liveClients.add(WeakReference<SquareApiClient>(this));
   }
 
@@ -641,6 +646,8 @@ class SquareApiClient
 
   final String baseUrl;
   final http.Client _http;
+  final Future<void> Function(Duration) _reportDelay;
+  final Map<(String, String), Future<void>> _identityReports = {};
   bool _closed = false;
   final Map<String, SquareSession> _sessions = {};
   // 进行中的握手：同账户并发调用共享同一 Future，杜绝冷启动握手风暴。
@@ -694,7 +701,10 @@ class SquareApiClient
       } on SquareApiException catch (error) {
         // 服务不可用必须保留原失败，即使响应携带未登记码也不能触发设备登记。
         if (error.statusCode == 503 ||
-            error.errorCode != 'device_not_registered' ||
+            !(error.errorCode == 'device_not_registered' ||
+                (error.errorCode == 'invalid_session' &&
+                    error.statusCode == 401 &&
+                    error.stage == SquareApiStage.challenge)) ||
             onDeviceNotRegistered == null) {
           rethrow;
         }
@@ -755,18 +765,77 @@ class SquareApiClient
       final bytes = List<int>.unmodifiable(body);
       await _requireAuthenticationCurrent(identity, authentication, generation);
       stage = 'challenge';
-      final challenge = await _postAuthentication(
-        '/user/challenges',
-        jsonEncode({
-          'account_id': identity.accountId,
-          'public_key': identity.publicKey,
-          'token_purpose': purpose,
-          'http_method': method,
-          'request_target': uri.path + (uri.hasQuery ? '?${uri.query}' : ''),
-          'body_hash': '0x${sha256.convert(bytes)}',
-        }),
-        sessionToken: sessionToken,
-      );
+      final challengeFields = <String, Object?>{
+        'account_id': identity.accountId,
+        'public_key': identity.publicKey,
+        'token_purpose': purpose,
+        'http_method': method,
+        'request_target': uri.path + (uri.hasQuery ? '?${uri.query}' : ''),
+        'body_hash': '0x${sha256.convert(bytes)}',
+      };
+      if (purpose == 'device') {
+        final device = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+        challengeFields['issued_at'] = device['issued_at'];
+        challengeFields['binding_signature'] = device['binding_signature'];
+      }
+      final challengeBody = jsonEncode(challengeFields);
+      Future<Map<String, dynamic>> issue() async {
+        await _requireAuthenticationCurrent(
+          identity,
+          authentication,
+          generation,
+        );
+        final random = Random.secure();
+        final request = sdk.MlsAuthenticationRequest(
+          serviceOrigin: baseUri.origin,
+          nonceId:
+              '0x${bytesToHex(List<int>.generate(32, (_) => random.nextInt(256)))}',
+          expiresAt: DateTime.now().millisecondsSinceEpoch + 30000,
+          httpMethod: 'POST',
+          requestTarget: _uri('/user/challenges').path,
+          bodyBytes: utf8.encode(challengeBody),
+        );
+        stage = 'proof';
+        final proof = await authentication.createProof(
+          identity: identity,
+          request: request,
+        );
+        validateMlsProofMatches(identity, request, proof);
+        await _requireAuthenticationCurrent(
+          identity,
+          authentication,
+          generation,
+        );
+        stage = 'challenge';
+        return _postAuthentication(
+          '/user/challenges',
+          challengeBody,
+          sessionToken: sessionToken,
+          proofHeaders: mlsProofHeaders(proof),
+        );
+      }
+
+      late final Map<String, dynamic> challenge;
+      try {
+        challenge = await issue();
+      } on SquareApiException catch (error) {
+        if (purpose != 'device' ||
+            error.statusCode != 409 ||
+            error.errorCode != 'identity_not_reported') {
+          rethrow;
+        }
+        // 已有真实链身份缺服务端事实，只补报一次流程，再恢复同一持钥申请；不重新注册。
+        await reportIdentity(
+          cidNumber: identity.cidNumber,
+          accountId: identity.accountId,
+          requireCurrent: () => _requireAuthenticationCurrent(
+            identity,
+            authentication,
+            generation,
+          ),
+        );
+        challenge = await issue();
+      }
       await _requireAuthenticationCurrent(identity, authentication, generation);
       final nonce = challenge['nonce_id'];
       final expiry = challenge['expires_at'];
@@ -786,10 +855,9 @@ class SquareApiClient
       final proof = await authentication.createProof(
         identity: identity,
         request: request,
-        challenge: challenge,
       );
       await _requireAuthenticationCurrent(identity, authentication, generation);
-      validateMlsProofMatches(identity, request, challenge, proof);
+      validateMlsProofMatches(identity, request, proof);
       return mlsProofHeaders(proof);
     } on SquareApiException {
       // HTTP和传输失败已在实际发送边界分类，不重复读取或输出正文。
@@ -816,6 +884,7 @@ class SquareApiClient
     Map<String, String> proofHeaders = const {},
   }) async {
     final stage = switch (path) {
+      '/user/identity' => SquareApiStage.identity,
       '/user/challenges' => SquareApiStage.challenge,
       '/user/sessions' => SquareApiStage.session,
       '/user/devices' => SquareApiStage.registration,
@@ -965,8 +1034,9 @@ class SquareApiClient
     Future<void> Function()? requireCurrent,
   }) async {
     binding.validate();
-    if (!RegExp(r'^[A-Za-z0-9][A-Za-z0-9-]{0,31}$')
-        .hasMatch(binding.cidNumber)) {
+    if (!RegExp(
+      r'^[A-Za-z0-9][A-Za-z0-9-]{0,31}$',
+    ).hasMatch(binding.cidNumber)) {
       throw const SquareApiException('注销身份绑定无效');
     }
     final generation = _sessionGenerations[binding.accountId] ?? 0;
@@ -1139,8 +1209,6 @@ class SquareApiClient
     required MlsAuthenticationSource authentication,
     required int issuedAt,
     required String bindingSignatureHex,
-    required String? regId,
-    required String? recoveryToken,
   }) async {
     final generation = _sessionGenerations.putIfAbsent(
       identity.accountId,
@@ -1151,14 +1219,12 @@ class SquareApiClient
       'public_key': identity.publicKey,
       'issued_at': issuedAt,
       'binding_signature': bindingSignatureHex,
-      'reg_id': regId,
-      'recovery_token': recoveryToken,
     });
     final headers = await _authenticationHeaders(
       identity: identity,
       authentication: authentication,
       generation: generation,
-      purpose: 'registration',
+      purpose: 'device',
       method: 'POST',
       uri: _uri('/user/devices'),
       body: utf8.encode(body),
@@ -1248,13 +1314,75 @@ class SquareApiClient
     );
   }
 
-  /// finalized投影是公开链证据，不接收客户端自报CID或账户。
-  Future<void> projectFinalizedIdentity(String blockHash) async {
-    if (!RegExp(r'^0x[0-9a-f]{64}$').hasMatch(blockHash)) {
-      throw const SquareApiException('finalized块无效');
+  /// 同一绑定在途合并；只有暂时失败重试报告，不触发人验、签名注册或后台轮询。
+  Future<void> reportIdentity({
+    required String cidNumber,
+    required String accountId,
+    required Future<void> Function() requireCurrent,
+  }) {
+    if (!RegExp(r'^[A-Za-z0-9][A-Za-z0-9-]{0,31}$').hasMatch(cidNumber) ||
+        !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(accountId)) {
+      throw const SquareApiException('链上绑定格式无效', errorCode: 'response_invalid');
     }
-    final data = await _postJson('/user/identity', {'block_hash': blockHash});
-    if (data['is_ok'] != true) throw const SquareApiException('身份投影尚未完成');
+    final key = (cidNumber, accountId);
+    final pending = _identityReports[key];
+    if (pending != null) return pending;
+    late final Future<void> task;
+    task =
+        () async {
+          final body = jsonEncode({
+            'cid_number': cidNumber,
+            'account_id': accountId,
+          });
+          for (var attempt = 0; attempt < 3; attempt++) {
+            await requireCurrent();
+            if (_closed) {
+              throw const MlsAuthenticationException(
+                '服务客户端已关闭',
+                code: 'identityChanged',
+              );
+            }
+            try {
+              final value = await _postAuthentication('/user/identity', body);
+              await requireCurrent();
+              if (_closed) {
+                throw const MlsAuthenticationException(
+                  '服务客户端已关闭',
+                  code: 'identityChanged',
+                );
+              }
+              if (value.length != 1 || value['is_ok'] != true) {
+                throw const SquareApiException(
+                  '身份报告响应无效',
+                  errorCode: 'response_invalid',
+                );
+              }
+              return;
+            } on SquareApiException catch (error) {
+              await requireCurrent();
+              if (_closed) {
+                throw const MlsAuthenticationException(
+                  '服务客户端已关闭',
+                  code: 'identityChanged',
+                );
+              }
+              final retry =
+                  error.errorCode == 'network_unavailable' ||
+                  error.statusCode == 429 ||
+                  (error.statusCode != null && error.statusCode! >= 500) ||
+                  error.errorCode == 'identity_not_finalized';
+              if (!retry || attempt == 2) rethrow;
+              await _reportDelay(Duration(seconds: 60 << attempt));
+              await requireCurrent();
+            }
+          }
+        }().whenComplete(() {
+          if (identical(_identityReports[key], task)) {
+            _identityReports.remove(key);
+          }
+        });
+    _identityReports[key] = task;
+    return task;
   }
 
   /// 幂等登记CitizenServe普通应用通知端点；设备身份只由已验签Session决定。
@@ -1920,8 +2048,9 @@ class SquareApiClient
         uri.hasQuery ||
         uri.hasFragment ||
         uri.toString() !=
-            _uri('/user/profiles/${target.group(1)}/assets/${target.group(2)}')
-                .toString()) {
+            _uri(
+              '/user/profiles/${target.group(1)}/assets/${target.group(2)}',
+            ).toString()) {
       throw const SquareApiException('资料媒体地址必须是当前服务的准确头像或背景路径');
     }
     if (!session.isUsable) {

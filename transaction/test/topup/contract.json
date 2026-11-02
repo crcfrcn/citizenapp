@@ -18,10 +18,10 @@
       },
       {
         "token": "USDC",
-        "network": "solana",
-        "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-        "decimals": 6,
-        "recv_address": "11111111111111111111111111111111"
+        "network": "bnb",
+        "asset": "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d",
+        "decimals": 18,
+        "recv_address": "0x0202020202020202020202020202020202020202"
       },
       {
         "token": "USDT",
@@ -32,10 +32,10 @@
       },
       {
         "token": "USDT",
-        "network": "tron",
-        "asset": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+        "network": "base",
+        "asset": "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2",
         "decimals": 6,
-        "recv_address": "TA9pkx4DFxrEw8JZzUtyDrh2uAat1LDuJL"
+        "recv_address": "0x0202020202020202020202020202020202020202"
       },
       {
         "token": "USDT",
@@ -64,8 +64,8 @@
           },
           {
             "token": "USDC",
-            "network": "solana",
-            "pay_amount": "10000000"
+            "network": "bnb",
+            "pay_amount": "10000000000000000000"
           },
           {
             "token": "USDT",
@@ -74,7 +74,7 @@
           },
           {
             "token": "USDT",
-            "network": "tron",
+            "network": "base",
             "pay_amount": "10000000"
           },
           {
@@ -102,8 +102,8 @@
           },
           {
             "token": "USDC",
-            "network": "solana",
-            "pay_amount": "900000000"
+            "network": "bnb",
+            "pay_amount": "900000000000000000000"
           },
           {
             "token": "USDT",
@@ -112,7 +112,7 @@
           },
           {
             "token": "USDT",
-            "network": "tron",
+            "network": "base",
             "pay_amount": "900000000"
           },
           {
@@ -125,15 +125,7 @@
     ],
     "ready": true
   },
-  "native": {
-    "tron": {
-      "payment": {
-        "asset": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
-        "recv_address": "TA9pkx4DFxrEw8JZzUtyDrh2uAat1LDuJL"
-      }
-    }
-  },
-  "config_hash": "31a3693e791b37d4f337b832c8708c87abbc3cc931d9c82b060c0b10c4e34046",
+  "config_hash": "637682c44e2e3462e2685d9dbaa6b9e4ce608cc9f7c6f0f5c8520bf5801b466a",
   "payment_checks": {
     "max_rounds": 11,
     "intervals_seconds": [

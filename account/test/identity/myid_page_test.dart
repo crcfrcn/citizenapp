@@ -10,7 +10,8 @@ import 'package:citizen_account/identity/identity_binding.dart';
 import 'package:citizen_account/identity/finalized_identity_resolver.dart';
 
 import 'registration_api_test.dart' show registrationContext;
-import 'registration_coordinator_test.dart' show Api, MemoryStore;
+import 'registration_coordinator_test.dart'
+    show Api, MemoryStore, VerifiedCoordinator;
 
 import 'package:citizen_account/identity/myid_page.dart';
 import 'package:citizen_account/identity/current_user_context.dart';
@@ -310,32 +311,21 @@ void main() {
     expect(find.text('公民身份 · 竞选'), findsOneWidget);
   });
 
-  // 余额用例从已保存的真人验证恢复，执行真实编排；云端边界仍为明确合成夹具。
+  // 余额用例通过合成人验结果与Siteverify边界进入真实编排，不保存人验状态。
   Future<void> pumpRegistration(
     WidgetTester tester,
     _RegisterFlowService service, {
     void Function(String)? onTopup,
   }) async {
-    final api = Api([])..jobState = 'human_verified';
+    final api = Api([]);
     final store = MemoryStore([]);
-    final context = registrationContext();
-    final response = api.response(context);
-    store.value = RegistrationRecord(
-      context: context,
-      capabilities: RegistrationCapabilities(
-        response.regId,
-        'protected-recovery-capability',
-      ),
-      response: response,
-      phase: RegistrationPhase.verified,
-    );
     service.api = api;
     addTearDown(api.close);
     await tester.pumpWidget(
       MultiProvider(
         providers: [
           Provider<RegistrationCoordinator>.value(
-            value: RegistrationCoordinator(api: api, store: store),
+            value: VerifiedCoordinator(api: api, store: store),
           ),
           Provider<FinalizedIdentityResolver>.value(
             value: _UnregisteredIdentity(),
@@ -365,6 +355,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(service.registerCalls, 0);
+    expect(topupAccount, isNull);
+    await tester.tap(find.text('充值/USDT'));
+    await tester.pumpAndSettle();
     expect(topupAccount, registrationContext().accountId);
     expect(find.textContaining('注册失败：钱包余额不足'), findsOneWidget);
     expect(find.byType(RegisterIdentitySheet), findsOneWidget);
@@ -666,7 +659,7 @@ class _RegisterFlowService extends _FakeMyIdService {
   Future<void> synchronizeIdentity(FinalizedIdentity identity) async {
     expect(identity.accountId, registrationContext().accountId);
     expect(identity.isRegistered, isFalse);
-    expect(api.jobState, 'human_verified');
+    // 同步链身份不依赖保存过的人验状态。
   }
 
   @override
@@ -720,7 +713,7 @@ class _RegisterFlowService extends _FakeMyIdService {
     String accountId,
   ) async => null;
   @override
-  Future<FinalizedRegistration> registerEnrollmentCid({
+  Future<FinalizedRegistration> registerCid({
     required BuildContext? context,
     required String institution,
     required String accountId,
@@ -743,10 +736,7 @@ class _RegisterFlowService extends _FakeMyIdService {
   }
 
   @override
-  Future<String> activateRegistration(FinalizedRegistration result) async {
-    api.jobState = 'activated';
-    return '33' * 32;
-  }
+  Future<void> reportRegistration(FinalizedRegistration result) async {}
 
   @override
   Future<bool> canRetryRegistration(Map<String, dynamic>? checkpoint) async =>

@@ -47,7 +47,7 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
-            <!-- WalletConnect 回跳只恢复原支付页，不转换成 Flutter 命名路由。 -->
+            <!-- 充值钱包回跳只恢复原支付页，不转换成 Flutter 命名路由。 -->
             <meta-data
                 android:name="flutter_deeplinking_enabled"
                 android:value="false" />
@@ -61,7 +61,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
                     android:scheme="citizenapp"
-                    android:host="walletconnect" />
+                    android:host="topup" />
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.

@@ -565,9 +565,11 @@ Object.assign(environment,values);
 if(environment.GITHUB_ENV)for (const [key, value] of Object.entries(values)) appendFileSync(environment.GITHUB_ENV, key + '=' + value + '\n');
 await preparePackages(project,{sources,environment});
 // App随包资源随普通工程一起准备，不增加功能构建入口。
+// 本机默认复用本产品已准备的npm缓存，缺件仍离线失败。
 const assets = join(project, 'transaction/web');
 const resourceEnvironment = {...environment, npm_config_ignore_scripts: 'true',
-    ...(environment.GITHUB_ACTIONS === 'true' ? {} : {npm_config_offline: 'true'})};
+    ...(environment.GITHUB_ACTIONS === 'true' ? {} : {npm_config_offline: 'true',
+        npm_config_cache: environment.npm_config_cache ?? environment.NPM_CONFIG_CACHE ?? join(root, 'target/cache/npm')})};
 await run('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], assets, false, resourceEnvironment, 'App资源准备');
 await run(environment.ESBUILD_BIN || 'esbuild', ['walletconnect.js', '--bundle', '--format=iife',
     '--global-name=CitizenTopup', '--platform=browser', '--target=safari15,chrome100', '--minify',

@@ -1,4 +1,5 @@
 import 'package:citizen_transaction/topup/topup_api.dart';
+import 'package:citizen_transaction/topup/topup_webview_page.dart';
 import 'navigation.dart';
 import 'package:citizen_wallet/navigation.dart';
 import 'package:citizen_citizen/navigation.dart';
@@ -80,20 +81,11 @@ Future<void> main() async {
   final authentication = MlsAuthentication(
     runtime: () => readChatRuntime(),
     currentBinding: () async {
-      final registering = registrationCoordinator.activeBinding;
-      // 新注册在真实回执持久保存前不让根自动准备抢跑；注册激活继续复用同一实例。
-      if (registrationCoordinator.isRegistering && registering == null) {
+      // 注册进行中不让自动服务准备抢先建立设备权限。
+      if (registrationCoordinator.isRegistering) {
         throw const MlsAuthenticationException(
-          '注册回执正在保存',
+          '注册仍在进行',
           code: 'identityUnavailable',
-        );
-      }
-      if (registering != null) {
-        await registrationCoordinator.requireActiveCurrent();
-        return (
-          cidNumber: registering.cidNumber,
-          accountId: registering.accountId,
-          bindRev: registering.bindRev,
         );
       }
       final current = await currentUserContext.resolve();
@@ -113,11 +105,7 @@ Future<void> main() async {
       );
     },
   );
-  final registrar = MlsDeviceRegistrar(
-    authentication: authentication,
-    registrationCapabilities: (identity) async => registrationCoordinator.store
-        .forDevice(identity, chainScope: await citizenSdk.getGenesisHash()),
-  );
+  final registrar = MlsDeviceRegistrar(authentication: authentication);
   final accountSecurity = AccountSecurityService(
     wallet: citizenSdk,
     signing: citizenSdk,

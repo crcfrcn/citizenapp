@@ -1,20 +1,30 @@
 import 'dart:async';
-
 import 'package:flutter_test/flutter_test.dart';
+import 'package:citizen_account/identity/identity_binding.dart';
 import 'package:citizen_account/identity/registration_api.dart';
+import 'package:citizen_account/identity/registration_coordinator.dart';
 import 'package:citizen_account/identity/registration_models.dart';
 import 'package:citizen_account/identity/registration_store.dart';
-import 'package:citizen_account/identity/registration_coordinator.dart';
-import 'package:citizen_account/identity/identity_binding.dart';
+import 'registration_api_test.dart' show registrationContext, verification;
 
-import 'registration_api_test.dart'
-    show registrationContext, registrationResponse;
+class Api extends RegistrationApi {
+  Api(this.events);
+  final List<String> events;
+  bool acceptVerification = true;
+  @override
+  Future<void> verify(RegistrationContext c, RegistrationVerification v) async {
+    events.add('siteverify');
+    if (!acceptVerification) {
+      throw const RegistrationException('未通过', code: 'verification_failed');
+    }
+  }
+}
 
 class MemoryStore extends RegistrationStore {
-  RegistrationRecord? value;
-  bool fail = false;
-  final List<String> events;
   MemoryStore(this.events);
+  final List<String> events;
+  RegistrationRecord? value;
+  bool failWrite = false;
   @override
   Future<RegistrationRecord?> read(RegistrationContext c) async => value;
   @override
@@ -22,325 +32,245 @@ class MemoryStore extends RegistrationStore {
     RegistrationRecord? previous,
     RegistrationRecord next,
   ) async {
-    if (fail || !identical(value, previous)) throw StateError('CAS refused');
-    events.add('save:${next.phase.name}:${next.response.jobState.name}');
+    if (failWrite) throw StateError('storage');
+    if (value != previous) throw StateError('CAS');
+    RegistrationRecord.decode(next.encode());
     value = next;
+    events.add(next.finalized == null ? 'checkpoint' : 'finalized');
   }
 }
 
-class Api extends RegistrationApi {
-  final List<String> events;
-  String jobState = 'prepared';
-  int pages = 0;
-  bool failStatus = false;
-  bool acceptVerification = true;
-  Api(this.events);
-  RegistrationResponse response(
-    RegistrationContext c, {
-    bool initial = false,
-  }) => RegistrationResponse.parse(
-    registrationResponse(c, jobState: jobState, initial: initial),
-    c,
-    initial: initial,
+/// Widget业务测试只替换人验页面交付，不跳过实际Siteverify编排。
+class VerifiedCoordinator extends RegistrationCoordinator {
+  VerifiedCoordinator({required super.api, required super.store});
+  @override
+  Future<FinalizedRegistration> run({
+    required RegistrationContext context,
+    required Future<void> Function() requireCurrent,
+    required Future<RegistrationVerification?> Function() showVerification,
+    required Future<void> Function() requireAffordable,
+    required Future<FinalizedRegistration?> Function() readFinalized,
+    required Future<FinalizedRegistration> Function(
+      Future<void> Function(Map<String, dynamic>),
+    )
+    registerCid,
+    Future<bool> Function(Map<String, dynamic>?)? canRetryChain,
+    required Future<void> Function(FinalizedRegistration) report,
+  }) => super.run(
+    context: context,
+    requireCurrent: requireCurrent,
+    showVerification: () async => verification(),
+    requireAffordable: requireAffordable,
+    readFinalized: readFinalized,
+    registerCid: registerCid,
+    canRetryChain: canRetryChain,
+    report: report,
   );
-  @override
-  Future<RegistrationResponse> prepare(RegistrationContext c) async {
-    events.add('prepare');
-    return response(c, initial: true);
-  }
-
-  @override
-  Future<RegistrationResponse> verify(
-    RegistrationContext c,
-    RegistrationCapabilities cap, {
-    required String checkId,
-    required String token,
-  }) async {
-    events.add('verify');
-    jobState = acceptVerification ? 'human_verified' : 'prepared';
-    return response(c);
-  }
-
-  @override
-  Future<RegistrationResponse> status(
-    RegistrationContext c,
-    RegistrationCapabilities cap, {
-    String operation = 'read',
-  }) async {
-    events.add('status:$operation');
-    if (failStatus) throw StateError('offline');
-    if (operation == 'refresh_verification') pages++;
-    return response(c);
-  }
 }
 
+FinalizedRegistration chainResult() => FinalizedRegistration(
+  binding: IdentityBinding(
+    genesisHash: registrationContext().chainScope,
+    cidNumber: 'CN220-CTZN2-100000001-2026',
+    bindRev: 1,
+    accountId: registrationContext().accountId,
+  ),
+  blockHash: '0x${'aa' * 32}',
+  txHash: '0x${'bb' * 32}',
+);
 void main() {
   late List<String> events;
-  late MemoryStore store;
   late Api api;
+  late MemoryStore store;
   late RegistrationCoordinator coordinator;
-  late FinalizedRegistration finalized;
-  FinalizedRegistration? chain;
-  bool cancel = false, activateFail = false, changed = false;
-  int wallets = 0, pages = 0;
-  var activatedDevice = "33" * 32;
-  setUp(() {
-    events = [];
-    store = MemoryStore(events);
-    api = Api(events);
-    coordinator = RegistrationCoordinator(api: api, store: store);
-    finalized = FinalizedRegistration(
-      binding: IdentityBinding(
-        genesisHash: registrationContext().chainScope,
-        cidNumber: 'CN220-CTZN2-100000001-2026',
-        bindRev: 1,
-        accountId: registrationContext().accountId,
-      ),
-      blockHash: '0x${'aa' * 32}',
-    );
-    chain = null;
-    cancel = false;
-    activateFail = false;
-    changed = false;
-    activatedDevice = "33" * 32;
-    wallets = 0;
-    pages = 0;
-  });
+  int wallets = 0, reports = 0, pages = 0;
+  bool exists = false, failReport = false, cancel = false, guardOk = true;
   Future<FinalizedRegistration> run() => coordinator.run(
     context: registrationContext(),
     requireCurrent: () async {
-      if (changed) throw StateError('account changed');
+      if (!guardOk) throw StateError('account changed');
     },
-    showVerification: (_) async {
-      expect(coordinator.isRegistering, true);
-      expect(coordinator.activeBinding, isNull);
+    showVerification: () async {
       pages++;
       events.add('page');
-      return cancel ? null : 'valid-ephemeral-token';
+      return cancel ? null : verification();
     },
     requireAffordable: () async {
       events.add('balance');
     },
-    readFinalized: () async => chain,
+    readFinalized: () async {
+      events.add('chain');
+      return exists ? chainResult() : null;
+    },
     registerCid: (save) async {
+      final point = {
+        'preparation_id': 'prepared-id',
+        'account_id': registrationContext().accountId,
+        'call_data_hash': '0x${'cc' * 32}',
+        'state': 'prepared',
+      };
+      await save(point);
+      await save({...point, 'state': 'executing'});
       wallets++;
       events.add('wallet');
-      await save({
-        'state': 'executing',
-        'account_id': registrationContext().accountId,
-        'call_data_hash': '0x${'55' * 32}',
-      });
-      chain = finalized;
-      return finalized;
+      exists = true;
+      return chainResult();
     },
-    activate: (result) async {
-      events.add('activate');
-      expect(coordinator.activeBinding, result.binding);
-      if (activateFail) throw StateError('timeout');
-      api.jobState = 'activated';
-      return activatedDevice;
+    canRetryChain: (_) async => false,
+    report: (_) async {
+      reports++;
+      events.add('report');
+      if (failReport) throw StateError('offline');
     },
   );
-  test('已有公民号零登记API、零真人验证、零费用及占号', () async {
-    chain = finalized;
-    api.failStatus = true;
-    expect(await run(), finalized);
-    expect(events, ['activate']);
-    expect(pages, 0);
-    expect(wallets, 0);
-    expect(store.value, isNull);
+  setUp(() {
+    events = [];
+    api = Api(events);
+    store = MemoryStore(events);
+    coordinator = RegistrationCoordinator(api: api, store: store);
+    wallets = reports = pages = 0;
+    exists = failReport = cancel = false;
+    guardOk = true;
   });
-  test('服务器通过和两次保护保存先于余额/原钱包；成功只弹一次', () async {
-    await run();
-    expect(pages, 1);
+  tearDown(() => api.close());
+  test('一次人验通过后原交易，最终结果落盘后才报告，无登记状态', () async {
+    final result = await run();
+    expect(result.binding.cidNumber, chainResult().binding.cidNumber);
     expect(wallets, 1);
-    expect(coordinator.isRegistering, false);
-    expect(coordinator.activeBinding, isNull);
-    expect(store.value?.phase, RegistrationPhase.ready);
-    expect(
-      events.indexOf('save:verification:prepared'),
-      lessThan(events.indexOf('page')),
-    );
-    expect(
-      events.indexOf('save:verified:humanVerified'),
-      lessThan(events.indexOf('balance')),
-    );
+    expect(reports, 1);
+    expect(pages, 1);
+    expect(events.indexOf('siteverify'), lessThan(events.indexOf('balance')));
     expect(events.indexOf('balance'), lessThan(events.indexOf('wallet')));
-    expect(
-      events.indexOf('save:finalized:humanVerified'),
-      lessThan(events.indexOf('activate')),
-    );
+    expect(events.indexOf('finalized'), lessThan(events.indexOf('report')));
+    final encoded = store.value!.encode();
+    for (final text in [
+      'reg_id',
+      'recovery_token',
+      'human_verified',
+      'turnstile_token',
+      'context_hash',
+      'job_state',
+    ]) {
+      expect(encoded, isNot(contains(text)));
+    }
   });
-  test('激活回执必须对应实际普通会话的同一MLS设备', () async {
-    activatedDevice = '44' * 32;
+  test('人验失败与取消均零链交易、零报告、零存储', () async {
+    api.acceptVerification = false;
+    await expectLater(run(), throwsA(isA<RegistrationException>()));
+    expect(wallets, 0);
+    expect(reports, 0);
+    expect(store.value, isNull);
+    api.acceptVerification = true;
+    cancel = true;
+    await expectLater(run(), throwsA(isA<RegistrationException>()));
+    expect(events.where((e) => e == 'siteverify'), hasLength(1));
+    expect(wallets, 0);
+  });
+  test('上报失败保留真实finalized，再试不重新人验或签名注册', () async {
+    failReport = true;
     await expectLater(
       run(),
       throwsA(
         isA<RegistrationException>().having(
           (e) => e.code,
-          'code',
-          'activation_pending',
+          '代码',
+          'report_pending',
         ),
       ),
     );
-    expect(store.value?.phase, RegistrationPhase.finalized);
+    expect(store.value!.finalized, isNotNull);
+    failReport = false;
+    await run();
     expect(wallets, 1);
+    expect(pages, 1);
+    expect(reports, 2);
+    expect(store.value!.finalized!.blockHash, chainResult().blockHash);
   });
-  test('链读取异常不准备登记、不弹真人验证或占号', () async {
+  test('未知执行只恢复原交易，不再人验或签名', () async {
+    store.value = RegistrationRecord(
+      context: registrationContext(),
+      checkpoint: {
+        'preparation_id': 'p',
+        'execution_id': 'e',
+        'account_id': registrationContext().accountId,
+        'call_data_hash': '0x${'cc' * 32}',
+        'state': 'executing',
+      },
+    );
+    await expectLater(
+      run(),
+      throwsA(
+        isA<RegistrationException>().having(
+          (e) => e.code,
+          '代码',
+          'chain_pending',
+        ),
+      ),
+    );
+    expect(pages, 0);
+    expect(wallets, 0);
+    expect(reports, 0);
+  });
+  test('链读取失败与本机检查点失败不进入钱包签名', () async {
     await expectLater(
       coordinator.run(
         context: registrationContext(),
         requireCurrent: () async {},
-        showVerification: (_) async {
+        showVerification: () async {
           pages++;
-          return 'token';
+          return verification();
         },
-        requireAffordable: () async {
-          events.add('balance');
-        },
-        readFinalized: () async =>
-            throw StateError('synthetic network failure'),
+        requireAffordable: () async {},
+        readFinalized: () async => throw StateError('chain offline'),
         registerCid: (_) async {
           wallets++;
-          return finalized;
+          return chainResult();
         },
-        activate: (_) async => '33' * 32,
+        report: (_) async {
+          reports++;
+        },
       ),
       throwsStateError,
     );
-    expect(events, isEmpty);
     expect(pages, 0);
-    expect(wallets, 0);
-  });
-  test('finalized恢复不依赖过期或故障的登记服务', () async {
-    activateFail = true;
-    await expectLater(run(), throwsA(isA<RegistrationException>()));
-    activateFail = false;
-    events.clear();
-    api.failStatus = true;
-    await run();
-    expect(
-      events.where(
-        (e) =>
-            e.startsWith('status') ||
-            e == 'prepare' ||
-            e == 'page' ||
-            e == 'wallet',
-      ),
-      isEmpty,
-    );
-    expect(
-      store.value!.response.jobState,
-      RegistrationState.humanVerified,
-      reason: '只更新本机阶段，不能伪造服务器activated',
-    );
-    expect(store.value!.phase, RegistrationPhase.ready);
-  });
-  test('Turnstile未被服务器确认通过，零余额读取和链交易', () async {
-    api.acceptVerification = false;
-    await expectLater(run(), throwsA(isA<RegistrationException>()));
-    expect(pages, 1);
-    expect(events, isNot(contains('balance')));
-    expect(wallets, 0);
-    expect(store.value!.phase, RegistrationPhase.verification);
-  });
-  test('取消和保存失败：钱包/余额均为零', () async {
-    cancel = true;
-    await expectLater(run(), throwsA(isA<RegistrationException>()));
-    expect(wallets, 0);
-    expect(events, isNot(contains('balance')));
-    store.fail = true;
-    cancel = false;
+    store.failWrite = true;
     await expectLater(run(), throwsStateError);
     expect(wallets, 0);
+    expect(reports, 0);
   });
-  test('finalized后激活失败：重启读服务器和链；不重新验证/注册', () async {
-    activateFail = true;
-    await expectLater(
-      run(),
-      throwsA(
-        isA<RegistrationException>().having(
-          (e) => e.code,
-          'code',
-          'activation_pending',
-        ),
-      ),
-    );
-    activateFail = false;
-    coordinator = RegistrationCoordinator(api: api, store: store);
-    await run();
-    expect(pages, 1);
-    expect(wallets, 1);
-    expect(store.value?.phase, RegistrationPhase.ready);
-  });
-  test('明确未进入SDKexecute的失败可恢复同一验证，未知异常保持pending', () async {
-    await expectLater(
-      coordinator.run(
-        context: registrationContext(),
-        requireCurrent: () async {},
-        showVerification: (_) async => 'ephemeral-token',
-        requireAffordable: () async {},
-        readFinalized: () async => null,
-        registerCid: (_) async =>
-            throw const RegistrationBeforeBroadcastException(),
-        activate: (_) async => '33' * 32,
-      ),
-      throwsA(isA<RegistrationBeforeBroadcastException>()),
-    );
-    expect(store.value?.phase, RegistrationPhase.verified);
+  test('已有公民号只报告，账户变化停止后续动作', () async {
+    exists = true;
     await run();
     expect(pages, 0);
-    expect(wallets, 1);
-  });
-  test('恢复保留原交易区块；新finalized头不能覆盖已保存回执', () async {
-    activateFail = true;
-    await expectLater(run(), throwsA(isA<RegistrationException>()));
-    chain = FinalizedRegistration(
-      binding: finalized.binding,
-      blockHash: '0x${'99' * 32}',
-    );
-    activateFail = false;
-    await run();
-    expect(store.value?.finalized?.blockHash, finalized.blockHash);
-    expect(wallets, 1);
-  });
-  test('未知广播和网络未知都禁止重发', () async {
-    cancel = true;
-    await expectLater(run(), throwsA(isA<RegistrationException>()));
-    cancel = false;
-    api.jobState = 'human_verified';
-    store.value = store.value!.next(
-      response: api.response(registrationContext()),
-      phase: RegistrationPhase.chainPending,
-    );
-    await expectLater(run(), throwsA(isA<RegistrationException>()));
     expect(wallets, 0);
-    api.failStatus = true;
+    expect(reports, 1);
+    guardOk = false;
     await expectLater(run(), throwsStateError);
-    expect(wallets, 0);
+    expect(reports, 1);
   });
-  test('同上下文在途合并；账户变化后不签名', () async {
+  test('同一账户在途合并，结束后释放', () async {
     final gate = Completer<void>();
-    final first = coordinator.run(
+    var calls = 0;
+    Future<FinalizedRegistration> call() => coordinator.run(
       context: registrationContext(),
-      requireCurrent: () async {
-        await gate.future;
-        if (changed) throw StateError('changed');
-      },
-      showVerification: (_) async => null,
+      requireCurrent: () async {},
+      showVerification: () async => verification(),
       requireAffordable: () async {},
-      readFinalized: () async => null,
-      registerCid: (_) async {
-        wallets++;
-        return finalized;
+      readFinalized: () async {
+        await gate.future;
+        return chainResult();
       },
-      activate: (_) async => '33' * 32,
+      registerCid: (_) async => throw StateError('unexpected'),
+      report: (_) async {
+        calls++;
+      },
     );
-    final same = run();
-    expect(identical(first, same), true);
-    changed = true;
+    final first = call(), second = call();
+    expect(identical(first, second), true);
+    expect(coordinator.isRegistering, true);
     gate.complete();
-    await expectLater(first, throwsStateError);
-    expect(wallets, 0);
+    await Future.wait([first, second]);
+    expect(calls, 1);
+    expect(coordinator.isRegistering, false);
   });
 }

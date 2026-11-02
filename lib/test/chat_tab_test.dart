@@ -142,7 +142,7 @@ void main() {
   test('聊天投影/设备故障不提示再次注册或真人验证', () {
     for (final code in [
       'cid_not_bound',
-      'registration_required',
+      'identity_not_reported',
       'device_not_registered',
     ]) {
       final message = chatUserErrorMessage(
@@ -406,7 +406,8 @@ void main() {
             runtime: _FakeRuntime(address: _peerAccountId),
             store: store,
             cidNumber: _ownerUserId,
-            accountId: '0x1111111111111111111111111111111111111111111111111111111111111111',
+            accountId:
+                '0x1111111111111111111111111111111111111111111111111111111111111111',
           ),
         ),
       ),
@@ -491,7 +492,8 @@ void main() {
             runtime: _FakeRuntime(address: _peerAccountId),
             store: store,
             cidNumber: '',
-            accountId: '0x1111111111111111111111111111111111111111111111111111111111111111',
+            accountId:
+                '0x1111111111111111111111111111111111111111111111111111111111111111',
           ),
         ),
       ),
@@ -524,7 +526,8 @@ void main() {
           body: ChatTab(
             store: _FakeChatStore(),
             cidNumber: _ownerUserId,
-            accountId: '0x1111111111111111111111111111111111111111111111111111111111111111',
+            accountId:
+                '0x1111111111111111111111111111111111111111111111111111111111111111',
             runtime: runtime,
             selectedTab: selectedTab,
             tabIndex: 2,
@@ -570,7 +573,8 @@ void main() {
             runtime: _FakeRuntime(address: _peerAccountId),
             store: store,
             cidNumber: _ownerUserId,
-            accountId: '0x1111111111111111111111111111111111111111111111111111111111111111',
+            accountId:
+                '0x1111111111111111111111111111111111111111111111111111111111111111',
           ),
         ),
       ),
@@ -623,7 +627,8 @@ void main() {
             runtime: _FakeRuntime(address: _peerAccountId),
             store: store,
             cidNumber: _ownerUserId,
-            accountId: '0x1111111111111111111111111111111111111111111111111111111111111111',
+            accountId:
+                '0x1111111111111111111111111111111111111111111111111111111111111111',
             profileApi: _FakeProfileApi(_peerProfile),
             profileCache: const _MemoryProfileCache(_peerProfile),
             profileMediaCache: _MemoryProfileMediaCache(
@@ -688,7 +693,8 @@ void main() {
           body: ChatTab(
             store: store,
             cidNumber: _ownerUserId,
-            accountId: '0x1111111111111111111111111111111111111111111111111111111111111111',
+            accountId:
+                '0x1111111111111111111111111111111111111111111111111111111111111111',
             runtime: runtime,
           ),
         ),
@@ -768,8 +774,10 @@ void main() {
           bindingToken: const ChatBindingFenceToken(
             ownerUserId: _ownerUserId,
             bindingRevision: 1,
-            accountId: '0x1111111111111111111111111111111111111111111111111111111111111111',
-            bindingScope: '0x4242424242424242424242424242424242424242424242424242424242424242',
+            accountId:
+                '0x1111111111111111111111111111111111111111111111111111111111111111',
+            bindingScope:
+                '0x4242424242424242424242424242424242424242424242424242424242424242',
             generation: 1,
           ),
         );
@@ -782,7 +790,8 @@ void main() {
           body: ChatTab(
             store: store,
             cidNumber: _ownerUserId,
-            accountId: '0x1111111111111111111111111111111111111111111111111111111111111111',
+            accountId:
+                '0x1111111111111111111111111111111111111111111111111111111111111111',
             runtime: runtime,
           ),
         ),
@@ -850,8 +859,10 @@ void main() {
           bindingToken: const ChatBindingFenceToken(
             ownerUserId: _ownerUserId,
             bindingRevision: 1,
-            accountId: '0x1111111111111111111111111111111111111111111111111111111111111111',
-            bindingScope: '0x4242424242424242424242424242424242424242424242424242424242424242',
+            accountId:
+                '0x1111111111111111111111111111111111111111111111111111111111111111',
+            bindingScope:
+                '0x4242424242424242424242424242424242424242424242424242424242424242',
             generation: 1,
           ),
         );
@@ -864,7 +875,8 @@ void main() {
           body: ChatTab(
             store: store,
             cidNumber: _ownerUserId,
-            accountId: '0x1111111111111111111111111111111111111111111111111111111111111111',
+            accountId:
+                '0x1111111111111111111111111111111111111111111111111111111111111111',
             runtime: runtime,
           ),
         ),
@@ -932,7 +944,8 @@ void main() {
           body: ChatTab(
             store: store,
             cidNumber: _ownerUserId,
-            accountId: '0x1111111111111111111111111111111111111111111111111111111111111111',
+            accountId:
+                '0x1111111111111111111111111111111111111111111111111111111111111111',
             runtime: runtime,
           ),
         ),
@@ -969,7 +982,8 @@ void main() {
           body: ChatTab(
             store: store,
             cidNumber: _ownerUserId,
-            accountId: '0x1111111111111111111111111111111111111111111111111111111111111111',
+            accountId:
+                '0x1111111111111111111111111111111111111111111111111111111111111111',
             runtime: runtime,
           ),
         ),
@@ -1032,7 +1046,8 @@ void main() {
           body: ChatTab(
             store: store,
             cidNumber: _ownerUserId,
-            accountId: '0x1111111111111111111111111111111111111111111111111111111111111111',
+            accountId:
+                '0x1111111111111111111111111111111111111111111111111111111111111111',
             runtime: runtime,
           ),
         ),
@@ -1065,7 +1080,8 @@ void main() {
           body: ChatTab(
             store: store,
             cidNumber: _ownerUserId,
-            accountId: '0x1111111111111111111111111111111111111111111111111111111111111111',
+            accountId:
+                '0x1111111111111111111111111111111111111111111111111111111111111111',
             runtime: runtime,
           ),
         ),

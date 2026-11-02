@@ -6,8 +6,6 @@ import 'package:citizen_network/citizen_serve_api_config.dart';
 import 'package:citizen_system/app_log.dart';
 import 'package:citizen_transaction/topup/topup_models.dart';
 import 'package:citizen_transaction/topup/topup_erc20.dart';
-import 'package:citizen_transaction/topup/tron.dart';
-import 'package:citizen_transaction/topup/solana.dart';
 import 'package:citizen_transaction/topup/store.dart';
 
 class TopupApiException implements Exception {
@@ -35,7 +33,6 @@ class TopupApi {
     int? now,
   }) async {
     if (record.progress != TopupProgress.pending ||
-        record.payer == null ||
         record.txid == null ||
         record.terminal) {
       throw StateError('只有钱包已提交的原付款可以验款');
@@ -49,33 +46,16 @@ class TopupApi {
     }
 
     final payment = record.payment;
-    final proof = payment.network.evmId != null
-        ? await verifyErc20Payment(
-            payment,
-            record.payer!,
-            record.txid!,
-            rpc,
-            binding: record.binding,
-            now: now,
-          )
-        : payment.network == TopupNetwork.tron
-        ? await verifyTronPayment(
-            payment,
-            record.payer!,
-            record.txid!,
-            rpc,
-            binding: record.binding,
-            now: now,
-          )
-        : await verifySolanaPayment(
-            payment,
-            record.payer!,
-            record.txid!,
-            rpc,
-            binding: record.binding,
-            now: now,
-          );
-    if (!proof.matches(payment, record.payer!, record.txid!)) {
+    final proof = await verifyErc20Payment(
+      payment,
+      record.payer,
+      record.txid!,
+      rpc,
+      binding: record.binding,
+      now: now,
+    );
+    if (!proof.matches(payment, proof.payer, record.txid!) ||
+        record.payer != null && record.payer != proof.payer) {
       throw const FormatException('付款证据不属于原充值订单');
     }
     return proof;
@@ -87,46 +67,24 @@ class TopupApi {
     String method,
     List<Object?> params,
   ) async {
-    final allowed = network.evmId != null
-        ? const {
-            'eth_chainId',
-            'eth_getTransactionReceipt',
-            'eth_getTransactionByHash',
-            'eth_getBlockByNumber',
-          }
-        : network == TopupNetwork.tron
-        ? const {
-            'walletsolidity/getblockbynum',
-            'walletsolidity/gettransactionbyid',
-            'walletsolidity/gettransactioninfobyid',
-          }
-        : const {
-            'getGenesisHash',
-            'getLatestBlockhash',
-            'getTransaction',
-            'getBlock',
-            'sendTransaction',
-          };
+    const allowed = {
+      'eth_chainId',
+      'eth_getTransactionReceipt',
+      'eth_getTransactionByHash',
+      'eth_getBlockByNumber',
+    };
     if (!allowed.contains(method)) throw const FormatException('未允许的付款节点请求');
-    final tron = network == TopupNetwork.tron;
-    if (tron && (params.length != 1 || params.single is! Map)) {
-      throw const FormatException('Tron节点参数无效');
-    }
     final endpoint = TopupRpcConfig.endpoint(network);
     final response = await _http
         .post(
-          Uri.parse(tron ? '$endpoint/$method' : endpoint),
+          Uri.parse(endpoint),
           headers: const {'content-type': 'application/json'},
-          body: jsonEncode(
-            tron
-                ? params.single
-                : {
-                    'jsonrpc': '2.0',
-                    'id': 1,
-                    'method': method,
-                    'params': params,
-                  },
-          ),
+          body: jsonEncode({
+            'jsonrpc': '2.0',
+            'id': 1,
+            'method': method,
+            'params': params,
+          }),
         )
         .timeout(const Duration(seconds: 15));
     if (response.statusCode != 200 || response.bodyBytes.length > 1024 * 1024) {
@@ -136,7 +94,6 @@ class TopupApi {
     if (value is! Map<String, dynamic>) {
       throw const FormatException('付款网络返回结构无效');
     }
-    if (tron) return value;
     if (value['jsonrpc'] != '2.0' ||
         value['id'] != 1 ||
         value.containsKey('error') ||

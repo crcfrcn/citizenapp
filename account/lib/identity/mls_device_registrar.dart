@@ -1,4 +1,3 @@
-import 'package:citizen_account/identity/registration_models.dart';
 import 'package:citizen_account/identity/public_identity_store.dart';
 
 import 'dart:convert';
@@ -10,32 +9,26 @@ import 'package:citizen_account/identity/mls_device_binding.dart';
 
 /// 对设备绑定证明消息（`signing_message` 的 32 字节摘要）做 sr25519 主钥签名，
 /// 返回 `0x` hex 签名。
-typedef DeviceBindingSigner = Future<String> Function({
-  required Uint8List payload,
-  required Uint8List signingMessage,
-  required String publicKey,
-  required int issuedAtMillis,
-});
-typedef RegistrationCapabilityProvider =
-    Future<RegistrationCapabilities?> Function(
-      MlsAuthenticationIdentity identity,
-    );
+typedef DeviceBindingSigner =
+    Future<String> Function({
+      required Uint8List payload,
+      required Uint8List signingMessage,
+      required String publicKey,
+      required int issuedAtMillis,
+    });
 
 /// 只在明确的设备未登记响应后编排登记，钱包证明先持久保存。
 class MlsDeviceRegistrar {
   MlsDeviceRegistrar({
     required MlsAuthenticationSource authentication,
     SquareApiClient? apiClient,
-    RegistrationCapabilityProvider? registrationCapabilities,
     PublicIdentityRecordStore? proofStore,
   }) : _authentication = authentication,
        _api = apiClient ?? SquareApiClient(),
-       _registrationCapabilities = registrationCapabilities,
        _proofStore = proofStore ?? SystemPublicIdentityRecordStore();
 
   final MlsAuthenticationSource _authentication;
   final SquareApiClient _api;
-  final RegistrationCapabilityProvider? _registrationCapabilities;
   final PublicIdentityRecordStore _proofStore;
   final Map<String, Future<void>> _flights = {};
 
@@ -104,7 +97,7 @@ class MlsDeviceRegistrar {
         );
       }
     }
-    // 只复用当前设备的回执；不同公钥重新走原钱包签署，绝不借用旧签名。
+    // 只复用当前设备的钱包授权；不同公钥重新走原钱包签署，绝不借用旧签名。
     if (!reusable) {
       issuedAt = issuedAtMillis ?? DateTime.now().millisecondsSinceEpoch;
       final payload = await encodeMlsDeviceBindingPayload(
@@ -157,16 +150,12 @@ class MlsDeviceRegistrar {
       await _authentication.requireCurrent(identity);
     }
 
-    // 真人结果已在原CID交易之前保存；这里没有再次弹窗或Turnstile原始token。
-    final capabilities = await _registrationCapabilities?.call(identity);
-    await _authentication.requireCurrent(identity);
+    // 钱包授权材料独立于人验，设备提交只携带当前四字段和持钥证明。
     await _api.registerMlsDevice(
       identity: identity,
       authentication: _authentication,
       issuedAt: issuedAt,
       bindingSignatureHex: signature,
-      regId: capabilities?.regId,
-      recoveryToken: capabilities?.recoveryToken,
     );
     await _authentication.requireCurrent(identity);
   }

@@ -186,7 +186,7 @@ void main() {
       SquareSessionStatus.serviceUnavailable,
     ),
     'request_rate_exceeded': (429, SquareSessionStatus.serviceUnavailable),
-    'registration_required': (403, SquareSessionStatus.deviceUnavailable),
+    'identity_not_reported': (409, SquareSessionStatus.identityUnavailable),
     'invalid_binding_signature': (401, SquareSessionStatus.deviceUnavailable),
   }.entries) {
     test('真实HTTP错误码${entry.key}保留类别、状态与阶段', () async {
@@ -217,18 +217,18 @@ void main() {
       }
     });
   }
-  test('未准入保留登记阶段，不伪装为断网', () {
+  test('缺绑定事实保持身份同步失败，不伪装为断网', () {
     final failure = SquareSessionResolution.fromError(
       const SquareApiException(
         '合成拒绝',
-        errorCode: 'registration_required',
+        errorCode: 'identity_not_reported',
         stage: SquareApiStage.registration,
       ),
     );
-    expect(failure.status, SquareSessionStatus.deviceUnavailable);
+    expect(failure.status, SquareSessionStatus.identityUnavailable);
     expect(failure.statusCode, isNull);
     expect(failure.stage, SquareApiStage.registration);
-    expect(failure.message, '公民服务准备未完成，请重试');
+    expect(failure.message, '链上身份已存在，服务同步尚未完成');
   });
   for (final error in [
     'invalid_mls_signature',
@@ -320,7 +320,7 @@ void main() {
       }
       expect(registerCalls, 1);
       expect(sessionCalls, 2);
-      expect(source.proofCalls, 2);
+      expect(source.proofCalls, 4);
     });
   }
 }
@@ -475,7 +475,7 @@ class _DiagnosticSecurity implements AccountSecurityService {
 }
 
 void _preparationDiagnosticsTests() {
-  for (final code in ['registration_required', 'device_not_registered']) {
+  for (final code in ['identity_not_reported', 'device_not_registered']) {
     test('已有CID的$code仅明确设备未登记恢复一次且不进入注册或真人验证', () async {
       final security = _DiagnosticSecurity(), current = _DiagnosticCurrent();
       final source = FakeMlsAuthentication(), lines = <String>[];
@@ -509,7 +509,12 @@ void _preparationDiagnosticsTests() {
       await runZoned(
         () async {
           final result = await provider.resolveSession();
-          expect(result.status, SquareSessionStatus.deviceUnavailable);
+          expect(
+            result.status,
+            code == 'identity_not_reported'
+                ? SquareSessionStatus.identityUnavailable
+                : SquareSessionStatus.deviceUnavailable,
+          );
           expect(result.errorCode, code);
           expect(result.stage, SquareApiStage.session);
           expect(result.statusCode, 403);
@@ -523,7 +528,7 @@ void _preparationDiagnosticsTests() {
       expect(security.unexpected, isEmpty); // 零CID注册、零Turnstile、零其它钱包操作。
       expect(sessions, attempts);
       expect(challenges, attempts);
-      expect(source.proofCalls, attempts);
+      expect(source.proofCalls, attempts * 2);
       expect(
         lines,
         List.filled(
@@ -610,6 +615,6 @@ void _preparationDiagnosticsTests() {
     expect(security.deviceRegistrations, 0);
     expect(security.unexpected, isEmpty);
     expect(sessions, 1);
-    expect(source.proofCalls, 1);
+    expect(source.proofCalls, 2);
   });
 }

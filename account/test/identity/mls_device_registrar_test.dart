@@ -1,7 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:tatachat_sdk/tatachat_sdk.dart' as chat_sdk;
-import 'package:citizen_account/identity/registration_models.dart';
 import 'package:citizen_account/identity/public_identity_store.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_account/identity/current_user_context.dart';
@@ -611,14 +610,14 @@ void main() {
   test('钱包授权先落盘；登记只提交MLS公开身份与新鲜MLS证明', () async {
     final store = _ProofStore(), source = FakeMlsAuthentication();
     final requests = <Map<String, dynamic>>[];
-    var wallets = 0, capabilityReads = 0;
+    var wallets = 0;
     final api = SquareApiClient(
       baseUrl: 'https://square.test/api',
       httpClient: MockClient((request) async {
         expect(store.entries, hasLength(1));
         if (request.url.path.endsWith('/challenges')) {
           final body = jsonDecode(request.body) as Map<String, dynamic>;
-          expect(body['token_purpose'], 'registration');
+          expect(body['token_purpose'], 'device');
           expect(body['public_key'], source.identity.publicKey);
           return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
         }
@@ -632,11 +631,6 @@ void main() {
       authentication: source,
       proofStore: store,
       apiClient: api,
-      registrationCapabilities: (_) async {
-        capabilityReads++;
-        expect(store.entries, hasLength(1));
-        return const RegistrationCapabilities('enrollment', 'recovery');
-      },
     );
     Future<String> signer({
       required payload,
@@ -655,76 +649,68 @@ void main() {
       _register(registrar, signer: signer),
     ]);
     expect(wallets, 1);
-    expect(capabilityReads, 1);
     expect(requests, hasLength(1));
     expect(requests.single.keys.toSet(), {
       'account_id',
       'public_key',
       'issued_at',
       'binding_signature',
-      'reg_id',
-      'recovery_token',
     });
     expect(requests.single['public_key'], source.identity.publicKey);
     expect(requests.single['binding_signature'], '0x${'bb' * 64}');
   });
 
-  for (final rowExists in [true, false]) {
-    test('回执丢失后复用钱包授权和登记能力：$rowExists', () async {
-      final store = _ProofStore(), source = FakeMlsAuthentication();
-      var failNetwork = true, wallets = 0, capabilityReads = 0;
-      final bodies = <Map<String, dynamic>>[];
-      final api = SquareApiClient(
-        baseUrl: 'https://square.test/api',
-        httpClient: MockClient((request) async {
-          if (request.url.path.endsWith('/challenges')) {
-            return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
-          }
-          final body = jsonDecode(request.body) as Map<String, dynamic>;
-          bodies.add(body);
-          if (failNetwork) throw StateError('合成回执丢失');
-          return http.Response(jsonEncode(_receipt()), 200);
-        }),
-      );
-      addTearDown(api.close);
-      MlsDeviceRegistrar factory() => MlsDeviceRegistrar(
-        authentication: source,
-        proofStore: store,
-        apiClient: api,
-        registrationCapabilities: (_) async {
-          capabilityReads++;
-          return const RegistrationCapabilities('enrollment', 'recovery');
-        },
-      );
-      Future<String> signer({
-        required payload,
-        required signingMessage,
-        required publicKey,
-        required issuedAtMillis,
-      }) async {
-        wallets++;
-        return '0x${'bb' * 64}';
-      }
+  test('回执丢失后只复用已有钱包授权', () async {
+    final store = _ProofStore(), source = FakeMlsAuthentication();
+    var failNetwork = true, wallets = 0;
+    final bodies = <Map<String, dynamic>>[];
+    final api = SquareApiClient(
+      baseUrl: 'https://square.test/api',
+      httpClient: MockClient((request) async {
+        if (request.url.path.endsWith('/challenges')) {
+          return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
+        }
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        bodies.add(body);
+        if (failNetwork) throw StateError('合成回执丢失');
+        return http.Response(jsonEncode(_receipt()), 200);
+      }),
+    );
+    addTearDown(api.close);
+    MlsDeviceRegistrar factory() => MlsDeviceRegistrar(
+      authentication: source,
+      proofStore: store,
+      apiClient: api,
+    );
+    Future<String> signer({
+      required payload,
+      required signingMessage,
+      required publicKey,
+      required issuedAtMillis,
+    }) async {
+      wallets++;
+      return '0x${'bb' * 64}';
+    }
 
-      await expectLater(_register(factory(), signer: signer), throwsStateError);
-      failNetwork = false;
-      await _register(factory(), signer: signer);
-      expect(wallets, 1);
-      expect(capabilityReads, 2);
-      expect(bodies[1]['reg_id'], 'enrollment');
-      expect(bodies[1].containsKey('turnstile_token'), false);
-      expect(
-        bodies.last['binding_signature'],
-        bodies.first['binding_signature'],
-      );
-      expect(bodies.last['issued_at'], bodies.first['issued_at']);
-      expect(source.proofCalls, 2);
+    await expectLater(_register(factory(), signer: signer), throwsStateError);
+    failNetwork = false;
+    await _register(factory(), signer: signer);
+    expect(wallets, 1);
+    expect(bodies[1].keys.toSet(), {
+      'account_id',
+      'public_key',
+      'issued_at',
+      'binding_signature',
     });
-  }
+    expect(bodies[1].containsKey('turnstile_token'), false);
+    expect(bodies.last['binding_signature'], bodies.first['binding_signature']);
+    expect(bodies.last['issued_at'], bodies.first['issued_at']);
+    expect(source.proofCalls, 4);
+  });
 
-  test('授权保存失败，不读取登记能力或网络', () async {
+  test('授权保存失败，不发网络请求', () async {
     final store = _ProofStore()..rejectWrite = true;
-    var capabilityReads = 0, requests = 0;
+    var requests = 0;
     final api = SquareApiClient(
       baseUrl: 'https://square.test/api',
       httpClient: MockClient((_) async {
@@ -737,10 +723,6 @@ void main() {
       authentication: FakeMlsAuthentication(),
       proofStore: store,
       apiClient: api,
-      registrationCapabilities: (_) async {
-        capabilityReads++;
-        return const RegistrationCapabilities('enrollment', 'recovery');
-      },
     );
     await expectLater(
       _register(registrar),
@@ -752,7 +734,6 @@ void main() {
         ),
       ),
     );
-    expect(capabilityReads, 0);
     expect(requests, 0);
   });
 
@@ -855,10 +836,12 @@ void main() {
         apiClient: api,
       ),
     );
-    expect(body!.containsKey('reg_id'), true);
-    expect(body!['reg_id'], isNull);
-    expect(body!.containsKey('recovery_token'), true);
-    expect(body!['recovery_token'], isNull);
+    expect(body!.keys.toSet(), {
+      'account_id',
+      'public_key',
+      'issued_at',
+      'binding_signature',
+    });
     expect(body!.containsKey('turnstile_token'), false);
   });
 }

@@ -83,6 +83,7 @@ class RegisterIdentitySheet extends StatefulWidget {
 class _RegisterIdentitySheetState extends State<RegisterIdentitySheet> {
   bool _submitted = false;
   String? _error;
+  bool _needsTopup = false;
   String _institution = kCidInstitutionCitizen;
   late final List<CitizenWalletStateAccount> _sortedAccounts;
   late String _bindAccountId;
@@ -120,15 +121,7 @@ class _RegisterIdentitySheetState extends State<RegisterIdentitySheet> {
         return;
       }
       setState(() => _error = outcome.message);
-      if (outcome.recharge) {
-        try {
-          await (widget.openTopup ?? _openTopup)(context, choice.bindAccountId);
-        } on Object {
-          if (mounted) {
-            setState(() => _error = '${outcome.message}；充值弹窗暂时无法打开');
-          }
-        }
-      }
+      setState(() => _needsTopup = outcome.recharge);
     } on Object {
       if (mounted) setState(() => _error = '注册暂时无法完成，请重试');
     } finally {
@@ -136,16 +129,21 @@ class _RegisterIdentitySheetState extends State<RegisterIdentitySheet> {
     }
   }
 
-  Future<void> _openTopup(BuildContext context, String accountId) async {
-    // 注册入口未指定币种，在同一弹窗内显式选择USDT/USDC，不预选付款币种。
-    await showTopup(context, accountId: accountId);
+  Future<void> _openTopup(String token) async {
+    if (_submitted) return;
+    final id = _bindAccountId;
+    if (widget.openTopup != null) {
+      await widget.openTopup!(context, id);
+    } else {
+      await showTopup(context, accountId: id, token: token);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     return PopScope(
-      // 验证、交易和激活期间不允许系统返回关闭面板；空闲时可主动取消。
+      // 人验、链交易和结果上报期间不允许系统返回关闭面板；空闲时可主动取消。
       canPop: !_submitted,
       child: SafeArea(
         child: Padding(
@@ -245,6 +243,23 @@ class _RegisterIdentitySheetState extends State<RegisterIdentitySheet> {
                 SizedBox(height: AppLayout.scaled(context, 16)),
                 if (_error != null) ...[
                   Text(_error!, style: const TextStyle(color: AppTheme.danger)),
+                  if (_needsTopup)
+                    Row(
+                      children: [
+                        TextButton(
+                          onPressed: _submitted
+                              ? null
+                              : () => _openTopup('USDT'),
+                          child: const Text('充值/USDT'),
+                        ),
+                        TextButton(
+                          onPressed: _submitted
+                              ? null
+                              : () => _openTopup('USDC'),
+                          child: const Text('充值/USDC'),
+                        ),
+                      ],
+                    ),
                   SizedBox(height: AppLayout.scaled(context, 12)),
                 ],
                 Align(

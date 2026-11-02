@@ -1,53 +1,30 @@
 import 'dart:convert';
-
 import 'package:flutter_test/flutter_test.dart';
-import 'package:citizen_account/identity/registration_models.dart';
 import 'package:citizen_account/identity/registration_page.dart';
+import 'package:citizen_account/identity/registration_api.dart';
 
 void main() {
-  final verification = RegistrationVerification(
-    'id',
-    Uri.parse('https://www.crcfrcn.com/api/user/registration/page'),
-    10000,
-  );
-  test('只接收本次JSON check_id/token；纯token、过期、未知字段拒绝', () {
-    final valid = {'check_id': 'id', 'token': 'a' * 32};
-    expect(
-      RegistrationPage.tokenFromMessage(
-        jsonEncode(valid),
-        verification,
-        now: 9999,
-      ),
-      'a' * 32,
+  const id = '11111111-1111-4111-8111-111111111111';
+  test('默认页面只接受本次CF的UUID及token', () {
+    final value = RegistrationPage.verificationFromMessage(
+      jsonEncode({'check_id': id, 'token': 'ephemeral-token'}),
     );
-    // token为提供方不透明正文；App不凭长度下限判断真人，通过事实仅来自服务器。
-    expect(
-      RegistrationPage.tokenFromMessage(
-        jsonEncode({...valid, 'token': 'short'}),
-        verification,
-        now: 9999,
-      ),
-      'short',
-    );
-    for (final raw in [
-      'a' * 32,
-      jsonEncode({...valid, 'check_id': 'other'}),
-      jsonEncode({...valid, 'extra': true}),
-      jsonEncode({...valid, 'token': ''}),
-      jsonEncode({...valid, 'token': ' ${'a' * 32}'}),
+    expect(value!.checkId, id);
+    expect(value.token, 'ephemeral-token');
+    expect(RegistrationApi.pageUri().hasQuery, false);
+  });
+  test('未知字段、伪造成功、无效ID和超限令牌不能放行', () {
+    for (final value in [
+      <String, Object>{'is_ok': true},
+      {'check_id': 'invalid', 'token': 'x'},
+      {'check_id': id, 'token': ''},
+      {'check_id': id, 'token': 'x' * 2049},
+      {'check_id': id, 'token': 'x', 'credential': 'x'},
     ]) {
       expect(
-        RegistrationPage.tokenFromMessage(raw, verification, now: 9999),
+        RegistrationPage.verificationFromMessage(jsonEncode(value)),
         isNull,
       );
     }
-    expect(
-      RegistrationPage.tokenFromMessage(
-        jsonEncode(valid),
-        verification,
-        now: 10000,
-      ),
-      isNull,
-    );
   });
 }

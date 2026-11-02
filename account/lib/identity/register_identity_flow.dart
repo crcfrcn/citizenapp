@@ -20,9 +20,8 @@ import 'package:citizen_account/identity/register_identity_sheet.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_account/identity/account_security_service.dart';
 
-/// 全App唯一注册编排：确认后服务器保存真人验证，再执行原余额/钱包/CID交易，
-/// finalized后激活同一SDK的MLS设备及普通会话。返回true代表完整账户服务就绪。
-/// onSubmitting覆盖验证、链交易与激活；取消、未知网络和待激活均失败关闭。
+/// 全App唯一注册编排：默认人验通过后执行原链交易和最终性，再报告公开绑定。
+/// 注册报告不授予设备或会话；账户切换和未知交易结果仍失败关闭。
 Future<bool> startCidRegistrationFlow(
   BuildContext context, {
   MyIdService? myIdService,
@@ -91,25 +90,23 @@ Future<bool> startCidRegistrationFlow(
         final result = await coordinator.run(
           context: registration,
           requireCurrent: guard,
-          showVerification: (verification) async {
+          showVerification: () async {
             if (!sheetContext.mounted) return null;
-            return Navigator.of(sheetContext).push<String>(
-              MaterialPageRoute(
-                builder: (_) => RegistrationPage(verification: verification),
-              ),
+            return Navigator.of(sheetContext).push<RegistrationVerification>(
+              MaterialPageRoute(builder: (_) => const RegistrationPage()),
             );
           },
           requireAffordable: () =>
               _requireAffordable(service, choice.bindAccountId),
           readFinalized: () =>
               service.readRegistrationIdentity(choice.bindAccountId),
-          registerCid: (saveCheckpoint) => service.registerEnrollmentCid(
+          registerCid: (saveCheckpoint) => service.registerCid(
             context: sheetContext,
             onCheckpoint: saveCheckpoint,
             institution: choice.institution,
             accountId: choice.bindAccountId,
           ),
-          activate: service.activateRegistration,
+          report: service.reportRegistration,
           canRetryChain: service.canRetryRegistration,
         );
         return RegistrationSubmitOutcome.success(

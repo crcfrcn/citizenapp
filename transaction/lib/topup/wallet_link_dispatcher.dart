@@ -1,107 +1,113 @@
-/// 本地充值页只请求打开已选钱包；保留来源和危险协议检查，失败立即停止。
-enum WalletLinkSource {
-  /// Reown 通过受控 JS bridge 明确请求打开钱包，包括自定义 scheme 与 Universal Link。
-  walletOpenBridge,
+import 'dart:convert';
 
-  /// WebView 主框架直接导航；HTTPS 仍留在 WebView，只有钱包自定义 scheme 才外部打开。
-  webViewNavigation,
-}
-
-enum WalletLinkDisposition { stayInWebView, openExternalWallet, blocked }
-
-class WalletLinkDecision {
-  const WalletLinkDecision(this.disposition, {this.uri});
-
-  final WalletLinkDisposition disposition;
-  final Uri? uri;
-}
-
-/// 系统外部打开注入点。测试以假实现验证失败和异常分支，生产由 `url_launcher` 提供。
-typedef WalletUriLauncher = Future<bool> Function(Uri uri);
-
-enum WalletLinkOpenResult { opened, invalid, blocked, failed }
-
-/// WalletConnect 钱包链接分类与系统打开单源。
+/// 仅唤起已在保护区保存的官方SDK会话；原生宿主独立核对冻结付款参数。
 class WalletLinkDispatcher {
-  WalletLinkDispatcher({required WalletUriLauncher launcher})
+  WalletLinkDispatcher({required Future<bool> Function(Uri) launcher})
     : _launcher = launcher;
+  final Future<bool> Function(Uri) _launcher;
+  String? _channel;
+  int _validUntil = 0;
 
-  final WalletUriLauncher _launcher;
-
-  /// 这些协议不属于钱包打开能力；即使页面脚本请求，也不得交给系统。
-  static const Set<String> _blockedSchemes = {
-    'http',
-    'ws',
-    'javascript',
-    'data',
-    'file',
-    'blob',
-    'about',
-    'tel',
-    'sms',
-    'mailto',
-    'geo',
-  };
-
-  static WalletLinkDecision classify(
-    String rawUrl, {
-    required WalletLinkSource source,
-  }) {
-    final value = rawUrl.trim();
-    final uri = Uri.tryParse(value);
-    if (value.isEmpty || uri == null || uri.scheme.isEmpty) {
-      return const WalletLinkDecision(WalletLinkDisposition.blocked);
-    }
-
-    final scheme = uri.scheme.toLowerCase();
-    if (_blockedSchemes.contains(scheme)) {
-      // about/file/blob 是 WebView 自己的内部资源类型；其余危险协议同样不得外部打开。
-      if (scheme == 'about' || scheme == 'file' || scheme == 'blob') {
-        return WalletLinkDecision(
-          WalletLinkDisposition.stayInWebView,
-          uri: uri,
-        );
+  // 只从系统保护区回读官方SDK配置；不把缓存账户地址当授权，不读取或复制会话私钥。
+  void restore(String? value) {
+    _channel = null;
+    _validUntil = 0;
+    if (value == null) return;
+    try {
+      final data = jsonDecode(value);
+      if (data is Map &&
+          data['channelId'] is String &&
+          data['validUntil'] is int &&
+          RegExp(
+            r'^[A-Za-z0-9-]{16,128}$',
+          ).hasMatch(data['channelId'] as String)) {
+        _channel = data['channelId'] as String;
+        _validUntil = data['validUntil'] as int;
       }
-      return const WalletLinkDecision(WalletLinkDisposition.blocked);
+    } on Object {
+      /* 损坏配置不能取得会话唤起资格。 */
     }
-
-    if (scheme == 'https') {
-      // 普通网络资源继续由 WebView 加载；只有 Reown 明确发出的钱包打开事件，才把
-      // Universal Link 交给系统，沿原受控桥接打开已选钱包。
-      return WalletLinkDecision(
-        source == WalletLinkSource.walletOpenBridge
-            ? WalletLinkDisposition.openExternalWallet
-            : WalletLinkDisposition.blocked,
-        uri: uri,
-      );
-    }
-
-    // 品牌选择与启用校验归随包页面；此处保留协议与来源检查。
-    return WalletLinkDecision(
-      WalletLinkDisposition.openExternalWallet,
-      uri: uri,
-    );
   }
 
-  Future<WalletLinkOpenResult> open(
-    String rawUrl, {
-    required WalletLinkSource source,
-  }) async {
-    final decision = classify(rawUrl, source: source);
-    if (decision.disposition == WalletLinkDisposition.blocked) {
-      return WalletLinkOpenResult.blocked;
-    }
-    if (decision.disposition != WalletLinkDisposition.openExternalWallet ||
-        decision.uri == null) {
-      return WalletLinkOpenResult.invalid;
-    }
+  Uri? parse(String rawUrl) {
+    if (_channel == null ||
+        DateTime.now().millisecondsSinceEpoch >= _validUntil ||
+        rawUrl.length > 32768)
+      return null;
     try {
-      if (await _launcher(decision.uri!)) {
-        return WalletLinkOpenResult.opened;
+      final uri = Uri.parse(rawUrl);
+      if (uri.scheme != 'metamask' ||
+          uri.host != 'connect' ||
+          !(uri.path.isEmpty || uri.path == '/') ||
+          uri.userInfo.isNotEmpty ||
+          uri.fragment.isNotEmpty)
+        return null;
+      final query = uri.queryParametersAll;
+      if (query.values.any((values) => values.length != 1) ||
+          query['channelId']?.single != _channel ||
+          query['v']?.single != '2' ||
+          query['comm']?.single != 'socket')
+        return null;
+      if (query.keys.any(
+        (key) => !const [
+          'channelId',
+          'pubkey',
+          'comm',
+          't',
+          'v',
+          'hr',
+          'scheme',
+          'rpc',
+          'originatorInfo',
+        ].contains(key),
+      ))
+        return null;
+      if (query.containsKey('scheme') &&
+          !const ['true', 'false'].contains(query['scheme']?.single))
+        return null;
+      if (query.containsKey('originatorInfo')) {
+        final raw = uri.query
+            .split('&')
+            .singleWhere((item) => item.startsWith('originatorInfo='));
+        final info = jsonDecode(
+          utf8.decode(
+            base64Decode(
+              Uri.decodeComponent(raw.substring('originatorInfo='.length)),
+            ),
+          ),
+        );
+        if (info is! Map ||
+            info['url'] != 'https://www.crcfrcn.com' ||
+            info['title'] != 'CitizenApp' ||
+            info['scheme'] != 'citizenapp://topup')
+          return null;
       }
-    } catch (_) {
-      // 失败不提取通用wc URI，避免系统改投其他钱包；不泄漏配对内容或平台异常。
+      final fields = uri.query
+          .split('&')
+          .where((item) => item.startsWith('rpc='))
+          .toList();
+      if (fields.isNotEmpty) {
+        // 复用会话的官方RPC为双层base64密文，不能假装它仍是首次连接的明文JSON。
+        final encoded = utf8.decode(
+          base64Decode(Uri.decodeComponent(fields.single.substring(4))),
+        );
+        final cipher = base64Decode(encoded);
+        if (cipher.length < 97 || !const [2, 3, 4].contains(cipher.first))
+          return null;
+      }
+      return uri;
+    } on Object {
+      return null;
     }
-    return WalletLinkOpenResult.failed;
+  }
+
+  Future<bool> open(String rawUrl) async {
+    final uri = parse(rawUrl);
+    if (uri == null) return false;
+    try {
+      return await _launcher(uri);
+    } on Object {
+      return false;
+    }
   }
 }

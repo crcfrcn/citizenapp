@@ -86,12 +86,12 @@ class RunnerTests: XCTestCase {
     loader.close()
   }
 
-  func testWalletConnectCallbackMatchesOnlyOwnedSchemeAndHost() {
-    for text in ["citizenapp://walletconnect", "CITIZENAPP://WALLETCONNECT?request=public"] {
-      XCTAssertTrue(AppDelegate.isWalletConnectCallback(URL(string: text)!))
+  func testTopupCallbackMatchesOnlyOwnedSchemeAndHost() {
+    for text in ["citizenapp://topup", "CITIZENAPP://TOPUP?request=public"] {
+      XCTAssertTrue(AppDelegate.isTopupCallback(URL(string: text)!))
     }
-    for text in ["https://walletconnect", "citizenapp://walletconnect.example", "other://walletconnect", "citizenapp:walletconnect"] {
-      XCTAssertFalse(AppDelegate.isWalletConnectCallback(URL(string: text)!))
+    for text in ["https://topup", "citizenapp://topup.example", "other://topup", "citizenapp:topup"] {
+      XCTAssertFalse(AppDelegate.isTopupCallback(URL(string: text)!))
     }
   }
 
@@ -368,7 +368,7 @@ class RunnerTests: XCTestCase {
     let root = manager.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent(UUID().uuidString, isDirectory: true)
     try manager.createDirectory(at: root, withIntermediateDirectories: false)
     defer { try? manager.removeItem(at: root) }
-    XCTAssertTrue(try SystemProtectedDataChannel.compareRecordFile(root: root, name: "registration.json", expected: nil, next: "{\"context\":\"protected-capability\"}"))
+    XCTAssertTrue(try SystemProtectedDataChannel.compareRecordFile(root: root, name: "registration.json", expected: nil, next: "{\"context\":\"chain-execution-checkpoint\"}"))
     XCTAssertFalse(try SystemProtectedDataChannel.compareRecordFile(root: root, name: "registration.json", expected: nil, next: "{}"))
     let record = root.appendingPathComponent("registration.json")
     XCTAssertEqual(try manager.attributesOfItem(atPath: record.path)[.posixPermissions] as? Int, 0o600)

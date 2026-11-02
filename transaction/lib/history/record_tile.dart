@@ -100,14 +100,14 @@ class LocalTxRecordTile extends StatelessWidget {
               vertical: 1,
             ),
             decoration: BoxDecoration(
-              color: statusColor(record.entryState).withAlpha(30),
+              color: recordStatusColor(record).withAlpha(30),
               borderRadius: BorderRadius.circular(AppLayout.scaledValue(4)),
             ),
             child: Text(
               recordStatusLabel(record),
               style: TextStyle(
                 fontSize: AppLayout.scaled(context, 10),
-                color: statusColor(record.entryState),
+                color: recordStatusColor(record),
                 fontWeight: FontWeight.w600,
               ),
             ),

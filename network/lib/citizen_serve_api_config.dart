@@ -1,7 +1,6 @@
 /// CitizenServe的唯一API根；能力URL只能在相同origin、准确路径上使用。
 class CitizenServeApiConfig {
   static const production = 'https://www.crcfrcn.com/api';
-  static const registrationScope = 'citizenserve:production';
   static const mediaOrigin = 'https://media.crcfrcn.com';
   static const _configured = String.fromEnvironment('SQUARE_API_URL');
   static String get baseUrl =>
@@ -46,13 +45,18 @@ class CitizenServeApiConfig {
     Map<String, String>? headers,
   ) {
     final uri = Uri.tryParse(value);
-    if (uri == null || uri.scheme != 'https' || uri.origin != mediaOrigin ||
-        uri.userInfo.isNotEmpty || uri.hasQuery || uri.hasFragment ||
+    if (uri == null ||
+        uri.scheme != 'https' ||
+        uri.origin != mediaOrigin ||
+        uri.userInfo.isNotEmpty ||
+        uri.hasQuery ||
+        uri.hasFragment ||
         !uri.path.startsWith('/square/') ||
         Uri.parse(baseUrl).origin != Uri.parse(production).origin) {
       return const {};
     }
-    for (final entry in headers?.entries ?? const <MapEntry<String, String>>[]) {
+    for (final entry
+        in headers?.entries ?? const <MapEntry<String, String>>[]) {
       if (entry.key.toLowerCase() == 'authorization' &&
           RegExp(r'^Bearer sqs_[0-9a-f]{32}$').hasMatch(entry.value)) {
         return {'authorization': entry.value};

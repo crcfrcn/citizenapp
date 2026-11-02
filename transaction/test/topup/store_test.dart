@@ -14,8 +14,19 @@ import 'package:citizen_transaction/history/local_tx_store.dart';
 import 'package:citizen_transaction/topup/store.dart';
 import 'package:citizen_transaction/topup/topup_models.dart';
 import 'package:citizen_transaction/topup/topup_api.dart';
+import 'package:citizen_transaction/topup/topup_erc20.dart';
 
-// 显式测试端口只驱动App调度；三协议真实解析另由付款链夹具回归覆盖。
+// 真实存储计数端口：签后建单与完整付款请求在同一次保存中提交。
+class SigningStore extends TopupStore {
+  int saves = 0;
+  @override
+  Future<void> save(TopupRecord record, {TopupRecord? before}) {
+    saves++;
+    return super.save(record, before: before);
+  }
+}
+
+// 显式测试端口只驱动App调度；EVM真实解析另由付款链夹具回归覆盖。
 class PaymentApi extends TopupApi {
   PaymentApi(this.verify, {required super.httpClient});
   final Future<TopupProof> Function(TopupRecord) verify;
@@ -62,7 +73,7 @@ void main() {
         ),
         '0x${'04' * 32}',
       ),
-      TopupWallets.ids.first,
+      TopupWallet.id,
       '0x${'01' * 64}',
       now: 1000000,
     );
@@ -83,25 +94,31 @@ void main() {
     'finalized': true,
     'succeeded': true,
   });
-  Future<TopupRecord> submitted() async {
-    await store.save(record);
-    final connected = record.update(
-      progress: TopupProgress.pending,
-      payer: '0x${'01' * 20}',
+  Future<TopupRecord> submitted({TopupRecord? before}) async {
+    final signed = record.update(
+      wire: jsonEncode(erc20Transaction(record.payment, record.binding)),
     );
-    await store.save(connected, before: record);
-    final sending = connected.update(
-      wire: 'synthetic original EVM transaction',
-    );
-    await store.save(sending, before: connected);
-    final sent = sending.update(
-      progress: TopupProgress.pending,
-      txid: '0x${'02' * 32}',
-    );
-    await store.save(sent, before: sending);
+    await store.save(signed, before: before);
+    final sent = signed.update(payer: '0x${'01' * 20}', txid: '0x${'02' * 32}');
+    await store.save(sent, before: signed);
     return sent;
   }
 
+  test('广播回执可先保存哈希，验款后同一事务固化真实付款人及已支付', () async {
+    await store.save(record);
+    final sent = record.update(
+      wire: 'synthetic original transaction',
+      txid: '0x${'02' * 32}',
+    );
+    await store.save(sent, before: record);
+    expect(TopupRecord.decode(sent.encode()).payer, isNull);
+    final verified = proof(sent.update(payer: '0x${'01' * 20}'));
+    final paid = await store.markPaid(sent, verified);
+    expect(paid.record.payer, verified.payer);
+    expect(paid.record.isPaid, true);
+    expect(paid.record.progress, TopupProgress.paid);
+    expect(paid.record.request()['payer_address'], verified.payer);
+  });
   Map<String, dynamic> response(TopupRecord paid, {String? publicKey}) => {
     'is_ok': true,
     'order_id': paid.payment.orderId,
@@ -308,7 +325,7 @@ void main() {
       await store.save(record);
       await updates.resume();
       expect(calls, 0);
-      sent = await submitted();
+      sent = await submitted(before: record);
       await store.markPaid(sent, proof(sent));
       final first = updates.resume(), second = updates.resume();
       await Future<void>.delayed(Duration.zero);
@@ -381,7 +398,8 @@ void main() {
     expect(rows.single.rowId, original.rowId);
     expect(rows.single.confirmedAt, 1001000);
   });
-  test('公民签名失败或离页不创建订单；成功才生成短ID并保留完整绑定', () async {
+  test('公民签名失败或离页不创建订单；成功后订单与付款请求只保存一次', () async {
+    store = SigningStore();
     final config = TopupConfig.local();
     final selection = TopupSelection(
       token: 'USDC',
@@ -402,7 +420,7 @@ void main() {
     ]);
     var calls = 0;
     await expectLater(
-      store.signOrder(draft, TopupWallets.ids.first, (payload) async {
+      store.signOrder(draft, TopupWallet.id, (payload) async {
         calls++;
         throw StateError('synthetic cancelled');
       }),
@@ -412,7 +430,7 @@ void main() {
     await expectLater(
       store.signOrder(
         draft,
-        TopupWallets.ids.first,
+        TopupWallet.id,
         (payload) async => pair.sign(payload),
         active: () => false,
       ),
@@ -421,7 +439,7 @@ void main() {
     expect(await LocalTxStore.queryByAccountId(account), isEmpty);
     final signed = await store.signOrder(
       draft,
-      TopupWallets.ids.first,
+      TopupWallet.id,
       (payload) async => pair.sign(payload),
       now: 1000000,
     );
@@ -429,6 +447,11 @@ void main() {
     expect(signed.progress, TopupProgress.pending);
     expect(signed.payment.orderId, 'top_${signed.binding.substring(0, 32)}');
     expect(signed.binding.length, 64);
+    expect((store as SigningStore).saves, 1);
+    expect(
+      jsonDecode(signed.wire!),
+      erc20Transaction(signed.payment, signed.binding),
+    );
     expect(
       await CitizenSdk.verify(
         accountId: account,
@@ -822,7 +845,7 @@ void main() {
           ),
           record.payment.accountId,
         ),
-        TopupWallets.ids.first,
+        TopupWallet.id,
         '0x${'01' * 64}',
       );
       await store.save(fresh);

@@ -110,7 +110,7 @@ class _FlowService implements MyIdService {
   }
 
   @override
-  Future<FinalizedRegistration> registerEnrollmentCid({
+  Future<FinalizedRegistration> registerCid({
     required BuildContext? context,
     required String institution,
     required String accountId,
@@ -137,8 +137,7 @@ class _FlowService implements MyIdService {
     String accountId,
   ) async => null;
   @override
-  Future<String> activateRegistration(FinalizedRegistration result) async =>
-      '33' * 32;
+  Future<void> reportRegistration(FinalizedRegistration result) async {}
   @override
   Future<bool> canRetryRegistration(Map<String, dynamic>? checkpoint) async =>
       false;
@@ -153,8 +152,7 @@ class _FlowCoordinator extends RegistrationCoordinator {
   Future<FinalizedRegistration> run({
     required RegistrationContext context,
     required Future<void> Function() requireCurrent,
-    required Future<String?> Function(RegistrationVerification)
-    showVerification,
+    required Future<RegistrationVerification?> Function() showVerification,
     required Future<void> Function() requireAffordable,
     required Future<FinalizedRegistration?> Function() readFinalized,
     required Future<FinalizedRegistration> Function(
@@ -162,12 +160,12 @@ class _FlowCoordinator extends RegistrationCoordinator {
     )
     registerCid,
     Future<bool> Function(Map<String, dynamic>?)? canRetryChain,
-    required Future<String> Function(FinalizedRegistration) activate,
+    required Future<void> Function(FinalizedRegistration) report,
   }) async {
     await requireCurrent();
     await requireAffordable();
     final result = await registerCid((_) async {});
-    await activate(result);
+    await report(result);
     return result;
   }
 }
