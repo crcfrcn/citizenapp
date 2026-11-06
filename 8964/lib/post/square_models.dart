@@ -1,4 +1,4 @@
-import 'package:citizen_account/profile/profile_presentation.dart';
+import 'package:citizen_user/profile/profile_presentation.dart';
 
 /// 广场前端模型。
 ///

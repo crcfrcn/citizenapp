@@ -1,14 +1,14 @@
+import 'package:citizen_testing/chat_runtime_fixture.dart';
 import 'dart:typed_data';
 
-import 'package:citizen_account/identity/identity_binding.dart';
+import 'package:citizen_user/identity/identity_binding.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:citizen_account/profile/citizen_profile_cache.dart';
-import 'package:citizen_account/profile/square_account_deletion_service.dart';
-import 'package:citizen_account/square_api_client.dart';
+import 'package:citizen_user/profile/citizen_profile_cache.dart';
+import 'package:citizen_user/profile/square_account_deletion_service.dart';
+import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_square/post/square_post_store.dart';
-import 'package:tatachat_sdk/tatachat_sdk.dart';
 
 const _owner =
     '0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d';
@@ -66,7 +66,7 @@ class _FakeMediaCache extends CitizenProfileMediaCache {
   }
 }
 
-class _FakeChatRuntime extends ChatSdk {
+class _FakeChatRuntime extends TestChatRuntime {
   _FakeChatRuntime() : super(host: _UnusedChatHost());
 
   bool cleared = false;
@@ -85,7 +85,7 @@ class _FakeChatRuntime extends ChatSdk {
   }
 }
 
-class _UnusedChatHost implements ChatRuntimeHost {
+class _UnusedChatHost implements ChatRuntimeFixture {
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -117,8 +117,8 @@ void main() {
       apiClient: api,
       profileCache: cache,
       profileMediaCache: mediaCache,
-      chatRuntime: chatRuntime,
       localPostStore: localPostStore,
+      clearChatHistory: (chatRuntime).clearAllForUserId,
     );
 
     await service.deleteAccount(
@@ -150,8 +150,8 @@ void main() {
       apiClient: api,
       profileCache: cache,
       profileMediaCache: mediaCache,
-      chatRuntime: chatRuntime,
       localPostStore: localPostStore,
+      clearChatHistory: (chatRuntime).clearAllForUserId,
     );
 
     await expectLater(
@@ -179,8 +179,8 @@ void main() {
       apiClient: api,
       profileCache: cache,
       profileMediaCache: mediaCache,
-      chatRuntime: chatRuntime,
       localPostStore: localPostStore,
+      clearChatHistory: (chatRuntime).clearAllForUserId,
     );
 
     await expectLater(
@@ -213,8 +213,8 @@ void main() {
         apiClient: api,
         profileCache: cache,
         profileMediaCache: media,
-        chatRuntime: chat,
         localPostStore: posts,
+        clearChatHistory: (chat).clearAllForUserId,
       );
       await expectLater(
         service.deleteAccount(

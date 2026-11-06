@@ -1,4 +1,4 @@
-name: citizen_chat
+name: chat
 description: 公民Appchat包。
 publish_to: none
 version: 1.0.0
@@ -8,7 +8,7 @@ environment:
 
 # 本包公开接口的真实依赖；上游约束沿用产品原锁。
 dependencies:
-  citizen_account: any
+  citizen_user: any
   citizen_assets: any
   citizen_scanner: any
   citizen_sdk:
@@ -17,7 +17,7 @@ dependencies:
       path: .
       ref: main
   citizen_system: any
-  citizen_transaction: any
+  citizen_onchain: any
   citizen_wallet: any
   crypto: 3.0.7
   firebase_messaging: ^16.4.1
@@ -28,14 +28,57 @@ dependencies:
   flutter_svg: ^2.3.0
   provider: ^6.1.5+1
   shared_preferences: ^2.5.5
-  tatachat_sdk:
-    git:
-      url: https://github.com/tuyutata/tatachatsdk.git
-      path: .
-      ref: main
+
+  blurhash_dart: ^1.2.1
+
+  camera: ^0.12.0+2
+
+  emoji_picker_flutter: 4.5.4
+
+  ffi: 2.2.0
+
+  fixnum: ^1.1.1
+
+  flutter_blurhash: ^0.9.1
+
+  flutter_image_compress: 2.4.0
+
+
+  flutter_webrtc: ^1.5.2
+
+  image: 4.9.1
+
+  image_picker: ^1.2.3
+
+  image_size_getter: ^2.4.1
+
+  isar_community: ^3.3.2
+
+  isar_community_flutter_libs: ^3.3.2
+
+  just_audio: ^0.10.6
+
+  path: ^1.9.1
+
+  path_provider: ^2.1.6
+
+  protobuf: ^6.0.0
+
+  record: ^7.1.1
+
+  saver_gallery: 5.1.0
+
+  video_player: 2.11.1
+
+  wechat_assets_picker: ^10.1.2
+
+  citizen_network: any
+
+  citizen_storage: any
 
 dev_dependencies:
   citizen_testing: any
   flutter_test:
     sdk: flutter
   http: 1.6.0
+  fake_async: 1.3.3

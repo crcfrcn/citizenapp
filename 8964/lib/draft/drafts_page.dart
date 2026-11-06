@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -26,7 +27,9 @@ class DraftsPage extends StatefulWidget {
 }
 
 class _DraftsPageState extends State<DraftsPage> {
-  late final SquareComposeDraftRepository _store;
+  late SquareComposeDraftRepository _store;
+  int _generation = 0;
+  ScaffoldFeatureController<SnackBar, SnackBarClosedReason>? _snack;
   late Future<List<SquareComposeDraft>> _future;
 
   @override
@@ -36,60 +39,111 @@ class _DraftsPageState extends State<DraftsPage> {
     _future = _loadDrafts();
   }
 
-  Future<List<SquareComposeDraft>> _loadDrafts() => _store
-      .list(widget.cidNumber)
-      .then(
-        (drafts) => drafts
-            .where((draft) => draft.postType == widget.postType)
-            .toList(growable: false),
-      );
-
-  void _reloadAfterDelete() {
-    if (!mounted) return;
-    setState(() {
+  @override
+  void didUpdateWidget(covariant DraftsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.cidNumber != widget.cidNumber ||
+        oldWidget.postType != widget.postType ||
+        oldWidget.store != widget.store) {
+      _generation++;
+      _snack?.close();
+      _snack = null;
+      _store = widget.store ?? SquareComposeDraftStore.instance;
       _future = _loadDrafts();
-    });
+    }
+  }
+
+  Future<List<SquareComposeDraft>> _loadDrafts() {
+    final cid = widget.cidNumber, type = widget.postType, store = _store;
+    return store
+        .list(cid)
+        .then(
+          (drafts) => drafts
+              .where(
+                (draft) => draft.cidNumber == cid && draft.postType == type,
+              )
+              .toList(growable: false),
+        );
+  }
+
+  bool _current(int generation) => mounted && generation == _generation;
+  void _reloadAfterDelete(int generation) {
+    if (_current(generation)) {
+      setState(() {
+        _future = _loadDrafts();
+      });
+    }
+  }
+
+  void _message(SnackBar bar) {
+    _snack?.close();
+    final handle = ScaffoldMessenger.of(context).showSnackBar(bar);
+    _snack = handle;
+    unawaited(
+      handle.closed.then((_) {
+        if (identical(_snack, handle)) _snack = null;
+      }),
+    );
   }
 
   Future<bool?> _confirmDelete(SquareComposeDraft draft) async {
+    final generation = _generation, store = _store, cid = widget.cidNumber;
+    if (draft.cidNumber != cid || draft.postType != widget.postType) {
+      return false;
+    }
     try {
-      await _store.delete(widget.cidNumber, draft.draftId);
-      _reloadAfterDelete();
+      await store.delete(cid, draft.draftId);
+      if (!_current(generation)) return false;
+      _reloadAfterDelete(generation);
       return true;
     } on SquareComposeDraftStoreException {
-      _reloadAfterDelete();
-      if (!mounted) return true;
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (!_current(generation)) return false;
+      _reloadAfterDelete(generation);
+      _message(
         SnackBar(
           content: const Text('草稿已删除，但本地媒体仍待清理'),
-          action: SnackBarAction(label: '重试清理', onPressed: _retryFileCleanup),
+          action: SnackBarAction(
+            label: '重试清理',
+            onPressed: () => _retryFileCleanup(generation, store, cid),
+          ),
         ),
       );
-      // 数据库草稿事实已经删除；只保留可重试文件清理事实，列表应同步移除该卡片。
       return true;
     } on Object {
-      if (!mounted) return false;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('草稿删除失败，请重试')));
+      if (_current(generation)) {
+        _message(const SnackBar(content: Text('草稿删除失败，请重试')));
+      }
       return false;
     }
   }
 
-  void _retryFileCleanup() {
-    _store
-        .retryPendingFileCleanup(cidNumber: widget.cidNumber)
+  void _retryFileCleanup(
+    int generation,
+    SquareComposeDraftRepository store,
+    String cid,
+  ) {
+    if (!_current(generation)) return;
+    store
+        .retryPendingFileCleanup(cidNumber: cid)
         .then<void>(
           (_) {
-            if (!mounted) return;
-            ScaffoldMessenger.of(context)
-                .showSnackBar(const SnackBar(content: Text('本地媒体清理完成')));
+            if (_current(generation)) {
+              _message(const SnackBar(content: Text('本地媒体清理完成')));
+            }
           },
           onError: (Object _) {
-            if (!mounted) return;
-            ScaffoldMessenger.of(context)
-                .showSnackBar(const SnackBar(content: Text('本地媒体仍未清理，请稍后重试')));
+            if (_current(generation)) {
+              _message(const SnackBar(content: Text('本地媒体仍未清理，请稍后重试')));
+            }
           },
         );
+  }
+
+  @override
+  void dispose() {
+    _generation++;
+    _snack?.close();
+    super.dispose();
   }
 
   @override
@@ -97,6 +151,7 @@ class _DraftsPageState extends State<DraftsPage> {
     return Scaffold(
       appBar: AppBar(title: const Text('草稿箱'), centerTitle: true),
       body: FutureBuilder<List<SquareComposeDraft>>(
+        key: ValueKey(_generation),
         future: _future,
         builder: (context, snapshot) {
           final loading = snapshot.connectionState != ConnectionState.done;
@@ -132,7 +187,7 @@ class _DraftsPageState extends State<DraftsPage> {
               itemBuilder: (context, index) {
                 final draft = drafts[index];
                 return Dismissible(
-                  key: ValueKey(draft.draftId),
+                  key: ValueKey((widget.cidNumber, draft.draftId)),
                   direction: DismissDirection.endToStart,
                   background: Container(
                     alignment: Alignment.centerRight,
@@ -153,7 +208,12 @@ class _DraftsPageState extends State<DraftsPage> {
                   confirmDismiss: (_) => _confirmDelete(draft),
                   child: _DraftCard(
                     draft: draft,
-                    onTap: () => Navigator.of(context).pop(draft),
+                    onTap: () {
+                      if (draft.cidNumber == widget.cidNumber &&
+                          draft.postType == widget.postType) {
+                        Navigator.of(context).pop(draft);
+                      }
+                    },
                   ),
                 );
               },

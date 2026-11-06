@@ -1,7 +1,7 @@
 import 'package:citizen_testing/membergate_fixture.dart'
     show membergatePlansFixture, membergatePlanFixture;
 
-import 'package:citizen_account/square_api_client.dart';
+import 'package:citizen_user/square_api_client.dart';
 
 import 'dart:io';
 

@@ -1,6 +1,6 @@
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 import 'package:citizenapp/security/app_lock_service.dart';
-import 'package:citizen_account/identity/account_security_service.dart';
+import 'package:citizen_user/identity/account_security_service.dart';
 import 'package:citizenapp/security/pin_input_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';

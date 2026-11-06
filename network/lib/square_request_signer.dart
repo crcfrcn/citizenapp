@@ -1,15 +1,16 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:tatachat_sdk/tatachat_sdk.dart' as sdk;
+import 'mls_authentication.dart' as mls;
 
 /// 只接受实际请求结构，不能用普通登录能力签任意消息。
-typedef MlsRequestAuthenticator = Future<Map<String, String>> Function({
-  required String method,
-  required Uri uri,
-  required List<int> body,
-  required String sessionToken,
-});
+typedef MlsRequestAuthenticator =
+    Future<Map<String, String>> Function({
+      required String method,
+      required Uri uri,
+      required List<int> body,
+      required String sessionToken,
+    });
 
 Future<Map<String, String>> squareRequestHeaders({
   required String method,
@@ -39,7 +40,7 @@ Future<Map<String, String>> squareRequestHeadersForBytes({
   sessionToken: sessionToken,
 );
 
-Map<String, String> mlsProofHeaders(sdk.MlsAuthenticationProof proof) {
+Map<String, String> mlsProofHeaders(mls.MlsAuthenticationProof proof) {
   final bytes = utf8.encode(jsonEncode(proof.toJson()));
   if (bytes.length > 16384) throw const FormatException('MLS证明超过16KiB');
   return {'x-mls-proof': base64UrlEncode(bytes).replaceAll('=', '')};

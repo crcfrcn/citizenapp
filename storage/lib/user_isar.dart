@@ -219,23 +219,27 @@ class Identity {
   late int updatedAt;
 }
 
-/// 通讯录系统保护记录；只保存待同步操作、同步状态和含删除墓碑的联系人记录。
-/// CID与状态种类构成自然唯一索引，不保存派生状态键。
+/// 本机联系人及备注；同条记录保存尚未完成的备份动作与本地修改序号。
 @Name('contact')
 @collection
 class Contact {
   @Name('id')
   Id rowId = Isar.autoIncrement;
-
+  @Name('owner_cid')
+  @Index(composite: [CompositeIndex('cidNumber')], unique: true, replace: true)
+  late String ownerCidNumber;
   @Name('cid_number')
-  @Index(composite: [CompositeIndex('stateKind')], unique: true, replace: true)
   late String cidNumber;
-
-  @Name('kind')
-  late String stateKind;
-
-  @Name('data')
-  late String bodyData;
+  @Name('account_id')
+  late String accountId;
+  @Name('contact_remark')
+  String contactRemark = '';
+  @Name('updated_at')
+  int updatedAt = 0;
+  @Name('pending')
+  String pendingAction = '';
+  @Name('change_version')
+  int changeVersion = 0;
 }
 
 /// 当前CID的通知展示缓存；不承载会话凭据，不作为会员执行许可。
@@ -251,6 +255,8 @@ class Notice {
   late String stateData;
   @Name('pending')
   String? pendingData;
+  @Name('list_data')
+  String? listData;
 }
 
 /// 通用用户设置和 App 展示状态。
@@ -1138,8 +1144,9 @@ class UserIsar {
     }
 
     try {
-      final deleted = await _deleteInstance(opened)
-          .timeout(_forcedDeleteTimeout);
+      final deleted = await _deleteInstance(
+        opened,
+      ).timeout(_forcedDeleteTimeout);
       if (!deleted) {
         throw StateError('统一用户数据库仍被其它实例持有，未实际关闭并删除。');
       }
@@ -1317,8 +1324,9 @@ class UserIsar {
       if (!candidate.isOpen) continue;
       deleteWasAttempted = true;
       try {
-        final deleted = await _deleteInstance(candidate)
-            .timeout(_forcedDeleteTimeout);
+        final deleted = await _deleteInstance(
+          candidate,
+        ).timeout(_forcedDeleteTimeout);
         if (!deleted) {
           failures.add('统一用户数据库仍被其它实例持有，未实际关闭并删除。');
         }

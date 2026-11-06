@@ -40,7 +40,7 @@ class CitizenApp extends StatefulWidget {
   final SquareApiClient squareApiClient;
   final AppPushService appPushService;
   final WalletTransactionHistoryService transactionHistory;
-  final chat.ChatSdk Function() chatRuntimeFactory;
+  final chat.ChatRuntime Function() chatRuntimeFactory;
   final Future<void> Function() closeChatRuntime;
 
   @override
@@ -218,8 +218,11 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
     super.initState();
     _startTopupUpdates();
     WidgetsBinding.instance.addObserver(this);
-    widget.squareSessionProvider.installRuntimeFactory(
-      widget.chatRuntimeFactory,
+    widget.squareSessionProvider.installMlsAuthentication(
+      readLocalIdentity: () =>
+          (widget.chatRuntimeFactory)().readLocalMlsIdentity(),
+      createProof: (request) =>
+          (widget.chatRuntimeFactory)().createMlsAuthenticationProof(request),
     );
     _identityEvents = widget.sdk.events.listen((event) {
       if (event is CitizenSdkWalletChanged ||
@@ -263,8 +266,8 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
         Provider<WalletNavigation>.value(value: walletNavigation),
         Provider<GovernanceNavigation>.value(value: governanceNavigation),
         Provider<TransactionNavigation>.value(value: transactionNavigation),
-        Provider<AccountNavigation>.value(
-          value: AccountNavigation(
+        Provider<UserNavigation>.value(
+          value: UserNavigation(
             openDirectChat: openDirectChat,
             openTransfer:
                 (context, {required toAddress, required cidNumber}) async {
@@ -296,13 +299,22 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
           value: widget.squareSessionProvider,
         ),
         Provider<SquareApiClient>.value(value: widget.squareApiClient),
+        Provider<UserContactService>(
+          create: (_) => UserContactService(
+            accountSecurity: widget.accountSecurity,
+            currentUserContext: widget.currentUserContext,
+            sessionProvider: widget.squareSessionProvider,
+            apiClient: widget.squareApiClient,
+          ),
+          dispose: (_, service) => service.dispose(),
+        ),
         Provider<AppPushService>.value(value: widget.appPushService),
         Provider<TopupUpdates>.value(value: _topupUpdates),
         ChangeNotifierProvider<TopupWalletSession>.value(value: _topupWallet),
         Provider<WalletTransactionHistoryService>.value(
           value: widget.transactionHistory,
         ),
-        Provider<chat.ChatSdk>(create: (_) => widget.chatRuntimeFactory()),
+        Provider<chat.ChatRuntime>(create: (_) => widget.chatRuntimeFactory()),
       ],
       child: MaterialApp(
         navigatorKey: appNavigatorKey,
@@ -405,7 +417,7 @@ class _AppLockGateState extends State<_AppLockGate>
   /// 普通 Chat artifact 在首帧后整理，不能参与全局数据擦除启动门禁。
   Future<void> _recoverChatArtifactsAndPurge() async {
     try {
-      await chat.ChatRuntimeCore.recoverStartupArtifacts();
+      await chat.ChatRuntime.recoverStartupArtifacts();
     } catch (error) {
       debugPrint('chat_startup_artifacts:recovery_failed:${error.runtimeType}');
     }
@@ -415,7 +427,7 @@ class _AppLockGateState extends State<_AppLockGate>
   /// 清空解密出来的短命 Chat 附件。失败静默，不阻断 App 启动/切换。
   Future<void> _purgePlainAttachments() async {
     try {
-      await chat.ChatRuntimeCore.purgePlainAttachmentsWithoutAccount();
+      await chat.ChatRuntime.purgePlainAttachmentsWithoutAccount();
     } catch (_) {
       // 忽略：下次启动/切后台会再清一次。
     }
@@ -728,11 +740,12 @@ class AppShell extends StatefulWidget {
 
   /// 测试只注入聊天入口计数；生产读取普通认证与聊天共用的惰性实例。
   @visibleForTesting
-  final chat.ChatSdk Function()? chatRuntimeFactory;
+  final chat.ChatRuntime Function()? chatRuntimeFactory;
 
   /// 测试只替换五个主页面，避免为了验证壳层懒加载而启动真实链、网络或数据库。
   @visibleForTesting
-  final Widget Function(int tabIndex, chat.ChatSdk? chatRuntime)? tabBuilder;
+  final Widget Function(int tabIndex, chat.ChatRuntime? chatRuntime)?
+  tabBuilder;
 
   /// 测试只注入 App 级“点击推送打开”数据；生产直接监听 Firebase。
   @visibleForTesting
@@ -766,18 +779,19 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   bool _preparationAttached = false;
   final AppUpdateController _updateController = AppUpdateController.instance;
   late final ValueNotifier<int> _selectedTab;
-  chat.ChatSdk? _chatRuntime;
+  chat.ChatRuntime? _chatRuntime;
   late int _currentIndex;
   int _pendingVoteCount = 0;
   int _squareNotifyCount = 0;
   bool _isRooted = false;
   StreamSubscription<Map<String, dynamic>>? _pushOpenSub;
   StreamSubscription<AppPushToken>? _pushTokenSub;
+  StreamSubscription<bool>? _contactNetworkSub;
 
   /// 首次打开聊天Tab才接入聊天生命周期；普通认证可先离线使用同一MLS身份。
   /// 读取实例不启动聊天权益请求、邮箱、WebSocket或附件生命周期。
-  chat.ChatSdk get _chatRuntimeForTab => _chatRuntime ??=
-      (widget.chatRuntimeFactory ?? () => context.read<chat.ChatSdk>())();
+  chat.ChatRuntime get _chatRuntimeForTab => _chatRuntime ??=
+      (widget.chatRuntimeFactory ?? () => context.read<chat.ChatRuntime>())();
 
   @override
   void initState() {
@@ -790,7 +804,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     _checkRootStatus();
     // 启动后异步检查 Release 更新，只更新设置页状态，不阻塞主界面进入。
     _updateController.check();
-    // 点击推送属于 App 导航，不得为此提前构造 ChatSdk。聊天推送只表示邮箱变化；
+    // 点击推送属于 App 导航，不得为此提前构造 ChatRuntime。聊天推送只表示邮箱变化；
     // 广场推送仍直接切广场 Tab。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(_startPushOpenRouting());
@@ -813,6 +827,14 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         push: context.read<AppPushService?>(),
       );
     }
+    _contactNetworkSub = context
+        .read<AppPushService?>()
+        ?.networkAvailability
+        .listen((available) {
+          if (available && mounted) {
+            unawaited(context.read<UserContactService?>()?.flushPending());
+          }
+        });
     _preparationSecurity = context.read<AccountSecurityService?>();
     _preparationSecurity?.revision.addListener(_onPreparationIdentityChanged);
     WidgetsBinding.instance.addObserver(this);
@@ -821,6 +843,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   void _onPreparationIdentityChanged() {
     Notifications.instance.invalidate();
+    context.read<UserContactService?>()?.invalidate();
     _schedulePreparation();
   }
 
@@ -830,6 +853,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       if (mounted) {
         unawaited(context.read<SquareSessionProvider?>()?.resolveSession());
         unawaited(Notifications.instance.calibrate());
+        unawaited(context.read<UserContactService?>()?.flushPending());
       }
     });
   }
@@ -948,6 +972,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       _onPreparationIdentityChanged,
     );
     Notifications.instance.stop();
+    unawaited(_contactNetworkSub?.cancel());
     _updateController.removeListener(_handleUpdateStateChanged);
     unawaited(_pushOpenSub?.cancel());
     unawaited(_pushTokenSub?.cancel());

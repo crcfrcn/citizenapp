@@ -8,7 +8,7 @@ environment:
 
 # 本包公开接口的真实依赖；上游约束沿用产品原锁。
 dependencies:
-  citizen_account: any
+  citizen_user: any
   citizen_assets: any
   citizen_citizen: any
   citizen_scanner: any
@@ -43,8 +43,4 @@ dev_dependencies:
   http: 1.6.0
   image: 4.9.1
   shared_preferences: ^2.5.5
-  tatachat_sdk:
-    git:
-      url: https://github.com/tuyutata/tatachatsdk.git
-      path: .
-      ref: main
+  chat: any

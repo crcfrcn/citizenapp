@@ -81,8 +81,10 @@ export function describeAction({flow,platform,inputs={}}){
 
 // 用例坐标只在此声明；设备入口永不执行整类中未列明的历史业务操作。
 const iosNative = [
+ 'ChatStorageRequiresVerifiedFileProtection','ChatUpgradePreservesDatabaseAndWipeMarkerBytes','ChatUpgradeRejectsConflictingRootsWithoutOverwriting',
+ 'StoreRegistrationAndCountryUseOfficialIdentifiers',
  'NativeRangeUsesBoundedLengthAndExactTail','NativeResourceLoaderReadsValidatedVideo',
- 'PackageInfoUsesInstalledBundleVersion','WalletConnectCallbackMatchesOnlyOwnedSchemeAndHost',
+ 'PackageInfoUsesInstalledBundleVersion','TopupCallbackMatchesOnlyOwnedSchemeAndHost','TopupNativeLogAcceptsOnlyFixedPhases',
  'PackageInfoRejectsMalformedVersionTypes','SquareVideoRequestAcceptsOnlyCanonicalEnvelope',
  'SquareMediaCapabilitiesAlwaysContainFailClosedFlags','ApnsEnvironmentUsesEmbeddedProvisioningProfile',
  'ApnsEnvironmentUsesProductionOnlyForStoreReceiptWithoutProfile',
@@ -104,6 +106,7 @@ export const testSuites=Object.freeze({
  }),
  android:Object.freeze({
   native:Object.freeze([
+   ...androidCase('ChatStorageInstrumentedTest',['upgradePreservesDatabaseAndWipeMarkerBytes','upgradeRejectsConflictsAndLinksWithoutOverwritingEitherCopy']),
    ...androidCase('MlsTransportSecurityInstrumentedTest',['applicationPolicyRejectsCleartextForPublicAndLocalHosts']),
    ...androidCase('RegistrationRecordSecurityInstrumentedTest',['nativeRecordWhitelistSeparatesMainAndAuxiliaryFiles','productionCasRejectsStaleWritesLinksAndTraversal']),
    ...androidCase('SquareMediaChannelInstrumentedTest',['rangeSourceBoundsEveryReadAndStopsAfterClose','rangeSourceRejectsShortBlocksAndHonorsSeek','requestAcceptsOnlyThePublishedCodecEnvelope','capabilitiesAlwaysReportBothFailClosedFlags','fastStartMovesMoovAndPatchesChunkOffset']),

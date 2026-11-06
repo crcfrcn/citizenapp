@@ -1,4 +1,4 @@
-import 'package:citizen_transaction/personal/personal_manage_models.dart';
+import 'package:citizen_personal/personal_manage_models.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
 
 /// 提案内存缓存。

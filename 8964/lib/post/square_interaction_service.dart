@@ -1,9 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:citizen_account/square_api_client.dart';
-import 'package:citizen_account/identity/square_session_provider.dart';
-import 'package:citizen_account/notifications.dart';
+import 'package:citizen_user/square_api_client.dart';
+import 'package:citizen_user/identity/square_session_provider.dart';
+import 'package:citizen_user/notifications.dart';
 
 /// 互动状态按浏览者CID归属，不写入帖子manifest或改变信息流顺序。
 class SquareInteractionService extends ChangeNotifier {

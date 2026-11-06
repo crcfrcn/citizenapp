@@ -1,4 +1,4 @@
-import 'package:citizen_wallet/account_balance_snapshot_store.dart';
+import 'package:citizen_wallet/core/account_balance_snapshot_store.dart';
 
 import 'dart:async';
 

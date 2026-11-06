@@ -19,7 +19,7 @@ abstract class SquareComposeDraftRepository {
   Future<List<SquareComposeDraft>> list(String cidNumber);
   Future<void> delete(String cidNumber, String draftId);
 
-  /// 只有真实本地仓库存在待重试文件事实；测试或远端实现默认无需处理。
+  /// 真实本地仓库处理待重试文件事实；测试仓库可使用空实现。
   Future<void> retryPendingFileCleanup({String? cidNumber}) async {}
 }
 
@@ -150,35 +150,19 @@ class SquareComposeDraftStore implements SquareComposeDraftRepository {
     await _runCleanupIds(cleanupIds);
   }
 
-  /// 用户明确恢复旧草稿时逐条核验文件并提交数据库，成功前绝不清除旧来源。
-  /// 新草稿只从数据库生成临时处理文件；普通列表只查询描述。
+  /// 当前草稿只从本地内容库生成临时处理文件，读取不回填或改写草稿记录。
   Future<SquareComposeDraft> restore(SquareComposeDraft draft) async {
-    var source = draft;
+    _validateIdentity(cidNumber: draft.cidNumber, draftId: draft.draftId);
     if (draft.media.any((item) => item.bodyHash == null)) {
-      await ComposeDraftMedia.validateLegacyPaths(
-        draft.cidNumber,
-        draft.draftId,
-        draft.media
-            .where((item) => item.bodyHash == null)
-            .map((item) => item.path),
-      );
-      await save(draft);
-      final row = await SocialIsar.instance.read(
-        (db) => db.collection<social_store.Draft>().getByCidNumberDraftId(
-          draft.cidNumber,
-          draft.draftId,
-        ),
-      );
-      if (row == null) throw const SquareComposeDraftStoreException('草稿已不存在');
-      source = _fromEntity(row);
+      throw const FormatException('草稿媒体缺少本地内容索引');
     }
     final media = <SquareLocalMediaDraft>[];
-    for (final item in source.media) {
+    for (final item in draft.media) {
       media.add(
-        await ComposeDraftMedia.persist(source.cidNumber, source.draftId, item),
+        await ComposeDraftMedia.persist(draft.cidNumber, draft.draftId, item),
       );
     }
-    return source.copyWith(media: media);
+    return draft.copyWith(media: media);
   }
 
   @override

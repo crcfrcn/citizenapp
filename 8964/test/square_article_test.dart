@@ -17,7 +17,7 @@ import 'package:citizen_square/article/article_compose_body.dart';
 import 'package:citizen_square/compose/compose_media_picker.dart';
 import 'package:citizen_square/compose/compose_media_widgets.dart';
 import 'package:citizen_square/post/square_models.dart';
-import 'package:citizen_account/square_api_client.dart';
+import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_square/media/square_upload_service.dart';
 import 'package:citizen_square/media/square_media_carousel.dart';
 

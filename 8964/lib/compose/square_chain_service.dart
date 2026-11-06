@@ -10,8 +10,8 @@ import 'package:polkadart/polkadart.dart' show Hasher;
 import 'package:polkadart/scale_codec.dart' show ByteOutput, CompactBigIntCodec;
 
 import 'package:citizen_square/post/square_models.dart';
-import 'package:citizen_account/identity/citizen_identity_chain_reader.dart';
-import 'package:citizen_account/membership/subscription_chain.dart'
+import 'package:citizen_user/identity/citizen_identity_chain_reader.dart';
+import 'package:citizen_user/membership/subscription_chain.dart'
     show SubscriptionChain;
 
 class SquareChainPublishedResult {

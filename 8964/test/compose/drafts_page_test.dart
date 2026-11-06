@@ -58,6 +58,95 @@ class _CleanupFailureDraftStore implements SquareComposeDraftRepository {
 }
 
 void main() {
+  const cidA = 'CN220-CTZN2-100000001-2026',
+      cidB = 'CN220-CTZN2-100000002-2026';
+  SquareComposeDraft row(
+    String cid,
+    String text, {
+    SquarePostType type = SquarePostType.document,
+  }) => SquareComposeDraft(
+    cidNumber: cid,
+    draftId: 'same-id',
+    postType: type,
+    text: text,
+    media: const [],
+    updatedAt: 1,
+  );
+  Widget page(
+    String cid,
+    SquarePostType type,
+    SquareComposeDraftRepository store,
+  ) => MaterialApp(
+    home: DraftsPage(
+      key: const ValueKey('box'),
+      cidNumber: cid,
+      postType: type,
+      store: store,
+    ),
+  );
+  testWidgets('切换CID立即撤下旧列表，旧加载不能覆盖新CID', (tester) async {
+    final store = _ScopedStore(),
+        old = Completer<List<SquareComposeDraft>>(),
+        next = Completer<List<SquareComposeDraft>>();
+    store.onList = (cid) => cid == cidA ? old.future : next.future;
+    await tester.pumpWidget(page(cidA, SquarePostType.document, store));
+    await tester.pump();
+    await tester.pumpWidget(page(cidB, SquarePostType.document, store));
+    await tester.pump();
+    old.complete([row(cidA, '旧身份草稿')]);
+    await tester.pump();
+    expect(find.text('旧身份草稿'), findsNothing);
+    next.complete([row(cidB, '新身份草稿'), row(cidA, '混入的旧草稿')]);
+    await tester.pumpAndSettle();
+    expect(find.text('新身份草稿'), findsOneWidget);
+    expect(find.text('混入的旧草稿'), findsNothing);
+    expect(store.listed, [cidA, cidB]);
+  });
+  testWidgets('类型和仓库切换重新加载，等待新仓库时不显示旧数据', (tester) async {
+    final store = _ScopedStore()
+      ..rows.addAll([
+        row(cidA, '公文内容'),
+        row(cidA, '文章内容', type: SquarePostType.article),
+      ]);
+    await tester.pumpWidget(page(cidA, SquarePostType.document, store));
+    await tester.pumpAndSettle();
+    expect(find.text('公文内容'), findsOneWidget);
+    await tester.pumpWidget(page(cidA, SquarePostType.article, store));
+    await tester.pumpAndSettle();
+    expect(find.text('文章内容'), findsOneWidget);
+    expect(find.text('公文内容'), findsNothing);
+    final replacement = _ScopedStore(),
+        pending = Completer<List<SquareComposeDraft>>();
+    replacement.onList = (_) => pending.future;
+    await tester.pumpWidget(page(cidA, SquarePostType.article, replacement));
+    await tester.pump();
+    expect(find.text('文章内容'), findsNothing);
+    pending.complete([row(cidA, '新仓库', type: SquarePostType.article)]);
+    await tester.pumpAndSettle();
+    expect(find.text('新仓库'), findsOneWidget);
+  });
+  for (final failure in [false, true]) {
+    testWidgets('旧CID删除迟到${failure ? '失败' : '成功'}不影响新CID的同ID草稿', (
+      tester,
+    ) async {
+      final store = _ScopedStore()
+        ..rows.addAll([row(cidA, '旧草稿'), row(cidB, '新草稿')])
+        ..deleteGate = Completer<void>()
+        ..failDelete = failure;
+      await tester.pumpWidget(page(cidA, SquarePostType.document, store));
+      await tester.pumpAndSettle();
+      await tester.drag(find.byType(Dismissible), const Offset(-500, 0));
+      await tester.pumpAndSettle();
+      expect(store.deleted, [(cidA, 'same-id')]);
+      await tester.pumpWidget(page(cidB, SquarePostType.document, store));
+      await tester.pumpAndSettle();
+      store.deleteGate!.complete();
+      await tester.pumpAndSettle();
+      expect(find.text('新草稿'), findsOneWidget);
+      expect(find.text('草稿已删除，但本地媒体仍待清理'), findsNothing);
+      expect(store.rows.where((r) => r.cidNumber == cidB), hasLength(1));
+    });
+  }
   testWidgets('本地草稿未返回时直接显示草稿箱且不使用整页转圈', (tester) async {
     final store = _PendingDraftStore();
     await tester.pumpWidget(
@@ -106,4 +195,35 @@ void main() {
     expect(store.retryCalls, 1);
     expect(find.text('本地媒体清理完成'), findsOneWidget);
   });
+}
+
+class _ScopedStore implements SquareComposeDraftRepository {
+  final rows = <SquareComposeDraft>[];
+  final listed = <String>[];
+  final deleted = <(String, String)>[];
+  Future<List<SquareComposeDraft>> Function(String)? onList;
+  Completer<void>? deleteGate;
+  bool failDelete = false;
+  @override
+  Future<List<SquareComposeDraft>> list(String cid) {
+    listed.add(cid);
+    return onList?.call(cid) ??
+        Future.value(rows.where((r) => r.cidNumber == cid).toList());
+  }
+
+  @override
+  Future<void> save(SquareComposeDraft draft) async {
+    rows.add(draft);
+  }
+
+  @override
+  Future<void> delete(String cid, String id) async {
+    deleted.add((cid, id));
+    await deleteGate?.future;
+    if (failDelete) throw const SquareComposeDraftStoreException('synthetic');
+    rows.removeWhere((r) => r.cidNumber == cid && r.draftId == id);
+  }
+
+  @override
+  Future<void> retryPendingFileCleanup({String? cidNumber}) async {}
 }

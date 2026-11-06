@@ -18,7 +18,7 @@ import 'package:http/testing.dart';
 
 import 'package:citizen_square/post/square_models.dart';
 import 'package:citizen_square/article/square_article_detail_page.dart';
-import 'package:citizen_account/square_api_client.dart';
+import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_square/media/square_media_carousel.dart';
 import 'package:citizen_square/article/article_rich_text_view.dart';
 

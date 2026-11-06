@@ -1,7 +1,7 @@
 import 'package:citizen_testing/mls_authentication_fixture.dart';
 
-import 'package:citizen_account/identity/finalized_identity_resolver.dart';
-import 'package:citizen_account/identity/citizen_identity_chain_reader.dart';
+import 'package:citizen_user/identity/finalized_identity_resolver.dart';
+import 'package:citizen_user/identity/citizen_identity_chain_reader.dart';
 
 import 'dart:convert';
 import 'dart:typed_data';
@@ -12,8 +12,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:citizen_square/compose/square_chain_service.dart';
 import 'package:citizen_square/post/square_models.dart';
-import 'package:citizen_account/square_api_client.dart';
-import 'package:citizen_account/identity/square_identity_state.dart';
+import 'package:citizen_user/square_api_client.dart';
+import 'package:citizen_user/identity/square_identity_state.dart';
 import 'package:citizen_square/post/square_post_deletion_coordinator.dart';
 import 'package:citizen_square/post/square_post_store.dart';
 import 'package:citizen_square/compose/square_publish_service.dart';

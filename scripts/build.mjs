@@ -173,16 +173,17 @@ async function installedBuildVersion(platform) {
     return {version: initial[1], buildNumber: initial[2] || '1'};
 }
 
-// 聊天SDK沿用其正式Release交付。
+// 两项SDK只在本轮开始时选择一次正式Release，之后固定准确来源。
 export async function selectSDKRelease(product, read) {
     const releases = [];
     for (let page = 1; ; page++) {
         const rows = await read('releases?per_page=100&page=' + page);
+        if (!Array.isArray(rows)) throw Error(product + '正式Release列表无效');
         releases.push(...rows);
         if (rows.length < 100) break;
     }
     const candidates = releases.flatMap(release => {
-        if (release.draft || release.prerelease || !release.published_at) return [];
+        if (release.draft !== false || release.prerelease !== false || !release.published_at) return [];
         let proof;
         try { proof = JSON.parse(release.body); } catch { return []; }
         if (proof?.product_id !== product || proof.platform !== 'sdk'
@@ -207,18 +208,24 @@ export async function selectSDKRelease(product, read) {
     throw Error(product + '没有可用的成功正式SDK版本');
 }
 
-// 公民SDK唯一工作流只保留最新成功Run；完整Artifact直接交给SDK自己的consume。
-export async function selectSDKArtifact(read) {
-    const {workflow_runs: runs} = await read('actions/workflows/sdk.yml/runs?branch=main&status=success&per_page=100');
-    const run = runs.find(row => row.status === 'completed' && row.conclusion === 'success'
-        && row.head_branch === 'main' && /^[a-f0-9]{40}$/u.test(row.head_sha)
-        && [row.id, row.run_attempt].every(value => Number.isSafeInteger(value) && value > 0));
-    if (!run) throw Error('citizensdk没有可用的成功自动化');
-    const {artifacts} = await read('actions/runs/' + run.id + '/artifacts?per_page=100');
-    const artifact = artifacts.find(row => !row.expired
-        && /^公民SDK·SDK·v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u.test(row.name));
-    if (!artifact) throw Error('citizensdk成功自动化缺少完整Artifact');
-    return {run, artifact};
+export async function resolveSDKs({root,lock,environment,execute=execFileSync}) {
+    const resolved=[];
+    for (const name of ['citizen_sdk']) {
+        const record=lock.split('\n  '+name+':\n')[1]?.split(/\n  \S/)[0];
+        const url=/url: "?(https:\/\/github.com\/[^"\s]+\.git)"?/.exec(record||'')?.[1];
+        if (!url) throw Error(name+'仓库声明缺失');
+        const repository=url.slice('https://github.com/'.length,-4),product=repository.split('/')[1];
+        const local=resolve(root,'..',product);
+        const selected=environment.GITHUB_ACTIONS==='true' ? await selectSDKRelease(product,
+            path=>JSON.parse(execute('gh',['api','repos/'+repository+'/'+path],{encoding:'utf8',env:environment}))) : null;
+        const ref=selected?.proof.git_commit_sha ?? execute('git',['-C',local,'rev-parse','HEAD^{commit}'],{encoding:'utf8',env:environment}).trim();
+        if (!/^[a-f0-9]{40}$/u.test(ref)) throw Error(name+'提交身份无效');
+        const version=selected?.proof.software_version ?? /^version: (\S+)$/mu.exec(
+            execute('git',['-C',local,'show',ref+':pubspec.yaml'],{encoding:'utf8',env:environment}))?.[1];
+        if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u.test(version||'')) throw Error(name+'版本声明无效');
+        resolved.push({name,url,repository,product,local,selected,ref,version});
+    }
+    return resolved;
 }
 
 // 编译与测试都从产品唯一workspace声明取得包路径，不另建包清单。
@@ -304,26 +311,14 @@ for (const entry of readdirSync(root)) {
 let declaration = readFileSync(join(project, 'pubspec.yaml'), 'utf8');
 let lock = readFileSync(join(project, 'pubspec.lock'), 'utf8');
 const sources=[];
-for (const name of ['citizen_sdk', 'tatachat_sdk']) {
-    const record = lock.split('\n  ' + name + ':\n')[1]?.split(/\n  \S/)[0];
-    const url = /url: "?(https:\/\/github.com\/[^"\s]+\.git)"?/.exec(record || '')?.[1];
-    const repository = url.slice('https://github.com/'.length, -4);
-    const product = repository.split('/')[1];
-    const local = resolve(root, '..', product);
-    const read = path => JSON.parse(execute('gh', ['api', 'repos/' + repository + '/' + path],
-        {encoding: 'utf8', env: environment}));
-    // 本机读取两个SDK已保存的main；正式自动化消费各SDK原有正式交付。
-    const selected = environment.GITHUB_ACTIONS === 'true' ?
-        name === 'tatachat_sdk' ? await selectSDKRelease(product, read) : await selectSDKArtifact(read) : null;
-    // 正式发布仍与聊天SDK的原消费锁准确一致。
-    if (selected && name === 'tatachat_sdk') {
-        const locked = /^[ \t]*resolved-ref: ("?)([a-f0-9]{40})\1[ \t]*$/m.exec(record || '')?.[2];
-        if (locked !== selected.proof.git_commit_sha) {
-            throw Error('tatachatsdk原锁与最新正式Release提交不一致，请更新消费锁');
-        }
-    }
-    const ref = selected ? (name === 'citizen_sdk' ? selected.run.head_sha : selected.proof.git_commit_sha) :
-        execute('git', ['-C', local, 'rev-parse', 'refs/heads/main'], {encoding: 'utf8', env: environment}).trim();
+const resolvedSDKs=await resolveSDKs({root,lock,environment,execute});
+writeFileSync(join(work,'sdk-sources.json'),JSON.stringify(Object.fromEntries(resolvedSDKs.map(sdk=>[sdk.name,{
+    source:sdk.selected?'release':'local_git',software_version:sdk.version,git_commit_sha:sdk.ref,
+    ...(sdk.selected?{release_id:sdk.selected.release.id,tag_name:sdk.selected.release.tag_name,
+        producer_run_id:sdk.selected.proof.producer_run_id,producer_run_attempt:sdk.selected.proof.producer_run_attempt,
+        assets:sdk.selected.proof.assets}:{}),
+}]))));
+for (const {name,url,repository,product,local,selected,ref} of resolvedSDKs) {
     const source = join(work, 'sources', name), output = join(work, 'packages', name);
     mkdirSync(source, {recursive: true});
     execute('git', ['init', source], {env: environment});
@@ -331,26 +326,19 @@ for (const name of ['citizen_sdk', 'tatachat_sdk']) {
     execute('git', ['-C', source, 'checkout', '--detach', 'FETCH_HEAD'], {env: environment});
     mkdirSync(dirname(output), {recursive: true});
     const sdk = await import(pathToFileURL(join(source, 'scripts/build.mjs')));
-    console.log(product + '：' + (selected ? (name === 'citizen_sdk' ? selected.artifact.name : selected.release.tag_name) : 'main') + ' ' + ref);
+    console.log(product + '：' + (selected ? selected.release.tag_name : 'HEAD') + ' ' + ref);
     if (selected) {
         const directory = join(work, 'downloads', product);
         mkdirSync(directory, {recursive: true});
-        if (name === 'citizen_sdk') {
-            await run('gh', ['run', 'download', String(selected.run.id), '--repo', repository,
-                '--name', selected.artifact.name, '--dir', directory], root, false, environment);
-            await sdk.consume({directory, sourceSha: ref, sourceRun: selected.run.id,
-                sourceAttempt: selected.run.run_attempt, output, signal: controller.signal});
-        } else {
-            for (const extension of ['zip', 'json', 'sha256']) {
-                const label = selected.release.tag_name + '.' + extension;
-                const asset = selected.release.assets.find(asset => asset.label === label && asset.state === 'uploaded');
-                await run('gh', ['release', 'download', selected.release.tag_name, '--repo', repository,
-                    '--pattern', asset.name, '--output', join(directory, label)], root, false, environment);
-            }
-            const expanded = join(directory, 'expanded');
-            await run('unzip', ['-q', join(directory, selected.release.tag_name + '.zip'), '-d', expanded], root, false, environment);
-            sdk.createFlutterSourceView(join(expanded, 'project'), output);
+        for (const extension of ['zip','json','sha256']) {
+            const label=selected.release.tag_name+'.'+extension;
+            const assets=(selected.release.assets||[]).filter(asset=>asset.label===label&&asset.state==='uploaded');
+            if (assets.length!==1) throw Error(product+'正式Release完整附件缺失或重复：'+label);
+            await run('gh',['release','download',selected.release.tag_name,'--repo',repository,
+                '--pattern',assets[0].name,'--output',join(directory,label)],root,false,environment);
         }
+        await sdk.consume({directory,sourceSha:ref,sourceRun:selected.proof.producer_run_id,
+            sourceAttempt:selected.proof.producer_run_attempt,output,signal:controller.signal});
     } else if (name === 'citizen_sdk') {
             sdk.createFlutterSourceView(source, output);
             const settings = await import(pathToFileURL(join(source, 'scripts/config.mjs')));
@@ -375,11 +363,6 @@ for (const name of ['citizen_sdk', 'tatachat_sdk']) {
                 [join(source, 'scripts/build.mjs'), 'native', environment.PLATFORM === 'ios' ? 'Apple' : 'Android', '--device'],
                 source, true, nativeEnvironment));
             cpSync(result.output, output, {recursive: true});
-    } else {
-        // 聊天SDK完整构建归其公开入口，App只装配返回的普通工程。
-        const result = JSON.parse(await run(globalThis.process.execPath,
-            [join(source, 'scripts/build.mjs')], source, true, environment));
-        cpSync(result.output, output, {recursive: true});
     }
     mapSdkSource(project,name,output);
     sources.push(output);
@@ -413,6 +396,7 @@ for (const name of ['MainActivity', 'SquareMediaChannel', 'SquareMp4FastStart', 
     const source = name === 'MainActivity' ? 'app' : 'square';
     copy('android/' + source + '/' + name + '.kt', 'android/app/src/main/' + name + '.kt');
 }
+for (const name of ['ChatMediaChannel','ChatStorageChannel']) copy('android/chat/'+name+'.java','android/app/src/main/java/com/crcfrcn/citizenapp/'+name+'.java');
 copy('android/app/AndroidManifest.xml', 'android/app/src/main/AndroidManifest.xml');
 for (const file of readdirSync(join(root, 'android/tests'))) copy('android/tests/' + file, 'android/app/src/androidTest/' + file);
 copy('ios/project/Runner.pbxproj', 'ios/Runner.xcodeproj/project.pbxproj');
@@ -421,6 +405,8 @@ for (const name of ['AppDelegate.swift', 'SystemProtectedDataChannel.swift', 'In
     copy('ios/source/' + name, 'ios/Runner/' + name);
 }
 for (const name of ['SquareMediaChannel', 'SquareVideoTranscoder']) copy('ios/square/' + name + '.swift', 'ios/Runner/' + name + '.swift');
+for (const name of ['ChatMediaChannel','ChatStorageChannel']) copy('ios/chat/'+name+'.swift','ios/Runner/'+name+'.swift');
+copy('ios/source/PrivacyInfo.xcprivacy','ios/Runner/PrivacyInfo.xcprivacy');
 for (const name of ['RunnerTests', 'RunnerUITests']) copy('ios/tests/' + name + '.swift', 'ios/' + name + '.swift');
 // 以下仅为本轮平台工具直接消费的必要配置，不生成常驻模块。
 // 使用Flutter生成的标准工程，只应用本产品编译需要的插件和版本差异。
@@ -549,8 +535,9 @@ const sdkRoot = join(work, 'packages/citizen_sdk');
 const values = {
     CITIZENSDK_SOURCE_DIR: sdkRoot,
     CITIZENSDK_ANDROID_BUILD_DIR: join(work,'citizen-android'),
-    TATACHATSDK_TEST_WORK_ROOT: work,
-    TATACHATSDK_TEST_NATIVE_LIBRARY: join(work,'packages/tatachat_sdk/native/libtatachat_sdk.dylib')
+    CITIZENAPP_TEST_WORK_DIR: work,
+    CHAT_OPENMLS_TEST_LIBRARY: join(work,'openmls/host/libchat_openmls.dylib'),
+    CHAT_OPENMLS_COMPONENT_DIR: join(work,'openmls')
 };
 // 完整Apple组件的Framework使用标准内部链接；测试只消费同轮真实普通文件。
 // 真机专用组件没有宿主切片，不能宣称已交付测试库或沿用外部旧路径。
@@ -564,16 +551,17 @@ if (existsSync(testCore)) {
 Object.assign(environment,values);
 if(environment.GITHUB_ENV)for (const [key, value] of Object.entries(values)) appendFileSync(environment.GITHUB_ENV, key + '=' + value + '\n');
 await preparePackages(project,{sources,environment});
+await (io.buildChatOpenMls || buildChatOpenMls)({project,work,platform:environment.PLATFORM,environment});
 // App随包资源随普通工程一起准备，不增加功能构建入口。
 // 本机默认复用本产品已准备的npm缓存，缺件仍离线失败。
-const assets = join(project, 'transaction/web');
+const assets = join(project, 'topup/web');
 const resourceEnvironment = {...environment, npm_config_ignore_scripts: 'true',
     ...(environment.GITHUB_ACTIONS === 'true' ? {} : {npm_config_offline: 'true',
         npm_config_cache: environment.npm_config_cache ?? environment.NPM_CONFIG_CACHE ?? join(root, 'target/cache/npm')})};
 await run('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], assets, false, resourceEnvironment, 'App资源准备');
-await run(environment.ESBUILD_BIN || 'esbuild', ['walletconnect.js', '--bundle', '--format=iife',
+await run(environment.ESBUILD_BIN || 'esbuild', ['metamask.js', '--bundle', '--format=iife',
     '--global-name=CitizenTopup', '--platform=browser', '--target=safari15,chrome100', '--minify',
-    '--outfile=walletconnect.bundle.js', '--define:process.env.NODE_ENV="production"'], assets, false, resourceEnvironment, 'App资源准备');
+    '--outfile=metamask.bundle.js', '--define:process.env.NODE_ENV="production"'], assets, false, resourceEnvironment, 'App资源准备');
 return {project,values};
 }
 
@@ -616,7 +604,7 @@ export async function buildTests(platform,{work=process.env.WORK,scope='all',env
    // Pub会规范化空行；所有版本、来源、摘要和路径记录必须保持逐行一致。
    const records=bytes=>bytes.toString('utf8').split(/\r?\n/).filter(line=>line.trim().length).join('\n');
    if(records(lock)!==records(readFileSync(join(project,'pubspec.lock'))))throw Error('Android配置准备改变了交付原锁记录');
-   await execute(environment.GRADLE_BIN,['--offline','--no-daemon','--console=plain',
+   await execute(environment.GRADLE_BIN,['--offline','--no-daemon','--console=plain','-Ptarget-platform=android-arm64',
     ':app:compileReleaseAndroidTestKotlin',':app:compileReleaseAndroidTestJavaWithJavac'],
     join(project,'android'),false,environment,'Android测试编译');
    return {platform,scope,status:'compiled',kind:'classes',output:join(project,'build/app')};
@@ -676,6 +664,7 @@ export async function compile(platform){
   const output=join(work,'artifact'),files=readdirSync(output).filter(name=>name.endsWith(platform==='ios'?'.app':'.apk'));
   const sdk=environment.ANDROID_HOME;
   process.stdout.write('TATA_COMPILE '+JSON.stringify({schema:1,product_id:'citizenapp',platform,work,artifact:join(output,files[0]),signing:platform==='ios'?appleSigning(join(output,files[0]),join(work,'project/ios/Runner/Runner.entitlements')):[],
+   sdk_sources:JSON.parse(readFileSync(join(work,'sdk-sources.json'),'utf8')),
    tools:platform==='android'?{adb:join(sdk,'platform-tools/adb'),apksigner:join(sdk,'build-tools/36.0.0/apksigner'),apkanalyzer:join(sdk,'cmdline-tools/latest/bin/apkanalyzer')}:{},
    environment:platform==='android'?{JAVA_HOME:environment.JAVA_HOME,ANDROID_HOME:sdk}:{}})+'\n');
   for await(const part of process.stdin) {} // 消费结束后再释放本轮现场。
@@ -693,4 +682,87 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         console.error(error.message);
         process.exitCode = 1;
     }
+}
+
+
+// 聊天是本仓本地业务包；OpenMLS 仅由 App 唯一构建入口编译和链接。
+export async function buildChatOpenMls({project,work,platform,environment=process.env,execute=run}) {
+ const manifest=join(project,'chat/openmls/Cargo.toml');
+ const target=environment.CARGO_TARGET_DIR||join(root,'target/cache/rust');
+ const base={...environment,RUSTUP_TOOLCHAIN:'1.97.1',CARGO_TARGET_DIR:target};
+ const args=['build','--manifest-path',manifest,'--locked','--release'];
+ const own=join(work,'openmls');mkdirSync(own,{recursive:true});
+ if(globalThis.process.platform==='darwin'){
+  await execute('cargo',[...args,'--target','aarch64-apple-darwin'],project,false,{...base,CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:'-C strip=none -C link-arg=-Wl,-install_name,@rpath/libchat_openmls.dylib'},'OpenMLS宿主编译');
+  mkdirSync(join(own,'host'),{recursive:true});
+  copyFileSync(join(target,'aarch64-apple-darwin/release/libchat_openmls.dylib'),join(own,'host/libchat_openmls.dylib'));
+ }
+ if(platform==='android'){
+  if(!environment.ANDROID_HOME)throw Error('OpenMLS Android编译缺少ANDROID_HOME');
+  const ndk=join(environment.ANDROID_HOME,'ndk','28.2.13676358','toolchains/llvm/prebuilt',globalThis.process.platform==='darwin'?'darwin-x86_64':'linux-x86_64','bin');
+  const clang=join(ndk,'aarch64-linux-android24-clang');
+  await execute('cargo',[...args,'--target','aarch64-linux-android'],project,false,{...base,
+   CC_aarch64_linux_android:clang,AR_aarch64_linux_android:join(ndk,'llvm-ar'),
+   CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER:clang,
+   CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS:'-C link-arg=-Wl,-z,max-page-size=16384'},'OpenMLS Android编译');
+  const destination=join(project,'android/app/src/main/jniLibs/arm64-v8a');mkdirSync(destination,{recursive:true});
+  copyFileSync(join(target,'aarch64-linux-android/release/libchat_openmls.so'),join(destination,'libchat_openmls.so'));
+  const component=join(own,'android/arm64-v8a');mkdirSync(component,{recursive:true});copyFileSync(join(destination,'libchat_openmls.so'),join(component,'libchat_openmls.so'));
+ }
+ if(platform==='ios'){
+  const slices=[];
+  for(const [triple,sdk]of [['aarch64-apple-ios','iphoneos'],['aarch64-apple-ios-sim','iphonesimulator']]){
+   const sdkPath=execFileSync('/usr/bin/xcrun',['--sdk',sdk,'--show-sdk-path'],{encoding:'utf8'}).trim();
+   const key='CARGO_TARGET_'+triple.toUpperCase().replaceAll('-','_')+'_RUSTFLAGS';
+   await execute('cargo',[...args,'--target',triple],project,false,{...base,IPHONEOS_DEPLOYMENT_TARGET:'16.0',
+    [key]:'-C strip=none -C link-arg=-isysroot -C link-arg='+sdkPath+' -C link-arg=-Wl,-install_name,@rpath/ChatOpenMLS.framework/ChatOpenMLS'},'OpenMLS iOS编译');
+   await verifyChatOpenMls(join(target,triple,'release/libchat_openmls.dylib'),sdk==='iphoneos'?'ios':'ios-simulator');
+   const framework=join(own,triple,'ChatOpenMLS.framework');mkdirSync(join(framework,'Headers'),{recursive:true});mkdirSync(join(framework,'Modules'),{recursive:true});
+   copyFileSync(join(target,triple,'release/libchat_openmls.dylib'),join(framework,'ChatOpenMLS'));
+   copyFileSync(join(project,'chat/openmls/chat.h'),join(framework,'Headers/chat.h'));
+   writeFileSync(join(framework,'Modules/module.modulemap'),'framework module ChatOpenMLS {\n umbrella header "chat.h"\n export *\n}\n');
+   writeFileSync(join(framework,'Info.plist'),'<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleExecutable</key><string>ChatOpenMLS</string><key>CFBundleIdentifier</key><string>com.crcfrcn.citizenapp.chat.openmls</string><key>CFBundleName</key><string>ChatOpenMLS</string><key>CFBundlePackageType</key><string>FMWK</string><key>CFBundleShortVersionString</key><string>1.0.0</string><key>CFBundleVersion</key><string>1</string><key>MinimumOSVersion</key><string>16.0</string></dict></plist>');
+   slices.push('-framework',framework);
+  }
+  const framework=join(project,'ios/Frameworks/ChatOpenMLS.xcframework');mkdirSync(dirname(framework),{recursive:true});
+  rmSync(framework,{recursive:true,force:true});
+  await execute('/usr/bin/xcodebuild',['-create-xcframework',...slices,'-output',framework],project,false,base,'OpenMLS iOS装配');
+ }
+ return {host:join(own,'host/libchat_openmls.dylib')};
+}
+
+export async function verifyChatOpenMls(file,platform){
+ if(!lstatSync(file).isFile())throw Error('OpenMLS产物缺失');
+ const nm=platform==='android'?join(process.env.ANDROID_HOME||join(process.env.HOME,'Library/Android/sdk'),'ndk/28.2.13676358/toolchains/llvm/prebuilt',process.platform==='darwin'?'darwin-x86_64':'linux-x86_64','bin/llvm-nm'):'/usr/bin/nm';
+ const symbols=execFileSync(nm,platform==='android'?['-D','--defined-only',file]:['-g',file],{encoding:'utf8'});
+ const header=readFileSync(join(root,'chat/openmls/chat.h'),'utf8');
+ const expected=[...header.matchAll(/\b(chat_openmls_[a-z_]+)\s*\(/gu)].map(m=>m[1]);
+ if(expected.length!==10)throw Error('OpenMLS公开头的符号集合不完整');
+ for(const name of expected){
+  if(!new RegExp('(?:^|\\s)_?'+name+'(?:\\s|$)','u').test(symbols))throw Error('OpenMLS缺少FFI符号：'+name);
+ }
+ if(/tatachat_sdk_[a-z_]+/u.test(symbols))throw Error('OpenMLS产物包含旧客户端符号');
+ if(platform!=='android'){
+  const commands=execFileSync('/usr/bin/xcrun',['otool','-l',file],{encoding:'utf8'});
+  const offset=/cmd LC_SYMTAB[\s\S]*?\bstroff\s+(\d+)/u.exec(commands)?.[1];
+  if(!offset||BigInt(offset)%8n!==0n)throw Error('OpenMLS Mach-O字符串表未按8字节对齐');
+ }
+
+}
+
+// App回归编译SDK交付的原始系统资源夹具，链接同一正式Core；不实现或替换SDK业务。
+export async function prepareCitizenSdkTestFixture({sdkRoot,work,environment=process.env}) {
+ if(process.platform!=='darwin')throw Error('当前App宿主回归需要macOS SDK组件');
+ const framework=join(sdkRoot,'darwin/CitizenSDK.xcframework/macos-arm64/CitizenSDK.framework/CitizenSDK');
+ if(!existsSync(framework))throw Error('宿主回归缺少同轮CitizenSDK macOS组件，请由SDK公开Apple入口准备');
+ const producer=await import(pathToFileURL(join(sdkRoot,'scripts/build.mjs')));
+ const directory=join(work,'sdk-test-support');mkdirSync(directory,{recursive:true});
+ writeFileSync(join(directory,'citizensdk_internal.h'),producer.citizenSdkInternalHeader());
+ copyFileSync(join(sdkRoot,'image/citizensdk_qr_image.h'),join(directory,'citizensdk_qr_image.h'));
+ const output=join(directory,'ffi.dylib'),slice=dirname(dirname(framework));
+ await run('/usr/bin/xcrun',['clang++','-std=c++17','-dynamiclib','-fPIC','-Wall','-Wextra','-Wpedantic','-Wconversion','-Wsign-conversion','-Werror',
+  '-I'+join(sdkRoot,'include'),'-I'+join(sdkRoot,'core/cpp'),'-I'+directory,join(sdkRoot,'lib/test/cpp.cc'),
+  '-F'+slice,'-framework','CitizenSDK','-framework','Security','-framework','SystemConfiguration','-framework','CoreFoundation',
+  '-lsqlite3','-lc++','-liconv','-lresolv','-Wl,-rpath,'+slice,'-o',output],sdkRoot,false,environment,'CitizenSDK系统资源测试库');
+ return output;
 }

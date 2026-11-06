@@ -4,7 +4,7 @@ import 'package:citizen_square/feed/square_home_page.dart';
 import 'package:citizen_square/feed/square_feed_tabs.dart';
 import 'package:citizen_square/feed/square_tab_order_store.dart';
 import 'package:citizen_square/post/square_models.dart';
-import 'package:citizen_account/identity/square_identity_state.dart';
+import 'package:citizen_user/identity/square_identity_state.dart';
 
 import 'dart:convert';
 
@@ -12,11 +12,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizen_account/identity/current_user_context.dart';
-import 'package:citizen_account/identity/identity_binding.dart';
-import 'package:citizen_account/identity/square_session_provider.dart';
-import 'package:citizen_account/square_api_client.dart';
-import 'package:citizen_account/notifications.dart';
+import 'package:citizen_user/identity/current_user_context.dart';
+import 'package:citizen_user/identity/identity_binding.dart';
+import 'package:citizen_user/identity/square_session_provider.dart';
+import 'package:citizen_user/square_api_client.dart';
+import 'package:citizen_user/notifications.dart';
 import 'package:citizen_storage/user_isar.dart';
 import 'package:citizen_storage/social_isar.dart';
 import 'package:citizen_square/feed/square_notifications_page.dart';
@@ -62,15 +62,20 @@ class User implements CurrentUserContext {
 class Sessions implements SquareSessionProvider {
   Sessions(this.user);
   final User user;
+  int calls = 0;
   @override
-  Future<SquareSession?> ensureSession() async => SquareSession(
-    deviceId: '33' * 32,
-    sessionToken: 'test',
-    cidNumber: user.currentCid,
-    accountId: user.fixtureAccountId,
-    bindRev: user.bindRev,
-    expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
-  );
+  Future<SquareSession?> ensureSession() async {
+    calls++;
+    return SquareSession(
+      deviceId: '33' * 32,
+      sessionToken: 'test',
+      cidNumber: user.currentCid,
+      accountId: user.fixtureAccountId,
+      bindRev: user.bindRev,
+      expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
+    );
+  }
+
   @override
   dynamic noSuchMethod(Invocation i) => throw UnimplementedError();
 }
@@ -440,6 +445,264 @@ void main() {
         });
       }
       expect(api.reads, hasLength(3));
+    });
+  }
+  Future<void> seedList(
+    WidgetTester tester, {
+    String title = '缓存互动',
+    int? next,
+  }) async {
+    api.tab = 0;
+    api.revision++;
+    await driveIo(tester, Notifications.instance.accept(api.state));
+    final page = api.page();
+    await driveIo(
+      tester,
+      Notifications.instance.cacheList(
+        Notifications.instance.scope!,
+        NotificationListSnapshot(
+          revision: api.revision,
+          sequence: api.sequence,
+          through: api.sequence,
+          nextCursor: next,
+          items: (page['items'] as List).cast<Map<String, dynamic>>().map(
+            (row) => {...row, 'post_title': title},
+          ),
+        ),
+      ),
+    );
+  }
+
+  testWidgets('通知缓存关闭重开后首屏不联网，重新进入也不拉列表', (tester) async {
+    await seedList(tester);
+    Notifications.instance.stop();
+    await driveIo(tester, UserIsar.instance.db().then((db) => db.close()));
+    Notifications.instance.configure(api: api, sessions: sessions, user: user);
+    Widget page() => wrap(
+      SquareNotificationsPage(
+        api: api,
+        sessions: sessions,
+        onOpenPost: (_, _) async {},
+      ),
+    );
+    await tester.pumpWidget(page());
+    await drain(tester);
+    expect(find.text('缓存互动'), findsOneWidget);
+    expect(api.notificationRequests, isEmpty);
+    expect(sessions.calls, 0);
+    await tester.pumpWidget(const SizedBox());
+    await drain(tester);
+    await tester.pumpWidget(page());
+    await drain(tester);
+    expect(find.text('缓存互动'), findsOneWidget);
+    expect(api.notificationRequests, isEmpty);
+    expect(sessions.calls, 0);
+    await tester.pumpWidget(const SizedBox());
+    await drain(tester);
+  });
+  testWidgets('列表在覆盖路由后到达，返回时读缓存并清通知层，不重复GET', (tester) async {
+    final key = GlobalKey<SquareNotificationsPageState>();
+    final held = Completer<Map<String, dynamic>>();
+    api.onNotifications = (_, _, _) => held.future;
+    await tester.pumpWidget(
+      wrap(
+        SquareNotificationsPage(
+          key: key,
+          api: api,
+          sessions: sessions,
+          onOpenPost: (_, _) async {},
+        ),
+      ),
+    );
+    await pumpIo(tester);
+    final navigator = Navigator.of(key.currentContext!);
+    unawaited(
+      navigator.push<void>(
+        MaterialPageRoute(builder: (_) => const Scaffold(body: Text('覆盖页面'))),
+      ),
+    );
+    await tester.pumpAndSettle();
+    held.complete(api.page());
+    await drain(tester);
+    expect(
+      api.reads.where((read) => read['scope'] == 'notifications'),
+      isEmpty,
+    );
+    navigator.pop();
+    await drain(tester);
+    expect(find.text('有通知的内容'), findsOneWidget);
+    expect(api.notificationRequests, hasLength(1));
+    expect(
+      api.reads.where((read) => read['scope'] == 'notifications'),
+      hasLength(1),
+    );
+    await tester.pumpWidget(const SizedBox());
+    await drain(tester);
+  });
+  testWidgets('主动刷新失败保留已缓存内容，不自动循环重试', (tester) async {
+    await seedList(tester);
+    final key = GlobalKey<SquareNotificationsPageState>();
+    await tester.pumpWidget(
+      wrap(
+        SquareNotificationsPage(
+          key: key,
+          api: api,
+          sessions: sessions,
+          onOpenPost: (_, _) async {},
+        ),
+      ),
+    );
+    await drain(tester);
+    api.onNotifications = (_, _, _) async => throw StateError('offline');
+    await driveIo(tester, key.currentState!.refresh());
+    await drain(tester);
+    expect(api.notificationRequests, hasLength(1));
+    expect(find.text('缓存互动'), findsOneWidget);
+    expect(find.text('互动读取失败，请下拉重试'), findsOneWidget);
+    await drain(tester);
+    expect(api.notificationRequests, hasLength(1));
+    api.onNotifications = null;
+    await driveIo(tester, key.currentState!.refresh());
+    await drain(tester);
+    expect(api.notificationRequests, hasLength(2));
+    expect(find.text('有通知的内容'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    await drain(tester);
+  });
+  testWidgets('缓存分页沿用捕获上界，只获取缺失页并保存合并列表', (tester) async {
+    await seedList(tester, next: 5);
+    api.onNotifications = (session, cursor, through) async {
+      expect(cursor, 5);
+      expect(through, 10);
+      return {
+        ...api.page(),
+        'items': [
+          {
+            'post_id': 'second-post',
+            'post_title': '第二页',
+            'post_excerpt': '正文',
+            'notice_count': 1,
+            'comment_unread': 1,
+          },
+        ],
+      };
+    };
+    Widget page() => wrap(
+      SquareNotificationsPage(
+        api: api,
+        sessions: sessions,
+        onOpenPost: (_, _) async {},
+      ),
+    );
+    await tester.pumpWidget(page());
+    await drain(tester);
+    expect(api.notificationRequests, isEmpty);
+    await tester.tap(find.text('更多互动'));
+    await drain(tester);
+    expect(api.notificationRequests, hasLength(1));
+    expect(find.text('缓存互动'), findsOneWidget);
+    expect(find.text('第二页'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    await drain(tester);
+    Notifications.instance.invalidate();
+    await tester.pumpWidget(page());
+    await drain(tester);
+    expect(api.notificationRequests, hasLength(1));
+    expect(find.text('第二页'), findsOneWidget);
+    expect(find.text('更多互动'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+    await drain(tester);
+  });
+  testWidgets('翻页在途的下拉保留完整刷新，相同下拉不重复发送', (tester) async {
+    await seedList(tester, next: 5);
+    final key = GlobalKey<SquareNotificationsPageState>();
+    final held = Completer<Map<String, dynamic>>();
+    final parameters = <int?>[];
+    api.onNotifications = (session, cursor, through) {
+      parameters.add(cursor);
+      return cursor == 5 ? held.future : Future.value(api.page());
+    };
+    await tester.pumpWidget(
+      wrap(
+        SquareNotificationsPage(
+          key: key,
+          api: api,
+          sessions: sessions,
+          onOpenPost: (_, _) async {},
+        ),
+      ),
+    );
+    await drain(tester);
+    await tester.tap(find.text('更多互动'));
+    await pumpIo(tester);
+    final refresh = key.currentState!.refresh();
+    final duplicate = key.currentState!.refresh();
+    held.complete({
+      ...api.page(),
+      'items': [
+        {
+          'post_id': 'second-post',
+          'post_title': '第二页',
+          'post_excerpt': '正文',
+          'notice_count': 1,
+          'comment_unread': 1,
+        },
+      ],
+    });
+    await driveIo(tester, Future.wait([refresh, duplicate]));
+    await drain(tester);
+    expect(parameters, [5, null]);
+    expect(find.text('有通知的内容'), findsOneWidget);
+    expect(find.text('第二页'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+    await drain(tester);
+  });
+  for (final sameRevision in [false, true]) {
+    testWidgets('隐藏期间新事件使缓存失效，返回只补拉一次 ${sameRevision ? '同批版本' : '新版本'}', (
+      tester,
+    ) async {
+      await seedList(tester);
+      final selected = ValueNotifier<int>(0);
+      await tester.pumpWidget(
+        wrap(
+          SquareNotificationsPage(
+            api: api,
+            sessions: sessions,
+            selectedTab: selected,
+            onOpenPost: (_, _) async {},
+          ),
+        ),
+      );
+      await drain(tester);
+      selected.value = 1;
+      await drain(tester);
+      if (!sameRevision) api.revision++;
+      api.sequence++;
+      api.notificationItems = [
+        {
+          'post_id': 'new-event',
+          'post_title': '新事件内容',
+          'post_excerpt': '正文',
+          'notice_count': 1,
+          'comment_unread': 1,
+        },
+      ];
+      await driveIo(tester, Notifications.instance.accept(api.state));
+      await drain(tester);
+      expect(api.notificationRequests, isEmpty);
+      selected.value = 0;
+      await drain(tester);
+      expect(api.notificationRequests, hasLength(1));
+      expect(find.text('新事件内容'), findsOneWidget);
+      expect(find.text('缓存互动'), findsNothing);
+      selected.value = 1;
+      await drain(tester);
+      selected.value = 0;
+      await drain(tester);
+      expect(api.notificationRequests, hasLength(1));
+      await tester.pumpWidget(const SizedBox());
+      await drain(tester);
+      selected.dispose();
     });
   }
   testWidgets('通知页按内容显示，只清通知层，进入内容仍保留正确快照', (tester) async {
@@ -953,7 +1216,7 @@ void main() {
     });
   }
 
-  testWidgets('在途重复刷新即使版本相同也补取，不丢弃用户刷新', (tester) async {
+  testWidgets('在途相同刷新共用一次列表请求', (tester) async {
     final key = GlobalKey<SquareNotificationsPageState>();
     await tester.pumpWidget(
       wrap(
@@ -981,7 +1244,7 @@ void main() {
     unawaited(key.currentState!.refresh());
     held.complete(old);
     await drain(tester);
-    expect(api.notificationRequests.length, before + 2);
+    expect(api.notificationRequests.length, before + 1);
     await tester.pumpWidget(const SizedBox.shrink());
     await drain(tester);
   });

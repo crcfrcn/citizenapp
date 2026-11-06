@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:citizen_transaction/history/citizenchain_transaction_event_decoder.dart';
+import 'package:citizen_wallet/history/citizenchain_transaction_event_decoder.dart';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:polkadart/polkadart.dart' show Hasher;

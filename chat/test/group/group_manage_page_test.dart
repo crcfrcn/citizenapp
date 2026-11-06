@@ -1,9 +1,8 @@
 import 'dart:async';
 
-import 'package:citizen_chat/chat_entry.dart';
+import 'package:chat/chat.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tatachat_sdk/tatachat_sdk.dart';
 
 /// 只覆写渲染所需的 readGroup(避免 Isar 真异步在 widget 测 fake-async 下不 settle)。
 class _FakeStore extends ChatStore {

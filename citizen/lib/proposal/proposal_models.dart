@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:citizen_transaction/personal/personal_manage_models.dart';
+import 'package:citizen_personal/personal_manage_models.dart';
 
 /// 提案展示号（双层 ID 设计）。
 ///

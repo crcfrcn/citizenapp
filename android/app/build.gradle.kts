@@ -46,6 +46,10 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.findByName("release")
+            // 设备测试保留跨 APK 调用的精确 ABI；普通 Release 不携带测试规则。
+            if (gradle.startParameter.taskNames.any { it.contains("AndroidTest") }) {
+                proguardFiles("native-test.pro")
+            }
             // Release 包不保留本地调试符号；CitizenSDK 原生库的构建与
             // 符号归档由 CitizenSDK 自己的产品流程负责。
         }

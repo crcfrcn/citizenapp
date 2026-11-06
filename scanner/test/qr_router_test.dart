@@ -31,7 +31,7 @@ void main() {
     for (final raw in [
       '',
       'hello world',
-      'gmb://account/removed',
+      'gmb://user/removed',
       '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
       '{"p":"QR_V1","k":3,"b":{"c":"CID","n":"untrusted"}}',
     ]) {

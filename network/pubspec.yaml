@@ -17,14 +17,14 @@ dependencies:
   flutter:
     sdk: flutter
   http: 1.6.0
-  tatachat_sdk:
-    git:
-      url: https://github.com/tuyutata/tatachatsdk.git
-      path: .
-      ref: main
 
+  protobuf: ^6.0.0
+
+  fixnum: ^1.1.1
+
+  chat: any
 dev_dependencies:
-  citizen_account: any
+  citizen_user: any
   citizen_testing: any
   crypto: 3.0.7
   flutter_test:

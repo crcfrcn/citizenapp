@@ -1,13 +1,12 @@
-import 'package:citizen_account/navigation.dart';
+import 'package:citizen_user/navigation.dart';
 
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:tatachat_sdk/tatachat_sdk.dart';
-import 'package:citizen_chat/chat_entry.dart';
-import 'package:citizen_account/contacts/contact_service.dart';
+import 'package:chat/chat.dart';
+import 'package:citizen_user/contacts/contact_service.dart';
 
 /// 聊天搜索页验证：一个输入框、三段结果（会话 / 联系人 / 聊天记录）。
 ///
@@ -19,7 +18,6 @@ const _peerAccountId =
     '0x2222222222222222222222222222222222222222222222222222222222222222';
 const _ownerUserId = 'CN220-CTZN2-100000001-2026';
 const _peerUserId = 'CN220-CTZN2-100000002-2026';
-const _contactAddress = 'w5Bc7ma8qUcECfQDJmRyQM2wGmga5XSYtz7DvEengQ86xBWrT';
 
 final _dmPreview = ChatConversationPreview(
   conversationId: 'dm:me:peer',
@@ -45,9 +43,7 @@ final _groupPreview = ChatConversationPreview(
 const _contact = UserContact(
   cidNumber: _peerUserId,
   accountId: _peerAccountId,
-  accountAddress: _contactAddress,
   contactRemark: '张三',
-  createdAt: 1,
   updatedAt: 2,
 );
 
@@ -93,9 +89,9 @@ class _FakeChatStore extends ChatStore {
     return messages
         .where((item) {
           try {
-            return ChatPayloadCodec.decode(item.plaintext ?? '').summary
-                .toLowerCase()
-                .contains(needle);
+            return ChatPayloadCodec.decode(
+              item.plaintext ?? '',
+            ).summary.toLowerCase().contains(needle);
           } on FormatException {
             return false;
           }
@@ -167,6 +163,80 @@ void main() {
     await tester.pump();
   }
 
+  Widget scoped(_ScopedSearchStore store, String cid) => MaterialApp(
+    home: ChatSearchPage(
+      key: const ValueKey('search-scope'),
+      cidNumber: cid,
+      accountId: cid == _ownerUserId ? _accountId : '0x${'44' * 32}',
+      store: store,
+      contactService: _FakeContacts(const []),
+    ),
+  );
+  const other = 'CN220-CTZN2-100000009-2026';
+  testWidgets('切CID后旧会话读取不能进入新搜索页', (tester) async {
+    final held = Completer<List<ChatConversationPreview>>(),
+        store = _ScopedSearchStore();
+    store.onRead = (cid) => cid == _ownerUserId
+        ? held.future
+        : Future.value([
+            ChatConversationPreview(
+              conversationId: 'new-conversation',
+              title: '新身份会话',
+              peerUserId: _peerUserId,
+              lastMessage: '',
+              lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(1),
+              unreadCount: 0,
+              deliveryState: ChatMessageDeliveryState.sent,
+            ),
+          ]);
+    await tester.pumpWidget(scoped(store, _ownerUserId));
+    await tester.pump();
+    await tester.pumpWidget(scoped(store, other));
+    await tester.pump();
+    await tester.pump();
+    await search(tester, '新身份');
+    expect(find.text('新身份会话'), findsOneWidget);
+    held.complete([_dmPreview]);
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('新身份会话'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+  testWidgets('切CID后旧消息命中不能覆盖新CID搜索结果', (tester) async {
+    final held = Completer<List<ChatStoredMessage>>(),
+        store = _ScopedSearchStore();
+    store.onRead = (_) async => [];
+    store.onSearch = (cid) => cid == _ownerUserId
+        ? held.future
+        : Future.value([
+            ChatStoredMessage(
+              messageId: 'new-message',
+              conversationId: 'new-conversation',
+              direction: 'incoming',
+              senderUserId: _peerUserId,
+              recipientUserId: other,
+              messageKind: ChatMessageKind.text,
+              deliveryState: ChatMessageDeliveryState.receivedByDevice,
+              createdAtMillis: 1,
+              plaintext: ChatPayloadCodec.encode(ChatContent.text('新身份命中')),
+            ),
+          ]);
+    await tester.pumpWidget(scoped(store, _ownerUserId));
+    await tester.pump();
+    await tester.pump();
+    await search(tester, '身份');
+    await tester.pumpWidget(scoped(store, other));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('新身份命中'), findsOneWidget);
+    held.complete([_message]);
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('新身份命中'), findsOneWidget);
+    expect(find.text('张三说的那份材料'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
   testWidgets('本地搜索数据未返回时直接显示输入框与提示', (tester) async {
     final store = _PendingSearchStore();
     await tester.pumpWidget(
@@ -340,4 +410,21 @@ void main() {
     expect(find.text('没有找到相关内容'), findsOneWidget);
     expect(find.text('会话'), findsNothing);
   });
+}
+
+class _ScopedSearchStore extends _FakeChatStore {
+  Future<List<ChatConversationPreview>> Function(String)? onRead;
+  Future<List<ChatStoredMessage>> Function(String)? onSearch;
+  @override
+  Future<List<ChatConversationPreview>> readConversationPreviews({
+    required String ownerUserId,
+    required String currentAccountId,
+  }) => onRead!(ownerUserId);
+  @override
+  Future<List<ChatStoredMessage>> searchMessages({
+    required String ownerUserId,
+    required String currentAccountId,
+    required String keyword,
+    int limit = 50,
+  }) => onSearch?.call(ownerUserId) ?? Future.value([]);
 }

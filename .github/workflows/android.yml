@@ -133,7 +133,7 @@ jobs:
           echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
           echo "$ANDROID_HOME/cmake/3.31.6/bin" >> "$GITHUB_PATH"
           # App资源工具与其他官方工具在同一步准备，不增加功能构建步骤。
-          version=$(node --input-type=module -e "import fs from 'node:fs'; console.log(JSON.parse(fs.readFileSync('transaction/web/package.json')).citizenapp.tools.esbuild)")
+          version=$(node --input-type=module -e "import fs from 'node:fs'; console.log(JSON.parse(fs.readFileSync('topup/web/package.json')).citizenapp.tools.esbuild)")
           npm install --prefix "$work/tools" --ignore-scripts --no-audit --no-fund "esbuild@$version"
           echo "ESBUILD_BIN=$work/tools/node_modules/.bin/esbuild" >> "$GITHUB_ENV"
       - name: 按本产品原锁装配普通工程
@@ -232,19 +232,19 @@ jobs:
           import {mkdirSync} from 'node:fs';
           import {pathToFileURL} from 'node:url';
           const work = process.env.WORK, title = '公民·Android·v' + process.env.CITIZENAPP_VERSION;
-          const sdk = await import(pathToFileURL(work + '/sources/tatachat_sdk/scripts/build.mjs'));
+          const chat = await import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/build.mjs'));
           for (const suffix of ['apk', 'aab']) {
               const file = work + '/artifact/' + title + '.' + suffix;
               const names = execFileSync('unzip', ['-Z1', file], {encoding: 'utf8'}).trim().split('\n');
               const prefix = suffix === 'apk' ? 'lib/' : 'base/lib/';
               if (names.some(name => name.startsWith(prefix) && !name.startsWith(prefix + 'arm64-v8a/'))) throw Error('正式包含其它ABI');
-              for (const library of ['libcitizensdk.so', 'libcitizensdk_jni.so', 'libtatachat_sdk.so']) {
+              for (const library of ['libcitizensdk.so', 'libcitizensdk_jni.so', 'libchat_openmls.so']) {
                   if (!names.includes(prefix + 'arm64-v8a/' + library)) throw Error('正式包缺少原生件');
               }
               const output = work + '/verify-' + suffix;
               mkdirSync(output);
-              execFileSync('unzip', ['-q', file, prefix + 'arm64-v8a/libtatachat_sdk.so', '-d', output]);
-              await sdk.verifyNative(output + '/' + prefix + 'arm64-v8a/libtatachat_sdk.so', 'android');
+              execFileSync('unzip', ['-q', file, prefix + 'arm64-v8a/libchat_openmls.so', '-d', output]);
+              await chat.verifyChatOpenMls(output + '/' + prefix + 'arm64-v8a/libchat_openmls.so', 'android');
           }
           JS
       - name: 生成本轮正式附件说明
@@ -266,6 +266,7 @@ jobs:
               source_sha: process.env.GITHUB_SHA, run_id: Number(process.env.GITHUB_RUN_ID),
               run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT),
               chain_test_sha: readFileSync(work + '/chain-source-sha', 'utf8').trim(),
+              sdk_sources: JSON.parse(readFileSync(work + '/sdk-sources.json', 'utf8')),
               assets: readdirSync(directory).sort().map(asset)
           };
           const name = title + '.json';

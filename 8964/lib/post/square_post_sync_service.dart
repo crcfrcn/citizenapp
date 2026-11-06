@@ -7,7 +7,7 @@ import 'package:crypto/crypto.dart';
 import 'package:citizen_square/media/square_media_store.dart';
 import 'package:citizen_square/post/square_post_deletion_coordinator.dart';
 
-import 'package:citizen_account/square_api_client.dart';
+import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_square/post/square_post_store.dart';
 
 typedef SquareSelfPostPageLoader = Future<SquareLocalPostPage> Function({

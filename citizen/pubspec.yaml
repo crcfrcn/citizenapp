@@ -8,7 +8,7 @@ environment:
 
 # 本包公开接口的真实依赖；上游约束沿用产品原锁。
 dependencies:
-  citizen_account: any
+  citizen_user: any
   citizen_assets: any
   citizen_scanner: any
   citizen_sdk:
@@ -18,7 +18,8 @@ dependencies:
       ref: main
   citizen_storage: any
   citizen_system: any
-  citizen_transaction: any
+  citizen_multisig: any
+  citizen_personal: any
   citizen_wallet: any
   citizen_widgets: any
   flutter:

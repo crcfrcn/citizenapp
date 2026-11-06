@@ -10,7 +10,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 import 'package:citizen_square/post/square_models.dart';
-import 'package:citizen_account/square_api_client.dart';
+import 'package:citizen_user/square_api_client.dart';
 
 // 受保护请求统一在本地预检后使用当前会话的设备请求签名器，
 // 缺失即抛「设备请求签名器缺失」。测试用固定假签名占位；MockClient 不校验签名头。

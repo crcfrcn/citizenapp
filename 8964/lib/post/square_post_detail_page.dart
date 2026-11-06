@@ -1,7 +1,7 @@
 import 'package:citizen_square/like/square_likes_strip.dart';
 import 'package:citizen_square/post/square_interaction_service.dart';
 import 'package:citizen_square/comment/comments.dart';
-import 'package:citizen_account/notifications.dart';
+import 'package:citizen_user/notifications.dart';
 import 'package:citizen_square/post/square_post_store.dart';
 import 'package:citizen_square/post/square_local_post_presenter.dart';
 import 'package:citizen_square/post/square_post_sync_service.dart';
@@ -9,14 +9,14 @@ import 'package:citizen_square/post/square_post_sync_service.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:citizen_account/membership/subscription_service.dart';
+import 'package:citizen_user/membership/subscription_service.dart';
 import 'package:provider/provider.dart';
 
 import 'package:citizen_square/post/square_models.dart';
 import 'package:citizen_square/compose/compose_page.dart';
-import 'package:citizen_account/identity/identity_register_guide.dart';
-import 'package:citizen_account/identity/square_session_provider.dart';
-import 'package:citizen_account/square_api_client.dart';
+import 'package:citizen_user/identity/identity_register_guide.dart';
+import 'package:citizen_user/identity/square_session_provider.dart';
+import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_square/post/square_post_deletion_coordinator.dart';
 import 'package:citizen_square/post/square_post_card.dart';
 import 'package:citizen_system/theme/app_theme.dart';

@@ -17,6 +17,8 @@ dev_dependencies:
 
 flutter:
   assets:
+    - stickers/
+    - stickers/
     - profiles/
     - icons/institution_private.svg
     - icons/institution_public.svg

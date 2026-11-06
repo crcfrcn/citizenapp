@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:citizen_account/square_api_client.dart';
-import 'package:citizen_account/identity/square_session_provider.dart';
+import 'package:citizen_user/square_api_client.dart';
+import 'package:citizen_user/identity/square_session_provider.dart';
 
 import 'package:citizen_square/comment/comments.dart';
 

@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:citizen_chat/chat_entry.dart';
-import 'package:citizen_account/contacts/contact_service.dart';
+import 'package:chat/chat.dart';
+import 'package:citizen_user/contacts/contact_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

@@ -1,4 +1,4 @@
-import 'package:citizen_wallet/account_balance_snapshot_store.dart';
+import 'package:citizen_wallet/core/account_balance_snapshot_store.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:async';
@@ -21,9 +21,9 @@ import 'package:citizen_citizen/proposal/proposal_models.dart';
 import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_system/amount_format.dart';
-import 'package:citizen_transaction/personal/personal_manage_models.dart'
+import 'package:citizen_personal/personal_manage_models.dart'
     as personal_models;
-import 'package:citizen_transaction/personal/personal_manage_service.dart';
+import 'package:citizen_personal/personal_manage_service.dart';
 import 'package:citizen_citizen/institution/institution_models.dart'
     as institution_models;
 import 'package:citizen_citizen/institution/institution_chain_service.dart';

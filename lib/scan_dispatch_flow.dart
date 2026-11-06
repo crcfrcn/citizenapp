@@ -5,19 +5,19 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:tatachat_sdk/tatachat_sdk.dart';
+import 'package:chat/chat.dart';
 
 import 'package:citizen_citizen/account_derivation.dart'
     show ss58FromAccountIdText;
 import 'package:citizen_scanner/qr_scan_page.dart';
 import 'package:citizen_scanner/qr_sign_response_page.dart';
-import 'package:citizen_account/profile/square_action_sign_service.dart';
-import 'package:citizen_account/identity/citizen_identity_sign_service.dart';
-import 'package:citizen_account/identity/citizen_occupy_sign_service.dart';
-import 'package:citizen_account/identity/citizen_identity_chain_reader.dart';
-import 'package:citizen_account/identity/account_security_service.dart';
-import 'package:citizen_account/identity/identity_binding.dart';
-import 'package:citizen_transaction/offchain/offchain_scan_flow.dart';
+import 'package:citizen_user/profile/square_action_sign_service.dart';
+import 'package:citizen_user/identity/citizen_identity_sign_service.dart';
+import 'package:citizen_user/identity/citizen_occupy_sign_service.dart';
+import 'package:citizen_user/identity/citizen_identity_chain_reader.dart';
+import 'package:citizen_user/identity/account_security_service.dart';
+import 'package:citizen_user/identity/identity_binding.dart';
+import 'package:citizen_offchain/offchain_scan_flow.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
 import 'package:citizen_scanner/scan_dispatch.dart';
@@ -26,63 +26,62 @@ import 'package:citizen_scanner/scan_dispatch.dart';
 class AppScanDispatch implements ScanDispatch {
   const AppScanDispatch();
 
-/// 聊天 tab「扫一扫」统一入口：扫码 → 按协议分派。
-///
-/// - 收款 / 链下支付码 → 现有链下支付流程（用 [paymentWallet]）。
-/// - signRequest → 用 QR `u` 对应的本机 CitizenWalletStateAccount 签名，与付款钱包无关。
-/// - 未来其它类型只需在此加分支。
-///
-/// 交易页不再走本分发器：那里的扫码收进收款地址输入框（[AddressScanButton]），
-/// 只填地址；签名请求（广场账户动作 / 公民身份 / 注册局占号换绑）统一由本入口承接。
+  /// 聊天 tab「扫一扫」统一入口：扫码 → 按协议分派。
+  ///
+  /// - 收款 / 链下支付码 → 现有链下支付流程（用 [paymentWallet]）。
+  /// - signRequest → 用 QR `u` 对应的本机 CitizenWalletStateAccount 签名，与付款钱包无关。
+  /// - 未来其它类型只需在此加分支。
+  ///
+  /// 交易页不再走本分发器：那里的扫码收进收款地址输入框（[AddressScanButton]），
+  /// 只填地址；签名请求（广场账户动作 / 公民身份 / 注册局占号换绑）统一由本入口承接。
   @override
   Future<void> openScanDispatchFlow({
-  required BuildContext context,
-  required CitizenWalletStateAccount? paymentWallet,
-  CitizenWalletStateAccount? signingAccount,
-}) async {
-  final scanned = await Navigator.of(context).push<Object?>(
-    MaterialPageRoute(
-      builder: (_) => const QrScanPage(mode: QrScanMode.dispatch),
-    ),
-  );
-  if (scanned == null || !context.mounted) return;
+    required BuildContext context,
+    required CitizenWalletStateAccount? paymentWallet,
+    CitizenWalletStateAccount? signingAccount,
+  }) async {
+    final scanned = await Navigator.of(context).push<Object?>(
+      MaterialPageRoute(
+        builder: (_) => const QrScanPage(mode: QrScanMode.dispatch),
+      ),
+    );
+    if (scanned == null || !context.mounted) return;
 
-  if (scanned is QrScanTransferResult) {
-    // 支付分支：此处才要求付款钱包（签名分支不需要）。
-    if (paymentWallet == null) {
-      _snack(context, '请先选择付款钱包');
+    if (scanned is QrScanTransferResult) {
+      // 支付分支：此处才要求付款钱包（签名分支不需要）。
+      if (paymentWallet == null) {
+        _snack(context, '请先选择付款钱包');
+        return;
+      }
+      await proceedOffchainPayment(
+        context: context,
+        wallet: paymentWallet,
+        result: scanned,
+      );
       return;
     }
-    await proceedOffchainPayment(
-      context: context,
-      wallet: paymentWallet,
-      result: scanned,
-    );
-    return;
+    if (scanned is String) {
+      await _dispatchSignRequest(context, scanned, signingAccount);
+    }
   }
-  if (scanned is String) {
-    await _dispatchSignRequest(context, scanned, signingAccount);
-  }
-}
 
-/// 我的钱包账户卡“扫码签名”：保留扫码页原 UI，只把业务边界收紧为签名请求。
-///
-/// 扫码页与本入口都使用CitizenSDK解析同一请求；不保留App第二解析器。
+  /// 我的钱包账户卡“扫码签名”：保留扫码页原 UI，只把业务边界收紧为签名请求。
+  ///
+  /// 扫码页与本入口都使用CitizenSDK解析同一请求；不保留App第二解析器。
   @override
   Future<void> openAccountScanSignFlow({
-  required BuildContext context,
-  required CitizenWalletStateAccount account,
-}) async {
-  final scanned = await Navigator.of(context).push<String>(
-    MaterialPageRoute(
-      builder: (_) =>
-          const QrScanPage(mode: QrScanMode.signRequest, customTitle: '扫码签名'),
-    ),
-  );
-  if (scanned == null || !context.mounted) return;
-  await _dispatchSignRequest(context, scanned, account);
-}
-
+    required BuildContext context,
+    required CitizenWalletStateAccount account,
+  }) async {
+    final scanned = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) =>
+            const QrScanPage(mode: QrScanMode.signRequest, customTitle: '扫码签名'),
+      ),
+    );
+    if (scanned == null || !context.mounted) return;
+    await _dispatchSignRequest(context, scanned, account);
+  }
 }
 
 Future<void> _dispatchSignRequest(
@@ -120,11 +119,7 @@ Future<void> _handleSquareActionSignRequest(
 
   final SquareActionSignPrep prep;
   try {
-    prep = await service.prepare(
-      raw,
-      sdk,
-      requiredAccount: requiredAccount,
-    );
+    prep = await service.prepare(raw, sdk, requiredAccount: requiredAccount);
   } on SquareActionSignException catch (e) {
     if (context.mounted) _snack(context, e.message);
     return;
@@ -227,8 +222,7 @@ Future<void> _handleOccupySignRequest(
   final accountSecurity = context.read<AccountSecurityService>();
   final service = CitizenOccupySignService(qr: sdk);
 
-  final selected =
-      requiredAccount ?? await _pickBindingAccount(context, sdk);
+  final selected = requiredAccount ?? await _pickBindingAccount(context, sdk);
   if (selected == null || !context.mounted) return;
 
   try {
@@ -273,7 +267,7 @@ Future<void> _handleOccupySignRequest(
     if (!prep.isOccupy && prep.currentAccount != null) {
       if (!context.mounted) return;
       final chain = context.read<CitizenSdk>();
-      final chatRuntime = context.read<ChatSdk>();
+      final chatRuntime = context.read<ChatRuntime>();
       final target = IdentityBinding(
         genesisHash: prep.genesisHash,
         cidNumber: prep.cidNumber,
@@ -313,7 +307,7 @@ Future<void> _handleOccupySignRequest(
 Future<void> _completeRegistryBinding({
   required CitizenSdk chain,
   required AccountSecurityService accountSecurity,
-  required ChatSdk chatRuntime,
+  required ChatRuntime chatRuntime,
   required IdentityBinding target,
   required int expiresAt,
 }) async {

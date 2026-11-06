@@ -495,7 +495,7 @@ final class RunnerUITests: XCTestCase {
 
   /// 只在模拟器导入公开开发账户Bob的地址；没有私钥、密码或签名操作。
   /// 正常入口保存冷账户后应能切换五个主导航，终止重启也不得回到钱包初始化。
-  func testSimulatorPublicColdAccountNavigationAndRelaunch() throws {
+  func testSimulatorPublicColdUserNavigationAndRelaunch() throws {
     #if targetEnvironment(simulator)
     let app = XCUIApplication(bundleIdentifier: targetBundleIdentifier)
     func finishFirstWalletIntroduction() throws {

@@ -1,4 +1,4 @@
-import 'package:citizen_account/square_api_client.dart';
+import 'package:citizen_user/square_api_client.dart';
 
 /// 手机只执行服务端下发的成品规格；本文件不定义三档额度或编码参数副本。
 final class SquareMediaPolicy {

@@ -28,9 +28,9 @@ import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/proposal/proposal_context.dart';
 import 'package:citizen_citizen/proposal/proposal_local_store.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
-import 'package:citizen_account/identity/current_user_context.dart';
-import 'package:citizen_transaction/multisig/multisig_transfer_proposal_adapter.dart';
-import 'package:citizen_transaction/multisig/multisig_transfer_service.dart';
+import 'package:citizen_user/identity/current_user_context.dart';
+import 'package:citizen_multisig/multisig_transfer_proposal_adapter.dart';
+import 'package:citizen_multisig/multisig_transfer_service.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 

@@ -1,3 +1,4 @@
+import 'package:citizen_user/identity/account_security_service.dart';
 import 'dart:async';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -14,16 +15,16 @@ import 'package:citizen_square/draft/drafts_page.dart';
 import 'package:citizen_square/compose/video_compose_body.dart';
 import 'package:citizen_square/compose/compose_media_widgets.dart';
 import 'package:citizen_square/post/square_models.dart';
-import 'package:citizen_account/profile/citizen_profile_cache.dart';
-import 'package:citizen_account/identity/square_session_provider.dart';
-import 'package:citizen_account/profile/profile_avatar.dart';
-import 'package:citizen_account/identity/square_identity_state.dart';
+import 'package:citizen_user/profile/citizen_profile_cache.dart';
+import 'package:citizen_user/identity/square_session_provider.dart';
+import 'package:citizen_user/profile/profile_avatar.dart';
+import 'package:citizen_user/identity/square_identity_state.dart';
 import 'package:citizen_square/compose/square_publish_service.dart';
 import 'package:citizen_square/post/square_post_store.dart';
 import 'package:citizen_square/media/square_upload_service.dart';
-import 'package:citizen_account/membership/subscription_service.dart';
-import 'package:citizen_account/identity/current_user_context.dart';
-import 'package:citizen_account/identity/finalized_identity_resolver.dart';
+import 'package:citizen_user/membership/subscription_service.dart';
+import 'package:citizen_user/identity/current_user_context.dart';
+import 'package:citizen_user/identity/finalized_identity_resolver.dart';
 import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_system/theme/app_layout.dart';
@@ -34,6 +35,7 @@ class SquareComposePage extends StatefulWidget {
     super.key,
     required this.postType,
     this.identityService,
+    this.identityRevision,
     this.publishService,
     this.draftStore,
     this.profileCache,
@@ -44,6 +46,7 @@ class SquareComposePage extends StatefulWidget {
   });
 
   final SquareIdentityService? identityService;
+  final Listenable? identityRevision;
   final SquarePublishService? publishService;
   final SquareComposeDraftRepository? draftStore;
   final CitizenProfileCache? profileCache;
@@ -59,36 +62,57 @@ class SquareComposePage extends StatefulWidget {
   State<SquareComposePage> createState() => _SquareComposePageState();
 }
 
+/// 一次本地编辑的归属；排队写入只消费此对象，不重读当前页面的CID、类型或仓库。
+class _DraftEditor {
+  _DraftEditor({
+    required this.id,
+    required this.type,
+    required this.store,
+    this.initialText,
+    this.initialTitle,
+    this.replaceId,
+  });
+  final String id;
+  final SquarePostType type;
+  final SquareComposeDraftRepository store;
+  final String? initialText, initialTitle, replaceId;
+  SquareIdentityState? identity;
+  ComposeSnapshot? snapshot;
+  bool saved = false,
+      pendingIdentity = false,
+      published = false,
+      recovering = false,
+      installing = false;
+  String? get cid => identity?.cidNumber;
+}
+
 class _SquareComposePageState extends State<SquareComposePage>
     with WidgetsBindingObserver {
-  final _documentKey = GlobalKey<SquareDocumentComposeBodyState>();
-  final _articleKey = GlobalKey<SquareArticleComposeBodyState>();
-  final _videoKey = GlobalKey<SquareVideoComposeBodyState>();
+  var _documentKey = GlobalKey<SquareDocumentComposeBodyState>();
+  var _articleKey = GlobalKey<SquareArticleComposeBodyState>();
+  var _videoKey = GlobalKey<SquareVideoComposeBodyState>();
 
   SquarePublishService? _publishService;
-  late final SquareIdentityService _identityService;
-  late final SquareComposeDraftRepository _draftStore;
-  late final CitizenProfileCache _profileCache;
-  late final CitizenProfileMediaCache _profileMediaCache;
+  late SquareIdentityService _identityService;
+  late CitizenProfileCache _profileCache;
+  late CitizenProfileMediaCache _profileMediaCache;
   late Future<SquareIdentityState> _identityFuture;
-
-  /// 本次编辑对应的草稿 id（开页即建；从草稿箱恢复时切到该草稿 id）。
-  late String _draftId;
-  SquareIdentityState? _identity;
+  late _DraftEditor _draft;
+  final _boxOwner = ValueNotifier<_DraftEditor?>(null);
+  Listenable? _identityRevision;
+  int _identityGeneration = 0;
+  bool _changingIdentity = false;
+  _DraftEditor? _publishingEditor;
+  SquareIdentityState? get _identity => _draft.identity;
+  bool get _publishing => identical(_publishingEditor, _draft);
   Timer? _autosaveTimer;
   Future<void> _saveChain = Future<void>.value();
-  ComposeSnapshot? _latestSnapshot;
-  bool _savePendingForIdentity = false;
-  bool _draftSaved = false;
   String? _avatarPath;
   bool _avatarSet = false;
   int _documentImageCount = 0;
   SquareLocalMediaDraft? _selectedVideo;
 
   SquarePublishStage _stage = SquarePublishStage.idle;
-  bool _publishing = false;
-  bool _published = false;
-  bool _recovering = false;
   bool _contentValid = false;
   bool _dependenciesReady = false;
 
@@ -96,10 +120,9 @@ class _SquareComposePageState extends State<SquareComposePage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _draftStore = widget.draftStore ?? SquareComposeDraftStore.instance;
+    _draft = _newDraft(seed: true);
     _profileCache = widget.profileCache ?? const CitizenProfileCache();
     _profileMediaCache = widget.profileMediaCache ?? CitizenProfileMediaCache();
-    _draftId = 'd${DateTime.now().microsecondsSinceEpoch}';
   }
 
   @override
@@ -117,29 +140,144 @@ class _SquareComposePageState extends State<SquareComposePage>
       );
     }
     _publishService = widget.publishService;
-    // 编辑页只读取默认账户的本地用户上下文，禁止为了展示或保存草稿启动轻节点。
-    _identityFuture = _identityService.loadCurrent()
-      ..then((identity) {
-        _identity = identity;
-        unawaited(_loadAvatar(identity));
-        if (mounted) _refreshEditorState();
-        // 即使页面已被系统返回手势移除，也要用退出前缓存的快照完成待保存任务。
-        if (_savePendingForIdentity) unawaited(_flushLatestSnapshot());
-      });
-    WidgetsBinding.instance.addPostFrameCallback((_) => _refreshEditorState());
+    _identityRevision =
+        widget.identityRevision ??
+        context.read<AccountSecurityService?>()?.revision;
+    _identityRevision?.addListener(_onIdentityChanged);
+    _reloadIdentity();
     _dependenciesReady = true;
+  }
+
+  _DraftEditor _newDraft({bool seed = false}) => _DraftEditor(
+    id: 'd${DateTime.now().microsecondsSinceEpoch}',
+    type: widget.postType,
+    store: widget.draftStore ?? SquareComposeDraftStore.instance,
+    initialText: seed ? widget.initialText : null,
+    initialTitle: seed ? widget.initialTitle : null,
+    replaceId: seed ? widget.replaceId : null,
+  );
+  bool _current(_DraftEditor draft) => identical(draft, _draft);
+  void _resetEditor({bool seed = false}) {
+    _draft = _newDraft(seed: seed);
+    _documentKey = GlobalKey<SquareDocumentComposeBodyState>();
+    _articleKey = GlobalKey<SquareArticleComposeBodyState>();
+    _videoKey = GlobalKey<SquareVideoComposeBodyState>();
+    _avatarPath = null;
+    _avatarSet = false;
+    _documentImageCount = 0;
+    _selectedVideo = null;
+    _contentValid = false;
+    _stage = SquarePublishStage.idle;
+  }
+
+  @override
+  void didUpdateWidget(covariant SquareComposePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.identityRevision != widget.identityRevision) {
+      _identityRevision?.removeListener(_onIdentityChanged);
+      _identityRevision =
+          widget.identityRevision ??
+          context.read<AccountSecurityService?>()?.revision;
+      _identityRevision?.addListener(_onIdentityChanged);
+    }
+    if (oldWidget.postType != widget.postType ||
+        oldWidget.draftStore != widget.draftStore ||
+        oldWidget.identityService != widget.identityService ||
+        oldWidget.identityRevision != widget.identityRevision) {
+      _captureLatestSnapshot();
+      _autosaveTimer?.cancel();
+      _saveInBackground(_draft);
+      if (oldWidget.postType != widget.postType ||
+          oldWidget.draftStore != widget.draftStore) {
+        _resetEditor(seed: true);
+      } else if (_draft.identity == null) {
+        _resetEditor();
+      }
+      if (widget.identityService != null) {
+        _identityService = widget.identityService!;
+      }
+      _reloadIdentity(changing: true);
+    }
+  }
+
+  void _onIdentityChanged() {
+    if (!mounted) return;
+    _captureLatestSnapshot();
+    _autosaveTimer?.cancel();
+    _saveInBackground(_draft);
+    if (_draft.identity == null) _resetEditor();
+    setState(() => _reloadIdentity(changing: true));
+  }
+
+  void _reloadIdentity({bool changing = false}) {
+    final generation = ++_identityGeneration, original = _draft;
+    _changingIdentity = changing;
+    if (changing) {
+      _avatarPath = null;
+      _avatarSet = false;
+      _boxOwner.value = null;
+    }
+    _identityFuture = _identityService.loadCurrent().then((identity) {
+      if (generation != _identityGeneration || !_current(original)) {
+        if (generation != _identityGeneration &&
+            original.identity == null &&
+            original.pendingIdentity) {
+          unawaited(_saveRetiredIdentity(original, identity));
+        }
+        return identity;
+      }
+      final old = original.identity;
+      final sameOwner =
+          old == null ||
+          (old.cidNumber?.isNotEmpty == true &&
+              old.cidNumber == identity.cidNumber) ||
+          (old.cidNumber?.isNotEmpty != true &&
+              old.accountId == identity.accountId);
+      if (!sameOwner) _resetEditor();
+      final draft = _draft;
+      draft.identity = identity;
+      _changingIdentity = false;
+      if (mounted) {
+        _boxOwner.value = draft;
+        unawaited(_loadAvatar(identity, generation));
+        setState(() {});
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => _refreshEditorState(draft),
+        );
+      }
+      // 系统返回后本地身份才到达时，仍为退出时的编辑保存，不读取已销毁子组件。
+      if (draft.pendingIdentity) _saveInBackground(draft);
+      return identity;
+    });
+  }
+
+  Future<void> _saveRetiredIdentity(
+    _DraftEditor draft,
+    SquareIdentityState identity,
+  ) async {
+    final cid = identity.cidNumber;
+    if (cid == null || cid.isEmpty) return;
+    try {
+      // 迟到的本地读取只补全原编辑对象；当前编辑对象和页面不采用此结果。
+      draft.identity = identity;
+      await _flushDraft(draft);
+    } on Object {
+      /* 原仓库失败不能改写当前草稿归属。 */
+    }
   }
 
   /// 发布页只读当前 CID 的公开资料与已验证媒体缓存，不额外联网，也不建立本机头像
   /// 第二真源。用户已设置但缓存暂缺时显示中性占位，不能回退内置随机头像。
-  Future<void> _loadAvatar(SquareIdentityState identity) async {
+  Future<void> _loadAvatar(SquareIdentityState identity, int generation) async {
     final cidNumber = identity.cidNumber?.trim() ?? '';
     if (cidNumber.isEmpty) return;
     try {
       final profile = await _profileCache.read(cidNumber);
       if (profile == null) return;
       final media = await _profileMediaCache.read(profile);
-      if (mounted && _identity?.cidNumber == identity.cidNumber) {
+      if (mounted &&
+          generation == _identityGeneration &&
+          _identity?.cidNumber == identity.cidNumber) {
         setState(() {
           _avatarPath = media.avatarPath;
           _avatarSet = profile.avatarKey?.trim().isNotEmpty == true;
@@ -153,9 +291,11 @@ class _SquareComposePageState extends State<SquareComposePage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _identityRevision?.removeListener(_onIdentityChanged);
+    _boxOwner.dispose();
     _autosaveTimer?.cancel();
     // 路由被系统手势直接移除时，使用已缓存快照继续排队保存；不再读取已销毁子组件。
-    unawaited(_flushLatestSnapshot());
+    _saveInBackground(_draft);
     super.dispose();
   }
 
@@ -166,11 +306,11 @@ class _SquareComposePageState extends State<SquareComposePage>
         state == AppLifecycleState.detached) {
       _autosaveTimer?.cancel();
       _refreshEditorState();
-      unawaited(_flushLatestSnapshot());
+      _saveInBackground(_draft);
     }
   }
 
-  ComposeBodyCollector? get _activeBody => switch (widget.postType) {
+  ComposeBodyCollector? get _activeBody => switch (_draft.type) {
     SquarePostType.document =>
       _documentKey.currentState as ComposeBodyCollector?,
     SquarePostType.article => _articleKey.currentState as ComposeBodyCollector?,
@@ -178,30 +318,39 @@ class _SquareComposePageState extends State<SquareComposePage>
   };
 
   Future<SquareLocalMediaDraft> _persistMedia(
+    _DraftEditor draft,
     SquareLocalMediaDraft media,
   ) async {
-    final cidNumber = _identity?.cidNumber;
-    if (cidNumber == null || cidNumber.isEmpty) {
-      throw StateError('保存草稿媒体前必须取得当前 CID');
+    if (!_current(draft) || _changingIdentity) return media;
+    if (draft.cid?.isNotEmpty != true) await _identityFuture;
+    if (!_current(draft) ||
+        _changingIdentity ||
+        draft.cid?.isNotEmpty != true) {
+      return media;
     }
-    return ComposeDraftMedia.persist(cidNumber, _draftId, media);
+    return ComposeDraftMedia.persist(draft.cid!, draft.id, media);
   }
 
   /// 内容变化同时更新发布按钮和最新快照，再防抖 800ms 持久化草稿。
-  void _handleBodyChanged() {
+  void _handleBodyChanged(_DraftEditor draft) {
+    if (!_current(draft) || _changingIdentity || draft.installing) return;
     // 文本监听器触发时先同步缓存，保证同一帧立刻发生系统返回也能取得最后一个字符；
     // 发布按钮的 setState 延到下一帧，避免在子组件构建阶段重建父组件。
     _captureLatestSnapshot();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _refreshEditorState());
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _refreshEditorState(draft),
+    );
     _autosaveTimer?.cancel();
     _autosaveTimer = Timer(
       const Duration(milliseconds: 800),
-      () => _flushLatestSnapshot(),
+      () => _saveInBackground(draft),
     );
   }
 
-  void _refreshEditorState() {
-    if (!mounted) return;
+  void _refreshEditorState([_DraftEditor? owner]) {
+    if (!mounted || _changingIdentity || (owner != null && !_current(owner))) {
+      return;
+    }
     final valid = _captureLatestSnapshot();
     if (valid == null) return;
     // 即使合法性未变化也重建顶部媒体入口，使首图缩略图等子编辑器状态即时同步。
@@ -212,7 +361,7 @@ class _SquareComposePageState extends State<SquareComposePage>
   bool? _captureLatestSnapshot() {
     final collector = _activeBody;
     if (collector == null) return null;
-    _latestSnapshot = collector.snapshot();
+    _draft.snapshot = collector.snapshot();
     final valid = collector.isContentValid;
     return valid;
   }
@@ -223,43 +372,56 @@ class _SquareComposePageState extends State<SquareComposePage>
     await _flushLatestSnapshot();
   }
 
-  /// 保存调用严格串行，确保较慢的旧快照永远不能在新快照之后覆盖草稿。
-  Future<void> _flushLatestSnapshot() async {
-    if (_publishing || _published || _recovering) return;
-    final cidNumber = _identity?.cidNumber;
-    final snapshot = _latestSnapshot;
-    if (cidNumber == null || cidNumber.isEmpty) {
-      _savePendingForIdentity = snapshot != null && !snapshot.isEmpty;
+  void _saveInBackground(_DraftEditor draft) {
+    unawaited(
+      _flushDraft(draft).catchError((Object _) {
+        if (mounted && _current(draft) && !_changingIdentity) {
+          _showError('草稿保存失败，请重试');
+        }
+      }),
+    );
+  }
+
+  Future<void> _flushLatestSnapshot() => _flushDraft(_draft);
+
+  /// 每份快照固定发起时的CID、草稿、类型及仓库；保存链只负责顺序，不改变归属。
+  Future<void> _flushDraft(_DraftEditor draft) async {
+    if (identical(_publishingEditor, draft) ||
+        draft.published ||
+        draft.recovering ||
+        draft.installing) {
+      return;
+    }
+    final cid = draft.cid, snapshot = draft.snapshot;
+    if (cid == null || cid.isEmpty) {
+      draft.pendingIdentity = snapshot != null && !snapshot.isEmpty;
       return;
     }
     if (snapshot == null) return;
-    _savePendingForIdentity = false;
-    final draftId = _draftId;
+    draft.pendingIdentity = false;
     _saveChain = _saveChain
-        .catchError((_) {
-          // 上一次失败不能阻断后续新快照；显式退出仍会等待当前这次写入。
-        })
-        .then((_) => _writeSnapshot(cidNumber, draftId, snapshot));
+        .catchError((_) {})
+        .then((_) => _writeSnapshot(draft, cid, snapshot));
     await _saveChain;
   }
 
   Future<void> _writeSnapshot(
-    String cidNumber,
-    String draftId,
+    _DraftEditor draft,
+    String cid,
     ComposeSnapshot snapshot,
   ) async {
     if (snapshot.isEmpty) {
-      if (_draftSaved) {
-        await _draftStore.delete(cidNumber, draftId);
-        _draftSaved = false;
+      if (draft.saved) {
+        await draft.store.delete(cid, draft.id);
+        draft.saved = false;
       }
       return;
     }
-    await _draftStore.save(
+    await draft.store.save(
       SquareComposeDraft(
-        draftId: draftId,
-        cidNumber: cidNumber,
-        postType: widget.postType,
+        draftId: draft.id,
+        cidNumber: cid,
+        postType: draft.type,
         title: snapshot.title,
         text: snapshot.text,
         media: snapshot.media,
@@ -267,14 +429,19 @@ class _SquareComposePageState extends State<SquareComposePage>
         updatedAt: DateTime.now().millisecondsSinceEpoch,
       ),
     );
-    _draftSaved = true;
+    draft.saved = true;
   }
 
   /// 退出/取消前把待保存的草稿立即落盘。
   Future<void> _flushAndPop() async {
+    final draft = _draft;
     _autosaveTimer?.cancel();
-    await _saveDraft();
-    if (mounted) Navigator.of(context).maybePop();
+    try {
+      await _saveDraft();
+      if (mounted && _current(draft)) Navigator.of(context).maybePop();
+    } on Object {
+      if (mounted && _current(draft)) _showError('草稿保存失败，请重试');
+    }
   }
 
   @override
@@ -282,21 +449,22 @@ class _SquareComposePageState extends State<SquareComposePage>
     return PopScope(
       canPop: true,
       onPopInvokedWithResult: (didPop, _) {
-        if (didPop) unawaited(_flushLatestSnapshot());
+        if (didPop) _saveInBackground(_draft);
       },
       child: Scaffold(
         body: SafeArea(
           child: FutureBuilder<SquareIdentityState>(
             future: _identityFuture,
             builder: (context, snapshot) {
-              final identity =
-                  snapshot.data ?? const SquareIdentityState(accountId: '');
+              final identity = snapshot.connectionState == ConnectionState.done
+                  ? (snapshot.data ?? const SquareIdentityState(accountId: ''))
+                  : const SquareIdentityState(accountId: '');
               return Column(
                 children: [
                   _TopBar(
                     title: '发${widget.postType.label}',
                     publishing: _publishing,
-                    recovering: _recovering,
+                    recovering: _draft.recovering,
                     canCancel:
                         !_publishing ||
                         _stage == SquarePublishStage.processingMedia,
@@ -312,7 +480,8 @@ class _SquareComposePageState extends State<SquareComposePage>
                             identity.signMode != null &&
                             identity.cidNumber?.isNotEmpty == true &&
                             _contentValid &&
-                            !_publishing
+                            _publishingEditor == null &&
+                            !_changingIdentity
                         ? () => _publish(identity)
                         : null,
                   ),
@@ -320,14 +489,24 @@ class _SquareComposePageState extends State<SquareComposePage>
                     identity: identity,
                     avatarPath: _avatarPath,
                     avatarSet: _avatarSet,
-                    mediaAction: _publishing || _recovering
+                    mediaAction:
+                        _publishing || _draft.recovering || _changingIdentity
                         ? null
                         : _buildMediaAction(),
                   ),
                   Expanded(
-                    child: IgnorePointer(
-                      ignoring: _publishing || _recovering,
-                      child: _buildBody(),
+                    child: Visibility(
+                      visible: !_changingIdentity,
+                      maintainState: true,
+                      replacement: Center(
+                        child: Text(
+                          snapshot.hasError ? '本机身份读取失败，请返回重试' : '正在读取本机身份',
+                        ),
+                      ),
+                      child: IgnorePointer(
+                        ignoring: _publishing || _draft.recovering,
+                        child: _buildBody(),
+                      ),
                     ),
                   ),
                 ],
@@ -339,40 +518,43 @@ class _SquareComposePageState extends State<SquareComposePage>
     );
   }
 
-  Widget _buildBody() => switch (widget.postType) {
-    SquarePostType.document => SquareDocumentComposeBody(
-      key: _documentKey,
-      initialText: widget.initialText,
-      onChanged: _handleBodyChanged,
-      persistMedia: _persistMedia,
-      onMediaCountChanged: (count) {
-        if (mounted && count != _documentImageCount) {
-          setState(() => _documentImageCount = count);
-        }
-      },
-    ),
-    SquarePostType.article => SquareArticleComposeBody(
-      key: _articleKey,
-      initialTitle: widget.initialTitle,
-      initialText: widget.initialText,
-      onChanged: _handleBodyChanged,
-      persistMedia: _persistMedia,
-    ),
-    SquarePostType.video => SquareVideoComposeBody(
-      key: _videoKey,
-      initialText: widget.initialText,
-      onChanged: _handleBodyChanged,
-      persistMedia: _persistMedia,
-      onVideoChanged: (video) {
-        if (mounted && video != _selectedVideo) {
-          setState(() => _selectedVideo = video);
-        }
-      },
-    ),
-  };
+  Widget _buildBody() {
+    final draft = _draft;
+    return switch (draft.type) {
+      SquarePostType.document => SquareDocumentComposeBody(
+        key: _documentKey,
+        initialText: draft.initialText,
+        onChanged: () => _handleBodyChanged(draft),
+        persistMedia: (media) => _persistMedia(draft, media),
+        onMediaCountChanged: (count) {
+          if (mounted && _current(draft) && count != _documentImageCount) {
+            setState(() => _documentImageCount = count);
+          }
+        },
+      ),
+      SquarePostType.article => SquareArticleComposeBody(
+        key: _articleKey,
+        initialTitle: draft.initialTitle,
+        initialText: draft.initialText,
+        onChanged: () => _handleBodyChanged(draft),
+        persistMedia: (media) => _persistMedia(draft, media),
+      ),
+      SquarePostType.video => SquareVideoComposeBody(
+        key: _videoKey,
+        initialText: draft.initialText,
+        onChanged: () => _handleBodyChanged(draft),
+        persistMedia: (media) => _persistMedia(draft, media),
+        onVideoChanged: (video) {
+          if (mounted && _current(draft) && video != _selectedVideo) {
+            setState(() => _selectedVideo = video);
+          }
+        },
+      ),
+    };
+  }
 
   /// 原类型胶囊位置只承载当前编辑器的媒体入口，不重复显示内容类型。
-  Widget? _buildMediaAction() => switch (widget.postType) {
+  Widget? _buildMediaAction() => switch (_draft.type) {
     SquarePostType.document => ComposeMediaAddButton(
       key: const ValueKey('document-add-images'),
       icon: Icons.add_photo_alternate_outlined,
@@ -406,48 +588,73 @@ class _SquareComposePageState extends State<SquareComposePage>
   };
 
   Future<void> _openDrafts() async {
-    final cidNumber = _identity?.cidNumber;
-    if (cidNumber == null || cidNumber.isEmpty) return;
-    // 先把当前内容落盘，避免进草稿箱丢失。
+    final original = _draft;
+    if (_changingIdentity || original.cid?.isNotEmpty != true || _publishing) {
+      return;
+    }
     _autosaveTimer?.cancel();
-    await _saveDraft();
-    if (!mounted) return;
+    try {
+      await _saveDraft();
+    } on Object {
+      if (mounted && _current(original)) _showError('草稿保存失败，请重试');
+      return;
+    }
+    if (!mounted || !_current(original) || _changingIdentity) return;
     final selected = await Navigator.of(context).push<SquareComposeDraft>(
-      MaterialPageRoute<SquareComposeDraft>(
-        builder: (_) => DraftsPage(
-          cidNumber: cidNumber,
-          postType: widget.postType,
-          store: _draftStore,
+      MaterialPageRoute(
+        builder: (_) => ValueListenableBuilder<_DraftEditor?>(
+          valueListenable: _boxOwner,
+          builder: (context, draft, _) {
+            final cid = draft?.cid;
+            if (cid == null || cid.isEmpty) {
+              return Scaffold(
+                appBar: AppBar(title: const Text('草稿箱')),
+                body: const Center(child: Text('本机身份信息暂不可用')),
+              );
+            }
+            return DraftsPage(
+              cidNumber: cid,
+              postType: draft!.type,
+              store: draft.store,
+            );
+          },
         ),
       ),
     );
-    if (selected == null || !mounted) return;
-    if (selected.postType != widget.postType) {
-      _showError('草稿类型与当前发布页面不一致');
+    if (selected == null || !mounted || _changingIdentity) return;
+    final owner = _draft;
+    if (selected.cidNumber != owner.cid || selected.postType != owner.type) {
+      _showError('草稿身份或类型已变化，请重新选择');
       return;
     }
     var restored = selected;
     try {
-      if (_draftStore is SquareComposeDraftStore) {
-        restored = await _draftStore.restore(restored);
+      final store = owner.store;
+      if (store is SquareComposeDraftStore) {
+        restored = await store.restore(selected);
       }
-    } catch (error) {
-      if (mounted) _showError('草稿媒体恢复失败，原数据已保留：$error');
+    } on Object {
+      if (mounted && _current(owner)) _showError('草稿媒体读取失败，原数据已保留');
       return;
     }
-    if (!mounted) return;
+    if (!mounted || !_current(owner) || _changingIdentity) return;
     final pending = await const SquarePostStore().readPublication(
-      cidNumber,
+      selected.cidNumber,
       restored.draftId,
     );
-    if (!mounted) return;
-    setState(() {
-      _recovering = pending != null;
-      _draftId = restored.draftId;
-      _draftSaved = true;
-    });
+    if (!mounted || !_current(owner) || _changingIdentity) return;
+    final draft =
+        _DraftEditor(id: restored.draftId, type: owner.type, store: owner.store)
+          ..identity = owner.identity
+          ..saved = true
+          ..recovering = pending != null
+          ..installing = true;
+    _autosaveTimer?.cancel();
+    setState(() => _draft = draft);
+    _boxOwner.value = draft;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      switch (widget.postType) {
+      if (!mounted || !_current(draft) || _changingIdentity) return;
+      switch (draft.type) {
         case SquarePostType.document:
           _documentKey.currentState?.restore(restored);
         case SquarePostType.article:
@@ -455,6 +662,8 @@ class _SquareComposePageState extends State<SquareComposePage>
         case SquarePostType.video:
           _videoKey.currentState?.restore(restored);
       }
+      draft.installing = false;
+      _refreshEditorState(draft);
     });
   }
 
@@ -481,7 +690,8 @@ class _SquareComposePageState extends State<SquareComposePage>
   }
 
   Future<void> _publish(SquareIdentityState identity) async {
-    if (_publishing) return;
+    if (_publishingEditor != null || _changingIdentity) return;
+    final draft = _draft;
     final collector = _activeBody;
     if (collector == null) return;
     final payload = collector.collect();
@@ -489,28 +699,39 @@ class _SquareComposePageState extends State<SquareComposePage>
       _showError(payload.error!);
       return;
     }
+    final service = _requirePublishService();
     _captureLatestSnapshot();
     _autosaveTimer?.cancel();
     setState(() {
-      _publishing = true;
+      _publishingEditor = draft;
       _stage = SquarePublishStage.signingIn;
     });
     final sessions = context.read<SquareSessionProvider>();
     try {
       await _saveChain;
+      if (!_current(draft) ||
+          _changingIdentity ||
+          draft.identity?.accountId != identity.accountId) {
+        throw StateError('发布身份已变化');
+      }
       final cid = identity.cidNumber;
       if (cid == null) throw StateError('保存发布草稿前必须取得 CID');
       final pending = await const SquarePostStore().readPublication(
         cid,
-        _draftId,
+        draft.id,
       );
-      if (pending == null && _latestSnapshot != null) {
-        await _writeSnapshot(cid, _draftId, _latestSnapshot!);
+      if (pending == null && draft.snapshot != null) {
+        await _writeSnapshot(draft, cid, draft.snapshot!);
       }
-      final result = await _requirePublishService().publish(
-        draftId: _draftId,
+      if (!_current(draft) ||
+          _changingIdentity ||
+          draft.identity?.accountId != identity.accountId) {
+        throw StateError('发布身份已变化');
+      }
+      final result = await service.publish(
+        draftId: draft.id,
         identity: identity,
-        postType: widget.postType,
+        postType: draft.type,
         text: payload.text,
         title: payload.title,
         contentSections: payload.contentSections,
@@ -518,25 +739,30 @@ class _SquareComposePageState extends State<SquareComposePage>
         sessionForAccount: (accountId) async =>
             await sessions.ensureSessionForAccountId(accountId) ??
             (throw StateError('MLS会话不可用')),
-        externalSigning: (pending) => showCitizenSdkQrResponse(
-          context,
-          request: pending.qrRequest,
-          expiresAt: BigInt.from(
-            pending.expiresAt.millisecondsSinceEpoch ~/ 1000,
-          ),
-        ),
-        replaceId: widget.replaceId,
+        externalSigning: (pending) {
+          if (!mounted || !_current(draft) || _changingIdentity) {
+            throw StateError('发布身份已变化');
+          }
+          return showCitizenSdkQrResponse(
+            context,
+            request: pending.qrRequest,
+            expiresAt: BigInt.from(
+              pending.expiresAt.millisecondsSinceEpoch ~/ 1000,
+            ),
+          );
+        },
+        replaceId: draft.replaceId,
         onStage: (stage) {
-          if (mounted) setState(() => _stage = stage);
+          if (mounted && _current(draft)) setState(() => _stage = stage);
         },
       );
       // 帖子、媒体引用和草稿删除已由服务端结果驱动的本地事务处理。
       // 关闭快照，避免 dispose/生物识别生命周期回调把已发布草稿重新写回。
-      _published = true;
-      _latestSnapshot = null;
-      _draftSaved = false;
+      draft.published = true;
+      draft.snapshot = null;
+      draft.saved = false;
+      if (!mounted || !_current(draft)) return;
       _autosaveTimer?.cancel();
-      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(result.completionWarning ?? '已发布'),
@@ -550,18 +776,15 @@ class _SquareComposePageState extends State<SquareComposePage>
       if (cid != null) {
         final pending = await const SquarePostStore().readPublication(
           cid,
-          _draftId,
+          draft.id,
         );
-        if (mounted) setState(() => _recovering = pending != null);
+        draft.recovering = pending != null;
+        if (mounted && _current(draft)) setState(() {});
       }
-      if (mounted) _showError('发布未完成：$e');
+      if (mounted && _current(draft)) _showError('发布未完成：$e');
     } finally {
-      if (mounted) {
-        setState(() {
-          _publishing = false;
-          _stage = SquarePublishStage.idle;
-        });
-      }
+      _publishingEditor = null;
+      if (mounted) setState(() => _stage = SquarePublishStage.idle);
     }
   }
 
