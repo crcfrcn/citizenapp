@@ -317,7 +317,6 @@ class _ContactBookPageState extends State<ContactBookPage> {
     );
   }
 
-  /// 以四个一组有界刷新公开资料和真实媒体；D1 无会员行时直接不展示会员信息。
   Future<void> _refreshProfiles(List<UserContact> contacts) async {
     try {
       _session ??= await _sessionProvider.ensureSession();

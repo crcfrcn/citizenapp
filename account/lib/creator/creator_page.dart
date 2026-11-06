@@ -44,7 +44,6 @@ class CreatorPage extends StatefulWidget {
   final String initialCidNumber;
 
   /// 仅作为首帧展示提示；只允许有效或无效二元态。
-  /// 创建、编辑等动作仍由 CitizenServe D1 重新鉴权。
   final MembershipDisplayDecision initialMembershipDecision;
 
   @override

@@ -17,7 +17,7 @@ void main() {
   group('SquareComposeDraft JSON 往返', () {
     test('文章草稿含段落和媒体完整往返', () {
       final draft = SquareComposeDraft(
-        draftId: 'd1',
+        draftId: 'draft1',
         cidNumber: 'CN001-CTZN-100000001-2026',
         postType: SquarePostType.article,
         title: '论社区自治',
@@ -41,7 +41,7 @@ void main() {
         updatedAt: 1800000000000,
       );
       final restored = SquareComposeDraft.fromJsonString(draft.toJsonString())!;
-      expect(restored.draftId, 'd1');
+      expect(restored.draftId, 'draft1');
       expect(restored.isArticle, isTrue);
       expect(restored.title, '论社区自治');
       expect(restored.media.length, 2);

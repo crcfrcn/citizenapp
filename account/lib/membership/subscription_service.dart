@@ -29,7 +29,6 @@ class SubscriptionException implements Exception {
 /// 会员页持久化展示快照：只缓存 CitizenServe 已确认的订阅态与三档链上价格。
 ///
 /// 套餐和权益缓存服务端真实定义；订阅或支付动作仍在提交前
-/// 使用 CitizenServe D1 鉴权并由链上交易最终执行，展示缓存不构成服务端授权真源。
 class MembershipDisplaySnapshot {
   const MembershipDisplaySnapshot({
     required this.state,
@@ -467,7 +466,6 @@ class SubscriptionService {
 
   /// 最近一次平台订阅动作已经 finalized，但 Worker 镜像仍等待确认。
   ///
-  /// 该状态只供会员页显示同步提示；会员资格以 CitizenServe D1 与本机统一缓存为准。
   bool get mirrorSyncPending => _mirrorSyncPending;
 
   /// 会员页、附件、上传共用此入口；强刷也必须合并进行中请求并尊重失败退避。
@@ -841,7 +839,6 @@ class SubscriptionService {
   }
 
   /// finalized 定位按永久 CID 落本地，只保存 tx_hash 与 block_hash。HTTP 失败只重试
-  /// 同一链上交易确认，不再签名，也不根据旧 D1 状态猜测同步成功。
   Future<void> _confirm({
     required String cidNumber,
     required String txHash,

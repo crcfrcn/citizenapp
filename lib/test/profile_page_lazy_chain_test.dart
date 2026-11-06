@@ -562,7 +562,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('MyTab 已确认有效快照在普通D1读取等待时保持会员徽章和创作者首帧', (tester) async {
+  testWidgets('MyTab 已确认有效快照在普通资料读取等待时保持会员徽章和创作者首帧', (tester) async {
     final wallet = _testWallet;
     final membershipSnapshots = _DelayedMembershipSnapshotService();
     final squareApi = _PendingMembershipSquareApi();

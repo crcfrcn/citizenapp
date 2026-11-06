@@ -1761,7 +1761,6 @@ class SquareApiClient
     );
   }
 
-  /// 详情接口在确认 D1 可见状态后读取并校验 R2 manifest；Feed 只携带摘要。
   Future<SquarePost> fetchPostDetail({
     required SquareSession session,
     SquarePost? summary,

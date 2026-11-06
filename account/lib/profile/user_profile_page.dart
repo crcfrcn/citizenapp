@@ -281,7 +281,6 @@ class _UserProfilePageState extends State<UserProfilePage> {
   }
 
   /// 本人徽章读取本地 CitizenServe 展示快照；没有快照时保持无会员展示。
-  /// 他人主页使用 CitizenServe 当前 D1 公开资料，不存在第三种未知展示态。
   Future<void> _loadConfirmedMembership() async {
     final subscriptionService = _subscriptionService;
     if (subscriptionService == null) return;
@@ -300,7 +299,6 @@ class _UserProfilePageState extends State<UserProfilePage> {
   }
 
   bool? get _confirmedMembershipActive {
-    // null 只表示“不覆盖公开资料”，不是会员第三态；他人展示严格采用 CitizenServe D1。
     if (!widget.isSelf) return null;
     return switch (_membershipDecision) {
       MembershipDisplayDecision.activeConfirmed => true,

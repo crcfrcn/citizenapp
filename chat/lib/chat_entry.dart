@@ -818,7 +818,6 @@ class _ChatTabState extends State<ChatTab> {
   }
 
   /// 仅首次发现缺失名片的对端按四个CID一组补齐；既有列表刷新只读本地。会员展示只采用
-  /// CitizenServe 当前 D1 结果；本人的聊天授权统一由会员缓存与服务端 D1 门禁处理。
   Future<void> _refreshPeerProfiles(
     List<ChatConversationPreview> conversations,
   ) async {

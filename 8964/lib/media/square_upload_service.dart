@@ -219,7 +219,6 @@ class SquareUploadService
       final contentHash = sha256.convert(manifestBytes).toString();
 
       onStage?.call(SquarePublishStage.preparingStorage);
-      // prepare 只请求 Worker 的 D1 会员投影和额度早期反馈；编辑、哈希与上传均不读链。
       earlyReservation.cancel(); // 实际prepare以精确成品/衍生图/manifest总量原子重占。
       final prepared = await _api.prepareUpload(
         session: session,
