@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:citizen_citizen/pallet_registry.dart';
@@ -51,6 +52,14 @@ abstract class SquarePostChainPublisher {
       CitizenTransactionExternalSigningPending pending,
     )
     externalSigning,
+    void Function(String txHash)? onSigned,
+  });
+  Future<SquareChainPublishedResult?> recoverPost({
+    required String accountId,
+    required String postId,
+    required SquarePostType postType,
+    required String contentHash,
+    required String receiptId,
   });
 }
 
@@ -81,7 +90,15 @@ class SquareChainService implements SquarePostChainPublisher {
       String response,
     )?
     consumePreparedTransactionQrResponse,
-  }) : _identityChainReader =
+    Stream<CitizenSdkEvent>? events,
+    Future<CitizenTransactionHistoryPage> Function()? recent,
+  }) : _events = events ?? transactions?.events,
+       _recent =
+           recent ??
+           (transactions == null
+               ? null
+               : () => transactions.getTransactionHistory(limit: 4)),
+       _identityChainReader =
            identityChainReader ??
            CitizenIdentityChainReader(
              chain: chain,
@@ -148,6 +165,50 @@ class SquareChainService implements SquarePostChainPublisher {
 
   final CitizenIdentityChainReader _identityChainReader;
 
+  final Stream<CitizenSdkEvent>? _events;
+  final Future<CitizenTransactionHistoryPage> Function()? _recent;
+
+  static String _hash(String s) => s.startsWith('0x') ? s : '0x$s';
+  Future<CitizenTransactionHistoryRecord?> _matching(
+    String account,
+    String call,
+  ) async {
+    final history = await _recent?.call();
+    if (history == null) return null;
+    for (final record in history.records) {
+      if (_hash(record.sourceAccountId) == _hash(account) &&
+          _hash(record.callDataHash) == _hash(call))
+        return record;
+    }
+    return null;
+  }
+
+  @override
+  Future<SquareChainPublishedResult?> recoverPost({
+    required String accountId,
+    required String postId,
+    required SquarePostType postType,
+    required String contentHash,
+    required String receiptId,
+  }) async {
+    final call = buildPublishPostCallData(
+      postId: postId,
+      postType: postType,
+      contentHashHex: contentHash,
+      receiptId: receiptId,
+    );
+    final record = await _matching(
+      accountId,
+      hexEncode(Hasher.blake2b256.hash(call)),
+    );
+    if (record == null) return null;
+    final finalBlock = record.execution?.block.hash;
+    return SquareChainPublishedResult(
+      txHash: _hash(record.transactionHash),
+      blockHash: finalBlock ?? '',
+    );
+  }
+
   static const int palletIndex = PalletRegistry.squarePostPallet;
   static const int publishPostCallIndex = PalletRegistry.publishPostCall;
   static const int maxPostIdBytes = 64;
@@ -164,6 +225,7 @@ class SquareChainService implements SquarePostChainPublisher {
       CitizenTransactionExternalSigningPending pending,
     )
     externalSigning,
+    void Function(String txHash)? onSigned,
   }) async {
     final callData = buildPublishPostCallData(
       postId: postId,
@@ -172,38 +234,94 @@ class SquareChainService implements SquarePostChainPublisher {
       receiptId: receiptId,
     );
     final prepared = await _prepareTransaction(signerPublicKey, callData);
-    final started = await _executePreparedTransaction(prepared.preparationId);
-    CitizenTransactionExecutionCompleted completed;
-    if (started is CitizenTransactionExternalSigningPending) {
-      final response = await externalSigning(started);
-      if (response == null) {
-        await _cancelPreparedTransactionExecution(started.executionId);
+    String? observed;
+    var reading = false;
+    var queued = false;
+    var closed = false;
+    void signed(String hash) {
+      if (closed || observed != null) return;
+      observed = hash;
+      onSigned?.call(hash);
+    }
+
+    // SDK 先持久化已签原交易，再从轻节点发送。只读本地近期记录，按账户和调用摘要锁定本次。
+    Future<void> readSigned() async {
+      if (closed || observed != null) return;
+      if (reading) {
+        queued = true;
+        return;
+      }
+      reading = true;
+      try {
+        final row = await _matching(
+          hexEncode(signerPublicKey),
+          hexEncode(prepared.callDataHash),
+        );
+        if (row != null) signed(_hash(row.transactionHash));
+      } on Object {
+        // 最终回执仍可提供同一哈希。本地历史读失败不会触发重复签名。
+      } finally {
+        reading = false;
+        if (queued) {
+          queued = false;
+          unawaited(readSigned());
+        }
+      }
+    }
+
+    final listener = onSigned == null
+        ? null
+        : _events?.listen((event) {
+            if (event is CitizenSdkHistoryChanged) unawaited(readSigned());
+          });
+    try {
+      final startedFuture = _executePreparedTransaction(prepared.preparationId);
+      if (onSigned != null) unawaited(readSigned());
+      final started = await startedFuture;
+      CitizenTransactionExecutionCompleted completed;
+      if (started is CitizenTransactionExternalSigningPending) {
+        final response = await externalSigning(started);
+        if (response == null) {
+          await _cancelPreparedTransactionExecution(started.executionId);
+          throw const SquareChainPublishException(
+            '广场发布签名已取消',
+            canAbortUpload: true,
+          );
+        }
+        final result = _consumePreparedTransactionQrResponse(
+          started.executionId,
+          response,
+        );
+        if (onSigned != null) unawaited(readSigned());
+        completed = await result;
+      } else {
+        completed = started as CitizenTransactionExecutionCompleted;
+      }
+      final hash = _hash(hexEncode(completed.transactionHash));
+      if (observed != null && observed != hash) {
         throw const SquareChainPublishException(
-          '广场发布签名已取消',
-          canAbortUpload: true,
+          '签名和最终交易哈希不一致',
+          canAbortUpload: false,
         );
       }
-      completed = await _consumePreparedTransactionQrResponse(
-        started.executionId,
-        response,
+      signed(hash);
+      final execution = completed.execution;
+      if (execution == null ||
+          completed.resolution == CitizenTransactionResolution.poolRejected) {
+        throw const SquareChainPublishException(
+          '交易最终结果未确定',
+          canAbortUpload: false,
+        );
+      }
+      // 成功或失败都上报同一最终区块。广场状态由服务端独立验证。
+      return SquareChainPublishedResult(
+        txHash: hash,
+        blockHash: execution.block.hash,
       );
-    } else {
-      completed = started as CitizenTransactionExecutionCompleted;
+    } finally {
+      closed = true;
+      await listener?.cancel();
     }
-    if (completed.resolution != CitizenTransactionResolution.finalizedSuccess ||
-        completed.execution == null) {
-      throw const SquareChainPublishException(
-        '广场发布交易执行失败',
-        canAbortUpload: true,
-      );
-    }
-    final execution = completed.execution!;
-
-    return SquareChainPublishedResult(
-      txHash: '0x${hexEncode(completed.transactionHash)}',
-
-      blockHash: execution.block.hash,
-    );
   }
 
   Future<String?> fetchNormalCitizenCidNumber(String accountId) async {

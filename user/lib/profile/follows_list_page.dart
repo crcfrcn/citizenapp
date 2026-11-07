@@ -49,7 +49,7 @@ class _FollowsListPageState extends State<FollowsListPage> {
   late final CitizenProfileApi _api;
   final List<SquareFollowEntry> _entries = [];
   final Map<String, CitizenProfile> _profiles = <String, CitizenProfile>{};
-  int? _cursor;
+  String? _cursor;
   bool _loading = false;
   bool _done = false;
   bool _failedFirst = false;

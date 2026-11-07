@@ -3,6 +3,7 @@ import 'package:citizen_testing/mls_authentication_fixture.dart';
 import 'package:citizen_user/identity/finalized_identity_resolver.dart';
 import 'package:citizen_user/identity/citizen_identity_chain_reader.dart';
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -97,12 +98,12 @@ void main() {
     await expectLater(publish(), throwsA(isA<SquarePublishException>()));
     order.clear();
     await expectLater(publish(), throwsA(isA<SquarePublishException>()));
-    expect(order, ['resume', 'proof']);
+    expect(order, ['resume', 'proof', 'upload']);
     await (await SocialIsar.instance.db()).close();
     order.clear();
-    confirmer.proofAvailable = true;
+    publisher.recoverFinalized = true;
     await publish();
-    expect(order, ['resume', 'proof']);
+    expect(order, ['resume', 'proof', 'upload', 'confirm']);
   });
 
   test('实际发布只验真一次，后续只作本机版本检查', () async {
@@ -217,10 +218,12 @@ void main() {
     expect(order, isEmpty);
   });
 
-  test('公文按准备上传、最终余额与链签名、finalized 确认顺序发布', () async {
+  test('已签交易与上传并行，等两路齐备才确认', () async {
     final order = <String>[];
-    final upload = _FakeUploader(order);
-    final chain = _FakeChainPublisher(order);
+    final started = Completer<void>();
+    final finality = Completer<void>();
+    final upload = _FakeUploader(order)..began = started;
+    final chain = _FakeChainPublisher(order)..finish = finality.future;
     final localWriter = _FakeLocalPostWriter();
     final stages = <SquarePublishStage>[];
     final service = SquarePublishService(
@@ -232,7 +235,7 @@ void main() {
       localPostWriter: localWriter,
     );
 
-    final result = await service.publish(
+    final publishing = service.publish(
       draftId: 'draft-test',
       identity: _identity(cidNumber: 'CN001-CTZN-000000001-2026'),
       postType: SquarePostType.document,
@@ -243,6 +246,11 @@ void main() {
       onStage: stages.add,
     );
 
+    await started.future.timeout(const Duration(seconds: 5));
+    expect(finality.isCompleted, isFalse);
+    expect(order, ['prepare', 'balance', 'chain', 'upload']);
+    finality.complete();
+    final result = await publishing;
     expect(upload.called, isTrue);
     expect(chain.called, isTrue);
     expect(chain.postId, 'sqp_test');
@@ -251,16 +259,15 @@ void main() {
     expect(localWriter.saved?.postId, 'sqp_test');
     expect(localWriter.saved?.cidNumber, 'CN001-CTZN-000000001-2026');
     expect(localWriter.saved?.publishedAt, 1800000000000);
-    expect(order, ['prepare', 'upload', 'balance', 'chain', 'confirm']);
+    expect(order, ['prepare', 'balance', 'chain', 'upload', 'confirm']);
     expect(
       stages,
       containsAllInOrder([
         SquarePublishStage.preparingStorage,
-        SquarePublishStage.uploadingMedia,
-        SquarePublishStage.completingStorage,
         SquarePublishStage.checkingBalance,
         SquarePublishStage.submittingChain,
-        SquarePublishStage.waitingInBlock,
+        SquarePublishStage.uploadingMedia,
+        SquarePublishStage.completingStorage,
         SquarePublishStage.confirmingPost,
         SquarePublishStage.completed,
       ]),
@@ -295,15 +302,15 @@ void main() {
     expect(oldPostDeleter.deletedPostId, 'sqp_old');
     expect(order, [
       'prepare',
-      'upload',
       'balance',
       'chain',
+      'upload',
       'confirm',
       'delete_old',
     ]);
   });
 
-  test('最终余额不足时清理已完成上传且不提交链上', () async {
+  test('余额不足不签名也不上传', () async {
     final order = <String>[];
     final upload = _FakeUploader(order);
     final chain = _FakeChainPublisher(order);
@@ -329,13 +336,13 @@ void main() {
       throwsA(isA<SquarePublishException>()),
     );
 
-    expect(order, ['prepare', 'upload', 'balance', 'abort']);
+    expect(order, ['prepare', 'balance']);
     expect(upload.called, isTrue);
-    expect(upload.uploadCalled, isTrue);
+    expect(upload.uploadCalled, isFalse);
     expect(chain.called, isFalse);
   });
 
-  test('链上发布失败时清理已完成上传', () async {
+  test('签名取消不上传', () async {
     final order = <String>[];
     final upload = _FakeUploader(order);
     final chain = _FakeChainPublisher(order)..throwOnPublish = true;
@@ -361,8 +368,8 @@ void main() {
       throwsA(isA<SquarePublishException>()),
     );
 
-    expect(order, ['prepare', 'upload', 'balance', 'chain', 'abort']);
-    expect(upload.uploadCalled, isTrue);
+    expect(order, ['prepare', 'balance', 'chain']);
+    expect(upload.uploadCalled, isFalse);
   });
 
   test('签名后链终态不确定时保留上传且禁止重复发布', () async {
@@ -391,12 +398,41 @@ void main() {
         isA<SquarePublishException>().having(
           (error) => error.message,
           'message',
-          contains('禁止重复发布'),
+          contains('终态尚未确定'),
         ),
       ),
     );
 
-    expect(order, ['prepare', 'upload', 'balance', 'chain']);
+    expect(order, ['prepare', 'balance', 'chain', 'upload']);
+  });
+
+  test('上传失败后续传原交易和原正文，不再次签名', () async {
+    final order = <String>[];
+    final upload = _FakeUploader(order)..failUpload = true;
+    final chain = _FakeChainPublisher(order)..recoverFinalized = true;
+    final service = SquarePublishService(
+      identityResolver: _PublishIdentityResolver(),
+      uploadService: upload,
+      chainService: chain,
+      publicationConfirmer: _FakePublicationConfirmer(order),
+      balanceReader: _FakeBalanceReader(order),
+      localPostWriter: _FakeLocalPostWriter(),
+    );
+    Future<SquarePublishResult> publish() => service.publish(
+      draftId: 'retry-media',
+      identity: _identity(cidNumber: 'CN001-CTZN-000000001-2026'),
+      postType: SquarePostType.document,
+      text: '重试',
+      mediaDrafts: [],
+      sessionForAccount: (accountId) async => fakeSquareSession(accountId),
+      externalSigning: (_) async => 'QR_V1',
+    );
+    await expectLater(publish(), throwsA(isA<SquarePublishException>()));
+    expect(order, ['prepare', 'balance', 'chain', 'upload']);
+    upload.failUpload = false;
+    order.clear();
+    await publish();
+    expect(order, ['resume', 'proof', 'upload', 'confirm']);
   });
 
   test('远端确认后本地失败保存恢复事实，重试不验真不上传不签名', () async {
@@ -560,35 +596,6 @@ class _FakeUploader implements SquareContentUploader {
         accountId: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         expiresAt: 1800000000000,
       ),
-      preparedUpload: const SquarePreparedUpload(
-        uploadId: 'squ_test',
-        postId: 'sqp_test',
-        receiptId: 'sqr_test',
-        expiresAt: 1800000000000,
-        byteSize: 1024,
-        manifestObjectKey: 'square/test/manifest.json',
-        manifestUploadUrl: 'https://media.example.invalid/manifest',
-        mediaUploads: [
-          SquarePreparedMediaUpload(
-            mediaIndex: 0,
-            objectRole: 'source',
-            objectKey: 'square/cid/posts/sqp_test/media/0/source.webp',
-            httpMethod: 'PUT',
-            url: 'https://127.0.0.1/media',
-            expiresAt: 1800000000000,
-            headers: {'content-type': 'image/webp', 'content-length': '1024'},
-          ),
-          SquarePreparedMediaUpload(
-            mediaIndex: 0,
-            objectRole: 'thumbnail',
-            objectKey: 'square/cid/posts/sqp_test/media/0/thumbnail.webp',
-            httpMethod: 'PUT',
-            url: 'https://127.0.0.1/thumbnail',
-            expiresAt: 1800000000000,
-            headers: {'content-type': 'image/webp', 'content-length': '256'},
-          ),
-        ],
-      ),
       postId: 'sqp_test',
       contentHash: contentHash,
       receiptId: 'sqr_test',
@@ -598,12 +605,34 @@ class _FakeUploader implements SquareContentUploader {
   }
 
   @override
+  Future<SquarePreparedContent> resumePreparedContent(
+    SquareSession session,
+    String postId,
+    String contentHash,
+    Uint8List manifest,
+  ) async => SquarePreparedContent(
+    session: session,
+    postId: postId,
+    contentHash: contentHash,
+    receiptId: 'sqr_test',
+    manifestBytes: manifest,
+    mediaDrafts: [],
+  );
+
+  Completer<void>? began;
+  bool failUpload = false;
+
+  @override
   Future<SquareUploadedContent> uploadPreparedContent(
     SquarePreparedContent prepared, {
+    required String txHash,
     void Function(SquarePublishStage stage)? onStage,
   }) async {
     uploadCalled = true;
+    expect(txHash, '0xtest');
     order.add('upload');
+    if (began != null && !began!.isCompleted) began!.complete();
+    if (failUpload) throw const SquareApiException('上传暂时失败');
     onStage?.call(SquarePublishStage.uploadingMedia);
     onStage?.call(SquarePublishStage.completingStorage);
     return SquareUploadedContent(
@@ -728,6 +757,23 @@ class _FakeChainPublisher implements SquarePostChainPublisher {
   String? receiptId;
   bool throwOnPublish = false;
   bool throwAfterSign = false;
+  Future<void>? finish;
+  bool recoverFinalized = false;
+
+  @override
+  Future<SquareChainPublishedResult?> recoverPost({
+    required String accountId,
+    required String postId,
+    required SquarePostType postType,
+    required String contentHash,
+    required String receiptId,
+  }) async {
+    order.add('proof');
+    return SquareChainPublishedResult(
+      txHash: '0xtest',
+      blockHash: recoverFinalized ? '0xblock' : '',
+    );
+  }
 
   @override
   Future<SquareChainPublishedResult> publishPost({
@@ -740,6 +786,7 @@ class _FakeChainPublisher implements SquarePostChainPublisher {
       CitizenTransactionExternalSigningPending pending,
     )
     externalSigning,
+    void Function(String txHash)? onSigned,
   }) async {
     called = true;
     order.add('chain');
@@ -751,6 +798,8 @@ class _FakeChainPublisher implements SquarePostChainPublisher {
         canAbortUpload: true,
       );
     }
+    onSigned?.call('0xtest');
+    await finish;
     if (throwAfterSign) {
       throw const SquareChainPublishException(
         '交易终态尚未确定',

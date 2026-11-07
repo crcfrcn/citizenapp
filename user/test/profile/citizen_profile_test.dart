@@ -113,10 +113,10 @@ void main() {
       MockClient(
         (request) async => _ok({
           'is_ok': true,
-          'entries': [
+          'items': [
             {'peer_cid': _profileCid, 'created_at': 123},
           ],
-          'next_cursor': 123,
+          'next_cursor': '123',
         }),
       ),
     );
@@ -128,7 +128,7 @@ void main() {
     );
     expect(page.entries.single.peerCid, _profileCid);
     expect(page.entries.single.createdAt, 123);
-    expect(page.nextCursor, 123);
+    expect(page.nextCursor, '123');
     for (final row in [
       {'cid_number': _profileCid, 'created_at': 123},
       {'peer_cid': '', 'created_at': 123},
@@ -1014,7 +1014,7 @@ void main() {
               ..cidNumber = cid
               ..profileData = jsonEncode({
                 ...(_profileJson()..remove('cid_number')),
-                'counts': {'following': 2, 'followers': 128, 'posts': 48},
+                'counts': {'following': 2, 'followers': 128, 'items': 48},
               }),
           );
         });
@@ -1416,7 +1416,7 @@ void main() {
             expect(request.headers['x-mls-proof'], isNotEmpty);
             return _ok({
               'is_ok': true,
-              'posts': [
+              'items': [
                 {
                   'post_id': 'c1',
                   'account_id': _owner,
@@ -1426,7 +1426,7 @@ void main() {
                   'created_at': 300,
                 },
               ],
-              'next_cursor': 300,
+              'next_cursor': '300',
             });
           }),
         );
@@ -1444,7 +1444,7 @@ void main() {
         expect(seen!.queryParameters['limit'], '2');
         expect(page.posts.single.postId, 'c1');
         expect(page.posts.single.postCategory, SquarePostCategory.campaign);
-        expect(page.nextCursor, 300);
+        expect(page.nextCursor, '300');
       },
     );
 
@@ -1453,7 +1453,7 @@ void main() {
         MockClient((request) async {
           return _ok({
             'is_ok': true,
-            'posts': [
+            'items': [
               {
                 'post_id': 'a1',
                 'account_id': _owner,
@@ -1493,7 +1493,7 @@ void main() {
           expect(request.method, 'GET');
           expect(request.headers['authorization'], 'Bearer tok');
           expect(request.headers['x-mls-proof'], isNotEmpty);
-          return _ok({'is_ok': true, 'posts': [], 'next_cursor': null});
+          return _ok({'is_ok': true, 'items': [], 'next_cursor': null});
         }),
       );
 
@@ -1514,7 +1514,7 @@ void main() {
           expect(request.method, 'GET');
           expect(request.headers['authorization'], 'Bearer tok');
           expect(request.headers['x-mls-proof'], isNotEmpty);
-          return _ok({'is_ok': true, 'entries': [], 'next_cursor': null});
+          return _ok({'is_ok': true, 'items': [], 'next_cursor': null});
         }),
       );
 

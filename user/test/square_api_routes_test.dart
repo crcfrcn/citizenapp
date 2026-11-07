@@ -4,6 +4,7 @@ import 'package:citizen_testing/membergate_fixture.dart'
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:citizen_system/app_log.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -202,7 +203,7 @@ void main() {
       ),
     );
   });
-  test('原发布确认事实回执后只读一次实际post和manifest证明，不接受旧内联格式', () async {
+  test('发布确认直接核对同一交易和正文，无额外详情查询', () async {
     final paths = <String>[];
     final hash = '11' * 32, block = '0x${'22' * 32}', tx = '0x${'33' * 32}';
     final session = SquareSession(
@@ -227,7 +228,7 @@ void main() {
       'chain_block': 1,
       'block_hash': block,
       'tx_hash': tx,
-      'created_at': 1000,
+      'published_at': 1000,
       'post_state': 'published',
       'media_items': <Object>[],
     };
@@ -243,16 +244,7 @@ void main() {
       httpClient: MockClient((request) async {
         paths.add('${request.method} ${request.url.path}');
         return http.Response(
-          jsonEncode(
-            request.method == 'POST'
-                ? {
-                    'is_ok': true,
-                    'post_id': 'post',
-                    'content_hash': hash,
-                    'post_category': 'normal',
-                  }
-                : {'is_ok': true, 'post': index, 'manifest': manifest},
-          ),
+          jsonEncode({'is_ok': true, 'post': index, 'manifest': manifest}),
           200,
           headers: {'content-type': 'application/json; charset=utf-8'},
         );
@@ -267,17 +259,8 @@ void main() {
     );
     expect(post.text, '真实清单正文');
     expect(post.contentHash, hash);
-    expect(paths, ['POST /api/8964/posts/confirm', 'GET /api/8964/posts/post']);
-    for (final bad in [
-      'block',
-      'tx',
-      'hash',
-      'category',
-      'schema',
-      'author',
-      'type',
-      'http',
-    ]) {
+    expect(paths, ['POST /api/8964/posts/confirm']);
+    for (final bad in ['block', 'tx', 'schema', 'author', 'type', 'http']) {
       final calls = <String>[];
       final invalidIndex = {...index};
       final invalidManifest = {...manifest};
@@ -286,10 +269,6 @@ void main() {
           invalidIndex['block_hash'] = '0x${'44' * 32}';
         case 'tx':
           invalidIndex['tx_hash'] = '0x${'44' * 32}';
-        case 'hash':
-          invalidIndex['content_hash'] = '44' * 32;
-        case 'category':
-          invalidIndex['post_category'] = 'campaign';
         case 'schema':
           invalidManifest['schema'] = 'unknown';
         case 'author':
@@ -302,21 +281,12 @@ void main() {
         httpClient: MockClient((request) async {
           calls.add('${request.method} ${request.url.path}');
           return http.Response(
-            jsonEncode(
-              request.method == 'POST'
-                  ? {
-                      'is_ok': true,
-                      'post_id': 'post',
-                      'content_hash': hash,
-                      'post_category': 'normal',
-                    }
-                  : {
-                      'is_ok': true,
-                      'post': invalidIndex,
-                      'manifest': invalidManifest,
-                    },
-            ),
-            bad == 'http' && request.method == 'GET' ? 503 : 200,
+            jsonEncode({
+              'is_ok': true,
+              'post': invalidIndex,
+              'manifest': invalidManifest,
+            }),
+            bad == 'http' ? 503 : 200,
             headers: {'content-type': 'application/json; charset=utf-8'},
           );
         }),
@@ -331,10 +301,7 @@ void main() {
           ),
           throwsA(isA<SquareApiException>()),
         );
-        expect(calls, [
-          'POST /api/8964/posts/confirm',
-          'GET /api/8964/posts/post',
-        ]);
+        expect(calls, ['POST /api/8964/posts/confirm']);
       } finally {
         invalid.close();
       }
@@ -479,8 +446,7 @@ void main() {
         return http.Response(
           jsonEncode({
             'is_ok': true,
-            'posts': [],
-            'entries': [],
+            'items': [],
             'square_unread': 0,
             'notifications_unread': 0,
             'following_unread': 0,
@@ -500,13 +466,13 @@ void main() {
     await api.fetchFeed(feedKind: SquareFeedKind.recommended, session: session);
     await api.fetchAuthorPosts(
       cidNumber: testMlsCidNumber,
-      cursor: 7,
+      cursor: '7',
       session: session,
     );
     await api.fetchFollows(
       cidNumber: testMlsCidNumber,
       type: 'following',
-      cursor: 9,
+      cursor: '9',
       session: session,
     );
     await api.setNotify(
@@ -534,7 +500,7 @@ void main() {
     expect(sent[2].url.queryParameters['cid_number'], testMlsCidNumber);
     expect(sent[3].url.queryParameters['cursor'], '9');
   });
-  test('prepare解析真实manifest对象及media_uploads；complete属主ID只在路径', () async {
+  test('上传签名绑定帖子、交易哈希和原始正文，complete只签空正文', () async {
     final requests = <http.Request>[];
     final session = SquareSession(
       sessionToken: 'ordinary',
@@ -547,91 +513,36 @@ void main() {
     );
     final api = SquareApiClient(
       baseUrl: 'https://square.test/api',
-      httpClient: MockClient((r) async {
-        requests.add(r);
+      httpClient: MockClient((request) async {
+        requests.add(request);
         return http.Response(
           jsonEncode(
-            r.url.path == '/api/8964/uploads'
-                ? {
-                    'is_ok': true,
-                    'upload_id': 'upload',
-                    'post_id': 'post',
-                    'receipt_id': 'receipt',
-                    'expires_at': 9999999999999,
-                    'byte_size': 1,
-                    'manifest': {
-                      'object_key': 'manifest',
-                      'upload_url': '/api/8964/uploads/upload/manifest',
-                    },
-                    'media_uploads': [],
-                  }
-                : {
-                    'is_ok': true,
-                    'upload_id': 'upload',
-                    'post_id': 'post',
-                    'content_hash': 'ab' * 32,
-                    'receipt_id': 'receipt',
-                  },
+            request.method == 'PUT'
+                ? {'is_ok': true, 'uploads': []}
+                : {'is_ok': true, 'state': 'complete'},
           ),
           200,
         );
       }),
     );
     addTearDown(api.close);
-    final prepared = await api.prepareUpload(
-      session: session,
-      postType: SquarePostType.document,
-      titleLength: 0,
-      textLength: 1,
-      contentHash: 'ab' * 32,
-      manifestBytes: 1,
-      mediaItems: [],
-    );
+    final hash = '0x${'ab' * 32}';
+    final raw = Uint8List.fromList(utf8.encode('{"text":"正文"}'));
     expect(
-      prepared.manifestUploadUrl,
-      'https://square.test/api/8964/uploads/upload/manifest',
+      await api.beginUpload(
+        session: session,
+        postId: 'post',
+        txHash: hash,
+        manifest: raw,
+      ),
+      isEmpty,
     );
-    await api.completeUpload(
-      session: session,
-      uploadId: 'upload',
-      contentHash: 'ab' * 32,
-    );
-    expect(requests.last.url.path, '/api/8964/uploads/upload/complete');
-    expect(jsonDecode(requests.last.body), {'content_hash': 'ab' * 32});
-    for (final field in ['upload_id', 'content_hash']) {
-      var calls = 0;
-      final invalid = SquareApiClient(
-        baseUrl: 'https://square.test/api',
-        httpClient: MockClient((request) async {
-          calls++;
-          expect(request.url.path, '/api/8964/uploads/upload/complete');
-          return http.Response(
-            jsonEncode({
-              'is_ok': true,
-              'upload_id': 'upload',
-              'post_id': 'post',
-              'content_hash': 'ab' * 32,
-              'receipt_id': 'receipt',
-              field: 'mismatch',
-            }),
-            200,
-          );
-        }),
-      );
-      try {
-        await expectLater(
-          invalid.completeUpload(
-            session: session,
-            uploadId: 'upload',
-            contentHash: 'ab' * 32,
-          ),
-          throwsA(isA<SquareApiException>()),
-        );
-        expect(calls, 1);
-      } finally {
-        invalid.close();
-      }
-    }
+    expect(requests.single.url.path, '/api/8964/uploads/post/manifest');
+    expect(requests.single.url.queryParameters, {'tx_hash': hash});
+    expect(requests.single.bodyBytes, raw);
+    expect(await api.completeUpload(session: session, postId: 'post'), isTrue);
+    expect(requests.last.url.path, '/api/8964/uploads/post/complete');
+    expect(requests.last.bodyBytes, isEmpty);
   });
   test('资料资源按CID和类型寻址，无旧更新时间查询； arbitrary键拒绝', () {
     final api = SquareApiClient(baseUrl: 'https://square.test/api');
@@ -1007,7 +918,7 @@ void _readCoalescingTests() {
   http.Response result([int status = 200]) => http.Response(
     jsonEncode(
       status == 200
-          ? {'is_ok': true, 'posts': []}
+          ? {'is_ok': true, 'items': []}
           : {'is_ok': false, 'error_code': 'synthetic_denial'},
     ),
     status,
@@ -1803,15 +1714,11 @@ void coldIdentityAuthenticationTests() {
         if (r.url.path.endsWith('/challenges')) {
           challenges++;
           expect(r.headers['x-mls-proof'], isNotEmpty);
-          final header =
-              jsonDecode(
-                    utf8.decode(
-                      base64Url.decode(
-                        base64Url.normalize(r.headers['x-mls-proof']!),
-                      ),
-                    ),
-                  )
-                  as Map<String, dynamic>;
+          final header = jsonDecode(
+            utf8.decode(
+              base64Url.decode(base64Url.normalize(r.headers['x-mls-proof']!)),
+            ),
+          ) as Map<String, dynamic>;
           expect(header['request_target'], '/api/user/challenges');
           expect(header['body_hash'], '0x${sha256.convert(r.bodyBytes)}');
           final body = jsonDecode(r.body) as Map<String, dynamic>;

@@ -433,39 +433,6 @@ class SquareMembershipUsageState {
   };
 }
 
-class SquareUploadMediaRequest {
-  const SquareUploadMediaRequest({
-    required this.mediaKind,
-    required this.byteSize,
-    required this.bodyHash,
-    required this.pixelWidth,
-    required this.pixelHeight,
-    required this.previewBytes,
-    required this.previewHash,
-    this.videoSecs,
-  });
-
-  final SquareMediaKind mediaKind;
-  final int byteSize;
-  final String bodyHash;
-  final int pixelWidth;
-  final int pixelHeight;
-  final int previewBytes;
-  final String previewHash;
-  final int? videoSecs;
-
-  Map<String, Object?> toJson() => {
-    'media_kind': mediaKind.workerValue,
-    'byte_size': byteSize,
-    'body_hash': bodyHash,
-    'pixel_width': pixelWidth,
-    'pixel_height': pixelHeight,
-    'preview_bytes': previewBytes,
-    'preview_hash': previewHash,
-    if (videoSecs != null) 'video_secs': videoSecs,
-  };
-}
-
 /// 服务端签发的单个对象上传目标；主文件与预览各有一个目标，不重复媒体声明。
 class SquarePreparedMediaUpload {
   const SquarePreparedMediaUpload({
@@ -484,42 +451,6 @@ class SquarePreparedMediaUpload {
   final String httpMethod;
   final Map<String, String> headers;
   final int expiresAt;
-}
-
-class SquarePreparedUpload {
-  const SquarePreparedUpload({
-    required this.uploadId,
-    required this.postId,
-    required this.receiptId,
-    required this.expiresAt,
-    required this.byteSize,
-    required this.manifestObjectKey,
-    required this.manifestUploadUrl,
-    required this.mediaUploads,
-  });
-
-  final String uploadId;
-  final String postId;
-  final String receiptId;
-  final int expiresAt;
-  final int byteSize;
-  final String manifestObjectKey;
-  final String manifestUploadUrl;
-  final List<SquarePreparedMediaUpload> mediaUploads;
-}
-
-class SquareCompletedUpload {
-  const SquareCompletedUpload({
-    required this.uploadId,
-    required this.postId,
-    required this.contentHash,
-    required this.receiptId,
-  });
-
-  final String uploadId;
-  final String postId;
-  final String contentHash;
-  final String receiptId;
 }
 
 /// 公民业务 HTTPS 服务地址，拒绝明文或降级连接。
@@ -1521,85 +1452,61 @@ class SquareApiClient
     return _decodeResponse(response);
   }
 
-  Future<SquarePreparedUpload> prepareUpload({
+  Future<List<SquarePreparedMediaUpload>> beginUpload({
     required SquareSession session,
-    required SquarePostType postType,
-    required int titleLength,
-    required int textLength,
-    required String contentHash,
-    required int manifestBytes,
-    required List<SquareUploadMediaRequest> mediaItems,
+    required String postId,
+    required String txHash,
+    required Uint8List manifest,
   }) async {
-    final data = await _postJson('/8964/uploads', {
-      'post_type': postType.workerValue,
-      'title_length': titleLength,
-      'text_length': textLength,
-      'content_hash': contentHash,
-      'manifest_bytes': manifestBytes,
-      'media_items': mediaItems.map((item) => item.toJson()).toList(),
-    }, session: session);
-    final rawMediaItems = data['media_uploads'];
-    final manifest = data['manifest'];
-    if (manifest is! Map<String, dynamic>) {
-      throw const SquareApiException('上传准备响应缺少manifest');
-    }
-    if (data['is_ok'] != true ||
-        rawMediaItems is! List ||
-        rawMediaItems.length != mediaItems.length * 2 ||
-        rawMediaItems.any((item) => item is! Map<String, dynamic>) ||
-        data['byte_size'] is! int ||
-        (data['byte_size'] as int) < manifestBytes ||
-        data['expires_at'] is! int) {
-      throw const SquareApiException('上传准备响应缺少媒体对象列表');
-    }
-    final prepared = SquarePreparedUpload(
-      uploadId: _requireString(data, 'upload_id'),
-      postId: _requireString(data, 'post_id'),
-      receiptId: _requireString(data, 'receipt_id'),
-      expiresAt: _asInt(data['expires_at']),
-      byteSize: _asInt(data['byte_size']),
-      manifestObjectKey: _requireString(manifest, 'object_key'),
-      manifestUploadUrl: CitizenServeApiConfig.capability(
-        baseUrl,
-        _requireString(manifest, 'upload_url'),
-        '/8964/uploads/${Uri.encodeComponent(_requireString(data, 'upload_id'))}/manifest',
-      ).toString(),
-      mediaUploads: rawMediaItems
-          .map((item) => _parsePreparedMedia(item as Map<String, dynamic>))
-          .toList(growable: false),
+    final request =
+        http.Request(
+            'PUT',
+            _uri(
+              '/8964/uploads/${Uri.encodeComponent(postId)}/manifest?tx_hash=$txHash',
+            ),
+          )
+          ..followRedirects = false
+          ..headers['content-type'] = 'application/json'
+          ..bodyBytes = manifest;
+    final result = _decodeResponse(
+      await _protectedJsonRequest(request, session),
     );
-    final slots = <(int, String)>{};
-    for (final upload in prepared.mediaUploads) {
-      final index = upload.mediaIndex;
-      if (index < 0 ||
-          index >= mediaItems.length ||
-          !slots.add((index, upload.objectRole)) ||
-          !{
-            'source',
-            mediaItems[index].mediaKind == SquareMediaKind.video
-                ? 'cover'
-                : 'thumbnail',
-          }.contains(upload.objectRole)) {
-        throw const SquareApiException('媒体上传目标与请求槽位不一致');
-      }
+    final targets = result['uploads'];
+    if (targets is! List || targets.length > 220) {
+      throw const SquareApiException('上传授权不完整');
     }
-    return prepared;
+    return [
+      for (final target in targets)
+        _parsePreparedMedia(target as Map<String, dynamic>),
+    ];
   }
 
-  Future<void> uploadObject({
-    required String uploadUrl,
-    required String contentType,
-    required Uint8List body,
+  Future<SquarePreparedMediaUpload?> refreshUpload({
     required SquareSession session,
+    required String postId,
+    required SquarePreparedMediaUpload target,
   }) async {
-    await uploadBytesTo(uploadUrl, body, contentType, session: session);
+    final result = await _postJson('/8964/uploads', {
+      'post_id': postId,
+      'media_index': target.mediaIndex,
+      'preview': target.objectRole != 'source',
+    }, session: session);
+    final value = result['upload'];
+    if (value == null) return null;
+    final next = _parsePreparedMedia(value as Map<String, dynamic>);
+    if (next.objectKey != target.objectKey ||
+        next.mediaIndex != target.mediaIndex ||
+        next.objectRole != target.objectRole) {
+      throw const SquareApiException('补传目标与原对象不一致');
+    }
+    return next;
   }
 
   /// 主文件与预览共用同一有界上传/重试实现；长度来自已经持有的本地声明。
   Future<void> uploadMedia({
     required SquareSession session,
     required SquarePreparedMediaUpload upload,
-    required String filePath,
+    required Stream<List<int>> Function() body,
     required int byteSize,
   }) async {
     final uri = Uri.tryParse(upload.url);
@@ -1618,32 +1525,29 @@ class SquareApiClient
       () => _uploadFileToR2(
         session: session,
         uploadUrl: upload.url,
-        filePath: filePath,
+        body: body,
         contentLength: byteSize,
         headers: upload.headers,
       ),
     );
   }
 
-  Future<SquareCompletedUpload> completeUpload({
+  Future<bool> completeUpload({
     required SquareSession session,
-    required String uploadId,
-    required String contentHash,
+    required String postId,
   }) async {
-    final data = await _postJson(
-      '/8964/uploads/${Uri.encodeComponent(uploadId)}/complete',
-      {'content_hash': contentHash},
-      session: session,
+    final response = await _protectedJsonRequest(
+      http.Request(
+        'POST',
+        _uri('/8964/uploads/${Uri.encodeComponent(postId)}/complete'),
+      )..followRedirects = false,
+      session,
     );
-    if (data['content_hash'] != contentHash || data['upload_id'] != uploadId) {
-      throw const SquareApiException('上传完成摘要不一致');
+    final state = _decodeResponse(response)['state'];
+    if (state != 'complete' && state != 'pending') {
+      throw const SquareApiException('上传完成响应无效');
     }
-    return SquareCompletedUpload(
-      uploadId: _requireString(data, 'upload_id'),
-      postId: _requireString(data, 'post_id'),
-      contentHash: _requireString(data, 'content_hash'),
-      receiptId: _requireString(data, 'receipt_id'),
-    );
+    return state == 'complete';
   }
 
   @override
@@ -1658,24 +1562,19 @@ class SquareApiClient
       'block_hash': blockHash,
       'tx_hash': txHash,
     }, session: session);
-    final hash = data['content_hash'];
-    final postCategory = data['post_category'];
-    if (data['is_ok'] != true ||
-        data['post_id'] != postId ||
-        hash is! String ||
-        !RegExp(r'^[0-9a-f]{64}$').hasMatch(hash) ||
-        !const {'normal', 'campaign'}.contains(postCategory)) {
-      throw const SquareApiException('发布确认回执不一致');
+    if (data['state'] == 'failed') {
+      throw const SquareApiException(
+        '发布交易最终失败，服务端正在清理本次上传',
+        errorCode: 'post_chain_failed',
+      );
     }
-    // 原确认只返回事实回执；沿既有详情入口读回一次，不猜造旧post结构或重发链交易。
-    final proof = await readPublishedProof(session: session, postId: postId);
-    if (proof.blockHash != blockHash ||
-        proof.txHash != txHash ||
-        proof.post.contentHash != hash ||
-        proof.post.postCategory.name != postCategory) {
-      throw const SquareApiException('发布确认与实际证明不一致');
-    }
-    return proof.post;
+    return _publishedProof(
+      data,
+      postId,
+      session,
+      txHash: txHash,
+      blockHash: blockHash,
+    ).post;
   }
 
   @override
@@ -1712,56 +1611,53 @@ class SquareApiClient
         .map((entry) => '${entry.key}=${Uri.encodeQueryComponent(entry.value)}')
         .join('&');
     final data = await _getJson('/8964/posts/self?$query', session: session);
-    final rawItems = data['posts'];
+    final rawItems = data['items'];
     if (data['is_ok'] != true || rawItems is! List || rawItems.length > limit) {
-      throw const SquareApiException('本人副本回灌 posts 不合法');
+      throw const SquareApiException('本人帖子分页无效');
     }
     final items = <SquareLocalPost>[];
-    for (final rawItem in rawItems) {
-      if (rawItem is! Map<String, dynamic>) {
-        throw const SquareApiException('本人副本回灌条目不合法');
-      }
-      final post = rawItem['post'];
+    for (final post in rawItems) {
       if (post is! Map<String, dynamic> ||
-          rawItem['content_hash'] != post['content_hash']) {
-        throw const SquareApiException('本人副本回灌元数据与原始内容摘要不一致');
+          post['cid_number'] != session.cidNumber) {
+        throw const SquareApiException('本人帖子归属不一致');
       }
-      final cidNumber = _requireExactString(post, 'cid_number');
-      if (cidNumber != session.cidNumber) {
-        throw const SquareApiException('本人副本回灌 CID 与当前会话不一致');
+      final postId = _requireExactString(post, 'post_id');
+      final request = http.Request(
+        'GET',
+        _uri('/8964/posts/${Uri.encodeComponent(postId)}/manifest'),
+      )..followRedirects = false;
+      final response = await _sendProtected(request, session);
+      if (response.statusCode != 200) {
+        await response.stream.listen(null).cancel();
+        throw SquareApiException('原始正文读取失败', statusCode: response.statusCode);
       }
-      final chainBlockValue = post['chain_block'];
-      final publishedAt = post['published_at'];
-      if ((chainBlockValue != null && chainBlockValue is! int) ||
-          publishedAt is! int) {
-        throw const SquareApiException('本人副本回灌区块或时间类型不合法');
+      final manifest = BytesBuilder(copy: false);
+      await for (final chunk in response.stream.timeout(
+        const Duration(seconds: 20),
+      )) {
+        if (manifest.length + chunk.length > 256 * 1024) {
+          throw const SquareApiException('原始正文大小超限');
+        }
+        manifest.add(chunk);
       }
-      final contentHash = _requireExactString(post, 'content_hash');
-      try {
-        items.add(
-          SquarePostStore.validate(
-            SquareLocalPost(
-              postId: _requireExactString(post, 'post_id'),
-              cidNumber: cidNumber,
-              accountId: _requireExactString(post, 'account_id'),
-              postCategory: _requireExactString(post, 'post_category'),
-              postType: _requireExactString(post, 'post_type'),
-              manifestBytes: _decodeManifest(
-                _requireExactString(rawItem, 'manifest_bytes_base64url'),
-              ),
-              contentHash: contentHash,
-              receiptId: _requireExactString(post, 'receipt_id'),
-              chainBlock: chainBlockValue as int?,
-              publishedAt: publishedAt,
-              postState: _requireExactString(post, 'post_state'),
-            ),
+      items.add(
+        SquarePostStore.validate(
+          SquareLocalPost(
+            postId: postId,
+            cidNumber: session.cidNumber,
+            accountId: _requireExactString(post, 'account_id'),
+            postCategory: _requireExactString(post, 'post_category'),
+            postType: _requireExactString(post, 'post_type'),
+            manifestBytes: manifest.takeBytes(),
+            contentHash: _requireExactString(post, 'content_hash'),
+            receiptId: _requireExactString(post, 'receipt_id'),
+            chainBlock: _nullableInt(post['chain_block']),
+            publishedAt: _asInt(post['published_at']),
+            postState: _requireExactString(post, 'post_state'),
           ),
-        );
-      } on SquarePostStoreException {
-        throw const SquareApiException('本人副本回灌内容校验失败');
-      }
+        ),
+      );
     }
-
     final rawNextCursor = data['next_cursor'];
     if (rawNextCursor != null &&
         (rawNextCursor is! String ||
@@ -1824,6 +1720,16 @@ class SquareApiClient
       '/8964/posts/${Uri.encodeComponent(postId)}',
       session: session,
     );
+    return _publishedProof(data, postId, session);
+  }
+
+  ({SquarePost post, String blockHash, String txHash}) _publishedProof(
+    Map<String, dynamic> data,
+    String postId,
+    SquareSession session, {
+    String? txHash,
+    String? blockHash,
+  }) {
     final raw = data['post'];
     if (raw is! Map<String, dynamic> ||
         raw['post_id'] != postId ||
@@ -1835,6 +1741,8 @@ class SquareApiClient
     final tx = raw['tx_hash'];
     if (block is! String ||
         tx is! String ||
+        (blockHash != null && blockHash != block) ||
+        (txHash != null && txHash != tx) ||
         !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(block) ||
         !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(tx)) {
       throw const SquareApiException('发布证明缺少区块或交易哈希');
@@ -1872,7 +1780,13 @@ class SquareApiClient
           if (item is! Map<String, dynamic>) {
             throw const SquareApiException('媒体详情条目损坏');
           }
-          return item;
+          return {
+            ...item,
+            'url': _resolveMediaUrl(_requireString(item, 'url')),
+            'preview_url': _resolveMediaUrl(
+              _requireString(item, 'preview_url'),
+            ),
+          };
         })
         .toList(growable: false);
   }
@@ -1909,7 +1823,7 @@ class SquareApiClient
       '/8964/feed/${feedKind.workerValue}?limit=$limit',
       session: session,
     );
-    final posts = data['posts'];
+    final posts = data['items'];
     if (posts is! List) {
       throw const SquareApiException('广场 feed 响应缺少内容列表');
     }
@@ -1974,12 +1888,12 @@ class SquareApiClient
 
   /// 按作者身份主键 cid_number 分页拉帖。[postCategory]/[postType]
   /// 为空表示不过滤；[cursor] 为上一页 nextCursor。
-  Future<({List<SquarePost> posts, int? nextCursor})> fetchAuthorPosts({
+  Future<({List<SquarePost> posts, String? nextCursor})> fetchAuthorPosts({
     required String cidNumber,
     SquarePostCategory? postCategory,
     SquarePostType? postType,
     int limit = 20,
-    int? cursor,
+    String? cursor,
     SquareSession? session,
   }) async {
     final params = <String, String>{'cid_number': cidNumber, 'limit': '$limit'};
@@ -1990,13 +1904,13 @@ class SquareApiClient
       params['post_type'] = postType.workerValue;
     }
     if (cursor != null) {
-      params['cursor'] = '$cursor';
+      params['cursor'] = cursor;
     }
     final query = params.entries
         .map((entry) => '${entry.key}=${Uri.encodeQueryComponent(entry.value)}')
         .join('&');
     final data = await _getJson('/8964/posts?$query', session: session);
-    final posts = data['posts'];
+    final posts = data['items'];
     if (posts is! List) {
       throw const SquareApiException('用户主页响应缺少内容列表');
     }
@@ -2005,7 +1919,7 @@ class SquareApiClient
           .whereType<Map<String, dynamic>>()
           .map(_parsePost)
           .toList(growable: false),
-      nextCursor: _nullableInt(data['next_cursor']),
+      nextCursor: data['next_cursor'] as String?,
     );
   }
 
@@ -2309,11 +2223,11 @@ class SquareApiClient
 
   /// 拉取关注、关注者或互关列表（路由末段 = 目标身份主键 cid_number；列表项为
   /// 目标身份主键 peer_cid）。
-  Future<({List<SquareFollowEntry> entries, int? nextCursor})> fetchFollows({
+  Future<({List<SquareFollowEntry> entries, String? nextCursor})> fetchFollows({
     required String cidNumber,
     required String type,
     int limit = 20,
-    int? cursor,
+    String? cursor,
     SquareSession? session,
   }) async {
     final params = <String, String>{
@@ -2322,13 +2236,13 @@ class SquareApiClient
       'limit': '$limit',
     };
     if (cursor != null) {
-      params['cursor'] = '$cursor';
+      params['cursor'] = cursor;
     }
     final query = params.entries
         .map((entry) => '${entry.key}=${Uri.encodeQueryComponent(entry.value)}')
         .join('&');
     final data = await _getJson('/8964/follows?$query', session: session);
-    final rawEntries = data['entries'];
+    final rawEntries = data['items'];
     if (rawEntries is! List) {
       throw const SquareApiException('关注列表响应缺少 entries 列表');
     }
@@ -2337,7 +2251,7 @@ class SquareApiClient
           .whereType<Map<String, dynamic>>()
           .map(SquareFollowEntry.fromJson)
           .toList(growable: false),
-      nextCursor: _nullableInt(data['next_cursor']),
+      nextCursor: data['next_cursor'] as String?,
     );
   }
 
@@ -3026,12 +2940,11 @@ class SquareApiClient
   Future<void> _uploadFileToR2({
     required SquareSession session,
     required String uploadUrl,
-    required String filePath,
+    required Stream<List<int>> Function() body,
     required int contentLength,
     required Map<String, String> headers,
   }) async {
-    final file = File(filePath);
-    if (contentLength <= 0 || await file.length() != contentLength) {
+    if (contentLength <= 0) {
       throw const SquareApiException('媒体实际大小与上传授权不一致');
     }
     final uri = Uri.parse(uploadUrl);
@@ -3068,7 +2981,7 @@ class SquareApiClient
         responseFuture.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
       );
       await request.sink.addStream(
-        file.openRead().asyncMap((bytes) async {
+        body().asyncMap((bytes) async {
           await session.validateCurrent();
           return bytes;
         }),
@@ -3080,7 +2993,9 @@ class SquareApiClient
         accepted: response.statusCode >= 200 && response.statusCode < 300,
       );
       await session.validateCurrent();
-      if (response.statusCode < 200 || response.statusCode >= 300) {
+      // 条件写回执可能丢失。原键已有对象时交给 complete 验证原大小和哈希。
+      if (response.statusCode != 412 &&
+          (response.statusCode < 200 || response.statusCode >= 300)) {
         await response.stream.drain<void>();
         throw SquareApiException('媒体上传失败', statusCode: response.statusCode);
       }
@@ -3127,6 +3042,8 @@ class SquareApiClient
 
   String _resolveMediaUrl(String value) {
     if (value.isEmpty) return '';
+    if (value.startsWith('/square/'))
+      return '${CitizenServeApiConfig.mediaOrigin}$value';
     final uri = Uri.tryParse(value);
     if (uri != null && uri.hasScheme && uri.host.isNotEmpty) {
       return value;
@@ -3155,24 +3072,6 @@ class SquareApiClient
   }
 
   /// 只接受服务端规范的无填充Base64URL，原始manifest字节不改写。
-  static Uint8List _decodeManifest(String value) {
-    if (value.isEmpty || !RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(value)) {
-      throw const SquareApiException('manifest_bytes_base64url 不合法');
-    }
-    try {
-      final bytes = base64Url.decode(base64Url.normalize(value));
-      if (bytes.isEmpty ||
-          bytes.length > 256 * 1024 ||
-          base64Url.encode(bytes).replaceAll('=', '') != value) {
-        throw const SquareApiException('manifest_bytes_base64url 不合法');
-      }
-      return bytes;
-    } on SquareApiException {
-      rethrow;
-    } on Object {
-      throw const SquareApiException('manifest_bytes_base64url 不合法');
-    }
-  }
 
   static int _asInt(Object? value) {
     if (value is int) return value;

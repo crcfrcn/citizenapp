@@ -303,10 +303,25 @@ export async function assembleProject(environment,io={}){
  const execute=io.execFileSync||execFileSync;
 const root = environment.GITHUB_WORKSPACE, work = environment.WORK;
 const project = join(work, 'project');
+// 取当前工作树的源码，插件登记与本机配置交给本轮工程生成。
+const listed = execute('git', ['-C', root, 'ls-files', '--cached', '--others', '--exclude-standard', '-z'],
+    {encoding: 'utf8', env: environment});
+const files = [...new Set(listed.split('\0').filter(Boolean))].filter(entry => existsSync(join(root, entry)));
+const directoryCounts = new Map();
+for (const entry of files) {
+    if (entry.split('/').length > 4) throw Error('源码目录超过三层：' + dirname(entry));
+    for (let directory = dirname(entry); directory !== '.'; directory = dirname(directory)) {
+        directoryCounts.set(directory, (directoryCounts.get(directory) || 0) + 1);
+    }
+}
+for (const [directory, count] of directoryCounts) {
+    if (count === 1) throw Error('源码目录只有一个文件：' + directory);
+}
 mkdirSync(project);
-for (const entry of readdirSync(root)) {
-    if (['target', '.git', '.dart_tool', 'build', '.gradle'].includes(entry)) continue;
-    cpSync(join(root, entry), join(project, entry), {recursive: true});
+for (const entry of files) {
+    const destination = join(project, entry);
+    mkdirSync(dirname(destination), {recursive: true});
+    cpSync(join(root, entry), destination);
 }
 let declaration = readFileSync(join(project, 'pubspec.yaml'), 'utf8');
 let lock = readFileSync(join(project, 'pubspec.lock'), 'utf8');

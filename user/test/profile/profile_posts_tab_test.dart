@@ -140,16 +140,16 @@ class _IdentityUnavailableSessionProvider implements SquareSessionProvider {
 class _PendingAuthorPostsApi extends FakeProfileApi {
   _PendingAuthorPostsApi() : super(sampleProfile());
 
-  final Completer<({List<SquarePost> posts, int? nextCursor})> completer =
+  final Completer<({List<SquarePost> posts, String? nextCursor})> completer =
       Completer();
 
   @override
-  Future<({List<SquarePost> posts, int? nextCursor})> fetchAuthorPosts(
+  Future<({List<SquarePost> posts, String? nextCursor})> fetchAuthorPosts(
     String cidNumber, {
     SquarePostCategory? category,
     SquarePostType? postType,
     int limit = 20,
-    int? cursor,
+    String? cursor,
     SquareSession? session,
   }) => completer.future;
 }

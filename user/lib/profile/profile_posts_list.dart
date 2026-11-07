@@ -71,7 +71,7 @@ class _ProfilePostsTabState extends State<ProfilePostsTab> {
       SquareLocalPostPresenter();
 
   final List<SquarePost> _posts = [];
-  int? _cursor;
+  String? _cursor;
   bool _loading = false;
   bool _done = false;
   bool _failedFirst = false;
@@ -236,12 +236,12 @@ class _ProfilePostsTabState extends State<ProfilePostsTab> {
   }
 
   /// 按当前 Tab 契约拉一页；401 只委托上层刷新一次 Session，第二次失败直接上抛。
-  Future<({List<SquarePost> posts, int? nextCursor})?> _fetchRemotePage({
+  Future<({List<SquarePost> posts, String? nextCursor})?> _fetchRemotePage({
     required int generation,
     required SquareSession session,
-    int? cursor,
+    String? cursor,
   }) async {
-    Future<({List<SquarePost> posts, int? nextCursor})> request(
+    Future<({List<SquarePost> posts, String? nextCursor})> request(
       SquareSession activeSession,
     ) {
       return widget.api.fetchAuthorPosts(

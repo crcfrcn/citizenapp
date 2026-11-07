@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:citizen_storage/social_isar.dart' as social_store show Publish;
@@ -220,80 +221,65 @@ class SquarePublishService {
           session.accountId != pending.accountId) {
         throw const SquarePublishException('发布恢复会话与原发布归属不一致');
       }
-      if (pending.jobState == 'submitting') {
-        // 进程可能在交易提交后退出。只查询已有发布证明，绝不再次签名或提交。
-        final proof = await _publicationConfirmer.readPublishedProof(
-          session: session,
-          postId: pending.postId,
-        );
-        _recordConfirmation(pending, proof.post);
-        pending
-          ..blockHash = proof.blockHash
-          ..txHash = proof.txHash
-          ..jobState = 'finalized';
-        await _postStore.savePublication(pending);
-        pending.jobState = 'confirmed';
-        await _postStore.savePublication(pending);
-        final warning = await _finishLocal(pending);
-        return SquarePublishResult(
-          post: proof.post,
-          txHash: proof.txHash,
-          blockHash: proof.blockHash,
-          completionWarning: warning,
-        );
+      final evidence = pending.blockHash == null
+          ? await _chainService.recoverPost(
+              accountId: pending.accountId,
+              postId: pending.postId,
+              postType: SquarePostType.values.byName(pending.postType),
+              contentHash: pending.contentHash,
+              receiptId: pending.receiptId,
+            )
+          : SquareChainPublishedResult(
+              txHash: pending.txHash!,
+              blockHash: pending.blockHash!,
+            );
+      final tx = pending.txHash ?? evidence?.txHash;
+      if (tx == null || (evidence != null && evidence.txHash != tx)) {
+        throw const SquarePublishException('正在核对原发布交易，请稍后继续');
       }
-      if (pending.jobState == 'finalized') {
-        final post = await _publicationConfirmer.confirmPublishedPost(
-          session: session,
-          postId: pending.postId,
-          blockHash: pending.blockHash!,
-          txHash: pending.txHash!,
-        );
-        _recordConfirmation(pending, post);
-        await _postStore.savePublication(pending);
-        final warning = await _finishLocal(pending);
-        return SquarePublishResult(
-          post: post,
-          txHash: pending.txHash!,
-          blockHash: pending.blockHash!,
-          completionWarning: warning,
-        );
+      if (pending.jobState == 'finalized' && evidence != null) {
+        return _confirm(pending, session, evidence, onStage);
       }
-      // 尚未进入交易的遗留准备可先由服务端核实释放，再重新准备当前草稿。
-      await _publicationConfirmer.abortUpload(
-        session: session,
-        uploadId: pending.uploadId,
-      );
-      await _postStore.discardPublication(
-        pending.cidNumber,
-        draftId,
+      pending.txHash = tx;
+      await _postStore.savePublication(pending);
+      final prepared = await _uploadService.resumePreparedContent(
+        session,
         pending.postId,
+        pending.contentHash,
+        Uint8List.fromList(pending.manifestBytes),
       );
-    }
-
-    social_store.Publish? publication;
-    SquarePreparedContent? prepared;
-    SquareUploadedContent? uploaded;
-    SquareChainPublishedResult? chainResult;
-    var chainExecutionStarted = false;
-    try {
-      prepared = await _uploadService.preparePostContent(
-        accountId: identity.accountId,
-        postType: postType,
-        text: trimmedText,
-        mediaDrafts: mediaDrafts,
-        sessionForAccount: sessionForAccount,
-        title: title,
-        contentSections: contentSections,
+      await _uploadService.uploadPreparedContent(
+        prepared,
+        txHash: tx,
         onStage: onStage,
       );
+      if (evidence == null || evidence.blockHash.isEmpty) {
+        throw const SquarePublishException('上传已完成，等待原交易最终确认');
+      }
+      return _confirm(pending, session, evidence, onStage);
+    }
 
+    final prepared = await _uploadService.preparePostContent(
+      accountId: identity.accountId,
+      postType: postType,
+      text: trimmedText,
+      mediaDrafts: mediaDrafts,
+      sessionForAccount: sessionForAccount,
+      title: title,
+      contentSections: contentSections,
+      onStage: onStage,
+    );
+    social_store.Publish? publication;
+    try {
       if (prepared.session.accountId != verified.accountId ||
           prepared.session.cidNumber != snapshot.cidNumber ||
           prepared.session.bindRev != snapshot.bindRev) {
         throw const SquarePublishException('发布会话与已验证身份不一致，请重新操作');
       }
-      publication = social_store.Publish()
+      onStage?.call(SquarePublishStage.checkingBalance);
+      await _ensurePublishBalance(identity.accountId);
+      await _identityResolver.assertCurrent(verified);
+      final row = social_store.Publish()
         ..cidNumber = prepared.session.cidNumber
         ..draftId = draftId
         ..accountId = identity.accountId
@@ -301,147 +287,129 @@ class SquarePublishService {
         ..postType = postType.workerValue
         ..contentHash = prepared.contentHash
         ..receiptId = prepared.receiptId
-        ..uploadId = prepared.preparedUpload.uploadId
+        ..uploadId = prepared.postId
         ..manifestBytes = prepared.manifestBytes
-        ..jobState = 'prepared'
+        ..jobState = 'submitting'
         ..replaceId = replaceId;
       await _postStore.savePublication(
-        publication,
+        row,
         references: prepared.mediaReferences,
       );
-      uploaded = await _uploadService.uploadPreparedContent(
-        prepared,
-        onStage: onStage,
-      );
+      publication = row;
 
-      // 只有所有 Cloudflare 内容已完整落盘后才进入唯一链上阶段；余额、nonce、metadata、
-      // runtime 版本与最终生物识别签名全部集中在这里读取和执行。
-      onStage?.call(SquarePublishStage.checkingBalance);
-      await _ensurePublishBalance(identity.accountId);
+      final signed = Completer<String>();
+      void observe(String hash) {
+        if (!signed.isCompleted) signed.complete(hash);
+      }
+
+      final upload = signed.future.then((hash) async {
+        row.txHash = hash;
+        await _postStore.savePublication(row);
+        return _uploadService.uploadPreparedContent(
+          prepared,
+          txHash: hash,
+          onStage: onStage,
+        );
+      });
       onStage?.call(SquarePublishStage.submittingChain);
-      await _identityResolver.assertCurrent(verified);
-      publication.jobState = 'submitting';
-      await _postStore.savePublication(publication);
-      chainExecutionStarted = true;
-      final chainFuture = _chainService.publishPost(
-        signerPublicKey: SquareChainService.hexDecode(identity.accountId),
-        postId: prepared.postId,
-        postType: postType,
-        contentHashHex: prepared.contentHash,
-        receiptId: prepared.receiptId,
-        externalSigning: externalSigning,
-      );
-      // CitizenSDK 接管交易观察并只在 Runtime finalized 终态返回；App 不再
-      // 自建交易池监听，只把这段唯一等待期映射到现有发布进度 UI。
-      onStage?.call(SquarePublishStage.waitingInBlock);
-      chainResult = await chainFuture;
-      publication
-        ..jobState = 'finalized'
-        ..txHash = chainResult.txHash
-        ..blockHash = chainResult.blockHash;
-      await _postStore.savePublication(publication);
-
-      onStage?.call(SquarePublishStage.confirmingPost);
-      final confirmedPost = await _publicationConfirmer.confirmPublishedPost(
-        session: uploaded.session,
-        postId: uploaded.postId,
-        blockHash: chainResult.blockHash,
-        txHash: chainResult.txHash,
-      );
-
-      final localCopyWarning = await _saveLocalCopyAfterSuccess(
-        publication: publication,
-        identity: identity,
-        session: uploaded.session,
-        prepared: prepared,
-        confirmedPost: confirmedPost,
-        postType: postType,
-      );
-      final cleanupWarning = await _deleteReplacedPostAfterSuccess(
-        session: uploaded.session,
-        newPostId: uploaded.postId,
-        replaceId: replaceId,
-      );
-      final completionWarning = <String>[
-        ?localCopyWarning,
-        ?cleanupWarning,
-      ].join('\n');
-      onStage?.call(SquarePublishStage.completed);
-      return SquarePublishResult(
-        post: confirmedPost,
-        txHash: chainResult.txHash,
-        blockHash: chainResult.blockHash,
-        completionWarning: completionWarning.isEmpty ? null : completionWarning,
-      );
+      final chain =
+          Future.sync(
+            () => _chainService.publishPost(
+              signerPublicKey: SquareChainService.hexDecode(identity.accountId),
+              postId: prepared.postId,
+              postType: postType,
+              contentHashHex: prepared.contentHash,
+              receiptId: prepared.receiptId,
+              externalSigning: externalSigning,
+              onSigned: observe,
+            ),
+          ).then(
+            (result) {
+              observe(result.txHash);
+              return result;
+            },
+            onError: (Object e, StackTrace stack) {
+              if (!signed.isCompleted) signed.completeError(e, stack);
+              Error.throwWithStackTrace(e, stack);
+            },
+          );
+      // 两路独立启动，只在上传和原交易最终结果齐备时请求服务端确认。
+      final results = await Future.wait<Object>([chain, upload]);
+      final evidence = results.first as SquareChainPublishedResult;
+      return await _confirm(row, prepared.session, evidence, onStage);
     } catch (e) {
-      var temporaryWarning = '';
-      if (prepared != null && uploaded == null) {
-        try {
-          await prepared.deleteTemporaryMedia();
-        } catch (_) {
-          temporaryWarning = '\n临时处理文件尚未清理';
-        }
-      }
-      // 已完成上传但尚未取得 finalized 发布结果时，必须请求 Worker 再查链后硬清理。
-      // confirm 失败时 chainResult 已存在，保留云端正文供同一 finalized 事实重试确认。
-      final chainFailureAllowsAbort =
-          e is SquareChainPublishException && e.canAbortUpload;
-      final canAbortUpload = !chainExecutionStarted || chainFailureAllowsAbort;
-      if (prepared != null && chainResult == null && canAbortUpload) {
-        try {
-          await _publicationConfirmer.abortUpload(
-            session: prepared.session,
-            uploadId: prepared.preparedUpload.uploadId,
-          );
-          await _postStore.discardPublication(
-            prepared.session.cidNumber,
-            draftId,
-            prepared.postId,
-            definitiveFailure: chainFailureAllowsAbort,
-          );
-        } catch (cleanupError) {
-          throw SquarePublishException(
-            '${_messageOf(e)}\n孤儿上传清理失败：${_messageOf(cleanupError)}',
-          );
-        }
-      }
-      if (uploaded != null && chainResult == null && !canAbortUpload) {
-        throw SquarePublishException(
-          '${_messageOf(e)}\n交易终态尚未确定，上传内容已保留，禁止重复发布',
+      if (publication != null &&
+          publication.txHash == null &&
+          e is SquareChainPublishException &&
+          e.canAbortUpload) {
+        await _postStore.discardPublication(
+          publication.cidNumber,
+          draftId,
+          publication.postId,
+          definitiveFailure: true,
         );
       }
-      // 发布前已保存草稿，失败时不以自动保存覆盖本次恢复事实。
-      throw SquarePublishException('${_messageOf(e)}$temporaryWarning');
+      throw SquarePublishException(_messageOf(e));
+    } finally {
+      await prepared.deleteTemporaryMedia();
     }
   }
 
-  Future<String?> _saveLocalCopyAfterSuccess({
-    required social_store.Publish publication,
-    required SquareIdentityState identity,
-    required SquareSession session,
-    required SquarePreparedContent prepared,
-    required SquarePost confirmedPost,
-    required SquarePostType postType,
-  }) async {
-    try {
-      if (confirmedPost.postId != prepared.postId ||
-          confirmedPost.author.cidNumber != session.cidNumber ||
-          confirmedPost.author.accountId != identity.accountId ||
-          session.accountId != identity.accountId ||
-          confirmedPost.postType != postType ||
-          confirmedPost.contentHash != prepared.contentHash ||
-          confirmedPost.receiptId != prepared.receiptId) {
-        throw const SquarePostStoreException('发布确认字段与本地 manifest 不一致');
-      }
-      _recordConfirmation(publication, confirmedPost);
-      await _postStore.savePublication(publication);
-      return await _finishLocal(publication);
-    } catch (error) {
-      // 链上和 Worker 已确认后绝不能把本地磁盘失败包装成“发布失败”供用户重试，
-      // 否则会重复扣费、重复发帖；持久恢复行保留，用户重试只收尾，不后台回灌。
-      AppLog.d('[SquarePublishService] local copy pending: $error');
-      return '内容已发布，本地收尾尚未完成；请从草稿重试恢复，不会重复发布';
+  Future<SquarePublishResult> _confirm(
+    social_store.Publish row,
+    SquareSession session,
+    SquareChainPublishedResult evidence,
+    void Function(SquarePublishStage)? onStage,
+  ) async {
+    if (row.txHash != evidence.txHash || evidence.blockHash.isEmpty) {
+      throw const SquarePublishException('原发布交易最终证明不完整');
     }
+    row
+      ..blockHash = evidence.blockHash
+      ..jobState = 'finalized';
+    await _postStore.savePublication(row);
+    onStage?.call(SquarePublishStage.confirmingPost);
+    late final SquarePost post;
+    try {
+      post = await _publicationConfirmer.confirmPublishedPost(
+        session: session,
+        postId: row.postId,
+        blockHash: evidence.blockHash,
+        txHash: evidence.txHash,
+      );
+    } on SquareApiException catch (e) {
+      if (e.errorCode == 'post_chain_failed') {
+        await _postStore.discardPublication(
+          row.cidNumber,
+          row.draftId,
+          row.postId,
+          definitiveFailure: true,
+        );
+      }
+      rethrow;
+    }
+    _recordConfirmation(row, post);
+    String? warning;
+    try {
+      await _postStore.savePublication(row);
+      warning = await _finishLocal(row);
+    } catch (e) {
+      AppLog.d('[SquarePublishService] local copy pending: $e');
+      warning = '内容已发布，本地收尾尚未完成';
+    }
+    final cleanup = await _deleteReplacedPostAfterSuccess(
+      session: session,
+      newPostId: row.postId,
+      replaceId: row.replaceId,
+    );
+    final warnings = <String>[?warning, ?cleanup].join('\n');
+    onStage?.call(SquarePublishStage.completed);
+    return SquarePublishResult(
+      post: post,
+      txHash: evidence.txHash,
+      blockHash: evidence.blockHash,
+      completionWarning: warnings.isEmpty ? null : warnings,
+    );
   }
 
   Future<String?> _finishLocal(social_store.Publish row) async {

@@ -252,9 +252,8 @@ class SquarePostStore
             current.receiptId != row.receiptId ||
             current.uploadId != row.uploadId ||
             current.replaceId != row.replaceId ||
-            (old >= 2 &&
-                (current.txHash != row.txHash ||
-                    current.blockHash != row.blockHash)) ||
+            (current.txHash != null && current.txHash != row.txHash) ||
+            (old >= 2 && current.blockHash != row.blockHash) ||
             (old >= 3 &&
                 (current.publishedAt != row.publishedAt ||
                     current.postCategory != row.postCategory ||
@@ -264,14 +263,16 @@ class SquarePostStore
           throw const SquarePostStoreException('发布恢复记录禁止覆盖或倒退');
         }
         row.rowId = current.rowId;
-      } else if (next != 0 || references == null) {
+      } else if (next > 1 || references == null) {
         throw const SquarePostStoreException('发布恢复记录缺少准备阶段');
       } else {
         // 调用方传来的数据库行号不能覆盖其它 CID 的记录。
         row.rowId = Isar.autoIncrement;
       }
       if (references != null) {
-        if (next != 0) throw const SquarePostStoreException('提交后不能替换发布媒体');
+        if (current != null && next != 0) {
+          throw const SquarePostStoreException('提交后不能替换发布媒体');
+        }
         await SquareMediaStore.replaceReferencesInTransaction(
           db,
           cidNumber: row.cidNumber,
@@ -337,7 +338,8 @@ class SquarePostStore
       if (row == null) return;
       if (row.postId != postId ||
           (row.jobState != 'prepared' &&
-              !(definitiveFailure && row.jobState == 'submitting'))) {
+              !(definitiveFailure &&
+                  {'submitting', 'finalized'}.contains(row.jobState)))) {
         throw const SquarePostStoreException('交易未明确失败，不能丢弃发布记录');
       }
       await SquareMediaStore.removeContentInTransaction(

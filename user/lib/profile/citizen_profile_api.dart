@@ -151,12 +151,12 @@ class CitizenProfileApi {
   }
 
   /// 按作者身份主键 cid_number 分页拉帖；[postType] 由 Worker 在分页前过滤。
-  Future<({List<SquarePost> posts, int? nextCursor})> fetchAuthorPosts(
+  Future<({List<SquarePost> posts, String? nextCursor})> fetchAuthorPosts(
     String cidNumber, {
     SquarePostCategory? category,
     SquarePostType? postType,
     int limit = 20,
-    int? cursor,
+    String? cursor,
     SquareSession? session,
   }) {
     return _client.fetchAuthorPosts(
@@ -207,11 +207,11 @@ class CitizenProfileApi {
   }
 
   /// 拉取关注、关注者或互关列表（目标身份主键 cid_number；列表项也是 cid_number）。
-  Future<({List<SquareFollowEntry> entries, int? nextCursor})> fetchFollows(
+  Future<({List<SquareFollowEntry> entries, String? nextCursor})> fetchFollows(
     String cidNumber, {
     required String type,
     int limit = 20,
-    int? cursor,
+    String? cursor,
     SquareSession? session,
   }) {
     return _client.fetchFollows(

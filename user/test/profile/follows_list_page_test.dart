@@ -15,15 +15,15 @@ import 'package:citizen_testing/fake_profile.dart';
 class _PendingFollowsApi extends FakeProfileApi {
   _PendingFollowsApi() : super(sampleProfile());
 
-  final Completer<({List<SquareFollowEntry> entries, int? nextCursor})>
+  final Completer<({List<SquareFollowEntry> entries, String? nextCursor})>
   completer = Completer();
 
   @override
-  Future<({List<SquareFollowEntry> entries, int? nextCursor})> fetchFollows(
+  Future<({List<SquareFollowEntry> entries, String? nextCursor})> fetchFollows(
     String cidNumber, {
     required String type,
     int limit = 20,
-    int? cursor,
+    String? cursor,
     SquareSession? session,
   }) => completer.future;
 }

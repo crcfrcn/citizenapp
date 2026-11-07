@@ -173,12 +173,12 @@ class FakeProfileApi extends CitizenProfileApi {
   }
 
   @override
-  Future<({List<SquarePost> posts, int? nextCursor})> fetchAuthorPosts(
+  Future<({List<SquarePost> posts, String? nextCursor})> fetchAuthorPosts(
     String cidNumber, {
     SquarePostCategory? category,
     SquarePostType? postType,
     int limit = 20,
-    int? cursor,
+    String? cursor,
     SquareSession? session,
   }) async {
     authorPostCalls++;
@@ -247,11 +247,11 @@ class FakeProfileApi extends CitizenProfileApi {
   }
 
   @override
-  Future<({List<SquareFollowEntry> entries, int? nextCursor})> fetchFollows(
+  Future<({List<SquareFollowEntry> entries, String? nextCursor})> fetchFollows(
     String cidNumber, {
     required String type,
     int limit = 20,
-    int? cursor,
+    String? cursor,
     SquareSession? session,
   }) async {
     lastFollowsType = type;

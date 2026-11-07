@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -12,6 +13,109 @@ import 'package:citizen_user/identity/citizen_identity_chain_reader.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 
 void main() {
+  for (final cold in [false, true]) {
+    test('${cold ? "冷" : "热"}钱包已签记录在最终回执前触发上传', () async {
+      final events = StreamController<CitizenSdkEvent>.broadcast();
+      addTearDown(events.close);
+      final terminal = Completer<CitizenTransactionExecutionCompleted>();
+      final running = Completer<void>();
+      final observed = Completer<String>();
+      final hash = Uint8List.fromList(List.filled(32, 0xab));
+      final from = Uint8List.fromList(List.filled(32, 0xcd));
+      final call = Uint8List.fromList(List.filled(32, 0xef));
+      final block = CitizenBlockRef(
+        hash: '0x${'23' * 32}',
+        number: BigInt.one,
+        finality: CitizenBlockFinality.finalized,
+      );
+      var records = <CitizenTransactionHistoryRecord>[];
+      final service = SquareChainService(
+        events: events.stream,
+        recent: () async => CitizenTransactionHistoryPage(
+          revision: BigInt.one,
+          records: records,
+          nextBeforeExecutionId: null,
+        ),
+        prepareTransaction: (_, _) async => CitizenPreparedTransaction(
+          preparationId: 'p',
+          sourceAccountId: from,
+          callDataHash: call,
+          bestBlock: block,
+          runtimeSpecNumber: 1,
+          transactionFormatNumber: 1,
+          nonce: BigInt.zero,
+        ),
+        executePreparedTransaction: (_) async {
+          if (cold)
+            return CitizenTransactionExternalSigningPending(
+              executionId: 'e',
+              sourceAccountId: from,
+              callDataHash: call,
+              qrRequest: 'qr',
+              expiresAt: DateTime.now().add(const Duration(minutes: 1)),
+            );
+          running.complete();
+          return terminal.future;
+        },
+        consumePreparedTransactionQrResponse: (_, _) {
+          running.complete();
+          return terminal.future;
+        },
+      );
+      final publish = service.publishPost(
+        signerPublicKey: from,
+        postId: 'post',
+        postType: SquarePostType.document,
+        contentHashHex: '12' * 32,
+        receiptId: 'post',
+        externalSigning: (_) async => 'qr',
+        onSigned: observed.complete,
+      );
+      await running.future;
+      expect(observed.isCompleted, isFalse);
+      records = [
+        CitizenTransactionHistoryRecord(
+          executionId: 'e',
+          sourceAccountId: '0x${'cd' * 32}',
+          callDataHash: 'ef' * 32,
+          transactionHash: 'ab' * 32,
+          status: CitizenTransactionHistoryStatus.pending,
+          block: null,
+          execution: null,
+          replacementHash: null,
+          createdAtMillis: BigInt.one,
+          updatedAtMillis: BigInt.one,
+          poolRejectionReason: null,
+        ),
+      ];
+      events.add(const CitizenSdkHistoryChanged(sequence: 1));
+      expect(
+        await observed.future.timeout(const Duration(seconds: 2)),
+        '0x${'ab' * 32}',
+      );
+      expect(terminal.isCompleted, isFalse);
+      terminal.complete(
+        CitizenTransactionExecutionCompleted(
+          executionId: 'e',
+          sourceAccountId: from,
+          callDataHash: call,
+          transactionHash: hash,
+          resolution: CitizenTransactionResolution.finalizedSuccess,
+          execution: CitizenExecution(
+            status: CitizenExecutionStatus.success,
+            block: block,
+            extrinsicIndex: 0,
+            dispatchVariant: null,
+            palletIndex: null,
+            errorIndex: null,
+          ),
+          poolRejectionReason: null,
+          replacementHash: null,
+        ),
+      );
+      expect((await publish).blockHash, block.hash);
+    });
+  }
   test('publish_post call_data 与 runtime 下标和字段顺序一致', () {
     final hashHex = List<int>.generate(
       32,

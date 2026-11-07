@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:ffi';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -13,6 +15,25 @@ CitizenSdkTestFixture _acquireFixture() {
   if (current != null) {
     _fixtureUsers++;
     return current;
+  }
+  final path = CitizenSdkTestFixture.path;
+  final work = Platform.environment['CITIZENSDK_TEST_WORK_DIR'];
+  if (path == null ||
+      !File(path).isAbsolute ||
+      !File(path).existsSync() ||
+      work == null ||
+      !Directory(work).isAbsolute ||
+      !Directory(work).existsSync()) {
+    throw StateError('通过 App 宿主测试入口交付原生 SDK 夹具和独占工作目录。');
+  }
+  if (Platform.isMacOS) {
+    const symbol = 'citizensdk_test_open';
+    final binary = DynamicLibrary.open(path);
+    final process = DynamicLibrary.process();
+    if (!process.providesSymbol(symbol) ||
+        process.lookup<Void>(symbol) != binary.lookup<Void>(symbol)) {
+      throw StateError('通过 App 宿主测试入口预载同一 SDK 原生夹具。');
+    }
   }
   final created = CitizenSdkTestFixture()..install();
   _activeFixture = created;
@@ -39,21 +60,14 @@ class TestCitizenSdkHarness {
   }) {
     TestWidgetsFlutterBinding.ensureInitialized();
     setUp(() async {
-      fixture = _acquireFixture();
-      fixture.physicalUi = fixture.physicalUi || physicalUi;
-      sdk = await CitizenSdk.open(modules: modules);
-      if ((modules & (CitizenSdkModules.wallet | CitizenSdkModules.signing)) !=
-          0) {
-        expect(fixture.vault(fixture.handles.values.last, vaultMode), 0);
-      }
+      final opened = await openTestSdk(
+        modules: modules,
+        vaultMode: vaultMode,
+        physicalUi: physicalUi,
+      );
+      fixture = opened.fixture;
+      sdk = opened.sdk;
       await initialize?.call(sdk);
-    });
-    tearDown(() async {
-      try {
-        await sdk.close();
-      } finally {
-        await _releaseFixture(fixture);
-      }
     });
   }
   late CitizenSdkTestFixture fixture;
@@ -68,18 +82,20 @@ Future<({CitizenSdk sdk, CitizenSdkTestFixture fixture})> openTestSdk({
 }) async {
   TestWidgetsFlutterBinding.ensureInitialized();
   final fixture = _acquireFixture();
-  fixture.physicalUi = fixture.physicalUi || physicalUi;
-  final sdk = await CitizenSdk.open(modules: modules);
-  if ((modules & (CitizenSdkModules.wallet | CitizenSdkModules.signing)) != 0) {
-    expect(fixture.vault(fixture.handles.values.last, vaultMode), 0);
-  }
+  CitizenSdk? session;
   addTearDown(() async {
     try {
-      await sdk.close();
+      await session?.close();
     } finally {
       await _releaseFixture(fixture);
     }
   });
+  fixture.physicalUi = fixture.physicalUi || physicalUi;
+  final sdk = await CitizenSdk.open(modules: modules);
+  session = sdk;
+  if ((modules & (CitizenSdkModules.wallet | CitizenSdkModules.signing)) != 0) {
+    expect(fixture.vault(fixture.handles.values.last, vaultMode), 0);
+  }
   return (sdk: sdk, fixture: fixture);
 }
 

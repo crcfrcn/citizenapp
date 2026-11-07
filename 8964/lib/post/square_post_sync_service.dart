@@ -310,9 +310,6 @@ class SquarePostSyncService {
       if (page.items.length > pageSize) {
         throw const SquarePostStoreException('本人副本回灌页超过客户端上限');
       }
-      if (page.items.isEmpty && page.nextCursor != null) {
-        throw const SquarePostStoreException('空回灌页不得携带下一页游标');
-      }
 
       for (final item in page.items) {
         if (item.cidNumber != session.cidNumber) {
@@ -322,7 +319,7 @@ class SquarePostSyncService {
         if (previous != null &&
             (item.publishedAt > previous.publishedAt ||
                 (item.publishedAt == previous.publishedAt &&
-                    item.postId.compareTo(previous.postId) >= 0))) {
+                    item.postId.compareTo(previous.postId) <= 0))) {
           throw const SquarePostStoreException('本人副本回灌顺序不稳定');
         }
         previousItem = item;
