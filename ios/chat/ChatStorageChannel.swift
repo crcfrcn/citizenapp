@@ -1,13 +1,13 @@
 import Flutter
 import Foundation
 import Darwin
-import ChatOpenMLS
+import MLS
 
 final class ChatStorageChannel {
   private let securityChannel: FlutterMethodChannel
   init(binaryMessenger: FlutterBinaryMessenger) {
     // 空指针释放无状态，用真实符号引用保证 App 装载这一份 OpenMLS 动态库。
-    chat_openmls_free_string(nil)
+    mls_free_string(nil)
     securityChannel = FlutterMethodChannel(name: "citizenapp/chat/storage", binaryMessenger: binaryMessenger,
       codec: FlutterStandardMethodCodec.sharedInstance(), taskQueue: binaryMessenger.makeBackgroundTaskQueue?())
     securityChannel.setMethodCallHandler { call, result in

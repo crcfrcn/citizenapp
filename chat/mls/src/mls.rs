@@ -162,9 +162,9 @@ impl OpenMlsTraitsProvider for MlsProvider {
 ///
 /// # Safety
 /// - `request_json` 必须是合法 UTF-8 C 字符串。
-/// - 返回字符串必须由 `chat_openmls_free_string` 释放。
+/// - 返回字符串必须由 `mls_free_string` 释放。
 #[no_mangle]
-pub unsafe extern "C" fn chat_openmls_create_key_package_json(
+pub unsafe extern "C" fn mls_create_key_package_json(
     request_json: *const c_char,
     error_out: *mut *mut c_char,
 ) -> *mut c_char {
@@ -181,7 +181,7 @@ pub unsafe extern "C" fn chat_openmls_create_key_package_json(
 /// # Safety
 /// 输入必须是UTF-8 C字符串，返回字符串由chat释放。
 #[no_mangle]
-pub unsafe extern "C" fn chat_openmls_identity_json(
+pub unsafe extern "C" fn mls_identity_json(
     input: *const c_char,
     error_out: *mut *mut c_char,
 ) -> *mut c_char {
@@ -551,7 +551,7 @@ struct StoreRequest {
 /// # Safety
 /// 输入必须是UTF-8 C字符串，返回字符串由chat释放。
 #[no_mangle]
-pub unsafe extern "C" fn chat_openmls_store_json(
+pub unsafe extern "C" fn mls_store_json(
     input: *const c_char,
     error_out: *mut *mut c_char,
 ) -> *mut c_char {
@@ -1665,9 +1665,9 @@ struct GroupStateRequest {
 /// 创建 MLS 群(创建者为唯一成员,epoch 0)。
 ///
 /// # Safety
-/// 见 `chat_openmls_create_key_package_json`。
+/// 见 `mls_create_key_package_json`。
 #[no_mangle]
-pub unsafe extern "C" fn chat_openmls_group_create_json(
+pub unsafe extern "C" fn mls_group_create_json(
     request_json: *const c_char,
     error_out: *mut *mut c_char,
 ) -> *mut c_char {
@@ -1683,9 +1683,9 @@ pub unsafe extern "C" fn chat_openmls_group_create_json(
 /// 批量加人:产 1 个 Commit(发给现有成员)+ 1 个 Welcome(发给全部新人)。
 ///
 /// # Safety
-/// 见 `chat_openmls_create_key_package_json`。
+/// 见 `mls_create_key_package_json`。
 #[no_mangle]
-pub unsafe extern "C" fn chat_openmls_group_add_members_json(
+pub unsafe extern "C" fn mls_group_add_members_json(
     request_json: *const c_char,
     error_out: *mut *mut c_char,
 ) -> *mut c_char {
@@ -1701,9 +1701,9 @@ pub unsafe extern "C" fn chat_openmls_group_add_members_json(
 /// 删人:产 Commit(发给剩余成员 + 被删者)。
 ///
 /// # Safety
-/// 见 `chat_openmls_create_key_package_json`。
+/// 见 `mls_create_key_package_json`。
 #[no_mangle]
-pub unsafe extern "C" fn chat_openmls_group_remove_members_json(
+pub unsafe extern "C" fn mls_group_remove_members_json(
     request_json: *const c_char,
     error_out: *mut *mut c_char,
 ) -> *mut c_char {
@@ -1719,9 +1719,9 @@ pub unsafe extern "C" fn chat_openmls_group_remove_members_json(
 /// 群 application message:单次加密,Dart 侧按名册扇 N 信封。
 ///
 /// # Safety
-/// 见 `chat_openmls_create_key_package_json`。
+/// 见 `mls_create_key_package_json`。
 #[no_mangle]
-pub unsafe extern "C" fn chat_openmls_group_create_message_json(
+pub unsafe extern "C" fn mls_group_create_message_json(
     request_json: *const c_char,
     error_out: *mut *mut c_char,
 ) -> *mut c_char {
@@ -1738,9 +1738,9 @@ pub unsafe extern "C" fn chat_openmls_group_create_message_json(
 /// applied / out_of_order / stale,乱序缓冲由 Dart 依此状态负责。
 ///
 /// # Safety
-/// 见 `chat_openmls_create_key_package_json`。
+/// 见 `mls_create_key_package_json`。
 #[no_mangle]
-pub unsafe extern "C" fn chat_openmls_group_process_json(
+pub unsafe extern "C" fn mls_group_process_json(
     request_json: *const c_char,
     error_out: *mut *mut c_char,
 ) -> *mut c_char {
@@ -1756,9 +1756,9 @@ pub unsafe extern "C" fn chat_openmls_group_process_json(
 /// 只读群状态:当前 epoch + 成员名册(MLS 真源,供 Dart 镜像对账与上限守)。
 ///
 /// # Safety
-/// 见 `chat_openmls_create_key_package_json`。
+/// 见 `mls_create_key_package_json`。
 #[no_mangle]
-pub unsafe extern "C" fn chat_openmls_group_state_json(
+pub unsafe extern "C" fn mls_group_state_json(
     request_json: *const c_char,
     error_out: *mut *mut c_char,
 ) -> *mut c_char {

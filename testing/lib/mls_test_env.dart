@@ -6,15 +6,15 @@ import 'package:chat/message/chat_content.dart';
 import 'package:chat/message/chat_message.dart';
 import 'package:chat/mls/mls_attachment.dart';
 import 'package:chat/mls/mls_boundary.dart';
-import 'package:chat/mls/openmls_bindings.dart';
+import 'package:chat/mls/mls_bindings.dart';
 import 'package:chat/mls/mls_state_store.dart';
 
 bool _probed = false;
 
-/// 真实MLS回归必须加载本轮独立App库；缺件使套件失败，不允许跳过。
-void requireOpenMlsTestLibrary() {
+/// 真实MLS回归必须加载本轮App内部MLS原生库；缺件使套件失败，不允许跳过。
+void requireMlsTestLibrary() {
   if (_probed) return;
-  OpenMlsCrypto();
+  MlsCrypto();
   _probed = true;
 }
 
@@ -39,13 +39,12 @@ class TestMlsDevice {
   final MlsStateStore store;
   final ChatDevice identity;
   final Directory root;
-  OpenMlsCrypto get crypto =>
-      OpenMlsCrypto(identity: identity, stateStore: store);
+  MlsCrypto get crypto => MlsCrypto(identity: identity, stateStore: store);
   MlsAttachment attachment({
     MlsStateStore? state,
     Future<void> Function()? current,
   }) => MlsAttachment(
-    crypto: OpenMlsCrypto(identity: identity, stateStore: state ?? store),
+    crypto: MlsCrypto(identity: identity, stateStore: state ?? store),
     store: state ?? store,
     identity: identity,
     protectedRoot: root,

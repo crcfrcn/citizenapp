@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:citizen_testing/mls_authentication_fixture.dart';
 
@@ -183,7 +184,7 @@ void main() {
   group('Chat 用户错误文案', () {
     test('未知 StateError 不泄漏 Bad state 或底层乱码', () {
       final message = chatUserErrorMessage(
-        StateError('native /tmp/libchat_openmls \uFFFD\u0000 debug'),
+        StateError('native /tmp/libmls \uFFFD\u0000 debug'),
       );
 
       expect(message, '聊天暂时无法使用，请稍后重试');
@@ -192,8 +193,8 @@ void main() {
     });
 
     test('MLS 状态所有权错误映射固定中文且不透传技术码', () {
-      const error = OpenMlsException(
-        OpenMlsErrorCode.stateOwnerMismatch,
+      const error = MlsException(
+        MlsErrorCode.stateOwnerMismatch,
         'CHAT_MLS_STATE_OWNER_MISMATCH:debug',
       );
 
@@ -265,8 +266,7 @@ void main() {
           sessionToken: 'session-a',
           cidNumber: 'CN220-CTZN2-100000001-2026',
           bindRev: 1,
-          accountId:
-              '0x1111111111111111111111111111111111111111111111111111111111111111',
+          accountId: '0x1111111111111111111111111111111111111111111111111111111111111111',
           expiresAt: 4102444800000,
           authenticateRequest: fakeMlsRequestHeaders,
         ),

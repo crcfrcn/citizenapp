@@ -1357,7 +1357,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "chat_openmls"
+name = "mls"
 version = "1.0.0"
 dependencies = [
  "base64",

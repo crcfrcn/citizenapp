@@ -1,19 +1,19 @@
 import 'package:citizen_network/mls_authentication.dart';
+
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/mls/mls_boundary.dart';
 import 'package:chat/mls/mls_group_boundary.dart';
-import 'package:chat/mls/openmls_bindings.dart';
+import 'package:chat/mls/mls_bindings.dart';
 import 'package:chat/mls/mls_state_store.dart';
-import 'package:citizen_testing/openmls_test_env.dart';
+import 'package:citizen_testing/mls_test_env.dart';
 
 void main() {
-  requireOpenMlsTestLibrary();
+  requireMlsTestLibrary();
   test('MLS发送和接收在宿主落库前中断，重建后仍恢复相同结果', () async {
-    final root = await Directory.systemTemp.createTemp(
-      'chat_native_session_',
-    );
+    final root = await Directory.systemTemp.createTemp('chat_native_session_');
     addTearDown(() => root.delete(recursive: true));
     Future<MlsStateStore> fixture(String user) async {
       final directory = await Directory('${root.path}/$user').create();
@@ -27,8 +27,8 @@ void main() {
 
     final aStore = await fixture('alice'), bStore = await fixture('bob');
     final aId = await aStore.readIdentity(), bId = await bStore.readIdentity();
-    final a = OpenMlsCrypto(identity: aId, stateStore: aStore),
-        b = OpenMlsCrypto(identity: bId, stateStore: bStore);
+    final a = MlsCrypto(identity: aId, stateStore: aStore),
+        b = MlsCrypto(identity: bId, stateStore: bStore);
     final package = await b.createKeyPackage(bId, lastResort: true);
     await a.withMessage('create', () => a.createGroup('group'));
     final added = await a.withMessage(
@@ -57,7 +57,7 @@ void main() {
       'message-a',
       () => a.groupCreateMessage('group', utf8.encode('合成消息')),
     );
-    final restarted = OpenMlsCrypto(
+    final restarted = MlsCrypto(
       identity: await aStore.readIdentity(),
       stateStore: aStore,
     );
@@ -72,7 +72,7 @@ void main() {
     );
     expect(utf8.decode(result.plaintext!), '合成消息');
     expect(result.senderMemberIdentity, 'alice:${aId.deviceId}');
-    final restartedReceiver = OpenMlsCrypto(
+    final restartedReceiver = MlsCrypto(
       identity: await bStore.readIdentity(),
       stateStore: bStore,
     );
@@ -96,7 +96,7 @@ void main() {
         'message-a',
         () => restarted.groupCreateMessage('group', [2]),
       ),
-      throwsA(isA<OpenMlsException>()),
+      throwsA(isA<MlsException>()),
     );
   });
 }

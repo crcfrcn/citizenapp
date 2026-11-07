@@ -16,7 +16,7 @@ struct Fixture {
 impl Fixture {
     fn empty(user: &str) -> Self {
         let dir = std::env::temp_dir().join(format!(
-            "chat_openmls_{}_{}",
+            "mls_{}_{}",
             std::process::id(),
             SERIAL.fetch_add(1, Ordering::Relaxed)
         ));

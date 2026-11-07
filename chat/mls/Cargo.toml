@@ -1,13 +1,14 @@
 [package]
 autotests = false
-name = "chat_openmls"
+publish = false
+name = "mls"
 version = "1.0.0"
 edition = "2021"
 license = "MIT"
 description = "公民聊天 OpenMLS native engine"
 
 [lib]
-name = "chat_openmls"
+name = "mls"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
@@ -20,8 +21,6 @@ openmls_basic_credential = "0.5.0"
 openmls_traits = "0.5.0"
 openmls_memory_storage = { version = "0.5.0", features = ["persistence"] }
 base64 = "=0.22.1"
-
-[workspace]
 
 [[test]]
 name = "ffi"

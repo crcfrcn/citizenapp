@@ -25,8 +25,8 @@
 		C6A700010000000000000001 /* ChatMediaChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6A700020000000000000001 /* ChatMediaChannel.swift */; };
 		C6A700010000000000000002 /* ChatStorageChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6A700020000000000000002 /* ChatStorageChannel.swift */; };
 		C6A700010000000000000003 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = C6A700020000000000000003 /* PrivacyInfo.xcprivacy */; };
-		C6A700010000000000000004 /* ChatOpenMLS.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = C6A700020000000000000004 /* ChatOpenMLS.xcframework */; };
-		C6A700010000000000000005 /* ChatOpenMLS.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = C6A700020000000000000004; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		C6A700010000000000000004 /* MLS.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = C6A700020000000000000004 /* MLS.xcframework */; };
+		C6A700010000000000000005 /* MLS.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = C6A700020000000000000004; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -53,7 +53,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				C6A700010000000000000005 /* ChatOpenMLS.xcframework in Embed Frameworks */,
+				C6A700010000000000000005 /* MLS.xcframework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -95,7 +95,7 @@
 		C6A700020000000000000001 /* ChatMediaChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMediaChannel.swift; sourceTree = "<group>"; };
 		C6A700020000000000000002 /* ChatStorageChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStorageChannel.swift; sourceTree = "<group>"; };
 		C6A700020000000000000003 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
-		C6A700020000000000000004 /* ChatOpenMLS.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = Frameworks/ChatOpenMLS.xcframework; sourceTree = SOURCE_ROOT; };
+		C6A700020000000000000004 /* MLS.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = Frameworks/MLS.xcframework; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -104,7 +104,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				0D4CF3ABD4CE98879E36D87F /* Pods_Runner.framework in Frameworks */,
-				C6A700010000000000000004 /* ChatOpenMLS.xcframework in Frameworks */,
+				C6A700010000000000000004 /* MLS.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

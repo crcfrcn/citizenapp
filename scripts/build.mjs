@@ -536,8 +536,8 @@ const values = {
     CITIZENSDK_SOURCE_DIR: sdkRoot,
     CITIZENSDK_ANDROID_BUILD_DIR: join(work,'citizen-android'),
     CITIZENAPP_TEST_WORK_DIR: work,
-    CHAT_OPENMLS_TEST_LIBRARY: join(work,'openmls/host/libchat_openmls.dylib'),
-    CHAT_OPENMLS_COMPONENT_DIR: join(work,'openmls')
+    MLS_TEST_LIBRARY: join(work,'mls/host/libmls.dylib'),
+    MLS_COMPONENT_DIR: join(work,'mls')
 };
 // 完整Apple组件的Framework使用标准内部链接；测试只消费同轮真实普通文件。
 // 真机专用组件没有宿主切片，不能宣称已交付测试库或沿用外部旧路径。
@@ -551,7 +551,7 @@ if (existsSync(testCore)) {
 Object.assign(environment,values);
 if(environment.GITHUB_ENV)for (const [key, value] of Object.entries(values)) appendFileSync(environment.GITHUB_ENV, key + '=' + value + '\n');
 await preparePackages(project,{sources,environment});
-await (io.buildChatOpenMls || buildChatOpenMls)({project,work,platform:environment.PLATFORM,environment});
+await (io.buildMls || buildMls)({project,work,platform:environment.PLATFORM,environment});
 // App随包资源随普通工程一起准备，不增加功能构建入口。
 // 本机默认复用本产品已准备的npm缓存，缺件仍离线失败。
 const assets = join(project, 'topup/web');
@@ -686,16 +686,16 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
 
 
 // 聊天是本仓本地业务包；OpenMLS 仅由 App 唯一构建入口编译和链接。
-export async function buildChatOpenMls({project,work,platform,environment=process.env,execute=run}) {
- const manifest=join(project,'chat/openmls/Cargo.toml');
+export async function buildMls({project,work,platform,environment=process.env,execute=run}) {
+ const manifest=join(project,'chat/mls/Cargo.toml');
  const target=environment.CARGO_TARGET_DIR||join(root,'target/cache/rust');
  const base={...environment,RUSTUP_TOOLCHAIN:'1.97.1',CARGO_TARGET_DIR:target};
  const args=['build','--manifest-path',manifest,'--locked','--release'];
- const own=join(work,'openmls');mkdirSync(own,{recursive:true});
+ const own=join(work,'mls');mkdirSync(own,{recursive:true});
  if(globalThis.process.platform==='darwin'){
-  await execute('cargo',[...args,'--target','aarch64-apple-darwin'],project,false,{...base,CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:'-C strip=none -C link-arg=-Wl,-install_name,@rpath/libchat_openmls.dylib'},'OpenMLS宿主编译');
+  await execute('cargo',[...args,'--target','aarch64-apple-darwin'],project,false,{...base,CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:'-C strip=none -C link-arg=-Wl,-install_name,@rpath/libmls.dylib'},'OpenMLS宿主编译');
   mkdirSync(join(own,'host'),{recursive:true});
-  copyFileSync(join(target,'aarch64-apple-darwin/release/libchat_openmls.dylib'),join(own,'host/libchat_openmls.dylib'));
+  copyFileSync(join(target,'aarch64-apple-darwin/release/libmls.dylib'),join(own,'host/libmls.dylib'));
  }
  if(platform==='android'){
   if(!environment.ANDROID_HOME)throw Error('OpenMLS Android编译缺少ANDROID_HOME');
@@ -706,8 +706,8 @@ export async function buildChatOpenMls({project,work,platform,environment=proces
    CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER:clang,
    CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS:'-C link-arg=-Wl,-z,max-page-size=16384'},'OpenMLS Android编译');
   const destination=join(project,'android/app/src/main/jniLibs/arm64-v8a');mkdirSync(destination,{recursive:true});
-  copyFileSync(join(target,'aarch64-linux-android/release/libchat_openmls.so'),join(destination,'libchat_openmls.so'));
-  const component=join(own,'android/arm64-v8a');mkdirSync(component,{recursive:true});copyFileSync(join(destination,'libchat_openmls.so'),join(component,'libchat_openmls.so'));
+  copyFileSync(join(target,'aarch64-linux-android/release/libmls.so'),join(destination,'libmls.so'));
+  const component=join(own,'android/arm64-v8a');mkdirSync(component,{recursive:true});copyFileSync(join(destination,'libmls.so'),join(component,'libmls.so'));
  }
  if(platform==='ios'){
   const slices=[];
@@ -715,28 +715,28 @@ export async function buildChatOpenMls({project,work,platform,environment=proces
    const sdkPath=execFileSync('/usr/bin/xcrun',['--sdk',sdk,'--show-sdk-path'],{encoding:'utf8'}).trim();
    const key='CARGO_TARGET_'+triple.toUpperCase().replaceAll('-','_')+'_RUSTFLAGS';
    await execute('cargo',[...args,'--target',triple],project,false,{...base,IPHONEOS_DEPLOYMENT_TARGET:'16.0',
-    [key]:'-C strip=none -C link-arg=-isysroot -C link-arg='+sdkPath+' -C link-arg=-Wl,-install_name,@rpath/ChatOpenMLS.framework/ChatOpenMLS'},'OpenMLS iOS编译');
-   await verifyChatOpenMls(join(target,triple,'release/libchat_openmls.dylib'),sdk==='iphoneos'?'ios':'ios-simulator');
-   const framework=join(own,triple,'ChatOpenMLS.framework');mkdirSync(join(framework,'Headers'),{recursive:true});mkdirSync(join(framework,'Modules'),{recursive:true});
-   copyFileSync(join(target,triple,'release/libchat_openmls.dylib'),join(framework,'ChatOpenMLS'));
-   copyFileSync(join(project,'chat/openmls/chat.h'),join(framework,'Headers/chat.h'));
-   writeFileSync(join(framework,'Modules/module.modulemap'),'framework module ChatOpenMLS {\n umbrella header "chat.h"\n export *\n}\n');
-   writeFileSync(join(framework,'Info.plist'),'<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleExecutable</key><string>ChatOpenMLS</string><key>CFBundleIdentifier</key><string>com.crcfrcn.citizenapp.chat.openmls</string><key>CFBundleName</key><string>ChatOpenMLS</string><key>CFBundlePackageType</key><string>FMWK</string><key>CFBundleShortVersionString</key><string>1.0.0</string><key>CFBundleVersion</key><string>1</string><key>MinimumOSVersion</key><string>16.0</string></dict></plist>');
+    [key]:'-C strip=none -C link-arg=-isysroot -C link-arg='+sdkPath+' -C link-arg=-Wl,-install_name,@rpath/MLS.framework/MLS'},'OpenMLS iOS编译');
+   await verifyMls(join(target,triple,'release/libmls.dylib'),sdk==='iphoneos'?'ios':'ios-simulator');
+   const framework=join(own,triple,'MLS.framework');mkdirSync(join(framework,'Headers'),{recursive:true});mkdirSync(join(framework,'Modules'),{recursive:true});
+   copyFileSync(join(target,triple,'release/libmls.dylib'),join(framework,'MLS'));
+   copyFileSync(join(project,'chat/mls/mls.h'),join(framework,'Headers/mls.h'));
+   writeFileSync(join(framework,'Modules/module.modulemap'),'framework module MLS {\n umbrella header "mls.h"\n export *\n}\n');
+   writeFileSync(join(framework,'Info.plist'),'<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleExecutable</key><string>MLS</string><key>CFBundleIdentifier</key><string>com.crcfrcn.citizenapp.chat.mls</string><key>CFBundleName</key><string>MLS</string><key>CFBundlePackageType</key><string>FMWK</string><key>CFBundleShortVersionString</key><string>1.0.0</string><key>CFBundleVersion</key><string>1</string><key>MinimumOSVersion</key><string>16.0</string></dict></plist>');
    slices.push('-framework',framework);
   }
-  const framework=join(project,'ios/Frameworks/ChatOpenMLS.xcframework');mkdirSync(dirname(framework),{recursive:true});
+  const framework=join(project,'ios/Frameworks/MLS.xcframework');mkdirSync(dirname(framework),{recursive:true});
   rmSync(framework,{recursive:true,force:true});
   await execute('/usr/bin/xcodebuild',['-create-xcframework',...slices,'-output',framework],project,false,base,'OpenMLS iOS装配');
  }
- return {host:join(own,'host/libchat_openmls.dylib')};
+ return {host:join(own,'host/libmls.dylib')};
 }
 
-export async function verifyChatOpenMls(file,platform){
+export async function verifyMls(file,platform){
  if(!lstatSync(file).isFile())throw Error('OpenMLS产物缺失');
  const nm=platform==='android'?join(process.env.ANDROID_HOME||join(process.env.HOME,'Library/Android/sdk'),'ndk/28.2.13676358/toolchains/llvm/prebuilt',process.platform==='darwin'?'darwin-x86_64':'linux-x86_64','bin/llvm-nm'):'/usr/bin/nm';
  const symbols=execFileSync(nm,platform==='android'?['-D','--defined-only',file]:['-g',file],{encoding:'utf8'});
- const header=readFileSync(join(root,'chat/openmls/chat.h'),'utf8');
- const expected=[...header.matchAll(/\b(chat_openmls_[a-z_]+)\s*\(/gu)].map(m=>m[1]);
+ const header=readFileSync(join(root,'chat/mls/mls.h'),'utf8');
+ const expected=[...header.matchAll(/\b(mls_[a-z_]+)\s*\(/gu)].map(m=>m[1]);
  if(expected.length!==10)throw Error('OpenMLS公开头的符号集合不完整');
  for(const name of expected){
   if(!new RegExp('(?:^|\\s)_?'+name+'(?:\\s|$)','u').test(symbols))throw Error('OpenMLS缺少FFI符号：'+name);

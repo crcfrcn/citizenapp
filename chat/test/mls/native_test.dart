@@ -2,9 +2,9 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/mls/mls_boundary.dart';
-import 'package:chat/mls/openmls_bindings.dart';
+import 'package:chat/mls/mls_bindings.dart';
 import 'package:chat/mls/mls_state_store.dart';
-import 'package:citizen_testing/openmls_test_env.dart';
+import 'package:citizen_testing/mls_test_env.dart';
 
 MlsAuthenticationRequest _authenticationRequest() => MlsAuthenticationRequest(
   serviceOrigin: 'https://api.example.test',
@@ -16,17 +16,17 @@ MlsAuthenticationRequest _authenticationRequest() => MlsAuthenticationRequest(
 );
 
 void main() {
-  requireOpenMlsTestLibrary();
+  requireMlsTestLibrary();
   test('原生诊断只公开固定码和操作，私密技术文本不进入用户提示', () {
     for (final entry in {
-      'CHAT_MLS_REQUEST_CONFLICT:合成私密文本': OpenMlsErrorCode.requestConflict,
-      'CHAT_MLS_PENDING_FULL:合成私密文本': OpenMlsErrorCode.pendingFull,
-      '生成 OpenMLS KeyPackage 失败:合成私密文本': OpenMlsErrorCode.keyPackageFailed,
-      '未知合成私密文本': OpenMlsErrorCode.operationFailed,
+      'CHAT_MLS_REQUEST_CONFLICT:合成私密文本': MlsErrorCode.requestConflict,
+      'CHAT_MLS_PENDING_FULL:合成私密文本': MlsErrorCode.pendingFull,
+      '生成 OpenMLS KeyPackage 失败:合成私密文本': MlsErrorCode.keyPackageFailed,
+      '未知合成私密文本': MlsErrorCode.operationFailed,
     }.entries) {
-      final error = OpenMlsException.fromTechnicalMessage(
+      final error = MlsException.fromTechnicalMessage(
         entry.key,
-        operation: OpenMlsOperation.keyPackage,
+        operation: MlsOperation.keyPackage,
       );
       expect(error.code, entry.value);
       expect(error.diagnosticOperation, 'key_package');
@@ -35,40 +35,34 @@ void main() {
     }
   });
   test('真实FFI坏请求带精确操作名和固定分类', () {
-    final bindings = OpenMlsBindings.load();
+    final bindings = MlsBindings.load();
     expect(
       () => bindings.callJson(bindings.createKeyPackage, {'unexpected': true}),
       throwsA(
-        isA<OpenMlsException>()
-            .having((e) => e.code, 'code', OpenMlsErrorCode.invalidRequest)
-            .having(
-              (e) => e.operation,
-              'operation',
-              OpenMlsOperation.keyPackage,
-            ),
+        isA<MlsException>()
+            .having((e) => e.code, 'code', MlsErrorCode.invalidRequest)
+            .having((e) => e.operation, 'operation', MlsOperation.keyPackage),
       ),
     );
     expect(
       () => bindings.callJson(bindings.identity, {'unexpected': true}),
       throwsA(
-        isA<OpenMlsException>().having(
+        isA<MlsException>().having(
           (e) => e.operation,
           'operation',
-          OpenMlsOperation.identity,
+          MlsOperation.identity,
         ),
       ),
     );
   });
   test('存储目录搬移后复用同一身份和同一KeyPackage', () async {
-    final created = await Directory.systemTemp.createTemp(
-      'chat_relocation_',
-    );
+    final created = await Directory.systemTemp.createTemp('chat_relocation_');
     final root = Directory(await created.resolveSymbolicLinks());
     addTearDown(() => root.delete(recursive: true));
     final directory = await Directory('${root.path}/before').create();
     final before = MlsStateStore(directory, ownerUserId: 'user-a');
     final identity = await before.prepareIdentity();
-    final crypto = OpenMlsCrypto(identity: identity, stateStore: before);
+    final crypto = MlsCrypto(identity: identity, stateStore: before);
     final first = await crypto.createKeyPackage(identity, lastResort: true);
     before.dispose();
     final moved = await directory.rename('${root.path}/after');
@@ -77,7 +71,7 @@ void main() {
     final restored = await after.readIdentity();
     expect(restored.deviceId, identity.deviceId);
     expect(restored.publicKey, identity.publicKey);
-    final reopened = OpenMlsCrypto(identity: restored, stateStore: after);
+    final reopened = MlsCrypto(identity: restored, stateStore: after);
     final replay = await reopened.createKeyPackage(restored, lastResort: true);
     expect(replay.keyPackageRef, first.keyPackageRef);
     expect(replay.keyPackageHex, first.keyPackageHex);
@@ -85,16 +79,14 @@ void main() {
     expect(replay.notAfterMillis, first.notAfterMillis);
   });
   test('KeyPackage只在已持久化的同一MLS身份上生成', () async {
-    final root = await Directory.systemTemp.createTemp(
-      'chat_native_identity_',
-    );
+    final root = await Directory.systemTemp.createTemp('chat_native_identity_');
     addTearDown(() => root.delete(recursive: true));
     final store = MlsStateStore(
       Directory(await root.resolveSymbolicLinks()),
       ownerUserId: 'user-a',
     );
     final identity = await store.prepareIdentity();
-    final crypto = OpenMlsCrypto(identity: identity, stateStore: store);
+    final crypto = MlsCrypto(identity: identity, stateStore: store);
     final package = await crypto.createKeyPackage(identity, lastResort: true);
     final again = await crypto.createKeyPackage(
       await store.readIdentity(),
@@ -110,10 +102,7 @@ void main() {
     expect((await store.readIdentity()).deviceId, identity.deviceId);
     expect((await store.prepareIdentity()).deviceId, identity.deviceId);
     final wrongOwner = MlsStateStore(store.directory, ownerUserId: 'other');
-    await expectLater(
-      wrongOwner.readIdentity(),
-      throwsA(isA<OpenMlsException>()),
-    );
+    await expectLater(wrongOwner.readIdentity(), throwsA(isA<MlsException>()));
   });
 
   test('真实FFI认证复用MLS身份，重建后签名一致且不改快照', () async {
@@ -168,14 +157,12 @@ void main() {
         bindingRevision: 1,
         request: request,
       ),
-      throwsA(isA<OpenMlsException>()),
+      throwsA(isA<MlsException>()),
     );
   });
 
   test('认证缺状态或损坏时失败，禁止补身份或清空恢复', () async {
-    final root = await Directory.systemTemp.createTemp(
-      'chat_native_auth_bad_',
-    );
+    final root = await Directory.systemTemp.createTemp('chat_native_auth_bad_');
     addTearDown(() => root.delete(recursive: true));
     final directory = Directory(await root.resolveSymbolicLinks());
     final store = MlsStateStore(directory, ownerUserId: 'user-a');
@@ -188,24 +175,16 @@ void main() {
       request: request,
     );
     await snapshot.writeAsString('synthetic corrupt state');
-    await expectLater(sign(), throwsA(isA<OpenMlsException>()));
-    await expectLater(
-      store.prepareIdentity(),
-      throwsA(isA<OpenMlsException>()),
-    );
+    await expectLater(sign(), throwsA(isA<MlsException>()));
+    await expectLater(store.prepareIdentity(), throwsA(isA<MlsException>()));
     expect(await snapshot.readAsString(), 'synthetic corrupt state');
     await snapshot.delete();
-    await expectLater(sign(), throwsA(isA<OpenMlsException>()));
-    await expectLater(
-      store.prepareIdentity(),
-      throwsA(isA<OpenMlsException>()),
-    );
+    await expectLater(sign(), throwsA(isA<MlsException>()));
+    await expectLater(store.prepareIdentity(), throwsA(isA<MlsException>()));
     expect(await snapshot.exists(), isFalse);
   });
   test('真实FFI拒绝错误属主后释放锁，主动重试继续使用原MLS身份和快照', () async {
-    final temporary = await Directory.systemTemp.createTemp(
-      'chat_lock_retry_',
-    );
+    final temporary = await Directory.systemTemp.createTemp('chat_lock_retry_');
     final root = Directory(await temporary.resolveSymbolicLinks());
     addTearDown(() => root.delete(recursive: true));
     final store = MlsStateStore(root, ownerUserId: 'original-user');
@@ -213,7 +192,7 @@ void main() {
     final snapshot = File('${root.path}/state.bin');
     final before = await snapshot.readAsBytes();
     final wrong = MlsStateStore(root, ownerUserId: 'other-user');
-    await expectLater(wrong.readIdentity(), throwsA(isA<OpenMlsException>()));
+    await expectLater(wrong.readIdentity(), throwsA(isA<MlsException>()));
     expect((await store.readIdentity()).deviceId, identity.deviceId);
     final proof = await store.signAuthentication(
       accountId: '0x${List.filled(32, '11').join()}',
@@ -224,15 +203,13 @@ void main() {
     expect(await snapshot.readAsBytes(), before);
   });
   test('空锁目录严格读取不生成身份，随后自动准备正常完成', () async {
-    final temporary = await Directory.systemTemp.createTemp(
-      'chat_lock_empty_',
-    );
+    final temporary = await Directory.systemTemp.createTemp('chat_lock_empty_');
     final root = Directory(await temporary.resolveSymbolicLinks());
     addTearDown(() => root.delete(recursive: true));
     await File('${root.path}/state.lock').writeAsBytes([]);
     final store = MlsStateStore(root, ownerUserId: 'existing-user');
-    await expectLater(store.readIdentity(), throwsA(isA<OpenMlsException>()));
-    await expectLater(store.readIdentity(), throwsA(isA<OpenMlsException>()));
+    await expectLater(store.readIdentity(), throwsA(isA<MlsException>()));
+    await expectLater(store.readIdentity(), throwsA(isA<MlsException>()));
     expect(await File('${root.path}/state.bin').exists(), isFalse);
     final identity = await store.prepareIdentity();
     expect((await store.readIdentity()).deviceId, identity.deviceId);
@@ -244,19 +221,18 @@ void main() {
     final store = MlsStateStore(root, ownerUserId: 'phase-user');
     final first = await store.prepareIdentity();
     final before = await File('${root.path}/state.bin').readAsBytes();
-    await File(
-      '${root.path}/state.lock',
-    ).writeAsString('initializing\n', flush: true);
+    await File('${root.path}/state.lock')
+        .writeAsString('initializing\n', flush: true);
     expect((await store.prepareIdentity()).deviceId, first.deviceId);
     expect(await File('${root.path}/state.bin').readAsBytes(), before);
     await File('${root.path}/state.bin').delete();
     await expectLater(
       store.prepareIdentity(),
       throwsA(
-        isA<OpenMlsException>().having(
+        isA<MlsException>().having(
           (e) => e.code,
           'code',
-          OpenMlsErrorCode.stateMissing,
+          MlsErrorCode.stateMissing,
         ),
       ),
     );
@@ -266,13 +242,13 @@ void main() {
     final temporary = await Directory.systemTemp.createTemp('mls_leaf_');
     final root = Directory(await temporary.resolveSymbolicLinks());
     addTearDown(() => root.delete(recursive: true));
-    final devices = <ChatDevice>[], cryptos = <OpenMlsCrypto>[];
+    final devices = <ChatDevice>[], cryptos = <MlsCrypto>[];
     for (var index = 0; index < 3; index++) {
       final directory = await Directory('${root.path}/$index').create();
       final store = MlsStateStore(directory, ownerUserId: 'CID-A');
       final identity = await store.prepareIdentity();
       devices.add(identity);
-      cryptos.add(OpenMlsCrypto(identity: identity, stateStore: store));
+      cryptos.add(MlsCrypto(identity: identity, stateStore: store));
     }
     final b = await cryptos[1].createKeyPackage(devices[1], lastResort: true);
     final c = await cryptos[2].createKeyPackage(devices[2], lastResort: true);
@@ -295,7 +271,7 @@ void main() {
         'forged',
         () => cryptos[0].addMembers('exact-leaves', [forged]),
       ),
-      throwsA(isA<OpenMlsException>()),
+      throwsA(isA<MlsException>()),
     );
     expect((await cryptos[0].groupState('exact-leaves')).memberCount, 1);
     final added = await cryptos[0].withMessage(
@@ -314,7 +290,7 @@ void main() {
         'duplicate-remove',
         () => cryptos[0].removeMembers('exact-leaves', [target, target]),
       ),
-      throwsA(isA<OpenMlsException>()),
+      throwsA(isA<MlsException>()),
     );
     await expectLater(
       cryptos[0].withMessage(
@@ -324,7 +300,7 @@ void main() {
           'CID-A:${'00' * 32}',
         ]),
       ),
-      throwsA(isA<OpenMlsException>()),
+      throwsA(isA<MlsException>()),
     );
     expect((await cryptos[0].groupState('exact-leaves')).memberCount, 3);
     final removed = await cryptos[0].withMessage(

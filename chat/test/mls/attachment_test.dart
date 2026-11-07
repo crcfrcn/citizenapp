@@ -1,16 +1,17 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/message/chat_content.dart';
 import 'package:chat/mls/mls_attachment.dart';
 import 'package:chat/mls/mls_boundary.dart';
-import 'package:chat/mls/openmls_bindings.dart';
+import 'package:chat/mls/mls_bindings.dart';
 import 'package:chat/mls/mls_state_store.dart';
-import 'package:citizen_testing/openmls_test_env.dart';
+import 'package:citizen_testing/mls_test_env.dart';
 
 void main() {
-  requireOpenMlsTestLibrary();
+  requireMlsTestLibrary();
 
   test('真实MLS三设备附件组，分块精确复原且不推进普通聊天链', () async {
     final dir = await createMlsTestDirectory();
@@ -73,7 +74,7 @@ void main() {
       await receiver.attachment().finish(control.attachmentGroupId!);
       await expectLater(
         receiver.crypto.groupState(control.attachmentGroupId!),
-        throwsA(isA<OpenMlsException>()),
+        throwsA(isA<MlsException>()),
       );
       expect(
         (await receiver.store.readIdentity()).publicKey,
@@ -90,7 +91,7 @@ void main() {
     }
     await expectLater(
       a.crypto.groupState(control.attachmentGroupId!),
-      throwsA(isA<OpenMlsException>()),
+      throwsA(isA<MlsException>()),
     );
     final ordinary = await a.crypto.withMessage(
       'ordinary-after-file',
@@ -127,7 +128,7 @@ void main() {
         List.generate(size, (i) => i % 239),
         flush: true,
       );
-      final bindings = OpenMlsBindings.load();
+      final bindings = MlsBindings.load();
       var interrupted = false;
       final hooked = MlsStateStore(
         a.store.directory,
@@ -152,20 +153,22 @@ void main() {
       );
       await expectLater(seal(a.attachment(state: hooked)), throwsStateError);
       final prefix = await cipher.readAsBytes();
-      final nativeBefore = await a.store
-          .attachmentAction('attachment_progress', {
-            'group_id': MlsAttachment.groupId(
-              roster.firstWhere((m) => m.endsWith(a.identity.deviceId)),
-              'file-1',
-            ),
-          });
+      final nativeBefore = await a.store.attachmentAction(
+        'attachment_progress',
+        {
+          'group_id': MlsAttachment.groupId(
+            roster.firstWhere((m) => m.endsWith(a.identity.deviceId)),
+            'file-1',
+          ),
+        },
+      );
       expect(nativeBefore['next_chunk'], committed ? 1 : 0);
       final control = await seal(a.attachment());
       final complete = await cipher.readAsBytes();
       expect(complete.sublist(0, prefix.length), prefix);
-      final state =
-          jsonDecode(await File('${a.store.path}/state.bin').readAsString())
-              as Map;
+      final state = jsonDecode(
+        await File('${a.store.path}/state.bin').readAsString(),
+      ) as Map;
       expect(
         (state['results'] as Map).values.where(
           (v) => (v as Map)['request']['group_id'] == control.attachmentGroupId,
@@ -211,7 +214,7 @@ void main() {
         keyPackages: [package],
         contentBuilder: (d) => createTestMediaContent(d, size),
       );
-      final bindings = OpenMlsBindings.load();
+      final bindings = MlsBindings.load();
       var interrupted = false;
       final hooked = MlsStateStore(
         b.store.directory,
@@ -270,7 +273,7 @@ void main() {
         cipher = File('${a.root.path}/cipher');
     const size = 2 * MlsAttachment.chunkBytes + 1;
     await source.writeAsBytes(List.filled(size, 7), flush: true);
-    final bindings = OpenMlsBindings.load();
+    final bindings = MlsBindings.load();
     var once = false;
     final hooked = MlsStateStore(
       a.store.directory,
@@ -301,7 +304,7 @@ void main() {
     await cipher.writeAsBytes(bytes, flush: true);
     await expectLater(seal(a.attachment()), throwsStateError);
     await source.writeAsBytes(List.filled(size, 8), flush: true);
-    await expectLater(seal(a.attachment()), throwsA(isA<OpenMlsException>()));
+    await expectLater(seal(a.attachment()), throwsA(isA<MlsException>()));
   });
 
   test('身份变化、跨CID存储与未知设备包不能生成附件帧', () async {
@@ -431,7 +434,7 @@ void main() {
           cipher: cipher,
           target: target,
         ),
-        throwsA(isA<OpenMlsException>()),
+        throwsA(isA<MlsException>()),
       );
     }
     final receiver = receivers.last;
@@ -445,7 +448,7 @@ void main() {
         cipher: cipher,
         target: File('${receiver.root.path}/plain'),
       ),
-      throwsA(isA<OpenMlsException>()),
+      throwsA(isA<MlsException>()),
     );
     await expectLater(
       receivers[0].crypto.withMessage(
@@ -454,7 +457,7 @@ void main() {
           roster.first,
         ]),
       ),
-      throwsA(isA<OpenMlsException>()),
+      throwsA(isA<MlsException>()),
     );
   });
 
@@ -480,7 +483,7 @@ void main() {
     } finally {
       await file.close();
     }
-    final bindings = OpenMlsBindings.load();
+    final bindings = MlsBindings.load();
     var confirmed = 0;
     final hooked = MlsStateStore(
       a.store.directory,

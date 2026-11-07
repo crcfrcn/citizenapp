@@ -13,16 +13,16 @@ import 'mls_state_store.dart';
 /// 通过现有 native 库调用 Rust OpenMLS。
 ///
 /// 该类只负责跨 FFI 边界，密码学实现全部在 Rust OpenMLS 中完成。
-class OpenMlsCrypto implements MlsGroupCrypto, MlsPersistentCrypto {
-  OpenMlsCrypto({
-    OpenMlsBindings? bindings,
+class MlsCrypto implements MlsGroupCrypto, MlsPersistentCrypto {
+  MlsCrypto({
+    MlsBindings? bindings,
     ChatDevice? identity,
     MlsStateStore? stateStore,
-  }) : _bindings = bindings ?? OpenMlsBindings.load(),
+  }) : _bindings = bindings ?? MlsBindings.load(),
        _identity = identity,
        _stateStore = stateStore;
 
-  final OpenMlsBindings _bindings;
+  final MlsBindings _bindings;
   final ChatDevice? _identity;
   final MlsStateStore? _stateStore;
 
@@ -72,13 +72,13 @@ class OpenMlsCrypto implements MlsGroupCrypto, MlsPersistentCrypto {
       keyPackageRef: _requireField(
         response,
         'key_package_ref',
-        operation: OpenMlsOperation.keyPackage,
+        operation: MlsOperation.keyPackage,
       ),
       keyPackageBytes: _hexToBytes(
         _requireField(
           response,
           'key_package_hex',
-          operation: OpenMlsOperation.keyPackage,
+          operation: MlsOperation.keyPackage,
         ),
       ),
       cipherSuite: (response['cipher_suite'] ?? '').toString(),
@@ -288,7 +288,7 @@ class OpenMlsCrypto implements MlsGroupCrypto, MlsPersistentCrypto {
   ChatDevice _requireIdentity() {
     final identity = _identity;
     if (identity == null) {
-      throw StateError('OpenMlsCrypto 需要 Chat 设备身份才能执行会话加解密');
+      throw StateError('MlsCrypto 需要 Chat 设备身份才能执行会话加解密');
     }
     final error = identity.validate();
     if (error != null) {
@@ -300,28 +300,26 @@ class OpenMlsCrypto implements MlsGroupCrypto, MlsPersistentCrypto {
   MlsStateStore _requireStateStore() {
     final store = _stateStore;
     if (store == null) {
-      throw StateError('OpenMlsCrypto 需要 MLS stateStore 才能持久化会话');
+      throw StateError('MlsCrypto 需要 MLS stateStore 才能持久化会话');
     }
     return store;
   }
 }
 
-typedef MlsJsonNative =
-    Pointer<Utf8> Function(
-      Pointer<Utf8> requestJson,
-      Pointer<Pointer<Utf8>> errorOut,
-    );
-typedef MlsJsonDart =
-    Pointer<Utf8> Function(
-      Pointer<Utf8> requestJson,
-      Pointer<Pointer<Utf8>> errorOut,
-    );
+typedef MlsJsonNative = Pointer<Utf8> Function(
+  Pointer<Utf8> requestJson,
+  Pointer<Pointer<Utf8>> errorOut,
+);
+typedef MlsJsonDart = Pointer<Utf8> Function(
+  Pointer<Utf8> requestJson,
+  Pointer<Pointer<Utf8>> errorOut,
+);
 typedef MlsFreeStringNative = Void Function(Pointer<Utf8> ptr);
 typedef MlsFreeStringDart = void Function(Pointer<Utf8> ptr);
 
 /// Chat MLS native bindings。
-class OpenMlsBindings {
-  OpenMlsBindings._({
+class MlsBindings {
+  MlsBindings._({
     required this.createKeyPackage,
     required this.identity,
     required this.store,
@@ -345,39 +343,39 @@ class OpenMlsBindings {
   final MlsJsonDart groupState;
   final MlsFreeStringDart _freeString;
 
-  static OpenMlsBindings load() {
-    final library = _loadOpenMlsLibrary();
-    return OpenMlsBindings._(
+  static MlsBindings load() {
+    final library = _loadMlsLibrary();
+    return MlsBindings._(
       createKeyPackage: library.lookupFunction<MlsJsonNative, MlsJsonDart>(
-        'chat_openmls_create_key_package_json',
+        'mls_create_key_package_json',
       ),
       identity: library.lookupFunction<MlsJsonNative, MlsJsonDart>(
-        'chat_openmls_identity_json',
+        'mls_identity_json',
       ),
       store: library.lookupFunction<MlsJsonNative, MlsJsonDart>(
-        'chat_openmls_store_json',
+        'mls_store_json',
       ),
       groupCreate: library.lookupFunction<MlsJsonNative, MlsJsonDart>(
-        'chat_openmls_group_create_json',
+        'mls_group_create_json',
       ),
       groupAddMembers: library.lookupFunction<MlsJsonNative, MlsJsonDart>(
-        'chat_openmls_group_add_members_json',
+        'mls_group_add_members_json',
       ),
       groupRemoveMembers: library.lookupFunction<MlsJsonNative, MlsJsonDart>(
-        'chat_openmls_group_remove_members_json',
+        'mls_group_remove_members_json',
       ),
       groupCreateMessage: library.lookupFunction<MlsJsonNative, MlsJsonDart>(
-        'chat_openmls_group_create_message_json',
+        'mls_group_create_message_json',
       ),
       groupProcess: library.lookupFunction<MlsJsonNative, MlsJsonDart>(
-        'chat_openmls_group_process_json',
+        'mls_group_process_json',
       ),
       groupState: library.lookupFunction<MlsJsonNative, MlsJsonDart>(
-        'chat_openmls_group_state_json',
+        'mls_group_state_json',
       ),
       freeString: library
           .lookupFunction<MlsFreeStringNative, MlsFreeStringDart>(
-            'chat_openmls_free_string',
+            'mls_free_string',
           ),
     );
   }
@@ -400,18 +398,15 @@ class OpenMlsBindings {
         if (errorPtr != nullptr) {
           _freeString(errorPtr);
         }
-        throw OpenMlsException.fromTechnicalMessage(
-          message,
-          operation: operation,
-        );
+        throw MlsException.fromTechnicalMessage(message, operation: operation);
       }
       try {
         final json = jsonDecode(resultPtr.toDartString());
         if (json is! Map<String, dynamic>) throw const FormatException();
         return json;
       } on FormatException {
-        throw OpenMlsException(
-          OpenMlsErrorCode.invalidResponse,
+        throw MlsException(
+          MlsErrorCode.invalidResponse,
           'OpenMLS native响应JSON结构无效',
           operation: operation,
         );
@@ -426,31 +421,31 @@ class OpenMlsBindings {
   }
 
   // 操作名只取本绑定持有的函数槽位，不读取或记录调用参数。
-  OpenMlsOperation _operationFor(MlsJsonDart function) {
-    for (final entry in <MlsJsonDart, OpenMlsOperation>{
-      createKeyPackage: OpenMlsOperation.keyPackage,
-      identity: OpenMlsOperation.identity,
-      store: OpenMlsOperation.store,
-      groupCreate: OpenMlsOperation.groupCreate,
-      groupAddMembers: OpenMlsOperation.groupAdd,
-      groupRemoveMembers: OpenMlsOperation.groupRemove,
-      groupCreateMessage: OpenMlsOperation.groupMessage,
-      groupProcess: OpenMlsOperation.groupProcess,
-      groupState: OpenMlsOperation.groupState,
+  MlsOperation _operationFor(MlsJsonDart function) {
+    for (final entry in <MlsJsonDart, MlsOperation>{
+      createKeyPackage: MlsOperation.keyPackage,
+      identity: MlsOperation.identity,
+      store: MlsOperation.store,
+      groupCreate: MlsOperation.groupCreate,
+      groupAddMembers: MlsOperation.groupAdd,
+      groupRemoveMembers: MlsOperation.groupRemove,
+      groupCreateMessage: MlsOperation.groupMessage,
+      groupProcess: MlsOperation.groupProcess,
+      groupState: MlsOperation.groupState,
     }.entries) {
       if (identical(function, entry.key)) return entry.value;
     }
-    return OpenMlsOperation.unknown;
+    return MlsOperation.unknown;
   }
 }
 
-DynamicLibrary _loadOpenMlsLibrary() {
-  // iOS由公民聊天自己的CocoaPods目标装载动态Framework，沿用正式插件合同。
-  // 公民聊天 自己的 CocoaPods 目标不依赖其它产品原生库。
+DynamicLibrary _loadMlsLibrary() {
+  // iOS由App直接嵌入MLS.framework，Dart读取同一进程的C接口。
+  // MLS原生实现归chat包，随App编译交付。
   if (Platform.isIOS) return DynamicLibrary.process();
   if (Platform.environment.containsKey('FLUTTER_TEST')) {
     final work = Platform.environment['CITIZENAPP_TEST_WORK_DIR'];
-    final library = Platform.environment['CHAT_OPENMLS_TEST_LIBRARY'];
+    final library = Platform.environment['MLS_TEST_LIBRARY'];
     if (work == null ||
         library == null ||
         !path.isAbsolute(work) ||
@@ -464,22 +459,19 @@ DynamicLibrary _loadOpenMlsLibrary() {
             FileSystemEntityType.file ||
         File(library).resolveSymbolicLinksSync() != library ||
         !path.isWithin(work, library)) {
-      throw OpenMlsException(
-        OpenMlsErrorCode.libraryUnavailable,
+      throw MlsException(
+        MlsErrorCode.libraryUnavailable,
         '测试MLS动态库必须显式属于本轮验证任务',
       );
     }
     return DynamicLibrary.open(library);
   }
   if (!Platform.isAndroid) throw UnsupportedError('聊天生产运行仅支持Android与iOS');
-  const library = 'libchat_openmls.so';
+  const library = 'libmls.so';
   try {
     return DynamicLibrary.open(library);
   } on Object {
-    throw OpenMlsException(
-      OpenMlsErrorCode.libraryUnavailable,
-      '无法加载独立公民聊天动态库',
-    );
+    throw MlsException(MlsErrorCode.libraryUnavailable, '无法加载独立公民聊天动态库');
   }
 }
 
@@ -497,12 +489,12 @@ DynamicLibrary _loadOpenMlsLibrary() {
 String _requireField(
   Map<String, dynamic> response,
   String key, {
-  OpenMlsOperation operation = OpenMlsOperation.unknown,
+  MlsOperation operation = MlsOperation.unknown,
 }) {
   final value = (response[key] ?? '').toString();
   if (value.isEmpty) {
-    throw OpenMlsException(
-      OpenMlsErrorCode.invalidResponse,
+    throw MlsException(
+      MlsErrorCode.invalidResponse,
       'OpenMLS native 响应缺少必填字段 $key;请核对 Rust 侧 FFI 键名',
       operation: operation,
     );

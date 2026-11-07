@@ -1,22 +1,22 @@
 import 'package:citizen_network/mls_authentication.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/mls/mls_boundary.dart';
-import 'package:citizen_testing/openmls_test_env.dart';
+import 'package:citizen_testing/mls_test_env.dart';
 
 // 合同测试锁定 公民聊天 的中性身份、状态清理边界和脱敏错误码。
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test('原生存储错误只有固定分类，不授权自动清理', () {
-    final storage = OpenMlsException.fromTechnicalMessage(
+    final storage = MlsException.fromTechnicalMessage(
       'CHAT_MLS_STORAGE_READ_FAILED:detail',
     );
-    final invalid = OpenMlsException.fromTechnicalMessage(
+    final invalid = MlsException.fromTechnicalMessage(
       'CHAT_MLS_STATE_INVALID:detail',
     );
-    expect(storage.code, OpenMlsErrorCode.storageReadFailed);
+    expect(storage.code, MlsErrorCode.storageReadFailed);
     expect(storage.diagnosticCode, 'storage_read_failed');
-    expect(invalid.code, OpenMlsErrorCode.stateInvalid);
+    expect(invalid.code, MlsErrorCode.stateInvalid);
     expect(chatDiagnosticCode(StateError('hidden')), 'operation_failed');
   });
 

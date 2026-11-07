@@ -105,7 +105,7 @@ chat 是 CitizenApp Dart workspace 中的普通本地业务包，唯一包声明
 
 聊天数据库唯一在 storage/lib/chat_isar.dart 声明，生成代码为 storage/lib/chat_isar.g.dart，物理文件为 chat.isar。十个集合、实例、事务、操作队列、开库、关闭和擦除均独立；用户库与广场库不承接聊天集合或聊天事务。chat/lib/chat_store.dart 仅承担这一个聊天库的业务读写。底层 Isar Core 由既有启动设施加载，不形成共享业务数据库或共享操作队列。
 
-OpenMLS Rust 源码、原锁和 C ABI 属于 chat/openmls；Dart 调用在 chat/lib/mls。Android 与 iOS 的媒体、目录保护源码分别归 android/chat、ios/chat，由 App 注册和编译。二进制为 libchat_openmls.so、ChatOpenMLS.framework，随 App 构建，不作为另一款 SDK 发布。Rust 1.97 Apple 构建强制 strip=none，并检查 Mach-O 字符串表八字节对齐；Android ARM64 使用原 NDK 与十六 KB ELF 页面对齐。
+OpenMLS Rust 源码、原锁和 C ABI 属于 chat/mls；Dart 调用在 chat/lib/mls。Android 与 iOS 的媒体、目录保护源码分别归 android/chat、ios/chat，由 App 注册和编译。二进制为 libmls.so、MLS.framework，随 App 构建，不作为另一款 SDK 发布。Rust 1.97 Apple 构建强制 strip=none，并检查 Mach-O 字符串表八字节对齐；Android ARM64 使用原 NDK 与十六 KB ELF 页面对齐。
 
 Proto 的唯一源为 network/proto，生成类型归 network/lib/protocol；应用认证请求、证明、公开 MLS 身份与错误模型归 network/lib/mls_authentication.dart。用户认证通过读取本机身份和生成受限证明两个定型操作复用同一身份；身份绑定及注销业务使用定型回调，不持有聊天运行时。会员事实与资源结算仍唯一归 user 包。
 
@@ -2208,7 +2208,7 @@ iOS当前Xcode27原生环境不提供Mac摄像头映射。按用户最新决定�
 
 附件缓存与临时工作文件由 chat 自有系统保护域承载；App自己的系统保护记录和数据库继续由App负责。钱包生产功能、私钥存储、签署及注册真人验证没有本步改动。
 
-非钱包客户端直接依赖已删除cryptography与flutter_secure_storage；chat/openmls 负责 MLS 协议，App记录由自有系统保护目录承载。钱包上游的ristretto255、sr25519、ss58及substrate_bip39仍按原锁传递依赖cryptography，不能将其作为新增设备或数据用途钥实现。原生Pod锁仅移除已停用的flutter_secure_storage_darwin；其他锁定版本保持。
+非钱包客户端直接依赖已删除cryptography与flutter_secure_storage；chat/mls 负责 MLS 协议，App记录由自有系统保护目录承载。钱包上游的ristretto255、sr25519、ss58及substrate_bip39仍按原锁传递依赖cryptography，不能将其作为新增设备或数据用途钥实现。原生Pod锁仅移除已停用的flutter_secure_storage_darwin；其他锁定版本保持。
 
 ## 第7步原生客户端适配（2026年10月6日，源码回归通过，全量门禁与正式页面验收待完成）
 
@@ -2304,7 +2304,7 @@ entry以账户/准确tx_hash或账户/block_hash/event_index在原事务定位�
 
 通知使用notice_rev/member_rev/creator_rev/bind_rev；scope只有cidNumber/accountId/bindRev与原generation。独立接收时刻、跨域补写恢复、同版本补存和已读意图保持，推送端点发送apns_env。ResourceUsage与MLS证明属于当前固定SDK公开合同，按真实接口消费；后续所有者变更时须同步跨端合同并重新联调，不能在App添加兼容映射。
 
-MLS 认证证明统一归 chat/openmls 原生 Serde 编码：user_id/device_id/public_key/account_id/bind_rev/service_origin/nonce_id/expires_at/http_method/request_target/body_hash/signature。user_id在公民服务边界直接核对当前CID；原签名域、字段顺序、毫秒单位和签名字节保持。Dart证明只持有原生唯一字段集，宿主验证而不回抄另一份证明。ResourceUsage/ResourceCounter沿原Proto编号与类型，HTTP直接序列化生成类型，不维护另一套计量模型。
+MLS 认证证明统一归 chat/mls 原生 Serde 编码：user_id/device_id/public_key/account_id/bind_rev/service_origin/nonce_id/expires_at/http_method/request_target/body_hash/signature。user_id在公民服务边界直接核对当前CID；原签名域、字段顺序、毫秒单位和签名字节保持。Dart证明只持有原生唯一字段集，宿主验证而不回抄另一份证明。ResourceUsage/ResourceCounter沿原Proto编号与类型，HTTP直接序列化生成类型，不维护另一套计量模型。
 
 ## 关注、评论、创作者与订单合同
 
@@ -2346,7 +2346,7 @@ SDK补传同次job实际产生的固定内部原因时，App按同一白名单�
 
 ## 本机编译资源与版本来源
 
-本机compile读取本平台最新成功正式Release的产品版本及对应构建号；首次没有正式记录时才使用pubspec.yaml初始值。控制台任务号不作为产品版本输入。CitizenSDK 在编译开始固定本机当前 HEAD 已保存提交并调用其公开构建入口；chat 直接使用 App 本轮源码与 chat/openmls 原锁，不解析外部聊天产品来源；先以Pub与npm离线装配原锁；本机npm默认复用本仓target/cache/npm，调用方显式npm缓存配置优先，缺件直接失败；塔塔自动化保持原缓存环境。随后正常build由Flutter按Release刷新原生插件注册；不使用build --no-pub跳过该步骤。Git仅放行本地file与正式源码HTTPS，Cargo沿标准离线参数执行。塔塔自动化继续使用所属Workflow提供的Run构建号和正式SDK选择。
+本机compile读取本平台最新成功正式Release的产品版本及对应构建号；首次没有正式记录时才使用pubspec.yaml初始值。控制台任务号不作为产品版本输入。CitizenSDK 在编译开始固定本机当前 HEAD 已保存提交并调用其公开构建入口；chat 直接使用 App 本轮源码与 chat/mls 原锁，不解析外部聊天产品来源；先以Pub与npm离线装配原锁；本机npm默认复用本仓target/cache/npm，调用方显式npm缓存配置优先，缺件直接失败；塔塔自动化保持原缓存环境。随后正常build由Flutter按Release刷新原生插件注册；不使用build --no-pub跳过该步骤。Git仅放行本地file与正式源码HTTPS，Cargo沿标准离线参数执行。塔塔自动化继续使用所属Workflow提供的Run构建号和正式SDK选择。
 
 ## 包与测试归属重构
 
@@ -2569,3 +2569,8 @@ iOS 模拟器三项新增原生回归通过：迁移保留数据库与擦除标�
 控制台删除独立聊天产品、发布动作和来源读取，目录现为14个产品、78个动作。其他产品删除旧聊天来源映射及对应Cargo/源码投影分支。公民App补齐/chat/路由的启动请求分类，旧客户端工程、旧Pub Git缓存和已识别的旧编译缓存退出本地装配。必要的旧数据文件名仅用于一次性无损迁移与对应回归。
 
 完整修改、删除和实际测试记录由本步验收报告提供。已安装控制台与远端源码/发布资源的替换退役另行确认；本地源码变更不冒称线上发布完成。
+
+
+## chat内部MLS实现命名
+
+chat是唯一Flutter本地业务包；原生源码归chat/mls，Cargo包/库名mls且publish=false，没有独立SDK发布入口。Dart绑定归chat/lib/mls/mls_bindings.dart；iOS为MLS.framework，Android为libmls.so，C接口为mls_*。上游openmls依赖保留正式名称及原锁。聊天数据库源码、生成代码、App Pub/Pod锁和现有认证协议字节保持。

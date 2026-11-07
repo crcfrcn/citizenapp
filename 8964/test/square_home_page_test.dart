@@ -497,8 +497,8 @@ class _GateMlsSessions implements SquareSessionProvider {
             session: fakeSquareSession(testMlsAccountId),
           )
         : SquareSessionResolution.fromError(
-            const chat_sdk.OpenMlsException(
-              chat_sdk.OpenMlsErrorCode.directoryInvalid,
+            const chat_sdk.MlsException(
+              chat_sdk.MlsErrorCode.directoryInvalid,
               'synthetic raw directory detail',
             ),
           );
@@ -724,21 +724,19 @@ void main() {
       security = AccountSecurityService(
         getWalletState: readWallet,
         signing: sdk,
-        mlsDeviceRegistrar:
-            ({
-              required cidNumber,
-              required bindRev,
-              required accountId,
-              required signBinding,
-            }) async => throw StateError('主页回归禁止登记MLS设备'),
-        coldMlsDeviceBindingSigner:
-            ({
-              required binding,
-              required payload,
-              required signingMessage,
-              required publicKey,
-              required issuedAtMillis,
-            }) async => throw StateError('主页回归禁止钱包签名'),
+        mlsDeviceRegistrar: ({
+          required cidNumber,
+          required bindRev,
+          required accountId,
+          required signBinding,
+        }) async => throw StateError('主页回归禁止登记MLS设备'),
+        coldMlsDeviceBindingSigner: ({
+          required binding,
+          required payload,
+          required signingMessage,
+          required publicKey,
+          required issuedAtMillis,
+        }) async => throw StateError('主页回归禁止钱包签名'),
       );
       registered = CurrentUser(
         account: account,
@@ -929,8 +927,7 @@ void main() {
       identity.requests[1].complete(
         registered
             ? const SquareIdentityState(
-                accountId:
-                    '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                accountId: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
                 cidNumber: 'CN220-CTZN2-100000002-2026',
                 signMode: CitizenWalletSignMode.hot,
               )
@@ -1221,9 +1218,8 @@ void main() {
     expect(
       pageSize.height -
           documentBottom -
-          MediaQuery.paddingOf(
-            tester.element(find.byType(SquareHomePage)),
-          ).bottom,
+          MediaQuery.paddingOf(tester.element(find.byType(SquareHomePage)))
+              .bottom,
       closeTo(pageSize.width - videoRight, 1),
     );
 
@@ -1406,8 +1402,7 @@ void main() {
 
     identityService.completer.complete(
       const SquareIdentityState(
-        accountId:
-            '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        accountId: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         cidNumber: 'CN220-CTZN2-100000001-2026',
         signMode: CitizenWalletSignMode.hot,
       ),
@@ -1683,9 +1678,8 @@ void _squareOrderPersistenceTests() {
       expect(tabs.order.first, SquareFeedKind.circle);
       expect(tabs.selected, SquareFeedKind.recommended);
       expect(
-        (await tester.runAsync(
-          () => const SquareTabOrderStore().read(),
-        ))!.first,
+        (await tester.runAsync(() => const SquareTabOrderStore().read()))!
+            .first,
         SquareFeedKind.circle,
       );
       await tester.pumpWidget(const SizedBox.shrink());
@@ -1816,21 +1810,19 @@ void _squareTabGateTests() {
       security = AccountSecurityService(
         getWalletState: sdk.getWalletState,
         signing: sdk,
-        mlsDeviceRegistrar:
-            ({
-              required cidNumber,
-              required bindRev,
-              required accountId,
-              required signBinding,
-            }) async => throw StateError('测试禁止登记设备'),
-        coldMlsDeviceBindingSigner:
-            ({
-              required binding,
-              required payload,
-              required signingMessage,
-              required publicKey,
-              required issuedAtMillis,
-            }) async => throw StateError('测试禁止钱包签名'),
+        mlsDeviceRegistrar: ({
+          required cidNumber,
+          required bindRev,
+          required accountId,
+          required signBinding,
+        }) async => throw StateError('测试禁止登记设备'),
+        coldMlsDeviceBindingSigner: ({
+          required binding,
+          required payload,
+          required signingMessage,
+          required publicKey,
+          required issuedAtMillis,
+        }) async => throw StateError('测试禁止钱包签名'),
       );
       gate = _TabGate(CidBusinessStatus.ready);
       sessions = _UnavailableTabSessions();

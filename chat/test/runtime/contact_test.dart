@@ -1,5 +1,6 @@
 import 'package:citizen_network/mls_authentication.dart';
 import 'package:citizen_testing/chat_runtime_fixture.dart';
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -8,7 +9,7 @@ import 'package:chat/mls/mls_boundary.dart';
 import 'package:chat/mls/mls_state_store.dart';
 import 'package:chat/chat_runtime.dart';
 import 'package:citizen_testing/chat_isar_test_env.dart';
-import 'package:citizen_testing/openmls_test_env.dart';
+import 'package:citizen_testing/mls_test_env.dart';
 
 class _ContactHost implements ChatRuntimeFixture {
   ChatRuntimeAccount account = const ChatRuntimeAccount(
@@ -32,7 +33,7 @@ class _ContactHost implements ChatRuntimeFixture {
 
 void main() {
   useIsolatedChatIsar();
-  requireOpenMlsTestLibrary();
+  requireMlsTestLibrary();
   // 公共运行时真实调用与应用集成共享入口，避免只验证内部引擎而漏接能力。
   for (final change in [
     'none',
@@ -66,14 +67,10 @@ void main() {
             if (change != 'none') {
               host.account = ChatRuntimeAccount(
                 hostIndex: change == 'host' ? 2 : 1,
-                bindingScope: change == 'domain'
-                    ? 'other'
-                    : '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                bindingScope: change == 'domain' ? 'other' : '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
                 userId: change == 'user' ? 'other-user' : 'user-a',
                 bindingRevision: change == 'binding' ? 2 : 1,
-                accountId: change == 'account'
-                    ? '0x${'cc' * 32}'
-                    : '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                accountId: change == 'account' ? '0x${'cc' * 32}' : '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
                 displayName: 'other',
               );
             }
@@ -133,7 +130,7 @@ void main() {
       snapshots: () async => [utf8.encode('synthetic snapshot')],
       apply: (_) async {},
     );
-    await expectLater(sync(), throwsA(isA<OpenMlsException>()));
+    await expectLater(sync(), throwsA(isA<MlsException>()));
     expect(exchanges, 0);
     expect(await File('${root.path}/state.bin').exists(), isFalse);
     identity = await runtime.readLocalMlsIdentity();

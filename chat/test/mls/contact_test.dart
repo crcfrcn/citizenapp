@@ -4,12 +4,12 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/mls/mls_boundary.dart';
 import 'package:chat/mls/mls_contact_sync.dart';
-import 'package:chat/mls/openmls_bindings.dart';
+import 'package:chat/mls/mls_bindings.dart';
 import 'package:chat/mls/mls_state_store.dart';
-import 'package:citizen_testing/openmls_test_env.dart';
+import 'package:citizen_testing/mls_test_env.dart';
 
 void main() {
-  requireOpenMlsTestLibrary();
+  requireMlsTestLibrary();
 
   test('同CID真实MLS Welcome、快照、丢回执重启和精确叶子移除', () async {
     final temporary = await Directory.systemTemp.createTemp('contact_mls_');
@@ -18,14 +18,14 @@ void main() {
     final relay = TestContactRelay();
     final devices = <ChatDevice>[];
     final stores = <MlsStateStore>[];
-    final cryptos = <OpenMlsCrypto>[];
+    final cryptos = <MlsCrypto>[];
     for (var index = 0; index < 3; index++) {
       final directory = await Directory('${root.path}/$index').create();
       final store = MlsStateStore(directory, ownerUserId: 'CID-A');
       final identity = await store.prepareIdentity();
       stores.add(store);
       devices.add(identity);
-      cryptos.add(OpenMlsCrypto(identity: identity, stateStore: store));
+      cryptos.add(MlsCrypto(identity: identity, stateStore: store));
     }
     final received = [<String>[], <String>[], <String>[]];
     Future<List<List<int>>> sync(int index, {bool current = true}) =>
@@ -86,11 +86,11 @@ void main() {
     relay.loseCommitReply = true;
     await expectLater(sync(0), throwsStateError);
     final identityBefore = await stores[0].readIdentity();
-    cryptos[0] = OpenMlsCrypto(identity: identityBefore, stateStore: stores[0]);
+    cryptos[0] = MlsCrypto(identity: identityBefore, stateStore: stores[0]);
     await sync(0);
     relay.rejectNextAckFor = devices[1].deviceId;
     await expectLater(sync(1), throwsStateError);
-    cryptos[1] = OpenMlsCrypto(
+    cryptos[1] = MlsCrypto(
       identity: await stores[1].readIdentity(),
       stateStore: stores[1],
     );

@@ -152,7 +152,7 @@ class MlsAuthenticationProof {
 String _bytesToHex(List<int> value) =>
     value.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 
-enum OpenMlsErrorCode {
+enum MlsErrorCode {
   directoryInvalid,
   directoryUnavailable,
   stateMissing,
@@ -170,7 +170,7 @@ enum OpenMlsErrorCode {
 }
 
 /// 公开诊断只携带固定FFI操作，不暴露路径、身份或请求内容。
-enum OpenMlsOperation {
+enum MlsOperation {
   unknown,
   identity,
   store,
@@ -183,102 +183,102 @@ enum OpenMlsOperation {
   groupState,
 }
 
-class OpenMlsException implements Exception {
-  const OpenMlsException(
+class MlsException implements Exception {
+  const MlsException(
     this.code,
     this.technicalMessage, {
-    this.operation = OpenMlsOperation.unknown,
+    this.operation = MlsOperation.unknown,
   });
 
-  factory OpenMlsException.fromTechnicalMessage(
+  factory MlsException.fromTechnicalMessage(
     String message, {
-    OpenMlsOperation operation = OpenMlsOperation.unknown,
+    MlsOperation operation = MlsOperation.unknown,
   }) {
     final classified = _classify(message);
-    return OpenMlsException(classified, message, operation: operation);
+    return MlsException(classified, message, operation: operation);
   }
 
-  static OpenMlsErrorCode _classify(String message) {
+  static MlsErrorCode _classify(String message) {
     if (message == '解析request_json失败，字段或结构非法') {
-      return OpenMlsErrorCode.invalidRequest;
+      return MlsErrorCode.invalidRequest;
     }
     if (message.startsWith('CHAT_MLS_STATE_MISSING:')) {
-      return OpenMlsErrorCode.stateMissing;
+      return MlsErrorCode.stateMissing;
     }
     if (message.contains('CHAT_MLS_STATE_OWNER_MISMATCH')) {
-      return OpenMlsErrorCode.stateOwnerMismatch;
+      return MlsErrorCode.stateOwnerMismatch;
     }
     if (message.contains('CHAT_MLS_STORAGE_READ_FAILED')) {
-      return OpenMlsErrorCode.storageReadFailed;
+      return MlsErrorCode.storageReadFailed;
     }
     if (message.contains('CHAT_MLS_STATE_INVALID')) {
-      return OpenMlsErrorCode.stateInvalid;
+      return MlsErrorCode.stateInvalid;
     }
     if (message.contains('CHAT_MLS_SIGNER_MISSING')) {
-      return OpenMlsErrorCode.signerMissing;
+      return MlsErrorCode.signerMissing;
     }
     if (message.startsWith('CHAT_MLS_REQUEST_CONFLICT:')) {
-      return OpenMlsErrorCode.requestConflict;
+      return MlsErrorCode.requestConflict;
     }
     if (message.startsWith('CHAT_MLS_PENDING_FULL:')) {
-      return OpenMlsErrorCode.pendingFull;
+      return MlsErrorCode.pendingFull;
     }
     if (message.startsWith('生成 OpenMLS KeyPackage 失败:')) {
-      return OpenMlsErrorCode.keyPackageFailed;
+      return MlsErrorCode.keyPackageFailed;
     }
-    return OpenMlsErrorCode.operationFailed;
+    return MlsErrorCode.operationFailed;
   }
 
-  final OpenMlsErrorCode code;
+  final MlsErrorCode code;
   final String technicalMessage;
-  final OpenMlsOperation operation;
+  final MlsOperation operation;
 
   String get diagnosticOperation => switch (operation) {
-    OpenMlsOperation.unknown => 'unknown',
-    OpenMlsOperation.identity => 'identity',
-    OpenMlsOperation.store => 'store',
-    OpenMlsOperation.keyPackage => 'key_package',
-    OpenMlsOperation.groupCreate => 'group_create',
-    OpenMlsOperation.groupAdd => 'group_add',
-    OpenMlsOperation.groupRemove => 'group_remove',
-    OpenMlsOperation.groupMessage => 'group_message',
-    OpenMlsOperation.groupProcess => 'group_process',
-    OpenMlsOperation.groupState => 'group_state',
+    MlsOperation.unknown => 'unknown',
+    MlsOperation.identity => 'identity',
+    MlsOperation.store => 'store',
+    MlsOperation.keyPackage => 'key_package',
+    MlsOperation.groupCreate => 'group_create',
+    MlsOperation.groupAdd => 'group_add',
+    MlsOperation.groupRemove => 'group_remove',
+    MlsOperation.groupMessage => 'group_message',
+    MlsOperation.groupProcess => 'group_process',
+    MlsOperation.groupState => 'group_state',
   };
 
   /// 脱敏诊断只记录该稳定码，不记录用户、账户、路径、密钥或底层文本。
   String get diagnosticCode => switch (code) {
-    OpenMlsErrorCode.directoryInvalid => 'directory_invalid',
-    OpenMlsErrorCode.directoryUnavailable => 'directory_unavailable',
-    OpenMlsErrorCode.stateMissing => 'state_missing',
-    OpenMlsErrorCode.stateOwnerMismatch => 'state_owner_mismatch',
-    OpenMlsErrorCode.storageReadFailed => 'storage_read_failed',
-    OpenMlsErrorCode.stateInvalid => 'state_invalid',
-    OpenMlsErrorCode.signerMissing => 'signer_missing',
-    OpenMlsErrorCode.libraryUnavailable => 'library_unavailable',
-    OpenMlsErrorCode.invalidRequest => 'invalid_request',
-    OpenMlsErrorCode.invalidResponse => 'invalid_response',
-    OpenMlsErrorCode.requestConflict => 'request_conflict',
-    OpenMlsErrorCode.pendingFull => 'pending_full',
-    OpenMlsErrorCode.keyPackageFailed => 'key_package_failed',
-    OpenMlsErrorCode.operationFailed => 'operation_failed',
+    MlsErrorCode.directoryInvalid => 'directory_invalid',
+    MlsErrorCode.directoryUnavailable => 'directory_unavailable',
+    MlsErrorCode.stateMissing => 'state_missing',
+    MlsErrorCode.stateOwnerMismatch => 'state_owner_mismatch',
+    MlsErrorCode.storageReadFailed => 'storage_read_failed',
+    MlsErrorCode.stateInvalid => 'state_invalid',
+    MlsErrorCode.signerMissing => 'signer_missing',
+    MlsErrorCode.libraryUnavailable => 'library_unavailable',
+    MlsErrorCode.invalidRequest => 'invalid_request',
+    MlsErrorCode.invalidResponse => 'invalid_response',
+    MlsErrorCode.requestConflict => 'request_conflict',
+    MlsErrorCode.pendingFull => 'pending_full',
+    MlsErrorCode.keyPackageFailed => 'key_package_failed',
+    MlsErrorCode.operationFailed => 'operation_failed',
   };
 
   String get userMessage => switch (code) {
-    OpenMlsErrorCode.directoryInvalid => '本机聊天存储路径校验失败',
-    OpenMlsErrorCode.directoryUnavailable => '本机聊天存储暂时不可读取，请稍后重试',
-    OpenMlsErrorCode.stateMissing => '本机聊天身份文件缺失，聊天暂时无法使用',
-    OpenMlsErrorCode.stateOwnerMismatch => '当前用户身份的聊天设备状态属于其他用户，请重新切换账户后再试',
-    OpenMlsErrorCode.storageReadFailed ||
-    OpenMlsErrorCode.stateInvalid ||
-    OpenMlsErrorCode.signerMissing => '当前用户身份的聊天加密状态无法恢复，请重新进入宿主',
-    OpenMlsErrorCode.libraryUnavailable => '聊天安全组件加载失败，请重新安装当前版本',
-    OpenMlsErrorCode.invalidRequest ||
-    OpenMlsErrorCode.invalidResponse ||
-    OpenMlsErrorCode.requestConflict ||
-    OpenMlsErrorCode.pendingFull ||
-    OpenMlsErrorCode.keyPackageFailed ||
-    OpenMlsErrorCode.operationFailed => '聊天安全组件暂时无法使用，请稍后重试',
+    MlsErrorCode.directoryInvalid => '本机聊天存储路径校验失败',
+    MlsErrorCode.directoryUnavailable => '本机聊天存储暂时不可读取，请稍后重试',
+    MlsErrorCode.stateMissing => '本机聊天身份文件缺失，聊天暂时无法使用',
+    MlsErrorCode.stateOwnerMismatch => '当前用户身份的聊天设备状态属于其他用户，请重新切换账户后再试',
+    MlsErrorCode.storageReadFailed ||
+    MlsErrorCode.stateInvalid ||
+    MlsErrorCode.signerMissing => '当前用户身份的聊天加密状态无法恢复，请重新进入宿主',
+    MlsErrorCode.libraryUnavailable => '聊天安全组件加载失败，请重新安装当前版本',
+    MlsErrorCode.invalidRequest ||
+    MlsErrorCode.invalidResponse ||
+    MlsErrorCode.requestConflict ||
+    MlsErrorCode.pendingFull ||
+    MlsErrorCode.keyPackageFailed ||
+    MlsErrorCode.operationFailed => '聊天安全组件暂时无法使用，请稍后重试',
   };
 
   @override
@@ -287,14 +287,14 @@ class OpenMlsException implements Exception {
 
 /// 返回可持久记录的脱敏错误码；非 native 错误统一收敛，不读取异常原文。
 String chatDiagnosticCode(Object error) =>
-    error is OpenMlsException ? error.diagnosticCode : 'operation_failed';
+    error is MlsException ? error.diagnosticCode : 'operation_failed';
 
 /// 将 Chat/OpenMLS 异常收敛为可公开展示的固定中文文案。
 ///
 /// 未列入白名单的底层异常统一返回 [fallback]；禁止把 `Bad state`、动态库路径、native
 /// 调试文本或损坏字节直接渲染到 Android/iOS 页面。
 String chatErrorMessage(Object error, {String fallback = '聊天暂时无法使用，请稍后重试'}) {
-  if (error is OpenMlsException) return error.userMessage;
+  if (error is MlsException) return error.userMessage;
   final technical = error.toString();
   if (technical.contains('当前默认账户尚未注册用户身份')) {
     return '当前默认账户尚未注册用户身份，无法使用聊天';

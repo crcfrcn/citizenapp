@@ -1,4 +1,5 @@
 import 'package:citizen_testing/chat_runtime_fixture.dart';
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -13,7 +14,7 @@ import 'package:chat/group/group_flow.dart';
 import 'package:chat/chat_store.dart';
 import 'package:chat/chat_models.dart';
 import 'package:citizen_testing/chat_isar_test_env.dart';
-import 'package:citizen_testing/openmls_test_env.dart';
+import 'package:citizen_testing/mls_test_env.dart';
 import 'package:chat/transport/chat_connection.dart';
 
 void main() {
@@ -204,7 +205,7 @@ void main() {
   }
 
   useIsolatedChatIsar();
-  requireOpenMlsTestLibrary();
+  requireMlsTestLibrary();
 
   test('真实MLS附件控制为同CID两台收件设备分别持久化Welcome和投递条目', () async {
     final dir = await createMlsTestDirectory(),

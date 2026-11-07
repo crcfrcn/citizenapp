@@ -60,12 +60,12 @@ void main() {
   });
   test('MLS本地错误保留固定阶段及中文，不冒充网络或泄露技术文本', () {
     for (final code in [
-      sdk.OpenMlsErrorCode.directoryInvalid,
-      sdk.OpenMlsErrorCode.directoryUnavailable,
-      sdk.OpenMlsErrorCode.stateMissing,
-      sdk.OpenMlsErrorCode.storageReadFailed,
+      sdk.MlsErrorCode.directoryInvalid,
+      sdk.MlsErrorCode.directoryUnavailable,
+      sdk.MlsErrorCode.stateMissing,
+      sdk.MlsErrorCode.storageReadFailed,
     ]) {
-      final error = sdk.OpenMlsException(code, 'synthetic-private-path');
+      final error = sdk.MlsException(code, 'synthetic-private-path');
       final result = SquareSessionResolution.fromError(error);
       expect(result.status, SquareSessionStatus.deviceUnavailable);
       expect(result.stage, SquareApiStage.identity);
@@ -74,9 +74,8 @@ void main() {
       expect(result.message, isNot(contains('synthetic-private-path')));
     }
     expect(
-      SquareSessionResolution.fromError(
-        StateError('synthetic internal error'),
-      ).status,
+      SquareSessionResolution.fromError(StateError('synthetic internal error'))
+          .status,
       SquareSessionStatus.serviceUnavailable,
     );
   });
@@ -542,8 +541,8 @@ void _preparationDiagnosticsTests() {
     const FormatException('synthetic-private-preparation'),
     StateError('synthetic-private-preparation'),
     const SocketException('synthetic-private-preparation'),
-    const sdk.OpenMlsException(
-      sdk.OpenMlsErrorCode.stateMissing,
+    const sdk.MlsException(
+      sdk.MlsErrorCode.stateMissing,
       'synthetic-private-preparation',
     ),
   ]) {

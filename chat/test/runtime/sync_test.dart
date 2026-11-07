@@ -1,6 +1,7 @@
 import 'package:citizen_system/notifications/app_push_token.dart';
 import 'package:chat/chat_push.dart';
 import 'package:citizen_testing/chat_runtime_fixture.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -13,7 +14,7 @@ import 'package:chat/message/chat_message.dart';
 import 'package:chat/mls/mls_attachment.dart';
 import 'package:chat/mls/mls_boundary.dart';
 import 'package:chat/mls/mls_group_boundary.dart';
-import 'package:chat/mls/openmls_bindings.dart';
+import 'package:chat/mls/mls_bindings.dart';
 import 'package:chat/mls/mls_state_store.dart';
 import 'package:citizen_network/protocol/message.dart';
 import 'package:chat/chat_runtime.dart';
@@ -21,7 +22,7 @@ import 'package:chat/message/direct_flow.dart';
 import 'package:chat/chat_media_limits.dart';
 import 'package:chat/chat_store.dart';
 import 'package:citizen_testing/chat_isar_test_env.dart';
-import 'package:citizen_testing/openmls_test_env.dart';
+import 'package:citizen_testing/mls_test_env.dart';
 import 'package:chat/transport/chat_connection.dart';
 
 const _device =
@@ -93,9 +94,7 @@ final class _Host
     if (!enteredAccess.isCompleted) enteredAccess.complete();
     return access == null
         ? ChatAccess(
-            realtimeUrl: Uri.parse(
-              'wss://chat.example.test/api/chat/realtime',
-            ),
+            realtimeUrl: Uri.parse('wss://chat.example.test/api/chat/realtime'),
             accessToken: 'synthetic-token',
             expiresAtMillis: DateTime.now().millisecondsSinceEpoch + 300000,
           )
@@ -376,7 +375,7 @@ final class _Fixture {
 }
 
 // 仅延迟真实Rust MLS已生成的附件帧；不替代任何密码学、受众或存储检查。
-class _SlowNative extends OpenMlsCrypto {
+class _SlowNative extends MlsCrypto {
   _SlowNative({required super.identity, required super.stateStore});
   Completer<void>? release;
   final encrypted = Completer<void>();
@@ -554,7 +553,7 @@ void main() {
     );
     final peer = await peerState.prepareIdentity();
     transport.remotePackages = [
-      await OpenMlsCrypto(
+      await MlsCrypto(
         identity: peer,
         stateStore: peerState,
       ).createKeyPackage(peer),
@@ -653,9 +652,7 @@ void main() {
           await releasePublication.future;
         };
         final access = ChatAccess(
-          realtimeUrl: Uri.parse(
-            'wss://chat.example.test/api/chat/realtime',
-          ),
+          realtimeUrl: Uri.parse('wss://chat.example.test/api/chat/realtime'),
           accessToken: 'synthetic-token',
           expiresAtMillis: DateTime.now().millisecondsSinceEpoch + 300000,
         );
@@ -879,7 +876,7 @@ void main() {
       ownerUserId: 'user-b',
     );
     final peerIdentity = await peerStore.prepareIdentity();
-    final peerPackage = await OpenMlsCrypto(
+    final peerPackage = await MlsCrypto(
       identity: peerIdentity,
       stateStore: peerStore,
     ).createKeyPackage(peerIdentity, lastResort: true);
@@ -1037,8 +1034,7 @@ void main() {
       if (terminal == 'binding') {
         fixture.host.account = const ChatRuntimeAccount(
           hostIndex: 0,
-          bindingScope:
-              '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          bindingScope: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
           userId: 'user-a',
           bindingRevision: 2,
           accountId: 'account-a',

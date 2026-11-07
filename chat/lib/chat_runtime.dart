@@ -5,7 +5,9 @@ import 'package:citizen_user/membership/subscription_service.dart';
 import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_system/notifications/app_push_service.dart';
 import 'package:citizen_system/notifications/app_push_token.dart';
+
 import 'chat_push.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -22,7 +24,7 @@ import 'package:chat/mls/mls_attachment.dart';
 import 'package:chat/mls/mls_boundary.dart';
 import 'package:chat/mls/mls_contact_sync.dart';
 import 'package:chat/mls/mls_group_boundary.dart';
-import 'package:chat/mls/openmls_bindings.dart';
+import 'package:chat/mls/mls_bindings.dart';
 import 'package:chat/mls/mls_state_store.dart';
 import 'package:citizen_network/protocol/message.dart';
 import 'package:chat/chat_store.dart';
@@ -1200,7 +1202,7 @@ class _ChatBindingFencedMlsCrypto
 
   void dispose() {
     final delegate = _delegate;
-    if (delegate is OpenMlsCrypto) delegate.dispose();
+    if (delegate is MlsCrypto) delegate.dispose();
   }
 
   @override
@@ -1357,7 +1359,7 @@ class ChatRuntimeAccountContext {
     final currentCrypto = crypto;
     if (currentCrypto is _ChatBindingFencedMlsCrypto) {
       currentCrypto.dispose();
-    } else if (currentCrypto is OpenMlsCrypto) {
+    } else if (currentCrypto is MlsCrypto) {
       currentCrypto.dispose();
     }
   }
@@ -1684,9 +1686,8 @@ class ChatRuntime {
     Future<Directory> Function()? documentsDirectoryProvider,
   }) {
     _processWipeRequested = true;
-    return _resolveWipeDocumentsRoot(
-      documentsDirectoryProvider,
-    ).then(_ChatCrossIsolateCoordinator.ensureWipePending);
+    return _resolveWipeDocumentsRoot(documentsDirectoryProvider)
+        .then(_ChatCrossIsolateCoordinator.ensureWipePending);
   }
 
   static Future<ChatPersistentWipeState> readPersistentAppDataWipeState({
@@ -2170,7 +2171,7 @@ class ChatRuntime {
         _captureCleanupFailure('等待此前 Chat 上下文关闭', () => disposal, failures),
     ]);
 
-    // 第三阶段才关闭 context：此时没有 action 会继续使用 OpenMlsCrypto、
+    // 第三阶段才关闭 context：此时没有 action 会继续使用 MlsCrypto、
     // 运行资源。flight 晚到 context 与此前失败的 pending 一并重试。
     final contexts = <ChatRuntimeAccountContext>{
       ...initialContexts,
@@ -2421,11 +2422,10 @@ class ChatRuntime {
   ) {
     final key = '${context.bindingToken.accountId}|$conversationId';
     unawaited(
-      _runRuntimeOperation(
-        () => _outboundDeliveryGate.run(key, delivery),
-      ).catchError((Object _) {
-        // 静默后台投递失败不覆盖本地消息；队列事实仍在，下次重试继续发送。
-      }),
+      _runRuntimeOperation(() => _outboundDeliveryGate.run(key, delivery))
+          .catchError((Object _) {
+            // 静默后台投递失败不覆盖本地消息；队列事实仍在，下次重试继续发送。
+          }),
     );
   }
 
@@ -4088,9 +4088,8 @@ class ChatRuntime {
     if (!await uploaded.exists()) {
       throw StateError('Chat 附件密文仍在后台上传');
     }
-    if (!(await context.crypto.pendingMessageResults(
-      pending.localMessageId,
-    )).any((r) => (r['result'] as Map)['application_wire_hex'] is String)) {
+    if (!(await context.crypto.pendingMessageResults(pending.localMessageId))
+        .any((r) => (r['result'] as Map)['application_wire_hex'] is String)) {
       await _requireAttachmentAudience(
         context,
         pending.conversationId,
@@ -4191,9 +4190,8 @@ class ChatRuntime {
         // 上传标记是远端成功真值，缓存清理留给会话删除统一收口。
       }
     }
-    if (!(await context.crypto.pendingMessageResults(
-      pending.localMessageId,
-    )).any((r) => (r['result'] as Map)['application_wire_hex'] is String)) {
+    if (!(await context.crypto.pendingMessageResults(pending.localMessageId))
+        .any((r) => (r['result'] as Map)['application_wire_hex'] is String)) {
       await _requireAttachmentAudience(
         context,
         pending.conversationId,
@@ -4935,7 +4933,7 @@ class ChatRuntime {
         final identity = await store.prepareIdentity();
         final crypto =
             _cryptoFactory?.call(identity, store) ??
-            OpenMlsCrypto(identity: identity, stateStore: store);
+            MlsCrypto(identity: identity, stateStore: store);
         final fencedCrypto = _ChatBindingFencedMlsCrypto(
           runtime: this,
           bindingToken: bindingToken,
@@ -5366,9 +5364,8 @@ class ChatRuntime {
         await _groupFlow(context).processIncomingGroupMessage(messageBytes),
       );
     } else {
-      final result = await _messageFlow(
-        context,
-      ).processIncomingMessageBytes(messageBytes);
+      final result = await _messageFlow(context)
+          .processIncomingMessageBytes(messageBytes);
       accepted.addAll(result.acceptedMessages);
       // Welcome 成功持久确认也可 ACK 自身；缓冲的 out_of_order 不能 ACK。
       if (result.accepted &&
@@ -5397,14 +5394,14 @@ class ChatRuntime {
     final lastResort = context.localKeyPackage;
     if (lastResort.userId != context.account.userId ||
         lastResort.deviceId != context.deviceId) {
-      throw const OpenMlsException(
-        OpenMlsErrorCode.invalidResponse,
+      throw const MlsException(
+        MlsErrorCode.invalidResponse,
         'OpenMLS KeyPackage 与当前本机 user ID 设备身份不一致',
       );
     }
     if (!lastResort.lastResort) {
-      throw const OpenMlsException(
-        OpenMlsErrorCode.invalidResponse,
+      throw const MlsException(
+        MlsErrorCode.invalidResponse,
         'OpenMLS Last Resort KeyPackage 不合法',
       );
     }
@@ -5434,8 +5431,8 @@ class ChatRuntime {
         // 自动准备复用唯一账户/绑定/域/App/代次守卫。
         await _requireCurrentAccount(account, generation);
       } on StateError {
-        throw const OpenMlsException(
-          OpenMlsErrorCode.stateOwnerMismatch,
+        throw const MlsException(
+          MlsErrorCode.stateOwnerMismatch,
           'MLS准备期间身份已切换',
         );
       }
@@ -5494,7 +5491,7 @@ class ChatRuntime {
         bindingToken: token,
         delegate:
             _cryptoFactory?.call(identity, store) ??
-            OpenMlsCrypto(identity: identity, stateStore: store),
+            MlsCrypto(identity: identity, stateStore: store),
       );
       final result =
           await MlsContactSync(

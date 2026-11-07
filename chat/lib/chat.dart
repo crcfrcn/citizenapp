@@ -115,7 +115,7 @@ export 'mls/mls_contact_sync.dart';
 export 'mls/mls_group_boundary.dart';
 export 'mls/mls_session.dart';
 export 'mls/mls_state_store.dart';
-export 'mls/openmls_bindings.dart';
+export 'mls/mls_bindings.dart';
 export 'mls/serial_executor.dart';
 export 'transport/attachment_transfer.dart';
 export 'transport/chat_connection.dart';

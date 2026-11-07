@@ -100,8 +100,8 @@ class _PreparingSessions extends _FakeSessionProvider {
     }
     return missingCommitted
         ? SquareSessionResolution.fromError(
-            const chat_sdk.OpenMlsException(
-              chat_sdk.OpenMlsErrorCode.stateMissing,
+            const chat_sdk.MlsException(
+              chat_sdk.MlsErrorCode.stateMissing,
               'synthetic detail',
             ),
           )
@@ -328,9 +328,9 @@ SquareMembershipState _priced(
   usageState: state.usageState,
 );
 // 会员合同的公开测试夹具，供既有广场测试复用；不进入产品运行代码。
-SquareMembershipPlan _plan(String level, int? price) => membergatePlansFixture(
-  price == null ? const {} : {level: price},
-).firstWhere((p) => p.memberLevel == level);
+SquareMembershipPlan _plan(String level, int? price) =>
+    membergatePlansFixture(price == null ? const {} : {level: price})
+        .firstWhere((p) => p.memberLevel == level);
 final _membershipJson = jsonEncode({
   'is_ok': true,
   'membergate_active': true,
@@ -434,8 +434,7 @@ class _CachedCurrentUser implements CurrentUserContext {
     binding: unregistered
         ? null
         : const IdentityBinding(
-            genesisHash:
-                '0x1111111111111111111111111111111111111111111111111111111111111111',
+            genesisHash: '0x1111111111111111111111111111111111111111111111111111111111111111',
             cidNumber: 'CN220-CTZN2-198805200-2026',
             accountId: _identityAccountId,
             bindRev: 1,
@@ -1301,9 +1300,8 @@ void main() {
     final service = _subscriptionService(api: api, sessionProvider: provider);
     await changed.future.timeout(const Duration(seconds: 5));
     expect(
-      (await service.authorizeMembership(
-        (await provider.ensureSession())!,
-      )).active,
+      (await service.authorizeMembership((await provider.ensureSession())!))
+          .active,
       isTrue,
     );
     expect(sent, ['POST']);

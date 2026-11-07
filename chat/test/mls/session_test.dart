@@ -1,14 +1,16 @@
 import 'package:citizen_network/mls_authentication.dart';
+
 import 'dart:io';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/mls/mls_session.dart';
 import 'package:chat/mls/mls_state_store.dart';
-import 'package:citizen_testing/openmls_test_env.dart';
+import 'package:citizen_testing/mls_test_env.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  requireOpenMlsTestLibrary();
+  requireMlsTestLibrary();
   test('早到MLS密文在同一原生状态保存、去重及校验所有者', () async {
     final root = await Directory.systemTemp.createTemp('chat_pending_');
     addTearDown(() => root.delete(recursive: true));
@@ -25,18 +27,16 @@ void main() {
     expect((await store.readIdentity()).deviceId, identity.deviceId);
     await expectLater(
       MlsStateStore(store.directory, ownerUserId: 'other').readPendingInbound(),
-      throwsA(isA<OpenMlsException>()),
+      throwsA(isA<MlsException>()),
     );
     await store.clearPendingInbound();
     expect(await store.readPendingInbound(), isEmpty);
     await File('${store.path}/state.bin').writeAsString('broken', flush: true);
-    await expectLater(store.readIdentity(), throwsA(isA<OpenMlsException>()));
+    await expectLater(store.readIdentity(), throwsA(isA<MlsException>()));
     expect(await File('${store.path}/state.bin').readAsString(), 'broken');
   });
   test('平台验证后的系统目录别名被规范化，末级符号链接仍拒绝', () async {
-    final root = await Directory.systemTemp.createTemp(
-      'chat_platform_path_',
-    );
+    final root = await Directory.systemTemp.createTemp('chat_platform_path_');
     addTearDown(() => root.delete(recursive: true));
     const channel = MethodChannel('citizenapp/chat/storage');
     final messenger =
@@ -55,10 +55,10 @@ void main() {
     await expectLater(
       MlsStateStore.prepare('synthetic-user'),
       throwsA(
-        isA<OpenMlsException>().having(
+        isA<MlsException>().having(
           (error) => error.code,
           'code',
-          OpenMlsErrorCode.directoryInvalid,
+          MlsErrorCode.directoryInvalid,
         ),
       ),
     );
@@ -75,10 +75,10 @@ void main() {
     await expectLater(
       missing.ensureReady(),
       throwsA(
-        isA<OpenMlsException>().having(
+        isA<MlsException>().having(
           (e) => e.code,
           'code',
-          OpenMlsErrorCode.directoryUnavailable,
+          MlsErrorCode.directoryUnavailable,
         ),
       ),
     );
@@ -86,10 +86,10 @@ void main() {
     await expectLater(
       MlsStateStore(Directory(link.path), ownerUserId: 'user').ensureReady(),
       throwsA(
-        isA<OpenMlsException>().having(
+        isA<MlsException>().having(
           (e) => e.code,
           'code',
-          OpenMlsErrorCode.directoryInvalid,
+          MlsErrorCode.directoryInvalid,
         ),
       ),
     );

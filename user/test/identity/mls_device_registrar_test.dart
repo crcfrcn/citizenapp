@@ -64,8 +64,8 @@ class _SessionApi extends SquareApiClient {
 class _StorageAuthentication extends FakeMlsAuthentication {
   @override
   Future<MlsAuthenticationIdentity> readIdentity() async =>
-      throw const chat_sdk.OpenMlsException(
-        chat_sdk.OpenMlsErrorCode.stateMissing,
+      throw const chat_sdk.MlsException(
+        chat_sdk.MlsErrorCode.stateMissing,
         'synthetic private detail',
       );
 }

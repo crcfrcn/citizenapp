@@ -1,9 +1,11 @@
 import 'dart:io';
+
 import 'package:crypto/crypto.dart' as crypto_hash;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+
 import 'mls_boundary.dart';
-import 'openmls_bindings.dart';
+import 'mls_bindings.dart';
 
 /// chat 自有的系统保护 MLS 目录；不持有应用供给的包装钥。
 class MlsStateStore {
@@ -45,32 +47,23 @@ class MlsStateStore {
     final raw = Directory(result['path'] as String);
     // App 原生通道逐项核验聊天子目录；只规范系统容器别名，末级链接仍拒绝。
     if (!raw.isAbsolute) {
-      throw const OpenMlsException(
-        OpenMlsErrorCode.directoryInvalid,
-        'MLS目录必须为绝对路径',
-      );
+      throw const MlsException(MlsErrorCode.directoryInvalid, 'MLS目录必须为绝对路径');
     }
     final Directory canonical;
     try {
       final type = await FileSystemEntity.type(raw.path, followLinks: false);
       if (type == FileSystemEntityType.notFound) {
-        throw const OpenMlsException(
-          OpenMlsErrorCode.directoryUnavailable,
+        throw const MlsException(
+          MlsErrorCode.directoryUnavailable,
           'MLS目录尚未准备',
         );
       }
       if (type != FileSystemEntityType.directory) {
-        throw const OpenMlsException(
-          OpenMlsErrorCode.directoryInvalid,
-          'MLS目录类型无效',
-        );
+        throw const MlsException(MlsErrorCode.directoryInvalid, 'MLS目录类型无效');
       }
       canonical = Directory(await raw.resolveSymbolicLinks());
     } on FileSystemException {
-      throw const OpenMlsException(
-        OpenMlsErrorCode.directoryUnavailable,
-        'MLS目录暂不可读',
-      );
+      throw const MlsException(MlsErrorCode.directoryUnavailable, 'MLS目录暂不可读');
     }
     final store = MlsStateStore(canonical, ownerUserId: userId);
     await store.ensureReady();
@@ -97,31 +90,25 @@ class MlsStateStore {
 
   Future<void> ensureReady() async {
     if (!directory.isAbsolute) {
-      throw const OpenMlsException(
-        OpenMlsErrorCode.directoryInvalid,
-        'MLS目录必须为绝对路径',
-      );
+      throw const MlsException(MlsErrorCode.directoryInvalid, 'MLS目录必须为绝对路径');
     }
     try {
       final type = await FileSystemEntity.type(path, followLinks: false);
       if (type == FileSystemEntityType.notFound) {
-        throw const OpenMlsException(
-          OpenMlsErrorCode.directoryUnavailable,
+        throw const MlsException(
+          MlsErrorCode.directoryUnavailable,
           'MLS目录尚未准备',
         );
       }
       if (type != FileSystemEntityType.directory ||
           await directory.resolveSymbolicLinks() != path) {
-        throw const OpenMlsException(
-          OpenMlsErrorCode.directoryInvalid,
+        throw const MlsException(
+          MlsErrorCode.directoryInvalid,
           'MLS目录存在链接或类型无效',
         );
       }
     } on FileSystemException {
-      throw const OpenMlsException(
-        OpenMlsErrorCode.directoryUnavailable,
-        'MLS目录暂不可读',
-      );
+      throw const MlsException(MlsErrorCode.directoryUnavailable, 'MLS目录暂不可读');
     }
   }
 
@@ -209,7 +196,7 @@ class MlsStateStore {
       }
       return fixture(request);
     }
-    final bindings = OpenMlsBindings.load();
+    final bindings = MlsBindings.load();
     return bindings.callJson(
       identity ? bindings.identity : bindings.store,
       request,

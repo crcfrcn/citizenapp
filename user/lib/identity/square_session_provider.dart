@@ -64,9 +64,9 @@ class SquareSessionResolution {
   final int? statusCode;
   final SquareApiStage? stage;
 
-  static mls.OpenMlsException? _mlsError(String? value) {
-    for (final code in mls.OpenMlsErrorCode.values) {
-      final error = mls.OpenMlsException(code, '');
+  static mls.MlsException? _mlsError(String? value) {
+    for (final code in mls.MlsErrorCode.values) {
+      final error = mls.MlsException(code, '');
       if (value == 'mls_${error.diagnosticCode}') return error;
     }
     return null;
@@ -88,9 +88,9 @@ class SquareSessionResolution {
 
   /// 页面和通讯录复用同一错误分类；无记录不等于离线，未知HTTP错误不等于设备故障。
   static SquareSessionResolution fromError(Object error) {
-    if (error is mls.OpenMlsException) {
+    if (error is mls.MlsException) {
       return SquareSessionResolution(
-        error.code == mls.OpenMlsErrorCode.stateOwnerMismatch
+        error.code == mls.MlsErrorCode.stateOwnerMismatch
             ? SquareSessionStatus.identityChanged
             : SquareSessionStatus.deviceUnavailable,
         errorCode: 'mls_${error.diagnosticCode}',

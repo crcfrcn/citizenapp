@@ -1,22 +1,22 @@
 import 'package:citizen_network/mls_authentication.dart';
 import 'package:citizen_testing/chat_runtime_fixture.dart';
+
 import 'dart:async';
 import 'dart:io';
+
 import 'package:crypto/crypto.dart' as crypto_hash;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/mls/mls_state_store.dart';
 import 'package:chat/chat_runtime.dart';
 import 'package:chat/chat_store.dart';
-import 'package:citizen_testing/openmls_test_env.dart';
+import 'package:citizen_testing/mls_test_env.dart';
 
 // 合同测试锁定 公民聊天 的中性身份、状态清理边界和脱敏错误码。
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test('Dart拒绝错身份、错请求、漏字段、额外字段或私钥夹带的原生证明', () async {
-    final root = await Directory.systemTemp.createTemp(
-      'chat_auth_boundary_',
-    );
+    final root = await Directory.systemTemp.createTemp('chat_auth_boundary_');
     addTearDown(() => root.delete(recursive: true));
     final directory = Directory(await root.resolveSymbolicLinks());
     final request = createAuthenticationRequest();
@@ -109,7 +109,7 @@ void main() {
       addTearDown(runtime.close);
       final result = runtime.readLocalMlsIdentity();
       if (changed) {
-        await expectLater(result, throwsA(isA<OpenMlsException>()));
+        await expectLater(result, throwsA(isA<MlsException>()));
         expect(actions, isEmpty);
       } else {
         expect((await result).userId, 'user-a');
@@ -158,7 +158,7 @@ void main() {
       addTearDown(runtime.close);
       await expectLater(
         runtime.readLocalMlsIdentity(),
-        throwsA(isA<OpenMlsException>()),
+        throwsA(isA<MlsException>()),
       );
       expect(calls, 1);
       expect(host.forbiddenCalls, 0);
@@ -166,9 +166,7 @@ void main() {
   }
 
   test('运行时只读取宿主当前账户和已有MLS身份，不触发钱包、供钥或网络', () async {
-    final root = await Directory.systemTemp.createTemp(
-      'chat_auth_runtime_',
-    );
+    final root = await Directory.systemTemp.createTemp('chat_auth_runtime_');
     addTearDown(() => root.delete(recursive: true));
     final directory = Directory(await root.resolveSymbolicLinks());
     final host = _AuthenticationHost(_account());
@@ -204,9 +202,7 @@ void main() {
   for (final phase in ['before signing', 'after signing']) {
     for (final change in ['user', 'account', 'binding', 'domain', 'host']) {
       test('认证$phase时$change变化必须失败，不交付旧账户证明', () async {
-        final root = await Directory.systemTemp.createTemp(
-          'chat_auth_race_',
-        );
+        final root = await Directory.systemTemp.createTemp('chat_auth_race_');
         addTearDown(() => root.delete(recursive: true));
         final directory = Directory(await root.resolveSymbolicLinks());
         final host = _AuthenticationHost(_account());
@@ -254,9 +250,7 @@ void main() {
 
   for (final prepare in [false, true]) {
     test('等待保护存储期间关闭运行时，准备=$prepare不得生成或交付旧结果', () async {
-      final root = await Directory.systemTemp.createTemp(
-        'chat_auth_close_',
-      );
+      final root = await Directory.systemTemp.createTemp('chat_auth_close_');
       addTearDown(() => root.delete(recursive: true));
       final directory = Directory(await root.resolveSymbolicLinks());
       final entered = Completer<void>(), release = Completer<void>();
@@ -285,7 +279,7 @@ void main() {
           : runtime.createMlsAuthenticationProof(createAuthenticationRequest());
       final rejected = expectLater(
         result,
-        prepare ? throwsA(isA<OpenMlsException>()) : throwsStateError,
+        prepare ? throwsA(isA<MlsException>()) : throwsStateError,
       );
       await entered.future;
       final closed = runtime.close();

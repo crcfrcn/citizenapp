@@ -11,16 +11,16 @@ mod mls;
 pub fn retain_ffi() {
     // 中文注释：black_box 只形成链接期可见引用，不执行任何聊天操作，也不分配状态。
     let _ = std::hint::black_box([
-        chat_openmls_free_string as *const () as usize,
-        mls::chat_openmls_create_key_package_json as *const () as usize,
-        mls::chat_openmls_identity_json as *const () as usize,
-        mls::chat_openmls_store_json as *const () as usize,
-        mls::chat_openmls_group_create_json as *const () as usize,
-        mls::chat_openmls_group_add_members_json as *const () as usize,
-        mls::chat_openmls_group_remove_members_json as *const () as usize,
-        mls::chat_openmls_group_create_message_json as *const () as usize,
-        mls::chat_openmls_group_process_json as *const () as usize,
-        mls::chat_openmls_group_state_json as *const () as usize,
+        mls_free_string as *const () as usize,
+        mls::mls_create_key_package_json as *const () as usize,
+        mls::mls_identity_json as *const () as usize,
+        mls::mls_store_json as *const () as usize,
+        mls::mls_group_create_json as *const () as usize,
+        mls::mls_group_add_members_json as *const () as usize,
+        mls::mls_group_remove_members_json as *const () as usize,
+        mls::mls_group_create_message_json as *const () as usize,
+        mls::mls_group_process_json as *const () as usize,
+        mls::mls_group_state_json as *const () as usize,
     ]);
 }
 
@@ -59,7 +59,7 @@ pub(crate) fn string_into_raw(value: String, error_out: *mut *mut c_char) -> *mu
 /// `value` must be null or a pointer returned by this library that has not
 /// already been released.
 #[no_mangle]
-pub unsafe extern "C" fn chat_openmls_free_string(value: *mut c_char) {
+pub unsafe extern "C" fn mls_free_string(value: *mut c_char) {
     if !value.is_null() {
         drop(CString::from_raw(value));
     }

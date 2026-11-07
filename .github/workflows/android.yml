@@ -238,13 +238,13 @@ jobs:
               const names = execFileSync('unzip', ['-Z1', file], {encoding: 'utf8'}).trim().split('\n');
               const prefix = suffix === 'apk' ? 'lib/' : 'base/lib/';
               if (names.some(name => name.startsWith(prefix) && !name.startsWith(prefix + 'arm64-v8a/'))) throw Error('正式包含其它ABI');
-              for (const library of ['libcitizensdk.so', 'libcitizensdk_jni.so', 'libchat_openmls.so']) {
+              for (const library of ['libcitizensdk.so', 'libcitizensdk_jni.so', 'libmls.so']) {
                   if (!names.includes(prefix + 'arm64-v8a/' + library)) throw Error('正式包缺少原生件');
               }
               const output = work + '/verify-' + suffix;
               mkdirSync(output);
-              execFileSync('unzip', ['-q', file, prefix + 'arm64-v8a/libchat_openmls.so', '-d', output]);
-              await chat.verifyChatOpenMls(output + '/' + prefix + 'arm64-v8a/libchat_openmls.so', 'android');
+              execFileSync('unzip', ['-q', file, prefix + 'arm64-v8a/libmls.so', '-d', output]);
+              await chat.verifyMls(output + '/' + prefix + 'arm64-v8a/libmls.so', 'android');
           }
           JS
       - name: 生成本轮正式附件说明

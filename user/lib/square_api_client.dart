@@ -865,7 +865,7 @@ class SquareApiClient
         stage: stage,
         code: error is MlsAuthenticationException
             ? error.code
-            : error is mls.OpenMlsException
+            : error is mls.MlsException
             ? 'mls_${error.diagnosticCode}'
             : error is FormatException
             ? 'format'
@@ -1032,9 +1032,8 @@ class SquareApiClient
     Future<void> Function()? requireCurrent,
   }) async {
     binding.validate();
-    if (!RegExp(
-      r'^[A-Za-z0-9][A-Za-z0-9-]{0,31}$',
-    ).hasMatch(binding.cidNumber)) {
+    if (!RegExp(r'^[A-Za-z0-9][A-Za-z0-9-]{0,31}$')
+        .hasMatch(binding.cidNumber)) {
       throw const SquareApiException('注销身份绑定无效');
     }
     final generation = _sessionGenerations[binding.accountId] ?? 0;
@@ -2072,9 +2071,8 @@ class SquareApiClient
         uri.hasQuery ||
         uri.hasFragment ||
         uri.toString() !=
-            _uri(
-              '/user/profiles/${target.group(1)}/assets/${target.group(2)}',
-            ).toString()) {
+            _uri('/user/profiles/${target.group(1)}/assets/${target.group(2)}')
+                .toString()) {
       throw const SquareApiException('资料媒体地址必须是当前服务的准确头像或背景路径');
     }
     if (!session.isUsable) {
