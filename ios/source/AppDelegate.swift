@@ -1,4 +1,5 @@
 import Flutter
+import OSLog
 import StoreKit
 import Security
 import Network
@@ -16,6 +17,8 @@ import UserNotifications
   private let networkChanges = NetworkChanges()
   private var permissionsChannel: FlutterMethodChannel?
   private var chatNotificationsChannel: FlutterMethodChannel?
+  private var chatMediaChannel: ChatMediaChannel?
+  private var chatStorageChannel: ChatStorageChannel?
   private var squareMediaChannel: SquareMediaChannel?
   private var updateChannel: FlutterMethodChannel?
   private var emergencyWipeBackgroundTask: UIBackgroundTaskIdentifier = .invalid
@@ -69,10 +72,17 @@ import UserNotifications
 
   private func registerApplicationChannels(binaryMessenger: FlutterBinaryMessenger, registrar: FlutterApplicationRegistrar) {
     systemProtectedDataChannel = SystemProtectedDataChannel(binaryMessenger: binaryMessenger)
+    chatStorageChannel = ChatStorageChannel(binaryMessenger: binaryMessenger)
+    chatMediaChannel = ChatMediaChannel(binaryMessenger: binaryMessenger)
     // 授权会话直接由系统Keychain保存，不进入网页localStorage或用户订单库。
     let walletChannel = FlutterMethodChannel(name: "citizenapp/metamask", binaryMessenger: binaryMessenger)
     walletChannel.setMethodCallHandler { call, result in
       do {
+        if call.method == "phase" {
+          guard Self.logTopupPhase(call.arguments) else { throw CocoaError(.coderInvalidValue) }
+          result(nil)
+          return
+        }
         if call.method == "return" {
           // 固定恢复本应用；系统是否允许前台恢复由真实打开结果裁决。
           UIApplication.shared.open(URL(string: "citizenapp://topup")!, options: [:]) { opened in result(opened) }
@@ -361,11 +371,13 @@ import UserNotifications
   }
 
   @objc private func appWillResignActive() {
+    _ = Self.logTopupPhase("app_inactive")
     guard screenshotProtectionEnabled else { return }
     addBlur()
   }
 
   @objc private func appDidBecomeActive() {
+    _ = Self.logTopupPhase("app_active")
     removeBlur()
   }
 
@@ -444,6 +456,42 @@ import UserNotifications
       item[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
       guard SecItemAdd(item as CFDictionary, nil) == errSecSuccess else { throw CocoaError(.fileWriteUnknown) }
     } else if status != errSecSuccess { throw CocoaError(.fileWriteUnknown) }
+  }
+
+  private static let topupLog = OSLog(subsystem: "ios.citizenapp", category: "topup")
+
+  /// 只接受固定观察阶段和唤起原因；经USB系统控制台读取，不接收业务资料。
+  static func logTopupPhase(_ value: Any?) -> Bool {
+    guard let state = value as? String,
+          [
+            "connect_requested",
+            "connect_ready",
+            "transaction_requested",
+            "result_received",
+            "bridge_received",
+            "bridge_verified",
+            "bridge_untrusted",
+            "reply_requested",
+            "reply_completed",
+            "reply_untrusted",
+            "link_requested",
+            "link_delivered",
+            "link_inactive",
+            "link_storageError",
+            "link_sessionMissing",
+            "link_urlInvalid",
+            "link_channelMismatch",
+            "link_protocolInvalid",
+            "link_parameterInvalid",
+            "link_metadataInvalid",
+            "link_rpcInvalid",
+            "link_systemRejected",
+            "link_systemError",
+            "app_inactive",
+            "app_active",
+          ].contains(state) else { return false }
+    os_log("[CitizenTopup] stage=payment state=%{public}@", log: topupLog, type: .default, state)
+    return true
   }
 
   static func isTopupCallback(_ url: URL) -> Bool {

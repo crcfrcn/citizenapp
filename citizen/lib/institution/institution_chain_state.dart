@@ -1,4 +1,4 @@
-import 'package:citizen_wallet/account_balance_snapshot_store.dart';
+import 'package:citizen_wallet/core/account_balance_snapshot_store.dart';
 // 统一机构链态读服务(ADR-028 决策 2)——合并公权 `LivePublicInstitutionChainData`
 // 与治理侧 admins 读取为一套:按机构 CID 过滤提案,按具体机构账户读余额。
 //
@@ -11,8 +11,8 @@ import 'package:citizen_citizen/institution/institution.dart';
 import 'package:citizen_citizen/administrators/admin_account.dart';
 import 'package:citizen_citizen/administrators/institution_admin_service.dart';
 import 'package:citizen_citizen/institution/institution_role_models.dart';
-import 'package:citizen_transaction/multisig/multisig_transfer_proposal_adapter.dart';
-import 'package:citizen_transaction/multisig/multisig_transfer_service.dart';
+import 'package:citizen_multisig/multisig_transfer_proposal_adapter.dart';
+import 'package:citizen_multisig/multisig_transfer_service.dart';
 
 /// 机构提案摘要(详情页提案列表用)。
 class InstitutionProposalSummary {

@@ -1,4 +1,4 @@
-import 'package:citizen_account/square_api_client.dart';
+import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_square/post/square_post_store.dart';
 
 /// 帖子删除的统一生命周期边界，供详情页和“编辑后替换旧帖”共同使用。

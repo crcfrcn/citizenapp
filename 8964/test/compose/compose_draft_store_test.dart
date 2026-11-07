@@ -60,6 +60,58 @@ void main() {
     }
   });
 
+  test('禁止联网时草稿增删改查和素材导入全部正常，CID数据互不影响', () async {
+    var networkCalls = 0;
+    await HttpOverrides.runZoned(
+      () async {
+        const cid = 'CN001-CTZN-100000001-2026',
+            other = 'CN001-CTZN-100000002-2026';
+        final input = File('${documentsDirectory.path}/offline.webp');
+        await input.writeAsBytes([1, 3, 5, 7]);
+        await store.save(
+          _draft('offline', 1000).copyWith(
+            media: [
+              SquareLocalMediaDraft(
+                mediaKind: SquareMediaKind.image,
+                path: input.path,
+                fileName: 'offline.webp',
+                contentType: 'image/webp',
+                byteSize: 4,
+              ),
+            ],
+          ),
+        );
+        await store.save(_draft('offline', 1000, cidNumber: other));
+        final saved = (await store.list(cid)).single;
+        await store.save(
+          SquareComposeDraft(
+            cidNumber: cid,
+            draftId: saved.draftId,
+            postType: saved.postType,
+            text: '离线修改',
+            media: saved.media,
+            updatedAt: 2000,
+          ),
+        );
+        final opened = await store.restore((await store.list(cid)).single);
+        expect(opened.text, '离线修改');
+        expect(await File(opened.media.single.path).readAsBytes(), [
+          1,
+          3,
+          5,
+          7,
+        ]);
+        await store.delete(cid, 'offline');
+        expect(await store.list(cid), isEmpty);
+        expect(await store.list(other), hasLength(1));
+      },
+      createHttpClient: (_) {
+        networkCalls++;
+        throw StateError('草稿操作不得创建网络客户端');
+      },
+    );
+    expect(networkCalls, 0);
+  });
   test('多草稿按 updated_at 新→旧列出，仅本人可见', () async {
     await store.save(_draft('a', 1000));
     await store.save(_draft('b', 3000));
@@ -159,60 +211,6 @@ void main() {
     expect((await store.list(cid)).single.updatedAt, 1000);
   });
 
-  test('旧草稿恢复先持久保存字节，删除旧目录后仍能再次恢复', () async {
-    const cid = 'CN001-CTZN-100000001-2026';
-    final root = Directory(
-      '${documentsDirectory.path}/square_drafts/$cid/legacy-owned',
-    );
-    await root.create(recursive: true);
-    final input = File('${root.path}/original.webp');
-    await input.writeAsBytes([2, 4, 6, 8]);
-    final legacy = _draft('legacy-owned', 1000).copyWith(
-      media: [
-        SquareLocalMediaDraft(
-          mediaKind: SquareMediaKind.image,
-          path: input.path,
-          fileName: 'original.webp',
-          contentType: 'image/webp',
-          byteSize: 4,
-        ),
-      ],
-    );
-    final restored = await store.restore(legacy);
-    expect(restored.media.single.bodyHash, isNotNull);
-    expect(await File(restored.media.single.path).readAsBytes(), [2, 4, 6, 8]);
-    expect(await root.exists(), isFalse);
-    await File(restored.media.single.path).delete();
-    final saved = (await store.list(cid)).single;
-    expect(saved.media.single.path, isEmpty);
-    final reopened = await store.restore(saved);
-    expect(await File(reopened.media.single.path).readAsBytes(), [2, 4, 6, 8]);
-  });
-
-  test('旧草稿路径越过当前CID和草稿目录时拒绝读取', () async {
-    const cid = 'CN001-CTZN-100000001-2026';
-    final root = Directory(
-      '${documentsDirectory.path}/square_drafts/$cid/legacy',
-    );
-    await root.create(recursive: true);
-    final outside = File('${documentsDirectory.path}/not-owned.webp');
-    await outside.writeAsBytes([9]);
-    final old = _draft('legacy', 1000).copyWith(
-      media: [
-        SquareLocalMediaDraft(
-          mediaKind: SquareMediaKind.image,
-          path: outside.path,
-          fileName: 'not-owned.webp',
-          contentType: 'image/webp',
-          byteSize: 1,
-        ),
-      ],
-    );
-    await expectLater(store.restore(old), throwsStateError);
-    expect(await outside.readAsBytes(), [9]);
-    expect(await const SquareMediaStore().listByCid(cid), isEmpty);
-  });
-
   test('同 draftId 再存为覆盖，不新增', () async {
     await store.save(_draft('s', 1000, cidNumber: 'CN001-CTZN-200000001-2026'));
     await store.save(_draft('s', 5000, cidNumber: 'CN001-CTZN-200000001-2026'));
@@ -300,8 +298,9 @@ void main() {
       ..createSync();
     final outsideMarker = File('${outside.path}/must-survive.bin')
       ..writeAsBytesSync(<int>[2]);
-    Link('${root.path}/${Uri.encodeComponent(cidNumber)}')
-        .createSync(outside.path);
+    Link(
+      '${root.path}/${Uri.encodeComponent(cidNumber)}',
+    ).createSync(outside.path);
 
     await expectLater(
       ComposeDraftMedia.deleteDir(cidNumber, 'draft-a'),

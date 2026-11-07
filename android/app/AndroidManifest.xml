@@ -85,7 +85,7 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
-        <!-- TataChatSDK 自有附件选择只调用系统 OPEN_DOCUMENT。 -->
+        <!-- 聊天附件选择只调用系统 OPEN_DOCUMENT。 -->
         <intent>
             <action android:name="android.intent.action.OPEN_DOCUMENT"/>
             <data android:mimeType="*/*"/>

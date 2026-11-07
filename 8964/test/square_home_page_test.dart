@@ -1,5 +1,5 @@
-import 'package:tatachat_sdk/tatachat_sdk.dart' as chat_sdk;
-import 'package:citizen_account/membership/subscription_service.dart';
+import 'package:chat/chat.dart' as chat_sdk;
+import 'package:citizen_user/membership/subscription_service.dart';
 
 import 'package:citizen_testing/mls_authentication_fixture.dart';
 
@@ -19,10 +19,10 @@ import 'package:citizen_square/post/square_post_card.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 import 'package:citizen_testing/isar_test_env.dart';
 
-import 'package:citizen_account/identity/account_security_service.dart';
-import 'package:citizen_account/identity/identity_binding.dart';
-import 'package:citizen_account/identity/identity_badge_snapshot_store.dart';
-import 'package:citizen_account/identity/citizen_identity_chain_reader.dart';
+import 'package:citizen_user/identity/account_security_service.dart';
+import 'package:citizen_user/identity/identity_binding.dart';
+import 'package:citizen_user/identity/identity_badge_snapshot_store.dart';
+import 'package:citizen_user/identity/citizen_identity_chain_reader.dart';
 import 'package:citizen_square/compose/compose_page.dart';
 import 'package:citizen_square/compose/document_compose_body.dart';
 import 'package:citizen_square/draft/compose_draft.dart';
@@ -34,18 +34,18 @@ import 'package:citizen_square/feed/square_home_page.dart';
 import 'package:citizen_square/feed/square_tab_page.dart';
 import 'package:citizen_square/feed/square_tab_order_store.dart';
 import 'package:citizen_square/feed/square_feed_tabs.dart';
-import 'package:citizen_account/profile/citizen_profile.dart';
-import 'package:citizen_account/profile/citizen_profile_cache.dart';
-import 'package:citizen_account/identity/square_session_provider.dart';
-import 'package:citizen_account/profile/profile_avatar.dart';
-import 'package:citizen_account/square_api_client.dart';
-import 'package:citizen_account/identity/square_identity_state.dart';
-import 'package:citizen_account/identity/current_user_context.dart';
-import 'package:citizen_account/identity/cid_business_gate.dart';
-import 'package:citizen_account/membership/membership_revision.dart';
+import 'package:citizen_user/profile/citizen_profile.dart';
+import 'package:citizen_user/profile/citizen_profile_cache.dart';
+import 'package:citizen_user/identity/square_session_provider.dart';
+import 'package:citizen_user/profile/profile_avatar.dart';
+import 'package:citizen_user/square_api_client.dart';
+import 'package:citizen_user/identity/square_identity_state.dart';
+import 'package:citizen_user/identity/current_user_context.dart';
+import 'package:citizen_user/identity/cid_business_gate.dart';
+import 'package:citizen_user/membership/membership_revision.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 import 'package:citizen_system/theme/app_theme.dart';
-import 'package:citizen_account/identity/identity_badge.dart';
+import 'package:citizen_user/identity/identity_badge.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:citizen_storage/user_isar.dart';
 
@@ -497,8 +497,8 @@ class _GateMlsSessions implements SquareSessionProvider {
             session: fakeSquareSession(testMlsAccountId),
           )
         : SquareSessionResolution.fromError(
-            const chat_sdk.MlsNativeException(
-              chat_sdk.MlsNativeErrorCode.directoryInvalid,
+            const chat_sdk.MlsException(
+              chat_sdk.MlsErrorCode.directoryInvalid,
               'synthetic raw directory detail',
             ),
           );
@@ -724,21 +724,19 @@ void main() {
       security = AccountSecurityService(
         getWalletState: readWallet,
         signing: sdk,
-        mlsDeviceRegistrar:
-            ({
-              required cidNumber,
-              required bindRev,
-              required accountId,
-              required signBinding,
-            }) async => throw StateError('主页回归禁止登记MLS设备'),
-        coldMlsDeviceBindingSigner:
-            ({
-              required binding,
-              required payload,
-              required signingMessage,
-              required publicKey,
-              required issuedAtMillis,
-            }) async => throw StateError('主页回归禁止钱包签名'),
+        mlsDeviceRegistrar: ({
+          required cidNumber,
+          required bindRev,
+          required accountId,
+          required signBinding,
+        }) async => throw StateError('主页回归禁止登记MLS设备'),
+        coldMlsDeviceBindingSigner: ({
+          required binding,
+          required payload,
+          required signingMessage,
+          required publicKey,
+          required issuedAtMillis,
+        }) async => throw StateError('主页回归禁止钱包签名'),
       );
       registered = CurrentUser(
         account: account,
@@ -929,8 +927,7 @@ void main() {
       identity.requests[1].complete(
         registered
             ? const SquareIdentityState(
-                accountId:
-                    '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                accountId: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
                 cidNumber: 'CN220-CTZN2-100000002-2026',
                 signMode: CitizenWalletSignMode.hot,
               )
@@ -1221,9 +1218,8 @@ void main() {
     expect(
       pageSize.height -
           documentBottom -
-          MediaQuery.paddingOf(
-            tester.element(find.byType(SquareHomePage)),
-          ).bottom,
+          MediaQuery.paddingOf(tester.element(find.byType(SquareHomePage)))
+              .bottom,
       closeTo(pageSize.width - videoRight, 1),
     );
 
@@ -1406,8 +1402,7 @@ void main() {
 
     identityService.completer.complete(
       const SquareIdentityState(
-        accountId:
-            '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        accountId: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         cidNumber: 'CN220-CTZN2-100000001-2026',
         signMode: CitizenWalletSignMode.hot,
       ),
@@ -1683,9 +1678,8 @@ void _squareOrderPersistenceTests() {
       expect(tabs.order.first, SquareFeedKind.circle);
       expect(tabs.selected, SquareFeedKind.recommended);
       expect(
-        (await tester.runAsync(
-          () => const SquareTabOrderStore().read(),
-        ))!.first,
+        (await tester.runAsync(() => const SquareTabOrderStore().read()))!
+            .first,
         SquareFeedKind.circle,
       );
       await tester.pumpWidget(const SizedBox.shrink());
@@ -1816,21 +1810,19 @@ void _squareTabGateTests() {
       security = AccountSecurityService(
         getWalletState: sdk.getWalletState,
         signing: sdk,
-        mlsDeviceRegistrar:
-            ({
-              required cidNumber,
-              required bindRev,
-              required accountId,
-              required signBinding,
-            }) async => throw StateError('测试禁止登记设备'),
-        coldMlsDeviceBindingSigner:
-            ({
-              required binding,
-              required payload,
-              required signingMessage,
-              required publicKey,
-              required issuedAtMillis,
-            }) async => throw StateError('测试禁止钱包签名'),
+        mlsDeviceRegistrar: ({
+          required cidNumber,
+          required bindRev,
+          required accountId,
+          required signBinding,
+        }) async => throw StateError('测试禁止登记设备'),
+        coldMlsDeviceBindingSigner: ({
+          required binding,
+          required payload,
+          required signingMessage,
+          required publicKey,
+          required issuedAtMillis,
+        }) async => throw StateError('测试禁止钱包签名'),
       );
       gate = _TabGate(CidBusinessStatus.ready);
       sessions = _UnavailableTabSessions();

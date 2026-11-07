@@ -6,8 +6,8 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:citizen_account/identity/mls_authentication.dart';
-import 'package:citizen_account/square_api_client.dart';
+import 'package:citizen_user/identity/mls_authentication.dart';
+import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_network/square_request_signer.dart';
 import 'package:citizen_system/notifications/app_push_token.dart';
 

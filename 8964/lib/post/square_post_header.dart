@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:citizen_account/profile/citizen_profile.dart';
-import 'package:citizen_account/profile/citizen_profile_cache.dart';
+import 'package:citizen_user/profile/citizen_profile.dart';
+import 'package:citizen_user/profile/citizen_profile_cache.dart';
 
 import 'package:citizen_square/post/square_models.dart';
-import 'package:citizen_account/profile/profile_avatar.dart';
+import 'package:citizen_user/profile/profile_avatar.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 

@@ -1,0 +1,42 @@
+name: citizen_topup
+description: 公民App充值包。
+publish_to: none
+version: 1.0.0
+resolution: workspace
+environment:
+  sdk: ">=3.8.0 <4.0.0"
+
+# 只声明本包源码的直接依赖；版本沿用拆分前产品约束。
+dependencies:
+  citizen_assets: any
+  citizen_citizen: any
+  citizen_network: any
+  citizen_scanner: any
+  citizen_sdk:
+    git:
+      url: https://github.com/crcfrcn/citizensdk.git
+      path: .
+      ref: main
+  citizen_storage: any
+  citizen_system: any
+  citizen_wallet: any
+  crypto: 3.0.7
+  flutter:
+    sdk: flutter
+  flutter_svg: ^2.3.0
+  http: 1.6.0
+  isar_community: ^3.3.2
+  provider: ^6.1.5+1
+  url_launcher: ^6.3.1
+  webview_flutter: ^4.13.0
+
+dev_dependencies:
+  citizen_testing: any
+  flutter_test:
+    sdk: flutter
+  polkadart_keyring: 0.7.1
+
+flutter:
+  assets:
+    - web/metamask.html
+    - web/metamask.bundle.js

@@ -2,19 +2,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/widgets.dart';
 import 'package:integration_test/integration_test.dart';
 
-import '../../account/test/identity/identity_binding_test.dart' as bindings;
+import '../../user/test/identity/identity_binding_test.dart' as bindings;
 import '../../system/test/security/system_protected_record_store_test.dart'
     as records;
-import '../../account/test/identity/mls_device_registrar_test.dart'
+import '../../user/test/identity/mls_device_registrar_test.dart'
     as registration;
-import '../../account/test/identity/current_user_context_test.dart' as identity;
-import '../../account/test/profile/user_profile_page_test.dart' as profile;
-import '../../account/test/profile/profile_posts_tab_test.dart' as posts;
-import '../../account/test/profile/follows_list_page_test.dart' as follows;
-import '../../account/test/user/contact_book_page_test.dart' as contacts;
+import '../../user/test/identity/current_user_context_test.dart' as identity;
+import '../../user/test/profile/user_profile_page_test.dart' as profile;
+import '../../user/test/profile/profile_posts_tab_test.dart' as posts;
+import '../../user/test/profile/follows_list_page_test.dart' as follows;
+import '../../user/test/user/contact_book_page_test.dart' as contacts;
 import '../../8964/test/square_home_page_test.dart' as square;
-import '../../account/test/membership/membership_page_test.dart' as membership;
-import '../../account/test/identity/square_session_selfheal_test.dart'
+import '../../user/test/membership/membership_page_test.dart' as membership;
+import '../../user/test/identity/square_session_selfheal_test.dart'
     as session;
 import 'chat_tab_test.dart' as chat;
 

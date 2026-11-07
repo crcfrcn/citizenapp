@@ -31,6 +31,8 @@ class MainActivity : FlutterFragmentActivity() {
     private val permissionsChannelName = "citizenapp/permissions"
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var networkGeneration = 0
+    private var chatMediaChannel: ChatMediaChannel? = null
+    private var chatStorageChannel: ChatStorageChannel? = null
     private var squareMediaChannel: SquareMediaChannel? = null
     private val notificationPermissionRequestCode = 170517
     private var pendingNotificationPermissionResult: MethodChannel.Result? = null
@@ -98,6 +100,8 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        chatMediaChannel = ChatMediaChannel(this, flutterEngine.dartExecutor.binaryMessenger)
+        chatStorageChannel = ChatStorageChannel(this, flutterEngine.dartExecutor.binaryMessenger)
         // 钱包SDK仅保存授权会话；密文在应用私有区，AES密钥只留Android Keystore。
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "citizenapp/metamask")
             .setMethodCallHandler { call, result ->
@@ -331,7 +335,15 @@ class MainActivity : FlutterFragmentActivity() {
             }
     }
 
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (chatMediaChannel?.onActivityResult(requestCode, resultCode, data) == true) return
+        super.onActivityResult(requestCode, resultCode, data)
+    }
     override fun onDestroy() {
+        chatMediaChannel?.dispose()
+        chatStorageChannel?.dispose()
+        chatMediaChannel = null
+        chatStorageChannel = null
         networkGeneration++
         networkCallback?.let { (getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager).unregisterNetworkCallback(it) }
         networkCallback = null

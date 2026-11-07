@@ -7,6 +7,27 @@ import XCTest
 @testable import Runner
 
 class RunnerTests: XCTestCase {
+
+
+  func testChatStorageRequiresVerifiedFileProtection() throws {
+    let manager = FileManager.default
+    let root = manager.temporaryDirectory.appendingPathComponent("chat-protection-" + UUID().uuidString, isDirectory: true)
+    try manager.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? manager.removeItem(at: root) }
+    #if targetEnvironment(simulator)
+    // 模拟器不提供设备文件保护；生产校验必须拒绝放行。
+    XCTAssertThrowsError(try ChatStorageChannel.protectOwnedData(root))
+    XCTAssertNil(try manager.attributesOfItem(atPath: root.path)[.protectionKey])
+    #else
+    try ChatStorageChannel.protectOwnedData(root)
+    XCTAssertEqual(try manager.attributesOfItem(atPath: root.path)[.protectionKey] as? FileProtectionType, .completeUntilFirstUserAuthentication)
+    #endif
+    XCTAssertEqual((try manager.attributesOfItem(atPath: root.path)[.posixPermissions] as? NSNumber)?.intValue, 0o700)
+    XCTAssertEqual(try root.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup, true)
+  }
+
+
+
   func testStoreRegistrationAndCountryUseOfficialIdentifiers() {
     XCTAssertEqual(AppDelegate.appStoreId(["AppStoreId":"6800953222"]), "6800953222")
     XCTAssertNil(AppDelegate.appStoreId([:]))
@@ -84,6 +105,41 @@ class RunnerTests: XCTestCase {
     XCTAssertGreaterThan(reads,0)
     asset.cancelLoading()
     loader.close()
+  }
+
+  func testTopupNativeLogAcceptsOnlyFixedPhases() {
+    for state in [
+      "connect_requested",
+      "connect_ready",
+      "transaction_requested",
+      "result_received",
+      "bridge_received",
+      "bridge_verified",
+      "bridge_untrusted",
+      "reply_requested",
+      "reply_completed",
+      "reply_untrusted",
+      "link_requested",
+      "link_delivered",
+      "link_inactive",
+      "link_storageError",
+      "link_sessionMissing",
+      "link_urlInvalid",
+      "link_channelMismatch",
+      "link_protocolInvalid",
+      "link_parameterInvalid",
+      "link_metadataInvalid",
+      "link_rpcInvalid",
+      "link_systemRejected",
+      "link_systemError",
+      "app_inactive",
+      "app_active",
+    ] {
+      XCTAssertTrue(AppDelegate.logTopupPhase(state))
+    }
+    for value in [NSNull(), "", "synthetic-private", ["state": "connect_ready", "url": "synthetic-private"], true, 1] as [Any] {
+      XCTAssertFalse(AppDelegate.logTopupPhase(value))
+    }
   }
 
   func testTopupCallbackMatchesOnlyOwnedSchemeAndHost() {

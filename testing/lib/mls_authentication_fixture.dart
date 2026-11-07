@@ -1,10 +1,10 @@
 import 'dart:convert';
 
-import 'package:citizen_account/square_api_client.dart';
+import 'package:citizen_user/square_api_client.dart';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
-import 'package:tatachat_sdk/tatachat_sdk.dart' as sdk;
-import 'package:citizen_account/identity/mls_authentication.dart';
+import 'package:chat/chat.dart' as chat;
+import 'package:citizen_user/identity/mls_authentication.dart';
 import 'package:citizen_network/square_request_signer.dart';
 
 const testMlsDeviceId =
@@ -13,7 +13,7 @@ const testMlsAccountId =
     '0x1111111111111111111111111111111111111111111111111111111111111111';
 const testMlsCidNumber = 'CN220-CTZN2-100000001-2026';
 
-/// 合成边界只供业务夹具；实际MLS密码学验签由SDK与服务测试拥有。
+/// 合成边界只供业务夹具；实际MLS密码学验签由聊天模块与服务测试拥有。
 class FakeMlsAuthentication implements MlsAuthenticationSource {
   FakeMlsAuthentication({
     String cidNumber = testMlsCidNumber,
@@ -53,9 +53,9 @@ class FakeMlsAuthentication implements MlsAuthenticationSource {
   }
 
   @override
-  Future<sdk.MlsAuthenticationProof> createProof({
+  Future<chat.MlsAuthenticationProof> createProof({
     required MlsAuthenticationIdentity identity,
-    required sdk.MlsAuthenticationRequest request,
+    required chat.MlsAuthenticationRequest request,
   }) async {
     identity.validate();
     request.validate();
@@ -67,10 +67,10 @@ class FakeMlsAuthentication implements MlsAuthenticationSource {
   }
 }
 
-sdk.MlsAuthenticationProof _fakeProof(
+chat.MlsAuthenticationProof _fakeProof(
   MlsAuthenticationIdentity identity,
-  sdk.MlsAuthenticationRequest request,
-) => sdk.MlsAuthenticationProof.fromJson({
+  chat.MlsAuthenticationRequest request,
+) => chat.MlsAuthenticationProof.fromJson({
   'user_id': identity.cidNumber,
   'device_id': identity.deviceId,
   'public_key': identity.publicKey,
@@ -131,7 +131,7 @@ Future<Map<String, String>> fakeMlsRequestHeaders({
   required String sessionToken,
 }) async {
   final source = FakeMlsAuthentication();
-  final request = sdk.MlsAuthenticationRequest(
+  final request = chat.MlsAuthenticationRequest(
     serviceOrigin: uri.origin,
     httpMethod: method,
     requestTarget: uri.path + (uri.hasQuery ? '?${uri.query}' : ''),

@@ -1,0 +1,144 @@
+{
+  "config": {
+    "is_ok": true,
+    "rails": [
+      {
+        "token": "USDC",
+        "network": "ethereum",
+        "asset": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+        "decimals": 6,
+        "recv_address": "0x0202020202020202020202020202020202020202"
+      },
+      {
+        "token": "USDC",
+        "network": "base",
+        "asset": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        "decimals": 6,
+        "recv_address": "0x0202020202020202020202020202020202020202"
+      },
+      {
+        "token": "USDC",
+        "network": "bnb",
+        "asset": "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d",
+        "decimals": 18,
+        "recv_address": "0x0202020202020202020202020202020202020202"
+      },
+      {
+        "token": "USDT",
+        "network": "ethereum",
+        "asset": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+        "decimals": 6,
+        "recv_address": "0x0202020202020202020202020202020202020202"
+      },
+      {
+        "token": "USDT",
+        "network": "base",
+        "asset": "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2",
+        "decimals": 6,
+        "recv_address": "0x0202020202020202020202020202020202020202"
+      },
+      {
+        "token": "USDT",
+        "network": "bnb",
+        "asset": "0x55d398326f99059ff775485246999027b3197955",
+        "decimals": 18,
+        "recv_address": "0x0202020202020202020202020202020202020202"
+      }
+    ],
+    "packages": [
+      {
+        "package_id": "pkg_10",
+        "pay_display": "10",
+        "coin_display": "10,000.00",
+        "coin_fen": "1000000",
+        "payments": [
+          {
+            "token": "USDC",
+            "network": "ethereum",
+            "pay_amount": "10000000"
+          },
+          {
+            "token": "USDC",
+            "network": "base",
+            "pay_amount": "10000000"
+          },
+          {
+            "token": "USDC",
+            "network": "bnb",
+            "pay_amount": "10000000000000000000"
+          },
+          {
+            "token": "USDT",
+            "network": "ethereum",
+            "pay_amount": "10000000"
+          },
+          {
+            "token": "USDT",
+            "network": "base",
+            "pay_amount": "10000000"
+          },
+          {
+            "token": "USDT",
+            "network": "bnb",
+            "pay_amount": "10000000000000000000"
+          }
+        ]
+      },
+      {
+        "package_id": "pkg_1000",
+        "pay_display": "1000",
+        "coin_display": "1,000,000.00",
+        "coin_fen": "100000000",
+        "payments": [
+          {
+            "token": "USDC",
+            "network": "ethereum",
+            "pay_amount": "1000000000"
+          },
+          {
+            "token": "USDC",
+            "network": "base",
+            "pay_amount": "1000000000"
+          },
+          {
+            "token": "USDC",
+            "network": "bnb",
+            "pay_amount": "1000000000000000000000"
+          },
+          {
+            "token": "USDT",
+            "network": "ethereum",
+            "pay_amount": "1000000000"
+          },
+          {
+            "token": "USDT",
+            "network": "base",
+            "pay_amount": "1000000000"
+          },
+          {
+            "token": "USDT",
+            "network": "bnb",
+            "pay_amount": "1000000000000000000000"
+          }
+        ]
+      }
+    ],
+    "ready": true
+  },
+  "config_hash": "4028962098c6538f7eab5fd59eb64237631cf0f08cec825f5052c1c8601010a0",
+  "payment_checks": {
+    "max_rounds": 11,
+    "intervals_seconds": [
+      20,
+      40,
+      80,
+      160,
+      320,
+      640,
+      1280,
+      2560,
+      5120,
+      10240
+    ]
+  }
+}

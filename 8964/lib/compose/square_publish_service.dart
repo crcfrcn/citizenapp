@@ -1,20 +1,20 @@
 import 'dart:typed_data';
 
 import 'package:citizen_storage/social_isar.dart' as social_store show Publish;
-import 'package:citizen_wallet/account_balance_snapshot_store.dart';
+import 'package:citizen_wallet/core/account_balance_snapshot_store.dart';
 
 import 'package:citizen_square/draft/compose_draft_store.dart';
 import 'package:citizen_square/post/square_local_post_presenter.dart';
 
-import 'package:citizen_account/identity/finalized_identity_resolver.dart';
+import 'package:citizen_user/identity/finalized_identity_resolver.dart';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_system/app_log.dart';
 
 import 'package:citizen_square/compose/square_chain_service.dart';
 import 'package:citizen_square/post/square_models.dart';
-import 'package:citizen_account/square_api_client.dart';
-import 'package:citizen_account/identity/square_identity_state.dart';
+import 'package:citizen_user/square_api_client.dart';
+import 'package:citizen_user/identity/square_identity_state.dart';
 import 'package:citizen_square/post/square_post_deletion_coordinator.dart';
 import 'package:citizen_square/post/square_post_store.dart';
 import 'package:citizen_square/media/square_upload_service.dart';

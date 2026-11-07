@@ -4,10 +4,10 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 
 import 'package:citizen_square/post/square_models.dart';
-import 'package:citizen_account/square_api_client.dart';
+import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_square/media/square_media_processor.dart';
 import 'package:citizen_square/media/square_media_store.dart';
-import 'package:citizen_account/membership/subscription_service.dart';
+import 'package:citizen_user/membership/subscription_service.dart';
 
 class SquareUploadedContent {
   const SquareUploadedContent({

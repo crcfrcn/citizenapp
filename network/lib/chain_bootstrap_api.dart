@@ -98,6 +98,7 @@ String? _httpStage(Uri uri) {
     '/user/sessions' => 'session',
     '/user/devices' => 'registration',
     '/user/contacts' => 'contacts',
+    _ when path.startsWith('/user/contacts/') => 'contacts',
     '/topup/confirm' => 'topup_confirm',
     '/topup/status' => 'topup_status',
     _ when path.startsWith('/user/registration') => 'registration',
@@ -110,7 +111,7 @@ String? _httpStage(Uri uri) {
     _ when path.startsWith('/8964/') && path.endsWith('/comments') =>
       'comments',
     _ when path.startsWith('/8964/') => 'feed',
-    _ when path.startsWith('/tatachat/') => 'chat_access',
+    _ when path.startsWith('/chat/') => 'chat_access',
     _ => 'other',
   };
 }

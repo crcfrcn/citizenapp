@@ -1,11 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:citizen_account/square_api_client.dart';
-import 'package:citizen_account/identity/square_session_provider.dart';
-import 'package:citizen_account/profile/citizen_profile_api.dart';
-import 'package:citizen_account/profile/user_profile_page.dart';
-import 'package:citizen_account/identity/identity_register_guide.dart';
+import 'package:citizen_user/square_api_client.dart';
+import 'package:citizen_user/identity/square_session_provider.dart';
+import 'package:citizen_user/profile/citizen_profile_api.dart';
+import 'package:citizen_user/profile/user_profile_page.dart';
+import 'package:citizen_user/identity/identity_register_guide.dart';
 
 Widget squareLikerAvatar(
   Map<String, dynamic> row,

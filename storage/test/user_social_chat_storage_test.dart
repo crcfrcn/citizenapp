@@ -5,7 +5,7 @@ import 'package:citizen_storage/social_isar.dart' as social;
 import 'package:citizen_testing/isar_test_env.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:isar_community/isar.dart';
-import 'package:tatachat_sdk/tatachat_sdk.dart';
+import 'package:chat/chat.dart';
 
 const _timeout = Duration(seconds: 2);
 
@@ -54,8 +54,17 @@ const _userColumns = <String, Set<String>>{
     'media_bytes',
   },
   'identity': {'id', 'cid_number', 'account_id', 'data', 'updated_at'},
-  'contact': {'id', 'cid_number', 'kind', 'data'},
-  'notice': {'id', 'cid_number', 'data', 'pending'},
+  'contact': {
+    'id',
+    'owner_cid',
+    'cid_number',
+    'account_id',
+    'contact_remark',
+    'updated_at',
+    'pending',
+    'change_version',
+  },
+  'notice': {'id', 'cid_number', 'data', 'pending', 'list_data'},
   'setting': {
     'id',
     'guide_seen',
@@ -287,7 +296,7 @@ void main() {
     expect(opened.map((db) => db.name).toSet(), {
       'citizenapp_user',
       'citizenapp_social',
-      'tatachatsdk_chat',
+      'chat',
     });
     final db = opened.first;
     final collections = <IsarCollection<dynamic>>[

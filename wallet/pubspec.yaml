@@ -1,5 +1,5 @@
 name: citizen_wallet
-description: 公民Appwallet包。
+description: 公民App钱包包：core、onboarding、account、history。
 publish_to: none
 version: 1.0.0
 resolution: workspace
@@ -8,7 +8,7 @@ environment:
 
 # 本包公开接口的真实依赖；上游约束沿用产品原锁。
 dependencies:
-  citizen_account: any
+  citizen_user: any
   citizen_assets: any
   citizen_citizen: any
   citizen_scanner: any
@@ -19,18 +19,23 @@ dependencies:
       ref: main
   citizen_storage: any
   citizen_system: any
-  citizen_transaction: any
+  citizen_onchain: any
+  citizen_offchain: any
+  citizen_topup: any
   citizen_widgets: any
   flutter:
     sdk: flutter
   flutter_svg: ^2.3.0
   provider: ^6.1.5+1
-  tatachat_sdk:
-    git:
-      url: https://github.com/tuyutata/tatachatsdk.git
-      path: .
-      ref: main
 
+  # history迁入后的直接运行依赖；沿用原包约束。
+  isar_community: ^3.3.2
+  polkadart: 0.7.3
+  polkadart_keyring: 0.7.1
+  polkadart_scale_codec: 1.6.0
+  substrate_metadata: 1.6.0
+
+  chat: any
 dev_dependencies:
   citizen_testing: any
   flutter_test:

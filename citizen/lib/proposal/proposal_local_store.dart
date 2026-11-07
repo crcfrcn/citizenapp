@@ -10,7 +10,7 @@ import 'package:citizen_citizen/proposal/proposal_models.dart';
 import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_storage/user_isar.dart' hide Group;
 import 'package:citizen_system/amount_format.dart';
-import 'package:citizen_transaction/multisig/multisig_transfer_models.dart';
+import 'package:citizen_multisig/multisig_transfer_models.dart';
 
 /// 提案列表本地持久化读库。
 ///

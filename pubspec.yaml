@@ -7,9 +7,13 @@ environment:
   sdk: ">=3.8.0 <4.0.0"
 
 workspace:
-  - account
+  - user
   - wallet
-  - transaction
+  - onchain
+  - multisig
+  - personal
+  - offchain
+  - topup
   - citizen
   - '8964'
   - chat
@@ -22,12 +26,16 @@ workspace:
   - testing
 
 dependencies:
-  citizen_account: any
+  citizen_user: any
   citizen_wallet: any
-  citizen_transaction: any
+  citizen_onchain: any
+  citizen_multisig: any
+  citizen_personal: any
+  citizen_offchain: any
+  citizen_topup: any
   citizen_citizen: any
   citizen_square: any
-  citizen_chat: any
+  chat: any
   citizen_network: any
   citizen_scanner: any
   citizen_storage: any
@@ -87,12 +95,6 @@ dependencies:
   flutter_image_compress: 2.4.0
   # 文章正文富文本编辑器；11.5.1 实现 Flutter 3.44 新增的 TextInputClient.onFocusReceived。
   flutter_quill: 11.5.1
-  # CitizenApp直接依赖公开TataChatSDK根包的唯一固定Git提交。
-  tatachat_sdk:
-    git:
-      url: https://github.com/tuyutata/tatachatsdk.git
-      path: .
-      ref: main
 dev_dependencies:
   citizen_testing: any
   integration_test:
@@ -100,7 +102,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: 6.0.0
-  # 仅媒体处理回归直接使用；运行时图像能力由SDK声明。
+  # 仅媒体处理回归直接使用；运行时图像能力由chat包声明。
   image: 4.9.1
 
 flutter:

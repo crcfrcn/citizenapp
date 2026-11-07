@@ -1,0 +1,35 @@
+name: citizen_personal
+description: 公民App个人多签账户包。
+publish_to: none
+version: 1.0.0
+resolution: workspace
+environment:
+  sdk: ">=3.8.0 <4.0.0"
+
+# 只声明本包源码的直接依赖；版本沿用拆分前产品约束。
+dependencies:
+  citizen_assets: any
+  citizen_citizen: any
+  citizen_multisig: any
+  citizen_scanner: any
+  citizen_sdk:
+    git:
+      url: https://github.com/crcfrcn/citizensdk.git
+      path: .
+      ref: main
+  citizen_storage: any
+  citizen_system: any
+  citizen_wallet: any
+  citizen_widgets: any
+  flutter:
+    sdk: flutter
+  flutter_svg: ^2.3.0
+  isar_community: ^3.3.2
+  polkadart: 0.7.3
+  polkadart_keyring: 0.7.1
+  provider: ^6.1.5+1
+
+dev_dependencies:
+  citizen_testing: any
+  flutter_test:
+    sdk: flutter

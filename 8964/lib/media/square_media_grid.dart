@@ -7,15 +7,15 @@ import 'package:citizen_square/media/square_media_policy.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:citizen_account/identity/square_session_provider.dart';
-import 'package:citizen_account/profile/citizen_profile_api.dart';
+import 'package:citizen_user/identity/square_session_provider.dart';
+import 'package:citizen_user/profile/citizen_profile_api.dart';
 
 import 'dart:async';
 
 import 'package:video_player/video_player.dart';
 
 import 'package:citizen_square/post/square_models.dart';
-import 'package:citizen_account/square_api_client.dart';
+import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_square/media/square_media_processor.dart';
 import 'package:citizen_square/media/square_media_carousel.dart';
 import 'package:citizen_system/theme/app_theme.dart';

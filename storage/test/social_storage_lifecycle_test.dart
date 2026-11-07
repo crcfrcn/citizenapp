@@ -9,7 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:isar_community/isar.dart';
 
 import 'package:citizen_storage/social_isar.dart';
-import 'package:tatachat_sdk/tatachat_sdk.dart';
+import 'package:chat/chat.dart';
 import 'package:citizen_storage/user_isar.dart' hide Group;
 
 import 'package:citizen_testing/isar_test_env.dart';
@@ -60,8 +60,9 @@ void main() {
 
       final walletValue = await UserIsar.instance
           .read<String?>((isar) async {
-            return (await isar.collection<wallet_store.Scan>().get(0))
-                ?.walletHash;
+            return (await isar.collection<wallet_store.Scan>().get(
+              0,
+            ))?.walletHash;
           })
           .timeout(const Duration(seconds: 1));
       final chatValue = await ChatIsar.instance

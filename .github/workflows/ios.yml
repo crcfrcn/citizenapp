@@ -134,7 +134,7 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "cmake;3.31.6"
           echo "$ANDROID_HOME/cmake/3.31.6/bin" >> "$GITHUB_PATH"
           # App资源工具与其他官方工具在同一步准备，不增加功能构建步骤。
-          version=$(node --input-type=module -e "import fs from 'node:fs'; console.log(JSON.parse(fs.readFileSync('transaction/web/package.json')).citizenapp.tools.esbuild)")
+          version=$(node --input-type=module -e "import fs from 'node:fs'; console.log(JSON.parse(fs.readFileSync('topup/web/package.json')).citizenapp.tools.esbuild)")
           npm install --prefix "$work/tools" --ignore-scripts --no-audit --no-fund "esbuild@$version"
           echo "ESBUILD_BIN=$work/tools/node_modules/.bin/esbuild" >> "$GITHUB_ENV"
       - name: 按本产品原锁装配普通工程
@@ -274,8 +274,8 @@ jobs:
           import {pathToFileURL} from 'node:url';
           const work = process.env.WORK;
           const apps = readdirSync(work + '/verify/Payload').filter(name => name.endsWith('.app'));
-          const sdk = await import(pathToFileURL(work + '/sources/tatachat_sdk/scripts/build.mjs'));
-          await sdk.verifyNative(work + '/verify/Payload/' + apps[0] + '/Frameworks/TataChatSDK.framework/TataChatSDK', 'ios');
+          const chat = await import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/build.mjs'));
+          await chat.verifyMls(work + '/verify/Payload/' + apps[0] + '/Frameworks/MLS.framework/MLS', 'ios');
           JS
       - name: 生成本轮正式附件说明
         run: |
@@ -293,6 +293,7 @@ jobs:
               source_sha: process.env.GITHUB_SHA, run_id: Number(process.env.GITHUB_RUN_ID),
               run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT),
               chain_test_sha: readFileSync(work + '/chain-source-sha', 'utf8').trim(),
+              sdk_sources: JSON.parse(readFileSync(work + '/sdk-sources.json', 'utf8')),
               assets: readdirSync(directory).sort().map(asset)
           };
           const name = title + '.json';

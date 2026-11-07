@@ -119,25 +119,6 @@ class ComposeDraftMedia {
     return root;
   }
 
-  /// 旧草稿只允许导入本 CID/草稿目录内的普通文件，拒绝越界路径和符号链接。
-  static Future<void> validateLegacyPaths(
-    String cid,
-    String draftId,
-    Iterable<String> paths,
-  ) async {
-    final root = await _draftDir(cid, draftId, create: false);
-    final resolvedRoot = await root.resolveSymbolicLinks();
-    for (final path in paths) {
-      if (await FileSystemEntity.type(path, followLinks: false) !=
-              FileSystemEntityType.file ||
-          !(await File(
-            path,
-          ).resolveSymbolicLinks()).startsWith('$resolvedRoot/')) {
-        throw StateError('旧草稿媒体路径不属于当前用户和草稿');
-      }
-    }
-  }
-
   /// 先校验并提交数据库，再生成可删除的处理文件；外部原文件不在这里删除。
   static Future<SquareLocalMediaDraft> persist(
     String cidNumber,
@@ -287,7 +268,7 @@ class ComposeDraftMedia {
     return completer.future;
   }
 
-  /// AppLock 显式安全擦除调用；只删除旧草稿目录和可再生的媒体工作目录。
+  /// AppLock 显式安全擦除调用；只删除草稿目录和可再生的媒体工作目录。
   static Future<void> closeAndDeleteAll({
     Future<Directory> Function()? documentsDirectoryProvider,
   }) {

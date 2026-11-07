@@ -1,15 +1,14 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:citizen_account/square_api_client.dart';
-import 'package:citizen_chat/chat_product_policy.dart';
-import 'package:citizen_account/membership/subscription_service.dart';
-import 'package:tatachat_sdk/tatachat_sdk.dart';
+import 'package:citizen_user/square_api_client.dart';
+import 'package:citizen_user/membership/subscription_service.dart';
+import 'package:chat/chat.dart';
 
 const _cidNumber = 'CN220-CTZN2-100000001-2026';
 const _otherCidNumber = 'CN220-CTZN2-100000002-2026';
 
 void main() {
   const mib = 1024 * 1024;
-  const policy = CitizenChatMediaLimitPolicy();
+  const policy = ChatMediaLimits();
 
   setUp(() {
     SubscriptionService.rememberCitizenSession(

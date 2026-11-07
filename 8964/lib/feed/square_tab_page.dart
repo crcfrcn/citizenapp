@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:citizen_square/feed/square_home_page.dart';
-import 'package:citizen_account/identity/identity_register_guide.dart';
+import 'package:citizen_user/identity/identity_register_guide.dart';
 
 /// 底部“广场”Tab 入口。
 ///

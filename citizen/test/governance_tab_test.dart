@@ -1,4 +1,4 @@
-import 'package:citizen_account/identity/current_user_context.dart';
+import 'package:citizen_user/identity/current_user_context.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:provider/provider.dart';
 

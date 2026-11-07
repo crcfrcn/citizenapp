@@ -1,21 +1,25 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:citizen_testing/mls_authentication_fixture.dart';
 
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 
-import 'package:citizen_chat/tatachat_sdk_adapter.dart';
+import 'package:chat/chat.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:citizen_account/identity/square_session_provider.dart';
-import 'package:citizen_account/square_api_client.dart';
-import 'package:tatachat_sdk/tatachat_sdk.dart';
-import 'package:citizen_account/identity/account_security_service.dart';
-import 'package:citizen_account/identity/current_user_context.dart';
+import 'package:citizen_user/identity/square_session_provider.dart';
+import 'package:citizen_user/square_api_client.dart';
+import 'package:citizen_user/identity/account_security_service.dart';
+import 'package:citizen_user/identity/current_user_context.dart';
 
 import 'package:citizen_testing/isar_test_env.dart';
 
 class _UnusedSecurity implements AccountSecurityService {
+  @override
+  final revision = ValueNotifier<int>(0);
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -33,6 +37,7 @@ class _ChatAccessProvider extends SquareSessionProvider {
         // 本夹具只映射已注册用户的聊天许可，不调用真实钱包或链门禁。
       );
   int requests = 0;
+  Completer<CitizenServeChatAccess>? held;
   @override
   Future<CitizenServeChatAccess> requestChatAccess({
     required String deviceId,
@@ -45,8 +50,9 @@ class _ChatAccessProvider extends SquareSessionProvider {
     expect(expectedCidNumber, 'user-a');
     expect(expectedBindingRevision, 1);
     expect(expectedAccountId, 'account-a');
+    if (held != null) return await held!.future;
     return CitizenServeChatAccess(
-      realtimeUrl: Uri.parse('wss://service.test/api/tatachat/realtime'),
+      realtimeUrl: Uri.parse('wss://service.test/api/chat/realtime'),
       accessToken: 'opaque',
       expiresAt: DateTime.now().millisecondsSinceEpoch + 300000,
     );
@@ -58,7 +64,7 @@ void main() {
   useIsolatedIsar();
   test('宿主直接映射完整WSS许可，跨用户设备在请求前拒绝', () async {
     final sessions = _ChatAccessProvider();
-    final host = createCitizenChatRuntimeHost(
+    final host = ChatRuntime(
       accountSecurity: _UnusedSecurity(),
       currentUserContext: _UnusedCurrentUserContext(),
       squareSessionProvider: sessions,
@@ -77,7 +83,7 @@ void main() {
     );
     expect(
       access.realtimeUrl.toString(),
-      'wss://service.test/api/tatachat/realtime',
+      'wss://service.test/api/chat/realtime',
     );
     expect(access.accessToken, 'opaque');
     await expectLater(
@@ -91,6 +97,54 @@ void main() {
     await host.push.dispose();
   });
 
+  test('本地身份读取期间修订变化，旧读取结果不能成为当前聊天账户', () async {
+    final security = _UnusedSecurity(), context = _DelayedCurrent();
+    final host = ChatRuntime(
+      accountSecurity: security,
+      currentUserContext: context,
+      squareSessionProvider: _ChatAccessProvider(),
+    );
+    addTearDown(host.push.dispose);
+    addTearDown(security.revision.dispose);
+    final reading = host.currentAccount();
+    security.revision.value++;
+    context.held.complete(null);
+    await expectLater(reading, throwsStateError);
+  });
+  test('聊天许可在途切换身份，迟到授权回执不能交给聊天运行时', () async {
+    final security = _UnusedSecurity(),
+        sessions = _ChatAccessProvider()
+          ..held = Completer<CitizenServeChatAccess>();
+    final host = ChatRuntime(
+      accountSecurity: security,
+      currentUserContext: _UnusedCurrentUserContext(),
+      squareSessionProvider: sessions,
+    );
+    addTearDown(host.push.dispose);
+    addTearDown(security.revision.dispose);
+    const account = ChatRuntimeAccount(
+      hostIndex: 0,
+      bindingScope: 'synthetic',
+      userId: 'user-a',
+      bindingRevision: 1,
+      accountId: 'account-a',
+      displayName: 'A',
+    );
+    final request = host.requestChatAccess(
+      account: account,
+      identity: const ChatDevice(userId: 'user-a', deviceId: 'device-a'),
+    );
+    security.revision.value++;
+    sessions.held!.complete(
+      CitizenServeChatAccess(
+        realtimeUrl: Uri.parse('wss://service.test/api/chat/realtime'),
+        accessToken: 'opaque',
+        expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
+      ),
+    );
+    await expectLater(request, throwsStateError);
+    expect(sessions.requests, 1);
+  });
   group('ChatDevice', () {
     test('accepts CID as chat identity without wallet private key', () {
       const identity = ChatDevice(
@@ -113,7 +167,7 @@ void main() {
     });
   });
 
-  test('SDK用户标识就是永久CID，绑定只保存公开事实', () {
+  test('聊天用户标识就是永久CID，绑定只保存公开事实', () {
     const binding = ChatBinding(
       bindingScope:
           '0x'
@@ -130,7 +184,7 @@ void main() {
   group('Chat 用户错误文案', () {
     test('未知 StateError 不泄漏 Bad state 或底层乱码', () {
       final message = chatUserErrorMessage(
-        StateError('native /tmp/libtatachat_sdk \uFFFD\u0000 debug'),
+        StateError('native /tmp/libmls \uFFFD\u0000 debug'),
       );
 
       expect(message, '聊天暂时无法使用，请稍后重试');
@@ -139,8 +193,8 @@ void main() {
     });
 
     test('MLS 状态所有权错误映射固定中文且不透传技术码', () {
-      const error = MlsNativeException(
-        MlsNativeErrorCode.stateOwnerMismatch,
+      const error = MlsException(
+        MlsErrorCode.stateOwnerMismatch,
         'CHAT_MLS_STATE_OWNER_MISMATCH:debug',
       );
 
@@ -231,7 +285,7 @@ void main() {
       accountSecurity: security,
       currentUserContext: current,
     );
-    final runtime = createCitizenChatRuntime(
+    final runtime = ChatRuntime(
       accountSecurity: security,
       currentUserContext: current,
       squareSessionProvider: sessions,
@@ -244,4 +298,13 @@ void main() {
     await stopping;
     await runtime.close();
   });
+}
+
+class _DelayedCurrent implements CurrentUserContext {
+  final held = Completer<CurrentUser?>();
+  @override
+  Future<CurrentUser?> resolve() => held.future;
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw StateError('unexpected current user operation');
 }

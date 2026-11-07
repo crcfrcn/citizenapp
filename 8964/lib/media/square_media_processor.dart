@@ -1,4 +1,4 @@
-import 'package:citizen_account/square_api_client.dart';
+import 'package:citizen_user/square_api_client.dart';
 
 import 'dart:async';
 import 'dart:io';

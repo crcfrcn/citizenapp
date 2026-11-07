@@ -1,18 +1,19 @@
-import 'package:citizen_transaction/topup/topup_api.dart';
-import 'package:citizen_transaction/topup/topup_webview_page.dart';
+import 'package:citizen_user/contacts/contact_service.dart';
+import 'package:citizen_topup/topup_api.dart';
+import 'package:citizen_topup/topup_webview_page.dart';
 import 'navigation.dart';
-import 'package:citizen_wallet/navigation.dart';
+import 'package:citizen_wallet/core/navigation.dart';
 import 'package:citizen_citizen/navigation.dart';
-import 'package:citizen_transaction/onchain/onchain_payment_page.dart';
-import 'package:citizen_account/navigation.dart';
+import 'package:citizen_onchain/onchain_payment_page.dart';
+import 'package:citizen_user/navigation.dart';
 import 'scan_dispatch_flow.dart';
 import 'package:citizen_scanner/scan_dispatch.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
-import 'package:citizen_account/membership/subscription_service.dart';
+import 'package:citizen_user/membership/subscription_service.dart';
 
 import 'dart:convert';
 
-import 'package:citizen_account/notifications.dart';
+import 'package:citizen_user/notifications.dart';
 import 'package:citizen_square/feed/square_home_page.dart'
     show openSquareNotification;
 
@@ -25,39 +26,36 @@ import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:provider/provider.dart';
-import 'package:tatachat_sdk/tatachat_sdk.dart' as chat;
+import 'package:chat/chat.dart' as chat;
 import 'package:citizen_square/feed/square_tab_page.dart';
 import 'package:citizen_citizen/citizen_tab_page.dart';
-import 'package:citizen_chat/chat_product_configuration.dart';
-import 'package:citizen_chat/tatachat_sdk_adapter.dart';
-import 'package:citizen_chat/chat_entry.dart';
+import 'package:chat/chat.dart';
 import 'package:citizenapp/security/app_lock_service.dart';
 import 'package:citizen_system/security/emergency_wipe_platform.dart';
 import 'package:citizenapp/security/pin_input_page.dart';
 import 'package:citizen_system/security/system_protected_storage.dart';
-import 'package:citizen_transaction/history/wallet_transaction_history_service.dart';
+import 'package:citizen_wallet/history/wallet_transaction_history_service.dart';
 import 'package:citizen_system/security/screenshot_guard.dart';
 import 'package:citizenapp/user.dart';
-import 'package:citizen_account/identity/current_user_context.dart';
-import 'package:citizen_account/identity/finalized_identity_resolver.dart';
-import 'package:citizen_account/identity/cid_business_gate.dart';
-import 'package:citizen_account/identity/myid_service.dart';
-import 'package:citizen_account/identity/identity_badge_snapshot_store.dart';
+import 'package:citizen_user/identity/current_user_context.dart';
+import 'package:citizen_user/identity/finalized_identity_resolver.dart';
+import 'package:citizen_user/identity/cid_business_gate.dart';
+import 'package:citizen_user/identity/myid_service.dart';
+import 'package:citizen_user/identity/identity_badge_snapshot_store.dart';
 import 'package:citizen_storage/user_isar.dart';
 import 'package:citizenapp/security/app_permission_gate.dart';
 import 'package:citizen_system/update/app_update.dart';
 import 'package:citizen_system/update/update_badge.dart';
-import 'package:citizen_account/identity/mls_device_registrar.dart';
-import 'package:citizen_account/identity/mls_authentication.dart';
-import 'package:citizen_account/square_api_client.dart';
-import 'package:citizen_account/identity/square_session_provider.dart';
+import 'package:citizen_user/identity/mls_device_registrar.dart';
+import 'package:citizen_user/identity/mls_authentication.dart';
+import 'package:citizen_user/square_api_client.dart';
+import 'package:citizen_user/identity/square_session_provider.dart';
 import 'package:citizen_system/notifications/app_push_service.dart';
-import 'package:citizen_system/notifications/app_push_token.dart';
-import 'package:citizen_account/identity/registration_coordinator.dart';
+import 'package:citizen_user/identity/registration_coordinator.dart';
 import 'package:citizen_scanner/qr_sign_session_page.dart';
-import 'package:citizen_account/identity/identity_binding.dart';
-import 'package:citizen_account/identity/account_security_service.dart';
-import 'package:citizen_wallet/wallet_gate.dart';
+import 'package:citizen_user/identity/identity_binding.dart';
+import 'package:citizen_user/identity/account_security_service.dart';
+import 'package:citizen_wallet/core/wallet_gate.dart';
 
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_system/theme/app_layout.dart';
@@ -76,10 +74,12 @@ Future<void> main() async {
   // 轻节点、交易与 execution history 共用同一个 Engine generation。
   final citizenSdk = await CitizenSdk.open(modules: CitizenSdkModules.full);
   late final CurrentUserContext currentUserContext;
-  late final chat.ChatSdk Function() readChatRuntime;
+  late final chat.ChatRuntime Function() readChatRuntime;
   final registrationCoordinator = RegistrationCoordinator();
   final authentication = MlsAuthentication(
-    runtime: () => readChatRuntime(),
+    readLocalIdentity: () => (() => readChatRuntime())().readLocalMlsIdentity(),
+    createProof: (request) =>
+        (() => readChatRuntime())().createMlsAuthenticationProof(request),
     currentBinding: () async {
       // 注册进行中不让自动服务准备抢先建立设备权限。
       if (registrationCoordinator.isRegistering) {
@@ -142,7 +142,7 @@ Future<void> main() async {
   final appPushService = AppPushService();
   late final SquareSessionProvider squareSessionProvider;
   late final MyIdService identityService;
-  chat.ChatSdk? sharedChatRuntime;
+  chat.ChatRuntime? sharedChatRuntime;
   final cidBusinessGate = CidBusinessGate(
     currentUserContext: currentUserContext,
     identityResolver: finalizedIdentityResolver,
@@ -168,11 +168,17 @@ Future<void> main() async {
     currentUserContext: currentUserContext,
     identityResolver: finalizedIdentityResolver,
     sessionProvider: squareSessionProvider,
-    chatRuntime: () => readChatRuntime(),
-    activeChatRuntime: () => sharedChatRuntime,
+    onChatBindingChanged: (binding, {required existingOnly}) async {
+      final chat.ChatRuntime? runtime = existingOnly
+          ? (() => sharedChatRuntime).call()
+          : (() => readChatRuntime())();
+      await runtime?.convergeFinalizedBinding(
+        chat.ChatBinding.fromIdentity(binding),
+      );
+    },
   );
 
-  // 任何 ChatSdk、钱包页或 PIN 门禁构造前先处理跨重启擦除门闩。
+  // 任何 ChatRuntime、钱包页或 PIN 门禁构造前先处理跨重启擦除门闩。
   // pending 不依赖已被平台阶段删除的 PIN，直接继续全量擦除；
   // 当前进程无论成败都只允许重试或退出，禁止恢复业务运行态。
   var wipeStartupResult = await AppLockService.recoverPersistentWipeAtStartup(
@@ -209,7 +215,7 @@ Future<void> main() async {
   }
 
   // 普通认证和聊天惰性共用一个运行实例；擦除门闩通过前不创建MLS状态。
-  readChatRuntime = () => sharedChatRuntime ??= createCitizenChatRuntime(
+  readChatRuntime = () => sharedChatRuntime ??= chat.ChatRuntime(
     accountSecurity: accountSecurity,
     currentUserContext: currentUserContext,
     squareSessionProvider: squareSessionProvider,

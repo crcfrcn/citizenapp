@@ -1,9 +1,9 @@
 import 'package:citizen_square/feed/square_notifications_page.dart';
 import 'package:citizen_square/post/square_interaction_service.dart';
-import 'package:citizen_account/notifications.dart';
+import 'package:citizen_user/notifications.dart';
 import 'package:provider/provider.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizen_account/identity/identity_badge_snapshot_store.dart';
+import 'package:citizen_user/identity/identity_badge_snapshot_store.dart';
 
 import 'dart:async';
 import 'dart:math' as math;
@@ -16,21 +16,21 @@ import 'package:citizen_square/post/square_models.dart';
 import 'package:citizen_square/article/square_article_detail_page.dart';
 import 'package:citizen_square/compose/compose_page.dart';
 import 'package:citizen_square/post/square_post_detail_page.dart';
-import 'package:citizen_account/profile/user_profile_page.dart';
-import 'package:citizen_account/profile/citizen_profile_api.dart';
-import 'package:citizen_account/identity/square_session_provider.dart';
-import 'package:citizen_account/square_api_client.dart';
-import 'package:citizen_account/identity/square_identity_state.dart';
+import 'package:citizen_user/profile/user_profile_page.dart';
+import 'package:citizen_user/profile/citizen_profile_api.dart';
+import 'package:citizen_user/identity/square_session_provider.dart';
+import 'package:citizen_user/square_api_client.dart';
+import 'package:citizen_user/identity/square_identity_state.dart';
 import 'package:citizen_square/post/square_post_sync_service.dart';
 import 'package:citizen_square/feed/square_feed_tabs.dart';
 import 'package:citizen_square/feed/square_tab_order_store.dart';
 import 'package:citizen_square/article/square_article_card.dart';
 import 'package:citizen_square/post/square_post_card.dart';
-import 'package:citizen_account/identity/current_user_context.dart';
-import 'package:citizen_account/membership/membership_revision.dart';
+import 'package:citizen_user/identity/current_user_context.dart';
+import 'package:citizen_user/membership/membership_revision.dart';
 import 'package:citizen_system/theme/app_theme.dart';
-import 'package:citizen_account/identity/identity_register_guide.dart';
-import 'package:citizen_account/identity/account_security_service.dart';
+import 'package:citizen_user/identity/identity_register_guide.dart';
+import 'package:citizen_user/identity/account_security_service.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
 class SquareHomePage extends StatefulWidget {

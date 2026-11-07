@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:citizen_storage/user_isar.dart' as wallet_store show Member;
 import 'package:http/http.dart' as http;
@@ -8,7 +9,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:citizen_account/identity/identity_binding.dart';
+import 'package:citizen_user/identity/identity_binding.dart';
 
 import 'package:citizen_testing/isar_test_env.dart';
 
@@ -16,26 +17,24 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizen_account/identity/finalized_identity_resolver.dart';
+import 'package:citizen_user/identity/finalized_identity_resolver.dart';
 
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:citizen_account/profile/citizen_profile.dart';
-import 'package:citizen_account/profile/citizen_profile_api.dart';
-import 'package:citizen_account/profile/citizen_profile_cache.dart';
-import 'package:citizen_account/identity/square_session_provider.dart';
+import 'package:citizen_user/profile/citizen_profile.dart';
+import 'package:citizen_user/profile/citizen_profile_api.dart';
+import 'package:citizen_user/profile/citizen_profile_cache.dart';
+import 'package:citizen_user/identity/square_session_provider.dart';
 import 'package:citizenapp/main.dart' show AppShell;
-import 'package:citizen_account/profile/profile_avatar.dart';
-import 'package:citizen_account/square_api_client.dart';
-import 'package:citizen_chat/chat_entry.dart';
-import 'package:citizen_chat/tatachat_sdk_adapter.dart';
-import 'package:citizen_account/identity/current_user_context.dart';
-import 'package:tatachat_sdk/tatachat_sdk.dart';
-import 'package:citizen_account/membership/subscription_service.dart';
-import 'package:citizen_account/contacts/contact_service.dart';
-import 'package:citizen_account/identity/account_security_service.dart';
+import 'package:citizen_user/profile/profile_avatar.dart';
+import 'package:citizen_user/square_api_client.dart';
+import 'package:chat/chat.dart';
+import 'package:citizen_user/identity/current_user_context.dart';
+import 'package:citizen_user/membership/subscription_service.dart';
+import 'package:citizen_user/contacts/contact_service.dart';
+import 'package:citizen_user/identity/account_security_service.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 
 const _ownerUserId = 'CN220-CTZN2-100000001-2026';
@@ -255,6 +254,7 @@ void main() {
 
   testWidgets('打开聊天列表及窗口零会员GET，附件动作才请求授权', (tester) async {
     final service = _AttachmentOnlySubscription();
+    final provider = _FakeProfileSessionProvider();
     final store = _FakeChatStore(
       conversations: [
         ChatConversationPreview(
@@ -275,8 +275,13 @@ void main() {
             store: store,
             cidNumber: _ownerUserId,
             accountId: '0x${'11' * 32}',
-            runtime: _FakeRuntime(address: '0x${'11' * 32}', store: store),
-            sessionProvider: _FakeProfileSessionProvider(),
+            runtime: _FakeRuntime(
+              address: '0x${'11' * 32}',
+              store: store,
+              squareSessionProvider: provider,
+              subscriptionService: service,
+            ),
+            sessionProvider: provider,
             subscriptionService: service,
           ),
         ),
@@ -293,7 +298,10 @@ void main() {
     );
     expect(service.requests, 0);
     await expectLater(
-      page.host.prepareAttachment!(_ownerUserId),
+      page.runtime.prepareAttachmentForUser(
+        userId: _ownerUserId,
+        accountId: page.accountId,
+      ),
       throwsA(isA<SquareApiException>()),
     );
     expect(service.requests, 1);
@@ -302,13 +310,13 @@ void main() {
 
   test('真实聊天适配器后台不建会话不刷新，核对账户/revision/设备；基础聊天独立', () async {
     final provider = _FakeProfileSessionProvider();
-    final host = createCitizenChatRuntimeHost(
+    final host = ChatRuntime(
       accountSecurity: _UnusedSecurity(),
       currentUserContext: _UnusedCurrentUser(),
       squareSessionProvider: provider,
     );
     addTearDown(host.push.dispose);
-    final capability = host as ChatAttachmentAuthorizationHost;
+    final capability = host;
     final account = ChatRuntimeAccount(
       hostIndex: 0,
       bindingScope: 'genesis',
@@ -552,6 +560,279 @@ void main() {
     selectedTab.dispose();
   });
 
+  ChatConversationPreview preview(String id, String text) =>
+      ChatConversationPreview(
+        conversationId: id,
+        title: text,
+        peerUserId: _peerUserId,
+        lastMessage: '本机消息',
+        lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(1),
+        unreadCount: 0,
+        deliveryState: ChatMessageDeliveryState.receivedByDevice,
+      );
+  Future<void> settleLocal(WidgetTester tester) async {
+    for (var i = 0; i < 8; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+      await tester.pump();
+    }
+  }
+
+  testWidgets('列表和聊天标题缺少资料缓存时不获取会话或名片', (tester) async {
+    const record = MethodChannel('com.llfbandit.record/messages');
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      record,
+      (call) async => call.method == 'isRecording' ? false : null,
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        record,
+        null,
+      ),
+    );
+    final store = _FakeChatStore(
+      conversations: [preview(_directConversationId, '本机标题')],
+    );
+    final api = _FakeProfileApi(_peerProfile),
+        sessions = _FakeProfileSessionProvider();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ChatTab(
+            runtime: _FakeRuntime(address: testMlsAccountId, store: store),
+            store: store,
+            cidNumber: _ownerUserId,
+            accountId: testMlsAccountId,
+            profileApi: api,
+            profileCache: const _EmptyProfileCache(),
+            sessionProvider: sessions,
+          ),
+        ),
+      ),
+    );
+    await settleLocal(tester);
+    expect(find.text('本机标题'), findsOneWidget);
+    expect(api.calls, 0);
+    expect(sessions.calls, 0);
+    expect(
+      tester.widget<ProfileAvatar>(find.byType(ProfileAvatar)).imageUrl,
+      isNull,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('chat-conversation-$_directConversationId')),
+    );
+    await settleLocal(tester);
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byType(ChatConversationPage), findsOneWidget);
+    expect(api.calls, 0);
+    expect(sessions.calls, 0);
+    final header = find.byKey(const ValueKey('chat-peer-profile-entry'));
+    expect(
+      tester
+          .widget<ProfileAvatar>(
+            find.descendant(of: header, matching: find.byType(ProfileAvatar)),
+          )
+          .imageUrl,
+      isNull,
+    );
+    await tester.pumpWidget(const SizedBox());
+    await settleLocal(tester);
+  });
+  testWidgets('已有名片但本机头像缺失，浏览列表不会回退请求远端图片', (tester) async {
+    final api = _FakeProfileApi(_peerProfile), network = _ChatNetworkCounter();
+    await HttpOverrides.runZoned(() async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ChatTab(
+              runtime: _FakeRuntime(address: testMlsAccountId),
+              store: _FakeChatStore(
+                conversations: [preview('local-avatar', '本机标题')],
+              ),
+              cidNumber: _ownerUserId,
+              accountId: testMlsAccountId,
+              profileApi: api,
+              profileCache: const _MemoryProfileCache(_peerProfile),
+              profileMediaCache: _MemoryProfileMediaCache(
+                const CitizenProfileMediaSnapshot(
+                  avatarPath: '/missing/local-avatar.webp',
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await settleLocal(tester);
+      expect(api.calls, 0);
+      expect(network.requests, 0);
+      final avatar = tester.widget<ProfileAvatar>(find.byType(ProfileAvatar));
+      expect(avatar.imageUrl, isNull);
+      expect(avatar.userImageSet, isTrue);
+      await tester.pumpWidget(const SizedBox());
+      await settleLocal(tester);
+    }, createHttpClient: (_) => network);
+  });
+  for (final error in [false, true]) {
+    testWidgets('切CID不等待旧本机列表，迟到${error ? '错误' : '结果'}不影响新CID', (tester) async {
+      final old = Completer<List<ChatConversationPreview>>(),
+          store = _ScopedPreviews();
+      store.onRead = (cid) => cid == _ownerUserId
+          ? old.future
+          : Future.value([preview('new-owner', '新身份会话')]);
+      final runtime = _FakeRuntime(address: testMlsAccountId);
+      Widget page(String cid, String account) => MaterialApp(
+        home: Scaffold(
+          body: ChatTab(
+            key: const ValueKey('scope'),
+            runtime: runtime,
+            store: store,
+            cidNumber: cid,
+            accountId: account,
+            profileCache: const _EmptyProfileCache(),
+          ),
+        ),
+      );
+      await tester.pumpWidget(page(_ownerUserId, testMlsAccountId));
+      await settleLocal(tester);
+      await tester.pumpWidget(page(_carolCidNumber, '0x${'44' * 32}'));
+      await settleLocal(tester);
+      expect(find.text('新身份会话'), findsOneWidget);
+      if (error) {
+        old.completeError(StateError('stale'));
+      } else {
+        old.complete([preview('old-owner', '旧身份会话')]);
+      }
+      await settleLocal(tester);
+      expect(find.text('旧身份会话'), findsNothing);
+      expect(find.text('新身份会话'), findsOneWidget);
+      expect(find.text('聊天暂时无法使用，请稍后重试'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+      await settleLocal(tester);
+    });
+  }
+  testWidgets('迟到私人备注不能落到新CID的同一对端', (tester) async {
+    final delayed = _DelayedContacts(),
+        store = _FakeChatStore(conversations: [preview('same-peer', '公开称呼')]);
+    final runtime = _FakeRuntime(address: testMlsAccountId);
+    Widget page(String cid, UserContactService contacts) => MaterialApp(
+      home: Scaffold(
+        body: ChatTab(
+          key: const ValueKey('remark-scope'),
+          runtime: runtime,
+          store: store,
+          cidNumber: cid,
+          accountId: cid == _ownerUserId ? testMlsAccountId : '0x${'44' * 32}',
+          profileCache: const _EmptyProfileCache(),
+          contactService: contacts,
+        ),
+      ),
+    );
+    await tester.pumpWidget(page(_ownerUserId, delayed));
+    await settleLocal(tester);
+    await tester.pumpWidget(
+      page(
+        _carolCidNumber,
+        _FakeContactService([
+          const UserContact(
+            cidNumber: _peerUserId,
+            accountId: _peerAccountId,
+            contactRemark: '乙备注',
+            updatedAt: 1,
+          ),
+        ]),
+      ),
+    );
+    await settleLocal(tester);
+    expect(find.text('乙备注（公开称呼）'), findsOneWidget);
+    delayed.held.complete([
+      const UserContact(
+        cidNumber: _peerUserId,
+        accountId: _peerAccountId,
+        contactRemark: '甲备注',
+        updatedAt: 1,
+      ),
+    ]);
+    await settleLocal(tester);
+    expect(find.textContaining('甲备注'), findsNothing);
+    expect(find.text('乙备注（公开称呼）'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    await settleLocal(tester);
+  });
+  testWidgets('旧CID迟到的公开资料不能覆盖新CID的本机预览', (tester) async {
+    final delayed = _DelayedProfileCache();
+    final store = _FakeChatStore(conversations: [preview('same-peer', '本机预览')]);
+    final runtime = _FakeRuntime(address: testMlsAccountId);
+    Widget page(String cid, CitizenProfileCache profiles) => MaterialApp(
+      home: Scaffold(
+        body: ChatTab(
+          key: const ValueKey('profile-scope'),
+          runtime: runtime,
+          store: store,
+          cidNumber: cid,
+          accountId: cid == _ownerUserId ? testMlsAccountId : '0x${'44' * 32}',
+          profileCache: profiles,
+        ),
+      ),
+    );
+    await tester.pumpWidget(page(_ownerUserId, delayed));
+    await settleLocal(tester);
+    await tester.pumpWidget(page(_carolCidNumber, const _EmptyProfileCache()));
+    await settleLocal(tester);
+    expect(find.text('本机预览'), findsOneWidget);
+    delayed.held.complete(_peerProfile);
+    await settleLocal(tester);
+    expect(find.text(_peerProfile.displayName), findsNothing);
+    expect(find.text('本机预览'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    await settleLocal(tester);
+  });
+
+  for (final failed in [false, true]) {
+    testWidgets('旧CID后台删除${failed ? '失败' : '完成'}不影响新CID的同名会话', (tester) async {
+      final deletion = Completer<void>();
+      final store = _FakeChatStore(conversations: [preview('same-id', '当前会话')]);
+      final runtime = _FakeRuntime(
+        address: testMlsAccountId,
+        store: store,
+        onDeleteConversation: (_) => deletion.future,
+      );
+      Widget page(String cid) => MaterialApp(
+        home: Scaffold(
+          body: ChatTab(
+            key: const ValueKey('delete-scope'),
+            runtime: runtime,
+            store: store,
+            cidNumber: cid,
+            accountId: cid == _ownerUserId
+                ? testMlsAccountId
+                : '0x${'44' * 32}',
+            profileCache: const _EmptyProfileCache(),
+          ),
+        ),
+      );
+      await tester.pumpWidget(page(_ownerUserId));
+      await settleLocal(tester);
+      await tester.drag(find.text('当前会话'), const Offset(-500, 0));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, '删除'));
+      await settleLocal(tester);
+      await tester.pumpWidget(page(_carolCidNumber));
+      await settleLocal(tester);
+      expect(find.text('当前会话'), findsOneWidget);
+      if (failed) {
+        deletion.completeError(StateError('old delete failed'));
+      } else {
+        deletion.complete();
+      }
+      await settleLocal(tester);
+      expect(find.text('当前会话'), findsOneWidget);
+      expect(find.text('聊天暂时无法使用，请稍后重试'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+      await settleLocal(tester);
+    });
+  }
+
   testWidgets('聊天 Tab 按 CID 身份渲染会话列表', (tester) async {
     final store = _FakeChatStore(
       conversations: [
@@ -639,9 +920,7 @@ void main() {
               const UserContact(
                 cidNumber: _peerUserId,
                 accountId: _peerAccountId,
-                accountAddress: 'test-address',
                 contactRemark: '同事',
-                createdAt: 1,
                 updatedAt: 1,
               ),
             ]),
@@ -902,7 +1181,7 @@ void main() {
     expect(
       find.byType(ChatConversationPage),
       findsNothing,
-      reason: '确认后 TataChatSDK 聊天窗口必须立即关闭',
+      reason: '确认后 公民聊天 聊天窗口必须立即关闭',
     );
     expect(find.text('Bob'), findsNothing, reason: '后台删除未完成时路由重载也不得恢复卡片');
     expect(store.deletedConversationIds, isEmpty);
@@ -1336,12 +1615,16 @@ class _FakeProfileApi extends CitizenProfileApi {
   _FakeProfileApi(this.profile);
 
   final CitizenProfile profile;
+  int calls = 0;
 
   @override
   Future<CitizenProfileCard> fetchCard(
     String cidNumber, {
     SquareSession? session,
-  }) async => CitizenProfileCard(profile.toJson());
+  }) async {
+    calls++;
+    return CitizenProfileCard(profile.toJson());
+  }
 }
 
 class _FakeContactService implements UserContactService {
@@ -1428,21 +1711,29 @@ class _FakeProfileSessionProvider implements SquareSessionProvider {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-class _UnusedChatHost implements ChatRuntimeHost {
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
-class _FakeRuntime extends ChatSdk {
+class _FakeRuntime extends ChatRuntime {
   _FakeRuntime({
     required this.address,
     super.store,
+    super.squareSessionProvider,
+    super.subscriptionService,
     this.enableRealtime = false,
     this.onDeleteConversation,
     this.retryCompleter,
     this.retryError,
-  }) : super(host: _UnusedChatHost());
+  });
 
+  @override
+  Future<ChatRuntimeAccount?> currentAccount({
+    String? expectedAccountId,
+  }) async => ChatRuntimeAccount(
+    hostIndex: 0,
+    bindingScope: 'genesis',
+    userId: _ownerUserId,
+    bindingRevision: 1,
+    accountId: address,
+    displayName: 'A',
+  );
   final String address;
   final bool enableRealtime;
   final Future<void> Function(String conversationId)? onDeleteConversation;
@@ -1503,7 +1794,7 @@ class _FakeRuntime extends ChatSdk {
   Future<void> deleteLocalConversation(String conversationId) async {
     final deleter = onDeleteConversation;
     if (deleter == null) {
-      throw StateError('测试未注入 ChatSdk 会话删除入口');
+      throw StateError('测试未注入 ChatRuntime 会话删除入口');
     }
     await deleter(conversationId);
   }
@@ -1615,4 +1906,37 @@ class _ChatNetworkCounter implements HttpClient {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _EmptyProfileCache extends CitizenProfileCache {
+  const _EmptyProfileCache();
+  @override
+  Future<CitizenProfile?> read(String cidNumber) async => null;
+}
+
+class _ScopedPreviews extends _FakeChatStore {
+  Future<List<ChatConversationPreview>> Function(String)? onRead;
+  @override
+  Future<List<ChatConversationPreview>> readConversationPreviews({
+    required String ownerUserId,
+    required String currentAccountId,
+  }) {
+    readPreviewCount++;
+    return onRead!(ownerUserId);
+  }
+}
+
+class _DelayedContacts implements UserContactService {
+  final held = Completer<List<UserContact>>();
+  @override
+  Future<List<UserContact>> getContacts() => held.future;
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw StateError('unexpected contact operation');
+}
+
+class _DelayedProfileCache extends CitizenProfileCache {
+  final held = Completer<CitizenProfile?>();
+  @override
+  Future<CitizenProfile?> read(String cidNumber) => held.future;
 }

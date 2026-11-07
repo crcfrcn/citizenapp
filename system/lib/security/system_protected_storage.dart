@@ -6,6 +6,27 @@ import 'package:flutter/services.dart';
 
 /// 仅处理App自有私有路径；平台校验失败不得继续开库或记录写入。
 abstract final class SystemProtectedStorage {
+  static const chatChannel = MethodChannel('citizenapp/chat/storage');
+  static Future<Directory> prepareChatDataDirectory() async {
+    final path = await chatChannel.invokeMethod<String>('prepareDataStorage');
+    if (path == null ||
+        !path.startsWith(Platform.pathSeparator) ||
+        await FileSystemEntity.type(path, followLinks: false) !=
+            FileSystemEntityType.directory) {
+      throw StateError('聊天系统保护目录不可用');
+    }
+    return Directory(await Directory(path).resolveSymbolicLinks());
+  }
+
+  static Future<void> verifyChatDirectory(Directory directory) async {
+    final root = await prepareChatDataDirectory();
+    if ((directory.path != root.path &&
+            !directory.path.startsWith(root.path + Platform.pathSeparator)) ||
+        await directory.resolveSymbolicLinks() != directory.path) {
+      throw StateError('拒绝聊天保护域以外或链接目录');
+    }
+  }
+
   static const channel = MethodChannel('citizenapp/system_protected_data');
   static Future<String> recordsDirectory() async {
     final path = await channel.invokeMethod<String>('prepareRecords');

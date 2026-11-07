@@ -1,4 +1,4 @@
-import 'package:citizen_account/square_api_client.dart';
+import 'package:citizen_user/square_api_client.dart';
 
 // 原有公共会员样本只定义一次；不注册业务测试，也不替代服务端真源。
 Map<String, dynamic> membergatePlanFixture(String level, {int? price}) {
@@ -125,9 +125,9 @@ Map<String, dynamic> membergateUsageFixture() => {
     'delivery_bytes': 0,
     'attachment_begins': 0,
   },
-  'published_count': 0,
   'observed_at': 1000,
 };
+
 /// 合成规则只用于验证服务端下发值会生效；不是产品额度来源。
 Map<String, dynamic> preflightGateFixture(
   SquareSession s, {
@@ -179,4 +179,3 @@ Map<String, dynamic> preflightGateFixture(
     },
   };
 }
-

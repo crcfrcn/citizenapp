@@ -1,16 +1,16 @@
-import 'package:citizen_wallet/navigation.dart';
-import 'package:citizen_wallet/wallet_page.dart';
-import 'package:citizen_transaction/onchain/onchain_payment_page.dart';
-import 'package:citizen_transaction/history/transaction_history_page.dart';
-import 'package:citizen_transaction/topup/topup_sheet.dart';
-import 'package:citizen_transaction/offchain/petty_wallet_page.dart';
-import 'package:citizen_transaction/multisig/multisig_transfer_page.dart';
-import 'package:citizen_transaction/multisig/sweep_to_main_page.dart';
-import 'package:citizen_transaction/multisig/safety_fund_transfer_page.dart';
+import 'package:citizen_wallet/core/navigation.dart';
+import 'package:citizen_wallet/account/wallet_page.dart';
+import 'package:citizen_onchain/onchain_payment_page.dart';
+import 'package:citizen_wallet/history/transaction_history_page.dart';
+import 'package:citizen_topup/topup_sheet.dart';
+import 'package:citizen_offchain/petty_wallet_page.dart';
+import 'package:citizen_multisig/multisig_transfer_page.dart';
+import 'package:citizen_multisig/sweep_to_main_page.dart';
+import 'package:citizen_multisig/safety_fund_transfer_page.dart';
 import 'package:citizen_citizen/navigation.dart';
 import 'package:citizen_citizen/proposal/institution_manage_detail_page.dart';
-import 'package:citizen_account/identity/myid_page.dart';
-import 'package:citizen_account/contacts/contact_book_page.dart';
+import 'package:citizen_user/identity/myid_page.dart';
+import 'package:citizen_user/contacts/contact_book_page.dart';
 
 // 全部工厂仅构造原有页面，不保留账户、余额或业务授权副本。
 final walletNavigation = WalletNavigation(

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -406,8 +407,9 @@ class AppLog {
       'ready',
       'failed',
       'timeout',
-    }.contains(state))
+    }.contains(state)) {
       return false;
+    }
     try {
       debugPrintSynchronously('[CitizenTopup] stage=document state=$state');
     } on Object {
@@ -419,8 +421,9 @@ class AppLog {
   /// 签名建单只记录固定阶段与SDK公开错误枚举，不接收签名、账户或异常正文。
   static bool topupOrder(Object? state, {Object? sdkCode}) {
     if (!const {'signing', 'signed', 'saved', 'failed'}.contains(state) ||
-        sdkCode != null && sdkCode is! CitizenSdkErrorCode)
+        sdkCode != null && sdkCode is! CitizenSdkErrorCode) {
       return false;
+    }
     final code = sdkCode is CitizenSdkErrorCode ? sdkCode.name : 'none';
     try {
       debugPrintSynchronously(
@@ -432,14 +435,52 @@ class AppLog {
     return true;
   }
 
-  static void topupWallet(String state) {
-    const states = {'requested', 'opened', 'rejected'};
-    final safeState = states.contains(state) ? state : 'other';
-    try {
-      debugPrintSynchronously('[CitizenTopup] stage=native state=$safeState');
-    } on Object {
-      // 观察出口故障不得改变原生打开结果。
+  /// 仅表示固定SDK、桥接或系统阶段；不改变订单，不接收动态内容。
+  static bool topupPhase(Object? state) {
+    if (!const {
+      'connect_requested',
+      'connect_ready',
+      'transaction_requested',
+      'result_received',
+      'bridge_received',
+      'bridge_verified',
+      'bridge_untrusted',
+      'reply_requested',
+      'reply_completed',
+      'reply_untrusted',
+      'link_requested',
+      'link_delivered',
+      'link_inactive',
+      'link_storageError',
+      'link_sessionMissing',
+      'link_urlInvalid',
+      'link_channelMismatch',
+      'link_protocolInvalid',
+      'link_parameterInvalid',
+      'link_metadataInvalid',
+      'link_rpcInvalid',
+      'link_systemRejected',
+      'link_systemError',
+      'app_inactive',
+      'app_active',
+    }.contains(state)) {
+      return false;
     }
+    try {
+      if (Platform.isIOS) {
+        // iOS新版工具不再读取Flutter的旧syslog；只交付闭集阶段到原生OSLog。
+        unawaited(
+          const MethodChannel(
+            'citizenapp/metamask',
+          ).invokeMethod<void>('phase', state).catchError((Object _) {}),
+        );
+      } else {
+        debugPrintSynchronously('[CitizenTopup] stage=payment state=$state');
+      }
+    } on Object {
+      /* 诊断不改变付款结果。 */
+    }
+    return true;
   }
 
   /// 调试日志。签名与 debugPrint 兼容（String? + wrapWidth），既有调用点可原样迁移。

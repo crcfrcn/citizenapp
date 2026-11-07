@@ -1,19 +1,19 @@
-import 'package:tatachat_sdk/tatachat_sdk.dart' as chat;
+import 'package:chat/chat.dart' as chat;
 
 import 'dart:io';
 import 'dart:async';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizenapp/main.dart';
-import 'package:citizen_account/identity/account_security_service.dart';
-import 'package:citizen_account/identity/current_user_context.dart';
-import 'package:citizen_account/identity/myid_service.dart';
-import 'package:citizen_account/identity/finalized_identity_resolver.dart';
-import 'package:citizen_account/identity/cid_business_gate.dart';
-import 'package:citizen_account/identity/square_session_provider.dart';
-import 'package:citizen_account/square_api_client.dart';
+import 'package:citizen_user/identity/account_security_service.dart';
+import 'package:citizen_user/identity/current_user_context.dart';
+import 'package:citizen_user/identity/myid_service.dart';
+import 'package:citizen_user/identity/finalized_identity_resolver.dart';
+import 'package:citizen_user/identity/cid_business_gate.dart';
+import 'package:citizen_user/identity/square_session_provider.dart';
+import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_system/notifications/app_push_service.dart';
-import 'package:citizen_transaction/history/wallet_transaction_history_service.dart';
+import 'package:citizen_wallet/history/wallet_transaction_history_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -47,7 +47,13 @@ class _Resolver extends Fake implements FinalizedIdentityResolver {}
 
 class _Sessions extends Fake implements SquareSessionProvider {
   @override
-  void installRuntimeFactory(chat.ChatSdk Function() factory) {}
+  void installMlsAuthentication({
+    required Future<chat.ChatDevice> Function() readLocalIdentity,
+    required Future<chat.MlsAuthenticationProof> Function(
+      chat.MlsAuthenticationRequest,
+    )
+    createProof,
+  }) {}
   @override
   void closeAuthentication() {}
 }
@@ -258,9 +264,9 @@ void main() {
     }
     // 原App页面必须存在；只禁止旧钱包/金库/签名核心，不把UI恢复判成残留。
     for (final path in const [
-      'wallet/lib/create_wallet_flow.dart',
-      'wallet/lib/import_wallet_page.dart',
-      'wallet/lib/add_account_sheet.dart',
+      'wallet/lib/onboarding/create_wallet_flow.dart',
+      'wallet/lib/onboarding/import_wallet_page.dart',
+      'wallet/lib/account/add_account_sheet.dart',
     ]) {
       final source = File(path).readAsStringSync();
       expect(

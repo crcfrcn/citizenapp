@@ -7,7 +7,7 @@ import 'package:provider/provider.dart';
 
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizenapp/security/app_lock_service.dart';
-import 'package:citizen_account/identity/account_security_service.dart';
+import 'package:citizen_user/identity/account_security_service.dart';
 import 'package:citizen_system/security/emergency_wipe_platform.dart';
 
 import 'package:citizen_system/theme/app_layout.dart';

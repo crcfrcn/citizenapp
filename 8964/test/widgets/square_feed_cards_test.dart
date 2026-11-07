@@ -1,5 +1,5 @@
 import 'package:citizen_storage/social_isar.dart' as social_store show Chunk;
-import 'package:citizen_account/profile/citizen_profile_api.dart'
+import 'package:citizen_user/profile/citizen_profile_api.dart'
     show CitizenRemoteImage;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,7 +11,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:citizen_square/media/square_media_store.dart';
 import 'package:citizen_storage/social_isar.dart';
-import 'package:citizen_account/profile/citizen_profile_cache.dart';
+import 'package:citizen_user/profile/citizen_profile_cache.dart';
 
 import 'package:citizen_testing/fake_profile.dart' as profile_fixtures;
 import 'package:citizen_testing/isar_test_env.dart';

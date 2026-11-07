@@ -1,8 +1,7 @@
+// ignore_for_file: experimental_member_use
 // GENERATED CODE - DO NOT MODIFY BY HAND
 
 part of 'user_isar.dart';
-
-// ignore_for_file: experimental_member_use
 
 // **************************************************************************
 // IsarCollectionGenerator
@@ -12497,13 +12496,37 @@ const ContactSchema = CollectionSchema(
   name: r'contact',
   id: 213978983763356937,
   properties: {
-    r'cid_number': PropertySchema(
+    r'account_id': PropertySchema(
       id: 0,
+      name: r'account_id',
+      type: IsarType.string,
+    ),
+    r'change_version': PropertySchema(
+      id: 1,
+      name: r'change_version',
+      type: IsarType.long,
+    ),
+    r'cid_number': PropertySchema(
+      id: 2,
       name: r'cid_number',
       type: IsarType.string,
     ),
-    r'data': PropertySchema(id: 1, name: r'data', type: IsarType.string),
-    r'kind': PropertySchema(id: 2, name: r'kind', type: IsarType.string),
+    r'contact_remark': PropertySchema(
+      id: 3,
+      name: r'contact_remark',
+      type: IsarType.string,
+    ),
+    r'owner_cid': PropertySchema(
+      id: 4,
+      name: r'owner_cid',
+      type: IsarType.string,
+    ),
+    r'pending': PropertySchema(id: 5, name: r'pending', type: IsarType.string),
+    r'updated_at': PropertySchema(
+      id: 6,
+      name: r'updated_at',
+      type: IsarType.long,
+    ),
   },
 
   estimateSize: _contactEstimateSize,
@@ -12512,19 +12535,19 @@ const ContactSchema = CollectionSchema(
   deserializeProp: _contactDeserializeProp,
   idName: r'id',
   indexes: {
-    r'cid_number_kind': IndexSchema(
-      id: 1590166177890203393,
-      name: r'cid_number_kind',
+    r'owner_cid_cid_number': IndexSchema(
+      id: -7735729473116080005,
+      name: r'owner_cid_cid_number',
       unique: true,
       replace: true,
       properties: [
         IndexPropertySchema(
-          name: r'cid_number',
+          name: r'owner_cid',
           type: IndexType.hash,
           caseSensitive: true,
         ),
         IndexPropertySchema(
-          name: r'kind',
+          name: r'cid_number',
           type: IndexType.hash,
           caseSensitive: true,
         ),
@@ -12546,9 +12569,11 @@ int _contactEstimateSize(
   Map<Type, List<int>> allOffsets,
 ) {
   var bytesCount = offsets.last;
+  bytesCount += 3 + object.accountId.length * 3;
   bytesCount += 3 + object.cidNumber.length * 3;
-  bytesCount += 3 + object.bodyData.length * 3;
-  bytesCount += 3 + object.stateKind.length * 3;
+  bytesCount += 3 + object.contactRemark.length * 3;
+  bytesCount += 3 + object.ownerCidNumber.length * 3;
+  bytesCount += 3 + object.pendingAction.length * 3;
   return bytesCount;
 }
 
@@ -12558,9 +12583,13 @@ void _contactSerialize(
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
-  writer.writeString(offsets[0], object.cidNumber);
-  writer.writeString(offsets[1], object.bodyData);
-  writer.writeString(offsets[2], object.stateKind);
+  writer.writeString(offsets[0], object.accountId);
+  writer.writeLong(offsets[1], object.changeVersion);
+  writer.writeString(offsets[2], object.cidNumber);
+  writer.writeString(offsets[3], object.contactRemark);
+  writer.writeString(offsets[4], object.ownerCidNumber);
+  writer.writeString(offsets[5], object.pendingAction);
+  writer.writeLong(offsets[6], object.updatedAt);
 }
 
 Contact _contactDeserialize(
@@ -12570,10 +12599,14 @@ Contact _contactDeserialize(
   Map<Type, List<int>> allOffsets,
 ) {
   final object = Contact();
-  object.cidNumber = reader.readString(offsets[0]);
-  object.bodyData = reader.readString(offsets[1]);
+  object.accountId = reader.readString(offsets[0]);
+  object.changeVersion = reader.readLong(offsets[1]);
+  object.cidNumber = reader.readString(offsets[2]);
+  object.contactRemark = reader.readString(offsets[3]);
   object.rowId = id;
-  object.stateKind = reader.readString(offsets[2]);
+  object.ownerCidNumber = reader.readString(offsets[4]);
+  object.pendingAction = reader.readString(offsets[5]);
+  object.updatedAt = reader.readLong(offsets[6]);
   return object;
 }
 
@@ -12587,9 +12620,17 @@ P _contactDeserializeProp<P>(
     case 0:
       return (reader.readString(offset)) as P;
     case 1:
-      return (reader.readString(offset)) as P;
+      return (reader.readLong(offset)) as P;
     case 2:
       return (reader.readString(offset)) as P;
+    case 3:
+      return (reader.readString(offset)) as P;
+    case 4:
+      return (reader.readString(offset)) as P;
+    case 5:
+      return (reader.readString(offset)) as P;
+    case 6:
+      return (reader.readLong(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
   }
@@ -12608,107 +12649,130 @@ void _contactAttach(IsarCollection<dynamic> col, Id id, Contact object) {
 }
 
 extension ContactByIndex on IsarCollection<Contact> {
-  Future<Contact?> getByCidNumberStateKind(String cidNumber, String stateKind) {
-    return getByIndex(r'cid_number_kind', [cidNumber, stateKind]);
-  }
-
-  Contact? getByCidNumberStateKindSync(String cidNumber, String stateKind) {
-    return getByIndexSync(r'cid_number_kind', [cidNumber, stateKind]);
-  }
-
-  Future<bool> deleteByCidNumberStateKind(String cidNumber, String stateKind) {
-    return deleteByIndex(r'cid_number_kind', [cidNumber, stateKind]);
-  }
-
-  bool deleteByCidNumberStateKindSync(String cidNumber, String stateKind) {
-    return deleteByIndexSync(r'cid_number_kind', [cidNumber, stateKind]);
-  }
-
-  Future<List<Contact?>> getAllByCidNumberStateKind(
-    List<String> cidNumberValues,
-    List<String> stateKindValues,
+  Future<Contact?> getByOwnerCidNumberCidNumber(
+    String ownerCidNumber,
+    String cidNumber,
   ) {
-    final len = cidNumberValues.length;
+    return getByIndex(r'owner_cid_cid_number', [ownerCidNumber, cidNumber]);
+  }
+
+  Contact? getByOwnerCidNumberCidNumberSync(
+    String ownerCidNumber,
+    String cidNumber,
+  ) {
+    return getByIndexSync(r'owner_cid_cid_number', [ownerCidNumber, cidNumber]);
+  }
+
+  Future<bool> deleteByOwnerCidNumberCidNumber(
+    String ownerCidNumber,
+    String cidNumber,
+  ) {
+    return deleteByIndex(r'owner_cid_cid_number', [ownerCidNumber, cidNumber]);
+  }
+
+  bool deleteByOwnerCidNumberCidNumberSync(
+    String ownerCidNumber,
+    String cidNumber,
+  ) {
+    return deleteByIndexSync(r'owner_cid_cid_number', [
+      ownerCidNumber,
+      cidNumber,
+    ]);
+  }
+
+  Future<List<Contact?>> getAllByOwnerCidNumberCidNumber(
+    List<String> ownerCidNumberValues,
+    List<String> cidNumberValues,
+  ) {
+    final len = ownerCidNumberValues.length;
     assert(
-      stateKindValues.length == len,
+      cidNumberValues.length == len,
       'All index values must have the same length',
     );
     final values = <List<dynamic>>[];
     for (var i = 0; i < len; i++) {
-      values.add([cidNumberValues[i], stateKindValues[i]]);
+      values.add([ownerCidNumberValues[i], cidNumberValues[i]]);
     }
 
-    return getAllByIndex(r'cid_number_kind', values);
+    return getAllByIndex(r'owner_cid_cid_number', values);
   }
 
-  List<Contact?> getAllByCidNumberStateKindSync(
+  List<Contact?> getAllByOwnerCidNumberCidNumberSync(
+    List<String> ownerCidNumberValues,
     List<String> cidNumberValues,
-    List<String> stateKindValues,
   ) {
-    final len = cidNumberValues.length;
+    final len = ownerCidNumberValues.length;
     assert(
-      stateKindValues.length == len,
+      cidNumberValues.length == len,
       'All index values must have the same length',
     );
     final values = <List<dynamic>>[];
     for (var i = 0; i < len; i++) {
-      values.add([cidNumberValues[i], stateKindValues[i]]);
+      values.add([ownerCidNumberValues[i], cidNumberValues[i]]);
     }
 
-    return getAllByIndexSync(r'cid_number_kind', values);
+    return getAllByIndexSync(r'owner_cid_cid_number', values);
   }
 
-  Future<int> deleteAllByCidNumberStateKind(
+  Future<int> deleteAllByOwnerCidNumberCidNumber(
+    List<String> ownerCidNumberValues,
     List<String> cidNumberValues,
-    List<String> stateKindValues,
   ) {
-    final len = cidNumberValues.length;
+    final len = ownerCidNumberValues.length;
     assert(
-      stateKindValues.length == len,
+      cidNumberValues.length == len,
       'All index values must have the same length',
     );
     final values = <List<dynamic>>[];
     for (var i = 0; i < len; i++) {
-      values.add([cidNumberValues[i], stateKindValues[i]]);
+      values.add([ownerCidNumberValues[i], cidNumberValues[i]]);
     }
 
-    return deleteAllByIndex(r'cid_number_kind', values);
+    return deleteAllByIndex(r'owner_cid_cid_number', values);
   }
 
-  int deleteAllByCidNumberStateKindSync(
+  int deleteAllByOwnerCidNumberCidNumberSync(
+    List<String> ownerCidNumberValues,
     List<String> cidNumberValues,
-    List<String> stateKindValues,
   ) {
-    final len = cidNumberValues.length;
+    final len = ownerCidNumberValues.length;
     assert(
-      stateKindValues.length == len,
+      cidNumberValues.length == len,
       'All index values must have the same length',
     );
     final values = <List<dynamic>>[];
     for (var i = 0; i < len; i++) {
-      values.add([cidNumberValues[i], stateKindValues[i]]);
+      values.add([ownerCidNumberValues[i], cidNumberValues[i]]);
     }
 
-    return deleteAllByIndexSync(r'cid_number_kind', values);
+    return deleteAllByIndexSync(r'owner_cid_cid_number', values);
   }
 
-  Future<Id> putByCidNumberStateKind(Contact object) {
-    return putByIndex(r'cid_number_kind', object);
+  Future<Id> putByOwnerCidNumberCidNumber(Contact object) {
+    return putByIndex(r'owner_cid_cid_number', object);
   }
 
-  Id putByCidNumberStateKindSync(Contact object, {bool saveLinks = true}) {
-    return putByIndexSync(r'cid_number_kind', object, saveLinks: saveLinks);
+  Id putByOwnerCidNumberCidNumberSync(Contact object, {bool saveLinks = true}) {
+    return putByIndexSync(
+      r'owner_cid_cid_number',
+      object,
+      saveLinks: saveLinks,
+    );
   }
 
-  Future<List<Id>> putAllByCidNumberStateKind(List<Contact> objects) {
-    return putAllByIndex(r'cid_number_kind', objects);
+  Future<List<Id>> putAllByOwnerCidNumberCidNumber(List<Contact> objects) {
+    return putAllByIndex(r'owner_cid_cid_number', objects);
   }
 
-  List<Id> putAllByCidNumberStateKindSync(
+  List<Id> putAllByOwnerCidNumberCidNumberSync(
     List<Contact> objects, {
     bool saveLinks = true,
   }) {
-    return putAllByIndexSync(r'cid_number_kind', objects, saveLinks: saveLinks);
+    return putAllByIndexSync(
+      r'owner_cid_cid_number',
+      objects,
+      saveLinks: saveLinks,
+    );
   }
 }
 
@@ -12792,34 +12856,34 @@ extension ContactQueryWhere on QueryBuilder<Contact, Contact, QWhereClause> {
   }
 
   QueryBuilder<Contact, Contact, QAfterWhereClause>
-  cidNumberEqualToAnyStateKind(String cidNumber) {
+  ownerCidNumberEqualToAnyCidNumber(String ownerCidNumber) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
         IndexWhereClause.equalTo(
-          indexName: r'cid_number_kind',
-          value: [cidNumber],
+          indexName: r'owner_cid_cid_number',
+          value: [ownerCidNumber],
         ),
       );
     });
   }
 
   QueryBuilder<Contact, Contact, QAfterWhereClause>
-  cidNumberNotEqualToAnyStateKind(String cidNumber) {
+  ownerCidNumberNotEqualToAnyCidNumber(String ownerCidNumber) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cid_number_kind',
+                indexName: r'owner_cid_cid_number',
                 lower: [],
-                upper: [cidNumber],
+                upper: [ownerCidNumber],
                 includeUpper: false,
               ),
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cid_number_kind',
-                lower: [cidNumber],
+                indexName: r'owner_cid_cid_number',
+                lower: [ownerCidNumber],
                 includeLower: false,
                 upper: [],
               ),
@@ -12828,17 +12892,17 @@ extension ContactQueryWhere on QueryBuilder<Contact, Contact, QWhereClause> {
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cid_number_kind',
-                lower: [cidNumber],
+                indexName: r'owner_cid_cid_number',
+                lower: [ownerCidNumber],
                 includeLower: false,
                 upper: [],
               ),
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cid_number_kind',
+                indexName: r'owner_cid_cid_number',
                 lower: [],
-                upper: [cidNumber],
+                upper: [ownerCidNumber],
                 includeUpper: false,
               ),
             );
@@ -12846,56 +12910,57 @@ extension ContactQueryWhere on QueryBuilder<Contact, Contact, QWhereClause> {
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterWhereClause> cidNumberStateKindEqualTo(
-    String cidNumber,
-    String stateKind,
-  ) {
+  QueryBuilder<Contact, Contact, QAfterWhereClause>
+  ownerCidNumberCidNumberEqualTo(String ownerCidNumber, String cidNumber) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
         IndexWhereClause.equalTo(
-          indexName: r'cid_number_kind',
-          value: [cidNumber, stateKind],
+          indexName: r'owner_cid_cid_number',
+          value: [ownerCidNumber, cidNumber],
         ),
       );
     });
   }
 
   QueryBuilder<Contact, Contact, QAfterWhereClause>
-  cidNumberEqualToStateKindNotEqualTo(String cidNumber, String stateKind) {
+  ownerCidNumberEqualToCidNumberNotEqualTo(
+    String ownerCidNumber,
+    String cidNumber,
+  ) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cid_number_kind',
-                lower: [cidNumber],
-                upper: [cidNumber, stateKind],
+                indexName: r'owner_cid_cid_number',
+                lower: [ownerCidNumber],
+                upper: [ownerCidNumber, cidNumber],
                 includeUpper: false,
               ),
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cid_number_kind',
-                lower: [cidNumber, stateKind],
+                indexName: r'owner_cid_cid_number',
+                lower: [ownerCidNumber, cidNumber],
                 includeLower: false,
-                upper: [cidNumber],
+                upper: [ownerCidNumber],
               ),
             );
       } else {
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cid_number_kind',
-                lower: [cidNumber, stateKind],
+                indexName: r'owner_cid_cid_number',
+                lower: [ownerCidNumber, cidNumber],
                 includeLower: false,
-                upper: [cidNumber],
+                upper: [ownerCidNumber],
               ),
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'cid_number_kind',
-                lower: [cidNumber],
-                upper: [cidNumber, stateKind],
+                indexName: r'owner_cid_cid_number',
+                lower: [ownerCidNumber],
+                upper: [ownerCidNumber, cidNumber],
                 includeUpper: false,
               ),
             );
@@ -12906,6 +12971,209 @@ extension ContactQueryWhere on QueryBuilder<Contact, Contact, QWhereClause> {
 
 extension ContactQueryFilter
     on QueryBuilder<Contact, Contact, QFilterCondition> {
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> accountIdEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'account_id',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> accountIdGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'account_id',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> accountIdLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'account_id',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> accountIdBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'account_id',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> accountIdStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'account_id',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> accountIdEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'account_id',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> accountIdContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'account_id',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> accountIdMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'account_id',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> accountIdIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'account_id', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> accountIdIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'account_id', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> changeVersionEqualTo(
+    int value,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'change_version', value: value),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition>
+  changeVersionGreaterThan(int value, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'change_version',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> changeVersionLessThan(
+    int value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'change_version',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> changeVersionBetween(
+    int lower,
+    int upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'change_version',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+        ),
+      );
+    });
+  }
+
   QueryBuilder<Contact, Contact, QAfterFilterCondition> cidNumberEqualTo(
     String value, {
     bool caseSensitive = true,
@@ -13052,14 +13320,14 @@ extension ContactQueryFilter
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> bodyDataEqualTo(
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> contactRemarkEqualTo(
     String value, {
     bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.equalTo(
-          property: r'data',
+          property: r'contact_remark',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -13067,7 +13335,8 @@ extension ContactQueryFilter
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> bodyDataGreaterThan(
+  QueryBuilder<Contact, Contact, QAfterFilterCondition>
+  contactRemarkGreaterThan(
     String value, {
     bool include = false,
     bool caseSensitive = true,
@@ -13076,7 +13345,7 @@ extension ContactQueryFilter
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'data',
+          property: r'contact_remark',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -13084,7 +13353,7 @@ extension ContactQueryFilter
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> bodyDataLessThan(
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> contactRemarkLessThan(
     String value, {
     bool include = false,
     bool caseSensitive = true,
@@ -13093,7 +13362,7 @@ extension ContactQueryFilter
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'data',
+          property: r'contact_remark',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -13101,7 +13370,7 @@ extension ContactQueryFilter
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> bodyDataBetween(
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> contactRemarkBetween(
     String lower,
     String upper, {
     bool includeLower = true,
@@ -13111,7 +13380,7 @@ extension ContactQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'data',
+          property: r'contact_remark',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -13122,14 +13391,14 @@ extension ContactQueryFilter
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> bodyDataStartsWith(
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> contactRemarkStartsWith(
     String value, {
     bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.startsWith(
-          property: r'data',
+          property: r'contact_remark',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -13137,14 +13406,14 @@ extension ContactQueryFilter
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> bodyDataEndsWith(
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> contactRemarkEndsWith(
     String value, {
     bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.endsWith(
-          property: r'data',
+          property: r'contact_remark',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -13152,14 +13421,14 @@ extension ContactQueryFilter
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> bodyDataContains(
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> contactRemarkContains(
     String value, {
     bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.contains(
-          property: r'data',
+          property: r'contact_remark',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -13167,14 +13436,14 @@ extension ContactQueryFilter
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> bodyDataMatches(
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> contactRemarkMatches(
     String pattern, {
     bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.matches(
-          property: r'data',
+          property: r'contact_remark',
           wildcard: pattern,
           caseSensitive: caseSensitive,
         ),
@@ -13182,18 +13451,19 @@ extension ContactQueryFilter
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> bodyDataIsEmpty() {
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> contactRemarkIsEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'data', value: ''),
+        FilterCondition.equalTo(property: r'contact_remark', value: ''),
       );
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> bodyDataIsNotEmpty() {
+  QueryBuilder<Contact, Contact, QAfterFilterCondition>
+  contactRemarkIsNotEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'data', value: ''),
+        FilterCondition.greaterThan(property: r'contact_remark', value: ''),
       );
     });
   }
@@ -13255,14 +13525,14 @@ extension ContactQueryFilter
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> stateKindEqualTo(
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> ownerCidNumberEqualTo(
     String value, {
     bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.equalTo(
-          property: r'kind',
+          property: r'owner_cid',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -13270,7 +13540,8 @@ extension ContactQueryFilter
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> stateKindGreaterThan(
+  QueryBuilder<Contact, Contact, QAfterFilterCondition>
+  ownerCidNumberGreaterThan(
     String value, {
     bool include = false,
     bool caseSensitive = true,
@@ -13279,7 +13550,7 @@ extension ContactQueryFilter
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           include: include,
-          property: r'kind',
+          property: r'owner_cid',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -13287,7 +13558,7 @@ extension ContactQueryFilter
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> stateKindLessThan(
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> ownerCidNumberLessThan(
     String value, {
     bool include = false,
     bool caseSensitive = true,
@@ -13296,7 +13567,7 @@ extension ContactQueryFilter
       return query.addFilterCondition(
         FilterCondition.lessThan(
           include: include,
-          property: r'kind',
+          property: r'owner_cid',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -13304,7 +13575,7 @@ extension ContactQueryFilter
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> stateKindBetween(
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> ownerCidNumberBetween(
     String lower,
     String upper, {
     bool includeLower = true,
@@ -13314,7 +13585,7 @@ extension ContactQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.between(
-          property: r'kind',
+          property: r'owner_cid',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -13325,14 +13596,12 @@ extension ContactQueryFilter
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> stateKindStartsWith(
-    String value, {
-    bool caseSensitive = true,
-  }) {
+  QueryBuilder<Contact, Contact, QAfterFilterCondition>
+  ownerCidNumberStartsWith(String value, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.startsWith(
-          property: r'kind',
+          property: r'owner_cid',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -13340,14 +13609,14 @@ extension ContactQueryFilter
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> stateKindEndsWith(
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> ownerCidNumberEndsWith(
     String value, {
     bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.endsWith(
-          property: r'kind',
+          property: r'owner_cid',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -13355,14 +13624,14 @@ extension ContactQueryFilter
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> stateKindContains(
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> ownerCidNumberContains(
     String value, {
     bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.contains(
-          property: r'kind',
+          property: r'owner_cid',
           value: value,
           caseSensitive: caseSensitive,
         ),
@@ -13370,14 +13639,14 @@ extension ContactQueryFilter
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> stateKindMatches(
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> ownerCidNumberMatches(
     String pattern, {
     bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.matches(
-          property: r'kind',
+          property: r'owner_cid',
           wildcard: pattern,
           caseSensitive: caseSensitive,
         ),
@@ -13385,18 +13654,227 @@ extension ContactQueryFilter
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> stateKindIsEmpty() {
+  QueryBuilder<Contact, Contact, QAfterFilterCondition>
+  ownerCidNumberIsEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'kind', value: ''),
+        FilterCondition.equalTo(property: r'owner_cid', value: ''),
       );
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> stateKindIsNotEmpty() {
+  QueryBuilder<Contact, Contact, QAfterFilterCondition>
+  ownerCidNumberIsNotEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'kind', value: ''),
+        FilterCondition.greaterThan(property: r'owner_cid', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> pendingActionEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'pending',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition>
+  pendingActionGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'pending',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> pendingActionLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'pending',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> pendingActionBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'pending',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> pendingActionStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'pending',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> pendingActionEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'pending',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> pendingActionContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'pending',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> pendingActionMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'pending',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> pendingActionIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'pending', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition>
+  pendingActionIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'pending', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> updatedAtEqualTo(
+    int value,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'updated_at', value: value),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> updatedAtGreaterThan(
+    int value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'updated_at',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> updatedAtLessThan(
+    int value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'updated_at',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> updatedAtBetween(
+    int lower,
+    int upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'updated_at',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+        ),
       );
     });
   }
@@ -13409,6 +13887,30 @@ extension ContactQueryLinks
     on QueryBuilder<Contact, Contact, QFilterCondition> {}
 
 extension ContactQuerySortBy on QueryBuilder<Contact, Contact, QSortBy> {
+  QueryBuilder<Contact, Contact, QAfterSortBy> sortByAccountId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'account_id', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterSortBy> sortByAccountIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'account_id', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterSortBy> sortByChangeVersion() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'change_version', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterSortBy> sortByChangeVersionDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'change_version', Sort.desc);
+    });
+  }
+
   QueryBuilder<Contact, Contact, QAfterSortBy> sortByCidNumber() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'cid_number', Sort.asc);
@@ -13421,33 +13923,81 @@ extension ContactQuerySortBy on QueryBuilder<Contact, Contact, QSortBy> {
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterSortBy> sortByBodyData() {
+  QueryBuilder<Contact, Contact, QAfterSortBy> sortByContactRemark() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'data', Sort.asc);
+      return query.addSortBy(r'contact_remark', Sort.asc);
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterSortBy> sortByBodyDataDesc() {
+  QueryBuilder<Contact, Contact, QAfterSortBy> sortByContactRemarkDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'data', Sort.desc);
+      return query.addSortBy(r'contact_remark', Sort.desc);
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterSortBy> sortByStateKind() {
+  QueryBuilder<Contact, Contact, QAfterSortBy> sortByOwnerCidNumber() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'kind', Sort.asc);
+      return query.addSortBy(r'owner_cid', Sort.asc);
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterSortBy> sortByStateKindDesc() {
+  QueryBuilder<Contact, Contact, QAfterSortBy> sortByOwnerCidNumberDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'kind', Sort.desc);
+      return query.addSortBy(r'owner_cid', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterSortBy> sortByPendingAction() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'pending', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterSortBy> sortByPendingActionDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'pending', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterSortBy> sortByUpdatedAt() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'updated_at', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterSortBy> sortByUpdatedAtDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'updated_at', Sort.desc);
     });
   }
 }
 
 extension ContactQuerySortThenBy
     on QueryBuilder<Contact, Contact, QSortThenBy> {
+  QueryBuilder<Contact, Contact, QAfterSortBy> thenByAccountId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'account_id', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterSortBy> thenByAccountIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'account_id', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterSortBy> thenByChangeVersion() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'change_version', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterSortBy> thenByChangeVersionDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'change_version', Sort.desc);
+    });
+  }
+
   QueryBuilder<Contact, Contact, QAfterSortBy> thenByCidNumber() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'cid_number', Sort.asc);
@@ -13460,15 +14010,15 @@ extension ContactQuerySortThenBy
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterSortBy> thenByBodyData() {
+  QueryBuilder<Contact, Contact, QAfterSortBy> thenByContactRemark() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'data', Sort.asc);
+      return query.addSortBy(r'contact_remark', Sort.asc);
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterSortBy> thenByBodyDataDesc() {
+  QueryBuilder<Contact, Contact, QAfterSortBy> thenByContactRemarkDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'data', Sort.desc);
+      return query.addSortBy(r'contact_remark', Sort.desc);
     });
   }
 
@@ -13484,21 +14034,59 @@ extension ContactQuerySortThenBy
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterSortBy> thenByStateKind() {
+  QueryBuilder<Contact, Contact, QAfterSortBy> thenByOwnerCidNumber() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'kind', Sort.asc);
+      return query.addSortBy(r'owner_cid', Sort.asc);
     });
   }
 
-  QueryBuilder<Contact, Contact, QAfterSortBy> thenByStateKindDesc() {
+  QueryBuilder<Contact, Contact, QAfterSortBy> thenByOwnerCidNumberDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'kind', Sort.desc);
+      return query.addSortBy(r'owner_cid', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterSortBy> thenByPendingAction() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'pending', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterSortBy> thenByPendingActionDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'pending', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterSortBy> thenByUpdatedAt() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'updated_at', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterSortBy> thenByUpdatedAtDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'updated_at', Sort.desc);
     });
   }
 }
 
 extension ContactQueryWhereDistinct
     on QueryBuilder<Contact, Contact, QDistinct> {
+  QueryBuilder<Contact, Contact, QDistinct> distinctByAccountId({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'account_id', caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QDistinct> distinctByChangeVersion() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'change_version');
+    });
+  }
+
   QueryBuilder<Contact, Contact, QDistinct> distinctByCidNumber({
     bool caseSensitive = true,
   }) {
@@ -13507,19 +14095,36 @@ extension ContactQueryWhereDistinct
     });
   }
 
-  QueryBuilder<Contact, Contact, QDistinct> distinctByBodyData({
+  QueryBuilder<Contact, Contact, QDistinct> distinctByContactRemark({
     bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'data', caseSensitive: caseSensitive);
+      return query.addDistinctBy(
+        r'contact_remark',
+        caseSensitive: caseSensitive,
+      );
     });
   }
 
-  QueryBuilder<Contact, Contact, QDistinct> distinctByStateKind({
+  QueryBuilder<Contact, Contact, QDistinct> distinctByOwnerCidNumber({
     bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'kind', caseSensitive: caseSensitive);
+      return query.addDistinctBy(r'owner_cid', caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QDistinct> distinctByPendingAction({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'pending', caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QDistinct> distinctByUpdatedAt() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'updated_at');
     });
   }
 }
@@ -13532,21 +14137,45 @@ extension ContactQueryProperty
     });
   }
 
+  QueryBuilder<Contact, String, QQueryOperations> accountIdProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'account_id');
+    });
+  }
+
+  QueryBuilder<Contact, int, QQueryOperations> changeVersionProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'change_version');
+    });
+  }
+
   QueryBuilder<Contact, String, QQueryOperations> cidNumberProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'cid_number');
     });
   }
 
-  QueryBuilder<Contact, String, QQueryOperations> bodyDataProperty() {
+  QueryBuilder<Contact, String, QQueryOperations> contactRemarkProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'data');
+      return query.addPropertyName(r'contact_remark');
     });
   }
 
-  QueryBuilder<Contact, String, QQueryOperations> stateKindProperty() {
+  QueryBuilder<Contact, String, QQueryOperations> ownerCidNumberProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'kind');
+      return query.addPropertyName(r'owner_cid');
+    });
+  }
+
+  QueryBuilder<Contact, String, QQueryOperations> pendingActionProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'pending');
+    });
+  }
+
+  QueryBuilder<Contact, int, QQueryOperations> updatedAtProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'updated_at');
     });
   }
 }
@@ -13568,7 +14197,12 @@ const NoticeSchema = CollectionSchema(
       type: IsarType.string,
     ),
     r'data': PropertySchema(id: 1, name: r'data', type: IsarType.string),
-    r'pending': PropertySchema(id: 2, name: r'pending', type: IsarType.string),
+    r'list_data': PropertySchema(
+      id: 2,
+      name: r'list_data',
+      type: IsarType.string,
+    ),
+    r'pending': PropertySchema(id: 3, name: r'pending', type: IsarType.string),
   },
 
   estimateSize: _noticeEstimateSize,
@@ -13609,6 +14243,12 @@ int _noticeEstimateSize(
   bytesCount += 3 + object.cidNumber.length * 3;
   bytesCount += 3 + object.stateData.length * 3;
   {
+    final value = object.listData;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
+  {
     final value = object.pendingData;
     if (value != null) {
       bytesCount += 3 + value.length * 3;
@@ -13625,7 +14265,8 @@ void _noticeSerialize(
 ) {
   writer.writeString(offsets[0], object.cidNumber);
   writer.writeString(offsets[1], object.stateData);
-  writer.writeString(offsets[2], object.pendingData);
+  writer.writeString(offsets[2], object.listData);
+  writer.writeString(offsets[3], object.pendingData);
 }
 
 Notice _noticeDeserialize(
@@ -13638,7 +14279,8 @@ Notice _noticeDeserialize(
   object.cidNumber = reader.readString(offsets[0]);
   object.stateData = reader.readString(offsets[1]);
   object.rowId = id;
-  object.pendingData = reader.readStringOrNull(offsets[2]);
+  object.listData = reader.readStringOrNull(offsets[2]);
+  object.pendingData = reader.readStringOrNull(offsets[3]);
   return object;
 }
 
@@ -13654,6 +14296,8 @@ P _noticeDeserializeProp<P>(
     case 1:
       return (reader.readString(offset)) as P;
     case 2:
+      return (reader.readStringOrNull(offset)) as P;
+    case 3:
       return (reader.readStringOrNull(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -14213,6 +14857,168 @@ extension NoticeQueryFilter on QueryBuilder<Notice, Notice, QFilterCondition> {
     });
   }
 
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> listDataIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'list_data'),
+      );
+    });
+  }
+
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> listDataIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'list_data'),
+      );
+    });
+  }
+
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> listDataEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'list_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> listDataGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'list_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> listDataLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'list_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> listDataBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'list_data',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> listDataStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'list_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> listDataEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'list_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> listDataContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'list_data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> listDataMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'list_data',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> listDataIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'list_data', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Notice, Notice, QAfterFilterCondition> listDataIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'list_data', value: ''),
+      );
+    });
+  }
+
   QueryBuilder<Notice, Notice, QAfterFilterCondition> pendingDataIsNull() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
@@ -14405,6 +15211,18 @@ extension NoticeQuerySortBy on QueryBuilder<Notice, Notice, QSortBy> {
     });
   }
 
+  QueryBuilder<Notice, Notice, QAfterSortBy> sortByListData() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'list_data', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Notice, Notice, QAfterSortBy> sortByListDataDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'list_data', Sort.desc);
+    });
+  }
+
   QueryBuilder<Notice, Notice, QAfterSortBy> sortByPendingData() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'pending', Sort.asc);
@@ -14455,6 +15273,18 @@ extension NoticeQuerySortThenBy on QueryBuilder<Notice, Notice, QSortThenBy> {
     });
   }
 
+  QueryBuilder<Notice, Notice, QAfterSortBy> thenByListData() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'list_data', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Notice, Notice, QAfterSortBy> thenByListDataDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'list_data', Sort.desc);
+    });
+  }
+
   QueryBuilder<Notice, Notice, QAfterSortBy> thenByPendingData() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'pending', Sort.asc);
@@ -14485,6 +15315,14 @@ extension NoticeQueryWhereDistinct on QueryBuilder<Notice, Notice, QDistinct> {
     });
   }
 
+  QueryBuilder<Notice, Notice, QDistinct> distinctByListData({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'list_data', caseSensitive: caseSensitive);
+    });
+  }
+
   QueryBuilder<Notice, Notice, QDistinct> distinctByPendingData({
     bool caseSensitive = true,
   }) {
@@ -14510,6 +15348,12 @@ extension NoticeQueryProperty on QueryBuilder<Notice, Notice, QQueryProperty> {
   QueryBuilder<Notice, String, QQueryOperations> stateDataProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'data');
+    });
+  }
+
+  QueryBuilder<Notice, String?, QQueryOperations> listDataProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'list_data');
     });
   }
 

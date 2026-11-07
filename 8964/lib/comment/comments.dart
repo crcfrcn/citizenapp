@@ -11,11 +11,11 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:citizen_account/identity/current_user_context.dart';
-import 'package:citizen_account/identity/square_session_provider.dart';
-import 'package:citizen_account/square_api_client.dart';
+import 'package:citizen_user/identity/current_user_context.dart';
+import 'package:citizen_user/identity/square_session_provider.dart';
+import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_storage/social_isar.dart';
-import 'package:citizen_account/notifications.dart';
+import 'package:citizen_user/notifications.dart';
 
 import 'package:citizen_square/post/square_models.dart';
 

@@ -10,7 +10,7 @@ import 'package:citizen_citizen/institution/institution_repository.dart';
 import 'package:citizen_citizen/public/city_institution_list_page.dart';
 import 'package:citizen_citizen/public/public_institution_repository.dart';
 import 'package:citizen_citizen/public/public_provinces.dart';
-import 'package:citizen_account/identity/current_user_context.dart';
+import 'package:citizen_user/identity/current_user_context.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
