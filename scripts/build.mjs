@@ -1,10 +1,11 @@
 // 本脚本消费产品声明的工具和原锁依赖，只负责普通工程装配、编译构建和必要注释。
 // config.mjs：只负责配置声明；build.mjs：只负责编译构建实现和必要注释；*.yml：负责全部GitHub流程，包括版本、作业编排、发布及历史清理。
 import {spawn, execFileSync} from 'node:child_process';
-import {accessSync, constants, appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync,
+import {accessSync, constants, appendFileSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync,
     lstatSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync} from 'node:fs';
 import {join, resolve, dirname, relative, sep} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
+import {api,readReleases,releaseDownloadArgs} from '../.github/release.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const controller = new AbortController();
@@ -21,7 +22,6 @@ export function appleSigning(app, entitlements = null) {
 }
 
 const groups = new Set();
-let activeMarker;
 
 // 取消后确认本轮整个进程组退出；无法确认时留下标记，禁止后续清场。
 async function run(command, args, cwd, capture = false, environment = process.env, operation = '编译') {
@@ -83,34 +83,33 @@ export async function verifyAndroidRuntime(apk, environment, execute = run) {
     }
 }
 
-export async function build(platform, phase = 'app', options={}) {
+export async function build(platform, options={}) {
+    if (!['ios','android'].includes(platform)) throw Error('未知公民编译平台');
     const environment=options.environment||process.env;
     const work = options.work || environment.WORK ||
         join(root, 'target/build', `${environment.GITHUB_RUN_ID}-${environment.GITHUB_RUN_ATTEMPT}`);
     const project = join(work, 'project');
-    activeMarker = join(work, 'build-active.json');
+    const activeMarker = join(work, 'build-active.json');
     if (existsSync(activeMarker)) throw Error('本轮编译现场仍被占用');
     writeFileSync(activeMarker, JSON.stringify({pid: process.pid}), {flag: 'wx', mode: 0o600});
     try {
-        if (phase === 'dependencies') {
-            // SDK原生组件已由统一工程装配准备，依赖阶段不重复编译。
-            return;
-        }
         const flutter = join(environment.FLUTTER_ROOT, 'bin/flutter');
         const version = ['--build-name', environment.CITIZENAPP_VERSION, '--build-number',
             options.local ? environment.CITIZENAPP_BUILD_NUMBER : environment.GITHUB_RUN_NUMBER];
         const output = join(work, 'artifact');
-        mkdirSync(output);
+        if (!options.local) mkdirSync(output);
         const title = `公民·${platform === 'ios' ? 'iOS' : 'Android'}·v${environment.CITIZENAPP_VERSION}`;
         if (platform === 'android') {
             for (const [format, source] of (options.local?[['apk','flutter-apk/app-release.apk']]:[['apk', 'flutter-apk/app-release.apk'], ['appbundle', 'bundle/release/app-release.aab']])) {
                 await run(flutter, ['build', format, '--release', '--target-platform', 'android-arm64', ...version], project,false,environment);
-                if (format === 'apk') await verifyAndroidRuntime(join(project, 'build/app/outputs', source), environment);
-                copyFileSync(join(project, 'build/app/outputs', source), join(output, `${title}.${format === 'apk' ? 'apk' : 'aab'}`));
+                const artifact = join(project, 'build/app/outputs', source);
+                if (format === 'apk') await verifyAndroidRuntime(artifact, environment);
+                if (options.local) return artifact;
+                copyFileSync(artifact, join(output, `${title}.${format === 'apk' ? 'apk' : 'aab'}`));
             }
         } else if(options.local){
             await run(flutter,['build','ios','--release','--no-codesign',...version],project,false,environment);
-            cpSync(join(project,'build/ios/iphoneos/Runner.app'),join(output,'Runner.app'),{recursive:true});
+            return join(project,'build/ios/iphoneos/Runner.app');
         } else {
             await run(flutter, ['build', 'ipa', '--release', '--export-options-plist', join(work, 'signing/export.plist'), ...version], project,false,environment);
             const directory = join(project, 'build/ios/ipa');
@@ -123,65 +122,15 @@ export async function build(platform, phase = 'app', options={}) {
     }
 }
 
-// 为保留现有自动化功能暂留必要接口；配置文件仅同名导出，不扩展职责。
-
-
-// 本机安装沿用本平台最新成功正式版本及系统构建号，不自行增加版号。
-export async function selectAppRelease(platform, read) {
-    if (!['ios','android'].includes(platform)) throw Error('未知公民平台');
-    const display = platform === 'ios' ? 'iOS' : 'Android';
-    const workflow = '.github/workflows/' + platform + '.yml';
-    const prefix = '公民·' + display + '·v', releases = [];
-    for (let page = 1;; page++) {
-        const rows = await read('releases?per_page=100&page=' + page);
-        if (!Array.isArray(rows)) throw Error('公民正式Release列表无效');
-        releases.push(...rows);
-        if (rows.length < 100) break;
-    }
-    const candidates = releases.filter(row => row.draft === false && row.prerelease === false
-        && typeof row.tag_name === 'string' && row.tag_name.startsWith(prefix))
-        .sort((a,b) => String(b.published_at).localeCompare(String(a.published_at)) || b.id-a.id);
-    for (const release of candidates) {
-        let proof;
-        try { proof = JSON.parse(release.body); } catch { continue; }
-        if (proof?.product_id !== 'citizenapp' || proof.platform !== platform) continue;
-        if (proof.schema !== 1 || typeof proof.version !== 'string'
-            || !/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u.test(proof.version)
-            || release.tag_name !== prefix + proof.version
-            || !Number.isSafeInteger(proof.version_code) || proof.version_code <= 0
-            || !Number.isSafeInteger(proof.run_id) || proof.run_id <= 0) throw Error('公民正式版本记录无效');
-        const run = await read('actions/runs/' + proof.run_id);
-        if (run.status !== 'completed' || run.conclusion !== 'success') continue;
-        if (run.path !== workflow || run.head_branch !== 'main' || run.event !== 'workflow_dispatch'
-            || run.head_sha !== proof.source_sha || run.run_attempt !== proof.run_attempt) throw Error('公民版本与成功Run不符');
-        return {version: proof.version, buildNumber: String(proof.version_code)};
-    }
-    return null;
-}
-
 async function installedBuildVersion(platform) {
-    const selected = await selectAppRelease(platform, async path => {
-        const response = await fetch('https://api.github.com/repos/crcfrcn/citizenapp/' + path, {
-            redirect:'error', signal:AbortSignal.timeout(30000),
-            headers:{'User-Agent':'CitizenApp',Accept:'application/vnd.github+json'},
-        });
-        if (!response.ok) throw Error('读取公民正式版本失败：HTTP ' + response.status);
-        return response.json();
-    });
-    if (selected) return selected;
-    const initial = /^version:\s*([^+\s]+)(?:\+(\d+))?/mu.exec(readFileSync(join(root,'pubspec.yaml'),'utf8'));
-    return {version: initial[1], buildNumber: initial[2] || '1'};
+    const result = await run(process.execPath, [join(root,'.github/release.mjs'),'installed',platform],
+        root,true,process.env,'读取公民正式版本');
+    return JSON.parse(result);
 }
 
-// 两项SDK只在本轮开始时选择一次正式Release，之后固定准确来源。
+// SDK只在本轮开始时选择一次正式Release，之后固定准确来源。
 export async function selectSDKRelease(product, read) {
-    const releases = [];
-    for (let page = 1; ; page++) {
-        const rows = await read('releases?per_page=100&page=' + page);
-        if (!Array.isArray(rows)) throw Error(product + '正式Release列表无效');
-        releases.push(...rows);
-        if (rows.length < 100) break;
-    }
+    const releases = await readReleases(read, product);
     const candidates = releases.flatMap(release => {
         if (release.draft !== false || release.prerelease !== false || !release.published_at) return [];
         let proof;
@@ -208,24 +157,22 @@ export async function selectSDKRelease(product, read) {
     throw Error(product + '没有可用的成功正式SDK版本');
 }
 
-export async function resolveSDKs({root,lock,environment,execute=execFileSync}) {
-    const resolved=[];
-    for (const name of ['citizen_sdk']) {
-        const record=lock.split('\n  '+name+':\n')[1]?.split(/\n  \S/)[0];
-        const url=/url: "?(https:\/\/github.com\/[^"\s]+\.git)"?/.exec(record||'')?.[1];
-        if (!url) throw Error(name+'仓库声明缺失');
-        const repository=url.slice('https://github.com/'.length,-4),product=repository.split('/')[1];
-        const local=resolve(root,'..',product);
-        const selected=environment.GITHUB_ACTIONS==='true' ? await selectSDKRelease(product,
-            path=>JSON.parse(execute('gh',['api','repos/'+repository+'/'+path],{encoding:'utf8',env:environment}))) : null;
-        const ref=selected?.proof.git_commit_sha ?? execute('git',['-C',local,'rev-parse','HEAD^{commit}'],{encoding:'utf8',env:environment}).trim();
-        if (!/^[a-f0-9]{40}$/u.test(ref)) throw Error(name+'提交身份无效');
-        const version=selected?.proof.software_version ?? /^version: (\S+)$/mu.exec(
-            execute('git',['-C',local,'show',ref+':pubspec.yaml'],{encoding:'utf8',env:environment}))?.[1];
-        if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u.test(version||'')) throw Error(name+'版本声明无效');
-        resolved.push({name,url,repository,product,local,selected,ref,version});
-    }
-    return resolved;
+export async function resolveSDK({root,lock,environment,execute=execFileSync}) {
+    const name='citizen_sdk';
+    const record=lock.split('\n  '+name+':\n')[1]?.split(/\n  \S/)[0];
+    const url=/url: "?(https:\/\/github.com\/[^"\s]+\.git)"?/.exec(record||'')?.[1];
+    if (!url) throw Error('pubspec.lock 的 '+name+' 条目缺少可解析的 Git URL');
+    const repository=url.slice('https://github.com/'.length,-4),product=repository.split('/')[1];
+    const local=resolve(root,'..',product);
+    const selected=environment.GITHUB_ACTIONS==='true' ? await selectSDKRelease(product,
+        path=>api(environment,path,repository,execute)) : null;
+    if (selected) return {name,url,repository,product,local,selected,ref:selected.proof.git_commit_sha,version:selected.proof.software_version};
+    const ref=execute('git',['-C',local,'rev-parse','HEAD^{commit}'],{encoding:'utf8',env:environment}).trim();
+    if (!/^[a-f0-9]{40}$/u.test(ref)) throw Error(name+'提交身份无效');
+    const version=/^version: (\S+)$/mu.exec(
+        execute('git',['-C',local,'show',ref+':pubspec.yaml'],{encoding:'utf8',env:environment}))?.[1];
+    if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u.test(version||'')) throw Error(name+'版本声明无效');
+    return {name,url,repository,product,local,selected,ref,version};
 }
 
 // 编译与测试都从产品唯一workspace声明取得包路径，不另建包清单。
@@ -250,7 +197,7 @@ export function mapSdkSource(root,name,output){
  return changed;
 }
 
-// 仅在普通工程离线解析冻结SDK的新内部包；原有锁记录不变，不手写SDK包清单。
+// 仅在普通工程解析冻结SDK的新内部包；原有锁记录不变，不手写SDK包清单。
 // 新包必须由官方Pub配置指向本轮SDK源码，第三方新增、漂移或缺件直接失败。
 export async function preparePackages(project,{sources,environment=process.env,execute=run}){
  if(realpathSync(project)===realpathSync(root))throw Error('依赖装配禁止修改正式源码锁');
@@ -261,7 +208,7 @@ export async function preparePackages(project,{sources,environment=process.env,e
  if(!before.size)throw Error('依赖装配缺少原锁记录');
  const roots=sources.map(source=>realpathSync(source));
  const flutter=join(environment.FLUTTER_ROOT,'bin/flutter');
- await execute(flutter,['pub','get','--offline'],project,false,environment,'依赖装配');
+ await execute(flutter,['pub','get'],project,false,environment,'依赖装配');
  const after=records(readFileSync(file,'utf8'));
  for(const [name,record]of before)if(after.get(name)!==record)throw Error('依赖装配改变原锁记录：'+name);
  const configFile=join(project,'.dart_tool/package_config.json');
@@ -273,33 +220,11 @@ export async function preparePackages(project,{sources,environment=process.env,e
   const path=realpathSync(fileURLToPath(new URL(entry.rootUri,pathToFileURL(configFile))));
   if(!roots.some(source=>path===source||path.startsWith(source+sep)))throw Error('依赖装配新增非SDK内部包：'+name);
  }
- await execute(flutter,['pub','get','--offline','--enforce-lockfile'],project,false,environment,'依赖锁验收');
-}
-
-// 正式App测试唯一归lib/test；普通工程按Dart官方test布局装配，保留开发依赖及测试注解语义。
-// 只改文件位置和相对URI，不复制测试实现，不在正式主仓生成根test。
-export function prepareTests(project){
- const source=join(project,'lib/test'),destination=join(project,'test');
- if(realpathSync(project)===realpathSync(root)||existsSync(destination))throw Error('测试装配只能写尚未生成test的普通工程');
- const visit=directory=>{for(const entry of readdirSync(directory,{withFileTypes:true})){
-  const from=join(directory,entry.name);
-  if(entry.isDirectory()){visit(from);if(!readdirSync(from).length)rmSync(from,{recursive:true});continue;}
-  if(!entry.isFile()||!entry.name.endsWith('.dart'))continue;
-  const to=join(destination,relative(source,from));
-  const text=readFileSync(from,'utf8').replace(/^((?:import|export|part)\s+)(['"])(\.\.?\/[^'"]+)\2/gm,(_,prefix,quote,uri)=>{
-   const target=resolve(dirname(from),uri);
-   const mapped=target.startsWith(source+sep)?join(destination,relative(source,target)):target;
-   let path=relative(dirname(to),mapped).split(sep).join('/');if(!path.startsWith('.'))path='./'+path;
-   return prefix+quote+path+quote;
-  });
-  mkdirSync(dirname(to),{recursive:true});writeFileSync(to,text);rmSync(from);
- }};
- visit(source);
+ await execute(flutter,['pub','get','--enforce-lockfile'],project,false,environment,'依赖锁验收');
 }
 
 // 两个平台及本机共用产品自己的工程装配，公开IO注入仅供既有合成回归。
 export async function assembleProject(environment,io={}){
- const process={env:environment,pid:globalThis.process.pid};
  const execute=io.execFileSync||execFileSync;
 const root = environment.GITHUB_WORKSPACE, work = environment.WORK;
 const project = join(work, 'project');
@@ -307,96 +232,71 @@ const project = join(work, 'project');
 const listed = execute('git', ['-C', root, 'ls-files', '--cached', '--others', '--exclude-standard', '-z'],
     {encoding: 'utf8', env: environment});
 const files = [...new Set(listed.split('\0').filter(Boolean))].filter(entry => existsSync(join(root, entry)));
-const directoryCounts = new Map();
-for (const entry of files) {
-    if (entry.split('/').length > 4) throw Error('源码目录超过三层：' + dirname(entry));
-    for (let directory = dirname(entry); directory !== '.'; directory = dirname(directory)) {
-        directoryCounts.set(directory, (directoryCounts.get(directory) || 0) + 1);
-    }
-}
-for (const [directory, count] of directoryCounts) {
-    if (count === 1) throw Error('源码目录只有一个文件：' + directory);
-}
 mkdirSync(project);
-for (const entry of files) {
-    const destination = join(project, entry);
-    mkdirSync(dirname(destination), {recursive: true});
-    cpSync(join(root, entry), destination);
-}
-let declaration = readFileSync(join(project, 'pubspec.yaml'), 'utf8');
+execute('/usr/bin/rsync', ['-lp','--from0','--files-from=-',root + '/',project + '/'],
+    {input: files.join('\0') + '\0', env: environment});
 let lock = readFileSync(join(project, 'pubspec.lock'), 'utf8');
-const sources=[];
-const resolvedSDKs=await resolveSDKs({root,lock,environment,execute});
-writeFileSync(join(work,'sdk-sources.json'),JSON.stringify(Object.fromEntries(resolvedSDKs.map(sdk=>[sdk.name,{
-    source:sdk.selected?'release':'local_git',software_version:sdk.version,git_commit_sha:sdk.ref,
-    ...(sdk.selected?{release_id:sdk.selected.release.id,tag_name:sdk.selected.release.tag_name,
-        producer_run_id:sdk.selected.proof.producer_run_id,producer_run_attempt:sdk.selected.proof.producer_run_attempt,
-        assets:sdk.selected.proof.assets}:{}),
-}]))));
-for (const {name,url,repository,product,local,selected,ref} of resolvedSDKs) {
-    const source = join(work, 'sources', name), output = join(work, 'packages', name);
-    mkdirSync(source, {recursive: true});
-    execute('git', ['init', source], {env: environment});
-    execute('git', ['-C', source, 'fetch', '--depth=1', selected ? url : local, ref], {env: environment});
-    execute('git', ['-C', source, 'checkout', '--detach', 'FETCH_HEAD'], {env: environment});
-    mkdirSync(dirname(output), {recursive: true});
-    const sdk = await import(pathToFileURL(join(source, 'scripts/build.mjs')));
-    console.log(product + '：' + (selected ? selected.release.tag_name : 'HEAD') + ' ' + ref);
-    if (selected) {
-        const directory = join(work, 'downloads', product);
-        mkdirSync(directory, {recursive: true});
-        for (const extension of ['zip','json','sha256']) {
-            const label=selected.release.tag_name+'.'+extension;
-            const assets=(selected.release.assets||[]).filter(asset=>asset.label===label&&asset.state==='uploaded');
-            if (assets.length!==1) throw Error(product+'正式Release完整附件缺失或重复：'+label);
-            await run('gh',['release','download',selected.release.tag_name,'--repo',repository,
-                '--pattern',assets[0].name,'--output',join(directory,label)],root,false,environment);
-        }
-        await sdk.consume({directory,sourceSha:ref,sourceRun:selected.proof.producer_run_id,
-            sourceAttempt:selected.proof.producer_run_attempt,output,signal:controller.signal});
-    } else if (name === 'citizen_sdk') {
-            sdk.createFlutterSourceView(source, output);
-            const settings = await import(pathToFileURL(join(source, 'scripts/config.mjs')));
-            const tools = settings.tools;
-            const nativeEnvironment = {...environment,
-                ANDROID_NDK_HOME: join(environment.ANDROID_HOME, 'ndk', tools.ndk),
-                // 只交付SDK公开声明要求的编译输入，不在App检查或获取依赖。
-                CITIZENSDK_ZXING_SOURCE_DIR: environment.CITIZENSDK_ZXING_SOURCE_DIR ||
-                    join(root, 'target/cache/sources', settings.nativeSources.zxing.archive_root)};
-            nativeEnvironment.PATH = join(environment.ANDROID_HOME, 'cmake', tools.cmake, 'bin') + ':' + environment.PATH;
-            if (environment.PLATFORM === 'android') {
-                // 复用Gradle官方wrapper已安装版本，不下载第二份工具。
-                const distributions = join(environment.HOME, '.gradle/wrapper/dists');
-                const candidates = environment.GRADLE_HOME ? [environment.GRADLE_HOME] :
-                    readdirSync(distributions).filter(name => name.startsWith('gradle-' + tools.gradle + '-'))
-                        .flatMap(name => readdirSync(join(distributions, name))
-                            .map(id => join(distributions, name, id, 'gradle-' + tools.gradle)));
-                const gradle = candidates.find(path => existsSync(join(path, 'bin/gradle')));
-                if (gradle) nativeEnvironment.PATH = join(gradle, 'bin') + ':' + nativeEnvironment.PATH;
-            }
-            const result = JSON.parse(await run(globalThis.process.execPath,
-                [join(source, 'scripts/build.mjs'), 'native', environment.PLATFORM === 'ios' ? 'Apple' : 'Android', '--device'],
-                source, true, nativeEnvironment));
-            cpSync(result.output, output, {recursive: true});
+const {name,url,repository,product,local,selected,ref,version}=await resolveSDK({root,lock,environment,execute});
+writeFileSync(join(work,'sdk-sources.json'),JSON.stringify({[name]:{
+    source:selected?'release':'local_git',software_version:version,git_commit_sha:ref,
+    ...(selected?{release_id:selected.release.id,tag_name:selected.release.tag_name,
+        producer_run_id:selected.proof.producer_run_id,producer_run_attempt:selected.proof.producer_run_attempt,
+        assets:selected.proof.assets}:{}),
+}}));
+const source = join(work, 'sources', name), output = join(work, 'packages', name);
+mkdirSync(source, {recursive: true});
+execute('git', ['init', source], {env: environment});
+execute('git', ['-C', source, 'fetch', '--depth=1', selected ? url : local, ref], {env: environment});
+execute('git', ['-C', source, 'checkout', '--detach', 'FETCH_HEAD'], {env: environment});
+mkdirSync(dirname(output), {recursive: true});
+const sdk = await import(pathToFileURL(join(source, 'scripts/build.mjs')));
+console.log(product + '：' + (selected ? selected.release.tag_name : 'HEAD') + ' ' + ref);
+if (selected) {
+    const directory = join(work, 'downloads', product);
+    mkdirSync(directory, {recursive: true});
+    for (const extension of ['zip','json','sha256']) {
+        const label=selected.release.tag_name+'.'+extension;
+        const args=releaseDownloadArgs({tag:selected.release.tag_name,repo:repository,
+            assets:selected.release.assets,label,output:join(directory,label),uploaded:true});
+        await run('gh',args,root,false,environment);
     }
-    mapSdkSource(project,name,output);
-    sources.push(output);
-    declaration=readFileSync(join(project,'pubspec.yaml'),'utf8');
-    lock = lock.replace(new RegExp('  ' + name + ':\\n(?:    .*\\n)+'), entry => {
-        const version = '    version: ' + JSON.stringify(/^version: (\S+)$/m.exec(readFileSync(join(output,'pubspec.yaml'),'utf8'))[1]);
-        return '  ' + name + ':\n    dependency: "direct main"\n    description:\n      path: "' + output +
-            '"\n      relative: false\n    source: path\n' + version + '\n';
-    });
+    await sdk.consume({directory,sourceSha:ref,sourceRun:selected.proof.producer_run_id,
+        sourceAttempt:selected.proof.producer_run_attempt,output,signal:controller.signal});
+} else {
+    sdk.createFlutterSourceView(source, output);
+    const settings = await import(pathToFileURL(join(source, 'scripts/config.mjs')));
+    const tools = settings.tools;
+    const nativeEnvironment = {...environment,
+        ANDROID_NDK_HOME: join(environment.ANDROID_HOME, 'ndk', tools.ndk),
+        // 只交付SDK公开声明要求的编译输入，不在App检查或获取依赖。
+        CITIZENSDK_ZXING_SOURCE_DIR: environment.CITIZENSDK_ZXING_SOURCE_DIR ||
+            join(root, 'target/cache/sources', settings.nativeSources.zxing.archive_root)};
+    nativeEnvironment.PATH = join(environment.ANDROID_HOME, 'cmake', tools.cmake, 'bin') + ':' + environment.PATH;
+    if (environment.PLATFORM === 'android') {
+        // 复用Gradle官方wrapper已安装版本，不下载第二份工具。
+        const distributions = join(environment.HOME, '.gradle/wrapper/dists');
+        const candidates = environment.GRADLE_HOME ? [environment.GRADLE_HOME] :
+            readdirSync(distributions).filter(name => name.startsWith('gradle-' + tools.gradle + '-'))
+                .flatMap(name => readdirSync(join(distributions, name))
+                    .map(id => join(distributions, name, id, 'gradle-' + tools.gradle)));
+        const gradle = candidates.find(path => existsSync(join(path, 'bin/gradle')));
+        if (gradle) nativeEnvironment.PATH = join(gradle, 'bin') + ':' + nativeEnvironment.PATH;
+    }
+    const result = JSON.parse(await run(globalThis.process.execPath,
+        [join(source, 'scripts/build.mjs'), 'native', environment.PLATFORM === 'ios' ? 'Apple' : 'Android', '--device'],
+        source, true, nativeEnvironment));
+    cpSync(result.output, output, {recursive: true});
 }
-writeFileSync(join(project, 'pubspec.yaml'), declaration);
+mapSdkSource(project,name,output);
+lock = lock.replace(new RegExp('  ' + name + ':\n(?:    .*\n)+'), () =>
+    '  ' + name + ':\n    dependency: "direct main"\n    description:\n      path: "' + output +
+    '"\n      relative: false\n    source: path\n    version: ' +
+    JSON.stringify(/^version: (\S+)$/m.exec(readFileSync(join(output,'pubspec.yaml'),'utf8'))[1]) + '\n');
 // Flutter官方模板只写本轮工程；保留既有业务源码和平台工程原件。
-const flutter = join(process.env.FLUTTER_ROOT, 'bin/flutter');
-execute(flutter, ['create', '--no-pub', '--platforms=android,ios', '--org=com.crcfrcn', '--project-name=citizenapp', project], {stdio: 'inherit'});
+const flutter = join(environment.FLUTTER_ROOT, 'bin/flutter');
+execute(flutter, ['create', '--empty', '--no-pub', '--platforms=android,ios', '--org=com.crcfrcn', '--project-name=citizenapp', project], {stdio: 'inherit'});
 // create即使不执行Pub也会重写锁；完成后写回只映射SDK路径的完整原锁。
 writeFileSync(join(project, 'pubspec.lock'), lock);
-// 先移除官方模板示例，再把本产品lib/test装配为工具要求的唯一test目录。
-rmSync(join(project, 'test'), {recursive: true, force: true});
-prepareTests(project);
 const write = (path, text) => {
     mkdirSync(dirname(join(project, path)), {recursive: true});
     writeFileSync(join(project, path), text);
@@ -405,24 +305,10 @@ const copy = (source, destination) => {
     mkdirSync(dirname(join(project, destination)), {recursive: true});
     copyFileSync(join(root, source), join(project, destination));
 };
-// 移除模板入口，唯一原生入口来自本产品已提交源码。
-rmSync(join(project, 'android/app/src/main/kotlin'), {recursive: true, force: true});
-for (const name of ['MainActivity', 'SquareMediaChannel', 'SquareMp4FastStart', 'SquareVideoTranscoder']) {
-    const source = name === 'MainActivity' ? 'app' : 'square';
-    copy('android/' + source + '/' + name + '.kt', 'android/app/src/main/' + name + '.kt');
-}
-for (const name of ['ChatMediaChannel','ChatStorageChannel']) copy('android/chat/'+name+'.java','android/app/src/main/java/com/crcfrcn/citizenapp/'+name+'.java');
 copy('android/app/AndroidManifest.xml', 'android/app/src/main/AndroidManifest.xml');
-for (const file of readdirSync(join(root, 'android/tests'))) copy('android/tests/' + file, 'android/app/src/androidTest/' + file);
 copy('ios/project/Runner.pbxproj', 'ios/Runner.xcodeproj/project.pbxproj');
 copy('ios/project/Runner.xcscheme', 'ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme');
-for (const name of ['AppDelegate.swift', 'SystemProtectedDataChannel.swift', 'Info.plist', 'InfoPlist.xcstrings']) {
-    copy('ios/source/' + name, 'ios/Runner/' + name);
-}
-for (const name of ['SquareMediaChannel', 'SquareVideoTranscoder']) copy('ios/square/' + name + '.swift', 'ios/Runner/' + name + '.swift');
-for (const name of ['ChatMediaChannel','ChatStorageChannel']) copy('ios/chat/'+name+'.swift','ios/Runner/'+name+'.swift');
-copy('ios/source/PrivacyInfo.xcprivacy','ios/Runner/PrivacyInfo.xcprivacy');
-for (const name of ['RunnerTests', 'RunnerUITests']) copy('ios/tests/' + name + '.swift', 'ios/' + name + '.swift');
+copy('ios/source/Info.plist', 'ios/Runner/Info.plist');
 // 以下仅为本轮平台工具直接消费的必要配置，不生成常驻模块。
 // 使用Flutter生成的标准工程，只应用本产品编译需要的插件和版本差异。
 const gradleRoot = join(project, 'android/build.gradle.kts');
@@ -457,7 +343,7 @@ write("android/app/src/main/res/xml/network_security_config.xml", `<?xml version
 </network-security-config>
 `);
 // Podfile和启动页正文沿用现有Flutter官方模板，不在脚本重复维护。
-const podfile = join(process.env.FLUTTER_ROOT, 'packages/flutter_tools/templates/cocoapods/Podfile-ios');
+const podfile = join(environment.FLUTTER_ROOT, 'packages/flutter_tools/templates/cocoapods/Podfile-ios');
 write('ios/Podfile', readFileSync(podfile, 'utf8')
     .replace(/^# platform :ios.*$/m, "platform :ios, '16.0'")
     .replace('post_install do |installer|', `post_install do |installer|
@@ -475,7 +361,6 @@ write('ios/Podfile', readFileSync(podfile, 'utf8')
     end`));
 write('ios/Runner/Base.lproj/CitizenLaunchScreen.storyboard',
     readFileSync(join(project, 'ios/Runner/Base.lproj/LaunchScreen.storyboard'), 'utf8')
-        .replaceAll('LaunchImage', 'CitizenLaunchLogo')
         .replace('width="168" height="185"', 'width="160" height="160"'));
 write("ios/Runner/Runner.entitlements", `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -499,43 +384,25 @@ write("android/app/src/main/res/values/colors.xml", `<resources>
     <color name="ic_launcher_background">#18787D</color>
 </resources>
 `);
-write("android/app/src/main/res/drawable/launch_background.xml", `<?xml version="1.0" encoding="utf-8"?>
-<!-- Modify this file to customize your launch splash screen -->
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@android:color/white" />
-
-    <item>
-        <bitmap
-            android:gravity="center"
-            android:src="@mipmap/launch_image" />
-    </item>
-</layer-list>
-`);
-write("android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml", `<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+for (const directory of ['drawable','drawable-v21']) {
+    const path = 'android/app/src/main/res/' + directory + '/launch_background.xml';
+    write(path, readFileSync(join(project,path),'utf8')
+        .replace('?android:colorBackground','@android:color/white')
+        .replace('<!-- <item>','<item>').replace('</item> -->','</item>'));
+}
+for (const name of ['ic_launcher','ic_launcher_round']) {
+    write('android/app/src/main/res/mipmap-anydpi-v26/' + name + '.xml', `<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/ic_launcher_background" />
     <foreground android:drawable="@mipmap/ic_launcher_foreground" />
 </adaptive-icon>
 `);
-write("android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml", `<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@color/ic_launcher_background" />
-    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
-</adaptive-icon>
-`);
-// 保留Flutter生成的主题和桥接头，只生成产品图标所需的资源清单。
-write('ios/Runner/Assets.xcassets/CitizenLaunchLogo.imageset/Contents.json', JSON.stringify({
-    images: [1, 2, 3].map(scale => ({
-        filename: 'CitizenLaunchLogo' + (scale === 1 ? '' : '@' + scale + 'x') + '.png',
-        idiom: 'universal', scale: scale + 'x',
-    })),
-    info: {version: 1, author: 'xcode'},
-}, null, 2));
+}
 for (const [density, icon, foreground, launch] of [['mdpi',48,108,120], ['hdpi',72,162,180], ['xhdpi',96,216,240], ['xxhdpi',144,324,360], ['xxxhdpi',192,432,480]]) {
     const destination = 'android/app/src/main/res/mipmap-' + density + '/';
     for (const name of ['ic_launcher', 'ic_launcher_round']) copy('assets/logo/icon' + icon + '.png', destination + name + '.png');
     copy('assets/logo/foreground' + foreground + '.png', destination + 'ic_launcher_foreground.png');
     copy('assets/logo/launch' + launch + '.png', destination + 'launch_image.png');
 }
-write('android/app/src/main/res/drawable-v21/launch_background.xml', readFileSync(join(project, 'android/app/src/main/res/drawable/launch_background.xml'), 'utf8'));
 const iconSet = 'ios/Runner/Assets.xcassets/AppIcon.appiconset/';
 const icons = JSON.parse(readFileSync(join(project, iconSet, 'Contents.json')));
 for (const image of icons.images) {
@@ -543,41 +410,20 @@ for (const image of icons.images) {
     const size = Number(image.size.split('x')[0]) * Number(image.scale.replace('x', ''));
     copy('assets/logo/icon' + size + '.png', iconSet + image.filename);
 }
-for (const [scale, suffix] of [[1,''], [2,'@2x'], [3,'@3x']]) copy('assets/logo/launch' + 160 * scale + '.png', 'ios/Runner/Assets.xcassets/CitizenLaunchLogo.imageset/CitizenLaunchLogo' + suffix + '.png');
-writeFileSync(join(project, 'analysis_options.yaml'), 'include: package:flutter_lints/flutter.yaml\nanalyzer:\n  exclude:\n    - build/**\n    - android/**\n    - ios/**\n');
-chmodSync(join(project, 'android/gradlew'), 0o755);
-const sdkRoot = join(work, 'packages/citizen_sdk');
-const values = {
-    CITIZENSDK_SOURCE_DIR: sdkRoot,
-    CITIZENSDK_ANDROID_BUILD_DIR: join(work,'citizen-android'),
-    CITIZENAPP_TEST_WORK_DIR: work,
-    MLS_TEST_LIBRARY: join(work,'mls/host/libmls.dylib'),
-    MLS_COMPONENT_DIR: join(work,'mls')
-};
-// 完整Apple组件的Framework使用标准内部链接；测试只消费同轮真实普通文件。
-// 真机专用组件没有宿主切片，不能宣称已交付测试库或沿用外部旧路径。
-delete environment.CITIZENSDK_TEST_CORE_LIB_PATH;
-const testCore = join(sdkRoot,'darwin/CitizenSDK.xcframework/macos-arm64/CitizenSDK.framework/CitizenSDK');
-if (existsSync(testCore)) {
-    const file = realpathSync(testCore);
-    if (!lstatSync(file).isFile()) throw Error('宿主测试Core不是普通文件');
-    values.CITIZENSDK_TEST_CORE_LIB_PATH = file;
-}
-Object.assign(environment,values);
-if(environment.GITHUB_ENV)for (const [key, value] of Object.entries(values)) appendFileSync(environment.GITHUB_ENV, key + '=' + value + '\n');
-await preparePackages(project,{sources,environment});
+for (const [scale, suffix] of [[1,''], [2,'@2x'], [3,'@3x']]) copy('assets/logo/launch' + 160 * scale + '.png', 'ios/Runner/Assets.xcassets/LaunchImage.imageset/LaunchImage' + suffix + '.png');
+environment.CITIZENSDK_SOURCE_DIR = output;
+if (environment.GITHUB_ENV) appendFileSync(environment.GITHUB_ENV, 'CITIZENSDK_SOURCE_DIR=' + output + '\n');
+await preparePackages(project,{sources:[output],environment});
 await (io.buildMls || buildMls)({project,work,platform:environment.PLATFORM,environment});
 // App随包资源随普通工程一起准备，不增加功能构建入口。
-// 本机默认复用本产品已准备的npm缓存，缺件仍离线失败。
+// 本机默认复用本仓npm缓存，缺件由npm按原锁获取。
 const assets = join(project, 'topup/web');
 const resourceEnvironment = {...environment, npm_config_ignore_scripts: 'true',
-    ...(environment.GITHUB_ACTIONS === 'true' ? {} : {npm_config_offline: 'true',
-        npm_config_cache: environment.npm_config_cache ?? environment.NPM_CONFIG_CACHE ?? join(root, 'target/cache/npm')})};
-await run('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], assets, false, resourceEnvironment, 'App资源准备');
+    ...(environment.GITHUB_ACTIONS === 'true' ? {} : {npm_config_cache: environment.npm_config_cache ?? environment.NPM_CONFIG_CACHE ?? join(root, 'target/cache/npm')})};
+await run('npm', ['ci', '--prefer-offline', '--ignore-scripts', '--no-audit', '--no-fund'], assets, false, resourceEnvironment, 'App资源准备');
 await run(environment.ESBUILD_BIN || 'esbuild', ['metamask.js', '--bundle', '--format=iife',
     '--global-name=CitizenTopup', '--platform=browser', '--target=safari15,chrome100', '--minify',
     '--outfile=metamask.bundle.js', '--define:process.env.NODE_ENV="production"'], assets, false, resourceEnvironment, 'App资源准备');
-return {project,values};
 }
 
 const flutterSource = 'https://github.com/flutter/flutter.git';
@@ -592,40 +438,6 @@ function flutterPaths(environment, cache) {
    .filter(entry => entry.isDirectory() && join(dirname(root), entry.name) !== resolve(root))
    .map(entry => join(dirname(root), entry.name, 'target/cache/flutter')),
  ].filter(Boolean);
-}
-
-function missingFlutterArtifacts(tool, platform) {
- const cache = join(tool, 'bin/cache');
- const artifacts = join(cache, 'artifacts/engine');
- const read = path => existsSync(path) ? readFileSync(path, 'utf8').trim() : '';
- const engine = read(join(tool, 'bin/internal/engine.version'));
- const stale = [];
- const cached = (name, present) => {
-  const stamp = join(cache,name + '.stamp');
-  const current = !!engine && read(stamp) === engine;
-  if (current && !present) stale.push(stamp);
-  return current && present;
- };
- const dartReady = cached('engine-dart-sdk',existsSync(join(cache,'dart-sdk/bin/dart')));
- const engineReady = cached('flutter_sdk',[
-  'pkg/sky_engine','pkg/flutter_gpu',
-  'artifacts/engine/common/flutter_patched_sdk',
-  'artifacts/engine/common/flutter_patched_sdk_product',
- ].every(name => existsSync(join(cache,name))));
- const sdkReady = dartReady && engineReady && existsSync(join(cache, 'flutter_tools.snapshot'))
-  && read(join(cache, 'flutter_tools.stamp')).split(':')[0] === flutterRevision;
- const ready = {
-  ios: () => cached('ios-sdk',['ios','ios-profile','ios-release']
-   .every(name => existsSync(join(artifacts, name, 'Flutter.xcframework/Info.plist')))),
-  macos: () => cached('macos-sdk',existsSync(artifacts) && readdirSync(artifacts)
-   .some(name => /^darwin-.*-release$/u.test(name)
-    && existsSync(join(artifacts, name, 'FlutterMacOS.xcframework/Info.plist')))),
-  android: () => cached('android-sdk',existsSync(join(artifacts,'android-arm64-release/flutter.jar')))
-   && cached('android-internal-build-artifacts',true),
- };
- const platforms = platform === 'ios' ? ['ios','macos'] : ['android'];
- const flags = platforms.filter(name => !ready[name]() || !sdkReady).map(name => '--' + name);
- return {flags,stale};
 }
 
 function writableFlutterCache(tool) {
@@ -654,7 +466,6 @@ export async function prepareFlutter(platform, environment = process.env, {
   if (!existsSync(command)) continue;
   const tool = dirname(dirname(realpathSync(command)));
   if (!existsSync(join(tool, '.git')) || !await pinned(tool)) continue;
-  if (!missingFlutterArtifacts(tool, platform).flags.length && writableFlutterCache(tool)) return tool;
   if (!source || tool === cache) source = tool;
  }
  const parent = dirname(cache);
@@ -664,20 +475,14 @@ export async function prepareFlutter(platform, environment = process.env, {
  let stage, preserve = false;
  try {
   const prepare = async tool => {
-   const {flags,stale} = missingFlutterArtifacts(tool, platform);
-   if (flags.length) {
-    // 有标记却缺字节时，只让官方工具重建该组件。
-    for (const stamp of stale) rmSync(stamp,{force:true});
-    await execute(join(tool,'bin/flutter'), ['--no-version-check','precache',...flags],
-     tool, false, tools, 'Flutter平台引擎准备');
-   }
-   if (missingFlutterArtifacts(tool, platform).flags.length) {
-    throw Error('Flutter ' + flutterVersion + ' 平台引擎准备后仍不完整：' + platform);
-   }
+   // 平台组件的缓存检查和补件交给官方工具。
+   const flags = platform === 'ios' ? ['--ios','--macos'] : ['--android'];
+   await execute(join(tool,'bin/flutter'), ['--no-version-check','precache',...flags],
+    tool, false, tools, 'Flutter平台引擎准备');
   };
-  if (source === cache && writableFlutterCache(cache)) {
-   await prepare(cache);
-   return cache;
+  if (source && writableFlutterCache(source)) {
+   await prepare(source);
+   return source;
   }
   stage = mkdtempSync(join(parent,'flutter-'));
   const tool = join(stage,'sdk');
@@ -710,79 +515,17 @@ export async function prepareFlutter(platform, environment = process.env, {
  }
 }
 
-const testInputError=message=>Object.assign(Error(message),{code:'TEST_INPUT'});
-
-// 只编译本轮已装配工程的测试；不签名、安装或启动设备。
-// ui在模拟器SDK编译隔离宿主；unit/all用真机SDK只编译完整Runner，不连接设备。
-export async function buildTests(platform,{work=process.env.WORK,scope='all',environment=process.env,execute=run}={}){
- if(!['ios','android'].includes(platform)||!['all','ui','unit'].includes(scope))throw Error('未知测试编译目标');
- if(!work||!existsSync(work))throw testInputError('测试编译需要独占WORK');
- work=realpathSync(work);
- const project=join(work,'project');
- if(!existsSync(project)||realpathSync(project)===realpathSync(root))throw Error('测试编译只能写本轮普通工程');
- if(environment.GITHUB_ACTIONS==='true')throw Error('测试编译入口不消费正式签名环境');
- const marker=join(work,'tests-active.json');
- writeFileSync(marker,JSON.stringify({pid:process.pid}),{flag:'wx',mode:0o600});
- const cancel=()=>controller.abort();
- for(const signal of ['SIGINT','SIGTERM'])process.once(signal,cancel);
- try{
-  if(platform==='android'){
-   if(scope!=='all')throw Error('Android测试统一编译Release androidTest');
-   if(!environment.GRADLE_BIN)throw testInputError('须交付已安装GRADLE_BIN，禁止wrapper隐式下载');
-   if(!environment.FLUTTER_ROOT)throw testInputError('须交付已准备Flutter工具及原锁Pub输入');
-   const flutter=join(environment.FLUTTER_ROOT,'bin/flutter');
-   // 先按原锁离线解析；官方config-only只更新Release插件登记与配置，不构建或签署APK。
-   await execute(flutter,['pub','get','--offline','--enforce-lockfile'],project,false,environment,'Android原锁确认');
-   const lock=readFileSync(join(project,'pubspec.lock'));
-   await execute(flutter,['build','apk','--config-only','--release','--target-platform','android-arm64'],
-    project,false,environment,'Android Release配置准备');
-   // Pub会规范化空行；所有版本、来源、摘要和路径记录必须保持逐行一致。
-   const records=bytes=>bytes.toString('utf8').split(/\r?\n/).filter(line=>line.trim().length).join('\n');
-   if(records(lock)!==records(readFileSync(join(project,'pubspec.lock'))))throw Error('Android配置准备改变了交付原锁记录');
-   await execute(environment.GRADLE_BIN,['--offline','--no-daemon','--console=plain','-Ptarget-platform=android-arm64',
-    ':app:compileReleaseAndroidTestKotlin',':app:compileReleaseAndroidTestJavaWithJavac'],
-    join(project,'android'),false,environment,'Android测试编译');
-   return {platform,scope,status:'compiled',kind:'classes',output:join(project,'build/app')};
-  }
-  const simulator=scope==='ui';
-  if(!simulator&&!existsSync(join(project,'ios/Pods/Manifest.lock')))throw testInputError('iOS完整原生测试缺少原锁Pods输入');
-  if(!simulator&&(!existsSync(join(project,'ios/Podfile.lock'))||!readFileSync(join(project,'ios/Podfile.lock')).equals(readFileSync(join(project,'ios/Pods/Manifest.lock')))))throw testInputError('iOS Pods与交付锁不一致');
-  if(!simulator&&!existsSync(join(environment.FLUTTER_ROOT||'','bin/cache/artifacts/engine/ios-release/Flutter.xcframework')))throw testInputError('iOS完整原生测试缺少已准备Flutter Release引擎');
-  const container=simulator?['-project',join(project,'ios/Runner.xcodeproj')]:['-workspace',join(project,'ios/Runner.xcworkspace')];
-  if(!existsSync(container[1]))throw testInputError('iOS测试缺少对应工程入口');
-  const sdk=simulator?'iphonesimulator':'iphoneos';
-  const targets=[];
-  if(scope!=='ui')targets.push(['331C8080294A63A400263BE5','RunnerTests']);
-  if(scope!=='unit')targets.push(['A81100060000000000000000','RunnerUITests']);
-  const reference=([id,name])=>'<BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="'+id+'" BuildableName="'+name+'.xctest" BlueprintName="'+name+'" ReferencedContainer="container:Runner.xcodeproj"/>';
-  const scheme=join(project,'ios/Runner.xcodeproj/xcshareddata/xcschemes/CitizenTests.xcscheme');
-  mkdirSync(dirname(scheme),{recursive:true});
-  writeFileSync(scheme,'<?xml version="1.0" encoding="UTF-8"?><Scheme version="1.3"><BuildAction parallelizeBuildables="YES" buildImplicitDependencies="YES"><BuildActionEntries>'+targets.map(t=>'<BuildActionEntry buildForTesting="YES" buildForRunning="NO" buildForProfiling="NO" buildForArchiving="NO" buildForAnalyzing="NO">'+reference(t)+'</BuildActionEntry>').join('')+'</BuildActionEntries></BuildAction><TestAction buildConfiguration="Release" shouldUseLaunchSchemeArgsEnv="YES"><Testables>'+targets.map(t=>'<TestableReference skipped="NO">'+reference(t)+'</TestableReference>').join('')+'</Testables></TestAction></Scheme>');
-  const output=join(work,'ios-tests');
-  await execute('/usr/bin/xcrun',['xcodebuild',...container,
-   '-scheme','CitizenTests','-configuration','Release','-sdk',sdk,
-   '-destination',simulator?'generic/platform=iOS Simulator':'generic/platform=iOS','-derivedDataPath',output,
-   '-disableAutomaticPackageResolution','-skipPackageUpdates','build-for-testing',
-   'SUPPORTED_PLATFORMS='+sdk,'ENABLE_TESTABILITY=YES','CODE_SIGNING_ALLOWED=NO','CODE_SIGNING_REQUIRED=NO','CODE_SIGN_IDENTITY='],
-   project,false,environment,'iOS测试编译');
-  return {platform,scope,status:'compiled',kind:'xctestrun',output:join(output,'Build/Products')};
- }finally{
-  for(const signal of ['SIGINT','SIGTERM'])process.removeListener(signal,cancel);
-  if(!groups.size)rmSync(marker,{force:true});
- }
-}
-
-export async function compile(platform,{prepare = prepareFlutter} = {}){
+export async function compile(platform,{prepare = prepareFlutter, readVersion = installedBuildVersion} = {}){
  const flutterRoot=await prepare(platform);
- const selected=await installedBuildVersion(platform);
+ const selected=await readVersion(platform);
  const parent=join(root,'target/build');mkdirSync(parent,{recursive:true});
  if(realpathSync(parent)!==parent)throw Error('本机编译现场经过链接');
  const work=mkdtempSync(join(parent,'local-'));let safe=true;
  const cache=join(root,'target/cache');mkdirSync(cache,{recursive:true});
- // 本机沿用本平台正式版本与构建号；两个SDK沿用既有源码，安装仍归控制台。
+ // 本机沿用本平台正式版本与构建号，安装仍归控制台。
  const environment={...process.env,GITHUB_ACTIONS:'false',GITHUB_WORKSPACE:root,WORK:work,PLATFORM:platform,
   CITIZENAPP_VERSION:selected.version,CITIZENAPP_BUILD_NUMBER:selected.buildNumber,
-  CARGO_NET_OFFLINE:'true',GIT_ALLOW_PROTOCOL:'file:https',
+  GIT_ALLOW_PROTOCOL:'file:https',
   FLUTTER_ROOT:flutterRoot,PUB_CACHE:process.env.PUB_CACHE||join(process.env.HOME,'.pub-cache'),GRADLE_USER_HOME:process.env.GRADLE_USER_HOME||join(dirname(flutterRoot),'gradle'),
   CARGO_TARGET_DIR:process.env.CARGO_TARGET_DIR||join(cache,'rust'),RUSTUP_TOOLCHAIN:'1.97.1',
   PATH:process.env.HOME+'/.cargo/bin:'+process.env.HOME+'/.nvm/versions/node/v25.2.1/bin:/opt/homebrew/bin:'+(process.env.PATH||'/usr/bin:/bin'),
@@ -792,13 +535,9 @@ export async function compile(platform,{prepare = prepareFlutter} = {}){
  try{
   environment.PATH=join(environment.FLUTTER_ROOT,'bin')+':'+environment.PATH;
   await assembleProject(environment);
-  await build(platform,'dependencies',{local:true,work,environment});
-  // 先离线解析原锁；正常build仍须让Flutter按Release刷新原生插件注册。
-  await run(join(flutterRoot,'bin/flutter'),['pub','get','--offline','--enforce-lockfile'],join(work,'project'),false,environment);
-  await build(platform,'app',{local:true,work,environment});
-  const output=join(work,'artifact'),files=readdirSync(output).filter(name=>name.endsWith(platform==='ios'?'.app':'.apk'));
+  const artifact=await build(platform,{local:true,work,environment});
   const sdk=environment.ANDROID_HOME;
-  process.stdout.write('TATA_COMPILE '+JSON.stringify({schema:1,product_id:'citizenapp',platform,work,artifact:join(output,files[0]),signing:platform==='ios'?appleSigning(join(output,files[0]),join(work,'project/ios/Runner/Runner.entitlements')):[],
+  process.stdout.write('TATA_COMPILE '+JSON.stringify({schema:1,product_id:'citizenapp',platform,work,artifact,signing:platform==='ios'?appleSigning(artifact,join(work,'project/ios/Runner/Runner.entitlements')):[],
    sdk_sources:JSON.parse(readFileSync(join(work,'sdk-sources.json'),'utf8')),
    tools:platform==='android'?{adb:join(sdk,'platform-tools/adb'),apksigner:join(sdk,'build-tools/36.0.0/apksigner'),apkanalyzer:join(sdk,'cmdline-tools/latest/bin/apkanalyzer')}:{},
    environment:platform==='android'?{JAVA_HOME:environment.JAVA_HOME,ANDROID_HOME:sdk}:{}})+'\n');
@@ -810,15 +549,17 @@ export async function compile(platform,{prepare = prepareFlutter} = {}){
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
     for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => controller.abort());
     try {
-        if (process.argv[2] === 'tests') console.log(JSON.stringify(await buildTests(process.argv[3],{scope:process.argv[4]||'all'})));
-        else if (process.argv[2] === 'compile') await compile(process.argv[3]);
+        if (process.argv[2] === 'compile') await compile(process.argv[3]);
         else if (process.argv[2] === 'prepare-flutter') {
             const tool = await prepareFlutter(process.argv[3]);
             if (process.env.GITHUB_ENV) appendFileSync(process.env.GITHUB_ENV, 'FLUTTER_ROOT=' + tool + '\n');
             if (process.env.GITHUB_PATH) appendFileSync(process.env.GITHUB_PATH, join(tool,'bin') + '\n');
             console.log('Flutter ' + flutterVersion + '：' + tool);
         }
-        else await build(process.argv[2], process.argv[3]);
+        else {
+            if (process.argv.length !== 3) throw Error('编译只接受平台参数');
+            await build(process.argv[2]);
+        }
     } catch (error) {
         console.error(error.message);
         process.exitCode = 1;
@@ -833,10 +574,13 @@ export async function buildMls({project,work,platform,environment=process.env,ex
  const base={...environment,RUSTUP_TOOLCHAIN:'1.97.1',CARGO_TARGET_DIR:target};
  const args=['build','--manifest-path',manifest,'--locked','--release'];
  const own=join(work,'mls');mkdirSync(own,{recursive:true});
- if(globalThis.process.platform==='darwin'){
-  await execute('cargo',[...args,'--target','aarch64-apple-darwin'],project,false,{...base,CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:'-C strip=none -C link-arg=-Wl,-install_name,@rpath/libmls.dylib'},'OpenMLS宿主编译');
-  mkdirSync(join(own,'host'),{recursive:true});
-  copyFileSync(join(target,'aarch64-apple-darwin/release/libmls.dylib'),join(own,'host/libmls.dylib'));
+ if(platform==='host'){
+  const triple='aarch64-apple-darwin', output=join(own,'host/libmls.dylib');
+  await execute('cargo',[...args,'--target',triple],project,false,{...base,
+   CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:'-C strip=none -C link-arg=-Wl,-install_name,@rpath/libmls.dylib'},'OpenMLS宿主编译');
+  mkdirSync(dirname(output),{recursive:true});
+  copyFileSync(join(target,triple,'release/libmls.dylib'),output);
+  return output;
  }
  if(platform==='android'){
   if(!environment.ANDROID_HOME)throw Error('OpenMLS Android编译缺少ANDROID_HOME');
@@ -869,7 +613,6 @@ export async function buildMls({project,work,platform,environment=process.env,ex
   rmSync(framework,{recursive:true,force:true});
   await execute('/usr/bin/xcodebuild',['-create-xcframework',...slices,'-output',framework],project,false,base,'OpenMLS iOS装配');
  }
- return {host:join(own,'host/libmls.dylib')};
 }
 
 export async function verifyMls(file,platform){
@@ -888,21 +631,4 @@ export async function verifyMls(file,platform){
   if(!offset||BigInt(offset)%8n!==0n)throw Error('OpenMLS Mach-O字符串表未按8字节对齐');
  }
 
-}
-
-// App回归编译SDK交付的原始系统资源夹具，链接同一正式Core；不实现或替换SDK业务。
-export async function prepareCitizenSdkTestFixture({sdkRoot,work,environment=process.env}) {
- if(process.platform!=='darwin')throw Error('当前App宿主回归需要macOS SDK组件');
- const framework=join(sdkRoot,'darwin/CitizenSDK.xcframework/macos-arm64/CitizenSDK.framework/CitizenSDK');
- if(!existsSync(framework))throw Error('宿主回归缺少同轮CitizenSDK macOS组件，请由SDK公开Apple入口准备');
- const producer=await import(pathToFileURL(join(sdkRoot,'scripts/build.mjs')));
- const directory=join(work,'sdk-test-support');mkdirSync(directory,{recursive:true});
- writeFileSync(join(directory,'citizensdk_internal.h'),producer.citizenSdkInternalHeader());
- copyFileSync(join(sdkRoot,'image/citizensdk_qr_image.h'),join(directory,'citizensdk_qr_image.h'));
- const output=join(directory,'ffi.dylib'),slice=dirname(dirname(framework));
- await run('/usr/bin/xcrun',['clang++','-std=c++17','-dynamiclib','-fPIC','-Wall','-Wextra','-Wpedantic','-Wconversion','-Wsign-conversion','-Werror',
-  '-I'+join(sdkRoot,'include'),'-I'+join(sdkRoot,'core/cpp'),'-I'+directory,join(sdkRoot,'lib/test/cpp.cc'),
-  '-F'+slice,'-framework','CitizenSDK','-framework','Security','-framework','SystemConfiguration','-framework','CoreFoundation',
-  '-lsqlite3','-lc++','-liconv','-lresolv','-Wl,-rpath,'+slice,'-o',output],sdkRoot,false,environment,'CitizenSDK系统资源测试库');
- return output;
 }

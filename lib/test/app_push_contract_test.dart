@@ -206,9 +206,9 @@ void main() {
         .map((value) => (value as Map)['name'])
         .toSet();
     expect(names, contains('chat'));
-    final storage = File('ios/Runner/ChatStorageChannel.swift')
+    final storage = File('ios/chat/ChatStorageChannel.swift')
         .readAsStringSync();
-    final app = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+    final app = File('ios/source/AppDelegate.swift').readAsStringSync();
     expect(
       File('android/app/src/main/AndroidManifest.xml').readAsStringSync(),
       contains('android:allowBackup="false"'),

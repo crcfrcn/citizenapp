@@ -65,19 +65,19 @@
 		0FB2469DDD06B133A02A3CD1 /* Pods-Runner.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.profile.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"; sourceTree = "<group>"; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
-		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
+		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = tests/RunnerTests.swift; sourceTree = SOURCE_ROOT; };
 		331C8081294A63A400263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		A81100020000000000000000 /* RunnerUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerUITests.swift; sourceTree = "<group>"; };
+		A81100020000000000000000 /* RunnerUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = tests/RunnerUITests.swift; sourceTree = SOURCE_ROOT; };
 		A81100030000000000000000 /* RunnerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A81100120000000000000000 /* RunnerUITestHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RunnerUITestHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = AppFrameworkInfo.plist; path = Flutter/AppFrameworkInfo.plist; sourceTree = "<group>"; };
 		5F0B32AEDBF1A00536D1EE06 /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
-		6A1C27010000000000000014 /* SystemProtectedDataChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemProtectedDataChannel.swift; sourceTree = "<group>"; };
-		6A1C27010000000000000015 /* SquareMediaChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SquareMediaChannel.swift; sourceTree = "<group>"; };
-		6A1C27010000000000000016 /* SquareVideoTranscoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SquareVideoTranscoder.swift; sourceTree = "<group>"; };
+		6A1C27010000000000000014 /* SystemProtectedDataChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = source/SystemProtectedDataChannel.swift; sourceTree = SOURCE_ROOT; };
+		6A1C27010000000000000015 /* SquareMediaChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = square/SquareMediaChannel.swift; sourceTree = SOURCE_ROOT; };
+		6A1C27010000000000000016 /* SquareVideoTranscoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = square/SquareVideoTranscoder.swift; sourceTree = SOURCE_ROOT; };
 		74858FAC1ED2DC5600515810 /* Runner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Runner.entitlements; sourceTree = "<group>"; };
 		74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Runner-Bridging-Header.h"; sourceTree = "<group>"; };
-		74858FAE1ED2DC5600515810 /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		74858FAE1ED2DC5600515810 /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = source/AppDelegate.swift; sourceTree = SOURCE_ROOT; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Flutter/Release.xcconfig; sourceTree = "<group>"; };
 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Debug.xcconfig; path = Flutter/Debug.xcconfig; sourceTree = "<group>"; };
 		9740EEB31CF90195004384FC /* Generated.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Generated.xcconfig; path = Flutter/Generated.xcconfig; sourceTree = "<group>"; };
@@ -91,10 +91,10 @@
 		E50916E24A9DCE2401232E89 /* Pods_RunnerTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_RunnerTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		ECD81E79F57495B7E629D0D4 /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		EDCC5A177FFDF81E8DB85430 /* Pods-Runner.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.release.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"; sourceTree = "<group>"; };
-		6A1C27010000000000000093 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = "InfoPlist.xcstrings"; sourceTree = "<group>"; };
-		C6A700020000000000000001 /* ChatMediaChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMediaChannel.swift; sourceTree = "<group>"; };
-		C6A700020000000000000002 /* ChatStorageChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStorageChannel.swift; sourceTree = "<group>"; };
-		C6A700020000000000000003 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		6A1C27010000000000000093 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = source/InfoPlist.xcstrings; sourceTree = SOURCE_ROOT; };
+		C6A700020000000000000001 /* ChatMediaChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = chat/ChatMediaChannel.swift; sourceTree = SOURCE_ROOT; };
+		C6A700020000000000000002 /* ChatStorageChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = chat/ChatStorageChannel.swift; sourceTree = SOURCE_ROOT; };
+		C6A700020000000000000003 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = source/PrivacyInfo.xcprivacy; sourceTree = SOURCE_ROOT; };
 		C6A700020000000000000004 /* MLS.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = Frameworks/MLS.xcframework; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 

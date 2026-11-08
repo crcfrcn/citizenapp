@@ -37,33 +37,8 @@ jobs:
         name: 计算本Run版本
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/releases.json"
-          node --input-type=module >> "$GITHUB_OUTPUT" <<'NODE'
-          import {readFileSync} from 'node:fs';
-          import {execFileSync} from 'node:child_process';
-          const platform='ios',prefix='公民·iOS·v';
-          const valid=value=>typeof value==='string'&&/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u.test(value)
-            &&value.split('.').every(part=>BigInt(part)<2n**64n);
-          let version=/^version:\s*([^+\s]+)/mu.exec(readFileSync('pubspec.yaml','utf8'))[1];
-          const releases=JSON.parse(readFileSync(process.env.RUNNER_TEMP+'/releases.json','utf8')).flat()
-            .filter(row=>row.draft===false&&row.prerelease===false&&typeof row.tag_name==='string'&&row.tag_name.startsWith(prefix))
-            .sort((a,b)=>String(b.published_at).localeCompare(String(a.published_at))||b.id-a.id);
-          for(const release of releases){
-            let proof;try{proof=JSON.parse(release.body);}catch{continue;}
-            if(proof?.product_id!=='citizenapp'||proof.platform!==platform)continue;
-            if(proof.schema!==1||!valid(proof.version)||release.tag_name!==prefix+proof.version
-              ||!Number.isSafeInteger(proof.run_id)||proof.run_id<=0)throw Error('公民正式版本记录无效');
-            const run=JSON.parse(execFileSync('gh',['api','repos/'+process.env.GITHUB_REPOSITORY+'/actions/runs/'+proof.run_id],{encoding:'utf8'}));
-            if(run.status!=='completed'||run.conclusion!=='success')continue;
-            if(run.path!=='.github/workflows/'+platform+'.yml'||run.head_branch!=='main'||run.event!=='workflow_dispatch'
-              ||run.head_sha!==proof.source_sha||run.run_attempt!==proof.run_attempt)throw Error('公民版本与成功Run不符');
-            const parts=proof.version.split('.');parts[2]=String(BigInt(parts[2])+1n);version=parts.join('.');break;
-          }
-          if(!valid(version))throw Error('公民本轮版本无效');
-          console.log('version='+version);
-          NODE
+        run: node .github/release.mjs version ios
+
   compile:
     needs: version
     if: github.ref == 'refs/heads/main' && github.repository == 'crcfrcn/citizenapp'
@@ -108,63 +83,15 @@ jobs:
           restore-keys: |
             citizenapp-ios-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pubspec.lock', 'ios/Podfile.lock', 'android/app/build.gradle.kts') }}-
       - name: 准备官方工具和本轮目录
-        run: |
-          set -euo pipefail
-          work="$GITHUB_WORKSPACE/target/build/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          mkdir -p "$work" target/cache
-          echo "WORK=$work" >> "$GITHUB_ENV"
-          node scripts/build.mjs prepare-flutter ios
-          rustup toolchain install 1.97.1 --profile minimal
-          rustup target add --toolchain 1.97.1 aarch64-apple-ios aarch64-apple-ios-sim
-          gem install cocoapods -v 1.17.0 --no-document --install-dir "$work/gems"
-          echo "GEM_HOME=$work/gems" >> "$GITHUB_ENV"
-          echo "$work/gems/bin" >> "$GITHUB_PATH"
-          # 通过官方sdkmanager仅安装Apple原生依赖所需的同版CMake。
-          export ANDROID_HOME="$HOME/Library/Android/sdk"
-          test -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "cmake;3.31.6"
-          echo "$ANDROID_HOME/cmake/3.31.6/bin" >> "$GITHUB_PATH"
-          # App资源工具与其他官方工具在同一步准备，不增加功能构建步骤。
-          version=$(node --input-type=module -e "import fs from 'node:fs'; console.log(JSON.parse(fs.readFileSync('topup/web/package.json')).citizenapp.tools.esbuild)")
-          npm install --prefix "$work/tools" --ignore-scripts --no-audit --no-fund "esbuild@$version"
-          echo "ESBUILD_BIN=$work/tools/node_modules/.bin/esbuild" >> "$GITHUB_ENV"
+        run: node .github/release.mjs prepare ios
       - name: 按本产品原锁装配普通工程
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          node --input-type=module <<'JS'
-          import {assembleProject} from './scripts/build.mjs';
-          await assembleProject(process.env);
-          JS
+        run: node .github/release.mjs assemble ios
       - name: 准备原生测试输入
-        run: |
-          set -euo pipefail
-          cd "$WORK/project"
-          flutter pub get --enforce-lockfile
-          node --input-type=module <<'JS'
-          import {readFileSync, copyFileSync, appendFileSync} from 'node:fs';
-          import {fileURLToPath} from 'node:url';
-          import {join} from 'node:path';
-          const file = new URL('file://' + process.cwd() + '/.dart_tool/package_config.json');
-          const entry = JSON.parse(readFileSync(file)).packages.find(row => row.name === 'isar_community_flutter_libs');
-          if (!entry) throw Error('原锁缺少Isar');
-          const library = process.env.WORK + '/libisar.dylib';
-          // rootUri可不带尾斜线；先解析包根路径，避免URL拼接替换末级包目录。
-          const packageRoot = fileURLToPath(new URL(entry.rootUri, file));
-          copyFileSync(join(packageRoot, 'macos', 'libisar.dylib'), library);
-          appendFileSync(process.env.GITHUB_ENV, 'ISAR_CORE_LIB_PATH=' + library + '\n');
-          appendFileSync(process.env.GITHUB_ENV, 'CITIZENAPP_TEST_WORK_DIR=' + process.env.WORK + '\n');
-          JS
-          git clone --filter=blob:none --sparse --depth=1 https://github.com/crcfrcn/citizenchain.git "$WORK/chain"
-          git -C "$WORK/chain" sparse-checkout set runtime/primitives/tests/fixtures
-          git -C "$WORK/chain" rev-parse HEAD > "$WORK/chain-source-sha"
-          echo "CITIZENCHAIN_ROOT=$WORK/chain" >> "$GITHUB_ENV"
+        run: node .github/release.mjs test-inputs ios
       - name: AI代码回归、严格分析及完整Flutter测试
-        run: |
-          set -euo pipefail
-          export CITIZENAPP_TEST_ROOT="$WORK/project"
-          node lib/test/run.mjs
+        run: node .github/release.mjs test ios
       - name: 准备本轮Apple签名输入
         env:
           IOS_KEY: ${{ secrets.IOS_KEY }}
@@ -246,7 +173,7 @@ jobs:
           grep -Fq "$(cat "$WORK/signing/certificate")" "$WORK/signing/identities"
       - name: 编译并导出正式IPA
         id: build
-        run: node scripts/build.mjs ios
+        run: node .github/release.mjs compile ios
       - name: 核对iOS正式包
         run: |
           set -euo pipefail
@@ -270,29 +197,7 @@ jobs:
           await chat.verifyMls(work + '/verify/Payload/' + apps[0] + '/Frameworks/MLS.framework/MLS', 'ios');
           JS
       - name: 生成本轮正式附件说明
-        run: |
-          set -euo pipefail
-          node --input-type=module <<'JS'
-          import {execFileSync} from 'node:child_process';
-          import {readFileSync, writeFileSync, readdirSync, statSync} from 'node:fs';
-          const work = process.env.WORK, title = '公民·iOS·v' + process.env.CITIZENAPP_VERSION;
-          const directory = work + '/artifact';
-          const digest = file => execFileSync('shasum', ['-a', '256', file], {encoding: 'utf8'}).split(' ')[0];
-          const asset = name => ({name, size: statSync(directory + '/' + name).size, sha256: digest(directory + '/' + name)});
-          const proof = {
-              schema: 1, product_id: 'citizenapp', platform: process.env.PLATFORM,
-              version: process.env.CITIZENAPP_VERSION, version_code: Number(process.env.GITHUB_RUN_NUMBER),
-              source_sha: process.env.GITHUB_SHA, run_id: Number(process.env.GITHUB_RUN_ID),
-              run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT),
-              chain_test_sha: readFileSync(work + '/chain-source-sha', 'utf8').trim(),
-              sdk_sources: JSON.parse(readFileSync(work + '/sdk-sources.json', 'utf8')),
-              assets: readdirSync(directory).sort().map(asset)
-          };
-          const name = title + '.json';
-          writeFileSync(directory + '/' + name, JSON.stringify(proof, null, 2) + '\n');
-          proof.assets.push(asset(name));
-          writeFileSync(work + '/proof.json', JSON.stringify(proof, null, 2) + '\n');
-          JS
+        run: node .github/release.mjs manifest ios
       - name: 公民·iOS·v${{ needs.version.outputs.version }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -303,67 +208,7 @@ jobs:
       - name: 创建正式Tag和Release并逐件回读
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          name="公民·iOS·v$CITIZENAPP_VERSION"
-          encoded="$(jq -nr --arg value "$name" '$value|@uri')"
-          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$WORK/releases.json"
-          old="$(jq -c --arg tag "$name" '[.[][]|select(.tag_name==$tag)]' "$WORK/releases.json")"
-          test "$(jq 'length' <<< "$old")" -le 1
-          if [ "$(jq 'length' <<< "$old")" = 1 ]; then
-            proof="$(jq -r '.[0].body' <<< "$old")"
-            jq -e --arg version "$CITIZENAPP_VERSION" '.product_id=="citizenapp" and .platform=="ios" and .version==$version' <<< "$proof" >/dev/null
-            previous_run="$(jq -r .run_id <<< "$proof")"
-            previous_attempt="$(jq -r .run_attempt <<< "$proof")"
-            previous_sha="$(jq -r .source_sha <<< "$proof")"
-            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$previous_run/attempts/$previous_attempt" \
-              | jq -e --arg sha "$previous_sha" '.status=="completed" and .conclusion!="success" and .head_sha==$sha and .path==".github/workflows/ios.yml"' >/dev/null
-            gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$encoded" \
-              | jq -e --arg sha "$previous_sha" '.object.type=="commit" and .object.sha==$sha' >/dev/null
-            gh release delete "$name" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
-          fi
-          # 未登记的同名Tag绝不覆盖。只有本轮新建对象可被失败回滚删除。
-          export CITIZENAPP_RELEASE_NAME="$name"
-          tag_created=false
-          rollback() {
-            code=$?
-            if [ "$code" != 0 ]; then
-              # gh创建成功但附件上传失败也可能留下草稿，按本Run证明准确查回。
-              owned="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[]|select(.tag_name==env.CITIZENAPP_RELEASE_NAME and .target_commitish==env.GITHUB_SHA)|select((.body|fromjson?|.run_id)==(env.GITHUB_RUN_ID|tonumber))|.id')" || echo '本次Release查询未完成' >&2
-              if [[ "${owned:-}" =~ ^[1-9][0-9]*$ ]]; then
-                gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$owned" || echo '本次Release撤销未完成' >&2
-              fi
-              if [ "$tag_created" = true ]; then
-                if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$encoded" | jq -e --arg sha "$GITHUB_SHA" '.object.type=="commit" and .object.sha==$sha' >/dev/null; then
-                  gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$encoded" || echo '本次Tag撤销未完成' >&2
-                else
-                  echo '本次Tag归属或撤销状态未确认' >&2
-                fi
-              fi
-            fi
-            exit "$code"
-          }
-          trap rollback EXIT
-          gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$name" -f "sha=$GITHUB_SHA" > "$WORK/tag.json"
-          tag_created=true
-          assets=()
-          for file in "$WORK/artifact/"*; do assets+=("$file#$(basename "$file")"); done
-          gh release create "$name" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --verify-tag \
-            --target "$GITHUB_SHA" --title "$name" --notes-file "$WORK/proof.json" --draft
-          gh release view "$name" --repo "$GITHUB_REPOSITORY" --json assets > "$WORK/assets.json"
-          mkdir "$WORK/readback"
-          for file in "$WORK/artifact/"*; do
-            label="$(basename "$file")"
-            remote="$(jq -er --arg label "$label" '[.assets[]|select(.label==$label)]|if length==1 then .[0].name else error("附件标签不唯一") end' "$WORK/assets.json")"
-            gh release download "$name" --repo "$GITHUB_REPOSITORY" --pattern "$remote" --output "$WORK/readback/$label"
-            cmp "$file" "$WORK/readback/$label"
-          done
-          gh release edit "$name" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false --latest=false
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$encoded" \
-            | jq -e --arg sha "$GITHUB_SHA" --arg tag "$name" '.draft==false and .prerelease==false and .published_at!=null and .name==$tag and .tag_name==$tag and .target_commitish==$sha and (.assets|length)==2' >/dev/null
-          gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$encoded" \
-            | jq -e --arg sha "$GITHUB_SHA" '.object.type=="commit" and .object.sha==$sha' >/dev/null
-          trap - EXIT
+        run: node .github/release.mjs release ios
       # 同一Run交付成功后上传同一份IPA；只等待Apple处理，不提交审核或上架。
       - name: 上传正式IPA到App Store Connect
         timeout-minutes: 30
@@ -400,25 +245,7 @@ jobs:
           key: citizenapp-ios-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pubspec.lock', 'ios/Podfile.lock', 'android/app/build.gradle.kts') }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: 清理本轮普通现场和签名输入
         if: always()
-        run: |
-          set -euo pipefail
-          if [ -z "${WORK:-}" ]; then exit 0; fi
-          test "$WORK" = "$GITHUB_WORKSPACE/target/build/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          python3 - <<'PY'
-          import os, pathlib, shlex, subprocess, shutil
-          work = pathlib.Path(os.environ['WORK'])
-          directory = work / 'signing'
-          if (work / 'build-active.json').exists():
-              raise RuntimeError('编译进程退出未确认，保留现场')
-          if (directory / 'keychains').exists():
-              original = shlex.split((directory / 'keychains').read_text())
-              subprocess.run(['security', 'list-keychains', '-d', 'user', '-s', *original], check=True)
-          if (directory / 'release.keychain-db').exists():
-              subprocess.run(['security', 'delete-keychain', str(directory / 'release.keychain-db')], check=True)
-          if (directory / 'installed-profile').exists():
-              pathlib.Path((directory / 'installed-profile').read_text()).unlink(missing_ok=True)
-          shutil.rmtree(work)
-          PY
+        run: node .github/release.mjs cleanup-work ios
   cleanup:
     name: 公民·iOS·收尾
     needs: [version, compile]
@@ -428,86 +255,16 @@ jobs:
       contents: write
       actions: write
     steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: '25.2.1'
+          check-latest: false
       - name: 清理本平台旧记录并回查
         env:
           GH_TOKEN: ${{ github.token }}
-          PLATFORM: ios
           RESULT: ${{ needs.version.result == 'success' && needs.compile.result == 'success' && 'success' || 'failure' }}
-        run: |
-          set -euo pipefail
-          base="repos/$GITHUB_REPOSITORY"
-          label=$([ "$PLATFORM" = ios ] && echo iOS || echo Android)
-          prefix="公民·${label}·v"
-          # 仅真实404表示不存在；失败不重试，也不把权限或网络错误当作清理成功。
-          gone() {
-            local response
-            if response="$(gh api --method GET --include --silent "$base/$1" 2>&1)"; then return 1; fi
-            [[ "$response" =~ HTTP/[0-9.]+[[:space:]]404 ]]
-          }
-          pages() { gh api --paginate --slurp "$base/$1" | jq -c "map($2) | add // []"; }
-          runs="$(pages "actions/workflows/$PLATFORM.yml/runs?branch=main&per_page=100" .workflow_runs)"
-          # 当前Run按编译结果选择保留组；活动Run始终保留，真实终态仍由GitHub确认。
-          keep="$(jq -c --argjson current "$GITHUB_RUN_ID" --arg result "$RESULT" '
-            [.[] | select(.status == "completed" or .id == $current) |
-              {id, order:.run_number, result:(if .id == $current then $result elif .conclusion == "success" then "success" else "failure" end)}] |
-            group_by(.result) | map(max_by([.order,.id]).id)' <<<"$runs")"
-          keep="$(jq -c --argjson keep "$keep" --argjson current "$GITHUB_RUN_ID" '
-            $keep + [$current] + [.[] | select(.status != "completed") | .id] | unique' <<<"$runs")"
-          releases="$(pages 'releases?per_page=100' .)"
-          while IFS= read -r release; do
-            proof="$(jq -ce --arg platform "$PLATFORM" --arg prefix "$prefix" '
-              . as $release | (.body | fromjson) |
-              select(.product_id == "citizenapp" and .platform == $platform and
-                (.run_id | type == "number" and . > 0 and . == floor) and
-                (.run_attempt | type == "number" and . > 0 and . == floor) and
-                (.source_sha | test("^[a-f0-9]{40}$")) and
-                (.version | test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")) and
-                $release.tag_name == ($prefix + .version) and $release.target_commitish == .source_sha)' <<<"$release")"
-            owner="$(jq -r .run_id <<<"$proof")"
-            old="$(jq -c --argjson owner "$owner" '.[] | select(.id == $owner)' <<<"$runs")"
-            if [ -n "$old" ]; then
-              jq -e --argjson proof "$proof" '.head_sha == $proof.source_sha and .run_attempt >= $proof.run_attempt' <<<"$old" >/dev/null
-            else
-              gone "actions/runs/$owner"
-            fi
-            if jq -e --argjson owner "$owner" 'index($owner) != null' <<<"$keep" >/dev/null; then continue; fi
-            tag="$(jq -r .tag_name <<<"$release")"
-            encoded="$(jq -nr --arg tag "$tag" '$tag | @uri')"
-            if ref="$(gh api "$base/git/ref/tags/$encoded" 2>/dev/null)"; then
-              jq -e --argjson proof "$proof" '.object.type == "commit" and .object.sha == $proof.source_sha' <<<"$ref" >/dev/null
-              gh api --method DELETE "$base/git/refs/tags/$encoded"
-              gone "git/ref/tags/$encoded"
-            else
-              gone "git/ref/tags/$encoded"
-            fi
-            id="$(jq -r .id <<<"$release")"
-            gh api --method DELETE "$base/releases/$id"
-            gone "releases/$id"
-          done < <(jq -c --arg prefix "$prefix" '.[] | select(.tag_name | startswith($prefix))' <<<"$releases")
-          # 缓存只处理本平台、main和准确Run后缀；旧Run删除同时移除其日志与Artifact。
-          caches="$(pages 'actions/caches?per_page=100' .actions_caches)"
-          stale="$(jq -c --arg prefix "citizenapp-$PLATFORM-" --argjson keep "$keep" '
-            [.[] | select(.ref == "refs/heads/main" and (.key | startswith($prefix))) |
-              (.key | capture("-(?<run>[1-9][0-9]*)-[1-9][0-9]*$").run | tonumber) as $owner |
-              select($keep | index($owner) | not) | .id]' <<<"$caches")"
-          while IFS= read -r id; do gh api --method DELETE "$base/actions/caches/$id"; done < <(jq -r '.[]' <<<"$stale")
-          pages 'actions/caches?per_page=100' .actions_caches |
-            jq -e --argjson stale "$stale" 'all(.[]; .id as $id | $stale | index($id) == null)' >/dev/null
-          obsolete="$(jq -c --argjson keep "$keep" '[.[] | select(.status == "completed") | .id | select(. as $id | $keep | index($id) | not)]' <<<"$runs")"
-          while IFS= read -r id; do
-            gh run delete "$id" --repo "$GITHUB_REPOSITORY"
-            gone "actions/runs/$id"
-            gone "actions/runs/$id/logs"
-          done < <(jq -r '.[]' <<<"$obsolete")
-          pages 'actions/artifacts?per_page=100' .artifacts |
-            jq -e --argjson obsolete "$obsolete" 'all(.[]; .workflow_run.id as $id | $obsolete | index($id) == null)' >/dev/null
-          # 无回执的孤立Tag不从Run显示名猜归属，保留并报告真实失败。
-          remaining="$(pages 'releases?per_page=100' .)"
-          protected="$(jq -c --arg prefix "$prefix" --argjson keep "$keep" '
-            [.[] | select(.tag_name | startswith($prefix)) |
-              (.body | fromjson | .run_id) as $owner |
-              if ($keep | index($owner)) != null then .tag_name else error("仍有未清理的Release") end]' <<<"$remaining")"
-          encoded="$(jq -nr --arg prefix "$prefix" '$prefix | @uri')"
-          pages "git/matching-refs/tags/$encoded?per_page=100" . |
-            jq -e --argjson protected "$protected" 'all(.[]; (.ref | ltrimstr("refs/tags/")) as $tag | $protected | index($tag) != null)' >/dev/null
-          printf '本平台历史清理完成，保留Run：%s\n' "$keep"
+        run: node .github/release.mjs cleanup ios

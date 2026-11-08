@@ -55,6 +55,8 @@ android {
         }
     }
 
+    sourceSets.getByName("main").java.srcDir("../chat")
+
     packaging {
         jniLibs {
             // 第三方插件可能携带非 ARM64 预编译库；打包阶段统一排除，确保 APK
@@ -76,9 +78,12 @@ dependencies {
 
 // 统一使用Kotlin公开编译配置，与Java 17字节码保持一致。
 kotlin {
-    // 扁平受控输入在本轮工程中明确登记，避免Kotlin入口漏编。
-    sourceSets.getByName("main").kotlin.setSrcDirs(listOf("src/main"))
-    sourceSets.getByName("androidTest").kotlin.setSrcDirs(listOf("src/androidTest"))
+    // 直接引用本轮源码，排除 Flutter 生成的 Kotlin 示例入口。
+    sourceSets.getByName("main").kotlin.apply {
+        setSrcDirs(listOf(".", "../square"))
+        exclude("src/**", "build/**", ".gradle/**")
+    }
+    sourceSets.getByName("androidTest").kotlin.setSrcDirs(listOf("../tests"))
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
