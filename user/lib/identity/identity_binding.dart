@@ -1,3 +1,5 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
+
 import 'dart:convert';
 
 /// 链上已确认的公开身份绑定；不含任何钱包或数据秘密。
@@ -15,7 +17,7 @@ final class IdentityBinding {
   static final _hash = RegExp(r'^0x[0-9a-f]{64}$');
   void validate() {
     if (!_hash.hasMatch(genesisHash) ||
-        !_hash.hasMatch(accountId) ||
+        !isCitizenAccountId(accountId) ||
         !RegExp(r'^[\x21-\x39\x3b-\x7e]{1,32}$').hasMatch(cidNumber) ||
         bindRev <= 0 ||
         bindRev > 9007199254740991) {

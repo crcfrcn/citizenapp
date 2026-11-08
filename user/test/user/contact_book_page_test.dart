@@ -477,7 +477,8 @@ void main() {
 
   testWidgets('联系人列表首帧直接使用公开资料与本机头像缓存', (tester) async {
     final profile = _profile.copyWith(
-      avatarKey: 'profile/$_contactCidNumber/avatar',
+      avatarKey:
+          'i/$_contactCidNumber/avatar/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     );
     const avatarPath = '/cached/profile/avatar.webp';
     await tester.pumpWidget(
@@ -581,9 +582,8 @@ void main() {
     await tester.pumpWidget(_page(profile: emptyProfile));
     await tester.pumpAndSettle();
 
-    final fallback = ProfilePresentation.forIdentityKey(
-      _contactCidNumber,
-    ).fallbackName;
+    final fallback = ProfilePresentation.forIdentityKey(_contactCidNumber)
+        .fallbackName;
     expect(find.text(fallback), findsOneWidget);
     expect(find.textContaining('SS58：'), findsNothing);
   });

@@ -276,7 +276,7 @@ void main() {
     );
     await t.pumpWidget(const SizedBox.shrink());
   });
-  for (final reason in ['后台', '目录变更', '读取失败']) {
+  for (final reason in ['后台', '目录变更']) {
     testWidgets('原备份框$reason立即清屏，返回前台或迟到事件不重开', (t) async {
       addTearDown(() => _foreground(t));
       final core = await openTestSdk(
@@ -286,17 +286,13 @@ void main() {
             CitizenSdkModules.qr,
         vaultMode: 1,
       );
-      var created = 0, failRead = false;
+      var created = 0;
       await t.pumpWidget(
         _host(
           core.sdk,
           CreateWalletOnboardingPage(
             onCreated: () => created++,
             deviceSecureProbe: () async => true,
-            stateReader: () {
-              if (failRead) throw StateError('合成读取失败');
-              return core.sdk.getWalletState().result;
-            },
           ),
         ),
       );
@@ -306,7 +302,6 @@ void main() {
       if (reason == '后台') {
         _background(t);
       } else {
-        failRead = reason == '读取失败';
         await t.runAsync(() async {
           final state = await core.sdk.getWalletState().result;
           return core.sdk

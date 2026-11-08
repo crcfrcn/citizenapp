@@ -7,8 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 ///
 ///
 /// - 链上权威仍然是 `UserBank[user]` 与 `ClearingBankNodes[cid_number]`。
-/// - 本地只缓存 UI 和扫码付款所需的索引字段,每次关键操作前都要重新查链上
-///   或清算行节点确认,不能把本快照当作信任根。
+/// - 本地快照只供展示。当前绑定和操作端点均须查链。
 class ClearingBankBindingSnapshot {
   const ClearingBankBindingSnapshot({
     required this.cidNumber,
@@ -75,11 +74,8 @@ class ClearingBankBindingSnapshot {
 
 /// 扫码支付 Step 3:**用户绑定清算行本地快照缓存**。
 ///
-///
-/// - 链上 `OffchainTransaction::UserBank[user]` 存的是**主账户** `AccountId32`
-///   (32 字节),**不是** CID `cid_number` 字符串。CitizenApp 同时需要 cid_number、
-///   主账户和链上 `ClearingBankNodes` 端点,所以本地缓存升级为 JSON 快照。
-/// - 快照仅是用户体验缓存;绑定、支付、充值、提现前仍要查链上或清算行节点。
+/// - 链上 `OffchainTransaction::UserBank[user]` 保存清算行机构 CID。
+/// - 本地快照补充名称、派生账户和节点端点，绑定和切换以 finalized 链状态为准。
 /// - 缓存按 `account_id` 隔离(单钱包多账户下,每个账户独立绑定清算行,互不干扰)。
 class ClearingBankPrefs {
   ClearingBankPrefs._();
@@ -90,16 +86,23 @@ class ClearingBankPrefs {
   static Future<bool> Function(SharedPreferences prefs, String key)?
   debugRemoveForTest;
 
+  @visibleForTesting
+  static Future<bool> Function(SharedPreferences prefs, String key, String value)?
+  debugSetForTest;
+
   /// 写入完整绑定快照。[accountId] 为该绑定账户的链账户主键(0x+64hex)。
   static Future<void> saveSnapshot(
     String accountId,
     ClearingBankBindingSnapshot snapshot,
   ) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      '$_keyPrefix$accountId',
-      jsonEncode(snapshot.toJson()),
-    );
+    final key = '$_keyPrefix$accountId';
+    final value = jsonEncode(snapshot.toJson());
+    final set = debugSetForTest;
+    final saved = await (set == null
+        ? prefs.setString(key, value)
+        : set(prefs, key, value));
+    if (!saved) throw StateError('清算行缓存写入未提交');
   }
 
   /// 读取完整绑定快照。[accountId] 为该账户的链账户主键(0x+64hex)。
@@ -125,7 +128,7 @@ class ClearingBankPrefs {
     }
   }
 
-  /// 清除(切换清算行后由 bind 页主动覆盖,或用户手动解绑时调)。
+  /// 清除本地快照，链上绑定状态独立存储。
   static Future<void> clear(String accountId) async {
     final prefs = await SharedPreferences.getInstance();
     final key = '$_keyPrefix$accountId';

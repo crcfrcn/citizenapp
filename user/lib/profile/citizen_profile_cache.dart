@@ -35,9 +35,7 @@ class CitizenProfileCache {
   static const _updateFields = {
     'display_name',
     'profile_bio',
-    'avatar_key',
     'avatar_hash',
-    'banner_key',
     'banner_hash',
   };
 
@@ -63,14 +61,12 @@ class CitizenProfileCache {
     for (final role in ['avatar', 'banner']) {
       final bytes = role == 'avatar' ? row.avatarBytes : row.bannerBytes;
       if (bytes.isEmpty) {
-        if (request.containsKey('${role}_key') ||
-            request.containsKey('${role}_hash')) {
+        if (request.containsKey('${role}_hash')) {
           throw ArgumentError('修改图片必须持有完整字节');
         }
       } else {
         if (bytes.length > _limit(role) ||
-            request['${role}_hash'] != sha256.convert(bytes).toString() ||
-            request['${role}_key']?.isNotEmpty != true) {
+            request['${role}_hash'] != sha256.convert(bytes).toString()) {
           throw ArgumentError('待保存图片声明不一致');
         }
         _contentType(bytes);
@@ -128,9 +124,11 @@ class CitizenProfileCache {
     if (row.cidNumber != profile.cidNumber) return false;
     final request = jsonDecode(row.requestData) as Map<String, dynamic>;
     final actual = profile.toJson();
-    return request.entries
-        .where((e) => !e.key.endsWith('_hash'))
-        .every((e) => actual[e.key] == e.value);
+    return request.entries.every((entry) {
+      if (!entry.key.endsWith('_hash')) return actual[entry.key] == entry.value;
+      final role = entry.key.split('_').first;
+      return actual['${role}_key'] == 'i/${row.cidNumber}/$role/${entry.value}';
+    });
   }
 
   Future<void> confirmUpdate(CitizenProfile profile) async {

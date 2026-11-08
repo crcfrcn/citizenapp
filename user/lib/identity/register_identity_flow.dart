@@ -113,7 +113,6 @@ Future<bool> startCidRegistrationFlow(
             institution: choice.institution,
             accountId: choice.bindAccountId,
           ),
-          report: service.reportRegistration,
           canRetryChain: service.canRetryRegistration,
         );
         return RegistrationSubmitOutcome.success(
@@ -250,13 +249,12 @@ Future<void> _requireAffordable(
   final requiredFen = affordability.requiredFen;
   if (affordability.balanceFen >= requiredFen) return;
   throw RegistrationException(
-    '注册失败：钱包余额不足，至少需要 ${_formatFen(requiredFen)} 元',
+    '注册失败：钱包余额不足，至少需要 ${formatFen(requiredFen, group: false)} 元',
     code: 'insufficient_balance',
   );
 }
 
 /// 分 → 元展示串(两位小数)。
-String _formatFen(BigInt fen) => (fen / BigInt.from(100)).toStringAsFixed(2);
 
 String _describeError(Object error) {
   if (error is RegistrationException) return error.message;

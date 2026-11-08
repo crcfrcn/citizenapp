@@ -17,7 +17,6 @@ import 'package:citizen_user/membership/membership_revision.dart';
 import 'package:citizen_user/identity/finalized_identity_resolver.dart';
 import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_user/membership/subscription_chain.dart';
-import 'package:citizen_network/hex_codec.dart' show hexToBytes;
 
 class SubscriptionException implements Exception {
   const SubscriptionException(this.message);
@@ -601,6 +600,7 @@ class SubscriptionService {
           chargeAt: decoded['charge_at'] is int
               ? decoded['charge_at'] as int
               : 0,
+          cleanupAfter: decoded['cleanup_after'] as int?,
           plans: decoded['plans'] == null
               ? const []
               : SquareApiClient.decodeMembershipPlans(decoded['plans']),
@@ -644,6 +644,8 @@ class SubscriptionService {
           'charge_at': effective.state.chargeAt,
           'plans': effective.state.plans.map((plan) => plan.toJson()).toList(),
           'usage': effective.state.usageState?.toJson(),
+          if (effective.state.cleanupAfter != null)
+            'cleanup_after': effective.state.cleanupAfter,
           'prices': effective.prices,
           'member_at': effective.memberAt,
           'price_at': effective.priceAt,
@@ -671,6 +673,7 @@ class SubscriptionService {
             chargeAt: state.chargeAt,
             plans: state.plans,
             usageState: state.usageState,
+            cleanupAfter: state.cleanupAfter,
           )
         : state;
     final effective = identical(effectiveState, state)
@@ -746,7 +749,7 @@ class SubscriptionService {
     final cidNumber = identity.snapshot!.cidNumber;
     try {
       final result = await _subscriptionChain.subscribePlatform(
-        signerPublicKey: Uint8List.fromList(hexToBytes(identity.accountId)),
+        signerPublicKey: citizenAccountIdBytes(identity.accountId),
         level: level,
         expectedPriceFen: BigInt.from(expectedPriceFen),
         externalSigning: (pending) => _showExternalSigning(context, pending),
@@ -768,7 +771,7 @@ class SubscriptionService {
     final cidNumber = identity.snapshot!.cidNumber;
     try {
       final result = await _subscriptionChain.cancelPlatform(
-        signerPublicKey: Uint8List.fromList(hexToBytes(identity.accountId)),
+        signerPublicKey: citizenAccountIdBytes(identity.accountId),
         externalSigning: (pending) => _showExternalSigning(context, pending),
       );
       await _confirm(
@@ -792,7 +795,7 @@ class SubscriptionService {
     final cidNumber = identity.snapshot!.cidNumber;
     try {
       final result = await _subscriptionChain.changePlatformPlan(
-        signerPublicKey: Uint8List.fromList(hexToBytes(identity.accountId)),
+        signerPublicKey: citizenAccountIdBytes(identity.accountId),
         level: level,
         expectedPriceFen: BigInt.from(expectedPriceFen),
         externalSigning: (pending) => _showExternalSigning(context, pending),

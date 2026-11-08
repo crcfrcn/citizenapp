@@ -1,10 +1,10 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
+
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:polkadart/polkadart.dart' show Hasher;
 import 'package:citizen_citizen/institution/institution_role_storage_codec.dart';
 import 'package:citizen_citizen/administrators/admin_account.dart';
-import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_citizen/institution/institution_code_label.dart';
 
 /// 个人多签账户生命周期快照。
@@ -42,37 +42,23 @@ class PersonalManageAdminSnapshot {
 class PersonalManageStorageCodec {
   PersonalManageStorageCodec._();
 
-  static Uint8List personalAccountsKey(String accountId) {
-    return storageMapKey(
-      'PersonalManage',
-      'PersonalAccounts',
-      accountIdBytes(accountId),
-    );
-  }
+  static Uint8List personalAccountsKey(CitizenRuntimeContext runtime, String accountId) =>
+      runtime.storageKey('PersonalManage', 'PersonalAccounts', [citizenAccountIdBytes(accountId)]);
 
-  static Uint8List accountIdBytes(String accountId) {
-    if (!isAccountIdText(accountId)) {
-      throw const FormatException('account_id 必须为小写 0x + 64 位十六进制');
-    }
-    return hexDecode(accountId);
-  }
+  static Uint8List adminAccountKey(CitizenRuntimeContext runtime, Uint8List accountId) =>
+      runtime.storageKey('PersonalAdmins', 'AdminAccounts', [accountId]);
 
-  static Uint8List adminAccountKey(Uint8List accountId) {
-    return storageMapKey('PersonalAdmins', 'AdminAccounts', accountId);
-  }
-
-  static Uint8List activePersonalThresholdKey(Uint8List personalAccount) {
-    return storageMapKey(
-      'InternalVote',
-      'ActivePersonalThresholds',
-      personalAccount,
-    );
-  }
+  static Uint8List activePersonalThresholdKey(
+    CitizenRuntimeContext runtime,
+    Uint8List personalAccount,
+  ) => runtime.storageKey('InternalVote', 'ActivePersonalThresholds', [personalAccount]);
 
   static PersonalManageAccountSnapshot? decodePersonalAccount(Uint8List data) {
     if (data.length < 32 + 1 + 4 + 1) return null;
     var offset = 0;
-    final creatorAccount = '0x${hexEncode(data.sublist(offset, offset + 32))}';
+    final creatorAccount = citizenAccountIdFromBytes(
+      data.sublist(offset, offset + 32),
+    );
     offset += 32;
     final accountName = readBoundedBytes(data, offset);
     if (accountName == null) return null;
@@ -125,61 +111,6 @@ class PersonalManageStorageCodec {
     return readU32Le(data, 0);
   }
 
-  static Uint8List storageMapKey(
-    String palletName,
-    String storageName,
-    Uint8List keyData,
-  ) {
-    final palletHash = Hasher.twoxx128.hashString(palletName);
-    final storageHash = Hasher.twoxx128.hashString(storageName);
-    final keyHash = blake2128Concat(keyData);
-    final result = Uint8List(
-      palletHash.length + storageHash.length + keyHash.length,
-    );
-    var offset = 0;
-    result.setAll(offset, palletHash);
-    offset += palletHash.length;
-    result.setAll(offset, storageHash);
-    offset += storageHash.length;
-    result.setAll(offset, keyHash);
-    return result;
-  }
-
-  static Uint8List storageDoubleMapKey(
-    String palletName,
-    String storageName,
-    Uint8List key1Data,
-    Uint8List key2Data,
-  ) {
-    final palletHash = Hasher.twoxx128.hashString(palletName);
-    final storageHash = Hasher.twoxx128.hashString(storageName);
-    final key1Hash = blake2128Concat(key1Data);
-    final key2Hash = blake2128Concat(key2Data);
-    final result = Uint8List(
-      palletHash.length +
-          storageHash.length +
-          key1Hash.length +
-          key2Hash.length,
-    );
-    var offset = 0;
-    result.setAll(offset, palletHash);
-    offset += palletHash.length;
-    result.setAll(offset, storageHash);
-    offset += storageHash.length;
-    result.setAll(offset, key1Hash);
-    offset += key1Hash.length;
-    result.setAll(offset, key2Hash);
-    return result;
-  }
-
-  static Uint8List blake2128Concat(Uint8List data) {
-    final hash = Hasher.blake2b128.hash(data);
-    final result = Uint8List(hash.length + data.length);
-    result.setAll(0, hash);
-    result.setAll(hash.length, data);
-    return result;
-  }
-
   static ({Uint8List value, int nextOffset})? readBoundedBytes(
     Uint8List data,
     int offset,
@@ -195,37 +126,13 @@ class PersonalManageStorageCodec {
   }
 
   static (int, int) readCompactU32(Uint8List data, int offset) {
-    if (offset >= data.length) {
-      throw const FormatException('Compact<u32> offset 越界');
-    }
-    final first = data[offset];
-    final mode = first & 0x03;
-    if (mode == 0) return (first >> 2, 1);
-    if (mode == 1) {
-      if (offset + 1 >= data.length) {
-        throw const FormatException('Compact<u32> mode1 长度不足');
-      }
-      return ((first >> 2) | (data[offset + 1] << 6), 2);
-    }
-    if (mode == 2) {
-      if (offset + 3 >= data.length) {
-        throw const FormatException('Compact<u32> mode2 长度不足');
-      }
-      return (
-        (first >> 2) |
-            (data[offset + 1] << 6) |
-            (data[offset + 2] << 14) |
-            (data[offset + 3] << 22),
-        4,
-      );
-    }
-    throw const FormatException('Compact<u32> big-integer 模式暂不支持');
+    final result = CitizenScale.readCompact(data, offset);
+    if (result.$2 > 4) throw const FormatException('Compact<u32>长度超出范围');
+    return result;
   }
 
-  static int readU32Le(Uint8List data, int offset) {
-    final bd = ByteData.sublistView(data);
-    return bd.getUint32(offset, Endian.little);
-  }
+  static int readU32Le(Uint8List data, int offset) =>
+      CitizenScale.readUnsigned(data, offset, 4).toInt();
 
   static String accountNameText(Uint8List bytes) {
     return utf8.decode(bytes, allowMalformed: true);

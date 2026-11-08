@@ -3,8 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:polkadart/polkadart.dart' show Hasher;
-import 'package:citizen_citizen/administrators/account_id_codec.dart';
+import 'package:citizen_citizen/administrators/admin_account_storage_codec.dart';
 import 'package:citizen_citizen/administrators/admin_account_codec.dart';
 import 'package:citizen_citizen/administrators/admin_account.dart';
 
@@ -17,18 +16,22 @@ class AdminAccountService {
   AdminAccountService({
     CitizenSdk? chain,
     Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<CitizenRuntimeContext> Function(CitizenBlockRef)? getRuntimeContext,
     Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
     getStorage,
   }) : _getFinalizedHead =
            getFinalizedHead ??
            chain?.getFinalizedHead ??
            (() => throw StateError('未配置getFinalizedHead')),
+       _getRuntimeContext = getRuntimeContext ?? chain?.getRuntimeContext ??
+           ((block) => throw StateError('未配置getRuntimeContext')),
        _getStorage =
            getStorage ??
            chain?.getStorage ??
            ((CitizenBlockRef block, Uint8List key) =>
                throw StateError('未配置getStorage'));
   final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<CitizenRuntimeContext> Function(CitizenBlockRef) _getRuntimeContext;
   final Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)
   _getStorage;
 
@@ -61,7 +64,7 @@ class AdminAccountService {
     final account = await _loadAccount(identity);
     if (account == null) return null;
     // 完整权限仍要求同一 finalized 块的阈值读取成功，失败不把名册当权限快照。
-    final threshold = await _resolveThreshold(identity, account.finalized);
+    final threshold = await _resolveThreshold(identity, account.runtime);
     account.state = account.state.copyWith(threshold: threshold ?? 0);
     account.thresholdLoaded = true;
     return account.state;
@@ -96,16 +99,19 @@ class AdminAccountService {
     AdminAccountIdentity identity,
   ) async {
     final finalized = await _getFinalizedHead();
+    final runtime = await _getRuntimeContext(finalized);
     final Uint8List key;
     if (identity.type == AdminAccountIdentityType.institution) {
-      key = AdminAccountIdCodec.institutionAdminStorageKey(
+      key = AdminAccountStorageCodec.institutionAdminStorageKey(
         identity.cidNumber!,
+        runtime: runtime,
         orgCode: identity.orgCode,
         adminKind: identity.kind,
       );
     } else {
-      key = AdminAccountIdCodec.personalAdminStorageKey(
-        AdminAccountIdCodec.fromAccountIdText(identity.accountId!),
+      key = AdminAccountStorageCodec.personalAdminStorageKey(
+        citizenAccountIdBytes(identity.accountId!),
+        runtime: runtime,
       );
     }
     final data = await _getStorage(finalized, key);
@@ -117,11 +123,11 @@ class AdminAccountService {
             institutionKind: identity.kind,
           )
         : AdminAccountCodec.decodePersonal(
-            AdminAccountIdCodec.fromAccountIdText(identity.accountId!),
+            citizenAccountIdBytes(identity.accountId!),
             data,
           );
     if (decoded == null) throw const FormatException('管理员人员记录无效');
-    return _AdminAccountCacheEntry(decoded, finalized);
+    return _AdminAccountCacheEntry(decoded, runtime);
   }
 
   /// 名册只消费人员；阈值失败不会丢弃同一缓存中已核实的人员集合。
@@ -132,10 +138,12 @@ class AdminAccountService {
       (await fetchByIdentity(identity))?.threshold;
 
   Future<bool> isAdmin(String accountId, AdminAccountIdentity identity) async {
-    final normalizedAccountId = AdminAccountIdCodec.requireAccountId(accountId);
+    if (!isCitizenAccountId(accountId)) {
+      throw const FormatException('管理员账户标识无效');
+    }
     // 此入口仍是完整状态门禁，不能因只读名册解耦而跳过阈值故障。
     return ((await fetchByIdentity(identity))?.admins ?? const <AdminPerson>[])
-        .any((admin) => admin.accountId == normalizedAccountId);
+        .any((admin) => admin.accountId == accountId);
   }
 
   void clearCache([AdminAccountIdentity? identity]) {
@@ -151,8 +159,10 @@ class AdminAccountService {
   }
 
   void clearPersonalAccountCache(String accountId) {
-    final normalized = AdminAccountIdCodec.requireAccountId(accountId);
-    final key = 'personal-account:$normalized';
+    if (!isCitizenAccountId(accountId)) {
+      throw const FormatException('管理员账户标识无效');
+    }
+    final key = 'personal-account:$accountId';
     _cache.remove(key);
     _inFlight.remove(key);
     _accountReads.remove(key);
@@ -160,23 +170,21 @@ class AdminAccountService {
 
   Future<int?> _resolveThreshold(
     AdminAccountIdentity identity,
-    CitizenBlockRef finalized,
+    CitizenRuntimeContext runtime,
   ) async {
     if (identity.type == AdminAccountIdentityType.institution) {
       return _fetchThresholdStorage(
         palletName: identity.kind == 1 ? 'PrivateManage' : 'PublicManage',
         storageName: 'InstitutionGovernanceThresholds',
-        finalized: finalized,
-        keyData: AdminAccountIdCodec.scaleBytes(
-          utf8.encode(identity.cidNumber!),
-        ),
+        runtime: runtime,
+        keyData: Uint8List.fromList(utf8.encode(identity.cidNumber!)),
       );
     }
     return _fetchThresholdStorage(
       palletName: 'InternalVote',
       storageName: 'ActivePersonalThresholds',
-      finalized: finalized,
-      keyData: AdminAccountIdCodec.fromAccountIdText(identity.accountId!),
+      runtime: runtime,
+      keyData: citizenAccountIdBytes(identity.accountId!),
     );
   }
 
@@ -184,33 +192,21 @@ class AdminAccountService {
     required String palletName,
     required String storageName,
     required Uint8List keyData,
-    required CitizenBlockRef finalized,
+    required CitizenRuntimeContext runtime,
   }) async {
-    final key = _storageMapKey(palletName, storageName, keyData);
-    final data = await _getStorage(finalized, key);
+    final key = runtime.storageKey(palletName, storageName, [keyData]);
+    final data = await _getStorage(runtime.block, key);
     if (data == null || data.length != 4) return null;
-    return ByteData.sublistView(data).getUint32(0, Endian.little);
-  }
-
-  Uint8List _storageMapKey(
-    String palletName,
-    String storageName,
-    Uint8List keyData,
-  ) {
-    return Uint8List.fromList([
-      ...Hasher.twoxx128.hashString(palletName),
-      ...Hasher.twoxx128.hashString(storageName),
-      ...AdminAccountIdCodec.blake2128Concat(keyData),
-    ]);
+    return CitizenScale.readUnsigned(data, 0, 4).toInt();
   }
 }
 
 class _AdminAccountCacheEntry {
-  _AdminAccountCacheEntry(this.state, this.finalized)
+  _AdminAccountCacheEntry(this.state, this.runtime)
     : createdAt = DateTime.now();
 
   AdminAccountState state;
-  final CitizenBlockRef finalized;
+  final CitizenRuntimeContext runtime;
   bool thresholdLoaded = false;
   final DateTime createdAt;
 

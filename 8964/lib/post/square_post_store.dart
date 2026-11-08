@@ -1,3 +1,4 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_storage/social_isar.dart'
     as social_store
     show PostCursor, Erase, Draft, MediaLink, Media, Post, Publish;
@@ -10,7 +11,6 @@ import 'package:crypto/crypto.dart';
 import 'package:isar_community/isar.dart';
 
 import 'package:citizen_storage/social_isar.dart';
-import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_square/media/square_media_store.dart';
 import 'package:citizen_square/draft/compose_draft_store.dart';
 
@@ -253,7 +253,7 @@ class SquarePostStore
             current.uploadId != row.uploadId ||
             current.replaceId != row.replaceId ||
             (current.txHash != null && current.txHash != row.txHash) ||
-            (old >= 2 && current.blockHash != row.blockHash) ||
+            (current.blockHash != null && current.blockHash != row.blockHash) ||
             (old >= 3 &&
                 (current.publishedAt != row.publishedAt ||
                     current.postCategory != row.postCategory ||
@@ -304,7 +304,7 @@ class SquarePostStore
     _validateCidNumber(row.cidNumber);
     _requireNonEmpty(row.draftId, 'draft_id');
     _requireNonEmpty(row.postId, 'post_id');
-    if (!isAccountIdText(row.accountId) ||
+    if (!isCitizenAccountId(row.accountId) ||
         sha256.convert(row.manifestBytes).toString() != row.contentHash) {
       throw const SquarePostStoreException('发布恢复记录完整性不合法');
     }
@@ -739,7 +739,7 @@ class SquarePostStore
   static SquareLocalPost validate(SquareLocalPost post) {
     _requireNonEmpty(post.postId, 'post_id');
     _validateCidNumber(post.cidNumber);
-    if (!isAccountIdText(post.accountId)) {
+    if (!isCitizenAccountId(post.accountId)) {
       throw const SquarePostStoreException('account_id 格式不合法');
     }
     if (post.postCategory != 'normal' && post.postCategory != 'campaign') {

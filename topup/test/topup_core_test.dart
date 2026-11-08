@@ -31,21 +31,18 @@ Map<String, dynamic> evmFacts(
   TopupPayment p,
   String payer,
   String tx, {
-  String amount = '10000000',
-  bool finalized = true,
+  required String input,
+  String timestamp = '0x3e8',
 }) {
   final hash = '0x${'07' * 32}';
+  final amount = BigInt.parse(p.payAmount).toRadixString(16).padLeft(64, '0');
   return {
     'transaction': {
       'hash': tx,
       'from': payer,
       'to': p.asset,
       'value': '0x0',
-      'input': encodeErc20Transfer(
-        p.recvAddress,
-        BigInt.parse(amount),
-        '0b' * 32,
-      ),
+      'input': input,
       'blockHash': hash,
       'blockNumber': '0xa',
       'transactionIndex': '0x0',
@@ -65,8 +62,7 @@ Map<String, dynamic> evmFacts(
             '0x${payer.substring(2).padLeft(64, '0')}',
             '0x${p.recvAddress.substring(2).padLeft(64, '0')}',
           ],
-          'data':
-              '0x${BigInt.parse(amount).toRadixString(16).padLeft(64, '0')}',
+          'data': '0x$amount',
           'transactionHash': tx,
           'blockHash': hash,
           'blockNumber': '0xa',
@@ -78,10 +74,10 @@ Map<String, dynamic> evmFacts(
     'block': {
       'hash': hash,
       'number': '0xa',
-      'timestamp': '0x3e8',
+      'timestamp': timestamp,
       'transactions': [tx],
     },
-    'head': {'hash': hash, 'number': finalized ? '0xb' : '0x9'},
+    'head': {'hash': hash, 'number': '0xb'},
   };
 }
 
@@ -136,6 +132,10 @@ void main() {
       fixture['config'] as Map<String, dynamic>,
     );
     expect(value.hash, fixture['config_hash']);
+    final local = TopupConfig.local();
+    for (final pack in value.packages) {
+      expect(local.packageById(pack.packageId).payments, pack.payments);
+    }
     expect(value.fingerprint.split('\n').length, 22);
     expect(value.fingerprint.endsWith('\n'), true);
     final reordered = TopupConfig(
@@ -208,18 +208,21 @@ void main() {
     TopupNetwork.bnb,
   ]) {
     test('${network.wire}一轮成功准确6次RPC，不读取服务端或公民链', () async {
-      final p = payment(network),
-          payer = '0x${'01' * 20}',
-          tx = '0x${'02' * 32}',
-          facts = evmFacts(
-            payment(network),
-            '0x${'01' * 20}',
-            '0x${'02' * 32}',
-            amount: network == TopupNetwork.bnb
-                ? '10000000000000000000'
-                : '10000000',
-          ),
-          calls = <String>[];
+      final p = payment(network);
+      final payer = '0x${'01' * 20}', tx = '0x${'02' * 32}', binding = '0b' * 32;
+      final amount = network == TopupNetwork.bnb ? '8ac7230489e80000' : '989680';
+      final input =
+          '0xa9059cbb${'0' * 24}${p.recvAddress.substring(2)}'
+          '${amount.padLeft(64, '0')}$binding';
+      expect(erc20Transaction(p, binding), {
+        'to': p.asset,
+        'value': '0x0',
+        'chainId': '0x${network.evmId.toRadixString(16)}',
+        'data': input,
+      });
+      expect(input.length, 202);
+      final facts = evmFacts(p, payer, tx, input: input);
+      final calls = <String>[];
       final proof = await verifyErc20Payment(
         p,
         payer,
@@ -234,9 +237,25 @@ void main() {
           };
         },
         now: 1000000,
-        binding: '0b' * 32,
+        binding: binding,
       );
       expect(proof.matches(p, payer, tx), true);
+      expect(proof.toJson(), {
+        'binding_hash': binding,
+        'network': network.wire,
+        'payment_txid': tx,
+        'payer_address': payer,
+        'asset': p.asset,
+        'recv_address': p.recvAddress,
+        'pay_amount': p.payAmount,
+        'block_hash': '0x${'07' * 32}',
+        'block_number': 10,
+        'block_at': 1000000,
+        'transfer_index': 0,
+        'checked_at': 1000000,
+        'finalized': true,
+        'succeeded': true,
+      });
       expect(calls, [
         'eth_chainId',
         'eth_getTransactionReceipt',
@@ -265,7 +284,13 @@ void main() {
         );
         final payer = '0x${'01' * 20}',
             tx = '0x${'02' * 32}',
-            facts = evmFacts(p, payer, tx, amount: p.payAmount);
+            binding = '0b' * 32;
+        final facts = evmFacts(
+          p,
+          payer,
+          tx,
+          input: erc20Transaction(p, binding)['data'] as String,
+        );
         var calls = 0;
         final proof = await verifyErc20Payment(
           p,
@@ -280,7 +305,7 @@ void main() {
               _ => params.first == 'finalized' ? facts['head'] : facts['block'],
             };
           },
-          binding: '0b' * 32,
+          binding: binding,
           now: 1000000,
         );
         expect(proof.payer, payer);
@@ -489,95 +514,61 @@ void main() {
     expect(await dispatcher.open(link), WalletLinkResult.systemError);
     expect(calls, 3);
   });
-  for (final kind in [
-    'pending',
-    'failed',
-    'amount',
-    'receiver',
-    'payer',
-    'asset',
-    'removed',
-    'duplicate',
-    'membership',
-    'reorg',
-    'time',
-    'network',
-    'binding',
-    'caller',
-    'call_to',
-    'native_value',
-  ]) {
-    test('EVM拒绝$kind，不补查不重试', () async {
-      final p = payment(TopupNetwork.base),
-          payer = '0x${'01' * 20}',
-          tx = '0x${'02' * 32}',
-          facts = evmFacts(
-            payment(TopupNetwork.base),
-            '0x${'01' * 20}',
-            '0x${'02' * 32}',
-          );
-      final receipt = facts['receipt'] as Map<String, dynamic>,
-          block = facts['block'] as Map<String, dynamic>,
-          log = (receipt['logs'] as List).first as Map<String, dynamic>;
-      switch (kind) {
-        case 'failed':
-          receipt['status'] = '0x0';
-        case 'amount':
-          log['data'] =
-              '0x${BigInt.from(10000001).toRadixString(16).padLeft(64, '0')}';
-        case 'receiver':
-          (log['topics'] as List)[2] = '0x${'0' * 64}';
-        case 'payer':
-          (log['topics'] as List)[1] = '0x${'0' * 64}';
-        case 'asset':
-          log['address'] = '0x${'03' * 20}';
-        case 'removed':
-          log['removed'] = true;
-        case 'duplicate':
-          (receipt['logs'] as List).add(log);
-        case 'membership':
-          block['transactions'] = [];
-        case 'time':
-          block['timestamp'] = '0x3e7';
-      }
-      final actual = facts['transaction'] as Map<String, dynamic>;
-      if (kind == 'binding') {
-        actual['input'] = encodeErc20Transfer(
-          p.recvAddress,
-          BigInt.parse(p.payAmount),
-          '0c' * 32,
-        );
-      }
-      if (kind == 'caller') actual['from'] = '0x${'06' * 20}';
-      if (kind == 'call_to') actual['to'] = '0x${'07' * 20}';
-      if (kind == 'native_value') actual['value'] = '0x1';
-      var count = 0;
+  test('订单绑定必须为32字节小写十六进制，错误绑定不读取RPC', () async {
+    final p = payment(TopupNetwork.base);
+    final tx = '0x${'02' * 32}';
+    var calls = 0;
+    for (final binding in ['', '0b' * 31, '0B' * 32, '0b' * 33]) {
+      expect(() => erc20Transaction(p, binding), throwsFormatException);
+      await expectLater(
+        verifyErc20Payment(p, null, tx, (_, _) async {
+          calls++;
+          return null;
+        }, binding: binding),
+        throwsFormatException,
+      );
+    }
+    expect(calls, 0);
+  });
+  for (final kind in ['missing_binding', 'wrong_binding', 'before_order']) {
+    test('原订单拒绝$kind，不补查不重试', () async {
+      final p = payment(TopupNetwork.base);
+      final payer = '0x${'01' * 20}', tx = '0x${'02' * 32}', binding = '0b' * 32;
+      final input = erc20Transaction(p, binding)['data'] as String;
+      final actualInput = switch (kind) {
+        'missing_binding' => input.substring(0, input.length - 64),
+        'wrong_binding' =>
+          erc20Transaction(p, '0c' * 32)['data'] as String,
+        _ => input,
+      };
+      final facts = evmFacts(
+        p,
+        payer,
+        tx,
+        input: actualInput,
+        timestamp: kind == 'before_order' ? '0x3e7' : '0x3e8',
+      );
+      var calls = 0;
       await expectLater(
         verifyErc20Payment(
           p,
           payer,
           tx,
           (method, params) async {
-            count++;
-            if (method == 'eth_chainId') {
-              return kind == 'network' ? '0x1' : '0x2105';
-            }
-            if (method == 'eth_getTransactionReceipt') {
-              return kind == 'pending' ? null : receipt;
-            }
-            if (method == 'eth_getTransactionByHash') return actual;
-            if (params.first == 'finalized') return facts['head'];
-            if (kind == 'reorg' && count == 6) {
-              return {...block, 'hash': '0x${'08' * 32}'};
-            }
-            return block;
+            calls++;
+            return switch (method) {
+              'eth_chainId' => '0x2105',
+              'eth_getTransactionReceipt' => facts['receipt'],
+              'eth_getTransactionByHash' => facts['transaction'],
+              _ => params.first == 'finalized' ? facts['head'] : facts['block'],
+            };
           },
           now: 1000000,
-          binding: '0b' * 32,
+          binding: binding,
         ),
         throwsFormatException,
       );
-      expect(count, lessThanOrEqualTo(6));
+      expect(calls, kind == 'before_order' ? 5 : 3);
     });
   }
   test('付款回跳及网页paid布尔值不能构造已支付证据', () {

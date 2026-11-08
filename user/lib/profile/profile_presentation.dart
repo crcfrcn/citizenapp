@@ -1,3 +1,5 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
+
 /// 用户公开资料缺失时的唯一展示规则。
 ///
 /// 默认昵称、头像和背景由永久 CID 稳定派生；无 CID 的访客才用当前账户兜底。
@@ -16,8 +18,9 @@ class ProfilePresentation {
   final String avatarAsset;
   final String bannerAsset;
 
-  static final RegExp _accountIdPattern = RegExp(r'^0x[0-9a-f]{64}$');
-  static final RegExp _ss58Pattern = RegExp(r'^[1-9A-HJ-NP-Za-km-z]{40,64}$');
+  static final RegExp _addressLikePattern = RegExp(
+    r'^[1-9A-HJ-NP-Za-km-z]{40,64}$',
+  );
 
   static const List<String> _namePrefixes = <String>[
     '晨光',
@@ -83,8 +86,9 @@ class ProfilePresentation {
   factory ProfilePresentation.forIdentityKey(String identityKey) {
     identityKey = identityKey.trim();
     // 空身份键只用于页面尚未完成加载时的稳定占位，不代表真实用户。
-    final seed =
-        identityKey.isEmpty ? 'citizenapp-default-profile' : identityKey;
+    final seed = identityKey.isEmpty
+        ? 'citizenapp-default-profile'
+        : identityKey;
     final namePrefix = _stableHash(seed, 0x4e414d45) % _namePrefixes.length;
     final nameSuffix = _stableHash(seed, 0x4e49434b) % _nameSuffixes.length;
     final avatarIndex = _stableHash(seed, 0x41564154) % assets.length;
@@ -112,8 +116,8 @@ class ProfilePresentation {
   }
 
   bool _isIdentityOrAccountDerived(String candidate) {
-    if (_accountIdPattern.hasMatch(candidate) ||
-        _ss58Pattern.hasMatch(candidate)) {
+    if (isCitizenAccountId(candidate) ||
+        _addressLikePattern.hasMatch(candidate)) {
       return true;
     }
     if (identityKey.isEmpty) return false;

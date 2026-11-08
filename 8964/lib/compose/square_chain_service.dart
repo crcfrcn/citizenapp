@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:citizen_citizen/pallet_registry.dart';
@@ -7,8 +6,6 @@ import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
-import 'package:polkadart/polkadart.dart' show Hasher;
-import 'package:polkadart/scale_codec.dart' show ByteOutput, CompactBigIntCodec;
 
 import 'package:citizen_square/post/square_models.dart';
 import 'package:citizen_user/identity/citizen_identity_chain_reader.dart';
@@ -18,12 +15,13 @@ import 'package:citizen_user/membership/subscription_chain.dart'
 class SquareChainPublishedResult {
   const SquareChainPublishedResult({
     required this.txHash,
-
     required this.blockHash,
+    this.failed = false,
   });
 
   final String txHash;
   final String blockHash;
+  final bool failed;
 }
 
 class SquareChainPublishException implements Exception {
@@ -69,6 +67,7 @@ class SquareChainService implements SquarePostChainPublisher {
     CitizenSdk? transactions,
     CitizenIdentityChainReader? identityChainReader,
     Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<CitizenRuntimeContext> Function(CitizenBlockRef)? getRuntimeContext,
     Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
     getStorage,
     Future<List<Uint8List?>> Function(
@@ -91,18 +90,15 @@ class SquareChainService implements SquarePostChainPublisher {
     )?
     consumePreparedTransactionQrResponse,
     Stream<CitizenSdkEvent>? events,
-    Future<CitizenTransactionHistoryPage> Function()? recent,
+    CitizenHistoryReader? getHistory,
   }) : _events = events ?? transactions?.events,
-       _recent =
-           recent ??
-           (transactions == null
-               ? null
-               : () => transactions.getTransactionHistory(limit: 4)),
+       _getHistory = getHistory ?? transactions?.getTransactionHistory,
        _identityChainReader =
            identityChainReader ??
            CitizenIdentityChainReader(
              chain: chain,
              getFinalizedHead: getFinalizedHead,
+             getRuntimeContext: getRuntimeContext,
              getStorageBatch: getStorageBatch,
              getStorage: getStorage,
            ),
@@ -110,6 +106,9 @@ class SquareChainService implements SquarePostChainPublisher {
            getFinalizedHead ??
            chain?.getFinalizedHead ??
            (() => throw StateError('未配置getFinalizedHead')),
+       _getRuntimeContext =
+           getRuntimeContext ?? chain?.getRuntimeContext ??
+           ((block) => throw StateError('未配置getRuntimeContext')),
        _getStorage =
            getStorage ??
            chain?.getStorage ??
@@ -141,6 +140,8 @@ class SquareChainService implements SquarePostChainPublisher {
            ((String executionId, String response) =>
                throw StateError('未配置consumePreparedTransactionQrResponse'));
   final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<CitizenRuntimeContext> Function(CitizenBlockRef)
+  _getRuntimeContext;
   final Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)
   _getStorage;
   final Future<List<Uint8List?>> Function(
@@ -166,19 +167,20 @@ class SquareChainService implements SquarePostChainPublisher {
   final CitizenIdentityChainReader _identityChainReader;
 
   final Stream<CitizenSdkEvent>? _events;
-  final Future<CitizenTransactionHistoryPage> Function()? _recent;
+  final CitizenHistoryReader? _getHistory;
 
   static String _hash(String s) => s.startsWith('0x') ? s : '0x$s';
   Future<CitizenTransactionHistoryRecord?> _matching(
     String account,
     String call,
   ) async {
-    final history = await _recent?.call();
+    final history = await _getHistory?.call(limit: 4);
     if (history == null) return null;
     for (final record in history.records) {
-      if (_hash(record.sourceAccountId) == _hash(account) &&
-          _hash(record.callDataHash) == _hash(call))
+      if (record.sourceAccountId == account &&
+          _hash(record.callDataHash) == _hash(call)) {
         return record;
+      }
     }
     return null;
   }
@@ -199,13 +201,14 @@ class SquareChainService implements SquarePostChainPublisher {
     );
     final record = await _matching(
       accountId,
-      hexEncode(Hasher.blake2b256.hash(call)),
+      hexEncode(CitizenScale.blake2b256(call)),
     );
     if (record == null) return null;
     final finalBlock = record.execution?.block.hash;
     return SquareChainPublishedResult(
       txHash: _hash(record.transactionHash),
       blockHash: finalBlock ?? '',
+      failed: record.status == CitizenTransactionHistoryStatus.finalizedFailed,
     );
   }
 
@@ -235,8 +238,6 @@ class SquareChainService implements SquarePostChainPublisher {
     );
     final prepared = await _prepareTransaction(signerPublicKey, callData);
     String? observed;
-    var reading = false;
-    var queued = false;
     var closed = false;
     void signed(String hash) {
       if (closed || observed != null) return;
@@ -244,58 +245,31 @@ class SquareChainService implements SquarePostChainPublisher {
       onSigned?.call(hash);
     }
 
-    // SDK 先持久化已签原交易，再从轻节点发送。只读本地近期记录，按账户和调用摘要锁定本次。
-    Future<void> readSigned() async {
-      if (closed || observed != null) return;
-      if (reading) {
-        queued = true;
-        return;
-      }
-      reading = true;
-      try {
-        final row = await _matching(
-          hexEncode(signerPublicKey),
-          hexEncode(prepared.callDataHash),
-        );
-        if (row != null) signed(_hash(row.transactionHash));
-      } on Object {
-        // 最终回执仍可提供同一哈希。本地历史读失败不会触发重复签名。
-      } finally {
-        reading = false;
-        if (queued) {
-          queued = false;
-          unawaited(readSigned());
-        }
-      }
-    }
-
-    final listener = onSigned == null
+    final events = _events;
+    final getHistory = _getHistory;
+    // 同一准备标识观察 SDK 已持久化的本次签名，上传仍由广场决定。
+    final listener = onSigned == null || events == null || getHistory == null
         ? null
-        : _events?.listen((event) {
-            if (event is CitizenSdkHistoryChanged) unawaited(readSigned());
-          });
-    try {
-      final startedFuture = _executePreparedTransaction(prepared.preparationId);
-      if (onSigned != null) unawaited(readSigned());
-      final started = await startedFuture;
-      CitizenTransactionExecutionCompleted completed;
-      if (started is CitizenTransactionExternalSigningPending) {
-        final response = await externalSigning(started);
-        if (response == null) {
-          await _cancelPreparedTransactionExecution(started.executionId);
-          throw const SquareChainPublishException(
-            '广场发布签名已取消',
-            canAbortUpload: true,
+        : watchCitizenPreparedTransaction(
+            prepared: prepared, events: events, getHistory: getHistory,
+          ).listen(
+            (record) => signed(_hash(record.transactionHash)),
+            onError: (Object _) {
+              // 最终回执仍交付同一哈希。观察失败由原发布流程处理。
+            },
           );
-        }
-        final result = _consumePreparedTransactionQrResponse(
-          started.executionId,
-          response,
+    try {
+      final completed = await completeCitizenTransaction(
+        await _executePreparedTransaction(prepared.preparationId),
+        requestResponse: externalSigning,
+        consumeResponse: _consumePreparedTransactionQrResponse,
+        cancelExecution: _cancelPreparedTransactionExecution,
+      );
+      if (completed == null) {
+        throw const SquareChainPublishException(
+          '广场发布签名已取消',
+          canAbortUpload: true,
         );
-        if (onSigned != null) unawaited(readSigned());
-        completed = await result;
-      } else {
-        completed = started as CitizenTransactionExecutionCompleted;
       }
       final hash = _hash(hexEncode(completed.transactionHash));
       if (observed != null && observed != hash) {
@@ -317,6 +291,9 @@ class SquareChainService implements SquarePostChainPublisher {
       return SquareChainPublishedResult(
         txHash: hash,
         blockHash: execution.block.hash,
+        failed:
+            completed.resolution ==
+            CitizenTransactionResolution.finalizedFailed,
       );
     } finally {
       closed = true;
@@ -353,9 +330,10 @@ class SquareChainService implements SquarePostChainPublisher {
   /// 平台价链上单源（治理设置），未设该档返回 null，页面据此显示占位。
   Future<int?> fetchPlatformPriceFen(String level) async {
     final finalized = await _getFinalizedHead();
+    final runtime = await _getRuntimeContext(finalized);
     final data = await _getStorage(
       finalized,
-      _platformPriceKey(SubscriptionChain.membershipLevelByte(level)),
+      _platformPriceKey(runtime, level),
     );
     return decodePlatformPriceFen(data);
   }
@@ -365,12 +343,11 @@ class SquareChainService implements SquarePostChainPublisher {
     bool forceFresh = false,
   }) async {
     const levels = ['freedom', 'democracy', 'spark'];
-    final keys = <String, Uint8List>{
-      for (final level in levels)
-        level: _platformPriceKey(SubscriptionChain.membershipLevelByte(level)),
-    };
     final finalized = await _getFinalizedHead();
-    final values = await _getStorageBatch(finalized, keys.values.toList());
+    final runtime = await _getRuntimeContext(finalized);
+    final values = await _getStorageBatch(finalized, [
+      for (final level in levels) _platformPriceKey(runtime, level),
+    ]);
     final prices = <String, int>{};
     for (var index = 0; index < levels.length; index++) {
       final level = levels[index];
@@ -380,40 +357,17 @@ class SquareChainService implements SquarePostChainPublisher {
     return prices;
   }
 
-  /// `PlatformPrice` map 键：twox128(SquarePost) ++ twox128(PlatformPrice)
-  /// ++ Twox64Concat(levelByte)。Twox64Concat(x) = twox64(x) ++ x。
-  static Uint8List _platformPriceKey(int levelByte) {
-    final palletHash = Hasher.twoxx128.hashString('SquarePost');
-    final storageHash = Hasher.twoxx128.hashString('PlatformPrice');
-    final levelBytes = Uint8List.fromList([levelByte]);
-    final keyHash = Hasher.twoxx64.hash(levelBytes);
-    final result = Uint8List(
-      palletHash.length +
-          storageHash.length +
-          keyHash.length +
-          levelBytes.length,
-    );
-    var offset = 0;
-    result.setAll(offset, palletHash);
-    offset += palletHash.length;
-    result.setAll(offset, storageHash);
-    offset += storageHash.length;
-    result.setAll(offset, keyHash);
-    offset += keyHash.length;
-    result.setAll(offset, levelBytes);
-    return result;
-  }
+  static Uint8List _platformPriceKey(CitizenRuntimeContext runtime, String level) =>
+      runtime.storageKey('SquarePost', 'PlatformPrice', [
+        SubscriptionChain.membershipLevelVariant(level),
+      ]);
 
   /// 解码 `PlatformPrice` 值：u128 小端 16 字节 → int（分级金额在 int 安全范围）。
   /// 未设（null）或字节不足返回 null。
   @visibleForTesting
   static int? decodePlatformPriceFen(Uint8List? data) {
     if (data == null || data.length < 16) return null;
-    var value = BigInt.zero;
-    for (var i = 15; i >= 0; i--) {
-      value = (value << 8) | BigInt.from(data[i]);
-    }
-    return value.toInt();
+    return CitizenScale.readUnsigned(data, 0, 16).toInt();
   }
 
   @visibleForTesting
@@ -440,7 +394,7 @@ class SquareChainService implements SquarePostChainPublisher {
     if (contentHash.length != 32 || contentHash.every((byte) => byte == 0)) {
       throw ArgumentError('content_hash 必须是非零 32 字节 sha256 hex');
     }
-    final output = ByteOutput();
+    final output = CitizenScaleWriter();
     output.pushByte(palletIndex);
     output.pushByte(publishPostCallIndex);
     writeCompactBytes(output, postIdBytes);
@@ -457,9 +411,9 @@ class SquareChainService implements SquarePostChainPublisher {
         return false;
       }
       var offset = 0;
-      final validFrom = _readU32Le(data, offset);
+      final validFrom = CitizenScale.readUnsigned(data, offset, 4).toInt();
       offset += 4;
-      final validUntil = _readU32Le(data, offset);
+      final validUntil = CitizenScale.readUnsigned(data, offset, 4).toInt();
       offset += 4;
       final citizenStatus = data[offset];
       if (citizenStatus != 0) return false;
@@ -473,23 +427,9 @@ class SquareChainService implements SquarePostChainPublisher {
     }
   }
 
-  static void writeCompactBytes(ByteOutput output, Uint8List bytes) {
-    output.write(CompactBigIntCodec.codec.encode(BigInt.from(bytes.length)));
+  static void writeCompactBytes(CitizenScaleWriter output, Uint8List bytes) {
+    output.write(CitizenScale.compact(bytes.length));
     output.write(bytes);
-  }
-
-  static int _readU32Le(Uint8List data, int offset) =>
-      data[offset] |
-      (data[offset + 1] << 8) |
-      (data[offset + 2] << 16) |
-      (data[offset + 3] << 24);
-
-  static Uint8List u64LittleEndian(int value) {
-    if (value < 0) throw ArgumentError('u64 不能为负数');
-    final out = Uint8List(8);
-    final bytes = ByteData.sublistView(out);
-    bytes.setUint64(0, value, Endian.little);
-    return out;
   }
 
   static String hexEncode(List<int> bytes) =>

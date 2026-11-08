@@ -24,7 +24,6 @@ import 'package:citizen_storage/user_isar.dart' hide Group;
 
 import 'package:citizen_testing/institution/public_nav_harness.dart';
 
-import 'package:polkadart_keyring/polkadart_keyring.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
 import 'package:citizen_citizen/proposal/proposal_query_service.dart';
@@ -128,12 +127,14 @@ class _PageFeed extends MultisigTransferProposalFeed {
           final reads0 = TestChainReads();
           final reads1 = TestTransactionCalls();
           return MultisigTransferService(
+            buildCall: _buildCall,
+            getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
             getFinalizedHead: reads0.getFinalizedHead,
             getStorageKeysPaged: reads0.getStorageKeysPaged,
             getStorage: reads0.getStorage,
             getStorageBatch: reads0.getStorageBatch,
-            getAccountBalance: reads0.getAccountBalance,
-            getAccountBalances: reads0.getAccountBalances,
+
+
             getSystemEvents: reads0.getSystemEvents,
             getRuntimeContext: reads0.getRuntimeContext,
             prepareTransaction: reads1.prepareTransaction,
@@ -184,6 +185,7 @@ class _PageContext extends ProposalContextResolver {
         adminService: (() {
           final reads0 = TestChainReads();
           return InstitutionAdminService(
+            getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
             getFinalizedHead: reads0.getFinalizedHead,
             getStorageKeysPaged: reads0.getStorageKeysPaged,
             getStorageBatch: reads0.getStorageBatch,
@@ -193,6 +195,7 @@ class _PageContext extends ProposalContextResolver {
           adminService: (() {
             final reads0 = TestChainReads();
             return InstitutionAdminService(
+              getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
               getFinalizedHead: reads0.getFinalizedHead,
               getStorageKeysPaged: reads0.getStorageKeysPaged,
               getStorageBatch: reads0.getStorageBatch,
@@ -244,6 +247,7 @@ class _PageVotes extends VoteChecker {
         proposalQueryService: (() {
           final reads0 = TestChainReads();
           return ProposalQueryService(
+            getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
             getSystemEvents: reads0.getSystemEvents,
             getRuntimeContext: reads0.getRuntimeContext,
             getFinalizedHead: reads0.getFinalizedHead,
@@ -619,12 +623,14 @@ void main() {
     final reads0 = TestChainReads();
     final reads1 = TestTransactionCalls();
     return MultisigTransferService(
+      buildCall: _buildCall,
+      getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
       getFinalizedHead: reads0.getFinalizedHead,
       getStorageKeysPaged: reads0.getStorageKeysPaged,
       getStorage: reads0.getStorage,
       getStorageBatch: reads0.getStorageBatch,
-      getAccountBalance: reads0.getAccountBalance,
-      getAccountBalances: reads0.getAccountBalances,
+
+
       getSystemEvents: reads0.getSystemEvents,
       getRuntimeContext: reads0.getRuntimeContext,
       prepareTransaction: reads1.prepareTransaction,
@@ -655,10 +661,7 @@ void main() {
     expect(decoded.institutionAccountId, institutionAccountId);
     expect(decoded.amountFen, BigInt.from(10000000)); // 100,000.00 元
     expect(decoded.remark, '转账测试');
-    expect(
-      decoded.beneficiary,
-      Keyring().encodeAddress(Uint8List.fromList(beneficiary), 2027),
-    );
+    expect(decoded.beneficiary, citizenSs58FromAccountIdBytes(beneficiary));
   });
 
   test('机构 propose_transfer 当前 SCALE payload 的空备注必须可解码', () {
@@ -716,12 +719,14 @@ void main() {
       final reads0 = _RawStorageChain(raw);
       final reads1 = TestTransactionCalls();
       return MultisigTransferService(
+        buildCall: _buildCall,
+        getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
         getFinalizedHead: reads0.getFinalizedHead,
         getStorageKeysPaged: reads0.getStorageKeysPaged,
         getStorage: reads0.getStorage,
         getStorageBatch: reads0.getStorageBatch,
-        getAccountBalance: reads0.getAccountBalance,
-        getAccountBalances: reads0.getAccountBalances,
+
+
         getSystemEvents: reads0.getSystemEvents,
         getRuntimeContext: reads0.getRuntimeContext,
         prepareTransaction: reads1.prepareTransaction,
@@ -737,10 +742,7 @@ void main() {
     expect(decoded!.actorCidNumber, actorCidNumber);
     expect(decoded.institutionAccountId, institutionAccountId);
     expect(decoded.amountFen, BigInt.from(500));
-    expect(
-      decoded.proposer,
-      Keyring().encodeAddress(Uint8List.fromList(proposer), 2027),
-    );
+    expect(decoded.proposer, citizenSs58FromAccountIdBytes(proposer));
 
     final trailing = Uint8List.fromList([...raw, 0]);
     expect(
@@ -748,12 +750,14 @@ void main() {
         final reads0 = _RawStorageChain(trailing);
         final reads1 = TestTransactionCalls();
         return MultisigTransferService(
+          buildCall: _buildCall,
+          getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
           getFinalizedHead: reads0.getFinalizedHead,
           getStorageKeysPaged: reads0.getStorageKeysPaged,
           getStorage: reads0.getStorage,
           getStorageBatch: reads0.getStorageBatch,
-          getAccountBalance: reads0.getAccountBalance,
-          getAccountBalances: reads0.getAccountBalances,
+
+
           getSystemEvents: reads0.getSystemEvents,
           getRuntimeContext: reads0.getRuntimeContext,
           prepareTransaction: reads1.prepareTransaction,
@@ -782,12 +786,14 @@ void main() {
       final reads0 = _RawStorageChain(raw);
       final reads1 = TestTransactionCalls();
       return MultisigTransferService(
+        buildCall: _buildCall,
+        getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
         getFinalizedHead: reads0.getFinalizedHead,
         getStorageKeysPaged: reads0.getStorageKeysPaged,
         getStorage: reads0.getStorage,
         getStorageBatch: reads0.getStorageBatch,
-        getAccountBalance: reads0.getAccountBalance,
-        getAccountBalances: reads0.getAccountBalances,
+
+
         getSystemEvents: reads0.getSystemEvents,
         getRuntimeContext: reads0.getRuntimeContext,
         prepareTransaction: reads1.prepareTransaction,
@@ -803,10 +809,7 @@ void main() {
     expect(decoded!.actorCidNumber, actorCidNumber);
     expect(decoded.institutionAccountId, institutionAccountId);
     expect(decoded.amountFen, BigInt.from(800));
-    expect(
-      decoded.proposer,
-      Keyring().encodeAddress(Uint8List.fromList(proposer), 2027),
-    );
+    expect(decoded.proposer, citizenSs58FromAccountIdBytes(proposer));
 
     final trailing = Uint8List.fromList([...raw, 0]);
     expect(
@@ -814,12 +817,14 @@ void main() {
         final reads0 = _RawStorageChain(trailing);
         final reads1 = TestTransactionCalls();
         return MultisigTransferService(
+          buildCall: _buildCall,
+          getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
           getFinalizedHead: reads0.getFinalizedHead,
           getStorageKeysPaged: reads0.getStorageKeysPaged,
           getStorage: reads0.getStorage,
           getStorageBatch: reads0.getStorageBatch,
-          getAccountBalance: reads0.getAccountBalance,
-          getAccountBalances: reads0.getAccountBalances,
+
+
           getSystemEvents: reads0.getSystemEvents,
           getRuntimeContext: reads0.getRuntimeContext,
           prepareTransaction: reads1.prepareTransaction,
@@ -932,6 +937,7 @@ void main() {
     ]);
     final rpc = _RawStorageChain(raw);
     final query = ProposalQueryService(
+      getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
       getSystemEvents: rpc.getSystemEvents,
       getRuntimeContext: rpc.getRuntimeContext,
       getFinalizedHead: rpc.getFinalizedHead,
@@ -1274,12 +1280,14 @@ void _proposalDiagnosticsTests() {
         service: (() {
           final reads0 = TestTransactionCalls();
           return MultisigTransferService(
+            buildCall: _buildCall,
+            getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
             getFinalizedHead: chain.getFinalizedHead,
             getStorageKeysPaged: chain.getStorageKeysPaged,
             getStorage: chain.getStorage,
             getStorageBatch: chain.getStorageBatch,
-            getAccountBalance: chain.getAccountBalance,
-            getAccountBalances: chain.getAccountBalances,
+
+
             getSystemEvents: chain.getSystemEvents,
             getRuntimeContext: chain.getRuntimeContext,
             prepareTransaction: reads0.prepareTransaction,
@@ -1326,12 +1334,14 @@ void _proposalDiagnosticsTests() {
         service: (() {
           final reads0 = TestTransactionCalls();
           return MultisigTransferService(
+            buildCall: _buildCall,
+            getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
             getFinalizedHead: chain.getFinalizedHead,
             getStorageKeysPaged: chain.getStorageKeysPaged,
             getStorage: chain.getStorage,
             getStorageBatch: chain.getStorageBatch,
-            getAccountBalance: chain.getAccountBalance,
-            getAccountBalances: chain.getAccountBalances,
+
+
             getSystemEvents: chain.getSystemEvents,
             getRuntimeContext: chain.getRuntimeContext,
             prepareTransaction: reads0.prepareTransaction,
@@ -1364,12 +1374,14 @@ void _proposalDiagnosticsTests() {
       final reads0 = _ProposalChain(failureAt: 'year', failure: failure);
       final reads1 = TestTransactionCalls();
       return MultisigTransferService(
+        buildCall: _buildCall,
+        getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
         getFinalizedHead: reads0.getFinalizedHead,
         getStorageKeysPaged: reads0.getStorageKeysPaged,
         getStorage: reads0.getStorage,
         getStorageBatch: reads0.getStorageBatch,
-        getAccountBalance: reads0.getAccountBalance,
-        getAccountBalances: reads0.getAccountBalances,
+
+
         getSystemEvents: reads0.getSystemEvents,
         getRuntimeContext: reads0.getRuntimeContext,
         prepareTransaction: reads1.prepareTransaction,
@@ -1629,4 +1641,13 @@ void _proposalReadResultTests() {
       expect(lines, ['${prefix}started']);
     });
   });
+}
+
+Future<Uint8List> _buildCall(String pallet, String method, Object fields) async {
+  final runtime = await CitizenSdkTestFixture.runtimeContext(CitizenBlockRef(
+    hash: '0x${'11' * 32}',
+    number: BigInt.one,
+    finality: CitizenBlockFinality.finalized,
+  ));
+  return runtime.encodeCall(pallet, method, fields);
 }

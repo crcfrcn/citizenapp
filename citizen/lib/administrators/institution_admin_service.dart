@@ -2,10 +2,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:polkadart/polkadart.dart' show Hasher;
 import 'package:citizen_citizen/institution/institution_role_models.dart';
 import 'package:citizen_citizen/institution/institution_role_storage_codec.dart';
-import 'package:citizen_citizen/administrators/account_id_codec.dart';
 import 'package:citizen_citizen/administrators/admin_account.dart';
 import 'package:citizen_citizen/administrators/admin_account_service.dart';
 
@@ -31,6 +29,7 @@ class InstitutionAdminService {
   InstitutionAdminService({
     CitizenSdk? chain,
     Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<CitizenRuntimeContext> Function(CitizenBlockRef)? getRuntimeContext,
     Future<List<Uint8List>> Function(
       CitizenBlockRef block,
       Uint8List prefix, {
@@ -48,12 +47,15 @@ class InstitutionAdminService {
   }) : _accountService = AdminAccountService(
          chain: chain,
          getFinalizedHead: getFinalizedHead,
+         getRuntimeContext: getRuntimeContext,
          getStorage: getStorage,
        ),
        _getFinalizedHead =
            getFinalizedHead ??
            chain?.getFinalizedHead ??
            (() => throw StateError('未配置getFinalizedHead')),
+       _getRuntimeContext = getRuntimeContext ?? chain?.getRuntimeContext ??
+           ((block) => throw StateError('未配置getRuntimeContext')),
        _getStorageKeysPaged =
            getStorageKeysPaged ??
            chain?.getStorageKeysPaged ??
@@ -69,6 +71,7 @@ class InstitutionAdminService {
            ((CitizenBlockRef block, List<Uint8List> keys) =>
                throw StateError('未配置getStorageBatch'));
   final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<CitizenRuntimeContext> Function(CitizenBlockRef) _getRuntimeContext;
   final Future<List<Uint8List>> Function(
     CitizenBlockRef block,
     Uint8List prefix, {
@@ -107,15 +110,15 @@ class InstitutionAdminService {
     // 非法人机构码本身不能推断公权/私权，必须按链上管理员类型路由。
     final entityPallet = identity.kind == 1 ? 'PrivateManage' : 'PublicManage';
     // 岗位目录、任职及其全部分页/批取固定到同一个 finalized 块。
-    final finalized = await _getFinalizedHead();
+    final runtime = await _getRuntimeContext(await _getFinalizedHead());
     final roleValues = await _scanValues(
-      finalized,
+      runtime,
       entityPallet,
       'InstitutionRoles',
       cidNumber,
     );
     final assignmentValues = await _scanValues(
-      finalized,
+      runtime,
       entityPallet,
       'InstitutionRoleAssignments',
       cidNumber,
@@ -222,16 +225,15 @@ class InstitutionAdminService {
   }
 
   Future<List<Uint8List>> _scanValues(
-    CitizenBlockRef finalized,
+    CitizenRuntimeContext runtime,
     String pallet,
     String storage,
     String cidNumber,
   ) async {
-    final prefix = _doubleMapFirstKeyPrefix(
-      pallet,
-      storage,
-      utf8.encode(cidNumber),
-    );
+    final prefix = runtime.storageKey(pallet, storage, [
+      Uint8List.fromList(utf8.encode(cidNumber)),
+    ]);
+    final finalized = runtime.block;
     final keys = <Uint8List>[];
     Uint8List? startKey;
     while (true) {
@@ -257,24 +259,5 @@ class InstitutionAdminService {
       values.addAll(rows.cast<Uint8List>());
     }
     return values;
-  }
-
-  Uint8List _doubleMapFirstKeyPrefix(
-    String pallet,
-    String storage,
-    List<int> cidBytes,
-  ) {
-    final encodedCid = Uint8List.fromList([
-      (cidBytes.length << 2),
-      ...cidBytes,
-    ]);
-    final parts = [
-      Hasher.twoxx128.hashString(pallet),
-      Hasher.twoxx128.hashString(storage),
-      AdminAccountIdCodec.blake2128Concat(encodedCid),
-    ];
-    return Uint8List.fromList(
-      parts.expand((part) => part).toList(growable: false),
-    );
   }
 }

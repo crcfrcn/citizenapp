@@ -4,6 +4,17 @@ import 'package:citizen_user/profile/profile_presentation.dart';
 ///
 /// App 侧只读展示，写入走 `PUT /api/user/profile`。
 class CitizenProfile {
+  static final _asset = RegExp(
+    r'^i/([A-Za-z0-9][A-Za-z0-9-]{0,31})/(avatar|banner)/([a-f0-9]{64})$',
+  );
+
+  /// 解析服务端交付的唯一资料图片键。
+  static ({String cid, String kind, String hash})? parseAssetKey(String key) {
+    final match = _asset.firstMatch(key);
+    if (match == null || match.end != key.length) return null;
+    return (cid: match[1]!, kind: match[2]!, hash: match[3]!);
+  }
+
   const CitizenProfile({
     required this.accountId,
     required this.displayName,
@@ -66,9 +77,8 @@ class CitizenProfile {
   /// `display_name` 是公开昵称唯一真源；缺失时按 CID（无 CID 才按账户）
   /// 生成稳定默认昵称，绝不把钱包名、完整账户或截断账户当昵称。
   String get resolvedDisplayName {
-    return ProfilePresentation.forIdentityKey(
-      cidNumber ?? accountId,
-    ).resolveDisplayName(publicName: displayName);
+    return ProfilePresentation.forIdentityKey(cidNumber ?? accountId)
+        .resolveDisplayName(publicName: displayName);
   }
 
   factory CitizenProfile.fromJson(Map<String, dynamic> json) {

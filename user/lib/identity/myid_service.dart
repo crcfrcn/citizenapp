@@ -1,6 +1,5 @@
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:citizen_user/identity/registration_models.dart';
-import 'package:citizen_wallet/core/account_balance_snapshot_store.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:convert';
@@ -151,6 +150,7 @@ class MyIdService {
     Future<CitizenFeeSnapshot> Function()? getFeeSnapshot,
     Future<String> Function()? getGenesisHash,
     Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<CitizenRuntimeContext> Function(CitizenBlockRef)? getRuntimeContext,
     Future<CitizenAccountBalance> Function(String accountId)? getAccountBalance,
     Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
     getStorage,
@@ -196,6 +196,7 @@ class MyIdService {
        _chainReader = CitizenIdentityChainReader(
          chain: chain,
          getFinalizedHead: getFinalizedHead,
+         getRuntimeContext: getRuntimeContext,
          getStorage: getStorage,
          getStorageBatch: getStorageBatch,
        ),
@@ -213,9 +214,7 @@ class MyIdService {
            (() => throw StateError('未配置getFinalizedHead')),
        _getAccountBalance =
            getAccountBalance ??
-           ((id) => AccountBalanceSnapshotStore.forChain(
-             chain!,
-           ).getAccountBalance(id, forceRefresh: true)),
+           ((id) => chain!.getAccountBalance(id, forceRefresh: true)),
        _nowProvider = nowProvider ?? _beijingNow,
        _cidYearProvider = cidYearProvider ?? _utcYear,
        _history = history {
@@ -664,7 +663,7 @@ class MyIdService {
   Future<({BigInt requiredFen, BigInt balanceFen})>
   fetchRegistrationAffordability(String bindAccountId) async {
     final fees = await _getFeeSnapshot();
-    final requiredFen = fees.minimumFeeFen + fees.existentialDepositFen;
+    final requiredFen = fees.minimumSelfPayFen;
     final balance = await _getAccountBalance(bindAccountId);
     return (requiredFen: requiredFen, balanceFen: balance.freeFen);
   }
@@ -955,17 +954,6 @@ class MyIdService {
     return false;
   }
 
-  /// 链结果已由原SDK确认；这里只报告，不混入设备或会话授权。
-  Future<void> reportRegistration(FinalizedRegistration finalized) async {
-    final guard = await registrationGuard(finalized.binding.accountId);
-    await guard();
-    await _sessionProvider.reportIdentity(
-      finalized.binding,
-      requireCurrent: guard,
-    );
-    await guard();
-  }
-
   /// 列出可作换绑目标的本地账户(当前身份账户以外的全部账户)。
   Future<List<CitizenWalletStateAccount>> listRebindTargets() async {
     final state = await _getWalletState().result;
@@ -1135,39 +1123,15 @@ class MyIdService {
   }
 
   static (int, int) _readCompactU32(Uint8List data, int offset) {
-    if (offset >= data.length) {
-      throw const FormatException('Compact<u32> offset 越界');
+    final decoded = CitizenScale.readCompact(data, offset);
+    if (decoded.$2 > 4) {
+      throw const FormatException('Compact 大整数模式不适用于身份字段长度');
     }
-    final first = data[offset];
-    final mode = first & 0x03;
-    if (mode == 0) return (first >> 2, 1);
-    if (mode == 1) {
-      if (offset + 1 >= data.length) {
-        throw const FormatException('Compact<u32> mode1 长度不足');
-      }
-      return ((first >> 2) | (data[offset + 1] << 6), 2);
-    }
-    if (mode == 2) {
-      if (offset + 3 >= data.length) {
-        throw const FormatException('Compact<u32> mode2 长度不足');
-      }
-      return (
-        (first >> 2) |
-            (data[offset + 1] << 6) |
-            (data[offset + 2] << 14) |
-            (data[offset + 3] << 22),
-        4,
-      );
-    }
-    throw const FormatException('Compact<u32> big-integer 模式暂不支持');
+    return decoded;
   }
 
-  static int _readU32Le(Uint8List data, int offset) {
-    return data[offset] |
-        (data[offset + 1] << 8) |
-        (data[offset + 2] << 16) |
-        (data[offset + 3] << 24);
-  }
+  static int _readU32Le(Uint8List data, int offset) =>
+      CitizenScale.readUnsigned(data, offset, 4).toInt();
 
   static bool _isValidDateInt(int value) {
     final year = value ~/ 10000;

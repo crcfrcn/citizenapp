@@ -5,7 +5,6 @@ import 'package:citizen_citizen/pallet_registry.dart';
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:polkadart/scale_codec.dart' show ByteOutput;
 
 import 'package:citizen_citizen/proposal/proposal_query_service.dart';
 
@@ -27,6 +26,7 @@ class InternalVoteService {
     CitizenSdk? chain,
     ProposalQueryService Function(CitizenBlockRef block)? queryFactory,
     CitizenSdk? transactions,
+    CitizenCallBuilder? buildCall,
     Future<CitizenPreparedTransaction> Function(
       Uint8List sourceAccountId,
       Uint8List callData,
@@ -41,7 +41,9 @@ class InternalVoteService {
       String response,
     )?
     consumePreparedTransactionQrResponse,
-  }) : _queryFactory =
+  }) : _buildCall = buildCall ?? transactions?.buildCall ?? chain?.buildCall ??
+           ((pallet, method, fields) => throw StateError('未配置buildCall')),
+       _queryFactory =
            queryFactory ??
            ((block) => ProposalQueryService(chain: chain, block: block)),
        _prepareTransaction =
@@ -64,6 +66,7 @@ class InternalVoteService {
            transactions?.consumePreparedTransactionQrResponse ??
            ((String executionId, String response) =>
                throw StateError('未配置consumePreparedTransactionQrResponse'));
+  final CitizenCallBuilder _buildCall;
   final Future<CitizenPreparedTransaction> Function(
     Uint8List sourceAccountId,
     Uint8List callData,
@@ -120,7 +123,8 @@ class InternalVoteService {
             utf8.encode(actorCidNumber).length > 32)) {
       throw ArgumentError('机构CID长度必须为1..32字节');
     }
-    final callData = buildCallData(
+    final callData = await buildCallData(
+      buildCall: _buildCall,
       proposalId: proposalId,
       voterRoleCode: voterRoleCode,
       approve: approve,
@@ -145,34 +149,24 @@ class InternalVoteService {
     );
   }
 
-  /// 构造 InternalVote::cast call data(对外公开,便于冷钱包/热钱包复用)。
-  ///
-  /// `voterRoleCode == null` 编码个人票据声明 0；机构岗位编码声明 1 + RoleCode。
-  static Uint8List buildCallData({
+  static Future<Uint8List> buildCallData({
+    required CitizenCallBuilder buildCall,
     required int proposalId,
     String? voterRoleCode,
     required bool approve,
   }) {
-    final output = ByteOutput();
-    output.pushByte(internalVotePallet);
-    output.pushByte(internalVoteCallIndex);
-    output.write(_u64ToLeBytes(proposalId));
-    final roleCode = voterRoleCode;
-    if (roleCode == null) {
-      output.pushByte(0); // InternalVoteTicketClaim::Personal
+    if (proposalId < 0) throw ArgumentError('proposal_id不得为负');
+    final CitizenScaleVariant ticket;
+    if (voterRoleCode == null) {
+      ticket = (variant: 'Personal', fields: const []);
     } else {
-      final roleBytes = Uint8List.fromList(utf8.encode(roleCode));
-      if (roleCode != roleCode.trim() ||
-          roleBytes.isEmpty ||
-          roleBytes.length > 64) {
+      final bytes = Uint8List.fromList(utf8.encode(voterRoleCode));
+      if (voterRoleCode != voterRoleCode.trim() || bytes.isEmpty || bytes.length > 64) {
         throw ArgumentError('voter_role_code 超过 64 字节');
       }
-      output.pushByte(1); // InternalVoteTicketClaim::InstitutionRole
-      output.write(_encodeCompact(roleBytes.length));
-      output.write(roleBytes);
+      ticket = (variant: 'InstitutionRole', fields: [bytes]);
     }
-    output.pushByte(approve ? 1 : 0);
-    return output.toBytes();
+    return buildCall('InternalVote', 'cast', [proposalId, ticket, approve]);
   }
 
   // ──── 内部：签名提交 ────
@@ -188,26 +182,13 @@ class InternalVoteService {
   }) async {
     final prepared = await _prepareTransaction(signerPublicKey, callData);
     final started = await _executePreparedTransaction(prepared.preparationId);
-    CitizenTransactionExecutionCompleted completed;
-    if (started is CitizenTransactionExternalSigningPending) {
-      final String? response;
-      try {
-        response = await externalSigning(started);
-      } catch (_) {
-        await _cancelPreparedTransactionExecution(started.executionId);
-        rethrow;
-      }
-      if (response == null) {
-        await _cancelPreparedTransactionExecution(started.executionId);
-        throw StateError('投票签名已取消');
-      }
-      completed = await _consumePreparedTransactionQrResponse(
-        started.executionId,
-        response,
-      );
-    } else {
-      completed = started as CitizenTransactionExecutionCompleted;
-    }
+    final completed = await completeCitizenTransaction(
+      started,
+      requestResponse: externalSigning,
+      consumeResponse: _consumePreparedTransactionQrResponse,
+      cancelExecution: _cancelPreparedTransactionExecution,
+    );
+    if (completed == null) throw StateError('投票签名已取消');
     if (completed.resolution != CitizenTransactionResolution.finalizedSuccess ||
         completed.execution == null ||
         completed.execution!.status != CitizenExecutionStatus.success ||
@@ -236,29 +217,17 @@ class InternalVoteService {
     final matches = events
         .where(
           (event) =>
-              event.index == execution.extrinsicIndex &&
               event.pallet == 'InternalVote' &&
               event.name == 'InternalVoteCast',
         )
         .toList();
     if (matches.length != 1) throw StateError('执行块缺少唯一的本次内部投票事件');
-    final fields = matches.single.fields;
-    final role = fields is Map ? fields['voter_role_code'] : null;
-    final roleMatches =
-        role is Map &&
-        role.length == 1 &&
-        (voterRoleCode == null
-            ? role.containsKey('None') && role['None'] == null
-            : role['Some'] is List &&
-                  utf8.decode((role['Some'] as List).cast<int>()) ==
-                      voterRoleCode);
-    if (fields is! Map ||
-        fields['proposal_id'].toString() != '$proposalId' ||
+    final event = matches.single;
+    final fields = event.fields as Map<String, Object?>;
+    if (event.fieldUnsigned('proposal_id') != BigInt.from(proposalId) ||
         fields['approve'] != approve ||
-        fields['who'] is! List ||
-        _hexEncode(Uint8List.fromList((fields['who'] as List).cast<int>())) !=
-            _hexEncode(signerPublicKey) ||
-        !roleMatches) {
+        _hexEncode(event.fieldBytes('who')) != _hexEncode(signerPublicKey) ||
+        !ProposalQueryService.eventOptionalText(fields['voter_role_code'], voterRoleCode)) {
       throw StateError('内部投票事件与本次提案、签署人、岗位或方向不一致');
     }
     if (actorCidNumber != null) {
@@ -267,25 +236,6 @@ class InternalVoteService {
         throw StateError('执行块提案所属机构与投票票据不一致');
       }
     }
-  }
-
-  static Uint8List _encodeCompact(int value) {
-    if (value < 0 || value >= 1 << 14) {
-      throw ArgumentError('岗位码长度超出 SCALE Compact 两字节范围');
-    }
-    if (value < 1 << 6) return Uint8List.fromList([value << 2]);
-    final encoded = (value << 2) | 1;
-    return Uint8List.fromList([encoded & 0xff, encoded >> 8]);
-  }
-
-  // ──── 内部：编码工具 ────
-
-  static Uint8List _u64ToLeBytes(int value) {
-    if (value < 0) throw ArgumentError('proposal_id不得为负');
-    final bytes = Uint8List(8);
-    final bd = ByteData.sublistView(bytes);
-    bd.setUint64(0, value, Endian.little);
-    return bytes;
   }
 
   static String _hexEncode(Uint8List bytes) {

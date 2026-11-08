@@ -1,4 +1,4 @@
-import 'dart:collection';
+import 'dart:async';
 
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_widgets/chain_progress_banner.dart';
@@ -22,9 +22,8 @@ void main() {
         home: Scaffold(
           body: ChainProgressBanner(
             showInlineStatus: true,
-            progressLoader: () async => chainSnapshot(
-              isSyncing: false,
-              isUsable: true,
+            progress: Stream.value(
+              chainSnapshot(isSyncing: false, isUsable: true),
             ),
           ),
         ),
@@ -54,9 +53,8 @@ void main() {
         theme: AppTheme.lightTheme,
         home: Scaffold(
           body: ChainProgressBanner(
-            progressLoader: () async => chainSnapshot(
-              isSyncing: false,
-              isUsable: true,
+            progress: Stream.value(
+              chainSnapshot(isSyncing: false, isUsable: true),
             ),
             onProgressChanged: (progress) => receivedProgress = progress,
           ),
@@ -76,57 +74,31 @@ void main() {
     expect(find.textContaining('最终区块'), findsNothing);
   });
 
-  testWidgets('不可见状态读取常驻轮询,regular 后仍继续跟进链尖', (tester) async {
-    final snapshots = Queue<CitizenChainSyncStatus>.from([
-      chainSnapshot(
-        isSyncing: false,
-        isUsable: false,
-      ),
-      chainSnapshot(
-        isSyncing: true,
-        isUsable: false,
-      ),
-      chainSnapshot(
-        isSyncing: false,
-        isUsable: true,
-      ),
-    ]);
-    var loadCount = 0;
-
+  testWidgets('不可见状态订阅在链就绪后继续接收链尖', (tester) async {
+    final progress = StreamController<CitizenChainSyncStatus>();
+    addTearDown(progress.close);
+    final received = <CitizenChainSyncStatus?>[];
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.lightTheme,
         home: Scaffold(
           body: ChainProgressBanner(
-            pollInterval: const Duration(milliseconds: 10),
-            progressLoader: () async {
-              loadCount += 1;
-              // 队列耗尽后复用最后一份 regular 快照,模拟链稳定期持续轮询。
-              return snapshots.length > 1
-                  ? snapshots.removeFirst()
-                  : snapshots.first;
-            },
+            progress: progress.stream,
+            onProgressChanged: received.add,
           ),
         ),
       ),
     );
-
-    await tester.pump();
-    expect(find.textContaining('轻节点'), findsNothing);
-
-    await tester.pump(const Duration(milliseconds: 10));
-    await tester.pump();
-    expect(find.textContaining('轻节点'), findsNothing);
-
-    await tester.pump(const Duration(milliseconds: 10));
-    await tester.pump();
-    expect(find.textContaining('轻节点'), findsNothing);
-    expect(loadCount, 3);
-
-    // 轮询常驻:regular(isUsable)后仍按 pollInterval 继续跟进,
-    // 顶部最终区块高度才能自动更新、不依赖下拉刷新。
-    await tester.pump(const Duration(milliseconds: 10));
-    await tester.pump();
-    expect(loadCount, greaterThan(3));
+    for (final snapshot in [
+      chainSnapshot(isSyncing: false, isUsable: false),
+      chainSnapshot(isSyncing: true, isUsable: false),
+      chainSnapshot(isSyncing: false, isUsable: true),
+      chainSnapshot(isSyncing: false, isUsable: true),
+    ]) {
+      progress.add(snapshot);
+      await tester.pump();
+      expect(find.textContaining('轻节点'), findsNothing);
+    }
+    expect(received.map((snapshot) => snapshot?.isUsable), [false, false, true, true]);
   });
 }

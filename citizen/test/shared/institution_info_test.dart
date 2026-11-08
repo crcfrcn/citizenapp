@@ -1,24 +1,27 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_citizen/proposal/proposal_registry.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/institution/governance_registry.dart';
 
 void main() {
-  test('机构 CID 与具体账户分离，账户操作显式编码 AccountId', () {
-    final mainAccountId = '0x${'aa' * 32}';
-    final id = accountIdBytes(mainAccountId);
-
-    expect(id.length, 32);
-    expect(id, List<int>.filled(32, 0xaa));
+  test('个人多签身份只接受规范账户标识', () {
+    final accountId = '0x${'aa' * 32}';
+    expect(
+      personalAccountIdFromIdentity('personal-account:$accountId'),
+      accountId,
+    );
+    expect(
+      personalAccountIdFromIdentity(
+        'personal-account:${accountId.toUpperCase()}',
+      ),
+      isNull,
+    );
   });
 
   test('注册机构以 CID 为身份，主/费账户只作为其账户集合', () {
     final address = '0x${'11' * 32}';
     const cidNumber = 'GD001-CGOV0-123456789-2026';
-    final id = accountIdBytes(address);
-
-    expect(id.length, 32);
-    expect(id, List<int>.filled(32, 0x11));
     final institution = InstitutionInfo(
       fullName: '机构',
       shortName: '机构',
@@ -39,10 +42,7 @@ void main() {
 
   test('个人多签身份编码为个人多签 AccountId', () {
     final address = '0x${'22' * 32}';
-    final id = accountIdBytes(address);
-
-    expect(id.length, 32);
-    expect(id, List<int>.filled(32, 0x22));
+    final id = citizenAccountIdBytes(address);
     expect(
       personalMultisigFromAccountId(id)?.cidNumber,
       'personal-account:$address',

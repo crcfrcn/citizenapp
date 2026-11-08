@@ -1,6 +1,10 @@
-import 'dart:convert';
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+
+import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_storage/user_isar.dart';
+import 'package:flutter/foundation.dart';
 
 /// 清算行所属JSON-RPC客户端；方法与字段直接沿用节点公开合同。
 class OffchainClearingBankRpc {
@@ -19,6 +23,19 @@ class OffchainClearingBankRpc {
   }
   final String wssUrl;
   final Future<WebSocket> Function(String) _connect;
+
+  Future<BigInt> queryBalance(String accountAddress) async {
+    final raw = await call('offchain_queryBalance', [accountAddress]);
+    final value = raw is int
+        ? BigInt.from(raw)
+        : raw is String
+        ? BigInt.tryParse(raw)
+        : null;
+    if (value == null || value.isNegative) {
+      throw const FormatException('清算行余额必须为非负整数分');
+    }
+    return value;
+  }
 
   Future<int> queryNextNonce(String userAccountId) async =>
       _integer(await call('offchain_queryNextNonce', [userAccountId]), min: 1);
@@ -134,5 +151,136 @@ class OffchainClearingBankRpc {
       throw const FormatException('清算RPC整数无效');
     }
     return number;
+  }
+}
+
+/// 零钱包、提现和钱包操作卡共用同一账户与清算行端点的余额状态。
+final class ClearingBalances {
+  ClearingBalances({OffchainClearingBankRpc Function(String)? rpc})
+    : _rpc = rpc ?? OffchainClearingBankRpc.new;
+
+  static final instance = ClearingBalances();
+  final OffchainClearingBankRpc Function(String) _rpc;
+  final _states = <(String, String), ClearingBalance>{};
+  final _removals = <String, Future<void>>{};
+
+  ClearingBalance state({required String accountId, required String wssUrl}) {
+    if (!isCitizenAccountId(accountId)) {
+      throw const FormatException('account_id 必须为小写十六进制账户');
+    }
+    if (_removals.containsKey(accountId)) {
+      return ClearingBalance._(accountId, wssUrl, _rpc).._invalidate();
+    }
+    return _states.putIfAbsent(
+      (accountId, wssUrl),
+      () => ClearingBalance._(accountId, wssUrl, _rpc),
+    );
+  }
+
+  Future<void> remove(Iterable<String> accountIds) async {
+    await Future.wait(accountIds.toSet().map(_remove));
+  }
+
+  Future<void> _remove(String accountId) => _removals.putIfAbsent(
+    accountId,
+    () => Future<void>.microtask(() async {
+      try {
+        final keys = _states.keys.where((key) => key.$1 == accountId).toList();
+        for (final key in keys) {
+          _states.remove(key)?._invalidate();
+        }
+        // 先禁用旧状态，再将清理排在已入队的余额写入之后。
+        await UserIsar.instance.removeClearingBalances(accountId);
+      } finally {
+        _removals.remove(accountId);
+      }
+    }),
+  );
+
+  /// 整库擦除沿用 UserIsar 关闭流程。尚未入队的旧响应立即失效。
+  void invalidateAll() {
+    final states = _states.values.toList();
+    _states.clear();
+    for (final state in states) {
+      state._invalidate();
+    }
+  }
+}
+
+final class ClearingBalance extends ChangeNotifier {
+  ClearingBalance._(this._accountId, this._wssUrl, this._rpc);
+
+  final String _accountId;
+  final String _wssUrl;
+  final OffchainClearingBankRpc Function(String) _rpc;
+  BigInt? _value;
+  bool _hasError = false;
+  bool _valid = true;
+  bool _forceRefresh = false;
+  Future<BigInt>? _loading;
+
+  BigInt? get value => _value;
+  bool get hasError => _hasError;
+
+  Future<void> load({bool forceRefresh = false}) async {
+    try {
+      await _read(forceRefresh: forceRefresh);
+    } catch (_) {
+      // 展示通过 hasError 提示失败，保留最后一次成功金额。
+    }
+  }
+
+  /// 提现预检必须取得本次节点结果。失败直接交给提交方。
+  Future<BigInt> refresh() => _read(forceRefresh: true);
+
+  Future<BigInt> _read({required bool forceRefresh}) {
+    if (!_valid) return Future.error(StateError('清算余额已失效'));
+    final cached = _value;
+    if (!forceRefresh && cached != null) return Future.value(cached);
+    final loading = _loading;
+    if (loading != null) {
+      // 提现可能加入正在读磁盘的首屏任务。该轮必须继续查询节点。
+      if (forceRefresh) _forceRefresh = true;
+      return loading;
+    }
+    _forceRefresh = forceRefresh;
+    return _loading = Future<BigInt>.microtask(() async {
+      try {
+        _requireValid();
+        _hasError = false;
+        notifyListeners();
+        final rpc = _rpc(_wssUrl);
+        final store = UserIsar.instance;
+        var fen = _forceRefresh
+            ? null
+            : await store.readClearingBalance(_accountId, _wssUrl);
+        _requireValid();
+        if (_forceRefresh || fen == null) {
+          fen = await rpc.queryBalance(citizenSs58FromAccountId(_accountId));
+          _requireValid();
+          await store.writeClearingBalance(_accountId, _wssUrl, fen);
+        }
+        _requireValid();
+        _value = fen;
+        return fen;
+      } catch (_) {
+        if (_valid) _hasError = true;
+        rethrow;
+      } finally {
+        _loading = null;
+        if (_valid) notifyListeners();
+      }
+    });
+  }
+
+  void _requireValid() {
+    if (!_valid) throw StateError('清算余额已失效');
+  }
+
+  void _invalidate() {
+    _valid = false;
+    _value = null;
+    _hasError = false;
+    notifyListeners();
   }
 }

@@ -71,15 +71,15 @@ class NodePaymentIntent {
     final out = BytesBuilder(copy: false);
     out.add(txId);
     out.add(payer);
-    out.add(_compactU32(payerBankCid.length));
+    out.add(CitizenScale.compact(payerBankCid.length));
     out.add(payerBankCid);
     out.add(recipient);
-    out.add(_compactU32(recipientBankCid.length));
+    out.add(CitizenScale.compact(recipientBankCid.length));
     out.add(recipientBankCid);
-    out.add(_u128Le(amount));
-    out.add(_u128Le(fee));
-    out.add(_u64Le(nonce));
-    out.add(_u32Le(BigInt.from(expiresAt)));
+    out.add(CitizenScale.unsigned(amount, 16));
+    out.add(CitizenScale.unsigned(fee, 16));
+    out.add(CitizenScale.unsigned(nonce, 8));
+    out.add(CitizenScale.unsigned(BigInt.from(expiresAt), 4));
     return out.toBytes();
   }
 
@@ -107,81 +107,6 @@ class NodePaymentIntent {
     return bytes;
   }
 
-  /// 按 runtime `fee_config::calc_fee` 语义计算手续费(分)。
-  ///
-  /// 公式:`fee = max(round(amount * rate_bp / 10_000), min_fee_fen)`,四舍五入
-  /// 规则:`amount * rate_bp % 10_000 >= 5_000` 时进位。单位均为**分**。
-  static BigInt calcFeeFen({
-    required BigInt amountFen,
-    required int rateBp,
-    required int minFeeFen,
-  }) {
-    if (rateBp <= 0) {
-      throw ArgumentError('rateBp 必须 > 0(清算行费率未设置时 RPC 返回 0)');
-    }
-    if (amountFen <= BigInt.zero) {
-      throw ArgumentError('amountFen 必须 > 0');
-    }
-    final numerator = amountFen * BigInt.from(rateBp);
-    final denom = BigInt.from(10000);
-    final quotient = numerator ~/ denom;
-    final remainder = numerator % denom;
-    final rounded = remainder >= BigInt.from(5000)
-        ? quotient + BigInt.one
-        : quotient;
-    final minFen = BigInt.from(minFeeFen);
-    return rounded >= minFen ? rounded : minFen;
-  }
-}
-
-/// SCALE `Compact<u32>` 编码。CID 长度 < 64 → 单字节 `(n<<2)`。
-Uint8List _compactU32(int n) {
-  if (n < 0) throw ArgumentError('长度不得为负:$n');
-  if (n <= 0x3F) {
-    return Uint8List.fromList([n << 2]);
-  } else if (n <= 0x3FFF) {
-    final v = (n << 2) | 0x01;
-    return Uint8List.fromList([v & 0xFF, (v >> 8) & 0xFF]);
-  } else if (n <= 0x3FFFFFFF) {
-    final v = (n << 2) | 0x02;
-    return Uint8List.fromList([
-      v & 0xFF,
-      (v >> 8) & 0xFF,
-      (v >> 16) & 0xFF,
-      (v >> 24) & 0xFF,
-    ]);
-  }
-  throw ArgumentError('长度过大,超出单/双/四字节 Compact:$n');
-}
-
-Uint8List _u32Le(BigInt v) {
-  final out = Uint8List(4);
-  var x = v;
-  for (var i = 0; i < 4; i++) {
-    out[i] = (x & BigInt.from(0xFF)).toInt();
-    x = x >> 8;
-  }
-  return out;
-}
-
-Uint8List _u64Le(BigInt v) {
-  final out = Uint8List(8);
-  var x = v;
-  for (var i = 0; i < 8; i++) {
-    out[i] = (x & BigInt.from(0xFF)).toInt();
-    x = x >> 8;
-  }
-  return out;
-}
-
-Uint8List _u128Le(BigInt v) {
-  final out = Uint8List(16);
-  var x = v;
-  for (var i = 0; i < 16; i++) {
-    out[i] = (x & BigInt.from(0xFF)).toInt();
-    x = x >> 8;
-  }
-  return out;
 }
 
 /// hex utils(含 `0x` 前缀 decode + encode)。

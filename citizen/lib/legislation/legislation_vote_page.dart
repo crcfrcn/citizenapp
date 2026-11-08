@@ -1,4 +1,3 @@
-import 'package:citizen_wallet/core/account_balance_snapshot_store.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:async';
@@ -7,7 +6,6 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_citizen/proposal/proposal_vote_widgets.dart';
@@ -77,12 +75,8 @@ class _LegislationVotePageState extends State<LegislationVotePage> {
     final sdk = context.read<CitizenSdk>();
     _vote =
         widget.voteService ??
-        LegislationVoteService(
-          chain: sdk,
-          transactions: sdk,
-        );
-    _query =
-        widget.queryService ?? LegislationVoteQueryService(chain: sdk);
+        LegislationVoteService(chain: sdk, transactions: sdk);
+    _query = widget.queryService ?? LegislationVoteQueryService(chain: sdk);
     _dependenciesReady = true;
     _load();
   }
@@ -160,10 +154,11 @@ class _LegislationVotePageState extends State<LegislationVotePage> {
     if (wallet == null || stage == null) return;
     setState(() => _submitting = true);
     try {
-      final publicKeyBytes = _hexDecode(wallet.accountId);
-      final balance = await AccountBalanceSnapshotStore.forChain(
-        context.read<CitizenSdk>(),
-      ).getAccountBalance(wallet.accountId, forceRefresh: true);
+      final publicKeyBytes = citizenAccountIdBytes(wallet.accountId);
+      final balance = await context.read<CitizenSdk>().getAccountBalance(
+        wallet.accountId,
+        forceRefresh: true,
+      );
       if (balance.freeFen <= BigInt.zero) {
         throw StateError('当前钱包余额不足，无法支付链上手续费');
       }
@@ -175,13 +170,15 @@ class _LegislationVotePageState extends State<LegislationVotePage> {
       );
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('提交成功')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('提交成功')));
       await _load(showSpinner: false);
     } on Object catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('提交失败：$e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('提交失败：$e')));
       }
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -447,18 +444,9 @@ class _LegislationVotePageState extends State<LegislationVotePage> {
   // ──── 工具 ────
 
   String _requireAccountId(String accountId) {
-    if (!isAccountIdText(accountId)) {
+    if (!isCitizenAccountId(accountId)) {
       throw const FormatException('account_id 必须为小写 0x + 64 位十六进制');
     }
     return accountId;
-  }
-
-  Uint8List _hexDecode(String hex) {
-    final h = hex.startsWith('0x') ? hex.substring(2) : hex;
-    final out = Uint8List(h.length ~/ 2);
-    for (var i = 0; i < out.length; i++) {
-      out[i] = int.parse(h.substring(i * 2, i * 2 + 2), radix: 16);
-    }
-    return out;
   }
 }

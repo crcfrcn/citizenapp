@@ -36,10 +36,12 @@ void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     ClearingBankPrefs.debugRemoveForTest = null;
+    ClearingBankPrefs.debugSetForTest = null;
   });
 
   tearDown(() {
     ClearingBankPrefs.debugRemoveForTest = null;
+    ClearingBankPrefs.debugSetForTest = null;
   });
 
   group('ClearingBankPrefs', () {
@@ -64,6 +66,15 @@ void main() {
         (await ClearingBankPrefs.loadSnapshot(_accountB))?.cidNumber,
         'BJ001-SCB0U-000000002-2026',
       );
+    });
+
+    test('写入返回 false 时抛错，不得伪装缓存已更新', () async {
+      ClearingBankPrefs.debugSetForTest = (_, _, _) async => false;
+      await expectLater(
+        ClearingBankPrefs.saveSnapshot(_accountA, _snapshot(cidNumber: 'AAA')),
+        throwsStateError,
+      );
+      expect(await ClearingBankPrefs.loadSnapshot(_accountA), isNull);
     });
 
     test('clear removes only the specified account_id', () async {

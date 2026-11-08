@@ -28,7 +28,8 @@ class SquareNotificationsPage extends StatefulWidget {
 class SquareNotificationsPageState extends State<SquareNotificationsPage>
     with WidgetsBindingObserver {
   final _rows = <Map<String, dynamic>>[];
-  int? _next, _through;
+  String? _next;
+  int? _through;
   int _revision = -1,
       _observedRevision = -1,
       _observedSequence = -1,
@@ -265,11 +266,10 @@ class SquareNotificationsPageState extends State<SquareNotificationsPage>
         session: session,
         groupByPost: true,
         cursor: reset ? null : _next,
-        through: reset ? null : _through,
       );
       await session.validateCurrent();
       if (!_isCurrent(request, owner)) return;
-      final state = (page['state'] as Map).cast<String, dynamic>();
+      final state = page;
       if (!Notifications.valid(state, owner.cidNumber) ||
           state['bind_rev'] != owner.bindRev) {
         throw const FormatException('互动列表状态无效');
@@ -280,11 +280,13 @@ class SquareNotificationsPageState extends State<SquareNotificationsPage>
         for (final raw in page['items'] as List)
           (raw as Map)['post_id']: raw.cast<String, dynamic>(),
       };
+      final bound = page['list_through'] as int;
+      final sequence = state['interaction_sequence'] as int;
       final snapshot = NotificationListSnapshot(
         revision: state['notice_rev'] as int,
-        sequence: state['interaction_sequence'] as int,
-        through: page['through'] as int,
-        nextCursor: page['next_cursor'] as int?,
+        sequence: sequence <= bound ? sequence : bound,
+        through: bound,
+        nextCursor: page['next_cursor'] as String?,
         items: merged.values,
       );
       await notifications.accept(state, listChanged: false);

@@ -4,6 +4,7 @@ import 'dart:isolate';
 import 'dart:math';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_offchain/offchain_clearing_rpc.dart';
 import 'package:flutter/foundation.dart';
 import 'package:pointycastle/digests/sha256.dart';
 import 'package:pointycastle/key_derivators/api.dart';
@@ -562,7 +563,10 @@ class AppLockService {
     if (walletSecretsDeleted) {
       await _attemptWipe(
         'UserIsar',
-        UserIsar.instance.closeAndDeleteFromDisk,
+        () {
+          ClearingBalances.instance.invalidateAll();
+          return UserIsar.instance.closeAndDeleteFromDisk();
+        },
         failures,
       );
     } else {
@@ -620,20 +624,11 @@ class AppLockService {
     CitizenSdk wallet,
     AccountSecurityService accountSecurity,
   ) async {
-    final before = await wallet.getWalletState().result;
-    final walletIndexes = before.accounts.map((account) => account.walletIndex);
-    for (final account in before.accounts.where(
-      (account) => account.signMode == CitizenWalletSignMode.cold,
-    )) {
-      await wallet.deleteAccount(account.accountId).result;
+    final receipt = await wallet.deleteWallet().result;
+    if (receipt.cleanupPending) {
+      throw StateError('SDK 钱包擦除仍待清理');
     }
-    await wallet.deleteWallet().result;
-    await wallet.reconcileCleanup().result;
-    final after = await wallet.getWalletState().result;
-    if (after.accounts.isNotEmpty || after.hotProfile != null) {
-      throw StateError('CitizenSDK 钱包擦除后仍存在账户');
-    }
-    await accountSecurity.wipeAllDeviceMaterial(walletIndexes);
+    await accountSecurity.wipeAllDeviceMaterial();
   }
 
   static Future<void> _deleteAndVerifyProtectedRecords() async {

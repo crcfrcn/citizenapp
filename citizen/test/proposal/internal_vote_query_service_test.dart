@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_sdk/test/platform/fixture.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 import 'package:citizen_citizen/proposal/internal_vote_query_service.dart';
 
@@ -50,6 +51,7 @@ void main() {
           final reads0 = Chain();
           return InternalVoteQueryService(
             getFinalizedHead: reads0.getFinalizedHead,
+            getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
             getStorage: reads0.getStorage,
             getStorageBatch: reads0.getStorageBatch,
             block: block,
@@ -61,6 +63,7 @@ void main() {
       expect(
         await InternalVoteQueryService(
           getFinalizedHead: chain.getFinalizedHead,
+          getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
           getStorage: chain.getStorage,
           getStorageBatch: chain.getStorageBatch,
           block: block,
@@ -81,6 +84,7 @@ void main() {
       await expectLater(
         InternalVoteQueryService(
           getFinalizedHead: chain.getFinalizedHead,
+          getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
           getStorage: chain.getStorage,
           getStorageBatch: chain.getStorageBatch,
         ).fetchAdminVote(7, account),
@@ -92,6 +96,7 @@ void main() {
     final chain = Chain();
     await InternalVoteQueryService(
       getFinalizedHead: chain.getFinalizedHead,
+      getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
       getStorage: chain.getStorage,
       getStorageBatch: chain.getStorageBatch,
     ).fetchInstitutionTicketVote(7, '机构', '岗位', account);
@@ -113,6 +118,7 @@ void main() {
     );
     final result = await InternalVoteQueryService(
       getFinalizedHead: chain.getFinalizedHead,
+      getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
       getStorage: chain.getStorage,
       getStorageBatch: chain.getStorageBatch,
     ).fetchAdminVotesBatch(7, [...accounts, accounts.first]);
@@ -127,6 +133,7 @@ void main() {
         final reads0 = Chain()..short = true;
         return InternalVoteQueryService(
           getFinalizedHead: reads0.getFinalizedHead,
+          getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
           getStorage: reads0.getStorage,
           getStorageBatch: reads0.getStorageBatch,
         );
@@ -140,6 +147,7 @@ void main() {
           final reads0 = Chain();
           return InternalVoteQueryService(
             getFinalizedHead: reads0.getFinalizedHead,
+            getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
             getStorage: reads0.getStorage,
             getStorageBatch: reads0.getStorageBatch,
           );
@@ -148,6 +156,7 @@ void main() {
     await expectLater(
       InternalVoteQueryService(
         getFinalizedHead: chain.getFinalizedHead,
+        getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
         getStorage: chain.getStorage,
         getStorageBatch: chain.getStorageBatch,
       ).fetchInstitutionTicketVote(7, 'CID', '', account),
@@ -156,6 +165,7 @@ void main() {
     await expectLater(
       InternalVoteQueryService(
         getFinalizedHead: chain.getFinalizedHead,
+        getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
         getStorage: chain.getStorage,
         getStorageBatch: chain.getStorageBatch,
       ).fetchAdminVote(-1, account),

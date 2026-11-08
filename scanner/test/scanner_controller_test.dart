@@ -7,14 +7,15 @@ import 'package:citizen_scanner/scanner.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 
 // 使用真实SDK采集资源；只控制物理相机打开、排空及会话归属。
-Widget _view(CitizenSdk sdk, {ValueChanged<String>? value}) => Directionality(
-  textDirection: TextDirection.ltr,
-  child: ScannerView(
-    qr: sdk,
-    purpose: CitizenQrScanPurpose.generalScan,
-    onRawValue: value ?? (_) {},
-  ),
-);
+Widget _view(CitizenSdk sdk, {ValueChanged<CitizenQrScanResult>? value}) =>
+    Directionality(
+      textDirection: TextDirection.ltr,
+      child: ScannerView(
+        qr: sdk,
+        purpose: CitizenQrScanPurpose.generalScan,
+        onResult: value ?? (_) {},
+      ),
+    );
 Future<void> _until(WidgetTester tester, bool Function() done) async {
   for (var i = 0; i < 100 && !done(); i++) {
     await tester.runAsync(() => Future<void>.delayed(Duration.zero));
@@ -28,7 +29,7 @@ void main() {
   testWidgets('打开尚未完成便退出，迟到摄像资源必须关闭且不展示', (tester) async {
     final opening = Completer<void>();
     core.fixture.cameraOpen = opening;
-    final values = <String>[];
+    final values = <CitizenQrScanResult>[];
     await tester.pumpWidget(_view(core.sdk, value: values.add));
     await _until(tester, () => core.fixture.calls.contains('openQrCapture'));
     await tester.pumpWidget(const SizedBox());

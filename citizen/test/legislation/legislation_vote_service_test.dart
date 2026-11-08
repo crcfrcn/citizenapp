@@ -8,11 +8,12 @@ import 'package:polkadart/polkadart.dart' show Hasher;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_sdk/test/platform/fixture.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 import 'package:citizen_citizen/legislation/legislation_vote_service.dart';
 
 import '../proposal/proposal_query_service_test.dart'
-    show eventMetadata, eventBytes;
+    show eventBytes;
 
 final signer = Uint8List.fromList(List.filled(32, 1));
 final block = CitizenBlockRef(
@@ -101,14 +102,16 @@ class Chain extends TestChainReads {
   }
 
   @override
-  Future<CitizenRuntimeContext> getRuntimeContext(CitizenBlockRef ref) async =>
-      CitizenRuntimeContext(
-        block: ref,
-        specVersion: 1,
-        transactionVersion: 1,
-        metadata: eventMetadata(),
-      );
+  Future<CitizenRuntimeContext> getRuntimeContext(CitizenBlockRef ref) =>
+      CitizenSdkTestFixture.runtimeContext(ref);
 }
+
+Future<Uint8List> _buildCall(String pallet, String method, Object fields) async =>
+    (await CitizenSdkTestFixture.runtimeContext(CitizenBlockRef(
+      hash: '0x${'11' * 32}',
+      number: BigInt.one,
+      finality: CitizenBlockFinality.finalized,
+    ))).encodeCall(pallet, method, fields);
 
 Future<Object> submit(
   LegislationVoteService service,
@@ -154,6 +157,7 @@ void main() {
       ..events = eventBytes(event: 1, approve: false);
     final tx = flow(cold: true),
         service = LegislationVoteService(
+          buildCall: _buildCall,
           eventQuery: (block) => ProposalQueryService(
             block: block,
             getSystemEvents: chain.getSystemEvents,
@@ -165,7 +169,7 @@ void main() {
           voteQuery: (block) => LegislationVoteQueryService(
             block: block,
             getSystemEvents: chain.getSystemEvents,
-            getRuntimeContext: chain.getRuntimeContext,
+            getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
             getFinalizedHead: chain.getFinalizedHead,
             getStorage: chain.getStorage,
             getStorageBatch: chain.getStorageBatch,
@@ -227,6 +231,7 @@ void main() {
         (() {
           final reads0 = flow();
           return LegislationVoteService(
+            buildCall: _buildCall,
             eventQuery: (block) => ProposalQueryService(
               block: block,
               getSystemEvents: chain.getSystemEvents,
@@ -238,7 +243,7 @@ void main() {
             voteQuery: (block) => LegislationVoteQueryService(
               block: block,
               getSystemEvents: chain.getSystemEvents,
-              getRuntimeContext: chain.getRuntimeContext,
+              getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
               getFinalizedHead: chain.getFinalizedHead,
               getStorage: chain.getStorage,
               getStorageBatch: chain.getStorageBatch,
@@ -271,6 +276,7 @@ void main() {
               tx = flow(cold: cold);
           await submit(
             LegislationVoteService(
+              buildCall: _buildCall,
               eventQuery: (block) => ProposalQueryService(
                 block: block,
                 getSystemEvents: chain.getSystemEvents,
@@ -282,7 +288,7 @@ void main() {
               voteQuery: (block) => LegislationVoteQueryService(
                 block: block,
                 getSystemEvents: chain.getSystemEvents,
-                getRuntimeContext: chain.getRuntimeContext,
+                getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
                 getFinalizedHead: chain.getFinalizedHead,
                 getStorage: chain.getStorage,
                 getStorageBatch: chain.getStorageBatch,
@@ -332,6 +338,7 @@ void main() {
           (() {
             final reads0 = flow();
             return LegislationVoteService(
+              buildCall: _buildCall,
               eventQuery: (block) => ProposalQueryService(
                 block: block,
                 getSystemEvents: chain.getSystemEvents,
@@ -343,7 +350,7 @@ void main() {
               voteQuery: (block) => LegislationVoteQueryService(
                 block: block,
                 getSystemEvents: chain.getSystemEvents,
-                getRuntimeContext: chain.getRuntimeContext,
+                getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
                 getFinalizedHead: chain.getFinalizedHead,
                 getStorage: chain.getStorage,
                 getStorageBatch: chain.getStorageBatch,
@@ -372,6 +379,7 @@ void main() {
         (() {
           final reads0 = flow();
           return LegislationVoteService(
+            buildCall: _buildCall,
             eventQuery: (block) => ProposalQueryService(
               block: block,
               getSystemEvents: chain.getSystemEvents,
@@ -383,7 +391,7 @@ void main() {
             voteQuery: (block) => LegislationVoteQueryService(
               block: block,
               getSystemEvents: chain.getSystemEvents,
-              getRuntimeContext: chain.getRuntimeContext,
+              getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
               getFinalizedHead: chain.getFinalizedHead,
               getStorage: chain.getStorage,
               getStorageBatch: chain.getStorageBatch,
@@ -417,6 +425,7 @@ void main() {
       }
       await expectLater(
         LegislationVoteService(
+          buildCall: _buildCall,
           eventQuery: (block) => ProposalQueryService(
             block: block,
             getSystemEvents: chain.getSystemEvents,
@@ -428,7 +437,7 @@ void main() {
           voteQuery: (block) => LegislationVoteQueryService(
             block: block,
             getSystemEvents: chain.getSystemEvents,
-            getRuntimeContext: chain.getRuntimeContext,
+            getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
             getFinalizedHead: chain.getFinalizedHead,
             getStorage: chain.getStorage,
             getStorageBatch: chain.getStorageBatch,
@@ -449,7 +458,7 @@ void main() {
         throwsStateError,
       );
       expect(chain.reads, isEmpty);
-      expect(tx.cancelCount, fail == 'cancel' ? 1 : 0);
+      expect(tx.cancelCount, fail == 'cancel' || fail == 'consume' ? 1 : 0);
       expect(tx.prepareCount, 1);
     }
   });
@@ -462,6 +471,7 @@ void main() {
     ]) {
       expect(
         () => LegislationVoteService.buildCallData(
+          buildCall: _buildCall,
           callIndex: args.$1,
           proposalId: args.$2,
           voterRoleCode: args.$3,
@@ -475,6 +485,7 @@ void main() {
       (() {
         final reads0 = Chain();
         return LegislationVoteService(
+          buildCall: _buildCall,
           eventQuery: (block) => ProposalQueryService(
             block: block,
             getSystemEvents: reads0.getSystemEvents,
@@ -486,7 +497,7 @@ void main() {
           voteQuery: (block) => LegislationVoteQueryService(
             block: block,
             getSystemEvents: reads0.getSystemEvents,
-            getRuntimeContext: reads0.getRuntimeContext,
+            getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
             getFinalizedHead: reads0.getFinalizedHead,
             getStorage: reads0.getStorage,
             getStorageBatch: reads0.getStorageBatch,

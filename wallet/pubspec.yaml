@@ -30,10 +30,6 @@ dependencies:
 
   # history迁入后的直接运行依赖；沿用原包约束。
   isar_community: ^3.3.2
-  polkadart: 0.7.3
-  polkadart_keyring: 0.7.1
-  polkadart_scale_codec: 1.6.0
-  substrate_metadata: 1.6.0
 
   chat: any
 dev_dependencies:

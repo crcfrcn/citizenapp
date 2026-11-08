@@ -1,3 +1,4 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_storage/user_isar.dart' as user_store show Identity;
 
 import 'dart:convert';
@@ -85,7 +86,7 @@ class IdentityBadgeSnapshotStore {
         cidLevel = value['cid_level'] as String;
       } else {
         final account = row.accountId;
-        if (account == null || !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(account)) {
+        if (account == null || !isCitizenAccountId(account)) {
           return null;
         }
         if (value == null) {
@@ -186,11 +187,11 @@ class IdentityBadgeSnapshotStore {
     required CitizenIdentityChainSnapshot? identity,
     required bool Function() isCurrent,
   }) async {
-    if (!RegExp(r'^0x[0-9a-f]{64}$').hasMatch(accountId)) {
+    if (!isCitizenAccountId(accountId)) {
       throw ArgumentError('account_id 无效');
     }
     if (identity != null &&
-        CitizenIdentityChainReader.hexEncode(identity.accountId) != accountId) {
+        citizenAccountIdFromBytes(identity.accountId) != accountId) {
       throw StateError('身份快照与账户不一致');
     }
     await UserIsar.instance.writeTxn((isar) async {

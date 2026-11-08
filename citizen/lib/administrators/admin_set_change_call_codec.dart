@@ -1,23 +1,17 @@
-import 'dart:convert';
+import 'package:citizen_sdk/citizen_sdk.dart';
 
-import 'package:citizen_citizen/pallet_registry.dart';
+import 'dart:convert';
 
 import 'dart:typed_data';
 
-import 'package:polkadart/scale_codec.dart' show ByteOutput, CompactBigIntCodec;
-import 'package:citizen_citizen/administrators/account_id_codec.dart';
 import 'package:citizen_citizen/administrators/admin_account.dart';
 import 'package:citizen_citizen/institution/institution_code_label.dart';
 
 class PersonalAdminsChangeCallCodec {
   PersonalAdminsChangeCallCodec._();
 
-  static const int personalAdminsPalletIndex =
-      PalletRegistry.personalAdminsPallet;
-  static const int proposePersonalAdminsChangeCallIndex =
-      PalletRegistry.proposePersonalAdminSetChangeCall;
-
-  static Uint8List build({
+  static Future<Uint8List> build({
+    required CitizenCallBuilder buildCall,
     required String orgCode,
     required int adminKind,
     required Uint8List accountId,
@@ -33,41 +27,32 @@ class PersonalAdminsChangeCallCodec {
     if (newThreshold <= 0) {
       throw ArgumentError('newThreshold 必须大于 0');
     }
-    final output = ByteOutput();
-    output.pushByte(personalAdminsPalletIndex);
-    output.pushByte(proposePersonalAdminsChangeCallIndex);
-    // institution_code: [u8;4]
-    output.write(Uint8List.fromList(InstitutionCodeLabel.codeBytes(orgCode)));
-    output.write(accountId);
-    output.write(CompactBigIntCodec.codec.encode(BigInt.from(admins.length)));
+    final encodedAdmins = <List<Object>>[];
     for (final admin in admins) {
-      final bytes = AdminAccountIdCodec.fromAccountIdText(admin.accountId);
+      final bytes = citizenAccountIdBytes(admin.accountId);
       if (bytes.length != 32) {
         throw ArgumentError('管理员公钥必须为 32 字节');
       }
-      output.write(bytes);
-      // 统一 Admin 恒带公民 CID（个人多签为空 → Compact(0)）。
-      final cidBytes = utf8.encode(admin.cidNumber);
-      output.write(
-        CompactBigIntCodec.codec.encode(BigInt.from(cidBytes.length)),
-      );
-      output.write(Uint8List.fromList(cidBytes));
-      _writeName(output, admin.familyName, 'family_name');
-      _writeName(output, admin.givenName, 'given_name');
+      encodedAdmins.add([
+        bytes,
+        Uint8List.fromList(utf8.encode(admin.cidNumber)),
+        _nameBytes(admin.familyName, 'family_name'),
+        _nameBytes(admin.givenName, 'given_name'),
+      ]);
     }
-    final thresholdBytes = Uint8List(4);
-    ByteData.sublistView(thresholdBytes)
-        .setUint32(0, newThreshold, Endian.little);
-    output.write(thresholdBytes);
-    return output.toBytes();
+    return buildCall('PersonalAdmins', 'propose_admin_set_change', [
+      Uint8List.fromList(InstitutionCodeLabel.codeBytes(orgCode)),
+      accountId,
+      encodedAdmins,
+      newThreshold,
+    ]);
   }
 
-  static void _writeName(ByteOutput output, String value, String field) {
+  static Uint8List _nameBytes(String value, String field) {
     final bytes = utf8.encode(value.trim());
     if (bytes.isEmpty || bytes.length > 128) {
       throw ArgumentError('$field 长度必须在 1..=128 字节');
     }
-    output.write(CompactBigIntCodec.codec.encode(BigInt.from(bytes.length)));
-    output.write(Uint8List.fromList(bytes));
+    return Uint8List.fromList(bytes);
   }
 }

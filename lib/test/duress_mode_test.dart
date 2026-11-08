@@ -1,4 +1,7 @@
 import 'package:citizen_testing/fake_citizen_sdk.dart';
+import 'package:citizen_testing/isar_test_env.dart';
+import 'package:citizen_offchain/offchain_clearing_rpc.dart';
+import 'package:citizen_storage/user_isar.dart';
 import 'package:citizenapp/security/app_lock_service.dart';
 import 'package:citizen_user/identity/account_security_service.dart';
 import 'package:citizenapp/security/pin_input_page.dart';
@@ -19,6 +22,7 @@ class _StorageOnlyWallet extends TestWalletReads {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  useIsolatedIsar();
   late Directory records;
   setUp(() async {
     final temporary = await Directory.systemTemp.createTemp("citizen_lock_");
@@ -57,24 +61,48 @@ void main() {
       final reads0 = _StorageOnlyWallet();
       return AccountSecurityService(
         getWalletState: reads0.getWalletState,
-        mlsDeviceRegistrar: ({
-          required cidNumber,
-          required bindRev,
-          required accountId,
-          required signBinding,
-        }) async => throw StateError('unexpected device registration'),
-        coldMlsDeviceBindingSigner: ({
-          required binding,
-          required payload,
-          required signingMessage,
-          required publicKey,
-          required issuedAtMillis,
-        }) async => throw StateError('unexpected signing'),
+        mlsDeviceRegistrar:
+            ({
+              required cidNumber,
+              required bindRev,
+              required accountId,
+              required signBinding,
+            }) async => throw StateError('unexpected device registration'),
+        coldMlsDeviceBindingSigner:
+            ({
+              required binding,
+              required payload,
+              required signingMessage,
+              required publicKey,
+              required issuedAtMillis,
+            }) async => throw StateError('unexpected signing'),
       );
     })();
-    await service.wipeAllDeviceMaterial(const []);
+    await service.wipeAllDeviceMaterial();
     expect(await SystemProtectedRecordStore.registration.readAll(), isEmpty);
     service.dispose();
+  });
+
+  test('全量擦除令已打开的清算余额失效', () async {
+    final id = testCitizenAccountId;
+    const wss = 'wss://clearing.example';
+    await UserIsar.instance.writeClearingBalance(id, wss, BigInt.one);
+    final balance = ClearingBalances.instance.state(accountId: id, wssUrl: wss);
+    addTearDown(ClearingBalances.instance.invalidateAll);
+    await balance.load();
+    expect(balance.value, BigInt.one);
+
+    await AppLockService.wipeAllData(
+      wallet: null,
+      accountSecurity: null,
+      debugDeleteCitizenSdkWallet: () async {},
+      debugDeleteProtectedRecords: () async {},
+      debugClearSharedPreferences: () async {},
+      debugChatDocumentsDirectoryProvider: () async => records,
+    );
+
+    expect(balance.value, isNull);
+    await expectLater(balance.refresh(), throwsStateError);
   });
   test('普通应用锁与防共匪密码使用各自固定迭代次数', () {
     expect(AppLockService.appLockPinHashIterations, 100000);

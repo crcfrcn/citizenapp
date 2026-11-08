@@ -1,3 +1,4 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_storage/user_isar.dart'
     as wallet_store
     show ProposalList, Summary;
@@ -7,9 +8,7 @@ import 'dart:typed_data';
 
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
-import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_storage/user_isar.dart' hide Group;
-import 'package:citizen_system/amount_format.dart';
 import 'package:citizen_multisig/multisig_transfer_models.dart';
 
 /// 提案列表本地持久化读库。
@@ -186,7 +185,7 @@ class LocalProposalSummary {
     status: status,
     internalCode: internalCode,
     actorCidNumber: actorCidNumber,
-    executionAccountId: _hexToBytes(executionAccountId),
+    executionAccountId: _executionAccount(executionAccountId),
     subjectCidNumbers: subjectCidNumbers,
     displayMeta: displayMeta,
   );
@@ -214,19 +213,19 @@ class LocalProposalSummary {
     if (transfer is TransferProposalInfo) {
       title = '转账提案 $displayId';
       listSubtitle =
-          '转账 ${AmountFormat.format(transfer.amountYuan, symbol: '')} 元';
+          '转账 ${formatFen(transfer.amountFen)} 元';
       subtitle = '$listSubtitle · $status';
       iconKind = 'transfer';
     } else if (safetyFund is SafetyFundProposalInfo) {
       title = '安全基金转账 $displayId';
       listSubtitle =
-          '安全基金转账 ${AmountFormat.format(safetyFund.amountYuan, symbol: '')} 元';
+          '安全基金转账 ${formatFen(safetyFund.amountFen)} 元';
       subtitle = '$listSubtitle · $status';
       iconKind = 'safety_fund';
     } else if (sweep is SweepProposalInfo) {
       title = '手续费划转 $displayId';
       listSubtitle =
-          '手续费划转 ${AmountFormat.format(sweep.amountYuan, symbol: '')} 元';
+          '手续费划转 ${formatFen(sweep.amountFen)} 元';
       subtitle = '$listSubtitle · $status';
       iconKind = 'sweep';
     } else if (proposal.createMultisigDetail != null) {
@@ -273,7 +272,9 @@ class LocalProposalSummary {
       status: meta.status,
       internalCode: meta.internalCode,
       actorCidNumber: meta.actorCidNumber,
-      executionAccountId: _bytesToHex(meta.executionAccountId),
+      executionAccountId: meta.executionAccountId == null
+          ? null
+          : citizenAccountIdFromBytes(meta.executionAccountId!),
       subjectCidNumbers: meta.subjectCidNumbers,
       displayYear: meta.displayMeta?.year,
       displaySeqInYear: meta.displayMeta?.seqInYear,
@@ -386,30 +387,13 @@ String _kindLabel(int kind) {
   }
 }
 
-String? _bytesToHex(Uint8List? bytes) {
-  if (bytes == null) return null;
-  if (bytes.length != 32) {
-    throw const FormatException('execution_account_id 必须为 32 字节');
+Uint8List? _executionAccount(String? accountId) {
+  if (accountId == null) return null;
+  try {
+    return citizenAccountIdBytes(accountId);
+  } on FormatException {
+    return null;
   }
-  final buffer = StringBuffer();
-  for (final byte in bytes) {
-    buffer.write(byte.toRadixString(16).padLeft(2, '0'));
-  }
-  return '0x$buffer';
-}
-
-/// 唯一调用方传的是 `executionAccountId`，故按账户语义校验（走单源校验器）。
-Uint8List? _hexToBytes(String? hex) {
-  if (hex == null || hex.isEmpty) return null;
-  if (!isAccountIdText(hex)) return null;
-  final clean = hex.substring(2);
-  final result = Uint8List(clean.length ~/ 2);
-  for (var i = 0; i < result.length; i++) {
-    final value = int.tryParse(clean.substring(i * 2, i * 2 + 2), radix: 16);
-    if (value == null) return null;
-    result[i] = value;
-  }
-  return result;
 }
 
 int? _toInt(Object? value) {

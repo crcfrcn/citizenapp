@@ -137,8 +137,6 @@ class _FlowService implements MyIdService {
     String accountId,
   ) async => null;
   @override
-  Future<void> reportRegistration(FinalizedRegistration result) async {}
-  @override
   Future<bool> canRetryRegistration(Map<String, dynamic>? checkpoint) async =>
       false;
 

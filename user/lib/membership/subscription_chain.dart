@@ -3,10 +3,7 @@ import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
-import 'package:polkadart/polkadart.dart' show Hasher;
-import 'package:polkadart/scale_codec.dart' show ByteOutput;
 
-import 'package:citizen_citizen/pallet_registry.dart';
 
 /// 创作者链上付款档位中的周期价格。
 class CreatorPeriodPriceInput {
@@ -127,6 +124,8 @@ class SubscriptionChain {
     CitizenSdk? chain,
     CitizenSdk? transactions,
     Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<CitizenBlockRef> Function()? getBestHead,
+    Future<CitizenRuntimeContext> Function(CitizenBlockRef)? getRuntimeContext,
     Future<List<Uint8List?>> Function(
       CitizenBlockRef block,
       List<Uint8List> keys,
@@ -148,7 +147,11 @@ class SubscriptionChain {
       String response,
     )?
     consumePreparedTransactionQrResponse,
-  }) : _getFinalizedHead =
+  }) : _getBestHead = getBestHead ?? transactions?.getBestHead ?? chain?.getBestHead ??
+           (() => throw StateError('未配置getBestHead')),
+       _getRuntimeContext = getRuntimeContext ?? chain?.getRuntimeContext ??
+           transactions?.getRuntimeContext ?? ((block) => throw StateError('未配置getRuntimeContext')),
+       _getFinalizedHead =
            getFinalizedHead ??
            chain?.getFinalizedHead ??
            (() => throw StateError('未配置getFinalizedHead')),
@@ -183,6 +186,8 @@ class SubscriptionChain {
            ((String executionId, String response) =>
                throw StateError('未配置consumePreparedTransactionQrResponse'));
   final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<CitizenBlockRef> Function() _getBestHead;
+  final Future<CitizenRuntimeContext> Function(CitizenBlockRef) _getRuntimeContext;
   final Future<List<Uint8List?>> Function(
     CitizenBlockRef block,
     List<Uint8List> keys,
@@ -205,18 +210,6 @@ class SubscriptionChain {
   )
   _consumePreparedTransactionQrResponse;
 
-  static const int _squarePostPalletIndex = PalletRegistry.squarePostPallet;
-  static const int _subscribeCallIndex = PalletRegistry.subscribeCall;
-  static const int _cancelCallIndex = PalletRegistry.cancelSubscriptionCall;
-  static const int _setCreatorPlansCallIndex =
-      PalletRegistry.setCreatorPlansCall;
-  static const int _changePlanCallIndex =
-      PalletRegistry.changeSubscriptionPlanCall;
-  static const int _updateCreatorTierNameCallIndex =
-      PalletRegistry.updateCreatorTierNameCall;
-
-  static const int _issuerPlatformTag = 0;
-  static const int _issuerCreatorTag = 1;
   static const int _planPlatformTag = 0;
   static const int _planCreatorTag = 1;
 
@@ -242,8 +235,9 @@ class SubscriptionChain {
       CitizenTransactionExternalSigningPending pending,
     )
     externalSigning,
-  }) => _submitFinalized(
+  }) async => _submitFinalized(
     callData: buildSubscribePlatformCall(
+      await _getRuntimeContext(await _getBestHead()),
       membershipLevelByte(level),
       expectedPriceFen,
     ),
@@ -261,8 +255,9 @@ class SubscriptionChain {
       CitizenTransactionExternalSigningPending pending,
     )
     externalSigning,
-  }) => _submitFinalized(
+  }) async => _submitFinalized(
     callData: buildSubscribeCreatorCall(
+      await _getRuntimeContext(await _getBestHead()),
       creatorCid,
       tierId,
       billingPeriod,
@@ -278,8 +273,8 @@ class SubscriptionChain {
       CitizenTransactionExternalSigningPending pending,
     )
     externalSigning,
-  }) => _submitFinalized(
-    callData: buildCancelPlatformCall(),
+  }) async => _submitFinalized(
+    callData: buildCancelPlatformCall(await _getRuntimeContext(await _getBestHead())),
     signerPublicKey: signerPublicKey,
     externalSigning: externalSigning,
   );
@@ -291,8 +286,8 @@ class SubscriptionChain {
       CitizenTransactionExternalSigningPending pending,
     )
     externalSigning,
-  }) => _submitFinalized(
-    callData: buildCancelCreatorCall(creatorCid),
+  }) async => _submitFinalized(
+    callData: buildCancelCreatorCall(await _getRuntimeContext(await _getBestHead()), creatorCid),
     signerPublicKey: signerPublicKey,
     externalSigning: externalSigning,
   );
@@ -305,8 +300,9 @@ class SubscriptionChain {
       CitizenTransactionExternalSigningPending pending,
     )
     externalSigning,
-  }) => _submitFinalized(
+  }) async => _submitFinalized(
     callData: buildChangePlatformPlanCall(
+      await _getRuntimeContext(await _getBestHead()),
       membershipLevelByte(level),
       expectedPriceFen,
     ),
@@ -324,8 +320,9 @@ class SubscriptionChain {
       CitizenTransactionExternalSigningPending pending,
     )
     externalSigning,
-  }) => _submitFinalized(
+  }) async => _submitFinalized(
     callData: buildChangeCreatorPlanCall(
+      await _getRuntimeContext(await _getBestHead()),
       creatorCid,
       tierId,
       billingPeriod,
@@ -343,8 +340,8 @@ class SubscriptionChain {
       CitizenTransactionExternalSigningPending pending,
     )
     externalSigning,
-  }) => _submitFinalized(
-    callData: buildSetCreatorPlansCall(tiers),
+  }) async => _submitFinalized(
+    callData: buildSetCreatorPlansCall(await _getRuntimeContext(await _getBestHead()), tiers),
     signerPublicKey: signerPublicKey,
     externalSigning: externalSigning,
   );
@@ -358,8 +355,8 @@ class SubscriptionChain {
       CitizenTransactionExternalSigningPending pending,
     )
     externalSigning,
-  }) => _submitFinalized(
-    callData: buildUpdateCreatorTierNameCall(tierId, tierName),
+  }) async => _submitFinalized(
+    callData: buildUpdateCreatorTierNameCall(await _getRuntimeContext(await _getBestHead()), tierId, tierName),
     signerPublicKey: signerPublicKey,
     externalSigning: externalSigning,
   );
@@ -370,8 +367,9 @@ class SubscriptionChain {
     String? creatorCid,
   }) async {
     final block = await _getFinalizedHead();
-    final subscriptionKey = buildSubscriptionStorageKey(cidNumber, creatorCid);
-    final timestampKey = buildStorageValueKey('Timestamp', 'Now');
+    final runtime = await _getRuntimeContext(block);
+    final subscriptionKey = buildSubscriptionStorageKey(runtime, cidNumber, creatorCid);
+    final timestampKey = runtime.storageKey('Timestamp', 'Now');
     final values = await _getStorageBatch(block, <Uint8List>[
       subscriptionKey,
       timestampKey,
@@ -382,7 +380,7 @@ class SubscriptionChain {
     }
     return FinalizedSubscriptionSnapshot(
       state: values[0] == null ? null : decodeSubscriptionState(values[0]!),
-      chainNowMs: _readUnsignedLittleEndian(timestamp, 0, 8).toInt(),
+      chainNowMs: CitizenScale.readUnsigned(timestamp, 0, 8).toInt(),
       block: block,
     );
   }
@@ -401,13 +399,14 @@ class SubscriptionChain {
     String creatorCid,
     CitizenBlockRef block,
   ) async {
-    final key = buildCreatorPlansStorageKey(creatorCid);
+    final runtime = await _getRuntimeContext(block);
+    final key = buildCreatorPlansStorageKey(runtime, creatorCid);
     final data = await _getStorage(block, key);
     if (data == null) return const <ChainCreatorTier>[];
     final priceTiers = decodeCreatorPlans(data);
     final encodedNames = await _getStorageBatch(block, <Uint8List>[
       for (final tier in priceTiers)
-        buildCreatorTierNameStorageKey(creatorCid, tier.tierId),
+        buildCreatorTierNameStorageKey(runtime, creatorCid, tier.tierId),
     ]);
     return List.unmodifiable([
       for (var index = 0; index < priceTiers.length; index++)
@@ -431,20 +430,13 @@ class SubscriptionChain {
   }) async {
     final prepared = await _prepareTransaction(signerPublicKey, callData);
     final started = await _executePreparedTransaction(prepared.preparationId);
-    CitizenTransactionExecutionCompleted completed;
-    if (started is CitizenTransactionExternalSigningPending) {
-      final response = await externalSigning(started);
-      if (response == null) {
-        await _cancelPreparedTransactionExecution(started.executionId);
-        throw StateError('订阅交易签名已取消');
-      }
-      completed = await _consumePreparedTransactionQrResponse(
-        started.executionId,
-        response,
-      );
-    } else {
-      completed = started as CitizenTransactionExecutionCompleted;
-    }
+    final completed = await completeCitizenTransaction(
+      started,
+      requestResponse: externalSigning,
+      consumeResponse: _consumePreparedTransactionQrResponse,
+      cancelExecution: _cancelPreparedTransactionExecution,
+    );
+    if (completed == null) throw StateError('订阅交易签名已取消');
     if (completed.resolution != CitizenTransactionResolution.finalizedSuccess ||
         completed.execution == null) {
       throw StateError(completed.poolRejectionReason ?? '订阅交易执行失败');
@@ -457,134 +449,130 @@ class SubscriptionChain {
   }
 
   static Uint8List buildSubscribePlatformCall(
+    CitizenRuntimeContext runtime,
     int levelByte,
     BigInt expectedPriceFen,
-  ) {
-    final output = _call(_subscribeCallIndex)
-      ..pushByte(_issuerPlatformTag)
-      ..pushByte(_planPlatformTag)
-      ..pushByte(levelByte)
-      ..write(_u128LittleEndian(expectedPriceFen));
-    return output.toBytes();
-  }
+  ) => _platformCall(runtime, 'subscribe', levelByte, expectedPriceFen);
 
   static Uint8List buildSubscribeCreatorCall(
+    CitizenRuntimeContext runtime,
     String creatorCid,
     String tierId,
     String billingPeriod,
     BigInt expectedPriceFen,
-  ) {
-    final output = _call(_subscribeCallIndex);
-    _writeCreatorIssuerAndPlan(output, creatorCid, tierId, billingPeriod);
-    output.write(_u128LittleEndian(expectedPriceFen));
-    return output.toBytes();
-  }
+  ) => _creatorCall(runtime, 'subscribe', creatorCid, tierId, billingPeriod, expectedPriceFen);
 
-  static Uint8List buildCancelPlatformCall() =>
-      (_call(_cancelCallIndex)..pushByte(_issuerPlatformTag)).toBytes();
+  static Uint8List buildCancelPlatformCall(CitizenRuntimeContext runtime) =>
+      runtime.encodeCall('SquarePost', 'cancel', [_issuer(null)]);
 
-  static Uint8List buildCancelCreatorCall(String creatorCid) {
-    final output = _call(_cancelCallIndex)..pushByte(_issuerCreatorTag);
-    _writeCidNumber(output, creatorCid);
-    return output.toBytes();
-  }
+  static Uint8List buildCancelCreatorCall(CitizenRuntimeContext runtime, String creatorCid) =>
+      runtime.encodeCall('SquarePost', 'cancel', [_issuer(creatorCid)]);
 
   static Uint8List buildChangePlatformPlanCall(
+    CitizenRuntimeContext runtime,
     int levelByte,
     BigInt expectedPriceFen,
-  ) =>
-      (_call(_changePlanCallIndex)
-            ..pushByte(_issuerPlatformTag)
-            ..pushByte(_planPlatformTag)
-            ..pushByte(levelByte)
-            ..write(_u128LittleEndian(expectedPriceFen)))
-          .toBytes();
+  ) => _platformCall(runtime, 'change_subscription_plan', levelByte, expectedPriceFen);
 
   static Uint8List buildChangeCreatorPlanCall(
+    CitizenRuntimeContext runtime,
     String creatorCid,
     String tierId,
     String billingPeriod,
     BigInt expectedPriceFen,
-  ) {
-    final output = _call(_changePlanCallIndex);
-    _writeCreatorIssuerAndPlan(output, creatorCid, tierId, billingPeriod);
-    output.write(_u128LittleEndian(expectedPriceFen));
-    return output.toBytes();
-  }
+  ) => _creatorCall(runtime, 'change_subscription_plan', creatorCid, tierId, billingPeriod, expectedPriceFen);
 
-  static Uint8List buildSetCreatorPlansCall(List<CreatorTierInput> tiers) {
-    final output = _call(_setCreatorPlansCallIndex);
-    _writeCompactLength(output, tiers.length);
-    for (final tier in tiers) {
-      _writeBytes(output, Uint8List.fromList(tier.tierId.codeUnits));
-      _writeTierName(output, tier.tierName);
-      _writeCompactLength(output, tier.pricesFen.length);
-      for (final price in tier.pricesFen) {
-        output.pushByte(billingPeriodByte(price.billingPeriod));
-        output.write(_u128LittleEndian(price.priceFen));
-      }
-    }
-    return output.toBytes();
-  }
+  static Uint8List _platformCall(
+    CitizenRuntimeContext runtime,
+    String method,
+    int levelByte,
+    BigInt expectedPriceFen,
+  ) => runtime.encodeCall('SquarePost', method, [
+    _issuer(null),
+    (variant: 'Platform', fields: <Object>[_membershipLevel(levelByte)]),
+    _price(expectedPriceFen),
+  ]);
+
+  static Uint8List _creatorCall(
+    CitizenRuntimeContext runtime,
+    String method,
+    String creatorCid,
+    String tierId,
+    String billingPeriod,
+    BigInt expectedPriceFen,
+  ) => runtime.encodeCall('SquarePost', method, [
+    _issuer(creatorCid),
+    (variant: 'Creator', fields: <Object>[_tierId(tierId), _billingPeriod(billingPeriod)]),
+    _price(expectedPriceFen),
+  ]);
+
+  static Uint8List buildSetCreatorPlansCall(
+    CitizenRuntimeContext runtime,
+    List<CreatorTierInput> tiers,
+  ) => runtime.encodeCall('SquarePost', 'set_creator_plans', [
+    [
+      for (final tier in tiers)
+        [
+          _tierId(tier.tierId),
+          _tierName(tier.tierName),
+          [
+            for (final price in tier.pricesFen)
+              [_billingPeriod(price.billingPeriod), _price(price.priceFen)],
+          ],
+        ],
+    ],
+  ]);
 
   @visibleForTesting
   static Uint8List buildUpdateCreatorTierNameCall(
+    CitizenRuntimeContext runtime,
     String tierId,
     String tierName,
-  ) {
-    final output = _call(_updateCreatorTierNameCallIndex);
-    _writeBytes(output, Uint8List.fromList(tierId.codeUnits));
-    _writeTierName(output, tierName);
-    return output.toBytes();
-  }
+  ) => runtime.encodeCall('SquarePost', 'update_creator_tier_name', [
+    _tierId(tierId), _tierName(tierName),
+  ]);
 
-  static ByteOutput _call(int callIndex) => ByteOutput()
-    ..pushByte(_squarePostPalletIndex)
-    ..pushByte(callIndex);
+  static CitizenScaleVariant _issuer(String? cid) => cid == null
+      ? (variant: 'Platform', fields: const [])
+      : (variant: 'Creator', fields: [_cidNumber(cid)]);
 
-  static void _writeCreatorIssuerAndPlan(
-    ByteOutput output,
-    String creatorCid,
-    String tierId,
-    String billingPeriod,
-  ) {
-    output.pushByte(_issuerCreatorTag);
-    _writeCidNumber(output, creatorCid);
-    output.pushByte(_planCreatorTag);
-    _writeBytes(output, Uint8List.fromList(tierId.codeUnits));
-    output.pushByte(billingPeriodByte(billingPeriod));
-  }
+  static CitizenScaleVariant membershipLevelVariant(String level) =>
+      _membershipLevel(membershipLevelByte(level));
 
-  static void _writeCidNumber(ByteOutput output, String cidNumber) {
+  static CitizenScaleVariant _membershipLevel(int levelByte) => (
+    variant: switch (levelByte) {
+      0 => 'Freedom',
+      1 => 'Democracy',
+      2 => 'Spark',
+      _ => throw ArgumentError('未知平台会员档：$levelByte'),
+    },
+    fields: const [],
+  );
+
+  static CitizenScaleVariant _billingPeriod(String period) => (
+    variant: const ['Monthly', 'Quarterly', 'Yearly'][billingPeriodByte(period)],
+    fields: const [],
+  );
+
+  static Uint8List _cidNumber(String cidNumber) {
     final bytes = Uint8List.fromList(utf8.encode(cidNumber));
     if (bytes.isEmpty || bytes.length > 32) {
       throw ArgumentError('cid_number 的 UTF-8 长度必须为 1-32 字节');
     }
-    _writeCompactLength(output, bytes.length);
-    output.write(bytes);
+    return bytes;
   }
 
-  static Uint8List _encodedCidNumber(String cidNumber) {
-    final output = ByteOutput();
-    _writeCidNumber(output, cidNumber);
-    return output.toBytes();
-  }
-
-  static void _writeBytes(ByteOutput output, Uint8List value) {
-    if (value.isEmpty ||
-        value.length > 32 ||
-        value.any((byte) => byte > 0x7f)) {
+  static Uint8List _tierId(String value) {
+    if (value.isEmpty || value.length > 32 || value.codeUnits.any((byte) => byte > 0x7f)) {
       throw ArgumentError('tier_id 必须为 1-32 字节 ASCII');
     }
-    _writeCompactLength(output, value.length);
-    output.write(value);
+    return Uint8List.fromList(value.codeUnits);
   }
 
-  static void _writeTierName(ByteOutput output, String tierName) {
-    final bytes = Uint8List.fromList(utf8.encode(tierName));
-    _validateTierName(tierName, bytes.length, _argumentTierName);
-    _writeCompactLength(output, bytes.length);
-    output.write(bytes);
+  static Uint8List _tierName(String value) {
+    final bytes = Uint8List.fromList(utf8.encode(value));
+    _validateTierName(value, bytes.length, _argumentTierName);
+    return bytes;
   }
 
   static Never _argumentTierName(String message) =>
@@ -611,100 +599,32 @@ class SubscriptionChain {
     }
   }
 
-  static void _writeCompactLength(ByteOutput output, int length) {
-    if (length < 0 || length >= 1 << 14) {
-      throw ArgumentError('当前 SCALE 紧凑长度只接受 0-16383');
-    }
-    if (length < 1 << 6) {
-      output.pushByte(length << 2);
-      return;
-    }
-    final encoded = (length << 2) | 0x01;
-    output
-      ..pushByte(encoded & 0xff)
-      ..pushByte(encoded >> 8);
-  }
-
-  static Uint8List _u128LittleEndian(BigInt value) {
+  static BigInt _price(BigInt value) {
     if (value <= BigInt.zero) throw ArgumentError('订阅金额必须大于 0');
-    final out = Uint8List(16);
-    var remaining = value;
-    for (var index = 0; index < out.length; index++) {
-      out[index] = (remaining & BigInt.from(0xff)).toInt();
-      remaining >>= 8;
-    }
-    if (remaining != BigInt.zero) throw ArgumentError('金额超出 u128 范围');
-    return out;
+    if (value.bitLength > 128) throw ArgumentError('金额超出 u128 范围');
+    return value;
   }
 
-  /// `Subscriptions[(subscriber, issuer)]` 的 Blake2_128Concat 单键布局。
   @visibleForTesting
   static Uint8List buildSubscriptionStorageKey(
+    CitizenRuntimeContext runtime,
     String cidNumber,
     String? creatorCid,
-  ) {
-    final raw = BytesBuilder(copy: false)
-      ..add(_encodedCidNumber(cidNumber))
-      ..addByte(creatorCid == null ? _issuerPlatformTag : _issuerCreatorTag);
-    if (creatorCid != null) {
-      raw.add(_encodedCidNumber(creatorCid));
-    }
-    return _storageMapKey('SquarePost', 'Subscriptions', raw.takeBytes());
-  }
-
-  /// `CreatorPlans[creator_cid_number]` 的 Blake2_128Concat 单键布局。
-  @visibleForTesting
-  static Uint8List buildCreatorPlansStorageKey(String creatorCid) =>
-      _storageMapKey(
-        'SquarePost',
-        'CreatorPlans',
-        _encodedCidNumber(creatorCid),
-      );
-
-  /// `CreatorTierNames[creator_cid_number][tier_id]` 的双 Blake2_128Concat 布局。
-  @visibleForTesting
-  static Uint8List buildCreatorTierNameStorageKey(
-    String creatorCid,
-    String tierId,
-  ) {
-    final encodedTierId = ByteOutput();
-    _writeBytes(encodedTierId, Uint8List.fromList(tierId.codeUnits));
-    return _storageDoubleMapKey(
-      'SquarePost',
-      'CreatorTierNames',
-      _encodedCidNumber(creatorCid),
-      encodedTierId.toBytes(),
-    );
-  }
-
-  @visibleForTesting
-  static Uint8List buildStorageValueKey(String pallet, String storage) =>
-      Uint8List.fromList([
-        ...Hasher.twoxx128.hashString(pallet),
-        ...Hasher.twoxx128.hashString(storage),
-      ]);
-
-  static Uint8List _storageMapKey(
-    String pallet,
-    String storage,
-    Uint8List keyData,
-  ) => Uint8List.fromList([
-    ...buildStorageValueKey(pallet, storage),
-    ...Hasher.blake2b128.hash(keyData),
-    ...keyData,
+  ) => runtime.storageKey('SquarePost', 'Subscriptions', [
+    [_cidNumber(cidNumber), _issuer(creatorCid)],
   ]);
 
-  static Uint8List _storageDoubleMapKey(
-    String pallet,
-    String storage,
-    Uint8List firstKeyData,
-    Uint8List secondKeyData,
-  ) => Uint8List.fromList([
-    ...buildStorageValueKey(pallet, storage),
-    ...Hasher.blake2b128.hash(firstKeyData),
-    ...firstKeyData,
-    ...Hasher.blake2b128.hash(secondKeyData),
-    ...secondKeyData,
+  @visibleForTesting
+  static Uint8List buildCreatorPlansStorageKey(CitizenRuntimeContext runtime, String creatorCid) =>
+      runtime.storageKey('SquarePost', 'CreatorPlans', [_cidNumber(creatorCid)]);
+
+  @visibleForTesting
+  static Uint8List buildCreatorTierNameStorageKey(
+    CitizenRuntimeContext runtime,
+    String creatorCid,
+    String tierId,
+  ) => runtime.storageKey('SquarePost', 'CreatorTierNames', [
+    _cidNumber(creatorCid), _tierId(tierId),
   ]);
 
   /// 严格解码 `SubscriptionState`；截断、非法枚举和尾随字节直接报错，禁止降级成无订阅。
@@ -824,21 +744,6 @@ class SubscriptionChain {
     throw const FormatException('subscription plan 枚举不合法');
   }
 
-  static BigInt _readUnsignedLittleEndian(
-    Uint8List data,
-    int offset,
-    int length,
-  ) {
-    if (offset < 0 || length < 0 || offset + length > data.length) {
-      throw const FormatException('无符号整数 SCALE 数据截断');
-    }
-    var value = BigInt.zero;
-    for (var index = length - 1; index >= 0; index--) {
-      value = (value << 8) | BigInt.from(data[offset + index]);
-    }
-    return value;
-  }
-
   static String _hex(Uint8List bytes) =>
       bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
 
@@ -857,19 +762,9 @@ class _ScaleReader {
   }
 
   int compactLength({required int max, bool allowZero = false}) {
-    final first = byte();
-    final mode = first & 0x03;
-    final int length;
-    if (mode == 0) {
-      length = first >> 2;
-    } else if (mode == 1) {
-      length = ((byte() << 8) | first) >> 2;
-      if (length < 1 << 6) {
-        throw const FormatException('SCALE 紧凑长度不是最短编码');
-      }
-    } else {
-      throw const FormatException('紧凑长度编码超出当前协议边界');
-    }
+    final (length, width) = CitizenScale.readCompact(data, offset);
+    if (width > 2) throw const FormatException('紧凑长度编码超出当前协议边界');
+    offset += width;
     if ((!allowZero && length == 0) || length > max) {
       throw const FormatException('紧凑长度不合法');
     }
@@ -900,10 +795,10 @@ class _ScaleReader {
   }
 
   int u64() =>
-      SubscriptionChain._readUnsignedLittleEndian(data, _take(8), 8).toInt();
+      CitizenScale.readUnsigned(data, _take(8), 8).toInt();
 
   BigInt u128() =>
-      SubscriptionChain._readUnsignedLittleEndian(data, _take(16), 16);
+      CitizenScale.readUnsigned(data, _take(16), 16);
 
   int _take(int length) {
     final start = offset;

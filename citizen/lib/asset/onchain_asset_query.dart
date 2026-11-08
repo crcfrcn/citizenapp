@@ -11,6 +11,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:citizen_citizen/asset/onchain_asset_constants.dart';
+import 'package:citizen_sdk/citizen_sdk.dart';
 
 /// 链端SCALE枚举；pegged仅为保留协议位，能解码不表示允许发行。
 enum OnchainAssetClass { plain, pegged }
@@ -150,12 +151,7 @@ class _ScaleReader {
   }
 
   int readU32() {
-    _ensureAvailable(4);
-    final value = ByteData.sublistView(
-      _bytes,
-      _offset,
-      _offset + 4,
-    ).getUint32(0, Endian.little);
+    final value = CitizenScale.readUnsigned(_bytes, _offset, 4).toInt();
     _offset += 4;
     return value;
   }
@@ -184,35 +180,12 @@ class _ScaleReader {
   }
 
   int readCompactU32() {
-    final first = readU8();
-    switch (first & 0x03) {
-      case 0:
-        return first >> 2;
-      case 1:
-        _ensureAvailable(1);
-        final second = _bytes[_offset++];
-        final value = (first | (second << 8)) >> 2;
-        if (value < 1 << 6) {
-          throw const FormatException('SCALE Compact长度不是最短编码');
-        }
-        return value;
-      case 2:
-        _ensureAvailable(3);
-        final encoded =
-            first |
-            (_bytes[_offset] << 8) |
-            (_bytes[_offset + 1] << 16) |
-            (_bytes[_offset + 2] << 24);
-        _offset += 3;
-        final value = encoded >>> 2;
-        if (value < 1 << 14) {
-          throw const FormatException('SCALE Compact长度不是最短编码');
-        }
-        return value;
-      case 3:
-        throw const FormatException('SCALE Compact 大整数模式不适用于 u32 长度');
+    final (value, width) = CitizenScale.readCompact(_bytes, _offset);
+    if (width > 4) {
+      throw const FormatException('SCALE Compact 大整数模式不适用于 CID 长度');
     }
-    throw const FormatException('无法解析 SCALE Compact<u32>');
+    _offset += width;
+    return value;
   }
 
   void ensureFinished(String typeName) {

@@ -2,7 +2,7 @@ import 'package:citizen_user/identity/registration_api.dart';
 import 'package:citizen_user/identity/registration_models.dart';
 import 'package:citizen_user/identity/registration_store.dart';
 
-/// 一次默认人验后执行原链注册，最终确认后只报告公开绑定。
+/// 一次默认人验后执行原链注册，以持久化的链上最终结果收尾。
 class RegistrationCoordinator {
   RegistrationCoordinator({RegistrationApi? api, RegistrationStore? store})
     : api = api ?? RegistrationApi(),
@@ -23,7 +23,6 @@ class RegistrationCoordinator {
     )
     registerCid,
     Future<bool> Function(Map<String, dynamic>?)? canRetryChain,
-    required Future<void> Function(FinalizedRegistration) report,
   }) {
     if (_flight != null) {
       if (_context == context.recordKey) return _flight!;
@@ -40,7 +39,6 @@ class RegistrationCoordinator {
           readFinalized,
           registerCid,
           canRetryChain,
-          report,
         ).whenComplete(() {
           if (identical(_flight, task)) {
             _flight = null;
@@ -62,7 +60,6 @@ class RegistrationCoordinator {
     )
     register,
     Future<bool> Function(Map<String, dynamic>?)? canRetry,
-    Future<void> Function(FinalizedRegistration) report,
   ) async {
     await guard();
     var finalized = await readChain();
@@ -141,17 +138,6 @@ class RegistrationCoordinator {
       await store.save(record, next);
       record = next;
       await guard();
-    }
-    try {
-      await report(finalized);
-      await guard();
-    } on RegistrationException {
-      rethrow;
-    } on Object {
-      throw const RegistrationException(
-        '公民号已上链，服务同步失败，请主动重试',
-        code: 'report_pending',
-      );
     }
     return finalized;
   }

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_sdk/test/platform/fixture.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:polkadart/scale_codec.dart' show CompactBigIntCodec;
 
@@ -28,10 +29,25 @@ void main() {
         number: BigInt.one,
         finality: CitizenBlockFinality.finalized,
       );
-      var records = <CitizenTransactionHistoryRecord>[];
+      CitizenTransactionHistoryRecord history(String id, String hash) =>
+          CitizenTransactionHistoryRecord(
+            executionId: id,
+            sourceAccountId: '0x${'cd' * 32}',
+            callDataHash: '0x${'ef' * 32}',
+            transactionHash: hash,
+            status: CitizenTransactionHistoryStatus.pending,
+            block: null,
+            execution: null,
+            replacementHash: null,
+            createdAtMillis: BigInt.one,
+            updatedAtMillis: BigInt.one,
+            poolRejectionReason: null,
+          );
+      final older = history('old', '0x${'34' * 32}');
+      var records = [older];
       final service = SquareChainService(
         events: events.stream,
-        recent: () async => CitizenTransactionHistoryPage(
+        getHistory: ({beforeExecutionId, limit = 100}) async => CitizenTransactionHistoryPage(
           revision: BigInt.one,
           records: records,
           nextBeforeExecutionId: null,
@@ -46,14 +62,15 @@ void main() {
           nonce: BigInt.zero,
         ),
         executePreparedTransaction: (_) async {
-          if (cold)
+          if (cold) {
             return CitizenTransactionExternalSigningPending(
-              executionId: 'e',
+              executionId: 'p',
               sourceAccountId: from,
               callDataHash: call,
               qrRequest: 'qr',
               expiresAt: DateTime.now().add(const Duration(minutes: 1)),
             );
+          }
           running.complete();
           return terminal.future;
         },
@@ -73,21 +90,8 @@ void main() {
       );
       await running.future;
       expect(observed.isCompleted, isFalse);
-      records = [
-        CitizenTransactionHistoryRecord(
-          executionId: 'e',
-          sourceAccountId: '0x${'cd' * 32}',
-          callDataHash: 'ef' * 32,
-          transactionHash: 'ab' * 32,
-          status: CitizenTransactionHistoryStatus.pending,
-          block: null,
-          execution: null,
-          replacementHash: null,
-          createdAtMillis: BigInt.one,
-          updatedAtMillis: BigInt.one,
-          poolRejectionReason: null,
-        ),
-      ];
+      // 即使旧交易排在前面并具有相同调用摘要，也只通知本次准备的已签哈希。
+      records = [older, history('p', '0x${'ab' * 32}')];
       events.add(const CitizenSdkHistoryChanged(sequence: 1));
       expect(
         await observed.future.timeout(const Duration(seconds: 2)),
@@ -96,7 +100,7 @@ void main() {
       expect(terminal.isCompleted, isFalse);
       terminal.complete(
         CitizenTransactionExecutionCompleted(
-          executionId: 'e',
+          executionId: 'p',
           sourceAccountId: from,
           callDataHash: call,
           transactionHash: hash,
@@ -250,6 +254,7 @@ void main() {
       final reads0 = TestTransactionCalls();
       return SquareChainService(
         getFinalizedHead: chain.getFinalizedHead,
+        getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
         getStorage: chain.getStorage,
         getStorageBatch: chain.getStorageBatch,
         prepareTransaction: reads0.prepareTransaction,

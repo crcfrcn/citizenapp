@@ -1,3 +1,4 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_storage/user_isar.dart'
     as wallet_store
     show WalletCursor, Entry;
@@ -6,7 +7,6 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:isar_community/isar.dart';
-import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_topup/store.dart';
 import 'package:citizen_storage/user_isar.dart' hide Group;
 
@@ -21,7 +21,7 @@ class LocalTxStore {
   static const String statusFailed = 'failed';
 
   static String requireAccountId(String accountId) {
-    if (!isAccountIdText(accountId)) {
+    if (!isCitizenAccountId(accountId)) {
       throw const FormatException('account_id 必须为小写 0x + 64 位十六进制');
     }
     return accountId;
@@ -31,19 +31,6 @@ class LocalTxStore {
     return blockHash.startsWith('0x')
         ? blockHash.toLowerCase()
         : '0x${blockHash.toLowerCase()}';
-  }
-
-  static String fenFromYuan(double amountYuan) {
-    return BigInt.from((amountYuan * 100).round()).toString();
-  }
-
-  static double fenToYuan(String amountFen) {
-    return BigInt.parse(amountFen).toDouble() / 100.0;
-  }
-
-  static String negateFen(String amountFen) {
-    final value = BigInt.parse(amountFen);
-    return (-value).toString();
   }
 
   /// 写入或替换一条交易流水。
@@ -142,105 +129,131 @@ class LocalTxStore {
     );
   }
 
-  /// 写入本机发起的普通转账记录。
-  ///
-  /// SDK execution/history 和 finalized 业务事件可能先于页面本地写入返回。这里先查是否
-  /// 已有同账户、同准确交易哈希的区块事件记录；若有，直接
-  /// 合并手续费和tx_hash，避免“本金事件 + 本机扣费记录”显示两条。
-  static Future<void> upsertLocalSubmitTransfer({
-    required String accountId,
-    required String txHash,
-    required String amountDelta,
-    required String transferAmount,
-    required String feeAmount,
-    required String fromAddress,
-    required String toAddress,
-    required String executionId,
-    required String callHash,
-
-    required int createdAt,
+  /// SDK history 决定本机提交状态。只有本次付款表单可以补入产品字段。
+  /// 本金和费用造成的实际余额变化只由 finalized 事件确认。
+  static Future<void> applyExecution(
+    CitizenTransactionHistoryRecord record, {
+    BigInt? amountFen,
+    String? fromAddress,
+    String? toAddress,
     String? txNote,
-    String? blockHash,
   }) async {
-    final normalizedAccountId = requireAccountId(accountId);
-    final normalizedTxHash = txHash.toLowerCase();
+    final accountId = requireAccountId(record.sourceAccountId);
+    final hash = record.transactionHash.toLowerCase();
+    final state = switch (record.status) {
+      CitizenTransactionHistoryStatus.pending => statusPending,
+      CitizenTransactionHistoryStatus.inBlock => statusInBlock,
+      CitizenTransactionHistoryStatus.poolRejected ||
+      CitizenTransactionHistoryStatus.finalizedFailed => statusFailed,
+      CitizenTransactionHistoryStatus.finalizedSuccess => statusFinalized,
+    };
+    final block = record.execution?.block ?? record.block;
+    final finalized = record.status == CitizenTransactionHistoryStatus.finalizedSuccess ||
+        record.status == CitizenTransactionHistoryStatus.finalizedFailed;
+    final confirmedAt = finalized ? record.updatedAtMillis.toInt() : null;
+    final failure = switch (record.status) {
+      CitizenTransactionHistoryStatus.poolRejected => record.poolRejectionReason ?? '交易池拒绝',
+      CitizenTransactionHistoryStatus.finalizedFailed => '链上执行失败',
+      _ => null,
+    };
     await UserIsar.instance.writeTxn((isar) async {
-      final existingPending = await _submit(
-        isar,
-        normalizedAccountId,
-        normalizedTxHash,
-      );
-      if (existingPending != null) {
-        existingPending
-          ..accountId = normalizedAccountId
-          ..entryKind = 'transfer'
-          ..amountDelta = existingPending.eventIndex == null
-              ? amountDelta
-              : existingPending.amountDelta
-          ..transferAmount = transferAmount
-          ..feeAmount = existingPending.eventIndex == null
-              ? feeAmount
-              : existingPending.feeAmount
-          ..fromAddress = fromAddress
-          ..toAddress = toAddress
-          ..txNote = _mergeRemark(txNote, existingPending.txNote)
-          ..entryState = _mergeStatus(existingPending.entryState, statusPending)
-          ..entrySource = 'local_submit'
-          ..txHash = normalizedTxHash
-          ..executionId = executionId
-          ..callHash = callHash
-          ..createdAt = existingPending.createdAt
-          ..failReason = null;
-        await isar.collection<wallet_store.Entry>().put(existingPending);
+      var row = await _submit(isar, accountId, hash);
+      if (row != null &&
+          (!_matchesSdkExecution(row, record.executionId, record.callDataHash) ||
+              (row.entryState == statusFinalized && state != statusFinalized) ||
+              (row.entryState == statusFailed &&
+                  (state == statusPending || state == statusInBlock)))) {
+        return;
+      }
+      if (row == null &&
+          (amountFen == null || fromAddress == null || toAddress == null ||
+              record.executionId.isEmpty || record.callDataHash.isEmpty)) {
         return;
       }
 
-      final candidates = await isar
-          .collection<wallet_store.Entry>()
-          .filter()
-          .accountIdEqualTo(normalizedAccountId)
-          .txHashEqualTo(normalizedTxHash)
-          .findAll();
-      final events = candidates
-          .where(
-            (row) =>
-                row.executionId == null &&
-                row.fromAddress == fromAddress &&
-                row.toAddress == toAddress &&
-                row.transferAmount == transferAmount,
-          )
-          .toList();
-      if (events.length > 1) {
-        throw StateError('同一提交交易匹配多个业务事件，拒绝猜测合并');
+      final existing = row;
+      final from = existing?.fromAddress ?? fromAddress;
+      final to = existing?.toAddress ?? toAddress;
+      final amount = existing?.transferAmount ?? amountFen?.toString();
+      wallet_store.Entry? event;
+      if (row?.eventIndex == null) {
+        final candidates = await isar.collection<wallet_store.Entry>()
+            .where().accountIdEqualTo(accountId).filter().txHashEqualTo(hash)
+            .findAll();
+        final transfers = candidates.where((candidate) =>
+            candidate.eventIndex != null && candidate.entryKind == 'transfer' &&
+            candidate.entrySource != 'local_submit' &&
+            candidate.fromAddress == from && candidate.toAddress == to &&
+            candidate.transferAmount == amount).toList();
+        if (transfers.length > 1) {
+          throw StateError('同一提交匹配多个转账事件');
+        }
+        event = transfers.singleOrNull;
+        if (event == null &&
+            record.status == CitizenTransactionHistoryStatus.finalizedFailed) {
+          final fees = candidates.where((candidate) =>
+              candidate.entryKind == 'fee' &&
+              candidate.blockHash == block?.hash &&
+              candidate.extrinsicIndex == record.execution?.extrinsicIndex &&
+              candidate.eventIndex != null).toList()
+            ..sort((a, b) => a.eventIndex!.compareTo(b.eventIndex!));
+          event = fees.firstOrNull;
+        }
       }
-      final existingEvent = events.singleOrNull;
-      final entity = existingEvent ?? wallet_store.Entry();
-      entity
-        // SDK history按同一账户与准确tx_hash推进原记录，原row_id保持。
-        ..accountId = normalizedAccountId
-        ..entryKind = 'transfer'
-        ..amountDelta = existingEvent?.amountDelta ?? amountDelta
-        ..transferAmount = transferAmount
-        ..feeAmount = existingEvent != null
-            ? existingEvent.feeAmount
-            : feeAmount
-        ..fromAddress = fromAddress
-        ..toAddress = toAddress
-        ..txNote = _mergeRemark(txNote, existingEvent?.txNote)
-        // 这是 SDK execution 记录；业务事件不能替 SDK 宣布交易终态。
-        ..entryState = statusPending
-        ..entrySource = 'local_submit'
-        ..txHash = normalizedTxHash
-        ..executionId = executionId
-        ..callHash = callHash
-        ..createdAt = existingEvent?.createdAt ?? createdAt
-        ..confirmedAt = null
-        ..failReason = null;
-      if (blockHash != null && blockHash.isNotEmpty) {
-        entity.blockHash = normalizeBlockHash(blockHash);
+
+      if (row == null) {
+        row = event ?? wallet_store.Entry();
+        row
+          ..accountId = accountId
+          ..entryKind = 'transfer'
+          ..amountDelta = event?.amountDelta ?? '0'
+          ..feeAmount = event?.feeAmount
+          ..transferAmount = amount
+          ..fromAddress = from
+          ..toAddress = to
+          ..txNote = _mergeRemark(event?.txNote, txNote)
+          ..entrySource = 'local_submit'
+          ..txHash = hash
+          ..executionId = record.executionId
+          ..callHash = record.callDataHash
+          ..createdAt = record.createdAtMillis.toInt();
+      } else if (event != null) {
+        _attachEvent(row, event);
+        await isar.collection<wallet_store.Entry>().delete(event.rowId);
       }
-      await isar.collection<wallet_store.Entry>().put(entity);
+
+      // 最佳链状态可退回 pending。已附加的 finalized 事件锚始终保留。
+      final blockHash = row.eventIndex != null ? row.blockHash : block?.hash;
+      final blockNumber = row.eventIndex != null ? row.blockNumber :
+          finalized ? block?.number.toInt() : null;
+      final index = row.eventIndex != null ? row.extrinsicIndex :
+          record.execution?.extrinsicIndex;
+      if (existing != null && event == null &&
+          row.entryState == state && row.blockHash == blockHash &&
+          row.blockNumber == blockNumber && row.extrinsicIndex == index &&
+          row.confirmedAt == confirmedAt && row.failReason == failure) {
+        return;
+      }
+      row
+        ..entryState = state
+        ..blockHash = blockHash
+        ..blockNumber = blockNumber
+        ..extrinsicIndex = index
+        ..confirmedAt = confirmedAt
+        ..failReason = failure;
+      await isar.collection<wallet_store.Entry>().put(row);
     });
+  }
+
+  static void _attachEvent(wallet_store.Entry row, wallet_store.Entry event) {
+    row
+      ..blockNumber = event.blockNumber
+      ..blockHash = event.blockHash
+      ..eventIndex = event.eventIndex
+      ..extrinsicIndex = event.extrinsicIndex
+      ..feeAmount = event.feeAmount
+      ..amountDelta = event.amountDelta
+      ..txNote = _mergeRemark(event.txNote, row.txNote);
   }
 
   /// 写入一个经过验证的 finalized 业务事件；精确交易哈希用于关联本机提交。
@@ -332,57 +345,23 @@ class LocalTxStore {
     final submitted = hash == null
         ? null
         : await _submit(isar, incoming.accountId, hash);
-    // 单独收费事件只补全同一账户与准确正文哈希的 SDK 提交，不接管其终态。
-    if (incoming.entryKind == 'fee' &&
-        submitted != null &&
-        submitted.entrySource == 'local_submit' &&
-        submitted.executionId?.isNotEmpty == true &&
-        submitted.callHash?.isNotEmpty == true) {
-      if (submitted.blockHash != null &&
-          submitted.eventIndex != null &&
-          (submitted.blockHash != incoming.blockHash ||
-              submitted.eventIndex != incoming.eventIndex)) {
-        throw StateError('收费事实与本机提交已绑定的事件不一致');
-      }
-      submitted
-        ..feeAmount = incoming.feeAmount
-        ..blockNumber = incoming.blockNumber
-        ..blockHash = incoming.blockHash
-        ..eventIndex = incoming.eventIndex
-        ..extrinsicIndex = incoming.extrinsicIndex;
-      if (incoming.failReason != null) {
-        submitted.amountDelta = incoming.amountDelta;
-      }
-      await isar.collection<wallet_store.Entry>().put(submitted);
-      if (existing != null && existing.rowId != submitted.rowId) {
-        await isar.collection<wallet_store.Entry>().delete(existing.rowId);
-      }
-      return;
-    }
-    // 交易哈希之外还核对业务内容；同金额从来不是关联依据。
+    // 同一提交只吸收一条业务事件，额外实扣和独立本金仍保留自己的事件身份。
     final matchesSubmit =
         submitted != null &&
-        submitted.entrySource == 'local_submit' &&
         submitted.executionId?.isNotEmpty == true &&
         submitted.callHash?.isNotEmpty == true &&
-        submitted.fromAddress == incoming.fromAddress &&
-        submitted.toAddress == incoming.toAddress &&
-        submitted.transferAmount == incoming.transferAmount &&
         (submitted.eventIndex == null ||
             (submitted.eventIndex == incoming.eventIndex &&
-                submitted.blockHash == incoming.blockHash));
+                submitted.blockHash == incoming.blockHash)) &&
+        (incoming.entryKind == 'fee'
+            ? incoming.failReason != null
+            : submitted.fromAddress == incoming.fromAddress &&
+                submitted.toAddress == incoming.toAddress &&
+                submitted.transferAmount == incoming.transferAmount);
     if (matchesSubmit) {
-      submitted
-        ..blockNumber = incoming.blockNumber
-        ..blockHash = incoming.blockHash
-        ..eventIndex = incoming.eventIndex
-        ..extrinsicIndex = incoming.extrinsicIndex
-        ..feeAmount = incoming.feeAmount
-        ..amountDelta = incoming.amountDelta
-        ..txNote = _mergeRemark(incoming.txNote, submitted.txNote);
+      _attachEvent(submitted, incoming);
       await isar.collection<wallet_store.Entry>().put(submitted);
       if (existing != null && existing.rowId != submitted.rowId) {
-        // 同一个事件与同一个提交的两种到达顺序收敛到原主键。
         await isar.collection<wallet_store.Entry>().delete(existing.rowId);
       }
     } else {
@@ -464,118 +443,6 @@ class LocalTxStore {
     }
   }
 
-  /// CitizenSDK history 显示交易已进入区块时，把本机 pending 记录升级为 inBlock。
-  ///
-  /// 这里不把它直接改成 finalized；最终确认只能由 SDK history 的
-  /// finalizedSuccess 写回，业务事件不能越权推进。
-  static Future<void> markLocalSubmitInBlock({
-    required String accountId,
-    required String txHash,
-    required String executionId,
-    required String callHash,
-    String? blockHash,
-  }) async {
-    await UserIsar.instance.writeTxn((isar) async {
-      final entity = await _submit(isar, accountId, txHash);
-      if (entity == null ||
-          !_matchesSdkExecution(entity, executionId, callHash) ||
-          entity.entryState == statusFinalized ||
-          entity.entryState == statusFailed) {
-        return;
-      }
-      entity.entryState = statusInBlock;
-      if (blockHash != null && blockHash.isNotEmpty) {
-        entity.blockHash = normalizeBlockHash(blockHash);
-      }
-      entity.failReason = null;
-      await isar.collection<wallet_store.Entry>().put(entity);
-    });
-  }
-
-  /// 根据 CitizenSDK history 的 pending 事实保持待确认。
-  ///
-  /// `inBlock` 只是内部进度，未获得 finalized 前始终属于 UI 的“待确认”。
-  /// 保留 SDK 已投影的区块锚点，最终状态只能由后续 SDK history 覆盖。
-  static Future<void> markLocalSubmitPending({
-    required String accountId,
-    required String txHash,
-    required String executionId,
-    required String callHash,
-  }) async {
-    await UserIsar.instance.writeTxn((isar) async {
-      final entity = await _submit(isar, accountId, txHash);
-      if (entity == null ||
-          !_matchesSdkExecution(entity, executionId, callHash) ||
-          entity.entryState == statusFinalized ||
-          entity.entryState == statusFailed) {
-        return;
-      }
-      // 不清 block_hash：它是 SDK 已公开的 inBlock 进度事实。
-      entity
-        ..entryState = statusPending
-        ..failReason = null;
-      await isar.collection<wallet_store.Entry>().put(entity);
-    });
-  }
-
-  /// 把已签名提交、且被交易池明确拒绝的交易标记为失败。
-  ///
-  /// 连接中断、监听超时和未获最终性确认都不能调用本入口，避免把未知结果误报为失败。
-  static Future<void> markLocalSubmitFailed({
-    required String accountId,
-    required String txHash,
-    required String executionId,
-    required String callHash,
-    required String failReason,
-  }) async {
-    await UserIsar.instance.writeTxn((isar) async {
-      final entity = await _submit(isar, accountId, txHash);
-      if (entity == null ||
-          !_matchesSdkExecution(entity, executionId, callHash) ||
-          entity.entryState == statusFinalized) {
-        return;
-      }
-      entity
-        ..entryState = statusFailed
-        ..failReason = failReason;
-      await isar.collection<wallet_store.Entry>().put(entity);
-    });
-  }
-
-  /// 把 CitizenSDK 已核验的 finalizedSuccess 投影到对应 App 记录。
-  static Future<void> markLocalSubmitFinalized({
-    required String accountId,
-    required String txHash,
-    required String executionId,
-    required String callHash,
-    String? blockHash,
-    int? blockNumber,
-    int? extrinsicIndex,
-    int? confirmedAt,
-  }) async {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    await UserIsar.instance.writeTxn((isar) async {
-      final entity = await _submit(isar, accountId, txHash);
-      if (entity == null ||
-          !_matchesSdkExecution(entity, executionId, callHash) ||
-          entity.entryState == statusFinalized) {
-        return;
-      }
-      entity
-        ..entryState = statusFinalized
-        ..extrinsicIndex = extrinsicIndex ?? entity.extrinsicIndex
-        ..confirmedAt = confirmedAt ?? now
-        ..failReason = null;
-      if (blockHash != null && blockHash.isNotEmpty) {
-        entity.blockHash = normalizeBlockHash(blockHash);
-      }
-      if (blockNumber != null) {
-        entity.blockNumber = blockNumber;
-      }
-      await isar.collection<wallet_store.Entry>().put(entity);
-    });
-  }
-
   /// 监听某账户交易记录的任何变更。SDK history 和 finalized 业务投影把记录
   /// 写成 finalized 后即触发,供交易列表页响应式重刷(见 TxAutoRefreshMixin),
   /// 取代"提交后延时 N 秒盲刷"。
@@ -595,30 +462,9 @@ class LocalTxStore {
     );
   }
 
-  static String _mergeStatus(String? current, String incoming) {
-    final currentRank = _statusRank(current);
-    final incomingRank = _statusRank(incoming);
-    return incomingRank >= currentRank ? incoming : (current ?? incoming);
-  }
-
   static String? _mergeRemark(String? incoming, String? existing) {
     final normalized = incoming == null || incoming.isEmpty ? null : incoming;
     return normalized ?? existing;
-  }
-
-  static int _statusRank(String? entryState) {
-    switch (entryState) {
-      case statusFinalized:
-        return 4;
-      case statusFailed:
-        return 3;
-      case statusInBlock:
-        return 2;
-      case statusPending:
-        return 1;
-      default:
-        return 0;
-    }
   }
 
   /// SDK execution_id 与 opaque callData hash 必须同时匹配本地业务记录；

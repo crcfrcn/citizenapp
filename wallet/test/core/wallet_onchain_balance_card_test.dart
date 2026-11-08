@@ -1,5 +1,5 @@
+import 'package:citizen_storage/user_isar.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
-import 'package:citizen_wallet/core/account_balance_snapshot_store.dart';
 
 import 'package:citizen_testing/isar_test_env.dart';
 
@@ -17,14 +17,22 @@ void main() {
   test('恢复磁盘后各页面同步取同一状态，缺失账户失败不遮掉已有金额', () async {
     final initial = (() {
       final reads = _BalanceChain();
-      return AccountBalanceSnapshotStore(
+      return CitizenBalances(
+        storage: (
+          read: UserIsar.instance.readBalance,
+          write: UserIsar.instance.writeBalance,
+        ),
         getAccountBalance: reads.getAccountBalance,
         getAccountBalances: reads.getAccountBalances,
       );
     })();
     await initial.getAccountBalance(_balanceAccount);
     final chain = _BalanceChain()..gate = Completer<void>();
-    final store = AccountBalanceSnapshotStore(
+    final store = CitizenBalances(
+      storage: (
+        read: UserIsar.instance.readBalance,
+        write: UserIsar.instance.writeBalance,
+      ),
       getAccountBalance: chain.getAccountBalance,
       getAccountBalances: chain.getAccountBalances,
     );
@@ -44,15 +52,16 @@ void main() {
     await failed;
     expect(state.value, isNotNull);
     expect(store.accountState(other).hasError, isTrue);
-    expect(
-      AccountBalanceSnapshotStore.formatFen(state.value!.freeFen),
-      '900,719,925,474,099,312.34',
-    );
+    expect(formatFen(state.value!.freeFen), '900,719,925,474,099,312.34');
   });
 
   test('显示状态合并刷新，失败保留旧值，已确认删除排空并清掉内存', () async {
     final chain = _BalanceChain();
-    final store = AccountBalanceSnapshotStore(
+    final store = CitizenBalances(
+      storage: (
+        read: UserIsar.instance.readBalance,
+        write: UserIsar.instance.writeBalance,
+      ),
       getAccountBalance: chain.getAccountBalance,
       getAccountBalances: chain.getAccountBalances,
     );
@@ -69,14 +78,18 @@ void main() {
     await refresh;
     expect(state.hasError, isTrue);
     expect(state.value, first);
-    await store.forget([_balanceAccount]);
+    await store.remove([_balanceAccount]);
     expect(state.value, isNull);
     expect(state.hasError, isFalse);
     expect(chain.calls, 2);
   });
   test('跨页面和新SDK实例读取同一持久快照，展示没有TTL', () async {
     final chain = _BalanceChain();
-    final store = AccountBalanceSnapshotStore(
+    final store = CitizenBalances(
+      storage: (
+        read: UserIsar.instance.readBalance,
+        write: UserIsar.instance.writeBalance,
+      ),
       getAccountBalance: chain.getAccountBalance,
       getAccountBalances: chain.getAccountBalances,
     );
@@ -91,7 +104,11 @@ void main() {
       first.totalFen,
     ]);
     final nextChain = _BalanceChain();
-    final restored = await AccountBalanceSnapshotStore(
+    final restored = await CitizenBalances(
+      storage: (
+        read: UserIsar.instance.readBalance,
+        write: UserIsar.instance.writeBalance,
+      ),
       getAccountBalance: nextChain.getAccountBalance,
       getAccountBalances: nextChain.getAccountBalances,
     ).getAccountBalance(_balanceAccount);
@@ -102,7 +119,11 @@ void main() {
 
   test('主动刷新合并在途请求，成功后通知订阅者一次', () async {
     final chain = _BalanceChain()..gate = Completer<void>();
-    final store = AccountBalanceSnapshotStore(
+    final store = CitizenBalances(
+      storage: (
+        read: UserIsar.instance.readBalance,
+        write: UserIsar.instance.writeBalance,
+      ),
       getAccountBalance: chain.getAccountBalance,
       getAccountBalances: chain.getAccountBalances,
     );
@@ -121,7 +142,11 @@ void main() {
 
   test('刷新失败保留持久成功余额，另一账户不能读到该余额', () async {
     final chain = _BalanceChain();
-    final store = AccountBalanceSnapshotStore(
+    final store = CitizenBalances(
+      storage: (
+        read: UserIsar.instance.readBalance,
+        write: UserIsar.instance.writeBalance,
+      ),
       getAccountBalance: chain.getAccountBalance,
       getAccountBalances: chain.getAccountBalances,
     );
@@ -142,7 +167,11 @@ void main() {
 
   test('展示读取不等待在途刷新；最终确认只刷新落后快照', () async {
     final chain = _BalanceChain();
-    final store = AccountBalanceSnapshotStore(
+    final store = CitizenBalances(
+      storage: (
+        read: UserIsar.instance.readBalance,
+        write: UserIsar.instance.writeBalance,
+      ),
       getAccountBalance: chain.getAccountBalance,
       getAccountBalances: chain.getAccountBalances,
     );
@@ -175,7 +204,11 @@ void main() {
 
   test('未最终确认或总数不一致的余额不进入持久快照', () async {
     final chain = _BalanceChain()..invalidTotal = true;
-    final store = AccountBalanceSnapshotStore(
+    final store = CitizenBalances(
+      storage: (
+        read: UserIsar.instance.readBalance,
+        write: UserIsar.instance.writeBalance,
+      ),
       getAccountBalance: chain.getAccountBalance,
       getAccountBalances: chain.getAccountBalances,
     );
@@ -196,18 +229,19 @@ void main() {
 
   test('旧块不能覆盖新块，同高度不同证明和错误账户被拒绝', () async {
     final chain = _BalanceChain()..height = 20;
-    final store = AccountBalanceSnapshotStore(
+    final store = CitizenBalances(
+      storage: (
+        read: UserIsar.instance.readBalance,
+        write: UserIsar.instance.writeBalance,
+      ),
       getAccountBalance: chain.getAccountBalance,
       getAccountBalances: chain.getAccountBalances,
     );
     await store.getAccountBalance(_balanceAccount);
     chain.height = 19;
-    expect(
-      (await store.getAccountBalance(
-        _balanceAccount,
-        forceRefresh: true,
-      )).block.number,
-      BigInt.from(20),
+    await expectLater(
+      store.getAccountBalance(_balanceAccount, forceRefresh: true),
+      throwsStateError,
     );
     chain
       ..height = 20
@@ -226,9 +260,13 @@ void main() {
     expect((await store.read(_balanceAccount))!.block.number, BigInt.from(20));
   });
 
-  test('批量缺失一次读取且保留重复顺序，非法账户和明文端点先拒绝', () async {
+  test('批量缺失一次读取且保留重复顺序，非法账户先拒绝', () async {
     final chain = _BalanceChain();
-    final store = AccountBalanceSnapshotStore(
+    final store = CitizenBalances(
+      storage: (
+        read: UserIsar.instance.readBalance,
+        write: UserIsar.instance.writeBalance,
+      ),
       getAccountBalance: chain.getAccountBalance,
       getAccountBalances: chain.getAccountBalances,
     );
@@ -246,14 +284,6 @@ void main() {
     expect(chain.batchCalls, 1);
     await expectLater(
       store.getAccountBalance('not-an-account'),
-      throwsFormatException,
-    );
-    await expectLater(
-      store.getClearingBalance(
-        accountId: _balanceAccount,
-        accountAddress: 'synthetic',
-        wssUrl: 'ws://example.invalid',
-      ),
       throwsFormatException,
     );
   });

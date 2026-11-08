@@ -18,9 +18,7 @@
 // (`test/citizen/cid_generator_golden_test.dart`)钉死防跨语言漂移。
 
 import 'dart:convert';
-import 'dart:typed_data';
-
-import 'package:polkadart/polkadart.dart' show Hasher;
+import 'package:citizen_sdk/citizen_sdk.dart';
 
 /// 人主体机构码:公民。
 const String kCidInstitutionCitizen = 'CTZN';
@@ -61,13 +59,10 @@ String generateCitizenCid({
   final yearText = year.toString();
 
   final input = '$accountId|$institution|$yearText';
-  final digest = Hasher.blake2b256.hash(Uint8List.fromList(utf8.encode(input)));
+  final digest = CitizenScale.blake2b256(utf8.encode(input));
 
   // 前 8 字节小端 → 无符号 u64。用 BigInt 承载,避免 Dart 有符号 int 在高位溢出。
-  var n = BigInt.zero;
-  for (var i = 7; i >= 0; i--) {
-    n = (n << 8) | BigInt.from(digest[i]);
-  }
+  final n = CitizenScale.readUnsigned(digest, 0, 8);
   final number = n % _numberModulus;
   final high3 = (number ~/ _highLowSplit).toInt(); // 0..=999
   final low9 = (number % _highLowSplit).toInt();

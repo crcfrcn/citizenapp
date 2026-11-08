@@ -16,27 +16,9 @@ import 'package:citizen_wallet/account/wallet_identity_card.dart';
 import 'package:citizen_wallet/core/wallet_onchain_balance_card.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
-/// 账户详情（Lv3）：单个 `//index` 账户 = 单钱包多账户下「以前的钱包详情」。
-///
-/// 承载该账户的全部钱包功能，一律按 `account_id` 键控：
-/// - USDT充值 / USDC充值 / 零钱包（[WalletActionCard]，链下清算行零钱包按账户独立绑定）；
-/// - 清算行菜单当前只显示“暂未上线，敬请期待”，不进入尚未完成的设置页；
-/// - 交易记录（[TransactionHistoryPage]，按账户 `account_id` 查询）；
-/// - 顶部完整 SS58 地址与该账户的账户码（`k=5`，只声明账户；身份码在用户主页）；
-/// - AppBar 菜单保留原私钥警告与显示框；SDK负责真实认证与短时资源，页面只呈现。
-///
-/// 追加账户不在本页：收在「我的钱包」列表右上角「＋」的「添加下一个账户 / 添加指定账户」。
-class AccountDetailPage extends StatefulWidget {
-  const AccountDetailPage({super.key, required this.account});
-
-  final CitizenWalletStateAccount account;
-
-  @override
-  State<AccountDetailPage> createState() => _AccountDetailPageState();
-}
-
-class _AccountDetailPageState extends State<AccountDetailPage>
-    with TxAutoRefreshMixin<AccountDetailPage>, WidgetsBindingObserver {
+/// 两个钱包入口共用私钥显示，真实认证、撤销和字节清零由 SDK 资源负责。
+mixin WalletPrivateDisplay<T extends StatefulWidget>
+    on State<T>, WidgetsBindingObserver {
   bool _screenshotGuardActive = false;
   bool _privateOpening = false;
   bool _privateRevoked = false;
@@ -44,90 +26,35 @@ class _AccountDetailPageState extends State<AccountDetailPage>
   DialogRoute<void>? _privateKeyRoute;
   VoidCallback? _clearPrivateText;
 
-  /// 双币充值/零钱包动作卡:下拉刷新时通过此 key 触发清算行余额重查。
-  final GlobalKey<WalletActionCardState> _actionCardKey =
-      GlobalKey<WalletActionCardState>();
-
-  final GlobalKey<WalletOnchainBalanceCardState> _balanceCardKey =
-      GlobalKey<WalletOnchainBalanceCardState>();
-
-  /// 该账户最近交易记录(最多 5 条),按 `account_id` 查询。
-  List<wallet_store.Entry> _recentRecords = const [];
-
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // 初始化加载最近交易记录；之后由 SDK history/finalized 业务投影触发响应式重刷。
-    // (不重复启动监听、不劫持全局回调)。
-    _loadRecentRecords();
-    startTxAutoRefresh(widget.account.accountId);
   }
-
-  @override
-  Future<void> onTxRecordsChanged() => _loadRecentRecords();
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _privateRevoked = true;
-    // Navigator自身销毁页面时不能重入其锁；本轮微任务移除准确敏感route，不弹出其它页面。
+    // 页面销毁期间不重入 Navigator，只移除本次敏感窗口。
     scheduleMicrotask(_dismissPrivateDisplay);
     final resource = _privateKeyResource;
     if (resource != null) unawaited(resource.close().catchError((Object _) {}));
-    unawaited(
-      stopTxAutoRefresh().catchError((Object error, StackTrace stackTrace) {
-        AppLog.d('[Wallet] 账户详情 watcher 停止失败: $error\n$stackTrace');
-      }),
-    );
     super.dispose();
   }
 
-  @override
-  void onTopupRecordChanged(TopupChange change) {
-    setState(() => _recentRecords = change.apply(_recentRecords, limit: 5));
-  }
-
-  Future<void> _loadRecentRecords() async {
-    try {
-      final records = await LocalTxStore.queryRecentByAccountId(
-        widget.account.accountId,
-        limit: 5,
-      );
-      if (!mounted) return;
-      setState(() => _recentRecords = records);
-    } catch (_) {
-      // 加载失败静默忽略,账户详情其余功能不受影响。
-    }
-  }
-
-  /// 下拉刷新:清算行余额卡 + 最近交易记录。
-  Future<void> _onPullRefresh() async {
-    await Future.wait<void>([
-      Future(() async {
-        try {
-          await _balanceCardKey.currentState?.refresh();
-        } catch (_) {}
-      }),
-      Future(() async {
-        try {
-          await _actionCardKey.currentState?.refresh();
-        } catch (_) {
-          // 清算行节点可能暂不可达,动作卡内部会展示节点不可达。
-        }
-      }),
-      refreshTxHistory(),
-    ]);
-  }
-
-  Future<void> _revealPrivateKey() async {
+  Future<void> revealPrivateKey(String accountId, {bool wallet = false}) async {
     if (_privateOpening || _privateKeyResource != null || !mounted) return;
     _privateOpening = true;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('查看私钥'),
-        content: const Text('私钥泄露将导致该账户资产被盗（仅该账户，不影响本钱包其他账户）。\n\n确认要查看吗？'),
+        content: Text(
+          wallet
+              ? '私钥是核心机密信息，泄露将导致资产被盗。\n\n确认要查看吗？'
+              : '私钥泄露将导致该账户资产被盗（仅该账户，不影响本钱包其他账户）。\n\n确认要查看吗？',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -149,9 +76,7 @@ class _AccountDetailPageState extends State<AccountDetailPage>
     CitizenSdkPrivateKey? resource;
     String? key;
     try {
-      resource = await context.read<CitizenSdk>().openPrivateKey(
-        widget.account.accountId,
-      );
+      resource = await context.read<CitizenSdk>().openPrivateKey(accountId);
       final owned = resource;
       _privateKeyResource = owned;
       _clearPrivateText = () {
@@ -201,7 +126,7 @@ class _AccountDetailPageState extends State<AccountDetailPage>
                 ),
                 // 普通 Text 不提供选择/复制菜单，避免私钥进入剪贴板。
                 child: Text(
-                  key!,
+                  key ?? '',
                   style: TextStyle(
                     fontSize: AppLayout.scaledValue(13),
                     fontFamily: 'monospace',
@@ -238,12 +163,14 @@ class _AccountDetailPageState extends State<AccountDetailPage>
           e.code == CitizenSdkErrorCode.cancelled) {
         return;
       }
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('验证失败：${e.message}')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('验证失败：${e.message}')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('验证失败：$e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('验证失败：$e')));
     } finally {
       _dismissPrivateDisplay();
       key = null;
@@ -287,11 +214,106 @@ class _AccountDetailPageState extends State<AccountDetailPage>
       await ScreenshotGuard.disable();
     }
   }
+}
+
+/// 账户详情（Lv3）：单个 `//index` 账户 = 单钱包多账户下「以前的钱包详情」。
+///
+/// 承载该账户的全部钱包功能，一律按 `account_id` 键控：
+/// - USDT充值 / USDC充值 / 零钱包（[WalletActionCard]，链下清算行零钱包按账户独立绑定）；
+/// - 清算行菜单当前只显示“暂未上线，敬请期待”，不进入尚未完成的设置页；
+/// - 交易记录（[TransactionHistoryPage]，按账户 `account_id` 查询）；
+/// - 顶部完整 SS58 地址与该账户的账户码（`k=5`，只声明账户；身份码在用户主页）；
+/// - AppBar 菜单保留原私钥警告与显示框；SDK负责真实认证与短时资源，页面只呈现。
+///
+/// 追加账户不在本页：收在「我的钱包」列表右上角「＋」的「添加下一个账户 / 添加指定账户」。
+class AccountDetailPage extends StatefulWidget {
+  const AccountDetailPage({super.key, required this.account});
+
+  final CitizenWalletStateAccount account;
+
+  @override
+  State<AccountDetailPage> createState() => _AccountDetailPageState();
+}
+
+class _AccountDetailPageState extends State<AccountDetailPage>
+    with
+        TxAutoRefreshMixin<AccountDetailPage>,
+        WidgetsBindingObserver,
+        WalletPrivateDisplay<AccountDetailPage> {
+  /// 双币充值/零钱包动作卡:下拉刷新时通过此 key 触发清算行余额重查。
+  final GlobalKey<WalletActionCardState> _actionCardKey =
+      GlobalKey<WalletActionCardState>();
+
+  final GlobalKey<WalletOnchainBalanceCardState> _balanceCardKey =
+      GlobalKey<WalletOnchainBalanceCardState>();
+
+  /// 该账户最近交易记录(最多 5 条),按 `account_id` 查询。
+  List<wallet_store.Entry> _recentRecords = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    // 初始化加载最近交易记录；之后由 SDK history/finalized 业务投影触发响应式重刷。
+    // (不重复启动监听、不劫持全局回调)。
+    _loadRecentRecords();
+    startTxAutoRefresh(widget.account.accountId);
+  }
+
+  @override
+  Future<void> onTxRecordsChanged() => _loadRecentRecords();
+
+  @override
+  void dispose() {
+    unawaited(
+      stopTxAutoRefresh().catchError((Object error, StackTrace stackTrace) {
+        AppLog.d('[Wallet] 账户详情 watcher 停止失败: $error\n$stackTrace');
+      }),
+    );
+    super.dispose();
+  }
+
+  @override
+  void onTopupRecordChanged(TopupChange change) {
+    setState(() => _recentRecords = change.apply(_recentRecords, limit: 5));
+  }
+
+  Future<void> _loadRecentRecords() async {
+    try {
+      final records = await LocalTxStore.queryRecentByAccountId(
+        widget.account.accountId,
+        limit: 5,
+      );
+      if (!mounted) return;
+      setState(() => _recentRecords = records);
+    } catch (_) {
+      // 加载失败静默忽略,账户详情其余功能不受影响。
+    }
+  }
+
+  /// 下拉刷新:清算行余额卡 + 最近交易记录。
+  Future<void> _onPullRefresh() async {
+    await Future.wait<void>([
+      Future(() async {
+        try {
+          await _balanceCardKey.currentState?.refresh();
+        } catch (_) {}
+      }),
+      Future(() async {
+        try {
+          await _actionCardKey.currentState?.refresh();
+        } catch (_) {
+          // 清算行节点可能暂不可达,动作卡内部会展示节点不可达。
+        }
+      }),
+      refreshTxHistory(),
+    ]);
+  }
 
   /// 清算行设置尚未上线；入口保留产品位置，但不得进入未完成页面。
   void _showClearingBankUnavailable() {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('暂未上线，敬请期待')));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('暂未上线，敬请期待')));
   }
 
   Future<void> _onMenuAction(String action) async {
@@ -299,7 +321,7 @@ class _AccountDetailPageState extends State<AccountDetailPage>
       case 'clearing_bank':
         _showClearingBankUnavailable();
       case 'private_key':
-        await _revealPrivateKey();
+        await revealPrivateKey(widget.account.accountId);
     }
   }
 
@@ -376,8 +398,9 @@ class _AccountDetailPageState extends State<AccountDetailPage>
       }
     } on Object {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('账户名称保存失败，请重试')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('账户名称保存失败，请重试')));
       }
       rethrow;
     }

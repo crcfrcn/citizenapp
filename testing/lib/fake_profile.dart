@@ -263,13 +263,25 @@ class FakeProfileApi extends CitizenProfileApi {
     required SquareSession session,
     String? displayName,
     String? profileBio,
-    String? avatarKey,
     String? avatarHash,
-    String? bannerKey,
     String? bannerHash,
   }) async {
-    lastUpdate = {'display_name': displayName, 'profile_bio': profileBio};
-    return result.copyWith(displayName: displayName, profileBio: profileBio);
+    lastUpdate = {
+      'display_name': displayName,
+      'profile_bio': profileBio,
+      'avatar_hash': ?avatarHash,
+      'banner_hash': ?bannerHash,
+    };
+    return result.copyWith(
+      displayName: displayName,
+      profileBio: profileBio,
+      avatarKey: avatarHash == null
+          ? result.avatarKey
+          : 'i/${session.cidNumber}/avatar/$avatarHash',
+      bannerKey: bannerHash == null
+          ? result.bannerKey
+          : 'i/${session.cidNumber}/banner/$bannerHash',
+    );
   }
 }
 

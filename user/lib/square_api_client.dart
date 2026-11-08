@@ -10,7 +10,6 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:citizen_system/app_log.dart';
-import 'package:citizen_network/chain_bootstrap_api.dart' show HttpsOnlyClient;
 
 import 'package:citizen_square/post/square_models.dart';
 import 'package:citizen_user/profile/citizen_profile.dart';
@@ -177,6 +176,7 @@ class SquareMembershipState {
     this.chargeAt = 0,
     this.plans = const <SquareMembershipPlan>[],
     this.usageState,
+    this.cleanupAfter,
   });
 
   final bool active;
@@ -193,6 +193,7 @@ class SquareMembershipState {
 
   final List<SquareMembershipPlan> plans;
   final SquareMembershipUsageState? usageState;
+  final int? cleanupAfter;
 
   SquareMembershipPlan? planForLevel(String? level) {
     if (level == null) return null;
@@ -508,13 +509,10 @@ class SquareApiClient
   SquareApiClient({
     String? baseUrl,
     http.Client? httpClient,
-    Future<void> Function(Duration)? reportDelay,
   }) : baseUrl = SquareApiConfig.normalizeBaseUrl(
          baseUrl ?? SquareApiConfig.defaultBaseUrl,
        ),
-       _http = HttpsOnlyClient(httpClient ?? http.Client()),
-       _reportDelay =
-           reportDelay ?? ((duration) => Future<void>.delayed(duration)) {
+       _http = HttpsOnlyClient(httpClient ?? http.Client()) {
     _liveClients.add(WeakReference<SquareApiClient>(this));
   }
 
@@ -575,8 +573,6 @@ class SquareApiClient
 
   final String baseUrl;
   final http.Client _http;
-  final Future<void> Function(Duration) _reportDelay;
-  final Map<(String, String), Future<void>> _identityReports = {};
   bool _closed = false;
   final Map<String, SquareSession> _sessions = {};
   // 进行中的握手：同账户并发调用共享同一 Future，杜绝冷启动握手风暴。
@@ -744,27 +740,7 @@ class SquareApiClient
         );
       }
 
-      late final Map<String, dynamic> challenge;
-      try {
-        challenge = await issue();
-      } on SquareApiException catch (error) {
-        if (purpose != 'device' ||
-            error.statusCode != 409 ||
-            error.errorCode != 'identity_not_reported') {
-          rethrow;
-        }
-        // 已有真实链身份缺服务端事实，只补报一次流程，再恢复同一持钥申请；不重新注册。
-        await reportIdentity(
-          cidNumber: identity.cidNumber,
-          accountId: identity.accountId,
-          requireCurrent: () => _requireAuthenticationCurrent(
-            identity,
-            authentication,
-            generation,
-          ),
-        );
-        challenge = await issue();
-      }
+      final challenge = await issue();
       await _requireAuthenticationCurrent(identity, authentication, generation);
       final nonce = challenge['nonce_id'];
       final expiry = challenge['expires_at'];
@@ -813,7 +789,6 @@ class SquareApiClient
     Map<String, String> proofHeaders = const {},
   }) async {
     final stage = switch (path) {
-      '/user/identity' => SquareApiStage.identity,
       '/user/challenges' => SquareApiStage.challenge,
       '/user/sessions' => SquareApiStage.session,
       '/user/devices' => SquareApiStage.registration,
@@ -1101,25 +1076,19 @@ class SquareApiClient
     void string(String value) {
       final raw = utf8.encode(value);
       if (raw.length >= 16384) throw const SquareApiException('注销签名范围无效');
-      if (raw.length < 64) {
-        bytes.addByte(raw.length << 2);
-      } else {
-        final compact = (raw.length << 2) | 1;
-        bytes.add([compact & 255, compact >> 8]);
-      }
+      bytes.add(CitizenScale.compact(raw.length));
       bytes.add(raw);
     }
 
     void u64(int value) {
-      final data = ByteData(8)..setUint64(0, value, Endian.little);
-      bytes.add(data.buffer.asUint8List());
+      bytes.add(CitizenScale.unsigned(BigInt.from(value), 8));
     }
 
     string('citizenserve.account_deletion');
     string(baseUri.origin);
     bytes.add(hexToBytes(binding.genesisHash));
     string(binding.cidNumber);
-    bytes.add(hexToBytes(binding.accountId));
+    bytes.add(citizenAccountIdBytes(binding.accountId));
     u64(binding.bindRev);
     bytes.addByte(purpose == 'delete' ? 0 : 1);
     bytes.add(hexToBytes(id));
@@ -1242,77 +1211,6 @@ class SquareApiClient
     );
   }
 
-  /// 同一绑定在途合并；只有暂时失败重试报告，不触发人验、签名注册或后台轮询。
-  Future<void> reportIdentity({
-    required String cidNumber,
-    required String accountId,
-    required Future<void> Function() requireCurrent,
-  }) {
-    if (!RegExp(r'^[A-Za-z0-9][A-Za-z0-9-]{0,31}$').hasMatch(cidNumber) ||
-        !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(accountId)) {
-      throw const SquareApiException('链上绑定格式无效', errorCode: 'response_invalid');
-    }
-    final key = (cidNumber, accountId);
-    final pending = _identityReports[key];
-    if (pending != null) return pending;
-    late final Future<void> task;
-    task =
-        () async {
-          final body = jsonEncode({
-            'cid_number': cidNumber,
-            'account_id': accountId,
-          });
-          for (var attempt = 0; attempt < 3; attempt++) {
-            await requireCurrent();
-            if (_closed) {
-              throw const MlsAuthenticationException(
-                '服务客户端已关闭',
-                code: 'identityChanged',
-              );
-            }
-            try {
-              final value = await _postAuthentication('/user/identity', body);
-              await requireCurrent();
-              if (_closed) {
-                throw const MlsAuthenticationException(
-                  '服务客户端已关闭',
-                  code: 'identityChanged',
-                );
-              }
-              if (value.length != 1 || value['is_ok'] != true) {
-                throw const SquareApiException(
-                  '身份报告响应无效',
-                  errorCode: 'response_invalid',
-                );
-              }
-              return;
-            } on SquareApiException catch (error) {
-              await requireCurrent();
-              if (_closed) {
-                throw const MlsAuthenticationException(
-                  '服务客户端已关闭',
-                  code: 'identityChanged',
-                );
-              }
-              final retry =
-                  error.errorCode == 'network_unavailable' ||
-                  error.statusCode == 429 ||
-                  (error.statusCode != null && error.statusCode! >= 500) ||
-                  error.errorCode == 'identity_not_finalized';
-              if (!retry || attempt == 2) rethrow;
-              await _reportDelay(Duration(seconds: 60 << attempt));
-              await requireCurrent();
-            }
-          }
-        }().whenComplete(() {
-          if (identical(_identityReports[key], task)) {
-            _identityReports.remove(key);
-          }
-        });
-    _identityReports[key] = task;
-    return task;
-  }
-
   /// 幂等登记CitizenServe普通应用通知端点；设备身份只由已验签Session决定。
   Future<void> registerPushEndpoint({
     required SquareSession session,
@@ -1368,6 +1266,24 @@ class SquareApiClient
     final active = data['membergate_active'] == true;
     final plans = decodeMembershipPlans(data['plans']);
     final usageState = decodeMembershipUsage(data['usage']);
+    final notice = data['storage_cleanup_notice'];
+    int? cleanupAfter;
+    if (notice != null) {
+      if (notice is! Map<String, dynamic> ||
+          notice['notified_at'] is! int ||
+          notice['cleanup_after'] is! int ||
+          notice['storage_limit_bytes'] is! int ||
+          (notice['storage_limit_bytes'] as int) <= 0 ||
+          (notice['notified_at'] as int) <= 0 ||
+          notice['cleanup_after'] !=
+              (notice['notified_at'] as int) + 86400000) {
+        throw const SquareApiException('会员存储清理提醒无效');
+      }
+      if (!active &&
+          usageState.usedBytes > (notice['storage_limit_bytes'] as int)) {
+        cleanupAfter = notice['cleanup_after'] as int;
+      }
+    }
     // 会员与身份解耦（ADR-037）：响应只含订阅与套餐，无身份/冻结字段。
     if (membership is! Map<String, dynamic>) {
       return SquareMembershipState(
@@ -1375,6 +1291,7 @@ class SquareApiClient
         paidUntil: 0,
         plans: plans,
         usageState: usageState,
+        cleanupAfter: cleanupAfter,
       );
     }
     final memberLevel = membership['member_level']?.toString();
@@ -1387,6 +1304,7 @@ class SquareApiClient
       chargeAt: _asInt(membership['charge_at']),
       plans: plans,
       usageState: usageState,
+      cleanupAfter: cleanupAfter,
     );
   }
 
@@ -1833,17 +1751,20 @@ class SquareApiClient
         .toList(growable: false);
   }
 
-  /// 把私有头像、背景的 R2 object_key 拼成 Worker 会话门禁 URL。
+  /// 一次解析私有资料图片键，取得门禁 URL、媒体用途和内容哈希。
   /// 广场帖子媒体由 Worker 返回受公民号及会员门禁保护的 HTTPS 绝对地址，不经过本方法。
-  String mediaUrl(String objectKey, {int? updatedAt}) {
-    final parts = objectKey.split('/');
-    if (parts.length != 3 ||
-        parts[0] != 'profile' ||
-        !{'avatar', 'banner'}.contains(parts[2]) ||
-        !RegExp(r'^[A-Za-z0-9-]{1,32}$').hasMatch(parts[1])) {
+  ({String url, String kind, String hash}) resolveProfileMedia(
+    String objectKey,
+  ) {
+    final asset = CitizenProfile.parseAssetKey(objectKey);
+    if (asset == null) {
       throw const SquareApiException('资料资源必须属于准确CID和类型');
     }
-    return '$baseUrl/user/profiles/${Uri.encodeComponent(parts[1])}/assets/${parts[2]}';
+    return (
+      url: '$baseUrl/user/profiles/${asset.cid}/assets/${asset.kind}',
+      kind: asset.kind,
+      hash: asset.hash,
+    );
   }
 
   /// 拉取某身份（cid_number）的用户主页资料；钱包 Session 决定双向关注状态。
@@ -1937,10 +1858,11 @@ class SquareApiClient
       'byte_size': byteSize,
       'content_hash': contentHash,
     }, session: session);
-    return (
-      objectKey: _requireString(data, 'object_key'),
-      uploadUrl: _profileUploadUrl(data),
-    );
+    final key = _requireString(data, 'object_key');
+    if (key != 'i/${session.cidNumber}/$uploadKind/$contentHash') {
+      throw const SquareApiException('资料上传授权与请求不一致');
+    }
+    return (objectKey: key, uploadUrl: _profileUploadUrl(data));
   }
 
   String _profileUploadUrl(Map<String, dynamic> data) {
@@ -2018,20 +1940,22 @@ class SquareApiClient
   }
 
   /// 用户小文件只允许 PUT 到同域 Worker，并对原始字节生成设备请求签名。
-  Future<void> uploadBytesTo(
+  Future<void> uploadProfileAsset(
     String uploadUrl,
-    List<int> bytes,
+    Uint8List bytes,
     String contentType, {
-    SquareSession? session,
+    required SquareSession session,
+    required String objectKey,
   }) async {
     final uri = baseUri.resolve(uploadUrl);
-    if (session == null || uri.origin != baseUri.origin) {
-      throw const SquareApiException('资源上传地址必须是当前 Worker 且携带钱包会话');
+    if (uri.origin != baseUri.origin ||
+        !uri.path.startsWith('${baseUri.path}/user/profile/assets/')) {
+      throw const SquareApiException('资源上传地址必须是当前 Worker 的资料上传入口');
     }
-    final body = Uint8List.fromList(bytes);
     final request = http.Request('PUT', uri)
+      ..followRedirects = false
       ..headers['content-type'] = contentType
-      ..bodyBytes = body;
+      ..bodyBytes = bytes;
     final response = await http.Response.fromStream(
       await _sendProtected(request, session),
     );
@@ -2042,11 +1966,8 @@ class SquareApiClient
         statusCode: response.statusCode,
       );
     }
-    if (uri.path.startsWith('/api/user/profile/assets/')) {
-      final receipt = _decodeResponse(response);
-      if (receipt['content_hash'] != sha256.convert(body).toString()) {
-        throw const SquareApiException('资料上传内容回执不一致');
-      }
+    if (_decodeResponse(response)['object_key'] != objectKey) {
+      throw const SquareApiException('资料上传内容回执不一致');
     }
   }
 
@@ -2055,17 +1976,13 @@ class SquareApiClient
     required SquareSession session,
     String? displayName,
     String? profileBio,
-    String? avatarKey,
     String? avatarHash,
-    String? bannerKey,
     String? bannerHash,
   }) async {
     final body = <String, Object?>{
       'display_name': ?displayName,
       'profile_bio': ?profileBio,
-      'avatar_key': ?avatarKey,
       'avatar_hash': ?avatarHash,
-      'banner_key': ?bannerKey,
       'banner_hash': ?bannerHash,
     };
     final data = await _putJson('/user/profile', body, session: session);
@@ -2116,13 +2033,23 @@ class SquareApiClient
   }) => _getJson('/notifications/unread', session: session);
   Future<Map<String, dynamic>> fetchNotifications({
     required SquareSession session,
-    int? cursor,
+    String? cursor,
     bool groupByPost = false,
     int? through,
-  }) => _getJson(
-    '/notifications?limit=20${cursor == null ? '' : '&cursor=$cursor'}${groupByPost ? '&group=post' : ''}${through == null || through == 0 ? '' : '&through=$through'}',
-    session: session,
-  );
+  }) {
+    final params = <String, String>{
+      'limit': '20',
+      'cursor': ?cursor,
+      if (groupByPost) 'group': 'post',
+      if (cursor == null && through != null && through != 0)
+        'through': '$through',
+    };
+    return _getJson(
+      '/notifications?${Uri(queryParameters: params).query}',
+      session: session,
+    );
+  }
+
   Future<Map<String, dynamic>> markNotifyRead({
     required SquareSession session,
     String scope = 'square',
@@ -2142,21 +2069,19 @@ class SquareApiClient
   Future<Map<String, dynamic>> fetchComments({
     required SquareSession session,
     required String postId,
-    int? cursor,
+    String? cursor,
     String? target,
     String? mode,
     String? thread,
     int? through,
-    String? after,
   }) {
     final params = <String, String>{
       'limit': '20',
-      if (cursor != null) 'cursor': '$cursor',
+      'cursor': ?cursor,
       'target': ?target,
       'mode': ?mode,
       'thread': ?thread,
       if (through != null) 'through': '$through',
-      'after': ?after,
     };
     return _getJson(
       '/8964/posts/${Uri.encodeComponent(postId)}/comments?${Uri(queryParameters: params).query}',
@@ -2173,10 +2098,10 @@ class SquareApiClient
   Future<Map<String, dynamic>> fetchLikes({
     required SquareSession session,
     required String postId,
-    int? cursor,
+    String? cursor,
     int limit = 20,
   }) => _getJson(
-    '/8964/posts/${Uri.encodeComponent(postId)}/likes?limit=$limit${cursor == null ? '' : '&cursor=$cursor'}',
+    '/8964/posts/${Uri.encodeComponent(postId)}/likes?limit=$limit${cursor == null ? '' : '&cursor=${Uri.encodeQueryComponent(cursor)}'}',
     session: session,
   );
   Future<Map<String, dynamic>> setLike({
@@ -3042,13 +2967,14 @@ class SquareApiClient
 
   String _resolveMediaUrl(String value) {
     if (value.isEmpty) return '';
-    if (value.startsWith('/square/'))
+    if (value.startsWith('/square/')) {
       return '${CitizenServeApiConfig.mediaOrigin}$value';
+    }
     final uri = Uri.tryParse(value);
     if (uri != null && uri.hasScheme && uri.host.isNotEmpty) {
       return value;
     }
-    return mediaUrl(value);
+    return resolveProfileMedia(value).url;
   }
 
   SquarePostCategory _parseCategory(Object? value) {

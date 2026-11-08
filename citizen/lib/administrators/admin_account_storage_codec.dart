@@ -12,6 +12,8 @@ import 'package:citizen_citizen/institution/institution_role_storage_codec.dart'
 import 'package:citizen_citizen/administrators/admin_account.dart';
 import 'package:citizen_citizen/institution/institution_code_label.dart';
 
+import 'package:citizen_sdk/citizen_sdk.dart';
+
 class AdminAccountStorageDecoded {
   const AdminAccountStorageDecoded({
     required this.orgCode,
@@ -30,6 +32,34 @@ class AdminAccountStorageCodec {
   static const int kindPublicInstitution = 0;
   static const int kindPrivateInstitution = 1;
   static const int kindPersonal = 2;
+
+  static Uint8List institutionAdminStorageKey(
+    String cidNumber, {
+    required CitizenRuntimeContext runtime,
+    required String orgCode,
+    int? adminKind,
+  }) {
+    final cidBytes = utf8.encode(cidNumber);
+    if (cidBytes.isEmpty || cidBytes.length > 32) {
+      throw ArgumentError('机构 cid_number 必须为 1..32 字节');
+    }
+    final pallet = adminKind == null
+        ? InstitutionCodeLabel.adminAccountsPalletName(orgCode)
+        : InstitutionCodeLabel.adminAccountsPalletNameForKind(adminKind);
+    return runtime.storageKey(pallet, 'AdminAccounts', [
+      Uint8List.fromList(cidBytes),
+    ]);
+  }
+
+  static Uint8List personalAdminStorageKey(
+    Uint8List accountId, {
+    required CitizenRuntimeContext runtime,
+  }) {
+    if (accountId.length != 32) {
+      throw ArgumentError('accountId 必须为 32 字节');
+    }
+    return runtime.storageKey('PersonalAdmins', 'AdminAccounts', [accountId]);
+  }
 
   /// [kind] 必须由扫描到的 pallet 名确定，不能再从机构 value 猜测。
   static AdminAccountStorageDecoded? tryDecode(
@@ -99,25 +129,9 @@ class AdminAccountStorageCodec {
     return Uint8List.fromList(storageKey.sublist(storageKey.length - 32));
   }
 
-  static String? accountIdText(Uint8List accountId) {
-    if (accountId.length != 32) return null;
-    return '0x${_hexEncode(accountId)}';
-  }
-
   static (int, int) _decodeCompactU32(Uint8List data, int offset) {
-    if (offset >= data.length) throw const FormatException('Compact 越界');
-    final mode = data[offset] & 0x03;
-    if (mode == 0) return (data[offset] >> 2, 1);
-    if (mode == 1 && offset + 2 <= data.length) {
-      return (((data[offset + 1] << 8) | data[offset]) >> 2, 2);
-    }
-    if (mode == 2 && offset + 4 <= data.length) {
-      final raw = ByteData.sublistView(data).getUint32(offset, Endian.little);
-      return (raw >> 2, 4);
-    }
-    throw const FormatException('不支持的 Compact 编码');
+    final result = CitizenScale.readCompact(data, offset);
+    if (result.$2 > 4) throw const FormatException('不支持的 Compact 编码');
+    return result;
   }
-
-  static String _hexEncode(List<int> bytes) =>
-      bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 }

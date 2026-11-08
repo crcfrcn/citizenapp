@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_system/theme/app_theme.dart';
-import 'package:citizen_system/amount_format.dart';
 import 'local_tx_store.dart';
 import 'package:citizen_storage/user_isar.dart' show Entry;
 import 'package:citizen_topup/store.dart';
@@ -91,17 +91,17 @@ String shortAddress(String? address) {
   return '${address.substring(0, 6)}...${address.substring(address.length - 6)}';
 }
 
-String formatFen(String fen, {String symbol = '元'}) {
-  // u128 分不经过 double；保留原千分位布局并准确展示最后一分。
-  final value = BigInt.parse(fen).abs();
-  final whole = value ~/ BigInt.from(100);
-  final cents = (value % BigInt.from(100)).toString().padLeft(2, '0');
-  return AmountFormat.formatString(
-    '$whole.$cents${symbol.isEmpty ? '' : ' $symbol'}',
-  );
-}
-
 // ─── 交易记录列表项 ──────────────────────────────────────────
+
+/// 本机提交要等同一笔链事件到达后才能展示实际余额变化。
+bool hasVerifiedDelta(Entry row) =>
+    row.entrySource != 'local_submit' || row.eventIndex != null;
+
+String? recordDeltaLabel(Entry row) {
+  if (!hasVerifiedDelta(row)) return null;
+  final amount = BigInt.parse(row.amountDelta);
+  return '${amount.isNegative ? '-' : '+'}${formatFen(amount.abs())}';
+}
 
 /// 已支付是付款链验证结果，不等同于公民币已到账。
 String recordStatusLabel(Entry row) {

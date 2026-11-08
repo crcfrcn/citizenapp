@@ -53,15 +53,16 @@ class SquareInteractionService extends ChangeNotifier {
         return;
       }
       final ids = work.keys.toList();
-      for (var at = 0; at < ids.length; at += 50) {
+      const batchSize = 8;
+      for (var at = 0; at < ids.length; at += batchSize) {
         final versions = {
-          for (final id in ids.skip(at).take(50))
+          for (final id in ids.skip(at).take(batchSize))
             '${session.cidNumber}:$id':
                 _versions['${session.cidNumber}:$id'] ?? 0,
         };
         final result = await api.fetchPostInteractions(
           session: session,
-          postIds: ids.skip(at).take(50).toList(),
+          postIds: ids.skip(at).take(batchSize).toList(),
         );
         await session.validateCurrent();
         if (!Notifications.instance.isCurrent(owner)) return;
@@ -95,7 +96,7 @@ class SquareInteractionService extends ChangeNotifier {
     final key = '${session.cidNumber}:$post';
     if (_busy.contains(key)) return;
     _versions[key] = (_versions[key] ?? 0) + 1;
-    _states[key] = Map.unmodifiable(row);
+    _states[key] = Map.unmodifiable({...?_states[key], ...row});
     notifyListeners();
   }
 
@@ -126,7 +127,10 @@ class SquareInteractionService extends ChangeNotifier {
       );
       await session.validateCurrent();
       if (Notifications.instance.isCurrent(owner)) {
-        _states[key] = (result['state'] as Map).cast<String, dynamic>();
+        _states[key] = {
+          ...?_states[key],
+          ...(result['state'] as Map).cast<String, dynamic>(),
+        };
       }
     } finally {
       _busy.remove(key);

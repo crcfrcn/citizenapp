@@ -8,6 +8,7 @@
 /// - `kFixedGovernanceInstitutions` 保存不进入治理 tab 的其它固定治理机构账户。
 library;
 
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 
 part 'governance_registry.generated.dart';
@@ -37,7 +38,7 @@ InstitutionInfo? findInstitutionByCidNumber(String cidNumber) {
 /// execution account、主账户或管理员钱包回落反推身份。
 InstitutionInfo? personalMultisigFromAccountId(List<int> accountIdBytes) {
   if (accountIdBytes.length != 32) return null;
-  final accountId = '0x${_hexEncode(accountIdBytes)}';
+  final accountId = citizenAccountIdFromBytes(accountIdBytes);
   final fullName = '个人多签 ${accountId.substring(2, 10)}';
   final cidFullNameEn = 'Personal Multisig ${accountId.substring(2, 10)}';
   return InstitutionInfo(
@@ -49,8 +50,4 @@ InstitutionInfo? personalMultisigFromAccountId(List<int> accountIdBytes) {
     orgType: OrgType.personalMultisig,
     accountId: accountId,
   );
-}
-
-String _hexEncode(List<int> bytes) {
-  return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 }

@@ -62,8 +62,7 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
   Map<String, dynamic>? _pending;
   SquareComment? _reply;
   String _cid = '';
-  int? _next;
-  String? _after, _notifiedAfter;
+  String? _next, _notifiedNext;
   int? _loadedThrough;
   final Set<String> _pinned = {};
   int _generation = 0, _notice = 0, _revision = 0;
@@ -117,8 +116,7 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
       _text.clear();
       _keys.clear();
       _pinned.clear();
-      _after = null;
-      _notifiedAfter = null;
+      _notifiedNext = null;
       _notice = 0;
       _reloadPending = false;
     });
@@ -171,7 +169,7 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
       if (saved != null) {
         final page = jsonDecode(saved.pageData) as Map<String, dynamic>;
         _rows = widget.threadId == null ? _decode(page) : [];
-        _next = page['next_cursor'] as int?;
+        _next = page['next_cursor'] as String?;
         if (saved.pendingData != null) {
           _pending = (jsonDecode(saved.pendingData!) as Map)
               .cast<String, dynamic>();
@@ -222,7 +220,7 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
   }
 
   List<SquareComment> _decode(Map<String, dynamic> page) {
-    final raw = page['comments'];
+    final raw = page['items'];
     if (raw is! List || raw.length > 50) throw const FormatException('评论分页无效');
     final rows = raw
         .map(
@@ -272,15 +270,10 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
       final page = await _api.fetchComments(
         session: session,
         postId: widget.postId,
-        cursor: widget.threadId != null
-            ? null
-            : reset
-            ? null
-            : _next,
+        cursor: reset ? null : _next,
         target: widget.threadId != null ? null : target,
         mode: widget.threadId == null ? null : 'thread',
         thread: widget.threadId,
-        after: widget.threadId == null || reset ? null : _after,
       );
       await session.validateCurrent();
       if (!mounted || generation != _generation) return;
@@ -316,12 +309,11 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
           _pinned.add(row.commentId);
           merged[row.commentId] = row;
         }
-        _notifiedAfter = notified['next_after'] as String?;
+        _notifiedNext = notified['next_cursor'] as String?;
       }
       _loadedThrough = readThrough;
       _rows = merged.values.toList()..sort(_compareRows);
-      _after = page['next_after'] as String?;
-      _next = page['next_cursor'] as int?;
+      _next = page['next_cursor'] as String?;
       setState(() {});
       await _save();
       _afterLayout();
@@ -351,8 +343,8 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
   Future<void> _save({bool completed = false}) async {
     final generation = _generation, cid = _cid;
     final page = jsonEncode({
-      'comments': _rows.take(50).map((r) => r.toJson()).toList(),
-      'next_cursor': _rows.length > 50 ? _rows[49].replySeq : _next,
+      'items': _rows.take(50).map((r) => r.toJson()).toList(),
+      'next_cursor': _rows.length > 50 ? null : _next,
     });
     final pending = completed || _pending == null ? null : jsonEncode(_pending);
     if (widget.cacheWriter != null) {
@@ -373,7 +365,7 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
       final row =
           saved ??
           (social_store.Reply()
-            ..pageData = jsonEncode({'comments': [], 'next_cursor': null}));
+            ..pageData = jsonEncode({'items': [], 'next_cursor': null}));
       if (!mounted || generation != _generation) return;
       row
         ..cidNumber = cid
@@ -587,16 +579,17 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
     if (widget.threadId != null ||
         (_pinned.contains(a.commentId) && _pinned.contains(b.commentId))) {
       final time = a.createdAt.compareTo(b.createdAt);
-      return time != 0 ? time : a.replySeq.compareTo(b.replySeq);
+      return time != 0 ? time : a.commentId.compareTo(b.commentId);
     }
     if (_pinned.contains(a.commentId) != _pinned.contains(b.commentId)) {
       return _pinned.contains(a.commentId) ? -1 : 1;
     }
-    return b.replySeq.compareTo(a.replySeq);
+    final time = b.createdAt.compareTo(a.createdAt);
+    return time != 0 ? time : a.commentId.compareTo(b.commentId);
   }
 
   Future<void> _moreNotified() async {
-    if (_notifiedAfter == null || _loading || _sending) return;
+    if (_notifiedNext == null || _loading || _sending) return;
     final generation = _generation, revision = _revision;
     setState(() => _loading = true);
     try {
@@ -606,7 +599,7 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
         postId: widget.postId,
         mode: 'notified',
         through: widget.notificationThrough,
-        after: _notifiedAfter,
+        cursor: _notifiedNext,
       );
       await session.validateCurrent();
       if (!mounted || generation != _generation || revision != _revision) {
@@ -619,7 +612,7 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
       }
       setState(() {
         _rows = merged.values.toList()..sort(_compareRows);
-        _notifiedAfter = page['next_after'] as String?;
+        _notifiedNext = page['next_cursor'] as String?;
       });
     } on Object {
       if (mounted) setState(() => _error = '通知评论读取失败，请重试');
@@ -667,7 +660,7 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
       if (_loading) const LinearProgressIndicator(),
       if (_error != null) Text(_error!),
       if (_rows.isEmpty && !_loading && _error == null) const Text('暂无评论'),
-      if (_notifiedAfter != null)
+      if (_notifiedNext != null)
         TextButton(
           onPressed: _loading ? null : _moreNotified,
           child: const Text('更多收到的评论'),
@@ -707,7 +700,7 @@ class _CommentsState extends State<Comments> with WidgetsBindingObserver {
                 )
               : null,
         ),
-      if (widget.threadId != null ? _after != null : _next != null)
+      if (_next != null)
         TextButton(
           onPressed: _loading ? null : () => unawaited(_load()),
           child: Text(widget.threadId == null ? '更早评论' : '更多对话'),

@@ -5,7 +5,6 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 import 'package:citizen_offchain/offchain_clearing_rpc.dart';
 import 'package:citizen_offchain/payment_intent.dart';
 import 'package:citizen_offchain/clearing_bank_directory.dart';
@@ -24,7 +23,7 @@ import 'package:citizen_system/theme/app_layout.dart';
 ///      `payer_bank_cid`（未绑定 → 结束）;
 ///   2. 重读 finalized `ClearingBankNodes[cid_number]`，核对收款方清算行声明;
 ///   3. 付款方和收款方清算行都使用机构 CID，不混用主账户地址;
-///   4. 查 `offchain_queryFeeRate(recipient_bank_cid)` 得 `(rate_bp, min_fee_fen)`,本地
+///   4. 查 `offchain_queryFeeRate(recipient_bank_cid)` 得 `(rate_bp, min_fee_fen)`，由 SDK
 ///      计算 `fee_fen`(与 runtime 一致的四舍五入);
 ///   5. 展示确认 UI(金额 / 手续费 / 合计 / 收款方地址 / 备注);
 ///   6. 用户点确认 → 查 `offchain_queryNextNonce(user)` → 构造
@@ -87,8 +86,8 @@ class _OffchainClearingPayPageState extends State<OffchainClearingPayPage> {
   // 预取:QR 收款方清算行 CID
   String? _recipientBankCid;
   // 预取:费率
-  int _rateBp = 0;
-  int _minFeeFen = 1;
+  late int _rateBp;
+  late int _minFeeFen;
   // 预取:当前最新块高(用于 expires_at)
   int _currentBlockNumber = 0;
 
@@ -167,21 +166,13 @@ class _OffchainClearingPayPageState extends State<OffchainClearingPayPage> {
   }
 
   BigInt? _parseAmountFen() {
-    final txt = _amountCtrl.text.trim();
-    if (txt.isEmpty) return null;
-    final yuan = double.tryParse(txt);
-    if (yuan == null || yuan <= 0) return null;
-    final fen = BigInt.from((yuan * 100).round());
-    return fen > BigInt.zero ? fen : null;
+    final fen = parseFen(_amountCtrl.text);
+    return fen != null && fen > BigInt.zero ? fen : null;
   }
 
   BigInt? _computeFeeFen(BigInt amountFen) {
     try {
-      return NodePaymentIntent.calcFeeFen(
-        amountFen: amountFen,
-        rateBp: _rateBp,
-        minFeeFen: _minFeeFen,
-      );
+      return clearingFeeFen(amountFen, _rateBp, _minFeeFen);
     } catch (_) {
       return null;
     }
@@ -201,15 +192,9 @@ class _OffchainClearingPayPageState extends State<OffchainClearingPayPage> {
 
     setState(() => _state = _PageState.submitting);
     try {
-      // 6. nonce
+      final payer = citizenAccountIdBytes(widget.wallet.accountId);
+      final recipient = citizenAccountIdBytesFromSs58(widget.toAddress.trim());
       final nonce = await _nodeRpc.queryNextNonce(widget.wallet.ss58Address);
-
-      // 7. 构造 intent
-      final payer = hexToBytes(widget.wallet.accountId);
-      if (payer.length != 32) {
-        throw Exception('钱包公钥长度异常:${payer.length}');
-      }
-      final recipient = _decodeAccount(widget.toAddress);
       final payerBankCidBytes = Uint8List.fromList(utf8.encode(_payerBankCid!));
       final recipientBankCidBytes = Uint8List.fromList(
         utf8.encode(_recipientBankCid!),
@@ -389,8 +374,14 @@ class _OffchainClearingPayPageState extends State<OffchainClearingPayPage> {
           ),
           SizedBox(height: AppLayout.scaledValue(16)),
           _kv('费率', '$_rateBp bp (万分之 $_rateBp)'),
-          _kv('手续费', feeAmount == null ? '—' : '${_fenToYuan(feeAmount)} 元'),
-          _kv('合计扣款', totalFen == null ? '—' : '${_fenToYuan(totalFen)} 元'),
+          _kv(
+            '手续费',
+            feeAmount == null ? '—' : '${formatFen(feeAmount, group: false)} 元',
+          ),
+          _kv(
+            '合计扣款',
+            totalFen == null ? '—' : '${formatFen(totalFen, group: false)} 元',
+          ),
           SizedBox(height: AppLayout.scaledValue(24)),
           ElevatedButton(
             onPressed: (amountFen != null && feeAmount != null)
@@ -421,17 +412,6 @@ class _OffchainClearingPayPageState extends State<OffchainClearingPayPage> {
     );
   }
 
-  // ─── 地址编解码工具 ───
-
-  /// 把 SS58 地址转成 32 字节。
-  Uint8List _ss58ToBytes(String ss58) {
-    final bytes = Keyring().decodeAddress(ss58);
-    if (bytes.length != 32) {
-      throw Exception('SS58 解码长度异常:${bytes.length}');
-    }
-    return Uint8List.fromList(bytes);
-  }
-
   /// 热钱包 / 冷钱包统一签名入口。
   ///
   /// - 热钱包:交给 CitizenSDK 按精确 account_id 完成设备认证与签名。
@@ -455,22 +435,5 @@ class _OffchainClearingPayPageState extends State<OffchainClearingPayPage> {
     }
 
     throw Exception('清算行付款签名必须使用本机热钱包；冷钱包无法独立验证付款 hash');
-  }
-
-  /// 分转元(两位小数)。本地化展示,不参与任何链上金额计算。
-  String _fenToYuan(BigInt fen) {
-    // 避免 BigInt → double 丢精度(最大 9e18 分 ≈ 2^63,double 精度 2^53)。
-    // 这里走字符串分隔:整数部分 / 小数部分。
-    final neg = fen.isNegative;
-    final abs = fen.abs();
-    final yuan = abs ~/ BigInt.from(100);
-    final cents = (abs % BigInt.from(100)).toInt();
-    final s = '$yuan.${cents.toString().padLeft(2, '0')}';
-    return neg ? '-$s' : s;
-  }
-
-  /// QR 里的 `to_address` 是用户展示/扫码边界，只允许 SS58。
-  Uint8List _decodeAccount(String address) {
-    return _ss58ToBytes(address.trim());
   }
 }

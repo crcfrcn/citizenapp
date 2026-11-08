@@ -7,7 +7,6 @@ import 'dart:typed_data';
 
 import 'package:citizen_citizen/administrators/admin_account.dart';
 import 'package:citizen_citizen/administrators/institution_admin_service.dart';
-import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_citizen/institution/institution_code_label.dart';
 import 'package:citizen_storage/user_isar.dart' hide Group;
 
@@ -201,7 +200,7 @@ class ActivationService {
     AdminAccountIdentity identity,
     String accountId,
   ) {
-    final signerPublicKey = _hexToBytes(accountId);
+    final signerPublicKey = citizenAccountIdBytes(accountId);
     final timestamp = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final random = Random.secure();
     return CitizenSdk.encodePayload(
@@ -243,18 +242,9 @@ class ActivationService {
   }
 
   static String _normalize(String accountId) {
-    if (!isAccountIdText(accountId)) {
+    if (!isCitizenAccountId(accountId)) {
       throw const FormatException('account_id 必须为小写 0x + 64 位十六进制');
     }
     return accountId;
-  }
-
-  static Uint8List _hexToBytes(String hex) {
-    final clean = hex.startsWith('0x') ? hex.substring(2) : hex;
-    final result = Uint8List(clean.length ~/ 2);
-    for (var i = 0; i < result.length; i++) {
-      result[i] = int.parse(clean.substring(i * 2, i * 2 + 2), radix: 16);
-    }
-    return result;
   }
 }

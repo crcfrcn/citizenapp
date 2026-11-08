@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 import 'package:citizen_user/identity/square_session_provider.dart';
 import 'package:citizen_user/creator/creator_subscribe_service.dart';
 import 'package:citizen_user/creator/creator_api.dart';
-import 'package:citizen_user/creator/creator_money.dart';
 import 'package:citizen_user/creator/creator_plan.dart';
 import 'package:citizen_user/identity/register_identity_flow.dart';
 import 'package:citizen_user/identity/finalized_identity_resolver.dart';
@@ -363,7 +362,7 @@ class _TierPeriodPicker extends StatelessWidget {
                     horizontal: AppLayout.scaled(context, 14),
                   ),
                 ),
-                child: Text('${period.label} ${fenToYuanLabel(fen)} 元'),
+                child: Text('${period.label} ${formatFen(BigInt.from(fen), group: false, trimZeros: true)} 元'),
               );
             }).toList(),
           ),

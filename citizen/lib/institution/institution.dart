@@ -1,3 +1,4 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_storage/user_isar.dart' as app_store show Entity;
 // 统一机构实体(ADR-028 决策 2)——合并公权 `entity` 与治理
 // `InstitutionInfo` 两套并行模型为一套。
@@ -101,13 +102,13 @@ class Institution {
   Uint8List mainAccountIdBytes() {
     final baked = builtinAccounts?.mainAccountId;
     if (baked != null && baked.isNotEmpty) {
-      return _hexToBytes(baked);
+      return citizenAccountIdBytes(baked);
     }
     return deriveInstitutionMainAccountId(cidNumber);
   }
 
   /// 主账户 ID（小写 `0x` + 64 位 hex）。
-  String get mainAccountId => accountIdText(mainAccountIdBytes());
+  String get mainAccountId => citizenAccountIdFromBytes(mainAccountIdBytes());
 
   /// 附加创世固定账户集合。
   Institution withBuiltinAccounts(InstitutionAccounts accounts) => Institution(
@@ -165,17 +166,6 @@ class Institution {
       legalAccount: e.legalAccount,
       accountCount: e.accountCount,
       accountNames: e.accountNames,
-    );
-  }
-
-  static Uint8List _hexToBytes(String hex) {
-    final clean = hex.startsWith('0x') ? hex.substring(2) : hex;
-    return Uint8List.fromList(
-      List<int>.generate(
-        clean.length ~/ 2,
-        (i) => int.parse(clean.substring(i * 2, i * 2 + 2), radix: 16),
-        growable: false,
-      ),
     );
   }
 }

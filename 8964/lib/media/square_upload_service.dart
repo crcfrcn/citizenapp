@@ -190,7 +190,7 @@ class SquareUploadService
         final digest = stored.bodyHash;
         mediaHashes.add(digest);
         mediaManifests.add({
-          if (draft.fileName != null) 'file_name': draft.fileName,
+          'file_name': draft.fileName,
           'media_kind': draft.mediaKind.workerValue,
           'byte_size': draft.byteSize,
           'body_hash': digest,

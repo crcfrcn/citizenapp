@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
-import 'package:citizen_sdk/citizen_sdk.dart' show CitizenSdk;
+
+import 'package:citizen_sdk/citizen_sdk.dart'
+    show CitizenSdk, isCitizenAccountId, scaleTokenUnits;
 
 import 'package:crypto/crypto.dart';
 import 'package:citizen_network/citizen_serve_api_config.dart';
@@ -43,7 +45,7 @@ String decimal(Object? value) {
 }
 
 String targetAccount(String value) {
-  if (!RegExp(r'^0x[0-9a-f]{64}$').hasMatch(value)) {
+  if (!isCitizenAccountId(value)) {
     throw const FormatException('充值目标账户无效');
   }
   return value;
@@ -126,10 +128,11 @@ class TopupPackage {
       final key = '$token:${n.wire}';
       if (amounts.containsKey(key)) throw const FormatException('币轨报价重复');
       final a = decimal(raw['pay_amount']);
-      final expected =
-          BigInt.from(id == 'pkg_10' ? 10 : 1000) *
-          BigInt.from(10).pow(n == TopupNetwork.bnb ? 18 : 6);
-      if (BigInt.parse(a) != expected) throw const FormatException('套餐金额无效');
+      final expected = scaleTokenUnits(
+        BigInt.from(id == 'pkg_10' ? 10 : 1000),
+        n == TopupNetwork.bnb ? 18 : 6,
+      );
+      if (a != expected.toString()) throw const FormatException('套餐金额无效');
       amounts[key] = a;
     }
     if (amounts.length != 6 ||
@@ -227,9 +230,10 @@ class TopupConfig {
             coinFen: amount == 10 ? '1000000' : '100000000',
             payments: Map.unmodifiable({
               for (final rail in rails)
-                rail.key:
-                    (BigInt.from(amount) * BigInt.from(10).pow(rail.decimals))
-                        .toString(),
+                rail.key: scaleTokenUnits(
+                  BigInt.from(amount),
+                  rail.decimals,
+                ).toString(),
             }),
           ),
       ]),
@@ -334,8 +338,7 @@ class TopupSelection {
 abstract final class TopupWallet {
   static const id = 'metamask';
   // MetaMask官方扩展app/images/logo/metamask-fox.svg，随包绘制，不请求远程图片。
-  static const logo =
-      r'''<svg width="35" height="34" viewBox="0 0 35 34" fill="none" xmlns="http://www.w3.org/2000/svg">
+  static const logo = r'''<svg width="35" height="34" viewBox="0 0 35 34" fill="none" xmlns="http://www.w3.org/2000/svg">
 <path d="M32.7077 32.7522L25.1688 30.5174L19.4833 33.9008L15.5167 33.8991L9.82793 30.5174L2.29225 32.7522L0 25.0489L2.29225 16.4993L0 9.27094L2.29225 0.312256L14.0674 7.31554H20.9326L32.7077 0.312256L35 9.27094L32.7077 16.4993L35 25.0489L32.7077 32.7522Z" fill="#FF5C16"/>
 <path d="M2.29395 0.312256L14.0691 7.32047L13.6008 12.1301L2.29395 0.312256Z" fill="#FF5C16"/>
 <path d="M9.82959 25.0522L15.0106 28.9811L9.82959 30.5175V25.0522Z" fill="#FF5C16"/>
@@ -723,15 +726,13 @@ class TopupReceipt {
         value['result_ack'] is! bool ||
         value['auto_final'] != (state == 'paid' || state == 'exception') ||
         value['result_publickey'] is! String ||
-        !RegExp(
-          r'^0x[0-9a-f]{64}$',
-        ).hasMatch(value['result_publickey'] as String) ||
+        !RegExp(r'^0x[0-9a-f]{64}$')
+            .hasMatch(value['result_publickey'] as String) ||
         value['payment_txid'] is! String ||
         value['gmb_tx_hash'] != null &&
             (value['gmb_tx_hash'] is! String ||
-                !RegExp(
-                  r'^0x[0-9a-f]{64}$',
-                ).hasMatch(value['gmb_tx_hash'] as String)) ||
+                !RegExp(r'^0x[0-9a-f]{64}$')
+                    .hasMatch(value['gmb_tx_hash'] as String)) ||
         value['exception_reason'] != null &&
             value['exception_reason'] is! String ||
         (result == null) != (signature == null)) {

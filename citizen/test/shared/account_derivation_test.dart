@@ -12,6 +12,8 @@
 //   OP_FCSF(0x08): payload = 联邦安全局 cid_number
 //   OP_NAME(0x00,永久冻结): payload = cid_number || account_name
 
+import 'package:citizen_sdk/citizen_sdk.dart';
+
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -44,27 +46,39 @@ void main() {
 
   group('机构账户派生 golden 向量(链上注册表交叉验证)', () {
     test('国家储委会主账户 OP_MAIN', () {
-      expect(accountIdText(deriveInstitutionMainAccountId(nrcCid)), nrcMain);
+      expect(
+        citizenAccountIdFromBytes(deriveInstitutionMainAccountId(nrcCid)),
+        nrcMain,
+      );
     });
 
     test('国家储委会费用账户 OP_FEE', () {
-      expect(accountIdText(deriveInstitutionFeeAccountId(nrcCid)), nrcFee);
+      expect(
+        citizenAccountIdFromBytes(deriveInstitutionFeeAccountId(nrcCid)),
+        nrcFee,
+      );
     });
 
     test('中枢省主账户 / 费用账户', () {
-      expect(accountIdText(deriveInstitutionMainAccountId(prcCid)), prcMain);
-      expect(accountIdText(deriveInstitutionFeeAccountId(prcCid)), prcFee);
+      expect(
+        citizenAccountIdFromBytes(deriveInstitutionMainAccountId(prcCid)),
+        prcMain,
+      );
+      expect(
+        citizenAccountIdFromBytes(deriveInstitutionFeeAccountId(prcCid)),
+        prcFee,
+      );
     });
 
     test('名字路由:主账户/费用账户与显式派生一致', () {
       expect(
-        accountIdText(
+        citizenAccountIdFromBytes(
           deriveInstitutionAccountIdByName(nrcCid, kReservedNameMain),
         ),
         nrcMain,
       );
       expect(
-        accountIdText(
+        citizenAccountIdFromBytes(
           deriveInstitutionAccountIdByName(nrcCid, kReservedNameFee),
         ),
         nrcFee,
@@ -73,13 +87,13 @@ void main() {
 
     test('名字路由:安全基金 OP_SAFETY / 两和基金 OP_HE', () {
       expect(
-        accountIdText(
+        citizenAccountIdFromBytes(
           deriveInstitutionAccountIdByName(nrcCid, kReservedNameSafetyFund),
         ),
         nrcSafety,
       );
       expect(
-        accountIdText(
+        citizenAccountIdFromBytes(
           deriveInstitutionAccountIdByName(nrcCid, kReservedNameHe),
         ),
         nrcHe,
@@ -88,7 +102,7 @@ void main() {
 
     test('名字路由:联邦公民安全基金 OP_FCSF', () {
       expect(
-        accountIdText(
+        citizenAccountIdFromBytes(
           deriveInstitutionAccountIdByName(fscCid, kReservedNameFcsf),
         ),
         fcsfAccountId,
@@ -112,15 +126,21 @@ void main() {
         ]),
       );
       expect(
-        accountIdText(deriveInstitutionCustomAccountId(nrcCid, name)),
-        accountIdText(expected),
+        citizenAccountIdFromBytes(
+          deriveInstitutionCustomAccountId(nrcCid, name),
+        ),
+        citizenAccountIdFromBytes(expected),
       );
     });
 
     test('自定义账户不同于主账户', () {
       expect(
-        accountIdText(deriveInstitutionCustomAccountId(nrcCid, '专户')),
-        isNot(accountIdText(deriveInstitutionMainAccountId(nrcCid))),
+        citizenAccountIdFromBytes(
+          deriveInstitutionCustomAccountId(nrcCid, '专户'),
+        ),
+        isNot(
+          citizenAccountIdFromBytes(deriveInstitutionMainAccountId(nrcCid)),
+        ),
       );
     });
 
@@ -143,24 +163,21 @@ void main() {
     });
   });
 
-  group('个人多签派生(OP_PERSONAL 0x06)归位后行为不变', () {
-    test('SS58 输出与 core 派生一致', () {
+  group('个人多签派生', () {
+    test('派生字节遵循个人多签账户合同', () {
       final creator = Uint8List.fromList(List<int>.generate(32, (i) => i));
-      final viaCore = ss58FromAccountId(
+      expect(
+        derivePersonalAccountId(creatorAccount: creator, accountName: '个人钱包'),
         deriveAccountId(
           opTag: kOpPersonal,
           payload: <int>[...creator, ...utf8.encode('个人钱包')],
         ),
       );
-      expect(
-        derivePersonalAccountSs58(creatorAccount: creator, accountName: '个人钱包'),
-        viaCore,
-      );
     });
 
     test('creator 非 32 字节抛错', () {
       expect(
-        () => derivePersonalAccountSs58(
+        () => derivePersonalAccountId(
           creatorAccount: Uint8List(31),
           accountName: 'x',
         ),

@@ -16,13 +16,9 @@
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 
-import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/administrators/admin_account.dart';
 import 'package:citizen_citizen/proposal/proposal_query_service.dart';
@@ -80,8 +76,6 @@ class PersonalAdminListPage extends StatefulWidget {
 }
 
 class _PersonalAdminListPageState extends State<PersonalAdminListPage> {
-  static final _keyring = Keyring();
-
   late final ProposalQueryService _proposalService;
   bool _dependenciesReady = false;
   final PersonalPendingCreateLookup _lookup = PersonalPendingCreateLookup();
@@ -100,9 +94,7 @@ class _PersonalAdminListPageState extends State<PersonalAdminListPage> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_dependenciesReady) return;
-    _proposalService = ProposalQueryService(
-      chain: context.read<CitizenSdk>(),
-    );
+    _proposalService = ProposalQueryService(chain: context.read<CitizenSdk>());
     _dependenciesReady = true;
     _load();
   }
@@ -392,25 +384,14 @@ class _PersonalAdminListPageState extends State<PersonalAdminListPage> {
     }
   }
 
-  /// 把规范 AccountId 编码为 GMB SS58 地址(prefix 走 kGmbSs58Prefix 单源),并做两端截断
-  /// 以适配 monospace 11 字号的 ListTile title 行宽。
-  ///
-  /// 编码失败(理论上不会发生,数据来自链上 storage)兜底返回原 AccountId。
+  /// 截断 SDK 返回的公民链地址，适配当前列表行宽。
   String _accountIdToSs58(String accountId) {
     try {
-      if (!isAccountIdText(accountId)) {
-        throw const FormatException('account_id 格式错误');
-      }
-      final hex = accountId.substring(2);
-      final bytes = Uint8List(hex.length ~/ 2);
-      for (var i = 0; i < bytes.length; i++) {
-        bytes[i] = int.parse(hex.substring(i * 2, i * 2 + 2), radix: 16);
-      }
-      final ss58 = _keyring.encodeAddress(bytes, kGmbSs58Prefix);
-      if (ss58.length <= 24) return ss58;
-      return '${ss58.substring(0, 12)}…${ss58.substring(ss58.length - 8)}';
-    } catch (_) {
-      return accountId;
+      final address = citizenSs58FromAccountId(accountId);
+      if (address.length <= 24) return address;
+      return '${address.substring(0, 12)}…${address.substring(address.length - 8)}';
+    } on FormatException {
+      return '地址无效';
     }
   }
 }

@@ -5,12 +5,13 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizen_citizen/administrators/account_id_codec.dart';
+import 'package:citizen_sdk/test/platform/fixture.dart';
 import 'package:citizen_citizen/administrators/admin_account.dart';
 import 'package:citizen_citizen/administrators/admin_account_service.dart';
 import 'package:citizen_citizen/administrators/admin_activation_service.dart';
 import 'package:citizen_citizen/administrators/institution_admin_service.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
+import 'package:citizen_citizen/institution/institution_code_label.dart';
 import 'package:citizen_citizen/institution/institution_role_models.dart';
 import 'package:citizen_storage/user_isar.dart' hide Group;
 import 'package:flutter_test/flutter_test.dart';
@@ -18,6 +19,34 @@ import 'package:polkadart/polkadart.dart' show Hasher;
 
 import 'package:citizen_testing/isar_test_env.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
+
+Uint8List _scaleBytes(List<int> bytes) =>
+    Uint8List.fromList([bytes.length << 2, ...bytes]);
+
+Uint8List _blake2128Concat(Uint8List bytes) =>
+    Uint8List.fromList([...Hasher.blake2b128.hash(bytes), ...bytes]);
+
+Uint8List _institutionAdminStorageKey(
+  String cid, {
+  required String orgCode,
+  int? adminKind,
+}) {
+  final pallet = adminKind == null
+      ? InstitutionCodeLabel.adminAccountsPalletName(orgCode)
+      : InstitutionCodeLabel.adminAccountsPalletNameForKind(adminKind);
+  final bytes = utf8.encode(cid);
+  return Uint8List.fromList([
+    ...Hasher.twoxx128.hashString(pallet),
+    ...Hasher.twoxx128.hashString('AdminAccounts'),
+    ..._blake2128Concat(Uint8List.fromList([bytes.length << 2, ...bytes])),
+  ]);
+}
+
+Uint8List _personalAdminStorageKey(Uint8List account) => Uint8List.fromList([
+  ...Hasher.twoxx128.hashString('PersonalAdmins'),
+  ...Hasher.twoxx128.hashString('AdminAccounts'),
+  ..._blake2128Concat(account),
+]);
 
 class FakeChain extends TestChainReads {
   final Map<String, Uint8List?> responses = {};
@@ -140,6 +169,7 @@ void main() {
       final reads0 = TestChainReads();
       return AdminAccountService(
         getFinalizedHead: reads0.getFinalizedHead,
+        getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
         getStorage: reads0.getStorage,
       );
     })().clearCache(),
@@ -212,16 +242,16 @@ void main() {
     final bytes = <int>[
       ...Hasher.twoxx128.hashString(palletName),
       ...Hasher.twoxx128.hashString(storageName),
-      ...AdminAccountIdCodec.blake2128Concat(keyData),
+      ..._blake2128Concat(keyData),
     ];
     return '0x${hexOf(bytes)}';
   }
 
   // 合成 SCALE 值经过生产解码和人员关联，不直接注入已拼好的视图。
   Uint8List roleBytes(String cid, String code) => Uint8List.fromList([
-    ...AdminAccountIdCodec.scaleBytes(utf8.encode(cid)),
-    ...AdminAccountIdCodec.scaleBytes(utf8.encode(code)),
-    ...AdminAccountIdCodec.scaleBytes(utf8.encode('合成委员')),
+    ..._scaleBytes(utf8.encode(cid)),
+    ..._scaleBytes(utf8.encode(code)),
+    ..._scaleBytes(utf8.encode('合成委员')),
     0,
     0,
   ]);
@@ -229,9 +259,9 @@ void main() {
   Uint8List assignmentBytes(String cid, String code, int accountByte) =>
       Uint8List.fromList([
         4,
-        ...AdminAccountIdCodec.scaleBytes(utf8.encode(cid)),
+        ..._scaleBytes(utf8.encode(cid)),
         ...List.filled(32, accountByte),
-        ...AdminAccountIdCodec.scaleBytes(utf8.encode(code)),
+        ..._scaleBytes(utf8.encode(code)),
         ...u32Le(0),
         ...u32Le(0),
         0,
@@ -252,14 +282,14 @@ void main() {
       final prefix = Uint8List.fromList([
         ...Hasher.twoxx128.hashString(pallet),
         ...Hasher.twoxx128.hashString(storage),
-        ...AdminAccountIdCodec.blake2128Concat(
-          AdminAccountIdCodec.scaleBytes(utf8.encode(cid)),
+        ..._blake2128Concat(
+          _scaleBytes(utf8.encode(cid)),
         ),
       ]);
       final key = Uint8List.fromList([
         ...prefix,
-        ...AdminAccountIdCodec.blake2128Concat(
-          AdminAccountIdCodec.scaleBytes(utf8.encode(code)),
+        ..._blake2128Concat(
+          _scaleBytes(utf8.encode(code)),
         ),
       ]);
       rpc.scanKeys['0x${hexOf(prefix)}'] = [key];
@@ -381,13 +411,14 @@ void main() {
         kind: code == 'UNIN' ? 1 : 0,
       );
       final key =
-          '0x${hexOf(AdminAccountIdCodec.institutionAdminStorageKey(identity.cidNumber!, orgCode: code, adminKind: identity.kind))}';
+          '0x${hexOf(_institutionAdminStorageKey(identity.cidNumber!, orgCode: code, adminKind: identity.kind))}';
       rpc.responses[key] = institutionAdminBytes(
         orgCode: code,
         admin: List.filled(32, 0xaa),
       );
       final service = InstitutionAdminService(
         getFinalizedHead: rpc.getFinalizedHead,
+        getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
         getStorageKeysPaged: rpc.getStorageKeysPaged,
         getStorageBatch: rpc.getStorageBatch,
         getStorage: rpc.getStorage,
@@ -413,18 +444,18 @@ void main() {
       final rpc = FakeChain();
       final identity = displayIdentity;
       final key =
-          '0x${hexOf(AdminAccountIdCodec.institutionAdminStorageKey(identity.cidNumber!, orgCode: 'NRC', adminKind: 0))}';
+          '0x${hexOf(_institutionAdminStorageKey(identity.cidNumber!, orgCode: 'NRC', adminKind: 0))}';
       rpc.responses[key] = institutionAdminBytes(
         orgCode: 'NRC',
         admin: List.filled(32, 0xaa),
       );
-      final cidBytes = AdminAccountIdCodec.scaleBytes(
+      final cidBytes = _scaleBytes(
         utf8.encode(identity.cidNumber!),
       );
       final prefix = Uint8List.fromList([
         ...Hasher.twoxx128.hashString('PublicManage'),
         ...Hasher.twoxx128.hashString('InstitutionRoles'),
-        ...AdminAccountIdCodec.blake2128Concat(cidBytes),
+        ..._blake2128Concat(cidBytes),
       ]);
       final roleKey = Uint8List.fromList([...prefix, 1]);
       rpc.scanKeys['0x${hexOf(prefix)}'] = [roleKey];
@@ -433,6 +464,7 @@ void main() {
       }
       final views = await InstitutionAdminService(
         getFinalizedHead: rpc.getFinalizedHead,
+        getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
         getStorageKeysPaged: rpc.getStorageKeysPaged,
         getStorageBatch: rpc.getStorageBatch,
         getStorage: rpc.getStorage,
@@ -445,7 +477,7 @@ void main() {
     final rpc = FakeChain()..advanceHeads = true;
     final identity = displayIdentity;
     final key =
-        '0x${hexOf(AdminAccountIdCodec.institutionAdminStorageKey(identity.cidNumber!, orgCode: 'NRC', adminKind: 0))}';
+        '0x${hexOf(_institutionAdminStorageKey(identity.cidNumber!, orgCode: 'NRC', adminKind: 0))}';
     rpc.responses[key] = Uint8List.fromList([
       ...codeBytes('NRC'),
       19 << 2,
@@ -458,6 +490,7 @@ void main() {
     seedAssignments(rpc, identity, count: 19, firstByte: 1);
     final views = await InstitutionAdminService(
       getFinalizedHead: rpc.getFinalizedHead,
+      getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
       getStorageKeysPaged: rpc.getStorageKeysPaged,
       getStorageBatch: rpc.getStorageBatch,
       getStorage: rpc.getStorage,
@@ -479,7 +512,7 @@ void main() {
     final rpc = FakeChain()..advanceHeads = true;
     final identity = displayIdentity;
     final key =
-        '0x${hexOf(AdminAccountIdCodec.institutionAdminStorageKey(identity.cidNumber!, orgCode: 'NRC', adminKind: 0))}';
+        '0x${hexOf(_institutionAdminStorageKey(identity.cidNumber!, orgCode: 'NRC', adminKind: 0))}';
     rpc.responses[key] = institutionAdminBytes(
       orgCode: 'NRC',
       admin: List.filled(32, 0xaa),
@@ -488,8 +521,8 @@ void main() {
     final prefix = Uint8List.fromList([
       ...Hasher.twoxx128.hashString('PublicManage'),
       ...Hasher.twoxx128.hashString('InstitutionRoles'),
-      ...AdminAccountIdCodec.blake2128Concat(
-        AdminAccountIdCodec.scaleBytes(utf8.encode(identity.cidNumber!)),
+      ..._blake2128Concat(
+        _scaleBytes(utf8.encode(identity.cidNumber!)),
       ),
     ]);
     final page = rpc.scanKeys['0x${hexOf(prefix)}']!;
@@ -497,8 +530,8 @@ void main() {
       final code = 'EXTRA_$i';
       final roleKey = Uint8List.fromList([
         ...prefix,
-        ...AdminAccountIdCodec.blake2128Concat(
-          AdminAccountIdCodec.scaleBytes(utf8.encode(code)),
+        ..._blake2128Concat(
+          _scaleBytes(utf8.encode(code)),
         ),
       ]);
       page.add(roleKey);
@@ -509,6 +542,7 @@ void main() {
     }
     final views = await InstitutionAdminService(
       getFinalizedHead: rpc.getFinalizedHead,
+      getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
       getStorageKeysPaged: rpc.getStorageKeysPaged,
       getStorageBatch: rpc.getStorageBatch,
       getStorage: rpc.getStorage,
@@ -525,7 +559,7 @@ void main() {
       final rpc = FakeChain();
       final identity = displayIdentity;
       final key =
-          '0x${hexOf(AdminAccountIdCodec.institutionAdminStorageKey(identity.cidNumber!, orgCode: 'NRC', adminKind: 0))}';
+          '0x${hexOf(_institutionAdminStorageKey(identity.cidNumber!, orgCode: 'NRC', adminKind: 0))}';
       rpc.responses[key] = institutionAdminBytes(
         orgCode: 'NRC',
         admin: List.filled(32, 0xaa),
@@ -540,8 +574,10 @@ void main() {
         final prefix = Uint8List.fromList([
           ...Hasher.twoxx128.hashString('PublicManage'),
           ...Hasher.twoxx128.hashString(storage),
-          ...AdminAccountIdCodec.blake2128Concat(
-            AdminAccountIdCodec.scaleBytes(utf8.encode(identity.cidNumber!)),
+          ..._blake2128Concat(
+            _scaleBytes(
+              utf8.encode(identity.cidNumber!),
+            ),
           ),
         ]);
         final badKey = rpc.scanKeys['0x${hexOf(prefix)}']!.single;
@@ -549,6 +585,7 @@ void main() {
       }
       final service = InstitutionAdminService(
         getFinalizedHead: rpc.getFinalizedHead,
+        getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
         getStorageKeysPaged: rpc.getStorageKeysPaged,
         getStorageBatch: rpc.getStorageBatch,
         getStorage: rpc.getStorage,
@@ -579,11 +616,13 @@ void main() {
     final rpc = FakeChain();
     final identity = displayIdentity;
     final key =
-        '0x${hexOf(AdminAccountIdCodec.institutionAdminStorageKey(identity.cidNumber!, orgCode: 'NRC', adminKind: 0))}';
+        '0x${hexOf(_institutionAdminStorageKey(identity.cidNumber!, orgCode: 'NRC', adminKind: 0))}';
     final threshold = thresholdKey(
       palletName: 'PublicManage',
       storageName: 'InstitutionGovernanceThresholds',
-      keyData: AdminAccountIdCodec.scaleBytes(utf8.encode(identity.cidNumber!)),
+      keyData: _scaleBytes(
+        utf8.encode(identity.cidNumber!),
+      ),
     );
     rpc.responses[key] = institutionAdminBytes(
       orgCode: 'NRC',
@@ -594,10 +633,12 @@ void main() {
     seedAssignments(rpc, identity);
     final source = AdminAccountService(
       getFinalizedHead: rpc.getFinalizedHead,
+      getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
       getStorage: rpc.getStorage,
     );
     final service = InstitutionAdminService(
       getFinalizedHead: rpc.getFinalizedHead,
+      getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
       getStorageKeysPaged: rpc.getStorageKeysPaged,
       getStorageBatch: rpc.getStorageBatch,
       getStorage: rpc.getStorage,
@@ -640,10 +681,11 @@ void main() {
     final rpc = FakeChain();
     final identity = displayIdentity;
     final key =
-        '0x${hexOf(AdminAccountIdCodec.institutionAdminStorageKey(identity.cidNumber!, orgCode: 'NRC', adminKind: 0))}';
+        '0x${hexOf(_institutionAdminStorageKey(identity.cidNumber!, orgCode: 'NRC', adminKind: 0))}';
     rpc.responses[key] = Uint8List.fromList([...codeBytes('NRC'), 0]);
     final views = await InstitutionAdminService(
       getFinalizedHead: rpc.getFinalizedHead,
+      getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
       getStorageKeysPaged: rpc.getStorageKeysPaged,
       getStorageBatch: rpc.getStorageBatch,
       getStorage: rpc.getStorage,
@@ -656,10 +698,11 @@ void main() {
     final rpc = FakeChain();
     final identity = displayIdentity;
     final key =
-        '0x${hexOf(AdminAccountIdCodec.institutionAdminStorageKey(identity.cidNumber!, orgCode: 'NRC', adminKind: 0))}';
+        '0x${hexOf(_institutionAdminStorageKey(identity.cidNumber!, orgCode: 'NRC', adminKind: 0))}';
     rpc.responses[key] = Uint8List.fromList([255]);
     final service = InstitutionAdminService(
       getFinalizedHead: rpc.getFinalizedHead,
+      getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
       getStorageKeysPaged: rpc.getStorageKeysPaged,
       getStorageBatch: rpc.getStorageBatch,
       getStorage: rpc.getStorage,
@@ -682,17 +725,20 @@ void main() {
     final rpc = FakeChain();
     final identity = displayIdentity;
     final key =
-        '0x${hexOf(AdminAccountIdCodec.institutionAdminStorageKey(identity.cidNumber!, orgCode: 'NRC', adminKind: 0))}';
+        '0x${hexOf(_institutionAdminStorageKey(identity.cidNumber!, orgCode: 'NRC', adminKind: 0))}';
     final threshold = thresholdKey(
       palletName: 'PublicManage',
       storageName: 'InstitutionGovernanceThresholds',
-      keyData: AdminAccountIdCodec.scaleBytes(utf8.encode(identity.cidNumber!)),
+      keyData: _scaleBytes(
+        utf8.encode(identity.cidNumber!),
+      ),
     );
     final delayed = Completer<Uint8List?>();
     rpc.queued[key] = [() => delayed.future];
     rpc.responses[threshold] = Uint8List.fromList(u32Le(3));
     final source = AdminAccountService(
       getFinalizedHead: rpc.getFinalizedHead,
+      getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
       getStorage: rpc.getStorage,
     );
     final peopleRead = source.fetchAdmins(identity),
@@ -712,7 +758,7 @@ void main() {
     final rpc = FakeChain();
     final identity = displayIdentity;
     final key =
-        '0x${hexOf(AdminAccountIdCodec.institutionAdminStorageKey(identity.cidNumber!, orgCode: 'NRC', adminKind: 0))}';
+        '0x${hexOf(_institutionAdminStorageKey(identity.cidNumber!, orgCode: 'NRC', adminKind: 0))}';
     final delayed = Completer<Uint8List?>();
     rpc.queued[key] = [() => delayed.future];
     rpc.responses[key] = institutionAdminBytes(
@@ -721,6 +767,7 @@ void main() {
     );
     final source = AdminAccountService(
       getFinalizedHead: rpc.getFinalizedHead,
+      getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
       getStorage: rpc.getStorage,
     );
     final old = source.fetchAdmins(identity);
@@ -746,16 +793,17 @@ void main() {
     final rpc = FakeChain();
     final service = InstitutionAdminService(
       getFinalizedHead: rpc.getFinalizedHead,
+      getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
       getStorageKeysPaged: rpc.getStorageKeysPaged,
       getStorageBatch: rpc.getStorageBatch,
       getStorage: rpc.getStorage,
     );
     final accountKey =
-        '0x${hexOf(AdminAccountIdCodec.institutionAdminStorageKey(cidNumber, orgCode: 'UNIN', adminKind: 1))}';
+        '0x${hexOf(_institutionAdminStorageKey(cidNumber, orgCode: 'UNIN', adminKind: 1))}';
     final thresholdStorageKey = thresholdKey(
       palletName: 'PrivateManage',
       storageName: 'InstitutionGovernanceThresholds',
-      keyData: AdminAccountIdCodec.scaleBytes(utf8.encode(cidNumber)),
+      keyData: _scaleBytes(utf8.encode(cidNumber)),
     );
     rpc.responses[accountKey] = institutionAdminBytes(
       orgCode: 'UNIN',
@@ -781,14 +829,15 @@ void main() {
     final rpc = FakeChain();
     final service = InstitutionAdminService(
       getFinalizedHead: rpc.getFinalizedHead,
+      getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
       getStorageKeysPaged: rpc.getStorageKeysPaged,
       getStorageBatch: rpc.getStorageBatch,
       getStorage: rpc.getStorage,
     );
     final accountId = '0x${'22' * 32}';
-    final accountIdBytes = AdminAccountIdCodec.fromAccountIdText(accountId);
+    final accountIdBytes = citizenAccountIdBytes(accountId);
     final accountKey =
-        '0x${hexOf(AdminAccountIdCodec.personalAdminStorageKey(accountIdBytes))}';
+        '0x${hexOf(_personalAdminStorageKey(accountIdBytes))}';
     final thresholdStorageKey = thresholdKey(
       palletName: 'InternalVote',
       storageName: 'ActivePersonalThresholds',
@@ -817,6 +866,7 @@ void main() {
       final rpc = FakeChain();
       final service = AdminAccountService(
         getFinalizedHead: rpc.getFinalizedHead,
+        getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
         getStorage: rpc.getStorage,
       );
       final identity = AdminAccountIdentity.institution(
@@ -825,7 +875,7 @@ void main() {
         accountLabel: entry.key,
       );
       final accountKey =
-          '0x${hexOf(AdminAccountIdCodec.institutionAdminStorageKey(cidNumber, orgCode: entry.key, adminKind: 0))}';
+          '0x${hexOf(_institutionAdminStorageKey(cidNumber, orgCode: entry.key, adminKind: 0))}';
       rpc.responses[accountKey] = institutionAdminBytes(
         orgCode: entry.key,
         admin: List<int>.filled(32, 0xee),
@@ -836,7 +886,7 @@ void main() {
       final thresholdStorageKey = thresholdKey(
         palletName: 'PublicManage',
         storageName: 'InstitutionGovernanceThresholds',
-        keyData: AdminAccountIdCodec.scaleBytes(utf8.encode(cidNumber)),
+        keyData: _scaleBytes(utf8.encode(cidNumber)),
       );
       rpc.responses[thresholdStorageKey] = Uint8List.fromList(
         u32Le(entry.value),
@@ -854,16 +904,17 @@ void main() {
     final rpc = FakeChain();
     final service = AdminAccountService(
       getFinalizedHead: rpc.getFinalizedHead,
+      getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
       getStorage: rpc.getStorage,
     );
     final accountId = '0x${'33' * 32}';
-    final accountIdBytes = AdminAccountIdCodec.fromAccountIdText(accountId);
+    final accountIdBytes = citizenAccountIdBytes(accountId);
     final identity = AdminAccountIdentity.personalAccount(
       accountId: accountId,
       accountLabel: '个人多签',
     );
     final accountKey =
-        '0x${hexOf(AdminAccountIdCodec.personalAdminStorageKey(accountIdBytes))}';
+        '0x${hexOf(_personalAdminStorageKey(accountIdBytes))}';
     final thresholdStorageKey = thresholdKey(
       palletName: 'InternalVote',
       storageName: 'ActivePersonalThresholds',

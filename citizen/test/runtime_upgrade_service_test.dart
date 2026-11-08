@@ -2,13 +2,14 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_sdk/test/platform/fixture.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_citizen/runtime/runtime_upgrade_service.dart';
 
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 
-import 'proposal/internal_vote_service_test.dart' show voteMetadata, voteEvents;
+import 'proposal/internal_vote_service_test.dart' show voteEvents;
 
 final signer = Uint8List.fromList(List.filled(32, 1));
 final block = CitizenBlockRef(
@@ -87,13 +88,8 @@ class VoteChain extends TestChainReads {
   }
 
   @override
-  Future<CitizenRuntimeContext> getRuntimeContext(CitizenBlockRef ref) async =>
-      CitizenRuntimeContext(
-        block: ref,
-        specVersion: 1,
-        transactionVersion: 1,
-        metadata: voteMetadata(),
-      );
+  Future<CitizenRuntimeContext> getRuntimeContext(CitizenBlockRef ref) =>
+      CitizenSdkTestFixture.runtimeContext(ref);
 }
 
 void main() {
@@ -140,6 +136,7 @@ void main() {
       final tx = flow(cold: cold), chain = VoteChain();
       final result =
           await RuntimeUpgradeService(
+            buildCall: _buildCall,
             getFinalizedHead: chain.getFinalizedHead,
             getStorage: chain.getStorage,
             getStorageBatch: chain.getStorageBatch,
@@ -151,6 +148,7 @@ void main() {
                 tx.consumePreparedTransactionQrResponse,
             getSystemEvents: chain.getSystemEvents,
             getRuntimeContext: chain.getRuntimeContext,
+          getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
           ).submitJointVote(
             proposalId: 7,
             actorCidNumber: 'CID-A',
@@ -194,6 +192,7 @@ void main() {
         (() {
           final reads0 = flow();
           return RuntimeUpgradeService(
+            buildCall: _buildCall,
             getFinalizedHead: chain.getFinalizedHead,
             getStorage: chain.getStorage,
             getStorageBatch: chain.getStorageBatch,
@@ -205,6 +204,7 @@ void main() {
                 reads0.consumePreparedTransactionQrResponse,
             getSystemEvents: chain.getSystemEvents,
             getRuntimeContext: chain.getRuntimeContext,
+          getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
           );
         })().submitJointVote(
           proposalId: 7,
@@ -228,6 +228,7 @@ void main() {
         (() {
           final reads0 = VoteChain();
           return RuntimeUpgradeService(
+            buildCall: _buildCall,
             getFinalizedHead: reads0.getFinalizedHead,
             getStorage: reads0.getStorage,
             getStorageBatch: reads0.getStorageBatch,
@@ -239,6 +240,7 @@ void main() {
                 tx.consumePreparedTransactionQrResponse,
             getSystemEvents: reads0.getSystemEvents,
             getRuntimeContext: reads0.getRuntimeContext,
+          getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
           );
         })().submitJointVote(
           proposalId: 7,
@@ -260,6 +262,7 @@ void main() {
         final reads0 = TestChainReads();
         final reads1 = TestTransactionCalls();
         return RuntimeUpgradeService(
+          buildCall: _buildCall,
           getFinalizedHead: reads0.getFinalizedHead,
           getStorage: reads0.getStorage,
           getStorageBatch: reads0.getStorageBatch,
@@ -271,6 +274,7 @@ void main() {
               reads1.consumePreparedTransactionQrResponse,
           getSystemEvents: reads0.getSystemEvents,
           getRuntimeContext: reads0.getRuntimeContext,
+        getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
         );
       })();
       final actorCid = Uint8List.fromList(
@@ -310,6 +314,7 @@ void main() {
         final reads0 = TestChainReads();
         final reads1 = TestTransactionCalls();
         return RuntimeUpgradeService(
+          buildCall: _buildCall,
           getFinalizedHead: reads0.getFinalizedHead,
           getStorage: reads0.getStorage,
           getStorageBatch: reads0.getStorageBatch,
@@ -321,6 +326,7 @@ void main() {
               reads1.consumePreparedTransactionQrResponse,
           getSystemEvents: reads0.getSystemEvents,
           getRuntimeContext: reads0.getRuntimeContext,
+        getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
         );
       })();
       final proposer = Uint8List.fromList(List<int>.filled(32, 1));
@@ -352,6 +358,7 @@ void main() {
         final reads0 = TestChainReads();
         final reads1 = TestTransactionCalls();
         return RuntimeUpgradeService(
+          buildCall: _buildCall,
           getFinalizedHead: reads0.getFinalizedHead,
           getStorage: reads0.getStorage,
           getStorageBatch: reads0.getStorageBatch,
@@ -363,6 +370,7 @@ void main() {
               reads1.consumePreparedTransactionQrResponse,
           getSystemEvents: reads0.getSystemEvents,
           getRuntimeContext: reads0.getRuntimeContext,
+        getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
         );
       })();
       final proposer = Uint8List.fromList(List<int>.generate(32, (i) => i));
@@ -390,4 +398,13 @@ void main() {
       expect(decoded, isNull);
     });
   });
+}
+
+Future<Uint8List> _buildCall(String pallet, String method, Object fields) async {
+  final runtime = await CitizenSdkTestFixture.runtimeContext(CitizenBlockRef(
+    hash: '0x${'11' * 32}',
+    number: BigInt.one,
+    finality: CitizenBlockFinality.finalized,
+  ));
+  return runtime.encodeCall(pallet, method, fields);
 }

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
+
 import 'package:polkadart_keyring/polkadart_keyring.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_storage/user_isar.dart' as storage;
@@ -240,9 +241,9 @@ void main() {
         });
         expect(body['ack_rev'], 4);
         expect(
-          (await LocalTxStore.queryByAccountId(
-            record.payment.accountId,
-          )).single.entryState,
+          (await LocalTxStore.queryByAccountId(record.payment.accountId))
+              .single
+              .entryState,
           'completed',
         );
         return http.Response(
@@ -321,9 +322,9 @@ void main() {
       }
       expect(calls, 0);
       expect(
-        (await LocalTxStore.queryByAccountId(
-          record.payment.accountId,
-        )).single.entryState,
+        (await LocalTxStore.queryByAccountId(record.payment.accountId))
+            .single
+            .entryState,
         'paid',
       );
     } finally {
@@ -337,9 +338,8 @@ void main() {
     final end = await store.acceptReceipt(paid, result);
     expect(end.progress, TopupProgress.paid);
     expect(end.isPaid, true);
-    final row = (await LocalTxStore.queryByAccountId(
-      record.payment.accountId,
-    )).single;
+    final row = (await LocalTxStore.queryByAccountId(record.payment.accountId))
+        .single;
     expect(row.amountDelta, '0');
     expect(end.receipt!.toJson()['chain_state'], 'unverified');
   });
@@ -444,8 +444,7 @@ void main() {
       network: TopupNetwork.base,
     );
     final pair = await Keyring().fromUri('//Alice');
-    final account =
-        '0x${pair.publicKey.bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}';
+    final account = citizenAccountIdFromBytes(pair.publicKey.bytes);
     final draft = TopupDraft.create(selection, account);
     expect(draft.signText.split('\n').length, 14);
     expect(draft.signText, isNot(contains('order_id=')));
@@ -529,11 +528,9 @@ void main() {
   });
   test('付款链立即一次加20秒指数退避十次，11轮未验真零服务端请求', () async {
     final sent = await submitted();
-    final fixture =
-        jsonDecode(
-              fixtureFile('citizen_topup', 'contract.json').readAsStringSync(),
-            )
-            as Map;
+    final fixture = jsonDecode(
+      fixtureFile('citizen_topup', 'contract.json').readAsStringSync(),
+    ) as Map;
     final policy = fixture['payment_checks'] as Map;
     final intervals = (policy['intervals_seconds'] as List).cast<int>();
     final timers = <PaymentTimer>[];
@@ -721,9 +718,8 @@ void main() {
       record.payment.accountId,
     )).single;
     final saved = await store.markPaid(sent, proof(sent));
-    final row = (await LocalTxStore.queryByAccountId(
-      record.payment.accountId,
-    )).single;
+    final row = (await LocalTxStore.queryByAccountId(record.payment.accountId))
+        .single;
     expect(row.rowId, before.rowId);
     expect(row.entryState, 'paid');
     expect(row.amountDelta, '0');
@@ -774,9 +770,8 @@ void main() {
     final receipt = TopupReceipt.fromJson(response(saved.record));
     final accepted = saved.record.update(receipt: receipt);
     await store.save(accepted, before: saved.record);
-    final row = (await LocalTxStore.queryByAccountId(
-      record.payment.accountId,
-    )).single;
+    final row = (await LocalTxStore.queryByAccountId(record.payment.accountId))
+        .single;
     final loaded = TopupStore.fromEntry(row);
     expect(loaded.receipt!.publicKey, receipt.publicKey);
     expect(loaded.recoveryToken, saved.record.recoveryToken);
@@ -839,9 +834,8 @@ void main() {
         expect(requests, 1);
         expect(
           TopupStore.fromEntry(
-            (await LocalTxStore.queryByAccountId(
-              record.payment.accountId,
-            )).single,
+            (await LocalTxStore.queryByAccountId(record.payment.accountId))
+                .single,
           ).isPaid,
           true,
         );
@@ -1008,9 +1002,8 @@ void main() {
   });
   test('删除后晚到验款/保存均不能复活订单，也不能取得请求能力', () async {
     final sent = await submitted(),
-        row = (await LocalTxStore.queryByAccountId(
-          record.payment.accountId,
-        )).single;
+        row = (await LocalTxStore.queryByAccountId(record.payment.accountId))
+            .single;
     await store.delete(row);
     await expectLater(
       store.markPaid(sent, proof(sent)),

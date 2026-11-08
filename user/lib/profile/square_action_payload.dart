@@ -1,7 +1,7 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
+
 import 'dart:convert';
 import 'dart:typed_data';
-
-import 'package:citizen_citizen/account_derivation.dart';
 
 /// 广场账户动作签名 payload（两色内容核对用）。
 ///
@@ -79,7 +79,7 @@ SquareActionPayload? decodeSquareActionPayload(String payloadHex) {
 
     final (accountId, o2) = _readString(bytes, offset);
     offset = o2;
-    if (!isAccountIdText(accountId)) return null;
+    if (!isCitizenAccountId(accountId)) return null;
     final (challengeId, o3) = _readString(bytes, offset);
     offset = o3;
 
@@ -129,41 +129,16 @@ String _formatExpiresAt(int value) {
 }
 
 (String, int) _readString(Uint8List bytes, int offset) {
-  final (len, next) = _readCompact(bytes, offset);
+  final (len, width) = CitizenScale.readCompact(bytes, offset);
+  if (width > 4) throw const FormatException('SCALE compact big-integer 不支持');
+  final next = offset + width;
   final end = next + len;
   final str = utf8.decode(bytes.sublist(next, end));
   return (str, end);
 }
 
-/// SCALE compact 解码（支持 1/2/4 字节模式，覆盖 payload 各字段长度）。
-(int, int) _readCompact(Uint8List bytes, int offset) {
-  final first = bytes[offset];
-  final mode = first & 0x03;
-  if (mode == 0) {
-    return (first >> 2, offset + 1);
-  }
-  if (mode == 1) {
-    final value = (first | (bytes[offset + 1] << 8)) >> 2;
-    return (value, offset + 2);
-  }
-  if (mode == 2) {
-    final raw =
-        first |
-        (bytes[offset + 1] << 8) |
-        (bytes[offset + 2] << 16) |
-        (bytes[offset + 3] << 24);
-    return (raw >>> 2, offset + 4);
-  }
-  throw const FormatException('SCALE compact big-integer 不支持');
-}
-
-int _u64Le(Uint8List bytes, int offset) {
-  var value = 0;
-  for (var i = 7; i >= 0; i--) {
-    value = (value << 8) | bytes[offset + i];
-  }
-  return value;
-}
+int _u64Le(Uint8List bytes, int offset) =>
+    CitizenScale.readUnsigned(bytes, offset, 8).toSigned(64).toInt();
 
 Uint8List _hexToBytes(String input) {
   final text = input.startsWith('0x') || input.startsWith('0X')

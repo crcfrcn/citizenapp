@@ -1,5 +1,3 @@
-import 'package:citizen_wallet/core/account_balance_snapshot_store.dart';
-
 import 'dart:async';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -27,7 +25,7 @@ class PublicInstitutionAdminListPage extends StatefulWidget {
 
 class _PublicInstitutionAdminListPageState
     extends State<PublicInstitutionAdminListPage> {
-  Map<String, double> _balanceByAccountId = const {};
+  Map<String, BigInt> _balanceByAccountId = const {};
 
   @override
   void initState() {
@@ -54,12 +52,12 @@ class _PublicInstitutionAdminListPageState
       return;
     }
     try {
-      final snapshots = await AccountBalanceSnapshotStore.forChain(
-        context.read<CitizenSdk>(),
-      ).getAccountBalances(accountIds);
-      final balances = <String, double>{
-        for (final snapshot in snapshots)
-          snapshot.accountId: snapshot.freeFen.toDouble() / 100,
+      final snapshots = await context.read<CitizenSdk>().getAccountBalances(
+        accountIds,
+        forceRefresh: false,
+      );
+      final balances = <String, BigInt>{
+        for (final snapshot in snapshots) snapshot.accountId: snapshot.freeFen,
       };
       if (mounted) setState(() => _balanceByAccountId = balances);
     } catch (_) {
@@ -97,7 +95,7 @@ class _PublicInstitutionAdminListPageState
                 return InstitutionAssignmentCard(
                   adminView: adminView,
                   index: i + 1,
-                  balanceYuan:
+                  balanceFen:
                       _balanceByAccountId[_balanceKey(
                         adminView.admin.accountId,
                       )],

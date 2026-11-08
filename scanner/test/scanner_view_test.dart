@@ -7,7 +7,8 @@ import 'package:citizen_testing/fake_citizen_sdk.dart';
 
 Widget _view(
   CitizenSdk sdk, {
-  ValueChanged<String>? result,
+  ValueChanged<CitizenQrScanResult>? result,
+  ValueChanged<CitizenQrCapture?>? capture,
   ValueChanged<ScannerFailure>? failure,
   CitizenQrScanPurpose purpose = CitizenQrScanPurpose.generalScan,
 }) => Directionality(
@@ -15,7 +16,8 @@ Widget _view(
   child: ScannerView(
     qr: sdk,
     purpose: purpose,
-    onRawValue: result ?? (_) {},
+    onResult: result ?? (_) {},
+    onCapture: capture,
     onFailure: failure,
   ),
 );
@@ -55,15 +57,21 @@ void main() {
       hasLength(1),
     );
   });
-  testWidgets('SDK纹理原样交给预览，结果只转发SDK规范文本', (tester) async {
-    final values = <String>[];
-    await tester.pumpWidget(_view(core.sdk, result: values.add));
+  testWidgets('SDK纹理与结构化扫码结果原样转发', (tester) async {
+    final values = <CitizenQrScanResult>[];
+    CitizenQrCapture? capture;
+    await tester.pumpWidget(
+      _view(core.sdk, result: values.add, capture: (value) => capture = value),
+    );
     await _until(tester, () => find.byType(Texture).evaluate().isNotEmpty);
     expect(tester.widget<Texture>(find.byType(Texture)).textureId, 4);
     final wire = await core.sdk.encodeAccountId(testCitizenAccountId);
+    final captured = capture!.results.first;
     core.fixture.scanText(wire, CitizenQrScanPurpose.generalScan);
     await _until(tester, () => values.isNotEmpty);
-    expect(values, [wire]);
+    expect(values.single, same(await captured));
+    expect(values.single.accountId, testCitizenAccountId);
+    expect(values.single.purpose, CitizenQrScanPurpose.generalScan);
     await tester.pumpWidget(const SizedBox());
     await _until(tester, () => core.fixture.nativeResources.isEmpty);
   });

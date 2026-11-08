@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_sdk/test/platform/fixture.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 
 import 'dart:convert';
@@ -65,9 +66,6 @@ TestCitizenTransactionFlow flow({
   ..consume = ((_, _) async => result ?? completed())
   ..cancel = ((_) async {});
 
-Uint8List eventMetadata() => base64Decode(
-  'bWV0YQ40AAAABQMABAAABQUACAAABQYADAAABQAAEAAAAyAAAAAAABQAAAIAABgAAAEMOEFwcGx5RXh0cmluc2ljBAAEARhzaGFyZWQAAAAwRmluYWxpemF0aW9uAAEAOEluaXRpYWxpemF0aW9uAAIAABwAAAEQWFJlcHJlc2VudGF0aXZlVm90ZUNhc3QUASxwcm9wb3NhbF9pZAgBGHNoYXJlZAABKGJvZHlfaW5kZXgEARhzaGFyZWQAAQx3aG8QARhzaGFyZWQAATx2b3Rlcl9yb2xlX2NvZGUUARhzaGFyZWQAARxhcHByb3ZlDAEYc2hhcmVkAAEAaExlZ2lzbGF0aW9uRXhlY3V0aXZlU2lnbmVkDAEscHJvcG9zYWxfaWQIARhzaGFyZWQAAQx3aG8QARhzaGFyZWQAARxhcHByb3ZlDAEYc2hhcmVkAAYAZExlZ2lzbGF0aW9uT3ZlcnJpZGVTaWduZWQMASxwcm9wb3NhbF9pZAgBGHNoYXJlZAABDHdobxABGHNoYXJlZAABHGFwcHJvdmUMARhzaGFyZWQACABUTGVnaXNsYXRpb25HdWFyZFZvdGVkDAEscHJvcG9zYWxfaWQIARhzaGFyZWQAAQx3aG8QARhzaGFyZWQAARxhcHByb3ZlDAEYc2hhcmVkAAoAACAAAAEEPExlZ2lzbGF0aW9uVm90ZQQAHAEYc2hhcmVkABoAACQAAAIQACgAAAAMARRwaGFzZRgBGHNoYXJlZAABFGV2ZW50IAEYc2hhcmVkAAEYdG9waWNzJAEYc2hhcmVkAAAsAAACKAAwAAAEAAAEGFN5c3RlbQEYU3lzdGVtBBhFdmVudHMBACwEAAAAAAAAADAEADA=',
-);
 
 Uint8List eventBytes({
   int index = 2,
@@ -119,13 +117,8 @@ class Chain extends TestChainReads {
   }
 
   @override
-  Future<CitizenRuntimeContext> getRuntimeContext(CitizenBlockRef ref) async =>
-      CitizenRuntimeContext(
-        block: contextBlock ?? ref,
-        specVersion: 1,
-        transactionVersion: 1,
-        metadata: eventMetadata(),
-      );
+  Future<CitizenRuntimeContext> getRuntimeContext(CitizenBlockRef ref) =>
+      CitizenSdkTestFixture.runtimeContext(contextBlock ?? ref);
 }
 
 void main() {
@@ -136,6 +129,7 @@ void main() {
           return ProposalQueryService(
             getSystemEvents: reads0.getSystemEvents,
             getRuntimeContext: reads0.getRuntimeContext,
+            getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
             getFinalizedHead: reads0.getFinalizedHead,
             getStorage: reads0.getStorage,
             getStorageBatch: reads0.getStorageBatch,
@@ -156,6 +150,7 @@ void main() {
     final anchored = ProposalQueryService(
       getSystemEvents: chain.getSystemEvents,
       getRuntimeContext: chain.getRuntimeContext,
+      getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
       getFinalizedHead: chain.getFinalizedHead,
       getStorage: chain.getStorage,
       getStorageBatch: chain.getStorageBatch,
@@ -180,6 +175,7 @@ void main() {
           return ProposalQueryService(
             getSystemEvents: reads0.getSystemEvents,
             getRuntimeContext: reads0.getRuntimeContext,
+            getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
             getFinalizedHead: reads0.getFinalizedHead,
             getStorage: reads0.getStorage,
             getStorageBatch: reads0.getStorageBatch,
@@ -190,6 +186,7 @@ void main() {
     final anchored = ProposalQueryService(
       getSystemEvents: chain.getSystemEvents,
       getRuntimeContext: chain.getRuntimeContext,
+      getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
       getFinalizedHead: chain.getFinalizedHead,
       getStorage: chain.getStorage,
       getStorageBatch: chain.getStorageBatch,
@@ -207,11 +204,12 @@ void main() {
     final events = await ProposalQueryService(
       getSystemEvents: chain.getSystemEvents,
       getRuntimeContext: chain.getRuntimeContext,
+      getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
       getFinalizedHead: chain.getFinalizedHead,
       getStorage: chain.getStorage,
       getStorageBatch: chain.getStorageBatch,
     ).fetchExecutionEvents(completed().execution!);
-    expect(events.single.index, 2);
+    expect(events.single.extrinsicIndex, 2);
     expect(events.single.name, 'LegislationOverrideSigned');
     expect((events.single.fields as Map)['approve'], true);
     expect(chain.reads.single, same(block));
@@ -227,6 +225,7 @@ void main() {
         ProposalQueryService(
           getSystemEvents: chain.getSystemEvents,
           getRuntimeContext: chain.getRuntimeContext,
+          getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
           getFinalizedHead: chain.getFinalizedHead,
           getStorage: chain.getStorage,
           getStorageBatch: chain.getStorageBatch,
@@ -245,6 +244,7 @@ void main() {
       ProposalQueryService(
         getSystemEvents: chain.getSystemEvents,
         getRuntimeContext: chain.getRuntimeContext,
+        getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
         getFinalizedHead: chain.getFinalizedHead,
         getStorage: chain.getStorage,
         getStorageBatch: chain.getStorageBatch,

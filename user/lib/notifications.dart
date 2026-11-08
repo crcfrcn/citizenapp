@@ -19,20 +19,18 @@ typedef NotificationScope = ({
   int bindRev,
   int generation,
 });
-typedef NotificationCacheWriter =
-    Future<void> Function(
-      NotificationScope owner,
-      String state,
-      String pending, {
-      required bool Function() isCurrent,
-    });
-typedef NotificationMemberWriter =
-    Future<void> Function(
-      String cidNumber,
-      Map<String, dynamic> data, {
-      required int receivedAt,
-      required bool Function() isCurrent,
-    });
+typedef NotificationCacheWriter = Future<void> Function(
+  NotificationScope owner,
+  String state,
+  String pending, {
+  required bool Function() isCurrent,
+});
+typedef NotificationMemberWriter = Future<void> Function(
+  String cidNumber,
+  Map<String, dynamic> data, {
+  required int receivedAt,
+  required bool Function() isCurrent,
+});
 
 /// 当前已加载通知列表的本机快照；分页上界不因后续已读回执改变。
 class NotificationListSnapshot {
@@ -40,7 +38,7 @@ class NotificationListSnapshot {
     required int revision,
     required int sequence,
     required int through,
-    required int? nextCursor,
+    required String? nextCursor,
     required Iterable<Map<String, dynamic>> items,
   }) {
     bool number(Object? n) => n is int && n >= 0 && n <= 9007199254740991;
@@ -49,7 +47,7 @@ class NotificationListSnapshot {
         !number(through) ||
         sequence > through ||
         (nextCursor != null &&
-            (!number(nextCursor) || nextCursor <= 0 || nextCursor > through))) {
+            (nextCursor.isEmpty || nextCursor.length > 8192))) {
       throw const FormatException('通知列表分页信息无效');
     }
     final ids = <String>{};
@@ -91,7 +89,7 @@ class NotificationListSnapshot {
     this.items,
   );
   final int revision, sequence, through;
-  final int? nextCursor;
+  final String? nextCursor;
   final List<Map<String, dynamic>> items;
   String encode(NotificationScope owner) => jsonEncode({
     'account_id': owner.accountId,
@@ -111,7 +109,7 @@ class NotificationListSnapshot {
         value['notice_rev'] is! int ||
         value['interaction_sequence'] is! int ||
         value['through'] is! int ||
-        (value['next_cursor'] != null && value['next_cursor'] is! int) ||
+        (value['next_cursor'] != null && value['next_cursor'] is! String) ||
         value['items'] is! List ||
         (value['items'] as List).any((row) => row is! Map<String, dynamic>)) {
       throw const FormatException('通知列表缓存归属或结构无效');
@@ -120,7 +118,7 @@ class NotificationListSnapshot {
       revision: value['notice_rev'] as int,
       sequence: value['interaction_sequence'] as int,
       through: value['through'] as int,
-      nextCursor: value['next_cursor'] as int?,
+      nextCursor: value['next_cursor'] as String?,
       items: (value['items'] as List).cast<Map<String, dynamic>>(),
     );
   }
@@ -875,6 +873,8 @@ class Notifications extends ChangeNotifier {
               value['bind_rev'] != owner.bindRev) {
             throw const FormatException('已读回执状态无效');
           }
+          // 分批处理中的回执不能消费本机的原始已读意图。
+          if (value['state'] == 'pending') return;
           if (_pending.isNotEmpty && identical(_pending.first, intent)) {
             _pending.removeAt(0);
           }

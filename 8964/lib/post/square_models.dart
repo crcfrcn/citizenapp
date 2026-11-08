@@ -108,9 +108,8 @@ class SquareAuthor {
 
   String get title {
     // 默认昵称稳定种子按身份主键 cid_number（与资料页/头像一致）；cid 缺失回落账户。
-    return ProfilePresentation.forIdentityKey(
-      cidNumber ?? accountId,
-    ).resolveDisplayName(publicName: displayName);
+    return ProfilePresentation.forIdentityKey(cidNumber ?? accountId)
+        .resolveDisplayName(publicName: displayName);
   }
 }
 
@@ -330,7 +329,6 @@ class SquarePost {
 /// 评论/回复唯一客户端模型；已删除正文必须为空，坏响应不能冒充空评论列表。
 class SquareComment {
   const SquareComment({
-    required this.replySeq,
     required this.commentId,
     required this.postId,
     required this.authorCid,
@@ -340,32 +338,30 @@ class SquareComment {
     required this.createdAt,
     this.replyTo,
   });
-  final int replySeq, createdAt;
+  final int createdAt;
   final String commentId, postId, authorCid, replyText, replyState, displayName;
   final String? replyTo;
   factory SquareComment.fromJson(Map<String, dynamic> value) {
     for (final key in [
       'comment_id',
       'post_id',
-      'author_cid',
+      'cid_number',
       'reply_text',
       'reply_state',
     ]) {
       if (value[key] is! String) throw const FormatException('评论响应字段无效');
     }
-    if (value['reply_seq'] is! int ||
-        (value['reply_seq'] as int) <= 0 ||
-        value['created_at'] is! int ||
+    if (value['created_at'] is! int ||
+        (value['created_at'] as int) <= 0 ||
         !['active', 'deleted'].contains(value['reply_state']) ||
         (value['reply_state'] == 'deleted' && value['reply_text'] != '') ||
         (value['reply_text'] as String).runes.length > 2000) {
       throw const FormatException('评论响应无效');
     }
     return SquareComment(
-      replySeq: value['reply_seq'] as int,
       commentId: value['comment_id'] as String,
       postId: value['post_id'] as String,
-      authorCid: value['author_cid'] as String,
+      authorCid: value['cid_number'] as String,
       replyText: value['reply_text'] as String,
       replyState: value['reply_state'] as String,
       displayName: (value['display_name'] as String?) ?? '',
@@ -374,10 +370,9 @@ class SquareComment {
     );
   }
   Map<String, Object?> toJson() => {
-    'reply_seq': replySeq,
     'comment_id': commentId,
     'post_id': postId,
-    'author_cid': authorCid,
+    'cid_number': authorCid,
     'reply_text': replyText,
     'reply_state': replyState,
     'display_name': displayName,

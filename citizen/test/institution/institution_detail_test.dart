@@ -49,16 +49,16 @@ class _FakeChainState implements InstitutionChainState {
   });
   List<String> adminList;
   Future<List<InstitutionAdminView>> Function(Institution)? reader;
-  Future<Map<String, double>>? balanceFuture;
+  Future<Map<String, BigInt>>? balanceFuture;
   bool proposalsFail = false;
   int adminReads = 0;
   final List<InstitutionProposalSummary> proposalList;
-  final Map<String, double> balanceByAccountId;
+  final Map<String, BigInt> balanceByAccountId;
 
   @override
-  Future<Map<String, double>> balances(List<String> publicKeyes) async =>
+  Future<Map<String, BigInt>> balances(List<String> publicKeyes) async =>
       balanceFuture ??
-      {for (final h in publicKeyes) h: balanceByAccountId[h] ?? 12.5};
+      {for (final h in publicKeyes) h: balanceByAccountId[h] ?? BigInt.from(1250)};
 
   @override
   Future<List<InstitutionAdminView>> adminViews(Institution institution) async {
@@ -267,7 +267,7 @@ void main() {
   _core = TestCitizenSdkHarness();
   testWidgets('名册加载中不显示0人，余额未完成也不阻塞人员', (tester) async {
     final people = Completer<List<InstitutionAdminView>>();
-    final balance = Completer<Map<String, double>>();
+    final balance = Completer<Map<String, BigInt>>();
     final chain = _FakeChainState()
       ..reader = ((_) => people.future)
       ..balanceFuture = balance.future;
@@ -504,11 +504,13 @@ void main() {
       expect(rows.map((r) => r.label), ['主账户', '费用账户', '业务专户']);
       expect(
         rows.first.accountId,
-        accountIdText(deriveInstitutionMainAccountId(_cid)),
+        citizenAccountIdFromBytes(deriveInstitutionMainAccountId(_cid)),
       );
       expect(
         rows.last.accountId,
-        accountIdText(deriveInstitutionCustomAccountId(_cid, '业务专户')),
+        citizenAccountIdFromBytes(
+          deriveInstitutionCustomAccountId(_cid, '业务专户'),
+        ),
       );
     });
 
@@ -539,7 +541,7 @@ void main() {
         InstitutionAccountsPage(
           institution: institution,
           chainState: _FakeChainState(
-            balanceByAccountId: const {_fcsfAccountId: 10000000000.0},
+            balanceByAccountId: {_fcsfAccountId: BigInt.from(1000000000000)},
           ),
         ),
       ),

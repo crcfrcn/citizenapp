@@ -49,7 +49,7 @@ class SquareLikesPage extends StatefulWidget {
 
 class _SquareLikesPageState extends State<SquareLikesPage> {
   final _rows = <Map<String, dynamic>>[];
-  int? _next;
+  String? _next;
   int _total = 0;
   bool _loading = false;
   String? _error;
@@ -92,7 +92,7 @@ class _SquareLikesPageState extends State<SquareLikesPage> {
         _rows
           ..clear()
           ..addAll(byCid.values);
-        _next = page['next_cursor'] as int?;
+        _next = page['next_cursor'] as String?;
         _total = ((page['state'] as Map)['like_count'] as int);
       });
     } on Object {

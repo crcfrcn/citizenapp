@@ -9,7 +9,6 @@ environment:
 # 只声明本包源码的直接依赖；版本沿用拆分前产品约束。
 dependencies:
   citizen_assets: any
-  citizen_citizen: any
   citizen_personal: any
   citizen_scanner: any
   citizen_sdk:
@@ -25,13 +24,11 @@ dependencies:
   flutter:
     sdk: flutter
   flutter_svg: ^2.3.0
-  pointycastle: 4.0.0
-  polkadart: 0.7.3
-  polkadart_keyring: 0.7.1
   provider: ^6.1.5+1
   substrate_metadata: 1.6.0
 
 dev_dependencies:
+  polkadart: 0.7.3
   citizen_multisig: any
   citizen_testing: any
   flutter_test:

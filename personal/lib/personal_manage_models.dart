@@ -1,7 +1,8 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
+
 import 'dart:typed_data';
 
 import 'package:citizen_citizen/administrators/admin_account.dart';
-import 'package:citizen_citizen/account_derivation.dart';
 
 /// PersonalAdmins 创建个人多签提案详情（从链上 ProposalData 解码）。
 ///
@@ -35,12 +36,10 @@ class CreateProposalInfo {
   /// 0=voting, 1=passed, 2=rejected, null=unknown。
   final int? status;
 
-  double get amountYuan => amountFen.toDouble() / 100;
-  double get feeYuan => feeAmount.toDouble() / 100;
 
   /// 个人多签治理 AccountId。
   Uint8List get institutionBytes {
-    return _accountIdBytes(accountId);
+    return citizenAccountIdBytes(accountId);
   }
 
   CreateProposalInfo copyWithStatus(int? newStatus) {
@@ -85,7 +84,7 @@ class CloseProposalInfo {
 
   /// 个人多签治理 AccountId。
   Uint8List get institutionBytes {
-    return _accountIdBytes(accountId);
+    return citizenAccountIdBytes(accountId);
   }
 
   CloseProposalInfo copyWithStatus(int? newStatus) {
@@ -126,16 +125,4 @@ class AccountInfo {
   final List<AdminPerson> admins;
 
   final MultisigStatus status;
-}
-
-Uint8List _accountIdBytes(String accountId) {
-  if (!isAccountIdText(accountId)) {
-    throw const FormatException('account_id 必须为小写 0x + 64 位十六进制');
-  }
-  final h = accountId.substring(2);
-  final result = Uint8List(h.length ~/ 2);
-  for (var i = 0; i < result.length; i++) {
-    result[i] = int.parse(h.substring(i * 2, i * 2 + 2), radix: 16);
-  }
-  return result;
 }

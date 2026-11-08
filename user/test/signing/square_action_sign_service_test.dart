@@ -32,11 +32,11 @@ Future<Uint8List> _payloadBytes() async => Uint8List.fromList(<int>[
   )),
 ]);
 
-Future<String> _signRequestRaw(
+Future<CitizenQrDocument> _request(
   CitizenSdk qr, {
   int action = CitizenQrActions.squareAccountAction,
 }) async {
-  return (await qr.encodeDocument(
+  final encoded = await qr.encodeDocument(
     CitizenQrContent.signRequest(
       requestId: 'square-request-000001',
       expiresAt: BigInt.from(1900000000),
@@ -44,7 +44,11 @@ Future<String> _signRequestRaw(
       reviewPayload: await _payloadBytes(),
       action: action,
     ),
-  )).canonicalText;
+  );
+  return (await qr.parseForPurpose(
+    encoded.canonicalText,
+    CitizenQrScanPurpose.signingRequest,
+  )).document;
 }
 
 CitizenWalletStateAccount _account({required String accountId, int index = 3}) {
@@ -109,7 +113,7 @@ void main() {
   test('prepare resolves accountId wallet by QR u signer public key + decodes action', () async {
     final wm = _FakeWallet([_account(accountId: '0x$_pubHex')]);
     final prep = await service.prepare(
-      await _signRequestRaw(encoding.sdk),
+      await _request(encoding.sdk),
       null,
       getWalletState: (wm).getWalletState,
     );
@@ -124,7 +128,7 @@ void main() {
     final wm = _FakeWallet([_account(accountId: '0x$_pubHex')]);
     await expectLater(
       service.prepare(
-        await _signRequestRaw(encoding.sdk, action: 0x7fff),
+        await _request(encoding.sdk, action: 0x7fff),
         null,
         getWalletState: (wm).getWalletState,
       ),
@@ -148,7 +152,7 @@ void main() {
     final wm = _FakeWallet([_account(accountId: '0x$_pubHex')]);
     await expectLater(
       service.prepare(
-        await _signRequestRaw(encoding.sdk, action: CitizenQrActions.login),
+        await _request(encoding.sdk, action: CitizenQrActions.login),
         null,
         getWalletState: (wm).getWalletState,
       ),
@@ -172,7 +176,7 @@ void main() {
     final wm = _FakeWallet([_account(accountId: '0x${'aa' * 32}')]);
     await expectLater(
       service.prepare(
-        await _signRequestRaw(encoding.sdk),
+        await _request(encoding.sdk),
         null,
         getWalletState: (wm).getWalletState,
       ),
@@ -192,7 +196,7 @@ void main() {
       final wm = _FakeWallet([_account(accountId: '0x$_pubHex')]);
       await expectLater(
         service.prepare(
-          await _signRequestRaw(encoding.sdk),
+          await _request(encoding.sdk),
           null,
           requiredAccount: _account(accountId: '0x${'aa' * 32}'),
           getWalletState: (wm).getWalletState,
@@ -211,7 +215,7 @@ void main() {
   test('sign signs signing_message(0x1D) with accountId wallet and builds signResponse', () async {
     final wm = _FakeWallet([_account(accountId: '0x$_pubHex')]);
     final prep = await service.prepare(
-      await _signRequestRaw(encoding.sdk),
+      await _request(encoding.sdk),
       null,
       getWalletState: (wm).getWalletState,
     );

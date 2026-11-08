@@ -10,16 +10,13 @@ import 'package:citizen_storage/user_isar.dart'
 // - 入口放在交易 tab，避免把个人自助多签与机构登记流程混在一起。
 
 import 'dart:async' show unawaited;
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:provider/provider.dart';
 import 'package:citizen_system/app_log.dart';
 import 'package:isar_community/isar.dart';
-import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 
-import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_citizen/administrators/admin_accounts_scan_service.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_storage/user_isar.dart' hide Group;
@@ -599,19 +596,10 @@ class _PersonalAccountListPageState extends State<PersonalAccountListPage> {
 
   String _accountAddressLabel(String hex) {
     try {
-      return _hexToSs58(hex);
-    } catch (_) {
-      return hex;
+      return citizenSs58FromAccountId(hex);
+    } on FormatException {
+      return '地址无效';
     }
-  }
-
-  String _hexToSs58(String hex) {
-    final h = hex.startsWith('0x') ? hex.substring(2) : hex;
-    final bytes = Uint8List(h.length ~/ 2);
-    for (var i = 0; i < bytes.length; i++) {
-      bytes[i] = int.parse(h.substring(i * 2, i * 2 + 2), radix: 16);
-    }
-    return Keyring().encodeAddress(bytes, kGmbSs58Prefix);
   }
 
   String _truncateAddress(String address) {
@@ -620,7 +608,7 @@ class _PersonalAccountListPageState extends State<PersonalAccountListPage> {
   }
 
   String _requireAccountId(String accountId) {
-    if (!isAccountIdText(accountId)) {
+    if (!isCitizenAccountId(accountId)) {
       throw const FormatException('account_id 必须为小写 0x + 64 位十六进制');
     }
     return accountId;

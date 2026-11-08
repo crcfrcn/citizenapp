@@ -9,9 +9,9 @@ import 'package:flutter/foundation.dart';
 import 'package:citizen_user/square_api_client.dart';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_sdk/test/platform/fixture.dart';
 import 'package:chat/chat.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 import 'package:citizen_user/identity/cid_generator.dart';
 import 'package:citizen_citizen/public/admin_division_store.dart';
 import 'package:citizen_user/identity/citizen_identity_chain_reader.dart';
@@ -27,11 +27,9 @@ import 'package:citizen_user/identity/square_session_provider.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 import 'package:citizen_testing/isar_test_env.dart';
 
-/// Alice 通用 SS58(校验和有效),仅用于让 `decodeAddress` 解出 32 字节账户;
-/// 护照 App 真号是 prefix=2027,这里只需一个可解码地址驱动 storage key。
-const _validAddress = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
 const _validAccountId =
     '0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d';
+final _validAddress = citizenSs58FromAccountId(_validAccountId);
 
 CitizenWalletStateAccount _testAccount({
   required String accountId,
@@ -106,9 +104,12 @@ void main() {
             reads0.consumePreparedTransactionQrResponse,
         identityResolver: FinalizedIdentityResolver(
           getWalletState: walletManager.getWalletState,
-          getFinalizedHead: chainRpc.getFinalizedHead,
-          getStorage: chainRpc.getStorage,
-          getStorageBatch: chainRpc.getStorageBatch,
+          chainReader: CitizenIdentityChainReader(
+            getFinalizedHead: chainRpc.getFinalizedHead,
+            getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
+            getStorage: chainRpc.getStorage,
+            getStorageBatch: chainRpc.getStorageBatch,
+          ),
         ),
         divisionStore: _FakeDivisionStore(),
         badgeSnapshotStore: _FakeBadgeStore(),
@@ -154,6 +155,7 @@ void main() {
         getFeeSnapshot: actualChain.getFeeSnapshot,
         getGenesisHash: actualChain.getGenesisHash,
         getFinalizedHead: actualChain.getFinalizedHead,
+        getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
         getAccountBalance: actualChain.getAccountBalance,
         getStorage: actualChain.getStorage,
         getStorageBatch: actualChain.getStorageBatch,
@@ -189,7 +191,7 @@ void main() {
       final identity = _registeredIdentity(_validAccountId);
       final resolver = _SyncResolver(
         result == 'unregistered'
-            ? const FinalizedIdentity(
+            ? FinalizedIdentity(
                 accountId: _validAccountId,
                 accountAddress: _validAddress,
                 snapshot: null,
@@ -424,8 +426,7 @@ void main() {
     final current = CurrentUser(
       account: _aliceWallet,
       binding: const IdentityBinding(
-        genesisHash:
-            '0x0000000000000000000000000000000000000000000000000000000000000000',
+        genesisHash: '0x0000000000000000000000000000000000000000000000000000000000000000',
         cidNumber: 'CID-LOCAL-TEST',
         bindRev: 1,
         accountId: _validAccountId,
@@ -444,7 +445,7 @@ void main() {
     test('门槛取自链上常量,余额旁路缓存读取', () async {
       final rpc = _FakeChain()
         ..minSelfPayFen = BigInt.from(121)
-        ..balanceYuan = 1.21;
+        ..balanceFen = BigInt.from(121);
       final service = testService(chain: rpc);
       final result = await service.fetchRegistrationAffordability(
         _validAccountId,
@@ -577,9 +578,8 @@ void main() {
     ).refreshState();
     expect(expired.status, MyIdStatus.expired);
 
-    final revoked = await buildService(
-      voting: voting(status: 1),
-    ).refreshState();
+    final revoked = await buildService(voting: voting(status: 1))
+        .refreshState();
     expect(revoked.status, MyIdStatus.revoked);
   });
 
@@ -1228,9 +1228,9 @@ class _FakeChain extends TestChainReads {
   final String? boundAccountId;
   int _readIndex = 0;
 
-  /// 链上下发的自付门槛(分)与账户余额(元),供注册前余额闸用例驱动三分支。
+  /// 链上下发的自付门槛(分)与账户余额(分),供注册前余额闸用例驱动三分支。
   BigInt minSelfPayFen = BigInt.from(121);
-  double balanceYuan = 0.0;
+  BigInt balanceFen = BigInt.zero;
   bool balanceThrows = false;
 
   @override
@@ -1244,19 +1244,21 @@ class _FakeChain extends TestChainReads {
       feeRateParts: 1000000,
       minimumFeeFen: BigInt.from(10),
       existentialDepositFen: minSelfPayFen - BigInt.from(10),
+      voteFeeFen: BigInt.from(100),
+      feeFen: BigInt.from(10),
+      minimumSelfPayFen: minSelfPayFen,
     );
   }
 
   @override
   Future<CitizenAccountBalance> getAccountBalance(String accountId) async {
     if (balanceThrows) throw StateError('CitizenSDK 链状态未就绪');
-    final fen = BigInt.from((balanceYuan * 100).round());
     return CitizenAccountBalance(
       accountId: accountId,
       block: _finalizedBlock,
-      freeFen: fen,
+      freeFen: balanceFen,
       reservedFen: BigInt.zero,
-      totalFen: fen,
+      totalFen: balanceFen,
     );
   }
 
@@ -1275,13 +1277,8 @@ class _FakeChain extends TestChainReads {
           : null;
     }
     if (current == 1) {
-      final accountId = Uint8List.fromList(
-        boundAccountId == null
-            ? Keyring().decodeAddress(_validAddress)
-            : [
-                for (var i = 2; i < boundAccountId!.length; i += 2)
-                  int.parse(boundAccountId!.substring(i, i + 2), radix: 16),
-              ],
+      final accountId = citizenAccountIdBytes(
+        boundAccountId ?? _validAccountId,
       );
       if (mismatchWallet) accountId[0] ^= 0xff;
       return accountId;

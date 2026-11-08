@@ -1,9 +1,7 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 
-import 'package:citizen_citizen/administrators/account_id_codec.dart';
 import 'package:citizen_citizen/administrators/admin_account.dart';
-import 'package:citizen_citizen/account_derivation.dart';
-import 'package:citizen_system/amount_format.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
 class AdminSetDiffCard extends StatelessWidget {
@@ -16,18 +14,12 @@ class AdminSetDiffCard extends StatelessWidget {
 
   final List<AdminPerson> currentAdmins;
   final List<AdminPerson> admins;
-  final Map<String, double> balances;
+  final Map<String, BigInt> balances;
 
   @override
   Widget build(BuildContext context) {
-    final current = {
-      for (final admin in currentAdmins)
-        AdminAccountIdCodec.requireAccountId(admin.accountId): admin,
-    };
-    final next = {
-      for (final admin in admins)
-        AdminAccountIdCodec.requireAccountId(admin.accountId): admin,
-    };
+    final current = {for (final admin in currentAdmins) admin.accountId: admin};
+    final next = {for (final admin in admins) admin.accountId: admin};
     final added = next.entries
         .where((entry) => !current.containsKey(entry.key))
         .map((entry) => entry.value)
@@ -84,8 +76,8 @@ class AdminSetDiffCard extends StatelessWidget {
             dense: true,
             title: Text('${admin.familyName}${admin.givenName}'),
             subtitle: Text(
-              '${ss58FromAccountIdText(admin.accountId)}\n'
-              '余额：${AmountFormat.formatThousands(balances[AdminAccountIdCodec.requireAccountId(admin.accountId)])} 元',
+              '${citizenSs58FromAccountId(admin.accountId)}\n'
+              '余额：${(balances[admin.accountId] == null ? '--' : formatFen(balances[admin.accountId]!))} 元',
             ),
           ),
           SizedBox(height: AppLayout.scaledValue(6)),

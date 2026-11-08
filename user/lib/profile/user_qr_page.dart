@@ -1,6 +1,6 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 
-import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_scanner/qr_display_scaffold.dart';
 
 /// 用户码展示页(`QR_V1 k=3 user_contact`,固定码)。
@@ -38,7 +38,7 @@ class UserQrPage extends StatelessWidget {
   final bool isSelf;
 
   /// 展示态 SS58 地址(account_id 为授权真源,ss58 仅用于展示与二维码载荷)。
-  String get _ss58Address => ss58FromAccountIdText(accountId);
+  String get _ss58Address => citizenSs58FromAccountId(accountId);
 
   @override
   Widget build(BuildContext context) {

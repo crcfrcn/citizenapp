@@ -99,6 +99,21 @@ void main() {
     expect(find.text('这不是用户码'), findsOneWidget);
     expect(find.textContaining('只有「用户主页」出示的用户码'), findsOneWidget);
   });
+
+  testWidgets('扫一扫把签名请求作为 SDK 文档交给调用方', (tester) async {
+    final navigatorKey = await pumpScannerHost(tester);
+    final route = unawaitedPushMode(
+      navigatorKey,
+      signRequestCode,
+      QrScanMode.dispatch,
+    );
+    await tester.pumpAndSettle();
+    final result = await route as CitizenQrScanResult;
+    expect(result.document.kind, CitizenQrKind.signRequest);
+    expect(result.document.action, CitizenQrActions.squareAccountAction);
+    expect(result.document.signerAccountId, testCitizenAccountId);
+  });
+
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
     testWidgets('$platform冷钱包账户码返回后不残留排队错误且不清调用页成功提示', (tester) async {
       final nav = GlobalKey<NavigatorState>();
@@ -156,7 +171,10 @@ void main() {
       );
       await scannerUntil(tester, () => returns == 1);
       await tester.pumpAndSettle();
-      expect(result, accountCode);
+      final scanned = result as CitizenQrScanResult;
+      expect(scanned.purpose, CitizenQrScanPurpose.coldAccountImport);
+      expect(scanned.document.kind, CitizenQrKind.accountId);
+      expect(scanned.accountId, testCitizenAccountId);
       expect(returns, 1);
       expect(find.text('调用页成功提示'), findsOneWidget);
       expect(find.text('扫码失败'), findsNothing);

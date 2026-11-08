@@ -65,10 +65,10 @@ class CitizenProfileApi {
             profile: profile,
             avatarUrl: profile.avatarKey == null
                 ? null
-                : mediaUrl(profile.avatarKey!, updatedAt: profile.profileAt),
+                : _client.resolveProfileMedia(profile.avatarKey!).url,
             bannerUrl: profile.bannerKey == null
                 ? null
-                : mediaUrl(profile.bannerKey!, updatedAt: profile.profileAt),
+                : _client.resolveProfileMedia(profile.bannerKey!).url,
           );
         } finally {
           mediaClient.close();
@@ -87,24 +87,21 @@ class CitizenProfileApi {
     return task;
   }
 
-  /// R2 object_key → 钱包 session 保护的资料媒体 URL。
-  String mediaUrl(String objectKey, {int? updatedAt}) =>
-      _client.mediaUrl(objectKey, updatedAt: updatedAt);
-
-  /// 只替换完整资料图片的数据获取；每次实际加载都经逐请求签名传输。
-  /// 缓存键按当前会话对象隔离，证明/会话令牌不进入键的诊断文本。
+  /// 完整资料图片按对象键中的用途限制读取大小；每次实际加载均逐请求签名。
+  /// 缓存键按会话、资料版本和内容哈希隔离，诊断文本省略签名凭据。
   ImageProvider mediaImage(
     String objectKey, {
     required SquareSession session,
     int? updatedAt,
   }) {
-    final url = mediaUrl(objectKey, updatedAt: updatedAt);
+    final asset = _client.resolveProfileMedia(objectKey);
     return _SignedProfileMediaImage(
       _client,
       session,
-      url,
-      objectKey.split('/').last,
+      asset.url,
+      asset.kind,
       updatedAt,
+      contentHash: asset.hash,
     );
   }
 
@@ -135,11 +132,11 @@ class CitizenProfileApi {
   }) => _client.fetchUserCard(cidNumber: cidNumber, session: session);
 
   String cardMediaUrl(String objectKey, {int? updatedAt}) {
-    final parts = objectKey.split('/');
-    if (parts.length != 3 || parts[0] != 'profile' || parts[2] != 'avatar') {
+    final asset = CitizenProfile.parseAssetKey(objectKey);
+    if (asset == null || asset.kind != 'avatar') {
       throw const SquareApiException('聊天资料卡只能读取头像');
     }
-    return _client.cardAvatarUrl(parts[1]);
+    return _client.cardAvatarUrl(asset.cid);
   }
 
   /// 拉取主页资料（按身份主键 cid_number）；[session] 存在时响应附带 is_following。
@@ -228,18 +225,14 @@ class CitizenProfileApi {
     required SquareSession session,
     String? displayName,
     String? profileBio,
-    String? avatarKey,
     String? avatarHash,
-    String? bannerKey,
     String? bannerHash,
   }) {
     return _client.updateProfile(
       session: session,
       displayName: displayName,
       profileBio: profileBio,
-      avatarKey: avatarKey,
       avatarHash: avatarHash,
-      bannerKey: bannerKey,
       bannerHash: bannerHash,
     );
   }
@@ -254,6 +247,7 @@ final class _SignedProfileMediaImage
     this.url,
     this.role,
     this.version, {
+    this.contentHash,
     this.expectedBytes,
   });
   final SquareApiClient client;
@@ -261,6 +255,7 @@ final class _SignedProfileMediaImage
   final String url;
   final String role;
   final int? version;
+  final String? contentHash;
   final int? expectedBytes;
   @override
   Future<_SignedProfileMediaImage> obtainKey(
@@ -341,9 +336,10 @@ final class _SignedProfileMediaImage
       identical(session, other.session) &&
       role == other.role &&
       url == other.url &&
-      version == other.version;
+      version == other.version &&
+      contentHash == other.contentHash;
   @override
-  int get hashCode => Object.hash(session, role, url, version);
+  int get hashCode => Object.hash(session, role, url, version, contentHash);
   @override
   String toString() => '公民资料图片';
 }

@@ -6,9 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:citizen_system/app_log.dart';
 import 'package:flutter/services.dart';
-import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_system/theme/app_theme.dart';
-import 'package:citizen_system/amount_format.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/administrators/admin_account.dart';
 import 'package:citizen_citizen/administrators/institution_admin_service.dart';
@@ -146,10 +144,7 @@ class _MultisigTransferDetailPageState
     super.didChangeDependencies();
     if (_dependenciesReady) return;
     final sdk = context.read<CitizenSdk>();
-    _proposalService = MultisigTransferService(
-      chain: sdk,
-      transactions: sdk,
-    );
+    _proposalService = MultisigTransferService(chain: sdk, transactions: sdk);
     _adminService = InstitutionAdminService(chain: sdk);
     _dependenciesReady = true;
     _load();
@@ -372,7 +367,9 @@ class _MultisigTransferDetailPageState
       return {
         'kind': 'transfer',
         'actor_cid_number': detail.actorCidNumber,
-        'institution_account_id': _accountIdText(detail.institutionAccountId),
+        'institution_account_id': citizenAccountIdFromBytes(
+          detail.institutionAccountId,
+        ),
         'beneficiary': detail.beneficiary,
         'amount_fen': detail.amountFen.toString(),
         'remark': detail.remark,
@@ -384,7 +381,9 @@ class _MultisigTransferDetailPageState
       return {
         'kind': 'safety_fund',
         'actor_cid_number': detail.actorCidNumber,
-        'institution_account_id': _accountIdText(detail.institutionAccountId),
+        'institution_account_id': citizenAccountIdFromBytes(
+          detail.institutionAccountId,
+        ),
         'beneficiary': detail.beneficiary,
         'amount_fen': detail.amountFen.toString(),
         'remark': detail.remark,
@@ -396,7 +395,9 @@ class _MultisigTransferDetailPageState
       return {
         'kind': 'sweep',
         'actor_cid_number': detail.actorCidNumber,
-        'institution_account_id': _accountIdText(detail.institutionAccountId),
+        'institution_account_id': citizenAccountIdFromBytes(
+          detail.institutionAccountId,
+        ),
         'amount_fen': detail.amountFen.toString(),
         'proposer': detail.proposer,
         'status': detail.status,
@@ -416,7 +417,7 @@ class _MultisigTransferDetailPageState
       return TransferProposalInfo(
         proposalId: snapshot.proposalId,
         actorCidNumber: actorCidNumber,
-        institutionAccountId: _accountIdBytes(institutionAccountId),
+        institutionAccountId: citizenAccountIdBytes(institutionAccountId),
         beneficiary: detail['beneficiary']?.toString() ?? '',
         amountFen: amountFen,
         remark: detail['remark']?.toString() ?? '',
@@ -436,7 +437,7 @@ class _MultisigTransferDetailPageState
       return SafetyFundProposalInfo(
         proposalId: snapshot.proposalId,
         actorCidNumber: actorCidNumber,
-        institutionAccountId: _accountIdBytes(institutionAccountId),
+        institutionAccountId: citizenAccountIdBytes(institutionAccountId),
         beneficiary: detail['beneficiary']?.toString() ?? '',
         amountFen: amountFen,
         remark: detail['remark']?.toString() ?? '',
@@ -459,7 +460,7 @@ class _MultisigTransferDetailPageState
       return SweepProposalInfo(
         proposalId: snapshot.proposalId,
         actorCidNumber: actorCidNumber,
-        institutionAccountId: _accountIdBytes(institutionAccountId),
+        institutionAccountId: citizenAccountIdBytes(institutionAccountId),
         amountFen: amountFen,
         proposer: proposer,
         status: snapshot.status,
@@ -470,47 +471,13 @@ class _MultisigTransferDetailPageState
 
   // ──── SS58 编码工具 ────
 
-  String _toHex(List<int> bytes) {
-    const chars = '0123456789abcdef';
-    final buf = StringBuffer();
-    for (final b in bytes) {
-      buf
-        ..write(chars[(b >> 4) & 0x0f])
-        ..write(chars[b & 0x0f]);
-    }
-    return buf.toString();
-  }
-
-  String _accountIdText(List<int> bytes) {
-    if (bytes.length != 32) {
-      throw const FormatException('institution_account_id 必须为 32 字节');
-    }
-    return '0x${_toHex(bytes)}';
-  }
-
-  Uint8List _accountIdBytes(String accountId) {
-    if (!isAccountIdText(accountId)) {
-      throw const FormatException('institution_account_id 必须为小写 0x + 64 位十六进制');
-    }
-    return _hexDecode(accountId);
-  }
-
-  Uint8List _hexDecode(String hex) {
-    final h = hex.startsWith('0x') ? hex.substring(2) : hex;
-    final result = Uint8List(h.length ~/ 2);
-    for (var i = 0; i < result.length; i++) {
-      result[i] = int.parse(h.substring(i * 2, i * 2 + 2), radix: 16);
-    }
-    return result;
-  }
-
   String _truncateAddress(String address) {
     if (address.length <= 14) return address;
     return '${address.substring(0, 6)}...${address.substring(address.length - 6)}';
   }
 
   String _requireAccountId(String accountId) {
-    if (!isAccountIdText(accountId)) {
+    if (!isCitizenAccountId(accountId)) {
       throw const FormatException('account_id 必须为小写 0x + 64 位十六进制');
     }
     return accountId;
@@ -567,28 +534,32 @@ class _MultisigTransferDetailPageState
     final wallet = _selectedVoteWallet;
     if (wallet == null) return;
 
-    final balanceBlockedReason =
-        await MultisigTransferBalanceGuard.checkAdminWalletBalance(
-          wallet: wallet,
-          requiredFeeYuan: MultisigTransferBalanceGuard.voteFeeYuan,
-          actionLabel: '提交多签转账投票',
-          chain: context.read<CitizenSdk>(),
-        );
-    if (balanceBlockedReason != null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(balanceBlockedReason),
-          backgroundColor: AppTheme.danger,
-        ),
-      );
-      return;
-    }
-
+    if (_submitting) return;
     setState(() => _submitting = true);
 
     try {
-      final signerPublicKeyBytes = _hexDecode(wallet.accountId);
+      final sdk = context.read<CitizenSdk>();
+      final fees = await sdk.getFeeSnapshot();
+      final balanceBlockedReason =
+          await MultisigTransferBalanceGuard.checkAdminWalletBalance(
+            wallet: wallet,
+            requiredFeeFen: fees.voteFeeFen,
+            edFen: fees.existentialDepositFen,
+            actionLabel: '提交多签转账投票',
+            chain: sdk,
+          );
+      if (balanceBlockedReason != null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(balanceBlockedReason),
+            backgroundColor: AppTheme.danger,
+          ),
+        );
+        return;
+      }
+      if (!mounted) return;
+      final signerPublicKeyBytes = citizenAccountIdBytes(wallet.accountId);
       final accountId = _requireAccountId(wallet.accountId);
       final availableTickets = _voterTickets
           .where(
@@ -606,12 +577,8 @@ class _MultisigTransferDetailPageState
 
       // 机构岗位快照选民和个人多签管理员都统一走 InternalVote::cast(20.0)。
       // 业务 kind 仅用于 QR 展示的文案与 storage 读取。
-      final sdk = context.read<CitizenSdk>();
-      final result =
-          await InternalVoteService(
-            chain: sdk,
-            transactions: sdk,
-          ).submit(
+      final result = await InternalVoteService(chain: sdk, transactions: sdk)
+          .submit(
             proposalId: widget.proposalId,
             approve: approve,
             actorCidNumber: ticket.cidNumber,
@@ -904,12 +871,7 @@ class _MultisigTransferDetailPageState
     if (info != null) {
       rows
         ..add(Divider(height: AppLayout.scaledValue(20)))
-        ..add(
-          _buildInfoRow(
-            '转账金额',
-            '${AmountFormat.format(info.amountYuan, symbol: '')} 元',
-          ),
-        )
+        ..add(_buildInfoRow('转账金额', '${formatFen(info.amountFen)} 元'))
         ..add(Divider(height: AppLayout.scaledValue(20)))
         ..add(
           _buildInfoRow(
@@ -932,12 +894,7 @@ class _MultisigTransferDetailPageState
     if (info != null) {
       rows
         ..add(Divider(height: AppLayout.scaledValue(20)))
-        ..add(
-          _buildInfoRow(
-            '转账金额',
-            '${AmountFormat.format(info.amountYuan, symbol: '')} 元',
-          ),
-        )
+        ..add(_buildInfoRow('转账金额', '${formatFen(info.amountFen)} 元'))
         ..add(Divider(height: AppLayout.scaledValue(20)))
         ..add(
           _buildInfoRow(
@@ -960,12 +917,7 @@ class _MultisigTransferDetailPageState
     if (info != null) {
       rows
         ..add(Divider(height: AppLayout.scaledValue(20)))
-        ..add(
-          _buildInfoRow(
-            '划转金额',
-            '${AmountFormat.format(info.amountYuan, symbol: '')} 元',
-          ),
-        )
+        ..add(_buildInfoRow('划转金额', '${formatFen(info.amountFen)} 元'))
         ..add(Divider(height: AppLayout.scaledValue(20)))
         ..add(_buildInfoRow('划转路径', '手续费账户 → 机构主账户'));
     }

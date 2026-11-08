@@ -1,9 +1,10 @@
 import 'dart:async';
 
-import 'package:provider/provider.dart';
+import 'package:citizen_offchain/clearing_bank_directory.dart';
+import 'package:citizen_offchain/offchain_clearing_rpc.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizen_wallet/core/account_balance_snapshot_store.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import 'package:citizen_offchain/deposit_page.dart';
 import 'package:citizen_offchain/withdraw_page.dart';
@@ -21,45 +22,38 @@ class PettyWalletPage extends StatefulWidget {
   const PettyWalletPage({
     super.key,
     required this.accountId,
-    required this.accountAddress,
-    required this.wssUrl,
-    required this.displayTitle,
   });
 
   /// 该账户链账户主键(0x+64hex)。
   final String accountId;
-
-  /// 该账户 SS58 地址,用于查询零钱包余额。
-  final String accountAddress;
-  final String wssUrl;
-  final String displayTitle;
 
   @override
   State<PettyWalletPage> createState() => _PettyWalletPageState();
 }
 
 class _PettyWalletPageState extends State<PettyWalletPage> {
-  late WalletBalanceState<BigInt> _balance;
+  late final ClearingBankDirectory _directory;
+  ClearingBankBinding? _binding;
+  ClearingBalance? _balance;
+  bool _loading = true;
+  bool _failed = false;
+  bool _opening = false;
+  int _bindingRead = 0;
 
   String get _balanceText {
-    final value = _balance.value;
-    if (value != null) {
-      return '¥${AccountBalanceSnapshotStore.formatFen(value)}';
-    }
-    return _balance.hasError ? '节点不可达' : '查询中';
+    if (_loading) return '查询中';
+    if (_failed) return '绑定待核对';
+    if (_binding == null) return '未绑定';
+    final value = _balance?.value;
+    if (value != null) return '¥${formatFen(value)}';
+    return _balance?.hasError == true ? '节点不可达' : '查询中';
   }
 
   @override
   void initState() {
     super.initState();
-    _balance =
-        AccountBalanceSnapshotStore.forChain(context.read<CitizenSdk>())
-            .clearingState(
-              accountId: widget.accountId,
-              accountAddress: widget.accountAddress,
-              wssUrl: widget.wssUrl,
-            )
-          ..addListener(_changed);
+    _directory = context.read<ClearingBankDirectory?>() ??
+        ClearingBankDirectory(chain: context.read<CitizenSdk>());
     unawaited(_loadBalance());
   }
 
@@ -68,14 +62,49 @@ class _PettyWalletPageState extends State<PettyWalletPage> {
   }
 
   @override
+  void didUpdateWidget(covariant PettyWalletPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.accountId != widget.accountId) {
+      _binding = null;
+      unawaited(_loadBalance());
+    }
+  }
+
+  @override
   void dispose() {
-    _balance.removeListener(_changed);
+    _balance?.removeListener(_changed);
     super.dispose();
   }
 
-  // 返回和下拉只通知 wallet 唯一状态，不另存零钱包金额。
-  Future<void> _loadBalance({bool forceRefresh = false}) =>
-      _balance.load(forceRefresh: forceRefresh);
+  // 下拉和返回都重新核对节点，再刷新当前清算行的余额。
+  Future<void> _loadBalance({bool forceRefresh = false}) async {
+    final accountId = widget.accountId;
+    final read = ++_bindingRead;
+    setState(() => _loading = true);
+    ClearingBankBinding? bank;
+    var failed = false;
+    try {
+      bank = await _directory.fetchUserBank(accountId);
+    } catch (_) {
+      failed = true;
+    }
+    if (!mounted || read != _bindingRead) return;
+    _balance?.removeListener(_changed);
+    final balance = bank == null
+        ? null
+        : ClearingBalances.instance.state(
+            accountId: accountId,
+            wssUrl: bank.endpoint.wssUrl,
+          );
+    balance?.addListener(_changed);
+    setState(() {
+      _binding = bank;
+      _balance = balance;
+      _loading = false;
+      _failed = failed;
+    });
+    await balance?.load(forceRefresh: forceRefresh);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -94,7 +123,7 @@ class _PettyWalletPageState extends State<PettyWalletPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    widget.displayTitle,
+                    _binding?.title ?? '清算行',
                     style: TextStyle(
                       fontSize: AppLayout.scaled(context, 13),
                       color: AppTheme.textSecondary,
@@ -125,14 +154,14 @@ class _PettyWalletPageState extends State<PettyWalletPage> {
               icon: Icons.arrow_circle_down_outlined,
               title: '充值到清算行',
               subtitle: '从链上账户转入清算行零钱包',
-              onTap: _openDeposit,
+              onTap: () => _open(withdraw: false),
             ),
             SizedBox(height: AppLayout.scaled(context, 12)),
             _ActionTile(
               icon: Icons.arrow_circle_up_outlined,
               title: '提现到链上',
               subtitle: '从零钱包提现回链上账户',
-              onTap: _openWithdraw,
+              onTap: () => _open(withdraw: true),
             ),
           ],
         ),
@@ -140,31 +169,47 @@ class _PettyWalletPageState extends State<PettyWalletPage> {
     );
   }
 
-  Future<void> _openDeposit() async {
-    final submitted = await Navigator.push<bool>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => DepositPage(
-          accountId: widget.accountId,
-          accountAddress: widget.accountAddress,
+  Future<void> _open({required bool withdraw}) async {
+    if (_opening) return;
+    _opening = true;
+    final accountId = widget.accountId;
+    try {
+      final reload = _loadBalance();
+      final read = _bindingRead;
+      await reload;
+      if (!mounted || widget.accountId != accountId || read != _bindingRead) {
+        return;
+      }
+      final bank = _binding;
+      if (bank == null || _loading) {
+        final message = _failed || _loading
+            ? '无法核对当前清算行，请重试'
+            : '请先绑定清算行';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message)),
+        );
+        return;
+      }
+      final submitted = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => withdraw
+              ? WithdrawPage(
+                  accountId: accountId,
+                  directory: _directory,
+                  bank: bank,
+                )
+              : DepositPage(
+                  accountId: accountId,
+                  directory: _directory,
+                  bank: bank,
+                ),
         ),
-      ),
-    );
-    await _loadBalance(forceRefresh: submitted == true);
-  }
-
-  Future<void> _openWithdraw() async {
-    final submitted = await Navigator.push<bool>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => WithdrawPage(
-          accountId: widget.accountId,
-          accountAddress: widget.accountAddress,
-          wssUrl: widget.wssUrl,
-        ),
-      ),
-    );
-    await _loadBalance(forceRefresh: submitted == true);
+      );
+      if (mounted) await _loadBalance(forceRefresh: submitted == true);
+    } finally {
+      _opening = false;
+    }
   }
 }
 

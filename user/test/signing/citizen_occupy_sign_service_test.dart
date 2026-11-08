@@ -88,7 +88,7 @@ List<int> _rebindTemplate({int revision = 7, int expiresAt = _expiresAt}) => [
 ];
 
 /// 合成授权模板交由真实SDK编码；测试不持有App协议实现。
-Future<String> _domainRaw(
+Future<CitizenQrDocument> _request(
   CitizenSdk qr, {
   int? action,
   List<int>? payload,
@@ -100,14 +100,18 @@ Future<String> _domainRaw(
       (actualAction == CitizenQrActions.citizenOccupy
           ? _occupyTemplate()
           : _rebindTemplate());
-  return (await qr.encodeDocument(
+  final encoded = await qr.encodeDocument(
     CitizenQrContent.signRequest(
       requestId: 'citizen-occupy-req-000001',
       expiresAt: BigInt.from(outerExpiresAt),
       action: actualAction,
       reviewPayload: Uint8List.fromList(authorization),
     ),
-  )).canonicalText;
+  );
+  return (await qr.parseForPurpose(
+    encoded.canonicalText,
+    CitizenQrScanPurpose.signingRequest,
+  )).document;
 }
 
 void main() {
@@ -126,7 +130,7 @@ void main() {
 
   test('prepare 严格解出占号完整授权模板并展示全部防重放字段', () async {
     final prep = await service.prepare(
-      await _domainRaw(encoding.sdk),
+      await _request(encoding.sdk),
       _account(),
     );
     expect(prep.cidNumber, _cid);
@@ -140,7 +144,7 @@ void main() {
 
   test('prepare 严格解出换绑当前账户、非零 revision 与 expires', () async {
     final prep = await service.prepare(
-      await _domainRaw(encoding.sdk, action: CitizenQrActions.citizenRebind),
+      await _request(encoding.sdk, action: CitizenQrActions.citizenRebind),
       _account(),
     );
     expect(prep.isOccupy, isFalse);
@@ -152,7 +156,7 @@ void main() {
   });
 
   test('非占号/换绑动作即拒', () async {
-    final raw = (await encoding.sdk.encodeDocument(
+    final encoded = await encoding.sdk.encodeDocument(
       CitizenQrContent.signRequest(
         requestId: 'citizen-identity-req-0001',
         signerAccountId: '0x${'11' * 32}',
@@ -160,9 +164,13 @@ void main() {
         action: CitizenQrActions.citizenIdentity,
         expiresAt: BigInt.from(_expiresAt),
       ),
-    )).canonicalText;
+    );
+    final request = (await encoding.sdk.parseForPurpose(
+      encoded.canonicalText,
+      CitizenQrScanPurpose.signingRequest,
+    )).document;
     await expectLater(
-      service.prepare(raw, _account()),
+      service.prepare(request, _account()),
       throwsA(isA<CitizenOccupySignException>()),
     );
   });
@@ -170,7 +178,7 @@ void main() {
   test('旧 CID-only 载荷即拒，不恢复末尾追加账户协议', () async {
     await expectLater(
       service.prepare(
-        await _domainRaw(
+        await _request(
           encoding.sdk,
           payload: [_cid.length << 2, ..._cid.codeUnits],
         ),
@@ -183,7 +191,7 @@ void main() {
   test('外层 e 与内层 expires_at 不一致即拒', () async {
     await expectLater(
       service.prepare(
-        await _domainRaw(encoding.sdk, outerExpiresAt: _expiresAt + 1),
+        await _request(encoding.sdk, outerExpiresAt: _expiresAt + 1),
         _account(),
       ),
       throwsA(
@@ -208,7 +216,7 @@ void main() {
     for (var index = 0; index < malformed.length; index++) {
       await expectLater(
         service.prepare(
-          await _domainRaw(
+          await _request(
             encoding.sdk,
             action: index == malformed.length - 1
                 ? CitizenQrActions.citizenRebind
@@ -226,7 +234,7 @@ void main() {
   test('换绑选择账户与 current_account_id 相同即拒', () async {
     await expectLater(
       service.prepare(
-        await _domainRaw(encoding.sdk, action: CitizenQrActions.citizenRebind),
+        await _request(encoding.sdk, action: CitizenQrActions.citizenRebind),
         _account(accountByte: 0x55),
       ),
       throwsA(
@@ -242,7 +250,7 @@ void main() {
   test('账户卡锁定的子账户原位填入占号零槽后签名', () async {
     final account = _account(index: 5);
     final signing = _FakeSigning();
-    final prep = await service.prepare(await _domainRaw(encoding.sdk), account);
+    final prep = await service.prepare(await _request(encoding.sdk), account);
     await service.sign(prep, null, null, payloadSigner: (signing).sign);
     expect(prep.account.accountIndex, 5);
     expect(signing.signedAccountId, account.accountId);
@@ -269,7 +277,7 @@ void main() {
     final wallet = _FakeWallet(currentAccount: currentAccount);
     final signing = _FakeSigning();
     final prep = await service.prepare(
-      await _domainRaw(encoding.sdk, action: CitizenQrActions.citizenRebind),
+      await _request(encoding.sdk, action: CitizenQrActions.citizenRebind),
       newAccount,
       null,
       (wallet).getWalletState,
@@ -322,7 +330,7 @@ void main() {
     final wallet = _FakeWallet();
     final signing = _FakeSigning();
     final prep = await service.prepare(
-      await _domainRaw(encoding.sdk, action: CitizenQrActions.citizenRebind),
+      await _request(encoding.sdk, action: CitizenQrActions.citizenRebind),
       _account(accountByte: 0xab),
       null,
       (wallet).getWalletState,

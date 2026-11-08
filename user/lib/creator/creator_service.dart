@@ -18,7 +18,6 @@ import 'package:citizen_user/membership/subscription_service.dart';
 import 'package:citizen_user/identity/finalized_identity_resolver.dart';
 import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_user/membership/subscription_chain.dart';
-import 'package:citizen_network/hex_codec.dart' show hexToBytes;
 import 'package:citizen_storage/user_isar.dart' hide Group;
 
 /// 创作者页展示态：无可用钱包账户会话 / 已开通（含计划与概览）。
@@ -369,7 +368,7 @@ class CreatorService {
         throw const CreatorException('需要当前有效的平台会员才能设置创作者会员档');
       }
       final result = await _subscriptionChain.setCreatorPlans(
-        signerPublicKey: Uint8List.fromList(hexToBytes(identity.accountId)),
+        signerPublicKey: citizenAccountIdBytes(identity.accountId),
         tiers: tiers
             .map(
               (tier) => CreatorTierInput(
@@ -421,7 +420,7 @@ class CreatorService {
     if (index < 0) throw const CreatorException('要改名的会员档不存在');
     try {
       final result = await _subscriptionChain.updateCreatorTierName(
-        signerPublicKey: Uint8List.fromList(hexToBytes(identity.accountId)),
+        signerPublicKey: citizenAccountIdBytes(identity.accountId),
         tierId: tierId,
         tierName: tierName,
         externalSigning: (pending) => _showExternalSigning(context, pending),

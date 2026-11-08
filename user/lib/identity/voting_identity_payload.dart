@@ -12,12 +12,10 @@
 //   本文件
 // 注:链上「已存储」的 CandidateIdentity(含 birth_date)另由
 //   citizenapp/lib/user/identity/myid_service.dart(_decodeCandidateIdentity)解码。
+import 'package:citizen_sdk/citizen_sdk.dart';
+
 import 'dart:convert';
 import 'dart:typed_data';
-
-import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
-
-import 'package:citizen_citizen/account_derivation.dart';
 
 /// CitizenSdk SS58 前缀。
 
@@ -92,7 +90,7 @@ class VotingIdentityConsentPayload {
   /// 0x 小写 hex,32 字节公民钱包公钥。
   final String accountId;
 
-  /// SS58(prefix 走 kGmbSs58Prefix 单源)展示地址。
+  /// SS58(prefix 走 citizenSs58Prefix 单源)展示地址。
   final String accountAddress;
 
   /// YYYYMMDD 整数。
@@ -287,11 +285,8 @@ class VotingIdentityConsentPayload {
       payload: VotingIdentityConsentPayload(
         cidLevel: CitizenIdentityConsentLevel.voting,
         cidNumber: cidNumber,
-        accountId: _bytesToLowerHex(walletBytes),
-        accountAddress: Keyring().encodeAddress(
-          walletBytes.toList(),
-          kGmbSs58Prefix,
-        ),
+        accountId: citizenAccountIdFromBytes(walletBytes),
+        accountAddress: citizenSs58FromAccountIdBytes(walletBytes),
         validFrom: validFrom,
         validUntil: validUntil,
         statusNormal: status == 0,
@@ -326,34 +321,16 @@ class VotingIdentityConsentPayload {
   /// 解码 SCALE `Compact<u32>`,返回 (值, 消耗字节数);big-int 模式不会出现在
   /// 本载荷的长度前缀里,按非法处理。
   static (int, int) _decodeCompactU32(Uint8List bytes, int offset) {
-    if (offset >= bytes.length) return (0, 0);
-    final first = bytes[offset];
-    switch (first & 0x03) {
-      case 0:
-        return (first >> 2, 1);
-      case 1:
-        if (offset + 2 > bytes.length) return (0, 0);
-        return ((first | (bytes[offset + 1] << 8)) >> 2, 2);
-      case 2:
-        if (offset + 4 > bytes.length) return (0, 0);
-        final value =
-            first |
-            (bytes[offset + 1] << 8) |
-            (bytes[offset + 2] << 16) |
-            (bytes[offset + 3] << 24);
-        return (value >> 2, 4);
-      default:
-        return (0, 0);
+    try {
+      final decoded = CitizenScale.readCompact(bytes, offset);
+      return decoded.$2 <= 4 ? decoded : (0, 0);
+    } on FormatException {
+      return (0, 0);
     }
   }
 
-  static int _readU64Le(Uint8List bytes, int offset) {
-    var value = 0;
-    for (var i = 7; i >= 0; i--) {
-      value = (value << 8) | bytes[offset + i];
-    }
-    return value;
-  }
+  static int _readU64Le(Uint8List bytes, int offset) =>
+      CitizenScale.readUnsigned(bytes, offset, 8).toSigned(64).toInt();
 
   /// Unix 秒 → 本地时区 `YYYY-MM-DD HH:mm`。
   static String _formatUnixSeconds(int seconds) {
@@ -368,12 +345,8 @@ class VotingIdentityConsentPayload {
         '${local.minute.toString().padLeft(2, '0')}';
   }
 
-  static int _readU32Le(Uint8List bytes, int offset) {
-    return bytes[offset] |
-        (bytes[offset + 1] << 8) |
-        (bytes[offset + 2] << 16) |
-        (bytes[offset + 3] << 24);
-  }
+  static int _readU32Le(Uint8List bytes, int offset) =>
+      CitizenScale.readUnsigned(bytes, offset, 4).toInt();
 
   static bool _isValidDateInt(int value) {
     final year = value ~/ 10000;

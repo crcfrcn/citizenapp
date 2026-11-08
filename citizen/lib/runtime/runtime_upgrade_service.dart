@@ -1,14 +1,9 @@
 import 'dart:convert';
 
-import 'package:citizen_citizen/pallet_registry.dart';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/foundation.dart';
-import 'package:polkadart/polkadart.dart' show Hasher;
-import 'package:polkadart/scale_codec.dart' show ByteOutput;
-import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 
-import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
 import 'package:citizen_citizen/proposal/proposal_query_service.dart';
 
@@ -19,6 +14,7 @@ class RuntimeUpgradeService {
   RuntimeUpgradeService({
     CitizenSdk? chain,
     CitizenSdk? transactions,
+    CitizenCallBuilder? buildCall,
     Future<CitizenBlockRef> Function()? getFinalizedHead,
     Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
     getStorage,
@@ -44,14 +40,20 @@ class RuntimeUpgradeService {
     Future<Uint8List?> Function(CitizenBlockRef block)? getSystemEvents,
     Future<CitizenRuntimeContext> Function(CitizenBlockRef block)?
     getRuntimeContext,
-  }) : _proposalQuery = ProposalQueryService(
+    Future<CitizenRuntimeContext> Function(CitizenBlockRef)? getStorageRuntimeContext,
+  }) : _buildCall = buildCall ?? transactions?.buildCall ?? chain?.buildCall ??
+           ((pallet, method, fields) => throw StateError('未配置buildCall')),
+       _proposalQuery = ProposalQueryService(
          chain: chain,
          getSystemEvents: getSystemEvents,
          getRuntimeContext: getRuntimeContext,
+         getStorageRuntimeContext: getStorageRuntimeContext,
          getFinalizedHead: getFinalizedHead,
          getStorage: getStorage,
          getStorageBatch: getStorageBatch,
        ),
+       _getStorageRuntimeContext = getStorageRuntimeContext ?? getRuntimeContext ??
+           chain?.getRuntimeContext ?? ((block) => throw StateError('未配置getRuntimeContext')),
        _getFinalizedHead =
            getFinalizedHead ??
            chain?.getFinalizedHead ??
@@ -86,7 +88,9 @@ class RuntimeUpgradeService {
            transactions?.consumePreparedTransactionQrResponse ??
            ((String executionId, String response) =>
                throw StateError('未配置consumePreparedTransactionQrResponse'));
+  final CitizenCallBuilder _buildCall;
   final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<CitizenRuntimeContext> Function(CitizenBlockRef) _getStorageRuntimeContext;
   final Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)
   _getStorage;
   final Future<List<Uint8List?>> Function(
@@ -113,12 +117,6 @@ class RuntimeUpgradeService {
 
   // ──── 常量 ────
 
-  /// JointVote sub-pallet pallet_index=21。
-  static const _jointVotePalletIndex = PalletRegistry.jointVotePallet;
-
-  /// JointVote::cast_admin call_index=0。
-  static const _jointVoteCallIndex = PalletRegistry.jointVoteCastAdminCall;
-
   /// runtime-upgrade 写入 VotingEngine::ProposalData 的业务前缀。
   static const _moduleTag = [0x72, 0x74, 0x2d, 0x75, 0x70, 0x67]; // rt-upg
 
@@ -140,7 +138,7 @@ class RuntimeUpgradeService {
     externalSigning,
   }) async {
     if (signerPublicKey.length != 32) throw ArgumentError('签名公钥必须为32字节');
-    final callData = _buildJointVoteCall(
+    final callData = await _buildJointVoteCall(
       proposalId: proposalId,
       actorCidNumber: actorCidNumber,
       voterRoleCode: voterRoleCode,
@@ -179,12 +177,7 @@ class RuntimeUpgradeService {
   Future<RuntimeUpgradeProposalInfo?> fetchRuntimeUpgradeProposal(
     int proposalId,
   ) async {
-    final key = _buildStorageKey(
-      'VotingEngine',
-      'ProposalData',
-      _u64ToLeBytes(proposalId),
-    );
-    final raw = await _fetchStorage('0x${_hexEncode(key)}');
+    final raw = await _readStorage('VotingEngine', 'ProposalData', [proposalId]);
     if (raw == null || raw.isEmpty) return null;
     return decodeRuntimeUpgradeStorageValue(proposalId, raw);
   }
@@ -213,12 +206,7 @@ class RuntimeUpgradeService {
   ///
   /// Value: VoteCountU32 { yes: u32, no: u32 } = 8 bytes。
   Future<({int yes, int no})> fetchJointTally(int proposalId) async {
-    final key = _buildStorageKey(
-      'JointVote',
-      'JointTallies',
-      _u64ToLeBytes(proposalId),
-    );
-    final data = await _fetchStorage('0x${_hexEncode(key)}');
+    final data = await _readStorage('JointVote', 'JointTallies', [proposalId]);
     if (data == null || data.length != 8) return (yes: 0, no: 0);
     // VoteCountU32: { yes: u32, no: u32 } — 4+4 bytes little-endian
     final yes = _decodeU32(data, 0);
@@ -234,13 +222,7 @@ class RuntimeUpgradeService {
     int proposalId,
     String actorCidNumber,
   ) async {
-    final fullKey = _buildDoubleStorageKey(
-      'JointVote',
-      'JointVotesByInstitution',
-      _u64ToLeBytes(proposalId),
-      _encodeCidNumber(actorCidNumber),
-    );
-    final data = await _fetchStorage('0x${_hexEncode(fullKey)}');
+    final data = await _readStorage('JointVote', 'JointVotesByInstitution', [proposalId, _cidBytes(actorCidNumber)]);
     return _decodeBoolVote(data);
   }
 
@@ -249,13 +231,7 @@ class RuntimeUpgradeService {
     int proposalId,
     String actorCidNumber,
   ) async {
-    final fullKey = _buildDoubleStorageKey(
-      'JointVote',
-      'JointInstitutionTallies',
-      _u64ToLeBytes(proposalId),
-      _encodeCidNumber(actorCidNumber),
-    );
-    final data = await _fetchStorage('0x${_hexEncode(fullKey)}');
+    final data = await _readStorage('JointVote', 'JointInstitutionTallies', [proposalId, _cidBytes(actorCidNumber)]);
     if (data == null || data.length != 8) return (yes: 0, no: 0);
     return (yes: _decodeU32(data, 0), no: _decodeU32(data, 4));
   }
@@ -268,14 +244,16 @@ class RuntimeUpgradeService {
     String publicKey, {
     CitizenBlockRef? block,
   }) async {
+    final runtime = await _finalizedRuntime(block);
     final key = _jointTicketVoteKey(
+      runtime,
       proposalId,
       actorCidNumber,
       voterRoleCode,
       publicKey,
     );
     if (key == null) return null;
-    final data = await _fetchStorage(key, block: block);
+    final data = await _getStorage(runtime.block, key);
     return _decodeBoolVote(data);
   }
 
@@ -289,20 +267,23 @@ class RuntimeUpgradeService {
     String voterRoleCode,
     Iterable<String> accountIds,
   ) async {
+    if (accountIds.isEmpty) return const {};
+    final runtime = await _finalizedRuntime();
     final keyByAccountId = <String, String>{};
     for (final accountId in accountIds) {
       final normalizedAccountId = _requireAccountId(accountId);
       final key = _jointTicketVoteKey(
+        runtime,
         proposalId,
         actorCidNumber,
         voterRoleCode,
         normalizedAccountId,
       );
       if (key == null) continue;
-      keyByAccountId[normalizedAccountId] = key;
+      keyByAccountId[normalizedAccountId] = _hexEncode(key);
     }
     if (keyByAccountId.isEmpty) return const {};
-    final values = await _fetchStorageBatchChunked(keyByAccountId.values);
+    final values = await _fetchStorageBatchChunked(runtime.block, keyByAccountId.values);
     return {
       for (final entry in keyByAccountId.entries)
         entry.key: _decodeBoolVote(values[entry.value]),
@@ -321,22 +302,25 @@ class RuntimeUpgradeService {
     >
     byProposal,
   ) async {
+    if (byProposal.values.every((item) => item.accountIds.isEmpty)) return const {};
+    final runtime = await _finalizedRuntime();
     final keyToCoord = <String, ({int pid, String accountId})>{};
     for (final entry in byProposal.entries) {
       for (final accountId in entry.value.accountIds) {
         final normalizedAccountId = _requireAccountId(accountId);
         final key = _jointTicketVoteKey(
+          runtime,
           entry.key,
           entry.value.actorCidNumber,
           entry.value.voterRoleCode,
           normalizedAccountId,
         );
         if (key == null) continue;
-        keyToCoord[key] = (pid: entry.key, accountId: normalizedAccountId);
+        keyToCoord[_hexEncode(key)] = (pid: entry.key, accountId: normalizedAccountId);
       }
     }
     if (keyToCoord.isEmpty) return const {};
-    final values = await _fetchStorageBatchChunked(keyToCoord.keys);
+    final values = await _fetchStorageBatchChunked(runtime.block, keyToCoord.keys);
     final result = <int, Map<String, bool?>>{};
     keyToCoord.forEach((key, coord) {
       (result[coord.pid] ??= <String, bool?>{})[coord.accountId] =
@@ -345,32 +329,22 @@ class RuntimeUpgradeService {
     return result;
   }
 
-  String? _jointTicketVoteKey(
+  Uint8List? _jointTicketVoteKey(
+    CitizenRuntimeContext runtime,
     int proposalId,
     String actorCidNumber,
     String voterRoleCode,
     String accountId,
   ) {
-    final accountBytes = Uint8List.fromList(
-      _hexDecode(_requireAccountId(accountId)),
-    );
-    if (accountBytes.length != 32) {
-      return null;
-    }
-    final cidBytes = _encodeCidNumber(actorCidNumber);
-    final roleBytes = _encodeRoleCode(voterRoleCode);
-    final compositeKey =
-        Uint8List(cidBytes.length + roleBytes.length + accountBytes.length)
-          ..setAll(0, cidBytes)
-          ..setAll(cidBytes.length, roleBytes)
-          ..setAll(cidBytes.length + roleBytes.length, accountBytes);
-    final fullKey = _buildDoubleStorageKey(
-      'JointVote',
-      'JointVotesByTicket',
-      _u64ToLeBytes(proposalId),
-      compositeKey,
-    );
-    return '0x${_hexEncode(fullKey)}';
+    final account = citizenAccountIdBytes(accountId);
+    if (account.length != 32) return null;
+    return runtime.storageKey('JointVote', 'JointVotesByTicket', [
+      proposalId,
+      [
+        [_cidBytes(actorCidNumber), _roleBytes(voterRoleCode)],
+        account,
+      ],
+    ]);
   }
 
   bool? _decodeBoolVote(Uint8List? data) {
@@ -385,12 +359,7 @@ class RuntimeUpgradeService {
   ///
   /// Value: VoteCountU64 { yes: u64, no: u64 } = 16 bytes。
   Future<({int yes, int no})> fetchReferendumTally(int proposalId) async {
-    final key = _buildStorageKey(
-      'JointVote',
-      'ReferendumTallies',
-      _u64ToLeBytes(proposalId),
-    );
-    final data = await _fetchStorage('0x${_hexEncode(key)}');
+    final data = await _readStorage('JointVote', 'ReferendumTallies', [proposalId]);
     if (data == null || data.length != 16) return (yes: 0, no: 0);
     // VoteCountU64: { yes: u64, no: u64 } — 8+8 bytes little-endian
     final yes = _decodeU64(data.sublist(0, 8));
@@ -461,10 +430,7 @@ class RuntimeUpgradeService {
       // 协议升级摘要不保存业务状态，避免与投票引擎终态脱节。
       if (offset != data.length) return null;
 
-      final proposerSs58 = Keyring().encodeAddress(
-        Uint8List.fromList(proposerBytes),
-        kGmbSs58Prefix,
-      );
+      final proposerSs58 = citizenSs58FromAccountIdBytes(proposerBytes);
       final codeHashHex = _hexEncode(Uint8List.fromList(codeHashBytes));
 
       return RuntimeUpgradeProposalInfo(
@@ -498,21 +464,19 @@ class RuntimeUpgradeService {
 
   // ──── 内部：extrinsic 编码 ────
 
-  Uint8List _buildJointVoteCall({
+  Future<Uint8List> _buildJointVoteCall({
     required int proposalId,
     required String actorCidNumber,
     required String voterRoleCode,
     required bool approve,
   }) {
-    final output = ByteOutput();
-    output.pushByte(_jointVotePalletIndex);
-    output.pushByte(_jointVoteCallIndex);
-    output.write(_u64ToLeBytes(proposalId));
-    output.write(_encodeCidNumber(actorCidNumber));
-    output.write(_encodeRoleCode(voterRoleCode));
-    output.pushByte(approve ? 1 : 0);
-
-    return output.toBytes();
+    if (proposalId < 0) throw ArgumentError('proposal_id不得为负');
+    return _buildCall('JointVote', 'cast_admin', [
+      proposalId,
+      _cidBytes(actorCidNumber),
+      _roleBytes(voterRoleCode),
+      approve,
+    ]);
   }
 
   /// 签名、提交并等待交易最终执行成功。
@@ -529,26 +493,13 @@ class RuntimeUpgradeService {
   }) async {
     final prepared = await _prepareTransaction(signerPublicKey, callData);
     final started = await _executePreparedTransaction(prepared.preparationId);
-    CitizenTransactionExecutionCompleted completed;
-    if (started is CitizenTransactionExternalSigningPending) {
-      final String? response;
-      try {
-        response = await externalSigning(started);
-      } catch (_) {
-        await _cancelPreparedTransactionExecution(started.executionId);
-        rethrow;
-      }
-      if (response == null) {
-        await _cancelPreparedTransactionExecution(started.executionId);
-        throw StateError('联合投票签名已取消');
-      }
-      completed = await _consumePreparedTransactionQrResponse(
-        started.executionId,
-        response,
-      );
-    } else {
-      completed = started as CitizenTransactionExecutionCompleted;
-    }
+    final completed = await completeCitizenTransaction(
+      started,
+      requestResponse: externalSigning,
+      consumeResponse: _consumePreparedTransactionQrResponse,
+      cancelExecution: _cancelPreparedTransactionExecution,
+    );
+    if (completed == null) throw StateError('联合投票签名已取消');
     if (completed.resolution != CitizenTransactionResolution.finalizedSuccess ||
         completed.execution == null ||
         completed.execution!.status != CitizenExecutionStatus.success ||
@@ -575,47 +526,42 @@ class RuntimeUpgradeService {
     final matches = events
         .where(
           (event) =>
-              event.index == execution.extrinsicIndex &&
               event.pallet == 'JointVote' &&
               event.name == 'JointInstitutionTicketVoteCast',
         )
         .toList();
     if (matches.length != 1) throw StateError('执行块缺少唯一的本次联合投票事件');
-    final fields = matches.single.fields;
-    if (fields is! Map ||
-        fields['proposal_id'].toString() != '$proposalId' ||
+    final event = matches.single;
+    final fields = event.fields as Map<String, Object?>;
+    if (event.fieldUnsigned('proposal_id') != BigInt.from(proposalId) ||
         fields['approve'] != approve ||
-        fields['who'] is! List ||
-        _hexEncode(Uint8List.fromList((fields['who'] as List).cast<int>())) !=
-            _hexEncode(signerPublicKey) ||
-        fields['cid_number'] is! List ||
-        utf8.decode((fields['cid_number'] as List).cast<int>()) !=
-            actorCidNumber ||
-        fields['voter_role_code'] is! List ||
-        utf8.decode((fields['voter_role_code'] as List).cast<int>()) !=
-            voterRoleCode) {
+        _hexEncode(event.fieldBytes('who')) != _hexEncode(signerPublicKey) ||
+        utf8.decode(event.fieldBytes('cid_number')) != actorCidNumber ||
+        utf8.decode(event.fieldBytes('voter_role_code')) != voterRoleCode) {
       throw StateError('联合投票事件与本次提案、机构、签署人、岗位或方向不一致');
     }
   }
 
-  Future<Uint8List?> _fetchStorage(
-    String keyHex, {
-    CitizenBlockRef? block,
-  }) async {
+  Future<CitizenRuntimeContext> _finalizedRuntime([CitizenBlockRef? block]) async {
     final finalized = block ?? await _getFinalizedHead();
     if (finalized.finality != CitizenBlockFinality.finalized) {
       throw StateError('联合投票查询需要finalized块');
     }
-    return _getStorage(finalized, Uint8List.fromList(_hexDecode(keyHex)));
+    return _getStorageRuntimeContext(finalized);
+  }
+
+  Future<Uint8List?> _readStorage(String pallet, String storage, List<Object> keys) async {
+    final runtime = await _finalizedRuntime();
+    return _getStorage(runtime.block, runtime.storageKey(pallet, storage, keys));
   }
 
   Future<Map<String, Uint8List?>> _fetchStorageBatchChunked(
+    CitizenBlockRef finalized,
     Iterable<String> keyHexes, {
     int chunkSize = 100,
   }) async {
     final keys = keyHexes.toSet().toList(growable: false);
     if (keys.isEmpty) return const <String, Uint8List?>{};
-    final finalized = await _getFinalizedHead();
     final result = <String, Uint8List?>{};
     for (var offset = 0; offset < keys.length; offset += chunkSize) {
       final end = (offset + chunkSize).clamp(0, keys.length);
@@ -633,79 +579,10 @@ class RuntimeUpgradeService {
     return result;
   }
 
-  // ──── 内部：storage key 构造 ────
+  int _decodeU64(Uint8List data) => CitizenScale.readUnsigned(data, 0, 8).toInt();
 
-  /// 构造 storage key：twox128(pallet) + twox128(storage) + blake2_128_concat(keyData)。
-  Uint8List _buildStorageKey(
-    String palletName,
-    String storageName,
-    Uint8List keyData,
-  ) {
-    final palletHash = _twoxx128String(palletName);
-    final storageHash = _twoxx128String(storageName);
-    final keyHash = _blake2128Concat(keyData);
-
-    final result = Uint8List(
-      palletHash.length + storageHash.length + keyHash.length,
-    );
-    var offset = 0;
-    result.setAll(offset, palletHash);
-    offset += palletHash.length;
-    result.setAll(offset, storageHash);
-    offset += storageHash.length;
-    result.setAll(offset, keyHash);
-    return result;
-  }
-
-  /// 构造双 map storage key：twox128(pallet) + twox128(storage)
-  /// + blake2_128_concat(key1) + blake2_128_concat(key2)。
-  Uint8List _buildDoubleStorageKey(
-    String palletName,
-    String storageName,
-    Uint8List key1Data,
-    Uint8List key2Data,
-  ) {
-    final palletHash = _twoxx128String(palletName);
-    final storageHash = _twoxx128String(storageName);
-    final key1Hash = _blake2128Concat(key1Data);
-    final key2Hash = _blake2128Concat(key2Data);
-
-    final result = Uint8List(
-      palletHash.length +
-          storageHash.length +
-          key1Hash.length +
-          key2Hash.length,
-    );
-    var offset = 0;
-    result.setAll(offset, palletHash);
-    offset += palletHash.length;
-    result.setAll(offset, storageHash);
-    offset += storageHash.length;
-    result.setAll(offset, key1Hash);
-    offset += key1Hash.length;
-    result.setAll(offset, key2Hash);
-    return result;
-  }
-
-  // ──── 内部：编码工具 ────
-
-  static Uint8List _u64ToLeBytes(int value) {
-    if (value < 0) throw ArgumentError('proposal_id不得为负');
-    final bytes = Uint8List(8);
-    final bd = ByteData.sublistView(bytes);
-    bd.setUint64(0, value, Endian.little);
-    return bytes;
-  }
-
-  int _decodeU64(Uint8List data) {
-    final bd = ByteData.sublistView(data);
-    return bd.getUint64(0, Endian.little);
-  }
-
-  int _decodeU32(Uint8List data, int offset) {
-    final bd = ByteData.sublistView(data);
-    return bd.getUint32(offset, Endian.little);
-  }
+  int _decodeU32(Uint8List data, int offset) =>
+      CitizenScale.readUnsigned(data, offset, 4).toInt();
 
   (String, int) _decodeCidNumber(Uint8List data, int offset) {
     final (length, lengthSize) = _decodeCompact(data, offset);
@@ -717,53 +594,24 @@ class RuntimeUpgradeService {
     return (utf8.decode(data.sublist(start, end), allowMalformed: false), end);
   }
 
-  Uint8List _encodeCidNumber(String cidNumber) {
+  Uint8List _cidBytes(String cidNumber) {
     final cidBytes = utf8.encode(cidNumber.trim());
     if (cidBytes.isEmpty || cidBytes.length > 32) {
       throw ArgumentError('机构 CID 的 UTF-8 长度必须为 1..32 字节');
     }
-    return Uint8List.fromList([(cidBytes.length << 2), ...cidBytes]);
+    return Uint8List.fromList(cidBytes);
   }
 
-  Uint8List _encodeRoleCode(String voterRoleCode) {
+  Uint8List _roleBytes(String voterRoleCode) {
     final roleBytes = utf8.encode(voterRoleCode.trim());
     if (roleBytes.isEmpty || roleBytes.length > 64) {
       throw ArgumentError('岗位码的 UTF-8 长度必须为 1..64 字节');
     }
-    final length = roleBytes.length;
-    final prefix = length < 64
-        ? <int>[length << 2]
-        : <int>[(length << 2 | 1) & 0xff, (length << 2 | 1) >> 8];
-    return Uint8List.fromList([...prefix, ...roleBytes]);
+    return Uint8List.fromList(roleBytes);
   }
 
-  /// 解码 SCALE `Compact<u32>`，返回 (value, bytesConsumed)。
-  (int, int) _decodeCompact(Uint8List data, int offset) {
-    final first = data[offset];
-    final mode = first & 0x03;
-    if (mode == 0) {
-      return (first >> 2, 1);
-    } else if (mode == 1) {
-      final val = (data[offset] | (data[offset + 1] << 8)) >> 2;
-      return (val, 2);
-    } else if (mode == 2) {
-      final val =
-          (data[offset] |
-              (data[offset + 1] << 8) |
-              (data[offset + 2] << 16) |
-              (data[offset + 3] << 24)) >>
-          2;
-      return (val, 4);
-    } else {
-      // big integer mode — 简单处理，假设不超过 256
-      final lenBytes = (first >> 2) + 4;
-      var val = 0;
-      for (var i = lenBytes - 1; i >= 0; i--) {
-        val = (val << 8) | data[offset + 1 + i];
-      }
-      return (val, 1 + lenBytes);
-    }
-  }
+  (int, int) _decodeCompact(Uint8List data, int offset) =>
+      CitizenScale.readCompact(data, offset);
 
   static String _hexEncode(Uint8List bytes) {
     return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
@@ -784,23 +632,9 @@ class RuntimeUpgradeService {
   }
 
   static String _requireAccountId(String accountId) {
-    if (!isAccountIdText(accountId)) {
+    if (!isCitizenAccountId(accountId)) {
       throw const FormatException('account_id 必须为小写 0x + 64 位十六进制');
     }
     return accountId;
-  }
-
-  // ──── 内部：哈希（直接使用 polkadart Hasher）────
-
-  Uint8List _twoxx128String(String input) {
-    return Hasher.twoxx128.hashString(input);
-  }
-
-  Uint8List _blake2128Concat(Uint8List data) {
-    final hash = Hasher.blake2b128.hash(data);
-    final result = Uint8List(hash.length + data.length);
-    result.setAll(0, hash);
-    result.setAll(hash.length, data);
-    return result;
   }
 }

@@ -70,7 +70,7 @@ class OnchainPaymentDraft {
   const OnchainPaymentDraft({
     required this.sourceAccountId,
     required this.toAddress,
-    required this.amount,
+    required this.amountFen,
     required this.symbol,
     required this.remark,
     this.recipient,
@@ -78,7 +78,7 @@ class OnchainPaymentDraft {
 
   final String sourceAccountId;
   final String toAddress;
-  final double amount;
+  final BigInt amountFen;
   final String symbol;
   final String remark;
   final OnchainRecipient? recipient;

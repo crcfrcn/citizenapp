@@ -21,13 +21,7 @@ final class WalletNavigation {
     required String token,
   })
   topup;
-  final Widget Function({
-    required String accountId,
-    required String accountAddress,
-    required String wssUrl,
-    required String displayTitle,
-  })
-  pettyWallet;
+  final Widget Function({required String accountId}) pettyWallet;
   final Widget Function() identity;
   final Widget Function({required wallet_store.Entry record}) recordDetail;
 }

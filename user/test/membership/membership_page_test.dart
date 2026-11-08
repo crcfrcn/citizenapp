@@ -832,6 +832,25 @@ void main() {
     expect(api.calls, 1);
   });
 
+  test('只对仍超额的失效会员展示服务端清理期限', () {
+    final snapshot = jsonDecode(_membershipJson) as Map<String, dynamic>;
+    snapshot['membergate_active'] = false;
+    snapshot['usage']['used_bytes'] = 2;
+    snapshot['storage_cleanup_notice'] = {
+      'notified_at': 1000000,
+      'cleanup_after': 87400000,
+      'storage_limit_bytes': 1,
+    };
+    expect(SquareApiClient.decodeMembership(snapshot).cleanupAfter, 87400000);
+    snapshot['usage']['used_bytes'] = 1;
+    expect(SquareApiClient.decodeMembership(snapshot).cleanupAfter, isNull);
+    snapshot['storage_cleanup_notice']['cleanup_after'] = 1000000;
+    expect(
+      () => SquareApiClient.decodeMembership(snapshot),
+      throwsA(isA<SquareApiException>()),
+    );
+  });
+
   // 正例只用现行结构，旧结构保留为明确拒绝负例；两条读取入口共用校验。
   final malformedSnapshots = <String, Map<String, dynamic>>{
     '旧字段': {

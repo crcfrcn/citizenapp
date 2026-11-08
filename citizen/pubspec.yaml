@@ -20,18 +20,16 @@ dependencies:
   citizen_system: any
   citizen_multisig: any
   citizen_personal: any
-  citizen_wallet: any
   citizen_widgets: any
   flutter:
     sdk: flutter
   flutter_svg: ^2.3.0
   isar_community: ^3.3.2
-  polkadart: 0.7.3
-  polkadart_keyring: 0.7.1
   provider: ^6.1.5+1
   webview_flutter: ^4.13.0
 
 dev_dependencies:
+  polkadart: 0.7.3
   citizen_testing: any
   flutter_test:
     sdk: flutter

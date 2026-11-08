@@ -5,12 +5,12 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_sdk/test/platform/fixture.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 import 'package:citizen_offchain/offchain_clearing_rpc.dart';
 import 'package:citizen_offchain/offchain_pay_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 import 'package:provider/provider.dart';
 
 class Rpc extends OffchainClearingBankRpc {
@@ -47,6 +47,7 @@ void main() {
   var signFails = false;
   final harness = TestCitizenSdkHarness();
   final directory = ClearingBankDirectory(
+    getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
     getFinalizedHead: () async => CitizenBlockRef(
       hash: '0x${'ab' * 32}',
       number: BigInt.from(50),
@@ -73,7 +74,7 @@ void main() {
   setUp(() {
     signFails = false;
   }); // SDK纯编码仍走真实Core，不在App复制签名或SCALE算法。
-  final address = Keyring().encodeAddress(List.filled(32, 2), 42);
+  final address = citizenSs58FromAccountIdBytes(List.filled(32, 2));
   final wallet = CitizenWalletStateAccount(
     signMode: CitizenWalletSignMode.hot,
     walletIndex: 0,

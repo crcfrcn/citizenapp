@@ -4,6 +4,8 @@
 // - 机构 value 只保存 institution_code + admins，CID 来自 storage key；
 // - 个人多签 value 保持独立账户布局，personal_account_id 来自 storage key。
 
+import 'package:citizen_sdk/citizen_sdk.dart';
+
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -191,7 +193,7 @@ void main() {
         key,
       )!;
       expect(
-        AdminAccountStorageCodec.accountIdText(accountId),
+        citizenAccountIdFromBytes(accountId),
         '0x000102030405060708090a0b0c0d0e0f'
         '101112131415161718191a1b1c1d1e1f',
       );
@@ -206,7 +208,6 @@ void main() {
         AdminAccountStorageCodec.extractPersonalAccountFromKey(Uint8List(20)),
         isNull,
       );
-      expect(AdminAccountStorageCodec.accountIdText(Uint8List(31)), isNull);
     });
   });
 }

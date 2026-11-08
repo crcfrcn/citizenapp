@@ -1,14 +1,14 @@
+import 'package:citizen_offchain/offchain_clearing_rpc.dart';
 import 'package:citizen_wallet/core/navigation.dart';
 
 import 'dart:async';
 
-import 'package:citizen_wallet/core/account_balance_snapshot_store.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 
-import 'package:citizen_offchain/clearing_bank_prefs.dart';
+import 'package:citizen_offchain/clearing_bank_directory.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 
@@ -18,15 +18,11 @@ class WalletActionCard extends StatefulWidget {
   const WalletActionCard({
     super.key,
     required this.accountId,
-    required this.accountAddress,
     this.onTopupPaid,
   });
 
-  /// 该账户链账户主键(0x+64hex):充值目标、清算行绑定缓存键、按账户签名均以它为准。
+  /// 该账户链账户主键(0x+64hex):充值目标、清算行绑定查询、按账户签名均以它为准。
   final String accountId;
-
-  /// 该账户 SS58 地址,用于查询清算行存款余额。
-  final String accountAddress;
 
   /// 到账后由详情页刷新顶部余额和记录，操作区不再保存链上金额显示状态。
   final Future<void> Function()? onTopupPaid;
@@ -36,17 +32,20 @@ class WalletActionCard extends StatefulWidget {
 }
 
 class WalletActionCardState extends State<WalletActionCard> {
-  ClearingBankBindingSnapshot? _binding;
   bool _bindingLoaded = false;
+  bool _bindingFailed = false;
+  bool _pettyOpening = false;
+  int _bindingRead = 0;
   bool _topupOpening = false;
-  WalletBalanceState<BigInt>? _clearing;
+  ClearingBalance? _clearing;
 
   String get _balanceText {
     if (!_bindingLoaded) return '读取中';
-    if (_binding == null) return '未绑定';
+    if (_bindingFailed) return '绑定待核对';
+    if (_clearing == null) return '未绑定';
     final value = _clearing?.value;
     if (value != null) {
-      return '${AccountBalanceSnapshotStore.formatFen(value)} 元';
+      return '${formatFen(value)} 元';
     }
     return _clearing?.hasError == true ? '节点不可达' : '读取中';
   }
@@ -69,11 +68,10 @@ class WalletActionCardState extends State<WalletActionCard> {
   @override
   void didUpdateWidget(covariant WalletActionCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.accountId != widget.accountId ||
-        oldWidget.accountAddress != widget.accountAddress) {
+    if (oldWidget.accountId != widget.accountId) {
       _unbind();
-      _binding = null;
       _bindingLoaded = false;
+      _bindingFailed = false;
       unawaited(refresh(forceRefresh: false));
     }
   }
@@ -84,25 +82,37 @@ class WalletActionCardState extends State<WalletActionCard> {
     super.dispose();
   }
 
+  ClearingBankDirectory _directory() =>
+      context.read<ClearingBankDirectory?>() ??
+      ClearingBankDirectory(chain: context.read<CitizenSdk>());
+
   Future<void> refresh({bool forceRefresh = true}) async {
     final accountId = widget.accountId;
-    final binding = await ClearingBankPrefs.loadSnapshot(accountId);
-    if (!mounted || widget.accountId != accountId) return;
-    _clearing?.removeListener(_changed);
-    _binding = binding;
-    _bindingLoaded = true;
-    _clearing = binding == null
+    final read = ++_bindingRead;
+    ClearingBankBinding? bank;
+    var failed = false;
+    try {
+      bank = await _directory().fetchUserBank(accountId);
+    } catch (_) {
+      failed = true;
+    }
+    if (!mounted || read != _bindingRead || widget.accountId != accountId) {
+      return;
+    }
+    _unbind();
+    final balance = bank == null
         ? null
-        : AccountBalanceSnapshotStore.forChain(
-            context.read<CitizenSdk>(),
-          ).clearingState(
+        : ClearingBalances.instance.state(
             accountId: accountId,
-            accountAddress: widget.accountAddress,
-            wssUrl: binding.wssUrl,
+            wssUrl: bank.endpoint.wssUrl,
           );
-    _clearing?.addListener(_changed);
-    setState(() {});
-    await _clearing?.load(forceRefresh: forceRefresh);
+    _clearing = balance;
+    balance?.addListener(_changed);
+    setState(() {
+      _bindingLoaded = true;
+      _bindingFailed = failed;
+    });
+    await balance?.load(forceRefresh: forceRefresh);
   }
 
   @override
@@ -165,33 +175,40 @@ class WalletActionCardState extends State<WalletActionCard> {
     }
   }
 
-  /// 零钱包 = 进清算行零钱包详情页(余额 + 充值到零钱包 + 提现);需已绑定。
+  /// 打开零钱包前重新核对绑定，详情页再按同一账户读取最新节点。
   Future<void> _openPettyWallet(BuildContext context) async {
-    final binding = _binding;
-    if (binding == null) {
-      _showNeedBinding(context);
-      return;
-    }
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => context.read<WalletNavigation>().pettyWallet(
-          accountId: widget.accountId,
-          accountAddress: widget.accountAddress,
-          wssUrl: binding.wssUrl,
-          displayTitle: binding.displayTitle,
+    if (_pettyOpening) return;
+    _pettyOpening = true;
+    final accountId = widget.accountId;
+    try {
+      final bank = await _directory().fetchUserBank(accountId);
+      if (!context.mounted || widget.accountId != accountId) return;
+      if (bank == null) {
+        _showBindingMessage(context, '请先在“清算行”页面绑定清算行');
+        return;
+      }
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) =>
+              context.read<WalletNavigation>().pettyWallet(accountId: accountId),
         ),
-      ),
-    );
-    await refresh(forceRefresh: false);
+      );
+      if (mounted && widget.accountId == accountId) {
+        await refresh(forceRefresh: false);
+      }
+    } catch (_) {
+      if (context.mounted && widget.accountId == accountId) {
+        _showBindingMessage(context, '无法核对当前清算行，请重试');
+      }
+    } finally {
+      _pettyOpening = false;
+    }
   }
 
-  static void _showNeedBinding(BuildContext context) {
+  static void _showBindingMessage(BuildContext context, String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('请先在“清算行”页面绑定清算行'),
-        duration: Duration(seconds: 2),
-      ),
+      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
     );
   }
 }

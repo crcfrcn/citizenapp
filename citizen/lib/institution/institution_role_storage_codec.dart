@@ -1,3 +1,5 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
+
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -48,7 +50,9 @@ class InstitutionRoleStorageCodec {
     final accountIds = <String>{};
     for (var i = 0; i < count.$1; i++) {
       if (offset + 32 > data.length) return null;
-      final accountId = '0x${_hex(data.sublist(offset, offset + 32))}';
+      final accountId = citizenAccountIdFromBytes(
+        data.sublist(offset, offset + 32),
+      );
       offset += 32;
       var citizenCid = (<int>[], offset);
       if (includeCitizenCid) {
@@ -130,17 +134,17 @@ class InstitutionRoleStorageCodec {
       offset = cid.$2;
       if (offset + 32 > data.length) return null;
       // 与人员名册使用同一规范 AccountId，避免任职关联被格式差异全部过滤。
-      final accountId = '0x${_hex(data.sublist(offset, offset + 32))}';
+      final accountId = citizenAccountIdFromBytes(
+        data.sublist(offset, offset + 32),
+      );
       offset += 32;
       final code = _readBytes(data, offset, minLength: 1, maxLength: 64);
       if (code == null) return null;
       offset = code.$2;
       if (offset + 9 > data.length) return null;
-      final termStart = ByteData.sublistView(data)
-          .getUint32(offset, Endian.little);
+      final termStart = CitizenScale.readUnsigned(data, offset, 4).toInt();
       offset += 4;
-      final termEnd = ByteData.sublistView(data)
-          .getUint32(offset, Endian.little);
+      final termEnd = CitizenScale.readUnsigned(data, offset, 4).toInt();
       offset += 4;
       final source = data[offset++];
       final sourceRef = _readBytes(data, offset, maxLength: 128);
@@ -300,8 +304,7 @@ class InstitutionRoleStorageCodec {
   ) {
     final moduleTag = _readUtf8(data, offset, minLength: 1, maxLength: 32);
     if (moduleTag == null || moduleTag.$2 + 4 > data.length) return null;
-    final actionCode = ByteData.sublistView(data)
-        .getUint32(moduleTag.$2, Endian.little);
+    final actionCode = CitizenScale.readUnsigned(data, moduleTag.$2, 4).toInt();
     return (
       BusinessActionId(moduleTag: moduleTag.$1, actionCode: actionCode),
       moduleTag.$2 + 4,
@@ -367,18 +370,12 @@ class InstitutionRoleStorageCodec {
   }
 
   static (int, int)? _readCompact(Uint8List data, int offset) {
-    if (offset >= data.length) return null;
-    final first = data[offset];
-    final mode = first & 3;
-    if (mode == 0) return (first >> 2, 1);
-    if (mode == 1 && offset + 2 <= data.length) {
-      return ((((data[offset + 1] << 8) | first) >> 2), 2);
+    try {
+      final decoded = CitizenScale.readCompact(data, offset);
+      return decoded.$2 <= 4 ? decoded : null;
+    } on FormatException {
+      return null;
     }
-    if (mode == 2 && offset + 4 <= data.length) {
-      final raw = ByteData.sublistView(data).getUint32(offset, Endian.little);
-      return (raw >> 2, 4);
-    }
-    return null;
   }
 
   static String _hex(List<int> bytes) =>

@@ -10,7 +10,6 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
 import 'package:citizen_user/identity/identity_binding.dart';
 import 'package:citizen_user/identity/square_session_provider.dart';
-import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_system/notifications/app_push_service.dart';
 import 'package:citizen_user/notifications.dart';
@@ -29,7 +28,7 @@ class _User implements CurrentUserContext {
     return CurrentUser(
       account: CitizenWalletStateAccount(
         accountId: account,
-        ss58Address: ss58FromAccountIdText(account),
+        ss58Address: citizenSs58FromAccountId(account),
         name: '测试',
         walletIndex: 0,
         accountIndex: 0,
@@ -157,7 +156,7 @@ void main() {
         revision: revision,
         sequence: 10,
         through: 10,
-        nextCursor: 5,
+        nextCursor: 'opaque.cursor',
         items: [
           {
             'post_id': 'cached-post',
@@ -181,7 +180,7 @@ void main() {
     final restored = Notifications(api: api, sessions: sessions, user: user);
     addTearDown(restored.dispose);
     expect(await restored.restore(), isTrue);
-    expect(restored.cachedList!.nextCursor, 5);
+    expect(restored.cachedList!.nextCursor, 'opaque.cursor');
     expect(restored.cachedList!.items.single['post_title'], '本机互动');
     expect(api.reads + api.writes, 0);
     expect(sessions.calls, 0);

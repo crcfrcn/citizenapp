@@ -42,12 +42,12 @@ class _FakeSigning {
   }
 }
 
-Future<String> _request(
+Future<CitizenQrDocument> _request(
   CitizenSdk qr, {
   required int action,
   required List<int> payload,
 }) async {
-  return (await qr.encodeDocument(
+  final encoded = await qr.encodeDocument(
     CitizenQrContent.signRequest(
       requestId: 'citizen-request-000001',
       expiresAt: BigInt.from(1900000000),
@@ -55,7 +55,11 @@ Future<String> _request(
       action: action,
       reviewPayload: Uint8List.fromList(payload),
     ),
-  )).canonicalText;
+  );
+  return (await qr.parseForPurpose(
+    encoded.canonicalText,
+    CitizenQrScanPurpose.signingRequest,
+  )).document;
 }
 
 List<int> _u32Le(int value) => [
@@ -206,13 +210,13 @@ void main() {
     );
     final wallet = _FakeWallet(account: account);
     final signing = _FakeSigning();
-    final raw = await _request(
+    final request = await _request(
       encoding.sdk,
       action: CitizenQrActions.citizenIdentity,
       payload: _validAuthorizationBytes(),
     );
     final prep = await service.prepare(
-      raw,
+      request,
       null,
       requiredAccount: account,
       getWalletState: (wallet).getWalletState,

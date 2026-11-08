@@ -19,7 +19,8 @@ class LocalTxRecordTile extends StatelessWidget {
   /// 钱包详情页最近记录需要显式展示进入详情的箭头；完整列表保持原布局。
   final bool showChevron;
 
-  BigInt get _amountDeltaFen => BigInt.parse(record.amountDelta);
+  BigInt get _amountDeltaFen =>
+      hasVerifiedDelta(record) ? BigInt.parse(record.amountDelta) : BigInt.zero;
   bool get _isExpense => _amountDeltaFen < BigInt.zero;
   bool get _isIncome => _amountDeltaFen > BigInt.zero;
 
@@ -69,7 +70,7 @@ class LocalTxRecordTile extends StatelessWidget {
     final label = topup == null
         ? businessTypeLabel(record.entryKind)
         : '充值 · ${topup.payment.token}';
-    final counterpartyPrefix = _isExpense ? '去向' : '来自';
+    final counterpartyPrefix = _isExpense || !hasVerifiedDelta(record) ? '去向' : '来自';
     final counterparty = shortAddress(record.peerAddress);
     final timeStr = formatMillis(record.confirmedAt ?? record.createdAt);
 
@@ -130,7 +131,7 @@ class LocalTxRecordTile extends StatelessWidget {
             record.entryKind == 'topup' && topup == null
                 ? '-'
                 : topup == null
-                ? '${_isExpense ? "-" : "+"}${formatFen(record.amountDelta, symbol: '')}'
+                ? recordDeltaLabel(record) ?? '—'
                 : topupPaymentLabel(topup),
             style: TextStyle(
               fontSize: AppLayout.scaled(context, 15),

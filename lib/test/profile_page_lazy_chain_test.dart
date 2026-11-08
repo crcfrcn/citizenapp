@@ -125,6 +125,18 @@ class _FakeWallet extends TestWalletReads {
       );
 }
 
+class _TrackedIdentityCache extends _CachedIdentityCache {
+  _TrackedIdentityCache(this.reads);
+
+  final List<String> reads;
+
+  @override
+  Future<CurrentUser?> resolve() {
+    reads.add('identity');
+    return super.resolve();
+  }
+}
+
 class _UnboundLocalUser extends _CachedIdentityCache {
   @override
   Future<CurrentUser?> resolve() async =>
@@ -454,6 +466,7 @@ void main() {
 
   testWidgets('我的页面展示公开昵称且钱包改名广播不重复刷新资料', (tester) async {
     final wallet = _testWallet;
+    final reads = <String>[];
     final profileApi = FakeProfileApi(sampleProfile(displayName: '公开昵称'));
     final profileCache = FakeProfileCache(sampleProfile(displayName: '缓存昵称'));
     final squareApi = _FakeSquareApi();
@@ -464,8 +477,11 @@ void main() {
         value: _sdkHarness.sdk,
         child: MaterialApp(
           home: MyTab(
-            walletStateReader: _FakeWallet(wallet).getWalletState,
-            currentUserContext: _CachedIdentityCache(),
+            walletStateReader: () {
+              reads.add('wallet');
+              return _FakeWallet(wallet).getWalletState();
+            },
+            currentUserContext: _TrackedIdentityCache(reads),
             badgeSnapshotStore: snapshotStore,
             profileApi: profileApi,
             profileCache: profileCache,
@@ -479,6 +495,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
+    expect(reads.take(2), ['wallet', 'identity']);
     expect(find.text('缓存昵称'), findsOneWidget);
     expect(find.text('不得公开的钱包名'), findsNothing);
     expect(profileApi.calls, 0);

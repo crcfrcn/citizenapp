@@ -5,7 +5,6 @@ import 'package:citizen_citizen/pallet_registry.dart';
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:polkadart/scale_codec.dart' show ByteOutput;
 
 import 'package:citizen_citizen/legislation/legislation_vote_query_service.dart';
 import 'package:citizen_citizen/proposal/proposal_query_service.dart';
@@ -17,14 +16,14 @@ import 'package:citizen_citizen/proposal/proposal_query_service.dart';
 /// 交易准备、冷热签名和最终执行由 CitizenSDK 完成。提交后回读 legislation-vote storage 确认
 /// runtime 已记账,tx_hash 不代表已执行。特别案公投属于链端独立的公投流程。
 ///
-/// 代表机构表决额外携带 `voter_role_code`；其余签署调用保持
-/// `[26][call_index][proposal_id:u64_le][approve:bool]`。
+/// 代表机构表决额外携带 `voter_role_code`，调用参数由 SDK 按 Runtime metadata 编码。
 class LegislationVoteService {
   LegislationVoteService({
     CitizenSdk? chain,
     LegislationVoteQueryService Function(CitizenBlockRef? block)? voteQuery,
     ProposalQueryService Function(CitizenBlockRef? block)? eventQuery,
     CitizenSdk? transactions,
+    CitizenCallBuilder? buildCall,
     Future<CitizenPreparedTransaction> Function(
       Uint8List sourceAccountId,
       Uint8List callData,
@@ -39,7 +38,9 @@ class LegislationVoteService {
       String response,
     )?
     consumePreparedTransactionQrResponse,
-  }) : _voteQuery =
+  }) : _buildCall = buildCall ?? transactions?.buildCall ?? chain?.buildCall ??
+           ((pallet, method, fields) => throw StateError('未配置buildCall')),
+       _voteQuery =
            voteQuery ??
            ((block) => LegislationVoteQueryService(chain: chain, block: block)),
        _eventQuery =
@@ -69,6 +70,7 @@ class LegislationVoteService {
            transactions?.consumePreparedTransactionQrResponse ??
            ((String executionId, String response) =>
                throw StateError('未配置consumePreparedTransactionQrResponse'));
+  final CitizenCallBuilder _buildCall;
   final Future<CitizenPreparedTransaction> Function(
     Uint8List sourceAccountId,
     Uint8List callData,
@@ -141,7 +143,7 @@ class LegislationVoteService {
       bodyIndex,
       meta.bodies[bodyIndex].cidNumber,
       voterRoleCode,
-      '0x${_hexEncode(signerPublicKey)}',
+      citizenAccountIdFromBytes(signerPublicKey),
     );
     if (vote != null && vote != approve) throw StateError('执行块的代表投票方向不一致');
     return (
@@ -208,7 +210,7 @@ class LegislationVoteService {
     );
     final signs = await _voteQuery(result.execution.block)
         .fetchOverrideSigns(proposalId);
-    final account = '0x${_hexEncode(signerPublicKey)}';
+    final account = citizenAccountIdFromBytes(signerPublicKey);
     if (signs.any((s) => s.accountId == account && s.approve != approve)) {
       throw StateError('执行块签署记录与本次方向不一致');
     }
@@ -245,7 +247,7 @@ class LegislationVoteService {
     );
     final signs = await _voteQuery(result.execution.block)
         .fetchGuardSigns(proposalId);
-    final account = '0x${_hexEncode(signerPublicKey)}';
+    final account = citizenAccountIdFromBytes(signerPublicKey);
     if (signs.any((s) => s.accountId == account && s.approve != approve)) {
       throw StateError('执行块签署记录与本次方向不一致');
     }
@@ -256,26 +258,22 @@ class LegislationVoteService {
     );
   }
 
-  /// 构造 `[26][call][proposal_id:u64_le][approve:bool]` call data(对外公开供冷钱包复用)。
-  static Uint8List buildCallData({
+  static Future<Uint8List> buildCallData({
+    required CitizenCallBuilder buildCall,
     required int callIndex,
     required int proposalId,
     String? voterRoleCode,
     required bool approve,
   }) {
-    if (!const [
-      callCastRepresentativeVote,
-      callExecutiveSign,
-      callOverrideSign,
-      callGuardVote,
-    ].contains(callIndex)) {
-      throw ArgumentError('未知立法投票调用');
-    }
+    final method = switch (callIndex) {
+      callCastRepresentativeVote => 'cast_representative_vote',
+      callExecutiveSign => 'executive_sign',
+      callOverrideSign => 'override_sign',
+      callGuardVote => 'guard_vote',
+      _ => throw ArgumentError('未知立法投票调用'),
+    };
     if (proposalId < 0) throw ArgumentError('proposal_id不得为负');
-    final output = ByteOutput();
-    output.pushByte(legislationVotePallet);
-    output.pushByte(callIndex);
-    output.write(_u64ToLeBytes(proposalId));
+    final fields = <Object>[proposalId];
     if (callIndex == callCastRepresentativeVote) {
       final roleBytes = Uint8List.fromList(
         voterRoleCode == null ? const [] : utf8.encode(voterRoleCode),
@@ -285,13 +283,12 @@ class LegislationVoteService {
           roleBytes.length > 64) {
         throw ArgumentError('代表机构表决必须提供 1..64 字节 voter_role_code');
       }
-      output.write(_encodeCompact(roleBytes.length));
-      output.write(roleBytes);
+      fields.add(roleBytes);
     } else if (voterRoleCode != null) {
       throw ArgumentError('当前立法签署调用不得携带 voter_role_code');
     }
-    output.pushByte(approve ? 1 : 0);
-    return output.toBytes();
+    fields.add(approve);
+    return buildCall('LegislationVote', method, fields);
   }
 
   // ──── 内部:签名提交 ────
@@ -309,7 +306,8 @@ class LegislationVoteService {
     externalSigning,
   }) async {
     if (signerPublicKey.length != 32) throw ArgumentError('签名公钥必须为32字节');
-    final callData = buildCallData(
+    final callData = await buildCallData(
+      buildCall: _buildCall,
       callIndex: callIndex,
       proposalId: proposalId,
       voterRoleCode: voterRoleCode,
@@ -317,26 +315,13 @@ class LegislationVoteService {
     );
     final prepared = await _prepareTransaction(signerPublicKey, callData);
     final started = await _executePreparedTransaction(prepared.preparationId);
-    CitizenTransactionExecutionCompleted completed;
-    if (started is CitizenTransactionExternalSigningPending) {
-      final String? response;
-      try {
-        response = await externalSigning(started);
-      } catch (_) {
-        await _cancelPreparedTransactionExecution(started.executionId);
-        rethrow;
-      }
-      if (response == null) {
-        await _cancelPreparedTransactionExecution(started.executionId);
-        throw StateError('立法投票签名已取消');
-      }
-      completed = await _consumePreparedTransactionQrResponse(
-        started.executionId,
-        response,
-      );
-    } else {
-      completed = started as CitizenTransactionExecutionCompleted;
-    }
+    final completed = await completeCitizenTransaction(
+      started,
+      requestResponse: externalSigning,
+      consumeResponse: _consumePreparedTransactionQrResponse,
+      cancelExecution: _cancelPreparedTransactionExecution,
+    );
+    if (completed == null) throw StateError('立法投票签名已取消');
     if (completed.resolution != CitizenTransactionResolution.finalizedSuccess ||
         completed.execution == null ||
         completed.execution!.status != CitizenExecutionStatus.success ||
@@ -365,44 +350,25 @@ class LegislationVoteService {
     final matches = events
         .where(
           (event) =>
-              event.index == execution.extrinsicIndex &&
               event.pallet == 'LegislationVote' &&
               event.name == name,
         )
         .toList();
     if (matches.length != 1) throw StateError('执行块缺少唯一的本次立法投票事件');
-    final fields = matches.single.fields;
-    if (fields is! Map ||
-        fields['proposal_id'].toString() != '$proposalId' ||
+    final event = matches.single;
+    final fields = event.fields as Map<String, Object?>;
+    if (event.fieldUnsigned('proposal_id') != BigInt.from(proposalId) ||
         fields['approve'] != approve ||
-        fields['who'] is! List ||
-        _hexEncode(Uint8List.fromList((fields['who'] as List).cast<int>())) !=
-            _hexEncode(signer) ||
-        voterRoleCode != null &&
-            (fields['voter_role_code'] is! List ||
-                utf8.decode((fields['voter_role_code'] as List).cast<int>()) !=
-                    voterRoleCode ||
-                fields['body_index'] != bodyIndex)) {
+        _hexEncode(event.fieldBytes('who')) != _hexEncode(signer) ||
+        (voterRoleCode != null &&
+            (utf8.decode(event.fieldBytes('voter_role_code')) != voterRoleCode ||
+                bodyIndex == null ||
+                event.fieldUnsigned('body_index') != BigInt.from(bodyIndex)))) {
       throw StateError('执行块立法投票事件与本次提案、签署人、岗位或方向不一致');
     }
   }
 
   // ──── 内部:编码工具 ────
-
-  static Uint8List _u64ToLeBytes(int value) {
-    final bytes = Uint8List(8);
-    ByteData.sublistView(bytes).setUint64(0, value, Endian.little);
-    return bytes;
-  }
-
-  static Uint8List _encodeCompact(int value) {
-    if (value < 0 || value >= 1 << 14) {
-      throw ArgumentError('长度超出 SCALE Compact 两字节范围');
-    }
-    if (value < 1 << 6) return Uint8List.fromList([value << 2]);
-    final encoded = (value << 2) | 1;
-    return Uint8List.fromList([encoded & 0xff, encoded >> 8]);
-  }
 
   static String _hexEncode(Uint8List bytes) {
     return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();

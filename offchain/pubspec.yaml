@@ -15,12 +15,11 @@ dependencies:
       url: https://github.com/crcfrcn/citizensdk.git
       path: .
       ref: main
+  citizen_storage: any
   citizen_system: any
   citizen_wallet: any
   flutter:
     sdk: flutter
-  polkadart: 0.7.3
-  polkadart_keyring: 0.7.1
   provider: ^6.1.5+1
   shared_preferences: ^2.5.5
 

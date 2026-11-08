@@ -40,6 +40,7 @@ final Uint8List _png = base64Decode(
 
 const String _owner =
     '0x1111111111111111111111111111111111111111111111111111111111111111';
+final _photoHash = sha256.convert(_png).toString();
 const String _profileCid = 'CN001-CTZN-000000001-2026';
 
 Map<String, dynamic> _profileJson({
@@ -62,7 +63,7 @@ Map<String, dynamic> _profileJson({
     'account_id': _owner,
     'display_name': displayName,
     'profile_bio': '链上公民',
-    'avatar_key': cidNumber == null ? null : 'profile/$cidNumber/avatar',
+    'avatar_key': cidNumber == null ? null : 'i/$cidNumber/avatar/$_photoHash',
     'banner_key': null,
     'cid_number': cidNumber,
     'is_certified': cidNumber != null,
@@ -238,7 +239,7 @@ void main() {
     expect(
       () =>
           CitizenProfileApi(client: client)
-              .cardMediaUrl('profile/$_profileCid/banner'),
+              .cardMediaUrl('i/$_profileCid/banner/$_photoHash'),
       throwsA(isA<SquareApiException>()),
     );
   });
@@ -528,13 +529,13 @@ void main() {
       await stream.close();
       await rejected;
       final image = CitizenProfileApi(client: api)
-          .mediaImage('profile/$_profileCid/avatar', session: session);
+          .mediaImage('i/$_profileCid/avatar/$_photoHash', session: session);
       expect(image.toString(), isNot(contains('synthetic-proof')));
       expect(image.toString(), isNot(contains('tok')));
     });
   });
 
-  testWidgets('同会话同版本图片跨客户端复用一次GET，不同会话和版本隔离', (tester) async {
+  testWidgets('同一资料图片跨客户端复用一次GET，会话、版本和内容隔离', (tester) async {
     final png = await tester.runAsync(
       () => File('assets/logo/mark256.png').readAsBytes(),
     );
@@ -569,12 +570,12 @@ void main() {
     final a = CitizenProfileApi(client: firstClient),
         b = CitizenProfileApi(client: secondClient);
     final first = a.mediaImage(
-      'profile/$_profileCid/avatar',
+      'i/$_profileCid/avatar/$_photoHash',
       session: session,
       updatedAt: 606,
     );
     final second = b.mediaImage(
-      'profile/$_profileCid/avatar',
+      'i/$_profileCid/avatar/$_photoHash',
       session: session,
       updatedAt: 606,
     );
@@ -582,7 +583,7 @@ void main() {
     expect(second.hashCode, first.hashCode);
     expect(
       b.mediaImage(
-        'profile/$_profileCid/avatar',
+        'i/$_profileCid/avatar/$_photoHash',
         session: _session(),
         updatedAt: 606,
       ),
@@ -590,7 +591,7 @@ void main() {
     );
     expect(
       b.mediaImage(
-        'profile/$_profileCid/avatar',
+        'i/$_profileCid/avatar/$_photoHash',
         session: session,
         updatedAt: 607,
       ),
@@ -598,7 +599,17 @@ void main() {
     );
     expect(
       b.mediaImage(
-        'profile/$_profileCid/banner',
+        'i/$_profileCid/banner/$_photoHash',
+        session: session,
+        updatedAt: 606,
+      ),
+      isNot(first),
+    );
+    final otherHash = sha256.convert(png!).toString();
+    expect(otherHash, isNot(_photoHash));
+    expect(
+      b.mediaImage(
+        'i/$_profileCid/avatar/$otherHash',
         session: session,
         updatedAt: 606,
       ),
@@ -662,14 +673,14 @@ void main() {
     );
     final api = CitizenProfileApi(client: client);
     final image = api.mediaImage(
-      'profile/$_profileCid/avatar',
+      'i/$_profileCid/avatar/$_photoHash',
       session: session,
       updatedAt: 1,
     );
     expect(
       image,
       api.mediaImage(
-        'profile/$_profileCid/avatar',
+        'i/$_profileCid/avatar/$_photoHash',
         session: session,
         updatedAt: 1,
       ),
@@ -678,7 +689,7 @@ void main() {
       image,
       isNot(
         api.mediaImage(
-          'profile/$_profileCid/avatar',
+          'i/$_profileCid/avatar/$_photoHash',
           session: _session(),
           updatedAt: 1,
         ),
@@ -703,7 +714,10 @@ void main() {
       }
     }
 
-    expect(await tester.runAsync(decode), isA<SquareApiException>());
+    expect(
+      await tester.runAsync(decode),
+      isA<SquareApiException>().having((error) => error.statusCode, '状态码', 503),
+    );
     await tester.runAsync(() => Future<void>.delayed(Duration.zero));
     expect(await tester.runAsync(decode), isNull);
     expect(await tester.runAsync(decode), isNull);
@@ -733,7 +747,8 @@ void main() {
     var signed = 0;
     final paths = <String>[];
     final proofs = <String?>[];
-    final json = _profileJson()..['banner_key'] = 'profile/$_profileCid/banner';
+    final json = _profileJson()
+      ..['banner_key'] = 'i/$_profileCid/banner/$_photoHash';
     final client = _client(
       MockClient((request) async {
         paths.add(request.url.path);
@@ -825,7 +840,6 @@ void main() {
     final cid = profile.cidNumber!;
     final request = {
       'display_name': '新名',
-      'avatar_key': profile.avatarKey!,
       'avatar_hash': sha256.convert(_png).toString(),
     };
     await cache.prepareUpdate(cid, request: request, avatarBytes: _png);
@@ -838,6 +852,13 @@ void main() {
       throwsStateError,
     );
     expect(cache.updateMatches(pending, profile), isTrue);
+    expect(
+      cache.updateMatches(
+        pending,
+        profile.copyWith(avatarKey: 'i/$cid/avatar/${'b' * 64}'),
+      ),
+      isFalse,
+    );
     await cache.confirmUpdate(profile);
     await (await UserIsar.instance.db()).close();
     await cache.finishUpdate(cid);
@@ -1527,51 +1548,55 @@ void main() {
       expect(seen!.queryParameters['type'], 'mutual_following');
     });
 
-    test('mediaUrl使用同源CID资料资源路径并拒绝越界对象', () {
+    test('解析资料对象键同时返回用途和内容哈希', () {
       final client = _client(MockClient((_) async => http.Response('', 200)));
+      addTearDown(client.close);
+      final asset = client.resolveProfileMedia(
+        'i/$_profileCid/banner/$_photoHash',
+      );
+      expect(asset.kind, 'banner');
+      expect(asset.hash, _photoHash);
       expect(
-        client.mediaUrl('profile/$_profileCid/avatar'),
-        'https://example.com/api/user/profiles/$_profileCid/assets/avatar',
+        asset.url,
+        'https://example.com/api/user/profiles/$_profileCid/assets/banner',
       );
-      for (final objectKey in [
-        'profile/$_owner/avatar',
-        'profile/$_profileCid/other',
-        'profile/../avatar',
-        'profile/$_profileCid/avatar/extra',
-      ]) {
-        expect(
-          () => client.mediaUrl(objectKey),
-          throwsA(isA<SquareApiException>()),
+    });
+
+    test(
+      'updateProfile PUTs only the provided fields and image hashes',
+      () async {
+        String? method;
+        Map<String, dynamic>? body;
+        final client = _client(
+          MockClient((request) async {
+            method = request.method;
+            expect(request.url.path, '/api/user/profile');
+            expect(request.headers['authorization'], 'Bearer tok');
+            expect(request.headers['x-mls-proof'], isNotEmpty);
+            body = jsonDecode(request.body) as Map<String, dynamic>;
+            return _ok({
+              'is_ok': true,
+              'profile': _profileJson(displayName: '新名字'),
+            });
+          }),
         );
-      }
-    });
 
-    test('updateProfile PUTs only the provided fields', () async {
-      String? method;
-      Map<String, dynamic>? body;
-      final client = _client(
-        MockClient((request) async {
-          method = request.method;
-          expect(request.url.path, '/api/user/profile');
-          expect(request.headers['authorization'], 'Bearer tok');
-          expect(request.headers['x-mls-proof'], isNotEmpty);
-          body = jsonDecode(request.body) as Map<String, dynamic>;
-          return _ok({
-            'is_ok': true,
-            'profile': _profileJson(displayName: '新名字'),
-          });
-        }),
-      );
+        final updated = await client.updateProfile(
+          session: _session(),
+          displayName: '新名字',
+          avatarHash: _photoHash,
+          bannerHash: _photoHash,
+        );
 
-      final updated = await client.updateProfile(
-        session: _session(),
-        displayName: '新名字',
-      );
-
-      expect(method, 'PUT');
-      expect(body, {'display_name': '新名字'});
-      expect(updated.displayName, '新名字');
-    });
+        expect(method, 'PUT');
+        expect(body, {
+          'display_name': '新名字',
+          'avatar_hash': _photoHash,
+          'banner_hash': _photoHash,
+        });
+        expect(updated.displayName, '新名字');
+      },
+    );
   });
 }
 

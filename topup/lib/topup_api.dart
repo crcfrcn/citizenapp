@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:citizen_network/chain_bootstrap_api.dart' show HttpsOnlyClient;
 import 'package:citizen_network/citizen_serve_api_config.dart';
 import 'package:citizen_system/app_log.dart';
 import 'package:citizen_topup/topup_models.dart';

@@ -1,8 +1,8 @@
 // 业务含义与Rust管理员结构统一；Dart成员用camelCase，JSON键沿所属接口。
 
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_citizen/institution/institution_code_label.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
-import 'package:citizen_citizen/administrators/account_id_codec.dart';
 
 enum AdminAccountIdentityType { institution, personalAccount }
 
@@ -102,15 +102,16 @@ class AdminAccountIdentity {
     required String accountId,
     required String accountLabel,
   }) {
-    final account = AdminAccountIdCodec.requireAccountId(accountId);
-    AdminAccountIdCodec.fromAccountIdText(account);
+    if (!isCitizenAccountId(accountId)) {
+      throw const FormatException('个人多签账户标识无效');
+    }
     return AdminAccountIdentity._(
       type: AdminAccountIdentityType.personalAccount,
-      identityKey: 'personal-account:$account',
+      identityKey: 'personal-account:$accountId',
       accountLabel: accountLabel,
       orgCode: 'PMUL',
       kind: 2,
-      accountId: account,
+      accountId: accountId,
     );
   }
 

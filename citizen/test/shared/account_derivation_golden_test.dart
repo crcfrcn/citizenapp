@@ -8,6 +8,8 @@
 //
 // 金标缺席必须失败；不能把未执行的派生回归登记为完整验收。
 
+import 'package:citizen_sdk/citizen_sdk.dart';
+
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -29,7 +31,7 @@ void main() {
     test('fixture 域常量与本端 _domain 一致', () {
       // 域已改名 GMB(ADR-024 Tier 3),fixture 与 _domain 同步为 GMB。
       expect(root['domain'], 'GMB');
-      expect(ss58, kGmbSs58Prefix);
+      expect(ss58, citizenSs58Prefix);
     });
 
     for (final v in vectors) {
@@ -40,61 +42,47 @@ void main() {
           : kind;
 
       test('$label → $expectedHex', () {
-        final actual = _deriveForVector(v, ss58);
-        expect(accountIdText(actual), expectedHex);
+        final actual = _deriveForVector(v);
+        expect(citizenAccountIdFromBytes(actual), expectedHex);
       });
     }
   });
 }
 
-Uint8List _deriveForVector(Map<String, dynamic> v, int ss58) {
+Uint8List _deriveForVector(Map<String, dynamic> v) {
   final kind = v['kind'] as String;
   switch (kind) {
     case 'InstitutionMain':
-      return deriveInstitutionMainAccountId(
-        v['cid_number'] as String,
-        ss58Prefix: ss58,
-      );
+      return deriveInstitutionMainAccountId(v['cid_number'] as String);
     case 'InstitutionFee':
-      return deriveInstitutionFeeAccountId(
-        v['cid_number'] as String,
-        ss58Prefix: ss58,
-      );
+      return deriveInstitutionFeeAccountId(v['cid_number'] as String);
     case 'InstitutionStake':
       return deriveAccountId(
         opTag: kOpStake,
         payload: utf8.encode(v['cid_number'] as String),
-        ss58Prefix: ss58,
       );
     case 'InstitutionSafetyFund':
       return deriveAccountId(
         opTag: kOpSafetyFund,
         payload: utf8.encode(v['cid_number'] as String),
-        ss58Prefix: ss58,
       );
     case 'InstitutionHe':
       return deriveAccountId(
         opTag: kOpHe,
         payload: utf8.encode(v['cid_number'] as String),
-        ss58Prefix: ss58,
       );
     case 'InstitutionClearing':
-      return deriveInstitutionClearingAccountId(
-        v['cid_number'] as String,
-        ss58Prefix: ss58,
-      );
+      return deriveInstitutionClearingAccountId(v['cid_number'] as String);
     case 'InstitutionNamed':
       return deriveInstitutionCustomAccountId(
         v['cid_number'] as String,
         v['account_name'] as String,
-        ss58Prefix: ss58,
       );
     case 'Personal':
       final creator = _hexToBytes(v['creator_account_id'] as String);
       return deriveAccountId(
         opTag: kOpPersonal,
         payload: <int>[...creator, ...utf8.encode(v['account_name'] as String)],
-        ss58Prefix: ss58,
       );
     default:
       fail('未知金标向量 kind: $kind');

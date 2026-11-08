@@ -487,6 +487,8 @@ void main() {
       MaterialApp(home: LocalTxRecordDetailPage(record: pending)),
     );
     expect(find.text('预估手续费'), findsOneWidget);
+    expect(find.text('待链上核实'), findsOneWidget);
+    expect(find.text('申请转账金额'), findsOneWidget);
     expect(find.text('最佳链已打包，等待最终确认'), findsOneWidget);
     final actual = _record()
       ..entrySource = 'sdk_finalized_event'

@@ -33,7 +33,6 @@ class TransferProposalInfo {
   /// 0=voting, 1=passed, 2=rejected, null=unknown
   final int? status;
 
-  double get amountYuan => amountFen.toDouble() / 100;
 
   TransferProposalInfo copyWithStatus(int? newStatus) {
     return TransferProposalInfo(
@@ -71,7 +70,6 @@ class SafetyFundProposalInfo {
   final String proposer; // SS58
   final int? status;
 
-  double get amountYuan => amountFen.toDouble() / 100;
 }
 
 /// 手续费划转提案详情（从 SweepProposalActions 存储解码）。
@@ -92,5 +90,4 @@ class SweepProposalInfo {
   final String proposer; // SS58
   final int? status;
 
-  double get amountYuan => amountFen.toDouble() / 100;
 }

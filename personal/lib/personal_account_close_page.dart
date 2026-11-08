@@ -4,21 +4,16 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 import 'package:citizen_citizen/institution/institution_info.dart';
-import 'package:citizen_personal/multisig_create_amount_rules.dart';
 import 'package:citizen_citizen/proposal/proposal_query_service.dart';
 import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_scanner/address_scan_button.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_widgets/chain_progress_banner.dart';
-import 'package:citizen_system/amount_format.dart';
-import 'package:citizen_wallet/core/account_balance_snapshot_store.dart';
 
 import 'package:citizen_personal/personal_manage_service.dart';
 import 'package:citizen_personal/personal_proposal_history_service.dart';
 
-import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
 /// 关闭个人多签账户提案页面。
@@ -47,7 +42,7 @@ class _PersonalAccountClosePageState extends State<PersonalAccountClosePage> {
 
   bool _submitting = false;
   bool _loadingBalance = true;
-  double? _availableBalance;
+  BigInt? _availableBalance;
   String? _addressError;
   CitizenChainSyncStatus? _chainProgress;
   String? _chainProgressError;
@@ -59,7 +54,7 @@ class _PersonalAccountClosePageState extends State<PersonalAccountClosePage> {
   void initState() {
     super.initState();
     _selectedWallet = widget.adminWallets.first;
-    _accountSs58 = _hexToSs58(widget.institution.accountId);
+    _accountSs58 = citizenSs58FromAccountId(widget.institution.accountId);
   }
 
   @override
@@ -67,10 +62,7 @@ class _PersonalAccountClosePageState extends State<PersonalAccountClosePage> {
     super.didChangeDependencies();
     if (_dependenciesReady) return;
     final sdk = context.read<CitizenSdk>();
-    _manageService = PersonalManageService(
-      chain: sdk,
-      transactions: sdk,
-    );
+    _manageService = PersonalManageService(chain: sdk, transactions: sdk);
     _proposalQuery = ProposalQueryService(chain: sdk);
     _dependenciesReady = true;
     _fetchBalance();
@@ -86,16 +78,13 @@ class _PersonalAccountClosePageState extends State<PersonalAccountClosePage> {
   Future<bool> _fetchBalance({bool forceRefresh = false}) async {
     if (forceRefresh && mounted) setState(() => _loadingBalance = true);
     try {
-      final snapshot =
-          await AccountBalanceSnapshotStore.forChain(
-            context.read<CitizenSdk>(),
-          ).getAccountBalance(
-            widget.institution.accountId,
-            forceRefresh: forceRefresh,
-          );
+      final snapshot = await context.read<CitizenSdk>().getAccountBalance(
+        widget.institution.accountId,
+        forceRefresh: forceRefresh,
+      );
       if (!mounted) return false;
       setState(() {
-        _availableBalance = snapshot.freeFen.toDouble() / 100;
+        _availableBalance = snapshot.freeFen;
         _loadingBalance = false;
       });
       return true;
@@ -103,8 +92,9 @@ class _PersonalAccountClosePageState extends State<PersonalAccountClosePage> {
       if (mounted) {
         setState(() => _loadingBalance = false);
         if (forceRefresh) {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(const SnackBar(content: Text('余额校验失败，请刷新后重试')));
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('余额校验失败，请刷新后重试')));
         }
       }
       return false;
@@ -119,7 +109,7 @@ class _PersonalAccountClosePageState extends State<PersonalAccountClosePage> {
       return false;
     }
     try {
-      Keyring().decodeAddress(address);
+      citizenAccountIdBytesFromSs58(address);
     } catch (_) {
       setState(() => _addressError = '地址格式无效');
       return false;
@@ -141,44 +131,37 @@ class _PersonalAccountClosePageState extends State<PersonalAccountClosePage> {
     final chain = context.read<CitizenSdk>();
     final blockedReason = _submitBlockedReason;
     if (blockedReason != null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(blockedReason)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(blockedReason)));
       return;
     }
 
-    if (!await _fetchBalance(forceRefresh: true)) return;
-    if (!mounted) return;
-
+    if (_submitting) return;
     final beneficiary = _beneficiaryController.text.trim();
     if (!_validateAddress(beneficiary)) return;
+    final wallet = _selectedWallet;
+    setState(() => _submitting = true);
 
-    if (_availableBalance != null) {
-      final balanceFen = MultisigCreateAmountRules.yuanToFen(
-        _availableBalance!,
-      );
-      final executionFeeFen = MultisigCreateAmountRules.calculateOnchainFeeFen(
-        balanceFen,
-      );
-      final requiredFen =
-          executionFeeFen + MultisigCreateAmountRules.existentialDepositFen;
+    try {
+      if (!await _fetchBalance(forceRefresh: true) || !mounted) return;
+      final balanceFen = _availableBalance!;
+      final fees = await chain.getFeeSnapshot(amountFen: balanceFen);
+      if (!mounted ||
+          wallet != _selectedWallet ||
+          beneficiary != _beneficiaryController.text.trim()) {
+        return;
+      }
+      final requiredFen = fees.feeFen + fees.existentialDepositFen;
       if (balanceFen < requiredFen) {
-        final requiredYuan = MultisigCreateAmountRules.fenToYuan(requiredFen);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              '账户余额不足（需要覆盖链上执行费，且扣费后转出金额不低于 ED；当前至少需要 ${AmountFormat.format(requiredYuan, symbol: '')} 元）',
-            ),
+            content: Text('账户余额不足（执行费和 ED 至少需要 ${formatFen(requiredFen)} 元）'),
           ),
         );
         return;
       }
-    }
-
-    setState(() => _submitting = true);
-
-    try {
-      final wallet = _selectedWallet;
-      final publicKeyBytes = _hexDecode(wallet.accountId);
+      final publicKeyBytes = citizenAccountIdBytes(wallet.accountId);
 
       // 提前查链上 NextProposalId 作为本次关闭提案的预测 ID(req 5 历史保留)。
       final predictedProposalId = await _proposalQuery.fetchNextProposalId();
@@ -325,7 +308,7 @@ class _PersonalAccountClosePageState extends State<PersonalAccountClosePage> {
                       )
                     : Text(
                         _availableBalance != null
-                            ? '${AmountFormat.format(_availableBalance!, symbol: '')} 元'
+                            ? '${formatFen(_availableBalance!)} 元'
                             : '查询失败',
                         style: TextStyle(
                           fontSize: AppLayout.scaled(context, 15),
@@ -485,19 +468,5 @@ class _PersonalAccountClosePageState extends State<PersonalAccountClosePage> {
   String _truncateAddress(String address) {
     if (address.length <= 14) return address;
     return '${address.substring(0, 6)}...${address.substring(address.length - 6)}';
-  }
-
-  String _hexToSs58(String hex) {
-    final bytes = _hexDecode(hex);
-    return Keyring().encodeAddress(Uint8List.fromList(bytes), kGmbSs58Prefix);
-  }
-
-  Uint8List _hexDecode(String hex) {
-    final h = hex.startsWith('0x') ? hex.substring(2) : hex;
-    final result = Uint8List(h.length ~/ 2);
-    for (var i = 0; i < result.length; i++) {
-      result[i] = int.parse(h.substring(i * 2, i * 2 + 2), radix: 16);
-    }
-    return result;
   }
 }

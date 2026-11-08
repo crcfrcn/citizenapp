@@ -7,18 +7,13 @@ import 'package:citizen_user/membership/subscription_service.dart';
 import 'package:citizen_user/square_api_client.dart';
 
 class ProfileAssetResult {
-  const ProfileAssetResult({
-    required this.objectKey,
-    required this.contentHash,
-    required this.bytes,
-  });
+  const ProfileAssetResult({required this.contentHash, required this.bytes});
 
-  final String objectKey;
   final String contentHash;
   final Uint8List bytes;
 }
 
-/// 头像/背景资产上传编排：算 sha256 → 申请授权 → PUT 字节 → 返回 object_key + hash。
+/// 头像/背景资产上传编排：算 sha256 → 申请授权 → PUT 字节 → 核对对象键并返回原摘要。
 /// 内容只进 R2，不上链。
 class ProfileAssetService {
   ProfileAssetService({
@@ -101,16 +96,13 @@ class ProfileAssetService {
       byteSize: bytes.length,
       contentHash: sha,
     );
-    await _client.uploadBytesTo(
+    await _client.uploadProfileAsset(
       prepared.uploadUrl,
       bytes,
       contentType,
       session: session,
-    );
-    return ProfileAssetResult(
       objectKey: prepared.objectKey,
-      contentHash: sha,
-      bytes: bytes,
     );
+    return ProfileAssetResult(contentHash: sha, bytes: bytes);
   }
 }

@@ -19,7 +19,7 @@ void main() {
         expect(request.headers['authorization'], 'Bearer circle-session');
         expect(request.headers['x-mls-proof'], isNotEmpty);
         return http.Response(
-          '{"is_ok":true,"feed_kind":"circle","posts":[]}',
+          '{"is_ok":true,"items":[],"next_cursor":null}',
           200,
           headers: {'content-type': 'application/json'},
         );
@@ -70,13 +70,12 @@ void main() {
       session: session,
       groupByPost: true,
       through: 10,
-      cursor: 5,
+      cursor: 'opaque.cursor',
     );
     expect(requests.last.url.queryParameters, {
       'limit': '20',
-      'cursor': '5',
+      'cursor': 'opaque.cursor',
       'group': 'post',
-      'through': '10',
     });
     await api.markNotifyRead(
       session: session,
@@ -93,15 +92,15 @@ void main() {
       postId: 'p',
       mode: 'thread',
       thread: 'root',
-      after: '1:2',
+      cursor: 'thread+/=',
     );
     expect(requests.last.url.path, '/api/8964/posts/p/comments');
-    expect(requests.last.url.queryParameters['after'], '1:2');
+    expect(requests.last.url.queryParameters['cursor'], 'thread+/=');
     await api.fetchPostInteractions(session: session, postIds: ['p']);
     expect(jsonDecode(requests.last.body), {
       'post_ids': ['p'],
     });
-    await api.fetchLikes(session: session, postId: 'p', cursor: 7);
+    await api.fetchLikes(session: session, postId: 'p', cursor: 'likes+/=');
     expect(requests.last.url.path, '/api/8964/posts/p/likes');
     await api.setLike(session: session, postId: 'p', liked: true);
     expect(requests.last.method, 'PUT');

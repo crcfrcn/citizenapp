@@ -262,7 +262,7 @@ void main() {
     expect(find.byType(CreateWalletOnboardingPage), findsOneWidget);
     ready = true;
     await tester.runAsync(
-      () => core.sdk.importColdAccount(accountId: testCitizenAccountId).result,
+      () => core.sdk.importColdAccount(testCitizenAccountId).result,
     );
     await tester.pumpAndSettle();
     expect(find.text('main-shell'), findsNothing);
@@ -336,7 +336,7 @@ void main() {
     await tester.pumpAndSettle();
     state = _state([]);
     await tester.runAsync(
-      () => core.sdk.importColdAccount(accountId: testCitizenAccountId).result,
+      () => core.sdk.importColdAccount(testCitizenAccountId).result,
     );
     await tester.pumpAndSettle();
     expect(find.text('main-shell'), findsNothing);

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_sdk/test/platform/fixture.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_personal/personal_manage_models.dart';
 import 'package:citizen_personal/personal_manage_service.dart';
@@ -47,6 +48,11 @@ class FakeChain extends TestChainReads {
 }
 
 void main() {
+  Future<Uint8List> buildCall(String pallet, String method, Object fields) async {
+    final runtime = await CitizenSdkTestFixture.runtimeContext(await FakeChain().getFinalizedHead());
+    return runtime.encodeCall(pallet, method, fields);
+  }
+
   String hexOf(List<int> bytes) =>
       bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 
@@ -136,12 +142,13 @@ void main() {
   }
 
   group('PersonalManageService', () {
-    test('builds propose_create_personal call_data with regular_threshold', () {
+    test('builds propose_create_personal call_data with regular_threshold', () async {
       final admin1 = Uint8List.fromList(List<int>.filled(32, 0x11));
       final admin2 = Uint8List.fromList(List<int>.filled(32, 0x22));
       final accountName = Uint8List.fromList(utf8.encode('家庭基金'));
 
-      final callData = PersonalManageService.buildProposeCreatePersonalCallData(
+      final callData = await PersonalManageService.buildProposeCreatePersonalCallData(
+        buildCall: buildCall,
         accountName: accountName,
         admins: [
           adminPerson(admin1, familyName: '张', givenName: '三'),
@@ -173,6 +180,7 @@ void main() {
 
       expect(
         () => PersonalManageService.buildProposeCreatePersonalCallData(
+          buildCall: buildCall,
           accountName: Uint8List.fromList(utf8.encode('家庭基金')),
           admins: admins,
           regularThreshold: 2,
@@ -182,11 +190,76 @@ void main() {
       );
     });
 
+    test('个人多签创建只确认本次执行的唯一业务事件', () async {
+      final block = await FakeChain().getFinalizedHead();
+      final signer = Uint8List.fromList(List<int>.filled(32, 0x11));
+      final peer = List<int>.filled(32, 0x22);
+      final account = List<int>.filled(32, 0x33);
+      final admins = [
+        adminPerson(signer, familyName: '张', givenName: '三'),
+        adminPerson(peer, familyName: '李', givenName: '四'),
+      ];
+      List<int> event(int index, {int amount = 111}) => [
+        0, ...u32Le(index), 7, 0,
+        ...u32Le(7), ...u32Le(0), ...account, ...signer,
+        ...compactVec('家庭基金'), 8,
+        ...adminBytes(signer, familyName: '张', givenName: '三'),
+        ...adminBytes(peer, familyName: '李', givenName: '四'),
+        ...u32Le(2), ...u32Le(2), ...u128Le(BigInt.from(amount)),
+        ...u128Le(BigInt.from(10)), ...u32Le(99), 0,
+      ];
+      Future<({String txHash, int usedNonce, int proposalId, String accountId, String blockHash})>
+      submit(List<List<int>> rows) {
+        final tx = TestCitizenTransactionFlow()
+          ..prepare = ((_, _) async => CitizenPreparedTransaction(
+            preparationId: 'prepared', sourceAccountId: signer,
+            callDataHash: Uint8List(32), bestBlock: block,
+            runtimeSpecNumber: 1, transactionFormatNumber: 1,
+            nonce: BigInt.zero,
+          ))
+          ..execute = ((_) async => CitizenTransactionExecutionCompleted(
+            executionId: 'prepared', sourceAccountId: signer,
+            callDataHash: Uint8List(32), transactionHash: Uint8List(32),
+            resolution: CitizenTransactionResolution.finalizedSuccess,
+            execution: CitizenExecution(
+              status: CitizenExecutionStatus.success, block: block,
+              extrinsicIndex: 2, dispatchVariant: null,
+              palletIndex: null, errorIndex: null,
+            ),
+            poolRejectionReason: null, replacementHash: null,
+          ));
+        final service = PersonalManageService(
+          buildCall: buildCall, getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
+          getSystemEvents: (ref) async {
+            expect(ref, same(block));
+            return Uint8List.fromList([rows.length << 2, for (final row in rows) ...row]);
+          },
+          prepareTransaction: tx.prepareTransaction,
+          executePreparedTransaction: tx.executePreparedTransaction,
+        );
+        return service.submitProposeCreatePersonal(
+          accountName: Uint8List.fromList(utf8.encode('家庭基金')),
+          admins: admins, regularThreshold: 2, amountFen: BigInt.from(111),
+          signerPublicKey: signer, externalSigning: (_) async => null,
+        );
+      }
+
+      final result = await submit([event(1), event(2)]);
+      expect(result.proposalId, 7);
+      expect(result.accountId, '0x${hexOf(account)}');
+      expect(result.blockHash, block.hash);
+      await expectLater(submit([event(1)]), throwsStateError);
+      await expectLater(submit([event(2), event(2)]), throwsStateError);
+      await expectLater(submit([event(2, amount: 112)]), throwsStateError);
+    });
+
     test('decodes current PersonalManage create ProposalData', () {
       final service = (() {
         final reads0 = TestChainReads();
         final reads1 = TestTransactionCalls();
         return PersonalManageService(
+          buildCall: buildCall,
+          getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
           getSystemEvents: reads0.getSystemEvents,
           getFinalizedHead: reads0.getFinalizedHead,
           getStorage: reads0.getStorage,
@@ -224,6 +297,8 @@ void main() {
       final service = (() {
         final reads0 = TestTransactionCalls();
         return PersonalManageService(
+          buildCall: buildCall,
+          getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
           getSystemEvents: rpc.getSystemEvents,
           getFinalizedHead: rpc.getFinalizedHead,
           getStorage: rpc.getStorage,
@@ -237,12 +312,13 @@ void main() {
         );
       })();
       final accountId = '0x${'22' * 32}';
+      final runtime = await CitizenSdkTestFixture.runtimeContext(await rpc.getFinalizedHead());
       final personalKey =
-          '0x${hexOf(PersonalManageStorageCodec.personalAccountsKey(accountId))}';
+          '0x${hexOf(PersonalManageStorageCodec.personalAccountsKey(runtime, accountId))}';
       final adminKey =
-          '0x${hexOf(PersonalManageStorageCodec.adminAccountKey(PersonalManageStorageCodec.accountIdBytes(accountId)))}';
+          '0x${hexOf(PersonalManageStorageCodec.adminAccountKey(runtime, citizenAccountIdBytes(accountId)))}';
       final thresholdKey =
-          '0x${hexOf(PersonalManageStorageCodec.activePersonalThresholdKey(PersonalManageStorageCodec.accountIdBytes(accountId)))}';
+          '0x${hexOf(PersonalManageStorageCodec.activePersonalThresholdKey(runtime, citizenAccountIdBytes(accountId)))}';
       rpc.responses[personalKey] = personalAccountBytes();
       rpc.responses[adminKey] = adminAccountBytes(
         admin1: List<int>.filled(32, 0xcc),
@@ -267,6 +343,8 @@ void main() {
       final service = (() {
         final reads0 = TestTransactionCalls();
         return PersonalManageService(
+          buildCall: buildCall,
+          getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
           getSystemEvents: rpc.getSystemEvents,
           getFinalizedHead: rpc.getFinalizedHead,
           getStorage: rpc.getStorage,
@@ -281,12 +359,15 @@ void main() {
       })();
       final firstAccountId = '0x${'22' * 32}';
       final secondAccountId = '0x${'33' * 32}';
+      final runtime = await CitizenSdkTestFixture.runtimeContext(
+        await rpc.getFinalizedHead(),
+      );
       String personalKey(String accountId) =>
-          '0x${hexOf(PersonalManageStorageCodec.personalAccountsKey(accountId))}';
+          '0x${hexOf(PersonalManageStorageCodec.personalAccountsKey(runtime, accountId))}';
       String adminKey(String accountId) =>
-          '0x${hexOf(PersonalManageStorageCodec.adminAccountKey(PersonalManageStorageCodec.accountIdBytes(accountId)))}';
+          '0x${hexOf(PersonalManageStorageCodec.adminAccountKey(runtime, citizenAccountIdBytes(accountId)))}';
       String thresholdKey(String accountId) =>
-          '0x${hexOf(PersonalManageStorageCodec.activePersonalThresholdKey(PersonalManageStorageCodec.accountIdBytes(accountId)))}';
+          '0x${hexOf(PersonalManageStorageCodec.activePersonalThresholdKey(runtime, citizenAccountIdBytes(accountId)))}';
 
       rpc.responses[personalKey(firstAccountId)] = personalAccountBytes();
       rpc.responses[personalKey(secondAccountId)] = personalAccountBytes();

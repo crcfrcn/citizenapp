@@ -21,18 +21,7 @@ final walletNavigation = WalletNavigation(
       ),
   topup: (context, {required accountId, required token}) =>
       showTopup(context, accountId: accountId, token: token),
-  pettyWallet:
-      ({
-        required accountId,
-        required accountAddress,
-        required wssUrl,
-        required displayTitle,
-      }) => PettyWalletPage(
-        accountId: accountId,
-        accountAddress: accountAddress,
-        wssUrl: wssUrl,
-        displayTitle: displayTitle,
-      ),
+  pettyWallet: ({required accountId}) => PettyWalletPage(accountId: accountId),
   identity: () => const MyIdPage(),
   recordDetail: ({required record}) => LocalTxRecordDetailPage(record: record),
 );

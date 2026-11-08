@@ -1,13 +1,53 @@
+import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:citizen_citizen/asset/onchain_asset_constants.dart';
 import 'package:citizen_citizen/asset/onchain_asset_query.dart';
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'onchain_asset_codec_test.dart' show readAssetVectors, scaleBytes;
+/// 固定金标唯一归本包；从Pub实际包配置定位，支持workspace及包目录运行。
+Future<Map<String, dynamic>> readAssetVectors() async {
+  var directory = Directory.current.absolute;
+  while (!File('${directory.path}/.dart_tool/package_config.json')
+      .existsSync()) {
+    final parent = directory.parent;
+    if (parent.path == directory.path) {
+      throw StateError('资产测试需要产品Pub包配置');
+    }
+    directory = parent;
+  }
+  final config = File('${directory.path}/.dart_tool/package_config.json');
+  final packages = jsonDecode(await config.readAsString())['packages'] as List;
+  final owner =
+      packages.singleWhere((row) => row['name'] == 'citizen_citizen') as Map;
+  final root = config.uri.resolve(owner['rootUri'] as String);
+  final fixture = Uri.directory(root.toFilePath())
+      .resolve('test/asset/asset_vectors.json');
+  return jsonDecode(await File.fromUri(fixture).readAsString())
+      as Map<String, dynamic>;
+}
+
+Uint8List scaleBytes(String hex) => Uint8List.fromList([
+  for (var offset = 0; offset < hex.length; offset += 2)
+    int.parse(hex.substring(offset, offset + 2), radix: 16),
+]);
 
 Future<void> main() async {
   final vectors = await readAssetVectors();
+  for (final row in (vectors['id_vectors'] as List).cast<Map<String, dynamic>>()) {
+    final id = BigInt.from(row['asset_id'] as int);
+    final encoded = scaleBytes(row['scale_hex'] as String);
+    test('资产编号保持 u32 金标：$id', () {
+      expect(CitizenScale.unsigned(id, 4), encoded);
+      expect(CitizenScale.readUnsigned(encoded, 0, 4), id);
+    });
+  }
+  test('资产编号从非零偏移读取，不消费前后字段', () {
+    final storage = Uint8List.fromList([255, 0, 1, 0, 0, 255]);
+    expect(CitizenScale.readUnsigned(storage, 1, 4), BigInt.from(256));
+  });
   final contract = vectors['contract'] as Map<String, dynamic>;
   test('资产调用编号、动作与精度沿固定链合同，留洞不复用', () {
     expect(

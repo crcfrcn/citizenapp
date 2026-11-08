@@ -1,8 +1,9 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
+
 import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 import 'package:citizen_user/identity/voting_identity_payload.dart';
 
 /// 公民实际签名覆盖的完整授权字节(与链端 `CitizenIdentityAuthorization` 一致):
@@ -128,7 +129,7 @@ void main() {
       expect(decoded.accountId, '0x${'aa' * 32}');
       expect(
         decoded.accountAddress,
-        Keyring().encodeAddress(List.filled(32, 0xaa), 2027),
+        citizenSs58FromAccountIdBytes(List.filled(32, 0xaa)),
       );
       expect(decoded.statusNormal, isTrue);
       expect(decoded.provinceCode, '11');

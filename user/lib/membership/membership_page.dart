@@ -9,8 +9,6 @@ import 'package:provider/provider.dart';
 import 'package:citizen_square/compose/square_chain_service.dart';
 import 'package:citizen_user/identity/square_session_provider.dart';
 import 'package:citizen_user/square_api_client.dart';
-import 'package:citizen_user/creator/creator_money.dart'
-    show fenToYuanMoneyLabel;
 import 'package:citizen_user/membership/membership_detail_page.dart';
 import 'package:citizen_user/membership/membership_revision.dart';
 import 'package:citizen_user/membership/subscription_service.dart';
@@ -466,9 +464,8 @@ class _MembershipPageState extends State<MembershipPage>
     if (_busy) return;
     if (_data.accountId.isEmpty) {
       final message = _sessionStatus?.message ?? '会员状态尚未就绪，请稍后重试';
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
       return;
     }
     // 动作仍复核当前 CID；未注册时返回页面内统一引导，不由动作直接弹面板。
@@ -516,15 +513,13 @@ class _MembershipPageState extends State<MembershipPage>
       await _load();
       if (!mounted) return;
       if (_subscriptionService.mirrorSyncPending) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('链上订阅已生效，会员权益正在同步')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('链上订阅已生效，会员权益正在同步')));
       }
     } on SubscriptionException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(e.message)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -660,6 +655,13 @@ class _MembershipPageState extends State<MembershipPage>
             key: const ValueKey('membership-load-failure-banner'),
             message: _loadFailure!,
             onRetry: _retryLoad,
+          ),
+        if (state.cleanupAfter case final deadline?)
+          ListTile(
+            title: const Text('会员存储超额'),
+            subtitle: Text(
+              '请在 ${MaterialLocalizations.of(context).formatMediumDate(DateTime.fromMillisecondsSinceEpoch(deadline))} ${MaterialLocalizations.of(context).formatTimeOfDay(TimeOfDay.fromDateTime(DateTime.fromMillisecondsSinceEpoch(deadline)))} 前降低存储用量或恢复会员，届时服务端将回收超额内容。',
+            ),
           ),
         if (state.hasSubscriptionWindow) _ActiveMembershipBanner(state: state),
         Expanded(
@@ -1114,7 +1116,7 @@ class _MembershipTierCard extends StatelessWidget {
             ),
             SizedBox(width: AppLayout.scaledValue(6)),
             Text(
-              priceFen == null ? '—' : fenToYuanMoneyLabel(priceFen),
+              priceFen == null ? '—' : '${formatFen(BigInt.from(priceFen))} 元',
               style: TextStyle(
                 color: onTier,
                 fontSize: AppLayout.scaledValue(17),

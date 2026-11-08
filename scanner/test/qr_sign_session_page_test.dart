@@ -44,12 +44,29 @@ CitizenQrDocument _request({int? expiresAt}) => CitizenQrDocument(
 
 void main() {
   final core = TestCitizenSdkHarness();
+  late CitizenQrScanResult response;
+  setUp(() async {
+    final encoded = await core.sdk.encodeDocument(
+      CitizenQrContent.signResponse(
+        requestId: _requestId,
+        expiresAt: BigInt.from(
+          DateTime.now().millisecondsSinceEpoch ~/ 1000 + 120,
+        ),
+        signerAccountId: _account,
+        signature: Uint8List(64),
+      ),
+    );
+    response = await core.sdk.parseForPurpose(
+      encoded.canonicalText,
+      CitizenQrScanPurpose.externalSignature,
+    );
+  });
   Future<void> open(
     WidgetTester tester,
     _Validation qr, {
     int? expiresAt,
     required ValueChanged<String?> completed,
-    Future<String?> Function(BuildContext, CitizenQrKind)? scan,
+    Future<CitizenQrScanResult?> Function(BuildContext)? scan,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -67,12 +84,7 @@ void main() {
                         requestData: request.canonicalText,
                         qr: core.sdk,
                         responseValidator: qr.validateSignResponse,
-                        scanResponse:
-                            scan ??
-                            (_, kind) async {
-                              expect(kind, CitizenQrKind.signResponse);
-                              return 'synthetic-response';
-                            },
+                        scanResponse: scan ?? (_) async => response,
                       ),
                     ),
                   ),
@@ -107,7 +119,7 @@ void main() {
     qr.reject = false;
     await tester.tap(find.text('扫描响应'));
     await tester.pumpAndSettle();
-    expect(qr.responses, ['synthetic-response', 'synthetic-response']);
+    expect(qr.responses, [response.canonicalText, response.canonicalText]);
     expect(completed, isTrue);
     expect(find.byType(QrSignSessionPage), findsNothing);
   });
@@ -118,8 +130,8 @@ void main() {
     await open(tester, qr, completed: (value) => result = value);
     await tester.tap(find.text('扫描响应'));
     await tester.pumpAndSettle();
-    expect(result, 'synthetic-response');
-    expect(qr.responses, ['synthetic-response']);
+    expect(result, response.canonicalText);
+    expect(qr.responses, [response.canonicalText]);
   });
 
   testWidgets('原取消返回null，不调用预检', (tester) async {
@@ -139,7 +151,7 @@ void main() {
       tester,
       qr,
       completed: (_) => completed = true,
-      scan: (_, _) async => null,
+      scan: (_) async => null,
     );
     await tester.tap(find.text('扫描响应'));
     await tester.pumpAndSettle();

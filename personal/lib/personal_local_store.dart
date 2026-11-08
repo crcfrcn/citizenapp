@@ -1,8 +1,10 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
+
 import 'dart:convert';
+
 import 'package:isar_community/isar.dart';
 import 'package:citizen_storage/user_isar.dart';
 import 'package:citizen_citizen/administrators/admin_account.dart';
-import 'package:citizen_citizen/account_derivation.dart';
 
 // 个人多签业务快照由交易包拥有，存储包只提供原实体和事务。
 /// 多签账户本地状态快照。
@@ -73,7 +75,7 @@ class MultisigLocalDetailSnapshot {
             accountId.isEmpty ||
             familyName.isEmpty ||
             givenName.isEmpty ||
-            !isAccountIdText(accountId) ||
+            !isCitizenAccountId(accountId) ||
             !accountIds.add(accountId)) {
           return null;
         }
@@ -211,10 +213,9 @@ class PersonalMultisigLocalState {
   }
 
   static String _requireAccountId(String accountId) {
-    if (!isAccountIdText(accountId)) {
+    if (!isCitizenAccountId(accountId)) {
       throw const FormatException('account_id 必须为小写 0x + 64 位十六进制');
     }
     return accountId;
   }
 }
-

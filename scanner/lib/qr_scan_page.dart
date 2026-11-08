@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 import 'package:citizen_scanner/scanner.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:citizen_system/theme/app_theme.dart';
-import 'package:citizen_scanner/qr_router.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
 /// 扫码结果：收款码预填数据。
@@ -28,7 +27,7 @@ class QrScanTransferResult {
 
 /// 扫码模式。
 enum QrScanMode {
-  /// 冷导入专用；SDK限定账户码，不回退业务码解析器。
+  /// 冷导入专用，返回 SDK 限定的账户码结果。
   coldAccountImport,
 
   /// 扫码支付：按当前入口只识别 QR_V1 收款码、用户码与账户码。
@@ -37,17 +36,16 @@ enum QrScanMode {
   /// 扫码添加好友：仅识别用户码。
   contact,
 
-  /// 账户目标入口：只返回用户码或账户码的 QR_V1 原文。
+  /// 账户目标入口，返回 SDK 识别的用户码或账户码。
   accountTarget,
 
-  /// 签名入口：只返回签名请求码的 QR_V1 原文。
+  /// 签名入口，返回 SDK 识别的签名请求。
   signRequest,
 
-  /// 需要自行处理用户资料的业务入口：只返回用户码的 QR_V1 原文。
+  /// 业务资料入口，返回 SDK 识别的用户码。
   userContactValue,
 
-  /// 统一「扫一扫」：按协议分类后交调用方分派——收款码/用户码/账户码 pop
-  /// [QrScanTransferResult]（走支付）；signRequest pop 原始字符串（走签名）；未来类型再加。
+  /// 统一「扫一扫」，支付返回 [QrScanTransferResult]，签名返回 [CitizenQrScanResult]。
   dispatch,
 }
 
@@ -70,7 +68,7 @@ class QrScanPage extends StatefulWidget {
   /// 扫码模式。
   final QrScanMode mode;
 
-  /// 如果已扫码，可直接传入原始字符串跳过扫码步骤。
+  /// 原始文本入口，由 SDK 解析后走同一页面处理路径。
   final String? initialCode;
 
   /// 自定义标题（为 null 时使用默认标题）。
@@ -79,8 +77,6 @@ class QrScanPage extends StatefulWidget {
   /// 测试注入；正式运行使用统一加密通讯录服务。
   final Future<bool> Function(CitizenQrDocument)? importContact;
   final String Function(Object)? contactErrorMessage;
-
-  /// 测试注入；正式运行通过链上双向绑定把二维码账户解析为永久 CID。
 
   /// CitizenSDK QR 公开端口；仅测试可注入，生产从根 Provider 读取同一实例。
   final CitizenSdk? qr;
@@ -99,10 +95,9 @@ class _QrScanPageState extends State<QrScanPage> {
       widget.mode == QrScanMode.coldAccountImport
       ? CitizenQrScanPurpose.coldAccountImport
       : CitizenQrScanPurpose.generalScan;
-  final QrRouter _router = QrRouter();
   bool _handled = false;
   bool _torchOn = false;
-  // 本页正在 pop/dispose 时置真，阻止 _handleCode 的 finally 重启相机（避免与 dispose 竞态）。
+  // 页面关闭时置真，阻止结果处理结束后重启相机。
   bool _closing = false;
 
   @override
@@ -110,7 +105,9 @@ class _QrScanPageState extends State<QrScanPage> {
     super.initState();
     final code = widget.initialCode;
     if (code != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _handleCode(code));
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_handleResult(_parseInitialCode(code)));
+      });
     }
   }
 
@@ -131,7 +128,7 @@ class _QrScanPageState extends State<QrScanPage> {
         );
       }
       if (!mounted || _closing) return;
-      await _handleCode(results.first.canonicalText);
+      await _handleResult(results.first);
     } on ScannerFailure catch (failure) {
       _showScannerFailure(failure);
     } on CitizenSdkException catch (error) {
@@ -158,8 +155,16 @@ class _QrScanPageState extends State<QrScanPage> {
     }
   }
 
-  Future<void> _handleCode(String raw) async {
-    if (_handled) {
+  Future<CitizenQrScanResult?> _parseInitialCode(String code) async {
+    try {
+      return await _qr.parseForPurpose(code, _capturePurpose);
+    } on CitizenSdkException {
+      return null;
+    }
+  }
+
+  Future<void> _handleResult(FutureOr<CitizenQrScanResult?> input) async {
+    if (_handled || _closing) {
       return;
     }
     _handled = true;
@@ -168,72 +173,51 @@ class _QrScanPageState extends State<QrScanPage> {
     try {
       await _capture?.pause();
       if (!mounted || _closing) return;
-      if (widget.mode == QrScanMode.coldAccountImport) {
-        try {
-          final result = await (widget.qr ?? context.read<CitizenSdk>())
-              .parseForPurpose(raw, CitizenQrScanPurpose.coldAccountImport);
-          if (mounted) _popPage(result.canonicalText);
-        } on CitizenSdkException {
+      final result = await input;
+      if (!mounted || _closing) return;
+      // SDK 已识别码型。这里只决定当前页面的交互和返回值。
+      switch ((widget.mode, result?.document.kind)) {
+        case (
+          QrScanMode.coldAccountImport || QrScanMode.accountTarget,
+          CitizenQrKind.accountId,
+        ):
+        case (
+          QrScanMode.accountTarget || QrScanMode.userContactValue,
+          CitizenQrKind.userContact,
+        ):
+        case (
+          QrScanMode.signRequest || QrScanMode.dispatch,
+          CitizenQrKind.signRequest,
+        ):
+          _popPage(result);
+        case (QrScanMode.coldAccountImport, _):
           await _showExpectedCode('请扫描账户码');
-        }
-        return;
-      }
-      final sdkDocument = await _parseSdkDocument(raw);
-      if (sdkDocument != null && await _handleSdkDocument(raw, sdkDocument)) {
-        return;
-      }
-      final result = _router.route(raw: raw, document: sdkDocument);
-
-      switch (widget.mode) {
-        case QrScanMode.coldAccountImport:
-          await _showExpectedCode('请扫描账户码');
-        case QrScanMode.transfer:
-          // 扫码支付只接受 QR_V1 收款码 / 用户码 / 账户码。
-          // (多签发现走反向索引)
-          if (result.type == QrRouteType.userTransfer) {
-            _handleTransfer(result);
-          } else if (result.type == QrRouteType.userContact) {
-            _handleContactAsRecipient(result);
-          } else {
-            await _showUnrecognized();
-          }
-        case QrScanMode.contact:
-          // 通讯录关系必须锚永久 CID,只有用户码携带 CID。
-          // 账户码与收款码只声明账户/一笔收款,不得写入通讯录。
-          if (result.type == QrRouteType.userContact) {
-            await _handleContact(result);
-          } else if (result.type == QrRouteType.userTransfer) {
-            await _showNotAContactCode();
-          } else {
-            await _showUnrecognized();
-          }
-        case QrScanMode.accountTarget:
-          if (result.type == QrRouteType.userContact) {
-            if (!mounted) return;
-            _popPage(raw);
-          } else {
-            await _showExpectedCode('请扫描用户码或账户码');
-          }
-        case QrScanMode.signRequest:
+        case (
+          QrScanMode.transfer || QrScanMode.dispatch,
+          CitizenQrKind.accountId || CitizenQrKind.userContact,
+        ):
+          _popPage(QrScanTransferResult(toAddress: result!.ss58Address!));
+        case (
+          QrScanMode.transfer || QrScanMode.dispatch,
+          CitizenQrKind.userTransfer,
+        ):
+          _handleTransfer(result!);
+        case (QrScanMode.transfer, CitizenQrKind.signRequest):
+          await _showSignRequestNotHere();
+        case (QrScanMode.contact, CitizenQrKind.userContact):
+          await _handleContact(result!.document);
+        case (
+          QrScanMode.contact,
+          CitizenQrKind.accountId || CitizenQrKind.userTransfer,
+        ):
+        case (QrScanMode.userContactValue, _):
+          await _showNotAContactCode();
+        case (QrScanMode.accountTarget, _):
+          await _showExpectedCode('请扫描用户码或账户码');
+        case (QrScanMode.signRequest, _):
           await _showExpectedCode('请扫描签名请求二维码');
-        case QrScanMode.userContactValue:
-          if (result.type == QrRouteType.userContact) {
-            if (!mounted) return;
-            _popPage(raw);
-          } else {
-            await _showNotAContactCode();
-          }
-        case QrScanMode.dispatch:
-          // 统一扫一扫:收款/用户/账户码→支付结果;signRequest→原始串交调用方签名。
-          if (result.type == QrRouteType.userTransfer) {
-            _handleTransfer(result);
-          } else if (result.type == QrRouteType.userContact) {
-            // 扫一扫扫到用户码 = 按收款人进入转账;
-            // 加好友走 contact 模式扫同一张用户码,按扫描场景分流。
-            _handleContactAsRecipient(result);
-          } else {
-            await _showUnrecognized();
-          }
+        default:
+          await _showUnrecognized();
       }
     } catch (e) {
       if (!mounted) {
@@ -266,64 +250,6 @@ class _QrScanPageState extends State<QrScanPage> {
     }
   }
 
-  Future<CitizenQrDocument?> _parseSdkDocument(String raw) async {
-    try {
-      return await (widget.qr ?? context.read<CitizenSdk>()).parseQr(raw);
-    } on CitizenSdkException {
-      return null;
-    }
-  }
-
-  Future<bool> _handleSdkDocument(
-    String raw,
-    CitizenQrDocument document,
-  ) async {
-    if (document.kind == CitizenQrKind.accountId &&
-        document.accountId != null) {
-      switch (widget.mode) {
-        case QrScanMode.transfer || QrScanMode.dispatch:
-          _popPage(
-            QrScanTransferResult(
-              toAddress: citizenSs58FromAccountId(document.accountId!),
-            ),
-          );
-          return true;
-        case QrScanMode.accountTarget || QrScanMode.coldAccountImport:
-          _popPage(raw);
-          return true;
-        case QrScanMode.contact || QrScanMode.userContactValue:
-          await _showNotAContactCode();
-          return true;
-        case QrScanMode.signRequest:
-          await _showExpectedCode('请扫描签名请求二维码');
-          return true;
-      }
-    }
-    if (document.kind == CitizenQrKind.signRequest) {
-      switch (widget.mode) {
-        case QrScanMode.signRequest || QrScanMode.dispatch:
-          _popPage(raw);
-          return true;
-        case QrScanMode.coldAccountImport:
-          await _showExpectedCode('请扫描账户码');
-          return true;
-        case QrScanMode.transfer:
-          await _showSignRequestNotHere();
-          return true;
-        case QrScanMode.accountTarget:
-          await _showExpectedCode('请扫描用户码或账户码');
-          return true;
-        case QrScanMode.contact:
-          await _showUnrecognized();
-          return true;
-        case QrScanMode.userContactValue:
-          await _showNotAContactCode();
-          return true;
-      }
-    }
-    return false;
-  }
-
   /// 设备层只报告相机、权限或图片识别失败；码型错误仍由当前业务入口解释。
   void _showScannerFailure(ScannerFailure failure) {
     if (!mounted || _closing || _failureNotice != null) return;
@@ -348,7 +274,7 @@ class _QrScanPageState extends State<QrScanPage> {
     _failureNotice = null;
   }
 
-  /// 页级返回：先置 _closing，让 _handleCode 的 finally 不再重启相机
+  /// 页级返回：先置 _closing，让结果处理结束后不再重启相机
   /// （本页正在 pop/dispose，重启相机会与 dispose 竞争抛错）。
   void _popPage([Object? result]) {
     _closing = true;
@@ -357,14 +283,11 @@ class _QrScanPageState extends State<QrScanPage> {
   }
 
   // 收款码
-  void _handleTransfer(QrRouteResult result) {
-    if (!mounted) {
-      return;
-    }
-    final body = result.document!;
+  void _handleTransfer(CitizenQrScanResult result) {
+    final body = result.document;
     _popPage(
       QrScanTransferResult(
-        toAddress: citizenSs58FromAccountId(body.accountId!),
+        toAddress: result.ss58Address!,
         amount: body.amount!.isEmpty ? null : body.amount,
         symbol: body.symbol!.isEmpty ? null : body.symbol,
         memo: body.memo!.isEmpty ? null : body.memo,
@@ -373,22 +296,9 @@ class _QrScanPageState extends State<QrScanPage> {
     );
   }
 
-  void _handleContactAsRecipient(QrRouteResult result) {
-    if (!mounted) return;
-    final body = result.document!;
-    // 用户码只声明账户,展示地址在本机由 account_id 派生。
-    _popPage(
-      QrScanTransferResult(
-        toAddress: citizenSs58FromAccountId(body.accountId!),
-      ),
-    );
-  }
-
   // 用户码
-  Future<void> _handleContact(QrRouteResult result) async {
-    if (!mounted) return;
+  Future<void> _handleContact(CitizenQrDocument body) async {
     try {
-      final body = result.document!;
       final importer = widget.importContact;
       if (importer == null) throw StateError('联系人导入动作未装配');
       final created = await importer(body);
@@ -545,7 +455,7 @@ class _QrScanPageState extends State<QrScanPage> {
                 _capture = capture;
                 if (_handled || _closing) unawaited(capture?.pause());
               },
-              onRawValue: (raw) => unawaited(_handleCode(raw)),
+              onResult: (result) => unawaited(_handleResult(result)),
               // 已接收码后，设备的延迟错误不能覆盖当前业务处理结果。
               onFailure: (failure) {
                 if (!_handled) _showScannerFailure(failure);

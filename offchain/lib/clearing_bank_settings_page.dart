@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -18,15 +20,12 @@ class ClearingBankSettingsPage extends StatefulWidget {
   const ClearingBankSettingsPage({
     super.key,
     required this.accountId,
-    required this.accountAddress,
     this.directory,
   });
 
   /// 该账户链账户主键(0x+64hex):绑定缓存键、按账户签名。
   final String accountId;
 
-  /// 该账户 SS58 地址(绑定/切换 extrinsic 来源地址)。
-  final String accountAddress;
   final ClearingBankDirectory? directory;
 
   @override
@@ -40,10 +39,13 @@ class _ClearingBankSettingsPageState extends State<ClearingBankSettingsPage> {
   late final ClearingBankDirectory _directory;
   bool _dependenciesReady = false;
 
+  String? _currentCid;
   ClearingBankBindingSnapshot? _current;
   List<ClearingBankCandidate> _items = const [];
-  bool _loadingCurrent = true;
+  bool _loadingCurrent = false;
+  int _bindingRead = 0;
   bool _searching = false;
+  String? _bindingError;
   String? _error;
 
   @override
@@ -52,7 +54,7 @@ class _ClearingBankSettingsPageState extends State<ClearingBankSettingsPage> {
     if (widget.directory != null) {
       _directory = widget.directory!;
       _dependenciesReady = true;
-      _loadCurrent();
+      unawaited(_loadCurrent());
     }
   }
 
@@ -62,7 +64,17 @@ class _ClearingBankSettingsPageState extends State<ClearingBankSettingsPage> {
     if (_dependenciesReady) return;
     _directory = ClearingBankDirectory(chain: context.read<CitizenSdk>());
     _dependenciesReady = true;
-    _loadCurrent();
+    unawaited(_loadCurrent());
+  }
+
+  @override
+  void didUpdateWidget(covariant ClearingBankSettingsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.accountId == widget.accountId) return;
+    _currentCid = null;
+    _current = null;
+    _loadingCurrent = false;
+    unawaited(_loadCurrent());
   }
 
   @override
@@ -72,12 +84,31 @@ class _ClearingBankSettingsPageState extends State<ClearingBankSettingsPage> {
   }
 
   Future<void> _loadCurrent() async {
-    final snapshot = await ClearingBankPrefs.loadSnapshot(widget.accountId);
-    if (!mounted) return;
+    if (_loadingCurrent) return;
+    final accountId = widget.accountId;
+    final read = ++_bindingRead;
+    bool isCurrent() => mounted && read == _bindingRead;
     setState(() {
-      _current = snapshot;
-      _loadingCurrent = false;
+      _loadingCurrent = true;
+      _bindingError = null;
     });
+    try {
+      final cid = await _directory.fetchUserBankCid(accountId);
+      if (!isCurrent()) return;
+      final snapshot = cid == null
+          ? null
+          : await ClearingBankPrefs.loadSnapshot(accountId)
+                .onError((_, _) => null);
+      if (!isCurrent()) return;
+      setState(() {
+        _currentCid = cid;
+        _current = snapshot?.cidNumber == cid ? snapshot : null;
+      });
+    } catch (e) {
+      if (isCurrent()) setState(() => _bindingError = '读取当前绑定失败：$e');
+    } finally {
+      if (isCurrent()) setState(() => _loadingCurrent = false);
+    }
   }
 
   Future<void> _search() async {
@@ -98,20 +129,30 @@ class _ClearingBankSettingsPageState extends State<ClearingBankSettingsPage> {
   }
 
   Future<void> _openBind(ClearingBankCandidate item) async {
-    final current = _current;
-    final isSwitch = current != null && current.cidNumber != item.cidNumber;
+    if (_loadingCurrent) return;
+    final accountId = widget.accountId;
+    final reload = _loadCurrent();
+    final read = _bindingRead;
+    await reload;
+    if (!mounted ||
+        read != _bindingRead ||
+        widget.accountId != accountId ||
+        _bindingError != null ||
+        _currentCid == item.cidNumber) {
+      return;
+    }
+    final isSwitch = _currentCid != null;
     final changed = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (_) => BindClearingBankPage(
-          accountId: widget.accountId,
-          accountAddress: widget.accountAddress,
+          accountId: accountId,
           bank: item,
           switchMode: isSwitch,
         ),
       ),
     );
-    if (changed == true) {
+    if (mounted && widget.accountId == accountId && changed == true) {
       await _loadCurrent();
     }
   }
@@ -160,26 +201,38 @@ class _ClearingBankSettingsPageState extends State<ClearingBankSettingsPage> {
         title: Text('正在读取当前绑定'),
       );
     }
-    final current = _current;
-    if (current == null) {
+    final error = _bindingError;
+    if (error != null) {
+      return ListTile(
+        title: Text(error),
+        trailing: TextButton(onPressed: _loadCurrent, child: const Text('重试')),
+      );
+    }
+    final cid = _currentCid;
+    if (cid == null) {
       return const ListTile(
         leading: Icon(Icons.account_balance_outlined),
         title: Text('尚未绑定清算行'),
         subtitle: Text('搜索已加入清算网络的机构后绑定'),
       );
     }
+    final current = _current;
     return ListTile(
       leading: const Icon(Icons.account_balance),
-      title: Text(current.displayTitle),
-      subtitle: Text('${current.cidNumber}\n${current.wssUrl}'),
-      isThreeLine: true,
-      trailing: TextButton(
-        onPressed: () async {
-          await ClearingBankPrefs.clear(widget.accountId);
-          await _loadCurrent();
-        },
-        child: const Text('清除缓存'),
-      ),
+      title: Text(current?.displayTitle ?? '当前清算行'),
+      subtitle: Text(cid),
+      trailing: current == null
+          ? null
+          : TextButton(
+              onPressed: () async {
+                final accountId = widget.accountId;
+                await ClearingBankPrefs.clear(accountId);
+                if (mounted && widget.accountId == accountId) {
+                  await _loadCurrent();
+                }
+              },
+              child: const Text('清除缓存'),
+            ),
     );
   }
 
@@ -216,9 +269,13 @@ class _ClearingBankSettingsPageState extends State<ClearingBankSettingsPage> {
   Widget _candidateTile(ClearingBankCandidate item) {
     final endpoint = item.endpoint;
     final title = item.displayTitle.isEmpty ? '(未设置全称)' : item.displayTitle;
-    final current = _current;
-    final isCurrent = current?.cidNumber == item.cidNumber;
-    final buttonText = isCurrent ? '已绑定' : (current == null ? '绑定' : '切换');
+    final isCurrent = _currentCid == item.cidNumber;
+    final ready = !_loadingCurrent && _bindingError == null;
+    final buttonText = !ready
+        ? '待核对'
+        : isCurrent
+        ? '已绑定'
+        : (_currentCid == null ? '绑定' : '切换');
 
     return ListTile(
       leading: const Icon(Icons.verified_outlined, color: Colors.green),
@@ -226,7 +283,7 @@ class _ClearingBankSettingsPageState extends State<ClearingBankSettingsPage> {
       subtitle: Text('${item.cidNumber}\n${endpoint.wssUrl}'),
       isThreeLine: true,
       trailing: FilledButton(
-        onPressed: !isCurrent ? () => _openBind(item) : null,
+        onPressed: ready && !isCurrent ? () => _openBind(item) : null,
         child: Text(buttonText),
       ),
     );

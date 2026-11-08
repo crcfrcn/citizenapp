@@ -1,11 +1,9 @@
-import 'package:citizen_wallet/core/account_balance_snapshot_store.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:citizen_citizen/administrators/account_id_codec.dart';
 import 'package:citizen_citizen/administrators/admin_account.dart';
 import 'package:citizen_citizen/administrators/admin_set_change_confirm_page.dart';
 import 'package:citizen_citizen/administrators/admin_set_change_service.dart';
@@ -42,7 +40,7 @@ class _AdminsChangePageState extends State<AdminsChangePage> {
   final _thresholdController = TextEditingController();
   AdminAccountState? _subject;
   List<AdminPerson> _admins = const [];
-  Map<String, double> _balanceByAccountId = const {};
+  Map<String, BigInt> _balanceByAccountId = const {};
   CitizenWalletStateAccount? _selectedWallet;
   bool _loading = true;
   bool _submitting = false;
@@ -179,12 +177,12 @@ class _AdminsChangePageState extends State<AdminsChangePage> {
       return;
     }
     try {
-      final snapshots = await AccountBalanceSnapshotStore.forChain(
-        context.read<CitizenSdk>(),
-      ).getAccountBalances(accountIds);
-      final balances = <String, double>{
-        for (final snapshot in snapshots)
-          snapshot.accountId: snapshot.freeFen.toDouble() / 100,
+      final snapshots = await context.read<CitizenSdk>().getAccountBalances(
+        accountIds,
+        forceRefresh: false,
+      );
+      final balances = <String, BigInt>{
+        for (final snapshot in snapshots) snapshot.accountId: snapshot.freeFen,
       };
       if (mounted) setState(() => _balanceByAccountId = balances);
     } catch (_) {
@@ -254,9 +252,7 @@ class _AdminsChangePageState extends State<AdminsChangePage> {
         account: account,
         admins: validated.admins,
         newThreshold: validated.threshold,
-        signerPublicKey: AdminAccountIdCodec.fromAccountIdText(
-          wallet.accountId,
-        ),
+        signerPublicKey: citizenAccountIdBytes(wallet.accountId),
         externalSigning: (pending) => showCitizenSdkQrResponse(
           context,
           request: pending.qrRequest,

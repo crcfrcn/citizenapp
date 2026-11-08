@@ -23,7 +23,16 @@ class _RecipientService extends OnchainPaymentService {
   _RecipientService(this.recipient);
   final String recipient;
   String? input;
+  BigInt? quotedAmountFen;
   int preparations = 0;
+  CitizenBlockRef? remarkBlock;
+
+  @override
+  Future<int> readRemarkLimit(CitizenBlockRef block) async {
+    remarkBlock = block;
+    return 3;
+  }
+
   @override
   Future<OnchainRecipient> resolveRecipient({
     required String address,
@@ -31,6 +40,24 @@ class _RecipientService extends OnchainPaymentService {
   }) async {
     input = address;
     return OnchainRecipient(address: recipient);
+  }
+
+  @override
+  Future<CitizenFeeSnapshot> quoteFee(BigInt amountFen) async {
+    quotedAmountFen = amountFen;
+    return CitizenFeeSnapshot(
+      bestBlock: CitizenBlockRef(
+        hash: '0x${'11' * 32}',
+        number: BigInt.one,
+        finality: CitizenBlockFinality.best,
+      ),
+      feeRateParts: 1000000,
+      minimumFeeFen: BigInt.from(17),
+      existentialDepositFen: BigInt.from(135),
+      voteFeeFen: BigInt.from(100),
+      feeFen: BigInt.from(17),
+      minimumSelfPayFen: BigInt.from(152),
+    );
   }
 
   @override
@@ -109,7 +136,7 @@ void main() {
             address: 'wallet_a',
             accountId: _walletAAccountId,
           ),
-          balanceLoader: (_) async => 100,
+          balanceLoader: (_) async => BigInt.from(10000),
           localRecordsLoader: (_, {limit = 100}) async => const [],
         ),
       ),
@@ -145,13 +172,26 @@ void main() {
       find.byWidgetPredicate(
         (w) => w is TextField && w.decoration?.hintText == '请输入金额',
       ),
-      '2',
+      '2.03',
     );
     final submit = find.widgetWithText(FilledButton, '签名交易');
+    final remark = find.widgetWithText(TextField, '请输入转账备注（选填）');
+    await tester.enterText(remark, '测试');
+    await tester.ensureVisible(submit);
+    await tester.tap(submit);
+    await _pumpUntilFound(tester, find.text('转账备注不能超过 3 字节，当前 6 字节'));
+    expect(find.text('转账备注不能超过 3 字节，当前 6 字节'), findsOneWidget);
+    expect(find.text('确认交易'), findsNothing);
+    expect(service.remarkBlock?.hash, '0x${'11' * 32}');
+    await tester.enterText(remark, '测');
     await tester.ensureVisible(submit);
     await tester.tap(submit);
     await _pumpUntilFound(tester, find.text('确认交易'));
     expect(service.input, address);
+    expect(service.quotedAmountFen, BigInt.from(203));
+    expect(find.text('转账金额：2.03 GMB'), findsOneWidget);
+    expect(find.text('预估手续费：0.17 GMB'), findsOneWidget);
+    expect(find.text('合计：2.20 GMB'), findsOneWidget);
     expect(find.text('以太坊地址：$address'), findsOneWidget);
     expect(find.text('收款账户：$recipient'), findsOneWidget);
     await tester.tap(find.widgetWithText(TextButton, '取消'));
@@ -172,7 +212,7 @@ void main() {
             address: 'wallet_a',
             accountId: _walletAAccountId,
           ),
-          balanceLoader: (_) async => 100,
+          balanceLoader: (_) async => BigInt.from(10000),
           localRecordsLoader: (_, {limit = 100}) async => const [],
         ),
       ),
@@ -220,7 +260,7 @@ void main() {
         home: TransactionTabPage(
           currentWalletLoader: () async => null,
           localRecordsLoader: (_, {limit = 100}) async => const [],
-          balanceLoader: (_) async => 0,
+          balanceLoader: (_) async => BigInt.zero,
           contactPageBuilder: (mode) {
             openedContactMode = mode;
             return const Scaffold(body: Text('通讯录测试页'));
@@ -311,7 +351,7 @@ void main() {
           home: OnchainPaymentPanel(
             title: '交易',
             currentWalletLoader: () async => current,
-            balanceLoader: (_) async => 100,
+            balanceLoader: (_) async => BigInt.from(10000),
             localRecordsLoader: (_, {limit = 100}) async => [],
             walletPicker: () async {
               if (pick == null) return null;
@@ -406,7 +446,7 @@ void main() {
         home: OnchainPaymentPanel(
           title: '交易',
           currentWalletLoader: () async => currentWallet,
-          balanceLoader: (_) async => 100,
+          balanceLoader: (_) async => BigInt.from(10000),
           localRecordsLoader: (accountId, {limit = 100}) async {
             final normalizedAccountId = LocalTxStore.requireAccountId(
               accountId,
@@ -473,7 +513,7 @@ void main() {
           ),
           balanceLoader: (id) async {
             balanceAccounts.add(id);
-            return 100;
+            return BigInt.from(10000);
           },
           localRecordsLoader: (id, {limit = 100}) async {
             recordAccounts.add(id);
@@ -509,7 +549,7 @@ void main() {
           title: '交易',
           initialToAddress: recipient,
           currentWalletLoader: () async => payer,
-          balanceLoader: (_) async => 100,
+          balanceLoader: (_) async => BigInt.from(10000),
           localRecordsLoader: (_, {limit = 100}) async => const [],
         ),
       ),
@@ -562,7 +602,7 @@ void main() {
             walletLoads++;
             return payer;
           },
-          balanceLoader: (_) async => 100,
+          balanceLoader: (_) async => BigInt.from(10000),
           localRecordsLoader: (_, {limit = 100}) async {
             recordLoads++;
             return const [];

@@ -143,7 +143,7 @@ class _RegisterIdentitySheetState extends State<RegisterIdentitySheet> {
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     return PopScope(
-      // 人验、链交易和结果上报期间不允许系统返回关闭面板；空闲时可主动取消。
+      // 人验和链交易期间不允许系统返回关闭面板；空闲时可主动取消。
       canPop: !_submitted,
       child: SafeArea(
         child: Padding(

@@ -2,11 +2,10 @@ import 'dart:typed_data';
 
 import 'package:polkadart/polkadart.dart' show Hasher;
 import 'package:substrate_metadata/substrate_metadata.dart' as metadata;
-import 'package:citizen_onchain/onchain_transfer_call.dart';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_sdk/test/platform/fixture.dart';
 import 'package:citizen_user/identity/citizen_identity_chain_reader.dart';
-import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_onchain/onchain_payment_models.dart';
 import 'package:citizen_onchain/onchain_payment_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -30,6 +29,12 @@ class _Reader extends CitizenIdentityChainReader {
 }
 
 void main() {
+  test('备注上限读取请求块中的 Runtime 常量，缺失时拒绝', () async {
+    final service = _ethereumService(metadataBytes: _mappingMetadata(remarkLimit: 6));
+    expect(await service.readRemarkLimit(_block), 6);
+    await expectLater(_ethereumService().readRemarkLimit(_block), throwsA(isA<CitizenSdkException>()));
+  });
+
   OnchainPaymentService service(_Reader reader) => (() {
     final reads0 = TestWalletReads();
     final reads1 = TestTransactionCalls();
@@ -42,10 +47,9 @@ void main() {
   })();
   test('Ethereum已有映射优先使用同块32字节账户', () async {
     final mapped = Uint8List.fromList(List.filled(32, 0xbb));
-    final recipient = await _ethereumService(
-      mapped: mapped,
-    ).resolveRecipient(address: _ethereum);
-    expect(recipient.address, ss58FromAccountId(mapped));
+    final recipient = await _ethereumService(mapped: mapped)
+        .resolveRecipient(address: _ethereum);
+    expect(recipient.address, citizenSs58FromAccountIdBytes(mapped));
     expect(recipient.blockHash, _block.hash);
   });
   test('无映射时补EE，0x与对应SS58生成完全相同的原交易调用', () async {
@@ -53,7 +57,7 @@ void main() {
       ..._ethereumBytes,
       ...List.filled(12, 0xee),
     ]);
-    final ss58 = ss58FromAccountId(expected);
+    final ss58 = citizenSs58FromAccountIdBytes(expected);
     for (final address in [
       _ethereum,
       _ethereum.toLowerCase(),
@@ -66,18 +70,58 @@ void main() {
       final native = await OnchainPaymentService().resolveRecipient(
         address: ss58,
       );
-      expect(
-        OnchainTransferCall.encode(
-          destinationSs58Address: recipient.address,
-          amountYuan: 2,
-          remark: '测试',
-        ),
-        OnchainTransferCall.encode(
-          destinationSs58Address: native.address,
-          amountYuan: 2,
-          remark: '测试',
-        ),
-      );
+      Future<Uint8List> encode(String address) async {
+        late Uint8List captured;
+        await _transferService(onCall: (call) => captured = call)
+            .prepareTransfer(_draft(address, remark: '测试'));
+        return captured;
+      }
+      expect(await encode(recipient.address), await encode(native.address));
+    }
+  });
+
+  test('转账调用保持原账户、u128 分和 UTF-8 备注的 SCALE 金标', () async {
+    late Uint8List call;
+    final destination = Uint8List.fromList(List<int>.filled(32, 0x11));
+    await _transferService(onCall: (value) => call = value).prepareTransfer(
+      _draft(citizenSs58FromAccountIdBytes(destination), remark: 'ab'),
+    );
+    expect(call, [4, 0, ...destination, 0x34, 0x12, ...List.filled(14, 0), 8, 0x61, 0x62]);
+  });
+
+  test('非法金额、地址和超长 UTF-8 备注在 SDK 准备前拒绝', () async {
+    final valid = citizenSs58FromAccountId('0x${'11' * 32}');
+    final service = _transferService(onCall: (_) => fail('非法草稿不得准备'));
+    for (final draft in [
+      _draft(valid, amount: BigInt.zero),
+      _draft('invalid'),
+      _draft(valid, remark: '测' * 34),
+    ]) {
+      await expectLater(service.prepareTransfer(draft), throwsA(isA<OnchainPaymentException>()));
+    }
+  });
+
+  test('SDK 准备回执的 Runtime 版本变化时释放句柄', () async {
+    final released = <String>[];
+    final service = _transferService(
+      preparedSpec: 2,
+      onCancel: (id) async { released.add(id); },
+    );
+    await expectLater(
+      service.prepareTransfer(_draft(citizenSs58FromAccountId('0x${'11' * 32}'))),
+      throwsA(isA<OnchainPaymentException>()),
+    );
+    expect(released, ['prepared']);
+  });
+
+  test('交易失败文案只使用真实步骤和一次原因', () {
+    for (final (step, code, message) in [
+      (OnchainPaymentStep.preparation, CitizenSdkErrorCode.decode, '交易准备失败：链上数据解析异常'),
+      (OnchainPaymentStep.execution, CitizenSdkErrorCode.network, '交易执行失败：区块链暂不可用'),
+      (OnchainPaymentStep.externalSignature, CitizenSdkErrorCode.cancelled, '交易签名失败：操作已取消'),
+      (OnchainPaymentStep.preparation, CitizenSdkErrorCode.internal, '交易准备失败：请稍后重试'),
+    ]) {
+      expect(onchainPaymentFailureText(step, code), message);
     }
   });
   test('无效0x、错误大小写校验和及32字节hex在读链前拒绝', () async {
@@ -97,9 +141,9 @@ void main() {
   test('SS58校验前缀、校验和和账户长度，无需读取链', () async {
     final account = Uint8List.fromList(List.filled(32, 0xbb));
     for (final address in [
-      ss58FromAccountId(account, ss58Prefix: 42),
+      '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
       'invalid',
-      '${ss58FromAccountId(account)}1',
+      '${citizenSs58FromAccountIdBytes(account)}1',
     ]) {
       await expectLater(
         OnchainPaymentService().resolveRecipient(address: address),
@@ -115,9 +159,8 @@ void main() {
     );
     for (final length in [0, 20, 31, 33]) {
       await expectLater(
-        _ethereumService(
-          mapped: Uint8List(length),
-        ).resolveRecipient(address: _ethereum),
+        _ethereumService(mapped: Uint8List(length))
+            .resolveRecipient(address: _ethereum),
         throwsFormatException,
       );
     }
@@ -180,11 +223,11 @@ void main() {
     );
     final reader = _Reader(binding);
     final target = await service(reader).resolveRecipient(
-      address: ss58FromAccountIdText('0x${'bb' * 32}'),
+      address: citizenSs58FromAccountId('0x${'bb' * 32}'),
       cidNumber: _cid,
     );
     expect(reader.reads, 1);
-    expect(target.address, ss58FromAccountIdText(binding.accountIdText));
+    expect(target.address, citizenSs58FromAccountId(binding.accountIdText));
     expect(target.cidNumber, _cid);
     expect(target.bindRev, 2);
     expect(target.blockHash, binding.block!.hash);
@@ -193,7 +236,7 @@ void main() {
     final reader = _Reader(null);
     await expectLater(
       service(reader).resolveRecipient(
-        address: ss58FromAccountIdText('0x${'bb' * 32}'),
+        address: citizenSs58FromAccountId('0x${'bb' * 32}'),
         cidNumber: _cid,
       ),
       throwsStateError,
@@ -202,7 +245,7 @@ void main() {
   });
   test('直接账户转账不解析CID', () async {
     final reader = _Reader(null);
-    final address = ss58FromAccountIdText('0x${'bb' * 32}');
+    final address = citizenSs58FromAccountId('0x${'bb' * 32}');
     expect(
       (await service(reader).resolveRecipient(address: address)).address,
       address,
@@ -216,7 +259,7 @@ void main() {
         OnchainPaymentDraft(
           sourceAccountId: '0x${'aa' * 32}',
           toAddress: 'changed',
-          amount: 1,
+          amountFen: BigInt.from(100),
           symbol: 'GMB',
           remark: '',
           recipient: const OnchainRecipient(
@@ -232,6 +275,38 @@ void main() {
 }
 
 const _ethereum = '0x6D66a0cB155051055F3FB3Cc73d9230D3Fb4D5B5';
+final _best = CitizenBlockRef(
+  hash: '0x${'22' * 32}', number: BigInt.one, finality: CitizenBlockFinality.best,
+);
+
+OnchainPaymentDraft _draft(String address, {BigInt? amount, String remark = ''}) =>
+    OnchainPaymentDraft(
+      sourceAccountId: testCitizenAccountId,
+      toAddress: address,
+      amountFen: amount ?? BigInt.from(0x1234),
+      symbol: 'GMB',
+      remark: remark,
+    );
+
+OnchainPaymentService _transferService({
+  void Function(Uint8List)? onCall,
+  Future<void> Function(String)? onCancel,
+  int preparedSpec = 1,
+}) => OnchainPaymentService(
+  getBestHead: () async => _best,
+  getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
+  getWalletState: () => testCitizenOperation(testCitizenWalletState),
+  prepareTransaction: (source, call) async {
+    onCall?.call(call);
+    return CitizenPreparedTransaction(
+      preparationId: 'prepared', sourceAccountId: source,
+      callDataHash: CitizenScale.blake2b256(call), bestBlock: _best,
+      runtimeSpecNumber: preparedSpec, transactionFormatNumber: 4, nonce: BigInt.zero,
+    );
+  },
+  cancelPreparedTransaction: onCancel,
+);
+
 final _block = CitizenBlockRef(
   hash: '0x${'11' * 32}',
   number: BigInt.from(9),
@@ -242,8 +317,9 @@ Uint8List _mappingMetadata({
   bool revive = true,
   bool mapping = true,
   metadata.StorageHasher hasher = metadata.StorageHasher.identity,
+  int? remarkLimit,
 }) {
-  final runtime = metadata.RuntimeMetadataV14(
+  final runtime = metadata.RuntimeMetadataV15(
     types: [
       metadata.PortableType(
         id: 0,
@@ -254,13 +330,35 @@ Uint8List _mappingMetadata({
           docs: [],
         ),
       ),
+      metadata.PortableType(
+        id: 1,
+        type: metadata.TypeMetadata(
+          path: [], params: [], docs: [],
+          typeDef: const metadata.TypeDefPrimitive(metadata.Primitive.U8),
+        ),
+      ),
+      metadata.PortableType(
+        id: 2,
+        type: metadata.TypeMetadata(
+          path: [], params: [], docs: [],
+          typeDef: const metadata.TypeDefArray(length: 20, type: 1),
+        ),
+      ),
+      metadata.PortableType(
+        id: 3,
+        type: metadata.TypeMetadata(
+          path: [], params: [], docs: [],
+          typeDef: const metadata.TypeDefPrimitive(metadata.Primitive.U32),
+        ),
+      ),
     ],
     pallets: [
       if (revive)
-        metadata.PalletMetadataV14(
+        metadata.PalletMetadata(
           name: 'Revive',
           index: 35,
           constants: [],
+          docs: [],
           storage: metadata.PalletStorageMetadata(
             prefix: 'Revive',
             entries: [
@@ -270,7 +368,7 @@ Uint8List _mappingMetadata({
                   modifier: metadata.StorageEntryModifier.optional,
                   type: metadata.StorageEntryType(
                     hashers: [hasher],
-                    key: 0,
+                    key: 2,
                     value: 0,
                   ),
                   defaultValue: [],
@@ -279,9 +377,24 @@ Uint8List _mappingMetadata({
             ],
           ),
         ),
+      if (remarkLimit != null)
+        metadata.PalletMetadata(
+          name: 'OnchainTransaction',
+          index: 4,
+          storage: null,
+          docs: [],
+          constants: [
+            metadata.PalletConstantMetadata(
+              name: 'MaxTransferRemarkLen',
+              type: 3,
+              value: (ByteData(4)..setUint32(0, remarkLimit, Endian.little))
+                  .buffer.asUint8List(),
+              docs: [],
+            ),
+          ],
+        ),
     ],
-    extrinsic: metadata.ExtrinsicMetadataV14(
-      type: 0,
+    extrinsic: metadata.ExtrinsicMetadata(
       version: 4,
       signedExtensions: [],
       addressType: 0,
@@ -290,6 +403,8 @@ Uint8List _mappingMetadata({
       extraType: 0,
     ),
     runtimeTypeId: 0,
+    apis: [],
+    custom: metadata.CustomMetadata(map: {}),
     outerEnums: metadata.OuterEnumMetadata(
       callType: 0,
       eventType: 0,
@@ -301,8 +416,8 @@ Uint8List _mappingMetadata({
     0x65,
     0x74,
     0x61,
-    14,
-    ...metadata.RuntimeMetadataV14.codec.encode(runtime),
+    15,
+    ...metadata.RuntimeMetadataV15.codec.encode(runtime),
   ]);
 }
 

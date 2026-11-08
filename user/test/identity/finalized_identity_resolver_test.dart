@@ -3,7 +3,9 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart' show ValueNotifier;
 
+import 'package:citizen_network/hex_codec.dart' show bytesToHex, hexToBytes;
 import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_sdk/test/platform/fixture.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:citizen_user/identity/citizen_identity_chain_reader.dart';
@@ -195,18 +197,10 @@ void main() {
     final cidScale = CitizenIdentityChainReader.encodeBoundedBytes(
       cidNumber.codeUnits,
     );
-    String key(String storageName, Uint8List data) =>
-        CitizenIdentityChainReader.hexEncode(
-          CitizenIdentityChainReader.storageMapKey(
-            'CitizenIdentity',
-            storageName,
-            data,
-          ),
-        );
     final chainRpc = _BindingChain(<String, Uint8List>{
-      key('AccountIdByCid', cidScale): accountId,
-      key('CidRegistry', cidScale): _activeCidRecord(),
-      key('BindingRevisionByCid', cidScale): Uint8List.fromList([
+      _identityKey('AccountIdByCid', cidScale): accountId,
+      _identityKey('CidRegistry', cidScale): _activeCidRecord(),
+      _identityKey('BindingRevisionByCid', cidScale): Uint8List.fromList([
         2,
         0,
         0,
@@ -216,18 +210,19 @@ void main() {
         0,
         0,
       ]),
-      key('CidByAccountId', accountId):
+      _identityKey('CidByAccountId', accountId):
           CitizenIdentityChainReader.encodeBoundedBytes(cidNumber.codeUnits),
     });
 
     final result = await CitizenIdentityChainReader(
+      getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
       getFinalizedHead: chainRpc.getFinalizedHead,
       getStorageBatch: chainRpc.getStorageBatch,
       getStorage: chainRpc.getStorage,
     ).readBindingByCidNumber(cidNumber);
 
     expect(result, isNotNull);
-    expect(result!.accountIdText, _accountIdText(accountId));
+    expect(result!.accountIdText, citizenAccountIdFromBytes(accountId));
     expect(result.bindRev, 2);
     expect(chainRpc.blockHashes.toSet(), {
       '0x${List<String>.filled(32, '00').join()}',
@@ -240,18 +235,10 @@ void main() {
     final cidScale = CitizenIdentityChainReader.encodeBoundedBytes(
       cidNumber.codeUnits,
     );
-    String key(String storageName, Uint8List data) =>
-        CitizenIdentityChainReader.hexEncode(
-          CitizenIdentityChainReader.storageMapKey(
-            'CitizenIdentity',
-            storageName,
-            data,
-          ),
-        );
     final chainRpc = _BindingChain(<String, Uint8List>{
-      key('AccountIdByCid', cidScale): accountId,
-      key('CidRegistry', cidScale): _activeCidRecord(),
-      key('BindingRevisionByCid', cidScale): Uint8List.fromList([
+      _identityKey('AccountIdByCid', cidScale): accountId,
+      _identityKey('CidRegistry', cidScale): _activeCidRecord(),
+      _identityKey('BindingRevisionByCid', cidScale): Uint8List.fromList([
         1,
         0,
         0,
@@ -261,11 +248,12 @@ void main() {
         0,
         0,
       ]),
-      key('CidByAccountId', accountId):
+      _identityKey('CidByAccountId', accountId):
           CitizenIdentityChainReader.encodeBoundedBytes('OTHER-CID'.codeUnits),
     });
 
     final result = await CitizenIdentityChainReader(
+      getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
       getFinalizedHead: chainRpc.getFinalizedHead,
       getStorageBatch: chainRpc.getStorageBatch,
       getStorage: chainRpc.getStorage,
@@ -276,7 +264,7 @@ void main() {
 
   group('CidRecord 解析', () {
     test('创世金标:居住省/市码为空的 Active 记录判 Active', () {
-      final record = _bytes(_genesisCidRecordHex);
+      final record = hexToBytes(_genesisCidRecordHex);
       expect(record.length, 67);
       expect(CitizenIdentityChainReader.cidRecordIsActive(record), isTrue);
     });
@@ -302,14 +290,14 @@ void main() {
     });
 
     test('status=Revoked 判非 Active', () {
-      final record = _bytes(_genesisCidRecordHex);
+      final record = hexToBytes(_genesisCidRecordHex);
       record[61] = 1; // CidRecordStatus::Revoked
       expect(CitizenIdentityChainReader.cidRecordIsActive(record), isFalse);
     });
 
     test('Active 却带撤销块号 → 自相矛盾判非 Active', () {
       final record = Uint8List.fromList([
-        ..._bytes(_genesisCidRecordHex).sublist(0, 66),
+        ...hexToBytes(_genesisCidRecordHex).sublist(0, 66),
         1, 9, 0, 0, 0, // revoked_at = Some(9)
       ]);
       expect(CitizenIdentityChainReader.cidRecordIsActive(record), isFalse);
@@ -318,7 +306,7 @@ void main() {
     test('布局截断上抛,绝不吞成非 Active', () {
       expect(
         () => CitizenIdentityChainReader.cidRecordIsActive(
-          _bytes(_genesisCidRecordHex).sublist(0, 62),
+          hexToBytes(_genesisCidRecordHex).sublist(0, 62),
         ),
         throwsA(isA<FormatException>()),
       );
@@ -327,7 +315,7 @@ void main() {
     test('尾随字节非法上抛', () {
       expect(
         () => CitizenIdentityChainReader.cidRecordIsActive(
-          Uint8List.fromList([..._bytes(_genesisCidRecordHex), 0]),
+          Uint8List.fromList([...hexToBytes(_genesisCidRecordHex), 0]),
         ),
         throwsA(isA<FormatException>()),
       );
@@ -336,29 +324,21 @@ void main() {
 
   group('创世匿名身份端到端', () {
     Map<String, Uint8List> genesisStorage() {
-      final accountId = _bytes(_genesisAccountId.substring(2));
+      final accountId = citizenAccountIdBytes(_genesisAccountId);
       final cidScale = CitizenIdentityChainReader.encodeBoundedBytes(
         _genesisCid.codeUnits,
       );
-      String key(String storageName, Uint8List data) =>
-          CitizenIdentityChainReader.hexEncode(
-            CitizenIdentityChainReader.storageMapKey(
-              'CitizenIdentity',
-              storageName,
-              data,
-            ),
-          );
       // VotingIdentityByCid / CandidateIdentityByCid 故意缺席 = 匿名已注册。
       return <String, Uint8List>{
-        key(
+        _identityKey(
           'CidByAccountId',
           accountId,
         ): CitizenIdentityChainReader.encodeBoundedBytes(
           _genesisCid.codeUnits,
         ),
-        key('AccountIdByCid', cidScale): accountId,
-        key('CidRegistry', cidScale): _bytes(_genesisCidRecordHex),
-        key('BindingRevisionByCid', cidScale): Uint8List.fromList([
+        _identityKey('AccountIdByCid', cidScale): accountId,
+        _identityKey('CidRegistry', cidScale): hexToBytes(_genesisCidRecordHex),
+        _identityKey('BindingRevisionByCid', cidScale): Uint8List.fromList([
           1,
           0,
           0,
@@ -375,6 +355,7 @@ void main() {
       final snapshot = await (() {
         final reads0 = _BindingChain(genesisStorage());
         return CitizenIdentityChainReader(
+          getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
           getFinalizedHead: reads0.getFinalizedHead,
           getStorageBatch: reads0.getStorageBatch,
           getStorage: reads0.getStorage,
@@ -395,6 +376,7 @@ void main() {
           chainReader: (() {
             final reads0 = _BindingChain(genesisStorage());
             return CitizenIdentityChainReader(
+              getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
               getFinalizedHead: reads0.getFinalizedHead,
               getStorageBatch: reads0.getStorageBatch,
               getStorage: reads0.getStorage,
@@ -428,13 +410,14 @@ Uint8List _activeCidRecord() => Uint8List.fromList([
   0, // revoked_at = None
 ]);
 
-Uint8List _bytes(String hex) => Uint8List.fromList([
-  for (var i = 0; i < hex.length; i += 2)
-    int.parse(hex.substring(i, i + 2), radix: 16),
-]);
-
-String _accountIdText(Uint8List bytes) =>
-    CitizenIdentityChainReader.hexEncode(bytes);
+String _identityKey(String storageName, Uint8List data) {
+  final key = [
+    ...CitizenScale.storagePrefix('CitizenIdentity', storageName),
+    ...CitizenScale.blake2b128(data),
+    ...data,
+  ];
+  return '0x${bytesToHex(key)}';
+}
 
 class _FakeWallet extends TestWalletReads {
   _FakeWallet(this.account);

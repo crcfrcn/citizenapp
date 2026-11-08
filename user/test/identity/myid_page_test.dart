@@ -735,8 +735,6 @@ class _RegisterFlowService extends _FakeMyIdService {
     );
   }
 
-  @override
-  Future<void> reportRegistration(FinalizedRegistration result) async {}
 
   @override
   Future<bool> canRetryRegistration(Map<String, dynamic>? checkpoint) async =>

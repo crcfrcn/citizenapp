@@ -70,7 +70,6 @@ class WalletDetailBody extends StatelessWidget {
         WalletActionCard(
           key: actionKey,
           accountId: account.accountId,
-          accountAddress: account.ss58Address,
           onTopupPaid: onRefresh,
         ),
         SizedBox(height: AppLayout.scaled(context, 24)),

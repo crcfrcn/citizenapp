@@ -1,18 +1,10 @@
 import 'package:citizen_user/identity/citizen_identity_chain_reader.dart';
-import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:pointycastle/digests/keccak.dart' show KeccakDigest;
-import 'package:polkadart/polkadart.dart' show Hasher;
-import 'package:polkadart/scale_codec.dart' show ByteInput;
-import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
-import 'package:substrate_metadata/substrate_metadata.dart' as metadata;
-
 import 'package:citizen_onchain/onchain_payment_models.dart';
-import 'package:citizen_onchain/onchain_transfer_call.dart';
 
 class OnchainPaymentService {
   OnchainPaymentService({
@@ -20,6 +12,7 @@ class OnchainPaymentService {
     CitizenSdk? transactions,
     CitizenSdk? chain,
     CitizenIdentityChainReader? bindingReader,
+    Future<CitizenBlockRef> Function()? getBestHead,
     Future<CitizenBlockRef> Function()? getFinalizedHead,
     Future<CitizenRuntimeContext> Function(CitizenBlockRef block)?
     getRuntimeContext,
@@ -32,7 +25,11 @@ class OnchainPaymentService {
     )?
     prepareTransaction,
     Future<void> Function(String preparationId)? cancelPreparedTransaction,
-  }) : _getFinalizedHead =
+  }) : _chain = chain,
+       _getBestHead =
+           getBestHead ?? chain?.getBestHead ??
+           (() => throw StateError('未配置getBestHead')),
+       _getFinalizedHead =
            getFinalizedHead ??
            chain?.getFinalizedHead ??
            (() => throw StateError('未配置getFinalizedHead')),
@@ -71,7 +68,38 @@ class OnchainPaymentService {
   _prepareTransaction;
   final Future<void> Function(String preparationId) _cancelPreparedTransaction;
 
+  final CitizenSdk? _chain;
   final CitizenIdentityChainReader? _bindingReader;
+
+  Future<CitizenFeeSnapshot> quoteFee(BigInt amountFen) =>
+      _chain!.getFeeSnapshot(amountFen: amountFen);
+
+  Future<int> readRemarkLimit(CitizenBlockRef block) async {
+    return _remarkLimit(await _runtimeAt(block));
+  }
+
+  Future<CitizenRuntimeContext> _runtimeAt(CitizenBlockRef block) async {
+    final runtime = await _getRuntimeContext(block);
+    if (runtime.block.hash != block.hash ||
+        runtime.block.number != block.number ||
+        runtime.block.finality != block.finality) {
+      throw StateError('Runtime 与请求区块不一致');
+    }
+    return runtime;
+  }
+
+  static int _remarkLimit(CitizenRuntimeContext runtime) {
+    final limit = runtime.unsignedConstant(
+      'OnchainTransaction',
+      'MaxTransferRemarkLen',
+    );
+    if (limit.isNegative || limit.bitLength > 32) {
+      throw StateError('链上备注长度上限无效');
+    }
+    return limit.toInt();
+  }
+
+  final Future<CitizenBlockRef> Function() _getBestHead;
   final Future<CitizenBlockRef> Function() _getFinalizedHead;
   final Future<CitizenRuntimeContext> Function(CitizenBlockRef block)
   _getRuntimeContext;
@@ -87,11 +115,8 @@ class OnchainPaymentService {
       final text = address.trim();
       if (text.startsWith('0x')) return _resolveEthereumRecipient(text);
       try {
-        final account = Keyring().decodeAddress(text);
-        if (account.length != 32 || ss58FromAccountId(account) != text) {
-          throw const FormatException('公民链SS58地址无效');
-        }
-      } on Object {
+        citizenAccountIdBytesFromSs58(text);
+      } on FormatException {
         throw const FormatException('公民链SS58地址无效');
       }
       return OnchainRecipient(address: text);
@@ -106,7 +131,7 @@ class OnchainPaymentService {
       throw StateError('收款人CID当前没有有效钱包绑定');
     }
     return OnchainRecipient(
-      address: ss58FromAccountIdText(binding.accountIdText),
+      address: citizenSs58FromAccountId(binding.accountIdText),
       cidNumber: cidNumber,
       bindRev: binding.bindRev,
       blockHash: binding.block!.hash,
@@ -114,72 +139,10 @@ class OnchainPaymentService {
   }
 
   Future<OnchainRecipient> _resolveEthereumRecipient(String address) async {
-    if (!RegExp(r'^0x[0-9a-fA-F]{40}$').hasMatch(address)) {
-      throw const FormatException('以太坊地址必须为0x加40位十六进制字符');
-    }
-    final original = address.substring(2), lower = original.toLowerCase();
-    if (RegExp('[a-f]').hasMatch(original) &&
-        RegExp('[A-F]').hasMatch(original)) {
-      final hash = KeccakDigest(
-        256,
-      ).process(Uint8List.fromList(utf8.encode(lower)));
-      for (var i = 0; i < original.length; i++) {
-        final character = original[i];
-        final nibble = i.isEven ? hash[i ~/ 2] >> 4 : hash[i ~/ 2] & 15;
-        if (RegExp('[a-fA-F]').hasMatch(character) &&
-            (character == character.toUpperCase()) != (nibble >= 8)) {
-          throw const FormatException('以太坊地址大小写校验和无效');
-        }
-      }
-    }
-    final ethereum = _hexToBytes(lower);
-    final block = await _getFinalizedHead();
-    if (block.finality != CitizenBlockFinality.finalized) {
-      throw StateError('收款地址解析必须使用最终确认区块');
-    }
-    final context = await _getRuntimeContext(block);
-    if (context.block.hash != block.hash ||
-        context.block.number != block.number ||
-        context.block.finality != CitizenBlockFinality.finalized) {
-      throw StateError('收款地址元数据区块不一致');
-    }
-    final input = ByteInput(context.metadata);
-    final runtime = metadata.RuntimeMetadataPrefixed.codec
-        .decode(input)
-        .metadata;
-    input.assertEndOfDataReached();
-    final revive = runtime.pallets.where((p) => p.name == 'Revive').toList();
-    if (revive.length != 1 || revive.single.storage == null) {
-      throw StateError('当前最终确认Runtime不支持以太坊收款地址');
-    }
-    final storage = revive.single.storage!;
-    final entries = storage.entries
-        .where((e) => e.name == 'OriginalAccount')
-        .toList();
-    if (entries.length != 1 ||
-        entries.single.modifier != metadata.StorageEntryModifier.optional ||
-        entries.single.type.key == null ||
-        entries.single.type.hashers.length != 1 ||
-        entries.single.type.hashers.single != metadata.StorageHasher.identity) {
-      throw StateError('Runtime以太坊账户映射存储格式不受支持');
-    }
-    // OriginalAccount使用Identity，不能复用Blake2_128Concat的普通map key。
-    final key = Uint8List.fromList([
-      ...Hasher.twoxx128.hashString(storage.prefix),
-      ...Hasher.twoxx128.hashString('OriginalAccount'),
-      ...ethereum,
-    ]);
-    final mapped = await _getStorage(block, key);
-    if (mapped != null && mapped.length != 32) {
-      throw const FormatException('链上以太坊账户映射必须为32字节');
-    }
-    // 只有成功读取且明确无映射才补12字节EE；读取失败原样抛出。
-    final account =
-        mapped ?? Uint8List.fromList([...ethereum, ...List.filled(12, 0xee)]);
-    return OnchainRecipient(
-      address: ss58FromAccountId(account),
-      blockHash: block.hash,
+    final account = await resolveCitizenEvmAddress(
+      address, _getFinalizedHead, _getRuntimeContext, _getStorage,
     );
+    return OnchainRecipient(address: account.ss58Address, blockHash: account.block.hash);
   }
 
   /// 首次按默认账户初始化表单；选定后只核对该精确账户，缺失绝不回退账户0。
@@ -197,8 +160,7 @@ class OnchainPaymentService {
     );
   }
 
-  /// 校验 CitizenApp 转账表单、编码 opaque RuntimeCall，然后直接
-  /// 交给 CitizenSDK 准备。签名、广播和最终执行不在 App 业务服务内实现。
+  /// App 选择转账字段，SDK 使用同一份 Runtime metadata 编码。
   Future<CitizenPreparedTransaction> prepareTransfer(
     OnchainPaymentDraft draft,
   ) async {
@@ -210,25 +172,16 @@ class OnchainPaymentService {
       );
     }
     final symbol = draft.symbol.trim().toUpperCase();
-    final remarkBytes = utf8.encode(draft.remark).length;
-    if (!RegExp(r'^0x[0-9a-f]{64}$').hasMatch(draft.sourceAccountId) ||
+    if (!isCitizenAccountId(draft.sourceAccountId) ||
         toAddress.isEmpty ||
         symbol.isEmpty ||
-        !draft.amount.isFinite ||
-        !(draft.amount * 100).isFinite ||
-        draft.amount <= 0) {
+        draft.amountFen <= BigInt.zero ||
+        draft.amountFen.bitLength > 128) {
       throw const OnchainPaymentException(
         OnchainPaymentErrorCode.invalidDraft,
         '交易草稿不合法，请检查收款地址、数量和币种',
       );
     }
-    if (remarkBytes > OnchainTransferCall.maxTransferRemarkBytes) {
-      throw const OnchainPaymentException(
-        OnchainPaymentErrorCode.invalidDraft,
-        '转账备注超过链上长度上限',
-      );
-    }
-
     final wallet = await getCurrentWallet(accountId: draft.sourceAccountId);
     if (wallet == null) {
       throw const OnchainPaymentException(
@@ -237,15 +190,23 @@ class OnchainPaymentService {
       );
     }
 
-    final sourceAccountId = _hexToBytes(wallet.accountId);
+    final sourceAccountId = citizenAccountIdBytes(wallet.accountId);
+    final runtime = await _runtimeAt(await _getBestHead());
+    final remark = Uint8List.fromList(utf8.encode(draft.remark));
+    if (remark.length > _remarkLimit(runtime)) {
+      throw const OnchainPaymentException(
+        OnchainPaymentErrorCode.invalidDraft,
+        '转账备注超过链上长度上限',
+      );
+    }
     // 表单编码错误只属于准备前校验；SDK 的原始错误码和阶段必须原样交还页面。
     late final Uint8List callData;
     try {
-      callData = OnchainTransferCall.encode(
-        destinationSs58Address: toAddress,
-        amountYuan: draft.amount,
-        remark: draft.remark,
-      );
+      callData = runtime.encodeCall('OnchainTransaction', 'transfer_with_remark', [
+        citizenAccountIdBytesFromSs58(toAddress),
+        draft.amountFen,
+        remark,
+      ]);
     } on FormatException {
       throw const OnchainPaymentException(
         OnchainPaymentErrorCode.invalidDraft,
@@ -257,10 +218,7 @@ class OnchainPaymentService {
         '收款地址或金额超出允许范围',
       );
     }
-    final prepared = await _prepareTransaction(
-      Uint8List.fromList(sourceAccountId),
-      callData,
-    );
+    final prepared = await _prepareTransaction(sourceAccountId, callData);
     if (prepared.sourceAccountId.length != sourceAccountId.length ||
         List.generate(sourceAccountId.length, (index) => index).any(
           (index) => prepared.sourceAccountId[index] != sourceAccountId[index],
@@ -271,16 +229,15 @@ class OnchainPaymentService {
         '交易准备的付款账户不一致',
       );
     }
+    if (prepared.runtimeSpecNumber != runtime.specVersion ||
+        prepared.transactionFormatNumber != runtime.transactionVersion) {
+      await _cancelPreparedTransaction(prepared.preparationId);
+      throw const OnchainPaymentException(
+        OnchainPaymentErrorCode.invalidDraft,
+        '链上运行时已变化，请重新确认交易',
+      );
+    }
     return prepared;
   }
 
-  List<int> _hexToBytes(String input) {
-    final text = input.startsWith('0x') ? input.substring(2) : input;
-    if (text.isEmpty || text.length.isOdd) return const <int>[];
-    final out = <int>[];
-    for (var i = 0; i < text.length; i += 2) {
-      out.add(int.parse(text.substring(i, i + 2), radix: 16));
-    }
-    return out;
-  }
 }

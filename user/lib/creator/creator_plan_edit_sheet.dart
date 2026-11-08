@@ -1,9 +1,9 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'package:citizen_user/creator/creator_money.dart';
 import 'package:citizen_user/creator/creator_service.dart';
 import 'package:citizen_user/creator/creator_plan.dart';
 import 'package:citizen_system/theme/app_theme.dart';
@@ -50,7 +50,7 @@ class _CreatorPlanEditSheetState extends State<CreatorPlanEditSheet> {
       final fen = editing?.priceFenOf(period);
       _enabled[period] = fen != null;
       _priceControllers[period] = TextEditingController(
-        text: fen != null ? fenToYuanLabel(fen) : '',
+        text: fen != null ? formatFen(BigInt.from(fen), group: false, trimZeros: true) : '',
       );
     }
   }
@@ -238,12 +238,12 @@ class _CreatorPlanEditSheetState extends State<CreatorPlanEditSheet> {
     final prices = <BillingPeriod, int>{};
     for (final period in BillingPeriod.values) {
       if (_enabled[period] != true) continue;
-      final fen = yuanTextToFen(_priceControllers[period]!.text);
-      if (fen == null) {
+      final fen = parseFen(_priceControllers[period]!.text.trim().replaceFirst(RegExp(r'^[¥￥]'), ''));
+      if (fen == null || fen <= BigInt.zero || !fen.isValidInt) {
         _toast('${period.label}价格无效');
         return;
       }
-      prices[period] = fen;
+      prices[period] = fen.toInt();
     }
     if (prices.isEmpty) {
       _toast('至少开启一个周期并填写价格');

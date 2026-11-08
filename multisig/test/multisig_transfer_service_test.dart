@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_sdk/test/platform/fixture.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 import 'package:citizen_multisig/multisig_transfer_service.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
@@ -108,20 +109,12 @@ Uint8List eventBytes({
   0,
   0,
 ]);
-Uint8List eventMetadata() => base64Decode(
-  'bWV0YQ5AAAAABQMABAAABQUACAAABQYADAAABQAAEAAAAyAAAAAAABQAAAIAABgAAAEMOEFwcGx5RXh0cmluc2ljBAAEARhzaGFyZWQAAAAwRmluYWxpemF0aW9uAAEAOEluaXRpYWxpemF0aW9uAAIAABwAAAEMQFRyYW5zZmVyUHJvcG9zZWQkASxwcm9wb3NhbF9pZAgBGHNoYXJlZAABQGluc3RpdHV0aW9uX2NvZGU4ARhzaGFyZWQAAUBhY3Rvcl9jaWRfbnVtYmVyPAEYc2hhcmVkAAFMcHJvcG9zZXJfYWNjb3VudF9pZBABGHNoYXJlZAABSGZ1bmRpbmdfYWNjb3VudF9pZBABGHNoYXJlZAABWGJlbmVmaWNpYXJ5X2FjY291bnRfaWQQARhzaGFyZWQAARhhbW91bnQ0ARhzaGFyZWQAARhyZW1hcmsUARhzaGFyZWQAAShleHBpcmVzX2F0BAEYc2hhcmVkAAAAaFNhZmV0eUZ1bmRUcmFuc2ZlclByb3Bvc2VkIAEscHJvcG9zYWxfaWQIARhzaGFyZWQAAUBhY3Rvcl9jaWRfbnVtYmVyFAEYc2hhcmVkAAFMcHJvcG9zZXJfYWNjb3VudF9pZBABGHNoYXJlZAABWGluc3RpdHV0aW9uX2FjY291bnRfaWQQARhzaGFyZWQAAVhiZW5lZmljaWFyeV9hY2NvdW50X2lkEAEYc2hhcmVkAAEYYW1vdW50NAEYc2hhcmVkAAEYcmVtYXJrFAEYc2hhcmVkAAEoZXhwaXJlc19hdAQBGHNoYXJlZAADAExTd2VlcFRvTWFpblByb3Bvc2VkHAEscHJvcG9zYWxfaWQIARhzaGFyZWQAAUBhY3Rvcl9jaWRfbnVtYmVyFAEYc2hhcmVkAAFMcHJvcG9zZXJfYWNjb3VudF9pZBABGHNoYXJlZAABWGluc3RpdHV0aW9uX2FjY291bnRfaWQQARhzaGFyZWQAATBtYWluX2FjY291bnQQARhzaGFyZWQAARhhbW91bnQ0ARhzaGFyZWQAAShleHBpcmVzX2F0BAEYc2hhcmVkAAYAACAAAAEEQE11bHRpc2lnVHJhbnNmZXIEABwBGHNoYXJlZAARAAAkAAACEAAoAAAADAEUcGhhc2UYARhzaGFyZWQAARRldmVudCABGHNoYXJlZAABGHRvcGljcyQBGHNoYXJlZAAALAAAAigAMAAABAAANAAABQcAOAAAAwQAAAAAADwAAAEIEE5vbmUAAAAQU29tZQQAFAEYc2hhcmVkAAEAAAQYU3lzdGVtARhTeXN0ZW0EGEV2ZW50cwEALAQAAAAAAAAAMAQAMA==',
-);
 
 class Chain extends TestChainReads {
   Uint8List? events = eventBytes();
   @override
-  Future<CitizenRuntimeContext> getRuntimeContext(CitizenBlockRef ref) async =>
-      CitizenRuntimeContext(
-        block: ref,
-        specVersion: 1,
-        transactionVersion: 1,
-        metadata: eventMetadata(),
-      );
+  Future<CitizenRuntimeContext> getRuntimeContext(CitizenBlockRef ref) =>
+      CitizenSdkTestFixture.runtimeContext(ref);
   @override
   Future<Uint8List?> getSystemEvents(CitizenBlockRef ref) async {
     expect(ref, same(block));
@@ -134,7 +127,7 @@ Future<Object> submit(MultisigTransferService service) =>
       institution: institution,
       proposerRoleCode: null,
       beneficiaryAddress: citizenSs58FromAccountId('0x${'02' * 32}'),
-      amountYuan: 1,
+      amountFen: BigInt.from(100),
       remark: '',
       signerPublicKey: signer,
       externalSigning: (_) async => 'synthetic-response',
@@ -169,12 +162,14 @@ void main() {
         service = (() {
           final reads0 = Chain()..events = payload;
           return MultisigTransferService(
+            buildCall: _buildCall,
+            getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
             getFinalizedHead: reads0.getFinalizedHead,
             getStorageKeysPaged: reads0.getStorageKeysPaged,
             getStorage: reads0.getStorage,
             getStorageBatch: reads0.getStorageBatch,
-            getAccountBalance: reads0.getAccountBalance,
-            getAccountBalances: reads0.getAccountBalances,
+
+
             getSystemEvents: reads0.getSystemEvents,
             getRuntimeContext: reads0.getRuntimeContext,
             prepareTransaction: tx.prepareTransaction,
@@ -189,7 +184,7 @@ void main() {
       institution: institution,
       proposerRoleCode: role,
       beneficiaryAddress: citizenSs58FromAccountId('0x${'02' * 32}'),
-      amountYuan: 1,
+      amountFen: BigInt.from(100),
       remark: '',
       signerPublicKey: signer,
       externalSigning: (_) async => null,
@@ -251,12 +246,14 @@ void main() {
           ]);
         final tx = flow(cold: cold),
             service = MultisigTransferService(
+              buildCall: _buildCall,
+              getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
               getFinalizedHead: chain.getFinalizedHead,
               getStorageKeysPaged: chain.getStorageKeysPaged,
               getStorage: chain.getStorage,
               getStorageBatch: chain.getStorageBatch,
-              getAccountBalance: chain.getAccountBalance,
-              getAccountBalances: chain.getAccountBalances,
+
+
               getSystemEvents: chain.getSystemEvents,
               getRuntimeContext: chain.getRuntimeContext,
               prepareTransaction: tx.prepareTransaction,
@@ -271,7 +268,7 @@ void main() {
                 institution: institution,
                 proposerRoleCode: 'DIRECTOR',
                 beneficiaryAddress: citizenSs58FromAccountId('0x${'02' * 32}'),
-                amountYuan: 1,
+                amountFen: BigInt.from(100),
                 remark: '',
                 signerPublicKey: signer,
                 externalSigning: (_) async => 'synthetic-response',
@@ -279,7 +276,7 @@ void main() {
             : await service.submitProposeSweep(
                 institution: institution,
                 proposerRoleCode: 'DIRECTOR',
-                amountYuan: 1,
+                amountFen: BigInt.from(100),
                 signerPublicKey: signer,
                 externalSigning: (_) async => 'synthetic-response',
               );
@@ -295,12 +292,14 @@ void main() {
           service = (() {
             final reads0 = Chain();
             return MultisigTransferService(
+              buildCall: _buildCall,
+              getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
               getFinalizedHead: reads0.getFinalizedHead,
               getStorageKeysPaged: reads0.getStorageKeysPaged,
               getStorage: reads0.getStorage,
               getStorageBatch: reads0.getStorageBatch,
-              getAccountBalance: reads0.getAccountBalance,
-              getAccountBalances: reads0.getAccountBalances,
+
+
               getSystemEvents: reads0.getSystemEvents,
               getRuntimeContext: reads0.getRuntimeContext,
               prepareTransaction: tx.prepareTransaction,
@@ -319,7 +318,7 @@ void main() {
           institution: institution,
           proposerRoleCode: null,
           beneficiaryAddress: citizenSs58FromAccountId('0x${'02' * 32}'),
-          amountYuan: 1,
+          amountFen: BigInt.from(100),
           remark: '',
           signerPublicKey: signer,
           externalSigning: (_) async {
@@ -331,7 +330,7 @@ void main() {
         ),
         throwsStateError,
       );
-      expect(tx.cancelCount, stage == 'callback' ? 1 : 0);
+      expect(tx.cancelCount, 1);
       expect(tx.executeCount, 1);
     }
   });
@@ -341,12 +340,14 @@ void main() {
       final tx = flow(cold: cold), chain = Chain();
       final result = await submit(
         MultisigTransferService(
+          buildCall: _buildCall,
+          getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
           getFinalizedHead: chain.getFinalizedHead,
           getStorageKeysPaged: chain.getStorageKeysPaged,
           getStorage: chain.getStorage,
           getStorageBatch: chain.getStorageBatch,
-          getAccountBalance: chain.getAccountBalance,
-          getAccountBalances: chain.getAccountBalances,
+
+
           getSystemEvents: chain.getSystemEvents,
           getRuntimeContext: chain.getRuntimeContext,
           prepareTransaction: tx.prepareTransaction,
@@ -376,12 +377,14 @@ void main() {
           (() {
             final reads0 = flow();
             return MultisigTransferService(
+              buildCall: _buildCall,
+              getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
               getFinalizedHead: chain.getFinalizedHead,
               getStorageKeysPaged: chain.getStorageKeysPaged,
               getStorage: chain.getStorage,
               getStorageBatch: chain.getStorageBatch,
-              getAccountBalance: chain.getAccountBalance,
-              getAccountBalances: chain.getAccountBalances,
+
+
               getSystemEvents: chain.getSystemEvents,
               getRuntimeContext: chain.getRuntimeContext,
               prepareTransaction: reads0.prepareTransaction,
@@ -410,12 +413,14 @@ void main() {
         tx.execute = (_) async => throw StateError('合成未知执行');
       }
       final service = MultisigTransferService(
+        buildCall: _buildCall,
+        getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
         getFinalizedHead: chain.getFinalizedHead,
         getStorageKeysPaged: chain.getStorageKeysPaged,
         getStorage: chain.getStorage,
         getStorageBatch: chain.getStorageBatch,
-        getAccountBalance: chain.getAccountBalance,
-        getAccountBalances: chain.getAccountBalances,
+
+
         getSystemEvents: chain.getSystemEvents,
         getRuntimeContext: chain.getRuntimeContext,
         prepareTransaction: tx.prepareTransaction,
@@ -431,7 +436,7 @@ void main() {
             institution: institution,
             proposerRoleCode: null,
             beneficiaryAddress: citizenSs58FromAccountId('0x${'02' * 32}'),
-            amountYuan: 1,
+            amountFen: BigInt.from(100),
             remark: '',
             signerPublicKey: signer,
             externalSigning: (_) async => null,
@@ -446,4 +451,13 @@ void main() {
       expect(tx.executeCount, 1);
     }
   });
+}
+
+Future<Uint8List> _buildCall(String pallet, String method, Object fields) async {
+  final runtime = await CitizenSdkTestFixture.runtimeContext(CitizenBlockRef(
+    hash: '0x${'11' * 32}',
+    number: BigInt.one,
+    finality: CitizenBlockFinality.finalized,
+  ));
+  return runtime.encodeCall(pallet, method, fields);
 }

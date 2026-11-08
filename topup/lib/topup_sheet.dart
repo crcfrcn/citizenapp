@@ -1,5 +1,5 @@
 import 'package:citizen_sdk/citizen_sdk.dart'
-    show CitizenSdk, CitizenSigningTransform, CitizenSdkException;
+    show CitizenSdk, CitizenSigningTransform, CitizenSdkException, formatFen;
 import 'package:citizen_scanner/qr_sign_session_page.dart'
     show signCitizenPayload;
 import 'package:citizen_system/app_log.dart';
@@ -12,7 +12,6 @@ import 'package:citizen_topup/topup_api.dart';
 import 'package:citizen_topup/topup_models.dart';
 import 'package:citizen_topup/topup_webview_page.dart';
 import 'package:citizen_topup/store.dart';
-import 'package:citizen_wallet/history/record_format.dart' show formatFen;
 
 /// 币种由充值入口确定；充值金额默认10000、支付网络默认不选，点击链才开始签名建单并打开MetaMask。
 Future<bool?> showTopup(
@@ -150,7 +149,7 @@ class _TopupSheetState extends State<TopupSheet> {
                           label: FittedBox(
                             fit: BoxFit.scaleDown,
                             child: Text(
-                              formatFen(catalog.packages[index].coinFen),
+                              '${formatFen(BigInt.parse(catalog.packages[index].coinFen))} 元',
                             ),
                           ),
                           labelStyle: TextStyle(

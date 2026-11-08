@@ -9,7 +9,6 @@ import 'package:provider/provider.dart';
 import 'package:citizen_scanner/qr_display_scaffold.dart' show AppQrImage;
 
 import 'package:citizen_user/profile/user_qr_page.dart';
-import 'package:citizen_citizen/account_derivation.dart';
 
 /// 用户码展示页（`k=3 user_contact`，固定码，多入口复用同一页）。
 ///
@@ -26,7 +25,7 @@ void main() {
   const cidNumber = 'CN001-CTZN-000000001-2026';
   const displayName = '晨光寻路者';
   const qrData = '{"b":{"c":"$cidNumber","n":"$accountId"},"k":3,"p":"QR_V1"}';
-  final accountAddress = ss58FromAccountIdText(accountId);
+  final accountAddress = citizenSs58FromAccountId(accountId);
 
   Future<void> openPage(WidgetTester tester, {bool isSelf = false}) async {
     final core = await openTestSdk();

@@ -1,4 +1,7 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
+
 import 'dart:convert';
+
 import 'package:citizen_user/identity/identity_binding.dart';
 import 'package:citizen_network/citizen_serve_api_config.dart';
 
@@ -42,7 +45,7 @@ class RegistrationContext {
   }) : baseUrl = CitizenServeApiConfig.normalize(
          baseUrl ?? CitizenServeApiConfig.baseUrl,
        ) {
-    if (!RegExp(r'^0x[0-9a-f]{64}$').hasMatch(accountId) ||
+    if (!isCitizenAccountId(accountId) ||
         !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(chainScope) ||
         !{'CTZN', 'NATP'}.contains(orgCode)) {
       throw const FormatException('注册账户或链无效');
@@ -187,9 +190,8 @@ class RegistrationRecord {
           checkpoint.values.any((v) => v is! String || v.length > 200) ||
           checkpoint['account_id'] != context.accountId ||
           checkpoint['call_data_hash'] is! String ||
-          !RegExp(
-            r'^0x[0-9a-f]{64}$',
-          ).hasMatch(checkpoint['call_data_hash'] as String) ||
+          !RegExp(r'^0x[0-9a-f]{64}$')
+              .hasMatch(checkpoint['call_data_hash'] as String) ||
           !{
             'prepared',
             'executing',

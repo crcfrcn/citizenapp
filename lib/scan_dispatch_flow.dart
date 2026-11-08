@@ -7,8 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:chat/chat.dart';
 
-import 'package:citizen_citizen/account_derivation.dart'
-    show ss58FromAccountIdText;
 import 'package:citizen_scanner/qr_scan_page.dart';
 import 'package:citizen_scanner/qr_sign_response_page.dart';
 import 'package:citizen_user/profile/square_action_sign_service.dart';
@@ -60,58 +58,52 @@ class AppScanDispatch implements ScanDispatch {
       );
       return;
     }
-    if (scanned is String) {
-      await _dispatchSignRequest(context, scanned, signingAccount);
+    if (scanned is CitizenQrScanResult) {
+      await _dispatchSignRequest(context, scanned.document, signingAccount);
     }
   }
 
   /// 我的钱包账户卡“扫码签名”：保留扫码页原 UI，只把业务边界收紧为签名请求。
   ///
-  /// 扫码页与本入口都使用CitizenSDK解析同一请求；不保留App第二解析器。
+  /// 直接分派 SDK 识别的签名请求。
   @override
   Future<void> openAccountScanSignFlow({
     required BuildContext context,
     required CitizenWalletStateAccount account,
   }) async {
-    final scanned = await Navigator.of(context).push<String>(
+    final scanned = await Navigator.of(context).push<CitizenQrScanResult>(
       MaterialPageRoute(
         builder: (_) =>
             const QrScanPage(mode: QrScanMode.signRequest, customTitle: '扫码签名'),
       ),
     );
     if (scanned == null || !context.mounted) return;
-    await _dispatchSignRequest(context, scanned, account);
+    await _dispatchSignRequest(context, scanned.document, account);
   }
 }
 
 Future<void> _dispatchSignRequest(
   BuildContext context,
-  String raw,
+  CitizenQrDocument request,
   CitizenWalletStateAccount? requiredAccount,
 ) async {
-  final int action;
-  try {
-    action = (await context.read<CitizenSdk>().parseForPurpose(
-      raw,
-      CitizenQrScanPurpose.signingRequest,
-    )).document.action!;
-  } on CitizenSdkException catch (error) {
-    if (context.mounted) _snack(context, '请扫描公民 App 业务签名请求：${error.message}');
+  final action = request.action;
+  if (request.kind != CitizenQrKind.signRequest || action == null) {
+    _snack(context, '请扫描公民 App 业务签名请求');
     return;
   }
-  if (!context.mounted) return;
   if (action == CitizenQrActions.citizenIdentity) {
-    await _handleCitizenIdentitySignRequest(context, raw, requiredAccount);
+    await _handleCitizenIdentitySignRequest(context, request, requiredAccount);
   } else if (CitizenQrActions.isSelfAccountDomainAction(action)) {
-    await _handleOccupySignRequest(context, raw, requiredAccount);
+    await _handleOccupySignRequest(context, request, requiredAccount);
   } else {
-    await _handleSquareActionSignRequest(context, raw, requiredAccount);
+    await _handleSquareActionSignRequest(context, request, requiredAccount);
   }
 }
 
 Future<void> _handleSquareActionSignRequest(
   BuildContext context,
-  String raw,
+  CitizenQrDocument request,
   CitizenWalletStateAccount? requiredAccount,
 ) async {
   final sdk = context.read<CitizenSdk>();
@@ -119,7 +111,11 @@ Future<void> _handleSquareActionSignRequest(
 
   final SquareActionSignPrep prep;
   try {
-    prep = await service.prepare(raw, sdk, requiredAccount: requiredAccount);
+    prep = await service.prepare(
+      request,
+      sdk,
+      requiredAccount: requiredAccount,
+    );
   } on SquareActionSignException catch (e) {
     if (context.mounted) _snack(context, e.message);
     return;
@@ -158,14 +154,14 @@ Future<void> _handleSquareActionSignRequest(
 
 Future<void> _handleCitizenIdentitySignRequest(
   BuildContext context,
-  String raw,
+  CitizenQrDocument request,
   CitizenWalletStateAccount? signingAccount,
 ) async {
   final sdk = context.read<CitizenSdk>();
   final service = CitizenIdentitySignService(qr: sdk);
   try {
     final prep = await service.prepare(
-      raw,
+      request,
       sdk,
       requiredAccount: signingAccount,
     );
@@ -215,7 +211,7 @@ Future<void> _handleCitizenIdentitySignRequest(
 /// 热账户后，服务把账户原位填入并签名。确认页展示全部防重放字段，禁止盲签。
 Future<void> _handleOccupySignRequest(
   BuildContext context,
-  String raw,
+  CitizenQrDocument request,
   CitizenWalletStateAccount? requiredAccount,
 ) async {
   final sdk = context.read<CitizenSdk>();
@@ -225,14 +221,22 @@ Future<void> _handleOccupySignRequest(
   final selected = requiredAccount ?? await _pickBindingAccount(context, sdk);
   if (selected == null || !context.mounted) return;
 
+  // 选择账户期间可能已过期，使用 SDK 给出的截止时间关闭原确认入口。
+  final expiresAt = request.expiresAt;
+  if (expiresAt == null ||
+      expiresAt <= DateTime.now().millisecondsSinceEpoch ~/ 1000) {
+    _snack(context, '签名请求已过期，请重新扫描');
+    return;
+  }
+
   try {
-    final prep = await service.prepare(raw, selected, sdk);
+    final prep = await service.prepare(request, selected, sdk);
     if (!context.mounted) return;
     final reviewEntries = <(String, String)>[
       ('创世哈希', prep.genesisHash),
       ('身份CID', prep.cidNumber),
       if (prep.currentAccountId != null)
-        ('当前绑定账户', ss58FromAccountIdText(prep.currentAccountId!)),
+        ('当前绑定账户', citizenSs58FromAccountId(prep.currentAccountId!)),
       ('预期绑定版本', prep.expectedBindingRevision.toString()),
       ('过期时间（Unix 秒）', prep.expiresAt.toString()),
       (prep.isOccupy ? '绑定账户' : '新绑定账户', prep.account.ss58Address),

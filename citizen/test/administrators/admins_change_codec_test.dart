@@ -1,12 +1,14 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:citizen_citizen/administrators/account_id_codec.dart';
+import 'package:citizen_citizen/administrators/admin_account_storage_codec.dart';
 import 'package:citizen_citizen/administrators/admin_account_codec.dart';
 import 'package:citizen_citizen/administrators/admin_set_change_call_codec.dart';
 import 'package:citizen_citizen/administrators/admin_account.dart';
 import 'package:citizen_citizen/administrators/admin_set_validation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_sdk/test/platform/fixture.dart';
 
 void main() {
   List<int> bytes(String text) => [
@@ -118,9 +120,15 @@ void main() {
     ]);
   });
 
-  test('个人多签管理员更换载荷逐字段编码账户、姓、名', () {
+  test('个人多签管理员更换载荷逐字段编码账户、姓、名', () async {
     final accountId = Uint8List.fromList(List.filled(32, 9));
-    final callData = PersonalAdminsChangeCallCodec.build(
+    final runtime = await CitizenSdkTestFixture.runtimeContext(CitizenBlockRef(
+      hash: '0x${'11' * 32}',
+      number: BigInt.one,
+      finality: CitizenBlockFinality.finalized,
+    ));
+    final callData = await PersonalAdminsChangeCallCodec.build(
+      buildCall: (pallet, method, fields) async => runtime.encodeCall(pallet, method, fields),
       orgCode: 'PMUL',
       adminKind: 2,
       accountId: accountId,
@@ -146,10 +154,16 @@ void main() {
     );
   });
 
-  test('机构管理员 storage key 以 CID 为唯一 key', () {
+  test('机构管理员 storage key 以 CID 为唯一 key', () async {
     const cidNumber = 'GD001-CGOV0-123456789-2026';
-    final key = AdminAccountIdCodec.institutionAdminStorageKey(
+    final runtime = await CitizenSdkTestFixture.runtimeContext(CitizenBlockRef(
+      hash: '0x${'11' * 32}',
+      number: BigInt.one,
+      finality: CitizenBlockFinality.finalized,
+    ));
+    final key = AdminAccountStorageCodec.institutionAdminStorageKey(
       cidNumber,
+      runtime: runtime,
       orgCode: 'CGOV',
     );
     expect(key.length, 32 + 16 + 1 + utf8.encode(cidNumber).length);

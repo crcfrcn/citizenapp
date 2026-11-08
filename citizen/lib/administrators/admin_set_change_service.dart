@@ -2,7 +2,6 @@ import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_citizen/administrators/admin_set_change_call_codec.dart';
-import 'package:citizen_citizen/administrators/account_id_codec.dart';
 import 'package:citizen_citizen/administrators/admin_set_change_result.dart';
 import 'package:citizen_citizen/administrators/admin_account.dart';
 import 'package:citizen_citizen/administrators/admin_set_validation.dart';
@@ -12,6 +11,7 @@ import 'package:citizen_citizen/administrators/admin_set_validation.dart';
 class AdminsChangeService {
   AdminsChangeService({
     CitizenSdk? transactions,
+    CitizenCallBuilder? buildCall,
     Future<CitizenPreparedTransaction> Function(
       Uint8List sourceAccountId,
       Uint8List callData,
@@ -26,7 +26,9 @@ class AdminsChangeService {
       String response,
     )?
     consumePreparedTransactionQrResponse,
-  }) : _prepareTransaction =
+  }) : _buildCall = buildCall ?? transactions?.buildCall ??
+           ((pallet, method, fields) => throw StateError('未配置buildCall')),
+       _prepareTransaction =
            prepareTransaction ??
            transactions?.prepareTransaction ??
            ((Uint8List sourceAccountId, Uint8List callData) =>
@@ -46,6 +48,7 @@ class AdminsChangeService {
            transactions?.consumePreparedTransactionQrResponse ??
            ((String executionId, String response) =>
                throw StateError('未配置consumePreparedTransactionQrResponse'));
+  final CitizenCallBuilder _buildCall;
   final Future<CitizenPreparedTransaction> Function(
     Uint8List sourceAccountId,
     Uint8List callData,
@@ -61,7 +64,7 @@ class AdminsChangeService {
   )
   _consumePreparedTransactionQrResponse;
 
-  Uint8List buildCallData({
+  Future<Uint8List> buildCallData({
     required AdminAccountState account,
     required String proposerAccountId,
     required List<AdminPerson> admins,
@@ -74,9 +77,10 @@ class AdminsChangeService {
       newThreshold: newThreshold,
     );
     return PersonalAdminsChangeCallCodec.build(
+      buildCall: _buildCall,
       orgCode: account.orgCode,
       adminKind: account.kind,
-      accountId: AdminAccountIdCodec.fromAccountIdText(account.accountId!),
+      accountId: citizenAccountIdBytes(account.accountId!),
       admins: normalized.admins,
       newThreshold: normalized.threshold,
     );
@@ -93,34 +97,21 @@ class AdminsChangeService {
     externalSigning,
   }) async {
     if (signerPublicKey.length != 32) throw ArgumentError('签名公钥必须为32字节');
-    final callData = buildCallData(
+    final callData = await buildCallData(
       account: account,
-      proposerAccountId: '0x${AdminAccountIdCodec.hexEncode(signerPublicKey)}',
+      proposerAccountId: citizenAccountIdFromBytes(signerPublicKey),
       admins: admins,
       newThreshold: newThreshold,
     );
     final prepared = await _prepareTransaction(signerPublicKey, callData);
     final started = await _executePreparedTransaction(prepared.preparationId);
-    CitizenTransactionExecutionCompleted completed;
-    if (started is CitizenTransactionExternalSigningPending) {
-      final String? response;
-      try {
-        response = await externalSigning(started);
-      } catch (_) {
-        await _cancelPreparedTransactionExecution(started.executionId);
-        rethrow;
-      }
-      if (response == null) {
-        await _cancelPreparedTransactionExecution(started.executionId);
-        throw StateError('管理员更换签名已取消');
-      }
-      completed = await _consumePreparedTransactionQrResponse(
-        started.executionId,
-        response,
-      );
-    } else {
-      completed = started as CitizenTransactionExecutionCompleted;
-    }
+    final completed = await completeCitizenTransaction(
+      started,
+      requestResponse: externalSigning,
+      consumeResponse: _consumePreparedTransactionQrResponse,
+      cancelExecution: _cancelPreparedTransactionExecution,
+    );
+    if (completed == null) throw StateError('管理员更换签名已取消');
     if (completed.resolution != CitizenTransactionResolution.finalizedSuccess ||
         completed.execution == null ||
         completed.execution!.status != CitizenExecutionStatus.success ||
@@ -128,7 +119,8 @@ class AdminsChangeService {
       throw StateError(completed.poolRejectionReason ?? '管理员更换交易执行失败');
     }
     return AdminsChangeSubmitResult(
-      txHash: '0x${AdminAccountIdCodec.hexEncode(completed.transactionHash)}',
+      txHash:
+          '0x${completed.transactionHash.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join()}',
     );
   }
 }

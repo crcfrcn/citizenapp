@@ -24,8 +24,6 @@ dependencies:
   flutter:
     sdk: flutter
   isar_community: ^3.3.2
-  polkadart: 0.7.3
-  polkadart_keyring: 0.7.1
   provider: ^6.1.5+1
 
 dev_dependencies:

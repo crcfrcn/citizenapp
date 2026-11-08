@@ -1,4 +1,3 @@
-import 'package:citizen_wallet/core/account_balance_snapshot_store.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:async';
@@ -7,10 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:citizen_system/app_log.dart';
 import 'package:flutter/services.dart';
-import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 import 'package:citizen_citizen/administrators/admin_account.dart';
 import 'package:citizen_citizen/administrators/institution_admin_service.dart';
-import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/proposal/internal_vote_service.dart';
 import 'package:citizen_citizen/proposal/proposal_context.dart';
@@ -20,7 +17,6 @@ import 'package:citizen_citizen/proposal/proposal_query_service.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
 import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_system/theme/app_theme.dart';
-import 'package:citizen_system/amount_format.dart';
 import 'package:citizen_personal/personal_manage_models.dart'
     as personal_models;
 import 'package:citizen_personal/personal_manage_service.dart';
@@ -428,12 +424,12 @@ class _MultisigProposalDetailPageState
     final detail = snapshot.detail;
     if (detail['kind'] != 'institution_close') return null;
     final actorCidNumber = detail['actor_cid_number']?.toString();
-    final institutionAccountId = detail['institution_account_id']?.toString();
+    final institutionAccountId = detail['institution_account_id'];
     final beneficiary = detail['beneficiary']?.toString();
     final proposer = detail['proposer']?.toString();
     if (actorCidNumber != widget.institution.cidNumber ||
-        institutionAccountId == null ||
-        institutionAccountId.length != 64 ||
+        institutionAccountId is! String ||
+        !isCitizenAccountId('0x$institutionAccountId') ||
         beneficiary == null ||
         beneficiary.isEmpty ||
         proposer == null ||
@@ -526,7 +522,7 @@ class _MultisigProposalDetailPageState
     setState(() => _submitting = true);
 
     try {
-      final signerPublicKeyBytes = _hexDecode(wallet.accountId);
+      final signerPublicKeyBytes = citizenAccountIdBytes(wallet.accountId);
       final accountId = _requireAccountId(wallet.accountId);
       final availableTickets = _voterTickets
           .where(
@@ -542,8 +538,10 @@ class _MultisigProposalDetailPageState
       if (ticket == null) throw StateError('已取消选择投票岗位');
       if (!mounted) return;
       final sdk = context.read<CitizenSdk>();
-      final balance = await AccountBalanceSnapshotStore.forChain(sdk)
-          .getAccountBalance(accountId, forceRefresh: true);
+      final balance = await sdk.getAccountBalance(
+        accountId,
+        forceRefresh: true,
+      );
       if (balance.freeFen <= BigInt.zero) {
         throw StateError('当前投票钱包余额不足，无法支付链上投票手续费');
       }
@@ -551,11 +549,8 @@ class _MultisigProposalDetailPageState
       // 创建/关闭多签的投票都走 InternalVote::cast(20.0),
       // 由 runtime 的 InternalVoteExecutor 按 MODULE_TAG+ACTION 分派。
       AppLog.d('[VoteDetail] 调 InternalVoteService.submit');
-      final result =
-          await InternalVoteService(
-            chain: sdk,
-            transactions: sdk,
-          ).submit(
+      final result = await InternalVoteService(chain: sdk, transactions: sdk)
+          .submit(
             proposalId: widget.proposalId,
             approve: approve,
             actorCidNumber: ticket.cidNumber,
@@ -617,7 +612,7 @@ class _MultisigProposalDetailPageState
   }
 
   String _requireAccountId(String accountId) {
-    if (!isAccountIdText(accountId)) {
+    if (!isCitizenAccountId(accountId)) {
       throw const FormatException('account_id 必须为小写 0x + 64 位十六进制');
     }
     return accountId;
@@ -830,10 +825,7 @@ class _MultisigProposalDetailPageState
 
   List<Widget> _buildCreateInfoRows() {
     final info = _createInfo!;
-    final accountSs58 = Keyring().encodeAddress(
-      _hexDecode(info.accountId),
-      kGmbSs58Prefix,
-    );
+    final accountSs58 = citizenSs58FromAccountId(info.accountId);
     return [
       _buildInfoRow(
         '多签账户',
@@ -851,24 +843,15 @@ class _MultisigProposalDetailPageState
       Divider(height: AppLayout.scaledValue(20)),
       _buildInfoRow('发起人', _truncateAddress(info.proposerSs58Address)),
       Divider(height: AppLayout.scaledValue(20)),
-      _buildInfoRow(
-        '初始资金',
-        '${AmountFormat.format(info.amountYuan, symbol: '')} 元',
-      ),
+      _buildInfoRow('初始资金', '${formatFen(info.amountFen)} 元'),
       Divider(height: AppLayout.scaledValue(20)),
-      _buildInfoRow(
-        '创建手续费',
-        '${AmountFormat.format(info.feeYuan, symbol: '')} 元',
-      ),
+      _buildInfoRow('创建手续费', '${formatFen(info.feeAmount)} 元'),
     ];
   }
 
   List<Widget> _buildCloseInfoRows() {
     final info = _closeInfo!;
-    final accountSs58 = Keyring().encodeAddress(
-      _hexDecode(info.accountId),
-      kGmbSs58Prefix,
-    );
+    final accountSs58 = citizenSs58FromAccountId(info.accountId);
     return [
       _buildInfoRow(
         '多签账户',
@@ -904,10 +887,7 @@ class _MultisigProposalDetailPageState
 
   List<Widget> _buildInstitutionCloseInfoRows() {
     final info = _institutionCloseInfo!;
-    final accountSs58 = Keyring().encodeAddress(
-      _hexDecode(info.institutionAccountId),
-      kGmbSs58Prefix,
-    );
+    final accountSs58 = citizenSs58FromAccountIdBytes(info.institutionBytes);
     return [
       _buildInfoRow('机构 CID', info.actorCidNumber),
       Divider(height: AppLayout.scaledValue(20)),
@@ -980,13 +960,4 @@ class _MultisigProposalDetailPageState
   }
 
   // ──── 工具 ────
-
-  Uint8List _hexDecode(String hex) {
-    final h = hex.startsWith('0x') ? hex.substring(2) : hex;
-    final result = Uint8List(h.length ~/ 2);
-    for (var i = 0; i < result.length; i++) {
-      result[i] = int.parse(h.substring(i * 2, i * 2 + 2), radix: 16);
-    }
-    return result;
-  }
 }

@@ -1,13 +1,15 @@
 import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:isar_community/isar.dart';
-import 'package:citizen_sdk/account_codec.dart';
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_storage/user_isar.dart' as store;
 import 'package:citizen_user/identity/account_security_service.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
 import 'package:citizen_user/identity/square_session_provider.dart';
 import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
+
 import 'contact_sort.dart';
 
 /// 联系人及云端备份备注的展示模型；SS58仅由账户ID计算。
@@ -228,9 +230,10 @@ class UserContactService {
     updatedAt: row.updatedAt,
   );
   Future<List<UserContact>> _contacts(_Owner owner) async {
-    final result = (await _rows(
-      owner,
-    )).where((r) => r.pendingAction != 'delete').map(_view).toList();
+    final result = (await _rows(owner))
+        .where((r) => r.pendingAction != 'delete')
+        .map(_view)
+        .toList();
     result.sort(
       (a, b) => compareContactKeys(
         a.contactRemark,
@@ -288,9 +291,9 @@ class UserContactService {
   }
 
   Future<void> _flush(_Owner owner) async {
-    var pending = (await _rows(
-      owner,
-    )).where((r) => r.pendingAction.isNotEmpty).toList();
+    var pending = (await _rows(owner))
+        .where((r) => r.pendingAction.isNotEmpty)
+        .toList();
     if (pending.isEmpty) return;
     final session = await _session(owner);
     while (pending.isNotEmpty) {
@@ -344,9 +347,9 @@ class UserContactService {
           await rows.put(saved);
         }
       });
-      pending = (await _rows(
-        owner,
-      )).where((r) => r.pendingAction.isNotEmpty).toList();
+      pending = (await _rows(owner))
+          .where((r) => r.pendingAction.isNotEmpty)
+          .toList();
     }
     _state(ContactSyncPhase.synced);
   }

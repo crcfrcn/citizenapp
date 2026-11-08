@@ -10,6 +10,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:citizen_citizen/legislation/law_models.dart';
+import 'package:citizen_sdk/citizen_sdk.dart';
 
 /// 游标式 SCALE 读取器(内部)。
 class _Scale {
@@ -25,57 +26,21 @@ class _Scale {
 
   int u8() => data[_i++];
 
-  int u32() {
-    final v =
-        data[_i] |
-        (data[_i + 1] << 8) |
-        (data[_i + 2] << 16) |
-        (data[_i + 3] << 24);
-    _i += 4;
-    return v;
+  int u16() => _unsigned(2);
+  int u32() => _unsigned(4);
+  int u64() => _unsigned(8);
+
+  int _unsigned(int width) {
+    final value = CitizenScale.readUnsigned(data, _i, width);
+    _i += width;
+    return value.toSigned(64).toInt();
   }
 
-  int u64() {
-    var v = 0;
-    for (var k = 0; k < 8; k++) {
-      v |= data[_i + k] << (8 * k);
-    }
-    _i += 8;
-    return v;
-  }
-
-  /// SCALE `Compact<u32>`(长度/小整数用)。
   int compact() {
-    final b0 = data[_i];
-    final mode = b0 & 0x03;
-    if (mode == 0) {
-      _i += 1;
-      return b0 >> 2;
-    }
-    if (mode == 1) {
-      final v = (data[_i] | (data[_i + 1] << 8)) >> 2;
-      _i += 2;
-      return v;
-    }
-    if (mode == 2) {
-      final v =
-          (data[_i] |
-              (data[_i + 1] << 8) |
-              (data[_i + 2] << 16) |
-              (data[_i + 3] << 24)) >>
-          2;
-      _i += 4;
-      return v;
-    }
-    // mode 3:big-integer,low6+4 = 字节数(长度极少命中此分支)。
-    final n = (b0 >> 2) + 4;
-    _i += 1;
-    var v = 0;
-    for (var k = 0; k < n; k++) {
-      v |= data[_i + k] << (8 * k);
-    }
-    _i += n;
-    return v;
+    final (value, width) = CitizenScale.readCompact(data, _i);
+    if (value > 0xffffffff) throw const FormatException('Compact 长度超出 u32');
+    _i += width;
+    return value;
   }
 
   Uint8List bytes(int n) {
@@ -146,8 +111,7 @@ Uint8List encodeLawRegion(LawTier tier, LawRegion region) {
       0,
     ] else
       ...region.provinceCode.codeUnits,
-    region.cityNumber & 0xff,
-    region.cityNumber >> 8,
+    ...CitizenScale.unsigned(BigInt.from(region.cityNumber), 2),
   ]);
 }
 
@@ -161,7 +125,7 @@ Law decodeLaw(Uint8List raw) {
     provinceCode: province.every((byte) => byte == 0)
         ? ''
         : String.fromCharCodes(province),
-    cityNumber: s.u8() | (s.u8() << 8),
+    cityNumber: s.u16(),
   );
   region.validate(tier);
   final houses = s.vec(s.cidNumber);

@@ -2,9 +2,6 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:polkadart/polkadart.dart' show Hasher;
-
-import 'package:citizen_citizen/account_derivation.dart';
 
 /// 由永久 CID 定位的链上公民身份快照。
 ///
@@ -52,7 +49,7 @@ class CitizenBindingChainSnapshot {
 
   final CitizenBlockRef? block;
 
-  String get accountIdText => CitizenIdentityChainReader.hexEncode(accountId);
+  String get accountIdText => citizenAccountIdFromBytes(accountId);
 }
 
 /// `citizen-identity` 永久 CID 存储的统一读取器。
@@ -60,6 +57,7 @@ class CitizenIdentityChainReader {
   CitizenIdentityChainReader({
     CitizenSdk? chain,
     Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<CitizenRuntimeContext> Function(CitizenBlockRef)? getRuntimeContext,
     Future<List<Uint8List?>> Function(
       CitizenBlockRef block,
       List<Uint8List> keys,
@@ -71,6 +69,8 @@ class CitizenIdentityChainReader {
            getFinalizedHead ??
            chain?.getFinalizedHead ??
            (() => throw StateError('未配置getFinalizedHead')),
+       _getRuntimeContext = getRuntimeContext ?? chain?.getRuntimeContext ??
+           ((_) => throw StateError('未配置getRuntimeContext')),
        _getStorageBatch =
            getStorageBatch ??
            chain?.getStorageBatch ??
@@ -82,6 +82,7 @@ class CitizenIdentityChainReader {
            ((CitizenBlockRef block, Uint8List key) =>
                throw StateError('未配置getStorage'));
   final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<CitizenRuntimeContext> Function(CitizenBlockRef) _getRuntimeContext;
   final Future<List<Uint8List?>> Function(
     CitizenBlockRef block,
     List<Uint8List> keys,
@@ -96,11 +97,12 @@ class CitizenIdentityChainReader {
   ) async {
     final cid = _normalizeCidNumber(cidNumber);
     final block = await _getFinalizedHead();
-    final key = encodeBoundedBytes(utf8.encode(cid));
+    final context = await _getRuntimeContext(block);
+    final key = (scale: encodeBoundedBytes(utf8.encode(cid)));
     final rows = await _getStorageBatch(block, [
-      storageMapKey('CitizenIdentity', 'AccountIdByCid', key),
-      storageMapKey('CitizenIdentity', 'CidRegistry', key),
-      storageMapKey('CitizenIdentity', 'BindingRevisionByCid', key),
+      context.storageKey('CitizenIdentity', 'AccountIdByCid', [key]),
+      context.storageKey('CitizenIdentity', 'CidRegistry', [key]),
+      context.storageKey('CitizenIdentity', 'BindingRevisionByCid', [key]),
     ]);
     final account = rows[0], revision = _decodeU64(rows[2]);
     if (account == null ||
@@ -111,7 +113,7 @@ class CitizenIdentityChainReader {
     }
     final reverse = await _getStorage(
       block,
-      storageMapKey('CitizenIdentity', 'CidByAccountId', account),
+      context.storageKey('CitizenIdentity', 'CidByAccountId', [account]),
     );
     if (decodeCidNumber(reverse) != cid) return null;
     return CitizenBindingChainSnapshot(
@@ -135,52 +137,23 @@ class CitizenIdentityChainReader {
   Future<CitizenIdentityChainSnapshot?> readByAccountId(
     String accountIdText,
   ) async {
-    if (!isAccountIdText(accountIdText)) {
-      throw const FormatException('account_id 必须是小写 0x 加 64 位十六进制');
-    }
-    final accountId = Uint8List.fromList([
-      for (var i = 2; i < accountIdText.length; i += 2)
-        int.parse(accountIdText.substring(i, i + 2), radix: 16),
-    ]);
+    final accountId = citizenAccountIdBytes(accountIdText);
 
     // 同一次身份判断必须锚定同一个 finalized 区块，避免 CID 映射与身份值跨块混读。
     final finalized = await _getFinalizedHead();
+    final context = await _getRuntimeContext(finalized);
 
-    final cidByAccountIdKey = storageMapKey(
-      'CitizenIdentity',
-      'CidByAccountId',
-      accountId,
-    );
+    final cidByAccountIdKey = context.storageKey('CitizenIdentity', 'CidByAccountId', [accountId]);
     final cidRaw = await _getStorage(finalized, cidByAccountIdKey);
     final cidNumber = decodeCidNumber(cidRaw);
     if (cidNumber == null) return null;
 
-    final cidScale = encodeBoundedBytes(utf8.encode(cidNumber));
-    final accountIdByCidKey = storageMapKey(
-      'CitizenIdentity',
-      'AccountIdByCid',
-      cidScale,
-    );
-    final cidRegistryKey = storageMapKey(
-      'CitizenIdentity',
-      'CidRegistry',
-      cidScale,
-    );
-    final votingKey = storageMapKey(
-      'CitizenIdentity',
-      'VotingIdentityByCid',
-      cidScale,
-    );
-    final candidateKey = storageMapKey(
-      'CitizenIdentity',
-      'CandidateIdentityByCid',
-      cidScale,
-    );
-    final bindingRevisionKey = storageMapKey(
-      'CitizenIdentity',
-      'BindingRevisionByCid',
-      cidScale,
-    );
+    final cidScale = (scale: encodeBoundedBytes(utf8.encode(cidNumber)));
+    final accountIdByCidKey = context.storageKey('CitizenIdentity', 'AccountIdByCid', [cidScale]);
+    final cidRegistryKey = context.storageKey('CitizenIdentity', 'CidRegistry', [cidScale]);
+    final votingKey = context.storageKey('CitizenIdentity', 'VotingIdentityByCid', [cidScale]);
+    final candidateKey = context.storageKey('CitizenIdentity', 'CandidateIdentityByCid', [cidScale]);
+    final bindingRevisionKey = context.storageKey('CitizenIdentity', 'BindingRevisionByCid', [cidScale]);
     final keys = <Uint8List>[
       accountIdByCidKey,
       cidRegistryKey,
@@ -230,33 +203,11 @@ class CitizenIdentityChainReader {
     );
   }
 
-  static String hexEncode(List<int> bytes) =>
-      '0x${bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join()}';
-
-  static Uint8List storageMapKey(
-    String palletName,
-    String storageName,
-    Uint8List keyData,
-  ) {
-    final palletHash = Hasher.twoxx128.hashString(palletName);
-    final storageHash = Hasher.twoxx128.hashString(storageName);
-    final keyHash = Hasher.blake2b128.hash(keyData);
-    return Uint8List.fromList([
-      ...palletHash,
-      ...storageHash,
-      ...keyHash,
-      ...keyData,
-    ]);
-  }
-
   static Uint8List encodeBoundedBytes(List<int> value) {
     if (value.isEmpty || value.length > 32) {
       throw const FormatException('CID 长度不合法');
     }
-    if (value.length >= 64) {
-      throw const FormatException('CID 超出单字节 Compact 长度范围');
-    }
-    return Uint8List.fromList([value.length << 2, ...value]);
+    return Uint8List.fromList([...CitizenScale.compact(value.length), ...value]);
   }
 
   static String _normalizeCidNumber(String cidNumber) {
@@ -282,11 +233,7 @@ class CitizenIdentityChainReader {
 
   static int _decodeU64(Uint8List? data) {
     if (data == null || data.length != 8) return 0;
-    var value = 0;
-    for (var index = data.length - 1; index >= 0; index--) {
-      value = (value << 8) | data[index];
-    }
-    return value;
+    return CitizenScale.readUnsigned(data, 0, 8).toSigned(64).toInt();
   }
 
   /// 解码 `CidRecord` 到 status 字段；只接受 `Active = 0`。
@@ -384,13 +331,11 @@ class CitizenIdentityChainReader {
     int maxLength, {
     bool allowEmpty = false,
   }) {
-    if (offset >= data.length) throw const FormatException('Compact 越界');
-    final first = data[offset];
-    if ((first & 0x03) != 0) {
+    final (length, width) = CitizenScale.readCompact(data, offset);
+    if (width != 1) {
       throw const FormatException('当前身份键只允许短 Compact 长度');
     }
-    final length = first >> 2;
-    final start = offset + 1;
+    final start = offset + width;
     final end = start + length;
     if ((!allowEmpty && length == 0) ||
         length > maxLength ||
@@ -401,10 +346,7 @@ class CitizenIdentityChainReader {
   }
 
   static int _readU32Le(Uint8List data, int offset) =>
-      data[offset] |
-      (data[offset + 1] << 8) |
-      (data[offset + 2] << 16) |
-      (data[offset + 3] << 24);
+      CitizenScale.readUnsigned(data, offset, 4).toInt();
 
   static bool _isValidDateInt(int value) {
     final year = value ~/ 10000;

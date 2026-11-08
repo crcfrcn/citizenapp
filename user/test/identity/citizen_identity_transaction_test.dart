@@ -7,6 +7,7 @@
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_sdk/test/platform/fixture.dart';
 
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 
@@ -17,6 +18,7 @@ CitizenIdentityTransaction _transaction(TestChainReads chain) => (() {
   final reads0 = TestTransactionCalls();
   return CitizenIdentityTransaction(
     getFinalizedHead: chain.getFinalizedHead,
+    getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
     getGenesisHash: chain.getGenesisHash,
     getStorageBatch: chain.getStorageBatch,
     prepareTransaction: reads0.prepareTransaction,
@@ -37,6 +39,10 @@ CitizenBlockRef _finalized(String hash, [int number = 88]) => CitizenBlockRef(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   TestCitizenSdkHarness();
+  late CitizenRuntimeContext runtime;
+  setUpAll(() async {
+    runtime = await CitizenSdkTestFixture.runtimeContext(_finalized('0x${'01' * 32}'));
+  });
 
   // 采用链端 CTZN 金标号做样本(26 字节 ASCII)。
   const cid = 'CN951-CTZN1-539598435-2026';
@@ -46,7 +52,7 @@ void main() {
 
   group('self_occupy_cid call data', () {
     test('布局 [10,5, compact(len), ...cid.utf8]', () async {
-      final call = CitizenIdentityTransaction.buildSelfOccupyCidCall(cid);
+      final call = CitizenIdentityTransaction.buildSelfOccupyCidCall(cid, runtime: runtime);
       expect(call[0], 10);
       expect(call[1], 5);
       expect(call[2], compactCid);
@@ -56,11 +62,11 @@ void main() {
 
     test('空 / 超 32 字节 cid 被拒', () async {
       expect(
-        () => CitizenIdentityTransaction.buildSelfOccupyCidCall(''),
+        () => CitizenIdentityTransaction.buildSelfOccupyCidCall('', runtime: runtime),
         throwsArgumentError,
       );
       expect(
-        () => CitizenIdentityTransaction.buildSelfOccupyCidCall('X' * 33),
+        () => CitizenIdentityTransaction.buildSelfOccupyCidCall('X' * 33, runtime: runtime),
         throwsArgumentError,
       );
     });
@@ -73,6 +79,7 @@ void main() {
 
     test('布局 [10,9,cid,revision:u64LE,expires:u64LE,sig]', () async {
       final call = CitizenIdentityTransaction.buildSelfRebindCidAccountCall(
+        runtime: runtime,
         cidNumber: cid,
         expectedBindingRevision: revision,
         expiresAt: expiresAt,
@@ -113,6 +120,7 @@ void main() {
     test('非 64 字节签名或越界 u64 被拒', () async {
       expect(
         () => CitizenIdentityTransaction.buildSelfRebindCidAccountCall(
+          runtime: runtime,
           cidNumber: cid,
           expectedBindingRevision: revision,
           expiresAt: expiresAt,
@@ -122,6 +130,7 @@ void main() {
       );
       expect(
         () => CitizenIdentityTransaction.buildSelfRebindCidAccountCall(
+          runtime: runtime,
           cidNumber: cid,
           expectedBindingRevision: BigInt.one << 64,
           expiresAt: expiresAt,

@@ -1,3 +1,5 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
+
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
@@ -34,7 +36,7 @@ class MlsAuthenticationIdentity {
   String get cacheKey => jsonEncode([cidNumber, accountId, bindRev, deviceId]);
   void validate() {
     if (!RegExp(r'^[A-Za-z0-9][A-Za-z0-9-]{0,31}$').hasMatch(cidNumber) ||
-        !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(accountId) ||
+        !isCitizenAccountId(accountId) ||
         !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(publicKey) ||
         deviceId != publicKey.substring(2) ||
         bindRev <= 0 ||

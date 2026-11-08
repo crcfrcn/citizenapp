@@ -1,9 +1,9 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 
 import 'package:citizen_citizen/institution/institution.dart';
 import 'package:citizen_citizen/institution/institution_accounts.dart';
 import 'package:citizen_citizen/institution/institution_chain_state.dart';
-import 'package:citizen_system/amount_format.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
@@ -110,9 +110,9 @@ class _AccountCard extends StatelessWidget {
               Text(
                 balanceLoading
                     ? '—'
-                    : (row.balanceYuan == null
+                    : (row.balanceFen == null
                           ? '未激活'
-                          : '${AmountFormat.formatThousands(row.balanceYuan)} 元'),
+                          : '${formatFen(row.balanceFen!)} 元'),
                 style: TextStyle(
                   fontSize: AppLayout.scaled(context, 13.5),
                   fontWeight: FontWeight.w600,

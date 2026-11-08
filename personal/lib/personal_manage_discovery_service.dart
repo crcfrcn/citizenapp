@@ -1,7 +1,6 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_personal/personal_local_store.dart';
-import 'package:citizen_storage/user_isar.dart'
-    as wallet_store
-    show Account;
+import 'package:citizen_storage/user_isar.dart' as wallet_store show Account;
 // 个人多签反向索引发现:后处理(ADR-018 §九)。
 //
 // 从 AdminAccounts 单次扫描结果(AdminAccountsScanService)里筛出个人多签
@@ -10,7 +9,6 @@ import 'package:citizen_storage/user_isar.dart'
 
 import 'package:citizen_system/app_log.dart';
 import 'package:isar_community/isar.dart';
-import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_citizen/administrators/admin_account_storage_codec.dart';
 import 'package:citizen_citizen/administrators/admin_accounts_scan_service.dart';
 import 'package:citizen_storage/user_isar.dart' hide Group;
@@ -186,7 +184,7 @@ class PersonalManageDiscoveryService {
   }
 
   String _requireAccountId(String accountId) {
-    if (!isAccountIdText(accountId)) {
+    if (!isCitizenAccountId(accountId)) {
       throw const FormatException('account_id 必须为小写 0x + 64 位十六进制');
     }
     return accountId;

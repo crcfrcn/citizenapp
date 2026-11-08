@@ -205,7 +205,7 @@ void main() {
     );
     final sdk = core.sdk;
     await tester.runAsync(
-      () => sdk.importColdAccount(accountId: testCitizenAccountId).result,
+      () => sdk.importColdAccount(testCitizenAccountId).result,
     );
     addTearDown(() async {
       await tester.pumpWidget(const SizedBox.shrink());

@@ -1,8 +1,5 @@
 import 'package:citizen_personal/personal_local_store.dart';
-import 'package:citizen_storage/user_isar.dart'
-    as wallet_store
-    show Account;
-import 'package:citizen_wallet/core/account_balance_snapshot_store.dart';
+import 'package:citizen_storage/user_isar.dart' as wallet_store show Account;
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:convert';
@@ -11,11 +8,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 import 'package:citizen_storage/user_isar.dart' hide Group;
-import 'package:citizen_personal/multisig_create_amount_rules.dart';
-import 'package:citizen_scanner/qr_scan_page.dart'
-    show QrScanMode, QrScanPage;
+import 'package:citizen_scanner/qr_scan_page.dart' show QrScanMode, QrScanPage;
 import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_system/amount_format.dart';
@@ -33,11 +27,20 @@ class PersonalAccountCreatePage extends StatefulWidget {
     super.key,
     this.walletStateLoader,
     this.manageService,
+    this.amountReads,
   });
 
   /// Widget 测试可只注入公开钱包目录；正式运行从根 CitizenSDK 读取。
   final Future<CitizenWalletState> Function()? walletStateLoader;
   final PersonalManageService? manageService;
+
+  /// Widget 回归注入公开链事实；正式运行使用同一 SDK 会话。
+  @visibleForTesting
+  final ({
+    Future<CitizenFeeSnapshot> Function(BigInt) quote,
+    Future<BigInt> Function(CitizenBlockRef) minimum,
+    Future<CitizenAccountBalance> Function(String) balance,
+  })? amountReads;
 
   @override
   State<PersonalAccountCreatePage> createState() =>
@@ -131,11 +134,11 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
     if (wallet == null || name.isEmpty) return null;
 
     try {
-      // 个人多签账户派生统一走 [derivePersonalAccountSs58]，全 app 仅此一处。
-      return derivePersonalAccountSs58(
-        creatorAccount: Uint8List.fromList(_hexDecode(wallet.accountId)),
-        accountName: name,
-        ss58Prefix: kGmbSs58Prefix,
+      return citizenSs58FromAccountIdBytes(
+        derivePersonalAccountId(
+          creatorAccount: citizenAccountIdBytes(wallet.accountId),
+          accountName: name,
+        ),
       );
     } catch (_) {
       return null;
@@ -145,7 +148,7 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
   // ──── 管理员管理 ────
 
   Future<void> _addAdminByQr() async {
-    final result = await Navigator.push<String>(
+    final result = await Navigator.push<CitizenQrScanResult>(
       context,
       MaterialPageRoute(
         builder: (_) => const QrScanPage(
@@ -156,21 +159,15 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
     );
     if (result == null || !mounted) return;
 
-    // 原管理员入口只接受用户码；直接使用SDK事实，不再解析body或使用动态字段。
-    try {
-      final document = await context.read<CitizenSdk>().parseQr(result.trim());
-      if (document.kind != CitizenQrKind.userContact) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('请扫描用户主页中的用户码')));
-        return;
-      }
-      await _promptAdminNamesAndAdd(document.accountId!);
-    } on CitizenSdkException catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('二维码格式错误：$e')));
+    final accountId = result.accountId;
+    if (result.document.kind != CitizenQrKind.userContact ||
+        accountId == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请扫描用户主页中的用户码')));
+      return;
     }
+    await _promptAdminNamesAndAdd(accountId);
   }
 
   Future<void> _promptAdminNamesAndAdd(String accountId) async {
@@ -187,13 +184,15 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
 
   void _addAdmin(AdminPerson admin) {
     if (_admins.any((item) => item.accountId == admin.accountId)) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('该管理员已在列表中')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('该管理员已在列表中')));
       return;
     }
     if (_admins.length >= 64) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('管理员数量已达上限（64）')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('管理员数量已达上限（64）')));
       return;
     }
     setState(() {
@@ -327,39 +326,20 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
       return '普通阈值不能超过管理员数量';
     }
 
-    final amount = AmountFormat.tryParse(_amountController.text);
-    if (amount == null || amount <= 0) return '请输入有效金额';
-    if ((amount * 100).round() < 111) return '初始资金不能低于 1.11 元';
-
     return null;
-  }
-
-  Future<String?> _checkCreatorBalance({
-    required CitizenWalletStateAccount wallet,
-    required BigInt initialAmountFen,
-  }) async {
-    final balance = await AccountBalanceSnapshotStore.forChain(
-      context.read<CitizenSdk>(),
-    ).getAccountBalance(wallet.accountId, forceRefresh: true);
-    final balanceYuan = balance.freeFen.toDouble() / 100;
-    final balanceFen = MultisigCreateAmountRules.yuanToFen(balanceYuan);
-    final requiredFen = MultisigCreateAmountRules.requiredBalanceFen(
-      initialAmountFen,
-    );
-    if (balanceFen >= requiredFen) return null;
-    return MultisigCreateAmountRules.insufficientBalanceMessage(
-      actionLabel: '创建个人多签',
-      balanceYuan: balanceYuan,
-      initialAmountFen: initialAmountFen,
-    );
   }
 
   Future<void> _submit() async {
     final chain = context.read<CitizenSdk>();
-    final error = _validate();
+    if (_submitting) return;
+    final amountFen = parseFen(_amountController.text);
+    final error =
+        _validate() ??
+        (amountFen == null || amountFen <= BigInt.zero ? '请输入有效金额' : null);
     if (error != null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(error)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error)));
       return;
     }
 
@@ -375,31 +355,64 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
       final nameBytes = Uint8List.fromList(utf8.encode(nameText));
       final regularThreshold = _regularThreshold!;
       final createThreshold = _admins.length;
-      final amountYuan = AmountFormat.tryParse(_amountController.text) ?? 0;
-      final amountFen = BigInt.from((amountYuan * 100).round());
-      final balanceError = await _checkCreatorBalance(
-        wallet: wallet,
-        initialAmountFen: amountFen,
+      final initialAmountFen = amountFen!;
+      final admins = List<AdminPerson>.of(_admins);
+      final reads = widget.amountReads;
+      final fees = await (
+        reads?.quote(initialAmountFen) ??
+        chain.getFeeSnapshot(amountFen: initialAmountFen)
       );
-      if (balanceError != null) {
-        if (!mounted) return;
+      if (!mounted) return;
+      // 最低入金是同一报价块的业务常量，ED 仍只参与钱包余额校验。
+      final minimumFen = await (
+        reads?.minimum(fees.bestBlock) ??
+        chain.getRuntimeContext(fees.bestBlock).then(
+          (runtime) => runtime.unsignedConstant(
+            'PersonalManage',
+            'MinCreateAmount',
+          ),
+        )
+      );
+      if (!mounted) return;
+      if (initialAmountFen < minimumFen) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(balanceError),
+            content: Text(
+              '初始资金不能低于 ${formatFen(minimumFen)} 元',
+            ),
+          ),
+        );
+        return;
+      }
+      final balance = await (
+        reads?.balance(wallet.accountId) ??
+        chain.getAccountBalance(wallet.accountId, forceRefresh: true)
+      );
+      if (!mounted) return;
+      final requiredFen =
+          initialAmountFen + fees.feeFen + fees.minimumSelfPayFen;
+      if (balance.freeFen < requiredFen) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '发起钱包余额不足，不能创建个人多签。当前余额 '
+              '${formatFen(balance.freeFen)} 元，至少需要 ${formatFen(requiredFen)} 元'
+              '（含初始资金、操作费、执行费和 ED）。',
+            ),
             backgroundColor: AppTheme.danger,
           ),
         );
         return;
       }
 
-      final publicKeyBytes = _hexDecode(wallet.accountId);
+      final publicKeyBytes = citizenAccountIdBytes(wallet.accountId);
 
       final result = await manageService.submitProposeCreatePersonal(
         accountName: nameBytes,
-        admins: _admins,
+        admins: admins,
         regularThreshold: regularThreshold,
-        amountFen: amountFen,
-        signerPublicKey: Uint8List.fromList(publicKeyBytes),
+        amountFen: initialAmountFen,
+        signerPublicKey: publicKeyBytes,
         externalSigning: (pending) => showCitizenSdkQrResponse(
           context,
           request: pending.qrRequest,
@@ -409,17 +422,17 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
         ),
       );
 
-      final addrHex = result.accountId;
+      final accountId = result.accountId;
       await UserIsar.instance.writeTxn((isar) async {
         final entity = wallet_store.Account()
-          ..accountId = '0x$addrHex'
+          ..accountId = accountId
           ..accountName = nameText
           ..creatorAccount = wallet.accountId
           ..addedAt = DateTime.now().millisecondsSinceEpoch;
         await isar.collection<wallet_store.Account>().put(entity);
         await PersonalMultisigLocalState.putStatusInTxn(
           isar,
-          addrHex,
+          accountId,
           PersonalMultisigLocalState.statusPending,
         );
       });
@@ -427,7 +440,7 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
       // 只有入块并确认 个人账户创建成功事件 事件后，才写本地
       // 创建提案；proposal_id 使用链上事件返回值，不能再预测 NextProposalId。
       await PersonalProposalHistoryService(chain: chain).recordOrUpdate(
-        accountId: addrHex,
+        accountId: accountId,
         proposalId: result.proposalId,
         actionKind: PersonalProposalAction.create,
         status: PersonalProposalStatus.voting,
@@ -436,10 +449,10 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
         noCount: 0,
         snapshot: {
           'name': nameText,
-          'admins_len': _admins.length,
+          'admins_len': admins.length,
           'regular_threshold': regularThreshold,
           'create_threshold': createThreshold,
-          'amount_fen': amountFen.toString(),
+          'amount_fen': initialAmountFen.toString(),
         },
       );
 
@@ -452,7 +465,7 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
           backgroundColor: AppTheme.primaryDark,
         ),
       );
-      Navigator.of(context).pop(addrHex);
+      Navigator.of(context).pop(accountId);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -538,7 +551,7 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
           SizedBox(height: AppLayout.scaled(context, 8)),
           ..._admins.asMap().entries.map((entry) {
             final admin = entry.value;
-            final ss58 = _hexToSs58(admin.accountId);
+            final ss58 = citizenSs58FromAccountId(admin.accountId);
             final isCreator = admin.accountId == _creatorAccountId;
             return ListTile(
               dense: true,
@@ -625,7 +638,7 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             inputFormatters: [ThousandSeparatorFormatter()],
             decoration: InputDecoration(
-              hintText: '最低 1.11 元',
+              hintText: '输入初始资金',
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(AppLayout.scaledValue(10)),
               ),
@@ -836,15 +849,4 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
   String _truncateAddress(String a) => a.length <= 14
       ? a
       : '${a.substring(0, 6)}...${a.substring(a.length - 6)}';
-  String _hexToSs58(String hex) => Keyring().encodeAddress(
-    Uint8List.fromList(_hexDecode(hex)),
-    kGmbSs58Prefix,
-  );
-  List<int> _hexDecode(String hex) {
-    final h = hex.startsWith('0x') ? hex.substring(2) : hex;
-    return List.generate(
-      h.length ~/ 2,
-      (i) => int.parse(h.substring(i * 2, i * 2 + 2), radix: 16),
-    );
-  }
 }

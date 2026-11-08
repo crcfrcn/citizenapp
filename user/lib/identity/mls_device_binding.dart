@@ -13,7 +13,7 @@ Future<Uint8List> encodeMlsDeviceBindingPayload({
   if (!RegExp(r'^[A-Za-z0-9][A-Za-z0-9-]{0,31}$').hasMatch(cidNumber) ||
       bindRev <= 0 ||
       bindRev > 9007199254740991 ||
-      !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(accountId) ||
+      !isCitizenAccountId(accountId) ||
       !RegExp(r'^0x[0-9a-f]{64}$').hasMatch(publicKey) ||
       issuedAtMillis <= 0 ||
       issuedAtMillis > 9007199254740991) {

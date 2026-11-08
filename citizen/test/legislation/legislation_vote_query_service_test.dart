@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_sdk/test/platform/fixture.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 import 'package:citizen_citizen/legislation/legislation_vote_query_service.dart';
 
@@ -18,6 +19,12 @@ class Chain extends TestChainReads {
   Future<CitizenBlockRef> getFinalizedHead() async {
     heads++;
     return block;
+  }
+
+  @override
+  Future<CitizenRuntimeContext> getRuntimeContext(CitizenBlockRef ref) {
+    expect(ref, same(block));
+    return CitizenSdkTestFixture.runtimeContext(ref);
   }
 
   @override

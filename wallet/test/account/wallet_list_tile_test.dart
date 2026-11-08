@@ -1,10 +1,9 @@
-import 'dart:io';
-
 import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_testing/fake_citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 
-import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_wallet/account/wallet_page.dart';
 
@@ -21,7 +20,7 @@ void main() {
       walletIndex: index,
       accountIndex: mode == CitizenWalletSignMode.hot ? index : null,
       accountId: accountId,
-      ss58Address: ss58FromAccountIdText(accountId),
+      ss58Address: citizenSs58FromAccountId(accountId),
       name: name,
       createdAtMillis: BigInt.zero,
       isDefault: isDefault,
@@ -39,7 +38,7 @@ void main() {
         body: WalletListTile(
           wallet: wallet,
           walletName: wallet.name,
-          balance: 1234567.89,
+          balanceFen: BigInt.from(123456789),
           showActions: showActions,
           isDefault: wallet.isDefault,
           isBroken: isBroken,
@@ -96,7 +95,7 @@ void main() {
               wallet: null,
               diagnostic: diagnostic,
               walletName: diagnostic.walletName,
-              balance: 0,
+              balanceFen: BigInt.zero,
               showActions: true,
               isBroken: true,
               onTap: () {},
@@ -119,16 +118,68 @@ void main() {
     }
   });
 
-  test('冷钱包导入保留App原界面，只接SDK账户码解析与导入', () {
-    final source = File('wallet/lib/account/wallet_page.dart').readAsStringSync();
-    expect(source, contains('mode: QrScanMode.coldAccountImport'));
-    expect(source, contains('CitizenQrScanPurpose.coldAccountImport'));
-    expect(source, contains('context.read<CitizenSdk>().importColdAccount'));
-    expect(source, contains('widget.importCold ??'));
-    expect(source, isNot(contains('importColdAccountWithUi')));
-    expect(source, isNot(contains('extractColdWalletImportAddress')));
-    expect(source, isNot(contains('QrRouter().route')));
-    expect(source, isNot(contains('QrRouteType.userContact')));
-    expect(source, isNot(contains('QrRouteType.userTransfer')));
+  testWidgets('账户码只填表，确认后才写入真实冷钱包目录', (tester) async {
+    final core = (await tester.runAsync(
+      () => openTestSdk(
+        modules: CitizenSdkModules.wallet | CitizenSdkModules.qr,
+        physicalUi: true,
+      ),
+    ))!;
+    final sdk = core.sdk;
+    final accountId = account(mode: CitizenWalletSignMode.cold).accountId;
+    final wire = (await tester.runAsync(() => sdk.encodeAccountId(accountId)))!;
+    final before = (await tester.runAsync(() => sdk.getWalletState().result))!;
+    expect(before.accounts, isEmpty);
+
+    Future<void> waitFor(bool Function() ready) async {
+      for (var i = 0; i < 100 && !ready(); i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 5)),
+        );
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      expect(ready(), isTrue);
+      await tester.pumpAndSettle();
+    }
+
+    await tester.pumpWidget(
+      Provider<CitizenSdk>.value(
+        value: sdk,
+        child: MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => Navigator.of(context).push<bool>(
+                  MaterialPageRoute(
+                    builder: (_) => const ImportColdWalletPage(),
+                  ),
+                ),
+                child: const Text('打开导入页'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开导入页'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('扫码填入账户'));
+    await waitFor(() => core.fixture.nativeResources.isNotEmpty);
+    core.fixture.scanText(wire, CitizenQrScanPurpose.coldAccountImport);
+    final field = find.byType(TextField);
+    await waitFor(() => field.evaluate().isNotEmpty);
+    expect(tester.widget<TextField>(field).controller!.text, accountId);
+    final filled = (await tester.runAsync(() => sdk.getWalletState().result))!;
+    expect(filled.accounts, isEmpty);
+    expect(filled.revision, before.revision);
+
+    await tester.tap(find.text('确认导入'));
+    final opener = find.text('打开导入页');
+    await waitFor(() => opener.evaluate().isNotEmpty);
+    expect(opener, findsOneWidget);
+    final after = (await tester.runAsync(() => sdk.getWalletState().result))!;
+    expect(after.accounts.single.accountId, accountId);
+    expect(after.accounts.single.signMode, CitizenWalletSignMode.cold);
+    expect(after.revision, before.revision + BigInt.one);
   });
 }

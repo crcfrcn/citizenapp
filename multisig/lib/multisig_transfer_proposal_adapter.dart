@@ -1,3 +1,4 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 
 import 'package:citizen_multisig/multisig_transfer_cache.dart';
@@ -7,7 +8,6 @@ import 'package:citizen_multisig/multisig_transfer_service.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/proposal/proposal_context.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
-import 'package:citizen_system/amount_format.dart';
 
 /// 多签转账给外部列表页使用的只读适配器。
 ///
@@ -56,15 +56,15 @@ class MultisigTransferProposalAdapter {
   static String? subtitle(ProposalWithDetail proposal, String status) {
     final transfer = _transfer(proposal);
     if (transfer != null) {
-      return '${AmountFormat.format(transfer.amountYuan, symbol: '')} 元 · $status';
+      return '${formatFen(transfer.amountFen)} 元 · $status';
     }
     final safetyFund = _safetyFund(proposal);
     if (safetyFund != null) {
-      return '安全基金转账 ${AmountFormat.format(safetyFund.amountYuan, symbol: '')} 元 · $status';
+      return '安全基金转账 ${formatFen(safetyFund.amountFen)} 元 · $status';
     }
     final sweep = _sweep(proposal);
     if (sweep != null) {
-      return '手续费划转 ${AmountFormat.format(sweep.amountYuan, symbol: '')} 元 · $status';
+      return '手续费划转 ${formatFen(sweep.amountFen)} 元 · $status';
     }
     return null;
   }
@@ -72,15 +72,15 @@ class MultisigTransferProposalAdapter {
   static String? listSummary(ProposalWithDetail proposal) {
     final transfer = _transfer(proposal);
     if (transfer != null) {
-      return '转账 ${AmountFormat.format(transfer.amountYuan, symbol: '')} 元';
+      return '转账 ${formatFen(transfer.amountFen)} 元';
     }
     final safetyFund = _safetyFund(proposal);
     if (safetyFund != null) {
-      return '安全基金转账 ${AmountFormat.format(safetyFund.amountYuan, symbol: '')} 元';
+      return '安全基金转账 ${formatFen(safetyFund.amountFen)} 元';
     }
     final sweep = _sweep(proposal);
     if (sweep != null) {
-      return '手续费划转 ${AmountFormat.format(sweep.amountYuan, symbol: '')} 元';
+      return '手续费划转 ${formatFen(sweep.amountFen)} 元';
     }
     return null;
   }
@@ -159,17 +159,6 @@ class MultisigTransferProposalFeed {
   static Future<List<ProposalWithDetail>>? _yearProposalsInFlight;
 
   final MultisigTransferService _service;
-
-  Future<double> fetchInstitutionBalance(
-    InstitutionInfo institution, {
-    bool forceRefresh = false,
-  }) {
-    // 余额查询、持久化与并发合并统一由 wallet 所有者负责。
-    return _service.fetchInstitutionBalance(
-      institution,
-      forceRefresh: forceRefresh,
-    );
-  }
 
   /// ADR-018 统一提案查询入口:当前年全部提案,进程内共享缓存(TTL 20s)。
   /// 公民-提案 / 机构详情 / 个人多签同周期复用同一份,避免各页面重复查链。

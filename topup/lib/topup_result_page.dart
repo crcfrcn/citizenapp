@@ -1,7 +1,6 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:citizen_storage/user_isar.dart' show Entry;
-import 'package:citizen_citizen/account_derivation.dart'
-    show ss58FromAccountIdText;
 import 'package:citizen_system/theme/app_layout.dart';
 import 'package:citizen_wallet/history/record_format.dart';
 import 'package:citizen_topup/store.dart';
@@ -61,12 +60,12 @@ class TopupDetails extends StatelessWidget {
                   record.confirmedAt != null
               ? '到账公民币'
               : '预计公民币',
-          value: formatFen(payment.coinFen, symbol: '公民币'),
+          value: '${formatFen(BigInt.parse(payment.coinFen))} 公民币',
         ),
         row(
           context,
           label: '目标账户',
-          value: ss58FromAccountIdText(payment.accountId),
+          value: citizenSs58FromAccountId(payment.accountId),
           copyable: true,
         ),
         row(

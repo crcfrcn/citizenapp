@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
-import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
@@ -25,17 +24,17 @@ Future<void> showWalletQrDialog(
   required String accountId,
   required String accountName,
 }) async {
-  final normalizedAccountId = accountId.trim();
-  if (!isAccountIdText(normalizedAccountId)) {
+  final String accountAddress;
+  try {
+    accountAddress = citizenSs58FromAccountId(accountId);
+  } on FormatException {
     ScaffoldMessenger.of(context)
         .showSnackBar(const SnackBar(content: Text('账户标识无效，无法生成二维码')));
     return;
   }
-
-  final accountAddress = ss58FromAccountIdText(normalizedAccountId);
   final qrData = await buildWalletAccountQrData(
     context.read<CitizenSdk>(),
-    normalizedAccountId,
+    accountId,
   );
   if (!context.mounted) return;
   await showDialog<void>(

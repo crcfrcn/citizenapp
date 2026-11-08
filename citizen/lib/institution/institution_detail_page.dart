@@ -11,7 +11,6 @@ import 'package:citizen_citizen/institution/institution_accounts.dart';
 import 'package:citizen_citizen/institution/institution_accounts_page.dart';
 import 'package:citizen_citizen/institution/institution_chain_state.dart';
 import 'package:citizen_citizen/institution/institution_classification.dart';
-import 'package:citizen_system/amount_format.dart';
 import 'package:citizen_citizen/institution/institution_repository.dart';
 import 'package:citizen_citizen/public/public_institution_admin_list_page.dart';
 import 'package:citizen_citizen/legislation/law_models.dart';
@@ -101,7 +100,7 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
   List<InstitutionAccountRow> _accounts = const [];
   String _areaPath = '';
 
-  double? _mainBalanceYuan;
+  BigInt? _mainBalanceFen;
   bool _mainBalanceLoading = true;
 
   List<InstitutionAdminView> _adminViews = const [];
@@ -268,7 +267,7 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
       final balances = await _chainState.balances([mainHex]);
       if (mounted) {
         setState(() {
-          _mainBalanceYuan = balances[mainHex];
+          _mainBalanceFen = balances[mainHex];
           _mainBalanceLoading = false;
         });
       }
@@ -557,9 +556,9 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
 
   String _mainBalanceLabel() {
     if (_mainBalanceLoading) return '读取中...';
-    final yuan = _mainBalanceYuan;
+    final yuan = _mainBalanceFen;
     if (yuan == null) return '未激活';
-    return '${AmountFormat.formatThousands(yuan)} 元';
+    return '${formatFen(yuan)} 元';
   }
 
   // ──── ② 机构账户入口 ────

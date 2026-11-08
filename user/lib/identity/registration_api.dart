@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
-import 'package:citizen_network/chain_bootstrap_api.dart' show HttpsOnlyClient;
 import 'package:citizen_network/citizen_serve_api_config.dart';
 import 'package:citizen_user/identity/registration_models.dart';
 

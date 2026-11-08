@@ -10,7 +10,6 @@ import 'package:citizen_storage/user_isar.dart'
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:polkadart/polkadart.dart' show Hasher;
 
 import 'package:citizen_citizen/legislation/law_models.dart';
 import 'package:citizen_citizen/legislation/legislation_codec.dart';
@@ -28,6 +27,7 @@ class LegislationApi {
     callRuntimeApi,
     Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
     getStorage,
+    Future<CitizenRuntimeContext> Function(CitizenBlockRef)? getRuntimeContext,
   }) : _getFinalizedHead =
            getFinalizedHead ??
            chain?.getFinalizedHead ??
@@ -37,12 +37,15 @@ class LegislationApi {
            chain?.callRuntimeApi ??
            ((CitizenBlockRef block, String method, Uint8List arguments) =>
                throw StateError('未配置callRuntimeApi')),
+       _getRuntimeContext = getRuntimeContext ?? chain?.getRuntimeContext ??
+           ((block) => throw StateError('未配置getRuntimeContext')),
        _getStorage =
            getStorage ??
            chain?.getStorage ??
            ((CitizenBlockRef block, Uint8List key) =>
                throw StateError('未配置getStorage'));
   final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<CitizenRuntimeContext> Function(CitizenBlockRef) _getRuntimeContext;
   final Future<Uint8List> Function(
     CitizenBlockRef block,
     String method,
@@ -74,13 +77,7 @@ class LegislationApi {
   Future<Law?> law(int lawId, {bool forceRefresh = false}) async {
     final cached = _lawCache[lawId];
     if (!forceRefresh && cached != null) return cached;
-    final raw = await _readStorage(
-      _storageMapKey(
-        'LegislationYuan',
-        'Laws',
-        Uint8List.fromList(_u64(lawId)),
-      ),
-    );
+    final raw = await _readStorage('Laws', [lawId]);
     if (raw == null) return null;
     final law = decodeLaw(raw);
     _lawCache[lawId] = law;
@@ -97,14 +94,7 @@ class LegislationApi {
     final key = '$lawId:$version';
     final cached = _versionCache[key];
     if (!forceRefresh && cached != null) return cached;
-    final raw = await _readStorage(
-      _storageDoubleMapKey(
-        'LegislationYuan',
-        'LawVersions',
-        Uint8List.fromList(_u64(lawId)),
-        Uint8List.fromList(_u32(version)),
-      ),
-    );
+    final raw = await _readStorage('LawVersions', [lawId, version]);
     if (raw == null) return null;
     final v = decodeLawVersion(raw);
     _versionCache[key] = v;
@@ -121,14 +111,7 @@ class LegislationApi {
     final key = '$lawId:$version';
     final cached = _versionLabelCache[key];
     if (!forceRefresh && cached != null) return cached;
-    final raw = await _readStorage(
-      _storageDoubleMapKey(
-        'LegislationYuan',
-        'LawVersionLabels',
-        Uint8List.fromList(_u64(lawId)),
-        Uint8List.fromList(_u32(version)),
-      ),
-    );
+    final raw = await _readStorage('LawVersionLabels', [lawId, version]);
     if (raw == null) return null;
     final label = decodeLawVersionLabel(raw);
     _versionLabelCache[key] = label;
@@ -141,11 +124,7 @@ class LegislationApi {
     bool forceRefresh = false,
   }) async {
     if (!forceRefresh && _manifestCache != null) return _manifestCache;
-    final key = _storageValueKey(
-      'LegislationYuan',
-      'ConstitutionImmutableManifest',
-    );
-    final raw = await _readStorage(key);
+    final raw = await _readStorage('ConstitutionImmutableManifest');
     if (raw == null) return null;
     await _writeRaw(_manifestKey, raw);
     return _manifestCache = decodeImmutableManifest(raw);
@@ -201,40 +180,10 @@ class LegislationApi {
     }
   }
 
-  Uint8List _storageValueKey(String pallet, String item) {
-    final p = Hasher.twoxx128.hashString(pallet);
-    final s = Hasher.twoxx128.hashString(item);
-    return Uint8List.fromList([...p, ...s]);
-  }
-
-  Future<Uint8List?> _readStorage(Uint8List key) async {
+  Future<Uint8List?> _readStorage(String item, [List<Object> keys = const []]) async {
     final finalized = await _getFinalizedHead();
-    return _getStorage(finalized, key);
-  }
-
-  Uint8List _storageMapKey(String pallet, String item, Uint8List keyData) {
-    final p = Hasher.twoxx128.hashString(pallet);
-    final s = Hasher.twoxx128.hashString(item);
-    final k = _blake2128Concat(keyData);
-    return Uint8List.fromList([...p, ...s, ...k]);
-  }
-
-  Uint8List _storageDoubleMapKey(
-    String pallet,
-    String item,
-    Uint8List key1,
-    Uint8List key2,
-  ) {
-    final p = Hasher.twoxx128.hashString(pallet);
-    final s = Hasher.twoxx128.hashString(item);
-    final k1 = _blake2128Concat(key1);
-    final k2 = _blake2128Concat(key2);
-    return Uint8List.fromList([...p, ...s, ...k1, ...k2]);
-  }
-
-  Uint8List _blake2128Concat(Uint8List data) {
-    final hash = Hasher.blake2b128.hash(data);
-    return Uint8List.fromList([...hash, ...data]);
+    final runtime = await _getRuntimeContext(finalized);
+    return _getStorage(finalized, runtime.storageKey('LegislationYuan', item, keys));
   }
 
   String _hex(Uint8List b) =>
@@ -289,13 +238,4 @@ class LegislationApi {
       // 本机快照写入失败不影响链上读取；下次进入最多回到首屏等待。
     }
   }
-
-  List<int> _u32(int v) => [
-    v & 0xff,
-    (v >> 8) & 0xff,
-    (v >> 16) & 0xff,
-    (v >> 24) & 0xff,
-  ];
-
-  List<int> _u64(int v) => List.generate(8, (k) => (v >> (8 * k)) & 0xff);
 }

@@ -210,7 +210,6 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
         return;
       }
 
-      String? avatarKey;
       String? avatarHash;
       if (_pendingAvatar != null) {
         final result = await _assetService.upload(
@@ -223,11 +222,9 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
           bytes: result.bytes,
           contentType: 'image/webp',
         );
-        avatarKey = result.objectKey;
         avatarHash = result.contentHash;
       }
 
-      String? bannerKey;
       String? bannerHash;
       if (_pendingBanner != null) {
         final result = await _assetService.upload(
@@ -240,7 +237,6 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
           bytes: result.bytes,
           contentType: 'image/webp',
         );
-        bannerKey = result.objectKey;
         bannerHash = result.contentHash;
       }
 
@@ -248,9 +244,7 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
       final request = <String, String>{
         'display_name': nickname,
         'profile_bio': _bioController.text.trim(),
-        'avatar_key': ?avatarKey,
         'avatar_hash': ?avatarHash,
-        'banner_key': ?bannerKey,
         'banner_hash': ?bannerHash,
       };
       await _cache.prepareUpdate(
@@ -296,9 +290,7 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
       session: session,
       displayName: request['display_name'],
       profileBio: request['profile_bio'],
-      avatarKey: request['avatar_key'],
       avatarHash: request['avatar_hash'],
-      bannerKey: request['banner_key'],
       bannerHash: request['banner_hash'],
     );
   }
@@ -309,9 +301,8 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
   }
 
   void _snack(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   String _contentTypeForPath(String path) {

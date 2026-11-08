@@ -15,7 +15,6 @@ import 'dart:convert';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/foundation.dart';
 import 'package:isar_community/isar.dart';
-import 'package:polkadart/polkadart.dart' show Hasher;
 
 import 'package:citizen_storage/user_isar.dart' hide Group;
 import 'package:citizen_citizen/proposal/proposal_query_service.dart';
@@ -109,20 +108,8 @@ class PersonalProposalHistoryService {
        _getSyncStatus =
            getSyncStatus ??
            chain?.getSyncStatus ??
-           (() => throw StateError('未配置getSyncStatus')),
-       _getFinalizedHead =
-           getFinalizedHead ??
-           chain?.getFinalizedHead ??
-           (() => throw StateError('未配置getFinalizedHead')),
-       _getStorage =
-           getStorage ??
-           chain?.getStorage ??
-           ((CitizenBlockRef block, Uint8List key) =>
-               throw StateError('未配置getStorage'));
+           (() => throw StateError('未配置getSyncStatus'));
   final Future<CitizenChainSyncStatus> Function() _getSyncStatus;
-  final Future<CitizenBlockRef> Function() _getFinalizedHead;
-  final Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)
-  _getStorage;
 
   final ProposalQueryService _proposalService;
 
@@ -403,22 +390,10 @@ class PersonalProposalHistoryService {
   /// 读取 `VotingEngine.ProposalData[id]` 原始字节(`BoundedVec<u8>` SCALE 编码)。
   Future<Uint8List?> _fetchProposalDataRaw(int proposalId) async {
     try {
-      final key = _buildStorageKey(
-        'VotingEngine',
-        'ProposalData',
-        _u64ToLeBytes(proposalId),
-      );
-      final finalized = await _getFinalizedHead();
-      return await _getStorage(finalized, key);
+      return await _proposalService.fetchProposalData(proposalId);
     } catch (_) {
       return null;
     }
-  }
-
-  Uint8List _u64ToLeBytes(int value) {
-    final bytes = Uint8List(8);
-    ByteData.sublistView(bytes).setUint64(0, value, Endian.little);
-    return bytes;
   }
 
   Future<List<PersonalAccountProposalView>> _readAllFromIsar(
@@ -460,52 +435,9 @@ class PersonalProposalHistoryService {
     );
   }
 
-  // ──── 编码 / 哈希工具(对齐 votingengine storage key) ────
-
-  Uint8List _buildStorageKey(String pallet, String storage, Uint8List keyData) {
-    final palletHash = Hasher.twoxx128.hashString(pallet);
-    final storageHash = Hasher.twoxx128.hashString(storage);
-    final keyHash = Hasher.blake2b128.hash(keyData);
-    final result = Uint8List(
-      palletHash.length + storageHash.length + keyHash.length + keyData.length,
-    );
-    var offset = 0;
-    result.setAll(offset, palletHash);
-    offset += palletHash.length;
-    result.setAll(offset, storageHash);
-    offset += storageHash.length;
-    result.setAll(offset, keyHash);
-    offset += keyHash.length;
-    result.setAll(offset, keyData);
-    return result;
-  }
-
   (int, int) _decodeCompact(Uint8List data, int offset) {
-    if (offset < 0 || offset >= data.length) {
-      throw const FormatException('Compact<u32> offset 越界');
-    }
-    final first = data[offset];
-    final mode = first & 0x03;
-    if (mode == 0) return (first >> 2, 1);
-    if (mode == 1) {
-      if (offset + 1 >= data.length) {
-        throw const FormatException('Compact<u32> mode1 长度不足');
-      }
-      return ((first | data[offset + 1] << 8) >> 2, 2);
-    }
-    if (mode == 2) {
-      if (offset + 3 >= data.length) {
-        throw const FormatException('Compact<u32> mode2 长度不足');
-      }
-      return (
-        (first |
-                data[offset + 1] << 8 |
-                data[offset + 2] << 16 |
-                data[offset + 3] << 24) >>
-            2,
-        4,
-      );
-    }
-    throw const FormatException('Compact<u32> big-integer 模式不支持');
+    final result = CitizenScale.readCompact(data, offset);
+    if (result.$2 > 4) throw const FormatException('Compact<u32>长度超出范围');
+    return result;
   }
 }

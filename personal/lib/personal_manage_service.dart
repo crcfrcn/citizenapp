@@ -1,14 +1,9 @@
 import 'dart:convert';
 
-import 'package:citizen_citizen/pallet_registry.dart';
+import 'package:citizen_citizen/proposal/proposal_query_service.dart';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/foundation.dart';
-import 'package:polkadart/scale_codec.dart' show CompactBigIntCodec, ByteOutput;
-import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
-import 'package:citizen_citizen/account_derivation.dart';
-import 'package:citizen_citizen/institution/institution_role_storage_codec.dart';
-import 'package:citizen_citizen/administrators/account_id_codec.dart';
 import 'package:citizen_citizen/administrators/admin_account.dart';
 
 import 'package:citizen_personal/personal_manage_models.dart';
@@ -22,6 +17,8 @@ class PersonalManageService {
   PersonalManageService({
     CitizenSdk? chain,
     CitizenSdk? transactions,
+    CitizenCallBuilder? buildCall,
+    Future<CitizenRuntimeContext> Function(CitizenBlockRef)? getRuntimeContext,
     Future<Uint8List?> Function(CitizenBlockRef block)? getSystemEvents,
     Future<CitizenBlockRef> Function()? getFinalizedHead,
     Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
@@ -45,10 +42,17 @@ class PersonalManageService {
       String response,
     )?
     consumePreparedTransactionQrResponse,
-  }) : _getSystemEvents =
-           getSystemEvents ??
-           chain?.getSystemEvents ??
-           ((CitizenBlockRef block) => throw StateError('未配置getSystemEvents')),
+  }) : _buildCall = buildCall ?? transactions?.buildCall ?? chain?.buildCall ??
+           ((pallet, method, fields) => throw StateError('未配置buildCall')),
+       _getRuntimeContext = getRuntimeContext ?? chain?.getRuntimeContext ??
+           ((block) => throw StateError('未配置getRuntimeContext')),
+       _getFinalizedEvents = ((block) => readCitizenFinalizedEvents(
+             block,
+             readEvents: getSystemEvents ?? chain?.getSystemEvents ??
+                 ((_) => throw StateError('未配置事件读取')),
+             readRuntime: getRuntimeContext ?? chain?.getRuntimeContext ??
+                 ((_) => throw StateError('未配置事件 metadata')),
+           )),
        _getFinalizedHead =
            getFinalizedHead ??
            chain?.getFinalizedHead ??
@@ -83,8 +87,10 @@ class PersonalManageService {
            transactions?.consumePreparedTransactionQrResponse ??
            ((String executionId, String response) =>
                throw StateError('未配置consumePreparedTransactionQrResponse'));
-  final Future<Uint8List?> Function(CitizenBlockRef block) _getSystemEvents;
+  final Future<List<CitizenSystemEvent>> Function(CitizenBlockRef) _getFinalizedEvents;
   final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<CitizenRuntimeContext> Function(CitizenBlockRef) _getRuntimeContext;
+  final CitizenCallBuilder _buildCall;
   final Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)
   _getStorage;
   final Future<List<Uint8List?>> Function(
@@ -106,18 +112,6 @@ class PersonalManageService {
     String response,
   )
   _consumePreparedTransactionQrResponse;
-
-  /// PersonalManage pallet index(runtime pallet_index=7)。
-  static const _palletIndex = PalletRegistry.personalManagePallet;
-
-  /// PersonalManage::propose_create call_index=0。
-  static const _proposeCreateCallIndex = 0;
-
-  /// PersonalManage::propose_close call_index=1。
-  static const _proposeCloseCallIndex = 1;
-
-  /// PersonalManage 个人账户创建成功事件 event_index=0。
-  static const _personalAccountProposedEventIndex = 0;
 
   /// PersonalManage ProposalData action。
   static const actionCreate = 0;
@@ -155,19 +149,20 @@ class PersonalManageService {
     )
     externalSigning,
   }) async {
-    final callData = buildProposeCreatePersonalCallData(
+    final callData = await buildProposeCreatePersonalCallData(
+      buildCall: _buildCall,
       accountName: accountName,
       admins: admins,
       regularThreshold: regularThreshold,
       amountFen: amountFen,
     );
-    final submitResult = await _executeFinalized(
+    final submitResult = await _execute(
       callData: callData,
       signerPublicKey: signerPublicKey,
       externalSigning: externalSigning,
     );
     final event = await _confirmPersonalAccountProposedEvent(
-      finalizedBlock: submitResult.block,
+      execution: submitResult.execution,
       accountName: accountName,
       admins: admins,
       regularThreshold: regularThreshold,
@@ -179,13 +174,14 @@ class PersonalManageService {
       usedNonce: submitResult.usedNonce,
       proposalId: event.proposalId,
       accountId: event.accountId,
-      blockHash: submitResult.block.hash,
+      blockHash: submitResult.execution.block.hash,
     );
   }
 
   /// 构造个人多签创建 call_data。用于生产提交与测试逐字节对齐。
   @visibleForTesting
-  static Uint8List buildProposeCreatePersonalCallData({
+  static Future<Uint8List> buildProposeCreatePersonalCallData({
+    required CitizenCallBuilder buildCall,
     required Uint8List accountName,
     required List<AdminPerson> admins,
     required int regularThreshold,
@@ -205,12 +201,10 @@ class PersonalManageService {
     }
     final seen = <String>{};
     for (final admin in admins) {
-      final publicKey = AdminAccountIdCodec.fromAccountIdText(admin.accountId);
-      if (publicKey.length != 32) {
-        throw ArgumentError('admins 每项必须为 32 字节');
+      if (!isCitizenAccountId(admin.accountId)) {
+        throw ArgumentError('admins 每项必须为规范 AccountId');
       }
-      final hex = _hexEncode(publicKey);
-      if (!seen.add(hex)) {
+      if (!seen.add(admin.accountId)) {
         throw ArgumentError('admins 不允许重复');
       }
       _validateAdminName(admin.familyName, 'family_name');
@@ -220,37 +214,20 @@ class PersonalManageService {
       throw ArgumentError('amount 必须大于 0');
     }
 
-    final output = ByteOutput();
-    output.pushByte(_palletIndex);
-    output.pushByte(_proposeCreateCallIndex);
-
-    // account_name: BoundedVec<u8> = Compact<u32> length + bytes
-    output.write(
-      CompactBigIntCodec.codec.encode(BigInt.from(accountName.length)),
-    );
-    output.write(accountName);
-
-    // admins: BoundedVec<Admin(account_id + cid_number + family_name + given_name)>
-    output.write(CompactBigIntCodec.codec.encode(BigInt.from(admins.length)));
-    for (final admin in admins) {
-      output.write(AdminAccountIdCodec.fromAccountIdText(admin.accountId));
-      // 统一 Admin 恒带公民 CID（个人多签为空 → Compact(0)）。
-      final cidBytes = utf8.encode(admin.cidNumber);
-      output.write(
-        CompactBigIntCodec.codec.encode(BigInt.from(cidBytes.length)),
-      );
-      output.write(Uint8List.fromList(cidBytes));
-      _writeAdminName(output, admin.familyName);
-      _writeAdminName(output, admin.givenName);
-    }
-
-    // regular_threshold: u32 little-endian。注册提案阈值仍由链端固定为全员通过。
-    output.write(_u32ToLeBytesStatic(regularThreshold));
-
-    // amount: u128 little-endian
-    output.write(_u128ToLeBytesStatic(amountFen));
-
-    return output.toBytes();
+    return buildCall('PersonalManage', 'propose_create', [
+      accountName,
+      [
+        for (final admin in admins)
+          [
+            citizenAccountIdBytes(admin.accountId),
+            Uint8List.fromList(utf8.encode(admin.cidNumber)),
+            Uint8List.fromList(utf8.encode(admin.familyName.trim())),
+            Uint8List.fromList(utf8.encode(admin.givenName.trim())),
+          ],
+      ],
+      regularThreshold,
+      amountFen,
+    ]);
   }
 
   static void _validateAdminName(String value, String field) {
@@ -258,12 +235,6 @@ class PersonalManageService {
     if (bytes.isEmpty || bytes.length > 128) {
       throw ArgumentError('$field 长度必须在 1..=128 字节');
     }
-  }
-
-  static void _writeAdminName(ByteOutput output, String value) {
-    final bytes = utf8.encode(value.trim());
-    output.write(CompactBigIntCodec.codec.encode(BigInt.from(bytes.length)));
-    output.write(Uint8List.fromList(bytes));
   }
 
   /// 提交 PersonalManage::propose_close extrinsic。
@@ -276,17 +247,16 @@ class PersonalManageService {
     )
     externalSigning,
   }) async {
-    final output = ByteOutput();
-    output.pushByte(_palletIndex);
-    output.pushByte(_proposeCloseCallIndex);
-    output.write(_hexDecode(accountId));
-    final beneficiaryId = Keyring().decodeAddress(beneficiaryAddress);
-    output.write(beneficiaryId);
-    return _executeWithoutBlock(
-      callData: output.toBytes(),
+    final call = await _buildCall('PersonalManage', 'propose_close', [
+      citizenAccountIdBytes(accountId),
+      citizenAccountIdBytesFromSs58(beneficiaryAddress),
+    ]);
+    final result = await _execute(
+      callData: call,
       signerPublicKey: signerPublicKey,
       externalSigning: externalSigning,
     );
+    return (txHash: result.txHash, usedNonce: result.usedNonce);
   }
 
   /// 批量反查多个个人多签账户的发起人 / 账户名(`PersonalAccounts` 精确整键)。
@@ -303,14 +273,16 @@ class PersonalManageService {
         .toSet()
         .toList(growable: false);
     if (addresses.isEmpty) return {};
+    final runtime = await _getRuntimeContext(await _getFinalizedHead());
 
     final storageKeyByAccountId = <String, String>{
       for (final address in addresses)
         address:
-            '0x${_hexEncode(PersonalManageStorageCodec.personalAccountsKey(address))}',
+            '0x${_hexEncode(PersonalManageStorageCodec.personalAccountsKey(runtime, address))}',
     };
 
     final values = await _fetchStorageBatchChunked(
+      runtime.block,
       storageKeyByAccountId.values.toSet(),
       chunkSize: chunkSize,
     );
@@ -335,18 +307,19 @@ class PersonalManageService {
 
   /// 查询个人多签账户信息。
   Future<AccountInfo?> fetchPersonalAccount(String accountId) async {
-    final key = PersonalManageStorageCodec.personalAccountsKey(accountId);
-    final data = await _fetchStorage('0x${_hexEncode(key)}');
+    final runtime = await _getRuntimeContext(await _getFinalizedHead());
+    final key = PersonalManageStorageCodec.personalAccountsKey(runtime, accountId);
+    final data = await _getStorage(runtime.block, key);
     if (data == null) return null;
     final personal = PersonalManageStorageCodec.decodePersonalAccount(data);
     if (personal == null) return null;
-    final accountIdBytes = PersonalManageStorageCodec.accountIdBytes(accountId);
-    final adminKey = PersonalManageStorageCodec.adminAccountKey(accountIdBytes);
-    final adminData = await _fetchStorage('0x${_hexEncode(adminKey)}');
+    final accountIdBytes = citizenAccountIdBytes(accountId);
+    final adminKey = PersonalManageStorageCodec.adminAccountKey(runtime, accountIdBytes);
+    final adminData = await _getStorage(runtime.block, adminKey);
     if (adminData == null) return null;
     final admin = PersonalManageStorageCodec.decodeAdminAccount(adminData);
     if (admin == null) return null;
-    final threshold = await _fetchActivePersonalThreshold(accountIdBytes);
+    final threshold = await _fetchActivePersonalThreshold(runtime, accountIdBytes);
     return AccountInfo(
       adminsLen: admin.adminsLen,
       threshold: threshold,
@@ -369,6 +342,7 @@ class PersonalManageService {
         .toSet()
         .toList(growable: false);
     if (addresses.isEmpty) return {};
+    final runtime = await _getRuntimeContext(await _getFinalizedHead());
 
     final personalKeyByAddress = <String, String>{};
     final adminKeyByAccountId = <String, String>{};
@@ -376,11 +350,11 @@ class PersonalManageService {
     final firstRoundKeys = <String>[];
 
     for (final address in addresses) {
-      final accountId = PersonalManageStorageCodec.accountIdBytes(address);
+      final accountId = citizenAccountIdBytes(address);
       final personalKey =
-          '0x${_hexEncode(PersonalManageStorageCodec.personalAccountsKey(address))}';
+          '0x${_hexEncode(PersonalManageStorageCodec.personalAccountsKey(runtime, address))}';
       final adminKey =
-          '0x${_hexEncode(PersonalManageStorageCodec.adminAccountKey(accountId))}';
+          '0x${_hexEncode(PersonalManageStorageCodec.adminAccountKey(runtime, accountId))}';
       accountIdByAccountId[address] = accountId;
       personalKeyByAddress[address] = personalKey;
       adminKeyByAccountId[address] = adminKey;
@@ -390,6 +364,7 @@ class PersonalManageService {
     }
 
     final firstRoundValues = await _fetchStorageBatchChunked(
+      runtime.block,
       firstRoundKeys,
       chunkSize: chunkSize,
     );
@@ -420,9 +395,10 @@ class PersonalManageService {
     for (final entry in adminByAccountId.entries) {
       final accountId = accountIdByAccountId[entry.key]!;
       activeThresholdKeyByAccountId[entry.key] =
-          '0x${_hexEncode(PersonalManageStorageCodec.activePersonalThresholdKey(accountId))}';
+          '0x${_hexEncode(PersonalManageStorageCodec.activePersonalThresholdKey(runtime,accountId))}';
     }
     final activeThresholdValues = await _fetchStorageBatchChunked(
+      runtime.block,
       activeThresholdKeyByAccountId.values,
       chunkSize: chunkSize,
     );
@@ -450,11 +426,11 @@ class PersonalManageService {
     return result;
   }
 
-  Future<int?> _fetchActivePersonalThreshold(Uint8List personalAccount) async {
-    final key = PersonalManageStorageCodec.activePersonalThresholdKey(
+  Future<int?> _fetchActivePersonalThreshold(CitizenRuntimeContext runtime, Uint8List personalAccount) async {
+    final key = PersonalManageStorageCodec.activePersonalThresholdKey(runtime,
       personalAccount,
     );
-    final data = await _fetchStorage('0x${_hexEncode(key)}');
+    final data = await _getStorage(runtime.block, key);
     return PersonalManageStorageCodec.decodeDynamicThreshold(data);
   }
 
@@ -486,15 +462,13 @@ class PersonalManageService {
     if (data.length != 32 + 32 + 16 + 16) return null;
     var offset = 0;
 
-    final accountId =
-        '0x${_hexEncode(Uint8List.fromList(data.sublist(offset, offset + 32)))}';
+    final accountId = citizenAccountIdFromBytes(
+      data.sublist(offset, offset + 32),
+    );
     offset += 32;
 
     final proposerBytes = data.sublist(offset, offset + 32);
-    final proposerSs58 = Keyring().encodeAddress(
-      Uint8List.fromList(proposerBytes),
-      kGmbSs58Prefix,
-    );
+    final proposerSs58 = citizenSs58FromAccountIdBytes(proposerBytes);
     offset += 32;
 
     final amountFen = _readU128Le(data.sublist(offset, offset + 16));
@@ -515,22 +489,17 @@ class PersonalManageService {
     if (data.length != 32 + 32 + 32) return null;
     var offset = 0;
 
-    final accountId =
-        '0x${_hexEncode(Uint8List.fromList(data.sublist(offset, offset + 32)))}';
+    final accountId = citizenAccountIdFromBytes(
+      data.sublist(offset, offset + 32),
+    );
     offset += 32;
 
     final beneficiaryBytes = data.sublist(offset, offset + 32);
-    final beneficiarySs58 = Keyring().encodeAddress(
-      Uint8List.fromList(beneficiaryBytes),
-      kGmbSs58Prefix,
-    );
+    final beneficiarySs58 = citizenSs58FromAccountIdBytes(beneficiaryBytes);
     offset += 32;
 
     final proposerBytes = data.sublist(offset, offset + 32);
-    final proposerSs58 = Keyring().encodeAddress(
-      Uint8List.fromList(proposerBytes),
-      kGmbSs58Prefix,
-    );
+    final proposerSs58 = citizenSs58FromAccountIdBytes(proposerBytes);
 
     return CloseProposalInfo(
       proposalId: proposalId,
@@ -542,162 +511,57 @@ class PersonalManageService {
 
   Future<({int proposalId, String accountId})>
   _confirmPersonalAccountProposedEvent({
-    required CitizenBlockRef finalizedBlock,
+    required CitizenExecution execution,
     required Uint8List accountName,
     required List<AdminPerson> admins,
     required int regularThreshold,
     required BigInt amountFen,
     required Uint8List proposerPublicKey,
   }) async {
-    final events = await _getSystemEvents(finalizedBlock);
-    if (events == null || events.isEmpty) {
-      throw StateError('交易已入块，但未读取到 System.Events，不能确认个人多签创建提案');
+    final events = await _getFinalizedEvents(execution.block);
+    final matches = events.where((event) =>
+        event.extrinsicIndex == execution.extrinsicIndex &&
+        event.pallet == 'PersonalManage' &&
+        event.name == 'PersonalCreateProposed').toList();
+    if (matches.length != 1) {
+      throw StateError('执行块缺少唯一的本次个人多签创建提案事件');
     }
-    final found = _findPersonalAccountProposedEvent(
-      events,
-      accountName: accountName,
-      admins: admins,
-      regularThreshold: regularThreshold,
-      amountFen: amountFen,
-      proposerPublicKey: proposerPublicKey,
-    );
-    if (found == null) {
-      throw StateError(
-        '交易已入块，但未确认 PersonalManage 个人账户创建成功事件，也未检测到链上失败事件，请检查当前区块事件',
-      );
+    final event = matches.single;
+    final fields = event.fields as Map<String, Object?>;
+    var entries = fields['admins'];
+    while (entries is List<Object?> && entries.length == 1 &&
+        entries.single is List<Object?>) {
+      entries = entries.single;
     }
-    return found;
-  }
-
-  ({int proposalId, String accountId})? _findPersonalAccountProposedEvent(
-    Uint8List data, {
-    required Uint8List accountName,
-    required List<AdminPerson> admins,
-    required int regularThreshold,
-    required BigInt amountFen,
-    required Uint8List proposerPublicKey,
-  }) {
-    final (_, countSize) = _decodeCompact(data, 0);
-    if (countSize <= 0) return null;
-    for (var scanOffset = countSize; scanOffset < data.length; scanOffset++) {
-      try {
-        var offset = scanOffset;
-        final phase = data[offset];
-        offset += 1;
-        if (phase == 0x00) {
-          if (offset + 4 > data.length) continue;
-          offset += 4;
-        } else if (phase != 0x01 && phase != 0x02) {
-          continue;
-        }
-
-        if (offset + 2 > data.length) continue;
-        final palletIndex = data[offset];
-        final eventIndex = data[offset + 1];
-        offset += 2;
-
-        if (palletIndex == _palletIndex &&
-            eventIndex == _personalAccountProposedEventIndex) {
-          final decoded = _decodePersonalAccountProposedEvent(
-            data,
-            offset,
-            accountName: accountName,
-            admins: admins,
-            regularThreshold: regularThreshold,
-            amountFen: amountFen,
-            proposerPublicKey: proposerPublicKey,
-          );
-          if (decoded != null) return decoded;
-        }
-      } catch (_) {
-        // System.Events 里混有其他 pallet 事件，扫描失败继续尝试后续 offset。
+    final equalBytes = ProposalQueryService.eventBytesEqual;
+    if (!listEquals(event.fieldBytes('proposer_account_id'), proposerPublicKey) ||
+        !listEquals(event.fieldBytes('account_name'), accountName) ||
+        event.fieldUnsigned('admins_len') != BigInt.from(admins.length) ||
+        event.fieldUnsigned('threshold') != BigInt.from(regularThreshold) ||
+        event.fieldUnsigned('amount') != amountFen ||
+        entries is! List<Object?> || entries.length != admins.length) {
+      throw StateError('个人多签创建事件与本次提案不一致');
+    }
+    for (var i = 0; i < admins.length; i++) {
+      final admin = admins[i];
+      final entry = entries[i];
+      if (entry is! Map<String, Object?> ||
+          !equalBytes(entry['account_id'], citizenAccountIdBytes(admin.accountId)) ||
+          !equalBytes(entry['cid_number'], const []) ||
+          !equalBytes(entry['family_name'], utf8.encode(admin.familyName)) ||
+          !equalBytes(entry['given_name'], utf8.encode(admin.givenName))) {
+        throw StateError('个人多签创建事件的管理员与本次提案不一致');
       }
     }
-    return null;
-  }
-
-  ({int proposalId, String accountId})? _decodePersonalAccountProposedEvent(
-    Uint8List data,
-    int offset, {
-    required Uint8List accountName,
-    required List<AdminPerson> admins,
-    required int regularThreshold,
-    required BigInt amountFen,
-    required Uint8List proposerPublicKey,
-  }) {
-    try {
-      var pos = offset;
-      if (pos + 8 + 32 + 32 > data.length) return null;
-      final proposalId = _readU64Le(data, pos);
-      pos += 8;
-      final account = Uint8List.fromList(data.sublist(pos, pos + 32));
-      pos += 32;
-      final proposer = Uint8List.fromList(data.sublist(pos, pos + 32));
-      pos += 32;
-      final nameRead = _readCompactBytes(data, pos);
-      if (nameRead == null) return null;
-      pos = nameRead.nextOffset;
-      final decodedAdmins = InstitutionRoleStorageCodec.decodeAdminVector(
-        data,
-        pos,
-      );
-      if (decodedAdmins == null) return null;
-      final eventAdmins = decodedAdmins.$1;
-      pos = decodedAdmins.$2;
-      if (pos + 4 + 4 + 16 + 16 > data.length) return null;
-      final eventAdminsLen = _readU32Le(data, pos);
-      pos += 4;
-      final eventThreshold = _readU32Le(data, pos);
-      pos += 4;
-      final eventAmount = _readU128Le(data.sublist(pos, pos + 16));
-
-      final matches =
-          _bytesEqual(proposer, proposerPublicKey) &&
-          _bytesEqual(nameRead.bytes, accountName) &&
-          eventAdminsLen == admins.length &&
-          eventThreshold == regularThreshold &&
-          eventAmount == amountFen &&
-          _adminListsEqual(eventAdmins, admins);
-      if (!matches) return null;
-      return (proposalId: proposalId, accountId: _hexEncode(account));
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Future<({String txHash, int usedNonce})> _executeWithoutBlock({
-    required Uint8List callData,
-    required Uint8List signerPublicKey,
-    required Future<String?> Function(
-      CitizenTransactionExternalSigningPending pending,
-    )
-    externalSigning,
-  }) async {
-    final result = await _execute(
-      callData: callData,
-      signerPublicKey: signerPublicKey,
-      externalSigning: externalSigning,
-    );
-    return (txHash: result.txHash, usedNonce: result.usedNonce);
-  }
-
-  Future<({String txHash, int usedNonce, CitizenBlockRef block})>
-  _executeFinalized({
-    required Uint8List callData,
-    required Uint8List signerPublicKey,
-    required Future<String?> Function(
-      CitizenTransactionExternalSigningPending pending,
-    )
-    externalSigning,
-  }) async {
-    return _execute(
-      callData: callData,
-      signerPublicKey: signerPublicKey,
-      externalSigning: externalSigning,
+    final id = event.fieldUnsigned('proposal_id');
+    if (!id.isValidInt) throw const FormatException('提案事件ID无效');
+    return (
+      proposalId: id.toInt(),
+      accountId: citizenAccountIdFromBytes(event.fieldBytes('account_id')),
     );
   }
 
-  Future<({String txHash, int usedNonce, CitizenBlockRef block})> _execute({
+  Future<({String txHash, int usedNonce, CitizenExecution execution})> _execute({
     required Uint8List callData,
     required Uint8List signerPublicKey,
     required Future<String?> Function(
@@ -707,20 +571,13 @@ class PersonalManageService {
   }) async {
     final prepared = await _prepareTransaction(signerPublicKey, callData);
     final started = await _executePreparedTransaction(prepared.preparationId);
-    CitizenTransactionExecutionCompleted completed;
-    if (started is CitizenTransactionExternalSigningPending) {
-      final response = await externalSigning(started);
-      if (response == null) {
-        await _cancelPreparedTransactionExecution(started.executionId);
-        throw StateError('个人多签交易签名已取消');
-      }
-      completed = await _consumePreparedTransactionQrResponse(
-        started.executionId,
-        response,
-      );
-    } else {
-      completed = started as CitizenTransactionExecutionCompleted;
-    }
+    final completed = await completeCitizenTransaction(
+      started,
+      requestResponse: externalSigning,
+      consumeResponse: _consumePreparedTransactionQrResponse,
+      cancelExecution: _cancelPreparedTransactionExecution,
+    );
+    if (completed == null) throw StateError('个人多签交易签名已取消');
     if (completed.resolution != CitizenTransactionResolution.finalizedSuccess ||
         completed.execution == null) {
       throw StateError(completed.poolRejectionReason ?? '个人多签交易执行失败');
@@ -728,22 +585,17 @@ class PersonalManageService {
     return (
       txHash: '0x${_hexEncode(completed.transactionHash)}',
       usedNonce: prepared.nonce.toInt(),
-      block: completed.execution!.block,
+      execution: completed.execution!,
     );
   }
 
-  Future<Uint8List?> _fetchStorage(String keyHex) async {
-    final finalized = await _getFinalizedHead();
-    return _getStorage(finalized, _hexDecode(keyHex));
-  }
-
   Future<Map<String, Uint8List?>> _fetchStorageBatchChunked(
+    CitizenBlockRef finalized,
     Iterable<String> keyHexes, {
     int chunkSize = 100,
   }) async {
     final keys = keyHexes.toSet().toList(growable: false);
     if (keys.isEmpty) return const <String, Uint8List?>{};
-    final finalized = await _getFinalizedHead();
     final result = <String, Uint8List?>{};
     for (var offset = 0; offset < keys.length; offset += chunkSize) {
       final end = (offset + chunkSize).clamp(0, keys.length);
@@ -769,85 +621,7 @@ class PersonalManageService {
     return (adminsLen ~/ 2) + 1;
   }
 
-  static Uint8List _u32ToLeBytesStatic(int value) {
-    return Uint8List.fromList([
-      value & 0xFF,
-      (value >> 8) & 0xFF,
-      (value >> 16) & 0xFF,
-      (value >> 24) & 0xFF,
-    ]);
-  }
-
-  static Uint8List _u128ToLeBytesStatic(BigInt value) {
-    final bytes = Uint8List(16);
-    var v = value;
-    for (var i = 0; i < 16; i++) {
-      bytes[i] = (v & BigInt.from(0xFF)).toInt();
-      v >>= 8;
-    }
-    return bytes;
-  }
-
-  static BigInt _readU128Le(Uint8List bytes) {
-    var value = BigInt.zero;
-    for (var i = bytes.length - 1; i >= 0; i--) {
-      value = (value << 8) | BigInt.from(bytes[i]);
-    }
-    return value;
-  }
-
-  static int _readU64Le(Uint8List data, int offset) {
-    var value = 0;
-    for (var i = 7; i >= 0; i--) {
-      value = (value << 8) | data[offset + i];
-    }
-    return value;
-  }
-
-  static int _readU32Le(Uint8List data, int offset) {
-    return data[offset] |
-        (data[offset + 1] << 8) |
-        (data[offset + 2] << 16) |
-        (data[offset + 3] << 24);
-  }
-
-  static ({Uint8List bytes, int nextOffset})? _readCompactBytes(
-    Uint8List data,
-    int offset,
-  ) {
-    if (offset >= data.length) return null;
-    final (length, lengthBytes) = _decodeCompact(data, offset);
-    final start = offset + lengthBytes;
-    final end = start + length;
-    if (length < 0 || start > data.length || end > data.length) return null;
-    return (
-      bytes: Uint8List.fromList(data.sublist(start, end)),
-      nextOffset: end,
-    );
-  }
-
-  static bool _adminListsEqual(
-    List<AdminPerson> left,
-    List<AdminPerson> right,
-  ) {
-    if (left.length != right.length) return false;
-    for (var i = 0; i < left.length; i++) {
-      if (left[i].accountId != right[i].accountId ||
-          left[i].familyName != right[i].familyName ||
-          left[i].givenName != right[i].givenName) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  static bool _bytesEqual(Uint8List left, Uint8List right) {
-    if (left.length != right.length) return false;
-    for (var i = 0; i < left.length; i++) {
-      if (left[i] != right[i]) return false;
-    }
-    return true;
-  }
+  static BigInt _readU128Le(Uint8List bytes) => CitizenScale.readUnsigned(bytes, 0, 16);
 
   static bool _startsWith(Uint8List data, List<int> prefix) {
     if (data.length < prefix.length + 1) return false;
@@ -857,38 +631,15 @@ class PersonalManageService {
     return true;
   }
 
-  static (int, int) _decodeCompact(Uint8List data, int offset) {
-    final first = data[offset];
-    final mode = first & 0x03;
-    if (mode == 0) {
-      return (first >> 2, 1);
-    } else if (mode == 1) {
-      final val = (data[offset] | (data[offset + 1] << 8)) >> 2;
-      return (val, 2);
-    } else if (mode == 2) {
-      final val =
-          (data[offset] |
-              (data[offset + 1] << 8) |
-              (data[offset + 2] << 16) |
-              (data[offset + 3] << 24)) >>
-          2;
-      return (val, 4);
-    } else {
-      final lenBytes = (first >> 2) + 4;
-      var val = 0;
-      for (var i = lenBytes - 1; i >= 0; i--) {
-        val = (val << 8) | data[offset + 1 + i];
-      }
-      return (val, 1 + lenBytes);
-    }
-  }
+  static (int, int) _decodeCompact(Uint8List data, int offset) =>
+      CitizenScale.readCompact(data, offset);
 
   static String _hexEncode(List<int> bytes) {
     return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 
   static String _requireAccountId(String accountId) {
-    if (!isAccountIdText(accountId)) {
+    if (!isCitizenAccountId(accountId)) {
       throw const FormatException('account_id 必须为小写 0x + 64 位十六进制');
     }
     return accountId;

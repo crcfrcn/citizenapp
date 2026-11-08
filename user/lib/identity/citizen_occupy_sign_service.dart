@@ -58,22 +58,17 @@ class CitizenOccupySignService {
 
   /// [selectedAccount] = 用户自选或账户卡扫码入口锁定的绑定账户(占即绑一账户)。
   Future<CitizenOccupySignPrep> prepare(
-    String raw,
+    CitizenQrDocument request,
     CitizenWalletStateAccount selectedAccount, [
     CitizenSdk? wallet,
     CitizenSdkOperation<CitizenWalletState> Function()? getWalletState,
   ]) async {
-    final CitizenQrDocument request;
-    try {
-      request = (await _qr.parseForPurpose(
-        raw,
-        CitizenQrScanPurpose.signingRequest,
-      )).document;
-    } on CitizenSdkException catch (error) {
-      throw CitizenOccupySignException(error.message);
-    }
-    final action = request.action!;
-    if (!CitizenQrActions.isSelfAccountDomainAction(action)) {
+    final action = request.action;
+    final payload = request.reviewPayload;
+    if (request.kind != CitizenQrKind.signRequest ||
+        action == null ||
+        !CitizenQrActions.isSelfAccountDomainAction(action) ||
+        payload == null) {
       throw const CitizenOccupySignException('该二维码不是注册局占号/换绑请求');
     }
     final actionLabel = action == CitizenQrActions.citizenOccupy
@@ -81,7 +76,7 @@ class CitizenOccupySignService {
         : '注册局换绑账户确认';
     final authorization = await _qr.prepareAccountAuthorization(
       action: action,
-      payload: request.reviewPayload!,
+      payload: payload,
       accountId: selectedAccount.accountId,
     );
     switch (authorization.reason) {
@@ -197,9 +192,8 @@ class CitizenOccupySignService {
     CitizenWalletState state,
     String accountId,
   ) {
-    final expected = accountId.toLowerCase();
     for (final account in state.accounts) {
-      if (account.accountId.toLowerCase() == expected) return account;
+      if (account.accountId == accountId) return account;
     }
     return null;
   }

@@ -1,3 +1,4 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_topup/topup_result_page.dart';
 import 'package:citizen_topup/store.dart';
 import 'record_format.dart';
@@ -376,7 +377,8 @@ class _LocalTxRecordDetailPageState extends State<LocalTxRecordDetailPage> {
     }
   }
 
-  BigInt get _amountDeltaFen => BigInt.parse(record.amountDelta);
+  BigInt get _amountDeltaFen =>
+      hasVerifiedDelta(record) ? BigInt.parse(record.amountDelta) : BigInt.zero;
   bool get _isExpense => _amountDeltaFen < BigInt.zero;
   bool get _isIncome => _amountDeltaFen > BigInt.zero;
 
@@ -439,6 +441,7 @@ class _LocalTxRecordDetailPageState extends State<LocalTxRecordDetailPage> {
         ? AppTheme.primaryDark
         : AppTheme.textSecondary;
     final label = businessTypeLabel(record.entryKind);
+    final delta = recordDeltaLabel(record);
 
     return Scaffold(
       appBar: AppBar(
@@ -460,7 +463,7 @@ class _LocalTxRecordDetailPageState extends State<LocalTxRecordDetailPage> {
               children: [
                 Center(
                   child: Text(
-                    '${_isExpense ? "-" : "+"}${formatFen(record.amountDelta)}',
+                    delta == null ? '—' : '$delta 元',
                     style: TextStyle(
                       fontSize: AppLayout.scaled(context, 28),
                       fontWeight: FontWeight.w700,
@@ -509,13 +512,13 @@ class _LocalTxRecordDetailPageState extends State<LocalTxRecordDetailPage> {
                   context,
                   label: '余额变化',
                   value:
-                      '${_isExpense ? "-" : "+"}${formatFen(record.amountDelta)}',
+                      delta == null ? '待链上核实' : '$delta 元',
                 ),
                 if (record.transferAmount != null)
                   _buildRow(
                     context,
-                    label: '转账金额',
-                    value: formatFen(record.transferAmount!),
+                    label: hasVerifiedDelta(record) ? '转账金额' : '申请转账金额',
+                    value: '${formatFen(BigInt.parse(record.transferAmount!).abs())} 元',
                   ),
                 if (record.feeAmount != null)
                   _buildRow(
@@ -525,7 +528,7 @@ class _LocalTxRecordDetailPageState extends State<LocalTxRecordDetailPage> {
                             record.entrySource == 'local_submit'
                         ? '预估手续费'
                         : '真实手续费',
-                    value: formatFen(record.feeAmount!),
+                    value: '${formatFen(BigInt.parse(record.feeAmount!).abs())} 元',
                   ),
                 if (record.fromAddress != null)
                   _buildRow(

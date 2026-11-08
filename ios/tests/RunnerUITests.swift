@@ -527,13 +527,13 @@ final class RunnerUITests: XCTestCase {
       for _ in 0..<3 where !cold.isHittable { app.swipeUp() }
       XCTAssertTrue(cold.isHittable && cold.isEnabled)
       cold.tap()
-      let predicate = NSPredicate(format: "label CONTAINS %@", "请输入冷钱包账户地址")
+      let predicate = NSPredicate(format: "label CONTAINS %@", "请输入 AccountId 或公民链 SS58 地址")
       let multiline = app.textViews.matching(predicate).firstMatch
       let singleline = app.textFields.matching(predicate).firstMatch
       let field = multiline.waitForExistence(timeout: 3) ? multiline : singleline
       XCTAssertTrue(field.waitForExistence(timeout: 10), "冷地址输入框未出现")
       field.tap()
-      // 使用既有Keyring对Bob公开公钥编码的CitizenChain地址，固定prefix=2027。
+      // 使用 Bob 的公民链公开测试地址。
       field.typeText("w5EotDL8TadNBLbBaiiB1jfQnaxqvXYQFosgUgUSWRPgi2eNy")
       app.buttons["确认导入"].tap()
     }
@@ -621,7 +621,7 @@ final class RunnerUITests: XCTestCase {
     for _ in 0..<3 where !cold.isHittable { app.swipeUp() }
     XCTAssertTrue(cold.waitForExistence(timeout: 10))
     cold.tap()
-    let predicate = NSPredicate(format: "label CONTAINS %@", "请输入冷钱包账户地址")
+    let predicate = NSPredicate(format: "label CONTAINS %@", "请输入 AccountId 或公民链 SS58 地址")
     let multiline = app.textViews.matching(predicate).firstMatch
     let field = multiline.waitForExistence(timeout: 3) ? multiline : app.textFields.matching(predicate).firstMatch
     XCTAssertTrue(field.waitForExistence(timeout: 10))
@@ -1710,7 +1710,7 @@ final class RunnerUITests: XCTestCase {
     XCTAssertTrue(coldImport.waitForExistence(timeout: 10))
     coldImport.tap()
     XCTAssertTrue(app.staticTexts["导入冷钱包"].waitForExistence(timeout: 10))
-    let scanButton = app.buttons["扫码填入地址"]
+    let scanButton = app.buttons["扫码填入账户"]
     XCTAssertTrue(scanButton.waitForExistence(timeout: 10))
     scanButton.tap()
     try assertLiveScannerPreview(in: app, title: "扫描钱包二维码")

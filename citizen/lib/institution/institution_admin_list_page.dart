@@ -1,5 +1,3 @@
-import 'package:citizen_wallet/core/account_balance_snapshot_store.dart';
-
 import 'dart:async';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -11,7 +9,6 @@ import 'package:citizen_citizen/administrators/admin_activation_service.dart';
 import 'package:citizen_citizen/administrators/institution_admin_service.dart';
 import 'package:citizen_citizen/institution/institution_assignment_card.dart';
 import 'package:citizen_citizen/institution/institution_role_models.dart';
-import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_system/theme/app_theme.dart';
@@ -54,7 +51,7 @@ class AdminListPage extends StatefulWidget {
 
 class _AdminListPageState extends State<AdminListPage> {
   late Set<String> _activatedAccountIds;
-  Map<String, double> _balanceByAccountId = const {};
+  Map<String, BigInt> _balanceByAccountId = const {};
 
   @override
   void initState() {
@@ -72,7 +69,7 @@ class _AdminListPageState extends State<AdminListPage> {
   }
 
   static String _balanceKey(String accountId) {
-    if (!isAccountIdText(accountId)) {
+    if (!isCitizenAccountId(accountId)) {
       throw const FormatException('account_id 必须为小写 0x + 64 位十六进制');
     }
     return accountId;
@@ -87,12 +84,12 @@ class _AdminListPageState extends State<AdminListPage> {
       return;
     }
     try {
-      final snapshots = await AccountBalanceSnapshotStore.forChain(
-        context.read<CitizenSdk>(),
-      ).getAccountBalances(accountIds);
-      final balances = <String, double>{
-        for (final snapshot in snapshots)
-          snapshot.accountId: snapshot.freeFen.toDouble() / 100,
+      final snapshots = await context.read<CitizenSdk>().getAccountBalances(
+        accountIds,
+        forceRefresh: false,
+      );
+      final balances = <String, BigInt>{
+        for (final snapshot in snapshots) snapshot.accountId: snapshot.freeFen,
       };
       if (!mounted) return;
       setState(() => _balanceByAccountId = balances);
@@ -174,7 +171,7 @@ class _AdminListPageState extends State<AdminListPage> {
                 institution: widget.institution,
                 accountIdentity: widget.accountIdentity,
                 onActivated: () => _onAdminActivated(accountId),
-                balanceYuan: _balanceByAccountId[_balanceKey(accountId)],
+                balanceFen: _balanceByAccountId[_balanceKey(accountId)],
               );
             }),
         ],
@@ -241,7 +238,7 @@ class _AdminTile extends StatelessWidget {
     required this.institution,
     required this.accountIdentity,
     required this.onActivated,
-    required this.balanceYuan,
+    required this.balanceFen,
   });
 
   final int index;
@@ -259,7 +256,7 @@ class _AdminTile extends StatelessWidget {
   final InstitutionInfo institution;
   final AdminAccountIdentity accountIdentity;
   final VoidCallback onActivated;
-  final double? balanceYuan;
+  final BigInt? balanceFen;
 
   Future<void> _startActivation(BuildContext context) async {
     // 检查是否为冷钱包（热钱包不允许激活）
@@ -271,15 +268,17 @@ class _AdminTile extends StatelessWidget {
 
     if (wallet == null) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('未找到对应钱包')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('未找到对应钱包')));
       return;
     }
 
     if (wallet.signMode != CitizenWalletSignMode.cold) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('管理员仅支持冷钱包激活')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('管理员仅支持冷钱包激活')));
       return;
     }
     if (!context.mounted) return;
@@ -312,12 +311,14 @@ class _AdminTile extends StatelessWidget {
       );
       onActivated();
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('管理员激活成功')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('管理员激活成功')));
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('激活失败：$e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('激活失败：$e')));
     }
   }
 
@@ -328,7 +329,7 @@ class _AdminTile extends StatelessWidget {
       child: InstitutionAssignmentCard(
         adminView: adminView,
         index: index,
-        balanceYuan: balanceYuan,
+        balanceFen: balanceFen,
         trailing: _buildActivationControl(context),
       ),
     );

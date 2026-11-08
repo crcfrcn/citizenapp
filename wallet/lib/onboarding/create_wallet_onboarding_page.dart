@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:citizen_system/app_log.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:provider/provider.dart';
-import 'package:citizen_wallet/account/wallet_page.dart' show ImportColdWalletPage;
+import 'package:citizen_wallet/account/wallet_page.dart'
+    show ImportColdWalletPage;
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_wallet/onboarding/create_wallet_flow.dart';
 import 'package:citizen_wallet/onboarding/import_wallet_page.dart';
@@ -18,7 +19,6 @@ class CreateWalletOnboardingPage extends StatefulWidget {
     this.deviceSecureProbe,
     this.passwordValidator,
     this.prepareWallet,
-    this.stateReader,
     this.commitWallet,
   });
 
@@ -35,7 +35,6 @@ class CreateWalletOnboardingPage extends StatefulWidget {
     String password,
   })?
   prepareWallet;
-  final Future<CitizenWalletState> Function()? stateReader;
   final Future<CitizenWalletProfile> Function(
     CitizenSdkPreparedWallet prepared,
   )?
@@ -130,7 +129,6 @@ class _CreateWalletOnboardingPageState extends State<CreateWalletOnboardingPage>
           wordCount: _wordCount,
           password: password,
           prepareWallet: widget.prepareWallet,
-          stateReader: widget.stateReader,
           commitWallet: widget.commitWallet,
         );
         if (!mounted) return;

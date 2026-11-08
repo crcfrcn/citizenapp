@@ -6,7 +6,7 @@
 //   附加账户既可能是制度协议账户，也可能是普通自定义命名账户。
 // - 余额另由链态服务批量补(ADR-018 R2 精确整键批量,不逐条)。
 
-import 'dart:typed_data';
+import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'package:citizen_citizen/institution/institution.dart';
 import 'package:citizen_citizen/account_derivation.dart';
@@ -18,19 +18,19 @@ class InstitutionAccountRow {
     required this.label,
     required this.accountId,
     required this.accountAddress,
-    this.balanceYuan,
+    this.balanceFen,
   });
 
   final String label;
   final String accountId;
   final String accountAddress;
-  final double? balanceYuan;
+  final BigInt? balanceFen;
 
-  InstitutionAccountRow withBalance(double? yuan) => InstitutionAccountRow(
+  InstitutionAccountRow withBalance(BigInt? fen) => InstitutionAccountRow(
     label: label,
     accountId: accountId,
     accountAddress: accountAddress,
-    balanceYuan: yuan,
+    balanceFen: fen,
   );
 }
 
@@ -61,16 +61,16 @@ List<InstitutionAccountRow> institutionAccountIdRows(Institution inst) {
   rows.add(
     InstitutionAccountRow(
       label: kReservedNameMain,
-      accountId: accountIdText(main),
-      accountAddress: ss58FromAccountId(main),
+      accountId: citizenAccountIdFromBytes(main),
+      accountAddress: citizenSs58FromAccountIdBytes(main),
     ),
   );
   final feeId = deriveInstitutionFeeAccountId(inst.cidNumber);
   rows.add(
     InstitutionAccountRow(
       label: kReservedNameFee,
-      accountId: accountIdText(feeId),
-      accountAddress: ss58FromAccountId(feeId),
+      accountId: citizenAccountIdFromBytes(feeId),
+      accountAddress: citizenSs58FromAccountIdBytes(feeId),
     ),
   );
   for (final name in inst.accountNames) {
@@ -81,8 +81,8 @@ List<InstitutionAccountRow> institutionAccountIdRows(Institution inst) {
     rows.add(
       InstitutionAccountRow(
         label: name,
-        accountId: accountIdText(id),
-        accountAddress: ss58FromAccountId(id),
+        accountId: citizenAccountIdFromBytes(id),
+        accountAddress: citizenSs58FromAccountIdBytes(id),
       ),
     );
   }
@@ -90,20 +90,9 @@ List<InstitutionAccountRow> institutionAccountIdRows(Institution inst) {
 }
 
 InstitutionAccountRow _rowFromAccountId(String label, String accountId) {
-  if (!isAccountIdText(accountId)) {
-    throw const FormatException('机构 account_id 必须为小写 0x + 64 位十六进制');
-  }
-  final clean = accountId.substring(2);
-  final bytes = Uint8List.fromList(
-    List<int>.generate(
-      clean.length ~/ 2,
-      (i) => int.parse(clean.substring(i * 2, i * 2 + 2), radix: 16),
-      growable: false,
-    ),
-  );
   return InstitutionAccountRow(
     label: label,
     accountId: accountId,
-    accountAddress: ss58FromAccountId(bytes),
+    accountAddress: citizenSs58FromAccountId(accountId),
   );
 }

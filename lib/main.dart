@@ -72,7 +72,13 @@ Future<void> main() async {
 
   // CitizenApp 只打开一个完整 CitizenSDK session。钱包、签名、QR_V1、
   // 轻节点、交易与 execution history 共用同一个 Engine generation。
-  final citizenSdk = await CitizenSdk.open(modules: CitizenSdkModules.full);
+  final citizenSdk = await CitizenSdk.open(
+    modules: CitizenSdkModules.full,
+    balanceStorage: (
+      read: UserIsar.instance.readBalance,
+      write: UserIsar.instance.writeBalance,
+    ),
+  );
   late final CurrentUserContext currentUserContext;
   late final chat.ChatRuntime Function() readChatRuntime;
   final registrationCoordinator = RegistrationCoordinator();

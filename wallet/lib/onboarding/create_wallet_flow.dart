@@ -61,7 +61,6 @@ Future<CitizenWalletProfile> runCreateWalletFlow(
     String password,
   })?
   prepareWallet,
-  Future<CitizenWalletState> Function()? stateReader,
   Future<CitizenWalletProfile> Function(CitizenSdkPreparedWallet prepared)?
   commitWallet,
 }) async {
@@ -73,9 +72,6 @@ Future<CitizenWalletProfile> runCreateWalletFlow(
   var mnemonic = '';
   var revoked = false;
   ModalRoute<void>? backupRoute;
-  StreamSubscription<CitizenSdkEvent>? walletEvents;
-  BigInt? baselineRevision;
-  BigInt? observedRevision;
   void revoke() {
     revoked = true;
     mnemonic = '';
@@ -111,44 +107,8 @@ Future<CitizenWalletProfile> runCreateWalletFlow(
       prepared,
     );
     if (!context.mounted || revoked) return created;
-    bool isOwner(CitizenWalletState state) =>
-        state.hotProfile?.walletIndex == created.walletIndex &&
-        state.hotProfile?.masterAccountId == created.masterAccountId &&
-        state.hotProfile?.createdAtMillis == created.createdAtMillis;
-    Future<void> checkOwner() async {
-      try {
-        final state =
-            await (stateReader ?? (() => wallet.getWalletState().result))();
-        if (revoked) return;
-        if (observedRevision == null || state.revision > observedRevision!) {
-          observedRevision = state.revision;
-        }
-        if (!isOwner(state) ||
-            (baselineRevision != null && state.revision > baselineRevision)) {
-          revoke();
-        }
-      } catch (_) {
-        // 无法确认归属时关闭显示；不把读取失败当成空钱包或撤销真实提交。
-        revoke();
-      }
-    }
-
-    walletEvents = sdk.events.listen((event) {
-      if (event is CitizenSdkWalletChanged) unawaited(checkOwner());
-    }, onError: (Object _) => revoke());
-    final CitizenWalletState state;
-    try {
-      state = await (stateReader ?? (() => wallet.getWalletState().result))();
-    } catch (_) {
-      revoke();
-      return created;
-    }
-    baselineRevision = state.revision;
-    if (!isOwner(state) ||
-        (observedRevision != null && observedRevision! > state.revision)) {
-      revoke();
-    }
-    if (!context.mounted || revoked) return created;
+    if (phrase.isClosed) return created;
+    unawaited(phrase.closed.then((_) => revoke()));
     mnemonic = utf8.decode(phrase.bytes);
     await ScreenshotGuard.enable();
     protected = true;
@@ -193,7 +153,6 @@ Future<CitizenWalletProfile> runCreateWalletFlow(
     revoked = true;
     mnemonic = '';
     WidgetsBinding.instance.removeObserver(lifecycle);
-    await walletEvents?.cancel();
     backupRoute = null;
     try {
       await phrase?.release();

@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:citizen_storage/social_isar.dart' as social_store show Publish;
-import 'package:citizen_wallet/core/account_balance_snapshot_store.dart';
 
 import 'package:citizen_square/draft/compose_draft_store.dart';
 import 'package:citizen_square/post/square_local_post_presenter.dart';
@@ -46,7 +45,7 @@ class SquarePublishResult {
 }
 
 abstract class SquarePublishBalanceReader {
-  Future<double> fetchFreshFinalizedBalanceYuan(String accountId);
+  Future<BigInt> fetchFreshFinalizedBalanceFen(String accountId);
 
   /// 自付一笔最低链上交易所需的余额门槛(分),取自链上常量,App 侧无副本。
   Future<BigInt> fetchMinSelfPayBalanceFen();
@@ -58,16 +57,18 @@ class SquareChainBalanceReader implements SquarePublishBalanceReader {
   final CitizenSdk? _chain;
 
   @override
-  Future<double> fetchFreshFinalizedBalanceYuan(String accountId) async {
-    final balance = await AccountBalanceSnapshotStore.forChain(_chain!)
-        .getAccountBalance(accountId, forceRefresh: true);
-    return balance.freeFen.toDouble() / 100;
+  Future<BigInt> fetchFreshFinalizedBalanceFen(String accountId) async {
+    final balance = await _chain!.getAccountBalance(
+      accountId,
+      forceRefresh: true,
+    );
+    return balance.freeFen;
   }
 
   @override
   Future<BigInt> fetchMinSelfPayBalanceFen() async {
     final fees = await _chain!.getFeeSnapshot();
-    return fees.minimumFeeFen + fees.existentialDepositFen;
+    return fees.minimumSelfPayFen;
   }
 }
 
@@ -237,7 +238,9 @@ class SquarePublishService {
       if (tx == null || (evidence != null && evidence.txHash != tx)) {
         throw const SquarePublishException('正在核对原发布交易，请稍后继续');
       }
-      if (pending.jobState == 'finalized' && evidence != null) {
+      if (evidence != null &&
+          (pending.jobState == 'finalized' || evidence.failed)) {
+        pending.txHash = tx;
         return _confirm(pending, session, evidence, onStage);
       }
       pending.txHash = tx;
@@ -312,10 +315,11 @@ class SquarePublishService {
         );
       });
       onStage?.call(SquarePublishStage.submittingChain);
+      SquareChainPublishedResult? finalized;
       final chain =
           Future.sync(
             () => _chainService.publishPost(
-              signerPublicKey: SquareChainService.hexDecode(identity.accountId),
+              signerPublicKey: citizenAccountIdBytes(identity.accountId),
               postId: prepared.postId,
               postType: postType,
               contentHashHex: prepared.contentHash,
@@ -326,6 +330,7 @@ class SquarePublishService {
           ).then(
             (result) {
               observe(result.txHash);
+              finalized = result;
               return result;
             },
             onError: (Object e, StackTrace stack) {
@@ -333,10 +338,20 @@ class SquarePublishService {
               Error.throwWithStackTrace(e, stack);
             },
           );
-      // 两路独立启动，只在上传和原交易最终结果齐备时请求服务端确认。
-      final results = await Future.wait<Object>([chain, upload]);
-      final evidence = results.first as SquareChainPublishedResult;
-      return await _confirm(row, prepared.session, evidence, onStage);
+      // 等在途上传退出。最终失败可先核验并清理，成功仍须完整上传。
+      try {
+        await Future.wait<Object>([chain, upload]);
+      } on Object {
+        final evidence = finalized;
+        if (evidence == null) rethrow;
+        if (evidence.failed) {
+          return await _confirm(row, prepared.session, evidence, onStage);
+        }
+        row.blockHash = evidence.blockHash;
+        await _postStore.savePublication(row);
+        rethrow;
+      }
+      return await _confirm(row, prepared.session, finalized!, onStage);
     } catch (e) {
       if (publication != null &&
           publication.txHash == null &&
@@ -478,20 +493,16 @@ class SquarePublishService {
   /// App 侧一律不留副本。链读失败不吞，上抛由发布流程按失败处理。
   Future<void> _ensurePublishBalance(String accountId) async {
     final requiredFen = await _balanceReader.fetchMinSelfPayBalanceFen();
-    final balance = await _balanceReader.fetchFreshFinalizedBalanceYuan(
+    final balanceFen = await _balanceReader.fetchFreshFinalizedBalanceFen(
       accountId,
     );
-    final balanceFen = BigInt.from((balance * 100).round());
     if (balanceFen < requiredFen) {
       throw SquarePublishException(
-        '钱包余额不足，发布内容需至少 ${_formatFen(requiredFen)} 元'
+        '钱包余额不足，发布内容需至少 ${formatFen(requiredFen, group: false)} 元'
         '（含账户存在最低余额与链上最低交易费）',
       );
     }
   }
-
-  static String _formatFen(BigInt fen) =>
-      (fen / BigInt.from(100)).toStringAsFixed(2);
 
   static String _messageOf(Object error) {
     if (error is SquarePublishException) return error.message;

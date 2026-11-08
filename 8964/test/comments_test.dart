@@ -24,14 +24,13 @@ Map<String, dynamic> _comment({
   String post = 'post',
   String state = 'active',
   String id = 'comment',
-  int sequence = 1,
+  int createdAt = 1000000,
   String author = _cid,
 }) => {
-  'reply_seq': sequence,
-  'created_at': 1000000,
+  'created_at': createdAt,
   'comment_id': id,
   'post_id': post,
-  'author_cid': author,
+  'cid_number': author,
   'reply_text': replyText,
   'reply_state': state,
   'display_name': '公民',
@@ -107,26 +106,25 @@ class _Api extends SquareApiClient {
   bool failSend = false;
   final operations = <String>[];
   final replies = <String?>[], deleted = <String>[], targets = <String?>[];
-  final cursors = <int?>[];
+  final cursors = <String?>[];
   Map<String, dynamic>? firstPage, nextPage;
   @override
   Future<Map<String, dynamic>> fetchComments({
     required SquareSession session,
     required String postId,
-    int? cursor,
+    String? cursor,
     String? target,
 
     String? mode,
     String? thread,
     int? through,
-    String? after,
   }) async {
     reads++;
     if (onRead != null) return onRead!(reads);
     cursors.add(cursor);
     targets.add(target);
     return (cursor == null ? firstPage : nextPage) ??
-        {'is_ok': true, 'comments': <Object>[], 'next_cursor': null};
+        {'is_ok': true, 'items': <Object>[], 'next_cursor': null};
   }
 
   @override
@@ -244,7 +242,7 @@ void main() {
   test('模型拒绝坏分页行和已删除正文，不用空列表掩盖错误', () {
     expect(SquareComment.fromJson(_comment()).replyText, '评论');
     for (final value in [
-      {..._comment(), 'reply_seq': 0},
+      {..._comment(), 'created_at': 0},
       _comment(state: 'unknown'),
       _comment(state: 'deleted'),
       _comment(replyText: '字' * 2001),
@@ -309,7 +307,7 @@ void main() {
         final row = _comment(replyText: '旧评论');
         if (mode == 'page') {
           for (final entry in {
-            'reply_seq': 'sequence',
+            'created_at': 'time',
             'reply_text': 'body',
             'reply_state': 'state',
           }.entries) {
@@ -317,7 +315,7 @@ void main() {
           }
         }
         final page = jsonEncode({
-          'comments': [row],
+          'items': [row],
           'next_cursor': null,
         });
         final pending = jsonEncode({
@@ -399,7 +397,7 @@ void main() {
             expect(saved.pendingData, pending);
             saved
               ..pageData = jsonEncode({
-                'comments': [_comment(replyText: '新评论')],
+                'items': [_comment(replyText: '新评论')],
                 'next_cursor': null,
               })
               ..pendingData = newPending;
@@ -443,7 +441,7 @@ void main() {
               ..cidNumber = _cid
               ..postId = 'post'
               ..pageData = jsonEncode({
-                'comments': [_comment()],
+                'items': [_comment()],
                 'next_cursor': null,
               }),
           );
@@ -474,15 +472,17 @@ void main() {
       final api = _Api()
         ..firstPage = {
           'is_ok': true,
-          'comments': [_comment(id: 'parent', sequence: 2, replyText: '待回复')],
-          'next_cursor': 2,
+          'items': [
+            _comment(id: 'parent', createdAt: 2000000, replyText: '待回复'),
+          ],
+          'next_cursor': 'opaque-2',
         }
         ..nextPage = {
           'is_ok': true,
-          'comments': [
+          'items': [
             _comment(
               id: 'older',
-              sequence: 1,
+              createdAt: 1000000,
               replyText: '较早评论',
               author: 'other',
             ),
@@ -517,8 +517,18 @@ void main() {
             find.text('较早评论').evaluate().isNotEmpty &&
             find.byType(LinearProgressIndicator).evaluate().isEmpty,
       );
-      expect(api.cursors, [null, 2]);
-      await tester.tap(find.byType(PopupMenuButton<String>).first);
+      expect(api.cursors, [null, 'opaque-2']);
+      final parent = find.ancestor(
+        of: find.text('待回复'),
+        matching: find.byType(ListTile),
+      );
+      await tester.ensureVisible(parent);
+      await tester.tap(
+        find.descendant(
+          of: parent,
+          matching: find.byType(PopupMenuButton<String>),
+        ),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.text('回复'));
       await tester.pumpAndSettle();
@@ -564,7 +574,7 @@ void main() {
       final api = _Api()
         ..firstPage = {
           'is_ok': true,
-          'comments': [_comment(id: 'far', replyText: '目标回复')],
+          'items': [_comment(id: 'far', replyText: '目标回复')],
           'next_cursor': null,
         };
       addTearDown(api.close);
@@ -596,7 +606,7 @@ void main() {
           ? await first.future
           : {
               'is_ok': true,
-              'comments': [_comment(replyText: '新通知评论')],
+              'items': [_comment(replyText: '新通知评论')],
               'next_cursor': null,
             };
       Notifications.instance.configure(
@@ -633,11 +643,7 @@ void main() {
           'state': {..._notice(5), 'through': 9, 'interaction_sequence': 9},
         }),
       );
-      first.complete({
-        'is_ok': true,
-        'comments': <Object>[],
-        'next_cursor': null,
-      });
+      first.complete({'is_ok': true, 'items': <Object>[], 'next_cursor': null});
       await _drain(
         tester,
         () =>
@@ -875,7 +881,7 @@ void main() {
         addTearDown(api.close);
         Map<String, dynamic> page(bool changed) => {
           'is_ok': true,
-          'comments': remove
+          'items': remove
               ? [
                   _comment(
                     replyText: changed ? '' : '旧正文',

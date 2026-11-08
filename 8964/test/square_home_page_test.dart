@@ -602,7 +602,8 @@ void main() {
               accountId: testMlsAccountId,
               cidNumber: testMlsCidNumber,
               displayName: '合成作者',
-              avatarKey: 'profile/$testMlsCidNumber/avatar',
+              avatarKey:
+                  'i/$testMlsCidNumber/avatar/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
             ),
             postCategory: SquarePostCategory.normal,
             postType: type,
@@ -1806,7 +1807,7 @@ void _squareTabGateTests() {
         modules: CitizenSdkModules.wallet | CitizenSdkModules.qr,
       );
       sdk = core.sdk;
-      await sdk.importColdAccount(accountId: testCitizenAccountId).result;
+      await sdk.importColdAccount(testCitizenAccountId).result;
       security = AccountSecurityService(
         getWalletState: sdk.getWalletState,
         signing: sdk,

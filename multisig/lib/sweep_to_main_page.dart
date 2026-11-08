@@ -3,19 +3,14 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:flutter/services.dart';
-import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_scanner/qr_sign_session_page.dart';
-import 'package:citizen_onchain/onchain_transfer_call.dart';
 import 'package:citizen_multisig/multisig_transfer_balance_guard.dart';
 import 'package:citizen_multisig/multisig_transfer_service.dart';
-import 'package:citizen_wallet/core/account_balance_snapshot_store.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_widgets/chain_progress_banner.dart';
 import 'package:citizen_system/amount_format.dart';
-import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
 /// 治理机构手续费划转提案创建页面。
@@ -47,8 +42,8 @@ class _SweepToMainPageState extends State<SweepToMainPage> {
 
   bool _loadingBalance = true;
   bool _submitting = false;
-  double? _availableBalance;
-  double _estimatedFee = 0.0;
+  BigInt? _availableBalance;
+  BigInt? _estimatedFee;
   String? _amountError;
   CitizenChainSyncStatus? _chainProgress;
   String? _chainProgressError;
@@ -72,8 +67,8 @@ class _SweepToMainPageState extends State<SweepToMainPage> {
     }
     _feeAccountId = feeHex;
     _mainAccountId = widget.institution.mainAccountId;
-    _fromSs58 = _accountIdToSs58(_feeAccountId);
-    _toSs58 = _accountIdToSs58(_mainAccountId);
+    _fromSs58 = citizenSs58FromAccountId(_feeAccountId);
+    _toSs58 = citizenSs58FromAccountId(_mainAccountId);
     _fetchBalance();
     _amountController.addListener(_onAmountChanged);
   }
@@ -85,21 +80,17 @@ class _SweepToMainPageState extends State<SweepToMainPage> {
     super.dispose();
   }
 
-  String _accountIdToSs58(String hex) {
-    final bytes = _hexToBytes(hex);
-    return Keyring().encodeAddress(Uint8List.fromList(bytes), kGmbSs58Prefix);
-  }
-
   /// 页面进入读取 wallet 持久余额，交易前校验由既有余额守卫强制刷新。
   Future<bool> _fetchBalance({bool forceRefresh = false}) async {
     if (forceRefresh && mounted) setState(() => _loadingBalance = true);
     try {
-      final snapshot = await AccountBalanceSnapshotStore.forChain(
-        context.read<CitizenSdk>(),
-      ).getAccountBalance(_feeAccountId, forceRefresh: forceRefresh);
+      final snapshot = await context.read<CitizenSdk>().getAccountBalance(
+        _feeAccountId,
+        forceRefresh: forceRefresh,
+      );
       if (!mounted) return false;
       setState(() {
-        _availableBalance = snapshot.freeFen.toDouble() / 100;
+        _availableBalance = snapshot.freeFen;
         _loadingBalance = false;
       });
       return true;
@@ -107,8 +98,9 @@ class _SweepToMainPageState extends State<SweepToMainPage> {
       if (mounted) {
         setState(() => _loadingBalance = false);
         if (forceRefresh) {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(const SnackBar(content: Text('余额校验失败，请刷新后重试')));
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('余额校验失败，请刷新后重试')));
         }
       }
       return false;
@@ -116,91 +108,88 @@ class _SweepToMainPageState extends State<SweepToMainPage> {
   }
 
   void _onAmountChanged() {
-    final amount = AmountFormat.tryParse(_amountController.text);
-    setState(() {
-      if (amount != null && amount > 0) {
-        _estimatedFee = OnchainTransferCall.estimateTransferFeeYuan(amount);
-      } else {
-        _estimatedFee = 0.0;
-      }
-    });
+    if (_estimatedFee != null || _amountError != null) {
+      setState(() {
+        _estimatedFee = null;
+        _amountError = null;
+      });
+    }
   }
 
-  bool _validateAmount() {
-    final amount = AmountFormat.tryParse(_amountController.text);
-    if (amount == null || amount <= 0) {
-      setState(() => _amountError = '划转金额必须大于 0');
-      return false;
-    }
-    if (_availableBalance != null) {
-      final fee = OnchainTransferCall.estimateTransferFeeYuan(amount);
-      final operationFee = MultisigTransferBalanceGuard.onchainOperationFeeYuan;
-      const ed = 1.11;
-      if (amount + fee + operationFee + ed > _availableBalance!) {
-        setState(
-          () => _amountError =
-              '费用账户余额不足（需支付 ${AmountFormat.format(amount, symbol: '')} 元划转本金 + ${AmountFormat.format(fee, symbol: '')} 元执行手续费 + ${AmountFormat.format(operationFee, symbol: '')} 元操作费，并保留 ${AmountFormat.format(ed, symbol: '')} 元 ED）',
-        );
-        return false;
+  Future<void> _previewFee(String text) async {
+    final amountFen = parseFen(text);
+    if (amountFen == null || amountFen <= BigInt.zero) return;
+    try {
+      final fees = await context.read<CitizenSdk>().getFeeSnapshot(
+        amountFen: amountFen,
+      );
+      if (mounted && _amountController.text == text) {
+        setState(() => _estimatedFee = fees.feeFen);
       }
+    } catch (_) {
+      // 提交时会重取报价并提示错误。
     }
-    setState(() => _amountError = null);
-    return true;
   }
 
   Future<void> _submit() async {
     final blockedReason = _submitBlockedReason;
     if (blockedReason != null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(blockedReason)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(blockedReason)));
       return;
     }
 
-    if (!await _fetchBalance(forceRefresh: true)) return;
-    if (!mounted) return;
-
-    if (!_validateAmount()) return;
+    if (_submitting) return;
+    final amountText = _amountController.text;
+    final amountFen = parseFen(amountText);
+    if (amountFen == null || amountFen <= BigInt.zero) {
+      setState(() => _amountError = '请输入大于 0 的有效金额');
+      return;
+    }
     final proposerRoleCode = _proposerRoleCodeController.text.trim();
     if (proposerRoleCode.isEmpty) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('请输入提案发起岗位码')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请输入提案发起岗位码')));
       return;
     }
 
     final wallet = _selectedWallet;
-    final amountYuan = AmountFormat.tryParse(_amountController.text) ?? 0;
     final sdk = context.read<CitizenSdk>();
-    final balanceBlockedReason =
-        await MultisigTransferBalanceGuard.checkInstitutionFeeAccountBalance(
-          feeAccountId: _feeAccountId,
-          actionLabel: '发起手续费划转提案',
-          additionalDebitYuan:
-              amountYuan +
-              OnchainTransferCall.estimateTransferFeeYuan(amountYuan),
-          chain: sdk,
-        );
-    if (balanceBlockedReason != null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(balanceBlockedReason)));
-      return;
-    }
 
     setState(() => _submitting = true);
-
     try {
-      final signerPublicKey = Uint8List.fromList(_hexToBytes(wallet.accountId));
+      if (!await _fetchBalance(forceRefresh: true) || !mounted) return;
+      final fees = await sdk.getFeeSnapshot(amountFen: amountFen);
+      if (!mounted ||
+          _amountController.text != amountText ||
+          _selectedWallet != wallet ||
+          _proposerRoleCodeController.text.trim() != proposerRoleCode) {
+        return;
+      }
+      setState(() => _estimatedFee = fees.feeFen);
+      final requiredFen =
+          MultisigTransferBalanceGuard.institutionFeeAccountRequiredFen(
+            fees,
+            amountFen + fees.feeFen,
+          );
+      if (_availableBalance! < requiredFen) {
+        setState(
+          () => _amountError =
+              '费用账户余额不足（含本金、手续费和 ED，至少需要 ${formatFen(requiredFen)} 元）',
+        );
+        return;
+      }
+      final signerPublicKey = citizenAccountIdBytes(wallet.accountId);
 
-      final service = MultisigTransferService(
-        chain: sdk,
-        transactions: sdk,
-      );
+      final service = MultisigTransferService(chain: sdk, transactions: sdk);
       // 提案类交易等真正入块并核对事件后才返回，proposal_id 来自
       // 链上 SweepToMainProposed 事件，是业务成功的唯一凭据。
       final result = await service.submitProposeSweep(
         institution: widget.institution,
         proposerRoleCode: proposerRoleCode,
-        amountYuan: amountYuan,
+        amountFen: amountFen,
         signerPublicKey: signerPublicKey,
         externalSigning: (pending) => showCitizenSdkQrResponse(
           context,
@@ -218,12 +207,14 @@ class _SweepToMainPageState extends State<SweepToMainPage> {
       Navigator.of(context).pop(true);
     } on AccountSecurityException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('提交失败：$e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('提交失败：$e')));
     } finally {
       if (mounted) {
         setState(() => _submitting = false);
@@ -323,12 +314,14 @@ class _SweepToMainPageState extends State<SweepToMainPage> {
               SizedBox(height: AppLayout.scaled(context, 6)),
               TextField(
                 controller: _amountController,
+                enabled: !_submitting,
+                onSubmitted: _previewFee,
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
                 inputFormatters: [ThousandSeparatorFormatter()],
                 decoration: InputDecoration(
-                  hintText: '最低 1.11 元',
+                  hintText: '输入金额',
                   hintStyle: TextStyle(
                     color: AppTheme.textTertiary,
                     fontSize: AppLayout.scaled(context, 14),
@@ -367,9 +360,7 @@ class _SweepToMainPageState extends State<SweepToMainPage> {
               SizedBox(height: AppLayout.scaled(context, 12)),
               _buildInfoRow(
                 '预估手续费',
-                _estimatedFee > 0
-                    ? '${AmountFormat.format(_estimatedFee, symbol: '')} 元'
-                    : '--',
+                _estimatedFee != null ? '${formatFen(_estimatedFee!)} 元' : '--',
               ),
               SizedBox(height: AppLayout.scaled(context, 8)),
               _buildInfoRow(
@@ -377,7 +368,7 @@ class _SweepToMainPageState extends State<SweepToMainPage> {
                 _loadingBalance
                     ? '查询中...'
                     : _availableBalance != null
-                    ? '${AmountFormat.format(_availableBalance!, symbol: '')} 元'
+                    ? '${formatFen(_availableBalance!)} 元'
                     : '查询失败',
               ),
               SizedBox(height: AppLayout.scaled(context, 24)),
@@ -610,14 +601,4 @@ class _SweepToMainPageState extends State<SweepToMainPage> {
       ],
     );
   }
-}
-
-List<int> _hexToBytes(String input) {
-  final text = input.startsWith('0x') ? input.substring(2) : input;
-  if (text.isEmpty || text.length.isOdd) return const <int>[];
-  final out = <int>[];
-  for (var i = 0; i < text.length; i += 2) {
-    out.add(int.parse(text.substring(i, i + 2), radix: 16));
-  }
-  return out;
 }

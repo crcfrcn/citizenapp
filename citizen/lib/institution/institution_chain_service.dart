@@ -1,11 +1,9 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
+
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
-
 import 'package:citizen_citizen/institution/institution_models.dart';
-
-import 'package:citizen_citizen/account_derivation.dart';
 
 /// 机构管理提案解码服务（公权/私权共用）。
 ///
@@ -37,7 +35,7 @@ class InstitutionChainService {
       var offset = 0;
 
       // BoundedVec<u8> 外层：Compact<len> + bytes
-      final (vecLen, lenBytes) = _decodeCompact(raw, offset);
+      final (vecLen, lenBytes) = CitizenScale.readCompact(raw, offset);
       offset += lenBytes;
       if (offset + vecLen != raw.length) return null;
       final data = raw.sublist(offset, offset + vecLen);
@@ -62,7 +60,7 @@ class InstitutionChainService {
   CloseProposalInfo? _decodeCloseAction(int proposalId, Uint8List data) {
     var offset = 0;
 
-    final (cidLen, cidLenBytes) = _decodeCompact(data, offset);
+    final (cidLen, cidLenBytes) = CitizenScale.readCompact(data, offset);
     offset += cidLenBytes;
     if (cidLen <= 0 || cidLen > 32 || offset + cidLen + 96 != data.length) {
       return null;
@@ -73,23 +71,17 @@ class InstitutionChainService {
     );
     offset += cidLen;
 
-    final accountId = _hexEncode(
-      Uint8List.fromList(data.sublist(offset, offset + 32)),
-    );
+    final accountId = citizenAccountIdFromBytes(
+      data.sublist(offset, offset + 32),
+    ).substring(2);
     offset += 32;
 
     final beneficiaryBytes = data.sublist(offset, offset + 32);
-    final beneficiarySs58 = Keyring().encodeAddress(
-      Uint8List.fromList(beneficiaryBytes),
-      kGmbSs58Prefix,
-    );
+    final beneficiarySs58 = citizenSs58FromAccountIdBytes(beneficiaryBytes);
     offset += 32;
 
     final proposerBytes = data.sublist(offset, offset + 32);
-    final proposerSs58 = Keyring().encodeAddress(
-      Uint8List.fromList(proposerBytes),
-      kGmbSs58Prefix,
-    );
+    final proposerSs58 = citizenSs58FromAccountIdBytes(proposerBytes);
 
     return CloseProposalInfo(
       proposalId: proposalId,
@@ -108,35 +100,5 @@ class InstitutionChainService {
       if (data[i] != prefix[i]) return false;
     }
     return true;
-  }
-
-  (int, int) _decodeCompact(Uint8List data, int offset) {
-    final first = data[offset];
-    final mode = first & 0x03;
-    if (mode == 0) {
-      return (first >> 2, 1);
-    } else if (mode == 1) {
-      final val = (data[offset] | (data[offset + 1] << 8)) >> 2;
-      return (val, 2);
-    } else if (mode == 2) {
-      final val =
-          (data[offset] |
-              (data[offset + 1] << 8) |
-              (data[offset + 2] << 16) |
-              (data[offset + 3] << 24)) >>
-          2;
-      return (val, 4);
-    } else {
-      final lenBytes = (first >> 2) + 4;
-      var val = 0;
-      for (var i = lenBytes - 1; i >= 0; i--) {
-        val = (val << 8) | data[offset + 1 + i];
-      }
-      return (val, 1 + lenBytes);
-    }
-  }
-
-  static String _hexEncode(Uint8List bytes) {
-    return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 }

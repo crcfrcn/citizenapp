@@ -72,9 +72,8 @@ Widget _wrap({
     child: MaterialApp(
       theme: ThemeData(platform: platform),
       builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(
-          context,
-        ).copyWith(textScaler: textScaler, padding: padding),
+        data: MediaQuery.of(context)
+            .copyWith(textScaler: textScaler, padding: padding),
         child: child!,
       ),
       home: UserProfilePage(
@@ -149,9 +148,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final fallback = ProfilePresentation.forIdentityKey(
-      _profileCidNumber,
-    ).fallbackName;
+    final fallback = ProfilePresentation.forIdentityKey(_profileCidNumber)
+        .fallbackName;
     expect(find.text(fallback), findsWidgets);
     expect(find.text('公民号：$_profileCidNumber'), findsOneWidget);
     expect(find.textContaining('SS58：'), findsNothing);
@@ -661,7 +659,10 @@ void main() {
       _wrap(
         isSelf: false,
         api: FakeProfileApi(
-          sampleProfile(avatarKey: 'profile/$_profileCidNumber/avatar'),
+          sampleProfile(
+            avatarKey:
+                'i/$_profileCidNumber/avatar/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          ),
           client: client,
         ),
       ),

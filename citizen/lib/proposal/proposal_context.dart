@@ -4,7 +4,6 @@ import 'package:citizen_system/app_log.dart';
 import 'package:citizen_citizen/administrators/admin_activation_service.dart';
 import 'package:citizen_citizen/administrators/admin_account.dart';
 import 'package:citizen_citizen/administrators/institution_admin_service.dart';
-import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/institution/governance_registry.dart';
 import 'package:citizen_citizen/proposal/internal_vote_query_service.dart';
@@ -134,7 +133,9 @@ class ProposalContextResolver {
           : findInstitutionByCidNumber(actorCid);
     } else if (code == 'PMUL' && executionAccountId != null) {
       // 个人多签没有 CID，且只有 PMUL 才允许 execution account 成为主体。
-      final executionAccountIdText = _hexFromBytes(executionAccountId);
+      final executionAccountIdText = citizenAccountIdFromBytes(
+        executionAccountId,
+      );
       final knownPersonalAccount = knownInstitution == null
           ? null
           : personalAccountIdFromIdentity(knownInstitution.cidNumber);
@@ -300,18 +301,10 @@ class ProposalContextResolver {
   }
 
   static String _requireAccountId(String accountId) {
-    if (!isAccountIdText(accountId)) {
+    if (!isCitizenAccountId(accountId)) {
       throw const FormatException('account_id 必须为小写 0x + 64 位十六进制');
     }
     return accountId;
-  }
-
-  static String _hexFromBytes(List<int> bytes) {
-    final buffer = StringBuffer();
-    for (final byte in bytes) {
-      buffer.write(byte.toRadixString(16).padLeft(2, '0'));
-    }
-    return '0x$buffer';
   }
 }
 
@@ -403,7 +396,7 @@ class VoteChecker {
   }
 
   static String _requireAccountId(String accountId) {
-    if (!isAccountIdText(accountId)) {
+    if (!isCitizenAccountId(accountId)) {
       throw const FormatException('account_id 必须为小写 0x + 64 位十六进制');
     }
     return accountId;

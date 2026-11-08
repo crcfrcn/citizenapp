@@ -11,26 +11,29 @@ import 'package:citizen_user/identity/public_identity_store.dart';
 import 'package:citizen_system/security/system_protected_storage.dart';
 import 'package:citizen_wallet/history/local_tx_store.dart';
 import 'package:citizen_offchain/clearing_bank_prefs.dart';
+import 'package:citizen_offchain/offchain_clearing_rpc.dart';
 
-typedef AccountMlsDeviceRegistrar = Future<void> Function({
-  required String cidNumber,
-  required int bindRev,
-  required String accountId,
-  required Future<String> Function({
-    required Uint8List payload,
-    required Uint8List signingMessage,
-    required String publicKey,
-    required int issuedAtMillis,
-  })
-  signBinding,
-});
-typedef ColdMlsDeviceBindingSigner = Future<String> Function({
-  required IdentityBinding binding,
-  required Uint8List payload,
-  required Uint8List signingMessage,
-  required String publicKey,
-  required int issuedAtMillis,
-});
+typedef AccountMlsDeviceRegistrar =
+    Future<void> Function({
+      required String cidNumber,
+      required int bindRev,
+      required String accountId,
+      required Future<String> Function({
+        required Uint8List payload,
+        required Uint8List signingMessage,
+        required String publicKey,
+        required int issuedAtMillis,
+      })
+      signBinding,
+    });
+typedef ColdMlsDeviceBindingSigner =
+    Future<String> Function({
+      required IdentityBinding binding,
+      required Uint8List payload,
+      required Uint8List signingMessage,
+      required String publicKey,
+      required int issuedAtMillis,
+    });
 
 /// 只协调公开身份、首次MLS登记授权与所属记录清理。钱包能力仍归CitizenSDK。
 interface class AccountSecurityService {
@@ -304,7 +307,7 @@ interface class AccountSecurityService {
 
   Future<bool> get hasPendingAccountCleanup async =>
       await _records.read(_pendingCleanup) != null;
-  Future<void> reconcileAccountCleanup() async {
+  Future<void> reconcileAccountCleanup({CitizenWalletState? receipt}) async {
     final raw = await _records.read(_pendingCleanup);
     if (raw == null) return;
     final value = jsonDecode(raw);
@@ -317,11 +320,17 @@ interface class AccountSecurityService {
     }
     final ids = (value['account_ids'] as List).cast<String>().toSet();
     final indexes = (value['wallet_indices'] as List).cast<int>().toSet();
-    final state = await _getWalletState().result;
-    if (state.cleanupPending ||
-        state.accounts.any((a) => ids.contains(a.accountId)) ||
-        state.diagnostics.any((r) => indexes.contains(r.walletIndex))) {
+    final state = receipt ?? await _getWalletState().result;
+    if (!state.isRemovalSettled(ids, indexes)) {
       throw const AccountSecurityException('钱包安全清理尚未完成');
+    }
+    // 跨重启或清理失败后重试时，SDK 和 App 各清除所属余额。
+    if (receipt == null) {
+      final signing = _signing;
+      await Future.wait<void>([
+        if (signing != null) signing.balances.remove(ids),
+        ClearingBalances.instance.remove(ids),
+      ]);
     }
     for (final binding in await _bindings.readAll()) {
       if (ids.contains(binding.accountId)) {
@@ -352,7 +361,7 @@ interface class AccountSecurityService {
   }
 
   /// 既有全量擦除仅清App所属公开记录；真正MLS状态由SDK已有擦除入口承担。
-  Future<void> wipeAllDeviceMaterial(Iterable<int> walletIndexes) async {
+  Future<void> wipeAllDeviceMaterial() async {
     for (final binding in await _bindings.readAll()) {
       await _clearPublicBinding(binding);
     }

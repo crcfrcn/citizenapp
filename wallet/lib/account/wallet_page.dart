@@ -1,7 +1,6 @@
 import 'package:citizen_topup/store.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:citizen_storage/user_isar.dart' as wallet_store show Entry;
-import 'package:citizen_wallet/core/account_balance_snapshot_store.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:async';
@@ -9,15 +8,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:citizen_system/app_log.dart';
-import 'package:citizen_system/security/screenshot_guard.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_scanner/scan_dispatch.dart';
 import 'package:citizen_wallet/history/local_tx_store.dart';
 import 'package:citizen_wallet/history/tx_auto_refresh_mixin.dart';
 import 'package:citizen_widgets/shimmer_loading.dart';
-import 'package:citizen_system/amount_format.dart';
 import 'package:citizen_onchain/onchain_payment_models.dart';
+import 'package:citizen_offchain/offchain_clearing_rpc.dart';
 import 'package:citizen_user/identity/account_security_service.dart';
 import 'package:citizen_user/identity/myid_service.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
@@ -55,7 +53,6 @@ final class WalletActions {
     this.balances,
     this.syncStatus,
     this.lifecycle,
-    this.importCold,
     this.reconcile,
   });
   final CitizenSdkOperation<WalletSnapshot> Function()? snapshot;
@@ -75,7 +72,7 @@ final class WalletActions {
     bool diagnostic,
   )?
   renameWallet;
-  final Future<void> Function(
+  final Future<CitizenWalletState> Function(
     String? accountId,
     bool wholeWallet,
     int? diagnosticIndex,
@@ -84,15 +81,9 @@ final class WalletActions {
   final Future<void> Function(int walletIndex)? repair;
   final Future<void> Function()? reconcile;
   final Future<List<CitizenSdkDiagnostic>> Function()? diagnostics;
-  final AccountBalanceSnapshotStore? balances;
+  final CitizenBalances? balances;
   final Future<CitizenChainSyncStatus> Function()? syncStatus;
   final CitizenSdkLifecycle Function()? lifecycle;
-  final CitizenSdkOperation<CitizenWalletState> Function({
-    String? accountId,
-    String? ss58Address,
-    String name,
-  })?
-  importCold;
 }
 
 class WalletTab extends StatefulWidget {
@@ -128,6 +119,7 @@ enum _WalletLoadState {
 ///   「扫一扫 / 重命名 / 删除钱包或删除账户」，整卡点击进入账户详情。
 class _WalletTabState extends State<WalletTab> {
   CitizenWalletState? _state;
+  List<CitizenWalletStateAccount>? _orderPreview;
   CitizenWalletInspection? _inspection;
   Object? _readOwner;
   Object? _cleanupError;
@@ -136,9 +128,8 @@ class _WalletTabState extends State<WalletTab> {
   AccountSecurityService? _security;
   _WalletLoadState _loadState = _WalletLoadState.initialLoading;
   Object? _loadError;
-  AccountBalanceSnapshotStore get _balanceStore =>
-      widget.actions?.balances ??
-      AccountBalanceSnapshotStore.forChain(context.read<CitizenSdk>());
+  CitizenBalances get _balanceStore =>
+      widget.actions?.balances ?? context.read<CitizenSdk>().balances;
   String? _identityAccountId;
   DateTime? _lastWalletStoreSnackAt;
   bool _mutationInProgress = false;
@@ -153,7 +144,7 @@ class _WalletTabState extends State<WalletTab> {
   AccountSecurityService get _accountSecurity =>
       context.read<AccountSecurityService>();
   List<CitizenWalletStateAccount> get _accounts =>
-      _state?.accounts ?? const <CitizenWalletStateAccount>[];
+      _orderPreview ?? _state?.accounts ?? const <CitizenWalletStateAccount>[];
   CitizenWalletStateAccount? get _hotWallet {
     for (final account in _accounts) {
       if (account.signMode == CitizenWalletSignMode.hot &&
@@ -477,15 +468,7 @@ class _WalletTabState extends State<WalletTab> {
     final revision = _state!.revision;
     setState(() {
       _mutationInProgress = true;
-      _state = CitizenWalletState(
-        revision: revision,
-        hotProfile: _state!.hotProfile,
-        activeWalletIndex: _state!.activeWalletIndex,
-        initializationState: _state!.initializationState,
-        cleanupPending: _state!.cleanupPending,
-        diagnostics: _state!.diagnostics,
-        accounts: target,
-      );
+      _orderPreview = target;
     });
     try {
       await _commitAccountOrder(before, target, revision);
@@ -493,25 +476,16 @@ class _WalletTabState extends State<WalletTab> {
       await _reload();
     } catch (error) {
       if (!mounted) return;
-      // 只撤销本次乐观排序；等待期间已读到的新SDK修订不能被旧失败覆盖。
-      if (_state!.revision == revision) {
-        setState(() {
-          _state = CitizenWalletState(
-            revision: revision,
-            hotProfile: _state!.hotProfile,
-            activeWalletIndex: _state!.activeWalletIndex,
-            initializationState: _state!.initializationState,
-            cleanupPending: _state!.cleanupPending,
-            diagnostics: _state!.diagnostics,
-            accounts: before,
-          );
-        });
-      }
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(_errorMessage(error))));
     } finally {
-      if (mounted) setState(() => _mutationInProgress = false);
+      if (mounted) {
+        setState(() {
+          _orderPreview = null;
+          _mutationInProgress = false;
+        });
+      }
     }
   }
 
@@ -818,26 +792,17 @@ class _WalletTabState extends State<WalletTab> {
     final accountName =
         diagnostic?.walletName ??
         (deletingWholeWallet ? _walletName(account) : account!.name);
-    final targets = deletingWholeWallet
-        ? _accounts
-              .where((value) => value.signMode == CitizenWalletSignMode.hot)
-              .toList(growable: false)
-        : <CitizenWalletStateAccount>[?account];
-    final accountIds =
-        diagnostic?.cleanupTargets?.accountIds ??
-        targets.map((value) => value.accountId).toList(growable: false);
-    final walletIndexes = diagnostic == null
-        ? targets.map((value) => value.walletIndex).toSet()
-        : <int>{diagnostic.walletIndex};
-    final cleanupWide =
-        diagnostic?.cleanupTargets?.deleteWalletWideKey ?? deletingWholeWallet;
+    final targets = _state!.deletionTargets(
+      accountId: account?.accountId,
+      diagnosticIndex: diagnostic?.walletIndex,
+    );
     if (deletingWholeWallet) {
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
           title: const Text('删除钱包'),
           content: Text(
-            '删除「$accountName」会从本设备移除该钱包下全部 ${targets.length} 个账户、'
+            '删除「$accountName」会从本设备移除该钱包下全部 ${targets.accountIds.length} 个账户、'
             '私钥、交易记录和清算行缓存。\n\n请确认已经备份助记词，此操作无法撤销。',
           ),
           actions: [
@@ -889,61 +854,45 @@ class _WalletTabState extends State<WalletTab> {
     try {
       // 跨App业务域清理仍调用现有服务，本步不恢复WalletManager或复制SDK删除实现。
       await security.prepareAccountCleanup(
-        accountIds: accountIds,
-        walletIndexes: walletIndexes,
-        deleteWalletWideKey: cleanupWide,
+        accountIds: targets.accountIds,
+        walletIndexes: targets.walletIndexes,
+        deleteWalletWideKey: targets.whole,
       );
-      try {
-        if (widget.actions?.remove != null) {
-          await widget.actions!.remove!(
-            account?.accountId,
-            deletingWholeWallet,
-            diagnostic?.walletIndex,
+      final CitizenWalletState receipt;
+      if (widget.actions?.remove != null) {
+        receipt = await widget.actions!.remove!(
+          account?.accountId,
+          deletingWholeWallet,
+          diagnostic?.walletIndex,
+        );
+      } else if (diagnostic != null) {
+        if (inspection == null) {
+          throw const CitizenSdkException(
+            code: CitizenSdkErrorCode.invalidState,
+            message: '钱包检查已失效，请刷新',
           );
-        } else if (diagnostic != null) {
-          if (inspection == null) {
-            throw const CitizenSdkException(
-              code: CitizenSdkErrorCode.invalidState,
-              message: '钱包检查已失效，请刷新',
-            );
-          }
-          await inspection.delete(diagnostic.walletIndex).result;
-        } else if (deletingWholeWallet) {
-          await sdkWallet.signAndDeleteWallet().result;
-        } else {
-          await sdkWallet.deleteAccount(account!.accountId).result;
         }
-        removed = true;
+        receipt = await inspection.delete(diagnostic.walletIndex).result;
+      } else if (deletingWholeWallet) {
+        receipt = await sdkWallet.signAndDeleteWallet().result;
+      } else {
+        receipt = await sdkWallet.deleteAccount(account!.accountId).result;
+      }
+      cleanupPending = receipt.cleanupPending;
+      removed = true;
+      try {
+        await Future.wait<void>([
+          balanceStore.remove(receipt.removedAccountIds),
+          ClearingBalances.instance.remove(receipt.removedAccountIds),
+        ]);
+        if (cleanupPending) {
+          throw const AccountSecurityException('等待 SDK 完成安全清理');
+        }
+        await security.reconcileAccountCleanup(receipt: receipt);
+        security.notifyDefaultAccountChanged();
       } catch (failure) {
         error = failure;
-        try {
-          final state =
-              await (widget.actions?.state?.call() ??
-                      sdkWallet.getWalletState())
-                  .result;
-          final ids = state.accounts.map((value) => value.accountId).toSet();
-          removed =
-              accountIds.every((id) => !ids.contains(id)) &&
-              !state.diagnostics.any(
-                (record) => walletIndexes.contains(record.walletIndex),
-              );
-          cleanupPending = state.cleanupPending;
-        } catch (loadFailure) {
-          _loadError = loadFailure;
-        }
       }
-      if (removed == true) {
-        try {
-          await balanceStore.forget(accountIds);
-          await security.reconcileAccountCleanup();
-          security.notifyDefaultAccountChanged();
-        } catch (failure) {
-          error ??= failure;
-        }
-      } else if (removed == false && accountIds.isNotEmpty) {
-        await security.cancelAccountCleanup();
-      }
-      // 读取失败不是“没有删除”，也不能据此撤销尚待确认的清理意图。
       if (!mounted) return;
       await _reload();
       if (!mounted) return;
@@ -968,6 +917,16 @@ class _WalletTabState extends State<WalletTab> {
         cleanupPending: cleanupPending,
       );
     } catch (failure) {
+      if (failure is CitizenSdkException &&
+          {
+            CitizenSdkFailureStage.admission,
+            CitizenSdkFailureStage.validation,
+            CitizenSdkFailureStage.authentication,
+            CitizenSdkFailureStage.cancellation,
+          }.contains(failure.stage)) {
+        removed = false;
+        await security.cancelAccountCleanup();
+      }
       if (mounted) {
         _showDeleteOutcome(
           messenger: messenger,
@@ -1029,10 +988,7 @@ class _WalletTabState extends State<WalletTab> {
     if (_mutationInProgress) return;
     try {
       final imported = await Navigator.of(context).push<bool>(
-        MaterialPageRoute(
-          builder: (_) =>
-              ImportColdWalletPage(importCold: widget.actions?.importCold),
-        ),
+        MaterialPageRoute(builder: (_) => const ImportColdWalletPage()),
       );
       if (imported != true) return;
       if (!mounted) return;
@@ -1365,7 +1321,7 @@ class _WalletTabState extends State<WalletTab> {
                       wallet: null,
                       diagnostic: broken,
                       walletName: broken.walletName,
-                      balance: 0,
+                      balanceFen: BigInt.zero,
                       showActions: true,
                       isBroken: true,
                       onTap: () => unawaited(_repairBrokenWallet(broken)),
@@ -1572,7 +1528,7 @@ class WalletListTile extends StatelessWidget {
     required this.wallet,
     this.diagnostic,
     required this.walletName,
-    this.balance,
+    this.balanceFen,
     this.balanceState,
     required this.showActions,
     required this.onTap,
@@ -1589,8 +1545,8 @@ class WalletListTile extends StatelessWidget {
   final String walletName;
 
   /// 固定布局测试的注入值；正式卡片只绑定 wallet 共享状态。
-  final double? balance;
-  final WalletBalanceState<CitizenAccountBalance>? balanceState;
+  final BigInt? balanceFen;
+  final CitizenBalanceState<CitizenAccountBalance>? balanceState;
 
   /// 选择模式下隐藏右侧菜单（避免误操作）。
   final bool showActions;
@@ -1705,11 +1661,9 @@ class WalletListTile extends StatelessWidget {
                           identifier: 'wallet-balance',
                           child: Text(
                             balanceState?.value != null
-                                ? AccountBalanceSnapshotStore.formatFen(
-                                    balanceState!.value!.freeFen,
-                                  )
-                                : balance != null
-                                ? AmountFormat.formatThousands(balance!)
+                                ? formatFen(balanceState!.value!.freeFen)
+                                : balanceFen != null
+                                ? formatFen(balanceFen!)
                                 : '—',
                             style: TextStyle(
                               fontSize: AppLayout.scaled(context, 13),
@@ -2044,14 +1998,11 @@ class WalletDetailPage extends StatefulWidget {
 }
 
 class _WalletDetailPageState extends State<WalletDetailPage>
-    with TxAutoRefreshMixin<WalletDetailPage>, WidgetsBindingObserver {
+    with
+        TxAutoRefreshMixin<WalletDetailPage>,
+        WidgetsBindingObserver,
+        WalletPrivateDisplay<WalletDetailPage> {
   late BigInt _walletRevision;
-  bool _screenshotGuardActive = false;
-  bool _privateOpening = false;
-  bool _privateRevoked = false;
-  CitizenSdkPrivateKey? _privateKeyResource;
-  DialogRoute<void>? _privateKeyRoute;
-  VoidCallback? _clearPrivateText;
   List<wallet_store.Entry> _recentRecords = const [];
 
   /// 外层下拉刷新通过此 key 触发链上余额卡的 refresh()。
@@ -2086,11 +2037,6 @@ class _WalletDetailPageState extends State<WalletDetailPage>
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _privateRevoked = true;
-    scheduleMicrotask(_dismissPrivateDisplay);
-    final resource = _privateKeyResource;
-    if (resource != null) unawaited(resource.close().catchError((Object _) {}));
     unawaited(
       stopTxAutoRefresh().catchError((Object error, StackTrace stackTrace) {
         AppLog.d('[Wallet] 交易 watcher 停止失败: $error\n$stackTrace');
@@ -2102,7 +2048,6 @@ class _WalletDetailPageState extends State<WalletDetailPage>
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     _walletRevision = widget.expectedRevision;
     _loadRecentRecords();
     startTxAutoRefresh(widget.wallet.accountId);
@@ -2145,160 +2090,7 @@ class _WalletDetailPageState extends State<WalletDetailPage>
           context,
         ).showSnackBar(const SnackBar(content: Text('暂未上线，敬请期待')));
       case 'seed':
-        await _revealSecret('私钥');
-    }
-  }
-
-  Future<void> _revealSecret(String label) async {
-    if (_privateOpening || _privateKeyResource != null || !mounted) return;
-    _privateOpening = true;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text('查看$label'),
-        content: Text('$label是核心机密信息，泄露将导致资产被盗。\n\n确认要查看吗？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: TextButton.styleFrom(foregroundColor: AppTheme.danger),
-            child: const Text('查看'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) {
-      _privateOpening = false;
-      return;
-    }
-    _privateRevoked = false;
-    CitizenSdkPrivateKey? resource;
-    String? value;
-
-    try {
-      resource = await context.read<CitizenSdk>().openPrivateKey(
-        widget.wallet.accountId,
-      );
-      final owned = resource;
-      _privateKeyResource = owned;
-      _clearPrivateText = () {
-        value = null;
-      };
-      unawaited(
-        owned.closed.then<void>((_) {
-          if (identical(_privateKeyResource, owned)) {
-            _privateRevoked = true;
-            _dismissPrivateDisplay();
-            unawaited(_releasePrivateGuard());
-            _privateKeyResource = null;
-          }
-        }),
-      );
-      if (!mounted) return;
-      if (!_screenshotGuardActive) {
-        _screenshotGuardActive = true;
-        await ScreenshotGuard.enable();
-        if (!mounted) return;
-      }
-      if (_privateRevoked) return;
-      final bytes = await resource.reveal();
-      if (!mounted || _privateRevoked) return;
-      value =
-          '0x${bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join()}';
-      final navigator = Navigator.of(context, rootNavigator: true);
-      final dialog = DialogRoute<void>(
-        context: context,
-        themes: InheritedTheme.capture(from: context, to: navigator.context),
-        traversalEdgeBehavior: TraversalEdgeBehavior.closedLoop,
-        builder: (_) => AlertDialog(
-          title: Text(label),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: EdgeInsets.all(AppLayout.scaledValue(12)),
-                decoration: AppTheme.bannerDecoration(AppTheme.danger),
-                child: Text(
-                  value ?? '无数据',
-                  style: TextStyle(
-                    fontSize: AppLayout.scaledValue(14),
-                    fontFamily: 'monospace',
-                  ),
-                ),
-              ),
-              SizedBox(height: AppLayout.scaledValue(8)),
-              Text(
-                '请手抄备份，不支持复制',
-                style: TextStyle(
-                  color: AppTheme.danger,
-                  fontSize: AppLayout.scaledValue(12),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('关闭'),
-            ),
-          ],
-        ),
-      );
-      _privateKeyRoute = dialog;
-      await navigator.push(dialog);
-      await dialog.completed;
-    } on CitizenSdkException catch (e) {
-      if (!mounted ||
-          _privateRevoked ||
-          e.code == CitizenSdkErrorCode.cancelled) {
-        return;
-      }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('验证失败：${e.message}')));
-    } finally {
-      _dismissPrivateDisplay();
-      value = null;
-      _clearPrivateText = null;
-      var drained = false;
-      try {
-        await resource?.close();
-        drained = true;
-        await _releasePrivateGuard();
-      } finally {
-        if (drained && identical(_privateKeyResource, resource)) {
-          _privateKeyResource = null;
-        }
-        _privateOpening = false;
-      }
-    }
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) return;
-    if (state == AppLifecycleState.inactive && _privateKeyRoute == null) return;
-    _privateRevoked = true;
-    _dismissPrivateDisplay();
-    final resource = _privateKeyResource;
-    if (resource != null) unawaited(resource.close().catchError((Object _) {}));
-  }
-
-  void _dismissPrivateDisplay() {
-    final route = _privateKeyRoute;
-    _privateKeyRoute = null;
-    if (route != null && route.isActive) route.navigator?.removeRoute(route);
-    _clearPrivateText?.call();
-  }
-
-  Future<void> _releasePrivateGuard() async {
-    if (_screenshotGuardActive) {
-      _screenshotGuardActive = false;
-      await ScreenshotGuard.disable();
+        await revealPrivateKey(widget.wallet.accountId, wallet: true);
     }
   }
 
@@ -2407,27 +2199,21 @@ class WalletIconRegistry {
   }
 }
 
-/// 导入冷钱包页面：只接受本链 SS58 展示地址，不导入私钥。
+/// 冷钱包导入表单。手填或扫码填表后，由用户确认并交给 SDK 导入。
 class ImportColdWalletPage extends StatefulWidget {
-  const ImportColdWalletPage({super.key, this.importCold});
-  final CitizenSdkOperation<CitizenWalletState> Function({
-    String? accountId,
-    String? ss58Address,
-    String name,
-  })?
-  importCold;
+  const ImportColdWalletPage({super.key});
 
   @override
   State<ImportColdWalletPage> createState() => _ImportColdWalletPageState();
 }
 
 class _ImportColdWalletPageState extends State<ImportColdWalletPage> {
-  final TextEditingController _addressController = TextEditingController();
+  final TextEditingController _accountController = TextEditingController();
   bool _isImporting = false;
   String? _error;
 
-  Future<void> _scanWalletAddress() async {
-    final raw = await Navigator.of(context).push<String>(
+  Future<void> _scanAccount() async {
+    final result = await Navigator.of(context).push<CitizenQrScanResult>(
       MaterialPageRoute(
         builder: (_) => const QrScanPage(
           mode: QrScanMode.coldAccountImport,
@@ -2435,47 +2221,35 @@ class _ImportColdWalletPageState extends State<ImportColdWalletPage> {
         ),
       ),
     );
-    if (!mounted || raw == null || raw.trim().isEmpty) {
-      return;
-    }
-
-    String? address;
-    try {
-      final result = await context.read<CitizenSdk>().parseForPurpose(
-        raw,
-        CitizenQrScanPurpose.coldAccountImport,
-      );
-      address = result.ss58Address;
-    } on CitizenSdkException {
-      address = null;
-    }
-    if (!mounted) return;
-    final scannedAddress = address;
-    if (scannedAddress == null || scannedAddress.isEmpty) {
+    if (!mounted || result == null) return;
+    final accountId = result.accountId;
+    if (accountId == null) {
       setState(() {
-        _error = '未识别到可导入的钱包账户地址';
+        _error = '未识别到可导入的账户';
       });
       return;
     }
 
     setState(() {
-      _addressController.text = scannedAddress;
-      _addressController.selection = TextSelection.collapsed(
-        offset: scannedAddress.length,
+      _accountController.value = TextEditingValue(
+        text: accountId,
+        selection: TextSelection.collapsed(offset: accountId.length),
       );
       _error = null;
     });
   }
 
   Future<void> _import() async {
+    if (_isImporting) return;
     setState(() {
       _error = null;
       _isImporting = true;
     });
     try {
-      await (widget.importCold ?? context.read<CitizenSdk>().importColdAccount)(
-        ss58Address: _addressController.text,
-      ).result;
+      await context
+          .read<CitizenSdk>()
+          .importColdAccount(_accountController.text)
+          .result;
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (e) {
@@ -2494,19 +2268,20 @@ class _ImportColdWalletPageState extends State<ImportColdWalletPage> {
 
   @override
   void dispose() {
-    _addressController.dispose();
+    _accountController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    const prompt = '请输入 AccountId 或公民链 SS58 地址';
     return Scaffold(
       appBar: AppBar(
         title: const Text('导入冷钱包'),
         actions: [
           IconButton(
-            tooltip: '扫码填入地址',
-            onPressed: _isImporting ? null : _scanWalletAddress,
+            tooltip: '扫码填入账户',
+            onPressed: _isImporting ? null : _scanAccount,
             icon: SvgPicture.asset(
               'packages/citizen_assets/icons/scan-line.svg',
               width: AppLayout.scaled(context, 22),
@@ -2520,7 +2295,7 @@ class _ImportColdWalletPageState extends State<ImportColdWalletPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('请输入冷钱包账户地址'),
+            const Text(prompt),
             SizedBox(height: AppLayout.scaled(context, 8)),
             Text(
               '私钥保存在 公民钱包 签名设备上，签名请通过 公民钱包 扫码完成。',
@@ -2531,11 +2306,11 @@ class _ImportColdWalletPageState extends State<ImportColdWalletPage> {
             ),
             SizedBox(height: AppLayout.scaled(context, 12)),
             TextField(
-              controller: _addressController,
+              controller: _accountController,
               minLines: 2,
               maxLines: 3,
               decoration: const InputDecoration(
-                hintText: '请输入冷钱包账户地址',
+                hintText: prompt,
                 border: OutlineInputBorder(),
               ),
             ),

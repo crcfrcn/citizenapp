@@ -319,7 +319,7 @@ void main() {
       uploadService: upload,
       chainService: chain,
       publicationConfirmer: _FakePublicationConfirmer(order),
-      balanceReader: _FakeBalanceReader(order, balanceYuan: 1.20),
+      balanceReader: _FakeBalanceReader(order, balanceFen: BigInt.from(120)),
       localPostWriter: _FakeLocalPostWriter(),
     );
 
@@ -409,7 +409,7 @@ void main() {
   test('上传失败后续传原交易和原正文，不再次签名', () async {
     final order = <String>[];
     final upload = _FakeUploader(order)..failUpload = true;
-    final chain = _FakeChainPublisher(order)..recoverFinalized = true;
+    final chain = _FakeChainPublisher(order);
     final service = SquarePublishService(
       identityResolver: _PublishIdentityResolver(),
       uploadService: upload,
@@ -432,7 +432,37 @@ void main() {
     upload.failUpload = false;
     order.clear();
     await publish();
-    expect(order, ['resume', 'proof', 'upload', 'confirm']);
+    expect(order, ['resume', 'upload', 'confirm']);
+  });
+
+  test('部分上传失败后仍核验链上最终失败并释放原发布', () async {
+    final order = <String>[];
+    final upload = _FakeUploader(order)..failUpload = true;
+    final chain = _FakeChainPublisher(order)..finalizedFailure = true;
+    final confirmer = _FakePublicationConfirmer(order)..finalizedFailure = true;
+    final service = SquarePublishService(
+      identityResolver: _PublishIdentityResolver(),
+      uploadService: upload,
+      chainService: chain,
+      publicationConfirmer: confirmer,
+      balanceReader: _FakeBalanceReader(order),
+      localPostWriter: _FakeLocalPostWriter(),
+    );
+    const cid = 'CN001-CTZN-000000001-2026';
+    await expectLater(
+      service.publish(
+        draftId: 'failed-media',
+        identity: _identity(cidNumber: cid),
+        postType: SquarePostType.document,
+        text: '失败清理',
+        mediaDrafts: [],
+        sessionForAccount: (accountId) async => fakeSquareSession(accountId),
+        externalSigning: (_) async => 'QR_V1',
+      ),
+      throwsA(isA<SquarePublishException>()),
+    );
+    expect(order, ['prepare', 'balance', 'chain', 'upload', 'confirm']);
+    expect(await const SquarePostStore().readPublication(cid, 'failed-media'), isNull);
   });
 
   test('远端确认后本地失败保存恢复事实，重试不验真不上传不签名', () async {
@@ -653,6 +683,7 @@ class _FakePublicationConfirmer implements SquarePublicationConfirmer {
   final List<String>? order;
   final String contentHash;
   bool throwOnConfirm = false;
+  bool finalizedFailure = false;
   bool proofAvailable = false;
 
   @override
@@ -701,6 +732,9 @@ class _FakePublicationConfirmer implements SquarePublicationConfirmer {
   }) async {
     order?.add('confirm');
     if (throwOnConfirm) throw StateError('远端确认暂不可用');
+    if (finalizedFailure) {
+      throw const SquareApiException('交易最终失败', errorCode: 'post_chain_failed');
+    }
     return SquarePost(
       postId: postId,
       author: SquareAuthor(
@@ -759,6 +793,7 @@ class _FakeChainPublisher implements SquarePostChainPublisher {
   bool throwAfterSign = false;
   Future<void>? finish;
   bool recoverFinalized = false;
+  bool finalizedFailure = false;
 
   @override
   Future<SquareChainPublishedResult?> recoverPost({
@@ -806,10 +841,10 @@ class _FakeChainPublisher implements SquarePostChainPublisher {
         canAbortUpload: false,
       );
     }
-    return const SquareChainPublishedResult(
+    return SquareChainPublishedResult(
       txHash: '0xtest',
-
       blockHash: '0xblock',
+      failed: finalizedFailure,
     );
   }
 }
@@ -817,21 +852,22 @@ class _FakeChainPublisher implements SquarePostChainPublisher {
 class _FakeBalanceReader implements SquarePublishBalanceReader {
   _FakeBalanceReader(
     this.order, {
-    this.balanceYuan = 1.21,
+    BigInt? balanceFen,
     BigInt? minimumBalanceFen,
-  }) : minimumBalanceFen = minimumBalanceFen ?? BigInt.from(121);
+  }) : balanceFen = balanceFen ?? BigInt.from(121),
+       minimumBalanceFen = minimumBalanceFen ?? BigInt.from(121);
 
   final List<String> order;
-  final double balanceYuan;
+  final BigInt balanceFen;
   final BigInt minimumBalanceFen;
 
   @override
   Future<BigInt> fetchMinSelfPayBalanceFen() async => minimumBalanceFen;
 
   @override
-  Future<double> fetchFreshFinalizedBalanceYuan(String publicKey) async {
+  Future<BigInt> fetchFreshFinalizedBalanceFen(String publicKey) async {
     order.add('balance');
-    return balanceYuan;
+    return balanceFen;
   }
 }
 

@@ -19,7 +19,6 @@ import 'package:citizen_square/post/square_models.dart';
 import 'package:citizen_testing/mls_authentication_fixture.dart';
 
 void main() {
-  registrationReportTests();
   coldIdentityAuthenticationTests();
   test('真实429 RPC限额保留固定错误码且不自动重试', () async {
     var calls = 0;
@@ -544,17 +543,25 @@ void main() {
     expect(requests.last.url.path, '/api/8964/uploads/post/complete');
     expect(requests.last.bodyBytes, isEmpty);
   });
-  test('资料资源按CID和类型寻址，无旧更新时间查询； arbitrary键拒绝', () {
+  test('资料资源按CID和用途寻址，拒绝无效对象键', () {
     final api = SquareApiClient(baseUrl: 'https://square.test/api');
     addTearDown(api.close);
+    final hash = 'a' * 64;
+    final asset = api.resolveProfileMedia('i/$testMlsCidNumber/avatar/$hash');
     expect(
-      api.mediaUrl('profile/$testMlsCidNumber/avatar', updatedAt: 5),
+      asset.url,
       'https://square.test/api/user/profiles/$testMlsCidNumber/assets/avatar',
     );
-    expect(
-      () => api.mediaUrl('profile/$testMlsCidNumber/../../outside'),
-      throwsA(isA<SquareApiException>()),
-    );
+    for (final objectKey in [
+      'i/$testMlsCidNumber/../../outside',
+      'i/$testMlsCidNumber/other/$hash',
+      'i/$testMlsCidNumber/avatar/$hash/extra',
+    ]) {
+      expect(
+        () => api.resolveProfileMedia(objectKey),
+        throwsA(isA<SquareApiException>()),
+      );
+    }
   });
 }
 
@@ -1555,164 +1562,14 @@ void _failureDiagnosticsTests() {
   });
 }
 
-void registrationReportTests() {
-  const cid = 'CN220-CTZN2-100000001-2026';
-  final account = '0x${'11' * 32}';
-  test('注册结果报告仅两字段，暂时失败间隔60/120秒共最多三次', () async {
-    final requests = <http.Request>[], delays = <Duration>[];
-    final api = SquareApiClient(
-      baseUrl: 'https://square.test/api',
-      reportDelay: (d) async {
-        delays.add(d);
-      },
-      httpClient: MockClient((r) async {
-        requests.add(r);
-        return requests.length < 3
-            ? http.Response(
-                '{"is_ok":false,"error_code":"identity_storage_unavailable"}',
-                503,
-              )
-            : http.Response('{"is_ok":true}', 200);
-      }),
-    );
-    addTearDown(api.close);
-    await api.reportIdentity(
-      cidNumber: cid,
-      accountId: account,
-      requireCurrent: () async {},
-    );
-    expect(requests, hasLength(3));
-    expect(delays, [const Duration(seconds: 60), const Duration(seconds: 120)]);
-    for (final r in requests) {
-      expect(r.url.path, '/api/user/identity');
-      expect(jsonDecode(r.body), {'cid_number': cid, 'account_id': account});
-      expect(r.headers.containsKey('authorization'), false);
-      expect(r.headers.containsKey('x-mls-proof'), false);
-    }
-  });
-  test('报告三次失败即停止，没有外层无限重试', () async {
-    var calls = 0;
-    final waits = <Duration>[];
-    final api = SquareApiClient(
-      baseUrl: 'https://square.test/api',
-      reportDelay: (d) async {
-        waits.add(d);
-      },
-      httpClient: MockClient((_) async {
-        calls++;
-        return http.Response(
-          '{"is_ok":false,"error_code":"identity_storage_unavailable"}',
-          503,
-        );
-      }),
-    );
-    addTearDown(api.close);
-    await expectLater(
-      api.reportIdentity(
-        cidNumber: cid,
-        accountId: account,
-        requireCurrent: () async {},
-      ),
-      throwsA(isA<SquareApiException>()),
-    );
-    expect(calls, 3);
-    expect(waits, hasLength(2));
-  });
-  test('永久拒绝及错误成功正文不能重试或伪造已同步', () async {
-    for (final status in [400, 403, 409, 200]) {
-      var calls = 0, waits = 0;
-      final api = SquareApiClient(
-        baseUrl: 'https://square.test/api',
-        reportDelay: (_) async {
-          waits++;
-        },
-        httpClient: MockClient((_) async {
-          calls++;
-          return http.Response(
-            status == 200
-                ? '{"is_ok":true,"credential":"forbidden"}'
-                : '{"is_ok":false,"error_code":"identity_binding_conflict"}',
-            status,
-          );
-        }),
-      );
-      addTearDown(api.close);
-      await expectLater(
-        api.reportIdentity(
-          cidNumber: cid,
-          accountId: account,
-          requireCurrent: () async {},
-        ),
-        throwsA(isA<SquareApiException>()),
-      );
-      expect(calls, 1);
-      expect(waits, 0);
-    }
-  });
-  test('同一绑定报告在途合并，账户切换后不发下一次请求', () async {
-    final gate = Completer<void>();
-    var calls = 0;
-    final api = SquareApiClient(
-      baseUrl: 'https://square.test/api',
-      httpClient: MockClient((_) async {
-        calls++;
-        await gate.future;
-        return http.Response('{"is_ok":true}', 200);
-      }),
-    );
-    addTearDown(api.close);
-    final first = api.reportIdentity(
-          cidNumber: cid,
-          accountId: account,
-          requireCurrent: () async {},
-        ),
-        second = api.reportIdentity(
-          cidNumber: cid,
-          accountId: account,
-          requireCurrent: () async {},
-        );
-    expect(identical(first, second), true);
-    gate.complete();
-    await Future.wait([first, second]);
-    expect(calls, 1);
-    var active = true;
-    final retry = SquareApiClient(
-      baseUrl: 'https://square.test/api',
-      reportDelay: (_) async {
-        active = false;
-      },
-      httpClient: MockClient(
-        (_) async => http.Response(
-          '{"is_ok":false,"error_code":"identity_storage_unavailable"}',
-          503,
-        ),
-      ),
-    );
-    addTearDown(retry.close);
-    await expectLater(
-      retry.reportIdentity(
-        cidNumber: cid,
-        accountId: account,
-        requireCurrent: () async {
-          if (!active) throw StateError('account changed');
-        },
-      ),
-      throwsStateError,
-    );
-  });
-}
-
 void coldIdentityAuthenticationTests() {
-  test('已有链身份缺服务端事实只补报，再恢复同一设备申请', () async {
+  test('首次设备登记仅发送带钱包签名和设备证明的挑战与提交', () async {
     final source = FakeMlsAuthentication(), paths = <String>[];
-    var challenges = 0;
     final api = SquareApiClient(
       baseUrl: 'https://square.test/api',
-      reportDelay: (_) async => fail('不应退避'),
       httpClient: MockClient((r) async {
         paths.add(r.url.path);
         if (r.url.path.endsWith('/challenges')) {
-          challenges++;
           expect(r.headers['x-mls-proof'], isNotEmpty);
           final header = jsonDecode(
             utf8.decode(
@@ -1733,20 +1590,11 @@ void coldIdentityAuthenticationTests() {
             'binding_signature',
           });
           expect(body['token_purpose'], 'device');
-          return challenges == 1
-              ? http.Response(
-                  '{"is_ok":false,"error_code":"identity_not_reported"}',
-                  409,
-                )
-              : http.Response(jsonEncode(fakeMlsChallenge(r)), 200);
+          expect(body['binding_signature'], '0x${'11' * 64}');
+          return http.Response(jsonEncode(fakeMlsChallenge(r)), 200);
         }
-        if (r.url.path.endsWith('/identity')) {
-          expect(jsonDecode(r.body), {
-            'cid_number': source.identity.cidNumber,
-            'account_id': source.identity.accountId,
-          });
-          return http.Response('{"is_ok":true}', 200);
-        }
+        expect(r.url.path, '/api/user/devices');
+        expect(r.headers['x-mls-proof'], isNotEmpty);
         return http.Response(
           jsonEncode({
             'is_ok': true,
@@ -1767,11 +1615,9 @@ void coldIdentityAuthenticationTests() {
     );
     expect(paths, [
       '/api/user/challenges',
-      '/api/user/identity',
-      '/api/user/challenges',
       '/api/user/devices',
     ]);
-    expect(source.proofCalls, 3);
+    expect(source.proofCalls, 2);
   });
   test('首次会话挑战明确缺上下文仅恢复一次，不能将会话提交失败当设备缺失', () async {
     for (final boundary in ['challenge', 'session']) {

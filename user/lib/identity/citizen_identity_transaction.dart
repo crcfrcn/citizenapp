@@ -3,12 +3,6 @@ import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
-import 'package:polkadart/polkadart.dart' show Hasher;
-import 'package:polkadart/scale_codec.dart' show CompactBigIntCodec, ByteOutput;
-
-import 'package:citizen_citizen/account_derivation.dart' show isAccountIdText;
-
-import 'package:citizen_citizen/pallet_registry.dart';
 
 /// 匿名 CID 自助换绑在同一 finalized 区块读取出的防重放上下文。
 class SelfRebindAuthorizationContext {
@@ -43,7 +37,9 @@ class CitizenIdentityTransaction {
     CitizenSdk? chain,
     CitizenSdk? transactions,
     Future<void> Function(Map<String, dynamic>)? checkpoint,
+    Future<CitizenBlockRef> Function()? getBestHead,
     Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<CitizenRuntimeContext> Function(CitizenBlockRef)? getRuntimeContext,
     Future<String> Function()? getGenesisHash,
     Future<List<Uint8List?>> Function(
       CitizenBlockRef block,
@@ -65,6 +61,8 @@ class CitizenIdentityTransaction {
     )?
     consumePreparedTransactionQrResponse,
   }) : _checkpoint = checkpoint,
+       _getBestHead = getBestHead ?? chain?.getBestHead ??
+           (() => throw StateError('未配置getBestHead')),
        _getFinalizedHead =
            getFinalizedHead ??
            chain?.getFinalizedHead ??
@@ -73,6 +71,8 @@ class CitizenIdentityTransaction {
            getGenesisHash ??
            chain?.getGenesisHash ??
            (() => throw StateError('未配置getGenesisHash')),
+       _getRuntimeContext = getRuntimeContext ?? chain?.getRuntimeContext ??
+           ((_) => throw StateError('未配置getRuntimeContext')),
        _getStorageBatch =
            getStorageBatch ??
            chain?.getStorageBatch ??
@@ -98,7 +98,9 @@ class CitizenIdentityTransaction {
            transactions?.consumePreparedTransactionQrResponse ??
            ((String executionId, String response) =>
                throw StateError('未配置consumePreparedTransactionQrResponse'));
+  final Future<CitizenBlockRef> Function() _getBestHead;
   final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<CitizenRuntimeContext> Function(CitizenBlockRef) _getRuntimeContext;
   final Future<String> Function() _getGenesisHash;
   final Future<List<Uint8List?>> Function(
     CitizenBlockRef block,
@@ -121,12 +123,6 @@ class CitizenIdentityTransaction {
   _consumePreparedTransactionQrResponse;
 
   final Future<void> Function(Map<String, dynamic>)? _checkpoint;
-
-  static const int _palletIndex = PalletRegistry.citizenIdentityPallet; // 10
-  static const int _selfOccupyCidCallIndex =
-      PalletRegistry.selfOccupyCidCall; // 5
-  static const int _selfRebindCidAccountCallIndex =
-      PalletRegistry.selfRebindCidAccountCall; // 9
 
   /// CidNumberBound = `BoundedVec<u8, ConstU32<32>>`。
   static const int _cidMaxBytes = 32;
@@ -155,7 +151,7 @@ class CitizenIdentityTransaction {
     )
     externalSigning,
   }) async {
-    final callData = buildSelfOccupyCidCall(cidNumber);
+    final callData = buildSelfOccupyCidCall(cidNumber, runtime: await _getRuntimeContext(await _getBestHead()));
     final execution = await _execute(
       accountId: accountId,
       callData: callData,
@@ -203,6 +199,7 @@ class CitizenIdentityTransaction {
       );
     }
     final callData = buildSelfRebindCidAccountCall(
+      runtime: await _getRuntimeContext(await _getBestHead()),
       cidNumber: cidNumber,
       expectedBindingRevision: context.expectedBindingRevision,
       expiresAt: context.expiresAt,
@@ -236,18 +233,11 @@ class CitizenIdentityTransaction {
     String cidNumber,
   ) async {
     final finalized = await _getFinalizedHead();
-    final cidScale = _encodedCid(cidNumber);
-    final accountKey = _storageMapKey(
-      'CitizenIdentity',
-      'AccountIdByCid',
-      cidScale,
-    );
-    final revisionKey = _storageMapKey(
-      'CitizenIdentity',
-      'BindingRevisionByCid',
-      cidScale,
-    );
-    final timestampKey = _storageValueKey('Timestamp', 'Now');
+    final context = await _getRuntimeContext(finalized);
+    final cid = _cidBytes(cidNumber);
+    final accountKey = context.storageKey('CitizenIdentity', 'AccountIdByCid', [cid]);
+    final revisionKey = context.storageKey('CitizenIdentity', 'BindingRevisionByCid', [cid]);
+    final timestampKey = context.storageKey('Timestamp', 'Now');
     final rows = await Future.wait<Object?>([
       _getGenesisHash(),
       _getStorageBatch(finalized, [accountKey, revisionKey, timestampKey]),
@@ -277,7 +267,7 @@ class CitizenIdentityTransaction {
         BigInt.from(_authorizationTtlSeconds);
     return SelfRebindAuthorizationContext(
       genesisHash: Uint8List.fromList(genesisHash),
-      currentAccountId: _hex(currentAccountId),
+      currentAccountId: citizenAccountIdFromBytes(currentAccountId),
       expectedBindingRevision: revision,
       expiresAt: expiresAt,
     );
@@ -294,22 +284,15 @@ class CitizenIdentityTransaction {
     required BigInt expectedBindingRevision,
     required CitizenBlockRef finalizedBlock,
   }) async {
-    final expectedAccount = _accountId32(expectedAccountId);
+    final expectedAccount = _accountArgument(expectedAccountId);
     if (expectedBindingRevision <= BigInt.zero ||
         expectedBindingRevision > _u64Max) {
       throw ArgumentError('目标绑定 revision 必须是合法的非零 u64');
     }
-    final cidScale = _encodedCid(cidNumber);
-    final accountKey = _storageMapKey(
-      'CitizenIdentity',
-      'AccountIdByCid',
-      cidScale,
-    );
-    final revisionKey = _storageMapKey(
-      'CitizenIdentity',
-      'BindingRevisionByCid',
-      cidScale,
-    );
+    final context = await _getRuntimeContext(finalizedBlock);
+    final cid = _cidBytes(cidNumber);
+    final accountKey = context.storageKey('CitizenIdentity', 'AccountIdByCid', [cid]);
+    final revisionKey = context.storageKey('CitizenIdentity', 'BindingRevisionByCid', [cid]);
     final rows = await _getStorageBatch(finalizedBlock, [
       accountKey,
       revisionKey,
@@ -338,12 +321,12 @@ class CitizenIdentityTransaction {
     externalSigning,
   }) async {
     final prepared = await _prepareTransaction(
-      _accountId32(accountId),
+      _accountArgument(accountId),
       callData,
     );
     final record = <String, dynamic>{
       'preparation_id': prepared.preparationId,
-      'account_id': _hex(prepared.sourceAccountId),
+      'account_id': citizenAccountIdFromBytes(prepared.sourceAccountId),
       'call_data_hash': _hex(prepared.callDataHash),
       'state': 'prepared',
     };
@@ -373,25 +356,27 @@ class CitizenIdentityTransaction {
             'tx_hash': _hex(value.transactionHash),
         };
     final progress = executionRecord(started);
-    await _checkpoint?.call(progress);
-    CitizenTransactionExecutionCompleted completed;
+    if (started is CitizenTransactionExecutionCompleted) {
+      await _checkpoint?.call(progress);
+    }
+    final completed = await completeCitizenTransaction(
+      started,
+      requestResponse: (pending) async {
+        await _checkpoint?.call(progress);
+        return externalSigning(pending);
+      },
+      consumeResponse: _consumePreparedTransactionQrResponse,
+      cancelExecution: _cancelPreparedTransactionExecution,
+    );
+    if (completed == null) {
+      await _checkpoint?.call({
+        ...progress,
+        'state': 'cancelled_before_broadcast',
+      });
+      throw StateError('身份交易签名已取消');
+    }
     if (started is CitizenTransactionExternalSigningPending) {
-      final response = await externalSigning(started);
-      if (response == null) {
-        await _cancelPreparedTransactionExecution(started.executionId);
-        await _checkpoint?.call({
-          ...progress,
-          'state': 'cancelled_before_broadcast',
-        });
-        throw StateError('身份交易签名已取消');
-      }
-      completed = await _consumePreparedTransactionQrResponse(
-        started.executionId,
-        response,
-      );
       await _checkpoint?.call(executionRecord(completed));
-    } else {
-      completed = started as CitizenTransactionExecutionCompleted;
     }
     if (completed.resolution != CitizenTransactionResolution.finalizedSuccess ||
         completed.execution == null) {
@@ -404,43 +389,29 @@ class CitizenIdentityTransaction {
 
   /// `self_occupy_cid` call data:`[10][5][BoundedVec<u8>(cid)]`。
   @visibleForTesting
-  static Uint8List buildSelfOccupyCidCall(String cidNumber) {
-    final output = ByteOutput()
-      ..pushByte(_palletIndex)
-      ..pushByte(_selfOccupyCidCallIndex);
-    _writeCidBoundedVec(output, cidNumber);
-    return output.toBytes();
-  }
+  static Uint8List buildSelfOccupyCidCall(
+    String cidNumber, {
+    required CitizenRuntimeContext runtime,
+  }) => runtime.encodeCall('CitizenIdentity', 'self_occupy_cid', [_cidBytes(cidNumber)]);
 
-  /// `self_rebind_cid_account_id` call data:
-  /// `[10][9][BoundedVec(cid)][revision:u64 LE][expires_at:u64 LE]`
-  /// `[BoundedVec(current_account_signature=64B)]`。
   @visibleForTesting
   static Uint8List buildSelfRebindCidAccountCall({
+    required CitizenRuntimeContext runtime,
     required String cidNumber,
     required BigInt expectedBindingRevision,
     required BigInt expiresAt,
     required Uint8List currentAccountSignature,
   }) {
     if (currentAccountSignature.length != _signatureBytes) {
-      throw ArgumentError(
-        'sr25519 当前账户签名必须为 $_signatureBytes 字节,当前 ${currentAccountSignature.length}',
-      );
+      throw ArgumentError('sr25519 当前账户签名必须为 $_signatureBytes 字节');
     }
-    final output = ByteOutput()
-      ..pushByte(_palletIndex)
-      ..pushByte(_selfRebindCidAccountCallIndex);
-    _writeCidBoundedVec(output, cidNumber);
-    output.write(_u64LittleEndian(expectedBindingRevision));
-    output.write(_u64LittleEndian(expiresAt));
-    // SignatureOf = BoundedVec<u8, MaxCitizenSignatureLength> = compact(len) ++ 字节。
-    output.write(
-      CompactBigIntCodec.codec.encode(
-        BigInt.from(currentAccountSignature.length),
-      ),
-    );
-    output.write(currentAccountSignature);
-    return output.toBytes();
+    if (expectedBindingRevision.isNegative || expectedBindingRevision > _u64Max ||
+        expiresAt.isNegative || expiresAt > _u64Max) {
+      throw ArgumentError('u64 字段超出范围');
+    }
+    return runtime.encodeCall('CitizenIdentity', 'self_rebind_cid_account_id', [
+      _cidBytes(cidNumber), expectedBindingRevision, expiresAt, currentAccountSignature,
+    ]);
   }
 
   /// 当前账户在自助换绑时需要签名的 32 字节摘要。
@@ -465,8 +436,8 @@ class CitizenIdentityTransaction {
     final payload = <int>[
       ...genesisHash,
       ..._encodedCid(cidNumber),
-      ..._accountId32(currentAccountId),
-      ..._accountId32(newAccountId),
+      ..._accountArgument(currentAccountId),
+      ..._accountArgument(newAccountId),
       ..._u64LittleEndian(expectedBindingRevision),
       ..._u64LittleEndian(expiresAt),
     ];
@@ -478,10 +449,12 @@ class CitizenIdentityTransaction {
     );
   }
 
-  static void _writeCidBoundedVec(ByteOutput output, String cidNumber) {
-    final bytes = _cidBytes(cidNumber);
-    output.write(CompactBigIntCodec.codec.encode(BigInt.from(bytes.length)));
-    output.write(bytes);
+  static Uint8List _accountArgument(String accountId) {
+    try {
+      return citizenAccountIdBytes(accountId);
+    } on FormatException catch (error) {
+      throw ArgumentError(error.message);
+    }
   }
 
   static Uint8List _cidBytes(String cidNumber) {
@@ -497,26 +470,10 @@ class CitizenIdentityTransaction {
   static Uint8List _encodedCid(String cidNumber) {
     final bytes = _cidBytes(cidNumber);
     return Uint8List.fromList([
-      ...CompactBigIntCodec.codec.encode(BigInt.from(bytes.length)),
+      ...CitizenScale.compact(bytes.length),
       ...bytes,
     ]);
   }
-
-  static Uint8List _storageValueKey(String pallet, String storage) =>
-      Uint8List.fromList([
-        ...Hasher.twoxx128.hashString(pallet),
-        ...Hasher.twoxx128.hashString(storage),
-      ]);
-
-  static Uint8List _storageMapKey(
-    String pallet,
-    String storage,
-    Uint8List keyData,
-  ) => Uint8List.fromList([
-    ..._storageValueKey(pallet, storage),
-    ...Hasher.blake2b128.hash(keyData),
-    ...keyData,
-  ]);
 
   static String _hex(Uint8List value) =>
       '0x${value.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join()}';
@@ -535,25 +492,10 @@ class CitizenIdentityTransaction {
     if (value == null || value.length != 8) {
       throw FormatException('$fieldName 必须为 8 字节 u64 SCALE');
     }
-    var result = BigInt.zero;
-    for (var index = value.length - 1; index >= 0; index--) {
-      result = (result << 8) | BigInt.from(value[index]);
-    }
-    return result;
+    return CitizenScale.readUnsigned(value, 0, 8);
   }
 
-  static Uint8List _u64LittleEndian(BigInt value) {
-    if (value < BigInt.zero || value > _u64Max) {
-      throw ArgumentError('u64 字段超出范围');
-    }
-    final result = Uint8List(8);
-    var remaining = value;
-    for (var index = 0; index < result.length; index++) {
-      result[index] = (remaining & BigInt.from(0xff)).toInt();
-      remaining >>= 8;
-    }
-    return result;
-  }
+  static Uint8List _u64LittleEndian(BigInt value) => CitizenScale.unsigned(value, 8);
 
   static bool _sameBytes(Uint8List left, Uint8List right) {
     if (left.length != right.length) return false;
@@ -561,16 +503,5 @@ class CitizenIdentityTransaction {
       if (left[index] != right[index]) return false;
     }
     return true;
-  }
-
-  /// account_id 文本(ADR-040 小写 `0x` + 64 hex)→ 32 字节;不兼容 SS58。
-  static Uint8List _accountId32(String accountId) {
-    if (!isAccountIdText(accountId)) {
-      throw ArgumentError('account_id 必须为小写 0x + 64 位十六进制');
-    }
-    return Uint8List.fromList([
-      for (var index = 2; index < accountId.length; index += 2)
-        int.parse(accountId.substring(index, index + 2), radix: 16),
-    ]);
   }
 }

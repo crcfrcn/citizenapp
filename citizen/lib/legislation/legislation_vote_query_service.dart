@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:polkadart/polkadart.dart' show Hasher;
 
 import 'package:citizen_citizen/proposal/proposal_query_service.dart';
 
@@ -115,12 +114,15 @@ class LegislationVoteQueryService {
            getFinalizedHead ??
            chain?.getFinalizedHead ??
            (() => throw StateError('未配置getFinalizedHead')),
+       _getRuntimeContext = getRuntimeContext ?? chain?.getRuntimeContext ??
+           ((block) => throw StateError('未配置getRuntimeContext')),
        _getStorage =
            getStorage ??
            chain?.getStorage ??
            ((CitizenBlockRef block, Uint8List key) =>
                throw StateError('未配置getStorage'));
   final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<CitizenRuntimeContext> Function(CitizenBlockRef) _getRuntimeContext;
   final Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)
   _getStorage;
 
@@ -141,8 +143,7 @@ class LegislationVoteQueryService {
   }
 
   Future<LegRepresentativeMeta?> fetchRepresentativeMeta(int proposalId) async {
-    final key = _mapKey(_votePallet, 'RepresentativeMetas', _u64Le(proposalId));
-    final data = await _readStorage(key);
+    final data = await _readStorage('RepresentativeMetas', [proposalId]);
     if (data == null) return null;
     final result = _decodeRepresentativeMeta(data);
     if (result == null) throw const FormatException('RepresentativeMetas编码无效');
@@ -150,8 +151,7 @@ class LegislationVoteQueryService {
   }
 
   Future<LegislationMeta?> fetchLegislationMeta(int proposalId) async {
-    final key = _mapKey(_votePallet, 'LegislationMetas', _u64Le(proposalId));
-    final data = await _readStorage(key);
+    final data = await _readStorage('LegislationMetas', [proposalId]);
     if (data == null) return null;
     final result = _decodeLegislationMeta(data);
     if (result == null) throw const FormatException('LegislationMetas编码无效');
@@ -227,13 +227,7 @@ class LegislationVoteQueryService {
     int proposalId,
     int bodyIndex,
   ) async {
-    final key = _doubleMapKey(
-      _votePallet,
-      'RepresentativeTallies',
-      _u64Le(proposalId),
-      _u32Le(bodyIndex),
-    );
-    final data = await _readStorage(key);
+    final data = await _readStorage('RepresentativeTallies', [proposalId, bodyIndex]);
     if (data == null) return (yes: 0, no: 0);
     if (data.length != 8) throw const FormatException('代表机构计票长度无效');
     return (yes: _u32(data, 0), no: _u32(data, 4));
@@ -241,8 +235,7 @@ class LegislationVoteQueryService {
 
   /// 公投计票(VoteCountU64:yes u64 + no u64)。
   Future<({int yes, int no})> fetchReferendumTally(int proposalId) async {
-    final key = _mapKey(_votePallet, 'LegReferendumTally', _u64Le(proposalId));
-    final data = await _readStorage(key);
+    final data = await _readStorage('LegReferendumTally', [proposalId]);
     if (data == null) return (yes: 0, no: 0);
     if (data.length != 16) throw const FormatException('公投计票长度无效');
     return (yes: _u64(data, 0), no: _u64(data, 8));
@@ -257,18 +250,12 @@ class LegislationVoteQueryService {
     String publicKey,
   ) async {
     final tupleKey = Uint8List.fromList([
-      ..._u32Le(bodyIndex),
+      ...CitizenScale.unsigned(BigInt.from(bodyIndex), 4),
       ..._encodeBoundedText(cidNumber, 32, 'cid_number'),
       ..._encodeBoundedText(voterRoleCode, 64, 'voter_role_code'),
-      ..._hexDecode(publicKey),
+      ...citizenAccountIdBytes(publicKey),
     ]);
-    final key = _doubleMapKey(
-      _votePallet,
-      'RepresentativeVotesByTicket',
-      _u64Le(proposalId),
-      tupleKey,
-    );
-    final data = await _readStorage(key);
+    final data = await _readStorage('RepresentativeVotesByTicket', [proposalId, (scale: tupleKey)]);
     if (data == null) return null;
     if (data.length != 1 || data[0] > 1) {
       throw const FormatException('代表机构投票必须为SCALE bool');
@@ -281,11 +268,7 @@ class LegislationVoteQueryService {
     if (bytes.isEmpty || bytes.length > maxBytes) {
       throw ArgumentError('$field 长度不合法');
     }
-    final length = bytes.length;
-    final prefix = length < 64
-        ? <int>[length << 2]
-        : <int>[(length << 2 | 1) & 0xff, (length << 2 | 1) >> 8];
-    return Uint8List.fromList([...prefix, ...bytes]);
+    return Uint8List.fromList([...CitizenScale.compact(bytes.length), ...bytes]);
   }
 
   /// 三人会签记录(LegOverrideSigns:BoundedVec<(AccountId,bool)>)。
@@ -306,13 +289,12 @@ class LegislationVoteQueryService {
     String storage,
     int proposalId,
   ) async {
-    final key = _mapKey(_votePallet, storage, _u64Le(proposalId));
-    final data = await _readStorage(key);
+    final data = await _readStorage(storage, [proposalId]);
     if (data == null) return const [];
     try {
       final c = _Cursor(data);
       final signs = c.vec(() {
-        final accountId = '0x${_hex(c.bytes(32))}';
+        final accountId = citizenAccountIdFromBytes(c.bytes(32));
         final approveTag = c.u8();
         if (approveTag > 1) throw const FormatException('签署 bool 非法');
         return (accountId: accountId, approve: approveTag == 1);
@@ -327,74 +309,20 @@ class LegislationVoteQueryService {
     }
   }
 
-  Future<Uint8List?> _readStorage(Uint8List key) async {
+  Future<Uint8List?> _readStorage(String storage, List<Object> keys) async {
     final finalized = _block ?? await _getFinalizedHead();
     if (finalized.finality != CitizenBlockFinality.finalized) {
       throw StateError('立法查询需要finalized块');
     }
-    return _getStorage(finalized, key);
-  }
-
-  // ──── key 构造 ────
-
-  Uint8List _mapKey(String pallet, String storage, Uint8List keyData) {
-    final p = Hasher.twoxx128.hashString(pallet);
-    final s = Hasher.twoxx128.hashString(storage);
-    final k = _blake2128Concat(keyData);
-    return Uint8List.fromList([...p, ...s, ...k]);
-  }
-
-  Uint8List _doubleMapKey(
-    String pallet,
-    String storage,
-    Uint8List key1,
-    Uint8List key2,
-  ) {
-    final p = Hasher.twoxx128.hashString(pallet);
-    final s = Hasher.twoxx128.hashString(storage);
-    final k1 = _blake2128Concat(key1);
-    final k2 = _blake2128Concat(key2);
-    return Uint8List.fromList([...p, ...s, ...k1, ...k2]);
-  }
-
-  Uint8List _blake2128Concat(Uint8List data) {
-    final hash = Hasher.blake2b128.hash(data);
-    return Uint8List.fromList([...hash, ...data]);
-  }
-
-  Uint8List _u64Le(int value) {
-    if (value < 0) throw ArgumentError('proposal_id不得为负');
-    final bytes = Uint8List(8);
-    ByteData.sublistView(bytes).setUint64(0, value, Endian.little);
-    return bytes;
-  }
-
-  Uint8List _u32Le(int value) {
-    final bytes = Uint8List(4);
-    ByteData.sublistView(bytes).setUint32(0, value, Endian.little);
-    return bytes;
+    final runtime = await _getRuntimeContext(finalized);
+    return _getStorage(finalized, runtime.storageKey(_votePallet, storage, keys));
   }
 
   int _u32(Uint8List data, int offset) =>
-      ByteData.sublistView(data).getUint32(offset, Endian.little);
+      CitizenScale.readUnsigned(data, offset, 4).toInt();
 
   int _u64(Uint8List data, int offset) =>
-      ByteData.sublistView(data).getUint64(offset, Endian.little);
-
-  Uint8List _hexDecode(String hex) {
-    final h = hex.startsWith('0x') ? hex.substring(2) : hex;
-    if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(h)) {
-      throw const FormatException('签署公钥必须为32字节');
-    }
-    final out = Uint8List(h.length ~/ 2);
-    for (var i = 0; i < out.length; i++) {
-      out[i] = int.parse(h.substring(i * 2, i * 2 + 2), radix: 16);
-    }
-    return out;
-  }
-
-  static String _hex(Uint8List b) =>
-      b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
+      CitizenScale.readUnsigned(data, offset, 8).toInt();
 }
 
 /// 极简 SCALE 游标(本服务局部用)。
@@ -408,40 +336,16 @@ class _Cursor {
   int u8() => data[_i++];
 
   int u32() {
-    final v =
-        data[_i] |
-        (data[_i + 1] << 8) |
-        (data[_i + 2] << 16) |
-        (data[_i + 3] << 24);
+    final value = CitizenScale.readUnsigned(data, _i, 4);
     _i += 4;
-    return v;
+    return value.toInt();
   }
 
   int compact() {
-    final b0 = data[_i];
-    final mode = b0 & 0x03;
-    if (mode == 0) {
-      _i += 1;
-      return b0 >> 2;
-    }
-    if (mode == 1) {
-      final v = (data[_i] | (data[_i + 1] << 8)) >> 2;
-      _i += 2;
-      if (v < 64) throw const FormatException('Compact非最短');
-      return v;
-    }
-    if (mode == 2) {
-      final v =
-          (data[_i] |
-              (data[_i + 1] << 8) |
-              (data[_i + 2] << 16) |
-              (data[_i + 3] << 24)) >>
-          2;
-      _i += 4;
-      if (v < 16384) throw const FormatException('Compact非最短');
-      return v;
-    }
-    throw const FormatException('长度Compact超出范围');
+    final (value, width) = CitizenScale.readCompact(data, _i);
+    if (width > 4) throw const FormatException('长度Compact超出范围');
+    _i += width;
+    return value;
   }
 
   Uint8List bytes(int n) {

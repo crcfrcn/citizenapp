@@ -1,8 +1,7 @@
 import 'dart:async';
 
-import 'package:citizen_wallet/core/account_balance_snapshot_store.dart';
-
-import 'dart:typed_data';
+import 'package:citizen_offchain/clearing_bank_directory.dart';
+import 'package:citizen_offchain/offchain_clearing_rpc.dart';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
@@ -15,24 +14,20 @@ import 'package:citizen_system/theme/app_layout.dart';
 ///
 ///
 /// - 调链上 `withdraw(amount)`(call_index 32)。
-/// - 链上费按金额 0.1% 最低 0.1 元。
-/// - 可选 `wssUrl`:若提供则查清算行节点本地缓存的余额展示;不提供时只显示输入。
+/// - 链上费由 SDK 读取链上报价。
+/// - 提现前重新核对当前绑定，并向该行节点刷新余额。
 class WithdrawPage extends StatefulWidget {
   const WithdrawPage({
     super.key,
     required this.accountId,
-    required this.accountAddress,
-    this.wssUrl,
+    required this.directory,
+    required this.bank,
   });
 
   /// L3 用户链账户主键(0x+64hex):由 CitizenSDK 分流签名并构造 signerPublicKey。
   final String accountId;
-
-  /// L3 用户 SS58 地址(查询清算行存款余额、构造提现 extrinsic 的来源地址)。
-  final String accountAddress;
-
-  /// 清算行节点的 WebSocket URL(用于查询当前可用存款余额)。可选。
-  final String? wssUrl;
+  final ClearingBankDirectory directory;
+  final ClearingBankBinding bank;
 
   @override
   State<WithdrawPage> createState() => _WithdrawPageState();
@@ -41,23 +36,28 @@ class WithdrawPage extends StatefulWidget {
 class _WithdrawPageState extends State<WithdrawPage> {
   final TextEditingController _amountCtrl = TextEditingController();
   bool _submitting = false;
-  WalletBalanceState<BigInt>? _balance;
+  BigInt? _feeFen;
+  late ClearingBankBinding? _binding = widget.bank;
+  ClearingBalance? _balance;
 
   @override
   void initState() {
     super.initState();
-    final wssUrl = widget.wssUrl;
-    if (wssUrl != null && wssUrl.isNotEmpty) {
-      _balance =
-          AccountBalanceSnapshotStore.forChain(context.read<CitizenSdk>())
-              .clearingState(
-                accountId: widget.accountId,
-                accountAddress: widget.accountAddress,
-                wssUrl: wssUrl,
-              )
-            ..addListener(_changed);
-      unawaited(_balance!.load());
-    }
+    _setBank(widget.bank);
+  }
+
+  void _setBank(ClearingBankBinding? bank) {
+    _balance?.removeListener(_changed);
+    _binding = bank;
+    final balance = bank == null
+        ? null
+        : ClearingBalances.instance.state(
+            accountId: widget.accountId,
+            wssUrl: bank.endpoint.wssUrl,
+          );
+    _balance = balance;
+    balance?.addListener(_changed);
+    if (balance != null) unawaited(balance.load());
   }
 
   void _changed() {
@@ -80,10 +80,13 @@ class _WithdrawPageState extends State<WithdrawPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (_binding case final bank?) Text(bank.title),
             _buildBalanceLine(),
             SizedBox(height: AppLayout.scaled(context, 16)),
             TextField(
               controller: _amountCtrl,
+              enabled: !_submitting,
+              onChanged: (_) => setState(() => _feeFen = null),
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
@@ -105,7 +108,9 @@ class _WithdrawPageState extends State<WithdrawPage> {
             ),
             SizedBox(height: AppLayout.scaled(context, 12)),
             Text(
-              '链上费:金额 × 0.1%(最低 0.1 元)',
+              _feeFen == null
+                  ? '提交前读取链上手续费'
+                  : '预估链上手续费：${formatFen(_feeFen!)} 元',
               style: TextStyle(
                 fontSize: AppLayout.scaled(context, 12),
                 color: Colors.grey,
@@ -118,56 +123,63 @@ class _WithdrawPageState extends State<WithdrawPage> {
   }
 
   Widget _buildBalanceLine() {
-    if (widget.wssUrl == null || widget.wssUrl!.isEmpty) {
+    final balance = _balance;
+    if (balance == null) {
       return const Text(
         '当前清算行存款余额:未连接节点',
         style: TextStyle(color: Colors.grey),
       );
     }
-    if (_balance!.hasError && _balance!.value == null) {
+    if (balance.hasError && balance.value == null) {
       return const Text('查询余额失败:节点不可达', style: TextStyle(color: Colors.red));
     }
-    if (_balance!.value == null) {
+    if (balance.value == null) {
       return const Text('正在查询清算行存款余额...', style: TextStyle(color: Colors.grey));
     }
     return Text(
-      '当前清算行存款余额:¥${AccountBalanceSnapshotStore.formatFen(_balance!.value!)}',
+      '当前清算行存款余额:¥${formatFen(balance.value!)}',
       style: TextStyle(fontSize: AppLayout.scaledValue(14)),
     );
   }
 
   Future<void> _submit() async {
-    final amountFen = _parseAmountToFen(_amountCtrl.text);
+    if (_submitting) return;
+    final amountFen = parseFen(_amountCtrl.text);
     if (amountFen == null || amountFen <= BigInt.zero) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('请输入有效的提现金额(元)')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请输入有效的提现金额(元)')));
       return;
     }
 
-    if (widget.wssUrl == null || widget.wssUrl!.isEmpty) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('请先绑定清算行')));
-      return;
-    }
-
-    setState(() => _submitting = true);
+    setState(() {
+      _submitting = true;
+      _feeFen = null;
+    });
     try {
-      final publicKeyBytes = _hexToBytes(widget.accountId);
-      if (publicKeyBytes.length != 32) {
-        throw Exception('账户公钥必须是 32 字节');
+      final latest = await widget.directory.fetchUserBank(widget.accountId);
+      if (!mounted) return;
+      if (latest == null || _binding?.endpoint.sameTarget(latest.endpoint) != true) {
+        setState(() => _setBank(latest));
+        final message = latest == null
+            ? '请先绑定清算行'
+            : '清算行已变化，请重新确认';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message)),
+        );
+        return;
       }
+      final publicKeyBytes = citizenAccountIdBytes(widget.accountId);
       final sdk = context.read<CitizenSdk>();
-      final balance = await AccountBalanceSnapshotStore.forChain(sdk)
-          .getClearingBalance(
-            accountId: widget.accountId,
-            accountAddress: widget.accountAddress,
-            wssUrl: widget.wssUrl!,
-            forceRefresh: true,
-          );
+      final fees = await sdk.getFeeSnapshot(amountFen: amountFen);
+      if (!mounted) return;
+      setState(() => _feeFen = fees.feeFen);
+      final balance = await _balance!.refresh();
+      if (!mounted) return;
       if (amountFen > balance) throw StateError('零钱包余额不足');
       final chain = OnchainClearingBankChain(transactions: sdk);
       final result = await chain.withdraw(
-        signerPublicKey: Uint8List.fromList(publicKeyBytes),
+        signerPublicKey: publicKeyBytes,
         amountFen: amountFen,
         externalSigning: (pending) => showCitizenSdkQrResponse(
           context,
@@ -185,51 +197,12 @@ class _WithdrawPageState extends State<WithdrawPage> {
       Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('提现失败:$e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('提现失败:$e')));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
-  }
-
-  static BigInt? _parseAmountToFen(String input) {
-    final s = input.trim();
-    if (s.isEmpty) return null;
-    final dotIdx = s.indexOf('.');
-    String intPart;
-    String fracPart;
-    if (dotIdx < 0) {
-      intPart = s;
-      fracPart = '00';
-    } else {
-      intPart = s.substring(0, dotIdx);
-      final raw = s.substring(dotIdx + 1);
-      if (raw.isEmpty) {
-        fracPart = '00';
-      } else if (raw.length == 1) {
-        fracPart = '${raw}0';
-      } else if (raw.length == 2) {
-        fracPart = raw;
-      } else {
-        fracPart = raw.substring(0, 2);
-      }
-    }
-    if (intPart.isEmpty) intPart = '0';
-    if (!RegExp(r'^\d+$').hasMatch(intPart) ||
-        !RegExp(r'^\d{2}$').hasMatch(fracPart)) {
-      return null;
-    }
-    return BigInt.parse('$intPart$fracPart');
-  }
-
-  static List<int> _hexToBytes(String input) {
-    final text = input.startsWith('0x') ? input.substring(2) : input;
-    if (text.isEmpty || text.length.isOdd) return const <int>[];
-    final out = <int>[];
-    for (var i = 0; i < text.length; i += 2) {
-      out.add(int.parse(text.substring(i, i + 2), radix: 16));
-    }
-    return out;
   }
 
   static String _short(String h) {

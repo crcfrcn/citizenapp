@@ -34,6 +34,7 @@ void main() {
   test('资料先压WebP，远端哈希和本地回执使用同份成品字节', () async {
     final session = _session(),
         compressed = Uint8List.fromList(List.filled(100, 7));
+    final key = 'i/${session.cidNumber}/avatar/${sha256.convert(compressed)}';
     SubscriptionService.resourceGate.observe('https://example.com', session, {
       'gate': preflightGateFixture(session),
     });
@@ -60,7 +61,7 @@ void main() {
           return http.Response(
             jsonEncode({
               'is_ok': true,
-              'object_key': 'profile/acct/avatar',
+              'object_key': key,
               'upload_id': 'spa_test',
               'expires_at': DateTime.now().millisecondsSinceEpoch + 60000,
               'http_method': 'PUT',
@@ -71,10 +72,7 @@ void main() {
         }
         expect(request.bodyBytes, compressed);
         return http.Response(
-          jsonEncode({
-            'is_ok': true,
-            'content_hash': sha256.convert(compressed).toString(),
-          }),
+          jsonEncode({'is_ok': true, 'object_key': key}),
           200,
         );
       }),
@@ -107,9 +105,10 @@ void main() {
       'gate': preflightGateFixture(session),
     });
   });
-  test('uploads bytes and returns the object key and hash', () async {
+  test('uploads bytes and confirms the authorized object key', () async {
     final bytes = Uint8List.fromList([1, 2, 3, 4, 5]);
     final sha = sha256.convert(bytes).toString();
+    final key = 'i/${_session().cidNumber}/avatar/$sha';
     Map<String, dynamic>? prepareBody;
     String? putAuth;
     List<int>? putBody;
@@ -122,7 +121,7 @@ void main() {
           return http.Response(
             jsonEncode({
               'is_ok': true,
-              'object_key': 'profile/acct/avatar',
+              'object_key': key,
               'upload_id': 'spa_test',
               'expires_at': DateTime.now().millisecondsSinceEpoch + 60000,
               'http_method': 'PUT',
@@ -135,7 +134,7 @@ void main() {
         putAuth = request.headers['authorization'];
         putBody = request.bodyBytes;
         return http.Response(
-          jsonEncode({'is_ok': true, 'content_hash': sha}),
+          jsonEncode({'is_ok': true, 'object_key': key}),
           200,
           headers: {'content-type': 'application/json'},
         );
@@ -149,7 +148,6 @@ void main() {
       contentType: 'image/webp',
     );
 
-    expect(result.objectKey, 'profile/acct/avatar');
     expect(result.contentHash, sha);
     expect(prepareBody!['content_hash'], sha);
     expect(prepareBody!['content_type'], 'image/webp');
@@ -166,7 +164,8 @@ void main() {
           return http.Response(
             jsonEncode({
               'is_ok': true,
-              'object_key': 'profile/a/avatar',
+              'object_key':
+                  'i/${_session().cidNumber}/avatar/${sha256.convert([1])}',
               'upload_id': 'spa_failure',
               'expires_at': DateTime.now().millisecondsSinceEpoch + 60000,
               'http_method': 'PUT',

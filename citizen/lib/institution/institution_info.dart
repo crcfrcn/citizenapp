@@ -7,7 +7,7 @@
 /// - 机构治理主体统一为 `cid_number`；具体账户只用于账户操作。
 library;
 
-import 'package:citizen_citizen/account_derivation.dart';
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
 import 'package:citizen_citizen/institution/institution_code_label.dart';
 
@@ -232,30 +232,6 @@ String? personalAccountIdFromIdentity(String institutionIdentity) {
   final accountId = institutionIdentity.substring(
     _personalAccountIdentityPrefix.length,
   );
-  if (!isAccountIdText(accountId)) return null;
+  if (!isCitizenAccountId(accountId)) return null;
   return accountId;
-}
-
-List<int> accountIdBytes(String accountId) {
-  if (!isAccountIdText(accountId)) {
-    throw const FormatException('account_id 必须为小写 0x + 64 位十六进制');
-  }
-  final account = _hexDecode(accountId);
-  if (account.length != 32) {
-    throw ArgumentError('account hex 必须为 32 字节');
-  }
-  return account;
-}
-
-List<int> _hexDecode(String hex) {
-  final clean = _normalizeHex(hex);
-  return List<int>.generate(
-    clean.length ~/ 2,
-    (index) => int.parse(clean.substring(index * 2, index * 2 + 2), radix: 16),
-    growable: false,
-  );
-}
-
-String _normalizeHex(String hex) {
-  return hex.substring(2);
 }

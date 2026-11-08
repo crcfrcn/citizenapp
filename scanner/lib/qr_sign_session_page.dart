@@ -128,7 +128,7 @@ class QrSignSessionPage extends StatefulWidget {
 
   /// 仅用于测试注入同一SDK端口和原扫码路由；生产仍使用根实例与原扫码页面。
   final CitizenSdk? qr;
-  final Future<String?> Function(BuildContext, CitizenQrKind)? scanResponse;
+  final Future<CitizenQrScanResult?> Function(BuildContext)? scanResponse;
 
   /// 只读响应预检；真实消费与授权仍由原SDK调用方负责。
   final Future<void> Function({
@@ -176,12 +176,13 @@ class _QrSignSessionPageState extends State<QrSignSessionPage> {
   }
 
   Future<void> _scanResponse() async {
-    final raw = widget.scanResponse != null
-        ? await widget.scanResponse!(context, CitizenQrKind.signResponse)
-        : await Navigator.of(context).push<String>(
+    final result = widget.scanResponse != null
+        ? await widget.scanResponse!(context)
+        : await Navigator.of(context).push<CitizenQrScanResult>(
             MaterialPageRoute(builder: (_) => const _SimpleScanner()),
           );
-    if (raw == null || !mounted) return;
+    if (result == null || !mounted) return;
+    final response = result.canonicalText;
 
     try {
       final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -192,10 +193,10 @@ class _QrSignSessionPageState extends State<QrSignSessionPage> {
       // 只预检同一外部签名会话的响应；真正消费仍由原钱包调用方执行。
       await (widget.responseValidator ?? qr.validateSignResponse)(
         sessionId: widget.request.requestId!,
-        response: raw,
+        response: response,
       );
       if (!mounted) return;
-      Navigator.of(context).pop(raw);
+      Navigator.of(context).pop(response);
     } on CitizenSdkException catch (e) {
       if (!mounted) return;
       await showDialog<void>(
@@ -378,7 +379,7 @@ class _SimpleScannerState extends State<_SimpleScanner> {
         );
       }
       if (!mounted || _closing) return;
-      await _handleCode(results.first.canonicalText);
+      await _handleResult(results.first);
     } on ScannerFailure catch (failure) {
       _showScannerFailure(failure);
     } on CitizenSdkException catch (error) {
@@ -388,20 +389,17 @@ class _SimpleScannerState extends State<_SimpleScanner> {
     }
   }
 
-  Future<void> _handleCode(String raw) async {
-    if (_handled) return;
+  Future<void> _handleResult(CitizenQrScanResult result) async {
+    if (_handled || _closing) return;
     _handled = true;
     try {
       await _capture?.pause();
       if (!mounted || _closing) return;
-      try {
-        await context.read<CitizenSdk>().parseForPurpose(raw, _purpose);
-      } on CitizenSdkException {
+      if (result.document.kind != CitizenQrKind.signResponse) {
         throw const FormatException('请扫描签名响应二维码');
       }
-      if (!mounted) return;
       _closing = true;
-      Navigator.of(context).pop(raw);
+      Navigator.of(context).pop(result);
     } on FormatException catch (error) {
       if (!mounted) return;
       await showDialog<void>(
@@ -460,7 +458,7 @@ class _SimpleScannerState extends State<_SimpleScanner> {
               _capture = capture;
               if (_handled || _closing) unawaited(capture?.pause());
             },
-            onRawValue: (raw) => unawaited(_handleCode(raw)),
+            onResult: (result) => unawaited(_handleResult(result)),
             onFailure: _showScannerFailure,
           ),
           CustomPaint(

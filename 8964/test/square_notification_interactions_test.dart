@@ -102,7 +102,7 @@ class Api extends SquareApiClient {
   final notificationRequests = <String>[];
   final readOwners = <String>[];
   List<Map<String, dynamic>>? notificationItems;
-  Future<Map<String, dynamic>> Function(SquareSession, int?, int?)?
+  Future<Map<String, dynamic>> Function(SquareSession, String?, int?)?
   onNotifications;
   Completer<Map<String, dynamic>>? heldLikes;
   Completer<Map<String, dynamic>>? heldNotificationRead;
@@ -194,7 +194,7 @@ class Api extends SquareApiClient {
   @override
   Future<Map<String, dynamic>> fetchNotifications({
     required SquareSession session,
-    int? cursor,
+    String? cursor,
     bool groupByPost = false,
     int? through,
   }) async {
@@ -207,6 +207,7 @@ class Api extends SquareApiClient {
   }
 
   Map<String, dynamic> page() => {
+    ...state,
     'is_ok': true,
     'items':
         notificationItems ??
@@ -219,9 +220,8 @@ class Api extends SquareApiClient {
             'comment_unread': post,
           },
         ],
-    'through': sequence,
+    'list_through': sequence,
     'next_cursor': null,
-    'state': state,
   };
 
   @override
@@ -247,7 +247,7 @@ class Api extends SquareApiClient {
   Future<Map<String, dynamic>> fetchLikes({
     required SquareSession session,
     required String postId,
-    int? cursor,
+    String? cursor,
     int limit = 20,
   }) async {
     final held = heldLikes;
@@ -273,10 +273,9 @@ class Api extends SquareApiClient {
     String author = cid,
   }) => {
     'comment_id': id,
-    'reply_seq': seq,
     'created_at': seq,
     'post_id': 'thread-post',
-    'author_cid': author,
+    'cid_number': author,
     'display_name': author == cid
         ? '本人'
         : author == peerCid
@@ -295,19 +294,17 @@ class Api extends SquareApiClient {
   Future<Map<String, dynamic>> fetchComments({
     required SquareSession session,
     required String postId,
-    int? cursor,
+    String? cursor,
     String? target,
     String? mode,
     String? thread,
     int? through,
-    String? after,
   }) async {
     requests.add('$mode:$thread');
     return {
       'is_ok': true,
-      'comments': mode == 'thread' ? threadRows : [threadRows[1]],
+      'items': mode == 'thread' ? threadRows : [threadRows[1]],
       'next_cursor': null,
-      'next_after': null,
     };
   }
 }
@@ -450,7 +447,7 @@ void main() {
   Future<void> seedList(
     WidgetTester tester, {
     String title = '缓存互动',
-    int? next,
+    String? next,
   }) async {
     api.tab = 0;
     api.revision++;
@@ -570,10 +567,10 @@ void main() {
     await drain(tester);
   });
   testWidgets('缓存分页沿用捕获上界，只获取缺失页并保存合并列表', (tester) async {
-    await seedList(tester, next: 5);
+    await seedList(tester, next: 'opaque.cursor');
     api.onNotifications = (session, cursor, through) async {
-      expect(cursor, 5);
-      expect(through, 10);
+      expect(cursor, 'opaque.cursor');
+      expect(through, isNull);
       return {
         ...api.page(),
         'items': [
@@ -614,13 +611,13 @@ void main() {
     await drain(tester);
   });
   testWidgets('翻页在途的下拉保留完整刷新，相同下拉不重复发送', (tester) async {
-    await seedList(tester, next: 5);
+    await seedList(tester, next: 'opaque.cursor');
     final key = GlobalKey<SquareNotificationsPageState>();
     final held = Completer<Map<String, dynamic>>();
-    final parameters = <int?>[];
+    final parameters = <String?>[];
     api.onNotifications = (session, cursor, through) {
       parameters.add(cursor);
-      return cursor == 5 ? held.future : Future.value(api.page());
+      return cursor == 'opaque.cursor' ? held.future : Future.value(api.page());
     };
     await tester.pumpWidget(
       wrap(
@@ -651,7 +648,7 @@ void main() {
     });
     await driveIo(tester, Future.wait([refresh, duplicate]));
     await drain(tester);
-    expect(parameters, [5, null]);
+    expect(parameters, ['opaque.cursor', null]);
     expect(find.text('有通知的内容'), findsOneWidget);
     expect(find.text('第二页'), findsNothing);
     await tester.pumpWidget(const SizedBox());
@@ -783,7 +780,7 @@ void main() {
     expect(api.requests, contains('thread:received'));
     expect(find.text('根评论'), findsOneWidget);
     expect(find.text('第三位参与者'), findsOneWidget);
-    expect(api.threadRows.map((r) => r['author_cid']).toSet(), {
+    expect(api.threadRows.map((r) => r['cid_number']).toSet(), {
       cid,
       peerCid,
       thirdCid,

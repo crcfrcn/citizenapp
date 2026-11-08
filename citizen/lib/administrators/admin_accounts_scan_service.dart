@@ -12,7 +12,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_system/app_log.dart';
-import 'package:polkadart/polkadart.dart' show Hasher;
 import 'package:citizen_citizen/administrators/admin_account.dart';
 import 'package:citizen_citizen/administrators/admin_account_storage_codec.dart';
 
@@ -74,6 +73,7 @@ class AdminAccountsScanService {
     CitizenSdk? chain,
     this.palletNames = const ['PersonalAdmins'],
     Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<CitizenRuntimeContext> Function(CitizenBlockRef)? getRuntimeContext,
     Future<List<Uint8List>> Function(
       CitizenBlockRef block,
       Uint8List prefix, {
@@ -90,6 +90,8 @@ class AdminAccountsScanService {
            getFinalizedHead ??
            chain?.getFinalizedHead ??
            (() => throw StateError('未配置getFinalizedHead')),
+       _getRuntimeContext = getRuntimeContext ?? chain?.getRuntimeContext ??
+           ((block) => throw StateError('未配置getRuntimeContext')),
        _getStorageKeysPaged =
            getStorageKeysPaged ??
            chain?.getStorageKeysPaged ??
@@ -109,6 +111,7 @@ class AdminAccountsScanService {
     }
   }
   final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<CitizenRuntimeContext> Function(CitizenBlockRef) _getRuntimeContext;
   final Future<List<Uint8List>> Function(
     CitizenBlockRef block,
     Uint8List prefix, {
@@ -144,11 +147,12 @@ class AdminAccountsScanService {
     void Function(int scanned, int? total, int decoded)? onProgress,
   }) async {
     final finalized = await _getFinalizedHead();
+    final runtime = await _getRuntimeContext(finalized);
     final allKeys = <Uint8List>[];
     final kinds = <int>[];
     var partialFailure = false;
 
-    for (final entry in _adminAccountsPrefixes()) {
+    for (final entry in _adminAccountsPrefixes(runtime)) {
       Uint8List? startKey;
       while (true) {
         List<Uint8List> page;
@@ -198,10 +202,7 @@ class AdminAccountsScanService {
           final accountIdBytes =
               AdminAccountStorageCodec.extractPersonalAccountFromKey(keyBytes);
           if (accountIdBytes == null) continue;
-          final accountId = AdminAccountStorageCodec.accountIdText(
-            accountIdBytes,
-          );
-          if (accountId == null) continue;
+          final accountId = citizenAccountIdFromBytes(accountIdBytes);
           accounts.add(
             ScannedAdminAccount(
               accountId: accountId,
@@ -256,7 +257,7 @@ class AdminAccountsScanService {
   }
 
   /// 每个短 prefix 同时携带 pallet 决定的主体类型，禁止再从 value 猜 kind。
-  List<({Uint8List prefix, int kind})> _adminAccountsPrefixes() {
+  List<({Uint8List prefix, int kind})> _adminAccountsPrefixes(CitizenRuntimeContext runtime) {
     final invalid = palletNames.where(
       (name) => !_allowedPalletNames.contains(name),
     );
@@ -271,7 +272,7 @@ class AdminAccountsScanService {
         .toSet()
         .map(
           (palletName) => (
-            prefix: _adminAccountsPrefix(palletName),
+            prefix: runtime.storageKey(palletName, 'AdminAccounts'),
             kind: switch (palletName) {
               'PublicAdmins' => AdminAccountStorageCodec.kindPublicInstitution,
               'PrivateAdmins' =>
@@ -282,14 +283,5 @@ class AdminAccountsScanService {
           ),
         )
         .toList(growable: false);
-  }
-
-  Uint8List _adminAccountsPrefix(String palletName) {
-    final palletHash = Hasher.twoxx128.hashString(palletName);
-    final storageHash = Hasher.twoxx128.hashString('AdminAccounts');
-    final prefix = Uint8List(palletHash.length + storageHash.length);
-    prefix.setAll(0, palletHash);
-    prefix.setAll(palletHash.length, storageHash);
-    return prefix;
   }
 }

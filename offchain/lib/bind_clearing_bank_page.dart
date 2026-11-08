@@ -1,5 +1,4 @@
 import 'package:citizen_system/security/account_security_exception.dart';
-import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
@@ -12,27 +11,25 @@ import 'package:citizen_system/theme/app_layout.dart';
 
 /// 绑定**清算行**(L2)确认页。
 ///
-///
-/// - 清算行(L2)体系唯一绑定页。数据源为 finalized 链上清算行声明;
-///   链上调用 `bind_clearing_bank(bank_main_account_id)`(call_index 30)。
-/// - 绑定即开户,**无预存、无业务开户费**;签名者支付最低链上交易费 0.1 元/次。
-/// - 本页目前无活跃入口,等「设置清算行」真实交互落地时再复用。
+/// 设置页选择 finalized 目录中的机构，确认后以机构 CID 绑定或切换。
+/// 绑定即开户，无预存和业务开户费，签名者支付链上交易费。
 class BindClearingBankPage extends StatefulWidget {
   const BindClearingBankPage({
     super.key,
     required this.accountId,
-    required this.accountAddress,
     required this.bank,
     this.switchMode = false,
+    this.chain,
+    this.readFees,
   });
 
   /// L3 用户链账户主键(0x+64hex):按账户签名、构造 signerPublicKey、绑定缓存键。
   final String accountId;
 
-  /// L3 用户 SS58 地址(绑定/切换 extrinsic 来源地址)。
-  final String accountAddress;
   final ClearingBankCandidate bank;
   final bool switchMode;
+  final OnchainClearingBankChain? chain;
+  final Future<CitizenFeeSnapshot> Function()? readFees;
 
   @override
   State<BindClearingBankPage> createState() => _BindClearingBankPageState();
@@ -40,6 +37,7 @@ class BindClearingBankPage extends StatefulWidget {
 
 class _BindClearingBankPageState extends State<BindClearingBankPage> {
   bool _submitting = false;
+  BigInt? _feeFen;
 
   @override
   Widget build(BuildContext context) {
@@ -70,7 +68,7 @@ class _BindClearingBankPageState extends State<BindClearingBankPage> {
               child: Text(
                 '说明:\n'
                 '· 绑定即开户,无需预存\n'
-                '· 链上手续费 0.1 元/次\n'
+                '${_feeFen == null ? '· 提交前读取链上手续费' : '· 预估链上手续费：${formatFen(_feeFen!)} 元'}\n'
                 '· 同一时间只能绑定一家清算行\n'
                 '· 切换前需把当前清算行存款全部提现',
                 style: TextStyle(
@@ -97,25 +95,26 @@ class _BindClearingBankPageState extends State<BindClearingBankPage> {
   }
 
   Future<void> _confirmBind() async {
-    final mainAccountId = widget.bank.mainAccountId;
+    if (_submitting) return;
+    final bank = widget.bank;
 
-    setState(() => _submitting = true);
+    setState(() {
+      _submitting = true;
+      _feeFen = null;
+    });
     try {
-      final mainAccountIdBytes = _hexToBytes(mainAccountId);
-      if (mainAccountIdBytes.length != 32) {
-        throw Exception('主账户必须是 32 字节,实际 ${mainAccountIdBytes.length}');
-      }
-      final publicKeyBytes = _hexToBytes(widget.accountId);
-      if (publicKeyBytes.length != 32) {
-        throw Exception('账户公钥必须是 32 字节');
-      }
+      final publicKeyBytes = citizenAccountIdBytes(widget.accountId);
 
-      final sdk = context.read<CitizenSdk>();
-      final chain = OnchainClearingBankChain(transactions: sdk);
+      final fees = await (widget.readFees?.call() ??
+          context.read<CitizenSdk>().getFeeSnapshot());
+      if (!mounted) return;
+      setState(() => _feeFen = fees.feeFen);
+      final chain = widget.chain ??
+          OnchainClearingBankChain(transactions: context.read<CitizenSdk>());
       final result = widget.switchMode
           ? await chain.switchBank(
-              signerPublicKey: Uint8List.fromList(publicKeyBytes),
-              newBankMainAccountId: Uint8List.fromList(mainAccountIdBytes),
+              signerPublicKey: publicKeyBytes,
+              bankCid: bank.cidNumber,
               externalSigning: (pending) => showCitizenSdkQrResponse(
                 context,
                 request: pending.qrRequest,
@@ -125,8 +124,8 @@ class _BindClearingBankPageState extends State<BindClearingBankPage> {
               ),
             )
           : await chain.bindClearingBank(
-              signerPublicKey: Uint8List.fromList(publicKeyBytes),
-              bankMainAccountId: Uint8List.fromList(mainAccountIdBytes),
+              signerPublicKey: publicKeyBytes,
+              bankCid: bank.cidNumber,
               externalSigning: (pending) => showCitizenSdkQrResponse(
                 context,
                 request: pending.qrRequest,
@@ -136,61 +135,55 @@ class _BindClearingBankPageState extends State<BindClearingBankPage> {
               ),
             );
 
-      // 绑定成功后写入完整清算行快照。链上仍是最终权威,本地快照只用于
-      // 手机端页面展示、充值提现和扫码付款时快速定位清算行节点端点。
-      final endpoint = widget.bank.endpoint;
-      final now = DateTime.now().millisecondsSinceEpoch;
-      await ClearingBankPrefs.saveSnapshot(
-        widget.accountId,
-        ClearingBankBindingSnapshot(
-          cidNumber: widget.bank.cidNumber,
-          fullName: widget.bank.fullName,
-          shortName: widget.bank.shortName ?? '',
-          mainAccountId: _normalizeHex(widget.bank.mainAccountId),
-          feeAccountId: _normalizeHex(widget.bank.feeAccountId),
-          peerId: endpoint.peerId,
-          rpcDomain: endpoint.rpcDomain,
-          rpcPort: endpoint.rpcPort,
-          boundAtMs: now,
-          lastVerifiedAtMs: now,
-        ),
-      );
+      // 最终成功与本地展示缓存分别报告。返回后设置页仍重新读链。
+      var cacheFailed = false;
+      try {
+        final endpoint = bank.endpoint;
+        final now = DateTime.now().millisecondsSinceEpoch;
+        await ClearingBankPrefs.saveSnapshot(
+          widget.accountId,
+          ClearingBankBindingSnapshot(
+            cidNumber: bank.cidNumber,
+            fullName: bank.fullName,
+            shortName: bank.shortName ?? '',
+            mainAccountId: bank.mainAccountId.substring(2),
+            feeAccountId: bank.feeAccountId.substring(2),
+            peerId: endpoint.peerId,
+            rpcDomain: endpoint.rpcDomain,
+            rpcPort: endpoint.rpcPort,
+            boundAtMs: now,
+            lastVerifiedAtMs: now,
+          ),
+        );
+      } catch (_) {
+        cacheFailed = true;
+      }
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '${widget.switchMode ? '切换' : '绑定'}已提交,tx=${_short(result.txHash)},等待链上确认',
+            '${widget.switchMode ? '切换' : '绑定'}已确认，交易 ${_short(result.txHash)}'
+            '${cacheFailed ? '（本地缓存未更新）' : ''}',
           ),
         ),
       );
       Navigator.pop(context, true);
     } on AccountSecurityException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('绑定失败:$e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(
+        SnackBar(content: Text('${widget.switchMode ? '切换' : '绑定'}失败：$e')),
+      );
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
-  }
-
-  static List<int> _hexToBytes(String input) {
-    final text = input.startsWith('0x') ? input.substring(2) : input;
-    if (text.isEmpty || text.length.isOdd) return const <int>[];
-    final out = <int>[];
-    for (var i = 0; i < text.length; i += 2) {
-      out.add(int.parse(text.substring(i, i + 2), radix: 16));
-    }
-    return out;
-  }
-
-  static String _normalizeHex(String input) {
-    final text = input.startsWith('0x') ? input.substring(2) : input;
-    return text.toLowerCase();
   }
 
   static String _short(String h) {

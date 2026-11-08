@@ -1,6 +1,5 @@
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:citizen_storage/user_isar.dart' as wallet_store show Entry;
-import 'package:citizen_wallet/core/account_balance_snapshot_store.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:async';
@@ -16,8 +15,8 @@ import 'package:citizen_system/amount_format.dart';
 import 'package:citizen_onchain/onchain_payment_models.dart';
 import 'package:citizen_personal/personal_account_entry.dart';
 import 'package:citizen_onchain/onchain_payment_service.dart';
-import 'package:citizen_onchain/onchain_transfer_call.dart';
 import 'package:citizen_wallet/history/local_tx_store.dart';
+import 'package:citizen_wallet/history/wallet_transaction_history_service.dart';
 import 'package:citizen_wallet/history/tx_auto_refresh_mixin.dart';
 import 'package:citizen_storage/user_isar.dart' hide Group;
 import 'package:citizen_scanner/qr_sign_session_page.dart';
@@ -54,7 +53,7 @@ class TransactionTabPage extends StatelessWidget {
   /// 测试夹具可注入公开页面数据；正式 Tab 不传值并直接读取 CitizenSDK。
   final OnchainCurrentWalletLoader? currentWalletLoader;
   final OnchainLocalRecordsLoader? localRecordsLoader;
-  final Future<double> Function(String accountId)? balanceLoader;
+  final Future<BigInt> Function(String accountId)? balanceLoader;
   final OnchainContactPageBuilder? contactPageBuilder;
 
   @override
@@ -185,7 +184,7 @@ class OnchainPaymentPanel extends StatefulWidget {
 
   /// 测试可注入；生产直接使用 CitizenSDK 钱包构造同一服务。
   final OnchainPaymentService? paymentService;
-  final Future<double> Function(String accountId)? balanceLoader;
+  final Future<BigInt> Function(String accountId)? balanceLoader;
 
   /// 测试只记录页面意图；正式运行固定打开现有通讯录页面。
   final OnchainContactPageBuilder? contactPageBuilder;
@@ -198,9 +197,6 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     with TxAutoRefreshMixin<OnchainPaymentPanel> {
   /// 链的 SS58 地址前缀。
 
-  /// 链上存在性保证金（Existential Deposit）= 111 分 = 1.11 元。
-  /// 来源：primitives::core_const::ACCOUNT_EXISTENTIAL_DEPOSIT = 111
-  static const double _edYuan = 1.11;
   OnchainPaymentService? _paymentService;
   AccountSecurityService? _accountSecurity;
   bool _dependenciesReady = false;
@@ -213,20 +209,15 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
   CitizenWalletStateAccount? _currentWallet;
   // IndexedStack存活期间保留付款选择；重新启动按默认账户初始化，不写SDK身份或钱包选择。
   String? _selectedAccountId;
-  WalletBalanceState<CitizenAccountBalance>? _walletBalance;
-  double _testBalance = 0;
+  CitizenBalanceState<CitizenAccountBalance>? _walletBalance;
+  BigInt _testBalance = BigInt.zero;
   int _walletLoadGeneration = 0;
-  double get _currentBalance => widget.balanceLoader != null
-      ? _testBalance
-      : (_walletBalance?.value?.freeFen.toDouble() ?? 0) / 100;
   String get _balanceText {
     if (widget.balanceLoader != null) {
-      return AmountFormat.format(_testBalance, symbol: '');
+      return formatFen(_testBalance);
     }
     final value = _walletBalance?.value;
-    return value == null
-        ? '—'
-        : AccountBalanceSnapshotStore.formatFen(value.freeFen);
+    return value == null ? '—' : formatFen(value.freeFen);
   }
 
   void _onBalanceChanged() {
@@ -386,8 +377,8 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
   Future<void> _reloadWallet({bool forceBalance = false}) async {
     final generation = ++_walletLoadGeneration;
     CitizenWalletStateAccount? wallet;
-    WalletBalanceState<CitizenAccountBalance>? balance;
-    double testBalance = 0;
+    CitizenBalanceState<CitizenAccountBalance>? balance;
+    var testBalance = BigInt.zero;
     var accountValidated = false;
     try {
       final loader = widget.currentWalletLoader;
@@ -412,9 +403,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
         if (injected != null) {
           testBalance = await injected(wallet.accountId);
         } else {
-          final store = AccountBalanceSnapshotStore.forChain(
-            context.read<CitizenSdk>(),
-          );
+          final store = context.read<CitizenSdk>().balances;
           await store.restore([wallet.accountId]);
           balance = store.accountState(wallet.accountId);
         }
@@ -447,14 +436,15 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     }
   }
 
-  Future<double> _loadFinalizedBalance(
+  Future<BigInt> _loadFinalizedBalance(
     String accountId, {
     bool forceRefresh = false,
   }) async {
-    final balance = await AccountBalanceSnapshotStore.forChain(
-      context.read<CitizenSdk>(),
-    ).getAccountBalance(accountId, forceRefresh: forceRefresh);
-    return balance.freeFen.toDouble() / 100;
+    final balance = await context.read<CitizenSdk>().getAccountBalance(
+      accountId,
+      forceRefresh: forceRefresh,
+    );
+    return balance.freeFen;
   }
 
   Future<void> _reloadWalletAndLocalRecords({bool forceBalance = false}) async {
@@ -531,22 +521,18 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
       return;
     }
 
-    var toAddress = _toController.text.trim();
-    final requestedAddress = toAddress, requestedCid = _recipientCid;
+    final requestedAddress = _toController.text.trim();
+    final requestedCid = _recipientCid;
+    final symbol = _selectedSymbol;
     final amountRaw = _amountController.text.trim();
-    if (toAddress.isEmpty || amountRaw.isEmpty) {
+    if (requestedAddress.isEmpty || amountRaw.isEmpty) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('请先填写完整的收款地址和金额')));
       return;
     }
-    final amountText = AmountFormat.stripCommas(amountRaw);
-
-    final amount = double.tryParse(amountText);
-    if (amount == null ||
-        !amount.isFinite ||
-        !(amount * 100).isFinite ||
-        amount <= 0) {
+    final amountFen = parseFen(amountRaw);
+    if (amountFen == null || amountFen <= BigInt.zero || amountFen.bitLength > 128) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('金额格式不正确')));
@@ -554,27 +540,40 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     }
     final remark = _remarkController.text;
     final remarkBytes = utf8.encode(remark).length;
-    if (remarkBytes > OnchainTransferCall.maxTransferRemarkBytes) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '转账备注不能超过 ${OnchainTransferCall.maxTransferRemarkBytes} 字节，当前 $remarkBytes 字节',
-          ),
-        ),
-      );
-      return;
-    }
-
     // 预估手续费，展示确认对话框
     if (_checkingBalance) return;
     final balanceAccountId = _currentWallet!.accountId;
     setState(() => _checkingBalance = true);
+    final CitizenFeeSnapshot fees;
+    final BigInt balanceFen;
     try {
-      final fresh =
+      balanceFen =
           await (widget.balanceLoader?.call(balanceAccountId) ??
               _loadFinalizedBalance(balanceAccountId, forceRefresh: true));
       if (!mounted || _currentWallet?.accountId != balanceAccountId) return;
-      if (widget.balanceLoader != null) setState(() => _testBalance = fresh);
+      fees = await _paymentService!.quoteFee(amountFen);
+      final remarkLimit = remarkBytes == 0
+          ? 0
+          : await _paymentService!.readRemarkLimit(fees.bestBlock);
+      if (!mounted ||
+          _currentWallet?.accountId != balanceAccountId ||
+          _amountController.text.trim() != amountRaw ||
+          _remarkController.text != remark) {
+        return;
+      }
+      if (remarkBytes > remarkLimit) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '转账备注不能超过 $remarkLimit 字节，当前 $remarkBytes 字节',
+            ),
+          ),
+        );
+        return;
+      }
+      if (widget.balanceLoader != null) {
+        setState(() => _testBalance = balanceFen);
+      }
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -595,10 +594,12 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
       if (!mounted ||
           _recipientCid != requestedCid ||
           _toController.text.trim() != requestedAddress ||
+          _amountController.text.trim() != amountRaw ||
+          _remarkController.text != remark ||
           _currentWallet?.accountId != balanceAccountId) {
         return;
       }
-      toAddress = recipient.address;
+
     } on FormatException catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -616,16 +617,17 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     } finally {
       if (mounted) setState(() => _checkingBalance = false);
     }
-    final estimatedFee = OnchainTransferCall.estimateTransferFeeYuan(amount);
+    final toAddress = recipient.address;
+    final feeFen = fees.feeFen;
 
     // 余额校验：转账金额 + 手续费 ≤ 可用余额（余额 - ED）
-    final availableBalance = _currentBalance - _edYuan;
-    if (amount + estimatedFee > availableBalance) {
+    final availableBalance = balanceFen - fees.existentialDepositFen;
+    if (amountFen + feeFen > availableBalance) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '余额不足，可用余额：${AmountFormat.format(availableBalance, symbol: '')} GMB'
-            '（已扣除 ED ${AmountFormat.format(_edYuan, symbol: '')} GMB）',
+            '余额不足，可用余额：${formatFen(availableBalance)} GMB'
+            '（已扣除 ED ${formatFen(fees.existentialDepositFen)} GMB）',
           ),
         ),
       );
@@ -650,20 +652,16 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
             if (requestedCid == null && requestedAddress.startsWith('0x'))
               Text('以太坊地址：$requestedAddress'),
             Text('收款账户：${recipient.address}'),
-            Text(
-              '转账金额：${AmountFormat.format(amount, symbol: _selectedSymbol)}',
-            ),
+            Text('转账金额：${formatFen(amountFen)} $symbol'),
             if (remark.isNotEmpty) ...[
               SizedBox(height: AppLayout.scaledValue(4)),
               Text('转账备注：$remark'),
             ],
             SizedBox(height: AppLayout.scaledValue(4)),
-            Text(
-              '预估手续费：${AmountFormat.format(estimatedFee, symbol: _selectedSymbol)}',
-            ),
+            Text('预估手续费：${formatFen(feeFen)} $symbol'),
             Divider(height: AppLayout.scaledValue(16)),
             Text(
-              '合计：${AmountFormat.format(amount + estimatedFee, symbol: _selectedSymbol)}',
+              '合计：${formatFen(amountFen + feeFen)} $symbol',
               style: const TextStyle(fontWeight: FontWeight.w700),
             ),
           ],
@@ -696,13 +694,14 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     try {
       final wallet = _currentWallet!;
       final sdk = context.read<CitizenSdk>();
+      final history = context.read<WalletTransactionHistoryService>();
       final prepared = await _paymentService!.prepareTransfer(
         OnchainPaymentDraft(
           sourceAccountId: balanceAccountId,
           toAddress: toAddress,
           recipient: recipient,
-          amount: amount,
-          symbol: _selectedSymbol,
+          amountFen: amountFen,
+          symbol: symbol,
           remark: remark,
         ),
       );
@@ -714,33 +713,33 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
         );
       }
       paymentStep = OnchainPaymentStep.execution;
-      final started = await sdk.executePreparedTransaction(
-        prepared.preparationId,
+      final completed = await history.trackTransfer(
+        sdk: sdk,
+        prepared: prepared,
+        amountFen: amountFen,
+        fromAddress: wallet.ss58Address,
+        toAddress: toAddress,
+        remark: remark,
+        execute: () async => completeCitizenTransaction(
+          await sdk.executePreparedTransaction(prepared.preparationId),
+          requestResponse: (pending) {
+            paymentStep = OnchainPaymentStep.externalSignature;
+            if (!mounted) return Future<String?>.value();
+            return showCitizenSdkQrResponse(
+              context,
+              request: pending.qrRequest,
+              expiresAt: BigInt.from(
+                pending.expiresAt.millisecondsSinceEpoch ~/ 1000,
+              ),
+            );
+          },
+          consumeResponse: sdk.consumePreparedTransactionQrResponse,
+          cancelExecution: sdk.cancelPreparedTransactionExecution,
+        ),
       );
-      CitizenTransactionExecutionCompleted completed;
-      if (started is CitizenTransactionExternalSigningPending) {
-        paymentStep = OnchainPaymentStep.externalSignature;
-        if (!mounted) return;
-        final response = await showCitizenSdkQrResponse(
-          context,
-          request: started.qrRequest,
-          expiresAt: BigInt.from(
-            started.expiresAt.millisecondsSinceEpoch ~/ 1000,
-          ),
-        );
-        if (response == null) {
-          await sdk.cancelPreparedTransactionExecution(started.executionId);
-          throw const AccountSecurityException('交易签名已取消');
-        }
-        completed = await sdk.consumePreparedTransactionQrResponse(
-          started.executionId,
-          response,
-        );
-      } else {
-        completed = started as CitizenTransactionExecutionCompleted;
-      }
-      if (!mounted) {
-        return;
+      if (!mounted) return;
+      if (completed == null) {
+        throw const AccountSecurityException('交易签名已取消');
       }
 
       final txHash = '0x${_toHex(completed.transactionHash)}';
@@ -752,33 +751,6 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
       _amountController.clear();
       _remarkController.clear();
 
-      // 写入本地交易记录（失败不影响交易）
-      try {
-        final transferAmount = LocalTxStore.fenFromYuan(amount);
-        final feeAmount = LocalTxStore.fenFromYuan(estimatedFee);
-        final amountDelta =
-            (-(BigInt.parse(transferAmount) + BigInt.parse(feeAmount)))
-                .toString();
-        await LocalTxStore.upsertLocalSubmitTransfer(
-          accountId: wallet.accountId,
-          txHash: txHash,
-          amountDelta: amountDelta,
-          transferAmount: transferAmount,
-          feeAmount: feeAmount,
-          fromAddress: wallet.ss58Address,
-          toAddress: toAddress,
-          txNote: remark,
-          executionId: completed.executionId,
-          callHash: '0x${_toHex(completed.callDataHash)}',
-
-          createdAt: DateTime.now().millisecondsSinceEpoch,
-          blockHash: completed.execution?.block.hash,
-        );
-        await _applyExecutionToLocalRecord(wallet, completed);
-        if (mounted) await _loadLocalRecords();
-      } catch (e) {
-        AppLog.d('[交易记录] 写入本地失败: $e');
-      }
     } on AccountSecurityException catch (e) {
       if (!mounted) {
         return;
@@ -837,52 +809,6 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
       CitizenTransactionResolution.finalizedFailed => '交易已最终失败，tx=$txHash',
       CitizenTransactionResolution.poolRejected => '交易池已拒绝，tx=$txHash',
     };
-  }
-
-  /// 只把 CitizenSDK 已核验的终态投影到 App 交易展示记录。
-  /// CitizenApp 不根据 tx_hash、超时或页面生命周期猜测交易结果。
-  Future<void> _applyExecutionToLocalRecord(
-    CitizenWalletStateAccount wallet,
-    CitizenTransactionExecutionCompleted completed,
-  ) async {
-    final txHash = '0x${_toHex(completed.transactionHash)}';
-    switch (completed.resolution) {
-      case CitizenTransactionResolution.finalizedSuccess:
-        final execution = completed.execution;
-        await LocalTxStore.markLocalSubmitFinalized(
-          accountId: wallet.accountId,
-          txHash: txHash,
-          executionId: completed.executionId,
-          callHash: '0x${_toHex(completed.callDataHash)}',
-          blockHash: execution?.block.hash,
-          blockNumber: execution?.block.number.toInt(),
-          extrinsicIndex: execution?.extrinsicIndex,
-        );
-        break;
-      case CitizenTransactionResolution.finalizedFailed:
-        final execution = completed.execution;
-        await LocalTxStore.markLocalSubmitFailed(
-          accountId: wallet.accountId,
-          txHash: txHash,
-          executionId: completed.executionId,
-          callHash: '0x${_toHex(completed.callDataHash)}',
-          failReason: execution == null
-              ? '链上执行失败'
-              : '链上执行失败 '
-                    '${execution.palletIndex ?? '-'}:'
-                    '${execution.errorIndex ?? '-'}',
-        );
-        break;
-      case CitizenTransactionResolution.poolRejected:
-        await LocalTxStore.markLocalSubmitFailed(
-          accountId: wallet.accountId,
-          txHash: txHash,
-          executionId: completed.executionId,
-          callHash: '0x${_toHex(completed.callDataHash)}',
-          failReason: completed.poolRejectionReason ?? '交易池拒绝',
-        );
-        break;
-    }
   }
 
   Widget _buildFieldLabel(String label) {
@@ -1059,25 +985,16 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
                           14,
                           32,
                         ),
-                        errorText:
-                            _transferRemarkBytes >
-                                OnchainTransferCall.maxTransferRemarkBytes
-                            ? '备注不能超过 ${OnchainTransferCall.maxTransferRemarkBytes} 字节'
-                            : null,
                       ),
                 ),
                 Positioned(
                   right: AppLayout.scaledValue(12),
                   bottom: AppLayout.scaledValue(10),
                   child: Text(
-                    '$_transferRemarkBytes/${OnchainTransferCall.maxTransferRemarkBytes} 字节',
+                    '$_transferRemarkBytes 字节',
                     style: TextStyle(
                       fontSize: AppLayout.scaledValue(12),
-                      color:
-                          _transferRemarkBytes >
-                              OnchainTransferCall.maxTransferRemarkBytes
-                          ? AppTheme.danger
-                          : AppTheme.textSecondary,
+                      color: AppTheme.textSecondary,
                     ),
                   ),
                 ),
@@ -1091,7 +1008,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
                 child: Text(_submitting ? '签名中' : '签名交易'),
               ),
             ),
-            // 不展示底层能力诊断；_canSubmit仍保留原就绪/备注校验，不能用隐藏提示放行交易。
+            // 链状态决定表单是否可提交，备注在报价块上校验。
             Padding(
               padding: EdgeInsets.only(
                 top: AppLayout.scaledValue(18),
@@ -1305,10 +1222,6 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
         _currentWallet == null) {
       return null;
     }
-    if (_transferRemarkBytes > OnchainTransferCall.maxTransferRemarkBytes) {
-      return '转账备注不能超过 ${OnchainTransferCall.maxTransferRemarkBytes} 字节';
-    }
-
     final progress = _chainProgress;
     if (progress == null) {
       return _chainProgressError ?? '正在读取区块链状态，请稍后再试';

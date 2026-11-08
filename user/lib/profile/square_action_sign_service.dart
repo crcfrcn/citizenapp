@@ -33,33 +33,26 @@ class SquareActionSignPrep {
 
 /// 广场账户动作「签名响应方」（官网无私钥，CitizenApp 扫一扫代签）。
 ///
-/// 流程：扫 signRequest → 解析/两色解码 → 按 QR `u` 定位 account_id 钱包（拒本机没有的账户）
+/// 流程：消费 SDK 签名请求 → 业务解码 → 按签名账户定位本机钱包
 /// → 用户核对动作 → **account_id 主钥**对 signing_message(0x1D) 签名（生物识别）→ 出 signResponse。
 class SquareActionSignService {
   SquareActionSignService({required CitizenSdk qr}) : _qr = qr;
 
   final CitizenSdk _qr;
 
-  /// 解析 + 两色解码 + 定位钱包（不签名、不弹生物识别）。失败抛 [SquareActionSignException]。
+  /// 从 SDK 已解析的请求读取业务字段并定位本机钱包。
   Future<SquareActionSignPrep> prepare(
-    String raw,
+    CitizenQrDocument request,
     CitizenSdk? wallet, {
     CitizenSdkOperation<CitizenWalletState> Function()? getWalletState,
     CitizenWalletStateAccount? requiredAccount,
   }) async {
-    final CitizenQrDocument request;
-    try {
-      request = (await _qr.parseForPurpose(
-        raw,
-        CitizenQrScanPurpose.signingRequest,
-      )).document;
-    } on CitizenSdkException catch (e) {
-      throw SquareActionSignException(
-        SquareActionSignError.invalidRequest,
-        e.message,
-      );
-    }
-    if (request.action != CitizenQrActions.squareAccountAction) {
+    final payload = request.reviewPayload;
+    final signer = request.signerAccountId;
+    if (request.kind != CitizenQrKind.signRequest ||
+        request.action != CitizenQrActions.squareAccountAction ||
+        payload == null ||
+        signer == null) {
       throw const SquareActionSignException(
         SquareActionSignError.invalidRequest,
         '该动作不属于 CitizenApp 业务二维码',
@@ -67,7 +60,7 @@ class SquareActionSignService {
     }
     const actionLabel = '广场账户动作签名';
     final decoded = decodeSquareActionPayload(
-      '0x${request.reviewPayload!.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join()}',
+      '0x${payload.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join()}',
     );
     final reviewFields = decoded?.reviewFields;
     if (decoded == null || reviewFields == null) {
@@ -76,15 +69,13 @@ class SquareActionSignService {
         '签名内容无法完整中文展示，已拒绝签名',
       );
     }
-    final requestAccountId = request.signerAccountId!.toLowerCase();
     final account =
         requiredAccount ??
         _findAccount(
           await (getWalletState ?? wallet!.getWalletState)().result,
-          requestAccountId,
+          signer,
         );
-    if (account == null ||
-        _normalizeHex(account.accountId) != _normalizeHex(requestAccountId)) {
+    if (account == null || account.accountId != signer) {
       throw const SquareActionSignException(
         SquareActionSignError.accountNotLocal,
         '此签名请求的账户不在本机',
@@ -141,19 +132,12 @@ class SquareActionSignService {
     )).canonicalText;
   }
 
-  static String _normalizeHex(String hex) {
-    final text = hex.startsWith('0x') || hex.startsWith('0X')
-        ? hex.substring(2)
-        : hex;
-    return text.toLowerCase();
-  }
-
   static CitizenWalletStateAccount? _findAccount(
     CitizenWalletState state,
     String accountId,
   ) {
     for (final account in state.accounts) {
-      if (_normalizeHex(account.accountId) == _normalizeHex(accountId)) {
+      if (account.accountId == accountId) {
         return account;
       }
     }

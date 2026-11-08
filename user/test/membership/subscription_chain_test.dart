@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 import 'package:citizen_user/membership/subscription_chain.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_sdk/test/platform/fixture.dart';
 
 String _hex(Uint8List bytes) =>
     bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
@@ -13,6 +15,14 @@ Uint8List _bytes(String hex) => Uint8List.fromList([
 ]);
 
 void main() {
+  late CitizenRuntimeContext runtime;
+  setUpAll(() async {
+    runtime = await CitizenSdkTestFixture.runtimeContext(CitizenBlockRef(
+      hash: '0x${'11' * 32}',
+      number: BigInt.one,
+      finality: CitizenBlockFinality.finalized,
+    ));
+  });
   const creatorCid = 'CN220-CTZN2-900000001-2026';
   const creatorCidScale =
       '68434e3232302d43545a4e322d3930303030303030312d32303236';
@@ -20,6 +30,7 @@ void main() {
   group('SquarePost 订阅 SCALE', () {
     test('平台订阅携带当前签名价', () {
       final call = SubscriptionChain.buildSubscribePlatformCall(
+        runtime,
         SubscriptionChain.membershipLevelByte('spark'),
         BigInt.from(5999900),
       );
@@ -28,6 +39,7 @@ void main() {
 
     test('创作者订阅只携带 CID、tier_id、自然周期和当前签名价', () {
       final call = SubscriptionChain.buildSubscribeCreatorCall(
+        runtime,
         creatorCid,
         'supporter',
         'monthly',
@@ -41,11 +53,11 @@ void main() {
     });
 
     test('取消只携带收款主体', () {
-      expect(_hex(SubscriptionChain.buildCancelPlatformCall()), '220200');
+      expect(_hex(SubscriptionChain.buildCancelPlatformCall(runtime)), '220200');
     });
 
     test('创作者套餐覆盖式编码', () {
-      final call = SubscriptionChain.buildSetCreatorPlansCall([
+      final call = SubscriptionChain.buildSetCreatorPlansCall(runtime, [
         CreatorTierInput(
           tierId: 'supporter',
           tierName: '支持者',
@@ -68,6 +80,7 @@ void main() {
       expect(
         _hex(
           SubscriptionChain.buildUpdateCreatorTierNameCall(
+            runtime,
             'supporter',
             '核心支持者',
           ),
@@ -79,6 +92,7 @@ void main() {
     test('20 个四字节 Unicode 标量使用标准两字节 Compact 长度', () {
       final tierName = String.fromCharCodes(List.filled(20, 0x1f642));
       final call = SubscriptionChain.buildUpdateCreatorTierNameCall(
+        runtime,
         't',
         tierName,
       );
@@ -87,6 +101,7 @@ void main() {
       expect(call.length, 86);
       expect(
         () => SubscriptionChain.buildUpdateCreatorTierNameCall(
+          runtime,
           't',
           '$tierName🙂',
         ),
@@ -96,12 +111,13 @@ void main() {
 
     test('平台与创作者换档使用同一 call_index 并携带目标签名价', () {
       expect(
-        _hex(SubscriptionChain.buildChangePlatformPlanCall(1, BigInt.from(50))),
+        _hex(SubscriptionChain.buildChangePlatformPlanCall(runtime, 1, BigInt.from(50))),
         '220400000132000000000000000000000000000000',
       );
       expect(
         _hex(
           SubscriptionChain.buildChangeCreatorPlanCall(
+            runtime,
             creatorCid,
             'supporter',
             'yearly',
@@ -120,6 +136,7 @@ void main() {
       );
       expect(
         () => SubscriptionChain.buildSubscribeCreatorCall(
+          runtime,
           creatorCid,
           '',
           'monthly',
@@ -128,7 +145,7 @@ void main() {
         throwsArgumentError,
       );
       expect(
-        () => SubscriptionChain.buildSubscribePlatformCall(0, BigInt.zero),
+        () => SubscriptionChain.buildSubscribePlatformCall(runtime, 0, BigInt.zero),
         throwsArgumentError,
       );
     });
@@ -228,10 +245,12 @@ void main() {
 
     test('Subscriptions 与 CreatorPlans storage key 使用不同真源项', () {
       final subscriptionKey = SubscriptionChain.buildSubscriptionStorageKey(
+        runtime,
         creatorCid,
         null,
       );
       final creatorPlansKey = SubscriptionChain.buildCreatorPlansStorageKey(
+        runtime,
         creatorCid,
       );
       expect(subscriptionKey.length, 76);

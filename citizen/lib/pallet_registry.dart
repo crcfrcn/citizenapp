@@ -12,10 +12,6 @@ class PalletRegistry {
   // ---- Balances (2) · 只读余额账本(外部转账入口在 OnchainTransaction) ----
   static const int balancesPallet = 2;
 
-  // ---- OnchainTransaction (4) ----
-  static const int onchainTransactionPallet = 4;
-  static const int transferWithRemarkCall = 0;
-
   // ---- PersonalManage (7) · 个人多签生命周期 ----
   static const int personalManagePallet = 7;
 
@@ -26,13 +22,6 @@ class PalletRegistry {
 
   // ---- MultisigTransfer (17) ----
   static const int multisigTransferPallet = 17;
-
-  // ---- OffchainTransaction (19) · 清算行 L2 体系 ----
-  static const int offchainTransactionPallet = 19;
-  static const int bindClearingBankCall = 30;
-  static const int depositCall = 31;
-  static const int withdrawCall = 32;
-  static const int switchBankCall = 33;
 
   // ---- InternalVote (20) · 内部投票管理员一人一票 ----
   static const int internalVotePallet = 20;

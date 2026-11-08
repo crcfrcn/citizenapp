@@ -71,6 +71,28 @@ class _History extends TestHistoryReads {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   useIsolatedIsar();
+  const nativeTimeout = Duration(seconds: 5);
+  Future<void> pumpUntil(WidgetTester tester, bool Function() ready) async {
+    for (var i = 0; i < 100 && !ready(); i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump(const Duration(milliseconds: 10));
+    }
+  }
+
+  Future<void> drain(WidgetTester tester, Future<void> task, String name) async {
+    var done = false;
+    Object? failure;
+    unawaited(task.then<void>((_) => done = true, onError: (Object error) {
+      failure = error;
+      done = true;
+    }));
+    await pumpUntil(tester, () => done);
+    expect(done, isTrue, reason: '$name 未完成');
+    expect(failure, isNull, reason: name);
+  }
+
   for (final stopFails in [false, true]) {
     testWidgets('根关闭遇监听异常仍尝试有序停止，停止失败不绕过checkpoint：$stopFails', (tester) async {
       // 擦除门闩与记录目录是不同方法；PIN只读取本用例的真实空目录。
@@ -88,13 +110,16 @@ void main() {
             if (call.method == 'eraseObsoleteDataMaterial') return gate.future;
             throw StateError('未预期的系统保护记录方法');
           });
-      final core = await openTestSdk(
-        modules: CitizenSdkModules.wallet | CitizenSdkModules.qr,
+      final core = await tester.runAsync(
+        () => openTestSdk(
+          modules: CitizenSdkModules.wallet | CitizenSdkModules.qr,
+        ).timeout(nativeTimeout),
       );
-      final sdk = core.sdk;
-      await tester.runAsync(
-        () => sdk.importColdAccount(accountId: testCitizenAccountId).result,
-      );
+      final sdk = core!.sdk;
+      var wallet = (await tester.runAsync(
+        () => sdk.importColdAccount(testCitizenAccountId).result.timeout(nativeTimeout),
+      ))!;
+      final current = _Current();
       final calls = <String>[];
       Future<void> stop() async {
         calls.add('stop');
@@ -133,7 +158,7 @@ void main() {
           getBlockBody: reads1.getBlockBody,
           getAccountBalance: reads1.getAccountBalance,
           getAccountBalances: reads1.getAccountBalances,
-          getWalletState: sdk.getWalletState,
+          getWalletState: () => testCitizenOperation(() => wallet),
           events: events.stream,
         );
       })();
@@ -150,10 +175,10 @@ void main() {
           sdkLifecycle: () => CitizenSdkLifecycle.running,
           identityService: publicSync,
           accountSecurity: _Security(),
-          currentUserContext: _Current(),
+          currentUserContext: current,
           finalizedIdentityResolver: _Resolver(),
           cidBusinessGate: CidBusinessGate(
-            currentUserContext: _Current(),
+            currentUserContext: current,
             identityResolver: _Resolver(),
             revision: ValueNotifier<int>(0),
             synchronizeIdentity: (_) async {},
@@ -171,37 +196,26 @@ void main() {
           },
         ),
       );
-      for (var i = 0; i < 100 && publicSync.calls == 0; i++) {
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 5)),
-        );
-        await tester.pump(const Duration(milliseconds: 10));
-      }
+      await pumpUntil(tester, () => publicSync.calls > 0);
       expect(publicSync.calls, 1);
-      await tester.runAsync(() async {
-        for (final name in ['first', 'second']) {
-          final state = await sdk.getWalletState().result;
-          await sdk
-              .renameWallet(
-                expectedRevision: state.revision,
-                walletIndex: state.accounts.first.walletIndex,
-                name: name,
-              )
-              .result;
-        }
-      });
+      // 用操作回执推进目录修订，避免夹具与 Widget 在两个时钟中等待同一次目录读。
+      for (final name in ['first', 'second']) {
+        wallet = (await tester.runAsync(
+          () => sdk.renameWallet(
+            expectedRevision: wallet.revision,
+            walletIndex: wallet.accounts.first.walletIndex,
+            name: name,
+          ).result.timeout(nativeTimeout),
+        ))!;
+        await tester.pump();
+      }
       await tester.pump();
       await tester.pump();
       expect(publicSync.calls, 1, reason: '同一默认账户事件不得重复查询身份');
       expect(runtimeCreations, 0);
       await tester.pumpWidget(const SizedBox.shrink());
       // 新身份监听与交易监听均真实撤销后才停SDK，虚拟帧不能代替原生I/O。
-      await tester.runAsync(() async {
-        for (var i = 0; i < 100 && !calls.contains('stop'); i++) {
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-        }
-      });
-      await tester.pump();
+      await pumpUntil(tester, () => calls.contains('stop'));
       expect(runtimeCreations, 0);
       expect(runtimeCloses, 1);
       expect(cancelled, isTrue);
@@ -210,15 +224,9 @@ void main() {
         expect(calls, isNot(contains('close')));
         expect(sdk.lifecycle, CitizenSdkLifecycle.created);
 
-        await tester.runAsync(() async {
-          await sdk.close();
-        });
+        await tester.runAsync(() => sdk.close().timeout(nativeTimeout));
       } else {
-        await tester.runAsync(() async {
-          for (var i = 0; i < 100 && !calls.contains('close'); i++) {
-            await Future<void>.delayed(const Duration(milliseconds: 10));
-          }
-        });
+        await pumpUntil(tester, () => sdk.lifecycle == CitizenSdkLifecycle.disposed);
         expect(calls.indexOf('stop'), lessThan(calls.indexOf('close')));
         expect(sdk.lifecycle, CitizenSdkLifecycle.disposed);
       }
@@ -234,14 +242,10 @@ void main() {
       expect(tester.takeException(), isNull);
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(storage, null);
-      // 流控制器关闭可能投递真实事件；离开Widget虚拟时钟完成夹具清理。
-      await tester.runAsync(() async {
-        // 合成取消失败会保留历史服务租约；根关闭断言之后单独排空夹具。
-        await history.stop();
-        await events.close();
-
-        await records!.delete(recursive: true);
-      });
+      // 历史租约与监听在测试时钟中排空，文件 I/O 在真实异步区完成。
+      await drain(tester, history.stop(), '历史服务');
+      await drain(tester, events.close(), '历史事件流');
+      await tester.runAsync(() => records!.delete(recursive: true).timeout(nativeTimeout));
     });
   }
 

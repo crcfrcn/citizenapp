@@ -1,7 +1,5 @@
 import 'package:citizen_sdk/citizen_sdk.dart';
 
-import 'dart:typed_data';
-
 import 'package:flutter/widgets.dart' show BuildContext;
 import 'package:citizen_user/identity/voting_identity_payload.dart';
 import 'package:citizen_scanner/qr_sign_session_page.dart';
@@ -34,43 +32,35 @@ class CitizenIdentitySignService {
   final CitizenSdk _qr;
 
   Future<CitizenIdentitySignPrep> prepare(
-    String raw,
+    CitizenQrDocument request,
     CitizenSdk? wallet, {
     CitizenSdkOperation<CitizenWalletState> Function()? getWalletState,
     CitizenWalletStateAccount? requiredAccount,
   }) async {
-    final CitizenQrDocument request;
-    try {
-      request = (await _qr.parseForPurpose(
-        raw,
-        CitizenQrScanPurpose.signingRequest,
-      )).document;
-    } on CitizenSdkException catch (error) {
-      throw CitizenIdentitySignException(error.message);
-    }
-    if (request.action != CitizenQrActions.citizenIdentity) {
+    final payload = request.reviewPayload;
+    final signer = request.signerAccountId;
+    if (request.kind != CitizenQrKind.signRequest ||
+        request.action != CitizenQrActions.citizenIdentity ||
+        payload == null ||
+        signer == null) {
       throw const CitizenIdentitySignException('该二维码不是公民签名确认请求');
     }
     // 原确认页文案归App所有；协议与期限只由SDK验证。
     const actionLabel = '公民签名确认';
-    final decoded = VotingIdentityConsentPayload.decode(
-      Uint8List.fromList(request.reviewPayload!),
-    );
+    final decoded = VotingIdentityConsentPayload.decode(payload);
     if (decoded == null) {
       throw const CitizenIdentitySignException('签名内容无法完整中文展示，已拒绝签名');
     }
-    final requestPublicKey = _normalizeHex(request.signerAccountId!);
-    if (_normalizeHex(decoded.accountId) != requestPublicKey) {
+    if (decoded.accountId != signer) {
       throw const CitizenIdentitySignException('身份载荷钱包与签名请求不一致');
     }
     final account =
         requiredAccount ??
         _findAccount(
           await (getWalletState ?? wallet!.getWalletState)().result,
-          request.signerAccountId!.toLowerCase(),
+          signer,
         );
-    if (account == null ||
-        _normalizeHex(account.accountId) != requestPublicKey) {
+    if (account == null || account.accountId != signer) {
       throw const CitizenIdentitySignException('此签名请求的账户不在本机');
     }
     return CitizenIdentitySignPrep(
@@ -115,19 +105,12 @@ class CitizenIdentitySignService {
     )).canonicalText;
   }
 
-  static String _normalizeHex(String value) {
-    final text = value.startsWith('0x') || value.startsWith('0X')
-        ? value.substring(2)
-        : value;
-    return text.toLowerCase();
-  }
-
   static CitizenWalletStateAccount? _findAccount(
     CitizenWalletState state,
     String accountId,
   ) {
     for (final account in state.accounts) {
-      if (_normalizeHex(account.accountId) == _normalizeHex(accountId)) {
+      if (account.accountId == accountId) {
         return account;
       }
     }

@@ -1,9 +1,7 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 
-import 'package:citizen_citizen/administrators/account_id_codec.dart';
 import 'package:citizen_citizen/administrators/admin_account.dart';
-import 'package:citizen_citizen/account_derivation.dart';
-import 'package:citizen_system/amount_format.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
 class AdminSetEditor extends StatefulWidget {
@@ -15,7 +13,7 @@ class AdminSetEditor extends StatefulWidget {
   });
 
   final List<AdminPerson> admins;
-  final Map<String, double> balances;
+  final Map<String, BigInt> balances;
   final ValueChanged<List<AdminPerson>> onChanged;
 
   @override
@@ -93,7 +91,7 @@ class _AdminSetEditorState extends State<AdminSetEditor> {
             children: [
               Text('${index + 1}'),
               SizedBox(width: AppLayout.scaledValue(8)),
-              Expanded(child: Text(ss58FromAccountIdText(admin.accountId))),
+              Expanded(child: Text(citizenSs58FromAccountId(admin.accountId))),
               IconButton(
                 padding: EdgeInsets.zero,
                 tooltip: '移除',
@@ -106,7 +104,7 @@ class _AdminSetEditorState extends State<AdminSetEditor> {
             ],
           ),
           Text(
-            '余额：${AmountFormat.formatThousands(widget.balances[AdminAccountIdCodec.requireAccountId(admin.accountId)])} 元',
+            '余额：${(widget.balances[admin.accountId] == null ? '--' : formatFen(widget.balances[admin.accountId]!))} 元',
           ),
           SizedBox(height: AppLayout.scaledValue(8)),
           Row(
@@ -145,8 +143,8 @@ class _AdminSetEditorState extends State<AdminSetEditor> {
   }
 
   void _add() {
-    final clean = AdminAccountIdCodec.requireAccountId(_accountController.text);
-    if (clean.length != 64 ||
+    final clean = _accountController.text.trim();
+    if (!isCitizenAccountId(clean) ||
         widget.admins.any((admin) => admin.accountId == clean)) {
       return;
     }

@@ -1,6 +1,6 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 
-import 'package:citizen_user/creator/creator_money.dart';
 import 'package:citizen_user/creator/creator_overview.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_system/theme/app_layout.dart';
@@ -88,7 +88,7 @@ class CreatorOverviewCard extends StatelessWidget {
                 child: _stat(
                   '本月已收入',
                   resolved
-                      ? '${fenToYuanLabel(overview.monthlyIncomeFen)} 元'
+                      ? '${formatFen(BigInt.from(overview.monthlyIncomeFen), group: false, trimZeros: true)} 元'
                       : '--',
                   AppTheme.gold,
                 ),

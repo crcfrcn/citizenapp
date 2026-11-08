@@ -2,16 +2,22 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_offchain/offchain_clearing_rpc.dart';
+import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_storage/user_isar.dart';
+import 'package:citizen_testing/fake_citizen_sdk.dart' show testCitizenAccountId;
+import 'package:citizen_testing/isar_test_env.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 class Rpc extends OffchainClearingBankRpc {
-  Rpc(this.value) : super('wss://clearing.example');
+  Rpc(this.value, {this.onCall}) : super('wss://clearing.example');
   final Object? value;
+  final void Function(List<dynamic>)? onCall;
   final calls = <String>[];
   @override
   Future<dynamic> call(String method, List<dynamic> params) async {
     calls.add(method);
+    onCall?.call(params);
     return value;
   }
 }
@@ -49,6 +55,75 @@ class Socket extends Stream<dynamic> implements WebSocket {
 }
 
 void main() {
+  group('App 清算余额', () {
+    useIsolatedIsar();
+    const first = 'wss://clearing.example';
+    const second = 'wss://other.example';
+
+    test('提现加入磁盘读取时仍合并成一次节点查询，端点和失败值隔离', () async {
+      final id = testCitizenAccountId;
+      final store = UserIsar.instance;
+      await store.writeClearingBalance(id, first, BigInt.one);
+      final other = Rpc(44);
+      final ok = Rpc(
+        '300',
+        onCall: (args) => expect(args, [citizenSs58FromAccountId(id)]),
+      );
+      var primary = ok;
+      final balances = ClearingBalances(
+        rpc: (url) => url == first ? primary : other,
+      );
+      final state = balances.state(accountId: id, wssUrl: first);
+      expect(balances.state(accountId: id, wssUrl: first), same(state));
+
+      final release = Completer<void>();
+      final held = store.read((_) => release.future);
+      final display = state.load();
+      await Future<void>.delayed(Duration.zero);
+      final fresh = state.refresh();
+      expect(state.refresh(), same(fresh));
+      release.complete();
+      await held;
+      await display;
+      expect(await fresh, BigInt.from(300));
+      expect(ok.calls, ['offchain_queryBalance']);
+      expect(state.value, BigInt.from(300));
+
+      final separate = balances.state(accountId: id, wssUrl: second);
+      expect(await separate.refresh(), BigInt.from(44));
+      expect(await store.readClearingBalance(id, first), BigInt.from(300));
+      expect(await store.readClearingBalance(id, second), BigInt.from(44));
+
+      primary = Rpc('-1');
+      await expectLater(state.refresh(), throwsFormatException);
+      expect(state.hasError, isTrue);
+      expect(state.value, BigInt.from(300));
+      expect(await store.readClearingBalance(id, first), BigInt.from(300));
+    });
+
+    test('账户清理后迟到的节点结果不能回填状态或记录', () async {
+      final id = testCitizenAccountId;
+      final reply = Completer<Object?>();
+      final started = Completer<void>();
+      final balances = ClearingBalances(
+        rpc: (_) => Rpc(reply.future, onCall: (_) => started.complete()),
+      );
+      final store = UserIsar.instance;
+      await store.writeClearingBalance(id, first, BigInt.one);
+      final state = balances.state(accountId: id, wssUrl: first);
+      await state.load();
+      expect(state.value, BigInt.one);
+      final refreshing = expectLater(state.refresh(), throwsStateError);
+      await started.future;
+      await balances.remove([id]);
+      reply.complete(99);
+      await refreshing;
+      expect(state.value, isNull);
+      expect(await store.readClearingBalance(id, first), isNull);
+      expect(balances.state(accountId: id, wssUrl: first), isNot(same(state)));
+    });
+  });
+
   test('RPC拒绝缺失、非整数和负nonce，不用默认1冒充真实响应', () async {
     for (final value in [null, 'invalid', 1.5, -1]) {
       await expectLater(

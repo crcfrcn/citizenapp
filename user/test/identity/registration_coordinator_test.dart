@@ -55,7 +55,6 @@ class VerifiedCoordinator extends RegistrationCoordinator {
     )
     registerCid,
     Future<bool> Function(Map<String, dynamic>?)? canRetryChain,
-    required Future<void> Function(FinalizedRegistration) report,
   }) => super.run(
     context: context,
     requireCurrent: requireCurrent,
@@ -64,7 +63,6 @@ class VerifiedCoordinator extends RegistrationCoordinator {
     readFinalized: readFinalized,
     registerCid: registerCid,
     canRetryChain: canRetryChain,
-    report: report,
   );
 }
 
@@ -83,8 +81,8 @@ void main() {
   late Api api;
   late MemoryStore store;
   late RegistrationCoordinator coordinator;
-  int wallets = 0, reports = 0, pages = 0;
-  bool exists = false, failReport = false, cancel = false, guardOk = true;
+  int wallets = 0, pages = 0;
+  bool exists = false, cancel = false, guardOk = true;
   Future<FinalizedRegistration> run() => coordinator.run(
     context: registrationContext(),
     requireCurrent: () async {
@@ -117,31 +115,25 @@ void main() {
       return chainResult();
     },
     canRetryChain: (_) async => false,
-    report: (_) async {
-      reports++;
-      events.add('report');
-      if (failReport) throw StateError('offline');
-    },
   );
   setUp(() {
     events = [];
     api = Api(events);
     store = MemoryStore(events);
     coordinator = RegistrationCoordinator(api: api, store: store);
-    wallets = reports = pages = 0;
-    exists = failReport = cancel = false;
+    wallets = pages = 0;
+    exists = cancel = false;
     guardOk = true;
   });
   tearDown(() => api.close());
-  test('一次人验通过后原交易，最终结果落盘后才报告，无登记状态', () async {
+  test('一次人验通过后原交易，以持久化的最终结果收尾', () async {
     final result = await run();
     expect(result.binding.cidNumber, chainResult().binding.cidNumber);
     expect(wallets, 1);
-    expect(reports, 1);
     expect(pages, 1);
     expect(events.indexOf('siteverify'), lessThan(events.indexOf('balance')));
     expect(events.indexOf('balance'), lessThan(events.indexOf('wallet')));
-    expect(events.indexOf('finalized'), lessThan(events.indexOf('report')));
+    expect(events.last, 'finalized');
     final encoded = store.value!.encode();
     for (final text in [
       'reg_id',
@@ -154,11 +146,10 @@ void main() {
       expect(encoded, isNot(contains(text)));
     }
   });
-  test('人验失败与取消均零链交易、零报告、零存储', () async {
+  test('人验失败与取消均零链交易、零存储', () async {
     api.acceptVerification = false;
     await expectLater(run(), throwsA(isA<RegistrationException>()));
     expect(wallets, 0);
-    expect(reports, 0);
     expect(store.value, isNull);
     api.acceptVerification = true;
     cancel = true;
@@ -166,24 +157,12 @@ void main() {
     expect(events.where((e) => e == 'siteverify'), hasLength(1));
     expect(wallets, 0);
   });
-  test('上报失败保留真实finalized，再试不重新人验或签名注册', () async {
-    failReport = true;
-    await expectLater(
-      run(),
-      throwsA(
-        isA<RegistrationException>().having(
-          (e) => e.code,
-          '代码',
-          'report_pending',
-        ),
-      ),
-    );
-    expect(store.value!.finalized, isNotNull);
-    failReport = false;
-    await run();
+  test('已保存的最终结果可以恢复且不再次注册', () async {
+    final first = await run();
+    final second = await run();
+    expect(second.blockHash, first.blockHash);
     expect(wallets, 1);
     expect(pages, 1);
-    expect(reports, 2);
     expect(store.value!.finalized!.blockHash, chainResult().blockHash);
   });
   test('未知执行只恢复原交易，不再人验或签名', () async {
@@ -209,7 +188,6 @@ void main() {
     );
     expect(pages, 0);
     expect(wallets, 0);
-    expect(reports, 0);
   });
   test('链读取失败与本机检查点失败不进入钱包签名', () async {
     await expectLater(
@@ -226,9 +204,6 @@ void main() {
           wallets++;
           return chainResult();
         },
-        report: (_) async {
-          reports++;
-        },
       ),
       throwsStateError,
     );
@@ -236,17 +211,14 @@ void main() {
     store.failWrite = true;
     await expectLater(run(), throwsStateError);
     expect(wallets, 0);
-    expect(reports, 0);
   });
-  test('已有公民号只报告，账户变化停止后续动作', () async {
+  test('已有公民号保存最终结果，账户变化停止后续动作', () async {
     exists = true;
     await run();
     expect(pages, 0);
     expect(wallets, 0);
-    expect(reports, 1);
     guardOk = false;
     await expectLater(run(), throwsStateError);
-    expect(reports, 1);
   });
   test('同一账户在途合并，结束后释放', () async {
     final gate = Completer<void>();
@@ -257,13 +229,11 @@ void main() {
       showVerification: () async => verification(),
       requireAffordable: () async {},
       readFinalized: () async {
+        calls++;
         await gate.future;
         return chainResult();
       },
       registerCid: (_) async => throw StateError('unexpected'),
-      report: (_) async {
-        calls++;
-      },
     );
     final first = call(), second = call();
     expect(identical(first, second), true);

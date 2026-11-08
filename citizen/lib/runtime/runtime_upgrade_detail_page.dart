@@ -5,10 +5,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:flutter/services.dart';
-import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 
 import 'package:citizen_citizen/administrators/admin_account.dart';
 import 'package:citizen_citizen/administrators/institution_admin_service.dart';
@@ -84,10 +82,7 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
     super.didChangeDependencies();
     if (_dependenciesReady) return;
     final sdk = context.read<CitizenSdk>();
-    _service = RuntimeUpgradeService(
-      chain: sdk,
-      transactions: sdk,
-    );
+    _service = RuntimeUpgradeService(chain: sdk, transactions: sdk);
     _proposalQueryService = ProposalQueryService(chain: sdk);
     _adminService = InstitutionAdminService(chain: sdk);
     _dependenciesReady = true;
@@ -375,7 +370,7 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
         'meta_actor_cid_number': meta?.actorCidNumber,
         'meta_execution_account_id': meta?.executionAccountId == null
             ? null
-            : _accountIdText(meta!.executionAccountId!),
+            : citizenAccountIdFromBytes(meta!.executionAccountId!),
         'joint_yes': jointTally.yes,
         'joint_no': jointTally.no,
         'referendum_yes': referendumTally.yes,
@@ -466,7 +461,7 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
       executionAccountId:
           executionAccountId == null || executionAccountId.isEmpty
           ? null
-          : _accountIdBytes(executionAccountId),
+          : citizenAccountIdBytes(executionAccountId),
     );
   }
 
@@ -492,42 +487,10 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
   }
 
   String _requireAccountId(String accountId) {
-    if (!isAccountIdText(accountId)) {
+    if (!isCitizenAccountId(accountId)) {
       throw const FormatException('account_id 必须为小写 0x + 64 位十六进制');
     }
     return accountId;
-  }
-
-  Uint8List _hexDecode(String hex) {
-    final clean = hex.startsWith('0x') ? hex.substring(2) : hex;
-    final out = Uint8List(clean.length ~/ 2);
-    for (var i = 0; i < out.length; i++) {
-      out[i] = int.parse(clean.substring(i * 2, i * 2 + 2), radix: 16);
-    }
-    return out;
-  }
-
-  String _toHex(List<int> bytes) {
-    const chars = '0123456789abcdef';
-    final buffer = StringBuffer();
-    for (final byte in bytes) {
-      buffer
-        ..write(chars[(byte >> 4) & 0x0f])
-        ..write(chars[byte & 0x0f]);
-    }
-    return buffer.toString();
-  }
-
-  String _accountIdText(List<int> bytes) {
-    if (bytes.length != 32) {
-      throw const FormatException('execution_account_id 必须为 32 字节');
-    }
-    return '0x${_toHex(bytes)}';
-  }
-
-  Uint8List _accountIdBytes(String accountId) {
-    _requireAccountId(accountId);
-    return _hexDecode(accountId);
   }
 
   String _truncateAddress(String address) {
@@ -538,10 +501,6 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
   String _truncateWalletAddress(String address) {
     if (address.length <= 18) return address;
     return '${address.substring(0, 8)}...${address.substring(address.length - 8)}';
-  }
-
-  String _publicKeyToSs58(String publicKey) {
-    return Keyring().encodeAddress(_hexDecode(publicKey), kGmbSs58Prefix);
   }
 
   Future<void> _submitJointVote(bool approve) async {
@@ -557,7 +516,7 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
         actorCidNumber: institution.cidNumber,
         voterRoleCode: _voterRoleCode,
         approve: approve,
-        signerPublicKey: _hexDecode(voteWallet.accountId),
+        signerPublicKey: citizenAccountIdBytes(voteWallet.accountId),
         externalSigning: (pending) => showCitizenSdkQrResponse(
           context,
           request: pending.qrRequest,
@@ -1101,7 +1060,7 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
           style: TextStyle(fontSize: AppLayout.scaledValue(13)),
         ),
         subtitle: Text(
-          _publicKeyToSs58(wallet.accountId),
+          citizenSs58FromAccountId(wallet.accountId),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(

@@ -9,7 +9,6 @@ import 'package:citizen_user/creator/creator_api.dart';
 import 'package:citizen_user/identity/finalized_identity_resolver.dart';
 import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_user/membership/subscription_chain.dart';
-import 'package:citizen_network/hex_codec.dart' show hexToBytes;
 import 'package:citizen_storage/user_isar.dart' show Member;
 
 class CreatorSubscribeException implements Exception {
@@ -111,7 +110,7 @@ class CreatorSubscribeService {
     }
     try {
       final result = await _subscriptionChain.subscribeCreator(
-        signerPublicKey: Uint8List.fromList(hexToBytes(identity.accountId)),
+        signerPublicKey: citizenAccountIdBytes(identity.accountId),
         creatorCid: creatorCid,
         tierId: tierId,
         billingPeriod: period,
@@ -139,7 +138,7 @@ class CreatorSubscribeService {
     final session = await _requireCurrentSession(identity.accountId);
     try {
       final result = await _subscriptionChain.cancelCreator(
-        signerPublicKey: Uint8List.fromList(hexToBytes(identity.accountId)),
+        signerPublicKey: citizenAccountIdBytes(identity.accountId),
         creatorCid: creatorCid,
         externalSigning: (pending) => _showExternalSigning(context, pending),
       );
@@ -170,7 +169,7 @@ class CreatorSubscribeService {
     }
     try {
       final result = await _subscriptionChain.changeCreatorPlan(
-        signerPublicKey: Uint8List.fromList(hexToBytes(identity.accountId)),
+        signerPublicKey: citizenAccountIdBytes(identity.accountId),
         creatorCid: creatorCid,
         tierId: tierId,
         billingPeriod: period,

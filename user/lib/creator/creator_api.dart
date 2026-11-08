@@ -1,5 +1,5 @@
 import 'package:citizen_user/notifications.dart';
-import 'package:citizen_network/chain_bootstrap_api.dart'
+import 'package:citizen_network/citizen_serve_api_config.dart'
     show HttpsOnlyClient;
 
 import 'dart:convert';

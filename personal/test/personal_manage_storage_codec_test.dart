@@ -1,3 +1,5 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
+
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -39,9 +41,7 @@ void main() {
 
   group('PersonalManageStorageCodec', () {
     test('builds personal account id', () {
-      final personal = PersonalManageStorageCodec.accountIdBytes(
-        '0x${'11' * 32}',
-      );
+      final personal = citizenAccountIdBytes('0x${'11' * 32}');
 
       expect(personal.length, 32);
       expect(personal, List<int>.filled(32, 0x11));

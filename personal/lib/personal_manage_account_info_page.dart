@@ -2,7 +2,6 @@ import 'package:citizen_personal/personal_local_store.dart';
 import 'package:citizen_storage/user_isar.dart'
     as wallet_store
     show Account, Action;
-import 'package:citizen_wallet/core/account_balance_snapshot_store.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:async' show unawaited;
@@ -12,8 +11,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/services.dart';
 import 'package:isar_community/isar.dart';
-import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
-import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_storage/user_isar.dart' hide Group;
 import 'package:citizen_multisig/multisig_transfer_entry.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
@@ -21,7 +18,6 @@ import 'package:citizen_citizen/administrators/admin_account.dart';
 import 'package:citizen_citizen/proposal/internal_vote_service.dart';
 import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_system/theme/app_theme.dart';
-import 'package:citizen_system/amount_format.dart';
 
 import 'package:citizen_personal/personal_admin_list_page.dart';
 import 'package:citizen_personal/personal_account_close_page.dart';
@@ -66,7 +62,7 @@ class _PersonalManageAccountInfoPageState
 
   /// 账户余额(元):Active 来自链上 freeFen,Pending 来自本机 Isar
   /// action.snapshot_data.amount_fen(发起人承诺入金)。
-  double? _balanceYuan;
+  BigInt? _balanceFen;
 
   @override
   void initState() {
@@ -147,18 +143,14 @@ class _PersonalManageAccountInfoPageState
               admins: normalizedAdmins,
               status: statusEnum,
             );
-      final balanceSnapshot = await AccountBalanceSnapshotStore.forChain(_chain)
-          .read(widget.institution.accountId);
+      final balanceSnapshot = await _chain.balances.read(
+        widget.institution.accountId,
+      );
       final balance = isClosed
           ? null
           : statusEnum == MultisigStatus.active
-          ? (balanceSnapshot == null
-                ? null
-                : balanceSnapshot.freeFen.toDouble() / 100)
-          : local.pendingBalance ??
-                (balanceSnapshot == null
-                    ? null
-                    : balanceSnapshot.freeFen.toDouble() / 100);
+          ? balanceSnapshot?.freeFen
+          : local.pendingBalance ?? balanceSnapshot?.freeFen;
 
       if (!mounted) return;
       setState(() {
@@ -166,7 +158,7 @@ class _PersonalManageAccountInfoPageState
         _accountInfo = accountInfo;
         _admins = normalizedAdmins;
         _isClosed = isClosed;
-        _balanceYuan = balance;
+        _balanceFen = balance;
         _lastDetailRefreshAtMillis =
             local.detail?.syncedAt ?? local.status?.syncedAt;
       });
@@ -191,10 +183,12 @@ class _PersonalManageAccountInfoPageState
   Future<void> _refreshBalanceIfNeeded({bool force = false}) async {
     if (_localStatus != PersonalMultisigLocalState.statusActive) return;
     try {
-      final snapshot = await AccountBalanceSnapshotStore.forChain(_chain)
-          .getAccountBalance(widget.institution.accountId, forceRefresh: force);
+      final snapshot = await _chain.getAccountBalance(
+        widget.institution.accountId,
+        forceRefresh: force,
+      );
       if (mounted) {
-        setState(() => _balanceYuan = snapshot.freeFen.toDouble() / 100);
+        setState(() => _balanceFen = snapshot.freeFen);
       }
     } catch (_) {
       // 刷新失败保留最近成功显示；不能把失败写成零余额。
@@ -247,7 +241,7 @@ class _PersonalManageAccountInfoPageState
         _isClosed = status == PersonalMultisigLocalState.statusClosed;
         _accountInfo = info;
         _admins = _normalizeAdmins(info?.admins);
-        _balanceYuan = _isClosed ? null : balance ?? _balanceYuan;
+        _balanceFen = _isClosed ? null : balance ?? _balanceFen;
         _lastDetailRefreshAtMillis = now;
       });
     } catch (_) {
@@ -255,16 +249,17 @@ class _PersonalManageAccountInfoPageState
     }
   }
 
-  Future<double?> _resolveBalance(
+  Future<BigInt?> _resolveBalance(
     MultisigStatus? status, {
     bool force = false,
   }) async {
     if (status == MultisigStatus.active) {
       try {
-        final snapshot = await AccountBalanceSnapshotStore.forChain(
-          _chain,
-        ).getAccountBalance(widget.institution.accountId, forceRefresh: force);
-        return snapshot.freeFen.toDouble() / 100;
+        final snapshot = await _chain.getAccountBalance(
+          widget.institution.accountId,
+          forceRefresh: force,
+        );
+        return snapshot.freeFen;
       } catch (_) {
         return null;
       }
@@ -272,7 +267,7 @@ class _PersonalManageAccountInfoPageState
     return UserIsar.instance.read(_readPendingBalanceFromIsar);
   }
 
-  Future<double?> _readPendingBalanceFromIsar(Isar isar) async {
+  Future<BigInt?> _readPendingBalanceFromIsar(Isar isar) async {
     // Pending 态:从本机 Isar action 取
     // (该 multisig 的 create 提案 snapshot 含 amount_fen)。
     try {
@@ -288,9 +283,7 @@ class _PersonalManageAccountInfoPageState
       final snapshot = jsonDecode(entity.snapshotData!) as Map<String, dynamic>;
       final amountFenStr = snapshot['amount_fen']?.toString();
       if (amountFenStr == null) return null;
-      final fen = BigInt.tryParse(amountFenStr);
-      if (fen == null) return null;
-      return fen.toDouble() / 100.0;
+      return BigInt.tryParse(amountFenStr);
     } catch (_) {
       return null;
     }
@@ -329,7 +322,7 @@ class _PersonalManageAccountInfoPageState
       .toList(growable: false);
 
   String _requireAccountId(String accountId) {
-    if (!isAccountIdText(accountId)) {
+    if (!isCitizenAccountId(accountId)) {
       throw const FormatException('account_id 必须为小写 0x + 64 位十六进制');
     }
     return accountId;
@@ -369,8 +362,9 @@ class _PersonalManageAccountInfoPageState
     }
     if (!mounted || wallets.isEmpty) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('请先导入此账户的管理员钱包')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('请先导入此账户的管理员钱包')));
       }
       return;
     }
@@ -480,8 +474,9 @@ class _PersonalManageAccountInfoPageState
     }
     if (!mounted) return;
     if (adminWallets.isEmpty) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('请先导入此多签的管理员钱包')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请先导入此多签的管理员钱包')));
       return;
     }
     final hot = adminWallets.firstWhere(
@@ -500,8 +495,9 @@ class _PersonalManageAccountInfoPageState
     );
     if (!mounted) return;
     if (pid == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('未找到活跃的创建提案,可能已被处理')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('未找到活跃的创建提案,可能已被处理')));
       return;
     }
 
@@ -530,12 +526,9 @@ class _PersonalManageAccountInfoPageState
     if (ok != true || !mounted) return;
 
     try {
-      final publicKeyBytes = _hexDecode(hot.accountId);
+      final publicKeyBytes = citizenAccountIdBytes(hot.accountId);
       final sdk = context.read<CitizenSdk>();
-      await InternalVoteService(
-        chain: sdk,
-        transactions: sdk,
-      ).submit(
+      await InternalVoteService(chain: sdk, transactions: sdk).submit(
         proposalId: pid,
         approve: false,
         signerPublicKey: Uint8List.fromList(publicKeyBytes),
@@ -554,8 +547,9 @@ class _PersonalManageAccountInfoPageState
       Navigator.pop(context);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('撤销失败:$e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('撤销失败:$e')));
     }
   }
 
@@ -648,7 +642,7 @@ class _PersonalManageAccountInfoPageState
   }
 
   Widget _buildContent() {
-    final accountSs58 = _hexToSs58(widget.institution.accountId);
+    final accountSs58 = citizenSs58FromAccountId(widget.institution.accountId);
     final info = _accountInfo;
     final statusLabel = _isClosed
         ? '已注销'
@@ -881,9 +875,7 @@ class _PersonalManageAccountInfoPageState
   /// - Active:wallet 持久化 finalized freeFen(无标签)
   /// - Pending:发起人承诺金额(snapshot.amount_fen)+ "不可用" 灰色标签
   Widget _buildBalanceRow(MultisigStatus? status) {
-    final balanceStr = _balanceYuan == null
-        ? '—'
-        : AmountFormat.format(_balanceYuan!);
+    final balanceStr = _balanceFen == null ? '—' : formatFen(_balanceFen!);
     final isPending = status != MultisigStatus.active;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -911,7 +903,7 @@ class _PersonalManageAccountInfoPageState
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              if (isPending && _balanceYuan != null)
+              if (isPending && _balanceFen != null)
                 Container(
                   padding: EdgeInsets.symmetric(
                     horizontal: AppLayout.scaledValue(6),
@@ -981,18 +973,4 @@ class _PersonalManageAccountInfoPageState
   }
 
   // ──── 工具 ────
-
-  String _hexToSs58(String hex) {
-    final bytes = _hexDecode(hex);
-    return Keyring().encodeAddress(Uint8List.fromList(bytes), kGmbSs58Prefix);
-  }
-
-  Uint8List _hexDecode(String hex) {
-    final h = hex.startsWith('0x') ? hex.substring(2) : hex;
-    final result = Uint8List(h.length ~/ 2);
-    for (var i = 0; i < result.length; i++) {
-      result[i] = int.parse(h.substring(i * 2, i * 2 + 2), radix: 16);
-    }
-    return result;
-  }
 }

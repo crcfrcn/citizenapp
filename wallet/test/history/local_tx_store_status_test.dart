@@ -1,9 +1,9 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_storage/user_isar.dart'
     as wallet_store
     show WalletCursor, Entry;
 import 'package:citizen_wallet/history/local_tx_store.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:citizen_citizen/account_derivation.dart';
 
 import 'package:citizen_testing/isar_test_env.dart';
 
@@ -15,9 +15,40 @@ void main() {
   const fromAddress = 'from-wallet';
   const toAddress = 'to-wallet';
 
+  CitizenTransactionHistoryRecord execution({
+    String txHash = '0xabc',
+    String executionId = 'execution-1',
+    String? callHash,
+    CitizenTransactionHistoryStatus status = CitizenTransactionHistoryStatus.pending,
+    String? blockHash,
+    int? blockNumber,
+    int? extrinsicIndex,
+    String? failReason,
+  }) {
+    final inBlock = status == CitizenTransactionHistoryStatus.inBlock;
+    final block = blockHash == null ? null : CitizenBlockRef(
+      hash: blockHash,
+      number: BigInt.from(blockNumber ?? 0),
+      finality: inBlock ? CitizenBlockFinality.best : CitizenBlockFinality.finalized,
+    );
+    return CitizenTransactionHistoryRecord(
+      executionId: executionId, sourceAccountId: fromAccountId,
+      callDataHash: callHash ?? '0x${'11' * 32}', transactionHash: txHash,
+      status: status, block: block,
+      execution: block == null || extrinsicIndex == null ? null : CitizenExecution(
+        status: status == CitizenTransactionHistoryStatus.finalizedFailed
+            ? CitizenExecutionStatus.failed : CitizenExecutionStatus.success,
+        block: block, extrinsicIndex: extrinsicIndex,
+        dispatchVariant: null, palletIndex: null, errorIndex: null,
+      ),
+      replacementHash: null, createdAtMillis: BigInt.one,
+      updatedAtMillis: BigInt.from(2), poolRejectionReason: failReason,
+    );
+  }
+
   test('对方地址取真实收发双方，净余额因费用为负也不改变收款方向', () {
-    final owner = ss58FromAccountIdText(fromAccountId);
-    final peer = ss58FromAccountIdText('0x${'bb' * 32}');
+    final owner = citizenSs58FromAccountId(fromAccountId);
+    final peer = citizenSs58FromAccountId('0x${'bb' * 32}');
     final incoming = wallet_store.Entry()
       ..accountId = fromAccountId
       ..fromAddress = peer
@@ -95,12 +126,10 @@ void main() {
         ..executionId = source == 'local_submit' ? '' : 'execution-1'
         ..callHash = source == 'local_submit' ? '' : '0x${'11' * 32}';
       await LocalTxStore.upsert(row);
-      await LocalTxStore.markLocalSubmitFinalized(
-        accountId: fromAccountId,
-        txHash: '0xabc',
+      await LocalTxStore.applyExecution(execution(
+      status: CitizenTransactionHistoryStatus.finalizedSuccess,        txHash: '0xabc',
         executionId: row.executionId!,
-        callHash: row.callHash!,
-      );
+        callHash: row.callHash!,    ));
       expect(
         (await LocalTxStore.readEntry(row.rowId))?.entryState,
         LocalTxStore.statusPending,
@@ -109,18 +138,11 @@ void main() {
   });
 
   Future<void> insert({String txHash = '0xabc'}) =>
-      LocalTxStore.upsertLocalSubmitTransfer(
-        accountId: fromAccountId,
-        txHash: txHash,
-        executionId: 'execution-1',
-        callHash: '0x${'11' * 32}',
-        amountDelta: '-101',
-        transferAmount: '100',
-        feeAmount: '1',
+      LocalTxStore.applyExecution(
+        execution(txHash: txHash),
+        amountFen: BigInt.from(100),
         fromAddress: fromAddress,
         toAddress: toAddress,
-
-        createdAt: 1,
         txNote: '备注',
       );
 
@@ -134,7 +156,8 @@ void main() {
     expect(record.callHash, '0x${'11' * 32}');
     expect(record.txHash, '0xabc');
     expect(record.transferAmount, '100');
-    expect(record.feeAmount, '1');
+    expect(record.feeAmount, isNull);
+    expect(record.amountDelta, '0');
     expect(record.txNote, '备注');
     expect(record.entryState, LocalTxStore.statusPending);
   });
@@ -145,27 +168,23 @@ void main() {
         .single
         .rowId;
 
-    await LocalTxStore.markLocalSubmitInBlock(
-      accountId: fromAccountId,
-      txHash: '0xabc',
+    await LocalTxStore.applyExecution(execution(
+      status: CitizenTransactionHistoryStatus.inBlock,      txHash: '0xabc',
       executionId: 'execution-1',
       callHash: '0x${'11' * 32}',
-      blockHash: '0x${'22' * 32}',
-    );
+      blockHash: '0x${'22' * 32}',    ));
     expect(
       (await LocalTxStore.queryByAccountId(fromAccountId)).single.entryState,
       LocalTxStore.statusInBlock,
     );
 
-    await LocalTxStore.markLocalSubmitFinalized(
-      accountId: fromAccountId,
-      txHash: '0xabc',
+    await LocalTxStore.applyExecution(execution(
+      status: CitizenTransactionHistoryStatus.finalizedSuccess,      txHash: '0xabc',
       executionId: 'execution-1',
       callHash: '0x${'11' * 32}',
       blockHash: '0x${'22' * 32}',
       blockNumber: 9,
-      extrinsicIndex: 2,
-    );
+      extrinsicIndex: 2,    ));
     final after = (await LocalTxStore.queryByAccountId(fromAccountId)).single;
     expect(after.rowId, before);
     expect(after.entryState, LocalTxStore.statusFinalized);
@@ -175,13 +194,11 @@ void main() {
 
   test('SDK 交易池拒绝只更新失败展示，不丢失业务字段', () async {
     await insert(txHash: '0xdef');
-    await LocalTxStore.markLocalSubmitFailed(
-      accountId: fromAccountId,
-      txHash: '0xdef',
+    await LocalTxStore.applyExecution(execution(
+      status: CitizenTransactionHistoryStatus.poolRejected,      txHash: '0xdef',
       executionId: 'execution-1',
       callHash: '0x${'11' * 32}',
-      failReason: 'pool rejected',
-    );
+      failReason: 'pool rejected',    ));
 
     final record = (await LocalTxStore.queryByAccountId(fromAccountId)).single;
     expect(record.entryState, LocalTxStore.statusFailed);
@@ -193,19 +210,15 @@ void main() {
   test('拒绝 executionId 或 callDataHash 不匹配的 SDK 状态投影', () async {
     await insert();
 
-    await LocalTxStore.markLocalSubmitFinalized(
-      accountId: fromAccountId,
-      txHash: '0xabc',
+    await LocalTxStore.applyExecution(execution(
+      status: CitizenTransactionHistoryStatus.finalizedSuccess,      txHash: '0xabc',
       executionId: 'other-execution',
-      callHash: '0x${'11' * 32}',
-    );
-    await LocalTxStore.markLocalSubmitFailed(
-      accountId: fromAccountId,
-      txHash: '0xabc',
+      callHash: '0x${'11' * 32}',    ));
+    await LocalTxStore.applyExecution(execution(
+      status: CitizenTransactionHistoryStatus.poolRejected,      txHash: '0xabc',
       executionId: 'execution-1',
       callHash: '0x${'22' * 32}',
-      failReason: 'must-not-apply',
-    );
+      failReason: 'must-not-apply',    ));
 
     final record = (await LocalTxStore.queryByAccountId(fromAccountId)).single;
     expect(record.entryState, LocalTxStore.statusPending);
@@ -239,15 +252,13 @@ void main() {
     expect(records.single.executionId, 'execution-1');
     expect(records.single.entryState, LocalTxStore.statusPending);
 
-    await LocalTxStore.markLocalSubmitFinalized(
-      accountId: fromAccountId,
-      txHash: '0xabc',
+    await LocalTxStore.applyExecution(execution(
+      status: CitizenTransactionHistoryStatus.finalizedSuccess,      txHash: '0xabc',
       executionId: 'execution-1',
       callHash: '0x${'11' * 32}',
       blockHash: '0x${'33' * 32}',
       blockNumber: 10,
-      extrinsicIndex: 2,
-    );
+      extrinsicIndex: 2,    ));
     expect(
       (await LocalTxStore.queryByAccountId(fromAccountId)).single.entryState,
       LocalTxStore.statusFinalized,
@@ -400,13 +411,13 @@ void main() {
     expect(record.feeAmount, '10');
     expect(record.entryState, LocalTxStore.statusPending);
     expect((await LocalTxStore.historyCursor(fromAccountId))!.cursorBlock, 10);
-    await LocalTxStore.markLocalSubmitFailed(
-      accountId: fromAccountId,
-      txHash: '0xabc',
+    await LocalTxStore.applyExecution(execution(
+      status: CitizenTransactionHistoryStatus.finalizedFailed,      txHash: '0xabc',
       executionId: 'execution-1',
       callHash: '0x${'11' * 32}',
-      failReason: 'SDK确认执行失败',
-    );
+      blockHash: '0x${'33' * 32}',
+      blockNumber: 10,
+      extrinsicIndex: 2,    ));
     expect(
       (await LocalTxStore.queryByAccountId(fromAccountId)).single.entryState,
       LocalTxStore.statusFailed,

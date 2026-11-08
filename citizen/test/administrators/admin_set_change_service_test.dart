@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_sdk/test/platform/fixture.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 import 'package:citizen_citizen/administrators/admin_set_change_service.dart';
 import 'package:citizen_citizen/administrators/admin_account.dart';
@@ -12,6 +13,9 @@ final block = CitizenBlockRef(
   number: BigInt.from(50),
   finality: CitizenBlockFinality.finalized,
 );
+Future<Uint8List> buildCall(String pallet, String method, Object fields) async =>
+    (await CitizenSdkTestFixture.runtimeContext(block)).encodeCall(pallet, method, fields);
+
 CitizenPreparedTransaction prepared() => CitizenPreparedTransaction(
   preparationId: 'prepared',
   sourceAccountId: signer,
@@ -77,10 +81,11 @@ AdminAccountState account({int status = 1}) => AdminAccountState(
   personalStatus: status,
 );
 void main() {
-  test('管理员64人及严格多数边界，65人拒绝', () {
+  test('管理员64人及严格多数边界，65人拒绝', () async {
     final service = (() {
       final reads0 = TestTransactionCalls();
       return AdminsChangeService(
+        buildCall: buildCall,
         prepareTransaction: reads0.prepareTransaction,
         executePreparedTransaction: reads0.executePreparedTransaction,
         cancelPreparedTransactionExecution:
@@ -90,7 +95,7 @@ void main() {
       );
     })();
     expect(
-      service.buildCallData(
+      await service.buildCallData(
         account: account(),
         proposerAccountId: person(1).accountId,
         admins: List.generate(64, (i) => person(i + 1)),
@@ -116,6 +121,7 @@ void main() {
       final tx = flow(cold: cold);
       final result =
           await AdminsChangeService(
+            buildCall: buildCall,
             prepareTransaction: tx.prepareTransaction,
             executePreparedTransaction: tx.executePreparedTransaction,
             cancelPreparedTransactionExecution:
@@ -155,6 +161,7 @@ void main() {
           : [person(1), person(3)];
       await expectLater(
         AdminsChangeService(
+          buildCall: buildCall,
           prepareTransaction: tx.prepareTransaction,
           executePreparedTransaction: tx.executePreparedTransaction,
           cancelPreparedTransactionExecution:
@@ -177,10 +184,10 @@ void main() {
       expect(tx.prepareCount, 0);
     });
   }
-  test('取消与回调异常取消pending，未返回完整执行不能报成功', () async {
-    for (final fail in ['cancel', 'callback', 'missing', 'failed']) {
+  test('取消与冷签异常释放原执行，未返回完整执行不能报成功', () async {
+    for (final fail in ['cancel', 'callback', 'consume', 'missing', 'failed']) {
       final tx = flow(
-        cold: ['cancel', 'callback'].contains(fail),
+        cold: ['cancel', 'callback', 'consume'].contains(fail),
         result: completed(
           missing: fail == 'missing',
           resolution: fail == 'failed'
@@ -188,8 +195,12 @@ void main() {
               : CitizenTransactionResolution.finalizedSuccess,
         ),
       );
+      if (fail == 'consume') {
+        tx.consume = (_, _) async => throw StateError('合成响应消费失败');
+      }
       await expectLater(
         AdminsChangeService(
+          buildCall: buildCall,
           prepareTransaction: tx.prepareTransaction,
           executePreparedTransaction: tx.executePreparedTransaction,
           cancelPreparedTransactionExecution:
@@ -203,12 +214,12 @@ void main() {
           signerPublicKey: signer,
           externalSigning: (_) async {
             if (fail == 'callback') throw StateError('合成失败');
-            return null;
+            return fail == 'consume' ? 'synthetic-response' : null;
           },
         ),
         throwsStateError,
       );
-      expect(tx.cancelCount, ['cancel', 'callback'].contains(fail) ? 1 : 0);
+      expect(tx.cancelCount, ['cancel', 'callback', 'consume'].contains(fail) ? 1 : 0);
     }
   });
 }

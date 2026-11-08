@@ -1,3 +1,5 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
+
 import 'dart:typed_data';
 
 /// 公权/私权机构 关闭机构多签账户提案详情（从链上 ProposalData 解码）。
@@ -18,7 +20,7 @@ class CloseProposalInfo {
   final int proposalId;
   final String actorCidNumber;
 
-  /// 多签账户公钥 hex（32 字节，不含 0x 前缀）。
+  /// 销户提案的公开结果及快照使用 64 位小写十六进制正文。
   final String institutionAccountId;
 
   /// 受益人 SS58 地址。
@@ -31,10 +33,8 @@ class CloseProposalInfo {
   final int? status;
 
   /// 机构多签 AccountId32。
-  Uint8List get institutionBytes {
-    final addrBytes = _hexDecode(institutionAccountId);
-    return Uint8List.fromList(addrBytes);
-  }
+  Uint8List get institutionBytes =>
+      citizenAccountIdBytes('0x$institutionAccountId');
 
   CloseProposalInfo copyWithStatus(int? newStatus) {
     return CloseProposalInfo(
@@ -46,15 +46,4 @@ class CloseProposalInfo {
       status: newStatus,
     );
   }
-}
-
-// ──── 工具函数 ────
-
-Uint8List _hexDecode(String hex) {
-  final h = hex.startsWith('0x') ? hex.substring(2) : hex;
-  final result = Uint8List(h.length ~/ 2);
-  for (var i = 0; i < result.length; i++) {
-    result[i] = int.parse(h.substring(i * 2, i * 2 + 2), radix: 16);
-  }
-  return result;
 }

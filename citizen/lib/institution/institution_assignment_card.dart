@@ -1,7 +1,6 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 
-import 'package:citizen_citizen/account_derivation.dart';
-import 'package:citizen_system/amount_format.dart';
 
 import 'package:citizen_citizen/institution/institution_role_models.dart';
 
@@ -13,13 +12,13 @@ class InstitutionAssignmentCard extends StatelessWidget {
     super.key,
     required this.adminView,
     this.index,
-    this.balanceYuan,
+    this.balanceFen,
     this.trailing,
   });
 
   final InstitutionAdminView adminView;
   final int? index;
-  final double? balanceYuan;
+  final BigInt? balanceFen;
   final Widget? trailing;
   static const double actionHeight = 30;
 
@@ -56,9 +55,9 @@ class InstitutionAssignmentCard extends StatelessWidget {
                 if (assignment.sourceRef.isNotEmpty)
                   Text('来源引用：${assignment.sourceRef}'),
               ],
-            Text('管理员账户：${ss58FromAccountIdText(admin.accountId)}'),
-            if (balanceYuan != null)
-              Text('余额：${AmountFormat.formatThousands(balanceYuan)} 元'),
+            Text('管理员账户：${citizenSs58FromAccountId(admin.accountId)}'),
+            if (balanceFen != null)
+              Text('余额：${formatFen(balanceFen!)} 元'),
           ],
         ),
       ),

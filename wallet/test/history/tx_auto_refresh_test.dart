@@ -140,18 +140,22 @@ void main() {
     tester,
   ) async {
     await tester.runAsync(() async {
-      await LocalTxStore.upsertLocalSubmitTransfer(
-        accountId: fromAccountId,
-        txHash: '0xfeed',
-        amountDelta: '-101',
-        transferAmount: '100',
-        feeAmount: '1',
+      CitizenTransactionHistoryRecord record(CitizenTransactionHistoryStatus status) =>
+          CitizenTransactionHistoryRecord(
+            executionId: 'execution-refresh', sourceAccountId: fromAccountId,
+            callDataHash: '0x${'11' * 32}', transactionHash: '0xfeed',
+            status: status,
+            block: status == CitizenTransactionHistoryStatus.pending ? null :
+                CitizenBlockRef(hash: '0x22', number: BigInt.from(9),
+                    finality: CitizenBlockFinality.finalized),
+            execution: null, replacementHash: null, createdAtMillis: BigInt.one,
+            updatedAtMillis: BigInt.from(2), poolRejectionReason: null,
+          );
+      await LocalTxStore.applyExecution(
+        record(CitizenTransactionHistoryStatus.pending),
+        amountFen: BigInt.from(100),
         fromAddress: fromAddress,
         toAddress: toAddress,
-        executionId: 'execution-refresh',
-        callHash: '0x${'11' * 32}',
-
-        createdAt: 1,
       );
 
       final seen = <void>[];
@@ -162,13 +166,8 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 150)); // 订阅生效
 
       // 模拟 SDK history 把记录投影为 finalized。
-      await LocalTxStore.markLocalSubmitFinalized(
-        accountId: fromAccountId,
-        txHash: '0xfeed',
-        executionId: 'execution-refresh',
-        callHash: '0x${'11' * 32}',
-        blockHash: '0x22',
-        blockNumber: 9,
+      await LocalTxStore.applyExecution(
+        record(CitizenTransactionHistoryStatus.finalizedSuccess),
       );
       await Future<void>.delayed(const Duration(milliseconds: 200)); // 通知送达
 

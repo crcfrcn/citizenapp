@@ -1,3 +1,5 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
+
 import 'dart:io';
 
 import 'package:crypto/crypto.dart' as crypto_hash;
@@ -145,7 +147,7 @@ class MlsStateStore {
     required MlsAuthenticationRequest request,
   }) async {
     request.validate();
-    if (!RegExp(r'^0x[0-9a-f]{64}$').hasMatch(accountId) ||
+    if (!isCitizenAccountId(accountId) ||
         bindingRevision < 0 ||
         bindingRevision > MlsAuthenticationRequest.maxJsonInteger) {
       throw ArgumentError('MLS认证账户事实无效');

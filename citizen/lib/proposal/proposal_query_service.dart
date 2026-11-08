@@ -1,10 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:citizen_wallet/history/citizenchain_transaction_event_decoder.dart';
-
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:polkadart/polkadart.dart' show Hasher;
 import 'package:citizen_citizen/institution/institution_code_label.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
@@ -23,6 +20,7 @@ class ProposalQueryService {
     Future<Uint8List?> Function(CitizenBlockRef block)? getSystemEvents,
     Future<CitizenRuntimeContext> Function(CitizenBlockRef block)?
     getRuntimeContext,
+    Future<CitizenRuntimeContext> Function(CitizenBlockRef)? getStorageRuntimeContext,
     Future<CitizenBlockRef> Function()? getFinalizedHead,
     Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
     getStorage,
@@ -36,18 +34,19 @@ class ProposalQueryService {
          chain: chain,
          block: block,
          getFinalizedHead: getFinalizedHead,
+         getRuntimeContext: getStorageRuntimeContext ?? getRuntimeContext,
          getStorage: getStorage,
          getStorageBatch: getStorageBatch,
        ),
-       _getSystemEvents =
-           getSystemEvents ??
-           chain?.getSystemEvents ??
-           ((CitizenBlockRef block) => throw StateError('未配置getSystemEvents')),
-       _getRuntimeContext =
-           getRuntimeContext ??
-           chain?.getRuntimeContext ??
-           ((CitizenBlockRef block) =>
-               throw StateError('未配置getRuntimeContext')),
+       _getFinalizedEvents = ((block) => readCitizenFinalizedEvents(
+             block,
+             readEvents: getSystemEvents ?? chain?.getSystemEvents ??
+                 ((_) => throw StateError('未配置事件读取')),
+             readRuntime: getRuntimeContext ?? chain?.getRuntimeContext ??
+                 ((_) => throw StateError('未配置事件 metadata')),
+           )),
+       _getStorageRuntimeContext = getStorageRuntimeContext ?? getRuntimeContext ??
+           chain?.getRuntimeContext ?? ((block) => throw StateError('未配置getRuntimeContext')),
        _getFinalizedHead =
            getFinalizedHead ??
            chain?.getFinalizedHead ??
@@ -57,10 +56,9 @@ class ProposalQueryService {
            chain?.getStorage ??
            ((CitizenBlockRef block, Uint8List key) =>
                throw StateError('未配置getStorage'));
-  final Future<Uint8List?> Function(CitizenBlockRef block) _getSystemEvents;
-  final Future<CitizenRuntimeContext> Function(CitizenBlockRef block)
-  _getRuntimeContext;
+  final Future<List<CitizenSystemEvent>> Function(CitizenBlockRef) _getFinalizedEvents;
   final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<CitizenRuntimeContext> Function(CitizenBlockRef) _getStorageRuntimeContext;
   final Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)
   _getStorage;
 
@@ -70,51 +68,42 @@ class ProposalQueryService {
   /// 与 runtime `MaxActiveProposals = 10` 对齐的提案主体上限。
   static const maxActiveProposalsPerSubject = 10;
 
-  /// 按执行块metadata逐条解码完整System.Events，保留真实交易索引。
-  /// 禁止扫描载荷中的相似字节；topics固定为H256，不能当成字符串跳过。
-  Future<List<({int? index, String pallet, String name, Object? fields})>>
-  fetchExecutionEvents(CitizenExecution execution) async {
-    final block = execution.block;
-    if (block.finality != CitizenBlockFinality.finalized ||
-        execution.status != CitizenExecutionStatus.success) {
+  /// 只返回 SDK 已验证区块中归属本次成功执行的事件。
+  Future<List<CitizenSystemEvent>> fetchExecutionEvents(
+    CitizenExecution execution,
+  ) async {
+    if (execution.status != CitizenExecutionStatus.success) {
       throw StateError('事件确认需要成功的finalized执行');
     }
-    final bytes = await _getSystemEvents(block);
-    if (bytes == null || bytes.isEmpty) {
-      throw const FormatException('执行块缺少System.Events');
-    }
-    final context = await _getRuntimeContext(block);
-    if (context.block.hash != block.hash ||
-        context.block.number != block.number ||
-        context.block.finality != block.finality) {
-      throw StateError('事件metadata与执行块不一致');
-    }
-    try {
-      final raw = CitizenChainTransactionEventDecoder.decodeEvents(
-        eventsBytes: bytes,
-        metadataBytes: context.metadata,
-      );
-      return raw.map((record) {
-        final phase = record['phase'] as Map;
-        final event = record['event'] as Map;
-        final pallet = event.keys.single as String;
-        final variant = event.values.single as Map;
-        return (
-          index: phase['ApplyExtrinsic'] as int?,
-          pallet: pallet,
-          name: variant.keys.single as String,
-          fields: variant.values.single,
-        );
-      }).toList();
-    } catch (_) {
-      throw const FormatException('System.Events或metadata编码无效');
-    }
+    final events = await _getFinalizedEvents(execution.block);
+    return events.where((event) =>
+        event.extrinsicIndex == execution.extrinsicIndex).toList();
   }
+
+  /// 比较业务期待的原字节与 SDK 交付的 metadata 字段。
+  static bool eventBytesEqual(Object? value, List<int> expected) {
+    while (value is List<Object?> && value.length == 1 &&
+        value.single is List<Object?>) {
+      value = value.single;
+    }
+    if (value is! List<Object?> || value.length != expected.length) return false;
+    for (var i = 0; i < expected.length; i++) {
+      if (value[i] != expected[i].toString()) return false;
+    }
+    return true;
+  }
+
+  /// 当前业务的可选 CID／岗位文本使用 metadata 给出的精确 Option 分支。
+  static bool eventOptionalText(Object? value, String? expected) => switch (value) {
+    {'variant': 'None', 'fields': []} => expected == null,
+    {'variant': 'Some', 'fields': [final payload]} =>
+      expected != null && eventBytesEqual(payload, utf8.encode(expected)),
+    _ => false,
+  };
 
   /// 查询 NextProposalId（投票引擎全局递增 ID）。
   Future<int> fetchNextProposalId() async {
-    final key = _buildStorageValueKey('VotingEngine', 'NextProposalId');
-    final data = await _readStorage(key);
+    final data = await _readStorage('VotingEngine', 'NextProposalId');
     if (data == null) return 0;
     if (data.length != 8) throw const FormatException('NextProposalId长度无效');
     return _decodeU64(data);
@@ -122,12 +111,7 @@ class ProposalQueryService {
 
   /// 查询提案状态。返回 status（0投票中、1通过、2否决、3已执行、4执行失败），null 表示不存在。
   Future<int?> fetchProposalStatus(int proposalId) async {
-    final key = _buildStorageKey(
-      'VotingEngine',
-      'Proposals',
-      _u64ToLeBytes(proposalId),
-    );
-    final data = await _readStorage(key);
+    final data = await _readStorage('VotingEngine', 'Proposals', [proposalId]);
     if (data == null) return null;
     final meta = decodeProposalMeta(proposalId, data);
     if (meta == null) throw const FormatException('Proposals编码无效');
@@ -136,12 +120,7 @@ class ProposalQueryService {
 
   /// 查询并严格解码投票引擎提案元数据。
   Future<ProposalMeta?> fetchProposalMeta(int proposalId) async {
-    final key = _buildStorageKey(
-      'VotingEngine',
-      'Proposals',
-      _u64ToLeBytes(proposalId),
-    );
-    final data = await _readStorage(key);
+    final data = await _readStorage('VotingEngine', 'Proposals', [proposalId]);
     if (data == null) return null;
     final meta = decodeProposalMeta(proposalId, data);
     if (meta == null) throw const FormatException('Proposals编码无效');
@@ -153,23 +132,12 @@ class ProposalQueryService {
   /// 具体 PersonalManage／机构治理语义仍由各 App 业务解码器负责；本服务仅统一
   /// App 侧 storage key，底层 finalized 读取继续由 CitizenSDK 执行。
   Future<Uint8List?> fetchProposalData(int proposalId) {
-    return _readStorage(
-      _buildStorageKey(
-        'VotingEngine',
-        'ProposalData',
-        _u64ToLeBytes(proposalId),
-      ),
-    );
+    return _readStorage('VotingEngine', 'ProposalData', [proposalId]);
   }
 
   /// 查询并严格解码提案绑定的 VotePlan。
   Future<VotePlan?> fetchVotePlan(int proposalId) async {
-    final key = _buildStorageKey(
-      'VotingEngine',
-      'ProposalVotePlans',
-      _u64ToLeBytes(proposalId),
-    );
-    final data = await _readStorage(key);
+    final data = await _readStorage('VotingEngine', 'ProposalVotePlans', [proposalId]);
     return data == null
         ? null
         : InstitutionRoleStorageCodec.decodeVotePlan(data);
@@ -253,12 +221,7 @@ class ProposalQueryService {
 
   /// 查询投票计数。
   Future<({int yes, int no})> fetchVoteTally(int proposalId) async {
-    final key = _buildStorageKey(
-      'InternalVote',
-      'InternalTallies',
-      _u64ToLeBytes(proposalId),
-    );
-    final data = await _readStorage(key);
+    final data = await _readStorage('InternalVote', 'InternalTallies', [proposalId]);
     if (data == null) return (yes: 0, no: 0);
     if (data.length != 8) throw const FormatException('InternalTallies长度无效');
     return (yes: _decodeU32(data, 0), no: _decodeU32(data, 4));
@@ -266,12 +229,7 @@ class ProposalQueryService {
 
   /// 查询内部投票阈值快照。
   Future<int?> fetchInternalThresholdSnapshot(int proposalId) async {
-    final key = _buildStorageKey(
-      'InternalVote',
-      'InternalThresholdSnapshot',
-      _u64ToLeBytes(proposalId),
-    );
-    final data = await _readStorage(key);
+    final data = await _readStorage('InternalVote', 'InternalThresholdSnapshot', [proposalId]);
     if (data == null) return null;
     if (data.length != 4) {
       throw const FormatException('InternalThresholdSnapshot长度无效');
@@ -284,13 +242,10 @@ class ProposalQueryService {
     int proposalId,
     InstitutionInfo institution,
   ) async {
-    final key = _buildDoubleStorageKey(
-      'VotingEngine',
-      'AdminSnapshot',
-      _u64ToLeBytes(proposalId),
-      proposalSubjectKey(institution),
-    );
-    final data = await _readStorage(key);
+    final data = await _readStorage('VotingEngine', 'AdminSnapshot', [
+      proposalId,
+      (scale: proposalSubjectKey(institution)),
+    ]);
     if (data == null) {
       throw StateError('提案 $proposalId 缺少 VotingEngine::AdminSnapshot');
     }
@@ -325,13 +280,10 @@ class ProposalQueryService {
       ..addByte(0) // AuthorizationSubject::Institution
       ..add(_encodeBoundedText(cidNumber, 32, 'cid_number'))
       ..add(_encodeBoundedText(voterRoleCode, 64, 'voter_role_code'));
-    final key = _buildDoubleStorageKey(
-      'VotingEngine',
-      'VoterSnapshot',
-      _u64ToLeBytes(proposalId),
-      subject.toBytes(),
-    );
-    final data = await _readStorage(key);
+    final data = await _readStorage('VotingEngine', 'VoterSnapshot', [
+      proposalId,
+      (scale: subject.toBytes()),
+    ]);
     if (data == null) {
       throw StateError('提案 $proposalId 缺少岗位 $voterRoleCode 的 VoterSnapshot');
     }
@@ -387,11 +339,7 @@ class ProposalQueryService {
     if (bytes.isEmpty || bytes.length > maxBytes) {
       throw ArgumentError('$field 长度不合法');
     }
-    final length = bytes.length;
-    final prefix = length < 64
-        ? <int>[length << 2]
-        : <int>[(length << 2 | 1) & 0xff, (length << 2 | 1) >> 8];
-    return Uint8List.fromList([...prefix, ...bytes]);
+    return Uint8List.fromList([...CitizenScale.compact(bytes.length), ...bytes]);
   }
 
   /// 查询某个提案主体当前的活跃提案 ID。
@@ -409,12 +357,9 @@ class ProposalQueryService {
   Future<List<int>> _fetchActiveProposalIdsBySubjectKey(
     Uint8List subjectKey,
   ) async {
-    final key = _buildStorageKey(
-      'VotingEngine',
-      'ActiveProposalsBySubject',
-      subjectKey,
-    );
-    final data = await _readStorage(key);
+    final data = await _readStorage('VotingEngine', 'ActiveProposalsBySubject', [
+      (scale: subjectKey),
+    ]);
     if (data == null) return const [];
     final decoded = decodeActiveProposalIds(data);
     if (decoded == null) {
@@ -448,78 +393,17 @@ class ProposalQueryService {
     return _internalVoteQuery.fetchTicketVotesBatch(proposalId, tickets);
   }
 
-  /// 每个公开查询都先锁定一个 SDK 验证的 finalized 块，业务 key 仍由
-  /// VotingEngine 模块生成，不将 pallet 语义下沉到 CitizenSDK。
-  Future<Uint8List?> _readStorage(Uint8List key) async {
+  Future<Uint8List?> _readStorage(
+    String pallet,
+    String storage, [
+    List<Object> keys = const [],
+  ]) async {
     final finalized = _block ?? await _getFinalizedHead();
     if (finalized.finality != CitizenBlockFinality.finalized) {
       throw StateError('提案查询需要finalized块');
     }
-    return _getStorage(finalized, key);
-  }
-
-  Uint8List _buildStorageValueKey(String palletName, String storageName) {
-    final palletHash = Hasher.twoxx128.hashString(palletName);
-    final storageHash = Hasher.twoxx128.hashString(storageName);
-    final key = Uint8List(palletHash.length + storageHash.length);
-    key.setAll(0, palletHash);
-    key.setAll(palletHash.length, storageHash);
-    return key;
-  }
-
-  Uint8List _buildStorageKey(
-    String palletName,
-    String storageName,
-    Uint8List keyData,
-  ) {
-    final palletHash = Hasher.twoxx128.hashString(palletName);
-    final storageHash = Hasher.twoxx128.hashString(storageName);
-    final keyHash = _blake2128Concat(keyData);
-    final result = Uint8List(
-      palletHash.length + storageHash.length + keyHash.length,
-    );
-    var offset = 0;
-    result.setAll(offset, palletHash);
-    offset += palletHash.length;
-    result.setAll(offset, storageHash);
-    offset += storageHash.length;
-    result.setAll(offset, keyHash);
-    return result;
-  }
-
-  Uint8List _buildDoubleStorageKey(
-    String palletName,
-    String storageName,
-    Uint8List key1Data,
-    Uint8List key2Data,
-  ) {
-    final palletHash = Hasher.twoxx128.hashString(palletName);
-    final storageHash = Hasher.twoxx128.hashString(storageName);
-    final key1Hash = _blake2128Concat(key1Data);
-    final key2Hash = _blake2128Concat(key2Data);
-    final result = Uint8List(
-      palletHash.length +
-          storageHash.length +
-          key1Hash.length +
-          key2Hash.length,
-    );
-    var offset = 0;
-    result.setAll(offset, palletHash);
-    offset += palletHash.length;
-    result.setAll(offset, storageHash);
-    offset += storageHash.length;
-    result.setAll(offset, key1Hash);
-    offset += key1Hash.length;
-    result.setAll(offset, key2Hash);
-    return result;
-  }
-
-  Uint8List _blake2128Concat(Uint8List data) {
-    final hash = Hasher.blake2b128.hash(data);
-    final result = Uint8List(hash.length + data.length);
-    result.setAll(0, hash);
-    result.setAll(hash.length, data);
-    return result;
+    final runtime = await _getStorageRuntimeContext(finalized);
+    return _getStorage(finalized, runtime.storageKey(pallet, storage, keys));
   }
 
   /// `VotingEngine::ProposalSubject` 的唯一 SCALE 编码真源。
@@ -544,13 +428,13 @@ class ProposalQueryService {
     if (cidBytes.isEmpty || cidBytes.length > 32) {
       throw ArgumentError('机构 CID 的 UTF-8 长度必须为 1..32 字节');
     }
-    final length = _encodeCompactInt(cidBytes.length);
+    final length = CitizenScale.compact(cidBytes.length);
     return Uint8List.fromList([0, ...length, ...cidBytes]);
   }
 
   /// `ProposalSubject::PersonalAccount` 编码；AccountId 必须恰好 32 字节。
   static Uint8List personalAccountSubjectKey(String accountId) {
-    return Uint8List.fromList([1, ...accountIdBytes(accountId)]);
+    return Uint8List.fromList([1, ...citizenAccountIdBytes(accountId)]);
   }
 
   /// 严格解码 `BoundedVec<AccountId32>` 管理员快照。
@@ -560,7 +444,7 @@ class ProposalQueryService {
       if (lenSize + count * 32 != data.length) return null;
       return List<String>.unmodifiable([
         for (var offset = lenSize; offset < data.length; offset += 32)
-          '0x${_hexEncode(Uint8List.fromList(data.sublist(offset, offset + 32)))}',
+          citizenAccountIdFromBytes(data.sublist(offset, offset + 32)),
       ]);
     } catch (_) {
       return null;
@@ -577,61 +461,17 @@ class ProposalQueryService {
       }
       return List<int>.unmodifiable([
         for (var offset = lenSize; offset < data.length; offset += 8)
-          ByteData.sublistView(
-            data,
-            offset,
-            offset + 8,
-          ).getUint64(0, Endian.little),
+          CitizenScale.readUnsigned(data, offset, 8).toInt(),
       ]);
     } catch (_) {
       return null;
     }
   }
 
-  static Uint8List _encodeCompactInt(int value) {
-    if (value < 1 << 6) return Uint8List.fromList([value << 2]);
-    if (value < 1 << 14) {
-      final encoded = (value << 2) | 1;
-      return Uint8List.fromList([encoded & 0xff, encoded >> 8]);
-    }
-    final encoded = (value << 2) | 2;
-    return Uint8List.fromList([
-      encoded & 0xff,
-      (encoded >> 8) & 0xff,
-      (encoded >> 16) & 0xff,
-      (encoded >> 24) & 0xff,
-    ]);
-  }
-
   static (int, int) _decodeCompact(Uint8List data, int offset) {
-    if (offset < 0 || offset >= data.length) {
-      throw const FormatException('Compact<u32> offset 越界');
-    }
-    final first = data[offset];
-    final mode = first & 0x03;
-    if (mode == 0) return (first >> 2, 1);
-    if (mode == 1) {
-      if (offset + 1 >= data.length) {
-        throw const FormatException('Compact<u32> mode1 长度不足');
-      }
-      final val = (data[offset] | (data[offset + 1] << 8)) >> 2;
-      if (val < 64) throw const FormatException('Compact编码非最短');
-      return (val, 2);
-    }
-    if (mode == 2) {
-      if (offset + 3 >= data.length) {
-        throw const FormatException('Compact<u32> mode2 长度不足');
-      }
-      final val =
-          (data[offset] |
-              (data[offset + 1] << 8) |
-              (data[offset + 2] << 16) |
-              (data[offset + 3] << 24)) >>
-          2;
-      if (val < 16384) throw const FormatException('Compact编码非最短');
-      return (val, 4);
-    }
-    throw const FormatException('Compact<u32> big-integer 模式不支持');
+    final result = CitizenScale.readCompact(data, offset);
+    if (result.$2 > 4) throw const FormatException('Compact<u32>长度超出范围');
+    return result;
   }
 
   static (String, int)? _readCidNumber(Uint8List data, int offset) {
@@ -666,25 +506,8 @@ class ProposalQueryService {
     return (List.unmodifiable(result), cursor);
   }
 
-  Uint8List _u64ToLeBytes(int value) {
-    if (value < 0) throw ArgumentError('proposal_id不得为负');
-    final bytes = Uint8List(8);
-    final bd = ByteData.sublistView(bytes);
-    bd.setUint64(0, value, Endian.little);
-    return bytes;
-  }
+  int _decodeU64(Uint8List data) => CitizenScale.readUnsigned(data, 0, 8).toInt();
 
-  int _decodeU64(Uint8List data) {
-    final bd = ByteData.sublistView(data);
-    return bd.getUint64(0, Endian.little);
-  }
-
-  int _decodeU32(Uint8List data, int offset) {
-    final bd = ByteData.sublistView(data);
-    return bd.getUint32(offset, Endian.little);
-  }
-
-  static String _hexEncode(Uint8List bytes) {
-    return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
-  }
+  int _decodeU32(Uint8List data, int offset) =>
+      CitizenScale.readUnsigned(data, offset, 4).toInt();
 }

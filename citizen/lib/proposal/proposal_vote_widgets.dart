@@ -1,13 +1,9 @@
 import 'package:citizen_sdk/citizen_sdk.dart';
 
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
-import 'package:polkadart_keyring/polkadart_keyring.dart' show Keyring;
 
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
-import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
 // ──── 投票进度组件 ────
@@ -153,7 +149,7 @@ class ProposalAdminVoteList extends StatelessWidget {
                     : voterTickets[index];
                 final accountId = ticket?.voterAccountId ?? admins[index];
                 final vote = adminVotes[ticket?.ticketKey ?? accountId];
-                final ss58 = _publicKeyToSS58(accountId);
+                final ss58 = citizenSs58FromAccountId(accountId);
                 final isProposer = proposerSs58 != null && proposerSs58 == ss58;
 
                 return ListTile(
@@ -630,21 +626,6 @@ class ProposalStatusBadge extends StatelessWidget {
 }
 
 // ──── 共享工具 ────
-
-String _publicKeyToSS58(String publicKey) {
-  final hex = publicKey.startsWith('0x') ? publicKey.substring(2) : publicKey;
-  final bytes = _hexDecode(hex);
-  return Keyring().encodeAddress(bytes, kGmbSs58Prefix);
-}
-
-Uint8List _hexDecode(String hex) {
-  final h = hex.startsWith('0x') ? hex.substring(2) : hex;
-  final result = Uint8List(h.length ~/ 2);
-  for (var i = 0; i < result.length; i++) {
-    result[i] = int.parse(h.substring(i * 2, i * 2 + 2), radix: 16);
-  }
-  return result;
-}
 
 String _truncateAddress(String address) {
   if (address.length <= 14) return address;

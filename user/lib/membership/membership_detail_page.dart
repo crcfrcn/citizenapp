@@ -1,7 +1,6 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:citizen_user/square_api_client.dart';
-import 'package:citizen_user/creator/creator_money.dart'
-    show fenToYuanMoneyLabel;
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
@@ -214,7 +213,7 @@ class MembershipDetailPage extends StatelessWidget {
                   ),
                   SizedBox(width: AppLayout.scaledValue(6)),
                   Text(
-                    priceFen == null ? '—' : fenToYuanMoneyLabel(priceFen!),
+                    priceFen == null ? '—' : '${formatFen(BigInt.from(priceFen!))} 元',
                     style: TextStyle(
                       color: onTier,
                       fontSize: AppLayout.scaledValue(18),

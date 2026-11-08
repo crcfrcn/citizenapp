@@ -1,6 +1,7 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
+
 import 'dart:convert';
 
-import 'package:citizen_citizen/administrators/account_id_codec.dart';
 import 'package:citizen_citizen/administrators/admin_account.dart';
 
 class AdminSetValidationResult {
@@ -66,7 +67,10 @@ class AdminSetValidation {
   }
 
   static String _requireAccountId(String value) {
-    return AdminAccountIdCodec.requireAccountId(value);
+    if (!isCitizenAccountId(value)) {
+      throw const FormatException('管理员账户标识无效');
+    }
+    return value;
   }
 
   static String _normalizeName(String value, String fallback, String label) {

@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:citizen_wallet/core/account_balance_snapshot_store.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'package:flutter/material.dart';
@@ -37,7 +36,7 @@ class WalletOnchainBalanceCard extends StatefulWidget {
 /// State 类公开(去掉下划线)是为了支持外层 [GlobalKey] 引用,
 /// 下拉刷新时由 [WalletDetailPage] 通过 key 调 [refresh()]。
 class WalletOnchainBalanceCardState extends State<WalletOnchainBalanceCard> {
-  late WalletBalanceState<CitizenAccountBalance> _balance;
+  late CitizenBalanceState<CitizenAccountBalance> _balance;
 
   @override
   void initState() {
@@ -49,9 +48,10 @@ class WalletOnchainBalanceCardState extends State<WalletOnchainBalanceCard> {
   void _bind() {
     final loader = widget.balanceLoader;
     _balance = loader == null
-        ? AccountBalanceSnapshotStore.forChain(context.read<CitizenSdk>())
-              .accountState(widget.wallet.accountId)
-        : WalletBalanceState((_) => loader(widget.wallet.accountId));
+        ? context.read<CitizenSdk>().balances.accountState(
+            widget.wallet.accountId,
+          )
+        : CitizenBalanceState((_) => loader(widget.wallet.accountId));
     _balance.addListener(_changed);
     unawaited(refresh(forceRefresh: false));
   }
@@ -164,7 +164,7 @@ class WalletOnchainBalanceCardState extends State<WalletOnchainBalanceCard> {
         textBaseline: TextBaseline.alphabetic,
         children: [
           Text(
-            AccountBalanceSnapshotStore.formatFen(_balance.value!.totalFen),
+            formatFen(_balance.value!.totalFen),
             style: TextStyle(
               fontSize: AppLayout.scaledValue(44),
               fontWeight: FontWeight.w700,

@@ -1,23 +1,18 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizen_citizen/pallet_registry.dart';
-
-import 'package:polkadart/scale_codec.dart' show CompactBigIntCodec, ByteOutput;
 
 /// 扫码支付清算体系中清算行(L2)业务的链上 RuntimeCall 与执行入口。
 ///
-///
-/// - 对应 `offchain-transaction` pallet 的 4 个 call(call_index 30/31/32/33):
-///   `bind_clearing_bank` / `deposit` / `withdraw` / `switch_bank`。原省储行
-///   `bind_clearing_institution` (call_index 9) 已在 Step 2b-iv-b 随老 pallet
-///   删除。
-/// - CitizenApp 只保留 RuntimeCall SCALE 编码；nonce、era、tip、sr25519、
+/// - 绑定和切换使用机构 CID，由 Runtime metadata 决定调用编码。
+/// - CitizenApp 负责选择清算调用和参数；nonce、era、tip、sr25519、
 ///   extrinsic 和 finalized execution 全部由 CitizenSDK 负责。
 /// - 所有金额参数以**分**为单位的整数进入 SCALE 编码,与链上 `u128` 对齐。
 class OnchainClearingBankChain {
   OnchainClearingBankChain({
     CitizenSdk? transactions,
+    CitizenCallBuilder? buildCall,
     Future<CitizenPreparedTransaction> Function(
       Uint8List sourceAccountId,
       Uint8List callData,
@@ -32,7 +27,9 @@ class OnchainClearingBankChain {
       String response,
     )?
     consumePreparedTransactionQrResponse,
-  }) : _prepareTransaction =
+  }) : _buildCall = buildCall ?? transactions?.buildCall ??
+           ((_, _, _) => throw StateError('未配置 RuntimeCall 编码')),
+       _prepareTransaction =
            prepareTransaction ??
            transactions?.prepareTransaction ??
            ((Uint8List sourceAccountId, Uint8List callData) =>
@@ -52,6 +49,7 @@ class OnchainClearingBankChain {
            transactions?.consumePreparedTransactionQrResponse ??
            ((String executionId, String response) =>
                throw StateError('未配置consumePreparedTransactionQrResponse'));
+  final CitizenCallBuilder _buildCall;
   final Future<CitizenPreparedTransaction> Function(
     Uint8List sourceAccountId,
     Uint8List callData,
@@ -67,32 +65,20 @@ class OnchainClearingBankChain {
   )
   _consumePreparedTransactionQrResponse;
 
-  /// `OffchainTransaction` pallet index(citizenchain runtime 定义)。
-  static const int _palletIndex = PalletRegistry.offchainTransactionPallet;
-
-  /// 4 个 call_index(对应 lib.rs call_index 30~33)。
-  static const int _bindClearingBankCallIndex =
-      PalletRegistry.bindClearingBankCall;
-  static const int _depositCallIndex = PalletRegistry.depositCall;
-  static const int _withdrawCallIndex = PalletRegistry.withdrawCall;
-  static const int _switchBankCallIndex = PalletRegistry.switchBankCall;
-
-  // ──────────── 公开接口:4 个新 extrinsic ────────────
-
-  /// `bind_clearing_bank(bank_main_account_id)`:L3 绑定清算行(绑定即开户,无预存)。
+  /// `bind_clearing_bank(bank_cid)` 绑定清算行，绑定即开户，无预存。
   ///
   /// [signerPublicKey]     L3 用户公钥(32 字节)
-  /// [bankMainAccountId]  目标清算行**主账户**地址(32 字节,从 CID API 拿到 hex 后解码)
+  /// [bankCid] 目标清算行的机构 CID。
   /// [externalSigning]  冷账户展示 SDK QR_V1 后返回的扫描原文
   Future<({String txHash, int usedNonce})> bindClearingBank({
     required Uint8List signerPublicKey,
-    required Uint8List bankMainAccountId,
+    required String bankCid,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
     )
     externalSigning,
-  }) {
-    final callData = _buildBindClearingBankCall(bankMainAccountId);
+  }) async {
+    final callData = await _buildBankCidCall('bind_clearing_bank', bankCid);
     return _executeFinalized(
       signerPublicKey: signerPublicKey,
       callData: callData,
@@ -110,8 +96,8 @@ class OnchainClearingBankChain {
       CitizenTransactionExternalSigningPending pending,
     )
     externalSigning,
-  }) {
-    final callData = _buildAmountOnlyCall(_depositCallIndex, amountFen);
+  }) async {
+    final callData = await _buildAmountOnlyCall('deposit', amountFen);
     return _executeFinalized(
       signerPublicKey: signerPublicKey,
       callData: callData,
@@ -127,8 +113,8 @@ class OnchainClearingBankChain {
       CitizenTransactionExternalSigningPending pending,
     )
     externalSigning,
-  }) {
-    final callData = _buildAmountOnlyCall(_withdrawCallIndex, amountFen);
+  }) async {
+    final callData = await _buildAmountOnlyCall('withdraw', amountFen);
     return _executeFinalized(
       signerPublicKey: signerPublicKey,
       callData: callData,
@@ -136,19 +122,16 @@ class OnchainClearingBankChain {
     );
   }
 
-  /// `switch_bank(new_bank)`:切换清算行(前置:旧清算行余额必须为 0)。
+  /// `switch_bank(new_bank_cid)` 切换清算行，旧清算行余额必须为 0。
   Future<({String txHash, int usedNonce})> switchBank({
     required Uint8List signerPublicKey,
-    required Uint8List newBankMainAccountId,
+    required String bankCid,
     required Future<String?> Function(
       CitizenTransactionExternalSigningPending pending,
     )
     externalSigning,
-  }) {
-    final callData = _buildAccountIdCall(
-      _switchBankCallIndex,
-      newBankMainAccountId,
-    );
+  }) async {
+    final callData = await _buildBankCidCall('switch_bank', bankCid);
     return _executeFinalized(
       signerPublicKey: signerPublicKey,
       callData: callData,
@@ -158,37 +141,20 @@ class OnchainClearingBankChain {
 
   // ──────────── 内部：业务 RuntimeCall 编码 ────────────
 
-  /// `bind_clearing_bank` 与 `switch_bank` 都是接受单个 AccountId 参数,统一编码。
-  ///
-  /// 格式:`[pallet_index=19] [call_index] [account_id: [u8;32]]`。
-  Uint8List _buildBindClearingBankCall(Uint8List bankMainAccountId) {
-    return _buildAccountIdCall(_bindClearingBankCallIndex, bankMainAccountId);
+  Future<Uint8List> _buildBankCidCall(String method, String bankCid) {
+    final bytes = Uint8List.fromList(utf8.encode(bankCid));
+    if (bytes.isEmpty || bytes.length > 32) {
+      throw ArgumentError('清算行机构 CID 必须为 1 到 32 个 UTF-8 字节');
+    }
+    return _buildCall('OffchainTransaction', method, [bytes]);
   }
 
-  Uint8List _buildAccountIdCall(int callIndex, Uint8List accountId) {
-    if (accountId.length != 32) {
-      throw ArgumentError('account_id 必须是 32 字节,实际 ${accountId.length}');
+  /// 链端金额字段是 u128，由同一 Runtime metadata 决定实际字节。
+  Future<Uint8List> _buildAmountOnlyCall(String method, BigInt amountFen) {
+    if (amountFen <= BigInt.zero || amountFen.bitLength > 128) {
+      throw ArgumentError('amount 必须为正 u128 分');
     }
-    final output = ByteOutput()
-      ..pushByte(_palletIndex)
-      ..pushByte(callIndex)
-      ..write(accountId);
-    return output.toBytes();
-  }
-
-  /// 仅含 amount 参数的 RuntimeCall（deposit/withdraw 共用）。
-  ///
-  /// 格式:`[pallet_index=19] [call_index] [Compact<u128>(amount_fen)]`
-  /// 与链上 `pub fn deposit(origin, amount: u128)` 严格对齐。
-  Uint8List _buildAmountOnlyCall(int callIndex, BigInt amountFen) {
-    if (amountFen <= BigInt.zero) {
-      throw ArgumentError('amount 必须大于 0(分),实际 $amountFen');
-    }
-    final output = ByteOutput()
-      ..pushByte(_palletIndex)
-      ..pushByte(callIndex)
-      ..write(CompactBigIntCodec.codec.encode(amountFen));
-    return output.toBytes();
+    return _buildCall('OffchainTransaction', method, [amountFen]);
   }
 
   /// 把 App 业务 callData 直接交给 CitizenSDK；nonce、era、签名、
@@ -203,20 +169,13 @@ class OnchainClearingBankChain {
   }) async {
     final prepared = await _prepareTransaction(signerPublicKey, callData);
     final started = await _executePreparedTransaction(prepared.preparationId);
-    CitizenTransactionExecutionCompleted completed;
-    if (started is CitizenTransactionExternalSigningPending) {
-      final response = await externalSigning(started);
-      if (response == null) {
-        await _cancelPreparedTransactionExecution(started.executionId);
-        throw StateError('清算行链上交易签名已取消');
-      }
-      completed = await _consumePreparedTransactionQrResponse(
-        started.executionId,
-        response,
-      );
-    } else {
-      completed = started as CitizenTransactionExecutionCompleted;
-    }
+    final completed = await completeCitizenTransaction(
+      started,
+      requestResponse: externalSigning,
+      consumeResponse: _consumePreparedTransactionQrResponse,
+      cancelExecution: _cancelPreparedTransactionExecution,
+    );
+    if (completed == null) throw StateError('清算行链上交易签名已取消');
     if (completed.resolution != CitizenTransactionResolution.finalizedSuccess) {
       throw StateError(completed.poolRejectionReason ?? '清算行链上交易执行失败');
     }

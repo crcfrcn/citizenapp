@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:isar_community/isar.dart';
-import 'package:citizen_sdk/account_codec.dart' show citizenSs58FromAccountId;
+import 'package:citizen_sdk/citizen_sdk.dart' show citizenSs58FromAccountId;
 import 'package:citizen_system/security/system_protected_storage.dart';
 import 'package:citizen_storage/isar_core_bootstrap.dart';
 
@@ -700,7 +700,7 @@ class Entry {
 
   /// 该钱包实际余额变化（分），带正负号；正数=增加，负数=减少。
   ///
-  /// Dart int 在不同平台上不适合承载链上 u128，统一用十进制字符串保存。
+  /// 未附加链上事件的本机提交先存 0，展示时按待核实处理。u128 使用十进制字符串。
   @Name('amount_delta')
   late String amountDelta;
 
@@ -708,7 +708,7 @@ class Entry {
   @Name('transfer_amount')
   String? transferAmount;
 
-  /// 手续费（分），不带正负号；只有本钱包支付手续费时记录。
+  /// 有事件锚的手续费为已验证实扣（分）。无锚的既有本机费用只供预估展示。
   @Name('fee_amount')
   String? feeAmount;
 
@@ -945,6 +945,85 @@ class UserIsar {
         EntrySchema,
         WalletCursorSchema,
       ];
+
+  /// SDK 的存储回调只读写原余额正文中的链上快照。
+  Future<String?> readBalance(String accountId) => read((isar) async {
+    final row = await isar.collection<Balance>().getByAccountId(accountId);
+    return _chainBalance(_balanceRecord(row?.bodyData));
+  });
+
+  Future<void> writeBalance(
+    String accountId,
+    String? Function(String?) update,
+  ) => _writeBalanceRecord(accountId, (record) {
+    final body = update(_chainBalance(record));
+    if (body == null) {
+      record.remove('chain');
+    } else {
+      final chain = jsonDecode(body) as Map<String, dynamic>;
+      record['chain'] = chain['chain'] as Map<String, dynamic>;
+    }
+  });
+
+  Future<BigInt?> readClearingBalance(String accountId, String wssUrl) =>
+      read((isar) async {
+        final row = await isar.collection<Balance>().getByAccountId(accountId);
+        final balances = _balanceRecord(row?.bodyData)['clearing_balances'];
+        final raw = balances is Map ? balances[wssUrl] : null;
+        final value = raw is String ? BigInt.tryParse(raw) : null;
+        return value != null && !value.isNegative ? value : null;
+      });
+
+  Future<void> writeClearingBalance(
+    String accountId,
+    String wssUrl,
+    BigInt fen,
+  ) => _writeBalanceRecord(accountId, (record) {
+    final current = record['clearing_balances'];
+    final balances = current is Map<String, dynamic>
+        ? current
+        : <String, dynamic>{};
+    balances[wssUrl] = fen.toString();
+    record['clearing_balances'] = balances;
+  });
+
+  Future<void> removeClearingBalances(String accountId) =>
+      _writeBalanceRecord(accountId, (record) {
+        record.remove('clearing_balances');
+      });
+
+  Future<void> _writeBalanceRecord(
+    String accountId,
+    void Function(Map<String, dynamic>) update,
+  ) => writeTxn((isar) async {
+    final rows = isar.collection<Balance>();
+    final row = await rows.getByAccountId(accountId);
+    final record = _balanceRecord(row?.bodyData);
+    update(record);
+    if (record.isEmpty) {
+      if (row != null) await rows.delete(row.rowId);
+    } else {
+      await rows.putByAccountId(
+        (row ?? (Balance()..accountId = accountId))
+          ..bodyData = jsonEncode(record),
+      );
+    }
+  });
+
+  static String? _chainBalance(Map<String, dynamic> record) {
+    final chain = record['chain'];
+    return chain is Map ? jsonEncode({'chain': chain}) : null;
+  }
+
+  static Map<String, dynamic> _balanceRecord(String? body) {
+    if (body == null) return {};
+    try {
+      final record = jsonDecode(body);
+      return record is Map<String, dynamic> ? record : {};
+    } on FormatException {
+      return {};
+    }
+  }
 
   /// 给低优先级后台任务判断是否让路；前台读写仍应直接排队执行。
   bool get hasActiveOperation => _operationActive;

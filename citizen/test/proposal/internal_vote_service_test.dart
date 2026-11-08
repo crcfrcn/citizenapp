@@ -8,6 +8,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_sdk/test/platform/fixture.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 import 'package:citizen_citizen/proposal/internal_vote_service.dart';
 
@@ -68,11 +69,8 @@ TestCitizenTransactionFlow flow({
   ..consume = ((_, _) async => result ?? completed())
   ..cancel = ((_) async {});
 
-/// 合成metadata只描述真实runtime事件字段；字节由依赖官方V14编码器生成。
+/// 按 SDK 所属 V15 Runtime 金标的布局构造独立事件输入。
 /// 历史票据键不参与此事件的who；who始终是当前交易签名账户。
-Uint8List voteMetadata() => base64Decode(
-  'bWV0YQ48AAAABQMABAAABQUACAAABQYADAAABQAAEAAAAyAAAAAAABQAAAIAABgAAAEMOEFwcGx5RXh0cmluc2ljBAAEARhzaGFyZWQAAAAwRmluYWxpemF0aW9uAAEAOEluaXRpYWxpemF0aW9uAAIAABwAAAEEQEludGVybmFsVm90ZUNhc3QQASxwcm9wb3NhbF9pZAgAAAEMd2hvEAAAATx2b3Rlcl9yb2xlX2NvZGU0AAABHGFwcHJvdmUMAAAAAAAgAAABCDBJbnRlcm5hbFZvdGUEABwAABQAJEpvaW50Vm90ZQQAOAAAFQAAJAAAAhAAKAAAAAwBFHBoYXNlGAEYc2hhcmVkAAEUZXZlbnQgARhzaGFyZWQAARh0b3BpY3MkARhzaGFyZWQAACwAAAIoADAAAAQAADQAAAEIEE5vbmUAAAAQU29tZQQAFAAAAQAAOAAAAQR4Sm9pbnRJbnN0aXR1dGlvblRpY2tldFZvdGVDYXN0FAEscHJvcG9zYWxfaWQIAAABKGNpZF9udW1iZXIUAAABDHdobxAAAAE8dm90ZXJfcm9sZV9jb2RlFAAAARxhcHByb3ZlDAAAAAAABBhTeXN0ZW0BGFN5c3RlbQQYRXZlbnRzAQAsBAAAAAAAAAAwBAAw',
-);
 Uint8List voteEvents({
   bool joint = false,
   String? role = 'DIRECTOR',
@@ -126,13 +124,8 @@ class Chain extends TestChainReads {
   }
 
   @override
-  Future<CitizenRuntimeContext> getRuntimeContext(CitizenBlockRef ref) async =>
-      CitizenRuntimeContext(
-        block: contextBlock ?? ref,
-        specVersion: 1,
-        transactionVersion: 1,
-        metadata: voteMetadata(),
-      );
+  Future<CitizenRuntimeContext> getRuntimeContext(CitizenBlockRef ref) =>
+      CitizenSdkTestFixture.runtimeContext(contextBlock ?? ref);
   @override
   Future<Uint8List?> getStorage(CitizenBlockRef ref, Uint8List key) async {
     reads.add(ref);
@@ -163,10 +156,12 @@ void main() {
               ..events = voteEvents(role: institutional ? 'DIRECTOR' : null);
         final result =
             await InternalVoteService(
+              buildCall: _buildCall,
               queryFactory: (block) => ProposalQueryService(
                 block: block,
                 getSystemEvents: chain.getSystemEvents,
                 getRuntimeContext: chain.getRuntimeContext,
+                getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
                 getFinalizedHead: chain.getFinalizedHead,
                 getStorage: chain.getStorage,
                 getStorageBatch: chain.getStorageBatch,
@@ -208,10 +203,12 @@ void main() {
           (() {
             final reads0 = Chain();
             return InternalVoteService(
+              buildCall: _buildCall,
               queryFactory: (block) => ProposalQueryService(
                 block: block,
                 getSystemEvents: reads0.getSystemEvents,
                 getRuntimeContext: reads0.getRuntimeContext,
+                getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
                 getFinalizedHead: reads0.getFinalizedHead,
                 getStorage: reads0.getStorage,
                 getStorageBatch: reads0.getStorageBatch,
@@ -273,10 +270,12 @@ void main() {
           (() {
             final reads0 = flow(cold: cold);
             return InternalVoteService(
+              buildCall: _buildCall,
               queryFactory: (block) => ProposalQueryService(
                 block: block,
                 getSystemEvents: chain.getSystemEvents,
                 getRuntimeContext: chain.getRuntimeContext,
+                getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
                 getFinalizedHead: chain.getFinalizedHead,
                 getStorage: chain.getStorage,
                 getStorageBatch: chain.getStorageBatch,
@@ -307,10 +306,12 @@ void main() {
           (() {
             final reads0 = Chain();
             return InternalVoteService(
+              buildCall: _buildCall,
               queryFactory: (block) => ProposalQueryService(
                 block: block,
                 getSystemEvents: reads0.getSystemEvents,
                 getRuntimeContext: reads0.getRuntimeContext,
+                getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
                 getFinalizedHead: reads0.getFinalizedHead,
                 getStorage: reads0.getStorage,
                 getStorageBatch: reads0.getStorageBatch,
@@ -348,10 +349,12 @@ void main() {
         (() {
           final reads0 = flow(result: completed(resolution: resolution));
           return InternalVoteService(
+            buildCall: _buildCall,
             queryFactory: (block) => ProposalQueryService(
               block: block,
               getSystemEvents: chain.getSystemEvents,
               getRuntimeContext: chain.getRuntimeContext,
+              getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
               getFinalizedHead: chain.getFinalizedHead,
               getStorage: chain.getStorage,
               getStorageBatch: chain.getStorageBatch,
@@ -386,10 +389,12 @@ void main() {
         (() {
           final reads0 = Chain();
           return InternalVoteService(
+            buildCall: _buildCall,
             queryFactory: (block) => ProposalQueryService(
               block: block,
               getSystemEvents: reads0.getSystemEvents,
               getRuntimeContext: reads0.getRuntimeContext,
+              getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
               getFinalizedHead: reads0.getFinalizedHead,
               getStorage: reads0.getStorage,
               getStorageBatch: reads0.getStorageBatch,
@@ -414,4 +419,13 @@ void main() {
       expect(tx.cancelCount, 0);
     }
   });
+}
+
+Future<Uint8List> _buildCall(String pallet, String method, Object fields) async {
+  final runtime = await CitizenSdkTestFixture.runtimeContext(CitizenBlockRef(
+    hash: '0x${'11' * 32}',
+    number: BigInt.one,
+    finality: CitizenBlockFinality.finalized,
+  ));
+  return runtime.encodeCall(pallet, method, fields);
 }

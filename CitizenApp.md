@@ -38,7 +38,7 @@ GitHub官方缓存只保存Flutter、Pub、Cargo和Gradle可再生内容，不�
 
 钱包目录是 App 最外层门禁：SDK 报 empty 时 `WalletGate` 清空深页栈并显示钱包初始化页，状态未知不得当作无钱包或放行。钱包就绪后，公民服务业务先通过 `CidBusinessGate` 判定当前默认账户的公民号有或没有；读取失败仅表示本次操作失败。本机绑定缺失时用 `FinalizedIdentityResolver` 核对链上事实；确认未注册才显示各页共用的 `IdentityRegisterGuide`，链读取失败不冒充未注册。链上已有公民号而本机绑定缺失时复用 `MyIdService` 的 finalized 收敛入口恢复公开绑定。`SquareSessionProvider` 在门禁返回 ready 前不读取、创建或登记 MLS 设备；注册验证和缴纳注册链费所需请求仍允许在取得公民号前执行。
 
-广场、聊天、通讯录、用户主页、会员、创作者及详情入口使用统一注册引导，只有引导中的注册按钮打开身份选择面板。面板在提交期间保留选择并阻止关闭，空闲时可以主动取消。注册、人验、结果上报和设备持钥职责统一遵循本文“公民注册与设备认证”合同。
+广场、聊天、通讯录、用户主页、会员、创作者及详情入口使用统一注册引导，只有引导中的注册按钮打开身份选择面板。面板在提交期间保留选择并阻止关闭，空闲时可以主动取消。注册、人验和设备持钥职责统一遵循本文“公民注册与设备认证”合同。
 
 确认余额不足时留在注册面板，显示准确错误及充值/USDT、充值/USDC按钮，由用户主动选择；只向当前选择账户充值，返回后不自动签名。余额读取错误、网络故障和未知链结果不能冒充余额不足、未注册或注册成功。受保护业务继续要求会话、设备和实际请求持钥证明。
 
@@ -148,7 +148,7 @@ SDK返回初始化需求及真实状态；App按该状态显示原页面。任�
 
 根实例销毁先停止业务历史监听；其异常单独记录，不能跳过SDK有序停止。运行态SDK仍须stop成功才close，checkpoint失败不强行销毁、不虚报排空；其余初始化和业务不改。
 
-交易页以 _canSubmit 和 _submitBlockedReason 检查轻节点是否就绪、备注限制及真实调用前的条件。同步状态由顶栏展示，签名按钮下不显示底层能力错误。
+交易页以 _canSubmit 和 _submitBlockedReason 检查轻节点是否就绪。顶栏订阅 SDK 链状态流。转账提交前以报价块的 Runtime 常量核对备注 UTF-8 字节数，准备交易时按当前链尖再次核对非空备注。
 
 钱包页面测试在删除隔离数据库前销毁 Widget 并有界排空原生查询和监听。真实事件清理不依赖 Widget 虚拟时钟。
 
@@ -173,7 +173,7 @@ App的严格SDK测试通道按实际session/requestSequence关联预设错误；
 
 用户码的两个既有入口先取得SDK encodeDocument结果，再进入原UserQrPage；页面只接收已编码文本，原标题、昵称、SS58、复制/保存按钮及底部说明不因协议迁属改变。签名摘要、SCALE字符串/u64及管理员原始载荷接SDK encodePayload。SDK钱包操作读取result取得同次真实状态；胁迫擦除仍用原delete，不换成signAndDelete。
 
-普通冷签与交易冷签共用历史QrSignSessionPage；扫码响应先交SDK非消费验签，失败保留原弹窗与重扫，通过即关闭页面，把原文交回既有消费方，不把广播和交易确认提前到二维码页面内。扫码预览仅绘制SDK Texture并转发页面/前后台生命周期；相册选择仍归App，图像与QR识别只调用SDK。旧App协议文件与ScannerController/backend已按清单删除，二维码显示与协议测试接同一SDK能力，不恢复App第二实现。
+普通冷签与交易冷签共用 QrSignSessionPage。相机和相册直接交付 CitizenQrScanResult，响应的 canonicalText 进入 SDK 非消费预检。失败保留提示和重扫，通过后交原 SDK 会话消费。预览绘制 SDK Texture 并转发页面及前后台生命周期，相册选择归 App，图像和二维码识别归 SDK。
 
 ScannerView统一消费SDK纹理的width/height与剩余rotationDegrees：只旋转一次，不在交易、冷导入或通讯录入口增加Android判断。Android纹理已经应用的相机变换由SDK扣除；方向变化只更新同一采集资源的尺寸/角度。原BoxFit.cover和扫码遮罩保留，回归覆盖零补偿、四向更新、比例及单次打开/关闭。
 
@@ -199,7 +199,7 @@ AppQrImage 绘制 SDK 灰度图。App 不实现二维码编码、纠错、掩码
 - 原“签名并删除”会先由账户0签名本机随机挑战并验签，成功后才删除；恢复该文字必须接SDK对应受控授权操作，不能直接调用无挑战的删除。原付款钱包选择、热钱包内部active账户和全局默认账户是不同调用语义，不能因采用统一SDK目录而擅自合并或多弹签名流程。
 - 原AccountDetail私钥查看包含独立警告与不可点遮罩关闭的展示框；WalletDetail原件使用另一组文案和默认遮罩关闭，不能统一成新弹窗。警告、文字、布局、关闭路径按各自原件恢复，秘密授权、租约与清退仍由SDK安全合同支撑；历史清理时序的不足须显式核定，不能以原样为由保留秘密泄漏。
 - 钱包身份、链上余额、三项操作和账户二维码使用各自展示组件。二维码颜色、尺寸和模块形状由 App 决定，协议与矩阵由 SDK 生成。
-- 冷导入支持手填账户 ID 或 SS58，扫码只接受账户码。错误在表单内显示，导入成功才返回。
+- 冷钱包表单接受规范 AccountId 或公民链 SS58 地址。扫码只接受账户码，并将 SDK 返回的 AccountId 填入表单。用户确认后，App 将输入原样提交给 SDK `importColdAccount`。失败时保留输入并在表单内显示错误，成功后返回。
 
 AppTheme 和 AppLayout 统一提供主题与布局。钱包 UI 回归覆盖菜单顺序、短地址、默认标记、失败保留和 iOS 左缘返回。PIN、锁定次数、擦除、推送登记和后台资源处理沿各自安全合同运行。SDK 关闭测试核对实际排空。
 
@@ -221,9 +221,9 @@ iOS 正式包的扫码回归分别从交易页地址栏、我的钱包冷导入�
 
 ### wallet 余额唯一所有者
 
-`wallet/lib/core/account_balance_snapshot_store.dart` 统一公民 App 钱包余额的查询、校验、持久化、内存状态、并发合并、订阅和显示状态。共享余额状态供冷热钱包列表与详情、充值列、交易付款钱包与选择列表、零钱包及提现使用。底层链证明仍由 CitizenSDK 负责。充值 total、交易 free 和 reserved 从同一 finalized 整数分快照读取，持久化和显示均保留整数分精度；清算行余额按 `account_id` 与 WSS 端点隔离。
+钱包、机构和交易消费同一份 SDK 链上余额快照。链上 free、reserved、total 来自同一个 finalized 块，SDK 负责校验、缓存、并发读取和通知。App 清算模块按账户和 WSS 端点维护零钱包余额，操作卡、零钱包和提现共用状态。提现预检强制查询节点。用户库沿用既有 `balance` 正文，链上快照和清算余额在同一事务入口分别更新。删除回执和整库擦除使相应的清算状态失效，迟到响应不能写回。
 
-普通进入页面先恢复持久快照，卡片出现即绑定同一账户内存状态，没有展示 TTL；首次缺失、主动刷新和交易前校验才发起查询。身份链查询和其它缺失账户的联网等待不阻塞已有余额。各钱包页面不另存金额、错误及刷新标志，未知显示占位而非零；刷新失败保留原成功值。并发同账户请求合并，迟到旧块不得覆盖新块，同高度不同 finalized 哈希拒绝写入。交易 finalized 后只更新落后快照，旧历史重放不重复查询。钱包删除已确认后先排空该账户在途读取并清理内存，持久数据仍由原账户清理流程删除。
+进入页面先恢复 SDK 管理的持久快照，未知显示占位，刷新失败保留最近成功值。交易预检只接受本次验证的余额；最终确认只刷新落后账户。目录修订及删除结果来自 SDK，App 只维护拖拽预览、选择和显示。备份及私钥按 SDK 资源关闭信号清屏，擦除后只清理 App 的身份、聊天和业务记录。
 
 余额真机回归由XCTest独立重启正式App，读取交易可用余额、两次进入钱包选择页、冷钱包卡片及两次详情、默认账户两次详情，并回到交易Tab及重启比较展示值。钱包行使用不含业务值的固定冷热语义标识；先等钱包目录出现，随后立即读取固定余额节点，不轮询金额或等待链查询后再通过。热钱包total在充值列，冷钱包在链上余额区。真实金额仅在内存比较，不进入查询谓词、日志、断言消息或截图；结果只记录固定步骤及布尔值。XCTest跨进程查询本身的耗时不作为产品网络加载时间，选择页与详情使用首次读取结果直接断言；冷钱包金额按实际卡片矩形中的唯一固定余额节点定位，不假设Flutter无障碍父子关系。身份未返回时卡片第一帧及查询次数、持久化边界另由真实数据库与Widget回归验证。
 
@@ -381,15 +381,13 @@ CitizenApp 已删除独立 hardware-secretvault 插件；钱包设备金库由 C
 
 唯一入口startCidRegistrationFlow与showRegisterIdentitySheet保持。点击注册、选择身份并确认后，打开固定Cloudflare默认人验页面。页面只回传本次check_id/token，App向/user/registration/verify提交check_id/turnstile_token，由服务端Siteverify独立核实；只有is_ok:true才能进入原费用检查、钱包签名注册和SDK最终性流程。
 
-原registerAnonymousCid、CitizenIdentityTransaction、CID生成、热冷签、交易广播、执行成功与最终绑定核验保持。链上确认成功后，唯一报告实现SquareApiClient.reportIdentity只发送cid_number/account_id，接受准确is_ok:true。服务端一次绑定RPC后保存公开事实，不发设备或登录凭据。错误正文只消费is_ok/error_code，不依赖服务端登记版本或状态机动作。
-
-报告网络/429/5xx及节点暂未观察到最终结果才重试，首次失败等待60秒、第二次等待120秒，总共最多3次；永久拒绝停止。不在普通请求失败路径创建无限后台重试，不重新人验、签名注册或付款。已有链上公民号恢复仅同步结果与独立持钥认证。报告失败保留真实链上身份，界面显示服务同步失败，不能当作未注册。
+公民号注册使用原钱包签名、广播和链上最终性核验。App 保存真实的最终结果并结束注册。首次使用账户服务时，原设备登记请求交付钱包绑定签名和 MLS 设备证明，服务端据此补建缺失的链绑定。
 
 registration.json只保存原SDK链交易检查点和真实最终结果，使用链与账户自然键；切换机构不能绕过同账户未决交易。记录不保存服务端任务、恢复秘密、人验或过期页面能力。原文件锁、原子CAS、读回校验、路径/链接防护和安全擦除保留；不迁移或兼容旧登记协议。未知广播先恢复原SDK交易，不重复签名注册；首次SDK执行前仍须持久保存原检查点。
 
-MLS底层继续使用现有OpenMLS库，身份密钥及生命周期由本地 chat 管理；App不生成另一套登录密钥，不重写密码学或SDK。设备登记独立复用原钱包0x1C授权，正文仅account_id/public_key/issued_at/binding_signature。用途device；设备挑战另携已有issued_at/binding_signature，申请HTTP本身用现有MLS密钥自动签准确请求。申请nonce只在内存证明持钥，实际业务仍使用并消费服务器挑战。不伪造服务器挑战，不额外增加钱包确认或链交易。
+MLS底层继续使用现有OpenMLS库，身份密钥及生命周期由本地 chat 管理；App不生成另一套登录密钥，不重写密码学或SDK。设备登记独立复用原钱包0x1C授权，正文仅account_id/public_key/issued_at/binding_signature。用途device；设备挑战另携已有issued_at/binding_signature，申请HTTP本身用现有MLS密钥自动签准确请求。设备挑战申请 nonce 在服务端一次性占用，实际设备提交仍使用并消费服务器签发的挑战。不伪造服务器挑战，不额外增加钱包确认或链交易。
 
-常规session/request挑战也必须先附设备持钥证明。缺有效服务器上下文的会话挑战401/invalid_session，或明确device_not_registered，仅允许一次独立设备授权恢复；503和未知错误不触发钱包动作。device挑战收到明确identity_not_reported时，复用唯一报告流程补齐公开事实后只重试一次同一设备申请；不进入公民号注册或人验。正常会话缓存、代次失效、在途合并、钱包取消后禁止自动重弹及成员权益规则保持。
+常规session/request挑战也必须先附设备持钥证明。缺有效服务器上下文的会话挑战401/invalid_session，或明确device_not_registered，仅允许一次独立设备授权恢复；503和未知错误不触发钱包动作。首次 device 挑战由服务端核对最终链绑定；失败走既有设备登记错误处理。正常会话缓存、代次失效、在途合并、钱包取消后禁止自动重弹及成员权益规则保持。
 
 #### 会员页未注册呈现
 
@@ -494,7 +492,7 @@ MLS底层继续使用现有OpenMLS库，身份密钥及生命周期由本地 cha
 
 ##### 2.2 草稿与发布持久化
 
-广场发布使用一个本地发布记录及一份原始manifest。钱包签名后继续由现有CitizenSDK轻节点广播；App按当前账户和调用摘要观察已签交易记录，再独立启动上传。两路均完成后服务端核验同一笔最终交易。上传失败只补传原帖子缺失的对象；结果未知时保留发布记录。最终成功才公开，最终执行失败由服务端精确清理。本人帖子分页返回定位，App逐篇读原始manifest并验哈希，媒体已存在时复用本地文件。
+广场发布使用一个本地发布记录及一份原始manifest。钱包签名后继续由现有CitizenSDK轻节点广播；App按当前账户和调用摘要观察已签交易记录，再独立启动上传。两路均完成后服务端核验同一笔最终交易。上传失败只补传原帖子缺失的对象；结果未知时保留发布记录。最终成功才公开，最终执行失败由服务端精确清理。只传了部分媒体也可交付原交易最终失败证明，恢复沿已保存的原区块和交易定位。本人帖子分页返回定位，App逐篇读原始manifest并验哈希，媒体已存在时复用本地文件。
 
 - `SquareMediaStore.saveFile/saveStream` 在数据库事务外读取来源，固定分块入库并验证长度及
   完整 SHA-256。`SquareUploadService` 将成品图片、视频、缩略图/封面全部保存后才申请上传。
@@ -623,7 +621,6 @@ MLS底层继续使用现有OpenMLS库，身份密钥及生命周期由本地 cha
 
 ```text
 citizenapp/citizen/lib/administrators/
-├── account_id_codec.dart
 ├── admin_account.dart
 ├── admin_account_card.dart
 ├── admin_account_codec.dart
@@ -1083,7 +1080,7 @@ propose_sweep_to_main / propose_relay_submitters` 四项治理 Call。新清算�
 | 治理机构内部门槛 | 本地制度常量 | 随 App 版本更新 | 立即显示 |
 | 管理员列表和管理员人数 | 链上对应管理员 pallet 的 `AdminAccounts` | 后台读取，30 秒内存短缓存，下拉刷新强制更新 | 显示“读取中/读取失败”副标题 |
 | 当前用户管理员身份 | 本地钱包 + 本地激活记录 + 链上管理员列表 | 后台读取，激活/返回/下拉刷新后更新 | 显示身份确认中，不挡住页面 |
-| 主账户余额 | finalized 链上账户余额 | 读取 wallet 持久快照，下拉刷新强制更新 | 余额字段显示“读取中” |
+| 主账户余额 | finalized 链上账户余额 | 读取 SDK 持久快照，下拉刷新强制更新 | 余额字段显示“读取中” |
 | 机构可见提案列表 | 链上机构提案索引 + 年度联合提案索引 | 后台读取，短缓存，下拉刷新/提案详情返回后强制更新 | 提案区局部加载 |
 | 更多制度账户余额 | finalized 链上账户余额 | 用户展开后按需读取 | 不进入首屏请求 |
 
@@ -1218,7 +1215,7 @@ governance 侧只允许保留通用提案列表、机构详情页挂载点、投
 
 个人多签和机构账户可通过 `InstitutionInfo` 传入账户，但业务侧统一读取
 `InstitutionInfo.mainAccount`。治理机构不得再用其他字段表达主账户。
-通过 `Keyring().encodeAddress(bytes, 2027)` 转为 SS58 地址展示。
+页面调用 CitizenSDK 转为 SS58 地址，负责缩略显示和复制。
 
 治理机构列表页（`citizen/lib/governance/governance_tab.dart`）只负责本机展示顺序：
 页面不重复显示“治理机构”标题；顶部固定一行两列等宽、等高卡片，左侧入口显示
@@ -1333,8 +1330,9 @@ governance 侧只允许保留通用提案列表、机构详情页挂载点、投
 
 ##### 8.5 创建流程（Pending → Active）
 
-1. App 创建前按链端口径校验发起钱包 free 余额覆盖 `初始资金 + 创建手续费 + ED`；
-   创建手续费为 `max(初始资金 * 0.1%, 0.10 元)`，ED 当前为 `1.11 元`。
+1. 链上资金预留要求发起钱包余额覆盖 `初始资金 + 创建手续费 + ED`。
+   个人多签页面从 SDK 报价绑定的同一 best 块读取 `PersonalManage.MinCreateAmount`，
+   独立检查最低入金，再按报价检查发起钱包余额覆盖 `初始资金 + 操作费 + 执行费 + ED`。
 2. 管理员调用对应创建入口 → 写入机构或个人 pending storage + 投票引擎创建提案
 3. App 不能把 tx_hash 当创建成功；必须等待交易入块，并在同一区块确认
    `PersonalAdmins.PersonalAccountProposed` 或
@@ -1373,7 +1371,7 @@ governance 侧只允许保留通用提案列表、机构详情页挂载点、投
 - 个人多签 discovery 只扫描 `PersonalAdmins.AdminAccounts`，并按 `kind=Personal`、`institution_code=PMUL`、本机管理员钱包过滤。
 - 机构(公权/私权)注册、创建、关闭由 OnChina 注册局塔塔控制台 + 冷钱包处理；CitizenApp 不再提供机构多签注册、发现或列表展示入口。
 - 个人多签详情页必须 local-first：读取 `account`、`PersonalAccountLocalState` 和 `personal_account_detail:*`。这些都是本机持久化储存，不是内存缓存。
-- 详情页本机快照显示名称、地址、本地状态、管理员和阈值；余额单独订阅 wallet 唯一快照，状态更新不写余额。
+- 详情页本机快照显示名称、地址、本地状态、管理员和阈值；余额单独订阅 SDK 唯一快照，状态更新不写余额。
 - 详情状态 TTL 只决定状态读取；余额展示没有 TTL，主动刷新及提交前通过 wallet 刷新，不重复拉管理员/阈值。
 - 详情页进入时不得用全屏转圈等待 `fetchPersonalAccount()`；自动刷新必须复用 `fetchPersonalAccountsBatch([account])`，并受 TTL 控制。
 - 详情页不展示“同步中”类 UI。下拉刷新、转账提案创建返回、投票返回、关闭返回才忽略 TTL 精准刷新当前账户；链上失败只保留本机已储存数据，不写成 Closed。
@@ -1396,7 +1394,7 @@ PersonalAdmins ProposalData 解码、`PersonalAdmins::PersonalAccounts` storage 
 统一放入 `personal/lib/`；机构账户能力归入 `citizen/lib/institution/` 和 `citizen/lib/administrators/`。
 个人/机构共用的提案详情与上下文归 `citizen/lib/proposal/`，账户与机构模型归 `citizen/lib/institution/`，链上管理员读取归 `citizen/lib/administrators/`。
 
-个人与机构多签创建交易在入块后检查 `System.Events`。
+个人与机构多签创建交易消费 SDK 交付的已验证事件，按本次执行索引核对业务字段。
 先解析 `System.ExtrinsicFailed` 的 runtime 模块错误，再确认对应成功事件。
 因此余额不足、管理员主体残留、机构账户索引占用等链上拒绝会显示真实
 `PersonalAdmins / PublicAdmins / PrivateAdmins / OrganizationManage` 错误，不再落到“未找到成功事件”的泛化提示。
@@ -1566,8 +1564,8 @@ PersonalAdmins storage：
   `UserIsar.instance.read()` / `UserIsar.instance.writeTxn()` 进入统一队列，避免与钱包创建/导入、余额刷新和钱包交易流水同步抢 MDBX 锁。
 - 统一多签列表首屏只读本机 `account` 和 `PersonalAccountLocalState`，
   不等待 `PersonalAdmins::PersonalAccounts`、`PersonalAdmins::AdminAccounts` 或 discovery 链上读取。
-- `group` 只保存个人多签状态、管理员、阈值和详情同步时间；余额只由 wallet 快照表持久化，列表状态更新不能另存余额。
-- 进入详情先读本地详情及 wallet 余额，不为余额重查管理员/阈值。主动刷新通过 wallet 更新 finalized 快照，失败保留最近成功值。
+- `group` 只保存个人多签状态、管理员、阈值和详情同步时间；余额只由 SDK 快照管理，列表状态更新不能另存余额。
+- 进入详情先读本地详情及 SDK 余额，不为余额重查管理员/阈值。主动刷新通过 SDK 更新 finalized 快照，失败保留最近成功值。
 - 详情页不显示“同步中”类 UI；TTL 到期时静默刷新，用户下拉刷新、转账/投票/关闭
   返回时才强制刷新当前个人多签。链上失败保留本机快照，不覆盖为已注销。
 - Active 个人多签 60 分钟内不自动重复查链；Pending / Closed 个人多签
@@ -1636,15 +1634,15 @@ PersonalAdmins storage：
 
 #### 实际公开接口与产品入口
 
-通用接口由CitizenSDK的lib/api/citizen_qr.dart、lib/api/citizen_sdk.dart、lib/api/citizen_transactions.dart和lib/account_codec.dart承载；本产品按声明与锁消费该SDK来源。账户码调用CitizenQr.encodeAccountId；用户码通过CitizenQrContent.userContact与CitizenQr.encodeDocument生成；扫码调用CitizenQr.parseForPurpose并只读取公开解析结果。
+通用接口由 CitizenSDK 的 lib/api/citizen_qr.dart、lib/api/citizen_sdk.dart、lib/api/citizen_transactions.dart 和 lib/account_codec.dart 承载。账户文本和 SS58 调用 SDK 公开接口，钱包与二维码共用同一 Core 编解码。账户字段和区块哈希、交易哈希、文件摘要各按其字段语义校验。账户码调用 encodeAccountId，用户码通过 CitizenQrContent.userContact 与 encodeDocument 生成。相机和相册直接交付 CitizenQrScanResult，原始文本入口单次调用 parseForPurpose。
 
-本产品的scanner/lib/scanner.dart、scanner_view.dart承载原页面接入与展示，qr_router.dart只映射SDK解析结果，qr_sign_session_page.dart承载原请求展示及响应回扫。页面不得另行解析QR_V1或直接建立mobile_scanner后端。
+scanner/lib/scanner_view.dart 把 SDK 结果原样交给扫码页面。冷钱包表单从结果读取规范 AccountId，个人账户从用户码读取管理员账户，签名分派将同一 CitizenQrDocument 交给业务服务。scanner/lib/qr_sign_session_page.dart 承载请求展示和响应回扫。
 
 个人多签创建、管理员更换及机构链交易继续由App构造所属业务review_payload，管理员字段顺序固定为account_id + family_name + given_name；姓名仅用于确认展示，不构成授权。同一次业务操作只发起一个请求并消费一个响应。
 
 #### 集成验收职责
 
-本产品保留scanner/test/qr_router_test.dart、qr_scan_page_sign_hint_test.dart、qr_sign_session_page_test.dart、scanner/test/app_business_qr_codec_test.dart及账户码、用户码页面用例，验收实际入口、身份闭环、用途拒绝、业务载荷和请求响应接线。通用字段往返、会话期限、验签及单次消费由SDK所属测试验收；SDK用例不能替代App集成及真实页面验收。
+App 回归覆盖 SDK 结果原样转发、扫码入口的码型分派和拒绝、冷钱包填表和确认导入、管理员用户码及签名响应预检。SDK 回归覆盖通用字段往返、会话期限、验签与单次消费。宿主回归与设备相机及相册验收分别记录。
 
 ## CitizenSDK 链、交易与历史
 
@@ -1653,18 +1651,19 @@ CitizenApp 只打开一个 CitizenSdkModules.full session。安全擦除门禁�
 - 交易 Tab 顶部 Widget 树、位置、尺寸、颜色、文案和呼吸灯不变，只读 CitizenChainSyncStatus.isUsable 与 finalized.number。
 - 业务模块直接调用 CitizenSdk 的 block、runtime context、storage、keys page、Runtime API、System.Events、nonce 和手续费能力；余额统一经同一SDK会话读取。
 - 业务模块自己保留 storage key、RuntimeCall 编码、SCALE 解码和业务错误，禁止把广场、投票、立法、提案或治理塞入 SDK。
-- 交易统一使用 prepareTransaction、executePreparedTransaction 和冷账户 QR_V1 consume。nonce、era、签名、extrinsic、广播、交易池观察和 finalized execution 均由 SDK 处理。
+- App 确认表单冻结账户、备注及整数分。签名、提交、外部会话清理和终态沿用 SDK。转账页用准备标识订阅 SDK 已签记录，将表单字段接入同一流水状态投影。
 - 转账失败按已进入的准备、执行、冷签消费步骤显示一条中文原因。SDK `code/stage/method` 保持原样供内部定位，诊断仅记录固定步骤和枚举；不得把准备阶段写成已发送或已提交，也不得在弹窗或日志拼接原始异常描述、账户及交易载荷。
 - 非有限金额及换算为分时溢出的金额在表单与服务入口均明确拒绝，不进入手续费计算或 SDK 准备。
-- SDK history 只保存 execution、hash、区块和通用终态。CitizenApp 的 entry 只补充目的账户、金额、备注、方向和业务事件，通过 execution_id、call_hash 和 tx_hash 关联。
+- SDK history 保存 execution、hash、区块和通用状态。CitizenApp 的 entry 补充目的账户、申请金额、备注和已验证业务事件。以 execution_id、call_hash、tx_hash 关联。报价仅在确认框展示，未关联已验证事件时余额变化待核实。既有无事件锚的本机费用按预估展示。
 - 被动收入由唯一 WalletTransactionHistoryService 调用 SDK 已验证 finalized 历史读取能力逐块恢复；不建立第二节点或 JSON-RPC 连接。启动、返回前台、finalized 通知与两处页面主动刷新共用在途任务，离线不阻塞页面读取本地记录。
 - 同一 entry 表中的既有记录按 account_id 隔离展示，查询、分页、单条读取和计数不得因 source 或缺少 SDK execution 字段隐藏收付款记录。SDK 状态更新仍要求 local_submit 来源以及非空 execution_id、call_hash 同时匹配；恢复可见性不授予旧记录新的状态更新权限。
 - 历史范围为钱包导入本机之后。没有持久进度时，以 SDK 账户 created_at 与已验证区块 Timestamp.Now 二分定位首个不早于导入时间的块；边界定位只读早期块时间，不投影导入前交易。该方案重建时间边界，不宣称恢复已删除的旧游标；本机与链上时钟偏差可能影响边界附近记录。时间、证明或区块读取失败必须重试，不以创世或当前高度静默替代起点。
 - cursor 绑定 account_id、created_at 和 genesis_hash，保存 start_block 与 cursor_block；初值为起点减一。每轮最多处理32块，每块业务记录与参与账户的进度同事务提交；中途失败保留最后成功块，下一轮从失败块继续。后台、停止、钱包变更或擦除使旧读取代次失效，关闭等待已登记消费者退出。
-- 业务解码直接使用锁定的 substrate_metadata 1.6.0 与 polkadart_scale_codec 1.6.0；以原始 System.Events 存储类型构造可达 codec，完整校验 metadata 与事件字节消费，包括 topics，不走以 typeName 代替字段名的 Events.fromJson 便利入口。转账以准确 metadata 的字段名、类型及显式事件索引解码。OnchainTransaction.TransferWithRemark 的字段为 from_account_id、beneficiary_account_id、amount、remark；同一执行中的 Balances.Transfer 与备注事件按链上顺序一对一归并，以本金事件索引保持身份。System 执行结果缺失、解码不完整或锚点不一致均不得推进该块进度。
+- 钱包流水使用 SDK 的准确 finalized 事件、交易哈希及实扣。SDK 按本金事件索引交付转账与备注，按付款账户交付每条 FeePaid。App 按账户及交易将实扣附到第一条关联本金，额外独立收费保留事件身份。已验证失败执行可以有费用而没有本金入账。
 - 业务事件按账户、准确区块哈希和事件索引幂等；与本机普通转账仅通过完整 SCALE extrinsic 的 Blake2-256 哈希及业务内容准确关联，同时保留 SDK 独占的交易终态。相同账户、对方和金额不能单独作为合并依据；同一 extrinsic 的多个独立事件仍分别保留。
 - 钱包详情最近记录与交易记录列表共用 LocalTxStore 和 TxAutoRefreshMixin；写库通知自动重载，空列表也允许下拉刷新。仅最新块影响账户时通知 wallet 的余额唯一入口，历史补齐不按每个旧块重复查询当前余额。
-- portable复合类型的单个未命名字段是SCALE透明包装：构造代理前解析到实际承载类型并复用其codec，不额外增加字节或值层级。纯包装循环和缺失引用必须明确拒绝；经过序列、枚举等容器的合法递归复用已登记代理。合成metadata默认包含AccountId32形状，回归覆盖单层、多层包装、合法递归、非法循环、收入写入、失败进度及恢复幂等。正式包使用既有默认关闭的AppLog，本轮临时历史诊断已移除。
+- 流水以 BigInt 整数分显示千分位和两位小数。详情区分等待打包、最佳链已打包、最终链确认和执行失败。ED 单独作为账户最低余额。
+- SDK 负责严格事件编解码及金标。App 定向用例使用 SDK 公开事件结构覆盖被动到账、实扣、失败进度、恢复和幂等。
 
 ## CitizenApp 业务签名边界
 
@@ -1755,6 +1754,10 @@ CitizenApp 只构造业务 payload、domain、challenge 和审阅内容。热签
 
 链下扫码支付、清算行目录、绑定、充值、提现和所属RPC统一归`offchain/lib/`，测试归`offchain/test/`。交易Tab只负责编排入口，钱包页只挂载所属功能页面，不维护第二份清算协议、存储或金标。
 
+设置页用同一个规范 AccountId 读取 finalized `OffchainTransaction.UserBank`、签名并定位本地快照。进入确认页前重新读取链上绑定。无链上绑定时调用 `bind_clearing_bank`，目标与当前机构不同时调用 `switch_bank`。两条调用均向 CitizenSDK 交付目标机构 CID 的 UTF-8 字节，由同块 Runtime metadata 编码。最终成功后才写入本地展示快照。写入失败保留交易确认和哈希，提示缓存未更新，并回到设置页重读链上状态。清除快照不影响链上绑定。
+
+零钱包从同一 finalized 块读取 `UserBank` 及对应的 `ClearingBankNodes`。仅链上无绑定才提示未绑定，读失败或节点声明不可用时停止操作。快照仅补充匹配 CID 的展示名称，节点地址始终来自链。充值、提现在签名前再次核对绑定和节点；目标变更时更新展示并要求重新确认。
+
 扫码流程从商户码取得收款账户及收款方清算行CID，精确读取finalized `ClearingBankNodes`取得WSS端点。付款页重新确认机构声明；付款方绑定清算行由`offchain_queryUserBank`返回CID，手续费使用收款方清算行费率。CID不是机构主账户SS58或固定32字节账户。
 
 `NodePaymentIntent`按链端`runtime/transaction/offchain/src/batch_item.rs`字段顺序编码：tx_id(32)、payer(32)、payer_bank_cid(Vec<u8>)、recipient(32)、recipient_bank_cid(Vec<u8>)、amount(u128 LE)、fee(u128 LE)、nonce(u64 LE)、expires_at(u32 LE)。两份CID均为1..32个UTF-8字节，向量采用最短Compact长度前缀，整体变长，不存在固定204字节断言。金额及手续费以分为单位；expires_at只按块高判断，当前取最新块高加100，不换算成确定墙钟有效期。
@@ -1777,7 +1780,7 @@ CitizenApp 只构造业务 payload、domain、challenge 和审阅内容。热签
 
 链上支付页的位置、表单、文案、确认弹窗、余额卡和交易列表属于 CitizenApp，布局保持不变。
 
-- onchain_transfer_call.dart 只负责 transfer_with_remark RuntimeCall 编码、备注长度和表单展示费用计算。
+- OnchainPaymentService 用同一份 Runtime metadata 读取 OnchainTransaction.MaxTransferRemarkLen，并委托 SDK 编码 transfer_with_remark。准备回执的 Runtime 版本有变时释放句柄，由页面重新预检。EVM 地址解析和链上费用由 SDK 提供。
 - OnchainPaymentService 验证 App 表单并直接调用 CitizenSdk.prepareTransaction。
 - 页面直接执行 executePreparedTransaction；冷账户展示 SDK 生成的 QR_V1 并把扫描原文交回 consumePreparedTransactionQrResponse。
 - SDK 返回 finalizedSuccess、finalizedFailed 或 poolRejected 后，App 才投影展示状态。不以 tx_hash、超时、nonce 或页面生命周期猜测成败。
@@ -1861,6 +1864,8 @@ UserIsar中独立保存图片实际字节、用途、对象位置、资料版本
 - 媒体按(cid_number, media_role)自然键定位，用途只接受avatar/banner。
   同一profile_at版本的object_key、body_hash与media_bytes必须一致，冲突拒绝；
   资料JSON不重复保存索引CID，较旧profile_at不能覆盖已保存的新资料。
+- 完整资料图片对象键 `i/<CID>/<avatar|banner>/<SHA-256>` 由同一入口解析。
+  用途决定读取大小上限，内容哈希与当前会话、地址、用途、资料版本共同区分解码缓存。
 - UserIsar关闭relaxedDurability，数据库提交成功后才通知常驻页面重读。查询、写入与删除
   强制CID，哈希、网络、平台通道和文件I/O均在数据库回调之外。普通身份读取仍只供展示，
   使用现有IdentityBadgeSnapshotStore，不新增身份副本或将展示状态用作操作授权。
@@ -1933,7 +1938,7 @@ UserIsar中独立保存图片实际字节、用途、对象位置、资料版本
 用户点击刷新或下拉刷新才重新读取远端；会员动作确认广播及创建、编辑的鉴权保留。
 刷新失败保留本地展示并提示错误；无会员展示态也提供刷新按钮。展示快照不授予写入权限。
 主页各分类空态统一为“暂无xx内容，请在广场发布”，xx取公文、竞选、视频、文章；读取或刷新异常统一为“内容加载失败，请下拉刷新”。
-会员结果只有有效或无效；缓存尚未建立只是当前身份会话读取尚未完成，不得保存第三种会员态。
+会员页展示服务端已记录的存储清理提醒和期限。会员结果只有有效或无效；缓存尚未建立只是当前身份会话读取尚未完成，不得保存第三种会员态。
 
 “我的”页钱包/身份两行入口的 411×914 设计高度为 70px，个人服务单行入口的设计高度为
 64px；实际高度统一乘以全 App 视口倍率，辅助字号只允许按真实行高增加必要高度。通讯录卡
@@ -2089,12 +2094,6 @@ Android Emulator 和 Xcode Simulator 使用公开地址导入的冷账户作为�
 
 非钱包客户端直接依赖已删除cryptography与flutter_secure_storage；chat/mls 负责 MLS 协议，App记录由自有系统保护目录承载。钱包上游的ristretto255、sr25519、ss58及substrate_bip39仍按原锁传递依赖cryptography，不能将其作为新增设备或数据用途钥实现。原生Pod锁仅移除已停用的flutter_secure_storage_darwin；其他锁定版本保持。
 
-## 交易历史与费用展示
-
-历史与费用：CitizenChainTransactionEventDecoder在既有交易事件文件内按准确metadata解析System执行终态、转账和OnchainTransaction.FeePaid；通用portable类型解析与事件投影在同一处维护。同一extrinsic重复费用、非正u128费用或缺失extrinsic均拒绝。WalletTransactionHistoryService只处理SDK已验证finalized事件与同一块正文，完整原生extrinsic的Blake2-256决定交易哈希，付款账户只在一条本金流水附实际费用；无本金或失败执行仍保存收费事实。实际费用、流水和账户游标原子提交，重放幂等。LocalTxStore保留submit key与SDK execution终态权限，真实费用覆盖预估；事件先到后到均不能被预估覆盖。失败收费事实可关联本机提交，但不会代替SDK推进交易终态。
-
-流水页面用BigInt整数分格式化，保持千分位及两位小数，不通过double丢失u128最后一分。详情区分等待打包、最佳链已打包、最终链确认和执行失败；未读取finalized事件的本机费用明确标为预估。原生费用取自FeePaid，ED仍是独立最低余额。
-
 ### 产品独立资源与编译入口
 
 Release合同核验正式锁定SDK公开QR方法的准确返回类型、参数顺序及参数类型，不依赖Dart格式化的单行排列；保持禁止宿主第二QR实现及私有SDK导入的断言。
@@ -2103,9 +2102,9 @@ Release合同核验正式锁定SDK公开QR方法的准确返回类型、参数�
 
 ### 服务端字段与恢复记录
 
-业务HTTP与启动清单直接消费is_ok/error_code；官方JSON-RPC仍沿其error。资料使用profile_bio，评论使用author_cid/reply_seq/reply_text/reply_state，通知使用notice_rev/notice_seq/notice_kind/is_cancelled；Dart成员使用profileBio、authorCid、replySeq、replyText、replyState、noticeRev。充值付款意图外层为is_ok/order_id/intent_token/sign_message/intent_data，订单使用order_state/exception_reason。网络入口只接受所属API当前字段。
+业务HTTP与启动清单直接消费is_ok/error_code；官方JSON-RPC仍沿其error。资料使用profile_bio，评论使用cid_number/created_at/reply_text/reply_state，通知使用notice_rev/notice_seq/notice_kind/is_cancelled；Dart成员使用profileBio、authorCid、createdAt、replyText、replyState、noticeRev。充值付款意图外层为is_ok/order_id/intent_token/sign_message/intent_data，订单使用order_state/exception_reason。网络入口只接受所属API当前字段。
 
-注册HTTP只使用当前人验和双字段报告接口。本机记录仅保存原链交易事实；上报不发送原链block_hash、绑定修订或任何人验凭据。充值恢复字段属于独立付款合同，不与注册数据混用。
+注册 HTTP 使用既有人验接口。本机记录保存原链交易检查点和最终结果。首次设备挑战使用已有钱包授权和 MLS 证明。充值恢复字段属于独立付款合同，不与注册数据混用。
 
 认证HTTP挑战消费cid_number/bind_rev/nonce_id/expires_at/http_method/body_hash/token_purpose；SDK证明构造与序列化沿其真实公开接口，App不另写证明编码器。资料与通知缓存正文不重复自然索引CID，评论恢复不转换旧分页或待发字段；校验失败撤销操作入口，刷新重读完整快照，不覆盖并发新记录。上传准备和完成仅持有content_hash一份正文摘要，新manifest直接使用post_title/body_hash/pixel_width/pixel_height/video_secs，已冻结的manifest与签名字节不重编码。
 
@@ -2169,7 +2168,7 @@ entry以账户/准确tx_hash或账户/block_hash/event_index在原事务定位�
 
 媒体成品与自有通道使用body_hash/pixel_width/pixel_height/video_secs/keyframe_secs/file_limit；平台API原名保持。每媒体主文件与预览是两个独立上传目标，按media_index/object_role定位，共用原PUT与重试入口。目标不回抄请求大小/类型，仍校验实际长度、HTTPS、时效、方法、headers与当前会话。本人回灌只消费Serve posts数组及manifest_bytes_base64url，网络与存储共用SquarePostStore.validate；媒体使用body_hash/preview_url，不要求不存在的状态或类型字段。原manifest字节不重编码。
 
-资料图片准备使用upload_kind/content_type/byte_size/content_hash，授权读取http_method；请求摘要不再回抄为返回模型字段。PUT保留真实MIME头并校验实际成品摘要回执。资料图片由字节识别类型和长度，临时文件可再生；显式安全擦除覆盖原媒体目录，普通读取不迁移或清理旧结构。
+资料图片准备使用upload_kind/content_type/byte_size/content_hash，授权读取http_method；请求摘要不再回抄为返回模型字段。PUT 保留真实 MIME 头并核对授权原对象键；资料更新只传图片哈希。资料图片由字节识别类型和长度，临时文件可再生；显式安全擦除覆盖原媒体目录，普通读取不迁移或清理旧结构。
 
 通知使用notice_rev/member_rev/creator_rev/bind_rev；scope只有cidNumber/accountId/bindRev与原generation。独立接收时刻、跨域补写恢复、同版本补存和已读意图保持，推送端点发送apns_env。ResourceUsage与MLS证明属于当前固定SDK公开合同，按真实接口消费；后续所有者变更时须同步跨端合同并重新联调，不能在App添加兼容映射。
 
@@ -2193,11 +2192,11 @@ MLS 认证证明统一归 chat/mls 原生 Serde 编码：user_id/device_id/publi
 
 广场层清读在途的新事件保留补清意图，前一请求结束后只在页面实际可见时按新through补清；隐藏时保留角标，返回后再消费。任务按通知身份与代次隔离，新账号不等待旧账号HTTP，旧任务不能释放或覆盖新账号任务。通知列表只由feed中的页面加载，三级阅读统一使用明确scope的read入口。
 
-通知列表优先使用现有Notice.list_data，缓存只保存当前已加载的逐帖显示字段、响应notice_rev、interaction_sequence、through及next_cursor，按自然索引CID、account_id和bind_rev隔离。关闭重开、切回子tab及前台恢复命中有效列表时不发列表GET。无缓存、明确刷新或相关新事件才拉列表；已获取分页按捕获的through合并保存，失败保留已有列表。缓存不保存会话凭据，不授予业务许可，也不增加云端正文副本。
+通知列表优先使用现有Notice.list_data，缓存只保存当前已加载的逐帖显示字段、响应notice_rev、interaction_sequence、through及next_cursor，按自然索引CID、account_id和bind_rev隔离。关闭重开、切回子tab及前台恢复命中有效列表时不发列表GET。无缓存、明确刷新或相关新事件才拉列表；列表上界读 list_through，续页只传原字符串游标，失败保留已有列表。缓存不保存会话凭据，不授予业务许可，也不增加云端正文副本。
 
 已读意图按明确scope、内容ID、选择集合和through规范化；相同在途意图共用请求，重复持久意图只重放一次，同一事件窗口内已确认意图不再POST；云端已确认但本机保存失败时，重复意图只补本机保存。队列与列表都必须匹配当前绑定；旧绑定待发项不能改归当前身份。父层和通知层的已读回执更新计数但不使逐帖列表失效，内容层已读及新互动仍会更新列表。会员、创作者状态、云端通知、跨设备已读和推送继续使用原合同；没有周期轮询或迁移分支。
 
-通知页面每条内容一行，已读记录保留，最后一条有效通知被撤销则移除。列表版本只取对应响应的notice_rev，不能借全局更新或清读回执冒充列表版本；新事件保留补刷意图；同一在途列表刷新共用请求，翻页期间的完整刷新保持独立。CID/绑定代次切换立即失效旧请求并允许新账号加载，不以两个账号版本数字相等跳过请求。通知入口以through固定收到的评论范围，置顶评论按created_at/reply_seq升序分页，普通评论保持原排列并去重。评论对话从reply_to寻找根评论，仅显示该根的所有参与者与后代；删除保留位置。两处评论入口共用每CID/内容的写操作围栏与原op_id重试记录。
+通知页面每条内容一行，已读记录保留，最后一条有效通知被撤销则移除。列表版本只取对应响应的notice_rev，不能借全局更新或清读回执冒充列表版本；新事件保留补刷意图；同一在途列表刷新共用请求，翻页期间的完整刷新保持独立。CID/绑定代次切换立即失效旧请求并允许新账号加载，不以两个账号版本数字相等跳过请求。通知入口以through固定收到的评论范围，置顶评论按 created_at 和评论 ID 升序分页，普通评论保持原排列并去重。评论对话从reply_to寻找根评论，仅显示该根的所有参与者与后代；删除保留位置。两处评论入口共用每CID/内容的写操作围栏与原op_id重试记录。
 
 点赞以每CID/内容唯一关系保存。PUT确保已赞、DELETE确保未赞，回执返回绝对数量；不增加评论通知。详情正文下方、评论上方显示点赞总数和单行头像，更多页分页显示全部点赞用户。互动状态按当前浏览者CID隔离，旧读取不得覆盖较新的点赞或阅读操作，也不写入正文manifest。
 
@@ -2233,7 +2232,7 @@ scanner只负责采集、QR界面与结果，联系人导入由user提供回调�
 
 编译与测试通过build.mjs的packageRoots读取同一workspace声明。冻结 CitizenSDK 后，mapSdkSource同步映射根与所有实际消费者的SDK来源，不能只改根声明而让成员继续使用Git来源；其它上游版本和锁保持。
 
-钱包、治理和交易页面通过WalletNavigation、GovernanceNavigation、TransactionNavigation公开工厂在根App的lib/navigation.dart组合。原Navigator调用、门禁、参数和结果处理保留，工厂只构造原有页面，不存业务状态。链上交易包的TransactionNavigation与TransactionTabPage统一归onchain/lib/onchain_payment_page.dart，不设独立导航或Tab转发文件；前者仍只定义钱包/联系人选择回调，后者只编排原OnchainPaymentPanel及个人多签入口。公共AmountFormat与ThousandSeparatorFormatter统一归system/lib/amount_format.dart，金额边界和输入光标测试归system/test/amount_format_thousands_test.dart；账户、钱包、治理和交易均直接消费system公开路径，不保留交易包金额别名。
+钱包、治理和交易页面通过WalletNavigation、GovernanceNavigation、TransactionNavigation公开工厂在根App的lib/navigation.dart组合。原Navigator调用、门禁、参数和结果处理保留，工厂只构造原有页面，不存业务状态。链上交易包的TransactionNavigation与TransactionTabPage统一归onchain/lib/onchain_payment_page.dart，不设独立导航或Tab转发文件；前者仍只定义钱包/联系人选择回调，后者只编排原OnchainPaymentPanel及个人多签入口。金额、余额、手续费以整数分传递。公民 SDK 负责金额解析、展示与费用计算；App 从 SDK 读取链上费用快照和 ED，按清算协议取得费率后调用 SDK 计算清算手续费。App 保留单位、币种、表单和付款账户提示，system/lib/amount_format.dart 只处理 Flutter 编辑状态与光标。
 
 流水列表项与页面分离为wallet/history的record_tile、record_format和原history页面；钱包只消费公开列表组件，详情页继续由根App工厂构造。原格式化算法与整数金额不变。
 
@@ -2250,7 +2249,7 @@ MetaMask适配接口为pay({transaction,openWallet})，由metamask.js调用官�
 
 治理业务参数在SDK准备交易前校验，机构CID与岗位码必须成对且长度合法，空岗位不得降为个人票据。投票确认绑定SDK成功finalized执行块，使用完整票据与严格SCALE bool；真实缺失与损坏编码分别返回缺失或抛错，不轮询不可变块，也不追随新链头。
 
-立法确认逐条解码执行块完整System.Events，按该块metadata确定事件，按extrinsicIndex、提案、签署人、岗位和赞成/反对方向匹配；行政签署没有独立账本，终态清理也不替代本次事件。代表票、会签和终审的存储若仍存在，方向必须一致。LegislationMeta沿链端executive/override_signers/needs_guard/guard岗位主体布局，旧CID二字段布局删除。SDK外签取消及回调异常取消仍pending的执行，未知广播结果只传播，不自动重签或重播。测试及金标归所属包的 test。
+立法确认消费 SDK 已按同块 metadata 验证的事件，按本次执行索引、提案、签署人、岗位和赞成/反对方向匹配；行政签署没有独立账本，终态清理也不替代本次事件。代表票、会签和终审的存储若仍存在，方向必须一致。LegislationMeta沿链端executive/override_signers/needs_guard/guard岗位主体布局，旧CID二字段布局删除。广场、身份、会员、清算及治理业务复用 SDK 冷签完成入口，取消与异常统一回收原执行。广场按准备标识观察本次已签记录，原发布恢复与上传顺序仍由 App 持有。测试及金标归所属包的 test。
 
 多签提案同样按执行块完整metadata、extrinsicIndex及完整业务字段确认事件，删除原扫描字节实现；转账备注也必须匹配。联合投票以SDK原执行块metadata及extrinsicIndex核对唯一JointInstitutionTicketVoteCast事件、提案、机构CID、当前签名人、岗位和方向；查询展示仍按canonical票据键。清算RPC只接受WSS及当前snake_case响应，nonce、费率和ACK缺失或损坏抛错，不生成默认成功数据；每次响应须匹配JSON-RPC版本及ID，所有已建立连接的成功、错误和超时出口关闭连接。公共SDK生命周期替身仅在testing既有公开设施中提供，测试必须显式注入结果。
 
@@ -2374,7 +2373,9 @@ TopupStore保存与更新在一个用户库事务内完成一次定位查询和�
 
 授权消费CitizenServe.md公开16字段合同：13行UTF8/LF原文末尾LF，首行CitizenServe Topup，其后service_origin、chain_genesis_hash、account_id、package_id、token、network、asset、recv_address、pay_amount、coin_fen、config_hash、recovery_hash。签前不含order_id/created_at/payer_address/payment_txid。recovery_hash为恢复凭据文本SHA256；公民签名是原始64B sr25519/substrate签名，不预hash，不套用其他动作。H=SHA256(原文UTF8字节||原始签名字节)，签后order_id=top_加H小写hex前32位。短ID仅定位，真实付款必须绑定完整32B H；不增加order_hash/sign_text请求字段。account_signature为0x加128小写hex，随原单保存并在已支付后请求发币。
 
-附加数据可能增加费用，由钱包确认。
+套餐面额和各币轨精度由 App 决定，报价生成和配置校验共用 SDK 的整数最小单位换算。SDK 编码 ERC-20 transfer 的标准 68 字节，App 交付完整 32 字节 H，冻结后的付款输入共 100 字节。附加数据可能增加费用，由钱包确认。
+
+App 按原订单选择 RPC、交付完整绑定和按秒向下取整的订单时间下限。SDK 一轮通过六次 RPC 核对交易成功、完整输入、区块归属、最终高度和唯一 Transfer 日志，复查区块后返回链上事实。App 用原订单和这些事实生成现有 TopupProof。
 
 App根层在外部付款回执保存后立即验款1轮，未验真则按20、40、80、160、320、640、1280、2560、5120、10240秒的间隔再验10轮，总计最多11轮。每轮先在原entry.order_data持久消费check_count并预约check_at，失败返回后更新下一check_at，从返回时刻完整等待对应退避时长；每次更新只在同一事务定位一次，不为页面显示另查库，回前台不重置预算；系统暂停期间按绝对到期时间恢复，销毁付款页不停止App验款。任一轮金额、资产、付款人、收款、最终成功和完整H均相符，即保存已支付/证据/一次请求占位，并由App独立客户端立即POST一次/api/topup/confirm。11轮都未通过记录payment_failed并停止，不发送发币请求、不重签重付，不增加第四种订单状态。网页广播回执仅submitted=true，不能自报paid。充值模块不读公民链，付款验真前不访问公民服务端；用户库物理表列、公开16字段、SDK Core与原Dart依赖锁不变；钱包JS声明及锁使用获准的官方依赖。
 
@@ -2404,7 +2405,7 @@ MetaMask采用已获准的@metamask/sdk0.34.0，SDK仅初始化一次，正常�
 
 onchain、multisig、personal、offchain、topup 是独立 workspace 包。钱包流水归 wallet/lib/history。充值 HTML、JS 与 npm 锁归 topup/web，bundle 由构建入口在隔离工程生成。
 
-钱包模块归属：core提供WalletNavigation、WalletGate、AccountBalanceSnapshotStore与WalletOnchainBalanceCard；onboarding承载创建、导入及助记词/密码输入；account承载原钱包账户页面、追加账户、操作/身份卡和账户码；history提供业务流水的存储、同步、列表与详情。现有文件整体归位，不拆类、不改UI与交互，不保留旧根路径转发。数据库实体与用户数据继续由storage原件拥有。
+钱包模块归属：core提供WalletNavigation、WalletGate与WalletOnchainBalanceCard，余额直接使用SDK；onboarding承载创建、导入及助记词/密码输入；account承载原钱包账户页面、追加账户、操作/身份卡和账户码；history提供业务流水的存储、同步、列表与详情。现有文件整体归位，不拆类、不改UI与交互，不保留旧根路径转发。数据库实体与用户数据继续由storage原件拥有。
 
 
 ## chat当前实现

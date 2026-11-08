@@ -14,18 +14,27 @@ import 'package:citizen_wallet/core/navigation.dart';
 import 'package:citizen_wallet/account/wallet_identity_card.dart';
 import 'package:citizen_wallet/core/wallet_onchain_balance_card.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_offchain/clearing_bank_directory.dart';
+import 'package:citizen_offchain/clearing_bank_prefs.dart';
+import 'package:citizen_offchain/offchain_clearing_rpc.dart';
+import 'package:citizen_offchain/withdraw_page.dart';
+import 'package:citizen_storage/user_isar.dart';
+import 'package:citizen_testing/isar_test_env.dart';
 
 /// 验证双币入口、精确账户、共有余额及原零钱包绑定门禁，不调用真实付款。
 void main() {
+  useIsolatedIsar();
   setUp(() => SharedPreferences.setMockInitialValues({}));
   const accountId =
       '0x0404040404040404040404040404040404040404040404040404040404040404';
   const address = '5DummyAddress';
   final opened = <String>[];
+  final openedPetty = <String>[];
   Completer<bool?>? waiting;
   var paidRefreshes = 0;
-  Future<void> pumpCard(WidgetTester tester) async {
+  Future<void> pumpCard(WidgetTester tester, { _BankDirectory? directory }) async {
     opened.clear();
+    openedPetty.clear();
     paidRefreshes = 0;
     final navigation = WalletNavigation(
       history: ({required accountAddress, required accountId}) =>
@@ -34,25 +43,25 @@ void main() {
         opened.add('$accountId:$token');
         return waiting == null ? false : await waiting!.future;
       },
-      pettyWallet: ({
-        required accountId,
-        required accountAddress,
-        required wssUrl,
-        required displayTitle,
-      }) => const SizedBox.shrink(),
+      pettyWallet: ({required accountId}) {
+        openedPetty.add(accountId);
+        return const Scaffold(body: Text('测试零钱包'));
+      },
       identity: () => const SizedBox.shrink(),
       recordDetail: ({required record}) => const SizedBox.shrink(),
     );
     await tester.pumpWidget(
-      Provider.value(
-        value: navigation,
+      MultiProvider(
+        providers: [
+          Provider.value(value: navigation),
+          Provider<ClearingBankDirectory>.value(value: directory ?? _BankDirectory()),
+        ],
         child: MaterialApp(
           home: Scaffold(
             body: ListView(
               children: [
                 WalletActionCard(
                   accountId: accountId,
-                  accountAddress: address,
                   onTopupPaid: () async {
                     paidRefreshes++;
                   },
@@ -151,6 +160,112 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('请先在“清算行”页面绑定清算行'), findsOneWidget);
     expect(opened, isEmpty);
+  });
+
+  testWidgets('绑定读取失败保持待核对，不冒充未绑定或放行', (tester) async {
+    final directory = _BankDirectory()..fail = true;
+    await pumpCard(tester, directory: directory);
+    expect(find.text('绑定待核对'), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.account_balance_wallet_outlined));
+    await tester.pumpAndSettle();
+    expect(find.text('无法核对当前清算行，请重试'), findsOneWidget);
+    expect(openedPetty, isEmpty);
+  });
+
+  testWidgets('无快照或快照旧端点时仍只用当前链上 WSS 并打开同账户', (tester) async {
+    const binding = ClearingBankBindingSnapshot(
+      cidNumber: 'test-bank',
+      fullName: '测试清算行',
+      shortName: '',
+      mainAccountId: accountId,
+      feeAccountId: accountId,
+      peerId: 'test-peer',
+      rpcDomain: 'clearing.example',
+      rpcPort: 443,
+      boundAtMs: 1,
+      lastVerifiedAtMs: 1,
+    );
+    final directory = _BankDirectory()
+      ..binding = (
+        endpoint: const ClearingBankNodeEndpoint(
+          cidNumber: 'test-bank',
+          peerId: 'test-peer',
+          rpcDomain: 'current.example',
+          rpcPort: 443,
+          registeredAt: 1,
+          registeredBy: '',
+        ),
+        title: '测试清算行',
+      );
+    final current = directory.binding!.endpoint.wssUrl;
+    await tester.runAsync(() async {
+      await UserIsar.instance.writeClearingBalance(accountId, current, BigInt.from(425));
+      await UserIsar.instance.writeClearingBalance(accountId, binding.wssUrl, BigInt.from(900));
+      await ClearingBalances.instance.state(accountId: accountId, wssUrl: current).load();
+    });
+    addTearDown(ClearingBalances.instance.invalidateAll);
+    await pumpCard(tester, directory: directory);
+    expect(find.text('4.25 元'), findsOneWidget);
+    await tester.runAsync(() => ClearingBankPrefs.saveSnapshot(accountId, binding));
+    await tester.tap(find.byIcon(Icons.account_balance_wallet_outlined));
+    await tester.pumpAndSettle();
+    expect(openedPetty, [accountId]);
+    expect(find.text('测试零钱包'), findsOneWidget);
+    expect(directory.accounts, everyElement(accountId));
+    expect(directory.accounts.length, 2);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('提现前核对到新端点时切换余额并要求重新确认', (tester) async {
+    const old = ClearingBankNodeEndpoint(
+      cidNumber: 'test-bank',
+      peerId: 'peer',
+      rpcDomain: 'old.example',
+      rpcPort: 9944,
+      registeredAt: 1,
+      registeredBy: '',
+    );
+    const current = ClearingBankNodeEndpoint(
+      cidNumber: 'test-bank',
+      peerId: 'peer',
+      rpcDomain: 'current.example',
+      rpcPort: 9944,
+      registeredAt: 2,
+      registeredBy: '',
+    );
+    final directory = _BankDirectory()
+      ..binding = (endpoint: current, title: '测试清算行');
+    await tester.runAsync(() async {
+      for (final (node, cents) in [(old, 900), (current, 425)]) {
+        await UserIsar.instance.writeClearingBalance(
+          accountId,
+          node.wssUrl,
+          BigInt.from(cents),
+        );
+        await ClearingBalances.instance
+            .state(accountId: accountId, wssUrl: node.wssUrl)
+            .load();
+      }
+    });
+    addTearDown(ClearingBalances.instance.invalidateAll);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: WithdrawPage(
+          accountId: accountId,
+          directory: directory,
+          bank: (endpoint: old, title: '测试清算行'),
+        ),
+      ),
+    );
+    expect(find.textContaining('¥9.00'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), '1.00');
+    await tester.tap(find.text('确认提现'));
+    await tester.pumpAndSettle();
+    expect(directory.accounts, [accountId]);
+    expect(find.text('清算行已变化，请重新确认'), findsOneWidget);
+    expect(find.textContaining('¥9.00'), findsNothing);
+    expect(find.textContaining('¥4.25'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 
   testWidgets('统一详情仅顶部显示链上余额，交易记录四角完整', (tester) async {
@@ -267,4 +382,17 @@ void main() {
     }
     expect(differences, 0, reason: '共用交易记录卡四角边框完整');
   });
+}
+
+class _BankDirectory extends ClearingBankDirectory {
+  final accounts = <String>[];
+  ClearingBankBinding? binding;
+  bool fail = false;
+
+  @override
+  Future<ClearingBankBinding?> fetchUserBank(String accountId) async {
+    accounts.add(accountId);
+    if (fail) throw StateError('链读取失败');
+    return binding;
+  }
 }

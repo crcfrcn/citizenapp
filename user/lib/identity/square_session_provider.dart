@@ -296,16 +296,6 @@ class SquareSessionProvider {
     );
   }
 
-  /// 身份主键是CID；所有普通请求使用同一MLS设备身份。
-  Future<void> reportIdentity(
-    IdentityBinding binding, {
-    required Future<void> Function() requireCurrent,
-  }) => _client.reportIdentity(
-    cidNumber: binding.cidNumber,
-    accountId: binding.accountId,
-    requireCurrent: requireCurrent,
-  );
-
   Future<String?> currentCitizenId() async {
     final current = await _currentUser.resolve();
     return current?.binding?.cidNumber;

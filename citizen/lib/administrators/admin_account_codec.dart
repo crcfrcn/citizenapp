@@ -1,6 +1,7 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
+
 import 'dart:typed_data';
 
-import 'package:citizen_citizen/administrators/account_id_codec.dart';
 import 'package:citizen_citizen/administrators/admin_account.dart';
 import 'package:citizen_citizen/institution/institution_role_storage_codec.dart';
 
@@ -46,8 +47,9 @@ class AdminAccountCodec {
     final admins = decodedAdmins.$1;
     offset = decodedAdmins.$2;
     if (offset + 32 + 4 + 4 + 1 != data.length) return null;
-    final creatorAccount =
-        '0x${AdminAccountIdCodec.hexEncode(data.sublist(offset, offset + 32))}';
+    final creatorAccount = citizenAccountIdFromBytes(
+      data.sublist(offset, offset + 32),
+    );
     offset += 32;
     final createdAt = _readU32(data, offset);
     offset += 4;
@@ -56,7 +58,7 @@ class AdminAccountCodec {
     final status = data[offset];
     if (status > 2) return null;
     return AdminAccountState(
-      accountId: '0x${AdminAccountIdCodec.hexEncode(personalAccount)}',
+      accountId: citizenAccountIdFromBytes(personalAccount),
       orgCode: orgCode,
       kind: kind,
       admins: admins,
@@ -71,29 +73,13 @@ class AdminAccountCodec {
   }
 
   static (int, int) readCompactU32(Uint8List data, int offset) {
-    final first = data[offset];
-    final mode = first & 0x03;
-    if (mode == 0) return (first >> 2, 1);
-    if (mode == 1) {
-      return (((data[offset + 1] << 8) | first) >> 2, 2);
+    final decoded = CitizenScale.readCompact(data, offset);
+    if (decoded.$1 > 0xffffffff) {
+      throw const FormatException('Compact 长度超出 u32');
     }
-    if (mode == 2) {
-      final raw =
-          data[offset] |
-          (data[offset + 1] << 8) |
-          (data[offset + 2] << 16) |
-          (data[offset + 3] << 24);
-      return (raw >> 2, 4);
-    }
-    final len = (first >> 2) + 4;
-    var value = 0;
-    for (var i = 0; i < len && i < 8; i++) {
-      value |= data[offset + 1 + i] << (8 * i);
-    }
-    return (value, len + 1);
+    return decoded;
   }
 
-  static int _readU32(Uint8List data, int offset) {
-    return ByteData.sublistView(data).getUint32(offset, Endian.little);
-  }
+  static int _readU32(Uint8List data, int offset) =>
+      CitizenScale.readUnsigned(data, offset, 4).toInt();
 }

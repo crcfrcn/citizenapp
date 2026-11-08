@@ -2,8 +2,6 @@ import 'dart:typed_data';
 import 'dart:convert';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:polkadart/polkadart.dart' show Hasher;
-import 'package:citizen_citizen/account_derivation.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
 
 /// InternalVote 通用查询服务。
@@ -15,6 +13,7 @@ class InternalVoteQueryService {
     CitizenSdk? chain,
     CitizenBlockRef? block,
     Future<CitizenBlockRef> Function()? getFinalizedHead,
+    Future<CitizenRuntimeContext> Function(CitizenBlockRef)? getRuntimeContext,
     Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
     getStorage,
     Future<List<Uint8List?>> Function(
@@ -27,6 +26,8 @@ class InternalVoteQueryService {
            getFinalizedHead ??
            chain?.getFinalizedHead ??
            (() => throw StateError('未配置getFinalizedHead')),
+       _getRuntimeContext = getRuntimeContext ?? chain?.getRuntimeContext ??
+           ((block) => throw StateError('未配置getRuntimeContext')),
        _getStorage =
            getStorage ??
            chain?.getStorage ??
@@ -38,6 +39,7 @@ class InternalVoteQueryService {
            ((CitizenBlockRef block, List<Uint8List> keys) =>
                throw StateError('未配置getStorageBatch'));
   final Future<CitizenBlockRef> Function() _getFinalizedHead;
+  final Future<CitizenRuntimeContext> Function(CitizenBlockRef) _getRuntimeContext;
   final Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)
   _getStorage;
   final Future<List<Uint8List?>> Function(
@@ -50,7 +52,7 @@ class InternalVoteQueryService {
 
   /// 查询某管理员对某提案的投票记录。null=未投票，true=赞成，false=反对。
   Future<bool?> fetchAdminVote(int proposalId, String accountId) async {
-    final data = await _readOne(_ticketVoteKey(proposalId, accountId));
+    final data = await _readOne(_ticketVoteFields(proposalId, accountId));
     return _decodeVote(data);
   }
 
@@ -62,7 +64,7 @@ class InternalVoteQueryService {
     String accountId,
   ) async {
     final data = await _readOne(
-      _ticketVoteKey(
+      _ticketVoteFields(
         proposalId,
         accountId,
         cidNumber: cidNumber,
@@ -80,10 +82,10 @@ class InternalVoteQueryService {
     int proposalId,
     Iterable<String> accountIds,
   ) async {
-    final keyByAccountId = <String, Uint8List>{};
+    final keyByAccountId = <String, List<Object>>{};
     for (final accountId in accountIds) {
       final normalizedAccountId = _requireAccountId(accountId);
-      keyByAccountId[normalizedAccountId] = _ticketVoteKey(
+      keyByAccountId[normalizedAccountId] = _ticketVoteFields(
         proposalId,
         normalizedAccountId,
       );
@@ -102,9 +104,9 @@ class InternalVoteQueryService {
     int proposalId,
     Iterable<EligibleVoterTicket> tickets,
   ) async {
-    final storageByTicket = <String, Uint8List>{};
+    final storageByTicket = <String, List<Object>>{};
     for (final ticket in tickets) {
-      storageByTicket[ticket.ticketKey] = _ticketVoteKey(
+      storageByTicket[ticket.ticketKey] = _ticketVoteFields(
         proposalId,
         ticket.voterAccountId,
         cidNumber: ticket.cidNumber,
@@ -127,12 +129,12 @@ class InternalVoteQueryService {
   Future<Map<int, Map<String, bool?>>> fetchAdminVotesForProposals(
     Map<int, List<String>> accountIdsByProposal,
   ) async {
-    final keys = <Uint8List>[];
+    final keys = <List<Object>>[];
     final coordinates = <({int pid, String accountId})>[];
     for (final entry in accountIdsByProposal.entries) {
       for (final accountId in entry.value) {
         final normalizedAccountId = _requireAccountId(accountId);
-        keys.add(_ticketVoteKey(entry.key, normalizedAccountId));
+        keys.add(_ticketVoteFields(entry.key, normalizedAccountId));
         coordinates.add((pid: entry.key, accountId: normalizedAccountId));
       }
     }
@@ -152,11 +154,11 @@ class InternalVoteQueryService {
   Future<Map<int, Map<String, bool?>>> fetchTicketVotesForProposals(
     Map<int, List<EligibleVoterTicket>> ticketsByProposal,
   ) async {
-    final keys = <Uint8List>[];
+    final keys = <List<Object>>[];
     final coordinates = <({int pid, String ticketKey})>[];
     for (final entry in ticketsByProposal.entries) {
       for (final ticket in entry.value) {
-        final storageKey = _ticketVoteKey(
+        final storageKey = _ticketVoteFields(
           entry.key,
           ticket.voterAccountId,
           cidNumber: ticket.cidNumber,
@@ -178,63 +180,61 @@ class InternalVoteQueryService {
     return result;
   }
 
-  Uint8List _ticketVoteKey(
+  List<Object> _ticketVoteFields(
     int proposalId,
     String accountId, {
     String? cidNumber,
     String? voterRoleCode,
   }) {
-    final proposalIdBytes = _u64ToLeBytes(proposalId);
-    final accountBytes = _hexDecode(accountId);
-    final ticketBytes = BytesBuilder(copy: false);
+    if (proposalId < 0) throw ArgumentError('proposal_id不得为负');
+    final account = citizenAccountIdBytes(accountId);
+    final CitizenScaleVariant ticket;
     if (cidNumber == null && voterRoleCode == null) {
-      ticketBytes.addByte(0); // InternalVoteTicket::Personal
-      ticketBytes.add(accountBytes);
+      ticket = (variant: 'Personal', fields: [account]);
     } else if (cidNumber != null && voterRoleCode != null) {
-      ticketBytes.addByte(1); // InternalVoteTicket::Institution
-      ticketBytes.add(_encodeBoundedText(cidNumber, 32, 'cid_number'));
-      ticketBytes.add(_encodeBoundedText(voterRoleCode, 64, 'voter_role_code'));
-      ticketBytes.add(accountBytes);
+      ticket = (variant: 'Institution', fields: [
+        [
+          [
+            _boundedText(cidNumber, 32, 'cid_number'),
+            _boundedText(voterRoleCode, 64, 'voter_role_code'),
+          ],
+          account,
+        ],
+      ]);
     } else {
       throw ArgumentError('机构票据查询必须同时提供 cid_number 和 voter_role_code');
     }
-    final palletHash = Hasher.twoxx128.hashString('InternalVote');
-    final storageHash = Hasher.twoxx128.hashString('InternalVotesByTicket');
-    final key1 = _blake2128Concat(proposalIdBytes);
-    final key2 = _blake2128Concat(ticketBytes.toBytes());
-    final fullKey = Uint8List(
-      palletHash.length + storageHash.length + key1.length + key2.length,
+    return [proposalId, ticket];
+  }
+
+  Future<CitizenRuntimeContext> _finalizedRuntime() async {
+    final finalized = _block ?? await _getFinalizedHead();
+    if (finalized.finality != CitizenBlockFinality.finalized) {
+      throw StateError('投票查询需要finalized块');
+    }
+    return _getRuntimeContext(finalized);
+  }
+
+  Future<Uint8List?> _readOne(List<Object> fields) async {
+    final runtime = await _finalizedRuntime();
+    return _getStorage(
+      runtime.block,
+      runtime.storageKey('InternalVote', 'InternalVotesByTicket', fields),
     );
-    var offset = 0;
-    fullKey.setAll(offset, palletHash);
-    offset += palletHash.length;
-    fullKey.setAll(offset, storageHash);
-    offset += storageHash.length;
-    fullKey.setAll(offset, key1);
-    offset += key1.length;
-    fullKey.setAll(offset, key2);
-    return fullKey;
   }
 
-  Future<Uint8List?> _readOne(Uint8List key) async {
-    final finalized = _block ?? await _getFinalizedHead();
-    if (finalized.finality != CitizenBlockFinality.finalized) {
-      throw StateError('投票查询需要finalized块');
-    }
-    return _getStorage(finalized, key);
-  }
-
-  Future<List<Uint8List?>> _readBatch(List<Uint8List> keys) async {
-    if (keys.isEmpty) return const <Uint8List?>[];
-    final finalized = _block ?? await _getFinalizedHead();
-    if (finalized.finality != CitizenBlockFinality.finalized) {
-      throw StateError('投票查询需要finalized块');
-    }
+  Future<List<Uint8List?>> _readBatch(List<List<Object>> fields) async {
+    if (fields.isEmpty) return const <Uint8List?>[];
+    final runtime = await _finalizedRuntime();
+    final keys = [
+      for (final key in fields)
+        runtime.storageKey('InternalVote', 'InternalVotesByTicket', key),
+    ];
     final result = <Uint8List?>[];
     for (var offset = 0; offset < keys.length; offset += 100) {
       final end = (offset + 100).clamp(0, keys.length);
       final values = await _getStorageBatch(
-        finalized,
+        runtime.block,
         keys.sublist(offset, end),
       );
       if (values.length != end - offset) {
@@ -253,45 +253,16 @@ class InternalVoteQueryService {
     return data[0] == 1;
   }
 
-  Uint8List _encodeBoundedText(String value, int maxBytes, String field) {
+  Uint8List _boundedText(String value, int maxBytes, String field) {
     final bytes = Uint8List.fromList(utf8.encode(value));
     if (value != value.trim() || bytes.isEmpty || bytes.length > maxBytes) {
       throw ArgumentError('$field 长度不合法');
     }
-    final length = bytes.length;
-    final prefix = length < 64
-        ? <int>[length << 2]
-        : <int>[(length << 2 | 1) & 0xff, (length << 2 | 1) >> 8];
-    return Uint8List.fromList([...prefix, ...bytes]);
-  }
-
-  Uint8List _u64ToLeBytes(int value) {
-    if (value < 0) throw ArgumentError('proposal_id不得为负');
-    final bytes = Uint8List(8);
-    final bd = ByteData.sublistView(bytes);
-    bd.setUint64(0, value, Endian.little);
     return bytes;
   }
 
-  Uint8List _blake2128Concat(Uint8List data) {
-    final hash = Hasher.blake2b128.hash(data);
-    final result = Uint8List(hash.length + data.length);
-    result.setAll(0, hash);
-    result.setAll(hash.length, data);
-    return result;
-  }
-
-  Uint8List _hexDecode(String hex) {
-    final h = _requireAccountId(hex).substring(2);
-    final result = Uint8List(h.length ~/ 2);
-    for (var i = 0; i < result.length; i++) {
-      result[i] = int.parse(h.substring(i * 2, i * 2 + 2), radix: 16);
-    }
-    return result;
-  }
-
   String _requireAccountId(String accountId) {
-    if (!isAccountIdText(accountId)) {
+    if (!isCitizenAccountId(accountId)) {
       throw const FormatException('account_id 必须为小写 0x + 64 位十六进制');
     }
     return accountId;

@@ -1,6 +1,6 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 
-import 'package:citizen_user/creator/creator_money.dart';
 import 'package:citizen_user/creator/creator_plan.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_system/theme/app_layout.dart';
@@ -70,7 +70,7 @@ class CreatorTierCard extends StatelessWidget {
       BillingPeriod.quarterly => '季',
       BillingPeriod.yearly => '年',
     };
-    final label = has ? '$short ${fenToYuanLabel(fen)} 元' : '$short 未设';
+    final label = has ? '$short ${formatFen(BigInt.from(fen), group: false, trimZeros: true)} 元' : '$short 未设';
     return Container(
       padding: EdgeInsets.symmetric(
         horizontal: AppLayout.scaledValue(10),

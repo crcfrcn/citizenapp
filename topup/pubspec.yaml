@@ -31,10 +31,10 @@ dependencies:
   webview_flutter: ^4.13.0
 
 dev_dependencies:
+  polkadart_keyring: 0.7.1
   citizen_testing: any
   flutter_test:
     sdk: flutter
-  polkadart_keyring: 0.7.1
 
 flutter:
   assets:
