@@ -224,34 +224,28 @@ jobs:
           const bundle = await readFile(process.env.WORK + '/artifact/' + name + '.aab');
           const digest = createHash('sha256').update(bundle).digest('hex');
           console.log(name + '（versionCode ' + code + '）等待在 Play Console 内部轨道单独推出');
-          let state;
+          let verified = false;
           for (let attempt = 0; attempt < 120; attempt++) {
             if (attempt) await pause(10000);
-            const current = await request(app + '/tracks/internal/releases');
-            const matches = current.releases?.filter(row => row.track === 'internal' &&
-              row.releaseName === name && row.activeArtifacts?.some(item => String(item.versionCode) === code)) ?? [];
-            if (matches.length > 1) throw Error('Google Play本轮内部发布记录不唯一');
-            state = matches[0]?.releaseLifecycleState;
-            if (state === 'RELEASE_LIFECYCLE_STATE_PUBLISHED') break;
-            if (state === 'RELEASE_LIFECYCLE_STATE_NOT_APPROVED') throw Error('Google Play拒绝本轮内部发布');
-          }
-          if (state !== 'RELEASE_LIFECYCLE_STATE_PUBLISHED') throw Error('Google Play内部测试回查超时');
-          // 只读快照用于核对轨道和摘要，始终丢弃，不提交任何 edit。
-          const edit = (await request(base, 'POST')).id;
-          if (typeof edit !== 'string' || !/^\d+$/u.test(edit)) throw Error('Google Play回查编辑编号无效');
-          const url = base + '/' + edit;
-          try {
-            const active = await request(url + '/tracks/internal');
-            if (active.track !== 'internal' || !active.releases?.some(row => row.name === name &&
-                row.status === 'completed' && row.versionCodes?.some(value => String(value) === code))) {
-              throw Error('Google Play本轮内部轨道未完成推出');
+            // 新 edit 是已部署状态的快照，只读取后丢弃。
+            const edit = (await request(base, 'POST')).id;
+            if (typeof edit !== 'string' || !/^\d+$/u.test(edit)) throw Error('Google Play回查编辑编号无效');
+            const url = base + '/' + edit;
+            try {
+              const active = await request(url + '/tracks/internal');
+              if (active.track !== 'internal') throw Error('Google Play返回的轨道不是内部轨道');
+              if (!active.releases?.some(row => row.name === name && row.status === 'completed' &&
+                  row.versionCodes?.some(value => String(value) === code))) continue;
+              const saved = await request(url + '/bundles');
+              const matches = saved.bundles?.filter(row => String(row.versionCode) === code);
+              if (matches?.length !== 1 || matches[0].sha256 !== digest) throw Error('Google Play本轮AAB摘要不符');
+              verified = true;
+              break;
+            } finally {
+              await request(url, 'DELETE');
             }
-            const saved = await request(url + '/bundles');
-            const matches = saved.bundles?.filter(row => String(row.versionCode) === code);
-            if (matches?.length !== 1 || matches[0].sha256 !== digest) throw Error('Google Play本轮AAB摘要不符');
-          } finally {
-            await request(url, 'DELETE');
           }
+          if (!verified) throw Error('Google Play内部测试回查超时');
           console.log(name + ' 已在Google Play内部测试轨道推出');
           NODE
       - name: 保存官方增量缓存
