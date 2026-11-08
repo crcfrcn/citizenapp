@@ -804,6 +804,7 @@ void main() {
     );
     await tester.pumpWidget(const SizedBox.shrink());
     await drain(tester);
+    await driveIo(tester, SocialIsar.instance.read<void>((_) async {}));
   });
   testWidgets('广场仅在实际选中时清父层，重复点击当前子tab重新拉流', (tester) async {
     final selected = ValueNotifier<int>(1);
