@@ -223,6 +223,27 @@ export async function preparePackages(project,{sources,environment=process.env,e
  await execute(flutter,['pub','get','--enforce-lockfile'],project,false,environment,'依赖锁验收');
 }
 
+// 正式App测试唯一归lib/test；普通工程按Dart官方test布局装配，保留开发依赖及测试注解语义。
+// 只改文件位置和相对URI，不复制测试实现，不在正式主仓生成根test。
+export function prepareTests(project){
+ const source=join(project,'lib/test'),destination=join(project,'test');
+ if(realpathSync(project)===realpathSync(root)||existsSync(destination))throw Error('测试装配只能写尚未生成test的普通工程');
+ const visit=directory=>{for(const entry of readdirSync(directory,{withFileTypes:true})){
+  const from=join(directory,entry.name);
+  if(entry.isDirectory()){visit(from);if(!readdirSync(from).length)rmSync(from,{recursive:true});continue;}
+  if(!entry.isFile()||!entry.name.endsWith('.dart'))continue;
+  const to=join(destination,relative(source,from));
+  const text=readFileSync(from,'utf8').replace(/^((?:import|export|part)\s+)(['"])(\.\.?\/[^'"]+)\2/gm,(_,prefix,quote,uri)=>{
+   const target=resolve(dirname(from),uri);
+   const mapped=target.startsWith(source+sep)?join(destination,relative(source,target)):target;
+   let path=relative(dirname(to),mapped).split(sep).join('/');if(!path.startsWith('.'))path='./'+path;
+   return prefix+quote+path+quote;
+  });
+  mkdirSync(dirname(to),{recursive:true});writeFileSync(to,text);rmSync(from);
+ }};
+ visit(source);
+}
+
 // 两个平台及本机共用产品自己的工程装配，公开IO注入仅供既有合成回归。
 export async function assembleProject(environment,io={}){
  const execute=io.execFileSync||execFileSync;
@@ -292,6 +313,7 @@ lock = lock.replace(new RegExp('  ' + name + ':\n(?:    .*\n)+'), () =>
     '  ' + name + ':\n    dependency: "direct main"\n    description:\n      path: "' + output +
     '"\n      relative: false\n    source: path\n    version: ' +
     JSON.stringify(/^version: (\S+)$/m.exec(readFileSync(join(output,'pubspec.yaml'),'utf8'))[1]) + '\n');
+prepareTests(project);
 // Flutter官方模板只写本轮工程；保留既有业务源码和平台工程原件。
 const flutter = join(environment.FLUTTER_ROOT, 'bin/flutter');
 execute(flutter, ['create', '--empty', '--no-pub', '--platforms=android,ios', '--org=com.crcfrcn', '--project-name=citizenapp', project], {stdio: 'inherit'});

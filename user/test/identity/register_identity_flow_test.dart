@@ -158,13 +158,10 @@ class _FlowCoordinator extends RegistrationCoordinator {
     )
     registerCid,
     Future<bool> Function(Map<String, dynamic>?)? canRetryChain,
-    required Future<void> Function(FinalizedRegistration) report,
   }) async {
     await requireCurrent();
     await requireAffordable();
-    final result = await registerCid((_) async {});
-    await report(result);
-    return result;
+    return registerCid((_) async {});
   }
 }
 
