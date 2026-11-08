@@ -41,14 +41,14 @@ export async function readVersion(platform,installed,environment=process.env,{re
     const tagPrefix=prefix(platform);
     const valid = value => typeof value === 'string' && /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u.test(value);
     const fits = value => value.split('.').every(part => BigInt(part) < 2n ** 64n);
-    read ??= installed ? async path => {
-      const response = await fetch('https://api.github.com/repos/crcfrcn/citizenapp/' + path, {
-        redirect:'error', signal:AbortSignal.timeout(30000),
-        headers:{'User-Agent':'CitizenApp',Accept:'application/vnd.github+json'},
-      });
-      if (!response.ok) throw Error('读取公民正式版本失败：HTTP ' + response.status);
-      return response.json();
-    } : path => api(environment,path);
+    if (installed) {
+      const local = {...environment,PATH:[environment.PATH,'/opt/homebrew/bin','/usr/local/bin'].filter(Boolean).join(':'),
+        GH_HOST:'github.com',GH_PROMPT_DISABLED:'1',GH_NO_UPDATE_NOTIFIER:'1',GH_DEBUG:''};
+      read ??= path => api(local,path,'crcfrcn/citizenapp',
+        (command,args,options)=>execFileSync(command,args,{...options,timeout:30000}));
+    } else {
+      read ??= path => api(environment,path);
+    }
     const releases = await readReleases(read,'公民');
     const candidates = releases.filter(row => row.draft === false && row.prerelease === false
       && typeof row.tag_name === 'string' && row.tag_name.startsWith(tagPrefix))

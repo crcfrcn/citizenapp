@@ -82,6 +82,14 @@ jobs:
           key: citizenapp-android-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pubspec.lock', 'ios/Podfile.lock', 'android/app/build.gradle.kts') }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             citizenapp-android-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pubspec.lock', 'ios/Podfile.lock', 'android/app/build.gradle.kts') }}-
+      - name: 核对 Google Play 内部测试启用确认
+        env:
+          PLAY_INTERNAL_ROLLOUT_READY: ${{ vars.PLAY_INTERNAL_ROLLOUT_READY }}
+        run: |
+          if [ "$PLAY_INTERNAL_ROLLOUT_READY" != true ]; then
+            echo "Google Play 内部测试名单、首次推出和待审核变更尚未确认" >&2
+            exit 1
+          fi
       - name: 准备官方工具和本轮目录
         run: node .github/release.mjs prepare android
       - name: 按本产品原锁装配普通工程
@@ -190,16 +198,18 @@ jobs:
           access_token_scopes: https://www.googleapis.com/auth/androidpublisher
           create_credentials_file: false
           export_environment_variables: false
-      - name: 上传正式AAB到Google Play草稿并回查
-        timeout-minutes: 15
+      - name: 推出正式AAB到Google Play内部测试并回查
+        timeout-minutes: 20
         env:
           GOOGLE_PLAY_ACCESS_TOKEN: ${{ steps.google.outputs.access_token }}
         run: |
           node --input-type=module <<'NODE'
           import {readFile} from 'node:fs/promises';
+          import {setTimeout as pause} from 'node:timers/promises';
           const token = process.env.GOOGLE_PLAY_ACCESS_TOKEN;
           if (!token) throw Error('缺少Google Play上传授权');
-          const base = 'https://androidpublisher.googleapis.com/androidpublisher/v3/applications/com.crcfrcn.citizenapp/edits';
+          const app = 'https://androidpublisher.googleapis.com/androidpublisher/v3/applications/com.crcfrcn.citizenapp';
+          const base = app + '/edits';
           const request = async (url, method = 'GET', body, type = 'application/json') => {
             const response = await fetch(url, {method, redirect: 'error',
               headers: {Authorization: 'Bearer ' + token, 'Content-Type': type},
@@ -226,21 +236,41 @@ jobs:
               'POST', await readFile(process.env.WORK + '/artifact/' + name + '.aab'), 'application/octet-stream');
             if (String(bundle.versionCode) !== code) throw Error('Google Play返回版本号不一致');
             const track = await request(url + '/tracks/internal');
-            // 只替换内部轨道旧草稿，保留已分发版本，不触发分发、审核或上架。
-            track.releases = [...(track.releases ?? []).filter(row => row.status !== 'draft'),
-              {name, versionCodes: [code], status: 'draft'}];
-            await request(url + '/tracks/internal', 'PUT', track);
-            await request(url + ':commit', 'POST', {});
+            if (track.track !== 'internal') throw Error('Google Play返回的内部轨道标识不符');
+            await request(url + '/tracks/internal', 'PUT', {
+              track: 'internal', releases: [{name, versionCodes: [code], status: 'completed'}]
+            });
+            await request(url + ':commit?changesInReviewBehavior=ERROR_IF_IN_REVIEW', 'POST');
             edit = undefined;
-            // 新edit回读已保存草稿，观察edit随后删除，不产生正式发布。
-            edit = (await request(base, 'POST', {})).id;
-            const saved = await request(base + '/' + edit + '/tracks/internal');
-            if (!saved.releases?.some(row => row.name === name && row.status === 'draft' &&
-                row.versionCodes?.includes(code))) throw Error('Google Play草稿回查失败');
-            console.log(name + ' 已上传Google Play，草稿回查通过，未上架');
           } finally {
             if (edit) await request(base + '/' + edit, 'DELETE');
           }
+          let state;
+          for (let attempt = 0; attempt < 30; attempt++) {
+            if (attempt) await pause(10000);
+            const current = await request(app + '/tracks/internal/releases');
+            const matches = current.releases?.filter(row => row.track === 'internal' &&
+              row.releaseName === name && row.activeArtifacts?.some(item => String(item.versionCode) === code)) ?? [];
+            if (matches.length > 1) throw Error('Google Play本轮内部发布记录不唯一');
+            state = matches[0]?.releaseLifecycleState;
+            if (state === 'RELEASE_LIFECYCLE_STATE_PUBLISHED') break;
+            if (['DRAFT', 'NOT_SENT_FOR_REVIEW', 'NOT_APPROVED', 'APPROVED_NOT_PUBLISHED'].some(value =>
+                state === 'RELEASE_LIFECYCLE_STATE_' + value)) {
+              throw Error('Google Play本轮内部发布尚不可测试：' + state);
+            }
+          }
+          if (state !== 'RELEASE_LIFECYCLE_STATE_PUBLISHED') throw Error('Google Play内部测试回查超时');
+          try {
+            edit = (await request(base, 'POST', {})).id;
+            const active = await request(base + '/' + edit + '/tracks/internal');
+            if (active.track !== 'internal' || !active.releases?.some(row => row.name === name &&
+                row.status === 'completed' && row.versionCodes?.some(value => String(value) === code))) {
+              throw Error('Google Play本轮内部轨道未完成推出');
+            }
+          } finally {
+            if (edit) await request(base + '/' + edit, 'DELETE');
+          }
+          console.log(name + ' 已在Google Play内部测试轨道推出');
           NODE
       - name: 保存官方增量缓存
         if: always()

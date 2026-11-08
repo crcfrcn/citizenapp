@@ -209,8 +209,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node .github/release.mjs release ios
-      # 同一Run交付成功后上传同一份IPA；只等待Apple处理，不提交审核或上架。
-      - name: 上传正式IPA到App Store Connect
+      # 同一 Run 上传已验 IPA，回查指定 TestFlight 内部组。
+      - name: 上传正式IPA并回查TestFlight内部测试
         timeout-minutes: 30
         env:
           APPSTORE_KEYID: ${{ secrets.APPSTORE_KEYID }}
@@ -227,9 +227,87 @@ jobs:
           mkdir "$API_PRIVATE_KEYS_DIR"
           trap 'rm -rf "$API_PRIVATE_KEYS_DIR"' EXIT
           printf '%s\n' "$APPSTORE_PRIVATEKEY" > "$API_PRIVATE_KEYS_DIR/AuthKey_$APPSTORE_KEYID.p8"
-          xcrun altool --upload-package "$WORK/artifact/公民·iOS·v$CITIZENAPP_VERSION.ipa" \
-            --api-key "$APPSTORE_KEYID" --api-issuer "$APPSTORE_ISSUERID" \
-            --wait --output-format json
+          node --input-type=module <<'NODE'
+          import {execFileSync} from 'node:child_process';
+          import {sign} from 'node:crypto';
+          import {setTimeout as pause} from 'node:timers/promises';
+          const env = process.env;
+          const app = '6800953222';
+          const group = 'c4a947eb-db0b-45ee-ad1d-6d306d77b968';
+          const base = 'https://api.appstoreconnect.apple.com';
+          const encode = value => Buffer.from(JSON.stringify(value)).toString('base64url');
+          async function request(path, body) {
+            const now = Math.floor(Date.now() / 1000);
+            const input = encode({alg: 'ES256', kid: env.APPSTORE_KEYID, typ: 'JWT'}) + '.' +
+              encode({iss: env.APPSTORE_ISSUERID, iat: now, exp: now + 600, aud: 'appstoreconnect-v1'});
+            const token = input + '.' + sign('sha256', Buffer.from(input),
+              {key: env.APPSTORE_PRIVATEKEY, dsaEncoding: 'ieee-p1363'}).toString('base64url');
+            const response = await fetch(base + path, {
+              method: body === undefined ? 'GET' : 'POST', redirect: 'error',
+              headers: {Authorization: 'Bearer ' + token, 'Content-Type': 'application/json'},
+              body: body === undefined ? undefined : JSON.stringify(body),
+              signal: AbortSignal.timeout(20000)
+            });
+            if (!response.ok) throw Error('App Store Connect 回查或分发失败，HTTP ' + response.status);
+            return response.status === 204 ? null : response.json();
+          }
+          const info = await request('/v1/apps/' + app);
+          if (info.data?.attributes?.bundleId !== 'ios.citizenapp') throw Error('TestFlight 应用标识不符');
+          const groups = await request('/v1/apps/' + app + '/betaGroups?limit=200');
+          const target = groups.data?.find(row => row.id === group);
+          if (target?.attributes?.isInternalGroup !== true) {
+            throw Error('公民 TestFlight 内部组归属不符');
+          }
+          if (groups.links?.next || groups.data.some(row => row.id !== group &&
+              row.attributes?.isInternalGroup === true && row.attributes.hasAccessToAllBuilds !== false)) {
+            throw Error('无法保证仅分发到「公民」：其他内部组可能自动接收构建');
+          }
+          execFileSync('xcrun', ['altool', '--upload-package',
+            env.WORK + '/artifact/公民·iOS·v' + env.CITIZENAPP_VERSION + '.ipa',
+            '--api-key', env.APPSTORE_KEYID, '--api-issuer', env.APPSTORE_ISSUERID,
+            '--wait', '--output-format', 'json'], {stdio: 'inherit'});
+          const filters = new URLSearchParams({
+            'filter[app]': app, 'filter[version]': env.GITHUB_RUN_NUMBER, include: 'preReleaseVersion'
+          });
+          const groupBuilds = '/v1/betaGroups/' + group + '/relationships/builds';
+          let assigned = false, verified = false;
+          for (let attempt = 0; attempt < 30; attempt++) {
+            if (attempt) await pause(10000);
+            const result = await request('/v1/builds?' + filters);
+            const builds = result.data.filter(row => {
+              const prerelease = result.included?.find(item => item.type === 'preReleaseVersions' &&
+                item.id === row.relationships?.preReleaseVersion?.data?.id);
+              return row.attributes?.version === env.GITHUB_RUN_NUMBER &&
+                prerelease?.attributes?.version === env.CITIZENAPP_VERSION && prerelease.attributes.platform === 'IOS';
+            });
+            if (builds.length > 1) throw Error('本轮 TestFlight 构建不唯一');
+            const build = builds[0];
+            if (!build) continue;
+            if (build.attributes.expired || ['FAILED', 'INVALID'].includes(build.attributes.processingState)) {
+              throw Error('本轮 TestFlight 构建处理失败或已过期');
+            }
+            if (build.attributes.processingState !== 'VALID') continue;
+            const detail = await request('/v1/builds/' + encodeURIComponent(build.id) + '/buildBetaDetail');
+            const state = detail.data?.attributes?.internalBuildState;
+            if (['PROCESSING_EXCEPTION', 'MISSING_EXPORT_COMPLIANCE', 'IN_EXPORT_COMPLIANCE_REVIEW', 'EXPIRED'].includes(state)) {
+              throw Error('本轮 TestFlight 构建不可内测：' + state);
+            }
+            if (state !== 'READY_FOR_BETA_TESTING' && state !== 'IN_BETA_TESTING') continue;
+            const membership = await request(groupBuilds + '?limit=200');
+            const present = membership.data.some(row => row.id === build.id && row.type === 'builds');
+            if (present && state === 'IN_BETA_TESTING') {
+              verified = true;
+              break;
+            }
+            if (!present && !assigned && target.attributes.hasAccessToAllBuilds !== true) {
+              if (membership.links?.next) throw Error('无法确认本轮 TestFlight 构建的内部组归属');
+              await request(groupBuilds, {data: [{type: 'builds', id: build.id}]});
+              assigned = true;
+            }
+          }
+          if (!verified) throw Error('本轮 TestFlight 内部组回查超时');
+          console.log('本轮 TestFlight 构建已在「公民」内部组可测试');
+          NODE
       - name: 保存官方增量缓存
         if: always()
         uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809

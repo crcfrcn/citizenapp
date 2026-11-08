@@ -295,6 +295,8 @@ lock = lock.replace(new RegExp('  ' + name + ':\n(?:    .*\n)+'), () =>
 // Flutter官方模板只写本轮工程；保留既有业务源码和平台工程原件。
 const flutter = join(environment.FLUTTER_ROOT, 'bin/flutter');
 execute(flutter, ['create', '--empty', '--no-pub', '--platforms=android,ios', '--org=com.crcfrcn', '--project-name=citizenapp', project], {stdio: 'inherit'});
+// Gradle 仍会编译模板目录，只移除本轮生成的入口，保留产品自己的 MainActivity。
+rmSync(join(project,'android/app/src/main/kotlin/com/crcfrcn/citizenapp/MainActivity.kt'),{force:true});
 // create即使不执行Pub也会重写锁；完成后写回只映射SDK路径的完整原锁。
 writeFileSync(join(project, 'pubspec.lock'), lock);
 const write = (path, text) => {
