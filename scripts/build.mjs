@@ -57,7 +57,7 @@ async function run(command, args, cwd, capture = false, environment = process.en
                         break;
                     }
                 }
-                if (retry === 0) {
+                if (retry === (code === 0 && !failure && !controller.signal.aborted ? 20 : 0)) {
                     failure ||= Error(operation + '主进程退出后仍有后代活动');
                     stop();
                 }
