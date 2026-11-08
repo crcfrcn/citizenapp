@@ -190,11 +190,15 @@ function cleanup(platform,environment) {
     check(caches().every(cache=>!stale.has(cache.id)),'旧缓存未清理');
     const obsolete=new Set(runs.filter(run=>run.status==='completed' && !keep.has(run.id)).map(run=>run.id));
     for(const id of obsolete){
+        // 以 Run 专属列表记录附件归属，避免删除后仓库列表中的 workflow_run 为空。
+        const attachments=list('actions/runs/'+id+'/artifacts?per_page=100','artifacts').map(artifact=>artifact.id);
+        check(attachments.every(number),'旧附件编号无效');
         gh(environment,['run','delete',String(id),'--repo',environment.GITHUB_REPOSITORY]);
         gone('actions/runs/'+id);
         gone('actions/runs/'+id+'/logs');
+        for(const attachment of attachments) gone('actions/artifacts/'+attachment);
     }
-    check(list('actions/artifacts?per_page=100','artifacts').every(artifact=>!obsolete.has(artifact.workflow_run.id)),'旧附件未清理');
+    check(list('actions/artifacts?per_page=100','artifacts').every(artifact=>!obsolete.has(artifact.workflow_run?.id)),'旧附件未清理');
     // 无回执的孤立Tag不从Run显示名猜归属。
     const protectedTags=new Set(releases().map(item=>{
         check(keep.has(JSON.parse(item.body).run_id),'仍有未清理的Release');
@@ -322,10 +326,9 @@ async function main([step,platform],environment) {
 }
 
 if(process.argv[1] && resolve(process.argv[1])===fileURLToPath(import.meta.url)){
-    try {
-        await main(process.argv.slice(2),process.env);
-    } catch(error){
+    // 装配模块会导入本文件的 Release 辅助函数，入口先完成模块求值再等待命令结果。
+    main(process.argv.slice(2),process.env).catch(error=>{
         console.error(error.message);
         process.exitCode=1;
-    }
+    });
 }
