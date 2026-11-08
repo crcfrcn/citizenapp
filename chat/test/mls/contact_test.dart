@@ -132,7 +132,8 @@ void main() {
   });
 
   test('拒绝旧HTTP成功字段后沿原身份和原KeyPackage恢复', () async {
-    final root = await Directory.systemTemp.createTemp('contact_wire_');
+    final temporary = await Directory.systemTemp.createTemp('contact_wire_');
+    final root = Directory(await temporary.resolveSymbolicLinks());
     addTearDown(() => root.delete(recursive: true));
     final device = await createTestMlsDevice(root, 'owner');
     final relay = TestContactRelay();
