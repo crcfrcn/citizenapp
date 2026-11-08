@@ -113,13 +113,7 @@ jobs:
           work="$GITHUB_WORKSPACE/target/build/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           mkdir -p "$work" target/cache
           echo "WORK=$work" >> "$GITHUB_ENV"
-          if [ ! -d "$FLUTTER_ROOT/.git" ]; then
-            git clone --branch 3.47.2 --depth 1 https://github.com/flutter/flutter.git "$FLUTTER_ROOT"
-          fi
-          test "$(git -C "$FLUTTER_ROOT" rev-parse HEAD)" = d3b14c876900e553bc736ca19295fc09e3853e8e
-          echo "$FLUTTER_ROOT/bin" >> "$GITHUB_PATH"
-          "$FLUTTER_ROOT/bin/flutter" --version
-          "$FLUTTER_ROOT/bin/flutter" --version --machine | jq -e '.frameworkVersion=="3.47.2"' >/dev/null
+          node scripts/build.mjs prepare-flutter android
           rustup toolchain install 1.97.1 --profile minimal
           rustup target add --toolchain 1.97.1 aarch64-linux-android
           # 复用官方运行机SDK，显式路径不依赖交互Shell的初始化。

@@ -1,7 +1,7 @@
 // 本脚本消费产品声明的工具和原锁依赖，只负责普通工程装配、编译构建和必要注释。
 // config.mjs：只负责配置声明；build.mjs：只负责编译构建实现和必要注释；*.yml：负责全部GitHub流程，包括版本、作业编排、发布及历史清理。
 import {spawn, execFileSync} from 'node:child_process';
-import {appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync,
+import {accessSync, constants, appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync,
     lstatSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync} from 'node:fs';
 import {join, resolve, dirname, relative, sep} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
@@ -580,14 +580,134 @@ await run(environment.ESBUILD_BIN || 'esbuild', ['metamask.js', '--bundle', '--f
 return {project,values};
 }
 
-// 仅定位现有Flutter命令，不复核版本、引擎或组件完整性，不下载工具。
-export function existingFlutter(platform, environment = process.env, candidates) {
- const paths = candidates || (environment.FLUTTER_ROOT ? [environment.FLUTTER_ROOT] : [
+const flutterSource = 'https://github.com/flutter/flutter.git';
+const flutterVersion = '3.47.2';
+const flutterRevision = 'd3b14c876900e553bc736ca19295fc09e3853e8e';
+
+function flutterPaths(environment, cache) {
+ return [
+  environment.FLUTTER_ROOT, cache,
   ...(environment.PATH || '').split(':').filter(Boolean).map(path => resolve(path, '..')),
   ...readdirSync(dirname(root), {withFileTypes:true})
    .filter(entry => entry.isDirectory() && join(dirname(root), entry.name) !== resolve(root))
-   .map(entry => join(dirname(root), entry.name, 'target/cache/flutter'))]);
- return paths.find(path => existsSync(join(path, 'bin/flutter')));
+   .map(entry => join(dirname(root), entry.name, 'target/cache/flutter')),
+ ].filter(Boolean);
+}
+
+function missingFlutterArtifacts(tool, platform) {
+ const cache = join(tool, 'bin/cache');
+ const artifacts = join(cache, 'artifacts/engine');
+ const read = path => existsSync(path) ? readFileSync(path, 'utf8').trim() : '';
+ const engine = read(join(tool, 'bin/internal/engine.version'));
+ const stale = [];
+ const cached = (name, present) => {
+  const stamp = join(cache,name + '.stamp');
+  const current = !!engine && read(stamp) === engine;
+  if (current && !present) stale.push(stamp);
+  return current && present;
+ };
+ const dartReady = cached('engine-dart-sdk',existsSync(join(cache,'dart-sdk/bin/dart')));
+ const engineReady = cached('flutter_sdk',[
+  'pkg/sky_engine','pkg/flutter_gpu',
+  'artifacts/engine/common/flutter_patched_sdk',
+  'artifacts/engine/common/flutter_patched_sdk_product',
+ ].every(name => existsSync(join(cache,name))));
+ const sdkReady = dartReady && engineReady && existsSync(join(cache, 'flutter_tools.snapshot'))
+  && read(join(cache, 'flutter_tools.stamp')).split(':')[0] === flutterRevision;
+ const ready = {
+  ios: () => cached('ios-sdk',['ios','ios-profile','ios-release']
+   .every(name => existsSync(join(artifacts, name, 'Flutter.xcframework/Info.plist')))),
+  macos: () => cached('macos-sdk',existsSync(artifacts) && readdirSync(artifacts)
+   .some(name => /^darwin-.*-release$/u.test(name)
+    && existsSync(join(artifacts, name, 'FlutterMacOS.xcframework/Info.plist')))),
+  android: () => cached('android-sdk',existsSync(join(artifacts,'android-arm64-release/flutter.jar')))
+   && cached('android-internal-build-artifacts',true),
+ };
+ const platforms = platform === 'ios' ? ['ios','macos'] : ['android'];
+ const flags = platforms.filter(name => !ready[name]() || !sdkReady).map(name => '--' + name);
+ return {flags,stale};
+}
+
+function writableFlutterCache(tool) {
+ try {
+  accessSync(join(tool,'bin/cache'),constants.W_OK);
+  return true;
+ } catch (error) {
+  if (['ENOENT','EACCES','EROFS','EPERM'].includes(error.code)) return false;
+  throw error;
+ }
+}
+
+// 本机与塔塔自动化共用同一官方工具准备入口。完整的同版工具直接复用。
+export async function prepareFlutter(platform, environment = process.env, {
+ cache = join(root, 'target/cache/flutter'), candidates, execute = run,
+} = {}) {
+ if (!['ios','android'].includes(platform)) throw Error('未知Flutter准备平台');
+ const tools = {...environment, GIT_ALLOW_PROTOCOL:'https', FLUTTER_SUPPRESS_ANALYTICS:'true'};
+ delete tools.FLUTTER_STORAGE_BASE_URL;
+ delete tools.PUB_HOSTED_URL;
+ const git = (args, cwd) => execute('/usr/bin/git', args, cwd, true, tools, 'Flutter源码准备');
+ const pinned = async tool => await git(['rev-parse','HEAD'], tool) === flutterRevision;
+ let source;
+ for (const candidate of new Set(candidates ?? flutterPaths(environment, cache))) {
+  const command = join(candidate, 'bin/flutter');
+  if (!existsSync(command)) continue;
+  const tool = dirname(dirname(realpathSync(command)));
+  if (!existsSync(join(tool, '.git')) || !await pinned(tool)) continue;
+  if (!missingFlutterArtifacts(tool, platform).flags.length && writableFlutterCache(tool)) return tool;
+  if (!source || tool === cache) source = tool;
+ }
+ const parent = dirname(cache);
+ mkdirSync(parent, {recursive:true});
+ const lock = cache + '.lock';
+ mkdirSync(lock);
+ let stage, preserve = false;
+ try {
+  const prepare = async tool => {
+   const {flags,stale} = missingFlutterArtifacts(tool, platform);
+   if (flags.length) {
+    // 有标记却缺字节时，只让官方工具重建该组件。
+    for (const stamp of stale) rmSync(stamp,{force:true});
+    await execute(join(tool,'bin/flutter'), ['--no-version-check','precache',...flags],
+     tool, false, tools, 'Flutter平台引擎准备');
+   }
+   if (missingFlutterArtifacts(tool, platform).flags.length) {
+    throw Error('Flutter ' + flutterVersion + ' 平台引擎准备后仍不完整：' + platform);
+   }
+  };
+  if (source === cache && writableFlutterCache(cache)) {
+   await prepare(cache);
+   return cache;
+  }
+  stage = mkdtempSync(join(parent,'flutter-'));
+  const tool = join(stage,'sdk');
+  if (source) {
+   await execute('/bin/cp',['-R',source,tool],stage,false,tools,'复用Flutter源码和缓存');
+   await execute('/bin/chmod',['-R','u+w',tool],stage,false,tools,'准备Flutter缓存权限');
+  } else {
+   await git(['clone','--branch',flutterVersion,'--depth','1',flutterSource,tool],stage);
+  }
+  if (!await pinned(tool)) throw Error('Flutter ' + flutterVersion + ' 官方提交不匹配');
+  await prepare(tool);
+  const previous = join(stage,'previous');
+  if (existsSync(cache)) renameSync(cache,previous);
+  try {
+   renameSync(tool,cache);
+  } catch (error) {
+   if (existsSync(previous)) {
+    preserve = true;
+    renameSync(previous,cache);
+    preserve = false;
+   }
+   throw error;
+  }
+  return cache;
+ } finally {
+  if (!groups.size && !preserve) {
+   if (stage) rmSync(stage,{recursive:true,force:true});
+   rmSync(lock,{recursive:true});
+  }
+ }
 }
 
 const testInputError=message=>Object.assign(Error(message),{code:'TEST_INPUT'});
@@ -652,9 +772,9 @@ export async function buildTests(platform,{work=process.env.WORK,scope='all',env
  }
 }
 
-export async function compile(platform){
+export async function compile(platform,{prepare = prepareFlutter} = {}){
+ const flutterRoot=await prepare(platform);
  const selected=await installedBuildVersion(platform);
- const flutterRoot=existingFlutter(platform);
  const parent=join(root,'target/build');mkdirSync(parent,{recursive:true});
  if(realpathSync(parent)!==parent)throw Error('本机编译现场经过链接');
  const work=mkdtempSync(join(parent,'local-'));let safe=true;
@@ -692,6 +812,12 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     try {
         if (process.argv[2] === 'tests') console.log(JSON.stringify(await buildTests(process.argv[3],{scope:process.argv[4]||'all'})));
         else if (process.argv[2] === 'compile') await compile(process.argv[3]);
+        else if (process.argv[2] === 'prepare-flutter') {
+            const tool = await prepareFlutter(process.argv[3]);
+            if (process.env.GITHUB_ENV) appendFileSync(process.env.GITHUB_ENV, 'FLUTTER_ROOT=' + tool + '\n');
+            if (process.env.GITHUB_PATH) appendFileSync(process.env.GITHUB_PATH, join(tool,'bin') + '\n');
+            console.log('Flutter ' + flutterVersion + '：' + tool);
+        }
         else await build(process.argv[2], process.argv[3]);
     } catch (error) {
         console.error(error.message);
