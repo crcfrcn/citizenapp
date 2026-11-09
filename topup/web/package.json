@@ -12,6 +12,6 @@
     }
   },
   "dependencies": {
-    "@metamask/sdk": "0.34.0"
+    "@metamask/connect-multichain": "1.2.0"
   }
 }

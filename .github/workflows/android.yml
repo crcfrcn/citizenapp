@@ -190,63 +190,39 @@ jobs:
           access_token_scopes: https://www.googleapis.com/auth/androidpublisher
           create_credentials_file: false
           export_environment_variables: false
-      - name: 等待并回查本轮 Google Play 内部测试
-        timeout-minutes: 25
+      - name: 上传正式AAB到Google Play
+        timeout-minutes: 5
         env:
           GOOGLE_PLAY_ACCESS_TOKEN: ${{ steps.google.outputs.access_token }}
         run: |
           node --input-type=module <<'NODE'
           import {readFile} from 'node:fs/promises';
           import {createHash} from 'node:crypto';
-          import {setTimeout as pause} from 'node:timers/promises';
           const token = process.env.GOOGLE_PLAY_ACCESS_TOKEN;
-          if (!token) throw Error('缺少Google Play回查授权');
-          const app = 'https://androidpublisher.googleapis.com/androidpublisher/v3/applications/com.crcfrcn.citizenapp';
-          const base = app + '/edits';
-          const request = async (url, method = 'GET') => {
-            const response = await fetch(url, {method, redirect: 'error',
-              headers: {Authorization: 'Bearer ' + token, 'Content-Type': 'application/json'},
-              body: method === 'POST' ? '{}' : undefined,
-              signal: AbortSignal.timeout(20000)});
-            if (!response.ok) {
-              // 只保留Google错误说明，不输出请求头、正文或访问令牌。
-              const data = await response.json().catch(() => null);
-              const reasons = Array.isArray(data?.error?.errors) ? data.error.errors.map(item => item?.reason) : [];
-              const detail = [data?.error?.status, data?.error?.message, ...reasons]
-                .filter(value => typeof value === 'string' && value).join('；').replaceAll(token, '[已隐藏]');
-              throw Error('Google Play请求失败：' + method + ' HTTP ' + response.status + '；' +
-                (detail || 'Google未返回JSON错误说明'));
-            }
-            return response.status === 204 ? null : response.json();
-          };
+          if (!token) throw Error('缺少Google Play上传授权');
+          const base = 'https://androidpublisher.googleapis.com';
+          const app = '/androidpublisher/v3/applications/com.crcfrcn.citizenapp/edits';
+          async function post(path, body, contentType) {
+            const response = await fetch(base + path, {
+              method: 'POST', redirect: 'error', body,
+              headers: {Authorization: 'Bearer ' + token, 'Content-Type': contentType},
+              signal: AbortSignal.timeout(120000)
+            });
+            if (!response.ok) throw Error('Google Play上传失败：POST ' + path + ' HTTP ' + response.status);
+            return response.json();
+          }
           const name = '公民·Android·v' + process.env.CITIZENAPP_VERSION;
-          const code = String(process.env.GITHUB_RUN_NUMBER);
+          const code = process.env.GITHUB_RUN_NUMBER;
           const bundle = await readFile(process.env.WORK + '/artifact/' + name + '.aab');
           const digest = createHash('sha256').update(bundle).digest('hex');
-          console.log(name + '（versionCode ' + code + '）等待在 Play Console 内部轨道单独推出');
-          let verified = false;
-          for (let attempt = 0; attempt < 120; attempt++) {
-            if (attempt) await pause(10000);
-            // 新 edit 是已部署状态的快照，只读取后丢弃。
-            const edit = (await request(base, 'POST')).id;
-            if (typeof edit !== 'string' || !/^\d+$/u.test(edit)) throw Error('Google Play回查编辑编号无效');
-            const url = base + '/' + edit;
-            try {
-              const active = await request(url + '/tracks/internal');
-              if (active.track !== 'internal') throw Error('Google Play返回的轨道不是内部轨道');
-              if (!active.releases?.some(row => row.name === name && row.status === 'completed' &&
-                  row.versionCodes?.some(value => String(value) === code))) continue;
-              const saved = await request(url + '/bundles');
-              const matches = saved.bundles?.filter(row => String(row.versionCode) === code);
-              if (matches?.length !== 1 || matches[0].sha256 !== digest) throw Error('Google Play本轮AAB摘要不符');
-              verified = true;
-              break;
-            } finally {
-              await request(url, 'DELETE');
-            }
+          const edit = await post(app, '{}', 'application/json');
+          if (typeof edit.id !== 'string' || !/^\d+$/u.test(edit.id)) throw Error('Google Play上传编辑编号无效');
+          const receipt = await post('/upload' + app + '/' + edit.id + '/bundles?uploadType=media',
+            bundle, 'application/octet-stream');
+          if (String(receipt.versionCode) !== code || receipt.sha256?.toLowerCase() !== digest) {
+            throw Error('Google Play上传回执与本轮AAB不符');
           }
-          if (!verified) throw Error('Google Play内部测试回查超时');
-          console.log(name + ' 已在Google Play内部测试轨道推出');
+          console.log(name + ' 已上传到 Google Play 临时编辑（versionCode ' + code + '）');
           NODE
       - name: 保存官方增量缓存
         if: always()

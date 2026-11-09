@@ -381,11 +381,7 @@ class AppLog {
       return false;
     }
     if (detail != null &&
-        !const {
-          'sdk_update_limit',
-          'wallet_timeout',
-          'receipt_invalid',
-        }.contains(detail)) {
+        !const {'wallet_timeout', 'receipt_invalid'}.contains(detail)) {
       return false;
     }
     try {
@@ -440,6 +436,17 @@ class AppLog {
     if (!const {
       'connect_requested',
       'connect_ready',
+      'connect_resolved',
+      'connect_expired',
+      'ios_hold_ready',
+      'ios_hold_unavailable',
+      'ios_hold_expired',
+      'ios_app_background',
+      'ios_scene_active',
+      'ios_cancel_background',
+      'ios_cancel_not_background',
+      'android_hold_unavailable',
+      'session_reused',
       'transaction_requested',
       'result_received',
       'bridge_received',
@@ -451,14 +458,8 @@ class AppLog {
       'link_requested',
       'link_delivered',
       'link_inactive',
-      'link_storageError',
-      'link_sessionMissing',
       'link_urlInvalid',
-      'link_channelMismatch',
-      'link_protocolInvalid',
       'link_parameterInvalid',
-      'link_metadataInvalid',
-      'link_rpcInvalid',
       'link_systemRejected',
       'link_systemError',
       'app_inactive',
@@ -470,9 +471,9 @@ class AppLog {
       if (Platform.isIOS) {
         // iOS新版工具不再读取Flutter的旧syslog；只交付闭集阶段到原生OSLog。
         unawaited(
-          const MethodChannel(
-            'citizenapp/metamask',
-          ).invokeMethod<void>('phase', state).catchError((Object _) {}),
+          const MethodChannel('citizenapp/metamask')
+              .invokeMethod<void>('phase', state)
+              .catchError((Object _) {}),
         );
       } else {
         debugPrintSynchronously('[CitizenTopup] stage=payment state=$state');

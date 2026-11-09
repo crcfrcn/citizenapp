@@ -189,6 +189,7 @@ void main() {
     for (final title in ['充值金额', '支付网络', '使用 ', ' MetaMask 钱包支付']) {
       expect(find.text(title), findsOneWidget);
     }
+    expect(find.text('授权后请留在 MetaMask 完成付款。确认或取消后，请切回公民 App。'), findsOneWidget);
     expect(find.byKey(const ValueKey('topup-metamask-logo')), findsOneWidget);
     expect(
       tester

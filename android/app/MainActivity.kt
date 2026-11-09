@@ -5,15 +5,23 @@ import com.google.android.play.core.appupdate.AppUpdateManagerFactory
 import com.google.android.play.core.install.model.UpdateAvailability
 import android.Manifest
 import android.app.PendingIntent
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.IBinder
+import android.os.Looper
+import android.util.Log
 import android.view.WindowManager
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
@@ -106,22 +114,25 @@ class MainActivity : FlutterFragmentActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "citizenapp/metamask")
             .setMethodCallHandler { call, result ->
                 try {
-                    if (call.method == "return") {
-                        // 目标固定为本应用已登记回跳，SDK真实结果后恢复原Activity。
-                        startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("citizenapp://topup"))
-                            .setPackage(packageName)
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP))
-                        result.success(true)
+                    if (call.method == "hold" || call.method == "release") {
+                        val orderId = requireNotNull(call.argument<String>("order_id"))
+                        require(Regex("^top_[0-9a-f]{32}$").matches(orderId))
+                        if (call.method == "hold") {
+                            TopupHandshakeService.hold(applicationContext, orderId, result)
+                        } else {
+                            TopupHandshakeService.release(orderId)
+                            result.success(null)
+                        }
                         return@setMethodCallHandler
                     }
-                    val key = call.argument<String>("key")
-                    require(key in setOf("channel", "accounts", "chain"))
+                    val key = requireNotNull(call.argument<String>("key"))
+                    require(Regex("^mwp/[A-Za-z0-9._:/-]{1,252}$").matches(key))
                     when (call.method) {
-                        "read" -> result.success(readWalletSession(key!!))
+                        "read" -> result.success(readWalletSession(key))
                         "write" -> {
                             val value = call.argument<String>("value")
-                            require(value == null || value.length <= 16384)
-                            writeWalletSession(key!!, value)
+                            require(value == null || value.toByteArray(Charsets.UTF_8).size <= 16384)
+                            writeWalletSession(key, value)
                             result.success(null)
                         }
                         else -> result.notImplemented()
@@ -592,4 +603,121 @@ class MainActivity : FlutterFragmentActivity() {
 internal fun isCitizenProtectedRecordName(name: String, auxiliary: Boolean = false): Boolean {
     val main = setOf("identity.json", "lock.json", "registration.json")
     return name in main || (auxiliary && main.any { name == "$it.lock" || name == "$it.part" })
+}
+
+/** 为用户已发起的 MWP 请求提供有限的前台执行时间，不持有支付资料。 */
+class TopupHandshakeService : Service() {
+    companion object {
+        private const val CHANNEL = "topup_in_flight"
+        private const val NOTIFICATION_ID = 170518
+        private const val MAX_MILLIS = 170_000L
+        private val leases = mutableMapOf<String, MethodChannel.Result?>()
+        private var running: TopupHandshakeService? = null
+        private var starting = false
+
+        // Flutter 通道和 Service 生命周期均在主线程。只有 startForeground 成功后确认就绪。
+        fun hold(context: Context, orderId: String, result: MethodChannel.Result) {
+            if (leases.containsKey(orderId)) {
+                result.success(running != null)
+                return
+            }
+            if (running != null) {
+                leases[orderId] = null
+                result.success(true)
+                return
+            }
+            leases[orderId] = result
+            if (starting) return
+            starting = true
+            try {
+                val intent = Intent(context, TopupHandshakeService::class.java)
+                if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent)
+                else context.startService(intent)
+            } catch (_: Exception) {
+                starting = false
+                finishLeases(false)
+            }
+        }
+
+        fun release(orderId: String) {
+            leases.remove(orderId)?.success(false)
+            if (leases.isEmpty()) running?.finish("android_hold_released")
+        }
+
+        private fun finishLeases(ready: Boolean) {
+            val replies = leases.values.filterNotNull()
+            if (ready) leases.keys.toList().forEach { leases[it] = null }
+            else leases.clear()
+            replies.forEach { it.success(ready) }
+        }
+
+        private fun phase(state: String) {
+            Log.i("CitizenTopup", "[CitizenTopup] stage=payment state=$state")
+        }
+    }
+
+    private val handler = Handler(Looper.getMainLooper())
+    private val expire = Runnable { finish("android_hold_expired") }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        starting = false
+        try {
+            val builder = if (Build.VERSION.SDK_INT >= 26) {
+                requireNotNull(getSystemService(NotificationManager::class.java)).createNotificationChannel(
+                    NotificationChannel(CHANNEL, "公民充值", NotificationManager.IMPORTANCE_LOW)
+                )
+                Notification.Builder(this, CHANNEL)
+            } else {
+                @Suppress("DEPRECATION")
+                Notification.Builder(this)
+            }
+            val notification = builder.setSmallIcon(android.R.drawable.stat_notify_sync)
+                .setContentTitle("公民充值")
+                .setContentText("正在与付款钱包连接")
+                .setOngoing(true)
+                .build()
+            if (Build.VERSION.SDK_INT >= 34) {
+                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SHORT_SERVICE)
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+            running = this
+            if (leases.isEmpty()) {
+                finish("android_hold_released")
+            } else {
+                phase("android_hold_ready")
+                handler.postDelayed(expire, MAX_MILLIS)
+                finishLeases(true)
+            }
+        } catch (_: Exception) {
+            finishLeases(false)
+            stopSelf()
+        }
+        return START_NOT_STICKY
+    }
+
+    override fun onTimeout(startId: Int) = finish("android_hold_expired")
+
+    override fun onTimeout(startId: Int, fgsType: Int) = finish("android_hold_expired")
+
+    private fun finish(state: String) {
+        if (running !== this) return
+        running = null
+        handler.removeCallbacks(expire)
+        finishLeases(false)
+        phase(state)
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    override fun onDestroy() {
+        handler.removeCallbacks(expire)
+        if (running === this) {
+            running = null
+            finishLeases(false)
+        }
+        super.onDestroy()
+    }
 }

@@ -21,6 +21,8 @@ import UserNotifications
   private var chatStorageChannel: ChatStorageChannel?
   private var squareMediaChannel: SquareMediaChannel?
   private var updateChannel: FlutterMethodChannel?
+  private var walletBackgroundTask: UIBackgroundTaskIdentifier = .invalid
+  private var walletBackgroundOrders = Set<String>()
   private var emergencyWipeBackgroundTask: UIBackgroundTaskIdentifier = .invalid
 
   override func application(
@@ -40,6 +42,15 @@ import UserNotifications
       selector: #selector(appDidBecomeActive),
       name: UIApplication.didBecomeActiveNotification,
       object: nil
+    )
+
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(walletAppDidEnterBackground),
+      name: UIApplication.didEnterBackgroundNotification, object: nil
+    )
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(walletSceneDidActivate(_:)),
+      name: UIScene.didActivateNotification, object: nil
     )
 
     return result
@@ -76,28 +87,40 @@ import UserNotifications
     chatMediaChannel = ChatMediaChannel(binaryMessenger: binaryMessenger)
     // 授权会话直接由系统Keychain保存，不进入网页localStorage或用户订单库。
     let walletChannel = FlutterMethodChannel(name: "citizenapp/metamask", binaryMessenger: binaryMessenger)
-    walletChannel.setMethodCallHandler { call, result in
+    walletChannel.setMethodCallHandler { [weak self] call, result in
       do {
         if call.method == "phase" {
           guard Self.logTopupPhase(call.arguments) else { throw CocoaError(.coderInvalidValue) }
           result(nil)
           return
         }
-        if call.method == "return" {
-          // 固定恢复本应用；系统是否允许前台恢复由真实打开结果裁决。
-          UIApplication.shared.open(URL(string: "citizenapp://topup")!, options: [:]) { opened in result(opened) }
+        if call.method == "hold" || call.method == "release" {
+          guard let args = call.arguments as? [String: Any],
+                let orderId = args["order_id"] as? String,
+                orderId.range(of: #"^top_[0-9a-f]{32}$"#, options: .regularExpression) != nil
+          else { throw CocoaError(.coderInvalidValue) }
+          if call.method == "hold" {
+            result(self?.holdWalletBackgroundTask(orderId) ?? false)
+          } else {
+            self?.walletBackgroundOrders.remove(orderId)
+            if self?.walletBackgroundOrders.isEmpty == true {
+              self?.endWalletBackgroundTask()
+            }
+            result(nil)
+          }
           return
         }
         guard let args = call.arguments as? [String: Any],
               let key = args["key"] as? String,
-              ["channel", "accounts", "chain"].contains(key) else { throw CocoaError(.coderInvalidValue) }
+              key.range(of: #"^mwp/[A-Za-z0-9._:/-]{1,252}$"#, options: .regularExpression) != nil
+        else { throw CocoaError(.coderInvalidValue) }
         switch call.method {
         case "read": result(try Self.readWalletSession(key))
         case "write":
           let raw = args["value"]
           guard raw == nil || raw is NSNull || raw is String else { throw CocoaError(.coderInvalidValue) }
           let value = raw as? String
-          guard (value?.utf8.count ?? 0) <= 65536 else { throw CocoaError(.coderInvalidValue) }
+          guard (value?.utf8.count ?? 0) <= 16384 else { throw CocoaError(.coderInvalidValue) }
           try Self.writeWalletSession(key, value: value)
           result(nil)
         default: result(FlutterMethodNotImplemented)
@@ -376,6 +399,36 @@ import UserNotifications
     addBlur()
   }
 
+  private func holdWalletBackgroundTask(_ orderId: String) -> Bool {
+    if walletBackgroundTask == .invalid {
+      walletBackgroundTask = UIApplication.shared.beginBackgroundTask(withName: "CitizenTopup") { [weak self] in
+        _ = Self.logTopupPhase("ios_hold_expired")
+        self?.walletBackgroundOrders.removeAll()
+        self?.endWalletBackgroundTask()
+      }
+    }
+    guard walletBackgroundTask != .invalid else { return false }
+    walletBackgroundOrders.insert(orderId)
+    return true
+  }
+
+  @objc private func walletAppDidEnterBackground() {
+    _ = Self.logTopupPhase("ios_app_background")
+  }
+
+  @objc private func walletSceneDidActivate(_ notification: Notification) {
+    if notification.object is UIWindowScene {
+      _ = Self.logTopupPhase("ios_scene_active")
+    }
+  }
+
+  private func endWalletBackgroundTask() {
+    let task = walletBackgroundTask
+    guard task != .invalid else { return }
+    walletBackgroundTask = .invalid
+    UIApplication.shared.endBackgroundTask(task)
+  }
+
   @objc private func appDidBecomeActive() {
     _ = Self.logTopupPhase("app_active")
     removeBlur()
@@ -466,6 +519,16 @@ import UserNotifications
           [
             "connect_requested",
             "connect_ready",
+            "connect_resolved",
+            "connect_expired",
+            "ios_hold_ready",
+            "ios_hold_unavailable",
+            "ios_hold_expired",
+            "ios_app_background",
+            "ios_scene_active",
+            "ios_cancel_background",
+            "ios_cancel_not_background",
+            "session_reused",
             "transaction_requested",
             "result_received",
             "bridge_received",
@@ -477,14 +540,8 @@ import UserNotifications
             "link_requested",
             "link_delivered",
             "link_inactive",
-            "link_storageError",
-            "link_sessionMissing",
             "link_urlInvalid",
-            "link_channelMismatch",
-            "link_protocolInvalid",
             "link_parameterInvalid",
-            "link_metadataInvalid",
-            "link_rpcInvalid",
             "link_systemRejected",
             "link_systemError",
             "app_inactive",

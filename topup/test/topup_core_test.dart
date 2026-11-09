@@ -1,7 +1,9 @@
 import 'package:citizen_testing/fixture.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -95,7 +97,7 @@ void main() {
           true,
         );
         expect(
-          AppLog.topupFailure('submitted', 'other', detail: 'sdk_update_limit'),
+          AppLog.topupFailure('submitted', 'other', detail: 'wallet_timeout'),
           true,
         );
         expect(
@@ -123,11 +125,9 @@ void main() {
     expect(lines.join(), isNot(contains('synthetic-private')));
   });
   test('配置指纹逐字匹配服务端公开21行规范，JSON/显示顺序不影响结果', () {
-    final fixture =
-        jsonDecode(
-              fixtureFile('citizen_topup', 'contract.json').readAsStringSync(),
-            )
-            as Map<String, dynamic>;
+    final fixture = jsonDecode(
+      fixtureFile('citizen_topup', 'contract.json').readAsStringSync(),
+    ) as Map<String, dynamic>;
     final value = TopupConfig.fromJson(
       fixture['config'] as Map<String, dynamic>,
     );
@@ -209,8 +209,12 @@ void main() {
   ]) {
     test('${network.wire}一轮成功准确6次RPC，不读取服务端或公民链', () async {
       final p = payment(network);
-      final payer = '0x${'01' * 20}', tx = '0x${'02' * 32}', binding = '0b' * 32;
-      final amount = network == TopupNetwork.bnb ? '8ac7230489e80000' : '989680';
+      final payer = '0x${'01' * 20}',
+          tx = '0x${'02' * 32}',
+          binding = '0b' * 32;
+      final amount = network == TopupNetwork.bnb
+          ? '8ac7230489e80000'
+          : '989680';
       final input =
           '0xa9059cbb${'0' * 24}${p.recvAddress.substring(2)}'
           '${amount.padLeft(64, '0')}$binding';
@@ -314,9 +318,22 @@ void main() {
       }
     }
   });
-  test('首次连接仅允许本产品元数据，不在链接中放明文交易', () async {
-    const channel = '00000000-0000-4000-8000-000000000001';
-    const base = 'metamask://connect?channelId=$channel&v=2&comm=socket';
+  test('官方 MWP 配对与会话唤起原样交给系统', () async {
+    final delivered = <String>[];
+    final dispatcher = WalletLinkDispatcher(
+      launcher: (uri) async {
+        delivered.add(uri.toString());
+        return true;
+      },
+    );
+    const pair = 'metamask://connect/mwp?p=Ab%2B%2F%3D%3D&c=1';
+    const wake =
+        'metamask://connect/mwp?id=00000000-0000-4000-8000-000000000001';
+    expect(await dispatcher.open(pair), WalletLinkResult.opened);
+    expect(await dispatcher.open(wake), WalletLinkResult.opened);
+    expect(delivered, [pair, wake]);
+  });
+  test('非 MWP、额外参数、重复参数与不合法目标均不能启动钱包', () async {
     var opened = 0;
     final dispatcher = WalletLinkDispatcher(
       launcher: (_) async {
@@ -324,196 +341,35 @@ void main() {
         return true;
       },
     );
-    final info = {
-      'url': 'https://www.crcfrcn.com',
-      'title': 'CitizenApp',
-      'scheme': 'citizenapp://topup',
-    };
-    String link(Map<String, String> value) =>
-        '$base&originatorInfo=${Uri.encodeComponent(base64Encode(utf8.encode(jsonEncode(value))))}';
-    expect(await dispatcher.open(link(info)), WalletLinkResult.sessionMissing);
-    dispatcher.restore(jsonEncode({'channelId': channel}));
-    expect(await dispatcher.open(link(info)), WalletLinkResult.opened);
-    for (final value in [
-      {...info, 'url': 'https://example.test'},
-      {...info, 'scheme': 'other://topup'},
-      {...info, 'title': 'Other'},
+    for (final url in [
+      'https://connect/mwp?p=AA&c=1',
+      'metamask://other/mwp?p=AA&c=1',
+      'metamask://connect:3/mwp?p=AA&c=1',
+      'metamask://connect/mwp?p=AA&c=1#',
+      'metamask://connect?p=AA&c=1',
+      'metamask://connect/mwp?p=AA&c=0',
+      'metamask://connect/mwp?p=AA&p=AA&c=1',
+      'metamask://connect/mwp?p=AA&c=1&id=x',
+      'metamask://connect/mwp?id=x',
     ]) {
-      expect(
-        await dispatcher.open(link(value)),
-        WalletLinkResult.metadataInvalid,
-      );
+      expect(await dispatcher.open(url), isNot(WalletLinkResult.opened));
     }
+    expect(opened, 0);
+  });
+  test('系统拒绝与启动异常分别报告', () async {
+    const link = 'metamask://connect/mwp?p=AA&c=1';
     expect(
-      await dispatcher.open('$base&originatorInfo=invalid'),
-      WalletLinkResult.metadataInvalid,
+      await WalletLinkDispatcher(launcher: (_) async => false).open(link),
+      WalletLinkResult.systemRejected,
     );
     expect(
-      await dispatcher.open(
-        '$base&rpc=${base64Encode(utf8.encode('{"method":"eth_sendTransaction"}'))}',
-      ),
-      WalletLinkResult.rpcInvalid,
+      await WalletLinkDispatcher(
+        launcher: (_) async => throw StateError('启动失败'),
+      ).open(link),
+      WalletLinkResult.systemError,
     );
-    expect(opened, 1);
   });
-  test('SDK官方redirect=true逐字交付，拒绝条件返回本次固定原因且不调用系统', () async {
-    final delivered = <String>[];
-    final dispatcher = WalletLinkDispatcher(
-      launcher: (uri) async {
-        delivered.add(uri.toString());
-        return true;
-      },
-    );
-    const channel = '00000000-0000-4000-8000-000000000001';
-    const resume = 'metamask://connect?channelId=$channel&v=2&comm=socket&t=d';
-    expect(await dispatcher.open(resume), WalletLinkResult.sessionMissing);
-    dispatcher.restore(jsonEncode({'channelId': channel}));
-    final cipher = base64Encode(
-      utf8.encode(base64Encode([4, ...List.filled(100, 0)])),
-    );
-    final wake =
-        '$resume&redirect=true&scheme=true&rpc=${Uri.encodeComponent(cipher)}';
-    for (final url in [resume, wake, wake]) {
-      expect(await dispatcher.open(url), WalletLinkResult.opened);
-    }
-    expect(delivered, [resume, wake, wake]);
-    final rejected = <String, WalletLinkResult>{
-      resume.replaceFirst(channel, '00000000-0000-4000-8000-000000000002'):
-          WalletLinkResult.channelMismatch,
-      '$resume&channelId=duplicate': WalletLinkResult.parameterInvalid,
-      '$resume&redirect=true&redirect=true': WalletLinkResult.parameterInvalid,
-      '$resume&unknown=true': WalletLinkResult.parameterInvalid,
-      '$resume&scheme=invalid': WalletLinkResult.parameterInvalid,
-      resume.replaceFirst('v=2', 'v=1'): WalletLinkResult.protocolInvalid,
-      resume.replaceFirst('comm=socket', 'comm=other'):
-          WalletLinkResult.protocolInvalid,
-      '$resume&rpc=invalid': WalletLinkResult.rpcInvalid,
-      '$resume&rpc=${Uri.encodeComponent(base64Encode(utf8.encode('{"method":"personal_sign"}')))}':
-          WalletLinkResult.rpcInvalid,
-      resume.replaceFirst('metamask:', 'other:'): WalletLinkResult.urlInvalid,
-      '$resume#fragment': WalletLinkResult.urlInvalid,
-      'metamask://connect/other?channelId=$channel&v=2&comm=socket':
-          WalletLinkResult.urlInvalid,
-      'metamask://[': WalletLinkResult.urlInvalid,
-      'x' * 32769: WalletLinkResult.urlInvalid,
-    };
-    for (final value in ['', 'false', '1', 'TRUE', 'https://example.test']) {
-      rejected['$resume&redirect=$value'] = WalletLinkResult.parameterInvalid;
-    }
-    for (final entry in rejected.entries) {
-      expect(await dispatcher.open(entry.key), entry.value);
-    }
-    expect(delivered, [resume, wake, wake]);
-    dispatcher.restore('invalid');
-    expect(await dispatcher.open(resume), WalletLinkResult.sessionMissing);
-  });
-  test('SDK当前频道不按缓存恢复期限二次裁决，频道和密文校验继续执行', () async {
-    const channel = '00000000-0000-4000-8000-000000000001';
-    const other = '00000000-0000-4000-8000-000000000002';
-    const link = 'metamask://connect?channelId=$channel&v=2&comm=socket';
-    final delivered = <String>[];
-    final dispatcher = WalletLinkDispatcher(
-      launcher: (uri) async {
-        delivered.add(uri.toString());
-        return true;
-      },
-    );
-    final cipher = base64Encode(
-      utf8.encode(base64Encode([4, ...List.filled(100, 0)])),
-    );
-    final transaction = '$link&rpc=${Uri.encodeComponent(cipher)}';
-    // 这些是上游SDK的缓存字段；App只核对SDK已选频道，不改写其配置。
-    for (final config in [
-      {'channelId': channel, 'validUntil': 0},
-      {'channelId': channel, 'validUntil': 1},
-      {'channelId': channel, 'validUntil': 9999999999999},
-      {'channelId': channel},
-    ]) {
-      dispatcher.restore(jsonEncode(config));
-      expect(await dispatcher.open(link), WalletLinkResult.opened);
-      expect(await dispatcher.open(transaction), WalletLinkResult.opened);
-      expect(
-        await dispatcher.open(link.replaceFirst(channel, other)),
-        WalletLinkResult.channelMismatch,
-      );
-      expect(
-        await dispatcher.open('$link&rpc=invalid'),
-        WalletLinkResult.rpcInvalid,
-      );
-    }
-    expect(delivered, [
-      for (var i = 0; i < 4; i++) ...[link, transaction],
-    ]);
-    for (final config in [
-      null,
-      'invalid',
-      jsonEncode({'validUntil': 9999999999999}),
-      jsonEncode({'channelId': 1}),
-      jsonEncode({'channelId': 'invalid'}),
-    ]) {
-      dispatcher.restore(config);
-      expect(await dispatcher.open(link), WalletLinkResult.sessionMissing);
-    }
-    expect(delivered.length, 8);
-    dispatcher.restore(jsonEncode({'channelId': other}));
-    expect(await dispatcher.open(link), WalletLinkResult.channelMismatch);
-    expect(
-      await dispatcher.open(link.replaceFirst(channel, other)),
-      WalletLinkResult.opened,
-    );
-    expect(delivered.last, link.replaceFirst(channel, other));
-  });
-  test('同一SDK会话的连接与加密交易链接原样交付，不因已打开而丢弃', () async {
-    const channel = '00000000-0000-4000-8000-000000000001';
-    final delivered = <String>[];
-    final dispatcher = WalletLinkDispatcher(
-      launcher: (uri) async {
-        delivered.add(uri.toString());
-        return true;
-      },
-    );
-    dispatcher.restore(jsonEncode({'channelId': channel}));
-    final info = base64Encode(
-      utf8.encode(
-        jsonEncode({
-          'url': 'https://www.crcfrcn.com',
-          'title': 'CitizenApp',
-          'scheme': 'citizenapp://topup',
-        }),
-      ),
-    );
-    final cipher = base64Encode(
-      utf8.encode(base64Encode([4, ...List.filled(100, 0)])),
-    );
-    final connect =
-        'metamask://connect?channelId=$channel&v=2&comm=socket&originatorInfo=$info';
-    final transaction = '$connect&rpc=${Uri.encodeComponent(cipher)}';
-    expect(await dispatcher.open(connect), WalletLinkResult.opened);
-    expect(await dispatcher.open(transaction), WalletLinkResult.opened);
-    expect(await dispatcher.open(transaction), WalletLinkResult.opened);
-    expect(delivered, [connect, transaction, transaction]);
-  });
-  test('并发唤起的系统接受、拒绝及异常分别归本次调用，不保存共享最后错误', () async {
-    const channel = '00000000-0000-4000-8000-000000000001';
-    const link = 'metamask://connect?channelId=$channel&v=2&comm=socket';
-    final first = Completer<bool>();
-    var calls = 0;
-    final dispatcher = WalletLinkDispatcher(
-      launcher: (_) async {
-        calls++;
-        if (calls == 1) return first.future;
-        if (calls == 2) return false;
-        throw StateError('synthetic-private');
-      },
-    );
-    dispatcher.restore(jsonEncode({'channelId': channel}));
-    final pending = dispatcher.open(link);
-    expect(await dispatcher.open(link), WalletLinkResult.systemRejected);
-    first.complete(true);
-    expect(await pending, WalletLinkResult.opened);
-    expect(await dispatcher.open(link), WalletLinkResult.systemError);
-    expect(calls, 3);
-  });
+
   test('订单绑定必须为32字节小写十六进制，错误绑定不读取RPC', () async {
     final p = payment(TopupNetwork.base);
     final tx = '0x${'02' * 32}';
@@ -533,12 +389,13 @@ void main() {
   for (final kind in ['missing_binding', 'wrong_binding', 'before_order']) {
     test('原订单拒绝$kind，不补查不重试', () async {
       final p = payment(TopupNetwork.base);
-      final payer = '0x${'01' * 20}', tx = '0x${'02' * 32}', binding = '0b' * 32;
+      final payer = '0x${'01' * 20}',
+          tx = '0x${'02' * 32}',
+          binding = '0b' * 32;
       final input = erc20Transaction(p, binding)['data'] as String;
       final actualInput = switch (kind) {
         'missing_binding' => input.substring(0, input.length - 64),
-        'wrong_binding' =>
-          erc20Transaction(p, '0c' * 32)['data'] as String,
+        'wrong_binding' => erc20Transaction(p, '0c' * 32)['data'] as String,
         _ => input,
       };
       final facts = evmFacts(
@@ -701,6 +558,7 @@ void _documentTests() {
     for (final phase in [
       'connect_requested',
       'connect_ready',
+      'session_reused',
       'transaction_requested',
       'result_received',
       'bridge_received',
@@ -712,14 +570,8 @@ void _documentTests() {
       'link_requested',
       'link_delivered',
       'link_inactive',
-      'link_storageError',
-      'link_sessionMissing',
       'link_urlInvalid',
-      'link_channelMismatch',
-      'link_protocolInvalid',
       'link_parameterInvalid',
-      'link_metadataInvalid',
-      'link_rpcInvalid',
       'link_systemRejected',
       'link_systemError',
       'app_inactive',

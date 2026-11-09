@@ -132,6 +132,11 @@ class _TopupSheetState extends State<TopupSheet> {
                   const Flexible(child: Text(' MetaMask 钱包支付')),
                 ],
               ),
+              const SizedBox(height: 8),
+              const Text(
+                '授权后请留在 MetaMask 完成付款。确认或取消后，请切回公民 App。',
+                textAlign: TextAlign.center,
+              ),
               const SizedBox(height: 12),
               _row(
                 '充值金额',

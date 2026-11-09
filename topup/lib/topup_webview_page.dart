@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,6 +13,7 @@ import 'package:citizen_system/app_log.dart';
 
 import 'package:citizen_topup/topup_api.dart';
 import 'package:citizen_topup/topup_erc20.dart';
+import 'package:citizen_topup/topup_models.dart';
 import 'package:citizen_topup/store.dart';
 import 'package:citizen_topup/wallet_link_dispatcher.dart';
 
@@ -125,12 +127,17 @@ class TopupWalletSession extends ChangeNotifier {
 
 // 记录、完成回执和界面归属均按签后真实order_id隔离。
 class _Payment {
-  _Payment(this.record, this.store, this.presenting);
+  _Payment(TopupRecord original, this.store, this.presenting)
+    : record = original,
+      orderId = original.payment.orderId;
+
+  final String orderId;
   TopupRecord? record;
   final TopupStore store;
   final bool Function() presenting;
   final completion = Completer<TopupRecord?>();
-  bool dispatched = false, stopped = false;
+  bool dispatched = false, stopped = false, executionRequested = false;
+  Future<WalletLinkResult>? launch;
 }
 
 class TopupWebviewPage extends StatefulWidget {
@@ -140,7 +147,8 @@ class TopupWebviewPage extends StatefulWidget {
   State<TopupWebviewPage> createState() => _TopupWebviewPageState();
 }
 
-class _TopupWebviewPageState extends State<TopupWebviewPage> {
+class _TopupWebviewPageState extends State<TopupWebviewPage>
+    with WidgetsBindingObserver {
   late final WebViewController _controller;
   late final WalletLinkDispatcher _links;
   final _session = List.generate(
@@ -160,6 +168,7 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     AppLog.topupReadiness('loading');
     widget.session._pay = _pay;
     widget.session._leave = _leave;
@@ -180,6 +189,7 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
       } else {
         payment.record = null;
         payment.stopped = true;
+        _releaseExecution(payment);
         if (!payment.completion.isCompleted) payment.completion.complete(null);
         _cancel(change.orderId);
       }
@@ -204,10 +214,25 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
     }
   }
 
-  void _leave(String orderId) {
+  void _leave(String orderId) => unawaited(_leavePayment(orderId));
+
+  Future<void> _leavePayment(String orderId) async {
     final payment = _payments[orderId];
-    if (payment == null || payment.stopped || payment.dispatched) return;
+    if (payment == null || payment.stopped) return;
+    if (payment.dispatched) {
+      // 由JS原子裁决是否已交付SDK，避免关闭弹窗与发送交易竞态。
+      try {
+        final doc = _document!;
+        final cancelled = await _controller.runJavaScriptReturningResult(
+          '${doc.check} && CitizenTopup.cancelPending(${jsonEncode(orderId)})',
+        );
+        if (cancelled != true || payment.stopped) return;
+      } on Object {
+        return;
+      }
+    }
     payment.stopped = true;
+    _releaseExecution(payment);
     _cancel(orderId);
     final record = payment.record;
     if (record != null && !record.terminal && record.txid == null) {
@@ -224,7 +249,13 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) AppLog.topupPhase('app_active');
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _closed = true;
     widget.session.close();
     if (!_ready.isCompleted) _ready.complete();
@@ -238,6 +269,7 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
       );
     }
     for (final payment in _payments.values) {
+      _releaseExecution(payment);
       final record = payment.record;
       if (!payment.stopped &&
           record != null &&
@@ -402,6 +434,15 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
         _leave(id);
         return payment.record;
       }
+      if (Platform.isAndroid) {
+        final ready = await _holdExecution(payment);
+        if (!_active || payment.stopped) return payment.record;
+        if (!presenting()) {
+          await _leavePayment(id);
+          return payment.record;
+        }
+        if (!ready) throw StateError('付款组件启动失败');
+      }
       final doc = _document!;
       final cfg = {
         'session': _session,
@@ -412,6 +453,10 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
           'package_id': record.payment.packageId,
         },
         'transaction': _transaction(record),
+        'networks': {
+          for (final network in TopupNetwork.values)
+            network.caip2: TopupRpcConfig.endpoint(network),
+        },
       };
       // 交付后由根层等待本单回执，不因弹窗离页丢弃在途付款结果。
       payment.dispatched = true;
@@ -439,7 +484,7 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
       );
       AppLog.topupPhase('reply_completed');
     } on Object {
-      // JS确认不可用不能撤销已经落库的广播事实，也不能阻止原生恢复前台。
+      // JS确认不可用不能撤销已经落库的广播事实。
       AppLog.d('topup_reply_unavailable');
     }
   }
@@ -496,6 +541,9 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
           const {
             'connect_requested',
             'connect_ready',
+            'connect_resolved',
+            'connect_expired',
+            'session_reused',
             'transaction_requested',
             'result_received',
           }.contains(data['state'])) {
@@ -512,25 +560,25 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
     if (data['kind'] == 'wallet_storage') {
       try {
         final key = data['key'];
-        if (!const ['channel', 'accounts', 'chain'].contains(key)) {
+        if (key is! String ||
+            !RegExp(r'^mwp/[A-Za-z0-9._:/-]{1,252}$').hasMatch(key)) {
           throw const FormatException();
         }
         if (data.containsKey('value')) {
           final value = data['value'];
-          if (value != null && (value is! String || value.length > 16384)) {
+          if (value != null &&
+              (value is! String || utf8.encode(value).length > 16384)) {
             throw const FormatException();
           }
           await _storage.invokeMethod<void>('write', {
             'key': key,
             'value': value,
           });
-          if (key == 'channel') _links.restore(value as String?);
           await _reply(id);
         } else {
           final value = await _storage.invokeMethod<String>('read', {
             'key': key,
           });
-          if (key == 'channel') _links.restore(value);
           await _reply(id, value: value);
         }
       } on Object {
@@ -538,51 +586,30 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
       }
       return;
     }
-    if (data['kind'] == 'wallet_link') {
-      // 链接只属于SDK连接；订单回执仍须按真实order_id和冻结交易校验。
-      bool inFlight() =>
-          _active &&
-          _payments.values.any(
-            (payment) =>
-                payment.dispatched &&
-                !payment.stopped &&
-                payment.record != null &&
-                !payment.record!.terminal,
-          );
-      if (!inFlight() || data.containsKey('order_id')) {
-        AppLog.topupPhase('link_inactive');
-        await _reply(id, error: '未能打开付款钱包');
-        return;
-      }
-      final String? channel;
-      try {
-        channel = await _storage.invokeMethod<String>('read', {
-          'key': 'channel',
-        });
-      } on Object {
-        AppLog.topupPhase('link_storageError');
-        await _reply(id, error: '未能打开付款钱包');
-        return;
-      }
-      _links.restore(channel);
-      if (!inFlight()) {
-        AppLog.topupPhase('link_inactive');
-        await _reply(id, error: '未能打开付款钱包');
-        return;
-      }
-      AppLog.topupPhase('link_requested');
-      final rawUrl = data['url'];
-      final result = rawUrl is String
-          ? await _links.open(rawUrl)
-          : WalletLinkResult.urlInvalid;
-      final delivered = result == WalletLinkResult.opened;
-      // 单次调用返回自身原因；系统接受链接仍不证明钱包执行了RPC。
-      AppLog.topupPhase(delivered ? 'link_delivered' : 'link_${result.name}');
-      await _reply(id, error: delivered ? null : '未能打开付款钱包');
-      return;
-    }
     final payment = _payments[data['order_id']],
         record = _payments[data['order_id']]?.record;
+    if (data['kind'] == 'wallet_link') {
+      final rawUrl = data['url'];
+      if (payment == null ||
+          record == null ||
+          record.terminal ||
+          record.failureCode != null ||
+          record.txid != null ||
+          payment.stopped ||
+          !payment.dispatched ||
+          !payment.presenting() ||
+          rawUrl is! String) {
+        AppLog.topupPhase('link_inactive');
+        await _reply(id, error: '未能打开付款钱包');
+        return;
+      }
+      final result = await (payment.launch ??= _openWallet(rawUrl, payment));
+      await _reply(
+        id,
+        error: result == WalletLinkResult.opened ? null : '未能打开付款钱包',
+      );
+      return;
+    }
     if (payment == null || record == null || payment.stopped) return;
     try {
       if (data['kind'] == 'error') {
@@ -594,6 +621,15 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
           rpcCode: data['rpc_code'],
           detail: data['detail'],
         );
+        if (Platform.isIOS && data['code'] == 'user_rejected') {
+          final lifecycle = WidgetsBinding.instance.lifecycleState;
+          AppLog.topupPhase(
+            lifecycle == AppLifecycleState.paused ||
+                    lifecycle == AppLifecycleState.hidden
+                ? 'ios_cancel_background'
+                : 'ios_cancel_not_background',
+          );
+        }
         await _failure(
           payment,
           data['code'] == 'user_rejected'
@@ -641,9 +677,9 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
       );
       await payment.store.save(sent, before: record);
       payment.record = sent;
-      updates.verifyPayment(sent);
-      // 先保存并恢复原生前台；JS确认可以等App恢复后完成，不能反过来阻塞回跳。
+      // 落库后结束弹层等待，链上核验及JS确认各自完成。
       _finish(payment);
+      updates.verifyPayment(sent);
       await _reply(id, value: {'submitted': true});
     } on Object {
       await _failure(
@@ -657,27 +693,65 @@ class _TopupWebviewPageState extends State<TopupWebviewPage> {
     }
   }
 
+  Future<bool> _holdExecution(_Payment payment) async {
+    payment.executionRequested = true;
+    var granted = false;
+    try {
+      granted =
+          await _storage
+              .invokeMethod<bool>('hold', {'order_id': payment.orderId})
+              .timeout(const Duration(seconds: 5)) ==
+          true;
+    } on Object {
+      // 记录未获执行时间。Android 不交付 MWP，iOS 仍可尝试打开钱包。
+    }
+    if (Platform.isIOS) {
+      AppLog.topupPhase(granted ? 'ios_hold_ready' : 'ios_hold_unavailable');
+    } else if (!granted) {
+      AppLog.topupPhase('android_hold_unavailable');
+    }
+    return granted;
+  }
+
+  void _releaseExecution(_Payment payment) {
+    if (!payment.executionRequested) return;
+    payment.executionRequested = false;
+    unawaited(
+      _storage
+          .invokeMethod<void>('release', {'order_id': payment.orderId})
+          .catchError((Object _) {}),
+    );
+  }
+
+  Future<WalletLinkResult> _openWallet(String url, _Payment payment) async {
+    if (Platform.isIOS) {
+      await _holdExecution(payment);
+      if (!_active || payment.stopped || !payment.presenting()) {
+        _releaseExecution(payment);
+        AppLog.topupPhase('link_inactive');
+        return WalletLinkResult.systemRejected;
+      }
+    }
+    AppLog.topupPhase('link_requested');
+    final result = await _links.open(url);
+    if (result != WalletLinkResult.opened) _releaseExecution(payment);
+    AppLog.topupPhase(
+      result == WalletLinkResult.opened
+          ? 'link_delivered'
+          : 'link_${result.name}',
+    );
+    return result;
+  }
+
   Map<String, Object> _transaction(TopupRecord record) =>
       erc20Transaction(record.payment, record.binding);
   void _finish(_Payment payment) {
     final record = payment.record;
-    final finished = record != null && (record.txid != null || record.terminal);
-    final firstResult = finished && !payment.stopped;
     // 待核实只结束界面等待，原请求的迟到回执仍可进入本单；不允许重新付款。
-    if (finished) payment.stopped = true;
-    if (firstResult &&
-        _active &&
-        // 旧单迟到结果照常验款，但不抢占较新订单在钱包中的确认界面。
-        identical(_payments.values.last, payment) &&
-        (record.txid != null ||
-            const [
-              'payment_cancelled',
-              'payment_failed',
-            ].contains(record.failureCode))) {
-      unawaited(
-        _storage.invokeMethod<bool>('return').catchError((Object _) => false),
-      );
+    if (record != null && (record.txid != null || record.terminal)) {
+      payment.stopped = true;
     }
+    _releaseExecution(payment);
     if (!payment.completion.isCompleted) payment.completion.complete(record);
   }
 
